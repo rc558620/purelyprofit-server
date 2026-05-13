@@ -1,0 +1,444 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum StaffRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+enum StaffStatus {
+  INVITED
+  ACTIVE
+  DISABLED
+}
+
+enum SubscriptionPlanCode {
+  STARTER
+  GROWTH
+  PRO
+  CUSTOM
+}
+
+enum StoreSubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum MemberGender {
+  UNKNOWN
+  MALE
+  FEMALE
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  BANNED
+}
+
+enum MemberPointsChangeType {
+  INCREASE
+  DECREASE
+}
+
+enum MemberPointsSource {
+  purchase_bonus
+  deduct_payment
+  admin_adjust
+  expire
+}
+
+enum MemberBeanSource {
+  promo_reward
+  deduct_payment
+  withdrawal
+  admin_adjust
+}
+
+enum MemberRechargeChannel {
+  wechat
+  alipay
+  card
+}
+
+enum EmployeeStatus {
+  active
+  resigned
+}
+
+enum EmployeeGender {
+  male
+  female
+  unset
+}
+
+enum EmployeeLeaveType {
+  personal
+  sick
+  annual
+  marriage
+  other
+}
+
+enum EmployeeShiftType {
+  morning
+  nine_to_six
+  middle
+  late
+  full
+  custom
+}
+
+enum EmployeePayrollStatus {
+  draft
+  confirmed
+}
+
+model User {
+  id              Int      @id @default(autoincrement())
+  email           String   @unique
+  password        String
+  name            String?
+  avatar          String?
+  realName        String?  @map("real_name")
+  idNumber        String?  @unique @map("id_number")
+  store           Store?
+  staffMembership Staff?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Store {
+  id                  Int                 @id @default(autoincrement())
+  name                String
+  contactName         String?             @map("contact_name")
+  contactPhone        String?             @map("contact_phone")
+  address             String?
+  ownerId             Int                 @unique @map("owner_id")
+  owner               User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  maxAccountSeats     Int                 @default(1) @map("max_account_seats")
+  subscription        StoreSubscription?
+  staffs              Staff[]
+  members             Member[]
+  memberPointsLogs    MemberPointsLog[]
+  memberBeanLogs      MemberBeanLog[]
+  memberRechargeLogs  MemberRechargeLog[]
+  employeeDepartments EmployeeDepartment[]
+  employeePositions   EmployeePosition[]
+  employees           Employee[]
+  employeeLeaves      EmployeeLeave[]
+  employeeShifts      EmployeeShift[]
+  employeePayrolls    EmployeePayroll[]
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  @@index([ownerId, updatedAt])
+  @@index([name])
+  @@index([contactName])
+  @@map("stores")
+}
+
+model StoreSubscription {
+  id              Int                     @id @default(autoincrement())
+  storeId         Int                     @unique @map("store_id")
+  store           Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  planCode        SubscriptionPlanCode    @map("plan_code")
+  planName        String                  @map("plan_name")
+  status          StoreSubscriptionStatus @default(ACTIVE)
+  maxAccountSeats Int                     @map("max_account_seats")
+  startsAt        DateTime                @default(now()) @map("starts_at")
+  expiresAt       DateTime?               @map("expires_at")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("store_subscriptions")
+}
+
+model Staff {
+  id               Int               @id @default(autoincrement())
+  storeId          Int               @map("store_id")
+  store            Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  userId           Int?              @unique @map("user_id")
+  user             User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email            String            @unique
+  name             String
+  phone            String?
+  role             StaffRole         @default(STAFF)
+  permissions      String[]          @default([])
+  status           StaffStatus       @default(INVITED)
+  isSeatActive     Boolean           @default(false) @map("is_seat_active")
+  isActive         Boolean           @default(true) @map("is_active")
+  memberPointsLogs   MemberPointsLog[]   @relation("MemberPointsLogsOperator")
+  memberBeanLogs     MemberBeanLog[]     @relation("MemberBeanLogsOperator")
+  memberRechargeLogs MemberRechargeLog[] @relation("MemberRechargeLogsOperator")
+  employeeProfile    Employee?           @relation("StaffEmployeeProfile")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  @@index([storeId])
+  @@index([storeId, updatedAt])
+  @@index([storeId, status, isSeatActive, isActive])
+  @@index([storeId, status, role, updatedAt])
+  @@index([userId, status, isActive])
+  @@index([email, status, isActive])
+  @@map("staffs")
+}
+
+model Member {
+  id                 Int              @id @default(autoincrement())
+  storeId            Int              @map("store_id")
+  store              Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name               String
+  phone              String?
+  gender             MemberGender     @default(UNKNOWN)
+  level              String           @default("free")
+  tags               String[]         @default([])
+  note               String?
+  birthday           DateTime?
+  lastConsumeAt      DateTime?        @map("last_consume_at")
+  totalConsumeAmount Decimal          @default(0) @db.Decimal(12, 2) @map("total_consume_amount")
+  totalConsumeCount  Int              @default(0) @map("total_consume_count")
+  points             Int              @default(0)
+  totalPointsEarned  Int              @default(0) @map("total_points_earned")
+  beanBalance        Int              @default(0) @map("bean_balance")
+  isPartner          Boolean          @default(false) @map("is_partner")
+  partnerLevel       String?          @map("partner_level")
+  totalRecharged     Int              @default(0) @map("total_recharged")
+  rechargeCount      Int              @default(0) @map("recharge_count")
+  invitedCount       Int              @default(0) @map("invited_count")
+  bannedReason       String?          @map("banned_reason")
+  status             MemberStatus     @default(ACTIVE)
+  memberPointsLogs   MemberPointsLog[]
+  memberBeanLogs     MemberBeanLog[]
+  memberRechargeLogs MemberRechargeLog[]
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  @@unique([storeId, phone])
+  @@index([storeId, updatedAt])
+  @@index([storeId, status, updatedAt])
+  @@index([storeId, level, updatedAt])
+  @@index([storeId, isPartner, updatedAt])
+  @@index([phone])
+  @@map("members")
+}
+
+model MemberPointsLog {
+  id              Int                    @id @default(autoincrement())
+  memberId        Int                    @map("member_id")
+  member          Member                 @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  storeId         Int                    @map("store_id")
+  store           Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  operatorStaffId Int?                   @map("operator_staff_id")
+  operatorStaff   Staff?                 @relation("MemberPointsLogsOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
+  changeType      MemberPointsChangeType @map("change_type")
+  source          MemberPointsSource     @default(admin_adjust)
+  changeAmount    Int                    @map("change_amount")
+  beforePoints    Int                    @map("before_points")
+  afterPoints     Int                    @map("after_points")
+  reason          String
+  remark          String?
+  expiresAt       DateTime?              @map("expires_at")
+  createdAt       DateTime               @default(now()) @map("created_at")
+
+  @@index([memberId, createdAt])
+  @@index([storeId, createdAt])
+  @@index([operatorStaffId, createdAt])
+  @@index([source, createdAt])
+  @@map("member_points_logs")
+}
+
+model MemberBeanLog {
+  id              Int              @id @default(autoincrement())
+  memberId        Int              @map("member_id")
+  member          Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  storeId         Int              @map("store_id")
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  operatorStaffId Int?             @map("operator_staff_id")
+  operatorStaff   Staff?           @relation("MemberBeanLogsOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
+  source          MemberBeanSource
+  changeAmount    Int              @map("change_amount")
+  beforeBalance   Int              @map("before_balance")
+  afterBalance    Int              @map("after_balance")
+  reason          String
+  relatedPromoId  String?          @map("related_promo_id")
+  relatedUser     String?          @map("related_user")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  @@index([memberId, createdAt])
+  @@index([storeId, createdAt])
+  @@index([operatorStaffId, createdAt])
+  @@index([source, createdAt])
+  @@map("member_bean_logs")
+}
+
+model MemberRechargeLog {
+  id              Int                   @id @default(autoincrement())
+  memberId        Int                   @map("member_id")
+  member          Member                @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  storeId         Int                   @map("store_id")
+  store           Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  operatorStaffId Int?                  @map("operator_staff_id")
+  operatorStaff   Staff?                @relation("MemberRechargeLogsOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
+  planName        String                @map("plan_name")
+  amount          Int
+  pointsAwarded   Int                   @default(0) @map("points_awarded")
+  channel         MemberRechargeChannel
+  createdAt       DateTime              @default(now()) @map("created_at")
+
+  @@index([memberId, createdAt])
+  @@index([storeId, createdAt])
+  @@index([operatorStaffId, createdAt])
+  @@map("member_recharge_logs")
+}
+
+model EmployeeDepartment {
+  id        Int        @id @default(autoincrement())
+  storeId   Int        @map("store_id")
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  employees Employee[]
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  @@unique([storeId, name])
+  @@index([storeId, updatedAt])
+  @@map("employee_departments")
+}
+
+model EmployeePosition {
+  id        Int        @id @default(autoincrement())
+  storeId   Int        @map("store_id")
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  employees Employee[]
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  @@unique([storeId, name])
+  @@index([storeId, updatedAt])
+  @@map("employee_positions")
+}
+
+model Employee {
+  id               Int                @id @default(autoincrement())
+  storeId          Int                @map("store_id")
+  store            Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  linkedStaffId    Int?               @unique @map("linked_staff_id")
+  linkedStaff      Staff?             @relation("StaffEmployeeProfile", fields: [linkedStaffId], references: [id], onDelete: SetNull)
+  departmentId     Int?               @map("department_id")
+  departmentRecord EmployeeDepartment? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  positionId       Int?               @map("position_id")
+  positionRecord   EmployeePosition?  @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  empNo            String             @map("emp_no")
+  name             String
+  phone            String
+  position         String
+  department       String
+  joinDate         DateTime           @map("join_date")
+  baseSalary       Decimal            @db.Decimal(12, 2) @map("base_salary")
+  avatar           String?
+  idCard           String?            @map("id_card")
+  gender           EmployeeGender     @default(unset)
+  emergencyContact String?            @map("emergency_contact")
+  emergencyPhone   String?            @map("emergency_phone")
+  contractEndDate  DateTime?          @map("contract_end_date")
+  note             String?
+  status           EmployeeStatus     @default(active)
+  resignDate       DateTime?          @map("resign_date")
+  resignReason     String?            @map("resign_reason")
+  leaveRecords     EmployeeLeave[]
+  shiftRecords     EmployeeShift[]
+  payrollRecords   EmployeePayroll[]
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  @@unique([storeId, empNo])
+  @@index([storeId, status, updatedAt])
+  @@index([storeId, department, updatedAt])
+  @@index([storeId, position, updatedAt])
+  @@index([storeId, joinDate])
+  @@map("employees")
+}
+
+model EmployeeLeave {
+  id           Int              @id @default(autoincrement())
+  storeId      Int              @map("store_id")
+  store        Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  employeeId   Int              @map("employee_id")
+  employee     Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeName String           @map("employee_name")
+  type         EmployeeLeaveType
+  startDate    DateTime         @map("start_date")
+  endDate      DateTime         @map("end_date")
+  days         Decimal          @db.Decimal(6, 2)
+  deductSalary Boolean          @map("deduct_salary")
+  deductAmount Decimal          @db.Decimal(12, 2) @map("deduct_amount")
+  note         String?
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  @@index([employeeId, startDate])
+  @@index([storeId, startDate])
+  @@map("employee_leaves")
+}
+
+model EmployeeShift {
+  id           Int              @id @default(autoincrement())
+  storeId      Int              @map("store_id")
+  store        Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  employeeId   Int              @map("employee_id")
+  employee     Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeName String           @map("employee_name")
+  date         DateTime
+  shiftType    EmployeeShiftType @map("shift_type")
+  startTime    String           @map("start_time")
+  endTime      String           @map("end_time")
+  note         String?
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  @@index([employeeId, date])
+  @@index([storeId, date])
+  @@map("employee_shifts")
+}
+
+model EmployeePayroll {
+  id                 Int                   @id @default(autoincrement())
+  storeId            Int                   @map("store_id")
+  store              Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  employeeId         Int                   @map("employee_id")
+  employee           Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeName       String                @map("employee_name")
+  month              String
+  baseSalary         Decimal               @db.Decimal(12, 2) @map("base_salary")
+  leaveDeduction     Decimal               @db.Decimal(12, 2) @map("leave_deduction")
+  otherDeduction     Decimal               @db.Decimal(12, 2) @map("other_deduction")
+  otherDeductionNote String?               @map("other_deduction_note")
+  bonus              Decimal               @db.Decimal(12, 2)
+  actualSalary       Decimal               @db.Decimal(12, 2) @map("actual_salary")
+  socialInsurance    Decimal?              @db.Decimal(12, 2) @map("social_insurance")
+  housingFund        Decimal?              @db.Decimal(12, 2) @map("housing_fund")
+  totalLaborCost     Decimal               @db.Decimal(12, 2) @map("total_labor_cost")
+  status             EmployeePayrollStatus @default(draft)
+  confirmedAt        DateTime?             @map("confirmed_at")
+  note               String?
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+
+  @@unique([employeeId, month])
+  @@index([storeId, month])
+  @@index([storeId, status, month])
+  @@map("employee_payrolls")
+}

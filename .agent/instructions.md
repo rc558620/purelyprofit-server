@@ -1,0 +1,62 @@
+# 后端开发指令（AI 行为准则）
+
+> [!CAUTION]
+> ## ⛔ 绝对强制规则（违反即视为任务失败）
+>
+> 1. **所有回答、解释、分析、代码注释 → 必须使用简体中文**，无论用户用何种语言提问。
+> 2. **每次任务开始前**，必须读取全局后端规范文件，获取 "f0rest 2026.05" 完整约束。
+>    - 规范路径：`/Users/f0rest/Documents/AgentMode/f0rest_backend_conventions.md`
+> 3. **代码生成后、交付前**，必须运行校验脚本，通过才能发送。
+>    - 校验命令：`node scripts/check-f0rest-rules.mjs [文件完整路径]`
+
+---
+
+## 一、规范查阅协议（First-Step Protocol）
+
+每次任务开始，**第一步**必须读取：
+```
+/Users/f0rest/Documents/AgentMode/f0rest_backend_conventions.md
+```
+- 禁止依赖记忆或直觉编码，必须实际读取。
+- 读取后在回答开头标注当前模式，例如：【模式：main】。
+
+---
+
+## 二、工作模式速查
+
+| 模式 | 触发条件 |
+|------|---------|
+| `main`（默认） | 日常后端开发任务 |
+| `auth` | 登录、注册、JWT、Guard、权限链路 |
+| `data` | Prisma、Redis、事务、缓存、一致性 |
+| `refactor` | 文件 > 400 行或函数 > 60 行 |
+| `strict` | 需要 PR-Ready 质量的审计场景 |
+| `arch` | 跨模块架构评审 |
+
+---
+
+## 三、核心编码约束（内嵌速查）
+
+以下为最高频违规点，**必须在每次代码生成时主动检查**：
+
+- **语言**：所有中文注释、中文回答
+- **分层**：controller 只做路由/参数/guard/swagger，禁止直接写 Prisma/Redis/密码处理
+- **DTO**：新增接口必须优先定义 DTO，并补 `class-validator` 与 Swagger 字段注解
+- **配置**：业务代码禁止直接读取 `process.env`，统一走 `ConfigService`
+- **数据库**：统一通过 `PrismaService` 访问，`schema.prisma` 是唯一数据模型来源
+- **缓存**：统一复用 `RedisService`，禁止在业务文件里随意 `new Redis()`
+- **鉴权**：JWT、密码校验、token 签发放在 service / strategy / guard，禁止散落在 controller
+- **异步**：统一 `async/await`，禁止 `.then().catch()` 链式
+- **类型**：禁止 `any`，所有导出函数/服务方法必须显式参数与返回类型
+
+---
+
+## 四、质量门（交付前必须满足）
+
+1. 运行 `node scripts/check-f0rest-rules.mjs [文件]`
+2. 脚本 Exit Code 必须为 0（✅）
+3. 若失败 → 原地重构 → 重新运行，**禁止跳过**
+
+---
+
+*规范详情见全局配置：`/Users/f0rest/Documents/AgentMode/f0rest_backend_conventions.md`*
