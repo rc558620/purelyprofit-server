@@ -9,30 +9,80 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  AdjustMemberBeansDto,
   AdjustMemberBeansResponseDto,
-  AdjustMemberPointsDto,
   AdjustMemberPointsResponseDto,
-  ListMemberBeansLogsQueryDto,
-  ListMemberPointsLogsQueryDto,
   MemberBeansOverviewResponseDto,
-  MemberLogsOverviewQueryDto,
+  MemberBeansLogResponseDto,
   MemberPointsOverviewResponseDto,
   PaginatedMemberBeansLogsResponseDto,
   PaginatedMemberPointsLogsResponseDto,
+  type MemberPointsRecordSourceValue,
+  type MemberPointsRecordTypeValue,
 } from './dto/adjust-member-points.dto';
 import { MembersAccessService } from './members-access.service';
 import { type MemberRecord, toMemberResponse } from './members.mapper';
 import {
-  type MemberBeanLogRecord,
   type MemberPointsLogRecord,
-  toMemberBeansLogResponse,
   toMemberPointsLogResponse,
 } from './members-points.mapper';
 import { buildPaginationMeta, resolvePagination } from './members.utils';
 
 interface CountRow {
   count: number;
+}
+
+interface MemberLogsOverviewQuery {
+  storeId?: number;
+}
+
+interface MemberPointsLogsQuery {
+  storeId?: number;
+  page?: number;
+  pageSize?: number;
+  type?: MemberPointsRecordTypeValue;
+  source?: MemberPointsRecordSourceValue;
+  keyword?: string;
+}
+
+type MemberBeanRecordTypeFilter = 'earn' | 'spend' | 'withdraw';
+type MemberBeanRecordSourceFilter =
+  | 'promo_reward'
+  | 'deduct_payment'
+  | 'withdrawal'
+  | 'admin_adjust';
+
+interface MemberBeansLogsQuery {
+  storeId?: number;
+  page?: number;
+  pageSize?: number;
+  type?: MemberBeanRecordTypeFilter;
+  source?: MemberBeanRecordSourceFilter;
+  keyword?: string;
+}
+
+interface AdjustMemberPointsInput {
+  userId?: string;
+  delta: number;
+  reason: string;
+}
+
+interface AdjustMemberBeansInput {
+  userId?: string;
+  delta: number;
+  reason: string;
+}
+
+interface BeanLogRecord {
+  id: number;
+  memberId: number;
+  memberName: string;
+  memberPhone: string | null;
+  amount: number;
+  source: MemberBeanRecordSourceFilter;
+  description: string;
+  relatedPromoId?: string | null;
+  relatedUser?: string | null;
+  createdAt: Date;
 }
 
 const MEMBER_RETURNING_SQL = Prisma.sql`
@@ -70,7 +120,7 @@ export class MembersPointsService {
 
   async getPointsOverview(
     user: AuthenticatedUser,
-    query: MemberLogsOverviewQueryDto,
+    query: MemberLogsOverviewQuery,
   ): Promise<MemberPointsOverviewResponseDto> {
     const storeId = await this.resolveViewStoreId(
       user,
@@ -116,7 +166,7 @@ export class MembersPointsService {
 
   async listPointsLogs(
     user: AuthenticatedUser,
-    query: ListMemberPointsLogsQueryDto,
+    query: MemberPointsLogsQuery,
   ): Promise<PaginatedMemberPointsLogsResponseDto> {
     const storeId = await this.resolveViewStoreId(
       user,
@@ -137,7 +187,7 @@ export class MembersPointsService {
   async listPointsLogsForMember(
     user: AuthenticatedUser,
     memberId: number,
-    query: ListMemberPointsLogsQueryDto,
+    query: MemberPointsLogsQuery,
   ): Promise<PaginatedMemberPointsLogsResponseDto> {
     const member = await this.membersAccessService.findManageableMemberOrThrow(
       user,
@@ -158,7 +208,7 @@ export class MembersPointsService {
 
   async adjustPoints(
     user: AuthenticatedUser,
-    dto: AdjustMemberPointsDto,
+    dto: AdjustMemberPointsInput,
     memberId?: number,
   ): Promise<AdjustMemberPointsResponseDto> {
     const resolvedMemberId = memberId ?? this.parseMemberId(dto.userId);
@@ -182,7 +232,7 @@ export class MembersPointsService {
 
     const [member, log] = await this.prisma.$transaction(
       async (transaction) => {
-        const memberRows = (await transaction.$queryRaw<MemberRecord[]>`
+        const memberRows = await transaction.$queryRaw<MemberRecord[]>`
         UPDATE members
         SET
           points = ${afterPoints},
@@ -190,8 +240,8 @@ export class MembersPointsService {
           updated_at = NOW()
         WHERE id = ${existingMember.id}
         ${MEMBER_RETURNING_SQL}
-      `) as MemberRecord[];
-        const logRows = (await transaction.$queryRaw<MemberPointsLogRecord[]>`
+      `;
+        const logRows = await transaction.$queryRaw<MemberPointsLogRecord[]>`
         INSERT INTO member_points_logs (
           member_id,
           store_id,
@@ -224,7 +274,7 @@ export class MembersPointsService {
           reason AS description,
           created_at AS "createdAt",
           expires_at AS "expireAt"
-      `) as MemberPointsLogRecord[];
+      `;
 
         return [
           this.requireMemberRow(memberRows[0]),
@@ -241,7 +291,7 @@ export class MembersPointsService {
 
   async getBeansOverview(
     user: AuthenticatedUser,
-    query: MemberLogsOverviewQueryDto,
+    query: MemberLogsOverviewQuery,
   ): Promise<MemberBeansOverviewResponseDto> {
     const storeId = await this.resolveViewStoreId(
       user,
@@ -293,7 +343,7 @@ export class MembersPointsService {
 
   async listBeanLogs(
     user: AuthenticatedUser,
-    query: ListMemberBeansLogsQueryDto,
+    query: MemberBeansLogsQuery,
   ): Promise<PaginatedMemberBeansLogsResponseDto> {
     const storeId = await this.resolveViewStoreId(
       user,
@@ -314,7 +364,7 @@ export class MembersPointsService {
   async listBeanLogsForMember(
     user: AuthenticatedUser,
     memberId: number,
-    query: ListMemberBeansLogsQueryDto,
+    query: MemberBeansLogsQuery,
   ): Promise<PaginatedMemberBeansLogsResponseDto> {
     const member = await this.membersAccessService.findManageableMemberOrThrow(
       user,
@@ -335,7 +385,7 @@ export class MembersPointsService {
 
   async adjustBeans(
     user: AuthenticatedUser,
-    dto: AdjustMemberBeansDto,
+    dto: AdjustMemberBeansInput,
     memberId?: number,
   ): Promise<AdjustMemberBeansResponseDto> {
     const resolvedMemberId = memberId ?? this.parseMemberId(dto.userId);
@@ -357,17 +407,19 @@ export class MembersPointsService {
       throw new BadRequestException('会员当前纯利豆不足，无法扣减');
     }
 
-    const [member, log] = await this.prisma.$transaction(
-      async (transaction) => {
-        const memberRows = (await transaction.$queryRaw<MemberRecord[]>`
+    const result: {
+      member: MemberRecord;
+      log: BeanLogRecord;
+    } = await this.prisma.$transaction(async (transaction) => {
+      const memberRows = await transaction.$queryRaw<MemberRecord[]>`
         UPDATE members
         SET
           bean_balance = ${afterBalance},
           updated_at = NOW()
         WHERE id = ${existingMember.id}
         ${MEMBER_RETURNING_SQL}
-      `) as MemberRecord[];
-        const logRows = (await transaction.$queryRaw<MemberBeanLogRecord[]>`
+      `;
+      const logRows = await transaction.$queryRaw<BeanLogRecord[]>`
         INSERT INTO member_bean_logs (
           member_id,
           store_id,
@@ -399,19 +451,41 @@ export class MembersPointsService {
           related_promo_id AS "relatedPromoId",
           related_user AS "relatedUser",
           created_at AS "createdAt"
-      `) as MemberBeanLogRecord[];
+      `;
 
-        return [
-          this.requireMemberRow(memberRows[0]),
-          this.requireBeanLogRow(logRows[0]),
-        ] as const;
-      },
-    );
+      return {
+        member: this.requireMemberRow(memberRows[0]),
+        log: this.requireBeanLogRow(logRows[0]),
+      };
+    });
+
+    const recordType =
+      result.log.source === 'withdrawal'
+        ? 'withdraw'
+        : result.log.amount > 0
+          ? 'earn'
+          : 'spend';
 
     return {
-      user: toMemberResponse(member),
-      record: toMemberBeansLogResponse(log),
-    };
+      user: toMemberResponse(result.member),
+      record: {
+        id: `bean-${result.log.id}`,
+        userId: String(result.log.memberId),
+        userName: result.log.memberName,
+        userPhone: result.log.memberPhone ?? '',
+        amount: result.log.amount,
+        type: recordType,
+        source: result.log.source,
+        description: result.log.description,
+        createdAt: result.log.createdAt.getTime(),
+        ...(result.log.relatedPromoId
+          ? { relatedPromoId: result.log.relatedPromoId }
+          : {}),
+        ...(result.log.relatedUser
+          ? { relatedUser: result.log.relatedUser }
+          : {}),
+      },
+    } satisfies AdjustMemberBeansResponseDto;
   }
 
   private async queryPointsLogs(params: {
@@ -419,8 +493,8 @@ export class MembersPointsService {
     memberId?: number;
     page?: number;
     pageSize?: number;
-    type?: ListMemberPointsLogsQueryDto['type'];
-    source?: ListMemberPointsLogsQueryDto['source'];
+    type?: MemberPointsRecordTypeValue;
+    source?: MemberPointsRecordSourceValue;
     keyword?: string;
   }): Promise<PaginatedMemberPointsLogsResponseDto> {
     const { storeId, memberId, page, pageSize, type, source, keyword } = params;
@@ -470,7 +544,7 @@ export class MembersPointsService {
     }
 
     const whereClause = Prisma.join(filters, ' AND ');
-    const [items, countRows] = (await Promise.all([
+    const [items, countRows] = await Promise.all([
       this.prisma.$queryRaw<MemberPointsLogRecord[]>`
         SELECT
           l.id,
@@ -499,7 +573,7 @@ export class MembersPointsService {
         JOIN members m ON m.id = l.member_id
         WHERE ${whereClause}
       `,
-    ])) as [MemberPointsLogRecord[], CountRow[]];
+    ]);
 
     return {
       items: items.map((item) => toMemberPointsLogResponse(item)),
@@ -512,8 +586,8 @@ export class MembersPointsService {
     memberId?: number;
     page?: number;
     pageSize?: number;
-    type?: ListMemberBeansLogsQueryDto['type'];
-    source?: ListMemberBeansLogsQueryDto['source'];
+    type?: MemberBeanRecordTypeFilter;
+    source?: MemberBeanRecordSourceFilter;
     keyword?: string;
   }): Promise<PaginatedMemberBeansLogsResponseDto> {
     const { storeId, memberId, page, pageSize, type, source, keyword } = params;
@@ -562,8 +636,8 @@ export class MembersPointsService {
     }
 
     const whereClause = Prisma.join(filters, ' AND ');
-    const [items, countRows] = (await Promise.all([
-      this.prisma.$queryRaw<MemberBeanLogRecord[]>`
+    const queryResult: [BeanLogRecord[], CountRow[]] = await Promise.all([
+      this.prisma.$queryRaw<BeanLogRecord[]>`
         SELECT
           l.id,
           l.member_id AS "memberId",
@@ -588,10 +662,34 @@ export class MembersPointsService {
         JOIN members m ON m.id = l.member_id
         WHERE ${whereClause}
       `,
-    ])) as [MemberBeanLogRecord[], CountRow[]];
+    ]);
+    const items = queryResult[0];
+    const countRows = queryResult[1];
+    const responseItems: MemberBeansLogResponseDto[] = items.map((item) => {
+      const recordType =
+        item.source === 'withdrawal'
+          ? 'withdraw'
+          : item.amount > 0
+            ? 'earn'
+            : 'spend';
+
+      return {
+        id: `bean-${item.id}`,
+        userId: String(item.memberId),
+        userName: item.memberName,
+        userPhone: item.memberPhone ?? '',
+        amount: item.amount,
+        type: recordType,
+        source: item.source,
+        description: item.description,
+        createdAt: item.createdAt.getTime(),
+        ...(item.relatedPromoId ? { relatedPromoId: item.relatedPromoId } : {}),
+        ...(item.relatedUser ? { relatedUser: item.relatedUser } : {}),
+      };
+    });
 
     return {
-      items: items.map((item) => toMemberBeansLogResponse(item)),
+      items: responseItems,
       meta: buildPaginationMeta(countRows[0]?.count ?? 0, currentPage, take),
     };
   }
@@ -601,13 +699,11 @@ export class MembersPointsService {
     storeId: number | undefined,
     forbiddenMessage: string,
   ): Promise<number | null> {
-    const resolver = this.membersAccessService.resolveMembersViewStoreId as (
-      user: AuthenticatedUser,
-      storeId: number | undefined,
-      forbiddenMessage: string,
-    ) => Promise<number | null>;
-
-    return resolver(user, storeId, forbiddenMessage);
+    return this.membersAccessService.resolveMembersViewStoreId(
+      user,
+      storeId,
+      forbiddenMessage,
+    );
   }
 
   private parseMemberId(userId?: string): number {
@@ -653,7 +749,7 @@ export class MembersPointsService {
     return log;
   }
 
-  private requireBeanLogRow(log?: MemberBeanLogRecord): MemberBeanLogRecord {
+  private requireBeanLogRow(log?: BeanLogRecord): BeanLogRecord {
     if (!log) {
       throw new ConflictException('纯利豆记录写入失败，请稍后重试');
     }

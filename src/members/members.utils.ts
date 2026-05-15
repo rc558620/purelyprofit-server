@@ -1,5 +1,22 @@
 import { PaginationMetaDto } from '../stores/dto/store-response.dto';
-import { type MemberStatusValue } from './dto/member-response.dto';
+
+export const MEMBER_STATUS_VALUES = ['active', 'inactive', 'banned'] as const;
+export const MEMBER_LEVEL_VALUES = [
+  'free',
+  'monthly',
+  'quarterly',
+  'annual',
+] as const;
+export const MEMBER_RECHARGE_CHANNEL_VALUES = [
+  'wechat',
+  'alipay',
+  'card',
+] as const;
+
+export type MemberStatusValue = (typeof MEMBER_STATUS_VALUES)[number];
+export type MemberLevelValue = (typeof MEMBER_LEVEL_VALUES)[number];
+export type MemberRechargeChannelValue =
+  (typeof MEMBER_RECHARGE_CHANNEL_VALUES)[number];
 
 export type MemberStatusDb = 'ACTIVE' | 'INACTIVE' | 'BANNED';
 

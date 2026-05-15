@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   EmployeeGender,
@@ -8,6 +12,7 @@ import {
 } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import { CostsService } from '../costs/costs.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmployeesAccessService } from './employees-access.service';
 import { EmployeesService } from './employees.service';
@@ -44,14 +49,17 @@ describe('EmployeesService', () => {
     },
     employeeLeave: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
       findUnique: jest.fn(),
+      update: jest.fn(),
       delete: jest.fn(),
     },
     employeeShift: {
       findMany: jest.fn(),
       create: jest.fn(),
       findUnique: jest.fn(),
+      update: jest.fn(),
       delete: jest.fn(),
     },
     employeePayroll: {
@@ -74,6 +82,10 @@ describe('EmployeesService', () => {
 
   const configService = {
     get: jest.fn(),
+  };
+
+  const costsService = {
+    syncPayrollCosts: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -108,6 +120,7 @@ describe('EmployeesService', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: EmployeesAccessService, useValue: employeesAccessService },
         { provide: ConfigService, useValue: configService },
+        { provide: CostsService, useValue: costsService },
       ],
     }).compile();
 
@@ -209,14 +222,31 @@ describe('EmployeesService', () => {
     });
   });
 
+  it('list 在未指定状态时会保持在职员工优先', async () => {
+    employeesAccessService.resolveViewStoreId.mockResolvedValue(2);
+    prismaService.employee.findMany.mockResolvedValue([]);
+    prismaService.employee.count.mockResolvedValue(0);
+
+    await service.list(user, {
+      storeId: 2,
+      page: 1,
+      pageSize: 10,
+    });
+
+    expect(prismaService.employee.findMany).toHaveBeenCalledWith({
+      where: { storeId: 2 },
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      skip: 0,
+      take: 10,
+    });
+  });
+
   it('create 会补齐部门职位、生成员工编号并规范化字段', async () => {
     const joinDate = new Date('2026-05-01T00:00:00.000Z').getTime();
     const createdAt = new Date('2026-05-13T10:00:00.000Z');
     const updatedAt = new Date('2026-05-13T10:30:00.000Z');
 
-    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
-      undefined,
-    );
+    employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
     prismaService.employeeDepartment.findFirst.mockResolvedValue(null);
     prismaService.employeeDepartment.create.mockResolvedValue({
       id: 8,
@@ -248,10 +278,10 @@ describe('EmployeesService', () => {
       joinDate: new Date(joinDate),
       baseSalary: new Prisma.Decimal('4800'),
       avatar: null,
-      idCard: null,
+      idCard: '110101199001011234',
       gender: EmployeeGender.unset,
-      emergencyContact: null,
-      emergencyPhone: null,
+      emergencyContact: '李四',
+      emergencyPhone: '13800138001',
       contractEndDate: null,
       note: null,
       status: EmployeeStatus.active,
@@ -269,12 +299,17 @@ describe('EmployeesService', () => {
       department: ' 前厅 ',
       joinDate,
       baseSalary: 4800,
+      idCard: '110101199001011234',
+      emergencyContact: ' 李四 ',
+      emergencyPhone: ' 13800138001 ',
       note: '   ',
     });
 
-    expect(
-      employeesAccessService.ensureCanManageEmployees,
-    ).toHaveBeenCalledWith(user, 2, 'staff:create');
+    expect(employeesAccessService.resolveSingleStoreId).toHaveBeenCalledWith(
+      user,
+      2,
+      'staff:create',
+    );
     expect(prismaService.employeeDepartment.create).toHaveBeenCalledWith({
       data: { storeId: 2, name: '前厅' },
     });
@@ -282,21 +317,30 @@ describe('EmployeesService', () => {
       data: { storeId: 2, name: '店长' },
     });
 
-    const employeeCreateArgs = prismaService.employee.create.mock.calls[0][0];
-    expect(employeeCreateArgs.data.storeId).toBe(2);
-    expect(employeeCreateArgs.data.departmentId).toBe(8);
-    expect(employeeCreateArgs.data.positionId).toBe(9);
-    expect(employeeCreateArgs.data.empNo).toBe('EMP010');
-    expect(employeeCreateArgs.data.name).toBe('张三');
-    expect(employeeCreateArgs.data.phone).toBe('13800138000');
-    expect(employeeCreateArgs.data.position).toBe('店长');
-    expect(employeeCreateArgs.data.department).toBe('前厅');
-    expect(employeeCreateArgs.data.joinDate).toEqual(new Date(joinDate));
-    expect(employeeCreateArgs.data.baseSalary).toBeInstanceOf(Prisma.Decimal);
-    expect(employeeCreateArgs.data.baseSalary.toString()).toBe('4800');
-    expect(employeeCreateArgs.data.gender).toBe(EmployeeGender.unset);
-    expect(employeeCreateArgs.data.note).toBeNull();
-    expect(employeeCreateArgs.data.status).toBe(EmployeeStatus.active);
+    expect(prismaService.employee.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        storeId: 2,
+        departmentId: 8,
+        positionId: 9,
+        empNo: 'EMP010',
+        name: '张三',
+        phone: '13800138000',
+        position: '店长',
+        department: '前厅',
+        joinDate: new Date(joinDate),
+        baseSalary: expect.any(Prisma.Decimal),
+        idCard: '110101199001011234',
+        gender: EmployeeGender.unset,
+        emergencyContact: '李四',
+        emergencyPhone: '13800138001',
+        note: null,
+        status: EmployeeStatus.active,
+      }),
+    });
+    const createdEmployeeSalary =
+      prismaService.employee.create.mock.calls.at(0)?.[0]?.data.baseSalary;
+    expect(createdEmployeeSalary).toBeInstanceOf(Prisma.Decimal);
+    expect((createdEmployeeSalary as Prisma.Decimal).toString()).toBe('4800');
 
     expect(result).toMatchObject({
       id: '10',
@@ -306,6 +350,9 @@ describe('EmployeesService', () => {
       position: '店长',
       department: '前厅',
       baseSalary: 4800,
+      idCard: '110101199001011234',
+      emergencyContact: '李四',
+      emergencyPhone: '13800138001',
       status: EmployeeStatus.active,
     });
   });
@@ -324,6 +371,7 @@ describe('EmployeesService', () => {
     employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
       undefined,
     );
+    prismaService.employeeDepartment.findFirst.mockResolvedValue(null);
     prismaService.employeeDepartment.update.mockResolvedValue({
       id: 3,
       storeId: 2,
@@ -372,6 +420,465 @@ describe('EmployeesService', () => {
     expect(prismaService.employeeDepartment.delete).not.toHaveBeenCalled();
   });
 
+  it('listDepartments 会自动补齐默认综合部', async () => {
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T10:20:00.000Z');
+
+    employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
+    prismaService.employeeDepartment.findFirst.mockResolvedValue(null);
+    prismaService.employeeDepartment.create.mockResolvedValue({
+      id: 1,
+      storeId: 2,
+      name: '综合部',
+      createdAt,
+      updatedAt,
+    });
+    prismaService.employeeDepartment.findMany.mockResolvedValue([
+      {
+        id: 1,
+        storeId: 2,
+        name: '综合部',
+        createdAt,
+        updatedAt,
+      },
+    ]);
+
+    const result = await service.listDepartments(user, {});
+
+    expect(employeesAccessService.resolveSingleStoreId).toHaveBeenCalledWith(
+      user,
+      undefined,
+      'staff:view',
+    );
+    expect(prismaService.employeeDepartment.create).toHaveBeenCalledWith({
+      data: { storeId: 2, name: '综合部' },
+    });
+    expect(result).toEqual([
+      {
+        id: '1',
+        name: '综合部',
+        createdAt: createdAt.getTime(),
+        updatedAt: updatedAt.getTime(),
+      },
+    ]);
+  });
+
+  it('createDepartment 在 storeId 缺失时会自动推断当前门店', async () => {
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T10:20:00.000Z');
+
+    employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
+    prismaService.employeeDepartment.findFirst.mockResolvedValue(null);
+    prismaService.employeeDepartment.create.mockResolvedValue({
+      id: 4,
+      storeId: 2,
+      name: '前厅',
+      createdAt,
+      updatedAt,
+    });
+
+    const result = await service.createDepartment(user, {
+      name: ' 前厅 ',
+    });
+
+    expect(employeesAccessService.resolveSingleStoreId).toHaveBeenCalledWith(
+      user,
+      undefined,
+      'staff:create',
+    );
+    expect(prismaService.employeeDepartment.create).toHaveBeenCalledWith({
+      data: { storeId: 2, name: '前厅' },
+    });
+    expect(result).toEqual({
+      id: '4',
+      name: '前厅',
+      createdAt: createdAt.getTime(),
+      updatedAt: updatedAt.getTime(),
+    });
+  });
+
+  it('createDepartment 在同名部门已存在时会抛出冲突异常', async () => {
+    employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
+    prismaService.employeeDepartment.findFirst.mockResolvedValue({
+      id: 4,
+      storeId: 2,
+      name: '前厅',
+    });
+
+    await expect(
+      service.createDepartment(user, {
+        name: ' 前厅 ',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prismaService.employeeDepartment.create).not.toHaveBeenCalled();
+  });
+
+  it('updateLeave 会按传入字段更新请假记录', async () => {
+    const createdAt = new Date('2026-05-13T08:00:00.000Z');
+
+    prismaService.employeeLeave.findUnique.mockResolvedValue({
+      id: 31,
+      storeId: 2,
+      employeeId: 5,
+      startDate: new Date('2026-05-05T00:00:00.000Z'),
+      endDate: new Date('2026-05-05T00:00:00.000Z'),
+      days: new Prisma.Decimal('1'),
+      deductSalary: true,
+      deductAmount: new Prisma.Decimal('50'),
+    });
+    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
+      undefined,
+    );
+    prismaService.employeeLeave.findFirst.mockResolvedValue(null);
+    prismaService.employeeLeave.update.mockResolvedValue({
+      id: 31,
+      storeId: 2,
+      employeeId: 5,
+      employeeName: '王五',
+      type: 'sick',
+      startDate: new Date('2026-05-06T00:00:00.000Z'),
+      endDate: new Date('2026-05-07T00:00:00.000Z'),
+      days: new Prisma.Decimal('2'),
+      deductSalary: false,
+      deductAmount: new Prisma.Decimal('0'),
+      note: null,
+      createdAt,
+    });
+
+    const result = await service.updateLeave(user, 31, {
+      type: 'sick',
+      startDate: new Date('2026-05-06T00:00:00.000Z').getTime(),
+      endDate: new Date('2026-05-07T00:00:00.000Z').getTime(),
+      days: 2,
+      deductSalary: false,
+      deductAmount: 0,
+      note: '   ',
+    });
+
+    expect(
+      employeesAccessService.ensureCanManageEmployees,
+    ).toHaveBeenCalledWith(user, 2, 'staff:update');
+    expect(prismaService.employeeLeave.update).toHaveBeenCalledWith({
+      where: { id: 31 },
+      data: {
+        type: 'sick',
+        startDate: new Date('2026-05-06T00:00:00.000Z'),
+        endDate: new Date('2026-05-07T00:00:00.000Z'),
+        days: expect.any(Prisma.Decimal),
+        deductSalary: false,
+        deductAmount: expect.any(Prisma.Decimal),
+        note: null,
+      },
+    });
+    const leaveUpdateArgs = prismaService.employeeLeave.update.mock.calls.at(
+      0,
+    )?.[0] as {
+      data: { days: Prisma.Decimal; deductAmount: Prisma.Decimal };
+    };
+    expect(leaveUpdateArgs.data.days.toString()).toBe('2');
+    expect(leaveUpdateArgs.data.deductAmount.toString()).toBe('0');
+    expect(result).toEqual({
+      id: '31',
+      employeeId: '5',
+      employeeName: '王五',
+      type: 'sick',
+      startDate: new Date('2026-05-06T00:00:00.000Z').getTime(),
+      endDate: new Date('2026-05-07T00:00:00.000Z').getTime(),
+      days: 2,
+      deductSalary: false,
+      deductAmount: 0,
+      createdAt: createdAt.getTime(),
+    });
+  });
+
+  it('updateShift 会按传入字段更新排班记录', async () => {
+    const createdAt = new Date('2026-05-13T08:00:00.000Z');
+
+    prismaService.employeeShift.findUnique.mockResolvedValue({
+      id: 41,
+      storeId: 2,
+      employeeId: 5,
+      date: new Date('2026-05-08T00:00:00.000Z'),
+      startTime: '09:00',
+      endTime: '18:00',
+    });
+    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
+      undefined,
+    );
+    prismaService.employeeShift.findMany.mockResolvedValue([]);
+    prismaService.employeeShift.update.mockResolvedValue({
+      id: 41,
+      storeId: 2,
+      employeeId: 5,
+      employeeName: '王五',
+      date: new Date('2026-05-08T00:00:00.000Z'),
+      shiftType: 'late',
+      startTime: '17:30',
+      endTime: '23:30',
+      note: null,
+      createdAt,
+    });
+
+    const result = await service.updateShift(user, 41, {
+      date: new Date('2026-05-08T00:00:00.000Z').getTime(),
+      shiftType: 'late',
+      startTime: '17:30',
+      endTime: '23:30',
+      note: '   ',
+    });
+
+    expect(
+      employeesAccessService.ensureCanManageEmployees,
+    ).toHaveBeenCalledWith(user, 2, 'staff:update');
+    expect(prismaService.employeeShift.update).toHaveBeenCalledWith({
+      where: { id: 41 },
+      data: {
+        date: new Date('2026-05-08T00:00:00.000Z'),
+        shiftType: 'late',
+        startTime: '17:30',
+        endTime: '23:30',
+        note: null,
+      },
+    });
+    expect(result).toEqual({
+      id: '41',
+      employeeId: '5',
+      employeeName: '王五',
+      date: new Date('2026-05-08T00:00:00.000Z').getTime(),
+      shiftType: 'late',
+      startTime: '17:30',
+      endTime: '23:30',
+      createdAt: createdAt.getTime(),
+    });
+  });
+
+  it('createLeave 在时间段与已有请假记录冲突时抛出异常', async () => {
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 5,
+      storeId: 2,
+      name: '王五',
+    });
+    prismaService.employeeLeave.findFirst.mockResolvedValue({ id: 99 });
+
+    await expect(
+      service.createLeave(user, 5, {
+        type: 'sick',
+        startDate: new Date('2026-05-08T00:00:00.000Z').getTime(),
+        endDate: new Date('2026-05-09T00:00:00.000Z').getTime(),
+        days: 2,
+        deductSalary: true,
+        deductAmount: 50,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prismaService.employeeLeave.create).not.toHaveBeenCalled();
+  });
+
+  it('createLeave 在开始时间晚于结束时间时抛出异常', async () => {
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 5,
+      storeId: 2,
+      name: '王五',
+    });
+
+    await expect(
+      service.createLeave(user, 5, {
+        type: 'sick',
+        startDate: new Date('2026-05-08T00:00:00.000Z').getTime(),
+        endDate: new Date('2026-05-07T00:00:00.000Z').getTime(),
+        days: 1,
+        deductSalary: false,
+        deductAmount: 0,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prismaService.employeeLeave.create).not.toHaveBeenCalled();
+  });
+
+  it('createShift 在同一天已有排班时抛出异常', async () => {
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 5,
+      storeId: 2,
+      name: '王五',
+    });
+    prismaService.employeeShift.findMany.mockResolvedValue([
+      {
+        id: 81,
+        startTime: '09:00',
+        endTime: '12:00',
+      },
+    ]);
+
+    await expect(
+      service.createShift(user, {
+        employeeId: 5,
+        date: new Date('2026-05-08T00:00:00.000Z').getTime(),
+        shiftType: 'late',
+        startTime: '13:00',
+        endTime: '18:00',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prismaService.employeeShift.create).not.toHaveBeenCalled();
+  });
+
+  it('createShift 在同一天时间重叠时抛出异常', async () => {
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 5,
+      storeId: 2,
+      name: '王五',
+    });
+    prismaService.employeeShift.findMany.mockResolvedValue([
+      {
+        id: 82,
+        startTime: '10:00',
+        endTime: '14:00',
+      },
+    ]);
+
+    await expect(
+      service.createShift(user, {
+        employeeId: 5,
+        date: new Date('2026-05-08T00:00:00.000Z').getTime(),
+        shiftType: 'late',
+        startTime: '13:30',
+        endTime: '18:00',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prismaService.employeeShift.create).not.toHaveBeenCalled();
+  });
+
+  it('updateShift 在上班时间不早于下班时间时抛出异常', async () => {
+    prismaService.employeeShift.findUnique.mockResolvedValue({
+      id: 41,
+      storeId: 2,
+      employeeId: 5,
+      date: new Date('2026-05-08T00:00:00.000Z'),
+      startTime: '09:00',
+      endTime: '18:00',
+    });
+    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
+      undefined,
+    );
+
+    await expect(
+      service.updateShift(user, 41, {
+        startTime: '18:00',
+        endTime: '18:00',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prismaService.employeeShift.update).not.toHaveBeenCalled();
+  });
+
+  it('listPayrolls 在按全年筛选时会返回整年工资记录', async () => {
+    const createdAt = new Date('2026-05-13T08:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T09:00:00.000Z');
+
+    employeesAccessService.resolveViewStoreId.mockResolvedValue(2);
+    prismaService.employeePayroll.findMany.mockResolvedValue([
+      {
+        id: 21,
+        storeId: 2,
+        employeeId: 5,
+        employeeName: '王五',
+        month: '2026-05',
+        baseSalary: new Prisma.Decimal('5000'),
+        leaveDeduction: new Prisma.Decimal('120'),
+        otherDeduction: new Prisma.Decimal('80'),
+        otherDeductionNote: '迟到罚款',
+        bonus: new Prisma.Decimal('300'),
+        actualSalary: new Prisma.Decimal('5100'),
+        socialInsurance: new Prisma.Decimal('400'),
+        housingFund: null,
+        totalLaborCost: new Prisma.Decimal('5500'),
+        status: EmployeePayrollStatus.draft,
+        confirmedAt: null,
+        note: '含季度奖励',
+        createdAt,
+        updatedAt,
+      },
+    ]);
+
+    const result = await service.listPayrolls(user, {
+      storeId: 2,
+      year: 2026,
+      month: 0,
+      department: '前厅',
+    });
+
+    expect(prismaService.employeePayroll.findMany).toHaveBeenCalledWith({
+      where: {
+        storeId: 2,
+        month: {
+          gte: '2026-01',
+          lte: '2026-12',
+        },
+        employee: {
+          department: { equals: '前厅', mode: 'insensitive' },
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    expect(result).toEqual([
+      {
+        id: '21',
+        employeeId: '5',
+        employeeName: '王五',
+        month: '2026-05',
+        baseSalary: 5000,
+        leaveDeduction: 120,
+        otherDeduction: 80,
+        otherDeductionNote: '迟到罚款',
+        bonus: 300,
+        actualSalary: 5100,
+        socialInsurance: 400,
+        totalLaborCost: 5500,
+        status: EmployeePayrollStatus.draft,
+        note: '含季度奖励',
+        createdAt: createdAt.getTime(),
+        updatedAt: updatedAt.getTime(),
+      },
+    ]);
+  });
+
+  it('savePayroll 在存在其他扣款但缺少说明时抛出异常', async () => {
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 5,
+      storeId: 2,
+      name: '王五',
+    });
+
+    await expect(
+      service.savePayroll(user, {
+        employeeId: 5,
+        month: '2026-04',
+        baseSalary: 5000,
+        leaveDeduction: 120,
+        otherDeduction: 80,
+        bonus: 300,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prismaService.employeePayroll.upsert).not.toHaveBeenCalled();
+  });
+
+  it('savePayroll 在实发工资为负数时抛出异常', async () => {
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 5,
+      storeId: 2,
+      name: '王五',
+    });
+
+    await expect(
+      service.savePayroll(user, {
+        employeeId: 5,
+        month: '2026-04',
+        baseSalary: 1000,
+        leaveDeduction: 900,
+        otherDeduction: 300,
+        otherDeductionNote: '罚款',
+        bonus: 0,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prismaService.employeePayroll.upsert).not.toHaveBeenCalled();
+  });
+
   it('savePayroll 会计算工资汇总并重置确认状态', async () => {
     const createdAt = new Date('2026-05-13T08:00:00.000Z');
     const updatedAt = new Date('2026-05-13T09:00:00.000Z');
@@ -380,6 +887,7 @@ describe('EmployeesService', () => {
       id: 5,
       storeId: 2,
       name: '王五',
+      linkedStaffId: 12,
     });
     prismaService.employeePayroll.upsert.mockResolvedValue({
       id: 21,
@@ -415,21 +923,34 @@ describe('EmployeesService', () => {
       note: ' 含季度奖励 ',
     });
 
-    const upsertArgs = prismaService.employeePayroll.upsert.mock.calls[0][0];
-    expect(upsertArgs.where).toEqual({
-      employeeId_month: {
-        employeeId: 5,
-        month: '2026-04',
+    expect(prismaService.employeePayroll.upsert).toHaveBeenCalledWith({
+      where: {
+        employeeId_month: {
+          employeeId: 5,
+          month: '2026-04',
+        },
       },
+      create: expect.objectContaining({
+        employeeName: '王五',
+        otherDeductionNote: '迟到罚款',
+        housingFund: undefined,
+      }),
+      update: expect.objectContaining({
+        status: EmployeePayrollStatus.draft,
+        confirmedAt: null,
+        housingFund: null,
+      }),
     });
-    expect(upsertArgs.create.employeeName).toBe('王五');
-    expect(upsertArgs.create.actualSalary.toString()).toBe('5100');
-    expect(upsertArgs.create.totalLaborCost.toString()).toBe('5500');
-    expect(upsertArgs.create.otherDeductionNote).toBe('迟到罚款');
-    expect(upsertArgs.create.housingFund).toBeUndefined();
-    expect(upsertArgs.update.status).toBe(EmployeePayrollStatus.draft);
-    expect(upsertArgs.update.confirmedAt).toBeNull();
-    expect(upsertArgs.update.housingFund).toBeNull();
+    const payrollUpsertArgs =
+      prismaService.employeePayroll.upsert.mock.calls.at(0)?.[0] as {
+        create: {
+          actualSalary: Prisma.Decimal;
+          totalLaborCost: Prisma.Decimal;
+        };
+      };
+    expect(payrollUpsertArgs.create.actualSalary.toString()).toBe('5100');
+    expect(payrollUpsertArgs.create.totalLaborCost.toString()).toBe('5500');
+    expect(costsService.syncPayrollCosts).not.toHaveBeenCalled();
 
     expect(result).toEqual({
       id: '21',
@@ -459,6 +980,7 @@ describe('EmployeesService', () => {
     prismaService.employeePayroll.findUnique.mockResolvedValue({
       id: 21,
       storeId: 2,
+      status: EmployeePayrollStatus.draft,
     });
     employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
       undefined,
@@ -490,15 +1012,43 @@ describe('EmployeesService', () => {
     expect(
       employeesAccessService.ensureCanManageEmployees,
     ).toHaveBeenCalledWith(user, 2, 'staff:update');
-    expect(prismaService.employeePayroll.update).toHaveBeenCalledWith({
-      where: { id: 21 },
-      data: {
-        status: EmployeePayrollStatus.confirmed,
-        confirmedAt: expect.any(Date),
-      },
-    });
+    const payrollUpdateArgs =
+      prismaService.employeePayroll.update.mock.calls.at(0)?.[0] as {
+        where: { id: number };
+        data: { status: EmployeePayrollStatus; confirmedAt: Date };
+      };
+    expect(payrollUpdateArgs.where).toEqual({ id: 21 });
+    expect(payrollUpdateArgs.data.status).toBe(EmployeePayrollStatus.confirmed);
+    expect(payrollUpdateArgs.data.confirmedAt).toBeInstanceOf(Date);
+    expect(costsService.syncPayrollCosts).toHaveBeenCalledWith(
+      prismaService,
+      expect.objectContaining({
+        storeId: 2,
+        payrollId: 21,
+        operatorStaffId: null,
+        employeeName: '王五',
+        month: '2026-04',
+        actualSalary: 5100,
+      }),
+    );
     expect(result.status).toBe(EmployeePayrollStatus.confirmed);
     expect(result.confirmedAt).toBe(confirmedAt.getTime());
+  });
+
+  it('confirmPayroll 在记录已确认时抛出异常', async () => {
+    prismaService.employeePayroll.findUnique.mockResolvedValue({
+      id: 21,
+      storeId: 2,
+      status: EmployeePayrollStatus.confirmed,
+    });
+    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
+      undefined,
+    );
+
+    await expect(service.confirmPayroll(user, 21)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(prismaService.employeePayroll.update).not.toHaveBeenCalled();
   });
 
   it('confirmPayroll 在记录不存在时抛出异常', async () => {
@@ -508,5 +1058,208 @@ describe('EmployeesService', () => {
       NotFoundException,
     );
     expect(prismaService.employeePayroll.update).not.toHaveBeenCalled();
+  });
+
+  it('getShiftReport 会按前端报表结构聚合排班数据', async () => {
+    employeesAccessService.resolveViewStoreId.mockResolvedValue(2);
+    prismaService.employeeShift.findMany.mockResolvedValue([
+      {
+        id: 11,
+        employeeId: 5,
+        employeeName: '王五',
+        date: new Date('2026-05-01T00:00:00.000Z'),
+        shiftType: 'morning',
+        startTime: '08:00',
+        endTime: '14:00',
+      },
+      {
+        id: 12,
+        employeeId: 5,
+        employeeName: '王五',
+        date: new Date('2026-05-02T00:00:00.000Z'),
+        shiftType: 'custom',
+        startTime: '10:00',
+        endTime: '16:00',
+      },
+      {
+        id: 13,
+        employeeId: 9,
+        employeeName: '李四',
+        date: new Date('2026-05-03T00:00:00.000Z'),
+        shiftType: 'late',
+        startTime: '17:00',
+        endTime: '23:00',
+      },
+    ]);
+
+    await expect(
+      service.getShiftReport(user, {
+        storeId: 2,
+        year: 2026,
+        month: 5,
+        department: '前厅',
+      }),
+    ).resolves.toEqual({
+      summary: {
+        totalShifts: 3,
+        employeeCount: 2,
+        morningCount: 1,
+        nineToSixCount: 0,
+        middleCount: 0,
+        lateCount: 1,
+        fullCount: 0,
+        customCount: 1,
+      },
+      rows: [
+        {
+          id: '11',
+          dateLabel: '05/01 周五',
+          employeeName: '王五',
+          shiftType: 'morning',
+          shiftLabel: '早班',
+          startTime: '08:00',
+          endTime: '14:00',
+        },
+        {
+          id: '12',
+          dateLabel: '05/02 周六',
+          employeeName: '王五',
+          shiftType: 'custom',
+          shiftLabel: '自定义',
+          startTime: '10:00',
+          endTime: '16:00',
+        },
+        {
+          id: '13',
+          dateLabel: '05/03 周日',
+          employeeName: '李四',
+          shiftType: 'late',
+          shiftLabel: '晚班',
+          startTime: '17:00',
+          endTime: '23:00',
+        },
+      ],
+    });
+
+    expect(employeesAccessService.resolveViewStoreId).toHaveBeenCalledWith(
+      user,
+      2,
+      '无权查看该门店排班报表',
+      'report:view',
+    );
+    expect(prismaService.employeeShift.findMany).toHaveBeenCalledWith({
+      where: {
+        storeId: 2,
+        date: {
+          gte: new Date(2026, 4, 1, 0, 0, 0, 0),
+          lt: new Date(2026, 5, 1, 0, 0, 0, 0),
+        },
+        employee: {
+          department: { equals: '前厅', mode: 'insensitive' },
+        },
+      },
+      orderBy: [{ date: 'asc' }, { id: 'asc' }],
+    });
+  });
+
+  it('getPayrollReport 会仅聚合已结算工资并对齐前端字段', async () => {
+    employeesAccessService.resolveViewStoreId.mockResolvedValue(2);
+    prismaService.employeePayroll.findMany.mockResolvedValue([
+      {
+        id: 21,
+        employeeId: 5,
+        employeeName: '王五',
+        month: '2026-05',
+        baseSalary: new Prisma.Decimal('5000'),
+        leaveDeduction: new Prisma.Decimal('100'),
+        otherDeduction: new Prisma.Decimal('50'),
+        bonus: new Prisma.Decimal('200'),
+        actualSalary: new Prisma.Decimal('5050'),
+        socialInsurance: new Prisma.Decimal('400'),
+        housingFund: null,
+        totalLaborCost: new Prisma.Decimal('5450'),
+        confirmedAt: new Date('2026-05-15T10:00:00.000Z'),
+      },
+      {
+        id: 22,
+        employeeId: 9,
+        employeeName: '李四',
+        month: '2026-04',
+        baseSalary: new Prisma.Decimal('4500'),
+        leaveDeduction: new Prisma.Decimal('0'),
+        otherDeduction: new Prisma.Decimal('0'),
+        bonus: new Prisma.Decimal('100'),
+        actualSalary: new Prisma.Decimal('4600'),
+        socialInsurance: null,
+        housingFund: new Prisma.Decimal('300'),
+        totalLaborCost: new Prisma.Decimal('4900'),
+        confirmedAt: new Date('2026-04-30T08:00:00.000Z'),
+      },
+    ]);
+
+    await expect(
+      service.getPayrollReport(user, {
+        storeId: 2,
+        year: 2026,
+        month: 0,
+        department: '前厅',
+      }),
+    ).resolves.toEqual({
+      summary: {
+        confirmedCount: 2,
+        totalActualSalary: 9650,
+        totalLaborCost: 10350,
+        avgActualSalary: 4825,
+      },
+      rows: [
+        {
+          id: '21',
+          employeeName: '王五',
+          month: '2026-05',
+          baseSalary: 5000,
+          leaveDeduction: 100,
+          otherDeduction: 50,
+          bonus: 200,
+          actualSalary: 5050,
+          socialInsurance: 400,
+          totalLaborCost: 5450,
+          confirmedAt: new Date('2026-05-15T10:00:00.000Z').getTime(),
+        },
+        {
+          id: '22',
+          employeeName: '李四',
+          month: '2026-04',
+          baseSalary: 4500,
+          leaveDeduction: 0,
+          otherDeduction: 0,
+          bonus: 100,
+          actualSalary: 4600,
+          housingFund: 300,
+          totalLaborCost: 4900,
+          confirmedAt: new Date('2026-04-30T08:00:00.000Z').getTime(),
+        },
+      ],
+    });
+
+    expect(employeesAccessService.resolveViewStoreId).toHaveBeenCalledWith(
+      user,
+      2,
+      '无权查看该门店工资报表',
+      'report:view',
+    );
+    expect(prismaService.employeePayroll.findMany).toHaveBeenCalledWith({
+      where: {
+        storeId: 2,
+        status: EmployeePayrollStatus.confirmed,
+        month: {
+          gte: '2026-01',
+          lte: '2026-12',
+        },
+        employee: {
+          department: { equals: '前厅', mode: 'insensitive' },
+        },
+      },
+      orderBy: [{ month: 'desc' }, { employeeName: 'asc' }, { id: 'asc' }],
+    });
   });
 });

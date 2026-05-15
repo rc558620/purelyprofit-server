@@ -12,6 +12,22 @@ import { MembersModule } from './members/members.module';
 import { StoresModule } from './stores/stores.module';
 import { StaffModule } from './staff/staff.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { PlatformMembershipModule } from './platform-membership/platform-membership.module';
+import { WithdrawalsModule } from './withdrawals/withdrawals.module';
+import { BusinessAnalysisModule } from './business-analysis/business-analysis.module';
+import { CategoriesModule } from './categories/categories.module';
+import { CostsModule } from './costs/costs.module';
+import { FinanceModule } from './finance/finance.module';
+import { InventoryModule } from './inventory/inventory.module';
+import { MarketingModule } from './marketing/marketing.module';
+import { ProductsModule } from './products/products.module';
+import { PurchasesModule } from './purchases/purchases.module';
+import { SuppliersModule } from './suppliers/suppliers.module';
+import { ProfitDetailModule } from './profit-detail/profit-detail.module';
+import { SalesRecordModule } from './sales-record/sales-record.module';
+import { SpacesModule } from './spaces/spaces.module';
+import { DashboardHomeModule } from './dashboard-home/dashboard-home.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -29,6 +45,22 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
     StoresModule,
     StaffModule,
     SubscriptionsModule,
+    PlatformMembershipModule,
+    WithdrawalsModule,
+    BusinessAnalysisModule,
+    CostsModule,
+    FinanceModule,
+    MarketingModule,
+    CategoriesModule,
+    ProductsModule,
+    SuppliersModule,
+    PurchasesModule,
+    InventoryModule,
+    ProfitDetailModule,
+    SalesRecordModule,
+    SpacesModule,
+    DashboardHomeModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

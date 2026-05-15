@@ -37,6 +37,63 @@ export class CreateStoreDto {
   address: string;
 
   @ApiPropertyOptional({
+    example: ['云南省', '昆明市', '五华区'],
+    description: '省市区名称数组，兼容前端表单直传字段',
+  })
+  @IsOptional()
+  @IsArray({ message: '省市区名称数组必须是数组' })
+  @IsString({ each: true, message: '省市区名称项必须是字符串' })
+  regionLabels?: string[];
+
+  @ApiPropertyOptional({
+    example: '530000',
+    description: '省编码，兼容前端表单直传字段',
+  })
+  @IsOptional()
+  @IsString({ message: '省编码必须是字符串' })
+  provinceCode?: string;
+
+  @ApiPropertyOptional({
+    example: '云南省',
+    description: '省名称，兼容前端表单直传字段',
+  })
+  @IsOptional()
+  @IsString({ message: '省名称必须是字符串' })
+  provinceName?: string;
+
+  @ApiPropertyOptional({
+    example: '530100',
+    description: '市编码，兼容前端表单直传字段',
+  })
+  @IsOptional()
+  @IsString({ message: '市编码必须是字符串' })
+  cityCode?: string;
+
+  @ApiPropertyOptional({
+    example: '昆明市',
+    description: '市名称，兼容前端表单直传字段',
+  })
+  @IsOptional()
+  @IsString({ message: '市名称必须是字符串' })
+  cityName?: string;
+
+  @ApiPropertyOptional({
+    example: '530102',
+    description: '区编码，兼容前端表单直传字段',
+  })
+  @IsOptional()
+  @IsString({ message: '区编码必须是字符串' })
+  districtCode?: string;
+
+  @ApiPropertyOptional({
+    example: '五华区',
+    description: '区名称，兼容前端表单直传字段',
+  })
+  @IsOptional()
+  @IsString({ message: '区名称必须是字符串' })
+  districtName?: string;
+
+  @ApiPropertyOptional({
     example: 'data:image/png;base64,...',
     description: '门店 Logo',
   })

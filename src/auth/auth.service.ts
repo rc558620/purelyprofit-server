@@ -39,6 +39,7 @@ import {
   normalizeStoreProfileMetadata,
   type StoreProfileMetadata,
 } from '../stores/dto/store-response.dto';
+import { toNullableMediaText, toOptionalMediaText } from '../commerce/commerce.utils';
 import type { AuthenticatedUser, JwtPayload } from './strategies/jwt.strategy';
 
 type MembershipRole = 'OWNER' | 'MANAGER' | 'STAFF';
@@ -342,7 +343,7 @@ export class AuthService {
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
-        avatar: this.toNullableText(dto.avatar),
+        avatar: toNullableMediaText(dto.avatar),
       },
     });
 
@@ -440,7 +441,7 @@ export class AuthService {
         phone: user.phone,
         email: profileUser.email,
         name: profileUser.name,
-        avatar: profileUser.avatar ?? '',
+        avatar: toOptionalMediaText(profileUser.avatar) ?? '',
         verified: this.isVerifiedUser(profileUser),
         ...(profileUser.realName ? { realName: profileUser.realName } : {}),
         ...(profileUser.idNumber
@@ -700,11 +701,6 @@ export class AuthService {
     }
 
     return `${idNumber.slice(0, 6)}********${idNumber.slice(-4)}`;
-  }
-
-  private toNullableText(value: string): string | null {
-    const trimmedValue = value.trim();
-    return trimmedValue === '' ? null : trimmedValue;
   }
 
   private ensurePasswordConfirmation(

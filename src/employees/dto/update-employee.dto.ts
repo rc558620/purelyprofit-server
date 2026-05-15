@@ -5,6 +5,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   MinLength,
 } from 'class-validator';
 
@@ -18,7 +19,7 @@ export class UpdateEmployeeDto {
   @ApiPropertyOptional({ example: '13800138000', description: '手机号' })
   @IsOptional()
   @IsString({ message: '手机号必须是字符串' })
-  @MinLength(6, { message: '手机号长度不合法' })
+  @Matches(/^1\d{10}$/, { message: '请输入正确的 11 位手机号' })
   phone?: string;
 
   @ApiPropertyOptional({ example: '服务员', description: '职位名称' })
@@ -59,6 +60,7 @@ export class UpdateEmployeeDto {
   })
   @IsOptional()
   @IsString({ message: '身份证号必须是字符串' })
+  @Matches(/^\d{17}[\dXx]$/, { message: '身份证号格式不正确（18位）' })
   idCard?: string;
 
   @ApiPropertyOptional({ enum: EmployeeGender, description: '性别' })
@@ -74,6 +76,7 @@ export class UpdateEmployeeDto {
   @ApiPropertyOptional({ example: '13800138001', description: '紧急联系电话' })
   @IsOptional()
   @IsString({ message: '紧急联系电话必须是字符串' })
+  @Matches(/^1\d{10}$/, { message: '请输入正确的 11 位紧急联系电话' })
   emergencyPhone?: string;
 
   @ApiPropertyOptional({
@@ -88,4 +91,12 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsString({ message: '备注必须是字符串' })
   note?: string;
+
+  @ApiPropertyOptional({
+    example: 1742601600000,
+    description: '兼容前端编辑模型透传的离职时间，实际离职请走专用接口',
+  })
+  @IsOptional()
+  @IsInt({ message: '离职日期必须是整数时间戳' })
+  resignDate?: number;
 }

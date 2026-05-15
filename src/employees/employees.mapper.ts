@@ -20,6 +20,7 @@ import {
   toOptionalTimestampMs,
   toTimestampMs,
 } from './employees.utils';
+import { toOptionalMediaText } from '../commerce/commerce.utils';
 
 export function toEmployeeResponse(employee: Employee): EmployeeResponseDto {
   return {
@@ -31,7 +32,9 @@ export function toEmployeeResponse(employee: Employee): EmployeeResponseDto {
     department: employee.department,
     joinDate: toTimestampMs(employee.joinDate),
     baseSalary: toDecimalNumber(employee.baseSalary),
-    ...(employee.avatar ? { avatar: employee.avatar } : {}),
+    ...(toOptionalMediaText(employee.avatar)
+      ? { avatar: toOptionalMediaText(employee.avatar) }
+      : {}),
     ...(employee.idCard ? { idCard: employee.idCard } : {}),
     gender: employee.gender,
     ...(employee.emergencyContact

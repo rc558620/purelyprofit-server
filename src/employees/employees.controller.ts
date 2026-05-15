@@ -35,11 +35,14 @@ import {
 import {
   CreateEmployeeLeaveDto,
   EmployeeLeaveResponseDto,
+  UpdateEmployeeLeaveDto,
 } from './dto/employee-leave.dto';
 import {
+  EmployeePayrollReportResponseDto,
   EmployeePayrollResponseDto,
   ListEmployeePayrollsQueryDto,
   SaveEmployeePayrollDto,
+  UpdateEmployeePayrollDto,
 } from './dto/employee-payroll.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import {
@@ -51,8 +54,10 @@ import {
 } from './dto/employee-response.dto';
 import {
   CreateEmployeeShiftDto,
+  EmployeeShiftReportResponseDto,
   EmployeeShiftResponseDto,
   ListEmployeeShiftsQueryDto,
+  UpdateEmployeeShiftDto,
 } from './dto/employee-shift.dto';
 import { ResignEmployeeDto } from './dto/resign-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -194,6 +199,17 @@ export class EmployeesController {
     await this.employeesService.removePosition(request.user, positionId);
   }
 
+  @Get('shifts/report')
+  @RequirePermissions('report:view')
+  @ApiOperation({ summary: '获取排班报表数据' })
+  @ApiOkResponse({ type: EmployeeShiftReportResponseDto })
+  getShiftReport(
+    @Req() request: { user: AuthenticatedUser },
+    @Query() query: ListEmployeeShiftsQueryDto,
+  ): Promise<EmployeeShiftReportResponseDto> {
+    return this.employeesService.getShiftReport(request.user, query);
+  }
+
   @Get('shifts')
   @RequirePermissions('staff:view')
   @ApiOperation({ summary: '获取排班列表' })
@@ -216,6 +232,18 @@ export class EmployeesController {
     return this.employeesService.createShift(request.user, dto);
   }
 
+  @Patch('shifts/:id')
+  @RequirePermissions('staff:update')
+  @ApiOperation({ summary: '更新排班' })
+  @ApiOkResponse({ type: EmployeeShiftResponseDto })
+  updateShift(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) shiftId: number,
+    @Body() dto: UpdateEmployeeShiftDto,
+  ): Promise<EmployeeShiftResponseDto> {
+    return this.employeesService.updateShift(request.user, shiftId, dto);
+  }
+
   @Delete('shifts/:id')
   @RequirePermissions('staff:update')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -226,6 +254,17 @@ export class EmployeesController {
     @Param('id', ParseIntPipe) shiftId: number,
   ): Promise<void> {
     await this.employeesService.removeShift(request.user, shiftId);
+  }
+
+  @Get('payrolls/report')
+  @RequirePermissions('report:view')
+  @ApiOperation({ summary: '获取工资报表数据' })
+  @ApiOkResponse({ type: EmployeePayrollReportResponseDto })
+  getPayrollReport(
+    @Req() request: { user: AuthenticatedUser },
+    @Query() query: ListEmployeePayrollsQueryDto,
+  ): Promise<EmployeePayrollReportResponseDto> {
+    return this.employeesService.getPayrollReport(request.user, query);
   }
 
   @Get('payrolls')
@@ -248,6 +287,18 @@ export class EmployeesController {
     @Body() dto: SaveEmployeePayrollDto,
   ): Promise<EmployeePayrollResponseDto> {
     return this.employeesService.savePayroll(request.user, dto);
+  }
+
+  @Patch('payrolls/:id')
+  @RequirePermissions('staff:update')
+  @ApiOperation({ summary: '编辑工资草稿' })
+  @ApiOkResponse({ type: EmployeePayrollResponseDto })
+  updatePayroll(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) payrollId: number,
+    @Body() dto: UpdateEmployeePayrollDto,
+  ): Promise<EmployeePayrollResponseDto> {
+    return this.employeesService.updatePayroll(request.user, payrollId, dto);
   }
 
   @Post('payrolls/:id/confirm')
@@ -294,6 +345,18 @@ export class EmployeesController {
     @Body() dto: CreateEmployeeLeaveDto,
   ): Promise<EmployeeLeaveResponseDto> {
     return this.employeesService.createLeave(request.user, employeeId, dto);
+  }
+
+  @Patch('leaves/:id')
+  @RequirePermissions('staff:update')
+  @ApiOperation({ summary: '更新请假记录' })
+  @ApiOkResponse({ type: EmployeeLeaveResponseDto })
+  updateLeave(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) leaveId: number,
+    @Body() dto: UpdateEmployeeLeaveDto,
+  ): Promise<EmployeeLeaveResponseDto> {
+    return this.employeesService.updateLeave(request.user, leaveId, dto);
   }
 
   @Delete('leaves/:id')

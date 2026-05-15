@@ -5,15 +5,20 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Min,
   MinLength,
 } from 'class-validator';
 
 export class CreateEmployeeDto {
-  @ApiProperty({ example: 1, description: '所属门店 ID' })
+  @ApiPropertyOptional({
+    example: 1,
+    description: '所属门店 ID，不传时自动使用当前账号可管理门店',
+  })
+  @IsOptional()
   @IsInt({ message: '所属门店 ID 必须是整数' })
   @Min(1, { message: '所属门店 ID 必须大于等于 1' })
-  storeId: number;
+  storeId?: number;
 
   @ApiProperty({ example: '张三', description: '员工姓名' })
   @IsString({ message: '员工姓名必须是字符串' })
@@ -22,7 +27,7 @@ export class CreateEmployeeDto {
 
   @ApiProperty({ example: '13800138000', description: '手机号' })
   @IsString({ message: '手机号必须是字符串' })
-  @MinLength(6, { message: '手机号长度不合法' })
+  @Matches(/^1\d{10}$/, { message: '请输入正确的 11 位手机号' })
   phone: string;
 
   @ApiProperty({ example: '服务员', description: '职位名称' })
@@ -53,13 +58,13 @@ export class CreateEmployeeDto {
   @IsString({ message: '头像地址必须是字符串' })
   avatar?: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: '110101199001011234',
     description: '身份证号',
   })
-  @IsOptional()
   @IsString({ message: '身份证号必须是字符串' })
-  idCard?: string;
+  @Matches(/^\d{17}[\dXx]$/, { message: '身份证号格式不正确（18位）' })
+  idCard: string;
 
   @ApiPropertyOptional({
     enum: EmployeeGender,
@@ -69,15 +74,15 @@ export class CreateEmployeeDto {
   @IsEnum(EmployeeGender, { message: '员工性别不合法' })
   gender?: EmployeeGender;
 
-  @ApiPropertyOptional({ example: '李四', description: '紧急联系人' })
-  @IsOptional()
+  @ApiProperty({ example: '李四', description: '紧急联系人' })
   @IsString({ message: '紧急联系人必须是字符串' })
-  emergencyContact?: string;
+  @MinLength(1, { message: '紧急联系人不能为空' })
+  emergencyContact: string;
 
-  @ApiPropertyOptional({ example: '13800138001', description: '紧急联系电话' })
-  @IsOptional()
+  @ApiProperty({ example: '13800138001', description: '紧急联系电话' })
   @IsString({ message: '紧急联系电话必须是字符串' })
-  emergencyPhone?: string;
+  @Matches(/^1\d{10}$/, { message: '请输入正确的 11 位紧急联系电话' })
+  emergencyPhone: string;
 
   @ApiPropertyOptional({
     example: 1771545600000,

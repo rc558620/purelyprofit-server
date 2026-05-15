@@ -10,6 +10,23 @@ import {
 } from 'class-validator';
 
 export class CreateEmployeeLeaveDto {
+  @ApiPropertyOptional({
+    example: 1,
+    description: '兼容前端本地模型透传的员工 ID，服务端以路径参数为准',
+  })
+  @IsOptional()
+  @IsInt({ message: '员工 ID 必须是整数' })
+  @Min(1, { message: '员工 ID 必须大于等于 1' })
+  employeeId?: number;
+
+  @ApiPropertyOptional({
+    example: '张三',
+    description: '兼容前端本地模型透传的员工姓名快照，服务端会自行生成',
+  })
+  @IsOptional()
+  @IsString({ message: '员工姓名必须是字符串' })
+  employeeName?: string;
+
   @ApiProperty({ enum: EmployeeLeaveType, description: '请假类型' })
   @IsEnum(EmployeeLeaveType, { message: '请假类型不合法' })
   type: EmployeeLeaveType;
@@ -33,6 +50,49 @@ export class CreateEmployeeLeaveDto {
   @ApiProperty({ example: 120, description: '扣款金额（元）' })
   @Min(0, { message: '扣款金额不能为负数' })
   deductAmount: number;
+
+  @ApiPropertyOptional({ example: '就医请假', description: '备注' })
+  @IsOptional()
+  @IsString({ message: '备注必须是字符串' })
+  note?: string;
+}
+
+export class UpdateEmployeeLeaveDto {
+  @ApiPropertyOptional({ enum: EmployeeLeaveType, description: '请假类型' })
+  @IsOptional()
+  @IsEnum(EmployeeLeaveType, { message: '请假类型不合法' })
+  type?: EmployeeLeaveType;
+
+  @ApiPropertyOptional({
+    example: 1741410000000,
+    description: '开始时间戳（毫秒）',
+  })
+  @IsOptional()
+  @IsInt({ message: '开始时间必须是整数时间戳' })
+  startDate?: number;
+
+  @ApiPropertyOptional({
+    example: 1741496400000,
+    description: '结束时间戳（毫秒）',
+  })
+  @IsOptional()
+  @IsInt({ message: '结束时间必须是整数时间戳' })
+  endDate?: number;
+
+  @ApiPropertyOptional({ example: 1.5, description: '请假天数' })
+  @IsOptional()
+  @Min(0, { message: '请假天数不能为负数' })
+  days?: number;
+
+  @ApiPropertyOptional({ example: true, description: '是否扣薪' })
+  @IsOptional()
+  @IsBoolean({ message: '是否扣薪必须是布尔值' })
+  deductSalary?: boolean;
+
+  @ApiPropertyOptional({ example: 120, description: '扣款金额（元）' })
+  @IsOptional()
+  @Min(0, { message: '扣款金额不能为负数' })
+  deductAmount?: number;
 
   @ApiPropertyOptional({ example: '就医请假', description: '备注' })
   @IsOptional()

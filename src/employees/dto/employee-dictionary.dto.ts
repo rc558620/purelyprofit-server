@@ -16,10 +16,14 @@ export class EmployeeStoreQueryDto {
 }
 
 export class CreateEmployeeDictionaryDto {
-  @ApiProperty({ example: 1, description: '所属门店 ID' })
+  @ApiPropertyOptional({
+    example: 1,
+    description: '所属门店 ID，不传时自动使用当前账号可管理门店',
+  })
+  @IsOptional()
   @IsInt({ message: '所属门店 ID 必须是整数' })
   @Min(1, { message: '所属门店 ID 必须大于等于 1' })
-  storeId: number;
+  storeId?: number;
 
   @ApiProperty({ example: '前厅', description: '名称' })
   @IsString({ message: '名称必须是字符串' })

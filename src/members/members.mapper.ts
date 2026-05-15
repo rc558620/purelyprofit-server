@@ -1,12 +1,14 @@
 import { MemberGender } from '@prisma/client';
 import {
-  MEMBER_LEVEL_VALUES,
-  type MemberLevelValue,
-  type MemberRechargeChannelValue,
   MemberRechargeRecordDto,
   MemberResponseDto,
 } from './dto/member-response.dto';
-import { type MemberStatusDb, toApiMemberStatus } from './members.utils';
+import {
+  type MemberLevelValue,
+  type MemberRechargeChannelValue,
+  type MemberStatusDb,
+  toApiMemberStatus,
+} from './members.utils';
 
 const AVATAR_COLOR_COUNT = 6;
 
@@ -70,9 +72,15 @@ function toRechargeHistory(
 }
 
 function toMemberLevel(level: string): MemberLevelValue {
-  return MEMBER_LEVEL_VALUES.includes(level as MemberLevelValue)
-    ? (level as MemberLevelValue)
-    : 'free';
+  switch (level) {
+    case 'free':
+    case 'monthly':
+    case 'quarterly':
+    case 'annual':
+      return level;
+    default:
+      return 'free';
+  }
 }
 
 export function toMemberResponse(

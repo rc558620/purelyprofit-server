@@ -13,8 +13,10 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库，
 
 - 主要目标是新增、修改或排查 purelyProfit 相关接口
 - 优先考虑接口入参/出参、DTO 校验、鉴权、数据库读写、缓存协作
+- 涉及字段、状态、筛选项、展示结构、业务流程时，默认先以对应前端页面/类型/交互为准，不能按自己想法另起一套模型
 - 新需求优先落到具体业务模块，而不是写成一次性脚本或临时逻辑
 - 输出方案时保持“后端接口开发”语境，避免偏到前端页面实现
+- 如果字段含义、业务语义或前端交互意图不明确，先停下来询问用户，确认后再继续写
 
 ## 关键业务语义辨析
 
@@ -42,6 +44,7 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库，
 - 不要在没有前端依据的情况下随意新增前端暂时不存在的字段、筛选项、状态枚举或业务概念，除非用户明确要求先做后端预埋
 - 如果发现前端字段设计明显不合理，也先基于前端现状完成对齐，并在输出中明确指出差异与建议，而不是直接擅自改成另一套模型
 - 当用户让你开发某个接口但没有说明字段时，优先先检查前端对应页面需要什么字段，而不是仅凭后端习惯补全
+- 只要前端字段含义、业务流程、页面交互、状态流转存在不确定性，就暂停实现并先向用户确认；不要靠猜测把接口“补完整”
 
 ## 技术栈
 
@@ -156,22 +159,24 @@ src/<module>/
 
 - controller 不要直接写 Prisma 访问逻辑
 - controller 不要堆复杂判断、缓存拼装、密码处理
-- 返回结构可以先保持直接返回 service 结果，后续统一响应再抽象
+- controller 可以直接返回 service 结果，但 service 返回值本身要先经过稳定建模；不要把 raw SQL row、DTO class、response DTO 在 controller/service 边界直接混用
 
 ## DTO 与校验约定
 
 当前 DTO 约定参考 `src/auth/dto/*.dto.ts`：
 
-- DTO 类中同时承担类型声明和校验规则
+- DTO 类中同时承担 controller 边界的类型声明和校验规则
 - 使用 `class-validator` 注解，例如 `@IsEmail()`、`@IsString()`、`@MinLength()`、`@IsOptional()`
 - Swagger 字段说明使用 `@ApiProperty()` / `@ApiPropertyOptional()`
 - 错误文案直接写中文，保持面向业务可读
+- DTO class 默认优先停留在 controller 边界；进入 service 后，如果只消费部分字段、需要参与复杂类型推导、raw SQL 组装或 mapper 流转，优先改用 service 内部的轻量 `interface` / `type`
 
 建议：
 
-- 新增接口优先先定义 DTO，再写 controller/service
+- 新增接口优先先定义 controller 层 DTO，再写 controller/service
 - DTO 命名使用 `CreateXxxDto`、`UpdateXxxDto`、`QueryXxxDto`、`LoginDto` 这类明确语义
 - 不要把校验写散在 service 里
+- 不要把“DTO 先行”误解成“DTO class 一路传到 service 私有方法、raw SQL、response DTO”；service 内部类型是否复用 DTO class，要按类型稳定性单独判断
 
 ## Auth 约定
 
@@ -274,6 +279,7 @@ src/<module>/
 - 请求入口和注解：放 `controller`
 - 业务规则、数据库写入、token 签发：放 `service`
 - 参数结构和字段校验：放 `dto`
+- service 内部消费类型、raw SQL row、聚合结果类型：优先放对应 service / mapper 附近的本地 `interface` / `type`
 - 登录态保护：放 `guards` / `strategies`
 - 基础设施连接：放 `prisma`、`redis`、`config`
 - 全局能力：放 `main.ts`
@@ -284,11 +290,31 @@ src/<module>/
 
 - 命名直接、语义明确
 - 中文错误文案对用户友好
-- DTO 先行，避免无类型入参
+- DTO 先行，但 DTO 主要用于 controller 入参边界，不默认承担整条 service 类型链
 - 认证、数据库、缓存职责分明
 - 不在 controller 堆业务逻辑
 - 不直接使用 `process.env`
 - 不绕过 `PrismaService` 和 `RedisService` 的现有封装
+- raw SQL row、事务返回值、分页聚合结果优先本地建模，不直接借用 response DTO 或被装饰过的 DTO class
+
+## TypeScript / ESLint 总则
+
+和类型、lint 相关的实现，先遵守这几个总则：
+
+- controller DTO 和 service 内部类型分开
+- raw SQL row、业务输入、response DTO 分层建模
+- 已有泛型时不要重复补同形态 `as`
+- 事务优先返回命名对象，不优先返回裸元组
+- 遇到 `no-unsafe-*` 先查源头类型污染，不要只在末端补断言
+
+更完整的踩坑记录、症状、排查顺序和推荐写法，查看项目级 skill：`purelyprofit-server-backend-pitfalls`。
+
+遇到下面情况时，不要只参考本 skill，应该同时套用 pitfalls skill：
+
+- service 里要消费 DTO 的部分字段并继续做类型推导
+- 要写 `$queryRaw()`、事务、`Promise.all()` 聚合查询
+- 要把数据库行映射成接口响应
+- lint 已经出现 `no-unsafe-*`、`error typed`、`no-unnecessary-type-assertion`
 
 ## 参考文件
 

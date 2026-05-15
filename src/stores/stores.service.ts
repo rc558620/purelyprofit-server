@@ -46,6 +46,19 @@ type StoreCreatePayload = {
   storeLogo?: string;
 };
 
+function normalizeStoreLogo(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalizedValue = value.trim();
+  if (normalizedValue === '' || normalizedValue.startsWith('blob:')) {
+    return undefined;
+  }
+
+  return normalizedValue;
+}
+
 @Injectable()
 export class StoresService {
   private readonly logger = new Logger(StoresService.name);
@@ -214,10 +227,7 @@ export class StoresService {
           )
         : [],
       address: typeof candidate.address === 'string' ? candidate.address : '',
-      storeLogo:
-        typeof candidate.storeLogo === 'string'
-          ? candidate.storeLogo
-          : undefined,
+      storeLogo: normalizeStoreLogo(candidate.storeLogo),
     };
   }
 
@@ -270,11 +280,7 @@ export class StoresService {
 
     const storeType =
       typeof candidate.storeType === 'string' ? candidate.storeType.trim() : '';
-    const storeLogo =
-      typeof candidate.storeLogo === 'string' &&
-      candidate.storeLogo.trim() !== ''
-        ? candidate.storeLogo
-        : undefined;
+    const storeLogo = normalizeStoreLogo(candidate.storeLogo);
 
     return {
       storeType,
@@ -292,7 +298,13 @@ export class StoresService {
         return this.normalizeStoreProfileMetadata(null);
       }
 
-      return this.normalizeStoreProfileMetadata(JSON.parse(raw) as unknown);
+      const metadata = this.normalizeStoreProfileMetadata(JSON.parse(raw) as unknown);
+
+      if (JSON.stringify(metadata) !== raw) {
+        await this.persistStoreProfileMetadata(storeId, metadata);
+      }
+
+      return metadata;
     } catch (error) {
       this.logger.warn(
         `读取门店扩展字段失败，storeId=${storeId}: ${this.getErrorMessage(error)}`,

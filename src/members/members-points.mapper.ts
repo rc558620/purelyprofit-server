@@ -1,10 +1,12 @@
 import {
   MemberBeansLogResponseDto,
   MemberPointsLogResponseDto,
-  type MemberBeanRecordSourceValue,
-  type MemberBeanRecordTypeValue,
-  type MemberPointsRecordSourceValue,
-  type MemberPointsRecordTypeValue,
+} from './dto/adjust-member-points.dto';
+import type {
+  MemberBeanRecordSourceValue,
+  MemberBeanRecordTypeValue,
+  MemberPointsRecordSourceValue,
+  MemberPointsRecordTypeValue,
 } from './dto/adjust-member-points.dto';
 
 export interface MemberPointsLogRecord {
@@ -32,24 +34,31 @@ export interface MemberBeanLogRecord {
   createdAt: Date;
 }
 
+const POINTS_EARN_RECORD_TYPE: MemberPointsRecordTypeValue = 'earn';
+const POINTS_SPEND_RECORD_TYPE: MemberPointsRecordTypeValue = 'spend';
+const POINTS_EXPIRE_RECORD_TYPE: MemberPointsRecordTypeValue = 'expire';
+const BEAN_EARN_RECORD_TYPE: MemberBeanRecordTypeValue = 'earn';
+const BEAN_SPEND_RECORD_TYPE: MemberBeanRecordTypeValue = 'spend';
+const BEAN_WITHDRAW_RECORD_TYPE: MemberBeanRecordTypeValue = 'withdraw';
+
 function resolvePointsRecordType(
   log: MemberPointsLogRecord,
 ): MemberPointsRecordTypeValue {
   if (log.source === 'expire') {
-    return 'expire';
+    return POINTS_EXPIRE_RECORD_TYPE;
   }
 
-  return log.amount > 0 ? 'earn' : 'spend';
+  return log.amount > 0 ? POINTS_EARN_RECORD_TYPE : POINTS_SPEND_RECORD_TYPE;
 }
 
 function resolveBeanRecordType(
   log: MemberBeanLogRecord,
 ): MemberBeanRecordTypeValue {
   if (log.source === 'withdrawal') {
-    return 'withdraw';
+    return BEAN_WITHDRAW_RECORD_TYPE;
   }
 
-  return log.amount > 0 ? 'earn' : 'spend';
+  return log.amount > 0 ? BEAN_EARN_RECORD_TYPE : BEAN_SPEND_RECORD_TYPE;
 }
 
 export function toMemberPointsLogResponse(

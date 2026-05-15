@@ -11,7 +11,8 @@ import { PrismaService } from '../prisma/prisma.service';
 export type EmployeesPermission =
   | 'staff:view'
   | 'staff:create'
-  | 'staff:update';
+  | 'staff:update'
+  | 'report:view';
 
 @Injectable()
 export class EmployeesAccessService {
@@ -24,10 +25,11 @@ export class EmployeesAccessService {
     user: AuthenticatedUser,
     storeId: number | undefined,
     forbiddenMessage: string,
+    permission: EmployeesPermission = 'staff:view',
   ): Promise<number> {
     const manageableStoreId = await this.getManageableStoreId(
       user,
-      'staff:view',
+      permission,
     );
 
     if (manageableStoreId === null) {

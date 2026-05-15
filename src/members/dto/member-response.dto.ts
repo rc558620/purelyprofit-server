@@ -7,7 +7,6 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  MaxLength,
   Min,
 } from 'class-validator';
 import {
@@ -16,26 +15,27 @@ import {
   transformOptionalInt,
   transformOptionalKeyword,
 } from '../../stores/dto/store-response.dto';
+import {
+  MEMBER_LEVEL_VALUES,
+  MEMBER_RECHARGE_CHANNEL_VALUES,
+  MEMBER_STATUS_VALUES,
+  type MemberLevelValue,
+  type MemberRechargeChannelValue,
+  type MemberStatusValue,
+} from '../members.utils';
 
-export const MEMBER_STATUS_VALUES = ['active', 'inactive', 'banned'] as const;
-export const MEMBER_LEVEL_VALUES = [
-  'free',
-  'monthly',
-  'quarterly',
-  'annual',
-] as const;
-export const MEMBER_RECHARGE_CHANNEL_VALUES = [
-  'wechat',
-  'alipay',
-  'card',
-] as const;
+export {
+  MEMBER_LEVEL_VALUES,
+  MEMBER_RECHARGE_CHANNEL_VALUES,
+  MEMBER_STATUS_VALUES,
+} from '../members.utils';
+export type {
+  MemberLevelValue,
+  MemberRechargeChannelValue,
+  MemberStatusValue,
+} from '../members.utils';
 
-export type MemberStatusValue = (typeof MEMBER_STATUS_VALUES)[number];
-export type MemberLevelValue = (typeof MEMBER_LEVEL_VALUES)[number];
-export type MemberRechargeChannelValue =
-  (typeof MEMBER_RECHARGE_CHANNEL_VALUES)[number];
-
-function transformOptionalBoolean(value: unknown): boolean | unknown {
+function transformOptionalBoolean(value: unknown): boolean | undefined {
   if (value === undefined || value === null || value === '') {
     return undefined;
   }
@@ -55,7 +55,7 @@ function transformOptionalBoolean(value: unknown): boolean | unknown {
     }
   }
 
-  return value;
+  return undefined;
 }
 
 export class ListMembersQueryDto extends PaginationQueryDto {

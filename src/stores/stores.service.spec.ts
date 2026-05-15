@@ -1,10 +1,13 @@
 import { ConflictException } from '@nestjs/common';
 import { StaffRole, StaffStatus } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { CreateStoreDto } from './dto/create-store.dto';
 import { StoresService } from './stores.service';
 
 describe('StoresService', () => {
@@ -106,6 +109,80 @@ describe('StoresService', () => {
     expect(prismaService.$transaction).not.toHaveBeenCalled();
   });
 
+  it('CreateStoreDto 兼容前端直传的地区冗余字段', async () => {
+    const dto = plainToInstance(CreateStoreDto, {
+      storeName: '小嘟奶茶店',
+      storeType: '其他',
+      region: ['530000', '530100', '530102'],
+      regionLabels: ['云南省', '昆明市', '五华区'],
+      provinceCode: '530000',
+      provinceName: '云南省',
+      cityCode: '530100',
+      cityName: '昆明市',
+      districtCode: '530102',
+      districtName: '五华区',
+      address: '南屏街',
+      storeLogo: 'blob:http://localhost:5173/test',
+    });
+
+    await expect(validate(dto)).resolves.toEqual([]);
+  });
+
+  it('storeLogo 为 blob 临时地址时不会写入门店扩展字段', async () => {
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T10:30:00.000Z');
+
+    prismaService.store.findFirst.mockResolvedValue(null);
+    prismaService.store.create.mockResolvedValue({
+      id: 9,
+      name: '纯利优选示范店',
+      address: '北京市朝阳区望京街道 1 号',
+      createdAt,
+      updatedAt,
+    });
+    subscriptionsService.initializeStoreSubscription.mockResolvedValue(
+      undefined,
+    );
+    prismaService.staff.create.mockResolvedValue({
+      id: 21,
+      storeId: 9,
+      userId: user.id,
+      email: user.email,
+      name: '老板',
+      role: StaffRole.OWNER,
+      permissions: ['*'],
+      status: StaffStatus.ACTIVE,
+      isSeatActive: true,
+      isActive: true,
+    });
+    redisService.set.mockResolvedValue(undefined);
+
+    const result = await service.create(user, {
+      storeName: '纯利优选示范店',
+      storeType: '零售',
+      region: ['北京市', '北京市', '朝阳区'],
+      address: '北京市朝阳区望京街道 1 号',
+      storeLogo: 'blob:http://localhost:5173/test',
+    });
+
+    expect(redisService.set).toHaveBeenCalledWith(
+      'stores:profile:9',
+      JSON.stringify({
+        storeType: '零售',
+        region: ['北京市', '北京市', '朝阳区'],
+      }),
+    );
+    expect(result).toEqual({
+      id: 9,
+      storeName: '纯利优选示范店',
+      storeType: '零售',
+      region: ['北京市', '北京市', '朝阳区'],
+      address: '北京市朝阳区望京街道 1 号',
+      createdAt,
+      updatedAt,
+    });
+  });
+
   it('未绑定门店时可以正常创建门店并自动创建老板 staff', async () => {
     const createdAt = new Date('2026-05-13T10:00:00.000Z');
     const updatedAt = new Date('2026-05-13T10:30:00.000Z');
@@ -181,5 +258,45 @@ describe('StoresService', () => {
       createdAt,
       updatedAt,
     });
+  });
+
+  it('读取历史门店扩展字段时会清洗 blob 临时 Logo', async () => {
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T10:30:00.000Z');
+
+    prismaService.store.findFirst.mockResolvedValue({
+      id: 9,
+      name: '纯利优选示范店',
+      address: '北京市朝阳区望京街道 1 号',
+      createdAt,
+      updatedAt,
+    });
+    redisService.get.mockResolvedValue(
+      JSON.stringify({
+        storeType: '零售',
+        region: ['北京市', '北京市', '朝阳区'],
+        storeLogo: 'blob:http://localhost:5173/history-logo',
+      }),
+    );
+    redisService.set.mockResolvedValue(undefined);
+
+    const result = await service.getStore(user);
+
+    expect(result).toEqual({
+      id: 9,
+      storeName: '纯利优选示范店',
+      storeType: '零售',
+      region: ['北京市', '北京市', '朝阳区'],
+      address: '北京市朝阳区望京街道 1 号',
+      createdAt,
+      updatedAt,
+    });
+    expect(redisService.set).toHaveBeenCalledWith(
+      'stores:profile:9',
+      JSON.stringify({
+        storeType: '零售',
+        region: ['北京市', '北京市', '朝阳区'],
+      }),
+    );
   });
 });

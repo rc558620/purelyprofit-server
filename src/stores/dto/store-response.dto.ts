@@ -26,6 +26,19 @@ export interface StoreRecordSnapshot {
   updatedAt: Date;
 }
 
+function normalizeStoreLogo(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalizedValue = value.trim();
+  if (normalizedValue === '' || normalizedValue.startsWith('blob:')) {
+    return undefined;
+  }
+
+  return normalizedValue;
+}
+
 export function transformOptionalInt({
   value,
 }: TransformFnParams): number | string | undefined {
@@ -81,10 +94,7 @@ export function normalizeStoreProfileMetadata(
 
   const storeType =
     typeof candidate.storeType === 'string' ? candidate.storeType.trim() : '';
-  const storeLogo =
-    typeof candidate.storeLogo === 'string' && candidate.storeLogo.trim() !== ''
-      ? candidate.storeLogo
-      : undefined;
+  const storeLogo = normalizeStoreLogo(candidate.storeLogo);
 
   return {
     storeType,

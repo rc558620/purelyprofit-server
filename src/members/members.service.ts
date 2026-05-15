@@ -653,13 +653,11 @@ export class MembersService {
     storeId: number | undefined,
     forbiddenMessage: string,
   ): Promise<number | null> {
-    const resolver = this.membersAccessService.resolveMembersViewStoreId as (
-      user: AuthenticatedUser,
-      storeId: number | undefined,
-      forbiddenMessage: string,
-    ) => Promise<number | null>;
-
-    return resolver(user, storeId, forbiddenMessage);
+    return this.membersAccessService.resolveMembersViewStoreId(
+      user,
+      storeId,
+      forbiddenMessage,
+    );
   }
 
   private buildStoreIdWhereClause(storeId: number): Prisma.Sql {
