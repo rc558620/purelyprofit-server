@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Patch,
   Post,
   Req,
@@ -37,6 +39,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register/send-code')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '发送注册短信验证码' })
   @ApiOkResponse({
     description: '发送注册验证码成功',
@@ -59,6 +62,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '登录' })
   @ApiOkResponse({
     description: '登录成功，返回 JWT token',
@@ -69,6 +73,7 @@ export class AuthController {
   }
 
   @Post('change-password')
+  @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '修改当前账号密码' })
@@ -84,6 +89,7 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '发送找回密码短信验证码' })
   @ApiOkResponse({
     description: '如手机号存在则发送验证码短信，统一返回通用文案',
@@ -96,6 +102,7 @@ export class AuthController {
   }
 
   @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '通过短信验证码重置密码' })
   @ApiOkResponse({
     description: '重置密码成功并返回新的 JWT token',
@@ -137,6 +144,7 @@ export class AuthController {
   }
 
   @Post('real-name/verify')
+  @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '提交当前账号实名认证信息' })

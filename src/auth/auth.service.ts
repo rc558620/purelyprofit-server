@@ -216,15 +216,11 @@ export class AuthService {
     }
 
     const isCurrentPasswordValid = await bcrypt.compare(
-      dto.oldPassword,
+      dto.currentPassword,
       currentUser.password,
     );
     if (!isCurrentPasswordValid) {
       throw new UnauthorizedException('当前密码错误');
-    }
-
-    if (dto.oldPassword === dto.newPassword) {
-      throw new BadRequestException('新密码不能与当前密码相同');
     }
 
     const hashedPassword = await bcrypt.hash(dto.newPassword, 10);

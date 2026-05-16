@@ -111,7 +111,7 @@ describe('AuthService', () => {
         currentMembership: null,
       },
       {
-        oldPassword: 'oldPassword123',
+        currentPassword: 'oldPassword123',
         newPassword: 'newPassword123',
       },
     );
