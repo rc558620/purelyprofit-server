@@ -41,7 +41,7 @@ function transformOptionalNullableInt({
     return value;
   }
 
-  return String(value);
+  return undefined;
 }
 
 export class ListSpacesQueryDto {
@@ -143,13 +143,19 @@ export class UpdateSpaceDto {
   @MaxLength(20, { message: '空间类型最长 20 个字符' })
   type?: string;
 
-  @ApiPropertyOptional({ example: '1楼', description: '空间区域名称，空字符串表示清空' })
+  @ApiPropertyOptional({
+    example: '1楼',
+    description: '空间区域名称，空字符串表示清空',
+  })
   @IsOptional()
   @IsString({ message: '空间区域必须是字符串' })
   @MaxLength(20, { message: '空间区域最长 20 个字符' })
   zone?: string;
 
-  @ApiPropertyOptional({ example: 4, description: '容纳人数，空字符串表示清空' })
+  @ApiPropertyOptional({
+    example: 4,
+    description: '容纳人数，空字符串表示清空',
+  })
   @IsOptional()
   @Transform(transformOptionalNullableInt)
   @IsInt({ message: '容纳人数必须是整数' })
@@ -182,14 +188,8 @@ export class SpaceResponseDto {
   @ApiProperty({ example: 'A台', description: '空间名称' })
   name: string;
 
-  @ApiProperty({ example: '1', description: '空间类型 ID' })
-  typeId: string;
-
   @ApiProperty({ example: '餐桌', description: '空间类型名称' })
   type: string;
-
-  @ApiPropertyOptional({ example: '1', description: '空间区域 ID' })
-  zoneId?: string;
 
   @ApiPropertyOptional({ example: '1楼', description: '空间区域名称' })
   zone?: string;
@@ -215,9 +215,6 @@ export class SpaceResponseDto {
 
   @ApiProperty({ example: 1715600000000, description: '创建时间戳（毫秒）' })
   createdAt: number;
-
-  @ApiProperty({ example: 1715603600000, description: '更新时间戳（毫秒）' })
-  updatedAt: number;
 }
 
 export class SpaceDashboardActiveSessionSummaryDto {
@@ -265,10 +262,16 @@ export class SpaceDashboardReservationSummaryDto {
   @ApiPropertyOptional({ example: 2, description: '预约人数' })
   guestCount?: number;
 
-  @ApiProperty({ example: 1715695200000, description: '预约开始时间戳（毫秒）' })
+  @ApiProperty({
+    example: 1715695200000,
+    description: '预约开始时间戳（毫秒）',
+  })
   reservedAt: number;
 
-  @ApiPropertyOptional({ example: 1715698800000, description: '预约结束时间戳（毫秒）' })
+  @ApiPropertyOptional({
+    example: 1715698800000,
+    description: '预约结束时间戳（毫秒）',
+  })
   reservedEndAt?: number;
 
   @ApiPropertyOptional({ example: false, description: '是否已超时未处理' })
@@ -349,6 +352,9 @@ export class SpacesDashboardResponseDto {
   @Type(() => SpaceDashboardFilterOptionsDto)
   filterOptions: SpaceDashboardFilterOptionsDto;
 
-  @ApiProperty({ type: [SpaceDashboardSpaceItemDto], description: '空间卡片列表' })
+  @ApiProperty({
+    type: [SpaceDashboardSpaceItemDto],
+    description: '空间卡片列表',
+  })
   spaces: SpaceDashboardSpaceItemDto[];
 }

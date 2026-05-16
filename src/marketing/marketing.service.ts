@@ -178,6 +178,7 @@ function mapRechargeRow(row: RechargeRow): MarketingRechargeDto {
   return {
     id: String(row.id),
     customerId: String(row.customerId),
+    customerName: row.customerName,
     amount: row.amount,
     giftAmount: row.giftAmount,
     type: row.type as MarketingRechargeTypeValue,

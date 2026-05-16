@@ -65,7 +65,10 @@ export class OpenSpaceSessionDto {
   @IsIn(SPACE_BILLING_MODE_VALUES, { message: '计费模式不合法' })
   billingMode: SpaceBillingModeValue;
 
-  @ApiPropertyOptional({ example: 68, description: '计时单价/倒计时台位费（元）' })
+  @ApiPropertyOptional({
+    example: 68,
+    description: '计时单价/倒计时台位费（元）',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber({}, { message: '计时单价必须是数字' })
@@ -84,7 +87,10 @@ export class OpenSpaceSessionDto {
   @IsBoolean({ message: '自动结账标记必须是布尔值' })
   autoCheckout?: boolean;
 
-  @ApiPropertyOptional({ example: '12', description: '从预约转开台时关联的预约 ID' })
+  @ApiPropertyOptional({
+    example: '12',
+    description: '从预约转开台时关联的预约 ID',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '预约 ID 必须是整数' })
@@ -167,13 +173,19 @@ export class CheckoutSpaceSessionDto {
   @IsIn(SPACE_COUNTDOWN_FEE_MODE_VALUES, { message: '倒计时结账口径不合法' })
   countdownFeeMode?: SpaceCountdownFeeModeValue;
 
-  @ApiPropertyOptional({ example: 'space_lock_xxx', description: '结账预览返回的锁单 ID' })
+  @ApiPropertyOptional({
+    example: 'space_lock_xxx',
+    description: '结账预览返回的锁单 ID',
+  })
   @IsOptional()
   @IsString({ message: '锁单 ID 必须是字符串' })
   @MaxLength(80, { message: '锁单 ID 最长 80 个字符' })
   lockId?: string;
 
-  @ApiPropertyOptional({ example: 1715695200000, description: '锁单时间戳（毫秒）' })
+  @ApiPropertyOptional({
+    example: 1715695200000,
+    description: '锁单时间戳（毫秒）',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '锁单时间必须是整数时间戳' })
@@ -216,7 +228,10 @@ export class SpaceSessionItemDto {
 }
 
 export class AddSpaceSessionItemsDto {
-  @ApiProperty({ type: [SpaceSessionItemDto], description: '本次追加的商品明细' })
+  @ApiProperty({
+    type: [SpaceSessionItemDto],
+    description: '本次追加的商品明细',
+  })
   @IsArray({ message: '商品明细必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => SpaceSessionItemDto)
@@ -297,7 +312,8 @@ export class ListSpaceSessionsQueryDto extends PaginationQueryDto {
 
   @ApiPropertyOptional({
     example: false,
-    description: '未指定 status 时，是否包含 active 会话；默认 false 仅返回历史会话',
+    description:
+      '未指定 status 时，是否包含 active 会话；默认 false 仅返回历史会话',
   })
   @IsOptional()
   @Transform(transformOptionalBoolean)
@@ -313,14 +329,20 @@ export class ListSpaceSessionsQueryDto extends PaginationQueryDto {
   @IsString({ message: '搜索关键词必须是字符串' })
   keyword?: string;
 
-  @ApiPropertyOptional({ example: 1715600000000, description: '区间开始时间戳（毫秒）' })
+  @ApiPropertyOptional({
+    example: 1715600000000,
+    description: '区间开始时间戳（毫秒）',
+  })
   @IsOptional()
   @Transform(transformOptionalInt)
   @IsInt({ message: '区间开始时间必须是整数时间戳' })
   @Min(0, { message: '区间开始时间不合法' })
   rangeStartDate?: number;
 
-  @ApiPropertyOptional({ example: 1715686399999, description: '区间结束时间戳（毫秒）' })
+  @ApiPropertyOptional({
+    example: 1715686399999,
+    description: '区间结束时间戳（毫秒）',
+  })
   @IsOptional()
   @Transform(transformOptionalInt)
   @IsInt({ message: '区间结束时间必须是整数时间戳' })
@@ -405,7 +427,10 @@ export class CheckoutSpaceSessionPreviewResponseDto {
   @ApiProperty({ example: 1715695200000, description: '锁单时间戳（毫秒）' })
   lockedAt: number;
 
-  @ApiProperty({ example: 1715695500000, description: '锁单过期时间戳（毫秒）' })
+  @ApiProperty({
+    example: 1715695500000,
+    description: '锁单过期时间戳（毫秒）',
+  })
   expiresAt: number;
 
   @ApiProperty({
@@ -442,7 +467,10 @@ export class SpaceSessionResponseDto {
   @ApiProperty({ example: 1715691600000, description: '开台时间戳（毫秒）' })
   startTime: number;
 
-  @ApiPropertyOptional({ example: 1715695200000, description: '结账时间戳（毫秒）' })
+  @ApiPropertyOptional({
+    example: 1715695200000,
+    description: '结账时间戳（毫秒）',
+  })
   endTime?: number;
 
   @ApiProperty({
@@ -452,7 +480,10 @@ export class SpaceSessionResponseDto {
   })
   billingMode: SpaceBillingModeValue;
 
-  @ApiPropertyOptional({ example: 68, description: '计时单价/倒计时台位费（元）' })
+  @ApiPropertyOptional({
+    example: 68,
+    description: '计时单价/倒计时台位费（元）',
+  })
   hourlyRate?: number;
 
   @ApiPropertyOptional({ example: 136, description: '结账后的时间费用（元）' })
@@ -513,12 +544,18 @@ export class SpaceSessionResponseDto {
 }
 
 export class RenewSpaceSessionResponseDto {
-  @ApiProperty({ type: () => SpaceSessionRenewRecordResponseDto, description: '本次续费记录' })
+  @ApiProperty({
+    type: () => SpaceSessionRenewRecordResponseDto,
+    description: '本次续费记录',
+  })
   @ValidateNested()
   @Type(() => SpaceSessionRenewRecordResponseDto)
   renewRecord: SpaceSessionRenewRecordResponseDto;
 
-  @ApiProperty({ type: () => SpaceSessionResponseDto, description: '续费后的会话信息' })
+  @ApiProperty({
+    type: () => SpaceSessionResponseDto,
+    description: '续费后的会话信息',
+  })
   @ValidateNested()
   @Type(() => SpaceSessionResponseDto)
   session: SpaceSessionResponseDto;
@@ -529,7 +566,10 @@ export class TransferSpaceSessionResponseDto {
   @IsBoolean()
   ok: boolean;
 
-  @ApiProperty({ type: () => SpaceSessionResponseDto, description: '换房后的会话信息' })
+  @ApiProperty({
+    type: () => SpaceSessionResponseDto,
+    description: '换房后的会话信息',
+  })
   @ValidateNested()
   @Type(() => SpaceSessionResponseDto)
   session: SpaceSessionResponseDto;

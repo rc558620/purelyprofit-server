@@ -101,7 +101,11 @@ export class SpaceSessionsController {
     @Param('id', ParseIntPipe) sessionId: number,
     @Body() dto: AddSpaceSessionItemsDto,
   ): Promise<SpaceSessionResponseDto> {
-    return this.spacesService.addItemsToSpaceSession(request.user, sessionId, dto);
+    return this.spacesService.addItemsToSpaceSession(
+      request.user,
+      sessionId,
+      dto,
+    );
   }
 
   @Post('space-sessions/:id/renew')
@@ -125,7 +129,11 @@ export class SpaceSessionsController {
     @Param('id', ParseIntPipe) sessionId: number,
     @Body() dto: TransferSpaceSessionDto,
   ): Promise<TransferSpaceSessionResponseDto> {
-    return this.spacesService.transferSpaceSession(request.user, sessionId, dto);
+    return this.spacesService.transferSpaceSession(
+      request.user,
+      sessionId,
+      dto,
+    );
   }
 
   @Post('space-sessions/:id/checkout-preview')

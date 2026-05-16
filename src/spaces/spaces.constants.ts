@@ -25,5 +25,4 @@ export type SpaceReservationStatusValue =
   (typeof SPACE_RESERVATION_STATUS_VALUES)[number];
 export type SpaceSessionStatusValue =
   (typeof SPACE_SESSION_STATUS_VALUES)[number];
-export type SpaceBillingModeValue =
-  (typeof SPACE_BILLING_MODE_VALUES)[number];
+export type SpaceBillingModeValue = (typeof SPACE_BILLING_MODE_VALUES)[number];

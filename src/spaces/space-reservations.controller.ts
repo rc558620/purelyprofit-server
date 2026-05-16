@@ -45,7 +45,11 @@ export class SpaceReservationsController {
     @Param('spaceId', ParseIntPipe) spaceId: number,
     @Query() query: ListSpaceReservationsQueryDto,
   ): Promise<SpaceReservationResponseDto[]> {
-    return this.spacesService.listSpaceReservations(request.user, spaceId, query);
+    return this.spacesService.listSpaceReservations(
+      request.user,
+      spaceId,
+      query,
+    );
   }
 
   @Post('spaces/:spaceId/reservations')

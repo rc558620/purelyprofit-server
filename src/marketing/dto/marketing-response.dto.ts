@@ -129,6 +129,9 @@ export class MarketingRechargeDto {
   @ApiProperty({ example: '1' })
   customerId: string;
 
+  @ApiPropertyOptional({ example: '张三', description: '顾客名称（充值记录列表展示用）' })
+  customerName?: string;
+
   /** 充值金额（分） */
   @ApiProperty({ example: 10000, description: '充值金额，单位：分' })
   amount: number;

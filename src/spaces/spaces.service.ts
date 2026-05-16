@@ -164,7 +164,10 @@ interface SpaceSessionRecord {
 }
 
 interface DashboardSpaceSummaryBundle {
-  activeSessionSummaryBySpaceId: Map<number, SpaceDashboardActiveSessionSummaryDto>;
+  activeSessionSummaryBySpaceId: Map<
+    number,
+    SpaceDashboardActiveSessionSummaryDto
+  >;
   activeReservationSummaryBySpaceId: Map<
     number,
     SpaceDashboardReservationSummaryDto
@@ -706,9 +709,10 @@ export class SpacesService {
     const nextType = dto.type
       ? await this.requireSpaceTypeByName(space.storeId, dto.type)
       : null;
-    const nextZone = dto.zone !== undefined
-      ? await this.findSpaceZoneByName(space.storeId, dto.zone)
-      : null;
+    const nextZone =
+      dto.zone !== undefined
+        ? await this.findSpaceZoneByName(space.storeId, dto.zone)
+        : null;
 
     const updated = await this.prisma.$transaction(async (transaction) => {
       if (dto.sortOrder !== undefined && dto.sortOrder !== space.sortOrder) {
@@ -901,7 +905,10 @@ export class SpacesService {
     );
 
     const query = this.toSpaceSessionListQuery(queryDto);
-    const { page, skip, take } = this.resolvePageQuery(query.page, query.pageSize);
+    const { page, skip, take } = this.resolvePageQuery(
+      query.page,
+      query.pageSize,
+    );
     const where = this.buildSpaceSessionListWhere(space.id, query);
 
     const queryResult: [SpaceSessionRecord[], number] = await Promise.all([
@@ -1377,7 +1384,10 @@ export class SpacesService {
 
       const sourceSpaceStatus = latestSession.space.enableDirtyRoom
         ? PrismaSpaceStatus.cleaning
-        : await this.resolveReservationBackStatus(transaction, latestSession.spaceId);
+        : await this.resolveReservationBackStatus(
+            transaction,
+            latestSession.spaceId,
+          );
 
       const updatedSession = await transaction.spaceSession.update({
         where: { id: latestSession.id },
@@ -1475,8 +1485,7 @@ export class SpacesService {
     });
 
     const lockId = `space_lock_${randomUUID()}`;
-    const expiresAt =
-      lockedAt + SPACE_SESSION_CHECKOUT_LOCK_TTL_SECONDS * 1000;
+    const expiresAt = lockedAt + SPACE_SESSION_CHECKOUT_LOCK_TTL_SECONDS * 1000;
     const lockPayload: SpaceSessionCheckoutLockPayload = {
       sessionId: session.id,
       lockedAt,
@@ -1562,7 +1571,9 @@ export class SpacesService {
     const countdownFeeMode =
       lockPayload?.countdownFeeMode ?? payload.countdownFeeMode;
     const items = this.parseSpaceSessionItems(session.items);
-    const renewRecords = this.parseSpaceSessionRenewRecords(session.renewRecords);
+    const renewRecords = this.parseSpaceSessionRenewRecords(
+      session.renewRecords,
+    );
     const settlement = this.buildSpaceSessionSettlement({
       session,
       checkoutAt,
@@ -1609,17 +1620,17 @@ export class SpacesService {
         },
       });
 
-      await this.cancelMatchedReservationAfterCheckout(
-        transaction,
-        session,
-      );
+      await this.cancelMatchedReservationAfterCheckout(transaction, session);
 
       await transaction.space.update({
         where: { id: session.spaceId },
         data: {
           status: session.space.enableDirtyRoom
             ? PrismaSpaceStatus.cleaning
-            : await this.resolveReservationBackStatus(transaction, session.spaceId),
+            : await this.resolveReservationBackStatus(
+                transaction,
+                session.spaceId,
+              ),
         },
       });
 
@@ -1627,7 +1638,9 @@ export class SpacesService {
     });
 
     if (payload.lockId) {
-      await this.redisService.del(this.buildSpaceSessionCheckoutLockKey(payload.lockId));
+      await this.redisService.del(
+        this.buildSpaceSessionCheckoutLockKey(payload.lockId),
+      );
     }
 
     return this.toSpaceSessionResponse(updated);
@@ -1694,7 +1707,7 @@ export class SpacesService {
     );
 
     const payload = this.normalizeReservationPayload(dto);
-    await this.ensureReservationTimeWindow(payload.reservedAt);
+    this.ensureReservationTimeWindow(payload.reservedAt);
     this.ensureReservationEndAfterStart(
       payload.reservedAt,
       payload.reservedEndAt,
@@ -1707,9 +1720,7 @@ export class SpacesService {
     );
 
     if (conflict) {
-      throw new ConflictException(
-        `与「${conflict.guestName}」的预约时间冲突`,
-      );
+      throw new ConflictException(`与「${conflict.guestName}」的预约时间冲突`);
     }
 
     const reservation = await this.prisma.$transaction(async (transaction) => {
@@ -1765,7 +1776,7 @@ export class SpacesService {
     }
 
     const payload = this.normalizeReservationPayload(dto);
-    await this.ensureReservationTimeWindow(payload.reservedAt);
+    this.ensureReservationTimeWindow(payload.reservedAt);
     this.ensureReservationEndAfterStart(
       payload.reservedAt,
       payload.reservedEndAt,
@@ -1779,9 +1790,7 @@ export class SpacesService {
     );
 
     if (conflict) {
-      throw new ConflictException(
-        `与「${conflict.guestName}」的预约时间冲突`,
-      );
+      throw new ConflictException(`与「${conflict.guestName}」的预约时间冲突`);
     }
 
     const updated = await this.prisma.$transaction(async (transaction) => {
@@ -1932,14 +1941,20 @@ export class SpacesService {
       ...(dto.countdownMinutes !== undefined
         ? { countdownMinutes: dto.countdownMinutes }
         : {}),
-      ...(dto.autoCheckout !== undefined ? { autoCheckout: dto.autoCheckout } : {}),
-      ...(dto.reservationId !== undefined ? { reservationId: dto.reservationId } : {}),
+      ...(dto.autoCheckout !== undefined
+        ? { autoCheckout: dto.autoCheckout }
+        : {}),
+      ...(dto.reservationId !== undefined
+        ? { reservationId: dto.reservationId }
+        : {}),
       ...(dto.prepaidPaymentMethod !== undefined
         ? { prepaidPaymentMethod: dto.prepaidPaymentMethod }
         : {}),
       ...(prepaidGrouponCode ? { prepaidGrouponCode } : {}),
       ...(prepaidNote ? { prepaidNote } : {}),
-      ...(dto.prepaidAmount !== undefined ? { prepaidAmount: dto.prepaidAmount } : {}),
+      ...(dto.prepaidAmount !== undefined
+        ? { prepaidAmount: dto.prepaidAmount }
+        : {}),
     };
   }
 
@@ -1955,7 +1970,10 @@ export class SpacesService {
     }
 
     if (payload.billingMode === 'countdown') {
-      if (payload.countdownMinutes === undefined || payload.countdownMinutes <= 0) {
+      if (
+        payload.countdownMinutes === undefined ||
+        payload.countdownMinutes <= 0
+      ) {
         throw new BadRequestException('请输入有效的倒计时时长');
       }
       if (payload.hourlyRate === undefined || payload.hourlyRate <= 0) {
@@ -1967,7 +1985,9 @@ export class SpacesService {
           payload.prepaidAmount === undefined ||
           payload.prepaidAmount <= 0
         ) {
-          throw new BadRequestException('自动结账模式下请输入付款金额与支付方式');
+          throw new BadRequestException(
+            '自动结账模式下请输入付款金额与支付方式',
+          );
         }
       }
     }
@@ -2052,7 +2072,8 @@ export class SpacesService {
     }
 
     const lockedCountdownFeeMode =
-      payload.countdownFeeMode === 'timed' || payload.countdownFeeMode === 'fixed'
+      payload.countdownFeeMode === 'timed' ||
+      payload.countdownFeeMode === 'fixed'
         ? payload.countdownFeeMode
         : undefined;
     if (
@@ -2231,17 +2252,27 @@ export class SpacesService {
         const useFixed = countdownFeeMode === 'fixed';
         timeCost = useFixed
           ? hourlyRate
-          : this.calcTimeCost(session.startTime.getTime(), checkoutAt, hourlyRate);
+          : this.calcTimeCost(
+              session.startTime.getTime(),
+              checkoutAt,
+              hourlyRate,
+            );
         orderItems.unshift({
           productId: 'SYS_TIME_BILLING',
-          productName: useFixed ? '台位费（固定）' : `台位费（${durationLabel}）`,
+          productName: useFixed
+            ? '台位费（固定）'
+            : `台位费（${durationLabel}）`,
           categoryName: '场地费',
           salePrice: timeCost,
           profit: timeCost,
           quantity: 1,
         });
       } else {
-        timeCost = this.calcTimeCost(session.startTime.getTime(), checkoutAt, hourlyRate);
+        timeCost = this.calcTimeCost(
+          session.startTime.getTime(),
+          checkoutAt,
+          hourlyRate,
+        );
         orderItems.unshift({
           productId: 'SYS_TIME_BILLING',
           productName: `台位费（${durationLabel}）`,
@@ -2297,7 +2328,8 @@ export class SpacesService {
     const totalProfit = this.sumLineProfit(orderItems);
     const totalQuantity = orderItems.reduce(
       (sum, item) =>
-        sum + (this.isSpaceSessionDeductionItem(item.productId) ? 0 : item.quantity),
+        sum +
+        (this.isSpaceSessionDeductionItem(item.productId) ? 0 : item.quantity),
       0,
     );
 
@@ -2374,24 +2406,6 @@ export class SpacesService {
     }
 
     const todayRange = this.getTodayRange();
-    const matched = await transaction.spaceReservation.findFirst({
-      where: {
-        spaceId: session.spaceId,
-        status: PrismaSpaceReservationStatus.pending,
-        guestName,
-        phone: guestPhone,
-        reservedAt: {
-          gte: todayRange.start,
-          lte: todayRange.end,
-        },
-      },
-      orderBy: [{ reservedAt: 'asc' }, { id: 'asc' }],
-    });
-
-    if (!matched) {
-      return;
-    }
-
     const candidates = await transaction.spaceReservation.findMany({
       where: {
         spaceId: session.spaceId,
@@ -2459,14 +2473,16 @@ export class SpacesService {
         return [];
       }
 
-      return [{
-        productId: row.productId,
-        productName: row.productName,
-        categoryName: row.categoryName,
-        salePrice: row.salePrice,
-        profit: row.profit,
-        quantity: row.quantity,
-      }];
+      return [
+        {
+          productId: row.productId,
+          productName: row.productName,
+          categoryName: row.categoryName,
+          salePrice: row.salePrice,
+          profit: row.profit,
+          quantity: row.quantity,
+        },
+      ];
     });
   }
 
@@ -2492,15 +2508,19 @@ export class SpacesService {
         return [];
       }
 
-      return [{
-        id: row.id,
-        amount: row.amount,
-        addedMinutes: row.addedMinutes,
-        paymentMethod: row.paymentMethod as SalesPaymentMethodValue,
-        ...(typeof row.grouponCode === 'string' ? { grouponCode: row.grouponCode } : {}),
-        ...(typeof row.note === 'string' ? { note: row.note } : {}),
-        renewedAt: row.renewedAt,
-      }];
+      return [
+        {
+          id: row.id,
+          amount: row.amount,
+          addedMinutes: row.addedMinutes,
+          paymentMethod: row.paymentMethod as SalesPaymentMethodValue,
+          ...(typeof row.grouponCode === 'string'
+            ? { grouponCode: row.grouponCode }
+            : {}),
+          ...(typeof row.note === 'string' ? { note: row.note } : {}),
+          renewedAt: row.renewedAt,
+        },
+      ];
     });
   }
 
@@ -2579,7 +2599,9 @@ export class SpacesService {
 
   private sumLineProfit(items: SpaceSessionItemRecord[]): number {
     return Number(
-      items.reduce((sum, item) => sum + item.profit * item.quantity, 0).toFixed(2),
+      items
+        .reduce((sum, item) => sum + item.profit * item.quantity, 0)
+        .toFixed(2),
     );
   }
 
@@ -2600,7 +2622,8 @@ export class SpacesService {
   private resolvePageQuery(page?: number, pageSize?: number) {
     const defaultPageSize =
       this.configService.get<number>('app.defaultPageSize') ?? 20;
-    const maxPageSize = this.configService.get<number>('app.maxPageSize') ?? 100;
+    const maxPageSize =
+      this.configService.get<number>('app.maxPageSize') ?? 100;
 
     return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
   }
@@ -2691,7 +2714,9 @@ export class SpacesService {
     session: SpaceSessionRecord,
   ): SpaceSessionResponseDto {
     const items = this.parseSpaceSessionItems(session.items);
-    const renewRecords = this.parseSpaceSessionRenewRecords(session.renewRecords);
+    const renewRecords = this.parseSpaceSessionRenewRecords(
+      session.renewRecords,
+    );
 
     return {
       id: String(session.id),
@@ -2700,16 +2725,24 @@ export class SpacesService {
       spaceType: session.space.type.name,
       ...(session.guestName ? { guestName: session.guestName } : {}),
       ...(session.guestPhone ? { guestPhone: session.guestPhone } : {}),
-      ...(session.guestCount !== null ? { guestCount: session.guestCount } : {}),
+      ...(session.guestCount !== null
+        ? { guestCount: session.guestCount }
+        : {}),
       startTime: toTimestampMs(session.startTime),
       ...(session.endTime ? { endTime: toTimestampMs(session.endTime) } : {}),
       billingMode: session.billingMode,
-      ...(session.hourlyRate !== null ? { hourlyRate: Number(session.hourlyRate) } : {}),
-      ...(session.timeCost !== null ? { timeCost: Number(session.timeCost) } : {}),
+      ...(session.hourlyRate !== null
+        ? { hourlyRate: Number(session.hourlyRate) }
+        : {}),
+      ...(session.timeCost !== null
+        ? { timeCost: Number(session.timeCost) }
+        : {}),
       ...(session.countdownMinutes !== null
         ? { countdownMinutes: session.countdownMinutes }
         : {}),
-      ...(session.autoCheckout !== null ? { autoCheckout: session.autoCheckout } : {}),
+      ...(session.autoCheckout !== null
+        ? { autoCheckout: session.autoCheckout }
+        : {}),
       ...(session.prepaidPaymentMethod
         ? { prepaidPaymentMethod: session.prepaidPaymentMethod }
         : {}),
@@ -2726,7 +2759,9 @@ export class SpacesService {
         (record): SpaceSessionRenewRecordResponseDto => ({ ...record }),
       ),
       status: this.toSpaceSessionStatusValue(session.status),
-      ...(session.saleOrderId !== null ? { orderId: String(session.saleOrderId) } : {}),
+      ...(session.saleOrderId !== null
+        ? { orderId: String(session.saleOrderId) }
+        : {}),
       createdAt: toTimestampMs(session.createdAt),
     };
   }
@@ -2781,19 +2816,20 @@ export class SpacesService {
     spaceId: number,
   ): Promise<PrismaSpaceStatus> {
     const todayRange = this.getTodayRange();
-    const hasTodayPendingReservation = await transaction.spaceReservation.findFirst({
-      where: {
-        spaceId,
-        status: PrismaSpaceReservationStatus.pending,
-        reservedAt: {
-          gte: todayRange.start,
-          lte: todayRange.end,
+    const hasTodayPendingReservation =
+      await transaction.spaceReservation.findFirst({
+        where: {
+          spaceId,
+          status: PrismaSpaceReservationStatus.pending,
+          reservedAt: {
+            gte: todayRange.start,
+            lte: todayRange.end,
+          },
         },
-      },
-      select: {
-        id: true,
-      },
-    });
+        select: {
+          id: true,
+        },
+      });
 
     return hasTodayPendingReservation
       ? PrismaSpaceStatus.reserved
@@ -2869,9 +2905,7 @@ export class SpacesService {
     };
   }
 
-  private async ensureReservationTimeWindow(
-    reservedAt: number,
-  ): Promise<void> {
+  private ensureReservationTimeWindow(reservedAt: number): void {
     const now = Date.now();
     if (reservedAt < now) {
       throw new BadRequestException('预约时间不能早于当前时间');
@@ -2924,7 +2958,6 @@ export class SpacesService {
       ...(reservation.note ? { note: reservation.note } : {}),
       status: this.toSpaceReservationStatusValue(reservation.status),
       createdAt: toTimestampMs(reservation.createdAt),
-      updatedAt: toTimestampMs(reservation.updatedAt),
     };
   }
 
@@ -2950,7 +2983,9 @@ export class SpacesService {
     return { start, end };
   }
 
-  private async findSpacesByStore(storeId: number): Promise<SpaceWithRelations[]> {
+  private async findSpacesByStore(
+    storeId: number,
+  ): Promise<SpaceWithRelations[]> {
     return this.prisma.space.findMany({
       where: { storeId },
       include: {
@@ -3181,7 +3216,9 @@ export class SpacesService {
   private buildFilterOptions(
     spaces: SpaceWithRelations[],
   ): SpaceDashboardFilterOptionsDto {
-    const types = Array.from(new Set(spaces.map((space) => space.type.name))).sort();
+    const types = Array.from(
+      new Set(spaces.map((space) => space.type.name)),
+    ).sort();
     const zones = Array.from(
       new Set(
         spaces
@@ -3219,11 +3256,9 @@ export class SpacesService {
     return {
       id: String(space.id),
       name: space.name,
-      typeId: String(space.type.id),
       type: space.type.name,
       ...(space.zone
         ? {
-            zoneId: String(space.zone.id),
             zone: space.zone.name,
           }
         : {}),
@@ -3233,7 +3268,6 @@ export class SpacesService {
       status: this.toSpaceStatusValue(space.status),
       sortOrder: space.sortOrder,
       createdAt: toTimestampMs(space.createdAt),
-      updatedAt: toTimestampMs(space.updatedAt),
     };
   }
 
@@ -3282,15 +3316,20 @@ export class SpacesService {
       sessionId: String(session.id),
       ...(session.guestName ? { guestName: session.guestName } : {}),
       ...(session.guestPhone ? { guestPhone: session.guestPhone } : {}),
-      ...(session.guestCount !== null ? { guestCount: session.guestCount } : {}),
+      ...(session.guestCount !== null
+        ? { guestCount: session.guestCount }
+        : {}),
       billingMode: session.billingMode,
       startTime: toTimestampMs(session.startTime),
-      ...(session.hourlyRate !== null ? { hourlyRate: Number(session.hourlyRate) } : {}),
+      ...(session.hourlyRate !== null
+        ? { hourlyRate: Number(session.hourlyRate) }
+        : {}),
       ...(session.countdownMinutes !== null
         ? { countdownMinutes: session.countdownMinutes }
         : {}),
       itemsCost: Number(session.itemsCost),
-      renewCount: this.parseSpaceSessionRenewRecords(session.renewRecords).length,
+      renewCount: this.parseSpaceSessionRenewRecords(session.renewRecords)
+        .length,
     };
   }
 

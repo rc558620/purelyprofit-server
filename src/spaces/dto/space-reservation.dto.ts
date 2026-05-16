@@ -47,7 +47,10 @@ export class CreateSpaceReservationDto {
   @MaxLength(20, { message: '联系方式最长 20 个字符' })
   phone: string;
 
-  @ApiProperty({ example: 1760104800000, description: '预约开始时间戳（毫秒）' })
+  @ApiProperty({
+    example: 1760104800000,
+    description: '预约开始时间戳（毫秒）',
+  })
   @Transform(transformOptionalInt)
   @IsInt({ message: '预约开始时间必须是整数时间戳' })
   reservedAt: number;
@@ -89,7 +92,10 @@ export class UpdateSpaceReservationDto {
   @MaxLength(20, { message: '联系方式最长 20 个字符' })
   phone: string;
 
-  @ApiProperty({ example: 1760104800000, description: '预约开始时间戳（毫秒）' })
+  @ApiProperty({
+    example: 1760104800000,
+    description: '预约开始时间戳（毫秒）',
+  })
   @Transform(transformOptionalInt)
   @IsInt({ message: '预约开始时间必须是整数时间戳' })
   reservedAt: number;
@@ -131,7 +137,10 @@ export class SpaceReservationResponseDto {
   @ApiPropertyOptional({ example: '13800138000', description: '联系方式' })
   phone?: string;
 
-  @ApiProperty({ example: 1760104800000, description: '预约开始时间戳（毫秒）' })
+  @ApiProperty({
+    example: 1760104800000,
+    description: '预约开始时间戳（毫秒）',
+  })
   reservedAt: number;
 
   @ApiPropertyOptional({
@@ -155,7 +164,4 @@ export class SpaceReservationResponseDto {
 
   @ApiProperty({ example: 1760097600000, description: '创建时间戳（毫秒）' })
   createdAt: number;
-
-  @ApiProperty({ example: 1760098600000, description: '更新时间戳（毫秒）' })
-  updatedAt: number;
 }
