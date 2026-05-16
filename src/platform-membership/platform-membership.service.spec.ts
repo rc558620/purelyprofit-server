@@ -17,12 +17,14 @@ describe('PlatformMembershipService', () => {
       create: jest.fn(),
       update: jest.fn(),
       upsert: jest.fn(),
+      deleteMany: jest.fn(),
     },
     storePartnerApplication: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
       updateMany: jest.fn(),
+      deleteMany: jest.fn(),
     },
     storePartnerApplicationNote: {
       create: jest.fn(),
@@ -291,6 +293,8 @@ describe('PlatformMembershipService', () => {
         amount: 9900,
         pointsDeducted: 0,
         pointsUsed: 0,
+        beanDeducted: 0,
+        beansUsed: 0,
         status: 'paid',
         paymentChannel: 'wechat',
         paymentOrderId: 'WX180001',
@@ -303,6 +307,8 @@ describe('PlatformMembershipService', () => {
         amount: 3300,
         pointsDeducted: 500,
         pointsUsed: 500,
+        beanDeducted: 1000,
+        beansUsed: 10,
         status: 'paid',
         paymentChannel: 'wechat',
         paymentOrderId: 'WX180002',
@@ -323,6 +329,8 @@ describe('PlatformMembershipService', () => {
           amount: 9900,
           pointsDeducted: 0,
           pointsUsed: 0,
+          beanDeducted: 0,
+          beansUsed: 0,
           status: 'paid',
           createdAt: new Date('2026-05-14T10:00:00.000Z').getTime(),
           wxOrderId: 'WX180001',
@@ -334,6 +342,8 @@ describe('PlatformMembershipService', () => {
           amount: 3300,
           pointsDeducted: 500,
           pointsUsed: 500,
+          beanDeducted: 1000,
+          beansUsed: 10,
           status: 'paid',
           createdAt: new Date('2026-05-13T10:00:00.000Z').getTime(),
           wxOrderId: 'WX180002',
@@ -697,6 +707,162 @@ describe('PlatformMembershipService', () => {
     expect(result.approvedPartner?.beanBalance).toBe(18);
   });
 
+  it('cancelPartnerApplication 删除待审核申请并返回最新列表', async () => {
+    prismaService.store.findFirst.mockResolvedValue({ id: 18 });
+    prismaService.storePartnerApplication.findUnique.mockResolvedValue({
+      id: 101,
+      storeId: 18,
+      status: 'pending',
+      name: '张三',
+      phone: '13800138000',
+      idCard: '44030119900101123X',
+      region: ['广东省', '深圳市', '南山区'],
+      intention: 'resource',
+      applyReason: '有行业资源',
+      paymentAccountType: 'wechat',
+      paymentAccountNo: 'wx_test',
+      paymentAccountName: '张三',
+      reviewedAt: null,
+      joinedAt: null,
+      createdAt: new Date('2026-05-15T00:00:00.000Z'),
+      followUpNotes: [],
+    });
+    prismaService.storePartnerApplication.deleteMany.mockResolvedValue({ count: 1 });
+    prismaService.storePartner.findUnique.mockResolvedValue(null);
+    prismaService.storePartnerApplication.findMany.mockResolvedValue([]);
+    prismaService.storeMembershipPromoRecord.findMany.mockResolvedValue([]);
+    prismaService.storePartner.deleteMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.cancelPartnerApplication(user, 101);
+
+    expect(prismaService.storePartnerApplication.deleteMany).toHaveBeenCalledWith({
+      where: {
+        id: 101,
+        storeId: 18,
+        status: { in: ['pending', 'reviewing'] },
+      },
+    });
+    expect(prismaService.storePartner.deleteMany).toHaveBeenCalledWith({
+      where: {
+        storeId: 18,
+        status: { in: ['pending', 'reviewing', 'rejected'] },
+      },
+    });
+    expect(result.currentApplication).toBeNull();
+    expect(result.applications).toEqual([]);
+  });
+
+  it('getPromoCenter 返回全量和分时段推广统计', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-16T12:00:00.000Z'));
+    prismaService.storeMembershipProfile.upsert.mockResolvedValue({
+      id: 3,
+      storeId: 18,
+      currentPlanId: 'quarterly',
+      startsAt: new Date('2026-05-01T00:00:00.000Z'),
+      expiresAt: new Date('2099-05-01T00:00:00.000Z'),
+      totalPoints: 188,
+      availablePoints: 88,
+    });
+    prismaService.storePartner.findUnique.mockResolvedValue({
+      id: 11,
+      status: 'approved',
+      name: '王建国',
+      phone: '13800138000',
+      idCard: '44030119900101123X',
+      region: [],
+      intention: 'resource',
+      applyReason: null,
+      paymentAccountType: 'wechat',
+      paymentAccountNo: 'wx_test',
+      paymentAccountName: '王建国',
+      beanBalance: 25,
+      totalEarnedBeans: 60,
+      totalWithdrawnBeans: 10,
+      joinedAt: new Date('2026-05-02T00:00:00.000Z'),
+      reviewedAt: new Date('2026-05-02T00:00:00.000Z'),
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+    });
+    prismaService.storeMembershipPromoRecord.findMany.mockResolvedValue([
+      {
+        id: 7,
+        inviteeName: '今日已充值',
+        inviteePhone: '159****4321',
+        registeredAt: new Date('2026-05-16T08:00:00.000Z'),
+        hasCharged: true,
+        chargedAmount: 9900,
+        chargedAt: new Date('2026-05-16T09:00:00.000Z'),
+        chargedPlan: 'quarterly',
+        rewardBeans: 22,
+        settled: false,
+      },
+      {
+        id: 8,
+        inviteeName: '本月未充值',
+        inviteePhone: '187****3344',
+        registeredAt: new Date('2026-05-10T08:00:00.000Z'),
+        hasCharged: false,
+        chargedAmount: null,
+        chargedAt: null,
+        chargedPlan: null,
+        rewardBeans: null,
+        settled: false,
+      },
+      {
+        id: 9,
+        inviteeName: '今年已充值',
+        inviteePhone: '186****2233',
+        registeredAt: new Date('2026-02-10T08:00:00.000Z'),
+        hasCharged: true,
+        chargedAmount: 3800,
+        chargedAt: new Date('2026-02-11T08:00:00.000Z'),
+        chargedPlan: 'monthly',
+        rewardBeans: 20,
+        settled: true,
+      },
+      {
+        id: 10,
+        inviteeName: '去年记录',
+        inviteePhone: '185****1122',
+        registeredAt: new Date('2025-12-31T08:00:00.000Z'),
+        hasCharged: true,
+        chargedAmount: 36900,
+        chargedAt: new Date('2025-12-31T09:00:00.000Z'),
+        chargedPlan: 'yearly',
+        rewardBeans: 100,
+        settled: true,
+      },
+    ]);
+
+    const result = await service.getPromoCenter(user);
+
+    expect(result.stats).toEqual({
+      totalPromos: 4,
+      chargedPromos: 3,
+      promoRate: 75,
+      earnedBeans: 142,
+    });
+    expect(result.statsByPeriod.today).toEqual({
+      totalPromos: 1,
+      chargedPromos: 1,
+      promoRate: 100,
+      earnedBeans: 22,
+    });
+    expect(result.statsByPeriod.month).toEqual({
+      totalPromos: 2,
+      chargedPromos: 1,
+      promoRate: 50,
+      earnedBeans: 22,
+    });
+    expect(result.statsByPeriod.year).toEqual({
+      totalPromos: 3,
+      chargedPromos: 2,
+      promoRate: 67,
+      earnedBeans: 42,
+    });
+
+    jest.useRealTimers();
+  });
+
   it('rejectPartnerApplication 会写入驳回备注并返回历史备注', async () => {
     const rejectedAt = new Date('2026-05-16T10:00:00.000Z');
     prismaService.storePartnerApplication.findUnique.mockResolvedValue({
@@ -943,11 +1109,14 @@ describe('PlatformMembershipService', () => {
       amount: 5900,
       pointsDeducted: 2000,
       pointsUsed: 2000,
+      beanDeducted: 2000,
+      beansUsed: 20,
       status: 'paid',
       paymentChannel: 'wechat',
       paymentOrderId: 'WX18123456',
       createdAt: new Date('2026-05-20T00:00:00.000Z'),
     });
+
     prismaService.storeMembershipOrder.findMany.mockResolvedValue([
       {
         id: 31,
@@ -956,6 +1125,8 @@ describe('PlatformMembershipService', () => {
         amount: 5900,
         pointsDeducted: 2000,
         pointsUsed: 2000,
+        beanDeducted: 2000,
+        beansUsed: 20,
         status: 'paid',
         paymentChannel: 'wechat',
         paymentOrderId: 'WX18123456',
@@ -1022,6 +1193,8 @@ describe('PlatformMembershipService', () => {
         amount: 5900,
         pointsDeducted: 2000,
         pointsUsed: 2000,
+        beanDeducted: 2000,
+        beansUsed: 20,
         status: 'paid',
         createdAt: new Date('2026-05-20T00:00:00.000Z').getTime(),
         wxOrderId: 'WX18123456',

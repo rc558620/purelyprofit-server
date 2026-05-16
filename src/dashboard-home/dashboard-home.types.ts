@@ -1,17 +1,17 @@
 export const DASHBOARD_HOME_PERIOD_VALUES = [
-  '今日',
-  '本周',
-  '本月',
-  '今年',
-  '去年',
-] as const;
-
-export const DASHBOARD_HOME_LEGACY_PERIOD_VALUES = [
   'today',
   'week',
   'month',
   'year',
   'last_year',
+] as const;
+
+export const DASHBOARD_HOME_LEGACY_PERIOD_VALUES = [
+  '今日',
+  '本周',
+  '本月',
+  '今年',
+  '去年',
 ] as const;
 
 export type DashboardHomePeriodValue =
@@ -24,11 +24,11 @@ const DASHBOARD_HOME_PERIOD_ALIAS_MAP: Record<
   DashboardHomeLegacyPeriodValue,
   DashboardHomePeriodValue
 > = {
-  today: '今日',
-  week: '本周',
-  month: '本月',
-  year: '今年',
-  last_year: '去年',
+  今日: 'today',
+  本周: 'week',
+  本月: 'month',
+  今年: 'year',
+  去年: 'last_year',
 };
 
 export function normalizeDashboardHomePeriod(

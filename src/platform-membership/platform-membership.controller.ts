@@ -222,6 +222,22 @@ export class PlatformMembershipController {
     );
   }
 
+  @Patch('partner/applications/:id/cancel')
+  @ApiOperation({ summary: '取消合伙人申请' })
+  @ApiOkResponse({
+    description: '取消后返回最新的合伙人档案与申请历史',
+    type: PlatformMembershipPartnerProfileResponseDto,
+  })
+  cancelPartnerApplication(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) applicationId: number,
+  ): Promise<PlatformMembershipPartnerProfileResponseDto> {
+    return this.platformMembershipService.cancelPartnerApplication(
+      request.user,
+      applicationId,
+    );
+  }
+
   @Post('partner/applications/:id/follow-up-notes')
   @RequirePermissions('partner:review')
   @ApiOperation({ summary: '新增合伙人申请跟进备注' })

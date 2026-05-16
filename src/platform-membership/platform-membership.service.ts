@@ -63,6 +63,8 @@ interface StoreMembershipOrderRecord {
   amount: number;
   pointsDeducted: number;
   pointsUsed: number;
+  beanDeducted: number;
+  beansUsed: number;
   status: MembershipOrderStatusValue;
   paymentChannel: 'wechat';
   paymentOrderId: string | null;
@@ -290,6 +292,8 @@ export class PlatformMembershipService {
         amount: true,
         pointsDeducted: true,
         pointsUsed: true,
+        beanDeducted: true,
+        beansUsed: true,
         status: true,
         paymentChannel: true,
         paymentOrderId: true,
@@ -449,6 +453,8 @@ export class PlatformMembershipService {
           amount: true,
           pointsDeducted: true,
           pointsUsed: true,
+          beanDeducted: true,
+          beansUsed: true,
           status: true,
           paymentChannel: true,
           paymentOrderId: true,
@@ -466,6 +472,8 @@ export class PlatformMembershipService {
           amount: true,
           pointsDeducted: true,
           pointsUsed: true,
+          beanDeducted: true,
+          beansUsed: true,
           status: true,
           paymentChannel: true,
           paymentOrderId: true,
@@ -546,36 +554,14 @@ export class PlatformMembershipService {
       this.findPartner(this.prisma, storeId),
       this.findPromoRecords(this.prisma, storeId),
     ]);
-    const promoRewardLogs = partner
-      ? await this.prisma.storePartnerBeanLog.findMany({
-          where: {
-            storeId,
-            partnerId: partner.id,
-            source: 'promo_reward',
-          },
-          select: {
-            id: true,
-            source: true,
-            changeAmount: true,
-            description: true,
-            relatedPromoRecordId: true,
-            relatedUser: true,
-            relatedPlanType: true,
-            createdAt: true,
-          },
-        })
-      : [];
-
-    const earnedBeans = promoRewardLogs.reduce(
-      (sum, log) => (log.changeAmount > 0 ? sum + log.changeAmount : sum),
-      0,
-    );
+    const statsByPeriod = this.buildPromoStatsByPeriod(promoRecords);
 
     return {
       memberInfo: this.buildMembershipInfo(profile),
       approvedPartner: this.buildApprovedPartnerResponse(partner),
       level: this.buildPartnerLevel(partner, promoRecords),
-      stats: this.buildPromoStats(promoRecords, earnedBeans),
+      stats: statsByPeriod.all,
+      statsByPeriod,
       items: promoRecords.map((record) => this.mapPromoRecord(record)),
     };
   }
@@ -780,6 +766,66 @@ export class PlatformMembershipService {
         reviewedAt: now,
         joinedAt: null,
       });
+
+      return this.buildPartnerProfile(tx, storeId);
+    });
+  }
+
+  async cancelPartnerApplication(
+    user: AuthenticatedUser,
+    applicationId: number,
+  ): Promise<PlatformMembershipPartnerProfileResponseDto> {
+    const storeId = this.getCurrentStoreIdOrThrow(user);
+    await this.ensureStoreOwner(user, storeId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const application = await this.getScopedPartnerApplicationOrThrow(
+        tx,
+        storeId,
+        applicationId,
+      );
+
+      if (
+        application.status !== 'pending' &&
+        application.status !== 'reviewing'
+      ) {
+        throw new ConflictException('当前申请状态不可取消');
+      }
+
+      const deleteResult = await tx.storePartnerApplication.deleteMany({
+        where: {
+          id: applicationId,
+          storeId,
+          status: { in: ['pending', 'reviewing'] },
+        },
+      });
+
+      if (deleteResult.count !== 1) {
+        throw new ConflictException('申请状态已变化，请刷新后重试');
+      }
+
+      const remainingApplications = await this.findPartnerApplications(tx, storeId);
+      const latestApplication = remainingApplications[0];
+
+      if (latestApplication) {
+        await this.syncPartnerSnapshot(
+          tx,
+          storeId,
+          this.buildPartnerSnapshotFromApplication(latestApplication),
+          {
+            status: latestApplication.status,
+            reviewedAt: latestApplication.reviewedAt,
+            joinedAt: latestApplication.joinedAt,
+          },
+        );
+      } else {
+        await tx.storePartner.deleteMany({
+          where: {
+            storeId,
+            status: { in: ['pending', 'reviewing', 'rejected'] },
+          },
+        });
+      }
 
       return this.buildPartnerProfile(tx, storeId);
     });
@@ -1104,6 +1150,8 @@ export class PlatformMembershipService {
       amount: order.amount,
       pointsDeducted: order.pointsDeducted,
       pointsUsed: order.pointsUsed,
+      beanDeducted: order.beanDeducted,
+      beansUsed: order.beansUsed,
       status: order.status,
       createdAt: order.createdAt.getTime(),
       ...(order.paymentChannel === 'wechat' && order.paymentOrderId
@@ -1182,9 +1230,12 @@ export class PlatformMembershipService {
 
   private buildPromoStats(
     promoRecords: StoreMembershipPromoRecord[],
-    earnedBeans: number,
   ): PlatformMembershipPromoStatsDto {
     const chargedPromos = promoRecords.filter((record) => record.hasCharged).length;
+    const earnedBeans = promoRecords.reduce(
+      (sum, record) => sum + (record.rewardBeans ?? 0),
+      0,
+    );
     return {
       totalPromos: promoRecords.length,
       chargedPromos,
@@ -1194,6 +1245,41 @@ export class PlatformMembershipService {
           : 0,
       earnedBeans,
     };
+  }
+
+  private buildPromoStatsByPeriod(
+    promoRecords: StoreMembershipPromoRecord[],
+  ): PlatformMembershipPromoCenterResponseDto['statsByPeriod'] {
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+
+    const monthStart = new Date(now);
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const yearStart = new Date(now);
+    yearStart.setMonth(0, 1);
+    yearStart.setHours(0, 0, 0, 0);
+
+    return {
+      all: this.buildPromoStats(promoRecords),
+      today: this.buildPromoStatsForPeriod(promoRecords, todayStart),
+      month: this.buildPromoStatsForPeriod(promoRecords, monthStart),
+      year: this.buildPromoStatsForPeriod(promoRecords, yearStart),
+    };
+  }
+
+  private buildPromoStatsForPeriod(
+    promoRecords: StoreMembershipPromoRecord[],
+    startAt: Date,
+  ): PlatformMembershipPromoStatsDto {
+    const startTimestamp = startAt.getTime();
+    const filteredRecords = promoRecords.filter(
+      (record) => record.registeredAt.getTime() >= startTimestamp,
+    );
+
+    return this.buildPromoStats(filteredRecords);
   }
 
   private mapPromoRecord(
@@ -1263,6 +1349,22 @@ export class PlatformMembershipService {
       paymentAccountType: dto.paymentMethod,
       paymentAccountNo: dto.paymentAccount.trim(),
       paymentAccountName: dto.name.trim(),
+    };
+  }
+
+  private buildPartnerSnapshotFromApplication(
+    application: StorePartnerApplicationRecord,
+  ): PartnerSnapshotPayload {
+    return {
+      name: application.name,
+      phone: application.phone,
+      idCard: application.idCard,
+      region: application.region,
+      intention: application.intention,
+      applyReason: application.applyReason,
+      paymentAccountType: application.paymentAccountType,
+      paymentAccountNo: application.paymentAccountNo,
+      paymentAccountName: application.paymentAccountName,
     };
   }
 

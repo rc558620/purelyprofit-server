@@ -367,6 +367,14 @@ export class PlatformMembershipOrderResponseDto {
   @IsInt({ message: '使用积分数量必须是整数' })
   pointsUsed: number;
 
+  @ApiProperty({ example: 2000, description: '纯利豆抵扣金额，单位分' })
+  @IsInt({ message: '纯利豆抵扣金额必须是整数' })
+  beanDeducted: number;
+
+  @ApiProperty({ example: 20, description: '实际使用纯利豆数量' })
+  @IsInt({ message: '使用纯利豆数量必须是整数' })
+  beansUsed: number;
+
   @ApiProperty({
     enum: PLATFORM_MEMBERSHIP_ORDER_STATUS,
     description: '订单状态，和前端 OrderStatus 保持一致',
@@ -609,6 +617,28 @@ export class PlatformMembershipPromoRecordDto {
   settled?: boolean;
 }
 
+export class PlatformMembershipPromoStatsByPeriodDto {
+  @ApiProperty({ type: PlatformMembershipPromoStatsDto, description: '全部时间统计' })
+  @ValidateNested()
+  @Type(() => PlatformMembershipPromoStatsDto)
+  all: PlatformMembershipPromoStatsDto;
+
+  @ApiProperty({ type: PlatformMembershipPromoStatsDto, description: '今日统计' })
+  @ValidateNested()
+  @Type(() => PlatformMembershipPromoStatsDto)
+  today: PlatformMembershipPromoStatsDto;
+
+  @ApiProperty({ type: PlatformMembershipPromoStatsDto, description: '本月统计' })
+  @ValidateNested()
+  @Type(() => PlatformMembershipPromoStatsDto)
+  month: PlatformMembershipPromoStatsDto;
+
+  @ApiProperty({ type: PlatformMembershipPromoStatsDto, description: '本年统计' })
+  @ValidateNested()
+  @Type(() => PlatformMembershipPromoStatsDto)
+  year: PlatformMembershipPromoStatsDto;
+}
+
 export class PlatformMembershipPromoCenterResponseDto {
   @ApiProperty({ type: PlatformMembershipInfoDto, description: '会员基础信息，用于推广码展示' })
   @ValidateNested()
@@ -626,10 +656,15 @@ export class PlatformMembershipPromoCenterResponseDto {
   @Type(() => PlatformMembershipPartnerLevelDto)
   level: PlatformMembershipPartnerLevelDto;
 
-  @ApiProperty({ type: PlatformMembershipPromoStatsDto, description: '推广中心统计信息' })
+  @ApiProperty({ type: PlatformMembershipPromoStatsDto, description: '推广中心统计信息（全量）' })
   @ValidateNested()
   @Type(() => PlatformMembershipPromoStatsDto)
   stats: PlatformMembershipPromoStatsDto;
+
+  @ApiProperty({ type: PlatformMembershipPromoStatsByPeriodDto, description: '按时间维度拆分的推广统计' })
+  @ValidateNested()
+  @Type(() => PlatformMembershipPromoStatsByPeriodDto)
+  statsByPeriod: PlatformMembershipPromoStatsByPeriodDto;
 
   @ApiProperty({ type: [PlatformMembershipPromoRecordDto], description: '推广记录列表，按注册时间倒序' })
   @IsArray({ message: '推广记录列表必须是数组' })

@@ -46,35 +46,35 @@ const PERIOD_META: Record<
     compareTarget: string;
   }
 > = {
-  今日: {
+  today: {
     displayLabel: '今日',
     profitLabel: '今日净利润 (元)',
     orderLabel: '今日订单数',
     compareLabel: '较昨日',
     compareTarget: '昨日',
   },
-  本周: {
+  week: {
     displayLabel: '本周',
     profitLabel: '本周净利润 (元)',
     orderLabel: '本周订单数',
     compareLabel: '较上周',
     compareTarget: '上周',
   },
-  本月: {
+  month: {
     displayLabel: '本月',
     profitLabel: '本月净利润 (元)',
     orderLabel: '本月订单数',
     compareLabel: '较上月',
     compareTarget: '上月',
   },
-  今年: {
+  year: {
     displayLabel: '今年',
     profitLabel: '今年净利润 (元)',
     orderLabel: '今年订单数',
     compareLabel: '较去年',
     compareTarget: '去年',
   },
-  去年: {
+  last_year: {
     displayLabel: '去年',
     profitLabel: '去年净利润 (元)',
     orderLabel: '去年订单数',
@@ -187,7 +187,7 @@ export class DashboardHomeService {
       storeId: queryDto.storeId,
       period: queryDto.period,
     };
-    const period = query.period ?? '今日';
+    const period = query.period ?? 'today';
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
       query.storeId,
@@ -444,15 +444,15 @@ export class DashboardHomeService {
     currentRange: TimeRange,
     saleOrders: SaleOrderRow[],
   ): DashboardHomeSalesTrendDto {
-    if (period === '今日') {
+    if (period === 'today') {
       return this.buildTodaySalesTrend(currentRange, saleOrders);
     }
 
-    if (period === '本周') {
+    if (period === 'week') {
       return this.buildRecentDaySalesTrend(7, currentRange.end, saleOrders);
     }
 
-    if (period === '本月') {
+    if (period === 'month') {
       return this.buildCurrentMonthSalesTrend(currentRange, saleOrders);
     }
 
@@ -588,7 +588,7 @@ export class DashboardHomeService {
     saleOrders: SaleOrderRow[],
   ): DashboardHomeSalesTrendDto {
     const year =
-      period === '去年'
+      period === 'last_year'
         ? new Date().getFullYear() - 1
         : new Date().getFullYear();
     const revenueMap = new Map<number, number>();
@@ -834,12 +834,12 @@ export class DashboardHomeService {
     const currentDate = new Date(now);
 
     switch (period) {
-      case '今日':
+      case 'today':
         return {
           start: this.getDayStart(now),
           end: now,
         };
-      case '本周': {
+      case 'week': {
         const start = new Date(currentDate);
         const day = start.getDay();
         const diff = day === 0 ? -6 : 1 - day;
@@ -850,7 +850,7 @@ export class DashboardHomeService {
           end: now,
         };
       }
-      case '本月':
+      case 'month':
         return {
           start: new Date(
             currentDate.getFullYear(),
@@ -859,12 +859,12 @@ export class DashboardHomeService {
           ).getTime(),
           end: now,
         };
-      case '今年':
+      case 'year':
         return {
           start: new Date(currentDate.getFullYear(), 0, 1).getTime(),
           end: now,
         };
-      case '去年': {
+      case 'last_year': {
         const year = currentDate.getFullYear() - 1;
         return {
           start: new Date(year, 0, 1).getTime(),
@@ -881,21 +881,21 @@ export class DashboardHomeService {
     const currentDuration = currentRange.end - currentRange.start;
 
     switch (period) {
-      case '今日': {
+      case 'today': {
         const start = currentRange.start - DAY_MS;
         return {
           start,
           end: start + currentDuration,
         };
       }
-      case '本周': {
+      case 'week': {
         const start = currentRange.start - DAY_MS * 7;
         return {
           start,
           end: start + currentDuration,
         };
       }
-      case '本月': {
+      case 'month': {
         const currentStartDate = new Date(currentRange.start);
         const previousMonthStart = new Date(
           currentStartDate.getFullYear(),
@@ -919,7 +919,7 @@ export class DashboardHomeService {
           ),
         };
       }
-      case '今年': {
+      case 'year': {
         const currentStartDate = new Date(currentRange.start);
         const previousYearStart = new Date(
           currentStartDate.getFullYear() - 1,
@@ -943,7 +943,7 @@ export class DashboardHomeService {
           ),
         };
       }
-      case '去年': {
+      case 'last_year': {
         const currentYear = new Date(currentRange.start).getFullYear();
         const compareYear = currentYear - 1;
         return {
@@ -1044,6 +1044,6 @@ export class DashboardHomeService {
       return `${Math.max(1, Math.floor(diff / hour))}小时前`;
     }
 
-    return '今日';
+    return 'today';
   }
 }

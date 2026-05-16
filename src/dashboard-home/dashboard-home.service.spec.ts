@@ -146,7 +146,7 @@ describe('DashboardHomeService', () => {
       },
     ]);
 
-    await expect(service.getOverview(user, { period: '今日' })).resolves.toEqual({
+    await expect(service.getOverview(user, { period: 'today' })).resolves.toEqual({
       stats: {
         profitLabel: '今日净利润 (元)',
         profit: 190,
@@ -240,7 +240,7 @@ describe('DashboardHomeService', () => {
         },
       ],
       meta: {
-        period: '今日',
+        period: 'today',
         storeId: 18,
         storeName: '纯利宝测试门店',
         startAt: new Date(2026, 4, 14, 0, 0, 0, 0).getTime(),

@@ -68,7 +68,7 @@ describe('DashboardHomeController', () => {
       },
       activities: [],
       meta: {
-        period: '今日' as const,
+        period: 'today' as const,
         storeId: 18,
         storeName: '纯利宝测试门店',
         startAt: 1747180800000,
@@ -80,7 +80,7 @@ describe('DashboardHomeController', () => {
     };
     const query = {
       storeId: 18,
-      period: '今日' as const,
+      period: 'today' as const,
     };
     dashboardHomeService.getOverview.mockResolvedValue(response);
 
