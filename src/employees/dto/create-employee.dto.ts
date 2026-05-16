@@ -3,6 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Matches,
@@ -48,6 +49,8 @@ export class CreateEmployeeDto {
   joinDate: number;
 
   @ApiProperty({ example: 4500, description: '底薪（元）' })
+  @IsNumber({}, { message: '底薪必须是数字' })
+  @Min(0, { message: '底薪不能为负数' })
   baseSalary: number;
 
   @ApiPropertyOptional({

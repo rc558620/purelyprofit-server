@@ -3,9 +3,11 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Matches,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -44,6 +46,8 @@ export class UpdateEmployeeDto {
 
   @ApiPropertyOptional({ example: 4500, description: '底薪（元）' })
   @IsOptional()
+  @IsNumber({}, { message: '底薪必须是数字' })
+  @Min(0, { message: '底薪不能为负数' })
   baseSalary?: number;
 
   @ApiPropertyOptional({
