@@ -21,7 +21,7 @@ export const PARTNER_WITHDRAWAL_STATUS_VALUES = [
   'paid',
   'rejected',
 ] as const;
-export const PARTNER_WITHDRAWAL_MIN_BEANS = 500;
+export const PARTNER_WITHDRAWAL_MIN_BEANS = 100;
 export const PARTNER_WITHDRAWAL_MAX_BEANS = 10000;
 
 export type WithdrawalAccountTypeValue =
@@ -39,7 +39,7 @@ function transformTrimmedString(value: unknown): unknown {
 
 export class ApplyWithdrawalDto {
   @ApiProperty({
-    example: 500,
+    example: 100,
     description: '提现纯利豆数量，前端当前按整数豆提交',
   })
   @IsInt({ message: '提现数量必须是整数' })

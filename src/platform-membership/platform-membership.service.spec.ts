@@ -863,6 +863,49 @@ describe('PlatformMembershipService', () => {
     jest.useRealTimers();
   });
 
+  it('getPromoCenter 对已审核合伙人 0 个本月付费推广仍返回新星等级', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-16T12:00:00.000Z'));
+    prismaService.storeMembershipProfile.upsert.mockResolvedValue({
+      id: 3,
+      storeId: 18,
+      currentPlanId: 'quarterly',
+      startsAt: new Date('2026-05-01T00:00:00.000Z'),
+      expiresAt: new Date('2099-05-01T00:00:00.000Z'),
+      totalPoints: 188,
+      availablePoints: 88,
+    });
+    prismaService.storePartner.findUnique.mockResolvedValue({
+      id: 11,
+      status: 'approved',
+      name: '王建国',
+      phone: '13800138000',
+      idCard: '44030119900101123X',
+      region: [],
+      intention: 'resource',
+      applyReason: null,
+      paymentAccountType: 'wechat',
+      paymentAccountNo: 'wx_test',
+      paymentAccountName: '王建国',
+      beanBalance: 0,
+      totalEarnedBeans: 0,
+      totalWithdrawnBeans: 0,
+      joinedAt: new Date('2026-05-02T00:00:00.000Z'),
+      reviewedAt: new Date('2026-05-02T00:00:00.000Z'),
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+    });
+    prismaService.storeMembershipPromoRecord.findMany.mockResolvedValue([]);
+
+    const result = await service.getPromoCenter(user);
+
+    expect(result.level).toEqual({
+      partnerLevel: 'star',
+      monthChargedCount: 0,
+      monthCountToNextLevel: 10,
+    });
+
+    jest.useRealTimers();
+  });
+
   it('rejectPartnerApplication 会写入驳回备注并返回历史备注', async () => {
     const rejectedAt = new Date('2026-05-16T10:00:00.000Z');
     prismaService.storePartnerApplication.findUnique.mockResolvedValue({

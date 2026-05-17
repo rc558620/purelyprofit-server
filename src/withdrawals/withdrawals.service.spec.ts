@@ -156,6 +156,19 @@ describe('WithdrawalsService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it('apply 在提现金额低于 100 豆时拒绝提交', async () => {
+    await expect(
+      service.apply(user, {
+        beanAmount: 99,
+        accountType: 'wechat',
+        accountNo: 'wxid_abc123',
+        accountName: '张三',
+      }),
+    ).rejects.toThrow('最低提现 100 豆');
+
+    expect(prismaService.storePartner.findUnique).not.toHaveBeenCalled();
+  });
+
   it('apply 在余额不足时阻止提现', async () => {
     prismaService.storePartner.findUnique.mockResolvedValue({
       id: 6,
