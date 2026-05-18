@@ -63,7 +63,7 @@ export class CreateSupplierDto {
   @ApiPropertyOptional({ example: '每周三送货', description: '备注' })
   @IsOptional()
   @IsString({ message: '备注必须是字符串' })
-  @MaxLength(200, { message: '备注最长 200 个字符' })
+  @MaxLength(80, { message: '备注最长 80 个字符' })
   note?: string;
 }
 
@@ -108,7 +108,7 @@ export class UpdateSupplierDto {
   })
   @IsOptional()
   @IsString({ message: '备注必须是字符串' })
-  @MaxLength(200, { message: '备注最长 200 个字符' })
+  @MaxLength(80, { message: '备注最长 80 个字符' })
   note?: string;
 }
 

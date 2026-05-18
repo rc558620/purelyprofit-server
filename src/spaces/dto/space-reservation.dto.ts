@@ -32,6 +32,26 @@ export class ListSpaceReservationsQueryDto {
   @IsOptional()
   @IsIn(SPACE_RESERVATION_STATUS_VALUES, { message: '预约状态不合法' })
   status?: SpaceReservationStatusValue;
+
+  @ApiPropertyOptional({
+    example: 1760054400000,
+    description: '按预约开始时间过滤：区间起始时间戳（毫秒，含）',
+  })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '区间起始时间必须是整数时间戳' })
+  @Min(0, { message: '区间起始时间不合法' })
+  dateFrom?: number;
+
+  @ApiPropertyOptional({
+    example: 1760140799999,
+    description: '按预约开始时间过滤：区间结束时间戳（毫秒，含）',
+  })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '区间结束时间必须是整数时间戳' })
+  @Min(0, { message: '区间结束时间不合法' })
+  dateTo?: number;
 }
 
 export class CreateSpaceReservationDto {
@@ -134,8 +154,8 @@ export class SpaceReservationResponseDto {
   @ApiProperty({ example: '张先生', description: '预约人姓名' })
   guestName: string;
 
-  @ApiPropertyOptional({ example: '13800138000', description: '联系方式' })
-  phone?: string;
+  @ApiProperty({ example: '13800138000', description: '联系方式' })
+  phone: string;
 
   @ApiProperty({
     example: 1760104800000,
@@ -164,4 +184,10 @@ export class SpaceReservationResponseDto {
 
   @ApiProperty({ example: 1760097600000, description: '创建时间戳（毫秒）' })
   createdAt: number;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '预约开始时间是否已过（reservedAt <= 当前时间），过时后 UI 展示为"已过时"，不再参与新增预约冲突校验',
+  })
+  isOverdue?: boolean;
 }

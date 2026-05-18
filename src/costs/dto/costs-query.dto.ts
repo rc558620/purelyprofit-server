@@ -138,7 +138,7 @@ export class CostReportQueryDto {
 export class CreateCostRecordDto {
   @ApiProperty({ example: '门店房租', description: '成本名称' })
   @IsString({ message: '成本名称必须是字符串' })
-  @MaxLength(40, { message: '成本名称最多 40 个字符' })
+  @MaxLength(30, { message: '成本名称最多 30 个字符' })
   title: string;
 
   @ApiProperty({ enum: COST_TYPE_VALUES, description: '成本类型' })

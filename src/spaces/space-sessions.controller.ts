@@ -25,6 +25,7 @@ import {
   CheckoutSpaceSessionDto,
   CheckoutSpaceSessionPreviewDto,
   CheckoutSpaceSessionPreviewResponseDto,
+  CheckoutSpaceSessionResponseDto,
   ListSpaceSessionsQueryDto,
   OpenSpaceSessionDto,
   PaginatedSpaceSessionsResponseDto,
@@ -155,12 +156,12 @@ export class SpaceSessionsController {
   @Post('space-sessions/:id/checkout')
   @RequirePermissions('sales:create')
   @ApiOperation({ summary: '结账并关闭使用会话' })
-  @ApiOkResponse({ type: SpaceSessionResponseDto })
+  @ApiOkResponse({ type: CheckoutSpaceSessionResponseDto })
   checkout(
     @Req() request: { user: AuthenticatedUser },
     @Param('id', ParseIntPipe) sessionId: number,
     @Body() dto: CheckoutSpaceSessionDto,
-  ): Promise<SpaceSessionResponseDto> {
+  ): Promise<CheckoutSpaceSessionResponseDto> {
     return this.spacesService.checkoutSpaceSession(
       request.user,
       sessionId,

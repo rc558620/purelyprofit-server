@@ -23,6 +23,7 @@ import {
   SALES_PAYMENT_METHOD_VALUES,
   type SalesPaymentMethodValue,
 } from '../../sales-record/sales-record.types';
+import { SalesRecordResponseDto } from '../../sales-record/dto/sales-record.dto';
 import {
   SPACE_BILLING_MODE_VALUES,
   SPACE_SESSION_STATUS_VALUES,
@@ -259,6 +260,12 @@ export class RenewSpaceSessionDto {
   @MaxLength(50, { message: '团购券码最长 50 个字符' })
   grouponCode?: string;
 
+  @ApiPropertyOptional({ example: '美团', description: '团购平台' })
+  @IsOptional()
+  @IsString({ message: '团购平台必须是字符串' })
+  @MaxLength(50, { message: '团购平台最长 50 个字符' })
+  grouponPlatform?: string;
+
   @ApiPropertyOptional({ example: '补差价', description: '备注' })
   @IsOptional()
   @IsString({ message: '备注必须是字符串' })
@@ -389,6 +396,9 @@ export class SpaceSessionRenewRecordResponseDto {
 
   @ApiPropertyOptional({ example: 'MT123456', description: '团购券码' })
   grouponCode?: string;
+
+  @ApiPropertyOptional({ example: '美团', description: '团购平台' })
+  grouponPlatform?: string;
 
   @ApiPropertyOptional({ example: '补差价', description: '备注' })
   note?: string;
@@ -543,6 +553,37 @@ export class SpaceSessionResponseDto {
   createdAt: number;
 }
 
+export class CheckoutSpaceSessionResponseDto {
+  @ApiProperty({
+    type: () => SpaceSessionResponseDto,
+    description: '结账后的会话信息',
+  })
+  @ValidateNested()
+  @Type(() => SpaceSessionResponseDto)
+  session: SpaceSessionResponseDto;
+
+  @ApiProperty({
+    example: 'cleaning',
+    description: '结账后空间回流状态',
+    enum: SPACE_STATUS_VALUES,
+  })
+  spaceStatus: SpaceStatusValue;
+
+  @ApiPropertyOptional({
+    example: '12',
+    description: '本次结账联动取消的预约 ID',
+  })
+  cancelledReservationId?: string;
+
+  @ApiProperty({
+    type: () => SalesRecordResponseDto,
+    description: '本次结账生成的销售单',
+  })
+  @ValidateNested()
+  @Type(() => SalesRecordResponseDto)
+  salesOrder: SalesRecordResponseDto;
+}
+
 export class RenewSpaceSessionResponseDto {
   @ApiProperty({
     type: () => SpaceSessionRenewRecordResponseDto,
@@ -565,6 +606,12 @@ export class TransferSpaceSessionResponseDto {
   @ApiProperty({ example: true, description: '是否换房成功' })
   @IsBoolean()
   ok: boolean;
+
+  @ApiPropertyOptional({
+    example: '目标空间当前不可换入',
+    description: '换房失败原因（ok=false 时后端通过异常返回，保留此字段供前端接口类型对齐）',
+  })
+  reason?: string;
 
   @ApiProperty({
     type: () => SpaceSessionResponseDto,

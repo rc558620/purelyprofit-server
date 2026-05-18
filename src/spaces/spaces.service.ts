@@ -64,6 +64,7 @@ import {
   CheckoutSpaceSessionDto,
   CheckoutSpaceSessionPreviewDto,
   type CheckoutSpaceSessionPreviewResponseDto,
+  type CheckoutSpaceSessionResponseDto,
   ListSpaceSessionsQueryDto,
   OpenSpaceSessionDto,
   type PaginatedSpaceSessionsResponseDto,
@@ -126,6 +127,7 @@ interface SpaceSessionRenewRecord {
   addedMinutes: number;
   paymentMethod: SalesPaymentMethodValue;
   grouponCode?: string;
+  grouponPlatform?: string;
   note?: string;
   renewedAt: number;
 }
@@ -1225,6 +1227,7 @@ export class SpacesService {
       addedMinutes,
       paymentMethod: payload.paymentMethod,
       ...(payload.grouponCode ? { grouponCode: payload.grouponCode } : {}),
+      ...(payload.grouponPlatform ? { grouponPlatform: payload.grouponPlatform } : {}),
       ...(payload.note ? { note: payload.note } : {}),
       renewedAt: Date.now(),
     };
@@ -1274,6 +1277,7 @@ export class SpacesService {
             name: true,
             storeId: true,
             enableDirtyRoom: true,
+            autoCheckout: true,
             type: {
               select: {
                 id: true,
@@ -1312,6 +1316,8 @@ export class SpacesService {
         name: true,
         status: true,
         typeId: true,
+        enableDirtyRoom: true,
+        autoCheckout: true,
       },
     });
 
@@ -1331,6 +1337,18 @@ export class SpacesService {
       throw new ConflictException('只能换到同类型空间');
     }
 
+    if (targetSpace.enableDirtyRoom !== session.space.enableDirtyRoom) {
+      throw new ConflictException(
+        '目标空间与当前空间的脏房模式不一致，无法换房',
+      );
+    }
+
+    if (targetSpace.autoCheckout !== session.space.autoCheckout) {
+      throw new ConflictException(
+        '目标空间与当前空间的自动结账设置不一致，无法换房',
+      );
+    }
+
     const result = await this.prisma.$transaction(async (transaction) => {
       const latestSession = await transaction.spaceSession.findUnique({
         where: { id: session.id },
@@ -1341,6 +1359,7 @@ export class SpacesService {
               name: true,
               storeId: true,
               enableDirtyRoom: true,
+              autoCheckout: true,
               type: {
                 select: {
                   id: true,
@@ -1366,6 +1385,8 @@ export class SpacesService {
           storeId: true,
           status: true,
           typeId: true,
+          enableDirtyRoom: true,
+          autoCheckout: true,
         },
       });
 
@@ -1380,6 +1401,19 @@ export class SpacesService {
       }
       if (latestTargetSpace.typeId !== latestSession.space.type.id) {
         throw new ConflictException('只能换到同类型空间');
+      }
+      if (
+        latestTargetSpace.enableDirtyRoom !==
+        latestSession.space.enableDirtyRoom
+      ) {
+        throw new ConflictException(
+          '目标空间与当前空间的脏房模式不一致，无法换房',
+        );
+      }
+      if (latestTargetSpace.autoCheckout !== latestSession.space.autoCheckout) {
+        throw new ConflictException(
+          '目标空间与当前空间的自动结账设置不一致，无法换房',
+        );
       }
 
       const sourceSpaceStatus = latestSession.space.enableDirtyRoom
@@ -1521,7 +1555,7 @@ export class SpacesService {
     user: AuthenticatedUser,
     sessionId: number,
     dto: CheckoutSpaceSessionDto,
-  ): Promise<SpaceSessionResponseDto> {
+  ): Promise<CheckoutSpaceSessionResponseDto> {
     const session = await this.prisma.spaceSession.findUnique({
       where: { id: sessionId },
       include: {
@@ -1620,21 +1654,29 @@ export class SpacesService {
         },
       });
 
-      await this.cancelMatchedReservationAfterCheckout(transaction, session);
+      const cancelledReservationId = await this.cancelMatchedReservationAfterCheckout(
+        transaction,
+        session,
+      );
+      const nextSpaceStatus = session.space.enableDirtyRoom
+        ? PrismaSpaceStatus.cleaning
+        : await this.resolveReservationBackStatus(
+            transaction,
+            session.spaceId,
+          );
 
       await transaction.space.update({
         where: { id: session.spaceId },
         data: {
-          status: session.space.enableDirtyRoom
-            ? PrismaSpaceStatus.cleaning
-            : await this.resolveReservationBackStatus(
-                transaction,
-                session.spaceId,
-              ),
+          status: nextSpaceStatus,
         },
       });
 
-      return nextSession;
+      return {
+        session: nextSession,
+        spaceStatus: nextSpaceStatus,
+        cancelledReservationId,
+      };
     });
 
     if (payload.lockId) {
@@ -1643,7 +1685,14 @@ export class SpacesService {
       );
     }
 
-    return this.toSpaceSessionResponse(updated);
+    return {
+      session: this.toSpaceSessionResponse(updated.session),
+      spaceStatus: this.toSpaceStatusValue(updated.spaceStatus),
+      ...(updated.cancelledReservationId !== null
+        ? { cancelledReservationId: String(updated.cancelledReservationId) }
+        : {}),
+      salesOrder: createdOrder,
+    };
   }
 
   async listSpaceReservations(
@@ -1675,6 +1724,18 @@ export class SpacesService {
       where: {
         spaceId: space.id,
         status,
+        ...(query.dateFrom !== undefined || query.dateTo !== undefined
+          ? {
+              reservedAt: {
+                ...(query.dateFrom !== undefined
+                  ? { gte: new Date(query.dateFrom) }
+                  : {}),
+                ...(query.dateTo !== undefined
+                  ? { lte: new Date(query.dateTo) }
+                  : {}),
+              },
+            }
+          : {}),
       },
       orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
@@ -1776,7 +1837,8 @@ export class SpacesService {
     }
 
     const payload = this.normalizeReservationPayload(dto);
-    this.ensureReservationTimeWindow(payload.reservedAt);
+    // 编辑预约不限制时间窗口：预约开始时间已过后店员仍可能需要补录或调整，
+    // 前端对过时预约会标记为"已过时"展示态，不再参与新预约冲突校验。
     this.ensureReservationEndAfterStart(
       payload.reservedAt,
       payload.reservedEndAt,
@@ -1867,7 +1929,11 @@ export class SpacesService {
         sortOrder: true,
         _count: {
           select: {
-            reservations: true,
+            reservations: {
+              where: {
+                status: PrismaSpaceReservationStatus.pending,
+              },
+            },
           },
         },
       },
@@ -1889,7 +1955,7 @@ export class SpacesService {
     }
 
     if (space._count.reservations > 0) {
-      throw new ConflictException('该空间已有预约记录，无法删除');
+      throw new ConflictException('该空间存在待处理预约，请先取消预约后再删除');
     }
 
     await this.prisma.$transaction(async (transaction) => {
@@ -2158,15 +2224,18 @@ export class SpacesService {
     amount: number;
     paymentMethod: SalesPaymentMethodValue;
     grouponCode?: string;
+    grouponPlatform?: string;
     note?: string;
   } {
     const grouponCode = dto.grouponCode?.trim();
+    const grouponPlatform = dto.grouponPlatform?.trim();
     const note = dto.note?.trim();
 
     return {
       amount: dto.amount,
       paymentMethod: dto.paymentMethod,
       ...(grouponCode ? { grouponCode } : {}),
+      ...(grouponPlatform ? { grouponPlatform } : {}),
       ...(note ? { note } : {}),
     };
   }
@@ -2394,15 +2463,15 @@ export class SpacesService {
         type: { name: string };
       };
     },
-  ): Promise<void> {
+  ): Promise<number | null> {
     if (session.reservationId !== null) {
-      return;
+      return null;
     }
 
     const guestName = session.guestName?.trim();
     const guestPhone = session.guestPhone?.trim();
     if (!guestName || !guestPhone) {
-      return;
+      return null;
     }
 
     const todayRange = this.getTodayRange();
@@ -2427,7 +2496,7 @@ export class SpacesService {
     )[0];
 
     if (!nearest) {
-      return;
+      return null;
     }
 
     await transaction.spaceReservation.update({
@@ -2436,6 +2505,8 @@ export class SpacesService {
         status: PrismaSpaceReservationStatus.cancelled,
       },
     });
+
+    return nearest.id;
   }
 
   private toSpaceSessionItemsJson(
@@ -2516,6 +2587,9 @@ export class SpacesService {
           paymentMethod: row.paymentMethod as SalesPaymentMethodValue,
           ...(typeof row.grouponCode === 'string'
             ? { grouponCode: row.grouponCode }
+            : {}),
+          ...(typeof row.grouponPlatform === 'string'
+            ? { grouponPlatform: row.grouponPlatform }
             : {}),
           ...(typeof row.note === 'string' ? { note: row.note } : {}),
           renewedAt: row.renewedAt,
@@ -2943,12 +3017,13 @@ export class SpacesService {
   private toSpaceReservationResponse(
     reservation: SpaceReservationRecord,
   ): SpaceReservationResponseDto {
+    const reservedAtMs = toTimestampMs(reservation.reservedAt);
     return {
       id: String(reservation.id),
       spaceId: String(reservation.spaceId),
       guestName: reservation.guestName,
-      ...(reservation.phone ? { phone: reservation.phone } : {}),
-      reservedAt: toTimestampMs(reservation.reservedAt),
+      phone: reservation.phone ?? '',
+      reservedAt: reservedAtMs,
       ...(reservation.reservedEndAt
         ? { reservedEndAt: toTimestampMs(reservation.reservedEndAt) }
         : {}),
@@ -2958,6 +3033,7 @@ export class SpacesService {
       ...(reservation.note ? { note: reservation.note } : {}),
       status: this.toSpaceReservationStatusValue(reservation.status),
       createdAt: toTimestampMs(reservation.createdAt),
+      isOverdue: Date.now() >= reservedAtMs,
     };
   }
 
@@ -3049,6 +3125,11 @@ export class SpacesService {
           countdownMinutes: true,
           itemsCost: true,
           renewRecords: true,
+          autoCheckout: true,
+          prepaidPaymentMethod: true,
+          prepaidGrouponCode: true,
+          prepaidNote: true,
+          prepaidAmount: true,
         },
         orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
       }),
@@ -3311,6 +3392,11 @@ export class SpacesService {
     countdownMinutes: number | null;
     itemsCost: Prisma.Decimal;
     renewRecords: Prisma.JsonValue;
+    autoCheckout: boolean | null;
+    prepaidPaymentMethod: SalesPaymentMethodValue | null;
+    prepaidGrouponCode: string | null;
+    prepaidNote: string | null;
+    prepaidAmount: Prisma.Decimal | null;
   }): SpaceDashboardActiveSessionSummaryDto {
     return {
       sessionId: String(session.id),
@@ -3330,6 +3416,19 @@ export class SpacesService {
       itemsCost: Number(session.itemsCost),
       renewCount: this.parseSpaceSessionRenewRecords(session.renewRecords)
         .length,
+      ...(session.autoCheckout !== null
+        ? { autoCheckout: session.autoCheckout }
+        : {}),
+      ...(session.prepaidPaymentMethod
+        ? { prepaidPaymentMethod: session.prepaidPaymentMethod }
+        : {}),
+      ...(session.prepaidGrouponCode
+        ? { prepaidGrouponCode: session.prepaidGrouponCode }
+        : {}),
+      ...(session.prepaidNote ? { prepaidNote: session.prepaidNote } : {}),
+      ...(session.prepaidAmount !== null
+        ? { prepaidAmount: Number(session.prepaidAmount) }
+        : {}),
     };
   }
 

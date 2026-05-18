@@ -188,7 +188,7 @@ export class CreateFinanceCashFlowRecordDto {
   @ApiProperty({
     enum: FINANCE_CASH_FLOW_CATEGORY_VALUES,
     description:
-      '流水分类：sales 仅允许销售记录自动生成；refund/transfer_in/other_income 归入附加收入；purchase 单列进货支出；其余支出类归入成本支出',
+      '流水分类：sales 仅允许销售记录自动生成；refund/transfer_in/other_income 归入附加收入；purchase 单列进货支出；rent 店面租金；utilities 水电煤气；salary/marketing/tax/transfer_out/other_expense 归入成本支出',
   })
   @IsIn(FINANCE_CASH_FLOW_CATEGORY_VALUES, { message: '流水分类不合法' })
   category: FinanceCashFlowCategoryValue;

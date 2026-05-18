@@ -247,6 +247,24 @@ export class SpaceDashboardActiveSessionSummaryDto {
 
   @ApiProperty({ example: 1, description: '续费记录数量' })
   renewCount: number;
+
+  @ApiPropertyOptional({ example: true, description: '倒计时到期是否自动结账' })
+  autoCheckout?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'cash',
+    description: '预付支付方式（自动结账时）',
+  })
+  prepaidPaymentMethod?: string;
+
+  @ApiPropertyOptional({ example: 'MT123456', description: '预付团购券码' })
+  prepaidGrouponCode?: string;
+
+  @ApiPropertyOptional({ example: '美团团购券', description: '预付备注' })
+  prepaidNote?: string;
+
+  @ApiPropertyOptional({ example: 88, description: '预付金额（元）' })
+  prepaidAmount?: number;
 }
 
 export class SpaceDashboardReservationSummaryDto {

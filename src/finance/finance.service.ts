@@ -138,13 +138,13 @@ const CASH_FLOW_CATEGORY_RULES = {
     overviewBucket: 'purchase',
   },
   rent: {
-    label: '房租水电',
+    label: '店面租金',
     direction: 'expense',
     allowManualCreate: true,
     overviewBucket: 'cost',
   },
   utilities: {
-    label: '水电支出',
+    label: '水电煤气',
     direction: 'expense',
     allowManualCreate: true,
     overviewBucket: 'cost',
@@ -259,6 +259,12 @@ type FinanceCashFlowRecordWithAmount = {
   note: string | null;
   date: Date;
   createdAt: Date;
+};
+
+/** 仅用于统计计算的最小流水行类型（getCashFlowStats 专用） */
+type FinanceCashFlowStatsRow = {
+  direction: string;
+  amount: Prisma.Decimal;
 };
 
 type FinanceAccountRecordWithAmount = {
@@ -466,15 +472,8 @@ export class FinanceService {
         ...(directionFilter !== 'all' ? { direction: directionFilter } : {}),
       },
       select: {
-        id: true,
         direction: true,
-        category: true,
-        title: true,
         amount: true,
-        payment: true,
-        note: true,
-        date: true,
-        createdAt: true,
       },
     });
     const baseStats = this.buildCashFlowBaseStats(currentRecords);
@@ -495,15 +494,8 @@ export class FinanceService {
         },
       },
       select: {
-        id: true,
         direction: true,
-        category: true,
-        title: true,
         amount: true,
-        payment: true,
-        note: true,
-        date: true,
-        createdAt: true,
       },
     });
     const previousStats = this.buildCashFlowBaseStats(previousRecords);
@@ -1549,7 +1541,7 @@ export class FinanceService {
   }
 
   private buildCashFlowBaseStats(
-    records: FinanceCashFlowRecordWithAmount[],
+    records: FinanceCashFlowStatsRow[],
   ): FinanceCashFlowStatsDto {
     let totalIncome = 0;
     let totalExpense = 0;

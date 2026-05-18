@@ -118,7 +118,7 @@ export class CreatePurchaseDto {
   @ApiPropertyOptional({ example: '货款月结', description: '备注' })
   @IsOptional()
   @IsString({ message: '备注必须是字符串' })
-  @MaxLength(200, { message: '备注最长 200 个字符' })
+  @MaxLength(100, { message: '备注最长 100 个字符' })
   note?: string;
 }
 

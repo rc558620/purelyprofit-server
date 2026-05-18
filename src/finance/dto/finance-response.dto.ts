@@ -275,7 +275,7 @@ export class FinanceCashFlowRecordResponseDto {
   @ApiProperty({
     enum: FINANCE_CASH_FLOW_CATEGORY_VALUES,
     description:
-      '流水分类：sales 为销售自动流水；refund/transfer_in/other_income 参与附加收入口径；purchase 参与进货支出口径；其余支出类参与成本支出口径',
+      '流水分类：sales 为销售自动流水；refund/transfer_in/other_income 参与附加收入口径；purchase 参与进货支出口径；rent 店面租金；utilities 水电煤气；salary/marketing/tax/transfer_out/other_expense 参与成本支出口径',
   })
   @IsIn(FINANCE_CASH_FLOW_CATEGORY_VALUES, { message: '流水分类不合法' })
   category: FinanceCashFlowCategoryValue;

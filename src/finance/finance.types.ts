@@ -21,6 +21,7 @@ export const FINANCE_CASH_FLOW_CATEGORY_VALUES = [
   'other_income',
   'purchase',
   'rent',
+  'utilities',
   'salary',
   'marketing',
   'tax',
