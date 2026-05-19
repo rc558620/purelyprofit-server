@@ -52,6 +52,17 @@ export class SpaceReservationsController {
     );
   }
 
+  @Get('space-reservations')
+  @RequirePermissions('space:view')
+  @ApiOperation({ summary: '获取当前门店空间预约快照（兼容前端读取接口）' })
+  @ApiOkResponse({ type: [SpaceReservationResponseDto] })
+  listStoreReservations(
+    @Req() request: { user: AuthenticatedUser },
+    @Query() query: ListSpaceReservationsQueryDto,
+  ): Promise<SpaceReservationResponseDto[]> {
+    return this.spacesService.listStoreSpaceReservations(request.user, query);
+  }
+
   @Post('spaces/:spaceId/reservations')
   @RequirePermissions('space:create')
   @ApiOperation({ summary: '新增空间预约' })

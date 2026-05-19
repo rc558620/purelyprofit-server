@@ -6,10 +6,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../commerce/commerce-access.service';
 import { CostsService } from '../costs/costs.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreatePurchaseDto } from './dto/purchase.dto';
 import { PurchasesService } from './purchases.service';
 
 describe('PurchasesService', () => {
@@ -64,6 +67,32 @@ describe('PurchasesService', () => {
       isActive: true,
     },
   };
+
+  it('CreatePurchaseDto 会忽略前端临时商品 ID 并通过校验', async () => {
+    const dto = plainToInstance(CreatePurchaseDto, {
+      supplierName: '312',
+      items: [
+        {
+          productId: 'prd_1774853101784_1g62nev',
+          productName: '可口可乐 330ml',
+          unit: '瓶',
+          quantity: 1,
+          unitPrice: 2,
+          amount: 2,
+        },
+      ],
+      totalAmount: 2,
+      date: 1779120000000,
+    });
+
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.items[0]?.productId).toBeUndefined();
+  });
 
   beforeEach(async () => {
     jest.clearAllMocks();

@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type { TransformFnParams } from 'class-transformer';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -22,10 +23,40 @@ import {
   type PurchasePeriodValue,
 } from '../../commerce/commerce.utils';
 
+function transformOptionalPurchaseProductId({
+  value,
+}: TransformFnParams): number | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  if (typeof value === 'number') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim();
+    if (trimmedValue === '') {
+      return undefined;
+    }
+    if (/^-?\d+$/.test(trimmedValue)) {
+      return Number.parseInt(trimmedValue, 10);
+    }
+    if (/[A-Za-z_-]/.test(trimmedValue)) {
+      return undefined;
+    }
+  }
+
+  return Number.NaN;
+}
+
 export class PurchaseItemInputDto {
-  @ApiPropertyOptional({ example: 1, description: '商品 ID，无码商品可不传' })
+  @ApiPropertyOptional({
+    example: 1,
+    description: '商品 ID，无码商品可不传；前端临时商品 ID 会自动忽略',
+  })
   @IsOptional()
-  @Transform(transformOptionalInt)
+  @Transform(transformOptionalPurchaseProductId)
   @IsInt({ message: '商品 ID 必须是整数' })
   @Min(1, { message: '商品 ID 必须大于等于 1' })
   productId?: number;

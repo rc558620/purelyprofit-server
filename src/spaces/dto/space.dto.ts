@@ -181,6 +181,16 @@ export class UpdateSpaceDto {
   sortOrder?: number;
 }
 
+export class UpdateSpaceStatusDto {
+  @ApiProperty({
+    example: 'reserved',
+    description: '空间状态',
+    enum: SPACE_STATUS_VALUES,
+  })
+  @IsIn(SPACE_STATUS_VALUES, { message: '空间状态不合法' })
+  status: SpaceStatusValue;
+}
+
 export class SpaceResponseDto {
   @ApiProperty({ example: '1', description: '空间 ID' })
   id: string;

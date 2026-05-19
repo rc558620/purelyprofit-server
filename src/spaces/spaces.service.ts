@@ -40,6 +40,7 @@ import {
   type SpaceStatsResponseDto,
   type SpacesDashboardResponseDto,
   UpdateSpaceDto,
+  UpdateSpaceStatusDto,
 } from './dto/space.dto';
 import {
   CreateSpaceTypeDto,
@@ -833,6 +834,121 @@ export class SpacesService {
     });
 
     return this.toSpaceResponse(updated);
+  }
+
+  async updateSpaceStatus(
+    user: AuthenticatedUser,
+    spaceId: number,
+    dto: UpdateSpaceStatusDto,
+  ): Promise<SpaceResponseDto> {
+    const space = await this.prisma.space.findUnique({
+      where: { id: spaceId },
+      include: {
+        type: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        zone: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!space) {
+      throw new NotFoundException('空间不存在');
+    }
+
+    await this.commerceAccessService.ensureCanAccessStore(
+      user,
+      space.storeId,
+      'space:update',
+      '无权操作该门店空间',
+    );
+
+    if (dto.status === PrismaSpaceStatus.occupied) {
+      throw new ConflictException('使用中状态仅可通过开台、换房等会话流程更新');
+    }
+
+    if (space.status === PrismaSpaceStatus.occupied) {
+      throw new ConflictException('空间当前使用中，请先完成会话流程后再调整状态');
+    }
+
+    const updated = await this.prisma.space.update({
+      where: { id: space.id },
+      data: {
+        status: dto.status,
+      },
+      include: {
+        type: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        zone: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    return this.toSpaceResponse(updated);
+  }
+
+  async listStoreSpaceSessions(
+    user: AuthenticatedUser,
+    queryDto: ListSpaceSessionsQueryDto,
+  ): Promise<SpaceSessionResponseDto[]> {
+    const storeId = await this.commerceAccessService.resolveViewStoreId(
+      user,
+      queryDto.storeId,
+      'space:view',
+      '无权查看该门店空间会话',
+    );
+
+    if (storeId === null) {
+      return [];
+    }
+
+    const query = this.toSpaceSessionListQuery(queryDto);
+    const normalizedQuery: SpaceSessionListQuery = {
+      ...query,
+      ...(query.status === undefined && query.includeActive === undefined
+        ? { includeActive: true }
+        : {}),
+    };
+
+    const where = this.buildStoreSpaceSessionListWhere(
+      storeId,
+      normalizedQuery,
+    );
+
+    const sessions = await this.prisma.spaceSession.findMany({
+      where,
+      include: {
+        space: {
+          select: {
+            id: true,
+            name: true,
+            type: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
+    });
+
+    return sessions.map((session) => this.toSpaceSessionResponse(session));
   }
 
   async getActiveSpaceSession(
@@ -1724,6 +1840,52 @@ export class SpacesService {
       where: {
         spaceId: space.id,
         status,
+        ...(query.dateFrom !== undefined || query.dateTo !== undefined
+          ? {
+              reservedAt: {
+                ...(query.dateFrom !== undefined
+                  ? { gte: new Date(query.dateFrom) }
+                  : {}),
+                ...(query.dateTo !== undefined
+                  ? { lte: new Date(query.dateTo) }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+      orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+    });
+
+    return items.map((item) => this.toSpaceReservationResponse(item));
+  }
+
+  async listStoreSpaceReservations(
+    user: AuthenticatedUser,
+    query: ListSpaceReservationsQueryDto,
+  ): Promise<SpaceReservationResponseDto[]> {
+    const storeId = await this.commerceAccessService.resolveViewStoreId(
+      user,
+      query.storeId,
+      'space:view',
+      '无权查看该门店空间预约',
+    );
+
+    if (storeId === null) {
+      return [];
+    }
+
+    if (
+      query.dateFrom !== undefined &&
+      query.dateTo !== undefined &&
+      query.dateFrom > query.dateTo
+    ) {
+      throw new BadRequestException('区间开始时间不能晚于结束时间');
+    }
+
+    const items = await this.prisma.spaceReservation.findMany({
+      where: {
+        storeId,
+        ...(query.status !== undefined ? { status: query.status } : {}),
         ...(query.dateFrom !== undefined || query.dateTo !== undefined
           ? {
               reservedAt: {
@@ -2719,6 +2881,39 @@ export class SpacesService {
         OR: [
           { guestName: { contains: query.keyword, mode: 'insensitive' } },
           { guestPhone: { contains: query.keyword } },
+        ],
+      });
+    }
+
+    const timeRangeCondition = this.buildSpaceSessionTimeRangeWhere(
+      query.rangeStartDate,
+      query.rangeEndDate,
+    );
+    if (timeRangeCondition) {
+      conditions.push(timeRangeCondition);
+    }
+
+    return conditions.length === 1 ? conditions[0] : { AND: conditions };
+  }
+
+  private buildStoreSpaceSessionListWhere(
+    storeId: number,
+    query: SpaceSessionListQuery,
+  ): Prisma.SpaceSessionWhereInput {
+    const conditions: Prisma.SpaceSessionWhereInput[] = [{ storeId }];
+
+    if (query.status) {
+      conditions.push({ status: query.status });
+    } else if (query.includeActive !== true) {
+      conditions.push({ status: PrismaSpaceSessionStatus.settled });
+    }
+
+    if (query.keyword) {
+      conditions.push({
+        OR: [
+          { guestName: { contains: query.keyword, mode: 'insensitive' } },
+          { guestPhone: { contains: query.keyword } },
+          { space: { name: { contains: query.keyword, mode: 'insensitive' } } },
         ],
       });
     }

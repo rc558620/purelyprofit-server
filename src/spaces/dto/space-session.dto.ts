@@ -38,6 +38,13 @@ export type SpaceCountdownFeeModeValue =
   (typeof SPACE_COUNTDOWN_FEE_MODE_VALUES)[number];
 
 export class OpenSpaceSessionDto {
+  @ApiPropertyOptional({ example: 1, description: '空间 ID（兼容根路径开台）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '空间 ID 必须是整数' })
+  @Min(1, { message: '空间 ID 必须大于等于 1' })
+  spaceId?: number;
+
   @ApiPropertyOptional({ example: '张先生', description: '顾客姓名' })
   @IsOptional()
   @IsString({ message: '顾客姓名必须是字符串' })
@@ -308,6 +315,13 @@ function transformOptionalBoolean({
 }
 
 export class ListSpaceSessionsQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ example: 1, description: '门店 ID' })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '门店 ID 必须是整数' })
+  @Min(1, { message: '门店 ID 必须大于等于 1' })
+  storeId?: number;
+
   @ApiPropertyOptional({
     example: 'settled',
     description: '按会话状态筛选',

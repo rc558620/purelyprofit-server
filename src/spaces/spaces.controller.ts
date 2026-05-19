@@ -32,6 +32,7 @@ import {
   SpaceResponseDto,
   SpacesDashboardResponseDto,
   UpdateSpaceDto,
+  UpdateSpaceStatusDto,
 } from './dto/space.dto';
 import { SpacesService } from './spaces.service';
 
@@ -96,6 +97,18 @@ export class SpacesController {
     @Param('id', ParseIntPipe) spaceId: number,
   ): Promise<SpaceResponseDto> {
     return this.spacesService.markSpaceReady(request.user, spaceId);
+  }
+
+  @Patch(':id/status')
+  @RequirePermissions('space:update')
+  @ApiOperation({ summary: '更新空间状态（兼容前端状态接口）' })
+  @ApiOkResponse({ type: SpaceResponseDto })
+  updateStatus(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) spaceId: number,
+    @Body() dto: UpdateSpaceStatusDto,
+  ): Promise<SpaceResponseDto> {
+    return this.spacesService.updateSpaceStatus(request.user, spaceId, dto);
   }
 
   @Delete(':id')

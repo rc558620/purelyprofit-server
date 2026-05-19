@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -70,6 +71,17 @@ export class SpaceSessionsController {
     return this.spacesService.listSpaceSessions(request.user, spaceId, query);
   }
 
+  @Get('space-sessions')
+  @RequirePermissions('space:view')
+  @ApiOperation({ summary: '获取当前门店空间会话快照（兼容前端读取接口）' })
+  @ApiOkResponse({ type: [SpaceSessionResponseDto] })
+  listStoreSessions(
+    @Req() request: { user: AuthenticatedUser },
+    @Query() query: ListSpaceSessionsQueryDto,
+  ): Promise<SpaceSessionResponseDto[]> {
+    return this.spacesService.listStoreSpaceSessions(request.user, query);
+  }
+
   @Get('space-sessions/:id')
   @RequirePermissions('space:view')
   @ApiOperation({ summary: '获取空间会话详情' })
@@ -91,6 +103,21 @@ export class SpaceSessionsController {
     @Body() dto: OpenSpaceSessionDto,
   ): Promise<SpaceSessionResponseDto> {
     return this.spacesService.openSpaceSession(request.user, spaceId, dto);
+  }
+
+  @Post('space-sessions')
+  @RequirePermissions('sales:create')
+  @ApiOperation({ summary: '开台（兼容前端根路径接口）' })
+  @ApiCreatedResponse({ type: SpaceSessionResponseDto })
+  openSessionByRootPath(
+    @Req() request: { user: AuthenticatedUser },
+    @Body() dto: OpenSpaceSessionDto,
+  ): Promise<SpaceSessionResponseDto> {
+    if (dto.spaceId === undefined) {
+      throw new BadRequestException('spaceId 必填');
+    }
+
+    return this.spacesService.openSpaceSession(request.user, dto.spaceId, dto);
   }
 
   @Post('space-sessions/:id/items')
