@@ -1,3 +1,10 @@
+function parseStringList(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
 export default () => ({
   port: parseInt(process.env.PORT ?? '3000', 10),
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -45,5 +52,9 @@ export default () => ({
       process.env.AUTH_REGISTER_CODE_TTL_SECONDS ?? '600',
       10,
     ),
+  },
+
+  pulse: {
+    devAccountEmails: parseStringList(process.env.PULSE_DEV_ACCOUNT_EMAILS),
   },
 });

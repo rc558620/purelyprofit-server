@@ -1,0 +1,189 @@
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { toTimestampMs } from '../../commerce/commerce.utils';
+import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  CreateSpaceTypeDto,
+  ListSpaceTypesQueryDto,
+  type SpaceTypeResponseDto,
+  UpdateSpaceTypeDto,
+} from './dto/space-type.dto';
+
+interface SpaceTypeRecord {
+  id: number;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+@Injectable()
+export class SpaceTypesService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly commerceAccessService: CommerceAccessService,
+  ) {}
+
+  async listSpaceTypes(
+    user: AuthenticatedUser,
+    query: ListSpaceTypesQueryDto,
+  ): Promise<SpaceTypeResponseDto[]> {
+    const storeId = await this.commerceAccessService.resolveViewStoreId(
+      user,
+      query.storeId,
+      'space:view',
+      '无权查看该门店空间类型',
+    );
+
+    if (storeId === null) {
+      return [];
+    }
+
+    const items = await this.prisma.spaceType.findMany({
+      where: { storeId },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+
+    return items.map((item) => this.toSpaceTypeResponse(item));
+  }
+
+  async createSpaceType(
+    user: AuthenticatedUser,
+    dto: CreateSpaceTypeDto,
+  ): Promise<SpaceTypeResponseDto> {
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      dto.storeId,
+      'space:create',
+      '无权操作该门店空间类型',
+    );
+    const name = dto.name.trim();
+
+    const duplicate = await this.prisma.spaceType.findFirst({
+      where: { storeId, name },
+      select: { id: true },
+    });
+
+    if (duplicate) {
+      throw new ConflictException('空间类型名称已存在');
+    }
+
+    const item = await this.prisma.spaceType.create({
+      data: { storeId, name },
+    });
+
+    return this.toSpaceTypeResponse(item);
+  }
+
+  async updateSpaceType(
+    user: AuthenticatedUser,
+    typeId: number,
+    dto: UpdateSpaceTypeDto,
+  ): Promise<SpaceTypeResponseDto> {
+    const item = await this.prisma.spaceType.findUnique({
+      where: { id: typeId },
+    });
+
+    if (!item) {
+      throw new NotFoundException('空间类型不存在');
+    }
+
+    await this.commerceAccessService.ensureCanAccessStore(
+      user,
+      item.storeId,
+      'space:update',
+      '无权操作该门店空间类型',
+    );
+
+    const name = dto.name.trim();
+    if (name !== item.name) {
+      const duplicate = await this.prisma.spaceType.findFirst({
+        where: {
+          storeId: item.storeId,
+          name,
+          id: { not: item.id },
+        },
+        select: { id: true },
+      });
+
+      if (duplicate) {
+        throw new ConflictException('空间类型名称已存在');
+      }
+    }
+
+    const updated = await this.prisma.spaceType.update({
+      where: { id: item.id },
+      data: { name },
+    });
+
+    return this.toSpaceTypeResponse(updated);
+  }
+
+  async resolveSpaceTypeByName(
+    storeId: number,
+    rawName: string,
+  ): Promise<{ id: number; name: string }> {
+    const name = rawName.trim();
+    const type = await this.prisma.spaceType.findFirst({
+      where: { storeId, name },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (!type) {
+      throw new NotFoundException('空间类型不存在');
+    }
+
+    return type;
+  }
+
+  async removeSpaceType(
+    user: AuthenticatedUser,
+    typeId: number,
+  ): Promise<void> {
+    const item = await this.prisma.spaceType.findUnique({
+      where: { id: typeId },
+      select: {
+        id: true,
+        storeId: true,
+        _count: {
+          select: { spaces: true },
+        },
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException('空间类型不存在');
+    }
+
+    await this.commerceAccessService.ensureCanAccessStore(
+      user,
+      item.storeId,
+      'space:delete',
+      '无权删除该门店空间类型',
+    );
+
+    if (item._count.spaces > 0) {
+      throw new ConflictException('该空间类型已被空间使用，无法删除');
+    }
+
+    await this.prisma.spaceType.delete({
+      where: { id: item.id },
+    });
+  }
+
+  toSpaceTypeResponse(item: SpaceTypeRecord): SpaceTypeResponseDto {
+    return {
+      id: String(item.id),
+      name: item.name,
+      createdAt: toTimestampMs(item.createdAt),
+      updatedAt: toTimestampMs(item.updatedAt),
+    };
+  }
+}
