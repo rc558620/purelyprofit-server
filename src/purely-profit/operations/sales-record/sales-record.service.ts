@@ -15,6 +15,7 @@ import {
   toTimestampMs,
 } from '../../commerce/commerce.utils';
 import { InventoryService } from '../../goods/inventory/inventory.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
   CreateSalesRecordDto,
@@ -91,12 +92,17 @@ interface PreparedSalesItem {
   image?: string;
 }
 
+interface CreateSalesRecordOptions {
+  skipInventoryValidationAndDeduction?: boolean;
+}
+
 @Injectable()
 export class SalesRecordService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly inventoryService: InventoryService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async listProducts(
@@ -195,13 +201,24 @@ export class SalesRecordService {
       rangeStartDate: query.rangeStartDate,
       rangeEndDate: query.rangeEndDate,
     });
+    const clampedRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      range,
+    );
+
+    if (clampedRange.empty) {
+      return {
+        items: [],
+        meta: buildPaginationMeta(0, 1, 1),
+      };
+    }
 
     const orders = await this.prisma.saleOrder.findMany({
       where: {
         storeId,
         date: {
-          gte: new Date(range.start),
-          lte: new Date(range.end),
+          gte: new Date(clampedRange.start),
+          lte: new Date(clampedRange.end),
         },
       },
       include: {
@@ -263,11 +280,37 @@ export class SalesRecordService {
     };
     const currentRange = this.buildCurrentRange(input);
     const previousRange = this.buildPreviousRange(input, currentRange);
+    const clampedCurrentRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      currentRange,
+    );
+    const clampedPreviousRange = previousRange
+      ? await this.platformMembershipAccessService.clampHistoryRange(
+          storeId,
+          previousRange,
+        )
+      : null;
+
+    if (clampedCurrentRange.empty) {
+      return {
+        totalRevenue: 0,
+        totalProfit: 0,
+        orderCount: 0,
+        avgOrderValue: 0,
+        compareLastPeriod: null,
+      };
+    }
 
     const [currentStats, previousStats] = await Promise.all([
-      this.aggregateOrderStats(storeId, currentRange),
-      previousRange
-        ? this.aggregateOrderStats(storeId, previousRange)
+      this.aggregateOrderStats(storeId, {
+        start: clampedCurrentRange.start,
+        end: clampedCurrentRange.end,
+      }),
+      clampedPreviousRange && !clampedPreviousRange.empty
+        ? this.aggregateOrderStats(storeId, {
+            start: clampedPreviousRange.start,
+            end: clampedPreviousRange.end,
+          })
         : Promise.resolve<SalesStatsAggregation>({
             totalRevenue: 0,
             totalProfit: 0,
@@ -286,7 +329,9 @@ export class SalesRecordService {
             )
           : 0,
       compareLastPeriod:
-        previousRange && previousStats.totalRevenue > 0
+        clampedPreviousRange &&
+        !clampedPreviousRange.empty &&
+        previousStats.totalRevenue > 0
           ? Number(
               (
                 ((currentStats.totalRevenue - previousStats.totalRevenue) /
@@ -321,6 +366,10 @@ export class SalesRecordService {
       };
     }
 
+    if (query.export) {
+      await this.platformMembershipAccessService.ensureReportExportEnabled(storeId);
+    }
+
     const range = this.buildCurrentRange({
       storeId: query.storeId,
       period: query.period,
@@ -329,12 +378,29 @@ export class SalesRecordService {
       rangeStartDate: query.rangeStartDate,
       rangeEndDate: query.rangeEndDate,
     });
+    const clampedRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      range,
+    );
+
+    if (clampedRange.empty) {
+      return {
+        summary: {
+          totalQuantity: 0,
+          totalRevenue: 0,
+          orderCount: 0,
+          avgOrderValue: 0,
+        },
+        dailySales: [],
+      };
+    }
+
     const orders = await this.prisma.saleOrder.findMany({
       where: {
         storeId,
         date: {
-          gte: new Date(range.start),
-          lte: new Date(range.end),
+          gte: new Date(clampedRange.start),
+          lte: new Date(clampedRange.end),
         },
       },
       include: {
@@ -367,6 +433,7 @@ export class SalesRecordService {
   async create(
     user: AuthenticatedUser,
     dto: CreateSalesRecordDto,
+    options: CreateSalesRecordOptions = {},
   ): Promise<SalesRecordResponseDto> {
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
@@ -380,7 +447,7 @@ export class SalesRecordService {
         storeId,
       );
 
-    const preparedItems = await this.prepareItems(storeId, dto);
+    const preparedItems = await this.prepareItems(storeId, dto, options);
     const totalRevenue = this.sumMoney(
       preparedItems,
       (item) => item.salePrice * item.quantity,
@@ -449,7 +516,7 @@ export class SalesRecordService {
           quantity: item.quantity,
         }));
 
-      if (stockItems.length > 0) {
+      if (stockItems.length > 0 && !options.skipInventoryValidationAndDeduction) {
         await this.inventoryService.recordSaleDeduction(transaction, {
           storeId,
           saleOrderId: createdOrder.id,
@@ -516,6 +583,7 @@ export class SalesRecordService {
   private async prepareItems(
     storeId: number,
     dto: CreateSalesRecordDto,
+    options: CreateSalesRecordOptions = {},
   ): Promise<PreparedSalesItem[]> {
     const numericProductIds = Array.from(
       new Set(
@@ -568,7 +636,10 @@ export class SalesRecordService {
             `商品【${matchedProduct.name}】已下架，无法销售`,
           );
         }
-        if (matchedProduct.stock < quantity) {
+        if (
+          !options.skipInventoryValidationAndDeduction &&
+          matchedProduct.stock < quantity
+        ) {
           throw new BadRequestException(
             `商品【${matchedProduct.name}】库存不足`,
           );

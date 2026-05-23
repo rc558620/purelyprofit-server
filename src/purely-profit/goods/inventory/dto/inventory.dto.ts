@@ -14,6 +14,7 @@ import {
 import {
   PaginationMetaDto,
   PaginationQueryDto,
+  transformOptionalBoolean,
   transformOptionalInt,
   transformOptionalKeyword,
 } from '../../../stores/dto/store-response.dto';
@@ -24,28 +25,6 @@ import {
   INVENTORY_STOCK_SORT_VALUES,
   type InventoryStockAlertLevelValue,
 } from '../../../commerce/commerce.utils';
-
-function transformOptionalBoolean({
-  value,
-}: {
-  value: unknown;
-}): boolean | undefined {
-  if (value === undefined || value === null || value === '') {
-    return undefined;
-  }
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  if (typeof value === 'string') {
-    if (value === 'true') {
-      return true;
-    }
-    if (value === 'false') {
-      return false;
-    }
-  }
-  return undefined;
-}
 
 export class ListInventoryProductsQueryDto {
   @ApiPropertyOptional({ example: 1, description: '门店 ID' })
@@ -72,6 +51,12 @@ export class ListInventoryProductsQueryDto {
   @Transform(transformOptionalBoolean)
   @IsBoolean({ message: 'alertOnly 必须是布尔值' })
   alertOnly?: boolean;
+
+  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: '导出标记必须是布尔值' })
+  export?: boolean;
 
   @ApiPropertyOptional({
     example: 'warning',

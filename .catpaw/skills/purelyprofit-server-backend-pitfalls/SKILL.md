@@ -1,6 +1,6 @@
 ---
 name: purelyprofit-server-backend-pitfalls
-description: Captures recurring backend implementation pitfalls in purelyprofit-server, especially TypeScript typing, DTO boundaries, raw SQL row mapping, Prisma transaction return shapes, pagination assembly, dual product-line semantics, and ESLint no-unsafe/no-unnecessary-type-assertion issues. Use when fixing strange lint errors, refactoring service-layer types, mapping raw query results, or wanting to avoid repeated backend mistakes in this repository.
+description: Captures recurring backend implementation pitfalls in purelyprofit-server, especially TypeScript typing, DTO boundaries, raw SQL row mapping, Prisma transaction return shapes, pagination assembly, dual product-line semantics, membership plan config vs runtime profile modeling, and ESLint no-unsafe/no-unnecessary-type-assertion issues. Use when fixing strange lint errors, refactoring service-layer types, mapping raw query results, adjusting membership settings or access rules, or wanting to avoid repeated backend mistakes in this repository.
 ---
 
 # purelyprofit-server 后端踩坑记录
@@ -14,6 +14,7 @@ description: Captures recurring backend implementation pitfalls in purelyprofit-
 - DTO、raw SQL row、response DTO 之间类型开始互相污染
 - Prisma 事务返回值、`Promise.all()` 解构后类型不稳定
 - 需要同时处理 `purely-profit` 与 `purely-pulse` 的产品语义边界
+- 要改 Pulse 会员套餐配置、会员权益限制、永久会员语义
 - 想在动手前先避开这个仓库里已经踩过的坑
 
 ## 核心原则
@@ -41,10 +42,11 @@ description: Captures recurring backend implementation pitfalls in purelyprofit-
 按这个顺序查，通常返工最少：
 
 1. 先查当前接口到底属于 `purely-profit` 还是 `purely-pulse`
-2. 再查 controller 传入 service 的类型边界是不是过重依赖 DTO class
-3. 再查 SQL row / Prisma 返回值是不是缺少本地明确类型
-4. 再查事务返回值和 `Promise.all()` 是否用了不稳定的数组元组解构
-5. 最后才处理 mapper 和 response 组装
+2. 再查是不是把 `membership_plan_settings` 配置层和 `storeMembershipProfile` 运行态混用了
+3. 再查 controller 传入 service 的类型边界是不是过重依赖 DTO class
+4. 再查 SQL row / Prisma 返回值是不是缺少本地明确类型
+5. 再查事务返回值和 `Promise.all()` 是否用了不稳定的数组元组解构
+6. 最后才处理 mapper 和 response 组装
 
 ## 产品视角相关坑
 
@@ -111,6 +113,40 @@ description: Captures recurring backend implementation pitfalls in purelyprofit-
 - Pulse 观察态优先使用 `pulse-store-context.service.ts` 或显式 `targetStoreId` 语义
 - 命名、Swagger、错误文案里明确写清“目标门店”“观察对象”，不要继续沿用模糊的“当前门店”
 - 需要跨产品线复用时，复用底层查询函数，不复用入口语义
+
+## 会员体系相关坑
+
+### 坑 16：把 `membership_plan_settings` 当成门店运行态会员档案
+
+症状：
+
+- 在老板端功能开关、商品/员工/空间配额判断里，直接读取 `membership_plan_settings` 就想决定当前门店是否可用
+- 改了 Pulse 套餐配置表后，预期所有商家运行态权限立即跟着自动切换，却没有同步检查 `storeMembershipProfile`、订单、积分/纯利豆等数据
+- `src/purely-pulse/membership-settings/*` 被当成老板端自助购买或门店实时会员状态接口使用
+- 新增权益时在多个 service 各写一套 `if (planId === ...)`，没有统一回到访问控制层
+
+推荐写法：
+
+- `membership_plan_settings` 只负责平台套餐配置，适合维护价格、默认时长、永久会员默认有效期
+- 门店当前处于什么会员状态，优先看 `storeMembershipProfile`、会员订单、积分日志、纯利豆日志等运行态数据
+- 老板端功能准入、历史数据窗口、配额控制优先统一收口到 `PlatformMembershipAccessService`
+- 要新增会员权益时，先判断是“改配置表”“改运行态档案”“改访问控制逻辑”中的哪一层，不要三层语义混在一起
+
+### 坑 17：把 `lifetime` 直接写进 `StoreMembershipProfile.currentPlanId`
+
+症状：
+
+- 看到 `MembershipPlanSettingId` 里有 `lifetime`，就直接想把运行态 `currentPlanId` 也设成 `lifetime`
+- Prisma schema、DTO、service 对 `currentPlanId` 的联合类型开始互相打架，因为 `MembershipPlanCycle` 当前只有 `monthly`、`quarterly`、`yearly`
+- Pulse session / onboarding / membership 这类模块查询运行态档案时，字段值和既有解析逻辑对不上
+- 只改了一个字段值，却没有同时调整到期时间解析、权益判断和展示层文案
+
+推荐写法：
+
+- 先区分配置层与运行态：配置层可以有 `lifetime`，运行态档案仍要遵守 `MembershipPlanCycle`
+- 需要表达永久会员时，优先沿用现有中心化解析逻辑，不要在 controller / DTO / 单个 service 私自扩出一套第四个运行态枚举
+- 如果未来真的要让运行态直接支持 `lifetime`，必须连带修改 Prisma enum、DTO、session/onboarding/membership/service mapper 与访问控制逻辑，而不是只改一个字段
+- 当前仓库里涉及永久会员判断时，先检索 `PlatformMembershipAccessService` 和 `storeMembershipProfile` 相关实现，再决定怎么改
 
 ## DTO 相关坑
 

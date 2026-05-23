@@ -1,10 +1,19 @@
 import { EmployeeGender, EmployeeStatus } from '@prisma/client';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import {
   PaginationMetaDto,
   PaginationQueryDto,
+  transformOptionalBoolean,
   transformOptionalInt,
   transformOptionalKeyword,
 } from '../../../stores/dto/store-response.dto';
@@ -222,4 +231,10 @@ export class EmployeeDateFilterQueryDto {
   @Min(0, { message: '月份不能小于 0' })
   @Max(12, { message: '月份不能大于 12' })
   month?: number;
+
+  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: '导出标记必须是布尔值' })
+  export?: boolean;
 }

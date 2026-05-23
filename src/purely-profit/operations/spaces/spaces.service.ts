@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   CreateSpaceDto,
@@ -63,6 +64,7 @@ export class SpacesService {
     private readonly spaceTypesService: SpaceTypesService,
     private readonly spaceZonesService: SpaceZonesService,
     private readonly spaceReservationsService: SpaceReservationsService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async listSpaces(
@@ -101,6 +103,9 @@ export class SpacesService {
     );
     const name = dto.name.trim();
 
+    await this.platformMembershipAccessService.ensureSpaceQuotaAvailable(
+      storeId,
+    );
     await this.ensureUniqueSpaceName(storeId, name);
 
     const refs = await this.resolveCreateSpaceRefs(storeId, dto);

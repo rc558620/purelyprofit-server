@@ -30,6 +30,8 @@ export interface JwtPayload {
   sessionVersion?: number;
 }
 
+const PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX = 'pulse:membership:admin:member:';
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   private readonly pulseDevAccountEmails: Set<string>;
@@ -73,6 +75,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if ((payload.sessionVersion ?? 0) < currentTokenVersion) {
       throw new UnauthorizedException('登录态已失效，请重新登录');
     }
+
+    await this.ensureUserNotBanned(payload.sub);
 
     const memberships = await this.prisma.$queryRaw<
       Array<{
@@ -133,5 +137,53 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     );
     const parsedVersion = Number.parseInt(rawVersion ?? '0', 10);
     return Number.isNaN(parsedVersion) ? 0 : parsedVersion;
+  }
+
+  private async ensureUserNotBanned(userId: number): Promise<void> {
+    const relatedStoreIds = await this.findUserRelatedStoreIds(userId);
+    if (relatedStoreIds.length === 0) {
+      return;
+    }
+
+    const banReasons = await Promise.all(
+      relatedStoreIds.map((storeId) =>
+        this.redisService.get(this.getPulseAdminMemberBanReasonKey(storeId)),
+      ),
+    );
+    const hasBannedStore = banReasons.some((reason) => Boolean(reason?.trim()));
+
+    if (hasBannedStore) {
+      throw new UnauthorizedException('账号已被封禁');
+    }
+  }
+
+  private async findUserRelatedStoreIds(userId: number): Promise<number[]> {
+    const stores = await this.prisma.store.findMany({
+      where: {
+        OR: [
+          { ownerId: userId },
+          {
+            staffs: {
+              some: {
+                userId,
+                isActive: true,
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+      },
+      orderBy: {
+        id: 'asc',
+      },
+    });
+
+    return stores.map((store) => store.id);
+  }
+
+  private getPulseAdminMemberBanReasonKey(storeId: number): string {
+    return `${PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX}${storeId}:ban-reason`;
   }
 }

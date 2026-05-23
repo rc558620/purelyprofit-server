@@ -1,7 +1,10 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
-import { transformOptionalInt } from '../../../stores/dto/store-response.dto';
+import { IsBoolean, IsIn, IsInt, IsOptional, Min } from 'class-validator';
+import {
+  transformOptionalBoolean,
+  transformOptionalInt,
+} from '../../../stores/dto/store-response.dto';
 import {
   PROFIT_DETAIL_PERIOD_VALUES,
   type ProfitDetailPeriodValue,
@@ -65,4 +68,10 @@ export class GetProfitDetailQueryDto {
   @IsInt({ message: '区间结束时间必须是整数时间戳' })
   @Min(0, { message: '区间结束时间不合法' })
   rangeEndDate?: number;
+
+  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: '导出标记必须是布尔值' })
+  export?: boolean;
 }

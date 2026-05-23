@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -13,6 +13,7 @@ describe('PulseMembershipService', () => {
 
   const platformMembershipService = {
     listPlans: jest.fn(),
+    getPlanConfig: jest.fn(),
     getCenterByStoreId: jest.fn(),
     listPointsLogsByStoreId: jest.fn(),
     listBeanLogsByStoreId: jest.fn(),
@@ -50,7 +51,10 @@ describe('PulseMembershipService', () => {
       create: jest.fn(),
       findMany: jest.fn(),
     },
-    $transaction: jest.fn(async (callback: (tx: typeof prismaService) => Promise<unknown>) => callback(prismaService)),
+    $transaction: jest.fn(
+      async (callback: (tx: PrismaService) => Promise<unknown>) =>
+        callback(prismaService as unknown as PrismaService),
+    ),
   };
 
   const pulseStoreContextService = {
@@ -111,6 +115,30 @@ describe('PulseMembershipService', () => {
     service = module.get<PulseMembershipService>(PulseMembershipService);
   });
 
+  it('listPlans 直接复用平台会员配置读取结果', async () => {
+    platformMembershipService.listPlans.mockResolvedValue([
+      {
+        id: 'monthly',
+        name: '月度会员',
+        price: 4800,
+        originalPrice: 4800,
+        durationMonths: 1,
+        monthlyPrice: 4800,
+      },
+    ]);
+
+    await expect(service.listPlans()).resolves.toEqual([
+      {
+        id: 'monthly',
+        name: '月度会员',
+        price: 4800,
+        originalPrice: 4800,
+        durationMonths: 1,
+        monthlyPrice: 4800,
+      },
+    ]);
+  });
+
   it('getCenter 通过显式 storeId 读取目标商家订阅中心', async () => {
     pulseStoreContextService.resolveTargetStoreOrThrow.mockResolvedValue({
       id: 18,
@@ -146,6 +174,52 @@ describe('PulseMembershipService', () => {
     );
     expect(platformMembershipService.getCenterByStoreId).toHaveBeenCalledWith(18);
     expect(result.paidOrderCount).toBe(4);
+  });
+
+  it('previewOrder 使用平台会员配置表中的套餐价格', async () => {
+    pulseStoreContextService.resolveTargetStoreOrThrow.mockResolvedValue({
+      id: 18,
+      name: '纯利宝南山店',
+      address: '深圳市南山区',
+      contactPhone: '0755-12345678',
+      ownerId: 301,
+      ownerName: '张三',
+    });
+    platformMembershipService.getPlanConfig.mockResolvedValue({
+      id: 'quarterly',
+      name: '季度会员',
+      price: 12300,
+      originalPrice: 12300,
+      durationMonths: 3,
+      monthlyPrice: 4100,
+      badge: '新价格',
+      recommended: true,
+    });
+    prismaService.storeMembershipProfile.findFirst.mockResolvedValue({
+      availablePoints: 500,
+    });
+    prismaService.storePartner.findFirst.mockResolvedValue({
+      beanBalance: 20,
+    });
+
+    await expect(
+      service.previewOrder(user, {
+        planId: 'quarterly',
+        usePoints: 0,
+        useBeans: 0,
+      }),
+    ).resolves.toMatchObject({
+      planId: 'quarterly',
+      planName: '季度会员',
+      originalPrice: 12300,
+      finalAmount: 12300,
+      bonusPoints: 300,
+      availablePoints: 500,
+      availableBeans: 20,
+    });
+    expect(platformMembershipService.getPlanConfig).toHaveBeenCalledWith(
+      'quarterly',
+    );
   });
 
   it('listPointsLogs 在开发者未选门店时返回聚合积分流水', async () => {
@@ -442,9 +516,6 @@ describe('PulseMembershipService', () => {
 
     expect(prismaService.storeMembershipProfile.findMany).toHaveBeenCalledWith({
       where: {
-        currentPlanId: {
-          not: null,
-        },
         store: {
           owner: {
             email: {
@@ -471,6 +542,161 @@ describe('PulseMembershipService', () => {
       availablePoints: 2100,
       totalRecharged: 9900,
     });
+  });
+
+  it('listAdminMembers 会保留免费会员', async () => {
+    prismaService.storeMembershipProfile.findMany.mockResolvedValue([
+      { storeId: 18 },
+    ]);
+    prismaService.store.findUnique.mockResolvedValue({
+      id: 18,
+      name: '纯利宝南山店',
+      contactPhone: '13619654020',
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-21T00:00:00.000Z'),
+      owner: {
+        email: 'phone_13619654020@purelyprofit.local',
+        name: null,
+        realName: '张三',
+      },
+    });
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      currentPlanId: null,
+      expiresAt: null,
+      totalPoints: 2100,
+      availablePoints: 2100,
+    });
+    prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
+    prismaService.storePartner.findFirst.mockResolvedValue(null);
+    prismaService.storeMembershipPromoRecord.count.mockResolvedValue(0);
+
+    const result = await service.listAdminMembers(user, {});
+
+    expect(result.total).toBe(1);
+    expect(result.items[0]).toMatchObject({
+      id: '18',
+      level: 'free',
+      availablePoints: 2100,
+      totalRecharged: 0,
+    });
+  });
+
+  it('setAdminMemberMembership 支持设置为免费会员', async () => {
+    jest
+      .spyOn(service as any, 'assertAdminMemberMutationAccess')
+      .mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'buildAdminMemberDetail').mockResolvedValue({
+      id: '18',
+      name: '张三',
+      phone: '13619654020',
+      avatarChar: '张',
+      avatarColorIdx: 0,
+      status: 'active',
+      level: 'free',
+      registeredAt: new Date('2026-05-01T00:00:00.000Z').getTime(),
+      lastActiveAt: new Date('2026-05-21T00:00:00.000Z').getTime(),
+      availablePoints: 0,
+      totalPointsEarned: 0,
+      beanBalance: 0,
+      isPartner: false,
+      totalRecharged: 0,
+      rechargeCount: 0,
+      invitedCount: 0,
+      rechargeHistory: [],
+      membershipExpiry: null,
+    });
+
+    const result = await service.setAdminMemberMembership(user, 18, {
+      level: 'free',
+    });
+
+    expect(prismaService.storeMembershipProfile.upsert).toHaveBeenCalledWith({
+      where: { storeId: 18 },
+      create: {
+        storeId: 18,
+        currentPlanId: null,
+        startsAt: null,
+        expiresAt: null,
+        totalPoints: 0,
+        availablePoints: 0,
+      },
+      update: {
+        currentPlanId: null,
+        startsAt: null,
+        expiresAt: null,
+      },
+    });
+    expect(result.level).toBe('free');
+    expect(result.membershipExpiry).toBeNull();
+  });
+
+  it('setAdminMemberMembership 设置为 lifetime 时按配置有效期落盘', async () => {
+    const fixedNow = new Date('2026-05-23T00:00:00.000Z');
+    const expectedExpiry = new Date(
+      fixedNow.getTime() + 730 * 24 * 60 * 60 * 1000,
+    );
+    jest.useFakeTimers().setSystemTime(fixedNow);
+    jest
+      .spyOn(service as any, 'assertAdminMemberMutationAccess')
+      .mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'buildAdminMemberDetail').mockResolvedValue({
+      id: '18',
+      name: '张三',
+      phone: '13619654020',
+      avatarChar: '张',
+      avatarColorIdx: 0,
+      status: 'active',
+      level: 'lifetime',
+      registeredAt: fixedNow.getTime(),
+      lastActiveAt: fixedNow.getTime(),
+      availablePoints: 0,
+      totalPointsEarned: 0,
+      beanBalance: 0,
+      isPartner: false,
+      totalRecharged: 0,
+      rechargeCount: 0,
+      invitedCount: 0,
+      rechargeHistory: [],
+      membershipExpiry: expectedExpiry.getTime(),
+    });
+    platformMembershipService.getPlanConfig.mockResolvedValue({
+      id: 'lifetime',
+      name: '永久会员',
+      price: 39800,
+      originalPrice: null,
+      durationMonths: null,
+      validDays: 730,
+    });
+
+    try {
+      const result = await service.setAdminMemberMembership(user, 18, {
+        level: 'lifetime',
+      });
+
+      expect(platformMembershipService.getPlanConfig).toHaveBeenCalledWith(
+        'lifetime',
+      );
+      expect(prismaService.storeMembershipProfile.upsert).toHaveBeenCalledWith({
+        where: { storeId: 18 },
+        create: {
+          storeId: 18,
+          currentPlanId: 'lifetime',
+          startsAt: fixedNow,
+          expiresAt: expectedExpiry,
+          totalPoints: 0,
+          availablePoints: 0,
+        },
+        update: {
+          currentPlanId: 'lifetime',
+          startsAt: fixedNow,
+          expiresAt: expectedExpiry,
+        },
+      });
+      expect(result.level).toBe('lifetime');
+      expect(result.membershipExpiry).toBe(expectedExpiry.getTime());
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('getAdminMemberDetail 返回平台会员详情', async () => {
@@ -542,5 +768,65 @@ describe('PulseMembershipService', () => {
     await expect(service.getAdminMemberDetail(user, 101)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it('banAdminMember 封号时会主动踢下线门店所有用户', async () => {
+    jest
+      .spyOn(service as any, 'assertAdminMemberMutationAccess')
+      .mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'buildAdminMemberDetail').mockResolvedValue({
+      id: '18',
+      name: '张三',
+      phone: '13619654020',
+      avatarChar: '张',
+      avatarColorIdx: 0,
+      status: 'banned',
+      level: 'annual',
+      registeredAt: new Date('2026-05-01T00:00:00.000Z').getTime(),
+      lastActiveAt: new Date('2026-05-21T00:00:00.000Z').getTime(),
+      availablePoints: 0,
+      totalPointsEarned: 0,
+      beanBalance: 0,
+      isPartner: false,
+      totalRecharged: 0,
+      rechargeCount: 0,
+      invitedCount: 0,
+      rechargeHistory: [],
+      membershipExpiry: null,
+    });
+
+    // 门店有 ownerId=301，另有一个 staff userId=302
+    prismaService.store.findUnique.mockResolvedValue({
+      ownerId: 301,
+      staffs: [{ userId: 302 }],
+    });
+    // 分两次 get：版本查询依次返回 0、1
+    redisService.get
+      .mockResolvedValueOnce('0')   // owner token version
+      .mockResolvedValueOnce('1');  // staff token version
+    redisService.set.mockResolvedValue(undefined);
+
+    await service.banAdminMember(user, 18, { reason: '违规操作' });
+
+    // 验证 ban-reason 写入
+    expect(redisService.set).toHaveBeenCalledWith(
+      'pulse:membership:admin:member:18:ban-reason',
+      '违规操作',
+    );
+    // 验证 owner 被踢下线
+    expect(redisService.set).toHaveBeenCalledWith('auth:token-version:301', '1');
+    // 验证 staff 被踢下线
+    expect(redisService.set).toHaveBeenCalledWith('auth:token-version:302', '2');
+  });
+
+  it('banAdminMember 缺少封号原因时抛出 BadRequestException', async () => {
+    jest
+      .spyOn(service as any, 'assertAdminMemberMutationAccess')
+      .mockResolvedValue(undefined);
+
+    await expect(service.banAdminMember(user, 18, {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(redisService.set).not.toHaveBeenCalled();
   });
 });

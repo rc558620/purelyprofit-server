@@ -10,6 +10,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FinanceService } from './finance.service';
 
@@ -40,6 +41,12 @@ describe('FinanceService', () => {
     },
   };
 
+  const platformMembershipAccessService = {
+    ensureFinanceFeatureEnabled: jest.fn(),
+    clampHistoryRange: jest.fn(),
+    ensureReportExportEnabled: jest.fn(),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -59,11 +66,27 @@ describe('FinanceService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     jest.useFakeTimers().setSystemTime(new Date('2026-05-14T12:00:00.000Z'));
+    platformMembershipAccessService.ensureFinanceFeatureEnabled.mockResolvedValue(
+      undefined,
+    );
+    platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
+      undefined,
+    );
+    platformMembershipAccessService.clampHistoryRange.mockImplementation(
+      async (_storeId: number, range: { start: number; end: number }) => ({
+        ...range,
+        empty: false,
+      }),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FinanceService,
         { provide: PrismaService, useValue: prismaService },
+        {
+          provide: PlatformMembershipAccessService,
+          useValue: platformMembershipAccessService,
+        },
       ],
     }).compile();
 
@@ -72,6 +95,83 @@ describe('FinanceService', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it('getOverview 在会员不支持财务管理时拒绝访问', async () => {
+    platformMembershipAccessService.ensureFinanceFeatureEnabled.mockRejectedValue(
+      new ForbiddenException('当前会员套餐暂不支持财务管理，请升级会员后使用'),
+    );
+
+    await expect(
+      service.getOverview(user, { period: 'month' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prismaService.financeCashFlowRecord.findMany).not.toHaveBeenCalled();
+  });
+
+  it('getOverview 会按会员历史窗口裁剪查询范围', async () => {
+    const clampedStart = new Date('2026-05-08T00:00:00.000Z').getTime();
+    const clampedEnd = new Date('2026-05-14T23:59:59.999Z').getTime();
+
+    platformMembershipAccessService.clampHistoryRange
+      .mockResolvedValueOnce({
+        start: clampedStart,
+        end: clampedEnd,
+        empty: false,
+      })
+      .mockResolvedValueOnce({
+        start: new Date('2026-04-01T00:00:00.000Z').getTime(),
+        end: new Date('2026-04-30T23:59:59.999Z').getTime(),
+        empty: true,
+      });
+    prismaService.financeCashFlowRecord.findMany.mockResolvedValue([]);
+
+    await service.getOverview(user, { period: 'month' });
+
+    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          storeId: 18,
+          date: {
+            gte: new Date(clampedStart),
+            lte: new Date(clampedEnd),
+          },
+        }),
+      }),
+    );
+  });
+
+  it('getOverview 在历史窗口被裁空时返回空结构', async () => {
+    platformMembershipAccessService.clampHistoryRange.mockResolvedValueOnce({
+      start: new Date('2026-05-08T00:00:00.000Z').getTime(),
+      end: new Date('2026-05-07T23:59:59.999Z').getTime(),
+      empty: true,
+    });
+
+    await expect(service.getOverview(user, { period: 'month' })).resolves.toMatchObject({
+      heroSummary: {
+        netIncome: { current: 0, previous: 0, changeRate: null },
+        totalIncome: { current: 0, previous: 0, changeRate: null },
+        totalExpense: { current: 0, previous: 0, changeRate: null },
+        profitRate: { current: 0, previous: 0, changeRate: 0 },
+        incomeExpenseRatio: null,
+      },
+      dailyTrend: [],
+      incomeGroup: {
+        total: 0,
+        items: [
+          { type: 'sales', amount: 0, percent: 0 },
+          { type: 'additional', amount: 0, percent: 0 },
+        ],
+      },
+      expenseGroup: {
+        total: 0,
+        items: [
+          { type: 'cost', amount: 0, percent: 0 },
+          { type: 'purchase', amount: 0, percent: 0 },
+        ],
+      },
+    });
+    expect(prismaService.financeCashFlowRecord.findMany).not.toHaveBeenCalled();
   });
 
   it('getOverview 将 refund/transfer_in/other_income 统一归到附加收入', async () => {
@@ -248,6 +348,23 @@ describe('FinanceService', () => {
     });
   });
 
+  it('getReport 在导出时校验报表导出权限', async () => {
+    platformMembershipAccessService.ensureReportExportEnabled.mockRejectedValueOnce(
+      new ForbiddenException('当前会员套餐不支持导出报表，请升级会员后使用'),
+    );
+
+    await expect(
+      service.getReport(user, {
+        period: 'month',
+        export: true,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(
+      platformMembershipAccessService.ensureReportExportEnabled,
+    ).toHaveBeenCalledWith(18);
+    expect(prismaService.financeCashFlowRecord.findMany).not.toHaveBeenCalled();
+  });
+
   it('getReport 返回报表中心财务契约并支持 year 周期', async () => {
     prismaService.financeCashFlowRecord.findMany
       .mockResolvedValueOnce([
@@ -407,7 +524,9 @@ describe('FinanceService', () => {
       ],
     });
 
-    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenNthCalledWith(
+    expect(
+      prismaService.financeCashFlowRecord.findMany,
+    ).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         where: expect.objectContaining({
@@ -419,7 +538,9 @@ describe('FinanceService', () => {
         }),
       }),
     );
-    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenNthCalledWith(
+    expect(
+      prismaService.financeCashFlowRecord.findMany,
+    ).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         where: expect.objectContaining({
@@ -431,6 +552,64 @@ describe('FinanceService', () => {
         }),
       }),
     );
+  });
+
+  it('listCashFlowRecords 在历史窗口被裁剪为空时返回空分页', async () => {
+    platformMembershipAccessService.clampHistoryRange.mockResolvedValueOnce({
+      start: new Date('2026-05-01T00:00:00.000Z').getTime(),
+      end: new Date('2026-05-14T23:59:59.999Z').getTime(),
+      empty: true,
+    });
+
+    await expect(
+      service.listCashFlowRecords(user, {
+        period: 'month',
+        page: 2,
+        pageSize: 5,
+      }),
+    ).resolves.toEqual({
+      items: [],
+      meta: {
+        page: 2,
+        pageSize: 5,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+    expect(prismaService.financeCashFlowRecord.count).not.toHaveBeenCalled();
+    expect(prismaService.financeCashFlowRecord.findMany).not.toHaveBeenCalled();
+  });
+
+  it('getCashFlowStats 在上一周期被裁剪为空时不计算环比', async () => {
+    prismaService.financeCashFlowRecord.findMany.mockResolvedValueOnce([
+      {
+        direction: 'income',
+        amount: new Prisma.Decimal('100.00'),
+      },
+    ]);
+    platformMembershipAccessService.clampHistoryRange
+      .mockImplementationOnce(
+        async (_storeId: number, range: { start: number; end: number }) => ({
+          ...range,
+          empty: false,
+        }),
+      )
+      .mockResolvedValueOnce({
+        start: new Date('2026-04-01T00:00:00.000Z').getTime(),
+        end: new Date('2026-04-30T23:59:59.999Z').getTime(),
+        empty: true,
+      });
+
+    await expect(
+      service.getCashFlowStats(user, { period: 'month' }),
+    ).resolves.toEqual({
+      totalIncome: 100,
+      totalExpense: 0,
+      netFlow: 100,
+      recordCount: 1,
+      compareLastPeriod: null,
+    });
+    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenCalledTimes(1);
   });
 
   it('createCashFlowRecord 禁止手动创建 sales 分类流水', async () => {
@@ -447,6 +626,9 @@ describe('FinanceService', () => {
   });
 
   it('createCashFlowRecord 允许手动创建 refund 分类流水', async () => {
+    platformMembershipAccessService.ensureFinanceFeatureEnabled.mockResolvedValue(
+      undefined,
+    );
     prismaService.financeCashFlowRecord.create.mockResolvedValue({
       id: 9,
       direction: 'income',
@@ -526,13 +708,18 @@ describe('FinanceService', () => {
       saleOrderId: null,
     });
 
-    await expect(service.deleteCashFlowRecord(user, 8)).resolves.toBeUndefined();
+    await expect(
+      service.deleteCashFlowRecord(user, 8),
+    ).resolves.toBeUndefined();
     expect(prismaService.financeCashFlowRecord.delete).toHaveBeenCalledWith({
       where: { id: 8 },
     });
   });
 
   it('createAccount 会按前端规则派生 overdue 状态和 remaining', async () => {
+    platformMembershipAccessService.ensureFinanceFeatureEnabled.mockResolvedValue(
+      undefined,
+    );
     prismaService.financeAccountRecord.create.mockResolvedValue({
       id: 11,
       type: 'receivable',

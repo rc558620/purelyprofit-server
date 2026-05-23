@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -13,6 +14,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CostsService } from '../../operations/costs/costs.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { EmployeesAccessService } from './employees-access.service';
 import { EmployeesService } from './employees.service';
@@ -88,6 +90,10 @@ describe('EmployeesService', () => {
     syncPayrollCosts: jest.fn(),
   };
 
+  const platformMembershipAccessService = {
+    ensureEmployeeQuotaAvailable: jest.fn(),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -121,6 +127,10 @@ describe('EmployeesService', () => {
         { provide: EmployeesAccessService, useValue: employeesAccessService },
         { provide: ConfigService, useValue: configService },
         { provide: CostsService, useValue: costsService },
+        {
+          provide: PlatformMembershipAccessService,
+          useValue: platformMembershipAccessService,
+        },
       ],
     }).compile();
 
@@ -241,12 +251,44 @@ describe('EmployeesService', () => {
     });
   });
 
+  it('create 在会员员工额度不足时阻止新增', async () => {
+    employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
+    platformMembershipAccessService.ensureEmployeeQuotaAvailable.mockRejectedValue(
+      new ForbiddenException(
+        '当前会员套餐最多可管理 0 名在职员工，请升级会员后继续添加',
+      ),
+    );
+
+    await expect(
+      service.create(user, {
+        storeId: 2,
+        name: '张三',
+        phone: '13800138000',
+        position: '店长',
+        department: '前厅',
+        joinDate: new Date('2026-05-01T00:00:00.000Z').getTime(),
+        baseSalary: 5800,
+        idCard: '110101199001011234',
+        emergencyContact: '李四',
+        emergencyPhone: '13800138001',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(
+      platformMembershipAccessService.ensureEmployeeQuotaAvailable,
+    ).toHaveBeenCalledWith(2);
+    expect(prismaService.employee.create).not.toHaveBeenCalled();
+  });
+
   it('create 会补齐部门职位、生成员工编号并规范化字段', async () => {
     const joinDate = new Date('2026-05-01T00:00:00.000Z').getTime();
     const createdAt = new Date('2026-05-13T10:00:00.000Z');
     const updatedAt = new Date('2026-05-13T10:30:00.000Z');
 
     employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
+    platformMembershipAccessService.ensureEmployeeQuotaAvailable.mockResolvedValue(
+      undefined,
+    );
     prismaService.employeeDepartment.findFirst.mockResolvedValue(null);
     prismaService.employeeDepartment.create.mockResolvedValue({
       id: 8,

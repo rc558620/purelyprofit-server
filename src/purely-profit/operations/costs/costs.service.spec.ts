@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CostsService } from './costs.service';
 
@@ -30,6 +31,12 @@ describe('CostsService', () => {
     ensureCanAccessStore: jest.fn(),
   };
 
+  const platformMembershipAccessService = {
+    clampHistoryRange: jest.fn(),
+    ensureReportExportEnabled: jest.fn(),
+    getHistoryWindowStart: jest.fn(),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -48,11 +55,27 @@ describe('CostsService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    platformMembershipAccessService.clampHistoryRange.mockImplementation(
+      async (_storeId: number, range: { start: number; end: number }) => ({
+        start: range.start,
+        end: range.end,
+        clamped: false,
+        empty: false,
+      }),
+    );
+    platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
+      undefined,
+    );
+    platformMembershipAccessService.getHistoryWindowStart.mockResolvedValue(null);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CostsService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
+        {
+          provide: PlatformMembershipAccessService,
+          useValue: platformMembershipAccessService,
+        },
       ],
     }).compile();
 

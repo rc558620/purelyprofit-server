@@ -1,6 +1,6 @@
 ---
 name: purelyprofit-server-backend-architecture
-description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库，默认任务优先按“开发、修改、扩展 purelyProfit / purelyPulse 相关接口”来理解。该 skill 提供 NestJS + Fastify 启动链路、Config 配置读取、Prisma/Redis 基础设施、JWT 认证、Swagger 注解、DTO 校验、双产品线模块组织和新增接口流程约定。适用于：理解当前后端仓库结构、实现 purelyProfit 或 purelyPulse 业务接口、扩展认证与用户能力、接入数据库与缓存、保持代码风格与现有目录约定一致时使用。
+description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库，默认任务优先按“开发、修改、扩展 purelyProfit / purelyPulse 相关接口”来理解。该 skill 提供 NestJS + Fastify 启动链路、Config 配置读取、Prisma/Redis 基础设施、JWT 认证、Swagger 注解、DTO 校验、双产品线模块组织、会员套餐配置与会员权益接入方式，以及新增接口流程约定。适用于：理解当前后端仓库结构、实现 purelyProfit 或 purelyPulse 业务接口、扩展认证与用户能力、接入数据库与缓存、处理会员套餐配置/权益限制，并保持代码风格与现有目录约定一致时使用。
 ---
 
 # purelyprofit-server 后端架构指南
@@ -45,6 +45,24 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库，
 - 当用户只说“member”时，先结合前端页面或上下文判断究竟是“商家老板自己的平台会员”还是“商家自己的顾客会员”
 - 如果上下文明确提到前端 `pages/main/member`，默认按“商家老板自己的平台会员中心”理解，不要误写成门店顾客会员档案接口
 
+## 会员体系与套餐配置语义
+
+最近这轮迭代里，平台会员中心已经拆成“配置层”和“运行态权益层”两套模型，开发时不要混用：
+
+- `prisma/schema.prisma` 中 `MembershipPlanSettingId` 包含 `monthly`、`quarterly`、`yearly`、`lifetime`，对应 `membership_plan_settings` 表，用来维护 Pulse 后台可编辑的套餐配置
+- `src/purely-pulse/membership-settings/*` 是 Pulse 开发者/平台运营维护套餐价格与永久会员有效期的配置模块，不是老板端自助购买入口
+- `StoreMembershipProfile.currentPlanId` 使用的是 `MembershipPlanCycle`，当前只包含 `monthly`、`quarterly`、`yearly`，表示门店运行态会员档案
+- “永久会员”在运行态不要直接理解成 `currentPlanId = 'lifetime'`；当前实现里更接近“特殊的长期有效会员状态”，需要结合 `startsAt` / `expiresAt` 以及访问控制服务的解析逻辑来理解
+- 会员权益判断优先看 `src/purely-profit/member/platform-membership/platform-membership-access.service.ts`，这里统一处理商品数、员工数、空间数、历史数据窗口、财务/营销/导出开关等限制
+- 如果新增会员权益门槛、套餐差异或功能开关，先判断应该改“套餐配置表”“运行态档案”还是“权益访问控制 service”，不要只改其中一层
+
+当前会员中心的落位建议：
+
+- Pulse 侧“平台配置/开发者管理商家会员档案”优先落在 `src/purely-pulse/membership*`
+- Profit 侧“老板端功能是否可用/配额是否足够”优先通过 `PlatformMembershipAccessService` 接入
+- 套餐价格、默认时长、永久会员默认有效期之类的配置，优先以 `membership_plan_settings` 为事实来源
+- 门店当前处于什么套餐、是否过期、还剩多少可用积分/纯利豆，优先以 `store_membership_profiles`、订单、积分日志等运行态数据为事实来源
+
 ## 前后端字段对齐要求
 
 当需求和现有前端页面、前端模块、前端类型定义有关时，默认遵守下面规则：
@@ -76,6 +94,7 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库，
 - 需要理解当前项目的启动方式、配置结构、数据库接入、缓存接入
 - 需要沿用现有登录/注册/JWT 鉴权模式
 - 需要决定新代码应该放在哪个目录、保持什么边界
+- 需要开发或调整 Pulse 会员套餐配置、商家会员档案、会员权益限制
 - 需要为接口补 Swagger 注解、参数校验和统一返回节奏
 
 ## 当前目录基线
@@ -114,6 +133,7 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库，
 - `dev-mode`
 - `growth`
 - `membership`
+- `membership-settings`
 - `onboarding`
 - `session`
 - `pulse-store-context.*`
@@ -444,8 +464,12 @@ src/purely-pulse/<domain>/
 - `src/purely-profit/auth/dto/register.dto.ts`
 - `src/purely-profit/auth/strategies/jwt.strategy.ts`
 - `src/purely-profit/member/members/members.service.ts`
+- `src/purely-profit/member/platform-membership/platform-membership.service.ts`
+- `src/purely-profit/member/platform-membership/platform-membership-access.service.ts`
 - `src/purely-profit/operations/spaces/spaces.service.ts`
 - `src/purely-pulse/session/session.controller.ts`
 - `src/purely-pulse/pulse-store-context.service.ts`
+- `src/purely-pulse/membership/membership.service.ts`
+- `src/purely-pulse/membership-settings/membership-settings.service.ts`
 - `prisma/schema.prisma`
 - `.env.example`

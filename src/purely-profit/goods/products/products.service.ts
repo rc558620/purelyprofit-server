@@ -18,6 +18,7 @@ import {
 } from '../../commerce/commerce.utils';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import type {
   CreateProductDto,
   ListProductsQueryDto,
@@ -32,6 +33,7 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async list(
@@ -123,6 +125,9 @@ export class ProductsService {
       '无权操作该门店商品',
     );
 
+    await this.platformMembershipAccessService.ensureProductQuotaAvailable(
+      storeId,
+    );
     this.validateMoneyFields(dto.price, dto.profit, dto.costPrice);
     const category = await this.ensureCategory(storeId, dto.category);
     const code = await this.resolveProductCode(storeId, dto.code);

@@ -20,6 +20,7 @@ import {
   toOptionalText,
   toTimestampMs,
 } from '../../commerce/commerce.utils';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
   CostRecordStatsQueryDto,
@@ -117,6 +118,7 @@ export class CostsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async listRecords(
@@ -134,8 +136,13 @@ export class CostsService {
       return [];
     }
 
+    const where = await this.buildHistoryAwareRecordWhere(storeId, query);
+    if (where === null) {
+      return [];
+    }
+
     const records = await this.prisma.costRecord.findMany({
-      where: this.buildRecordWhere(storeId, query),
+      where,
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
     });
 
@@ -163,7 +170,17 @@ export class CostsService {
       };
     }
 
-    const currentWhere = this.buildRecordWhere(storeId, query);
+    const currentWhere = await this.buildHistoryAwareRecordWhere(storeId, query);
+    if (currentWhere === null) {
+      return {
+        total: 0,
+        fixed: 0,
+        variable: 0,
+        compareLastPeriod: null,
+        recordCount: 0,
+      };
+    }
+
     const currentRecords = await this.prisma.costRecord.findMany({
       where: currentWhere,
       select: {
@@ -185,27 +202,38 @@ export class CostsService {
     if (this.shouldComparePrevious(query.period)) {
       const previousRange = this.buildPreviousRange(query);
       if (previousRange) {
-        const previousRecords = await this.prisma.costRecord.findMany({
-          where: {
-            storeId,
-            date: previousRange,
-            ...(query.typeFilter && query.typeFilter !== 'all'
-              ? { type: query.typeFilter }
-              : {}),
-          },
-          select: { amount: true },
-        });
-        const previousTotal = this.sumAmounts(previousRecords);
-        compareLastPeriod =
-          previousTotal > 0
-            ? Number(
-                new Decimal(total)
-                  .minus(previousTotal)
-                  .div(previousTotal)
-                  .mul(100)
-                  .toFixed(2),
-              )
-            : null;
+        const clampedPreviousRange =
+          await this.platformMembershipAccessService.clampHistoryRange(storeId, {
+            start: previousRange.gte.getTime(),
+            end: previousRange.lte.getTime(),
+          });
+
+        if (!clampedPreviousRange.empty) {
+          const previousRecords = await this.prisma.costRecord.findMany({
+            where: {
+              storeId,
+              date: {
+                gte: new Date(clampedPreviousRange.start),
+                lte: new Date(clampedPreviousRange.end),
+              },
+              ...(query.typeFilter && query.typeFilter !== 'all'
+                ? { type: query.typeFilter }
+                : {}),
+            },
+            select: { amount: true },
+          });
+          const previousTotal = this.sumAmounts(previousRecords);
+          compareLastPeriod =
+            previousTotal > 0
+              ? Number(
+                  new Decimal(total)
+                    .minus(previousTotal)
+                    .div(previousTotal)
+                    .mul(100)
+                    .toFixed(2),
+                )
+              : null;
+        }
       }
     }
 
@@ -243,6 +271,10 @@ export class CostsService {
       };
     }
 
+    if (query.export) {
+      await this.platformMembershipAccessService.ensureReportExportEnabled(storeId);
+    }
+
     const reportQuery: CostReportQueryInput = {
       period: query.period,
       year: query.year,
@@ -252,15 +284,39 @@ export class CostsService {
     };
     const currentRange = this.buildReportRange(reportQuery);
     const previousRange = this.buildPreviousReportRange(query.period, currentRange);
+    const clampedCurrentRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      currentRange,
+    );
+    const clampedPreviousRange = previousRange
+      ? await this.platformMembershipAccessService.clampHistoryRange(
+          storeId,
+          previousRange,
+        )
+      : null;
     const categoryFilter = query.categoryFilter ?? 'all';
+
+    if (clampedCurrentRange.empty) {
+      return {
+        summary: {
+          total: 0,
+          fixed: 0,
+          variable: 0,
+          recordCount: 0,
+          compareLastPeriod: null,
+        },
+        categories: [],
+        detailRows: [],
+      };
+    }
 
     const [costRows, previousRows, payrollRows] = await Promise.all([
       this.prisma.costRecord.findMany({
         where: {
           storeId,
           date: {
-            gte: new Date(currentRange.start),
-            lte: new Date(currentRange.end),
+            gte: new Date(clampedCurrentRange.start),
+            lte: new Date(clampedCurrentRange.end),
           },
         },
         select: {
@@ -275,13 +331,13 @@ export class CostsService {
         },
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       }),
-      previousRange
+      clampedPreviousRange && !clampedPreviousRange.empty
         ? this.prisma.costRecord.findMany({
             where: {
               storeId,
               date: {
-                gte: new Date(previousRange.start),
-                lte: new Date(previousRange.end),
+                gte: new Date(clampedPreviousRange.start),
+                lte: new Date(clampedPreviousRange.end),
               },
             },
             select: {
@@ -295,8 +351,8 @@ export class CostsService {
               storeId,
               status: 'draft',
               month: {
-                gte: this.toPayrollMonth(currentRange.start),
-                lte: this.toPayrollMonth(currentRange.end),
+                gte: this.toPayrollMonth(clampedCurrentRange.start),
+                lte: this.toPayrollMonth(clampedCurrentRange.end),
               },
             },
             select: {
@@ -325,7 +381,7 @@ export class CostsService {
         variable,
         recordCount: costRows.length,
         compareLastPeriod:
-          previousRange && previousTotal > 0
+          clampedPreviousRange && !clampedPreviousRange.empty && previousTotal > 0
             ? Number(
                 new Decimal(total)
                   .minus(previousTotal)
@@ -577,17 +633,55 @@ export class CostsService {
     });
   }
 
-  private buildRecordWhere(
+  private async buildHistoryAwareRecordWhere(
     storeId: number,
     query: CostQueryInput,
-  ): Prisma.CostRecordWhereInput {
-    const range = this.buildRange(query);
+  ): Promise<Prisma.CostRecordWhereInput | null> {
+    const range = await this.buildHistoryAwareRange(storeId, query);
+    if (range === null) {
+      return null;
+    }
+
     return {
       storeId,
       ...(range ? { date: range } : {}),
       ...(query.typeFilter && query.typeFilter !== 'all'
         ? { type: query.typeFilter }
         : {}),
+    };
+  }
+
+  private async buildHistoryAwareRange(
+    storeId: number,
+    query: CostQueryInput,
+  ): Promise<CostFilterRange | null | undefined> {
+    const range = this.buildRange(query);
+    if (!range) {
+      const historyWindowStart =
+        await this.platformMembershipAccessService.getHistoryWindowStart(storeId);
+      if (historyWindowStart === null) {
+        return undefined;
+      }
+      return {
+        gte: new Date(historyWindowStart),
+        lte: new Date(),
+      };
+    }
+
+    const clampedRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      {
+        start: range.gte.getTime(),
+        end: range.lte.getTime(),
+      },
+    );
+    if (clampedRange.empty) {
+      return null;
+    }
+
+    return {
+      gte: new Date(clampedRange.start),
+      lte: new Date(clampedRange.end),
     };
   }
 

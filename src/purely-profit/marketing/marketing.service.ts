@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
   CreateConsumptionDto,
@@ -42,7 +43,10 @@ import type {
   MarketingRechargeDto,
   MarketingRechargesResponseDto,
 } from './dto/marketing-response.dto';
-import { MarketingAccessService } from './marketing-access.service';
+import {
+  MarketingAccessService,
+  type MarketingPermission,
+} from './marketing-access.service';
 import {
   toNullableMediaText,
   toOptionalMediaText,
@@ -313,6 +317,7 @@ export class MarketingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accessService: MarketingAccessService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   // ── Overview ────────────────────────────────────────────────────────
@@ -321,7 +326,7 @@ export class MarketingService {
     user: AuthenticatedUser,
     storeId?: number,
   ): Promise<MarketingOverviewDto> {
-    const resolvedStoreId = await this.accessService.resolveViewStoreId(
+    const resolvedStoreId = await this.resolveMembershipManagedStoreId(
       user,
       storeId,
     );
@@ -409,7 +414,10 @@ export class MarketingService {
       activeMemberCount,
       last30Days: buildOverviewLast30Days(trendRechargeRows),
       currentYear,
-      thisYearMonthlyTrend: buildOverviewMonthlyTrend(trendRechargeRows, currentYear),
+      thisYearMonthlyTrend: buildOverviewMonthlyTrend(
+        trendRechargeRows,
+        currentYear,
+      ),
       lastYearMonthlyTrend: buildOverviewMonthlyTrend(
         trendRechargeRows,
         currentYear - 1,
@@ -440,7 +448,7 @@ export class MarketingService {
     user: AuthenticatedUser,
     query: ListCustomersQueryDto & { storeId?: number },
   ): Promise<MarketingCustomersResponseDto> {
-    const resolvedStoreId = await this.accessService.resolveViewStoreId(
+    const resolvedStoreId = await this.resolveMembershipManagedStoreId(
       user,
       query.storeId,
     );
@@ -523,14 +531,15 @@ export class MarketingService {
     customerId: number,
   ): Promise<MarketingCustomerDetailDto> {
     const customer = await this.findCustomerOrThrow(customerId);
-    await this.accessService.ensureCanAccess(
+    await this.ensureMarketingStoreAccess(
       user,
       customer.storeId,
       'marketing:view',
     );
 
-    const [recentRecharges, recentConsumptions, rechargeSummary] = await Promise.all([
-      this.prisma.$queryRaw<RechargeRow[]>`
+    const [recentRecharges, recentConsumptions, rechargeSummary] =
+      await Promise.all([
+        this.prisma.$queryRaw<RechargeRow[]>`
         SELECT
           r.id,
           r.store_id AS "storeId",
@@ -550,7 +559,7 @@ export class MarketingService {
         ORDER BY r.created_at DESC
         LIMIT 5
       `,
-      this.prisma.$queryRaw<ConsumptionRow[]>`
+        this.prisma.$queryRaw<ConsumptionRow[]>`
         SELECT
           co.id,
           co.store_id AS "storeId",
@@ -571,11 +580,11 @@ export class MarketingService {
         ORDER BY co.created_at DESC
         LIMIT 5
       `,
-      this.prisma.marketingRecharge.aggregate({
-        where: { customerId },
-        _sum: { amount: true, giftAmount: true },
-      }),
-    ]);
+        this.prisma.marketingRecharge.aggregate({
+          where: { customerId },
+          _sum: { amount: true, giftAmount: true },
+        }),
+      ]);
 
     return {
       ...mapCustomerRow(customer),
@@ -592,7 +601,7 @@ export class MarketingService {
     storeId: number,
     dto: CreateCustomerDto,
   ): Promise<MarketingCustomerDto> {
-    await this.accessService.ensureCanAccess(user, storeId, 'marketing:manage');
+    await this.ensureMarketingStoreAccess(user, storeId, 'marketing:manage');
 
     // 手机号去重（同一门店内唯一）
     if (dto.phone) {
@@ -625,7 +634,7 @@ export class MarketingService {
     dto: UpdateCustomerDto,
   ): Promise<MarketingCustomerDto> {
     const customer = await this.findCustomerOrThrow(customerId);
-    await this.accessService.ensureCanAccess(
+    await this.ensureMarketingStoreAccess(
       user,
       customer.storeId,
       'marketing:manage',
@@ -672,7 +681,7 @@ export class MarketingService {
     customerId: number,
   ): Promise<void> {
     const customer = await this.findCustomerOrThrow(customerId);
-    await this.accessService.ensureCanAccess(
+    await this.ensureMarketingStoreAccess(
       user,
       customer.storeId,
       'marketing:manage',
@@ -687,7 +696,7 @@ export class MarketingService {
     user: AuthenticatedUser,
     query: ListRechargesQueryDto & { storeId?: number },
   ): Promise<MarketingRechargesResponseDto> {
-    const resolvedStoreId = await this.accessService.resolveViewStoreId(
+    const resolvedStoreId = await this.resolveMembershipManagedStoreId(
       user,
       query.storeId,
     );
@@ -755,7 +764,7 @@ export class MarketingService {
     query: { page?: number; pageSize?: number },
   ): Promise<MarketingRechargesResponseDto> {
     const customer = await this.findCustomerOrThrow(customerId);
-    await this.accessService.ensureCanAccess(
+    await this.ensureMarketingStoreAccess(
       user,
       customer.storeId,
       'marketing:view',
@@ -801,7 +810,7 @@ export class MarketingService {
     storeId: number,
     dto: CreateRechargeDto,
   ): Promise<MarketingRechargeDto> {
-    await this.accessService.ensureCanAccess(user, storeId, 'marketing:manage');
+    await this.ensureMarketingStoreAccess(user, storeId, 'marketing:manage');
 
     const customer = await this.findCustomerOrThrow(dto.customerId);
     if (customer.storeId !== storeId) {
@@ -873,7 +882,7 @@ export class MarketingService {
     user: AuthenticatedUser,
     query: ListPointsRecordsQueryDto & { storeId?: number },
   ): Promise<MarketingPointsRecordsResponseDto> {
-    const resolvedStoreId = await this.accessService.resolveViewStoreId(
+    const resolvedStoreId = await this.resolveMembershipManagedStoreId(
       user,
       query.storeId,
     );
@@ -932,7 +941,7 @@ export class MarketingService {
     query: ListCustomerPointsRecordsQueryDto,
   ): Promise<MarketingPointsRecordsResponseDto> {
     const customer = await this.findCustomerOrThrow(customerId);
-    await this.accessService.ensureCanAccess(
+    await this.ensureMarketingStoreAccess(
       user,
       customer.storeId,
       'marketing:view',
@@ -986,7 +995,7 @@ export class MarketingService {
     query: { page?: number; pageSize?: number; storeId?: number },
   ): Promise<MarketingConsumptionsResponseDto> {
     const customer = await this.findCustomerOrThrow(customerId);
-    await this.accessService.ensureCanAccess(
+    await this.ensureMarketingStoreAccess(
       user,
       customer.storeId,
       'marketing:view',
@@ -1030,7 +1039,7 @@ export class MarketingService {
     storeId: number,
     dto: CreateConsumptionDto,
   ): Promise<MarketingConsumptionDto> {
-    await this.accessService.ensureCanAccess(user, storeId, 'marketing:manage');
+    await this.ensureMarketingStoreAccess(user, storeId, 'marketing:manage');
 
     const customer = await this.findCustomerOrThrow(dto.customerId);
     if (customer.storeId !== storeId) {
@@ -1134,7 +1143,7 @@ export class MarketingService {
     user: AuthenticatedUser,
     query: ListPromotionsQueryDto & { storeId?: number },
   ): Promise<MarketingPromotionsResponseDto> {
-    const resolvedStoreId = await this.accessService.resolveViewStoreId(
+    const resolvedStoreId = await this.resolveMembershipManagedStoreId(
       user,
       query.storeId,
     );
@@ -1192,7 +1201,7 @@ export class MarketingService {
       throw new NotFoundException('活动不存在');
     }
 
-    await this.accessService.ensureCanAccess(
+    await this.ensureMarketingStoreAccess(
       user,
       promotion.storeId,
       'marketing:view',
@@ -1205,7 +1214,7 @@ export class MarketingService {
     storeId: number,
     dto: CreatePromotionDto,
   ): Promise<MarketingPromotionDto> {
-    await this.accessService.ensureCanAccess(user, storeId, 'marketing:manage');
+    await this.ensureMarketingStoreAccess(user, storeId, 'marketing:manage');
 
     if (dto.endAt <= dto.startAt) {
       throw new BadRequestException('结束时间必须晚于开始时间');
@@ -1238,7 +1247,7 @@ export class MarketingService {
     if (!promotion) {
       throw new NotFoundException('活动不存在');
     }
-    await this.accessService.ensureCanAccess(
+    await this.ensureMarketingStoreAccess(
       user,
       promotion.storeId,
       'marketing:manage',
@@ -1282,7 +1291,7 @@ export class MarketingService {
     if (!promotion) {
       throw new NotFoundException('活动不存在');
     }
-    await this.accessService.ensureCanAccess(
+    await this.ensureMarketingStoreAccess(
       user,
       promotion.storeId,
       'marketing:manage',
@@ -1299,6 +1308,33 @@ export class MarketingService {
   }
 
   // ── Private helpers ─────────────────────────────────────────────────
+
+  private async resolveMembershipManagedStoreId(
+    user: AuthenticatedUser,
+    storeId?: number,
+  ): Promise<number | null> {
+    const resolvedStoreId = await this.accessService.resolveViewStoreId(
+      user,
+      storeId,
+    );
+    if (resolvedStoreId !== null) {
+      await this.platformMembershipAccessService.ensureMarketingFeatureEnabled(
+        resolvedStoreId,
+      );
+    }
+    return resolvedStoreId;
+  }
+
+  private async ensureMarketingStoreAccess(
+    user: AuthenticatedUser,
+    storeId: number,
+    permission: MarketingPermission,
+  ): Promise<void> {
+    await this.accessService.ensureCanAccess(user, storeId, permission);
+    await this.platformMembershipAccessService.ensureMarketingFeatureEnabled(
+      storeId,
+    );
+  }
 
   private async findCustomerOrThrow(customerId: number): Promise<CustomerRow> {
     const rows = await this.prisma.$queryRaw<CustomerRow[]>`

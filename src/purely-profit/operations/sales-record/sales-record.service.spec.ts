@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { InventoryService } from '../../goods/inventory/inventory.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SalesRecordService } from './sales-record.service';
 
@@ -46,6 +47,11 @@ describe('SalesRecordService', () => {
     revertSaleDeduction: jest.fn(),
   };
 
+  const platformMembershipAccessService = {
+    clampHistoryRange: jest.fn(),
+    ensureReportExportEnabled: jest.fn(),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -65,6 +71,17 @@ describe('SalesRecordService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-14T12:00:00.000Z'));
     jest.clearAllMocks();
+    platformMembershipAccessService.clampHistoryRange.mockImplementation(
+      async (_storeId: number, range: { start: number; end: number }) => ({
+        start: range.start,
+        end: range.end,
+        clamped: false,
+        empty: false,
+      }),
+    );
+    platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
+      undefined,
+    );
     prismaService.$transaction.mockImplementation(
       (callback: (client: typeof transactionClient) => unknown) =>
         callback(transactionClient),
@@ -76,6 +93,10 @@ describe('SalesRecordService', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         { provide: InventoryService, useValue: inventoryService },
+        {
+          provide: PlatformMembershipAccessService,
+          useValue: platformMembershipAccessService,
+        },
       ],
     }).compile();
 
@@ -339,6 +360,44 @@ describe('SalesRecordService', () => {
       avgOrderValue: 50,
       compareLastPeriod: 25,
     });
+  });
+
+  it('list 会按会员历史窗口裁剪查询范围', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.clampHistoryRange.mockResolvedValueOnce({
+      start: new Date('2026-05-08T00:00:00.000Z').getTime(),
+      end: new Date('2026-05-14T12:00:00.000Z').getTime(),
+      clamped: true,
+      empty: false,
+    });
+    prismaService.saleOrder.findMany.mockResolvedValue([]);
+
+    await service.list(user, { storeId: 18, period: 'all' });
+
+    expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: {
+            gte: new Date('2026-05-08T00:00:00.000Z'),
+            lte: new Date('2026-05-14T12:00:00.000Z'),
+          },
+        }),
+      }),
+    );
+  });
+
+  it('getReport 在导出模式下会校验报表导出权限', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.ensureReportExportEnabled.mockRejectedValueOnce(
+      new Error('forbidden'),
+    );
+
+    await expect(
+      service.getReport(user, { storeId: 18, period: 'today', export: true }),
+    ).rejects.toThrow('forbidden');
+    expect(
+      platformMembershipAccessService.ensureReportExportEnabled,
+    ).toHaveBeenCalledWith(18);
   });
 
   it('getReport 返回报表中心可直接消费的按天商品聚合数据', async () => {
@@ -722,6 +781,116 @@ describe('SalesRecordService', () => {
         }),
       },
     );
+  });
+
+  it('create 支持跳过库存校验与扣减，供空间结账复用', async () => {
+    const saleDate = new Date('2026-05-14T12:10:00.000Z');
+    const createdAt = new Date('2026-05-14T12:12:00.000Z');
+
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    prismaService.product.findMany.mockResolvedValue([
+      {
+        id: 201,
+        name: '面条',
+        category: '主食',
+        code: 'NOODLE001',
+        price: new Prisma.Decimal('20.00'),
+        profit: new Prisma.Decimal('8.00'),
+        stock: 0,
+        isActive: true,
+        image: null,
+      },
+    ]);
+    transactionClient.saleOrder.count.mockResolvedValue(4);
+    transactionClient.saleOrder.create.mockResolvedValue({
+      id: 15,
+      storeId: 18,
+      operatorStaffId: 8,
+      orderNo: '#20260514-005',
+      totalRevenue: new Prisma.Decimal('20'),
+      totalProfit: new Prisma.Decimal('8'),
+      totalQuantity: 1,
+      paymentMethod: 'cash',
+      calcMode: 'business',
+      note: '空间结账',
+      date: saleDate,
+      createdAt,
+      updatedAt: createdAt,
+      items: [
+        {
+          id: 105,
+          orderId: 15,
+          storeId: 18,
+          productId: 201,
+          productName: '面条',
+          categoryName: '主食',
+          salePrice: new Prisma.Decimal('20'),
+          profit: new Prisma.Decimal('8'),
+          quantity: 1,
+          image: null,
+          createdAt,
+        },
+      ],
+    });
+
+    await expect(
+      service.create(user, {
+        storeId: 18,
+        items: [
+          {
+            productId: '201',
+            productName: '面条',
+            categoryName: '主食',
+            salePrice: 20,
+            profit: 8,
+            quantity: 1,
+          },
+        ],
+        totalRevenue: 20,
+        totalProfit: 8,
+        totalQuantity: 1,
+        paymentMethod: 'cash',
+        calcMode: 'business',
+        note: '空间结账',
+        date: saleDate.getTime(),
+      }, {
+        skipInventoryValidationAndDeduction: true,
+      }),
+    ).resolves.toEqual({
+      id: '15',
+      orderNo: '#20260514-005',
+      items: [
+        {
+          productId: '201',
+          productName: '面条',
+          categoryName: '主食',
+          salePrice: 20,
+          profit: 8,
+          quantity: 1,
+        },
+      ],
+      totalRevenue: 20,
+      totalProfit: 8,
+      totalQuantity: 1,
+      paymentMethod: 'cash',
+      calcMode: 'business',
+      note: '空间结账',
+      date: saleDate.getTime(),
+      createdAt: createdAt.getTime(),
+    });
+
+    expect(inventoryService.recordSaleDeduction).not.toHaveBeenCalled();
+    expect(transactionClient.financeCashFlowRecord.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        storeId: 18,
+        saleOrderId: 15,
+        direction: 'income',
+        category: 'sales',
+        amount: new Prisma.Decimal('20'),
+        payment: 'cash',
+      }),
+    });
   });
 
   it('create 支持负数抵扣项且不计入总销售件数', async () => {

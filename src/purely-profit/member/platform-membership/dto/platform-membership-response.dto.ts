@@ -28,7 +28,11 @@ export const PLATFORM_PARTNER_STATUS = [
   'rejected',
 ] as const;
 
-export const PLATFORM_POINTS_RECORD_TYPES = ['earn', 'spend', 'expire'] as const;
+export const PLATFORM_POINTS_RECORD_TYPES = [
+  'earn',
+  'spend',
+  'expire',
+] as const;
 export const PLATFORM_POINTS_RECORD_SOURCES = [
   'purchase_bonus',
   'deduct_payment',
@@ -36,7 +40,11 @@ export const PLATFORM_POINTS_RECORD_SOURCES = [
   'expire',
 ] as const;
 
-export const PLATFORM_BEAN_RECORD_TYPES = ['earn', 'spend', 'withdraw'] as const;
+export const PLATFORM_BEAN_RECORD_TYPES = [
+  'earn',
+  'spend',
+  'withdraw',
+] as const;
 export const PLATFORM_BEAN_RECORD_SOURCES = [
   'promo_reward',
   'deduct_payment',
@@ -44,7 +52,11 @@ export const PLATFORM_BEAN_RECORD_SOURCES = [
   'admin_adjust',
 ] as const;
 
-export const PLATFORM_PARTNER_LEVEL_VALUES = ['star', 'elite', 'legend'] as const;
+export const PLATFORM_PARTNER_LEVEL_VALUES = [
+  'star',
+  'elite',
+  'legend',
+] as const;
 
 export class PlatformMembershipPlanResponseDto {
   @ApiProperty({
@@ -62,13 +74,29 @@ export class PlatformMembershipPlanResponseDto {
   @IsInt({ message: '套餐价格必须是整数' })
   price: number;
 
-  @ApiProperty({ example: 11400, description: '原价，单位分' })
+  @ApiPropertyOptional({
+    example: 11400,
+    description: '原价，单位分；永久会员可为空',
+  })
+  @IsOptional()
   @IsInt({ message: '套餐原价必须是整数' })
-  originalPrice: number;
+  originalPrice?: number | null;
 
-  @ApiProperty({ example: 3, description: '时长（月）' })
+  @ApiPropertyOptional({
+    example: 3,
+    description: '时长（月）；永久会员为空',
+  })
+  @IsOptional()
   @IsInt({ message: '套餐时长必须是整数' })
-  durationMonths: number;
+  durationMonths?: number | null;
+
+  @ApiPropertyOptional({
+    example: 730,
+    description: '有效期天数；永久会员返回该字段',
+  })
+  @IsOptional()
+  @IsInt({ message: '有效期天数必须是整数' })
+  validDays?: number | null;
 
   @ApiPropertyOptional({ example: '省15元', description: '套餐角标文案' })
   @IsOptional()
@@ -79,9 +107,50 @@ export class PlatformMembershipPlanResponseDto {
   @IsOptional()
   recommended?: boolean;
 
-  @ApiProperty({ example: 3300, description: '月均价格，单位分' })
+  @ApiPropertyOptional({
+    example: 3300,
+    description: '月均价格，单位分；永久会员可为空',
+  })
+  @IsOptional()
   @IsInt({ message: '月均价格必须是整数' })
-  monthlyPrice: number;
+  monthlyPrice?: number;
+}
+
+export class PlatformMembershipPlanRuleRowDto {
+  @ApiProperty({ example: 'product_limit', description: '规则标识' })
+  @IsString({ message: '规则标识必须是字符串' })
+  key: string;
+
+  @ApiProperty({ example: '商品录入', description: '规则名称' })
+  @IsString({ message: '规则名称必须是字符串' })
+  name: string;
+
+  @ApiProperty({ example: '最多 3 个', description: '免费版规则文案' })
+  @IsString({ message: '免费版规则文案必须是字符串' })
+  free: string;
+
+  @ApiProperty({ example: '最多 30 个', description: '月度会员规则文案' })
+  @IsString({ message: '月度会员规则文案必须是字符串' })
+  monthly: string;
+
+  @ApiProperty({ example: '最多 100 个', description: '季度会员规则文案' })
+  @IsString({ message: '季度会员规则文案必须是字符串' })
+  quarterly: string;
+
+  @ApiProperty({ example: '无上限', description: '年度会员规则文案' })
+  @IsString({ message: '年度会员规则文案必须是字符串' })
+  yearly: string;
+}
+
+export class PlatformMembershipPlanRulesResponseDto {
+  @ApiProperty({
+    type: [PlatformMembershipPlanRuleRowDto],
+    description: '套餐对比规则表，按前端 memberPlans 页面顺序返回',
+  })
+  @IsArray({ message: '套餐规则列表必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => PlatformMembershipPlanRuleRowDto)
+  rows: PlatformMembershipPlanRuleRowDto[];
 }
 
 export class PlatformMembershipInfoDto {
@@ -96,6 +165,14 @@ export class PlatformMembershipInfoDto {
   @IsOptional()
   @IsString({ message: '当前套餐标识必须是字符串' })
   planId: (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number] | null;
+
+  @ApiPropertyOptional({
+    example: 'ages会员',
+    description: '面向前端展示的套餐名称，无特殊展示需求时为空',
+  })
+  @IsOptional()
+  @IsString({ message: '展示套餐名称必须是字符串' })
+  displayPlanName?: string | null;
 
   @ApiPropertyOptional({
     example: 1776153600000,
@@ -127,7 +204,10 @@ export class PlatformMembershipApprovedPartnerDto {
   @IsString({ message: '联系电话必须是字符串' })
   phone: string;
 
-  @ApiPropertyOptional({ example: 1747123200000, description: '成为合伙人的时间戳（ms）' })
+  @ApiPropertyOptional({
+    example: 1747123200000,
+    description: '成为合伙人的时间戳（ms）',
+  })
   @IsOptional()
   @IsInt({ message: '成为合伙人的时间必须是整数' })
   joinedAt?: number;
@@ -247,22 +327,34 @@ export class PlatformMembershipPartnerApplicationDto {
   @IsInt({ message: '申请时间必须是整数' })
   createdAt: number;
 
-  @ApiPropertyOptional({ example: 1747209600000, description: '审核时间戳（ms）' })
+  @ApiPropertyOptional({
+    example: 1747209600000,
+    description: '审核时间戳（ms）',
+  })
   @IsOptional()
   @IsInt({ message: '审核时间必须是整数' })
   reviewedAt?: number;
 
-  @ApiPropertyOptional({ example: 1747219600000, description: '成为正式合伙人的时间戳（ms）' })
+  @ApiPropertyOptional({
+    example: 1747219600000,
+    description: '成为正式合伙人的时间戳（ms）',
+  })
   @IsOptional()
   @IsInt({ message: '成为正式合伙人的时间必须是整数' })
   joinedAt?: number;
 
-  @ApiPropertyOptional({ example: '有行业资源，希望合作推广', description: '申请理由 / 自我介绍' })
+  @ApiPropertyOptional({
+    example: '有行业资源，希望合作推广',
+    description: '申请理由 / 自我介绍',
+  })
   @IsOptional()
   @IsString({ message: '申请理由必须是字符串' })
   applyReason?: string;
 
-  @ApiProperty({ type: [PlatformMembershipPartnerFollowUpNoteDto], description: '跟进备注列表' })
+  @ApiProperty({
+    type: [PlatformMembershipPartnerFollowUpNoteDto],
+    description: '跟进备注列表',
+  })
   @IsArray({ message: '跟进备注列表必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => PlatformMembershipPartnerFollowUpNoteDto)
@@ -295,14 +387,20 @@ export class PlatformMembershipPartnerLevelDto {
   @IsInt({ message: '本月已充值推广人数必须是整数' })
   monthChargedCount: number;
 
-  @ApiPropertyOptional({ example: 18, description: '距离下一等级还差人数，最高等级时为空' })
+  @ApiPropertyOptional({
+    example: 18,
+    description: '距离下一等级还差人数，最高等级时为空',
+  })
   @IsOptional()
   @IsInt({ message: '升级剩余人数必须是整数' })
   monthCountToNextLevel: number | null;
 }
 
 export class PlatformMembershipCenterResponseDto {
-  @ApiProperty({ type: PlatformMembershipInfoDto, description: '会员中心基础信息' })
+  @ApiProperty({
+    type: PlatformMembershipInfoDto,
+    description: '会员中心基础信息',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipInfoDto)
   memberInfo: PlatformMembershipInfoDto;
@@ -311,7 +409,10 @@ export class PlatformMembershipCenterResponseDto {
   @IsInt({ message: '剩余会员天数必须是整数' })
   remainingDays: number;
 
-  @ApiProperty({ type: PlatformMembershipCenterStatsDto, description: '会员中心首页权益统计' })
+  @ApiProperty({
+    type: PlatformMembershipCenterStatsDto,
+    description: '会员中心首页权益统计',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipCenterStatsDto)
   stats: PlatformMembershipCenterStatsDto;
@@ -386,7 +487,10 @@ export class PlatformMembershipOrderResponseDto {
   @IsInt({ message: '创建时间必须是整数' })
   createdAt: number;
 
-  @ApiPropertyOptional({ example: 'WX181773556800000', description: '微信支付订单号，无则为空' })
+  @ApiPropertyOptional({
+    example: 'WX181773556800000',
+    description: '微信支付订单号，无则为空',
+  })
   @IsOptional()
   @IsString({ message: '微信订单号必须是字符串' })
   wxOrderId?: string;
@@ -403,12 +507,18 @@ export class PlatformMembershipOrdersOverviewDto {
 }
 
 export class PlatformMembershipOrdersResponseDto {
-  @ApiProperty({ type: PlatformMembershipOrdersOverviewDto, description: '充值记录页汇总信息' })
+  @ApiProperty({
+    type: PlatformMembershipOrdersOverviewDto,
+    description: '充值记录页汇总信息',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipOrdersOverviewDto)
   overview: PlatformMembershipOrdersOverviewDto;
 
-  @ApiProperty({ type: [PlatformMembershipOrderResponseDto], description: '充值记录列表，按创建时间倒序' })
+  @ApiProperty({
+    type: [PlatformMembershipOrderResponseDto],
+    description: '充值记录列表，按创建时间倒序',
+  })
   @IsArray({ message: '充值记录列表必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => PlatformMembershipOrderResponseDto)
@@ -434,15 +544,26 @@ export class PlatformMembershipPointsLogDto {
   @IsString({ message: '积分记录 ID 必须是字符串' })
   id: string;
 
-  @ApiProperty({ example: 300, description: '积分变动值，正数=获得，负数=使用/过期' })
+  @ApiProperty({
+    example: 300,
+    description: '积分变动值，正数=获得，负数=使用/过期',
+  })
   @IsInt({ message: '积分变动值必须是整数' })
   amount: number;
 
-  @ApiProperty({ enum: PLATFORM_POINTS_RECORD_TYPES, example: 'earn', description: '积分变动类型' })
+  @ApiProperty({
+    enum: PLATFORM_POINTS_RECORD_TYPES,
+    example: 'earn',
+    description: '积分变动类型',
+  })
   @IsString({ message: '积分变动类型必须是字符串' })
   type: (typeof PLATFORM_POINTS_RECORD_TYPES)[number];
 
-  @ApiProperty({ enum: PLATFORM_POINTS_RECORD_SOURCES, example: 'purchase_bonus', description: '积分来源' })
+  @ApiProperty({
+    enum: PLATFORM_POINTS_RECORD_SOURCES,
+    example: 'purchase_bonus',
+    description: '积分来源',
+  })
   @IsString({ message: '积分来源必须是字符串' })
   source: (typeof PLATFORM_POINTS_RECORD_SOURCES)[number];
 
@@ -454,7 +575,10 @@ export class PlatformMembershipPointsLogDto {
   @IsInt({ message: '创建时间必须是整数' })
   createdAt: number;
 
-  @ApiPropertyOptional({ example: 1749724800000, description: '积分到期时间戳（ms）' })
+  @ApiPropertyOptional({
+    example: 1749724800000,
+    description: '积分到期时间戳（ms）',
+  })
   @IsOptional()
   @IsInt({ message: '到期时间必须是整数' })
   expireAt?: number;
@@ -466,12 +590,18 @@ export class PlatformMembershipPointsLogsResponseDto {
   @Type(() => PlatformMembershipInfoDto)
   memberInfo: PlatformMembershipInfoDto;
 
-  @ApiProperty({ type: PlatformMembershipPointsOverviewDto, description: '积分中心汇总信息' })
+  @ApiProperty({
+    type: PlatformMembershipPointsOverviewDto,
+    description: '积分中心汇总信息',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipPointsOverviewDto)
   overview: PlatformMembershipPointsOverviewDto;
 
-  @ApiProperty({ type: [PlatformMembershipPointsLogDto], description: '积分记录列表，按创建时间倒序' })
+  @ApiProperty({
+    type: [PlatformMembershipPointsLogDto],
+    description: '积分记录列表，按创建时间倒序',
+  })
   @IsArray({ message: '积分记录列表必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => PlatformMembershipPointsLogDto)
@@ -497,19 +627,33 @@ export class PlatformMembershipBeanLogDto {
   @IsString({ message: '纯利豆记录 ID 必须是字符串' })
   id: string;
 
-  @ApiProperty({ example: -20, description: '纯利豆变动值，正数=获得，负数=消耗/提现' })
+  @ApiProperty({
+    example: -20,
+    description: '纯利豆变动值，正数=获得，负数=消耗/提现',
+  })
   @IsInt({ message: '纯利豆变动值必须是整数' })
   amount: number;
 
-  @ApiProperty({ enum: PLATFORM_BEAN_RECORD_TYPES, example: 'spend', description: '纯利豆变动类型' })
+  @ApiProperty({
+    enum: PLATFORM_BEAN_RECORD_TYPES,
+    example: 'spend',
+    description: '纯利豆变动类型',
+  })
   @IsString({ message: '纯利豆变动类型必须是字符串' })
   type: (typeof PLATFORM_BEAN_RECORD_TYPES)[number];
 
-  @ApiProperty({ enum: PLATFORM_BEAN_RECORD_SOURCES, example: 'deduct_payment', description: '纯利豆来源' })
+  @ApiProperty({
+    enum: PLATFORM_BEAN_RECORD_SOURCES,
+    example: 'deduct_payment',
+    description: '纯利豆来源',
+  })
   @IsString({ message: '纯利豆来源必须是字符串' })
   source: (typeof PLATFORM_BEAN_RECORD_SOURCES)[number];
 
-  @ApiProperty({ example: '纯利豆抵扣 · 订阅季度会员', description: '来源描述' })
+  @ApiProperty({
+    example: '纯利豆抵扣 · 订阅季度会员',
+    description: '来源描述',
+  })
   @IsString({ message: '来源描述必须是字符串' })
   description: string;
 
@@ -518,12 +662,19 @@ export class PlatformMembershipBeanLogDto {
   @IsString({ message: '关联推广记录 ID 必须是字符串' })
   relatedPromoId?: string;
 
-  @ApiPropertyOptional({ example: 'yearly', enum: PLATFORM_MEMBERSHIP_PLAN_IDS, description: '关联的充值套餐类型' })
+  @ApiPropertyOptional({
+    example: 'yearly',
+    enum: PLATFORM_MEMBERSHIP_PLAN_IDS,
+    description: '关联的充值套餐类型',
+  })
   @IsOptional()
   @IsString({ message: '关联套餐类型必须是字符串' })
   relatedPlanType?: (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number];
 
-  @ApiPropertyOptional({ example: '187****3344', description: '关联被推广用户' })
+  @ApiPropertyOptional({
+    example: '187****3344',
+    description: '关联被推广用户',
+  })
   @IsOptional()
   @IsString({ message: '关联被推广用户必须是字符串' })
   relatedUser?: string;
@@ -534,18 +685,27 @@ export class PlatformMembershipBeanLogDto {
 }
 
 export class PlatformMembershipBeanLogsResponseDto {
-  @ApiPropertyOptional({ type: PlatformMembershipApprovedPartnerDto, description: '审批通过合伙人的摘要' })
+  @ApiPropertyOptional({
+    type: PlatformMembershipApprovedPartnerDto,
+    description: '审批通过合伙人的摘要',
+  })
   @IsOptional()
   @ValidateNested()
   @Type(() => PlatformMembershipApprovedPartnerDto)
   approvedPartner: PlatformMembershipApprovedPartnerDto | null;
 
-  @ApiProperty({ type: PlatformMembershipBeanOverviewDto, description: '纯利豆中心汇总信息' })
+  @ApiProperty({
+    type: PlatformMembershipBeanOverviewDto,
+    description: '纯利豆中心汇总信息',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipBeanOverviewDto)
   overview: PlatformMembershipBeanOverviewDto;
 
-  @ApiProperty({ type: [PlatformMembershipBeanLogDto], description: '纯利豆记录列表，按创建时间倒序' })
+  @ApiProperty({
+    type: [PlatformMembershipBeanLogDto],
+    description: '纯利豆记录列表，按创建时间倒序',
+  })
   @IsArray({ message: '纯利豆记录列表必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => PlatformMembershipBeanLogDto)
@@ -579,7 +739,10 @@ export class PlatformMembershipPromoRecordDto {
   @IsString({ message: '被推广用户昵称必须是字符串' })
   inviteeName: string;
 
-  @ApiProperty({ example: '159****4321', description: '被推广用户手机号（脱敏）' })
+  @ApiProperty({
+    example: '159****4321',
+    description: '被推广用户手机号（脱敏）',
+  })
   @IsString({ message: '被推广用户手机号必须是字符串' })
   inviteePhone: string;
 
@@ -596,12 +759,19 @@ export class PlatformMembershipPromoRecordDto {
   @IsInt({ message: '充值金额必须是整数' })
   chargedAmount?: number;
 
-  @ApiPropertyOptional({ example: 1747209600000, description: '充值时间戳（ms）' })
+  @ApiPropertyOptional({
+    example: 1747209600000,
+    description: '充值时间戳（ms）',
+  })
   @IsOptional()
   @IsInt({ message: '充值时间必须是整数' })
   chargedAt?: number;
 
-  @ApiPropertyOptional({ example: 'quarterly', enum: PLATFORM_MEMBERSHIP_PLAN_IDS, description: '充值套餐类型' })
+  @ApiPropertyOptional({
+    example: 'quarterly',
+    enum: PLATFORM_MEMBERSHIP_PLAN_IDS,
+    description: '充值套餐类型',
+  })
   @IsOptional()
   @IsString({ message: '充值套餐类型必须是字符串' })
   chargedPlan?: (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number];
@@ -618,55 +788,85 @@ export class PlatformMembershipPromoRecordDto {
 }
 
 export class PlatformMembershipPromoStatsByPeriodDto {
-  @ApiProperty({ type: PlatformMembershipPromoStatsDto, description: '全部时间统计' })
+  @ApiProperty({
+    type: PlatformMembershipPromoStatsDto,
+    description: '全部时间统计',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipPromoStatsDto)
   all: PlatformMembershipPromoStatsDto;
 
-  @ApiProperty({ type: PlatformMembershipPromoStatsDto, description: '今日统计' })
+  @ApiProperty({
+    type: PlatformMembershipPromoStatsDto,
+    description: '今日统计',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipPromoStatsDto)
   today: PlatformMembershipPromoStatsDto;
 
-  @ApiProperty({ type: PlatformMembershipPromoStatsDto, description: '本月统计' })
+  @ApiProperty({
+    type: PlatformMembershipPromoStatsDto,
+    description: '本月统计',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipPromoStatsDto)
   month: PlatformMembershipPromoStatsDto;
 
-  @ApiProperty({ type: PlatformMembershipPromoStatsDto, description: '本年统计' })
+  @ApiProperty({
+    type: PlatformMembershipPromoStatsDto,
+    description: '本年统计',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipPromoStatsDto)
   year: PlatformMembershipPromoStatsDto;
 }
 
 export class PlatformMembershipPromoCenterResponseDto {
-  @ApiProperty({ type: PlatformMembershipInfoDto, description: '会员基础信息，用于推广码展示' })
+  @ApiProperty({
+    type: PlatformMembershipInfoDto,
+    description: '会员基础信息，用于推广码展示',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipInfoDto)
   memberInfo: PlatformMembershipInfoDto;
 
-  @ApiPropertyOptional({ type: PlatformMembershipApprovedPartnerDto, description: '审批通过合伙人的摘要' })
+  @ApiPropertyOptional({
+    type: PlatformMembershipApprovedPartnerDto,
+    description: '审批通过合伙人的摘要',
+  })
   @IsOptional()
   @ValidateNested()
   @Type(() => PlatformMembershipApprovedPartnerDto)
   approvedPartner: PlatformMembershipApprovedPartnerDto | null;
 
-  @ApiProperty({ type: PlatformMembershipPartnerLevelDto, description: '合伙人等级信息' })
+  @ApiProperty({
+    type: PlatformMembershipPartnerLevelDto,
+    description: '合伙人等级信息',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipPartnerLevelDto)
   level: PlatformMembershipPartnerLevelDto;
 
-  @ApiProperty({ type: PlatformMembershipPromoStatsDto, description: '推广中心统计信息（全量）' })
+  @ApiProperty({
+    type: PlatformMembershipPromoStatsDto,
+    description: '推广中心统计信息（全量）',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipPromoStatsDto)
   stats: PlatformMembershipPromoStatsDto;
 
-  @ApiProperty({ type: PlatformMembershipPromoStatsByPeriodDto, description: '按时间维度拆分的推广统计' })
+  @ApiProperty({
+    type: PlatformMembershipPromoStatsByPeriodDto,
+    description: '按时间维度拆分的推广统计',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipPromoStatsByPeriodDto)
   statsByPeriod: PlatformMembershipPromoStatsByPeriodDto;
 
-  @ApiProperty({ type: [PlatformMembershipPromoRecordDto], description: '推广记录列表，按注册时间倒序' })
+  @ApiProperty({
+    type: [PlatformMembershipPromoRecordDto],
+    description: '推广记录列表，按注册时间倒序',
+  })
   @IsArray({ message: '推广记录列表必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => PlatformMembershipPromoRecordDto)
@@ -678,42 +878,63 @@ export class PlatformMembershipPartnerProfileResponseDto {
   @IsBoolean({ message: '是否为正式合伙人必须是布尔值' })
   isPartner: boolean;
 
-  @ApiPropertyOptional({ type: PlatformMembershipPartnerApplicationDto, description: '当前门店最近一次申请记录' })
+  @ApiPropertyOptional({
+    type: PlatformMembershipPartnerApplicationDto,
+    description: '当前门店最近一次申请记录',
+  })
   @IsOptional()
   @ValidateNested()
   @Type(() => PlatformMembershipPartnerApplicationDto)
   currentApplication: PlatformMembershipPartnerApplicationDto | null;
 
-  @ApiProperty({ type: [PlatformMembershipPartnerApplicationDto], description: '申请记录列表，按申请时间倒序返回' })
+  @ApiProperty({
+    type: [PlatformMembershipPartnerApplicationDto],
+    description: '申请记录列表，按申请时间倒序返回',
+  })
   @IsArray({ message: '申请记录列表必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => PlatformMembershipPartnerApplicationDto)
   applications: PlatformMembershipPartnerApplicationDto[];
 
-  @ApiPropertyOptional({ type: PlatformMembershipApprovedPartnerDto, description: '审批通过合伙人的摘要' })
+  @ApiPropertyOptional({
+    type: PlatformMembershipApprovedPartnerDto,
+    description: '审批通过合伙人的摘要',
+  })
   @IsOptional()
   @ValidateNested()
   @Type(() => PlatformMembershipApprovedPartnerDto)
   approvedPartner: PlatformMembershipApprovedPartnerDto | null;
 
-  @ApiProperty({ type: PlatformMembershipPartnerLevelDto, description: '合伙人等级信息' })
+  @ApiProperty({
+    type: PlatformMembershipPartnerLevelDto,
+    description: '合伙人等级信息',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipPartnerLevelDto)
   level: PlatformMembershipPartnerLevelDto;
 }
 
 export class PurchasePlatformMembershipOrderResponseDto {
-  @ApiProperty({ type: PlatformMembershipOrderResponseDto, description: '最新创建的订单' })
+  @ApiProperty({
+    type: PlatformMembershipOrderResponseDto,
+    description: '最新创建的订单',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipOrderResponseDto)
   order: PlatformMembershipOrderResponseDto;
 
-  @ApiProperty({ type: PlatformMembershipProfileResponseDto, description: '支付后的会员信息与可用纯利豆' })
+  @ApiProperty({
+    type: PlatformMembershipProfileResponseDto,
+    description: '支付后的会员信息与可用纯利豆',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipProfileResponseDto)
   profile: PlatformMembershipProfileResponseDto;
 
-  @ApiProperty({ type: PlatformMembershipOrdersOverviewDto, description: '支付成功后的最新充值汇总' })
+  @ApiProperty({
+    type: PlatformMembershipOrdersOverviewDto,
+    description: '支付成功后的最新充值汇总',
+  })
   @ValidateNested()
   @Type(() => PlatformMembershipOrdersOverviewDto)
   overview: PlatformMembershipOrdersOverviewDto;

@@ -5,6 +5,7 @@ import {
   PlatformMembershipController,
   PromotionDetailCompatController,
 } from './platform-membership.controller';
+import { PlatformMembershipAccessService } from './platform-membership-access.service';
 import { PlatformMembershipService } from './platform-membership.service';
 
 @Module({
@@ -14,7 +15,7 @@ import { PlatformMembershipService } from './platform-membership.service';
     PromotionDetailCompatController,
     PartnerReviewController,
   ],
-  providers: [PlatformMembershipService],
-  exports: [PlatformMembershipService],
+  providers: [PlatformMembershipService, PlatformMembershipAccessService],
+  exports: [PlatformMembershipService, PlatformMembershipAccessService],
 })
 export class PlatformMembershipModule {}

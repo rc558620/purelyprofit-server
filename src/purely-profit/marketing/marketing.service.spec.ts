@@ -1,6 +1,11 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MarketingAccessService } from './marketing-access.service';
 import { MarketingService } from './marketing.service';
@@ -48,6 +53,10 @@ describe('MarketingService', () => {
     ensureCanAccess: jest.fn(),
   };
 
+  const platformMembershipAccessService = {
+    ensureMarketingFeatureEnabled: jest.fn(),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -73,6 +82,10 @@ describe('MarketingService', () => {
         MarketingService,
         { provide: PrismaService, useValue: prismaService },
         { provide: MarketingAccessService, useValue: accessService },
+        {
+          provide: PlatformMembershipAccessService,
+          useValue: platformMembershipAccessService,
+        },
       ],
     }).compile();
 
@@ -83,8 +96,23 @@ describe('MarketingService', () => {
     jest.useRealTimers();
   });
 
+  it('getOverview 在会员不支持营销中心时拒绝访问', async () => {
+    accessService.resolveViewStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.ensureMarketingFeatureEnabled.mockRejectedValue(
+      new ForbiddenException('当前会员套餐暂不支持营销中心，请升级会员后使用'),
+    );
+
+    await expect(service.getOverview(user, 18)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prismaService.marketingCustomer.count).not.toHaveBeenCalled();
+  });
+
   it('getOverview 按前端首页契约返回纯储值概览和年度趋势', async () => {
     accessService.resolveViewStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
+      undefined,
+    );
     prismaService.marketingCustomer.count.mockResolvedValueOnce(6);
     prismaService.marketingCustomer.aggregate.mockResolvedValue({
       _sum: { balance: 88000 },
@@ -228,6 +256,7 @@ describe('MarketingService', () => {
         {
           id: '100',
           customerId: '9',
+          customerName: '张三',
           amount: 10000,
           giftAmount: 2000,
           type: 'recharge',
@@ -285,8 +314,14 @@ describe('MarketingService', () => {
     ]);
     prismaService.marketingPromotion.count.mockResolvedValue(1);
 
-    const customers = await service.listCustomers(user, { page: 1, pageSize: 20 });
-    const promotions = await service.listPromotions(user, { page: 1, pageSize: 20 });
+    const customers = await service.listCustomers(user, {
+      page: 1,
+      pageSize: 20,
+    });
+    const promotions = await service.listPromotions(user, {
+      page: 1,
+      pageSize: 20,
+    });
 
     expect(customers.items[0]?.status).toBe('active');
     expect(promotions.items[0]).toMatchObject({
@@ -366,9 +401,11 @@ describe('MarketingService', () => {
     expect(result.recentRecharges[0]).toEqual({
       id: '100',
       customerId: '9',
+      customerName: '张三',
       amount: 10000,
       giftAmount: 2000,
       type: 'recharge',
+      promotionId: undefined,
       createdAt: new Date('2026-05-15T09:00:00.000Z').getTime(),
       note: '首次储值',
     });
@@ -487,7 +524,25 @@ describe('MarketingService', () => {
     });
   });
 
+  it('createCustomer 在会员不支持营销中心时拒绝新增顾客', async () => {
+    platformMembershipAccessService.ensureMarketingFeatureEnabled.mockRejectedValue(
+      new ForbiddenException('当前会员套餐暂不支持营销中心，请升级会员后使用'),
+    );
+
+    await expect(
+      service.createCustomer(user, 18, {
+        name: '张三',
+        phone: '13800138000',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(prismaService.marketingCustomer.create).not.toHaveBeenCalled();
+  });
+
   it('createConsumption 在积分抵扣时写入 spend 积分流水', async () => {
+    platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
+      undefined,
+    );
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
@@ -563,6 +618,9 @@ describe('MarketingService', () => {
   });
 
   it('createRecharge 退款超过余额时抛 BadRequestException', async () => {
+    platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
+      undefined,
+    );
     prismaService.$queryRaw.mockResolvedValueOnce([
       {
         id: 9,

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CommerceModule } from '../../commerce/commerce.module';
+import { PlatformMembershipModule } from '../../member/platform-membership/platform-membership.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { RedisModule } from '../../../redis/redis.module';
 import { SalesRecordModule } from '../sales-record/sales-record.module';
@@ -16,7 +17,13 @@ import { SpacesController } from './spaces.controller';
 import { SpacesService } from './spaces.service';
 
 @Module({
-  imports: [PrismaModule, CommerceModule, SalesRecordModule, RedisModule],
+  imports: [
+    PrismaModule,
+    CommerceModule,
+    PlatformMembershipModule,
+    SalesRecordModule,
+    RedisModule,
+  ],
   controllers: [
     SpaceTypesController,
     SpaceZonesController,

@@ -31,6 +31,7 @@ import { NotificationsModule } from './purely-profit/notifications/notifications
 import { PulseSessionModule } from './purely-pulse/session/session.module';
 import { PulseOnboardingModule } from './purely-pulse/onboarding/onboarding.module';
 import { PulseMembershipModule } from './purely-pulse/membership/membership.module';
+import { PulseMembershipSettingsModule } from './purely-pulse/membership-settings/membership-settings.module';
 import { PulseDashboardModule } from './purely-pulse/dashboard/dashboard.module';
 import { PulseGrowthModule } from './purely-pulse/growth/growth.module';
 
@@ -69,6 +70,7 @@ import { PulseGrowthModule } from './purely-pulse/growth/growth.module';
     PulseSessionModule,
     PulseOnboardingModule,
     PulseMembershipModule,
+    PulseMembershipSettingsModule,
     PulseDashboardModule,
     PulseGrowthModule,
   ],

@@ -6,6 +6,9 @@ describe('JwtStrategy', () => {
     user: {
       findUnique: jest.fn(),
     },
+    store: {
+      findMany: jest.fn(),
+    },
     $queryRaw: jest.fn(),
   };
   const accessControlService = {
@@ -74,6 +77,7 @@ describe('JwtStrategy', () => {
       updatedAt: new Date(),
     });
     redisService.get.mockResolvedValue('0');
+    prisma.store.findMany.mockResolvedValue([]);
     prisma.$queryRaw.mockResolvedValue([]);
 
     const result = await strategy.validate({
@@ -86,6 +90,33 @@ describe('JwtStrategy', () => {
       pulseMode: 'developer',
       isPulseDeveloper: true,
     });
+  });
+
+  it('封禁后旧登录态会在鉴权阶段被拒绝', async () => {
+    const strategy = new JwtStrategy(
+      configService as never,
+      prisma as never,
+      accessControlService as never,
+      redisService as never,
+    );
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 18,
+      email: 'user@example.com',
+      name: '测试用户',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    prisma.store.findMany.mockResolvedValue([{ id: 18 }]);
+    redisService.get.mockResolvedValueOnce('0').mockResolvedValueOnce('违规操作');
+
+    await expect(
+      strategy.validate({
+        sub: 18,
+        phone: '13800138000',
+        sessionVersion: 0,
+      }),
+    ).rejects.toThrow('账号已被封禁');
   });
 
   it('sessionVersion 匹配时允许通过', async () => {
@@ -104,6 +135,7 @@ describe('JwtStrategy', () => {
       updatedAt: new Date(),
     });
     redisService.get.mockResolvedValue('2');
+    prisma.store.findMany.mockResolvedValue([]);
     prisma.$queryRaw.mockResolvedValue([]);
 
     const result = await strategy.validate({

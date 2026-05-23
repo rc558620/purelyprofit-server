@@ -47,6 +47,7 @@ type MembershipRole = 'OWNER' | 'MANAGER' | 'STAFF';
 const STORE_PROFILE_KEY_PREFIX = 'stores:profile:';
 const ADMIN_LOGIN_ALIAS = 'admin';
 const ADMIN_LOGIN_PHONE = '13800000000';
+const PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX = 'pulse:membership:admin:member:';
 
 interface AccountIdentifiers {
   phone: string;
@@ -192,6 +193,7 @@ export class AuthService {
       phone: user.phone,
       email: user.email,
     });
+    await this.ensureUserNotBanned(user.id);
 
     return this.signToken(user.id, {
       phone: user.phone,
@@ -530,6 +532,54 @@ export class AuthService {
           phone,
         }
       : null;
+  }
+
+  private async ensureUserNotBanned(userId: number): Promise<void> {
+    const relatedStoreIds = await this.findUserRelatedStoreIds(userId);
+    if (relatedStoreIds.length === 0) {
+      return;
+    }
+
+    const banReasons = await Promise.all(
+      relatedStoreIds.map((storeId) =>
+        this.redisService.get(this.getPulseAdminMemberBanReasonKey(storeId)),
+      ),
+    );
+    const hasBannedStore = banReasons.some((reason) => Boolean(reason?.trim()));
+
+    if (hasBannedStore) {
+      throw new UnauthorizedException('账号已被封禁');
+    }
+  }
+
+  private async findUserRelatedStoreIds(userId: number): Promise<number[]> {
+    const stores = await this.prisma.store.findMany({
+      where: {
+        OR: [
+          { ownerId: userId },
+          {
+            staffs: {
+              some: {
+                userId,
+                isActive: true,
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+      },
+      orderBy: {
+        id: 'asc',
+      },
+    });
+
+    return stores.map((store) => store.id);
+  }
+
+  private getPulseAdminMemberBanReasonKey(storeId: number): string {
+    return `${PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX}${storeId}:ban-reason`;
   }
 
   private extractPhoneFromLoginAccount(account: string): string | null {

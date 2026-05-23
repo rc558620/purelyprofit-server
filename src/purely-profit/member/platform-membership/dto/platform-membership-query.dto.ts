@@ -16,6 +16,7 @@ export const PLATFORM_MEMBERSHIP_PLAN_IDS = [
   'monthly',
   'quarterly',
   'yearly',
+  'lifetime',
 ] as const;
 
 export const PLATFORM_PARTNER_PAYMENT_METHODS = [

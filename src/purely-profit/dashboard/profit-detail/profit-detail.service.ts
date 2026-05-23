@@ -8,6 +8,7 @@ import {
   toOptionalMediaText,
 } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { GetProfitDetailQueryDto } from './dto/profit-detail-query.dto';
 import type {
   CostBreakdownItemDto,
@@ -89,6 +90,7 @@ export class ProfitDetailService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async getProfitDetail(
@@ -113,7 +115,23 @@ export class ProfitDetailService {
 
     const currentRange = this.buildCurrentRange(query);
     const previousRange = this.buildPreviousRange(query, currentRange);
-    const queryStart = Math.min(currentRange.start, previousRange.start);
+    const clampedCurrentRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      currentRange,
+    );
+    const clampedPreviousRange =
+      await this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        previousRange,
+      );
+
+    if (clampedCurrentRange.empty) {
+      return this.buildEmptyProfitDetailResponse();
+    }
+
+    const queryStart = clampedPreviousRange.empty
+      ? clampedCurrentRange.start
+      : Math.min(clampedCurrentRange.start, clampedPreviousRange.start);
 
     const [saleRows, costRows] = await Promise.all([
       this.prisma.saleOrderItem.findMany({
@@ -122,7 +140,7 @@ export class ProfitDetailService {
           order: {
             date: {
               gte: new Date(queryStart),
-              lte: new Date(currentRange.end),
+              lte: new Date(clampedCurrentRange.end),
             },
           },
         },
@@ -147,7 +165,7 @@ export class ProfitDetailService {
           storeId,
           date: {
             gte: new Date(queryStart),
-            lte: new Date(currentRange.end),
+            lte: new Date(clampedCurrentRange.end),
           },
         },
         select: {
@@ -161,18 +179,20 @@ export class ProfitDetailService {
 
     const currentSales = this.aggregateSales(
       saleRows,
-      currentRange.start,
-      currentRange.end,
+      clampedCurrentRange.start,
+      clampedCurrentRange.end,
     );
-    const previousSales = this.aggregateSales(
-      saleRows,
-      previousRange.start,
-      previousRange.end,
-    );
+    const previousSales = clampedPreviousRange.empty
+      ? this.createEmptySalesAggregation()
+      : this.aggregateSales(
+          saleRows,
+          clampedPreviousRange.start,
+          clampedPreviousRange.end,
+        );
     const currentCosts = this.aggregateCosts(
       costRows,
-      currentRange.start,
-      currentRange.end,
+      clampedCurrentRange.start,
+      clampedCurrentRange.end,
     );
 
     const netProfit = this.subtractMoney(
@@ -189,8 +209,10 @@ export class ProfitDetailService {
         currentSales.orderCount,
       ),
       dailyProfits: this.buildDailyProfits(
-        query.period ?? 'month',
-        currentRange,
+        {
+          start: clampedCurrentRange.start,
+          end: clampedCurrentRange.end,
+        },
         currentSales.dailyRevenueMap,
         currentCosts.dailyCostMap,
       ),
@@ -222,9 +244,29 @@ export class ProfitDetailService {
       '无权查看该门店利润报表',
     );
 
+    if (queryDto.export) {
+      await this.platformMembershipAccessService.ensureReportExportEnabled(storeId);
+    }
+
     const currentRange = this.buildCurrentRange(query);
     const previousRange = this.buildPreviousRange(query, currentRange);
-    const queryStart = Math.min(currentRange.start, previousRange.start);
+    const clampedCurrentRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      currentRange,
+    );
+    const clampedPreviousRange =
+      await this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        previousRange,
+      );
+
+    if (clampedCurrentRange.empty) {
+      return this.buildEmptyProfitReportResponse();
+    }
+
+    const queryStart = clampedPreviousRange.empty
+      ? clampedCurrentRange.start
+      : Math.min(clampedCurrentRange.start, clampedPreviousRange.start);
 
     const [saleRows, costRows] = await Promise.all([
       this.prisma.saleOrderItem.findMany({
@@ -233,7 +275,7 @@ export class ProfitDetailService {
           order: {
             date: {
               gte: new Date(queryStart),
-              lte: new Date(currentRange.end),
+              lte: new Date(clampedCurrentRange.end),
             },
           },
         },
@@ -258,7 +300,7 @@ export class ProfitDetailService {
           storeId,
           date: {
             gte: new Date(queryStart),
-            lte: new Date(currentRange.end),
+            lte: new Date(clampedCurrentRange.end),
           },
         },
         select: {
@@ -272,18 +314,20 @@ export class ProfitDetailService {
 
     const currentSales = this.aggregateSales(
       saleRows,
-      currentRange.start,
-      currentRange.end,
+      clampedCurrentRange.start,
+      clampedCurrentRange.end,
     );
-    const previousSales = this.aggregateSales(
-      saleRows,
-      previousRange.start,
-      previousRange.end,
-    );
+    const previousSales = clampedPreviousRange.empty
+      ? this.createEmptySalesAggregation()
+      : this.aggregateSales(
+          saleRows,
+          clampedPreviousRange.start,
+          clampedPreviousRange.end,
+        );
     const currentCosts = this.aggregateCosts(
       costRows,
-      currentRange.start,
-      currentRange.end,
+      clampedCurrentRange.start,
+      clampedCurrentRange.end,
     );
     const netProfit = this.subtractMoney(
       currentSales.revenue,
@@ -299,6 +343,45 @@ export class ProfitDetailService {
         currentSales.orderCount,
       ),
       products: this.buildReportProducts(currentSales.rankMap),
+    };
+  }
+
+  private buildEmptyProfitDetailResponse(): ProfitDetailResponseDto {
+    return {
+      summary: {
+        revenue: 0,
+        totalCost: 0,
+        netProfit: 0,
+        profitRate: 0,
+        compareLastPeriod: null,
+        orderCount: 0,
+      },
+      dailyProfits: [],
+      productRanking: [],
+      costBreakdown: [],
+    };
+  }
+
+  private buildEmptyProfitReportResponse(): ProfitReportResponseDto {
+    return {
+      summary: {
+        revenue: 0,
+        totalCost: 0,
+        netProfit: 0,
+        profitRate: 0,
+        compareLastPeriod: null,
+        orderCount: 0,
+      },
+      products: [],
+    };
+  }
+
+  private createEmptySalesAggregation(): SalesAggregationResult {
+    return {
+      revenue: 0,
+      orderCount: 0,
+      dailyRevenueMap: new Map<number, number>(),
+      rankMap: new Map<string, AggregatedRankProduct>(),
     };
   }
 
@@ -386,6 +469,8 @@ export class ProfitDetailService {
           end: this.getDayEnd(endDate),
         };
       }
+      default:
+        throw new BadRequestException('利润时间周期不合法');
     }
   }
 
@@ -537,12 +622,11 @@ export class ProfitDetailService {
   }
 
   private buildDailyProfits(
-    period: ProfitDetailPeriodValue,
     currentRange: ProfitDateRange,
     dailyRevenueMap: Map<number, number>,
     dailyCostMap: Map<number, number>,
   ): DailyProfitDto[] {
-    const days = this.getChartDays(period, currentRange);
+    const days = this.getChartDays(currentRange);
     const endDayStart = this.getDayStart(currentRange.end);
 
     return Array.from({ length: days }, (_, index) => {
@@ -608,29 +692,14 @@ export class ProfitDetailService {
       .sort((left, right) => right.amount - left.amount);
   }
 
-  private getChartDays(
-    period: ProfitDetailPeriodValue,
-    currentRange: ProfitDateRange,
-  ): number {
-    switch (period) {
-      case 'today':
-      case 'week':
-        return 7;
-      case 'month':
-        return 30;
-      case 'quarter':
-        return 90;
-      case 'year':
-        return 365;
-      case 'custom_month':
-        return 1;
-      case 'custom_range': {
-        const diffDays = Math.ceil(
-          (currentRange.end - currentRange.start) / DAY_MS,
-        );
-        return Math.max(1, Math.min(diffDays, CHART_DAY_LIMIT));
-      }
-    }
+  private getChartDays(currentRange: ProfitDateRange): number {
+    const diffDays =
+      Math.floor(
+        (this.getDayStart(currentRange.end) - this.getDayStart(currentRange.start)) /
+          DAY_MS,
+      ) + 1;
+
+    return Math.max(1, Math.min(diffDays, CHART_DAY_LIMIT));
   }
 
   private buildChangeRate(current: number, previous: number): number | null {

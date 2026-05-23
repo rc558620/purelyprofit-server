@@ -26,6 +26,7 @@ import {
   type PlatformMembershipPartnerLevelDto,
   type PlatformMembershipPartnerProfileResponseDto,
   type PlatformMembershipPlanResponseDto,
+  type PlatformMembershipPlanRulesResponseDto,
   type PlatformMembershipPointsLogDto,
   type PlatformMembershipPointsLogsResponseDto,
   type PlatformMembershipProfileResponseDto,
@@ -74,11 +75,35 @@ interface MembershipPlanConfig {
   id: PlatformMembershipPlanId;
   name: string;
   price: number;
-  originalPrice: number;
-  durationMonths: number;
+  originalPrice: number | null;
+  durationMonths: number | null;
+  validDays: number | null;
   badge?: string;
   recommended?: boolean;
-  monthlyPrice: number;
+  monthlyPrice?: number;
+}
+
+interface MembershipPlanRuleConfig {
+  key: string;
+  name: string;
+  free: string;
+  monthly: string;
+  quarterly: string;
+  yearly: string;
+}
+
+type MembershipPlanSettingIdValue =
+  | PlatformMembershipPlanId
+  | 'lifetime';
+
+interface MembershipPlanSettingRecord {
+  planId: MembershipPlanSettingIdValue;
+  planName: string;
+  price: number;
+  originalPrice: number | null;
+  durationMonths: number | null;
+  validDays: number | null;
+  updatedAt: Date;
 }
 
 interface StoreMembershipProfileRecord {
@@ -233,39 +258,135 @@ const PURCHASE_BONUS_POINTS: Record<PlatformMembershipPlanId, number> = {
   monthly: 0,
   quarterly: 300,
   yearly: 1500,
+  lifetime: 0,
 };
 const PLAN_LEVEL_RANK: Record<PlatformMembershipPlanId, number> = {
   monthly: 1,
   quarterly: 2,
   yearly: 3,
+  lifetime: 4,
 };
-const PLAN_CATALOG: MembershipPlanConfig[] = [
-  {
-    id: 'monthly',
-    name: '月度会员',
+const PLATFORM_MEMBERSHIP_PLAN_ORDER: PlatformMembershipPlanId[] = [
+  'monthly',
+  'quarterly',
+  'yearly',
+  'lifetime',
+];
+const DEFAULT_MEMBERSHIP_PLAN_SETTINGS: Record<
+  MembershipPlanSettingIdValue,
+  Omit<MembershipPlanSettingRecord, 'updatedAt'>
+> = {
+  monthly: {
+    planId: 'monthly',
+    planName: '月度会员',
     price: 3800,
     originalPrice: 3800,
     durationMonths: 1,
-    monthlyPrice: 3800,
+    validDays: null,
   },
-  {
-    id: 'quarterly',
-    name: '季度会员',
+  quarterly: {
+    planId: 'quarterly',
+    planName: '季度会员',
     price: 9900,
     originalPrice: 11400,
     durationMonths: 3,
-    badge: '省15元',
-    recommended: true,
-    monthlyPrice: 3300,
+    validDays: null,
   },
-  {
-    id: 'yearly',
-    name: '年度会员',
+  yearly: {
+    planId: 'yearly',
+    planName: '年度会员',
     price: 36900,
     originalPrice: 45600,
     durationMonths: 12,
-    badge: '最划算',
-    monthlyPrice: 3075,
+    validDays: null,
+  },
+  lifetime: {
+    planId: 'lifetime',
+    planName: '永久会员',
+    price: 39800,
+    originalPrice: null,
+    durationMonths: null,
+    validDays: 730,
+  },
+};
+const PLAN_BADGE_CONFIG: Record<
+  PlatformMembershipPlanId,
+  Pick<MembershipPlanConfig, 'badge' | 'recommended'>
+> = {
+  monthly: {},
+  quarterly: {
+    badge: '省15元',
+    recommended: true,
+  },
+  yearly: {
+    badge: '超划算',
+  },
+  lifetime: {},
+};
+const PLAN_RULES: MembershipPlanRuleConfig[] = [
+  {
+    key: 'product_limit',
+    name: '商品录入',
+    free: '最多 3 个',
+    monthly: '最多 30 个',
+    quarterly: '最多 100 个',
+    yearly: '无上限',
+  },
+  {
+    key: 'staff_limit',
+    name: '员工管理',
+    free: '0 人',
+    monthly: '最多 5 人',
+    quarterly: '最多 10 人',
+    yearly: '无上限',
+  },
+  {
+    key: 'history_range',
+    name: '历史数据',
+    free: '近 7 天',
+    monthly: '不限时段',
+    quarterly: '不限时段',
+    yearly: '不限时段',
+  },
+  {
+    key: 'report_export',
+    name: '报表导出',
+    free: '不可用',
+    monthly: '可用',
+    quarterly: '可用',
+    yearly: '可用',
+  },
+  {
+    key: 'bonus_points',
+    name: '赠送积分',
+    free: '0 分',
+    monthly: '0 分',
+    quarterly: '赠 300 分',
+    yearly: '赠 1500 分',
+  },
+  {
+    key: 'finance_access',
+    name: '财务管理',
+    free: '不可用',
+    monthly: '可用',
+    quarterly: '可用',
+    yearly: '可用',
+  },
+  {
+    key: 'marketing_access',
+    name: '营销中心',
+    free: '不可用',
+    monthly: '可用',
+    quarterly: '可用',
+    yearly: '可用',
+  },
+  {
+    key: 'space_limit',
+    name: '空间管理',
+    free: '最多 1 个',
+    monthly: '最多 10 个',
+    quarterly: '最多 30 个',
+    yearly: '无上限',
   },
 ];
 
@@ -273,8 +394,21 @@ const PLAN_CATALOG: MembershipPlanConfig[] = [
 export class PlatformMembershipService {
   constructor(private readonly prisma: PrismaService) {}
 
-  listPlans(): PlatformMembershipPlanResponseDto[] {
-    return PLAN_CATALOG.map((plan) => ({ ...plan }));
+  async listPlans(): Promise<PlatformMembershipPlanResponseDto[]> {
+    const plans = await this.loadPlanCatalog();
+    return plans.map((plan) => ({ ...plan }));
+  }
+
+  async getPlanConfig(
+    planId: PlatformMembershipPlanId,
+  ): Promise<MembershipPlanConfig> {
+    return this.requirePlan(this.prisma, planId);
+  }
+
+  listPlanRules(): PlatformMembershipPlanRulesResponseDto {
+    return {
+      rows: PLAN_RULES.map((row) => ({ ...row })),
+    };
   }
 
   async getCenter(
@@ -302,7 +436,7 @@ export class PlatformMembershipService {
 
     return {
       memberInfo: profileResponse.memberInfo,
-      remainingDays: this.calcRemainingDays(profile.expiresAt),
+      remainingDays: this.calcRemainingDays(profile),
       stats: this.buildCenterStats(promoRecords),
       paidOrderCount,
       myPartnerApplication: this.buildCurrentPartnerApplication(
@@ -374,11 +508,11 @@ export class PlatformMembershipService {
     const storeId = this.getCurrentStoreIdOrThrow(user);
     await this.ensureStoreOwner(user, storeId);
 
-    const plan = this.requirePlan(dto.planId);
     const requestedPoints = dto.usePoints ?? 0;
     const requestedBeans = dto.useBeans ?? 0;
 
     return this.prisma.$transaction(async (tx) => {
+      const plan = await this.requirePlan(tx, dto.planId);
       const profile = await this.ensureProfile(tx, storeId);
       const partner = await this.findPartner(tx, storeId);
       const approvedPartner = this.requireApprovedPartnerOrNull(partner);
@@ -437,22 +571,28 @@ export class PlatformMembershipService {
       const nextTotalPoints =
         profile.totalPoints - payment.actualPointsUsed + bonusPoints;
       const now = new Date();
-      const currentExpiryMs = profile.expiresAt?.getTime() ?? 0;
+      const isLegacyLifetimeMembership =
+        profile.currentPlanId === 'yearly' && profile.expiresAt === null;
+      const currentExpiryMs =
+        this.resolveFrontendMembershipExpiry(profile)?.getTime() ?? 0;
       const baseMs =
         currentExpiryMs > now.getTime() ? currentExpiryMs : now.getTime();
-      const nextExpiresAt = new Date(
-        baseMs + plan.durationMonths * 30 * DAY_MS,
-      );
+      const nextExpiresAt = this.buildPlanExpiryAt(plan, baseMs);
       const currentActivePlanId =
         currentExpiryMs > now.getTime() ? profile.currentPlanId : null;
-      const nextPlanId = this.resolveEffectivePlanId(currentActivePlanId, plan.id);
+      const nextPlanId = isLegacyLifetimeMembership
+        ? 'yearly'
+        : this.resolveEffectivePlanId(currentActivePlanId, plan.id);
+      const nextStartsAt = isLegacyLifetimeMembership
+        ? new Date(nextExpiresAt.getTime() - 730 * DAY_MS)
+        : (profile.startsAt ?? now);
 
       const updatedProfile = await tx.storeMembershipProfile.update({
         where: { id: profile.id },
         data: {
           currentPlanId: nextPlanId,
-          startsAt: profile.startsAt ?? now,
-          expiresAt: nextExpiresAt,
+          startsAt: nextStartsAt,
+          expiresAt: isLegacyLifetimeMembership ? null : nextExpiresAt,
           totalPoints: nextTotalPoints,
           availablePoints: nextAvailablePoints,
         },
@@ -657,7 +797,10 @@ export class PlatformMembershipService {
       this.findPromoRecords(this.prisma, storeId),
     ]);
     const filters = this.resolvePromoDetailCompatFilters(rawQuery);
-    const filteredRecords = this.filterPromoRecordsForCompat(promoRecords, filters);
+    const filteredRecords = this.filterPromoRecordsForCompat(
+      promoRecords,
+      filters,
+    );
     const items = filteredRecords.map((record) => this.mapPromoRecord(record));
     const memberInfo = this.buildMembershipInfo(profile);
 
@@ -922,7 +1065,10 @@ export class PlatformMembershipService {
         throw new ConflictException('申请状态已变化，请刷新后重试');
       }
 
-      const remainingApplications = await this.findPartnerApplications(tx, storeId);
+      const remainingApplications = await this.findPartnerApplications(
+        tx,
+        storeId,
+      );
       const latestApplication = remainingApplications[0];
 
       if (latestApplication) {
@@ -1116,18 +1262,57 @@ export class PlatformMembershipService {
   private buildMembershipInfo(
     profile: StoreMembershipProfileRecord,
   ): PlatformMembershipProfileResponseDto['memberInfo'] {
-    const now = Date.now();
-    const expiredAt = profile.expiresAt?.getTime() ?? null;
-    const isActive = expiredAt !== null && expiredAt > now;
+    const expiredAt =
+      this.resolveFrontendMembershipExpiry(profile)?.getTime() ?? null;
+    const isLegacyLifetimeMembership =
+      profile.currentPlanId === 'yearly' && profile.expiresAt === null;
+    const isActive =
+      profile.currentPlanId === 'lifetime' && profile.expiresAt === null
+        ? true
+        : expiredAt !== null && expiredAt > Date.now();
 
     return {
       isActive,
       planId: isActive ? profile.currentPlanId : null,
+      ...(isLegacyLifetimeMembership ? { displayPlanName: 'ages会员' } : {}),
       expiredAt,
       inviteCode: this.buildInviteCode(profile.storeId),
       totalPoints: profile.totalPoints,
       availablePoints: profile.availablePoints,
     };
+  }
+
+  private resolveFrontendMembershipExpiry(
+    profile: Pick<
+      StoreMembershipProfileRecord,
+      'currentPlanId' | 'startsAt' | 'expiresAt'
+    >,
+  ): Date | null {
+    if (profile.expiresAt) {
+      return profile.expiresAt;
+    }
+
+    if (profile.currentPlanId === 'yearly') {
+      const baseTime = profile.startsAt?.getTime() ?? Date.now();
+      return new Date(baseTime + 730 * DAY_MS);
+    }
+
+    return null;
+  }
+
+  private buildPlanExpiryAt(
+    plan: Pick<MembershipPlanConfig, 'name' | 'durationMonths' | 'validDays'>,
+    baseMs: number,
+  ): Date {
+    if (plan.durationMonths !== null && plan.durationMonths > 0) {
+      return new Date(baseMs + plan.durationMonths * 30 * DAY_MS);
+    }
+
+    if (plan.validDays !== null && plan.validDays > 0) {
+      return new Date(baseMs + plan.validDays * DAY_MS);
+    }
+
+    throw new ConflictException(`${plan.name}套餐配置缺少有效时长`);
   }
 
   private buildApprovedPartnerResponse(
@@ -1191,8 +1376,12 @@ export class PlatformMembershipService {
       ...(application.reviewedAt
         ? { reviewedAt: application.reviewedAt.getTime() }
         : {}),
-      ...(application.joinedAt ? { joinedAt: application.joinedAt.getTime() } : {}),
-      ...(application.applyReason ? { applyReason: application.applyReason } : {}),
+      ...(application.joinedAt
+        ? { joinedAt: application.joinedAt.getTime() }
+        : {}),
+      ...(application.applyReason
+        ? { applyReason: application.applyReason }
+        : {}),
       followUpNotes: this.mapPartnerFollowUpNotes(application.followUpNotes),
       beanBalance: partner?.beanBalance ?? 0,
       totalEarnedBeans: partner?.totalEarnedBeans ?? 0,
@@ -1218,7 +1407,9 @@ export class PlatformMembershipService {
       intention: partner.intention ?? 'agent',
       status: partner.status,
       createdAt: partner.createdAt.getTime(),
-      ...(partner.reviewedAt ? { reviewedAt: partner.reviewedAt.getTime() } : {}),
+      ...(partner.reviewedAt
+        ? { reviewedAt: partner.reviewedAt.getTime() }
+        : {}),
       ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
       ...(partner.applyReason ? { applyReason: partner.applyReason } : {}),
       followUpNotes: [],
@@ -1241,7 +1432,9 @@ export class PlatformMembershipService {
   private buildCenterStats(
     promoRecords: StoreMembershipPromoRecord[],
   ): PlatformMembershipCenterResponseDto['stats'] {
-    const chargedPromos = promoRecords.filter((record) => record.hasCharged).length;
+    const chargedPromos = promoRecords.filter(
+      (record) => record.hasCharged,
+    ).length;
     return {
       totalPromos: promoRecords.length,
       chargedPromos,
@@ -1287,7 +1480,8 @@ export class PlatformMembershipService {
       0,
     );
     const totalSpent = logs.reduce(
-      (sum, log) => (log.changeAmount < 0 ? sum + Math.abs(log.changeAmount) : sum),
+      (sum, log) =>
+        log.changeAmount < 0 ? sum + Math.abs(log.changeAmount) : sum,
       0,
     );
 
@@ -1330,7 +1524,9 @@ export class PlatformMembershipService {
     };
   }
 
-  private mapBeanLog(log: StorePartnerBeanLogRecord): PlatformMembershipBeanLogDto {
+  private mapBeanLog(
+    log: StorePartnerBeanLogRecord,
+  ): PlatformMembershipBeanLogDto {
     return {
       id: `bean-${log.id}`,
       amount: log.changeAmount,
@@ -1349,7 +1545,9 @@ export class PlatformMembershipService {
   private buildPromoStats(
     promoRecords: StoreMembershipPromoRecord[],
   ): PlatformMembershipPromoStatsDto {
-    const chargedPromos = promoRecords.filter((record) => record.hasCharged).length;
+    const chargedPromos = promoRecords.filter(
+      (record) => record.hasCharged,
+    ).length;
     const earnedBeans = promoRecords.reduce(
       (sum, record) => sum + (record.rewardBeans ?? 0),
       0,
@@ -1368,7 +1566,9 @@ export class PlatformMembershipService {
   private resolvePromoDetailCompatFilters(
     rawQuery: Record<string, unknown>,
   ): PromoDetailCompatFilters {
-    const queryMode = this.resolvePromoDetailCompatQueryMode(rawQuery.queryMode);
+    const queryMode = this.resolvePromoDetailCompatQueryMode(
+      rawQuery.queryMode,
+    );
     const normalizedDate = this.normalizePromoDetailCompatDate(
       this.readQueryString(rawQuery, 'date'),
       queryMode,
@@ -1421,7 +1621,9 @@ export class PlatformMembershipService {
     return null;
   }
 
-  private normalizePromoDetailCompatKeyword(value: string | null): string | null {
+  private normalizePromoDetailCompatKeyword(
+    value: string | null,
+  ): string | null {
     const normalized = value?.trim();
     return normalized ? normalized.toLowerCase() : null;
   }
@@ -1454,7 +1656,9 @@ export class PlatformMembershipService {
     return String(year);
   }
 
-  private parsePromoDetailDateParts(value: string | null): PromoDetailDateParts | null {
+  private parsePromoDetailDateParts(
+    value: string | null,
+  ): PromoDetailDateParts | null {
     if (!value) {
       return null;
     }
@@ -1629,10 +1833,14 @@ export class PlatformMembershipService {
       inviteePhone: record.inviteePhone,
       registeredAt: record.registeredAt.getTime(),
       hasCharged: record.hasCharged,
-      ...(record.chargedAmount !== null ? { chargedAmount: record.chargedAmount } : {}),
+      ...(record.chargedAmount !== null
+        ? { chargedAmount: record.chargedAmount }
+        : {}),
       ...(record.chargedAt ? { chargedAt: record.chargedAt.getTime() } : {}),
       ...(record.chargedPlan ? { chargedPlan: record.chargedPlan } : {}),
-      ...(record.rewardBeans !== null ? { rewardBeans: record.rewardBeans } : {}),
+      ...(record.rewardBeans !== null
+        ? { rewardBeans: record.rewardBeans }
+        : {}),
       ...(record.hasCharged ? { settled: record.settled } : {}),
     };
   }
@@ -1739,34 +1947,36 @@ export class PlatformMembershipService {
     storeId: number,
     applicationId: number,
   ): Promise<StorePartnerApplicationRecord> {
-    const application = await prismaExecutor.storePartnerApplication.findUnique({
-      where: { id: applicationId },
-      select: {
-        id: true,
-        storeId: true,
-        status: true,
-        name: true,
-        phone: true,
-        idCard: true,
-        region: true,
-        intention: true,
-        applyReason: true,
-        paymentAccountType: true,
-        paymentAccountNo: true,
-        paymentAccountName: true,
-        reviewedAt: true,
-        joinedAt: true,
-        createdAt: true,
-        followUpNotes: {
-          select: {
-            id: true,
-            content: true,
-            createdAt: true,
+    const application = await prismaExecutor.storePartnerApplication.findUnique(
+      {
+        where: { id: applicationId },
+        select: {
+          id: true,
+          storeId: true,
+          status: true,
+          name: true,
+          phone: true,
+          idCard: true,
+          region: true,
+          intention: true,
+          applyReason: true,
+          paymentAccountType: true,
+          paymentAccountNo: true,
+          paymentAccountName: true,
+          reviewedAt: true,
+          joinedAt: true,
+          createdAt: true,
+          followUpNotes: {
+            select: {
+              id: true,
+              content: true,
+              createdAt: true,
+            },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         },
       },
-    });
+    );
 
     if (!application || application.storeId !== storeId) {
       throw new ForbiddenException('无权操作该合伙人申请');
@@ -1775,9 +1985,7 @@ export class PlatformMembershipService {
     return application;
   }
 
-  private resolvePartnerLevel(
-    monthChargedCount: number,
-  ): PartnerLevelValue {
+  private resolvePartnerLevel(monthChargedCount: number): PartnerLevelValue {
     if (monthChargedCount >= 30) {
       return 'legend';
     }
@@ -1807,8 +2015,133 @@ export class PlatformMembershipService {
     return log.changeAmount >= 0 ? 'earn' : 'spend';
   }
 
-  private requirePlan(planId: PlatformMembershipPlanId): MembershipPlanConfig {
-    const matchedPlan = PLAN_CATALOG.find((plan) => plan.id === planId);
+  private async loadPlanCatalog(
+    prismaExecutor: PrismaExecutor = this.prisma,
+  ): Promise<MembershipPlanConfig[]> {
+    const settings = await this.loadMembershipPlanSettings(prismaExecutor);
+    return PLATFORM_MEMBERSHIP_PLAN_ORDER.map((planId) =>
+      this.toPlanConfig(settings[planId]),
+    );
+  }
+
+  private async loadMembershipPlanSettings(
+    prismaExecutor: PrismaExecutor,
+  ): Promise<Record<MembershipPlanSettingIdValue, MembershipPlanSettingRecord>> {
+    const rows = await prismaExecutor.membershipPlanSetting.findMany({
+      select: {
+        planId: true,
+        planName: true,
+        price: true,
+        originalPrice: true,
+        durationMonths: true,
+        validDays: true,
+        updatedAt: true,
+      },
+      orderBy: {
+        id: 'asc',
+      },
+    });
+
+    const byPlanId = Object.create(null) as Record<
+      MembershipPlanSettingIdValue,
+      MembershipPlanSettingRecord
+    >;
+
+    for (const row of rows) {
+      byPlanId[row.planId as MembershipPlanSettingIdValue] = {
+        planId: row.planId as MembershipPlanSettingIdValue,
+        planName: row.planName,
+        price: row.price,
+        originalPrice: row.originalPrice,
+        durationMonths: row.durationMonths,
+        validDays: row.validDays,
+        updatedAt: row.updatedAt,
+      };
+    }
+
+    const missingPlanIds = (
+      Object.keys(DEFAULT_MEMBERSHIP_PLAN_SETTINGS) as MembershipPlanSettingIdValue[]
+    ).filter((planId) => byPlanId[planId] === undefined);
+
+    if (missingPlanIds.length === 0) {
+      return byPlanId;
+    }
+
+    const now = new Date();
+    for (const planId of missingPlanIds) {
+      const defaultSetting = DEFAULT_MEMBERSHIP_PLAN_SETTINGS[planId];
+      const created = await prismaExecutor.membershipPlanSetting.upsert({
+        where: { planId },
+        create: {
+          planId: defaultSetting.planId,
+          planName: defaultSetting.planName,
+          price: defaultSetting.price,
+          originalPrice: defaultSetting.originalPrice,
+          durationMonths: defaultSetting.durationMonths,
+          validDays: defaultSetting.validDays,
+        },
+        update: {},
+        select: {
+          planId: true,
+          planName: true,
+          price: true,
+          originalPrice: true,
+          durationMonths: true,
+          validDays: true,
+          updatedAt: true,
+        },
+      });
+      byPlanId[planId] = {
+        planId: created.planId as MembershipPlanSettingIdValue,
+        planName: created.planName,
+        price: created.price,
+        originalPrice: created.originalPrice,
+        durationMonths: created.durationMonths,
+        validDays: created.validDays,
+        updatedAt: created.updatedAt ?? now,
+      };
+    }
+
+    return byPlanId;
+  }
+
+  private toPlanConfig(
+    setting: MembershipPlanSettingRecord,
+  ): MembershipPlanConfig {
+    if (setting.durationMonths !== null && setting.durationMonths > 0) {
+      return {
+        id: setting.planId as PlatformMembershipPlanId,
+        name: setting.planName,
+        price: setting.price,
+        originalPrice: setting.originalPrice ?? setting.price,
+        durationMonths: setting.durationMonths,
+        validDays: setting.validDays,
+        monthlyPrice: Math.floor(setting.price / setting.durationMonths),
+        ...PLAN_BADGE_CONFIG[setting.planId as PlatformMembershipPlanId],
+      };
+    }
+
+    if (setting.validDays !== null && setting.validDays > 0) {
+      return {
+        id: setting.planId as PlatformMembershipPlanId,
+        name: setting.planName,
+        price: setting.price,
+        originalPrice: setting.originalPrice,
+        durationMonths: setting.durationMonths,
+        validDays: setting.validDays,
+        ...PLAN_BADGE_CONFIG[setting.planId as PlatformMembershipPlanId],
+      };
+    }
+
+    throw new ConflictException(`${setting.planName}套餐配置缺少有效时长`);
+  }
+
+  private async requirePlan(
+    prismaExecutor: PrismaExecutor,
+    planId: PlatformMembershipPlanId,
+  ): Promise<MembershipPlanConfig> {
+    const plans = await this.loadPlanCatalog(prismaExecutor);
+    const matchedPlan = plans.find((plan) => plan.id === planId);
     if (!matchedPlan) {
       throw new ConflictException('套餐不存在');
     }
@@ -1865,7 +2198,13 @@ export class PlatformMembershipService {
     return inviteCode;
   }
 
-  private calcRemainingDays(expiresAt: Date | null): number {
+  private calcRemainingDays(
+    profile: Pick<
+      StoreMembershipProfileRecord,
+      'currentPlanId' | 'startsAt' | 'expiresAt'
+    >,
+  ): number {
+    const expiresAt = this.resolveFrontendMembershipExpiry(profile);
     if (!expiresAt) {
       return 0;
     }

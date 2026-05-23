@@ -1,8 +1,9 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { SpaceStatus as PrismaSpaceStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SpaceReservationsService } from './space-reservations.service';
 import { SpacesService } from './spaces.service';
@@ -78,6 +79,10 @@ describe('SpacesService', () => {
 
   const spaceReservationsService = {
     resolveReservationBackStatus: jest.fn(),
+  };
+
+  const platformMembershipAccessService = {
+    ensureSpaceQuotaAvailable: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -166,6 +171,10 @@ describe('SpacesService', () => {
           provide: SpaceReservationsService,
           useValue: spaceReservationsService,
         },
+        {
+          provide: PlatformMembershipAccessService,
+          useValue: platformMembershipAccessService,
+        },
       ],
     }).compile();
 
@@ -181,7 +190,36 @@ describe('SpacesService', () => {
     expect(prismaService.space.findMany).not.toHaveBeenCalled();
   });
 
+  it('createSpace 在会员空间额度不足时阻止新增', async () => {
+    platformMembershipAccessService.ensureSpaceQuotaAvailable.mockRejectedValue(
+      new ForbiddenException(
+        '当前会员套餐最多可创建 1 个空间，请升级会员后继续添加',
+      ),
+    );
+
+    await expect(
+      service.createSpace(user, {
+        storeId: 18,
+        name: 'B台',
+        type: '台球台',
+        zone: '一楼',
+        capacity: 6,
+        enableDirtyRoom: true,
+        autoCheckout: false,
+        sortOrder: 99,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(
+      platformMembershipAccessService.ensureSpaceQuotaAvailable,
+    ).toHaveBeenCalledWith(18);
+    expect(prismaService.$transaction).not.toHaveBeenCalled();
+  });
+
   it('createSpace 会解析类型区域、插入排序并返回空间响应', async () => {
+    platformMembershipAccessService.ensureSpaceQuotaAvailable.mockResolvedValue(
+      undefined,
+    );
     prismaService.space.findFirst.mockResolvedValueOnce(null);
     prismaTransaction.space.count.mockResolvedValueOnce(2);
     prismaTransaction.space.updateMany.mockResolvedValueOnce({ count: 1 });

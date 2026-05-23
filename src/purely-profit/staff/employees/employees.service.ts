@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CostsService } from '../../operations/costs/costs.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   CreateEmployeeDictionaryDto,
@@ -86,6 +87,7 @@ export class EmployeesService {
     private readonly employeesAccessService: EmployeesAccessService,
     private readonly configService: ConfigService,
     private readonly costsService: CostsService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async list(
@@ -120,9 +122,10 @@ export class EmployeesService {
         : {}),
     };
 
-    const employeeOrderBy: Prisma.EmployeeOrderByWithRelationInput[] = query.status
-      ? [{ createdAt: 'desc' }, { id: 'desc' }]
-      : [{ status: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }];
+    const employeeOrderBy: Prisma.EmployeeOrderByWithRelationInput[] =
+      query.status
+        ? [{ createdAt: 'desc' }, { id: 'desc' }]
+        : [{ status: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }];
 
     const [items, total] = await Promise.all([
       this.prisma.employee.findMany({
@@ -210,6 +213,9 @@ export class EmployeesService {
       'staff:create',
     );
 
+    await this.platformMembershipAccessService.ensureEmployeeQuotaAvailable(
+      storeId,
+    );
     const [department, position] = await Promise.all([
       this.ensureDepartment(storeId, dto.department),
       this.ensurePosition(storeId, dto.position),

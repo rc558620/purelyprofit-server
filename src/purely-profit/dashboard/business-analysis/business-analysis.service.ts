@@ -7,6 +7,7 @@ import {
   toDecimalNumber,
   toOptionalMediaText,
 } from '../../commerce/commerce.utils';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   GetBusinessAnalysisQueryDto,
@@ -96,6 +97,7 @@ export class BusinessAnalysisService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async getAnalysis(
@@ -116,11 +118,32 @@ export class BusinessAnalysisService {
     storeId: number,
     query: GetBusinessAnalysisQueryDto,
   ): Promise<BusinessAnalysisResponseDto> {
+    if (query.export) {
+      await this.platformMembershipAccessService.ensureReportExportEnabled(storeId);
+    }
+
     const currentRange = this.resolveCurrentRange(query);
     const previousRange = this.getPreviousRange(
       currentRange.start,
       currentRange.end,
     );
+    const clampedCurrentRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      currentRange,
+    );
+    const clampedPreviousRange =
+      await this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        previousRange,
+      );
+
+    if (clampedCurrentRange.empty) {
+      return this.buildEmptyAnalysisResponse();
+    }
+
+    const queryStart = clampedPreviousRange.empty
+      ? clampedCurrentRange.start
+      : Math.min(clampedCurrentRange.start, clampedPreviousRange.start);
 
     const [saleItems, costRows] = await Promise.all([
       this.prisma.saleOrderItem.findMany({
@@ -128,8 +151,8 @@ export class BusinessAnalysisService {
           storeId,
           order: {
             date: {
-              gte: new Date(previousRange.start),
-              lte: new Date(currentRange.end),
+              gte: new Date(queryStart),
+              lte: new Date(clampedCurrentRange.end),
             },
           },
         },
@@ -156,8 +179,8 @@ export class BusinessAnalysisService {
           storeId,
           direction: 'expense',
           date: {
-            gte: new Date(previousRange.start),
-            lte: new Date(currentRange.end),
+            gte: new Date(queryStart),
+            lte: new Date(clampedCurrentRange.end),
           },
         },
         select: {
@@ -171,24 +194,28 @@ export class BusinessAnalysisService {
 
     const currentSales = this.aggregateSales(
       saleItems,
-      currentRange.start,
-      currentRange.end,
+      clampedCurrentRange.start,
+      clampedCurrentRange.end,
     );
-    const previousSales = this.aggregateSales(
-      saleItems,
-      previousRange.start,
-      previousRange.end,
-    );
+    const previousSales = clampedPreviousRange.empty
+      ? this.createEmptySalesAggregation()
+      : this.aggregateSales(
+          saleItems,
+          clampedPreviousRange.start,
+          clampedPreviousRange.end,
+        );
     const currentCosts = this.aggregateCosts(
       costRows,
-      currentRange.start,
-      currentRange.end,
+      clampedCurrentRange.start,
+      clampedCurrentRange.end,
     );
-    const previousCosts = this.aggregateCosts(
-      costRows,
-      previousRange.start,
-      previousRange.end,
-    );
+    const previousCosts = clampedPreviousRange.empty
+      ? this.createEmptyCostAggregation()
+      : this.aggregateCosts(
+          costRows,
+          clampedPreviousRange.start,
+          clampedPreviousRange.end,
+        );
 
     const currentProfit = this.subtractMoney(
       currentSales.revenue,
@@ -223,8 +250,8 @@ export class BusinessAnalysisService {
         orderCount: currentSales.orderCount,
       },
       dailyTrend: this.buildDailyTrend(
-        currentRange.start,
-        currentRange.end,
+        clampedCurrentRange.start,
+        clampedCurrentRange.end,
         currentSales.dailyRevenueMap,
         currentCosts.dailyCostMap,
       ),
@@ -290,6 +317,40 @@ export class BusinessAnalysisService {
     return {
       start: start - duration - 1,
       end: start - 1,
+    };
+  }
+
+  private buildEmptyAnalysisResponse(): BusinessAnalysisResponseDto {
+    return {
+      heroSummary: {
+        netProfit: { current: 0, previous: 0, changeRate: null },
+        revenue: { current: 0, previous: 0, changeRate: null },
+        totalCost: { current: 0, previous: 0, changeRate: null },
+        profitRate: { current: 0, previous: 0, changeRate: 0 },
+        orderCount: 0,
+      },
+      dailyTrend: [],
+      categoryShares: [],
+      costRateItems: [],
+      rankProducts: [],
+    };
+  }
+
+  private createEmptySalesAggregation(): SalesAggregationResult {
+    return {
+      revenue: 0,
+      orderCount: 0,
+      dailyRevenueMap: new Map<number, number>(),
+      categoryMap: new Map<string, AggregatedCategory>(),
+      rankMap: new Map<string, AggregatedRankProduct>(),
+    };
+  }
+
+  private createEmptyCostAggregation(): CostAggregationResult {
+    return {
+      totalCost: 0,
+      dailyCostMap: new Map<number, number>(),
+      costBucketMap: new Map<CostBucketKey, number>(),
     };
   }
 

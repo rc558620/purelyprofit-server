@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsIn,
   IsInt,
   IsNumber,
@@ -9,7 +10,10 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { transformOptionalInt } from '../../../stores/dto/store-response.dto';
+import {
+  transformOptionalBoolean,
+  transformOptionalInt,
+} from '../../../stores/dto/store-response.dto';
 import {
   COST_CATEGORY_VALUES,
   COST_PERIOD_VALUES,
@@ -133,6 +137,12 @@ export class CostReportQueryDto {
   @IsOptional()
   @IsIn(COST_REPORT_CATEGORY_FILTER_VALUES, { message: '成本分类筛选不合法' })
   categoryFilter?: CostReportCategoryFilterValue;
+
+  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: '导出标记必须是布尔值' })
+  export?: boolean;
 }
 
 export class CreateCostRecordDto {

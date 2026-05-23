@@ -12,33 +12,32 @@ import {
 } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ConfirmFinanceReconciliationDto,
   CreateFinanceAccountDto,
   CreateFinanceCashFlowRecordDto,
   CreateFinanceReconciliationDto,
-    ListFinanceAccountsQueryDto,
-    ListFinanceCashFlowRecordsQueryDto,
-    ListFinanceReconciliationsQueryDto,
-    type FinanceOverviewQueryDto,
-    type FinanceReportQueryDto,
-
+  ListFinanceAccountsQueryDto,
+  ListFinanceCashFlowRecordsQueryDto,
+  ListFinanceReconciliationsQueryDto,
+  type FinanceOverviewQueryDto,
+  type FinanceReportQueryDto,
   type FinanceReconciliationItemInputDto,
   type SettleFinanceAccountDto,
 } from './dto/finance-query.dto';
 import {
-    type FinanceAccountRecordResponseDto,
-    type FinanceAccountsStatsDto,
-    type FinanceCashFlowRecordResponseDto,
-    type FinanceCashFlowStatsDto,
-    type FinanceCompareDto,
-    FinanceOverviewResponseDto,
-    type FinanceReportAccountRowDto,
-    type FinanceReportCashFlowRowDto,
-    type FinanceReportResponseDto,
-    FinanceReconciliationRecordResponseDto,
-
+  type FinanceAccountRecordResponseDto,
+  type FinanceAccountsStatsDto,
+  type FinanceCashFlowRecordResponseDto,
+  type FinanceCashFlowStatsDto,
+  type FinanceCompareDto,
+  FinanceOverviewResponseDto,
+  type FinanceReportAccountRowDto,
+  type FinanceReportCashFlowRowDto,
+  type FinanceReportResponseDto,
+  FinanceReconciliationRecordResponseDto,
   FinanceReconciliationStatsDto,
   type FinanceSourceGroupDto,
   PaginatedFinanceAccountsResponseDto,
@@ -297,23 +296,44 @@ type PaginationState = {
 
 @Injectable()
 export class FinanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
+  ) {}
 
   async getOverview(
     user: AuthenticatedUser,
     query: FinanceOverviewQueryDto,
   ): Promise<FinanceOverviewResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const period = query.period ?? 'month';
-    const { start, end } = this.getOverviewCurrentRange(period);
-    const { prevStart, prevEnd } = this.getOverviewPreviousRange(start, end);
-    const queryStart = Math.max(0, Math.min(start, prevStart));
+    const currentRange = this.getOverviewCurrentRange(period);
+    const previousRange = this.getOverviewPreviousRange(
+      currentRange.start,
+      currentRange.end,
+    );
+    const clampedCurrentRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      currentRange,
+    );
+    if (clampedCurrentRange.empty) {
+      return this.buildEmptyOverviewResponse();
+    }
+
+    const clampedPreviousRange =
+      await this.platformMembershipAccessService.clampHistoryRange(storeId, {
+        start: previousRange.prevStart,
+        end: previousRange.prevEnd,
+      });
+    const queryStart = clampedPreviousRange.empty
+      ? clampedCurrentRange.start
+      : Math.max(0, Math.min(clampedCurrentRange.start, clampedPreviousRange.start));
     const records = await this.prisma.financeCashFlowRecord.findMany({
       where: {
         storeId,
         date: {
           gte: new Date(queryStart),
-          lte: new Date(end),
+          lte: new Date(clampedCurrentRange.end),
         },
       },
       select: {
@@ -337,7 +357,10 @@ export class FinanceService {
         continue;
       }
 
-      if (timestamp >= start && timestamp <= end) {
+      if (
+        timestamp >= clampedCurrentRange.start &&
+        timestamp <= clampedCurrentRange.end
+      ) {
         currentTotals[bucket] = this.addMoney(currentTotals[bucket], amount);
         const dayStart = this.getDayStart(timestamp);
         const targetMap =
@@ -348,7 +371,11 @@ export class FinanceService {
           dayStart,
           this.addMoney(targetMap.get(dayStart) ?? 0, amount),
         );
-      } else if (timestamp >= prevStart && timestamp <= prevEnd) {
+      } else if (
+        !clampedPreviousRange.empty &&
+        timestamp >= clampedPreviousRange.start &&
+        timestamp <= clampedPreviousRange.end
+      ) {
         previousTotals[bucket] = this.addMoney(previousTotals[bucket], amount);
       }
     }
@@ -359,7 +386,8 @@ export class FinanceService {
     );
     const dailyTrend = this.buildOverviewDailyTrend(
       period,
-      end,
+      clampedCurrentRange.start,
+      clampedCurrentRange.end,
       incomeMap,
       expenseMap,
     );
@@ -378,29 +406,45 @@ export class FinanceService {
     user: AuthenticatedUser,
     query: FinanceReportQueryDto,
   ): Promise<FinanceReportResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
+    if (query.export) {
+      await this.platformMembershipAccessService.ensureReportExportEnabled(storeId);
+    }
+
     const range = this.getFinanceReportRange(query);
     const previousRange = this.getPreviousFinanceReportRange(query, range);
+    const clampedCurrentRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      range,
+    );
+    const clampedPreviousRange = previousRange
+      ? await this.platformMembershipAccessService.clampHistoryRange(
+          storeId,
+          previousRange,
+        )
+      : null;
 
     const [currentCashFlowRecords, previousCashFlowRecords, accountRecords] =
       await Promise.all([
-        this.prisma.financeCashFlowRecord.findMany({
-          where: {
-            storeId,
-            date: {
-              gte: new Date(range.start),
-              lte: new Date(range.end),
-            },
-          },
-          orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-        }),
-        previousRange
+        clampedCurrentRange.empty
+          ? Promise.resolve<FinanceCashFlowRecordWithAmount[]>([])
+          : this.prisma.financeCashFlowRecord.findMany({
+              where: {
+                storeId,
+                date: {
+                  gte: new Date(clampedCurrentRange.start),
+                  lte: new Date(clampedCurrentRange.end),
+                },
+              },
+              orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+            }),
+        clampedPreviousRange && !clampedPreviousRange.empty
           ? this.prisma.financeCashFlowRecord.findMany({
               where: {
                 storeId,
                 date: {
-                  gte: new Date(previousRange.start),
-                  lte: new Date(previousRange.end),
+                  gte: new Date(clampedPreviousRange.start),
+                  lte: new Date(clampedPreviousRange.end),
                 },
               },
             })
@@ -426,15 +470,27 @@ export class FinanceService {
     user: AuthenticatedUser,
     query: ListFinanceCashFlowRecordsQueryDto,
   ): Promise<PaginatedFinanceCashFlowRecordsResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const range = this.getCashFlowFilterRange(query);
+    const clampedRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      range,
+    );
     const directionFilter = query.directionFilter ?? 'all';
     const pageState = this.resolvePagination(query.page, query.pageSize);
+
+    if (clampedRange.empty) {
+      return {
+        items: [],
+        meta: this.buildPaginationMeta(pageState.page, pageState.pageSize, 0),
+      };
+    }
+
     const where: Prisma.FinanceCashFlowRecordWhereInput = {
       storeId,
       date: {
-        gte: new Date(range.start),
-        lte: new Date(range.end),
+        gte: new Date(clampedRange.start),
+        lte: new Date(clampedRange.end),
       },
       ...(directionFilter !== 'all' ? { direction: directionFilter } : {}),
     };
@@ -459,15 +515,30 @@ export class FinanceService {
     user: AuthenticatedUser,
     query: ListFinanceCashFlowRecordsQueryDto,
   ): Promise<FinanceCashFlowStatsDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const range = this.getCashFlowFilterRange(query);
+    const clampedRange = await this.platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      range,
+    );
     const directionFilter = query.directionFilter ?? 'all';
+
+    if (clampedRange.empty) {
+      return {
+        totalIncome: 0,
+        totalExpense: 0,
+        netFlow: 0,
+        recordCount: 0,
+        compareLastPeriod: null,
+      };
+    }
+
     const currentRecords = await this.prisma.financeCashFlowRecord.findMany({
       where: {
         storeId,
         date: {
-          gte: new Date(range.start),
-          lte: new Date(range.end),
+          gte: new Date(clampedRange.start),
+          lte: new Date(clampedRange.end),
         },
         ...(directionFilter !== 'all' ? { direction: directionFilter } : {}),
       },
@@ -485,12 +556,24 @@ export class FinanceService {
       };
     }
 
+    const clampedPreviousRange =
+      await this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        previousRange,
+      );
+    if (clampedPreviousRange.empty) {
+      return {
+        ...baseStats,
+        compareLastPeriod: null,
+      };
+    }
+
     const previousRecords = await this.prisma.financeCashFlowRecord.findMany({
       where: {
         storeId,
         date: {
-          gte: new Date(previousRange.start),
-          lte: new Date(previousRange.end),
+          gte: new Date(clampedPreviousRange.start),
+          lte: new Date(clampedPreviousRange.end),
         },
       },
       select: {
@@ -517,7 +600,7 @@ export class FinanceService {
     user: AuthenticatedUser,
     dto: CreateFinanceCashFlowRecordDto,
   ): Promise<FinanceCashFlowRecordResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const operatorStaffId = user.currentMembership?.staffId ?? null;
 
     this.assertCashFlowCategoryCanCreateManually(dto.category);
@@ -544,7 +627,7 @@ export class FinanceService {
     user: AuthenticatedUser,
     recordId: number,
   ): Promise<void> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const record = await this.ensureCashFlowRecordExists(storeId, recordId);
 
     if (record.saleOrderId !== null) {
@@ -560,7 +643,7 @@ export class FinanceService {
     user: AuthenticatedUser,
     query: ListFinanceAccountsQueryDto,
   ): Promise<PaginatedFinanceAccountsResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const records = await this.prisma.financeAccountRecord.findMany({
       where: { storeId },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
@@ -585,7 +668,7 @@ export class FinanceService {
   async getAccountsStats(
     user: AuthenticatedUser,
   ): Promise<FinanceAccountsStatsDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const records = await this.prisma.financeAccountRecord.findMany({
       where: { storeId },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
@@ -597,7 +680,7 @@ export class FinanceService {
     user: AuthenticatedUser,
     dto: CreateFinanceAccountDto,
   ): Promise<FinanceAccountRecordResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const operatorStaffId = user.currentMembership?.staffId ?? null;
     const amount = this.roundMoney(dto.amount);
     const paidAmount = this.roundMoney(dto.paidAmount);
@@ -635,7 +718,7 @@ export class FinanceService {
     recordId: number,
     dto: SettleFinanceAccountDto,
   ): Promise<FinanceAccountRecordResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const record = await this.prisma.financeAccountRecord.findFirst({
       where: {
         id: recordId,
@@ -676,7 +759,7 @@ export class FinanceService {
     user: AuthenticatedUser,
     recordId: number,
   ): Promise<void> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const record = await this.prisma.financeAccountRecord.findFirst({
       where: {
         id: recordId,
@@ -696,7 +779,7 @@ export class FinanceService {
     user: AuthenticatedUser,
     query: ListFinanceReconciliationsQueryDto,
   ): Promise<PaginatedFinanceReconciliationsResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const records = await this.prisma.financeReconciliationRecord.findMany({
       where: { storeId },
       include: {
@@ -724,7 +807,7 @@ export class FinanceService {
   async getReconciliationStats(
     user: AuthenticatedUser,
   ): Promise<FinanceReconciliationStatsDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const records = await this.prisma.financeReconciliationRecord.findMany({
       where: { storeId },
       include: {
@@ -741,7 +824,7 @@ export class FinanceService {
     user: AuthenticatedUser,
     dto: CreateFinanceReconciliationDto,
   ): Promise<FinanceReconciliationRecordResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const operatorStaffId = user.currentMembership?.staffId ?? null;
     const bookIncome = this.roundMoney(dto.bookIncome);
     const bookExpense = this.roundMoney(dto.bookExpense);
@@ -802,7 +885,7 @@ export class FinanceService {
     recordId: number,
     dto: ConfirmFinanceReconciliationDto,
   ): Promise<FinanceReconciliationRecordResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const record = await this.prisma.financeReconciliationRecord.findFirst({
       where: {
         id: recordId,
@@ -841,7 +924,7 @@ export class FinanceService {
     user: AuthenticatedUser,
     recordId: number,
   ): Promise<void> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId = await this.getFinanceStoreIdOrThrow(user);
     const record = await this.prisma.financeReconciliationRecord.findFirst({
       where: {
         id: recordId,
@@ -862,6 +945,16 @@ export class FinanceService {
     if (!storeId) {
       throw new ForbiddenException('当前账号暂无门店权限');
     }
+    return storeId;
+  }
+
+  private async getFinanceStoreIdOrThrow(
+    user: AuthenticatedUser,
+  ): Promise<number> {
+    const storeId = this.getCurrentStoreIdOrThrow(user);
+    await this.platformMembershipAccessService.ensureFinanceFeatureEnabled(
+      storeId,
+    );
     return storeId;
   }
 
@@ -1007,6 +1100,20 @@ export class FinanceService {
     };
   }
 
+  private buildEmptyOverviewResponse(): FinanceOverviewResponseDto {
+    const currentTotals = this.makeOverviewTotals();
+    const previousTotals = this.makeOverviewTotals();
+    const { incomeGroup, expenseGroup } =
+      this.buildOverviewSourceGroups(currentTotals);
+
+    return {
+      heroSummary: this.buildOverviewHeroSummary(currentTotals, previousTotals),
+      dailyTrend: [],
+      incomeGroup,
+      expenseGroup,
+    };
+  }
+
   private mapCashFlowCategoryToOverviewBucket(
     category: string,
   ): FinanceCashFlowOverviewBucket | null {
@@ -1087,11 +1194,17 @@ export class FinanceService {
 
   private buildOverviewDailyTrend(
     period: FinanceOverviewPeriodValue,
+    start: number,
     end: number,
     incomeMap: Map<number, number>,
     expenseMap: Map<number, number>,
   ): FinanceOverviewResponseDto['dailyTrend'] {
-    const days = FINANCE_OVERVIEW_DISPLAY_DAYS[period];
+    const availableDays =
+      Math.floor((this.getDayStart(end) - this.getDayStart(start)) / DAY_MS) + 1;
+    const days = Math.max(
+      1,
+      Math.min(FINANCE_OVERVIEW_DISPLAY_DAYS[period], availableDays),
+    );
     const items: FinanceOverviewResponseDto['dailyTrend'] = [];
     for (let index = days - 1; index >= 0; index -= 1) {
       const dayStart = this.getDayStart(end - index * DAY_MS);
@@ -1164,7 +1277,9 @@ export class FinanceService {
     };
   }
 
-  private getFinanceReportRange(query: FinanceReportQueryDto): FinanceReportRange {
+  private getFinanceReportRange(
+    query: FinanceReportQueryDto,
+  ): FinanceReportRange {
     const period = query.period ?? 'month';
     const now = new Date();
     const nowMs = now.getTime();
@@ -1176,7 +1291,15 @@ export class FinanceService {
         return { start: this.getWeekStart(now), end: nowMs, period };
       case 'month':
         return {
-          start: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).getTime(),
+          start: new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            1,
+            0,
+            0,
+            0,
+            0,
+          ).getTime(),
           end: nowMs,
           period,
         };
@@ -1342,7 +1465,10 @@ export class FinanceService {
     }
 
     const netCashFlow = this.subtractMoney(totalIncome, totalExpense);
-    const previousNetCashFlow = this.subtractMoney(previousIncome, previousExpense);
+    const previousNetCashFlow = this.subtractMoney(
+      previousIncome,
+      previousExpense,
+    );
 
     return {
       totalIncome,
@@ -1371,8 +1497,9 @@ export class FinanceService {
       title: record.title,
       direction: record.direction,
       categoryLabel:
-        CASH_FLOW_CATEGORY_RULES[record.category as keyof typeof CASH_FLOW_CATEGORY_RULES]
-          ?.label ?? record.category,
+        CASH_FLOW_CATEGORY_RULES[
+          record.category as keyof typeof CASH_FLOW_CATEGORY_RULES
+        ]?.label ?? record.category,
       amount: this.toMoneyNumber(record.amount),
       paymentLabel:
         FINANCE_REPORT_PAYMENT_LABELS[record.payment] ?? record.payment,
@@ -1387,7 +1514,8 @@ export class FinanceService {
       .filter((record) => record.status !== FinanceAccountStatus.settled)
       .sort(
         (left, right) =>
-          right.createdAt.getTime() - left.createdAt.getTime() || right.id - left.id,
+          right.createdAt.getTime() - left.createdAt.getTime() ||
+          right.id - left.id,
       )
       .map((record) => ({
         id: String(record.id),

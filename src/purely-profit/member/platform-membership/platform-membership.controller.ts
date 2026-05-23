@@ -33,6 +33,7 @@ import {
   PlatformMembershipCenterResponseDto,
   PlatformMembershipPartnerProfileResponseDto,
   PlatformMembershipPlanResponseDto,
+  PlatformMembershipPlanRulesResponseDto,
   PlatformMembershipPointsLogsResponseDto,
   PlatformMembershipProfileResponseDto,
   PlatformMembershipPromoCenterResponseDto,
@@ -155,7 +156,8 @@ export class PlatformMembershipController {
   @Get('center')
   @ApiOperation({ summary: '获取会员中心首页聚合数据' })
   @ApiOkResponse({
-    description: '返回 memberCenter 页面所需的会员状态、权益统计、合伙人状态和纯利豆摘要',
+    description:
+      '返回 memberCenter 页面所需的会员状态、权益统计、合伙人状态和纯利豆摘要',
     type: PlatformMembershipCenterResponseDto,
   })
   getCenter(
@@ -182,8 +184,18 @@ export class PlatformMembershipController {
     description: '返回前端 memberPlans 页面所需的套餐列表',
     type: [PlatformMembershipPlanResponseDto],
   })
-  listPlans(): PlatformMembershipPlanResponseDto[] {
+  listPlans(): Promise<PlatformMembershipPlanResponseDto[]> {
     return this.platformMembershipService.listPlans();
+  }
+
+  @Get('rules')
+  @ApiOperation({ summary: '获取会员套餐对比规则' })
+  @ApiOkResponse({
+    description: '返回前端 memberPlans 页面所需的套餐对比规则表',
+    type: PlatformMembershipPlanRulesResponseDto,
+  })
+  listPlanRules(): PlatformMembershipPlanRulesResponseDto {
+    return this.platformMembershipService.listPlanRules();
   }
 
   @Get('orders')
@@ -238,7 +250,8 @@ export class PlatformMembershipController {
   @Get('promo')
   @ApiOperation({ summary: '获取推广中心数据' })
   @ApiOkResponse({
-    description: '返回 promotionCenter 页面所需的推广码、等级摘要、统计和记录列表',
+    description:
+      '返回 promotionCenter 页面所需的推广码、等级摘要、统计和记录列表',
     type: PlatformMembershipPromoCenterResponseDto,
   })
   getPromoCenter(
@@ -251,7 +264,8 @@ export class PlatformMembershipController {
   @RequirePermissions('partner:view')
   @ApiOperation({ summary: '获取合伙人计划数据' })
   @ApiOkResponse({
-    description: '返回 partnerManagement 和 partnerLevel 页面所需的申请、合伙人摘要和等级数据',
+    description:
+      '返回 partnerManagement 和 partnerLevel 页面所需的申请、合伙人摘要和等级数据',
     type: PlatformMembershipPartnerProfileResponseDto,
   })
   getPartnerProfile(

@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AUTH_TOKEN_VERSION_KEY_PREFIX } from '../../purely-profit/auth/auth.constants';
 import { ConfigService } from '@nestjs/config';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -36,6 +37,7 @@ import type {
 } from './dto/pulse-membership.dto';
 import { PulseMembershipOrderPreviewDto } from './dto/pulse-membership.dto';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
 const POINTS_RATE = 100;
 const POINTS_DEDUCT_LIMIT = 0.3;
 const BEAN_DEDUCT_RATE = 100;
@@ -48,24 +50,7 @@ const PURCHASE_BONUS_POINTS: Record<
   monthly: 0,
   quarterly: 300,
   yearly: 1500,
-};
-
-const PLAN_NAMES: Record<
-  (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number],
-  string
-> = {
-  monthly: '月度会员',
-  quarterly: '季度会员',
-  yearly: '年度会员',
-};
-
-const PLAN_PRICES: Record<
-  (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number],
-  number
-> = {
-  monthly: 3800,
-  quarterly: 9900,
-  yearly: 36900,
+  lifetime: 0,
 };
 
 interface PulseAdminMembershipProfileRecord {
@@ -190,7 +175,7 @@ export class PulseMembershipService {
     );
   }
 
-  listPlans(): PlatformMembershipPlanResponseDto[] {
+  listPlans(): Promise<PlatformMembershipPlanResponseDto[]> {
     return this.platformMembershipService.listPlans();
   }
 
@@ -421,8 +406,7 @@ export class PulseMembershipService {
     });
 
     const planId = dto.planId;
-    const planPrice = PLAN_PRICES[planId];
-    const planName = PLAN_NAMES[planId];
+    const plan = await this.platformMembershipService.getPlanConfig(planId);
     const requestedPoints = dto.usePoints ?? 0;
     const requestedBeans = dto.useBeans ?? 0;
 
@@ -441,7 +425,7 @@ export class PulseMembershipService {
     const availableBeans = partner?.beanBalance ?? 0;
 
     const preview = this.calcPaymentPreview({
-      planPrice,
+      planPrice: plan.price,
       requestedPoints,
       availablePoints,
       requestedBeans,
@@ -450,8 +434,8 @@ export class PulseMembershipService {
 
     return {
       planId,
-      planName,
-      originalPrice: planPrice,
+      planName: plan.name,
+      originalPrice: plan.price,
       beanDeducted: preview.beanDeductAmount,
       beansUsed: preview.actualBeansUsed,
       priceAfterBeans: preview.priceAfterBeans,
@@ -675,7 +659,7 @@ export class PulseMembershipService {
     await this.assertAdminMemberMutationAccess(user, memberId);
 
     const nextLevel = this.resolveAdminMemberLevel(dto);
-    const nextExpiry = this.resolveAdminMembershipExpiry(dto, nextLevel);
+    const nextExpiry = await this.resolveAdminMembershipExpiry(dto, nextLevel);
     const nextPlanId = this.toMembershipPlanId(nextLevel);
     const now = new Date();
 
@@ -716,6 +700,7 @@ export class PulseMembershipService {
 
     const cacheKey = this.getAdminMemberBanReasonKey(memberId);
     await this.writeAdminMemberBanReason(cacheKey, reason);
+    await this.kickAllStoreUsers(memberId);
 
     return this.buildAdminMemberDetail(memberId);
   }
@@ -744,9 +729,7 @@ export class PulseMembershipService {
     if (this.isDeveloper(user)) {
       const profiles = await this.prisma.storeMembershipProfile.findMany({
         where: {
-          currentPlanId: {
-            not: null,
-          },
+          // 免费会员 currentPlanId 为 null，但仍应保留在会员管理列表中。
           store: this.buildAdminStoreExclusionWhere(),
         },
         select: {
@@ -1222,25 +1205,34 @@ export class PulseMembershipService {
     return nextLevel;
   }
 
-  private resolveAdminMembershipExpiry(
+  private async resolveAdminMembershipExpiry(
     dto: PulseAdminMembershipMutationInput,
     nextLevel: 'free' | 'monthly' | 'quarterly' | 'annual' | 'lifetime',
-  ): Date | null {
-    if (nextLevel === 'free' || nextLevel === 'lifetime') {
+  ): Promise<Date | null> {
+    const rawExpiry = dto.membershipExpiry ?? dto.expireAt ?? dto.expiryAt;
+    if (rawExpiry !== null && rawExpiry !== undefined) {
+      const explicitExpiry = new Date(rawExpiry);
+      if (Number.isNaN(explicitExpiry.getTime())) {
+        throw new BadRequestException('会员到期时间不合法');
+      }
+      return explicitExpiry;
+    }
+
+    if (nextLevel === 'free') {
       return null;
     }
 
-    const rawExpiry = dto.membershipExpiry ?? dto.expireAt ?? dto.expiryAt;
-    if (rawExpiry === null || rawExpiry === undefined) {
-      throw new BadRequestException('缺少会员到期时间');
+    if (nextLevel === 'lifetime') {
+      const lifetimePlan = await this.platformMembershipService.getPlanConfig(
+        'lifetime',
+      );
+      if (lifetimePlan.validDays !== null && lifetimePlan.validDays > 0) {
+        return new Date(Date.now() + lifetimePlan.validDays * DAY_MS);
+      }
+      return null;
     }
 
-    const expiry = new Date(rawExpiry);
-    if (Number.isNaN(expiry.getTime())) {
-      throw new BadRequestException('会员到期时间不合法');
-    }
-
-    return expiry;
+    throw new BadRequestException('缺少会员到期时间');
   }
 
   private toMembershipPlanId(
@@ -1252,8 +1244,9 @@ export class PulseMembershipService {
       case 'quarterly':
         return 'quarterly';
       case 'annual':
-      case 'lifetime':
         return 'yearly';
+      case 'lifetime':
+        return 'lifetime';
       default:
         return null;
     }
@@ -1266,6 +1259,42 @@ export class PulseMembershipService {
     }
 
     return reason;
+  }
+
+  private async kickAllStoreUsers(storeId: number): Promise<void> {
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: {
+        ownerId: true,
+        staffs: {
+          where: { isActive: true, userId: { not: null } },
+          select: { userId: true },
+        },
+      },
+    });
+
+    if (!store) {
+      return;
+    }
+
+    const userIds = new Set<number>([store.ownerId]);
+    for (const staff of store.staffs) {
+      if (staff.userId !== null) {
+        userIds.add(staff.userId);
+      }
+    }
+
+    await Promise.all(
+      Array.from(userIds).map((userId) => this.bumpTokenVersion(userId)),
+    );
+  }
+
+  private async bumpTokenVersion(userId: number): Promise<void> {
+    const key = `${AUTH_TOKEN_VERSION_KEY_PREFIX}${userId}`;
+    const rawVersion = await this.redisService.get(key);
+    const current = Number.parseInt(rawVersion ?? '0', 10);
+    const next = Number.isNaN(current) ? 1 : current + 1;
+    await this.redisService.set(key, String(next));
   }
 
   private getAdminMemberBanReasonKey(storeId: number): string {
@@ -1374,6 +1403,8 @@ export class PulseMembershipService {
         return 'quarterly';
       case 'yearly':
         return 'annual';
+      case 'lifetime':
+        return 'lifetime';
       default:
         return 'free';
     }

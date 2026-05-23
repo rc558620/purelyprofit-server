@@ -3,6 +3,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNumber,
@@ -15,6 +16,7 @@ import {
 } from 'class-validator';
 import {
   PaginationMetaDto,
+  transformOptionalBoolean,
   transformOptionalInt,
   transformOptionalKeyword,
 } from '../../../stores/dto/store-response.dto';
@@ -190,7 +192,13 @@ export class ListSalesRecordsQueryDto {
 
 export class SalesStatsQueryDto extends ListSalesRecordsQueryDto {}
 
-export class SalesReportQueryDto extends ListSalesRecordsQueryDto {}
+export class SalesReportQueryDto extends ListSalesRecordsQueryDto {
+  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: '导出标记必须是布尔值' })
+  export?: boolean;
+}
 
 export class ListSalesProductsQueryDto {
   @ApiPropertyOptional({ example: 1, description: '门店 ID' })

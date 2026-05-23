@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProfitDetailService } from './profit-detail.service';
 
@@ -20,6 +21,11 @@ describe('ProfitDetailService', () => {
 
   const commerceAccessService = {
     resolveSingleStoreId: jest.fn(),
+  };
+
+  const platformMembershipAccessService = {
+    clampHistoryRange: jest.fn(),
+    ensureReportExportEnabled: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -41,11 +47,26 @@ describe('ProfitDetailService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 4, 14, 12, 0, 0, 0));
     jest.clearAllMocks();
+    platformMembershipAccessService.clampHistoryRange.mockImplementation(
+      async (_storeId: number, range: { start: number; end: number }) => ({
+        start: range.start,
+        end: range.end,
+        clamped: false,
+        empty: false,
+      }),
+    );
+    platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
+      undefined,
+    );
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProfitDetailService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
+        {
+          provide: PlatformMembershipAccessService,
+          useValue: platformMembershipAccessService,
+        },
       ],
     }).compile();
 
@@ -308,7 +329,7 @@ describe('ProfitDetailService', () => {
     );
   });
 
-  it('today 周期返回最近 7 天趋势', async () => {
+  it('today 周期按当前可见天数返回趋势', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     prismaService.saleOrderItem.findMany.mockResolvedValue([
       {
@@ -328,13 +349,101 @@ describe('ProfitDetailService', () => {
 
     const result = await service.getProfitDetail(user, { period: 'today' });
 
-    expect(result.dailyProfits).toHaveLength(7);
+    expect(result.dailyProfits).toEqual([
+      {
+        dateLabel: '05/14',
+        revenue: 6.5,
+        cost: 0,
+        profit: 6.5,
+      },
+    ]);
     expect(result.summary.orderCount).toBe(1);
+  });
+
+  it('getReport 在导出模式下会校验报表导出权限', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.ensureReportExportEnabled.mockRejectedValueOnce(
+      new Error('forbidden'),
+    );
+
+    await expect(
+      service.getReport(user, { period: 'today', export: true }),
+    ).rejects.toThrow('forbidden');
+    expect(
+      platformMembershipAccessService.ensureReportExportEnabled,
+    ).toHaveBeenCalledWith(18);
+  });
+
+  it('getProfitDetail 会按会员历史窗口裁剪查询范围', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.clampHistoryRange
+      .mockResolvedValueOnce({
+        start: new Date(2026, 4, 8, 0, 0, 0, 0).getTime(),
+        end: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
+        clamped: true,
+        empty: false,
+      })
+      .mockResolvedValueOnce({
+        start: new Date(2026, 4, 8, 0, 0, 0, 0).getTime(),
+        end: new Date(2026, 4, 7, 23, 59, 59, 999).getTime(),
+        clamped: true,
+        empty: true,
+      });
+    prismaService.saleOrderItem.findMany.mockResolvedValue([]);
+    prismaService.costRecord.findMany.mockResolvedValue([]);
+
+    await service.getProfitDetail(user, {
+      period: 'custom_range',
+      rangeStartDate: new Date(2026, 4, 1, 0, 0, 0, 0).getTime(),
+      rangeEndDate: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
+    });
+
+    expect(prismaService.saleOrderItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          order: {
+            date: {
+              gte: new Date(2026, 4, 8, 0, 0, 0, 0),
+              lte: new Date(2026, 4, 13, 23, 59, 59, 999),
+            },
+          },
+        }),
+      }),
+    );
+  });
+
+  it('getProfitDetail 在历史窗口裁剪后仅返回可见天数趋势', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.clampHistoryRange
+      .mockResolvedValueOnce({
+        start: new Date(2026, 4, 8, 0, 0, 0, 0).getTime(),
+        end: new Date(2026, 4, 14, 12, 0, 0, 0).getTime(),
+        clamped: true,
+        empty: false,
+      })
+      .mockResolvedValueOnce({
+        start: new Date(2026, 4, 8, 0, 0, 0, 0).getTime(),
+        end: new Date(2026, 4, 7, 23, 59, 59, 999).getTime(),
+        clamped: true,
+        empty: true,
+      });
+    prismaService.saleOrderItem.findMany.mockResolvedValue([]);
+    prismaService.costRecord.findMany.mockResolvedValue([]);
+
+    const result = await service.getProfitDetail(user, { period: 'month' });
+
+    expect(result.dailyProfits).toHaveLength(7);
+    expect(result.dailyProfits[0]).toEqual({
+      dateLabel: '05/08',
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+    });
     expect(result.dailyProfits[result.dailyProfits.length - 1]).toEqual({
       dateLabel: '05/14',
-      revenue: 6.5,
+      revenue: 0,
       cost: 0,
-      profit: 6.5,
+      profit: 0,
     });
   });
 

@@ -31,6 +31,7 @@ describe('AuthService', () => {
     },
     store: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
     $queryRaw: jest.fn(),
     $transaction: jest.fn(),
@@ -72,6 +73,7 @@ describe('AuthService', () => {
     prismaService.$queryRaw.mockResolvedValue([]);
     prismaService.staff.updateMany.mockResolvedValue({ count: 0 });
     prismaService.staff.findMany.mockResolvedValue([]);
+    prismaService.store.findMany.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -140,6 +142,28 @@ describe('AuthService', () => {
 
     expect(prismaService.staff.findFirst).not.toHaveBeenCalled();
     expect(prismaService.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('Pulse 已封禁账号不允许重新登录', async () => {
+    const hashedPassword = await bcrypt.hash('blocked123', 4);
+    prismaService.staff.findFirst.mockResolvedValue({
+      user: {
+        id: 18,
+        email: 'phone_13800138000@purelyprofit.local',
+        password: hashedPassword,
+      },
+    });
+    prismaService.store.findMany.mockResolvedValue([{ id: 18 }]);
+    redisService.get.mockResolvedValue('违规操作');
+
+    await expect(
+      service.login({
+        phone: '13800138000',
+        password: 'blocked123',
+      }),
+    ).rejects.toThrow('账号已被封禁');
+
+    expect(jwtService.signAsync).not.toHaveBeenCalled();
   });
 
   it('修改密码后会刷新 token 并使旧 token 失效', async () => {

@@ -67,7 +67,7 @@ export class PulseMembershipController {
     description: '返回前端订阅页面所需的套餐列表',
     type: [PlatformMembershipPlanResponseDto],
   })
-  listPlans(): PlatformMembershipPlanResponseDto[] {
+  listPlans(): Promise<PlatformMembershipPlanResponseDto[]> {
     return this.pulseMembershipService.listPlans();
   }
 

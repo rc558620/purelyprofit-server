@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { FinanceCashFlowCategory, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BusinessAnalysisService } from './business-analysis.service';
 
@@ -20,6 +21,11 @@ describe('BusinessAnalysisService', () => {
 
   const commerceAccessService = {
     resolveSingleStoreId: jest.fn(),
+  };
+
+  const platformMembershipAccessService = {
+    clampHistoryRange: jest.fn(),
+    ensureReportExportEnabled: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -41,11 +47,24 @@ describe('BusinessAnalysisService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-13T12:00:00.000Z'));
     jest.clearAllMocks();
+    platformMembershipAccessService.clampHistoryRange.mockImplementation(
+      async (_storeId: number, range: { start: number; end: number }) => ({
+        ...range,
+        empty: false,
+      }),
+    );
+    platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
+      undefined,
+    );
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BusinessAnalysisService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
+        {
+          provide: PlatformMembershipAccessService,
+          useValue: platformMembershipAccessService,
+        },
       ],
     }).compile();
 
@@ -185,8 +204,33 @@ describe('BusinessAnalysisService', () => {
     });
   });
 
-  it('month 周期会根据服务端当前时间自动换算范围', async () => {
+  it('getAnalysis 在导出模式下会校验报表导出权限', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.ensureReportExportEnabled.mockRejectedValueOnce(
+      new Error('forbidden'),
+    );
+
+    await expect(
+      service.getAnalysis(user, { period: 'today', export: true }),
+    ).rejects.toThrow('forbidden');
+    expect(
+      platformMembershipAccessService.ensureReportExportEnabled,
+    ).toHaveBeenCalledWith(18);
+  });
+
+  it('month 周期会根据会员历史窗口裁剪查询范围', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.clampHistoryRange
+      .mockResolvedValueOnce({
+        start: new Date('2026-05-08T00:00:00.000Z').getTime(),
+        end: new Date('2026-05-13T12:00:00.000Z').getTime(),
+        empty: false,
+      })
+      .mockResolvedValueOnce({
+        start: new Date('2026-05-02T12:00:00.000Z').getTime(),
+        end: new Date('2026-05-07T23:59:59.999Z').getTime(),
+        empty: true,
+      });
     prismaService.saleOrderItem.findMany.mockResolvedValue([]);
     prismaService.financeCashFlowRecord.findMany.mockResolvedValue([]);
 
@@ -199,7 +243,7 @@ describe('BusinessAnalysisService', () => {
         where: expect.objectContaining({
           order: {
             date: {
-              gte: new Date('2026-04-17T19:59:59.999Z'),
+              gte: new Date('2026-05-08T00:00:00.000Z'),
               lte: new Date('2026-05-13T12:00:00.000Z'),
             },
           },

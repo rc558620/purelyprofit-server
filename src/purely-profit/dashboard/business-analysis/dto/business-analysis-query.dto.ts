@@ -1,7 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
-import { transformOptionalInt } from '../../../stores/dto/store-response.dto';
+import { IsBoolean, IsIn, IsInt, IsOptional, Min } from 'class-validator';
+import {
+  transformOptionalBoolean,
+  transformOptionalInt,
+} from '../../../stores/dto/store-response.dto';
 
 export const BUSINESS_ANALYSIS_PERIOD_VALUES = [
   'today',
@@ -53,4 +56,10 @@ export class GetBusinessAnalysisQueryDto {
   @IsInt({ message: '结束时间必须是整数时间戳' })
   @Min(0, { message: '结束时间不合法' })
   endTime?: number;
+
+  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: '导出标记必须是布尔值' })
+  export?: boolean;
 }

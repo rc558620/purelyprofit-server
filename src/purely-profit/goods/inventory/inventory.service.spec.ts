@@ -1,9 +1,10 @@
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
 import { InventoryService } from './inventory.service';
@@ -41,6 +42,10 @@ describe('InventoryService', () => {
     remove: jest.fn(),
   };
 
+  const platformMembershipAccessService = {
+    ensureReportExportEnabled: jest.fn(),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -59,6 +64,9 @@ describe('InventoryService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
+      undefined,
+    );
 
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, number> = {
@@ -80,6 +88,10 @@ describe('InventoryService', () => {
         { provide: CommerceAccessService, useValue: commerceAccessService },
         { provide: ConfigService, useValue: configService },
         { provide: ProductsService, useValue: productsService },
+        {
+          provide: PlatformMembershipAccessService,
+          useValue: platformMembershipAccessService,
+        },
       ],
     }).compile();
 
@@ -567,24 +579,51 @@ describe('InventoryService', () => {
     });
   });
 
-  it('recordPurchaseRestock 会批量增加库存并写入补货日志', async () => {
-    const transaction = {
-      product: {
-        findFirst: jest.fn(),
-        update: jest.fn(),
-      },
-      inventoryAdjustmentLog: {
-        create: jest.fn(),
-      },
-    } as unknown as Prisma.TransactionClient;
+  it('getReport 在导出时校验报表导出权限', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.product.findMany.mockResolvedValue([]);
 
-    const transactionProduct = transaction.product as {
-      findFirst: jest.Mock;
-      update: jest.Mock;
+    await expect(
+      service.getReport(user, { storeId: 18, export: true }),
+    ).resolves.toEqual({
+      summary: {
+        totalSkuCount: 0,
+        warningCount: 0,
+        dangerCount: 0,
+        normalCount: 0,
+        totalStockValue: 0,
+      },
+      products: [],
+    });
+    expect(
+      platformMembershipAccessService.ensureReportExportEnabled,
+    ).toHaveBeenCalledWith(18);
+  });
+
+  it('getReport 在导出权限不足时拒绝访问', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.ensureReportExportEnabled.mockRejectedValueOnce(
+      new ForbiddenException('当前会员套餐不支持导出报表，请升级会员后使用'),
+    );
+
+    await expect(
+      service.getReport(user, { storeId: 18, export: true }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prismaService.product.findMany).not.toHaveBeenCalled();
+  });
+
+  it('recordPurchaseRestock 会批量增加库存并写入补货日志', async () => {
+    const transactionProduct = {
+      findFirst: jest.fn(),
+      update: jest.fn(),
     };
-    const transactionLog = transaction.inventoryAdjustmentLog as {
-      create: jest.Mock;
+    const transactionLog = {
+      create: jest.fn(),
     };
+    const transaction = {
+      product: transactionProduct,
+      inventoryAdjustmentLog: transactionLog,
+    } as unknown as Prisma.TransactionClient;
 
     transactionProduct.findFirst.mockResolvedValue({
       id: 101,

@@ -16,6 +16,7 @@ import {
   type InventoryStockAlertLevelValue,
   type InventoryStockSortValue,
 } from '../../commerce/commerce.utils';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
 import type {
@@ -69,6 +70,7 @@ export class InventoryService {
     private readonly configService: ConfigService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly productsService: ProductsService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async listProducts(
@@ -146,9 +148,33 @@ export class InventoryService {
     user: AuthenticatedUser,
     query: ListInventoryProductsQueryDto,
   ): Promise<InventoryReportResponseDto> {
+    const storeId = await this.commerceAccessService.resolveViewStoreId(
+      user,
+      query.storeId,
+      'inventory:view',
+      '无权查看该门店库存报表',
+    );
+
+    if (storeId === null) {
+      return {
+        summary: {
+          totalSkuCount: 0,
+          warningCount: 0,
+          dangerCount: 0,
+          normalCount: 0,
+          totalStockValue: 0,
+        },
+        products: [],
+      };
+    }
+
+    if (query.export) {
+      await this.platformMembershipAccessService.ensureReportExportEnabled(storeId);
+    }
+
     const [summary, products] = await Promise.all([
-      this.getStats(user, query.storeId),
-      this.listProducts(user, query),
+      this.getStats(user, storeId),
+      this.listProducts(user, { ...query, storeId }),
     ]);
 
     return {

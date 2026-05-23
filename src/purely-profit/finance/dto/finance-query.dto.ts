@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNumber,
@@ -11,7 +12,10 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { PaginationQueryDto } from '../../stores/dto/store-response.dto';
+import {
+  PaginationQueryDto,
+  transformOptionalBoolean,
+} from '../../stores/dto/store-response.dto';
 import {
   FINANCE_ACCOUNT_CATEGORY_VALUES,
   FINANCE_ACCOUNT_STATUS_FILTER_VALUES,
@@ -93,6 +97,12 @@ export class FinanceReportQueryDto {
   @IsInt({ message: '区间结束时间必须是整数时间戳' })
   @Min(0, { message: '区间结束时间不合法' })
   rangeEndDate?: number;
+
+  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @IsOptional()
+  @Transform(transformOptionalBoolean)
+  @IsBoolean({ message: '导出标记必须是布尔值' })
+  export?: boolean;
 }
 
 export class ListFinanceCashFlowRecordsQueryDto extends PaginationQueryDto {

@@ -7,10 +7,10 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { PermissionsGuard } from '../src/access-control/guards/permissions.guard';
-import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
-import { FinanceController } from '../src/finance/finance.controller';
-import { FinanceService } from '../src/finance/finance.service';
+import { PermissionsGuard } from '../src/purely-profit/access-control/guards/permissions.guard';
+import { JwtAuthGuard } from '../src/purely-profit/auth/guards/jwt-auth.guard';
+import { FinanceController } from '../src/purely-profit/finance/finance.controller';
+import { FinanceService } from '../src/purely-profit/finance/finance.service';
 
 describe('FinanceController (e2e)', () => {
   let app: INestApplication<App>;
