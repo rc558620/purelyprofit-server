@@ -39,15 +39,19 @@ import {
   normalizeStoreProfileMetadata,
   type StoreProfileMetadata,
 } from '../stores/dto/store-response.dto';
-import { toNullableMediaText, toOptionalMediaText } from '../commerce/commerce.utils';
+import {
+  toNullableMediaText,
+  toOptionalMediaText,
+} from '../commerce/commerce.utils';
 import type { AuthenticatedUser, JwtPayload } from './strategies/jwt.strategy';
 
 type MembershipRole = 'OWNER' | 'MANAGER' | 'STAFF';
 
 const STORE_PROFILE_KEY_PREFIX = 'stores:profile:';
 const ADMIN_LOGIN_ALIAS = 'admin';
-const ADMIN_LOGIN_PHONE = '13800000000';
-const PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX = 'pulse:membership:admin:member:';
+const ADMIN_LOGIN_PHONE = '13619654020';
+const PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX =
+  'pulse:membership:admin:member:';
 
 interface AccountIdentifiers {
   phone: string;
