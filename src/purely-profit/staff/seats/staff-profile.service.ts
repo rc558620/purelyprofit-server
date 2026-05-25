@@ -164,14 +164,13 @@ export class StaffProfileService {
     user: AuthenticatedUser,
     query: ListStaffQueryDto,
   ): Promise<PaginatedStaffResponseDto> {
-    const manageableStoreId = await this.staffAccessService.getManageableStoreId(
-      user,
-      'staff:view',
-    );
-    const { page: currentPage, skip, take } = this.resolvePagination(
-      query.page,
-      query.pageSize,
-    );
+    const manageableStoreId =
+      await this.staffAccessService.getManageableStoreId(user, 'staff:view');
+    const {
+      page: currentPage,
+      skip,
+      take,
+    } = this.resolvePagination(query.page, query.pageSize);
 
     if (
       manageableStoreId === null ||
@@ -204,11 +203,12 @@ export class StaffProfileService {
     staffId: number,
     dto: UpdateStaffDto,
   ): Promise<StaffResponseDto> {
-    const existingStaff = await this.staffAccessService.findManageableStaffOrThrow(
-      user,
-      staffId,
-      'staff:update',
-    );
+    const existingStaff =
+      await this.staffAccessService.findManageableStaffOrThrow(
+        user,
+        staffId,
+        'staff:update',
+      );
 
     const updatePhone = dto.phone;
 
@@ -237,11 +237,12 @@ export class StaffProfileService {
   }
 
   async remove(user: AuthenticatedUser, staffId: number): Promise<void> {
-    const existingStaff = await this.staffAccessService.findManageableStaffOrThrow(
-      user,
-      staffId,
-      'staff:delete',
-    );
+    const existingStaff =
+      await this.staffAccessService.findManageableStaffOrThrow(
+        user,
+        staffId,
+        'staff:delete',
+      );
 
     await this.prisma.staff.delete({
       where: { id: existingStaff.id },
@@ -263,7 +264,8 @@ export class StaffProfileService {
   private resolvePagination(page?: number, pageSize?: number) {
     const defaultPageSize =
       this.configService.get<number>('app.defaultPageSize') ?? 20;
-    const maxPageSize = this.configService.get<number>('app.maxPageSize') ?? 100;
+    const maxPageSize =
+      this.configService.get<number>('app.maxPageSize') ?? 100;
     return resolveStaffPagination(page, pageSize, defaultPageSize, maxPageSize);
   }
 }

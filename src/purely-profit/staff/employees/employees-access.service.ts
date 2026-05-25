@@ -27,10 +27,7 @@ export class EmployeesAccessService {
     forbiddenMessage: string,
     permission: EmployeesPermission = 'staff:view',
   ): Promise<number> {
-    const manageableStoreId = await this.getManageableStoreId(
-      user,
-      permission,
-    );
+    const manageableStoreId = await this.getManageableStoreId(user, permission);
 
     if (manageableStoreId === null) {
       throw new ForbiddenException(forbiddenMessage);

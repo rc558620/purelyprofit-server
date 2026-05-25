@@ -275,7 +275,9 @@ export class EmployeesPayrollService {
     }
 
     const nextBaseSalary =
-      dto.baseSalary !== undefined ? dto.baseSalary : toDecimalNumber(payroll.baseSalary);
+      dto.baseSalary !== undefined
+        ? dto.baseSalary
+        : toDecimalNumber(payroll.baseSalary);
     const nextLeaveDeduction =
       dto.leaveDeduction !== undefined
         ? dto.leaveDeduction
@@ -329,11 +331,15 @@ export class EmployeesPayrollService {
           ...(dto.otherDeductionNote !== undefined
             ? { otherDeductionNote: toNullableText(dto.otherDeductionNote) }
             : {}),
-          ...(dto.bonus !== undefined ? { bonus: this.toDecimal(dto.bonus) } : {}),
+          ...(dto.bonus !== undefined
+            ? { bonus: this.toDecimal(dto.bonus) }
+            : {}),
           ...(dto.socialInsurance !== undefined
             ? {
                 socialInsurance:
-                  dto.socialInsurance > 0 ? this.toDecimal(dto.socialInsurance) : null,
+                  dto.socialInsurance > 0
+                    ? this.toDecimal(dto.socialInsurance)
+                    : null,
               }
             : {}),
           ...(dto.housingFund !== undefined

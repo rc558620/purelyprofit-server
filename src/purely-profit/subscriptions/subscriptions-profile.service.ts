@@ -23,7 +23,10 @@ export class SubscriptionsProfileService {
       throw new NotFoundException('门店不存在');
     }
 
-    const activeSeatCount = await countActiveStoreSeats(prismaExecutor, storeId);
+    const activeSeatCount = await countActiveStoreSeats(
+      prismaExecutor,
+      storeId,
+    );
 
     return {
       maxAccountSeats: store.maxAccountSeats,
@@ -36,7 +39,10 @@ export class SubscriptionsProfileService {
     storeId: number,
     prismaExecutor: Prisma.TransactionClient | PrismaClient = this.prisma,
   ): Promise<StoreSubscriptionResponseDto> {
-    const subscription = await findStoreSubscriptionRecord(prismaExecutor, storeId);
+    const subscription = await findStoreSubscriptionRecord(
+      prismaExecutor,
+      storeId,
+    );
 
     if (!subscription) {
       throw new NotFoundException('门店订阅不存在');
@@ -54,5 +60,4 @@ export class SubscriptionsProfileService {
       seatSummary: await this.getSeatSummary(storeId, prismaExecutor),
     };
   }
-
 }

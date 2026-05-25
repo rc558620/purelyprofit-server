@@ -30,11 +30,16 @@ export class AuthSessionService {
 
   async bumpTokenVersion(userId: number): Promise<void> {
     const nextVersion = (await this.getTokenVersion(userId)) + 1;
-    await this.redisService.set(buildTokenVersionKey(userId), String(nextVersion));
+    await this.redisService.set(
+      buildTokenVersionKey(userId),
+      String(nextVersion),
+    );
   }
 
   private async getTokenVersion(userId: number): Promise<number> {
-    const rawVersion = await this.redisService.get(buildTokenVersionKey(userId));
+    const rawVersion = await this.redisService.get(
+      buildTokenVersionKey(userId),
+    );
     const parsedVersion = Number.parseInt(rawVersion ?? '0', 10);
     return Number.isNaN(parsedVersion) ? 0 : parsedVersion;
   }

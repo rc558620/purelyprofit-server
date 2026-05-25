@@ -79,9 +79,8 @@ export class StoresWriteService {
     user: AuthenticatedUser,
     dto: CreateStoreDto,
   ): Promise<StoreResponseDto> {
-    const existingStore = await this.storesReadService.getBoundStoreRecordOrThrow(
-      user,
-    );
+    const existingStore =
+      await this.storesReadService.getBoundStoreRecordOrThrow(user);
 
     const payload = extractStoreCreatePayload(dto);
     const updatedStore = await this.prisma.store.update({

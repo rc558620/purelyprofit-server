@@ -1,4 +1,7 @@
-import type { PlanSnapshot, PresetSubscriptionPlanCode } from './subscriptions.types';
+import type {
+  PlanSnapshot,
+  PresetSubscriptionPlanCode,
+} from './subscriptions.types';
 
 export const SUBSCRIPTION_PLAN_CATALOG: Record<
   PresetSubscriptionPlanCode,

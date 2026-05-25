@@ -22,8 +22,10 @@ export function extractStoreCreatePayload(value: unknown): StoreCreatePayload {
   const candidate = value as RawCreateStorePayload;
 
   return {
-    storeName: typeof candidate.storeName === 'string' ? candidate.storeName : '',
-    storeType: typeof candidate.storeType === 'string' ? candidate.storeType : '',
+    storeName:
+      typeof candidate.storeName === 'string' ? candidate.storeName : '',
+    storeType:
+      typeof candidate.storeType === 'string' ? candidate.storeType : '',
     region: Array.isArray(candidate.region)
       ? candidate.region.filter(
           (item): item is StoreRegionValue =>

@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCodeService } from './auth-code.service';
 import { AuthProfileService } from './auth-profile.service';
@@ -78,7 +77,9 @@ export class AuthService {
   async forgotPassword(
     dto: ForgotPasswordDto,
   ): Promise<ForgotPasswordResponseDto> {
-    return this.authCodeService.sendPasswordResetCode(normalizePhone(dto.phone));
+    return this.authCodeService.sendPasswordResetCode(
+      normalizePhone(dto.phone),
+    );
   }
 
   async resetPassword(

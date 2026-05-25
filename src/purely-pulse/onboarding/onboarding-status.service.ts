@@ -3,7 +3,10 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import type { OnboardingStatusResponseDto } from './dto/onboarding-status.dto';
-import type { MembershipProfileRow, MerchantVerificationRow } from './onboarding.utils';
+import type {
+  MembershipProfileRow,
+  MerchantVerificationRow,
+} from './onboarding.utils';
 import { isActiveMembership } from './onboarding.utils';
 
 @Injectable()
@@ -13,15 +16,20 @@ export class OnboardingStatusService {
     private readonly pulseStoreContextService: PulseStoreContextService,
   ) {}
 
-  async getStatus(user: AuthenticatedUser): Promise<OnboardingStatusResponseDto> {
-    const resolvedStore = await this.pulseStoreContextService.resolveTargetStore(user);
+  async getStatus(
+    user: AuthenticatedUser,
+  ): Promise<OnboardingStatusResponseDto> {
+    const resolvedStore =
+      await this.pulseStoreContextService.resolveTargetStore(user);
     const targetStore = resolvedStore.store;
 
     const [merchantVerification, membership] = await Promise.all([
       targetStore
         ? this.findMerchantVerification(targetStore.ownerId)
         : Promise.resolve(null),
-      targetStore ? this.findMembershipProfile(targetStore.id) : Promise.resolve(null),
+      targetStore
+        ? this.findMembershipProfile(targetStore.id)
+        : Promise.resolve(null),
     ]);
 
     const hasSelectedStore = targetStore !== null;

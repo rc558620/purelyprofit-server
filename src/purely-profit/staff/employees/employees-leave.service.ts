@@ -120,7 +120,9 @@ export class EmployeesLeaveService {
         ...(dto.startDate !== undefined
           ? { startDate: new Date(dto.startDate) }
           : {}),
-        ...(dto.endDate !== undefined ? { endDate: new Date(dto.endDate) } : {}),
+        ...(dto.endDate !== undefined
+          ? { endDate: new Date(dto.endDate) }
+          : {}),
         ...(dto.days !== undefined ? { days: this.toDecimal(dto.days) } : {}),
         ...(dto.deductSalary !== undefined
           ? { deductSalary: dto.deductSalary }

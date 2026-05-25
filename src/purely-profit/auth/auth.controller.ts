@@ -117,7 +117,9 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: '获取当前登录用户信息与权限上下文（兼容前端 me 接口）' })
+  @ApiOperation({
+    summary: '获取当前登录用户信息与权限上下文（兼容前端 me 接口）',
+  })
   @ApiOkResponse({
     description: '返回当前用户信息、当前门店与权限上下文',
     type: ProfileResponseDto,

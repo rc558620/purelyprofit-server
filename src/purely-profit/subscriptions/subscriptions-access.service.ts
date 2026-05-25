@@ -21,7 +21,11 @@ export class SubscriptionsAccessService {
               some: {
                 isActive: true,
                 status: StaffStatus.ACTIVE,
-                OR: [{ userId: user.id }, { email: user.email }, { phone: user.phone }],
+                OR: [
+                  { userId: user.id },
+                  { email: user.email },
+                  { phone: user.phone },
+                ],
               },
             },
           },
@@ -35,7 +39,10 @@ export class SubscriptionsAccessService {
     }
   }
 
-  async ensureStoreOwner(user: AuthenticatedUser, storeId: number): Promise<void> {
+  async ensureStoreOwner(
+    user: AuthenticatedUser,
+    storeId: number,
+  ): Promise<void> {
     const store = await this.prisma.store.findFirst({
       where: { id: storeId, ownerId: user.id },
       select: { id: true },

@@ -16,7 +16,9 @@ export class StoresProfileService {
 
   constructor(private readonly redisService: RedisService) {}
 
-  async mapStoreResponse(store: StoreRecordSnapshot): Promise<StoreResponseDto> {
+  async mapStoreResponse(
+    store: StoreRecordSnapshot,
+  ): Promise<StoreResponseDto> {
     const metadata = await this.readStoreProfileMetadata(store.id);
     return buildStoreResponseDto(store, metadata);
   }
@@ -28,14 +30,18 @@ export class StoresProfileService {
     return buildStoreResponseDto(store, metadata);
   }
 
-  async readStoreProfileMetadata(storeId: number): Promise<StoreProfileMetadata> {
+  async readStoreProfileMetadata(
+    storeId: number,
+  ): Promise<StoreProfileMetadata> {
     try {
       const raw = await this.redisService.get(this.getStoreProfileKey(storeId));
       if (!raw) {
         return normalizeStoreProfileMetadata(null);
       }
 
-      const metadata = normalizeStoreProfileMetadata(JSON.parse(raw) as unknown);
+      const metadata = normalizeStoreProfileMetadata(
+        JSON.parse(raw) as unknown,
+      );
       if (JSON.stringify(metadata) !== raw) {
         await this.persistStoreProfileMetadata(storeId, metadata);
       }

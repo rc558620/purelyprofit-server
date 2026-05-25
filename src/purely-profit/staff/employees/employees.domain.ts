@@ -213,7 +213,10 @@ export function buildSingleDayDateRange(date: number): { gte: Date; lt: Date } {
   };
 }
 
-export function assertShiftBusinessRules(startTime: string, endTime: string): void {
+export function assertShiftBusinessRules(
+  startTime: string,
+  endTime: string,
+): void {
   const startMinutes = parseTimeToMinutes(startTime, '上班时间格式不正确');
   const endMinutes = parseTimeToMinutes(endTime, '下班时间格式不正确');
 
@@ -247,7 +250,9 @@ export function formatShiftReportDate(date: Date): string {
   return `${month}/${day} 周${weeks[date.getDay()]}`;
 }
 
-export function buildShiftReport(rows: ShiftReportRowInput[]): ShiftReportResult {
+export function buildShiftReport(
+  rows: ShiftReportRowInput[],
+): ShiftReportResult {
   let morningCount = 0;
   let nineToSixCount = 0;
   let middleCount = 0;
@@ -327,7 +332,10 @@ export function assertPayrollMonthFormat(month: string): void {
 export function buildPayrollDerivedAmounts(
   input: PayrollDraftInput,
 ): PayrollDerivedAmounts {
-  if (input.otherDeduction > 0 && !toNullableText(input.otherDeductionNote ?? '')) {
+  if (
+    input.otherDeduction > 0 &&
+    !toNullableText(input.otherDeductionNote ?? '')
+  ) {
     throw new BadRequestException('存在其他扣款时必须填写扣款说明');
   }
 
@@ -365,7 +373,8 @@ export function buildPayrollReport(
       confirmedCount,
       totalActualSalary,
       totalLaborCost,
-      avgActualSalary: confirmedCount === 0 ? 0 : totalActualSalary / confirmedCount,
+      avgActualSalary:
+        confirmedCount === 0 ? 0 : totalActualSalary / confirmedCount,
     },
     rows: rows.map((row) => ({
       id: String(row.id),

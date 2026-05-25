@@ -31,7 +31,9 @@ export function buildStaffListWhere(
       ? {
           OR: [
             { name: { contains: keyword, mode: Prisma.QueryMode.insensitive } },
-            { email: { contains: keyword, mode: Prisma.QueryMode.insensitive } },
+            {
+              email: { contains: keyword, mode: Prisma.QueryMode.insensitive },
+            },
             { phone: { contains: keyword } },
           ],
         }

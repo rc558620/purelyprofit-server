@@ -28,9 +28,7 @@ export class AuthCodeService {
     private readonly authAccountService: AuthAccountService,
   ) {}
 
-  async sendRegisterCode(
-    phone: string,
-  ): Promise<SendRegisterCodeResponseDto> {
+  async sendRegisterCode(phone: string): Promise<SendRegisterCodeResponseDto> {
     const expiresInSeconds = this.getRegisterCodeTtlSeconds();
     const existingUser = await this.authAccountService.findUserByPhone(phone);
 
@@ -40,7 +38,11 @@ export class AuthCodeService {
 
     const registerCode = generateNumericCode();
     const registerCodeKey = buildRegisterCodeKey(phone);
-    await this.redisService.set(registerCodeKey, registerCode, expiresInSeconds);
+    await this.redisService.set(
+      registerCodeKey,
+      registerCode,
+      expiresInSeconds,
+    );
 
     try {
       await this.authSmsService.sendRegisterCode({

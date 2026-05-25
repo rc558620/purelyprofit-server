@@ -4,7 +4,10 @@ import {
   buildStoreResponseDto,
   type StoreResponseDto,
 } from '../stores/dto/store-response.dto';
-import { toNullableMediaText, toOptionalMediaText } from '../commerce/commerce.utils';
+import {
+  toNullableMediaText,
+  toOptionalMediaText,
+} from '../commerce/commerce.utils';
 import { AuthAccountService } from './auth-account.service';
 import { ProfileResponseDto } from './dto/profile-response.dto';
 import type {

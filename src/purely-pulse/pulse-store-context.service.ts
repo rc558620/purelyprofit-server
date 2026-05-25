@@ -44,7 +44,10 @@ export class PulseStoreContextService {
   ): Promise<PulseResolvedTargetStore> {
     const requestedStoreId = options?.requestedStoreId;
     if (requestedStoreId !== undefined) {
-      const requestedStore = await this.findAccessibleStoreById(user, requestedStoreId);
+      const requestedStore = await this.findAccessibleStoreById(
+        user,
+        requestedStoreId,
+      );
       if (!requestedStore) {
         throw new ForbiddenException('无权查看该门店，或门店不存在');
       }
@@ -58,7 +61,10 @@ export class PulseStoreContextService {
 
     const selectedStoreId = await this.readSelectedStoreId(user.id);
     if (selectedStoreId !== null) {
-      const selectedStore = await this.findAccessibleStoreById(user, selectedStoreId);
+      const selectedStore = await this.findAccessibleStoreById(
+        user,
+        selectedStoreId,
+      );
       if (selectedStore) {
         return { store: selectedStore, source: 'selected' };
       }

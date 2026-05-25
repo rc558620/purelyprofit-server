@@ -147,6 +147,9 @@ export class FinanceService {
     user: AuthenticatedUser,
     recordId: number,
   ): Promise<void> {
-    return this.financeReconciliationService.deleteReconciliation(user, recordId);
+    return this.financeReconciliationService.deleteReconciliation(
+      user,
+      recordId,
+    );
   }
 }

@@ -35,7 +35,10 @@ export class AuthPasswordService {
     });
   }
 
-  async verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
+  async verifyPassword(
+    password: string,
+    hashedPassword: string,
+  ): Promise<boolean> {
     return bcrypt.compare(password, hashedPassword);
   }
 
@@ -71,8 +74,14 @@ export class AuthPasswordService {
     };
   }
 
-  async resetPassword(user: PhoneUserRecord, newPassword: string): Promise<void> {
-    const isSamePassword = await this.verifyPassword(newPassword, user.password);
+  async resetPassword(
+    user: PhoneUserRecord,
+    newPassword: string,
+  ): Promise<void> {
+    const isSamePassword = await this.verifyPassword(
+      newPassword,
+      user.password,
+    );
     if (isSamePassword) {
       throw new BadRequestException('新密码不能与当前密码相同');
     }
@@ -80,7 +89,10 @@ export class AuthPasswordService {
     await this.updatePassword(user.id, newPassword);
   }
 
-  private async updatePassword(userId: number, password: string): Promise<void> {
+  private async updatePassword(
+    userId: number,
+    password: string,
+  ): Promise<void> {
     const hashedPassword = await bcrypt.hash(password, 10);
     await this.prisma.user.update({
       where: { id: userId },

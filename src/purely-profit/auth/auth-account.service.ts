@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { StaffStatus, type Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
@@ -26,7 +30,9 @@ export class AuthAccountService {
     private readonly redisService: RedisService,
   ) {}
 
-  async findUserByLoginAccount(account: string): Promise<PhoneUserRecord | null> {
+  async findUserByLoginAccount(
+    account: string,
+  ): Promise<PhoneUserRecord | null> {
     const loginPhone = resolveLoginPhone(account);
     if (!loginPhone) {
       return null;

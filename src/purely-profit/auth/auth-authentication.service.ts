@@ -33,12 +33,17 @@ export class AuthAuthenticationService {
       params.confirmPassword,
       '两次输入的密码不一致',
     );
-    const existing = await this.authAccountService.findUserByPhone(params.phone);
+    const existing = await this.authAccountService.findUserByPhone(
+      params.phone,
+    );
     if (existing) {
       throw new ConflictException('手机号已被注册');
     }
 
-    await this.authCodeService.ensureRegisterCodeValid(params.phone, params.code);
+    await this.authCodeService.ensureRegisterCodeValid(
+      params.phone,
+      params.code,
+    );
 
     const user = await this.authPasswordService.createUserFromPhone({
       phone: params.phone,

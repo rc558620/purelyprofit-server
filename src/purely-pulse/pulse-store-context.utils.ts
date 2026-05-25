@@ -1,5 +1,8 @@
 import { PULSE_SELECTED_STORE_KEY_PREFIX } from './pulse-store-context.constants';
-import type { PulseStoreRow, PulseTargetStoreSummary } from './pulse-store-context.types';
+import type {
+  PulseStoreRow,
+  PulseTargetStoreSummary,
+} from './pulse-store-context.types';
 
 export function buildPulseSelectedStoreKey(userId: number): string {
   return `${PULSE_SELECTED_STORE_KEY_PREFIX}${userId}`;
