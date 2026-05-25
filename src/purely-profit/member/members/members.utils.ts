@@ -20,11 +20,15 @@ export type MemberRechargeChannelValue =
 
 export type MemberStatusDb = 'ACTIVE' | 'INACTIVE' | 'BANNED';
 
-export interface BuildMemberListWhereParams {
-  storeId: number;
-  status?: MemberStatusDb;
-  level?: string;
-  keyword?: string;
+export function isMemberLevelValue(
+  value: string | undefined,
+): value is MemberLevelValue {
+  return (
+    value === 'free' ||
+    value === 'monthly' ||
+    value === 'quarterly' ||
+    value === 'annual'
+  );
 }
 
 export interface ResolvedPagination {

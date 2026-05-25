@@ -4,11 +4,26 @@ import { PlatformMembershipModule } from '../../member/platform-membership/platf
 import { CostsModule } from '../../operations/costs/costs.module';
 import { EmployeesAccessService } from './employees-access.service';
 import { EmployeesController } from './employees.controller';
+import { EmployeesDictionaryService } from './employees-dictionary.service';
+import { EmployeesLeaveService } from './employees-leave.service';
+import { EmployeesPayrollService } from './employees-payroll.service';
+import { EmployeesProfileReadService } from './employees-profile-read.service';
+import { EmployeesProfileWriteService } from './employees-profile-write.service';
 import { EmployeesService } from './employees.service';
+import { EmployeesShiftService } from './employees-shift.service';
 
 @Module({
   imports: [AuthModule, CostsModule, PlatformMembershipModule],
   controllers: [EmployeesController],
-  providers: [EmployeesService, EmployeesAccessService],
+  providers: [
+    EmployeesService,
+    EmployeesAccessService,
+    EmployeesProfileReadService,
+    EmployeesProfileWriteService,
+    EmployeesDictionaryService,
+    EmployeesLeaveService,
+    EmployeesShiftService,
+    EmployeesPayrollService,
+  ],
 })
 export class EmployeesModule {}

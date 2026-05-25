@@ -1,4 +1,4 @@
-import type { CostCategory } from '@prisma/client';
+import { Prisma, type CostCategory } from '@prisma/client';
 
 export const PROFIT_DETAIL_PERIOD_VALUES = [
   'today',
@@ -28,3 +28,91 @@ export const PROFIT_DETAIL_COST_META: Record<
   packaging: { label: '耗材', color: '#10b981' },
   other: { label: '其他', color: '#94a3b8' },
 };
+
+export interface ProfitDetailQueryInput {
+  storeId?: number;
+  period?: ProfitDetailPeriodValue;
+  year?: number;
+  customDate?: number;
+  rangeStartDate?: number;
+  rangeEndDate?: number;
+}
+
+export interface ProfitDateRange {
+  start: number;
+  end: number;
+}
+
+export interface ProfitAccessibleRange extends ProfitDateRange {
+  clamped: boolean;
+  empty: boolean;
+}
+
+export const PROFIT_DETAIL_SALE_ORDER_ITEM_SELECT =
+  Prisma.validator<Prisma.SaleOrderItemSelect>()({
+    productId: true,
+    productName: true,
+    categoryName: true,
+    salePrice: true,
+    profit: true,
+    quantity: true,
+    image: true,
+    order: {
+      select: {
+        date: true,
+      },
+    },
+  });
+
+export type SaleOrderItemRow = Prisma.SaleOrderItemGetPayload<{
+  select: typeof PROFIT_DETAIL_SALE_ORDER_ITEM_SELECT;
+}>;
+
+export const PROFIT_DETAIL_COST_RECORD_SELECT =
+  Prisma.validator<Prisma.CostRecordSelect>()({
+    category: true,
+    amount: true,
+    date: true,
+  });
+
+export type CostRecordRow = Prisma.CostRecordGetPayload<{
+  select: typeof PROFIT_DETAIL_COST_RECORD_SELECT;
+}>;
+
+export interface AggregatedRankProduct {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  profitPerUnit: number;
+  quantity: number;
+  totalProfit: number;
+  totalRevenue: number;
+  image?: string;
+}
+
+export interface SalesAggregationResult {
+  revenue: number;
+  orderCount: number;
+  dailyRevenueMap: Map<number, number>;
+  rankMap: Map<string, AggregatedRankProduct>;
+}
+
+export interface CostAggregationResult {
+  totalCost: number;
+  dailyCostMap: Map<number, number>;
+  categoryCostMap: Map<CostCategory, number>;
+}
+
+export interface ProfitMetricsSnapshot {
+  currentRange: ProfitAccessibleRange;
+  currentSales: SalesAggregationResult;
+  previousSales: SalesAggregationResult;
+  currentCosts: CostAggregationResult;
+  netProfit: number;
+}
+
+export interface ProfitClampedRanges {
+  currentRange: ProfitAccessibleRange;
+  previousRange: ProfitAccessibleRange;
+}

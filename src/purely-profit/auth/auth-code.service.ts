@@ -1,0 +1,154 @@
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { RedisService } from '../../redis/redis.service';
+import {
+  DEFAULT_PASSWORD_RESET_CODE_TTL_SECONDS,
+  DEFAULT_REGISTER_CODE_TTL_SECONDS,
+} from './auth.constants';
+import { AuthAccountService } from './auth-account.service';
+import { AuthSmsService } from './auth-sms.service';
+import { ForgotPasswordResponseDto } from './dto/forgot-password-response.dto';
+import { SendRegisterCodeResponseDto } from './dto/send-register-code-response.dto';
+import {
+  buildPasswordResetCodeKey,
+  buildRegisterCodeKey,
+  generateNumericCode,
+} from './auth.utils';
+
+@Injectable()
+export class AuthCodeService {
+  constructor(
+    private readonly redisService: RedisService,
+    private readonly configService: ConfigService,
+    private readonly authSmsService: AuthSmsService,
+    private readonly authAccountService: AuthAccountService,
+  ) {}
+
+  async sendRegisterCode(
+    phone: string,
+  ): Promise<SendRegisterCodeResponseDto> {
+    const expiresInSeconds = this.getRegisterCodeTtlSeconds();
+    const existingUser = await this.authAccountService.findUserByPhone(phone);
+
+    if (existingUser) {
+      throw new ConflictException('手机号已被注册');
+    }
+
+    const registerCode = generateNumericCode();
+    const registerCodeKey = buildRegisterCodeKey(phone);
+    await this.redisService.set(registerCodeKey, registerCode, expiresInSeconds);
+
+    try {
+      await this.authSmsService.sendRegisterCode({
+        phone,
+        code: registerCode,
+        expiresInSeconds,
+      });
+    } catch (error) {
+      await this.redisService.del(registerCodeKey);
+      throw error;
+    }
+
+    const response: SendRegisterCodeResponseDto = {
+      message: '验证码已发送，请注意查收',
+      expiresInSeconds,
+    };
+
+    if (this.isNonProductionEnv()) {
+      return {
+        ...response,
+        code: registerCode,
+      };
+    }
+
+    return response;
+  }
+
+  async ensureRegisterCodeValid(phone: string, code: string): Promise<void> {
+    const cachedCode = await this.redisService.get(buildRegisterCodeKey(phone));
+    if (!cachedCode || cachedCode !== code) {
+      throw new UnauthorizedException('验证码无效或已过期');
+    }
+  }
+
+  async clearRegisterCode(phone: string): Promise<void> {
+    await this.redisService.del(buildRegisterCodeKey(phone));
+  }
+
+  async sendPasswordResetCode(
+    phone: string,
+  ): Promise<ForgotPasswordResponseDto> {
+    const expiresInSeconds = this.getPasswordResetCodeTtlSeconds();
+    const response: ForgotPasswordResponseDto = {
+      message: '如手机号已注册，重置验证码短信已发送，请注意查收',
+      expiresInSeconds,
+    };
+    const user = await this.authAccountService.findUserByPhone(phone);
+
+    if (!user) {
+      return response;
+    }
+
+    const resetCode = generateNumericCode();
+    const resetCodeKey = buildPasswordResetCodeKey(phone);
+    await this.redisService.set(resetCodeKey, resetCode, expiresInSeconds);
+
+    try {
+      await this.authSmsService.sendPasswordResetCode({
+        phone,
+        code: resetCode,
+        expiresInSeconds,
+      });
+    } catch (error) {
+      await this.redisService.del(resetCodeKey);
+      throw error;
+    }
+
+    if (this.isNonProductionEnv()) {
+      return {
+        ...response,
+        resetCode,
+      };
+    }
+
+    return response;
+  }
+
+  async ensurePasswordResetCodeValid(
+    phone: string,
+    code: string,
+  ): Promise<void> {
+    const cachedCode = await this.redisService.get(
+      buildPasswordResetCodeKey(phone),
+    );
+    if (!cachedCode || cachedCode !== code) {
+      throw new UnauthorizedException('验证码无效或已过期');
+    }
+  }
+
+  async clearPasswordResetCode(phone: string): Promise<void> {
+    await this.redisService.del(buildPasswordResetCodeKey(phone));
+  }
+
+  private getPasswordResetCodeTtlSeconds(): number {
+    return (
+      this.configService.get<number>('auth.passwordResetCodeTtlSeconds') ??
+      DEFAULT_PASSWORD_RESET_CODE_TTL_SECONDS
+    );
+  }
+
+  private getRegisterCodeTtlSeconds(): number {
+    return (
+      this.configService.get<number>('auth.registerCodeTtlSeconds') ??
+      DEFAULT_REGISTER_CODE_TTL_SECONDS
+    );
+  }
+
+  private isNonProductionEnv(): boolean {
+    return this.configService.get<string>('nodeEnv') !== 'production';
+  }
+}

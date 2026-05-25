@@ -17,7 +17,13 @@ import { CostsService } from '../../operations/costs/costs.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { EmployeesAccessService } from './employees-access.service';
+import { EmployeesDictionaryService } from './employees-dictionary.service';
+import { EmployeesLeaveService } from './employees-leave.service';
+import { EmployeesPayrollService } from './employees-payroll.service';
+import { EmployeesProfileReadService } from './employees-profile-read.service';
+import { EmployeesProfileWriteService } from './employees-profile-write.service';
 import { EmployeesService } from './employees.service';
+import { EmployeesShiftService } from './employees-shift.service';
 
 describe('EmployeesService', () => {
   let service: EmployeesService;
@@ -123,6 +129,12 @@ describe('EmployeesService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EmployeesService,
+        EmployeesProfileReadService,
+        EmployeesProfileWriteService,
+        EmployeesDictionaryService,
+        EmployeesLeaveService,
+        EmployeesShiftService,
+        EmployeesPayrollService,
         { provide: PrismaService, useValue: prismaService },
         { provide: EmployeesAccessService, useValue: employeesAccessService },
         { provide: ConfigService, useValue: configService },

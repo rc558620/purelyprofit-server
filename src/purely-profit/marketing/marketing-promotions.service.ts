@@ -1,0 +1,178 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import { PrismaService } from '../../prisma/prisma.service';
+import type {
+  CreatePromotionDto,
+  ListPromotionsQueryDto,
+  UpdatePromotionDto,
+} from './dto/marketing-query.dto';
+import type {
+  MarketingPromotionDto,
+  MarketingPromotionsResponseDto,
+} from './dto/marketing-response.dto';
+import { buildPromotionWhere } from './marketing.domain';
+import { mapPromotionRow } from './marketing.mapper';
+import { MarketingSharedService } from './marketing-shared.service';
+import {
+  buildMarketingPaginationMeta,
+  resolveMarketingPagination,
+} from './marketing.utils';
+
+@Injectable()
+export class MarketingPromotionsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly marketingSharedService: MarketingSharedService,
+  ) {}
+
+  async listPromotions(
+    user: AuthenticatedUser,
+    query: ListPromotionsQueryDto & { storeId?: number },
+  ): Promise<MarketingPromotionsResponseDto> {
+    const resolvedStoreId =
+      await this.marketingSharedService.resolveMembershipManagedStoreId(
+        user,
+        query.storeId,
+      );
+    if (!resolvedStoreId) {
+      return {
+        items: [],
+        meta: buildMarketingPaginationMeta(0, 1, query.pageSize ?? 20),
+      };
+    }
+
+    const { page, skip, take } = resolveMarketingPagination(
+      query.page,
+      query.pageSize,
+    );
+    const where = buildPromotionWhere({
+      storeId: resolvedStoreId,
+      status: query.status,
+    });
+
+    const [rows, total] = await Promise.all([
+      this.prisma.marketingPromotion.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.marketingPromotion.count({ where }),
+    ]);
+
+    return {
+      items: rows.map((row) => mapPromotionRow(row)),
+      meta: buildMarketingPaginationMeta(total, page, take),
+    };
+  }
+
+  async getPromotion(
+    user: AuthenticatedUser,
+    promotionId: number,
+  ): Promise<MarketingPromotionDto> {
+    const promotion =
+      await this.marketingSharedService.findPromotionOrThrow(promotionId);
+    await this.marketingSharedService.ensureMarketingStoreAccess(
+      user,
+      promotion.storeId,
+      'marketing:view',
+    );
+    return mapPromotionRow(promotion);
+  }
+
+  async createPromotion(
+    user: AuthenticatedUser,
+    storeId: number,
+    dto: CreatePromotionDto,
+  ): Promise<MarketingPromotionDto> {
+    await this.marketingSharedService.ensureMarketingStoreAccess(
+      user,
+      storeId,
+      'marketing:manage',
+    );
+    this.assertPromotionRange(new Date(dto.startAt), new Date(dto.endAt));
+
+    const created = await this.prisma.marketingPromotion.create({
+      data: {
+        storeId,
+        name: dto.name.trim(),
+        type: dto.type as never,
+        description: dto.description?.trim() ?? '',
+        params: (dto.params ?? {}) as Prisma.InputJsonValue,
+        startAt: new Date(dto.startAt),
+        endAt: new Date(dto.endAt),
+        enabled: dto.enabled ?? true,
+      },
+    });
+
+    return mapPromotionRow(created);
+  }
+
+  async updatePromotion(
+    user: AuthenticatedUser,
+    promotionId: number,
+    dto: UpdatePromotionDto,
+  ): Promise<MarketingPromotionDto> {
+    const promotion =
+      await this.marketingSharedService.findPromotionOrThrow(promotionId);
+    await this.marketingSharedService.ensureMarketingStoreAccess(
+      user,
+      promotion.storeId,
+      'marketing:manage',
+    );
+
+    const newStartAt =
+      dto.startAt !== undefined ? new Date(dto.startAt) : promotion.startAt;
+    const newEndAt =
+      dto.endAt !== undefined ? new Date(dto.endAt) : promotion.endAt;
+    this.assertPromotionRange(newStartAt, newEndAt);
+
+    const updated = await this.prisma.marketingPromotion.update({
+      where: { id: promotionId },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.description !== undefined
+          ? { description: dto.description.trim() }
+          : {}),
+        ...(dto.params !== undefined
+          ? { params: dto.params as Prisma.InputJsonValue }
+          : {}),
+        ...(dto.startAt !== undefined ? { startAt: newStartAt } : {}),
+        ...(dto.endAt !== undefined ? { endAt: newEndAt } : {}),
+        ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
+      },
+    });
+
+    return mapPromotionRow(updated);
+  }
+
+  async deletePromotion(
+    user: AuthenticatedUser,
+    promotionId: number,
+  ): Promise<void> {
+    const promotion =
+      await this.marketingSharedService.findPromotionOrThrow(promotionId);
+    await this.marketingSharedService.ensureMarketingStoreAccess(
+      user,
+      promotion.storeId,
+      'marketing:manage',
+    );
+
+    await this.prisma.marketingPromotion.delete({ where: { id: promotionId } });
+  }
+
+  async togglePromotion(
+    user: AuthenticatedUser,
+    promotionId: number,
+    enabled: boolean,
+  ): Promise<MarketingPromotionDto> {
+    return this.updatePromotion(user, promotionId, { enabled });
+  }
+
+  private assertPromotionRange(startAt: Date, endAt: Date): void {
+    if (endAt <= startAt) {
+      throw new BadRequestException('结束时间必须晚于开始时间');
+    }
+  }
+}

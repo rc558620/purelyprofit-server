@@ -1,9 +1,20 @@
 import { ForbiddenException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { PulseDevModeAccessService } from './pulse-dev-mode-access.service';
+import { PulseDevModeDashboardService } from './pulse-dev-mode-dashboard.service';
+import { PulseDevModeGrowthService } from './pulse-dev-mode-growth.service';
+import { PulseDevModeMembershipService } from './pulse-dev-mode-membership.service';
+import { PulseDevModeSessionService } from './pulse-dev-mode-session.service';
 import { PulseDevModeService } from './pulse-dev-mode.service';
 
 describe('PulseDevModeService', () => {
-  const service = new PulseDevModeService();
+  const service = new PulseDevModeService(
+    new PulseDevModeAccessService(),
+    new PulseDevModeSessionService(),
+    new PulseDevModeDashboardService(),
+    new PulseDevModeMembershipService(),
+    new PulseDevModeGrowthService(),
+  );
 
   const user: AuthenticatedUser = {
     id: 101,

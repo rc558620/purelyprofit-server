@@ -7,12 +7,35 @@ import {
   SalesOrdersCompatController,
   SalesRecordController,
 } from './sales-record.controller';
+import { SalesRecordCreateFlowService } from './sales-record-create-flow.service';
+import { SalesRecordItemPreparationService } from './sales-record-item-preparation.service';
+import { SalesRecordListService } from './sales-record-list.service';
+import { SalesRecordProductsService } from './sales-record-products.service';
+import { SalesRecordReadService } from './sales-record-read.service';
+import { SalesRecordReportService } from './sales-record-report.service';
 import { SalesRecordService } from './sales-record.service';
+import { SalesRecordStatsService } from './sales-record-stats.service';
+import { SalesRecordWriteService } from './sales-record-write.service';
 
 @Module({
-  imports: [PrismaModule, CommerceModule, InventoryModule, PlatformMembershipModule],
+  imports: [
+    PrismaModule,
+    CommerceModule,
+    InventoryModule,
+    PlatformMembershipModule,
+  ],
   controllers: [SalesRecordController, SalesOrdersCompatController],
-  providers: [SalesRecordService],
+  providers: [
+    SalesRecordItemPreparationService,
+    SalesRecordCreateFlowService,
+    SalesRecordProductsService,
+    SalesRecordListService,
+    SalesRecordStatsService,
+    SalesRecordReportService,
+    SalesRecordReadService,
+    SalesRecordWriteService,
+    SalesRecordService,
+  ],
   exports: [SalesRecordService],
 })
 export class SalesRecordModule {}

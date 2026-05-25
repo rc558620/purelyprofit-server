@@ -48,6 +48,8 @@ import {
 } from './dto/pulse-membership.dto';
 import { PulseMembershipService } from './membership.service';
 
+type AuthenticatedRequest = { user: AuthenticatedUser };
+
 @ApiTags('Pulse / Membership')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -72,7 +74,7 @@ export class PulseMembershipController {
   }
 
   // ──────────────────────────────────────────────
-  // 目标商家订阅兼容接口
+  // 目标商家订阅中心
   // ──────────────────────────────────────────────
 
   @Get('center')
@@ -82,13 +84,13 @@ export class PulseMembershipController {
     type: PlatformMembershipCenterResponseDto,
   })
   getCenter(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
   ): Promise<PlatformMembershipCenterResponseDto> {
-    return this.pulseMembershipService.getCenter(request.user);
+    return this.pulseMembershipService.getCenter(this.currentUser(request));
   }
 
   // ──────────────────────────────────────────────
-  // 订单 —— 试算
+  // 目标商家订单
   // ──────────────────────────────────────────────
 
   @Post('orders/preview')
@@ -98,15 +100,11 @@ export class PulseMembershipController {
     type: PulseMembershipOrderPreviewResponseDto,
   })
   previewOrder(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
     @Body() dto: PulseMembershipOrderPreviewDto,
   ): Promise<PulseMembershipOrderPreviewResponseDto> {
-    return this.pulseMembershipService.previewOrder(request.user, dto);
+    return this.pulseMembershipService.previewOrder(this.currentUser(request), dto);
   }
-
-  // ──────────────────────────────────────────────
-  // 订单 —— 下单 & 列表
-  // ──────────────────────────────────────────────
 
   @Post('orders')
   @ApiOperation({ summary: '为目标商家创建订阅订单的兼容接口' })
@@ -115,10 +113,10 @@ export class PulseMembershipController {
     type: PurchasePlatformMembershipOrderResponseDto,
   })
   purchaseOrder(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
     @Body() dto: PurchasePlatformMembershipOrderDto,
   ): Promise<PurchasePlatformMembershipOrderResponseDto> {
-    return this.pulseMembershipService.purchaseOrder(request.user, dto);
+    return this.pulseMembershipService.purchaseOrder(this.currentUser(request), dto);
   }
 
   @Get('orders')
@@ -128,14 +126,10 @@ export class PulseMembershipController {
     type: PlatformMembershipOrdersResponseDto,
   })
   listOrders(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
   ): Promise<PlatformMembershipOrdersResponseDto> {
-    return this.pulseMembershipService.listOrders(request.user);
+    return this.pulseMembershipService.listOrders(this.currentUser(request));
   }
-
-  // ──────────────────────────────────────────────
-  // 订单 —— 详情 & 支付状态
-  // ──────────────────────────────────────────────
 
   @Get('orders/:id')
   @ApiOperation({ summary: '获取目标商家订阅订单详情的兼容接口' })
@@ -144,10 +138,10 @@ export class PulseMembershipController {
     type: PulseMembershipOrderDetailResponseDto,
   })
   getOrder(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
     @Param('id', ParseIntPipe) orderId: number,
   ): Promise<PulseMembershipOrderDetailResponseDto> {
-    return this.pulseMembershipService.getOrder(request.user, orderId);
+    return this.pulseMembershipService.getOrder(this.currentUser(request), orderId);
   }
 
   @Get('orders/:id/pay-status')
@@ -157,14 +151,17 @@ export class PulseMembershipController {
     type: PulseMembershipOrderPayStatusResponseDto,
   })
   getOrderPayStatus(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
     @Param('id', ParseIntPipe) orderId: number,
   ): Promise<PulseMembershipOrderPayStatusResponseDto> {
-    return this.pulseMembershipService.getOrderPayStatus(request.user, orderId);
+    return this.pulseMembershipService.getOrderPayStatus(
+      this.currentUser(request),
+      orderId,
+    );
   }
 
   // ──────────────────────────────────────────────
-  // 积分 & 纯利豆明细
+  // 目标商家资产流水
   // ──────────────────────────────────────────────
 
   @Get('points/logs')
@@ -174,9 +171,9 @@ export class PulseMembershipController {
     type: PlatformMembershipPointsLogsResponseDto,
   })
   listPointsLogs(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
   ): Promise<PlatformMembershipPointsLogsResponseDto> {
-    return this.pulseMembershipService.listPointsLogs(request.user);
+    return this.pulseMembershipService.listPointsLogs(this.currentUser(request));
   }
 
   @Get('beans/logs')
@@ -186,37 +183,13 @@ export class PulseMembershipController {
     type: PlatformMembershipBeanLogsResponseDto,
   })
   listBeanLogs(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
   ): Promise<PlatformMembershipBeanLogsResponseDto> {
-    return this.pulseMembershipService.listBeanLogs(request.user);
-  }
-
-  @Get('admin/points/logs')
-  @ApiOperation({ summary: '获取 Pulse 会员积分流水列表' })
-  @ApiOkResponse({
-    description: '返回 purelyPulse memberPoints 页面使用的聚合积分流水列表。',
-    type: PulseAdminMemberPointsLogsResponseDto,
-  })
-  listAdminPointsLogs(
-    @Req() request: { user: AuthenticatedUser },
-  ): Promise<PulseAdminMemberPointsLogsResponseDto> {
-    return this.pulseMembershipService.listAdminPointsLogs(request.user);
-  }
-
-  @Get('admin/beans/logs')
-  @ApiOperation({ summary: '获取 Pulse 会员纯利豆流水列表' })
-  @ApiOkResponse({
-    description: '返回 purelyPulse partnerBeans 页面使用的聚合纯利豆流水列表。',
-    type: PulseAdminMemberBeanLogsResponseDto,
-  })
-  listAdminBeanLogs(
-    @Req() request: { user: AuthenticatedUser },
-  ): Promise<PulseAdminMemberBeanLogsResponseDto> {
-    return this.pulseMembershipService.listAdminBeanLogs(request.user);
+    return this.pulseMembershipService.listBeanLogs(this.currentUser(request));
   }
 
   // ──────────────────────────────────────────────
-  // 目标商家推广兼容接口
+  // 目标商家推广中心
   // ──────────────────────────────────────────────
 
   @Get('promo')
@@ -226,10 +199,42 @@ export class PulseMembershipController {
     type: PlatformMembershipPromoCenterResponseDto,
   })
   getPromoCenter(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
-    return this.pulseMembershipService.getPromoCenter(request.user);
+    return this.pulseMembershipService.getPromoCenter(this.currentUser(request));
   }
+
+  // ──────────────────────────────────────────────
+  // Pulse 管理后台：资产流水
+  // ──────────────────────────────────────────────
+
+  @Get('admin/points/logs')
+  @ApiOperation({ summary: '获取 Pulse 会员积分流水列表' })
+  @ApiOkResponse({
+    description: '返回 purelyPulse memberPoints 页面使用的聚合积分流水列表。',
+    type: PulseAdminMemberPointsLogsResponseDto,
+  })
+  listAdminPointsLogs(
+    @Req() request: AuthenticatedRequest,
+  ): Promise<PulseAdminMemberPointsLogsResponseDto> {
+    return this.pulseMembershipService.listAdminPointsLogs(this.currentUser(request));
+  }
+
+  @Get('admin/beans/logs')
+  @ApiOperation({ summary: '获取 Pulse 会员纯利豆流水列表' })
+  @ApiOkResponse({
+    description: '返回 purelyPulse partnerBeans 页面使用的聚合纯利豆流水列表。',
+    type: PulseAdminMemberBeanLogsResponseDto,
+  })
+  listAdminBeanLogs(
+    @Req() request: AuthenticatedRequest,
+  ): Promise<PulseAdminMemberBeanLogsResponseDto> {
+    return this.pulseMembershipService.listAdminBeanLogs(this.currentUser(request));
+  }
+
+  // ──────────────────────────────────────────────
+  // Pulse 管理后台：会员查询
+  // ──────────────────────────────────────────────
 
   @Get('admin/members')
   @ApiOperation({ summary: '获取 Pulse 会员管理列表' })
@@ -238,10 +243,13 @@ export class PulseMembershipController {
     type: PulseAdminMembersResponseDto,
   })
   listAdminMembers(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
     @Query() query: GetPulseAdminMembersQueryDto,
   ): Promise<PulseAdminMembersResponseDto> {
-    return this.pulseMembershipService.listAdminMembers(request.user, query);
+    return this.pulseMembershipService.listAdminMembers(
+      this.currentUser(request),
+      query,
+    );
   }
 
   @Get('admin/members/:id')
@@ -251,11 +259,18 @@ export class PulseMembershipController {
     type: PulseMemberDetailDto,
   })
   getAdminMemberDetail(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
     @Param('id', ParseIntPipe) memberId: number,
   ): Promise<PulseMemberDetailDto> {
-    return this.pulseMembershipService.getAdminMemberDetail(request.user, memberId);
+    return this.pulseMembershipService.getAdminMemberDetail(
+      this.currentUser(request),
+      memberId,
+    );
   }
+
+  // ──────────────────────────────────────────────
+  // Pulse 管理后台：会员修改
+  // ──────────────────────────────────────────────
 
   @Post('admin/members/:id/points/adjust')
   @ApiOperation({ summary: 'Pulse 会员管理积分调整' })
@@ -264,15 +279,16 @@ export class PulseMembershipController {
     type: PulseMemberDetailDto,
   })
   adjustAdminMemberPoints(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
     @Param('id') rawMemberId: string,
     @Body() dto: AdjustMemberPointsDto,
   ): Promise<PulseMemberDetailDto> {
-    return this.pulseMembershipService.adjustAdminMemberPoints(
-      request.user,
-      this.resolveAdminMemberId(rawMemberId, dto),
+    const { user, memberId } = this.resolveAdminMutationContext(
+      request,
+      rawMemberId,
       dto,
     );
+    return this.pulseMembershipService.adjustAdminMemberPoints(user, memberId, dto);
   }
 
   @Post('admin/members/:id/beans/adjust')
@@ -282,15 +298,16 @@ export class PulseMembershipController {
     type: PulseMemberDetailDto,
   })
   adjustAdminMemberBeans(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
     @Param('id') rawMemberId: string,
     @Body() dto: AdjustMemberBeansDto,
   ): Promise<PulseMemberDetailDto> {
-    return this.pulseMembershipService.adjustAdminMemberBeans(
-      request.user,
-      this.resolveAdminMemberId(rawMemberId, dto),
+    const { user, memberId } = this.resolveAdminMutationContext(
+      request,
+      rawMemberId,
       dto,
     );
+    return this.pulseMembershipService.adjustAdminMemberBeans(user, memberId, dto);
   }
 
   @Post('admin/members/:id/membership')
@@ -300,15 +317,16 @@ export class PulseMembershipController {
     type: PulseMemberDetailDto,
   })
   setAdminMemberMembership(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
     @Param('id') rawMemberId: string,
     @Body() dto: PulseAdminMemberMembershipDto,
   ): Promise<PulseMemberDetailDto> {
-    return this.pulseMembershipService.setAdminMemberMembership(
-      request.user,
-      this.resolveAdminMemberId(rawMemberId, dto),
+    const { user, memberId } = this.resolveAdminMutationContext(
+      request,
+      rawMemberId,
       dto,
     );
+    return this.pulseMembershipService.setAdminMemberMembership(user, memberId, dto);
   }
 
   @Post('admin/members/:id/ban')
@@ -318,15 +336,16 @@ export class PulseMembershipController {
     type: PulseMemberDetailDto,
   })
   banAdminMember(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
     @Param('id') rawMemberId: string,
     @Body() dto: PulseAdminMemberStatusDto,
   ): Promise<PulseMemberDetailDto> {
-    return this.pulseMembershipService.banAdminMember(
-      request.user,
-      this.resolveAdminMemberId(rawMemberId, dto),
+    const { user, memberId } = this.resolveAdminMutationContext(
+      request,
+      rawMemberId,
       dto,
     );
+    return this.pulseMembershipService.banAdminMember(user, memberId, dto);
   }
 
   @Post('admin/members/:id/unban')
@@ -336,14 +355,31 @@ export class PulseMembershipController {
     type: PulseMemberDetailDto,
   })
   unbanAdminMember(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: AuthenticatedRequest,
     @Param('id') rawMemberId: string,
     @Body() dto: PulseAdminMemberStatusDto,
   ): Promise<PulseMemberDetailDto> {
-    return this.pulseMembershipService.unbanAdminMember(
-      request.user,
-      this.resolveAdminMemberId(rawMemberId, dto),
+    const { user, memberId } = this.resolveAdminMutationContext(
+      request,
+      rawMemberId,
+      dto,
     );
+    return this.pulseMembershipService.unbanAdminMember(user, memberId);
+  }
+
+  private currentUser(request: AuthenticatedRequest): AuthenticatedUser {
+    return request.user;
+  }
+
+  private resolveAdminMutationContext(
+    request: AuthenticatedRequest,
+    rawMemberId: string,
+    fallback?: { userId?: string; memberId?: string; id?: string },
+  ): { user: AuthenticatedUser; memberId: number } {
+    return {
+      user: this.currentUser(request),
+      memberId: this.resolveAdminMemberId(rawMemberId, fallback),
+    };
   }
 
   private resolveAdminMemberId(

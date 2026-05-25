@@ -6,36 +6,16 @@ import {
 import type { AuthenticatedUser } from '../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-
-const PULSE_SELECTED_STORE_KEY_PREFIX = 'pulse:selected-store:';
-
-type ResolveSource = 'requested' | 'selected';
-
-interface PulseStoreRow {
-  id: number;
-  name: string;
-  address: string | null;
-  contactPhone: string | null;
-  ownerId: number;
-  owner: {
-    name: string | null;
-    realName: string | null;
-  };
-}
-
-export interface PulseTargetStoreSummary {
-  id: number;
-  name: string;
-  address: string | null;
-  contactPhone: string | null;
-  ownerId: number;
-  ownerName: string | null;
-}
-
-export interface PulseResolvedTargetStore {
-  store: PulseTargetStoreSummary | null;
-  source: ResolveSource | null;
-}
+import type {
+  PulseResolvedTargetStore,
+  PulseResolveTargetStoreOptions,
+  PulseTargetStoreSummary,
+} from './pulse-store-context.types';
+import { PULSE_TARGET_STORE_SELECT } from './pulse-store-context.types';
+import {
+  buildPulseSelectedStoreKey,
+  mapPulseStoreSummary,
+} from './pulse-store-context.utils';
 
 @Injectable()
 export class PulseStoreContextService {
@@ -60,10 +40,7 @@ export class PulseStoreContextService {
 
   async resolveTargetStore(
     user: AuthenticatedUser,
-    options?: {
-      requestedStoreId?: number;
-      persistResolvedSelection?: boolean;
-    },
+    options?: PulseResolveTargetStoreOptions,
   ): Promise<PulseResolvedTargetStore> {
     const requestedStoreId = options?.requestedStoreId;
     if (requestedStoreId !== undefined) {
@@ -94,11 +71,7 @@ export class PulseStoreContextService {
 
   async resolveTargetStoreOrThrow(
     user: AuthenticatedUser,
-    options?: {
-      requestedStoreId?: number;
-      persistResolvedSelection?: boolean;
-      notFoundMessage?: string;
-    },
+    options?: PulseResolveTargetStoreOptions,
   ): Promise<PulseTargetStoreSummary> {
     const resolved = await this.resolveTargetStore(user, options);
     if (!resolved.store) {
@@ -138,15 +111,15 @@ export class PulseStoreContextService {
   ): Promise<PulseTargetStoreSummary | null> {
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
-      select: this.storeSelect(),
+      select: PULSE_TARGET_STORE_SELECT,
     });
 
-    return store ? this.mapStore(store) : null;
+    return store ? mapPulseStoreSummary(store) : null;
   }
 
   private async readSelectedStoreId(userId: number): Promise<number | null> {
     const rawStoreId = await this.redisService.get(
-      `${PULSE_SELECTED_STORE_KEY_PREFIX}${userId}`,
+      buildPulseSelectedStoreKey(userId),
     );
     const parsedStoreId = Number.parseInt(rawStoreId ?? '', 10);
     return Number.isNaN(parsedStoreId) ? null : parsedStoreId;
@@ -157,39 +130,12 @@ export class PulseStoreContextService {
     storeId: number,
   ): Promise<void> {
     await this.redisService.set(
-      `${PULSE_SELECTED_STORE_KEY_PREFIX}${userId}`,
+      buildPulseSelectedStoreKey(userId),
       String(storeId),
     );
   }
 
   private async clearSelectedStoreId(userId: number): Promise<void> {
-    await this.redisService.del(`${PULSE_SELECTED_STORE_KEY_PREFIX}${userId}`);
-  }
-
-  private storeSelect() {
-    return {
-      id: true,
-      name: true,
-      address: true,
-      contactPhone: true,
-      ownerId: true,
-      owner: {
-        select: {
-          name: true,
-          realName: true,
-        },
-      },
-    };
-  }
-
-  private mapStore(store: PulseStoreRow): PulseTargetStoreSummary {
-    return {
-      id: store.id,
-      name: store.name,
-      address: store.address,
-      contactPhone: store.contactPhone,
-      ownerId: store.ownerId,
-      ownerName: store.owner.realName ?? store.owner.name,
-    };
+    await this.redisService.del(buildPulseSelectedStoreKey(userId));
   }
 }

@@ -1,0 +1,122 @@
+import { PLATFORM_MEMBERSHIP_PLAN_IDS } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
+
+export type PulseMembershipPlanId =
+  (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number];
+
+export type PulseAdminMemberLevel =
+  | 'free'
+  | 'monthly'
+  | 'quarterly'
+  | 'annual'
+  | 'lifetime';
+
+export interface PulseAdminMembershipProfileRecord {
+  currentPlanId: PulseMembershipPlanId | null;
+  expiresAt: Date | null;
+  totalPoints: number;
+  availablePoints: number;
+}
+
+export interface PulseAdminMembershipOrderRecord {
+  id: number;
+  planId: PulseMembershipPlanId;
+  planName: string;
+  amount: number;
+  createdAt: Date;
+}
+
+export interface PulseAdminStoreIdentityRecord {
+  name: string;
+  contactPhone: string | null;
+  owner: {
+    email: string;
+    name: string | null;
+    realName: string | null;
+  };
+}
+
+export interface PulseAdminStoreRecord extends PulseAdminStoreIdentityRecord {
+  id: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PulseAdminPartnerRecord {
+  id: number;
+  status: 'pending' | 'reviewing' | 'approved' | 'rejected';
+  beanBalance: number;
+  totalEarnedBeans: number;
+  totalWithdrawnBeans: number;
+}
+
+export interface PulseDeveloperPointsProfileRecord {
+  storeId: number;
+  currentPlanId: PulseMembershipPlanId | null;
+  expiresAt: Date | null;
+  totalPoints: number;
+  availablePoints: number;
+}
+
+export interface PulseDeveloperPointsLogRecord {
+  id: number;
+  source: 'purchase_bonus' | 'deduct_payment' | 'admin_adjust' | 'expire';
+  changeAmount: number;
+  description: string;
+  expireAt: Date | null;
+  createdAt: Date;
+}
+
+export interface PulseDeveloperBeanPartnerRecord {
+  beanBalance: number;
+  totalEarnedBeans: number;
+  totalWithdrawnBeans: number;
+}
+
+export interface PulseDeveloperBeanLogRecord {
+  id: number;
+  source: 'promo_reward' | 'deduct_payment' | 'withdrawal' | 'admin_adjust';
+  changeAmount: number;
+  description: string;
+  relatedPromoRecordId: number | null;
+  relatedPlanType: PulseMembershipPlanId | null;
+  relatedUser: string | null;
+  createdAt: Date;
+}
+
+export interface PulseAdminMembershipMutationInput {
+  userId?: string;
+  memberId?: string;
+  id?: string;
+  level?: PulseAdminMemberLevel;
+  memberLevel?: PulseAdminMemberLevel;
+  membershipLevel?: PulseAdminMemberLevel;
+  membershipExpiry?: number | null;
+  expireAt?: number | null;
+  expiryAt?: number | null;
+}
+
+export interface PulseAdminStatusMutationInput {
+  userId?: string;
+  memberId?: string;
+  id?: string;
+  status?: 'active' | 'inactive' | 'banned';
+  memberStatus?: 'active' | 'inactive' | 'banned';
+  reason?: string;
+  remark?: string;
+}
+
+export interface PaymentPreviewResult {
+  beanDeductAmount: number;
+  actualBeansUsed: number;
+  priceAfterBeans: number;
+  pointsDeductAmount: number;
+  actualPointsUsed: number;
+  finalAmount: number;
+}
+
+export interface PulseMembershipAdjustmentInput {
+  delta?: number;
+  amount?: number;
+  direction?: 'add' | 'subtract' | 'deduct' | 'reduce';
+  reason: string;
+}

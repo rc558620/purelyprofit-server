@@ -4,12 +4,13 @@ import {
   PartnerPayoutController,
   WithdrawalsController,
 } from './withdrawals.controller';
+import { WithdrawalsSharedService } from './withdrawals-shared.service';
 import { WithdrawalsService } from './withdrawals.service';
 
 @Module({
   imports: [AuthModule],
   controllers: [WithdrawalsController, PartnerPayoutController],
-  providers: [WithdrawalsService],
+  providers: [WithdrawalsService, WithdrawalsSharedService],
   exports: [WithdrawalsService],
 })
 export class WithdrawalsModule {}

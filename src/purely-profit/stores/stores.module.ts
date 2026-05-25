@@ -2,11 +2,19 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { StoresController } from './stores.controller';
+import { StoresProfileService } from './stores-profile.service';
+import { StoresReadService } from './stores-read.service';
 import { StoresService } from './stores.service';
+import { StoresWriteService } from './stores-write.service';
 
 @Module({
   imports: [AuthModule, SubscriptionsModule],
   controllers: [StoresController],
-  providers: [StoresService],
+  providers: [
+    StoresService,
+    StoresProfileService,
+    StoresReadService,
+    StoresWriteService,
+  ],
 })
 export class StoresModule {}

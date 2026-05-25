@@ -1,308 +1,88 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import type { BusinessAnalysisResponseDto } from '../../purely-profit/dashboard/business-analysis/dto/business-analysis-response.dto';
-import type {
-  PlatformMembershipBeanLogsResponseDto,
-  PlatformMembershipCenterResponseDto,
-  PlatformMembershipOrdersResponseDto,
-  PlatformMembershipPointsLogsResponseDto,
-  PlatformMembershipProfileResponseDto,
-  PlatformMembershipPromoCenterResponseDto,
-  PlatformMembershipPartnerProfileResponseDto,
-} from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
-import type { OnboardingStatusResponseDto } from '../onboarding/dto/onboarding-status.dto';
-import { buildCurrentRange } from '../dashboard/dashboard-time.utils';
 import type { PulseDashboardPeriodValue } from '../dashboard/dto/pulse-dashboard-query.dto';
-import type {
-  PulseDashboardOverviewResponseDto,
-  PulseDashboardStoresResponseDto,
-} from '../dashboard/dto/pulse-dashboard-response.dto';
-import type {
-  PulseEarningsLogsResponseDto,
-  PulseEarningsOverviewResponseDto,
-  PulseWithdrawalAccountResponseDto,
-} from '../growth/dto/pulse-growth.dto';
-import type {
-  PulseSessionBootstrapResponseDto,
-  PulseSessionUserDto,
-} from '../session/dto/session-bootstrap.dto';
-
-const DEV_EXPIRES_AT = new Date('2099-12-31T23:59:59.999Z');
-const DEV_REMAINING_DAYS = 36_500;
-
-const PERIOD_ORDER_LABEL: Record<PulseDashboardPeriodValue, string> = {
-  today: '今日订单数',
-  week: '本周订单数',
-  month: '本月订单数',
-  year: '今年订单数',
-};
-
-const PERIOD_PROFIT_LABEL: Record<PulseDashboardPeriodValue, string> = {
-  today: '今日净利润 (元)',
-  week: '本周净利润 (元)',
-  month: '本月净利润 (元)',
-  year: '今年净利润 (元)',
-};
+import type { PulseSessionUserDto } from '../session/dto/session-bootstrap.dto';
+import { PulseDevModeAccessService } from './pulse-dev-mode-access.service';
+import { PulseDevModeDashboardService } from './pulse-dev-mode-dashboard.service';
+import { PulseDevModeGrowthService } from './pulse-dev-mode-growth.service';
+import { PulseDevModeMembershipService } from './pulse-dev-mode-membership.service';
+import { PulseDevModeSessionService } from './pulse-dev-mode-session.service';
 
 @Injectable()
 export class PulseDevModeService {
+  constructor(
+    private readonly accessService: PulseDevModeAccessService,
+    private readonly sessionService: PulseDevModeSessionService,
+    private readonly dashboardService: PulseDevModeDashboardService,
+    private readonly membershipService: PulseDevModeMembershipService,
+    private readonly growthService: PulseDevModeGrowthService,
+  ) {}
+
   isEnabled(user: AuthenticatedUser): boolean {
-    return user.pulseMode === 'developer' || user.isPulseDeveloper === true;
+    return this.accessService.isEnabled(user);
   }
 
   throwUnsupported(message: string): never {
-    throw new ForbiddenException(message);
+    return this.accessService.throwUnsupported(message);
   }
 
-  buildSessionBootstrap(
-    sessionUser: PulseSessionUserDto,
-  ): PulseSessionBootstrapResponseDto {
-    return {
-      mode: 'developer',
-      user: sessionUser,
-      store: null,
-      membership: {
-        isActive: true,
-        planId: 'developer',
-        planName: '开发者模式',
-        remainingDays: DEV_REMAINING_DAYS,
-        expiresAt: DEV_EXPIRES_AT,
-      },
-      unreadNotificationCount: 0,
-      targetStoreSelected: false,
-      hasOnboarded: true,
-    };
+  buildSessionBootstrap(sessionUser: PulseSessionUserDto) {
+    return this.sessionService.buildSessionBootstrap(sessionUser);
   }
 
-  buildOnboardingStatus(): OnboardingStatusResponseDto {
-    return {
-      isCompleted: true,
-      steps: {
-        hasRegistered: true,
-        hasVerifiedRealName: true,
-        hasCreatedStore: true,
-        hasMembership: true,
-      },
-      targetStatus: {
-        isReady: true,
-        storeSelected: false,
-        merchantVerified: true,
-        membershipActive: true,
-        storeId: null,
-        storeName: '开发者模式',
-      },
-      storeId: null,
-      storeName: '开发者模式',
-    };
+  buildOnboardingStatus() {
+    return this.sessionService.buildOnboardingStatus();
   }
 
-  buildDashboardOverview(
-    period: PulseDashboardPeriodValue,
-  ): PulseDashboardOverviewResponseDto {
-    const currentRange = buildCurrentRange(period);
-
-    return {
-      stats: {
-        profitLabel: PERIOD_PROFIT_LABEL[period],
-        profit: 0,
-        profitChange: null,
-        orderLabel: PERIOD_ORDER_LABEL[period],
-        orderCount: 0,
-        orderChange: null,
-        revenue: 0,
-        totalCost: 0,
-      },
-      salesTrend: {
-        categories: [],
-        actual: [],
-        isYearMode: period === 'year',
-      },
-      meta: {
-        period,
-        storeId: null,
-        storeCount: 0,
-        startAt: currentRange.start,
-        endAt: currentRange.end,
-        generatedAt: Date.now(),
-      },
-    };
+  buildDashboardOverview(period: PulseDashboardPeriodValue) {
+    return this.dashboardService.buildDashboardOverview(period);
   }
 
-  buildDashboardStores(
-    period: PulseDashboardPeriodValue,
-  ): PulseDashboardStoresResponseDto {
-    const currentRange = buildCurrentRange(period);
-
-    return {
-      meta: {
-        period,
-        storeId: null,
-        storeCount: 0,
-        startAt: currentRange.start,
-        endAt: currentRange.end,
-        generatedAt: Date.now(),
-      },
-      stores: [],
-    };
+  buildDashboardStores(period: PulseDashboardPeriodValue) {
+    return this.dashboardService.buildDashboardStores(period);
   }
 
-  buildDashboardAnalysis(): BusinessAnalysisResponseDto {
-    return {
-      heroSummary: {
-        netProfit: { current: 0, previous: 0, changeRate: null },
-        revenue: { current: 0, previous: 0, changeRate: null },
-        totalCost: { current: 0, previous: 0, changeRate: null },
-        profitRate: { current: 0, previous: 0, changeRate: null },
-        orderCount: 0,
-      },
-      dailyTrend: [],
-      categoryShares: [],
-      costRateItems: [],
-      rankProducts: [],
-    };
+  buildDashboardAnalysis() {
+    return this.dashboardService.buildDashboardAnalysis();
   }
 
-  buildMembershipProfile(
-    user: AuthenticatedUser,
-  ): PlatformMembershipProfileResponseDto {
-    return {
-      memberInfo: this.buildDeveloperMemberInfo(user),
-      approvedPartner: null,
-    };
+  buildMembershipProfile(user: AuthenticatedUser) {
+    return this.membershipService.buildMembershipProfile(user);
   }
 
-  buildMembershipCenter(
-    user: AuthenticatedUser,
-  ): PlatformMembershipCenterResponseDto {
-    return {
-      memberInfo: this.buildDeveloperMemberInfo(user),
-      remainingDays: DEV_REMAINING_DAYS,
-      stats: {
-        totalPromos: 0,
-        chargedPromos: 0,
-      },
-      paidOrderCount: 0,
-      myPartnerApplication: null,
-      approvedPartner: null,
-    };
+  buildMembershipCenter(user: AuthenticatedUser) {
+    return this.membershipService.buildMembershipCenter(user);
   }
 
-  buildMembershipOrders(): PlatformMembershipOrdersResponseDto {
-    return {
-      overview: {
-        orderCount: 0,
-        totalAmount: 0,
-      },
-      items: [],
-    };
+  buildMembershipOrders() {
+    return this.membershipService.buildMembershipOrders();
   }
 
-  buildMembershipPointsLogs(
-    user: AuthenticatedUser,
-  ): PlatformMembershipPointsLogsResponseDto {
-    return {
-      memberInfo: this.buildDeveloperMemberInfo(user),
-      overview: {
-        availablePoints: 0,
-        totalEarned: 0,
-        totalSpent: 0,
-      },
-      items: [],
-    };
+  buildMembershipPointsLogs(user: AuthenticatedUser) {
+    return this.membershipService.buildMembershipPointsLogs(user);
   }
 
-  buildMembershipBeanLogs(): PlatformMembershipBeanLogsResponseDto {
-    return {
-      approvedPartner: null,
-      overview: {
-        beanBalance: 0,
-        totalEarnedBeans: 0,
-        totalWithdrawnBeans: 0,
-      },
-      items: [],
-    };
+  buildMembershipBeanLogs() {
+    return this.membershipService.buildMembershipBeanLogs();
   }
 
-  buildPromoCenter(
-    user: AuthenticatedUser,
-  ): PlatformMembershipPromoCenterResponseDto {
-    const emptyStats = {
-      totalPromos: 0,
-      chargedPromos: 0,
-      promoRate: 0,
-      earnedBeans: 0,
-    };
-
-    return {
-      memberInfo: this.buildDeveloperMemberInfo(user),
-      approvedPartner: null,
-      level: {
-        partnerLevel: null,
-        monthChargedCount: 0,
-        monthCountToNextLevel: null,
-      },
-      stats: emptyStats,
-      statsByPeriod: {
-        all: { ...emptyStats },
-        today: { ...emptyStats },
-        month: { ...emptyStats },
-        year: { ...emptyStats },
-      },
-      items: [],
-    };
+  buildPromoCenter(user: AuthenticatedUser) {
+    return this.membershipService.buildPromoCenter(user);
   }
 
-  buildPartnerProfile(): PlatformMembershipPartnerProfileResponseDto {
-    return {
-      isPartner: false,
-      currentApplication: null,
-      applications: [],
-      approvedPartner: null,
-      level: {
-        partnerLevel: null,
-        monthChargedCount: 0,
-        monthCountToNextLevel: null,
-      },
-    };
+  buildPartnerProfile() {
+    return this.membershipService.buildPartnerProfile();
   }
 
-  buildEarningsOverview(): PulseEarningsOverviewResponseDto {
-    return {
-      beanBalance: 0,
-      totalEarnedBeans: 0,
-      totalWithdrawnBeans: 0,
-      totalPromos: 0,
-      chargedPromos: 0,
-      isPartner: false,
-      pendingWithdrawals: 0,
-    };
+  buildEarningsOverview() {
+    return this.growthService.buildEarningsOverview();
   }
 
-  buildEarningsLogs(): PulseEarningsLogsResponseDto {
-    return {
-      items: [],
-      beanBalance: 0,
-    };
+  buildEarningsLogs() {
+    return this.growthService.buildEarningsLogs();
   }
 
-  buildWithdrawalAccount(): PulseWithdrawalAccountResponseDto {
-    return {
-      isPartner: false,
-      accountType: null,
-      accountNo: null,
-      accountName: null,
-      beanBalance: 0,
-    };
-  }
-
-  private buildDeveloperMemberInfo(user: AuthenticatedUser) {
-    return {
-      isActive: true,
-      planId: 'yearly' as const,
-      expiredAt: DEV_EXPIRES_AT.getTime(),
-      inviteCode: `DEV${user.id}`,
-      totalPoints: 0,
-      availablePoints: 0,
-    };
+  buildWithdrawalAccount() {
+    return this.growthService.buildWithdrawalAccount();
   }
 }

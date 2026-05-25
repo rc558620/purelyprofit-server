@@ -5,18 +5,13 @@ import {
   transformOptionalBoolean,
   transformOptionalInt,
 } from '../../../stores/dto/store-response.dto';
+import {
+  BUSINESS_ANALYSIS_PERIOD_VALUES,
+  type BusinessAnalysisPeriod,
+} from '../business-analysis.types';
 
-export const BUSINESS_ANALYSIS_PERIOD_VALUES = [
-  'today',
-  'week',
-  'month',
-  'quarter',
-  'all',
-  'custom_month',
-  'custom_range',
-] as const;
-
-export type BusinessAnalysisPeriod = (typeof BUSINESS_ANALYSIS_PERIOD_VALUES)[number];
+export { BUSINESS_ANALYSIS_PERIOD_VALUES } from '../business-analysis.types';
+export type { BusinessAnalysisPeriod } from '../business-analysis.types';
 
 export class GetBusinessAnalysisQueryDto {
   @ApiPropertyOptional({

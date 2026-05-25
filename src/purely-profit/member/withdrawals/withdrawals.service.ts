@@ -1,15 +1,8 @@
-import {
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { PartnerWithdrawalStatus, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
-  PARTNER_WITHDRAWAL_MAX_BEANS,
-  PARTNER_WITHDRAWAL_MIN_BEANS,
   type ApplyWithdrawalDto,
   type ListWithdrawalsQueryDto,
 } from './dto/apply-withdrawal.dto';
@@ -25,30 +18,50 @@ import {
   withdrawalRecordSelect,
   type WithdrawalRecordSnapshot,
 } from './withdrawals.mapper';
+import { WithdrawalsSharedService } from './withdrawals-shared.service';
 
-const PROCESSING_WITHDRAWAL_STATUSES: PartnerWithdrawalStatus[] = [
-  PartnerWithdrawalStatus.pending,
-  PartnerWithdrawalStatus.approved,
-];
+type PrismaTransactionExecutor = Prisma.TransactionClient;
 
-type PrismaExecutor = PrismaService | Prisma.TransactionClient;
+type WithdrawalStatusUpdateInput = {
+  withdrawalId: number;
+  storeId: number;
+  currentStatus: PartnerWithdrawalStatus;
+  nextStatus: PartnerWithdrawalStatus;
+  reviewedAt?: Date | null;
+  paidAt?: Date | null;
+  rejectReason?: string | null;
+};
+
+type ApplyWithdrawalTransactionInput = {
+  storeId: number;
+  partnerId: number;
+  operatorStaffId: number | null;
+  dto: ApplyWithdrawalDto;
+  accountNo: string;
+  accountName: string;
+};
 
 @Injectable()
 export class WithdrawalsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly withdrawalsSharedService: WithdrawalsSharedService,
+  ) {}
 
   async getOverview(
     user: AuthenticatedUser,
   ): Promise<WithdrawalOverviewResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
-    return this.buildOverview(this.prisma, storeId);
+    const storeId =
+      this.withdrawalsSharedService.getCurrentStoreIdOrThrow(user);
+    return this.withdrawalsSharedService.buildOverview(this.prisma, storeId);
   }
 
   async list(
     user: AuthenticatedUser,
     query: ListWithdrawalsQueryDto,
   ): Promise<WithdrawalRecordResponseDto[]> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
+    const storeId =
+      this.withdrawalsSharedService.getCurrentStoreIdOrThrow(user);
     const records = await this.prisma.partnerWithdrawal.findMany({
       where: {
         storeId,
@@ -65,83 +78,40 @@ export class WithdrawalsService {
     user: AuthenticatedUser,
     dto: ApplyWithdrawalDto,
   ): Promise<ApplyWithdrawalResponseDto> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
-    this.ensureWithdrawAmountWithinFrontEndRange(dto.beanAmount);
+    const storeId =
+      this.withdrawalsSharedService.getCurrentStoreIdOrThrow(user);
+    this.withdrawalsSharedService.ensureWithdrawAmountWithinFrontEndRange(
+      dto.beanAmount,
+    );
 
-    const partner = await this.prisma.storePartner.findUnique({
-      where: { storeId },
-      select: {
-        id: true,
-        status: true,
-        beanBalance: true,
-      },
-    });
-
-    if (!partner || partner.status !== 'approved') {
-      throw new ForbiddenException(
-        '当前账号尚未通过合伙人审核，暂不可申请提现',
+    const partner =
+      await this.withdrawalsSharedService.findApprovedPartnerForApplyOrThrow(
+        storeId,
       );
-    }
-
     if (partner.beanBalance < dto.beanAmount) {
       throw new ConflictException('纯利豆余额不足，无法发起提现申请');
     }
 
-    const trimmedAccountNo = dto.accountNo.trim();
-    const trimmedAccountName = dto.accountName.trim();
-
-    if (trimmedAccountNo === '' || trimmedAccountName === '') {
-      throw new ConflictException('收款信息不能为空');
-    }
-
-    const operatorStaffId = user.currentMembership?.staffId ?? null;
+    const account = this.withdrawalsSharedService.normalizeAccountInfoOrThrow(
+      dto.accountNo,
+      dto.accountName,
+    );
 
     return this.prisma.$transaction(async (tx) => {
-      const updateResult = await tx.storePartner.updateMany({
-        where: {
-          id: partner.id,
-          status: 'approved',
-          beanBalance: { gte: dto.beanAmount },
-        },
-        data: {
-          beanBalance: { decrement: dto.beanAmount },
-          totalWithdrawnBeans: { increment: dto.beanAmount },
-          paymentAccountType: dto.accountType,
-          paymentAccountNo: trimmedAccountNo,
-          paymentAccountName: trimmedAccountName,
-        },
+      const createdRecord = await this.createWithdrawalApplication(tx, {
+        storeId,
+        partnerId: partner.id,
+        operatorStaffId: user.currentMembership?.staffId ?? null,
+        dto,
+        accountNo: account.accountNo,
+        accountName: account.accountName,
       });
 
-      if (updateResult.count !== 1) {
-        throw new ConflictException('纯利豆余额不足，无法发起提现申请');
-      }
-
-      const createdRecord = await tx.partnerWithdrawal.create({
-        data: {
-          storeId,
-          partnerId: partner.id,
-          operatorStaffId,
-          beanAmount: dto.beanAmount,
-          rmbAmount: dto.beanAmount * 100,
-          accountType: dto.accountType,
-          accountNo: trimmedAccountNo,
-          accountName: trimmedAccountName,
-          status: 'pending',
-        },
-        select: withdrawalRecordSelect,
-      });
-
-      await tx.storePartnerBeanLog.create({
-        data: {
-          storeId,
-          partnerId: partner.id,
-          source: 'withdrawal',
-          changeAmount: -dto.beanAmount,
-          description: `提现申请 · ¥${dto.beanAmount}`,
-        },
-      });
-
-      return this.buildOperationResponse(tx, storeId, createdRecord);
+      return this.withdrawalsSharedService.buildOperationResponse(
+        tx,
+        storeId,
+        createdRecord,
+      );
     });
   }
 
@@ -149,36 +119,28 @@ export class WithdrawalsService {
     user: AuthenticatedUser,
     withdrawalId: number,
   ): Promise<ReviewWithdrawalResponseDto> {
-    const record = await this.getScopedWithdrawalOrThrow(user, withdrawalId);
-
-    if (record.status !== PartnerWithdrawalStatus.pending) {
-      throw new ConflictException('仅审核中的提现申请可执行通过操作');
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const updateResult = await tx.partnerWithdrawal.updateMany({
-        where: {
-          id: withdrawalId,
-          storeId: record.storeId,
-          status: PartnerWithdrawalStatus.pending,
-        },
-        data: {
-          status: PartnerWithdrawalStatus.approved,
-          reviewedAt: now,
-          rejectReason: null,
-        },
-      });
-
-      if (updateResult.count !== 1) {
-        throw new ConflictException('提现申请状态已变化，请刷新后重试');
-      }
-
-      const updatedRecord = await this.findWithdrawalByIdOrThrow(
-        tx,
+    const record =
+      await this.withdrawalsSharedService.getScopedWithdrawalOrThrow(
+        user,
         withdrawalId,
       );
-      return this.buildOperationResponse(tx, record.storeId, updatedRecord);
+    this.assertWithdrawalStatus(
+      record.status,
+      PartnerWithdrawalStatus.pending,
+      '仅审核中的提现申请可执行通过操作',
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.updateWithdrawalStatusOrThrow(tx, {
+        withdrawalId,
+        storeId: record.storeId,
+        currentStatus: PartnerWithdrawalStatus.pending,
+        nextStatus: PartnerWithdrawalStatus.approved,
+        reviewedAt: new Date(),
+        rejectReason: null,
+      });
+
+      return this.buildReviewResponse(tx, record.storeId, withdrawalId);
     });
   }
 
@@ -187,11 +149,16 @@ export class WithdrawalsService {
     withdrawalId: number,
     dto: RejectWithdrawalDto,
   ): Promise<ReviewWithdrawalResponseDto> {
-    const record = await this.getScopedWithdrawalOrThrow(user, withdrawalId);
-
-    if (record.status !== PartnerWithdrawalStatus.pending) {
-      throw new ConflictException('仅审核中的提现申请可执行拒绝操作');
-    }
+    const record =
+      await this.withdrawalsSharedService.getScopedWithdrawalOrThrow(
+        user,
+        withdrawalId,
+      );
+    this.assertWithdrawalStatus(
+      record.status,
+      PartnerWithdrawalStatus.pending,
+      '仅审核中的提现申请可执行拒绝操作',
+    );
 
     const rejectReason = dto.reason.trim();
     if (rejectReason === '') {
@@ -199,55 +166,17 @@ export class WithdrawalsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const updateResult = await tx.partnerWithdrawal.updateMany({
-        where: {
-          id: withdrawalId,
-          storeId: record.storeId,
-          status: PartnerWithdrawalStatus.pending,
-        },
-        data: {
-          status: PartnerWithdrawalStatus.rejected,
-          reviewedAt: now,
-          rejectReason,
-        },
-      });
-
-      if (updateResult.count !== 1) {
-        throw new ConflictException('提现申请状态已变化，请刷新后重试');
-      }
-
-      const partnerUpdateResult = await tx.storePartner.updateMany({
-        where: {
-          id: record.partnerId,
-          storeId: record.storeId,
-          totalWithdrawnBeans: { gte: record.beanAmount },
-        },
-        data: {
-          beanBalance: { increment: record.beanAmount },
-          totalWithdrawnBeans: { decrement: record.beanAmount },
-        },
-      });
-
-      if (partnerUpdateResult.count !== 1) {
-        throw new ConflictException('合伙人余额更新失败，请稍后重试');
-      }
-
-      await tx.storePartnerBeanLog.create({
-        data: {
-          storeId: record.storeId,
-          partnerId: record.partnerId,
-          source: 'admin_adjust',
-          changeAmount: record.beanAmount,
-          description: `提现退回 · ${record.beanAmount} 豆已退回`,
-        },
-      });
-
-      const updatedRecord = await this.findWithdrawalByIdOrThrow(
-        tx,
+      await this.updateWithdrawalStatusOrThrow(tx, {
         withdrawalId,
-      );
-      return this.buildOperationResponse(tx, record.storeId, updatedRecord);
+        storeId: record.storeId,
+        currentStatus: PartnerWithdrawalStatus.pending,
+        nextStatus: PartnerWithdrawalStatus.rejected,
+        reviewedAt: new Date(),
+        rejectReason,
+      });
+      await this.refundRejectedWithdrawalOrThrow(tx, record);
+
+      return this.buildReviewResponse(tx, record.storeId, withdrawalId);
     });
   }
 
@@ -255,138 +184,167 @@ export class WithdrawalsService {
     user: AuthenticatedUser,
     withdrawalId: number,
   ): Promise<ReviewWithdrawalResponseDto> {
-    const record = await this.getScopedWithdrawalOrThrow(user, withdrawalId);
-
-    if (record.status !== PartnerWithdrawalStatus.approved) {
-      throw new ConflictException('仅已通过审核的提现申请可确认打款');
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const updateResult = await tx.partnerWithdrawal.updateMany({
-        where: {
-          id: withdrawalId,
-          storeId: record.storeId,
-          status: PartnerWithdrawalStatus.approved,
-        },
-        data: {
-          status: PartnerWithdrawalStatus.paid,
-          paidAt: new Date(),
-        },
-      });
-
-      if (updateResult.count !== 1) {
-        throw new ConflictException('提现申请状态已变化，请刷新后重试');
-      }
-
-      const updatedRecord = await this.findWithdrawalByIdOrThrow(
-        tx,
+    const record =
+      await this.withdrawalsSharedService.getScopedWithdrawalOrThrow(
+        user,
         withdrawalId,
       );
-      return this.buildOperationResponse(tx, record.storeId, updatedRecord);
+    this.assertWithdrawalStatus(
+      record.status,
+      PartnerWithdrawalStatus.approved,
+      '仅已通过审核的提现申请可确认打款',
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.updateWithdrawalStatusOrThrow(tx, {
+        withdrawalId,
+        storeId: record.storeId,
+        currentStatus: PartnerWithdrawalStatus.approved,
+        nextStatus: PartnerWithdrawalStatus.paid,
+        paidAt: new Date(),
+      });
+
+      return this.buildReviewResponse(tx, record.storeId, withdrawalId);
     });
   }
 
-  private async buildOverview(
-    prismaExecutor: PrismaExecutor,
-    storeId: number,
-  ): Promise<WithdrawalOverviewResponseDto> {
-    const [partner, pendingCount] = await Promise.all([
-      prismaExecutor.storePartner.findUnique({
-        where: { storeId },
-        select: {
-          status: true,
-          beanBalance: true,
-          totalWithdrawnBeans: true,
-        },
-      }),
-      prismaExecutor.partnerWithdrawal.count({
-        where: {
-          storeId,
-          status: { in: PROCESSING_WITHDRAWAL_STATUSES },
-        },
-      }),
-    ]);
+  private async createWithdrawalApplication(
+    tx: PrismaTransactionExecutor,
+    input: ApplyWithdrawalTransactionInput,
+  ): Promise<WithdrawalRecordSnapshot> {
+    const { storeId, partnerId, operatorStaffId, dto, accountNo, accountName } =
+      input;
+    const partnerUpdateResult = await tx.storePartner.updateMany({
+      where: {
+        id: partnerId,
+        status: 'approved',
+        beanBalance: { gte: dto.beanAmount },
+      },
+      data: {
+        beanBalance: { decrement: dto.beanAmount },
+        totalWithdrawnBeans: { increment: dto.beanAmount },
+        paymentAccountType: dto.accountType,
+        paymentAccountNo: accountNo,
+        paymentAccountName: accountName,
+      },
+    });
 
-    if (!partner || partner.status !== 'approved') {
-      return {
-        beanBalance: 0,
-        totalWithdrawnBeans: 0,
-        pendingCount,
-      };
+    if (partnerUpdateResult.count !== 1) {
+      throw new ConflictException('纯利豆余额不足，无法发起提现申请');
     }
 
-    return {
-      beanBalance: partner.beanBalance,
-      totalWithdrawnBeans: partner.totalWithdrawnBeans,
-      pendingCount,
-    };
-  }
-
-  private async buildOperationResponse(
-    prismaExecutor: PrismaExecutor,
-    storeId: number,
-    record: WithdrawalRecordSnapshot,
-  ): Promise<ReviewWithdrawalResponseDto> {
-    return {
-      record: mapWithdrawalRecord(record),
-      overview: await this.buildOverview(prismaExecutor, storeId),
-    };
-  }
-
-  private async getScopedWithdrawalOrThrow(
-    user: AuthenticatedUser,
-    withdrawalId: number,
-  ): Promise<WithdrawalRecordSnapshot> {
-    const storeId = this.getCurrentStoreIdOrThrow(user);
-    const record = await this.findWithdrawalByIdOrThrow(
-      this.prisma,
-      withdrawalId,
-    );
-
-    if (record.storeId !== storeId) {
-      throw new ForbiddenException('无权操作该提现记录');
-    }
-
-    return record;
-  }
-
-  private async findWithdrawalByIdOrThrow(
-    prismaExecutor: PrismaExecutor,
-    withdrawalId: number,
-  ): Promise<WithdrawalRecordSnapshot> {
-    const record = await prismaExecutor.partnerWithdrawal.findUnique({
-      where: { id: withdrawalId },
+    const createdRecord = await tx.partnerWithdrawal.create({
+      data: {
+        storeId,
+        partnerId,
+        operatorStaffId,
+        beanAmount: dto.beanAmount,
+        rmbAmount: dto.beanAmount * 100,
+        accountType: dto.accountType,
+        accountNo,
+        accountName,
+        status: PartnerWithdrawalStatus.pending,
+      },
       select: withdrawalRecordSelect,
     });
 
-    if (!record) {
-      throw new NotFoundException('提现记录不存在');
-    }
+    await tx.storePartnerBeanLog.create({
+      data: {
+        storeId,
+        partnerId,
+        source: 'withdrawal',
+        changeAmount: -dto.beanAmount,
+        description: `提现申请 · ¥${dto.beanAmount}`,
+      },
+    });
 
-    return record;
+    return createdRecord;
   }
 
-  private getCurrentStoreIdOrThrow(user: AuthenticatedUser): number {
-    const storeId = user.currentMembership?.storeId;
+  private async updateWithdrawalStatusOrThrow(
+    tx: PrismaTransactionExecutor,
+    input: WithdrawalStatusUpdateInput,
+  ): Promise<void> {
+    const { withdrawalId, storeId, currentStatus, nextStatus } = input;
+    const updateResult = await tx.partnerWithdrawal.updateMany({
+      where: {
+        id: withdrawalId,
+        storeId,
+        status: currentStatus,
+      },
+      data: {
+        status: nextStatus,
+        ...(input.reviewedAt !== undefined
+          ? { reviewedAt: input.reviewedAt }
+          : {}),
+        ...(input.paidAt !== undefined ? { paidAt: input.paidAt } : {}),
+        ...(input.rejectReason !== undefined
+          ? { rejectReason: input.rejectReason }
+          : {}),
+      },
+    });
 
-    if (!storeId) {
-      throw new ForbiddenException('当前账号暂无门店权限');
+    if (updateResult.count !== 1) {
+      throw new ConflictException('提现申请状态已变化，请刷新后重试');
     }
-
-    return storeId;
   }
 
-  private ensureWithdrawAmountWithinFrontEndRange(beanAmount: number): void {
-    if (beanAmount < PARTNER_WITHDRAWAL_MIN_BEANS) {
-      throw new ConflictException(
-        `最低提现 ${PARTNER_WITHDRAWAL_MIN_BEANS} 豆`,
-      );
+  private async refundRejectedWithdrawalOrThrow(
+    tx: PrismaTransactionExecutor,
+    record: WithdrawalRecordSnapshot,
+  ): Promise<void> {
+    const partnerUpdateResult = await tx.storePartner.updateMany({
+      where: {
+        id: record.partnerId,
+        storeId: record.storeId,
+        totalWithdrawnBeans: { gte: record.beanAmount },
+      },
+      data: {
+        beanBalance: { increment: record.beanAmount },
+        totalWithdrawnBeans: { decrement: record.beanAmount },
+      },
+    });
+
+    if (partnerUpdateResult.count !== 1) {
+      throw new ConflictException('合伙人余额更新失败，请稍后重试');
     }
 
-    if (beanAmount > PARTNER_WITHDRAWAL_MAX_BEANS) {
-      throw new ConflictException(
-        `单次最多提现 ${PARTNER_WITHDRAWAL_MAX_BEANS} 豆`,
-      );
+    await tx.storePartnerBeanLog.create({
+      data: {
+        storeId: record.storeId,
+        partnerId: record.partnerId,
+        source: 'admin_adjust',
+        changeAmount: record.beanAmount,
+        description: `提现退回 · ${record.beanAmount} 豆已退回`,
+      },
+    });
+  }
+
+  private assertWithdrawalStatus(
+    actualStatus: PartnerWithdrawalStatus,
+    expectedStatus: PartnerWithdrawalStatus,
+    errorMessage: string,
+  ): void {
+    if (actualStatus !== expectedStatus) {
+      throw new ConflictException(errorMessage);
     }
+  }
+
+  private async buildReviewResponse(
+    tx: PrismaTransactionExecutor,
+    storeId: number,
+    withdrawalId: number,
+  ): Promise<ReviewWithdrawalResponseDto> {
+    const updatedRecord =
+      await this.withdrawalsSharedService.findWithdrawalByIdOrThrow(
+        tx,
+        withdrawalId,
+      );
+
+    return this.withdrawalsSharedService.buildOperationResponse(
+      tx,
+      storeId,
+      updatedRecord,
+    );
   }
 }

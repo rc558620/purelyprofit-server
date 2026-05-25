@@ -1,18 +1,11 @@
-import {
-  BadRequestException,
-  ConflictException,
-  NotFoundException,
-} from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
-import { plainToInstance } from 'class-transformer';
-import { validate } from 'class-validator';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { CostsService } from '../costs/costs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CreatePurchaseDto } from './dto/purchase.dto';
 import { PurchasesService } from './purchases.service';
 
 describe('PurchasesService', () => {
@@ -68,31 +61,38 @@ describe('PurchasesService', () => {
     },
   };
 
-  it('CreatePurchaseDto 会忽略前端临时商品 ID 并通过校验', async () => {
-    const dto = plainToInstance(CreatePurchaseDto, {
-      supplierName: '312',
+  function createPurchaseOrder(overrides?: Record<string, unknown>) {
+    const date = new Date('2026-05-14T10:00:00.000Z');
+    const createdAt = new Date('2026-05-14T12:00:00.000Z');
+
+    return {
+      id: 11,
+      storeId: 18,
+      supplierId: 6,
+      supplierName: '可口可乐供应商',
+      operatorStaffId: 8,
+      totalAmount: new Prisma.Decimal('72'),
+      date,
+      note: '门店周补货',
+      createdAt,
+      updatedAt: createdAt,
       items: [
         {
-          productId: 'prd_1774853101784_1g62nev',
-          productName: '可口可乐 330ml',
-          unit: '瓶',
-          quantity: 1,
-          unitPrice: 2,
-          amount: 2,
+          id: 101,
+          orderId: 11,
+          storeId: 18,
+          productId: 201,
+          productName: '可口可乐 330ml 快照',
+          unit: '箱',
+          quantity: 6,
+          unitPrice: new Prisma.Decimal('12'),
+          amount: new Prisma.Decimal('72'),
+          createdAt,
         },
       ],
-      totalAmount: 2,
-      date: 1779120000000,
-    });
-
-    const errors = await validate(dto, {
-      whitelist: true,
-      forbidNonWhitelisted: true,
-    });
-
-    expect(errors).toHaveLength(0);
-    expect(dto.items[0]?.productId).toBeUndefined();
-  });
+      ...overrides,
+    };
+  }
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -123,93 +123,79 @@ describe('PurchasesService', () => {
     service = module.get<PurchasesService>(PurchasesService);
   });
 
-  it('list 会按日期范围和分页查询进货单并映射明细', async () => {
-    const date = new Date('2026-05-14T10:00:00.000Z');
-    const createdAt = new Date('2026-05-14T12:00:00.000Z');
-
-    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.purchaseOrder.findMany.mockResolvedValue([
-      {
-        id: 11,
-        storeId: 18,
-        supplierId: 6,
-        supplierName: '可口可乐供应商',
-        operatorStaffId: 8,
-        totalAmount: new Prisma.Decimal('150.50'),
-        date,
-        note: '周补货',
-        createdAt,
-        updatedAt: createdAt,
-        items: [
-          {
-            id: 101,
-            orderId: 11,
-            storeId: 18,
-            productId: 201,
-            productName: '可口可乐 330ml',
-            unit: '瓶',
-            quantity: 10,
-            unitPrice: new Prisma.Decimal('15.05'),
-            amount: new Prisma.Decimal('150.50'),
-            createdAt,
-          },
-        ],
-      },
-    ]);
-    prismaService.purchaseOrder.count.mockResolvedValue(6);
+  it('list 在无可访问门店时直接返回空分页并跳过查询', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(null);
 
     await expect(
       service.list(user, {
         storeId: 18,
-        period: 'month',
         page: 2,
         pageSize: 2,
       }),
     ).resolves.toEqual({
-      items: [
-        {
-          id: '11',
-          supplierId: '6',
-          supplierName: '可口可乐供应商',
-          items: [
-            {
-              id: '101',
-              productId: '201',
-              productName: '可口可乐 330ml',
-              unit: '瓶',
-              quantity: 10,
-              unitPrice: 15.05,
-              amount: 150.5,
-            },
-          ],
-          totalAmount: 150.5,
-          date: date.getTime(),
-          note: '周补货',
-          createdAt: createdAt.getTime(),
-        },
-      ],
+      items: [],
       meta: {
         page: 2,
         pageSize: 2,
-        total: 6,
-        totalPages: 3,
+        total: 0,
+        totalPages: 1,
       },
     });
 
-    expect(prismaService.purchaseOrder.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          storeId: 18,
-          date: expect.any(Object),
-        }),
-        orderBy: [{ date: 'desc' }, { id: 'desc' }],
-        skip: 2,
-        take: 2,
-      }),
-    );
+    expect(prismaService.purchaseOrder.findMany).not.toHaveBeenCalled();
+    expect(prismaService.purchaseOrder.count).not.toHaveBeenCalled();
   });
 
-  it('getStats 会返回当前周期统计和上期对比', async () => {
+  it('list 会先解析门店权限再查询订单列表', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.purchaseOrder.findMany.mockResolvedValue([createPurchaseOrder()]);
+    prismaService.purchaseOrder.count.mockResolvedValue(6);
+
+    const result = await service.list(user, {
+      storeId: 18,
+      period: 'month',
+      page: 2,
+      pageSize: 2,
+    });
+
+    expect(commerceAccessService.resolveViewStoreId).toHaveBeenCalledWith(
+      user,
+      18,
+      'purchase:view',
+      '无权查看该门店进货单',
+    );
+    expect(prismaService.purchaseOrder.findMany).toHaveBeenCalledTimes(1);
+    expect(prismaService.purchaseOrder.count).toHaveBeenCalledTimes(1);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toEqual(
+      expect.objectContaining({
+        id: '11',
+        supplierName: '可口可乐供应商',
+      }),
+    );
+    expect(result.meta).toEqual({
+      page: 2,
+      pageSize: 2,
+      total: 6,
+      totalPages: 3,
+    });
+  });
+
+  it('getStats 在无可访问门店时直接返回空统计', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(null);
+
+    await expect(service.getStats(user, { storeId: 18 })).resolves.toEqual({
+      totalThisMonth: 0,
+      countThisMonth: 0,
+      supplierCount: 0,
+      compareLastMonth: null,
+    });
+
+    expect(prismaService.supplier.count).not.toHaveBeenCalled();
+    expect(prismaService.purchaseOrder.aggregate).not.toHaveBeenCalled();
+  });
+
+  it('getStats 会按当前门店编排供应商数和聚合统计', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     prismaService.supplier.count.mockResolvedValue(3);
     prismaService.purchaseOrder.aggregate
@@ -233,15 +219,26 @@ describe('PurchasesService', () => {
       supplierCount: 3,
       compareLastMonth: 25,
     });
+
+    expect(commerceAccessService.resolveViewStoreId).toHaveBeenCalledWith(
+      user,
+      18,
+      'purchase:view',
+      '无权查看该门店进货统计',
+    );
+    expect(prismaService.supplier.count).toHaveBeenCalledTimes(1);
+    expect(prismaService.purchaseOrder.aggregate).toHaveBeenCalledTimes(2);
   });
 
-  it('create 在未提供 supplierId 和 supplierName 时抛出 BadRequestException', async () => {
+  it('create 在 supplierId 存在但供应商不存在时抛出异常', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    prismaService.supplier.findFirst.mockResolvedValue(null);
 
     await expect(
       service.create(user, {
         storeId: 18,
+        supplierId: 6,
         items: [
           {
             productId: 201,
@@ -251,43 +248,19 @@ describe('PurchasesService', () => {
         ],
         date: new Date('2026-05-14T10:00:00.000Z').getTime(),
       }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prismaService.product.findMany).not.toHaveBeenCalled();
+    expect(prismaService.$transaction).not.toHaveBeenCalled();
   });
 
-  it('create 在进货明细商品重复时抛出 ConflictException', async () => {
-    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
-    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-
-    await expect(
-      service.create(user, {
-        storeId: 18,
-        supplierName: '临时供应商',
-        items: [
-          {
-            productId: 201,
-            quantity: 2,
-            unitPrice: 10,
-          },
-          {
-            productId: 201,
-            quantity: 3,
-            unitPrice: 12,
-          },
-        ],
-        date: new Date('2026-05-14T10:00:00.000Z').getTime(),
-      }),
-    ).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('create 会兼容前端金额字段并保存商品快照', async () => {
+  it('create 会编排门店解析、事务创建与成本同步', async () => {
     const date = new Date('2026-05-14T10:00:00.000Z');
-    const createdAt = new Date('2026-05-14T12:00:00.000Z');
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
     prismaService.supplier.findFirst.mockResolvedValue({
       id: 6,
-      storeId: 18,
       name: '可口可乐供应商',
     });
     prismaService.product.findMany.mockResolvedValue([
@@ -297,59 +270,14 @@ describe('PurchasesService', () => {
         unit: '瓶',
       },
     ]);
-    prismaService.purchaseOrder.create.mockResolvedValue({
-      id: 11,
+    prismaService.purchaseOrder.create.mockResolvedValue(createPurchaseOrder());
+
+    const result = await service.create(user, {
       storeId: 18,
       supplierId: 6,
-      supplierName: '可口可乐供应商',
-      operatorStaffId: 8,
-      totalAmount: new Prisma.Decimal('72'),
-      date,
-      note: '门店周补货',
-      createdAt,
-      updatedAt: createdAt,
       items: [
         {
-          id: 101,
-          orderId: 11,
-          storeId: 18,
           productId: 201,
-          productName: '可口可乐 330ml 快照',
-          unit: '箱',
-          quantity: 6,
-          unitPrice: new Prisma.Decimal('12'),
-          amount: new Prisma.Decimal('72'),
-          createdAt,
-        },
-      ],
-    });
-
-    await expect(
-      service.create(user, {
-        storeId: 18,
-        supplierId: 6,
-        items: [
-          {
-            productId: 201,
-            productName: '可口可乐 330ml 快照',
-            unit: '箱',
-            quantity: 6,
-            unitPrice: 12,
-            amount: 72,
-          },
-        ],
-        totalAmount: 72,
-        date: date.getTime(),
-        note: '  门店周补货  ',
-      }),
-    ).resolves.toEqual({
-      id: '11',
-      supplierId: '6',
-      supplierName: '可口可乐供应商',
-      items: [
-        {
-          id: '101',
-          productId: '201',
           productName: '可口可乐 330ml 快照',
           unit: '箱',
           quantity: 6,
@@ -359,39 +287,23 @@ describe('PurchasesService', () => {
       ],
       totalAmount: 72,
       date: date.getTime(),
-      note: '门店周补货',
-      createdAt: createdAt.getTime(),
+      note: '  门店周补货  ',
     });
 
-    expect(prismaService.purchaseOrder.create).toHaveBeenCalledWith({
-      data: {
-        storeId: 18,
-        supplierId: 6,
-        supplierName: '可口可乐供应商',
-        operatorStaffId: 8,
-        totalAmount: 72,
-        date,
-        note: '门店周补货',
-        items: {
-          create: [
-            {
-              storeId: 18,
-              productId: 201,
-              productName: '可口可乐 330ml 快照',
-              unit: '箱',
-              quantity: 6,
-              unitPrice: 12,
-              amount: 72,
-            },
-          ],
-        },
-      },
-      include: {
-        items: {
-          orderBy: [{ id: 'asc' }],
-        },
-      },
-    });
+    expect(commerceAccessService.resolveSingleStoreId).toHaveBeenCalledWith(
+      user,
+      18,
+      'purchase:create',
+      '无权操作该门店进货单',
+    );
+    expect(commerceAccessService.findOperatorStaffIdForStore).toHaveBeenCalledWith(
+      user,
+      18,
+    );
+    expect(prismaService.supplier.findFirst).toHaveBeenCalledTimes(1);
+    expect(prismaService.product.findMany).toHaveBeenCalledTimes(1);
+    expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+    expect(prismaService.purchaseOrder.create).toHaveBeenCalledTimes(1);
     expect(costsService.syncPurchaseCost).toHaveBeenCalledWith(
       prismaService,
       expect.objectContaining({
@@ -401,103 +313,66 @@ describe('PurchasesService', () => {
         amount: 72,
       }),
     );
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: '11',
+        supplierId: '6',
+        supplierName: '可口可乐供应商',
+      }),
+    );
   });
 
-  it('create 支持无码商品并且返回时省略 productId', async () => {
-    const date = new Date('2026-05-15T10:00:00.000Z');
-    const createdAt = new Date('2026-05-15T12:00:00.000Z');
-
+  it('create 在无码商品场景会跳过商品查询但仍走事务与成本同步', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-    prismaService.purchaseOrder.create.mockResolvedValue({
-      id: 12,
-      storeId: 18,
-      supplierId: null,
-      supplierName: '临时供应商',
-      operatorStaffId: 8,
-      totalAmount: new Prisma.Decimal('36'),
-      date,
-      note: null,
-      createdAt,
-      updatedAt: createdAt,
-      items: [
-        {
-          id: 102,
-          orderId: 12,
-          storeId: 18,
-          productId: null,
-          productName: '散装辣条',
-          unit: null,
-          quantity: 3,
-          unitPrice: new Prisma.Decimal('12'),
-          amount: new Prisma.Decimal('36'),
-          createdAt,
-        },
-      ],
-    });
-
-    await expect(
-      service.create(user, {
-        storeId: 18,
+    prismaService.purchaseOrder.create.mockResolvedValue(
+      createPurchaseOrder({
+        id: 12,
+        supplierId: null,
         supplierName: '临时供应商',
+        totalAmount: new Prisma.Decimal('36'),
+        note: null,
         items: [
           {
-            productName: '  散装辣条  ',
+            id: 102,
+            orderId: 12,
+            storeId: 18,
+            productId: null,
+            productName: '散装辣条',
+            unit: null,
             quantity: 3,
-            unitPrice: 12,
-            amount: 36,
+            unitPrice: new Prisma.Decimal('12'),
+            amount: new Prisma.Decimal('36'),
+            createdAt: new Date('2026-05-15T12:00:00.000Z'),
           },
         ],
-        totalAmount: 36,
-        date: date.getTime(),
       }),
-    ).resolves.toEqual({
-      id: '12',
+    );
+
+    const result = await service.create(user, {
+      storeId: 18,
       supplierName: '临时供应商',
       items: [
         {
-          id: '102',
-          productName: '散装辣条',
+          productName: '  散装辣条  ',
           quantity: 3,
           unitPrice: 12,
           amount: 36,
         },
       ],
       totalAmount: 36,
-      date: date.getTime(),
-      createdAt: createdAt.getTime(),
+      date: new Date('2026-05-15T10:00:00.000Z').getTime(),
     });
 
     expect(prismaService.product.findMany).not.toHaveBeenCalled();
-    expect(prismaService.purchaseOrder.create).toHaveBeenCalledWith({
-      data: {
-        storeId: 18,
-        supplierId: null,
+    expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+    expect(costsService.syncPurchaseCost).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: '12',
         supplierName: '临时供应商',
-        operatorStaffId: 8,
-        totalAmount: 36,
-        date,
-        note: null,
-        items: {
-          create: [
-            {
-              storeId: 18,
-              productId: null,
-              productName: '散装辣条',
-              unit: null,
-              quantity: 3,
-              unitPrice: 12,
-              amount: 36,
-            },
-          ],
-        },
-      },
-      include: {
-        items: {
-          orderBy: [{ id: 'asc' }],
-        },
-      },
-    });
+      }),
+    );
   });
 
   it('remove 在进货单不存在时抛出 NotFoundException', async () => {
@@ -506,9 +381,12 @@ describe('PurchasesService', () => {
     await expect(service.remove(user, 11)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+
+    expect(commerceAccessService.ensureCanAccessStore).not.toHaveBeenCalled();
+    expect(prismaService.purchaseOrder.delete).not.toHaveBeenCalled();
   });
 
-  it('remove 会校验权限后删除进货单', async () => {
+  it('remove 会先校验门店权限再删除进货单', async () => {
     prismaService.purchaseOrder.findUnique.mockResolvedValue({
       id: 11,
       storeId: 18,

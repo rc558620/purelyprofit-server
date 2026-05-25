@@ -2,6 +2,8 @@ import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PulseMembershipSettingsAccessService } from './membership-settings-access.service';
+import { PulseMembershipSettingsProfileService } from './membership-settings-profile.service';
 import { PulseMembershipSettingsService } from './membership-settings.service';
 
 describe('PulseMembershipSettingsService', () => {
@@ -38,6 +40,8 @@ describe('PulseMembershipSettingsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PulseMembershipSettingsService,
+        PulseMembershipSettingsAccessService,
+        PulseMembershipSettingsProfileService,
         { provide: PrismaService, useValue: prismaService },
       ],
     }).compile();

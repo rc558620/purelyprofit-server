@@ -41,10 +41,8 @@ import {
   PulseWithdrawalAccountResponseDto,
   UpdatePulseWithdrawalAccountDto,
 } from './dto/pulse-growth.dto';
-import {
-  PulseGrowthService,
-  type PulseAdminPromoDetailResponse,
-} from './growth.service';
+import type { PulseAdminPromoDetailResponse } from './growth-admin.domain';
+import { PulseGrowthService } from './growth.service';
 
 @ApiTags('Pulse - Growth')
 @ApiBearerAuth()

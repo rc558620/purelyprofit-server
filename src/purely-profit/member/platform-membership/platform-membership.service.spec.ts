@@ -2,6 +2,10 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
+import { PlatformMembershipOrderService } from './platform-membership-order.service';
+import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
+import { PlatformMembershipReadService } from './platform-membership-read.service';
 import { PlatformMembershipService } from './platform-membership.service';
 
 describe('PlatformMembershipService', () => {
@@ -227,6 +231,10 @@ describe('PlatformMembershipService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PlatformMembershipService,
+        PlatformMembershipReadService,
+        PlatformMembershipLedgerService,
+        PlatformMembershipPartnerService,
+        PlatformMembershipOrderService,
         { provide: PrismaService, useValue: prismaService },
       ],
     }).compile();

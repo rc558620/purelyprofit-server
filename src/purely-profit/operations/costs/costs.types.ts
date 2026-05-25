@@ -2,6 +2,7 @@ import {
   type CostCategory,
   type CostSourceType,
   type CostType,
+  type Prisma,
 } from '@prisma/client';
 import {
   PURCHASE_PERIOD_VALUES,
@@ -56,6 +57,120 @@ export const COST_REPORT_CATEGORY_FILTER_VALUES = [
 ] as const;
 export type CostReportCategoryFilterValue =
   (typeof COST_REPORT_CATEGORY_FILTER_VALUES)[number];
+
+export interface CostFilterRange {
+  gte: Date;
+  lte: Date;
+}
+
+export interface CostQueryInput {
+  period?: CostPeriodValue;
+  typeFilter?: CostTypeFilterValue;
+  customDate?: number;
+  rangeStartDate?: number;
+  rangeEndDate?: number;
+}
+
+export interface CostReportQueryInput {
+  period?: CostReportPeriodValue;
+  year?: number;
+  customDate?: number;
+  rangeStartDate?: number;
+  rangeEndDate?: number;
+}
+
+export interface CostReportRange {
+  start: number;
+  end: number;
+  period: CostReportPeriodValue;
+}
+
+export interface CostAmountRow {
+  amount: Prisma.Decimal;
+}
+
+export interface CostRecordResponseSource extends CostAmountRow {
+  id: number;
+  title: string;
+  type: CostType;
+  category: CostCategory;
+  sourceType: CostSourceType;
+  note: string | null;
+  date: Date;
+  createdAt: Date;
+}
+
+export interface CostReportCostRow extends CostAmountRow {
+  id: number;
+  title: string;
+  type: CostType;
+  category: CostCategory;
+  note: string | null;
+  date: Date;
+  createdAt: Date;
+}
+
+export type CostReportPreviousRow = CostAmountRow;
+
+export interface CostReportPayrollRow {
+  id: number;
+  employeeName: string;
+  month: string;
+  actualSalary: Prisma.Decimal;
+  note: string | null;
+}
+
+export interface SyncPurchaseCostInput {
+  storeId: number;
+  operatorStaffId: number | null;
+  purchaseOrderId: number;
+  amount: number;
+  title: string;
+  note?: string | null;
+  date: Date;
+}
+
+export interface SyncPayrollCostInput {
+  storeId: number;
+  payrollId: number;
+  operatorStaffId: number | null;
+  employeeName: string;
+  month: string;
+  actualSalary: number;
+  socialInsurance?: number;
+  housingFund?: number;
+  note?: string | null;
+}
+
+export interface PayrollCostUpsertInput {
+  storeId: number;
+  payrollId: number;
+  operatorStaffId: number | null;
+  sourceType: Extract<
+    CostSourceType,
+    'payroll_salary' | 'payroll_insurance' | 'payroll_provident_fund'
+  >;
+  title: string;
+  type: CostType;
+  category: CostCategory;
+  amount: number;
+  month: string;
+  note?: string | null;
+}
+
+export interface PayrollComponentCostUpsertInput {
+  storeId: number;
+  payrollId: number;
+  operatorStaffId: number | null;
+  sourceType: Extract<
+    CostSourceType,
+    'payroll_insurance' | 'payroll_provident_fund'
+  >;
+  title: string;
+  category: Extract<CostCategory, 'insurance' | 'provident_fund'>;
+  amount?: number;
+  month: string;
+}
 
 export const COST_CATEGORY_META: Record<
   CostCategory,

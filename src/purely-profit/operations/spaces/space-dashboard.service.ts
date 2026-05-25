@@ -17,7 +17,6 @@ import {
   type SpaceDashboardFilterOptionsDto,
   type SpaceDashboardReservationSummaryDto,
   type SpaceDashboardSpaceItemDto,
-  type SpaceResponseDto,
   type SpaceStatsResponseDto,
   type SpacesDashboardResponseDto,
 } from './dto/space.dto';
@@ -26,7 +25,11 @@ import {
   type SpaceSessionItemRecord,
   type SpaceSessionRenewRecord,
 } from './space-sessions.service';
-import type { SpaceStatusValue } from './spaces.constants';
+import {
+  toSpaceResponse,
+  type SpaceWithRelations,
+} from './spaces.mapper';
+import { SPACE_WITH_RELATIONS_INCLUDE } from './spaces.query';
 
 interface DashboardSpaceSummaryBundle {
   activeSessionSummaryBySpaceId: Map<
@@ -42,26 +45,6 @@ interface DashboardSpaceSummaryBundle {
     SpaceDashboardReservationSummaryDto
   >;
 }
-
-type SpaceWithRelations = {
-  id: number;
-  name: string;
-  capacity: number | null;
-  enableDirtyRoom: boolean;
-  autoCheckout: boolean;
-  status: PrismaSpaceStatus;
-  sortOrder: number;
-  createdAt: Date;
-  updatedAt: Date;
-  type: {
-    id: number;
-    name: string;
-  };
-  zone: {
-    id: number;
-    name: string;
-  } | null;
-};
 
 @Injectable()
 export class SpaceDashboardService {
@@ -336,20 +319,7 @@ export class SpaceDashboardService {
   private async findSpacesByStore(storeId: number): Promise<SpaceWithRelations[]> {
     return this.prisma.space.findMany({
       where: { storeId },
-      include: {
-        type: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        zone: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
+      include: SPACE_WITH_RELATIONS_INCLUDE,
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
   }
@@ -359,7 +329,7 @@ export class SpaceDashboardService {
     summaries: DashboardSpaceSummaryBundle,
   ): SpaceDashboardSpaceItemDto {
     return {
-      ...this.toSpaceResponse(space),
+      ...toSpaceResponse(space),
       ...(summaries.activeSessionSummaryBySpaceId.has(space.id)
         ? {
             activeSessionSummary: summaries.activeSessionSummaryBySpaceId.get(
@@ -462,29 +432,6 @@ export class SpaceDashboardService {
         : {}),
       ...(isOverdue !== undefined ? { isOverdue } : {}),
     };
-  }
-
-  private toSpaceResponse(space: SpaceWithRelations): SpaceResponseDto {
-    return {
-      id: String(space.id),
-      name: space.name,
-      type: space.type.name,
-      ...(space.zone
-        ? {
-            zone: space.zone.name,
-          }
-        : {}),
-      ...(space.capacity !== null ? { capacity: space.capacity } : {}),
-      enableDirtyRoom: space.enableDirtyRoom,
-      autoCheckout: space.autoCheckout,
-      status: this.toSpaceStatusValue(space.status),
-      sortOrder: space.sortOrder,
-      createdAt: toTimestampMs(space.createdAt),
-    };
-  }
-
-  private toSpaceStatusValue(status: PrismaSpaceStatus): SpaceStatusValue {
-    return status;
   }
 
   private getTodayRange(): { start: Date; end: Date } {

@@ -2,10 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
-import { OnboardingService } from './onboarding.service';
+import { OnboardingStatusService } from './onboarding-status.service';
 
-describe('OnboardingService', () => {
-  let service: OnboardingService;
+describe('OnboardingStatusService', () => {
+  let service: OnboardingStatusService;
 
   const prismaService = {
     user: {
@@ -38,7 +38,7 @@ describe('OnboardingService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        OnboardingService,
+        OnboardingStatusService,
         { provide: PrismaService, useValue: prismaService },
         {
           provide: PulseStoreContextService,
@@ -47,7 +47,7 @@ describe('OnboardingService', () => {
       ],
     }).compile();
 
-    service = module.get<OnboardingService>(OnboardingService);
+    service = module.get<OnboardingStatusService>(OnboardingStatusService);
   });
 
   afterEach(() => {

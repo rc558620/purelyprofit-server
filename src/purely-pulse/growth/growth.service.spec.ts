@@ -2,35 +2,39 @@ import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { PulseStoreContextService } from '../pulse-store-context.service';
+import { PulseGrowthAccessService } from './growth-access.service';
+import { PulseGrowthAdminService } from './growth-admin.service';
+import { PulseGrowthEarningsService } from './growth-earnings.service';
 import { PulseGrowthService } from './growth.service';
 
 describe('PulseGrowthService', () => {
   let service: PulseGrowthService;
-
-  const prismaService = {
-    storePartner: {
-      findUnique: jest.fn(),
-    },
-    storeMembershipPromoRecord: {
-      findMany: jest.fn(),
-    },
-    partnerWithdrawal: {
-      count: jest.fn(),
-    },
-    storePartnerBeanLog: {
-      findMany: jest.fn(),
-    },
-  };
 
   const platformMembershipService = {
     getPromoCenterByStoreId: jest.fn(),
     getPartnerProfileByStoreId: jest.fn(),
   };
 
-  const pulseStoreContextService = {
-    resolveTargetStoreOrThrow: jest.fn(),
+  const accessService = {
+    resolveTargetStoreForGrowth: jest.fn(),
+  };
+
+  const adminService = {
+    getAdminPromoDetail: jest.fn(),
+    listAdminPartnerApplications: jest.fn(),
+    approveAdminPartnerApplication: jest.fn(),
+    rejectAdminPartnerApplication: jest.fn(),
+    listAdminPayouts: jest.fn(),
+    approveAdminPayout: jest.fn(),
+    rejectAdminPayout: jest.fn(),
+  };
+
+  const earningsService = {
+    getEarningsOverview: jest.fn(),
+    getEarningsLogs: jest.fn(),
+    getWithdrawalAccount: jest.fn(),
+    updateWithdrawalAccount: jest.fn(),
+    applyWithdrawal: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -51,14 +55,21 @@ describe('PulseGrowthService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PulseGrowthService,
-        { provide: PrismaService, useValue: prismaService },
         {
           provide: PlatformMembershipService,
           useValue: platformMembershipService,
         },
         {
-          provide: PulseStoreContextService,
-          useValue: pulseStoreContextService,
+          provide: PulseGrowthAccessService,
+          useValue: accessService,
+        },
+        {
+          provide: PulseGrowthAdminService,
+          useValue: adminService,
+        },
+        {
+          provide: PulseGrowthEarningsService,
+          useValue: earningsService,
         },
       ],
     }).compile();
@@ -67,7 +78,7 @@ describe('PulseGrowthService', () => {
   });
 
   it('getPromoCenter 通过显式 storeId 查看目标商家增长中心', async () => {
-    pulseStoreContextService.resolveTargetStoreOrThrow.mockResolvedValue({
+    accessService.resolveTargetStoreForGrowth.mockResolvedValue({
       id: 18,
       name: '纯利宝南山店',
       address: '深圳市南山区',
@@ -107,20 +118,15 @@ describe('PulseGrowthService', () => {
 
     const result = await service.getPromoCenter(user);
 
-    expect(pulseStoreContextService.resolveTargetStoreOrThrow).toHaveBeenCalledWith(
-      user,
-      {
-        notFoundMessage: '当前未选中目标商家门店，暂无法查看增长中心',
-      },
-    );
-    expect(platformMembershipService.getPromoCenterByStoreId).toHaveBeenCalledWith(
-      18,
-    );
+    expect(accessService.resolveTargetStoreForGrowth).toHaveBeenCalledWith(user, {
+      notFoundMessage: '当前未选中目标商家门店，暂无法查看增长中心',
+    });
+    expect(platformMembershipService.getPromoCenterByStoreId).toHaveBeenCalledWith(18);
     expect(result.items).toEqual([]);
   });
 
   it('applyPartner 在观察态下显式拒绝代商家发起申请', async () => {
-    pulseStoreContextService.resolveTargetStoreOrThrow.mockResolvedValue({
+    accessService.resolveTargetStoreForGrowth.mockResolvedValue({
       id: 18,
       name: '纯利宝南山店',
       address: '深圳市南山区',

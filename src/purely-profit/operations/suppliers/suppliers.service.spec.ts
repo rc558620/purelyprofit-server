@@ -3,7 +3,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { SuppliersProfileService } from './suppliers-profile.service';
+import { SuppliersReadService } from './suppliers-read.service';
 import { SuppliersService } from './suppliers.service';
+import { SuppliersWriteService } from './suppliers-write.service';
 
 describe('SuppliersService', () => {
   let service: SuppliersService;
@@ -46,6 +49,9 @@ describe('SuppliersService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        SuppliersProfileService,
+        SuppliersReadService,
+        SuppliersWriteService,
         SuppliersService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },

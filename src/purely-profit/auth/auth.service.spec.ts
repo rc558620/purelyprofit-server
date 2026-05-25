@@ -11,7 +11,13 @@ import { AccessControlService } from '../access-control/access-control.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { AUTH_TOKEN_VERSION_KEY_PREFIX } from './auth.constants';
+import { AuthAccountService } from './auth-account.service';
+import { AuthAuthenticationService } from './auth-authentication.service';
+import { AuthCodeService } from './auth-code.service';
+import { AuthPasswordService } from './auth-password.service';
+import { AuthProfileService } from './auth-profile.service';
 import { AuthService } from './auth.service';
+import { AuthSessionService } from './auth-session.service';
 import { AuthSmsService } from './auth-sms.service';
 
 describe('AuthService', () => {
@@ -22,6 +28,7 @@ describe('AuthService', () => {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+      create: jest.fn(),
     },
     staff: {
       findFirst: jest.fn(),
@@ -67,10 +74,13 @@ describe('AuthService', () => {
       return configMap[key];
     });
     prismaService.$transaction.mockImplementation(
-      (callback: (tx: typeof prismaService) => unknown) =>
-        callback(prismaService),
+      (callback: (tx: typeof prismaService) => unknown) => callback(prismaService),
     );
     prismaService.$queryRaw.mockResolvedValue([]);
+    prismaService.user.create.mockResolvedValue({
+      id: 1,
+      email: 'phone_13800138000@purelyprofit.local',
+    });
     prismaService.staff.updateMany.mockResolvedValue({ count: 0 });
     prismaService.staff.findMany.mockResolvedValue([]);
     prismaService.store.findMany.mockResolvedValue([]);
@@ -78,6 +88,12 @@ describe('AuthService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
+        AuthAccountService,
+        AuthAuthenticationService,
+        AuthCodeService,
+        AuthPasswordService,
+        AuthProfileService,
+        AuthSessionService,
         { provide: PrismaService, useValue: prismaService },
         { provide: JwtService, useValue: jwtService },
         { provide: AccessControlService, useValue: accessControlService },
@@ -109,7 +125,7 @@ describe('AuthService', () => {
 
     expect(prismaService.staff.findFirst).toHaveBeenCalledWith({
       where: {
-        phone: '13800000000',
+        phone: '13619654020',
         isActive: true,
         userId: { not: null },
       },
@@ -127,7 +143,7 @@ describe('AuthService', () => {
     expect(result).toEqual({ access_token: 'admin-token' });
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 1,
-      phone: '13800000000',
+      phone: '13619654020',
       sessionVersion: 0,
     });
   });

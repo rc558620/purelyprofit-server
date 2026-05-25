@@ -1,3 +1,5 @@
+import type { FinanceAccountStatus, Prisma } from '@prisma/client';
+
 export const FINANCE_OVERVIEW_PERIOD_VALUES = [
   'week',
   'month',
@@ -6,6 +8,18 @@ export const FINANCE_OVERVIEW_PERIOD_VALUES = [
 ] as const;
 export type FinanceOverviewPeriodValue =
   (typeof FINANCE_OVERVIEW_PERIOD_VALUES)[number];
+
+export const FINANCE_REPORT_PERIOD_VALUES = [
+  'today',
+  'week',
+  'month',
+  'quarter',
+  'year',
+  'custom_month',
+  'custom_range',
+] as const;
+export type FinanceReportPeriodValue =
+  (typeof FINANCE_REPORT_PERIOD_VALUES)[number];
 
 export const FINANCE_CASH_FLOW_DIRECTION_VALUES = [
   'income',
@@ -48,6 +62,17 @@ export const FINANCE_CASH_FLOW_DIRECTION_FILTER_VALUES = [
 ] as const;
 export type FinanceCashFlowDirectionFilterValue =
   (typeof FINANCE_CASH_FLOW_DIRECTION_FILTER_VALUES)[number];
+
+export const FINANCE_CASH_FLOW_PERIOD_VALUES = [
+  'today',
+  'week',
+  'month',
+  'quarter',
+  'custom_day',
+  'custom_range',
+] as const;
+export type FinanceCashFlowPeriodValue =
+  (typeof FINANCE_CASH_FLOW_PERIOD_VALUES)[number];
 
 export const FINANCE_ACCOUNT_TYPE_VALUES = ['receivable', 'payable'] as const;
 export type FinanceAccountTypeValue =
@@ -144,3 +169,113 @@ export const FINANCE_OVERVIEW_DISPLAY_DAYS: Record<
   quarter: 90,
   all: 30,
 };
+
+export interface PaginationState {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface FinanceReportQueryInput {
+  period?: FinanceReportPeriodValue;
+  year?: number;
+  customDate?: number;
+  rangeStartDate?: number;
+  rangeEndDate?: number;
+  export?: boolean;
+}
+
+export interface FinanceCashFlowListQueryInput {
+  period?: FinanceCashFlowPeriodValue;
+  directionFilter?: FinanceCashFlowDirectionFilterValue;
+  customDayYear?: number;
+  customDayMonth?: number;
+  customDayDay?: number;
+  customRangeStartYear?: number;
+  customRangeStartMonth?: number;
+  customRangeStartDay?: number;
+  customRangeEndYear?: number;
+  customRangeEndMonth?: number;
+  customRangeEndDay?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface FinanceAccountsListQueryInput {
+  typeFilter?: FinanceAccountTypeFilterValue;
+  statusFilter?: FinanceAccountStatusFilterValue;
+  searchText?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface FinanceReconciliationsListQueryInput {
+  statusFilter?: FinanceReconciliationStatusFilterValue;
+  typeFilter?: FinanceReconciliationTypeFilterValue;
+  searchText?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface FinanceReportRange {
+  start: number;
+  end: number;
+  period: FinanceReportPeriodValue;
+}
+
+export interface FinanceCashFlowFilterRange {
+  start: number;
+  end: number;
+  period: FinanceCashFlowPeriodValue;
+}
+
+export interface FinanceReconciliationItemInput {
+  description: string;
+  bookAmount: number;
+  actualAmount: number;
+  note?: string | null;
+}
+
+export interface FinanceCashFlowRecordWithAmount {
+  id: number;
+  direction: string;
+  category: string;
+  title: string;
+  amount: Prisma.Decimal;
+  payment: string;
+  note: string | null;
+  date: Date;
+  createdAt: Date;
+}
+
+export interface FinanceCashFlowStatsRow {
+  direction: string;
+  amount: Prisma.Decimal;
+}
+
+export interface FinanceAccountRecordWithAmount {
+  id: number;
+  type: string;
+  category: string;
+  counterpart: string;
+  amount: Prisma.Decimal;
+  paidAmount: Prisma.Decimal;
+  remaining: Prisma.Decimal;
+  status: FinanceAccountStatus;
+  dueDate: Date | null;
+  date: Date;
+  note: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface FinanceDerivedAccountFields {
+  remaining: number;
+  status: FinanceAccountStatus;
+}
+
+export type FinanceReconciliationRecordWithItems =
+  Prisma.FinanceReconciliationRecordGetPayload<{
+    include: { items: true };
+  }>;

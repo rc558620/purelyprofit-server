@@ -1,4 +1,5 @@
 import type { InventoryAdjustType } from '@prisma/client';
+import Decimal from 'decimal.js';
 import { PaginationMetaDto } from '../stores/dto/store-response.dto';
 
 export type DecimalLike = {
@@ -94,6 +95,45 @@ export function toTimestampMs(value: Date): number {
   return value.getTime();
 }
 
+export function roundMoneyValue(value: number): number {
+  return new Decimal(value)
+    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+    .toNumber();
+}
+
+export function addMoneyValues(left: number, right: number): number {
+  return roundMoneyValue(new Decimal(left).plus(right).toNumber());
+}
+
+export function subtractMoneyValues(left: number, right: number): number {
+  return roundMoneyValue(new Decimal(left).minus(right).toNumber());
+}
+
+export function multiplyMoneyValue(amount: number, multiplier: number): number {
+  return roundMoneyValue(new Decimal(amount).mul(multiplier).toNumber());
+}
+
+export function calcPercentChange(
+  current: number,
+  previous: number,
+): number | null {
+  if (previous === 0) {
+    return null;
+  }
+
+  return roundMoneyValue(
+    new Decimal(current).minus(previous).div(previous).mul(100).toNumber(),
+  );
+}
+
+export function calcPercentOfTotal(amount: number, total: number): number {
+  if (total === 0) {
+    return 0;
+  }
+
+  return roundMoneyValue(new Decimal(amount).div(total).mul(100).toNumber());
+}
+
 export function toOptionalTimestampMs(value?: Date | null): number | undefined {
   return value ? value.getTime() : undefined;
 }
@@ -177,6 +217,52 @@ export function getEndOfDay(timestampMs: number): Date {
   const date = new Date(timestampMs);
   date.setHours(23, 59, 59, 999);
   return date;
+}
+
+export function getDayStartTimestamp(timestampMs: number): number {
+  return getStartOfDay(timestampMs).getTime();
+}
+
+export function getDayEndTimestamp(timestampMs: number): number {
+  return getEndOfDay(timestampMs).getTime();
+}
+
+export function getWeekStartTimestamp(timestampMs: number): number {
+  const date = new Date(timestampMs);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+export function getMonthStartTimestamp(timestampMs: number): number {
+  const date = new Date(timestampMs);
+  return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+}
+
+export function getQuarterStartTimestamp(timestampMs: number): number {
+  const date = new Date(timestampMs);
+  const quarter = Math.floor(date.getMonth() / 3);
+  return new Date(date.getFullYear(), quarter * 3, 1).getTime();
+}
+
+export function buildPreviousRangeByDuration(start: number, end: number): {
+  start: number;
+  end: number;
+} {
+  const duration = end - start;
+  return {
+    start: start - duration - 1,
+    end: start - 1,
+  };
+}
+
+export function formatMonthDayLabel(timestampMs: number): string {
+  const date = new Date(timestampMs);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}/${day}`;
 }
 
 export function buildPurchaseDateRange(

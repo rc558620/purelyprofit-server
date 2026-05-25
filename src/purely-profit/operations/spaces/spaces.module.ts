@@ -14,7 +14,9 @@ import { SpaceTypesService } from './space-types.service';
 import { SpaceZonesController } from './space-zones.controller';
 import { SpaceZonesService } from './space-zones.service';
 import { SpacesController } from './spaces.controller';
+import { SpacesReadService } from './spaces-read.service';
 import { SpacesService } from './spaces.service';
+import { SpacesWriteService } from './spaces-write.service';
 
 @Module({
   imports: [
@@ -33,6 +35,8 @@ import { SpacesService } from './spaces.service';
   ],
   providers: [
     SpacesService,
+    SpacesReadService,
+    SpacesWriteService,
     SpaceTypesService,
     SpaceZonesService,
     SpaceReservationsService,

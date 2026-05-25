@@ -1,0 +1,149 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { Prisma } from '@prisma/client';
+import { CostsWriteService } from './costs-write.service';
+import {
+  createCostsCommerceAccessServiceMock,
+  createCostsPrismaMock,
+  createCostsSpecUser,
+  createCostsWriteProviders,
+} from './costs.spec-helpers';
+
+describe('CostsWriteService', () => {
+  let service: CostsWriteService;
+
+  const prismaService = createCostsPrismaMock();
+  const commerceAccessService = createCostsCommerceAccessServiceMock();
+  const user = createCostsSpecUser();
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: createCostsWriteProviders(
+        prismaService,
+        commerceAccessService,
+      ),
+    }).compile();
+
+    service = module.get<CostsWriteService>(CostsWriteService);
+  });
+
+  it('createRecord 会校验金额并写入 manual 成本记录', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    prismaService.costRecord.create.mockResolvedValue({
+      id: 2,
+      title: '营销物料',
+      type: 'variable',
+      category: 'marketing',
+      sourceType: 'manual',
+      amount: new Prisma.Decimal('88.50'),
+      note: null,
+      date: new Date('2026-05-14T00:00:00.000Z'),
+      createdAt: new Date('2026-05-14T10:00:00.000Z'),
+    });
+
+    await expect(
+      service.createRecord(user, {
+        title: ' 营销物料 ',
+        type: 'variable',
+        category: 'marketing',
+        amount: 88.5,
+        date: new Date('2026-05-14T00:00:00.000Z').getTime(),
+      }),
+    ).resolves.toEqual({
+      id: '2',
+      title: '营销物料',
+      type: 'variable',
+      category: 'marketing',
+      amount: 88.5,
+      date: new Date('2026-05-14T00:00:00.000Z').getTime(),
+      sourceType: 'manual',
+      deletable: true,
+      createdAt: new Date('2026-05-14T10:00:00.000Z').getTime(),
+    });
+  });
+
+  it('createRecord 在金额非法时抛错', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+
+    await expect(
+      service.createRecord(user, {
+        title: '房租',
+        type: 'fixed',
+        category: 'rent',
+        amount: 0,
+        date: new Date('2026-05-14T00:00:00.000Z').getTime(),
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('deleteRecord 会阻止删除自动沉淀记录', async () => {
+    prismaService.costRecord.findUnique.mockResolvedValue({
+      id: 9,
+      storeId: 18,
+      sourceType: 'purchase',
+    });
+    commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+
+    await expect(service.deleteRecord(user, 9)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('deleteRecord 在记录不存在时抛错', async () => {
+    prismaService.costRecord.findUnique.mockResolvedValue(null);
+
+    await expect(service.deleteRecord(user, 88)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('syncPurchaseCost 会按 purchaseOrderId 幂等 upsert', async () => {
+    prismaService.costRecord.upsert.mockResolvedValue({ id: 99 });
+
+    await service.syncPurchaseCost(prismaService as never, {
+      storeId: 18,
+      operatorStaffId: 8,
+      purchaseOrderId: 11,
+      amount: 120,
+      title: '进货成本',
+      note: '周补货',
+      date: new Date('2026-05-14T00:00:00.000Z'),
+    });
+
+    expect(prismaService.costRecord.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          storeId_sourceType_purchaseOrderId: {
+            storeId: 18,
+            sourceType: 'purchase',
+            purchaseOrderId: 11,
+          },
+        },
+      }),
+    );
+  });
+
+  it('syncPayrollCosts 在金额为 0 时会删除对应社保/公积金成本记录', async () => {
+    prismaService.costRecord.upsert.mockResolvedValue({ id: 101 });
+    prismaService.costRecord.deleteMany.mockResolvedValue({ count: 1 });
+
+    await service.syncPayrollCosts(prismaService as never, {
+      storeId: 18,
+      payrollId: 6,
+      operatorStaffId: 8,
+      employeeName: '王五',
+      month: '2026-05',
+      actualSalary: 5000,
+      socialInsurance: 0,
+      housingFund: undefined,
+      note: '含加班',
+    });
+
+    expect(prismaService.costRecord.upsert).toHaveBeenCalledTimes(1);
+    expect(prismaService.costRecord.deleteMany).toHaveBeenCalledTimes(2);
+  });
+});

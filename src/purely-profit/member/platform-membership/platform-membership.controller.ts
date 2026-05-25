@@ -40,10 +40,8 @@ import {
   PlatformMembershipOrdersResponseDto,
   PurchasePlatformMembershipOrderResponseDto,
 } from './dto/platform-membership-response.dto';
-import {
-  type PromotionDetailCompatResponse,
-  PlatformMembershipService,
-} from './platform-membership.service';
+import { PlatformMembershipService } from './platform-membership.service';
+import type { PromotionDetailCompatResponse } from './platform-membership.types';
 
 type PartnerReviewCompatStatus = 'pending' | 'approved' | 'rejected';
 

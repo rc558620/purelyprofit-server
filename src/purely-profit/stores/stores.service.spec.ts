@@ -3,12 +3,15 @@ import { StaffRole, StaffStatus } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateStoreDto } from './dto/create-store.dto';
+import { StoresProfileService } from './stores-profile.service';
+import { StoresReadService } from './stores-read.service';
 import { StoresService } from './stores.service';
+import { StoresWriteService } from './stores-write.service';
 
 describe('StoresService', () => {
   let service: StoresService;
@@ -48,13 +51,15 @@ describe('StoresService', () => {
     jest.clearAllMocks();
 
     prismaService.$transaction.mockImplementation(
-      (callback: (tx: typeof prismaService) => unknown) =>
-        callback(prismaService),
+      (callback: (tx: typeof prismaService) => unknown) => callback(prismaService),
     );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         StoresService,
+        StoresProfileService,
+        StoresReadService,
+        StoresWriteService,
         { provide: PrismaService, useValue: prismaService },
         { provide: SubscriptionsService, useValue: subscriptionsService },
         { provide: RedisService, useValue: redisService },
@@ -91,7 +96,11 @@ describe('StoresService', () => {
               some: {
                 isActive: true,
                 status: StaffStatus.ACTIVE,
-                OR: [{ userId: user.id }, { email: user.email }, { phone: user.phone }],
+                OR: [
+                  { userId: user.id },
+                  { email: user.email },
+                  { phone: user.phone },
+                ],
               },
             },
           },
@@ -140,9 +149,7 @@ describe('StoresService', () => {
       createdAt,
       updatedAt,
     });
-    subscriptionsService.initializeStoreSubscription.mockResolvedValue(
-      undefined,
-    );
+    subscriptionsService.initializeStoreSubscription.mockResolvedValue(undefined);
     prismaService.staff.create.mockResolvedValue({
       id: 21,
       storeId: 9,
@@ -195,9 +202,7 @@ describe('StoresService', () => {
       createdAt,
       updatedAt,
     });
-    subscriptionsService.initializeStoreSubscription.mockResolvedValue(
-      undefined,
-    );
+    subscriptionsService.initializeStoreSubscription.mockResolvedValue(undefined);
     prismaService.staff.create.mockResolvedValue({
       id: 21,
       storeId: 9,

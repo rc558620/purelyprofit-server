@@ -6,16 +6,23 @@ import {
   BUSINESS_ANALYSIS_PERIOD_VALUES,
   type BusinessAnalysisPeriod,
 } from '../../../purely-profit/dashboard/business-analysis/dto/business-analysis-query.dto';
+import {
+  DASHBOARD_PERIOD_MONTH,
+  DASHBOARD_PERIOD_TODAY,
+  DASHBOARD_PERIOD_WEEK,
+  DASHBOARD_PERIOD_YEAR,
+  HOME_REVENUE_PERIOD_SEASON,
+} from '../dashboard.constants';
 
 // ─────────────────────────────────────────────────────────────
 // 总览时间周期枚举（Pulse 目标门店视角用 today/week/month/year）
 // ─────────────────────────────────────────────────────────────
 
 export const PULSE_DASHBOARD_PERIOD_VALUES = [
-  'today',
-  'week',
-  'month',
-  'year',
+  DASHBOARD_PERIOD_TODAY,
+  DASHBOARD_PERIOD_WEEK,
+  DASHBOARD_PERIOD_MONTH,
+  DASHBOARD_PERIOD_YEAR,
 ] as const;
 
 export type PulseDashboardPeriodValue =
@@ -126,10 +133,10 @@ export class GetPulseDashboardAnalysisQueryDto {
 // ─────────────────────────────────────────────────────────────
 
 export const PULSE_HOME_REVENUE_PERIOD_VALUES = [
-  'today',
-  'week',
-  'month',
-  'season',
+  DASHBOARD_PERIOD_TODAY,
+  DASHBOARD_PERIOD_WEEK,
+  DASHBOARD_PERIOD_MONTH,
+  HOME_REVENUE_PERIOD_SEASON,
 ] as const;
 export type PulseHomeRevenuePeriodValue =
   (typeof PULSE_HOME_REVENUE_PERIOD_VALUES)[number];

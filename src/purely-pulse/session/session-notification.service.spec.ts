@@ -1,0 +1,113 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { PrismaService } from '../../prisma/prisma.service';
+import { SessionNotificationService } from './session-notification.service';
+
+describe('SessionNotificationService', () => {
+  let service: SessionNotificationService;
+
+  const prismaService = {
+    product: {
+      findMany: jest.fn(),
+    },
+    financeAccountRecord: {
+      count: jest.fn(),
+    },
+    partnerWithdrawal: {
+      count: jest.fn(),
+    },
+    employeeLeave: {
+      count: jest.fn(),
+    },
+    storeMembershipProfile: {
+      findUnique: jest.fn(),
+    },
+  };
+
+  beforeEach(async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-21T12:00:00.000Z'));
+    jest.clearAllMocks();
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        SessionNotificationService,
+        { provide: PrismaService, useValue: prismaService },
+      ],
+    }).compile();
+
+    service = module.get<SessionNotificationService>(SessionNotificationService);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('countUnreadNotifications 聚合库存 账款 提现 请假和订阅到期提醒', async () => {
+    prismaService.product.findMany.mockResolvedValue([
+      { stock: 1, alertThreshold: 2 },
+      { stock: 5, alertThreshold: 2 },
+      { stock: 2, alertThreshold: 2 },
+    ]);
+    prismaService.financeAccountRecord.count.mockResolvedValue(2);
+    prismaService.partnerWithdrawal.count.mockResolvedValue(1);
+    prismaService.employeeLeave.count.mockResolvedValue(3);
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      expiresAt: new Date('2026-05-25T00:00:00.000Z'),
+    });
+
+    await expect(service.countUnreadNotifications(18)).resolves.toBe(9);
+    expect(prismaService.product.findMany).toHaveBeenCalledWith({
+      where: { storeId: 18, isActive: true },
+      select: { stock: true, alertThreshold: true },
+    });
+    expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
+      where: { storeId: 18, status: 'overdue' },
+    });
+    expect(prismaService.partnerWithdrawal.count).toHaveBeenCalledWith({
+      where: { storeId: 18, status: 'pending' },
+    });
+    expect(prismaService.employeeLeave.count).toHaveBeenCalledWith({
+      where: {
+        storeId: 18,
+        startDate: {
+          gte: new Date('2026-05-21T12:00:00.000Z'),
+          lte: new Date('2026-05-28T23:59:59.999Z'),
+        },
+      },
+    });
+    expect(prismaService.storeMembershipProfile.findUnique).toHaveBeenCalledWith({
+      where: { storeId: 18 },
+      select: { expiresAt: true },
+    });
+  });
+
+  it('countUnreadNotifications 订阅未到期窗口内时不增加订阅提醒', async () => {
+    prismaService.product.findMany.mockResolvedValue([
+      { stock: 3, alertThreshold: 2 },
+      { stock: 1, alertThreshold: 0 },
+    ]);
+    prismaService.financeAccountRecord.count.mockResolvedValue(1);
+    prismaService.partnerWithdrawal.count.mockResolvedValue(0);
+    prismaService.employeeLeave.count.mockResolvedValue(2);
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      expiresAt: new Date('2026-06-05T00:00:00.000Z'),
+    });
+
+    await expect(service.countUnreadNotifications(20)).resolves.toBe(3);
+  });
+
+  it('countUnreadNotifications 订阅已过期或不存在时不增加订阅提醒', async () => {
+    prismaService.product.findMany.mockResolvedValue([]);
+    prismaService.financeAccountRecord.count.mockResolvedValue(0);
+    prismaService.partnerWithdrawal.count.mockResolvedValue(0);
+    prismaService.employeeLeave.count.mockResolvedValue(0);
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      expiresAt: new Date('2026-05-20T00:00:00.000Z'),
+    });
+
+    await expect(service.countUnreadNotifications(21)).resolves.toBe(0);
+
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue(null);
+
+    await expect(service.countUnreadNotifications(21)).resolves.toBe(0);
+  });
+});

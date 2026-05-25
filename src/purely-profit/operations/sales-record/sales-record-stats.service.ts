@@ -1,0 +1,103 @@
+import { Injectable } from '@nestjs/common';
+import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
+import { PrismaService } from '../../../prisma/prisma.service';
+import type {
+  SalesStatsQueryDto,
+  SalesStatsResponseDto,
+} from './dto/sales-record.dto';
+import {
+  aggregateOrderStats,
+  type SalesStatsAggregation,
+} from './sales-record.query';
+import {
+  buildEmptySalesStats,
+  toSalesRecordQueryInput,
+} from './sales-record-read.utils';
+import { buildCurrentRange, buildPreviousRange } from './sales-record.utils';
+
+@Injectable()
+export class SalesRecordStatsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly commerceAccessService: CommerceAccessService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
+  ) {}
+
+  async getStats(
+    user: AuthenticatedUser,
+    query: SalesStatsQueryDto,
+  ): Promise<SalesStatsResponseDto> {
+    const storeId = await this.commerceAccessService.resolveViewStoreId(
+      user,
+      query.storeId,
+      'sales:view',
+      '无权查看该门店销售统计',
+    );
+
+    if (storeId === null) {
+      return buildEmptySalesStats();
+    }
+
+    const queryInput = toSalesRecordQueryInput(query);
+    const currentRange = buildCurrentRange(queryInput);
+    const previousRange = buildPreviousRange(queryInput, currentRange);
+    const clampedCurrentRange =
+      await this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        currentRange,
+      );
+    const clampedPreviousRange = previousRange
+      ? await this.platformMembershipAccessService.clampHistoryRange(
+          storeId,
+          previousRange,
+        )
+      : null;
+
+    if (clampedCurrentRange.empty) {
+      return buildEmptySalesStats();
+    }
+
+    const [currentStats, previousStats] = await Promise.all([
+      aggregateOrderStats(this.prisma, storeId, {
+        start: clampedCurrentRange.start,
+        end: clampedCurrentRange.end,
+      }),
+      clampedPreviousRange && !clampedPreviousRange.empty
+        ? aggregateOrderStats(this.prisma, storeId, {
+            start: clampedPreviousRange.start,
+            end: clampedPreviousRange.end,
+          })
+        : Promise.resolve<SalesStatsAggregation>({
+            totalRevenue: 0,
+            totalProfit: 0,
+            orderCount: 0,
+          }),
+    ]);
+
+    return {
+      totalRevenue: currentStats.totalRevenue,
+      totalProfit: currentStats.totalProfit,
+      orderCount: currentStats.orderCount,
+      avgOrderValue:
+        currentStats.orderCount > 0
+          ? Number(
+              (currentStats.totalRevenue / currentStats.orderCount).toFixed(2),
+            )
+          : 0,
+      compareLastPeriod:
+        clampedPreviousRange &&
+        !clampedPreviousRange.empty &&
+        previousStats.totalRevenue > 0
+          ? Number(
+              (
+                ((currentStats.totalRevenue - previousStats.totalRevenue) /
+                  previousStats.totalRevenue) *
+                100
+              ).toFixed(2),
+            )
+          : null,
+    };
+  }
+}

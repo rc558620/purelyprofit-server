@@ -1,9 +1,9 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import {
@@ -11,14 +11,10 @@ import {
   resolvePagination,
   toDecimalNumber,
   toNullableMediaText,
-  toOptionalMediaText,
   toOptionalText,
-  toTimestampMs,
-  type ProductSortValue,
 } from '../../commerce/commerce.utils';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import type {
   CreateProductDto,
   ListProductsQueryDto,
@@ -26,6 +22,25 @@ import type {
   ProductResponseDto,
   UpdateProductDto,
 } from './dto/product.dto';
+import {
+  ensureProductCategory,
+  ensureUniqueProductCode,
+  resolveProductCode,
+} from './products.domain';
+import { buildProductResponse } from './products.mapper';
+import {
+  createProductRecord,
+  deleteProductRecord,
+  findProductById,
+  findProductStore,
+  queryProductPage,
+  updateProductRecord,
+} from './products.query';
+import type {
+  ProductCreateInput,
+  ProductListQueryInput,
+  ProductUpdateInput,
+} from './products.types';
 
 @Injectable()
 export class ProductsService {
@@ -58,37 +73,16 @@ export class ProductsService {
       };
     }
 
-    const where = {
+    const result = await queryProductPage(this.prisma, {
       storeId,
-      ...(query.category ? { category: query.category } : {}),
-      ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
-      ...(query.keyword
-        ? {
-            OR: [
-              {
-                name: { contains: query.keyword, mode: 'insensitive' as const },
-              },
-              {
-                code: { contains: query.keyword, mode: 'insensitive' as const },
-              },
-            ],
-          }
-        : {}),
-    };
-
-    const [items, total] = await Promise.all([
-      this.prisma.product.findMany({
-        where,
-        orderBy: this.resolveProductOrderBy(query.sortBy),
-        skip,
-        take,
-      }),
-      this.prisma.product.count({ where }),
-    ]);
+      query: this.toListQueryInput(query),
+      skip,
+      take,
+    });
 
     return {
-      items: items.map((item) => this.toProductResponse(item)),
-      meta: buildPaginationMeta(total, page, take),
+      items: result.items.map(buildProductResponse),
+      meta: buildPaginationMeta(result.total, page, take),
     };
   }
 
@@ -96,9 +90,7 @@ export class ProductsService {
     user: AuthenticatedUser,
     productId: number,
   ): Promise<ProductResponseDto> {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-    });
+    const product = await findProductById(this.prisma, productId);
 
     if (!product) {
       throw new NotFoundException('商品不存在');
@@ -111,7 +103,7 @@ export class ProductsService {
       '无权查看该门店商品',
     );
 
-    return this.toProductResponse(product);
+    return buildProductResponse(product);
   }
 
   async create(
@@ -129,28 +121,23 @@ export class ProductsService {
       storeId,
     );
     this.validateMoneyFields(dto.price, dto.profit, dto.costPrice);
-    const category = await this.ensureCategory(storeId, dto.category);
-    const code = await this.resolveProductCode(storeId, dto.code);
 
-    const product = await this.prisma.product.create({
-      data: {
-        storeId,
-        categoryId: category?.id ?? null,
-        category: dto.category.trim(),
-        code,
-        name: dto.name.trim(),
-        price: dto.price,
-        profit: dto.profit,
-        costPrice: dto.costPrice ?? null,
-        unit: dto.unit.trim(),
-        stock: dto.stock ?? 0,
-        alertThreshold: dto.alertThreshold ?? 10,
-        image: toNullableMediaText(dto.image),
-        description: toOptionalText(dto.description) ?? null,
-      },
+    const categoryName = dto.category.trim();
+    const category = await ensureProductCategory(this.prisma, {
+      storeId,
+      categoryName,
+    });
+    const code = await resolveProductCode(this.prisma, {
+      storeId,
+      code: dto.code,
     });
 
-    return this.toProductResponse(product);
+    const product = await createProductRecord(
+      this.prisma,
+      this.buildCreateProductData(dto, storeId, category?.id ?? null, code),
+    );
+
+    return buildProductResponse(product);
   }
 
   async update(
@@ -158,9 +145,7 @@ export class ProductsService {
     productId: number,
     dto: UpdateProductDto,
   ): Promise<ProductResponseDto> {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-    });
+    const product = await findProductById(this.prisma, productId);
 
     if (!product) {
       throw new NotFoundException('商品不存在');
@@ -181,54 +166,37 @@ export class ProductsService {
 
     const nextCode = dto.code?.trim();
     if (nextCode && nextCode !== product.code) {
-      await this.ensureUniqueCode(product.storeId, nextCode, product.id);
+      await ensureUniqueProductCode(this.prisma, {
+        storeId: product.storeId,
+        code: nextCode,
+        excludeId: product.id,
+      });
     }
 
     const nextCategory = dto.category?.trim();
     const categoryRecord = nextCategory
-      ? await this.ensureCategory(product.storeId, nextCategory)
+      ? await ensureProductCategory(this.prisma, {
+          storeId: product.storeId,
+          categoryName: nextCategory,
+        })
       : undefined;
 
-    const updated = await this.prisma.product.update({
-      where: { id: product.id },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(nextCategory
-          ? {
-              category: nextCategory,
-              categoryId: categoryRecord?.id ?? null,
-            }
-          : {}),
-        ...(nextCode ? { code: nextCode } : {}),
-        ...(dto.price !== undefined ? { price: dto.price } : {}),
-        ...(dto.profit !== undefined ? { profit: dto.profit } : {}),
-        ...(dto.costPrice !== undefined ? { costPrice: dto.costPrice } : {}),
-        ...(dto.unit !== undefined ? { unit: dto.unit.trim() } : {}),
-        ...(dto.stock !== undefined ? { stock: dto.stock } : {}),
-        ...(dto.alertThreshold !== undefined
-          ? { alertThreshold: dto.alertThreshold }
-          : {}),
-        ...(dto.image !== undefined
-          ? { image: toNullableMediaText(dto.image) }
-          : {}),
-        ...(dto.description !== undefined
-          ? { description: toOptionalText(dto.description) ?? null }
-          : {}),
-        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
-      },
-    });
+    const updated = await updateProductRecord(
+      this.prisma,
+      product.id,
+      this.buildUpdateProductData(
+        dto,
+        nextCode,
+        nextCategory,
+        categoryRecord?.id,
+      ),
+    );
 
-    return this.toProductResponse(updated);
+    return buildProductResponse(updated);
   }
 
   async remove(user: AuthenticatedUser, productId: number): Promise<void> {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-      select: {
-        id: true,
-        storeId: true,
-      },
-    });
+    const product = await findProductStore(this.prisma, productId);
 
     if (!product) {
       throw new NotFoundException('商品不存在');
@@ -241,95 +209,75 @@ export class ProductsService {
       '无权删除该门店商品',
     );
 
-    await this.prisma.product.delete({
-      where: { id: product.id },
-    });
+    await deleteProductRecord(this.prisma, product.id);
   }
 
-  private async ensureCategory(
-    storeId: number,
-    categoryName: string,
-  ): Promise<{ id: number } | null> {
-    const name = categoryName.trim();
-    if (name === '') {
-      return null;
-    }
-
-    const existing = await this.prisma.productCategory.findFirst({
-      where: {
-        storeId,
-        name,
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    if (existing) {
-      return existing;
-    }
-
-    const created = await this.prisma.productCategory.create({
-      data: {
-        storeId,
-        name,
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    return created;
+  private toListQueryInput(query: ListProductsQueryDto): ProductListQueryInput {
+    return {
+      storeId: query.storeId,
+      page: query.page,
+      pageSize: query.pageSize,
+      keyword: query.keyword,
+      category: query.category,
+      isActive: query.isActive,
+      sortBy: query.sortBy,
+    };
   }
 
-  private async resolveProductCode(
+  private buildCreateProductData(
+    dto: CreateProductDto,
     storeId: number,
-    code: string | undefined,
-  ): Promise<string> {
-    const normalized = code?.trim();
-    if (normalized) {
-      await this.ensureUniqueCode(storeId, normalized);
-      return normalized;
-    }
-
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const generated = `PRD${Date.now()}${Math.floor(Math.random() * 1000)}`;
-      const existing = await this.prisma.product.findFirst({
-        where: {
-          storeId,
-          code: generated,
-        },
-        select: {
-          id: true,
-        },
-      });
-      if (!existing) {
-        return generated;
-      }
-    }
-
-    throw new ConflictException('商品编号生成失败，请重试');
-  }
-
-  private async ensureUniqueCode(
-    storeId: number,
+    categoryId: number | null,
     code: string,
-    excludeId?: number,
-  ): Promise<void> {
-    const existing = await this.prisma.product.findFirst({
-      where: {
-        storeId,
-        code,
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-      },
-      select: {
-        id: true,
-      },
-    });
+  ): ProductCreateInput {
+    return {
+      storeId,
+      categoryId,
+      category: dto.category.trim(),
+      code,
+      name: dto.name.trim(),
+      price: dto.price,
+      profit: dto.profit,
+      costPrice: dto.costPrice ?? null,
+      unit: dto.unit.trim(),
+      stock: dto.stock ?? 0,
+      alertThreshold: dto.alertThreshold ?? 10,
+      image: toNullableMediaText(dto.image) ?? null,
+      description: toOptionalText(dto.description) ?? null,
+    };
+  }
 
-    if (existing) {
-      throw new ConflictException('商品编号已存在');
-    }
+  private buildUpdateProductData(
+    dto: UpdateProductDto,
+    nextCode?: string,
+    nextCategory?: string,
+    categoryId?: number,
+  ): ProductUpdateInput {
+    return {
+      ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+      ...(nextCategory
+        ? {
+            category: nextCategory,
+            categoryId: categoryId ?? null,
+          }
+        : {}),
+      ...(nextCode ? { code: nextCode } : {}),
+      ...(dto.price !== undefined ? { price: dto.price } : {}),
+      ...(dto.profit !== undefined ? { profit: dto.profit } : {}),
+      ...(dto.costPrice !== undefined ? { costPrice: dto.costPrice } : {}),
+      ...(dto.unit !== undefined ? { unit: dto.unit.trim() } : {}),
+      ...(dto.stock !== undefined ? { stock: dto.stock } : {}),
+      ...(dto.alertThreshold !== undefined
+        ? { alertThreshold: dto.alertThreshold }
+        : {}),
+      ...(dto.image !== undefined
+        ? { image: toNullableMediaText(dto.image) ?? null }
+        : {}),
+      ...(dto.description !== undefined
+        ? { description: toOptionalText(dto.description) ?? null }
+        : {}),
+      ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+    };
   }
 
   private validateMoneyFields(
@@ -350,67 +298,11 @@ export class ProductsService {
     }
   }
 
-  private resolveProductOrderBy(sortBy?: ProductSortValue) {
-    switch (sortBy) {
-      case 'name':
-        return [{ name: 'asc' as const }, { id: 'desc' as const }];
-      case 'price_asc':
-        return [{ price: 'asc' as const }, { id: 'desc' as const }];
-      case 'price_desc':
-        return [{ price: 'desc' as const }, { id: 'desc' as const }];
-      case 'profit_desc':
-        return [{ profit: 'desc' as const }, { id: 'desc' as const }];
-      case 'createdAt':
-      default:
-        return [{ createdAt: 'desc' as const }, { id: 'desc' as const }];
-    }
-  }
-
   private resolvePagination(page?: number, pageSize?: number) {
     const defaultPageSize =
       this.configService.get<number>('app.defaultPageSize') ?? 20;
     const maxPageSize =
       this.configService.get<number>('app.maxPageSize') ?? 100;
     return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
-  }
-
-  private toProductResponse(product: {
-    id: number;
-    name: string;
-    category: string;
-    code: string;
-    price: { toString(): string } | number;
-    profit: { toString(): string } | number;
-    costPrice: { toString(): string } | number | null;
-    unit: string;
-    stock: number;
-    alertThreshold: number;
-    image: string | null;
-    description: string | null;
-    isActive: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-  }): ProductResponseDto {
-    return {
-      id: String(product.id),
-      name: product.name,
-      category: product.category,
-      code: product.code,
-      price: toDecimalNumber(product.price),
-      profit: toDecimalNumber(product.profit),
-      ...(product.costPrice !== null
-        ? { costPrice: toDecimalNumber(product.costPrice) }
-        : {}),
-      unit: product.unit,
-      stock: product.stock,
-      alertThreshold: product.alertThreshold,
-      ...(toOptionalMediaText(product.image)
-        ? { image: toOptionalMediaText(product.image) }
-        : {}),
-      ...(product.description ? { description: product.description } : {}),
-      isActive: product.isActive,
-      createdAt: toTimestampMs(product.createdAt),
-      updatedAt: toTimestampMs(product.updatedAt),
-    };
   }
 }

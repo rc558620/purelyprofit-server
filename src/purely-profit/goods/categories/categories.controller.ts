@@ -33,6 +33,10 @@ import {
   UpdateCategoryDto,
 } from './dto/category.dto';
 
+type CategoriesRequest = {
+  user: AuthenticatedUser;
+};
+
 @ApiTags('Categories')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -45,7 +49,7 @@ export class CategoriesController {
   @ApiOperation({ summary: '获取商品分类列表' })
   @ApiOkResponse({ type: [CategoryResponseDto] })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: CategoriesRequest,
     @Query() query: ListCategoriesQueryDto,
   ): Promise<CategoryResponseDto[]> {
     return this.categoriesService.list(request.user, query);
@@ -56,7 +60,7 @@ export class CategoriesController {
   @ApiOperation({ summary: '新增商品分类' })
   @ApiCreatedResponse({ type: CategoryResponseDto })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: CategoriesRequest,
     @Body() dto: CreateCategoryDto,
   ): Promise<CategoryResponseDto> {
     return this.categoriesService.create(request.user, dto);
@@ -67,7 +71,7 @@ export class CategoriesController {
   @ApiOperation({ summary: '更新商品分类' })
   @ApiOkResponse({ type: CategoryResponseDto })
   update(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: CategoriesRequest,
     @Param('id', ParseIntPipe) categoryId: number,
     @Body() dto: UpdateCategoryDto,
   ): Promise<CategoryResponseDto> {
@@ -80,7 +84,7 @@ export class CategoriesController {
   @ApiOperation({ summary: '删除商品分类' })
   @ApiNoContentResponse()
   async remove(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: CategoriesRequest,
     @Param('id', ParseIntPipe) categoryId: number,
   ): Promise<void> {
     await this.categoriesService.remove(request.user, categoryId);

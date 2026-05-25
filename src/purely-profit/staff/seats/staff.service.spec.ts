@@ -6,6 +6,8 @@ import { AccessControlService } from '../../access-control/access-control.servic
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SubscriptionsService } from '../../subscriptions/subscriptions.service';
+import { StaffAccessService } from './staff-access.service';
+import { StaffProfileService } from './staff-profile.service';
 import { StaffService } from './staff.service';
 
 describe('StaffService', () => {
@@ -65,6 +67,8 @@ describe('StaffService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         StaffService,
+        StaffProfileService,
+        StaffAccessService,
         { provide: PrismaService, useValue: prismaService },
         { provide: AccessControlService, useValue: accessControlService },
         { provide: SubscriptionsService, useValue: subscriptionsService },

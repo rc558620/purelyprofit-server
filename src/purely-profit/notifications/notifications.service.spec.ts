@@ -5,6 +5,9 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../commerce/commerce-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { NotificationsBuildService } from './notifications-build.service';
+import { NotificationsContextService } from './notifications-context.service';
+import { NotificationsReadStateService } from './notifications-read-state.service';
 import { NotificationsService } from './notifications.service';
 
 describe('NotificationsService', () => {
@@ -65,6 +68,9 @@ describe('NotificationsService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        NotificationsBuildService,
+        NotificationsContextService,
+        NotificationsReadStateService,
         NotificationsService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
