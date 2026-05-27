@@ -72,7 +72,11 @@ export class SuppliersWriteService {
 
     const nextName = dto.name?.trim();
     if (nextName && nextName !== supplier.name) {
-      await this.ensureSupplierNameUnique(supplier.storeId, nextName, supplier.id);
+      await this.ensureSupplierNameUnique(
+        supplier.storeId,
+        nextName,
+        supplier.id,
+      );
     }
 
     const updated = await this.prisma.supplier.update({

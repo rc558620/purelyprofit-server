@@ -45,7 +45,8 @@ export type PurchaseOrderWithItems = Prisma.PurchaseOrderGetPayload<{
   include: typeof PURCHASE_ORDER_WITH_ITEMS_INCLUDE;
 }>;
 
-export type PurchaseOrderItemWithAmounts = PurchaseOrderWithItems['items'][number];
+export type PurchaseOrderItemWithAmounts =
+  PurchaseOrderWithItems['items'][number];
 export type PurchaseCreateItemInput = CreatePurchaseDto['items'][number];
 
 export interface PurchaseStatsAggregate {

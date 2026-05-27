@@ -50,7 +50,8 @@ export class PulseDashboardController {
   @Get('overview')
   @ApiOperation({ summary: '获取目标商家经营总览的兼容接口' })
   @ApiOkResponse({
-    description: '当前虽然沿用 overview 命名，但实际返回的是当前选中目标商家门店的单店经营观察数据。',
+    description:
+      '当前虽然沿用 overview 命名，但实际返回的是当前选中目标商家门店的单店经营观察数据。',
     type: PulseDashboardOverviewResponseDto,
   })
   getOverview(
@@ -63,7 +64,8 @@ export class PulseDashboardController {
   @Get('stores')
   @ApiOperation({ summary: '获取目标商家排行视图的兼容接口' })
   @ApiOkResponse({
-    description: '当前虽然沿用 stores / 排行 命名，但实际仅返回当前选中目标商家门店的排行视图兼容数据。',
+    description:
+      '当前虽然沿用 stores / 排行 命名，但实际仅返回当前选中目标商家门店的排行视图兼容数据。',
     type: PulseDashboardStoresResponseDto,
   })
   getStores(
@@ -76,7 +78,8 @@ export class PulseDashboardController {
   @Get('analysis')
   @ApiOperation({ summary: '获取目标商家经营分析的兼容接口' })
   @ApiOkResponse({
-    description: '当前返回当前选中目标商家门店的经营分析数据；传 storeId 时会切换到对应目标商家门店。该接口仍是目标商家观察态兼容实现。',
+    description:
+      '当前返回当前选中目标商家门店的经营分析数据；传 storeId 时会切换到对应目标商家门店。该接口仍是目标商家观察态兼容实现。',
   })
   getAnalysis(
     @Req() request: { user: AuthenticatedUser },

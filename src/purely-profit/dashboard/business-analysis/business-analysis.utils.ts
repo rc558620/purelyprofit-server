@@ -17,9 +17,9 @@ export function resolveCurrentRange(
   query: BusinessAnalysisRangeQuery,
   now: number = Date.now(),
 ): BusinessAnalysisRange {
-  if (query.period === 'custom_month' || query.period === 'custom_range') {
+  if (query.startTime !== undefined || query.endTime !== undefined) {
     if (query.startTime === undefined || query.endTime === undefined) {
-      throw new BadRequestException('自定义周期必须传开始和结束时间');
+      throw new BadRequestException('开始和结束时间必须同时传入');
     }
 
     if (query.endTime < query.startTime) {
@@ -30,6 +30,10 @@ export function resolveCurrentRange(
       start: query.startTime,
       end: query.endTime,
     };
+  }
+
+  if (query.period === 'custom_month' || query.period === 'custom_range') {
+    throw new BadRequestException('自定义周期必须传开始和结束时间');
   }
 
   return resolvePresetRange(query.period, now);

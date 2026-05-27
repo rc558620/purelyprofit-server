@@ -6,7 +6,9 @@ import {
 import type { ProductResponseDto } from './dto/product.dto';
 import type { ProductRecord } from './products.types';
 
-export function buildProductResponse(product: ProductRecord): ProductResponseDto {
+export function buildProductResponse(
+  product: ProductRecord,
+): ProductResponseDto {
   const image = toOptionalMediaText(product.image);
 
   return {

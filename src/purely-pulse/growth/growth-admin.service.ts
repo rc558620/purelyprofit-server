@@ -59,7 +59,10 @@ export class PulseGrowthAdminService {
     query: GetPulseAdminPartnerApplicationsQueryDto,
   ): Promise<PulseAdminPartnerApplicationsResponseDto> {
     const where = await this.accessService.buildPartnerApplicationWhere(user);
-    const applications = await queryAdminPartnerApplications(this.prisma, where);
+    const applications = await queryAdminPartnerApplications(
+      this.prisma,
+      where,
+    );
 
     return buildAdminPartnerApplicationsResponse(applications, query.tab);
   }
@@ -83,15 +86,25 @@ export class PulseGrowthAdminService {
       application.storeId,
       '合伙人申请不存在',
     );
-    const scopedUser = this.accessService.buildScopedUser(user, application.storeId);
+    const scopedUser = this.accessService.buildScopedUser(
+      user,
+      application.storeId,
+    );
 
-    await this.platformMembershipService.approvePartnerApplication(scopedUser, applicationId);
+    await this.platformMembershipService.approvePartnerApplication(
+      scopedUser,
+      applicationId,
+    );
 
     const note = dto.note?.trim();
     if (note) {
-      await this.platformMembershipService.addPartnerFollowUpNote(scopedUser, applicationId, {
-        content: note,
-      });
+      await this.platformMembershipService.addPartnerFollowUpNote(
+        scopedUser,
+        applicationId,
+        {
+          content: note,
+        },
+      );
     }
 
     return { success: true };
@@ -147,7 +160,11 @@ export class PulseGrowthAdminService {
       throw new NotFoundException('打款申请不存在');
     }
 
-    await this.accessService.assertCanAccessAdminStore(user, record.storeId, '打款申请不存在');
+    await this.accessService.assertCanAccessAdminStore(
+      user,
+      record.storeId,
+      '打款申请不存在',
+    );
 
     if (
       record.status !== PartnerWithdrawalStatus.pending &&
@@ -161,7 +178,12 @@ export class PulseGrowthAdminService {
       where: {
         id: payoutId,
         storeId: record.storeId,
-        status: { in: [PartnerWithdrawalStatus.pending, PartnerWithdrawalStatus.approved] },
+        status: {
+          in: [
+            PartnerWithdrawalStatus.pending,
+            PartnerWithdrawalStatus.approved,
+          ],
+        },
       },
       data: {
         status: PartnerWithdrawalStatus.paid,
@@ -189,7 +211,11 @@ export class PulseGrowthAdminService {
       throw new NotFoundException('打款申请不存在');
     }
 
-    await this.accessService.assertCanAccessAdminStore(user, record.storeId, '打款申请不存在');
+    await this.accessService.assertCanAccessAdminStore(
+      user,
+      record.storeId,
+      '打款申请不存在',
+    );
 
     if (
       record.status !== PartnerWithdrawalStatus.pending &&
@@ -209,7 +235,12 @@ export class PulseGrowthAdminService {
         where: {
           id: payoutId,
           storeId: record.storeId,
-          status: { in: [PartnerWithdrawalStatus.pending, PartnerWithdrawalStatus.approved] },
+          status: {
+            in: [
+              PartnerWithdrawalStatus.pending,
+              PartnerWithdrawalStatus.approved,
+            ],
+          },
         },
         data: {
           status: PartnerWithdrawalStatus.rejected,

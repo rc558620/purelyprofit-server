@@ -51,7 +51,9 @@ describe('SpacesService', () => {
 
   it('listSpaces 委托给 read service', async () => {
     const query = { storeId: 18, status: 'idle' as const };
-    const result = [{ id: '1', name: 'A台', type: '台球台', status: 'idle' as const }];
+    const result = [
+      { id: '1', name: 'A台', type: '台球台', status: 'idle' as const },
+    ];
 
     spacesReadService.listSpaces.mockResolvedValue(result);
 
@@ -90,13 +92,24 @@ describe('SpacesService', () => {
     spacesWriteService.updateSpaceStatus.mockResolvedValue(response);
 
     await expect(service.createSpace(user, createDto)).resolves.toBe(response);
-    await expect(service.updateSpace(user, 1, updateDto)).resolves.toBe(response);
+    await expect(service.updateSpace(user, 1, updateDto)).resolves.toBe(
+      response,
+    );
     await expect(service.removeSpace(user, 1)).resolves.toBeUndefined();
     await expect(service.markSpaceReady(user, 1)).resolves.toBe(response);
-    await expect(service.updateSpaceStatus(user, 1, statusDto)).resolves.toBe(response);
+    await expect(service.updateSpaceStatus(user, 1, statusDto)).resolves.toBe(
+      response,
+    );
 
-    expect(spacesWriteService.createSpace).toHaveBeenCalledWith(user, createDto);
-    expect(spacesWriteService.updateSpace).toHaveBeenCalledWith(user, 1, updateDto);
+    expect(spacesWriteService.createSpace).toHaveBeenCalledWith(
+      user,
+      createDto,
+    );
+    expect(spacesWriteService.updateSpace).toHaveBeenCalledWith(
+      user,
+      1,
+      updateDto,
+    );
     expect(spacesWriteService.removeSpace).toHaveBeenCalledWith(user, 1);
     expect(spacesWriteService.markSpaceReady).toHaveBeenCalledWith(user, 1);
     expect(spacesWriteService.updateSpaceStatus).toHaveBeenCalledWith(

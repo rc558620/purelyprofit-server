@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import {
   CreateFinanceCashFlowRecordDto,
   ListFinanceCashFlowRecordsQueryDto,
@@ -46,6 +47,7 @@ import {
 export class FinanceCashFlowService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly financeAccessService: FinanceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
@@ -54,7 +56,8 @@ export class FinanceCashFlowService {
     user: AuthenticatedUser,
     query: ListFinanceCashFlowRecordsQueryDto,
   ): Promise<PaginatedFinanceCashFlowRecordsResponseDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const cashFlowQuery: FinanceCashFlowListQueryInput = {
       period: query.period,
       directionFilter: query.directionFilter,
@@ -108,7 +111,8 @@ export class FinanceCashFlowService {
     user: AuthenticatedUser,
     query: ListFinanceCashFlowRecordsQueryDto,
   ): Promise<FinanceCashFlowStatsDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const cashFlowQuery: FinanceCashFlowListQueryInput = {
       period: query.period,
       directionFilter: query.directionFilter,
@@ -188,7 +192,8 @@ export class FinanceCashFlowService {
     user: AuthenticatedUser,
     dto: CreateFinanceCashFlowRecordDto,
   ): Promise<FinanceCashFlowRecordResponseDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const operatorStaffId = user.currentMembership?.staffId ?? null;
 
     assertCashFlowCategoryCanCreateManually(dto.category);
@@ -206,6 +211,8 @@ export class FinanceCashFlowService {
       date: new Date(dto.date),
     });
 
+    await this.invalidateDerivedCaches(storeId);
+
     return mapCashFlowRecord(createdRecord);
   }
 
@@ -213,7 +220,8 @@ export class FinanceCashFlowService {
     user: AuthenticatedUser,
     recordId: number,
   ): Promise<void> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const record = await this.ensureCashFlowRecordExists(storeId, recordId);
 
     if (record.saleOrderId !== null) {
@@ -221,6 +229,11 @@ export class FinanceCashFlowService {
     }
 
     await deleteCashFlowRecordEntity(this.prisma, recordId);
+    await this.invalidateDerivedCaches(storeId);
+  }
+
+  private async invalidateDerivedCaches(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateFinanceDerived(storeId);
   }
 
   private async ensureCashFlowRecordExists(

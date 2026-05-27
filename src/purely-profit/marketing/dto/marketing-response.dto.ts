@@ -129,7 +129,10 @@ export class MarketingRechargeDto {
   @ApiProperty({ example: '1' })
   customerId: string;
 
-  @ApiPropertyOptional({ example: '张三', description: '顾客名称（充值记录列表展示用）' })
+  @ApiPropertyOptional({
+    example: '张三',
+    description: '顾客名称（充值记录列表展示用）',
+  })
   customerName?: string;
 
   /** 充值金额（分） */
@@ -220,7 +223,10 @@ export class MarketingPointsRecordDto {
   @ApiProperty({ example: '1' })
   customerId: string;
 
-  @ApiProperty({ example: -200, description: '积分变动值；正数=获得，负数=消耗' })
+  @ApiProperty({
+    example: -200,
+    description: '积分变动值；正数=获得，负数=消耗',
+  })
   amount: number;
 
   @ApiProperty({

@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import { toNullableMediaText } from '../commerce/commerce.utils';
 import type {
   CreateCustomerDto,
@@ -32,6 +33,7 @@ import {
 export class MarketingCustomersService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly marketingSharedService: MarketingSharedService,
   ) {}
 
@@ -149,6 +151,8 @@ export class MarketingCustomersService {
       },
     });
 
+    await this.invalidateOverviewCache(storeId);
+
     return mapCustomerRow(created);
   }
 
@@ -183,6 +187,8 @@ export class MarketingCustomersService {
       },
     });
 
+    await this.invalidateOverviewCache(customer.storeId);
+
     return mapCustomerRow(updated);
   }
 
@@ -199,6 +205,11 @@ export class MarketingCustomersService {
     );
 
     await this.prisma.marketingCustomer.delete({ where: { id: customerId } });
+    await this.invalidateOverviewCache(customer.storeId);
+  }
+
+  private async invalidateOverviewCache(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateMarketingOverview(storeId);
   }
 
   private async ensureUniquePhone(

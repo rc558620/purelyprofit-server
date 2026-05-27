@@ -178,7 +178,9 @@ export class PulseMembershipAdminService {
   ): Promise<PulseAdminMembersResponseDto> {
     const storeIds = await this.accessService.resolveAdminMemberStoreIds(user);
     const members = (
-      await Promise.all(storeIds.map((storeId) => this.buildAdminMemberDetail(storeId)))
+      await Promise.all(
+        storeIds.map((storeId) => this.buildAdminMemberDetail(storeId)),
+      )
     ).filter((member) => this.matchesAdminMemberFilters(member, query));
 
     return {
@@ -191,7 +193,10 @@ export class PulseMembershipAdminService {
     user: AuthenticatedUser,
     memberId: number,
   ): Promise<PulseMemberDetailDto> {
-    const canAccess = await this.accessService.canAccessAdminMember(user, memberId);
+    const canAccess = await this.accessService.canAccessAdminMember(
+      user,
+      memberId,
+    );
     if (!canAccess) {
       throw new NotFoundException('会员不存在');
     }
@@ -449,7 +454,10 @@ export class PulseMembershipAdminService {
     const ownerName = this.resolveAdminMemberDisplayName(store);
     const phone = this.resolveAdminMemberPhone(store);
     const currentPlanId = profile?.currentPlanId ?? null;
-    const level = this.toPulseMemberLevel(currentPlanId, profile?.expiresAt ?? null);
+    const level = this.toPulseMemberLevel(
+      currentPlanId,
+      profile?.expiresAt ?? null,
+    );
     const membershipExpiry = profile?.expiresAt?.getTime() ?? null;
     const isBanned = Boolean(banReason);
     const isActive = membershipExpiry !== null && membershipExpiry > Date.now();
@@ -502,7 +510,10 @@ export class PulseMembershipAdminService {
       PulseAdminMembershipProfileRecord | null,
       PulseAdminPartnerRecord | null,
     ] = await Promise.all([
-      this.prisma.store.findUnique({ where: { id: storeId }, select: { id: true } }),
+      this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: { id: true },
+      }),
       this.prisma.storeMembershipProfile.findUnique({
         where: { storeId },
         select: {
@@ -598,9 +609,8 @@ export class PulseMembershipAdminService {
     }
 
     if (nextLevel === 'lifetime') {
-      const lifetimePlan = await this.platformMembershipService.getPlanConfig(
-        'lifetime',
-      );
+      const lifetimePlan =
+        await this.platformMembershipService.getPlanConfig('lifetime');
       if (lifetimePlan.validDays !== null && lifetimePlan.validDays > 0) {
         return new Date(Date.now() + lifetimePlan.validDays * DAY_MS);
       }
@@ -660,7 +670,11 @@ export class PulseMembershipAdminService {
     member: PulseMemberDetailDto,
     query: GetPulseAdminMembersQueryDto,
   ): boolean {
-    if (query.status && query.status !== 'all' && member.status !== query.status) {
+    if (
+      query.status &&
+      query.status !== 'all' &&
+      member.status !== query.status
+    ) {
       return false;
     }
 
@@ -698,7 +712,9 @@ export class PulseMembershipAdminService {
     }
 
     const ownerEmail = store.owner.email.trim().toLowerCase();
-    const matchedPhone = /^phone_(\d{11})@purelyprofit\.local$/.exec(ownerEmail);
+    const matchedPhone = /^phone_(\d{11})@purelyprofit\.local$/.exec(
+      ownerEmail,
+    );
     return matchedPhone?.[1] ?? '';
   }
 

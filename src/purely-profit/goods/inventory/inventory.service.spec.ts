@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
@@ -365,10 +365,9 @@ describe('InventoryService', () => {
       'inventory:update',
       '无权操作该门店库存',
     );
-    expect(commerceAccessService.findOperatorStaffIdForStore).toHaveBeenCalledWith(
-      user,
-      18,
-    );
+    expect(
+      commerceAccessService.findOperatorStaffIdForStore,
+    ).toHaveBeenCalledWith(user, 18);
     expect(prismaService.product.findFirst).toHaveBeenCalledWith({
       where: {
         id: 101,
@@ -782,7 +781,9 @@ describe('InventoryService', () => {
         delta: true,
       },
     });
-    expect(prismaService.inventoryAdjustmentLog.deleteMany).toHaveBeenCalledWith({
+    expect(
+      prismaService.inventoryAdjustmentLog.deleteMany,
+    ).toHaveBeenCalledWith({
       where: {
         storeId: 18,
         saleOrderId: 66,

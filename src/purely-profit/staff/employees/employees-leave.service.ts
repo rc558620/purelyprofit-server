@@ -6,6 +6,7 @@ import {
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import {
   CreateEmployeeLeaveDto,
   EmployeeLeaveResponseDto,
@@ -20,6 +21,7 @@ import { toDecimalNumber, toNullableText } from './employees.utils';
 export class EmployeesLeaveService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly employeesAccessService: EmployeesAccessService,
   ) {}
 
@@ -77,6 +79,7 @@ export class EmployeesLeaveService {
         note: toNullableText(dto.note),
       },
     });
+    await this.invalidateDashboardCaches(employee.storeId);
     return toEmployeeLeaveResponse(leave);
   }
 
@@ -133,6 +136,7 @@ export class EmployeesLeaveService {
         ...(dto.note !== undefined ? { note: toNullableText(dto.note) } : {}),
       },
     });
+    await this.invalidateDashboardCaches(leave.storeId);
     return toEmployeeLeaveResponse(updated);
   }
 
@@ -149,6 +153,13 @@ export class EmployeesLeaveService {
       'staff:update',
     );
     await this.prisma.employeeLeave.delete({ where: { id: leave.id } });
+    await this.invalidateDashboardCaches(leave.storeId);
+  }
+
+  private async invalidateDashboardCaches(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateDashboardAndPulseSession(
+      storeId,
+    );
   }
 
   private async ensureLeaveDateRangeAvailable(

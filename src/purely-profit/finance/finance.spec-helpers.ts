@@ -2,6 +2,8 @@ import type { Provider } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
+import { RedisService } from '../../redis/redis.service';
 import { FinanceAccessService } from './finance-access.service';
 import { FinanceAccountService } from './finance-account.service';
 import { FinanceCashFlowService } from './finance-cash-flow.service';
@@ -9,6 +11,21 @@ import { FinanceOverviewService } from './finance-overview.service';
 import { FinanceReconciliationService } from './finance-reconciliation.service';
 
 const FINANCE_SPEC_TIME = new Date('2026-05-14T12:00:00.000Z');
+
+function createRedisServiceMock() {
+  return {
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+    runBackgroundRefresh: jest.fn(),
+  };
+}
+
+function createCacheInvalidatorServiceMock() {
+  return {
+    invalidateDashboardAndPulseSession: jest.fn().mockResolvedValue(undefined),
+    invalidateFinanceDerived: jest.fn().mockResolvedValue(undefined),
+  };
+}
 
 export function createFinanceSpecUser(): AuthenticatedUser {
   return {
@@ -109,6 +126,7 @@ export function createFinanceOverviewProviders(
       provide: PlatformMembershipAccessService,
       useValue: platformMembershipAccessService,
     },
+    { provide: RedisService, useValue: createRedisServiceMock() },
   ];
 }
 
@@ -126,6 +144,10 @@ export function createFinanceCashFlowProviders(
       provide: PlatformMembershipAccessService,
       useValue: platformMembershipAccessService,
     },
+    {
+      provide: CacheInvalidatorService,
+      useValue: createCacheInvalidatorServiceMock(),
+    },
   ];
 }
 
@@ -142,6 +164,10 @@ export function createFinanceAccountProviders(
     {
       provide: PlatformMembershipAccessService,
       useValue: platformMembershipAccessService,
+    },
+    {
+      provide: CacheInvalidatorService,
+      useValue: createCacheInvalidatorServiceMock(),
     },
   ];
 }

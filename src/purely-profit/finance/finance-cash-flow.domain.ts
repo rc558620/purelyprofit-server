@@ -18,7 +18,9 @@ import {
   toMoneyNumber,
 } from './finance.utils';
 
-export function assertCashFlowCategoryCanCreateManually(category: string): void {
+export function assertCashFlowCategoryCanCreateManually(
+  category: string,
+): void {
   const rule = getCashFlowCategoryRule(category);
   if (rule && !rule.allowManualCreate) {
     throw new ConflictException(
@@ -49,22 +51,21 @@ export function getCashFlowCategoryRule(
   ];
 }
 
-export function mapCashFlowRecord(
-  record: {
-    id: number;
-    direction: string;
-    category: string;
-    title: string;
-    amount: Prisma.Decimal;
-    payment: string;
-    note: string | null;
-    date: Date;
-    createdAt: Date;
-  },
-): FinanceCashFlowRecordResponseDto {
+export function mapCashFlowRecord(record: {
+  id: number;
+  direction: string;
+  category: string;
+  title: string;
+  amount: Prisma.Decimal;
+  payment: string;
+  note: string | null;
+  date: Date;
+  createdAt: Date;
+}): FinanceCashFlowRecordResponseDto {
   return {
     id: String(record.id),
-    direction: record.direction as FinanceCashFlowRecordResponseDto['direction'],
+    direction:
+      record.direction as FinanceCashFlowRecordResponseDto['direction'],
     category: record.category as FinanceCashFlowRecordResponseDto['category'],
     title: record.title,
     amount: toMoneyNumber(record.amount),
@@ -115,8 +116,10 @@ export function buildFinanceReportCashFlowRows(
     dateLabel: formatReportDateLabel(record.date.getTime()),
     title: record.title,
     direction: record.direction,
-    categoryLabel: getCashFlowCategoryRule(record.category)?.label ?? record.category,
+    categoryLabel:
+      getCashFlowCategoryRule(record.category)?.label ?? record.category,
     amount: toMoneyNumber(record.amount),
-    paymentLabel: FINANCE_REPORT_PAYMENT_LABELS[record.payment] ?? record.payment,
+    paymentLabel:
+      FINANCE_REPORT_PAYMENT_LABELS[record.payment] ?? record.payment,
   }));
 }

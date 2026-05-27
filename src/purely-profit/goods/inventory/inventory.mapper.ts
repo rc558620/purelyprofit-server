@@ -12,7 +12,10 @@ import type {
   PaginatedInventoryAdjustmentsResponseDto,
   ProductThresholdResponseDto,
 } from './dto/inventory.dto';
-import { buildEmptyInventoryStatsResponse, resolveInventoryAlertLevel } from './inventory.domain';
+import {
+  buildEmptyInventoryStatsResponse,
+  resolveInventoryAlertLevel,
+} from './inventory.domain';
 import type {
   InventoryAdjustmentRecord,
   InventoryProductRecord,
@@ -37,7 +40,10 @@ export function buildInventoryProductResponse(
     unit: product.unit,
     stock: product.stock,
     alertThreshold: product.alertThreshold,
-    alertLevel: resolveInventoryAlertLevel(product.stock, product.alertThreshold),
+    alertLevel: resolveInventoryAlertLevel(
+      product.stock,
+      product.alertThreshold,
+    ),
     ...(image ? { image } : {}),
     createdAt: toTimestampMs(product.createdAt),
     updatedAt: toTimestampMs(product.updatedAt),

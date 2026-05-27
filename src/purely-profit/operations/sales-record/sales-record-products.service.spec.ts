@@ -45,7 +45,9 @@ describe('SalesRecordProductsService', () => {
       ],
     }).compile();
 
-    service = module.get<SalesRecordProductsService>(SalesRecordProductsService);
+    service = module.get<SalesRecordProductsService>(
+      SalesRecordProductsService,
+    );
   });
 
   it('listProducts 按开始营业前端字段返回商品列表', async () => {
@@ -124,7 +126,9 @@ describe('SalesRecordProductsService', () => {
   it('listProducts 在无可访问门店时返回空数组', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(null);
 
-    await expect(service.listProducts(user, { storeId: 18 })).resolves.toEqual([]);
+    await expect(service.listProducts(user, { storeId: 18 })).resolves.toEqual(
+      [],
+    );
     expect(prismaService.product.findMany).not.toHaveBeenCalled();
   });
 });

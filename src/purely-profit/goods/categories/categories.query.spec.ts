@@ -178,7 +178,9 @@ describe('categories.query', () => {
         name: '酒水',
       }),
     ).resolves.toBeUndefined();
-    await expect(deleteCategoryRecord(prisma as never, 11)).resolves.toBeUndefined();
+    await expect(
+      deleteCategoryRecord(prisma as never, 11),
+    ).resolves.toBeUndefined();
 
     expect(productUpdateMany).toHaveBeenCalledWith({
       where: {

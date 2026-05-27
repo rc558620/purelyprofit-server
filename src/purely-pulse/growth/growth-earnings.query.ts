@@ -100,7 +100,10 @@ export async function queryEarningsOverviewData(
       where: {
         storeId,
         status: {
-          in: [PartnerWithdrawalStatus.pending, PartnerWithdrawalStatus.approved],
+          in: [
+            PartnerWithdrawalStatus.pending,
+            PartnerWithdrawalStatus.approved,
+          ],
         },
       },
     }),

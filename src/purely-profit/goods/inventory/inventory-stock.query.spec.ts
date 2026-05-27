@@ -55,7 +55,9 @@ describe('inventory-stock.query', () => {
       stock: 10,
     });
 
-    await expect(findInventoryProductForStore(transaction, 18, 101)).resolves.toEqual({
+    await expect(
+      findInventoryProductForStore(transaction, 18, 101),
+    ).resolves.toEqual({
       id: 101,
       name: '可口可乐 330ml',
       stock: 10,
@@ -157,7 +159,8 @@ describe('inventory-stock.query', () => {
   });
 
   it('executeInventoryManualAdjustment 会查询商品后更新库存并写日志', async () => {
-    const { transaction, productFindFirst, productUpdate, logCreate } = createTransaction();
+    const { transaction, productFindFirst, productUpdate, logCreate } =
+      createTransaction();
     const createdAt = new Date('2026-05-14T11:00:00.000Z');
     productFindFirst.mockResolvedValue({
       id: 101,
@@ -207,7 +210,8 @@ describe('inventory-stock.query', () => {
   });
 
   it('recordInventoryRestock 会批量补货并写入补货日志', async () => {
-    const { transaction, productFindFirst, productUpdate, logCreate } = createTransaction();
+    const { transaction, productFindFirst, productUpdate, logCreate } =
+      createTransaction();
     productFindFirst
       .mockResolvedValueOnce({ id: 101, name: '可口可乐 330ml', stock: 10 })
       .mockResolvedValueOnce({ id: 102, name: '雪碧', stock: 5 });
@@ -270,7 +274,8 @@ describe('inventory-stock.query', () => {
   });
 
   it('recordInventorySaleDeduction 会扣减库存并补充销售日志字段', async () => {
-    const { transaction, productFindFirst, productUpdate, logCreate } = createTransaction();
+    const { transaction, productFindFirst, productUpdate, logCreate } =
+      createTransaction();
     productFindFirst.mockResolvedValue({
       id: 101,
       name: '可口可乐 330ml',
@@ -372,8 +377,13 @@ describe('inventory-stock.query', () => {
   });
 
   it('revertInventorySaleDeduction 会回滚库存并删除销售日志', async () => {
-    const { transaction, productFindFirst, productUpdate, logFindMany, logDeleteMany } =
-      createTransaction();
+    const {
+      transaction,
+      productFindFirst,
+      productUpdate,
+      logFindMany,
+      logDeleteMany,
+    } = createTransaction();
     logFindMany.mockResolvedValue([
       { productId: 101, delta: -4 },
       { productId: 102, delta: -2 },

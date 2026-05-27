@@ -192,7 +192,10 @@ export class SpaceSessionsService {
         : {}),
     };
 
-    const where = this.buildStoreSpaceSessionListWhere(storeId, normalizedQuery);
+    const where = this.buildStoreSpaceSessionListWhere(
+      storeId,
+      normalizedQuery,
+    );
 
     const sessions = await this.prisma.spaceSession.findMany({
       where,
@@ -287,7 +290,10 @@ export class SpaceSessionsService {
     );
 
     const query = this.toSpaceSessionListQuery(queryDto);
-    const { page, skip, take } = this.resolvePageQuery(query.page, query.pageSize);
+    const { page, skip, take } = this.resolvePageQuery(
+      query.page,
+      query.pageSize,
+    );
     const where = this.buildSpaceSessionListWhere(space.id, query);
 
     const queryResult: [SpaceSessionRecord[], number] = await Promise.all([
@@ -816,7 +822,8 @@ export class SpaceSessionsService {
         throw new ConflictException('只能换到同类型空间');
       }
       if (
-        latestTargetSpace.enableDirtyRoom !== latestSession.space.enableDirtyRoom
+        latestTargetSpace.enableDirtyRoom !==
+        latestSession.space.enableDirtyRoom
       ) {
         throw new ConflictException(
           '目标空间与当前空间的脏房模式不一致，无法换房',
@@ -827,7 +834,9 @@ export class SpaceSessionsService {
           '目标空间与当前空间的自动结账设置不一致，无法换房',
         );
       }
-      if (Boolean(latestSession.autoCheckout) !== latestTargetSpace.autoCheckout) {
+      if (
+        Boolean(latestSession.autoCheckout) !== latestTargetSpace.autoCheckout
+      ) {
         throw new ConflictException(
           '当前会话自动结账状态与目标空间设置不一致，无法换房',
         );
@@ -1117,7 +1126,9 @@ export class SpaceSessionsService {
     };
   }
 
-  public parseSpaceSessionItems(value: Prisma.JsonValue): SpaceSessionItemRecord[] {
+  public parseSpaceSessionItems(
+    value: Prisma.JsonValue,
+  ): SpaceSessionItemRecord[] {
     if (!Array.isArray(value)) {
       return [];
     }
@@ -1204,7 +1215,9 @@ export class SpaceSessionsService {
     session: SpaceSessionRecord,
   ): SpaceSessionResponseDto {
     const items = this.parseSpaceSessionItems(session.items);
-    const renewRecords = this.parseSpaceSessionRenewRecords(session.renewRecords);
+    const renewRecords = this.parseSpaceSessionRenewRecords(
+      session.renewRecords,
+    );
 
     return {
       id: String(session.id),
@@ -1213,14 +1226,18 @@ export class SpaceSessionsService {
       spaceType: session.space.type.name,
       ...(session.guestName ? { guestName: session.guestName } : {}),
       ...(session.guestPhone ? { guestPhone: session.guestPhone } : {}),
-      ...(session.guestCount !== null ? { guestCount: session.guestCount } : {}),
+      ...(session.guestCount !== null
+        ? { guestCount: session.guestCount }
+        : {}),
       startTime: toTimestampMs(session.startTime),
       ...(session.endTime ? { endTime: toTimestampMs(session.endTime) } : {}),
       billingMode: session.billingMode,
       ...(session.hourlyRate !== null
         ? { hourlyRate: Number(session.hourlyRate) }
         : {}),
-      ...(session.timeCost !== null ? { timeCost: Number(session.timeCost) } : {}),
+      ...(session.timeCost !== null
+        ? { timeCost: Number(session.timeCost) }
+        : {}),
       ...(session.countdownMinutes !== null
         ? { countdownMinutes: session.countdownMinutes }
         : {}),
@@ -1507,7 +1524,9 @@ export class SpaceSessionsService {
       ...(dto.platformSettledAmount !== undefined
         ? { platformSettledAmount: dto.platformSettledAmount }
         : {}),
-      ...(dto.platformFee !== undefined ? { platformFee: dto.platformFee } : {}),
+      ...(dto.platformFee !== undefined
+        ? { platformFee: dto.platformFee }
+        : {}),
       ...(timeFeeMode !== undefined ? { timeFeeMode } : {}),
       ...(countdownFeeMode !== undefined ? { countdownFeeMode } : {}),
       lockId,
@@ -1540,14 +1559,14 @@ export class SpaceSessionsService {
     }
   }
 
-  private assertMoneyPrecision(
-    value: number | undefined,
-    label: string,
-  ): void {
+  private assertMoneyPrecision(value: number | undefined, label: string): void {
     if (value === undefined) {
       return;
     }
-    if (!Number.isFinite(value) || !MONEY_PRECISION_PATTERN.test(String(value))) {
+    if (
+      !Number.isFinite(value) ||
+      !MONEY_PRECISION_PATTERN.test(String(value))
+    ) {
       throw new BadRequestException(`${label}最多支持两位小数`);
     }
   }
@@ -1801,7 +1820,9 @@ export class SpaceSessionsService {
           );
       orderItems.unshift({
         productId: 'SYS_TIME_BILLING',
-        productName: useUnitPrice ? '台位费（固定）' : `台位费（${durationLabel}）`,
+        productName: useUnitPrice
+          ? '台位费（固定）'
+          : `台位费（${durationLabel}）`,
         categoryName: '场地费',
         salePrice: timeCost,
         profit: timeCost,
@@ -1853,7 +1874,8 @@ export class SpaceSessionsService {
     const totalProfit = this.sumLineProfit(orderItems);
     const totalQuantity = orderItems.reduce(
       (sum, item) =>
-        sum + (this.isSpaceSessionDeductionItem(item.productId) ? 0 : item.quantity),
+        sum +
+        (this.isSpaceSessionDeductionItem(item.productId) ? 0 : item.quantity),
       0,
     );
 
@@ -2105,7 +2127,8 @@ export class SpaceSessionsService {
   private resolvePageQuery(page?: number, pageSize?: number) {
     const defaultPageSize =
       this.configService.get<number>('app.defaultPageSize') ?? 20;
-    const maxPageSize = this.configService.get<number>('app.maxPageSize') ?? 100;
+    const maxPageSize =
+      this.configService.get<number>('app.maxPageSize') ?? 100;
 
     return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
   }
@@ -2240,19 +2263,20 @@ export class SpaceSessionsService {
     spaceId: number,
   ): Promise<PrismaSpaceStatus> {
     const todayRange = this.getTodayRange();
-    const hasTodayPendingReservation = await transaction.spaceReservation.findFirst({
-      where: {
-        spaceId,
-        status: PrismaSpaceReservationStatus.pending,
-        reservedAt: {
-          gte: todayRange.start,
-          lte: todayRange.end,
+    const hasTodayPendingReservation =
+      await transaction.spaceReservation.findFirst({
+        where: {
+          spaceId,
+          status: PrismaSpaceReservationStatus.pending,
+          reservedAt: {
+            gte: todayRange.start,
+            lte: todayRange.end,
+          },
         },
-      },
-      select: {
-        id: true,
-      },
-    });
+        select: {
+          id: true,
+        },
+      });
 
     return hasTodayPendingReservation
       ? PrismaSpaceStatus.reserved

@@ -65,7 +65,9 @@ describe('ProfitDetailController', () => {
     };
     profitDetailService.getReport.mockResolvedValue(response);
 
-    await expect(controller.getReport({ user }, query)).resolves.toEqual(response);
+    await expect(controller.getReport({ user }, query)).resolves.toEqual(
+      response,
+    );
     expect(profitDetailService.getReport).toHaveBeenCalledWith(user, query);
   });
 

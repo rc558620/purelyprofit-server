@@ -118,7 +118,10 @@ export class NotificationItemDto {
   @IsString({ message: '跳转地址必须是字符串' })
   actionUrl?: string;
 
-  @ApiProperty({ example: 1747212600000, description: '通知创建时间戳（毫秒）' })
+  @ApiProperty({
+    example: 1747212600000,
+    description: '通知创建时间戳（毫秒）',
+  })
   @IsInt({ message: '通知创建时间必须是整数时间戳' })
   createdAt: number;
 
@@ -147,7 +150,10 @@ export class NotificationSummaryItemDto {
   @IsString({ message: '通知标题必须是字符串' })
   title: string;
 
-  @ApiProperty({ example: 1747212600000, description: '通知创建时间戳（毫秒）' })
+  @ApiProperty({
+    example: 1747212600000,
+    description: '通知创建时间戳（毫秒）',
+  })
   @IsInt({ message: '通知创建时间必须是整数时间戳' })
   createdAt: number;
 
@@ -201,7 +207,10 @@ export class MarkNotificationReadResponseDto {
   @IsString({ message: '通知 ID 必须是字符串' })
   id: string;
 
-  @ApiProperty({ example: 1747216200000, description: '本次标记已读时间戳（毫秒）' })
+  @ApiProperty({
+    example: 1747216200000,
+    description: '本次标记已读时间戳（毫秒）',
+  })
   @IsInt({ message: '已读时间必须是整数时间戳' })
   readAt: number;
 
@@ -215,7 +224,10 @@ export class MarkAllNotificationsReadResponseDto {
   @IsBoolean({ message: 'success 必须是布尔值' })
   success: boolean;
 
-  @ApiProperty({ example: 1747216200000, description: '全部标记已读时间戳（毫秒）' })
+  @ApiProperty({
+    example: 1747216200000,
+    description: '全部标记已读时间戳（毫秒）',
+  })
   @IsInt({ message: '已读时间必须是整数时间戳' })
   readAt: number;
 

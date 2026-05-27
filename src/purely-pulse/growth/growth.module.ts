@@ -10,7 +10,12 @@ import { PulseGrowthEarningsService } from './growth-earnings.service';
 import { PulseGrowthService } from './growth.service';
 
 @Module({
-  imports: [AuthModule, PlatformMembershipModule, WithdrawalsModule, PulseStoreContextModule],
+  imports: [
+    AuthModule,
+    PlatformMembershipModule,
+    WithdrawalsModule,
+    PulseStoreContextModule,
+  ],
   controllers: [PulseGrowthController],
   providers: [
     PulseGrowthService,

@@ -26,20 +26,13 @@ export function buildPaginatedCashFlowRecordsResponse(
 }
 
 export function buildPaginatedAccountsResponse(
-  filteredRecords: FinanceAccountRecordWithAmount[],
+  records: FinanceAccountRecordWithAmount[],
   pageState: PaginationState,
+  total: number,
 ): PaginatedFinanceAccountsResponseDto {
-  const pagination = buildPaginationMeta(
-    pageState.page,
-    pageState.pageSize,
-    filteredRecords.length,
-  );
-
   return {
-    items: paginateArray(filteredRecords, pagination).map((record) =>
-      mapAccountRecord(record),
-    ),
-    meta: pagination,
+    items: records.map((record) => mapAccountRecord(record)),
+    meta: buildPaginationMeta(pageState.page, pageState.pageSize, total),
   };
 }
 

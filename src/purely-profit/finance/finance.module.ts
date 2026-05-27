@@ -20,5 +20,6 @@ import { FinanceService } from './finance.service';
     FinanceReconciliationService,
     FinanceService,
   ],
+  exports: [FinanceOverviewService],
 })
 export class FinanceModule {}

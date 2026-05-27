@@ -172,7 +172,10 @@ export class SpaceReservationsService {
     );
 
     const payload = this.normalizeReservationPayload(dto);
-    this.ensureReservationGuestCount(payload.guestCount, space.capacity ?? undefined);
+    this.ensureReservationGuestCount(
+      payload.guestCount,
+      space.capacity ?? undefined,
+    );
     this.ensureReservationTimeWindow(payload.reservedAt);
     this.ensureReservationEndAfterStart(
       payload.reservedAt,

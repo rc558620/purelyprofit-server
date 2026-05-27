@@ -8,5 +8,6 @@ import { DashboardHomeService } from './dashboard-home.service';
   imports: [CommerceModule, PlatformMembershipModule],
   controllers: [DashboardHomeController],
   providers: [DashboardHomeService],
+  exports: [DashboardHomeService],
 })
 export class DashboardHomeModule {}

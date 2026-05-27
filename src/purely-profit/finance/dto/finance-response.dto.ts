@@ -247,7 +247,10 @@ export class FinanceReportResponseDto {
   @Type(() => FinanceReportSummaryDto)
   summary: FinanceReportSummaryDto;
 
-  @ApiProperty({ type: [FinanceReportCashFlowRowDto], description: '现金流水行' })
+  @ApiProperty({
+    type: [FinanceReportCashFlowRowDto],
+    description: '现金流水行',
+  })
   @IsArray({ message: '现金流水行必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => FinanceReportCashFlowRowDto)

@@ -73,7 +73,9 @@ describe('SalesRecordListService', () => {
   it('list 在无可访问门店时返回空分页', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(null);
 
-    await expect(service.list(user, { storeId: 18, period: 'all' })).resolves.toEqual({
+    await expect(
+      service.list(user, { storeId: 18, period: 'all' }),
+    ).resolves.toEqual({
       items: [],
       meta: {
         page: 1,
@@ -201,7 +203,9 @@ describe('SalesRecordListService', () => {
       },
     ]);
 
-    await expect(service.listFrontendOrders(user, { storeId: 18 })).resolves.toEqual([
+    await expect(
+      service.listFrontendOrders(user, { storeId: 18 }),
+    ).resolves.toEqual([
       {
         id: '11',
         orderNo: '#20260514-001',

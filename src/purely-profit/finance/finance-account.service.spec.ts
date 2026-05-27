@@ -24,7 +24,8 @@ describe('FinanceAccountService', () => {
   beforeEach(async () => {
     useFinanceSpecFakeTimers();
     prismaService = createFinanceAccountPrismaMock();
-    platformMembershipAccessService = createPlatformMembershipAccessServiceMock();
+    platformMembershipAccessService =
+      createPlatformMembershipAccessServiceMock();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: createFinanceAccountProviders(

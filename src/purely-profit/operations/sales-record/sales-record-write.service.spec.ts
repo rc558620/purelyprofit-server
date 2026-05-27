@@ -64,8 +64,9 @@ describe('SalesRecordWriteService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     prismaService.$transaction.mockImplementation(
-      async (callback: (client: typeof transactionClient) => Promise<unknown>) =>
-        callback(transactionClient),
+      async (
+        callback: (client: typeof transactionClient) => Promise<unknown>,
+      ) => callback(transactionClient),
     );
 
     const module: TestingModule = await Test.createTestingModule({
@@ -113,7 +114,9 @@ describe('SalesRecordWriteService', () => {
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-    salesRecordItemPreparationService.prepareItems.mockResolvedValue(preparedItems);
+    salesRecordItemPreparationService.prepareItems.mockResolvedValue(
+      preparedItems,
+    );
     salesRecordCreateFlowService.createRecord.mockResolvedValue(response);
 
     await expect(
@@ -153,11 +156,12 @@ describe('SalesRecordWriteService', () => {
       'sales:create',
       '无权操作该门店销售记录',
     );
-    expect(commerceAccessService.findOperatorStaffIdForStore).toHaveBeenCalledWith(
-      user,
-      18,
-    );
-    expect(salesRecordItemPreparationService.prepareItems).toHaveBeenCalledTimes(1);
+    expect(
+      commerceAccessService.findOperatorStaffIdForStore,
+    ).toHaveBeenCalledWith(user, 18);
+    expect(
+      salesRecordItemPreparationService.prepareItems,
+    ).toHaveBeenCalledTimes(1);
     expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         storeId: 18,
@@ -230,7 +234,9 @@ describe('SalesRecordWriteService', () => {
         saleOrderId: 11,
       },
     );
-    expect(transactionClient.financeCashFlowRecord.deleteMany).toHaveBeenCalledWith({
+    expect(
+      transactionClient.financeCashFlowRecord.deleteMany,
+    ).toHaveBeenCalledWith({
       where: { storeId: 18, saleOrderId: 11 },
     });
     expect(transactionClient.saleOrder.delete).toHaveBeenCalledWith({

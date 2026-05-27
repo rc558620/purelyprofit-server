@@ -109,7 +109,9 @@ describe('PlatformMembershipAccessService', () => {
     await expect(
       service.ensureFinanceFeatureEnabled(18),
     ).resolves.toBeUndefined();
-    await expect(service.ensureReportExportEnabled(18)).resolves.toBeUndefined();
+    await expect(
+      service.ensureReportExportEnabled(18),
+    ).resolves.toBeUndefined();
     await expect(service.getHistoryWindowStart(18)).resolves.toBeNull();
   });
 
@@ -123,7 +125,9 @@ describe('PlatformMembershipAccessService', () => {
     await expect(
       service.ensureFinanceFeatureEnabled(18),
     ).resolves.toBeUndefined();
-    await expect(service.ensureReportExportEnabled(18)).resolves.toBeUndefined();
+    await expect(
+      service.ensureReportExportEnabled(18),
+    ).resolves.toBeUndefined();
     await expect(service.getHistoryWindowStart(18)).resolves.toBeNull();
   });
 });

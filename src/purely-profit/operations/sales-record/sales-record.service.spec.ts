@@ -63,8 +63,13 @@ describe('SalesRecordService', () => {
     const query: ListSalesProductsQueryDto = { storeId: 18, keyword: '可乐' };
     salesRecordReadService.listProducts.mockResolvedValue([{ id: '201' }]);
 
-    await expect(service.listProducts(user, query)).resolves.toEqual([{ id: '201' }]);
-    expect(salesRecordReadService.listProducts).toHaveBeenCalledWith(user, query);
+    await expect(service.listProducts(user, query)).resolves.toEqual([
+      { id: '201' },
+    ]);
+    expect(salesRecordReadService.listProducts).toHaveBeenCalledWith(
+      user,
+      query,
+    );
   });
 
   it('list 会透传给 read service', async () => {
@@ -135,7 +140,11 @@ describe('SalesRecordService', () => {
     salesRecordWriteService.create.mockResolvedValue(response);
 
     await expect(service.create(user, dto, options)).resolves.toEqual(response);
-    expect(salesRecordWriteService.create).toHaveBeenCalledWith(user, dto, options);
+    expect(salesRecordWriteService.create).toHaveBeenCalledWith(
+      user,
+      dto,
+      options,
+    );
   });
 
   it('remove 会透传给 write service', async () => {

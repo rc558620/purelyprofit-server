@@ -25,9 +25,10 @@ export function buildDashboardSalesTrend(
   return buildDayTrend(rows);
 }
 
-export function buildDashboardTrendQueryRange(
-  currentRange: TimeRange,
-): { gte: Date; lte: Date } {
+export function buildDashboardTrendQueryRange(currentRange: TimeRange): {
+  gte: Date;
+  lte: Date;
+} {
   return {
     gte: new Date(currentRange.start),
     lte: new Date(currentRange.end),
@@ -59,7 +60,9 @@ function buildYearTrend(
   };
 }
 
-function buildDayTrend(rows: DashboardTrendSaleRow[]): PulseDashboardSalesTrendDto {
+function buildDayTrend(
+  rows: DashboardTrendSaleRow[],
+): PulseDashboardSalesTrendDto {
   const dayMap = new Map<string, number>();
   for (const row of rows) {
     const label = formatDateLabel(row.date);

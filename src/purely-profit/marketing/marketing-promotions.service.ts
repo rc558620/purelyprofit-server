@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import type {
   CreatePromotionDto,
   ListPromotionsQueryDto,
@@ -23,6 +24,7 @@ import {
 export class MarketingPromotionsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly marketingSharedService: MarketingSharedService,
   ) {}
 
@@ -106,6 +108,8 @@ export class MarketingPromotionsService {
       },
     });
 
+    await this.invalidateDashboardCaches(storeId);
+
     return mapPromotionRow(created);
   }
 
@@ -144,6 +148,8 @@ export class MarketingPromotionsService {
       },
     });
 
+    await this.invalidateDashboardCaches(promotion.storeId);
+
     return mapPromotionRow(updated);
   }
 
@@ -160,6 +166,7 @@ export class MarketingPromotionsService {
     );
 
     await this.prisma.marketingPromotion.delete({ where: { id: promotionId } });
+    await this.invalidateDashboardCaches(promotion.storeId);
   }
 
   async togglePromotion(
@@ -168,6 +175,10 @@ export class MarketingPromotionsService {
     enabled: boolean,
   ): Promise<MarketingPromotionDto> {
     return this.updatePromotion(user, promotionId, { enabled });
+  }
+
+  private async invalidateDashboardCaches(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId);
   }
 
   private assertPromotionRange(startAt: Date, endAt: Date): void {

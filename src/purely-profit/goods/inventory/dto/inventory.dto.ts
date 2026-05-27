@@ -52,7 +52,10 @@ export class ListInventoryProductsQueryDto {
   @IsBoolean({ message: 'alertOnly 必须是布尔值' })
   alertOnly?: boolean;
 
-  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @ApiPropertyOptional({
+    example: false,
+    description: '是否按导出模式拉取数据',
+  })
   @IsOptional()
   @Transform(transformOptionalBoolean)
   @IsBoolean({ message: '导出标记必须是布尔值' })
@@ -294,7 +297,10 @@ export class InventoryReportResponseDto {
   @Type(() => InventoryStatsResponseDto)
   summary: InventoryStatsResponseDto;
 
-  @ApiProperty({ type: [InventoryProductResponseDto], description: '商品库存明细' })
+  @ApiProperty({
+    type: [InventoryProductResponseDto],
+    description: '商品库存明细',
+  })
   @IsArray({ message: '商品库存明细必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => InventoryProductResponseDto)

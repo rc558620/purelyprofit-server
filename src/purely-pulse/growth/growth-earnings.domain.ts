@@ -17,12 +17,16 @@ export function buildEarningsOverviewResponse(
   data: EarningsOverviewQueryResult,
 ): PulseEarningsOverviewResponseDto {
   const isPartner = data.partner?.status === 'approved';
-  const chargedPromos = data.promoRecords.filter((record) => record.hasCharged).length;
+  const chargedPromos = data.promoRecords.filter(
+    (record) => record.hasCharged,
+  ).length;
 
   return {
     beanBalance: isPartner ? (data.partner?.beanBalance ?? 0) : 0,
     totalEarnedBeans: isPartner ? (data.partner?.totalEarnedBeans ?? 0) : 0,
-    totalWithdrawnBeans: isPartner ? (data.partner?.totalWithdrawnBeans ?? 0) : 0,
+    totalWithdrawnBeans: isPartner
+      ? (data.partner?.totalWithdrawnBeans ?? 0)
+      : 0,
     totalPromos: data.promoRecords.length,
     chargedPromos,
     isPartner,
@@ -105,7 +109,9 @@ function mapBeanLog(
     source: log.source,
     description: log.description,
     relatedPromoId:
-      log.relatedPromoRecordId != null ? `promo-${log.relatedPromoRecordId}` : undefined,
+      log.relatedPromoRecordId != null
+        ? `promo-${log.relatedPromoRecordId}`
+        : undefined,
     relatedUser: log.relatedUser ?? undefined,
     createdAt: log.createdAt.getTime(),
   };

@@ -9,10 +9,6 @@ import { CategoriesWriteService } from './categories-write.service';
 @Module({
   imports: [PrismaModule, CommerceModule],
   controllers: [CategoriesController],
-  providers: [
-    CategoriesReadService,
-    CategoriesWriteService,
-    CategoriesService,
-  ],
+  providers: [CategoriesReadService, CategoriesWriteService, CategoriesService],
 })
 export class CategoriesModule {}

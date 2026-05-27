@@ -25,7 +25,9 @@ export function aggregateDashboardHomeCostsByRange(
   end: number,
 ): AggregatedCostsResult {
   return {
-    totalCost: sumCostRecordAmount(filterCostRecordsByRange(costRecords, start, end)),
+    totalCost: sumCostRecordAmount(
+      filterCostRecordsByRange(costRecords, start, end),
+    ),
   };
 }
 
@@ -34,7 +36,9 @@ export function filterSaleOrdersByRange(
   start: number,
   end: number,
 ): SaleOrderRow[] {
-  return saleOrders.filter((row) => isTimestampInRange(row.date.getTime(), start, end));
+  return saleOrders.filter((row) =>
+    isTimestampInRange(row.date.getTime(), start, end),
+  );
 }
 
 export function filterCostRecordsByRange(
@@ -42,7 +46,9 @@ export function filterCostRecordsByRange(
   start: number,
   end: number,
 ): CostRecordRow[] {
-  return costRecords.filter((row) => isTimestampInRange(row.date.getTime(), start, end));
+  return costRecords.filter((row) =>
+    isTimestampInRange(row.date.getTime(), start, end),
+  );
 }
 
 export function sumSaleOrderRevenue(saleOrders: SaleOrderRow[]): number {

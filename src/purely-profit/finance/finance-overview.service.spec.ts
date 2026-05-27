@@ -24,7 +24,8 @@ describe('FinanceOverviewService', () => {
   beforeEach(async () => {
     useFinanceSpecFakeTimers();
     prismaService = createFinanceOverviewPrismaMock();
-    platformMembershipAccessService = createPlatformMembershipAccessServiceMock();
+    platformMembershipAccessService =
+      createPlatformMembershipAccessServiceMock();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: createFinanceOverviewProviders(
@@ -90,7 +91,9 @@ describe('FinanceOverviewService', () => {
       empty: true,
     });
 
-    await expect(service.getOverview(user, { period: 'month' })).resolves.toMatchObject({
+    await expect(
+      service.getOverview(user, { period: 'month' }),
+    ).resolves.toMatchObject({
       heroSummary: {
         netIncome: { current: 0, previous: 0, changeRate: null },
         totalIncome: { current: 0, previous: 0, changeRate: null },
@@ -413,7 +416,9 @@ describe('FinanceOverviewService', () => {
       ],
     });
 
-    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenNthCalledWith(
+    expect(
+      prismaService.financeCashFlowRecord.findMany,
+    ).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         where: expect.objectContaining({
@@ -425,7 +430,9 @@ describe('FinanceOverviewService', () => {
         }),
       }),
     );
-    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenNthCalledWith(
+    expect(
+      prismaService.financeCashFlowRecord.findMany,
+    ).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         where: expect.objectContaining({

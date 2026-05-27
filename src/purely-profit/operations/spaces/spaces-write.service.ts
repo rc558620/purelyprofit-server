@@ -58,7 +58,9 @@ export class SpacesWriteService {
     );
     const name = dto.name.trim();
 
-    await this.platformMembershipAccessService.ensureSpaceQuotaAvailable(storeId);
+    await this.platformMembershipAccessService.ensureSpaceQuotaAvailable(
+      storeId,
+    );
     await this.ensureUniqueSpaceName(storeId, name);
 
     const refs = await this.resolveCreateSpaceRefs(storeId, dto);

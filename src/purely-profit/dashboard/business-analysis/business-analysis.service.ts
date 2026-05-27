@@ -3,6 +3,11 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  buildBusinessAnalysisCacheKey,
+  buildCacheRefreshTaskKey,
+} from '../../../redis/cache-keys';
+import { RedisService } from '../../../redis/redis.service';
 import { GetBusinessAnalysisQueryDto } from './dto/business-analysis-query.dto';
 import type { BusinessAnalysisResponseDto } from './dto/business-analysis-response.dto';
 import {
@@ -11,14 +16,30 @@ import {
   createEmptyCostAggregation,
   createEmptySalesAggregation,
 } from './business-analysis.domain';
-import { buildBusinessAnalysisResponse, buildEmptyAnalysisResponse } from './business-analysis.mapper';
+import {
+  buildBusinessAnalysisResponse,
+  buildEmptyAnalysisResponse,
+} from './business-analysis.mapper';
 import { fetchBusinessAnalysisRows } from './business-analysis.query';
-import { getPreviousRange, resolveCurrentRange } from './business-analysis.utils';
+import {
+  getPreviousRange,
+  resolveCurrentRange,
+} from './business-analysis.utils';
+
+const BUSINESS_ANALYSIS_CACHE_TTL_SECONDS = 120;
+const BUSINESS_ANALYSIS_REFRESH_AFTER_MS = 30_000;
+
+type BusinessAnalysisCachePayload = {
+  generatedAt: number;
+  refreshAt: number;
+  data: BusinessAnalysisResponseDto;
+};
 
 @Injectable()
 export class BusinessAnalysisService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
@@ -42,14 +63,97 @@ export class BusinessAnalysisService {
     query: GetBusinessAnalysisQueryDto,
   ): Promise<BusinessAnalysisResponseDto> {
     if (query.export) {
-      await this.platformMembershipAccessService.ensureReportExportEnabled(storeId);
+      await this.platformMembershipAccessService.ensureReportExportEnabled(
+        storeId,
+      );
+      return this.buildAnalysis(storeId, query);
     }
 
+    const cacheKey = buildBusinessAnalysisCacheKey(storeId, query);
+    const cachedPayload =
+      await this.redisService.getJson<BusinessAnalysisCachePayload>(cacheKey);
+
+    if (cachedPayload !== null) {
+      this.scheduleAnalysisRefresh(
+        cacheKey,
+        storeId,
+        query,
+        cachedPayload.refreshAt,
+      );
+      return cachedPayload.data;
+    }
+
+    return this.refreshAnalysisCache(cacheKey, storeId, query);
+  }
+
+  async warmAnalysisCache(
+    storeId: number,
+    query: Pick<
+      GetBusinessAnalysisQueryDto,
+      'period' | 'startTime' | 'endTime'
+    >,
+  ): Promise<BusinessAnalysisResponseDto> {
+    const cacheKey = buildBusinessAnalysisCacheKey(storeId, query);
+    return this.refreshAnalysisCache(cacheKey, storeId, query);
+  }
+
+  private scheduleAnalysisRefresh(
+    cacheKey: string,
+    storeId: number,
+    query: GetBusinessAnalysisQueryDto,
+    refreshAt: number,
+  ): void {
+    if (refreshAt > Date.now()) {
+      return;
+    }
+
+    this.redisService.runBackgroundRefresh(
+      buildCacheRefreshTaskKey(cacheKey),
+      async () => {
+        await this.refreshAnalysisCache(cacheKey, storeId, query);
+      },
+    );
+  }
+
+  private async refreshAnalysisCache(
+    cacheKey: string,
+    storeId: number,
+    query: GetBusinessAnalysisQueryDto,
+  ): Promise<BusinessAnalysisResponseDto> {
+    const data = await this.buildAnalysis(storeId, query);
+    const now = Date.now();
+
+    await this.redisService.setJson(
+      cacheKey,
+      {
+        generatedAt: now,
+        refreshAt: now + BUSINESS_ANALYSIS_REFRESH_AFTER_MS,
+        data,
+      } satisfies BusinessAnalysisCachePayload,
+      BUSINESS_ANALYSIS_CACHE_TTL_SECONDS,
+    );
+
+    return data;
+  }
+
+  private async buildAnalysis(
+    storeId: number,
+    query: GetBusinessAnalysisQueryDto,
+  ): Promise<BusinessAnalysisResponseDto> {
     const currentRange = resolveCurrentRange(query);
-    const previousRange = getPreviousRange(currentRange.start, currentRange.end);
+    const previousRange = getPreviousRange(
+      currentRange.start,
+      currentRange.end,
+    );
     const [clampedCurrentRange, clampedPreviousRange] = await Promise.all([
-      this.platformMembershipAccessService.clampHistoryRange(storeId, currentRange),
-      this.platformMembershipAccessService.clampHistoryRange(storeId, previousRange),
+      this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        currentRange,
+      ),
+      this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        previousRange,
+      ),
     ]);
 
     if (clampedCurrentRange.empty) {

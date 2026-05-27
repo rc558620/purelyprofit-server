@@ -264,7 +264,10 @@ export class PulseDashboardPartnerStatsDto {
   @IsInt()
   activeRate: number;
 
-  @ApiProperty({ example: 124800, description: '全平台推广带来的总充值金额（分）' })
+  @ApiProperty({
+    example: 124800,
+    description: '全平台推广带来的总充值金额（分）',
+  })
   @IsInt()
   totalRevenue: number;
 
@@ -337,7 +340,10 @@ export class PulseDashboardRevenueSummaryDto {
   @IsInt()
   avg: number;
 
-  @ApiProperty({ example: 18.2, description: '较上期同比增长率（%），保留 1 位小数' })
+  @ApiProperty({
+    example: 18.2,
+    description: '较上期同比增长率（%），保留 1 位小数',
+  })
   @IsNumber()
   growth: number;
 

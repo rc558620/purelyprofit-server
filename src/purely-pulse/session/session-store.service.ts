@@ -14,7 +14,10 @@ export class SessionStoreService {
     user: AuthenticatedUser,
     storeId: number,
   ): Promise<PulseSwitchCurrentStoreResponseDto> {
-    const store = await this.pulseStoreContextService.switchTargetStore(user, storeId);
+    const store = await this.pulseStoreContextService.switchTargetStore(
+      user,
+      storeId,
+    );
 
     return {
       success: true,

@@ -330,14 +330,16 @@ export class PulsePayoutApplicationItemDto {
   @ApiProperty({
     enum: PARTNER_WITHDRAWAL_STATUS_VALUES,
     example: 'pending',
-    description: '申请状态：pending=待处理 / approved=审核中 / paid=已打款 / rejected=已拒绝',
+    description:
+      '申请状态：pending=待处理 / approved=审核中 / paid=已打款 / rejected=已拒绝',
   })
   @IsIn(PARTNER_WITHDRAWAL_STATUS_VALUES)
   status: PartnerWithdrawalStatusValue;
 
   @ApiProperty({
     example: '2026-04-29 16:42',
-    description: '申请时间（格式 YYYY-MM-DD HH:mm，对齐前端 PayoutApplication.appliedAt）',
+    description:
+      '申请时间（格式 YYYY-MM-DD HH:mm，对齐前端 PayoutApplication.appliedAt）',
   })
   @IsString()
   appliedAt: string;
@@ -479,7 +481,8 @@ export class PulseAdminPartnerApplicationItemDto {
 
   @ApiProperty({
     example: '2026-04-19 14:32',
-    description: '申请时间（格式 YYYY-MM-DD HH:mm，对齐前端 PartnerApplication.appliedAt）',
+    description:
+      '申请时间（格式 YYYY-MM-DD HH:mm，对齐前端 PartnerApplication.appliedAt）',
   })
   @IsString()
   appliedAt: string;

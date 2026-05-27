@@ -6,6 +6,7 @@ import {
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { recordHttpRequest } from './observability';
 import { AppModule } from './app.module';
 
 function resolveCorsOrigin(corsOrigin: string): true | string[] {
@@ -19,26 +20,28 @@ function resolveCorsOrigin(corsOrigin: string): true | string[] {
     .filter(Boolean);
 }
 
-function setupSlowRequestLogging(
+function normalizeObservedRoute(url: string): string {
+  const [path = '/'] = url.split('?');
+  return path || '/';
+}
+
+function setupHttpObservability(
   app: NestFastifyApplication,
-  enabled: boolean,
+  slowLogEnabled: boolean,
   thresholdMs: number,
 ): void {
-  if (!enabled) {
-    return;
-  }
-
   const requestStartTimeMap = new Map<string, number>();
   const httpAdapter = app.getHttpAdapter().getInstance();
 
   httpAdapter.addHook('onRequest', (request, _reply, done) => {
-    requestStartTimeMap.set(request.id, Date.now());
+    requestStartTimeMap.set(String(request.id), Date.now());
     done();
   });
 
   httpAdapter.addHook('onResponse', (request, reply, done) => {
-    const requestStartedAt = requestStartTimeMap.get(request.id);
-    requestStartTimeMap.delete(request.id);
+    const requestId = String(request.id);
+    const requestStartedAt = requestStartTimeMap.get(requestId);
+    requestStartTimeMap.delete(requestId);
 
     if (requestStartedAt === undefined) {
       done();
@@ -46,10 +49,20 @@ function setupSlowRequestLogging(
     }
 
     const durationMs = Date.now() - requestStartedAt;
+    const route = normalizeObservedRoute(request.url);
 
-    if (durationMs >= thresholdMs) {
+    recordHttpRequest({
+      method: request.method,
+      route,
+      statusCode: reply.statusCode,
+      durationMs,
+      requestId,
+      slowThresholdMs: thresholdMs,
+    });
+
+    if (slowLogEnabled && durationMs >= thresholdMs) {
       console.warn(
-        `[slow-request] ${request.method} ${request.url} ${reply.statusCode} ${durationMs}ms`,
+        `[slow-request] ${request.method} ${route} ${reply.statusCode} ${durationMs}ms requestId=${requestId}`,
       );
     }
 
@@ -70,7 +83,6 @@ async function bootstrap() {
     new FastifyAdapter({ logger: loggerEnabled }),
   );
 
-  // ─── Validation ────────────────────────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -82,7 +94,6 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   app.setGlobalPrefix('api');
 
-  // ─── CORS ──────────────────────────────────────────────────────
   const corsOrigin = configService.get<string>('app.corsOrigin') ?? '*';
   app.enableCors({ origin: resolveCorsOrigin(corsOrigin) });
 
@@ -90,9 +101,8 @@ async function bootstrap() {
     configService.get<boolean>('app.slowRequestLogEnabled') ?? true;
   const slowRequestThresholdMs =
     configService.get<number>('app.slowRequestThresholdMs') ?? 800;
-  setupSlowRequestLogging(app, slowRequestLogEnabled, slowRequestThresholdMs);
+  setupHttpObservability(app, slowRequestLogEnabled, slowRequestThresholdMs);
 
-  // ─── Swagger ───────────────────────────────────────────────────
   const swaggerEnabled =
     configService.get<boolean>('app.swaggerEnabled') ?? !isProduction;
 
@@ -108,7 +118,6 @@ async function bootstrap() {
     SwaggerModule.setup('api-docs', app, document);
   }
 
-  // ─── Start ─────────────────────────────────────────────────────
   const port = configService.get<number>('port') ?? 3000;
 
   await app.listen(port, '0.0.0.0');

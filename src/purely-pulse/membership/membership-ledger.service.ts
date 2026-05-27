@@ -27,7 +27,8 @@ export class PulseMembershipLedgerService {
   async listPointsLogs(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipPointsLogsResponseDto> {
-    const resolvedStore = await this.pulseStoreContextService.resolveTargetStore(user);
+    const resolvedStore =
+      await this.pulseStoreContextService.resolveTargetStore(user);
     if (resolvedStore.store) {
       return this.platformMembershipService.listPointsLogsByStoreId(
         resolvedStore.store.id,
@@ -44,7 +45,8 @@ export class PulseMembershipLedgerService {
   async listBeanLogs(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipBeanLogsResponseDto> {
-    const resolvedStore = await this.pulseStoreContextService.resolveTargetStore(user);
+    const resolvedStore =
+      await this.pulseStoreContextService.resolveTargetStore(user);
     if (resolvedStore.store) {
       return this.platformMembershipService.listBeanLogsByStoreId(
         resolvedStore.store.id,

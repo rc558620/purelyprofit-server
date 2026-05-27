@@ -63,13 +63,12 @@ export function buildDashboardHomeStats(
   return {
     profitLabel: meta.profitLabel,
     profit: currentProfit,
-      profitChange: calcPercentChange(currentProfit, compareProfit),
+    profitChange: calcPercentChange(currentProfit, compareProfit),
 
     profitCompareLabel: meta.compareLabel,
     orderLabel: meta.orderLabel,
     orderCount: currentSales.orderCount,
-      orderChange: calcPercentChange(
-
+    orderChange: calcPercentChange(
       currentSales.orderCount,
       compareSales.orderCount,
     ),
@@ -380,8 +379,9 @@ function buildTodaySalesTrend(
   });
 
   if (firstFutureBucketIndex !== null && realizedValues.length > 0) {
-    const average = realizedValues.reduce((sum, value) => sum + value, 0)
-      / realizedValues.length;
+    const average =
+      realizedValues.reduce((sum, value) => sum + value, 0) /
+      realizedValues.length;
     if (average > 0) {
       forecast[firstFutureBucketIndex] = roundMoneyValue(average);
     }
@@ -469,7 +469,9 @@ function buildYearSalesTrend(
   saleOrders: SaleOrderRow[],
 ): DashboardHomeSalesTrendDto {
   const year =
-    period === 'last_year' ? new Date().getFullYear() - 1 : new Date().getFullYear();
+    period === 'last_year'
+      ? new Date().getFullYear() - 1
+      : new Date().getFullYear();
   const revenueMap = new Map<number, number>();
 
   for (const row of saleOrders) {

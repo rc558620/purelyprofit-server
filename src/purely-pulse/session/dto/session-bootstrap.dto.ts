@@ -64,7 +64,8 @@ export class PulseSessionMembershipDto {
 
   @ApiPropertyOptional({
     example: 'monthly',
-    description: '目标商家当前套餐 ID（monthly / quarterly / yearly），未开通时为 null',
+    description:
+      '目标商家当前套餐 ID（monthly / quarterly / yearly），未开通时为 null',
   })
   @IsOptional()
   @IsString()
@@ -137,7 +138,8 @@ export class PulseSessionBootstrapResponseDto {
 
   @ApiProperty({
     example: false,
-    description: '兼容字段：是否已选定目标商家门店，建议迁移到 targetStoreSelected',
+    description:
+      '兼容字段：是否已选定目标商家门店，建议迁移到 targetStoreSelected',
     deprecated: true,
   })
   @IsBoolean()

@@ -126,7 +126,9 @@ describe('OnboardingStatusService', () => {
       storeName: null,
     });
     expect(prismaService.user.findUnique).not.toHaveBeenCalled();
-    expect(prismaService.storeMembershipProfile.findUnique).not.toHaveBeenCalled();
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).not.toHaveBeenCalled();
   });
 
   it('getStatus 目标商家会员过期时 membershipActive 为 false', async () => {

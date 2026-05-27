@@ -24,7 +24,8 @@ describe('FinanceReconciliationService', () => {
   beforeEach(async () => {
     useFinanceSpecFakeTimers();
     prismaService = createFinanceReconciliationPrismaMock();
-    platformMembershipAccessService = createPlatformMembershipAccessServiceMock();
+    platformMembershipAccessService =
+      createPlatformMembershipAccessServiceMock();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: createFinanceReconciliationProviders(
@@ -33,7 +34,9 @@ describe('FinanceReconciliationService', () => {
       ),
     }).compile();
 
-    service = module.get<FinanceReconciliationService>(FinanceReconciliationService);
+    service = module.get<FinanceReconciliationService>(
+      FinanceReconciliationService,
+    );
   });
 
   afterEach(() => {

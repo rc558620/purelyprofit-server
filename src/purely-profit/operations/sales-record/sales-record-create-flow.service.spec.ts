@@ -28,8 +28,9 @@ describe('SalesRecordCreateFlowService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     prismaService.$transaction.mockImplementation(
-      async (callback: (client: typeof transactionClient) => Promise<unknown>) =>
-        callback(transactionClient),
+      async (
+        callback: (client: typeof transactionClient) => Promise<unknown>,
+      ) => callback(transactionClient),
     );
 
     const module: TestingModule = await Test.createTestingModule({
@@ -40,7 +41,9 @@ describe('SalesRecordCreateFlowService', () => {
       ],
     }).compile();
 
-    service = module.get<SalesRecordCreateFlowService>(SalesRecordCreateFlowService);
+    service = module.get<SalesRecordCreateFlowService>(
+      SalesRecordCreateFlowService,
+    );
   });
 
   it('createRecord 会创建订单、扣减库存并写入财务流水', async () => {
@@ -172,16 +175,18 @@ describe('SalesRecordCreateFlowService', () => {
         items: [{ productId: 201, quantity: 2 }],
       },
     );
-    expect(transactionClient.financeCashFlowRecord.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        storeId: 18,
-        saleOrderId: 11,
-        direction: 'income',
-        category: 'sales',
-        amount: new Prisma.Decimal('49'),
-        payment: 'cash',
-      }),
-    });
+    expect(transactionClient.financeCashFlowRecord.create).toHaveBeenCalledWith(
+      {
+        data: expect.objectContaining({
+          storeId: 18,
+          saleOrderId: 11,
+          direction: 'income',
+          category: 'sales',
+          amount: new Prisma.Decimal('49'),
+          payment: 'cash',
+        }),
+      },
+    );
   });
 
   it('createRecord 在跳过库存校验时不会触发扣减', async () => {
@@ -250,6 +255,8 @@ describe('SalesRecordCreateFlowService', () => {
     });
 
     expect(inventoryService.recordSaleDeduction).not.toHaveBeenCalled();
-    expect(transactionClient.financeCashFlowRecord.create).toHaveBeenCalledTimes(1);
+    expect(
+      transactionClient.financeCashFlowRecord.create,
+    ).toHaveBeenCalledTimes(1);
   });
 });

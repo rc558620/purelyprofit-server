@@ -223,8 +223,12 @@ describe('products.query', () => {
   });
 
   it('分类与编号相关查询会限制在门店维度', async () => {
-    const { prisma, productCategoryFindFirst, productCategoryCreate, productFindFirst } =
-      createPrismaMock();
+    const {
+      prisma,
+      productCategoryFindFirst,
+      productCategoryCreate,
+      productFindFirst,
+    } = createPrismaMock();
     productCategoryFindFirst.mockResolvedValue({ id: 7 });
     productCategoryCreate.mockResolvedValue({ id: 8 });
     productFindFirst.mockResolvedValue({ id: 99 });
@@ -232,7 +236,9 @@ describe('products.query', () => {
     await expect(
       findProductCategoryByName(prisma as never, 18, '饮品'),
     ).resolves.toEqual({ id: 7 });
-    await expect(createProductCategory(prisma as never, 18, '小食')).resolves.toEqual({
+    await expect(
+      createProductCategory(prisma as never, 18, '小食'),
+    ).resolves.toEqual({
       id: 8,
     });
     await expect(
@@ -274,7 +280,8 @@ describe('products.query', () => {
   });
 
   it('create/update/delete 会复用统一数据写入结构', async () => {
-    const { prisma, productCreate, productUpdate, productDelete } = createPrismaMock();
+    const { prisma, productCreate, productUpdate, productDelete } =
+      createPrismaMock();
     const row = createProductRecordFixture();
     productCreate.mockResolvedValue(row);
     productUpdate.mockResolvedValue({ ...row, name: '雪碧' });

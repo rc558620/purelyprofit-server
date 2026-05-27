@@ -4,7 +4,10 @@ import type { AuthenticatedUser } from '../purely-profit/auth/strategies/jwt.str
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { PulseStoreContextService } from './pulse-store-context.service';
-import { PULSE_TARGET_STORE_SELECT, type PulseStoreRow } from './pulse-store-context.types';
+import {
+  PULSE_TARGET_STORE_SELECT,
+  type PulseStoreRow,
+} from './pulse-store-context.types';
 
 describe('PulseStoreContextService', () => {
   let service: PulseStoreContextService;
@@ -92,7 +95,10 @@ describe('PulseStoreContextService', () => {
       where: { id: 66 },
       select: PULSE_TARGET_STORE_SELECT,
     });
-    expect(redisService.set).toHaveBeenCalledWith('pulse:selected-store:101', '66');
+    expect(redisService.set).toHaveBeenCalledWith(
+      'pulse:selected-store:101',
+      '66',
+    );
   });
 
   it('resolveTargetStore 会优先读取已保存且可访问的 selected 门店', async () => {
@@ -181,9 +187,9 @@ describe('PulseStoreContextService', () => {
   it('resolveTargetStoreOrThrow 在未选中目标门店时抛出默认提示', async () => {
     redisService.get.mockResolvedValue(null);
 
-    await expect(service.resolveTargetStoreOrThrow(developerUser)).rejects.toThrow(
-      '请先选择目标门店',
-    );
+    await expect(
+      service.resolveTargetStoreOrThrow(developerUser),
+    ).rejects.toThrow('请先选择目标门店');
   });
 
   it('resolveTargetStoreOrThrow 会透传自定义未找到提示', async () => {
@@ -201,19 +207,24 @@ describe('PulseStoreContextService', () => {
       createStoreRow({ id: 88, name: '纯利宝宝安店', ownerId: 305 }),
     );
 
-    await expect(service.switchTargetStore(developerUser, 88)).resolves.toEqual({
-      id: 88,
-      name: '纯利宝宝安店',
-      address: '深圳市南山区科技园',
-      contactPhone: '0755-12345678',
-      ownerId: 305,
-      ownerName: '张三',
-    });
+    await expect(service.switchTargetStore(developerUser, 88)).resolves.toEqual(
+      {
+        id: 88,
+        name: '纯利宝宝安店',
+        address: '深圳市南山区科技园',
+        contactPhone: '0755-12345678',
+        ownerId: 305,
+        ownerName: '张三',
+      },
+    );
     expect(prismaService.store.findUnique).toHaveBeenCalledWith({
       where: { id: 88 },
       select: PULSE_TARGET_STORE_SELECT,
     });
-    expect(redisService.set).toHaveBeenCalledWith('pulse:selected-store:101', '88');
+    expect(redisService.set).toHaveBeenCalledWith(
+      'pulse:selected-store:101',
+      '88',
+    );
   });
 
   it('switchTargetStore 在门店不可访问时保留 ForbiddenException 语义', async () => {

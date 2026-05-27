@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Patch,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Patch, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -68,7 +61,10 @@ export class PulseMembershipSettingsController {
     @Req() request: { user: AuthenticatedUser },
     @Body() dto: UpdateQuarterlyMembershipSettingDto,
   ): Promise<MembershipPlanSettingItemDto> {
-    return this.pulseMembershipSettingsService.updateQuarterly(request.user, dto);
+    return this.pulseMembershipSettingsService.updateQuarterly(
+      request.user,
+      dto,
+    );
   }
 
   @Patch('yearly')
@@ -94,6 +90,9 @@ export class PulseMembershipSettingsController {
     @Req() request: { user: AuthenticatedUser },
     @Body() dto: UpdateLifetimeMembershipSettingDto,
   ): Promise<MembershipPlanSettingItemDto> {
-    return this.pulseMembershipSettingsService.updateLifetime(request.user, dto);
+    return this.pulseMembershipSettingsService.updateLifetime(
+      request.user,
+      dto,
+    );
   }
 }

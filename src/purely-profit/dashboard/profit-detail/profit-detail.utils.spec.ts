@@ -30,7 +30,6 @@ import {
   type AggregatedRankProduct,
   type CostRecordRow,
   type ProfitAccessibleRange,
-  type ProfitDateRange,
   type ProfitMetricsSnapshot,
   type SaleOrderItemRow,
 } from './profit-detail.types';
@@ -62,6 +61,8 @@ describe('profit-detail.utils', () => {
         customDate: 123,
         rangeStartDate: 456,
         rangeEndDate: 789,
+        startTime: 321,
+        endTime: 654,
       }),
     ).toEqual({
       storeId: 18,
@@ -70,6 +71,8 @@ describe('profit-detail.utils', () => {
       customDate: 123,
       rangeStartDate: 456,
       rangeEndDate: 789,
+      startTime: 321,
+      endTime: 654,
     });
   });
 
@@ -91,9 +94,33 @@ describe('profit-detail.utils', () => {
       start: new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
       end: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
     });
+
+    expect(
+      buildCurrentRange({
+        period: 'custom_range',
+        startTime: new Date(2026, 4, 13, 12, 0, 0, 0).getTime(),
+        endTime: new Date(2026, 4, 12, 8, 0, 0, 0).getTime(),
+      }),
+    ).toEqual({
+      start: new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
+      end: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
+    });
   });
 
-  it('buildCurrentRange 在缺少 customDate 时抛错', () => {
+  it('buildCurrentRange 会兼容 custom_month 的 startTime/endTime 参数', () => {
+    expect(
+      buildCurrentRange({
+        period: 'custom_month',
+        startTime: new Date(2026, 4, 25, 10, 30, 0, 0).getTime(),
+        endTime: new Date(2026, 4, 25, 23, 59, 59, 999).getTime(),
+      }),
+    ).toEqual({
+      start: new Date(2026, 4, 25, 0, 0, 0, 0).getTime(),
+      end: new Date(2026, 4, 25, 23, 59, 59, 999).getTime(),
+    });
+  });
+
+  it('buildCurrentRange 在缺少 customDate/startTime 时抛错', () => {
     expect(() => buildCurrentRange({ period: 'custom_month' })).toThrow(
       BadRequestException,
     );

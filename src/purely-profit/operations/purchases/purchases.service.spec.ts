@@ -148,7 +148,9 @@ describe('PurchasesService', () => {
 
   it('list 会先解析门店权限再查询订单列表', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.purchaseOrder.findMany.mockResolvedValue([createPurchaseOrder()]);
+    prismaService.purchaseOrder.findMany.mockResolvedValue([
+      createPurchaseOrder(),
+    ]);
     prismaService.purchaseOrder.count.mockResolvedValue(6);
 
     const result = await service.list(user, {
@@ -296,10 +298,9 @@ describe('PurchasesService', () => {
       'purchase:create',
       '无权操作该门店进货单',
     );
-    expect(commerceAccessService.findOperatorStaffIdForStore).toHaveBeenCalledWith(
-      user,
-      18,
-    );
+    expect(
+      commerceAccessService.findOperatorStaffIdForStore,
+    ).toHaveBeenCalledWith(user, 18);
     expect(prismaService.supplier.findFirst).toHaveBeenCalledTimes(1);
     expect(prismaService.product.findMany).toHaveBeenCalledTimes(1);
     expect(prismaService.$transaction).toHaveBeenCalledTimes(1);

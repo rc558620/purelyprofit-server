@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  buildCacheRefreshTaskKey,
+  buildMarketingOverviewCacheKey,
+} from '../../redis/cache-keys';
+import { RedisService } from '../../redis/redis.service';
 import type { MarketingOverviewDto } from './dto/marketing-response.dto';
 import {
   buildEmptyMarketingOverview,
@@ -9,10 +14,20 @@ import {
 } from './marketing.mapper';
 import { MarketingSharedService } from './marketing-shared.service';
 
+const MARKETING_OVERVIEW_CACHE_TTL_SECONDS = 120;
+const MARKETING_OVERVIEW_REFRESH_AFTER_MS = 30_000;
+
+type MarketingOverviewCachePayload = {
+  generatedAt: number;
+  refreshAt: number;
+  data: MarketingOverviewDto;
+};
+
 @Injectable()
 export class MarketingOverviewService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly marketingSharedService: MarketingSharedService,
   ) {}
 
@@ -29,6 +44,60 @@ export class MarketingOverviewService {
       return buildEmptyMarketingOverview();
     }
 
+    const cacheKey = buildMarketingOverviewCacheKey(resolvedStoreId);
+    const cachedPayload =
+      await this.redisService.getJson<MarketingOverviewCachePayload>(cacheKey);
+
+    if (cachedPayload !== null) {
+      this.scheduleOverviewRefresh(
+        cacheKey,
+        resolvedStoreId,
+        cachedPayload.refreshAt,
+      );
+      return cachedPayload.data;
+    }
+
+    return this.refreshOverviewCache(cacheKey, resolvedStoreId);
+  }
+
+  private scheduleOverviewRefresh(
+    cacheKey: string,
+    storeId: number,
+    refreshAt: number,
+  ): void {
+    if (refreshAt > Date.now()) {
+      return;
+    }
+
+    this.redisService.runBackgroundRefresh(
+      buildCacheRefreshTaskKey(cacheKey),
+      async () => {
+        await this.refreshOverviewCache(cacheKey, storeId);
+      },
+    );
+  }
+
+  private async refreshOverviewCache(
+    cacheKey: string,
+    storeId: number,
+  ): Promise<MarketingOverviewDto> {
+    const data = await this.buildOverview(storeId);
+    const now = Date.now();
+
+    await this.redisService.setJson(
+      cacheKey,
+      {
+        generatedAt: now,
+        refreshAt: now + MARKETING_OVERVIEW_REFRESH_AFTER_MS,
+        data,
+      } satisfies MarketingOverviewCachePayload,
+      MARKETING_OVERVIEW_CACHE_TTL_SECONDS,
+    );
+
+    return data;
+  }
+
+  private async buildOverview(storeId: number): Promise<MarketingOverviewDto> {
     const now = new Date();
     const todayStart = new Date(now);
     todayStart.setHours(0, 0, 0, 0);
@@ -45,22 +114,22 @@ export class MarketingOverviewService {
       trendRechargeRows,
     ] = await Promise.all([
       this.prisma.marketingCustomer.count({
-        where: { storeId: resolvedStoreId, visitCount: { gt: 0 } },
+        where: { storeId, visitCount: { gt: 0 } },
       }),
       this.prisma.marketingCustomer.aggregate({
-        where: { storeId: resolvedStoreId },
+        where: { storeId },
         _sum: { balance: true },
       }),
       this.prisma.marketingRecharge.aggregate({
         where: {
-          storeId: resolvedStoreId,
+          storeId,
           type: { in: ['recharge', 'gift'] },
         },
         _sum: { amount: true, giftAmount: true },
       }),
       this.prisma.marketingRecharge.aggregate({
         where: {
-          storeId: resolvedStoreId,
+          storeId,
           createdAt: { gte: todayStart },
           type: { in: ['recharge', 'gift'] },
         },
@@ -68,18 +137,18 @@ export class MarketingOverviewService {
       }),
       this.prisma.marketingRecharge.aggregate({
         where: {
-          storeId: resolvedStoreId,
+          storeId,
           createdAt: { gte: monthStart },
           type: { in: ['recharge', 'gift'] },
         },
         _sum: { amount: true, giftAmount: true },
       }),
       this.prisma.marketingRecharge.count({
-        where: { storeId: resolvedStoreId },
+        where: { storeId },
       }),
       this.prisma.marketingRecharge.findMany({
         where: {
-          storeId: resolvedStoreId,
+          storeId,
           createdAt: { gte: previousYearStart },
           type: { in: ['recharge', 'gift'] },
         },

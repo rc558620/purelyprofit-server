@@ -23,8 +23,44 @@ export default () => ({
       process.env.APP_SLOW_REQUEST_THRESHOLD_MS ?? '800',
       10,
     ),
+    slowQueryLogEnabled:
+      (process.env.APP_SLOW_QUERY_LOG_ENABLED ?? 'true') === 'true',
+    slowQueryThresholdMs: parseInt(
+      process.env.APP_SLOW_QUERY_THRESHOLD_MS ?? '80',
+      10,
+    ),
+    slowRedisLogEnabled:
+      (process.env.APP_SLOW_REDIS_LOG_ENABLED ?? 'true') === 'true',
+    slowRedisThresholdMs: parseInt(
+      process.env.APP_SLOW_REDIS_THRESHOLD_MS ?? '20',
+      10,
+    ),
     defaultPageSize: parseInt(process.env.APP_DEFAULT_PAGE_SIZE ?? '20', 10),
     maxPageSize: parseInt(process.env.APP_MAX_PAGE_SIZE ?? '100', 10),
+    cachePrewarmEnabled:
+      (process.env.APP_CACHE_PREWARM_ENABLED ?? 'true') === 'true',
+    cachePrewarmIntervalMs: parseInt(
+      process.env.APP_CACHE_PREWARM_INTERVAL_MS ?? '15000',
+      10,
+    ),
+    cachePrewarmInitialDelayMs: parseInt(
+      process.env.APP_CACHE_PREWARM_INITIAL_DELAY_MS ?? '5000',
+      10,
+    ),
+    cachePrewarmBatchSize: parseInt(
+      process.env.APP_CACHE_PREWARM_BATCH_SIZE ?? '30',
+      10,
+    ),
+    cachePrewarmLogEnabled:
+      (process.env.APP_CACHE_PREWARM_LOG_ENABLED ?? 'true') === 'true',
+    cachePrewarmLogSampleEvery: parseInt(
+      process.env.APP_CACHE_PREWARM_LOG_SAMPLE_EVERY ?? '20',
+      10,
+    ),
+    cachePrewarmSlowCycleThresholdMs: parseInt(
+      process.env.APP_CACHE_PREWARM_SLOW_CYCLE_THRESHOLD_MS ?? '1500',
+      10,
+    ),
   },
 
   database: {

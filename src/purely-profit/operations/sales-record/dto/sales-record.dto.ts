@@ -93,7 +93,10 @@ export class CreateSalesRecordDto {
   @IsNumber({}, { message: '总利润必须是数字' })
   totalProfit: number;
 
-  @ApiProperty({ example: 8, description: '总销售件数（前端汇总值，不含抵扣项）' })
+  @ApiProperty({
+    example: 8,
+    description: '总销售件数（前端汇总值，不含抵扣项）',
+  })
   @Type(() => Number)
   @IsInt({ message: '总销售件数必须是整数' })
   @Min(1, { message: '总销售件数必须大于 0' })
@@ -193,7 +196,10 @@ export class ListSalesRecordsQueryDto {
 export class SalesStatsQueryDto extends ListSalesRecordsQueryDto {}
 
 export class SalesReportQueryDto extends ListSalesRecordsQueryDto {
-  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @ApiPropertyOptional({
+    example: false,
+    description: '是否按导出模式拉取数据',
+  })
   @IsOptional()
   @Transform(transformOptionalBoolean)
   @IsBoolean({ message: '导出标记必须是布尔值' })

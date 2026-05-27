@@ -194,17 +194,6 @@ export type UpcomingLeaveRow = Prisma.EmployeeLeaveGetPayload<{
   select: typeof DASHBOARD_HOME_UPCOMING_LEAVE_SELECT;
 }>;
 
-export interface DashboardHomeOverviewData {
-  store: DashboardHomeStoreRow | null;
-  saleOrders: SaleOrderRow[];
-  costRecords: CostRecordRow[];
-  lowStockProducts: ProductAlertRow[];
-  overdueAccounts: OverdueAccountRow[];
-  activePromotions: ActivePromotionRow[];
-  pendingWithdrawals: PendingWithdrawalRow[];
-  upcomingLeaves: UpcomingLeaveRow[];
-}
-
 export interface AggregatedSalesResult {
   revenue: number;
   orderCount: number;
@@ -214,6 +203,20 @@ export interface AggregatedCostsResult {
   totalCost: number;
 }
 
+export interface DashboardHomeOverviewData {
+  store: DashboardHomeStoreRow | null;
+  saleTrendRows: SaleOrderRow[];
+  currentSales: AggregatedSalesResult;
+  compareSales: AggregatedSalesResult;
+  currentCosts: AggregatedCostsResult;
+  compareCosts: AggregatedCostsResult;
+  lowStockProducts: ProductAlertRow[];
+  overdueAccounts: OverdueAccountRow[];
+  activePromotions: ActivePromotionRow[];
+  pendingWithdrawals: PendingWithdrawalRow[];
+  upcomingLeaves: UpcomingLeaveRow[];
+}
+
 export interface BuildDashboardHomeOverviewResponseParams {
   period: DashboardHomePeriodValue;
   storeId: number;
@@ -221,10 +224,6 @@ export interface BuildDashboardHomeOverviewResponseParams {
   compareRange: TimeRange;
   now: number;
   overviewData: DashboardHomeOverviewData;
-  currentSales: AggregatedSalesResult;
-  compareSales: AggregatedSalesResult;
-  currentCosts: AggregatedCostsResult;
-  compareCosts: AggregatedCostsResult;
 }
 
 export interface ActivityDraft {

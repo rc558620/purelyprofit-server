@@ -447,6 +447,71 @@ describe('ProfitDetailService', () => {
     });
   });
 
+  it('custom_month 会兼容 startTime/endTime 参数', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.saleOrderItem.findMany.mockResolvedValue([]);
+    prismaService.costRecord.findMany.mockResolvedValue([]);
+
+    const result = await service.getProfitDetail(user, {
+      period: 'custom_month',
+      startTime: new Date(2026, 4, 14, 10, 0, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 14, 23, 59, 59, 999).getTime(),
+    });
+
+    expect(result.summary).toMatchObject({
+      revenue: 0,
+      totalCost: 0,
+      netProfit: 0,
+      profitRate: 0,
+      orderCount: 0,
+    });
+    expect(result.dailyProfits).toEqual([
+      {
+        dateLabel: '05/14',
+        revenue: 0,
+        cost: 0,
+        profit: 0,
+      },
+    ]);
+    expect(result.productRanking).toEqual([]);
+    expect(result.costBreakdown).toEqual([]);
+  });
+
+  it('custom_range 会兼容 startTime/endTime 参数', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.saleOrderItem.findMany.mockResolvedValue([]);
+    prismaService.costRecord.findMany.mockResolvedValue([]);
+
+    const result = await service.getProfitDetail(user, {
+      period: 'custom_range',
+      startTime: new Date(2026, 4, 1, 0, 0, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 26, 23, 59, 59, 999).getTime(),
+    });
+
+    expect(result.summary).toMatchObject({
+      revenue: 0,
+      totalCost: 0,
+      netProfit: 0,
+      profitRate: 0,
+      orderCount: 0,
+    });
+    expect(result.dailyProfits).toHaveLength(26);
+    expect(result.dailyProfits[0]).toEqual({
+      dateLabel: '05/01',
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+    });
+    expect(result.dailyProfits[result.dailyProfits.length - 1]).toEqual({
+      dateLabel: '05/26',
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+    });
+    expect(result.productRanking).toEqual([]);
+    expect(result.costBreakdown).toEqual([]);
+  });
+
   it('custom_month 缺少 customDate 时抛错', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
 

@@ -4,6 +4,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toOptionalText } from '../../commerce/commerce.utils';
 import { InventoryService } from '../../goods/inventory/inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import type {
   CreateSalesRecordDto,
   SalesRecordResponseDto,
@@ -20,6 +21,7 @@ import { sumMoney } from './sales-record.utils';
 export class SalesRecordWriteService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly inventoryService: InventoryService,
     private readonly salesRecordItemPreparationService: SalesRecordItemPreparationService,
@@ -64,7 +66,7 @@ export class SalesRecordWriteService {
 
     assertSalesTotalsMatch(dto, totalRevenue, totalProfit, totalQuantity);
 
-    return this.salesRecordCreateFlowService.createRecord({
+    const response = await this.salesRecordCreateFlowService.createRecord({
       storeId,
       operatorStaffId,
       dto,
@@ -76,6 +78,10 @@ export class SalesRecordWriteService {
       orderDate: new Date(dto.date ?? Date.now()),
       options,
     });
+
+    await this.invalidateStoreDerivedCaches(storeId);
+
+    return response;
   }
 
   async remove(user: AuthenticatedUser, salesRecordId: number): Promise<void> {
@@ -110,5 +116,11 @@ export class SalesRecordWriteService {
         where: { id: salesRecordId },
       });
     });
+
+    await this.invalidateStoreDerivedCaches(record.storeId);
+  }
+
+  private async invalidateStoreDerivedCaches(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateSalesDerived(storeId);
   }
 }

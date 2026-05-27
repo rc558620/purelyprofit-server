@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Patch, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -80,6 +88,10 @@ export class NotificationsController {
     @Param('id') notificationId: string,
     @Query() query: NotificationsStoreQueryDto,
   ): Promise<MarkNotificationReadResponseDto> {
-    return this.notificationsService.markRead(request.user, notificationId, query);
+    return this.notificationsService.markRead(
+      request.user,
+      notificationId,
+      query,
+    );
   }
 }

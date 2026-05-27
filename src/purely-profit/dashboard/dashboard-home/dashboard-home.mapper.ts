@@ -2,9 +2,7 @@ import type {
   DashboardHomeMetaDto,
   DashboardHomeOverviewResponseDto,
 } from './dto/dashboard-home-response.dto';
-import type {
-  BuildDashboardHomeOverviewResponseParams,
-} from './dashboard-home.types';
+import type { BuildDashboardHomeOverviewResponseParams } from './dashboard-home.types';
 import {
   buildDashboardHomeActivities,
   buildDashboardHomeSalesTrend,
@@ -14,36 +12,26 @@ import {
 export function buildDashboardHomeOverviewResponse(
   params: BuildDashboardHomeOverviewResponseParams,
 ): DashboardHomeOverviewResponseDto {
-  const {
-    period,
-    storeId,
-    currentRange,
-    compareRange,
-    now,
-    overviewData,
-    currentSales,
-    compareSales,
-    currentCosts,
-    compareCosts,
-  } = params;
+  const { period, storeId, currentRange, compareRange, now, overviewData } =
+    params;
 
   return {
     stats: buildDashboardHomeStats(
       period,
-      currentSales,
-      compareSales,
-      currentCosts,
-      compareCosts,
+      overviewData.currentSales,
+      overviewData.compareSales,
+      overviewData.currentCosts,
+      overviewData.compareCosts,
     ),
     salesTrend: buildDashboardHomeSalesTrend(
       period,
       currentRange,
-      overviewData.saleOrders,
+      overviewData.saleTrendRows,
     ),
     activities: buildDashboardHomeActivities({
       period,
-      currentSales,
-      compareSales,
+      currentSales: overviewData.currentSales,
+      compareSales: overviewData.compareSales,
       lowStockProducts: overviewData.lowStockProducts,
       overdueAccounts: overviewData.overdueAccounts,
       activePromotions: overviewData.activePromotions,

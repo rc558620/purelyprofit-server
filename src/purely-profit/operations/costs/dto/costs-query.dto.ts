@@ -93,7 +93,10 @@ export class CostReportQueryDto {
   @IsIn(COST_REPORT_PERIOD_VALUES, { message: '成本报表周期不合法' })
   period?: CostReportPeriodValue;
 
-  @ApiPropertyOptional({ example: 2026, description: '按年筛选时的年份；不传默认当前年' })
+  @ApiPropertyOptional({
+    example: 2026,
+    description: '按年筛选时的年份；不传默认当前年',
+  })
   @IsOptional()
   @Transform(transformOptionalInt)
   @IsInt({ message: '年份必须是整数' })
@@ -132,13 +135,17 @@ export class CostReportQueryDto {
 
   @ApiPropertyOptional({
     enum: COST_REPORT_CATEGORY_FILTER_VALUES,
-    description: '报表中心成本分类筛选；all 返回汇总视图，salary 会额外合并工资草稿',
+    description:
+      '报表中心成本分类筛选；all 返回汇总视图，salary 会额外合并工资草稿',
   })
   @IsOptional()
   @IsIn(COST_REPORT_CATEGORY_FILTER_VALUES, { message: '成本分类筛选不合法' })
   categoryFilter?: CostReportCategoryFilterValue;
 
-  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @ApiPropertyOptional({
+    example: false,
+    description: '是否按导出模式拉取数据',
+  })
   @IsOptional()
   @Transform(transformOptionalBoolean)
   @IsBoolean({ message: '导出标记必须是布尔值' })

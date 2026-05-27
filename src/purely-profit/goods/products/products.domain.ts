@@ -14,7 +14,10 @@ function buildGeneratedProductCode(now: number, randomPart: number): string {
 }
 
 function defaultGenerateProductCode(): string {
-  return buildGeneratedProductCode(Date.now(), Math.floor(Math.random() * 1000));
+  return buildGeneratedProductCode(
+    Date.now(),
+    Math.floor(Math.random() * 1000),
+  );
 }
 
 export async function ensureProductCategory(
@@ -29,7 +32,11 @@ export async function ensureProductCategory(
     return null;
   }
 
-  const existing = await findProductCategoryByName(prisma, params.storeId, name);
+  const existing = await findProductCategoryByName(
+    prisma,
+    params.storeId,
+    name,
+  );
   if (existing) {
     return existing;
   }

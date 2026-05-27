@@ -24,8 +24,8 @@ export class PulseMembershipAccessService {
     configService: ConfigService,
   ) {
     this.pulseDevAccountEmails = new Set(
-      (configService.get<string[]>('pulse.devAccountEmails') ?? []).map((email) =>
-        email.trim().toLowerCase(),
+      (configService.get<string[]>('pulse.devAccountEmails') ?? []).map(
+        (email) => email.trim().toLowerCase(),
       ),
     );
   }
@@ -45,9 +45,7 @@ export class PulseMembershipAccessService {
     });
   }
 
-  async resolveAdminMemberStoreIds(
-    user: AuthenticatedUser,
-  ): Promise<number[]> {
+  async resolveAdminMemberStoreIds(user: AuthenticatedUser): Promise<number[]> {
     if (this.isDeveloper(user)) {
       const profiles = await this.prisma.storeMembershipProfile.findMany({
         where: {
@@ -69,7 +67,8 @@ export class PulseMembershipAccessService {
       return [user.currentMembership.storeId];
     }
 
-    const resolvedStore = await this.pulseStoreContextService.resolveTargetStore(user);
+    const resolvedStore =
+      await this.pulseStoreContextService.resolveTargetStore(user);
     return resolvedStore.store ? [resolvedStore.store.id] : [];
   }
 
@@ -85,7 +84,8 @@ export class PulseMembershipAccessService {
       return true;
     }
 
-    const resolvedStore = await this.pulseStoreContextService.resolveTargetStore(user);
+    const resolvedStore =
+      await this.pulseStoreContextService.resolveTargetStore(user);
     return resolvedStore.store?.id === memberId;
   }
 
@@ -126,7 +126,10 @@ export class PulseMembershipAccessService {
     storeId: number,
     reason: string,
   ): Promise<void> {
-    await this.redisService.set(this.getAdminMemberBanReasonKey(storeId), reason);
+    await this.redisService.set(
+      this.getAdminMemberBanReasonKey(storeId),
+      reason,
+    );
   }
 
   async clearAdminMemberBanReason(storeId: number): Promise<void> {

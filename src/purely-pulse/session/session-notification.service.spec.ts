@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import { SessionNotificationService } from './session-notification.service';
 
 describe('SessionNotificationService', () => {
@@ -23,6 +24,11 @@ describe('SessionNotificationService', () => {
     },
   };
 
+  const redisService = {
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-21T12:00:00.000Z'));
     jest.clearAllMocks();
@@ -31,10 +37,13 @@ describe('SessionNotificationService', () => {
       providers: [
         SessionNotificationService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
       ],
     }).compile();
 
-    service = module.get<SessionNotificationService>(SessionNotificationService);
+    service = module.get<SessionNotificationService>(
+      SessionNotificationService,
+    );
   });
 
   afterEach(() => {
@@ -70,11 +79,13 @@ describe('SessionNotificationService', () => {
         storeId: 18,
         startDate: {
           gte: new Date('2026-05-21T12:00:00.000Z'),
-          lte: new Date('2026-05-28T23:59:59.999Z'),
+          lte: new Date('2026-05-28T15:59:59.999Z'),
         },
       },
     });
-    expect(prismaService.storeMembershipProfile.findUnique).toHaveBeenCalledWith({
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).toHaveBeenCalledWith({
       where: { storeId: 18 },
       select: { expiresAt: true },
     });

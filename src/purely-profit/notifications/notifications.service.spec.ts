@@ -1,6 +1,10 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { FinanceAccountStatus, Prisma, StoreSubscriptionStatus } from '@prisma/client';
+import {
+  FinanceAccountStatus,
+  Prisma,
+  StoreSubscriptionStatus,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../commerce/commerce-access.service';
 import { PrismaService } from '../../prisma/prisma.service';

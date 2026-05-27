@@ -123,7 +123,10 @@ export class DashboardHomeActivityDto {
   @IsString({ message: '动态标题必须是字符串' })
   title: string;
 
-  @ApiProperty({ example: '刚刚 · 环比 +12.5%', description: '动态时间/来源文案' })
+  @ApiProperty({
+    example: '刚刚 · 环比 +12.5%',
+    description: '动态时间/来源文案',
+  })
   @IsString({ message: '动态时间文案必须是字符串' })
   time: string;
 
@@ -173,19 +176,31 @@ export class DashboardHomeMetaDto {
   @IsString({ message: '门店名称必须是字符串' })
   storeName: string;
 
-  @ApiProperty({ example: 1747180800000, description: '当前周期开始时间戳（ms）' })
+  @ApiProperty({
+    example: 1747180800000,
+    description: '当前周期开始时间戳（ms）',
+  })
   @IsInt({ message: '当前周期开始时间必须是整数' })
   startAt: number;
 
-  @ApiProperty({ example: 1747212600000, description: '当前周期结束时间戳（ms）' })
+  @ApiProperty({
+    example: 1747212600000,
+    description: '当前周期结束时间戳（ms）',
+  })
   @IsInt({ message: '当前周期结束时间必须是整数' })
   endAt: number;
 
-  @ApiProperty({ example: 1747094400000, description: '对比周期开始时间戳（ms）' })
+  @ApiProperty({
+    example: 1747094400000,
+    description: '对比周期开始时间戳（ms）',
+  })
   @IsInt({ message: '对比周期开始时间必须是整数' })
   compareStartAt: number;
 
-  @ApiProperty({ example: 1747126200000, description: '对比周期结束时间戳（ms）' })
+  @ApiProperty({
+    example: 1747126200000,
+    description: '对比周期结束时间戳（ms）',
+  })
   @IsInt({ message: '对比周期结束时间必须是整数' })
   compareEndAt: number;
 

@@ -1,17 +1,97 @@
-import {
-  FinanceAccountStatus,
-  Prisma,
-} from '@prisma/client';
+import { FinanceAccountStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { FinanceAccountRecordWithAmount } from './finance.types';
+import type {
+  FinanceAccountRecordWithAmount,
+  FinanceAccountsListQueryInput,
+} from './finance.types';
+
+const financeAccountRecordSelect = {
+  id: true,
+  type: true,
+  category: true,
+  counterpart: true,
+  amount: true,
+  paidAmount: true,
+  remaining: true,
+  status: true,
+  dueDate: true,
+  date: true,
+  note: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.FinanceAccountRecordSelect;
+
+function buildFinanceAccountWhere(
+  storeId: number,
+  query: FinanceAccountsListQueryInput,
+): Prisma.FinanceAccountRecordWhereInput {
+  const where: Prisma.FinanceAccountRecordWhereInput = {
+    storeId,
+  };
+
+  if (query.typeFilter && query.typeFilter !== 'all') {
+    where.type = query.typeFilter;
+  }
+
+  if (query.statusFilter && query.statusFilter !== 'all') {
+    where.status = query.statusFilter;
+  }
+
+  const trimmedSearchText = query.searchText?.trim();
+  if (trimmedSearchText) {
+    where.OR = [
+      {
+        counterpart: {
+          contains: trimmedSearchText,
+          mode: 'insensitive',
+        },
+      },
+      {
+        note: {
+          contains: trimmedSearchText,
+          mode: 'insensitive',
+        },
+      },
+    ];
+  }
+
+  return where;
+}
 
 export async function queryAccountRecords(
+  prisma: PrismaService,
+  storeId: number,
+  query: FinanceAccountsListQueryInput,
+): Promise<{ items: FinanceAccountRecordWithAmount[]; total: number }> {
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? 20;
+  const where = buildFinanceAccountWhere(storeId, query);
+
+  const [items, total] = await Promise.all([
+    prisma.financeAccountRecord.findMany({
+      where,
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }, { id: 'desc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: financeAccountRecordSelect,
+    }),
+    prisma.financeAccountRecord.count({ where }),
+  ]);
+
+  return {
+    items,
+    total,
+  };
+}
+
+export async function queryAccountStatsRows(
   prisma: PrismaService,
   storeId: number,
 ): Promise<FinanceAccountRecordWithAmount[]> {
   return prisma.financeAccountRecord.findMany({
     where: { storeId },
     orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    select: financeAccountRecordSelect,
   });
 }
 
@@ -19,7 +99,10 @@ export async function createAccountRecordEntity(
   prisma: PrismaService,
   data: Prisma.FinanceAccountRecordCreateArgs['data'],
 ): Promise<FinanceAccountRecordWithAmount> {
-  return prisma.financeAccountRecord.create({ data });
+  return prisma.financeAccountRecord.create({
+    data,
+    select: financeAccountRecordSelect,
+  });
 }
 
 export async function findAccountRecord(
@@ -31,6 +114,7 @@ export async function findAccountRecord(
       id: params.recordId,
       storeId: params.storeId,
     },
+    select: financeAccountRecordSelect,
   });
 }
 
@@ -63,6 +147,7 @@ export async function updateAccountRecordSettlement(
       remaining: params.remaining,
       status: params.status,
     },
+    select: financeAccountRecordSelect,
   });
 }
 

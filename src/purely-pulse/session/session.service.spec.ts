@@ -102,6 +102,9 @@ describe('SessionService', () => {
     await expect(service.switchCurrentStore(user, 66)).resolves.toEqual(
       switchResponse,
     );
-    expect(sessionStoreService.switchCurrentStore).toHaveBeenCalledWith(user, 66);
+    expect(sessionStoreService.switchCurrentStore).toHaveBeenCalledWith(
+      user,
+      66,
+    );
   });
 });

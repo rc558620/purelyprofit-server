@@ -343,7 +343,11 @@ describe('ProductsService', () => {
     const row = createProductRecordFixture();
     const response = createProductResponseFixture({
       record: row,
-      overrides: { costPrice: undefined, image: undefined, description: undefined },
+      overrides: {
+        costPrice: undefined,
+        image: undefined,
+        description: undefined,
+      },
     });
     const { responses } = setupListMocks({
       items: [row],
@@ -385,14 +389,20 @@ describe('ProductsService', () => {
       skip: 5,
       take: 5,
     });
-    expect(mockedBuildProductResponse).toHaveBeenNthCalledWith(1, row, 0, [row]);
+    expect(mockedBuildProductResponse).toHaveBeenNthCalledWith(1, row, 0, [
+      row,
+    ]);
   });
 
   it('detail 会查询商品、校验访问权限并交给 mapper 输出', async () => {
     const row = createProductRecordFixture();
     const response = createProductResponseFixture({
       record: row,
-      overrides: { costPrice: undefined, image: undefined, description: undefined },
+      overrides: {
+        costPrice: undefined,
+        image: undefined,
+        description: undefined,
+      },
     });
     setupDetailMocks({ row, response });
 
@@ -412,7 +422,11 @@ describe('ProductsService', () => {
     const created = createProductRecordFixture();
     const response = createProductResponseFixture({
       record: created,
-      overrides: { costPrice: undefined, image: undefined, description: undefined },
+      overrides: {
+        costPrice: undefined,
+        image: undefined,
+        description: undefined,
+      },
     });
     const { storeId, categoryId, resolvedCode } = setupCreateMocks({
       created,
@@ -556,7 +570,10 @@ describe('ProductsService', () => {
       'goods:delete',
       '无权删除该门店商品',
     );
-    expect(mockedDeleteProductRecord).toHaveBeenCalledWith(prismaService, product.id);
+    expect(mockedDeleteProductRecord).toHaveBeenCalledWith(
+      prismaService,
+      product.id,
+    );
   });
 
   it('商品不存在或金额非法时会在 service 层直接失败', async () => {

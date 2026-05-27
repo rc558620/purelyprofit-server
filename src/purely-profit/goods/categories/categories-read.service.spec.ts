@@ -74,9 +74,9 @@ describe('CategoriesReadService', () => {
   it('list 在无可查看门店时返回空数组', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(null);
 
-    await expect(service.list(user, { storeId: 18, keyword: '饮' })).resolves.toEqual(
-      [],
-    );
+    await expect(
+      service.list(user, { storeId: 18, keyword: '饮' }),
+    ).resolves.toEqual([]);
 
     expect(mockedListCategoryRecords).not.toHaveBeenCalled();
     expect(mockedBuildCategoryResponse).not.toHaveBeenCalled();
@@ -96,14 +96,16 @@ describe('CategoriesReadService', () => {
     mockedListCategoryRecords.mockResolvedValue([record]);
     mockedBuildCategoryResponse.mockReturnValue(response);
 
-    await expect(service.list(user, { storeId: 18, keyword: '饮' })).resolves.toEqual([
-      response,
-    ]);
+    await expect(
+      service.list(user, { storeId: 18, keyword: '饮' }),
+    ).resolves.toEqual([response]);
 
     expect(mockedListCategoryRecords).toHaveBeenCalledWith(prismaService, {
       storeId: 18,
       keyword: '饮',
     });
-    expect(mockedBuildCategoryResponse).toHaveBeenCalledWith(record, 0, [record]);
+    expect(mockedBuildCategoryResponse).toHaveBeenCalledWith(record, 0, [
+      record,
+    ]);
   });
 });

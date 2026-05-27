@@ -412,7 +412,10 @@ export class PulseAdminMemberPointsLogDto {
   @IsInt()
   createdAt: number;
 
-  @ApiPropertyOptional({ example: 1749724800000, description: '过期时间戳（ms）' })
+  @ApiPropertyOptional({
+    example: 1749724800000,
+    description: '过期时间戳（ms）',
+  })
   @IsOptional()
   @IsInt()
   expireAt?: number | null;
@@ -481,7 +484,10 @@ export class PulseAdminMemberBeanLogDto {
   @IsIn(PULSE_ADMIN_MEMBER_BEAN_SOURCE_VALUES)
   source: PulseAdminMemberBeanSourceValue;
 
-  @ApiProperty({ example: '推广奖励 · 张三订阅季度会员', description: '纯利豆流水说明' })
+  @ApiProperty({
+    example: '推广奖励 · 张三订阅季度会员',
+    description: '纯利豆流水说明',
+  })
   @IsString()
   description: string;
 
@@ -539,8 +545,7 @@ export const PULSE_MEMBER_LEVEL_VALUES = [
   'annual',
   'lifetime',
 ] as const;
-export type PulseMemberLevelValue =
-  (typeof PULSE_MEMBER_LEVEL_VALUES)[number];
+export type PulseMemberLevelValue = (typeof PULSE_MEMBER_LEVEL_VALUES)[number];
 
 /**
  * 充值支付渠道（对齐前端 RechargeRecord.channel）
@@ -579,7 +584,8 @@ export class PulseRechargeRecordDto {
   @ApiProperty({
     enum: PULSE_RECHARGE_CHANNEL_VALUES,
     example: 'wechat',
-    description: '支付渠道：wechat=微信 / alipay=支付宝 / card=银行卡（对齐前端 RechargeRecord.channel）',
+    description:
+      '支付渠道：wechat=微信 / alipay=支付宝 / card=银行卡（对齐前端 RechargeRecord.channel）',
   })
   @IsIn(PULSE_RECHARGE_CHANNEL_VALUES)
   channel: PulseRechargeChannelValue;
@@ -631,7 +637,8 @@ export class PulseMemberListItemDto {
   @ApiProperty({
     enum: PULSE_MEMBER_LEVEL_VALUES,
     example: 'annual',
-    description: '会员等级：free=免费 / monthly=月卡 / quarterly=季卡 / annual=年卡 / lifetime=永久',
+    description:
+      '会员等级：free=免费 / monthly=月卡 / quarterly=季卡 / annual=年卡 / lifetime=永久',
   })
   @IsIn(PULSE_MEMBER_LEVEL_VALUES)
   level: PulseMemberLevelValue;
@@ -780,7 +787,8 @@ export class PulseMemberDetailDto {
 
   @ApiPropertyOptional({
     example: 1747209600000,
-    description: '会员到期时间戳（ms），永久会员为 null（对齐前端 MemberDetail.membershipExpiry）',
+    description:
+      '会员到期时间戳（ms），永久会员为 null（对齐前端 MemberDetail.membershipExpiry）',
   })
   @IsOptional()
   @IsInt()
@@ -803,22 +811,34 @@ export class PulseAdminMemberMembershipDto {
   @IsString()
   id?: string;
 
-  @ApiPropertyOptional({ enum: PULSE_MEMBER_LEVEL_VALUES, description: '目标会员等级' })
+  @ApiPropertyOptional({
+    enum: PULSE_MEMBER_LEVEL_VALUES,
+    description: '目标会员等级',
+  })
   @IsOptional()
   @IsIn(PULSE_MEMBER_LEVEL_VALUES, { message: '会员等级不合法' })
   level?: PulseMemberLevelValue;
 
-  @ApiPropertyOptional({ enum: PULSE_MEMBER_LEVEL_VALUES, description: '兼容旧请求的会员等级字段' })
+  @ApiPropertyOptional({
+    enum: PULSE_MEMBER_LEVEL_VALUES,
+    description: '兼容旧请求的会员等级字段',
+  })
   @IsOptional()
   @IsIn(PULSE_MEMBER_LEVEL_VALUES, { message: '会员等级不合法' })
   memberLevel?: PulseMemberLevelValue;
 
-  @ApiPropertyOptional({ enum: PULSE_MEMBER_LEVEL_VALUES, description: '兼容旧请求的会员等级字段' })
+  @ApiPropertyOptional({
+    enum: PULSE_MEMBER_LEVEL_VALUES,
+    description: '兼容旧请求的会员等级字段',
+  })
   @IsOptional()
   @IsIn(PULSE_MEMBER_LEVEL_VALUES, { message: '会员等级不合法' })
   membershipLevel?: PulseMemberLevelValue;
 
-  @ApiPropertyOptional({ example: 1747209600000, description: '会员到期时间戳（ms）' })
+  @ApiPropertyOptional({
+    example: 1747209600000,
+    description: '会员到期时间戳（ms）',
+  })
   @IsOptional()
   @Transform(({ value }) => {
     if (value === null || value === undefined || value === '') {
@@ -829,7 +849,10 @@ export class PulseAdminMemberMembershipDto {
   @IsInt({ message: '会员到期时间必须是整数时间戳' })
   membershipExpiry?: number | null;
 
-  @ApiPropertyOptional({ example: 1747209600000, description: '兼容旧请求的到期时间字段' })
+  @ApiPropertyOptional({
+    example: 1747209600000,
+    description: '兼容旧请求的到期时间字段',
+  })
   @IsOptional()
   @Transform(({ value }) => {
     if (value === null || value === undefined || value === '') {
@@ -840,7 +863,10 @@ export class PulseAdminMemberMembershipDto {
   @IsInt({ message: '会员到期时间必须是整数时间戳' })
   expireAt?: number | null;
 
-  @ApiPropertyOptional({ example: 1747209600000, description: '兼容旧请求的到期时间字段' })
+  @ApiPropertyOptional({
+    example: 1747209600000,
+    description: '兼容旧请求的到期时间字段',
+  })
   @IsOptional()
   @Transform(({ value }) => {
     if (value === null || value === undefined || value === '') {
@@ -868,12 +894,18 @@ export class PulseAdminMemberStatusDto {
   @IsString()
   id?: string;
 
-  @ApiPropertyOptional({ enum: PULSE_MEMBER_STATUS_VALUES, description: '目标会员状态' })
+  @ApiPropertyOptional({
+    enum: PULSE_MEMBER_STATUS_VALUES,
+    description: '目标会员状态',
+  })
   @IsOptional()
   @IsIn(PULSE_MEMBER_STATUS_VALUES, { message: '会员状态不合法' })
   status?: PulseMemberStatusValue;
 
-  @ApiPropertyOptional({ enum: PULSE_MEMBER_STATUS_VALUES, description: '兼容旧请求的会员状态字段' })
+  @ApiPropertyOptional({
+    enum: PULSE_MEMBER_STATUS_VALUES,
+    description: '兼容旧请求的会员状态字段',
+  })
   @IsOptional()
   @IsIn(PULSE_MEMBER_STATUS_VALUES, { message: '会员状态不合法' })
   memberStatus?: PulseMemberStatusValue;
@@ -884,7 +916,10 @@ export class PulseAdminMemberStatusDto {
   @MaxLength(100, { message: '操作原因最多 100 位' })
   reason?: string;
 
-  @ApiPropertyOptional({ example: '涉嫌异常操作', description: '兼容旧请求的备注字段' })
+  @ApiPropertyOptional({
+    example: '涉嫌异常操作',
+    description: '兼容旧请求的备注字段',
+  })
   @IsOptional()
   @IsString({ message: '备注必须是字符串' })
   @MaxLength(100, { message: '备注最多 100 位' })

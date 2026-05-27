@@ -109,19 +109,39 @@ describe('PulseGrowthService', () => {
       },
       statsByPeriod: {
         all: { totalPromos: 0, chargedPromos: 0, promoRate: 0, earnedBeans: 0 },
-        today: { totalPromos: 0, chargedPromos: 0, promoRate: 0, earnedBeans: 0 },
-        month: { totalPromos: 0, chargedPromos: 0, promoRate: 0, earnedBeans: 0 },
-        year: { totalPromos: 0, chargedPromos: 0, promoRate: 0, earnedBeans: 0 },
+        today: {
+          totalPromos: 0,
+          chargedPromos: 0,
+          promoRate: 0,
+          earnedBeans: 0,
+        },
+        month: {
+          totalPromos: 0,
+          chargedPromos: 0,
+          promoRate: 0,
+          earnedBeans: 0,
+        },
+        year: {
+          totalPromos: 0,
+          chargedPromos: 0,
+          promoRate: 0,
+          earnedBeans: 0,
+        },
       },
       items: [],
     });
 
     const result = await service.getPromoCenter(user);
 
-    expect(accessService.resolveTargetStoreForGrowth).toHaveBeenCalledWith(user, {
-      notFoundMessage: '当前未选中目标商家门店，暂无法查看增长中心',
-    });
-    expect(platformMembershipService.getPromoCenterByStoreId).toHaveBeenCalledWith(18);
+    expect(accessService.resolveTargetStoreForGrowth).toHaveBeenCalledWith(
+      user,
+      {
+        notFoundMessage: '当前未选中目标商家门店，暂无法查看增长中心',
+      },
+    );
+    expect(
+      platformMembershipService.getPromoCenterByStoreId,
+    ).toHaveBeenCalledWith(18);
     expect(result.items).toEqual([]);
   });
 

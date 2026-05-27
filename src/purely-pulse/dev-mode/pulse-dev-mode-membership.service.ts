@@ -9,10 +9,7 @@ import type {
   PlatformMembershipPromoCenterResponseDto,
   PlatformMembershipPartnerProfileResponseDto,
 } from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
-import {
-  DEV_EXPIRES_AT,
-  DEV_REMAINING_DAYS,
-} from './pulse-dev-mode.constants';
+import { DEV_EXPIRES_AT, DEV_REMAINING_DAYS } from './pulse-dev-mode.constants';
 
 @Injectable()
 export class PulseDevModeMembershipService {

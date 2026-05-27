@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { resolvePagination } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import { CostsService } from '../costs/costs.service';
 import type {
   CreatePurchaseDto,
@@ -48,6 +49,7 @@ import type { PurchaseListQuery, PurchaseStatsQuery } from './purchases.types';
 export class PurchasesService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly configService: ConfigService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly costsService: CostsService,
@@ -131,7 +133,9 @@ export class PurchasesService {
         storeId,
       );
 
-    const normalizedSupplierName = normalizePurchaseSupplierName(dto.supplierName);
+    const normalizedSupplierName = normalizePurchaseSupplierName(
+      dto.supplierName,
+    );
     const note = normalizePurchaseNote(dto.note);
     assertPurchaseSupplierInput(dto.supplierId, normalizedSupplierName);
 
@@ -180,11 +184,16 @@ export class PurchasesService {
       return order;
     });
 
+    await this.invalidateDashboardCaches(storeId);
+
     return mapPurchaseResponse(created);
   }
 
   async remove(user: AuthenticatedUser, purchaseId: number): Promise<void> {
-    const purchase = await findPurchaseOrderAccessRecord(this.prisma, purchaseId);
+    const purchase = await findPurchaseOrderAccessRecord(
+      this.prisma,
+      purchaseId,
+    );
 
     if (!purchase) {
       throw new NotFoundException('进货单不存在');
@@ -198,6 +207,11 @@ export class PurchasesService {
     );
 
     await deletePurchaseOrderEntity(this.prisma, purchase.id);
+    await this.invalidateDashboardCaches(purchase.storeId);
+  }
+
+  private async invalidateDashboardCaches(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId);
   }
 
   private resolvePagination(page?: number, pageSize?: number) {

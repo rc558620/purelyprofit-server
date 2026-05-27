@@ -251,7 +251,9 @@ export function buildFinanceReportSummary(
     }
   }
 
-  for (const record of accountRecords.map((item) => withDerivedAccountFields(item))) {
+  for (const record of accountRecords.map((item) =>
+    withDerivedAccountFields(item),
+  )) {
     if (record.status === FinanceAccountStatus.settled) {
       continue;
     }

@@ -2,6 +2,7 @@ import {
   calcPercentChange,
   calcPercentOfTotal,
   formatMonthDayLabel,
+  getDayStartTimestamp,
   subtractMoneyValues,
 } from '../../commerce/commerce.utils';
 import type {
@@ -101,16 +102,18 @@ function buildDailyTrend(
   dailyRevenueMap: Map<number, number>,
   dailyCostMap: Map<number, number>,
 ): BusinessAnalysisDailyTrendDto[] {
+  const startDay = getDayStartTimestamp(start);
+  const endDay = getDayStartTimestamp(end);
   const days = Math.max(
     1,
-    Math.min(MAX_TREND_DAYS, Math.round((end - start) / DAY_MS) + 1),
+    Math.min(MAX_TREND_DAYS, Math.floor((endDay - startDay) / DAY_MS) + 1),
   );
-  const endDate = new Date(end);
+  const startDate = new Date(startDay);
   const items: BusinessAnalysisDailyTrendDto[] = [];
 
   for (let offset = 0; offset < days; offset += 1) {
-    const currentDate = new Date(endDate);
-    currentDate.setDate(endDate.getDate() - (days - 1 - offset));
+    const currentDate = new Date(startDate);
+    currentDate.setDate(startDate.getDate() + offset);
     currentDate.setHours(0, 0, 0, 0);
     const currentDay = currentDate.getTime();
     const revenue = dailyRevenueMap.get(currentDay) ?? 0;

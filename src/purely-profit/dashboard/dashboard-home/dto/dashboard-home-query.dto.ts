@@ -21,10 +21,13 @@ export class GetDashboardHomeOverviewQueryDto {
 
   @ApiPropertyOptional({
     enum: DASHBOARD_HOME_PERIOD_VALUES,
-    description: '首页概览时间周期，不传默认今日；兼容 today/week/month/year/last_year',
+    description:
+      '首页概览时间周期，不传默认今日；兼容 today/week/month/year/last_year',
   })
   @IsOptional()
-  @Transform(({ value }: { value: unknown }) => normalizeDashboardHomePeriod(value))
+  @Transform(({ value }: { value: unknown }) =>
+    normalizeDashboardHomePeriod(value),
+  )
   @IsIn(DASHBOARD_HOME_PERIOD_VALUES, { message: '首页时间周期不合法' })
   period?: DashboardHomePeriodValue;
 }

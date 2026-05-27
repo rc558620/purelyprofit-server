@@ -1,4 +1,4 @@
-import { type FinanceCashFlowCategory } from '@prisma/client';
+import { type CostCategory } from '@prisma/client';
 import {
   addMoneyValues,
   getDayStartTimestamp,
@@ -9,7 +9,7 @@ import {
 import type {
   AggregatedCategory,
   AggregatedRankProduct,
-  CashFlowCostRow,
+  CostRecordCostRow,
   CostAggregationResult,
   CostBucketKey,
   SaleOrderItemRow,
@@ -88,7 +88,9 @@ export function aggregateSales(
     }
 
     const rankKey =
-      row.productId !== null ? String(row.productId) : `snapshot:${row.productName}`;
+      row.productId !== null
+        ? String(row.productId)
+        : `snapshot:${row.productName}`;
     const currentProduct = rankMap.get(rankKey);
     if (currentProduct) {
       currentProduct.totalRevenue = addMoneyValues(
@@ -127,7 +129,7 @@ export function aggregateSales(
 }
 
 export function aggregateCosts(
-  rows: CashFlowCostRow[],
+  rows: CostRecordCostRow[],
   start: number,
   end: number,
 ): CostAggregationResult {
@@ -163,11 +165,15 @@ export function aggregateCosts(
   };
 }
 
-function mapCostBucket(category: FinanceCashFlowCategory | string): CostBucketKey {
+function mapCostBucket(
+  category: CostCategory | string,
+): CostBucketKey {
   switch (category) {
     case 'purchase':
       return 'purchase';
     case 'salary':
+    case 'insurance':
+    case 'provident_fund':
       return 'salary';
     case 'rent':
       return 'rent';
@@ -175,13 +181,9 @@ function mapCostBucket(category: FinanceCashFlowCategory | string): CostBucketKe
       return 'utilities';
     case 'marketing':
       return 'marketing';
-    case 'sales':
-    case 'refund':
-    case 'transfer_in':
-    case 'other_income':
-    case 'tax':
-    case 'transfer_out':
-    case 'other_expense':
+    case 'equipment':
+    case 'packaging':
+    case 'other':
     default:
       return 'other';
   }

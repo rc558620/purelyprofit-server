@@ -46,15 +46,15 @@ export type SaleOrderItemRow = Prisma.SaleOrderItemGetPayload<{
   select: typeof BUSINESS_ANALYSIS_SALE_ORDER_ITEM_SELECT;
 }>;
 
-export const BUSINESS_ANALYSIS_CASH_FLOW_COST_SELECT =
-  Prisma.validator<Prisma.FinanceCashFlowRecordSelect>()({
+export const BUSINESS_ANALYSIS_COST_RECORD_SELECT =
+  Prisma.validator<Prisma.CostRecordSelect>()({
     category: true,
     amount: true,
     date: true,
   });
 
-export type CashFlowCostRow = Prisma.FinanceCashFlowRecordGetPayload<{
-  select: typeof BUSINESS_ANALYSIS_CASH_FLOW_COST_SELECT;
+export type CostRecordCostRow = Prisma.CostRecordGetPayload<{
+  select: typeof BUSINESS_ANALYSIS_COST_RECORD_SELECT;
 }>;
 
 export interface AggregatedCategory {

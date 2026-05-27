@@ -52,7 +52,10 @@ export class GetBusinessAnalysisQueryDto {
   @Min(0, { message: '结束时间不合法' })
   endTime?: number;
 
-  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @ApiPropertyOptional({
+    example: false,
+    description: '是否按导出模式拉取数据',
+  })
   @IsOptional()
   @Transform(transformOptionalBoolean)
   @IsBoolean({ message: '导出标记必须是布尔值' })

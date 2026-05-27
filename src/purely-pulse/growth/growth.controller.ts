@@ -66,7 +66,10 @@ export class PulseGrowthController {
 
   @Get('admin/promo-detail')
   @ApiOperation({ summary: '获取 Pulse 平台推广详情聚合数据' })
-  @ApiOkResponse({ description: '返回 purelyPulse promotion-detail 页面所需的地区、合伙人与趋势数据' })
+  @ApiOkResponse({
+    description:
+      '返回 purelyPulse promotion-detail 页面所需的地区、合伙人与趋势数据',
+  })
   getAdminPromoDetail(
     @Req() request: { user: AuthenticatedUser },
     @Query() query: Record<string, unknown>,
@@ -90,7 +93,8 @@ export class PulseGrowthController {
   @Get('admin/partner-applications')
   @ApiOperation({ summary: '获取 Pulse 平台合伙人申请审核列表' })
   @ApiOkResponse({
-    description: '返回 purelyPulse partnerReview 页面所需的申请审核列表与统计信息',
+    description:
+      '返回 purelyPulse partnerReview 页面所需的申请审核列表与统计信息',
     type: PulseAdminPartnerApplicationsResponseDto,
   })
   listAdminPartnerApplications(
@@ -130,7 +134,9 @@ export class PulseGrowthController {
 
   @Post('partner/apply')
   @ApiOperation({ summary: '目标商家申请合伙人的兼容接口' })
-  @ApiCreatedResponse({ description: '兼容路由：当前默认拒绝代目标商家提交合伙人申请' })
+  @ApiCreatedResponse({
+    description: '兼容路由：当前默认拒绝代目标商家提交合伙人申请',
+  })
   applyPartner(
     @Req() request: { user: AuthenticatedUser },
     @Body() dto: ApplyPlatformPartnerDto,
@@ -185,7 +191,8 @@ export class PulseGrowthController {
   @Get('admin/payouts')
   @ApiOperation({ summary: '获取 Pulse 平台合伙人打款管理列表' })
   @ApiOkResponse({
-    description: '返回 purelyPulse partnerPayout 页面所需的打款申请列表与汇总数据',
+    description:
+      '返回 purelyPulse partnerPayout 页面所需的打款申请列表与汇总数据',
     type: PulseAdminPayoutsResponseDto,
   })
   listAdminPayouts(
@@ -246,7 +253,9 @@ export class PulseGrowthController {
 
   @Post('withdrawals/apply')
   @ApiOperation({ summary: '目标商家申请提现的兼容接口' })
-  @ApiCreatedResponse({ description: '兼容路由：当前默认拒绝代目标商家发起提现申请' })
+  @ApiCreatedResponse({
+    description: '兼容路由：当前默认拒绝代目标商家发起提现申请',
+  })
   applyWithdrawal(
     @Req() request: { user: AuthenticatedUser },
     @Body() dto: PulseApplyWithdrawalDto,

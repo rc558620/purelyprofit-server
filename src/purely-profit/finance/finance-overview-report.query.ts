@@ -54,11 +54,7 @@ export async function queryFinanceReportData(
                 lte: new Date(params.currentRange.end),
               },
             },
-            orderBy: [
-              { date: 'desc' },
-              { createdAt: 'desc' },
-              { id: 'desc' },
-            ],
+            orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
           }),
       params.previousRange && !params.previousRange.empty
         ? prisma.financeCashFlowRecord.findMany({

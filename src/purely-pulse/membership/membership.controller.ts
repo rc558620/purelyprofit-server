@@ -80,7 +80,8 @@ export class PulseMembershipController {
   @Get('center')
   @ApiOperation({ summary: '获取目标商家订阅中心兼容数据' })
   @ApiOkResponse({
-    description: '当前返回目标商家订阅中心的旧字段结构兼容数据，默认按开发者查看目标商家订阅状态理解。',
+    description:
+      '当前返回目标商家订阅中心的旧字段结构兼容数据，默认按开发者查看目标商家订阅状态理解。',
     type: PlatformMembershipCenterResponseDto,
   })
   getCenter(
@@ -103,7 +104,10 @@ export class PulseMembershipController {
     @Req() request: AuthenticatedRequest,
     @Body() dto: PulseMembershipOrderPreviewDto,
   ): Promise<PulseMembershipOrderPreviewResponseDto> {
-    return this.pulseMembershipService.previewOrder(this.currentUser(request), dto);
+    return this.pulseMembershipService.previewOrder(
+      this.currentUser(request),
+      dto,
+    );
   }
 
   @Post('orders')
@@ -116,7 +120,10 @@ export class PulseMembershipController {
     @Req() request: AuthenticatedRequest,
     @Body() dto: PurchasePlatformMembershipOrderDto,
   ): Promise<PurchasePlatformMembershipOrderResponseDto> {
-    return this.pulseMembershipService.purchaseOrder(this.currentUser(request), dto);
+    return this.pulseMembershipService.purchaseOrder(
+      this.currentUser(request),
+      dto,
+    );
   }
 
   @Get('orders')
@@ -141,7 +148,10 @@ export class PulseMembershipController {
     @Req() request: AuthenticatedRequest,
     @Param('id', ParseIntPipe) orderId: number,
   ): Promise<PulseMembershipOrderDetailResponseDto> {
-    return this.pulseMembershipService.getOrder(this.currentUser(request), orderId);
+    return this.pulseMembershipService.getOrder(
+      this.currentUser(request),
+      orderId,
+    );
   }
 
   @Get('orders/:id/pay-status')
@@ -173,7 +183,9 @@ export class PulseMembershipController {
   listPointsLogs(
     @Req() request: AuthenticatedRequest,
   ): Promise<PlatformMembershipPointsLogsResponseDto> {
-    return this.pulseMembershipService.listPointsLogs(this.currentUser(request));
+    return this.pulseMembershipService.listPointsLogs(
+      this.currentUser(request),
+    );
   }
 
   @Get('beans/logs')
@@ -195,13 +207,16 @@ export class PulseMembershipController {
   @Get('promo')
   @ApiOperation({ summary: '获取目标商家推广中心兼容数据' })
   @ApiOkResponse({
-    description: '当前返回目标商家推广中心的旧字段结构兼容数据，默认按开发者查看商家推广效果理解。',
+    description:
+      '当前返回目标商家推广中心的旧字段结构兼容数据，默认按开发者查看商家推广效果理解。',
     type: PlatformMembershipPromoCenterResponseDto,
   })
   getPromoCenter(
     @Req() request: AuthenticatedRequest,
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
-    return this.pulseMembershipService.getPromoCenter(this.currentUser(request));
+    return this.pulseMembershipService.getPromoCenter(
+      this.currentUser(request),
+    );
   }
 
   // ──────────────────────────────────────────────
@@ -217,7 +232,9 @@ export class PulseMembershipController {
   listAdminPointsLogs(
     @Req() request: AuthenticatedRequest,
   ): Promise<PulseAdminMemberPointsLogsResponseDto> {
-    return this.pulseMembershipService.listAdminPointsLogs(this.currentUser(request));
+    return this.pulseMembershipService.listAdminPointsLogs(
+      this.currentUser(request),
+    );
   }
 
   @Get('admin/beans/logs')
@@ -229,7 +246,9 @@ export class PulseMembershipController {
   listAdminBeanLogs(
     @Req() request: AuthenticatedRequest,
   ): Promise<PulseAdminMemberBeanLogsResponseDto> {
-    return this.pulseMembershipService.listAdminBeanLogs(this.currentUser(request));
+    return this.pulseMembershipService.listAdminBeanLogs(
+      this.currentUser(request),
+    );
   }
 
   // ──────────────────────────────────────────────
@@ -239,7 +258,8 @@ export class PulseMembershipController {
   @Get('admin/members')
   @ApiOperation({ summary: '获取 Pulse 会员管理列表' })
   @ApiOkResponse({
-    description: '返回目标商家的平台会员视角列表数据，供 purelyPulse member-list 页面使用。',
+    description:
+      '返回目标商家的平台会员视角列表数据，供 purelyPulse member-list 页面使用。',
     type: PulseAdminMembersResponseDto,
   })
   listAdminMembers(
@@ -255,7 +275,8 @@ export class PulseMembershipController {
   @Get('admin/members/:id')
   @ApiOperation({ summary: '获取 Pulse 会员管理详情' })
   @ApiOkResponse({
-    description: '返回目标商家的单个平台会员详情，供 purelyPulse member-detail 页面使用。',
+    description:
+      '返回目标商家的单个平台会员详情，供 purelyPulse member-detail 页面使用。',
     type: PulseMemberDetailDto,
   })
   getAdminMemberDetail(
@@ -288,7 +309,11 @@ export class PulseMembershipController {
       rawMemberId,
       dto,
     );
-    return this.pulseMembershipService.adjustAdminMemberPoints(user, memberId, dto);
+    return this.pulseMembershipService.adjustAdminMemberPoints(
+      user,
+      memberId,
+      dto,
+    );
   }
 
   @Post('admin/members/:id/beans/adjust')
@@ -307,7 +332,11 @@ export class PulseMembershipController {
       rawMemberId,
       dto,
     );
-    return this.pulseMembershipService.adjustAdminMemberBeans(user, memberId, dto);
+    return this.pulseMembershipService.adjustAdminMemberBeans(
+      user,
+      memberId,
+      dto,
+    );
   }
 
   @Post('admin/members/:id/membership')
@@ -326,7 +355,11 @@ export class PulseMembershipController {
       rawMemberId,
       dto,
     );
-    return this.pulseMembershipService.setAdminMemberMembership(user, memberId, dto);
+    return this.pulseMembershipService.setAdminMemberMembership(
+      user,
+      memberId,
+      dto,
+    );
   }
 
   @Post('admin/members/:id/ban')

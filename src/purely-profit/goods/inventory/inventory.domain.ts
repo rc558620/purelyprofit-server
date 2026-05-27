@@ -33,7 +33,10 @@ export function matchesInventoryFilters(
   product: InventoryProductRecord,
   query: InventoryProductListQueryInput,
 ): boolean {
-  const level = resolveInventoryAlertLevel(product.stock, product.alertThreshold);
+  const level = resolveInventoryAlertLevel(
+    product.stock,
+    product.alertThreshold,
+  );
 
   if (query.alertLevel) {
     return level === query.alertLevel;
@@ -86,7 +89,10 @@ export function buildInventoryStats(
   let totalStockValue = 0;
 
   for (const product of products) {
-    const level = resolveInventoryAlertLevel(product.stock, product.alertThreshold);
+    const level = resolveInventoryAlertLevel(
+      product.stock,
+      product.alertThreshold,
+    );
     if (level === 'danger') {
       dangerCount += 1;
     } else if (level === 'warning') {
@@ -109,7 +115,9 @@ export function buildInventoryStats(
   };
 }
 
-function getInventoryAlertSortOrder(level: 'danger' | 'warning' | 'normal'): number {
+function getInventoryAlertSortOrder(
+  level: 'danger' | 'warning' | 'normal',
+): number {
   switch (level) {
     case 'danger':
       return 0;

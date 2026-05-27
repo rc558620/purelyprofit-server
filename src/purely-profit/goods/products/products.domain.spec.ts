@@ -105,7 +105,10 @@ describe('products.domain', () => {
 
   it('resolveProductCode 会优先复用传入编号并在缺省时生成可用编号', async () => {
     const { prisma, productFindFirst } = createPrismaMock();
-    productFindFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 1 }).mockResolvedValueOnce(null);
+    productFindFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 1 })
+      .mockResolvedValueOnce(null);
 
     await expect(
       resolveProductCode(prisma as never, {
@@ -117,7 +120,10 @@ describe('products.domain', () => {
     await expect(
       resolveProductCode(prisma as never, {
         storeId: 18,
-        generateCode: jest.fn().mockReturnValueOnce('PRD-1').mockReturnValueOnce('PRD-2'),
+        generateCode: jest
+          .fn()
+          .mockReturnValueOnce('PRD-1')
+          .mockReturnValueOnce('PRD-2'),
       }),
     ).resolves.toBe('PRD-2');
   });

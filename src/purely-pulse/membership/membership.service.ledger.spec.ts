@@ -53,10 +53,12 @@ describe('PulseMembershipService ledger', () => {
 
     const result = await context.service.listPointsLogs(context.user);
 
-    expect(context.pulseStoreContextService.resolveTargetStore).toHaveBeenCalledWith(
-      context.user,
-    );
-    expect(context.prismaService.storeMembershipProfile.findMany).toHaveBeenCalledWith({
+    expect(
+      context.pulseStoreContextService.resolveTargetStore,
+    ).toHaveBeenCalledWith(context.user);
+    expect(
+      context.prismaService.storeMembershipProfile.findMany,
+    ).toHaveBeenCalledWith({
       where: {
         store: {
           owner: {
@@ -74,7 +76,9 @@ describe('PulseMembershipService ledger', () => {
         availablePoints: true,
       },
     });
-    expect(context.prismaService.storeMembershipPointsLog.findMany).toHaveBeenCalledWith({
+    expect(
+      context.prismaService.storeMembershipPointsLog.findMany,
+    ).toHaveBeenCalledWith({
       where: {
         store: {
           owner: {
@@ -173,9 +177,9 @@ describe('PulseMembershipService ledger', () => {
 
     const result = await context.service.listBeanLogs(context.user);
 
-    expect(context.pulseStoreContextService.resolveTargetStore).toHaveBeenCalledWith(
-      context.user,
-    );
+    expect(
+      context.pulseStoreContextService.resolveTargetStore,
+    ).toHaveBeenCalledWith(context.user);
     expect(context.prismaService.storePartner.findMany).toHaveBeenCalledWith({
       where: {
         status: 'approved',
@@ -193,7 +197,9 @@ describe('PulseMembershipService ledger', () => {
         totalWithdrawnBeans: true,
       },
     });
-    expect(context.prismaService.storePartnerBeanLog.findMany).toHaveBeenCalledWith({
+    expect(
+      context.prismaService.storePartnerBeanLog.findMany,
+    ).toHaveBeenCalledWith({
       where: {
         store: {
           owner: {

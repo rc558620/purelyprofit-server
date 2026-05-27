@@ -5,7 +5,14 @@ import type { SupplierResponseDto } from './dto/supplier.dto';
 
 type SupplierSnapshot = Pick<
   Supplier,
-  'id' | 'name' | 'contact' | 'phone' | 'category' | 'note' | 'createdAt' | 'updatedAt'
+  | 'id'
+  | 'name'
+  | 'contact'
+  | 'phone'
+  | 'category'
+  | 'note'
+  | 'createdAt'
+  | 'updatedAt'
 >;
 
 @Injectable()

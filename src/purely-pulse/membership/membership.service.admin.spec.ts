@@ -48,7 +48,9 @@ describe('PulseMembershipService admin', () => {
 
     const result = await context.service.listAdminMembers(context.user, {});
 
-    expect(context.prismaService.storeMembershipProfile.findMany).toHaveBeenCalledWith({
+    expect(
+      context.prismaService.storeMembershipProfile.findMany,
+    ).toHaveBeenCalledWith({
       where: {
         store: {
           owner: {
@@ -117,7 +119,10 @@ describe('PulseMembershipService admin', () => {
 
   it('setAdminMemberMembership 支持设置为免费会员', async () => {
     jest
-      .spyOn(context.adminService as never, 'assertAdminMemberMutationAccess' as never)
+      .spyOn(
+        context.adminService as never,
+        'assertAdminMemberMutationAccess' as never,
+      )
       .mockResolvedValue(undefined as never);
     jest
       .spyOn(context.adminService as never, 'buildAdminMemberDetail' as never)
@@ -142,11 +147,17 @@ describe('PulseMembershipService admin', () => {
         membershipExpiry: null,
       } as never);
 
-    const result = await context.service.setAdminMemberMembership(context.user, 18, {
-      level: 'free',
-    });
+    const result = await context.service.setAdminMemberMembership(
+      context.user,
+      18,
+      {
+        level: 'free',
+      },
+    );
 
-    expect(context.prismaService.storeMembershipProfile.upsert).toHaveBeenCalledWith({
+    expect(
+      context.prismaService.storeMembershipProfile.upsert,
+    ).toHaveBeenCalledWith({
       where: { storeId: 18 },
       create: {
         storeId: 18,
@@ -173,7 +184,10 @@ describe('PulseMembershipService admin', () => {
     );
     jest.useFakeTimers().setSystemTime(fixedNow);
     jest
-      .spyOn(context.adminService as never, 'assertAdminMemberMutationAccess' as never)
+      .spyOn(
+        context.adminService as never,
+        'assertAdminMemberMutationAccess' as never,
+      )
       .mockResolvedValue(undefined as never);
     jest
       .spyOn(context.adminService as never, 'buildAdminMemberDetail' as never)
@@ -207,14 +221,20 @@ describe('PulseMembershipService admin', () => {
     });
 
     try {
-      const result = await context.service.setAdminMemberMembership(context.user, 18, {
-        level: 'lifetime',
-      });
-
-      expect(context.platformMembershipService.getPlanConfig).toHaveBeenCalledWith(
-        'lifetime',
+      const result = await context.service.setAdminMemberMembership(
+        context.user,
+        18,
+        {
+          level: 'lifetime',
+        },
       );
-      expect(context.prismaService.storeMembershipProfile.upsert).toHaveBeenCalledWith({
+
+      expect(
+        context.platformMembershipService.getPlanConfig,
+      ).toHaveBeenCalledWith('lifetime');
+      expect(
+        context.prismaService.storeMembershipProfile.upsert,
+      ).toHaveBeenCalledWith({
         where: { storeId: 18 },
         create: {
           storeId: 18,
@@ -310,7 +330,10 @@ describe('PulseMembershipService admin', () => {
 
   it('banAdminMember 封号时会主动踢下线门店所有用户', async () => {
     jest
-      .spyOn(context.adminService as never, 'assertAdminMemberMutationAccess' as never)
+      .spyOn(
+        context.adminService as never,
+        'assertAdminMemberMutationAccess' as never,
+      )
       .mockResolvedValue(undefined as never);
     jest
       .spyOn(context.adminService as never, 'buildAdminMemberDetail' as never)
@@ -339,10 +362,14 @@ describe('PulseMembershipService admin', () => {
       ownerId: 301,
       staffs: [{ userId: 302 }],
     });
-    context.redisService.get.mockResolvedValueOnce('0').mockResolvedValueOnce('1');
+    context.redisService.get
+      .mockResolvedValueOnce('0')
+      .mockResolvedValueOnce('1');
     context.redisService.set.mockResolvedValue(undefined);
 
-    await context.service.banAdminMember(context.user, 18, { reason: '违规操作' });
+    await context.service.banAdminMember(context.user, 18, {
+      reason: '违规操作',
+    });
 
     expect(context.redisService.set).toHaveBeenCalledWith(
       'pulse:membership:admin:member:18:ban-reason',
@@ -360,7 +387,10 @@ describe('PulseMembershipService admin', () => {
 
   it('banAdminMember 缺少封号原因时抛出 BadRequestException', async () => {
     jest
-      .spyOn(context.adminService as never, 'assertAdminMemberMutationAccess' as never)
+      .spyOn(
+        context.adminService as never,
+        'assertAdminMemberMutationAccess' as never,
+      )
       .mockResolvedValue(undefined as never);
 
     await expect(

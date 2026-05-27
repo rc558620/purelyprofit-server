@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import { SessionBootstrapService } from './session-bootstrap.service';
 import { SessionNotificationService } from './session-notification.service';
@@ -26,6 +27,11 @@ describe('SessionBootstrapService', () => {
     countUnreadNotifications: jest.fn(),
   };
 
+  const redisService = {
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+  };
+
   const user: AuthenticatedUser = {
     id: 101,
     email: 'dev@example.com',
@@ -46,6 +52,7 @@ describe('SessionBootstrapService', () => {
       providers: [
         SessionBootstrapService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
         {
           provide: PulseStoreContextService,
           useValue: pulseStoreContextService,
@@ -115,8 +122,12 @@ describe('SessionBootstrapService', () => {
       targetStoreSelected: true,
       hasOnboarded: true,
     });
-    expect(pulseStoreContextService.resolveTargetStore).toHaveBeenCalledWith(user);
-    expect(prismaService.storeMembershipProfile.findUnique).toHaveBeenCalledWith({
+    expect(pulseStoreContextService.resolveTargetStore).toHaveBeenCalledWith(
+      user,
+    );
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).toHaveBeenCalledWith({
       where: { storeId: 18 },
       select: {
         currentPlanId: true,
@@ -129,7 +140,9 @@ describe('SessionBootstrapService', () => {
         },
       },
     });
-    expect(sessionNotificationService.countUnreadNotifications).toHaveBeenCalledWith(18);
+    expect(
+      sessionNotificationService.countUnreadNotifications,
+    ).toHaveBeenCalledWith(18);
   });
 
   it('bootstrap 未选中目标门店时返回空门店态且跳过聚合查询', async () => {
@@ -166,13 +179,19 @@ describe('SessionBootstrapService', () => {
       targetStoreSelected: false,
       hasOnboarded: false,
     });
-    expect(prismaService.storeMembershipProfile.findUnique).not.toHaveBeenCalled();
-    expect(sessionNotificationService.countUnreadNotifications).not.toHaveBeenCalled();
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).not.toHaveBeenCalled();
+    expect(
+      sessionNotificationService.countUnreadNotifications,
+    ).not.toHaveBeenCalled();
   });
 
   it('bootstrap 当前用户不存在时抛错', async () => {
     prismaService.user.findUnique.mockResolvedValue(null);
 
-    await expect(service.bootstrap(user)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.bootstrap(user)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

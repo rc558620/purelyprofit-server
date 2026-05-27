@@ -13,7 +13,11 @@ import type {
   ProfitDetailQueryInput,
   ProfitMetricsSnapshot,
 } from './profit-detail.types';
-import { aggregateCosts, aggregateSales, createEmptySalesAggregation } from './profit-detail.domain';
+import {
+  aggregateCosts,
+  aggregateSales,
+  createEmptySalesAggregation,
+} from './profit-detail.domain';
 import {
   buildEmptyProfitDetailResponse,
   buildEmptyProfitReportResponse,
@@ -67,7 +71,9 @@ export class ProfitDetailService {
     );
 
     if (queryDto.export) {
-      await this.platformMembershipAccessService.ensureReportExportEnabled(storeId);
+      await this.platformMembershipAccessService.ensureReportExportEnabled(
+        storeId,
+      );
     }
 
     const snapshot = await this.buildProfitSnapshot(storeId, query);

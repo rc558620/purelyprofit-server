@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, StaffRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -19,8 +16,8 @@ export class PulseGrowthAccessService {
     configService: ConfigService,
   ) {
     this.pulseDevAccountEmails = new Set(
-      (configService.get<string[]>('pulse.devAccountEmails') ?? []).map((email) =>
-        email.trim().toLowerCase(),
+      (configService.get<string[]>('pulse.devAccountEmails') ?? []).map(
+        (email) => email.trim().toLowerCase(),
       ),
     );
   }
@@ -70,7 +67,8 @@ export class PulseGrowthAccessService {
     return {
       id: await this.resolveObservedStoreId(
         user,
-        options?.notFoundMessage ?? '当前未选中目标商家门店，暂无法查看平台数据',
+        options?.notFoundMessage ??
+          '当前未选中目标商家门店，暂无法查看平台数据',
       ),
     };
   }
@@ -111,7 +109,8 @@ export class PulseGrowthAccessService {
   ): Promise<PulseTargetStoreSummary> {
     return this.pulseStoreContextService.resolveTargetStoreOrThrow(user, {
       notFoundMessage:
-        options?.notFoundMessage ?? '当前未选中目标商家门店，暂无法使用增长中心',
+        options?.notFoundMessage ??
+        '当前未选中目标商家门店，暂无法使用增长中心',
     });
   }
 
@@ -123,7 +122,9 @@ export class PulseGrowthAccessService {
       return user.currentMembership.storeId;
     }
 
-    const store = await this.resolveTargetStoreForGrowth(user, { notFoundMessage });
+    const store = await this.resolveTargetStoreForGrowth(user, {
+      notFoundMessage,
+    });
     return store.id;
   }
 
@@ -139,7 +140,8 @@ export class PulseGrowthAccessService {
       return true;
     }
 
-    const resolvedStore = await this.pulseStoreContextService.resolveTargetStore(user);
+    const resolvedStore =
+      await this.pulseStoreContextService.resolveTargetStore(user);
     return resolvedStore.store?.id === storeId;
   }
 

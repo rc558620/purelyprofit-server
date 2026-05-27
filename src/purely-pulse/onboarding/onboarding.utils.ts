@@ -8,7 +8,9 @@ export interface MembershipProfileRow {
   expiresAt: Date | null;
 }
 
-export function isActiveMembership(profile: MembershipProfileRow | null): boolean {
+export function isActiveMembership(
+  profile: MembershipProfileRow | null,
+): boolean {
   if (!profile?.currentPlanId || !profile.expiresAt) {
     return false;
   }

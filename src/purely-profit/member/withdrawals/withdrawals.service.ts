@@ -2,6 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { PartnerWithdrawalStatus, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import {
   type ApplyWithdrawalDto,
   type ListWithdrawalsQueryDto,
@@ -45,6 +46,7 @@ type ApplyWithdrawalTransactionInput = {
 export class WithdrawalsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly withdrawalsSharedService: WithdrawalsSharedService,
   ) {}
 
@@ -97,7 +99,7 @@ export class WithdrawalsService {
       dto.accountName,
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const response = await this.prisma.$transaction(async (tx) => {
       const createdRecord = await this.createWithdrawalApplication(tx, {
         storeId,
         partnerId: partner.id,
@@ -113,6 +115,10 @@ export class WithdrawalsService {
         createdRecord,
       );
     });
+
+    await this.invalidateDashboardCaches(storeId);
+
+    return response;
   }
 
   async approve(
@@ -130,7 +136,7 @@ export class WithdrawalsService {
       '仅审核中的提现申请可执行通过操作',
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const response = await this.prisma.$transaction(async (tx) => {
       await this.updateWithdrawalStatusOrThrow(tx, {
         withdrawalId,
         storeId: record.storeId,
@@ -142,6 +148,10 @@ export class WithdrawalsService {
 
       return this.buildReviewResponse(tx, record.storeId, withdrawalId);
     });
+
+    await this.invalidateDashboardCaches(record.storeId);
+
+    return response;
   }
 
   async reject(
@@ -165,7 +175,7 @@ export class WithdrawalsService {
       throw new ConflictException('拒绝原因不能为空');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const response = await this.prisma.$transaction(async (tx) => {
       await this.updateWithdrawalStatusOrThrow(tx, {
         withdrawalId,
         storeId: record.storeId,
@@ -178,6 +188,10 @@ export class WithdrawalsService {
 
       return this.buildReviewResponse(tx, record.storeId, withdrawalId);
     });
+
+    await this.invalidateDashboardCaches(record.storeId);
+
+    return response;
   }
 
   async pay(
@@ -195,7 +209,7 @@ export class WithdrawalsService {
       '仅已通过审核的提现申请可确认打款',
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const response = await this.prisma.$transaction(async (tx) => {
       await this.updateWithdrawalStatusOrThrow(tx, {
         withdrawalId,
         storeId: record.storeId,
@@ -206,6 +220,10 @@ export class WithdrawalsService {
 
       return this.buildReviewResponse(tx, record.storeId, withdrawalId);
     });
+
+    await this.invalidateDashboardCaches(record.storeId);
+
+    return response;
   }
 
   private async createWithdrawalApplication(
@@ -328,6 +346,12 @@ export class WithdrawalsService {
     if (actualStatus !== expectedStatus) {
       throw new ConflictException(errorMessage);
     }
+  }
+
+  private async invalidateDashboardCaches(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateDashboardAndPulseSession(
+      storeId,
+    );
   }
 
   private async buildReviewResponse(

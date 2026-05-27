@@ -51,7 +51,14 @@ export function aggregateSales(
       addMoneyValues(dailyRevenueMap.get(dayStart) ?? 0, itemRevenue),
     );
 
-    mergeRankProduct(rankMap, row, price, profitPerUnit, itemRevenue, itemProfit);
+    mergeRankProduct(
+      rankMap,
+      row,
+      price,
+      profitPerUnit,
+      itemRevenue,
+      itemProfit,
+    );
   }
 
   return {
@@ -107,7 +114,9 @@ function mergeRankProduct(
   itemProfit: number,
 ): void {
   const rankKey =
-    row.productId !== null ? String(row.productId) : `snapshot:${row.productName}`;
+    row.productId !== null
+      ? String(row.productId)
+      : `snapshot:${row.productName}`;
   const currentProduct = rankMap.get(rankKey);
 
   if (currentProduct) {

@@ -85,11 +85,17 @@ describe('CategoriesService', () => {
     categoriesWriteService.remove.mockResolvedValue(undefined);
 
     await expect(service.create(user, createDto)).resolves.toBe(createResult);
-    await expect(service.update(user, 1, updateDto)).resolves.toBe(updateResult);
+    await expect(service.update(user, 1, updateDto)).resolves.toBe(
+      updateResult,
+    );
     await expect(service.remove(user, 1)).resolves.toBeUndefined();
 
     expect(categoriesWriteService.create).toHaveBeenCalledWith(user, createDto);
-    expect(categoriesWriteService.update).toHaveBeenCalledWith(user, 1, updateDto);
+    expect(categoriesWriteService.update).toHaveBeenCalledWith(
+      user,
+      1,
+      updateDto,
+    );
     expect(categoriesWriteService.remove).toHaveBeenCalledWith(user, 1);
   });
 });

@@ -182,8 +182,9 @@ export function buildProfitReportResponse(
 function getChartDays(currentRange: ProfitDateRange): number {
   const diffDays =
     Math.floor(
-      (getDayStartTimestamp(currentRange.end)
-        - getDayStartTimestamp(currentRange.start)) / DAY_MS,
+      (getDayStartTimestamp(currentRange.end) -
+        getDayStartTimestamp(currentRange.start)) /
+        DAY_MS,
     ) + 1;
 
   return Math.max(1, Math.min(diffDays, CHART_DAY_LIMIT));

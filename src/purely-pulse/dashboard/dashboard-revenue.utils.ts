@@ -68,7 +68,7 @@ export function buildRevenueTrend(
       displayPeriod === 'today'
         ? `${String(order.createdAt.getHours()).padStart(2, '0')}:00`
         : formatDateLabel(order.createdAt);
-      bucketMap.set(key, (bucketMap.get(key) ?? 0) + order.amount);
+    bucketMap.set(key, (bucketMap.get(key) ?? 0) + order.amount);
   }
 
   const sortedEntries = Array.from(bucketMap.entries()).sort((left, right) =>

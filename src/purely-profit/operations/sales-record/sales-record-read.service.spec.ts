@@ -74,7 +74,9 @@ describe('SalesRecordReadService', () => {
     const query: ListSalesProductsQueryDto = { storeId: 18, keyword: '可乐' };
     salesRecordProductsService.listProducts.mockResolvedValue([{ id: '201' }]);
 
-    await expect(service.listProducts(user, query)).resolves.toEqual([{ id: '201' }]);
+    await expect(service.listProducts(user, query)).resolves.toEqual([
+      { id: '201' },
+    ]);
     expect(salesRecordProductsService.listProducts).toHaveBeenCalledWith(
       user,
       query,
@@ -129,6 +131,9 @@ describe('SalesRecordReadService', () => {
       summary: { totalRevenue: 49.5 },
       dailySales: [],
     });
-    expect(salesRecordReportService.getReport).toHaveBeenCalledWith(user, query);
+    expect(salesRecordReportService.getReport).toHaveBeenCalledWith(
+      user,
+      query,
+    );
   });
 });

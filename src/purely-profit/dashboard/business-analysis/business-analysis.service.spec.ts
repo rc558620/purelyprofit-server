@@ -1,10 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { FinanceCashFlowCategory, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../redis/redis.service';
 import { BusinessAnalysisService } from './business-analysis.service';
 
 describe('BusinessAnalysisService', () => {
@@ -14,9 +15,15 @@ describe('BusinessAnalysisService', () => {
     saleOrderItem: {
       findMany: jest.fn(),
     },
-    financeCashFlowRecord: {
+    costRecord: {
       findMany: jest.fn(),
     },
+  };
+
+  const redisService = {
+    getJson: jest.fn(),
+    setJson: jest.fn(),
+    runBackgroundRefresh: jest.fn(),
   };
 
   const commerceAccessService = {
@@ -47,6 +54,9 @@ describe('BusinessAnalysisService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-13T12:00:00.000Z'));
     jest.clearAllMocks();
+    redisService.getJson.mockResolvedValue(null);
+    redisService.setJson.mockResolvedValue(undefined);
+    redisService.runBackgroundRefresh.mockResolvedValue(undefined);
     platformMembershipAccessService.clampHistoryRange.mockImplementation(
       async (_storeId: number, range: { start: number; end: number }) => ({
         ...range,
@@ -60,6 +70,7 @@ describe('BusinessAnalysisService', () => {
       providers: [
         BusinessAnalysisService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         {
           provide: PlatformMembershipAccessService,
@@ -121,19 +132,19 @@ describe('BusinessAnalysisService', () => {
         },
       },
     ]);
-    prismaService.financeCashFlowRecord.findMany.mockResolvedValue([
+    prismaService.costRecord.findMany.mockResolvedValue([
       {
-        category: 'purchase' as FinanceCashFlowCategory,
+        category: 'purchase',
         amount: new Prisma.Decimal('8.00'),
         date: new Date('2026-05-12T09:00:00.000Z'),
       },
       {
-        category: 'utilities' as FinanceCashFlowCategory,
+        category: 'utilities',
         amount: new Prisma.Decimal('3.00'),
         date: new Date('2026-05-13T09:00:00.000Z'),
       },
       {
-        category: 'rent' as FinanceCashFlowCategory,
+        category: 'rent',
         amount: new Prisma.Decimal('4.00'),
         date: new Date('2026-05-10T09:00:00.000Z'),
       },
@@ -142,8 +153,8 @@ describe('BusinessAnalysisService', () => {
     await expect(
       service.getAnalysis(user, {
         period: 'custom_range',
-        startTime: new Date('2026-05-12T00:00:00.000Z').getTime(),
-        endTime: new Date('2026-05-13T23:59:59.999Z').getTime(),
+        startTime: new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
+        endTime: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
       }),
     ).resolves.toEqual({
       heroSummary: {
@@ -156,7 +167,6 @@ describe('BusinessAnalysisService', () => {
       dailyTrend: [
         { dateLabel: '05/12', revenue: 13, cost: 8, profit: 5 },
         { dateLabel: '05/13', revenue: 9, cost: 3, profit: 6 },
-        { dateLabel: '05/14', revenue: 0, cost: 0, profit: 0 },
       ],
       categoryShares: [
         {
@@ -232,7 +242,7 @@ describe('BusinessAnalysisService', () => {
         empty: true,
       });
     prismaService.saleOrderItem.findMany.mockResolvedValue([]);
-    prismaService.financeCashFlowRecord.findMany.mockResolvedValue([]);
+    prismaService.costRecord.findMany.mockResolvedValue([]);
 
     await service.getAnalysis(user, {
       period: 'month',
@@ -252,10 +262,92 @@ describe('BusinessAnalysisService', () => {
     );
   });
 
+  it('today 周期显式传入 startTime/endTime 时按前端边界查询并返回当天成本趋势', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.clampHistoryRange.mockResolvedValueOnce({
+      start: new Date(2026, 4, 27, 0, 0, 0, 0).getTime(),
+      end: new Date(2026, 4, 27, 18, 0, 0, 0).getTime(),
+      empty: false,
+    });
+    platformMembershipAccessService.clampHistoryRange.mockResolvedValueOnce({
+      start: new Date(2026, 4, 26, 6, 0, 0, 0).getTime(),
+      end: new Date(2026, 4, 26, 23, 59, 59, 999).getTime(),
+      empty: true,
+    });
+    prismaService.saleOrderItem.findMany.mockResolvedValue([
+      {
+        productId: 11,
+        productName: '今日商品',
+        categoryName: '饮品',
+        salePrice: new Prisma.Decimal('14146.67'),
+        profit: new Prisma.Decimal('14146.67'),
+        quantity: 2,
+        image: null,
+        createdAt: new Date(2026, 4, 27, 10, 0, 0, 0),
+        order: {
+          id: 301,
+          date: new Date(2026, 4, 27, 10, 0, 0, 0),
+        },
+      },
+    ]);
+    prismaService.costRecord.findMany.mockResolvedValue([
+      {
+        category: 'purchase',
+        amount: new Prisma.Decimal('500.00'),
+        date: new Date(2026, 4, 27, 9, 0, 0, 0),
+      },
+    ]);
+
+    const response = await service.getAnalysis(user, {
+      period: 'today',
+      startTime: new Date(2026, 4, 27, 0, 0, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 27, 18, 0, 0, 0).getTime(),
+    });
+
+    expect(prismaService.saleOrderItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          order: {
+            date: {
+              gte: new Date(2026, 4, 27, 0, 0, 0, 0),
+              lte: new Date(2026, 4, 27, 18, 0, 0, 0),
+            },
+          },
+        }),
+      }),
+    );
+    expect(prismaService.costRecord.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: {
+            gte: new Date(2026, 4, 27, 0, 0, 0, 0),
+            lte: new Date(2026, 4, 27, 18, 0, 0, 0),
+          },
+        }),
+      }),
+    );
+    expect(response.heroSummary.totalCost.current).toBe(500);
+    expect(response.dailyTrend).toEqual([
+      { dateLabel: '05/27', revenue: 28293.34, cost: 500, profit: 27793.34 },
+    ]);
+    expect(response.costRateItems).toEqual([
+      { label: '进货成本', amount: 500, percentage: 100, color: '#f97316' },
+    ]);
+  });
+
   it('custom_range 缺少时间范围时抛错', async () => {
     await expect(
       service.getAnalysis(user, {
         period: 'custom_range',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('仅传 startTime 不传 endTime 时抛错', async () => {
+    await expect(
+      service.getAnalysis(user, {
+        period: 'today',
+        startTime: 1,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });

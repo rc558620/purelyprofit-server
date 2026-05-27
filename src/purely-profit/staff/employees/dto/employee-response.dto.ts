@@ -232,7 +232,10 @@ export class EmployeeDateFilterQueryDto {
   @Max(12, { message: '月份不能大于 12' })
   month?: number;
 
-  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @ApiPropertyOptional({
+    example: false,
+    description: '是否按导出模式拉取数据',
+  })
   @IsOptional()
   @Transform(transformOptionalBoolean)
   @IsBoolean({ message: '导出标记必须是布尔值' })

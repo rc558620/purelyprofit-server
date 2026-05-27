@@ -54,7 +54,8 @@ export interface PulseAdminPromoDetailResponse {
 }
 
 type AdminPayoutStatus = 'pending' | 'paid' | 'rejected';
-type AdminPartnerApplicationTab = GetPulseAdminPartnerApplicationsQueryDto['tab'];
+type AdminPartnerApplicationTab =
+  GetPulseAdminPartnerApplicationsQueryDto['tab'];
 type AdminPayoutTab = GetPulseAdminPayoutsQueryDto['tab'];
 type PromoDateRange = {
   startAt: Date | null;
@@ -124,7 +125,9 @@ export function buildAdminPartnerApplicationsResponse(
   applications: AdminPartnerApplicationRecord[],
   tab?: AdminPartnerApplicationTab,
 ): PulseAdminPartnerApplicationsResponseDto {
-  const items = applications.map((application) => mapAdminPartnerApplication(application));
+  const items = applications.map((application) =>
+    mapAdminPartnerApplication(application),
+  );
   const filteredItems = filterAdminPartnerApplications(items, tab);
 
   return {
@@ -152,30 +155,70 @@ export function buildAdminPayoutsResponse(
   };
 }
 
-export function resolvePromoDateRange(rawQuery: Record<string, unknown>): PromoDateRange {
-  const queryMode = typeof rawQuery.queryMode === 'string' ? rawQuery.queryMode : '';
+export function resolvePromoDateRange(
+  rawQuery: Record<string, unknown>,
+): PromoDateRange {
+  const queryMode =
+    typeof rawQuery.queryMode === 'string' ? rawQuery.queryMode : '';
   if (queryMode === 'day' && typeof rawQuery.date === 'string') {
     const day = parseDateOnly(rawQuery.date);
     if (!day) {
       return { startAt: null, endAt: null };
     }
 
-    const startAt = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0);
-    const endAt = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999);
+    const startAt = new Date(
+      day.getFullYear(),
+      day.getMonth(),
+      day.getDate(),
+      0,
+      0,
+      0,
+      0,
+    );
+    const endAt = new Date(
+      day.getFullYear(),
+      day.getMonth(),
+      day.getDate(),
+      23,
+      59,
+      59,
+      999,
+    );
     return { startAt, endAt };
   }
 
   if (queryMode === 'range') {
     const startAt =
-      typeof rawQuery.startDate === 'string' ? parseDateOnly(rawQuery.startDate) : null;
-    const endAt = typeof rawQuery.endDate === 'string' ? parseDateOnly(rawQuery.endDate) : null;
+      typeof rawQuery.startDate === 'string'
+        ? parseDateOnly(rawQuery.startDate)
+        : null;
+    const endAt =
+      typeof rawQuery.endDate === 'string'
+        ? parseDateOnly(rawQuery.endDate)
+        : null;
 
     return {
       startAt: startAt
-        ? new Date(startAt.getFullYear(), startAt.getMonth(), startAt.getDate(), 0, 0, 0, 0)
+        ? new Date(
+            startAt.getFullYear(),
+            startAt.getMonth(),
+            startAt.getDate(),
+            0,
+            0,
+            0,
+            0,
+          )
         : null,
       endAt: endAt
-        ? new Date(endAt.getFullYear(), endAt.getMonth(), endAt.getDate(), 23, 59, 59, 999)
+        ? new Date(
+            endAt.getFullYear(),
+            endAt.getMonth(),
+            endAt.getDate(),
+            23,
+            59,
+            59,
+            999,
+          )
         : null,
     };
   }
@@ -198,10 +241,9 @@ function mapAdminPartnerApplication(
   };
 }
 
-function filterAdminPartnerApplications<T extends { status: AdminPartnerApplicationItem['status'] }>(
-  items: T[],
-  tab?: AdminPartnerApplicationTab,
-): T[] {
+function filterAdminPartnerApplications<
+  T extends { status: AdminPartnerApplicationItem['status'] },
+>(items: T[], tab?: AdminPartnerApplicationTab): T[] {
   if (!tab || tab === 'all') {
     return items;
   }
@@ -286,7 +328,10 @@ function mapAdminPromoPartner(
   const province = partner.region[0] ?? '';
   const city = (partner.region[1] ?? province) || '未知';
   const district = partner.region[2] ?? undefined;
-  const revenue = metrics.reduce((sum, record) => sum + record.chargedAmount, 0);
+  const revenue = metrics.reduce(
+    (sum, record) => sum + record.chargedAmount,
+    0,
+  );
 
   return {
     id: String(partner.storeId),
@@ -305,7 +350,9 @@ function mapAdminPromoPartner(
   };
 }
 
-function buildPromoRegions(partners: AdminPromoPartnerItem[]): AdminPromoRegionItem[] {
+function buildPromoRegions(
+  partners: AdminPromoPartnerItem[],
+): AdminPromoRegionItem[] {
   const regionMap = new Map<string, AdminPromoRegionItem>();
 
   partners.forEach((partner) => {
@@ -419,7 +466,10 @@ function buildPromoSeries(
   });
 }
 
-function buildPromoSeriesLabel(date: Date, granularity: 'day' | 'month' | 'year'): string {
+function buildPromoSeriesLabel(
+  date: Date,
+  granularity: 'day' | 'month' | 'year',
+): string {
   if (granularity === 'year') {
     return `${date.getFullYear()}年`;
   }

@@ -8,6 +8,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toOptionalText } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import { getPayrollCostDate, toCostDecimal } from './costs.domain';
 import { buildCostRecordResponse } from './costs.mapper';
 import type {
@@ -23,6 +24,7 @@ import type { CostRecordResponseDto } from './dto/costs-response.dto';
 export class CostsWriteService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly commerceAccessService: CommerceAccessService,
   ) {}
 
@@ -64,6 +66,8 @@ export class CostsWriteService {
       },
     });
 
+    await this.invalidateDashboardCaches(storeId);
+
     return buildCostRecordResponse(created);
   }
 
@@ -93,6 +97,11 @@ export class CostsWriteService {
     }
 
     await this.prisma.costRecord.delete({ where: { id: record.id } });
+    await this.invalidateDashboardCaches(record.storeId);
+  }
+
+  private async invalidateDashboardCaches(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId);
   }
 
   async syncPurchaseCost(

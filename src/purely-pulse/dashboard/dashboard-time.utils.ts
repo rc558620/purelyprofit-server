@@ -79,7 +79,11 @@ export function buildHomeRevenueRange(
   // Home / revenue-detail share the revenue period semantics.
   switch (period) {
     case DASHBOARD_PERIOD_TODAY:
-      rangeStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      rangeStartDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+      );
       break;
     case DASHBOARD_PERIOD_WEEK: {
       rangeStartDate = new Date(now);
@@ -106,7 +110,9 @@ export function buildHomeRevenueRange(
   };
 }
 
-export function buildPreviousSequentialRange(currentRange: TimeRange): TimeRange {
+export function buildPreviousSequentialRange(
+  currentRange: TimeRange,
+): TimeRange {
   const rangeMs = currentRange.end - currentRange.start + 1;
   return {
     start: currentRange.start - rangeMs,

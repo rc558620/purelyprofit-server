@@ -25,10 +25,7 @@ import {
   type SpaceSessionItemRecord,
   type SpaceSessionRenewRecord,
 } from './space-sessions.service';
-import {
-  toSpaceResponse,
-  type SpaceWithRelations,
-} from './spaces.mapper';
+import { toSpaceResponse, type SpaceWithRelations } from './spaces.mapper';
 import { SPACE_WITH_RELATIONS_INCLUDE } from './spaces.query';
 
 interface DashboardSpaceSummaryBundle {
@@ -316,7 +313,9 @@ export class SpaceDashboardService {
     };
   }
 
-  private async findSpacesByStore(storeId: number): Promise<SpaceWithRelations[]> {
+  private async findSpacesByStore(
+    storeId: number,
+  ): Promise<SpaceWithRelations[]> {
     return this.prisma.space.findMany({
       where: { storeId },
       include: SPACE_WITH_RELATIONS_INCLUDE,

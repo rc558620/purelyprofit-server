@@ -24,7 +24,8 @@ describe('FinanceCashFlowService', () => {
   beforeEach(async () => {
     useFinanceSpecFakeTimers();
     prismaService = createFinanceCashFlowPrismaMock();
-    platformMembershipAccessService = createPlatformMembershipAccessServiceMock();
+    platformMembershipAccessService =
+      createPlatformMembershipAccessServiceMock();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: createFinanceCashFlowProviders(
@@ -149,7 +150,9 @@ describe('FinanceCashFlowService', () => {
       recordCount: 1,
       compareLastPeriod: null,
     });
-    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenCalledTimes(1);
+    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenCalledTimes(
+      1,
+    );
   });
 
   it('createCashFlowRecord 禁止手动创建 sales 分类流水', async () => {
@@ -245,7 +248,9 @@ describe('FinanceCashFlowService', () => {
       saleOrderId: null,
     });
 
-    await expect(service.deleteCashFlowRecord(user, 8)).resolves.toBeUndefined();
+    await expect(
+      service.deleteCashFlowRecord(user, 8),
+    ).resolves.toBeUndefined();
     expect(prismaService.financeCashFlowRecord.delete).toHaveBeenCalledWith({
       where: { id: 8 },
     });

@@ -9,7 +9,9 @@ import {
 import type { PurchaseOrderWithItems } from './purchases.types';
 
 describe('purchases.mapper', () => {
-  function createOrder(overrides?: Partial<PurchaseOrderWithItems>): PurchaseOrderWithItems {
+  function createOrder(
+    overrides?: Partial<PurchaseOrderWithItems>,
+  ): PurchaseOrderWithItems {
     const createdAt = new Date('2026-05-14T12:00:00.000Z');
 
     return {

@@ -72,15 +72,20 @@ export class PulseDashboardOverviewService {
     const currentRange = buildCurrentRange(period);
     const compareRange = buildCompareRange(period, currentRange);
 
-    const [currentAgg, compareAgg, costSum, compareCostSum] = await Promise.all([
-      this.dashboardAggregatorService.aggregateSales(storeIds, currentRange),
-      this.dashboardAggregatorService.aggregateSales(storeIds, compareRange),
-      this.dashboardAggregatorService.aggregateCosts(storeIds, currentRange),
-      this.dashboardAggregatorService.aggregateCosts(storeIds, compareRange),
-    ]);
+    const [currentAgg, compareAgg, costSum, compareCostSum] = await Promise.all(
+      [
+        this.dashboardAggregatorService.aggregateSales(storeIds, currentRange),
+        this.dashboardAggregatorService.aggregateSales(storeIds, compareRange),
+        this.dashboardAggregatorService.aggregateCosts(storeIds, currentRange),
+        this.dashboardAggregatorService.aggregateCosts(storeIds, compareRange),
+      ],
+    );
 
     const currentProfit = subtractMoney(currentAgg.totalRevenue, costSum);
-    const compareProfit = subtractMoney(compareAgg.totalRevenue, compareCostSum);
+    const compareProfit = subtractMoney(
+      compareAgg.totalRevenue,
+      compareCostSum,
+    );
 
     return {
       stats: this.buildStats(
@@ -92,7 +97,12 @@ export class PulseDashboardOverviewService {
         costSum,
       ),
       salesTrend: await this.buildSalesTrend(storeIds, period, currentRange),
-      meta: this.buildMeta(period, targetStore.id, storeIds.length, currentRange),
+      meta: this.buildMeta(
+        period,
+        targetStore.id,
+        storeIds.length,
+        currentRange,
+      ),
     };
   }
 
@@ -109,25 +119,34 @@ export class PulseDashboardOverviewService {
     const storeIds = [targetStore.id];
     const currentRange = buildCurrentRange(period);
 
-    const storeRows: DashboardStoreSummaryRow[] = await this.prisma.store.findMany({
-      where: { id: { in: storeIds } },
-      select: { id: true, name: true, address: true },
-    });
+    const storeRows: DashboardStoreSummaryRow[] =
+      await this.prisma.store.findMany({
+        where: { id: { in: storeIds } },
+        select: { id: true, name: true, address: true },
+      });
 
     const [salesTotals, costTotals] = await Promise.all([
-      this.dashboardAggregatorService.aggregateSalesByStore(storeIds, currentRange),
-      this.dashboardAggregatorService.aggregateCostsByStore(storeIds, currentRange),
+      this.dashboardAggregatorService.aggregateSalesByStore(
+        storeIds,
+        currentRange,
+      ),
+      this.dashboardAggregatorService.aggregateCostsByStore(
+        storeIds,
+        currentRange,
+      ),
     ]);
 
-    const storeRankContexts: DashboardStoreRankContext[] = storeRows.map((store) => ({
-      store,
-      sales: salesTotals[store.id] ?? {
-        totalRevenue: 0,
-        totalProfit: 0,
-        orderCount: 0,
-      },
-      totalCost: costTotals[store.id] ?? 0,
-    }));
+    const storeRankContexts: DashboardStoreRankContext[] = storeRows.map(
+      (store) => ({
+        store,
+        sales: salesTotals[store.id] ?? {
+          totalRevenue: 0,
+          totalProfit: 0,
+          orderCount: 0,
+        },
+        totalCost: costTotals[store.id] ?? 0,
+      }),
+    );
 
     const stores: PulseDashboardStoreRankItemDto[] = storeRankContexts.map(
       ({ store, sales, totalCost }) => {
@@ -154,7 +173,12 @@ export class PulseDashboardOverviewService {
     });
 
     return {
-      meta: this.buildMeta(period, targetStore.id, storeIds.length, currentRange),
+      meta: this.buildMeta(
+        period,
+        targetStore.id,
+        storeIds.length,
+        currentRange,
+      ),
       stores,
     };
   }

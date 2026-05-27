@@ -202,7 +202,10 @@ export class EmployeesShiftService {
       return;
     }
 
-    const nextStartMinutes = parseTimeToMinutes(startTime, '上班时间格式不正确');
+    const nextStartMinutes = parseTimeToMinutes(
+      startTime,
+      '上班时间格式不正确',
+    );
     const nextEndMinutes = parseTimeToMinutes(endTime, '下班时间格式不正确');
     const hasOverlap = sameDayShifts.some((item) =>
       isTimeRangeOverlapping(

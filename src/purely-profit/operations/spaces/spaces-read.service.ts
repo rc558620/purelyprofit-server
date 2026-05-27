@@ -4,7 +4,10 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { ListSpacesQueryDto, SpaceResponseDto } from './dto/space.dto';
 import { toSpaceResponse } from './spaces.mapper';
-import { buildListSpacesWhere, SPACE_WITH_RELATIONS_INCLUDE } from './spaces.query';
+import {
+  buildListSpacesWhere,
+  SPACE_WITH_RELATIONS_INCLUDE,
+} from './spaces.query';
 
 @Injectable()
 export class SpacesReadService {

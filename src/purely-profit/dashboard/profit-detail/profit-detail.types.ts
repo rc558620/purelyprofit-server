@@ -36,6 +36,8 @@ export interface ProfitDetailQueryInput {
   customDate?: number;
   rangeStartDate?: number;
   rangeEndDate?: number;
+  startTime?: number;
+  endTime?: number;
 }
 
 export interface ProfitDateRange {

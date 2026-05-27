@@ -9,6 +9,22 @@ export interface SaleAggRow {
   orderCount: number;
 }
 
+function toMoneyNumber(
+  value: { toString(): string } | number | string | null | undefined,
+): number {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+
+  return new Decimal(
+    typeof value === 'number' || typeof value === 'string'
+      ? value
+      : value.toString(),
+  )
+    .toDecimalPlaces(2)
+    .toNumber();
+}
+
 @Injectable()
 export class DashboardAggregatorService {
   constructor(private readonly prisma: PrismaService) {}
@@ -17,95 +33,88 @@ export class DashboardAggregatorService {
     storeIds: number[],
     range: TimeRange,
   ): Promise<SaleAggRow> {
-    const rows = await this.prisma.saleOrder.findMany({
+    const aggregation = await this.prisma.saleOrder.aggregate({
       where: {
         storeId: { in: storeIds },
         date: { gte: new Date(range.start), lte: new Date(range.end) },
       },
-      select: { totalRevenue: true, totalProfit: true },
+      _sum: {
+        totalRevenue: true,
+        totalProfit: true,
+      },
+      _count: {
+        id: true,
+      },
     });
 
-    const totalRevenue = rows
-      .reduce((acc, r) => acc.plus(r.totalRevenue), new Decimal(0))
-      .toDecimalPlaces(2)
-      .toNumber();
-    const totalProfit = rows
-      .reduce((acc, r) => acc.plus(r.totalProfit), new Decimal(0))
-      .toDecimalPlaces(2)
-      .toNumber();
-
-    return { totalRevenue, totalProfit, orderCount: rows.length };
+    return {
+      totalRevenue: toMoneyNumber(aggregation._sum.totalRevenue),
+      totalProfit: toMoneyNumber(aggregation._sum.totalProfit),
+      orderCount: aggregation._count.id,
+    };
   }
 
   async aggregateCosts(storeIds: number[], range: TimeRange): Promise<number> {
-    const rows = await this.prisma.costRecord.findMany({
+    const aggregation = await this.prisma.costRecord.aggregate({
       where: {
         storeId: { in: storeIds },
         date: { gte: new Date(range.start), lte: new Date(range.end) },
       },
-      select: { amount: true },
+      _sum: {
+        amount: true,
+      },
     });
 
-    return rows
-      .reduce((acc, r) => acc.plus(r.amount), new Decimal(0))
-      .toDecimalPlaces(2)
-      .toNumber();
+    return toMoneyNumber(aggregation._sum.amount);
   }
 
   async aggregateSalesByStore(
     storeIds: number[],
     range: TimeRange,
   ): Promise<Record<number, SaleAggRow>> {
-    const rows = await this.prisma.saleOrder.findMany({
+    const rows = await this.prisma.saleOrder.groupBy({
+      by: ['storeId'],
       where: {
         storeId: { in: storeIds },
         date: { gte: new Date(range.start), lte: new Date(range.end) },
       },
-      select: { storeId: true, totalRevenue: true, totalProfit: true },
+      _sum: {
+        totalRevenue: true,
+        totalProfit: true,
+      },
+      _count: {
+        id: true,
+      },
     });
 
-    const result: Record<number, SaleAggRow> = {};
-    for (const row of rows) {
-      const sid = row.storeId;
-      if (!result[sid]) {
-        result[sid] = { totalRevenue: 0, totalProfit: 0, orderCount: 0 };
-      }
-
-      result[sid].totalRevenue = new Decimal(result[sid].totalRevenue)
-        .plus(row.totalRevenue)
-        .toDecimalPlaces(2)
-        .toNumber();
-      result[sid].totalProfit = new Decimal(result[sid].totalProfit)
-        .plus(row.totalProfit)
-        .toDecimalPlaces(2)
-        .toNumber();
-      result[sid].orderCount += 1;
-    }
-
-    return result;
+    return rows.reduce<Record<number, SaleAggRow>>((result, row) => {
+      result[row.storeId] = {
+        totalRevenue: toMoneyNumber(row._sum.totalRevenue),
+        totalProfit: toMoneyNumber(row._sum.totalProfit),
+        orderCount: row._count.id,
+      };
+      return result;
+    }, {});
   }
 
   async aggregateCostsByStore(
     storeIds: number[],
     range: TimeRange,
   ): Promise<Record<number, number>> {
-    const rows = await this.prisma.costRecord.findMany({
+    const rows = await this.prisma.costRecord.groupBy({
+      by: ['storeId'],
       where: {
         storeId: { in: storeIds },
         date: { gte: new Date(range.start), lte: new Date(range.end) },
       },
-      select: { storeId: true, amount: true },
+      _sum: {
+        amount: true,
+      },
     });
 
-    const result: Record<number, number> = {};
-    for (const row of rows) {
-      const sid = row.storeId;
-      result[sid] = new Decimal(result[sid] ?? 0)
-        .plus(row.amount)
-        .toDecimalPlaces(2)
-        .toNumber();
-    }
-
-    return result;
+    return rows.reduce<Record<number, number>>((result, row) => {
+      result[row.storeId] = toMoneyNumber(row._sum.amount);
+      return result;
+    }, {});
   }
 }

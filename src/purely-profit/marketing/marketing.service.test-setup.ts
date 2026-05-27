@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
+import { RedisService } from '../../redis/redis.service';
 import { MarketingAccessService } from './marketing-access.service';
 import { MarketingConsumptionsService } from './marketing-consumptions.service';
 import { MarketingCustomersService } from './marketing-customers.service';
@@ -114,6 +116,21 @@ function createPlatformMembershipAccessServiceMock(): MarketingPlatformMembershi
   };
 }
 
+function createRedisServiceMock() {
+  return {
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+    runBackgroundRefresh: jest.fn(),
+  };
+}
+
+function createCacheInvalidatorServiceMock() {
+  return {
+    invalidateMarketingOverview: jest.fn().mockResolvedValue(undefined),
+    invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 function createAuthenticatedUser(): AuthenticatedUser {
   return {
     id: 1,
@@ -149,6 +166,11 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
       MarketingConsumptionsService,
       MarketingPromotionsService,
       { provide: PrismaService, useValue: prismaService },
+      { provide: RedisService, useValue: createRedisServiceMock() },
+      {
+        provide: CacheInvalidatorService,
+        useValue: createCacheInvalidatorServiceMock(),
+      },
       { provide: MarketingAccessService, useValue: accessService },
       {
         provide: PlatformMembershipAccessService,

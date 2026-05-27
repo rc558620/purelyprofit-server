@@ -110,7 +110,9 @@ describe('purchases.query', () => {
     purchaseOrderCount.mockResolvedValue(6);
     supplierCount.mockResolvedValue(3);
 
-    await expect(countPurchaseOrders(prisma as never, { storeId: 18 })).resolves.toBe(6);
+    await expect(
+      countPurchaseOrders(prisma as never, { storeId: 18 }),
+    ).resolves.toBe(6);
     await expect(countPurchaseSuppliers(prisma as never, 18)).resolves.toBe(3);
 
     expect(purchaseOrderCount).toHaveBeenCalledWith({ where: { storeId: 18 } });
@@ -222,9 +224,7 @@ describe('purchases.query', () => {
         storeId: 18,
         productIds: [201],
       }),
-    ).resolves.toEqual([
-      { id: 201, name: '可口可乐 330ml', unit: '瓶' },
-    ]);
+    ).resolves.toEqual([{ id: 201, name: '可口可乐 330ml', unit: '瓶' }]);
 
     expect(productFindMany).toHaveBeenCalledWith({
       where: {
@@ -304,7 +304,8 @@ describe('purchases.query', () => {
   });
 
   it('findPurchaseOrderAccessRecord 和 deletePurchaseOrderEntity 会操作进货单主表', async () => {
-    const { prisma, purchaseOrderFindUnique, purchaseOrderDelete } = createPrismaMock();
+    const { prisma, purchaseOrderFindUnique, purchaseOrderDelete } =
+      createPrismaMock();
     purchaseOrderFindUnique.mockResolvedValue({ id: 11, storeId: 18 });
 
     await expect(

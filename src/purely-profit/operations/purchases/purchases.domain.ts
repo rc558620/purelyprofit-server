@@ -113,7 +113,9 @@ export function preparePurchaseItems(
   return items.map((item) => preparePurchaseItem(item, productMap));
 }
 
-export function sumPreparedPurchaseAmount(items: PreparedPurchaseItem[]): number {
+export function sumPreparedPurchaseAmount(
+  items: PreparedPurchaseItem[],
+): number {
   return Number(items.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
 }
 

@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildPulseDashboardHomeCacheKey } from '../../redis/cache-keys';
+import { RedisService } from '../../redis/redis.service';
 import {
   DEFAULT_HOME_REVENUE_PERIOD,
   ONLINE_CHANGE_RATIO,
@@ -8,9 +10,7 @@ import {
   ONLINE_PEAK_RATIO,
   UNKNOWN_REGION_LABEL,
 } from './dashboard.constants';
-import {
-  calculatePercentChange,
-} from './dashboard-math.utils';
+import { calculatePercentChange } from './dashboard-math.utils';
 import {
   buildRevenueTrend,
   buildRevenueTypeDistribution,
@@ -18,8 +18,6 @@ import {
   normalizeRegionValues,
 } from './dashboard-revenue.utils';
 import type {
-  DashboardApprovedPartnerRow,
-  DashboardPromoRecordRow,
   DashboardRevenueOrderRow,
   DashboardRevenueTypeLabelRow,
 } from './dashboard.types';
@@ -39,9 +37,14 @@ import type {
   PulseDashboardRevenueTrendDto,
 } from './dto/pulse-dashboard-response.dto';
 
+const PULSE_DASHBOARD_HOME_CACHE_TTL_SECONDS = 30;
+
 @Injectable()
 export class PulseDashboardHomeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
+  ) {}
 
   async getHome(
     _user: AuthenticatedUser,
@@ -49,6 +52,13 @@ export class PulseDashboardHomeService {
   ): Promise<PulseDashboardHomeResponseDto> {
     const revenuePeriod = queryDto.revenuePeriod ?? DEFAULT_HOME_REVENUE_PERIOD;
     const region = queryDto.region;
+    const cacheKey = buildPulseDashboardHomeCacheKey(revenuePeriod, region);
+    const cachedResponse =
+      await this.redisService.getJson<PulseDashboardHomeResponseDto>(cacheKey);
+    if (cachedResponse !== null) {
+      return cachedResponse;
+    }
+
     const now = new Date();
 
     const dashboardData = await Promise.all([
@@ -177,11 +187,10 @@ export class PulseDashboardHomeService {
       revenuePeriod,
       now,
     );
-    const revenueTypeRows: DashboardRevenueTypeLabelRow[] = membershipOrders.map(
-      (order) => ({
+    const revenueTypeRows: DashboardRevenueTypeLabelRow[] =
+      membershipOrders.map((order) => ({
         typeLabel: mapRevenuePlanLabel(order.planId),
-      }),
-    );
+      }));
     const revenueTypeBreakdown = buildRevenueTypeDistribution(revenueTypeRows);
 
     const onlineCount = Math.round(paidMemberCount * ONLINE_COUNT_RATIO);
@@ -192,7 +201,7 @@ export class PulseDashboardHomeService {
       return Math.max(0, Math.round(onlineCount * ratio));
     });
 
-    return {
+    const response: PulseDashboardHomeResponseDto = {
       online: {
         onlineCount,
         onlinePeak,
@@ -214,6 +223,14 @@ export class PulseDashboardHomeService {
       pendingApplicationCount,
       generatedAt: Date.now(),
     };
+
+    await this.redisService.setJson(
+      cacheKey,
+      response,
+      PULSE_DASHBOARD_HOME_CACHE_TTL_SECONDS,
+    );
+
+    return response;
   }
 
   private buildHomeRevenueTrend(
@@ -239,7 +256,8 @@ export class PulseDashboardHomeService {
       revenueSummary: {
         total,
         avg: Math.round(total / getInclusiveDayCount(currentRange)),
-        growth: calculatePercentChange(total, previousTotal, { fallback: 0 }) ?? 0,
+        growth:
+          calculatePercentChange(total, previousTotal, { fallback: 0 }) ?? 0,
       },
     };
   }

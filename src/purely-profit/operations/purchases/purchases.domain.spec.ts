@@ -115,9 +115,9 @@ describe('purchases.domain', () => {
   });
 
   it('createPurchaseProductMap 在商品缺失时抛出异常', () => {
-    expect(() => createPurchaseProductMap(products.slice(0, 1), [201, 202])).toThrow(
-      NotFoundException,
-    );
+    expect(() =>
+      createPurchaseProductMap(products.slice(0, 1), [201, 202]),
+    ).toThrow(NotFoundException);
   });
 
   it('preparePurchaseItems 会优先保留快照字段并计算金额', () => {
@@ -208,7 +208,9 @@ describe('purchases.domain', () => {
   });
 
   it('buildPurchaseCostTitle 和 calculatePurchaseCompareLastMonth 会返回预期结果', () => {
-    expect(buildPurchaseCostTitle('可口可乐供应商')).toBe('可口可乐供应商进货成本');
+    expect(buildPurchaseCostTitle('可口可乐供应商')).toBe(
+      '可口可乐供应商进货成本',
+    );
     expect(buildPurchaseCostTitle(null)).toBe('进货成本');
     expect(calculatePurchaseCompareLastMonth(200, 160, true)).toBe(25);
     expect(calculatePurchaseCompareLastMonth(200, 0, true)).toBeNull();

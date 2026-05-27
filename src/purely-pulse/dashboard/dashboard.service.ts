@@ -58,6 +58,9 @@ export class PulseDashboardService {
     user: AuthenticatedUser,
     queryDto: GetPulseRevenueDetailQueryDto,
   ): Promise<PulseRevenueDetailResponseDto> {
-    return this.pulseDashboardRevenueDetailService.getRevenueDetail(user, queryDto);
+    return this.pulseDashboardRevenueDetailService.getRevenueDetail(
+      user,
+      queryDto,
+    );
   }
 }

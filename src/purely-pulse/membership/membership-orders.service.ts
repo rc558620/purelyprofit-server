@@ -43,27 +43,36 @@ export class PulseMembershipOrdersService {
   async getCenter(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipCenterResponseDto> {
-    const store = await this.accessService.resolveTargetStoreForMembership(user, {
-      notFoundMessage: '当前未选中目标商家门店，暂无法查看订阅中心',
-    });
+    const store = await this.accessService.resolveTargetStoreForMembership(
+      user,
+      {
+        notFoundMessage: '当前未选中目标商家门店，暂无法查看订阅中心',
+      },
+    );
     return this.platformMembershipService.getCenterByStoreId(store.id);
   }
 
   async getProfile(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipProfileResponseDto> {
-    const store = await this.accessService.resolveTargetStoreForMembership(user, {
-      notFoundMessage: '当前未选中目标商家门店，暂无法查看订阅档案',
-    });
+    const store = await this.accessService.resolveTargetStoreForMembership(
+      user,
+      {
+        notFoundMessage: '当前未选中目标商家门店，暂无法查看订阅档案',
+      },
+    );
     return this.platformMembershipService.getProfileByStoreId(store.id);
   }
 
   async listOrders(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipOrdersResponseDto> {
-    const store = await this.accessService.resolveTargetStoreForMembership(user, {
-      notFoundMessage: '当前未选中目标商家门店，暂无法查看订阅订单',
-    });
+    const store = await this.accessService.resolveTargetStoreForMembership(
+      user,
+      {
+        notFoundMessage: '当前未选中目标商家门店，暂无法查看订阅订单',
+      },
+    );
     return this.platformMembershipService.listOrdersByStoreId(store.id);
   }
 
@@ -82,9 +91,12 @@ export class PulseMembershipOrdersService {
   async getPromoCenter(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
-    const store = await this.accessService.resolveTargetStoreForMembership(user, {
-      notFoundMessage: '当前未选中目标商家门店，暂无法查看推广中心',
-    });
+    const store = await this.accessService.resolveTargetStoreForMembership(
+      user,
+      {
+        notFoundMessage: '当前未选中目标商家门店，暂无法查看推广中心',
+      },
+    );
     return this.platformMembershipService.getPromoCenterByStoreId(store.id);
   }
 
@@ -92,9 +104,12 @@ export class PulseMembershipOrdersService {
     user: AuthenticatedUser,
     dto: PulseMembershipOrderPreviewDto,
   ): Promise<PulseMembershipOrderPreviewResponseDto> {
-    const store = await this.accessService.resolveTargetStoreForMembership(user, {
-      notFoundMessage: '当前未选中目标门店，暂无法试算会员订单',
-    });
+    const store = await this.accessService.resolveTargetStoreForMembership(
+      user,
+      {
+        notFoundMessage: '当前未选中目标门店，暂无法试算会员订单',
+      },
+    );
 
     const planId = dto.planId;
     const plan = await this.platformMembershipService.getPlanConfig(planId);
@@ -143,9 +158,12 @@ export class PulseMembershipOrdersService {
     user: AuthenticatedUser,
     orderId: number,
   ): Promise<PulseMembershipOrderDetailResponseDto> {
-    const store = await this.accessService.resolveTargetStoreForMembership(user, {
-      notFoundMessage: '当前未选中目标门店，暂无法查看会员订单',
-    });
+    const store = await this.accessService.resolveTargetStoreForMembership(
+      user,
+      {
+        notFoundMessage: '当前未选中目标门店，暂无法查看会员订单',
+      },
+    );
 
     const order = await this.prisma.storeMembershipOrder.findFirst({
       where: { id: orderId, storeId: store.id },
@@ -191,9 +209,12 @@ export class PulseMembershipOrdersService {
     user: AuthenticatedUser,
     orderId: number,
   ): Promise<PulseMembershipOrderPayStatusResponseDto> {
-    const store = await this.accessService.resolveTargetStoreForMembership(user, {
-      notFoundMessage: '当前未选中目标门店，暂无法查看订单状态',
-    });
+    const store = await this.accessService.resolveTargetStoreForMembership(
+      user,
+      {
+        notFoundMessage: '当前未选中目标门店，暂无法查看订单状态',
+      },
+    );
 
     const order = await this.prisma.storeMembershipOrder.findFirst({
       where: { id: orderId, storeId: store.id },

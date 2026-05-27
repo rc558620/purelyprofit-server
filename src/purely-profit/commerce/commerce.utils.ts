@@ -147,9 +147,7 @@ export function toOptionalText(value?: string | null): string | undefined {
   return trimmedValue === '' ? undefined : trimmedValue;
 }
 
-export function toOptionalMediaText(
-  value?: string | null,
-): string | undefined {
+export function toOptionalMediaText(value?: string | null): string | undefined {
   const normalizedValue = toOptionalText(value);
 
   if (!normalizedValue || normalizedValue.startsWith('blob:')) {
@@ -247,7 +245,10 @@ export function getQuarterStartTimestamp(timestampMs: number): number {
   return new Date(date.getFullYear(), quarter * 3, 1).getTime();
 }
 
-export function buildPreviousRangeByDuration(start: number, end: number): {
+export function buildPreviousRangeByDuration(
+  start: number,
+  end: number,
+): {
   start: number;
   end: number;
 } {

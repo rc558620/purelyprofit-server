@@ -24,7 +24,9 @@ export class PulseMembershipSettingsService {
     this.accessService.ensureDeveloperOrThrow(user);
     const settings = await this.profileService.loadSettings();
     return {
-      items: settings.map((setting) => this.profileService.toSettingDto(setting)),
+      items: settings.map((setting) =>
+        this.profileService.toSettingDto(setting),
+      ),
     };
   }
 
@@ -33,7 +35,9 @@ export class PulseMembershipSettingsService {
     dto: UpdateMonthlyMembershipSettingDto,
   ): Promise<MembershipPlanSettingItemDto> {
     this.accessService.ensureDeveloperOrThrow(user);
-    return this.profileService.updatePlanSetting('monthly', { price: dto.price });
+    return this.profileService.updatePlanSetting('monthly', {
+      price: dto.price,
+    });
   }
 
   async updateQuarterly(
@@ -41,7 +45,9 @@ export class PulseMembershipSettingsService {
     dto: UpdateQuarterlyMembershipSettingDto,
   ): Promise<MembershipPlanSettingItemDto> {
     this.accessService.ensureDeveloperOrThrow(user);
-    return this.profileService.updatePlanSetting('quarterly', { price: dto.price });
+    return this.profileService.updatePlanSetting('quarterly', {
+      price: dto.price,
+    });
   }
 
   async updateYearly(
@@ -49,7 +55,9 @@ export class PulseMembershipSettingsService {
     dto: UpdateYearlyMembershipSettingDto,
   ): Promise<MembershipPlanSettingItemDto> {
     this.accessService.ensureDeveloperOrThrow(user);
-    return this.profileService.updatePlanSetting('yearly', { price: dto.price });
+    return this.profileService.updatePlanSetting('yearly', {
+      price: dto.price,
+    });
   }
 
   async updateLifetime(

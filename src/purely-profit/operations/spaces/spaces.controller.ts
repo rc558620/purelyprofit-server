@@ -55,10 +55,7 @@ export class SpacesController {
     @Req() request: { user: AuthenticatedUser },
     @Query() query: GetSpacesDashboardQueryDto,
   ): Promise<SpacesDashboardResponseDto> {
-    return this.spaceDashboardService.getSpacesDashboard(
-      request.user,
-      query,
-    );
+    return this.spaceDashboardService.getSpacesDashboard(request.user, query);
   }
 
   @Get()

@@ -9,7 +9,8 @@ import { IsBoolean, IsInt, IsOptional, IsString } from 'class-validator';
 export class OnboardingStepsDto {
   @ApiProperty({
     example: true,
-    description: '兼容字段：当前观察链路可用时恒为 true，建议迁移到 targetStatus',
+    description:
+      '兼容字段：当前观察链路可用时恒为 true，建议迁移到 targetStatus',
     deprecated: true,
   })
   @IsBoolean()
@@ -17,7 +18,8 @@ export class OnboardingStepsDto {
 
   @ApiProperty({
     example: false,
-    description: '兼容字段：目标商家主体资料是否完整，建议迁移到 targetStatus.merchantVerified',
+    description:
+      '兼容字段：目标商家主体资料是否完整，建议迁移到 targetStatus.merchantVerified',
     deprecated: true,
   })
   @IsBoolean()
@@ -25,7 +27,8 @@ export class OnboardingStepsDto {
 
   @ApiProperty({
     example: false,
-    description: '兼容字段：是否已选定目标商家门店，建议迁移到 targetStatus.storeSelected',
+    description:
+      '兼容字段：是否已选定目标商家门店，建议迁移到 targetStatus.storeSelected',
     deprecated: true,
   })
   @IsBoolean()
@@ -33,7 +36,8 @@ export class OnboardingStepsDto {
 
   @ApiProperty({
     example: false,
-    description: '兼容字段：目标商家是否已开通平台订阅能力，建议迁移到 targetStatus.membershipActive',
+    description:
+      '兼容字段：目标商家是否已开通平台订阅能力，建议迁移到 targetStatus.membershipActive',
     deprecated: true,
   })
   @IsBoolean()
@@ -47,19 +51,31 @@ export class OnboardingStepsDto {
  * 用于平滑收口到更明确的目标商家状态模型。
  */
 export class OnboardingTargetStatusDto {
-  @ApiProperty({ example: false, description: '新字段：目标商家基础条件是否已齐备' })
+  @ApiProperty({
+    example: false,
+    description: '新字段：目标商家基础条件是否已齐备',
+  })
   @IsBoolean()
   isReady: boolean;
 
-  @ApiProperty({ example: false, description: '新字段：是否已选定目标商家门店' })
+  @ApiProperty({
+    example: false,
+    description: '新字段：是否已选定目标商家门店',
+  })
   @IsBoolean()
   storeSelected: boolean;
 
-  @ApiProperty({ example: false, description: '新字段：目标商家主体资料是否完整' })
+  @ApiProperty({
+    example: false,
+    description: '新字段：目标商家主体资料是否完整',
+  })
   @IsBoolean()
   merchantVerified: boolean;
 
-  @ApiProperty({ example: false, description: '新字段：目标商家是否处于有效平台订阅状态' })
+  @ApiProperty({
+    example: false,
+    description: '新字段：目标商家是否处于有效平台订阅状态',
+  })
   @IsBoolean()
   membershipActive: boolean;
 
@@ -83,13 +99,17 @@ export class OnboardingTargetStatusDto {
 export class OnboardingStatusResponseDto {
   @ApiProperty({
     example: false,
-    description: '兼容字段：目标商家基础条件是否已齐备，建议迁移到 targetStatus.isReady',
+    description:
+      '兼容字段：目标商家基础条件是否已齐备，建议迁移到 targetStatus.isReady',
     deprecated: true,
   })
   @IsBoolean()
   isCompleted: boolean;
 
-  @ApiProperty({ type: OnboardingStepsDto, description: '目标商家基础状态步骤的兼容字段集合' })
+  @ApiProperty({
+    type: OnboardingStepsDto,
+    description: '目标商家基础状态步骤的兼容字段集合',
+  })
   steps: OnboardingStepsDto;
 
   @ApiProperty({
@@ -100,7 +120,8 @@ export class OnboardingStatusResponseDto {
 
   @ApiPropertyOptional({
     example: 1,
-    description: '兼容字段：当前选中的目标商家门店 ID，建议迁移到 targetStatus.storeId',
+    description:
+      '兼容字段：当前选中的目标商家门店 ID，建议迁移到 targetStatus.storeId',
     deprecated: true,
   })
   @IsOptional()
@@ -109,7 +130,8 @@ export class OnboardingStatusResponseDto {
 
   @ApiPropertyOptional({
     example: '示例咖啡店',
-    description: '兼容字段：当前选中的目标商家门店名称，建议迁移到 targetStatus.storeName',
+    description:
+      '兼容字段：当前选中的目标商家门店名称，建议迁移到 targetStatus.storeName',
     deprecated: true,
   })
   @IsOptional()

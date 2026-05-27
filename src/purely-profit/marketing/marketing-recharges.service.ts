@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import type {
   CreateRechargeDto,
   ListRechargesQueryDto,
@@ -30,6 +31,7 @@ import {
 export class MarketingRechargesService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly marketingSharedService: MarketingSharedService,
   ) {}
 
@@ -162,6 +164,12 @@ export class MarketingRechargesService {
       throw new NotFoundException('充值记录不存在');
     }
 
+    await this.invalidateOverviewCache(storeId);
+
     return mapRechargeRow(row);
+  }
+
+  private async invalidateOverviewCache(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateMarketingOverview(storeId);
   }
 }

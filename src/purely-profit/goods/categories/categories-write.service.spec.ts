@@ -1,7 +1,4 @@
-import {
-  ConflictException,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -44,7 +41,9 @@ describe('CategoriesWriteService', () => {
   const mockedCreateCategoryRecord = jest.mocked(createCategoryRecord);
   const mockedDeleteCategoryRecord = jest.mocked(deleteCategoryRecord);
   const mockedFindCategoryById = jest.mocked(findCategoryById);
-  const mockedFindCategoryDuplicateByName = jest.mocked(findCategoryDuplicateByName);
+  const mockedFindCategoryDuplicateByName = jest.mocked(
+    findCategoryDuplicateByName,
+  );
   const mockedRenameCategoryProducts = jest.mocked(renameCategoryProducts);
   const mockedUpdateCategoryRecord = jest.mocked(updateCategoryRecord);
   const mockedBuildCategoryResponse = jest.mocked(buildCategoryResponse);
@@ -112,11 +111,14 @@ describe('CategoriesWriteService', () => {
       service.create(user, { storeId: 18, name: '  饮品  ', icon: '  🥤  ' }),
     ).resolves.toEqual(response);
 
-    expect(mockedFindCategoryDuplicateByName).toHaveBeenCalledWith(prismaService, {
-      storeId: 18,
-      name: '饮品',
-      excludeId: undefined,
-    });
+    expect(mockedFindCategoryDuplicateByName).toHaveBeenCalledWith(
+      prismaService,
+      {
+        storeId: 18,
+        name: '饮品',
+        excludeId: undefined,
+      },
+    );
     expect(mockedCreateCategoryRecord).toHaveBeenCalledWith(prismaService, {
       storeId: 18,
       name: '饮品',
@@ -139,9 +141,9 @@ describe('CategoriesWriteService', () => {
   it('update 在分类不存在时抛出 NotFoundException', async () => {
     mockedFindCategoryById.mockResolvedValue(null);
 
-    await expect(service.update(user, 11, { name: '酒水' })).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      service.update(user, 11, { name: '酒水' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
 
     expect(commerceAccessService.ensureCanAccessStore).not.toHaveBeenCalled();
   });
@@ -166,9 +168,9 @@ describe('CategoriesWriteService', () => {
     mockedUpdateCategoryRecord.mockResolvedValue(updated);
     mockedBuildCategoryResponse.mockReturnValue(response);
 
-    await expect(service.update(user, 11, { name: '  酒水  ', icon: '' })).resolves.toEqual(
-      response,
-    );
+    await expect(
+      service.update(user, 11, { name: '  酒水  ', icon: '' }),
+    ).resolves.toEqual(response);
 
     expect(commerceAccessService.ensureCanAccessStore).toHaveBeenCalledWith(
       user,
@@ -176,11 +178,14 @@ describe('CategoriesWriteService', () => {
       'goods:update',
       '无权操作该门店商品分类',
     );
-    expect(mockedFindCategoryDuplicateByName).toHaveBeenCalledWith(prismaService, {
-      storeId: 18,
-      name: '酒水',
-      excludeId: 11,
-    });
+    expect(mockedFindCategoryDuplicateByName).toHaveBeenCalledWith(
+      prismaService,
+      {
+        storeId: 18,
+        name: '酒水',
+        excludeId: 11,
+      },
+    );
     expect(mockedUpdateCategoryRecord).toHaveBeenCalledWith(prismaService, 11, {
       name: '酒水',
       icon: null,

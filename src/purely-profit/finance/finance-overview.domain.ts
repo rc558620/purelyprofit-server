@@ -181,7 +181,11 @@ export function buildOverviewSourceGroups(
 
   return {
     incomeGroup: buildOverviewSourceGroup('income', incomeTotal, incomeItems),
-    expenseGroup: buildOverviewSourceGroup('expense', expenseTotal, expenseItems),
+    expenseGroup: buildOverviewSourceGroup(
+      'expense',
+      expenseTotal,
+      expenseItems,
+    ),
   };
 }
 

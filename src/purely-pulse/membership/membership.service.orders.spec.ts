@@ -37,14 +37,16 @@ describe('PulseMembershipService orders', () => {
   });
 
   it('getCenter 通过显式 storeId 读取目标商家订阅中心', async () => {
-    context.pulseStoreContextService.resolveTargetStoreOrThrow.mockResolvedValue({
-      id: 18,
-      name: '纯利宝南山店',
-      address: '深圳市南山区',
-      contactPhone: '0755-12345678',
-      ownerId: 301,
-      ownerName: '张三',
-    });
+    context.pulseStoreContextService.resolveTargetStoreOrThrow.mockResolvedValue(
+      {
+        id: 18,
+        name: '纯利宝南山店',
+        address: '深圳市南山区',
+        contactPhone: '0755-12345678',
+        ownerId: 301,
+        ownerName: '张三',
+      },
+    );
     context.platformMembershipService.getCenterByStoreId.mockResolvedValue({
       memberInfo: {
         isActive: true,
@@ -68,21 +70,23 @@ describe('PulseMembershipService orders', () => {
     ).toHaveBeenCalledWith(context.user, {
       notFoundMessage: '当前未选中目标商家门店，暂无法查看订阅中心',
     });
-    expect(context.platformMembershipService.getCenterByStoreId).toHaveBeenCalledWith(
-      18,
-    );
+    expect(
+      context.platformMembershipService.getCenterByStoreId,
+    ).toHaveBeenCalledWith(18);
     expect(result.paidOrderCount).toBe(4);
   });
 
   it('previewOrder 使用平台会员配置表中的套餐价格', async () => {
-    context.pulseStoreContextService.resolveTargetStoreOrThrow.mockResolvedValue({
-      id: 18,
-      name: '纯利宝南山店',
-      address: '深圳市南山区',
-      contactPhone: '0755-12345678',
-      ownerId: 301,
-      ownerName: '张三',
-    });
+    context.pulseStoreContextService.resolveTargetStoreOrThrow.mockResolvedValue(
+      {
+        id: 18,
+        name: '纯利宝南山店',
+        address: '深圳市南山区',
+        contactPhone: '0755-12345678',
+        ownerId: 301,
+        ownerName: '张三',
+      },
+    );
     context.platformMembershipService.getPlanConfig.mockResolvedValue({
       id: 'quarterly',
       name: '季度会员',
@@ -115,20 +119,22 @@ describe('PulseMembershipService orders', () => {
       availablePoints: 500,
       availableBeans: 20,
     });
-    expect(context.platformMembershipService.getPlanConfig).toHaveBeenCalledWith(
-      'quarterly',
-    );
+    expect(
+      context.platformMembershipService.getPlanConfig,
+    ).toHaveBeenCalledWith('quarterly');
   });
 
   it('purchaseOrder 在观察态下显式拒绝代商家创建订单', async () => {
-    context.pulseStoreContextService.resolveTargetStoreOrThrow.mockResolvedValue({
-      id: 18,
-      name: '纯利宝南山店',
-      address: '深圳市南山区',
-      contactPhone: '0755-12345678',
-      ownerId: 301,
-      ownerName: '张三',
-    });
+    context.pulseStoreContextService.resolveTargetStoreOrThrow.mockResolvedValue(
+      {
+        id: 18,
+        name: '纯利宝南山店',
+        address: '深圳市南山区',
+        contactPhone: '0755-12345678',
+        ownerId: 301,
+        ownerName: '张三',
+      },
+    );
 
     await expect(
       context.service.purchaseOrder(context.user, {

@@ -151,7 +151,9 @@ export class PlatformMembershipAccessService {
   async ensureReportExportEnabled(storeId: number): Promise<void> {
     const snapshot = await this.getStoreRuleSnapshot(storeId);
     if (!snapshot.reportExportEnabled) {
-      throw new ForbiddenException('当前会员套餐暂不支持报表导出，请升级会员后使用');
+      throw new ForbiddenException(
+        '当前会员套餐暂不支持报表导出，请升级会员后使用',
+      );
     }
   }
 

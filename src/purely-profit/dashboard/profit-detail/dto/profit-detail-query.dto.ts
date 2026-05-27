@@ -69,7 +69,30 @@ export class GetProfitDetailQueryDto {
   @Min(0, { message: '区间结束时间不合法' })
   rangeEndDate?: number;
 
-  @ApiPropertyOptional({ example: false, description: '是否按导出模式拉取数据' })
+  @ApiPropertyOptional({
+    example: 1747008000000,
+    description: '开始时间戳（毫秒），兼容前端 startTime 参数',
+  })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '开始时间必须是整数时间戳' })
+  @Min(0, { message: '开始时间不合法' })
+  startTime?: number;
+
+  @ApiPropertyOptional({
+    example: 1747526399999,
+    description: '结束时间戳（毫秒），兼容前端 endTime 参数',
+  })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '结束时间必须是整数时间戳' })
+  @Min(0, { message: '结束时间不合法' })
+  endTime?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: '是否按导出模式拉取数据',
+  })
   @IsOptional()
   @Transform(transformOptionalBoolean)
   @IsBoolean({ message: '导出标记必须是布尔值' })

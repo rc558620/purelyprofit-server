@@ -59,38 +59,40 @@ export class PulseDashboardRevenueDetailService {
 
     const rawOrders: DashboardRevenueDetailOrderRow[] =
       await this.prisma.storeMembershipOrder.findMany({
-      where: {
-        status: 'paid',
-        createdAt: {
-          gte: new Date(lowerBound),
-          lte: new Date(upperBound),
+        where: {
+          status: 'paid',
+          createdAt: {
+            gte: new Date(lowerBound),
+            lte: new Date(upperBound),
+          },
         },
-      },
-      select: {
-        id: true,
-        storeId: true,
-        amount: true,
-        planId: true,
-        planName: true,
-        createdAt: true,
-        store: {
-          select: {
-            name: true,
-            address: true,
-            owner: {
-              select: {
-                name: true,
-                realName: true,
+        select: {
+          id: true,
+          storeId: true,
+          amount: true,
+          planId: true,
+          planName: true,
+          createdAt: true,
+          store: {
+            select: {
+              name: true,
+              address: true,
+              owner: {
+                select: {
+                  name: true,
+                  realName: true,
+                },
               },
             },
           },
         },
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    });
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
 
     const regionFilters = this.extractRevenueRegionFilters(queryDto);
-    const storeIds = Array.from(new Set(rawOrders.map((order) => order.storeId)));
+    const storeIds = Array.from(
+      new Set(rawOrders.map((order) => order.storeId)),
+    );
     const regionCodeMap = await this.readRevenueRegionCodeMap(storeIds);
     const orders = rawOrders.filter((order) =>
       this.matchesRevenueRegion(
@@ -129,7 +131,9 @@ export class PulseDashboardRevenueDetailService {
         total: currentTotal,
         avg: Math.round(currentTotal / getInclusiveDayCount(currentRange)),
         growth:
-          calculatePercentChange(currentTotal, previousTotal, { fallback: 0 }) ?? 0,
+          calculatePercentChange(currentTotal, previousTotal, {
+            fallback: 0,
+          }) ?? 0,
         orders: currentOrders.length,
         peak: calcRevenuePeakAmount(currentOrders),
       },
@@ -245,7 +249,10 @@ export class PulseDashboardRevenueDetailService {
     return address?.trim() || EMPTY_REGION_PLACEHOLDER;
   }
 
-  private matchesRevenueRegion(regionCodes: string[], filters: string[]): boolean {
+  private matchesRevenueRegion(
+    regionCodes: string[],
+    filters: string[],
+  ): boolean {
     if (filters.length === 0) {
       return true;
     }

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../redis/redis.service';
 import { DashboardHomeService } from './dashboard-home.service';
 
 describe('DashboardHomeService', () => {
@@ -14,9 +15,11 @@ describe('DashboardHomeService', () => {
     },
     saleOrder: {
       findMany: jest.fn(),
+      aggregate: jest.fn(),
     },
     costRecord: {
       findMany: jest.fn(),
+      aggregate: jest.fn(),
     },
     product: {
       findMany: jest.fn(),
@@ -37,6 +40,11 @@ describe('DashboardHomeService', () => {
 
   const commerceAccessService = {
     resolveSingleStoreId: jest.fn(),
+  };
+
+  const redisService = {
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -62,6 +70,7 @@ describe('DashboardHomeService', () => {
       providers: [
         DashboardHomeService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
       ],
     }).compile();
@@ -92,16 +101,22 @@ describe('DashboardHomeService', () => {
         date: new Date(2026, 4, 14, 13, 0, 0, 0),
       },
     ]);
-    prismaService.costRecord.findMany.mockResolvedValue([
-      {
-        amount: new Prisma.Decimal('20.00'),
-        date: new Date(2026, 4, 13, 8, 0, 0, 0),
-      },
-      {
-        amount: new Prisma.Decimal('30.00'),
-        date: new Date(2026, 4, 14, 8, 0, 0, 0),
-      },
-    ]);
+    prismaService.saleOrder.aggregate
+      .mockResolvedValueOnce({
+        _sum: { totalRevenue: new Prisma.Decimal('220.00') },
+        _count: { id: 2 },
+      })
+      .mockResolvedValueOnce({
+        _sum: { totalRevenue: new Prisma.Decimal('80.00') },
+        _count: { id: 1 },
+      });
+    prismaService.costRecord.aggregate
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('30.00') },
+      })
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('20.00') },
+      });
     prismaService.product.findMany.mockResolvedValue([
       {
         id: 5,
@@ -146,7 +161,9 @@ describe('DashboardHomeService', () => {
       },
     ]);
 
-    await expect(service.getOverview(user, { period: 'today' })).resolves.toEqual({
+    await expect(
+      service.getOverview(user, { period: 'today' }),
+    ).resolves.toEqual({
       stats: {
         profitLabel: '今日净利润 (元)',
         profit: 190,
@@ -159,7 +176,16 @@ describe('DashboardHomeService', () => {
       },
       salesTrend: {
         title: '销售趋势图',
-        categories: ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'],
+        categories: [
+          '08:00',
+          '10:00',
+          '12:00',
+          '14:00',
+          '16:00',
+          '18:00',
+          '20:00',
+          '22:00',
+        ],
         actual: [100, 0, 120, 0, null, null, null, null],
         forecast: [null, null, null, null, 55, null, null, null],
         isYearMode: false,

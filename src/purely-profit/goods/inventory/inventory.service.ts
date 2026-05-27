@@ -109,7 +109,9 @@ export class InventoryService {
     }
 
     if (query.export) {
-      await this.platformMembershipAccessService.ensureReportExportEnabled(storeId);
+      await this.platformMembershipAccessService.ensureReportExportEnabled(
+        storeId,
+      );
     }
 
     const [summary, products] = await Promise.all([
@@ -130,7 +132,10 @@ export class InventoryService {
       'inventory:view',
       '无权查看该门店库存记录',
     );
-    const { page, skip, take } = this.resolvePagination(query.page, query.pageSize);
+    const { page, skip, take } = this.resolvePagination(
+      query.page,
+      query.pageSize,
+    );
 
     if (storeId === null) {
       return buildPaginatedInventoryAdjustmentsResponse({
@@ -166,7 +171,10 @@ export class InventoryService {
       '无权操作该门店库存',
     );
     const operatorStaffId =
-      await this.commerceAccessService.findOperatorStaffIdForStore(user, storeId);
+      await this.commerceAccessService.findOperatorStaffIdForStore(
+        user,
+        storeId,
+      );
     const mode = dto.mode ?? (dto.targetStock !== undefined ? 'set' : 'delta');
 
     const adjustment = await this.prisma.$transaction((transaction) =>
@@ -227,7 +235,10 @@ export class InventoryService {
       return buildEmptyInventoryStatsResponse();
     }
 
-    const products = await queryInventoryStatsRows(this.prisma, resolvedStoreId);
+    const products = await queryInventoryStatsRows(
+      this.prisma,
+      resolvedStoreId,
+    );
     return buildInventoryStats(products);
   }
 
@@ -255,7 +266,8 @@ export class InventoryService {
   private resolvePagination(page?: number, pageSize?: number) {
     const defaultPageSize =
       this.configService.get<number>('app.defaultPageSize') ?? 20;
-    const maxPageSize = this.configService.get<number>('app.maxPageSize') ?? 100;
+    const maxPageSize =
+      this.configService.get<number>('app.maxPageSize') ?? 100;
     return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
   }
 }

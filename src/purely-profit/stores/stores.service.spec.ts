@@ -51,7 +51,8 @@ describe('StoresService', () => {
     jest.clearAllMocks();
 
     prismaService.$transaction.mockImplementation(
-      (callback: (tx: typeof prismaService) => unknown) => callback(prismaService),
+      (callback: (tx: typeof prismaService) => unknown) =>
+        callback(prismaService),
     );
 
     const module: TestingModule = await Test.createTestingModule({
@@ -149,7 +150,9 @@ describe('StoresService', () => {
       createdAt,
       updatedAt,
     });
-    subscriptionsService.initializeStoreSubscription.mockResolvedValue(undefined);
+    subscriptionsService.initializeStoreSubscription.mockResolvedValue(
+      undefined,
+    );
     prismaService.staff.create.mockResolvedValue({
       id: 21,
       storeId: 9,
@@ -202,7 +205,9 @@ describe('StoresService', () => {
       createdAt,
       updatedAt,
     });
-    subscriptionsService.initializeStoreSubscription.mockResolvedValue(undefined);
+    subscriptionsService.initializeStoreSubscription.mockResolvedValue(
+      undefined,
+    );
     prismaService.staff.create.mockResolvedValue({
       id: 21,
       storeId: 9,

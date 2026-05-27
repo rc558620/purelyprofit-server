@@ -27,6 +27,8 @@ export function buildQueryInput(
     customDate: queryDto.customDate,
     rangeStartDate: queryDto.rangeStartDate,
     rangeEndDate: queryDto.rangeEndDate,
+    startTime: queryDto.startTime,
+    endTime: queryDto.endTime,
   };
 }
 
@@ -65,25 +67,34 @@ export function buildCurrentRange(
       };
     }
     case 'custom_month': {
-      if (query.customDate === undefined) {
-        throw new BadRequestException('自定义单日模式需要传 customDate');
+      const customDate =
+        query.customDate ??
+        query.startTime ??
+        query.rangeStartDate ??
+        query.rangeEndDate ??
+        query.endTime;
+
+      if (customDate === undefined) {
+        throw new BadRequestException(
+          '自定义单日模式需要传 customDate 或 startTime',
+        );
       }
       return {
-        start: getDayStartTimestamp(query.customDate),
-        end: getDayEndTimestamp(query.customDate),
+        start: getDayStartTimestamp(customDate),
+        end: getDayEndTimestamp(customDate),
       };
     }
     case 'custom_range': {
-      if (
-        query.rangeStartDate === undefined ||
-        query.rangeEndDate === undefined
-      ) {
+      const rangeStartDate = query.rangeStartDate ?? query.startTime;
+      const rangeEndDate = query.rangeEndDate ?? query.endTime;
+
+      if (rangeStartDate === undefined || rangeEndDate === undefined) {
         throw new BadRequestException(
-          '自定义区间模式需要传 rangeStartDate 和 rangeEndDate',
+          '自定义区间模式需要传 rangeStartDate/rangeEndDate 或 startTime/endTime',
         );
       }
-      const startDate = Math.min(query.rangeStartDate, query.rangeEndDate);
-      const endDate = Math.max(query.rangeStartDate, query.rangeEndDate);
+      const startDate = Math.min(rangeStartDate, rangeEndDate);
+      const endDate = Math.max(rangeStartDate, rangeEndDate);
       return {
         start: getDayStartTimestamp(startDate),
         end: getDayEndTimestamp(endDate),

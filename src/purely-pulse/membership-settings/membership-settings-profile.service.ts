@@ -23,11 +23,14 @@ export class PulseMembershipSettingsProfileService {
   constructor(private readonly prisma: PrismaService) {}
 
   async loadSettings(): Promise<MembershipPlanSettingRecord[]> {
-    const existingSettings = await listMembershipPlanSettingRecords(this.prisma);
-
-    const existingByPlanId = new Map<MembershipSettingPlanId, MembershipPlanSettingRecord>(
-      existingSettings.map((setting) => [setting.planId, setting]),
+    const existingSettings = await listMembershipPlanSettingRecords(
+      this.prisma,
     );
+
+    const existingByPlanId = new Map<
+      MembershipSettingPlanId,
+      MembershipPlanSettingRecord
+    >(existingSettings.map((setting) => [setting.planId, setting]));
 
     if (existingByPlanId.size === MEMBERSHIP_SETTING_PLAN_ORDER.length) {
       return MEMBERSHIP_SETTING_PLAN_ORDER.map((planId) => {
@@ -47,7 +50,9 @@ export class PulseMembershipSettingsProfileService {
           patch: {
             price: DEFAULT_MEMBERSHIP_PLAN_SETTINGS[planId].price,
             ...(DEFAULT_MEMBERSHIP_PLAN_SETTINGS[planId].validDays !== null
-              ? { validDays: DEFAULT_MEMBERSHIP_PLAN_SETTINGS[planId].validDays }
+              ? {
+                  validDays: DEFAULT_MEMBERSHIP_PLAN_SETTINGS[planId].validDays,
+                }
               : {}),
           },
         }),
@@ -59,11 +64,14 @@ export class PulseMembershipSettingsProfileService {
     planId: MembershipSettingPlanId,
     patch: MembershipPlanSettingPatch,
   ): Promise<MembershipPlanSettingItemDto> {
-    const updatedSetting = await upsertMembershipPlanSettingRecord(this.prisma, {
-      planId,
-      createData: this.buildCreatePayload(planId),
-      patch,
-    });
+    const updatedSetting = await upsertMembershipPlanSettingRecord(
+      this.prisma,
+      {
+        planId,
+        createData: this.buildCreatePayload(planId),
+        patch,
+      },
+    );
 
     return this.toSettingDto(updatedSetting);
   }

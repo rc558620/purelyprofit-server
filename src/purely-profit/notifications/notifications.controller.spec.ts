@@ -67,7 +67,10 @@ describe('NotificationsController', () => {
     await expect(controller.getUnreadSummary({ user }, query)).resolves.toEqual(
       response,
     );
-    expect(notificationsService.getUnreadSummary).toHaveBeenCalledWith(user, query);
+    expect(notificationsService.getUnreadSummary).toHaveBeenCalledWith(
+      user,
+      query,
+    );
   });
 
   it('list 透传用户和 query', async () => {

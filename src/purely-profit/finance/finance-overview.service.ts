@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  buildCacheRefreshTaskKey,
+  buildFinanceOverviewCacheKey,
+} from '../../redis/cache-keys';
+import { RedisService } from '../../redis/redis.service';
 import type {
   FinanceOverviewQueryDto,
   FinanceReportQueryDto,
@@ -33,10 +38,20 @@ import {
   toMoneyNumber,
 } from './finance.utils';
 
+const FINANCE_OVERVIEW_CACHE_TTL_SECONDS = 120;
+const FINANCE_OVERVIEW_REFRESH_AFTER_MS = 30_000;
+
+type FinanceOverviewCachePayload = {
+  generatedAt: number;
+  refreshAt: number;
+  data: FinanceOverviewResponseDto;
+};
+
 @Injectable()
 export class FinanceOverviewService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
     private readonly financeAccessService: FinanceAccessService,
   ) {}
@@ -45,8 +60,120 @@ export class FinanceOverviewService {
     user: AuthenticatedUser,
     query: FinanceOverviewQueryDto,
   ): Promise<FinanceOverviewResponseDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const period = query.period ?? 'month';
+    const cacheKey = buildFinanceOverviewCacheKey(storeId, period);
+    const cachedPayload =
+      await this.redisService.getJson<FinanceOverviewCachePayload>(cacheKey);
+
+    if (cachedPayload !== null) {
+      this.scheduleOverviewRefresh(
+        cacheKey,
+        storeId,
+        period,
+        cachedPayload.refreshAt,
+      );
+      return cachedPayload.data;
+    }
+
+    return this.refreshOverviewCache(cacheKey, storeId, period);
+  }
+
+  async warmOverviewCache(
+    storeId: number,
+    period: NonNullable<FinanceOverviewQueryDto['period']> | 'month',
+  ): Promise<FinanceOverviewResponseDto> {
+    const cacheKey = buildFinanceOverviewCacheKey(storeId, period);
+    return this.refreshOverviewCache(cacheKey, storeId, period);
+  }
+
+  async getReport(
+    user: AuthenticatedUser,
+    query: FinanceReportQueryDto,
+  ): Promise<FinanceReportResponseDto> {
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const reportQuery: FinanceReportQueryInput = {
+      period: query.period,
+      year: query.year,
+      customDate: query.customDate,
+      rangeStartDate: query.rangeStartDate,
+      rangeEndDate: query.rangeEndDate,
+      export: query.export,
+    };
+    if (reportQuery.export) {
+      await this.platformMembershipAccessService.ensureReportExportEnabled(
+        storeId,
+      );
+    }
+
+    const range = getFinanceReportRange(reportQuery);
+    const previousRange = getPreviousFinanceReportRange(reportQuery, range);
+    const clampedCurrentRange =
+      await this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        range,
+      );
+    const clampedPreviousRange = previousRange
+      ? await this.platformMembershipAccessService.clampHistoryRange(
+          storeId,
+          previousRange,
+        )
+      : null;
+
+    const reportData = await queryFinanceReportData(this.prisma, {
+      storeId,
+      currentRange: clampedCurrentRange,
+      previousRange: clampedPreviousRange,
+    });
+
+    return buildFinanceReportResponse(reportData);
+  }
+
+  private scheduleOverviewRefresh(
+    cacheKey: string,
+    storeId: number,
+    period: NonNullable<FinanceOverviewQueryDto['period']> | 'month',
+    refreshAt: number,
+  ): void {
+    if (refreshAt > Date.now()) {
+      return;
+    }
+
+    this.redisService.runBackgroundRefresh(
+      buildCacheRefreshTaskKey(cacheKey),
+      async () => {
+        await this.refreshOverviewCache(cacheKey, storeId, period);
+      },
+    );
+  }
+
+  private async refreshOverviewCache(
+    cacheKey: string,
+    storeId: number,
+    period: NonNullable<FinanceOverviewQueryDto['period']> | 'month',
+  ): Promise<FinanceOverviewResponseDto> {
+    const data = await this.buildOverview(storeId, period);
+    const now = Date.now();
+
+    await this.redisService.setJson(
+      cacheKey,
+      {
+        generatedAt: now,
+        refreshAt: now + FINANCE_OVERVIEW_REFRESH_AFTER_MS,
+        data,
+      } satisfies FinanceOverviewCachePayload,
+      FINANCE_OVERVIEW_CACHE_TTL_SECONDS,
+    );
+
+    return data;
+  }
+
+  private async buildOverview(
+    storeId: number,
+    period: NonNullable<FinanceOverviewQueryDto['period']> | 'month',
+  ): Promise<FinanceOverviewResponseDto> {
     const currentRange = getOverviewCurrentRange(period);
     const previousRange = getOverviewPreviousRange(
       currentRange.start,
@@ -126,47 +253,4 @@ export class FinanceOverviewService {
       expenseMap,
     });
   }
-
-  async getReport(
-    user: AuthenticatedUser,
-    query: FinanceReportQueryDto,
-  ): Promise<FinanceReportResponseDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const reportQuery: FinanceReportQueryInput = {
-      period: query.period,
-      year: query.year,
-      customDate: query.customDate,
-      rangeStartDate: query.rangeStartDate,
-      rangeEndDate: query.rangeEndDate,
-      export: query.export,
-    };
-    if (reportQuery.export) {
-      await this.platformMembershipAccessService.ensureReportExportEnabled(
-        storeId,
-      );
-    }
-
-    const range = getFinanceReportRange(reportQuery);
-    const previousRange = getPreviousFinanceReportRange(reportQuery, range);
-    const clampedCurrentRange =
-      await this.platformMembershipAccessService.clampHistoryRange(
-        storeId,
-        range,
-      );
-    const clampedPreviousRange = previousRange
-      ? await this.platformMembershipAccessService.clampHistoryRange(
-          storeId,
-          previousRange,
-        )
-      : null;
-
-    const reportData = await queryFinanceReportData(this.prisma, {
-      storeId,
-      currentRange: clampedCurrentRange,
-      previousRange: clampedPreviousRange,
-    });
-
-    return buildFinanceReportResponse(reportData);
-  }
-
 }

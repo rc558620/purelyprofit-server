@@ -166,13 +166,19 @@ export class CostReportResponseDto {
   @Type(() => CostReportSummaryDto)
   summary: CostReportSummaryDto;
 
-  @ApiProperty({ type: [CostReportCategoryRowDto], description: '成本分类汇总' })
+  @ApiProperty({
+    type: [CostReportCategoryRowDto],
+    description: '成本分类汇总',
+  })
   @IsArray({ message: '成本分类汇总必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => CostReportCategoryRowDto)
   categories: CostReportCategoryRowDto[];
 
-  @ApiProperty({ type: [CostReportDetailRowDto], description: '当前分类对应的成本明细' })
+  @ApiProperty({
+    type: [CostReportDetailRowDto],
+    description: '当前分类对应的成本明细',
+  })
   @IsArray({ message: '成本明细必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => CostReportDetailRowDto)

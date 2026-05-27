@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import {
   CreateFinanceAccountDto,
   ListFinanceAccountsQueryDto,
@@ -20,7 +21,6 @@ import {
   assertAccountTypeMatchesCategory,
   buildAccountsStats,
   deriveAccountFields,
-  filterAndSortAccounts,
   mapAccountRecord,
 } from './finance-account.domain';
 import { FinanceAccessService } from './finance-access.service';
@@ -30,6 +30,7 @@ import {
   findAccountRecord,
   findAccountRecordId,
   queryAccountRecords,
+  queryAccountStatsRows,
   updateAccountRecordSettlement,
 } from './finance-account.query';
 import { buildPaginatedAccountsResponse } from './finance.mapper';
@@ -46,6 +47,7 @@ import {
 export class FinanceAccountService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly financeAccessService: FinanceAccessService,
   ) {}
 
@@ -53,8 +55,8 @@ export class FinanceAccountService {
     user: AuthenticatedUser,
     query: ListFinanceAccountsQueryDto,
   ): Promise<PaginatedFinanceAccountsResponseDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const records = await queryAccountRecords(this.prisma, storeId);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const accountQuery: FinanceAccountsListQueryInput = {
       typeFilter: query.typeFilter,
       statusFilter: query.statusFilter,
@@ -62,20 +64,25 @@ export class FinanceAccountService {
       page: query.page,
       pageSize: query.pageSize,
     };
-    const filteredRecords = filterAndSortAccounts(records, accountQuery);
+    const { items, total } = await queryAccountRecords(
+      this.prisma,
+      storeId,
+      accountQuery,
+    );
     const pageState = buildPaginationState(
       accountQuery.page,
       accountQuery.pageSize,
     );
 
-    return buildPaginatedAccountsResponse(filteredRecords, pageState);
+    return buildPaginatedAccountsResponse(items, pageState, total);
   }
 
   async getAccountsStats(
     user: AuthenticatedUser,
   ): Promise<FinanceAccountsStatsDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const records = await queryAccountRecords(this.prisma, storeId);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const records = await queryAccountStatsRows(this.prisma, storeId);
     return buildAccountsStats(records);
   }
 
@@ -83,7 +90,8 @@ export class FinanceAccountService {
     user: AuthenticatedUser,
     dto: CreateFinanceAccountDto,
   ): Promise<FinanceAccountRecordResponseDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const operatorStaffId = user.currentMembership?.staffId ?? null;
     const amount = roundMoneyValue(dto.amount);
     const paidAmount = roundMoneyValue(dto.paidAmount);
@@ -111,6 +119,8 @@ export class FinanceAccountService {
       note: trimOptionalString(dto.note),
     });
 
+    await this.invalidateDashboardCaches(storeId);
+
     return mapAccountRecord(createdRecord);
   }
 
@@ -119,7 +129,8 @@ export class FinanceAccountService {
     recordId: number,
     dto: SettleFinanceAccountDto,
   ): Promise<FinanceAccountRecordResponseDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const record = await findAccountRecord(this.prisma, { storeId, recordId });
     if (!record) {
       throw new NotFoundException('账款记录不存在');
@@ -144,6 +155,8 @@ export class FinanceAccountService {
       status: derived.status,
     });
 
+    await this.invalidateDashboardCaches(storeId);
+
     return mapAccountRecord(updatedRecord);
   }
 
@@ -151,7 +164,8 @@ export class FinanceAccountService {
     user: AuthenticatedUser,
     recordId: number,
   ): Promise<void> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const record = await findAccountRecordId(this.prisma, {
       storeId,
       recordId,
@@ -160,6 +174,12 @@ export class FinanceAccountService {
       throw new NotFoundException('账款记录不存在');
     }
     await deleteAccountRecordEntity(this.prisma, recordId);
+    await this.invalidateDashboardCaches(storeId);
   }
 
+  private async invalidateDashboardCaches(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateDashboardAndPulseSession(
+      storeId,
+    );
+  }
 }

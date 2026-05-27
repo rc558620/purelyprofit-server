@@ -27,7 +27,11 @@ export async function executeInventoryManualAdjustment(
   );
   const plan = buildInventoryManualAdjustmentPlan({ product, command });
 
-  await updateInventoryProductStock(transaction, plan.productId, plan.afterStock);
+  await updateInventoryProductStock(
+    transaction,
+    plan.productId,
+    plan.afterStock,
+  );
   return createInventoryAdjustmentLog(transaction, plan.log);
 }
 
@@ -134,7 +138,9 @@ export async function createInventoryAdjustmentLog(
       ...(data.purchaseOrderId !== undefined
         ? { purchaseOrderId: data.purchaseOrderId }
         : {}),
-      ...(data.saleOrderId !== undefined ? { saleOrderId: data.saleOrderId } : {}),
+      ...(data.saleOrderId !== undefined
+        ? { saleOrderId: data.saleOrderId }
+        : {}),
     },
     select: {
       id: true,
@@ -193,6 +199,10 @@ async function recordInventoryStockChange(
   );
   const plan = buildInventoryStockChangePlan({ product, command });
 
-  await updateInventoryProductStock(transaction, plan.productId, plan.afterStock);
+  await updateInventoryProductStock(
+    transaction,
+    plan.productId,
+    plan.afterStock,
+  );
   await createInventoryAdjustmentLog(transaction, plan.log);
 }

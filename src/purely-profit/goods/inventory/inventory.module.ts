@@ -7,7 +7,12 @@ import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
 
 @Module({
-  imports: [PrismaModule, CommerceModule, ProductsModule, PlatformMembershipModule],
+  imports: [
+    PrismaModule,
+    CommerceModule,
+    ProductsModule,
+    PlatformMembershipModule,
+  ],
   controllers: [InventoryController],
   providers: [InventoryService],
   exports: [InventoryService],

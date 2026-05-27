@@ -16,6 +16,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CostsService } from '../../operations/costs/costs.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import { EmployeesAccessService } from './employees-access.service';
 import { EmployeesDictionaryService } from './employees-dictionary.service';
 import { EmployeesLeaveService } from './employees-leave.service';
@@ -100,6 +101,10 @@ describe('EmployeesService', () => {
     ensureEmployeeQuotaAvailable: jest.fn(),
   };
 
+  const cacheInvalidatorService = {
+    invalidateDashboardAndPulseSession: jest.fn().mockResolvedValue(undefined),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -136,6 +141,10 @@ describe('EmployeesService', () => {
         EmployeesShiftService,
         EmployeesPayrollService,
         { provide: PrismaService, useValue: prismaService },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
+        },
         { provide: EmployeesAccessService, useValue: employeesAccessService },
         { provide: ConfigService, useValue: configService },
         { provide: CostsService, useValue: costsService },

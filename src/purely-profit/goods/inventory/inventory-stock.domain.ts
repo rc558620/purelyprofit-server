@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type {
   InventoryAdjustedStockParams,
   InventoryAdjustmentLogCreateInput,
@@ -130,6 +127,8 @@ function buildInventoryAdjustmentLogCreateInput(params: {
     ...(params.purchaseOrderId !== undefined
       ? { purchaseOrderId: params.purchaseOrderId }
       : {}),
-    ...(params.saleOrderId !== undefined ? { saleOrderId: params.saleOrderId } : {}),
+    ...(params.saleOrderId !== undefined
+      ? { saleOrderId: params.saleOrderId }
+      : {}),
   };
 }

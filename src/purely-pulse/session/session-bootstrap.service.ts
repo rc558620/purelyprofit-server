@@ -1,16 +1,25 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildPulseSessionBootstrapCacheKey } from '../../redis/cache-keys';
+import { RedisService } from '../../redis/redis.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import type { PulseSessionBootstrapResponseDto } from './dto/session-bootstrap.dto';
 import { SessionNotificationService } from './session-notification.service';
 import type { MembershipProfileRow, UserProfileRow } from './session.types';
-import { buildMembershipDto, buildStoreDto, buildUserDto } from './session.utils';
+import {
+  buildMembershipDto,
+  buildStoreDto,
+  buildUserDto,
+} from './session.utils';
+
+const SESSION_BOOTSTRAP_CACHE_TTL_SECONDS = 15;
 
 @Injectable()
 export class SessionBootstrapService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly pulseStoreContextService: PulseStoreContextService,
     private readonly sessionNotificationService: SessionNotificationService,
   ) {}
@@ -19,18 +28,35 @@ export class SessionBootstrapService {
     user: AuthenticatedUser,
   ): Promise<PulseSessionBootstrapResponseDto> {
     const profileUser = await this.findProfileUserOrThrow(user.id);
-    const resolvedStore = await this.pulseStoreContextService.resolveTargetStore(user);
+    const resolvedStore =
+      await this.pulseStoreContextService.resolveTargetStore(user);
     const targetStore = resolvedStore.store;
     const hasSelectedStore = targetStore !== null;
+    const cacheKey = buildPulseSessionBootstrapCacheKey(
+      user.id,
+      user.pulseMode ?? 'normal',
+      targetStore?.id ?? null,
+    );
+    const cachedResponse =
+      await this.redisService.getJson<PulseSessionBootstrapResponseDto>(
+        cacheKey,
+      );
+    if (cachedResponse !== null) {
+      return cachedResponse;
+    }
 
     const [membership, unreadNotificationCount] = await Promise.all([
-      targetStore ? this.findMembershipSummary(targetStore.id) : Promise.resolve(null),
       targetStore
-        ? this.sessionNotificationService.countUnreadNotifications(targetStore.id)
+        ? this.findMembershipSummary(targetStore.id)
+        : Promise.resolve(null),
+      targetStore
+        ? this.sessionNotificationService.countUnreadNotifications(
+            targetStore.id,
+          )
         : Promise.resolve(0),
     ]);
 
-    return {
+    const response: PulseSessionBootstrapResponseDto = {
       mode: user.pulseMode ?? 'normal',
       user: buildUserDto(profileUser, user.phone),
       store: targetStore ? buildStoreDto(targetStore) : null,
@@ -39,9 +65,19 @@ export class SessionBootstrapService {
       targetStoreSelected: hasSelectedStore,
       hasOnboarded: hasSelectedStore,
     };
+
+    await this.redisService.setJson(
+      cacheKey,
+      response,
+      SESSION_BOOTSTRAP_CACHE_TTL_SECONDS,
+    );
+
+    return response;
   }
 
-  private async findProfileUserOrThrow(userId: number): Promise<UserProfileRow> {
+  private async findProfileUserOrThrow(
+    userId: number,
+  ): Promise<UserProfileRow> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
