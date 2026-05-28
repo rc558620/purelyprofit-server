@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -12,7 +13,12 @@ describe('SalesRecordListService', () => {
   const prismaService = {
     saleOrder: {
       findMany: jest.fn(),
+      count: jest.fn(),
     },
+  };
+
+  const configService = {
+    get: jest.fn(),
   };
 
   const commerceAccessService = {
@@ -42,6 +48,14 @@ describe('SalesRecordListService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-14T12:00:00.000Z'));
     jest.clearAllMocks();
+    configService.get.mockImplementation((key: string) => {
+      const configMap: Record<string, number> = {
+        'app.defaultPageSize': 20,
+        'app.maxPageSize': 100,
+      };
+
+      return configMap[key];
+    });
     platformMembershipAccessService.clampHistoryRange.mockImplementation(
       async (_storeId: number, range: { start: number; end: number }) => ({
         start: range.start,
@@ -55,6 +69,7 @@ describe('SalesRecordListService', () => {
       providers: [
         SalesRecordListService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: ConfigService, useValue: configService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         {
           provide: PlatformMembershipAccessService,
@@ -79,20 +94,22 @@ describe('SalesRecordListService', () => {
       items: [],
       meta: {
         page: 1,
-        pageSize: 1,
+        pageSize: 20,
         total: 0,
         totalPages: 1,
       },
     });
 
     expect(prismaService.saleOrder.findMany).not.toHaveBeenCalled();
+    expect(prismaService.saleOrder.count).not.toHaveBeenCalled();
   });
 
-  it('list 按前端字段返回销售记录列表', async () => {
+  it('list 按前端字段返回销售记录分页列表', async () => {
     const saleDate = new Date('2026-05-14T10:00:00.000Z');
     const createdAt = new Date('2026-05-14T10:10:00.000Z');
 
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.count.mockResolvedValue(1);
     prismaService.saleOrder.findMany.mockResolvedValue([
       {
         id: 11,
@@ -158,18 +175,20 @@ describe('SalesRecordListService', () => {
       ],
       meta: {
         page: 1,
-        pageSize: 1,
+        pageSize: 20,
         total: 1,
         totalPages: 1,
       },
     });
+    expect(prismaService.saleOrder.count).toHaveBeenCalled();
   });
 
-  it('listFrontendOrders 默认返回 purelyProfit 前端需要的全量数组', async () => {
+  it('listFrontendOrders 默认返回 purelyProfit 前端兼容分页结构', async () => {
     const saleDate = new Date('2026-05-14T10:00:00.000Z');
     const createdAt = new Date('2026-05-14T10:10:00.000Z');
 
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.count.mockResolvedValue(1);
     prismaService.saleOrder.findMany.mockResolvedValue([
       {
         id: 11,
@@ -205,30 +224,38 @@ describe('SalesRecordListService', () => {
 
     await expect(
       service.listFrontendOrders(user, { storeId: 18 }),
-    ).resolves.toEqual([
-      {
-        id: '11',
-        orderNo: '#20260514-001',
-        items: [
-          {
-            productId: 'manual_101',
-            productName: '手打柠檬茶',
-            categoryName: '饮品',
-            salePrice: 18.5,
-            profit: 5.2,
-            quantity: 2,
-          },
-        ],
-        totalRevenue: 88.5,
-        totalProfit: 23.6,
-        totalQuantity: 5,
-        paymentMethod: 'cash',
-        calcMode: 'business',
-        note: '晚高峰补录',
-        date: saleDate.getTime(),
-        createdAt: createdAt.getTime(),
+    ).resolves.toEqual({
+      items: [
+        {
+          id: '11',
+          orderNo: '#20260514-001',
+          items: [
+            {
+              productId: 'manual_101',
+              productName: '手打柠檬茶',
+              categoryName: '饮品',
+              salePrice: 18.5,
+              profit: 5.2,
+              quantity: 2,
+            },
+          ],
+          totalRevenue: 88.5,
+          totalProfit: 23.6,
+          totalQuantity: 5,
+          paymentMethod: 'cash',
+          calcMode: 'business',
+          note: '晚高峰补录',
+          date: saleDate.getTime(),
+          createdAt: createdAt.getTime(),
+        },
+      ],
+      meta: {
+        page: 1,
+        pageSize: 20,
+        total: 1,
+        totalPages: 1,
       },
-    ]);
+    });
     expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -248,11 +275,22 @@ describe('SalesRecordListService', () => {
       clamped: true,
       empty: false,
     });
+    prismaService.saleOrder.count.mockResolvedValue(0);
     prismaService.saleOrder.findMany.mockResolvedValue([]);
 
     await service.list(user, { storeId: 18, period: 'all' });
 
     expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: {
+            gte: new Date('2026-05-08T00:00:00.000Z'),
+            lte: new Date('2026-05-14T12:00:00.000Z'),
+          },
+        }),
+      }),
+    );
+    expect(prismaService.saleOrder.count).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           date: {

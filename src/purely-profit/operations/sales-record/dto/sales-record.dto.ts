@@ -16,6 +16,7 @@ import {
 } from 'class-validator';
 import {
   PaginationMetaDto,
+  PaginationQueryDto,
   transformOptionalBoolean,
   transformOptionalInt,
   transformOptionalKeyword,
@@ -135,7 +136,7 @@ export class CreateSalesRecordDto {
   date?: number;
 }
 
-export class ListSalesRecordsQueryDto {
+export class ListSalesRecordsQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ example: 1, description: '门店 ID' })
   @IsOptional()
   @Transform(transformOptionalInt)
@@ -381,7 +382,7 @@ export class SalesRecordListResponseDto {
 
   @ApiProperty({
     type: PaginationMetaDto,
-    description: '占位分页信息；当前前端按全量列表消费，固定返回单页元数据',
+    description: '分页信息',
   })
   meta: PaginationMetaDto;
 }

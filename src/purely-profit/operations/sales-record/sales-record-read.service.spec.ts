@@ -99,11 +99,15 @@ describe('SalesRecordReadService', () => {
 
   it('listFrontendOrders 会透传给 list service', async () => {
     const query: ListSalesRecordsQueryDto = { storeId: 18 };
-    salesRecordListService.listFrontendOrders.mockResolvedValue([{ id: '11' }]);
+    salesRecordListService.listFrontendOrders.mockResolvedValue({
+      items: [{ id: '11' }],
+      meta: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+    });
 
-    await expect(service.listFrontendOrders(user, query)).resolves.toEqual([
-      { id: '11' },
-    ]);
+    await expect(service.listFrontendOrders(user, query)).resolves.toEqual({
+      items: [{ id: '11' }],
+      meta: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+    });
     expect(salesRecordListService.listFrontendOrders).toHaveBeenCalledWith(
       user,
       query,

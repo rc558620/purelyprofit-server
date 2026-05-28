@@ -123,11 +123,11 @@ export class SalesOrdersCompatController {
   @Get()
   @RequirePermissions('sales:view')
   @ApiOperation({ summary: '获取销售记录列表（purelyProfit 前端兼容）' })
-  @ApiOkResponse({ type: [SalesRecordResponseDto] })
+  @ApiOkResponse({ type: SalesRecordListResponseDto })
   list(
     @Req() request: { user: AuthenticatedUser },
     @Query() query: ListSalesRecordsQueryDto,
-  ): Promise<SalesRecordResponseDto[]> {
+  ): Promise<SalesRecordListResponseDto> {
     return this.salesRecordService.listFrontendOrders(request.user, query);
   }
 

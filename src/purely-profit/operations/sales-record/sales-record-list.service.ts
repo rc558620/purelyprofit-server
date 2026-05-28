@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
@@ -6,10 +7,10 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import type {
   ListSalesRecordsQueryDto,
   SalesRecordListResponseDto,
-  SalesRecordResponseDto,
 } from './dto/sales-record.dto';
+import { buildPaginationMeta, resolvePagination } from '../../commerce/commerce.utils';
 import { mapSalesRecordResponse } from './sales-record.domain';
-import { querySaleOrders } from './sales-record.query';
+import { countSaleOrders, querySaleOrders } from './sales-record.query';
 import {
   buildEmptySalesListResponse,
   buildSalesCurrentRange,
@@ -21,6 +22,7 @@ export class SalesRecordListService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
+    private readonly configService: ConfigService,
   ) {}
 
   async list(
@@ -34,8 +36,13 @@ export class SalesRecordListService {
       '无权查看该门店销售记录',
     );
 
+    const { page, skip, take } = this.resolvePagination(
+      query.page,
+      query.pageSize,
+    );
+
     if (storeId === null) {
-      return buildEmptySalesListResponse();
+      return buildEmptySalesListResponse(page, take);
     }
 
     const range = await this.platformMembershipAccessService.clampHistoryRange(
@@ -43,35 +50,44 @@ export class SalesRecordListService {
       buildSalesCurrentRange(query),
     );
     if (range.empty) {
-      return buildEmptySalesListResponse();
+      return buildEmptySalesListResponse(page, take);
     }
 
-    const orders = await querySaleOrders(this.prisma, {
-      storeId,
-      range: { start: range.start, end: range.end },
-    });
+    const [orders, total] = await Promise.all([
+      querySaleOrders(this.prisma, {
+        storeId,
+        range: { start: range.start, end: range.end },
+        skip,
+        take,
+      }),
+      countSaleOrders(this.prisma, {
+        storeId,
+        range: { start: range.start, end: range.end },
+      }),
+    ]);
     const items = orders.map((order) => mapSalesRecordResponse(order));
 
     return {
       items,
-      meta: {
-        page: 1,
-        pageSize: Math.max(items.length, 1),
-        total: items.length,
-        totalPages: items.length === 0 ? 0 : 1,
-      },
+      meta: buildPaginationMeta(total, page, take),
     };
   }
 
-  async listFrontendOrders(
+  listFrontendOrders(
     user: AuthenticatedUser,
     query: ListSalesRecordsQueryDto,
-  ): Promise<SalesRecordResponseDto[]> {
-    const response = await this.list(user, {
+  ): Promise<SalesRecordListResponseDto> {
+    return this.list(user, {
       ...query,
       period: query.period ?? 'all',
     });
+  }
 
-    return response.items;
+  private resolvePagination(page?: number, pageSize?: number) {
+    const defaultPageSize =
+      this.configService.get<number>('app.defaultPageSize') ?? 20;
+    const maxPageSize = this.configService.get<number>('app.maxPageSize') ?? 100;
+
+    return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
   }
 }

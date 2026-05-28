@@ -5,7 +5,6 @@ import type {
   ListSalesRecordsQueryDto,
   SalesProductResponseDto,
   SalesRecordListResponseDto,
-  SalesRecordResponseDto,
   SalesReportQueryDto,
   SalesReportResponseDto,
   SalesStatsQueryDto,
@@ -42,7 +41,7 @@ export class SalesRecordReadService {
   listFrontendOrders(
     user: AuthenticatedUser,
     query: ListSalesRecordsQueryDto,
-  ): Promise<SalesRecordResponseDto[]> {
+  ): Promise<SalesRecordListResponseDto> {
     return this.salesRecordListService.listFrontendOrders(user, query);
   }
 

@@ -40,7 +40,7 @@ export class SalesRecordService {
   listFrontendOrders(
     user: AuthenticatedUser,
     query: ListSalesRecordsQueryDto,
-  ): Promise<SalesRecordResponseDto[]> {
+  ): Promise<SalesRecordListResponseDto> {
     return this.salesRecordReadService.listFrontendOrders(user, query);
   }
 

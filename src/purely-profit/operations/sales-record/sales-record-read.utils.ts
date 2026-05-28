@@ -44,10 +44,13 @@ export function buildSalesCurrentRange(query: SalesReadRangeQuery): {
   return buildCurrentRange(toSalesRecordQueryInput(query));
 }
 
-export function buildEmptySalesListResponse(): SalesRecordListResponseDto {
+export function buildEmptySalesListResponse(
+  page = 1,
+  pageSize = 20,
+): SalesRecordListResponseDto {
   return {
     items: [],
-    meta: buildPaginationMeta(0, 1, 1),
+    meta: buildPaginationMeta(0, page, pageSize),
   };
 }
 

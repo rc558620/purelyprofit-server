@@ -56,6 +56,8 @@ export async function querySaleOrders(
   params: {
     storeId: number;
     range: SalesPeriodRange;
+    skip?: number;
+    take?: number;
   },
 ): Promise<SaleOrderWithItems[]> {
   return prisma.saleOrder.findMany({
@@ -72,6 +74,26 @@ export async function querySaleOrders(
       },
     },
     orderBy: [{ date: 'desc' }, { id: 'desc' }],
+    skip: params.skip,
+    take: params.take,
+  });
+}
+
+export function countSaleOrders(
+  prisma: PrismaService,
+  params: {
+    storeId: number;
+    range: SalesPeriodRange;
+  },
+): Promise<number> {
+  return prisma.saleOrder.count({
+    where: {
+      storeId: params.storeId,
+      date: {
+        gte: new Date(params.range.start),
+        lte: new Date(params.range.end),
+      },
+    },
   });
 }
 
