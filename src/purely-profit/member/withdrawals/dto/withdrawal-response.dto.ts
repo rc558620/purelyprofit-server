@@ -1,5 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsInt, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsIn, IsInt, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  PlatformMembershipApprovedPartnerDto,
+} from '../../platform-membership/dto/platform-membership-response.dto';
 import {
   PARTNER_WITHDRAWAL_STATUS_VALUES,
   WITHDRAWAL_ACCOUNT_TYPE_VALUES,
@@ -8,7 +12,25 @@ import {
 } from './apply-withdrawal.dto';
 
 export class WithdrawalOverviewResponseDto {
-  @ApiProperty({ example: 1200, description: '当前可提现纯利豆余额' })
+  @ApiPropertyOptional({
+    type: PlatformMembershipApprovedPartnerDto,
+    description: '兼容旧前端的主合伙人摘要',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PlatformMembershipApprovedPartnerDto)
+  approvedPartner: PlatformMembershipApprovedPartnerDto | null;
+
+  @ApiProperty({
+    type: [PlatformMembershipApprovedPartnerDto],
+    description: '当前门店全部正式合伙人列表',
+  })
+  @IsArray({ message: '正式合伙人列表必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => PlatformMembershipApprovedPartnerDto)
+  approvedPartners: PlatformMembershipApprovedPartnerDto[];
+
+  @ApiProperty({ example: 1200, description: '当前可提现纯利豆余额（聚合）' })
   @IsInt({ message: '可提现纯利豆余额必须是整数' })
   beanBalance: number;
 

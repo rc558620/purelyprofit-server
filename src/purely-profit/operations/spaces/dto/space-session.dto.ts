@@ -503,7 +503,7 @@ export class ListSpaceSessionsQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
     example: false,
     description:
-      '未指定 status 时，是否包含 active 会话；默认 false 仅返回历史会话',
+      '未指定 status 时，是否包含 active 会话。多数历史列表接口默认 false 仅返回 settled；根路径 /api/space-sessions 与 /api/space-sessions/active 默认直接按 active 查询。',
   })
   @IsOptional()
   @Transform(transformOptionalBoolean)

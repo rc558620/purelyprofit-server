@@ -4,7 +4,10 @@ import type {
   PlatformMembershipPartnerFollowUpNoteDto,
   PlatformMembershipPartnerProfileResponseDto,
 } from './dto/platform-membership-response.dto';
-import { buildApprovedPartnerResponse } from './platform-membership.domain';
+import {
+  buildApprovedPartnerResponse,
+  buildApprovedPartnersResponse,
+} from './platform-membership.domain';
 import { buildPartnerLevel } from './platform-membership-promo.domain';
 import type {
   PartnerSnapshotPayload,
@@ -16,27 +19,33 @@ import type {
 
 export function buildCurrentPartnerApplication(
   applications: StorePartnerApplicationRecord[],
-  partner: StorePartnerRecord | null,
+  partners: StorePartnerRecord[],
 ): PlatformMembershipPartnerApplicationDto | null {
   const latestApplication = applications[0];
   if (latestApplication) {
-    return mapPartnerApplicationRecord(latestApplication, partner);
+    return mapPartnerApplicationRecord(
+      latestApplication,
+      findMatchedPartner(partners, latestApplication),
+    );
   }
 
-  return mapLegacyPartnerApplication(partner);
+  return mapLegacyPartnerApplication(partners[0] ?? null);
 }
 
 export function buildPartnerApplications(
   applications: StorePartnerApplicationRecord[],
-  partner: StorePartnerRecord | null,
+  partners: StorePartnerRecord[],
 ): PlatformMembershipPartnerApplicationDto[] {
   if (applications.length > 0) {
     return applications.map((application) =>
-      mapPartnerApplicationRecord(application, partner),
+      mapPartnerApplicationRecord(
+        application,
+        findMatchedPartner(partners, application),
+      ),
     );
   }
 
-  const legacyApplication = mapLegacyPartnerApplication(partner);
+  const legacyApplication = mapLegacyPartnerApplication(partners[0] ?? null);
   return legacyApplication ? [legacyApplication] : [];
 }
 
@@ -58,12 +67,8 @@ export function mapPartnerApplicationRecord(
     ...(application.reviewedAt
       ? { reviewedAt: application.reviewedAt.getTime() }
       : {}),
-    ...(application.joinedAt
-      ? { joinedAt: application.joinedAt.getTime() }
-      : {}),
-    ...(application.applyReason
-      ? { applyReason: application.applyReason }
-      : {}),
+    ...(application.joinedAt ? { joinedAt: application.joinedAt.getTime() } : {}),
+    ...(application.applyReason ? { applyReason: application.applyReason } : {}),
     followUpNotes: mapPartnerFollowUpNotes(application.followUpNotes),
     beanBalance: partner?.beanBalance ?? 0,
     totalEarnedBeans: partner?.totalEarnedBeans ?? 0,
@@ -125,37 +130,42 @@ export function buildPartnerApplicationPayload(
   };
 }
 
-export function buildPartnerSnapshotFromApplication(
-  application: StorePartnerApplicationRecord,
-): PartnerSnapshotPayload {
-  return {
-    name: application.name,
-    phone: application.phone,
-    idCard: application.idCard,
-    region: application.region,
-    intention: application.intention,
-    applyReason: application.applyReason,
-    paymentAccountType: application.paymentAccountType,
-    paymentAccountNo: application.paymentAccountNo,
-    paymentAccountName: application.paymentAccountName,
-  };
-}
-
 export function buildPartnerProfileResponse(params: {
-  partner: StorePartnerRecord | null;
+  partners: StorePartnerRecord[];
   promoRecords: StoreMembershipPromoRecord[];
   applications: StorePartnerApplicationRecord[];
 }): PlatformMembershipPartnerProfileResponseDto {
+  const primaryPartner = params.partners[0] ?? null;
   const currentApplication = buildCurrentPartnerApplication(
     params.applications,
-    params.partner,
+    params.partners,
   );
 
   return {
-    isPartner: params.partner?.status === 'approved',
+    isPartner: params.partners.length > 0,
     currentApplication,
-    applications: buildPartnerApplications(params.applications, params.partner),
-    approvedPartner: buildApprovedPartnerResponse(params.partner),
-    level: buildPartnerLevel(params.partner, params.promoRecords),
+    applications: buildPartnerApplications(params.applications, params.partners),
+    approvedPartner: buildApprovedPartnerResponse(primaryPartner),
+    approvedPartners: buildApprovedPartnersResponse(params.partners),
+    level: buildPartnerLevel(primaryPartner, params.promoRecords),
   };
+}
+
+function findMatchedPartner(
+  partners: StorePartnerRecord[],
+  applicant: Pick<StorePartnerApplicationRecord, 'idCard' | 'phone'>,
+): StorePartnerRecord | null {
+  const normalizedIdCard = applicant.idCard.trim().toUpperCase();
+  const matchedByIdCard = partners.find(
+    (partner) => partner.idCard?.trim().toUpperCase() === normalizedIdCard,
+  );
+
+  if (matchedByIdCard) {
+    return matchedByIdCard;
+  }
+
+  return (
+    partners.find((partner) => partner.phone?.trim() === applicant.phone.trim()) ??
+    null
+  );
 }

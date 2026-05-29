@@ -9,6 +9,8 @@ import type {
 export class PulseDevModeGrowthService {
   buildEarningsOverview(): PulseEarningsOverviewResponseDto {
     return {
+      approvedPartner: null,
+      approvedPartners: [],
       beanBalance: 0,
       totalEarnedBeans: 0,
       totalWithdrawnBeans: 0,
@@ -21,6 +23,8 @@ export class PulseDevModeGrowthService {
 
   buildEarningsLogs(): PulseEarningsLogsResponseDto {
     return {
+      approvedPartner: null,
+      approvedPartners: [],
       items: [],
       beanBalance: 0,
     };
@@ -29,6 +33,9 @@ export class PulseDevModeGrowthService {
   buildWithdrawalAccount(): PulseWithdrawalAccountResponseDto {
     return {
       isPartner: false,
+      approvedPartner: null,
+      selectedPartner: null,
+      approvedPartners: [],
       accountType: null,
       accountNo: null,
       accountName: null,

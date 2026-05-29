@@ -78,9 +78,31 @@ export class SpaceSessionsController {
     );
   }
 
+  @Get('space-sessions/active')
+  @RequirePermissions('space:view')
+  @ApiOperation({
+    summary: '获取当前门店 active 空间会话快照',
+    description:
+      '默认仅返回当前门店 status=active 的空间会话。兼容传入 storeId、keyword、时间区间；如显式传入 status，则按传入值查询。',
+  })
+  @ApiOkResponse({ type: [SpaceSessionResponseDto] })
+  listStoreActiveSessions(
+    @Req() request: { user: AuthenticatedUser },
+    @Query() query: ListSpaceSessionsQueryDto,
+  ): Promise<SpaceSessionResponseDto[]> {
+    return this.spaceSessionsService.listStoreActiveSpaceSessions(
+      request.user,
+      query,
+    );
+  }
+
   @Get('space-sessions')
   @RequirePermissions('space:view')
-  @ApiOperation({ summary: '获取当前门店空间会话快照（兼容前端读取接口）' })
+  @ApiOperation({
+    summary: '获取当前门店 active 空间会话快照（兼容前端读取接口）',
+    description:
+      '未传 status 时，默认只返回当前门店 status=active 的空间会话；如需查看历史已结账会话，请显式传 status=settled。',
+  })
   @ApiOkResponse({ type: [SpaceSessionResponseDto] })
   listStoreSessions(
     @Req() request: { user: AuthenticatedUser },

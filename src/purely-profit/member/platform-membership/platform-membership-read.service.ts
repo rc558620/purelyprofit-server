@@ -28,8 +28,8 @@ import {
 import {
   ensureMembershipProfile,
   findStoreMembershipPromoRecords,
-  findStorePartner,
   findStorePartnerApplications,
+  findStorePartners,
   loadPlanCatalog,
   requirePlan,
 } from './platform-membership.query';
@@ -63,10 +63,10 @@ export class PlatformMembershipReadService {
   async getCenterByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipCenterResponseDto> {
-    const [profile, partner, paidOrderCount, promoRecords, applications] =
+    const [profile, partners, paidOrderCount, promoRecords, applications] =
       await Promise.all([
         ensureMembershipProfile(this.prisma, storeId),
-        findStorePartner(this.prisma, storeId),
+        findStorePartners(this.prisma, storeId),
         this.prisma.storeMembershipOrder.count({
           where: { storeId, status: 'paid' },
         }),
@@ -74,7 +74,7 @@ export class PlatformMembershipReadService {
         findStorePartnerApplications(this.prisma, storeId),
       ]);
 
-    const profileResponse = buildProfileResponse(profile, partner);
+    const profileResponse = buildProfileResponse(profile, partners);
 
     return {
       memberInfo: profileResponse.memberInfo,
@@ -83,21 +83,22 @@ export class PlatformMembershipReadService {
       paidOrderCount,
       myPartnerApplication: buildCurrentPartnerApplication(
         applications,
-        partner,
+        partners,
       ),
       approvedPartner: profileResponse.approvedPartner,
+      approvedPartners: profileResponse.approvedPartners,
     };
   }
 
   async getProfileByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipProfileResponseDto> {
-    const [profile, partner] = await Promise.all([
+    const [profile, partners] = await Promise.all([
       ensureMembershipProfile(this.prisma, storeId),
-      findStorePartner(this.prisma, storeId),
+      findStorePartners(this.prisma, storeId),
     ]);
 
-    return buildProfileResponse(profile, partner);
+    return buildProfileResponse(profile, partners);
   }
 
   async listOrdersByStoreId(
@@ -133,18 +134,20 @@ export class PlatformMembershipReadService {
   async getPromoCenterByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
-    const [profile, partner, promoRecords] = await Promise.all([
+    const [profile, partners, promoRecords] = await Promise.all([
       ensureMembershipProfile(this.prisma, storeId),
-      findStorePartner(this.prisma, storeId),
+      findStorePartners(this.prisma, storeId),
       findStoreMembershipPromoRecords(this.prisma, storeId),
     ]);
     const statsByPeriod = buildPromoStatsByPeriod(promoRecords);
-    const profileResponse = buildProfileResponse(profile, partner);
+    const profileResponse = buildProfileResponse(profile, partners);
+    const primaryPartner = partners[0] ?? null;
 
     return {
       memberInfo: profileResponse.memberInfo,
       approvedPartner: profileResponse.approvedPartner,
-      level: buildPartnerLevel(partner, promoRecords),
+      approvedPartners: profileResponse.approvedPartners,
+      level: buildPartnerLevel(primaryPartner, promoRecords),
       stats: statsByPeriod.all,
       statsByPeriod,
       items: promoRecords.map((record) => mapPromoRecord(record)),
@@ -155,9 +158,9 @@ export class PlatformMembershipReadService {
     storeId: number,
     rawQuery: Record<string, unknown>,
   ): Promise<PromotionDetailCompatResponse> {
-    const [profile, partner, promoRecords] = await Promise.all([
+    const [profile, partners, promoRecords] = await Promise.all([
       ensureMembershipProfile(this.prisma, storeId),
-      findStorePartner(this.prisma, storeId),
+      findStorePartners(this.prisma, storeId),
       findStoreMembershipPromoRecords(this.prisma, storeId),
     ]);
     const filters = resolvePromoDetailCompatFilters(rawQuery);
@@ -165,7 +168,7 @@ export class PlatformMembershipReadService {
 
     return buildPromotionDetailCompatResponse({
       profile,
-      partner,
+      partner: partners[0] ?? null,
       promoRecords,
       filteredRecords,
       filters,

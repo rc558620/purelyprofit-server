@@ -107,7 +107,10 @@ export class PulseDashboardHomeService {
           storeId: true,
           store: {
             select: {
-              partnerProfile: {
+              partners: {
+                where: { status: 'approved' },
+                orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
+                take: 1,
                 select: {
                   name: true,
                   region: true,
@@ -155,7 +158,7 @@ export class PulseDashboardHomeService {
     >();
 
     for (const record of promoRecords) {
-      const partner = record.store?.partnerProfile;
+      const partner = record.store?.partners[0] ?? null;
       if (!partner?.name) {
         continue;
       }

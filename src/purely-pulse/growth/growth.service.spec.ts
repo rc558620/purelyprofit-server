@@ -96,6 +96,7 @@ describe('PulseGrowthService', () => {
         availablePoints: 120,
       },
       approvedPartner: null,
+      approvedPartners: [],
       level: {
         partnerLevel: null,
         monthChargedCount: 0,

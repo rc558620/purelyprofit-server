@@ -10,6 +10,9 @@ import {
   Min,
 } from 'class-validator';
 import {
+  PlatformMembershipApprovedPartnerDto,
+} from '../../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
+import {
   PARTNER_WITHDRAWAL_STATUS_VALUES,
   WITHDRAWAL_ACCOUNT_TYPE_VALUES,
 } from '../../../purely-profit/member/withdrawals/dto/apply-withdrawal.dto';
@@ -31,7 +34,20 @@ function trimString(value: unknown): unknown {
 // ─────────────────────────────────────────────────────────────
 
 export class PulseEarningsOverviewResponseDto {
-  @ApiProperty({ example: 1200, description: '当前纯利豆余额' })
+  @ApiPropertyOptional({
+    type: PlatformMembershipApprovedPartnerDto,
+    description: '兼容旧前端的主合伙人摘要',
+  })
+  @IsOptional()
+  approvedPartner: PlatformMembershipApprovedPartnerDto | null;
+
+  @ApiProperty({
+    type: [PlatformMembershipApprovedPartnerDto],
+    description: '当前门店全部正式合伙人列表',
+  })
+  approvedPartners: PlatformMembershipApprovedPartnerDto[];
+
+  @ApiProperty({ example: 1200, description: '当前纯利豆余额（聚合）' })
   @IsInt()
   beanBalance: number;
 
@@ -162,10 +178,23 @@ export class PulseEarningsLogItemDto {
 }
 
 export class PulseEarningsLogsResponseDto {
+  @ApiPropertyOptional({
+    type: PlatformMembershipApprovedPartnerDto,
+    description: '兼容旧前端的主合伙人摘要',
+  })
+  @IsOptional()
+  approvedPartner: PlatformMembershipApprovedPartnerDto | null;
+
+  @ApiProperty({
+    type: [PlatformMembershipApprovedPartnerDto],
+    description: '当前门店全部正式合伙人列表',
+  })
+  approvedPartners: PlatformMembershipApprovedPartnerDto[];
+
   @ApiProperty({ type: [PulseEarningsLogItemDto], description: '收益流水列表' })
   items: PulseEarningsLogItemDto[];
 
-  @ApiProperty({ example: 1200, description: '当前纯利豆余额' })
+  @ApiProperty({ example: 1200, description: '当前纯利豆余额（聚合）' })
   @IsInt()
   beanBalance: number;
 }
@@ -174,9 +203,56 @@ export class PulseEarningsLogsResponseDto {
 // 提现账户信息响应
 // ─────────────────────────────────────────────────────────────
 
+export class PulseWithdrawalAccountPartnerDto extends PlatformMembershipApprovedPartnerDto {
+  @ApiPropertyOptional({
+    enum: WITHDRAWAL_ACCOUNT_TYPE_VALUES,
+    example: 'alipay',
+    description: '该正式合伙人的收款方式，未设置时为 null',
+  })
+  @IsOptional()
+  @IsIn(WITHDRAWAL_ACCOUNT_TYPE_VALUES)
+  accountType: WithdrawalAccountTypeValue | null;
+
+  @ApiPropertyOptional({
+    example: '13800138000',
+    description: '该正式合伙人的收款账号，未设置时为 null',
+  })
+  @IsOptional()
+  @IsString()
+  accountNo: string | null;
+
+  @ApiPropertyOptional({
+    example: '张三',
+    description: '该正式合伙人的收款人姓名，未设置时为 null',
+  })
+  @IsOptional()
+  @IsString()
+  accountName: string | null;
+}
+
 export class PulseWithdrawalAccountResponseDto {
   @ApiProperty({ example: false, description: '是否已成为审核通过的合伙人' })
   isPartner: boolean;
+
+  @ApiPropertyOptional({
+    type: PlatformMembershipApprovedPartnerDto,
+    description: '兼容旧前端的主合伙人摘要',
+  })
+  @IsOptional()
+  approvedPartner: PlatformMembershipApprovedPartnerDto | null;
+
+  @ApiPropertyOptional({
+    type: PulseWithdrawalAccountPartnerDto,
+    description: '兼容旧前端的主合伙人提现账户信息',
+  })
+  @IsOptional()
+  selectedPartner: PulseWithdrawalAccountPartnerDto | null;
+
+  @ApiProperty({
+    type: [PlatformMembershipApprovedPartnerDto],
+    description: '当前门店全部正式合伙人列表',
+  })
+  approvedPartners: PlatformMembershipApprovedPartnerDto[];
 
   @ApiPropertyOptional({
     enum: WITHDRAWAL_ACCOUNT_TYPE_VALUES,
@@ -203,7 +279,7 @@ export class PulseWithdrawalAccountResponseDto {
   @IsString()
   accountName: string | null;
 
-  @ApiProperty({ example: 1200, description: '当前纯利豆余额' })
+  @ApiProperty({ example: 1200, description: '当前纯利豆余额（聚合）' })
   @IsInt()
   beanBalance: number;
 }
@@ -242,6 +318,14 @@ export class UpdatePulseWithdrawalAccountDto {
 // ─────────────────────────────────────────────────────────────
 
 export class PulseApplyWithdrawalDto {
+  @ApiPropertyOptional({
+    example: '12',
+    description: '指定提现的正式合伙人 ID；不传时默认按主合伙人处理',
+  })
+  @IsOptional()
+  @IsString({ message: '合伙人 ID 必须是字符串' })
+  partnerId?: string;
+
   @ApiProperty({
     example: 100,
     description: '提现纯利豆数量（整数豆）',

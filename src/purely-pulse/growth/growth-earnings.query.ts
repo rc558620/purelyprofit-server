@@ -17,11 +17,18 @@ export interface PartnerBeanLogRecord {
   createdAt: Date;
 }
 
-export interface EarningsOverviewPartnerRecord {
+export interface EarningsApprovedPartnerRecord {
+  id: number;
   status: string;
+  name: string | null;
+  phone: string | null;
   beanBalance: number;
   totalEarnedBeans: number;
   totalWithdrawnBeans: number;
+  joinedAt: Date | null;
+  paymentAccountType: 'wechat' | 'alipay' | 'bank' | null;
+  paymentAccountNo: string | null;
+  paymentAccountName: string | null;
 }
 
 export interface EarningsOverviewPromoRecord {
@@ -29,41 +36,30 @@ export interface EarningsOverviewPromoRecord {
 }
 
 export interface EarningsOverviewQueryResult {
-  partner: EarningsOverviewPartnerRecord | null;
+  partners: EarningsApprovedPartnerRecord[];
   promoRecords: EarningsOverviewPromoRecord[];
   pendingWithdrawals: number;
 }
 
-export interface EarningsApprovedPartnerRecord {
-  id: number;
-  status: string;
-  beanBalance: number;
-}
+export interface WithdrawalAccountPartnerRecord extends EarningsApprovedPartnerRecord {}
 
-export interface WithdrawalAccountPartnerRecord {
-  status: string;
-  beanBalance: number;
-  paymentAccountType: 'wechat' | 'alipay' | 'bank' | null;
-  paymentAccountNo: string | null;
-  paymentAccountName: string | null;
-}
-
-const EARNINGS_OVERVIEW_PARTNER_SELECT = {
+const EARNINGS_PARTNER_SELECT = {
+  id: true,
   status: true,
+  name: true,
+  phone: true,
   beanBalance: true,
   totalEarnedBeans: true,
   totalWithdrawnBeans: true,
+  joinedAt: true,
+  paymentAccountType: true,
+  paymentAccountNo: true,
+  paymentAccountName: true,
 } satisfies Prisma.StorePartnerSelect;
 
 const EARNINGS_OVERVIEW_PROMO_SELECT = {
   hasCharged: true,
 } satisfies Prisma.StoreMembershipPromoRecordSelect;
-
-const EARNINGS_APPROVED_PARTNER_SELECT = {
-  id: true,
-  status: true,
-  beanBalance: true,
-} satisfies Prisma.StorePartnerSelect;
 
 const PARTNER_BEAN_LOG_SELECT = {
   id: true,
@@ -75,23 +71,16 @@ const PARTNER_BEAN_LOG_SELECT = {
   createdAt: true,
 } satisfies Prisma.StorePartnerBeanLogSelect;
 
-const WITHDRAWAL_ACCOUNT_PARTNER_SELECT = {
-  status: true,
-  beanBalance: true,
-  paymentAccountType: true,
-  paymentAccountNo: true,
-  paymentAccountName: true,
-} satisfies Prisma.StorePartnerSelect;
-
 export async function queryEarningsOverviewData(
   prisma: PrismaService,
   storeId: number,
 ): Promise<EarningsOverviewQueryResult> {
-  const [partner, promoRecords, pendingWithdrawals] = await Promise.all([
-    prisma.storePartner.findUnique({
-      where: { storeId },
-      select: EARNINGS_OVERVIEW_PARTNER_SELECT,
-    }) as Promise<EarningsOverviewPartnerRecord | null>,
+  const [partners, promoRecords, pendingWithdrawals] = await Promise.all([
+    prisma.storePartner.findMany({
+      where: { storeId, status: 'approved' },
+      select: EARNINGS_PARTNER_SELECT,
+      orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
+    }) as Promise<EarningsApprovedPartnerRecord[]>,
     prisma.storeMembershipPromoRecord.findMany({
       where: { storeId },
       select: EARNINGS_OVERVIEW_PROMO_SELECT,
@@ -110,7 +99,7 @@ export async function queryEarningsOverviewData(
   ]);
 
   return {
-    partner,
+    partners,
     promoRecords,
     pendingWithdrawals,
   };
@@ -120,19 +109,21 @@ export async function queryApprovedPartnerRecord(
   prisma: PrismaService,
   storeId: number,
 ): Promise<EarningsApprovedPartnerRecord | null> {
-  return prisma.storePartner.findUnique({
-    where: { storeId },
-    select: EARNINGS_APPROVED_PARTNER_SELECT,
-  }) as Promise<EarningsApprovedPartnerRecord | null>;
+  const partners = await prisma.storePartner.findMany({
+    where: { storeId, status: 'approved' },
+    select: EARNINGS_PARTNER_SELECT,
+    orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
+  });
+
+  return partners[0] ?? null;
 }
 
 export async function queryPartnerBeanLogs(
   prisma: PrismaService,
   storeId: number,
-  partnerId: number,
 ): Promise<PartnerBeanLogRecord[]> {
   return prisma.storePartnerBeanLog.findMany({
-    where: { storeId, partnerId },
+    where: { storeId },
     select: PARTNER_BEAN_LOG_SELECT,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   }) as Promise<PartnerBeanLogRecord[]>;
@@ -142,8 +133,22 @@ export async function queryWithdrawalAccountPartner(
   prisma: PrismaService,
   storeId: number,
 ): Promise<WithdrawalAccountPartnerRecord | null> {
-  return prisma.storePartner.findUnique({
-    where: { storeId },
-    select: WITHDRAWAL_ACCOUNT_PARTNER_SELECT,
-  }) as Promise<WithdrawalAccountPartnerRecord | null>;
+  const partners = await prisma.storePartner.findMany({
+    where: { storeId, status: 'approved' },
+    select: EARNINGS_PARTNER_SELECT,
+    orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
+  });
+
+  return partners[0] ?? null;
+}
+
+export async function queryWithdrawalAccountPartners(
+  prisma: PrismaService,
+  storeId: number,
+): Promise<WithdrawalAccountPartnerRecord[]> {
+  return prisma.storePartner.findMany({
+    where: { storeId, status: 'approved' },
+    select: EARNINGS_PARTNER_SELECT,
+    orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
+  }) as Promise<WithdrawalAccountPartnerRecord[]>;
 }

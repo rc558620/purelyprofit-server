@@ -2,12 +2,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PartnerWithdrawalStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import { WithdrawalsSharedService } from './withdrawals-shared.service';
 import { WithdrawalsService } from './withdrawals.service';
 
 export interface WithdrawalsPrismaServiceMock {
   storePartner: {
     findUnique: jest.Mock;
+    findFirst: jest.Mock;
+    findMany: jest.Mock;
     updateMany: jest.Mock;
   };
   storePartnerBeanLog: {
@@ -26,6 +29,9 @@ export interface WithdrawalsPrismaServiceMock {
 export interface WithdrawalsServiceTestingContext {
   service: WithdrawalsService;
   prismaService: WithdrawalsPrismaServiceMock;
+  cacheInvalidatorService: {
+    invalidateDashboardAndPulseSession: jest.Mock;
+  };
   user: AuthenticatedUser;
 }
 
@@ -61,6 +67,8 @@ function createPrismaServiceMock(): WithdrawalsPrismaServiceMock {
   return {
     storePartner: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
       updateMany: jest.fn(),
     },
     storePartnerBeanLog: {
@@ -146,14 +154,24 @@ export function createApplyPartner(overrides: ApplyPartnerOverrides = {}): {
 export function createOverviewPartner(
   overrides: OverviewPartnerOverrides = {},
 ): {
+  id: number;
   status: 'pending' | 'approved';
+  name: string;
+  phone: string;
   beanBalance: number;
+  totalEarnedBeans: number;
   totalWithdrawnBeans: number;
+  joinedAt: Date;
 } {
   return {
+    id: 6,
     status: 'approved',
+    name: '张三',
+    phone: '13800138000',
     beanBalance: 1200,
+    totalEarnedBeans: 2000,
     totalWithdrawnBeans: 800,
+    joinedAt: new Date('2026-05-14T00:00:00.000Z'),
     ...overrides,
   };
 }
@@ -167,18 +185,30 @@ export async function createWithdrawalsServiceTestingContext(): Promise<Withdraw
       ) => Promise<unknown>,
     ) => callback(prismaService),
   );
+  prismaService.storePartner.findFirst.mockImplementation(
+    async (...args: unknown[]) => prismaService.storePartner.findUnique(...args),
+  );
+
+  const cacheInvalidatorService = {
+    invalidateDashboardAndPulseSession: jest.fn(),
+  };
 
   const module: TestingModule = await Test.createTestingModule({
     providers: [
       WithdrawalsService,
       WithdrawalsSharedService,
       { provide: PrismaService, useValue: prismaService },
+      {
+        provide: CacheInvalidatorService,
+        useValue: cacheInvalidatorService,
+      },
     ],
   }).compile();
 
   return {
     service: module.get<WithdrawalsService>(WithdrawalsService),
     prismaService,
+    cacheInvalidatorService,
     user: createAuthenticatedUser(),
   };
 }

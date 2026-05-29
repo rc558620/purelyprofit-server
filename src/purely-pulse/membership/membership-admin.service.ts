@@ -271,26 +271,35 @@ export class PulseMembershipAdminService {
         0,
       );
       const now = new Date();
-      const partner = await tx.storePartner.upsert({
-        where: { storeId: memberId },
-        create: {
-          storeId: memberId,
-          status: 'approved',
-          reviewedAt: now,
-          joinedAt: now,
-          beanBalance: nextBeanBalance,
-          totalEarnedBeans,
-          totalWithdrawnBeans: current.partner.totalWithdrawnBeans,
-        },
-        update: {
-          status: 'approved',
-          reviewedAt: current.partner.status === 'approved' ? undefined : now,
-          joinedAt: current.partner.status === 'approved' ? undefined : now,
-          beanBalance: nextBeanBalance,
-          totalEarnedBeans,
-        },
-        select: { id: true },
+      const existingPartner = await tx.storePartner.findFirst({
+        where: { storeId: memberId, status: 'approved' },
+        select: { id: true, status: true },
+        orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
       });
+      const partner = existingPartner
+        ? await tx.storePartner.update({
+            where: { id: existingPartner.id },
+            data: {
+              status: 'approved',
+              reviewedAt: existingPartner.status === 'approved' ? undefined : now,
+              joinedAt: existingPartner.status === 'approved' ? undefined : now,
+              beanBalance: nextBeanBalance,
+              totalEarnedBeans,
+            },
+            select: { id: true },
+          })
+        : await tx.storePartner.create({
+            data: {
+              storeId: memberId,
+              status: 'approved',
+              reviewedAt: now,
+              joinedAt: now,
+              beanBalance: nextBeanBalance,
+              totalEarnedBeans,
+              totalWithdrawnBeans: current.partner.totalWithdrawnBeans,
+            },
+            select: { id: true },
+          });
 
       await tx.storePartnerBeanLog.create({
         data: {
@@ -433,7 +442,7 @@ export class PulseMembershipAdminService {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),
       this.prisma.storePartner.findFirst({
-        where: { storeId },
+        where: { storeId, status: 'approved' },
         select: {
           id: true,
           beanBalance: true,
@@ -441,6 +450,7 @@ export class PulseMembershipAdminService {
           totalEarnedBeans: true,
           totalWithdrawnBeans: true,
         },
+        orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
       }),
       this.prisma.storeMembershipPromoRecord.count({
         where: { storeId },
@@ -523,8 +533,8 @@ export class PulseMembershipAdminService {
           availablePoints: true,
         },
       }),
-      this.prisma.storePartner.findUnique({
-        where: { storeId },
+      this.prisma.storePartner.findFirst({
+        where: { storeId, status: 'approved' },
         select: {
           id: true,
           status: true,
@@ -532,6 +542,7 @@ export class PulseMembershipAdminService {
           totalEarnedBeans: true,
           totalWithdrawnBeans: true,
         },
+        orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
       }),
     ]);
 

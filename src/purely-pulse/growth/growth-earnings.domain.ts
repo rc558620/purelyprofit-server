@@ -2,8 +2,12 @@ import type {
   PulseEarningsLogsResponseDto,
   PulseEarningsLogTypeValue,
   PulseEarningsOverviewResponseDto,
+  PulseWithdrawalAccountPartnerDto,
   PulseWithdrawalAccountResponseDto,
 } from './dto/pulse-growth.dto';
+import type {
+  PlatformMembershipApprovedPartnerDto,
+} from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
 import type {
   EarningsApprovedPartnerRecord,
   EarningsOverviewQueryResult,
@@ -16,17 +20,35 @@ type BeanTypeValue = 'earn' | 'spend' | 'withdraw';
 export function buildEarningsOverviewResponse(
   data: EarningsOverviewQueryResult,
 ): PulseEarningsOverviewResponseDto {
-  const isPartner = data.partner?.status === 'approved';
+  const primaryPartner = data.partners[0] ?? null;
+  const isPartner = primaryPartner?.status === 'approved';
   const chargedPromos = data.promoRecords.filter(
     (record) => record.hasCharged,
   ).length;
 
+  // 聚合所有正式合伙人的豆豆统计
+  const beanSummary = data.partners
+    .filter((p) => p.status === 'approved')
+    .reduce(
+      (sum, partner) => ({
+        beanBalance: sum.beanBalance + partner.beanBalance,
+        totalEarnedBeans: sum.totalEarnedBeans + partner.totalEarnedBeans,
+        totalWithdrawnBeans:
+          sum.totalWithdrawnBeans + partner.totalWithdrawnBeans,
+      }),
+      {
+        beanBalance: 0,
+        totalEarnedBeans: 0,
+        totalWithdrawnBeans: 0,
+      },
+    );
+
   return {
-    beanBalance: isPartner ? (data.partner?.beanBalance ?? 0) : 0,
-    totalEarnedBeans: isPartner ? (data.partner?.totalEarnedBeans ?? 0) : 0,
-    totalWithdrawnBeans: isPartner
-      ? (data.partner?.totalWithdrawnBeans ?? 0)
-      : 0,
+    approvedPartner: mapApprovedPartner(primaryPartner),
+    approvedPartners: mapApprovedPartners(data.partners),
+    beanBalance: isPartner ? beanSummary.beanBalance : 0,
+    totalEarnedBeans: isPartner ? beanSummary.totalEarnedBeans : 0,
+    totalWithdrawnBeans: isPartner ? beanSummary.totalWithdrawnBeans : 0,
     totalPromos: data.promoRecords.length,
     chargedPromos,
     isPartner,
@@ -35,31 +57,48 @@ export function buildEarningsOverviewResponse(
 }
 
 export function buildEarningsLogsResponse(input: {
-  partner: EarningsApprovedPartnerRecord | null;
+  partners: EarningsApprovedPartnerRecord[];
   logs: PartnerBeanLogRecord[];
   ownerName: string | null;
   typeFilter: PulseEarningsLogTypeValue;
 }): PulseEarningsLogsResponseDto {
-  if (!input.partner || input.partner.status !== 'approved') {
-    return { items: [], beanBalance: 0 };
+  const primaryPartner = input.partners[0] ?? null;
+  if (!primaryPartner || primaryPartner.status !== 'approved') {
+    return {
+      approvedPartner: null,
+      approvedPartners: [],
+      items: [],
+      beanBalance: 0,
+    };
   }
 
   const filteredLogs = filterLogsByType(input.logs, input.typeFilter);
 
+  // 聚合所有正式合伙人的豆豆余额
+  const beanBalance = input.partners
+    .filter((p) => p.status === 'approved')
+    .reduce((sum, partner) => sum + partner.beanBalance, 0);
+
   return {
+    approvedPartner: mapApprovedPartner(primaryPartner),
+    approvedPartners: mapApprovedPartners(input.partners),
     items: filteredLogs.map((log) => mapBeanLog(log, input.ownerName)),
-    beanBalance: input.partner.beanBalance,
+    beanBalance,
   };
 }
 
 export function buildWithdrawalAccountResponse(
-  partner: WithdrawalAccountPartnerRecord | null,
+  partners: WithdrawalAccountPartnerRecord[],
 ): PulseWithdrawalAccountResponseDto {
-  const isPartner = partner?.status === 'approved';
+  const primaryPartner = partners[0] ?? null;
+  const isPartner = primaryPartner?.status === 'approved';
 
   if (!isPartner) {
     return {
       isPartner: false,
+      selectedPartner: null,
+      approvedPartner: null,
+      approvedPartners: [],
       accountType: null,
       accountNo: null,
       accountName: null,
@@ -67,12 +106,75 @@ export function buildWithdrawalAccountResponse(
     };
   }
 
+  // 聚合所有正式合伙人的豆豆余额
+  const beanBalance = partners
+    .filter((p) => p.status === 'approved')
+    .reduce((sum, partner) => sum + partner.beanBalance, 0);
+
   return {
     isPartner: true,
+    selectedPartner: mapWithdrawalAccountPartner(primaryPartner),
+    approvedPartner: mapApprovedPartner(primaryPartner),
+    approvedPartners: mapApprovedPartners(partners),
+    accountType: primaryPartner.paymentAccountType ?? null,
+    accountNo: primaryPartner.paymentAccountNo ?? null,
+    accountName: primaryPartner.paymentAccountName ?? null,
+    beanBalance,
+  };
+}
+
+function mapApprovedPartner(
+  partner: EarningsApprovedPartnerRecord | null,
+): PlatformMembershipApprovedPartnerDto | null {
+  if (!partner || partner.status !== 'approved') {
+    return null;
+  }
+
+  return {
+    id: String(partner.id),
+    name: partner.name ?? '',
+    phone: partner.phone ?? '',
+    ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
+    beanBalance: partner.beanBalance,
+    totalEarnedBeans: partner.totalEarnedBeans,
+    totalWithdrawnBeans: partner.totalWithdrawnBeans,
+  };
+}
+
+function mapApprovedPartners(
+  partners: EarningsApprovedPartnerRecord[],
+): PlatformMembershipApprovedPartnerDto[] {
+  return partners
+    .filter((partner) => partner.status === 'approved')
+    .map((partner) => ({
+      id: String(partner.id),
+      name: partner.name ?? '',
+      phone: partner.phone ?? '',
+      ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
+      beanBalance: partner.beanBalance,
+      totalEarnedBeans: partner.totalEarnedBeans,
+      totalWithdrawnBeans: partner.totalWithdrawnBeans,
+    }));
+}
+
+function mapWithdrawalAccountPartner(
+  partner: WithdrawalAccountPartnerRecord | null,
+): PulseWithdrawalAccountPartnerDto | null {
+  if (!partner) {
+    return null;
+  }
+
+  return {
+    id: String(partner.id),
+    name: partner.name ?? '',
+    phone: partner.phone ?? '',
+    ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
+    beanBalance: partner.beanBalance,
+    totalEarnedBeans: partner.totalEarnedBeans,
+    totalWithdrawnBeans: partner.totalWithdrawnBeans,
     accountType: partner.paymentAccountType ?? null,
     accountNo: partner.paymentAccountNo ?? null,
     accountName: partner.paymentAccountName ?? null,
-    beanBalance: partner.beanBalance ?? 0,
   };
 }
 

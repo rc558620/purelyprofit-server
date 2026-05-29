@@ -17,6 +17,8 @@ describe('PlatformMembershipService', () => {
     },
     storePartner: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
       updateMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -179,6 +181,13 @@ describe('PlatformMembershipService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    prismaService.storePartner.findFirst.mockImplementation(
+      async (...args: unknown[]) => prismaService.storePartner.findUnique(...args),
+    );
+    prismaService.storePartner.findMany.mockImplementation(async () => {
+      const partner = await prismaService.storePartner.findFirst();
+      return partner ? [partner] : [];
+    });
     prismaService.storePartnerApplication.findMany.mockResolvedValue([]);
     prismaService.storePartnerApplicationNote.create.mockResolvedValue({
       id: 1,
@@ -448,6 +457,7 @@ describe('PlatformMembershipService', () => {
         totalWithdrawnBeans: 10,
       },
       approvedPartner: {
+        id: '11',
         name: '王建国',
         phone: '13800138000',
         joinedAt: new Date('2026-05-02T00:00:00.000Z').getTime(),
@@ -455,6 +465,17 @@ describe('PlatformMembershipService', () => {
         totalEarnedBeans: 60,
         totalWithdrawnBeans: 10,
       },
+      approvedPartners: [
+        {
+          id: '11',
+          name: '王建国',
+          phone: '13800138000',
+          joinedAt: new Date('2026-05-02T00:00:00.000Z').getTime(),
+          beanBalance: 25,
+          totalEarnedBeans: 60,
+          totalWithdrawnBeans: 10,
+        },
+      ],
     });
   });
 
@@ -495,6 +516,7 @@ describe('PlatformMembershipService', () => {
         paidOrderCount: 0,
         myPartnerApplication: null,
         approvedPartner: null,
+        approvedPartners: [],
       });
     } finally {
       dateNowSpy.mockRestore();
@@ -543,6 +565,7 @@ describe('PlatformMembershipService', () => {
         availablePoints: 88,
       },
       approvedPartner: {
+        id: '11',
         name: '王建国',
         phone: '13800138000',
         joinedAt: new Date('2026-05-02T00:00:00.000Z').getTime(),
@@ -550,6 +573,17 @@ describe('PlatformMembershipService', () => {
         totalEarnedBeans: 60,
         totalWithdrawnBeans: 10,
       },
+      approvedPartners: [
+        {
+          id: '11',
+          name: '王建国',
+          phone: '13800138000',
+          joinedAt: new Date('2026-05-02T00:00:00.000Z').getTime(),
+          beanBalance: 25,
+          totalEarnedBeans: 60,
+          totalWithdrawnBeans: 10,
+        },
+      ],
     });
   });
 
@@ -767,41 +801,127 @@ describe('PlatformMembershipService', () => {
         paymentAccountName: '张三',
       },
     });
-    expect(prismaService.storePartner.upsert).toHaveBeenCalledWith({
-      where: { storeId: 18 },
-      create: {
-        storeId: 18,
-        status: 'pending',
-        name: '张三',
-        phone: '13800138000',
-        idCard: '44030119900101123X',
-        region: ['广东省', '深圳市', '南山区'],
-        intention: 'resource',
-        applyReason: '有行业资源',
-        paymentAccountType: 'wechat',
-        paymentAccountNo: 'wx_test',
-        paymentAccountName: '张三',
-        reviewedAt: null,
-        joinedAt: null,
-      },
-      update: {
-        status: 'pending',
-        name: '张三',
-        phone: '13800138000',
-        idCard: '44030119900101123X',
-        region: ['广东省', '深圳市', '南山区'],
-        intention: 'resource',
-        applyReason: '有行业资源',
-        paymentAccountType: 'wechat',
-        paymentAccountNo: 'wx_test',
-        paymentAccountName: '张三',
-        reviewedAt: null,
-        joinedAt: null,
-      },
-    });
+    expect(prismaService.storePartner.upsert).not.toHaveBeenCalled();
+    expect(prismaService.storePartner.create).not.toHaveBeenCalled();
     expect(result.currentApplication?.id).toBe('101');
     expect(result.currentApplication?.status).toBe('pending');
     expect(result.applications).toHaveLength(1);
+  });
+
+  it('applyPartner 在已有正式合伙人时允许新增其他人申请', async () => {
+    prismaService.store.findFirst.mockResolvedValue({ id: 18 });
+    prismaService.storePartner.findUnique.mockResolvedValue({
+      id: 12,
+      status: 'approved',
+      name: '王建国',
+      phone: '13800138000',
+      idCard: '44030119900101123X',
+      region: ['广东省', '深圳市', '南山区'],
+      intention: 'resource',
+      applyReason: '有行业资源',
+      paymentAccountType: 'wechat',
+      paymentAccountNo: 'wx_test',
+      paymentAccountName: '王建国',
+      beanBalance: 18,
+      totalEarnedBeans: 30,
+      totalWithdrawnBeans: 12,
+      joinedAt: new Date('2026-05-15T00:00:00.000Z'),
+      reviewedAt: new Date('2026-05-15T00:00:00.000Z'),
+      createdAt: new Date('2026-05-15T00:00:00.000Z'),
+    });
+    prismaService.storePartnerApplication.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 102,
+          storeId: 18,
+          status: 'pending',
+          name: '李四',
+          phone: '13900139000',
+          idCard: '110101199203071234',
+          region: ['北京市', '北京市', '东城区'],
+          intention: 'agent',
+          applyReason: '想拓展本地渠道',
+          paymentAccountType: 'alipay',
+          paymentAccountNo: 'alipay_ls',
+          paymentAccountName: '李四',
+          reviewedAt: null,
+          joinedAt: null,
+          createdAt: new Date('2026-05-16T00:00:00.000Z'),
+          followUpNotes: [],
+        },
+      ]);
+    prismaService.storeMembershipPromoRecord.findMany.mockResolvedValue([]);
+
+    const result = await service.applyPartner(user, {
+      name: '李四',
+      phone: '13900139000',
+      idCard: '110101199203071234',
+      region: ['北京市', '北京市', '东城区'],
+      paymentMethod: 'alipay',
+      paymentAccount: 'alipay_ls',
+      intention: 'agent',
+      applyReason: '想拓展本地渠道',
+    });
+
+    expect(prismaService.storePartnerApplication.create).toHaveBeenCalledWith({
+      data: {
+        storeId: 18,
+        status: 'pending',
+        name: '李四',
+        phone: '13900139000',
+        idCard: '110101199203071234',
+        region: ['北京市', '北京市', '东城区'],
+        intention: 'agent',
+        applyReason: '想拓展本地渠道',
+        paymentAccountType: 'alipay',
+        paymentAccountNo: 'alipay_ls',
+        paymentAccountName: '李四',
+      },
+    });
+    expect(prismaService.storePartner.upsert).not.toHaveBeenCalled();
+    expect(result.isPartner).toBe(true);
+    expect(result.currentApplication?.id).toBe('102');
+    expect(result.currentApplication?.status).toBe('pending');
+    expect(result.approvedPartner?.name).toBe('王建国');
+  });
+
+  it('applyPartner 在同一申请人已通过审核时拒绝重复申请', async () => {
+    prismaService.store.findFirst.mockResolvedValue({ id: 18 });
+    prismaService.storePartner.findUnique.mockResolvedValue({
+      id: 12,
+      status: 'approved',
+      name: '王建国',
+      phone: '13800138000',
+      idCard: '44030119900101123X',
+      region: ['广东省', '深圳市', '南山区'],
+      intention: 'resource',
+      applyReason: '有行业资源',
+      paymentAccountType: 'wechat',
+      paymentAccountNo: 'wx_test',
+      paymentAccountName: '王建国',
+      beanBalance: 18,
+      totalEarnedBeans: 30,
+      totalWithdrawnBeans: 12,
+      joinedAt: new Date('2026-05-15T00:00:00.000Z'),
+      reviewedAt: new Date('2026-05-15T00:00:00.000Z'),
+      createdAt: new Date('2026-05-15T00:00:00.000Z'),
+    });
+    prismaService.storePartnerApplication.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.applyPartner(user, {
+        name: '王建国',
+        phone: '13800138000',
+        idCard: '44030119900101123x',
+        region: ['广东省', '深圳市', '南山区'],
+        paymentMethod: 'wechat',
+        paymentAccount: 'wx_test',
+        intention: 'resource',
+        applyReason: '重复申请',
+      }),
+    ).rejects.toThrow('该合伙人已通过审核，无需重复申请');
+    expect(prismaService.storePartnerApplication.create).not.toHaveBeenCalled();
   });
 
   it('markPartnerApplicationReviewing 将申请切换为审核中', async () => {
@@ -883,14 +1003,8 @@ describe('PlatformMembershipService', () => {
         joinedAt: null,
       },
     });
-    expect(prismaService.storePartner.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { storeId: 18 },
-        update: expect.objectContaining({
-          status: 'reviewing',
-        }),
-      }),
-    );
+    expect(prismaService.storePartner.upsert).not.toHaveBeenCalled();
+    expect(prismaService.storePartner.update).not.toHaveBeenCalled();
     expect(result.currentApplication?.status).toBe('reviewing');
   });
 
@@ -917,25 +1031,28 @@ describe('PlatformMembershipService', () => {
     prismaService.storePartnerApplication.updateMany.mockResolvedValue({
       count: 1,
     });
-    prismaService.storePartner.findUnique.mockResolvedValue({
-      id: 12,
-      status: 'approved',
-      name: '张三',
-      phone: '13800138000',
-      idCard: '44030119900101123X',
-      region: ['广东省', '深圳市', '南山区'],
-      intention: 'resource',
-      applyReason: '有行业资源',
-      paymentAccountType: 'wechat',
-      paymentAccountNo: 'wx_test',
-      paymentAccountName: '张三',
-      beanBalance: 18,
-      totalEarnedBeans: 30,
-      totalWithdrawnBeans: 12,
-      joinedAt: approvedAt,
-      reviewedAt: approvedAt,
-      createdAt: new Date('2026-05-15T00:00:00.000Z'),
-    });
+    prismaService.storePartner.findUnique.mockResolvedValue(null);
+    prismaService.storePartner.findMany.mockResolvedValue([
+      {
+        id: 12,
+        status: 'approved',
+        name: '张三',
+        phone: '13800138000',
+        idCard: '44030119900101123X',
+        region: ['广东省', '深圳市', '南山区'],
+        intention: 'resource',
+        applyReason: '有行业资源',
+        paymentAccountType: 'wechat',
+        paymentAccountNo: 'wx_test',
+        paymentAccountName: '张三',
+        beanBalance: 18,
+        totalEarnedBeans: 30,
+        totalWithdrawnBeans: 12,
+        joinedAt: approvedAt,
+        reviewedAt: approvedAt,
+        createdAt: new Date('2026-05-15T00:00:00.000Z'),
+      },
+    ]);
     prismaService.storePartnerApplication.findMany.mockResolvedValue([
       {
         id: 101,
@@ -974,10 +1091,10 @@ describe('PlatformMembershipService', () => {
         joinedAt: expect.any(Date),
       },
     });
-    expect(prismaService.storePartner.upsert).toHaveBeenCalledWith(
+    expect(prismaService.storePartner.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { storeId: 18 },
-        update: expect.objectContaining({
+        data: expect.objectContaining({
+          storeId: 18,
           status: 'approved',
           reviewedAt: expect.any(Date),
           joinedAt: expect.any(Date),
@@ -1015,8 +1132,6 @@ describe('PlatformMembershipService', () => {
     prismaService.storePartner.findUnique.mockResolvedValue(null);
     prismaService.storePartnerApplication.findMany.mockResolvedValue([]);
     prismaService.storeMembershipPromoRecord.findMany.mockResolvedValue([]);
-    prismaService.storePartner.deleteMany.mockResolvedValue({ count: 1 });
-
     const result = await service.cancelPartnerApplication(user, 101);
 
     expect(
@@ -1028,12 +1143,7 @@ describe('PlatformMembershipService', () => {
         status: { in: ['pending', 'reviewing'] },
       },
     });
-    expect(prismaService.storePartner.deleteMany).toHaveBeenCalledWith({
-      where: {
-        storeId: 18,
-        status: { in: ['pending', 'reviewing', 'rejected'] },
-      },
-    });
+    expect(prismaService.storePartner.deleteMany).not.toHaveBeenCalled();
     expect(result.currentApplication).toBeNull();
     expect(result.applications).toEqual([]);
   });
@@ -1540,6 +1650,7 @@ describe('PlatformMembershipService', () => {
           availablePoints: 300,
         },
         approvedPartner: {
+          id: '11',
           name: '王建国',
           phone: '13800138000',
           joinedAt: new Date('2026-05-01T00:00:00.000Z').getTime(),
@@ -1547,6 +1658,17 @@ describe('PlatformMembershipService', () => {
           totalEarnedBeans: 20,
           totalWithdrawnBeans: 0,
         },
+        approvedPartners: [
+          {
+            id: '11',
+            name: '王建国',
+            phone: '13800138000',
+            joinedAt: new Date('2026-05-01T00:00:00.000Z').getTime(),
+            beanBalance: 0,
+            totalEarnedBeans: 20,
+            totalWithdrawnBeans: 0,
+          },
+        ],
       },
       overview: {
         orderCount: 1,

@@ -196,6 +196,10 @@ export class PlatformMembershipInfoDto {
 }
 
 export class PlatformMembershipApprovedPartnerDto {
+  @ApiProperty({ example: '12', description: '正式合伙人档案 ID' })
+  @IsString({ message: '正式合伙人档案 ID 必须是字符串' })
+  id: string;
+
   @ApiProperty({ example: '王建国', description: '合伙人姓名' })
   @IsString({ message: '合伙人姓名必须是字符串' })
   name: string;
@@ -236,12 +240,21 @@ export class PlatformMembershipProfileResponseDto {
 
   @ApiPropertyOptional({
     type: PlatformMembershipApprovedPartnerDto,
-    description: '审批通过合伙人的摘要，无则为空',
+    description: '兼容旧前端的主合伙人摘要，无则为空',
   })
   @IsOptional()
   @ValidateNested()
   @Type(() => PlatformMembershipApprovedPartnerDto)
   approvedPartner: PlatformMembershipApprovedPartnerDto | null;
+
+  @ApiProperty({
+    type: [PlatformMembershipApprovedPartnerDto],
+    description: '当前门店全部正式合伙人列表',
+  })
+  @IsArray({ message: '正式合伙人列表必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => PlatformMembershipApprovedPartnerDto)
+  approvedPartners: PlatformMembershipApprovedPartnerDto[];
 }
 
 export class PlatformMembershipCenterStatsDto {
@@ -432,12 +445,21 @@ export class PlatformMembershipCenterResponseDto {
 
   @ApiPropertyOptional({
     type: PlatformMembershipApprovedPartnerDto,
-    description: '审批通过合伙人的摘要',
+    description: '兼容旧前端的主合伙人摘要',
   })
   @IsOptional()
   @ValidateNested()
   @Type(() => PlatformMembershipApprovedPartnerDto)
   approvedPartner: PlatformMembershipApprovedPartnerDto | null;
+
+  @ApiProperty({
+    type: [PlatformMembershipApprovedPartnerDto],
+    description: '当前门店全部正式合伙人列表',
+  })
+  @IsArray({ message: '正式合伙人列表必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => PlatformMembershipApprovedPartnerDto)
+  approvedPartners: PlatformMembershipApprovedPartnerDto[];
 }
 
 export class PlatformMembershipOrderResponseDto {
@@ -687,12 +709,21 @@ export class PlatformMembershipBeanLogDto {
 export class PlatformMembershipBeanLogsResponseDto {
   @ApiPropertyOptional({
     type: PlatformMembershipApprovedPartnerDto,
-    description: '审批通过合伙人的摘要',
+    description: '兼容旧前端的主合伙人摘要',
   })
   @IsOptional()
   @ValidateNested()
   @Type(() => PlatformMembershipApprovedPartnerDto)
   approvedPartner: PlatformMembershipApprovedPartnerDto | null;
+
+  @ApiProperty({
+    type: [PlatformMembershipApprovedPartnerDto],
+    description: '当前门店全部正式合伙人列表',
+  })
+  @IsArray({ message: '正式合伙人列表必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => PlatformMembershipApprovedPartnerDto)
+  approvedPartners: PlatformMembershipApprovedPartnerDto[];
 
   @ApiProperty({
     type: PlatformMembershipBeanOverviewDto,
@@ -832,12 +863,21 @@ export class PlatformMembershipPromoCenterResponseDto {
 
   @ApiPropertyOptional({
     type: PlatformMembershipApprovedPartnerDto,
-    description: '审批通过合伙人的摘要',
+    description: '兼容旧前端的主合伙人摘要',
   })
   @IsOptional()
   @ValidateNested()
   @Type(() => PlatformMembershipApprovedPartnerDto)
   approvedPartner: PlatformMembershipApprovedPartnerDto | null;
+
+  @ApiProperty({
+    type: [PlatformMembershipApprovedPartnerDto],
+    description: '当前门店全部正式合伙人列表',
+  })
+  @IsArray({ message: '正式合伙人列表必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => PlatformMembershipApprovedPartnerDto)
+  approvedPartners: PlatformMembershipApprovedPartnerDto[];
 
   @ApiProperty({
     type: PlatformMembershipPartnerLevelDto,
@@ -898,12 +938,21 @@ export class PlatformMembershipPartnerProfileResponseDto {
 
   @ApiPropertyOptional({
     type: PlatformMembershipApprovedPartnerDto,
-    description: '审批通过合伙人的摘要',
+    description: '兼容旧前端的主合伙人摘要',
   })
   @IsOptional()
   @ValidateNested()
   @Type(() => PlatformMembershipApprovedPartnerDto)
   approvedPartner: PlatformMembershipApprovedPartnerDto | null;
+
+  @ApiProperty({
+    type: [PlatformMembershipApprovedPartnerDto],
+    description: '当前门店全部正式合伙人列表',
+  })
+  @IsArray({ message: '正式合伙人列表必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => PlatformMembershipApprovedPartnerDto)
+  approvedPartners: PlatformMembershipApprovedPartnerDto[];
 
   @ApiProperty({
     type: PlatformMembershipPartnerLevelDto,

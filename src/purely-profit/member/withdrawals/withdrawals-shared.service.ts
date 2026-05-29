@@ -17,6 +17,11 @@ import type {
   WithdrawalOverviewResponseDto,
 } from './dto/withdrawal-response.dto';
 import {
+  buildApprovedPartnerResponse,
+  buildApprovedPartnersResponse,
+  buildBeanOverview,
+} from '../platform-membership/platform-membership.domain';
+import {
   mapWithdrawalRecord,
   withdrawalRecordSelect,
   type WithdrawalRecordSnapshot,
@@ -27,26 +32,21 @@ const PROCESSING_WITHDRAWAL_STATUSES: PartnerWithdrawalStatus[] = [
   PartnerWithdrawalStatus.approved,
 ];
 
-const withdrawalOverviewPartnerSelect = {
-  status: true,
-  beanBalance: true,
-  totalWithdrawnBeans: true,
-} satisfies Prisma.StorePartnerSelect;
-
-const withdrawalApplyPartnerSelect = {
+const withdrawalPartnerSelect = {
   id: true,
   status: true,
+  name: true,
+  phone: true,
   beanBalance: true,
+  totalEarnedBeans: true,
+  totalWithdrawnBeans: true,
+  joinedAt: true,
 } satisfies Prisma.StorePartnerSelect;
 
 type PrismaExecutor = PrismaService | Prisma.TransactionClient;
 
-type WithdrawalOverviewPartnerSnapshot = Prisma.StorePartnerGetPayload<{
-  select: typeof withdrawalOverviewPartnerSelect;
-}>;
-
-type WithdrawalApplyPartnerSnapshot = Prisma.StorePartnerGetPayload<{
-  select: typeof withdrawalApplyPartnerSelect;
+type WithdrawalPartnerSnapshot = Prisma.StorePartnerGetPayload<{
+  select: typeof withdrawalPartnerSelect;
 }>;
 
 @Injectable()
@@ -96,15 +96,33 @@ export class WithdrawalsSharedService {
 
   async findApprovedPartnerForApplyOrThrow(
     storeId: number,
-  ): Promise<WithdrawalApplyPartnerSnapshot> {
-    const partner = await this.prisma.storePartner.findUnique({
-      where: { storeId },
-      select: withdrawalApplyPartnerSelect,
+    rawPartnerId?: string,
+  ): Promise<WithdrawalPartnerSnapshot> {
+    const where: Prisma.StorePartnerWhereInput = {
+      storeId,
+      status: 'approved',
+    };
+
+    if (rawPartnerId !== undefined) {
+      const partnerId = Number(rawPartnerId);
+      if (!Number.isInteger(partnerId) || partnerId <= 0) {
+        throw new ConflictException('合伙人 ID 不合法');
+      }
+
+      where.id = partnerId;
+    }
+
+    const partner = await this.prisma.storePartner.findFirst({
+      where,
+      select: withdrawalPartnerSelect,
+      orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
     });
 
     if (!partner || partner.status !== 'approved') {
       throw new ForbiddenException(
-        '当前账号尚未通过合伙人审核，暂不可申请提现',
+        rawPartnerId
+          ? '指定合伙人不存在或暂不可提现'
+          : '当前账号尚未通过合伙人审核，暂不可申请提现',
       );
     }
 
@@ -115,10 +133,11 @@ export class WithdrawalsSharedService {
     prismaExecutor: PrismaExecutor,
     storeId: number,
   ): Promise<WithdrawalOverviewResponseDto> {
-    const [partner, pendingCount] = await Promise.all([
-      prismaExecutor.storePartner.findUnique({
-        where: { storeId },
-        select: withdrawalOverviewPartnerSelect,
+    const [partners, pendingCount] = await Promise.all([
+      prismaExecutor.storePartner.findMany({
+        where: { storeId, status: 'approved' },
+        select: withdrawalPartnerSelect,
+        orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
       }),
       prismaExecutor.partnerWithdrawal.count({
         where: {
@@ -128,7 +147,7 @@ export class WithdrawalsSharedService {
       }),
     ]);
 
-    return this.mapWithdrawalOverview(partner, pendingCount);
+    return this.mapWithdrawalOverview(partners, pendingCount);
   }
 
   async buildOperationResponse(
@@ -176,21 +195,55 @@ export class WithdrawalsSharedService {
   }
 
   private mapWithdrawalOverview(
-    partner: WithdrawalOverviewPartnerSnapshot | null,
+    partners: WithdrawalPartnerSnapshot[],
     pendingCount: number,
   ): WithdrawalOverviewResponseDto {
-    if (!partner || partner.status !== 'approved') {
-      return {
-        beanBalance: 0,
-        totalWithdrawnBeans: 0,
-        pendingCount,
-      };
-    }
+    const primaryPartner = partners[0] ?? null;
+    const overview = buildBeanOverview(
+      partners as any, // Type adapter: WithdrawalPartnerSnapshot 包含所有必要字段
+    );
 
     return {
-      beanBalance: partner.beanBalance,
-      totalWithdrawnBeans: partner.totalWithdrawnBeans,
+      approvedPartner: mapApprovedPartnerFromSnapshot(primaryPartner),
+      approvedPartners: mapApprovedPartnersFromSnapshot(partners),
+      beanBalance: overview.beanBalance,
+      totalWithdrawnBeans: overview.totalWithdrawnBeans,
       pendingCount,
     };
   }
+}
+
+// 类型适配器函数：将 WithdrawalPartnerSnapshot 映射到 DTO
+function mapApprovedPartnerFromSnapshot(
+  partner: WithdrawalPartnerSnapshot | null,
+): any | null {
+  if (!partner || partner.status !== 'approved') {
+    return null;
+  }
+
+  return {
+    id: String(partner.id),
+    name: partner.name ?? '',
+    phone: partner.phone ?? '',
+    ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
+    beanBalance: partner.beanBalance,
+    totalEarnedBeans: partner.totalEarnedBeans,
+    totalWithdrawnBeans: partner.totalWithdrawnBeans,
+  };
+}
+
+function mapApprovedPartnersFromSnapshot(
+  partners: WithdrawalPartnerSnapshot[],
+): any[] {
+  return partners
+    .filter((partner) => partner.status === 'approved')
+    .map((partner) => ({
+      id: String(partner.id),
+      name: partner.name ?? '',
+      phone: partner.phone ?? '',
+      ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
+      beanBalance: partner.beanBalance,
+      totalEarnedBeans: partner.totalEarnedBeans,
+      totalWithdrawnBeans: partner.totalWithdrawnBeans,
+    }));
 }

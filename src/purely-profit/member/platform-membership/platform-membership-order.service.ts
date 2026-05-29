@@ -2,13 +2,13 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { DAY_MS, PURCHASE_BONUS_POINTS } from './platform-membership.constants';
 import {
+  allocateBeansAcrossPartners,
   buildOrdersOverview,
   buildPlanExpiryAt,
   buildProfileResponse,
   calcMemberPlanPayment,
   generateWechatOrderId,
   mapOrder,
-  requireApprovedPartnerOrNull,
   resolveEffectivePlanId,
   resolveFrontendMembershipExpiry,
 } from './platform-membership.domain';
@@ -17,7 +17,7 @@ import { PurchasePlatformMembershipOrderResponseDto } from './dto/platform-membe
 import {
   ensureMembershipProfile,
   ensurePlatformMembershipStoreOwner,
-  findStorePartner,
+  findStorePartners,
   requirePlan,
 } from './platform-membership.query';
 
@@ -38,14 +38,17 @@ export class PlatformMembershipOrderService {
     return this.prisma.$transaction(async (tx) => {
       const plan = await requirePlan(tx, dto.planId);
       const profile = await ensureMembershipProfile(tx, storeId);
-      const partner = await findStorePartner(tx, storeId);
-      const approvedPartner = requireApprovedPartnerOrNull(partner);
+      const partners = await findStorePartners(tx, storeId);
+      const availableBeans = partners.reduce(
+        (sum, partner) => sum + partner.beanBalance,
+        0,
+      );
       const payment = calcMemberPlanPayment({
         planPrice: plan.price,
         requestedPoints,
         availablePoints: profile.availablePoints,
         requestedBeans,
-        availableBeans: approvedPartner?.beanBalance ?? 0,
+        availableBeans,
       });
 
       if (requestedPoints > 0 && payment.actualPointsUsed === 0) {
@@ -56,33 +59,40 @@ export class PlatformMembershipOrderService {
         throw new ConflictException('当前无可抵扣纯利豆');
       }
 
-      if (payment.actualBeansUsed > 0 && approvedPartner !== null) {
-        const partnerUpdateResult = await tx.storePartner.updateMany({
-          where: {
-            id: approvedPartner.id,
-            storeId,
-            status: 'approved',
-            beanBalance: { gte: payment.actualBeansUsed },
-          },
-          data: {
-            beanBalance: { decrement: payment.actualBeansUsed },
-          },
-        });
+      if (payment.actualBeansUsed > 0) {
+        const allocations = allocateBeansAcrossPartners(
+          partners,
+          payment.actualBeansUsed,
+        );
 
-        if (partnerUpdateResult.count !== 1) {
-          throw new ConflictException('纯利豆余额不足，请刷新后重试');
+        for (const allocation of allocations) {
+          const partnerUpdateResult = await tx.storePartner.updateMany({
+            where: {
+              id: allocation.partnerId,
+              storeId,
+              status: 'approved',
+              beanBalance: { gte: allocation.beans },
+            },
+            data: {
+              beanBalance: { decrement: allocation.beans },
+            },
+          });
+
+          if (partnerUpdateResult.count !== 1) {
+            throw new ConflictException('纯利豆余额不足，请刷新后重试');
+          }
+
+          await tx.storePartnerBeanLog.create({
+            data: {
+              storeId,
+              partnerId: allocation.partnerId,
+              source: 'deduct_payment',
+              changeAmount: -allocation.beans,
+              description: `纯利豆抵扣 · 订阅${plan.name}`,
+              relatedPlanType: plan.id,
+            },
+          });
         }
-
-        await tx.storePartnerBeanLog.create({
-          data: {
-            storeId,
-            partnerId: approvedPartner.id,
-            source: 'deduct_payment',
-            changeAmount: -payment.actualBeansUsed,
-            description: `纯利豆抵扣 · 订阅${plan.name}`,
-            relatedPlanType: plan.id,
-          },
-        });
       }
 
       const bonusPoints = PURCHASE_BONUS_POINTS[plan.id] ?? 0;
@@ -184,7 +194,7 @@ export class PlatformMembershipOrderService {
         },
       });
 
-      const latestPartner = await findStorePartner(tx, storeId);
+      const latestPartners = await findStorePartners(tx, storeId);
       const allOrders = await tx.storeMembershipOrder.findMany({
         where: { storeId },
         select: {
@@ -205,7 +215,7 @@ export class PlatformMembershipOrderService {
 
       return {
         order: mapOrder(order),
-        profile: buildProfileResponse(updatedProfile, latestPartner),
+        profile: buildProfileResponse(updatedProfile, latestPartners),
         overview: buildOrdersOverview(allOrders),
       };
     });

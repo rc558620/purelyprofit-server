@@ -10,6 +10,7 @@ import type {
   MembershipPlanConfig,
   MembershipPlanSettingIdValue,
   MembershipPlanSettingRecord,
+  PartnerSnapshotPayload,
   PrismaExecutor,
   StoreMembershipProfileRecord,
   StoreMembershipPromoRecord,
@@ -41,31 +42,73 @@ export async function ensureMembershipProfile(
   });
 }
 
+const storePartnerSelect = {
+  id: true,
+  status: true,
+  name: true,
+  phone: true,
+  idCard: true,
+  region: true,
+  intention: true,
+  applyReason: true,
+  paymentAccountType: true,
+  paymentAccountNo: true,
+  paymentAccountName: true,
+  beanBalance: true,
+  totalEarnedBeans: true,
+  totalWithdrawnBeans: true,
+  joinedAt: true,
+  reviewedAt: true,
+  createdAt: true,
+} as const;
+
 export async function findStorePartner(
   prismaExecutor: PrismaExecutor,
   storeId: number,
 ): Promise<StorePartnerRecord | null> {
-  return prismaExecutor.storePartner.findUnique({
-    where: { storeId },
-    select: {
-      id: true,
-      status: true,
-      name: true,
-      phone: true,
-      idCard: true,
-      region: true,
-      intention: true,
-      applyReason: true,
-      paymentAccountType: true,
-      paymentAccountNo: true,
-      paymentAccountName: true,
-      beanBalance: true,
-      totalEarnedBeans: true,
-      totalWithdrawnBeans: true,
-      joinedAt: true,
-      reviewedAt: true,
-      createdAt: true,
+  return prismaExecutor.storePartner.findFirst({
+    where: { storeId, status: 'approved' },
+    select: storePartnerSelect,
+    orderBy: [
+      { reviewedAt: 'desc' },
+      { joinedAt: 'desc' },
+      { id: 'desc' },
+    ],
+  });
+}
+
+export async function findStorePartners(
+  prismaExecutor: PrismaExecutor,
+  storeId: number,
+): Promise<StorePartnerRecord[]> {
+  return prismaExecutor.storePartner.findMany({
+    where: { storeId, status: 'approved' },
+    select: storePartnerSelect,
+    orderBy: [
+      { reviewedAt: 'desc' },
+      { joinedAt: 'desc' },
+      { id: 'desc' },
+    ],
+  });
+}
+
+export async function findStorePartnerByApplicant(
+  prismaExecutor: PrismaExecutor,
+  storeId: number,
+  applicant: Pick<PartnerSnapshotPayload, 'idCard' | 'phone'>,
+): Promise<StorePartnerRecord | null> {
+  return prismaExecutor.storePartner.findFirst({
+    where: {
+      storeId,
+      OR: [{ idCard: applicant.idCard }, { phone: applicant.phone }],
     },
+    select: storePartnerSelect,
+    orderBy: [
+      { status: 'desc' },
+      { reviewedAt: 'desc' },
+      { joinedAt: 'desc' },
+      { id: 'desc' },
+    ],
   });
 }
 

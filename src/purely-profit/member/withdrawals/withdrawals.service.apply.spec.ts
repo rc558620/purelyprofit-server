@@ -15,7 +15,7 @@ describe('WithdrawalsService apply', () => {
   });
 
   it('apply 在当前账号未通过合伙人审核时拒绝提交', async () => {
-    context.prismaService.storePartner.findUnique.mockResolvedValue(
+    context.prismaService.storePartner.findFirst.mockResolvedValue(
       createApplyPartner({ status: 'pending' }),
     );
 
@@ -45,7 +45,7 @@ describe('WithdrawalsService apply', () => {
   });
 
   it('apply 在余额不足时阻止提现', async () => {
-    context.prismaService.storePartner.findUnique.mockResolvedValue(
+    context.prismaService.storePartner.findFirst.mockResolvedValue(
       createApplyPartner({ beanBalance: 300 }),
     );
 
@@ -60,14 +60,14 @@ describe('WithdrawalsService apply', () => {
   });
 
   it('apply 提现成功时扣减余额、累加累计提现并返回前端所需字段', async () => {
-    context.prismaService.storePartner.findUnique
-      .mockResolvedValueOnce(createApplyPartner())
-      .mockResolvedValueOnce(
-        createOverviewPartner({
-          beanBalance: 700,
-          totalWithdrawnBeans: 1300,
-        }),
-      );
+    const applyPartner = createApplyPartner();
+    const overviewPartner = createOverviewPartner({
+      beanBalance: 700,
+      totalWithdrawnBeans: 1300,
+    });
+    
+    context.prismaService.storePartner.findFirst.mockResolvedValue(applyPartner);
+    context.prismaService.storePartner.findMany.mockResolvedValue([overviewPartner]);
     context.prismaService.storePartner.updateMany.mockResolvedValue({
       count: 1,
     });
@@ -99,6 +99,26 @@ describe('WithdrawalsService apply', () => {
         appliedAt: new Date('2026-05-14T10:00:00.000Z').getTime(),
       },
       overview: {
+        approvedPartner: {
+          id: '6',
+          name: '张三',
+          phone: '13800138000',
+          joinedAt: overviewPartner.joinedAt.getTime(),
+          beanBalance: 700,
+          totalEarnedBeans: 2000,
+          totalWithdrawnBeans: 1300,
+        },
+        approvedPartners: [
+          {
+            id: '6',
+            name: '张三',
+            phone: '13800138000',
+            joinedAt: overviewPartner.joinedAt.getTime(),
+            beanBalance: 700,
+            totalEarnedBeans: 2000,
+            totalWithdrawnBeans: 1300,
+          },
+        ],
         beanBalance: 700,
         totalWithdrawnBeans: 1300,
         pendingCount: 3,

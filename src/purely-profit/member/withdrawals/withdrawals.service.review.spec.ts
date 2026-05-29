@@ -31,12 +31,12 @@ describe('WithdrawalsService review actions', () => {
     context.prismaService.partnerWithdrawal.updateMany.mockResolvedValue({
       count: 1,
     });
-    context.prismaService.storePartner.findUnique.mockResolvedValue(
+    context.prismaService.storePartner.findMany.mockResolvedValue([
       createOverviewPartner({
         beanBalance: 700,
         totalWithdrawnBeans: 1300,
       }),
-    );
+    ]);
     context.prismaService.partnerWithdrawal.count.mockResolvedValue(2);
 
     const result = await context.service.approve(context.user, 31);
@@ -95,9 +95,9 @@ describe('WithdrawalsService review actions', () => {
     context.prismaService.storePartner.updateMany.mockResolvedValue({
       count: 1,
     });
-    context.prismaService.storePartner.findUnique.mockResolvedValue(
+    context.prismaService.storePartner.findMany.mockResolvedValue([
       createOverviewPartner(),
-    );
+    ]);
     context.prismaService.partnerWithdrawal.count.mockResolvedValue(1);
 
     const result = await context.service.reject(context.user, 32, {
@@ -178,12 +178,12 @@ describe('WithdrawalsService review actions', () => {
     context.prismaService.partnerWithdrawal.updateMany.mockResolvedValue({
       count: 1,
     });
-    context.prismaService.storePartner.findUnique.mockResolvedValue(
+    context.prismaService.storePartner.findMany.mockResolvedValue([
       createOverviewPartner({
         beanBalance: 700,
         totalWithdrawnBeans: 1300,
       }),
-    );
+    ]);
     context.prismaService.partnerWithdrawal.count.mockResolvedValue(0);
 
     const result = await context.service.pay(context.user, 33);

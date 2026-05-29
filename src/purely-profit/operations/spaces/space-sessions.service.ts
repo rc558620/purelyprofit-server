@@ -187,15 +187,43 @@ export class SpaceSessionsService {
     const query = this.toSpaceSessionListQuery(queryDto);
     const normalizedQuery: SpaceSessionListQuery = {
       ...query,
-      ...(query.status === undefined && query.includeActive === undefined
-        ? { includeActive: true }
-        : {}),
+      status: query.status ?? PrismaSpaceSessionStatus.active,
+      includeActive: true,
     };
 
-    const where = this.buildStoreSpaceSessionListWhere(
-      storeId,
-      normalizedQuery,
+    return this.listStoreSpaceSessionsByQuery(storeId, normalizedQuery);
+  }
+
+  async listStoreActiveSpaceSessions(
+    user: AuthenticatedUser,
+    queryDto: ListSpaceSessionsQueryDto,
+  ): Promise<SpaceSessionResponseDto[]> {
+    const storeId = await this.commerceAccessService.resolveViewStoreId(
+      user,
+      queryDto.storeId,
+      'space:view',
+      '无权查看该门店空间会话',
     );
+
+    if (storeId === null) {
+      return [];
+    }
+
+    const query = this.toSpaceSessionListQuery(queryDto);
+    const normalizedQuery: SpaceSessionListQuery = {
+      ...query,
+      status: query.status ?? PrismaSpaceSessionStatus.active,
+      includeActive: true,
+    };
+
+    return this.listStoreSpaceSessionsByQuery(storeId, normalizedQuery);
+  }
+
+  private async listStoreSpaceSessionsByQuery(
+    storeId: number,
+    query: SpaceSessionListQuery,
+  ): Promise<SpaceSessionResponseDto[]> {
+    const where = this.buildStoreSpaceSessionListWhere(storeId, query);
 
     const sessions = await this.prisma.spaceSession.findMany({
       where,

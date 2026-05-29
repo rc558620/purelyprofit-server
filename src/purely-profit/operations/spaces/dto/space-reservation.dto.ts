@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import { transformOptionalInt } from '../../../stores/dto/store-response.dto';
 import {
+  SPACE_RESERVATION_STATUS_SWAGGER_DESCRIPTION,
   SPACE_RESERVATION_STATUS_VALUES,
   type SpaceReservationStatusValue,
 } from '../spaces.constants';
@@ -29,7 +30,8 @@ export class ListSpaceReservationsQueryDto {
 
   @ApiPropertyOptional({
     example: 'pending',
-    description: '预约状态筛选，默认 pending',
+    description:
+      `预约状态筛选。${SPACE_RESERVATION_STATUS_SWAGGER_DESCRIPTION}。未传时后端默认只返回 pending，不会返回 fulfilled 和 cancelled；如需查看其他状态，请显式传对应 status。`,
     enum: SPACE_RESERVATION_STATUS_VALUES,
   })
   @IsOptional()
@@ -184,7 +186,7 @@ export class SpaceReservationResponseDto {
 
   @ApiProperty({
     example: 'pending',
-    description: '预约状态',
+    description: `预约状态。${SPACE_RESERVATION_STATUS_SWAGGER_DESCRIPTION}`,
     enum: SPACE_RESERVATION_STATUS_VALUES,
   })
   status: SpaceReservationStatusValue;

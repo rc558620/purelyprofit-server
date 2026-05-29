@@ -38,6 +38,14 @@ function transformTrimmedString(value: unknown): unknown {
 }
 
 export class ApplyWithdrawalDto {
+  @ApiPropertyOptional({
+    example: '12',
+    description: '指定要提现吗的正式合伙人 ID；不传时默认按主合伙人处理',
+  })
+  @IsOptional()
+  @IsString({ message: '合伙人 ID 必须是字符串' })
+  partnerId?: string;
+
   @ApiProperty({
     example: 100,
     description: '提现纯利豆数量，前端当前按整数豆提交',

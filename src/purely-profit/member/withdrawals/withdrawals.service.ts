@@ -89,6 +89,7 @@ export class WithdrawalsService {
     const partner =
       await this.withdrawalsSharedService.findApprovedPartnerForApplyOrThrow(
         storeId,
+        dto.partnerId,
       );
     if (partner.beanBalance < dto.beanAmount) {
       throw new ConflictException('纯利豆余额不足，无法发起提现申请');

@@ -203,6 +203,7 @@ export class PulseMembershipLedgerService {
 
     return {
       approvedPartner: null,
+      approvedPartners: [],
       overview,
       items: logs.map((log) => this.mapDeveloperBeanLog(log)),
     };

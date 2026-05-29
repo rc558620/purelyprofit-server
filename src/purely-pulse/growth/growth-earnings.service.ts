@@ -16,10 +16,9 @@ import {
   buildWithdrawalAccountResponse,
 } from './growth-earnings.domain';
 import {
-  queryApprovedPartnerRecord,
   queryEarningsOverviewData,
   queryPartnerBeanLogs,
-  queryWithdrawalAccountPartner,
+  queryWithdrawalAccountPartners,
 } from './growth-earnings.query';
 
 @Injectable()
@@ -43,13 +42,11 @@ export class PulseGrowthEarningsService {
     typeFilter: PulseEarningsLogTypeValue = 'all',
   ): Promise<PulseEarningsLogsResponseDto> {
     const store = await this.accessService.resolveTargetStoreForGrowth(user);
-    const partner = await queryApprovedPartnerRecord(this.prisma, store.id);
-    const logs = partner
-      ? await queryPartnerBeanLogs(this.prisma, store.id, partner.id)
-      : [];
+    const overviewData = await queryEarningsOverviewData(this.prisma, store.id);
+    const logs = await queryPartnerBeanLogs(this.prisma, store.id);
 
     return buildEarningsLogsResponse({
-      partner,
+      partners: overviewData.partners,
       logs,
       ownerName: store.ownerName,
       typeFilter,
@@ -60,9 +57,9 @@ export class PulseGrowthEarningsService {
     user: AuthenticatedUser,
   ): Promise<PulseWithdrawalAccountResponseDto> {
     const store = await this.accessService.resolveTargetStoreForGrowth(user);
-    const partner = await queryWithdrawalAccountPartner(this.prisma, store.id);
+    const partners = await queryWithdrawalAccountPartners(this.prisma, store.id);
 
-    return buildWithdrawalAccountResponse(partner);
+    return buildWithdrawalAccountResponse(partners);
   }
 
   async updateWithdrawalAccount(

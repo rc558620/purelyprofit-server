@@ -13,10 +13,12 @@ describe('WithdrawalsService overview and list', () => {
   });
 
   it('getOverview 在当前门店没有合伙人档案时返回零值汇总', async () => {
-    context.prismaService.storePartner.findUnique.mockResolvedValue(null);
+    context.prismaService.storePartner.findMany.mockResolvedValue([]);
     context.prismaService.partnerWithdrawal.count.mockResolvedValue(2);
 
     await expect(context.service.getOverview(context.user)).resolves.toEqual({
+      approvedPartner: null,
+      approvedPartners: [],
       beanBalance: 0,
       totalWithdrawnBeans: 0,
       pendingCount: 2,
@@ -24,12 +26,31 @@ describe('WithdrawalsService overview and list', () => {
   });
 
   it('getOverview 返回审批通过合伙人的余额与处理中数量', async () => {
-    context.prismaService.storePartner.findUnique.mockResolvedValue(
-      createOverviewPartner(),
-    );
+    const partner = createOverviewPartner();
+    context.prismaService.storePartner.findMany.mockResolvedValue([partner]);
     context.prismaService.partnerWithdrawal.count.mockResolvedValue(1);
 
     await expect(context.service.getOverview(context.user)).resolves.toEqual({
+      approvedPartner: {
+        id: '6',
+        name: '张三',
+        phone: '13800138000',
+        joinedAt: partner.joinedAt.getTime(),
+        beanBalance: 1200,
+        totalEarnedBeans: 2000,
+        totalWithdrawnBeans: 800,
+      },
+      approvedPartners: [
+        {
+          id: '6',
+          name: '张三',
+          phone: '13800138000',
+          joinedAt: partner.joinedAt.getTime(),
+          beanBalance: 1200,
+          totalEarnedBeans: 2000,
+          totalWithdrawnBeans: 800,
+        },
+      ],
       beanBalance: 1200,
       totalWithdrawnBeans: 800,
       pendingCount: 1,

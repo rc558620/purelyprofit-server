@@ -6,22 +6,23 @@ import {
 } from './dto/platform-membership-query.dto';
 import type { PlatformMembershipPartnerProfileResponseDto } from './dto/platform-membership-response.dto';
 import {
-  buildCurrentPartnerApplication,
   buildPartnerApplicationPayload,
   buildPartnerProfileResponse,
-  buildPartnerSnapshotFromApplication,
 } from './platform-membership-partner.domain';
 import {
   ensurePlatformMembershipStoreOwner,
   findStoreMembershipPromoRecords,
   findStorePartner,
   findStorePartnerApplications,
+  findStorePartnerByApplicant,
+  findStorePartners,
   getScopedStorePartnerApplicationOrThrow,
 } from './platform-membership.query';
 import type {
   PartnerSnapshotPayload,
-  PartnerStatusValue,
   PrismaExecutor,
+  StorePartnerApplicationRecord,
+  StorePartnerRecord,
 } from './platform-membership.types';
 
 @Injectable()
@@ -41,28 +42,28 @@ export class PlatformMembershipPartnerService {
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     await ensurePlatformMembershipStoreOwner(this.prisma, userId, storeId);
 
-    const [existingPartner, applications] = await Promise.all([
-      findStorePartner(this.prisma, storeId),
+    const [approvedPartners, applications] = await Promise.all([
+      findStorePartners(this.prisma, storeId),
       findStorePartnerApplications(this.prisma, storeId),
     ]);
-    const currentApplication = buildCurrentPartnerApplication(
-      applications,
-      existingPartner,
-    );
+    const payload = buildPartnerApplicationPayload(dto);
 
-    if (existingPartner?.status === 'approved') {
-      throw new ConflictException('当前门店已成为合伙人，无需重复申请');
+    if (this.hasApprovedPartnerForApplicant(approvedPartners, payload)) {
+      throw new ConflictException('该合伙人已通过审核，无需重复申请');
+    }
+
+    const blockingApplication = this.findBlockingApplication(applications, payload);
+
+    if (blockingApplication?.status === 'approved') {
+      throw new ConflictException('该合伙人已通过审核，无需重复申请');
     }
 
     if (
-      currentApplication &&
-      (currentApplication.status === 'pending' ||
-        currentApplication.status === 'reviewing')
+      blockingApplication?.status === 'pending' ||
+      blockingApplication?.status === 'reviewing'
     ) {
-      throw new ConflictException('当前已有申请在审核中，请耐心等待');
+      throw new ConflictException('该合伙人已有申请在审核中，请耐心等待');
     }
-
-    const payload = buildPartnerApplicationPayload(dto);
 
     return this.prisma.$transaction(async (tx) => {
       await tx.storePartnerApplication.create({
@@ -71,12 +72,6 @@ export class PlatformMembershipPartnerService {
           status: 'pending',
           ...payload,
         },
-      });
-
-      await this.syncPartnerSnapshot(tx, storeId, payload, {
-        status: 'pending',
-        reviewedAt: null,
-        joinedAt: null,
       });
 
       return this.buildPartnerProfile(tx, storeId);
@@ -114,12 +109,6 @@ export class PlatformMembershipPartnerService {
       if (updateResult.count !== 1) {
         throw new ConflictException('申请状态已变化，请刷新后重试');
       }
-
-      await this.syncPartnerSnapshot(tx, storeId, application, {
-        status: 'reviewing',
-        reviewedAt: null,
-        joinedAt: null,
-      });
 
       return this.buildPartnerProfile(tx, storeId);
     });
@@ -161,11 +150,7 @@ export class PlatformMembershipPartnerService {
         throw new ConflictException('申请状态已变化，请刷新后重试');
       }
 
-      await this.syncPartnerSnapshot(tx, storeId, application, {
-        status: 'approved',
-        reviewedAt: now,
-        joinedAt: now,
-      });
+      await this.upsertApprovedPartnerSnapshot(tx, storeId, application, now);
 
       return this.buildPartnerProfile(tx, storeId);
     });
@@ -215,12 +200,6 @@ export class PlatformMembershipPartnerService {
         },
       });
 
-      await this.syncPartnerSnapshot(tx, storeId, application, {
-        status: 'rejected',
-        reviewedAt: now,
-        joinedAt: null,
-      });
-
       return this.buildPartnerProfile(tx, storeId);
     });
   }
@@ -258,32 +237,6 @@ export class PlatformMembershipPartnerService {
         throw new ConflictException('申请状态已变化，请刷新后重试');
       }
 
-      const remainingApplications = await findStorePartnerApplications(
-        tx,
-        storeId,
-      );
-      const latestApplication = remainingApplications[0];
-
-      if (latestApplication) {
-        await this.syncPartnerSnapshot(
-          tx,
-          storeId,
-          buildPartnerSnapshotFromApplication(latestApplication),
-          {
-            status: latestApplication.status,
-            reviewedAt: latestApplication.reviewedAt,
-            joinedAt: latestApplication.joinedAt,
-          },
-        );
-      } else {
-        await tx.storePartner.deleteMany({
-          where: {
-            storeId,
-            status: { in: ['pending', 'reviewing', 'rejected'] },
-          },
-        });
-      }
-
       return this.buildPartnerProfile(tx, storeId);
     });
   }
@@ -313,44 +266,106 @@ export class PlatformMembershipPartnerService {
     prismaExecutor: PrismaExecutor,
     storeId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    const [partner, promoRecords, applications] = await Promise.all([
-      findStorePartner(prismaExecutor, storeId),
+    const [partners, promoRecords, applications] = await Promise.all([
+      findStorePartners(prismaExecutor, storeId),
       findStoreMembershipPromoRecords(prismaExecutor, storeId),
       findStorePartnerApplications(prismaExecutor, storeId),
     ]);
 
     return buildPartnerProfileResponse({
-      partner,
+      partners,
       promoRecords,
       applications,
     });
   }
 
-  private async syncPartnerSnapshot(
+  private findBlockingApplication(
+    applications: StorePartnerApplicationRecord[],
+    payload: PartnerSnapshotPayload,
+  ): StorePartnerApplicationRecord | null {
+    return (
+      applications.find(
+        (application) =>
+          this.isSameApplicant(application, payload) &&
+          (application.status === 'pending' ||
+            application.status === 'reviewing' ||
+            application.status === 'approved'),
+      ) ?? null
+    );
+  }
+
+  private hasApprovedPartnerForApplicant(
+    partners: StorePartnerRecord[],
+    payload: PartnerSnapshotPayload,
+  ): boolean {
+    return partners.some((partner) => this.isSameApplicant(partner, payload));
+  }
+
+  private isSameApplicant(
+    applicant:
+      | Pick<StorePartnerApplicationRecord, 'idCard' | 'phone'>
+      | Pick<StorePartnerRecord, 'idCard' | 'phone'>,
+    payload: Pick<PartnerSnapshotPayload, 'idCard' | 'phone'>,
+  ): boolean {
+    const normalizedIdCard = applicant.idCard?.trim().toUpperCase();
+
+    if (normalizedIdCard) {
+      return normalizedIdCard === payload.idCard;
+    }
+
+    return applicant.phone?.trim() === payload.phone;
+  }
+
+  private async upsertApprovedPartnerSnapshot(
     prismaExecutor: PrismaExecutor,
     storeId: number,
-    payload: PartnerSnapshotPayload,
-    statusSnapshot: {
-      status: PartnerStatusValue;
-      reviewedAt: Date | null;
-      joinedAt: Date | null;
-    },
+    application: StorePartnerApplicationRecord,
+    approvedAt: Date,
   ): Promise<void> {
-    await prismaExecutor.storePartner.upsert({
-      where: { storeId },
-      create: {
+    const payload = this.toPartnerSnapshotPayload(application);
+    const existingPartner = await findStorePartnerByApplicant(
+      prismaExecutor,
+      storeId,
+      payload,
+    );
+
+    if (existingPartner) {
+      await prismaExecutor.storePartner.update({
+        where: { id: existingPartner.id },
+        data: {
+          ...payload,
+          status: 'approved',
+          reviewedAt: approvedAt,
+          joinedAt: approvedAt,
+        },
+      });
+      return;
+    }
+
+    await prismaExecutor.storePartner.create({
+      data: {
         storeId,
         ...payload,
-        status: statusSnapshot.status,
-        reviewedAt: statusSnapshot.reviewedAt,
-        joinedAt: statusSnapshot.joinedAt,
-      },
-      update: {
-        ...payload,
-        status: statusSnapshot.status,
-        reviewedAt: statusSnapshot.reviewedAt,
-        joinedAt: statusSnapshot.joinedAt,
+        status: 'approved',
+        reviewedAt: approvedAt,
+        joinedAt: approvedAt,
       },
     });
+  }
+
+  private toPartnerSnapshotPayload(
+    application: StorePartnerApplicationRecord,
+  ): PartnerSnapshotPayload {
+    return {
+      name: application.name,
+      phone: application.phone,
+      idCard: application.idCard,
+      region: application.region,
+      intention: application.intention,
+      applyReason: application.applyReason,
+      paymentAccountType: application.paymentAccountType,
+      paymentAccountNo: application.paymentAccountNo,
+      paymentAccountName: application.paymentAccountName,
+    };
   }
 }

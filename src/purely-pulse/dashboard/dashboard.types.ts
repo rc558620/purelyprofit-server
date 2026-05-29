@@ -23,7 +23,7 @@ export interface DashboardPromoRecordRow {
   chargedAmount: number | null;
   storeId: number;
   store: {
-    partnerProfile: DashboardPartnerProfileRow | null;
+    partners: DashboardPartnerProfileRow[];
   } | null;
 }
 

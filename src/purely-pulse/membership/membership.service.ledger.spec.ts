@@ -223,6 +223,7 @@ describe('PulseMembershipService ledger', () => {
     });
     expect(result).toEqual({
       approvedPartner: null,
+      approvedPartners: [],
       overview: {
         beanBalance: 20,
         totalEarnedBeans: 50,
@@ -246,6 +247,7 @@ describe('PulseMembershipService ledger', () => {
           type: 'withdraw',
           source: 'withdrawal',
           description: '提现扣减',
+          relatedPromoId: undefined,
           relatedPlanType: undefined,
           relatedUser: undefined,
           createdAt: new Date('2026-05-20T10:00:00.000Z').getTime(),

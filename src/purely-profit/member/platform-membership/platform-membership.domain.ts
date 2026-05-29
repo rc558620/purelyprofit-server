@@ -4,6 +4,7 @@ import type { PlatformMembershipPlanId } from './dto/platform-membership-query.d
 import type {
   PlatformMembershipBeanLogDto,
   PlatformMembershipBeanLogsResponseDto,
+  PlatformMembershipApprovedPartnerDto,
   PlatformMembershipOrderResponseDto,
   PlatformMembershipOrdersOverviewDto,
   PlatformMembershipPointsLogDto,
@@ -34,11 +35,14 @@ import type {
 
 export function buildProfileResponse(
   profile: StoreMembershipProfileRecord,
-  partner: StorePartnerRecord | null,
+  partners: StorePartnerRecord[],
 ): PlatformMembershipProfileResponseDto {
+  const primaryPartner = partners[0] ?? null;
+
   return {
     memberInfo: buildMembershipInfo(profile),
-    approvedPartner: buildApprovedPartnerResponse(partner),
+    approvedPartner: buildApprovedPartnerResponse(primaryPartner),
+    approvedPartners: buildApprovedPartnersResponse(partners),
   };
 }
 
@@ -105,6 +109,7 @@ export function buildApprovedPartnerResponse(
   }
 
   return {
+    id: String(partner.id),
     name: partner.name ?? '',
     phone: partner.phone ?? '',
     ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
@@ -112,6 +117,22 @@ export function buildApprovedPartnerResponse(
     totalEarnedBeans: partner.totalEarnedBeans,
     totalWithdrawnBeans: partner.totalWithdrawnBeans,
   };
+}
+
+export function buildApprovedPartnersResponse(
+  partners: StorePartnerRecord[],
+): PlatformMembershipApprovedPartnerDto[] {
+  return partners
+    .filter((partner) => partner.status === 'approved')
+    .map((partner) => ({
+      id: String(partner.id),
+      name: partner.name ?? '',
+      phone: partner.phone ?? '',
+      ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
+      beanBalance: partner.beanBalance,
+      totalEarnedBeans: partner.totalEarnedBeans,
+      totalWithdrawnBeans: partner.totalWithdrawnBeans,
+    }));
 }
 
 export function buildOrdersOverview(
@@ -180,21 +201,25 @@ export function mapPointsLog(
 }
 
 export function buildBeanOverview(
-  partner: StorePartnerRecord | null,
+  partners: StorePartnerRecord[],
 ): PlatformMembershipBeanLogsResponseDto['overview'] {
-  if (!partner || partner.status !== 'approved') {
-    return {
+  const approvedPartners = partners.filter(
+    (partner) => partner.status === 'approved',
+  );
+
+  return approvedPartners.reduce(
+    (summary, partner) => ({
+      beanBalance: summary.beanBalance + partner.beanBalance,
+      totalEarnedBeans: summary.totalEarnedBeans + partner.totalEarnedBeans,
+      totalWithdrawnBeans:
+        summary.totalWithdrawnBeans + partner.totalWithdrawnBeans,
+    }),
+    {
       beanBalance: 0,
       totalEarnedBeans: 0,
       totalWithdrawnBeans: 0,
-    };
-  }
-
-  return {
-    beanBalance: partner.beanBalance,
-    totalEarnedBeans: partner.totalEarnedBeans,
-    totalWithdrawnBeans: partner.totalWithdrawnBeans,
-  };
+    },
+  );
 }
 
 export function mapBeanLog(
@@ -304,6 +329,42 @@ export function requireApprovedPartnerOrNull(
   }
 
   return partner;
+}
+
+export function allocateBeansAcrossPartners(
+  partners: StorePartnerRecord[],
+  requestedBeans: number,
+): Array<{ partnerId: number; beans: number }> {
+  if (requestedBeans <= 0) {
+    return [];
+  }
+
+  let remainingBeans = requestedBeans;
+  const allocations: Array<{ partnerId: number; beans: number }> = [];
+
+  for (const partner of partners) {
+    if (partner.status !== 'approved' || partner.beanBalance <= 0) {
+      continue;
+    }
+
+    const beans = Math.min(partner.beanBalance, remainingBeans);
+    if (beans <= 0) {
+      continue;
+    }
+
+    allocations.push({ partnerId: partner.id, beans });
+    remainingBeans -= beans;
+
+    if (remainingBeans === 0) {
+      break;
+    }
+  }
+
+  if (remainingBeans > 0) {
+    throw new ConflictException('当前无可抵扣纯利豆');
+  }
+
+  return allocations;
 }
 
 export function calcMemberPlanPayment(params: {

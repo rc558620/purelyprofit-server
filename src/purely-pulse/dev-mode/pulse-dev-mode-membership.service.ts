@@ -19,6 +19,7 @@ export class PulseDevModeMembershipService {
     return {
       memberInfo: this.buildDeveloperMemberInfo(user),
       approvedPartner: null,
+      approvedPartners: [],
     };
   }
 
@@ -35,6 +36,7 @@ export class PulseDevModeMembershipService {
       paidOrderCount: 0,
       myPartnerApplication: null,
       approvedPartner: null,
+      approvedPartners: [],
     };
   }
 
@@ -65,6 +67,7 @@ export class PulseDevModeMembershipService {
   buildMembershipBeanLogs(): PlatformMembershipBeanLogsResponseDto {
     return {
       approvedPartner: null,
+      approvedPartners: [],
       overview: {
         beanBalance: 0,
         totalEarnedBeans: 0,
@@ -87,6 +90,7 @@ export class PulseDevModeMembershipService {
     return {
       memberInfo: this.buildDeveloperMemberInfo(user),
       approvedPartner: null,
+      approvedPartners: [],
       level: {
         partnerLevel: null,
         monthChargedCount: 0,
@@ -109,6 +113,7 @@ export class PulseDevModeMembershipService {
       currentApplication: null,
       applications: [],
       approvedPartner: null,
+      approvedPartners: [],
       level: {
         partnerLevel: null,
         monthChargedCount: 0,

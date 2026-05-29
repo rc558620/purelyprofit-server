@@ -363,7 +363,7 @@ model Store {
   owner                  User                          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   maxAccountSeats        Int                           @default(1) @map("max_account_seats")
   subscription           StoreSubscription?
-  partnerProfile         StorePartner?
+  partners               StorePartner[]
   membershipProfile      StoreMembershipProfile?
   membershipOrders       StoreMembershipOrder[]
   membershipPointsLogs   StoreMembershipPointsLog[]
@@ -791,7 +791,7 @@ model StoreMembershipPromoRecord {
 
 model StorePartner {
   id                  Int                    @id @default(autoincrement())
-  storeId             Int                    @unique @map("store_id")
+  storeId             Int                    @map("store_id")
   store               Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
   status              PartnerAccountStatus   @default(pending)
   name                String?
@@ -813,6 +813,7 @@ model StorePartner {
   createdAt           DateTime               @default(now()) @map("created_at")
   updatedAt           DateTime               @updatedAt @map("updated_at")
 
+  @@index([storeId, status, updatedAt])
   @@index([status, updatedAt])
   @@map("store_partners")
 }

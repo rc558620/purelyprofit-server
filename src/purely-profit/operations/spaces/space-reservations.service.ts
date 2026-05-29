@@ -123,10 +123,11 @@ export class SpaceReservationsService {
       throw new BadRequestException('区间开始时间不能晚于结束时间');
     }
 
+    const status = query.status ?? PrismaSpaceReservationStatus.pending;
     const items = await this.prisma.spaceReservation.findMany({
       where: {
         storeId,
-        ...(query.status !== undefined ? { status: query.status } : {}),
+        status,
         ...(query.dateFrom !== undefined || query.dateTo !== undefined
           ? {
               reservedAt: {
