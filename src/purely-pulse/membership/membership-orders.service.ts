@@ -80,6 +80,7 @@ export class PulseMembershipOrdersService {
     user: AuthenticatedUser,
     _dto: PurchasePlatformMembershipOrderDto,
   ): Promise<PurchasePlatformMembershipOrderResponseDto> {
+    void _dto; // 显式忽略，保留参数签名以便未来扩展
     await this.accessService.resolveTargetStoreForMembership(user, {
       notFoundMessage: '当前未选中目标商家门店，暂无法发起订阅操作',
     });

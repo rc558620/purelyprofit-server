@@ -10,13 +10,13 @@ import type { ApplyWithdrawalResponseDto } from '../../purely-profit/member/with
 import type {
   GetPulseAdminPartnerApplicationsQueryDto,
   GetPulseAdminPayoutsQueryDto,
+  GetPulseEarningsLogsQueryDto,
   PulseAdminApprovePartnerApplicationDto,
   PulseAdminApprovePayoutDto,
   PulseAdminPartnerApplicationsResponseDto,
   PulseAdminPayoutsResponseDto,
   PulseAdminRejectPartnerApplicationDto,
   PulseAdminRejectPayoutDto,
-  PulseEarningsLogTypeValue,
   PulseEarningsLogsResponseDto,
   PulseEarningsOverviewResponseDto,
   PulseWithdrawalAccountResponseDto,
@@ -128,9 +128,9 @@ export class PulseGrowthService {
 
   getEarningsLogs(
     user: AuthenticatedUser,
-    typeFilter: PulseEarningsLogTypeValue = 'all',
+    query: GetPulseEarningsLogsQueryDto = {},
   ): Promise<PulseEarningsLogsResponseDto> {
-    return this.earningsService.getEarningsLogs(user, typeFilter);
+    return this.earningsService.getEarningsLogs(user, query);
   }
 
   listAdminPayouts(
@@ -172,7 +172,8 @@ export class PulseGrowthService {
   applyWithdrawal(
     user: AuthenticatedUser,
     beanAmount: number,
+    partnerId?: string,
   ): Promise<ApplyWithdrawalResponseDto> {
-    return this.earningsService.applyWithdrawal(user, beanAmount);
+    return this.earningsService.applyWithdrawal(user, beanAmount, partnerId);
   }
 }

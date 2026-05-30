@@ -41,6 +41,14 @@ export function createFinanceSpecUser(): AuthenticatedUser {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 }
@@ -58,10 +66,13 @@ export function createPlatformMembershipAccessServiceMock() {
     ensureFinanceFeatureEnabled: jest.fn().mockResolvedValue(undefined),
     clampHistoryRange: jest
       .fn()
-      .mockImplementation(async (_storeId: number, range: { start: number; end: number }) => ({
-        ...range,
-        empty: false,
-      })),
+      .mockImplementation(
+        (_storeId: number, range: { start: number; end: number }) =>
+          Promise.resolve({
+            ...range,
+            empty: false,
+          }),
+      ),
     ensureReportExportEnabled: jest.fn().mockResolvedValue(undefined),
   };
 }
@@ -105,6 +116,8 @@ export function createFinanceReconciliationPrismaMock() {
   return {
     financeReconciliationRecord: {
       create: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),

@@ -42,7 +42,8 @@ export function buildCachePrewarmActionMeta(
       responsibleTeam: '后端 API 团队',
       impactScope: 'cache_prewarm',
       eta: severity === 'critical' ? '15 分钟内' : undefined,
-      impactLevel: hasFailures && severity === 'critical' ? 'urgent' : undefined,
+      impactLevel:
+        hasFailures && severity === 'critical' ? 'urgent' : undefined,
       actionParams,
       buildPayload: (params) =>
         buildCachePrewarmActionPayload(

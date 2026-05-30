@@ -1,3 +1,4 @@
+import { StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
 import { PLATFORM_MEMBERSHIP_PLAN_IDS } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 
 export type PulseMembershipPlanId =
@@ -15,6 +16,7 @@ export interface PulseAdminMembershipProfileRecord {
   expiresAt: Date | null;
   totalPoints: number;
   availablePoints: number;
+  subAccountQuota: number;
 }
 
 export interface PulseAdminMembershipOrderRecord {
@@ -103,6 +105,22 @@ export interface PulseAdminStatusMutationInput {
   memberStatus?: 'active' | 'inactive' | 'banned';
   reason?: string;
   remark?: string;
+}
+
+export interface PulseAdminSubAccountQuotaMutationInput {
+  quota: number;
+  reason?: string;
+}
+
+export interface PulseAdminSubAccountSlotMutationInput {
+  slotIndex: number;
+  role: StoreSubAccountRole;
+  status?: StoreSubAccountStatus;
+  employeeId?: number | null;
+  canAccessHome?: boolean;
+  canUseHandover?: boolean;
+  /** 可选：为子账号设置初始密码。仅在分配员工时生效，若员工尚无登录账号则会创建。 */
+  initialPassword?: string;
 }
 
 export interface PaymentPreviewResult {

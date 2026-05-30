@@ -1,9 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsIn, IsInt, IsOptional, IsString, ValidateNested } from 'class-validator';
 import {
-  PlatformMembershipApprovedPartnerDto,
-} from '../../platform-membership/dto/platform-membership-response.dto';
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
+import { PlatformMembershipApprovedPartnerDto } from '../../platform-membership/dto/platform-membership-response.dto';
 import {
   PARTNER_WITHDRAWAL_STATUS_VALUES,
   WITHDRAWAL_ACCOUNT_TYPE_VALUES,

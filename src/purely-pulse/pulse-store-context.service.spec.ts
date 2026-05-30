@@ -1,4 +1,3 @@
-import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
@@ -48,9 +47,17 @@ describe('PulseStoreContextService', () => {
     pulseMode: 'normal',
     isPulseDeveloper: false,
     currentMembership: {
-      staffId: 88,
       storeId: 18,
+      subjectType: 'owner',
       role: 'OWNER',
+      staffId: 88,
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
       permissions: ['*'],
       isActive: true,
     },

@@ -4,7 +4,7 @@ export const FINANCE_OVERVIEW_PERIOD_VALUES = [
   'week',
   'month',
   'quarter',
-  'all',
+  'year',
 ] as const;
 export type FinanceOverviewPeriodValue =
   (typeof FINANCE_OVERVIEW_PERIOD_VALUES)[number];
@@ -68,6 +68,7 @@ export const FINANCE_CASH_FLOW_PERIOD_VALUES = [
   'week',
   'month',
   'quarter',
+  'year',
   'custom_day',
   'custom_range',
 ] as const;
@@ -167,7 +168,7 @@ export const FINANCE_OVERVIEW_DISPLAY_DAYS: Record<
   week: 7,
   month: 30,
   quarter: 90,
-  all: 30,
+  year: 365,
 };
 
 export interface PaginationState {

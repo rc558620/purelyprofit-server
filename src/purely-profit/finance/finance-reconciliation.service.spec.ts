@@ -43,6 +43,126 @@ describe('FinanceReconciliationService', () => {
     useFinanceSpecRealTimers();
   });
 
+  it('listReconciliations 会把筛选和分页下推到数据库', async () => {
+    prismaService.financeReconciliationRecord.findMany.mockResolvedValue([
+      {
+        id: 21,
+        storeId: 18,
+        operatorStaffId: 8,
+        title: '供应商月度对账',
+        type: 'supplier',
+        status: FinanceReconciliationStatus.discrepancy,
+        channel: null,
+        counterpart: '华南供应商',
+        periodStart: new Date('2026-05-01T00:00:00.000Z'),
+        periodEnd: new Date('2026-05-31T23:59:59.999Z'),
+        bookIncome: new Prisma.Decimal('12000.00'),
+        bookExpense: new Prisma.Decimal('8000.00'),
+        bookNet: new Prisma.Decimal('4000.00'),
+        actualIncome: new Prisma.Decimal('11800.00'),
+        actualExpense: new Prisma.Decimal('8100.00'),
+        actualNet: new Prisma.Decimal('3700.00'),
+        diffAmount: new Prisma.Decimal('-300.00'),
+        adjustNote: null,
+        operator: '财务张姐',
+        note: '供应商核对备注',
+        date: new Date('2026-05-14T00:00:00.000Z'),
+        createdAt: new Date('2026-05-14T12:00:00.000Z'),
+        updatedAt: new Date('2026-05-14T12:00:00.000Z'),
+        items: [],
+      },
+    ]);
+    prismaService.financeReconciliationRecord.count.mockResolvedValue(21);
+
+    await expect(
+      service.listReconciliations(user, {
+        statusFilter: 'discrepancy',
+        typeFilter: 'supplier',
+        searchText: '供应商',
+        page: 2,
+        pageSize: 10,
+      }),
+    ).resolves.toMatchObject({
+      items: [
+        expect.objectContaining({
+          id: '21',
+          type: 'supplier',
+          status: 'discrepancy',
+          counterpart: '华南供应商',
+        }),
+      ],
+      meta: {
+        page: 2,
+        pageSize: 10,
+        total: 21,
+        totalPages: 3,
+      },
+    });
+
+    expect(
+      prismaService.financeReconciliationRecord.findMany,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          storeId: 18,
+          status: 'discrepancy',
+          type: 'supplier',
+          OR: [
+            {
+              title: {
+                contains: '供应商',
+                mode: 'insensitive',
+              },
+            },
+            {
+              counterpart: {
+                contains: '供应商',
+                mode: 'insensitive',
+              },
+            },
+            {
+              note: {
+                contains: '供应商',
+                mode: 'insensitive',
+              },
+            },
+          ],
+        },
+        skip: 10,
+        take: 10,
+      }),
+    );
+    expect(
+      prismaService.financeReconciliationRecord.count,
+    ).toHaveBeenCalledWith({
+      where: {
+        storeId: 18,
+        status: 'discrepancy',
+        type: 'supplier',
+        OR: [
+          {
+            title: {
+              contains: '供应商',
+              mode: 'insensitive',
+            },
+          },
+          {
+            counterpart: {
+              contains: '供应商',
+              mode: 'insensitive',
+            },
+          },
+          {
+            note: {
+              contains: '供应商',
+              mode: 'insensitive',
+            },
+          },
+        ],
+      },
+    });
+  });
+
   it('createReconciliation 会按前端逻辑计算净额、差异和状态', async () => {
     prismaService.financeReconciliationRecord.create.mockResolvedValue({
       id: 21,

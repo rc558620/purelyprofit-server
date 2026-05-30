@@ -12,7 +12,17 @@ export class PrismaService
 {
   constructor(configService: ConfigService) {
     const connectionString = configService.get<string>('database.url');
-    const pool = new Pool({ connectionString });
+    const poolMax = configService.get<number>('database.poolMax') ?? 20;
+    const poolIdleTimeoutMs =
+      configService.get<number>('database.poolIdleTimeoutMs') ?? 30_000;
+    const poolConnectionTimeoutMs =
+      configService.get<number>('database.poolConnectionTimeoutMs') ?? 5_000;
+    const pool = new Pool({
+      connectionString,
+      max: poolMax,
+      idleTimeoutMillis: poolIdleTimeoutMs,
+      connectionTimeoutMillis: poolConnectionTimeoutMs,
+    });
     const adapter = new PrismaPg(pool);
     const slowQueryLogEnabled =
       configService.get<boolean>('app.slowQueryLogEnabled') ?? true;
@@ -32,7 +42,10 @@ export class PrismaService
       });
 
       if (slowQueryLogEnabled && event.duration >= slowQueryThresholdMs) {
-        const compactQuery = event.query.replace(/\s+/g, ' ').trim().slice(0, 240);
+        const compactQuery = event.query
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 240);
         console.warn(
           `[slow-query] ${event.duration}ms target=postgres query="${compactQuery}"`,
         );

@@ -101,8 +101,26 @@ export function buildPlanExpiryAt(
   throw new ConflictException(`${plan.name}套餐配置缺少有效时长`);
 }
 
+type ApprovedPartnerLike = Pick<
+  StorePartnerRecord,
+  | 'id'
+  | 'name'
+  | 'phone'
+  | 'joinedAt'
+  | 'beanBalance'
+  | 'totalEarnedBeans'
+  | 'totalWithdrawnBeans'
+> & {
+  status: string;
+};
+
+type BeanOverviewPartnerLike = Pick<
+  ApprovedPartnerLike,
+  'status' | 'beanBalance' | 'totalEarnedBeans' | 'totalWithdrawnBeans'
+>;
+
 export function buildApprovedPartnerResponse(
-  partner: StorePartnerRecord | null,
+  partner: ApprovedPartnerLike | null,
 ): PlatformMembershipProfileResponseDto['approvedPartner'] {
   if (!partner || partner.status !== 'approved') {
     return null;
@@ -120,7 +138,7 @@ export function buildApprovedPartnerResponse(
 }
 
 export function buildApprovedPartnersResponse(
-  partners: StorePartnerRecord[],
+  partners: ApprovedPartnerLike[],
 ): PlatformMembershipApprovedPartnerDto[] {
   return partners
     .filter((partner) => partner.status === 'approved')
@@ -201,7 +219,7 @@ export function mapPointsLog(
 }
 
 export function buildBeanOverview(
-  partners: StorePartnerRecord[],
+  partners: BeanOverviewPartnerLike[],
 ): PlatformMembershipBeanLogsResponseDto['overview'] {
   const approvedPartners = partners.filter(
     (partner) => partner.status === 'approved',

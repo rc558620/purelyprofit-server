@@ -11,6 +11,7 @@ import { PlatformMembershipOrderService } from './platform-membership-order.serv
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
 import { PlatformMembershipReadService } from './platform-membership-read.service';
 import { PlatformMembershipService } from './platform-membership.service';
+import { StoreSubAccountService } from './store-sub-account.service';
 
 @Module({
   imports: [AuthModule],
@@ -26,7 +27,12 @@ import { PlatformMembershipService } from './platform-membership.service';
     PlatformMembershipPartnerService,
     PlatformMembershipOrderService,
     PlatformMembershipAccessService,
+    StoreSubAccountService,
   ],
-  exports: [PlatformMembershipService, PlatformMembershipAccessService],
+  exports: [
+    PlatformMembershipService,
+    PlatformMembershipAccessService,
+    StoreSubAccountService,
+  ],
 })
 export class PlatformMembershipModule {}

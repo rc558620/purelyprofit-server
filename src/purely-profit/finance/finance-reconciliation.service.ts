@@ -15,7 +15,6 @@ import type {
 import {
   buildReconciliationItemCreateInput,
   buildReconciliationStats,
-  filterReconciliations,
   mapReconciliationRecord,
   normalizeCreateReconciliationStatus,
 } from './finance-reconciliation.domain';
@@ -25,6 +24,7 @@ import {
   deleteReconciliationRecordEntity,
   findReconciliationRecord,
   findReconciliationRecordId,
+  queryReconciliationRecordPage,
   queryReconciliationRecords,
   updateReconciliationConfirmation,
 } from './finance-reconciliation.query';
@@ -48,8 +48,8 @@ export class FinanceReconciliationService {
     user: AuthenticatedUser,
     query: ListFinanceReconciliationsQueryDto,
   ): Promise<PaginatedFinanceReconciliationsResponseDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const records = await queryReconciliationRecords(this.prisma, storeId);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const reconciliationQuery: FinanceReconciliationsListQueryInput = {
       statusFilter: query.statusFilter,
       typeFilter: query.typeFilter,
@@ -57,19 +57,24 @@ export class FinanceReconciliationService {
       page: query.page,
       pageSize: query.pageSize,
     };
-    const filteredRecords = filterReconciliations(records, reconciliationQuery);
     const pageState = buildPaginationState(
       reconciliationQuery.page,
       reconciliationQuery.pageSize,
     );
+    const { items, total } = await queryReconciliationRecordPage(
+      this.prisma,
+      storeId,
+      reconciliationQuery,
+    );
 
-    return buildPaginatedReconciliationsResponse(filteredRecords, pageState);
+    return buildPaginatedReconciliationsResponse(items, pageState, total);
   }
 
   async getReconciliationStats(
     user: AuthenticatedUser,
   ): Promise<FinanceReconciliationStatsDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const records = await queryReconciliationRecords(this.prisma, storeId);
     return buildReconciliationStats(records);
   }
@@ -78,7 +83,8 @@ export class FinanceReconciliationService {
     user: AuthenticatedUser,
     dto: CreateFinanceReconciliationDto,
   ): Promise<FinanceReconciliationRecordResponseDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const operatorStaffId = user.currentMembership?.staffId ?? null;
     const bookIncome = roundMoneyValue(dto.bookIncome);
     const bookExpense = roundMoneyValue(dto.bookExpense);
@@ -130,7 +136,8 @@ export class FinanceReconciliationService {
     recordId: number,
     dto: ConfirmFinanceReconciliationDto,
   ): Promise<FinanceReconciliationRecordResponseDto> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const record = await findReconciliationRecord(this.prisma, {
       storeId,
       recordId,
@@ -155,7 +162,8 @@ export class FinanceReconciliationService {
     user: AuthenticatedUser,
     recordId: number,
   ): Promise<void> {
-    const storeId = await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const record = await findReconciliationRecordId(this.prisma, {
       storeId,
       recordId,
@@ -165,5 +173,4 @@ export class FinanceReconciliationService {
     }
     await deleteReconciliationRecordEntity(this.prisma, recordId);
   }
-
 }

@@ -8,7 +8,10 @@ import type {
   ListSalesRecordsQueryDto,
   SalesRecordListResponseDto,
 } from './dto/sales-record.dto';
-import { buildPaginationMeta, resolvePagination } from '../../commerce/commerce.utils';
+import {
+  buildPaginationMeta,
+  resolvePagination,
+} from '../../commerce/commerce.utils';
 import { mapSalesRecordResponse } from './sales-record.domain';
 import { countSaleOrders, querySaleOrders } from './sales-record.query';
 import {
@@ -79,14 +82,37 @@ export class SalesRecordListService {
   ): Promise<SalesRecordListResponseDto> {
     return this.list(user, {
       ...query,
-      period: query.period ?? 'all',
+      period: this.resolveFrontendCompatiblePeriod(query),
     });
+  }
+
+  private resolveFrontendCompatiblePeriod(
+    query: ListSalesRecordsQueryDto,
+  ): ListSalesRecordsQueryDto['period'] {
+    if (query.period) {
+      return query.period;
+    }
+    if (
+      query.rangeStartDate !== undefined ||
+      query.rangeEndDate !== undefined
+    ) {
+      return 'custom_range';
+    }
+    if (query.customDate !== undefined) {
+      return 'custom_month';
+    }
+    if (query.year !== undefined) {
+      return 'year';
+    }
+
+    return 'all';
   }
 
   private resolvePagination(page?: number, pageSize?: number) {
     const defaultPageSize =
       this.configService.get<number>('app.defaultPageSize') ?? 20;
-    const maxPageSize = this.configService.get<number>('app.maxPageSize') ?? 100;
+    const maxPageSize =
+      this.configService.get<number>('app.maxPageSize') ?? 100;
 
     return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
   }

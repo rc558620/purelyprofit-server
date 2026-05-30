@@ -27,6 +27,8 @@ export class PulseDevModeGrowthService {
       approvedPartners: [],
       items: [],
       beanBalance: 0,
+      hasMore: false,
+      nextCursor: null,
     };
   }
 

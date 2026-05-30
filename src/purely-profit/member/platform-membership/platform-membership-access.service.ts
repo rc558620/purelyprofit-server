@@ -1,9 +1,16 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { EmployeeStatus } from '@prisma/client';
+import {
+  EmployeeStatus,
+  StoreSubAccountRole,
+  StoreSubAccountStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { PlatformMembershipPlanId } from './dto/platform-membership-query.dto';
 
-type MembershipRuntimeLevel = 'free' | PlatformMembershipPlanId | 'lifetime';
+export type MembershipRuntimeLevel =
+  | 'free'
+  | PlatformMembershipPlanId
+  | 'lifetime';
 
 type MembershipRuleConfig = {
   productLimit: number | null;
@@ -13,19 +20,38 @@ type MembershipRuleConfig = {
   reportExportEnabled: boolean;
   financeEnabled: boolean;
   marketingEnabled: boolean;
+  subAccountEligible: boolean;
 };
 
 type StoreMembershipProfileSnapshot = {
   currentPlanId: PlatformMembershipPlanId | null;
   startsAt: Date | null;
   expiresAt: Date | null;
+  subAccountQuota: number;
 };
 
 interface MembershipRuleSnapshot extends MembershipRuleConfig {
   level: MembershipRuntimeLevel;
 }
 
+export interface SubAccountBenefitSnapshot {
+  level: MembershipRuntimeLevel;
+  eligible: boolean;
+  quota: number;
+  quotaMax: number;
+  enabled: boolean;
+  rawQuota: number;
+}
+
+export interface SubAccountRoleSnapshot {
+  role: StoreSubAccountRole;
+  status: StoreSubAccountStatus;
+  canAccessHome: boolean;
+  canUseHandover: boolean;
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
+const SUB_ACCOUNT_QUOTA_MAX = 7;
 
 const MEMBERSHIP_RULES: Record<MembershipRuntimeLevel, MembershipRuleConfig> = {
   free: {
@@ -36,6 +62,7 @@ const MEMBERSHIP_RULES: Record<MembershipRuntimeLevel, MembershipRuleConfig> = {
     reportExportEnabled: false,
     financeEnabled: false,
     marketingEnabled: false,
+    subAccountEligible: false,
   },
   monthly: {
     productLimit: 30,
@@ -45,6 +72,7 @@ const MEMBERSHIP_RULES: Record<MembershipRuntimeLevel, MembershipRuleConfig> = {
     reportExportEnabled: true,
     financeEnabled: true,
     marketingEnabled: true,
+    subAccountEligible: false,
   },
   quarterly: {
     productLimit: 100,
@@ -54,6 +82,7 @@ const MEMBERSHIP_RULES: Record<MembershipRuntimeLevel, MembershipRuleConfig> = {
     reportExportEnabled: true,
     financeEnabled: true,
     marketingEnabled: true,
+    subAccountEligible: false,
   },
   yearly: {
     productLimit: null,
@@ -63,6 +92,7 @@ const MEMBERSHIP_RULES: Record<MembershipRuntimeLevel, MembershipRuleConfig> = {
     reportExportEnabled: true,
     financeEnabled: true,
     marketingEnabled: true,
+    subAccountEligible: true,
   },
   lifetime: {
     productLimit: null,
@@ -72,6 +102,7 @@ const MEMBERSHIP_RULES: Record<MembershipRuntimeLevel, MembershipRuleConfig> = {
     reportExportEnabled: true,
     financeEnabled: true,
     marketingEnabled: true,
+    subAccountEligible: true,
   },
 };
 
@@ -202,23 +233,150 @@ export class PlatformMembershipAccessService {
     };
   }
 
+  async getSubAccountBenefitSnapshot(
+    storeId: number,
+  ): Promise<SubAccountBenefitSnapshot> {
+    const profile = await this.loadStoreMembershipProfile(storeId);
+    const level = this.resolveMembershipLevel(profile);
+    const rule = MEMBERSHIP_RULES[level];
+    const rawQuota = profile?.subAccountQuota ?? 0;
+    const quota = this.normalizeSubAccountQuota(
+      rawQuota,
+      rule.subAccountEligible,
+    );
+
+    return {
+      level,
+      eligible: rule.subAccountEligible,
+      quota,
+      quotaMax: rule.subAccountEligible ? SUB_ACCOUNT_QUOTA_MAX : 0,
+      enabled: quota > 0,
+      rawQuota,
+    };
+  }
+
+  async getSubAccountQuota(storeId: number): Promise<number> {
+    const snapshot = await this.getSubAccountBenefitSnapshot(storeId);
+    return snapshot.quota;
+  }
+
+  async isSubAccountFeatureEnabled(storeId: number): Promise<boolean> {
+    const snapshot = await this.getSubAccountBenefitSnapshot(storeId);
+    return snapshot.enabled;
+  }
+
+  async ensureSubAccountConfigurable(
+    storeId: number,
+    requestedQuota: number,
+  ): Promise<void> {
+    this.ensureValidSubAccountQuota(requestedQuota);
+    const snapshot = await this.getSubAccountBenefitSnapshot(storeId);
+    if (requestedQuota === 0) {
+      return;
+    }
+
+    if (!snapshot.eligible) {
+      throw new ForbiddenException(
+        '当前会员等级暂不支持配置子账号，仅年会员或永久会员可开通',
+      );
+    }
+  }
+
+  async ensureSubAccountHandoverEnabled(storeId: number): Promise<void> {
+    const snapshot = await this.getSubAccountBenefitSnapshot(storeId);
+    if (!snapshot.enabled) {
+      throw new ForbiddenException(
+        '当前门店未启用子账号交班，请先配置子账号额度',
+      );
+    }
+  }
+
+  resolveSubAccountRoleSnapshot(
+    role: StoreSubAccountRole,
+    status: StoreSubAccountStatus,
+    canAccessHome: boolean,
+    canUseHandover: boolean,
+  ): SubAccountRoleSnapshot {
+    return {
+      role,
+      status,
+      canAccessHome,
+      canUseHandover,
+    };
+  }
+
   private async getStoreRuleSnapshot(
     storeId: number,
   ): Promise<MembershipRuleSnapshot> {
-    const profile = await this.prisma.storeMembershipProfile.findUnique({
-      where: { storeId },
-      select: {
-        currentPlanId: true,
-        startsAt: true,
-        expiresAt: true,
-      },
-    });
-
+    const profile = await this.loadStoreMembershipProfile(storeId);
     const level = this.resolveMembershipLevel(profile);
     return {
       level,
       ...MEMBERSHIP_RULES[level],
     };
+  }
+
+  private async loadStoreMembershipProfile(
+    storeId: number,
+  ): Promise<StoreMembershipProfileSnapshot | null> {
+    try {
+      return await this.prisma.storeMembershipProfile.findUnique({
+        where: { storeId },
+        select: {
+          currentPlanId: true,
+          startsAt: true,
+          expiresAt: true,
+          subAccountQuota: true,
+        },
+      });
+    } catch (error: unknown) {
+      if (!this.isMissingSubAccountQuotaSchemaError(error)) {
+        throw error;
+      }
+
+      console.warn(
+        '[membership-access] store_membership_profiles.sub_account_quota schema not ready, fallback to legacy profile query',
+      );
+
+      const profile = await this.prisma.storeMembershipProfile.findUnique({
+        where: { storeId },
+        select: {
+          currentPlanId: true,
+          startsAt: true,
+          expiresAt: true,
+        },
+      });
+
+      return profile
+        ? {
+            ...profile,
+            subAccountQuota: 0,
+          }
+        : null;
+    }
+  }
+
+  private isMissingSubAccountQuotaSchemaError(error: unknown): boolean {
+    const message =
+      error instanceof Error
+        ? error.message.toLowerCase()
+        : String(error).toLowerCase();
+
+    if (
+      !message.includes('sub_account_quota') &&
+      !message.includes('subaccountquota')
+    ) {
+      return false;
+    }
+
+    return (
+      message.includes('does not exist') ||
+      message.includes("doesn't exist") ||
+      message.includes('unknown column') ||
+      message.includes('no such column') ||
+      message.includes('unknown field') ||
+      message.includes('column')
+    );
   }
 
   private resolveMembershipLevel(
@@ -257,6 +415,33 @@ export class PlatformMembershipAccessService {
     }
 
     return null;
+  }
+
+  private normalizeSubAccountQuota(
+    rawQuota: number,
+    eligible: boolean,
+  ): number {
+    if (!eligible) {
+      return 0;
+    }
+
+    if (!Number.isInteger(rawQuota)) {
+      return 0;
+    }
+
+    return Math.min(Math.max(rawQuota, 0), SUB_ACCOUNT_QUOTA_MAX);
+  }
+
+  private ensureValidSubAccountQuota(quota: number): void {
+    if (!Number.isInteger(quota)) {
+      throw new ForbiddenException('子账号额度必须是整数');
+    }
+
+    if (quota < 0 || quota > SUB_ACCOUNT_QUOTA_MAX) {
+      throw new ForbiddenException(
+        `子账号额度必须在 0 到 ${SUB_ACCOUNT_QUOTA_MAX} 之间`,
+      );
+    }
   }
 
   private getHistoryWindowStartFromDays(days: number): number {

@@ -47,6 +47,8 @@ describe('SessionBootstrapService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-21T12:00:00.000Z'));
     jest.clearAllMocks();
+    redisService.getJson.mockResolvedValue(null);
+    redisService.setJson.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -69,6 +71,55 @@ describe('SessionBootstrapService', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it('bootstrap 命中缓存时直接返回缓存结果并跳过数据库查询', async () => {
+    const cachedResponse = {
+      mode: 'normal' as const,
+      user: {
+        id: 101,
+        phone: '13800138000',
+        name: '开发者',
+        avatar: 'https://example.com/avatar.png',
+        verified: false,
+      },
+      store: {
+        id: 18,
+        name: '纯利宝南山店',
+        address: '深圳市南山区',
+      },
+      membership: {
+        isActive: true,
+        planId: 'quarterly',
+        planName: '季度会员',
+        remainingDays: 4,
+        expiresAt: new Date('2026-05-25T00:00:00.000Z'),
+      },
+      unreadNotificationCount: 9,
+      targetStoreSelected: true,
+      hasOnboarded: true,
+    };
+    pulseStoreContextService.resolveTargetStore.mockResolvedValue({
+      store: {
+        id: 18,
+        name: '纯利宝南山店',
+        address: '深圳市南山区',
+        contactPhone: '0755-12345678',
+        ownerId: 301,
+        ownerName: '张三',
+      },
+      source: 'selected',
+    });
+    redisService.getJson.mockResolvedValue(cachedResponse);
+
+    await expect(service.bootstrap(user)).resolves.toEqual(cachedResponse);
+    expect(prismaService.user.findUnique).not.toHaveBeenCalled();
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).not.toHaveBeenCalled();
+    expect(
+      sessionNotificationService.countUnreadNotifications,
+    ).not.toHaveBeenCalled();
   });
 
   it('bootstrap 按目标门店返回观察态摘要并聚合会员与提醒信息', async () => {

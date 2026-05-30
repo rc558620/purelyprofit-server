@@ -30,6 +30,14 @@ describe('CostsController', () => {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 

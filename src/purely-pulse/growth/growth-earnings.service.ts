@@ -1,19 +1,31 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { ApplyWithdrawalResponseDto } from '../../purely-profit/member/withdrawals/dto/withdrawal-response.dto';
 import { PrismaService } from '../../prisma/prisma.service';
-import type {
-  PulseEarningsLogTypeValue,
-  PulseEarningsLogsResponseDto,
-  PulseEarningsOverviewResponseDto,
-  PulseWithdrawalAccountResponseDto,
-  UpdatePulseWithdrawalAccountDto,
+import {
+  buildPulseGrowthEarningsLogsCacheKey,
+  buildPulseGrowthEarningsOverviewCacheKey,
+} from '../../redis/cache-keys';
+import { RedisService } from '../../redis/redis.service';
+import {
+  PULSE_EARNINGS_LOG_DEFAULT_LIMIT,
+  type GetPulseEarningsLogsQueryDto,
+  type PulseEarningsLogTypeValue,
+  type PulseEarningsLogsResponseDto,
+  type PulseEarningsOverviewResponseDto,
+  type PulseWithdrawalAccountResponseDto,
+  type UpdatePulseWithdrawalAccountDto,
 } from './dto/pulse-growth.dto';
 import { PulseGrowthAccessService } from './growth-access.service';
 import {
   buildEarningsLogsResponse,
   buildEarningsOverviewResponse,
   buildWithdrawalAccountResponse,
+  parseEarningsLogsCursor,
 } from './growth-earnings.domain';
 import {
   queryEarningsOverviewData,
@@ -21,10 +33,13 @@ import {
   queryWithdrawalAccountPartners,
 } from './growth-earnings.query';
 
+const PULSE_GROWTH_EARNINGS_CACHE_TTL_SECONDS = 20;
+
 @Injectable()
 export class PulseGrowthEarningsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly accessService: PulseGrowthAccessService,
   ) {}
 
@@ -32,40 +47,130 @@ export class PulseGrowthEarningsService {
     user: AuthenticatedUser,
   ): Promise<PulseEarningsOverviewResponseDto> {
     const store = await this.accessService.resolveTargetStoreForGrowth(user);
-    const overviewData = await queryEarningsOverviewData(this.prisma, store.id);
+    const cacheKey = buildPulseGrowthEarningsOverviewCacheKey(store.id);
+    const cachedResponse =
+      await this.redisService.getJson<PulseEarningsOverviewResponseDto>(
+        cacheKey,
+      );
+    if (cachedResponse !== null) {
+      return cachedResponse;
+    }
 
-    return buildEarningsOverviewResponse(overviewData);
+    const overviewData = await queryEarningsOverviewData(this.prisma, store.id);
+    const response = buildEarningsOverviewResponse(overviewData);
+    await this.redisService.setJson(
+      cacheKey,
+      response,
+      PULSE_GROWTH_EARNINGS_CACHE_TTL_SECONDS,
+    );
+
+    return response;
   }
 
   async getEarningsLogs(
     user: AuthenticatedUser,
-    typeFilter: PulseEarningsLogTypeValue = 'all',
+    query: GetPulseEarningsLogsQueryDto = {},
   ): Promise<PulseEarningsLogsResponseDto> {
     const store = await this.accessService.resolveTargetStoreForGrowth(user);
-    const overviewData = await queryEarningsOverviewData(this.prisma, store.id);
-    const logs = await queryPartnerBeanLogs(this.prisma, store.id);
+    const typeFilter = query.type ?? 'all';
+    const cursorPagination = this.resolveLogsCursorPagination(query);
+    if (!cursorPagination.enabled) {
+      return this.getCachedEarningsLogs(store.id, store.ownerName, typeFilter);
+    }
+
+    const [overviewData, logs] = await Promise.all([
+      queryEarningsOverviewData(this.prisma, store.id),
+      queryPartnerBeanLogs(this.prisma, {
+        storeId: store.id,
+        typeFilter,
+        cursor: cursorPagination.cursor,
+        limit: cursorPagination.limit,
+      }),
+    ]);
 
     return buildEarningsLogsResponse({
       partners: overviewData.partners,
       logs,
       ownerName: store.ownerName,
-      typeFilter,
+      limit: cursorPagination.limit,
     });
+  }
+
+  private async getCachedEarningsLogs(
+    storeId: number,
+    ownerName: string | null,
+    typeFilter: PulseEarningsLogTypeValue,
+  ): Promise<PulseEarningsLogsResponseDto> {
+    const cacheKey = buildPulseGrowthEarningsLogsCacheKey(storeId, typeFilter);
+    const cachedResponse =
+      await this.redisService.getJson<PulseEarningsLogsResponseDto>(cacheKey);
+    if (cachedResponse !== null) {
+      return cachedResponse;
+    }
+
+    const [overviewData, logs] = await Promise.all([
+      queryEarningsOverviewData(this.prisma, storeId),
+      queryPartnerBeanLogs(this.prisma, { storeId, typeFilter }),
+    ]);
+    const response = buildEarningsLogsResponse({
+      partners: overviewData.partners,
+      logs,
+      ownerName,
+    });
+    await this.redisService.setJson(
+      cacheKey,
+      response,
+      PULSE_GROWTH_EARNINGS_CACHE_TTL_SECONDS,
+    );
+
+    return response;
+  }
+
+  private resolveLogsCursorPagination(query: GetPulseEarningsLogsQueryDto): {
+    enabled: boolean;
+    cursor?: { createdAt: Date; id: number };
+    limit?: number;
+  } {
+    if (query.cursor === undefined && query.limit === undefined) {
+      return { enabled: false };
+    }
+
+    if (query.cursor === undefined) {
+      return {
+        enabled: true,
+        limit: query.limit ?? PULSE_EARNINGS_LOG_DEFAULT_LIMIT,
+      };
+    }
+
+    const cursor = parseEarningsLogsCursor(query.cursor);
+    if (!cursor) {
+      throw new BadRequestException('cursor 格式不合法');
+    }
+
+    return {
+      enabled: true,
+      cursor,
+      limit: query.limit ?? PULSE_EARNINGS_LOG_DEFAULT_LIMIT,
+    };
   }
 
   async getWithdrawalAccount(
     user: AuthenticatedUser,
   ): Promise<PulseWithdrawalAccountResponseDto> {
     const store = await this.accessService.resolveTargetStoreForGrowth(user);
-    const partners = await queryWithdrawalAccountPartners(this.prisma, store.id);
+    const partners = await queryWithdrawalAccountPartners(
+      this.prisma,
+      store.id,
+    );
 
     return buildWithdrawalAccountResponse(partners);
   }
 
   async updateWithdrawalAccount(
     user: AuthenticatedUser,
-    _dto: UpdatePulseWithdrawalAccountDto,
+    dto: UpdatePulseWithdrawalAccountDto,
   ): Promise<PulseWithdrawalAccountResponseDto> {
+    void dto;
     await this.accessService.resolveTargetStoreForGrowth(user, {
       notFoundMessage: '当前未选中目标商家门店，暂无法操作提现账户',
     });
@@ -76,8 +181,11 @@ export class PulseGrowthEarningsService {
 
   async applyWithdrawal(
     user: AuthenticatedUser,
-    _beanAmount: number,
+    beanAmount: number,
+    partnerId?: string,
   ): Promise<ApplyWithdrawalResponseDto> {
+    void beanAmount;
+    void partnerId;
     await this.accessService.resolveTargetStoreForGrowth(user, {
       notFoundMessage: '当前未选中目标商家门店，暂无法发起提现申请',
     });

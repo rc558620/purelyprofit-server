@@ -42,7 +42,9 @@ export function buildHttpActionMeta(
       impactScope: 'route',
       eta: severity === 'critical' ? '15 分钟内' : undefined,
       impactLevel:
-        httpErrorRatePercent > 0 && severity === 'critical' ? 'urgent' : undefined,
+        httpErrorRatePercent > 0 && severity === 'critical'
+          ? 'urgent'
+          : undefined,
       actionParams,
       buildPayload: (params) =>
         buildHttpActionPayload(httpErrorRatePercent > 0, params.route),

@@ -18,6 +18,7 @@ import {
   type DashboardHomeActivityTypeValue,
   type DashboardHomePeriodValue,
 } from '../dashboard-home.types';
+import type { ProfitHomeModule } from '../../../access-control/subject-capability.service';
 
 export class DashboardHomeStatsDto {
   @ApiProperty({ example: '今日净利润 (元)', description: '净利润卡片标题' })
@@ -209,6 +210,74 @@ export class DashboardHomeMetaDto {
   generatedAt: number;
 }
 
+export class DashboardHomeCapabilityDto {
+  @ApiProperty({
+    example: 'owner',
+    description: '身份类型: owner/staff/sub_account',
+  })
+  @IsString()
+  identityType: string;
+
+  @ApiPropertyOptional({
+    example: 'cashier',
+    description: '子账号角色，仅当 identityType 为 sub_account 时有值',
+  })
+  @IsOptional()
+  @IsString()
+  subAccountRole?: string;
+
+  @ApiProperty({
+    example: ['additional', 'business-analysis', 'finance-center'],
+    description: '允许访问的首页模块列表',
+  })
+  @IsArray({ message: '允许模块必须是数组' })
+  @IsString({ each: true })
+  allowedHomeModules: ProfitHomeModule[];
+
+  @ApiProperty({
+    example: ['store-settings'],
+    description: '隐藏的首页模块列表',
+  })
+  @IsArray({ message: '隐藏模块必须是数组' })
+  @IsString({ each: true })
+  hiddenHomeModules: ProfitHomeModule[];
+
+  @ApiProperty({
+    example: true,
+    description: '是否可以访问财务中心',
+  })
+  @IsBoolean()
+  canViewFinance: boolean;
+
+  @ApiProperty({
+    example: true,
+    description: '是否可以访问营销中心',
+  })
+  @IsBoolean()
+  canViewMarketing: boolean;
+
+  @ApiProperty({
+    example: true,
+    description: '是否可以使用交班管理',
+  })
+  @IsBoolean()
+  canUseHandoverManagement: boolean;
+
+  @ApiProperty({
+    example: true,
+    description: '是否可以使用空间管理',
+  })
+  @IsBoolean()
+  canUseSpaceManagement: boolean;
+
+  @ApiProperty({
+    example: false,
+    description: '是否可以访问门店设置',
+  })
+  @IsBoolean()
+  canAccessStoreSettings: boolean;
+}
+
 export class DashboardHomeOverviewResponseDto {
   @ApiProperty({ type: DashboardHomeStatsDto, description: '首页统计卡摘要' })
   @ValidateNested()
@@ -236,4 +305,12 @@ export class DashboardHomeOverviewResponseDto {
   @ValidateNested()
   @Type(() => DashboardHomeMetaDto)
   meta: DashboardHomeMetaDto;
+
+  @ApiProperty({
+    type: DashboardHomeCapabilityDto,
+    description: '用户能力快照，用于前端动态展示首页模块',
+  })
+  @ValidateNested()
+  @Type(() => DashboardHomeCapabilityDto)
+  capability: DashboardHomeCapabilityDto;
 }

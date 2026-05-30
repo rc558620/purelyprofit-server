@@ -185,7 +185,7 @@ export class PulseGrowthController {
     @Req() request: { user: AuthenticatedUser },
     @Query() query: GetPulseEarningsLogsQueryDto,
   ): Promise<PulseEarningsLogsResponseDto> {
-    return this.growthService.getEarningsLogs(request.user, query.type);
+    return this.growthService.getEarningsLogs(request.user, query);
   }
 
   @Get('admin/payouts')
@@ -260,6 +260,10 @@ export class PulseGrowthController {
     @Req() request: { user: AuthenticatedUser },
     @Body() dto: PulseApplyWithdrawalDto,
   ): Promise<ApplyWithdrawalResponseDto> {
-    return this.growthService.applyWithdrawal(request.user, dto.beanAmount);
+    return this.growthService.applyWithdrawal(
+      request.user,
+      dto.beanAmount,
+      dto.partnerId,
+    );
   }
 }

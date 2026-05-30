@@ -19,9 +19,7 @@ export function buildRatePercent(
   return denominator > 0 ? roundMetric((numerator / denominator) * 100) : 0;
 }
 
-export function maxSummaryStatus(
-  ...statuses: SummaryStatus[]
-): SummaryStatus {
+export function maxSummaryStatus(...statuses: SummaryStatus[]): SummaryStatus {
   return statuses.reduce((current, next) =>
     SUMMARY_SEVERITY_RANK[next] > SUMMARY_SEVERITY_RANK[current]
       ? next
@@ -29,9 +27,7 @@ export function maxSummaryStatus(
   );
 }
 
-export function buildTrendBySeverity(
-  severity: SummaryStatus,
-): SummaryTrend {
+export function buildTrendBySeverity(severity: SummaryStatus): SummaryTrend {
   if (severity === 'critical') {
     return 'degrading';
   }

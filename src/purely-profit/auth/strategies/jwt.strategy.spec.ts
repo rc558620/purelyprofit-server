@@ -33,6 +33,7 @@ describe('JwtStrategy', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    accessControlService.buildMembershipContext.mockReset();
   });
 
   it('sessionVersion 过期时拒绝旧 token', async () => {
@@ -92,6 +93,37 @@ describe('JwtStrategy', () => {
     });
   });
 
+  it('admin 别名手机号登录时返回 developer 模式', async () => {
+    const strategy = new JwtStrategy(
+      configService as never,
+      prisma as never,
+      accessControlService as never,
+      redisService as never,
+    );
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 2,
+      email: 'phone_13619654020@purelyprofit.local',
+      name: '管理员',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    redisService.get.mockResolvedValue('0');
+    prisma.store.findMany.mockResolvedValue([]);
+    prisma.$queryRaw.mockResolvedValue([]);
+
+    const result = await strategy.validate({
+      sub: 2,
+      phone: '13619654020',
+      sessionVersion: 0,
+    });
+
+    expect(result).toMatchObject({
+      pulseMode: 'developer',
+      isPulseDeveloper: true,
+    });
+  });
+
   it('封禁后旧登录态会在鉴权阶段被拒绝', async () => {
     const strategy = new JwtStrategy(
       configService as never,
@@ -108,7 +140,9 @@ describe('JwtStrategy', () => {
       updatedAt: new Date(),
     });
     prisma.store.findMany.mockResolvedValue([{ id: 18 }]);
-    redisService.get.mockResolvedValueOnce('0').mockResolvedValueOnce('违规操作');
+    redisService.get
+      .mockResolvedValueOnce('0')
+      .mockResolvedValueOnce('违规操作');
 
     await expect(
       strategy.validate({
@@ -149,6 +183,78 @@ describe('JwtStrategy', () => {
       email: 'user@example.com',
       phone: '13800138000',
       currentMembership: null,
+    });
+  });
+
+  it('子账号表尚未迁移时回退到旧会员查询', async () => {
+    const strategy = new JwtStrategy(
+      configService as never,
+      prisma as never,
+      accessControlService as never,
+      redisService as never,
+    );
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 9,
+      email: 'owner@example.com',
+      name: '老板',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    redisService.get.mockResolvedValue('0');
+    prisma.store.findMany.mockResolvedValue([]);
+    prisma.$queryRaw
+      .mockRejectedValueOnce(
+        new Error('relation "store_sub_accounts" does not exist'),
+      )
+      .mockResolvedValueOnce([
+        {
+          id: 18,
+          storeId: 3,
+          role: 'OWNER',
+          permissions: ['*'],
+          isActive: true,
+          linkedEmployeeId: null,
+        },
+      ]);
+    accessControlService.buildMembershipContext.mockReturnValue({
+      staffId: 18,
+      storeId: 3,
+      role: 'OWNER',
+      permissions: ['*'],
+      isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: false,
+    });
+
+    const result = await strategy.validate({
+      sub: 9,
+      phone: '13800138000',
+      sessionVersion: 0,
+    });
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(accessControlService.buildMembershipContext).toHaveBeenCalledWith(
+      {
+        id: 18,
+        storeId: 3,
+        role: 'OWNER',
+        permissions: ['*'],
+        isActive: true,
+        linkedEmployeeId: null,
+      },
+      null,
+    );
+    expect(result.currentMembership).toMatchObject({
+      staffId: 18,
+      storeId: 3,
+      subjectType: 'owner',
     });
   });
 });

@@ -99,6 +99,14 @@ function createAuthenticatedUser(): AuthenticatedUser {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 }
@@ -186,7 +194,7 @@ export async function createWithdrawalsServiceTestingContext(): Promise<Withdraw
     ) => callback(prismaService),
   );
   prismaService.storePartner.findFirst.mockImplementation(
-    async (...args: unknown[]) => prismaService.storePartner.findUnique(...args),
+    (...args: unknown[]) => prismaService.storePartner.findUnique(...args),
   );
 
   const cacheInvalidatorService = {

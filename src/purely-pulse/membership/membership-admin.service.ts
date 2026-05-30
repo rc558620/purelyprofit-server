@@ -1,12 +1,18 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { PlatformMembershipAccessService } from '../../purely-profit/member/platform-membership/platform-membership-access.service';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
+import { StoreSubAccountService } from '../../purely-profit/member/platform-membership/store-sub-account.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import type {
+  GetPulseAdminMemberLogsQueryDto,
   GetPulseAdminMembersQueryDto,
   PulseAdminMemberBeanLogsResponseDto,
   PulseAdminMemberPointsLogsResponseDto,
@@ -14,6 +20,7 @@ import type {
   PulseMemberDetailDto,
   PulseMemberListItemDto,
 } from './dto/pulse-membership.dto';
+import { PULSE_ADMIN_MEMBER_LOG_DEFAULT_LIMIT } from './dto/pulse-membership.dto';
 import { PulseMembershipAccessService } from './membership-access.service';
 import { DAY_MS, PURCHASE_BONUS_POINTS } from './membership.constants';
 import type {
@@ -23,26 +30,52 @@ import type {
   PulseAdminMembershipProfileRecord,
   PulseAdminPartnerRecord,
   PulseAdminStatusMutationInput,
+  PulseAdminSubAccountQuotaMutationInput,
+  PulseAdminSubAccountSlotMutationInput,
   PulseAdminStoreIdentityRecord,
   PulseAdminStoreRecord,
   PulseMembershipAdjustmentInput,
 } from './membership.types';
+
+type LegacyPulseAdminMembershipProfileRecord = Omit<
+  PulseAdminMembershipProfileRecord,
+  'subAccountQuota'
+>;
+
+type PulseAdminMembershipProfileListRecord =
+  PulseAdminMembershipProfileRecord & { storeId: number };
 
 @Injectable()
 export class PulseMembershipAdminService {
   constructor(
     private readonly platformMembershipService: PlatformMembershipService,
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly accessService: PulseMembershipAccessService,
+    private readonly storeSubAccountService: StoreSubAccountService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async listAdminPointsLogs(
     user: AuthenticatedUser,
+    query: GetPulseAdminMemberLogsQueryDto,
   ): Promise<PulseAdminMemberPointsLogsResponseDto> {
     const storeIds = await this.accessService.resolveAdminMemberStoreIds(user);
+    const cursorPagination = this.resolveAdminMemberLogsCursorPagination(query);
     const logs = await this.prisma.storeMembershipPointsLog.findMany({
       where: {
         storeId: { in: storeIds },
+        ...(cursorPagination.cursor
+          ? {
+              OR: [
+                { createdAt: { lt: cursorPagination.cursor.createdAt } },
+                {
+                  createdAt: cursorPagination.cursor.createdAt,
+                  id: { lt: cursorPagination.cursor.id },
+                },
+              ],
+            }
+          : {}),
       },
       select: {
         id: true,
@@ -67,10 +100,17 @@ export class PulseMembershipAdminService {
         },
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...(cursorPagination.limit !== undefined
+        ? { take: cursorPagination.limit + 1 }
+        : {}),
     });
+    const hasMore =
+      cursorPagination.limit !== undefined &&
+      logs.length > cursorPagination.limit;
+    const visibleLogs = hasMore ? logs.slice(0, cursorPagination.limit) : logs;
 
     return {
-      items: logs.map((log) => {
+      items: visibleLogs.map((log) => {
         const userName = this.resolveAdminMemberDisplayName(log.store);
         const userPhone = this.maskAdminMemberPhone(
           this.resolveAdminMemberPhone(log.store),
@@ -99,16 +139,33 @@ export class PulseMembershipAdminService {
           expireAt: log.expireAt ? log.expireAt.getTime() : null,
         };
       }),
+      hasMore,
+      nextCursor: hasMore
+        ? this.encodeAdminMemberLogsCursor(visibleLogs.at(-1) ?? null)
+        : null,
     };
   }
 
   async listAdminBeanLogs(
     user: AuthenticatedUser,
+    query: GetPulseAdminMemberLogsQueryDto,
   ): Promise<PulseAdminMemberBeanLogsResponseDto> {
     const storeIds = await this.accessService.resolveAdminMemberStoreIds(user);
+    const cursorPagination = this.resolveAdminMemberLogsCursorPagination(query);
     const logs = await this.prisma.storePartnerBeanLog.findMany({
       where: {
         storeId: { in: storeIds },
+        ...(cursorPagination.cursor
+          ? {
+              OR: [
+                { createdAt: { lt: cursorPagination.cursor.createdAt } },
+                {
+                  createdAt: cursorPagination.cursor.createdAt,
+                  id: { lt: cursorPagination.cursor.id },
+                },
+              ],
+            }
+          : {}),
       },
       select: {
         id: true,
@@ -134,10 +191,17 @@ export class PulseMembershipAdminService {
         },
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...(cursorPagination.limit !== undefined
+        ? { take: cursorPagination.limit + 1 }
+        : {}),
     });
+    const hasMore =
+      cursorPagination.limit !== undefined &&
+      logs.length > cursorPagination.limit;
+    const visibleLogs = hasMore ? logs.slice(0, cursorPagination.limit) : logs;
 
     return {
-      items: logs.map((log) => {
+      items: visibleLogs.map((log) => {
         const userName = this.resolveAdminMemberDisplayName(log.store);
         const userPhone = this.maskAdminMemberPhone(
           this.resolveAdminMemberPhone(log.store),
@@ -169,6 +233,10 @@ export class PulseMembershipAdminService {
           createdAt: log.createdAt.getTime(),
         };
       }),
+      hasMore,
+      nextCursor: hasMore
+        ? this.encodeAdminMemberLogsCursor(visibleLogs.at(-1) ?? null)
+        : null,
     };
   }
 
@@ -177,15 +245,11 @@ export class PulseMembershipAdminService {
     query: GetPulseAdminMembersQueryDto,
   ): Promise<PulseAdminMembersResponseDto> {
     const storeIds = await this.accessService.resolveAdminMemberStoreIds(user);
-    const members = (
-      await Promise.all(
-        storeIds.map((storeId) => this.buildAdminMemberDetail(storeId)),
-      )
-    ).filter((member) => this.matchesAdminMemberFilters(member, query));
+    const items = await this.buildAdminMemberListItems(storeIds, query);
 
     return {
-      items: members.map((member) => this.toAdminMemberListItem(member)),
-      total: members.length,
+      items,
+      total: items.length,
     };
   }
 
@@ -247,6 +311,8 @@ export class PulseMembershipAdminService {
       });
     });
 
+    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+
     return this.buildAdminMemberDetail(memberId);
   }
 
@@ -281,7 +347,8 @@ export class PulseMembershipAdminService {
             where: { id: existingPartner.id },
             data: {
               status: 'approved',
-              reviewedAt: existingPartner.status === 'approved' ? undefined : now,
+              reviewedAt:
+                existingPartner.status === 'approved' ? undefined : now,
               joinedAt: existingPartner.status === 'approved' ? undefined : now,
               beanBalance: nextBeanBalance,
               totalEarnedBeans,
@@ -311,6 +378,8 @@ export class PulseMembershipAdminService {
         },
       });
     });
+
+    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
 
     return this.buildAdminMemberDetail(memberId);
   }
@@ -343,6 +412,8 @@ export class PulseMembershipAdminService {
         expiresAt: nextExpiry,
       },
     });
+
+    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
 
     return this.buildAdminMemberDetail(memberId);
   }
@@ -386,6 +457,37 @@ export class PulseMembershipAdminService {
     return this.buildAdminMemberDetail(memberId);
   }
 
+  async updateAdminMemberSubAccountQuota(
+    user: AuthenticatedUser,
+    memberId: number,
+    dto: PulseAdminSubAccountQuotaMutationInput,
+  ): Promise<PulseMemberDetailDto> {
+    await this.assertAdminMemberMutationAccess(user, memberId);
+
+    await this.storeSubAccountService.updateQuota(
+      memberId,
+      dto.quota,
+      user.id,
+      dto.reason,
+    );
+    await this.invalidateAdminMemberDerived(memberId);
+
+    return this.buildAdminMemberDetail(memberId);
+  }
+
+  async updateAdminMemberSubAccountSlot(
+    user: AuthenticatedUser,
+    memberId: number,
+    dto: PulseAdminSubAccountSlotMutationInput,
+  ): Promise<PulseMemberDetailDto> {
+    await this.assertAdminMemberMutationAccess(user, memberId);
+
+    await this.storeSubAccountService.updateSlot(memberId, dto);
+    await this.invalidateAdminMemberDerived(memberId);
+
+    return this.buildAdminMemberDetail(memberId);
+  }
+
   private async assertAdminMemberMutationAccess(
     user: AuthenticatedUser,
     memberId: number,
@@ -393,16 +495,59 @@ export class PulseMembershipAdminService {
     await this.accessService.assertAdminMemberMutationAccess(user, memberId);
   }
 
+  private async invalidateAdminMemberDerived(memberId: number): Promise<void> {
+    await Promise.all([
+      this.cacheInvalidatorService.invalidatePulseDashboardHome(),
+      this.cacheInvalidatorService.invalidatePulseDashboardOverview(memberId),
+      this.cacheInvalidatorService.invalidatePulseSessionNotification(memberId),
+      this.cacheInvalidatorService.invalidatePulseSessionBootstrap(memberId),
+      this.accessService.kickAllStoreUsers(memberId),
+    ]);
+  }
+
   private async buildAdminMemberDetail(
     storeId: number,
   ): Promise<PulseMemberDetailDto> {
     const banReason = await this.accessService.getAdminMemberBanReason(storeId);
-    const [store, profile, paidOrders, partner, promoCount]: [
+    const [
+      store,
+      profile,
+      paidOrders,
+      partner,
+      promoCount,
+      subAccountSummary,
+    ]: [
       PulseAdminStoreRecord | null,
       PulseAdminMembershipProfileRecord | null,
       PulseAdminMembershipOrderRecord[],
       PulseAdminPartnerRecord | null,
       number,
+      {
+        eligible: boolean;
+        quota: number;
+        quotaMax: number;
+        enabled: boolean;
+        usedCount: number;
+        availableCount: number;
+        roleSummary: Array<{
+          role: string;
+          activeCount: number;
+          inactiveCount: number;
+          disabledCount: number;
+          assignedCount: number;
+        }>;
+        slots: Array<{
+          id: number;
+          slotIndex: number;
+          role: string;
+          status: string;
+          isAssigned: boolean;
+          employeeId: number | null;
+          employeeName: string | null;
+          canAccessHome: boolean;
+          canUseHandover: boolean;
+        }>;
+      },
     ] = await Promise.all([
       this.prisma.store.findUnique({
         where: { id: storeId },
@@ -421,15 +566,7 @@ export class PulseMembershipAdminService {
           },
         },
       }),
-      this.prisma.storeMembershipProfile.findUnique({
-        where: { storeId },
-        select: {
-          currentPlanId: true,
-          expiresAt: true,
-          totalPoints: true,
-          availablePoints: true,
-        },
-      }),
+      this.findMembershipProfileByStoreId(storeId),
       this.prisma.storeMembershipOrder.findMany({
         where: { storeId, status: 'paid' },
         select: {
@@ -455,6 +592,7 @@ export class PulseMembershipAdminService {
       this.prisma.storeMembershipPromoRecord.count({
         where: { storeId },
       }),
+      this.buildAdminSubAccountDetail(storeId),
     ]);
 
     if (!store) {
@@ -508,6 +646,91 @@ export class PulseMembershipAdminService {
       })),
       remark: banReason ?? `${store.name} 的平台会员档案`,
       membershipExpiry,
+      subAccountEligible: subAccountSummary.eligible,
+      subAccountQuota: subAccountSummary.quota,
+      subAccountCapabilityEnabled: subAccountSummary.enabled,
+      subAccountQuotaMax: subAccountSummary.quotaMax,
+      subAccountsUsedCount: subAccountSummary.usedCount,
+      subAccountsAvailableCount: subAccountSummary.availableCount,
+      subAccountRoleSummary: subAccountSummary.roleSummary.map((item) => ({
+        role: item.role as 'cashier' | 'finance',
+        activeCount: item.activeCount,
+        inactiveCount: item.inactiveCount,
+        disabledCount: item.disabledCount,
+        assignedCount: item.assignedCount,
+      })),
+      subAccountSlots: subAccountSummary.slots.map((slot) => ({
+        id: String(slot.id),
+        slotIndex: slot.slotIndex,
+        role: slot.role as 'cashier' | 'finance',
+        status: slot.status as 'active' | 'inactive' | 'disabled',
+        isAssigned: slot.isAssigned,
+        employeeId: slot.employeeId ? String(slot.employeeId) : null,
+        employeeName: slot.employeeName,
+        canAccessHome: slot.canAccessHome,
+        canUseHandover: slot.canUseHandover,
+      })),
+    };
+  }
+
+  private async buildAdminSubAccountDetail(storeId: number): Promise<{
+    eligible: boolean;
+    quota: number;
+    quotaMax: number;
+    enabled: boolean;
+    usedCount: number;
+    availableCount: number;
+    roleSummary: Array<{
+      role: string;
+      activeCount: number;
+      inactiveCount: number;
+      disabledCount: number;
+      assignedCount: number;
+    }>;
+    slots: Array<{
+      id: number;
+      slotIndex: number;
+      role: string;
+      status: string;
+      isAssigned: boolean;
+      employeeId: number | null;
+      employeeName: string | null;
+      canAccessHome: boolean;
+      canUseHandover: boolean;
+    }>;
+  }> {
+    const benefitSnapshot =
+      await this.platformMembershipAccessService.getSubAccountBenefitSnapshot(
+        storeId,
+      );
+    const summary =
+      await this.storeSubAccountService.getStoreSubAccountSummary(storeId);
+
+    return {
+      eligible: benefitSnapshot.eligible,
+      quota: summary.quota,
+      quotaMax: benefitSnapshot.quotaMax,
+      enabled: benefitSnapshot.enabled,
+      usedCount: summary.usedCount,
+      availableCount: summary.availableCount,
+      roleSummary: summary.roleSummary.map((item) => ({
+        role: item.role,
+        activeCount: item.activeCount,
+        inactiveCount: item.inactiveCount,
+        disabledCount: item.disabledCount,
+        assignedCount: item.assignedCount,
+      })),
+      slots: summary.slots.map((slot) => ({
+        id: slot.id,
+        slotIndex: slot.slotIndex,
+        role: slot.role,
+        status: slot.status,
+        isAssigned: slot.isAssigned,
+        employeeId: slot.employeeId,
+        employeeName: slot.employeeName,
+        canAccessHome: slot.canAccessHome,
+        canUseHandover: slot.canUseHandover,
+      })),
     };
   }
 
@@ -524,15 +747,7 @@ export class PulseMembershipAdminService {
         where: { id: storeId },
         select: { id: true },
       }),
-      this.prisma.storeMembershipProfile.findUnique({
-        where: { storeId },
-        select: {
-          currentPlanId: true,
-          expiresAt: true,
-          totalPoints: true,
-          availablePoints: true,
-        },
-      }),
+      this.findMembershipProfileByStoreId(storeId),
       this.prisma.storePartner.findFirst({
         where: { storeId, status: 'approved' },
         select: {
@@ -556,6 +771,7 @@ export class PulseMembershipAdminService {
         expiresAt: null,
         totalPoints: 0,
         availablePoints: 0,
+        subAccountQuota: 0,
       },
       partner: partner ?? {
         id: 0,
@@ -657,28 +873,470 @@ export class PulseMembershipAdminService {
     return reason;
   }
 
-  private toAdminMemberListItem(
-    detail: PulseMemberDetailDto,
-  ): PulseMemberListItemDto {
+  private resolveAdminMemberLogsCursorPagination(
+    query: GetPulseAdminMemberLogsQueryDto,
+  ): {
+    cursor?: { createdAt: Date; id: number };
+    limit?: number;
+  } {
+    if (query.cursor === undefined && query.limit === undefined) {
+      return {};
+    }
+
+    if (query.cursor === undefined) {
+      return {
+        limit: query.limit ?? PULSE_ADMIN_MEMBER_LOG_DEFAULT_LIMIT,
+      };
+    }
+
+    const cursor = this.parseAdminMemberLogsCursor(query.cursor);
+    if (!cursor) {
+      throw new ConflictException('cursor 格式不合法');
+    }
+
     return {
-      id: detail.id,
-      name: detail.name,
-      phone: detail.phone,
-      avatarChar: detail.avatarChar,
-      avatarColorIdx: detail.avatarColorIdx,
-      status: detail.status,
-      level: detail.level,
-      availablePoints: detail.availablePoints,
-      beanBalance: detail.beanBalance,
-      isPartner: detail.isPartner,
-      totalRecharged: detail.totalRecharged,
-      registeredAt: detail.registeredAt,
-      lastActiveAt: detail.lastActiveAt,
+      cursor,
+      limit: query.limit ?? PULSE_ADMIN_MEMBER_LOG_DEFAULT_LIMIT,
+    };
+  }
+
+  private parseAdminMemberLogsCursor(
+    cursor: string,
+  ): { createdAt: Date; id: number } | null {
+    const match = /^(\d+)_(\d+)$/.exec(cursor);
+    if (!match) {
+      return null;
+    }
+
+    const [, rawCreatedAt, rawId] = match;
+    const createdAtMs = Number(rawCreatedAt);
+    const id = Number(rawId);
+    if (
+      !Number.isSafeInteger(createdAtMs) ||
+      !Number.isSafeInteger(id) ||
+      createdAtMs <= 0 ||
+      id <= 0
+    ) {
+      return null;
+    }
+
+    return {
+      createdAt: new Date(createdAtMs),
+      id,
+    };
+  }
+
+  private encodeAdminMemberLogsCursor(
+    log: Pick<{ createdAt: Date; id: number }, 'createdAt' | 'id'> | null,
+  ): string | null {
+    if (!log) {
+      return null;
+    }
+
+    return `${log.createdAt.getTime()}_${log.id}`;
+  }
+
+  private async buildAdminMemberListItems(
+    storeIds: number[],
+    query: GetPulseAdminMembersQueryDto,
+  ): Promise<PulseMemberListItemDto[]> {
+    if (storeIds.length === 0) {
+      return [];
+    }
+
+    const stores = await this.prisma.store.findMany({
+      where: this.buildAdminMemberListStoreWhere(storeIds, query),
+      select: {
+        id: true,
+        name: true,
+        contactPhone: true,
+        createdAt: true,
+        updatedAt: true,
+        owner: {
+          select: {
+            email: true,
+            name: true,
+            realName: true,
+          },
+        },
+      },
+      orderBy: [{ id: 'asc' }],
+    });
+    if (stores.length === 0) {
+      return [];
+    }
+
+    const resolvedStoreIds = stores.map((store) => store.id);
+    const [profiles, paidOrderSummaries, partners, banReasons]: [
+      Array<PulseAdminMembershipProfileRecord & { storeId: number }>,
+      Array<{
+        storeId: number;
+        _count: { _all: number };
+        _sum: { amount: number | null };
+        _max: { createdAt: Date | null };
+      }>,
+      Array<PulseAdminPartnerRecord & { storeId: number }>,
+      Map<number, string>,
+    ] = await Promise.all([
+      this.findMembershipProfilesByStoreIds(resolvedStoreIds),
+      this.prisma.storeMembershipOrder.groupBy({
+        by: ['storeId'],
+        where: {
+          storeId: { in: resolvedStoreIds },
+          status: 'paid',
+        },
+        _count: { _all: true },
+        _sum: { amount: true },
+        _max: { createdAt: true },
+      }),
+      this.prisma.storePartner.findMany({
+        where: {
+          storeId: { in: resolvedStoreIds },
+          status: 'approved',
+        },
+        select: {
+          storeId: true,
+          id: true,
+          status: true,
+          beanBalance: true,
+          totalEarnedBeans: true,
+          totalWithdrawnBeans: true,
+        },
+        orderBy: [
+          { storeId: 'asc' },
+          { reviewedAt: 'desc' },
+          { joinedAt: 'desc' },
+          { id: 'desc' },
+        ],
+      }),
+      this.accessService.listAdminMemberBanReasons(resolvedStoreIds),
+    ]);
+
+    const profileByStoreId = new Map(
+      profiles.map((profile) => [profile.storeId, profile]),
+    );
+    const orderSummaryByStoreId = new Map(
+      paidOrderSummaries.map((summary) => [
+        summary.storeId,
+        {
+          rechargeCount: summary._count._all,
+          totalRecharged: summary._sum.amount ?? 0,
+          lastPaidAt: summary._max.createdAt?.getTime() ?? null,
+        },
+      ]),
+    );
+    const partnerByStoreId = new Map<number, PulseAdminPartnerRecord>();
+    for (const partner of partners) {
+      if (!partnerByStoreId.has(partner.storeId)) {
+        partnerByStoreId.set(partner.storeId, {
+          id: partner.id,
+          status: partner.status,
+          beanBalance: partner.beanBalance,
+          totalEarnedBeans: partner.totalEarnedBeans,
+          totalWithdrawnBeans: partner.totalWithdrawnBeans,
+        });
+      }
+    }
+    return stores
+      .map((store) => {
+        const profile = profileByStoreId.get(store.id) ?? null;
+        const orderSummary = orderSummaryByStoreId.get(store.id);
+        const partner = partnerByStoreId.get(store.id) ?? null;
+        const banReason = banReasons.get(store.id) ?? null;
+        const ownerName = this.resolveAdminMemberDisplayName(store);
+        const phone = this.resolveAdminMemberPhone(store);
+        const membershipExpiry = profile?.expiresAt?.getTime() ?? null;
+        const isBanned = Boolean(banReason);
+        const isActive =
+          membershipExpiry !== null && membershipExpiry > Date.now();
+
+        return {
+          id: String(store.id),
+          name: ownerName,
+          phone,
+          avatarChar: ownerName.slice(0, 1) || '会',
+          avatarColorIdx: store.id % 6,
+          status: isBanned ? 'banned' : isActive ? 'active' : 'inactive',
+          level: this.toPulseMemberLevel(
+            profile?.currentPlanId ?? null,
+            profile?.expiresAt ?? null,
+          ),
+          availablePoints: profile?.availablePoints ?? 0,
+          beanBalance: partner?.beanBalance ?? 0,
+          isPartner: partner?.status === 'approved',
+          totalRecharged: orderSummary?.totalRecharged ?? 0,
+          registeredAt: store.createdAt.getTime(),
+          lastActiveAt:
+            orderSummary?.lastPaidAt ??
+            profile?.expiresAt?.getTime() ??
+            store.updatedAt.getTime(),
+          subAccountEligible:
+            (profile?.currentPlanId ?? null) === 'yearly' ||
+            (profile?.currentPlanId ?? null) === 'lifetime',
+          subAccountQuota: profile?.subAccountQuota ?? 0,
+          subAccountCapabilityEnabled: (profile?.subAccountQuota ?? 0) > 0,
+        } satisfies PulseMemberListItemDto;
+      })
+      .filter((member) => this.matchesAdminMemberFilters(member, query));
+  }
+
+  private async findMembershipProfileByStoreId(
+    storeId: number,
+  ): Promise<PulseAdminMembershipProfileRecord | null> {
+    try {
+      return await this.prisma.storeMembershipProfile.findUnique({
+        where: { storeId },
+        select: {
+          currentPlanId: true,
+          expiresAt: true,
+          totalPoints: true,
+          availablePoints: true,
+          subAccountQuota: true,
+        },
+      });
+    } catch (error: unknown) {
+      if (!this.isMissingSubAccountQuotaSchemaError(error)) {
+        throw error;
+      }
+
+      console.warn(
+        '[pulse-membership-admin] store_membership_profiles.sub_account_quota schema not ready, fallback to legacy profile query',
+      );
+
+      const profile = await this.prisma.storeMembershipProfile.findUnique({
+        where: { storeId },
+        select: {
+          currentPlanId: true,
+          expiresAt: true,
+          totalPoints: true,
+          availablePoints: true,
+        },
+      });
+
+      return profile
+        ? {
+            ...profile,
+            subAccountQuota: 0,
+          }
+        : null;
+    }
+  }
+
+  private async findMembershipProfilesByStoreIds(
+    storeIds: number[],
+  ): Promise<PulseAdminMembershipProfileListRecord[]> {
+    try {
+      return await this.prisma.storeMembershipProfile.findMany({
+        where: { storeId: { in: storeIds } },
+        select: {
+          storeId: true,
+          currentPlanId: true,
+          expiresAt: true,
+          totalPoints: true,
+          availablePoints: true,
+          subAccountQuota: true,
+        },
+      });
+    } catch (error: unknown) {
+      if (!this.isMissingSubAccountQuotaSchemaError(error)) {
+        throw error;
+      }
+
+      console.warn(
+        '[pulse-membership-admin] store_membership_profiles.sub_account_quota schema not ready, fallback to legacy profile list query',
+      );
+
+      const profiles = await this.prisma.storeMembershipProfile.findMany({
+        where: { storeId: { in: storeIds } },
+        select: {
+          storeId: true,
+          currentPlanId: true,
+          expiresAt: true,
+          totalPoints: true,
+          availablePoints: true,
+        },
+      });
+
+      return profiles.map(
+        (
+          profile,
+        ): PulseAdminMembershipProfileListRecord => ({
+          ...(profile as LegacyPulseAdminMembershipProfileRecord & {
+            storeId: number;
+          }),
+          subAccountQuota: 0,
+        }),
+      );
+    }
+  }
+
+  private isMissingSubAccountQuotaSchemaError(error: unknown): boolean {
+    const message =
+      error instanceof Error
+        ? error.message.toLowerCase()
+        : String(error).toLowerCase();
+
+    if (
+      !message.includes('sub_account_quota') &&
+      !message.includes('subaccountquota')
+    ) {
+      return false;
+    }
+
+    return (
+      message.includes('does not exist') ||
+      message.includes("doesn't exist") ||
+      message.includes('unknown column') ||
+      message.includes('no such column') ||
+      message.includes('unknown field') ||
+      message.includes('column')
+    );
+  }
+
+  private buildAdminMemberListStoreWhere(
+    storeIds: number[],
+    query: GetPulseAdminMembersQueryDto,
+  ): Prisma.StoreWhereInput {
+    const filters: Prisma.StoreWhereInput[] = [{ id: { in: storeIds } }];
+
+    if (query.partner === true) {
+      filters.push({
+        partners: {
+          some: {
+            status: 'approved',
+          },
+        },
+      });
+    }
+
+    const levelWhere = this.buildAdminMemberLevelStoreWhere(query);
+    if (levelWhere) {
+      filters.push(levelWhere);
+    }
+
+    const statusWhere = this.buildAdminMemberStatusStoreWhere(query);
+    if (statusWhere) {
+      filters.push(statusWhere);
+    }
+
+    const keywordWhere = this.buildAdminMemberKeywordStoreWhere(query);
+    if (keywordWhere) {
+      filters.push(keywordWhere);
+    }
+
+    return filters.length === 1 ? filters[0] : { AND: filters };
+  }
+
+  private buildAdminMemberLevelStoreWhere(
+    query: GetPulseAdminMembersQueryDto,
+  ): Prisma.StoreWhereInput | null {
+    switch (query.level) {
+      case 'free':
+        return {
+          OR: [
+            { membershipProfile: { is: null } },
+            { membershipProfile: { is: { currentPlanId: null } } },
+          ],
+        };
+      case 'monthly':
+        return {
+          membershipProfile: { is: { currentPlanId: 'monthly' } },
+        };
+      case 'quarterly':
+        return {
+          membershipProfile: { is: { currentPlanId: 'quarterly' } },
+        };
+      case 'annual':
+        return {
+          membershipProfile: {
+            is: {
+              currentPlanId: 'yearly',
+              expiresAt: { not: null },
+            },
+          },
+        };
+      case 'lifetime':
+        return {
+          OR: [
+            { membershipProfile: { is: { currentPlanId: 'lifetime' } } },
+            {
+              membershipProfile: {
+                is: {
+                  currentPlanId: 'yearly',
+                  expiresAt: null,
+                },
+              },
+            },
+          ],
+        };
+      default:
+        return null;
+    }
+  }
+
+  private buildAdminMemberStatusStoreWhere(
+    query: GetPulseAdminMembersQueryDto,
+  ): Prisma.StoreWhereInput | null {
+    const now = new Date();
+
+    switch (query.status) {
+      case 'active':
+        return {
+          membershipProfile: {
+            is: {
+              expiresAt: { gt: now },
+            },
+          },
+        };
+      case 'inactive':
+        return {
+          OR: [
+            { membershipProfile: { is: null } },
+            { membershipProfile: { is: { expiresAt: null } } },
+            {
+              membershipProfile: {
+                is: {
+                  expiresAt: { lte: now },
+                },
+              },
+            },
+          ],
+        };
+      default:
+        return null;
+    }
+  }
+
+  private buildAdminMemberKeywordStoreWhere(
+    query: GetPulseAdminMembersQueryDto,
+  ): Prisma.StoreWhereInput | null {
+    const keyword = query.keyword?.trim();
+    if (!keyword) {
+      return null;
+    }
+
+    const normalizedPhoneKeyword = keyword.replace(/\s+/g, '');
+
+    return {
+      OR: [
+        { name: { contains: keyword, mode: 'insensitive' } },
+        { contactPhone: { contains: normalizedPhoneKeyword } },
+        { owner: { name: { contains: keyword, mode: 'insensitive' } } },
+        { owner: { realName: { contains: keyword, mode: 'insensitive' } } },
+        {
+          owner: {
+            email: { contains: normalizedPhoneKeyword, mode: 'insensitive' },
+          },
+        },
+      ],
     };
   }
 
   private matchesAdminMemberFilters(
-    member: PulseMemberDetailDto,
+    member: Pick<
+      PulseMemberListItemDto,
+      'name' | 'phone' | 'status' | 'level' | 'isPartner'
+    >,
     query: GetPulseAdminMembersQueryDto,
   ): boolean {
     if (

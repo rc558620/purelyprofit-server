@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import {
   ApplyPlatformPartnerDto,
   type CreatePlatformPartnerFollowUpNoteDto,
@@ -12,7 +13,6 @@ import {
 import {
   ensurePlatformMembershipStoreOwner,
   findStoreMembershipPromoRecords,
-  findStorePartner,
   findStorePartnerApplications,
   findStorePartnerByApplicant,
   findStorePartners,
@@ -27,7 +27,10 @@ import type {
 
 @Injectable()
 export class PlatformMembershipPartnerService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
+  ) {}
 
   async getPartnerProfileByStoreId(
     storeId: number,
@@ -52,7 +55,10 @@ export class PlatformMembershipPartnerService {
       throw new ConflictException('该合伙人已通过审核，无需重复申请');
     }
 
-    const blockingApplication = this.findBlockingApplication(applications, payload);
+    const blockingApplication = this.findBlockingApplication(
+      applications,
+      payload,
+    );
 
     if (blockingApplication?.status === 'approved') {
       throw new ConflictException('该合伙人已通过审核，无需重复申请');
@@ -65,7 +71,7 @@ export class PlatformMembershipPartnerService {
       throw new ConflictException('该合伙人已有申请在审核中，请耐心等待');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const response = await this.prisma.$transaction(async (tx) => {
       await tx.storePartnerApplication.create({
         data: {
           storeId,
@@ -76,13 +82,17 @@ export class PlatformMembershipPartnerService {
 
       return this.buildPartnerProfile(tx, storeId);
     });
+
+    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+
+    return response;
   }
 
   async markPartnerApplicationReviewing(
     storeId: number,
     applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.prisma.$transaction(async (tx) => {
+    const response = await this.prisma.$transaction(async (tx) => {
       const application = await getScopedStorePartnerApplicationOrThrow(
         tx,
         storeId,
@@ -112,13 +122,17 @@ export class PlatformMembershipPartnerService {
 
       return this.buildPartnerProfile(tx, storeId);
     });
+
+    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+
+    return response;
   }
 
   async approvePartnerApplication(
     storeId: number,
     applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.prisma.$transaction(async (tx) => {
+    const response = await this.prisma.$transaction(async (tx) => {
       const application = await getScopedStorePartnerApplicationOrThrow(
         tx,
         storeId,
@@ -154,6 +168,10 @@ export class PlatformMembershipPartnerService {
 
       return this.buildPartnerProfile(tx, storeId);
     });
+
+    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+
+    return response;
   }
 
   async rejectPartnerApplication(
@@ -161,7 +179,7 @@ export class PlatformMembershipPartnerService {
     applicationId: number,
     reason: string,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.prisma.$transaction(async (tx) => {
+    const response = await this.prisma.$transaction(async (tx) => {
       const application = await getScopedStorePartnerApplicationOrThrow(
         tx,
         storeId,
@@ -202,6 +220,10 @@ export class PlatformMembershipPartnerService {
 
       return this.buildPartnerProfile(tx, storeId);
     });
+
+    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+
+    return response;
   }
 
   async cancelPartnerApplication(
@@ -211,7 +233,7 @@ export class PlatformMembershipPartnerService {
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     await ensurePlatformMembershipStoreOwner(this.prisma, userId, storeId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const response = await this.prisma.$transaction(async (tx) => {
       const application = await getScopedStorePartnerApplicationOrThrow(
         tx,
         storeId,
@@ -239,6 +261,10 @@ export class PlatformMembershipPartnerService {
 
       return this.buildPartnerProfile(tx, storeId);
     });
+
+    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+
+    return response;
   }
 
   async addPartnerFollowUpNote(
@@ -345,8 +371,11 @@ export class PlatformMembershipPartnerService {
     await prismaExecutor.storePartner.create({
       data: {
         storeId,
-        ...payload,
         status: 'approved',
+        ...payload,
+        beanBalance: 0,
+        totalEarnedBeans: 0,
+        totalWithdrawnBeans: 0,
         reviewedAt: approvedAt,
         joinedAt: approvedAt,
       },
@@ -354,7 +383,18 @@ export class PlatformMembershipPartnerService {
   }
 
   private toPartnerSnapshotPayload(
-    application: StorePartnerApplicationRecord,
+    application: Pick<
+      StorePartnerApplicationRecord,
+      | 'name'
+      | 'phone'
+      | 'idCard'
+      | 'region'
+      | 'intention'
+      | 'applyReason'
+      | 'paymentAccountType'
+      | 'paymentAccountNo'
+      | 'paymentAccountName'
+    >,
   ): PartnerSnapshotPayload {
     return {
       name: application.name,

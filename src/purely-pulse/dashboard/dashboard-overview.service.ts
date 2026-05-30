@@ -3,6 +3,8 @@ import { BusinessAnalysisService } from '../../purely-profit/dashboard/business-
 import type { GetBusinessAnalysisQueryDto } from '../../purely-profit/dashboard/business-analysis/dto/business-analysis-query.dto';
 import type { BusinessAnalysisResponseDto } from '../../purely-profit/dashboard/business-analysis/dto/business-analysis-response.dto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildPulseDashboardOverviewCacheKey } from '../../redis/cache-keys';
+import { RedisService } from '../../redis/redis.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import type { PulseTargetStoreSummary } from '../pulse-store-context.types';
@@ -49,10 +51,13 @@ import type {
   PulseDashboardStoresResponseDto,
 } from './dto/pulse-dashboard-response.dto';
 
+const PULSE_DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS = 20;
+
 @Injectable()
 export class PulseDashboardOverviewService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly dashboardAggregatorService: DashboardAggregatorService,
     private readonly businessAnalysisService: BusinessAnalysisService,
     private readonly pulseStoreContextService: PulseStoreContextService,
@@ -68,6 +73,18 @@ export class PulseDashboardOverviewService {
       queryDto.storeId,
       '当前未选中目标门店，暂无法查看经营总览',
     );
+    const cacheKey = buildPulseDashboardOverviewCacheKey(
+      targetStore.id,
+      period,
+    );
+    const cachedResponse =
+      await this.redisService.getJson<PulseDashboardOverviewResponseDto>(
+        cacheKey,
+      );
+    if (cachedResponse !== null) {
+      return cachedResponse;
+    }
+
     const storeIds = [targetStore.id];
     const currentRange = buildCurrentRange(period);
     const compareRange = buildCompareRange(period, currentRange);
@@ -87,7 +104,7 @@ export class PulseDashboardOverviewService {
       compareCostSum,
     );
 
-    return {
+    const response = {
       stats: this.buildStats(
         period,
         currentAgg,
@@ -104,6 +121,14 @@ export class PulseDashboardOverviewService {
         currentRange,
       ),
     };
+
+    await this.redisService.setJson(
+      cacheKey,
+      response,
+      PULSE_DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS,
+    );
+
+    return response;
   }
 
   async getStores(

@@ -40,6 +40,14 @@ describe('SpaceSessionsService', () => {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 
@@ -74,10 +82,7 @@ describe('SpaceSessionsService', () => {
     );
     expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith({
       where: {
-        AND: [
-          { storeId: 18 },
-          { status: PrismaSpaceSessionStatus.active },
-        ],
+        AND: [{ storeId: 18 }, { status: PrismaSpaceSessionStatus.active }],
       },
       include: {
         space: {
@@ -103,10 +108,7 @@ describe('SpaceSessionsService', () => {
 
     expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith({
       where: {
-        AND: [
-          { storeId: 18 },
-          { status: PrismaSpaceSessionStatus.settled },
-        ],
+        AND: [{ storeId: 18 }, { status: PrismaSpaceSessionStatus.settled }],
       },
       include: {
         space: {
@@ -130,10 +132,7 @@ describe('SpaceSessionsService', () => {
 
     expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith({
       where: {
-        AND: [
-          { storeId: 18 },
-          { status: PrismaSpaceSessionStatus.active },
-        ],
+        AND: [{ storeId: 18 }, { status: PrismaSpaceSessionStatus.active }],
       },
       include: {
         space: {

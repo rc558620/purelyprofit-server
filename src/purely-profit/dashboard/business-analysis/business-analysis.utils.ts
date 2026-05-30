@@ -71,7 +71,13 @@ function resolvePresetRange(
       return { start: getMonthStartTimestamp(now), end: now };
     case 'quarter':
       return { start: getQuarterStartTimestamp(now), end: now };
-    case 'all':
+    case 'year': {
+      const current = new Date(now);
+      return {
+        start: new Date(current.getFullYear(), 0, 1).setHours(0, 0, 0, 0),
+        end: now,
+      };
+    }
     default:
       return { start: 0, end: now };
   }

@@ -55,7 +55,9 @@ export function buildSummaryAggregateMetrics(
     ),
     processMemoryPressurePercent:
       input.process.heapTotalMb > 0
-        ? roundMetric((input.process.heapUsedMb / input.process.heapTotalMb) * 100)
+        ? roundMetric(
+            (input.process.heapUsedMb / input.process.heapTotalMb) * 100,
+          )
         : 0,
   };
 }

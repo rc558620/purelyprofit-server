@@ -62,7 +62,7 @@ describe('PulseMembershipSettingsService', () => {
       },
     ]);
     prismaService.membershipPlanSetting.upsert.mockImplementation(
-      async ({ where }: { where: { planId: string } }) => {
+      ({ where }: { where: { planId: string } }) => {
         switch (where.planId) {
           case 'monthly':
             return {

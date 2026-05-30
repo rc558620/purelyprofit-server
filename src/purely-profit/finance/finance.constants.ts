@@ -170,7 +170,10 @@ export const ACCOUNT_CATEGORY_RULES = {
     allowManualCreate: true,
     allowedTypes: ['receivable', 'payable'],
   },
-} as const satisfies Record<FinanceAccountCategoryValue, FinanceAccountCategoryRule>;
+} as const satisfies Record<
+  FinanceAccountCategoryValue,
+  FinanceAccountCategoryRule
+>;
 
 export const FINANCE_REPORT_PAYMENT_LABELS: Record<string, string> = {
   cash: '现金',

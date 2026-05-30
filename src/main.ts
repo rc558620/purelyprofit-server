@@ -77,10 +77,22 @@ async function bootstrap() {
     'production';
   const loggerEnabled =
     bootstrapConfigService.get<boolean>('app.logEnabled') ?? !isProduction;
+  const bodyLimit =
+    bootstrapConfigService.get<number>('app.httpBodyLimitBytes') ??
+    5 * 1024 * 1024;
+  const keepAliveTimeout =
+    bootstrapConfigService.get<number>('app.httpKeepAliveTimeoutMs') ?? 65_000;
+  const requestTimeout =
+    bootstrapConfigService.get<number>('app.httpRequestTimeoutMs') ?? 15_000;
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: loggerEnabled }),
+    new FastifyAdapter({
+      logger: loggerEnabled,
+      bodyLimit,
+      keepAliveTimeout,
+      requestTimeout,
+    }),
   );
 
   app.useGlobalPipes(

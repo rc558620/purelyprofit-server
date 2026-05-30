@@ -13,30 +13,11 @@ export interface DashboardRevenueOrderRow {
   createdAt: Date;
 }
 
-export interface DashboardPartnerProfileRow {
+export interface DashboardPartnerTopRow {
   name: string;
   region: unknown;
-}
-
-export interface DashboardPromoRecordRow {
-  inviteeName: string;
-  chargedAmount: number | null;
-  storeId: number;
-  store: {
-    partners: DashboardPartnerProfileRow[];
-  } | null;
-}
-
-export interface DashboardApprovedPartnerRow {
-  id: number;
-  name: string | null;
-  region: unknown;
-  joinedAt: Date | null;
-  store: {
-    membershipPromoRecords: Array<{
-      chargedAmount: number | null;
-    }>;
-  };
+  orders: number;
+  revenue: number;
 }
 
 export interface DashboardRevenueDetailOrderRow {
@@ -58,6 +39,11 @@ export interface DashboardRevenueDetailOrderRow {
 
 export interface DashboardRevenueTypeLabelRow {
   typeLabel: string;
+}
+
+export interface DashboardRevenueTypeCountRow {
+  planId: string;
+  count: number;
 }
 
 export interface DashboardTrendSaleRow {

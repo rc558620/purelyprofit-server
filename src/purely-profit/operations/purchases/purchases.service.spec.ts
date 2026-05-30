@@ -6,6 +6,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { CostsService } from '../costs/costs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import { PurchasesService } from './purchases.service';
 
 describe('PurchasesService', () => {
@@ -45,6 +46,10 @@ describe('PurchasesService', () => {
     get: jest.fn(),
   };
 
+  const cacheInvalidatorService = {
+    invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -58,6 +63,14 @@ describe('PurchasesService', () => {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 
@@ -114,6 +127,10 @@ describe('PurchasesService', () => {
       providers: [
         PurchasesService,
         { provide: PrismaService, useValue: prismaService },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
+        },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         { provide: CostsService, useValue: costsService },
         { provide: ConfigService, useValue: configService },

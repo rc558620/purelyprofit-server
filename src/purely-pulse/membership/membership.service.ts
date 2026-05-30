@@ -13,6 +13,7 @@ import type {
 import type { PurchasePlatformMembershipOrderDto } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
 import type {
+  GetPulseAdminMemberLogsQueryDto,
   GetPulseAdminMembersQueryDto,
   PulseAdminMemberBeanLogsResponseDto,
   PulseAdminMemberPointsLogsResponseDto,
@@ -29,6 +30,8 @@ import { PulseMembershipOrdersService } from './membership-orders.service';
 import type {
   PulseAdminMembershipMutationInput,
   PulseAdminStatusMutationInput,
+  PulseAdminSubAccountQuotaMutationInput,
+  PulseAdminSubAccountSlotMutationInput,
   PulseMembershipAdjustmentInput,
 } from './membership.types';
 
@@ -84,14 +87,16 @@ export class PulseMembershipService {
 
   listAdminPointsLogs(
     user: AuthenticatedUser,
+    query: GetPulseAdminMemberLogsQueryDto,
   ): Promise<PulseAdminMemberPointsLogsResponseDto> {
-    return this.adminService.listAdminPointsLogs(user);
+    return this.adminService.listAdminPointsLogs(user, query);
   }
 
   listAdminBeanLogs(
     user: AuthenticatedUser,
+    query: GetPulseAdminMemberLogsQueryDto,
   ): Promise<PulseAdminMemberBeanLogsResponseDto> {
-    return this.adminService.listAdminBeanLogs(user);
+    return this.adminService.listAdminBeanLogs(user, query);
   }
 
   getPromoCenter(
@@ -172,5 +177,29 @@ export class PulseMembershipService {
     memberId: number,
   ): Promise<PulseMemberDetailDto> {
     return this.adminService.unbanAdminMember(user, memberId);
+  }
+
+  updateAdminMemberSubAccountQuota(
+    user: AuthenticatedUser,
+    memberId: number,
+    dto: PulseAdminSubAccountQuotaMutationInput,
+  ): Promise<PulseMemberDetailDto> {
+    return this.adminService.updateAdminMemberSubAccountQuota(
+      user,
+      memberId,
+      dto,
+    );
+  }
+
+  updateAdminMemberSubAccountSlot(
+    user: AuthenticatedUser,
+    memberId: number,
+    dto: PulseAdminSubAccountSlotMutationInput,
+  ): Promise<PulseMemberDetailDto> {
+    return this.adminService.updateAdminMemberSubAccountSlot(
+      user,
+      memberId,
+      dto,
+    );
   }
 }

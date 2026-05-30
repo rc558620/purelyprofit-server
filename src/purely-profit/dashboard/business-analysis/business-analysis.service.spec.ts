@@ -48,6 +48,14 @@ describe('BusinessAnalysisService', () => {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 
@@ -58,7 +66,7 @@ describe('BusinessAnalysisService', () => {
     redisService.setJson.mockResolvedValue(undefined);
     redisService.runBackgroundRefresh.mockResolvedValue(undefined);
     platformMembershipAccessService.clampHistoryRange.mockImplementation(
-      async (_storeId: number, range: { start: number; end: number }) => ({
+      (_storeId: number, range: { start: number; end: number }) => ({
         ...range,
         empty: false,
       }),

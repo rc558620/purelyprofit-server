@@ -22,7 +22,8 @@ export function buildHttpSummaryHighlights(
       domain: 'http',
       severity: severity.http,
       priority: httpErrorRatePercent > 0 ? 95 : 70,
-      code: httpErrorRatePercent > 0 ? 'HTTP_ERROR_RATE_HIGH' : 'HTTP_LATENCY_HIGH',
+      code:
+        httpErrorRatePercent > 0 ? 'HTTP_ERROR_RATE_HIGH' : 'HTTP_LATENCY_HIGH',
       title:
         httpErrorRatePercent > 0
           ? 'HTTP error rate is elevated'
@@ -38,7 +39,9 @@ export function buildHttpSummaryHighlights(
           : `当前慢请求 ${totalHttpSlowRequests} 个，峰值耗时 ${input.http.maxDurationMs}ms。`,
       actionMeta: httpActionMeta,
       value:
-        httpErrorRatePercent > 0 ? httpErrorRatePercent : input.http.maxDurationMs,
+        httpErrorRatePercent > 0
+          ? httpErrorRatePercent
+          : input.http.maxDurationMs,
       observedAt: input.http.topRoutes[0]?.lastSeenAt ?? input.generatedAt,
     }),
   ];

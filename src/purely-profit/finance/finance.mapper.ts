@@ -12,7 +12,7 @@ import type {
   FinanceReconciliationRecordWithItems,
   PaginationState,
 } from './finance.types';
-import { buildPaginationMeta, paginateArray } from './finance.utils';
+import { buildPaginationMeta } from './finance.utils';
 
 export function buildPaginatedCashFlowRecordsResponse(
   records: FinanceCashFlowRecordWithAmount[],
@@ -37,19 +37,12 @@ export function buildPaginatedAccountsResponse(
 }
 
 export function buildPaginatedReconciliationsResponse(
-  filteredRecords: FinanceReconciliationRecordWithItems[],
+  records: FinanceReconciliationRecordWithItems[],
   pageState: PaginationState,
+  total: number,
 ): PaginatedFinanceReconciliationsResponseDto {
-  const pagination = buildPaginationMeta(
-    pageState.page,
-    pageState.pageSize,
-    filteredRecords.length,
-  );
-
   return {
-    items: paginateArray(filteredRecords, pagination).map((record) =>
-      mapReconciliationRecord(record),
-    ),
-    meta: pagination,
+    items: records.map((record) => mapReconciliationRecord(record)),
+    meta: buildPaginationMeta(pageState.page, pageState.pageSize, total),
   };
 }

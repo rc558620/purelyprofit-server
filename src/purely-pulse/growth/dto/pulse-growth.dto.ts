@@ -9,9 +9,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import {
-  PlatformMembershipApprovedPartnerDto,
-} from '../../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
+import { PlatformMembershipApprovedPartnerDto } from '../../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
 import {
   PARTNER_WITHDRAWAL_STATUS_VALUES,
   WITHDRAWAL_ACCOUNT_TYPE_VALUES,
@@ -87,6 +85,8 @@ export const PULSE_EARNINGS_LOG_TYPE_VALUES = [
 ] as const;
 export type PulseEarningsLogTypeValue =
   (typeof PULSE_EARNINGS_LOG_TYPE_VALUES)[number];
+export const PULSE_EARNINGS_LOG_DEFAULT_LIMIT = 20;
+export const PULSE_EARNINGS_LOG_MAX_LIMIT = 100;
 
 export class GetPulseEarningsLogsQueryDto {
   @ApiPropertyOptional({
@@ -96,6 +96,33 @@ export class GetPulseEarningsLogsQueryDto {
   @IsOptional()
   @IsIn(PULSE_EARNINGS_LOG_TYPE_VALUES, { message: '流水类型不合法' })
   type?: PulseEarningsLogTypeValue;
+
+  @ApiPropertyOptional({
+    example: '1747123200000_128',
+    description: '游标分页标记；不传时走兼容模式，传入后按 cursor 分页读取',
+  })
+  @IsOptional()
+  @Transform(({ value }) => trimString(value))
+  @IsString({ message: 'cursor 必须是字符串' })
+  @MaxLength(64, { message: 'cursor 最长 64 位' })
+  cursor?: string;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'cursor 模式每页条数，默认 20，最大 100',
+  })
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === undefined || value === null || value === ''
+      ? undefined
+      : Number(value),
+  )
+  @IsInt({ message: 'limit 必须是整数' })
+  @Min(1, { message: 'limit 必须大于等于 1' })
+  @Max(PULSE_EARNINGS_LOG_MAX_LIMIT, {
+    message: `limit 不能超过 ${PULSE_EARNINGS_LOG_MAX_LIMIT}`,
+  })
+  limit?: number;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -197,6 +224,16 @@ export class PulseEarningsLogsResponseDto {
   @ApiProperty({ example: 1200, description: '当前纯利豆余额（聚合）' })
   @IsInt()
   beanBalance: number;
+
+  @ApiProperty({ example: false, description: '是否还有下一页' })
+  hasMore: boolean;
+
+  @ApiPropertyOptional({
+    example: '1747123200000_128',
+    description: '下一页 cursor；没有更多数据时为 null',
+  })
+  @IsOptional()
+  nextCursor: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -356,6 +393,8 @@ export const PULSE_PAYOUT_TAB_VALUES = [
   'rejected',
 ] as const;
 export type PulsePayoutTabValue = (typeof PULSE_PAYOUT_TAB_VALUES)[number];
+export const PULSE_ADMIN_PAYOUT_DEFAULT_LIMIT = 20;
+export const PULSE_ADMIN_PAYOUT_MAX_LIMIT = 100;
 
 export class GetPulseAdminPayoutsQueryDto {
   @ApiPropertyOptional({
@@ -365,6 +404,34 @@ export class GetPulseAdminPayoutsQueryDto {
   @IsOptional()
   @IsIn(PULSE_PAYOUT_TAB_VALUES, { message: '状态筛选不合法' })
   tab?: PulsePayoutTabValue;
+
+  @ApiPropertyOptional({
+    example: '1747123200000_128',
+    description:
+      '游标分页标记；不传时返回当前筛选下全量结果，传入后按 cursor 继续翻页',
+  })
+  @IsOptional()
+  @Transform(({ value }) => trimString(value))
+  @IsString({ message: 'cursor 必须是字符串' })
+  @MaxLength(64, { message: 'cursor 最长 64 位' })
+  cursor?: string;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'cursor 模式每页条数，默认 20，最大 100',
+  })
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === undefined || value === null || value === ''
+      ? undefined
+      : Number(value),
+  )
+  @IsInt({ message: 'limit 必须是整数' })
+  @Min(1, { message: 'limit 必须大于等于 1' })
+  @Max(PULSE_ADMIN_PAYOUT_MAX_LIMIT, {
+    message: `limit 不能超过 ${PULSE_ADMIN_PAYOUT_MAX_LIMIT}`,
+  })
+  limit?: number;
 }
 
 /**
@@ -471,6 +538,16 @@ export class PulseAdminPayoutsResponseDto {
   @ApiProperty({ example: 2000, description: '已打款累计金额（分）' })
   @IsInt()
   paidTotal: number;
+
+  @ApiProperty({ example: false, description: '是否还有下一页' })
+  hasMore: boolean;
+
+  @ApiPropertyOptional({
+    example: '1747123200000_128',
+    description: '下一页 cursor；没有更多数据时为 null',
+  })
+  @IsOptional()
+  nextCursor: string | null;
 }
 
 /**
@@ -525,6 +602,8 @@ export const PULSE_PARTNER_REVIEW_TAB_VALUES = [
 ] as const;
 export type PulsePartnerReviewTabValue =
   (typeof PULSE_PARTNER_REVIEW_TAB_VALUES)[number];
+export const PULSE_ADMIN_PARTNER_APPLICATION_DEFAULT_LIMIT = 20;
+export const PULSE_ADMIN_PARTNER_APPLICATION_MAX_LIMIT = 100;
 
 /**
  * GET /pulse/growth/admin/partner-applications
@@ -538,6 +617,34 @@ export class GetPulseAdminPartnerApplicationsQueryDto {
   @IsOptional()
   @IsIn(PULSE_PARTNER_REVIEW_TAB_VALUES, { message: '状态筛选不合法' })
   tab?: PulsePartnerReviewTabValue;
+
+  @ApiPropertyOptional({
+    example: '1747123200000_128',
+    description:
+      '游标分页标记；不传时返回当前筛选下全量结果，传入后按 cursor 继续翻页',
+  })
+  @IsOptional()
+  @Transform(({ value }) => trimString(value))
+  @IsString({ message: 'cursor 必须是字符串' })
+  @MaxLength(64, { message: 'cursor 最长 64 位' })
+  cursor?: string;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'cursor 模式每页条数，默认 20，最大 100',
+  })
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === undefined || value === null || value === ''
+      ? undefined
+      : Number(value),
+  )
+  @IsInt({ message: 'limit 必须是整数' })
+  @Min(1, { message: 'limit 必须大于等于 1' })
+  @Max(PULSE_ADMIN_PARTNER_APPLICATION_MAX_LIMIT, {
+    message: `limit 不能超过 ${PULSE_ADMIN_PARTNER_APPLICATION_MAX_LIMIT}`,
+  })
+  limit?: number;
 }
 
 /**
@@ -612,6 +719,16 @@ export class PulseAdminPartnerApplicationsResponseDto {
   @ApiProperty({ example: 2, description: '已拒绝申请数' })
   @IsInt()
   rejectedCount: number;
+
+  @ApiProperty({ example: false, description: '是否还有下一页' })
+  hasMore: boolean;
+
+  @ApiPropertyOptional({
+    example: '1747123200000_128',
+    description: '下一页 cursor；没有更多数据时为 null',
+  })
+  @IsOptional()
+  nextCursor: string | null;
 }
 
 /**

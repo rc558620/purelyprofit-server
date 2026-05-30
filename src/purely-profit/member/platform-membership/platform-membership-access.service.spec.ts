@@ -130,4 +130,48 @@ describe('PlatformMembershipAccessService', () => {
     ).resolves.toBeUndefined();
     await expect(service.getHistoryWindowStart(18)).resolves.toBeNull();
   });
+
+  it('缺少 sub_account_quota 字段时回退到旧档案查询', async () => {
+    prismaService.storeMembershipProfile.findUnique
+      .mockRejectedValueOnce(
+        new Error('column "sub_account_quota" does not exist'),
+      )
+      .mockResolvedValueOnce({
+        currentPlanId: 'yearly',
+        startsAt: new Date('2026-05-01T00:00:00.000Z'),
+        expiresAt: null,
+      });
+
+    await expect(service.getSubAccountBenefitSnapshot(18)).resolves.toEqual({
+      level: 'lifetime',
+      eligible: true,
+      quota: 0,
+      quotaMax: 7,
+      enabled: false,
+      rawQuota: 0,
+    });
+    expect(prismaService.storeMembershipProfile.findUnique).toHaveBeenNthCalledWith(
+      1,
+      {
+        where: { storeId: 18 },
+        select: {
+          currentPlanId: true,
+          startsAt: true,
+          expiresAt: true,
+          subAccountQuota: true,
+        },
+      },
+    );
+    expect(prismaService.storeMembershipProfile.findUnique).toHaveBeenNthCalledWith(
+      2,
+      {
+        where: { storeId: 18 },
+        select: {
+          currentPlanId: true,
+          startsAt: true,
+          expiresAt: true,
+        },
+      },
+    );
+  });
 });

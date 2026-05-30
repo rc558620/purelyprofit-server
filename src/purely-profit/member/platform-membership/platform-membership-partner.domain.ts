@@ -67,8 +67,12 @@ export function mapPartnerApplicationRecord(
     ...(application.reviewedAt
       ? { reviewedAt: application.reviewedAt.getTime() }
       : {}),
-    ...(application.joinedAt ? { joinedAt: application.joinedAt.getTime() } : {}),
-    ...(application.applyReason ? { applyReason: application.applyReason } : {}),
+    ...(application.joinedAt
+      ? { joinedAt: application.joinedAt.getTime() }
+      : {}),
+    ...(application.applyReason
+      ? { applyReason: application.applyReason }
+      : {}),
     followUpNotes: mapPartnerFollowUpNotes(application.followUpNotes),
     beanBalance: partner?.beanBalance ?? 0,
     totalEarnedBeans: partner?.totalEarnedBeans ?? 0,
@@ -144,7 +148,10 @@ export function buildPartnerProfileResponse(params: {
   return {
     isPartner: params.partners.length > 0,
     currentApplication,
-    applications: buildPartnerApplications(params.applications, params.partners),
+    applications: buildPartnerApplications(
+      params.applications,
+      params.partners,
+    ),
     approvedPartner: buildApprovedPartnerResponse(primaryPartner),
     approvedPartners: buildApprovedPartnersResponse(params.partners),
     level: buildPartnerLevel(primaryPartner, params.promoRecords),
@@ -165,7 +172,8 @@ function findMatchedPartner(
   }
 
   return (
-    partners.find((partner) => partner.phone?.trim() === applicant.phone.trim()) ??
-    null
+    partners.find(
+      (partner) => partner.phone?.trim() === applicant.phone.trim(),
+    ) ?? null
   );
 }

@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
 import { PlatformMembershipOrderService } from './platform-membership-order.service';
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
@@ -62,6 +63,10 @@ describe('PlatformMembershipService', () => {
     $transaction: jest.fn(),
   };
 
+  const cacheInvalidatorService = {
+    invalidatePulseDashboardHome: jest.fn(),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -75,6 +80,14 @@ describe('PlatformMembershipService', () => {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 
@@ -182,7 +195,7 @@ describe('PlatformMembershipService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     prismaService.storePartner.findFirst.mockImplementation(
-      async (...args: unknown[]) => prismaService.storePartner.findUnique(...args),
+      (...args: unknown[]) => prismaService.storePartner.findUnique(...args),
     );
     prismaService.storePartner.findMany.mockImplementation(async () => {
       const partner = await prismaService.storePartner.findFirst();
@@ -245,6 +258,10 @@ describe('PlatformMembershipService', () => {
         PlatformMembershipPartnerService,
         PlatformMembershipOrderService,
         { provide: PrismaService, useValue: prismaService },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
+        },
       ],
     }).compile();
 
@@ -801,6 +818,9 @@ describe('PlatformMembershipService', () => {
         paymentAccountName: '张三',
       },
     });
+    expect(
+      cacheInvalidatorService.invalidatePulseDashboardHome,
+    ).toHaveBeenCalled();
     expect(prismaService.storePartner.upsert).not.toHaveBeenCalled();
     expect(prismaService.storePartner.create).not.toHaveBeenCalled();
     expect(result.currentApplication?.id).toBe('101');
@@ -1003,6 +1023,9 @@ describe('PlatformMembershipService', () => {
         joinedAt: null,
       },
     });
+    expect(
+      cacheInvalidatorService.invalidatePulseDashboardHome,
+    ).toHaveBeenCalled();
     expect(prismaService.storePartner.upsert).not.toHaveBeenCalled();
     expect(prismaService.storePartner.update).not.toHaveBeenCalled();
     expect(result.currentApplication?.status).toBe('reviewing');
@@ -1101,6 +1124,9 @@ describe('PlatformMembershipService', () => {
         }),
       }),
     );
+    expect(
+      cacheInvalidatorService.invalidatePulseDashboardHome,
+    ).toHaveBeenCalled();
     expect(result.isPartner).toBe(true);
     expect(result.currentApplication?.status).toBe('approved');
     expect(result.approvedPartner?.beanBalance).toBe(18);
@@ -1143,6 +1169,9 @@ describe('PlatformMembershipService', () => {
         status: { in: ['pending', 'reviewing'] },
       },
     });
+    expect(
+      cacheInvalidatorService.invalidatePulseDashboardHome,
+    ).toHaveBeenCalled();
     expect(prismaService.storePartner.deleteMany).not.toHaveBeenCalled();
     expect(result.currentApplication).toBeNull();
     expect(result.applications).toEqual([]);
@@ -1384,6 +1413,9 @@ describe('PlatformMembershipService', () => {
         content: '资料不完整，请补充身份证照片',
       },
     });
+    expect(
+      cacheInvalidatorService.invalidatePulseDashboardHome,
+    ).toHaveBeenCalled();
     expect(result.currentApplication?.status).toBe('rejected');
     expect(result.currentApplication?.followUpNotes[0]?.content).toBe(
       '资料不完整，请补充身份证照片',
@@ -1594,6 +1626,9 @@ describe('PlatformMembershipService', () => {
         beanBalance: { decrement: 20 },
       },
     });
+    expect(
+      cacheInvalidatorService.invalidatePulseDashboardHome,
+    ).toHaveBeenCalled();
     expect(prismaService.storePartnerBeanLog.create).toHaveBeenCalledWith({
       data: {
         storeId: 18,

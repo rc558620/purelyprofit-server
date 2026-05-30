@@ -1,8 +1,11 @@
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { PlatformMembershipAccessService } from '../../purely-profit/member/platform-membership/platform-membership-access.service';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
+import { StoreSubAccountService } from '../../purely-profit/member/platform-membership/store-sub-account.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import { RedisService } from '../../redis/redis.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import { PulseMembershipAccessService } from './membership-access.service';
@@ -24,6 +27,7 @@ export interface PulseMembershipPlatformMembershipServiceMock {
 
 export interface PulseMembershipPrismaServiceMock {
   store: {
+    findMany: jest.Mock;
     findUnique: jest.Mock;
     update: jest.Mock;
   };
@@ -42,9 +46,11 @@ export interface PulseMembershipPrismaServiceMock {
   storeMembershipOrder: {
     findFirst: jest.Mock;
     findMany: jest.Mock;
+    groupBy: jest.Mock;
   };
   storeMembershipPromoRecord: {
     count: jest.Mock;
+    groupBy: jest.Mock;
   };
   storeMembershipPointsLog: {
     create: jest.Mock;
@@ -66,6 +72,11 @@ export interface PulseMembershipRedisServiceMock {
   get: jest.Mock;
   set: jest.Mock;
   del: jest.Mock;
+  getClient: jest.Mock;
+}
+
+export interface PulseMembershipCacheInvalidatorServiceMock {
+  invalidatePulseDashboardHome: jest.Mock;
 }
 
 export interface PulseMembershipServiceTestingContext {
@@ -75,6 +86,7 @@ export interface PulseMembershipServiceTestingContext {
   prismaService: PulseMembershipPrismaServiceMock;
   pulseStoreContextService: PulseMembershipStoreContextServiceMock;
   redisService: PulseMembershipRedisServiceMock;
+  cacheInvalidatorService: PulseMembershipCacheInvalidatorServiceMock;
   user: AuthenticatedUser;
 }
 
@@ -94,6 +106,7 @@ function createPlatformMembershipServiceMock(): PulseMembershipPlatformMembershi
 function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
   const prismaService = {
     store: {
+      findMany: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
     },
@@ -112,9 +125,11 @@ function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
     storeMembershipOrder: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
+      groupBy: jest.fn(),
     },
     storeMembershipPromoRecord: {
       count: jest.fn(),
+      groupBy: jest.fn(),
     },
     storeMembershipPointsLog: {
       create: jest.fn(),
@@ -143,10 +158,21 @@ function createPulseStoreContextServiceMock(): PulseMembershipStoreContextServic
 }
 
 function createRedisServiceMock(): PulseMembershipRedisServiceMock {
+  const client = {
+    mget: jest.fn(),
+  };
+
   return {
     get: jest.fn(),
     set: jest.fn(),
     del: jest.fn(),
+    getClient: jest.fn(() => client),
+  };
+}
+
+function createCacheInvalidatorServiceMock(): PulseMembershipCacheInvalidatorServiceMock {
+  return {
+    invalidatePulseDashboardHome: jest.fn(),
   };
 }
 
@@ -180,6 +206,7 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
   const prismaService = createPrismaServiceMock();
   const pulseStoreContextService = createPulseStoreContextServiceMock();
   const redisService = createRedisServiceMock();
+  const cacheInvalidatorService = createCacheInvalidatorServiceMock();
   const configService = createConfigServiceMock();
 
   const module: TestingModule = await Test.createTestingModule({
@@ -196,12 +223,45 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
       { provide: PrismaService, useValue: prismaService },
       { provide: RedisService, useValue: redisService },
       {
+        provide: CacheInvalidatorService,
+        useValue: cacheInvalidatorService,
+      },
+      {
         provide: PulseStoreContextService,
         useValue: pulseStoreContextService,
       },
       {
         provide: ConfigService,
         useValue: configService,
+      },
+      {
+        provide: StoreSubAccountService,
+        useValue: {
+          listSubAccountSlots: jest.fn().mockResolvedValue([]),
+          listAssignableHandoverCandidates: jest.fn().mockResolvedValue([]),
+          getStoreSubAccountSummary: jest.fn().mockResolvedValue({
+            quota: 2,
+            usedCount: 0,
+            availableCount: 2,
+            roleSummary: [],
+            slots: [],
+          }),
+        },
+      },
+      {
+        provide: PlatformMembershipAccessService,
+        useValue: {
+          resolveViewStoreId: jest.fn(),
+          ensureCanManageEmployees: jest.fn(),
+          getSubAccountBenefitSnapshot: jest.fn().mockResolvedValue({
+            level: 'yearly',
+            eligible: true,
+            quota: 2,
+            quotaMax: 10,
+            enabled: true,
+            rawQuota: 2,
+          }),
+        },
       },
     ],
   }).compile();
@@ -215,6 +275,7 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
     prismaService,
     pulseStoreContextService,
     redisService,
+    cacheInvalidatorService,
     user: createAuthenticatedUser(),
   };
 }

@@ -104,6 +104,28 @@ enum EmployeePayrollStatus {
   confirmed
 }
 
+enum StoreSubAccountRole {
+  cashier
+  finance
+}
+
+enum StoreSubAccountStatus {
+  active
+  inactive
+  disabled
+}
+
+enum HandoverMode {
+  self_main_account
+  sub_account
+}
+
+enum HandoverStatus {
+  pending
+  completed
+  cancelled
+}
+
 enum PartnerAccountStatus {
   pending
   reviewing
@@ -399,6 +421,9 @@ model Store {
   marketingConsumptions  MarketingConsumption[]
   marketingPointsRecords MarketingPointsRecord[]
   marketingPromotions    MarketingPromotion[]
+  subAccounts            StoreSubAccount[]
+  subAccountQuotaAudits  StoreSubAccountQuotaAudit[]
+  handoverRecords        StoreHandoverRecord[]
   spaceTypes             SpaceType[]
   spaceZones             SpaceZone[]
   spaces                 Space[]
@@ -562,6 +587,7 @@ model Staff {
   memberBeanLogs       MemberBeanLog[]               @relation("MemberBeanLogsOperator")
   memberRechargeLogs   MemberRechargeLog[]           @relation("MemberRechargeLogsOperator")
   partnerWithdrawals   PartnerWithdrawal[]           @relation("PartnerWithdrawalsOperator")
+  initiatedHandovers   StoreHandoverRecord[]         @relation("HandoverActorStaff")
   financeCashFlows     FinanceCashFlowRecord[]       @relation("FinanceCashFlowOperator")
   financeAccounts      FinanceAccountRecord[]        @relation("FinanceAccountOperator")
   financeReconciles    FinanceReconciliationRecord[] @relation("FinanceReconciliationOperator")
@@ -713,6 +739,7 @@ model StoreMembershipProfile {
   expiresAt       DateTime?                  @map("expires_at")
   totalPoints     Int                        @default(0) @map("total_points")
   availablePoints Int                        @default(0) @map("available_points")
+  subAccountQuota Int                        @default(0) @map("sub_account_quota")
   orders          StoreMembershipOrder[]
   pointsLogs      StoreMembershipPointsLog[]
   createdAt       DateTime                   @default(now()) @map("created_at")
@@ -720,6 +747,72 @@ model StoreMembershipProfile {
 
   @@index([expiresAt])
   @@map("store_membership_profiles")
+}
+
+model StoreSubAccountQuotaAudit {
+  id             Int      @id @default(autoincrement())
+  storeId        Int      @map("store_id")
+  store          Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  oldQuota       Int      @map("old_quota")
+  newQuota       Int      @map("new_quota")
+  operatorUserId Int?     @map("operator_user_id")
+  reason         String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([storeId, createdAt])
+  @@map("store_sub_account_quota_audits")
+}
+
+model StoreSubAccount {
+  id             Int                   @id @default(autoincrement())
+  storeId        Int                   @map("store_id")
+  store          Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  employeeId     Int?                  @unique @map("employee_id")
+  employee       Employee?             @relation("EmployeeSubAccounts", fields: [employeeId], references: [id], onDelete: SetNull)
+  slotIndex      Int                   @map("slot_index")
+  role           StoreSubAccountRole
+  status         StoreSubAccountStatus @default(active)
+  isAssigned     Boolean               @default(false) @map("is_assigned")
+  canUseHandover Boolean               @default(true) @map("can_use_handover")
+  canAccessHome  Boolean               @default(true) @map("can_access_home")
+  assignedAt     DateTime?             @map("assigned_at")
+  handoverFrom   StoreHandoverRecord[] @relation("HandoverFromSubAccount")
+  handoverTo     StoreHandoverRecord[] @relation("HandoverToSubAccount")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  @@unique([storeId, slotIndex])
+  @@index([storeId, role, status])
+  @@index([storeId, isAssigned, status])
+  @@map("store_sub_accounts")
+}
+
+model StoreHandoverRecord {
+  id               Int               @id @default(autoincrement())
+  storeId          Int               @map("store_id")
+  store            Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  fromEmployeeId   Int?              @map("from_employee_id")
+  fromEmployee     Employee?         @relation("HandoverFromEmployee", fields: [fromEmployeeId], references: [id], onDelete: SetNull)
+  toEmployeeId     Int?              @map("to_employee_id")
+  toEmployee       Employee?         @relation("HandoverToEmployee", fields: [toEmployeeId], references: [id], onDelete: SetNull)
+  fromSubAccountId Int?              @map("from_sub_account_id")
+  fromSubAccount   StoreSubAccount?  @relation("HandoverFromSubAccount", fields: [fromSubAccountId], references: [id], onDelete: SetNull)
+  toSubAccountId   Int?              @map("to_sub_account_id")
+  toSubAccount     StoreSubAccount?  @relation("HandoverToSubAccount", fields: [toSubAccountId], references: [id], onDelete: SetNull)
+  actorStaffId     Int?              @map("actor_staff_id")
+  actorStaff       Staff?            @relation("HandoverActorStaff", fields: [actorStaffId], references: [id], onDelete: SetNull)
+  handoverMode     HandoverMode      @map("handover_mode")
+  status           HandoverStatus    @default(pending)
+  handoverAt       DateTime?         @map("handover_at")
+  note             String?
+  reason           String?
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  @@index([storeId, status, createdAt])
+  @@index([fromEmployeeId, createdAt])
+  @@index([toEmployeeId, createdAt])
+  @@map("store_handover_records")
 }
 
 model StoreMembershipOrder {
@@ -1057,6 +1150,9 @@ model Employee {
   status           EmployeeStatus      @default(active)
   resignDate       DateTime?           @map("resign_date")
   resignReason     String?             @map("resign_reason")
+  subAccounts      StoreSubAccount[]   @relation("EmployeeSubAccounts")
+  handoverFrom     StoreHandoverRecord[] @relation("HandoverFromEmployee")
+  handoverTo       StoreHandoverRecord[] @relation("HandoverToEmployee")
   leaveRecords     EmployeeLeave[]
   shiftRecords     EmployeeShift[]
   payrollRecords   EmployeePayroll[]

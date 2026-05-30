@@ -43,8 +43,7 @@ export class SpaceReservationsController {
   @RequirePermissions('space:view')
   @ApiOperation({
     summary: '获取某空间预约列表',
-    description:
-      `未传 status 时，后端默认只返回 pending。${SPACE_RESERVATION_STATUS_SWAGGER_DESCRIPTION}。如需查看 fulfilled 或 cancelled 记录，请显式传入对应 status。`,
+    description: `未传 status 时，后端默认只返回 pending。${SPACE_RESERVATION_STATUS_SWAGGER_DESCRIPTION}。如需查看 fulfilled 或 cancelled 记录，请显式传入对应 status。`,
   })
   @ApiOkResponse({ type: [SpaceReservationResponseDto] })
   listBySpace(
@@ -63,8 +62,7 @@ export class SpaceReservationsController {
   @RequirePermissions('space:view')
   @ApiOperation({
     summary: '获取当前门店空间预约快照（兼容前端读取接口）',
-    description:
-      `未传 status 时，后端默认只返回 pending 预约快照。${SPACE_RESERVATION_STATUS_SWAGGER_DESCRIPTION}。默认不包含 fulfilled 和 cancelled 记录；如需查看其他状态，请显式传入对应 status。`,
+    description: `未传 status 时，后端默认只返回 pending 预约快照。${SPACE_RESERVATION_STATUS_SWAGGER_DESCRIPTION}。默认不包含 fulfilled 和 cancelled 记录；如需查看其他状态，请显式传入对应 status。`,
   })
   @ApiOkResponse({ type: [SpaceReservationResponseDto] })
   listStoreReservations(

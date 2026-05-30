@@ -60,6 +60,14 @@ describe('NotificationsService', () => {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 
@@ -195,7 +203,7 @@ describe('NotificationsService', () => {
 
   it('list 支持未读过滤并返回 readAt', async () => {
     mockNotificationSources();
-    redisService.get.mockImplementation(async (key: string) => {
+    redisService.get.mockImplementation((key: string) => {
       if (key.endsWith('membership:subscription:3')) {
         return String(new Date(2026, 4, 14, 14, 30, 0, 0).getTime());
       }

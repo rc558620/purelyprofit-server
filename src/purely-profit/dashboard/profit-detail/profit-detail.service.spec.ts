@@ -41,6 +41,14 @@ describe('ProfitDetailService', () => {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 
@@ -48,7 +56,7 @@ describe('ProfitDetailService', () => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 4, 14, 12, 0, 0, 0));
     jest.clearAllMocks();
     platformMembershipAccessService.clampHistoryRange.mockImplementation(
-      async (_storeId: number, range: { start: number; end: number }) => ({
+      (_storeId: number, range: { start: number; end: number }) => ({
         start: range.start,
         end: range.end,
         clamped: false,

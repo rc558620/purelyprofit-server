@@ -5,7 +5,7 @@ export const BUSINESS_ANALYSIS_PERIOD_VALUES = [
   'week',
   'month',
   'quarter',
-  'all',
+  'year',
   'custom_month',
   'custom_range',
 ] as const;

@@ -45,8 +45,9 @@ export function buildDrawerActionMetaBase<TActionId extends SummaryActionId>(
     actionId,
     actionType: 'drawer' as const,
     actionText,
-    actionTarget:
-      SUMMARY_ACTION_TARGETS[actionId] as SummaryActionTargetById[TActionId],
+    actionTarget: SUMMARY_ACTION_TARGETS[
+      actionId
+    ] as SummaryActionTargetById[TActionId],
     owner,
     ownerType,
     responsibleTeam,

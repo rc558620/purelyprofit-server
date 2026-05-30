@@ -74,7 +74,8 @@ describe('AuthService', () => {
       return configMap[key];
     });
     prismaService.$transaction.mockImplementation(
-      (callback: (tx: typeof prismaService) => unknown) => callback(prismaService),
+      (callback: (tx: typeof prismaService) => unknown) =>
+        callback(prismaService),
     );
     prismaService.$queryRaw.mockResolvedValue([]);
     prismaService.user.create.mockResolvedValue({

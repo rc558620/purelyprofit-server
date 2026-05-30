@@ -17,6 +17,18 @@ export default () => ({
     logEnabled:
       (process.env.APP_LOG_ENABLED ??
         (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+    httpKeepAliveTimeoutMs: parseInt(
+      process.env.APP_HTTP_KEEP_ALIVE_TIMEOUT_MS ?? '65000',
+      10,
+    ),
+    httpRequestTimeoutMs: parseInt(
+      process.env.APP_HTTP_REQUEST_TIMEOUT_MS ?? '15000',
+      10,
+    ),
+    httpBodyLimitBytes: parseInt(
+      process.env.APP_HTTP_BODY_LIMIT_BYTES ?? '5242880',
+      10,
+    ),
     slowRequestLogEnabled:
       (process.env.APP_SLOW_REQUEST_LOG_ENABLED ?? 'true') === 'true',
     slowRequestThresholdMs: parseInt(
@@ -51,6 +63,10 @@ export default () => ({
       process.env.APP_CACHE_PREWARM_BATCH_SIZE ?? '30',
       10,
     ),
+    cachePrewarmConcurrency: parseInt(
+      process.env.APP_CACHE_PREWARM_CONCURRENCY ?? '4',
+      10,
+    ),
     cachePrewarmLogEnabled:
       (process.env.APP_CACHE_PREWARM_LOG_ENABLED ?? 'true') === 'true',
     cachePrewarmLogSampleEvery: parseInt(
@@ -65,6 +81,15 @@ export default () => ({
 
   database: {
     url: process.env.DATABASE_URL,
+    poolMax: parseInt(process.env.DATABASE_POOL_MAX ?? '20', 10),
+    poolIdleTimeoutMs: parseInt(
+      process.env.DATABASE_POOL_IDLE_TIMEOUT_MS ?? '30000',
+      10,
+    ),
+    poolConnectionTimeoutMs: parseInt(
+      process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS ?? '5000',
+      10,
+    ),
   },
 
   redis: {

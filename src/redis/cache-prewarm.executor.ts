@@ -16,59 +16,69 @@ export async function prewarmCacheCategory<TParsed>(
   cacheKeys: string[],
   parse: (cacheKey: string) => TParsed | null,
   refresh: (parsed: TParsed) => Promise<unknown>,
+  options: { concurrency: number },
 ): Promise<CachePrewarmCategoryResult> {
   const durations: number[] = [];
   const slowKeySamples: CachePrewarmSlowKeySample[] = [];
   const result: CachePrewarmCategoryResult =
     buildEmptyCachePrewarmCategoryResult(cacheKeys.length);
+  const concurrency = Math.max(1, options.concurrency);
 
-  await Promise.all(
-    cacheKeys.map(async (cacheKey) => {
-      const parsed = parse(cacheKey);
-      if (!parsed) {
-        result.invalidCount += 1;
-        return;
-      }
+  for (
+    let startIndex = 0;
+    startIndex < cacheKeys.length;
+    startIndex += concurrency
+  ) {
+    const batch = cacheKeys.slice(startIndex, startIndex + concurrency);
 
-      const startedAt = Date.now();
-      try {
-        await refresh(parsed);
-        result.refreshedCount += 1;
-        const durationMs = Date.now() - startedAt;
-        durations.push(durationMs);
-        slowKeySamples.push({
-          category,
-          cacheKey,
-          durationMs,
-          status: 'refreshed',
-          errorTag: null,
-          failedReason: null,
-        });
-      } catch (error: unknown) {
-        result.failedCount += 1;
-        const durationMs = Date.now() - startedAt;
-        const errorMeta = getCachePrewarmFailedSampleErrorMeta(error);
-        const failedSample: CachePrewarmSlowKeySample = {
-          category,
-          cacheKey,
-          durationMs,
-          status: 'failed',
-          errorTag: errorMeta.errorTag,
-          failedReason: errorMeta.failedReason,
-        };
-        const failedLogPayload = buildCachePrewarmFailedLogPayload({
-          durationMs,
-          category,
-          cacheKey,
-          errorTag: errorMeta.errorTag,
-          failedReason: errorMeta.failedReason,
-        });
-        durations.push(durationMs);
-        slowKeySamples.push(failedSample);
-        console.warn('[cache-prewarm] refresh failed', failedLogPayload);
-      }
-    }),
-  );
+    await Promise.all(
+      batch.map(async (cacheKey) => {
+        const parsed = parse(cacheKey);
+        if (!parsed) {
+          result.invalidCount += 1;
+          return;
+        }
+
+        const startedAt = Date.now();
+        try {
+          await refresh(parsed);
+          result.refreshedCount += 1;
+          const durationMs = Date.now() - startedAt;
+          durations.push(durationMs);
+          slowKeySamples.push({
+            category,
+            cacheKey,
+            durationMs,
+            status: 'refreshed',
+            errorTag: null,
+            failedReason: null,
+          });
+        } catch (error: unknown) {
+          result.failedCount += 1;
+          const durationMs = Date.now() - startedAt;
+          const errorMeta = getCachePrewarmFailedSampleErrorMeta(error);
+          const failedSample: CachePrewarmSlowKeySample = {
+            category,
+            cacheKey,
+            durationMs,
+            status: 'failed',
+            errorTag: errorMeta.errorTag,
+            failedReason: errorMeta.failedReason,
+          };
+          const failedLogPayload = buildCachePrewarmFailedLogPayload({
+            durationMs,
+            category,
+            cacheKey,
+            errorTag: errorMeta.errorTag,
+            failedReason: errorMeta.failedReason,
+          });
+          durations.push(durationMs);
+          slowKeySamples.push(failedSample);
+          console.warn('[cache-prewarm] refresh failed', failedLogPayload);
+        }
+      }),
+    );
+  }
 
   result.skippedCount = Math.max(
     0,

@@ -35,10 +35,17 @@ export type CachePrewarmCategoryResult = {
   slowKeySamples: CachePrewarmSlowKeySample[];
 };
 
+export type CachePrewarmExecutionOptions = {
+  concurrency: number;
+};
+
 export type CachePrewarmCategoryConfig = {
   category: CachePrewarmCategory;
   scanPattern: () => string;
-  prewarm: (cacheKeys: string[]) => Promise<CachePrewarmCategoryResult>;
+  prewarm: (
+    cacheKeys: string[],
+    options: CachePrewarmExecutionOptions,
+  ) => Promise<CachePrewarmCategoryResult>;
 };
 
 export type CachePrewarmCategoryResultsMap = Record<

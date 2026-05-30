@@ -323,7 +323,6 @@ function buildCachePrewarmMetricsSnapshot() {
   };
 }
 
-
 export function getRuntimeMetricsSnapshot(): MetricsSnapshot {
   const generatedAt = new Date().toISOString();
   const processSnapshot = getProcessSnapshot();

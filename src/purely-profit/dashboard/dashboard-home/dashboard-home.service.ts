@@ -1,12 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { SubjectCapabilityService } from '../../access-control/subject-capability.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { buildProfitDashboardHomeCacheKey } from '../../../redis/cache-keys';
 import { RedisService } from '../../../redis/redis.service';
 import type { GetDashboardHomeOverviewQueryDto } from './dto/dashboard-home-query.dto';
 import type { DashboardHomeOverviewResponseDto } from './dto/dashboard-home-response.dto';
-import { buildDashboardHomeOverviewResponse } from './dashboard-home.mapper';
+import {
+  buildDashboardHomeOverviewResponse,
+  type DashboardHomeOverviewWithoutCapability,
+} from './dashboard-home.mapper';
 import { loadDashboardHomeOverviewData } from './dashboard-home.query';
 import {
   buildCompareRange,
@@ -22,6 +27,8 @@ export class DashboardHomeService {
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly subjectCapabilityService: SubjectCapabilityService,
+    private readonly storeSubAccountService: StoreSubAccountService,
   ) {}
 
   async getOverview(
@@ -36,22 +43,26 @@ export class DashboardHomeService {
       'report:view',
       '无权查看该门店首页概览',
     );
-    const cacheKey = buildProfitDashboardHomeCacheKey(storeId, period);
-    const cachedResponse =
-      await this.redisService.getJson<DashboardHomeOverviewResponseDto>(
-        cacheKey,
-      );
+
+    const [cachedResponse, capabilitySnapshot] = await Promise.all([
+      this.redisService.getJson<DashboardHomeOverviewWithoutCapability>(
+        buildProfitDashboardHomeCacheKey(storeId, period),
+      ),
+      this.buildCapabilitySnapshot(user, storeId),
+    ]);
+
     if (cachedResponse !== null) {
-      return cachedResponse;
+      return { ...cachedResponse, capability: capabilitySnapshot };
     }
 
-    return this.warmOverviewCache(storeId, period);
+    const response = await this.warmOverviewCache(storeId, period);
+    return { ...response, capability: capabilitySnapshot };
   }
 
   async warmOverviewCache(
     storeId: number,
     period: NonNullable<GetDashboardHomeOverviewQueryDto['period']> | 'today',
-  ): Promise<DashboardHomeOverviewResponseDto> {
+  ): Promise<DashboardHomeOverviewWithoutCapability> {
     const cacheKey = buildProfitDashboardHomeCacheKey(storeId, period);
     const currentRange = buildCurrentRange(period);
     const compareRange = buildCompareRange(period, currentRange);
@@ -79,5 +90,29 @@ export class DashboardHomeService {
     );
 
     return response;
+  }
+
+  private async buildCapabilitySnapshot(
+    user: AuthenticatedUser,
+    storeId: number,
+  ) {
+    const subAccountSummary =
+      await this.storeSubAccountService.getStoreSubAccountSummary(storeId);
+    const snapshot = this.subjectCapabilityService.buildSnapshot(
+      user.currentMembership,
+      subAccountSummary.quota,
+    );
+
+    return {
+      identityType: snapshot.identityType,
+      subAccountRole: snapshot.subAccountRole ?? undefined,
+      allowedHomeModules: snapshot.allowedHomeModules,
+      hiddenHomeModules: snapshot.hiddenHomeModules,
+      canViewFinance: snapshot.canViewFinance,
+      canViewMarketing: snapshot.canViewMarketing,
+      canUseHandoverManagement: snapshot.canUseHandoverManagement,
+      canUseSpaceManagement: snapshot.canUseSpaceManagement,
+      canAccessStoreSettings: snapshot.canAccessStoreSettings,
+    };
   }
 }

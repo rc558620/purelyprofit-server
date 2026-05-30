@@ -1,6 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import { SessionStoreService } from './session-store.service';
 
@@ -9,6 +10,10 @@ describe('SessionStoreService', () => {
 
   const pulseStoreContextService = {
     switchTargetStore: jest.fn(),
+  };
+
+  const cacheInvalidatorService = {
+    invalidatePulseSessionBootstrapByUser: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -32,6 +37,10 @@ describe('SessionStoreService', () => {
         {
           provide: PulseStoreContextService,
           useValue: pulseStoreContextService,
+        },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
         },
       ],
     }).compile();
@@ -61,6 +70,9 @@ describe('SessionStoreService', () => {
       user,
       66,
     );
+    expect(
+      cacheInvalidatorService.invalidatePulseSessionBootstrapByUser,
+    ).toHaveBeenCalledWith(101);
   });
 
   it('switchCurrentStore 保留子上下文 service 抛错语义', async () => {
@@ -72,5 +84,8 @@ describe('SessionStoreService', () => {
       user,
       77,
     );
+    expect(
+      cacheInvalidatorService.invalidatePulseSessionBootstrapByUser,
+    ).not.toHaveBeenCalled();
   });
 });

@@ -20,6 +20,7 @@ describe('CachePrewarmService', () => {
         'app.cachePrewarmIntervalMs': 60_000,
         'app.cachePrewarmInitialDelayMs': 1_000,
         'app.cachePrewarmBatchSize': 10,
+        'app.cachePrewarmConcurrency': 2,
         'app.cachePrewarmLogEnabled': true,
         'app.cachePrewarmLogSampleEvery': 20,
         'app.cachePrewarmSlowCycleThresholdMs': 1_500,
@@ -440,6 +441,32 @@ describe('CachePrewarmService', () => {
     });
   });
 
+  it('会按配置限制单类预热并发度', async () => {
+    let activeCount = 0;
+    let maxActiveCount = 0;
+
+    redisService.scanKeysByPattern
+      .mockResolvedValueOnce([
+        'profit:dashboard:home:store:18:period:today',
+        'profit:dashboard:home:store:19:period:today',
+        'profit:dashboard:home:store:20:period:today',
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    dashboardHomeService.warmOverviewCache.mockImplementation(async () => {
+      activeCount += 1;
+      maxActiveCount = Math.max(maxActiveCount, activeCount);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      activeCount -= 1;
+    });
+
+    service.onModuleInit();
+    await jest.advanceTimersByTimeAsync(1_200);
+
+    expect(maxActiveCount).toBeLessThanOrEqual(2);
+    expect(dashboardHomeService.warmOverviewCache).toHaveBeenCalledTimes(3);
+  });
+
   it('禁用时不会注册预热定时器', () => {
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, number | boolean> = {
@@ -447,6 +474,7 @@ describe('CachePrewarmService', () => {
         'app.cachePrewarmIntervalMs': 60_000,
         'app.cachePrewarmInitialDelayMs': 1_000,
         'app.cachePrewarmBatchSize': 10,
+        'app.cachePrewarmConcurrency': 2,
         'app.cachePrewarmLogEnabled': true,
         'app.cachePrewarmLogSampleEvery': 20,
         'app.cachePrewarmSlowCycleThresholdMs': 1_500,

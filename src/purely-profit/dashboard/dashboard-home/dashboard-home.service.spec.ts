@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { SubjectCapabilityService } from '../../access-control/subject-capability.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
 import { DashboardHomeService } from './dashboard-home.service';
@@ -60,7 +62,52 @@ describe('DashboardHomeService', () => {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: false,
     },
+  };
+
+  const subjectCapabilityService = {
+    buildSnapshot: jest.fn().mockReturnValue({
+      identityType: 'owner',
+      subAccountRole: null,
+      subAccountQuota: 0,
+      subAccountEnabled: false,
+      allowedHomeModules: [
+        'additional',
+        'business-analysis',
+        'finance-center',
+        'goods-management',
+        'handover-management',
+        'marketing-center',
+        'member-center',
+        'space-management',
+        'staff-management',
+        'store-settings',
+      ],
+      hiddenHomeModules: [],
+      canViewFinance: true,
+      canViewMarketing: true,
+      canUseHandoverManagement: true,
+      canUseSpaceManagement: true,
+      canAccessStoreSettings: true,
+    }),
+  };
+
+  const storeSubAccountService = {
+    getStoreSubAccountSummary: jest.fn().mockResolvedValue({
+      quota: 0,
+      usedCount: 0,
+      availableCount: 0,
+      roleSummary: [],
+      slots: [],
+    }),
   };
 
   beforeEach(async () => {
@@ -72,6 +119,11 @@ describe('DashboardHomeService', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
+        {
+          provide: SubjectCapabilityService,
+          useValue: subjectCapabilityService,
+        },
+        { provide: StoreSubAccountService, useValue: storeSubAccountService },
       ],
     }).compile();
 
@@ -265,6 +317,28 @@ describe('DashboardHomeService', () => {
           createdAt: new Date(2026, 4, 14, 9, 0, 0, 0).getTime(),
         },
       ],
+      capability: {
+        identityType: 'owner',
+        subAccountRole: undefined,
+        allowedHomeModules: [
+          'additional',
+          'business-analysis',
+          'finance-center',
+          'goods-management',
+          'handover-management',
+          'marketing-center',
+          'member-center',
+          'space-management',
+          'staff-management',
+          'store-settings',
+        ],
+        hiddenHomeModules: [],
+        canViewFinance: true,
+        canViewMarketing: true,
+        canUseHandoverManagement: true,
+        canUseSpaceManagement: true,
+        canAccessStoreSettings: true,
+      },
       meta: {
         period: 'today',
         storeId: 18,

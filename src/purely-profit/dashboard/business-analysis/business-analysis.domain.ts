@@ -1,4 +1,3 @@
-import { type CostCategory } from '@prisma/client';
 import {
   addMoneyValues,
   getDayStartTimestamp,
@@ -165,9 +164,7 @@ export function aggregateCosts(
   };
 }
 
-function mapCostBucket(
-  category: CostCategory | string,
-): CostBucketKey {
+function mapCostBucket(category: string): CostBucketKey {
   switch (category) {
     case 'purchase':
       return 'purchase';

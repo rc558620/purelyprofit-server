@@ -112,11 +112,45 @@ export function buildPulseSessionBootstrapPatternByStore(
   return `pulse:session:bootstrap:user:*:mode:*:store:${storeId}`;
 }
 
+export function buildPulseSessionBootstrapPatternByUser(
+  userId: number,
+): string {
+  return `pulse:session:bootstrap:user:${userId}:mode:*:store:*`;
+}
+
 export function buildPulseDashboardHomeCacheKey(
   revenuePeriod: string,
   region: string | undefined,
 ): string {
   return `pulse:dashboard:home:period:${revenuePeriod}:region:${encodeURIComponent(region ?? 'all')}`;
+}
+
+export function buildPulseDashboardHomePattern(): string {
+  return 'pulse:dashboard:home:period:*:region:*';
+}
+
+export function buildPulseDashboardOverviewCacheKey(
+  storeId: number,
+  period: string,
+): string {
+  return `pulse:dashboard:overview:store:${storeId}:period:${period}`;
+}
+
+export function buildPulseDashboardOverviewPattern(storeId: number): string {
+  return `pulse:dashboard:overview:store:${storeId}:period:*`;
+}
+
+export function buildPulseGrowthEarningsOverviewCacheKey(
+  storeId: number,
+): string {
+  return `pulse:growth:earnings:overview:store:${storeId}`;
+}
+
+export function buildPulseGrowthEarningsLogsCacheKey(
+  storeId: number,
+  typeFilter: string,
+): string {
+  return `pulse:growth:earnings:logs:store:${storeId}:type:${typeFilter}`;
 }
 
 export function parseProfitDashboardHomeCacheKey(cacheKey: string): {

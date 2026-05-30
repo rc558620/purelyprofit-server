@@ -44,6 +44,9 @@ export const PERMISSION_CODES = [
   'space:create',
   'space:update',
   'space:delete',
+  'handover:view',
+  'handover:create',
+  'handover:update',
 ] as const;
 
 export type PermissionCode = (typeof PERMISSION_CODES)[number];
@@ -86,6 +89,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, readonly string[]> = {
     'space:create',
     'space:update',
     'space:delete',
+    'handover:view',
+    'handover:create',
+    'handover:update',
   ],
   [StaffRole.STAFF]: [
     'store:view',

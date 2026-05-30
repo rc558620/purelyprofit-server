@@ -7,6 +7,7 @@ import {
 } from './dashboard.constants';
 import type {
   DashboardRevenueOrderRow,
+  DashboardRevenueTypeCountRow,
   DashboardRevenueTypeLabelRow,
 } from './dashboard.types';
 import type { PulseHomeRevenuePeriodValue } from './dto/pulse-dashboard-query.dto';
@@ -50,10 +51,26 @@ export function buildRevenueTypeDistribution(
     countMap.set(row.typeLabel, (countMap.get(row.typeLabel) ?? 0) + 1);
   }
 
-  return REVENUE_TYPE_LABELS.map((label) => ({
-    label,
-    value: Math.round(((countMap.get(label) ?? 0) / rows.length) * 100),
-  }));
+  return mapRevenueTypeDistributionByCountMap(countMap, rows.length);
+}
+
+export function buildRevenueTypeDistributionFromPlanCounts(
+  rows: DashboardRevenueTypeCountRow[],
+): Array<{ label: string; value: number }> {
+  if (rows.length === 0) {
+    return REVENUE_TYPE_LABELS.map((label) => ({ label, value: 0 }));
+  }
+
+  const countMap = new Map<string, number>();
+  let totalCount = 0;
+
+  for (const row of rows) {
+    const typeLabel = mapRevenuePlanLabel(row.planId);
+    countMap.set(typeLabel, (countMap.get(typeLabel) ?? 0) + row.count);
+    totalCount += row.count;
+  }
+
+  return mapRevenueTypeDistributionByCountMap(countMap, totalCount);
 }
 
 export function buildRevenueTrend(
@@ -112,6 +129,19 @@ export function normalizeRegionValues(region: unknown): string[] {
     )
     .map((item) => String(item).trim())
     .filter(Boolean);
+}
+
+function mapRevenueTypeDistributionByCountMap(
+  countMap: Map<string, number>,
+  totalCount: number,
+): Array<{ label: string; value: number }> {
+  return REVENUE_TYPE_LABELS.map((label) => ({
+    label,
+    value:
+      totalCount > 0
+        ? Math.round(((countMap.get(label) ?? 0) / totalCount) * 100)
+        : 0,
+  }));
 }
 
 function compareRevenueTrendLabel(left: string, right: string): number {

@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import { DAY_MS, PURCHASE_BONUS_POINTS } from './platform-membership.constants';
 import {
   allocateBeansAcrossPartners,
@@ -23,7 +24,10 @@ import {
 
 @Injectable()
 export class PlatformMembershipOrderService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
+  ) {}
 
   async purchaseOrder(
     userId: number,
@@ -35,7 +39,7 @@ export class PlatformMembershipOrderService {
     const requestedPoints = dto.usePoints ?? 0;
     const requestedBeans = dto.useBeans ?? 0;
 
-    return this.prisma.$transaction(async (tx) => {
+    const response = await this.prisma.$transaction(async (tx) => {
       const plan = await requirePlan(tx, dto.planId);
       const profile = await ensureMembershipProfile(tx, storeId);
       const partners = await findStorePartners(tx, storeId);
@@ -219,5 +223,9 @@ export class PlatformMembershipOrderService {
         overview: buildOrdersOverview(allOrders),
       };
     });
+
+    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+
+    return response;
   }
 }

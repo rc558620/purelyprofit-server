@@ -60,7 +60,12 @@ function buildCardActionFields(meta: SummaryCardActionMeta) {
 function buildProcessCard(
   context: SummaryBuildContext,
 ): MetricsSummaryProcessCard {
-  const { metrics: input, severity, trend, processMemoryPressurePercent } = context;
+  const {
+    metrics: input,
+    severity,
+    trend,
+    processMemoryPressurePercent,
+  } = context;
   const { processActionMeta } = context;
 
   const label =
@@ -184,9 +189,7 @@ function buildSqlCard(context: SummaryBuildContext): MetricsSummarySqlCard {
   };
 }
 
-function buildRedisCard(
-  context: SummaryBuildContext,
-): MetricsSummaryRedisCard {
+function buildRedisCard(context: SummaryBuildContext): MetricsSummaryRedisCard {
   const {
     metrics: input,
     severity,

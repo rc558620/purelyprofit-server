@@ -14,6 +14,10 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { BlockSubAccount } from '../access-control/decorators/block-sub-account.decorator';
+import { RequirePermissions } from '../access-control/decorators/require-permissions.decorator';
+import { PermissionsGuard } from '../access-control/guards/permissions.guard';
+import { SubAccountBlockGuard } from '../access-control/guards/sub-account-block.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CreateStoreDto } from './dto/create-store.dto';
@@ -22,7 +26,8 @@ import { StoresService } from './stores.service';
 
 @ApiTags('Stores')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard)
+@BlockSubAccount()
 @Controller('stores')
 export class StoresController {
   constructor(private readonly storesService: StoresService) {}
@@ -41,6 +46,7 @@ export class StoresController {
   }
 
   @Get()
+  @RequirePermissions('store:view')
   @ApiOperation({ summary: '获取当前账号绑定门店' })
   @ApiOkResponse({
     description: '返回当前账号唯一绑定的门店信息',
@@ -53,6 +59,7 @@ export class StoresController {
   }
 
   @Get('current')
+  @RequirePermissions('store:view')
   @ApiOperation({ summary: '获取当前账号门店' })
   @ApiOkResponse({
     description: '返回当前账号唯一绑定的门店信息',
@@ -65,6 +72,7 @@ export class StoresController {
   }
 
   @Patch('current')
+  @RequirePermissions('store:update')
   @ApiOperation({ summary: '更新当前账号门店' })
   @ApiOkResponse({
     description: '更新成功并返回前端对齐后的门店信息',

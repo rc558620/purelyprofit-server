@@ -27,6 +27,7 @@ import { ProfitDetailModule } from './purely-profit/dashboard/profit-detail/prof
 import { SalesRecordModule } from './purely-profit/operations/sales-record/sales-record.module';
 import { SpacesModule } from './purely-profit/operations/spaces/spaces.module';
 import { DashboardHomeModule } from './purely-profit/dashboard/dashboard-home/dashboard-home.module';
+import { HandoverModule } from './purely-profit/operations/handover/handover.module';
 import { NotificationsModule } from './purely-profit/notifications/notifications.module';
 import { PulseSessionModule } from './purely-pulse/session/session.module';
 import { PulseOnboardingModule } from './purely-pulse/onboarding/onboarding.module';
@@ -66,6 +67,7 @@ import { PulseGrowthModule } from './purely-pulse/growth/growth.module';
     SalesRecordModule,
     SpacesModule,
     DashboardHomeModule,
+    HandoverModule,
     NotificationsModule,
     PulseSessionModule,
     PulseOnboardingModule,

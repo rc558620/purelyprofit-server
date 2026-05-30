@@ -2,6 +2,11 @@ import type {
   DashboardHomeMetaDto,
   DashboardHomeOverviewResponseDto,
 } from './dto/dashboard-home-response.dto';
+
+export type DashboardHomeOverviewWithoutCapability = Omit<
+  DashboardHomeOverviewResponseDto,
+  'capability'
+>;
 import type { BuildDashboardHomeOverviewResponseParams } from './dashboard-home.types';
 import {
   buildDashboardHomeActivities,
@@ -11,7 +16,7 @@ import {
 
 export function buildDashboardHomeOverviewResponse(
   params: BuildDashboardHomeOverviewResponseParams,
-): DashboardHomeOverviewResponseDto {
+): DashboardHomeOverviewWithoutCapability {
   const { period, storeId, currentRange, compareRange, now, overviewData } =
     params;
 

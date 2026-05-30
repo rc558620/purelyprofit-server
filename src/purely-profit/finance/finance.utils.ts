@@ -125,9 +125,10 @@ export function getWeekStart(current: Date): number {
   return monday.getTime();
 }
 
-export function getOverviewCurrentRange(
-  period: FinanceOverviewPeriodValue,
-): { start: number; end: number } {
+export function getOverviewCurrentRange(period: FinanceOverviewPeriodValue): {
+  start: number;
+  end: number;
+} {
   const now = Date.now();
   const todayStart = getDayStart(now);
   const end = todayStart + DAY_MS - 1;
@@ -155,7 +156,20 @@ export function getOverviewCurrentRange(
     };
   }
 
-  return { start: 0, end };
+  if (period === 'year') {
+    const current = new Date(todayStart);
+    return {
+      start: new Date(current.getFullYear(), 0, 1).getTime(),
+      end,
+    };
+  }
+
+  // 默认按年处理
+  const current = new Date(todayStart);
+  return {
+    start: new Date(current.getFullYear(), 0, 1).getTime(),
+    end,
+  };
 }
 
 export function getOverviewPreviousRange(
@@ -372,12 +386,21 @@ export function getCashFlowFilterRange(
     };
   }
 
+  if (period === 'quarter') {
+    return {
+      start: new Date(
+        now.getFullYear(),
+        Math.floor(now.getMonth() / 3) * 3,
+        1,
+      ).getTime(),
+      end: nowMs,
+      period,
+    };
+  }
+
+  // year
   return {
-    start: new Date(
-      now.getFullYear(),
-      Math.floor(now.getMonth() / 3) * 3,
-      1,
-    ).getTime(),
+    start: new Date(now.getFullYear(), 0, 1).getTime(),
     end: nowMs,
     period,
   };
@@ -435,17 +458,26 @@ export function getPreviousCashFlowRange(
     };
   }
 
-  const currentQuarterStart = new Date(
-    now.getFullYear(),
-    Math.floor(now.getMonth() / 3) * 3,
-    1,
-  ).getTime();
-  return {
-    start: new Date(
+  if (period === 'quarter') {
+    const currentQuarterStart = new Date(
       now.getFullYear(),
-      (Math.floor(now.getMonth() / 3) - 1) * 3,
+      Math.floor(now.getMonth() / 3) * 3,
       1,
-    ).getTime(),
-    end: currentQuarterStart - 1,
+    ).getTime();
+    return {
+      start: new Date(
+        now.getFullYear(),
+        (Math.floor(now.getMonth() / 3) - 1) * 3,
+        1,
+      ).getTime(),
+      end: currentQuarterStart - 1,
+    };
+  }
+
+  // year
+  const currentYearStart = new Date(now.getFullYear(), 0, 1).getTime();
+  return {
+    start: new Date(now.getFullYear() - 1, 0, 1).getTime(),
+    end: currentYearStart - 1,
   };
 }

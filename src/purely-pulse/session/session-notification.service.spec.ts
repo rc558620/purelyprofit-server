@@ -7,9 +7,7 @@ describe('SessionNotificationService', () => {
   let service: SessionNotificationService;
 
   const prismaService = {
-    product: {
-      findMany: jest.fn(),
-    },
+    $queryRaw: jest.fn(),
     financeAccountRecord: {
       count: jest.fn(),
     },
@@ -51,11 +49,7 @@ describe('SessionNotificationService', () => {
   });
 
   it('countUnreadNotifications 聚合库存 账款 提现 请假和订阅到期提醒', async () => {
-    prismaService.product.findMany.mockResolvedValue([
-      { stock: 1, alertThreshold: 2 },
-      { stock: 5, alertThreshold: 2 },
-      { stock: 2, alertThreshold: 2 },
-    ]);
+    prismaService.$queryRaw.mockResolvedValue([{ count: BigInt(2) }]);
     prismaService.financeAccountRecord.count.mockResolvedValue(2);
     prismaService.partnerWithdrawal.count.mockResolvedValue(1);
     prismaService.employeeLeave.count.mockResolvedValue(3);
@@ -64,10 +58,7 @@ describe('SessionNotificationService', () => {
     });
 
     await expect(service.countUnreadNotifications(18)).resolves.toBe(9);
-    expect(prismaService.product.findMany).toHaveBeenCalledWith({
-      where: { storeId: 18, isActive: true },
-      select: { stock: true, alertThreshold: true },
-    });
+    expect(prismaService.$queryRaw).toHaveBeenCalled();
     expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
       where: { storeId: 18, status: 'overdue' },
     });
@@ -92,10 +83,7 @@ describe('SessionNotificationService', () => {
   });
 
   it('countUnreadNotifications 订阅未到期窗口内时不增加订阅提醒', async () => {
-    prismaService.product.findMany.mockResolvedValue([
-      { stock: 3, alertThreshold: 2 },
-      { stock: 1, alertThreshold: 0 },
-    ]);
+    prismaService.$queryRaw.mockResolvedValue([{ count: BigInt(0) }]);
     prismaService.financeAccountRecord.count.mockResolvedValue(1);
     prismaService.partnerWithdrawal.count.mockResolvedValue(0);
     prismaService.employeeLeave.count.mockResolvedValue(2);
@@ -107,7 +95,7 @@ describe('SessionNotificationService', () => {
   });
 
   it('countUnreadNotifications 订阅已过期或不存在时不增加订阅提醒', async () => {
-    prismaService.product.findMany.mockResolvedValue([]);
+    prismaService.$queryRaw.mockResolvedValue([{ count: BigInt(0) }]);
     prismaService.financeAccountRecord.count.mockResolvedValue(0);
     prismaService.partnerWithdrawal.count.mockResolvedValue(0);
     prismaService.employeeLeave.count.mockResolvedValue(0);

@@ -199,51 +199,14 @@ export class WithdrawalsSharedService {
     pendingCount: number,
   ): WithdrawalOverviewResponseDto {
     const primaryPartner = partners[0] ?? null;
-    const overview = buildBeanOverview(
-      partners as any, // Type adapter: WithdrawalPartnerSnapshot 包含所有必要字段
-    );
+    const overview = buildBeanOverview(partners);
 
     return {
-      approvedPartner: mapApprovedPartnerFromSnapshot(primaryPartner),
-      approvedPartners: mapApprovedPartnersFromSnapshot(partners),
+      approvedPartner: buildApprovedPartnerResponse(primaryPartner),
+      approvedPartners: buildApprovedPartnersResponse(partners),
       beanBalance: overview.beanBalance,
       totalWithdrawnBeans: overview.totalWithdrawnBeans,
       pendingCount,
     };
   }
-}
-
-// 类型适配器函数：将 WithdrawalPartnerSnapshot 映射到 DTO
-function mapApprovedPartnerFromSnapshot(
-  partner: WithdrawalPartnerSnapshot | null,
-): any | null {
-  if (!partner || partner.status !== 'approved') {
-    return null;
-  }
-
-  return {
-    id: String(partner.id),
-    name: partner.name ?? '',
-    phone: partner.phone ?? '',
-    ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
-    beanBalance: partner.beanBalance,
-    totalEarnedBeans: partner.totalEarnedBeans,
-    totalWithdrawnBeans: partner.totalWithdrawnBeans,
-  };
-}
-
-function mapApprovedPartnersFromSnapshot(
-  partners: WithdrawalPartnerSnapshot[],
-): any[] {
-  return partners
-    .filter((partner) => partner.status === 'approved')
-    .map((partner) => ({
-      id: String(partner.id),
-      name: partner.name ?? '',
-      phone: partner.phone ?? '',
-      ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
-      beanBalance: partner.beanBalance,
-      totalEarnedBeans: partner.totalEarnedBeans,
-      totalWithdrawnBeans: partner.totalWithdrawnBeans,
-    }));
 }

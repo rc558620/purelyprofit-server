@@ -9,7 +9,10 @@ import {
   parseFinanceOverviewCacheKey,
   parseProfitDashboardHomeCacheKey,
 } from './cache-keys';
-import type { CachePrewarmCategoryConfig } from './cache-prewarm.types';
+import type {
+  CachePrewarmCategoryConfig,
+  CachePrewarmExecutionOptions,
+} from './cache-prewarm.types';
 import { prewarmCacheCategory } from './cache-prewarm.executor';
 
 export function createCachePrewarmCategoryConfigs(input: {
@@ -21,7 +24,7 @@ export function createCachePrewarmCategoryConfigs(input: {
     {
       category: 'dashboardHome',
       scanPattern: buildProfitDashboardHomeAllPattern,
-      prewarm: (cacheKeys) =>
+      prewarm: (cacheKeys, options: CachePrewarmExecutionOptions) =>
         prewarmCacheCategory(
           'dashboardHome',
           cacheKeys,
@@ -31,12 +34,13 @@ export function createCachePrewarmCategoryConfigs(input: {
               parsed.storeId,
               parsed.period,
             ),
+          options,
         ),
     },
     {
       category: 'businessAnalysis',
       scanPattern: buildBusinessAnalysisAllPattern,
-      prewarm: (cacheKeys) =>
+      prewarm: (cacheKeys, options: CachePrewarmExecutionOptions) =>
         prewarmCacheCategory(
           'businessAnalysis',
           cacheKeys,
@@ -47,12 +51,13 @@ export function createCachePrewarmCategoryConfigs(input: {
               startTime: parsed.startTime,
               endTime: parsed.endTime,
             }),
+          options,
         ),
     },
     {
       category: 'financeOverview',
       scanPattern: buildFinanceOverviewAllPattern,
-      prewarm: (cacheKeys) =>
+      prewarm: (cacheKeys, options: CachePrewarmExecutionOptions) =>
         prewarmCacheCategory(
           'financeOverview',
           cacheKeys,
@@ -62,6 +67,7 @@ export function createCachePrewarmCategoryConfigs(input: {
               parsed.storeId,
               parsed.period,
             ),
+          options,
         ),
     },
   ];

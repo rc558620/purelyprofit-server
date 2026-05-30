@@ -6,6 +6,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SalesRecordListService } from './sales-record-list.service';
+import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
 
 describe('SalesRecordListService', () => {
   let service: SalesRecordListService;
@@ -42,6 +43,14 @@ describe('SalesRecordListService', () => {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 
@@ -57,12 +66,13 @@ describe('SalesRecordListService', () => {
       return configMap[key];
     });
     platformMembershipAccessService.clampHistoryRange.mockImplementation(
-      async (_storeId: number, range: { start: number; end: number }) => ({
-        start: range.start,
-        end: range.end,
-        clamped: false,
-        empty: false,
-      }),
+      (_storeId: number, range: { start: number; end: number }) =>
+        Promise.resolve({
+          start: range.start,
+          end: range.end,
+          clamped: false,
+          empty: false,
+        }),
     );
 
     const module: TestingModule = await Test.createTestingModule({
@@ -262,6 +272,94 @@ describe('SalesRecordListService', () => {
           date: expect.objectContaining({
             gte: new Date(0),
           }),
+        }),
+      }),
+    );
+  });
+
+  it('list 在缺失 period 但传入显式时间范围时应按 custom_range 查询', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.count.mockResolvedValue(0);
+    prismaService.saleOrder.findMany.mockResolvedValue([]);
+
+    await service.list(user, {
+      storeId: 18,
+      rangeStartDate: new Date('2026-01-01T00:00:00.000Z').getTime(),
+      rangeEndDate: new Date('2026-05-30T23:59:59.999Z').getTime(),
+    });
+
+    expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: {
+            gte: getStartOfDay(new Date('2026-01-01T00:00:00.000Z').getTime()),
+            lte: getEndOfDay(new Date('2026-05-30T23:59:59.999Z').getTime()),
+          },
+        }),
+      }),
+    );
+    expect(prismaService.saleOrder.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: {
+            gte: getStartOfDay(new Date('2026-01-01T00:00:00.000Z').getTime()),
+            lte: getEndOfDay(new Date('2026-05-30T23:59:59.999Z').getTime()),
+          },
+        }),
+      }),
+    );
+  });
+
+  it('listFrontendOrders 在传入显式时间范围时应按 custom_range 查询', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.count.mockResolvedValue(0);
+    prismaService.saleOrder.findMany.mockResolvedValue([]);
+
+    await service.listFrontendOrders(user, {
+      storeId: 18,
+      rangeStartDate: new Date('2026-01-01T00:00:00.000Z').getTime(),
+      rangeEndDate: new Date('2026-05-30T23:59:59.999Z').getTime(),
+    });
+
+    expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: {
+            gte: getStartOfDay(new Date('2026-01-01T00:00:00.000Z').getTime()),
+            lte: getEndOfDay(new Date('2026-05-30T23:59:59.999Z').getTime()),
+          },
+        }),
+      }),
+    );
+    expect(prismaService.saleOrder.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: {
+            gte: getStartOfDay(new Date('2026-01-01T00:00:00.000Z').getTime()),
+            lte: getEndOfDay(new Date('2026-05-30T23:59:59.999Z').getTime()),
+          },
+        }),
+      }),
+    );
+  });
+
+  it('listFrontendOrders 在传入年份时应按 year 查询', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.count.mockResolvedValue(0);
+    prismaService.saleOrder.findMany.mockResolvedValue([]);
+
+    await service.listFrontendOrders(user, {
+      storeId: 18,
+      year: 2026,
+    });
+
+    expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          date: {
+            gte: new Date(2026, 0, 1, 0, 0, 0, 0),
+            lte: new Date(2026, 11, 31, 23, 59, 59, 999),
+          },
         }),
       }),
     );

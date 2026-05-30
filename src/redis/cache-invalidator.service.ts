@@ -4,7 +4,10 @@ import {
   buildFinanceOverviewPattern,
   buildMarketingOverviewCacheKey,
   buildProfitDashboardHomePattern,
+  buildPulseDashboardHomePattern,
+  buildPulseDashboardOverviewPattern,
   buildPulseSessionBootstrapPatternByStore,
+  buildPulseSessionBootstrapPatternByUser,
   buildPulseSessionNotificationCacheKey,
 } from './cache-keys';
 import { RedisService } from './redis.service';
@@ -31,6 +34,16 @@ export class CacheInvalidatorService {
     await this.redisService.del(buildMarketingOverviewCacheKey(storeId));
   }
 
+  async invalidatePulseDashboardHome(): Promise<void> {
+    await this.redisService.delByPattern(buildPulseDashboardHomePattern());
+  }
+
+  async invalidatePulseDashboardOverview(storeId: number): Promise<void> {
+    await this.redisService.delByPattern(
+      buildPulseDashboardOverviewPattern(storeId),
+    );
+  }
+
   async invalidatePulseSessionNotification(storeId: number): Promise<void> {
     await this.redisService.del(buildPulseSessionNotificationCacheKey(storeId));
   }
@@ -41,9 +54,16 @@ export class CacheInvalidatorService {
     );
   }
 
+  async invalidatePulseSessionBootstrapByUser(userId: number): Promise<void> {
+    await this.redisService.delByPattern(
+      buildPulseSessionBootstrapPatternByUser(userId),
+    );
+  }
+
   async invalidateDashboardAndPulseSession(storeId: number): Promise<void> {
     await Promise.all([
       this.invalidateProfitDashboardHome(storeId),
+      this.invalidatePulseDashboardOverview(storeId),
       this.invalidatePulseSessionNotification(storeId),
       this.invalidatePulseSessionBootstrap(storeId),
     ]);
@@ -61,6 +81,7 @@ export class CacheInvalidatorService {
       this.invalidateProfitDashboardHome(storeId),
       this.invalidateBusinessAnalysis(storeId),
       this.invalidateFinanceOverview(storeId),
+      this.invalidatePulseDashboardOverview(storeId),
       this.invalidatePulseSessionNotification(storeId),
       this.invalidatePulseSessionBootstrap(storeId),
     ]);

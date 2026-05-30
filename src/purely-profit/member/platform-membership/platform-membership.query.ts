@@ -62,21 +62,6 @@ const storePartnerSelect = {
   createdAt: true,
 } as const;
 
-export async function findStorePartner(
-  prismaExecutor: PrismaExecutor,
-  storeId: number,
-): Promise<StorePartnerRecord | null> {
-  return prismaExecutor.storePartner.findFirst({
-    where: { storeId, status: 'approved' },
-    select: storePartnerSelect,
-    orderBy: [
-      { reviewedAt: 'desc' },
-      { joinedAt: 'desc' },
-      { id: 'desc' },
-    ],
-  });
-}
-
 export async function findStorePartners(
   prismaExecutor: PrismaExecutor,
   storeId: number,
@@ -84,11 +69,7 @@ export async function findStorePartners(
   return prismaExecutor.storePartner.findMany({
     where: { storeId, status: 'approved' },
     select: storePartnerSelect,
-    orderBy: [
-      { reviewedAt: 'desc' },
-      { joinedAt: 'desc' },
-      { id: 'desc' },
-    ],
+    orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
   });
 }
 

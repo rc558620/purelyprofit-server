@@ -42,7 +42,8 @@ export function buildRedisActionMeta(
       responsibleTeam: '缓存中间件团队',
       impactScope: 'cache',
       actionParams,
-      buildPayload: (params) => buildRedisActionPayload(lowHitRate, params.command),
+      buildPayload: (params) =>
+        buildRedisActionPayload(lowHitRate, params.command),
     }),
   };
 }

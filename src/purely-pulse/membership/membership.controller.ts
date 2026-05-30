@@ -34,11 +34,14 @@ import {
   PurchasePlatformMembershipOrderResponseDto,
 } from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
 import {
+  GetPulseAdminMemberLogsQueryDto,
   GetPulseAdminMembersQueryDto,
   PulseAdminMemberBeanLogsResponseDto,
   PulseAdminMemberMembershipDto,
   PulseAdminMemberPointsLogsResponseDto,
   PulseAdminMemberStatusDto,
+  PulseAdminMemberSubAccountQuotaDto,
+  PulseAdminMemberSubAccountSlotDto,
   PulseAdminMembersResponseDto,
   PulseMemberDetailDto,
   PulseMembershipOrderDetailResponseDto,
@@ -231,9 +234,11 @@ export class PulseMembershipController {
   })
   listAdminPointsLogs(
     @Req() request: AuthenticatedRequest,
+    @Query() query: GetPulseAdminMemberLogsQueryDto,
   ): Promise<PulseAdminMemberPointsLogsResponseDto> {
     return this.pulseMembershipService.listAdminPointsLogs(
       this.currentUser(request),
+      query,
     );
   }
 
@@ -245,9 +250,11 @@ export class PulseMembershipController {
   })
   listAdminBeanLogs(
     @Req() request: AuthenticatedRequest,
+    @Query() query: GetPulseAdminMemberLogsQueryDto,
   ): Promise<PulseAdminMemberBeanLogsResponseDto> {
     return this.pulseMembershipService.listAdminBeanLogs(
       this.currentUser(request),
+      query,
     );
   }
 
@@ -400,6 +407,52 @@ export class PulseMembershipController {
     return this.pulseMembershipService.unbanAdminMember(user, memberId);
   }
 
+  @Post('admin/members/:id/sub-accounts/quota')
+  @ApiOperation({ summary: 'Pulse 会员管理设置子账号额度' })
+  @ApiCreatedResponse({
+    description: '设置成功后返回最新会员详情',
+    type: PulseMemberDetailDto,
+  })
+  updateAdminMemberSubAccountQuota(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') rawMemberId: string,
+    @Body() dto: PulseAdminMemberSubAccountQuotaDto,
+  ): Promise<PulseMemberDetailDto> {
+    const { user, memberId } = this.resolveAdminMutationContext(
+      request,
+      rawMemberId,
+      dto,
+    );
+    return this.pulseMembershipService.updateAdminMemberSubAccountQuota(
+      user,
+      memberId,
+      dto,
+    );
+  }
+
+  @Post('admin/members/:id/sub-accounts/slots')
+  @ApiOperation({ summary: 'Pulse 会员管理配置子账号槽位角色' })
+  @ApiCreatedResponse({
+    description: '配置成功后返回最新会员详情',
+    type: PulseMemberDetailDto,
+  })
+  updateAdminMemberSubAccountSlot(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') rawMemberId: string,
+    @Body() dto: PulseAdminMemberSubAccountSlotDto,
+  ): Promise<PulseMemberDetailDto> {
+    const { user, memberId } = this.resolveAdminMutationContext(
+      request,
+      rawMemberId,
+      dto,
+    );
+    return this.pulseMembershipService.updateAdminMemberSubAccountSlot(
+      user,
+      memberId,
+      dto,
+    );
+  }
+
   private currentUser(request: AuthenticatedRequest): AuthenticatedUser {
     return request.user;
   }
@@ -407,7 +460,7 @@ export class PulseMembershipController {
   private resolveAdminMutationContext(
     request: AuthenticatedRequest,
     rawMemberId: string,
-    fallback?: { userId?: string; memberId?: string; id?: string },
+    fallback?: unknown,
   ): { user: AuthenticatedUser; memberId: number } {
     return {
       user: this.currentUser(request),
@@ -417,19 +470,38 @@ export class PulseMembershipController {
 
   private resolveAdminMemberId(
     rawMemberId: string,
-    fallback?: { userId?: string; memberId?: string; id?: string },
+    fallback?: unknown,
   ): number {
+    const fallbackRecord = this.asAdminMutationFallback(fallback);
     const candidate =
       this.parsePositiveInt(rawMemberId) ??
-      this.parsePositiveInt(fallback?.memberId) ??
-      this.parsePositiveInt(fallback?.userId) ??
-      this.parsePositiveInt(fallback?.id);
+      this.parsePositiveInt(fallbackRecord.memberId) ??
+      this.parsePositiveInt(fallbackRecord.userId) ??
+      this.parsePositiveInt(fallbackRecord.id);
 
     if (candidate === undefined) {
       throw new BadRequestException('缺少合法的会员 ID');
     }
 
     return candidate;
+  }
+
+  private asAdminMutationFallback(fallback?: unknown): {
+    userId?: string;
+    memberId?: string;
+    id?: string;
+  } {
+    if (!fallback || typeof fallback !== 'object') {
+      return {};
+    }
+
+    const record = fallback as Record<string, unknown>;
+    return {
+      userId: typeof record.userId === 'string' ? record.userId : undefined,
+      memberId:
+        typeof record.memberId === 'string' ? record.memberId : undefined,
+      id: typeof record.id === 'string' ? record.id : undefined,
+    };
   }
 
   private parsePositiveInt(value?: string): number | undefined {

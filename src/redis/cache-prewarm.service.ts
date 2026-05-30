@@ -27,6 +27,7 @@ export class CachePrewarmService implements OnModuleInit, OnModuleDestroy {
   private readonly intervalMs: number;
   private readonly initialDelayMs: number;
   private readonly batchSize: number;
+  private readonly concurrency: number;
   private readonly logEnabled: boolean;
   private readonly logSampleEvery: number;
   private readonly slowCycleThresholdMs: number;
@@ -46,6 +47,10 @@ export class CachePrewarmService implements OnModuleInit, OnModuleDestroy {
       this.configService.get<number>('app.cachePrewarmInitialDelayMs') ?? 5_000;
     this.batchSize =
       this.configService.get<number>('app.cachePrewarmBatchSize') ?? 30;
+    this.concurrency = Math.max(
+      1,
+      this.configService.get<number>('app.cachePrewarmConcurrency') ?? 4,
+    );
     this.logEnabled =
       this.configService.get<boolean>('app.cachePrewarmLogEnabled') ?? true;
     this.logSampleEvery = Math.max(
@@ -109,7 +114,12 @@ export class CachePrewarmService implements OnModuleInit, OnModuleDestroy {
       const categoryResultEntries = await Promise.all(
         categoryConfigs.map(async (config, index) => {
           const cacheKeys = cacheKeysByCategory[index] ?? [];
-          return [config.category, await config.prewarm(cacheKeys)] as const;
+          return [
+            config.category,
+            await config.prewarm(cacheKeys, {
+              concurrency: this.concurrency,
+            }),
+          ] as const;
         }),
       );
 

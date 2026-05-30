@@ -1,13 +1,13 @@
 import type {
   PulseEarningsLogsResponseDto,
-  PulseEarningsLogTypeValue,
   PulseEarningsOverviewResponseDto,
   PulseWithdrawalAccountPartnerDto,
   PulseWithdrawalAccountResponseDto,
 } from './dto/pulse-growth.dto';
-import type {
-  PlatformMembershipApprovedPartnerDto,
-} from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
+import {
+  buildApprovedPartnerResponse,
+  buildApprovedPartnersResponse,
+} from '../../purely-profit/member/platform-membership/platform-membership.domain';
 import type {
   EarningsApprovedPartnerRecord,
   EarningsOverviewQueryResult,
@@ -44,8 +44,8 @@ export function buildEarningsOverviewResponse(
     );
 
   return {
-    approvedPartner: mapApprovedPartner(primaryPartner),
-    approvedPartners: mapApprovedPartners(data.partners),
+    approvedPartner: buildApprovedPartnerResponse(primaryPartner),
+    approvedPartners: buildApprovedPartnersResponse(data.partners),
     beanBalance: isPartner ? beanSummary.beanBalance : 0,
     totalEarnedBeans: isPartner ? beanSummary.totalEarnedBeans : 0,
     totalWithdrawnBeans: isPartner ? beanSummary.totalWithdrawnBeans : 0,
@@ -60,7 +60,7 @@ export function buildEarningsLogsResponse(input: {
   partners: EarningsApprovedPartnerRecord[];
   logs: PartnerBeanLogRecord[];
   ownerName: string | null;
-  typeFilter: PulseEarningsLogTypeValue;
+  limit?: number;
 }): PulseEarningsLogsResponseDto {
   const primaryPartner = input.partners[0] ?? null;
   if (!primaryPartner || primaryPartner.status !== 'approved') {
@@ -69,10 +69,13 @@ export function buildEarningsLogsResponse(input: {
       approvedPartners: [],
       items: [],
       beanBalance: 0,
+      hasMore: false,
+      nextCursor: null,
     };
   }
 
-  const filteredLogs = filterLogsByType(input.logs, input.typeFilter);
+  const hasMore = input.limit !== undefined && input.logs.length > input.limit;
+  const visibleLogs = hasMore ? input.logs.slice(0, input.limit) : input.logs;
 
   // 聚合所有正式合伙人的豆豆余额
   const beanBalance = input.partners
@@ -80,10 +83,14 @@ export function buildEarningsLogsResponse(input: {
     .reduce((sum, partner) => sum + partner.beanBalance, 0);
 
   return {
-    approvedPartner: mapApprovedPartner(primaryPartner),
-    approvedPartners: mapApprovedPartners(input.partners),
-    items: filteredLogs.map((log) => mapBeanLog(log, input.ownerName)),
+    approvedPartner: buildApprovedPartnerResponse(primaryPartner),
+    approvedPartners: buildApprovedPartnersResponse(input.partners),
+    items: visibleLogs.map((log) => mapBeanLog(log, input.ownerName)),
     beanBalance,
+    hasMore,
+    nextCursor: hasMore
+      ? encodeEarningsLogsCursor(visibleLogs.at(-1) ?? null)
+      : null,
   };
 }
 
@@ -114,47 +121,13 @@ export function buildWithdrawalAccountResponse(
   return {
     isPartner: true,
     selectedPartner: mapWithdrawalAccountPartner(primaryPartner),
-    approvedPartner: mapApprovedPartner(primaryPartner),
-    approvedPartners: mapApprovedPartners(partners),
+    approvedPartner: buildApprovedPartnerResponse(primaryPartner),
+    approvedPartners: buildApprovedPartnersResponse(partners),
     accountType: primaryPartner.paymentAccountType ?? null,
     accountNo: primaryPartner.paymentAccountNo ?? null,
     accountName: primaryPartner.paymentAccountName ?? null,
     beanBalance,
   };
-}
-
-function mapApprovedPartner(
-  partner: EarningsApprovedPartnerRecord | null,
-): PlatformMembershipApprovedPartnerDto | null {
-  if (!partner || partner.status !== 'approved') {
-    return null;
-  }
-
-  return {
-    id: String(partner.id),
-    name: partner.name ?? '',
-    phone: partner.phone ?? '',
-    ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
-    beanBalance: partner.beanBalance,
-    totalEarnedBeans: partner.totalEarnedBeans,
-    totalWithdrawnBeans: partner.totalWithdrawnBeans,
-  };
-}
-
-function mapApprovedPartners(
-  partners: EarningsApprovedPartnerRecord[],
-): PlatformMembershipApprovedPartnerDto[] {
-  return partners
-    .filter((partner) => partner.status === 'approved')
-    .map((partner) => ({
-      id: String(partner.id),
-      name: partner.name ?? '',
-      phone: partner.phone ?? '',
-      ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
-      beanBalance: partner.beanBalance,
-      totalEarnedBeans: partner.totalEarnedBeans,
-      totalWithdrawnBeans: partner.totalWithdrawnBeans,
-    }));
 }
 
 function mapWithdrawalAccountPartner(
@@ -178,15 +151,40 @@ function mapWithdrawalAccountPartner(
   };
 }
 
-function filterLogsByType(
-  logs: PartnerBeanLogRecord[],
-  type: PulseEarningsLogTypeValue,
-): PartnerBeanLogRecord[] {
-  if (type === 'all') {
-    return logs;
+export function parseEarningsLogsCursor(
+  cursor: string,
+): { createdAt: Date; id: number } | null {
+  const match = /^(\d+)_(\d+)$/.exec(cursor);
+  if (!match) {
+    return null;
   }
 
-  return logs.filter((log) => resolveBeanType(log) === type);
+  const [, rawCreatedAt, rawId] = match;
+  const createdAtMs = Number(rawCreatedAt);
+  const id = Number(rawId);
+  if (
+    !Number.isSafeInteger(createdAtMs) ||
+    !Number.isSafeInteger(id) ||
+    createdAtMs <= 0 ||
+    id <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    createdAt: new Date(createdAtMs),
+    id,
+  };
+}
+
+export function encodeEarningsLogsCursor(
+  log: Pick<PartnerBeanLogRecord, 'createdAt' | 'id'> | null,
+): string | null {
+  if (!log) {
+    return null;
+  }
+
+  return `${log.createdAt.getTime()}_${log.id}`;
 }
 
 function resolveBeanType(log: PartnerBeanLogRecord): BeanTypeValue {

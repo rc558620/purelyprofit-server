@@ -1,13 +1,13 @@
 import { PartnerWithdrawalStatus } from '@prisma/client';
 import type {
-  GetPulseAdminPartnerApplicationsQueryDto,
-  GetPulseAdminPayoutsQueryDto,
   PulseAdminPartnerApplicationsResponseDto,
   PulseAdminPayoutsResponseDto,
 } from './dto/pulse-growth.dto';
 import type {
   AdminPartnerApplicationRecord,
+  AdminPartnerApplicationStats,
   AdminPayoutRecord,
+  AdminPayoutStats,
   AdminPromoPartnerRecord,
 } from './growth-admin.query';
 
@@ -54,9 +54,6 @@ export interface PulseAdminPromoDetailResponse {
 }
 
 type AdminPayoutStatus = 'pending' | 'paid' | 'rejected';
-type AdminPartnerApplicationTab =
-  GetPulseAdminPartnerApplicationsQueryDto['tab'];
-type AdminPayoutTab = GetPulseAdminPayoutsQueryDto['tab'];
 type PromoDateRange = {
   startAt: Date | null;
   endAt: Date | null;
@@ -121,37 +118,53 @@ export function buildAdminPromoDetailResponse(
   };
 }
 
-export function buildAdminPartnerApplicationsResponse(
-  applications: AdminPartnerApplicationRecord[],
-  tab?: AdminPartnerApplicationTab,
-): PulseAdminPartnerApplicationsResponseDto {
-  const items = applications.map((application) =>
-    mapAdminPartnerApplication(application),
-  );
-  const filteredItems = filterAdminPartnerApplications(items, tab);
+export function buildAdminPartnerApplicationsResponse(input: {
+  applications: AdminPartnerApplicationRecord[];
+  stats: AdminPartnerApplicationStats;
+  limit?: number;
+}): PulseAdminPartnerApplicationsResponseDto {
+  const hasMore =
+    input.limit !== undefined && input.applications.length > input.limit;
+  const visibleApplications = hasMore
+    ? input.applications.slice(0, input.limit)
+    : input.applications;
 
   return {
-    items: filteredItems,
-    pendingCount: items.filter((item) => item.status === 'pending').length,
-    approvedCount: items.filter((item) => item.status === 'approved').length,
-    rejectedCount: items.filter((item) => item.status === 'rejected').length,
+    items: visibleApplications.map((application) =>
+      mapAdminPartnerApplication(application),
+    ),
+    pendingCount: input.stats.pendingCount,
+    approvedCount: input.stats.approvedCount,
+    rejectedCount: input.stats.rejectedCount,
+    hasMore,
+    nextCursor: hasMore
+      ? encodeAdminPartnerApplicationsCursor(visibleApplications.at(-1) ?? null)
+      : null,
   };
 }
 
-export function buildAdminPayoutsResponse(
-  withdrawals: AdminPayoutRecord[],
-  tab?: AdminPayoutTab,
-): PulseAdminPayoutsResponseDto {
-  const items = withdrawals.map((withdrawal) => mapAdminPayoutItem(withdrawal));
-  const filteredItems = filterAdminPayouts(items, tab);
-  const pendingItems = items.filter((item) => item.status === 'pending');
-  const paidItems = items.filter((item) => item.status === 'paid');
+export function buildAdminPayoutsResponse(input: {
+  withdrawals: AdminPayoutRecord[];
+  stats: AdminPayoutStats;
+  limit?: number;
+}): PulseAdminPayoutsResponseDto {
+  const hasMore =
+    input.limit !== undefined && input.withdrawals.length > input.limit;
+  const visibleWithdrawals = hasMore
+    ? input.withdrawals.slice(0, input.limit)
+    : input.withdrawals;
 
   return {
-    items: filteredItems,
-    pendingCount: pendingItems.length,
-    pendingTotal: pendingItems.reduce((sum, item) => sum + item.amount, 0),
-    paidTotal: paidItems.reduce((sum, item) => sum + item.amount, 0),
+    items: visibleWithdrawals.map((withdrawal) =>
+      mapAdminPayoutItem(withdrawal),
+    ),
+    pendingCount: input.stats.pendingCount,
+    pendingTotal: input.stats.pendingTotal,
+    paidTotal: input.stats.paidTotal,
+    hasMore,
+    nextCursor: hasMore
+      ? encodeAdminPayoutsCursor(visibleWithdrawals.at(-1) ?? null)
+      : null,
   };
 }
 
@@ -241,14 +254,40 @@ function mapAdminPartnerApplication(
   };
 }
 
-function filterAdminPartnerApplications<
-  T extends { status: AdminPartnerApplicationItem['status'] },
->(items: T[], tab?: AdminPartnerApplicationTab): T[] {
-  if (!tab || tab === 'all') {
-    return items;
+export function parseAdminPartnerApplicationsCursor(
+  cursor: string,
+): { createdAt: Date; id: number } | null {
+  const match = /^(\d+)_(\d+)$/.exec(cursor);
+  if (!match) {
+    return null;
   }
 
-  return items.filter((item) => item.status === tab);
+  const [, rawCreatedAt, rawId] = match;
+  const createdAtMs = Number(rawCreatedAt);
+  const id = Number(rawId);
+  if (
+    !Number.isSafeInteger(createdAtMs) ||
+    !Number.isSafeInteger(id) ||
+    createdAtMs <= 0 ||
+    id <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    createdAt: new Date(createdAtMs),
+    id,
+  };
+}
+
+export function encodeAdminPartnerApplicationsCursor(
+  application: Pick<AdminPartnerApplicationRecord, 'createdAt' | 'id'> | null,
+): string | null {
+  if (!application) {
+    return null;
+  }
+
+  return `${application.createdAt.getTime()}_${application.id}`;
 }
 
 function normalizePartnerApplicationStatus(
@@ -282,15 +321,40 @@ function mapAdminPayoutItem(withdrawal: AdminPayoutRecord): AdminPayoutItem {
   };
 }
 
-function filterAdminPayouts<T extends { status: AdminPayoutItem['status'] }>(
-  items: T[],
-  tab?: AdminPayoutTab,
-): T[] {
-  if (!tab || tab === 'all') {
-    return items;
+export function parseAdminPayoutsCursor(
+  cursor: string,
+): { appliedAt: Date; id: number } | null {
+  const match = /^(\d+)_(\d+)$/.exec(cursor);
+  if (!match) {
+    return null;
   }
 
-  return items.filter((item) => item.status === tab);
+  const [, rawAppliedAt, rawId] = match;
+  const appliedAtMs = Number(rawAppliedAt);
+  const id = Number(rawId);
+  if (
+    !Number.isSafeInteger(appliedAtMs) ||
+    !Number.isSafeInteger(id) ||
+    appliedAtMs <= 0 ||
+    id <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    appliedAt: new Date(appliedAtMs),
+    id,
+  };
+}
+
+export function encodeAdminPayoutsCursor(
+  payout: Pick<AdminPayoutRecord, 'appliedAt' | 'id'> | null,
+): string | null {
+  if (!payout) {
+    return null;
+  }
+
+  return `${payout.appliedAt.getTime()}_${payout.id}`;
 }
 
 function normalizeAdminPayoutStatus(

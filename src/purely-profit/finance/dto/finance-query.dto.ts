@@ -141,18 +141,30 @@ export class FinanceReportQueryDto {
 
 export class ListFinanceCashFlowRecordsQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
-    enum: ['today', 'week', 'month', 'quarter', 'custom_day', 'custom_range'],
+    enum: [
+      'today',
+      'week',
+      'month',
+      'quarter',
+      'year',
+      'custom_day',
+      'custom_range',
+    ],
     description: '现金流水时间周期',
   })
   @IsOptional()
-  @IsIn(['today', 'week', 'month', 'quarter', 'custom_day', 'custom_range'], {
-    message: '现金流水时间周期不合法',
-  })
+  @IsIn(
+    ['today', 'week', 'month', 'quarter', 'year', 'custom_day', 'custom_range'],
+    {
+      message: '现金流水时间周期不合法',
+    },
+  )
   period?:
     | 'today'
     | 'week'
     | 'month'
     | 'quarter'
+    | 'year'
     | 'custom_day'
     | 'custom_range';
 

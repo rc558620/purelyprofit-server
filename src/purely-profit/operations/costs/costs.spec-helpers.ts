@@ -3,6 +3,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import { CostsReadService } from './costs-read.service';
 import { CostsService } from './costs.service';
 import { CostsWriteService } from './costs-write.service';
@@ -21,6 +22,14 @@ export function createCostsSpecUser(): AuthenticatedUser {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 }
@@ -97,6 +106,15 @@ export function createCostsWriteProviders(
   return [
     CostsWriteService,
     { provide: PrismaService, useValue: prismaService },
+    {
+      provide: CacheInvalidatorService,
+      useValue: {
+        invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
+        invalidatePulseDashboardOverview: jest
+          .fn()
+          .mockResolvedValue(undefined),
+      },
+    },
     { provide: CommerceAccessService, useValue: commerceAccessService },
   ];
 }

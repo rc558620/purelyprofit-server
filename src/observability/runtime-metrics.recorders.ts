@@ -209,7 +209,6 @@ export function recordRedisOperation(input: {
   runtimeMetricsState.redis.commands.set(command, commandMetric);
 }
 
-
 export function recordCachePrewarmCycle(input: {
   durationMs: number;
   hitCount: number;

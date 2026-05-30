@@ -1,9 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { FinanceAccountService } from './finance-account.service';
-import { FinanceCashFlowService } from './finance-cash-flow.service';
-import { FinanceOverviewService } from './finance-overview.service';
-import { FinanceReconciliationService } from './finance-reconciliation.service';
 import {
   createFinanceFacadeProviders,
   createFinanceFacadeServiceMocks,
@@ -98,7 +94,9 @@ describe('FinanceService', () => {
     await expect(service.createCashFlowRecord(user, createDto)).resolves.toBe(
       createResult,
     );
-    await expect(service.deleteCashFlowRecord(user, 9)).resolves.toBeUndefined();
+    await expect(
+      service.deleteCashFlowRecord(user, 9),
+    ).resolves.toBeUndefined();
 
     expect(
       facadeMocks.financeCashFlowService.listCashFlowRecords,
@@ -115,7 +113,11 @@ describe('FinanceService', () => {
   });
 
   it('account 相关方法委托给 account service', async () => {
-    const listQuery = { typeFilter: 'receivable' as const, page: 1, pageSize: 10 };
+    const listQuery = {
+      typeFilter: 'receivable' as const,
+      page: 1,
+      pageSize: 10,
+    };
     const createDto = {
       type: 'receivable' as const,
       category: 'advance_paid' as const,
@@ -139,7 +141,9 @@ describe('FinanceService', () => {
     const createResult = { id: '2' };
     const settleResult = { id: '2', remaining: 60 };
 
-    facadeMocks.financeAccountService.listAccounts.mockResolvedValue(listResult);
+    facadeMocks.financeAccountService.listAccounts.mockResolvedValue(
+      listResult,
+    );
     facadeMocks.financeAccountService.getAccountsStats.mockResolvedValue(
       statsResult,
     );
@@ -149,9 +153,13 @@ describe('FinanceService', () => {
     facadeMocks.financeAccountService.settleAccount.mockResolvedValue(
       settleResult,
     );
-    facadeMocks.financeAccountService.deleteAccount.mockResolvedValue(undefined);
+    facadeMocks.financeAccountService.deleteAccount.mockResolvedValue(
+      undefined,
+    );
 
-    await expect(service.listAccounts(user, listQuery)).resolves.toBe(listResult);
+    await expect(service.listAccounts(user, listQuery)).resolves.toBe(
+      listResult,
+    );
     await expect(service.getAccountsStats(user)).resolves.toBe(statsResult);
     await expect(service.createAccount(user, createDto)).resolves.toBe(
       createResult,
@@ -168,19 +176,15 @@ describe('FinanceService', () => {
     expect(
       facadeMocks.financeAccountService.getAccountsStats,
     ).toHaveBeenCalledWith(user);
-    expect(facadeMocks.financeAccountService.createAccount).toHaveBeenCalledWith(
-      user,
-      createDto,
-    );
-    expect(facadeMocks.financeAccountService.settleAccount).toHaveBeenCalledWith(
-      user,
-      2,
-      settleDto,
-    );
-    expect(facadeMocks.financeAccountService.deleteAccount).toHaveBeenCalledWith(
-      user,
-      2,
-    );
+    expect(
+      facadeMocks.financeAccountService.createAccount,
+    ).toHaveBeenCalledWith(user, createDto);
+    expect(
+      facadeMocks.financeAccountService.settleAccount,
+    ).toHaveBeenCalledWith(user, 2, settleDto);
+    expect(
+      facadeMocks.financeAccountService.deleteAccount,
+    ).toHaveBeenCalledWith(user, 2);
   });
 
   it('reconciliation 相关方法委托给 reconciliation service', async () => {
@@ -204,7 +208,11 @@ describe('FinanceService', () => {
       items: [],
       meta: { page: 1, pageSize: 10, total: 0, totalPages: 0 },
     };
-    const statsResult = { matchedCount: 1, discrepancyCount: 0, adjustedCount: 0 };
+    const statsResult = {
+      matchedCount: 1,
+      discrepancyCount: 0,
+      adjustedCount: 0,
+    };
     const createResult = { id: '3' };
     const confirmResult = { id: '3', status: 'adjusted' };
 
@@ -233,10 +241,12 @@ describe('FinanceService', () => {
     await expect(service.createReconciliation(user, createDto)).resolves.toBe(
       createResult,
     );
-    await expect(service.confirmReconciliation(user, 3, confirmDto)).resolves.toBe(
-      confirmResult,
-    );
-    await expect(service.deleteReconciliation(user, 3)).resolves.toBeUndefined();
+    await expect(
+      service.confirmReconciliation(user, 3, confirmDto),
+    ).resolves.toBe(confirmResult);
+    await expect(
+      service.deleteReconciliation(user, 3),
+    ).resolves.toBeUndefined();
 
     expect(
       facadeMocks.financeReconciliationService.listReconciliations,

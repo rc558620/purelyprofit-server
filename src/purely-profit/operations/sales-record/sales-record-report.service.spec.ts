@@ -37,6 +37,14 @@ describe('SalesRecordReportService', () => {
       role: 'OWNER',
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
   };
 
@@ -44,7 +52,7 @@ describe('SalesRecordReportService', () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-14T12:00:00.000Z'));
     jest.clearAllMocks();
     platformMembershipAccessService.clampHistoryRange.mockImplementation(
-      async (_storeId: number, range: { start: number; end: number }) => ({
+      (_storeId: number, range: { start: number; end: number }) => ({
         start: range.start,
         end: range.end,
         clamped: false,

@@ -230,7 +230,6 @@ export function pushCappedItem<T>(items: T[], item: T): void {
   }
 }
 
-
 export function limitMapEntries<T>(map: Map<string, T>): void {
   if (map.size <= MAX_ROUTE_METRICS) {
     return;

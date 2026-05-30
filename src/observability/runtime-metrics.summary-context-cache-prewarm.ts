@@ -31,20 +31,22 @@ export function buildCachePrewarmDerivedData(
 
   const hottestCategoryByP95: MetricsSummaryCachePrewarmHottestCategory | null =
     latestCycleSnapshot
-      ? (([
-          {
-            category: 'dashboardHome' as const,
-            ...latestCycleSnapshot.durationDistribution.dashboardHome,
-          },
-          {
-            category: 'businessAnalysis' as const,
-            ...latestCycleSnapshot.durationDistribution.businessAnalysis,
-          },
-          {
-            category: 'financeOverview' as const,
-            ...latestCycleSnapshot.durationDistribution.financeOverview,
-          },
-        ] as const)
+      ? ((
+          [
+            {
+              category: 'dashboardHome' as const,
+              ...latestCycleSnapshot.durationDistribution.dashboardHome,
+            },
+            {
+              category: 'businessAnalysis' as const,
+              ...latestCycleSnapshot.durationDistribution.businessAnalysis,
+            },
+            {
+              category: 'financeOverview' as const,
+              ...latestCycleSnapshot.durationDistribution.financeOverview,
+            },
+          ] as const
+        )
           .filter((entry) => entry.sampleCount > 0)
           .sort(
             (left, right) =>
@@ -68,38 +70,43 @@ export function buildCachePrewarmDerivedData(
       lastFailedKey:
         cachePrewarm.lastFailedKeyByCategory[mostFailedCategoryMetric.category],
       lastFailedSample:
-        cachePrewarm.lastFailedSampleByCategory[mostFailedCategoryMetric.category],
+        cachePrewarm.lastFailedSampleByCategory[
+          mostFailedCategoryMetric.category
+        ],
     };
 
   const latestFailedCategory: MetricsSummaryCachePrewarmLatestFailedCategory | null =
-    (([
-      {
-        category: 'dashboardHome' as const,
-        lastFailedAt: cachePrewarm.lastFailedAtByCategory.dashboardHome,
-        lastFailedKey: cachePrewarm.lastFailedKeyByCategory.dashboardHome,
-        lastFailedSample: cachePrewarm.lastFailedSampleByCategory.dashboardHome,
-      },
-      {
-        category: 'businessAnalysis' as const,
-        lastFailedAt: cachePrewarm.lastFailedAtByCategory.businessAnalysis,
-        lastFailedKey: cachePrewarm.lastFailedKeyByCategory.businessAnalysis,
-        lastFailedSample:
-          cachePrewarm.lastFailedSampleByCategory.businessAnalysis,
-      },
-      {
-        category: 'financeOverview' as const,
-        lastFailedAt: cachePrewarm.lastFailedAtByCategory.financeOverview,
-        lastFailedKey: cachePrewarm.lastFailedKeyByCategory.financeOverview,
-        lastFailedSample:
-          cachePrewarm.lastFailedSampleByCategory.financeOverview,
-      },
-    ] as const)
+    (
+      [
+        {
+          category: 'dashboardHome' as const,
+          lastFailedAt: cachePrewarm.lastFailedAtByCategory.dashboardHome,
+          lastFailedKey: cachePrewarm.lastFailedKeyByCategory.dashboardHome,
+          lastFailedSample:
+            cachePrewarm.lastFailedSampleByCategory.dashboardHome,
+        },
+        {
+          category: 'businessAnalysis' as const,
+          lastFailedAt: cachePrewarm.lastFailedAtByCategory.businessAnalysis,
+          lastFailedKey: cachePrewarm.lastFailedKeyByCategory.businessAnalysis,
+          lastFailedSample:
+            cachePrewarm.lastFailedSampleByCategory.businessAnalysis,
+        },
+        {
+          category: 'financeOverview' as const,
+          lastFailedAt: cachePrewarm.lastFailedAtByCategory.financeOverview,
+          lastFailedKey: cachePrewarm.lastFailedKeyByCategory.financeOverview,
+          lastFailedSample:
+            cachePrewarm.lastFailedSampleByCategory.financeOverview,
+        },
+      ] as const
+    )
       .filter((entry) => entry.lastFailedAt)
       .sort(
         (left, right) =>
           (right.lastFailedAt ?? '').localeCompare(left.lastFailedAt ?? '') ||
           left.category.localeCompare(right.category),
-      )[0] ?? null);
+      )[0] ?? null;
 
   return {
     latestCycle,

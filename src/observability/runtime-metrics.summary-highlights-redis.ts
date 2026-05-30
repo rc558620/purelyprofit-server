@@ -33,7 +33,9 @@ export function buildRedisSummaryHighlights(
           ? 78
           : 55,
       code: lowHitRate ? 'REDIS_HIT_RATE_LOW' : 'REDIS_SLOW_OPERATIONS_HIGH',
-      title: lowHitRate ? 'Redis hit rate is low' : 'Redis slow operations are elevated',
+      title: lowHitRate
+        ? 'Redis hit rate is low'
+        : 'Redis slow operations are elevated',
       detail: lowHitRate
         ? `Hit rate is ${redisOverallHitRatePercent}% across ${totalRedisResolvedCalls} resolved calls`
         : `${totalRedisSlowCalls} slow Redis operations observed`,
@@ -43,7 +45,8 @@ export function buildRedisSummaryHighlights(
         : `已观测到 ${totalRedisSlowCalls} 次慢操作，峰值耗时 ${input.redis.maxDurationMs}ms。`,
       actionMeta: redisActionMeta,
       value: lowHitRate ? redisOverallHitRatePercent : totalRedisSlowCalls,
-      observedAt: input.redis.recentSlowOperations[0]?.capturedAt ?? input.generatedAt,
+      observedAt:
+        input.redis.recentSlowOperations[0]?.capturedAt ?? input.generatedAt,
     }),
   ];
 }

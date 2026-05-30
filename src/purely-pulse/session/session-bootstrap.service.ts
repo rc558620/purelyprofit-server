@@ -27,7 +27,6 @@ export class SessionBootstrapService {
   async bootstrap(
     user: AuthenticatedUser,
   ): Promise<PulseSessionBootstrapResponseDto> {
-    const profileUser = await this.findProfileUserOrThrow(user.id);
     const resolvedStore =
       await this.pulseStoreContextService.resolveTargetStore(user);
     const targetStore = resolvedStore.store;
@@ -45,6 +44,7 @@ export class SessionBootstrapService {
       return cachedResponse;
     }
 
+    const profileUser = await this.findProfileUserOrThrow(user.id);
     const [membership, unreadNotificationCount] = await Promise.all([
       targetStore
         ? this.findMembershipSummary(targetStore.id)

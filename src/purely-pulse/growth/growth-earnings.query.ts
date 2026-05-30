@@ -1,4 +1,5 @@
 import { PartnerWithdrawalStatus, Prisma } from '@prisma/client';
+import type { PulseEarningsLogTypeValue } from './dto/pulse-growth.dto';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 export type BeanSourceValue =
@@ -41,7 +42,19 @@ export interface EarningsOverviewQueryResult {
   pendingWithdrawals: number;
 }
 
-export interface WithdrawalAccountPartnerRecord extends EarningsApprovedPartnerRecord {}
+export type WithdrawalAccountPartnerRecord = EarningsApprovedPartnerRecord;
+
+export interface PartnerBeanLogsCursor {
+  createdAt: Date;
+  id: number;
+}
+
+export interface PartnerBeanLogsQueryInput {
+  storeId: number;
+  typeFilter: PulseEarningsLogTypeValue;
+  cursor?: PartnerBeanLogsCursor;
+  limit?: number;
+}
 
 const EARNINGS_PARTNER_SELECT = {
   id: true,
@@ -105,41 +118,58 @@ export async function queryEarningsOverviewData(
   };
 }
 
-export async function queryApprovedPartnerRecord(
-  prisma: PrismaService,
-  storeId: number,
-): Promise<EarningsApprovedPartnerRecord | null> {
-  const partners = await prisma.storePartner.findMany({
-    where: { storeId, status: 'approved' },
-    select: EARNINGS_PARTNER_SELECT,
-    orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
-  });
-
-  return partners[0] ?? null;
-}
-
 export async function queryPartnerBeanLogs(
   prisma: PrismaService,
-  storeId: number,
+  input: PartnerBeanLogsQueryInput,
 ): Promise<PartnerBeanLogRecord[]> {
   return prisma.storePartnerBeanLog.findMany({
-    where: { storeId },
+    where: buildPartnerBeanLogsWhere(input),
     select: PARTNER_BEAN_LOG_SELECT,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    ...(input.limit !== undefined ? { take: input.limit + 1 } : {}),
   }) as Promise<PartnerBeanLogRecord[]>;
 }
 
-export async function queryWithdrawalAccountPartner(
-  prisma: PrismaService,
-  storeId: number,
-): Promise<WithdrawalAccountPartnerRecord | null> {
-  const partners = await prisma.storePartner.findMany({
-    where: { storeId, status: 'approved' },
-    select: EARNINGS_PARTNER_SELECT,
-    orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
-  });
+function buildPartnerBeanLogsWhere(
+  input: PartnerBeanLogsQueryInput,
+): Prisma.StorePartnerBeanLogWhereInput {
+  return {
+    storeId: input.storeId,
+    ...buildPartnerBeanLogsTypeWhere(input.typeFilter),
+    ...(input.cursor
+      ? {
+          OR: [
+            { createdAt: { lt: input.cursor.createdAt } },
+            {
+              createdAt: input.cursor.createdAt,
+              id: { lt: input.cursor.id },
+            },
+          ],
+        }
+      : {}),
+  };
+}
 
-  return partners[0] ?? null;
+function buildPartnerBeanLogsTypeWhere(
+  typeFilter: PulseEarningsLogTypeValue,
+): Prisma.StorePartnerBeanLogWhereInput {
+  switch (typeFilter) {
+    case 'earn':
+      return {
+        source: { not: 'withdrawal' },
+        changeAmount: { gte: 0 },
+      };
+    case 'spend':
+      return {
+        source: { not: 'withdrawal' },
+        changeAmount: { lt: 0 },
+      };
+    case 'withdraw':
+      return { source: 'withdrawal' };
+    case 'all':
+    default:
+      return {};
+  }
 }
 
 export async function queryWithdrawalAccountPartners(

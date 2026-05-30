@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, type StaffRole } from '@prisma/client';
+import { Prisma, StaffRole } from '@prisma/client';
 import { AUTH_TOKEN_VERSION_KEY_PREFIX } from '../../purely-profit/auth/auth.constants';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -122,6 +122,29 @@ export class PulseMembershipAccessService {
     return this.redisService.get(this.getAdminMemberBanReasonKey(storeId));
   }
 
+  async listAdminMemberBanReasons(
+    storeIds: number[],
+  ): Promise<Map<number, string>> {
+    const normalizedStoreIds = Array.from(new Set(storeIds)).filter(
+      (storeId) => Number.isInteger(storeId) && storeId > 0,
+    );
+    if (normalizedStoreIds.length === 0) {
+      return new Map();
+    }
+
+    const keys = normalizedStoreIds.map((storeId) =>
+      this.getAdminMemberBanReasonKey(storeId),
+    );
+    const banReasons = await this.redisService.getClient().mget(keys);
+
+    return banReasons.reduce<Map<number, string>>((result, reason, index) => {
+      if (reason) {
+        result.set(normalizedStoreIds[index], reason);
+      }
+      return result;
+    }, new Map());
+  }
+
   async writeAdminMemberBanReason(
     storeId: number,
     reason: string,
@@ -168,9 +191,17 @@ export class PulseMembershipAccessService {
     const membership = user.currentMembership ?? {
       staffId: 0,
       storeId,
-      role: 'owner' as StaffRole,
+      role: StaffRole.OWNER,
       permissions: ['*'],
       isActive: true,
+      subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     };
 
     return {

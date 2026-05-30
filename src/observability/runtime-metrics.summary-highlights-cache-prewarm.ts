@@ -43,7 +43,9 @@ export function buildCachePrewarmSummaryHighlights(
         ? `累计失败 ${input.cachePrewarm.failedCount} 次，失败率 ${cachePrewarmFailureRatePercent}%。`
         : `发现 ${input.cachePrewarm.invalidCount} 个无效 Key 被跳过。`,
       actionMeta: cachePrewarmActionMeta,
-      value: hasFailures ? cachePrewarmFailureRatePercent : input.cachePrewarm.invalidCount,
+      value: hasFailures
+        ? cachePrewarmFailureRatePercent
+        : input.cachePrewarm.invalidCount,
       observedAt: input.cachePrewarm.lastSeenAt,
     }),
   ];

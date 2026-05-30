@@ -77,13 +77,18 @@ export class SessionNotificationService {
   }
 
   private async countLowStockProducts(storeId: number): Promise<number> {
-    const products = await this.prisma.product.findMany({
-      where: { storeId, isActive: true },
-      select: { stock: true, alertThreshold: true },
-    });
+    const result = await this.prisma.$queryRaw<
+      Array<{ count: bigint | number }>
+    >`
+      SELECT COUNT(*)::bigint AS count
+      FROM products
+      WHERE store_id = ${storeId}
+        AND is_active = true
+        AND stock <= alert_threshold
+    `;
 
-    return products.filter((product) => product.stock <= product.alertThreshold)
-      .length;
+    const count = result[0]?.count ?? 0;
+    return typeof count === 'bigint' ? Number(count) : count;
   }
 }
 

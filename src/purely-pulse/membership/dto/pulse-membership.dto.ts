@@ -7,12 +7,17 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
 import { PLATFORM_MEMBERSHIP_ORDER_STATUS } from '../../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
 import { PLATFORM_MEMBERSHIP_PLAN_IDS } from '../../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
+
+function trimString(value: unknown): unknown {
+  return typeof value === 'string' ? value.trim() : value;
+}
 
 // ─────────────────────────────────────────────────────────────
 // Request DTOs
@@ -359,6 +364,38 @@ export const PULSE_ADMIN_MEMBER_POINTS_TYPE_VALUES = [
 ] as const;
 export type PulseAdminMemberPointsTypeValue =
   (typeof PULSE_ADMIN_MEMBER_POINTS_TYPE_VALUES)[number];
+export const PULSE_ADMIN_MEMBER_LOG_DEFAULT_LIMIT = 20;
+export const PULSE_ADMIN_MEMBER_LOG_MAX_LIMIT = 100;
+
+export class GetPulseAdminMemberLogsQueryDto {
+  @ApiPropertyOptional({
+    example: '1747123200000_128',
+    description:
+      '游标分页标记；不传时返回当前筛选下全量结果，传入后按 cursor 继续翻页',
+  })
+  @IsOptional()
+  @Transform(({ value }) => trimString(value))
+  @IsString({ message: 'cursor 必须是字符串' })
+  @MaxLength(64, { message: 'cursor 最长 64 位' })
+  cursor?: string;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'cursor 模式每页条数，默认 20，最大 100',
+  })
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === undefined || value === null || value === ''
+      ? undefined
+      : Number(value),
+  )
+  @IsInt({ message: 'limit 必须是整数' })
+  @Min(1, { message: 'limit 必须大于等于 1' })
+  @Max(PULSE_ADMIN_MEMBER_LOG_MAX_LIMIT, {
+    message: `limit 不能超过 ${PULSE_ADMIN_MEMBER_LOG_MAX_LIMIT}`,
+  })
+  limit?: number;
+}
 
 export const PULSE_ADMIN_MEMBER_POINTS_SOURCE_VALUES = [
   'purchase_bonus',
@@ -430,6 +467,16 @@ export class PulseAdminMemberPointsLogsResponseDto {
   @ValidateNested({ each: true })
   @Type(() => PulseAdminMemberPointsLogDto)
   items: PulseAdminMemberPointsLogDto[];
+
+  @ApiProperty({ example: false, description: '是否还有下一页' })
+  hasMore: boolean;
+
+  @ApiPropertyOptional({
+    example: '1747123200000_128',
+    description: '下一页 cursor；没有更多数据时为 null',
+  })
+  @IsOptional()
+  nextCursor: string | null;
 }
 
 export const PULSE_ADMIN_MEMBER_BEAN_TYPE_VALUES = [
@@ -515,6 +562,16 @@ export class PulseAdminMemberBeanLogsResponseDto {
   @ValidateNested({ each: true })
   @Type(() => PulseAdminMemberBeanLogDto)
   items: PulseAdminMemberBeanLogDto[];
+
+  @ApiProperty({ example: false, description: '是否还有下一页' })
+  hasMore: boolean;
+
+  @ApiPropertyOptional({
+    example: '1747123200000_128',
+    description: '下一页 cursor；没有更多数据时为 null',
+  })
+  @IsOptional()
+  nextCursor: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -599,6 +656,89 @@ export class PulseRechargeRecordDto {
  * 管理员视角的会员列表条目（轻量）
  * 对齐前端 MemberListItem（memberList.types.ts）
  */
+export const PULSE_SUB_ACCOUNT_ROLE_VALUES = ['cashier', 'finance'] as const;
+export type PulseSubAccountRoleValue =
+  (typeof PULSE_SUB_ACCOUNT_ROLE_VALUES)[number];
+
+export const PULSE_SUB_ACCOUNT_STATUS_VALUES = [
+  'active',
+  'inactive',
+  'disabled',
+] as const;
+export type PulseSubAccountStatusValue =
+  (typeof PULSE_SUB_ACCOUNT_STATUS_VALUES)[number];
+
+export class PulseSubAccountRoleSummaryDto {
+  @ApiProperty({
+    enum: PULSE_SUB_ACCOUNT_ROLE_VALUES,
+    description: '子账号角色',
+  })
+  @IsIn(PULSE_SUB_ACCOUNT_ROLE_VALUES)
+  role: PulseSubAccountRoleValue;
+
+  @ApiProperty({ example: 2, description: '激活槽位数量' })
+  @IsInt()
+  activeCount: number;
+
+  @ApiProperty({ example: 1, description: '停用槽位数量' })
+  @IsInt()
+  inactiveCount: number;
+
+  @ApiProperty({ example: 0, description: '禁用槽位数量' })
+  @IsInt()
+  disabledCount: number;
+
+  @ApiProperty({ example: 2, description: '已分配数量' })
+  @IsInt()
+  assignedCount: number;
+}
+
+export class PulseSubAccountSlotDto {
+  @ApiProperty({ example: '12', description: '子账号槽位 ID' })
+  @IsString()
+  id: string;
+
+  @ApiProperty({ example: 1, description: '槽位序号，范围 1~7' })
+  @IsInt()
+  slotIndex: number;
+
+  @ApiProperty({
+    enum: PULSE_SUB_ACCOUNT_ROLE_VALUES,
+    description: '子账号角色',
+  })
+  @IsIn(PULSE_SUB_ACCOUNT_ROLE_VALUES)
+  role: PulseSubAccountRoleValue;
+
+  @ApiProperty({
+    enum: PULSE_SUB_ACCOUNT_STATUS_VALUES,
+    description: '子账号状态',
+  })
+  @IsIn(PULSE_SUB_ACCOUNT_STATUS_VALUES)
+  status: PulseSubAccountStatusValue;
+
+  @ApiProperty({ example: false, description: '是否已分配员工' })
+  @IsBoolean()
+  isAssigned: boolean;
+
+  @ApiPropertyOptional({ example: '18', description: '已分配员工 ID' })
+  @IsOptional()
+  @IsString()
+  employeeId?: string | null;
+
+  @ApiPropertyOptional({ example: '小李', description: '已分配员工姓名' })
+  @IsOptional()
+  @IsString()
+  employeeName?: string | null;
+
+  @ApiProperty({ example: true, description: '是否允许首页访问' })
+  @IsBoolean()
+  canAccessHome: boolean;
+
+  @ApiProperty({ example: true, description: '是否允许交班' })
+  @IsBoolean()
+  canUseHandover: boolean;
+}
+
 export class PulseMemberListItemDto {
   @ApiProperty({ example: 'm001', description: '会员 ID' })
   @IsString()
@@ -666,6 +806,18 @@ export class PulseMemberListItemDto {
   @ApiProperty({ example: 1747209600000, description: '最近活跃时间戳（ms）' })
   @IsInt()
   lastActiveAt: number;
+
+  @ApiProperty({ example: true, description: '是否具备配置子账号资格' })
+  @IsBoolean()
+  subAccountEligible: boolean;
+
+  @ApiProperty({ example: 2, description: '当前子账号额度' })
+  @IsInt()
+  subAccountQuota: number;
+
+  @ApiProperty({ example: true, description: '是否已启用子账号能力' })
+  @IsBoolean()
+  subAccountCapabilityEnabled: boolean;
 }
 
 /**
@@ -793,6 +945,48 @@ export class PulseMemberDetailDto {
   @IsOptional()
   @IsInt()
   membershipExpiry?: number | null;
+
+  @ApiProperty({ example: true, description: '是否具备配置子账号资格' })
+  @IsBoolean()
+  subAccountEligible: boolean;
+
+  @ApiProperty({ example: 2, description: '当前子账号额度' })
+  @IsInt()
+  subAccountQuota: number;
+
+  @ApiProperty({ example: true, description: '是否已启用子账号能力' })
+  @IsBoolean()
+  subAccountCapabilityEnabled: boolean;
+
+  @ApiProperty({ example: 7, description: '当前会员允许配置的子账号上限' })
+  @IsInt()
+  subAccountQuotaMax: number;
+
+  @ApiProperty({ example: 2, description: '已使用子账号数量' })
+  @IsInt()
+  subAccountsUsedCount: number;
+
+  @ApiProperty({ example: 5, description: '剩余可分配子账号数量' })
+  @IsInt()
+  subAccountsAvailableCount: number;
+
+  @ApiProperty({
+    type: [PulseSubAccountRoleSummaryDto],
+    description: '当前门店子账号角色分布摘要',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PulseSubAccountRoleSummaryDto)
+  subAccountRoleSummary: PulseSubAccountRoleSummaryDto[];
+
+  @ApiProperty({
+    type: [PulseSubAccountSlotDto],
+    description: '当前门店子账号槽位列表',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PulseSubAccountSlotDto)
+  subAccountSlots: PulseSubAccountSlotDto[];
 }
 
 export class PulseAdminMemberMembershipDto {
@@ -876,6 +1070,75 @@ export class PulseAdminMemberMembershipDto {
   })
   @IsInt({ message: '会员到期时间必须是整数时间戳' })
   expiryAt?: number | null;
+}
+
+export class PulseAdminMemberSubAccountQuotaDto {
+  @ApiProperty({ example: 2, description: '目标子账号额度，范围 0~7' })
+  @Type(() => Number)
+  @IsInt({ message: '子账号额度必须是整数' })
+  @Min(0, { message: '子账号额度不能小于 0' })
+  @Max(7, { message: '子账号额度不能超过 7' })
+  quota: number;
+
+  @ApiPropertyOptional({ example: '年会员权益升级', description: '调整原因' })
+  @IsOptional()
+  @IsString({ message: '调整原因必须是字符串' })
+  @MaxLength(100, { message: '调整原因最多 100 位' })
+  reason?: string;
+}
+
+export class PulseAdminMemberSubAccountSlotDto {
+  @ApiProperty({ example: 1, description: '子账号槽位序号，范围 1~7' })
+  @Type(() => Number)
+  @IsInt({ message: '槽位序号必须是整数' })
+  @Min(1, { message: '槽位序号不能小于 1' })
+  @Max(7, { message: '槽位序号不能超过 7' })
+  slotIndex: number;
+
+  @ApiProperty({
+    enum: PULSE_SUB_ACCOUNT_ROLE_VALUES,
+    description: '子账号角色，仅支持 cashier / finance',
+  })
+  @IsIn(PULSE_SUB_ACCOUNT_ROLE_VALUES, { message: '子账号角色不合法' })
+  role: PulseSubAccountRoleValue;
+
+  @ApiPropertyOptional({
+    enum: PULSE_SUB_ACCOUNT_STATUS_VALUES,
+    description: '子账号状态，默认 active',
+  })
+  @IsOptional()
+  @IsIn(PULSE_SUB_ACCOUNT_STATUS_VALUES, { message: '子账号状态不合法' })
+  status?: PulseSubAccountStatusValue;
+
+  @ApiPropertyOptional({
+    example: 18,
+    description: '分配的员工 ID，不传或 null 表示清空分配',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+    return Number(value);
+  })
+  @IsInt({ message: '员工 ID 必须是整数' })
+  employeeId?: number | null;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '是否允许首页访问，默认跟随状态',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '首页访问开关必须是布尔值' })
+  canAccessHome?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '是否允许交班，默认跟随状态',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '交班开关必须是布尔值' })
+  canUseHandover?: boolean;
 }
 
 export class PulseAdminMemberStatusDto {

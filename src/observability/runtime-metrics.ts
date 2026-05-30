@@ -5,4 +5,7 @@ export {
   recordSqlQuery,
   resetRuntimeMetrics,
 } from './runtime-metrics.recorders';
-export { getHealthSnapshot, getRuntimeMetricsSnapshot } from './runtime-metrics.snapshots';
+export {
+  getHealthSnapshot,
+  getRuntimeMetricsSnapshot,
+} from './runtime-metrics.snapshots';

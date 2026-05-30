@@ -101,7 +101,10 @@ export class CostsWriteService {
   }
 
   private async invalidateDashboardCaches(storeId: number): Promise<void> {
-    await this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId);
+    await Promise.all([
+      this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId),
+      this.cacheInvalidatorService.invalidatePulseDashboardOverview(storeId),
+    ]);
   }
 
   async syncPurchaseCost(

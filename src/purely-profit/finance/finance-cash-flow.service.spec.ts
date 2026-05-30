@@ -130,7 +130,7 @@ describe('FinanceCashFlowService', () => {
     ]);
     platformMembershipAccessService.clampHistoryRange
       .mockImplementationOnce(
-        async (_storeId: number, range: { start: number; end: number }) => ({
+        (_storeId: number, range: { start: number; end: number }) => ({
           ...range,
           empty: false,
         }),
