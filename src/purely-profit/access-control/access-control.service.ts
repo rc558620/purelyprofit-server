@@ -57,25 +57,25 @@ const CASHIER_SUB_ACCOUNT_PERMISSIONS = [
   'handover:update',
 ] as const;
 
+const MANAGER_SUB_ACCOUNT_PERMISSIONS = [
+  'members:view',
+  'members:create',
+  'members:update',
+  'partner:view',
+  'sales:view',
+  'sales:create',
+  'space:view',
+  'space:create',
+  'space:update',
+  'handover:view',
+  'handover:create',
+  'handover:update',
+] as const;
+
 const FINANCE_SUB_ACCOUNT_PERMISSIONS = [
   'finance:view',
   'finance:export',
   'report:view',
-  'cost:view',
-  'cost:create',
-  'goods:view',
-  'goods:create',
-  'goods:update',
-  'supplier:view',
-  'supplier:create',
-  'supplier:update',
-  'purchase:view',
-  'purchase:create',
-  'sales:view',
-  'inventory:view',
-  'inventory:update',
-  'space:view',
-  'staff:view',
 ] as const;
 
 const SUB_ACCOUNT_ROLE_PERMISSIONS: Record<
@@ -84,6 +84,7 @@ const SUB_ACCOUNT_ROLE_PERMISSIONS: Record<
 > = {
   [StoreSubAccountRole.cashier]: CASHIER_SUB_ACCOUNT_PERMISSIONS,
   [StoreSubAccountRole.finance]: FINANCE_SUB_ACCOUNT_PERMISSIONS,
+  [StoreSubAccountRole.manager]: MANAGER_SUB_ACCOUNT_PERMISSIONS,
 };
 
 @Injectable()

@@ -20,6 +20,7 @@ import {
   buildAccountIdentifiers,
   buildPulseAdminMemberBanReasonKey,
   buildStoreProfileKey,
+  resolveLoginEmail,
   resolveLoginPhone,
 } from './auth.utils';
 
@@ -34,11 +35,76 @@ export class AuthAccountService {
     account: string,
   ): Promise<PhoneUserRecord | null> {
     const loginPhone = resolveLoginPhone(account);
-    if (!loginPhone) {
+    if (loginPhone) {
+      return this.findUserByPhone(loginPhone);
+    }
+
+    const loginEmail = resolveLoginEmail(account);
+    if (!loginEmail) {
       return null;
     }
 
-    return this.findUserByPhone(loginPhone);
+    return this.findUserByEmail(loginEmail);
+  }
+
+  async findUserByEmail(email: string): Promise<PhoneUserRecord | null> {
+    const staff = await this.prisma.staff.findFirst({
+      where: {
+        email,
+        isActive: true,
+        userId: { not: null },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: {
+        phone: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            password: true,
+          },
+        },
+      },
+    });
+
+    if (staff?.user && staff.phone) {
+      return {
+        ...staff.user,
+        phone: staff.phone,
+      };
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+      },
+    });
+
+    if (!user) {
+      return null;
+    }
+
+    const relatedStaff = await this.prisma.staff.findFirst({
+      where: {
+        userId: user.id,
+        isActive: true,
+        phone: { not: null },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: { phone: true },
+    });
+
+    if (!relatedStaff?.phone) {
+      return null;
+    }
+
+    return {
+      ...user,
+      phone: relatedStaff.phone,
+    };
   }
 
   async findUserByPhone(phone: string): Promise<PhoneUserRecord | null> {

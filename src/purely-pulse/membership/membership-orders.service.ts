@@ -16,12 +16,12 @@ import type { PurchasePlatformMembershipOrderDto } from '../../purely-profit/mem
 import { PLATFORM_MEMBERSHIP_PLAN_IDS } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { PulseMembershipOrderPreviewDto } from './dto/pulse-membership-orders.request.dto';
 import type {
   PulseMembershipOrderDetailResponseDto,
   PulseMembershipOrderPayStatusResponseDto,
-  PulseMembershipOrderPreviewDto,
   PulseMembershipOrderPreviewResponseDto,
-} from './dto/pulse-membership.dto';
+} from './dto/pulse-membership-orders.response.dto';
 import { PulseMembershipAccessService } from './membership-access.service';
 import {
   BEAN_DEDUCT_LIMIT,

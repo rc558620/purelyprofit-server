@@ -2,6 +2,10 @@ import { EmployeeGender } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { CreateEmployeeDto } from './create-employee.dto';
+import {
+  CreateEmployeeShiftDto,
+  UpdateEmployeeShiftDto,
+} from './employee-shift.dto';
 import { UpdateEmployeeDto } from './update-employee.dto';
 
 describe('Employee DTO', () => {
@@ -42,5 +46,38 @@ describe('Employee DTO', () => {
     expect(errors[0].constraints).toMatchObject({
       min: '底薪不能为负数',
     });
+  });
+
+  it('CreateEmployeeShiftDto 兼容仅传班次定义的新增排班入参', async () => {
+    const dto = plainToInstance(CreateEmployeeShiftDto, {
+      employeeId: 6,
+      employeeName: '房东莎莎的',
+      date: 1780329600000,
+      shiftDefinitionId: 1,
+      note: '7899',
+    });
+
+    await expect(
+      validate(dto, {
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  it('UpdateEmployeeShiftDto 兼容旧版时间字段透传', async () => {
+    const dto = plainToInstance(UpdateEmployeeShiftDto, {
+      shiftDefinitionId: 1,
+      startTime: '08:00',
+      endTime: '14:00',
+      note: '换班',
+    });
+
+    await expect(
+      validate(dto, {
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      }),
+    ).resolves.toEqual([]);
   });
 });

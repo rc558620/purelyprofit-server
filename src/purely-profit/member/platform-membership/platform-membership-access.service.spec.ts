@@ -146,32 +146,30 @@ describe('PlatformMembershipAccessService', () => {
       level: 'lifetime',
       eligible: true,
       quota: 0,
-      quotaMax: 7,
+      quotaMax: 10,
       enabled: false,
       rawQuota: 0,
     });
-    expect(prismaService.storeMembershipProfile.findUnique).toHaveBeenNthCalledWith(
-      1,
-      {
-        where: { storeId: 18 },
-        select: {
-          currentPlanId: true,
-          startsAt: true,
-          expiresAt: true,
-          subAccountQuota: true,
-        },
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).toHaveBeenNthCalledWith(1, {
+      where: { storeId: 18 },
+      select: {
+        currentPlanId: true,
+        startsAt: true,
+        expiresAt: true,
+        subAccountQuota: true,
       },
-    );
-    expect(prismaService.storeMembershipProfile.findUnique).toHaveBeenNthCalledWith(
-      2,
-      {
-        where: { storeId: 18 },
-        select: {
-          currentPlanId: true,
-          startsAt: true,
-          expiresAt: true,
-        },
+    });
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).toHaveBeenNthCalledWith(2, {
+      where: { storeId: 18 },
+      select: {
+        currentPlanId: true,
+        startsAt: true,
+        expiresAt: true,
       },
-    );
+    });
   });
 });

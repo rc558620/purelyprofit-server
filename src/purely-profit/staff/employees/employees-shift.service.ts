@@ -13,21 +13,23 @@ import {
   UpdateEmployeeShiftDto,
 } from './dto/employee-shift.dto';
 import {
-  assertShiftBusinessRules,
   buildShiftReport,
   buildSingleDayDateRange,
   isTimeRangeOverlapping,
   parseTimeToMinutes,
+  resolveShiftTypeFromDefinition,
 } from './employees.domain';
 import { EmployeesAccessService } from './employees-access.service';
 import { toEmployeeShiftResponse } from './employees.mapper';
 import { buildDateRange, toNullableText } from './employees.utils';
+import { EmployeesShiftDefinitionService } from './employees-shift-definition.service';
 
 @Injectable()
 export class EmployeesShiftService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly employeesAccessService: EmployeesAccessService,
+    private readonly employeesShiftDefinitionService: EmployeesShiftDefinitionService,
   ) {}
 
   async getShiftReport(
@@ -55,6 +57,16 @@ export class EmployeesShiftService {
           : {}),
       },
       orderBy: [{ date: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        date: true,
+        employeeId: true,
+        employeeName: true,
+        shiftDefinitionId: true,
+        shiftName: true,
+        startTime: true,
+        endTime: true,
+      },
     });
 
     return buildShiftReport(rows);
@@ -98,22 +110,36 @@ export class EmployeesShiftService {
         dto.employeeId,
         'staff:update',
       );
-    assertShiftBusinessRules(dto.startTime, dto.endTime);
+    const shiftDefinition =
+      await this.employeesShiftDefinitionService.findShiftDefinitionForStoreOrThrow(
+        employee.storeId,
+        dto.shiftDefinitionId,
+      );
+    const startTime = shiftDefinition.defaultStartTime;
+    const endTime = shiftDefinition.defaultEndTime;
+    const shiftType = resolveShiftTypeFromDefinition({
+      shiftName: shiftDefinition.name,
+      startTime,
+      endTime,
+    });
     await this.ensureShiftScheduleAvailable(
       employee.id,
       dto.date,
-      dto.startTime,
-      dto.endTime,
+      startTime,
+      endTime,
     );
+
     const shift = await this.prisma.employeeShift.create({
       data: {
         storeId: employee.storeId,
         employeeId: employee.id,
         employeeName: employee.name,
         date: new Date(dto.date),
-        shiftType: dto.shiftType,
-        startTime: dto.startTime,
-        endTime: dto.endTime,
+        shiftType,
+        shiftDefinitionId: shiftDefinition.id,
+        shiftName: shiftDefinition.name,
+        startTime,
+        endTime,
         note: toNullableText(dto.note),
       },
     });
@@ -138,9 +164,28 @@ export class EmployeesShiftService {
     );
 
     const nextShiftDate = dto.date ?? shift.date.getTime();
-    const nextShiftStartTime = dto.startTime ?? shift.startTime;
-    const nextShiftEndTime = dto.endTime ?? shift.endTime;
-    assertShiftBusinessRules(nextShiftStartTime, nextShiftEndTime);
+
+    const shiftDefinition =
+      dto.shiftDefinitionId !== undefined
+        ? await this.employeesShiftDefinitionService.findShiftDefinitionForStoreOrThrow(
+            shift.storeId,
+            dto.shiftDefinitionId,
+          )
+        : null;
+
+    // 时间取新班次定义的默认时间，如未变更则保留原时间
+    const nextShiftStartTime =
+      shiftDefinition?.defaultStartTime ?? shift.startTime;
+    const nextShiftEndTime = shiftDefinition?.defaultEndTime ?? shift.endTime;
+    const nextShiftType =
+      shiftDefinition !== null
+        ? resolveShiftTypeFromDefinition({
+            shiftName: shiftDefinition.name,
+            startTime: shiftDefinition.defaultStartTime,
+            endTime: shiftDefinition.defaultEndTime,
+          })
+        : undefined;
+
     await this.ensureShiftScheduleAvailable(
       shift.employeeId,
       nextShiftDate,
@@ -153,9 +198,15 @@ export class EmployeesShiftService {
       where: { id: shift.id },
       data: {
         ...(dto.date !== undefined ? { date: new Date(dto.date) } : {}),
-        ...(dto.shiftType !== undefined ? { shiftType: dto.shiftType } : {}),
-        ...(dto.startTime !== undefined ? { startTime: dto.startTime } : {}),
-        ...(dto.endTime !== undefined ? { endTime: dto.endTime } : {}),
+        ...(shiftDefinition !== null
+          ? {
+              shiftType: nextShiftType,
+              shiftDefinitionId: shiftDefinition.id,
+              shiftName: shiftDefinition.name,
+              startTime: shiftDefinition.defaultStartTime,
+              endTime: shiftDefinition.defaultEndTime,
+            }
+          : {}),
         ...(dto.note !== undefined ? { note: toNullableText(dto.note) } : {}),
       },
     });
@@ -198,10 +249,6 @@ export class EmployeesShiftService {
       },
     });
 
-    if (sameDayShifts.length === 0) {
-      return;
-    }
-
     const nextStartMinutes = parseTimeToMinutes(
       startTime,
       '上班时间格式不正确',
@@ -219,7 +266,5 @@ export class EmployeesShiftService {
     if (hasOverlap) {
       throw new ConflictException('该员工当天已有时间重叠的排班记录');
     }
-
-    throw new ConflictException('该员工当天已有排班记录，不能重复排班');
   }
 }

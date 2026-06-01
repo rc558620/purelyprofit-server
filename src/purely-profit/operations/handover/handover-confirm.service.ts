@@ -1,0 +1,104 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { HandoverMode, HandoverStatus } from '@prisma/client';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
+import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import type {
+  ConfirmHandoverRequestDto,
+  HandoverRecordListItemDto,
+} from './dto/handover.dto';
+import { HandoverAdditionalItemsService } from './handover-additional-items.service';
+import {
+  HANDOVER_NOTE_MAX_LENGTH,
+  HANDOVER_RECORD_INCLUDE,
+  type ReceiverCandidate,
+  ensureMembershipContext,
+  mapRecordToDto,
+  normalizeOptionalText,
+} from './handover.shared';
+
+@Injectable()
+export class HandoverConfirmService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storeSubAccountService: StoreSubAccountService,
+    private readonly handoverAdditionalItemsService: HandoverAdditionalItemsService,
+  ) {}
+
+  async confirmHandover(
+    user: AuthenticatedUser,
+    dto: ConfirmHandoverRequestDto,
+  ): Promise<HandoverRecordListItemDto> {
+    const membership = ensureMembershipContext(user);
+    const note = normalizeOptionalText(dto.note, HANDOVER_NOTE_MAX_LENGTH);
+    const handoverAt = new Date(dto.handedOverAt);
+    if (Number.isNaN(handoverAt.getTime())) {
+      throw new BadRequestException('交班时间不正确');
+    }
+
+    const handoverMode =
+      membership.subjectType === 'sub_account'
+        ? HandoverMode.sub_account
+        : HandoverMode.self_main_account;
+    const receiverCandidate =
+      handoverMode === HandoverMode.sub_account
+        ? await this.findReceiverCandidate(
+            membership.storeId,
+            membership.linkedEmployeeId,
+          )
+        : null;
+    const validAdditionalItems =
+      await this.handoverAdditionalItemsService.resolveConfirmAdditionalItems(
+        membership.storeId,
+        dto.additionalItems,
+      );
+
+    const record = await this.prisma.storeHandoverRecord.create({
+      data: {
+        storeId: membership.storeId,
+        fromEmployeeId: membership.linkedEmployeeId,
+        toEmployeeId: receiverCandidate?.employeeId ?? null,
+        fromSubAccountId: membership.subAccountId,
+        toSubAccountId: receiverCandidate?.subAccountId ?? null,
+        actorStaffId: membership.staffId,
+        handoverMode,
+        status: HandoverStatus.completed,
+        handoverAt,
+        note,
+        ...(validAdditionalItems.length > 0
+          ? {
+              additionalValues: {
+                create: validAdditionalItems.map((item) => ({
+                  itemId: item.id,
+                  value: item.value,
+                })),
+              },
+            }
+          : {}),
+      },
+      include: HANDOVER_RECORD_INCLUDE,
+    });
+
+    return mapRecordToDto(record);
+  }
+
+  private async findReceiverCandidate(
+    storeId: number,
+    currentEmployeeId: number | null,
+  ): Promise<ReceiverCandidate | null> {
+    const candidates =
+      await this.storeSubAccountService.listAssignableHandoverCandidates(
+        storeId,
+      );
+    const matched = candidates.find(
+      (candidate) => candidate.employeeId !== currentEmployeeId,
+    );
+    return matched
+      ? {
+          employeeId: matched.employeeId,
+          employeeName: matched.employeeName,
+          subAccountId: matched.subAccountId,
+        }
+      : null;
+  }
+}

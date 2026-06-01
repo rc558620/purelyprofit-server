@@ -1,8 +1,6 @@
-import { EmployeeShiftType } from '@prisma/client';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
-  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -35,17 +33,28 @@ export class CreateEmployeeShiftDto {
   @IsInt({ message: '排班日期必须是整数时间戳' })
   date: number;
 
-  @ApiProperty({ enum: EmployeeShiftType, description: '班次类型' })
-  @IsEnum(EmployeeShiftType, { message: '班次类型不合法' })
-  shiftType: EmployeeShiftType;
+  @ApiProperty({ example: '1', description: '班次定义 ID' })
+  @IsInt({ message: '班次定义 ID 必须是整数' })
+  @Min(1, { message: '班次定义 ID 必须大于等于 1' })
+  shiftDefinitionId: number;
 
-  @ApiProperty({ example: '08:00', description: '上班时间' })
+  @ApiPropertyOptional({
+    example: '08:00',
+    description: '兼容旧版前端直传的上班时间，服务端会以班次定义为准',
+    deprecated: true,
+  })
+  @IsOptional()
   @IsString({ message: '上班时间必须是字符串' })
-  startTime: string;
+  startTime?: string;
 
-  @ApiProperty({ example: '14:00', description: '下班时间' })
+  @ApiPropertyOptional({
+    example: '14:00',
+    description: '兼容旧版前端直传的下班时间，服务端会以班次定义为准',
+    deprecated: true,
+  })
+  @IsOptional()
   @IsString({ message: '下班时间必须是字符串' })
-  endTime: string;
+  endTime?: string;
 
   @ApiPropertyOptional({ example: '顶班', description: '备注' })
   @IsOptional()
@@ -62,17 +71,26 @@ export class UpdateEmployeeShiftDto {
   @IsInt({ message: '排班日期必须是整数时间戳' })
   date?: number;
 
-  @ApiPropertyOptional({ enum: EmployeeShiftType, description: '班次类型' })
+  @ApiPropertyOptional({ example: '1', description: '班次定义 ID' })
   @IsOptional()
-  @IsEnum(EmployeeShiftType, { message: '班次类型不合法' })
-  shiftType?: EmployeeShiftType;
+  @IsInt({ message: '班次定义 ID 必须是整数' })
+  @Min(1, { message: '班次定义 ID 必须大于等于 1' })
+  shiftDefinitionId?: number;
 
-  @ApiPropertyOptional({ example: '08:00', description: '上班时间' })
+  @ApiPropertyOptional({
+    example: '08:00',
+    description: '兼容旧版前端直传的上班时间，服务端会以班次定义为准',
+    deprecated: true,
+  })
   @IsOptional()
   @IsString({ message: '上班时间必须是字符串' })
   startTime?: string;
 
-  @ApiPropertyOptional({ example: '14:00', description: '下班时间' })
+  @ApiPropertyOptional({
+    example: '14:00',
+    description: '兼容旧版前端直传的下班时间，服务端会以班次定义为准',
+    deprecated: true,
+  })
   @IsOptional()
   @IsString({ message: '下班时间必须是字符串' })
   endTime?: string;
@@ -81,6 +99,24 @@ export class UpdateEmployeeShiftDto {
   @IsOptional()
   @IsString({ message: '备注必须是字符串' })
   note?: string;
+}
+
+export class EmployeeShiftDefinitionCountDto {
+  @ApiPropertyOptional({
+    example: '1',
+    description: '班次定义 ID，历史数据可为空',
+  })
+  @IsOptional()
+  @IsString({ message: '班次定义 ID 必须是字符串' })
+  shiftDefinitionId?: string;
+
+  @ApiProperty({ example: '早班', description: '班次名称' })
+  @IsString({ message: '班次名称必须是字符串' })
+  shiftName: string;
+
+  @ApiProperty({ example: 4, description: '班次数' })
+  @IsInt({ message: '班次数必须是整数' })
+  count: number;
 }
 
 export class EmployeeShiftReportSummaryDto {
@@ -92,29 +128,14 @@ export class EmployeeShiftReportSummaryDto {
   @IsInt({ message: '参与员工数必须是整数' })
   employeeCount: number;
 
-  @ApiProperty({ example: 4, description: '早班次数' })
-  @IsInt({ message: '早班次数必须是整数' })
-  morningCount: number;
-
-  @ApiProperty({ example: 3, description: '行政班次数' })
-  @IsInt({ message: '行政班次数必须是整数' })
-  nineToSixCount: number;
-
-  @ApiProperty({ example: 4, description: '中班次数' })
-  @IsInt({ message: '中班次数必须是整数' })
-  middleCount: number;
-
-  @ApiProperty({ example: 5, description: '晚班次数' })
-  @IsInt({ message: '晚班次数必须是整数' })
-  lateCount: number;
-
-  @ApiProperty({ example: 1, description: '全天次数' })
-  @IsInt({ message: '全天次数必须是整数' })
-  fullCount: number;
-
-  @ApiProperty({ example: 1, description: '自定义班次数' })
-  @IsInt({ message: '自定义班次数必须是整数' })
-  customCount: number;
+  @ApiProperty({
+    type: [EmployeeShiftDefinitionCountDto],
+    description: '按班次定义/名称聚合的班次数',
+  })
+  @IsArray({ message: '班次统计必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => EmployeeShiftDefinitionCountDto)
+  definitionCounts: EmployeeShiftDefinitionCountDto[];
 }
 
 export class EmployeeShiftReportRowDto {
@@ -130,13 +151,17 @@ export class EmployeeShiftReportRowDto {
   @IsString({ message: '员工姓名必须是字符串' })
   employeeName: string;
 
-  @ApiProperty({ example: 'morning', description: '班次类型值' })
-  @IsString({ message: '班次类型必须是字符串' })
-  shiftType: string;
+  @ApiPropertyOptional({
+    example: '1',
+    description: '班次定义 ID，历史数据可为空',
+  })
+  @IsOptional()
+  @IsString({ message: '班次定义 ID 必须是字符串' })
+  shiftDefinitionId?: string;
 
   @ApiProperty({ example: '早班', description: '班次名称' })
   @IsString({ message: '班次名称必须是字符串' })
-  shiftLabel: string;
+  shiftName: string;
 
   @ApiProperty({ example: '08:00', description: '上班时间' })
   @IsString({ message: '上班时间必须是字符串' })
@@ -186,9 +211,17 @@ export class EmployeeShiftResponseDto {
   @IsInt({ message: '排班日期必须是整数时间戳' })
   date: number;
 
-  @ApiProperty({ enum: EmployeeShiftType, description: '班次类型' })
-  @IsEnum(EmployeeShiftType, { message: '班次类型不合法' })
-  shiftType: EmployeeShiftType;
+  @ApiPropertyOptional({
+    example: '1',
+    description: '班次定义 ID，历史数据可为空',
+  })
+  @IsOptional()
+  @IsString({ message: '班次定义 ID 必须是字符串' })
+  shiftDefinitionId?: string;
+
+  @ApiProperty({ example: '早班', description: '班次名称快照' })
+  @IsString({ message: '班次名称必须是字符串' })
+  shiftName: string;
 
   @ApiProperty({ example: '08:00', description: '上班时间' })
   @IsString({ message: '上班时间必须是字符串' })

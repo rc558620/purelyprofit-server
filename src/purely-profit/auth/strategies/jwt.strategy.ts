@@ -11,7 +11,10 @@ import { AccessControlService } from '../../access-control/access-control.servic
 import type { AuthenticatedMembership } from '../../access-control/access-control.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
-import { ADMIN_LOGIN_PHONE, AUTH_TOKEN_VERSION_KEY_PREFIX } from '../auth.constants';
+import {
+  ADMIN_LOGIN_PHONE,
+  AUTH_TOKEN_VERSION_KEY_PREFIX,
+} from '../auth.constants';
 
 export type PulseMode = 'normal' | 'developer';
 

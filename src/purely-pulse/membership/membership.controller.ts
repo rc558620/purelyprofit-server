@@ -17,6 +17,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import type { StoreSubAccountRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import {
@@ -33,23 +34,34 @@ import {
   PlatformMembershipPromoCenterResponseDto,
   PurchasePlatformMembershipOrderResponseDto,
 } from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
+import { GetPulseAdminMemberLogsQueryDto } from './dto/pulse-membership-admin-logs.request.dto';
 import {
-  GetPulseAdminMemberLogsQueryDto,
-  GetPulseAdminMembersQueryDto,
   PulseAdminMemberBeanLogsResponseDto,
-  PulseAdminMemberMembershipDto,
   PulseAdminMemberPointsLogsResponseDto,
+} from './dto/pulse-membership-admin-logs.response.dto';
+import {
+  GetPulseAdminMembersQueryDto,
+  PulseAdminMemberMembershipDto,
   PulseAdminMemberStatusDto,
   PulseAdminMemberSubAccountQuotaDto,
   PulseAdminMemberSubAccountSlotDto,
+} from './dto/pulse-membership-admin-members.request.dto';
+import {
   PulseAdminMembersResponseDto,
+  PulseAdminEmployeeCandidatesResponseDto,
   PulseMemberDetailDto,
+} from './dto/pulse-membership-admin-members.response.dto';
+import { PulseMembershipOrderPreviewDto } from './dto/pulse-membership-orders.request.dto';
+import {
   PulseMembershipOrderDetailResponseDto,
   PulseMembershipOrderPayStatusResponseDto,
-  PulseMembershipOrderPreviewDto,
   PulseMembershipOrderPreviewResponseDto,
-} from './dto/pulse-membership.dto';
+} from './dto/pulse-membership-orders.response.dto';
 import { PulseMembershipService } from './membership.service';
+import type {
+  PulseAdminSubAccountQuotaMutationInput,
+  PulseAdminSubAccountSlotMutationInput,
+} from './membership.types';
 
 type AuthenticatedRequest = { user: AuthenticatedUser };
 
@@ -296,6 +308,22 @@ export class PulseMembershipController {
     );
   }
 
+  @Get('admin/members/:id/employees')
+  @ApiOperation({ summary: '获取 Pulse 会员门店的在职员工候选列表' })
+  @ApiOkResponse({
+    description:
+      '返回指定会员门店的在职员工列表，供 purelyPulse 会员详情页子账号槽位分配时选择员工使用。',
+    type: PulseAdminEmployeeCandidatesResponseDto,
+  })
+  listAdminMemberEmployeeCandidates(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) memberId: number,
+  ): Promise<PulseAdminEmployeeCandidatesResponseDto> {
+    return this.pulseMembershipService
+      .listAdminMemberEmployeeCandidates(this.currentUser(request), memberId)
+      .then((items) => ({ items }));
+  }
+
   // ──────────────────────────────────────────────
   // Pulse 管理后台：会员修改
   // ──────────────────────────────────────────────
@@ -426,7 +454,7 @@ export class PulseMembershipController {
     return this.pulseMembershipService.updateAdminMemberSubAccountQuota(
       user,
       memberId,
-      dto,
+      this.normalizeAdminSubAccountQuotaInput(dto),
     );
   }
 
@@ -449,7 +477,7 @@ export class PulseMembershipController {
     return this.pulseMembershipService.updateAdminMemberSubAccountSlot(
       user,
       memberId,
-      dto,
+      dto as unknown as PulseAdminSubAccountSlotMutationInput,
     );
   }
 
@@ -465,6 +493,21 @@ export class PulseMembershipController {
     return {
       user: this.currentUser(request),
       memberId: this.resolveAdminMemberId(rawMemberId, fallback),
+    };
+  }
+
+  private normalizeAdminSubAccountQuotaInput(
+    dto: PulseAdminMemberSubAccountQuotaDto,
+  ): PulseAdminSubAccountQuotaMutationInput {
+    return {
+      quota: dto.quota ?? dto.subAccountQuota ?? 0,
+      reason: dto.reason,
+      roleSummary: dto.roleSummary?.map((item) => ({
+        slot: item.slot,
+        role: item.role as StoreSubAccountRole,
+        status: item.status,
+        isAssigned: item.isAssigned,
+      })),
     };
   }
 

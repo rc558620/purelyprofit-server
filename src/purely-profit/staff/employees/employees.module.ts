@@ -10,6 +10,7 @@ import { EmployeesPayrollService } from './employees-payroll.service';
 import { EmployeesProfileReadService } from './employees-profile-read.service';
 import { EmployeesProfileWriteService } from './employees-profile-write.service';
 import { EmployeesService } from './employees.service';
+import { EmployeesShiftDefinitionService } from './employees-shift-definition.service';
 import { EmployeesShiftService } from './employees-shift.service';
 
 @Module({
@@ -22,6 +23,7 @@ import { EmployeesShiftService } from './employees-shift.service';
     EmployeesProfileWriteService,
     EmployeesDictionaryService,
     EmployeesLeaveService,
+    EmployeesShiftDefinitionService,
     EmployeesShiftService,
     EmployeesPayrollService,
   ],

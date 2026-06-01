@@ -1,15 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
-import { EmployeeStatus, type Prisma } from '@prisma/client';
+import { EmployeeShiftType, EmployeeStatus, type Prisma } from '@prisma/client';
 import { toDecimalNumber, toNullableText } from './employees.utils';
-
-export const SHIFT_REPORT_LABELS: Record<string, string> = {
-  morning: '早班',
-  nine_to_six: '行政班',
-  middle: '中班',
-  late: '晚班',
-  full: '全天',
-  custom: '自定义',
-};
 
 type DecimalLike = {
   toString(): string;
@@ -65,7 +56,8 @@ export interface ShiftReportRowInput {
   date: Date;
   employeeId: number;
   employeeName: string;
-  shiftType: string;
+  shiftDefinitionId: number | null;
+  shiftName: string;
   startTime: string;
   endTime: string;
 }
@@ -74,19 +66,18 @@ export interface ShiftReportResult {
   summary: {
     totalShifts: number;
     employeeCount: number;
-    morningCount: number;
-    nineToSixCount: number;
-    middleCount: number;
-    lateCount: number;
-    fullCount: number;
-    customCount: number;
+    definitionCounts: Array<{
+      shiftDefinitionId?: string;
+      shiftName: string;
+      count: number;
+    }>;
   };
   rows: Array<{
     id: string;
     dateLabel: string;
     employeeName: string;
-    shiftType: string;
-    shiftLabel: string;
+    shiftDefinitionId?: string;
+    shiftName: string;
     startTime: string;
     endTime: string;
   }>;
@@ -243,6 +234,69 @@ export function isTimeRangeOverlapping(
   return startMinutes < compareEndMinutes && compareStartMinutes < endMinutes;
 }
 
+const LEGACY_SHIFT_TYPE_RULES: Array<{
+  type: EmployeeShiftType;
+  names: string[];
+  startTime: string;
+  endTime: string;
+}> = [
+  {
+    type: EmployeeShiftType.morning,
+    names: ['早班'],
+    startTime: '08:00',
+    endTime: '14:00',
+  },
+  {
+    type: EmployeeShiftType.nine_to_six,
+    names: ['行政班'],
+    startTime: '09:00',
+    endTime: '18:00',
+  },
+  {
+    type: EmployeeShiftType.middle,
+    names: ['中班'],
+    startTime: '12:00',
+    endTime: '18:00',
+  },
+  {
+    type: EmployeeShiftType.late,
+    names: ['晚班'],
+    startTime: '17:00',
+    endTime: '23:00',
+  },
+  {
+    type: EmployeeShiftType.full,
+    names: ['全天'],
+    startTime: '09:00',
+    endTime: '21:00',
+  },
+];
+
+export function resolveShiftTypeFromDefinition(input: {
+  shiftName: string;
+  startTime: string;
+  endTime: string;
+}): EmployeeShiftType {
+  const normalizedName = input.shiftName.trim();
+  const matchedByName = LEGACY_SHIFT_TYPE_RULES.find((rule) =>
+    rule.names.includes(normalizedName),
+  );
+  if (matchedByName) {
+    return matchedByName.type;
+  }
+
+  const matchedByTime = LEGACY_SHIFT_TYPE_RULES.find(
+    (rule) =>
+      rule.startTime === input.startTime.trim() &&
+      rule.endTime === input.endTime.trim(),
+  );
+  if (matchedByTime) {
+    return matchedByTime.type;
+  }
+
+  return EmployeeShiftType.custom;
+}
+
 export function formatShiftReportDate(date: Date): string {
   const weeks = ['日', '一', '二', '三', '四', '五', '六'];
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -253,48 +307,49 @@ export function formatShiftReportDate(date: Date): string {
 export function buildShiftReport(
   rows: ShiftReportRowInput[],
 ): ShiftReportResult {
-  let morningCount = 0;
-  let nineToSixCount = 0;
-  let middleCount = 0;
-  let lateCount = 0;
-  let fullCount = 0;
-  let customCount = 0;
   const employeeIds = new Set<number>();
+  const definitionCountMap = new Map<
+    string,
+    { shiftDefinitionId?: string; shiftName: string; count: number }
+  >();
 
   for (const row of rows) {
     employeeIds.add(row.employeeId);
-    if (row.shiftType === 'morning') {
-      morningCount += 1;
-    } else if (row.shiftType === 'nine_to_six') {
-      nineToSixCount += 1;
-    } else if (row.shiftType === 'middle') {
-      middleCount += 1;
-    } else if (row.shiftType === 'late') {
-      lateCount += 1;
-    } else if (row.shiftType === 'full') {
-      fullCount += 1;
-    } else {
-      customCount += 1;
+    const key = `${row.shiftDefinitionId ?? 'legacy'}:${row.shiftName}`;
+    const current = definitionCountMap.get(key);
+
+    if (current) {
+      current.count += 1;
+      continue;
     }
+
+    definitionCountMap.set(key, {
+      ...(row.shiftDefinitionId !== null
+        ? { shiftDefinitionId: String(row.shiftDefinitionId) }
+        : {}),
+      shiftName: row.shiftName,
+      count: 1,
+    });
   }
 
   return {
     summary: {
       totalShifts: rows.length,
       employeeCount: employeeIds.size,
-      morningCount,
-      nineToSixCount,
-      middleCount,
-      lateCount,
-      fullCount,
-      customCount,
+      definitionCounts: Array.from(definitionCountMap.values()).sort(
+        (left, right) =>
+          right.count - left.count ||
+          left.shiftName.localeCompare(right.shiftName),
+      ),
     },
     rows: rows.map((row) => ({
       id: String(row.id),
       dateLabel: formatShiftReportDate(row.date),
       employeeName: row.employeeName,
-      shiftType: row.shiftType,
-      shiftLabel: SHIFT_REPORT_LABELS[row.shiftType] ?? row.shiftType,
+      ...(row.shiftDefinitionId !== null
+        ? { shiftDefinitionId: String(row.shiftDefinitionId) }
+        : {}),
+      shiftName: row.shiftName,
       startTime: row.startTime,
       endTime: row.endTime,
     })),

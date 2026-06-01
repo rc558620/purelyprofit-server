@@ -14,6 +14,11 @@ import {
 } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  buildAccountIdentifiers,
+  buildLoginEmailFromAccount,
+  isValidSubAccountLoginAccount,
+} from '../../auth/auth.utils';
 import { PlatformMembershipAccessService } from './platform-membership-access.service';
 
 export interface StoreSubAccountSlotSummary {
@@ -51,6 +56,8 @@ export interface UpdateStoreSubAccountSlotInput {
   employeeId?: number | null;
   canUseHandover?: boolean;
   canAccessHome?: boolean;
+  /** 可选：覆盖子账号登录账号，支持字母/数字/下划线的 6~32 位账号。 */
+  loginAccount?: string;
   /** 可选：为子账号设置初始密码。仅在分配员工时生效，若员工尚无登录账号则会创建。 */
   initialPassword?: string;
 }
@@ -124,13 +131,22 @@ export class StoreSubAccountService {
       input.employeeId,
     );
 
+    if (
+      !employee &&
+      (input.initialPassword || input.loginAccount !== undefined)
+    ) {
+      throw new BadRequestException('未分配员工时不能配置子账号登录信息');
+    }
+
     // 如果分配了员工，需要确保员工有对应的登录账号
-    if (employee && input.initialPassword) {
-      await this.ensureEmployeeHasLoginAccount(
-        storeId,
-        employee.id,
-        input.initialPassword,
-      );
+    if (
+      employee &&
+      (input.initialPassword || input.loginAccount !== undefined)
+    ) {
+      await this.ensureEmployeeHasLoginAccount(storeId, employee.id, {
+        password: input.initialPassword,
+        loginAccount: input.loginAccount,
+      });
     }
 
     const status = input.status ?? StoreSubAccountStatus.active;
@@ -173,15 +189,16 @@ export class StoreSubAccountService {
 
   /**
    * 确保员工有对应的登录账号（User + Staff）
-   * 如果员工已有 Staff 关联，则更新密码
-   * 如果员工没有 Staff 关联，则创建 User 和 Staff 并关联
+   * 支持按手机号登录，也支持通过自定义账号别名登录。
    */
   private async ensureEmployeeHasLoginAccount(
     storeId: number,
     employeeId: number,
-    password: string,
+    input: {
+      password?: string;
+      loginAccount?: string;
+    },
   ): Promise<void> {
-    // 获取员工完整信息，包括关联的 Staff
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
       select: {
@@ -193,8 +210,12 @@ export class StoreSubAccountService {
           select: {
             id: true,
             userId: true,
+            email: true,
             user: {
-              select: { id: true },
+              select: {
+                id: true,
+                password: true,
+              },
             },
           },
         },
@@ -209,34 +230,79 @@ export class StoreSubAccountService {
       throw new BadRequestException('员工手机号为空，无法创建登录账号');
     }
 
-    // 如果员工已经关联了 Staff 且 Staff 有 User，则更新密码
-    if (employee.linkedStaff?.userId && employee.linkedStaff.user) {
-      await this.updateUserPassword(employee.linkedStaff.userId, password);
-      return;
-    }
+    const normalizedPassword = input.password?.trim();
+    const normalizedLoginAccount = input.loginAccount?.trim();
 
-    // 如果员工关联了 Staff 但 Staff 没有 User，需要创建 User 并关联
-    if (employee.linkedStaff && !employee.linkedStaff.userId) {
-      const user = await this.createOrFindUser(
-        employee.phone,
-        employee.name ?? `员工${employee.id}`,
-        password,
+    if (
+      normalizedLoginAccount !== undefined &&
+      normalizedLoginAccount.length > 0 &&
+      !isValidSubAccountLoginAccount(normalizedLoginAccount)
+    ) {
+      throw new BadRequestException(
+        '登录账号仅支持 6~32 位字母、数字或下划线，且不可使用保留账号',
       );
-      await this.prisma.staff.update({
-        where: { id: employee.linkedStaff.id },
-        data: { userId: user.id },
-      });
+    }
+
+    const nextLoginEmail = normalizedLoginAccount
+      ? buildLoginEmailFromAccount(normalizedLoginAccount)
+      : null;
+
+    if (employee.linkedStaff) {
+      if (nextLoginEmail) {
+        await this.ensureLoginAccountAvailable(
+          employee.linkedStaff.id,
+          nextLoginEmail,
+        );
+      }
+
+      if (!employee.linkedStaff.userId) {
+        if (!normalizedPassword) {
+          throw new BadRequestException('首次设置子账号时必须填写登录密码');
+        }
+
+        const user = await this.createOrFindUser(
+          employee.phone,
+          employee.name ?? `员工${employee.id}`,
+          normalizedPassword,
+        );
+        await this.prisma.staff.update({
+          where: { id: employee.linkedStaff.id },
+          data: {
+            userId: user.id,
+            ...(nextLoginEmail ? { email: nextLoginEmail } : {}),
+          },
+        });
+        return;
+      }
+
+      if (nextLoginEmail && employee.linkedStaff.email !== nextLoginEmail) {
+        await this.prisma.staff.update({
+          where: { id: employee.linkedStaff.id },
+          data: { email: nextLoginEmail },
+        });
+      }
+
+      if (normalizedPassword) {
+        await this.updateUserPassword(
+          employee.linkedStaff.userId,
+          normalizedPassword,
+        );
+      }
       return;
     }
 
-    // 员工没有关联 Staff，需要创建 User 和 Staff
+    if (!normalizedPassword) {
+      throw new BadRequestException('首次设置子账号时必须填写登录密码');
+    }
+
     const user = await this.createOrFindUser(
       employee.phone,
       employee.name ?? `员工${employee.id}`,
-      password,
+      normalizedPassword,
     );
 
-    // 检查是否已存在相同手机号的 Staff
+    const nextStaffEmail =
+      nextLoginEmail ?? buildAccountIdentifiers(employee.phone).email;
     const existingStaff = await this.prisma.staff.findFirst({
       where: {
         phone: employee.phone,
@@ -246,39 +312,55 @@ export class StoreSubAccountService {
     });
 
     if (existingStaff) {
-      // 如果 Staff 存在但没有 userId，关联到 User
-      if (!existingStaff.userId) {
-        await this.prisma.staff.update({
-          where: { id: existingStaff.id },
-          data: { userId: user.id },
-        });
-      }
-      // 关联 Employee 到 Staff
+      await this.ensureLoginAccountAvailable(existingStaff.id, nextStaffEmail);
+      await this.prisma.staff.update({
+        where: { id: existingStaff.id },
+        data: {
+          ...(existingStaff.userId ? {} : { userId: user.id }),
+          email: nextStaffEmail,
+        },
+      });
       await this.prisma.employee.update({
         where: { id: employeeId },
         data: { linkedStaffId: existingStaff.id },
       });
-    } else {
-      // 创建新的 Staff 并关联 User 和 Employee
-      const newStaff = await this.prisma.staff.create({
-        data: {
-          storeId,
-          userId: user.id,
-          email: `phone_${employee.phone}@purelyprofit.local`,
-          name: employee.name ?? `员工${employee.id}`,
-          phone: employee.phone,
-          role: StaffRole.STAFF,
-          permissions: [],
-          status: StaffStatus.ACTIVE,
-          isSeatActive: true,
-          isActive: true,
-        },
-      });
-      // 关联 Employee 到新创建的 Staff
-      await this.prisma.employee.update({
-        where: { id: employeeId },
-        data: { linkedStaffId: newStaff.id },
-      });
+      return;
+    }
+
+    const newStaff = await this.prisma.staff.create({
+      data: {
+        storeId,
+        userId: user.id,
+        email: nextStaffEmail,
+        name: employee.name ?? `员工${employee.id}`,
+        phone: employee.phone,
+        role: StaffRole.STAFF,
+        permissions: [],
+        status: StaffStatus.ACTIVE,
+        isSeatActive: true,
+        isActive: true,
+      },
+    });
+    await this.prisma.employee.update({
+      where: { id: employeeId },
+      data: { linkedStaffId: newStaff.id },
+    });
+  }
+
+  private async ensureLoginAccountAvailable(
+    currentStaffId: number,
+    loginEmail: string,
+  ): Promise<void> {
+    const conflictStaff = await this.prisma.staff.findFirst({
+      where: {
+        email: loginEmail,
+        id: { not: currentStaffId },
+      },
+      select: { id: true },
+    });
+
+    if (conflictStaff) {
+      throw new ConflictException('登录账号已被其他员工使用');
     }
   }
 
@@ -290,7 +372,7 @@ export class StoreSubAccountService {
     name: string,
     password: string,
   ): Promise<{ id: number }> {
-    const aliasEmail = `phone_${phone}@purelyprofit.local`;
+    const aliasEmail = buildAccountIdentifiers(phone).email;
 
     // 先检查是否已存在该手机号对应的 User
     // 通过 Staff.phone -> Staff.userId -> User 或 User.email 查找
@@ -429,6 +511,8 @@ export class StoreSubAccountService {
     status: StoreSubAccountStatus;
     canUseHandover: boolean;
     canAccessHome: boolean;
+    createdAt: Date;
+    updatedAt: Date;
   } | null> {
     return this.prisma.storeSubAccount.findFirst({
       where: {
@@ -443,6 +527,8 @@ export class StoreSubAccountService {
         status: true,
         canUseHandover: true,
         canAccessHome: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
   }
@@ -590,24 +676,26 @@ export class StoreSubAccountService {
   private buildRoleSummary(
     slots: StoreSubAccountSlotSummary[],
   ): StoreSubAccountRoleSummary[] {
-    return [StoreSubAccountRole.cashier, StoreSubAccountRole.finance].map(
-      (role) => {
-        const roleSlots = slots.filter((slot) => slot.role === role);
-        return {
-          role,
-          activeCount: roleSlots.filter(
-            (slot) => slot.status === StoreSubAccountStatus.active,
-          ).length,
-          inactiveCount: roleSlots.filter(
-            (slot) => slot.status === StoreSubAccountStatus.inactive,
-          ).length,
-          disabledCount: roleSlots.filter(
-            (slot) => slot.status === StoreSubAccountStatus.disabled,
-          ).length,
-          assignedCount: roleSlots.filter((slot) => slot.isAssigned).length,
-        };
-      },
-    );
+    return [
+      StoreSubAccountRole.cashier,
+      StoreSubAccountRole.finance,
+      StoreSubAccountRole.manager,
+    ].map((role) => {
+      const roleSlots = slots.filter((slot) => slot.role === role);
+      return {
+        role,
+        activeCount: roleSlots.filter(
+          (slot) => slot.status === StoreSubAccountStatus.active,
+        ).length,
+        inactiveCount: roleSlots.filter(
+          (slot) => slot.status === StoreSubAccountStatus.inactive,
+        ).length,
+        disabledCount: roleSlots.filter(
+          (slot) => slot.status === StoreSubAccountStatus.disabled,
+        ).length,
+        assignedCount: roleSlots.filter((slot) => slot.isAssigned).length,
+      };
+    });
   }
 
   private buildEmptySummary(quota: number): StoreSubAccountSummary {

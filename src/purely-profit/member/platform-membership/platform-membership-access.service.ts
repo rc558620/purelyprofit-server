@@ -51,7 +51,7 @@ export interface SubAccountRoleSnapshot {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const SUB_ACCOUNT_QUOTA_MAX = 7;
+const SUB_ACCOUNT_QUOTA_MAX = 10;
 
 const MEMBERSHIP_RULES: Record<MembershipRuntimeLevel, MembershipRuleConfig> = {
   free: {

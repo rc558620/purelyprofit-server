@@ -42,11 +42,16 @@ const CASHIER_ALLOWED_HOME_MODULES: ProfitHomeModule[] = [
   'handover-management',
 ];
 
-const FINANCE_HIDDEN_HOME_MODULES = new Set<ProfitHomeModule>([
-  'member-center',
-  'marketing-center',
+const MANAGER_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
+  'additional',
   'handover-management',
-  'store-settings',
+  'member-center',
+  'space-management',
+]);
+
+const FINANCE_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
+  'business-analysis',
+  'finance-center',
 ]);
 
 @Injectable()
@@ -162,8 +167,14 @@ export class SubjectCapabilityService {
     }
 
     if (subAccountRole === 'finance') {
-      return PROFIT_HOME_MODULES.filter(
-        (moduleName) => !FINANCE_HIDDEN_HOME_MODULES.has(moduleName),
+      return PROFIT_HOME_MODULES.filter((moduleName) =>
+        FINANCE_ALLOWED_HOME_MODULES.has(moduleName),
+      );
+    }
+
+    if (subAccountRole === 'manager') {
+      return PROFIT_HOME_MODULES.filter((moduleName) =>
+        MANAGER_ALLOWED_HOME_MODULES.has(moduleName),
       );
     }
 

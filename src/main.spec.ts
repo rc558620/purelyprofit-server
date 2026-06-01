@@ -74,7 +74,7 @@ describe('main bootstrap', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(createMock).toHaveBeenCalledTimes(1);
-    const adapterOptions = createMock.mock.calls[0]?.[1] as {
+    const adapterOptions = createMock.mock.calls[0]?.[1] as unknown as {
       instance?: { initialConfig?: Record<string, unknown> };
     };
     expect(adapterOptions.instance?.initialConfig).toMatchObject({

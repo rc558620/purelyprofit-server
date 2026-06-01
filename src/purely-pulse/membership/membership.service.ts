@@ -12,18 +12,23 @@ import type {
 } from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
 import type { PurchasePlatformMembershipOrderDto } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
+import type { GetPulseAdminMemberLogsQueryDto } from './dto/pulse-membership-admin-logs.request.dto';
 import type {
-  GetPulseAdminMemberLogsQueryDto,
-  GetPulseAdminMembersQueryDto,
   PulseAdminMemberBeanLogsResponseDto,
   PulseAdminMemberPointsLogsResponseDto,
+} from './dto/pulse-membership-admin-logs.response.dto';
+import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
+import type {
+  PulseAdminEmployeeCandidateDto,
   PulseAdminMembersResponseDto,
   PulseMemberDetailDto,
+} from './dto/pulse-membership-admin-members.response.dto';
+import type { PulseMembershipOrderPreviewDto } from './dto/pulse-membership-orders.request.dto';
+import type {
   PulseMembershipOrderDetailResponseDto,
   PulseMembershipOrderPayStatusResponseDto,
-  PulseMembershipOrderPreviewDto,
   PulseMembershipOrderPreviewResponseDto,
-} from './dto/pulse-membership.dto';
+} from './dto/pulse-membership-orders.response.dto';
 import { PulseMembershipAdminService } from './membership-admin.service';
 import { PulseMembershipLedgerService } from './membership-ledger.service';
 import { PulseMembershipOrdersService } from './membership-orders.service';
@@ -138,6 +143,13 @@ export class PulseMembershipService {
     memberId: number,
   ): Promise<PulseMemberDetailDto> {
     return this.adminService.getAdminMemberDetail(user, memberId);
+  }
+
+  listAdminMemberEmployeeCandidates(
+    user: AuthenticatedUser,
+    memberId: number,
+  ): Promise<PulseAdminEmployeeCandidateDto[]> {
+    return this.adminService.listAdminMemberEmployeeCandidates(user, memberId);
   }
 
   adjustAdminMemberPoints(

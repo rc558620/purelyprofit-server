@@ -1,15 +1,25 @@
-import { StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
+import { StoreSubAccountStatus } from '@prisma/client';
 import { PLATFORM_MEMBERSHIP_PLAN_IDS } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 
 export type PulseMembershipPlanId =
   (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number];
 
-export type PulseAdminMemberLevel =
+export type PulseMemberStatusValue = 'active' | 'inactive' | 'banned';
+
+export type PulseMemberLevelValue =
   | 'free'
   | 'monthly'
   | 'quarterly'
   | 'annual'
   | 'lifetime';
+
+export type PulseRechargeChannelValue = 'wechat' | 'alipay' | 'card';
+
+export type PulseSubAccountRoleValue = 'cashier' | 'finance' | 'manager';
+
+export type PulseSubAccountStatusValue = StoreSubAccountStatus;
+
+export type PulseAdminMemberLevel = PulseMemberLevelValue;
 
 export interface PulseAdminMembershipProfileRecord {
   currentPlanId: PulseMembershipPlanId | null;
@@ -107,20 +117,61 @@ export interface PulseAdminStatusMutationInput {
   remark?: string;
 }
 
+export interface PulseAdminSubAccountQuotaMutationRoleSummaryInput {
+  slot: number;
+  role: PulseSubAccountRoleValue;
+  status?: StoreSubAccountStatus;
+  isAssigned?: boolean;
+}
+
 export interface PulseAdminSubAccountQuotaMutationInput {
   quota: number;
   reason?: string;
+  roleSummary?: PulseAdminSubAccountQuotaMutationRoleSummaryInput[];
 }
 
 export interface PulseAdminSubAccountSlotMutationInput {
   slotIndex: number;
-  role: StoreSubAccountRole;
+  role: PulseSubAccountRoleValue;
   status?: StoreSubAccountStatus;
   employeeId?: number | null;
   canAccessHome?: boolean;
   canUseHandover?: boolean;
   /** 可选：为子账号设置初始密码。仅在分配员工时生效，若员工尚无登录账号则会创建。 */
   initialPassword?: string;
+}
+
+export interface PulseAdminSubAccountDetail {
+  eligible: boolean;
+  quota: number;
+  quotaMax: number;
+  enabled: boolean;
+  usedCount: number;
+  availableCount: number;
+  roleSummary: Array<{
+    role: string;
+    activeCount: number;
+    inactiveCount: number;
+    disabledCount: number;
+    assignedCount: number;
+  }>;
+  slots: Array<{
+    id: number;
+    slotIndex: number;
+    role: string;
+    status: string;
+    isAssigned: boolean;
+    employeeId: number | null;
+    employeeName: string | null;
+    canAccessHome: boolean;
+    canUseHandover: boolean;
+  }>;
+}
+
+export interface PulseAdminMemberOrderSummary {
+  rechargeCount: number;
+  totalRecharged: number;
+  lastPaidAt: number | null;
 }
 
 export interface PaymentPreviewResult {

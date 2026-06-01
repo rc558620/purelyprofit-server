@@ -59,8 +59,14 @@ import {
   ListEmployeeShiftsQueryDto,
   UpdateEmployeeShiftDto,
 } from './dto/employee-shift.dto';
+import {
+  CreateEmployeeShiftDefinitionDto,
+  EmployeeShiftDefinitionResponseDto,
+  UpdateEmployeeShiftDefinitionDto,
+} from './dto/employee-shift-definition.dto';
 import { ResignEmployeeDto } from './dto/resign-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { UpdateEmployeeSubAccountDto } from './dto/employee-sub-account.dto';
 import { EmployeesService } from './employees.service';
 
 @ApiTags('Employees')
@@ -197,6 +203,59 @@ export class EmployeesController {
     @Param('id', ParseIntPipe) positionId: number,
   ): Promise<void> {
     await this.employeesService.removePosition(request.user, positionId);
+  }
+
+  @Get('shift-definitions')
+  @RequirePermissions('staff:view')
+  @ApiOperation({ summary: '获取班次定义列表' })
+  @ApiOkResponse({ type: [EmployeeShiftDefinitionResponseDto] })
+  listShiftDefinitions(
+    @Req() request: { user: AuthenticatedUser },
+    @Query() query: EmployeeStoreQueryDto,
+  ): Promise<EmployeeShiftDefinitionResponseDto[]> {
+    return this.employeesService.listShiftDefinitions(request.user, query);
+  }
+
+  @Post('shift-definitions')
+  @RequirePermissions('staff:create')
+  @ApiOperation({ summary: '新增班次定义' })
+  @ApiCreatedResponse({ type: EmployeeShiftDefinitionResponseDto })
+  createShiftDefinition(
+    @Req() request: { user: AuthenticatedUser },
+    @Body() dto: CreateEmployeeShiftDefinitionDto,
+  ): Promise<EmployeeShiftDefinitionResponseDto> {
+    return this.employeesService.createShiftDefinition(request.user, dto);
+  }
+
+  @Patch('shift-definitions/:id')
+  @RequirePermissions('staff:update')
+  @ApiOperation({ summary: '更新班次定义' })
+  @ApiOkResponse({ type: EmployeeShiftDefinitionResponseDto })
+  updateShiftDefinition(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) shiftDefinitionId: number,
+    @Body() dto: UpdateEmployeeShiftDefinitionDto,
+  ): Promise<EmployeeShiftDefinitionResponseDto> {
+    return this.employeesService.updateShiftDefinition(
+      request.user,
+      shiftDefinitionId,
+      dto,
+    );
+  }
+
+  @Delete('shift-definitions/:id')
+  @RequirePermissions('staff:update')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: '删除班次定义' })
+  @ApiNoContentResponse()
+  async removeShiftDefinition(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) shiftDefinitionId: number,
+  ): Promise<void> {
+    await this.employeesService.removeShiftDefinition(
+      request.user,
+      shiftDefinitionId,
+    );
   }
 
   @Get('shifts/report')
@@ -392,6 +451,22 @@ export class EmployeesController {
     @Body() dto: UpdateEmployeeDto,
   ): Promise<EmployeeResponseDto> {
     return this.employeesService.update(request.user, employeeId, dto);
+  }
+
+  @Patch(':id/sub-account')
+  @RequirePermissions('staff:update')
+  @ApiOperation({ summary: '配置员工子账号角色、账号与密码' })
+  @ApiOkResponse({ type: EmployeeResponseDto })
+  updateSubAccount(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) employeeId: number,
+    @Body() dto: UpdateEmployeeSubAccountDto,
+  ): Promise<EmployeeResponseDto> {
+    return this.employeesService.updateSubAccount(
+      request.user,
+      employeeId,
+      dto,
+    );
   }
 
   @Post(':id/resign')

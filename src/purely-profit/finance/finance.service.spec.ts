@@ -192,7 +192,7 @@ describe('FinanceService', () => {
     const createDto = {
       title: '5月对账',
       type: 'monthly' as const,
-      status: 'matched' as const,
+      status: 'confirmed' as const,
       periodStart: new Date('2026-05-01T00:00:00.000Z').getTime(),
       periodEnd: new Date('2026-05-31T23:59:59.999Z').getTime(),
       bookIncome: 100,

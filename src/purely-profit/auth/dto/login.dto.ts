@@ -13,7 +13,7 @@ export class LoginDto {
 
   @ApiPropertyOptional({
     example: 'admin',
-    description: '登录账号别名，仅 admin 可用',
+    description: '登录账号别名，支持 admin 或子账号自定义账号',
   })
   @ValidateIf((dto: LoginDto) => !dto.phone)
   @IsString({ message: '登录账号必须是字符串' })

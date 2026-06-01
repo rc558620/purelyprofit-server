@@ -25,6 +25,8 @@ import { EmployeesProfileReadService } from './employees-profile-read.service';
 import { EmployeesProfileWriteService } from './employees-profile-write.service';
 import { EmployeesService } from './employees.service';
 import { EmployeesShiftService } from './employees-shift.service';
+import { EmployeesShiftDefinitionService } from './employees-shift-definition.service';
+import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 
 describe('EmployeesService', () => {
   let service: EmployeesService;
@@ -79,6 +81,12 @@ describe('EmployeesService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    storeSubAccount: {
+      findMany: jest.fn(),
+    },
+    staff: {
+      findMany: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
 
@@ -99,6 +107,21 @@ describe('EmployeesService', () => {
 
   const platformMembershipAccessService = {
     ensureEmployeeQuotaAvailable: jest.fn(),
+  };
+
+  const storeSubAccountService = {
+    updateSlot: jest.fn(),
+    findAvailableSlotIndex: jest.fn(),
+    getStoreSubAccountSummary: jest.fn(),
+    findAssignedSubAccountByEmployee: jest.fn(),
+  };
+
+  const employeesShiftDefinitionService = {
+    listShiftDefinitions: jest.fn(),
+    createShiftDefinition: jest.fn(),
+    updateShiftDefinition: jest.fn(),
+    removeShiftDefinition: jest.fn(),
+    findShiftDefinitionForStoreOrThrow: jest.fn(),
   };
 
   const cacheInvalidatorService = {
@@ -152,6 +175,11 @@ describe('EmployeesService', () => {
           provide: PlatformMembershipAccessService,
           useValue: platformMembershipAccessService,
         },
+        { provide: StoreSubAccountService, useValue: storeSubAccountService },
+        {
+          provide: EmployeesShiftDefinitionService,
+          useValue: employeesShiftDefinitionService,
+        },
       ],
     }).compile();
 
@@ -192,6 +220,28 @@ describe('EmployeesService', () => {
       },
     ]);
     prismaService.employee.count.mockResolvedValue(21);
+    prismaService.storeSubAccount.findMany.mockResolvedValue([
+      {
+        id: 7,
+        employeeId: 12,
+        slotIndex: 2,
+        role: 'cashier',
+        status: 'active',
+        canUseHandover: true,
+        createdAt,
+        updatedAt,
+      },
+    ]);
+    prismaService.staff.findMany.mockResolvedValue([
+      {
+        id: 18,
+        phone: '13800138000',
+        email: 'account_store_mgr01@purelyprofit.local',
+        updatedAt,
+        employeeProfile: { id: 12 },
+        user: { password: 'hashed-password' },
+      },
+    ]);
 
     const result = await service.list(user, {
       storeId: 2,
@@ -242,6 +292,17 @@ describe('EmployeesService', () => {
           status: EmployeeStatus.active,
           createdAt: createdAt.getTime(),
           updatedAt: updatedAt.getTime(),
+          subAccount: {
+            id: '7',
+            role: 'cashier',
+            status: 'active',
+            slotIndex: 2,
+            loginAccount: '138****8000 / store_mgr01',
+            canHandover: true,
+            hasPassword: true,
+            createdAt: createdAt.getTime(),
+            updatedAt: updatedAt.getTime(),
+          },
         },
       ],
       meta: {
@@ -270,6 +331,8 @@ describe('EmployeesService', () => {
       skip: 0,
       take: 10,
     });
+    expect(prismaService.storeSubAccount.findMany).not.toHaveBeenCalled();
+    expect(prismaService.staff.findMany).not.toHaveBeenCalled();
   });
 
   it('create 在会员员工额度不足时阻止新增', async () => {
@@ -669,13 +732,23 @@ describe('EmployeesService', () => {
       undefined,
     );
     prismaService.employeeShift.findMany.mockResolvedValue([]);
+    employeesShiftDefinitionService.findShiftDefinitionForStoreOrThrow.mockResolvedValue(
+      {
+        id: 9,
+        name: '晚班',
+        defaultStartTime: '17:30',
+        defaultEndTime: '23:30',
+      },
+    );
     prismaService.employeeShift.update.mockResolvedValue({
       id: 41,
       storeId: 2,
       employeeId: 5,
       employeeName: '王五',
       date: new Date('2026-05-08T00:00:00.000Z'),
-      shiftType: 'late',
+      shiftType: null,
+      shiftDefinitionId: 9,
+      shiftName: '晚班',
       startTime: '17:30',
       endTime: '23:30',
       note: null,
@@ -684,9 +757,7 @@ describe('EmployeesService', () => {
 
     const result = await service.updateShift(user, 41, {
       date: new Date('2026-05-08T00:00:00.000Z').getTime(),
-      shiftType: 'late',
-      startTime: '17:30',
-      endTime: '23:30',
+      shiftDefinitionId: 9,
       note: '   ',
     });
 
@@ -698,6 +769,8 @@ describe('EmployeesService', () => {
       data: {
         date: new Date('2026-05-08T00:00:00.000Z'),
         shiftType: 'late',
+        shiftDefinitionId: 9,
+        shiftName: '晚班',
         startTime: '17:30',
         endTime: '23:30',
         note: null,
@@ -708,7 +781,8 @@ describe('EmployeesService', () => {
       employeeId: '5',
       employeeName: '王五',
       date: new Date('2026-05-08T00:00:00.000Z').getTime(),
-      shiftType: 'late',
+      shiftDefinitionId: '9',
+      shiftName: '晚班',
       startTime: '17:30',
       endTime: '23:30',
       createdAt: createdAt.getTime(),
@@ -756,7 +830,9 @@ describe('EmployeesService', () => {
     expect(prismaService.employeeLeave.create).not.toHaveBeenCalled();
   });
 
-  it('createShift 在同一天已有排班时抛出异常', async () => {
+  it('createShift 允许同员工同日创建非重叠排班', async () => {
+    const createdAt = new Date('2026-05-13T08:00:00.000Z');
+
     employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
       id: 5,
       storeId: 2,
@@ -770,16 +846,46 @@ describe('EmployeesService', () => {
       },
     ]);
 
+    employeesShiftDefinitionService.findShiftDefinitionForStoreOrThrow.mockResolvedValue(
+      {
+        id: 9,
+        name: '晚班',
+        defaultStartTime: '13:00',
+        defaultEndTime: '18:00',
+      },
+    );
+    prismaService.employeeShift.create.mockResolvedValue({
+      id: 83,
+      storeId: 2,
+      employeeId: 5,
+      employeeName: '王五',
+      date: new Date('2026-05-08T00:00:00.000Z'),
+      shiftType: null,
+      shiftDefinitionId: 9,
+      shiftName: '晚班',
+      startTime: '13:00',
+      endTime: '18:00',
+      note: null,
+      createdAt,
+    });
+
     await expect(
       service.createShift(user, {
         employeeId: 5,
         date: new Date('2026-05-08T00:00:00.000Z').getTime(),
-        shiftType: 'late',
-        startTime: '13:00',
-        endTime: '18:00',
+        shiftDefinitionId: 9,
       }),
-    ).rejects.toBeInstanceOf(ConflictException);
-    expect(prismaService.employeeShift.create).not.toHaveBeenCalled();
+    ).resolves.toEqual({
+      id: '83',
+      employeeId: '5',
+      employeeName: '王五',
+      date: new Date('2026-05-08T00:00:00.000Z').getTime(),
+      shiftDefinitionId: '9',
+      shiftName: '晚班',
+      startTime: '13:00',
+      endTime: '18:00',
+      createdAt: createdAt.getTime(),
+    });
   });
 
   it('createShift 在同一天时间重叠时抛出异常', async () => {
@@ -796,19 +902,28 @@ describe('EmployeesService', () => {
       },
     ]);
 
+    employeesShiftDefinitionService.findShiftDefinitionForStoreOrThrow.mockResolvedValue(
+      {
+        id: 9,
+        name: '晚班',
+        defaultStartTime: '13:30',
+        defaultEndTime: '18:00',
+      },
+    );
+
     await expect(
       service.createShift(user, {
         employeeId: 5,
         date: new Date('2026-05-08T00:00:00.000Z').getTime(),
-        shiftType: 'late',
-        startTime: '13:30',
-        endTime: '18:00',
+        shiftDefinitionId: 9,
       }),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(prismaService.employeeShift.create).not.toHaveBeenCalled();
   });
 
-  it('updateShift 在上班时间不早于下班时间时抛出异常', async () => {
+  it('updateShift 仅更新备注时保留原有班次时间', async () => {
+    const createdAt = new Date('2026-05-13T08:00:00.000Z');
+
     prismaService.employeeShift.findUnique.mockResolvedValue({
       id: 41,
       storeId: 2,
@@ -820,14 +935,35 @@ describe('EmployeesService', () => {
     employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
       undefined,
     );
+    prismaService.employeeShift.findMany.mockResolvedValue([]);
+    prismaService.employeeShift.update.mockResolvedValue({
+      id: 41,
+      storeId: 2,
+      employeeId: 5,
+      employeeName: '王五',
+      date: new Date('2026-05-08T00:00:00.000Z'),
+      shiftType: null,
+      shiftDefinitionId: 1,
+      shiftName: '早班',
+      startTime: '09:00',
+      endTime: '18:00',
+      note: '只更新备注',
+      createdAt,
+    });
 
+    // 不传 shiftDefinitionId 时保留原有时间，只更新备注
     await expect(
       service.updateShift(user, 41, {
-        startTime: '18:00',
-        endTime: '18:00',
+        note: '只更新备注',
       }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    expect(prismaService.employeeShift.update).not.toHaveBeenCalled();
+    ).resolves.toBeDefined();
+
+    expect(prismaService.employeeShift.update).toHaveBeenCalledWith({
+      where: { id: 41 },
+      data: {
+        note: '只更新备注',
+      },
+    });
   });
 
   it('listPayrolls 在按全年筛选时会返回整年工资记录', async () => {
@@ -1131,7 +1267,8 @@ describe('EmployeesService', () => {
         employeeId: 5,
         employeeName: '王五',
         date: new Date('2026-05-01T00:00:00.000Z'),
-        shiftType: 'morning',
+        shiftDefinitionId: 1,
+        shiftName: '早班',
         startTime: '08:00',
         endTime: '14:00',
       },
@@ -1140,7 +1277,8 @@ describe('EmployeesService', () => {
         employeeId: 5,
         employeeName: '王五',
         date: new Date('2026-05-02T00:00:00.000Z'),
-        shiftType: 'custom',
+        shiftDefinitionId: null,
+        shiftName: '自定义',
         startTime: '10:00',
         endTime: '16:00',
       },
@@ -1149,7 +1287,8 @@ describe('EmployeesService', () => {
         employeeId: 9,
         employeeName: '李四',
         date: new Date('2026-05-03T00:00:00.000Z'),
-        shiftType: 'late',
+        shiftDefinitionId: 2,
+        shiftName: '晚班',
         startTime: '17:00',
         endTime: '23:00',
       },
@@ -1166,20 +1305,30 @@ describe('EmployeesService', () => {
       summary: {
         totalShifts: 3,
         employeeCount: 2,
-        morningCount: 1,
-        nineToSixCount: 0,
-        middleCount: 0,
-        lateCount: 1,
-        fullCount: 0,
-        customCount: 1,
+        definitionCounts: [
+          {
+            shiftDefinitionId: '1',
+            shiftName: '早班',
+            count: 1,
+          },
+          {
+            shiftDefinitionId: '2',
+            shiftName: '晚班',
+            count: 1,
+          },
+          {
+            shiftName: '自定义',
+            count: 1,
+          },
+        ],
       },
       rows: [
         {
           id: '11',
           dateLabel: '05/01 周五',
           employeeName: '王五',
-          shiftType: 'morning',
-          shiftLabel: '早班',
+          shiftDefinitionId: '1',
+          shiftName: '早班',
           startTime: '08:00',
           endTime: '14:00',
         },
@@ -1187,8 +1336,7 @@ describe('EmployeesService', () => {
           id: '12',
           dateLabel: '05/02 周六',
           employeeName: '王五',
-          shiftType: 'custom',
-          shiftLabel: '自定义',
+          shiftName: '自定义',
           startTime: '10:00',
           endTime: '16:00',
         },
@@ -1196,8 +1344,8 @@ describe('EmployeesService', () => {
           id: '13',
           dateLabel: '05/03 周日',
           employeeName: '李四',
-          shiftType: 'late',
-          shiftLabel: '晚班',
+          shiftDefinitionId: '2',
+          shiftName: '晚班',
           startTime: '17:00',
           endTime: '23:00',
         },
@@ -1222,6 +1370,111 @@ describe('EmployeesService', () => {
         },
       },
       orderBy: [{ date: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        date: true,
+        employeeId: true,
+        employeeName: true,
+        shiftDefinitionId: true,
+        shiftName: true,
+        startTime: true,
+        endTime: true,
+      },
+    });
+  });
+
+  it('updateSubAccount 支持 cashier 角色并返回收银员子账号摘要', async () => {
+    const createdAt = new Date('2026-05-13T08:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T09:00:00.000Z');
+
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 12,
+      storeId: 2,
+      linkedStaffId: null,
+      empNo: 'EMP012',
+      name: '张三',
+      phone: '13800138000',
+      position: '收银员',
+      department: '前厅',
+      joinDate: new Date('2026-05-01T00:00:00.000Z'),
+      baseSalary: new Prisma.Decimal('4500'),
+      avatar: null,
+      idCard: null,
+      gender: EmployeeGender.male,
+      emergencyContact: null,
+      emergencyPhone: null,
+      contractEndDate: null,
+      note: null,
+      status: EmployeeStatus.active,
+      resignDate: null,
+      resignReason: null,
+      createdAt,
+      updatedAt,
+    });
+    storeSubAccountService.findAssignedSubAccountByEmployee.mockResolvedValue(
+      null,
+    );
+    storeSubAccountService.getStoreSubAccountSummary.mockResolvedValue({
+      quota: 3,
+      usedCount: 1,
+      availableCount: 2,
+      roleSummary: [],
+      slots: [
+        {
+          slotIndex: 1,
+          isAssigned: false,
+        },
+      ],
+    });
+    storeSubAccountService.updateSlot.mockResolvedValue(undefined);
+    prismaService.storeSubAccount.findMany.mockResolvedValue([
+      {
+        id: 7,
+        employeeId: 12,
+        slotIndex: 1,
+        role: 'cashier',
+        status: 'active',
+        canUseHandover: true,
+        createdAt,
+        updatedAt,
+      },
+    ]);
+    prismaService.staff.findMany.mockResolvedValue([
+      {
+        id: 18,
+        phone: '13800138000',
+        email: 'account_cashier_01@purelyprofit.local',
+        updatedAt,
+        employeeProfile: { id: 12 },
+        user: { password: 'hashed-password' },
+      },
+    ]);
+
+    const result = await service.updateSubAccount(user, 12, {
+      role: 'cashier',
+      loginAccount: 'cashier_01',
+      password: 'test123456',
+    });
+
+    expect(storeSubAccountService.updateSlot).toHaveBeenCalledWith(2, {
+      slotIndex: 1,
+      role: 'cashier',
+      employeeId: 12,
+      canAccessHome: true,
+      canUseHandover: true,
+      loginAccount: 'cashier_01',
+      initialPassword: 'test123456',
+    });
+    expect(result.subAccount).toEqual({
+      id: '7',
+      role: 'cashier',
+      status: 'active',
+      slotIndex: 1,
+      loginAccount: '138****8000 / cashier_01',
+      canHandover: true,
+      hasPassword: true,
+      createdAt: createdAt.getTime(),
+      updatedAt: updatedAt.getTime(),
     });
   });
 

@@ -1,8 +1,89 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { PulseMembershipController } from './membership.controller';
+import { PulseAdminMemberSubAccountQuotaDto } from './dto/pulse-membership-admin-members.request.dto';
 import {
   createPulseMembershipServiceTestingContext,
   type PulseMembershipServiceTestingContext,
 } from './membership.service.test-setup';
+
+describe('PulseAdminMemberSubAccountQuotaDto', () => {
+  it('兼容旧请求的 memberId 与 subAccountQuota', async () => {
+    const dto = plainToInstance(PulseAdminMemberSubAccountQuotaDto, {
+      memberId: '48',
+      subAccountQuota: 10,
+    });
+
+    await expect(
+      validate(dto, {
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      }),
+    ).resolves.toEqual([]);
+    expect(dto.memberId).toBe('48');
+    expect(dto.subAccountQuota).toBe(10);
+  });
+
+  it('优先使用显式 quota 字段', async () => {
+    const dto = plainToInstance(PulseAdminMemberSubAccountQuotaDto, {
+      memberId: '48',
+      quota: 6,
+      subAccountQuota: 10,
+    });
+
+    await expect(
+      validate(dto, {
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      }),
+    ).resolves.toEqual([]);
+    expect(dto.quota).toBe(6);
+  });
+});
+
+describe('PulseMembershipController sub-account quota', () => {
+  const user: AuthenticatedUser = {
+    id: 101,
+    email: 'dev@example.com',
+    phone: '13800138000',
+    name: '开发者',
+    createdAt: new Date('2026-05-12T00:00:00.000Z'),
+    updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    pulseMode: 'normal',
+    isPulseDeveloper: true,
+    currentMembership: null,
+  };
+
+  it('将旧请求字段 subAccountQuota 归一化后透传给 service', async () => {
+    const pulseMembershipService = {
+      updateAdminMemberSubAccountQuota: jest
+        .fn()
+        .mockResolvedValue({ id: '48' }),
+    };
+    const controller = new PulseMembershipController(
+      pulseMembershipService as never,
+    );
+
+    await controller.updateAdminMemberSubAccountQuota(
+      { user },
+      '48',
+      plainToInstance(PulseAdminMemberSubAccountQuotaDto, {
+        memberId: '48',
+        subAccountQuota: 10,
+      }),
+    );
+
+    expect(
+      pulseMembershipService.updateAdminMemberSubAccountQuota,
+    ).toHaveBeenCalledWith(user, 48, {
+      quota: 10,
+      reason: undefined,
+      roleSummary: undefined,
+    });
+  });
+});
 
 describe('PulseMembershipService admin', () => {
   let context: PulseMembershipServiceTestingContext;
@@ -498,33 +579,31 @@ describe('PulseMembershipService admin', () => {
 
     const result = await context.service.listAdminMembers(context.user, {});
 
-    expect(context.prismaService.storeMembershipProfile.findMany).toHaveBeenNthCalledWith(
-      2,
-      {
-        where: { storeId: { in: [18] } },
-        select: {
-          storeId: true,
-          currentPlanId: true,
-          expiresAt: true,
-          totalPoints: true,
-          availablePoints: true,
-          subAccountQuota: true,
-        },
+    expect(
+      context.prismaService.storeMembershipProfile.findMany,
+    ).toHaveBeenNthCalledWith(2, {
+      where: { storeId: { in: [18] } },
+      select: {
+        storeId: true,
+        currentPlanId: true,
+        expiresAt: true,
+        totalPoints: true,
+        availablePoints: true,
+        subAccountQuota: true,
       },
-    );
-    expect(context.prismaService.storeMembershipProfile.findMany).toHaveBeenNthCalledWith(
-      3,
-      {
-        where: { storeId: { in: [18] } },
-        select: {
-          storeId: true,
-          currentPlanId: true,
-          expiresAt: true,
-          totalPoints: true,
-          availablePoints: true,
-        },
+    });
+    expect(
+      context.prismaService.storeMembershipProfile.findMany,
+    ).toHaveBeenNthCalledWith(3, {
+      where: { storeId: { in: [18] } },
+      select: {
+        storeId: true,
+        currentPlanId: true,
+        expiresAt: true,
+        totalPoints: true,
+        availablePoints: true,
       },
-    );
+    });
     expect(result.items[0]).toMatchObject({
       id: '18',
       level: 'annual',
@@ -536,12 +615,12 @@ describe('PulseMembershipService admin', () => {
   it('setAdminMemberMembership 支持设置为免费会员', async () => {
     jest
       .spyOn(
-        context.adminService as never,
+        context.mutationService as never,
         'assertAdminMemberMutationAccess' as never,
       )
       .mockResolvedValue(undefined as never);
     jest
-      .spyOn(context.adminService as never, 'buildAdminMemberDetail' as never)
+      .spyOn(context.queryService as never, 'buildAdminMemberDetail' as never)
       .mockResolvedValue({
         id: '18',
         name: '张三',
@@ -604,12 +683,12 @@ describe('PulseMembershipService admin', () => {
     jest.useFakeTimers().setSystemTime(fixedNow);
     jest
       .spyOn(
-        context.adminService as never,
+        context.mutationService as never,
         'assertAdminMemberMutationAccess' as never,
       )
       .mockResolvedValue(undefined as never);
     jest
-      .spyOn(context.adminService as never, 'buildAdminMemberDetail' as never)
+      .spyOn(context.queryService as never, 'buildAdminMemberDetail' as never)
       .mockResolvedValue({
         id: '18',
         name: '张三',
@@ -753,12 +832,12 @@ describe('PulseMembershipService admin', () => {
   it('banAdminMember 封号时会主动踢下线门店所有用户', async () => {
     jest
       .spyOn(
-        context.adminService as never,
+        context.mutationService as never,
         'assertAdminMemberMutationAccess' as never,
       )
       .mockResolvedValue(undefined as never);
     jest
-      .spyOn(context.adminService as never, 'buildAdminMemberDetail' as never)
+      .spyOn(context.queryService as never, 'buildAdminMemberDetail' as never)
       .mockResolvedValue({
         id: '18',
         name: '张三',
@@ -810,7 +889,7 @@ describe('PulseMembershipService admin', () => {
   it('banAdminMember 缺少封号原因时抛出 BadRequestException', async () => {
     jest
       .spyOn(
-        context.adminService as never,
+        context.mutationService as never,
         'assertAdminMemberMutationAccess' as never,
       )
       .mockResolvedValue(undefined as never);

@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { StoreSubAccountRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import {
   CreateEmployeeDictionaryDto,
   EmployeeDepartmentResponseDto,
@@ -34,14 +36,22 @@ import {
   ListEmployeeShiftsQueryDto,
   UpdateEmployeeShiftDto,
 } from './dto/employee-shift.dto';
+import {
+  CreateEmployeeShiftDefinitionDto,
+  EmployeeShiftDefinitionResponseDto,
+  UpdateEmployeeShiftDefinitionDto,
+} from './dto/employee-shift-definition.dto';
 import { ResignEmployeeDto } from './dto/resign-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { UpdateEmployeeSubAccountDto } from './dto/employee-sub-account.dto';
+import { EmployeesAccessService } from './employees-access.service';
 import { EmployeesDictionaryService } from './employees-dictionary.service';
 import { EmployeesProfileReadService } from './employees-profile-read.service';
 import { EmployeesProfileWriteService } from './employees-profile-write.service';
 import { EmployeesLeaveService } from './employees-leave.service';
 import { EmployeesShiftService } from './employees-shift.service';
 import { EmployeesPayrollService } from './employees-payroll.service';
+import { EmployeesShiftDefinitionService } from './employees-shift-definition.service';
 
 @Injectable()
 export class EmployeesService {
@@ -52,6 +62,9 @@ export class EmployeesService {
     private readonly employeesLeaveService: EmployeesLeaveService,
     private readonly employeesShiftService: EmployeesShiftService,
     private readonly employeesPayrollService: EmployeesPayrollService,
+    private readonly employeesShiftDefinitionService: EmployeesShiftDefinitionService,
+    private readonly employeesAccessService: EmployeesAccessService,
+    private readonly storeSubAccountService: StoreSubAccountService,
   ) {}
 
   // dictionary
@@ -168,6 +181,57 @@ export class EmployeesService {
     return this.employeesProfileWriteService.remove(user, employeeId);
   }
 
+  async updateSubAccount(
+    user: AuthenticatedUser,
+    employeeId: number,
+    dto: UpdateEmployeeSubAccountDto,
+  ): Promise<EmployeeResponseDto> {
+    const employee =
+      await this.employeesAccessService.findManageableEmployeeOrThrow(
+        user,
+        employeeId,
+        'staff:update',
+      );
+    const existingSubAccount =
+      await this.storeSubAccountService.findAssignedSubAccountByEmployee(
+        employee.storeId,
+        employee.id,
+      );
+    const summary = await this.storeSubAccountService.getStoreSubAccountSummary(
+      employee.storeId,
+    );
+    const availableSlot = existingSubAccount
+      ? existingSubAccount.slotIndex
+      : summary.slots.find((slot) => !slot.isAssigned)?.slotIndex;
+
+    if (!availableSlot) {
+      throw new BadRequestException(
+        '当前门店暂无可分配的子账号槽位，请先提升子账号额度',
+      );
+    }
+
+    await this.storeSubAccountService.updateSlot(employee.storeId, {
+      slotIndex: availableSlot,
+      role:
+        dto.role === 'cashier'
+          ? StoreSubAccountRole.cashier
+          : dto.role === 'finance'
+            ? StoreSubAccountRole.finance
+            : StoreSubAccountRole.manager,
+      employeeId: employee.id,
+      canAccessHome: true,
+      canUseHandover: dto.role !== 'finance',
+      loginAccount: dto.loginAccount?.trim() || undefined,
+      initialPassword: dto.password?.trim() || undefined,
+    });
+
+    return this.employeesProfileReadService.buildEmployeeDetail(
+      user,
+      employeeId,
+      'staff:update',
+    );
+  }
+
   // leave
   listLeaves(
     user: AuthenticatedUser,
@@ -194,6 +258,49 @@ export class EmployeesService {
 
   removeLeave(user: AuthenticatedUser, leaveId: number): Promise<void> {
     return this.employeesLeaveService.removeLeave(user, leaveId);
+  }
+
+  // shift definition
+  listShiftDefinitions(
+    user: AuthenticatedUser,
+    query: EmployeeStoreQueryDto,
+  ): Promise<EmployeeShiftDefinitionResponseDto[]> {
+    return this.employeesShiftDefinitionService.listShiftDefinitions(
+      user,
+      query,
+    );
+  }
+
+  createShiftDefinition(
+    user: AuthenticatedUser,
+    dto: CreateEmployeeShiftDefinitionDto,
+  ): Promise<EmployeeShiftDefinitionResponseDto> {
+    return this.employeesShiftDefinitionService.createShiftDefinition(
+      user,
+      dto,
+    );
+  }
+
+  updateShiftDefinition(
+    user: AuthenticatedUser,
+    definitionId: number,
+    dto: UpdateEmployeeShiftDefinitionDto,
+  ): Promise<EmployeeShiftDefinitionResponseDto> {
+    return this.employeesShiftDefinitionService.updateShiftDefinition(
+      user,
+      definitionId,
+      dto,
+    );
+  }
+
+  removeShiftDefinition(
+    user: AuthenticatedUser,
+    definitionId: number,
+  ): Promise<void> {
+    return this.employeesShiftDefinitionService.removeShiftDefinition(
+      user,
+      definitionId,
+    );
   }
 
   // shift

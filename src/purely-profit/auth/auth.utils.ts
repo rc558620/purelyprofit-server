@@ -13,15 +13,27 @@ import {
 import type { AccountIdentifiers } from './auth-account.types';
 import type { ProfileUserRecord } from './auth-profile.types';
 
+const LOCAL_LOGIN_DOMAIN = 'purelyprofit.local';
+const PHONE_LOGIN_PREFIX = 'phone_';
+const ACCOUNT_LOGIN_PREFIX = 'account_';
+
 export function normalizePhone(phone: string): string {
   return phone.trim();
+}
+
+export function normalizeLoginAccount(account: string): string {
+  return account.trim().toLowerCase();
 }
 
 export function buildAccountIdentifiers(phone: string): AccountIdentifiers {
   return {
     phone,
-    email: `phone_${phone}@purelyprofit.local`,
+    email: `${PHONE_LOGIN_PREFIX}${phone}@${LOCAL_LOGIN_DOMAIN}`,
   };
+}
+
+export function buildLoginEmailFromAccount(account: string): string {
+  return `${ACCOUNT_LOGIN_PREFIX}${normalizeLoginAccount(account)}@${LOCAL_LOGIN_DOMAIN}`;
 }
 
 export function resolveLoginPhone(account: string): string | null {
@@ -39,8 +51,91 @@ export function resolveLoginPhone(account: string): string | null {
   return ADMIN_LOGIN_PHONE;
 }
 
+export function resolveLoginEmail(account: string): string | null {
+  const normalizedAccount = account.trim();
+  if (
+    !normalizedAccount ||
+    !isCustomLoginAccount(normalizedAccount) ||
+    normalizedAccount.toLowerCase() !== ADMIN_LOGIN_ALIAS
+  ) {
+    return null;
+  }
+
+  return buildLoginEmailFromAccount(normalizedAccount);
+}
+
 export function extractPhoneFromLoginAccount(account: string): string | null {
   return /^1[3-9]\d{9}$/.test(account) ? account : null;
+}
+
+export function isCustomLoginAccount(account: string): boolean {
+  return /^[a-zA-Z0-9_]{6,32}$/.test(account.trim());
+}
+
+export function isReservedLoginAccount(account: string): boolean {
+  return normalizeLoginAccount(account) === ADMIN_LOGIN_ALIAS;
+}
+
+export function isValidSubAccountLoginAccount(account: string): boolean {
+  return isCustomLoginAccount(account) && !isReservedLoginAccount(account);
+}
+
+export function resolveSubAccountLoginEmail(
+  phone: string,
+  account?: string | null,
+): string {
+  const normalizedAccount = account?.trim();
+  if (!normalizedAccount) {
+    return buildAccountIdentifiers(phone).email;
+  }
+
+  return buildLoginEmailFromAccount(normalizedAccount);
+}
+
+export function extractCustomLoginAccount(email: string): string | null {
+  const normalizedEmail = email.trim().toLowerCase();
+  const prefix = ACCOUNT_LOGIN_PREFIX;
+  const suffix = `@${LOCAL_LOGIN_DOMAIN}`;
+
+  if (
+    !normalizedEmail.startsWith(prefix) ||
+    !normalizedEmail.endsWith(suffix)
+  ) {
+    return null;
+  }
+
+  return normalizedEmail.slice(
+    prefix.length,
+    normalizedEmail.length - suffix.length,
+  );
+}
+
+export function normalizeLoginEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function isSameLoginEmail(left: string, right: string): boolean {
+  return normalizeLoginEmail(left) === normalizeLoginEmail(right);
+}
+
+export function maskPhone(phone: string): string {
+  if (!/^1\d{10}$/.test(phone)) {
+    return phone;
+  }
+
+  return `${phone.slice(0, 3)}****${phone.slice(-4)}`;
+}
+
+export function buildSubAccountLoginDisplay(
+  phone: string,
+  loginEmail?: string | null,
+): string {
+  const maskedPhone = maskPhone(phone);
+  const customAccount = loginEmail
+    ? extractCustomLoginAccount(loginEmail)
+    : null;
+
+  return customAccount ? `${maskedPhone} / ${customAccount}` : maskedPhone;
 }
 
 export function isVerifiedUser(

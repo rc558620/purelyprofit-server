@@ -1,5 +1,10 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { EmployeeStatus, StaffStatus, StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
+import {
+  EmployeeStatus,
+  StaffStatus,
+  StoreSubAccountRole,
+  StoreSubAccountStatus,
+} from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlatformMembershipAccessService } from './platform-membership-access.service';
@@ -7,8 +12,35 @@ import { StoreSubAccountService } from './store-sub-account.service';
 
 describe('StoreSubAccountService', () => {
   let service: StoreSubAccountService;
-  let prismaService: jest.Mocked<PrismaService>;
-  let membershipAccessService: jest.Mocked<PlatformMembershipAccessService>;
+  let prismaService: {
+    employee: {
+      findFirst: jest.Mock;
+      findUnique: jest.Mock;
+      update: jest.Mock;
+    };
+    staff: {
+      findFirst: jest.Mock;
+      create: jest.Mock;
+      update: jest.Mock;
+    };
+    user: {
+      findUnique: jest.Mock;
+      create: jest.Mock;
+      update: jest.Mock;
+    };
+    storeSubAccount: {
+      findMany: jest.Mock;
+      upsert: jest.Mock;
+    };
+    storeMembershipProfile: {
+      findUnique: jest.Mock;
+    };
+    $transaction: jest.Mock;
+  };
+  let membershipAccessService: {
+    getSubAccountBenefitSnapshot: jest.Mock;
+    ensureSubAccountConfigurable: jest.Mock;
+  };
 
   beforeEach(async () => {
     const mockPrismaService = {
@@ -79,7 +111,9 @@ describe('StoreSubAccountService', () => {
         enabled: true,
         rawQuota: 2,
       });
-      membershipAccessService.ensureSubAccountConfigurable.mockResolvedValue(undefined);
+      membershipAccessService.ensureSubAccountConfigurable.mockResolvedValue(
+        undefined,
+      );
       prismaService.storeSubAccount.findMany.mockResolvedValue([]);
       prismaService.storeSubAccount.upsert.mockResolvedValue({});
     });
@@ -261,10 +295,13 @@ describe('StoreSubAccountService', () => {
 
       await service.updateSlot(storeId, input);
 
-      // 验证关联了 User 到已存在的 Staff
+      // 验证关联了 User 到已存在的 Staff 并设置默认 email
       expect(prismaService.staff.update).toHaveBeenCalledWith({
         where: { id: 2001 },
-        data: { userId: 1001 },
+        data: {
+          userId: 1001,
+          email: 'phone_13800138001@purelyprofit.local',
+        },
       });
       // 验证关联了 Employee 到已存在的 Staff
       expect(prismaService.employee.update).toHaveBeenCalledWith({

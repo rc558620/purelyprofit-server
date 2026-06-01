@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -23,23 +25,115 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   CancelHandoverRecordDto,
   CompleteHandoverRecordDto,
+  ConfirmHandoverRequestDto,
+  CreateHandoverAdditionalItemDto,
   CreateHandoverRecordDto,
+  HandoverAdditionalItemDto,
+  HandoverAdditionalItemListResponseDto,
   HandoverCandidateDto,
+  HandoverPageQueryDto,
+  HandoverPageResponseDto,
   HandoverRecordListItemDto,
   HandoverRecordListResponseDto,
+  UpdateHandoverAdditionalItemDto,
 } from './dto/handover.dto';
 import { HandoverService } from './handover.service';
 
 @ApiTags('Handover')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
-@Controller('handover')
+@Controller()
 export class HandoverController {
   constructor(private readonly handoverService: HandoverService) {}
 
-  @Post()
+  @Get('handover/page')
+  @RequirePermissions('handover:view')
+  @ApiOperation({ summary: '获取 purely-profit 员工交班页面数据' })
+  @ApiOkResponse({
+    description: '返回交班页面展示所需的聚合数据',
+    type: HandoverPageResponseDto,
+  })
+  getPage(
+    @Req() request: { user: AuthenticatedUser },
+    @Query() query: HandoverPageQueryDto,
+  ): Promise<HandoverPageResponseDto> {
+    return this.handoverService.getHandoverPage(request.user, query);
+  }
+
+  @Post('handover/confirm')
   @RequirePermissions('handover:create')
-  @ApiOperation({ summary: '创建交班记录' })
+  @ApiOperation({ summary: '确认 purely-profit 员工交班' })
+  @ApiCreatedResponse({
+    description: '交班确认成功并生成交班记录',
+    type: HandoverRecordListItemDto,
+  })
+  confirm(
+    @Req() request: { user: AuthenticatedUser },
+    @Body() dto: ConfirmHandoverRequestDto,
+  ): Promise<HandoverRecordListItemDto> {
+    return this.handoverService.confirmHandover(request.user, dto);
+  }
+
+  @Get('handover-additional-items')
+  @RequirePermissions('handover:view')
+  @ApiOperation({ summary: '获取 purely-profit 交班附加项列表' })
+  @ApiOkResponse({
+    description: '返回交班附加项列表',
+    type: HandoverAdditionalItemListResponseDto,
+  })
+  listAdditionalItems(
+    @Req() request: { user: AuthenticatedUser },
+  ): Promise<HandoverAdditionalItemListResponseDto> {
+    return this.handoverService.listAdditionalItems(request.user);
+  }
+
+  @Post('handover-additional-items')
+  @RequirePermissions('handover:create')
+  @ApiOperation({ summary: '新增 purely-profit 交班附加项' })
+  @ApiCreatedResponse({
+    description: '交班附加项创建成功',
+    type: HandoverAdditionalItemDto,
+  })
+  createAdditionalItem(
+    @Req() request: { user: AuthenticatedUser },
+    @Body() dto: CreateHandoverAdditionalItemDto,
+  ): Promise<HandoverAdditionalItemDto> {
+    return this.handoverService.createAdditionalItem(request.user, dto);
+  }
+
+  @Patch('handover-additional-items/:id')
+  @RequirePermissions('handover:update')
+  @ApiOperation({ summary: '更新 purely-profit 交班附加项' })
+  @ApiOkResponse({
+    description: '交班附加项更新成功',
+    type: HandoverAdditionalItemDto,
+  })
+  updateAdditionalItem(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateHandoverAdditionalItemDto,
+  ): Promise<HandoverAdditionalItemDto> {
+    return this.handoverService.updateAdditionalItem(request.user, id, dto);
+  }
+
+  @Delete('handover-additional-items/:id')
+  @RequirePermissions('handover:update')
+  @ApiOperation({ summary: '删除 purely-profit 交班附加项' })
+  @ApiOkResponse({
+    description: '交班附加项删除成功',
+    type: Boolean,
+  })
+  async deleteAdditionalItem(
+    @Req() request: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<boolean> {
+    await this.handoverService.deleteAdditionalItem(request.user, id);
+    return true;
+  }
+
+  @Post('handover')
+  @RequirePermissions('handover:create')
+  @ApiOperation({ summary: '创建 purely-profit 交班记录' })
   @ApiCreatedResponse({
     description: '交班记录创建成功',
     type: HandoverRecordListItemDto,
@@ -51,9 +145,9 @@ export class HandoverController {
     return this.handoverService.createHandoverRecord(request.user, dto);
   }
 
-  @Post(':id/complete')
+  @Post('handover/:id/complete')
   @RequirePermissions('handover:update')
-  @ApiOperation({ summary: '完成交班记录' })
+  @ApiOperation({ summary: '完成 purely-profit 交班记录' })
   @ApiOkResponse({
     description: '交班记录已完成',
     type: HandoverRecordListItemDto,
@@ -66,9 +160,9 @@ export class HandoverController {
     return this.handoverService.completeHandoverRecord(request.user, id, dto);
   }
 
-  @Post(':id/cancel')
+  @Post('handover/:id/cancel')
   @RequirePermissions('handover:update')
-  @ApiOperation({ summary: '取消交班记录' })
+  @ApiOperation({ summary: '取消 purely-profit 交班记录' })
   @ApiOkResponse({
     description: '交班记录已取消',
     type: HandoverRecordListItemDto,
@@ -81,9 +175,9 @@ export class HandoverController {
     return this.handoverService.cancelHandoverRecord(request.user, id, dto);
   }
 
-  @Get()
+  @Get('handover')
   @RequirePermissions('handover:view')
-  @ApiOperation({ summary: '获取交班记录列表' })
+  @ApiOperation({ summary: '获取 purely-profit 交班记录列表' })
   @ApiOkResponse({
     description: '返回交班记录列表',
     type: HandoverRecordListResponseDto,
@@ -100,7 +194,7 @@ export class HandoverController {
     );
   }
 
-  @Get('my-pending')
+  @Get('handover/my-pending')
   @RequirePermissions('handover:view')
   @ApiOperation({ summary: '获取当前用户待处理的交班记录' })
   @ApiOkResponse({
@@ -113,7 +207,7 @@ export class HandoverController {
     return this.handoverService.getMyPendingHandover(request.user);
   }
 
-  @Get('candidates')
+  @Get('handover/candidates')
   @RequirePermissions('handover:view')
   @ApiOperation({ summary: '获取可交班的候选人列表' })
   @ApiOkResponse({
@@ -130,9 +224,9 @@ export class HandoverController {
     return this.handoverService.getHandoverCandidates(storeId);
   }
 
-  @Get(':id')
+  @Get('handover/:id')
   @RequirePermissions('handover:view')
-  @ApiOperation({ summary: '获取单条交班记录详情' })
+  @ApiOperation({ summary: '获取单条 purely-profit 交班记录详情' })
   @ApiOkResponse({
     description: '返回交班记录详情',
     type: HandoverRecordListItemDto,

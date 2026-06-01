@@ -9,6 +9,8 @@ import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import { RedisService } from '../../redis/redis.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import { PulseMembershipAccessService } from './membership-access.service';
+import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
+import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
 import { PulseMembershipAdminService } from './membership-admin.service';
 import { PulseMembershipLedgerService } from './membership-ledger.service';
 import { PulseMembershipOrdersService } from './membership-orders.service';
@@ -82,6 +84,8 @@ export interface PulseMembershipCacheInvalidatorServiceMock {
 export interface PulseMembershipServiceTestingContext {
   service: PulseMembershipService;
   adminService: PulseMembershipAdminService;
+  mutationService: PulseMembershipAdminMutationService;
+  queryService: PulseMembershipAdminQueryService;
   platformMembershipService: PulseMembershipPlatformMembershipServiceMock;
   prismaService: PulseMembershipPrismaServiceMock;
   pulseStoreContextService: PulseMembershipStoreContextServiceMock;
@@ -216,6 +220,8 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
       PulseMembershipLedgerService,
       PulseMembershipOrdersService,
       PulseMembershipAdminService,
+      PulseMembershipAdminQueryService,
+      PulseMembershipAdminMutationService,
       {
         provide: PlatformMembershipService,
         useValue: platformMembershipService,
@@ -270,6 +276,12 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
     service: module.get<PulseMembershipService>(PulseMembershipService),
     adminService: module.get<PulseMembershipAdminService>(
       PulseMembershipAdminService,
+    ),
+    mutationService: module.get<PulseMembershipAdminMutationService>(
+      PulseMembershipAdminMutationService,
+    ),
+    queryService: module.get<PulseMembershipAdminQueryService>(
+      PulseMembershipAdminQueryService,
     ),
     platformMembershipService,
     prismaService,

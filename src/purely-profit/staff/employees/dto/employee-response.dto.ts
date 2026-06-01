@@ -4,6 +4,7 @@ import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -60,6 +61,66 @@ export class EmployeesOverviewQueryDto {
   @IsInt({ message: '门店 ID 必须是整数' })
   @Min(1, { message: '门店 ID 必须大于等于 1' })
   storeId?: number;
+}
+
+export const EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES = [
+  'cashier',
+  'manager',
+  'finance',
+] as const;
+export const EMPLOYEE_SUB_ACCOUNT_STATUS_VALUES = [
+  'active',
+  'inactive',
+  'disabled',
+] as const;
+
+export class EmployeeSubAccountResponseDto {
+  @ApiProperty({ example: '12', description: '子账号槽位 ID' })
+  @IsString({ message: '子账号槽位 ID 必须是字符串' })
+  id: string;
+
+  @ApiProperty({
+    enum: EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES,
+    description:
+      '子账号角色：cashier=收银员视角 / manager=店长视角 / finance=财务视角',
+  })
+  @IsIn(EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES, { message: '子账号角色不合法' })
+  role: (typeof EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES)[number];
+
+  @ApiProperty({
+    enum: EMPLOYEE_SUB_ACCOUNT_STATUS_VALUES,
+    description: '子账号状态：active=启用 / inactive=停用 / disabled=已禁用',
+  })
+  @IsIn(EMPLOYEE_SUB_ACCOUNT_STATUS_VALUES, { message: '子账号状态不合法' })
+  status: (typeof EMPLOYEE_SUB_ACCOUNT_STATUS_VALUES)[number];
+
+  @ApiProperty({ example: 1, description: '账号槽位序号（1~10）' })
+  @IsInt({ message: '账号槽位序号必须是整数' })
+  slotIndex: number;
+
+  @ApiPropertyOptional({
+    example: '138****8000 / store_mgr01',
+    description: '登录账号展示文案，支持手机号或手机号 / 自定义账号',
+  })
+  @IsOptional()
+  @IsString({ message: '登录账号展示文案必须是字符串' })
+  loginAccount?: string;
+
+  @ApiProperty({ example: true, description: '是否可参与交班' })
+  @IsBoolean({ message: '交班权限标记必须是布尔值' })
+  canHandover: boolean;
+
+  @ApiProperty({ example: true, description: '是否已设置登录密码' })
+  @IsBoolean({ message: '密码设置标记必须是布尔值' })
+  hasPassword: boolean;
+
+  @ApiProperty({ example: 1740009600000, description: '创建时间戳（毫秒）' })
+  @IsInt({ message: '创建时间必须是整数时间戳' })
+  createdAt: number;
+
+  @ApiProperty({ example: 1740096000000, description: '更新时间戳（毫秒）' })
+  @IsInt({ message: '更新时间必须是整数时间戳' })
+  updatedAt: number;
 }
 
 export class EmployeeResponseDto {
@@ -164,6 +225,13 @@ export class EmployeeResponseDto {
   @ApiProperty({ example: 1740096000000, description: '更新时间戳（毫秒）' })
   @IsInt({ message: '更新时间必须是整数时间戳' })
   updatedAt: number;
+
+  @ApiPropertyOptional({
+    type: EmployeeSubAccountResponseDto,
+    description: '员工绑定的子账号摘要；未设置时不返回',
+  })
+  @IsOptional()
+  subAccount?: EmployeeSubAccountResponseDto;
 }
 
 export class PaginatedEmployeesResponseDto {

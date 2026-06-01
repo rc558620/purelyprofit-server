@@ -5,6 +5,7 @@ import type {
   EmployeePayroll,
   EmployeePosition,
   EmployeeShift,
+  EmployeeShiftDefinition,
 } from '@prisma/client';
 import {
   EmployeeDepartmentResponseDto,
@@ -12,8 +13,12 @@ import {
 } from './dto/employee-dictionary.dto';
 import { EmployeeLeaveResponseDto } from './dto/employee-leave.dto';
 import { EmployeePayrollResponseDto } from './dto/employee-payroll.dto';
-import { EmployeeResponseDto } from './dto/employee-response.dto';
+import {
+  EmployeeResponseDto,
+  type EmployeeSubAccountResponseDto,
+} from './dto/employee-response.dto';
 import { EmployeeShiftResponseDto } from './dto/employee-shift.dto';
+import { EmployeeShiftDefinitionResponseDto } from './dto/employee-shift-definition.dto';
 import {
   toDecimalNumber,
   toOptionalText,
@@ -22,7 +27,10 @@ import {
 } from './employees.utils';
 import { toOptionalMediaText } from '../../commerce/commerce.utils';
 
-export function toEmployeeResponse(employee: Employee): EmployeeResponseDto {
+export function toEmployeeResponse(
+  employee: Employee,
+  subAccount?: EmployeeSubAccountResponseDto,
+): EmployeeResponseDto {
   return {
     id: String(employee.id),
     empNo: employee.empNo,
@@ -54,6 +62,7 @@ export function toEmployeeResponse(employee: Employee): EmployeeResponseDto {
     ...(employee.resignReason ? { resignReason: employee.resignReason } : {}),
     createdAt: toTimestampMs(employee.createdAt),
     updatedAt: toTimestampMs(employee.updatedAt),
+    ...(subAccount ? { subAccount } : {}),
   };
 }
 
@@ -83,6 +92,19 @@ export function toEmployeePositionResponse(
   };
 }
 
+export function toEmployeeShiftDefinitionResponse(
+  definition: EmployeeShiftDefinition,
+): EmployeeShiftDefinitionResponseDto {
+  return {
+    id: String(definition.id),
+    name: definition.name,
+    defaultStartTime: definition.defaultStartTime,
+    defaultEndTime: definition.defaultEndTime,
+    createdAt: toTimestampMs(definition.createdAt),
+    updatedAt: toTimestampMs(definition.updatedAt),
+  };
+}
+
 export function toEmployeeLeaveResponse(
   leave: EmployeeLeave,
 ): EmployeeLeaveResponseDto {
@@ -109,7 +131,10 @@ export function toEmployeeShiftResponse(
     employeeId: String(shift.employeeId),
     employeeName: shift.employeeName,
     date: toTimestampMs(shift.date),
-    shiftType: shift.shiftType,
+    ...(shift.shiftDefinitionId !== null
+      ? { shiftDefinitionId: String(shift.shiftDefinitionId) }
+      : {}),
+    shiftName: shift.shiftName,
     startTime: shift.startTime,
     endTime: shift.endTime,
     ...(shift.note ? { note: shift.note } : {}),
