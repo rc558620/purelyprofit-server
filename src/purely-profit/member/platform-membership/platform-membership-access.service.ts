@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import {
   EmployeeStatus,
   StoreSubAccountRole,
@@ -161,7 +165,13 @@ export class PlatformMembershipAccessService {
     }
   }
 
-  async ensureFinanceFeatureEnabled(storeId: number): Promise<void> {
+  async ensureFinanceFeatureEnabled(
+    storeId: number,
+    callerIsSubAccount = false,
+  ): Promise<void> {
+    if (callerIsSubAccount) {
+      return;
+    }
     const snapshot = await this.getStoreRuleSnapshot(storeId);
     if (!snapshot.financeEnabled) {
       throw new ForbiddenException(
@@ -170,7 +180,13 @@ export class PlatformMembershipAccessService {
     }
   }
 
-  async ensureMarketingFeatureEnabled(storeId: number): Promise<void> {
+  async ensureMarketingFeatureEnabled(
+    storeId: number,
+    callerIsSubAccount = false,
+  ): Promise<void> {
+    if (callerIsSubAccount) {
+      return;
+    }
     const snapshot = await this.getStoreRuleSnapshot(storeId);
     if (!snapshot.marketingEnabled) {
       throw new ForbiddenException(
@@ -179,7 +195,13 @@ export class PlatformMembershipAccessService {
     }
   }
 
-  async ensureReportExportEnabled(storeId: number): Promise<void> {
+  async ensureReportExportEnabled(
+    storeId: number,
+    callerIsSubAccount = false,
+  ): Promise<void> {
+    if (callerIsSubAccount) {
+      return;
+    }
     const snapshot = await this.getStoreRuleSnapshot(storeId);
     if (!snapshot.reportExportEnabled) {
       throw new ForbiddenException(
@@ -188,7 +210,13 @@ export class PlatformMembershipAccessService {
     }
   }
 
-  async getHistoryWindowStart(storeId: number): Promise<number | null> {
+  async getHistoryWindowStart(
+    storeId: number,
+    callerIsSubAccount = false,
+  ): Promise<number | null> {
+    if (callerIsSubAccount) {
+      return null;
+    }
     const snapshot = await this.getStoreRuleSnapshot(storeId);
     if (snapshot.historyDays === null) {
       return null;
@@ -200,13 +228,17 @@ export class PlatformMembershipAccessService {
   async clampHistoryRange(
     storeId: number,
     range: { start: number; end: number },
+    callerIsSubAccount = false,
   ): Promise<{
     start: number;
     end: number;
     clamped: boolean;
     empty: boolean;
   }> {
-    const historyWindowStart = await this.getHistoryWindowStart(storeId);
+    const historyWindowStart = await this.getHistoryWindowStart(
+      storeId,
+      callerIsSubAccount,
+    );
     if (historyWindowStart === null) {
       return {
         start: range.start,
@@ -335,24 +367,11 @@ export class PlatformMembershipAccessService {
       }
 
       console.warn(
-        '[membership-access] store_membership_profiles.sub_account_quota schema not ready, fallback to legacy profile query',
+        '[membership-access] store_membership_profiles.sub_account_quota schema not ready, deny request to avoid stale membership capability fallback',
       );
-
-      const profile = await this.prisma.storeMembershipProfile.findUnique({
-        where: { storeId },
-        select: {
-          currentPlanId: true,
-          startsAt: true,
-          expiresAt: true,
-        },
-      });
-
-      return profile
-        ? {
-            ...profile,
-            subAccountQuota: 0,
-          }
-        : null;
+      throw new UnauthorizedException(
+        '会员能力上下文未就绪，请联系管理员完成系统升级后重试',
+      );
     }
   }
 

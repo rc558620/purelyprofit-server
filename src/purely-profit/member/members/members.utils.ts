@@ -1,4 +1,6 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PaginationMetaDto } from '../../stores/dto/store-response.dto';
+import type { AdjustmentDirectionValue } from './dto/adjust-member-points.dto';
 
 export const MEMBER_STATUS_VALUES = ['active', 'inactive', 'banned'] as const;
 export const MEMBER_LEVEL_VALUES = [
@@ -113,4 +115,45 @@ export function resolvePagination(
     skip: (safePage - 1) * take,
     take,
   };
+}
+
+export function parseMemberId(memberId?: string): number {
+  if (!memberId) {
+    throw new NotFoundException('缺少会员 ID');
+  }
+
+  const parsedMemberId = Number.parseInt(memberId, 10);
+  if (!Number.isInteger(parsedMemberId) || parsedMemberId <= 0) {
+    throw new NotFoundException('会员 ID 不合法');
+  }
+
+  return parsedMemberId;
+}
+
+export function resolveAdjustmentDelta(
+  input: {
+    delta?: number;
+    amount?: number;
+    direction?: AdjustmentDirectionValue;
+  },
+  assetLabel: string,
+): number {
+  if (typeof input.delta === 'number') {
+    return input.delta;
+  }
+
+  if (typeof input.amount !== 'number') {
+    throw new BadRequestException(`缺少${assetLabel}调整值`);
+  }
+
+  switch (input.direction) {
+    case 'add':
+      return Math.abs(input.amount);
+    case 'subtract':
+    case 'deduct':
+    case 'reduce':
+      return -Math.abs(input.amount);
+    default:
+      return input.amount;
+  }
 }

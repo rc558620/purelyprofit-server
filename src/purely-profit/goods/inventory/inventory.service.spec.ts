@@ -657,7 +657,7 @@ describe('InventoryService', () => {
     });
     expect(
       platformMembershipAccessService.ensureReportExportEnabled,
-    ).toHaveBeenCalledWith(18);
+    ).toHaveBeenCalledWith(18, false);
   });
 
   it('getReport 在导出权限不足时拒绝访问', async () => {

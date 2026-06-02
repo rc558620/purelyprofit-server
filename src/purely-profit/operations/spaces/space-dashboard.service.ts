@@ -21,10 +21,14 @@ import {
   type SpacesDashboardResponseDto,
 } from './dto/space.dto';
 import {
-  SpaceSessionsService,
-  type SpaceSessionItemRecord,
-  type SpaceSessionRenewRecord,
-} from './space-sessions.service';
+  parseSpaceSessionItems,
+  parseSpaceSessionRenewRecords,
+} from './space-sessions.mapper';
+import { sumLineTotal } from './space-session-items.shared';
+import type {
+  SpaceSessionItemRecord,
+  SpaceSessionRenewRecord,
+} from './space-sessions.types';
 import { toSpaceResponse, type SpaceWithRelations } from './spaces.mapper';
 import { SPACE_WITH_RELATIONS_INCLUDE } from './spaces.query';
 
@@ -48,7 +52,6 @@ export class SpaceDashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
-    private readonly spaceSessionsService: SpaceSessionsService,
   ) {}
 
   async getSpacesDashboard(
@@ -283,9 +286,10 @@ export class SpaceDashboardService {
       todayRevenue: Number(
         sessions
           .reduce((sum, session) => {
-            const items: SpaceSessionItemRecord[] =
-              this.spaceSessionsService.parseSpaceSessionItems(session.items);
-            return sum + this.spaceSessionsService.sumLineTotal(items);
+            const items: SpaceSessionItemRecord[] = parseSpaceSessionItems(
+              session.items,
+            );
+            return sum + sumLineTotal(items);
           }, 0)
           .toFixed(2),
       ),
@@ -370,9 +374,7 @@ export class SpaceDashboardService {
     prepaidAmount: Prisma.Decimal | null;
   }): SpaceDashboardActiveSessionSummaryDto {
     const renewRecords: SpaceSessionRenewRecord[] =
-      this.spaceSessionsService.parseSpaceSessionRenewRecords(
-        session.renewRecords,
-      );
+      parseSpaceSessionRenewRecords(session.renewRecords);
 
     return {
       sessionId: String(session.id),

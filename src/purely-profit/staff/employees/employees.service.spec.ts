@@ -295,9 +295,10 @@ describe('EmployeesService', () => {
           subAccount: {
             id: '7',
             role: 'cashier',
+            roleLabel: '收银员',
             status: 'active',
             slotIndex: 2,
-            loginAccount: '138****8000 / store_mgr01',
+            loginAccount: '13800138000 / store_mgr01',
             canHandover: true,
             hasPassword: true,
             createdAt: createdAt.getTime(),
@@ -1468,9 +1469,10 @@ describe('EmployeesService', () => {
     expect(result.subAccount).toEqual({
       id: '7',
       role: 'cashier',
+      roleLabel: '收银员',
       status: 'active',
       slotIndex: 1,
-      loginAccount: '138****8000 / cashier_01',
+      loginAccount: '13800138000 / cashier_01',
       canHandover: true,
       hasPassword: true,
       createdAt: createdAt.getTime(),

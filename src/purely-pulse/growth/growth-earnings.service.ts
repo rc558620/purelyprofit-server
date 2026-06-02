@@ -18,8 +18,8 @@ import {
   type PulseEarningsLogsResponseDto,
   type PulseEarningsOverviewResponseDto,
   type PulseWithdrawalAccountResponseDto,
-  type UpdatePulseWithdrawalAccountDto,
-} from './dto/pulse-growth.dto';
+} from './dto/pulse-growth-earnings.dto';
+import type { UpdatePulseWithdrawalAccountDto } from './dto/pulse-growth-withdrawals.dto';
 import { PulseGrowthAccessService } from './growth-access.service';
 import {
   buildEarningsLogsResponse,

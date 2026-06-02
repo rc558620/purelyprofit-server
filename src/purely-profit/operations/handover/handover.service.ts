@@ -13,8 +13,11 @@ import type {
   HandoverPageResponseDto,
   HandoverRecordListItemDto,
   HandoverRecordListResponseDto,
+  HandoverRecordSummaryListResponseDto,
+  HandoverRecordSummaryQueryDto,
   UpdateHandoverAdditionalItemDto,
 } from './dto/handover.dto';
+
 import { HandoverAdditionalItemsService } from './handover-additional-items.service';
 import { HandoverConfirmService } from './handover-confirm.service';
 import { HandoverPageService } from './handover-page.service';
@@ -119,6 +122,13 @@ export class HandoverService {
     recordId: number,
   ): Promise<HandoverRecordListItemDto> {
     return this.handoverRecordsService.getHandoverRecord(user, recordId);
+  }
+
+  listHandoverRecordSummaries(
+    user: AuthenticatedUser,
+    query: HandoverRecordSummaryQueryDto,
+  ): Promise<HandoverRecordSummaryListResponseDto> {
+    return this.handoverRecordsService.listHandoverRecordSummaries(user, query);
   }
 
   getHandoverCandidates(storeId: number): Promise<HandoverCandidateDto[]> {

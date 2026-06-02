@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { StaffRole, StaffStatus } from '@prisma/client';
+import { StaffRole } from '@prisma/client';
 import { AccessControlService } from '../../access-control/access-control.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -71,36 +71,16 @@ export class StaffAccessService {
       | 'staff:update'
       | 'staff:delete',
   ): Promise<number | null> {
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        OR: [{ userId: user.id }, { email: user.email }, { phone: user.phone }],
-        isActive: true,
-        status: StaffStatus.ACTIVE,
-      },
-      select: {
-        id: true,
-        storeId: true,
-        role: true,
-        permissions: true,
-        isActive: true,
-      },
-      orderBy: {
-        id: 'asc',
-      },
-    });
-
-    if (!staff) {
-      return null;
+    const currentStoreId =
+      this.accessControlService.resolveCurrentStoreIdByPermission(
+        user,
+        requiredPermission,
+      );
+    if (currentStoreId !== null) {
+      return currentStoreId;
     }
 
-    const effectivePermissions =
-      this.accessControlService.getEffectivePermissions(staff);
-    return this.accessControlService.hasPermission(
-      effectivePermissions,
-      requiredPermission,
-    )
-      ? staff.storeId
-      : null;
+    return null;
   }
 
   async findManageableStaffOrThrow(

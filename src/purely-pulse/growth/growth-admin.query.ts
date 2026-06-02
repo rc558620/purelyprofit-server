@@ -3,7 +3,7 @@ import {
   Prisma,
   type PartnerWithdrawalStatus as PartnerWithdrawalStatusValue,
 } from '@prisma/client';
-import type { PulsePayoutTabValue } from './dto/pulse-growth.dto';
+import type { PulsePayoutTabValue } from './dto/pulse-growth-admin.dto';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 export interface AdminPartnerApplicationRecord {

@@ -9,13 +9,49 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { StaffRole } from '@prisma/client';
+import {
+  StaffRole,
+  StoreSubAccountRole,
+  StoreSubAccountStatus,
+} from '@prisma/client';
 import { StoreResponseDto } from '../../stores/dto/store-response.dto';
 
 export class ProfileMembershipDto {
+  @ApiProperty({
+    example: 'sub_account',
+    description: '身份类型: owner/staff/sub_account',
+  })
+  @IsString({ message: '身份类型必须是字符串' })
+  identityType: string;
+
+  @ApiPropertyOptional({
+    enum: StoreSubAccountRole,
+    example: StoreSubAccountRole.manager,
+    description: '子账号角色 code，仅当 identityType 为 sub_account 时返回',
+  })
+  @IsOptional()
+  @IsString({ message: '子账号角色 code 必须是字符串' })
+  subAccountRole?: StoreSubAccountRole;
+
+  @ApiPropertyOptional({
+    example: '店长',
+    description: '子账号角色中文标识，仅当 identityType 为 sub_account 时返回',
+  })
+  @IsOptional()
+  @IsString({ message: '子账号角色标识必须是字符串' })
+  subAccountRoleLabel?: string;
+
   @ApiProperty({ example: 1, description: '员工关系 ID' })
   @IsInt({ message: '员工关系 ID 必须是整数' })
   staffId: number;
+
+  @ApiPropertyOptional({
+    example: 12,
+    description: '关联员工档案 ID，仅存在员工映射时返回',
+  })
+  @IsOptional()
+  @IsInt({ message: '关联员工档案 ID 必须是整数' })
+  linkedEmployeeId?: number;
 
   @ApiProperty({ example: 1, description: '所属门店 ID' })
   @IsInt({ message: '所属门店 ID 必须是整数' })
@@ -33,6 +69,47 @@ export class ProfileMembershipDto {
   @ApiProperty({ example: true, description: '当前门店关系是否启用' })
   @IsBoolean({ message: '当前门店关系启用状态必须是布尔值' })
   isActive: boolean;
+
+  @ApiPropertyOptional({
+    example: 3,
+    description: '子账号 ID，仅当 identityType 为 sub_account 时返回',
+  })
+  @IsOptional()
+  @IsInt({ message: '子账号 ID 必须是整数' })
+  subAccountId?: number;
+
+  @ApiPropertyOptional({
+    enum: StoreSubAccountStatus,
+    example: StoreSubAccountStatus.active,
+    description: '子账号状态，仅当 identityType 为 sub_account 时返回',
+  })
+  @IsOptional()
+  @IsString({ message: '子账号状态必须是字符串' })
+  subAccountStatus?: StoreSubAccountStatus;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '子账号是否已绑定岗位，仅当 identityType 为 sub_account 时返回',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '子账号绑定状态必须是布尔值' })
+  subAccountAssigned?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '子账号是否允许访问首页，仅当 identityType 为 sub_account 时返回',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '首页访问开关必须是布尔值' })
+  canAccessHome?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '子账号是否允许使用交班，仅当 identityType 为 sub_account 时返回',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '交班权限开关必须是布尔值' })
+  canUseHandover?: boolean;
 }
 
 export class ProfileUserDto {

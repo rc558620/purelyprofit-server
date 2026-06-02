@@ -253,7 +253,7 @@ describe('FinanceOverviewService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(
       platformMembershipAccessService.ensureReportExportEnabled,
-    ).toHaveBeenCalledWith(18);
+    ).toHaveBeenCalledWith(18, false);
     expect(prismaService.financeCashFlowRecord.findMany).not.toHaveBeenCalled();
   });
 

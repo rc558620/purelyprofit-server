@@ -51,15 +51,6 @@ type MembershipRow = {
   subAccountCanUseHandover: boolean | null;
 };
 
-type LegacyMembershipRow = {
-  id: number;
-  storeId: number;
-  role: StaffRole;
-  permissions: string[];
-  isActive: boolean;
-  linkedEmployeeId: number | null;
-};
-
 const PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX =
   'pulse:membership:admin:member:';
 
@@ -203,46 +194,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       }
 
       console.warn(
-        '[auth] store_sub_accounts schema not ready, fallback to legacy membership query',
+        '[auth] store_sub_accounts schema not ready, deny login to avoid stale permission fallback',
       );
-
-      const legacyMemberships = await this.prisma.$queryRaw<
-        LegacyMembershipRow[]
-      >`
-        SELECT
-          st.id,
-          st.store_id AS "storeId",
-          st.role,
-          st.permissions,
-          st.is_active AS "isActive",
-          emp.id AS "linkedEmployeeId"
-        FROM staffs st
-        LEFT JOIN employees emp ON emp.linked_staff_id = st.id
-        WHERE st.is_active = true
-          AND st.status = 'ACTIVE'
-          AND (
-            st.user_id = ${payload.sub}
-            OR st.email = ${userEmail}
-            OR st.phone = ${payload.phone}
-          )
-        ORDER BY
-          CASE
-            WHEN st.role = 'OWNER' THEN 1
-            WHEN st.role = 'MANAGER' THEN 2
-            ELSE 3
-          END,
-          st.id ASC
-      `;
-
-      return legacyMemberships.map((membership) => ({
-        ...membership,
-        subAccountId: null,
-        subAccountRole: null,
-        subAccountStatus: null,
-        subAccountAssigned: null,
-        subAccountCanAccessHome: null,
-        subAccountCanUseHandover: null,
-      }));
+      throw new UnauthorizedException(
+        '登录态能力上下文未就绪，请联系管理员完成系统升级后重试',
+      );
     }
   }
 

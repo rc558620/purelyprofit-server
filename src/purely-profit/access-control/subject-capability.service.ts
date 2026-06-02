@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import type { StoreSubAccountRole } from '@prisma/client';
+import {
+  StoreSubAccountRole,
+  StoreSubAccountStatus,
+} from '@prisma/client';
 import type {
   AuthenticatedMembership,
   IdentityType,
@@ -44,14 +47,19 @@ const CASHIER_ALLOWED_HOME_MODULES: ProfitHomeModule[] = [
 
 const MANAGER_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
   'additional',
+  'business-analysis',
+  'goods-management',
   'handover-management',
-  'member-center',
+  'marketing-center',
   'space-management',
+  'staff-management',
 ]);
 
 const FINANCE_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
   'business-analysis',
   'finance-center',
+  'goods-management',
+  'staff-management',
 ]);
 
 @Injectable()
@@ -94,7 +102,7 @@ export class SubjectCapabilityService {
     effectivePermissions: readonly string[],
   ): ProfitHomeModule[] {
     if (membership?.subjectType === 'sub_account') {
-      return this.resolveSubAccountHomeModules(membership.subAccountRole);
+      return this.resolveSubAccountHomeModules(membership);
     }
 
     const allowed = new Set<ProfitHomeModule>(['additional']);
@@ -160,25 +168,35 @@ export class SubjectCapabilityService {
   }
 
   private resolveSubAccountHomeModules(
-    subAccountRole: StoreSubAccountRole | null,
+    membership: AuthenticatedMembership,
   ): ProfitHomeModule[] {
-    if (subAccountRole === 'cashier') {
-      return [...CASHIER_ALLOWED_HOME_MODULES];
+    if (
+      membership.subAccountRole === null ||
+      membership.subAccountStatus !== StoreSubAccountStatus.active ||
+      !membership.subAccountAssigned ||
+      !membership.canAccessHome
+    ) {
+      return [];
     }
 
-    if (subAccountRole === 'finance') {
-      return PROFIT_HOME_MODULES.filter((moduleName) =>
-        FINANCE_ALLOWED_HOME_MODULES.has(moduleName),
-      );
-    }
+    const allowedHomeModules =
+      membership.subAccountRole === 'cashier'
+        ? [...CASHIER_ALLOWED_HOME_MODULES]
+        : membership.subAccountRole === 'finance'
+          ? PROFIT_HOME_MODULES.filter((moduleName) =>
+              FINANCE_ALLOWED_HOME_MODULES.has(moduleName),
+            )
+          : membership.subAccountRole === 'manager'
+            ? PROFIT_HOME_MODULES.filter((moduleName) =>
+                MANAGER_ALLOWED_HOME_MODULES.has(moduleName),
+              )
+            : [];
 
-    if (subAccountRole === 'manager') {
-      return PROFIT_HOME_MODULES.filter((moduleName) =>
-        MANAGER_ALLOWED_HOME_MODULES.has(moduleName),
-      );
-    }
-
-    return [];
+    return membership.canUseHandover
+      ? allowedHomeModules
+      : allowedHomeModules.filter(
+          (moduleName) => moduleName !== 'handover-management',
+        );
   }
 
   private hasAnyPermission(

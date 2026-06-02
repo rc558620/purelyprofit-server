@@ -3,7 +3,12 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { HandoverMode, HandoverStatus } from '@prisma/client';
+import {
+  EmployeeShiftType,
+  HandoverMode,
+  HandoverStatus,
+  Prisma,
+} from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
@@ -309,6 +314,72 @@ describe('HandoverRecordsService', () => {
 
       await expect(service.getHandoverRecord(ownerUser, 999)).rejects.toThrow(
         NotFoundException,
+      );
+    });
+  });
+
+  describe('listHandoverRecordSummaries', () => {
+    it('返回交班记录弹窗摘要列表', async () => {
+      prismaService.storeHandoverRecord.findMany.mockResolvedValue([
+        mockRecord,
+      ]);
+      prismaService.storeHandoverRecord.count.mockResolvedValue(1);
+      prismaService.employeeShift.findFirst.mockResolvedValue({
+        shiftType: EmployeeShiftType.morning,
+        shiftName: '早班',
+        startTime: '09:00',
+        endTime: '17:00',
+      });
+      prismaService.saleOrder.aggregate.mockResolvedValue({
+        _sum: { totalRevenue: new Prisma.Decimal('1004.65') },
+      });
+
+      const result = await service.listHandoverRecordSummaries(ownerUser, {
+        preset: 'today',
+        limit: 20,
+        offset: 0,
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.items[0]).toMatchObject({
+        id: 1,
+        operatorName: '老板',
+        shiftType: EmployeeShiftType.morning,
+        shiftLabel: '早班',
+        totalRevenue: 1004.65,
+        displayStatus: 'active',
+      });
+      expect(result.items[0].timeDesc).toContain('09:00–17:00');
+      expect(prismaService.storeHandoverRecord.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            storeId: 100,
+            createdAt: expect.any(Object),
+          }),
+          take: 20,
+          skip: 0,
+        }),
+      );
+    });
+
+    it('指定 date 时优先按日期过滤', async () => {
+      prismaService.storeHandoverRecord.findMany.mockResolvedValue([]);
+      prismaService.storeHandoverRecord.count.mockResolvedValue(0);
+
+      await service.listHandoverRecordSummaries(ownerUser, {
+        preset: '30d',
+        date: '2026-06-02',
+      });
+
+      expect(prismaService.storeHandoverRecord.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            createdAt: expect.objectContaining({
+              gte: new Date(2026, 5, 2, 0, 0, 0, 0),
+              lte: new Date(2026, 5, 2, 23, 59, 59, 999),
+            }),
+          }),
+        }),
       );
     });
   });

@@ -93,8 +93,9 @@ describe('SalesRecordReportService', () => {
     ).rejects.toThrow('forbidden');
     expect(
       platformMembershipAccessService.ensureReportExportEnabled,
-    ).toHaveBeenCalledWith(18);
+    ).toHaveBeenCalledWith(18, false);
   });
+
 
   it('getReport 返回报表中心可直接消费的按天商品聚合数据', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);

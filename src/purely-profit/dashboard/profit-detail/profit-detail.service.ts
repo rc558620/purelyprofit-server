@@ -50,7 +50,9 @@ export class ProfitDetailService {
       query.storeId,
       '无权查看该门店利润详情',
     );
-    const snapshot = await this.buildProfitSnapshot(storeId, query);
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
+    const snapshot = await this.buildProfitSnapshot(storeId, query, callerIsSubAccount);
 
     if (!snapshot) {
       return buildEmptyProfitDetailResponse();
@@ -69,14 +71,17 @@ export class ProfitDetailService {
       query.storeId,
       '无权查看该门店利润报表',
     );
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
 
     if (queryDto.export) {
       await this.platformMembershipAccessService.ensureReportExportEnabled(
         storeId,
+        callerIsSubAccount,
       );
     }
 
-    const snapshot = await this.buildProfitSnapshot(storeId, query);
+    const snapshot = await this.buildProfitSnapshot(storeId, query, callerIsSubAccount);
 
     if (!snapshot) {
       return buildEmptyProfitReportResponse();
@@ -101,6 +106,7 @@ export class ProfitDetailService {
   private async buildProfitSnapshot(
     storeId: number,
     query: ProfitDetailQueryInput,
+    callerIsSubAccount = false,
   ): Promise<ProfitMetricsSnapshot | null> {
     const currentRange = buildCurrentRange(query);
     const previousRange = buildPreviousRange(query, currentRange);
@@ -112,6 +118,7 @@ export class ProfitDetailService {
       storeId,
       currentRange,
       previousRange,
+      callerIsSubAccount,
     );
 
     if (clampedCurrentRange.empty) {

@@ -3,7 +3,7 @@ import type {
   PulseEarningsLogsResponseDto,
   PulseEarningsOverviewResponseDto,
   PulseWithdrawalAccountResponseDto,
-} from '../growth/dto/pulse-growth.dto';
+} from '../growth/dto/pulse-growth-earnings.dto';
 
 @Injectable()
 export class PulseDevModeGrowthService {

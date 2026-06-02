@@ -56,10 +56,13 @@ export class CostsReadService {
       return [];
     }
 
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     const where = await buildHistoryAwareCostRecordWhere(
       this.platformMembershipAccessService,
       storeId,
       query,
+      callerIsSubAccount,
     );
     if (where === null) {
       return [];
@@ -88,10 +91,13 @@ export class CostsReadService {
       return buildEmptyCostStatsResponse();
     }
 
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     const currentWhere = await buildHistoryAwareCostRecordWhere(
       this.platformMembershipAccessService,
       storeId,
       query,
+      callerIsSubAccount,
     );
     if (currentWhere === null) {
       return buildEmptyCostStatsResponse();
@@ -116,6 +122,7 @@ export class CostsReadService {
       storeId,
       query,
       total,
+      callerIsSubAccount,
     );
 
     return {
@@ -142,9 +149,12 @@ export class CostsReadService {
       return buildEmptyCostReportResponse();
     }
 
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     if (query.export) {
       await this.platformMembershipAccessService.ensureReportExportEnabled(
         storeId,
+        callerIsSubAccount,
       );
     }
 
@@ -163,11 +173,13 @@ export class CostsReadService {
       await this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         currentRange,
+        callerIsSubAccount,
       );
     const clampedPreviousRange = previousRange
       ? await this.platformMembershipAccessService.clampHistoryRange(
           storeId,
           previousRange,
+          callerIsSubAccount,
         )
       : null;
     const categoryFilter = query.categoryFilter ?? 'all';
@@ -221,6 +233,7 @@ export class CostsReadService {
     storeId: number,
     query: CostRecordStatsQueryDto,
     total: number,
+    callerIsSubAccount = false,
   ): Promise<number | null> {
     if (!shouldComparePreviousCostPeriod(query.period)) {
       return null;
@@ -235,7 +248,7 @@ export class CostsReadService {
       await this.platformMembershipAccessService.clampHistoryRange(storeId, {
         start: previousRange.gte.getTime(),
         end: previousRange.lte.getTime(),
-      });
+      }, callerIsSubAccount);
 
     if (clampedPreviousRange.empty) {
       return null;

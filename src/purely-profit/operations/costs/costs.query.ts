@@ -15,11 +15,13 @@ export async function buildHistoryAwareCostRecordWhere(
   platformMembershipAccessService: PlatformMembershipAccessService,
   storeId: number,
   query: CostQueryInput,
+  callerIsSubAccount = false,
 ): Promise<Prisma.CostRecordWhereInput | null> {
   const range = await buildHistoryAwareCostRange(
     platformMembershipAccessService,
     storeId,
     query,
+    callerIsSubAccount,
   );
 
   if (range === null) {
@@ -122,11 +124,15 @@ async function buildHistoryAwareCostRange(
   platformMembershipAccessService: PlatformMembershipAccessService,
   storeId: number,
   query: CostQueryInput,
+  callerIsSubAccount = false,
 ): Promise<CostFilterRange | null | undefined> {
   const range = buildCostRange(query);
   if (!range) {
     const historyWindowStart =
-      await platformMembershipAccessService.getHistoryWindowStart(storeId);
+      await platformMembershipAccessService.getHistoryWindowStart(
+        storeId,
+        callerIsSubAccount,
+      );
     if (historyWindowStart === null) {
       return undefined;
     }
@@ -143,6 +149,7 @@ async function buildHistoryAwareCostRange(
       start: range.gte.getTime(),
       end: range.lte.getTime(),
     },
+    callerIsSubAccount,
   );
   if (clampedRange.empty) {
     return null;

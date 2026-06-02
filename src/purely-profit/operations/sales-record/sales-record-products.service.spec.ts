@@ -84,6 +84,12 @@ describe('SalesRecordProductsService', () => {
         quantity: 0,
       },
     ]);
+    expect(commerceAccessService.resolveViewStoreId).toHaveBeenCalledWith(
+      user,
+      18,
+      'operation-entry:view',
+      '无权查看该门店开始营业商品',
+    );
     expect(prismaService.product.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({

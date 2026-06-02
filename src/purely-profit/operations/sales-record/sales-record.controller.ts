@@ -46,7 +46,7 @@ export class SalesRecordController {
   constructor(private readonly salesRecordService: SalesRecordService) {}
 
   @Get('products')
-  @RequirePermissions('sales:view')
+  @RequirePermissions('operation-entry:view')
   @ApiOperation({ summary: '获取开始营业商品列表' })
   @ApiOkResponse({ type: [SalesProductResponseDto] })
   listProducts(

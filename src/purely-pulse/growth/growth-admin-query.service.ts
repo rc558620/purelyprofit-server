@@ -1,0 +1,150 @@
+import { ConflictException, Injectable } from '@nestjs/common';
+import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { PrismaService } from '../../prisma/prisma.service';
+import {
+  PULSE_ADMIN_PARTNER_APPLICATION_DEFAULT_LIMIT,
+  PULSE_ADMIN_PAYOUT_DEFAULT_LIMIT,
+  type GetPulseAdminPartnerApplicationsQueryDto,
+  type GetPulseAdminPayoutsQueryDto,
+  type PulseAdminPartnerApplicationsResponseDto,
+  type PulseAdminPayoutsResponseDto,
+} from './dto/pulse-growth-admin.dto';
+import {
+  buildAdminPartnerApplicationsResponse,
+  buildAdminPayoutsResponse,
+  buildAdminPromoDetailResponse,
+  parseAdminPartnerApplicationsCursor,
+  parseAdminPayoutsCursor,
+  resolvePromoDateRange,
+} from './growth-admin.domain';
+import type { PulseAdminPromoDetailResponse } from './growth-admin.domain';
+import { PulseGrowthAccessService } from './growth-access.service';
+import {
+  queryAdminPartnerApplications,
+  queryAdminPartnerApplicationStats,
+  queryAdminPayouts,
+  queryAdminPayoutStats,
+  queryAdminPromoPartners,
+} from './growth-admin.query';
+
+@Injectable()
+export class PulseGrowthAdminQueryService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accessService: PulseGrowthAccessService,
+  ) {}
+
+  async getAdminPromoDetail(
+    user: AuthenticatedUser,
+    rawQuery: Record<string, unknown>,
+  ): Promise<PulseAdminPromoDetailResponse> {
+    const storeWhere = await this.accessService.buildAdminStoreWhere(user, {
+      notFoundMessage: '当前未选中目标商家门店，暂无法查看推广详情',
+    });
+    const dateRange = resolvePromoDateRange(rawQuery);
+    const partners = await queryAdminPromoPartners(this.prisma, storeWhere);
+
+    return buildAdminPromoDetailResponse(partners, dateRange);
+  }
+
+  async listAdminPartnerApplications(
+    user: AuthenticatedUser,
+    query: GetPulseAdminPartnerApplicationsQueryDto,
+  ): Promise<PulseAdminPartnerApplicationsResponseDto> {
+    const where = await this.accessService.buildPartnerApplicationWhere(user);
+    const cursorPagination =
+      this.resolveAdminPartnerApplicationsCursorPagination(query);
+    const [applications, stats] = await Promise.all([
+      queryAdminPartnerApplications(this.prisma, {
+        where,
+        tab: query.tab,
+        cursor: cursorPagination.cursor,
+        limit: cursorPagination.limit,
+      }),
+      queryAdminPartnerApplicationStats(this.prisma, where),
+    ]);
+
+    return buildAdminPartnerApplicationsResponse({
+      applications,
+      stats,
+      limit: cursorPagination.limit,
+    });
+  }
+
+  async listAdminPayouts(
+    user: AuthenticatedUser,
+    query: GetPulseAdminPayoutsQueryDto,
+  ): Promise<PulseAdminPayoutsResponseDto> {
+    const where = await this.accessService.buildAdminPayoutWhere(user);
+    const cursorPagination = this.resolveAdminPayoutCursorPagination(query);
+    const [withdrawals, stats] = await Promise.all([
+      queryAdminPayouts(this.prisma, {
+        where,
+        tab: query.tab,
+        cursor: cursorPagination.cursor,
+        limit: cursorPagination.limit,
+      }),
+      queryAdminPayoutStats(this.prisma, where),
+    ]);
+
+    return buildAdminPayoutsResponse({
+      withdrawals,
+      stats,
+      limit: cursorPagination.limit,
+    });
+  }
+
+  private resolveAdminPartnerApplicationsCursorPagination(
+    query: GetPulseAdminPartnerApplicationsQueryDto,
+  ): {
+    cursor?: { createdAt: Date; id: number };
+    limit?: number;
+  } {
+    if (query.cursor === undefined && query.limit === undefined) {
+      return {};
+    }
+
+    if (query.cursor === undefined) {
+      return {
+        limit: query.limit ?? PULSE_ADMIN_PARTNER_APPLICATION_DEFAULT_LIMIT,
+      };
+    }
+
+    const cursor = parseAdminPartnerApplicationsCursor(query.cursor);
+    if (!cursor) {
+      throw new ConflictException('cursor 格式不合法');
+    }
+
+    return {
+      cursor,
+      limit: query.limit ?? PULSE_ADMIN_PARTNER_APPLICATION_DEFAULT_LIMIT,
+    };
+  }
+
+  private resolveAdminPayoutCursorPagination(
+    query: GetPulseAdminPayoutsQueryDto,
+  ): {
+    cursor?: { appliedAt: Date; id: number };
+    limit?: number;
+  } {
+    if (query.cursor === undefined && query.limit === undefined) {
+      return {};
+    }
+
+    if (query.cursor === undefined) {
+      return {
+        limit: query.limit ?? PULSE_ADMIN_PAYOUT_DEFAULT_LIMIT,
+      };
+    }
+
+    const cursor = parseAdminPayoutsCursor(query.cursor);
+    if (!cursor) {
+      throw new ConflictException('cursor 格式不合法');
+    }
+
+    return {
+      cursor,
+      limit: query.limit ?? PULSE_ADMIN_PAYOUT_DEFAULT_LIMIT,
+    };
+  }
+}

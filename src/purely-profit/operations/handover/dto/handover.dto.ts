@@ -12,7 +12,9 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -32,6 +34,23 @@ export const HandoverStatusDto = {
 
 export type HandoverStatusDto =
   (typeof HandoverStatusDto)[keyof typeof HandoverStatusDto];
+
+export const HandoverRecordDisplayStatusDto = {
+  DONE: 'done',
+  ACTIVE: 'active',
+} as const;
+
+export type HandoverRecordDisplayStatusDto =
+  (typeof HandoverRecordDisplayStatusDto)[keyof typeof HandoverRecordDisplayStatusDto];
+
+export const HandoverRecordsPresetDto = {
+  TODAY: 'today',
+  SEVEN_DAYS: '7d',
+  THIRTY_DAYS: '30d',
+} as const;
+
+export type HandoverRecordsPresetDto =
+  (typeof HandoverRecordsPresetDto)[keyof typeof HandoverRecordsPresetDto];
 
 export class HandoverPageQueryDto {
   @ApiPropertyOptional({
@@ -366,6 +385,111 @@ export class HandoverRecordListResponseDto {
     description: '交班记录列表',
   })
   items: HandoverRecordListItemDto[];
+
+  @ApiProperty({ example: 10, description: '总数' })
+  total: number;
+}
+
+export class HandoverRecordSummaryQueryDto {
+  @ApiPropertyOptional({
+    description: '筛选范围：today/7d/30d，默认 today',
+    enum: HandoverRecordsPresetDto,
+    example: HandoverRecordsPresetDto.TODAY,
+  })
+  @IsOptional()
+  @IsEnum(HandoverRecordsPresetDto, { message: '筛选范围不正确' })
+  preset?: HandoverRecordsPresetDto;
+
+  @ApiPropertyOptional({
+    description: '指定日期，格式 YYYY-MM-DD；传入后优先按该日期过滤',
+    example: '2026-06-02',
+  })
+  @IsOptional()
+  @IsString({ message: '日期必须是字符串' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: '日期格式必须为 YYYY-MM-DD',
+  })
+  date?: string;
+
+  @ApiPropertyOptional({
+    description: '分页大小，默认 20，最大 100',
+    example: 20,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '分页大小必须是整数' })
+  @Min(1, { message: '分页大小不能小于 1' })
+  limit?: number;
+
+  @ApiPropertyOptional({
+    description: '分页偏移，默认 0',
+    example: 0,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '分页偏移必须是整数' })
+  @Min(0, { message: '分页偏移不能小于 0' })
+  offset?: number;
+}
+
+export class HandoverRecordSummaryDto {
+  @ApiProperty({ example: 1, description: '交班记录 ID' })
+  id: number;
+
+  @ApiProperty({ example: '房东莎莎', description: '交班人姓名' })
+  operatorName: string;
+
+  @ApiPropertyOptional({
+    description: '班次类型，存在排班记录时返回',
+    enum: EmployeeShiftType,
+    example: EmployeeShiftType.morning,
+  })
+  shiftType?: EmployeeShiftType | null;
+
+  @ApiProperty({ example: '早班', description: '班次标签' })
+  shiftLabel: string;
+
+  @ApiPropertyOptional({ example: '09:00', description: '班次开始时间' })
+  startTime?: string | null;
+
+  @ApiPropertyOptional({ example: '17:00', description: '班次结束时间' })
+  endTime?: string | null;
+
+  @ApiProperty({ example: '06-02  09:00–17:00', description: '班次时间描述' })
+  timeDesc: string;
+
+  @ApiProperty({ example: 1004.65, description: '本班次营业额' })
+  totalRevenue: number;
+
+  @ApiProperty({
+    enum: HandoverStatus,
+    description: '后端真实交班状态',
+  })
+  status: HandoverStatusDto;
+
+  @ApiProperty({
+    enum: HandoverRecordDisplayStatusDto,
+    description: '弹窗展示状态',
+    example: HandoverRecordDisplayStatusDto.DONE,
+  })
+  displayStatus: HandoverRecordDisplayStatusDto;
+
+  @ApiPropertyOptional({
+    example: 1748766600000,
+    description: '交班时间戳(ms)',
+  })
+  handoverAt?: number | null;
+
+  @ApiProperty({ example: 1748766600000, description: '创建时间戳(ms)' })
+  createdAt: number;
+}
+
+export class HandoverRecordSummaryListResponseDto {
+  @ApiProperty({
+    type: [HandoverRecordSummaryDto],
+    description: '交班记录弹窗列表',
+  })
+  items: HandoverRecordSummaryDto[];
 
   @ApiProperty({ example: 10, description: '总数' })
   total: number;

@@ -79,7 +79,7 @@ export class PlatformMembershipReadService {
     return {
       memberInfo: profileResponse.memberInfo,
       remainingDays: calcRemainingDays(profile),
-      stats: buildCenterStats(promoRecords),
+      stats: buildCenterStats(promoRecords, profileResponse.approvedPartners.length),
       paidOrderCount,
       myPartnerApplication: buildCurrentPartnerApplication(
         applications,

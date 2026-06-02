@@ -1,9 +1,11 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { PlatformMembershipModule } from '../member/platform-membership/platform-membership.module';
 import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
+import { AuthCapabilityService } from './auth-capability.service';
 import { AuthCodeService } from './auth-code.service';
 import { AuthController } from './auth.controller';
 import { AuthPasswordService } from './auth-password.service';
@@ -17,6 +19,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 @Module({
   imports: [
     PassportModule,
+    forwardRef(() => PlatformMembershipModule),
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -34,6 +37,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthService,
     AuthAccountService,
     AuthAuthenticationService,
+    AuthCapabilityService,
     AuthCodeService,
     AuthPasswordService,
     AuthProfileService,

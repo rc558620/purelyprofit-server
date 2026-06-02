@@ -3,7 +3,7 @@ import type {
   PulseEarningsOverviewResponseDto,
   PulseWithdrawalAccountPartnerDto,
   PulseWithdrawalAccountResponseDto,
-} from './dto/pulse-growth.dto';
+} from './dto/pulse-growth-earnings.dto';
 import {
   buildApprovedPartnerResponse,
   buildApprovedPartnersResponse,

@@ -268,6 +268,81 @@ describe('PlatformMembershipService', () => {
     service = module.get<PlatformMembershipService>(PlatformMembershipService);
   });
 
+  it.each([
+    'getCenter',
+    'getProfile',
+    'listOrders',
+    'purchaseOrder',
+    'listPointsLogs',
+    'listBeanLogs',
+    'getPromoCenter',
+    'getPromotionDetailCompat',
+    'getPartnerProfile',
+    'applyPartner',
+    'markPartnerApplicationReviewing',
+    'approvePartnerApplication',
+    'rejectPartnerApplication',
+    'cancelPartnerApplication',
+    'addPartnerFollowUpNote',
+  ] as const)('子账号访问会员中心 service %s 时仍会被拒绝', async (methodName) => {
+    const subAccountUser: AuthenticatedUser = {
+      ...user,
+      currentMembership: {
+        ...user.currentMembership!,
+        subjectType: 'sub_account',
+        role: 'STAFF',
+        permissions: ['partner:view'],
+        subAccountId: 3,
+        subAccountRole: 'manager',
+        subAccountStatus: 'active',
+        subAccountAssigned: true,
+        linkedEmployeeId: 12,
+      },
+    };
+
+    const invocations: Record<string, () => Promise<unknown>> = {
+      getCenter: () => service.getCenter(subAccountUser),
+      getProfile: () => service.getProfile(subAccountUser),
+      listOrders: () => service.listOrders(subAccountUser),
+      purchaseOrder: () => service.purchaseOrder(subAccountUser, { planId: 'monthly' }),
+      listPointsLogs: () => service.listPointsLogs(subAccountUser),
+      listBeanLogs: () => service.listBeanLogs(subAccountUser),
+      getPromoCenter: () => service.getPromoCenter(subAccountUser),
+      getPromotionDetailCompat: () =>
+        service.getPromotionDetailCompat(subAccountUser, {}),
+      getPartnerProfile: () => service.getPartnerProfile(subAccountUser),
+      applyPartner: () =>
+        service.applyPartner(subAccountUser, {
+          name: '测试合伙人',
+          phone: '13800138000',
+          wechatNumber: 'wx_partner_test',
+          region: ['北京市', '北京市', '朝阳区'],
+          cityCode: '110100',
+          storeName: '纯利宝测试门店',
+          industry: '餐饮',
+          applyReason: '测试申请',
+        }),
+      markPartnerApplicationReviewing: () =>
+        service.markPartnerApplicationReviewing(subAccountUser, 1),
+      approvePartnerApplication: () =>
+        service.approvePartnerApplication(subAccountUser, 1),
+      rejectPartnerApplication: () =>
+        service.rejectPartnerApplication(subAccountUser, 1, {
+          reason: '资料不完整',
+        }),
+      cancelPartnerApplication: () =>
+        service.cancelPartnerApplication(subAccountUser, 1),
+      addPartnerFollowUpNote: () =>
+        service.addPartnerFollowUpNote(subAccountUser, 1, {
+          content: '补充回访记录',
+        }),
+    };
+
+    await expect(invocations[methodName]()).rejects.toThrow(
+      '子账号无权访问平台会员中心',
+    );
+  });
+
   it('listPlans 返回和前端一致的套餐配置', async () => {
     await expect(service.listPlans()).resolves.toEqual([
       {
@@ -450,6 +525,7 @@ describe('PlatformMembershipService', () => {
       },
       remainingDays: expect.any(Number),
       stats: {
+        partnerCount: 1,
         totalPromos: 2,
         chargedPromos: 1,
       },
@@ -527,6 +603,7 @@ describe('PlatformMembershipService', () => {
         },
         remainingDays: 709,
         stats: {
+          partnerCount: 0,
           totalPromos: 0,
           chargedPromos: 0,
         },

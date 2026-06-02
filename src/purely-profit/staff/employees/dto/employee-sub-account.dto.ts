@@ -1,5 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  STORE_SUB_ACCOUNT_ROLE_CODES,
+  type StoreSubAccountRoleCode,
+} from '../../../access-control/access-control.constants';
+import {
   IsIn,
   IsOptional,
   IsString,
@@ -8,14 +12,9 @@ import {
   MinLength,
 } from 'class-validator';
 
-export const EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES = [
-  'cashier',
-  'manager',
-  'finance',
-] as const;
+export const EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES = STORE_SUB_ACCOUNT_ROLE_CODES;
 
-export type EmployeeSubAccountRoleValue =
-  (typeof EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES)[number];
+export type EmployeeSubAccountRoleValue = StoreSubAccountRoleCode;
 
 export class UpdateEmployeeSubAccountDto {
   @ApiProperty({

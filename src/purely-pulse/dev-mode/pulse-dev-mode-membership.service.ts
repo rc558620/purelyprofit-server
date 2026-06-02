@@ -30,6 +30,7 @@ export class PulseDevModeMembershipService {
       memberInfo: this.buildDeveloperMemberInfo(user),
       remainingDays: DEV_REMAINING_DAYS,
       stats: {
+        partnerCount: 0,
         totalPromos: 0,
         chargedPromos: 0,
       },

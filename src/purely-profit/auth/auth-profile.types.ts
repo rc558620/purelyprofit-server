@@ -1,3 +1,6 @@
+import type { IdentityType } from '../access-control/access-control.service';
+import type { StoreSubAccountRole } from '@prisma/client';
+
 export type MembershipRole = 'OWNER' | 'MANAGER' | 'STAFF';
 
 export interface ProfileUserRecord {
@@ -17,6 +20,8 @@ export interface ProfileMembershipRecord {
   role: MembershipRole;
   permissions: string[];
   isActive: boolean;
+  identityType?: IdentityType;
+  subAccountRole?: StoreSubAccountRole | null;
   storeName: string;
   address: string | null;
   storeCreatedAt: Date;

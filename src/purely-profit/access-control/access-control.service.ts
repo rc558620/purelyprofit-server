@@ -10,6 +10,7 @@ import {
   PERMISSION_WILDCARD,
   type PermissionCode,
 } from './access-control.constants';
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 
 export type IdentityType = 'owner' | 'staff' | 'sub_account';
 
@@ -50,23 +51,41 @@ const CASHIER_SUB_ACCOUNT_PERMISSIONS = [
   'space:view',
   'space:create',
   'space:update',
-  'sales:view',
-  'sales:create',
+  'operation-entry:view',
+  'operation-entry:create',
   'handover:view',
   'handover:create',
   'handover:update',
 ] as const;
 
 const MANAGER_SUB_ACCOUNT_PERMISSIONS = [
-  'members:view',
-  'members:create',
-  'members:update',
-  'partner:view',
+  'staff:view',
+  'staff:create',
+  'staff:update',
+  'marketing:view',
+  'marketing:manage',
+  'report:view',
+  'goods:view',
+  'goods:create',
+  'goods:update',
+  'supplier:view',
+  'supplier:create',
+  'supplier:update',
+  'purchase:view',
+  'purchase:create',
+  'cost:view',
+  'cost:create',
+  'operation-entry:view',
+  'operation-entry:create',
   'sales:view',
   'sales:create',
+  'sales:delete',
+  'inventory:view',
+  'inventory:update',
   'space:view',
   'space:create',
   'space:update',
+  'space:delete',
   'handover:view',
   'handover:create',
   'handover:update',
@@ -76,6 +95,12 @@ const FINANCE_SUB_ACCOUNT_PERMISSIONS = [
   'finance:view',
   'finance:export',
   'report:view',
+  'goods:view',
+  'inventory:view',
+  'cost:view',
+  'purchase:view',
+  'sales:view',
+  'staff:view',
 ] as const;
 
 const SUB_ACCOUNT_ROLE_PERMISSIONS: Record<
@@ -117,6 +142,39 @@ export class AccessControlService {
     return requiredPermissions.some((permission) =>
       this.hasPermission(permissions, permission),
     );
+  }
+
+  resolveCurrentStoreIdByPermission(
+    user: Pick<AuthenticatedUser, 'currentMembership'>,
+    requiredPermission: PermissionCode,
+  ): number | null {
+    const currentMembership = user.currentMembership;
+
+    if (!currentMembership?.isActive) {
+      return null;
+    }
+
+    const effectivePermissions =
+      currentMembership.permissions.length > 0
+        ? currentMembership.permissions
+        : this.getEffectivePermissions(currentMembership);
+
+    return this.hasPermission(effectivePermissions, requiredPermission)
+      ? currentMembership.storeId
+      : null;
+  }
+
+  resolveCurrentStaffIdForStore(
+    user: Pick<AuthenticatedUser, 'currentMembership'>,
+    storeId: number,
+  ): number | null {
+    const currentMembership = user.currentMembership;
+
+    if (!currentMembership?.isActive || currentMembership.storeId !== storeId) {
+      return null;
+    }
+
+    return currentMembership.staffId;
   }
 
   buildMembershipContext(

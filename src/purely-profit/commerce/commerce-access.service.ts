@@ -1,14 +1,11 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { StaffStatus } from '@prisma/client';
 import { AccessControlService } from '../access-control/access-control.service';
 import type { PermissionCode } from '../access-control/access-control.constants';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class CommerceAccessService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly accessControlService: AccessControlService,
   ) {}
 
@@ -16,34 +13,16 @@ export class CommerceAccessService {
     user: AuthenticatedUser,
     requiredPermission: PermissionCode,
   ): Promise<number | null> {
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        OR: [{ userId: user.id }, { email: user.email }, { phone: user.phone }],
-        isActive: true,
-        status: StaffStatus.ACTIVE,
-      },
-      select: {
-        storeId: true,
-        role: true,
-        permissions: true,
-      },
-      orderBy: {
-        id: 'asc',
-      },
-    });
-
-    if (!staff) {
-      return null;
+    const currentStoreId =
+      this.accessControlService.resolveCurrentStoreIdByPermission(
+        user,
+        requiredPermission,
+      );
+    if (currentStoreId !== null) {
+      return currentStoreId;
     }
 
-    const effectivePermissions =
-      this.accessControlService.getEffectivePermissions(staff);
-    return this.accessControlService.hasPermission(
-      effectivePermissions,
-      requiredPermission,
-    )
-      ? staff.storeId
-      : null;
+    return null;
   }
 
   async resolveViewStoreId(
@@ -114,21 +93,12 @@ export class CommerceAccessService {
     user: AuthenticatedUser,
     storeId: number,
   ): Promise<number | null> {
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        storeId,
-        OR: [{ userId: user.id }, { email: user.email }, { phone: user.phone }],
-        isActive: true,
-        status: StaffStatus.ACTIVE,
-      },
-      select: {
-        id: true,
-      },
-      orderBy: {
-        id: 'asc',
-      },
-    });
+    const currentStaffId =
+      this.accessControlService.resolveCurrentStaffIdForStore(user, storeId);
+    if (currentStaffId !== null) {
+      return currentStaffId;
+    }
 
-    return staff?.id ?? null;
+    return null;
   }
 }

@@ -7,6 +7,7 @@ export const createHandoverPrismaMock = () => ({
   },
   saleOrder: {
     groupBy: jest.fn(),
+    aggregate: jest.fn(),
     count: jest.fn(),
   },
   saleOrderItem: {

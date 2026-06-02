@@ -4,7 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { HandoverMode, HandoverStatus } from '@prisma/client';
+import {
+  EmployeeShiftType,
+  HandoverMode,
+  HandoverStatus,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -15,16 +20,26 @@ import type {
   HandoverCandidateDto,
   HandoverRecordListItemDto,
   HandoverRecordListResponseDto,
+  HandoverRecordSummaryDto,
+  HandoverRecordSummaryListResponseDto,
+  HandoverRecordSummaryQueryDto,
 } from './dto/handover.dto';
 import {
   HANDOVER_NOTE_MAX_LENGTH,
   HANDOVER_RECORD_INCLUDE,
+  SHIFT_TIME_FALLBACKS,
+  buildRecordSummaryDto,
+  buildShiftDateRange,
   type HandoverRecordRow,
   ensureMembershipContext,
   ensureMembershipStoreId,
   mapRecordToDto,
   normalizeOptionalText,
   normalizeRequiredText,
+  resolveShiftLabel,
+  roundMoney,
+  toDisplayName,
+  toMoneyNumber,
 } from './handover.shared';
 
 @Injectable()
@@ -177,6 +192,43 @@ export class HandoverRecordsService {
     return mapRecordToDto(record);
   }
 
+  async listHandoverRecordSummaries(
+    user: AuthenticatedUser,
+    query: HandoverRecordSummaryQueryDto,
+  ): Promise<HandoverRecordSummaryListResponseDto> {
+    const storeId = ensureMembershipStoreId(user);
+    const filter = this.buildSummaryFilter(query);
+    const take = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const skip = Math.max(query.offset ?? 0, 0);
+    const where: Prisma.StoreHandoverRecordWhereInput = {
+      storeId,
+      createdAt: {
+        gte: filter.startAt,
+        lte: filter.endAt,
+      },
+    };
+
+    const [records, total] = await Promise.all([
+      this.prisma.storeHandoverRecord.findMany({
+        where,
+        include: HANDOVER_RECORD_INCLUDE,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take,
+        skip,
+      }),
+      this.prisma.storeHandoverRecord.count({ where }),
+    ]);
+
+    const items = await Promise.all(
+      records.map((record) => this.buildRecordSummary(storeId, record)),
+    );
+
+    return {
+      items,
+      total,
+    };
+  }
+
   async getHandoverCandidates(
     storeId: number,
   ): Promise<HandoverCandidateDto[]> {
@@ -242,6 +294,150 @@ export class HandoverRecordsService {
       throw new NotFoundException('指定的接收员工不在可交班列表中');
     }
     return { id: candidate.employeeId, name: candidate.employeeName };
+  }
+
+  private async buildRecordSummary(
+    storeId: number,
+    record: HandoverRecordRow,
+  ): Promise<HandoverRecordSummaryDto> {
+    const referenceDate = record.handoverAt ?? record.createdAt;
+    const shiftRecord = record.fromEmployeeId
+      ? await this.prisma.employeeShift.findFirst({
+          where: {
+            storeId,
+            employeeId: record.fromEmployeeId,
+            date: {
+              gte: this.startOfDay(referenceDate),
+              lte: this.endOfDay(referenceDate),
+            },
+          },
+          select: {
+            shiftType: true,
+            shiftName: true,
+            startTime: true,
+            endTime: true,
+          },
+          orderBy: [{ date: 'desc' }, { id: 'desc' }],
+        })
+      : null;
+
+    const fallbackShiftType =
+      shiftRecord?.shiftType ?? EmployeeShiftType.morning;
+    const shiftRange = buildShiftDateRange(
+      shiftRecord?.startTime ??
+        SHIFT_TIME_FALLBACKS[fallbackShiftType].startTime,
+      shiftRecord?.endTime ?? SHIFT_TIME_FALLBACKS[fallbackShiftType].endTime,
+      referenceDate,
+    );
+    const totalRevenue = await this.countRecordRevenue(
+      storeId,
+      record,
+      shiftRange,
+    );
+
+    return buildRecordSummaryDto({
+      id: record.id,
+      operatorName:
+        toDisplayName(record.fromEmployee?.name) ??
+        toDisplayName(record.toEmployee?.name) ??
+        '未知员工',
+      shiftType: shiftRecord?.shiftType ?? null,
+      shiftLabel: resolveShiftLabel(
+        shiftRecord?.shiftType,
+        shiftRecord?.shiftName,
+      ),
+      startTime: shiftRecord?.startTime ?? null,
+      endTime: shiftRecord?.endTime ?? null,
+      totalRevenue,
+      status: record.status,
+      handoverAt: record.handoverAt,
+      createdAt: record.createdAt,
+    });
+  }
+
+  private async countRecordRevenue(
+    storeId: number,
+    record: HandoverRecordRow,
+    shiftRange: { startAt: Date; endAt: Date },
+  ): Promise<number> {
+    const aggregate = await this.prisma.saleOrder.aggregate({
+      where: {
+        storeId,
+        date: {
+          gte: shiftRange.startAt,
+          lte: shiftRange.endAt,
+        },
+        ...(record.actorStaffId
+          ? { operatorStaffId: record.actorStaffId }
+          : {}),
+      },
+      _sum: { totalRevenue: true },
+    });
+
+    return roundMoney(toMoneyNumber(aggregate._sum.totalRevenue));
+  }
+
+  private buildSummaryFilter(query: HandoverRecordSummaryQueryDto): {
+    startAt: Date;
+    endAt: Date;
+  } {
+    if (query.date) {
+      return this.buildDateFilter(query.date);
+    }
+
+    const now = new Date();
+    const endAt = this.endOfDay(now);
+    const startAt = this.startOfDay(now);
+    const preset = query.preset ?? 'today';
+
+    if (preset === '7d') {
+      startAt.setDate(startAt.getDate() - 6);
+      return { startAt, endAt };
+    }
+
+    if (preset === '30d') {
+      startAt.setDate(startAt.getDate() - 29);
+      return { startAt, endAt };
+    }
+
+    return { startAt, endAt };
+  }
+
+  private buildDateFilter(dateText: string): { startAt: Date; endAt: Date } {
+    const [yearText, monthText, dayText] = dateText.split('-');
+    const year = Number(yearText);
+    const month = Number(monthText);
+    const day = Number(dayText);
+    const startAt = new Date(year, month - 1, day, 0, 0, 0, 0);
+    if (Number.isNaN(startAt.getTime())) {
+      throw new BadRequestException('日期格式不正确');
+    }
+    const endAt = new Date(year, month - 1, day, 23, 59, 59, 999);
+    return { startAt, endAt };
+  }
+
+  private startOfDay(date: Date): Date {
+    return new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+      0,
+      0,
+      0,
+      0,
+    );
+  }
+
+  private endOfDay(date: Date): Date {
+    return new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate(),
+      23,
+      59,
+      59,
+      999,
+    );
   }
 
   private async findRecordOrThrow(

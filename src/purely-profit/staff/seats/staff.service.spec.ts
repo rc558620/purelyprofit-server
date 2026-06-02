@@ -33,6 +33,7 @@ describe('StaffService', () => {
   const accessControlService = {
     getEffectivePermissions: jest.fn(),
     hasPermission: jest.fn(),
+    resolveCurrentStoreIdByPermission: jest.fn(),
   };
 
   const subscriptionsService = {
@@ -55,6 +56,7 @@ describe('StaffService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(null);
 
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, number> = {
@@ -80,17 +82,10 @@ describe('StaffService', () => {
   });
 
   it('invite 在账号已绑定其他门店员工时阻止继续邀请', async () => {
-    prismaService.staff.findFirst
-      .mockResolvedValueOnce({
-        id: 5,
-        storeId: 8,
-        role: StaffRole.OWNER,
-        permissions: ['*'],
-        isActive: true,
-      })
-      .mockResolvedValueOnce({ id: 18, storeId: 9 });
+    prismaService.staff.findFirst.mockResolvedValueOnce({ id: 18, storeId: 9 });
     accessControlService.getEffectivePermissions.mockReturnValue(['*']);
     accessControlService.hasPermission.mockReturnValue(true);
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
 
     await expect(
       service.invite(user, {
@@ -101,7 +96,7 @@ describe('StaffService', () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
 
-    expect(prismaService.staff.findFirst).toHaveBeenNthCalledWith(2, {
+    expect(prismaService.staff.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: { not: 8 },
         isActive: true,
@@ -143,6 +138,7 @@ describe('StaffService', () => {
     });
     accessControlService.getEffectivePermissions.mockReturnValue(['*']);
     accessControlService.hasPermission.mockReturnValue(true);
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
 
     const result = await service.list(user, {
       storeId: 9,
@@ -184,13 +180,6 @@ describe('StaffService', () => {
 
   it('invite 在单门店约束未触发时正常创建邀请记录', async () => {
     prismaService.staff.findFirst
-      .mockResolvedValueOnce({
-        id: 5,
-        storeId: 8,
-        role: StaffRole.OWNER,
-        permissions: ['*'],
-        isActive: true,
-      })
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
     prismaService.user.findUnique.mockResolvedValue({ id: 12 });
@@ -218,6 +207,7 @@ describe('StaffService', () => {
     });
     accessControlService.getEffectivePermissions.mockReturnValue(['*']);
     accessControlService.hasPermission.mockReturnValue(true);
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
 
     const result = await service.invite(user, {
       storeId: 8,

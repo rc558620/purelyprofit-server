@@ -1,5 +1,5 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { StaffRole, StaffStatus } from '@prisma/client';
+import { StaffRole } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AccessControlService } from '../../access-control/access-control.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -10,15 +10,12 @@ describe('MembersAccessService', () => {
   let service: MembersAccessService;
 
   const prismaService = {
-    staff: {
-      findFirst: jest.fn(),
-    },
     $queryRaw: jest.fn(),
   };
 
   const accessControlService = {
-    getEffectivePermissions: jest.fn(),
-    hasPermission: jest.fn(),
+    resolveCurrentStoreIdByPermission: jest.fn(),
+    resolveCurrentStaffIdForStore: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -33,6 +30,8 @@ describe('MembersAccessService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(null);
+    accessControlService.resolveCurrentStaffIdForStore.mockReturnValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -45,23 +44,40 @@ describe('MembersAccessService', () => {
     service = module.get<MembersAccessService>(MembersAccessService);
   });
 
-  it('getManageableStoreId 在有权限时返回门店 ID', async () => {
-    prismaService.staff.findFirst.mockResolvedValue({
-      storeId: 6,
-      role: StaffRole.OWNER,
-      permissions: [],
-    });
-    accessControlService.getEffectivePermissions.mockReturnValue(['*']);
-    accessControlService.hasPermission.mockReturnValue(true);
+  it('getManageableStoreId 在当前 membership 有权限时直接返回门店 ID', async () => {
+    const subAccountUser: AuthenticatedUser = {
+      ...user,
+      currentMembership: {
+        staffId: 55,
+        storeId: 48,
+        role: StaffRole.STAFF,
+        permissions: ['members:view', 'members:update'],
+        isActive: true,
+        subjectType: 'sub_account',
+        linkedEmployeeId: 6,
+        subAccountId: 3,
+        subAccountRole: 'manager',
+        subAccountStatus: 'active',
+        subAccountAssigned: true,
+        canAccessHome: true,
+        canUseHandover: true,
+      },
+    };
+
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(48);
 
     await expect(
+      service.getManageableStoreId(subAccountUser, 'members:view'),
+    ).resolves.toBe(48);
+  });
+
+  it('getManageableStoreId 在当前 membership 无权限时返回 null', async () => {
+    await expect(
       service.getManageableStoreId(user, 'members:view'),
-    ).resolves.toBe(6);
+    ).resolves.toBeNull();
   });
 
   it('resolveMembersViewStoreId 在无权限且未指定 storeId 时返回 null', async () => {
-    prismaService.staff.findFirst.mockResolvedValue(null);
-
     await expect(
       service.resolveMembersViewStoreId(
         user,
@@ -72,32 +88,12 @@ describe('MembersAccessService', () => {
   });
 
   it('resolveMembersViewStoreId 在指定了其他门店时抛出异常', async () => {
-    prismaService.staff.findFirst.mockResolvedValue({
-      storeId: 6,
-      role: StaffRole.MANAGER,
-      permissions: ['members:view'],
-    });
-    accessControlService.getEffectivePermissions.mockReturnValue([
-      'members:view',
-    ]);
-    accessControlService.hasPermission.mockReturnValue(true);
-
     await expect(
       service.resolveMembersViewStoreId(user, 7, '无权查看该门店会员列表'),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('ensureCanManageMembers 在门店不匹配时抛出异常', async () => {
-    prismaService.staff.findFirst.mockResolvedValue({
-      storeId: 6,
-      role: StaffRole.MANAGER,
-      permissions: ['members:update'],
-    });
-    accessControlService.getEffectivePermissions.mockReturnValue([
-      'members:update',
-    ]);
-    accessControlService.hasPermission.mockReturnValue(true);
-
     await expect(
       service.ensureCanManageMembers(user, 7, 'members:update'),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -129,13 +125,7 @@ describe('MembersAccessService', () => {
         updatedAt: new Date('2026-05-13T00:00:00.000Z'),
       },
     ]);
-    prismaService.staff.findFirst.mockResolvedValue({
-      storeId: 6,
-      role: StaffRole.OWNER,
-      permissions: [],
-    });
-    accessControlService.getEffectivePermissions.mockReturnValue(['*']);
-    accessControlService.hasPermission.mockReturnValue(true);
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(6);
 
     await expect(
       service.findManageableMemberOrThrow(user, 18, 'members:view'),
@@ -154,25 +144,15 @@ describe('MembersAccessService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('findOperatorStaffIdForStore 返回当前门店 staff id', async () => {
-    prismaService.staff.findFirst.mockResolvedValue({ id: 88 });
+  it('findOperatorStaffIdForStore 在当前 membership 命中时直接返回 staff id', async () => {
+    accessControlService.resolveCurrentStaffIdForStore.mockReturnValue(55);
 
-    await expect(service.findOperatorStaffIdForStore(user, 6)).resolves.toBe(
-      88,
+    await expect(service.findOperatorStaffIdForStore(user, 48)).resolves.toBe(
+      55,
     );
-    expect(prismaService.staff.findFirst).toHaveBeenCalledWith({
-      where: {
-        storeId: 6,
-        OR: [{ userId: user.id }, { email: user.email }, { phone: user.phone }],
-        isActive: true,
-        status: StaffStatus.ACTIVE,
-      },
-      select: {
-        id: true,
-      },
-      orderBy: {
-        id: 'asc',
-      },
-    });
+  });
+
+  it('findOperatorStaffIdForStore 在当前 membership 未命中时返回 null', async () => {
+    await expect(service.findOperatorStaffIdForStore(user, 6)).resolves.toBeNull();
   });
 });

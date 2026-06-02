@@ -1,5 +1,5 @@
 import { PartnerWithdrawalStatus, Prisma } from '@prisma/client';
-import type { PulseEarningsLogTypeValue } from './dto/pulse-growth.dto';
+import type { PulseEarningsLogTypeValue } from './dto/pulse-growth-earnings.dto';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 export type BeanSourceValue =

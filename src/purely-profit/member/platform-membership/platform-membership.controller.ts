@@ -18,8 +18,10 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { BlockSubAccount } from '../../access-control/decorators/block-sub-account.decorator';
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
+import { SubAccountBlockGuard } from '../../access-control/guards/sub-account-block.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
@@ -144,7 +146,8 @@ function resolvePartnerReviewRejectReason(
 
 @ApiTags('PlatformMembership')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard)
+@BlockSubAccount('子账号无权访问平台会员中心')
 @Controller('platform-membership')
 export class PlatformMembershipController {
   constructor(
@@ -376,7 +379,8 @@ export class PlatformMembershipController {
 
 @ApiExcludeController()
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard)
+@BlockSubAccount('子账号无权访问平台会员中心')
 @Controller('promotion-detail')
 export class PromotionDetailCompatController {
   constructor(
@@ -398,7 +402,8 @@ export class PromotionDetailCompatController {
 
 @ApiExcludeController()
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard)
+@BlockSubAccount('子账号无权访问平台会员中心')
 @Controller('partner-review')
 export class PartnerReviewController {
   constructor(

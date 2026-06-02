@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { EmployeeStatus } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -131,44 +131,92 @@ describe('PlatformMembershipAccessService', () => {
     await expect(service.getHistoryWindowStart(18)).resolves.toBeNull();
   });
 
-  it('缺少 sub_account_quota 字段时回退到旧档案查询', async () => {
-    prismaService.storeMembershipProfile.findUnique
-      .mockRejectedValueOnce(
-        new Error('column "sub_account_quota" does not exist'),
-      )
-      .mockResolvedValueOnce({
-        currentPlanId: 'yearly',
-        startsAt: new Date('2026-05-01T00:00:00.000Z'),
-        expiresAt: null,
-      });
+  it('子账号调用时免费版财务限制应直接通过', async () => {
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue(null);
 
-    await expect(service.getSubAccountBenefitSnapshot(18)).resolves.toEqual({
-      level: 'lifetime',
-      eligible: true,
-      quota: 0,
-      quotaMax: 10,
-      enabled: false,
-      rawQuota: 0,
+    await expect(
+      service.ensureFinanceFeatureEnabled(18, true),
+    ).resolves.toBeUndefined();
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('子账号调用时免费版营销限制应直接通过', async () => {
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.ensureMarketingFeatureEnabled(18, true),
+    ).resolves.toBeUndefined();
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('子账号调用时报表导出限制应直接通过', async () => {
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.ensureReportExportEnabled(18, true),
+    ).resolves.toBeUndefined();
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('子账号调用时 getHistoryWindowStart 应始终返回 null（无历史窗口限制）', async () => {
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.getHistoryWindowStart(18, true),
+    ).resolves.toBeNull();
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('子账号调用时 clampHistoryRange 应返回原始范围不裁剪', async () => {
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue(null);
+
+    const range = {
+      start: new Date(2026, 4, 1, 0, 0, 0, 0).getTime(),
+      end: new Date(2026, 4, 23, 23, 59, 59, 999).getTime(),
+    };
+    await expect(
+      service.clampHistoryRange(18, range, true),
+    ).resolves.toEqual({
+      start: range.start,
+      end: range.end,
+      clamped: false,
+      empty: false,
     });
     expect(
       prismaService.storeMembershipProfile.findUnique,
-    ).toHaveBeenNthCalledWith(1, {
+    ).not.toHaveBeenCalled();
+  });
+
+  it('缺少 sub_account_quota 字段时拒绝请求，避免沿用旧能力快照', async () => {
+    prismaService.storeMembershipProfile.findUnique.mockRejectedValueOnce(
+      new Error('column "sub_account_quota" does not exist'),
+    );
+
+    await expect(service.getSubAccountBenefitSnapshot(18)).rejects.toEqual(
+      new UnauthorizedException(
+        '会员能力上下文未就绪，请联系管理员完成系统升级后重试',
+      ),
+    );
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      prismaService.storeMembershipProfile.findUnique,
+    ).toHaveBeenCalledWith({
       where: { storeId: 18 },
       select: {
         currentPlanId: true,
         startsAt: true,
         expiresAt: true,
         subAccountQuota: true,
-      },
-    });
-    expect(
-      prismaService.storeMembershipProfile.findUnique,
-    ).toHaveBeenNthCalledWith(2, {
-      where: { storeId: 18 },
-      select: {
-        currentPlanId: true,
-        startsAt: true,
-        expiresAt: true,
       },
     });
   });

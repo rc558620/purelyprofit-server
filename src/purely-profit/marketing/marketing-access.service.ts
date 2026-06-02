@@ -1,15 +1,12 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { StaffStatus } from '@prisma/client';
 import { AccessControlService } from '../access-control/access-control.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { PrismaService } from '../../prisma/prisma.service';
 
 export type MarketingPermission = 'marketing:view' | 'marketing:manage';
 
 @Injectable()
 export class MarketingAccessService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly accessControlService: AccessControlService,
   ) {}
 
@@ -22,31 +19,16 @@ export class MarketingAccessService {
     user: AuthenticatedUser,
     requiredPermission: MarketingPermission,
   ): Promise<number | null> {
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        OR: [{ userId: user.id }, { email: user.email }, { phone: user.phone }],
-        isActive: true,
-        status: StaffStatus.ACTIVE,
-      },
-      select: {
-        storeId: true,
-        role: true,
-        permissions: true,
-      },
-      orderBy: { id: 'asc' },
-    });
-
-    if (!staff) {
-      return null;
+    const currentStoreId =
+      this.accessControlService.resolveCurrentStoreIdByPermission(
+        user,
+        requiredPermission,
+      );
+    if (currentStoreId !== null) {
+      return currentStoreId;
     }
 
-    const effective = this.accessControlService.getEffectivePermissions(staff);
-    return this.accessControlService.hasPermission(
-      effective,
-      requiredPermission,
-    )
-      ? staff.storeId
-      : null;
+    return null;
   }
 
   /**

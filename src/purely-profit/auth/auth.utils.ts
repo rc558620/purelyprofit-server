@@ -56,7 +56,7 @@ export function resolveLoginEmail(account: string): string | null {
   if (
     !normalizedAccount ||
     !isCustomLoginAccount(normalizedAccount) ||
-    normalizedAccount.toLowerCase() !== ADMIN_LOGIN_ALIAS
+    normalizedAccount.toLowerCase() === ADMIN_LOGIN_ALIAS
   ) {
     return null;
   }
@@ -130,12 +130,11 @@ export function buildSubAccountLoginDisplay(
   phone: string,
   loginEmail?: string | null,
 ): string {
-  const maskedPhone = maskPhone(phone);
   const customAccount = loginEmail
     ? extractCustomLoginAccount(loginEmail)
     : null;
 
-  return customAccount ? `${maskedPhone} / ${customAccount}` : maskedPhone;
+  return customAccount ? `${phone} / ${customAccount}` : phone;
 }
 
 export function isVerifiedUser(

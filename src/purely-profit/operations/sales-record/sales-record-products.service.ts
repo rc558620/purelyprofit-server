@@ -22,7 +22,7 @@ export class SalesRecordProductsService {
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
       query.storeId,
-      'sales:view',
+      'operation-entry:view',
       '无权查看该门店开始营业商品',
     );
 

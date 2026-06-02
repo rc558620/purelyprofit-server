@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { StoreSubAccountStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -226,6 +227,14 @@ export class DashboardHomeCapabilityDto {
   @IsString()
   subAccountRole?: string;
 
+  @ApiPropertyOptional({
+    example: '收银员',
+    description: '子账号角色中文标识，仅当 identityType 为 sub_account 时有值',
+  })
+  @IsOptional()
+  @IsString()
+  subAccountRoleLabel?: string;
+
   @ApiProperty({
     example: ['additional', 'business-analysis', 'finance-center'],
     description: '允许访问的首页模块列表',
@@ -256,6 +265,42 @@ export class DashboardHomeCapabilityDto {
   @IsBoolean()
   canViewMarketing: boolean;
 
+  @ApiPropertyOptional({
+    enum: StoreSubAccountStatus,
+    example: StoreSubAccountStatus.active,
+    description: '子账号状态，仅当 identityType 为 sub_account 时有值',
+  })
+  @IsOptional()
+  @IsString()
+  subAccountStatus?: StoreSubAccountStatus;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '子账号是否已绑定岗位，仅当 identityType 为 sub_account 时有值',
+  })
+  @IsOptional()
+  @IsBoolean()
+  subAccountAssigned?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '子账号是否允许访问首页，仅当 identityType 为 sub_account 时有值',
+  })
+  @IsOptional()
+  @IsBoolean()
+  canAccessHome?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '子账号是否允许使用交班，仅当 identityType 为 sub_account 时有值',
+  })
+  @IsOptional()
+  @IsBoolean()
+  canUseHandover?: boolean;
+
   @ApiProperty({
     example: true,
     description: '是否可以使用交班管理',
@@ -276,6 +321,13 @@ export class DashboardHomeCapabilityDto {
   })
   @IsBoolean()
   canAccessStoreSettings: boolean;
+
+  @ApiProperty({
+    example: true,
+    description: '是否可以访问首页概览接口',
+  })
+  @IsBoolean()
+  canAccessDashboardOverview: boolean;
 }
 
 export class DashboardHomeOverviewResponseDto {

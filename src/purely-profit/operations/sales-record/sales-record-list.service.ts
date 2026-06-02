@@ -48,9 +48,12 @@ export class SalesRecordListService {
       return buildEmptySalesListResponse(page, take);
     }
 
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     const range = await this.platformMembershipAccessService.clampHistoryRange(
       storeId,
       buildSalesCurrentRange(query),
+      callerIsSubAccount,
     );
     if (range.empty) {
       return buildEmptySalesListResponse(page, take);

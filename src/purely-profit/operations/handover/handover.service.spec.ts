@@ -23,6 +23,7 @@ describe('HandoverService', () => {
     cancelHandoverRecord: jest.fn(),
     listHandoverRecords: jest.fn(),
     getHandoverRecord: jest.fn(),
+    listHandoverRecordSummaries: jest.fn(),
     getHandoverCandidates: jest.fn(),
     getMyPendingHandover: jest.fn(),
   };
@@ -305,6 +306,42 @@ describe('HandoverService', () => {
         ownerUser,
         1,
       );
+    });
+
+    it('listHandoverRecordSummaries 委托给 handoverRecordsService', async () => {
+      const query = { preset: 'today' as const, limit: 20, offset: 0 };
+      const mockResult = {
+        items: [
+          {
+            id: 1,
+            operatorName: '老板',
+            shiftType: 'morning',
+            shiftLabel: '早班',
+            startTime: '09:00',
+            endTime: '17:00',
+            timeDesc: '06-02  09:00–17:00',
+            totalRevenue: 1004.65,
+            status: 'pending',
+            displayStatus: 'active',
+            handoverAt: null,
+            createdAt: Date.now(),
+          },
+        ],
+        total: 1,
+      };
+      handoverRecordsService.listHandoverRecordSummaries.mockResolvedValue(
+        mockResult,
+      );
+
+      const result = await service.listHandoverRecordSummaries(
+        ownerUser,
+        query,
+      );
+
+      expect(result).toBe(mockResult);
+      expect(
+        handoverRecordsService.listHandoverRecordSummaries,
+      ).toHaveBeenCalledWith(ownerUser, query);
     });
 
     it('getHandoverCandidates 委托给 handoverRecordsService', async () => {

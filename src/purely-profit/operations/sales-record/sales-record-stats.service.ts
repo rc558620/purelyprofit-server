@@ -40,6 +40,8 @@ export class SalesRecordStatsService {
       return buildEmptySalesStats();
     }
 
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     const queryInput = toSalesRecordQueryInput(query);
     const currentRange = buildCurrentRange(queryInput);
     const previousRange = buildPreviousRange(queryInput, currentRange);
@@ -47,11 +49,13 @@ export class SalesRecordStatsService {
       await this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         currentRange,
+        callerIsSubAccount,
       );
     const clampedPreviousRange = previousRange
       ? await this.platformMembershipAccessService.clampHistoryRange(
           storeId,
           previousRange,
+          callerIsSubAccount,
         )
       : null;
 

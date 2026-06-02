@@ -77,6 +77,7 @@ describe('DashboardHomeService', () => {
     buildSnapshot: jest.fn().mockReturnValue({
       identityType: 'owner',
       subAccountRole: null,
+      subAccountRoleLabel: null,
       subAccountQuota: 0,
       subAccountEnabled: false,
       allowedHomeModules: [
@@ -320,6 +321,10 @@ describe('DashboardHomeService', () => {
       capability: {
         identityType: 'owner',
         subAccountRole: undefined,
+        subAccountRoleLabel: undefined,
+        subAccountAssigned: false,
+        canAccessHome: true,
+        canUseHandover: false,
         allowedHomeModules: [
           'additional',
           'business-analysis',
@@ -338,6 +343,7 @@ describe('DashboardHomeService', () => {
         canUseHandoverManagement: true,
         canUseSpaceManagement: true,
         canAccessStoreSettings: true,
+        canAccessDashboardOverview: true,
       },
       meta: {
         period: 'today',
@@ -349,6 +355,109 @@ describe('DashboardHomeService', () => {
         compareEndAt: new Date(2026, 4, 13, 15, 0, 0, 0).getTime(),
         generatedAt: new Date(2026, 4, 14, 15, 0, 0, 0).getTime(),
       },
+    });
+  });
+
+  it('cashier 首页能力开放时允许通过 operation-entry:view 访问概览接口', async () => {
+    const cashierUser: AuthenticatedUser = {
+      ...user,
+      currentMembership: {
+        ...user.currentMembership!,
+        role: 'STAFF',
+        permissions: ['operation-entry:view'],
+        subjectType: 'sub_account',
+        linkedEmployeeId: 12,
+        subAccountId: 3,
+        subAccountRole: 'cashier',
+        subAccountStatus: 'active',
+        subAccountAssigned: true,
+        canAccessHome: true,
+        canUseHandover: true,
+      },
+    };
+
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    redisService.getJson.mockResolvedValue({
+      stats: {
+        profitLabel: '今日净利润 (元)',
+        profit: 0,
+        profitChange: null,
+        profitCompareLabel: '较昨日',
+        orderLabel: '今日订单数',
+        orderCount: 0,
+        orderChange: null,
+        orderCompareLabel: '较昨日',
+      },
+      salesTrend: {
+        title: '销售趋势图',
+        categories: [],
+        actual: [],
+        forecast: [],
+        isYearMode: false,
+        seriesNameActual: '实收',
+        seriesNameForecast: '预测',
+      },
+      activities: [],
+      meta: {
+        period: 'today',
+        storeId: 18,
+        storeName: '纯利宝测试门店',
+        startAt: 1,
+        endAt: 2,
+        compareStartAt: 3,
+        compareEndAt: 4,
+        generatedAt: 5,
+      },
+    });
+    storeSubAccountService.getStoreSubAccountSummary.mockResolvedValue({
+      quota: 3,
+      usedCount: 1,
+      availableCount: 2,
+      roleSummary: [],
+      slots: [],
+    });
+    subjectCapabilityService.buildSnapshot.mockReturnValue({
+      identityType: 'sub_account',
+      subAccountRole: 'cashier',
+      subAccountQuota: 3,
+      subAccountEnabled: true,
+      allowedHomeModules: [
+        'additional',
+        'space-management',
+        'handover-management',
+      ],
+      hiddenHomeModules: [
+        'business-analysis',
+        'finance-center',
+        'goods-management',
+        'marketing-center',
+        'member-center',
+        'staff-management',
+        'store-settings',
+      ],
+      canViewFinance: false,
+      canViewMarketing: false,
+      canUseHandoverManagement: true,
+      canUseSpaceManagement: true,
+      canAccessStoreSettings: false,
+    });
+
+    const result = await service.getOverview(cashierUser, { period: 'today' });
+
+    expect(commerceAccessService.resolveSingleStoreId).toHaveBeenCalledWith(
+      cashierUser,
+      undefined,
+      'operation-entry:view',
+      '无权查看该门店首页概览',
+    );
+    expect(result.capability).toMatchObject({
+      identityType: 'sub_account',
+      subAccountRole: 'cashier',
+      subAccountStatus: 'active',
+      subAccountAssigned: true,
+      canAccessHome: true,
+      canUseHandover: true,
+      canAccessDashboardOverview: true,
     });
   });
 });

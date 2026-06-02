@@ -108,9 +108,12 @@ export class InventoryService {
       return buildEmptyInventoryReportResponse();
     }
 
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     if (query.export) {
       await this.platformMembershipAccessService.ensureReportExportEnabled(
         storeId,
+        callerIsSubAccount,
       );
     }
 

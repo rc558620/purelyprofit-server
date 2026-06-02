@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { STORE_SUB_ACCOUNT_ROLE_LABELS } from '../../access-control/access-control.constants';
 import { SubjectCapabilityService } from '../../access-control/subject-capability.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
@@ -37,19 +38,24 @@ export class DashboardHomeService {
   ): Promise<DashboardHomeOverviewResponseDto> {
     const query = buildDashboardHomeQueryInput(queryDto);
     const period = query.period ?? 'today';
+    const capabilitySnapshot = await this.buildCapabilitySnapshot(
+      user,
+      user.currentMembership?.storeId ?? query.storeId ?? 0,
+    );
+    const requiredPermission = capabilitySnapshot.canAccessDashboardOverview
+      ? 'operation-entry:view'
+      : 'report:view';
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
       query.storeId,
-      'report:view',
+      requiredPermission,
       '无权查看该门店首页概览',
     );
 
-    const [cachedResponse, capabilitySnapshot] = await Promise.all([
-      this.redisService.getJson<DashboardHomeOverviewWithoutCapability>(
+    const cachedResponse =
+      await this.redisService.getJson<DashboardHomeOverviewWithoutCapability>(
         buildProfitDashboardHomeCacheKey(storeId, period),
-      ),
-      this.buildCapabilitySnapshot(user, storeId),
-    ]);
+      );
 
     if (cachedResponse !== null) {
       return { ...cachedResponse, capability: capabilitySnapshot };
@@ -106,13 +112,31 @@ export class DashboardHomeService {
     return {
       identityType: snapshot.identityType,
       subAccountRole: snapshot.subAccountRole ?? undefined,
+      subAccountRoleLabel: snapshot.subAccountRole
+        ? STORE_SUB_ACCOUNT_ROLE_LABELS[snapshot.subAccountRole]
+        : undefined,
       allowedHomeModules: snapshot.allowedHomeModules,
       hiddenHomeModules: snapshot.hiddenHomeModules,
       canViewFinance: snapshot.canViewFinance,
       canViewMarketing: snapshot.canViewMarketing,
+      ...(user.currentMembership?.subAccountStatus
+        ? { subAccountStatus: user.currentMembership.subAccountStatus }
+        : {}),
+      ...(user.currentMembership?.subAccountAssigned !== undefined
+        ? { subAccountAssigned: user.currentMembership.subAccountAssigned }
+        : {}),
+      ...(user.currentMembership?.canAccessHome !== undefined
+        ? { canAccessHome: user.currentMembership.canAccessHome }
+        : {}),
+      ...(user.currentMembership?.canUseHandover !== undefined
+        ? { canUseHandover: user.currentMembership.canUseHandover }
+        : {}),
       canUseHandoverManagement: snapshot.canUseHandoverManagement,
       canUseSpaceManagement: snapshot.canUseSpaceManagement,
       canAccessStoreSettings: snapshot.canAccessStoreSettings,
+      canAccessDashboardOverview:
+        snapshot.allowedHomeModules.includes('additional') &&
+        user.currentMembership?.canAccessHome !== false,
     };
   }
 }

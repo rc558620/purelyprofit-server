@@ -18,6 +18,7 @@ import {
   transformOptionalInt,
   transformOptionalKeyword,
 } from '../../../stores/dto/store-response.dto';
+import { STORE_SUB_ACCOUNT_ROLE_CODES } from '../../../access-control/access-control.constants';
 
 export class ListEmployeesQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ example: 1, description: '按门店 ID 筛选员工' })
@@ -63,11 +64,7 @@ export class EmployeesOverviewQueryDto {
   storeId?: number;
 }
 
-export const EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES = [
-  'cashier',
-  'manager',
-  'finance',
-] as const;
+export const EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES = STORE_SUB_ACCOUNT_ROLE_CODES;
 export const EMPLOYEE_SUB_ACCOUNT_STATUS_VALUES = [
   'active',
   'inactive',
@@ -87,6 +84,10 @@ export class EmployeeSubAccountResponseDto {
   @IsIn(EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES, { message: '子账号角色不合法' })
   role: (typeof EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES)[number];
 
+  @ApiProperty({ example: '收银员', description: '子账号角色中文名称' })
+  @IsString({ message: '子账号角色中文名称必须是字符串' })
+  roleLabel: string;
+
   @ApiProperty({
     enum: EMPLOYEE_SUB_ACCOUNT_STATUS_VALUES,
     description: '子账号状态：active=启用 / inactive=停用 / disabled=已禁用',
@@ -99,7 +100,7 @@ export class EmployeeSubAccountResponseDto {
   slotIndex: number;
 
   @ApiPropertyOptional({
-    example: '138****8000 / store_mgr01',
+    example: '13800138000 / store_mgr01',
     description: '登录账号展示文案，支持手机号或手机号 / 自定义账号',
   })
   @IsOptional()

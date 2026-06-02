@@ -8,17 +8,20 @@ import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
 import { AccessControlService } from '../access-control/access-control.service';
+import { SubjectCapabilityService } from '../access-control/subject-capability.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { AUTH_TOKEN_VERSION_KEY_PREFIX } from './auth.constants';
 import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
+import { AuthCapabilityService } from './auth-capability.service';
 import { AuthCodeService } from './auth-code.service';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthProfileService } from './auth-profile.service';
 import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthSmsService } from './auth-sms.service';
+import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -40,6 +43,9 @@ describe('AuthService', () => {
       findUnique: jest.fn(),
       findMany: jest.fn(),
     },
+    storeMembershipProfile: {
+      findUnique: jest.fn(),
+    },
     $queryRaw: jest.fn(),
     $transaction: jest.fn(),
   };
@@ -60,6 +66,9 @@ describe('AuthService', () => {
   const authSmsService = {
     sendPasswordResetCode: jest.fn(),
     sendRegisterCode: jest.fn(),
+  };
+  const platformMembershipAccessService = {
+    getSubAccountQuota: jest.fn().mockResolvedValue(0),
   };
 
   beforeEach(async () => {
@@ -85,7 +94,6 @@ describe('AuthService', () => {
     prismaService.staff.updateMany.mockResolvedValue({ count: 0 });
     prismaService.staff.findMany.mockResolvedValue([]);
     prismaService.store.findMany.mockResolvedValue([]);
-
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
@@ -95,12 +103,18 @@ describe('AuthService', () => {
         AuthPasswordService,
         AuthProfileService,
         AuthSessionService,
+        AuthCapabilityService,
+        SubjectCapabilityService,
         { provide: PrismaService, useValue: prismaService },
         { provide: JwtService, useValue: jwtService },
         { provide: AccessControlService, useValue: accessControlService },
         { provide: RedisService, useValue: redisService },
         { provide: ConfigService, useValue: configService },
         { provide: AuthSmsService, useValue: authSmsService },
+        {
+          provide: PlatformMembershipAccessService,
+          useValue: platformMembershipAccessService,
+        },
       ],
     }).compile();
 
@@ -149,16 +163,48 @@ describe('AuthService', () => {
     });
   });
 
-  it('除 admin 外不允许通过 account 别名登录', async () => {
-    await expect(
-      service.login({
-        account: 'jeffrey',
-        password: 'admin123',
-      }),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+  it('支持通过子账号别名登录', async () => {
+    const hashedPassword = await bcrypt.hash('111111', 4);
+    prismaService.staff.findFirst.mockResolvedValue({
+      phone: '13145645646',
+      user: {
+        id: 59,
+        email: 'phone_13145645646@purelyprofit.local',
+        password: hashedPassword,
+      },
+    });
+    redisService.get.mockResolvedValue('0');
+    jwtService.signAsync.mockResolvedValue('sub-account-token');
 
-    expect(prismaService.staff.findFirst).not.toHaveBeenCalled();
-    expect(prismaService.user.findUnique).not.toHaveBeenCalled();
+    const result = await service.login({
+      account: 'aaaaaa3',
+      password: '111111',
+    });
+
+    expect(prismaService.staff.findFirst).toHaveBeenCalledWith({
+      where: {
+        email: 'account_aaaaaa3@purelyprofit.local',
+        isActive: true,
+        userId: { not: null },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: {
+        phone: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            password: true,
+          },
+        },
+      },
+    });
+    expect(result).toEqual({ access_token: 'sub-account-token' });
+    expect(jwtService.signAsync).toHaveBeenCalledWith({
+      sub: 59,
+      phone: '13145645646',
+      sessionVersion: 0,
+    });
   });
 
   it('Pulse 已封禁账号不允许重新登录', async () => {
@@ -339,6 +385,106 @@ describe('AuthService', () => {
     expect(result.user.verified).toBe(true);
     expect(result.user.realName).toBe('张三');
     expect(result.user.idNumberMasked).toBe('110101********1234');
+    expect(result.currentMembership).toBeNull();
+    expect(result.store).toBeNull();
+  });
+
+  it('获取 profile 时返回子账号角色标识给前端', async () => {
+    prismaService.user.findUnique.mockResolvedValueOnce({
+      id: 59,
+      email: 'phone_13145645646@purelyprofit.local',
+      name: '房东莎莎的',
+      avatar: null,
+      realName: null,
+      idNumber: null,
+      createdAt: new Date('2026-05-12T10:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+    });
+    prismaService.$queryRaw = jest.fn().mockResolvedValueOnce([
+      {
+        storeName: '会发光',
+        address: '深圳南山',
+        storeCreatedAt: new Date('2026-05-12T10:00:00.000Z'),
+        storeUpdatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      },
+    ]);
+
+    const result = await service.getProfile({
+      id: 59,
+      email: 'phone_13145645646@purelyprofit.local',
+      phone: '13145645646',
+      name: '房东莎莎的',
+      createdAt: new Date('2026-05-12T10:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      currentMembership: {
+        staffId: 55,
+        storeId: 48,
+        role: 'STAFF',
+        permissions: ['members:view', 'marketing:view'],
+        isActive: true,
+        subjectType: 'sub_account',
+        linkedEmployeeId: 6,
+        subAccountId: 3,
+        subAccountRole: 'manager',
+        subAccountStatus: 'active',
+        subAccountAssigned: true,
+        canAccessHome: true,
+        canUseHandover: true,
+      },
+    });
+
+    expect(result.currentMembership).toMatchObject({
+      identityType: 'sub_account',
+      subAccountRole: 'manager',
+      subAccountRoleLabel: '店长',
+      staffId: 55,
+      linkedEmployeeId: 6,
+      storeId: 48,
+      subAccountId: 3,
+      subAccountStatus: 'active',
+      subAccountAssigned: true,
+      canAccessHome: true,
+      canUseHandover: true,
+    });
+  });
+
+  it('getCapability 返回首页能力快照', async () => {
+    platformMembershipAccessService.getSubAccountQuota.mockResolvedValueOnce(2);
+
+    await expect(
+      service.getCapability({
+        id: 59,
+        email: 'phone_13145645646@purelyprofit.local',
+        phone: '13145645646',
+        name: '房东莎莎的',
+        createdAt: new Date('2026-05-12T10:00:00.000Z'),
+        updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+        currentMembership: {
+          staffId: 55,
+          storeId: 48,
+          role: 'STAFF',
+          permissions: ['operation-entry:view', 'operation-entry:create'],
+          isActive: true,
+          subjectType: 'sub_account',
+          linkedEmployeeId: 6,
+          subAccountId: 3,
+          subAccountRole: 'cashier',
+          subAccountStatus: 'active',
+          subAccountAssigned: true,
+          canAccessHome: true,
+          canUseHandover: true,
+        },
+      }),
+    ).resolves.toMatchObject({
+      identityType: 'sub_account',
+      subAccountRole: 'cashier',
+      subAccountRoleLabel: '收银员',
+      subAccountQuota: 2,
+      subAccountEnabled: true,
+      allowedHomeModules: ['additional', 'space-management', 'handover-management'],
+      canUseHandoverManagement: true,
+      canUseSpaceManagement: true,
+    });
   });
 
   it('更新头像后返回最新 profile', async () => {

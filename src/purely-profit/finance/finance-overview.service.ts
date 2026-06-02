@@ -62,6 +62,8 @@ export class FinanceOverviewService {
   ): Promise<FinanceOverviewResponseDto> {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     const period = query.period ?? 'month';
     const cacheKey = buildFinanceOverviewCacheKey(storeId, period);
     const cachedPayload =
@@ -77,7 +79,7 @@ export class FinanceOverviewService {
       return cachedPayload.data;
     }
 
-    return this.refreshOverviewCache(cacheKey, storeId, period);
+    return this.refreshOverviewCache(cacheKey, storeId, period, callerIsSubAccount);
   }
 
   async warmOverviewCache(
@@ -85,7 +87,7 @@ export class FinanceOverviewService {
     period: NonNullable<FinanceOverviewQueryDto['period']> | 'month',
   ): Promise<FinanceOverviewResponseDto> {
     const cacheKey = buildFinanceOverviewCacheKey(storeId, period);
-    return this.refreshOverviewCache(cacheKey, storeId, period);
+    return this.refreshOverviewCache(cacheKey, storeId, period, false);
   }
 
   async getReport(
@@ -94,6 +96,8 @@ export class FinanceOverviewService {
   ): Promise<FinanceReportResponseDto> {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     const reportQuery: FinanceReportQueryInput = {
       period: query.period,
       year: query.year,
@@ -105,6 +109,7 @@ export class FinanceOverviewService {
     if (reportQuery.export) {
       await this.platformMembershipAccessService.ensureReportExportEnabled(
         storeId,
+        callerIsSubAccount,
       );
     }
 
@@ -114,11 +119,13 @@ export class FinanceOverviewService {
       await this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         range,
+        callerIsSubAccount,
       );
     const clampedPreviousRange = previousRange
       ? await this.platformMembershipAccessService.clampHistoryRange(
           storeId,
           previousRange,
+          callerIsSubAccount,
         )
       : null;
 
@@ -144,7 +151,7 @@ export class FinanceOverviewService {
     this.redisService.runBackgroundRefresh(
       buildCacheRefreshTaskKey(cacheKey),
       async () => {
-        await this.refreshOverviewCache(cacheKey, storeId, period);
+        await this.refreshOverviewCache(cacheKey, storeId, period, false);
       },
     );
   }
@@ -153,8 +160,9 @@ export class FinanceOverviewService {
     cacheKey: string,
     storeId: number,
     period: NonNullable<FinanceOverviewQueryDto['period']> | 'month',
+    callerIsSubAccount: boolean,
   ): Promise<FinanceOverviewResponseDto> {
-    const data = await this.buildOverview(storeId, period);
+    const data = await this.buildOverview(storeId, period, callerIsSubAccount);
     const now = Date.now();
 
     await this.redisService.setJson(
@@ -173,6 +181,7 @@ export class FinanceOverviewService {
   private async buildOverview(
     storeId: number,
     period: NonNullable<FinanceOverviewQueryDto['period']> | 'month',
+    callerIsSubAccount: boolean,
   ): Promise<FinanceOverviewResponseDto> {
     const currentRange = getOverviewCurrentRange(period);
     const previousRange = getOverviewPreviousRange(
@@ -183,6 +192,7 @@ export class FinanceOverviewService {
       await this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         currentRange,
+        callerIsSubAccount,
       );
     if (clampedCurrentRange.empty) {
       return buildEmptyOverviewResponse();
@@ -192,7 +202,7 @@ export class FinanceOverviewService {
       await this.platformMembershipAccessService.clampHistoryRange(storeId, {
         start: previousRange.prevStart,
         end: previousRange.prevEnd,
-      });
+      }, callerIsSubAccount);
     const queryStart = clampedPreviousRange.empty
       ? clampedCurrentRange.start
       : Math.max(

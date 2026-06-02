@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AuthModule } from '../../auth/auth.module';
 import {
   PartnerReviewController,
@@ -11,10 +11,13 @@ import { PlatformMembershipOrderService } from './platform-membership-order.serv
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
 import { PlatformMembershipReadService } from './platform-membership-read.service';
 import { PlatformMembershipService } from './platform-membership.service';
+import { StoreSubAccountLoginService } from './store-sub-account-login.service';
+import { StoreSubAccountReadService } from './store-sub-account-read.service';
 import { StoreSubAccountService } from './store-sub-account.service';
+import { StoreSubAccountSlotService } from './store-sub-account-slot.service';
 
 @Module({
-  imports: [AuthModule],
+  imports: [forwardRef(() => AuthModule)],
   controllers: [
     PlatformMembershipController,
     PromotionDetailCompatController,
@@ -27,6 +30,9 @@ import { StoreSubAccountService } from './store-sub-account.service';
     PlatformMembershipPartnerService,
     PlatformMembershipOrderService,
     PlatformMembershipAccessService,
+    StoreSubAccountLoginService,
+    StoreSubAccountReadService,
+    StoreSubAccountSlotService,
     StoreSubAccountService,
   ],
   exports: [

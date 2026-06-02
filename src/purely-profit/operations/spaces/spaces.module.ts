@@ -7,6 +7,14 @@ import { SalesRecordModule } from '../sales-record/sales-record.module';
 import { SpaceDashboardService } from './space-dashboard.service';
 import { SpaceReservationsController } from './space-reservations.controller';
 import { SpaceReservationsService } from './space-reservations.service';
+import { SpaceSessionCheckoutLockService } from './space-session-checkout-lock.service';
+import { SpaceSessionCheckoutService } from './space-session-checkout.service';
+import { SpaceSessionOpenService } from './space-session-open.service';
+import { SpaceSessionReadService } from './space-session-read.service';
+import { SpaceSessionRenewService } from './space-session-renew.service';
+import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { SpaceSessionTransferService } from './space-session-transfer.service';
+import { SpaceSessionWriteService } from './space-session-write.service';
 import { SpaceSessionsController } from './space-sessions.controller';
 import { SpaceSessionsService } from './space-sessions.service';
 import { SpaceTypesController } from './space-types.controller';
@@ -40,6 +48,14 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceTypesService,
     SpaceZonesService,
     SpaceReservationsService,
+    SpaceSessionCheckoutLockService,
+    SpaceSessionCheckoutService,
+    SpaceSessionOpenService,
+    SpaceSessionReadService,
+    SpaceSessionRenewService,
+    SpaceSessionSettlementService,
+    SpaceSessionTransferService,
+    SpaceSessionWriteService,
     SpaceSessionsService,
     SpaceDashboardService,
   ],

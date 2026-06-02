@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AuthAuthenticationService } from './auth-authentication.service';
+import { AuthCapabilityService } from './auth-capability.service';
 import { AuthCodeService } from './auth-code.service';
 import { AuthProfileService } from './auth-profile.service';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
@@ -9,6 +10,7 @@ import { ForgotPasswordResponseDto } from './dto/forgot-password-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { PasswordOperationResponseDto } from './dto/password-operation-response.dto';
 import { ProfileResponseDto } from './dto/profile-response.dto';
+import { AuthCapabilityResponseDto } from './dto/capability-response.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SendRegisterCodeDto } from './dto/send-register-code.dto';
@@ -30,6 +32,7 @@ export class AuthService {
     private readonly authAuthenticationService: AuthAuthenticationService,
     private readonly authCodeService: AuthCodeService,
     private readonly authProfileService: AuthProfileService,
+    private readonly authCapabilityService: AuthCapabilityService,
   ) {}
 
   async sendRegisterCode(
@@ -115,5 +118,11 @@ export class AuthService {
 
   async getProfile(user: AuthenticatedUser): Promise<ProfileResponseDto> {
     return this.authProfileService.getProfile(user);
+  }
+
+  async getCapability(
+    user: AuthenticatedUser,
+  ): Promise<AuthCapabilityResponseDto> {
+    return this.authCapabilityService.getCapability(user);
   }
 }

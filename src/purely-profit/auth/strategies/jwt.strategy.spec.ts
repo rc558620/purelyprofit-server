@@ -186,7 +186,7 @@ describe('JwtStrategy', () => {
     });
   });
 
-  it('子账号表尚未迁移时回退到旧会员查询', async () => {
+  it('子账号表尚未迁移时拒绝登录，避免回退旧权限模型', async () => {
     const strategy = new JwtStrategy(
       configService as never,
       prisma as never,
@@ -203,58 +203,19 @@ describe('JwtStrategy', () => {
     });
     redisService.get.mockResolvedValue('0');
     prisma.store.findMany.mockResolvedValue([]);
-    prisma.$queryRaw
-      .mockRejectedValueOnce(
-        new Error('relation "store_sub_accounts" does not exist'),
-      )
-      .mockResolvedValueOnce([
-        {
-          id: 18,
-          storeId: 3,
-          role: 'OWNER',
-          permissions: ['*'],
-          isActive: true,
-          linkedEmployeeId: null,
-        },
-      ]);
-    accessControlService.buildMembershipContext.mockReturnValue({
-      staffId: 18,
-      storeId: 3,
-      role: 'OWNER',
-      permissions: ['*'],
-      isActive: true,
-      subjectType: 'owner',
-      linkedEmployeeId: null,
-      subAccountId: null,
-      subAccountRole: null,
-      subAccountStatus: null,
-      subAccountAssigned: false,
-      canAccessHome: true,
-      canUseHandover: false,
-    });
-
-    const result = await strategy.validate({
-      sub: 9,
-      phone: '13800138000',
-      sessionVersion: 0,
-    });
-
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(accessControlService.buildMembershipContext).toHaveBeenCalledWith(
-      {
-        id: 18,
-        storeId: 3,
-        role: 'OWNER',
-        permissions: ['*'],
-        isActive: true,
-        linkedEmployeeId: null,
-      },
-      null,
+    prisma.$queryRaw.mockRejectedValueOnce(
+      new Error('relation "store_sub_accounts" does not exist'),
     );
-    expect(result.currentMembership).toMatchObject({
-      staffId: 18,
-      storeId: 3,
-      subjectType: 'owner',
-    });
+
+    await expect(
+      strategy.validate({
+        sub: 9,
+        phone: '13800138000',
+        sessionVersion: 0,
+      }),
+    ).rejects.toThrow('登录态能力上下文未就绪，请联系管理员完成系统升级后重试');
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(accessControlService.buildMembershipContext).not.toHaveBeenCalled();
   });
 });

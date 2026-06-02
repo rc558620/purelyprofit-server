@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, StaffStatus } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { AccessControlService } from '../../access-control/access-control.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -90,34 +90,16 @@ export class MembersAccessService {
     user: AuthenticatedUser,
     requiredPermission: MembersPermission,
   ): Promise<number | null> {
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        OR: [{ userId: user.id }, { email: user.email }, { phone: user.phone }],
-        isActive: true,
-        status: StaffStatus.ACTIVE,
-      },
-      select: {
-        storeId: true,
-        role: true,
-        permissions: true,
-      },
-      orderBy: {
-        id: 'asc',
-      },
-    });
-
-    if (!staff) {
-      return null;
+    const currentStoreId =
+      this.accessControlService.resolveCurrentStoreIdByPermission(
+        user,
+        requiredPermission,
+      );
+    if (currentStoreId !== null) {
+      return currentStoreId;
     }
 
-    const effectivePermissions =
-      this.accessControlService.getEffectivePermissions(staff);
-    return this.accessControlService.hasPermission(
-      effectivePermissions,
-      requiredPermission,
-    )
-      ? staff.storeId
-      : null;
+    return null;
   }
 
   async findManageableMemberOrThrow(
@@ -144,21 +126,12 @@ export class MembersAccessService {
     user: AuthenticatedUser,
     storeId: number,
   ): Promise<number | null> {
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        storeId,
-        OR: [{ userId: user.id }, { email: user.email }, { phone: user.phone }],
-        isActive: true,
-        status: StaffStatus.ACTIVE,
-      },
-      select: {
-        id: true,
-      },
-      orderBy: {
-        id: 'asc',
-      },
-    });
+    const currentStaffId =
+      this.accessControlService.resolveCurrentStaffIdForStore(user, storeId);
+    if (currentStaffId !== null) {
+      return currentStaffId;
+    }
 
-    return staff?.id ?? null;
+    return null;
   }
 }

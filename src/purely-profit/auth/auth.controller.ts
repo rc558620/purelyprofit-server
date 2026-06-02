@@ -24,6 +24,7 @@ import { ForgotPasswordResponseDto } from './dto/forgot-password-response.dto';
 import { LoginDto } from './dto/login.dto';
 import { PasswordOperationResponseDto } from './dto/password-operation-response.dto';
 import { ProfileResponseDto } from './dto/profile-response.dto';
+import { AuthCapabilityResponseDto } from './dto/capability-response.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SendRegisterCodeDto } from './dto/send-register-code.dto';
@@ -140,6 +141,20 @@ export class AuthController {
     @Req() request: { user: AuthenticatedUser },
   ): Promise<ProfileResponseDto> {
     return this.authService.getProfile(request.user);
+  }
+
+  @Get('capability')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '获取当前登录态的首页能力快照' })
+  @ApiOkResponse({
+    description: '返回 identityType、allowedHomeModules 等首页显隐能力字段',
+    type: AuthCapabilityResponseDto,
+  })
+  capability(
+    @Req() request: { user: AuthenticatedUser },
+  ): Promise<AuthCapabilityResponseDto> {
+    return this.authService.getCapability(request.user);
   }
 
   @Patch('profile/avatar')

@@ -54,19 +54,23 @@ export class BusinessAnalysisService {
       'report:view',
       '无权查看该门店经营分析',
     );
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
 
-    return this.getAnalysisByStoreId(storeId, query);
+    return this.getAnalysisByStoreId(storeId, query, callerIsSubAccount);
   }
 
   async getAnalysisByStoreId(
     storeId: number,
     query: GetBusinessAnalysisQueryDto,
+    callerIsSubAccount = false,
   ): Promise<BusinessAnalysisResponseDto> {
     if (query.export) {
       await this.platformMembershipAccessService.ensureReportExportEnabled(
         storeId,
+        callerIsSubAccount,
       );
-      return this.buildAnalysis(storeId, query);
+      return this.buildAnalysis(storeId, query, callerIsSubAccount);
     }
 
     const cacheKey = buildBusinessAnalysisCacheKey(storeId, query);
@@ -83,7 +87,7 @@ export class BusinessAnalysisService {
       return cachedPayload.data;
     }
 
-    return this.refreshAnalysisCache(cacheKey, storeId, query);
+    return this.refreshAnalysisCache(cacheKey, storeId, query, callerIsSubAccount);
   }
 
   async warmAnalysisCache(
@@ -94,7 +98,7 @@ export class BusinessAnalysisService {
     >,
   ): Promise<BusinessAnalysisResponseDto> {
     const cacheKey = buildBusinessAnalysisCacheKey(storeId, query);
-    return this.refreshAnalysisCache(cacheKey, storeId, query);
+    return this.refreshAnalysisCache(cacheKey, storeId, query, false);
   }
 
   private scheduleAnalysisRefresh(
@@ -110,7 +114,7 @@ export class BusinessAnalysisService {
     this.redisService.runBackgroundRefresh(
       buildCacheRefreshTaskKey(cacheKey),
       async () => {
-        await this.refreshAnalysisCache(cacheKey, storeId, query);
+        await this.refreshAnalysisCache(cacheKey, storeId, query, false);
       },
     );
   }
@@ -119,8 +123,9 @@ export class BusinessAnalysisService {
     cacheKey: string,
     storeId: number,
     query: GetBusinessAnalysisQueryDto,
+    callerIsSubAccount: boolean,
   ): Promise<BusinessAnalysisResponseDto> {
-    const data = await this.buildAnalysis(storeId, query);
+    const data = await this.buildAnalysis(storeId, query, callerIsSubAccount);
     const now = Date.now();
 
     await this.redisService.setJson(
@@ -139,6 +144,7 @@ export class BusinessAnalysisService {
   private async buildAnalysis(
     storeId: number,
     query: GetBusinessAnalysisQueryDto,
+    callerIsSubAccount: boolean,
   ): Promise<BusinessAnalysisResponseDto> {
     const currentRange = resolveCurrentRange(query);
     const previousRange = getPreviousRange(
@@ -149,10 +155,12 @@ export class BusinessAnalysisService {
       this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         currentRange,
+        callerIsSubAccount,
       ),
       this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         previousRange,
+        callerIsSubAccount,
       ),
     ]);
 

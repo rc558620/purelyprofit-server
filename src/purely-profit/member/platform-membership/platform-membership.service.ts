@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { IdentityType } from '../../access-control/access-control.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type {
   ApplyPlatformPartnerDto,
@@ -54,6 +55,7 @@ export class PlatformMembershipService {
   async getCenter(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipCenterResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipReadService.getCenterByStoreId(storeId);
   }
@@ -67,6 +69,7 @@ export class PlatformMembershipService {
   async getProfile(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipProfileResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipReadService.getProfileByStoreId(storeId);
   }
@@ -80,6 +83,7 @@ export class PlatformMembershipService {
   async listOrders(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipOrdersResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipReadService.listOrdersByStoreId(storeId);
   }
@@ -94,6 +98,7 @@ export class PlatformMembershipService {
     user: AuthenticatedUser,
     dto: PurchasePlatformMembershipOrderDto,
   ): Promise<PurchasePlatformMembershipOrderResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipOrderService.purchaseOrder(
       user.id,
@@ -105,6 +110,7 @@ export class PlatformMembershipService {
   async listPointsLogs(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipPointsLogsResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipLedgerService.listPointsLogsByStoreId(
       storeId,
@@ -122,6 +128,7 @@ export class PlatformMembershipService {
   async listBeanLogs(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipBeanLogsResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipLedgerService.listBeanLogsByStoreId(storeId);
   }
@@ -135,6 +142,7 @@ export class PlatformMembershipService {
   async getPromoCenter(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipReadService.getPromoCenterByStoreId(storeId);
   }
@@ -149,6 +157,7 @@ export class PlatformMembershipService {
     user: AuthenticatedUser,
     rawQuery: Record<string, unknown>,
   ): Promise<PromotionDetailCompatResponse> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipReadService.getPromotionDetailCompat(
       storeId,
@@ -159,6 +168,7 @@ export class PlatformMembershipService {
   async getPartnerProfile(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.getPartnerProfileByStoreId(storeId);
   }
@@ -175,6 +185,7 @@ export class PlatformMembershipService {
     user: AuthenticatedUser,
     dto: ApplyPlatformPartnerDto,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipPartnerService.applyPartner(
       user.id,
@@ -187,6 +198,7 @@ export class PlatformMembershipService {
     user: AuthenticatedUser,
     applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipPartnerService.markPartnerApplicationReviewing(
       storeId,
@@ -198,6 +210,7 @@ export class PlatformMembershipService {
     user: AuthenticatedUser,
     applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipPartnerService.approvePartnerApplication(
       storeId,
@@ -210,6 +223,7 @@ export class PlatformMembershipService {
     applicationId: number,
     dto: RejectPlatformPartnerApplicationDto,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipPartnerService.rejectPartnerApplication(
       storeId,
@@ -222,6 +236,7 @@ export class PlatformMembershipService {
     user: AuthenticatedUser,
     applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipPartnerService.cancelPartnerApplication(
       user.id,
@@ -235,6 +250,7 @@ export class PlatformMembershipService {
     applicationId: number,
     dto: CreatePlatformPartnerFollowUpNoteDto,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
     return this.platformMembershipPartnerService.addPartnerFollowUpNote(
       storeId,
@@ -250,5 +266,13 @@ export class PlatformMembershipService {
     }
 
     return storeId;
+  }
+
+  private ensureOwnerOnly(user: AuthenticatedUser, message: string): void {
+    if (
+      user.currentMembership?.subjectType === ('sub_account' as IdentityType)
+    ) {
+      throw new ForbiddenException(message);
+    }
   }
 }

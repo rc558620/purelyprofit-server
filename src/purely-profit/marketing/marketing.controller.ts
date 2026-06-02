@@ -21,6 +21,8 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { RequirePermissions } from '../access-control/decorators/require-permissions.decorator';
+import { PermissionsGuard } from '../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import {
@@ -55,7 +57,7 @@ import { MarketingService } from './marketing.service';
 
 @ApiTags('营销中心')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('marketing')
 export class MarketingController {
   constructor(private readonly marketingService: MarketingService) {}
@@ -63,6 +65,7 @@ export class MarketingController {
   // ── Overview ────────────────────────────────────────────────────────
 
   @Get('overview')
+  @RequirePermissions('marketing:view')
   @ApiOperation({ summary: '营销概览数据' })
   @ApiOkResponse({ type: MarketingOverviewDto })
   async getOverview(
@@ -75,6 +78,7 @@ export class MarketingController {
   // ── Customers ───────────────────────────────────────────────────────
 
   @Get('customers')
+  @RequirePermissions('marketing:view')
   @ApiOperation({ summary: '顾客列表' })
   @ApiOkResponse({ type: MarketingCustomersResponseDto })
   async listCustomers(
@@ -85,6 +89,7 @@ export class MarketingController {
   }
 
   @Post('customers')
+  @RequirePermissions('marketing:manage')
   @ApiOperation({ summary: '新增顾客' })
   @ApiCreatedResponse({ type: MarketingCustomerDto })
   async createCustomer(
@@ -96,6 +101,7 @@ export class MarketingController {
   }
 
   @Get('customers/:id')
+  @RequirePermissions('marketing:view')
   @ApiOperation({ summary: '顾客详情（含近期储值/消费记录）' })
   @ApiOkResponse({ type: MarketingCustomerDetailDto })
   async getCustomer(
@@ -106,6 +112,7 @@ export class MarketingController {
   }
 
   @Patch('customers/:id')
+  @RequirePermissions('marketing:manage')
   @ApiOperation({ summary: '修改顾客信息' })
   @ApiOkResponse({ type: MarketingCustomerDto })
   async updateCustomer(
@@ -117,6 +124,7 @@ export class MarketingController {
   }
 
   @Delete('customers/:id')
+  @RequirePermissions('marketing:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除顾客' })
   @ApiNoContentResponse()
@@ -128,6 +136,7 @@ export class MarketingController {
   }
 
   @Get('customers/:id/recharges')
+  @RequirePermissions('marketing:view')
   @ApiOperation({ summary: '顾客储值记录列表' })
   @ApiOkResponse({ type: MarketingRechargesResponseDto })
   async listCustomerRecharges(
@@ -139,6 +148,7 @@ export class MarketingController {
   }
 
   @Get('customers/:id/points-records')
+  @RequirePermissions('marketing:view')
   @ApiOperation({ summary: '顾客积分流水列表' })
   @ApiOkResponse({ type: MarketingPointsRecordsResponseDto })
   async listCustomerPointsRecords(
@@ -152,6 +162,7 @@ export class MarketingController {
   // ── Consumptions (per customer) ─────────────────────────────────────
 
   @Get('customers/:id/consumptions')
+  @RequirePermissions('marketing:view')
   @ApiOperation({ summary: '顾客消费记录列表' })
   @ApiOkResponse({ type: MarketingConsumptionsResponseDto })
   async listConsumptions(
@@ -167,6 +178,7 @@ export class MarketingController {
   }
 
   @Post('consumptions')
+  @RequirePermissions('marketing:manage')
   @ApiOperation({ summary: '记录消费' })
   @ApiCreatedResponse({ type: MarketingConsumptionDto })
   async createConsumption(
@@ -180,6 +192,7 @@ export class MarketingController {
   // ── Recharges ───────────────────────────────────────────────────────
 
   @Get('recharges')
+  @RequirePermissions('marketing:view')
   @ApiOperation({ summary: '储值记录列表（可按顾客/日期筛选）' })
   @ApiOkResponse({ type: MarketingRechargesResponseDto })
   async listRecharges(
@@ -190,6 +203,7 @@ export class MarketingController {
   }
 
   @Post('recharges')
+  @RequirePermissions('marketing:manage')
   @ApiOperation({ summary: '顾客储值' })
   @ApiCreatedResponse({ type: MarketingRechargeDto })
   async createRecharge(
@@ -201,6 +215,7 @@ export class MarketingController {
   }
 
   @Get('points-records')
+  @RequirePermissions('marketing:view')
   @ApiOperation({ summary: '积分流水列表（可按顾客/时间/类型筛选）' })
   @ApiOkResponse({ type: MarketingPointsRecordsResponseDto })
   async listPointsRecords(
@@ -213,6 +228,7 @@ export class MarketingController {
   // ── Promotions ───────────────────────────────────────────────────────
 
   @Get('promotions')
+  @RequirePermissions('marketing:view')
   @ApiOperation({ summary: '活动列表' })
   @ApiOkResponse({ type: MarketingPromotionsResponseDto })
   async listPromotions(
@@ -223,6 +239,7 @@ export class MarketingController {
   }
 
   @Post('promotions')
+  @RequirePermissions('marketing:manage')
   @ApiOperation({ summary: '创建活动' })
   @ApiCreatedResponse({ type: MarketingPromotionDto })
   async createPromotion(
@@ -234,6 +251,7 @@ export class MarketingController {
   }
 
   @Get('promotions/:id')
+  @RequirePermissions('marketing:view')
   @ApiOperation({ summary: '活动详情' })
   @ApiOkResponse({ type: MarketingPromotionDto })
   async getPromotion(
@@ -244,6 +262,7 @@ export class MarketingController {
   }
 
   @Patch('promotions/:id')
+  @RequirePermissions('marketing:manage')
   @ApiOperation({ summary: '编辑活动' })
   @ApiOkResponse({ type: MarketingPromotionDto })
   async updatePromotion(
@@ -255,6 +274,7 @@ export class MarketingController {
   }
 
   @Patch('promotions/:id/toggle')
+  @RequirePermissions('marketing:manage')
   @ApiOperation({ summary: '上架/下架活动' })
   @ApiOkResponse({ type: MarketingPromotionDto })
   async togglePromotion(
@@ -266,6 +286,7 @@ export class MarketingController {
   }
 
   @Delete('promotions/:id')
+  @RequirePermissions('marketing:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除活动' })
   @ApiNoContentResponse()

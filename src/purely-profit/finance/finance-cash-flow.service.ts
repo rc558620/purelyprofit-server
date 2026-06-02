@@ -58,6 +58,8 @@ export class FinanceCashFlowService {
   ): Promise<PaginatedFinanceCashFlowRecordsResponseDto> {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     const cashFlowQuery: FinanceCashFlowListQueryInput = {
       period: query.period,
       directionFilter: query.directionFilter,
@@ -78,6 +80,7 @@ export class FinanceCashFlowService {
       await this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         range,
+        callerIsSubAccount,
       );
     const directionFilter = cashFlowQuery.directionFilter ?? 'all';
     const pageState = buildPaginationState(
@@ -113,6 +116,8 @@ export class FinanceCashFlowService {
   ): Promise<FinanceCashFlowStatsDto> {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     const cashFlowQuery: FinanceCashFlowListQueryInput = {
       period: query.period,
       directionFilter: query.directionFilter,
@@ -131,6 +136,7 @@ export class FinanceCashFlowService {
       await this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         range,
+        callerIsSubAccount,
       );
     const directionFilter = cashFlowQuery.directionFilter ?? 'all';
 
@@ -162,6 +168,7 @@ export class FinanceCashFlowService {
       await this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         previousRange,
+        callerIsSubAccount,
       );
     if (clampedPreviousRange.empty) {
       return {

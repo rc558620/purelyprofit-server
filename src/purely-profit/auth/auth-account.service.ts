@@ -194,37 +194,43 @@ export class AuthAccountService {
   async findCurrentMembership(
     user: AuthenticatedUser,
   ): Promise<ProfileMembershipRecord | null> {
-    const memberships = await this.prisma.$queryRaw<ProfileMembershipRecord[]>`
+    if (!user.currentMembership) {
+      return null;
+    }
+
+    const membership = await this.prisma.$queryRaw<
+      Pick<
+        ProfileMembershipRecord,
+        'storeName' | 'address' | 'storeCreatedAt' | 'storeUpdatedAt'
+      >[]
+    >`
       SELECT
-        st.id AS "staffId",
-        st.store_id AS "storeId",
-        st.role,
-        st.permissions,
-        st.is_active AS "isActive",
         s.name AS "storeName",
         s.address,
         s.created_at AS "storeCreatedAt",
         s.updated_at AS "storeUpdatedAt"
       FROM staffs st
       INNER JOIN stores s ON s.id = st.store_id
-      WHERE st.is_active = true
-        AND st.status = 'ACTIVE'
-        AND (
-          st.user_id = ${user.id}
-          OR st.email = ${user.email}
-          OR st.phone = ${user.phone}
-        )
-      ORDER BY
-        CASE st.role
-          WHEN 'OWNER' THEN 0
-          WHEN 'MANAGER' THEN 1
-          ELSE 2
-        END,
-        st.id ASC
+      WHERE st.id = ${user.currentMembership.staffId}
+        AND st.store_id = ${user.currentMembership.storeId}
       LIMIT 1
     `;
 
-    return memberships[0] ?? null;
+    const currentStore = membership[0];
+    if (!currentStore) {
+      return null;
+    }
+
+    return {
+      staffId: user.currentMembership.staffId,
+      storeId: user.currentMembership.storeId,
+      role: user.currentMembership.role,
+      permissions: user.currentMembership.permissions,
+      isActive: user.currentMembership.isActive,
+      identityType: user.currentMembership.subjectType,
+      subAccountRole: user.currentMembership.subAccountRole,
+      ...currentStore,
+    };
   }
 
   async updateAvatar(userId: number, avatar: string | null): Promise<void> {

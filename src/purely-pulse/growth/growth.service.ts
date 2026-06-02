@@ -10,31 +10,106 @@ import type { ApplyWithdrawalResponseDto } from '../../purely-profit/member/with
 import type {
   GetPulseAdminPartnerApplicationsQueryDto,
   GetPulseAdminPayoutsQueryDto,
-  GetPulseEarningsLogsQueryDto,
   PulseAdminApprovePartnerApplicationDto,
   PulseAdminApprovePayoutDto,
   PulseAdminPartnerApplicationsResponseDto,
   PulseAdminPayoutsResponseDto,
   PulseAdminRejectPartnerApplicationDto,
   PulseAdminRejectPayoutDto,
+} from './dto/pulse-growth-admin.dto';
+import type {
+  GetPulseEarningsLogsQueryDto,
   PulseEarningsLogsResponseDto,
   PulseEarningsOverviewResponseDto,
   PulseWithdrawalAccountResponseDto,
-  UpdatePulseWithdrawalAccountDto,
-} from './dto/pulse-growth.dto';
+} from './dto/pulse-growth-earnings.dto';
+import type { UpdatePulseWithdrawalAccountDto } from './dto/pulse-growth-withdrawals.dto';
 import { PulseGrowthAccessService } from './growth-access.service';
 import type { PulseAdminPromoDetailResponse } from './growth-admin.domain';
 import { PulseGrowthAdminService } from './growth-admin.service';
 import { PulseGrowthEarningsService } from './growth-earnings.service';
 
+type GrowthAdminFacade = {
+  promo: {
+    getDetail: (
+      user: AuthenticatedUser,
+      rawQuery: Record<string, unknown>,
+    ) => Promise<PulseAdminPromoDetailResponse>;
+  };
+  partnerApplications: {
+    list: (
+      user: AuthenticatedUser,
+      query: GetPulseAdminPartnerApplicationsQueryDto,
+    ) => Promise<PulseAdminPartnerApplicationsResponseDto>;
+    approve: (
+      user: AuthenticatedUser,
+      applicationId: number,
+      dto: PulseAdminApprovePartnerApplicationDto,
+    ) => Promise<{ success: true }>;
+    reject: (
+      user: AuthenticatedUser,
+      applicationId: number,
+      dto: PulseAdminRejectPartnerApplicationDto,
+    ) => Promise<{ success: true }>;
+  };
+  payouts: {
+    list: (
+      user: AuthenticatedUser,
+      query: GetPulseAdminPayoutsQueryDto,
+    ) => Promise<PulseAdminPayoutsResponseDto>;
+    approve: (
+      user: AuthenticatedUser,
+      payoutId: number,
+      dto: PulseAdminApprovePayoutDto,
+    ) => Promise<{ success: true }>;
+    reject: (
+      user: AuthenticatedUser,
+      payoutId: number,
+      dto: PulseAdminRejectPayoutDto,
+    ) => Promise<{ success: true }>;
+  };
+};
+
 @Injectable()
 export class PulseGrowthService {
+  readonly admin: GrowthAdminFacade;
+
   constructor(
     private readonly platformMembershipService: PlatformMembershipService,
     private readonly accessService: PulseGrowthAccessService,
     private readonly adminService: PulseGrowthAdminService,
     private readonly earningsService: PulseGrowthEarningsService,
-  ) {}
+  ) {
+    this.admin = {
+      promo: {
+        getDetail: (user, rawQuery) =>
+          this.adminService.getAdminPromoDetail(user, rawQuery),
+      },
+      partnerApplications: {
+        list: (user, query) =>
+          this.adminService.listAdminPartnerApplications(user, query),
+        approve: (user, applicationId, dto) =>
+          this.adminService.approveAdminPartnerApplication(
+            user,
+            applicationId,
+            dto,
+          ),
+        reject: (user, applicationId, dto) =>
+          this.adminService.rejectAdminPartnerApplication(
+            user,
+            applicationId,
+            dto,
+          ),
+      },
+      payouts: {
+        list: (user, query) => this.adminService.listAdminPayouts(user, query),
+        approve: (user, payoutId, dto) =>
+          this.adminService.approveAdminPayout(user, payoutId, dto),
+        reject: (user, payoutId, dto) =>
+          this.adminService.rejectAdminPayout(user, payoutId, dto),
+      },
+    };
+  }
 
   async getPromoCenter(
     user: AuthenticatedUser,
@@ -45,13 +120,6 @@ export class PulseGrowthService {
     return this.platformMembershipService.getPromoCenterByStoreId(store.id);
   }
 
-  getAdminPromoDetail(
-    user: AuthenticatedUser,
-    rawQuery: Record<string, unknown>,
-  ): Promise<PulseAdminPromoDetailResponse> {
-    return this.adminService.getAdminPromoDetail(user, rawQuery);
-  }
-
   async getPartnerProfile(
     user: AuthenticatedUser,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
@@ -59,37 +127,6 @@ export class PulseGrowthService {
       notFoundMessage: '当前未选中目标商家门店，暂无法查看合伙人档案',
     });
     return this.platformMembershipService.getPartnerProfileByStoreId(store.id);
-  }
-
-  listAdminPartnerApplications(
-    user: AuthenticatedUser,
-    query: GetPulseAdminPartnerApplicationsQueryDto,
-  ): Promise<PulseAdminPartnerApplicationsResponseDto> {
-    return this.adminService.listAdminPartnerApplications(user, query);
-  }
-
-  approveAdminPartnerApplication(
-    user: AuthenticatedUser,
-    applicationId: number,
-    dto: PulseAdminApprovePartnerApplicationDto,
-  ): Promise<{ success: true }> {
-    return this.adminService.approveAdminPartnerApplication(
-      user,
-      applicationId,
-      dto,
-    );
-  }
-
-  rejectAdminPartnerApplication(
-    user: AuthenticatedUser,
-    applicationId: number,
-    dto: PulseAdminRejectPartnerApplicationDto,
-  ): Promise<{ success: true }> {
-    return this.adminService.rejectAdminPartnerApplication(
-      user,
-      applicationId,
-      dto,
-    );
   }
 
   async applyPartner(
@@ -131,29 +168,6 @@ export class PulseGrowthService {
     query: GetPulseEarningsLogsQueryDto = {},
   ): Promise<PulseEarningsLogsResponseDto> {
     return this.earningsService.getEarningsLogs(user, query);
-  }
-
-  listAdminPayouts(
-    user: AuthenticatedUser,
-    query: GetPulseAdminPayoutsQueryDto,
-  ): Promise<PulseAdminPayoutsResponseDto> {
-    return this.adminService.listAdminPayouts(user, query);
-  }
-
-  approveAdminPayout(
-    user: AuthenticatedUser,
-    payoutId: number,
-    dto: PulseAdminApprovePayoutDto,
-  ): Promise<{ success: true }> {
-    return this.adminService.approveAdminPayout(user, payoutId, dto);
-  }
-
-  rejectAdminPayout(
-    user: AuthenticatedUser,
-    payoutId: number,
-    dto: PulseAdminRejectPayoutDto,
-  ): Promise<{ success: true }> {
-    return this.adminService.rejectAdminPayout(user, payoutId, dto);
   }
 
   getWithdrawalAccount(

@@ -24,11 +24,13 @@ import type {
 
 export function buildCenterStats(
   promoRecords: StoreMembershipPromoRecord[],
+  partnerCount: number,
 ): PlatformMembershipCenterResponseDto['stats'] {
   const chargedPromos = promoRecords.filter(
     (record) => record.hasCharged,
   ).length;
   return {
+    partnerCount,
     totalPromos: promoRecords.length,
     chargedPromos,
   };

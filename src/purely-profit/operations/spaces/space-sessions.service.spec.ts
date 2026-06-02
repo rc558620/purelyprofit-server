@@ -1,30 +1,48 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
-import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { RedisService } from '../../../redis/redis.service';
-import { SalesRecordService } from '../sales-record/sales-record.service';
+import { SpaceSessionCheckoutService } from './space-session-checkout.service';
+import { SpaceSessionOpenService } from './space-session-open.service';
+import { SpaceSessionReadService } from './space-session-read.service';
+import { SpaceSessionRenewService } from './space-session-renew.service';
+import { SpaceSessionTransferService } from './space-session-transfer.service';
+import { SpaceSessionWriteService } from './space-session-write.service';
 import { SpaceSessionsService } from './space-sessions.service';
 
 describe('SpaceSessionsService', () => {
   let service: SpaceSessionsService;
 
-  const prismaService = {
-    spaceSession: {
-      findMany: jest.fn(),
-    },
-  };
-
   const commerceAccessService = {
-    resolveViewStoreId: jest.fn(),
+    ensureCanAccessStore: jest.fn(),
   };
 
-  const salesRecordService = {};
-  const redisService = {};
-  const configService = {
-    get: jest.fn(),
+  const readService = {
+    listStoreSpaceSessions: jest.fn(),
+    listStoreActiveSpaceSessions: jest.fn(),
+    getActiveSpaceSession: jest.fn(),
+    listSpaceSessions: jest.fn(),
+    getSpaceSessionDetail: jest.fn(),
+  };
+
+  const checkoutService = {
+    previewSpaceSessionCheckout: jest.fn(),
+    checkoutSpaceSession: jest.fn(),
+  };
+
+  const openService = {
+    openSession: jest.fn(),
+  };
+
+  const renewService = {
+    renewSession: jest.fn(),
+  };
+
+  const transferService = {
+    transferSession: jest.fn(),
+  };
+
+  const writeService = {
+    addItemsToSession: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -54,108 +72,86 @@ describe('SpaceSessionsService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
 
-    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.spaceSession.findMany.mockResolvedValue([]);
-
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SpaceSessionsService,
-        { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
-        { provide: SalesRecordService, useValue: salesRecordService },
-        { provide: RedisService, useValue: redisService },
-        { provide: ConfigService, useValue: configService },
+        { provide: SpaceSessionReadService, useValue: readService },
+        { provide: SpaceSessionCheckoutService, useValue: checkoutService },
+        { provide: SpaceSessionOpenService, useValue: openService },
+        { provide: SpaceSessionRenewService, useValue: renewService },
+        { provide: SpaceSessionTransferService, useValue: transferService },
+        { provide: SpaceSessionWriteService, useValue: writeService },
       ],
     }).compile();
 
     service = module.get<SpaceSessionsService>(SpaceSessionsService);
   });
 
-  it('listStoreSpaceSessions 在未传 status 时默认只返回 active 会话', async () => {
-    await service.listStoreSpaceSessions(user, {});
+  it('listStoreSpaceSessions 代理给 readService', async () => {
+    readService.listStoreSpaceSessions.mockResolvedValue([]);
 
-    expect(commerceAccessService.resolveViewStoreId).toHaveBeenCalledWith(
+    await service.listStoreSpaceSessions(user, { status: 'active' });
+
+    expect(readService.listStoreSpaceSessions).toHaveBeenCalledWith(user, {
+      status: 'active',
+    });
+  });
+
+  it('previewSpaceSessionCheckout 代理给 checkoutService', async () => {
+    const dto = { timeFeeMode: 'timed' as const };
+    checkoutService.previewSpaceSessionCheckout.mockResolvedValue({
+      lockId: 'lock_1',
+      lockedAt: 1,
+      expiresAt: 2,
+      preview: {
+        durationMinutes: 30,
+        durationLabel: '30分钟',
+        timeCost: 10,
+        itemsCost: 0,
+        renewDeduction: 0,
+        prepaidDeduction: 0,
+        totalAmount: 10,
+        timeFeeMode: 'timed',
+      },
+    });
+
+    await service.previewSpaceSessionCheckout(user, 9, dto);
+
+    expect(checkoutService.previewSpaceSessionCheckout).toHaveBeenCalledWith(
       user,
-      undefined,
-      'space:view',
-      '无权查看该门店空间会话',
+      9,
+      dto,
     );
-    expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith({
-      where: {
-        AND: [{ storeId: 18 }, { status: PrismaSpaceSessionStatus.active }],
-      },
-      include: {
-        space: {
-          select: {
-            id: true,
-            name: true,
-            type: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
-    });
   });
 
-  it('listStoreSpaceSessions 在显式传 status 时保留调用方筛选条件', async () => {
-    await service.listStoreSpaceSessions(user, {
-      status: 'settled',
-    });
+  it('openSpaceSession 代理给 openService', async () => {
+    const dto = { billingMode: 'timed' as const, hourlyRate: 68 };
+    openService.openSession.mockResolvedValue({ id: '1' });
 
-    expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith({
-      where: {
-        AND: [{ storeId: 18 }, { status: PrismaSpaceSessionStatus.settled }],
-      },
-      include: {
-        space: {
-          select: {
-            id: true,
-            name: true,
-            type: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
-    });
+    await service.openSpaceSession(user, 7, dto);
+
+    expect(openService.openSession).toHaveBeenCalledWith(user, 7, dto);
   });
 
-  it('listStoreActiveSpaceSessions 在未传 status 时默认只返回 active 会话', async () => {
-    await service.listStoreActiveSpaceSessions(user, {});
-
-    expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith({
-      where: {
-        AND: [{ storeId: 18 }, { status: PrismaSpaceSessionStatus.active }],
-      },
-      include: {
-        space: {
-          select: {
-            id: true,
-            name: true,
-            type: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
+  it('checkoutSpaceSession 代理给 checkoutService', async () => {
+    const dto = {
+      paymentMethod: 'cash' as const,
+      lockId: 'lock_1',
+      lockedAt: Date.now(),
+    };
+    checkoutService.checkoutSpaceSession.mockResolvedValue({
+      session: { id: '1' },
+      spaceStatus: 'idle',
+      salesOrder: { id: '2' },
     });
-  });
 
-  it('listStoreSpaceSessions 在 resolveViewStoreId 返回 null 时直接返回空数组且不查 DB', async () => {
-    commerceAccessService.resolveViewStoreId.mockResolvedValue(null);
+    await service.checkoutSpaceSession(user, 9, dto);
 
-    await expect(service.listStoreSpaceSessions(user, {})).resolves.toEqual([]);
-
-    expect(prismaService.spaceSession.findMany).not.toHaveBeenCalled();
+    expect(checkoutService.checkoutSpaceSession).toHaveBeenCalledWith(
+      user,
+      9,
+      dto,
+    );
   });
 });

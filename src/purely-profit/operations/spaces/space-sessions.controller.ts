@@ -129,7 +129,7 @@ export class SpaceSessionsController {
   }
 
   @Post('spaces/:spaceId/sessions')
-  @RequirePermissions('sales:create')
+  @RequirePermissions('operation-entry:create')
   @ApiOperation({ summary: '空间开台并创建使用会话' })
   @ApiCreatedResponse({ type: SpaceSessionResponseDto })
   openSession(
@@ -145,7 +145,7 @@ export class SpaceSessionsController {
   }
 
   @Post('space-sessions')
-  @RequirePermissions('sales:create')
+  @RequirePermissions('operation-entry:create')
   @ApiOperation({ summary: '开台（兼容前端根路径接口）' })
   @ApiCreatedResponse({ type: SpaceSessionResponseDto })
   openSessionByRootPath(
@@ -164,7 +164,7 @@ export class SpaceSessionsController {
   }
 
   @Post('space-sessions/:id/items')
-  @RequirePermissions('sales:create')
+  @RequirePermissions('operation-entry:create')
   @ApiOperation({ summary: '给空间会话追加商品' })
   @ApiOkResponse({ type: SpaceSessionResponseDto })
   addItems(
@@ -180,7 +180,7 @@ export class SpaceSessionsController {
   }
 
   @Post('space-sessions/:id/renew')
-  @RequirePermissions('sales:create')
+  @RequirePermissions('operation-entry:create')
   @ApiOperation({ summary: '给倒计时会话续费' })
   @ApiOkResponse({ type: RenewSpaceSessionResponseDto })
   renew(
@@ -196,7 +196,7 @@ export class SpaceSessionsController {
   }
 
   @Post('space-sessions/:id/transfer')
-  @RequirePermissions('sales:create')
+  @RequirePermissions('operation-entry:create')
   @ApiOperation({ summary: '将使用中的会话换到同类型空闲空间' })
   @ApiOkResponse({ type: TransferSpaceSessionResponseDto })
   transfer(
@@ -212,7 +212,7 @@ export class SpaceSessionsController {
   }
 
   @Post('space-sessions/:id/checkout-preview')
-  @RequirePermissions('sales:create')
+  @RequirePermissions('operation-entry:create')
   @ApiOperation({ summary: '创建空间会话的结账预览锁单' })
   @ApiOkResponse({ type: CheckoutSpaceSessionPreviewResponseDto })
   previewCheckout(
@@ -228,7 +228,7 @@ export class SpaceSessionsController {
   }
 
   @Post('space-sessions/:id/checkout')
-  @RequirePermissions('sales:create')
+  @RequirePermissions('operation-entry:create')
   @ApiOperation({ summary: '结账并关闭使用会话' })
   @ApiOkResponse({ type: CheckoutSpaceSessionResponseDto })
   checkout(

@@ -85,6 +85,23 @@ describe('DashboardHomeController', () => {
         compareEndAt: 1747126200000,
         generatedAt: 1747212600000,
       },
+      capability: {
+        identityType: 'sub_account',
+        subAccountRole: 'cashier',
+        subAccountRoleLabel: '收银员',
+        subAccountStatus: 'active',
+        subAccountAssigned: true,
+        canAccessHome: true,
+        canUseHandover: true,
+        allowedHomeModules: ['additional'],
+        hiddenHomeModules: ['business-analysis'],
+        canViewFinance: false,
+        canViewMarketing: false,
+        canUseHandoverManagement: true,
+        canUseSpaceManagement: true,
+        canAccessStoreSettings: false,
+        canAccessDashboardOverview: true,
+      },
     };
     const query = {
       storeId: 18,

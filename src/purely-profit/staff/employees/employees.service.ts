@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { StoreSubAccountRole } from '@prisma/client';
+import {
+  toStoreSubAccountRole,
+} from '../../access-control/access-control.constants';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import {
@@ -212,12 +215,7 @@ export class EmployeesService {
 
     await this.storeSubAccountService.updateSlot(employee.storeId, {
       slotIndex: availableSlot,
-      role:
-        dto.role === 'cashier'
-          ? StoreSubAccountRole.cashier
-          : dto.role === 'finance'
-            ? StoreSubAccountRole.finance
-            : StoreSubAccountRole.manager,
+      role: toStoreSubAccountRole(dto.role),
       employeeId: employee.id,
       canAccessHome: true,
       canUseHandover: dto.role !== 'finance',

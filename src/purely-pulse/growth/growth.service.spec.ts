@@ -3,11 +3,14 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import { PulseGrowthAccessService } from './growth-access.service';
+import { PulseGrowthAdminPartnerApplicationService } from './growth-admin-partner-application.service';
+import { PulseGrowthAdminPayoutService } from './growth-admin-payout.service';
+import { PulseGrowthAdminQueryService } from './growth-admin-query.service';
 import { PulseGrowthAdminService } from './growth-admin.service';
 import * as growthAdminDomain from './growth-admin.domain';
 import * as growthAdminQuery from './growth-admin.query';
-import { RedisService } from '../../redis/redis.service';
 import { PulseGrowthEarningsService } from './growth-earnings.service';
 import { PulseGrowthService } from './growth.service';
 
@@ -184,22 +187,59 @@ describe('PulseGrowthService', () => {
       ),
     );
   });
+
+  it('admin.partnerApplications.list 按子域入口委托 admin service', async () => {
+    const mapped = {
+      items: [],
+      pendingCount: 1,
+      approvedCount: 2,
+      rejectedCount: 3,
+      hasMore: false,
+      nextCursor: null,
+    };
+    adminService.listAdminPartnerApplications.mockResolvedValue(mapped);
+
+    await expect(
+      service.admin.partnerApplications.list(user, {
+        tab: 'pending',
+        limit: 20,
+      }),
+    ).resolves.toEqual(mapped);
+
+    expect(adminService.listAdminPartnerApplications).toHaveBeenCalledWith(user, {
+      tab: 'pending',
+      limit: 20,
+    });
+  });
+
+  it('admin.payouts.reject 按子域入口委托 admin service', async () => {
+    adminService.rejectAdminPayout.mockResolvedValue({ success: true });
+
+    await expect(
+      service.admin.payouts.reject(user, 28, { rejectReason: '资料不完整' }),
+    ).resolves.toEqual({ success: true });
+
+    expect(adminService.rejectAdminPayout).toHaveBeenCalledWith(user, 28, {
+      rejectReason: '资料不完整',
+    });
+  });
 });
 
 describe('PulseGrowthAdminService', () => {
   let service: PulseGrowthAdminService;
 
-  const prismaService = {};
-  const platformMembershipService = {
-    approvePartnerApplication: jest.fn(),
-    addPartnerFollowUpNote: jest.fn(),
-    rejectPartnerApplication: jest.fn(),
+  const queryService = {
+    getAdminPromoDetail: jest.fn(),
+    listAdminPartnerApplications: jest.fn(),
+    listAdminPayouts: jest.fn(),
   };
-  const accessService = {
-    buildAdminPayoutWhere: jest.fn(),
-    buildPartnerApplicationWhere: jest.fn(),
-    assertCanAccessAdminStore: jest.fn(),
-    buildScopedUser: jest.fn(),
+  const partnerApplicationService = {
+    approveAdminPartnerApplication: jest.fn(),
+    rejectAdminPartnerApplication: jest.fn(),
+  };
+  const payoutService = {
+    approveAdminPayout: jest.fn(),
+    rejectAdminPayout: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -221,16 +261,137 @@ describe('PulseGrowthAdminService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PulseGrowthAdminService,
-        { provide: PrismaService, useValue: prismaService },
+        { provide: PulseGrowthAdminQueryService, useValue: queryService },
         {
-          provide: PlatformMembershipService,
-          useValue: platformMembershipService,
+          provide: PulseGrowthAdminPartnerApplicationService,
+          useValue: partnerApplicationService,
         },
-        { provide: PulseGrowthAccessService, useValue: accessService },
+        { provide: PulseGrowthAdminPayoutService, useValue: payoutService },
       ],
     }).compile();
 
     service = module.get<PulseGrowthAdminService>(PulseGrowthAdminService);
+  });
+
+  it('listAdminPartnerApplications 委托给查询服务', async () => {
+    const mapped = {
+      items: [],
+      pendingCount: 5,
+      approvedCount: 3,
+      rejectedCount: 2,
+      hasMore: false,
+      nextCursor: null,
+    };
+    queryService.listAdminPartnerApplications.mockResolvedValue(mapped);
+
+    await expect(
+      service.listAdminPartnerApplications(user, {
+        tab: 'pending',
+        cursor: '1747123200000_128',
+        limit: 30,
+      }),
+    ).resolves.toEqual(mapped);
+
+    expect(queryService.listAdminPartnerApplications).toHaveBeenCalledWith(
+      user,
+      {
+        tab: 'pending',
+        cursor: '1747123200000_128',
+        limit: 30,
+      },
+    );
+  });
+
+  it('approveAdminPartnerApplication 委托给申请动作服务', async () => {
+    partnerApplicationService.approveAdminPartnerApplication.mockResolvedValue({
+      success: true,
+    });
+
+    await expect(
+      service.approveAdminPartnerApplication(user, 18, { note: '通过' }),
+    ).resolves.toEqual({ success: true });
+
+    expect(
+      partnerApplicationService.approveAdminPartnerApplication,
+    ).toHaveBeenCalledWith(user, 18, { note: '通过' });
+  });
+
+  it('listAdminPayouts 委托给查询服务', async () => {
+    const mapped = {
+      items: [],
+      pendingCount: 3,
+      pendingTotal: 4300,
+      paidTotal: 2000,
+      hasMore: false,
+      nextCursor: null,
+    };
+    queryService.listAdminPayouts.mockResolvedValue(mapped);
+
+    await expect(
+      service.listAdminPayouts(user, {
+        tab: 'pending',
+        cursor: '1747123200000_128',
+        limit: 30,
+      }),
+    ).resolves.toEqual(mapped);
+
+    expect(queryService.listAdminPayouts).toHaveBeenCalledWith(user, {
+      tab: 'pending',
+      cursor: '1747123200000_128',
+      limit: 30,
+    });
+  });
+
+  it('rejectAdminPayout 委托给打款动作服务', async () => {
+    payoutService.rejectAdminPayout.mockResolvedValue({ success: true });
+
+    await expect(
+      service.rejectAdminPayout(user, 28, { rejectReason: '资料不完整' }),
+    ).resolves.toEqual({ success: true });
+
+    expect(payoutService.rejectAdminPayout).toHaveBeenCalledWith(user, 28, {
+      rejectReason: '资料不完整',
+    });
+  });
+});
+
+describe('PulseGrowthAdminQueryService', () => {
+  let service: PulseGrowthAdminQueryService;
+
+  const prismaService = {};
+  const accessService = {
+    buildAdminStoreWhere: jest.fn(),
+    buildAdminPayoutWhere: jest.fn(),
+    buildPartnerApplicationWhere: jest.fn(),
+  };
+
+  const user: AuthenticatedUser = {
+    id: 101,
+    email: 'dev@example.com',
+    phone: '13800138000',
+    name: '开发者',
+    createdAt: new Date('2026-05-12T00:00:00.000Z'),
+    updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    pulseMode: 'normal',
+    isPulseDeveloper: true,
+    currentMembership: null,
+  };
+
+  beforeEach(async () => {
+    jest.restoreAllMocks();
+    jest.clearAllMocks();
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        PulseGrowthAdminQueryService,
+        { provide: PrismaService, useValue: prismaService },
+        { provide: PulseGrowthAccessService, useValue: accessService },
+      ],
+    }).compile();
+
+    service = module.get<PulseGrowthAdminQueryService>(
+      PulseGrowthAdminQueryService,
+    );
   });
 
   it('listAdminPartnerApplications 将 tab 过滤和 cursor 下推到查询层', async () => {
@@ -297,57 +458,6 @@ describe('PulseGrowthAdminService', () => {
     ).rejects.toThrow('cursor 格式不合法');
   });
 
-  it('buildAdminPartnerApplicationsResponse 在 cursor 模式下返回 nextCursor', () => {
-    const result = growthAdminDomain.buildAdminPartnerApplicationsResponse({
-      applications: [
-        {
-          id: 18,
-          name: '张三',
-          phone: '13800138000',
-          region: ['广东省', '深圳市', '南山区'],
-          applyReason: '我有稳定客户资源',
-          createdAt: new Date('2026-05-15T10:00:00.000Z'),
-          status: 'pending',
-        },
-        {
-          id: 17,
-          name: '李四',
-          phone: '13900139000',
-          region: ['上海市', '上海市'],
-          applyReason: null,
-          createdAt: new Date('2026-05-15T09:00:00.000Z'),
-          status: 'approved',
-        },
-      ],
-      stats: {
-        pendingCount: 5,
-        approvedCount: 3,
-        rejectedCount: 2,
-      },
-      limit: 1,
-    });
-
-    expect(result).toEqual({
-      items: [
-        {
-          id: '18',
-          name: '张三',
-          phone: '138****8000',
-          city: '深圳市',
-          appliedAt: '2026-05-15 18:00',
-          reason: '我有稳定客户资源',
-          avatar: '张',
-          status: 'pending',
-        },
-      ],
-      pendingCount: 5,
-      approvedCount: 3,
-      rejectedCount: 2,
-      hasMore: true,
-      nextCursor: `${new Date('2026-05-15T10:00:00.000Z').getTime()}_18`,
-    });
-  });
-
   it('listAdminPayouts 将 tab 过滤和 cursor 下推到查询层', async () => {
     const where = { storeId: 18 };
     const withdrawals = [];
@@ -408,6 +518,57 @@ describe('PulseGrowthAdminService', () => {
         cursor: 'bad-cursor',
       }),
     ).rejects.toThrow('cursor 格式不合法');
+  });
+
+  it('buildAdminPartnerApplicationsResponse 在 cursor 模式下返回 nextCursor', () => {
+    const result = growthAdminDomain.buildAdminPartnerApplicationsResponse({
+      applications: [
+        {
+          id: 18,
+          name: '张三',
+          phone: '13800138000',
+          region: ['广东省', '深圳市', '南山区'],
+          applyReason: '我有稳定客户资源',
+          createdAt: new Date('2026-05-15T10:00:00.000Z'),
+          status: 'pending',
+        },
+        {
+          id: 17,
+          name: '李四',
+          phone: '13900139000',
+          region: ['上海市', '上海市'],
+          applyReason: null,
+          createdAt: new Date('2026-05-15T09:00:00.000Z'),
+          status: 'approved',
+        },
+      ],
+      stats: {
+        pendingCount: 5,
+        approvedCount: 3,
+        rejectedCount: 2,
+      },
+      limit: 1,
+    });
+
+    expect(result).toEqual({
+      items: [
+        {
+          id: '18',
+          name: '张三',
+          phone: '138****8000',
+          city: '深圳市',
+          appliedAt: '2026-05-15 18:00',
+          reason: '我有稳定客户资源',
+          avatar: '张',
+          status: 'pending',
+        },
+      ],
+      pendingCount: 5,
+      approvedCount: 3,
+      rejectedCount: 2,
+      hasMore: true,
+      nextCursor: `${new Date('2026-05-15T10:00:00.000Z').getTime()}_18`,
+    });
   });
 
   it('buildAdminPayoutsResponse 在 cursor 模式下返回 nextCursor', () => {

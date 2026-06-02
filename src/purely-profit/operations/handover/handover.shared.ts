@@ -5,8 +5,12 @@ import type {
   HandoverAdditionalItemDto,
   HandoverOrderItemDto,
   HandoverRecordListItemDto,
+  HandoverRecordSummaryDto,
 } from './dto/handover.dto';
-import { HandoverModeDto, HandoverStatusDto } from './dto/handover.dto';
+import {
+  HandoverRecordDisplayStatusDto,
+  HandoverStatusDto,
+} from './dto/handover.dto';
 
 export const SHIFT_TIME_FALLBACKS: Record<
   EmployeeShiftType,
@@ -30,12 +34,24 @@ export const PAYMENT_METHOD_CONFIG: Record<
   [SalesPaymentMethod.card]: { label: '刷卡', color: '#8b5cf6' },
 };
 
+export const SHIFT_TYPE_LABELS: Partial<Record<EmployeeShiftType, string>> = {
+  [EmployeeShiftType.morning]: '早班',
+  [EmployeeShiftType.nine_to_six]: '行政班',
+  [EmployeeShiftType.middle]: '中班',
+  [EmployeeShiftType.late]: '晚班',
+  [EmployeeShiftType.full]: '全天',
+  [EmployeeShiftType.custom]: '自定义班次',
+};
+
 export const HANDOVER_NOTE_MAX_LENGTH = 500;
 export const HANDOVER_ADDITIONAL_ITEM_NAME_MAX_LENGTH = 20;
 export const HANDOVER_ADDITIONAL_VALUE_MAX_LENGTH = 200;
 export const ORDER_ITEMS_LIMIT = 50;
+export const SPACE_PREPAID_DEDUCTION_ITEM_NAME = '预付抵扣';
+export const SPACE_RENEW_DEDUCTION_ITEM_NAME = '续费抵扣';
 
 const TIME_TEXT_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const SALES_PAYMENT_METHOD_VALUES = new Set(Object.values(SalesPaymentMethod));
 
 export type ShiftRecordRow = {
   employeeName: string;
@@ -70,6 +86,10 @@ export type OrderItemRow = {
   order: {
     date: Date;
     paymentMethod: SalesPaymentMethod;
+    spaceSession: {
+      prepaidPaymentMethod: SalesPaymentMethod | null;
+      renewRecords: Prisma.JsonValue;
+    } | null;
   };
 };
 
@@ -170,8 +190,9 @@ const createTimePoint = (baseDate: Date, timeText: string): Date => {
 export const buildShiftDateRange = (
   startTime: string,
   endTime: string,
+  baseDate = new Date(),
 ): ShiftDateRange => {
-  const now = new Date();
+  const now = new Date(baseDate);
   const startAt = new Date(now);
   startAt.setHours(0, 0, 0, 0);
   const endAt = new Date(now);
@@ -193,17 +214,69 @@ export const buildShiftDateRange = (
   };
 };
 
+const isSalesPaymentMethod = (value: unknown): value is SalesPaymentMethod =>
+  typeof value === 'string' &&
+  SALES_PAYMENT_METHOD_VALUES.has(value as SalesPaymentMethod);
+
+const parseRenewPaymentMethods = (
+  renewRecords: Prisma.JsonValue,
+): SalesPaymentMethod[] => {
+  if (!Array.isArray(renewRecords)) {
+    return [];
+  }
+
+  return renewRecords.flatMap((record) => {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      return [];
+    }
+
+    const paymentMethod = (record as { paymentMethod?: unknown }).paymentMethod;
+    return isSalesPaymentMethod(paymentMethod) ? [paymentMethod] : [];
+  });
+};
+
+export const resolveOrderItemPaymentMethod = (
+  item: OrderItemRow,
+): SalesPaymentMethod => {
+  const fallbackPaymentMethod = item.order.paymentMethod;
+  const spaceSession = item.order.spaceSession;
+
+  if (!spaceSession) {
+    return fallbackPaymentMethod;
+  }
+
+  if (
+    item.productName === SPACE_PREPAID_DEDUCTION_ITEM_NAME &&
+    spaceSession.prepaidPaymentMethod
+  ) {
+    return spaceSession.prepaidPaymentMethod;
+  }
+
+  if (item.productName !== SPACE_RENEW_DEDUCTION_ITEM_NAME) {
+    return fallbackPaymentMethod;
+  }
+
+  const renewPaymentMethods = [
+    ...new Set(parseRenewPaymentMethods(spaceSession.renewRecords)),
+  ];
+
+  return renewPaymentMethods.length === 1
+    ? renewPaymentMethods[0]
+    : fallbackPaymentMethod;
+};
+
 export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
   const totalRevenue = roundMoney(
     toMoneyNumber(item.salePrice) * item.quantity,
   );
+  const paymentMethod = resolveOrderItemPaymentMethod(item);
   return {
     id: String(item.id),
     productName: item.productName,
     quantity: item.quantity,
     totalRevenue,
-    paymentLabel: PAYMENT_METHOD_CONFIG[item.order.paymentMethod].label,
-    paymentColor: PAYMENT_METHOD_CONFIG[item.order.paymentMethod].color,
+    paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
+    paymentColor: PAYMENT_METHOD_CONFIG[paymentMethod].color,
     date: item.order.date.getTime(),
     currentStock: item.product?.stock ?? null,
     stockUnit: item.product?.unit ?? null,
@@ -218,6 +291,78 @@ export const mapAdditionalItem = (
   createdAt: item.createdAt.getTime(),
   updatedAt: item.updatedAt.getTime(),
 });
+
+export const resolveShiftLabel = (
+  shiftType: EmployeeShiftType | null | undefined,
+  shiftName?: string | null,
+): string => {
+  const normalizedShiftName = toDisplayName(shiftName);
+  if (normalizedShiftName) {
+    return normalizedShiftName;
+  }
+  if (shiftType) {
+    return SHIFT_TYPE_LABELS[shiftType] ?? '未知班次';
+  }
+  return '未排班';
+};
+
+export const formatMonthDay = (date: Date): string => {
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${month}-${day}`;
+};
+
+export const formatShiftTimeDesc = (
+  date: Date,
+  startTime: string | null | undefined,
+  endTime: string | null | undefined,
+): string => {
+  const monthDay = formatMonthDay(date);
+  if (!startTime || !endTime) {
+    return `${monthDay}  未排班`;
+  }
+  return `${monthDay}  ${startTime}–${endTime}`;
+};
+
+export const mapRecordDisplayStatus = (
+  status: HandoverStatusDto,
+): HandoverRecordDisplayStatusDto =>
+  status === HandoverStatusDto.PENDING
+    ? HandoverRecordDisplayStatusDto.ACTIVE
+    : HandoverRecordDisplayStatusDto.DONE;
+
+export const buildRecordSummaryDto = (params: {
+  id: number;
+  operatorName: string;
+  shiftType: EmployeeShiftType | null;
+  shiftLabel: string;
+  startTime: string | null;
+  endTime: string | null;
+  totalRevenue: number;
+  status: HandoverStatusDto;
+  handoverAt: Date | null;
+  createdAt: Date;
+}): HandoverRecordSummaryDto => {
+  const referenceDate = params.handoverAt ?? params.createdAt;
+  return {
+    id: params.id,
+    operatorName: params.operatorName,
+    shiftType: params.shiftType,
+    shiftLabel: params.shiftLabel,
+    startTime: params.startTime,
+    endTime: params.endTime,
+    timeDesc: formatShiftTimeDesc(
+      referenceDate,
+      params.startTime,
+      params.endTime,
+    ),
+    totalRevenue: params.totalRevenue,
+    status: params.status,
+    displayStatus: mapRecordDisplayStatus(params.status),
+    handoverAt: params.handoverAt?.getTime() ?? null,
+    createdAt: params.createdAt.getTime(),
+  };
+};
 
 export const mapRecordToDto = (
   record: HandoverRecordRow,

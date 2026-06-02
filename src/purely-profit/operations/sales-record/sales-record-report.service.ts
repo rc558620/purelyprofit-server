@@ -39,15 +39,19 @@ export class SalesRecordReportService {
       return buildEmptySalesReport();
     }
 
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     if (query.export) {
       await this.platformMembershipAccessService.ensureReportExportEnabled(
         storeId,
+        callerIsSubAccount,
       );
     }
 
     const range = await this.platformMembershipAccessService.clampHistoryRange(
       storeId,
       buildSalesCurrentRange(query),
+      callerIsSubAccount,
     );
     if (range.empty) {
       return buildEmptySalesReport();

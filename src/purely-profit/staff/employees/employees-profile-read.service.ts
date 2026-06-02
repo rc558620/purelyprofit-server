@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
+import { StoreSubAccountStatus } from '@prisma/client';
+import {
+  STORE_SUB_ACCOUNT_ROLE_LABELS,
+  toStoreSubAccountRoleCode,
+} from '../../access-control/access-control.constants';
 import {
   buildSubAccountLoginDisplay,
   extractCustomLoginAccount,
@@ -240,12 +244,8 @@ export class EmployeesProfileReadService {
             employee.id,
             {
               id: String(subAccount.id),
-              role:
-                subAccount.role === StoreSubAccountRole.cashier
-                  ? 'cashier'
-                  : subAccount.role === StoreSubAccountRole.finance
-                    ? 'finance'
-                    : 'manager',
+              role: toStoreSubAccountRoleCode(subAccount.role),
+              roleLabel: STORE_SUB_ACCOUNT_ROLE_LABELS[subAccount.role],
               status:
                 subAccount.status === StoreSubAccountStatus.inactive
                   ? 'inactive'

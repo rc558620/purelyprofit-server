@@ -39,6 +39,19 @@ export class StoresReadService {
   findBoundStoreRecord(
     user: AuthenticatedUser,
   ): Promise<StoreRecordSnapshot | null> {
+    if (user.currentMembership?.storeId) {
+      return this.prisma.store.findUnique({
+        where: { id: user.currentMembership.storeId },
+        select: {
+          id: true,
+          name: true,
+          address: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    }
+
     return this.prisma.store.findFirst({
       where: {
         OR: [

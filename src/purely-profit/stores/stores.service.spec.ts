@@ -70,6 +70,29 @@ describe('StoresService', () => {
     service = module.get<StoresService>(StoresService);
   });
 
+  it('子账号访问门店设置 service 时仍会被拒绝', () => {
+    expect(() =>
+      service.getCurrent({
+        ...user,
+        currentMembership: {
+          staffId: 8,
+          storeId: 18,
+          role: 'STAFF',
+          permissions: [],
+          isActive: true,
+          subjectType: 'sub_account',
+          linkedEmployeeId: 12,
+          subAccountId: 3,
+          subAccountRole: 'manager',
+          subAccountStatus: 'active',
+          subAccountAssigned: true,
+          canAccessHome: true,
+          canUseHandover: false,
+        },
+      }),
+    ).toThrow('子账号无权访问门店设置');
+  });
+
   it('当前账号已绑定门店时不允许再次创建门店', async () => {
     prismaService.store.findFirst.mockResolvedValue({
       id: 8,

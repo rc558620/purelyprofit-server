@@ -18,8 +18,11 @@ export class FinanceAccessService {
 
   async getFinanceStoreIdOrThrow(user: AuthenticatedUser): Promise<number> {
     const storeId = this.getCurrentStoreIdOrThrow(user);
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     await this.platformMembershipAccessService.ensureFinanceFeatureEnabled(
       storeId,
+      callerIsSubAccount,
     );
     return storeId;
   }

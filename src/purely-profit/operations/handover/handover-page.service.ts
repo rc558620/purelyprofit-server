@@ -126,6 +126,12 @@ export class HandoverPageService {
             select: {
               date: true,
               paymentMethod: true,
+              spaceSession: {
+                select: {
+                  prepaidPaymentMethod: true,
+                  renewRecords: true,
+                },
+              },
             },
           },
         },
@@ -144,13 +150,14 @@ export class HandoverPageService {
         },
         _sum: { timeCost: true },
       }),
-      this.prisma.financeCashFlowRecord.aggregate({
+      this.prisma.saleOrder.aggregate({
         where: {
-          ...cashFlowWhere,
-          direction: FinanceCashFlowDirection.income,
-          category: FinanceCashFlowCategory.other_income,
+          ...orderWhere,
+          spaceSession: {
+            is: null,
+          },
         },
-        _sum: { amount: true },
+        _sum: { totalRevenue: true },
       }),
       this.prisma.financeCashFlowRecord.aggregate({
         where: {
@@ -170,7 +177,7 @@ export class HandoverPageService {
       selectedShiftType: shiftInfo.shiftType,
       shiftInfo,
       revenueSummary: {
-        additionalRevenue: toMoneyNumber(additionalRevenue._sum.amount),
+        additionalRevenue: toMoneyNumber(additionalRevenue._sum.totalRevenue),
         spaceRevenue: toMoneyNumber(spaceRevenue._sum.timeCost),
         totalRevenue,
         orderCount,

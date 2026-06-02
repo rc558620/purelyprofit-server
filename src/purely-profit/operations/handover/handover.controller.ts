@@ -35,8 +35,11 @@ import {
   HandoverPageResponseDto,
   HandoverRecordListItemDto,
   HandoverRecordListResponseDto,
+  HandoverRecordSummaryListResponseDto,
+  HandoverRecordSummaryQueryDto,
   UpdateHandoverAdditionalItemDto,
 } from './dto/handover.dto';
+
 import { HandoverService } from './handover.service';
 
 @ApiTags('Handover')
@@ -191,6 +194,23 @@ export class HandoverController {
       request.user,
       limit,
       offset,
+    );
+  }
+
+  @Get('handover/records-summary')
+  @RequirePermissions('handover:view')
+  @ApiOperation({ summary: '获取 purely-profit 交班记录弹窗摘要列表' })
+  @ApiOkResponse({
+    description: '返回交班记录弹窗所需的摘要列表',
+    type: HandoverRecordSummaryListResponseDto,
+  })
+  listRecordSummaries(
+    @Req() request: { user: AuthenticatedUser },
+    @Query() query: HandoverRecordSummaryQueryDto,
+  ): Promise<HandoverRecordSummaryListResponseDto> {
+    return this.handoverService.listHandoverRecordSummaries(
+      request.user,
+      query,
     );
   }
 

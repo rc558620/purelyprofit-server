@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { STORE_SUB_ACCOUNT_ROLE_LABELS } from '../access-control/access-control.constants';
 import { AccessControlService } from '../access-control/access-control.service';
 import {
   buildStoreResponseDto,
@@ -80,16 +81,54 @@ export class AuthProfileService {
       },
       store,
       currentMembership: currentMembership
-        ? {
-            staffId: currentMembership.staffId,
-            storeId: currentMembership.storeId,
-            role: currentMembership.role,
-            permissions: this.accessControlService.getEffectivePermissions({
+        ? (() => {
+            const activeMembership =
+              user.currentMembership?.staffId === currentMembership.staffId
+                ? user.currentMembership
+                : null;
+
+            return {
+              identityType:
+                currentMembership.identityType ?? activeMembership?.subjectType ?? 'staff',
+              ...(currentMembership.subAccountRole
+                ? {
+                    subAccountRole: currentMembership.subAccountRole,
+                    subAccountRoleLabel:
+                      STORE_SUB_ACCOUNT_ROLE_LABELS[currentMembership.subAccountRole],
+                  }
+                : {}),
+              staffId: currentMembership.staffId,
+              ...(activeMembership?.linkedEmployeeId !== null &&
+              activeMembership?.linkedEmployeeId !== undefined
+                ? { linkedEmployeeId: activeMembership.linkedEmployeeId }
+                : {}),
+              storeId: currentMembership.storeId,
               role: currentMembership.role,
-              permissions: currentMembership.permissions,
-            }),
-            isActive: currentMembership.isActive,
-          }
+              permissions: activeMembership
+                ? activeMembership.permissions
+                : this.accessControlService.getEffectivePermissions({
+                    role: currentMembership.role,
+                    permissions: currentMembership.permissions,
+                  }),
+              isActive: currentMembership.isActive,
+              ...(activeMembership?.subAccountId !== null &&
+              activeMembership?.subAccountId !== undefined
+                ? { subAccountId: activeMembership.subAccountId }
+                : {}),
+              ...(activeMembership?.subAccountStatus
+                ? { subAccountStatus: activeMembership.subAccountStatus }
+                : {}),
+              ...(activeMembership?.subAccountAssigned !== undefined
+                ? { subAccountAssigned: activeMembership.subAccountAssigned }
+                : {}),
+              ...(activeMembership?.canAccessHome !== undefined
+                ? { canAccessHome: activeMembership.canAccessHome }
+                : {}),
+              ...(activeMembership?.canUseHandover !== undefined
+                ? { canUseHandover: activeMembership.canUseHandover }
+                : {}),
+            };
+          })()
         : null,
     };
   }

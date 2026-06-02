@@ -27,8 +27,11 @@ export class MarketingSharedService {
       storeId,
     );
     if (resolvedStoreId !== null) {
+      const callerIsSubAccount =
+        user.currentMembership?.subjectType === 'sub_account';
       await this.platformMembershipAccessService.ensureMarketingFeatureEnabled(
         resolvedStoreId,
+        callerIsSubAccount,
       );
     }
     return resolvedStoreId;
@@ -40,8 +43,11 @@ export class MarketingSharedService {
     permission: MarketingPermission,
   ): Promise<void> {
     await this.accessService.ensureCanAccess(user, storeId, permission);
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
     await this.platformMembershipAccessService.ensureMarketingFeatureEnabled(
       storeId,
+      callerIsSubAccount,
     );
   }
 

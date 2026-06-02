@@ -6,10 +6,8 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
-import {
-  StoreSubAccountService,
-  type UpdateStoreSubAccountSlotInput,
-} from '../../purely-profit/member/platform-membership/store-sub-account.service';
+import { StoreSubAccountService } from '../../purely-profit/member/platform-membership/store-sub-account.service';
+import type { UpdateStoreSubAccountSlotInput } from '../../purely-profit/member/platform-membership/store-sub-account.types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-members.response.dto';

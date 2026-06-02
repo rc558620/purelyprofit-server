@@ -21,7 +21,7 @@ export class DashboardHomeController {
   constructor(private readonly dashboardHomeService: DashboardHomeService) {}
 
   @Get('overview')
-  @RequirePermissions('report:view')
+  @RequirePermissions('report:view', 'operation-entry:view')
   @ApiOperation({ summary: '获取首页经营概览数据（兼容 home/overview 路由）' })
   @ApiOkResponse({
     description: '返回首页统计卡、销售趋势、最新动态和元信息',

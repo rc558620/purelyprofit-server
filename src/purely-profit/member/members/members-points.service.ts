@@ -1,123 +1,188 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
+  AdjustMemberBeansDto,
   AdjustMemberBeansResponseDto,
+  AdjustMemberPointsDto,
   AdjustMemberPointsResponseDto,
+  ListMemberBeansLogsQueryDto,
+  ListMemberPointsLogsQueryDto,
   MemberBeansOverviewResponseDto,
-  MemberBeansLogResponseDto,
+  MemberLogsOverviewQueryDto,
   MemberPointsOverviewResponseDto,
   PaginatedMemberBeansLogsResponseDto,
   PaginatedMemberPointsLogsResponseDto,
-  type AdjustmentDirectionValue,
+  type MemberBeanRecordSourceValue,
+  type MemberBeanRecordTypeValue,
   type MemberPointsRecordSourceValue,
   type MemberPointsRecordTypeValue,
 } from './dto/adjust-member-points.dto';
+import type { MemberResponseDto } from './dto/member-response.dto';
 import { MembersAccessService } from './members-access.service';
 import { type MemberRecord, toMemberResponse } from './members.mapper';
 import {
-  type MemberPointsLogRecord,
+  toMemberBeansLogResponse,
   toMemberPointsLogResponse,
 } from './members-points.mapper';
-import { buildPaginationMeta, resolvePagination } from './members.utils';
+import {
+  applyMemberBeansAdjustment,
+  applyMemberPointsAdjustment,
+  queryMemberBeanLogs,
+  queryMemberBeansOverview,
+  queryMemberPointsLogs,
+  queryMemberPointsOverview,
+} from './members-points.query';
+import type {
+  AdjustMemberAssetParams,
+  MemberAssetAdjustmentInput,
+  MemberAssetLogQueryParams,
+  MemberAssetOverviewParams,
+  MemberBeansOverviewRow,
+  MemberPointsOverviewRow,
+  ResolvedMemberAssetAdjustment,
+} from './members.types';
+import {
+  buildPaginationMeta,
+  parseMemberId,
+  resolveAdjustmentDelta,
+  resolvePagination,
+} from './members.utils';
 
-interface CountRow {
-  count: number;
-}
+type PointsLogRecord = Parameters<typeof toMemberPointsLogResponse>[0];
+type PointsLogResponse = ReturnType<typeof toMemberPointsLogResponse>;
+type BeansLogRecord = Parameters<typeof toMemberBeansLogResponse>[0];
+type BeansLogResponse = ReturnType<typeof toMemberBeansLogResponse>;
 
-interface MemberLogsOverviewQuery {
-  storeId?: number;
-}
-
-interface MemberPointsLogsQuery {
+type MemberAssetListQuery<TType, TSource> = {
   storeId?: number;
   page?: number;
   pageSize?: number;
-  type?: MemberPointsRecordTypeValue;
-  source?: MemberPointsRecordSourceValue;
+  type?: TType;
+  source?: TSource;
   keyword?: string;
+};
+
+interface MemberAssetServiceConfig<
+  TOverview,
+  TType,
+  TSource,
+  TLog,
+  TRecord,
+  TApplyInput,
+> {
+  overviewForbiddenMessage: string;
+  logsForbiddenMessage: string;
+  emptyOverview: TOverview;
+  overviewQuery: (
+    prisma: PrismaService,
+    storeId: number,
+  ) => Promise<TOverview | null>;
+  logsQuery: (
+    prisma: PrismaService,
+    params: {
+      storeId: number;
+      memberId?: number;
+      skip: number;
+      take: number;
+      type?: TType;
+      source?: TSource;
+      keyword?: string;
+    },
+  ) => Promise<{ items: TLog[]; total: number }>;
+  mapLog: (log: TLog) => TRecord;
+  assetLabel: string;
+  insufficientMessage: string;
+  getCurrentValue: (member: MemberRecord) => number;
+  buildApplyInput: (
+    adjustment: ResolvedMemberAssetAdjustment,
+  ) => TApplyInput;
+  apply: (
+    transaction: Prisma.TransactionClient,
+    input: TApplyInput,
+  ) => Promise<{ member: MemberRecord; log: TLog }>;
 }
 
-type MemberBeanRecordTypeFilter = 'earn' | 'spend' | 'withdraw';
-type MemberBeanRecordSourceFilter =
-  | 'promo_reward'
-  | 'deduct_payment'
-  | 'withdrawal'
-  | 'admin_adjust';
+const POINTS_MEMBER_ASSET_CONFIG: MemberAssetServiceConfig<
+  MemberPointsOverviewRow,
+  MemberPointsRecordTypeValue,
+  MemberPointsRecordSourceValue,
+  PointsLogRecord,
+  PointsLogResponse,
+  Parameters<typeof applyMemberPointsAdjustment>[1]
+> = {
+  overviewForbiddenMessage: '无权查看该门店积分记录概览',
+  logsForbiddenMessage: '无权查看该门店积分记录',
+  emptyOverview: {
+    totalCount: 0,
+    adminAdjustCount: 0,
+    todayChangeCount: 0,
+  },
+  overviewQuery: queryMemberPointsOverview,
+  logsQuery: queryMemberPointsLogs,
+  mapLog: toMemberPointsLogResponse,
+  assetLabel: '积分',
+  insufficientMessage: '会员当前积分不足，无法扣减',
+  getCurrentValue: (member) => member.points,
+  buildApplyInput: ({
+    member,
+    operatorStaffId,
+    delta,
+    reason,
+    beforeValue,
+    afterValue,
+  }) => ({
+    member,
+    operatorStaffId,
+    delta,
+    reason,
+    beforePoints: beforeValue,
+    afterPoints: afterValue,
+  }),
+  apply: applyMemberPointsAdjustment,
+};
 
-interface MemberBeansLogsQuery {
-  storeId?: number;
-  page?: number;
-  pageSize?: number;
-  type?: MemberBeanRecordTypeFilter;
-  source?: MemberBeanRecordSourceFilter;
-  keyword?: string;
-}
-
-interface AdjustMemberPointsInput {
-  userId?: string;
-  memberId?: string;
-  id?: string;
-  delta?: number;
-  amount?: number;
-  direction?: AdjustmentDirectionValue;
-  reason: string;
-}
-
-interface AdjustMemberBeansInput {
-  userId?: string;
-  memberId?: string;
-  id?: string;
-  delta?: number;
-  amount?: number;
-  direction?: AdjustmentDirectionValue;
-  reason: string;
-}
-
-interface BeanLogRecord {
-  id: number;
-  memberId: number;
-  memberName: string;
-  memberPhone: string | null;
-  amount: number;
-  source: MemberBeanRecordSourceFilter;
-  description: string;
-  relatedPromoId?: string | null;
-  relatedUser?: string | null;
-  createdAt: Date;
-}
-
-const MEMBER_RETURNING_SQL = Prisma.sql`
-  RETURNING
-    id,
-    store_id AS "storeId",
-    name,
-    phone,
-    gender,
-    level,
-    note,
-    birthday,
-    last_consume_at AS "lastConsumeAt",
-    points,
-    total_points_earned AS "totalPointsEarned",
-    bean_balance AS "beanBalance",
-    is_partner AS "isPartner",
-    partner_level AS "partnerLevel",
-    total_recharged AS "totalRecharged",
-    recharge_count AS "rechargeCount",
-    invited_count AS "invitedCount",
-    banned_reason AS "bannedReason",
-    status,
-    created_at AS "createdAt",
-    updated_at AS "updatedAt"
-`;
+const BEANS_MEMBER_ASSET_CONFIG: MemberAssetServiceConfig<
+  MemberBeansOverviewRow,
+  MemberBeanRecordTypeValue,
+  MemberBeanRecordSourceValue,
+  BeansLogRecord,
+  BeansLogResponse,
+  Parameters<typeof applyMemberBeansAdjustment>[1]
+> = {
+  overviewForbiddenMessage: '无权查看该门店纯利豆记录概览',
+  logsForbiddenMessage: '无权查看该门店纯利豆记录',
+  emptyOverview: {
+    totalCount: 0,
+    adminAdjustCount: 0,
+    promoRewardCount: 0,
+    withdrawCount: 0,
+  },
+  overviewQuery: queryMemberBeansOverview,
+  logsQuery: queryMemberBeanLogs,
+  mapLog: toMemberBeansLogResponse,
+  assetLabel: '纯利豆',
+  insufficientMessage: '会员当前纯利豆不足，无法扣减',
+  getCurrentValue: (member) => member.beanBalance,
+  buildApplyInput: ({
+    member,
+    operatorStaffId,
+    delta,
+    reason,
+    beforeValue,
+    afterValue,
+  }) => ({
+    member,
+    operatorStaffId,
+    delta,
+    reason,
+    beforeBalance: beforeValue,
+    afterBalance: afterValue,
+  }),
+  apply: applyMemberBeansAdjustment,
+};
 
 @Injectable()
 export class MembersPointsService {
@@ -129,260 +194,182 @@ export class MembersPointsService {
 
   async getPointsOverview(
     user: AuthenticatedUser,
-    query: MemberLogsOverviewQuery,
+    query: MemberLogsOverviewQueryDto,
   ): Promise<MemberPointsOverviewResponseDto> {
-    const storeId = await this.resolveViewStoreId(
+    return this.getMemberAssetOverview(
       user,
-      query.storeId,
-      '无权查看该门店积分记录概览',
-    );
-
-    if (storeId === null) {
-      return {
-        totalCount: 0,
-        adminAdjustCount: 0,
-        todayChangeCount: 0,
-      };
-    }
-
-    const rows = await this.prisma.$queryRaw<
-      Array<{
-        totalCount: number;
-        adminAdjustCount: number;
-        todayChangeCount: number;
-      }>
-    >`
-      SELECT
-        COUNT(*)::int AS "totalCount",
-        COUNT(*) FILTER (
-          WHERE source = 'admin_adjust'::"MemberPointsSource"
-        )::int AS "adminAdjustCount",
-        COUNT(*) FILTER (
-          WHERE created_at >= DATE_TRUNC('day', NOW())
-        )::int AS "todayChangeCount"
-      FROM member_points_logs
-      WHERE store_id = ${storeId}
-    `;
-
-    return (
-      rows[0] ?? {
-        totalCount: 0,
-        adminAdjustCount: 0,
-        todayChangeCount: 0,
-      }
+      query,
+      POINTS_MEMBER_ASSET_CONFIG,
     );
   }
 
   async listPointsLogs(
     user: AuthenticatedUser,
-    query: MemberPointsLogsQuery,
+    query: ListMemberPointsLogsQueryDto,
   ): Promise<PaginatedMemberPointsLogsResponseDto> {
-    const storeId = await this.resolveViewStoreId(
-      user,
-      query.storeId,
-      '无权查看该门店积分记录',
-    );
-
-    return this.queryPointsLogs({
-      storeId,
-      page: query.page,
-      pageSize: query.pageSize,
-      type: query.type,
-      source: query.source,
-      keyword: query.keyword,
-    });
+    return this.listMemberAssetLogs(user, query, POINTS_MEMBER_ASSET_CONFIG);
   }
 
   async listPointsLogsForMember(
     user: AuthenticatedUser,
     memberId: number,
-    query: MemberPointsLogsQuery,
+    query: ListMemberPointsLogsQueryDto,
   ): Promise<PaginatedMemberPointsLogsResponseDto> {
-    const member = await this.membersAccessService.findManageableMemberOrThrow(
+    return this.listMemberAssetLogsForMember(
       user,
       memberId,
-      'members:view',
+      query,
+      POINTS_MEMBER_ASSET_CONFIG,
     );
-
-    return this.queryPointsLogs({
-      storeId: member.storeId,
-      memberId: member.id,
-      page: query.page,
-      pageSize: query.pageSize,
-      type: query.type,
-      source: query.source,
-      keyword: query.keyword,
-    });
   }
 
   async adjustPoints(
     user: AuthenticatedUser,
-    dto: AdjustMemberPointsInput,
+    dto: AdjustMemberPointsDto,
     memberId?: number,
   ): Promise<AdjustMemberPointsResponseDto> {
-    const resolvedMemberId = memberId ?? this.resolveAdjustmentMemberId(dto);
-    const resolvedDelta = this.resolveAdjustmentDelta(dto, '积分');
-    const existingMember =
-      await this.membersAccessService.findManageableMemberOrThrow(
-        user,
-        resolvedMemberId,
-        'members:update',
-      );
-    const operatorStaffId =
-      await this.membersAccessService.findOperatorStaffIdForStore(
-        user,
-        existingMember.storeId,
-      );
-    const beforePoints = existingMember.points;
-    const afterPoints = beforePoints + resolvedDelta;
-
-    if (afterPoints < 0) {
-      throw new BadRequestException('会员当前积分不足，无法扣减');
-    }
-
-    const [member, log] = await this.prisma.$transaction(
-      async (transaction) => {
-        const memberRows = await transaction.$queryRaw<MemberRecord[]>`
-        UPDATE members
-        SET
-          points = ${afterPoints},
-          total_points_earned = total_points_earned + ${resolvedDelta > 0 ? resolvedDelta : 0},
-          updated_at = NOW()
-        WHERE id = ${existingMember.id}
-        ${MEMBER_RETURNING_SQL}
-      `;
-        const logRows = await transaction.$queryRaw<MemberPointsLogRecord[]>`
-        INSERT INTO member_points_logs (
-          member_id,
-          store_id,
-          operator_staff_id,
-          change_type,
-          source,
-          change_amount,
-          before_points,
-          after_points,
-          reason
-        )
-        VALUES (
-          ${existingMember.id},
-          ${existingMember.storeId},
-          ${operatorStaffId},
-          ${resolvedDelta > 0 ? 'INCREASE' : 'DECREASE'}::"MemberPointsChangeType",
-          'admin_adjust'::"MemberPointsSource",
-          ${Math.abs(resolvedDelta)},
-          ${beforePoints},
-          ${afterPoints},
-          ${dto.reason.trim()}
-        )
-        RETURNING
-          id,
-          member_id AS "memberId",
-          ${existingMember.name}::text AS "memberName",
-          ${existingMember.phone}::text AS "memberPhone",
-          ${resolvedDelta}::int AS amount,
-          source::text AS source,
-          reason AS description,
-          created_at AS "createdAt",
-          expires_at AS "expireAt"
-      `;
-
-        return [
-          this.requireMemberRow(memberRows[0]),
-          this.requirePointsLogRow(logRows[0]),
-        ] as const;
-      },
+    return this.adjustMemberAssetByConfig(
+      user,
+      dto,
+      memberId,
+      POINTS_MEMBER_ASSET_CONFIG,
     );
-
-    return {
-      user: toMemberResponse(member),
-      record: toMemberPointsLogResponse(log),
-    };
   }
 
   async getBeansOverview(
     user: AuthenticatedUser,
-    query: MemberLogsOverviewQuery,
+    query: MemberLogsOverviewQueryDto,
   ): Promise<MemberBeansOverviewResponseDto> {
-    const storeId = await this.resolveViewStoreId(
-      user,
-      query.storeId,
-      '无权查看该门店纯利豆记录概览',
-    );
-
-    if (storeId === null) {
-      return {
-        totalCount: 0,
-        adminAdjustCount: 0,
-        promoRewardCount: 0,
-        withdrawCount: 0,
-      };
-    }
-
-    const rows = await this.prisma.$queryRaw<
-      Array<{
-        totalCount: number;
-        adminAdjustCount: number;
-        promoRewardCount: number;
-        withdrawCount: number;
-      }>
-    >`
-      SELECT
-        COUNT(*)::int AS "totalCount",
-        COUNT(*) FILTER (
-          WHERE source = 'admin_adjust'::"MemberBeanSource"
-        )::int AS "adminAdjustCount",
-        COUNT(*) FILTER (
-          WHERE source = 'promo_reward'::"MemberBeanSource"
-        )::int AS "promoRewardCount",
-        COUNT(*) FILTER (
-          WHERE source = 'withdrawal'::"MemberBeanSource"
-        )::int AS "withdrawCount"
-      FROM member_bean_logs
-      WHERE store_id = ${storeId}
-    `;
-
-    return (
-      rows[0] ?? {
-        totalCount: 0,
-        adminAdjustCount: 0,
-        promoRewardCount: 0,
-        withdrawCount: 0,
-      }
-    );
+    return this.getMemberAssetOverview(user, query, BEANS_MEMBER_ASSET_CONFIG);
   }
 
   async listBeanLogs(
     user: AuthenticatedUser,
-    query: MemberBeansLogsQuery,
+    query: ListMemberBeansLogsQueryDto,
   ): Promise<PaginatedMemberBeansLogsResponseDto> {
+    return this.listMemberAssetLogs(user, query, BEANS_MEMBER_ASSET_CONFIG);
+  }
+
+  async listBeanLogsForMember(
+    user: AuthenticatedUser,
+    memberId: number,
+    query: ListMemberBeansLogsQueryDto,
+  ): Promise<PaginatedMemberBeansLogsResponseDto> {
+    return this.listMemberAssetLogsForMember(
+      user,
+      memberId,
+      query,
+      BEANS_MEMBER_ASSET_CONFIG,
+    );
+  }
+
+  async adjustBeans(
+    user: AuthenticatedUser,
+    dto: AdjustMemberBeansDto,
+    memberId?: number,
+  ): Promise<AdjustMemberBeansResponseDto> {
+    return this.adjustMemberAssetByConfig(
+      user,
+      dto,
+      memberId,
+      BEANS_MEMBER_ASSET_CONFIG,
+    );
+  }
+
+  private async getMemberAssetOverview<
+    TOverview,
+    TType,
+    TSource,
+    TLog,
+    TRecord,
+    TApplyInput,
+  >(
+    user: AuthenticatedUser,
+    query: MemberLogsOverviewQueryDto,
+    config: MemberAssetServiceConfig<
+      TOverview,
+      TType,
+      TSource,
+      TLog,
+      TRecord,
+      TApplyInput
+    >,
+  ): Promise<TOverview> {
     const storeId = await this.resolveViewStoreId(
       user,
       query.storeId,
-      '无权查看该门店纯利豆记录',
+      config.overviewForbiddenMessage,
     );
 
-    return this.queryBeanLogs({
+    return this.queryMemberAssetOverview({
+      storeId,
+      emptyOverview: config.emptyOverview,
+      query: config.overviewQuery,
+    });
+  }
+
+  private async listMemberAssetLogs<
+    TType,
+    TSource,
+    TLog,
+    TRecord,
+    TApplyInput,
+  >(
+    user: AuthenticatedUser,
+    query: MemberAssetListQuery<TType, TSource>,
+    config: MemberAssetServiceConfig<
+      unknown,
+      TType,
+      TSource,
+      TLog,
+      TRecord,
+      TApplyInput
+    >,
+  ): Promise<{ items: TRecord[]; meta: ReturnType<typeof buildPaginationMeta> }> {
+    const storeId = await this.resolveViewStoreId(
+      user,
+      query.storeId,
+      config.logsForbiddenMessage,
+    );
+
+    return this.queryMemberAssetLogs({
       storeId,
       page: query.page,
       pageSize: query.pageSize,
       type: query.type,
       source: query.source,
       keyword: query.keyword,
+      query: config.logsQuery,
+      mapItem: config.mapLog,
     });
   }
 
-  async listBeanLogsForMember(
+  private async listMemberAssetLogsForMember<
+    TType,
+    TSource,
+    TLog,
+    TRecord,
+    TApplyInput,
+  >(
     user: AuthenticatedUser,
     memberId: number,
-    query: MemberBeansLogsQuery,
-  ): Promise<PaginatedMemberBeansLogsResponseDto> {
+    query: MemberAssetListQuery<TType, TSource>,
+    config: MemberAssetServiceConfig<
+      unknown,
+      TType,
+      TSource,
+      TLog,
+      TRecord,
+      TApplyInput
+    >,
+  ): Promise<{ items: TRecord[]; meta: ReturnType<typeof buildPaginationMeta> }> {
     const member = await this.membersAccessService.findManageableMemberOrThrow(
       user,
       memberId,
       'members:view',
     );
 
-    return this.queryBeanLogs({
+    return this.queryMemberAssetLogs({
       storeId: member.storeId,
       memberId: member.id,
       page: query.page,
@@ -390,125 +377,70 @@ export class MembersPointsService {
       type: query.type,
       source: query.source,
       keyword: query.keyword,
+      query: config.logsQuery,
+      mapItem: config.mapLog,
     });
   }
 
-  async adjustBeans(
+  private async adjustMemberAssetByConfig<
+    TOverview,
+    TType,
+    TSource,
+    TLog,
+    TRecord,
+    TApplyInput,
+  >(
     user: AuthenticatedUser,
-    dto: AdjustMemberBeansInput,
-    memberId?: number,
-  ): Promise<AdjustMemberBeansResponseDto> {
-    const resolvedMemberId = memberId ?? this.resolveAdjustmentMemberId(dto);
-    const resolvedDelta = this.resolveAdjustmentDelta(dto, '纯利豆');
-    const existingMember =
-      await this.membersAccessService.findManageableMemberOrThrow(
-        user,
-        resolvedMemberId,
-        'members:update',
-      );
-    const operatorStaffId =
-      await this.membersAccessService.findOperatorStaffIdForStore(
-        user,
-        existingMember.storeId,
-      );
-    const beforeBalance = existingMember.beanBalance;
-    const afterBalance = beforeBalance + resolvedDelta;
+    dto: MemberAssetAdjustmentInput,
+    memberId: number | undefined,
+    config: MemberAssetServiceConfig<
+      TOverview,
+      TType,
+      TSource,
+      TLog,
+      TRecord,
+      TApplyInput
+    >,
+  ): Promise<{ user: MemberResponseDto; record: TRecord }> {
+    return this.adjustMemberAsset({
+      user,
+      input: dto,
+      memberId,
+      assetLabel: config.assetLabel,
+      insufficientMessage: config.insufficientMessage,
+      getCurrentValue: config.getCurrentValue,
+      buildApplyInput: config.buildApplyInput,
+      apply: config.apply,
+      mapRecord: config.mapLog,
+    });
+  }
 
-    if (afterBalance < 0) {
-      throw new BadRequestException('会员当前纯利豆不足，无法扣减');
+  private async queryMemberAssetOverview<TOverview>(
+    params: MemberAssetOverviewParams<TOverview>,
+  ): Promise<TOverview> {
+    if (params.storeId === null) {
+      return params.emptyOverview;
     }
 
-    const result: {
-      member: MemberRecord;
-      log: BeanLogRecord;
-    } = await this.prisma.$transaction(async (transaction) => {
-      const memberRows = await transaction.$queryRaw<MemberRecord[]>`
-        UPDATE members
-        SET
-          bean_balance = ${afterBalance},
-          updated_at = NOW()
-        WHERE id = ${existingMember.id}
-        ${MEMBER_RETURNING_SQL}
-      `;
-      const logRows = await transaction.$queryRaw<BeanLogRecord[]>`
-        INSERT INTO member_bean_logs (
-          member_id,
-          store_id,
-          operator_staff_id,
-          source,
-          change_amount,
-          before_balance,
-          after_balance,
-          reason
-        )
-        VALUES (
-          ${existingMember.id},
-          ${existingMember.storeId},
-          ${operatorStaffId},
-          'admin_adjust'::"MemberBeanSource",
-          ${resolvedDelta},
-          ${beforeBalance},
-          ${afterBalance},
-          ${dto.reason.trim()}
-        )
-        RETURNING
-          id,
-          member_id AS "memberId",
-          ${existingMember.name}::text AS "memberName",
-          ${existingMember.phone}::text AS "memberPhone",
-          change_amount AS amount,
-          source::text AS source,
-          reason AS description,
-          related_promo_id AS "relatedPromoId",
-          related_user AS "relatedUser",
-          created_at AS "createdAt"
-      `;
-
-      return {
-        member: this.requireMemberRow(memberRows[0]),
-        log: this.requireBeanLogRow(logRows[0]),
-      };
-    });
-
-    const recordType =
-      result.log.source === 'withdrawal'
-        ? 'withdraw'
-        : result.log.amount > 0
-          ? 'earn'
-          : 'spend';
-
-    return {
-      user: toMemberResponse(result.member),
-      record: {
-        id: `bean-${result.log.id}`,
-        userId: String(result.log.memberId),
-        userName: result.log.memberName,
-        userPhone: result.log.memberPhone ?? '',
-        amount: result.log.amount,
-        type: recordType,
-        source: result.log.source,
-        description: result.log.description,
-        createdAt: result.log.createdAt.getTime(),
-        ...(result.log.relatedPromoId
-          ? { relatedPromoId: result.log.relatedPromoId }
-          : {}),
-        ...(result.log.relatedUser
-          ? { relatedUser: result.log.relatedUser }
-          : {}),
-      },
-    } satisfies AdjustMemberBeansResponseDto;
+    return (
+      (await params.query(this.prisma, params.storeId)) ?? params.emptyOverview
+    );
   }
 
-  private async queryPointsLogs(params: {
-    storeId: number | null;
-    memberId?: number;
-    page?: number;
-    pageSize?: number;
-    type?: MemberPointsRecordTypeValue;
-    source?: MemberPointsRecordSourceValue;
-    keyword?: string;
-  }): Promise<PaginatedMemberPointsLogsResponseDto> {
-    const { storeId, memberId, page, pageSize, type, source, keyword } = params;
+  private async queryMemberAssetLogs<TType, TSource, TRow, TItem>(
+    params: MemberAssetLogQueryParams<TType, TSource, TRow, TItem>,
+  ): Promise<{ items: TItem[]; meta: ReturnType<typeof buildPaginationMeta> }> {
+    const {
+      storeId,
+      memberId,
+      page,
+      pageSize,
+      type,
+      source,
+      keyword,
+      query,
+      mapItem,
+    } = params;
     const { page: currentPage, skip, take } = this.resolvePage(page, pageSize);
 
     if (storeId === null) {
@@ -518,190 +450,82 @@ export class MembersPointsService {
       };
     }
 
-    const filters: Prisma.Sql[] = [Prisma.sql`l.store_id = ${storeId}`];
-
-    if (memberId) {
-      filters.push(Prisma.sql`l.member_id = ${memberId}`);
-    }
-
-    if (type === 'earn') {
-      filters.push(
-        Prisma.sql`l.source <> 'expire'::"MemberPointsSource" AND l.change_type = 'INCREASE'`,
-      );
-    }
-
-    if (type === 'spend') {
-      filters.push(
-        Prisma.sql`l.source <> 'expire'::"MemberPointsSource" AND l.change_type = 'DECREASE'`,
-      );
-    }
-
-    if (type === 'expire') {
-      filters.push(Prisma.sql`l.source = 'expire'::"MemberPointsSource"`);
-    }
-
-    if (source) {
-      filters.push(Prisma.sql`l.source = ${source}::"MemberPointsSource"`);
-    }
-
-    if (keyword) {
-      filters.push(
-        Prisma.sql`(
-          m.name ILIKE ${`%${keyword}%`}
-          OR m.phone LIKE ${`%${keyword}%`}
-          OR l.reason ILIKE ${`%${keyword}%`}
-        )`,
-      );
-    }
-
-    const whereClause = Prisma.join(filters, ' AND ');
-    const [items, countRows] = await Promise.all([
-      this.prisma.$queryRaw<MemberPointsLogRecord[]>`
-        SELECT
-          l.id,
-          l.member_id AS "memberId",
-          m.name AS "memberName",
-          m.phone AS "memberPhone",
-          CASE
-            WHEN l.source = 'expire'::"MemberPointsSource" THEN -l.change_amount
-            WHEN l.change_type = 'INCREASE' THEN l.change_amount
-            ELSE -l.change_amount
-          END AS amount,
-          l.source::text AS source,
-          l.reason AS description,
-          l.created_at AS "createdAt",
-          l.expires_at AS "expireAt"
-        FROM member_points_logs l
-        JOIN members m ON m.id = l.member_id
-        WHERE ${whereClause}
-        ORDER BY l.created_at DESC, l.id DESC
-        OFFSET ${skip}
-        LIMIT ${take}
-      `,
-      this.prisma.$queryRaw<CountRow[]>`
-        SELECT COUNT(*)::int AS count
-        FROM member_points_logs l
-        JOIN members m ON m.id = l.member_id
-        WHERE ${whereClause}
-      `,
-    ]);
+    const { items, total } = await query(this.prisma, {
+      storeId,
+      memberId,
+      skip,
+      take,
+      type,
+      source,
+      keyword,
+    });
 
     return {
-      items: items.map((item) => toMemberPointsLogResponse(item)),
-      meta: buildPaginationMeta(countRows[0]?.count ?? 0, currentPage, take),
+      items: items.map((item) => mapItem(item)),
+      meta: buildPaginationMeta(total, currentPage, take),
     };
   }
 
-  private async queryBeanLogs(params: {
-    storeId: number | null;
-    memberId?: number;
-    page?: number;
-    pageSize?: number;
-    type?: MemberBeanRecordTypeFilter;
-    source?: MemberBeanRecordSourceFilter;
-    keyword?: string;
-  }): Promise<PaginatedMemberBeansLogsResponseDto> {
-    const { storeId, memberId, page, pageSize, type, source, keyword } = params;
-    const { page: currentPage, skip, take } = this.resolvePage(page, pageSize);
-
-    if (storeId === null) {
-      return {
-        items: [],
-        meta: buildPaginationMeta(0, currentPage, take),
-      };
-    }
-
-    const filters: Prisma.Sql[] = [Prisma.sql`l.store_id = ${storeId}`];
-
-    if (memberId) {
-      filters.push(Prisma.sql`l.member_id = ${memberId}`);
-    }
-
-    if (type === 'earn') {
-      filters.push(Prisma.sql`l.change_amount > 0`);
-    }
-
-    if (type === 'spend') {
-      filters.push(
-        Prisma.sql`l.change_amount < 0 AND l.source <> 'withdrawal'::"MemberBeanSource"`,
-      );
-    }
-
-    if (type === 'withdraw') {
-      filters.push(Prisma.sql`l.source = 'withdrawal'::"MemberBeanSource"`);
-    }
-
-    if (source) {
-      filters.push(Prisma.sql`l.source = ${source}::"MemberBeanSource"`);
-    }
-
-    if (keyword) {
-      filters.push(
-        Prisma.sql`(
-          m.name ILIKE ${`%${keyword}%`}
-          OR m.phone LIKE ${`%${keyword}%`}
-          OR l.reason ILIKE ${`%${keyword}%`}
-          OR COALESCE(l.related_user, '') ILIKE ${`%${keyword}%`}
-        )`,
-      );
-    }
-
-    const whereClause = Prisma.join(filters, ' AND ');
-    const queryResult: [BeanLogRecord[], CountRow[]] = await Promise.all([
-      this.prisma.$queryRaw<BeanLogRecord[]>`
-        SELECT
-          l.id,
-          l.member_id AS "memberId",
-          m.name AS "memberName",
-          m.phone AS "memberPhone",
-          l.change_amount AS amount,
-          l.source::text AS source,
-          l.reason AS description,
-          l.related_promo_id AS "relatedPromoId",
-          l.related_user AS "relatedUser",
-          l.created_at AS "createdAt"
-        FROM member_bean_logs l
-        JOIN members m ON m.id = l.member_id
-        WHERE ${whereClause}
-        ORDER BY l.created_at DESC, l.id DESC
-        OFFSET ${skip}
-        LIMIT ${take}
-      `,
-      this.prisma.$queryRaw<CountRow[]>`
-        SELECT COUNT(*)::int AS count
-        FROM member_bean_logs l
-        JOIN members m ON m.id = l.member_id
-        WHERE ${whereClause}
-      `,
-    ]);
-    const items = queryResult[0];
-    const countRows = queryResult[1];
-    const responseItems: MemberBeansLogResponseDto[] = items.map((item) => {
-      const recordType =
-        item.source === 'withdrawal'
-          ? 'withdraw'
-          : item.amount > 0
-            ? 'earn'
-            : 'spend';
-
-      return {
-        id: `bean-${item.id}`,
-        userId: String(item.memberId),
-        userName: item.memberName,
-        userPhone: item.memberPhone ?? '',
-        amount: item.amount,
-        type: recordType,
-        source: item.source,
-        description: item.description,
-        createdAt: item.createdAt.getTime(),
-        ...(item.relatedPromoId ? { relatedPromoId: item.relatedPromoId } : {}),
-        ...(item.relatedUser ? { relatedUser: item.relatedUser } : {}),
-      };
+  private async adjustMemberAsset<TLog, TRecord, TApplyInput>(
+    params: AdjustMemberAssetParams<TLog, TRecord, TApplyInput>,
+  ): Promise<{ user: MemberResponseDto; record: TRecord }> {
+    const adjustment = await this.resolveMemberAssetAdjustment({
+      user: params.user,
+      input: params.input,
+      memberId: params.memberId,
+      assetLabel: params.assetLabel,
+      getCurrentValue: params.getCurrentValue,
+      insufficientMessage: params.insufficientMessage,
     });
 
+    const result = await this.prisma.$transaction((transaction) =>
+      params.apply(transaction, params.buildApplyInput(adjustment)),
+    );
+
     return {
-      items: responseItems,
-      meta: buildPaginationMeta(countRows[0]?.count ?? 0, currentPage, take),
+      user: toMemberResponse(result.member),
+      record: params.mapRecord(result.log),
+    };
+  }
+
+  private async resolveMemberAssetAdjustment(params: {
+    user: AuthenticatedUser;
+    input: MemberAssetAdjustmentInput;
+    memberId?: number;
+    assetLabel: string;
+    getCurrentValue: (member: MemberRecord) => number;
+    insufficientMessage: string;
+  }): Promise<ResolvedMemberAssetAdjustment> {
+    const resolvedMemberId =
+      params.memberId ??
+      parseMemberId(
+        params.input.userId ?? params.input.memberId ?? params.input.id,
+      );
+    const delta = resolveAdjustmentDelta(params.input, params.assetLabel);
+    const member = await this.membersAccessService.findManageableMemberOrThrow(
+      params.user,
+      resolvedMemberId,
+      'members:update',
+    );
+    const operatorStaffId =
+      await this.membersAccessService.findOperatorStaffIdForStore(
+        params.user,
+        member.storeId,
+      );
+    const beforeValue = params.getCurrentValue(member);
+    const afterValue = beforeValue + delta;
+
+    if (afterValue < 0) {
+      throw new BadRequestException(params.insufficientMessage);
+    }
+
+    return {
+      member,
+      operatorStaffId,
+      delta,
+      reason: params.input.reason.trim(),
+      beforeValue,
+      afterValue,
     };
   }
 
@@ -717,55 +541,6 @@ export class MembersPointsService {
     );
   }
 
-  private resolveAdjustmentMemberId(input: {
-    userId?: string;
-    memberId?: string;
-    id?: string;
-  }): number {
-    return this.parseMemberId(input.userId ?? input.memberId ?? input.id);
-  }
-
-  private resolveAdjustmentDelta(
-    input: {
-      delta?: number;
-      amount?: number;
-      direction?: AdjustmentDirectionValue;
-    },
-    assetLabel: string,
-  ): number {
-    if (typeof input.delta === 'number') {
-      return input.delta;
-    }
-
-    if (typeof input.amount !== 'number') {
-      throw new BadRequestException(`缺少${assetLabel}调整值`);
-    }
-
-    switch (input.direction) {
-      case 'add':
-        return Math.abs(input.amount);
-      case 'subtract':
-      case 'deduct':
-      case 'reduce':
-        return -Math.abs(input.amount);
-      default:
-        return input.amount;
-    }
-  }
-
-  private parseMemberId(userId?: string): number {
-    if (!userId) {
-      throw new NotFoundException('缺少会员 ID');
-    }
-
-    const parsedMemberId = Number.parseInt(userId, 10);
-    if (!Number.isInteger(parsedMemberId) || parsedMemberId <= 0) {
-      throw new NotFoundException('会员 ID 不合法');
-    }
-
-    return parsedMemberId;
-  }
-
   private resolvePage(
     page?: number,
     pageSize?: number,
@@ -776,31 +551,5 @@ export class MembersPointsService {
       this.configService.get<number>('app.maxPageSize') ?? 100;
 
     return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
-  }
-
-  private requireMemberRow(member?: MemberRecord): MemberRecord {
-    if (!member) {
-      throw new ConflictException('会员数据读取失败，请稍后重试');
-    }
-
-    return member;
-  }
-
-  private requirePointsLogRow(
-    log?: MemberPointsLogRecord,
-  ): MemberPointsLogRecord {
-    if (!log) {
-      throw new ConflictException('积分记录写入失败，请稍后重试');
-    }
-
-    return log;
-  }
-
-  private requireBeanLogRow(log?: BeanLogRecord): BeanLogRecord {
-    if (!log) {
-      throw new ConflictException('纯利豆记录写入失败，请稍后重试');
-    }
-
-    return log;
   }
 }

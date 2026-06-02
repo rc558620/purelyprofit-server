@@ -379,7 +379,7 @@ describe('ProfitDetailService', () => {
     ).rejects.toThrow('forbidden');
     expect(
       platformMembershipAccessService.ensureReportExportEnabled,
-    ).toHaveBeenCalledWith(18);
+    ).toHaveBeenCalledWith(18, false);
   });
 
   it('getProfitDetail 会按会员历史窗口裁剪查询范围', async () => {
