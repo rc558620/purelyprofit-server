@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -55,6 +56,8 @@ export class SpaceZonesService {
     user: AuthenticatedUser,
     dto: CreateSpaceZoneDto,
   ): Promise<SpaceZoneResponseDto> {
+    // 空间区域配置属于门店运营配置，仅允许主账号操作，子账号均被拒绝。
+    this.ensurePrimaryAccountOnly(user);
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
       dto.storeId,
@@ -84,6 +87,8 @@ export class SpaceZonesService {
     zoneId: number,
     dto: UpdateSpaceZoneDto,
   ): Promise<SpaceZoneResponseDto> {
+    // 空间区域配置写操作仅允许主账号，子账号均被拒绝（同 createSpaceZone）。
+    this.ensurePrimaryAccountOnly(user);
     const item = await this.prisma.spaceZone.findUnique({
       where: { id: zoneId },
     });
@@ -151,6 +156,8 @@ export class SpaceZonesService {
     user: AuthenticatedUser,
     zoneId: number,
   ): Promise<void> {
+    // 空间区域配置写操作仅允许主账号，子账号均被拒绝（同 createSpaceZone）。
+    this.ensurePrimaryAccountOnly(user);
     const item = await this.prisma.spaceZone.findUnique({
       where: { id: zoneId },
       select: {
@@ -180,6 +187,17 @@ export class SpaceZonesService {
     await this.prisma.spaceZone.delete({
       where: { id: item.id },
     });
+  }
+
+  /**
+   * 断言当前请求者为主账号（identityType 为 owner 或 staff）。
+   * 空间区域配置属于门店运营配置，仅对主账号开放，
+   * 任何子账号身份（收銀员 / 店长 / 财务）均不允许操作，以保持最小权限原则。
+   */
+  private ensurePrimaryAccountOnly(user: AuthenticatedUser): void {
+    if (user.currentMembership?.subjectType === 'sub_account') {
+      throw new ForbiddenException('子账号不可维护空间区域配置');
+    }
   }
 
   toSpaceZoneResponse(item: SpaceZoneRecord): SpaceZoneResponseDto {

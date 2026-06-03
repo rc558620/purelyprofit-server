@@ -191,6 +191,60 @@ describe('SalesRecordWriteService', () => {
     );
   });
 
+  it('create 在兼容 additional 入口时应回退到 operation-entry:create 权限', async () => {
+    const preparedItems = [
+      {
+        productId: 201,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: 15.5,
+        profit: 4,
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ];
+    const response = { id: '12', orderNo: '#20260514-005' };
+
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    salesRecordItemPreparationService.prepareItems.mockResolvedValue(
+      preparedItems,
+    );
+    salesRecordCreateFlowService.createRecord.mockResolvedValue(response);
+
+    await expect(
+      service.create(
+        user,
+        {
+          storeId: 18,
+          items: [
+            {
+              productId: '201',
+              productName: '前端旧名称',
+              categoryName: '前端旧分类',
+              salePrice: 15.5,
+              profit: 4,
+              quantity: 1,
+            },
+          ],
+          totalRevenue: 15.5,
+          totalProfit: 4,
+          totalQuantity: 1,
+          paymentMethod: 'cash',
+          calcMode: 'business',
+        },
+        { skipAccessCheck: true },
+      ),
+    ).resolves.toEqual(response);
+
+    expect(commerceAccessService.resolveSingleStoreId).toHaveBeenCalledWith(
+      user,
+      18,
+      'operation-entry:create',
+      '无权操作该门店销售记录',
+    );
+  });
+
   it('create 在汇总金额与后端明细不一致时抛出异常并阻止创建流程', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);

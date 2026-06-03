@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -55,6 +56,8 @@ export class SpaceTypesService {
     user: AuthenticatedUser,
     dto: CreateSpaceTypeDto,
   ): Promise<SpaceTypeResponseDto> {
+    // 空间类型配置属于门店运营配置，仅允许主账号操作，子账号均被拒绝。
+    this.ensurePrimaryAccountOnly(user);
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
       dto.storeId,
@@ -84,6 +87,8 @@ export class SpaceTypesService {
     typeId: number,
     dto: UpdateSpaceTypeDto,
   ): Promise<SpaceTypeResponseDto> {
+    // 空间类型配置写操作仅允许主账号，子账号均被拒绝（同 createSpaceType）。
+    this.ensurePrimaryAccountOnly(user);
     const item = await this.prisma.spaceType.findUnique({
       where: { id: typeId },
     });
@@ -147,6 +152,8 @@ export class SpaceTypesService {
     user: AuthenticatedUser,
     typeId: number,
   ): Promise<void> {
+    // 空间类型配置写操作仅允许主账号，子账号均被拒绝（同 createSpaceType）。
+    this.ensurePrimaryAccountOnly(user);
     const item = await this.prisma.spaceType.findUnique({
       where: { id: typeId },
       select: {
@@ -176,6 +183,17 @@ export class SpaceTypesService {
     await this.prisma.spaceType.delete({
       where: { id: item.id },
     });
+  }
+
+  /**
+   * 断言当前请求者为主账号（identityType 为 owner 或 staff）。
+   * 空间类型配置属于门店运营配置，仅对主账号开放，
+   * 任何子账号身份（收銀员 / 店长 / 财务）均不允许操作，以保持最小权限原则。
+   */
+  private ensurePrimaryAccountOnly(user: AuthenticatedUser): void {
+    if (user.currentMembership?.subjectType === 'sub_account') {
+      throw new ForbiddenException('子账号不可维护空间类型配置');
+    }
   }
 
   toSpaceTypeResponse(item: SpaceTypeRecord): SpaceTypeResponseDto {

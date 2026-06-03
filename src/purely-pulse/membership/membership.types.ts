@@ -95,6 +95,12 @@ export interface PulseDeveloperBeanLogRecord {
   createdAt: Date;
 }
 
+export interface PulseAdminMembershipAuditContext {
+  requestId?: string;
+  userAgent?: string;
+  ip?: string;
+}
+
 export interface PulseAdminMembershipMutationInput {
   userId?: string;
   memberId?: string;
@@ -105,6 +111,9 @@ export interface PulseAdminMembershipMutationInput {
   membershipExpiry?: number | null;
   expireAt?: number | null;
   expiryAt?: number | null;
+  confirmDowngradeToFree?: boolean;
+  actionSource?: string;
+  auditContext?: PulseAdminMembershipAuditContext;
 }
 
 export interface PulseAdminStatusMutationInput {

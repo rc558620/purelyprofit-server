@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -50,6 +51,9 @@ export class SpacesWriteService {
     user: AuthenticatedUser,
     dto: CreateSpaceDto,
   ): Promise<SpaceResponseDto> {
+    // 空间配置（新增 / 编辑 / 删除 / 状态重置）仅允许主账号（门店 Owner/Staff）操作。
+    // 任何子账号身份（收银员 / 店长 / 财务）均被拒绝，与前端编辑模式区域的隐藏逻辑保持一致。
+    this.ensurePrimaryAccountOnly(user);
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
       dto.storeId,
@@ -100,6 +104,8 @@ export class SpacesWriteService {
     spaceId: number,
     dto: UpdateSpaceDto,
   ): Promise<SpaceResponseDto> {
+    // 空间配置写操作仅允许主账号，子账号均被拒绝（同 createSpace）。
+    this.ensurePrimaryAccountOnly(user);
     const space = await this.requireUpdatableSpace(user, spaceId);
     const nextName = dto.name?.trim();
 
@@ -141,6 +147,8 @@ export class SpacesWriteService {
   }
 
   async removeSpace(user: AuthenticatedUser, spaceId: number): Promise<void> {
+    // 空间配置写操作仅允许主账号，子账号均被拒绝（同 createSpace）。
+    this.ensurePrimaryAccountOnly(user);
     const space = await this.requireRemovableSpace(user, spaceId);
 
     if (space.status === PrismaSpaceStatus.occupied) {
@@ -176,6 +184,8 @@ export class SpacesWriteService {
     user: AuthenticatedUser,
     spaceId: number,
   ): Promise<SpaceResponseDto> {
+    // 空间配置写操作仅允许主账号，子账号均被拒绝（同 createSpace）。
+    this.ensurePrimaryAccountOnly(user);
     const space = await this.requireUpdatableSpace(user, spaceId);
 
     return this.updateSpaceStatusWithResolver(space.id, async (transaction) =>
@@ -191,6 +201,8 @@ export class SpacesWriteService {
     spaceId: number,
     dto: UpdateSpaceStatusDto,
   ): Promise<SpaceResponseDto> {
+    // 空间配置写操作仅允许主账号，子账号均被拒绝（同 createSpace）。
+    this.ensurePrimaryAccountOnly(user);
     const space = await this.requireUpdatableSpace(user, spaceId);
 
     this.ensureManualStatusChangeAllowed(space.status, dto.status);
@@ -203,6 +215,18 @@ export class SpacesWriteService {
             space.id,
           ),
     );
+  }
+
+  /**
+   * 断言当前请求者为主账号（identityType 为 owner 或 staff）。
+   * 空间配置类写操作（新增 / 编辑 / 删除 / 状态重置）属于门店运营配置，
+   * 仅对绑定门店的主账号开放，任何子账号身份均不允许操作，以保持最小权限原则。
+   * 前端已通过 isPrimaryAccount 隐藏编辑模式区域，此处为后端兜底校验。
+   */
+  private ensurePrimaryAccountOnly(user: AuthenticatedUser): void {
+    if (user.currentMembership?.subjectType === 'sub_account') {
+      throw new ForbiddenException('子账号不可维护空间配置');
+    }
   }
 
   private async requireUpdatableSpace(

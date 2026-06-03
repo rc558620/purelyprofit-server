@@ -167,10 +167,11 @@ export class InventoryService {
     user: AuthenticatedUser,
     dto: AdjustInventoryInput,
   ): Promise<InventoryAdjustmentResponseDto> {
+    const requiredPermission = this.resolveAdjustPermission(dto);
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
       dto.storeId,
-      'inventory:update',
+      requiredPermission,
       '无权操作该门店库存',
     );
     const operatorStaffId =
@@ -272,5 +273,17 @@ export class InventoryService {
     const maxPageSize =
       this.configService.get<number>('app.maxPageSize') ?? 100;
     return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
+  }
+
+  private resolveAdjustPermission(dto: AdjustInventoryInput): 'inventory:update' | 'operation-entry:create' {
+    const mode = dto.mode ?? (dto.targetStock !== undefined ? 'set' : 'delta');
+    const isOperationEntryDeduction =
+      dto.adjustType === 'manual' &&
+      mode === 'delta' &&
+      (dto.delta ?? 0) < 0;
+
+    return isOperationEntryDeduction
+      ? 'operation-entry:create'
+      : 'inventory:update';
   }
 }

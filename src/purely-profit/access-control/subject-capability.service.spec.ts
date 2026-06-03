@@ -50,6 +50,7 @@ describe('SubjectCapabilityService', () => {
       'handover-management',
     ]);
     expect(snapshot.canViewFinance).toBe(false);
+    expect(snapshot.canUseGoodsManagement).toBe(false);
     expect(snapshot.canUseHandoverManagement).toBe(true);
     expect(snapshot.canUseSpaceManagement).toBe(true);
   });
@@ -74,12 +75,13 @@ describe('SubjectCapabilityService', () => {
     expect(snapshot.hiddenHomeModules).toContain('store-settings');
     expect(snapshot.canViewFinance).toBe(false);
     expect(snapshot.canViewMarketing).toBe(true);
+    expect(snapshot.canUseGoodsManagement).toBe(true);
     expect(snapshot.canUseHandoverManagement).toBe(true);
     expect(snapshot.canUseSpaceManagement).toBe(true);
     expect(snapshot.canAccessStoreSettings).toBe(false);
   });
 
-  it('finance 首页模块应保留经营分析、财务、商品与员工模块', () => {
+  it('finance 首页模块应保留经营分析、财务与员工模块，不含商品管理', () => {
     const snapshot = service.buildSnapshot(
       buildSubAccountMembership(StoreSubAccountRole.finance),
       3,
@@ -88,9 +90,9 @@ describe('SubjectCapabilityService', () => {
     expect(snapshot.allowedHomeModules).toEqual([
       'business-analysis',
       'finance-center',
-      'goods-management',
       'staff-management',
     ]);
+    expect(snapshot.hiddenHomeModules).toContain('goods-management');
     expect(snapshot.hiddenHomeModules).toContain('member-center');
     expect(snapshot.hiddenHomeModules).toContain('marketing-center');
     expect(snapshot.hiddenHomeModules).toContain('handover-management');
@@ -98,6 +100,7 @@ describe('SubjectCapabilityService', () => {
     expect(snapshot.hiddenHomeModules).toContain('store-settings');
     expect(snapshot.canViewFinance).toBe(true);
     expect(snapshot.canViewMarketing).toBe(false);
+    expect(snapshot.canUseGoodsManagement).toBe(false);
     expect(snapshot.canUseHandoverManagement).toBe(false);
     expect(snapshot.canUseSpaceManagement).toBe(false);
     expect(snapshot.canAccessStoreSettings).toBe(false);

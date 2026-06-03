@@ -206,6 +206,7 @@ describe('PlatformMembershipService', () => {
       id: 1,
     });
     prismaService.storePartner.upsert.mockResolvedValue({ id: 11 });
+    prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
     prismaService.membershipPlanSetting.findMany.mockResolvedValue([
       {
         planId: 'monthly',
@@ -486,7 +487,36 @@ describe('PlatformMembershipService', () => {
       reviewedAt: new Date('2026-05-02T00:00:00.000Z'),
       createdAt: new Date('2026-05-01T00:00:00.000Z'),
     });
-    prismaService.storeMembershipOrder.count.mockResolvedValue(2);
+    prismaService.storeMembershipOrder.findMany.mockResolvedValue([
+      {
+        id: 21,
+        planId: 'monthly',
+        planName: '月度会员',
+        amount: 3800,
+        pointsDeducted: 0,
+        pointsUsed: 0,
+        beanDeducted: 0,
+        beansUsed: 0,
+        status: 'paid',
+        paymentChannel: 'wechat',
+        paymentOrderId: 'WX180010',
+        createdAt: new Date('2026-04-01T00:00:00.000Z'),
+      },
+      {
+        id: 22,
+        planId: 'quarterly',
+        planName: '季度会员',
+        amount: 9900,
+        pointsDeducted: 0,
+        pointsUsed: 0,
+        beanDeducted: 0,
+        beansUsed: 0,
+        status: 'paid',
+        paymentChannel: 'wechat',
+        paymentOrderId: 'WX180011',
+        createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      },
+    ]);
     prismaService.storeMembershipPromoRecord.findMany.mockResolvedValue([
       {
         id: 7,
@@ -588,7 +618,7 @@ describe('PlatformMembershipService', () => {
         availablePoints: 1280,
       });
       prismaService.storePartner.findUnique.mockResolvedValue(null);
-      prismaService.storeMembershipOrder.count.mockResolvedValue(0);
+      prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
       prismaService.storeMembershipPromoRecord.findMany.mockResolvedValue([]);
 
       await expect(service.getCenter(user)).resolves.toEqual({
@@ -646,7 +676,7 @@ describe('PlatformMembershipService', () => {
       reviewedAt: new Date('2026-05-02T00:00:00.000Z'),
       createdAt: new Date('2026-05-01T00:00:00.000Z'),
     });
-    prismaService.storeMembershipOrder.count.mockResolvedValue(0);
+    prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
     prismaService.storeMembershipPromoRecord.findMany.mockResolvedValue([]);
 
     await expect(service.getProfile(user)).resolves.toEqual({

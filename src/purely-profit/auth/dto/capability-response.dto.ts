@@ -101,6 +101,13 @@ export class AuthCapabilityResponseDto {
   @IsBoolean()
   canViewMarketing: boolean;
 
+  @ApiProperty({
+    example: false,
+    description: '是否可以显示商品管理首页入口，不等同于 goods:view 接口权限',
+  })
+  @IsBoolean()
+  canUseGoodsManagement: boolean;
+
   @ApiProperty({ example: true, description: '是否可以使用交班管理' })
   @IsBoolean()
   canUseHandoverManagement: boolean;

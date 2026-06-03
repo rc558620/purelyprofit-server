@@ -34,6 +34,7 @@ export interface SubjectCapabilitySnapshot {
   hiddenHomeModules: ProfitHomeModule[];
   canViewFinance: boolean;
   canViewMarketing: boolean;
+  canUseGoodsManagement: boolean;
   canUseHandoverManagement: boolean;
   canUseSpaceManagement: boolean;
   canAccessStoreSettings: boolean;
@@ -58,7 +59,6 @@ const MANAGER_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
 const FINANCE_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
   'business-analysis',
   'finance-center',
-  'goods-management',
   'staff-management',
 ]);
 
@@ -89,6 +89,7 @@ export class SubjectCapabilityService {
       hiddenHomeModules,
       canViewFinance: allowedHomeModules.includes('finance-center'),
       canViewMarketing: allowedHomeModules.includes('marketing-center'),
+      canUseGoodsManagement: allowedHomeModules.includes('goods-management'),
       canUseHandoverManagement: allowedHomeModules.includes(
         'handover-management',
       ),

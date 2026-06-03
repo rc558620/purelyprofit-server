@@ -74,6 +74,22 @@ describe('EmployeesAccessService', () => {
     await expect(service.getManageableStoreId(user, 'staff:view')).resolves.toBeNull();
   });
 
+  it('getManageableStoreId 支持工资场景的多权限兜底', async () => {
+    accessControlService.resolveCurrentStoreIdByPermission
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce(8);
+
+    await expect(
+      service.getManageableStoreId(user, ['staff:update', 'finance:view']),
+    ).resolves.toBe(8);
+    expect(
+      accessControlService.resolveCurrentStoreIdByPermission,
+    ).toHaveBeenNthCalledWith(1, user, 'staff:update');
+    expect(
+      accessControlService.resolveCurrentStoreIdByPermission,
+    ).toHaveBeenNthCalledWith(2, user, 'finance:view');
+  });
+
   it('resolveViewStoreId 在查询其他门店时抛出无权限异常', async () => {
     await expect(
       service.resolveViewStoreId(user, 9, '无权查看该门店员工列表'),

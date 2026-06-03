@@ -97,6 +97,7 @@ describe('DashboardHomeController', () => {
         hiddenHomeModules: ['business-analysis'],
         canViewFinance: false,
         canViewMarketing: false,
+        canUseGoodsManagement: false,
         canUseHandoverManagement: true,
         canUseSpaceManagement: true,
         canAccessStoreSettings: false,

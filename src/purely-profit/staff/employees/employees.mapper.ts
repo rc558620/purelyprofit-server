@@ -27,10 +27,19 @@ import {
 } from './employees.utils';
 import { toOptionalMediaText } from '../../commerce/commerce.utils';
 
+export interface EmployeeResponseViewOptions {
+  canViewSubAccountModule?: boolean;
+  canResign?: boolean;
+}
+
 export function toEmployeeResponse(
   employee: Employee,
   subAccount?: EmployeeSubAccountResponseDto,
+  viewOptions?: EmployeeResponseViewOptions,
 ): EmployeeResponseDto {
+  const canViewSubAccountModule =
+    viewOptions?.canViewSubAccountModule ?? undefined;
+
   return {
     id: String(employee.id),
     empNo: employee.empNo,
@@ -62,7 +71,13 @@ export function toEmployeeResponse(
     ...(employee.resignReason ? { resignReason: employee.resignReason } : {}),
     createdAt: toTimestampMs(employee.createdAt),
     updatedAt: toTimestampMs(employee.updatedAt),
-    ...(subAccount ? { subAccount } : {}),
+    ...(canViewSubAccountModule !== undefined
+      ? { canViewSubAccountModule }
+      : {}),
+    ...(viewOptions?.canResign !== undefined
+      ? { canResign: viewOptions.canResign }
+      : {}),
+    ...(subAccount && canViewSubAccountModule !== false ? { subAccount } : {}),
   };
 }
 

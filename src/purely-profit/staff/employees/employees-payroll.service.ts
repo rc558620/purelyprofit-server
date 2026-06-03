@@ -113,7 +113,7 @@ export class EmployeesPayrollService {
       await this.employeesAccessService.findManageableEmployeeOrThrow(
         user,
         dto.employeeId,
-        'staff:update',
+        'finance:view',
       );
     const month = normalizeMonthValue(dto.month);
     assertPayrollMonthFormat(month);
@@ -198,7 +198,7 @@ export class EmployeesPayrollService {
     await this.employeesAccessService.ensureCanManageEmployees(
       user,
       payroll.storeId,
-      'staff:update',
+      'finance:view',
     );
     if (payroll.status === EmployeePayrollStatus.confirmed) {
       throw new ConflictException('该工资记录已确认，无需重复确认');
@@ -246,7 +246,7 @@ export class EmployeesPayrollService {
     await this.employeesAccessService.ensureCanManageEmployees(
       user,
       payroll.storeId,
-      'staff:update',
+      'finance:view',
     );
     if (payroll.status === EmployeePayrollStatus.confirmed) {
       throw new ConflictException('已确认结算的工资记录不支持删除');
@@ -268,7 +268,7 @@ export class EmployeesPayrollService {
     await this.employeesAccessService.ensureCanManageEmployees(
       user,
       payroll.storeId,
-      'staff:update',
+      'finance:view',
     );
     if (payroll.status === EmployeePayrollStatus.confirmed) {
       throw new ConflictException('已确认结算的工资记录不能编辑');

@@ -42,6 +42,11 @@ describe('HandoverConfirmService', () => {
     }).compile();
 
     service = module.get<HandoverConfirmService>(HandoverConfirmService);
+    prismaService.employeeShift.findFirst.mockResolvedValue({
+      startTime: '09:00',
+      endTime: '17:00',
+    });
+    prismaService.storeHandoverRecord.count.mockResolvedValue(0);
   });
 
   describe('confirmHandover', () => {
@@ -139,6 +144,25 @@ describe('HandoverConfirmService', () => {
 
       expect(result.handoverMode).toBe('self_main_account');
       expect(result.toEmployeeId).toBeNull();
+    });
+
+    it('同一班次重复交班时应抛出异常', async () => {
+      storeSubAccountService.listAssignableHandoverCandidates.mockResolvedValue(
+        mockCandidates,
+      );
+      handoverAdditionalItemsService.resolveConfirmAdditionalItems.mockResolvedValue(
+        [],
+      );
+      prismaService.storeHandoverRecord.count.mockResolvedValue(1);
+
+      await expect(
+        service.confirmHandover(subAccountUser, {
+          shiftType: 'morning',
+          handedOverAt: new Date('2026-05-13T12:00:00.000Z').getTime(),
+          additionalItems: [],
+        }),
+      ).rejects.toThrow('当前班次已完成交班，暂不允许重复操作');
+      expect(prismaService.storeHandoverRecord.create).not.toHaveBeenCalled();
     });
   });
 });

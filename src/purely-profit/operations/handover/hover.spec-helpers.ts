@@ -2,8 +2,12 @@ import { HandoverMode, HandoverStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
 export const createHandoverPrismaMock = () => ({
+  employee: {
+    findUnique: jest.fn(),
+  },
   employeeShift: {
     findFirst: jest.fn(),
+    findMany: jest.fn(),
   },
   saleOrder: {
     groupBy: jest.fn(),

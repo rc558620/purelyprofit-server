@@ -119,6 +119,7 @@ export class DashboardHomeService {
       hiddenHomeModules: snapshot.hiddenHomeModules,
       canViewFinance: snapshot.canViewFinance,
       canViewMarketing: snapshot.canViewMarketing,
+      canUseGoodsManagement: snapshot.canUseGoodsManagement,
       ...(user.currentMembership?.subAccountStatus
         ? { subAccountStatus: user.currentMembership.subAccountStatus }
         : {}),

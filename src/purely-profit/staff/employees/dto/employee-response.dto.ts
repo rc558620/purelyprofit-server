@@ -228,8 +228,24 @@ export class EmployeeResponseDto {
   updatedAt: number;
 
   @ApiPropertyOptional({
+    example: true,
+    description: '当前登录态是否显示子账号模块，仅详情态按视角返回',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '子账号模块显示标记必须是布尔值' })
+  canViewSubAccountModule?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '当前登录态是否允许办理离职，仅详情态按视角返回',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '办理离职标记必须是布尔值' })
+  canResign?: boolean;
+
+  @ApiPropertyOptional({
     type: EmployeeSubAccountResponseDto,
-    description: '员工绑定的子账号摘要；未设置时不返回',
+    description: '员工绑定的子账号摘要；仅允许查看子账号模块时返回',
   })
   @IsOptional()
   subAccount?: EmployeeSubAccountResponseDto;

@@ -13,6 +13,7 @@ import type {
   PartnerSnapshotPayload,
   PrismaExecutor,
   StoreMembershipProfileRecord,
+  StoreMembershipOrderRecord,
   StoreMembershipPromoRecord,
   StorePartnerApplicationRecord,
   StorePartnerRecord,
@@ -112,6 +113,30 @@ export async function findStoreMembershipPromoRecords(
       settled: true,
     },
     orderBy: [{ registeredAt: 'desc' }, { id: 'desc' }],
+  });
+}
+
+export async function findPaidStoreMembershipOrders(
+  prismaExecutor: PrismaExecutor,
+  storeId: number,
+): Promise<StoreMembershipOrderRecord[]> {
+  return prismaExecutor.storeMembershipOrder.findMany({
+    where: { storeId, status: 'paid' },
+    select: {
+      id: true,
+      planId: true,
+      planName: true,
+      amount: true,
+      pointsDeducted: true,
+      pointsUsed: true,
+      beanDeducted: true,
+      beansUsed: true,
+      status: true,
+      paymentChannel: true,
+      paymentOrderId: true,
+      createdAt: true,
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   });
 }
 

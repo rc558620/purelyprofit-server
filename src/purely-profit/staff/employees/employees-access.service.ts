@@ -4,15 +4,23 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EmployeeStatus } from '@prisma/client';
+import type { PermissionCode } from '../../access-control/access-control.constants';
 import { AccessControlService } from '../../access-control/access-control.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 
-export type EmployeesPermission =
+export type EmployeesPermission = Extract<
+  PermissionCode,
   | 'staff:view'
   | 'staff:create'
   | 'staff:update'
-  | 'report:view';
+  | 'report:view'
+  | 'finance:view'
+>;
+
+type EmployeesPermissionRequirement =
+  | EmployeesPermission
+  | readonly EmployeesPermission[];
 
 @Injectable()
 export class EmployeesAccessService {
@@ -21,13 +29,13 @@ export class EmployeesAccessService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
-  async resolveViewStoreId(
+  resolveViewStoreId(
     user: AuthenticatedUser,
     storeId: number | undefined,
     forbiddenMessage: string,
-    permission: EmployeesPermission = 'staff:view',
+    permission: EmployeesPermissionRequirement = 'staff:view',
   ): Promise<number> {
-    const manageableStoreId = await this.getManageableStoreId(user, permission);
+    const manageableStoreId = this.getManageableStoreId(user, permission);
 
     if (manageableStoreId === null) {
       throw new ForbiddenException(forbiddenMessage);
@@ -37,31 +45,35 @@ export class EmployeesAccessService {
       throw new ForbiddenException(forbiddenMessage);
     }
 
-    return storeId ?? manageableStoreId;
+    return Promise.resolve(storeId ?? manageableStoreId);
   }
 
-  async ensureCanManageEmployees(
+  ensureCanManageEmployees(
     user: AuthenticatedUser,
     storeId: number,
-    permission: EmployeesPermission,
+    permission: EmployeesPermissionRequirement,
   ): Promise<void> {
-    const manageableStoreId = await this.getManageableStoreId(user, permission);
+    const manageableStoreId = this.getManageableStoreId(user, permission);
     if (manageableStoreId !== storeId) {
       throw new ForbiddenException('无权操作该门店员工档案');
     }
+
+    return Promise.resolve();
   }
 
-  async getManageableStoreId(
+  getManageableStoreId(
     user: AuthenticatedUser,
-    permission: EmployeesPermission,
-  ): Promise<number | null> {
-    const currentStoreId =
-      this.accessControlService.resolveCurrentStoreIdByPermission(
-        user,
-        permission,
-      );
-    if (currentStoreId !== null) {
-      return currentStoreId;
+    permission: EmployeesPermissionRequirement,
+  ): number | null {
+    for (const currentPermission of this.normalizePermissions(permission)) {
+      const currentStoreId =
+        this.accessControlService.resolveCurrentStoreIdByPermission(
+          user,
+          currentPermission,
+        );
+      if (currentStoreId !== null) {
+        return currentStoreId;
+      }
     }
 
     return null;
@@ -97,7 +109,7 @@ export class EmployeesAccessService {
   async findManageableEmployeeOrThrow(
     user: AuthenticatedUser,
     employeeId: number,
-    permission: 'staff:view' | 'staff:update',
+    permission: EmployeesPermissionRequirement,
   ) {
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
@@ -111,12 +123,12 @@ export class EmployeesAccessService {
     return employee;
   }
 
-  async resolveSingleStoreId(
+  resolveSingleStoreId(
     user: AuthenticatedUser,
     storeId: number | undefined,
-    permission: EmployeesPermission,
+    permission: EmployeesPermissionRequirement,
   ): Promise<number> {
-    const manageableStoreId = await this.getManageableStoreId(user, permission);
+    const manageableStoreId = this.getManageableStoreId(user, permission);
 
     if (manageableStoreId === null) {
       throw new ForbiddenException('当前账号暂无门店权限');
@@ -126,6 +138,36 @@ export class EmployeesAccessService {
       throw new ForbiddenException('无权查看该门店数据');
     }
 
-    return storeId ?? manageableStoreId;
+    return Promise.resolve(storeId ?? manageableStoreId);
+  }
+
+  ensureCanManageEmployeeSubAccount(user: AuthenticatedUser): void {
+    if (user.currentMembership?.subjectType === 'sub_account') {
+      throw new ForbiddenException('子账号无权管理员工子账号');
+    }
+  }
+
+  buildEmployeeDetailCapabilities(
+    user: AuthenticatedUser,
+    storeId: number,
+  ): {
+    canViewSubAccountModule: boolean;
+    canResign: boolean;
+  } {
+    return {
+      canViewSubAccountModule:
+        user.currentMembership?.subjectType !== 'sub_account',
+      canResign:
+        this.accessControlService.resolveCurrentStoreIdByPermission(
+          user,
+          'staff:update',
+        ) === storeId,
+    };
+  }
+
+  private normalizePermissions(
+    permission: EmployeesPermissionRequirement,
+  ): readonly EmployeesPermission[] {
+    return typeof permission === 'string' ? [permission] : permission;
   }
 }

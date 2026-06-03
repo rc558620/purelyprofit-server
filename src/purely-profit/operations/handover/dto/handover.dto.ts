@@ -177,6 +177,18 @@ export class HandoverPageResponseDto {
 
   @ApiProperty({ example: '李四', description: '接班人姓名' })
   receiverName: string;
+
+  @ApiProperty({
+    example: true,
+    description: '当前用户是否可对该班次执行交班相关操作',
+  })
+  canOperate: boolean;
+
+  @ApiPropertyOptional({
+    example: '当前班次不属于该收银员，暂不允许操作',
+    description: '不可操作原因，canOperate=false 时返回',
+  })
+  operationBlockedReason?: string | null;
 }
 
 export class ConfirmHandoverAdditionalItemDto {

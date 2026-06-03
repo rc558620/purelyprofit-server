@@ -4,6 +4,7 @@ import {
   FinanceCashFlowCategory,
   FinanceCashFlowDirection,
   FinanceCashFlowPayment,
+  HandoverStatus,
   Prisma,
   SalesPaymentMethod,
   SpaceSessionStatus,
@@ -18,6 +19,7 @@ import type {
   HandoverShiftInfoDto,
 } from './dto/handover.dto';
 import {
+  CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE,
   ORDER_ITEMS_LIMIT,
   PAYMENT_METHOD_CONFIG,
   ReceiverCandidate,
@@ -26,6 +28,7 @@ import {
   buildCurrentDayRange,
   buildShiftDateRange,
   ensureMembershipContext,
+  isCashierMembership,
   mapOrderItem,
   roundMoney,
   toDisplayName,
@@ -44,34 +47,110 @@ export class HandoverPageService {
     query: HandoverPageQueryDto,
   ): Promise<HandoverPageResponseDto> {
     const membership = ensureMembershipContext(user);
-    // 优先按当前登录人绑定的员工档案命中排班；若主账号未绑定员工或未排班，再回退到门店今日排班。
-    const scopedShiftRecord = query.shiftType
-      ? await this.findShiftRecord(
-          membership.storeId,
-          membership.linkedEmployeeId,
-          query.shiftType,
-        )
-      : await this.findCurrentShiftRecord(
-          membership.storeId,
-          membership.linkedEmployeeId,
-        );
+    const isCashier = isCashierMembership(membership);
+    // 收银员必须关联了员工才能查询本人班次；若 linkedEmployeeId 为空，则视为无班次
+    const cashierEmployeeId = isCashier ? membership.linkedEmployeeId : null;
+    const canQueryShift = !isCashier || cashierEmployeeId !== null;
+
+    // 精确查询：收银员只查自己的班次（有 employeeId），且不允许 fallback
+    const requestedShiftRecord = canQueryShift
+      ? query.shiftType
+        ? await this.findShiftRecord(
+            membership.storeId,
+            isCashier ? cashierEmployeeId : membership.linkedEmployeeId,
+            query.shiftType,
+            false,
+          )
+        : await this.findCurrentShiftRecord(
+            membership.storeId,
+            isCashier ? cashierEmployeeId : membership.linkedEmployeeId,
+          )
+      : null;
+
+    const requestedShiftCompleted = query.shiftType
+      ? await this.isShiftHandedOver(membership.storeId, requestedShiftRecord)
+      : false;
+    const shiftOwnerEmployeeId = isCashier
+      ? cashierEmployeeId
+      : membership.linkedEmployeeId;
+    const exactShiftRecord =
+      requestedShiftCompleted && shiftOwnerEmployeeId !== null && canQueryShift
+        ? await this.findCurrentShiftRecord(
+            membership.storeId,
+            shiftOwnerEmployeeId,
+          )
+        : requestedShiftRecord;
+
+    // 验证收银员的精确班次必须属于自己（防止 linkedEmployeeId 为 null 时查到他人班次）
+    const ownedExactShiftRecord =
+      isCashier && cashierEmployeeId !== null
+        ? exactShiftRecord?.employeeId === cashierEmployeeId
+          ? exactShiftRecord
+          : null
+        : exactShiftRecord;
+
+    // scopedShiftRecord：收银员不允许任何 fallback，只使用精确匹配结果
+    const scopedShiftRecord = isCashier
+      ? ownedExactShiftRecord
+      : ownedExactShiftRecord ??
+        (query.shiftType
+          ? await this.findShiftRecord(
+              membership.storeId,
+              membership.linkedEmployeeId,
+              query.shiftType,
+            )
+          : ownedExactShiftRecord);
+
+    const allowStoreWideFallback = !isCashier;
+    // 收银员仅允许操作自己的班次；主账号/管理身份仍可回退到门店当前班次以兼容原页面读取逻辑。
     const shiftRecord =
       scopedShiftRecord ??
-      (query.shiftType
-        ? await this.findShiftRecord(membership.storeId, null, query.shiftType)
-        : await this.findCurrentShiftRecord(membership.storeId, null));
+      (allowStoreWideFallback
+        ? query.shiftType
+          ? await this.findShiftRecord(
+              membership.storeId,
+              null,
+              query.shiftType,
+            )
+          : await this.findCurrentShiftRecord(membership.storeId, null)
+        : null);
     const shiftType =
-      shiftRecord?.shiftType ?? query.shiftType ?? EmployeeShiftType.morning;
+      scopedShiftRecord?.shiftType ??
+      shiftRecord?.shiftType ??
+      query.shiftType ??
+      EmployeeShiftType.morning;
     const fallbackTime = SHIFT_TIME_FALLBACKS[shiftType];
+    const selectedOwnedShiftCompleted = await this.isShiftHandedOver(
+      membership.storeId,
+      ownedExactShiftRecord,
+    );
+    const operationAccess = this.resolveOperationAccess(
+      membership,
+      ownedExactShiftRecord,
+      selectedOwnedShiftCompleted,
+      query.shiftType,
+    );
+    // 优先从排班记录取员工姓名；若无排班记录，则查 employees 表获取关联员工的真实姓名，
+    // 避免错误地使用登录用户名（user.name / query.operatorName）作为交班人姓名。
+    const shiftEmployeeName =
+      scopedShiftRecord?.employeeName ?? shiftRecord?.employeeName ?? null;
+    const operatorName =
+      shiftEmployeeName ??
+      (await this.resolveEmployeeDisplayName(membership.linkedEmployeeId)) ??
+      toDisplayName(user.name) ??
+      '当前员工';
+
     const shiftInfo = this.buildShiftInfo({
       shiftType,
-      startTime: shiftRecord?.startTime ?? fallbackTime.startTime,
-      endTime: shiftRecord?.endTime ?? fallbackTime.endTime,
-      operatorName:
-        shiftRecord?.employeeName ??
-        toDisplayName(query.operatorName) ??
-        toDisplayName(user.name) ??
-        '当前员工',
+      startTime:
+        scopedShiftRecord?.startTime ??
+        shiftRecord?.startTime ??
+        fallbackTime.startTime,
+      endTime:
+        scopedShiftRecord?.endTime ??
+        shiftRecord?.endTime ??
+        fallbackTime.endTime,
+      operatorName,
     });
     const shiftRange = buildShiftDateRange(
       shiftInfo.startTime,
@@ -186,6 +265,8 @@ export class HandoverPageService {
       paymentItems: this.attachPaymentRatios(paymentItems, totalRevenue),
       orderItems: orderItems.map((item) => mapOrderItem(item)),
       receiverName: receiverCandidate?.employeeName ?? '',
+      canOperate: operationAccess.canOperate,
+      operationBlockedReason: operationAccess.blockedReason,
     };
   }
 
@@ -194,6 +275,7 @@ export class HandoverPageService {
     storeId: number,
     employeeId: number | null,
     shiftType: EmployeeShiftType,
+    allowEmployeeFallback = true,
   ): Promise<ShiftRecordRow | null> {
     const todayRange = buildCurrentDayRange();
     const scopedShift = await this.prisma.employeeShift.findFirst({
@@ -204,6 +286,7 @@ export class HandoverPageService {
         date: todayRange,
       },
       select: {
+        employeeId: true,
         employeeName: true,
         shiftType: true,
         startTime: true,
@@ -213,7 +296,7 @@ export class HandoverPageService {
         ? [{ date: 'desc' }, { id: 'desc' }]
         : [{ startTime: 'asc' }, { id: 'asc' }],
     });
-    if (scopedShift || employeeId === null) {
+    if (scopedShift || employeeId === null || !allowEmployeeFallback) {
       return scopedShift;
     }
 
@@ -224,6 +307,7 @@ export class HandoverPageService {
         date: todayRange,
       },
       select: {
+        employeeId: true,
         employeeName: true,
         shiftType: true,
         startTime: true,
@@ -246,6 +330,7 @@ export class HandoverPageService {
         date: todayRange,
       },
       select: {
+        employeeId: true,
         employeeName: true,
         shiftType: true,
         startTime: true,
@@ -258,34 +343,51 @@ export class HandoverPageService {
       return null;
     }
 
-    // 若只有一条班次，直接返回
-    if (allShifts.length === 1) {
-      return allShifts[0];
-    }
+    const shiftsWithCompletion = await Promise.all(
+      allShifts.map(async (shift) => ({
+        shift,
+        handedOver: await this.isShiftHandedOver(storeId, shift),
+      })),
+    );
 
-    // 根据当前时间匹配最适的班次
     const now = new Date();
     const currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
-
-    // 优先查找"当前时间在班次时间范围内"的班次
-    for (const shift of allShifts) {
+    const activeShiftIndex = shiftsWithCompletion.findIndex(({ shift }) => {
       const startMinutes = this.timeStringToMinutes(shift.startTime);
       const endMinutes = this.timeStringToMinutes(shift.endTime);
+      return (
+        startMinutes <= currentTimeMinutes && currentTimeMinutes < endMinutes
+      );
+    });
 
-      if (
-        startMinutes <= currentTimeMinutes &&
-        currentTimeMinutes < endMinutes
-      ) {
-        return shift;
+    if (activeShiftIndex >= 0) {
+      const activeShift = shiftsWithCompletion[activeShiftIndex];
+      if (!activeShift.handedOver) {
+        return activeShift.shift;
+      }
+      const nextUnhandedShift = shiftsWithCompletion
+        .slice(activeShiftIndex + 1)
+        .find(({ handedOver }) => !handedOver);
+      if (nextUnhandedShift) {
+        return nextUnhandedShift.shift;
       }
     }
 
-    // 若当前时间不在任何班次范围内，优先返回“最近一个已开始的班次”；
-    // 若今天的班次都还未开始，则返回当天最早的班次。
-    let nearestStartedShift: ShiftRecordRow | null = null;
+    const upcomingUnhandedShift = shiftsWithCompletion.find(
+      ({ shift, handedOver }) =>
+        !handedOver && this.timeStringToMinutes(shift.startTime) > currentTimeMinutes,
+    );
+    if (upcomingUnhandedShift) {
+      return upcomingUnhandedShift.shift;
+    }
+
+    let nearestStartedUnhandedShift: ShiftRecordRow | null = null;
     let nearestStartedDiff = Number.POSITIVE_INFINITY;
 
-    for (const shift of allShifts) {
+    for (const { shift, handedOver } of shiftsWithCompletion) {
+      if (handedOver) {
+        continue;
+      }
       const startMinutes = this.timeStringToMinutes(shift.startTime);
       if (startMinutes > currentTimeMinutes) {
         continue;
@@ -293,12 +395,89 @@ export class HandoverPageService {
 
       const diff = currentTimeMinutes - startMinutes;
       if (diff < nearestStartedDiff) {
-        nearestStartedShift = shift;
+        nearestStartedUnhandedShift = shift;
         nearestStartedDiff = diff;
       }
     }
 
-    return nearestStartedShift ?? allShifts[0];
+    return (
+      nearestStartedUnhandedShift ??
+      shiftsWithCompletion.find(({ handedOver }) => !handedOver)?.shift ??
+      allShifts[0]
+    );
+  }
+
+  private resolveOperationAccess(
+    membership: NonNullable<AuthenticatedUser['currentMembership']>,
+    ownedShiftRecord: ShiftRecordRow | null,
+    ownedShiftCompleted: boolean,
+    requestedShiftType?: EmployeeShiftType,
+  ): { canOperate: boolean; blockedReason: string | null } {
+    if (!isCashierMembership(membership)) {
+      return {
+        canOperate: true,
+        blockedReason: null,
+      };
+    }
+
+    // 收银员没有关联员工时，无法匹配到本人班次，禁止操作
+    if (!membership.linkedEmployeeId) {
+      return {
+        canOperate: false,
+        blockedReason: '当前收银员账号未关联员工，暂不允许操作',
+      };
+    }
+
+    if (ownedShiftCompleted) {
+      return {
+        canOperate: false,
+        blockedReason: '当前班次已完成交班，暂不允许重复操作',
+      };
+    }
+
+    // ownedShiftRecord 已经过 employeeId 验证，确保属于本人
+    if (
+      ownedShiftRecord &&
+      ownedShiftRecord.employeeId === membership.linkedEmployeeId
+    ) {
+      return {
+        canOperate: true,
+        blockedReason: null,
+      };
+    }
+
+    return {
+      canOperate: false,
+      blockedReason: requestedShiftType
+        ? CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE
+        : '当前时段没有该收银员本人班次，暂不允许操作',
+    };
+  }
+
+  private async isShiftHandedOver(
+    storeId: number,
+    shiftRecord: ShiftRecordRow | null,
+  ): Promise<boolean> {
+    if (!shiftRecord?.employeeId) {
+      return false;
+    }
+
+    const shiftRange = buildShiftDateRange(
+      shiftRecord.startTime,
+      shiftRecord.endTime,
+    );
+    const count = await this.prisma.storeHandoverRecord.count({
+      where: {
+        storeId,
+        fromEmployeeId: shiftRecord.employeeId,
+        status: HandoverStatus.completed,
+        handoverAt: {
+          gte: shiftRange.startAt,
+          lte: shiftRange.endAt,
+        },
+      },
+    });
+    return count > 0;
   }
 
   /** 将 "HH:mm" 转换为分钟数 */
@@ -379,6 +558,20 @@ export class HandoverPageService {
 
   private sumPaymentAmounts(items: HandoverPaymentItemDto[]): number {
     return roundMoney(items.reduce((sum, item) => sum + item.amount, 0));
+  }
+
+  /** 当无排班记录时，通过 linkedEmployeeId 直接查 employees 表获取员工真实姓名 */
+  private async resolveEmployeeDisplayName(
+    employeeId: number | null,
+  ): Promise<string | null> {
+    if (!employeeId) {
+      return null;
+    }
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { name: true },
+    });
+    return toDisplayName(employee?.name);
   }
 
   private async findReceiverCandidate(

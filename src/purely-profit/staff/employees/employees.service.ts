@@ -1,8 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { StoreSubAccountRole } from '@prisma/client';
-import {
-  toStoreSubAccountRole,
-} from '../../access-control/access-control.constants';
+import { toStoreSubAccountRole } from '../../access-control/access-control.constants';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import {
@@ -189,6 +186,8 @@ export class EmployeesService {
     employeeId: number,
     dto: UpdateEmployeeSubAccountDto,
   ): Promise<EmployeeResponseDto> {
+    this.employeesAccessService.ensureCanManageEmployeeSubAccount(user);
+
     const employee =
       await this.employeesAccessService.findManageableEmployeeOrThrow(
         user,

@@ -18,6 +18,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { StoreSubAccountRole } from '@prisma/client';
+import type { IncomingHttpHeaders } from 'http';
 import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import {
@@ -63,7 +64,11 @@ import type {
   PulseAdminSubAccountSlotMutationInput,
 } from './membership.types';
 
-type AuthenticatedRequest = { user: AuthenticatedUser };
+type AuthenticatedRequest = {
+  user: AuthenticatedUser;
+  headers?: IncomingHttpHeaders;
+  ip?: string;
+};
 
 @ApiTags('Pulse / Membership')
 @ApiBearerAuth()
@@ -393,7 +398,14 @@ export class PulseMembershipController {
     return this.pulseMembershipService.setAdminMemberMembership(
       user,
       memberId,
-      dto,
+      {
+        ...dto,
+        auditContext: {
+          requestId: this.readHeader(request.headers, 'x-request-id'),
+          userAgent: this.readHeader(request.headers, 'user-agent'),
+          ip: request.ip,
+        },
+      },
     );
   }
 
@@ -558,5 +570,19 @@ export class PulseMembershipController {
     }
 
     return parsed;
+  }
+
+  private readHeader(
+    headers: IncomingHttpHeaders | undefined,
+    headerName: string,
+  ): string | undefined {
+    const rawValue = headers?.[headerName];
+    if (typeof rawValue === 'string') {
+      return rawValue;
+    }
+    if (Array.isArray(rawValue) && rawValue.length > 0) {
+      return rawValue[0];
+    }
+    return undefined;
   }
 }

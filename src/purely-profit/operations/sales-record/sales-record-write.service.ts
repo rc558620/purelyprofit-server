@@ -33,12 +33,19 @@ export class SalesRecordWriteService {
     dto: CreateSalesRecordDto,
     options: CreateSalesRecordOptions = {},
   ): Promise<SalesRecordResponseDto> {
-    const storeId = await this.commerceAccessService.resolveSingleStoreId(
-      user,
-      dto.storeId,
-      'sales:create',
-      '无权操作该门店销售记录',
-    );
+    const storeId = options.skipAccessCheck
+      ? await this.commerceAccessService.resolveSingleStoreId(
+          user,
+          dto.storeId,
+          'operation-entry:create',
+          '无权操作该门店销售记录',
+        )
+      : await this.commerceAccessService.resolveSingleStoreId(
+          user,
+          dto.storeId,
+          'sales:create',
+          '无权操作该门店销售记录',
+        );
     const operatorStaffId =
       await this.commerceAccessService.findOperatorStaffIdForStore(
         user,

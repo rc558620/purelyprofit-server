@@ -157,6 +157,8 @@ export class SpaceSessionSettlementService {
     return this.salesRecordService.create(user, dto, {
       // 追加点单时 session.items 已经扣过库存，结账只生成销售单，不再重复校验/扣减。
       skipInventoryValidationAndDeduction: true,
+      // 结账权限已在 checkout service 层以 operation-entry:create 完成验证，无需再检查 sales:create。
+      skipAccessCheck: true,
     });
   }
 

@@ -35,7 +35,7 @@ describe('AccessControlService', () => {
     ...overrides,
   });
 
-  it('cashier 子账号应仅拥有营业收录/空间/交班权限', () => {
+  it('cashier 子账号应仅拥有营业收录/空间/商品查看/交班权限', () => {
     const permissions = service.getEffectivePermissions(
       buildSubAccountMembership(StoreSubAccountRole.cashier),
     );
@@ -46,10 +46,12 @@ describe('AccessControlService', () => {
       'space:update',
       'operation-entry:view',
       'operation-entry:create',
+      'goods:view',
       'handover:view',
       'handover:create',
       'handover:update',
     ]);
+    expect(permissions).toContain('goods:view');
     expect(permissions).not.toContain('sales:view');
   });
 
@@ -74,7 +76,6 @@ describe('AccessControlService', () => {
       'purchase:view',
       'purchase:create',
       'cost:view',
-      'cost:create',
       'operation-entry:view',
       'operation-entry:create',
       'sales:view',
@@ -98,7 +99,7 @@ describe('AccessControlService', () => {
     expect(permissions).not.toContain('store:update');
   });
 
-  it('finance 子账号应拥有财务和经营分析及相关查看权限', () => {
+  it('finance 子账号应拥有财务与成本管理操作权限，但不含进货权限', () => {
     const permissions = service.getEffectivePermissions(
       buildSubAccountMembership(StoreSubAccountRole.finance),
     );
@@ -110,10 +111,13 @@ describe('AccessControlService', () => {
       'goods:view',
       'inventory:view',
       'cost:view',
-      'purchase:view',
+      'cost:create',
+      'cost:delete',
       'sales:view',
       'staff:view',
     ]);
+    expect(permissions).not.toContain('supplier:view');
+    expect(permissions).not.toContain('purchase:view');
     expect(permissions).not.toContain('space:view');
     expect(permissions).not.toContain('handover:view');
     expect(permissions).not.toContain('operation-entry:view');
@@ -132,7 +136,12 @@ describe('AccessControlService', () => {
       'space:update',
       'operation-entry:view',
       'operation-entry:create',
+      'goods:view',
     ]);
+    expect(permissions).toContain('goods:view');
+    expect(permissions).not.toContain('handover:view');
+    expect(permissions).not.toContain('handover:create');
+    expect(permissions).not.toContain('handover:update');
   });
 
   it('resolveCurrentStoreIdByPermission 应优先使用当前登录 membership 的权限', () => {

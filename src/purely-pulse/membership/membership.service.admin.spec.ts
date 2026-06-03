@@ -3,7 +3,10 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { PulseMembershipController } from './membership.controller';
-import { PulseAdminMemberSubAccountQuotaDto } from './dto/pulse-membership-admin-members.request.dto';
+import {
+  PulseAdminMemberMembershipDto,
+  PulseAdminMemberSubAccountQuotaDto,
+} from './dto/pulse-membership-admin-members.request.dto';
 import {
   createPulseMembershipServiceTestingContext,
   type PulseMembershipServiceTestingContext,
@@ -40,6 +43,62 @@ describe('PulseAdminMemberSubAccountQuotaDto', () => {
       }),
     ).resolves.toEqual([]);
     expect(dto.quota).toBe(6);
+  });
+});
+
+describe('PulseMembershipController membership', () => {
+  const user: AuthenticatedUser = {
+    id: 101,
+    email: 'dev@example.com',
+    phone: '13800138000',
+    name: '开发者',
+    createdAt: new Date('2026-05-12T00:00:00.000Z'),
+    updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    pulseMode: 'normal',
+    isPulseDeveloper: true,
+    currentMembership: null,
+  };
+
+  it('设置会员等级时透传 actionSource 与审计上下文', async () => {
+    const pulseMembershipService = {
+      setAdminMemberMembership: jest.fn().mockResolvedValue({ id: '48' }),
+    };
+    const controller = new PulseMembershipController(
+      pulseMembershipService as never,
+    );
+
+    await controller.setAdminMemberMembership(
+      {
+        user,
+        ip: '127.0.0.1',
+        headers: {
+          'x-request-id': 'req-001',
+          'user-agent': 'jest-agent',
+        },
+      },
+      '48',
+      plainToInstance(PulseAdminMemberMembershipDto, {
+        memberId: '48',
+        level: 'free',
+        confirmDowngradeToFree: true,
+        actionSource: 'member-detail-membership-modal',
+      }),
+    );
+
+    expect(pulseMembershipService.setAdminMemberMembership).toHaveBeenCalledWith(
+      user,
+      48,
+      expect.objectContaining({
+        level: 'free',
+        confirmDowngradeToFree: true,
+        actionSource: 'member-detail-membership-modal',
+        auditContext: {
+          requestId: 'req-001',
+          userAgent: 'jest-agent',
+          ip: '127.0.0.1',
+        },
+      }),
+    );
   });
 });
 
@@ -612,13 +671,25 @@ describe('PulseMembershipService admin', () => {
     });
   });
 
-  it('setAdminMemberMembership 支持设置为免费会员', async () => {
+  it('setAdminMemberMembership 支持显式确认后设置为免费会员', async () => {
+    const loggerWarnSpy = jest
+      .spyOn(context.mutationService['logger'], 'warn')
+      .mockImplementation(() => undefined);
     jest
       .spyOn(
         context.mutationService as never,
         'assertAdminMemberMutationAccess' as never,
       )
       .mockResolvedValue(undefined as never);
+    jest
+      .spyOn(context.queryService as never, 'findMembershipProfileByStoreId' as never)
+      .mockResolvedValue({
+        currentPlanId: 'quarterly',
+        expiresAt: new Date('2099-05-21T00:00:00.000Z'),
+        totalPoints: 320,
+        availablePoints: 260,
+        subAccountQuota: 0,
+      } as never);
     jest
       .spyOn(context.queryService as never, 'buildAdminMemberDetail' as never)
       .mockResolvedValue({
@@ -631,8 +702,8 @@ describe('PulseMembershipService admin', () => {
         level: 'free',
         registeredAt: new Date('2026-05-01T00:00:00.000Z').getTime(),
         lastActiveAt: new Date('2026-05-21T00:00:00.000Z').getTime(),
-        availablePoints: 0,
-        totalPointsEarned: 0,
+        availablePoints: 260,
+        totalPointsEarned: 320,
         beanBalance: 0,
         isPartner: false,
         totalRecharged: 0,
@@ -641,12 +712,21 @@ describe('PulseMembershipService admin', () => {
         rechargeHistory: [],
         membershipExpiry: null,
       } as never);
+    context.prismaService.store.findUnique.mockResolvedValue({ id: 18 });
+    context.prismaService.storePartner.findFirst.mockResolvedValue(null);
 
     const result = await context.service.setAdminMemberMembership(
       context.user,
       18,
       {
         level: 'free',
+        confirmDowngradeToFree: true,
+        actionSource: 'member-detail-membership-modal',
+        auditContext: {
+          requestId: 'req-001',
+          userAgent: 'jest-agent',
+          ip: '127.0.0.1',
+        },
       },
     );
 
@@ -659,8 +739,8 @@ describe('PulseMembershipService admin', () => {
         currentPlanId: null,
         startsAt: null,
         expiresAt: null,
-        totalPoints: 0,
-        availablePoints: 0,
+        totalPoints: 320,
+        availablePoints: 260,
       },
       update: {
         currentPlanId: null,
@@ -673,6 +753,39 @@ describe('PulseMembershipService admin', () => {
     expect(
       context.cacheInvalidatorService.invalidatePulseDashboardHome,
     ).toHaveBeenCalledTimes(1);
+    expect(loggerWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('pulse_admin_membership_level_mutation'),
+    );
+    expect(loggerWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('member-detail-membership-modal'),
+    );
+  });
+
+  it('setAdminMemberMembership 未显式确认时拒绝把有效会员降级为免费会员', async () => {
+    jest
+      .spyOn(
+        context.mutationService as never,
+        'assertAdminMemberMutationAccess' as never,
+      )
+      .mockResolvedValue(undefined as never);
+    jest
+      .spyOn(context.queryService as never, 'findMembershipProfileByStoreId' as never)
+      .mockResolvedValue({
+        currentPlanId: 'monthly',
+        expiresAt: new Date('2099-05-21T00:00:00.000Z'),
+        totalPoints: 120,
+        availablePoints: 80,
+        subAccountQuota: 0,
+      } as never);
+    context.prismaService.store.findUnique.mockResolvedValue({ id: 18 });
+    context.prismaService.storePartner.findFirst.mockResolvedValue(null);
+
+    await expect(
+      context.service.setAdminMemberMembership(context.user, 18, {
+        level: 'free',
+      }),
+    ).rejects.toThrow('当前会员仍在有效期内，降级到免费会员需要显式确认');
+    expect(context.prismaService.storeMembershipProfile.upsert).not.toHaveBeenCalled();
   });
 
   it('setAdminMemberMembership 设置为 lifetime 时按配置有效期落盘', async () => {
@@ -687,6 +800,15 @@ describe('PulseMembershipService admin', () => {
         'assertAdminMemberMutationAccess' as never,
       )
       .mockResolvedValue(undefined as never);
+    jest
+      .spyOn(context.queryService as never, 'findMembershipProfileByStoreId' as never)
+      .mockResolvedValue({
+        currentPlanId: null,
+        expiresAt: null,
+        totalPoints: 0,
+        availablePoints: 0,
+        subAccountQuota: 0,
+      } as never);
     jest
       .spyOn(context.queryService as never, 'buildAdminMemberDetail' as never)
       .mockResolvedValue({
@@ -709,6 +831,8 @@ describe('PulseMembershipService admin', () => {
         rechargeHistory: [],
         membershipExpiry: expectedExpiry.getTime(),
       } as never);
+    context.prismaService.store.findUnique.mockResolvedValue({ id: 18 });
+    context.prismaService.storePartner.findFirst.mockResolvedValue(null);
     context.platformMembershipService.getPlanConfig.mockResolvedValue({
       id: 'lifetime',
       name: '永久会员',

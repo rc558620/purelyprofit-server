@@ -112,6 +112,23 @@ export class PulseAdminMemberMembershipDto {
   @Transform(({ value }) => toNullableNumber(value))
   @IsInt({ message: '会员到期时间必须是整数时间戳' })
   expiryAt?: number | null;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '显式确认将当前生效会员降级为免费会员',
+  })
+  @IsOptional()
+  @Transform(({ value }) => toOptionalBoolean(value))
+  @IsBoolean({ message: '降级确认标记必须是布尔值' })
+  confirmDowngradeToFree?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'member-detail-membership-modal',
+    description: '前端调用来源标识，便于排查会员等级变更入口',
+  })
+  @IsOptional()
+  @IsString({ message: '调用来源标识必须是字符串' })
+  actionSource?: string;
 }
 
 export class PulseAdminMemberSubAccountQuotaRoleSummaryDto {

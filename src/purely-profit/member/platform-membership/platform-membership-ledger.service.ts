@@ -12,10 +12,13 @@ import {
   buildPointsOverview,
   mapBeanLog,
   mapPointsLog,
+  normalizeMembershipProfileFromPaidOrders,
 } from './platform-membership.domain';
 import {
   ensureMembershipProfile,
+  findPaidStoreMembershipOrders,
   findStorePartners,
+  loadPlanCatalog,
 } from './platform-membership.query';
 
 @Injectable()
@@ -25,21 +28,29 @@ export class PlatformMembershipLedgerService {
   async listPointsLogsByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipPointsLogsResponseDto> {
-    const profile = await ensureMembershipProfile(this.prisma, storeId);
-    const logs = await this.prisma.storeMembershipPointsLog.findMany({
-      where: { storeId },
-      select: {
-        id: true,
-        source: true,
-        changeAmount: true,
-        description: true,
-        expireAt: true,
-        createdAt: true,
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    const [profile, logs, paidOrders, plans] = await Promise.all([
+      ensureMembershipProfile(this.prisma, storeId),
+      this.prisma.storeMembershipPointsLog.findMany({
+        where: { storeId },
+        select: {
+          id: true,
+          source: true,
+          changeAmount: true,
+          description: true,
+          expireAt: true,
+          createdAt: true,
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+      findPaidStoreMembershipOrders(this.prisma, storeId),
+      loadPlanCatalog(this.prisma),
+    ]);
+    const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
+      profile,
+      paidOrders,
+      plans,
     });
-
-    const memberInfo = buildMembershipInfo(profile);
+    const memberInfo = buildMembershipInfo(effectiveProfile);
 
     return {
       memberInfo,

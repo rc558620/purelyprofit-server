@@ -52,10 +52,7 @@ export function buildMembershipInfo(
   const expiredAt = resolveFrontendMembershipExpiry(profile)?.getTime() ?? null;
   const isLegacyLifetimeMembership =
     profile.currentPlanId === 'yearly' && profile.expiresAt === null;
-  const isActive =
-    profile.currentPlanId === 'lifetime' && profile.expiresAt === null
-      ? true
-      : expiredAt !== null && expiredAt > Date.now();
+  const isActive = isMembershipProfileActive(profile);
 
   return {
     isActive,
@@ -66,6 +63,84 @@ export function buildMembershipInfo(
     totalPoints: profile.totalPoints,
     availablePoints: profile.availablePoints,
   };
+}
+
+export function isMembershipProfileActive(
+  profile: Pick<StoreMembershipProfileRecord, 'currentPlanId' | 'startsAt' | 'expiresAt'>,
+  nowMs: number = Date.now(),
+): boolean {
+  const expiredAt = resolveFrontendMembershipExpiry(profile)?.getTime() ?? null;
+
+  if (profile.currentPlanId === 'lifetime' && profile.expiresAt === null) {
+    return true;
+  }
+
+  return expiredAt !== null && expiredAt > nowMs;
+}
+
+export function normalizeMembershipProfileFromPaidOrders(params: {
+  profile: StoreMembershipProfileRecord;
+  paidOrders: Pick<StoreMembershipOrderRecord, 'planId' | 'createdAt'>[];
+  plans: Pick<MembershipPlanConfig, 'id' | 'name' | 'durationMonths' | 'validDays'>[];
+  nowMs?: number;
+}): StoreMembershipProfileRecord {
+  const { profile, paidOrders, plans, nowMs = Date.now() } = params;
+
+  if (isMembershipProfileActive(profile, nowMs) || paidOrders.length === 0) {
+    return profile;
+  }
+
+  const rebuiltSnapshot = rebuildMembershipProfileFromPaidOrders({
+    paidOrders,
+    plans,
+  });
+  if (!rebuiltSnapshot || !isMembershipProfileActive(rebuiltSnapshot, nowMs)) {
+    return profile;
+  }
+
+  return {
+    ...profile,
+    ...rebuiltSnapshot,
+  };
+}
+
+function rebuildMembershipProfileFromPaidOrders(params: {
+  paidOrders: Pick<StoreMembershipOrderRecord, 'planId' | 'createdAt'>[];
+  plans: Pick<MembershipPlanConfig, 'id' | 'name' | 'durationMonths' | 'validDays'>[];
+}): Pick<StoreMembershipProfileRecord, 'currentPlanId' | 'startsAt' | 'expiresAt'> | null {
+  const { paidOrders, plans } = params;
+  const planById = new Map(plans.map((plan) => [plan.id, plan]));
+  const orderedPaidOrders = [...paidOrders].sort(
+    (left, right) => left.createdAt.getTime() - right.createdAt.getTime(),
+  );
+
+  let snapshot: Pick<StoreMembershipProfileRecord, 'currentPlanId' | 'startsAt' | 'expiresAt'> = {
+    currentPlanId: null,
+    startsAt: null,
+    expiresAt: null,
+  };
+
+  for (const order of orderedPaidOrders) {
+    const plan = planById.get(order.planId);
+    if (!plan) {
+      continue;
+    }
+
+    const orderTime = order.createdAt.getTime();
+    const currentExpiryMs =
+      resolveFrontendMembershipExpiry(snapshot)?.getTime() ?? 0;
+    const baseMs = currentExpiryMs > orderTime ? currentExpiryMs : orderTime;
+    const currentActivePlanId =
+      currentExpiryMs > orderTime ? snapshot.currentPlanId : null;
+
+    snapshot = {
+      currentPlanId: resolveEffectivePlanId(currentActivePlanId, order.planId),
+      startsAt: snapshot.startsAt ?? order.createdAt,
+      expiresAt: buildPlanExpiryAt(plan, baseMs),
+    };
+  }
+
+  return snapshot.currentPlanId ? snapshot : null;
 }
 
 export function resolveFrontendMembershipExpiry(

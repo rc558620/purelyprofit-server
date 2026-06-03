@@ -53,6 +53,7 @@ export class AuthCapabilityService {
       hiddenHomeModules: snapshot.hiddenHomeModules,
       canViewFinance: snapshot.canViewFinance,
       canViewMarketing: snapshot.canViewMarketing,
+      canUseGoodsManagement: snapshot.canUseGoodsManagement,
       canUseHandoverManagement: snapshot.canUseHandoverManagement,
       canUseSpaceManagement: snapshot.canUseSpaceManagement,
       canAccessStoreSettings: snapshot.canAccessStoreSettings,

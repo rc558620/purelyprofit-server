@@ -1,6 +1,7 @@
 import type { FinanceAccountStatus, Prisma } from '@prisma/client';
 
 export const FINANCE_OVERVIEW_PERIOD_VALUES = [
+  'today',
   'week',
   'month',
   'quarter',
@@ -165,6 +166,7 @@ export const FINANCE_OVERVIEW_DISPLAY_DAYS: Record<
   FinanceOverviewPeriodValue,
   number
 > = {
+  today: 1,
   week: 7,
   month: 30,
   quarter: 90,

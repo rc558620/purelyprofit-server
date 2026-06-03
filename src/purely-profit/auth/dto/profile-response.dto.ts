@@ -61,7 +61,10 @@ export class ProfileMembershipDto {
   @IsString({ message: '当前门店角色必须是字符串' })
   role: StaffRole;
 
-  @ApiProperty({ type: [String], description: '当前门店权限列表' })
+  @ApiProperty({
+    type: [String],
+    description: '当前门店接口权限列表；不等同于首页入口可见性，应结合 capability/allowedHomeModules 判断',
+  })
   @IsArray({ message: '当前门店权限列表必须是数组' })
   @IsString({ each: true, message: '权限项必须是字符串' })
   permissions: string[];

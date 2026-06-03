@@ -265,6 +265,13 @@ export class DashboardHomeCapabilityDto {
   @IsBoolean()
   canViewMarketing: boolean;
 
+  @ApiProperty({
+    example: false,
+    description: '是否可以显示商品管理首页入口，不等同于 goods:view 接口权限',
+  })
+  @IsBoolean()
+  canUseGoodsManagement: boolean;
+
   @ApiPropertyOptional({
     enum: StoreSubAccountStatus,
     example: StoreSubAccountStatus.active,

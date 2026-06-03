@@ -41,7 +41,7 @@ import { SalesRecordService } from './sales-record.service';
 @ApiTags('Sales')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
-@Controller(['sales/orders', 'sales-record'])
+@Controller('sales-record')
 export class SalesRecordController {
   constructor(private readonly salesRecordService: SalesRecordService) {}
 
@@ -116,9 +116,20 @@ export class SalesRecordController {
 @ApiTags('Sales')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
-@Controller('sales-orders')
+@Controller(['sales/orders', 'sales-orders'])
 export class SalesOrdersCompatController {
   constructor(private readonly salesRecordService: SalesRecordService) {}
+
+  @Get('products')
+  @RequirePermissions('operation-entry:view')
+  @ApiOperation({ summary: '获取开始营业商品列表（purelyProfit 前端兼容）' })
+  @ApiOkResponse({ type: [SalesProductResponseDto] })
+  listProducts(
+    @Req() request: { user: AuthenticatedUser },
+    @Query() query: ListSalesProductsQueryDto,
+  ): Promise<SalesProductResponseDto[]> {
+    return this.salesRecordService.listProducts(request.user, query);
+  }
 
   @Get()
   @RequirePermissions('sales:view')
@@ -131,15 +142,28 @@ export class SalesOrdersCompatController {
     return this.salesRecordService.listFrontendOrders(request.user, query);
   }
 
+  @Get('report')
+  @RequirePermissions('report:view')
+  @ApiOperation({ summary: '获取报表中心销售报表数据（purelyProfit 前端兼容）' })
+  @ApiOkResponse({ type: SalesReportResponseDto })
+  getReport(
+    @Req() request: { user: AuthenticatedUser },
+    @Query() query: SalesReportQueryDto,
+  ): Promise<SalesReportResponseDto> {
+    return this.salesRecordService.getReport(request.user, query);
+  }
+
   @Post()
-  @RequirePermissions('sales:create')
+  @RequirePermissions('operation-entry:create')
   @ApiOperation({ summary: '新增销售记录（purelyProfit 前端兼容）' })
   @ApiCreatedResponse({ type: SalesRecordResponseDto })
   create(
     @Req() request: { user: AuthenticatedUser },
     @Body() dto: CreateSalesRecordDto,
   ): Promise<SalesRecordResponseDto> {
-    return this.salesRecordService.create(request.user, dto);
+    return this.salesRecordService.create(request.user, dto, {
+      skipAccessCheck: true,
+    });
   }
 
   @Delete(':id')

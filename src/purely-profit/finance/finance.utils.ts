@@ -133,6 +133,10 @@ export function getOverviewCurrentRange(period: FinanceOverviewPeriodValue): {
   const todayStart = getDayStart(now);
   const end = todayStart + DAY_MS - 1;
 
+  if (period === 'today') {
+    return { start: todayStart, end };
+  }
+
   if (period === 'week') {
     const current = new Date(todayStart);
     const weekDay = current.getDay() === 0 ? 6 : current.getDay() - 1;

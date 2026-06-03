@@ -129,7 +129,17 @@ export class EmployeesProfileReadService {
       employee.storeId,
       [{ id: employee.id, phone: employee.phone }],
     );
-    return toEmployeeResponse(employee, subAccountMap.get(employee.id));
+    const detailCapabilities =
+      this.employeesAccessService.buildEmployeeDetailCapabilities(
+        user,
+        employee.storeId,
+      );
+
+    return toEmployeeResponse(
+      employee,
+      subAccountMap.get(employee.id),
+      detailCapabilities,
+    );
   }
 
   private async buildEmployeeSubAccountMap(

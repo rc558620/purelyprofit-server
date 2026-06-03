@@ -38,6 +38,8 @@ export interface PreparedSalesItem {
 
 export interface CreateSalesRecordOptions {
   skipInventoryValidationAndDeduction?: boolean;
+  /** 跳过 sales:create 权限校验，由调用方自行保证已完成上游权限检查（如空间结账） */
+  skipAccessCheck?: boolean;
 }
 
 @Injectable()

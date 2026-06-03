@@ -1,4 +1,4 @@
-import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { StaffRole, StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
 import { REQUIRE_PERMISSIONS_KEY } from './decorators/require-permissions.decorator';
 import { AccessControlService, type AuthenticatedMembership } from './access-control.service';
@@ -17,8 +17,10 @@ import {
 } from '../operations/sales-record/sales-record.controller';
 import { SpaceSessionsController } from '../operations/spaces/space-sessions.controller';
 import { FinanceController } from '../finance/finance.controller';
+import { InventoryController } from '../goods/inventory/inventory.controller';
 import { BusinessAnalysisController } from '../dashboard/business-analysis/business-analysis.controller';
 import { DashboardHomeController } from '../dashboard/dashboard-home/dashboard-home.controller';
+import { EmployeesController } from '../staff/employees/employees.controller';
 import { StoresController } from '../stores/stores.controller';
 import { SubAccountBlockGuard } from './guards/sub-account-block.guard';
 
@@ -56,16 +58,19 @@ describe('Sub-account alignment regression', () => {
       'space-management',
       'handover-management',
     ]);
+    expect(capability.canUseGoodsManagement).toBe(false);
     expect(permissions).toEqual([
       'space:view',
       'space:create',
       'space:update',
       'operation-entry:view',
       'operation-entry:create',
+      'goods:view',
       'handover:view',
       'handover:create',
       'handover:update',
     ]);
+    expect(permissions).toContain('goods:view');
     expect(permissions).not.toContain('sales:view');
     expect(permissions).not.toContain('marketing:view');
     expect(permissions).not.toContain('finance:view');
@@ -86,6 +91,7 @@ describe('Sub-account alignment regression', () => {
       'space-management',
       'staff-management',
     ]);
+    expect(capability.canUseGoodsManagement).toBe(true);
     expect(permissions).toContain('report:view');
     expect(permissions).toContain('marketing:view');
     expect(permissions).toContain('goods:view');
@@ -108,15 +114,19 @@ describe('Sub-account alignment regression', () => {
     expect(capability.allowedHomeModules).toEqual([
       'business-analysis',
       'finance-center',
-      'goods-management',
       'staff-management',
     ]);
+    expect(capability.allowedHomeModules).not.toContain('goods-management');
+    expect(capability.canUseGoodsManagement).toBe(false);
     expect(permissions).toContain('report:view');
     expect(permissions).toContain('finance:view');
     expect(permissions).toContain('goods:view');
     expect(permissions).toContain('inventory:view');
     expect(permissions).toContain('cost:view');
-    expect(permissions).toContain('purchase:view');
+    expect(permissions).toContain('cost:create');
+    expect(permissions).toContain('cost:delete');
+    expect(permissions).not.toContain('supplier:view');
+    expect(permissions).not.toContain('purchase:view');
     expect(permissions).toContain('sales:view');
     expect(permissions).toContain('staff:view');
     expect(permissions).not.toContain('marketing:view');
@@ -148,6 +158,18 @@ describe('Sub-account alignment regression', () => {
     expect(capability.allowedHomeModules).not.toContain('handover-management');
     expect(capability.canUseHandoverManagement).toBe(false);
   });
+
+  it('cashier canUseHandover=false 时仍保留 goods:view', () => {
+    const membership = buildSubAccountMembership(StoreSubAccountRole.cashier, {
+      canUseHandover: false,
+    });
+    const permissions = accessControlService.getEffectivePermissions(membership);
+
+    expect(permissions).toContain('goods:view');
+    expect(permissions).not.toContain('handover:view');
+    expect(permissions).not.toContain('handover:create');
+    expect(permissions).not.toContain('handover:update');
+  });
 });
 
 describe('Permission metadata regression', () => {
@@ -159,6 +181,12 @@ describe('Permission metadata regression', () => {
   });
 
   it('营业收录与销售记录接口权限应拆分', () => {
+    expect(Reflect.getMetadata(PATH_METADATA, SalesRecordController)).toBe(
+      'sales-record',
+    );
+    expect(Reflect.getMetadata(PATH_METADATA, SalesOrdersCompatController)).toEqual(
+      ['sales/orders', 'sales-orders'],
+    );
     expect(
       Reflect.getMetadata(
         REQUIRE_PERMISSIONS_KEY,
@@ -174,9 +202,33 @@ describe('Permission metadata regression', () => {
     expect(
       Reflect.getMetadata(
         REQUIRE_PERMISSIONS_KEY,
+        SalesRecordController.prototype.create,
+      ),
+    ).toEqual(['sales:create']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        SalesOrdersCompatController.prototype.listProducts,
+      ),
+    ).toEqual(['operation-entry:view']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
         SalesOrdersCompatController.prototype.list,
       ),
     ).toEqual(['sales:view']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        SalesOrdersCompatController.prototype.getReport,
+      ),
+    ).toEqual(['report:view']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        SalesOrdersCompatController.prototype.create,
+      ),
+    ).toEqual(['operation-entry:create']);
   });
 
   it('空间会话写接口应要求 operation-entry:create', () => {
@@ -214,6 +266,42 @@ describe('Permission metadata regression', () => {
       Reflect.getMetadata(
         REQUIRE_PERMISSIONS_KEY,
         FinanceController.prototype.getOverview,
+      ),
+    ).toEqual(['finance:view']);
+  });
+
+  it('库存调整写接口应允许库存管理或营业录入权限', () => {
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        InventoryController.prototype.adjust,
+      ),
+    ).toEqual(['inventory:update', 'operation-entry:create']);
+  });
+
+  it('工资草稿相关写接口应仅允许财务操作', () => {
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        EmployeesController.prototype.savePayroll,
+      ),
+    ).toEqual(['finance:view']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        EmployeesController.prototype.updatePayroll,
+      ),
+    ).toEqual(['finance:view']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        EmployeesController.prototype.confirmPayroll,
+      ),
+    ).toEqual(['finance:view']);
+    expect(
+      Reflect.getMetadata(
+        REQUIRE_PERMISSIONS_KEY,
+        EmployeesController.prototype.removePayroll,
       ),
     ).toEqual(['finance:view']);
   });

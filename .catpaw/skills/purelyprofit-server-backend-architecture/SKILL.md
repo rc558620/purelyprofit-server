@@ -1,6 +1,6 @@
 ---
 name: purelyprofit-server-backend-architecture
-description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。该 skill 说明 purely-profit 与 purely-pulse 的产品线语义、会员配置层与运行态边界、NestJS + Fastify 启动链路、Config/Prisma/Redis 基础设施、JWT 鉴权、Swagger 与 DTO 规范、缓存失效与预热接入方式、operations/spaces 模块拆分方式，以及新增接口的落位流程。适用于理解仓库结构、开发或修改 purelyProfit / purelyPulse 接口、接入数据库或缓存、处理会员权益限制、扩展空间域能力，并保持代码风格与目录约定一致时使用。
+description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。该 skill 说明 purely-profit 与 purely-pulse 的产品线语义、会员配置层与运行态边界、NestJS + Fastify 启动链路、Config/Prisma/Redis 基础设施、JWT 鉴权、access-control 能力快照、子账号配额与首页模块限制、员工班次/交接班域拆分、Swagger 与 DTO 规范、缓存失效与预热接入方式，以及新增接口的落位流程。适用于理解仓库结构、开发或修改 purelyProfit / purelyPulse 接口、接入数据库或缓存、处理会员权益限制、扩展空间/员工/交班能力，并保持代码风格与目录约定一致时使用。
 ---
 
 # purelyprofit-server 后端架构指南
@@ -117,6 +117,10 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。
 - `src/redis/cache-invalidator.service.ts`：统一承接 dashboard、finance、marketing、Pulse session 等衍生缓存失效
 - `src/redis/cache-prewarm.service.ts`：定时预热首页、经营分析、财务概览等热点缓存
 - `src/observability/*`：已有 cache-prewarm 指标与摘要链路，新增预热类别时要同步考虑观测聚合
+- `src/purely-profit/access-control/*` + `src/purely-profit/auth/auth-capability.service.ts`：老板、员工、子账号三类身份统一走 capability 快照，决定 `allowedHomeModules`、`hiddenHomeModules`、`canAccessHome`、`canUseHandover`
+- `src/purely-profit/member/platform-membership/store-sub-account*.ts`：子账号配额、槽位分配、登录账号、交班候选人解析已沉淀在平台会员模块，不要把子账号规则散落到员工或 auth controller
+- `src/purely-profit/staff/employees/*`：员工域已覆盖档案、部门、职位、班次定义、排班、请假、工资单、子账号维护，新增员工能力优先延续该聚合边界
+- `src/purely-profit/operations/handover/*`：交班域已拆成 `page/confirm/records/additional-items/shared`，写操作要基于当前班次可操作性，并拦截重复交班
 - `src/purely-profit/operations/spaces/*`：空间域已拆成 `read/write/dashboard/reservations/sessions` 等协作 service
 
 ## 核心约定
@@ -251,6 +255,14 @@ Access 基线：
 - `src/purely-pulse/pulse-store-context.service.ts`：Pulse 目标门店上下文
 - `purely-pulse` 要明确区分“当前登录开发者”和“当前被观察目标门店”
 
+子账号与 capability 快照：
+
+- `JwtStrategy` 会联合 `staffs`、`employees`、`store_sub_accounts` 构建 `currentMembership`，并把身份归一成 `owner` / `staff` / `sub_account`
+- `AccessControlService.buildMembershipContext()` 是登录态权限快照入口；子账号权限不要在 controller 或页面专属 service 里手写拼装
+- 子账号当前基于 `cashier` / `manager` / `finance` 三种角色发放默认权限，并额外受 `subAccountStatus`、`subAccountAssigned`、`canAccessHome`、`canUseHandover` 约束
+- `SubjectCapabilityService.buildSnapshot()` 是首页模块与 capability 字段事实来源；`auth capability`、`profile`、`dashboard-home` 都应复用同一套快照语义
+- 若数据库还未完成 `store_sub_accounts` / `can_access_home` / `can_use_handover` 迁移，`JwtStrategy` 会拒绝登录，避免回退到过期权限模型
+
 ### Prisma、Redis 与缓存
 
 Prisma：
@@ -332,8 +344,18 @@ Redis：
 - `src/purely-profit/auth/auth.controller.ts`
 - `src/purely-profit/auth/auth.service.ts`
 - `src/purely-profit/auth/strategies/jwt.strategy.ts`
+- `src/purely-profit/access-control/access-control.service.ts`
+- `src/purely-profit/access-control/subject-capability.service.ts`
+- `src/purely-profit/auth/auth-capability.service.ts`
 - `src/purely-profit/member/platform-membership/platform-membership.service.ts`
 - `src/purely-profit/member/platform-membership/platform-membership-access.service.ts`
+- `src/purely-profit/member/platform-membership/store-sub-account.service.ts`
+- `src/purely-profit/dashboard/dashboard-home/dashboard-home.service.ts`
+- `src/purely-profit/staff/employees/employees.controller.ts`
+- `src/purely-profit/staff/employees/employees-shift-definition.service.ts`
+- `src/purely-profit/operations/handover/handover.service.ts`
+- `src/purely-profit/operations/handover/handover-confirm.service.ts`
+- `src/purely-profit/operations/handover/handover.shared.ts`
 - `src/purely-profit/operations/spaces/spaces.service.ts`
 - `src/purely-profit/operations/spaces/space-reservations.service.ts`
 - `src/purely-profit/operations/spaces/space-sessions.service.ts`

@@ -79,7 +79,7 @@ export class InventoryController {
   }
 
   @Post('adjustments')
-  @RequirePermissions('inventory:update')
+  @RequirePermissions('inventory:update', 'operation-entry:create')
   @ApiOperation({ summary: '新增库存调整记录' })
   @ApiCreatedResponse({ type: InventoryAdjustmentResponseDto })
   adjust(

@@ -1,5 +1,10 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { EmployeeShiftType, Prisma, SalesPaymentMethod } from '@prisma/client';
+import {
+  EmployeeShiftType,
+  Prisma,
+  SalesPaymentMethod,
+  StoreSubAccountRole,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type {
   HandoverAdditionalItemDto,
@@ -49,15 +54,23 @@ export const HANDOVER_ADDITIONAL_VALUE_MAX_LENGTH = 200;
 export const ORDER_ITEMS_LIMIT = 50;
 export const SPACE_PREPAID_DEDUCTION_ITEM_NAME = '预付抵扣';
 export const SPACE_RENEW_DEDUCTION_ITEM_NAME = '续费抵扣';
+export const CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE =
+  '当前班次不属于该收银员，暂不允许操作';
 
 const TIME_TEXT_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const SALES_PAYMENT_METHOD_VALUES = new Set(Object.values(SalesPaymentMethod));
 
 export type ShiftRecordRow = {
+  employeeId?: number | null;
   employeeName: string;
   shiftType: EmployeeShiftType | null;
   startTime: string;
   endTime: string;
+};
+
+export type HandoverOperationAccess = {
+  canOperate: boolean;
+  blockedReason: string | null;
 };
 
 export const HANDOVER_RECORD_INCLUDE =
@@ -115,6 +128,12 @@ export const ensureMembershipContext = (
 
 export const ensureMembershipStoreId = (user: AuthenticatedUser): number =>
   ensureMembershipContext(user).storeId;
+
+export const isCashierMembership = (
+  membership: NonNullable<AuthenticatedUser['currentMembership']>,
+): boolean =>
+  membership.subjectType === 'sub_account' &&
+  membership.subAccountRole === StoreSubAccountRole.cashier;
 
 export const normalizeRequiredText = (
   value: string,

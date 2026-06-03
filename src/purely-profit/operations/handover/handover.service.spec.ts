@@ -40,6 +40,11 @@ describe('HandoverService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    handoverPageService.getHandoverPage.mockResolvedValue({
+      canOperate: true,
+      operationBlockedReason: null,
+      selectedShiftType: 'morning',
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -175,6 +180,63 @@ describe('HandoverService', () => {
         dto,
       );
     });
+
+    it('收银员操作非本人班次时 confirmHandover 应抛出 ForbiddenException', async () => {
+      const dto = {
+        shiftType: 'late' as const,
+        handedOverAt: Date.now(),
+        note: '交班',
+        additionalItems: [],
+      };
+      handoverPageService.getHandoverPage.mockResolvedValue({
+        canOperate: false,
+        operationBlockedReason: '当前班次不属于该收银员，暂不允许操作',
+        selectedShiftType: 'late',
+      });
+
+      await expect(
+        service.confirmHandover(subAccountUser, dto),
+      ).rejects.toThrow('当前班次不属于该收银员，暂不允许操作');
+      expect(handoverConfirmService.confirmHandover).not.toHaveBeenCalled();
+    });
+
+    it('收银员重复提交已完成班次时 confirmHandover 应抛出 ForbiddenException', async () => {
+      const dto = {
+        shiftType: 'morning' as const,
+        handedOverAt: Date.now(),
+        note: '重复交班',
+        additionalItems: [],
+      };
+      handoverPageService.getHandoverPage.mockResolvedValue({
+        canOperate: true,
+        operationBlockedReason: null,
+        selectedShiftType: 'late',
+      });
+
+      await expect(
+        service.confirmHandover(subAccountUser, dto),
+      ).rejects.toThrow('当前班次已完成交班，暂不允许重复操作');
+      expect(handoverConfirmService.confirmHandover).not.toHaveBeenCalled();
+    });
+
+    it('非收银员重复提交已完成班次时也应抛出 ForbiddenException', async () => {
+      const dto = {
+        shiftType: 'morning' as const,
+        handedOverAt: Date.now(),
+        note: '重复交班',
+        additionalItems: [],
+      };
+      handoverPageService.getHandoverPage.mockResolvedValue({
+        canOperate: true,
+        operationBlockedReason: null,
+        selectedShiftType: 'late',
+      });
+
+      await expect(service.confirmHandover(ownerUser, dto)).rejects.toThrow(
+        '当前班次已完成交班，暂不允许重复操作',
+      );
+      expect(handoverConfirmService.confirmHandover).not.toHaveBeenCalled();
+    });
   });
 
   describe('交班记录委托', () => {
@@ -203,6 +265,23 @@ describe('HandoverService', () => {
         ownerUser,
         dto,
       );
+    });
+
+    it('收银员操作非本人当前班次时 createHandoverRecord 应抛出 ForbiddenException', async () => {
+      handoverPageService.getHandoverPage.mockResolvedValue({
+        canOperate: false,
+        operationBlockedReason: '当前时段没有该收银员本人班次，暂不允许操作',
+        selectedShiftType: 'morning',
+      });
+
+      await expect(
+        service.createHandoverRecord(subAccountUser, {
+          handoverMode: 'sub_account',
+        }),
+      ).rejects.toThrow('当前时段没有该收银员本人班次，暂不允许操作');
+      expect(
+        handoverRecordsService.createHandoverRecord,
+      ).not.toHaveBeenCalled();
     });
 
     it('completeHandoverRecord 委托给 handoverRecordsService', async () => {

@@ -2,6 +2,7 @@ import { StoreSubAccountRole } from '@prisma/client';
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -27,6 +28,8 @@ import type {
 
 @Injectable()
 export class PulseMembershipAdminMutationService {
+  private readonly logger = new Logger(PulseMembershipAdminMutationService.name);
+
   constructor(
     private readonly platformMembershipService: PlatformMembershipService,
     private readonly prisma: PrismaService,
@@ -160,9 +163,22 @@ export class PulseMembershipAdminMutationService {
     await this.assertAdminMemberMutationAccess(user, memberId);
 
     const nextLevel = this.resolveAdminMemberLevel(dto);
+    const current = await this.loadAdminMemberStateOrThrow(memberId);
+    this.assertFreeDowngradeConfirmed(current.profile, dto, nextLevel);
     const nextExpiry = await this.resolveAdminMembershipExpiry(dto, nextLevel);
     const nextPlanId = this.toMembershipPlanId(nextLevel);
     const now = new Date();
+
+    this.logMembershipLevelMutation({
+      user,
+      memberId,
+      previousPlanId: current.profile.currentPlanId,
+      previousExpiresAt: current.profile.expiresAt,
+      nextLevel,
+      nextPlanId,
+      nextExpiry,
+      dto,
+    });
 
     await this.prisma.storeMembershipProfile.upsert({
       where: { storeId: memberId },
@@ -171,8 +187,8 @@ export class PulseMembershipAdminMutationService {
         currentPlanId: nextPlanId,
         startsAt: nextPlanId ? now : null,
         expiresAt: nextExpiry,
-        totalPoints: 0,
-        availablePoints: 0,
+        totalPoints: current.profile.totalPoints,
+        availablePoints: current.profile.availablePoints,
       },
       update: {
         currentPlanId: nextPlanId,
@@ -403,6 +419,72 @@ export class PulseMembershipAdminMutationService {
     }
 
     return nextLevel;
+  }
+
+  private assertFreeDowngradeConfirmed(
+    profile: PulseAdminMembershipProfileRecord,
+    dto: PulseAdminMembershipMutationInput,
+    nextLevel: PulseAdminMemberLevel,
+  ): void {
+    if (nextLevel !== 'free') {
+      return;
+    }
+
+    const isCurrentlyActive =
+      profile.currentPlanId !== null
+      && profile.expiresAt !== null
+      && profile.expiresAt.getTime() > Date.now();
+
+    if (!isCurrentlyActive) {
+      return;
+    }
+
+    if (dto.confirmDowngradeToFree === true) {
+      return;
+    }
+
+    throw new BadRequestException('当前会员仍在有效期内，降级到免费会员需要显式确认');
+  }
+
+  private logMembershipLevelMutation(params: {
+    user: AuthenticatedUser;
+    memberId: number;
+    previousPlanId: PulseAdminMembershipProfileRecord['currentPlanId'];
+    previousExpiresAt: Date | null;
+    nextLevel: PulseAdminMemberLevel;
+    nextPlanId: PulseAdminMembershipProfileRecord['currentPlanId'];
+    nextExpiry: Date | null;
+    dto: PulseAdminMembershipMutationInput;
+  }): void {
+    const {
+      user,
+      memberId,
+      previousPlanId,
+      previousExpiresAt,
+      nextLevel,
+      nextPlanId,
+      nextExpiry,
+      dto,
+    } = params;
+
+    this.logger.warn(
+      JSON.stringify({
+        event: 'pulse_admin_membership_level_mutation',
+        memberId,
+        operatorUserId: user.id,
+        operatorEmail: user.email,
+        previousPlanId,
+        previousExpiresAt: previousExpiresAt?.toISOString() ?? null,
+        nextLevel,
+        nextPlanId,
+        nextExpiry: nextExpiry?.toISOString() ?? null,
+        confirmDowngradeToFree: dto.confirmDowngradeToFree ?? false,
+        actionSource: dto.actionSource ?? 'unknown',
+        requestId: dto.auditContext?.requestId ?? null,
+        ip: dto.auditContext?.ip ?? null,
+        userAgent: dto.auditContext?.userAgent ?? null,
+      }),
+    );
   }
 
   private async resolveAdminMembershipExpiry(

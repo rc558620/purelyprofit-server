@@ -370,7 +370,7 @@ describe('InventoryService', () => {
     expect(commerceAccessService.resolveSingleStoreId).toHaveBeenCalledWith(
       user,
       18,
-      'inventory:update',
+      'operation-entry:create',
       '无权操作该门店库存',
     );
     expect(
@@ -414,7 +414,7 @@ describe('InventoryService', () => {
     });
   });
 
-  it('adjust 在 set 模式下会把显式 mode 与 targetStock 透传给事务逻辑', async () => {
+  it('adjust 在 set 模式下会继续要求 inventory:update 并透传 targetStock', async () => {
     const createdAt = new Date('2026-05-14T12:00:00.000Z');
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
@@ -458,6 +458,12 @@ describe('InventoryService', () => {
       createdAt: createdAt.getTime(),
     });
 
+    expect(commerceAccessService.resolveSingleStoreId).toHaveBeenCalledWith(
+      user,
+      18,
+      'inventory:update',
+      '无权操作该门店库存',
+    );
     expect(prismaService.product.findFirst).toHaveBeenCalledWith({
       where: {
         id: 101,

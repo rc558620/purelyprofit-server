@@ -482,6 +482,7 @@ describe('AuthService', () => {
       subAccountQuota: 2,
       subAccountEnabled: true,
       allowedHomeModules: ['additional', 'space-management', 'handover-management'],
+      canUseGoodsManagement: false,
       canUseHandoverManagement: true,
       canUseSpaceManagement: true,
     });

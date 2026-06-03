@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type {
   CancelHandoverRecordDto,
@@ -22,6 +22,10 @@ import { HandoverAdditionalItemsService } from './handover-additional-items.serv
 import { HandoverConfirmService } from './handover-confirm.service';
 import { HandoverPageService } from './handover-page.service';
 import { HandoverRecordsService } from './handover-records.service';
+import {
+  CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE,
+  ensureMembershipContext,
+} from './handover.shared';
 
 @Injectable()
 export class HandoverService {
@@ -39,10 +43,11 @@ export class HandoverService {
     return this.handoverPageService.getHandoverPage(user, query);
   }
 
-  confirmHandover(
+  async confirmHandover(
     user: AuthenticatedUser,
     dto: ConfirmHandoverRequestDto,
   ): Promise<HandoverRecordListItemDto> {
+    await this.ensureUserCanOperateShift(user, dto.shiftType);
     return this.handoverConfirmService.confirmHandover(user, dto);
   }
 
@@ -52,18 +57,20 @@ export class HandoverService {
     return this.handoverAdditionalItemsService.listAdditionalItems(user);
   }
 
-  createAdditionalItem(
+  async createAdditionalItem(
     user: AuthenticatedUser,
     dto: CreateHandoverAdditionalItemDto,
   ): Promise<HandoverAdditionalItemDto> {
+    await this.ensureUserCanOperateCurrentShift(user);
     return this.handoverAdditionalItemsService.createAdditionalItem(user, dto);
   }
 
-  updateAdditionalItem(
+  async updateAdditionalItem(
     user: AuthenticatedUser,
     itemId: number,
     dto: UpdateHandoverAdditionalItemDto,
   ): Promise<HandoverAdditionalItemDto> {
+    await this.ensureUserCanOperateCurrentShift(user);
     return this.handoverAdditionalItemsService.updateAdditionalItem(
       user,
       itemId,
@@ -71,25 +78,31 @@ export class HandoverService {
     );
   }
 
-  deleteAdditionalItem(user: AuthenticatedUser, itemId: number): Promise<void> {
+  async deleteAdditionalItem(
+    user: AuthenticatedUser,
+    itemId: number,
+  ): Promise<void> {
+    await this.ensureUserCanOperateCurrentShift(user);
     return this.handoverAdditionalItemsService.deleteAdditionalItem(
       user,
       itemId,
     );
   }
 
-  createHandoverRecord(
+  async createHandoverRecord(
     user: AuthenticatedUser,
     dto: CreateHandoverRecordDto,
   ): Promise<HandoverRecordListItemDto> {
+    await this.ensureUserCanOperateCurrentShift(user);
     return this.handoverRecordsService.createHandoverRecord(user, dto);
   }
 
-  completeHandoverRecord(
+  async completeHandoverRecord(
     user: AuthenticatedUser,
     recordId: number,
     dto: CompleteHandoverRecordDto,
   ): Promise<HandoverRecordListItemDto> {
+    await this.ensureUserCanOperateCurrentShift(user);
     return this.handoverRecordsService.completeHandoverRecord(
       user,
       recordId,
@@ -97,11 +110,12 @@ export class HandoverService {
     );
   }
 
-  cancelHandoverRecord(
+  async cancelHandoverRecord(
     user: AuthenticatedUser,
     recordId: number,
     dto: CancelHandoverRecordDto,
   ): Promise<HandoverRecordListItemDto> {
+    await this.ensureUserCanOperateCurrentShift(user);
     return this.handoverRecordsService.cancelHandoverRecord(
       user,
       recordId,
@@ -139,5 +153,32 @@ export class HandoverService {
     user: AuthenticatedUser,
   ): Promise<HandoverRecordListItemDto | null> {
     return this.handoverRecordsService.getMyPendingHandover(user);
+  }
+
+  private async ensureUserCanOperateCurrentShift(
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    await this.ensureUserCanOperateShift(user);
+  }
+
+  private async ensureUserCanOperateShift(
+    user: AuthenticatedUser,
+    shiftType?: HandoverPageQueryDto['shiftType'],
+  ): Promise<void> {
+    ensureMembershipContext(user);
+
+    const page = await this.handoverPageService.getHandoverPage(user, {
+      ...(shiftType ? { shiftType } : {}),
+    });
+    if (!page.canOperate) {
+      throw new ForbiddenException(
+        page.operationBlockedReason ?? CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE,
+      );
+    }
+
+    // 页面读取允许自动切到下一班次，但写接口必须严格命中请求的班次，避免重复交旧班。
+    if (shiftType && page.selectedShiftType !== shiftType) {
+      throw new ForbiddenException('当前班次已完成交班，暂不允许重复操作');
+    }
   }
 }

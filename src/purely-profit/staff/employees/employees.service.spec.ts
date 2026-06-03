@@ -64,6 +64,7 @@ describe('EmployeesService', () => {
       create: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       delete: jest.fn(),
     },
     employeeShift: {
@@ -71,6 +72,7 @@ describe('EmployeesService', () => {
       create: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       delete: jest.fn(),
     },
     employeePayroll: {
@@ -79,6 +81,7 @@ describe('EmployeesService', () => {
       upsert: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       delete: jest.fn(),
     },
     storeSubAccount: {
@@ -86,8 +89,13 @@ describe('EmployeesService', () => {
     },
     staff: {
       findMany: jest.fn(),
+      update: jest.fn(),
+    },
+    user: {
+      update: jest.fn(),
     },
     $transaction: jest.fn(),
+    $executeRaw: jest.fn(),
   };
 
   const employeesAccessService = {
@@ -95,6 +103,8 @@ describe('EmployeesService', () => {
     ensureCanManageEmployees: jest.fn(),
     findManageableEmployeeOrThrow: jest.fn(),
     resolveSingleStoreId: jest.fn(),
+    ensureCanManageEmployeeSubAccount: jest.fn(),
+    buildEmployeeDetailCapabilities: jest.fn(),
   };
 
   const configService = {
@@ -126,6 +136,7 @@ describe('EmployeesService', () => {
 
   const cacheInvalidatorService = {
     invalidateDashboardAndPulseSession: jest.fn().mockResolvedValue(undefined),
+    invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -147,6 +158,13 @@ describe('EmployeesService', () => {
         'app.maxPageSize': 50,
       };
       return configMap[key];
+    });
+    employeesAccessService.ensureCanManageEmployeeSubAccount.mockImplementation(
+      () => undefined,
+    );
+    employeesAccessService.buildEmployeeDetailCapabilities.mockReturnValue({
+      canViewSubAccountModule: true,
+      canResign: true,
     });
 
     prismaService.$transaction.mockImplementation(
@@ -336,6 +354,198 @@ describe('EmployeesService', () => {
     expect(prismaService.staff.findMany).not.toHaveBeenCalled();
   });
 
+  it('getDetail 对财务子账号隐藏子账号模块且不可办理离职', async () => {
+    const financeUser: AuthenticatedUser = {
+      ...user,
+      currentMembership: {
+        staffId: 9,
+        storeId: 2,
+        role: 'STAFF',
+        permissions: ['staff:view'],
+        isActive: true,
+        subjectType: 'sub_account',
+        linkedEmployeeId: 12,
+        subAccountId: 5,
+        subAccountRole: 'finance',
+        subAccountStatus: 'active',
+        subAccountAssigned: true,
+        canAccessHome: true,
+        canUseHandover: false,
+      },
+    };
+    const createdAt = new Date('2026-05-13T08:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T09:00:00.000Z');
+
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 12,
+      storeId: 2,
+      linkedStaffId: null,
+      departmentId: 3,
+      positionId: 4,
+      empNo: 'EMP012',
+      name: '张三',
+      phone: '13800138000',
+      position: '收银员',
+      department: '前厅',
+      joinDate: new Date('2026-05-01T00:00:00.000Z'),
+      baseSalary: new Prisma.Decimal('4500'),
+      avatar: null,
+      idCard: null,
+      gender: EmployeeGender.male,
+      emergencyContact: null,
+      emergencyPhone: null,
+      contractEndDate: null,
+      note: null,
+      status: EmployeeStatus.active,
+      resignDate: null,
+      resignReason: null,
+      createdAt,
+      updatedAt,
+    });
+    employeesAccessService.buildEmployeeDetailCapabilities.mockReturnValue({
+      canViewSubAccountModule: false,
+      canResign: false,
+    });
+    prismaService.storeSubAccount.findMany.mockResolvedValue([
+      {
+        id: 7,
+        employeeId: 12,
+        slotIndex: 1,
+        role: 'manager',
+        status: 'active',
+        canUseHandover: true,
+        createdAt,
+        updatedAt,
+      },
+    ]);
+    prismaService.staff.findMany.mockResolvedValue([
+      {
+        id: 18,
+        phone: '13800138000',
+        email: 'account_store_mgr01@purelyprofit.local',
+        updatedAt,
+        employeeProfile: { id: 12 },
+        user: { password: 'hashed-password' },
+      },
+    ]);
+
+    await expect(service.getDetail(financeUser, 12)).resolves.toEqual({
+      id: '12',
+      empNo: 'EMP012',
+      name: '张三',
+      phone: '13800138000',
+      position: '收银员',
+      department: '前厅',
+      joinDate: new Date('2026-05-01T00:00:00.000Z').getTime(),
+      baseSalary: 4500,
+      gender: EmployeeGender.male,
+      status: EmployeeStatus.active,
+      createdAt: createdAt.getTime(),
+      updatedAt: updatedAt.getTime(),
+      canViewSubAccountModule: false,
+      canResign: false,
+    });
+    expect(
+      employeesAccessService.buildEmployeeDetailCapabilities,
+    ).toHaveBeenCalledWith(financeUser, 2);
+  });
+
+  it('getDetail 对店长子账号隐藏子账号模块但允许办理离职', async () => {
+    const managerUser: AuthenticatedUser = {
+      ...user,
+      currentMembership: {
+        staffId: 10,
+        storeId: 2,
+        role: 'STAFF',
+        permissions: ['staff:view', 'staff:update'],
+        isActive: true,
+        subjectType: 'sub_account',
+        linkedEmployeeId: 12,
+        subAccountId: 6,
+        subAccountRole: 'manager',
+        subAccountStatus: 'active',
+        subAccountAssigned: true,
+        canAccessHome: true,
+        canUseHandover: true,
+      },
+    };
+    const createdAt = new Date('2026-05-13T08:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T09:00:00.000Z');
+
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 15,
+      storeId: 2,
+      linkedStaffId: null,
+      departmentId: 5,
+      positionId: 6,
+      empNo: 'EMP015',
+      name: '李四',
+      phone: '13800138002',
+      position: '店长',
+      department: '前厅',
+      joinDate: new Date('2026-05-03T00:00:00.000Z'),
+      baseSalary: new Prisma.Decimal('5200'),
+      avatar: null,
+      idCard: null,
+      gender: EmployeeGender.female,
+      emergencyContact: null,
+      emergencyPhone: null,
+      contractEndDate: null,
+      note: null,
+      status: EmployeeStatus.active,
+      resignDate: null,
+      resignReason: null,
+      createdAt,
+      updatedAt,
+    });
+    employeesAccessService.buildEmployeeDetailCapabilities.mockReturnValue({
+      canViewSubAccountModule: false,
+      canResign: true,
+    });
+    prismaService.storeSubAccount.findMany.mockResolvedValue([
+      {
+        id: 9,
+        employeeId: 15,
+        slotIndex: 2,
+        role: 'cashier',
+        status: 'active',
+        canUseHandover: true,
+        createdAt,
+        updatedAt,
+      },
+    ]);
+    prismaService.staff.findMany.mockResolvedValue([
+      {
+        id: 19,
+        phone: '13800138002',
+        email: 'account_cashier_02@purelyprofit.local',
+        updatedAt,
+        employeeProfile: { id: 15 },
+        user: { password: 'hashed-password' },
+      },
+    ]);
+
+    await expect(service.getDetail(managerUser, 15)).resolves.toEqual({
+      id: '15',
+      empNo: 'EMP015',
+      name: '李四',
+      phone: '13800138002',
+      position: '店长',
+      department: '前厅',
+      joinDate: new Date('2026-05-03T00:00:00.000Z').getTime(),
+      baseSalary: 5200,
+      gender: EmployeeGender.female,
+      status: EmployeeStatus.active,
+      createdAt: createdAt.getTime(),
+      updatedAt: updatedAt.getTime(),
+      canViewSubAccountModule: false,
+      canResign: true,
+    });
+    expect(
+      employeesAccessService.buildEmployeeDetailCapabilities,
+    ).toHaveBeenCalledWith(managerUser, 2);
+  });
+
   it('create 在会员员工额度不足时阻止新增', async () => {
     employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
     platformMembershipAccessService.ensureEmployeeQuotaAvailable.mockRejectedValue(
@@ -481,6 +691,269 @@ describe('EmployeesService', () => {
       emergencyContact: '李四',
       emergencyPhone: '13800138001',
       status: EmployeeStatus.active,
+    });
+  });
+
+  it('update 会同步排班请假和工资快照', async () => {
+    const joinDate = new Date('2026-05-01T00:00:00.000Z');
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T11:00:00.000Z');
+
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 12,
+      storeId: 2,
+      linkedStaffId: null,
+      departmentId: 3,
+      positionId: 4,
+      empNo: 'EMP012',
+      name: '张三',
+      phone: '13800138000',
+      position: '收银员',
+      department: '前厅',
+      joinDate,
+      baseSalary: new Prisma.Decimal('4500'),
+      avatar: null,
+      idCard: null,
+      gender: EmployeeGender.male,
+      emergencyContact: null,
+      emergencyPhone: null,
+      contractEndDate: null,
+      note: null,
+      status: EmployeeStatus.active,
+      resignDate: null,
+      resignReason: null,
+      createdAt,
+      updatedAt: createdAt,
+    });
+    prismaService.employee.update.mockResolvedValue({
+      id: 12,
+      storeId: 2,
+      linkedStaffId: null,
+      departmentId: 3,
+      positionId: 4,
+      empNo: 'EMP012',
+      name: '王五',
+      phone: '13800138000',
+      position: '收银员',
+      department: '前厅',
+      joinDate,
+      baseSalary: new Prisma.Decimal('5200'),
+      avatar: null,
+      idCard: null,
+      gender: EmployeeGender.male,
+      emergencyContact: null,
+      emergencyPhone: null,
+      contractEndDate: null,
+      note: null,
+      status: EmployeeStatus.active,
+      resignDate: null,
+      resignReason: null,
+      createdAt,
+      updatedAt,
+    });
+    prismaService.employeeLeave.updateMany.mockResolvedValue({ count: 1 });
+    prismaService.employeeShift.updateMany.mockResolvedValue({ count: 2 });
+    prismaService.employeePayroll.findMany.mockResolvedValue([
+      {
+        id: 21,
+        month: '2026-05',
+        status: EmployeePayrollStatus.confirmed,
+        leaveDeduction: new Prisma.Decimal('100'),
+        otherDeduction: new Prisma.Decimal('50'),
+        otherDeductionNote: '迟到',
+        bonus: new Prisma.Decimal('200'),
+        socialInsurance: new Prisma.Decimal('300'),
+        housingFund: null,
+        note: null,
+      },
+    ]);
+    prismaService.employeePayroll.update.mockResolvedValue({
+      id: 21,
+      employeeId: 12,
+      employeeName: '王五',
+      month: '2026-05',
+      baseSalary: new Prisma.Decimal('5200'),
+      leaveDeduction: new Prisma.Decimal('100'),
+      otherDeduction: new Prisma.Decimal('50'),
+      otherDeductionNote: '迟到',
+      bonus: new Prisma.Decimal('200'),
+      actualSalary: new Prisma.Decimal('5250'),
+      socialInsurance: new Prisma.Decimal('300'),
+      housingFund: null,
+      totalLaborCost: new Prisma.Decimal('5550'),
+      status: EmployeePayrollStatus.draft,
+      confirmedAt: null,
+      note: null,
+      createdAt,
+      updatedAt,
+    });
+    prismaService.employeePayroll.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.update(user, 12, {
+      name: ' 王五 ',
+      baseSalary: 5200,
+    });
+
+    expect(prismaService.employee.update).toHaveBeenCalledWith({
+      where: { id: 12 },
+      data: {
+        name: '王五',
+        baseSalary: expect.any(Prisma.Decimal),
+      },
+    });
+    const updatedSalary =
+      prismaService.employee.update.mock.calls.at(0)?.[0]?.data.baseSalary;
+    expect(updatedSalary).toBeInstanceOf(Prisma.Decimal);
+    expect((updatedSalary as Prisma.Decimal).toString()).toBe('5200');
+    expect(prismaService.employeeLeave.updateMany).toHaveBeenCalledWith({
+      where: { employeeId: 12 },
+      data: { employeeName: '王五' },
+    });
+    expect(prismaService.employeeShift.updateMany).toHaveBeenCalledWith({
+      where: { employeeId: 12 },
+      data: { employeeName: '王五' },
+    });
+    expect(prismaService.employeePayroll.findMany).toHaveBeenCalledWith({
+      where: { employeeId: 12 },
+      select: {
+        id: true,
+        month: true,
+        status: true,
+        leaveDeduction: true,
+        otherDeduction: true,
+        otherDeductionNote: true,
+        bonus: true,
+        socialInsurance: true,
+        housingFund: true,
+        note: true,
+      },
+    });
+    expect(costsService.syncPayrollCosts).toHaveBeenCalledWith(prismaService, {
+      storeId: 2,
+      payrollId: 21,
+      operatorStaffId: null,
+      employeeName: '王五',
+      month: '2026-05',
+      actualSalary: 5250,
+      socialInsurance: 300,
+      housingFund: undefined,
+      note: null,
+    });
+    expect(prismaService.employeePayroll.update).toHaveBeenCalledWith({
+      where: { id: 21 },
+      data: {
+        baseSalary: expect.any(Prisma.Decimal),
+        actualSalary: expect.any(Prisma.Decimal),
+        totalLaborCost: expect.any(Prisma.Decimal),
+      },
+    });
+    const payrollUpdateData =
+      prismaService.employeePayroll.update.mock.calls.at(0)?.[0]?.data;
+    expect((payrollUpdateData.baseSalary as Prisma.Decimal).toString()).toBe(
+      '5200',
+    );
+    expect((payrollUpdateData.actualSalary as Prisma.Decimal).toString()).toBe(
+      '5250',
+    );
+    expect(
+      (payrollUpdateData.totalLaborCost as Prisma.Decimal).toString(),
+    ).toBe('5550');
+    expect(prismaService.employeePayroll.updateMany).toHaveBeenCalledWith({
+      where: { employeeId: 12 },
+      data: { employeeName: '王五' },
+    });
+    expect(result).toMatchObject({
+      id: '12',
+      name: '王五',
+      baseSalary: 5200,
+    });
+  });
+
+  it('update 仅改名不改底薪时同步 cost_records.title 里的员工姓名快照', async () => {
+    const joinDate = new Date('2026-05-01T00:00:00.000Z');
+    const createdAt = new Date('2026-05-13T10:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T11:00:00.000Z');
+
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+      id: 12,
+      storeId: 2,
+      linkedStaffId: null,
+      departmentId: 3,
+      positionId: 4,
+      empNo: 'EMP012',
+      name: '张三',
+      phone: '13800138000',
+      position: '收银员',
+      department: '前厅',
+      joinDate,
+      baseSalary: new Prisma.Decimal('4500'),
+      avatar: null,
+      idCard: null,
+      gender: EmployeeGender.male,
+      emergencyContact: null,
+      emergencyPhone: null,
+      contractEndDate: null,
+      note: null,
+      status: EmployeeStatus.active,
+      resignDate: null,
+      resignReason: null,
+      createdAt,
+      updatedAt: createdAt,
+    });
+    prismaService.employee.update.mockResolvedValue({
+      id: 12,
+      storeId: 2,
+      linkedStaffId: null,
+      departmentId: 3,
+      positionId: 4,
+      empNo: 'EMP012',
+      name: '李明',
+      phone: '13800138000',
+      position: '收银员',
+      department: '前厅',
+      joinDate,
+      baseSalary: new Prisma.Decimal('4500'),
+      avatar: null,
+      idCard: null,
+      gender: EmployeeGender.male,
+      emergencyContact: null,
+      emergencyPhone: null,
+      contractEndDate: null,
+      note: null,
+      status: EmployeeStatus.active,
+      resignDate: null,
+      resignReason: null,
+      createdAt,
+      updatedAt,
+    });
+    prismaService.employeeLeave.updateMany.mockResolvedValue({ count: 1 });
+    prismaService.employeeShift.updateMany.mockResolvedValue({ count: 1 });
+    prismaService.employeePayroll.updateMany.mockResolvedValue({ count: 1 });
+    prismaService.$executeRaw.mockResolvedValue(2);
+
+    const result = await service.update(user, 12, { name: '李明' });
+
+    // 验证姓名快照同步
+    expect(prismaService.employeeLeave.updateMany).toHaveBeenCalledWith({
+      where: { employeeId: 12 },
+      data: { employeeName: '李明' },
+    });
+    expect(prismaService.employeeShift.updateMany).toHaveBeenCalledWith({
+      where: { employeeId: 12 },
+      data: { employeeName: '李明' },
+    });
+    expect(prismaService.employeePayroll.updateMany).toHaveBeenCalledWith({
+      where: { employeeId: 12 },
+      data: { employeeName: '李明' },
+    });
+    // 验证 cost_records.title 也被同步
+    expect(prismaService.$executeRaw).toHaveBeenCalledTimes(1);
+    // 底薪未变，不应该重算工资
+    expect(prismaService.employeePayroll.findMany).not.toHaveBeenCalled();
+    expect(costsService.syncPayrollCosts).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      id: '12',
+      name: '李明',
     });
   });
 
@@ -1123,6 +1596,9 @@ describe('EmployeesService', () => {
       note: ' 含季度奖励 ',
     });
 
+    expect(
+      employeesAccessService.findManageableEmployeeOrThrow,
+    ).toHaveBeenCalledWith(user, 5, 'finance:view');
     expect(prismaService.employeePayroll.upsert).toHaveBeenCalledWith({
       where: {
         employeeId_month: {
@@ -1211,7 +1687,7 @@ describe('EmployeesService', () => {
 
     expect(
       employeesAccessService.ensureCanManageEmployees,
-    ).toHaveBeenCalledWith(user, 2, 'staff:update');
+    ).toHaveBeenCalledWith(user, 2, 'finance:view');
     const payrollUpdateArgs =
       prismaService.employeePayroll.update.mock.calls.at(0)?.[0] as {
         where: { id: number };
@@ -1466,6 +1942,9 @@ describe('EmployeesService', () => {
       loginAccount: 'cashier_01',
       initialPassword: 'test123456',
     });
+    expect(
+      employeesAccessService.ensureCanManageEmployeeSubAccount,
+    ).toHaveBeenCalledWith(user);
     expect(result.subAccount).toEqual({
       id: '7',
       role: 'cashier',
@@ -1478,6 +1957,44 @@ describe('EmployeesService', () => {
       createdAt: createdAt.getTime(),
       updatedAt: updatedAt.getTime(),
     });
+  });
+
+  it('updateSubAccount 会阻止子账号直接管理员工子账号', async () => {
+    const managerUser: AuthenticatedUser = {
+      ...user,
+      currentMembership: {
+        staffId: 10,
+        storeId: 2,
+        role: 'STAFF',
+        permissions: ['staff:view', 'staff:update'],
+        isActive: true,
+        subjectType: 'sub_account',
+        linkedEmployeeId: 12,
+        subAccountId: 6,
+        subAccountRole: 'manager',
+        subAccountStatus: 'active',
+        subAccountAssigned: true,
+        canAccessHome: true,
+        canUseHandover: true,
+      },
+    };
+    employeesAccessService.ensureCanManageEmployeeSubAccount.mockImplementation(
+      () => {
+        throw new ForbiddenException('子账号无权管理员工子账号');
+      },
+    );
+
+    await expect(
+      service.updateSubAccount(managerUser, 12, {
+        role: 'cashier',
+        loginAccount: 'cashier_01',
+      }),
+    ).rejects.toThrow('子账号无权管理员工子账号');
+
+    expect(
+      employeesAccessService.findManageableEmployeeOrThrow,
+    ).not.toHaveBeenCalled();
+    expect(storeSubAccountService.updateSlot).not.toHaveBeenCalled();
   });
 
   it('getPayrollReport 会仅聚合已结算工资并对齐前端字段', async () => {

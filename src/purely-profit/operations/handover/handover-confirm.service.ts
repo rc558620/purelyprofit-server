@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { HandoverMode, HandoverStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
@@ -11,6 +15,8 @@ import { HandoverAdditionalItemsService } from './handover-additional-items.serv
 import {
   HANDOVER_NOTE_MAX_LENGTH,
   HANDOVER_RECORD_INCLUDE,
+  SHIFT_TIME_FALLBACKS,
+  buildShiftDateRange,
   type ReceiverCandidate,
   ensureMembershipContext,
   mapRecordToDto,
@@ -53,6 +59,8 @@ export class HandoverConfirmService {
         dto.additionalItems,
       );
 
+    await this.ensureShiftNotHandedOver(membership.storeId, membership.linkedEmployeeId, dto);
+
     const record = await this.prisma.storeHandoverRecord.create({
       data: {
         storeId: membership.storeId,
@@ -80,6 +88,61 @@ export class HandoverConfirmService {
     });
 
     return mapRecordToDto(record);
+  }
+
+  private async ensureShiftNotHandedOver(
+    storeId: number,
+    employeeId: number | null,
+    dto: ConfirmHandoverRequestDto,
+  ): Promise<void> {
+    if (!employeeId) {
+      return;
+    }
+
+    const today = new Date(dto.handedOverAt);
+    const dayStart = new Date(today);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(today);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const shiftRecord = await this.prisma.employeeShift.findFirst({
+      where: {
+        storeId,
+        employeeId,
+        shiftType: dto.shiftType,
+        date: {
+          gte: dayStart,
+          lte: dayEnd,
+        },
+      },
+      select: {
+        startTime: true,
+        endTime: true,
+      },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
+    });
+
+    const fallbackTime = SHIFT_TIME_FALLBACKS[dto.shiftType];
+    const shiftRange = buildShiftDateRange(
+      shiftRecord?.startTime ?? fallbackTime.startTime,
+      shiftRecord?.endTime ?? fallbackTime.endTime,
+      today,
+    );
+    const exists = await this.prisma.storeHandoverRecord.count({
+      where: {
+        storeId,
+        fromEmployeeId: employeeId,
+        status: HandoverStatus.completed,
+        handoverAt: {
+          gte: shiftRange.startAt,
+          lte: shiftRange.endAt,
+        },
+      },
+    });
+
+    if (exists > 0) {
+      throw new ConflictException('当前班次已完成交班，暂不允许重复操作');
+    }
   }
 
   private async findReceiverCandidate(
