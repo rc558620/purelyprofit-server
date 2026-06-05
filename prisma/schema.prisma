@@ -791,27 +791,33 @@ model StoreSubAccount {
 }
 
 model StoreHandoverRecord {
-  id               Int              @id @default(autoincrement())
-  storeId          Int              @map("store_id")
-  store            Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  fromEmployeeId   Int?             @map("from_employee_id")
-  fromEmployee     Employee?        @relation("HandoverFromEmployee", fields: [fromEmployeeId], references: [id], onDelete: SetNull)
-  toEmployeeId     Int?             @map("to_employee_id")
-  toEmployee       Employee?        @relation("HandoverToEmployee", fields: [toEmployeeId], references: [id], onDelete: SetNull)
-  fromSubAccountId Int?             @map("from_sub_account_id")
-  fromSubAccount   StoreSubAccount? @relation("HandoverFromSubAccount", fields: [fromSubAccountId], references: [id], onDelete: SetNull)
-  toSubAccountId   Int?             @map("to_sub_account_id")
-  toSubAccount     StoreSubAccount? @relation("HandoverToSubAccount", fields: [toSubAccountId], references: [id], onDelete: SetNull)
-  actorStaffId     Int?             @map("actor_staff_id")
-  actorStaff       Staff?           @relation("HandoverActorStaff", fields: [actorStaffId], references: [id], onDelete: SetNull)
-  handoverMode     HandoverMode     @map("handover_mode")
-  status           HandoverStatus   @default(pending)
-  handoverAt       DateTime?                    @map("handover_at")
-  note             String?
-  reason           String?
-  additionalValues StoreHandoverAdditionalValue[]
-  createdAt        DateTime                     @default(now()) @map("created_at")
-  updatedAt        DateTime                     @updatedAt @map("updated_at")
+  id                       Int                @id @default(autoincrement())
+  storeId                  Int                @map("store_id")
+  store                    Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  fromEmployeeId           Int?               @map("from_employee_id")
+  fromEmployee             Employee?          @relation("HandoverFromEmployee", fields: [fromEmployeeId], references: [id], onDelete: SetNull)
+  toEmployeeId             Int?               @map("to_employee_id")
+  toEmployee               Employee?          @relation("HandoverToEmployee", fields: [toEmployeeId], references: [id], onDelete: SetNull)
+  fromSubAccountId         Int?               @map("from_sub_account_id")
+  fromSubAccount           StoreSubAccount?   @relation("HandoverFromSubAccount", fields: [fromSubAccountId], references: [id], onDelete: SetNull)
+  toSubAccountId           Int?               @map("to_sub_account_id")
+  toSubAccount             StoreSubAccount?   @relation("HandoverToSubAccount", fields: [toSubAccountId], references: [id], onDelete: SetNull)
+  actorStaffId             Int?               @map("actor_staff_id")
+  actorStaff               Staff?             @relation("HandoverActorStaff", fields: [actorStaffId], references: [id], onDelete: SetNull)
+  employeeShiftIdSnapshot   Int?               @map("employee_shift_id_snapshot")
+  fromEmployeeNameSnapshot String?            @map("from_employee_name_snapshot")
+  shiftTypeSnapshot        EmployeeShiftType? @map("shift_type_snapshot")
+  shiftNameSnapshot        String?            @map("shift_name_snapshot")
+  shiftStartTimeSnapshot   String?            @map("shift_start_time_snapshot")
+  shiftEndTimeSnapshot     String?            @map("shift_end_time_snapshot")
+  handoverMode             HandoverMode       @map("handover_mode")
+  status                   HandoverStatus     @default(pending)
+  handoverAt               DateTime?          @map("handover_at")
+  note                     String?
+  reason                   String?
+  additionalValues         StoreHandoverAdditionalValue[]
+  createdAt                DateTime           @default(now()) @map("created_at")
+  updatedAt                DateTime           @updatedAt @map("updated_at")
 
   @@index([storeId, status, createdAt])
   @@index([fromEmployeeId, createdAt])

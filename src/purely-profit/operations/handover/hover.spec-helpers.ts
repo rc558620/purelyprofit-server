@@ -1,4 +1,8 @@
-import { HandoverMode, HandoverStatus } from '@prisma/client';
+import {
+  EmployeeShiftType,
+  HandoverMode,
+  HandoverStatus,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
 export const createHandoverPrismaMock = () => ({
@@ -6,11 +10,13 @@ export const createHandoverPrismaMock = () => ({
     findUnique: jest.fn(),
   },
   employeeShift: {
+    findUnique: jest.fn(),
     findFirst: jest.fn(),
     findMany: jest.fn(),
   },
   saleOrder: {
     groupBy: jest.fn(),
+    findMany: jest.fn(),
     aggregate: jest.fn(),
     count: jest.fn(),
   },
@@ -30,6 +36,9 @@ export const createHandoverPrismaMock = () => ({
     update: jest.fn(),
     delete: jest.fn(),
   },
+  storeHandoverAdditionalValue: {
+    findMany: jest.fn(),
+  },
   storeHandoverRecord: {
     create: jest.fn(),
     findFirst: jest.fn(),
@@ -41,6 +50,7 @@ export const createHandoverPrismaMock = () => ({
 
 export const createStoreSubAccountServiceMock = () => ({
   listAssignableHandoverCandidates: jest.fn(),
+  findAssignedSubAccountByEmployee: jest.fn(),
 });
 
 export const createOwnerUser = (): AuthenticatedUser => ({
@@ -91,6 +101,74 @@ export const createSubAccountUser = (): AuthenticatedUser => ({
   },
 });
 
+export const createCashierUser = (input?: {
+  name?: string;
+  staffId?: number;
+  linkedEmployeeId?: number | null;
+}): AuthenticatedUser => {
+  const user = createSubAccountUser();
+
+  return {
+    ...user,
+    name: input?.name ?? user.name,
+    currentMembership: {
+      ...user.currentMembership!,
+      staffId: input?.staffId ?? user.currentMembership!.staffId,
+      linkedEmployeeId:
+        input && 'linkedEmployeeId' in input
+          ? (input.linkedEmployeeId ?? null)
+          : user.currentMembership!.linkedEmployeeId,
+    },
+  };
+};
+
+export type TestShiftRecord = {
+  id: number;
+  employeeId: number;
+  employeeName: string;
+  shiftType: EmployeeShiftType;
+  shiftName?: string | null;
+  date: Date;
+  startTime: string;
+  endTime: string;
+  createdAt: Date;
+};
+
+export const createShiftRecord = (
+  input?: Partial<TestShiftRecord>,
+): TestShiftRecord => ({
+  id: input?.id ?? 1,
+  employeeId: input?.employeeId ?? 20,
+  employeeName: input?.employeeName ?? '员工A',
+  shiftType: input?.shiftType ?? EmployeeShiftType.morning,
+  ...(input && 'shiftName' in input
+    ? { shiftName: input.shiftName ?? null }
+    : {}),
+  date: input?.date ?? new Date('2026-06-02T00:00:00.000Z'),
+  startTime: input?.startTime ?? '09:00',
+  endTime: input?.endTime ?? '18:00',
+  createdAt: input?.createdAt ?? new Date('2026-06-02T00:00:00.000Z'),
+});
+
+export const createEmployeeProfile = (input?: {
+  name?: string;
+  avatar?: string | null;
+  linkedStaffId?: number | null;
+  linkedStaffAvatar?: string | null;
+}) => ({
+  name: input?.name ?? '员工A',
+  avatar: input?.avatar ?? null,
+  linkedStaffId: input?.linkedStaffId ?? null,
+  linkedStaff:
+    input && 'linkedStaffAvatar' in input
+      ? {
+          user: {
+            avatar: input.linkedStaffAvatar ?? null,
+          },
+        }
+      : null,
+});
+
 export const createManagerUser = (): AuthenticatedUser => ({
   id: 3,
   email: 'manager@example.com',
@@ -132,6 +210,7 @@ export const createMockRecord = () => ({
   updatedAt: new Date('2026-05-13T10:00:00.000Z'),
   fromEmployee: { id: 10, name: '老板' },
   toEmployee: { id: 20, name: '员工A' },
+  additionalValues: [],
 });
 
 export const createMockCandidates = () => [

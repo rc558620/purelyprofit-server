@@ -4,6 +4,7 @@ import { SpaceReservationStatus as PrismaSpaceReservationStatus } from '@prisma/
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { SpaceSessionSettlementService } from './space-session-settlement.service';
 import { SpaceReservationsService } from './space-reservations.service';
 
 describe('SpaceReservationsService', () => {
@@ -21,6 +22,10 @@ describe('SpaceReservationsService', () => {
   const commerceAccessService = {
     ensureCanAccessStore: jest.fn(),
     resolveViewStoreId: jest.fn(),
+  };
+
+  const settlementService = {
+    autoCheckoutExpiredCountdownSessions: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -52,19 +57,24 @@ describe('SpaceReservationsService', () => {
 
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    settlementService.autoCheckoutExpiredCountdownSessions.mockResolvedValue(0);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SpaceReservationsService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
+        {
+          provide: SpaceSessionSettlementService,
+          useValue: settlementService,
+        },
       ],
     }).compile();
 
     service = module.get<SpaceReservationsService>(SpaceReservationsService);
   });
 
-  it('listStoreSpaceReservations 在未传 status 时默认只返回 pending 预约', async () => {
+  it('listStoreSpaceReservations 在未传 status 时会先补偿自动结账，再默认只返回 pending 预约', async () => {
     prismaService.spaceReservation.findMany.mockResolvedValue([]);
 
     await service.listStoreSpaceReservations(user, {});
@@ -75,6 +85,9 @@ describe('SpaceReservationsService', () => {
       'space:view',
       '无权查看该门店空间预约',
     );
+    expect(
+      settlementService.autoCheckoutExpiredCountdownSessions,
+    ).toHaveBeenCalledWith(user, 18);
     expect(prismaService.spaceReservation.findMany).toHaveBeenCalledWith({
       where: {
         storeId: 18,
@@ -111,7 +124,7 @@ describe('SpaceReservationsService', () => {
     expect(prismaService.spaceReservation.findMany).not.toHaveBeenCalled();
   });
 
-  it('listSpaceReservations 在未传 status 时默认只返回某空间的 pending 预约', async () => {
+  it('listSpaceReservations 在未传 status 时会先补偿自动结账，再默认只返回某空间的 pending 预约', async () => {
     prismaService.space.findUnique.mockResolvedValue({
       id: 11,
       storeId: 18,
@@ -126,6 +139,9 @@ describe('SpaceReservationsService', () => {
       'space:view',
       '无权查看该门店空间预约',
     );
+    expect(
+      settlementService.autoCheckoutExpiredCountdownSessions,
+    ).toHaveBeenCalledWith(user, 18);
     expect(prismaService.spaceReservation.findMany).toHaveBeenCalledWith({
       where: {
         spaceId: 11,

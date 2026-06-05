@@ -19,6 +19,7 @@ import {
   type SpaceReservationResponseDto,
   UpdateSpaceReservationDto,
 } from './dto/space-reservation.dto';
+import { SpaceSessionSettlementService } from './space-session-settlement.service';
 import type { SpaceReservationStatusValue } from './spaces.constants';
 
 const SPACE_CONTACT_PATTERN = /^[0-9+\-\s]{6,20}$/;
@@ -42,6 +43,7 @@ export class SpaceReservationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly settlementService: SpaceSessionSettlementService,
   ) {}
 
   async listSpaceReservations(
@@ -66,6 +68,11 @@ export class SpaceReservationsService {
       space.storeId,
       'space:view',
       '无权查看该门店空间预约',
+    );
+
+    await this.settlementService.autoCheckoutExpiredCountdownSessions(
+      user,
+      space.storeId,
     );
 
     if (
@@ -114,6 +121,11 @@ export class SpaceReservationsService {
     if (storeId === null) {
       return [];
     }
+
+    await this.settlementService.autoCheckoutExpiredCountdownSessions(
+      user,
+      storeId,
+    );
 
     if (
       query.dateFrom !== undefined &&

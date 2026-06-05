@@ -278,20 +278,26 @@ export function resolveShiftTypeFromDefinition(input: {
   endTime: string;
 }): EmployeeShiftType {
   const normalizedName = input.shiftName.trim();
-  const matchedByName = LEGACY_SHIFT_TYPE_RULES.find((rule) =>
-    rule.names.includes(normalizedName),
-  );
-  if (matchedByName) {
-    return matchedByName.type;
-  }
-
+  const normalizedStartTime = input.startTime.trim();
+  const normalizedEndTime = input.endTime.trim();
   const matchedByTime = LEGACY_SHIFT_TYPE_RULES.find(
     (rule) =>
-      rule.startTime === input.startTime.trim() &&
-      rule.endTime === input.endTime.trim(),
+      rule.startTime === normalizedStartTime &&
+      rule.endTime === normalizedEndTime,
   );
   if (matchedByTime) {
     return matchedByTime.type;
+  }
+
+  const matchedByName = LEGACY_SHIFT_TYPE_RULES.find((rule) =>
+    rule.names.includes(normalizedName),
+  );
+  if (
+    matchedByName &&
+    matchedByName.startTime === normalizedStartTime &&
+    matchedByName.endTime === normalizedEndTime
+  ) {
+    return matchedByName.type;
   }
 
   return EmployeeShiftType.custom;

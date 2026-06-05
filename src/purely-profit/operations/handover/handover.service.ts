@@ -1,22 +1,27 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { StaffRole, StoreSubAccountRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import type {
+  CreateHandoverAdditionalItemDto,
+  HandoverAdditionalItemDto,
+  HandoverAdditionalItemListResponseDto,
+  UpdateHandoverAdditionalItemDto,
+} from './dto/handover-additional-items.dto';
+import type {
+  ConfirmHandoverRequestDto,
+  HandoverPageQueryDto,
+  HandoverPageResponseDto,
+} from './dto/handover-page.dto';
 import type {
   CancelHandoverRecordDto,
   CompleteHandoverRecordDto,
-  ConfirmHandoverRequestDto,
-  CreateHandoverAdditionalItemDto,
   CreateHandoverRecordDto,
-  HandoverAdditionalItemDto,
-  HandoverAdditionalItemListResponseDto,
   HandoverCandidateDto,
-  HandoverPageQueryDto,
-  HandoverPageResponseDto,
   HandoverRecordListItemDto,
   HandoverRecordListResponseDto,
   HandoverRecordSummaryListResponseDto,
   HandoverRecordSummaryQueryDto,
-  UpdateHandoverAdditionalItemDto,
-} from './dto/handover.dto';
+} from './dto/handover-records.dto';
 
 import { HandoverAdditionalItemsService } from './handover-additional-items.service';
 import { HandoverConfirmService } from './handover-confirm.service';
@@ -61,7 +66,7 @@ export class HandoverService {
     user: AuthenticatedUser,
     dto: CreateHandoverAdditionalItemDto,
   ): Promise<HandoverAdditionalItemDto> {
-    await this.ensureUserCanOperateCurrentShift(user);
+    await this.ensureUserCanManageAdditionalItems(user);
     return this.handoverAdditionalItemsService.createAdditionalItem(user, dto);
   }
 
@@ -70,7 +75,7 @@ export class HandoverService {
     itemId: number,
     dto: UpdateHandoverAdditionalItemDto,
   ): Promise<HandoverAdditionalItemDto> {
-    await this.ensureUserCanOperateCurrentShift(user);
+    await this.ensureUserCanManageAdditionalItems(user);
     return this.handoverAdditionalItemsService.updateAdditionalItem(
       user,
       itemId,
@@ -82,7 +87,7 @@ export class HandoverService {
     user: AuthenticatedUser,
     itemId: number,
   ): Promise<void> {
-    await this.ensureUserCanOperateCurrentShift(user);
+    await this.ensureUserCanManageAdditionalItems(user);
     return this.handoverAdditionalItemsService.deleteAdditionalItem(
       user,
       itemId,
@@ -159,6 +164,21 @@ export class HandoverService {
     user: AuthenticatedUser,
   ): Promise<void> {
     await this.ensureUserCanOperateShift(user);
+  }
+
+  private async ensureUserCanManageAdditionalItems(
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const membership = ensureMembershipContext(user);
+    const isManager =
+      membership.role === StaffRole.MANAGER ||
+      membership.subAccountRole === StoreSubAccountRole.manager;
+
+    if (membership.subjectType === 'owner' || isManager) {
+      return;
+    }
+
+    await this.ensureUserCanOperateCurrentShift(user);
   }
 
   private async ensureUserCanOperateShift(

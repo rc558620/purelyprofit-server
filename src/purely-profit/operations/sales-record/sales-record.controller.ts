@@ -163,6 +163,7 @@ export class SalesOrdersCompatController {
   ): Promise<SalesRecordResponseDto> {
     return this.salesRecordService.create(request.user, dto, {
       skipAccessCheck: true,
+      assignToCurrentShiftOperator: true,
     });
   }
 

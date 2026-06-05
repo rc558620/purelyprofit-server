@@ -31,6 +31,7 @@ import type {
 } from './space-sessions.types';
 import { toSpaceResponse, type SpaceWithRelations } from './spaces.mapper';
 import { SPACE_WITH_RELATIONS_INCLUDE } from './spaces.query';
+import { SpaceSessionSettlementService } from './space-session-settlement.service';
 
 interface DashboardSpaceSummaryBundle {
   activeSessionSummaryBySpaceId: Map<
@@ -52,6 +53,7 @@ export class SpaceDashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly settlementService: SpaceSessionSettlementService,
   ) {}
 
   async getSpacesDashboard(
@@ -68,6 +70,11 @@ export class SpaceDashboardService {
     if (storeId === null) {
       return this.buildEmptyDashboard();
     }
+
+    await this.settlementService.autoCheckoutExpiredCountdownSessions(
+      user,
+      storeId,
+    );
 
     const [spaces, sessionStats, dashboardSummaries] = await Promise.all([
       this.findSpacesByStore(storeId),

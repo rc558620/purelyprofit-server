@@ -40,6 +40,9 @@ export interface CreateSalesRecordOptions {
   skipInventoryValidationAndDeduction?: boolean;
   /** 跳过 sales:create 权限校验，由调用方自行保证已完成上游权限检查（如空间结账） */
   skipAccessCheck?: boolean;
+/** 兼容 additional/space-management：主账号或店长下单时，优先归属到当前待交班班次员工 */
+assignToCurrentShiftOperator?: boolean;
+
 }
 
 @Injectable()

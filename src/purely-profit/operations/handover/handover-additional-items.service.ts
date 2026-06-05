@@ -4,15 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { HandoverStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
+import type { ConfirmHandoverRequestDto } from './dto/handover-page.dto';
 import type {
-  ConfirmHandoverRequestDto,
   CreateHandoverAdditionalItemDto,
   HandoverAdditionalItemDto,
   HandoverAdditionalItemListResponseDto,
   UpdateHandoverAdditionalItemDto,
-} from './dto/handover.dto';
+} from './dto/handover-additional-items.dto';
 import {
   AdditionalItemRow,
   HANDOVER_ADDITIONAL_ITEM_NAME_MAX_LENGTH,
@@ -34,8 +35,18 @@ export class HandoverAdditionalItemsService {
       where: { storeId },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
+    const latestValuesByItemId = await this.findLatestValuesByItemId(
+      storeId,
+      items.map((item) => item.id),
+    );
+
     return {
-      items: items.map((item) => mapAdditionalItem(item)),
+      items: items.map((item) =>
+        mapAdditionalItem({
+          ...item,
+          val: latestValuesByItemId.get(item.id) ?? '',
+        }),
+      ),
     };
   }
 
@@ -120,6 +131,44 @@ export class HandoverAdditionalItemsService {
     }
 
     return normalizedItems;
+  }
+
+  private async findLatestValuesByItemId(
+    storeId: number,
+    itemIds: number[],
+  ): Promise<Map<number, string>> {
+    if (itemIds.length === 0) {
+      return new Map<number, string>();
+    }
+
+    const rows = await this.prisma.storeHandoverAdditionalValue.findMany({
+      where: {
+        itemId: { in: itemIds },
+        item: { storeId },
+        record: {
+          status: HandoverStatus.completed,
+        },
+      },
+      select: {
+        itemId: true,
+        value: true,
+      },
+      orderBy: [
+        { record: { handoverAt: 'desc' } },
+        { record: { createdAt: 'desc' } },
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ],
+    });
+
+    const latestValuesByItemId = new Map<number, string>();
+    for (const row of rows) {
+      if (!latestValuesByItemId.has(row.itemId)) {
+        latestValuesByItemId.set(row.itemId, row.value);
+      }
+    }
+
+    return latestValuesByItemId;
   }
 
   private async ensureAdditionalItemNameAvailable(

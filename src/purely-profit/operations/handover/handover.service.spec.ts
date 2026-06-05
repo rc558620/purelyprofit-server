@@ -4,7 +4,11 @@ import { HandoverConfirmService } from './handover-confirm.service';
 import { HandoverPageService } from './handover-page.service';
 import { HandoverRecordsService } from './handover-records.service';
 import { HandoverService } from './handover.service';
-import { createOwnerUser, createSubAccountUser } from './hover.spec-helpers';
+import {
+  createManagerUser,
+  createOwnerUser,
+  createSubAccountUser,
+} from './hover.spec-helpers';
 
 describe('HandoverService', () => {
   let service: HandoverService;
@@ -37,6 +41,7 @@ describe('HandoverService', () => {
 
   const ownerUser = createOwnerUser();
   const subAccountUser = createSubAccountUser();
+  const managerUser = createManagerUser();
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -67,7 +72,12 @@ describe('HandoverService', () => {
       const query = { shiftType: 'morning' as const, operatorName: '员工A' };
       const mockResult = {
         selectedShiftType: 'morning',
-        shiftInfo: { operatorName: '员工A', shiftType: 'morning' },
+        shiftInfo: {
+          operatorName: '员工A',
+          shiftType: 'morning',
+          shiftName: '早班',
+          shiftLabel: '早班',
+        },
         receiverName: null,
         revenueSummary: {
           totalRevenue: 0,
@@ -135,6 +145,66 @@ describe('HandoverService', () => {
       ).toHaveBeenCalledWith(ownerUser, 1, dto);
     });
 
+    it('店长无本人班次时仍可新增交班附加项', async () => {
+      const dto = { name: '房卡' };
+      const mockResult = { id: 2, name: '房卡', createdAt: 1, updatedAt: 1 };
+      handoverPageService.getHandoverPage.mockResolvedValue({
+        canOperate: false,
+        operationBlockedReason: '当前时段没有该员工本人班次，暂不允许操作',
+        selectedShiftType: 'morning',
+      });
+      handoverAdditionalItemsService.createAdditionalItem.mockResolvedValue(
+        mockResult,
+      );
+
+      const result = await service.createAdditionalItem(managerUser, dto);
+
+      expect(result).toBe(mockResult);
+      expect(
+        handoverAdditionalItemsService.createAdditionalItem,
+      ).toHaveBeenCalledWith(managerUser, dto);
+      expect(handoverPageService.getHandoverPage).not.toHaveBeenCalled();
+    });
+
+    it('店长无本人班次时仍可修改交班附加项', async () => {
+      const dto = { name: '钥匙' };
+      const mockResult = { id: 1, name: '钥匙', createdAt: 1, updatedAt: 1 };
+      handoverPageService.getHandoverPage.mockResolvedValue({
+        canOperate: false,
+        operationBlockedReason: '当前时段没有该员工本人班次，暂不允许操作',
+        selectedShiftType: 'morning',
+      });
+      handoverAdditionalItemsService.updateAdditionalItem.mockResolvedValue(
+        mockResult,
+      );
+
+      const result = await service.updateAdditionalItem(managerUser, 1, dto);
+
+      expect(result).toBe(mockResult);
+      expect(
+        handoverAdditionalItemsService.updateAdditionalItem,
+      ).toHaveBeenCalledWith(managerUser, 1, dto);
+      expect(handoverPageService.getHandoverPage).not.toHaveBeenCalled();
+    });
+
+    it('店长无本人班次时仍可删除交班附加项', async () => {
+      handoverPageService.getHandoverPage.mockResolvedValue({
+        canOperate: false,
+        operationBlockedReason: '当前时段没有该员工本人班次，暂不允许操作',
+        selectedShiftType: 'morning',
+      });
+      handoverAdditionalItemsService.deleteAdditionalItem.mockResolvedValue(
+        undefined,
+      );
+
+      await service.deleteAdditionalItem(managerUser, 1);
+
+      expect(
+        handoverAdditionalItemsService.deleteAdditionalItem,
+      ).toHaveBeenCalledWith(managerUser, 1);
+      expect(handoverPageService.getHandoverPage).not.toHaveBeenCalled();
+    });
+
     it('deleteAdditionalItem 委托给 handoverAdditionalItemsService', async () => {
       handoverAdditionalItemsService.deleteAdditionalItem.mockResolvedValue(
         undefined,
@@ -152,7 +222,7 @@ describe('HandoverService', () => {
     it('confirmHandover 委托给 handoverConfirmService', async () => {
       const dto = {
         shiftType: 'morning' as const,
-        handedOverAt: Date.now(),
+        confirmedAt: Date.now(),
         note: '交班',
         additionalItems: [],
       };
@@ -184,7 +254,7 @@ describe('HandoverService', () => {
     it('收银员操作非本人班次时 confirmHandover 应抛出 ForbiddenException', async () => {
       const dto = {
         shiftType: 'late' as const,
-        handedOverAt: Date.now(),
+        confirmedAt: Date.now(),
         note: '交班',
         additionalItems: [],
       };
@@ -200,10 +270,47 @@ describe('HandoverService', () => {
       expect(handoverConfirmService.confirmHandover).not.toHaveBeenCalled();
     });
 
+    it('店长账号在页面可操作时 confirmHandover 应委托给 handoverConfirmService', async () => {
+      const dto = {
+        shiftType: 'morning' as const,
+        confirmedAt: Date.now(),
+        note: '交班',
+        additionalItems: [],
+      };
+      const mockResult = {
+        id: 2,
+        handoverMode: 'self_main_account',
+        status: 'completed',
+        fromEmployeeId: 20,
+        fromEmployeeName: '收银员1',
+        toEmployeeId: 30,
+        toEmployeeName: '经理',
+        note: '交班',
+        reason: null,
+        handoverAt: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      handoverPageService.getHandoverPage.mockResolvedValue({
+        canOperate: true,
+        operationBlockedReason: null,
+        selectedShiftType: 'morning',
+      });
+      handoverConfirmService.confirmHandover.mockResolvedValue(mockResult);
+
+      const result = await service.confirmHandover(managerUser, dto);
+
+      expect(result).toBe(mockResult);
+      expect(handoverConfirmService.confirmHandover).toHaveBeenCalledWith(
+        managerUser,
+        dto,
+      );
+    });
+
     it('收银员重复提交已完成班次时 confirmHandover 应抛出 ForbiddenException', async () => {
       const dto = {
         shiftType: 'morning' as const,
-        handedOverAt: Date.now(),
+        confirmedAt: Date.now(),
         note: '重复交班',
         additionalItems: [],
       };
@@ -222,7 +329,7 @@ describe('HandoverService', () => {
     it('非收银员重复提交已完成班次时也应抛出 ForbiddenException', async () => {
       const dto = {
         shiftType: 'morning' as const,
-        handedOverAt: Date.now(),
+        confirmedAt: Date.now(),
         note: '重复交班',
         additionalItems: [],
       };

@@ -273,6 +273,53 @@ describe('EmployeesShiftService', () => {
         }),
       });
     });
+
+    it('沿用早班名称但修改时间后应视为 custom 类型', async () => {
+      employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+        id: 5,
+        storeId: 2,
+        name: '张三',
+      });
+      employeesShiftDefinitionService.findShiftDefinitionForStoreOrThrow.mockResolvedValue(
+        {
+          id: 4,
+          name: '早班',
+          defaultStartTime: '16:01',
+          defaultEndTime: '17:03',
+        },
+      );
+      prismaService.employeeShift.findMany.mockResolvedValue([]);
+      prismaService.employeeShift.create.mockResolvedValue({
+        id: 12,
+        storeId: 2,
+        employeeId: 5,
+        employeeName: '张三',
+        shiftType: 'custom',
+        shiftDefinitionId: 4,
+        shiftName: '早班',
+        date: new Date('2026-06-05'),
+        startTime: '16:01',
+        endTime: '17:03',
+        note: null,
+        createdAt,
+        updatedAt,
+      });
+
+      await service.createShift(user, {
+        employeeId: 5,
+        date: new Date('2026-06-05').getTime(),
+        shiftDefinitionId: 4,
+      });
+
+      expect(prismaService.employeeShift.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          shiftType: 'custom',
+          shiftName: '早班',
+          startTime: '16:01',
+          endTime: '17:03',
+        }),
+      });
+    });
   });
 
   describe('listShifts', () => {
@@ -359,7 +406,7 @@ describe('EmployeesShiftService', () => {
       expect(prismaService.employeeShift.update).toHaveBeenCalledWith({
         where: { id: 10 },
         data: expect.objectContaining({
-          shiftType: 'late',
+          shiftType: 'custom',
           shiftDefinitionId: 2,
         }),
       });

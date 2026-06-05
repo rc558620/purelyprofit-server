@@ -99,7 +99,7 @@ describe('AccessControlService', () => {
     expect(permissions).not.toContain('store:update');
   });
 
-  it('finance 子账号应拥有财务与成本管理操作权限，但不含进货权限', () => {
+  it('finance 子账号应拥有财务与进货管理操作权限', () => {
     const permissions = service.getEffectivePermissions(
       buildSubAccountMembership(StoreSubAccountRole.finance),
     );
@@ -110,14 +110,24 @@ describe('AccessControlService', () => {
       'report:view',
       'goods:view',
       'inventory:view',
+      'inventory:update',
+      'supplier:view',
+      'supplier:create',
+      'supplier:update',
+      'purchase:view',
+      'purchase:create',
       'cost:view',
       'cost:create',
       'cost:delete',
       'sales:view',
       'staff:view',
     ]);
-    expect(permissions).not.toContain('supplier:view');
-    expect(permissions).not.toContain('purchase:view');
+    expect(permissions).toContain('inventory:update');
+    expect(permissions).toContain('supplier:view');
+    expect(permissions).toContain('supplier:create');
+    expect(permissions).toContain('supplier:update');
+    expect(permissions).toContain('purchase:view');
+    expect(permissions).toContain('purchase:create');
     expect(permissions).not.toContain('space:view');
     expect(permissions).not.toContain('handover:view');
     expect(permissions).not.toContain('operation-entry:view');

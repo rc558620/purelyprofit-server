@@ -8,12 +8,14 @@ import {
   buildListSpacesWhere,
   SPACE_WITH_RELATIONS_INCLUDE,
 } from './spaces.query';
+import { SpaceSessionSettlementService } from './space-session-settlement.service';
 
 @Injectable()
 export class SpacesReadService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly settlementService: SpaceSessionSettlementService,
   ) {}
 
   async listSpaces(
@@ -30,6 +32,11 @@ export class SpacesReadService {
     if (storeId === null) {
       return [];
     }
+
+    await this.settlementService.autoCheckoutExpiredCountdownSessions(
+      user,
+      storeId,
+    );
 
     const spaces = await this.prisma.space.findMany({
       where: buildListSpacesWhere(storeId, query),

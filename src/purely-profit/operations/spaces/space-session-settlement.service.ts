@@ -1,6 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   Prisma,
+  SpaceBillingMode as PrismaSpaceBillingMode,
   SpaceReservationStatus as PrismaSpaceReservationStatus,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
   SpaceStatus as PrismaSpaceStatus,
@@ -14,9 +19,12 @@ import type {
 import { SalesRecordService } from '../sales-record/sales-record.service';
 import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types';
 import {
+  parseSpaceSessionItems,
+  parseSpaceSessionRenewRecords,
   toSpaceSessionItemsJson,
   toSpaceSessionRenewRecordsJson,
 } from './space-sessions.mapper';
+import { buildSpaceSessionSettlement } from './space-session-settlement.shared';
 import type {
   SpaceSessionItemRecord,
   SpaceSessionRecord,
@@ -52,6 +60,19 @@ export class SpaceSessionSettlementService {
     user: AuthenticatedUser,
     params: SettleSpaceSessionParams,
   ): Promise<SettleSpaceSessionResult> {
+    const latestSession = await this.prisma.spaceSession.findUnique({
+      where: { id: params.session.id },
+      select: { status: true },
+    });
+
+    if (!latestSession) {
+      throw new NotFoundException('空间会话不存在');
+    }
+
+    if (latestSession.status !== PrismaSpaceSessionStatus.active) {
+      throw new ConflictException('当前会话已结账，无法重复操作');
+    }
+
     const createdOrder = await this.createSessionSaleOrder(user, {
       storeId: params.session.storeId,
       checkoutAt: params.checkoutAt,
@@ -122,6 +143,83 @@ export class SpaceSessionSettlementService {
     };
   }
 
+  async autoCheckoutExpiredCountdownSessions(
+    user: AuthenticatedUser,
+    storeId: number,
+    now = Date.now(),
+  ): Promise<number> {
+    const sessions = await this.prisma.spaceSession.findMany({
+      where: {
+        storeId,
+        status: PrismaSpaceSessionStatus.active,
+        endTime: null,
+        billingMode: PrismaSpaceBillingMode.countdown,
+        autoCheckout: true,
+        countdownMinutes: {
+          not: null,
+        },
+      },
+      include: {
+        space: {
+          select: {
+            id: true,
+            name: true,
+            enableDirtyRoom: true,
+            type: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ startTime: 'asc' }, { id: 'asc' }],
+    });
+
+    let settledCount = 0;
+    for (const session of sessions) {
+      if (!session.prepaidPaymentMethod) {
+        continue;
+      }
+
+      const renewRecords = parseSpaceSessionRenewRecords(session.renewRecords);
+      const checkoutAt = this.resolveAutoCheckoutAt(session, renewRecords);
+      if (checkoutAt === null || checkoutAt > now) {
+        continue;
+      }
+
+      const settlement = buildSpaceSessionSettlement({
+        session,
+        checkoutAt,
+        payload: {},
+        items: parseSpaceSessionItems(session.items),
+        renewRecords,
+      });
+
+      try {
+        await this.settleSession(user, {
+          session,
+          checkoutAt,
+          paymentMethod: session.prepaidPaymentMethod,
+          note: '倒计时到期自动结账',
+          settlement,
+          renewRecords,
+        });
+        settledCount += 1;
+      } catch (error) {
+        if (
+          error instanceof ConflictException ||
+          error instanceof NotFoundException
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    return settledCount;
+  }
+
   private async createSessionSaleOrder(
     user: AuthenticatedUser,
     params: {
@@ -159,7 +257,25 @@ export class SpaceSessionSettlementService {
       skipInventoryValidationAndDeduction: true,
       // 结账权限已在 checkout service 层以 operation-entry:create 完成验证，无需再检查 sales:create。
       skipAccessCheck: true,
+      // 主账号/店长代客结账时，应优先归属到当前待交班班次员工，避免逾期未交班后账目落到下一班。
+      assignToCurrentShiftOperator: true,
     });
+  }
+
+  private resolveAutoCheckoutAt(
+    session: Pick<SpaceSessionSettlementRecord, 'startTime' | 'countdownMinutes'>,
+    renewRecords: SpaceSessionRenewRecord[],
+  ): number | null {
+    if (session.countdownMinutes === null || session.countdownMinutes <= 0) {
+      return null;
+    }
+
+    const totalMinutes = renewRecords.reduce(
+      (sum, record) => sum + record.addedMinutes,
+      session.countdownMinutes,
+    );
+
+    return session.startTime.getTime() + totalMinutes * 60 * 1000;
   }
 
   private async cancelMatchedReservationAfterCheckout(

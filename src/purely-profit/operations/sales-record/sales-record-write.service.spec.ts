@@ -5,6 +5,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { InventoryService } from '../../goods/inventory/inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { HandoverPageShiftRecordService } from '../handover/handover-page-shift-record.service';
 import { SalesRecordCreateFlowService } from './sales-record-create-flow.service';
 import { SalesRecordItemPreparationService } from './sales-record-item-preparation.service';
 import { SalesRecordWriteService } from './sales-record-write.service';
@@ -25,7 +26,17 @@ describe('SalesRecordWriteService', () => {
     saleOrder: {
       findUnique: jest.fn(),
     },
+    employee: {
+      findUnique: jest.fn(),
+    },
+    employeeShift: {
+      findMany: jest.fn(),
+    },
     $transaction: jest.fn(),
+  };
+
+  const handoverPageShiftRecordService = {
+    findStartedUnhandedShiftRecord: jest.fn(),
   };
 
   const commerceAccessService = {
@@ -74,8 +85,35 @@ describe('SalesRecordWriteService', () => {
     },
   };
 
+  const managerUser: AuthenticatedUser = {
+    ...user,
+    id: 2,
+    email: 'manager@example.com',
+    name: '店长',
+    currentMembership: {
+      staffId: 18,
+      storeId: 18,
+      role: 'STAFF',
+      permissions: ['operation-entry:create', 'sales:create'],
+      isActive: true,
+      subjectType: 'sub_account',
+      linkedEmployeeId: 6,
+      subAccountId: 9,
+      subAccountRole: 'manager',
+      subAccountStatus: 'active',
+      subAccountAssigned: true,
+      canAccessHome: true,
+      canUseHandover: true,
+    },
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
+    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
+      null,
+    );
+    prismaService.employee.findUnique.mockResolvedValue(null);
+    prismaService.employeeShift.findMany.mockResolvedValue([]);
     prismaService.$transaction.mockImplementation(
       async (
         callback: (client: typeof transactionClient) => Promise<unknown>,
@@ -92,6 +130,10 @@ describe('SalesRecordWriteService', () => {
         },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         { provide: InventoryService, useValue: inventoryService },
+        {
+          provide: HandoverPageShiftRecordService,
+          useValue: handoverPageShiftRecordService,
+        },
         {
           provide: SalesRecordItemPreparationService,
           useValue: salesRecordItemPreparationService,
@@ -243,6 +285,217 @@ describe('SalesRecordWriteService', () => {
       'operation-entry:create',
       '无权操作该门店销售记录',
     );
+  });
+
+  it('create 在 additional 入口下主账号应归属到待交班班次员工', async () => {
+    jest.useFakeTimers().setSystemTime(new Date(2026, 5, 4, 10, 30, 0));
+    const preparedItems = [
+      {
+        productId: 201,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: 15.5,
+        profit: 4,
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ];
+
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue({
+      employeeId: 6,
+      employeeName: '早班员工',
+      shiftType: 'morning',
+      date: new Date('2026-06-04T00:00:00.000Z'),
+      startTime: '09:00',
+      endTime: '18:00',
+    });
+    prismaService.employee.findUnique.mockResolvedValue({
+      linkedStaffId: 21,
+    });
+    salesRecordItemPreparationService.prepareItems.mockResolvedValue(
+      preparedItems,
+    );
+    salesRecordCreateFlowService.createRecord.mockResolvedValue({
+      id: '13',
+      orderNo: '#20260604-001',
+    });
+
+    await service.create(
+      user,
+      {
+        storeId: 18,
+        items: [
+          {
+            productId: '201',
+            productName: '前端旧名称',
+            categoryName: '前端旧分类',
+            salePrice: 15.5,
+            profit: 4,
+            quantity: 1,
+          },
+        ],
+        totalRevenue: 15.5,
+        totalProfit: 4,
+        totalQuantity: 1,
+        paymentMethod: 'cash',
+        calcMode: 'business',
+      },
+      {
+        skipAccessCheck: true,
+        assignToCurrentShiftOperator: true,
+      },
+    );
+
+    expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operatorStaffId: 21,
+      }),
+    );
+
+    jest.useRealTimers();
+  });
+
+  it('create 在 additional 入口下店长子账号也应归属到待交班班次员工', async () => {
+    jest.useFakeTimers().setSystemTime(new Date(2026, 5, 4, 10, 30, 0));
+    const preparedItems = [
+      {
+        productId: 201,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: 15.5,
+        profit: 4,
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ];
+
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(18);
+    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue({
+      employeeId: 6,
+      employeeName: '早班员工',
+      shiftType: 'morning',
+      date: new Date('2026-06-04T00:00:00.000Z'),
+      startTime: '09:00',
+      endTime: '18:00',
+    });
+    prismaService.employee.findUnique.mockResolvedValue({
+      linkedStaffId: 21,
+    });
+    salesRecordItemPreparationService.prepareItems.mockResolvedValue(
+      preparedItems,
+    );
+    salesRecordCreateFlowService.createRecord.mockResolvedValue({
+      id: '14',
+      orderNo: '#20260604-002',
+    });
+
+    await service.create(
+      managerUser,
+      {
+        storeId: 18,
+        items: [
+          {
+            productId: '201',
+            productName: '前端旧名称',
+            categoryName: '前端旧分类',
+            salePrice: 15.5,
+            profit: 4,
+            quantity: 1,
+          },
+        ],
+        totalRevenue: 15.5,
+        totalProfit: 4,
+        totalQuantity: 1,
+        paymentMethod: 'cash',
+        calcMode: 'business',
+      },
+      {
+        skipAccessCheck: true,
+        assignToCurrentShiftOperator: true,
+      },
+    );
+
+    expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operatorStaffId: 21,
+      }),
+    );
+
+    jest.useRealTimers();
+  });
+
+  it('create 在逾期未交班且当天无下一班时仍应归属到当前交班班次员工', async () => {
+    jest.useFakeTimers().setSystemTime(new Date(2026, 5, 4, 20, 30, 0));
+    const preparedItems = [
+      {
+        productId: 201,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: 15.5,
+        profit: 4,
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ];
+
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue({
+      employeeId: 6,
+      employeeName: '早班员工',
+      shiftType: 'morning',
+      date: new Date('2026-06-04T00:00:00.000Z'),
+      startTime: '09:00',
+      endTime: '18:00',
+    });
+    prismaService.employee.findUnique.mockResolvedValue({
+      linkedStaffId: 21,
+    });
+    salesRecordItemPreparationService.prepareItems.mockResolvedValue(
+      preparedItems,
+    );
+    salesRecordCreateFlowService.createRecord.mockResolvedValue({
+      id: '15',
+      orderNo: '#20260604-003',
+    });
+
+    await service.create(
+      user,
+      {
+        storeId: 18,
+        items: [
+          {
+            productId: '201',
+            productName: '前端旧名称',
+            categoryName: '前端旧分类',
+            salePrice: 15.5,
+            profit: 4,
+            quantity: 1,
+          },
+        ],
+        totalRevenue: 15.5,
+        totalProfit: 4,
+        totalQuantity: 1,
+        paymentMethod: 'cash',
+        calcMode: 'business',
+      },
+      {
+        skipAccessCheck: true,
+        assignToCurrentShiftOperator: true,
+      },
+    );
+
+    expect(prismaService.employeeShift.findMany).not.toHaveBeenCalled();
+    expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operatorStaffId: 21,
+      }),
+    );
+
+    jest.useRealTimers();
   });
 
   it('create 在汇总金额与后端明细不一致时抛出异常并阻止创建流程', async () => {

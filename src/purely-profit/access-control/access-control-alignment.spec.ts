@@ -1,7 +1,14 @@
 import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
-import { StaffRole, StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
+import {
+  StaffRole,
+  StoreSubAccountRole,
+  StoreSubAccountStatus,
+} from '@prisma/client';
 import { REQUIRE_PERMISSIONS_KEY } from './decorators/require-permissions.decorator';
-import { AccessControlService, type AuthenticatedMembership } from './access-control.service';
+import {
+  AccessControlService,
+  type AuthenticatedMembership,
+} from './access-control.service';
 import { SubjectCapabilityService } from './subject-capability.service';
 import { PermissionsGuard } from './guards/permissions.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -25,7 +32,9 @@ import { StoresController } from '../stores/stores.controller';
 import { SubAccountBlockGuard } from './guards/sub-account-block.guard';
 
 const accessControlService = new AccessControlService();
-const subjectCapabilityService = new SubjectCapabilityService(accessControlService);
+const subjectCapabilityService = new SubjectCapabilityService(
+  accessControlService,
+);
 
 const buildSubAccountMembership = (
   role: StoreSubAccountRole,
@@ -50,7 +59,8 @@ const buildSubAccountMembership = (
 describe('Sub-account alignment regression', () => {
   it('cashier 的首页模块与关键接口权限保持一致', () => {
     const membership = buildSubAccountMembership(StoreSubAccountRole.cashier);
-    const permissions = accessControlService.getEffectivePermissions(membership);
+    const permissions =
+      accessControlService.getEffectivePermissions(membership);
     const capability = subjectCapabilityService.buildSnapshot(membership, 3);
 
     expect(capability.allowedHomeModules).toEqual([
@@ -79,7 +89,8 @@ describe('Sub-account alignment regression', () => {
 
   it('manager 的首页模块与关键接口权限保持一致', () => {
     const membership = buildSubAccountMembership(StoreSubAccountRole.manager);
-    const permissions = accessControlService.getEffectivePermissions(membership);
+    const permissions =
+      accessControlService.getEffectivePermissions(membership);
     const capability = subjectCapabilityService.buildSnapshot(membership, 3);
 
     expect(capability.allowedHomeModules).toEqual([
@@ -108,25 +119,31 @@ describe('Sub-account alignment regression', () => {
 
   it('finance 的首页模块与关键接口权限保持一致', () => {
     const membership = buildSubAccountMembership(StoreSubAccountRole.finance);
-    const permissions = accessControlService.getEffectivePermissions(membership);
+    const permissions =
+      accessControlService.getEffectivePermissions(membership);
     const capability = subjectCapabilityService.buildSnapshot(membership, 3);
 
     expect(capability.allowedHomeModules).toEqual([
       'business-analysis',
       'finance-center',
+      'goods-management',
       'staff-management',
     ]);
-    expect(capability.allowedHomeModules).not.toContain('goods-management');
-    expect(capability.canUseGoodsManagement).toBe(false);
+    expect(capability.allowedHomeModules).toContain('goods-management');
+    expect(capability.canUseGoodsManagement).toBe(true);
     expect(permissions).toContain('report:view');
     expect(permissions).toContain('finance:view');
     expect(permissions).toContain('goods:view');
     expect(permissions).toContain('inventory:view');
+    expect(permissions).toContain('inventory:update');
     expect(permissions).toContain('cost:view');
     expect(permissions).toContain('cost:create');
     expect(permissions).toContain('cost:delete');
-    expect(permissions).not.toContain('supplier:view');
-    expect(permissions).not.toContain('purchase:view');
+    expect(permissions).toContain('supplier:view');
+    expect(permissions).toContain('supplier:create');
+    expect(permissions).toContain('supplier:update');
+    expect(permissions).toContain('purchase:view');
+    expect(permissions).toContain('purchase:create');
     expect(permissions).toContain('sales:view');
     expect(permissions).toContain('staff:view');
     expect(permissions).not.toContain('marketing:view');
@@ -141,15 +158,20 @@ describe('Sub-account alignment regression', () => {
       canAccessHome: false,
     });
 
-    expect(accessControlService.getEffectivePermissions(membership)).toEqual([]);
-    expect(subjectCapabilityService.buildSnapshot(membership, 3).allowedHomeModules).toEqual([]);
+    expect(accessControlService.getEffectivePermissions(membership)).toEqual(
+      [],
+    );
+    expect(
+      subjectCapabilityService.buildSnapshot(membership, 3).allowedHomeModules,
+    ).toEqual([]);
   });
 
   it('canUseHandover=false 时 capability 与接口权限都应移除交班能力', () => {
     const membership = buildSubAccountMembership(StoreSubAccountRole.manager, {
       canUseHandover: false,
     });
-    const permissions = accessControlService.getEffectivePermissions(membership);
+    const permissions =
+      accessControlService.getEffectivePermissions(membership);
     const capability = subjectCapabilityService.buildSnapshot(membership, 3);
 
     expect(permissions).not.toContain('handover:view');
@@ -163,7 +185,8 @@ describe('Sub-account alignment regression', () => {
     const membership = buildSubAccountMembership(StoreSubAccountRole.cashier, {
       canUseHandover: false,
     });
-    const permissions = accessControlService.getEffectivePermissions(membership);
+    const permissions =
+      accessControlService.getEffectivePermissions(membership);
 
     expect(permissions).toContain('goods:view');
     expect(permissions).not.toContain('handover:view');
@@ -184,9 +207,9 @@ describe('Permission metadata regression', () => {
     expect(Reflect.getMetadata(PATH_METADATA, SalesRecordController)).toBe(
       'sales-record',
     );
-    expect(Reflect.getMetadata(PATH_METADATA, SalesOrdersCompatController)).toEqual(
-      ['sales/orders', 'sales-orders'],
-    );
+    expect(
+      Reflect.getMetadata(PATH_METADATA, SalesOrdersCompatController),
+    ).toEqual(['sales/orders', 'sales-orders']);
     expect(
       Reflect.getMetadata(
         REQUIRE_PERMISSIONS_KEY,

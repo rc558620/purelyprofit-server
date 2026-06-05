@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
+import {
+  SpaceSessionStatus as PrismaSpaceSessionStatus,
+  SpaceReservationStatus as PrismaSpaceReservationStatus,
+  SpaceStatus as PrismaSpaceStatus,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { buildPaginationMeta } from '../../commerce/commerce.utils';
@@ -19,6 +23,7 @@ import {
   type SpaceSessionResponseDto,
 } from './dto/space-session.dto';
 import { toSpaceSessionResponse } from './space-sessions.mapper';
+import { SpaceSessionSettlementService } from './space-session-settlement.service';
 import type {
   SpaceSessionListQuery,
   SpaceSessionRecord,
@@ -30,6 +35,7 @@ export class SpaceSessionReadService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly configService: ConfigService,
+    private readonly settlementService: SpaceSessionSettlementService,
   ) {}
 
   async listStoreSpaceSessions(
@@ -47,12 +53,22 @@ export class SpaceSessionReadService {
       return [];
     }
 
+    await this.settlementService.autoCheckoutExpiredCountdownSessions(
+      user,
+      storeId,
+    );
+
     const query = toSpaceSessionListQuery(queryDto);
     const normalizedQuery: SpaceSessionListQuery = {
       ...query,
       status: query.status ?? PrismaSpaceSessionStatus.active,
       includeActive: true,
     };
+
+    // 在默认查询 active 会话时，同步修复 occupied 空间的不一致状态
+    if (normalizedQuery.status === PrismaSpaceSessionStatus.active) {
+      await this.syncOccupiedSpaceStates(storeId);
+    }
 
     return this.listStoreSpaceSessionsByQuery(storeId, normalizedQuery);
   }
@@ -71,6 +87,11 @@ export class SpaceSessionReadService {
     if (storeId === null) {
       return [];
     }
+
+    await this.settlementService.autoCheckoutExpiredCountdownSessions(
+      user,
+      storeId,
+    );
 
     const query = toSpaceSessionListQuery(queryDto);
     const normalizedQuery: SpaceSessionListQuery = {
@@ -103,6 +124,11 @@ export class SpaceSessionReadService {
       space.storeId,
       'space:view',
       '无权查看该门店空间会话',
+    );
+
+    await this.settlementService.autoCheckoutExpiredCountdownSessions(
+      user,
+      space.storeId,
     );
 
     const session = await this.prisma.spaceSession.findFirst({
@@ -153,6 +179,11 @@ export class SpaceSessionReadService {
       '无权查看该门店空间会话',
     );
 
+    await this.settlementService.autoCheckoutExpiredCountdownSessions(
+      user,
+      space.storeId,
+    );
+
     const query = toSpaceSessionListQuery(queryDto);
     const { page, skip, take } = resolveSpaceSessionPageQuery(
       this.configService,
@@ -196,7 +227,7 @@ export class SpaceSessionReadService {
     user: AuthenticatedUser,
     sessionId: number,
   ): Promise<SpaceSessionResponseDto> {
-    const session = await this.prisma.spaceSession.findUnique({
+    let session = await this.prisma.spaceSession.findUnique({
       where: { id: sessionId },
       include: {
         space: {
@@ -223,6 +254,34 @@ export class SpaceSessionReadService {
       'space:view',
       '无权查看该门店空间会话',
     );
+
+    if (session.status === PrismaSpaceSessionStatus.active) {
+      await this.settlementService.autoCheckoutExpiredCountdownSessions(
+        user,
+        session.storeId,
+      );
+
+      session = await this.prisma.spaceSession.findUnique({
+        where: { id: sessionId },
+        include: {
+          space: {
+            select: {
+              id: true,
+              name: true,
+              type: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!session) {
+        throw new NotFoundException('空间会话不存在');
+      }
+    }
 
     return toSpaceSessionResponse(session);
   }
@@ -252,5 +311,83 @@ export class SpaceSessionReadService {
     });
 
     return sessions.map((session) => toSpaceSessionResponse(session));
+  }
+
+  private async syncOccupiedSpaceStates(storeId: number): Promise<void> {
+    // 查找所有 occupied 状态的空间
+    const occupiedSpaces = await this.prisma.space.findMany({
+      where: {
+        storeId,
+        status: PrismaSpaceStatus.occupied,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (occupiedSpaces.length === 0) {
+      return;
+    }
+
+    // 对于每个 occupied 空间，检查是否存在 active session
+    // 如果不存在，则自动修复状态
+    for (const space of occupiedSpaces) {
+      const activeSession = await this.prisma.spaceSession.findFirst({
+        where: {
+          spaceId: space.id,
+          status: PrismaSpaceSessionStatus.active,
+        },
+        select: { id: true },
+      });
+
+      if (!activeSession) {
+        // 空间状态不一致，需要修复
+        await this.fixInconsistentOccupiedSpace(space.id);
+      }
+    }
+  }
+
+  private async fixInconsistentOccupiedSpace(spaceId: number): Promise<void> {
+    const todayRange = this.getTodayRange();
+
+    await this.prisma.$transaction(async (transaction) => {
+      // 检查是否有 pending 预约；如有则改为 reserved，否则改为 idle
+      const hasTodayPendingReservation =
+        await transaction.spaceReservation.findFirst({
+          where: {
+            spaceId,
+            status: PrismaSpaceReservationStatus.pending,
+            reservedAt: {
+              gte: todayRange.start,
+              lte: todayRange.end,
+            },
+          },
+          select: { id: true },
+        });
+
+      const nextStatus = hasTodayPendingReservation
+        ? PrismaSpaceStatus.reserved
+        : PrismaSpaceStatus.idle;
+
+      await transaction.space.update({
+        where: { id: spaceId },
+        data: { status: nextStatus },
+      });
+    });
+  }
+
+  private getTodayRange(): { start: Date; end: Date } {
+    const now = new Date();
+    const start = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      0,
+      0,
+      0,
+      0,
+    );
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+    return { start, end };
   }
 }

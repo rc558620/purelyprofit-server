@@ -1,8 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  StoreSubAccountRole,
-  StoreSubAccountStatus,
-} from '@prisma/client';
+import { StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
 import type {
   AuthenticatedMembership,
   IdentityType,
@@ -59,6 +56,7 @@ const MANAGER_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
 const FINANCE_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
   'business-analysis',
   'finance-center',
+  'goods-management',
   'staff-management',
 ]);
 

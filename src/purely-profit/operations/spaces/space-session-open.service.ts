@@ -22,6 +22,21 @@ import { normalizeOpenSessionPayload } from './space-session-payload.shared';
 import { ensureOpenSessionPayload } from './space-session-open-validation.shared';
 import type { SpaceBillingModeValue } from './spaces.constants';
 
+const getTodayRange = (): { start: Date; end: Date } => {
+  const now = new Date();
+  const start = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    0,
+    0,
+    0,
+    0,
+  );
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+  return { start, end };
+};
+
 @Injectable()
 export class SpaceSessionOpenService {
   constructor(
@@ -57,7 +72,25 @@ export class SpaceSessionOpenService {
     );
 
     if (space.status === PrismaSpaceStatus.occupied) {
-      throw new ConflictException('空间当前使用中，无法重复开台');
+      // 检查是否存在真正的 active session；如无，则说明空间状态不一致（可能因为交班/排班删除等）
+      // 这种情况下应该允许继续开台，但先自动修复空间状态
+      const occupiedSession = await this.prisma.spaceSession.findFirst({
+        where: {
+          spaceId: space.id,
+          status: PrismaSpaceSessionStatus.active,
+        },
+        select: { id: true },
+      });
+
+      if (!occupiedSession) {
+        // 空间状态异常：标记为 occupied 但不存在 active session
+        // 自动修复为正确状态后，继续处理开台逻辑
+        await this.syncOccupiedSpaceStatus(space.id);
+        // 继续执行后续开台逻辑，不抛异常
+      } else {
+        // 空间确实在使用中，拒绝重复开台
+        throw new ConflictException('空间当前使用中，无法重复开台');
+      }
     }
 
     if (space.status === PrismaSpaceStatus.cleaning) {
@@ -206,6 +239,35 @@ export class SpaceSessionOpenService {
     if (reservation.status !== PrismaSpaceReservationStatus.pending) {
       throw new ConflictException('当前预约已处理，无法再次履约开台');
     }
+  }
+
+  private async syncOccupiedSpaceStatus(spaceId: number): Promise<void> {
+    const todayRange = getTodayRange();
+
+    await this.prisma.$transaction(async (transaction) => {
+      // 检查是否有 pending 预约；如有则改为 reserved，否则改为 idle
+      const hasTodayPendingReservation =
+        await transaction.spaceReservation.findFirst({
+          where: {
+            spaceId,
+            status: PrismaSpaceReservationStatus.pending,
+            reservedAt: {
+              gte: todayRange.start,
+              lte: todayRange.end,
+            },
+          },
+          select: { id: true },
+        });
+
+      const nextStatus = hasTodayPendingReservation
+        ? PrismaSpaceStatus.reserved
+        : PrismaSpaceStatus.idle;
+
+      await transaction.space.update({
+        where: { id: spaceId },
+        data: { status: nextStatus },
+      });
+    });
   }
 
   private toPrismaSpaceBillingMode(

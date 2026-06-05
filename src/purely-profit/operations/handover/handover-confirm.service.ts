@@ -1,34 +1,27 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-} from '@nestjs/common';
-import { HandoverMode, HandoverStatus } from '@prisma/client';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { HandoverMode, HandoverStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import type {
-  ConfirmHandoverRequestDto,
-  HandoverRecordListItemDto,
-} from './dto/handover.dto';
+import type { ConfirmHandoverRequestDto } from './dto/handover-page.dto';
+import type { HandoverRecordListItemDto } from './dto/handover-records.dto';
 import { HandoverAdditionalItemsService } from './handover-additional-items.service';
+import { HandoverConfirmShiftService } from './handover-confirm-shift.service';
 import {
   HANDOVER_NOTE_MAX_LENGTH,
   HANDOVER_RECORD_INCLUDE,
-  SHIFT_TIME_FALLBACKS,
-  buildShiftDateRange,
-  type ReceiverCandidate,
   ensureMembershipContext,
   mapRecordToDto,
   normalizeOptionalText,
+  toDisplayName,
+  type HandoverRecordRow,
 } from './handover.shared';
 
 @Injectable()
 export class HandoverConfirmService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storeSubAccountService: StoreSubAccountService,
     private readonly handoverAdditionalItemsService: HandoverAdditionalItemsService,
+    private readonly handoverConfirmShiftService: HandoverConfirmShiftService,
   ) {}
 
   async confirmHandover(
@@ -37,20 +30,34 @@ export class HandoverConfirmService {
   ): Promise<HandoverRecordListItemDto> {
     const membership = ensureMembershipContext(user);
     const note = normalizeOptionalText(dto.note, HANDOVER_NOTE_MAX_LENGTH);
-    const handoverAt = new Date(dto.handedOverAt);
+    const handoverAt = new Date(dto.confirmedAt);
     if (Number.isNaN(handoverAt.getTime())) {
       throw new BadRequestException('交班时间不正确');
     }
 
+    const sourceShiftRecord =
+      await this.handoverConfirmShiftService.findSourceShiftRecord(
+        membership.storeId,
+        membership.linkedEmployeeId,
+        {
+          shiftType: dto.shiftType,
+          handoverAt,
+          shiftReferenceAt: dto.shiftReferenceAt,
+          operatorName: dto.operatorName,
+        },
+      );
+    const sourceEmployeeId =
+      sourceShiftRecord?.employeeId ?? membership.linkedEmployeeId;
     const handoverMode =
       membership.subjectType === 'sub_account'
         ? HandoverMode.sub_account
         : HandoverMode.self_main_account;
     const receiverCandidate =
       handoverMode === HandoverMode.sub_account
-        ? await this.findReceiverCandidate(
+        ? await this.handoverConfirmShiftService.resolveReceiverCandidate(
             membership.storeId,
-            membership.linkedEmployeeId,
+            sourceShiftRecord,
+            handoverAt,
           )
         : null;
     const validAdditionalItems =
@@ -59,16 +66,31 @@ export class HandoverConfirmService {
         dto.additionalItems,
       );
 
-    await this.ensureShiftNotHandedOver(membership.storeId, membership.linkedEmployeeId, dto);
+    await this.handoverConfirmShiftService.ensureShiftNotHandedOver(
+      membership.storeId,
+      sourceShiftRecord,
+      handoverAt,
+    );
 
-    const record = await this.prisma.storeHandoverRecord.create({
+    const record = (await this.prisma.storeHandoverRecord.create({
       data: {
         storeId: membership.storeId,
-        fromEmployeeId: membership.linkedEmployeeId,
+        fromEmployeeId: sourceEmployeeId,
         toEmployeeId: receiverCandidate?.employeeId ?? null,
-        fromSubAccountId: membership.subAccountId,
+        fromSubAccountId:
+          sourceEmployeeId !== null &&
+          sourceEmployeeId === membership.linkedEmployeeId
+            ? membership.subAccountId
+            : null,
         toSubAccountId: receiverCandidate?.subAccountId ?? null,
         actorStaffId: membership.staffId,
+        employeeShiftIdSnapshot: sourceShiftRecord?.id ?? null,
+        fromEmployeeNameSnapshot:
+          toDisplayName(sourceShiftRecord?.employeeName) ?? null,
+        shiftTypeSnapshot: sourceShiftRecord?.shiftType ?? null,
+        shiftNameSnapshot: toDisplayName(sourceShiftRecord?.shiftName) ?? null,
+        shiftStartTimeSnapshot: sourceShiftRecord?.startTime ?? null,
+        shiftEndTimeSnapshot: sourceShiftRecord?.endTime ?? null,
         handoverMode,
         status: HandoverStatus.completed,
         handoverAt,
@@ -83,85 +105,10 @@ export class HandoverConfirmService {
               },
             }
           : {}),
-      },
+      } as Prisma.StoreHandoverRecordUncheckedCreateInput,
       include: HANDOVER_RECORD_INCLUDE,
-    });
+    })) as HandoverRecordRow;
 
     return mapRecordToDto(record);
-  }
-
-  private async ensureShiftNotHandedOver(
-    storeId: number,
-    employeeId: number | null,
-    dto: ConfirmHandoverRequestDto,
-  ): Promise<void> {
-    if (!employeeId) {
-      return;
-    }
-
-    const today = new Date(dto.handedOverAt);
-    const dayStart = new Date(today);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(today);
-    dayEnd.setHours(23, 59, 59, 999);
-
-    const shiftRecord = await this.prisma.employeeShift.findFirst({
-      where: {
-        storeId,
-        employeeId,
-        shiftType: dto.shiftType,
-        date: {
-          gte: dayStart,
-          lte: dayEnd,
-        },
-      },
-      select: {
-        startTime: true,
-        endTime: true,
-      },
-      orderBy: [{ date: 'desc' }, { id: 'desc' }],
-    });
-
-    const fallbackTime = SHIFT_TIME_FALLBACKS[dto.shiftType];
-    const shiftRange = buildShiftDateRange(
-      shiftRecord?.startTime ?? fallbackTime.startTime,
-      shiftRecord?.endTime ?? fallbackTime.endTime,
-      today,
-    );
-    const exists = await this.prisma.storeHandoverRecord.count({
-      where: {
-        storeId,
-        fromEmployeeId: employeeId,
-        status: HandoverStatus.completed,
-        handoverAt: {
-          gte: shiftRange.startAt,
-          lte: shiftRange.endAt,
-        },
-      },
-    });
-
-    if (exists > 0) {
-      throw new ConflictException('当前班次已完成交班，暂不允许重复操作');
-    }
-  }
-
-  private async findReceiverCandidate(
-    storeId: number,
-    currentEmployeeId: number | null,
-  ): Promise<ReceiverCandidate | null> {
-    const candidates =
-      await this.storeSubAccountService.listAssignableHandoverCandidates(
-        storeId,
-      );
-    const matched = candidates.find(
-      (candidate) => candidate.employeeId !== currentEmployeeId,
-    );
-    return matched
-      ? {
-          employeeId: matched.employeeId,
-          employeeName: matched.employeeName,
-          subAccountId: matched.subAccountId,
-        }
-      : null;
   }
 }
