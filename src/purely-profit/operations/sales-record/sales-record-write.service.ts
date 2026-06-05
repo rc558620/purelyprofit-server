@@ -48,10 +48,12 @@ export class SalesRecordWriteService {
           'sales:create',
           '无权操作该门店销售记录',
         );
+    const orderDate = new Date(dto.date ?? Date.now());
     const operatorStaffId = await this.resolveOperatorStaffId(
       user,
       storeId,
       options,
+      orderDate,
     );
 
     const preparedItems =
@@ -84,7 +86,7 @@ export class SalesRecordWriteService {
       totalProfit,
       totalQuantity,
       note: toOptionalText(dto.note) ?? null,
-      orderDate: new Date(dto.date ?? Date.now()),
+      orderDate,
       options,
     });
 
@@ -137,6 +139,7 @@ export class SalesRecordWriteService {
     user: AuthenticatedUser,
     storeId: number,
     options: CreateSalesRecordOptions,
+    orderDate: Date,
   ): Promise<number | null> {
     const currentOperatorStaffId =
       await this.commerceAccessService.findOperatorStaffIdForStore(
@@ -149,23 +152,25 @@ export class SalesRecordWriteService {
     }
 
     const pendingHandoverOperatorStaffId =
-      await this.findPendingHandoverOperatorStaffId(storeId);
+      await this.findPendingHandoverOperatorStaffId(storeId, orderDate);
     if (pendingHandoverOperatorStaffId !== null) {
       return pendingHandoverOperatorStaffId;
     }
 
     return (
-      (await this.findCurrentShiftOperatorStaffId(storeId)) ??
+      (await this.findCurrentShiftOperatorStaffId(storeId, orderDate)) ??
       currentOperatorStaffId
     );
   }
 
   private async findPendingHandoverOperatorStaffId(
     storeId: number,
+    referenceDate: Date,
   ): Promise<number | null> {
     const pendingShift =
       await this.handoverPageShiftRecordService.findStartedUnhandedShiftRecord(
         storeId,
+        referenceDate,
       );
     if (!pendingShift?.employeeId) {
       return null;
@@ -204,84 +209,25 @@ export class SalesRecordWriteService {
 
   private async findCurrentShiftOperatorStaffId(
     storeId: number,
+    referenceDate: Date,
   ): Promise<number | null> {
-    const shifts = await this.prisma.employeeShift.findMany({
-      where: {
+    const currentShift =
+      await this.handoverPageShiftRecordService.findCurrentShiftRecord(
         storeId,
-        date: this.buildCurrentDayRange(),
-      },
+        null,
+        referenceDate,
+      );
+    if (!currentShift?.employeeId) {
+      return null;
+    }
+
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: currentShift.employeeId },
       select: {
-        startTime: true,
-        endTime: true,
-        employee: {
-          select: {
-            linkedStaffId: true,
-          },
-        },
+        linkedStaffId: true,
       },
-      orderBy: [{ startTime: 'asc' }, { id: 'asc' }],
     });
 
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const matchedShift = shifts.find((shift) =>
-      this.isCurrentShift(shift.startTime, shift.endTime, currentMinutes),
-    );
-
-    return matchedShift?.employee.linkedStaffId ?? null;
-  }
-
-  private buildCurrentDayRange(): { gte: Date; lte: Date } {
-    const now = new Date();
-    const startAt = new Date(now);
-    startAt.setHours(0, 0, 0, 0);
-    const endAt = new Date(now);
-    endAt.setHours(23, 59, 59, 999);
-    return {
-      gte: startAt,
-      lte: endAt,
-    };
-  }
-
-  private isCurrentShift(
-    startTime: string,
-    endTime: string,
-    currentMinutes: number,
-  ): boolean {
-    const startMinutes = this.timeStringToMinutes(startTime);
-    const endMinutes = this.timeStringToMinutes(endTime);
-    if (startMinutes === null || endMinutes === null) {
-      return false;
-    }
-
-    if (endMinutes <= startMinutes) {
-      return (
-        currentMinutes >= startMinutes || currentMinutes < endMinutes
-      );
-    }
-
-    return currentMinutes >= startMinutes && currentMinutes < endMinutes;
-  }
-
-  private timeStringToMinutes(timeText: string): number | null {
-    const match = /^(\d{2}):(\d{2})$/.exec(timeText);
-    if (!match) {
-      return null;
-    }
-
-    const hours = Number(match[1]);
-    const minutes = Number(match[2]);
-    if (
-      !Number.isInteger(hours) ||
-      !Number.isInteger(minutes) ||
-      hours < 0 ||
-      hours > 23 ||
-      minutes < 0 ||
-      minutes > 59
-    ) {
-      return null;
-    }
-
-    return hours * 60 + minutes;
+    return employee?.linkedStaffId ?? null;
   }
 }

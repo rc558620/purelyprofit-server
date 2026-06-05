@@ -67,30 +67,37 @@ export class HandoverPageShiftRecordService {
   async findCurrentShiftRecord(
     storeId: number,
     employeeId: number | null,
+    referenceDate = new Date(),
   ): Promise<ShiftRecordRow | null> {
     const shiftsWithCompletion = await this.loadShiftsWithCompletion(
       storeId,
       employeeId,
+      referenceDate,
     );
     if (shiftsWithCompletion.length === 0) {
       return null;
     }
 
-    return this.pickCurrentShiftRecord(shiftsWithCompletion);
+    return this.pickCurrentShiftRecord(shiftsWithCompletion, referenceDate);
   }
 
   async findStartedUnhandedShiftRecord(
     storeId: number,
+    referenceDate = new Date(),
   ): Promise<ShiftRecordRow | null> {
     const shiftsWithCompletion = await this.loadShiftsWithCompletion(
       storeId,
       null,
+      referenceDate,
     );
     if (shiftsWithCompletion.length === 0) {
       return null;
     }
 
-    return this.pickStartedUnhandedShiftRecord(shiftsWithCompletion);
+    return this.pickStartedUnhandedShiftRecord(
+      shiftsWithCompletion,
+      referenceDate,
+    );
   }
 
   async isShiftHandedOver(
@@ -154,7 +161,11 @@ export class HandoverPageShiftRecordService {
       return null;
     }
 
-    const allShifts = await this.loadShifts(storeId, null);
+    const allShifts = await this.loadShifts(
+      storeId,
+      null,
+      currentShiftRecord.date,
+    );
     if (allShifts.length === 0) {
       return null;
     }
@@ -174,14 +185,17 @@ export class HandoverPageShiftRecordService {
       shift: ShiftRecordRow;
       handedOver: boolean;
     }>,
+    referenceDate: Date,
   ): ShiftRecordRow | null {
-    const startedUnhandedShift =
-      this.pickStartedUnhandedShiftRecord(shiftsWithCompletion);
+    const startedUnhandedShift = this.pickStartedUnhandedShiftRecord(
+      shiftsWithCompletion,
+      referenceDate,
+    );
     if (startedUnhandedShift) {
       return startedUnhandedShift;
     }
 
-    const now = new Date();
+    const now = new Date(referenceDate);
     const upcomingUnhandedShift = shiftsWithCompletion.find(
       ({ shift, handedOver }) =>
         !handedOver && this.getShiftStartAt(shift) > now,
@@ -200,8 +214,9 @@ export class HandoverPageShiftRecordService {
       shift: ShiftRecordRow;
       handedOver: boolean;
     }>,
+    referenceDate: Date,
   ): ShiftRecordRow | null {
-    const now = new Date();
+    const now = new Date(referenceDate);
     const startedUnhandedShifts = shiftsWithCompletion.filter(
       ({ shift, handedOver }) => !handedOver && this.getShiftStartAt(shift) <= now,
     );
@@ -232,13 +247,14 @@ export class HandoverPageShiftRecordService {
   private async loadShiftsWithCompletion(
     storeId: number,
     employeeId: number | null,
+    referenceDate: Date,
   ): Promise<
     Array<{
       shift: ShiftRecordRow;
       handedOver: boolean;
     }>
   > {
-    const allShifts = await this.loadShifts(storeId, employeeId);
+    const allShifts = await this.loadShifts(storeId, employeeId, referenceDate);
     if (allShifts.length === 0) {
       return [];
     }
@@ -254,12 +270,13 @@ export class HandoverPageShiftRecordService {
   private async loadShifts(
     storeId: number,
     employeeId: number | null,
+    referenceDate: Date,
   ): Promise<ShiftRecordRow[]> {
     return this.prisma.employeeShift.findMany({
       where: {
         storeId,
         ...(employeeId ? { employeeId } : {}),
-        date: this.buildShiftLookupRange(),
+        date: this.buildShiftLookupRange(referenceDate),
       },
       select: this.shiftRecordSelect,
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }, { id: 'asc' }],

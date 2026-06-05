@@ -37,6 +37,7 @@ describe('SalesRecordWriteService', () => {
 
   const handoverPageShiftRecordService = {
     findStartedUnhandedShiftRecord: jest.fn(),
+    findCurrentShiftRecord: jest.fn(),
   };
 
   const commerceAccessService = {
@@ -112,6 +113,7 @@ describe('SalesRecordWriteService', () => {
     handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
       null,
     );
+    handoverPageShiftRecordService.findCurrentShiftRecord.mockResolvedValue(null);
     prismaService.employee.findUnique.mockResolvedValue(null);
     prismaService.employeeShift.findMany.mockResolvedValue([]);
     prismaService.$transaction.mockImplementation(
@@ -492,6 +494,88 @@ describe('SalesRecordWriteService', () => {
     expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         operatorStaffId: 21,
+      }),
+    );
+
+    jest.useRealTimers();
+  });
+
+  it('create 在 additional 入口下应按订单时间匹配历史班次员工', async () => {
+    jest.useFakeTimers().setSystemTime(new Date(2026, 5, 5, 0, 30, 0));
+    const orderDate = new Date(2026, 5, 4, 17, 30, 0);
+    const preparedItems = [
+      {
+        productId: 201,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: 15.5,
+        profit: 4,
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ];
+
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
+      null,
+    );
+    handoverPageShiftRecordService.findCurrentShiftRecord.mockResolvedValue({
+      employeeId: 7,
+      employeeName: '晚班员工',
+      shiftType: 'night',
+      date: new Date(2026, 5, 4, 0, 0, 0),
+      startTime: '17:00',
+      endTime: '23:00',
+    });
+    prismaService.employee.findUnique.mockResolvedValue({
+      linkedStaffId: 26,
+    });
+    salesRecordItemPreparationService.prepareItems.mockResolvedValue(
+      preparedItems,
+    );
+    salesRecordCreateFlowService.createRecord.mockResolvedValue({
+      id: '16',
+      orderNo: '#20260604-004',
+    });
+
+    await service.create(
+      user,
+      {
+        storeId: 18,
+        items: [
+          {
+            productId: '201',
+            productName: '前端旧名称',
+            categoryName: '前端旧分类',
+            salePrice: 15.5,
+            profit: 4,
+            quantity: 1,
+          },
+        ],
+        totalRevenue: 15.5,
+        totalProfit: 4,
+        totalQuantity: 1,
+        paymentMethod: 'cash',
+        calcMode: 'business',
+        date: orderDate.getTime(),
+      },
+      {
+        skipAccessCheck: true,
+        assignToCurrentShiftOperator: true,
+      },
+    );
+
+    expect(
+      handoverPageShiftRecordService.findStartedUnhandedShiftRecord,
+    ).toHaveBeenCalledWith(18, orderDate);
+    expect(
+      handoverPageShiftRecordService.findCurrentShiftRecord,
+    ).toHaveBeenCalledWith(18, null, orderDate);
+    expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operatorStaffId: 26,
+        orderDate,
       }),
     );
 
