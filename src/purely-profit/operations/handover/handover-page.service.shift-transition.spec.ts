@@ -528,4 +528,140 @@ describe('HandoverPageService - 已交班后切班逻辑', () => {
       orderCount: 0,
     });
   });
+
+  it('所有班次都交完且无后续班次时 handoverCompletedAndNoUpcomingShift 应为 true', async () => {
+    setSystemTime('2026-06-05T15:00:00');
+    const onlyShift = ctx.createShiftRecord({
+      id: 701,
+      employeeId: 20,
+      employeeName: '员工A',
+      shiftType: EmployeeShiftType.morning,
+      shiftName: '早班',
+      date: new Date('2026-06-05T00:00:00.000Z'),
+      startTime: '08:00',
+      endTime: '14:00',
+      createdAt: new Date('2026-06-05T07:50:00.000Z'),
+    });
+    // store-wide 和 employee 查询都返回同一个班次
+    prismaService.employeeShift.findMany.mockResolvedValue([onlyShift]);
+    // 所有班次都已交班：employeeShiftIdSnapshot 和 createdAt 两种查询方式都返回已交班
+    prismaService.storeHandoverRecord.count.mockImplementation(({ where }) => {
+      const snapshotCondition = Array.isArray(where?.OR)
+        ? where.OR.find((item) => item?.employeeShiftIdSnapshot)
+        : null;
+      if (snapshotCondition?.employeeShiftIdSnapshot === 701) {
+        return Promise.resolve(1);
+      }
+      // createdAt fallback: fromEmployeeId 匹配时也视为已交班
+      if (where?.fromEmployeeId === 20) {
+        return Promise.resolve(1);
+      }
+      return Promise.resolve(0);
+    });
+    prismaService.employee.findUnique.mockResolvedValue(
+      createEmployeeProfile({ linkedStaffId: 101 }),
+    );
+    mockZeroSummaryAggregates();
+
+    const result = await ctx.service.getHandoverPage(subAccountUser, {});
+
+    expect(result.handoverCompletedAndNoUpcomingShift).toBe(true);
+    expect(result.receiverName).toBe('');
+  });
+
+  it('老板无个人班次但全店班次都交完时 handoverCompletedAndNoUpcomingShift 应为 true', async () => {
+    setSystemTime('2026-06-07T01:00:00');
+    const { ownerUser } = ctx;
+    const morningShift = ctx.createShiftRecord({
+      id: 801,
+      employeeId: 20,
+      employeeName: '收银员1',
+      shiftType: EmployeeShiftType.morning,
+      shiftName: '早班',
+      date: new Date('2026-06-07T00:00:00.000Z'),
+      startTime: '00:00',
+      endTime: '00:05',
+      createdAt: new Date('2026-06-06T23:50:00.000Z'),
+    });
+    const midShift = ctx.createShiftRecord({
+      id: 802,
+      employeeId: 30,
+      employeeName: '收银员2',
+      shiftType: EmployeeShiftType.late,
+      shiftName: '中班',
+      date: new Date('2026-06-07T00:00:00.000Z'),
+      startTime: '00:05',
+      endTime: '00:09',
+      createdAt: new Date('2026-06-07T00:00:00.000Z'),
+    });
+    const eveningShift = ctx.createShiftRecord({
+      id: 803,
+      employeeId: 40,
+      employeeName: '收银员3',
+      shiftType: EmployeeShiftType.custom,
+      shiftName: '晚班',
+      date: new Date('2026-06-07T00:00:00.000Z'),
+      startTime: '00:09',
+      endTime: '00:14',
+      createdAt: new Date('2026-06-07T00:05:00.000Z'),
+    });
+    // store-wide 查询返回全部 3 个班次；老板 employeeId=10 没有班次
+    // 根据 orderBy 方向返回不同顺序（findLastShiftRecord 用 desc，loadShifts 用 asc）
+    prismaService.employeeShift.findMany.mockImplementation(
+      ({
+        where,
+        orderBy,
+      }: {
+        where?: { employeeId?: number };
+        orderBy?: Array<Record<string, string>>;
+      }) => {
+        if (typeof where?.employeeId === 'number') {
+          return Promise.resolve([]);
+        }
+        const firstOrder = orderBy?.[0];
+        const isDesc =
+          typeof firstOrder === 'object' &&
+          firstOrder !== null &&
+          Object.values(firstOrder)[0] === 'desc';
+        return Promise.resolve(
+          isDesc
+            ? [eveningShift, midShift, morningShift]
+            : [morningShift, midShift, eveningShift],
+        );
+      },
+    );
+    // findFirst 也返回 null（老板没有当前班次）
+    prismaService.employeeShift.findFirst.mockResolvedValue(null);
+    // 全部 3 个班次都已交班
+    prismaService.storeHandoverRecord.count.mockImplementation(({ where }) => {
+      const snapshotCondition = Array.isArray(where?.OR)
+        ? where.OR.find((item) => item?.employeeShiftIdSnapshot)
+        : null;
+      if (
+        snapshotCondition &&
+        [801, 802, 803].includes(
+          snapshotCondition.employeeShiftIdSnapshot as number,
+        )
+      ) {
+        return Promise.resolve(1);
+      }
+      if (
+        where?.fromEmployeeId &&
+        [20, 30, 40].includes(where.fromEmployeeId)
+      ) {
+        return Promise.resolve(1);
+      }
+      return Promise.resolve(0);
+    });
+    prismaService.employee.findUnique.mockResolvedValue(
+      createEmployeeProfile({ linkedStaffId: 101 }),
+    );
+    mockZeroSummaryAggregates();
+
+    const result = await ctx.service.getHandoverPage(ownerUser, {});
+
+    expect(result.canOperate).toBe(true);
+    expect(result.handoverCompletedAndNoUpcomingShift).toBe(true);
+    expect(result.receiverName).toBe('');
+  });
 });

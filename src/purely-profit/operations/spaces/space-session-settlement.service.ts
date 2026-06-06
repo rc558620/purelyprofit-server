@@ -151,6 +151,47 @@ export class SpaceSessionSettlementService {
     };
   }
 
+  /**
+   * 后台调度入口：扫描所有门店，对存在待自动结账会话的门店逐一执行自动结账。
+   * 由 SpaceAutoCheckoutSchedulerService 定时调用，无需前端访问触发。
+   */
+  async autoCheckoutAllExpiredSessions(now = Date.now()): Promise<number> {
+    const storeIds = await this.findStoresWithPendingAutoCheckoutSessions();
+    if (storeIds.length === 0) {
+      return 0;
+    }
+
+    const systemUser = createAutoCheckoutSystemUser();
+    let totalSettled = 0;
+
+    for (const storeId of storeIds) {
+      try {
+        const settled = await this.autoCheckoutExpiredCountdownSessions(
+          systemUser,
+          storeId,
+          now,
+          'scheduler:auto-checkout',
+        );
+        totalSettled += settled;
+      } catch (error) {
+        this.logger.error(
+          `[space-auto-checkout] store_failed storeId=${storeId} reason=${
+            error instanceof Error ? error.name : 'UnknownError'
+          }`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
+    }
+
+    if (totalSettled > 0) {
+      this.logger.log(
+        `[space-auto-checkout] scheduler_completed stores=${storeIds.length} settled=${totalSettled}`,
+      );
+    }
+
+    return totalSettled;
+  }
+
   async autoCheckoutExpiredCountdownSessions(
     user: AuthenticatedUser,
     storeId: number,
@@ -495,6 +536,23 @@ export class SpaceSessionSettlementService {
       : PrismaSpaceStatus.idle;
   }
 
+  private async findStoresWithPendingAutoCheckoutSessions(): Promise<number[]> {
+    const sessions = await this.prisma.spaceSession.findMany({
+      where: {
+        status: PrismaSpaceSessionStatus.active,
+        endTime: null,
+        billingMode: PrismaSpaceBillingMode.countdown,
+        autoCheckout: true,
+        prepaidPaymentMethod: { not: null },
+        countdownMinutes: { not: null },
+      },
+      select: { storeId: true },
+      distinct: ['storeId'],
+    });
+
+    return sessions.map((s) => s.storeId);
+  }
+
   private getTodayRange(): { start: Date; end: Date } {
     const now = new Date();
     const start = new Date(
@@ -511,3 +569,18 @@ export class SpaceSessionSettlementService {
     return { start, end };
   }
 }
+
+/**
+ * 构建后台自动结账使用的系统用户。
+ * 该用户无实际 membership，因此 shouldAssignToCurrentShiftOperator 会返回 false，
+ * 同时 skipAccessCheck: true 已绕过权限检查，不影响销售单创建。
+ */
+const createAutoCheckoutSystemUser = (): AuthenticatedUser => ({
+  id: 0,
+  email: 'system@auto-checkout',
+  phone: '',
+  name: '系统自动结账',
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  currentMembership: null,
+});

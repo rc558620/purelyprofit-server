@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { CommerceModule } from '../../commerce/commerce.module';
 import { PlatformMembershipModule } from '../../member/platform-membership/platform-membership.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { RedisModule } from '../../../redis/redis.module';
 import { SalesRecordModule } from '../sales-record/sales-record.module';
+import { SpaceAutoCheckoutSchedulerService } from './space-auto-checkout-scheduler.service';
 import { SpaceDashboardService } from './space-dashboard.service';
 import { SpaceReservationsController } from './space-reservations.controller';
 import { SpaceReservationsService } from './space-reservations.service';
@@ -31,7 +32,7 @@ import { SpacesWriteService } from './spaces-write.service';
     PrismaModule,
     CommerceModule,
     PlatformMembershipModule,
-    SalesRecordModule,
+    forwardRef(() => SalesRecordModule),
     RedisModule,
   ],
   controllers: [
@@ -58,6 +59,7 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceSessionWriteService,
     SpaceSessionsService,
     SpaceDashboardService,
+    SpaceAutoCheckoutSchedulerService,
   ],
   exports: [SpaceSessionSettlementService],
 })

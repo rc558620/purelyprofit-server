@@ -77,6 +77,16 @@ export default () => ({
       process.env.APP_CACHE_PREWARM_SLOW_CYCLE_THRESHOLD_MS ?? '1500',
       10,
     ),
+    spaceAutoCheckoutEnabled:
+      (process.env.APP_SPACE_AUTO_CHECKOUT_ENABLED ?? 'true') === 'true',
+    spaceAutoCheckoutIntervalMs: parseInt(
+      process.env.APP_SPACE_AUTO_CHECKOUT_INTERVAL_MS ?? '60000',
+      10,
+    ),
+    spaceAutoCheckoutInitialDelayMs: parseInt(
+      process.env.APP_SPACE_AUTO_CHECKOUT_INITIAL_DELAY_MS ?? '10000',
+      10,
+    ),
   },
 
   database: {

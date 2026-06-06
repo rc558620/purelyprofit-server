@@ -121,15 +121,38 @@ export class HandoverPageShiftService {
     const userHadOwnedShift = ownedSelection.ownedExactShiftRecord !== null;
     const shiftIsCompleted = operationShiftRecord
       ? ownedShiftCompleted
-      : ownedSelection.isCashier || userHadOwnedShift; // 收银员模式下如果无操作班 = 班已交班或没班；经理模式下如果有班过说明已交班
+      : ownedSelection.isCashier || userHadOwnedShift;
 
-    if (!shiftIsCompleted) {
+    // 如果有可操作的班次且尚未交班，直接返回 false
+    if (operationShiftRecord && !shiftIsCompleted) {
       return false;
     }
 
-    // 检查当前显示的班是否有后续班
-    const targetShift = operationShiftRecord ?? shiftRecord;
-    if (!targetShift || !targetShift.employeeId) {
+    // 确定用于查询后续班次的基准班次
+    let targetShift = operationShiftRecord ?? shiftRecord;
+
+    // 当 operationShiftRecord 和 shiftRecord 都为 null 时（所有班次都已交班，
+    // findCurrentShiftRecord 只查找未交班班次导致返回 null），
+    // 回退查询今日最后一个班次（不限是否已交班）来判断是否有后续班次。
+    // 收银员只查自己的班次；老板/经理查全店。
+    if (!targetShift) {
+      const lookupEmployeeId = ownedSelection.isCashier
+        ? membership.linkedEmployeeId
+        : null;
+      if (ownedSelection.isCashier && !lookupEmployeeId) {
+        return false;
+      }
+      targetShift =
+        await this.handoverPageShiftRecordService.findLastShiftRecord(
+          membership.storeId,
+          lookupEmployeeId,
+        );
+      if (!targetShift) {
+        return false;
+      }
+    }
+
+    if (!targetShift.employeeId) {
       return false;
     }
 

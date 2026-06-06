@@ -1,5 +1,4 @@
 import { SpaceBillingMode as PrismaSpaceBillingMode } from '@prisma/client';
-import type { SpaceCountdownFeeModeValue } from './dto/space-session.dto';
 import { sumLineTotal } from './space-session-items.shared';
 import type {
   CheckoutPreviewFeeMode,
@@ -69,10 +68,7 @@ export const buildSpaceSessionSettlement = (params: {
     });
   }
 
-  const prepaidDeduction = resolveSpaceSessionPrepaidDeduction(
-    session,
-    countdownFeeMode,
-  );
+  const prepaidDeduction = resolveSpaceSessionPrepaidDeduction(session);
   if (prepaidDeduction > 0) {
     orderItems.push({
       productId: 'SYS_PREPAID_DEDUCTION',
@@ -172,12 +168,10 @@ const resolveSpaceSessionPrepaidDeduction = (
     SpaceSessionRecord,
     'autoCheckout' | 'billingMode' | 'prepaidAmount'
   >,
-  countdownFeeMode?: SpaceCountdownFeeModeValue,
 ): number => {
   if (
     !session.autoCheckout ||
     session.billingMode !== PrismaSpaceBillingMode.countdown ||
-    countdownFeeMode !== 'timed' ||
     session.prepaidAmount === null
   ) {
     return 0;

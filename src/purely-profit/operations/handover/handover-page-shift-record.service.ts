@@ -180,6 +180,27 @@ export class HandoverPageShiftRecordService {
     return allShifts[currentShiftIndex + 1] ?? null;
   }
 
+  /**
+   * 查找今日最后一个班次（不区分是否已交班）。
+   * employeeId 为具体员工 ID 时只查该员工；为 null 时查全店。
+   */
+  async findLastShiftRecord(
+    storeId: number,
+    employeeId: number | null,
+  ): Promise<ShiftRecordRow | null> {
+    const allShifts = await this.prisma.employeeShift.findMany({
+      where: {
+        storeId,
+        ...(employeeId ? { employeeId } : {}),
+        date: this.buildShiftLookupRange(),
+      },
+      select: this.shiftRecordSelect,
+      orderBy: [{ date: 'desc' }, { startTime: 'desc' }, { id: 'desc' }],
+      take: 1,
+    });
+    return allShifts[0] ?? null;
+  }
+
   private pickCurrentShiftRecord(
     shiftsWithCompletion: Array<{
       shift: ShiftRecordRow;
@@ -218,7 +239,8 @@ export class HandoverPageShiftRecordService {
   ): ShiftRecordRow | null {
     const now = new Date(referenceDate);
     const startedUnhandedShifts = shiftsWithCompletion.filter(
-      ({ shift, handedOver }) => !handedOver && this.getShiftStartAt(shift) <= now,
+      ({ shift, handedOver }) =>
+        !handedOver && this.getShiftStartAt(shift) <= now,
     );
     if (startedUnhandedShifts.length === 0) {
       return null;
@@ -295,7 +317,8 @@ export class HandoverPageShiftRecordService {
   }
 
   private getShiftEndAt(shift: ShiftRecordRow): Date {
-    return buildShiftDateRange(shift.startTime, shift.endTime, shift.date).endAt;
+    return buildShiftDateRange(shift.startTime, shift.endTime, shift.date)
+      .endAt;
   }
 
   private isSameShiftRecord(
