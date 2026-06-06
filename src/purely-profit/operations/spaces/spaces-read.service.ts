@@ -21,6 +21,7 @@ export class SpacesReadService {
   async listSpaces(
     user: AuthenticatedUser,
     query: ListSpacesQueryDto,
+    requestId?: string,
   ): Promise<SpaceResponseDto[]> {
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
@@ -36,6 +37,9 @@ export class SpacesReadService {
     await this.settlementService.autoCheckoutExpiredCountdownSessions(
       user,
       storeId,
+      Date.now(),
+      'spaces:list',
+      requestId,
     );
 
     const spaces = await this.prisma.space.findMany({

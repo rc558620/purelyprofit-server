@@ -71,7 +71,10 @@ export class HandoverShiftInfoDto {
   @IsString({ message: '交班人头像必须是字符串' })
   avatar?: string;
 
-  @ApiProperty({ example: 1748766600000, description: '班次归属时间戳(ms)，用于判定班次日期' })
+  @ApiProperty({
+    example: 1748766600000,
+    description: '班次归属时间戳(ms)，用于判定班次日期',
+  })
   shiftReferenceAt: number;
 }
 
@@ -108,6 +111,13 @@ export class HandoverPageResponseDto {
     description: '不可操作原因，canOperate=false 时返回',
   })
   operationBlockedReason?: string | null;
+
+  @ApiProperty({
+    example: false,
+    description:
+      '当前账号今日最近班次已完成交班，且从该班次之后暂无后续排班时为 true，用于前端优化空态文案',
+  })
+  handoverCompletedAndNoUpcomingShift: boolean;
 }
 
 export class ConfirmHandoverAdditionalItemDto {
@@ -149,7 +159,10 @@ export class ConfirmHandoverRequestDto {
   @MaxLength(50, { message: '交班人姓名不能超过 50 个字符' })
   operatorName?: string;
 
-  @ApiProperty({ example: 1748766600000, description: '实际确认交班时间戳(ms)' })
+  @ApiProperty({
+    example: 1748766600000,
+    description: '实际确认交班时间戳(ms)',
+  })
   @Type(() => Number)
   @IsInt({ message: '交班时间必须是整数时间戳' })
   confirmedAt: number;

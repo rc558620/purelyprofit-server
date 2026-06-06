@@ -53,12 +53,13 @@ export class SpaceSessionsController {
     type: SpaceSessionResponseDto,
   })
   getActiveSession(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: { user: AuthenticatedUser; id: string | number },
     @Param('spaceId', ParseIntPipe) spaceId: number,
   ): Promise<SpaceSessionResponseDto | null> {
     return this.spaceSessionsService.getActiveSpaceSession(
       request.user,
       spaceId,
+      String(request.id),
     );
   }
 
@@ -67,7 +68,7 @@ export class SpaceSessionsController {
   @ApiOperation({ summary: '获取某空间的会话列表（支持分页/筛选/搜索）' })
   @ApiOkResponse({ type: PaginatedSpaceSessionsResponseDto })
   listSessions(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: { user: AuthenticatedUser; id: string | number },
     @Param('spaceId', ParseIntPipe) spaceId: number,
     @Query() query: ListSpaceSessionsQueryDto,
   ): Promise<PaginatedSpaceSessionsResponseDto> {
@@ -75,6 +76,7 @@ export class SpaceSessionsController {
       request.user,
       spaceId,
       query,
+      String(request.id),
     );
   }
 
@@ -87,12 +89,13 @@ export class SpaceSessionsController {
   })
   @ApiOkResponse({ type: [SpaceSessionResponseDto] })
   listStoreActiveSessions(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: { user: AuthenticatedUser; id: string | number },
     @Query() query: ListSpaceSessionsQueryDto,
   ): Promise<SpaceSessionResponseDto[]> {
     return this.spaceSessionsService.listStoreActiveSpaceSessions(
       request.user,
       query,
+      String(request.id),
     );
   }
 
@@ -105,12 +108,13 @@ export class SpaceSessionsController {
   })
   @ApiOkResponse({ type: [SpaceSessionResponseDto] })
   listStoreSessions(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: { user: AuthenticatedUser; id: string | number },
     @Query() query: ListSpaceSessionsQueryDto,
   ): Promise<SpaceSessionResponseDto[]> {
     return this.spaceSessionsService.listStoreSpaceSessions(
       request.user,
       query,
+      String(request.id),
     );
   }
 
@@ -119,12 +123,13 @@ export class SpaceSessionsController {
   @ApiOperation({ summary: '获取空间会话详情' })
   @ApiOkResponse({ type: SpaceSessionResponseDto })
   getSessionDetail(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: { user: AuthenticatedUser; id: string | number },
     @Param('id', ParseIntPipe) sessionId: number,
   ): Promise<SpaceSessionResponseDto> {
     return this.spaceSessionsService.getSpaceSessionDetail(
       request.user,
       sessionId,
+      String(request.id),
     );
   }
 

@@ -232,6 +232,96 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       );
     });
 
+    it('空间自动结账退款应按 session 结账时间展示在交班记录详情中', async () => {
+      prismaService.storeHandoverRecord.findFirst.mockResolvedValue({
+        ...mockRecord,
+        id: 4,
+        fromEmployeeId: 10,
+        actorStaffId: 101,
+        status: HandoverStatus.completed,
+        handoverAt: new Date(2026, 5, 4, 19, 10, 0),
+        createdAt: new Date(2026, 5, 4, 19, 10, 0),
+        additionalValues: [],
+      });
+      prismaService.employeeShift.findMany.mockResolvedValue([
+        {
+          employeeId: 10,
+          employeeName: '收银员1',
+          shiftType: EmployeeShiftType.morning,
+          shiftName: '早班',
+          startTime: '09:00',
+          endTime: '19:00',
+        },
+      ]);
+      prismaService.employee.findUnique.mockResolvedValueOnce({
+        linkedStaffId: 101,
+        avatar: 'https://cdn.example.com/cashier-1.png',
+        linkedStaff: {
+          user: {
+            avatar: 'https://cdn.example.com/user-cashier-1.png',
+          },
+        },
+      });
+      prismaService.saleOrderItem.findMany.mockResolvedValue([]);
+      prismaService.saleOrder.findMany.mockResolvedValue([
+        {
+          id: 58,
+          date: new Date('2026-06-04T18:55:00.000Z'),
+          paymentMethod: 'wechat',
+          totalRevenue: new Prisma.Decimal('-45.50'),
+          spaceSession: {
+            space: {
+              name: 'A01',
+            },
+          },
+        },
+      ]);
+      prismaService.saleOrder.count.mockResolvedValue(0);
+      prismaService.spaceSession.aggregate.mockResolvedValue({
+        _sum: { timeCost: null },
+      });
+      prismaService.saleOrder.aggregate
+        .mockResolvedValueOnce({
+          _sum: { totalRevenue: null },
+        })
+        .mockResolvedValueOnce({
+          _sum: { totalRevenue: new Prisma.Decimal('-45.50') },
+        });
+
+      const result = await ctx.service.getHandoverRecord(ownerUser, 4);
+
+      expect(result.revenueSummary).toMatchObject({
+        additionalRevenue: 0,
+        spaceRevenue: 0,
+        refundAmount: 45.5,
+        totalRevenue: -45.5,
+        orderCount: 0,
+      });
+      expect(result.orderItems?.[0]).toMatchObject({
+        id: 'refund-order-58',
+        productName: 'A01',
+        totalRevenue: -45.5,
+        paymentLabel: '微信退款',
+      });
+      expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            storeId: 100,
+            totalRevenue: { lt: 0 },
+            spaceSession: {
+              is: {
+                status: 'settled',
+                endTime: {
+                  gte: new Date(2026, 5, 4, 9, 0, 0),
+                  lte: new Date(2026, 5, 4, 19, 10, 0),
+                },
+              },
+            },
+          },
+        }),
+      );
+    });
+
     it('排班被删除后仍应优先使用交班记录快照还原详情', async () => {
       prismaService.storeHandoverRecord.findFirst.mockResolvedValue({
         ...mockRecord,

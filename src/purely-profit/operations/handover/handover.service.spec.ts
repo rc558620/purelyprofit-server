@@ -4,6 +4,7 @@ import { HandoverConfirmService } from './handover-confirm.service';
 import { HandoverPageService } from './handover-page.service';
 import { HandoverRecordsService } from './handover-records.service';
 import { HandoverService } from './handover.service';
+import { SpaceSessionSettlementService } from '../spaces/space-session-settlement.service';
 import {
   createManagerUser,
   createOwnerUser,
@@ -39,6 +40,10 @@ describe('HandoverService', () => {
     deleteAdditionalItem: jest.fn(),
   };
 
+  const spaceSessionSettlementService = {
+    autoCheckoutExpiredCountdownSessions: jest.fn(),
+  };
+
   const ownerUser = createOwnerUser();
   const subAccountUser = createSubAccountUser();
   const managerUser = createManagerUser();
@@ -50,6 +55,9 @@ describe('HandoverService', () => {
       operationBlockedReason: null,
       selectedShiftType: 'morning',
     });
+    spaceSessionSettlementService.autoCheckoutExpiredCountdownSessions.mockResolvedValue(
+      0,
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -60,6 +68,10 @@ describe('HandoverService', () => {
         {
           provide: HandoverAdditionalItemsService,
           useValue: handoverAdditionalItemsService,
+        },
+        {
+          provide: SpaceSessionSettlementService,
+          useValue: spaceSessionSettlementService,
         },
       ],
     }).compile();
@@ -95,9 +107,38 @@ describe('HandoverService', () => {
       const result = await service.getHandoverPage(subAccountUser, query);
 
       expect(result).toBe(mockResult);
+      expect(
+        spaceSessionSettlementService.autoCheckoutExpiredCountdownSessions,
+      ).toHaveBeenCalledWith(
+        subAccountUser,
+        100,
+        expect.any(Number),
+        'handover:page',
+      );
       expect(handoverPageService.getHandoverPage).toHaveBeenCalledWith(
         subAccountUser,
         query,
+      );
+    });
+
+    it('getHandoverRecord 读取详情前会先补偿自动结账', async () => {
+      const mockRecord = { id: 3 };
+      handoverRecordsService.getHandoverRecord.mockResolvedValue(mockRecord);
+
+      const result = await service.getHandoverRecord(ownerUser, 3);
+
+      expect(result).toBe(mockRecord);
+      expect(
+        spaceSessionSettlementService.autoCheckoutExpiredCountdownSessions,
+      ).toHaveBeenCalledWith(
+        ownerUser,
+        100,
+        expect.any(Number),
+        'handover:record-detail',
+      );
+      expect(handoverRecordsService.getHandoverRecord).toHaveBeenCalledWith(
+        ownerUser,
+        3,
       );
     });
 

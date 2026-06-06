@@ -43,10 +43,11 @@ export class HandoverConfirmShiftService {
     preferredEmployeeId: number | null,
     options: ConfirmShiftLookupOptions,
   ): Promise<ShiftRecordRow | null> {
+    const shiftLookupDate = this.resolveShiftLookupDate(options);
     if (preferredEmployeeId) {
       const preferredShifts = await this.loadShiftCandidates(
         storeId,
-        options.handoverAt,
+        shiftLookupDate,
         preferredEmployeeId,
       );
       const matchedPreferredShift = this.pickShiftRecord(
@@ -58,7 +59,10 @@ export class HandoverConfirmShiftService {
       }
     }
 
-    const storeShifts = await this.loadShiftCandidates(storeId, options.handoverAt);
+    const storeShifts = await this.loadShiftCandidates(
+      storeId,
+      shiftLookupDate,
+    );
     return this.pickShiftRecord(storeShifts, options);
   }
 
@@ -67,18 +71,37 @@ export class HandoverConfirmShiftService {
     shiftRecord: ShiftRecordRow | null,
     handoverAt: Date,
   ): Promise<void> {
-    if (!shiftRecord?.employeeId) {
-      return;
-    }
+    let where: Prisma.StoreHandoverRecordWhereInput;
 
-    const exists = await this.prisma.storeHandoverRecord.count({
-      where: {
+    if (shiftRecord?.employeeId) {
+      // 子账号交班：检查同员工同班次是否已交班
+      where = {
         storeId,
         fromEmployeeId: shiftRecord.employeeId,
         status: HandoverStatus.completed,
         OR: this.buildShiftMatchConditions(shiftRecord, handoverAt),
-      },
-    });
+      };
+    } else if (shiftRecord) {
+      // 老板账号交班但有班次记录：按班次时间范围检查是否已交班
+      const shiftRange = buildShiftDateRange(
+        shiftRecord.startTime,
+        shiftRecord.endTime,
+        handoverAt,
+      );
+      where = {
+        storeId,
+        status: HandoverStatus.completed,
+        handoverAt: {
+          gte: shiftRange.startAt,
+          lte: shiftRange.endAt,
+        },
+      };
+    } else {
+      // 老板账号交班且没有班次记录：不做检查（防御性编程）
+      return;
+    }
+
+    const exists = await this.prisma.storeHandoverRecord.count({ where });
     if (exists > 0) {
       throw new ConflictException('当前班次已完成交班，暂不允许重复操作');
     }
@@ -92,7 +115,7 @@ export class HandoverConfirmShiftService {
     const nextShiftRecord = await this.findNextShiftRecord(
       storeId,
       currentShiftRecord,
-      handoverAt,
+      currentShiftRecord?.date ?? handoverAt,
     );
     if (!nextShiftRecord?.employeeId) {
       return null;
@@ -124,7 +147,9 @@ export class HandoverConfirmShiftService {
     }
 
     const allShifts = await this.loadShiftCandidates(storeId, handoverAt);
-    const currentStartMinutes = timeStringToMinutes(currentShiftRecord.startTime);
+    const currentStartMinutes = timeStringToMinutes(
+      currentShiftRecord.startTime,
+    );
     const currentEndMinutes = timeStringToMinutes(currentShiftRecord.endTime);
 
     const nextByEndTime = allShifts.find(
@@ -143,6 +168,17 @@ export class HandoverConfirmShiftService {
           timeStringToMinutes(shift.startTime) > currentStartMinutes,
       ) ?? null
     );
+  }
+
+  private resolveShiftLookupDate(options: ConfirmShiftLookupOptions): Date {
+    if (typeof options.shiftReferenceAt === 'number') {
+      const referenceDate = new Date(options.shiftReferenceAt);
+      if (!Number.isNaN(referenceDate.getTime())) {
+        return referenceDate;
+      }
+    }
+
+    return options.handoverAt;
   }
 
   private async loadShiftCandidates(
@@ -172,7 +208,8 @@ export class HandoverConfirmShiftService {
     const normalizedOperatorName = toDisplayName(options.operatorName);
     const operatorScopedShifts = normalizedOperatorName
       ? shifts.filter(
-          (shift) => toDisplayName(shift.employeeName) === normalizedOperatorName,
+          (shift) =>
+            toDisplayName(shift.employeeName) === normalizedOperatorName,
         )
       : shifts;
     const candidateShifts =
@@ -227,7 +264,8 @@ export class HandoverConfirmShiftService {
     shiftRecord: ShiftRecordRow,
     handoverAt: Date,
   ): Prisma.StoreHandoverRecordWhereInput[] {
-    const fallbackShiftType = shiftRecord.shiftType ?? EmployeeShiftType.morning;
+    const fallbackShiftType =
+      shiftRecord.shiftType ?? EmployeeShiftType.morning;
     const fallbackTime = SHIFT_TIME_FALLBACKS[fallbackShiftType];
     const shiftRange = buildShiftDateRange(
       shiftRecord.startTime ?? fallbackTime.startTime,

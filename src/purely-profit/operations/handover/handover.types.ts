@@ -153,4 +153,5 @@ export type ResolvedHandoverPageShiftContext = {
   operationAccess: HandoverOperationAccess;
   displayOperatorStaffId: number | null;
   receiverCandidate: ReceiverCandidate | null;
+  handoverCompletedAndNoUpcomingShift: boolean;
 };

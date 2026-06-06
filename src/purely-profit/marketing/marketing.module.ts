@@ -8,6 +8,8 @@ import { MarketingController } from './marketing.controller';
 import { MarketingCustomersService } from './marketing-customers.service';
 import { MarketingOverviewService } from './marketing-overview.service';
 import { MarketingPointsRecordsService } from './marketing-points-records.service';
+import { MarketingProductCategoriesService } from './marketing-product-categories.service';
+import { MarketingProductsService } from './marketing-products.service';
 import { MarketingPromotionsService } from './marketing-promotions.service';
 import { MarketingRechargesService } from './marketing-recharges.service';
 import { MarketingService } from './marketing.service';
@@ -26,6 +28,8 @@ import { MarketingSharedService } from './marketing-shared.service';
     MarketingPointsRecordsService,
     MarketingConsumptionsService,
     MarketingPromotionsService,
+    MarketingProductCategoriesService,
+    MarketingProductsService,
   ],
 })
 export class MarketingModule {}

@@ -9,6 +9,8 @@ import { MarketingConsumptionsService } from './marketing-consumptions.service';
 import { MarketingCustomersService } from './marketing-customers.service';
 import { MarketingOverviewService } from './marketing-overview.service';
 import { MarketingPointsRecordsService } from './marketing-points-records.service';
+import { MarketingProductCategoriesService } from './marketing-product-categories.service';
+import { MarketingProductsService } from './marketing-products.service';
 import { MarketingPromotionsService } from './marketing-promotions.service';
 import { MarketingRechargesService } from './marketing-recharges.service';
 import { MarketingService } from './marketing.service';
@@ -44,6 +46,22 @@ export interface MarketingPrismaServiceMock {
     update: jest.Mock;
     delete: jest.Mock;
     findMany: jest.Mock;
+  };
+  marketingProductCategory: {
+    count: jest.Mock;
+    findMany: jest.Mock;
+    findUnique: jest.Mock;
+    create: jest.Mock;
+    update: jest.Mock;
+    delete: jest.Mock;
+  };
+  marketingProduct: {
+    count: jest.Mock;
+    findMany: jest.Mock;
+    findUnique: jest.Mock;
+    create: jest.Mock;
+    update: jest.Mock;
+    delete: jest.Mock;
   };
   $queryRaw: jest.Mock;
   $transaction: jest.Mock;
@@ -97,6 +115,22 @@ function createPrismaServiceMock(): MarketingPrismaServiceMock {
       update: jest.fn(),
       delete: jest.fn(),
       findMany: jest.fn(),
+    },
+    marketingProductCategory: {
+      count: jest.fn(),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+    marketingProduct: {
+      count: jest.fn(),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
     },
     $queryRaw: jest.fn(),
     $transaction: jest.fn(),
@@ -173,6 +207,8 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
       MarketingPointsRecordsService,
       MarketingConsumptionsService,
       MarketingPromotionsService,
+      MarketingProductCategoriesService,
+      MarketingProductsService,
       { provide: PrismaService, useValue: prismaService },
       { provide: RedisService, useValue: createRedisServiceMock() },
       {

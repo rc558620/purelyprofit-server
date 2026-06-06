@@ -7,6 +7,8 @@ import { MarketingAccessService } from './marketing-access.service';
 import { queryCustomerRowById, queryPromotionRowById } from './marketing.query';
 import type {
   MarketingCustomerRow,
+  MarketingProductCategoryRow,
+  MarketingProductRow,
   MarketingPromotionRow,
 } from './marketing.types';
 
@@ -67,5 +69,50 @@ export class MarketingSharedService {
       throw new NotFoundException('活动不存在');
     }
     return promotion;
+  }
+
+  async findProductCategoryOrThrow(
+    categoryId: number,
+  ): Promise<MarketingProductCategoryRow> {
+    const category = await this.prisma.marketingProductCategory.findUnique({
+      where: { id: categoryId },
+    });
+    if (!category) {
+      throw new NotFoundException('产品分类不存在');
+    }
+    return category;
+  }
+
+  async findProductOrThrow(productId: number): Promise<MarketingProductRow> {
+    const product = await this.prisma.marketingProduct.findUnique({
+      where: { id: productId },
+      include: {
+        category: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+    if (!product) {
+      throw new NotFoundException('产品不存在');
+    }
+
+    return {
+      id: product.id,
+      storeId: product.storeId,
+      categoryId: product.categoryId,
+      categoryName: product.category.name,
+      name: product.name,
+      price: product.price,
+      originalPrice: product.originalPrice,
+      image: product.image,
+      description: product.description,
+      durationMinutes: product.durationMinutes,
+      personCount: product.personCount,
+      isActive: product.isActive,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt,
+    };
   }
 }

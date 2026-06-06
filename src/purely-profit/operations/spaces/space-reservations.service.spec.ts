@@ -87,7 +87,13 @@ describe('SpaceReservationsService', () => {
     );
     expect(
       settlementService.autoCheckoutExpiredCountdownSessions,
-    ).toHaveBeenCalledWith(user, 18);
+    ).toHaveBeenCalledWith(
+      user,
+      18,
+      expect.any(Number),
+      'space-reservations:list-store',
+      undefined,
+    );
     expect(prismaService.spaceReservation.findMany).toHaveBeenCalledWith({
       where: {
         storeId: 18,
@@ -141,7 +147,13 @@ describe('SpaceReservationsService', () => {
     );
     expect(
       settlementService.autoCheckoutExpiredCountdownSessions,
-    ).toHaveBeenCalledWith(user, 18);
+    ).toHaveBeenCalledWith(
+      user,
+      18,
+      expect.any(Number),
+      'space-reservations:list-by-space',
+      undefined,
+    );
     expect(prismaService.spaceReservation.findMany).toHaveBeenCalledWith({
       where: {
         spaceId: 11,

@@ -7,7 +7,12 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { HandoverRecordListItemDto } from './dto/handover-records.dto';
-import { ORDER_ITEMS_LIMIT, roundMoney, toMoneyNumber, type ShiftDateRange } from './handover.shared';
+import {
+  ORDER_ITEMS_LIMIT,
+  roundMoney,
+  toMoneyNumber,
+  type ShiftDateRange,
+} from './handover.shared';
 import {
   SALE_ORDER_ITEM_SELECT,
   attachPaymentRatios,
@@ -15,6 +20,7 @@ import {
   buildRecordRevenueSummary,
   buildRevenueAmounts,
   buildSaleOrderWhere,
+  buildSpaceRefundOrderWhere,
   mapPaymentItems,
   mergeDisplayedOrderItems,
   sumPaymentAmounts,
@@ -29,13 +35,17 @@ export class HandoverRecordsRevenueService {
     shiftRange: ShiftDateRange,
     operatorStaffId: number | null,
   ): Promise<number> {
-    const orderWhere = buildSaleOrderWhere(storeId, shiftRange, operatorStaffId);
-    const [spaceRevenue, additionalRevenue, refundRevenue] =
-      await Promise.all([
-        this.loadSpaceRevenue(storeId, shiftRange),
-        this.loadAdditionalRevenue(orderWhere),
-        this.loadRefundRevenue(orderWhere),
-      ]);
+    const orderWhere = buildSaleOrderWhere(
+      storeId,
+      shiftRange,
+      operatorStaffId,
+    );
+    const refundWhere = buildSpaceRefundOrderWhere(storeId, shiftRange);
+    const [spaceRevenue, additionalRevenue, refundRevenue] = await Promise.all([
+      this.loadSpaceRevenue(storeId, shiftRange),
+      this.loadAdditionalRevenue(orderWhere),
+      this.loadRefundRevenue(refundWhere),
+    ]);
 
     const revenueAmounts = buildRevenueAmounts(
       spaceRevenue._sum.timeCost,
@@ -60,12 +70,17 @@ export class HandoverRecordsRevenueService {
       'revenueSummary' | 'paymentItems' | 'orderItems'
     >
   > {
-    const orderWhere = buildSaleOrderWhere(storeId, shiftRange, operatorStaffId);
+    const orderWhere = buildSaleOrderWhere(
+      storeId,
+      shiftRange,
+      operatorStaffId,
+    );
     const cashFlowWhere = buildCashFlowWhere(
       storeId,
       shiftRange,
       operatorStaffId,
     );
+    const refundWhere = buildSpaceRefundOrderWhere(storeId, shiftRange);
 
     const [
       paymentOrderItems,
@@ -94,15 +109,7 @@ export class HandoverRecordsRevenueService {
         take: ORDER_ITEMS_LIMIT,
       }),
       this.prisma.saleOrder.findMany({
-        where: {
-          ...orderWhere,
-          totalRevenue: {
-            lt: 0,
-          },
-          spaceSession: {
-            isNot: null,
-          },
-        },
+        where: refundWhere,
         select: {
           id: true,
           date: true,
@@ -124,7 +131,7 @@ export class HandoverRecordsRevenueService {
       this.prisma.saleOrder.count({ where: orderWhere }),
       this.loadSpaceRevenue(storeId, shiftRange),
       this.loadAdditionalRevenue(orderWhere),
-      this.loadRefundRevenue(orderWhere),
+      this.loadRefundRevenue(refundWhere),
       this.prisma.financeCashFlowRecord.aggregate({
         where: {
           ...cashFlowWhere,
@@ -183,17 +190,11 @@ export class HandoverRecordsRevenueService {
     });
   }
 
-  private loadRefundRevenue(orderWhere: ReturnType<typeof buildSaleOrderWhere>) {
+  private loadRefundRevenue(
+    refundWhere: ReturnType<typeof buildSpaceRefundOrderWhere>,
+  ) {
     return this.prisma.saleOrder.aggregate({
-      where: {
-        ...orderWhere,
-        totalRevenue: {
-          lt: 0,
-        },
-        spaceSession: {
-          isNot: null,
-        },
-      },
+      where: refundWhere,
       _sum: { totalRevenue: true },
     });
   }

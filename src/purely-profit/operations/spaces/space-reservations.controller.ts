@@ -47,7 +47,7 @@ export class SpaceReservationsController {
   })
   @ApiOkResponse({ type: [SpaceReservationResponseDto] })
   listBySpace(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: { user: AuthenticatedUser; id: string | number },
     @Param('spaceId', ParseIntPipe) spaceId: number,
     @Query() query: ListSpaceReservationsQueryDto,
   ): Promise<SpaceReservationResponseDto[]> {
@@ -55,6 +55,7 @@ export class SpaceReservationsController {
       request.user,
       spaceId,
       query,
+      String(request.id),
     );
   }
 
@@ -66,12 +67,13 @@ export class SpaceReservationsController {
   })
   @ApiOkResponse({ type: [SpaceReservationResponseDto] })
   listStoreReservations(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: { user: AuthenticatedUser; id: string | number },
     @Query() query: ListSpaceReservationsQueryDto,
   ): Promise<SpaceReservationResponseDto[]> {
     return this.spaceReservationsService.listStoreSpaceReservations(
       request.user,
       query,
+      String(request.id),
     );
   }
 

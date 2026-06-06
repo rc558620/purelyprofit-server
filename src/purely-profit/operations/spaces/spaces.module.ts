@@ -59,5 +59,6 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceSessionsService,
     SpaceDashboardService,
   ],
+  exports: [SpaceSessionSettlementService],
 })
 export class SpacesModule {}

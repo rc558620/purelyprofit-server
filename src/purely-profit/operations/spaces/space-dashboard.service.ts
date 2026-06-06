@@ -59,6 +59,7 @@ export class SpaceDashboardService {
   async getSpacesDashboard(
     user: AuthenticatedUser,
     query: GetSpacesDashboardQueryDto,
+    requestId?: string,
   ): Promise<SpacesDashboardResponseDto> {
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
@@ -74,6 +75,9 @@ export class SpaceDashboardService {
     await this.settlementService.autoCheckoutExpiredCountdownSessions(
       user,
       storeId,
+      Date.now(),
+      'spaces:dashboard',
+      requestId,
     );
 
     const [spaces, sessionStats, dashboardSummaries] = await Promise.all([

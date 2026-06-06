@@ -52,10 +52,14 @@ export class SpacesController {
   @ApiOperation({ summary: '获取空间管理看板数据' })
   @ApiOkResponse({ type: SpacesDashboardResponseDto })
   getDashboard(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: { user: AuthenticatedUser; id: string | number },
     @Query() query: GetSpacesDashboardQueryDto,
   ): Promise<SpacesDashboardResponseDto> {
-    return this.spaceDashboardService.getSpacesDashboard(request.user, query);
+    return this.spaceDashboardService.getSpacesDashboard(
+      request.user,
+      query,
+      String(request.id),
+    );
   }
 
   @Get()
@@ -63,10 +67,14 @@ export class SpacesController {
   @ApiOperation({ summary: '获取空间列表' })
   @ApiOkResponse({ type: [SpaceResponseDto] })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @Req() request: { user: AuthenticatedUser; id: string | number },
     @Query() query: ListSpacesQueryDto,
   ): Promise<SpaceResponseDto[]> {
-    return this.spacesService.listSpaces(request.user, query);
+    return this.spacesService.listSpaces(
+      request.user,
+      query,
+      String(request.id),
+    );
   }
 
   @Post()

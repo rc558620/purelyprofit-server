@@ -2,6 +2,7 @@ import type {
   MarketingCustomerStatus,
   MarketingCustomerTierValue,
   MarketingPointsChangeTypeValue,
+  MarketingProductSortValue,
   MarketingPromotionStatus,
 } from './marketing.utils';
 
@@ -81,6 +82,32 @@ export interface MarketingPromotionRow {
   updatedAt: Date;
 }
 
+export interface MarketingProductCategoryRow {
+  id: number;
+  storeId: number;
+  name: string;
+  icon: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface MarketingProductRow {
+  id: number;
+  storeId: number;
+  categoryId: number;
+  categoryName: string;
+  name: string;
+  price: number;
+  originalPrice: number | null;
+  image: string | null;
+  description: string | null;
+  durationMinutes: number | null;
+  personCount: number | null;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface MarketingOverviewTrendPoint {
   date: string;
   amount: number;
@@ -129,4 +156,10 @@ export interface MarketingPromotionListQueryInput {
   status?: MarketingPromotionStatus;
   page?: number;
   pageSize?: number;
+}
+
+export interface MarketingProductListQueryInput {
+  storeId: number;
+  categoryId?: number;
+  sortBy?: MarketingProductSortValue;
 }

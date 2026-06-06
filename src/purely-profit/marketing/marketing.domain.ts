@@ -1,9 +1,11 @@
 import { Prisma } from '@prisma/client';
 import type {
   MarketingCustomerListQueryInput,
+  MarketingProductListQueryInput,
   MarketingPromotionListQueryInput,
   MarketingRechargeListQueryInput,
 } from './marketing.types';
+import type { MarketingProductSortValue } from './marketing.utils';
 
 export function buildCustomerWhere(
   input: MarketingCustomerListQueryInput,
@@ -77,4 +79,29 @@ export function buildPromotionWhere(
   }
 
   return where;
+}
+
+export function buildMarketingProductWhere(
+  input: MarketingProductListQueryInput,
+): Prisma.MarketingProductWhereInput {
+  return {
+    storeId: input.storeId,
+    ...(input.categoryId ? { categoryId: input.categoryId } : {}),
+  };
+}
+
+export function resolveMarketingProductOrderBy(
+  sortBy: MarketingProductSortValue | undefined,
+): Prisma.MarketingProductOrderByWithRelationInput[] {
+  switch (sortBy) {
+    case 'name':
+      return [{ name: 'asc' }, { id: 'desc' }];
+    case 'price_asc':
+      return [{ price: 'asc' }, { id: 'desc' }];
+    case 'price_desc':
+      return [{ price: 'desc' }, { id: 'desc' }];
+    case 'createdAt':
+    default:
+      return [{ createdAt: 'desc' }, { id: 'desc' }];
+  }
 }

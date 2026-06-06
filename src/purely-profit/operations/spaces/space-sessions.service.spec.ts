@@ -93,9 +93,13 @@ describe('SpaceSessionsService', () => {
 
     await service.listStoreSpaceSessions(user, { status: 'active' });
 
-    expect(readService.listStoreSpaceSessions).toHaveBeenCalledWith(user, {
-      status: 'active',
-    });
+    expect(readService.listStoreSpaceSessions).toHaveBeenCalledWith(
+      user,
+      {
+        status: 'active',
+      },
+      undefined,
+    );
   });
 
   it('previewSpaceSessionCheckout 代理给 checkoutService', async () => {

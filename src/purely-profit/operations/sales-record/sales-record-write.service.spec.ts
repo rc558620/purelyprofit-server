@@ -53,6 +53,9 @@ describe('SalesRecordWriteService', () => {
   const cacheInvalidatorService = {
     invalidateSalesDerived: jest.fn().mockResolvedValue(undefined),
   };
+  const logger = {
+    warn: jest.fn(),
+  };
 
   const salesRecordItemPreparationService = {
     prepareItems: jest.fn(),
@@ -113,7 +116,9 @@ describe('SalesRecordWriteService', () => {
     handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
       null,
     );
-    handoverPageShiftRecordService.findCurrentShiftRecord.mockResolvedValue(null);
+    handoverPageShiftRecordService.findCurrentShiftRecord.mockResolvedValue(
+      null,
+    );
     prismaService.employee.findUnique.mockResolvedValue(null);
     prismaService.employeeShift.findMany.mockResolvedValue([]);
     prismaService.$transaction.mockImplementation(
@@ -148,6 +153,7 @@ describe('SalesRecordWriteService', () => {
     }).compile();
 
     service = module.get<SalesRecordWriteService>(SalesRecordWriteService);
+    Object.assign(service as object, { logger });
   });
 
   it('create 会编排门店解析、明细预处理和创建流程', async () => {
@@ -305,14 +311,16 @@ describe('SalesRecordWriteService', () => {
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue({
-      employeeId: 6,
-      employeeName: '早班员工',
-      shiftType: 'morning',
-      date: new Date('2026-06-04T00:00:00.000Z'),
-      startTime: '09:00',
-      endTime: '18:00',
-    });
+    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
+      {
+        employeeId: 6,
+        employeeName: '早班员工',
+        shiftType: 'morning',
+        date: new Date('2026-06-04T00:00:00.000Z'),
+        startTime: '09:00',
+        endTime: '18:00',
+      },
+    );
     prismaService.employee.findUnique.mockResolvedValue({
       linkedStaffId: 21,
     });
@@ -375,14 +383,16 @@ describe('SalesRecordWriteService', () => {
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(18);
-    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue({
-      employeeId: 6,
-      employeeName: '早班员工',
-      shiftType: 'morning',
-      date: new Date('2026-06-04T00:00:00.000Z'),
-      startTime: '09:00',
-      endTime: '18:00',
-    });
+    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
+      {
+        employeeId: 6,
+        employeeName: '早班员工',
+        shiftType: 'morning',
+        date: new Date('2026-06-04T00:00:00.000Z'),
+        startTime: '09:00',
+        endTime: '18:00',
+      },
+    );
     prismaService.employee.findUnique.mockResolvedValue({
       linkedStaffId: 21,
     });
@@ -429,6 +439,68 @@ describe('SalesRecordWriteService', () => {
     jest.useRealTimers();
   });
 
+  it('create 在班次归属查询异常时应回退到当前操作人', async () => {
+    const preparedItems = [
+      {
+        productId: 201,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: 15.5,
+        profit: 4,
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ];
+    const response = { id: '15', orderNo: '#20260604-003' };
+
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockRejectedValueOnce(
+      new Error('shift lookup timeout'),
+    );
+    salesRecordItemPreparationService.prepareItems.mockResolvedValue(
+      preparedItems,
+    );
+    salesRecordCreateFlowService.createRecord.mockResolvedValue(response);
+
+    await expect(
+      service.create(
+        user,
+        {
+          storeId: 18,
+          items: [
+            {
+              productId: '201',
+              productName: '前端旧名称',
+              categoryName: '前端旧分类',
+              salePrice: 15.5,
+              profit: 4,
+              quantity: 1,
+            },
+          ],
+          totalRevenue: 15.5,
+          totalProfit: 4,
+          totalQuantity: 1,
+          paymentMethod: 'cash',
+          calcMode: 'business',
+        },
+        {
+          skipAccessCheck: true,
+          assignToCurrentShiftOperator: true,
+        },
+      ),
+    ).resolves.toEqual(response);
+
+    expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operatorStaffId: 8,
+      }),
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('resolveOperatorStaffId fallback storeId=18'),
+    );
+  });
+
   it('create 在逾期未交班且当天无下一班时仍应归属到当前交班班次员工', async () => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 5, 4, 20, 30, 0));
     const preparedItems = [
@@ -445,14 +517,16 @@ describe('SalesRecordWriteService', () => {
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue({
-      employeeId: 6,
-      employeeName: '早班员工',
-      shiftType: 'morning',
-      date: new Date('2026-06-04T00:00:00.000Z'),
-      startTime: '09:00',
-      endTime: '18:00',
-    });
+    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
+      {
+        employeeId: 6,
+        employeeName: '早班员工',
+        shiftType: 'morning',
+        date: new Date('2026-06-04T00:00:00.000Z'),
+        startTime: '09:00',
+        endTime: '18:00',
+      },
+    );
     prismaService.employee.findUnique.mockResolvedValue({
       linkedStaffId: 21,
     });

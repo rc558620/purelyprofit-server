@@ -1,4 +1,7 @@
-import { toOptionalMediaText } from '../commerce/commerce.utils';
+import {
+  toOptionalMediaText,
+  toOptionalText,
+} from '../commerce/commerce.utils';
 import type {
   MarketingConsumptionDto,
   MarketingCustomerDto,
@@ -8,11 +11,17 @@ import type {
   MarketingRechargeDto,
 } from './dto/marketing-response.dto';
 import type {
+  MarketingProductCategoryDto,
+  MarketingProductDto,
+} from './dto/marketing-product.dto';
+import type {
   MarketingConsumptionRow,
   MarketingCustomerRow,
   MarketingOverviewMonthlyTrendPoint,
   MarketingOverviewTrendPoint,
   MarketingPointsRecordRow,
+  MarketingProductCategoryRow,
+  MarketingProductRow,
   MarketingPromotionRow,
   MarketingRechargeRow,
 } from './marketing.types';
@@ -137,6 +146,36 @@ export function mapPromotionRow(
     enabled: row.enabled,
     status: calcPromotionStatus(row.startAt, row.endAt),
     createdAt: row.createdAt.getTime(),
+  };
+}
+
+export function mapProductCategoryRow(
+  row: MarketingProductCategoryRow,
+): MarketingProductCategoryDto {
+  return {
+    id: String(row.id),
+    name: row.name,
+    icon: toOptionalText(row.icon) ?? undefined,
+    createdAt: row.createdAt.getTime(),
+    updatedAt: row.updatedAt.getTime(),
+  };
+}
+
+export function mapProductRow(row: MarketingProductRow): MarketingProductDto {
+  return {
+    id: String(row.id),
+    name: row.name,
+    categoryId: String(row.categoryId),
+    categoryName: row.categoryName,
+    price: row.price,
+    originalPrice: row.originalPrice ?? undefined,
+    image: toOptionalMediaText(row.image) ?? undefined,
+    description: toOptionalText(row.description) ?? undefined,
+    durationMinutes: row.durationMinutes ?? undefined,
+    personCount: row.personCount ?? undefined,
+    isActive: row.isActive,
+    createdAt: row.createdAt.getTime(),
+    updatedAt: row.updatedAt.getTime(),
   };
 }
 

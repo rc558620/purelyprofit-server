@@ -31,9 +31,7 @@ describe('HandoverPageService - 已交班后切班逻辑', () => {
     });
     prismaService.storeHandoverRecord.count.mockImplementation(({ where }) => {
       const hasCreatedAtFallback = Array.isArray(where?.OR)
-        ? where.OR.some(
-            (item) => item?.createdAt?.gte instanceof Date,
-          )
+        ? where.OR.some((item) => item?.createdAt?.gte instanceof Date)
         : false;
       if (hasCreatedAtFallback && where?.fromEmployeeId === 20) {
         return Promise.resolve(1);
@@ -153,9 +151,13 @@ describe('HandoverPageService - 已交班后切班逻辑', () => {
       if (Array.isArray(where?.OR) && where.OR.length > 0) {
         const byShiftId = where.OR.find(
           (item) =>
-            item && typeof item === 'object' && 'employeeShiftIdSnapshot' in item,
+            item &&
+            typeof item === 'object' &&
+            'employeeShiftIdSnapshot' in item,
         ) as { employeeShiftIdSnapshot?: number | null } | undefined;
-        return Promise.resolve(byShiftId?.employeeShiftIdSnapshot === 301 ? 1 : 0);
+        return Promise.resolve(
+          byShiftId?.employeeShiftIdSnapshot === 301 ? 1 : 0,
+        );
       }
       return Promise.resolve(0);
     });
@@ -309,7 +311,9 @@ describe('HandoverPageService - 已交班后切班逻辑', () => {
       const snapshotCondition = Array.isArray(where?.OR)
         ? where.OR.find((item) => item?.employeeShiftIdSnapshot)
         : null;
-      return Promise.resolve(snapshotCondition?.employeeShiftIdSnapshot === 501 ? 1 : 0);
+      return Promise.resolve(
+        snapshotCondition?.employeeShiftIdSnapshot === 501 ? 1 : 0,
+      );
     });
     mockZeroSummaryAggregates();
 
@@ -386,6 +390,86 @@ describe('HandoverPageService - 已交班后切班逻辑', () => {
       endTime: '17:15',
     });
     expect(result.receiverName).toBe('');
+    expect(result.handoverCompletedAndNoUpcomingShift).toBe(true);
+  });
+
+  it('仅带 operatorName 刷新时不应锁定到同员工后续班次', async () => {
+    setSystemTime('2026-06-05T17:20:00');
+    const firstShift = ctx.createShiftRecord({
+      id: 801,
+      employeeId: 20,
+      employeeName: '收银员1',
+      shiftType: EmployeeShiftType.custom,
+      shiftName: '收银员1',
+      date: new Date('2026-06-05T00:00:00.000Z'),
+      startTime: '16:01',
+      endTime: '17:03',
+      createdAt: new Date('2026-06-05T15:55:00.000Z'),
+    });
+    const secondShift = ctx.createShiftRecord({
+      id: 802,
+      employeeId: 30,
+      employeeName: '收银员2',
+      shiftType: EmployeeShiftType.custom,
+      shiftName: '收银员2',
+      date: new Date('2026-06-05T00:00:00.000Z'),
+      startTime: '17:06',
+      endTime: '17:10',
+      createdAt: new Date('2026-06-05T17:00:00.000Z'),
+    });
+    const thirdShift = ctx.createShiftRecord({
+      id: 803,
+      employeeId: 20,
+      employeeName: '收银员1',
+      shiftType: EmployeeShiftType.custom,
+      shiftName: '收银员1-返岗',
+      date: new Date('2026-06-05T00:00:00.000Z'),
+      startTime: '17:11',
+      endTime: '17:15',
+      createdAt: new Date('2026-06-05T17:05:00.000Z'),
+    });
+    prismaService.employeeShift.findFirst.mockImplementation(({ where }) => {
+      if (where?.employeeName === '收银员1') {
+        return Promise.resolve(firstShift);
+      }
+
+      return Promise.resolve(null);
+    });
+    prismaService.employeeShift.findMany.mockImplementation(({ where }) => {
+      if (where?.employeeId === 20) {
+        return Promise.resolve([firstShift, thirdShift]);
+      }
+
+      return Promise.resolve([firstShift, secondShift, thirdShift]);
+    });
+    prismaService.storeHandoverRecord.count.mockImplementation(({ where }) => {
+      const snapshotCondition = Array.isArray(where?.OR)
+        ? where.OR.find((item) => item?.employeeShiftIdSnapshot)
+        : null;
+      return Promise.resolve(
+        snapshotCondition?.employeeShiftIdSnapshot === 801 ? 1 : 0,
+      );
+    });
+    prismaService.employee.findUnique.mockResolvedValueOnce(
+      createEmployeeProfile({
+        name: '收银员2',
+        linkedStaffId: 102,
+      }),
+    );
+    mockZeroSummaryAggregates();
+
+    const result = await ctx.service.getHandoverPage(subAccountUser, {
+      operatorName: '收银员1',
+    });
+
+    expect(result.selectedShiftType).toBe(EmployeeShiftType.custom);
+    expect(result.shiftInfo).toMatchObject({
+      shiftType: EmployeeShiftType.custom,
+      startTime: '17:06',
+      endTime: '17:10',
+      operatorName: '收银员2',
+    });
+    expect(result.receiverName).toBe('收银员1');
   });
 
   it('带 operatorName 查询已交班班次时也应切到下一班并初始化数据', async () => {

@@ -1,4 +1,9 @@
-import { EmployeeShiftType, Prisma, SalesPaymentMethod } from '@prisma/client';
+import {
+  EmployeeShiftType,
+  Prisma,
+  SalesPaymentMethod,
+  SpaceSessionStatus,
+} from '@prisma/client';
 import type { HandoverShiftInfoDto } from './dto/handover-page.dto';
 import type {
   HandoverOrderItemDto,
@@ -151,6 +156,25 @@ export const buildCashFlowWhere = (
     lte: shiftRange.endAt,
   },
   ...(operatorStaffId ? { operatorStaffId } : {}),
+});
+
+export const buildSpaceRefundOrderWhere = (
+  storeId: number,
+  shiftRange: ShiftRangeLike,
+): Prisma.SaleOrderWhereInput => ({
+  storeId,
+  totalRevenue: {
+    lt: 0,
+  },
+  spaceSession: {
+    is: {
+      status: SpaceSessionStatus.settled,
+      endTime: {
+        gte: shiftRange.startAt,
+        lte: shiftRange.endAt,
+      },
+    },
+  },
 });
 
 export const mergeDisplayedOrderItems = (

@@ -178,7 +178,9 @@ export const setupHandoverPageSpec = (): {
             : where?.OR?.find((item) => item.handoverAt?.gte instanceof Date)
                 ?.handoverAt;
         if (handoverAtCondition?.gte instanceof Date) {
-          return Promise.resolve(options.handoverAt?.(handoverAtCondition.gte) ?? 0);
+          return Promise.resolve(
+            options.handoverAt?.(handoverAtCondition.gte) ?? 0,
+          );
         }
 
         const createdAtCondition =
@@ -267,6 +269,7 @@ export const setupHandoverPageSpec = (): {
       null,
     );
     prismaService.storeHandoverRecord.count.mockResolvedValue(0);
+    prismaService.storeHandoverRecord.findFirst.mockResolvedValue(null);
   });
 
   afterEach(() => {

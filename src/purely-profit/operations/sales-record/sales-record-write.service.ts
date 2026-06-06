@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toOptionalText } from '../../commerce/commerce.utils';
@@ -20,6 +20,8 @@ import { sumMoney } from './sales-record.utils';
 
 @Injectable()
 export class SalesRecordWriteService {
+  private readonly logger = new Logger(SalesRecordWriteService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
@@ -151,16 +153,23 @@ export class SalesRecordWriteService {
       return currentOperatorStaffId;
     }
 
-    const pendingHandoverOperatorStaffId =
-      await this.findPendingHandoverOperatorStaffId(storeId, orderDate);
-    if (pendingHandoverOperatorStaffId !== null) {
-      return pendingHandoverOperatorStaffId;
-    }
+    try {
+      const pendingHandoverOperatorStaffId =
+        await this.findPendingHandoverOperatorStaffId(storeId, orderDate);
+      if (pendingHandoverOperatorStaffId !== null) {
+        return pendingHandoverOperatorStaffId;
+      }
 
-    return (
-      (await this.findCurrentShiftOperatorStaffId(storeId, orderDate)) ??
-      currentOperatorStaffId
-    );
+      return (
+        (await this.findCurrentShiftOperatorStaffId(storeId, orderDate)) ??
+        currentOperatorStaffId
+      );
+    } catch (error) {
+      this.logger.warn(
+        `resolveOperatorStaffId fallback storeId=${storeId} orderDate=${orderDate.toISOString()} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+      );
+      return currentOperatorStaffId;
+    }
   }
 
   private async findPendingHandoverOperatorStaffId(

@@ -3,6 +3,7 @@ import {
   FinanceCashFlowCategory,
   FinanceCashFlowDirection,
   FinanceCashFlowPayment,
+  HandoverStatus,
   SpaceSessionStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -17,6 +18,7 @@ import {
   attachPaymentRatios,
   buildCashFlowWhere,
   buildSaleOrderWhere,
+  buildSpaceRefundOrderWhere,
   mapPaymentItems,
   mergeDisplayedOrderItems,
   sumPaymentAmounts,
@@ -56,7 +58,10 @@ export class HandoverPageService {
   ): Promise<HandoverPageResponseDto> {
     const shiftContext =
       await this.handoverPageShiftService.resolvePageShiftContext(user, query);
-    const shiftRange = this.buildPageShiftRange(shiftContext);
+    const shiftRange = await this.resolvePageShiftRange(
+      shiftContext,
+      new Date(),
+    );
     const metrics = await this.loadPageMetrics(
       shiftContext,
       shiftRange.startAt,
@@ -66,39 +71,56 @@ export class HandoverPageService {
     return this.buildPageResponse(shiftContext, metrics);
   }
 
-  private buildPageShiftRange(
+  private async resolvePageShiftRange(
     shiftContext: ResolvedHandoverPageShiftContext,
-  ): { startAt: Date; endAt: Date } {
+    referenceAt: Date,
+  ): Promise<{ startAt: Date; endAt: Date }> {
     const shiftRange = extendShiftRangeToReference(
       buildShiftDateRange(
         shiftContext.shiftInfo.startTime,
         shiftContext.shiftInfo.endTime,
         shiftContext.shiftRecord?.date,
       ),
-      new Date(),
+      referenceAt,
     );
-    const receiverShiftStartTime = shiftContext.receiverCandidate?.shiftStartTime;
-    const receiverShiftEndTime = shiftContext.receiverCandidate?.shiftEndTime;
-    if (!receiverShiftStartTime || !receiverShiftEndTime) {
-      return shiftRange;
-    }
+    const initializedStartAt = await this.findShiftInitializedStartAt(
+      shiftContext,
+      shiftRange.startAt,
+      referenceAt,
+    );
 
-    const receiverShiftStartAt = buildShiftDateRange(
-      receiverShiftStartTime,
-      receiverShiftEndTime,
-      shiftContext.receiverCandidate?.shiftDate ?? shiftContext.shiftRecord?.date,
-    ).startAt;
-    if (
-      receiverShiftStartAt.getTime() <= shiftRange.startAt.getTime() ||
-      receiverShiftStartAt.getTime() >= shiftRange.endAt.getTime()
-    ) {
-      return shiftRange;
-    }
+    return initializedStartAt
+      ? {
+          startAt: initializedStartAt,
+          endAt: shiftRange.endAt,
+        }
+      : shiftRange;
+  }
 
-    return {
-      startAt: shiftRange.startAt,
-      endAt: receiverShiftStartAt,
-    };
+  private async findShiftInitializedStartAt(
+    shiftContext: ResolvedHandoverPageShiftContext,
+    shiftStartAt: Date,
+    referenceAt: Date,
+  ): Promise<Date | null> {
+    // 查找同门店内，在本班次开始时间之后、完成的最新交班记录
+    // 该交班时刻即为本班次的统计起点（过滤上一班未交班时段的数据）
+    // 注：不按 employeeShiftIdSnapshot 过滤，因为老板主账号交班时不写 snapshot
+    const previousHandover = await this.prisma.storeHandoverRecord.findFirst({
+      where: {
+        storeId: shiftContext.membership.storeId,
+        status: HandoverStatus.completed,
+        handoverAt: {
+          gt: shiftStartAt,
+          lte: referenceAt,
+        },
+      },
+      select: {
+        handoverAt: true,
+      },
+      orderBy: [{ handoverAt: 'desc' }, { id: 'desc' }],
+    });
+
+    return previousHandover?.handoverAt ?? null;
   }
 
   private async loadPageMetrics(
@@ -118,6 +140,10 @@ export class HandoverPageService {
       shiftRange,
       displayOperatorStaffId,
     );
+    const refundWhere = buildSpaceRefundOrderWhere(
+      membership.storeId,
+      shiftRange,
+    );
     const [
       paymentOrderItems,
       orderItems,
@@ -130,11 +156,11 @@ export class HandoverPageService {
     ] = await Promise.all([
       this.loadPaymentOrderItems(membership.storeId, orderWhere),
       this.loadRecentOrderItems(membership.storeId, orderWhere),
-      this.loadRefundOrders(orderWhere),
+      this.loadRefundOrders(refundWhere),
       this.prisma.saleOrder.count({ where: orderWhere }),
       this.loadSpaceRevenue(membership.storeId, startAt, endAt),
       this.loadAdditionalRevenue(orderWhere),
-      this.loadRefundRevenue(orderWhere),
+      this.loadRefundRevenue(refundWhere),
       this.loadPettyCash(cashFlowWhere),
     ]);
 
@@ -181,18 +207,10 @@ export class HandoverPageService {
   }
 
   private async loadRefundOrders(
-    orderWhere: ReturnType<typeof buildSaleOrderWhere>,
+    refundWhere: ReturnType<typeof buildSpaceRefundOrderWhere>,
   ): Promise<RefundOrderRow[]> {
     return this.prisma.saleOrder.findMany({
-      where: {
-        ...orderWhere,
-        totalRevenue: {
-          lt: 0,
-        },
-        spaceSession: {
-          isNot: null,
-        },
-      },
+      where: refundWhere,
       select: {
         id: true,
         date: true,
@@ -242,18 +260,10 @@ export class HandoverPageService {
   }
 
   private async loadRefundRevenue(
-    orderWhere: ReturnType<typeof buildSaleOrderWhere>,
+    refundWhere: ReturnType<typeof buildSpaceRefundOrderWhere>,
   ) {
     return this.prisma.saleOrder.aggregate({
-      where: {
-        ...orderWhere,
-        totalRevenue: {
-          lt: 0,
-        },
-        spaceSession: {
-          isNot: null,
-        },
-      },
+      where: refundWhere,
       _sum: { totalRevenue: true },
     });
   }
@@ -303,6 +313,8 @@ export class HandoverPageService {
       receiverName: shiftContext.receiverCandidate?.employeeName ?? '',
       canOperate: shiftContext.operationAccess.canOperate,
       operationBlockedReason: shiftContext.operationAccess.blockedReason,
+      handoverCompletedAndNoUpcomingShift:
+        shiftContext.handoverCompletedAndNoUpcomingShift,
     };
   }
 }

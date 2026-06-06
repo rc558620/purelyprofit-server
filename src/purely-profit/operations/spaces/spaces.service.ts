@@ -20,8 +20,9 @@ export class SpacesService {
   listSpaces(
     user: AuthenticatedUser,
     query: ListSpacesQueryDto,
+    requestId?: string,
   ): Promise<SpaceResponseDto[]> {
-    return this.spacesReadService.listSpaces(user, query);
+    return this.spacesReadService.listSpaces(user, query, requestId);
   }
 
   createSpace(

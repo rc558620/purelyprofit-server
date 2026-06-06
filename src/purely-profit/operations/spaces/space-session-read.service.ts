@@ -41,6 +41,7 @@ export class SpaceSessionReadService {
   async listStoreSpaceSessions(
     user: AuthenticatedUser,
     queryDto: ListSpaceSessionsQueryDto,
+    requestId?: string,
   ): Promise<SpaceSessionResponseDto[]> {
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
@@ -56,6 +57,9 @@ export class SpaceSessionReadService {
     await this.settlementService.autoCheckoutExpiredCountdownSessions(
       user,
       storeId,
+      Date.now(),
+      'space-sessions:list-store',
+      requestId,
     );
 
     const query = toSpaceSessionListQuery(queryDto);
@@ -76,6 +80,7 @@ export class SpaceSessionReadService {
   async listStoreActiveSpaceSessions(
     user: AuthenticatedUser,
     queryDto: ListSpaceSessionsQueryDto,
+    requestId?: string,
   ): Promise<SpaceSessionResponseDto[]> {
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
@@ -91,6 +96,9 @@ export class SpaceSessionReadService {
     await this.settlementService.autoCheckoutExpiredCountdownSessions(
       user,
       storeId,
+      Date.now(),
+      'space-sessions:list-active',
+      requestId,
     );
 
     const query = toSpaceSessionListQuery(queryDto);
@@ -106,6 +114,7 @@ export class SpaceSessionReadService {
   async getActiveSpaceSession(
     user: AuthenticatedUser,
     spaceId: number,
+    requestId?: string,
   ): Promise<SpaceSessionResponseDto | null> {
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
@@ -129,6 +138,9 @@ export class SpaceSessionReadService {
     await this.settlementService.autoCheckoutExpiredCountdownSessions(
       user,
       space.storeId,
+      Date.now(),
+      'space-sessions:get-active',
+      requestId,
     );
 
     const session = await this.prisma.spaceSession.findFirst({
@@ -159,6 +171,7 @@ export class SpaceSessionReadService {
     user: AuthenticatedUser,
     spaceId: number,
     queryDto: ListSpaceSessionsQueryDto,
+    requestId?: string,
   ): Promise<PaginatedSpaceSessionsResponseDto> {
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
@@ -182,6 +195,9 @@ export class SpaceSessionReadService {
     await this.settlementService.autoCheckoutExpiredCountdownSessions(
       user,
       space.storeId,
+      Date.now(),
+      'space-sessions:list-by-space',
+      requestId,
     );
 
     const query = toSpaceSessionListQuery(queryDto);
@@ -226,6 +242,7 @@ export class SpaceSessionReadService {
   async getSpaceSessionDetail(
     user: AuthenticatedUser,
     sessionId: number,
+    requestId?: string,
   ): Promise<SpaceSessionResponseDto> {
     let session = await this.prisma.spaceSession.findUnique({
       where: { id: sessionId },
@@ -259,6 +276,9 @@ export class SpaceSessionReadService {
       await this.settlementService.autoCheckoutExpiredCountdownSessions(
         user,
         session.storeId,
+        Date.now(),
+        'space-sessions:detail',
+        requestId,
       );
 
       session = await this.prisma.spaceSession.findUnique({

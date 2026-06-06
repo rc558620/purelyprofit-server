@@ -40,37 +40,51 @@ export class SpaceSessionsService {
   async listStoreSpaceSessions(
     user: AuthenticatedUser,
     queryDto: ListSpaceSessionsQueryDto,
+    requestId?: string,
   ): Promise<SpaceSessionResponseDto[]> {
-    return this.readService.listStoreSpaceSessions(user, queryDto);
+    return this.readService.listStoreSpaceSessions(user, queryDto, requestId);
   }
 
   async listStoreActiveSpaceSessions(
     user: AuthenticatedUser,
     queryDto: ListSpaceSessionsQueryDto,
+    requestId?: string,
   ): Promise<SpaceSessionResponseDto[]> {
-    return this.readService.listStoreActiveSpaceSessions(user, queryDto);
+    return this.readService.listStoreActiveSpaceSessions(
+      user,
+      queryDto,
+      requestId,
+    );
   }
 
   async getActiveSpaceSession(
     user: AuthenticatedUser,
     spaceId: number,
+    requestId?: string,
   ): Promise<SpaceSessionResponseDto | null> {
-    return this.readService.getActiveSpaceSession(user, spaceId);
+    return this.readService.getActiveSpaceSession(user, spaceId, requestId);
   }
 
   async listSpaceSessions(
     user: AuthenticatedUser,
     spaceId: number,
     queryDto: ListSpaceSessionsQueryDto,
+    requestId?: string,
   ): Promise<PaginatedSpaceSessionsResponseDto> {
-    return this.readService.listSpaceSessions(user, spaceId, queryDto);
+    return this.readService.listSpaceSessions(
+      user,
+      spaceId,
+      queryDto,
+      requestId,
+    );
   }
 
   async getSpaceSessionDetail(
     user: AuthenticatedUser,
     sessionId: number,
+    requestId?: string,
   ): Promise<SpaceSessionResponseDto> {
-    return this.readService.getSpaceSessionDetail(user, sessionId);
+    return this.readService.getSpaceSessionDetail(user, sessionId, requestId);
   }
 
   async openSpaceSession(

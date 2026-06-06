@@ -39,7 +39,18 @@ import {
   UpdateCustomerDto,
   UpdatePromotionDto,
 } from './dto/marketing-query.dto';
-
+import {
+  CreateMarketingProductCategoryDto,
+  CreateMarketingProductDto,
+  ListMarketingProductsQueryDto,
+  MarketingProductCategoriesResponseDto,
+  MarketingProductCategoryDto,
+  MarketingProductDto,
+  MarketingProductsResponseDto,
+  ToggleMarketingProductDto,
+  UpdateMarketingProductCategoryDto,
+  UpdateMarketingProductDto,
+} from './dto/marketing-product.dto';
 import {
   MarketingConsumptionDto,
   MarketingConsumptionsResponseDto,
@@ -223,6 +234,116 @@ export class MarketingController {
     @Query() query: ListPointsRecordsQueryDto,
   ): Promise<MarketingPointsRecordsResponseDto> {
     return this.marketingService.listPointsRecords(req.user, query);
+  }
+
+  // ── Product Categories ───────────────────────────────────────────────
+
+  @Get('product-categories')
+  @RequirePermissions('marketing:view')
+  @ApiOperation({ summary: '产品分类列表' })
+  @ApiOkResponse({ type: MarketingProductCategoriesResponseDto })
+  async listProductCategories(
+    @Req() req: { user: AuthenticatedUser },
+    @Query('storeId', new ParseIntPipe({ optional: true })) storeId?: number,
+  ): Promise<MarketingProductCategoriesResponseDto> {
+    return this.marketingService.listProductCategories(req.user, storeId);
+  }
+
+  @Post('product-categories')
+  @RequirePermissions('marketing:manage')
+  @ApiOperation({ summary: '新增产品分类' })
+  @ApiCreatedResponse({ type: MarketingProductCategoryDto })
+  async createProductCategory(
+    @Req() req: { user: AuthenticatedUser },
+    @Body() dto: CreateMarketingProductCategoryDto,
+    @Query('storeId', ParseIntPipe) storeId: number,
+  ): Promise<MarketingProductCategoryDto> {
+    return this.marketingService.createProductCategory(req.user, storeId, dto);
+  }
+
+  @Patch('product-categories/:id')
+  @RequirePermissions('marketing:manage')
+  @ApiOperation({ summary: '编辑产品分类' })
+  @ApiOkResponse({ type: MarketingProductCategoryDto })
+  async updateProductCategory(
+    @Req() req: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateMarketingProductCategoryDto,
+  ): Promise<MarketingProductCategoryDto> {
+    return this.marketingService.updateProductCategory(req.user, id, dto);
+  }
+
+  @Delete('product-categories/:id')
+  @RequirePermissions('marketing:manage')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: '删除产品分类' })
+  @ApiNoContentResponse()
+  async deleteProductCategory(
+    @Req() req: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<void> {
+    return this.marketingService.deleteProductCategory(req.user, id);
+  }
+
+  // ── Products ─────────────────────────────────────────────────────────
+
+  @Get('products')
+  @RequirePermissions('marketing:view')
+  @ApiOperation({ summary: '产品列表' })
+  @ApiOkResponse({ type: MarketingProductsResponseDto })
+  async listProducts(
+    @Req() req: { user: AuthenticatedUser },
+    @Query() query: ListMarketingProductsQueryDto,
+  ): Promise<MarketingProductsResponseDto> {
+    return this.marketingService.listProducts(req.user, query);
+  }
+
+  @Post('products')
+  @RequirePermissions('marketing:manage')
+  @ApiOperation({ summary: '新增产品' })
+  @ApiCreatedResponse({ type: MarketingProductDto })
+  async createProduct(
+    @Req() req: { user: AuthenticatedUser },
+    @Body() dto: CreateMarketingProductDto,
+    @Query('storeId', ParseIntPipe) storeId: number,
+  ): Promise<MarketingProductDto> {
+    return this.marketingService.createProduct(req.user, storeId, dto);
+  }
+
+  @Patch('products/:id')
+  @RequirePermissions('marketing:manage')
+  @ApiOperation({ summary: '编辑产品' })
+  @ApiOkResponse({ type: MarketingProductDto })
+  async updateProduct(
+    @Req() req: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateMarketingProductDto,
+  ): Promise<MarketingProductDto> {
+    return this.marketingService.updateProduct(req.user, id, dto);
+  }
+
+  @Patch('products/:id/toggle')
+  @RequirePermissions('marketing:manage')
+  @ApiOperation({ summary: '上架/下架产品' })
+  @ApiOkResponse({ type: MarketingProductDto })
+  async toggleProduct(
+    @Req() req: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ToggleMarketingProductDto,
+  ): Promise<MarketingProductDto> {
+    return this.marketingService.toggleProduct(req.user, id, dto);
+  }
+
+  @Delete('products/:id')
+  @RequirePermissions('marketing:manage')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: '删除产品' })
+  @ApiNoContentResponse()
+  async deleteProduct(
+    @Req() req: { user: AuthenticatedUser },
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<void> {
+    return this.marketingService.deleteProduct(req.user, id);
   }
 
   // ── Promotions ───────────────────────────────────────────────────────

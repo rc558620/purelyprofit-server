@@ -1,8 +1,10 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import {
   Prisma,
   SpaceBillingMode as PrismaSpaceBillingMode,
@@ -12,6 +14,7 @@ import {
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../redis/redis.service';
 import type {
   CreateSalesRecordDto,
   SalesRecordResponseDto,
@@ -49,11 +52,16 @@ export interface SettleSpaceSessionResult {
   salesOrder: SalesRecordResponseDto;
 }
 
+const AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS = 30;
+
 @Injectable()
 export class SpaceSessionSettlementService {
+  private readonly logger = new Logger(SpaceSessionSettlementService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly salesRecordService: SalesRecordService,
+    private readonly redisService: RedisService,
   ) {}
 
   async settleSession(
@@ -147,77 +155,209 @@ export class SpaceSessionSettlementService {
     user: AuthenticatedUser,
     storeId: number,
     now = Date.now(),
+    trigger = 'space:auto-checkout',
+    requestId?: string,
   ): Promise<number> {
-    const sessions = await this.prisma.spaceSession.findMany({
-      where: {
-        storeId,
-        status: PrismaSpaceSessionStatus.active,
-        endTime: null,
-        billingMode: PrismaSpaceBillingMode.countdown,
-        autoCheckout: true,
-        countdownMinutes: {
-          not: null,
+    let lockKey: string | null = null;
+
+    try {
+      lockKey = await this.acquireAutoCheckoutStoreLock(storeId);
+      if (!lockKey) {
+        this.logger.warn(
+          `[space-auto-checkout] skipped_concurrent ${this.buildAutoCheckoutLogContext(
+            {
+              trigger,
+              storeId,
+              userId: user.id,
+              requestId,
+            },
+          )}`,
+        );
+        return 0;
+      }
+
+      const sessions = await this.prisma.spaceSession.findMany({
+        where: {
+          storeId,
+          status: PrismaSpaceSessionStatus.active,
+          endTime: null,
+          billingMode: PrismaSpaceBillingMode.countdown,
+          autoCheckout: true,
+          countdownMinutes: {
+            not: null,
+          },
         },
-      },
-      include: {
-        space: {
-          select: {
-            id: true,
-            name: true,
-            enableDirtyRoom: true,
-            type: {
-              select: {
-                name: true,
+        include: {
+          space: {
+            select: {
+              id: true,
+              name: true,
+              enableDirtyRoom: true,
+              type: {
+                select: {
+                  name: true,
+                },
               },
             },
           },
         },
-      },
-      orderBy: [{ startTime: 'asc' }, { id: 'asc' }],
-    });
-
-    let settledCount = 0;
-    for (const session of sessions) {
-      if (!session.prepaidPaymentMethod) {
-        continue;
-      }
-
-      const renewRecords = parseSpaceSessionRenewRecords(session.renewRecords);
-      const checkoutAt = this.resolveAutoCheckoutAt(session, renewRecords);
-      if (checkoutAt === null || checkoutAt > now) {
-        continue;
-      }
-
-      const settlement = buildSpaceSessionSettlement({
-        session,
-        checkoutAt,
-        payload: {},
-        items: parseSpaceSessionItems(session.items),
-        renewRecords,
+        orderBy: [{ startTime: 'asc' }, { id: 'asc' }],
       });
 
-      try {
-        await this.settleSession(user, {
-          session,
-          checkoutAt,
-          paymentMethod: session.prepaidPaymentMethod,
-          note: '倒计时到期自动结账',
-          settlement,
-          renewRecords,
-        });
-        settledCount += 1;
-      } catch (error) {
-        if (
-          error instanceof ConflictException ||
-          error instanceof NotFoundException
-        ) {
+      let settledCount = 0;
+      let failedCount = 0;
+      for (const session of sessions) {
+        if (!session.prepaidPaymentMethod) {
           continue;
         }
-        throw error;
+
+        const renewRecords = parseSpaceSessionRenewRecords(
+          session.renewRecords,
+        );
+        const checkoutAt = this.resolveAutoCheckoutAt(session, renewRecords);
+        if (checkoutAt === null || checkoutAt > now) {
+          continue;
+        }
+
+        const settlement = buildSpaceSessionSettlement({
+          session,
+          checkoutAt,
+          payload: {},
+          items: parseSpaceSessionItems(session.items),
+          renewRecords,
+        });
+
+        try {
+          await this.settleSession(user, {
+            session,
+            checkoutAt,
+            paymentMethod: session.prepaidPaymentMethod,
+            note: '倒计时到期自动结账',
+            settlement,
+            renewRecords,
+          });
+          settledCount += 1;
+        } catch (error) {
+          if (
+            error instanceof ConflictException ||
+            error instanceof NotFoundException
+          ) {
+            this.logger.warn(
+              `[space-auto-checkout] skipped_session ${this.buildAutoCheckoutLogContext(
+                {
+                  trigger,
+                  storeId,
+                  sessionId: session.id,
+                  reason: error.constructor.name,
+                  requestId,
+                },
+              )}`,
+            );
+            continue;
+          }
+          failedCount += 1;
+          this.logger.error(
+            `[space-auto-checkout] failed ${this.buildAutoCheckoutLogContext({
+              trigger,
+              storeId,
+              sessionId: session.id,
+              reason: error instanceof Error ? error.name : 'UnknownError',
+              requestId,
+            })}`,
+            error instanceof Error ? error.stack : undefined,
+          );
+          continue;
+        }
+      }
+
+      if (settledCount > 0 || failedCount > 0) {
+        this.logger.log(
+          `[space-auto-checkout] completed ${this.buildAutoCheckoutLogContext({
+            trigger,
+            storeId,
+            count: settledCount,
+            failedCount,
+            requestId,
+          })}`,
+        );
+      }
+
+      return settledCount;
+    } catch (error) {
+      this.logger.error(
+        `[space-auto-checkout] aborted ${this.buildAutoCheckoutLogContext({
+          trigger,
+          storeId,
+          userId: user.id,
+          requestId,
+          reason: error instanceof Error ? error.name : 'UnknownError',
+        })}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return 0;
+    } finally {
+      if (lockKey) {
+        try {
+          await this.releaseAutoCheckoutStoreLock(lockKey);
+        } catch (error) {
+          this.logger.warn(
+            `[space-auto-checkout] release_lock_failed ${this.buildAutoCheckoutLogContext(
+              {
+                trigger,
+                storeId,
+                userId: user.id,
+                requestId,
+                reason: error instanceof Error ? error.name : 'UnknownError',
+              },
+            )}`,
+          );
+        }
       }
     }
+  }
 
-    return settledCount;
+  private buildAutoCheckoutLogContext(params: {
+    trigger: string;
+    storeId: number;
+    requestId?: string;
+    userId?: number;
+    sessionId?: number;
+    count?: number;
+    failedCount?: number;
+    reason?: string;
+  }): string {
+    const segments = [
+      `trigger=${params.trigger}`,
+      `storeId=${params.storeId}`,
+      ...(params.requestId ? [`requestId=${params.requestId}`] : []),
+      ...(params.userId !== undefined ? [`userId=${params.userId}`] : []),
+      ...(params.sessionId !== undefined
+        ? [`sessionId=${params.sessionId}`]
+        : []),
+      ...(params.count !== undefined ? [`count=${params.count}`] : []),
+      ...(params.failedCount !== undefined
+        ? [`failedCount=${params.failedCount}`]
+        : []),
+      ...(params.reason ? [`reason=${params.reason}`] : []),
+    ];
+
+    return segments.join(' ');
+  }
+
+  private async acquireAutoCheckoutStoreLock(
+    storeId: number,
+  ): Promise<string | null> {
+    const token = randomUUID();
+    const lockKey = `space:auto-checkout:store:${storeId}`;
+    const result = await this.redisService
+      .getClient()
+      .set(lockKey, token, 'EX', AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS, 'NX');
+
+    return result === 'OK' ? lockKey : null;
+  }
+
+  private async releaseAutoCheckoutStoreLock(lockKey: string): Promise<void> {
+    await this.redisService.del(lockKey);
   }
 
   private async createSessionSaleOrder(
@@ -263,7 +403,10 @@ export class SpaceSessionSettlementService {
   }
 
   private resolveAutoCheckoutAt(
-    session: Pick<SpaceSessionSettlementRecord, 'startTime' | 'countdownMinutes'>,
+    session: Pick<
+      SpaceSessionSettlementRecord,
+      'startTime' | 'countdownMinutes'
+    >,
     renewRecords: SpaceSessionRenewRecord[],
   ): number | null {
     if (session.countdownMinutes === null || session.countdownMinutes <= 0) {
@@ -332,19 +475,20 @@ export class SpaceSessionSettlementService {
     spaceId: number,
   ): Promise<PrismaSpaceStatus> {
     const todayRange = this.getTodayRange();
-    const hasTodayPendingReservation = await transaction.spaceReservation.findFirst({
-      where: {
-        spaceId,
-        status: PrismaSpaceReservationStatus.pending,
-        reservedAt: {
-          gte: todayRange.start,
-          lte: todayRange.end,
+    const hasTodayPendingReservation =
+      await transaction.spaceReservation.findFirst({
+        where: {
+          spaceId,
+          status: PrismaSpaceReservationStatus.pending,
+          reservedAt: {
+            gte: todayRange.start,
+            lte: todayRange.end,
+          },
         },
-      },
-      select: {
-        id: true,
-      },
-    });
+        select: {
+          id: true,
+        },
+      });
 
     return hasTodayPendingReservation
       ? PrismaSpaceStatus.reserved

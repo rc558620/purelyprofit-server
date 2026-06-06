@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { StaffRole, StoreSubAccountRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { SpaceSessionSettlementService } from '../spaces/space-session-settlement.service';
 import type {
   CreateHandoverAdditionalItemDto,
   HandoverAdditionalItemDto,
@@ -30,6 +31,7 @@ import { HandoverRecordsService } from './handover-records.service';
 import {
   CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE,
   ensureMembershipContext,
+  ensureMembershipStoreId,
 } from './handover.shared';
 
 @Injectable()
@@ -39,12 +41,14 @@ export class HandoverService {
     private readonly handoverConfirmService: HandoverConfirmService,
     private readonly handoverRecordsService: HandoverRecordsService,
     private readonly handoverAdditionalItemsService: HandoverAdditionalItemsService,
+    private readonly spaceSessionSettlementService: SpaceSessionSettlementService,
   ) {}
 
-  getHandoverPage(
+  async getHandoverPage(
     user: AuthenticatedUser,
     query: HandoverPageQueryDto,
   ): Promise<HandoverPageResponseDto> {
+    await this.autoCheckoutCurrentStoreSessions(user, 'handover:page');
     return this.handoverPageService.getHandoverPage(user, query);
   }
 
@@ -128,25 +132,31 @@ export class HandoverService {
     );
   }
 
-  listHandoverRecords(
+  async listHandoverRecords(
     user: AuthenticatedUser,
     limit?: number,
     offset?: number,
   ): Promise<HandoverRecordListResponseDto> {
+    await this.autoCheckoutCurrentStoreSessions(user, 'handover:records');
     return this.handoverRecordsService.listHandoverRecords(user, limit, offset);
   }
 
-  getHandoverRecord(
+  async getHandoverRecord(
     user: AuthenticatedUser,
     recordId: number,
   ): Promise<HandoverRecordListItemDto> {
+    await this.autoCheckoutCurrentStoreSessions(user, 'handover:record-detail');
     return this.handoverRecordsService.getHandoverRecord(user, recordId);
   }
 
-  listHandoverRecordSummaries(
+  async listHandoverRecordSummaries(
     user: AuthenticatedUser,
     query: HandoverRecordSummaryQueryDto,
   ): Promise<HandoverRecordSummaryListResponseDto> {
+    await this.autoCheckoutCurrentStoreSessions(
+      user,
+      'handover:record-summaries',
+    );
     return this.handoverRecordsService.listHandoverRecordSummaries(user, query);
   }
 
@@ -154,9 +164,10 @@ export class HandoverService {
     return this.handoverRecordsService.getHandoverCandidates(storeId);
   }
 
-  getMyPendingHandover(
+  async getMyPendingHandover(
     user: AuthenticatedUser,
   ): Promise<HandoverRecordListItemDto | null> {
+    await this.autoCheckoutCurrentStoreSessions(user, 'handover:my-pending');
     return this.handoverRecordsService.getMyPendingHandover(user);
   }
 
@@ -164,6 +175,18 @@ export class HandoverService {
     user: AuthenticatedUser,
   ): Promise<void> {
     await this.ensureUserCanOperateShift(user);
+  }
+
+  private async autoCheckoutCurrentStoreSessions(
+    user: AuthenticatedUser,
+    trigger: string,
+  ): Promise<void> {
+    await this.spaceSessionSettlementService.autoCheckoutExpiredCountdownSessions(
+      user,
+      ensureMembershipStoreId(user),
+      Date.now(),
+      trigger,
+    );
   }
 
   private async ensureUserCanManageAdditionalItems(

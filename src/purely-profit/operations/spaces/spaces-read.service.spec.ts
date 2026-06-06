@@ -138,7 +138,13 @@ describe('SpacesReadService', () => {
 
     expect(
       settlementService.autoCheckoutExpiredCountdownSessions,
-    ).toHaveBeenCalledWith(user, 18);
+    ).toHaveBeenCalledWith(
+      user,
+      18,
+      expect.any(Number),
+      'spaces:list',
+      undefined,
+    );
     expect(prismaService.space.findMany).toHaveBeenCalledWith({
       where: {
         storeId: 18,
@@ -269,9 +275,7 @@ describe('SpaceSessionReadService 状态修复', () => {
     // 模拟查询返回一个 active session
     prismaService.spaceSession.findMany.mockResolvedValueOnce([]);
     // 模拟存在一个 occupied 状态但无 active session 的空间
-    prismaService.space.findMany.mockResolvedValueOnce([
-      { id: 11 },
-    ]);
+    prismaService.space.findMany.mockResolvedValueOnce([{ id: 11 }]);
     // 模拟该空间没有 active session
     prismaService.spaceSession.findFirst.mockResolvedValueOnce(null);
     // 模拟没有 pending 预约
@@ -301,9 +305,7 @@ describe('SpaceSessionReadService 状态修复', () => {
 
   it('listStoreSpaceSessions 如果 occupied 空间有 active session，则不修复状态', async () => {
     prismaService.spaceSession.findMany.mockResolvedValueOnce([]);
-    prismaService.space.findMany.mockResolvedValueOnce([
-      { id: 11 },
-    ]);
+    prismaService.space.findMany.mockResolvedValueOnce([{ id: 11 }]);
     // 模拟该空间有 active session
     prismaService.spaceSession.findFirst.mockResolvedValueOnce({ id: 1 });
 
@@ -382,7 +384,13 @@ describe('SpaceSessionReadService 状态修复', () => {
 
     expect(
       settlementService.autoCheckoutExpiredCountdownSessions,
-    ).toHaveBeenCalledWith(user, 18);
+    ).toHaveBeenCalledWith(
+      user,
+      18,
+      expect.any(Number),
+      'space-sessions:detail',
+      undefined,
+    );
     expect(prismaService.spaceSession.findUnique).toHaveBeenCalledTimes(2);
     expect(result.status).toBe('settled');
     expect(result.orderId).toBe('12');

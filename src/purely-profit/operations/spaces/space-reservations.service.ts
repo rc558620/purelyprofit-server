@@ -50,6 +50,7 @@ export class SpaceReservationsService {
     user: AuthenticatedUser,
     spaceId: number,
     query: ListSpaceReservationsQueryDto,
+    requestId?: string,
   ): Promise<SpaceReservationResponseDto[]> {
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
@@ -73,6 +74,9 @@ export class SpaceReservationsService {
     await this.settlementService.autoCheckoutExpiredCountdownSessions(
       user,
       space.storeId,
+      Date.now(),
+      'space-reservations:list-by-space',
+      requestId,
     );
 
     if (
@@ -110,6 +114,7 @@ export class SpaceReservationsService {
   async listStoreSpaceReservations(
     user: AuthenticatedUser,
     query: ListSpaceReservationsQueryDto,
+    requestId?: string,
   ): Promise<SpaceReservationResponseDto[]> {
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
@@ -125,6 +130,9 @@ export class SpaceReservationsService {
     await this.settlementService.autoCheckoutExpiredCountdownSessions(
       user,
       storeId,
+      Date.now(),
+      'space-reservations:list-store',
+      requestId,
     );
 
     if (

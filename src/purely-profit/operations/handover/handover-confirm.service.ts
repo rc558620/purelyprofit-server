@@ -46,8 +46,11 @@ export class HandoverConfirmService {
           operatorName: dto.operatorName,
         },
       );
+    if (!sourceShiftRecord) {
+      throw new BadRequestException('当前班次不存在，请刷新页面后重试');
+    }
     const sourceEmployeeId =
-      sourceShiftRecord?.employeeId ?? membership.linkedEmployeeId;
+      sourceShiftRecord.employeeId ?? membership.linkedEmployeeId;
     const handoverMode =
       membership.subjectType === 'sub_account'
         ? HandoverMode.sub_account

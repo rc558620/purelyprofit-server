@@ -1,6 +1,5 @@
 import { EmployeeShiftType, Prisma, SalesPaymentMethod } from '@prisma/client';
 import {
-  LATE_SHIFT_EMPLOYEE_A,
   MORNING_SHIFT_EMPLOYEE_A,
   setupHandoverPageSpec,
 } from './handover-page.spec-helpers';
@@ -163,7 +162,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       }),
     });
   });
-  it('切到存在后续班次的超时班次时收入范围应截断到下一班开始时刻', async () => {
+  it('切到存在后续班次的超时班次时收入仍应继续累计到当前交班时刻', async () => {
     ctx.setSystemTime('2026-06-05T20:00:00');
     const firstShift = ctx.createShiftRecord({
       id: 701,
@@ -208,9 +207,17 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       const snapshotCondition = Array.isArray(where?.OR)
         ? where.OR.find((item) => item?.employeeShiftIdSnapshot)
         : null;
-      return Promise.resolve(snapshotCondition?.employeeShiftIdSnapshot === 701 ? 1 : 0);
+      return Promise.resolve(
+        snapshotCondition?.employeeShiftIdSnapshot === 701 ? 1 : 0,
+      );
     });
     mockEmptySaleOrderItems();
+    prismaService.employee.findUnique.mockResolvedValueOnce(
+      ctx.createEmployeeProfile({
+        name: '收银员2',
+        linkedStaffId: 30,
+      }),
+    );
     prismaService.saleOrder.aggregate.mockResolvedValue({
       _sum: { totalRevenue: null },
     });
@@ -233,17 +240,147 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         status: 'settled',
         endTime: {
           gte: new Date(2026, 5, 5, 17, 6, 0),
-          lte: new Date(2026, 5, 5, 17, 11, 0),
+          lte: new Date(2026, 5, 5, 20, 0, 0),
         },
       },
       _sum: { timeCost: true },
     });
+    expect(prismaService.saleOrder.aggregate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          storeId: 100,
+          operatorStaffId: 30,
+          date: {
+            gte: new Date(2026, 5, 5, 17, 6, 0),
+            lte: new Date(2026, 5, 5, 20, 0, 0),
+          },
+          spaceSession: { is: null },
+        }),
+      }),
+    );
+  });
+
+  it('上一班延迟交班后下一班应从实际交接时刻开始初始化', async () => {
+    ctx.setSystemTime('2026-06-05T17:14:30');
+    const firstShift = ctx.createShiftRecord({
+      id: 711,
+      employeeId: 20,
+      employeeName: '收银员1',
+      shiftType: EmployeeShiftType.custom,
+      shiftName: '收银员1',
+      date: new Date('2026-06-05T00:00:00.000Z'),
+      startTime: '16:01',
+      endTime: '17:03',
+      createdAt: new Date('2026-06-05T15:55:00.000Z'),
+    });
+    const secondShift = ctx.createShiftRecord({
+      id: 712,
+      employeeId: 30,
+      employeeName: '收银员2',
+      shiftType: EmployeeShiftType.custom,
+      shiftName: '收银员2',
+      date: new Date('2026-06-05T00:00:00.000Z'),
+      startTime: '17:06',
+      endTime: '17:10',
+      createdAt: new Date('2026-06-05T17:00:00.000Z'),
+    });
+    const thirdShift = ctx.createShiftRecord({
+      id: 713,
+      employeeId: 40,
+      employeeName: '收银员3',
+      shiftType: EmployeeShiftType.custom,
+      shiftName: '收银员3',
+      date: new Date('2026-06-05T00:00:00.000Z'),
+      startTime: '17:11',
+      endTime: '17:15',
+      createdAt: new Date('2026-06-05T17:05:00.000Z'),
+    });
+    ctx.mockShiftLists({
+      defaultShifts: [firstShift, secondShift, thirdShift],
+      shiftsByEmployeeId: {
+        20: [firstShift],
+      },
+    });
+    prismaService.storeHandoverRecord.count.mockImplementation(({ where }) => {
+      const snapshotCondition = Array.isArray(where?.OR)
+        ? where.OR.find((item) => item?.employeeShiftIdSnapshot)
+        : null;
+      return Promise.resolve(
+        snapshotCondition?.employeeShiftIdSnapshot === 711 ? 1 : 0,
+      );
+    });
+    prismaService.storeHandoverRecord.findFirst.mockResolvedValue({
+      handoverAt: new Date(2026, 5, 5, 17, 14, 0),
+    });
+    mockEmptySaleOrderItems();
+    prismaService.employee.findUnique.mockResolvedValueOnce(
+      ctx.createEmployeeProfile({
+        name: '收银员2',
+        linkedStaffId: 30,
+      }),
+    );
+    prismaService.saleOrder.aggregate.mockResolvedValue({
+      _sum: { totalRevenue: null },
+    });
+    prismaService.saleOrder.count.mockResolvedValue(0);
+    prismaService.spaceSession.aggregate.mockResolvedValue({
+      _sum: { timeCost: null },
+    });
+
+    const result = await ctx.service.getHandoverPage(subAccountUser, {});
+
+    expect(result.shiftInfo).toMatchObject({
+      operatorName: '收银员2',
+      startTime: '17:06',
+      endTime: '17:10',
+    });
     expect(result.revenueSummary).toMatchObject({
       additionalRevenue: 0,
       spaceRevenue: 0,
+      refundAmount: 0,
       totalRevenue: 0,
       orderCount: 0,
     });
+    expect(prismaService.storeHandoverRecord.findFirst).toHaveBeenCalledWith({
+      where: {
+        storeId: 100,
+        status: 'completed',
+        handoverAt: {
+          gt: new Date(2026, 5, 5, 17, 6, 0),
+          lte: new Date(2026, 5, 5, 17, 14, 30),
+        },
+      },
+      select: {
+        handoverAt: true,
+      },
+      orderBy: [{ handoverAt: 'desc' }, { id: 'desc' }],
+    });
+    expect(prismaService.spaceSession.aggregate).toHaveBeenCalledWith({
+      where: {
+        storeId: 100,
+        status: 'settled',
+        endTime: {
+          gte: new Date(2026, 5, 5, 17, 14, 0),
+          lte: new Date(2026, 5, 5, 17, 14, 30),
+        },
+      },
+      _sum: { timeCost: true },
+    });
+    expect(prismaService.saleOrder.aggregate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          storeId: 100,
+          operatorStaffId: 30,
+          date: {
+            gte: new Date(2026, 5, 5, 17, 14, 0),
+            lte: new Date(2026, 5, 5, 17, 14, 30),
+          },
+          spaceSession: { is: null },
+        }),
+      }),
+    );
   });
 
   it('收款方式明细只统计收款并按收款总额计算占比', async () => {
@@ -402,9 +539,16 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith({
       where: expect.objectContaining({
         storeId: 100,
-        operatorStaffId: 2,
         totalRevenue: { lt: 0 },
-        spaceSession: { isNot: null },
+        spaceSession: {
+          is: expect.objectContaining({
+            status: 'settled',
+            endTime: expect.objectContaining({
+              gte: expect.any(Date),
+              lte: expect.any(Date),
+            }),
+          }),
+        },
       }),
       select: {
         id: true,
@@ -429,13 +573,65 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           storeId: 100,
-          operatorStaffId: 2,
           totalRevenue: { lt: 0 },
-          spaceSession: { isNot: null },
+          spaceSession: {
+            is: expect.objectContaining({
+              status: 'settled',
+              endTime: expect.objectContaining({
+                gte: expect.any(Date),
+                lte: expect.any(Date),
+              }),
+            }),
+          },
         }),
         _sum: { totalRevenue: true },
       }),
     );
+  });
+
+  it('自动结账退款即使归属到待交班员工也应展示在当前交班页', async () => {
+    prismaService.saleOrderItem.findMany.mockResolvedValue([]);
+    prismaService.saleOrder.findMany.mockResolvedValue([
+      {
+        id: 99,
+        date: new Date('2026-06-02T18:55:00.000Z'),
+        paymentMethod: SalesPaymentMethod.wechat,
+        totalRevenue: new Prisma.Decimal('-88.80'),
+        spaceSession: {
+          space: {
+            name: 'A01',
+          },
+        },
+      },
+    ]);
+    prismaService.saleOrder.count.mockResolvedValue(0);
+    prismaService.spaceSession.aggregate.mockResolvedValue({
+      _sum: { timeCost: null },
+    });
+    prismaService.saleOrder.aggregate
+      .mockResolvedValueOnce({
+        _sum: { totalRevenue: null },
+      })
+      .mockResolvedValueOnce({
+        _sum: { totalRevenue: new Prisma.Decimal('-88.80') },
+      });
+
+    const result = await ctx.service.getHandoverPage(subAccountUser, {
+      shiftType: EmployeeShiftType.morning,
+    });
+
+    expect(result.revenueSummary).toMatchObject({
+      additionalRevenue: 0,
+      spaceRevenue: 0,
+      refundAmount: 88.8,
+      totalRevenue: -88.8,
+    });
+    expect(result.orderItems[0]).toMatchObject({
+      id: 'refund-order-99',
+      productName: 'A01',
+      totalRevenue: -88.8,
+      paymentLabel: '微信退款',
+    });
   });
 
   it('预付抵扣明细应展示开台时的支付方式', async () => {

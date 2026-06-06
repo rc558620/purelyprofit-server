@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PlatformMembershipModule } from '../../member/platform-membership/platform-membership.module';
+import { SpacesModule } from '../spaces/spaces.module';
 import { HandoverController } from './handover.controller';
 import { HandoverAdditionalItemsService } from './handover-additional-items.service';
 import { HandoverConfirmShiftService } from './handover-confirm-shift.service';
@@ -17,7 +18,7 @@ import { HandoverRecordsViewContextService } from './handover-records-view-conte
 import { HandoverService } from './handover.service';
 
 @Module({
-  imports: [PlatformMembershipModule],
+  imports: [PlatformMembershipModule, forwardRef(() => SpacesModule)],
   controllers: [HandoverController],
   providers: [
     HandoverService,

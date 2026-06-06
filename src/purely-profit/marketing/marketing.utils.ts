@@ -73,6 +73,16 @@ export const MARKETING_PROMOTION_STATUS_VALUES = [
 export type MarketingPromotionStatus =
   (typeof MARKETING_PROMOTION_STATUS_VALUES)[number];
 
+/** 产品排序方式（与前端 MarketingProductSortBy 完全一致） */
+export const MARKETING_PRODUCT_SORT_VALUES = [
+  'createdAt',
+  'name',
+  'price_asc',
+  'price_desc',
+] as const;
+export type MarketingProductSortValue =
+  (typeof MARKETING_PRODUCT_SORT_VALUES)[number];
+
 // ─── 分页 ─────────────────────────────────────────────────────────────
 
 export interface MarketingPaginationMeta {
@@ -234,6 +244,12 @@ export interface PromotionListQuery {
   status?: MarketingPromotionStatus;
   page?: number;
   pageSize?: number;
+}
+
+export interface ProductListQuery {
+  storeId: number;
+  categoryId?: number;
+  sortBy?: MarketingProductSortValue;
 }
 
 export interface OverviewQuery {

@@ -14,6 +14,18 @@ import type {
   UpdatePromotionDto,
 } from './dto/marketing-query.dto';
 import type {
+  CreateMarketingProductCategoryDto,
+  CreateMarketingProductDto,
+  ListMarketingProductsQueryDto,
+  MarketingProductCategoriesResponseDto,
+  MarketingProductCategoryDto,
+  MarketingProductDto,
+  MarketingProductsResponseDto,
+  ToggleMarketingProductDto,
+  UpdateMarketingProductCategoryDto,
+  UpdateMarketingProductDto,
+} from './dto/marketing-product.dto';
+import type {
   MarketingConsumptionDto,
   MarketingConsumptionsResponseDto,
   MarketingCustomerDetailDto,
@@ -30,6 +42,8 @@ import { MarketingConsumptionsService } from './marketing-consumptions.service';
 import { MarketingCustomersService } from './marketing-customers.service';
 import { MarketingOverviewService } from './marketing-overview.service';
 import { MarketingPointsRecordsService } from './marketing-points-records.service';
+import { MarketingProductCategoriesService } from './marketing-product-categories.service';
+import { MarketingProductsService } from './marketing-products.service';
 import { MarketingPromotionsService } from './marketing-promotions.service';
 import { MarketingRechargesService } from './marketing-recharges.service';
 
@@ -42,6 +56,8 @@ export class MarketingService {
     private readonly marketingPointsRecordsService: MarketingPointsRecordsService,
     private readonly marketingConsumptionsService: MarketingConsumptionsService,
     private readonly marketingPromotionsService: MarketingPromotionsService,
+    private readonly marketingProductCategoriesService: MarketingProductCategoriesService,
+    private readonly marketingProductsService: MarketingProductsService,
   ) {}
 
   async getOverview(
@@ -209,5 +225,84 @@ export class MarketingService {
       promotionId,
       enabled,
     );
+  }
+
+  async listProductCategories(
+    user: AuthenticatedUser,
+    storeId?: number,
+  ): Promise<MarketingProductCategoriesResponseDto> {
+    return this.marketingProductCategoriesService.listCategories(user, storeId);
+  }
+
+  async createProductCategory(
+    user: AuthenticatedUser,
+    storeId: number,
+    dto: CreateMarketingProductCategoryDto,
+  ): Promise<MarketingProductCategoryDto> {
+    return this.marketingProductCategoriesService.createCategory(
+      user,
+      storeId,
+      dto,
+    );
+  }
+
+  async updateProductCategory(
+    user: AuthenticatedUser,
+    categoryId: number,
+    dto: UpdateMarketingProductCategoryDto,
+  ): Promise<MarketingProductCategoryDto> {
+    return this.marketingProductCategoriesService.updateCategory(
+      user,
+      categoryId,
+      dto,
+    );
+  }
+
+  async deleteProductCategory(
+    user: AuthenticatedUser,
+    categoryId: number,
+  ): Promise<void> {
+    return this.marketingProductCategoriesService.deleteCategory(
+      user,
+      categoryId,
+    );
+  }
+
+  async listProducts(
+    user: AuthenticatedUser,
+    query: ListMarketingProductsQueryDto,
+  ): Promise<MarketingProductsResponseDto> {
+    return this.marketingProductsService.listProducts(user, query);
+  }
+
+  async createProduct(
+    user: AuthenticatedUser,
+    storeId: number,
+    dto: CreateMarketingProductDto,
+  ): Promise<MarketingProductDto> {
+    return this.marketingProductsService.createProduct(user, storeId, dto);
+  }
+
+  async updateProduct(
+    user: AuthenticatedUser,
+    productId: number,
+    dto: UpdateMarketingProductDto,
+  ): Promise<MarketingProductDto> {
+    return this.marketingProductsService.updateProduct(user, productId, dto);
+  }
+
+  async toggleProduct(
+    user: AuthenticatedUser,
+    productId: number,
+    dto: ToggleMarketingProductDto,
+  ): Promise<MarketingProductDto> {
+    return this.marketingProductsService.toggleProduct(user, productId, dto);
+  }
+
+  async deleteProduct(
+    user: AuthenticatedUser,
+    productId: number,
+  ): Promise<void> {
+    return this.marketingProductsService.deleteProduct(user, productId);
   }
 }
