@@ -1,0 +1,56 @@
+// purely-profit/operations/costs: 成本模型
+
+enum CostType {
+  fixed
+  variable
+}
+
+enum CostCategory {
+  rent
+  salary
+  insurance
+  provident_fund
+  utilities
+  purchase
+  equipment
+  marketing
+  packaging
+  other
+}
+
+enum CostSourceType {
+  manual
+  purchase
+  payroll_salary
+  payroll_insurance
+  payroll_provident_fund
+}
+
+model CostRecord {
+  id              Int              @id @default(autoincrement())
+  storeId         Int              @map("store_id")
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  operatorStaffId Int?             @map("operator_staff_id")
+  operatorStaff   Staff?           @relation("CostRecordOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
+  purchaseOrderId Int?             @map("purchase_order_id")
+  purchaseOrder   PurchaseOrder?   @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  payrollId       Int?             @map("payroll_id")
+  payroll         EmployeePayroll? @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  sourceType      CostSourceType   @map("source_type")
+  title           String
+  type            CostType
+  category        CostCategory
+  amount          Decimal          @db.Decimal(12, 2)
+  note            String?
+  date            DateTime
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@unique([storeId, sourceType, purchaseOrderId])
+  @@unique([storeId, sourceType, payrollId])
+  @@index([storeId, date])
+  @@index([storeId, type, date])
+  @@index([storeId, category, date])
+  @@index([operatorStaffId, createdAt])
+  @@map("cost_records")
+}

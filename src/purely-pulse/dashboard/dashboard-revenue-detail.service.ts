@@ -38,7 +38,7 @@ import type {
   GetPulseRevenueDetailQueryDto,
   PulseHomeRevenuePeriodValue,
 } from './dto/pulse-dashboard-query.dto';
-import type { PulseRevenueDetailResponseDto } from './dto/pulse-dashboard-response.dto';
+import type { PulseRevenueDetailResponseDto } from './dto/pulse-dashboard-revenue-detail.response.dto';
 
 @Injectable()
 export class PulseDashboardRevenueDetailService {

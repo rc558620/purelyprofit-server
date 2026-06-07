@@ -1,4 +1,4 @@
-import { SUMMARY_ACTION_TARGETS } from './metrics.protocol';
+import { SUMMARY_ACTION_TARGETS } from './metrics-summary.protocol';
 import type {
   SummaryActionId,
   SummaryActionParamsById,
@@ -8,7 +8,7 @@ import type {
   SummaryImpactScope,
   SummaryOwnerType,
   SummaryStatus,
-} from './metrics.protocol';
+} from './metrics-summary.protocol';
 import {
   buildEtaBySeverity,
   buildImpactLevelBySeverity,

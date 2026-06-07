@@ -49,7 +49,7 @@ import type {
   PulseDashboardStatsDto,
   PulseDashboardStoreRankItemDto,
   PulseDashboardStoresResponseDto,
-} from './dto/pulse-dashboard-response.dto';
+} from './dto/pulse-dashboard-overview.response.dto';
 
 const PULSE_DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS = 20;
 

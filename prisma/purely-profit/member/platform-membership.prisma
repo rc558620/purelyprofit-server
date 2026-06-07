@@ -1,0 +1,126 @@
+// 平台会员权益与门店会员中心模型
+
+enum MembershipPlanCycle {
+  monthly
+  quarterly
+  yearly
+  lifetime
+}
+
+enum MembershipPlanSettingId {
+  monthly
+  quarterly
+  yearly
+  lifetime
+}
+
+enum MembershipOrderStatus {
+  pending
+  paid
+  failed
+  refunded
+}
+
+enum MembershipPaymentChannel {
+  wechat
+}
+
+model MembershipPlanSetting {
+  id             Int                     @id @default(autoincrement())
+  planId         MembershipPlanSettingId @unique @map("plan_id")
+  planName       String                  @map("plan_name")
+  price          Int
+  originalPrice  Int?                    @map("original_price")
+  durationMonths Int?                    @map("duration_months")
+  validDays      Int?                    @map("valid_days")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+
+  @@map("membership_plan_settings")
+}
+
+model StoreMembershipProfile {
+  id              Int                        @id @default(autoincrement())
+  storeId         Int                        @unique @map("store_id")
+  store           Store                      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  currentPlanId   MembershipPlanCycle?       @map("current_plan_id")
+  startsAt        DateTime?                  @map("starts_at")
+  expiresAt       DateTime?                  @map("expires_at")
+  totalPoints     Int                        @default(0) @map("total_points")
+  availablePoints Int                        @default(0) @map("available_points")
+  subAccountQuota Int                        @default(0) @map("sub_account_quota")
+  orders          StoreMembershipOrder[]
+  pointsLogs      StoreMembershipPointsLog[]
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
+
+  @@index([expiresAt])
+  @@map("store_membership_profiles")
+}
+
+model StoreMembershipOrder {
+  id             Int                      @id @default(autoincrement())
+  storeId        Int                      @map("store_id")
+  store          Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  profileId      Int                      @map("profile_id")
+  profile        StoreMembershipProfile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  planId         MembershipPlanCycle      @map("plan_id")
+  planName       String                   @map("plan_name")
+  originalAmount Int                      @map("original_amount")
+  pointsDeducted Int                      @default(0) @map("points_deducted")
+  pointsUsed     Int                      @default(0) @map("points_used")
+  beanDeducted   Int                      @default(0) @map("bean_deducted")
+  beansUsed      Int                      @default(0) @map("beans_used")
+  amount         Int
+  status         MembershipOrderStatus    @default(paid)
+  paymentChannel MembershipPaymentChannel @default(wechat) @map("payment_channel")
+  paymentOrderId String?                  @map("payment_order_id")
+  paidAt         DateTime?                @map("paid_at")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+
+  @@index([storeId, createdAt])
+  @@index([profileId, createdAt])
+  @@index([status, createdAt])
+  @@map("store_membership_orders")
+}
+
+model StoreMembershipPointsLog {
+  id           Int                    @id @default(autoincrement())
+  storeId      Int                    @map("store_id")
+  store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  profileId    Int                    @map("profile_id")
+  profile      StoreMembershipProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  source       MemberPointsSource
+  changeAmount Int                    @map("change_amount")
+  description  String
+  expireAt     DateTime?              @map("expire_at")
+  createdAt    DateTime               @default(now()) @map("created_at")
+
+  @@index([storeId, createdAt])
+  @@index([profileId, createdAt])
+  @@index([source, createdAt])
+  @@map("store_membership_points_logs")
+}
+
+model StoreMembershipPromoRecord {
+  id            Int                  @id @default(autoincrement())
+  storeId       Int                  @map("store_id")
+  store         Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  inviteeName   String               @map("invitee_name")
+  inviteePhone  String               @map("invitee_phone")
+  registeredAt  DateTime             @map("registered_at")
+  hasCharged    Boolean              @default(false) @map("has_charged")
+  chargedAmount Int?                 @map("charged_amount")
+  chargedAt     DateTime?            @map("charged_at")
+  chargedPlan   MembershipPlanCycle? @map("charged_plan")
+  rewardBeans   Int?                 @map("reward_beans")
+  settled       Boolean              @default(false)
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+
+  @@index([storeId, registeredAt])
+  @@index([storeId, hasCharged, registeredAt])
+  @@index([chargedAt])
+  @@map("store_membership_promo_records")
+}

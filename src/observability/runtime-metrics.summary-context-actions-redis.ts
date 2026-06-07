@@ -1,7 +1,7 @@
 import type {
   SummaryActionParamsById,
   SummaryStatus,
-} from './metrics.protocol';
+} from './metrics-summary.protocol';
 import { buildRedisActionPayload } from './runtime-metrics.summary-actions';
 import { buildDrawerActionMeta } from './runtime-metrics.summary-context-actions-shared';
 import type {

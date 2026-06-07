@@ -1,18 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -26,30 +13,38 @@ import { PermissionsGuard } from '../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import {
-  ConfirmFinanceReconciliationDto,
   CreateFinanceAccountDto,
-  CreateFinanceCashFlowRecordDto,
-  CreateFinanceReconciliationDto,
-  FinanceOverviewQueryDto,
-  FinanceReportQueryDto,
   ListFinanceAccountsQueryDto,
-  ListFinanceCashFlowRecordsQueryDto,
-  ListFinanceReconciliationsQueryDto,
   SettleFinanceAccountDto,
-} from './dto/finance-query.dto';
+} from './dto/finance-account.query.dto';
+import {
+  CreateFinanceCashFlowRecordDto,
+  ListFinanceCashFlowRecordsQueryDto,
+} from './dto/finance-cash-flow.query.dto';
+import { FinanceOverviewQueryDto } from './dto/finance-overview.query.dto';
+import {
+  ConfirmFinanceReconciliationDto,
+  CreateFinanceReconciliationDto,
+  ListFinanceReconciliationsQueryDto,
+} from './dto/finance-reconciliation.query.dto';
+import { FinanceReportQueryDto } from './dto/finance-report.query.dto';
 import {
   FinanceAccountRecordResponseDto,
   FinanceAccountsStatsDto,
+  PaginatedFinanceAccountsResponseDto,
+} from './dto/finance-account.response.dto';
+import {
   FinanceCashFlowRecordResponseDto,
   FinanceCashFlowStatsDto,
-  FinanceOverviewResponseDto,
-  FinanceReportResponseDto,
+  PaginatedFinanceCashFlowRecordsResponseDto,
+} from './dto/finance-cash-flow.response.dto';
+import { FinanceOverviewResponseDto } from './dto/finance-overview.response.dto';
+import { FinanceReportResponseDto } from './dto/finance-report.response.dto';
+import {
   FinanceReconciliationRecordResponseDto,
   FinanceReconciliationStatsDto,
-  PaginatedFinanceAccountsResponseDto,
-  PaginatedFinanceCashFlowRecordsResponseDto,
   PaginatedFinanceReconciliationsResponseDto,
-} from './dto/finance-response.dto';
+} from './dto/finance-reconciliation.response.dto';
 import { FinanceService } from './finance.service';
 
 @ApiTags('Finance')
@@ -67,10 +62,10 @@ export class FinanceController {
     type: FinanceOverviewResponseDto,
   })
   getOverview(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: FinanceOverviewQueryDto,
   ): Promise<FinanceOverviewResponseDto> {
-    return this.financeService.getOverview(request.user, query);
+    return this.financeService.getOverview(user, query);
   }
 
   @Get('report')
@@ -81,10 +76,10 @@ export class FinanceController {
     type: FinanceReportResponseDto,
   })
   getReport(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: FinanceReportQueryDto,
   ): Promise<FinanceReportResponseDto> {
-    return this.financeService.getReport(request.user, query);
+    return this.financeService.getReport(user, query);
   }
 
   @Get('cash-flow/records')
@@ -95,10 +90,10 @@ export class FinanceController {
     type: PaginatedFinanceCashFlowRecordsResponseDto,
   })
   listCashFlowRecords(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListFinanceCashFlowRecordsQueryDto,
   ): Promise<PaginatedFinanceCashFlowRecordsResponseDto> {
-    return this.financeService.listCashFlowRecords(request.user, query);
+    return this.financeService.listCashFlowRecords(user, query);
   }
 
   @Get('cash-flow/stats')
@@ -109,10 +104,10 @@ export class FinanceController {
     type: FinanceCashFlowStatsDto,
   })
   getCashFlowStats(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListFinanceCashFlowRecordsQueryDto,
   ): Promise<FinanceCashFlowStatsDto> {
-    return this.financeService.getCashFlowStats(request.user, query);
+    return this.financeService.getCashFlowStats(user, query);
   }
 
   @Post('cash-flow/records')
@@ -123,10 +118,10 @@ export class FinanceController {
     type: FinanceCashFlowRecordResponseDto,
   })
   createCashFlowRecord(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateFinanceCashFlowRecordDto,
   ): Promise<FinanceCashFlowRecordResponseDto> {
-    return this.financeService.createCashFlowRecord(request.user, dto);
+    return this.financeService.createCashFlowRecord(user, dto);
   }
 
   @Delete('cash-flow/records/:id')
@@ -135,10 +130,10 @@ export class FinanceController {
   @ApiOperation({ summary: '删除现金流水' })
   @ApiNoContentResponse({ description: '删除成功' })
   deleteCashFlowRecord(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) recordId: number,
   ): Promise<void> {
-    return this.financeService.deleteCashFlowRecord(request.user, recordId);
+    return this.financeService.deleteCashFlowRecord(user, recordId);
   }
 
   @Get('accounts')
@@ -149,10 +144,10 @@ export class FinanceController {
     type: PaginatedFinanceAccountsResponseDto,
   })
   listAccounts(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListFinanceAccountsQueryDto,
   ): Promise<PaginatedFinanceAccountsResponseDto> {
-    return this.financeService.listAccounts(request.user, query);
+    return this.financeService.listAccounts(user, query);
   }
 
   @Get('accounts/stats')
@@ -163,9 +158,9 @@ export class FinanceController {
     type: FinanceAccountsStatsDto,
   })
   getAccountsStats(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<FinanceAccountsStatsDto> {
-    return this.financeService.getAccountsStats(request.user);
+    return this.financeService.getAccountsStats(user);
   }
 
   @Post('accounts')
@@ -176,10 +171,10 @@ export class FinanceController {
     type: FinanceAccountRecordResponseDto,
   })
   createAccount(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateFinanceAccountDto,
   ): Promise<FinanceAccountRecordResponseDto> {
-    return this.financeService.createAccount(request.user, dto);
+    return this.financeService.createAccount(user, dto);
   }
 
   @Patch('accounts/:id/settle')
@@ -190,11 +185,11 @@ export class FinanceController {
     type: FinanceAccountRecordResponseDto,
   })
   settleAccount(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) recordId: number,
     @Body() dto: SettleFinanceAccountDto,
   ): Promise<FinanceAccountRecordResponseDto> {
-    return this.financeService.settleAccount(request.user, recordId, dto);
+    return this.financeService.settleAccount(user, recordId, dto);
   }
 
   @Delete('accounts/:id')
@@ -203,10 +198,10 @@ export class FinanceController {
   @ApiOperation({ summary: '删除账款' })
   @ApiNoContentResponse({ description: '删除成功' })
   deleteAccount(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) recordId: number,
   ): Promise<void> {
-    return this.financeService.deleteAccount(request.user, recordId);
+    return this.financeService.deleteAccount(user, recordId);
   }
 
   @Get('reconciliation')
@@ -217,10 +212,10 @@ export class FinanceController {
     type: PaginatedFinanceReconciliationsResponseDto,
   })
   listReconciliations(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListFinanceReconciliationsQueryDto,
   ): Promise<PaginatedFinanceReconciliationsResponseDto> {
-    return this.financeService.listReconciliations(request.user, query);
+    return this.financeService.listReconciliations(user, query);
   }
 
   @Get('reconciliation/stats')
@@ -231,9 +226,9 @@ export class FinanceController {
     type: FinanceReconciliationStatsDto,
   })
   getReconciliationStats(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<FinanceReconciliationStatsDto> {
-    return this.financeService.getReconciliationStats(request.user);
+    return this.financeService.getReconciliationStats(user);
   }
 
   @Post('reconciliation')
@@ -244,10 +239,10 @@ export class FinanceController {
     type: FinanceReconciliationRecordResponseDto,
   })
   createReconciliation(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateFinanceReconciliationDto,
   ): Promise<FinanceReconciliationRecordResponseDto> {
-    return this.financeService.createReconciliation(request.user, dto);
+    return this.financeService.createReconciliation(user, dto);
   }
 
   @Patch('reconciliation/:id/confirm')
@@ -258,12 +253,12 @@ export class FinanceController {
     type: FinanceReconciliationRecordResponseDto,
   })
   confirmReconciliation(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) recordId: number,
     @Body() dto: ConfirmFinanceReconciliationDto,
   ): Promise<FinanceReconciliationRecordResponseDto> {
     return this.financeService.confirmReconciliation(
-      request.user,
+      user,
       recordId,
       dto,
     );
@@ -275,9 +270,9 @@ export class FinanceController {
   @ApiOperation({ summary: '删除对账单' })
   @ApiNoContentResponse({ description: '删除成功' })
   deleteReconciliation(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) recordId: number,
   ): Promise<void> {
-    return this.financeService.deleteReconciliation(request.user, recordId);
+    return this.financeService.deleteReconciliation(user, recordId);
   }
 }

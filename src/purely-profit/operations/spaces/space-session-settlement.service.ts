@@ -1,20 +1,16 @@
 import {
   ConflictException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import {
   Prisma,
-  SpaceBillingMode as PrismaSpaceBillingMode,
   SpaceReservationStatus as PrismaSpaceReservationStatus,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
   SpaceStatus as PrismaSpaceStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { RedisService } from '../../../redis/redis.service';
 import type {
   CreateSalesRecordDto,
   SalesRecordResponseDto,
@@ -22,12 +18,9 @@ import type {
 import { SalesRecordService } from '../sales-record/sales-record.service';
 import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types';
 import {
-  parseSpaceSessionItems,
-  parseSpaceSessionRenewRecords,
   toSpaceSessionItemsJson,
   toSpaceSessionRenewRecordsJson,
 } from './space-sessions.mapper';
-import { buildSpaceSessionSettlement } from './space-session-settlement.shared';
 import type {
   SpaceSessionItemRecord,
   SpaceSessionRecord,
@@ -52,16 +45,11 @@ export interface SettleSpaceSessionResult {
   salesOrder: SalesRecordResponseDto;
 }
 
-const AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS = 30;
-
 @Injectable()
 export class SpaceSessionSettlementService {
-  private readonly logger = new Logger(SpaceSessionSettlementService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly salesRecordService: SalesRecordService,
-    private readonly redisService: RedisService,
   ) {}
 
   async settleSession(
@@ -151,256 +139,6 @@ export class SpaceSessionSettlementService {
     };
   }
 
-  /**
-   * 后台调度入口：扫描所有门店，对存在待自动结账会话的门店逐一执行自动结账。
-   * 由 SpaceAutoCheckoutSchedulerService 定时调用，无需前端访问触发。
-   */
-  async autoCheckoutAllExpiredSessions(now = Date.now()): Promise<number> {
-    const storeIds = await this.findStoresWithPendingAutoCheckoutSessions();
-    if (storeIds.length === 0) {
-      return 0;
-    }
-
-    const systemUser = createAutoCheckoutSystemUser();
-    let totalSettled = 0;
-
-    for (const storeId of storeIds) {
-      try {
-        const settled = await this.autoCheckoutExpiredCountdownSessions(
-          systemUser,
-          storeId,
-          now,
-          'scheduler:auto-checkout',
-        );
-        totalSettled += settled;
-      } catch (error) {
-        this.logger.error(
-          `[space-auto-checkout] store_failed storeId=${storeId} reason=${
-            error instanceof Error ? error.name : 'UnknownError'
-          }`,
-          error instanceof Error ? error.stack : undefined,
-        );
-      }
-    }
-
-    if (totalSettled > 0) {
-      this.logger.log(
-        `[space-auto-checkout] scheduler_completed stores=${storeIds.length} settled=${totalSettled}`,
-      );
-    }
-
-    return totalSettled;
-  }
-
-  async autoCheckoutExpiredCountdownSessions(
-    user: AuthenticatedUser,
-    storeId: number,
-    now = Date.now(),
-    trigger = 'space:auto-checkout',
-    requestId?: string,
-  ): Promise<number> {
-    let lockKey: string | null = null;
-
-    try {
-      lockKey = await this.acquireAutoCheckoutStoreLock(storeId);
-      if (!lockKey) {
-        this.logger.warn(
-          `[space-auto-checkout] skipped_concurrent ${this.buildAutoCheckoutLogContext(
-            {
-              trigger,
-              storeId,
-              userId: user.id,
-              requestId,
-            },
-          )}`,
-        );
-        return 0;
-      }
-
-      const sessions = await this.prisma.spaceSession.findMany({
-        where: {
-          storeId,
-          status: PrismaSpaceSessionStatus.active,
-          endTime: null,
-          billingMode: PrismaSpaceBillingMode.countdown,
-          autoCheckout: true,
-          countdownMinutes: {
-            not: null,
-          },
-        },
-        include: {
-          space: {
-            select: {
-              id: true,
-              name: true,
-              enableDirtyRoom: true,
-              type: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-          },
-        },
-        orderBy: [{ startTime: 'asc' }, { id: 'asc' }],
-      });
-
-      let settledCount = 0;
-      let failedCount = 0;
-      for (const session of sessions) {
-        if (!session.prepaidPaymentMethod) {
-          continue;
-        }
-
-        const renewRecords = parseSpaceSessionRenewRecords(
-          session.renewRecords,
-        );
-        const checkoutAt = this.resolveAutoCheckoutAt(session, renewRecords);
-        if (checkoutAt === null || checkoutAt > now) {
-          continue;
-        }
-
-        const settlement = buildSpaceSessionSettlement({
-          session,
-          checkoutAt,
-          payload: {},
-          items: parseSpaceSessionItems(session.items),
-          renewRecords,
-        });
-
-        try {
-          await this.settleSession(user, {
-            session,
-            checkoutAt,
-            paymentMethod: session.prepaidPaymentMethod,
-            note: '倒计时到期自动结账',
-            settlement,
-            renewRecords,
-          });
-          settledCount += 1;
-        } catch (error) {
-          if (
-            error instanceof ConflictException ||
-            error instanceof NotFoundException
-          ) {
-            this.logger.warn(
-              `[space-auto-checkout] skipped_session ${this.buildAutoCheckoutLogContext(
-                {
-                  trigger,
-                  storeId,
-                  sessionId: session.id,
-                  reason: error.constructor.name,
-                  requestId,
-                },
-              )}`,
-            );
-            continue;
-          }
-          failedCount += 1;
-          this.logger.error(
-            `[space-auto-checkout] failed ${this.buildAutoCheckoutLogContext({
-              trigger,
-              storeId,
-              sessionId: session.id,
-              reason: error instanceof Error ? error.name : 'UnknownError',
-              requestId,
-            })}`,
-            error instanceof Error ? error.stack : undefined,
-          );
-          continue;
-        }
-      }
-
-      if (settledCount > 0 || failedCount > 0) {
-        this.logger.log(
-          `[space-auto-checkout] completed ${this.buildAutoCheckoutLogContext({
-            trigger,
-            storeId,
-            count: settledCount,
-            failedCount,
-            requestId,
-          })}`,
-        );
-      }
-
-      return settledCount;
-    } catch (error) {
-      this.logger.error(
-        `[space-auto-checkout] aborted ${this.buildAutoCheckoutLogContext({
-          trigger,
-          storeId,
-          userId: user.id,
-          requestId,
-          reason: error instanceof Error ? error.name : 'UnknownError',
-        })}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-      return 0;
-    } finally {
-      if (lockKey) {
-        try {
-          await this.releaseAutoCheckoutStoreLock(lockKey);
-        } catch (error) {
-          this.logger.warn(
-            `[space-auto-checkout] release_lock_failed ${this.buildAutoCheckoutLogContext(
-              {
-                trigger,
-                storeId,
-                userId: user.id,
-                requestId,
-                reason: error instanceof Error ? error.name : 'UnknownError',
-              },
-            )}`,
-          );
-        }
-      }
-    }
-  }
-
-  private buildAutoCheckoutLogContext(params: {
-    trigger: string;
-    storeId: number;
-    requestId?: string;
-    userId?: number;
-    sessionId?: number;
-    count?: number;
-    failedCount?: number;
-    reason?: string;
-  }): string {
-    const segments = [
-      `trigger=${params.trigger}`,
-      `storeId=${params.storeId}`,
-      ...(params.requestId ? [`requestId=${params.requestId}`] : []),
-      ...(params.userId !== undefined ? [`userId=${params.userId}`] : []),
-      ...(params.sessionId !== undefined
-        ? [`sessionId=${params.sessionId}`]
-        : []),
-      ...(params.count !== undefined ? [`count=${params.count}`] : []),
-      ...(params.failedCount !== undefined
-        ? [`failedCount=${params.failedCount}`]
-        : []),
-      ...(params.reason ? [`reason=${params.reason}`] : []),
-    ];
-
-    return segments.join(' ');
-  }
-
-  private async acquireAutoCheckoutStoreLock(
-    storeId: number,
-  ): Promise<string | null> {
-    const token = randomUUID();
-    const lockKey = `space:auto-checkout:store:${storeId}`;
-    const result = await this.redisService
-      .getClient()
-      .set(lockKey, token, 'EX', AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS, 'NX');
-
-    return result === 'OK' ? lockKey : null;
-  }
-
-  private async releaseAutoCheckoutStoreLock(lockKey: string): Promise<void> {
-    await this.redisService.del(lockKey);
-  }
-
   private async createSessionSaleOrder(
     user: AuthenticatedUser,
     params: {
@@ -441,25 +179,6 @@ export class SpaceSessionSettlementService {
       // 主账号/店长代客结账时，应优先归属到当前待交班班次员工，避免逾期未交班后账目落到下一班。
       assignToCurrentShiftOperator: true,
     });
-  }
-
-  private resolveAutoCheckoutAt(
-    session: Pick<
-      SpaceSessionSettlementRecord,
-      'startTime' | 'countdownMinutes'
-    >,
-    renewRecords: SpaceSessionRenewRecord[],
-  ): number | null {
-    if (session.countdownMinutes === null || session.countdownMinutes <= 0) {
-      return null;
-    }
-
-    const totalMinutes = renewRecords.reduce(
-      (sum, record) => sum + record.addedMinutes,
-      session.countdownMinutes,
-    );
-
-    return session.startTime.getTime() + totalMinutes * 60 * 1000;
   }
 
   private async cancelMatchedReservationAfterCheckout(
@@ -536,23 +255,6 @@ export class SpaceSessionSettlementService {
       : PrismaSpaceStatus.idle;
   }
 
-  private async findStoresWithPendingAutoCheckoutSessions(): Promise<number[]> {
-    const sessions = await this.prisma.spaceSession.findMany({
-      where: {
-        status: PrismaSpaceSessionStatus.active,
-        endTime: null,
-        billingMode: PrismaSpaceBillingMode.countdown,
-        autoCheckout: true,
-        prepaidPaymentMethod: { not: null },
-        countdownMinutes: { not: null },
-      },
-      select: { storeId: true },
-      distinct: ['storeId'],
-    });
-
-    return sessions.map((s) => s.storeId);
-  }
-
   private getTodayRange(): { start: Date; end: Date } {
     const now = new Date();
     const start = new Date(
@@ -569,18 +271,3 @@ export class SpaceSessionSettlementService {
     return { start, end };
   }
 }
-
-/**
- * 构建后台自动结账使用的系统用户。
- * 该用户无实际 membership，因此 shouldAssignToCurrentShiftOperator 会返回 false，
- * 同时 skipAccessCheck: true 已绕过权限检查，不影响销售单创建。
- */
-const createAutoCheckoutSystemUser = (): AuthenticatedUser => ({
-  id: 0,
-  email: 'system@auto-checkout',
-  phone: '',
-  name: '系统自动结账',
-  createdAt: new Date(),
-  updatedAt: new Date(),
-  currentMembership: null,
-});

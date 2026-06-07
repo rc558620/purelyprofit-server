@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -31,10 +32,10 @@ export class ProfitDetailController {
     type: ProfitReportResponseDto,
   })
   getReport(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetProfitDetailQueryDto,
   ): Promise<ProfitReportResponseDto> {
-    return this.profitDetailService.getReport(request.user, query);
+    return this.profitDetailService.getReport(user, query);
   }
 
   @Get()
@@ -45,9 +46,9 @@ export class ProfitDetailController {
     type: ProfitDetailResponseDto,
   })
   getProfitDetail(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetProfitDetailQueryDto,
   ): Promise<ProfitDetailResponseDto> {
-    return this.profitDetailService.getProfitDetail(request.user, query);
+    return this.profitDetailService.getProfitDetail(user, query);
   }
 }

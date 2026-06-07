@@ -21,7 +21,7 @@ import {
   buildResignEmployeeProfileData,
   buildUpdateEmployeeProfileData,
 } from './employees-profile.domain';
-import { buildPayrollDerivedAmounts } from './employees.domain';
+import { buildPayrollDerivedAmounts } from './employees-payroll.domain';
 import { toEmployeeResponse } from './employees.mapper';
 import {
   createEmployeeProfile,

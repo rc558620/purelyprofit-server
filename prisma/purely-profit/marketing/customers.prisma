@@ -1,0 +1,145 @@
+// purely-profit/marketing: 顾客储值、消费与积分模型
+
+enum MarketingCustomerTier {
+  regular
+  silver
+  gold
+  diamond
+}
+
+enum MarketingRechargeType {
+  recharge
+  gift
+  refund
+}
+
+enum MarketingPayType {
+  balance
+  cash
+  wechat
+  alipay
+  mixed
+}
+
+enum MarketingPointsChangeType {
+  earn
+  spend
+  expire
+  gift
+}
+
+model MarketingCustomer {
+  id            Int                     @id @default(autoincrement())
+  storeId       Int                     @map("store_id")
+  store         Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  /// 昵称
+  name          String
+  /// 手机号（明文存储，展示层脱敏）
+  phone         String?
+  /// 头像 URL（可选）
+  avatar        String?
+  /// 会员等级（根据 totalSpent 计算，实时同步）
+  tier          MarketingCustomerTier   @default(regular)
+  /// 储值余额（分）
+  balance       Int                     @default(0)
+  /// 积分余额
+  points        Int                     @default(0)
+  /// 累计消费金额（分，流水口径）
+  totalSpent    Int                     @default(0) @map("total_spent")
+  /// 累计消费次数
+  visitCount    Int                     @default(0) @map("visit_count")
+  /// 最后消费时间
+  lastVisitAt   DateTime?               @map("last_visit_at")
+  /// 备注
+  remark        String?
+  recharges     MarketingRecharge[]
+  consumptions  MarketingConsumption[]
+  pointsRecords MarketingPointsRecord[]
+  createdAt     DateTime                @default(now()) @map("created_at")
+  updatedAt     DateTime                @updatedAt @map("updated_at")
+
+  @@unique([storeId, phone])
+  @@index([storeId, updatedAt])
+  @@index([storeId, tier, updatedAt])
+  @@index([storeId, lastVisitAt])
+  @@map("marketing_customers")
+}
+
+/// 营销顾客储值记录
+
+model MarketingRecharge {
+  id          Int                   @id @default(autoincrement())
+  storeId     Int                   @map("store_id")
+  store       Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerId  Int                   @map("customer_id")
+  customer    MarketingCustomer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 充值金额（分）
+  amount      Int
+  /// 赠送金额（分）
+  giftAmount  Int                   @default(0) @map("gift_amount")
+  /// 类型：recharge=储值 gift=赠送 refund=退款
+  type        MarketingRechargeType @default(recharge)
+  /// 关联活动 ID（字符串，对应 MarketingPromotion.id）
+  promotionId Int?                  @map("promotion_id")
+  promotion   MarketingPromotion?   @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+  /// 备注
+  note        String?
+  createdAt   DateTime              @default(now()) @map("created_at")
+
+  @@index([storeId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([storeId, type, createdAt])
+  @@map("marketing_recharges")
+}
+
+/// 营销顾客消费记录
+
+model MarketingConsumption {
+  id             Int                 @id @default(autoincrement())
+  storeId        Int                 @map("store_id")
+  store          Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerId     Int                 @map("customer_id")
+  customer       MarketingCustomer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 消费金额（分）
+  amount         Int
+  /// 余额支付金额（分）
+  balancePaid    Int                 @default(0) @map("balance_paid")
+  /// 积分抵扣金额（分）
+  pointsDeducted Int                 @default(0) @map("points_deducted")
+  /// 支付方式
+  payType        MarketingPayType    @default(cash) @map("pay_type")
+  /// 商品简述（如「拿铁 × 2」）
+  itemsSummary   String?             @map("items_summary")
+  /// 关联活动 ID
+  promotionId    Int?                @map("promotion_id")
+  promotion      MarketingPromotion? @relation(fields: [promotionId], references: [id], onDelete: SetNull)
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  @@index([storeId, createdAt])
+  @@index([customerId, createdAt])
+  @@map("marketing_consumptions")
+}
+
+/// 营销优惠活动
+
+model MarketingPointsRecord {
+  id          Int                       @id @default(autoincrement())
+  storeId     Int                       @map("store_id")
+  store       Store                     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerId  Int                       @map("customer_id")
+  customer    MarketingCustomer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 积分变动值：正数=获得，负数=消耗
+  amount      Int
+  /// 积分变动类型
+  type        MarketingPointsChangeType
+  /// 前端直接展示的说明文案
+  description String
+  createdAt   DateTime                  @default(now()) @map("created_at")
+
+  @@index([storeId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([storeId, type, createdAt])
+  @@map("marketing_points_records")
+}
+
+/// 营销优惠活动

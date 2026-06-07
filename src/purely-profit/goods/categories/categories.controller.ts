@@ -1,18 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -33,10 +20,6 @@ import {
   UpdateCategoryDto,
 } from './dto/category.dto';
 
-type CategoriesRequest = {
-  user: AuthenticatedUser;
-};
-
 @ApiTags('Categories')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -49,10 +32,10 @@ export class CategoriesController {
   @ApiOperation({ summary: '获取商品分类列表' })
   @ApiOkResponse({ type: [CategoryResponseDto] })
   list(
-    @Req() request: CategoriesRequest,
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListCategoriesQueryDto,
   ): Promise<CategoryResponseDto[]> {
-    return this.categoriesService.list(request.user, query);
+    return this.categoriesService.list(user, query);
   }
 
   @Post()
@@ -60,10 +43,10 @@ export class CategoriesController {
   @ApiOperation({ summary: '新增商品分类' })
   @ApiCreatedResponse({ type: CategoryResponseDto })
   create(
-    @Req() request: CategoriesRequest,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateCategoryDto,
   ): Promise<CategoryResponseDto> {
-    return this.categoriesService.create(request.user, dto);
+    return this.categoriesService.create(user, dto);
   }
 
   @Patch(':id')
@@ -71,11 +54,11 @@ export class CategoriesController {
   @ApiOperation({ summary: '更新商品分类' })
   @ApiOkResponse({ type: CategoryResponseDto })
   update(
-    @Req() request: CategoriesRequest,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) categoryId: number,
     @Body() dto: UpdateCategoryDto,
   ): Promise<CategoryResponseDto> {
-    return this.categoriesService.update(request.user, categoryId, dto);
+    return this.categoriesService.update(user, categoryId, dto);
   }
 
   @Delete(':id')
@@ -84,9 +67,9 @@ export class CategoriesController {
   @ApiOperation({ summary: '删除商品分类' })
   @ApiNoContentResponse()
   async remove(
-    @Req() request: CategoriesRequest,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) categoryId: number,
   ): Promise<void> {
-    await this.categoriesService.remove(request.user, categoryId);
+    await this.categoriesService.remove(user, categoryId);
   }
 }

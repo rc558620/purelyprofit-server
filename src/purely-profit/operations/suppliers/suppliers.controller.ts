@@ -1,18 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -45,10 +32,10 @@ export class SuppliersController {
   @ApiOperation({ summary: '获取供应商列表' })
   @ApiOkResponse({ type: [SupplierResponseDto] })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListSuppliersQueryDto,
   ): Promise<SupplierResponseDto[]> {
-    return this.suppliersService.list(request.user, query);
+    return this.suppliersService.list(user, query);
   }
 
   @Post()
@@ -56,10 +43,10 @@ export class SuppliersController {
   @ApiOperation({ summary: '新增供应商' })
   @ApiCreatedResponse({ type: SupplierResponseDto })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateSupplierDto,
   ): Promise<SupplierResponseDto> {
-    return this.suppliersService.create(request.user, dto);
+    return this.suppliersService.create(user, dto);
   }
 
   @Patch(':id')
@@ -67,11 +54,11 @@ export class SuppliersController {
   @ApiOperation({ summary: '更新供应商' })
   @ApiOkResponse({ type: SupplierResponseDto })
   update(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) supplierId: number,
     @Body() dto: UpdateSupplierDto,
   ): Promise<SupplierResponseDto> {
-    return this.suppliersService.update(request.user, supplierId, dto);
+    return this.suppliersService.update(user, supplierId, dto);
   }
 
   @Delete(':id')
@@ -80,9 +67,9 @@ export class SuppliersController {
   @ApiOperation({ summary: '删除供应商' })
   @ApiNoContentResponse()
   async remove(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) supplierId: number,
   ): Promise<void> {
-    await this.suppliersService.remove(request.user, supplierId);
+    await this.suppliersService.remove(user, supplierId);
   }
 }

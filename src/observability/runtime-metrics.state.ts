@@ -1,4 +1,4 @@
-import type { SummaryCachePrewarmCategory } from './metrics.protocol';
+import type { SummaryCachePrewarmCategory } from './metrics-summary.protocol';
 
 export type HttpRouteMetric = {
   method: string;

@@ -6,12 +6,12 @@ import {
   ConfirmFinanceReconciliationDto,
   CreateFinanceReconciliationDto,
   ListFinanceReconciliationsQueryDto,
-} from './dto/finance-query.dto';
+} from './dto/finance-reconciliation.query.dto';
 import type {
   FinanceReconciliationRecordResponseDto,
   FinanceReconciliationStatsDto,
   PaginatedFinanceReconciliationsResponseDto,
-} from './dto/finance-response.dto';
+} from './dto/finance-reconciliation.response.dto';
 import {
   buildReconciliationItemCreateInput,
   buildReconciliationStats,
@@ -31,11 +31,11 @@ import {
 import { buildPaginatedReconciliationsResponse } from './finance.mapper';
 import type { FinanceReconciliationsListQueryInput } from './finance.types';
 import {
-  buildPaginationState,
   roundMoneyValue,
   toPrismaDecimal,
-  trimOptionalString,
-} from './finance.utils';
+} from './finance-money.utils';
+import { buildPaginationState } from './finance-pagination.utils';
+import { trimOptionalString } from './finance-string.utils';
 
 @Injectable()
 export class FinanceReconciliationService {

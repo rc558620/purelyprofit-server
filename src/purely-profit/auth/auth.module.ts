@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { PlatformMembershipModule } from '../member/platform-membership/platform-membership.module';
+import { AuthAccountLookupService } from './auth-account-lookup.service';
+import { AuthAccountMembershipService } from './auth-account-membership.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCapabilityService } from './auth-capability.service';
@@ -36,6 +38,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
   providers: [
     AuthService,
     AuthAccountService,
+    AuthAccountLookupService,
+    AuthAccountMembershipService,
     AuthAuthenticationService,
     AuthCapabilityService,
     AuthCodeService,

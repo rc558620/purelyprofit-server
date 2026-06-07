@@ -3,8 +3,15 @@ import { AccessControlModule } from '../access-control/access-control.module';
 import { PlatformMembershipModule } from '../member/platform-membership/platform-membership.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { MarketingAccessService } from './marketing-access.service';
+import {
+  MarketingController,
+  MarketingCustomersController,
+  MarketingProductCategoriesController,
+  MarketingProductsController,
+  MarketingPromotionsController,
+  MarketingTransactionsController,
+} from './marketing.controller';
 import { MarketingConsumptionsService } from './marketing-consumptions.service';
-import { MarketingController } from './marketing.controller';
 import { MarketingCustomersService } from './marketing-customers.service';
 import { MarketingOverviewService } from './marketing-overview.service';
 import { MarketingPointsRecordsService } from './marketing-points-records.service';
@@ -12,14 +19,33 @@ import { MarketingProductCategoriesService } from './marketing-product-categorie
 import { MarketingProductsService } from './marketing-products.service';
 import { MarketingPromotionsService } from './marketing-promotions.service';
 import { MarketingRechargesService } from './marketing-recharges.service';
-import { MarketingService } from './marketing.service';
+import {
+  MarketingCustomersFacadeService,
+  MarketingOverviewFacadeService,
+  MarketingProductsFacadeService,
+  MarketingPromotionsFacadeService,
+  MarketingService,
+  MarketingTransactionsFacadeService,
+} from './marketing.service';
 import { MarketingSharedService } from './marketing-shared.service';
 
 @Module({
   imports: [PrismaModule, AccessControlModule, PlatformMembershipModule],
-  controllers: [MarketingController],
+  controllers: [
+    MarketingController,
+    MarketingCustomersController,
+    MarketingTransactionsController,
+    MarketingProductCategoriesController,
+    MarketingProductsController,
+    MarketingPromotionsController,
+  ],
   providers: [
     MarketingService,
+    MarketingOverviewFacadeService,
+    MarketingCustomersFacadeService,
+    MarketingTransactionsFacadeService,
+    MarketingPromotionsFacadeService,
+    MarketingProductsFacadeService,
     MarketingAccessService,
     MarketingSharedService,
     MarketingOverviewService,

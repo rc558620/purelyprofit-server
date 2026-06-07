@@ -1,18 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -45,10 +32,10 @@ export class SpaceZonesController {
   @ApiOperation({ summary: '获取空间区域列表' })
   @ApiOkResponse({ type: [SpaceZoneResponseDto] })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListSpaceZonesQueryDto,
   ): Promise<SpaceZoneResponseDto[]> {
-    return this.spaceZonesService.listSpaceZones(request.user, query);
+    return this.spaceZonesService.listSpaceZones(user, query);
   }
 
   @Post()
@@ -56,10 +43,10 @@ export class SpaceZonesController {
   @ApiOperation({ summary: '新增空间区域' })
   @ApiCreatedResponse({ type: SpaceZoneResponseDto })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateSpaceZoneDto,
   ): Promise<SpaceZoneResponseDto> {
-    return this.spaceZonesService.createSpaceZone(request.user, dto);
+    return this.spaceZonesService.createSpaceZone(user, dto);
   }
 
   @Patch(':id')
@@ -67,11 +54,11 @@ export class SpaceZonesController {
   @ApiOperation({ summary: '更新空间区域' })
   @ApiOkResponse({ type: SpaceZoneResponseDto })
   update(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) zoneId: number,
     @Body() dto: UpdateSpaceZoneDto,
   ): Promise<SpaceZoneResponseDto> {
-    return this.spaceZonesService.updateSpaceZone(request.user, zoneId, dto);
+    return this.spaceZonesService.updateSpaceZone(user, zoneId, dto);
   }
 
   @Delete(':id')
@@ -80,9 +67,9 @@ export class SpaceZonesController {
   @ApiOperation({ summary: '删除空间区域' })
   @ApiNoContentResponse()
   async remove(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) zoneId: number,
   ): Promise<void> {
-    await this.spaceZonesService.removeSpaceZone(request.user, zoneId);
+    await this.spaceZonesService.removeSpaceZone(user, zoneId);
   }
 }

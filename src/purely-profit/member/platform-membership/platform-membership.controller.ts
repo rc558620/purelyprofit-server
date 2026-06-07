@@ -1,3 +1,4 @@
+import { CurrentUser } from '../../auth/current-user.decorator';
 import {
   Body,
   Controller,
@@ -6,14 +7,11 @@ import {
   ParseIntPipe,
   Patch,
   Post,
-  Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
-  ApiExcludeController,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -33,116 +31,16 @@ import {
 import {
   PlatformMembershipBeanLogsResponseDto,
   PlatformMembershipCenterResponseDto,
+  PlatformMembershipOrdersResponseDto,
   PlatformMembershipPartnerProfileResponseDto,
   PlatformMembershipPlanResponseDto,
   PlatformMembershipPlanRulesResponseDto,
   PlatformMembershipPointsLogsResponseDto,
   PlatformMembershipProfileResponseDto,
   PlatformMembershipPromoCenterResponseDto,
-  PlatformMembershipOrdersResponseDto,
   PurchasePlatformMembershipOrderResponseDto,
 } from './dto/platform-membership-response.dto';
 import { PlatformMembershipService } from './platform-membership.service';
-import type { PromotionDetailCompatResponse } from './platform-membership.types';
-
-type PartnerReviewCompatStatus = 'pending' | 'approved' | 'rejected';
-
-interface PartnerReviewCompatItem {
-  id: string;
-  name: string;
-  phone: string;
-  city: string;
-  appliedAt: number;
-  reason: string;
-  avatar: string;
-  status: PartnerReviewCompatStatus;
-}
-
-interface PartnerReviewCompatResponse {
-  applications: PartnerReviewCompatItem[];
-  stats: {
-    totalCount: number;
-    pendingCount: number;
-    approvedCount: number;
-    rejectedCount: number;
-  };
-}
-
-function normalizePartnerReviewStatus(
-  status: PlatformMembershipPartnerProfileResponseDto['applications'][number]['status'],
-): PartnerReviewCompatStatus {
-  switch (status) {
-    case 'approved':
-      return 'approved';
-    case 'rejected':
-      return 'rejected';
-    default:
-      return 'pending';
-  }
-}
-
-function resolvePartnerReviewCity(region?: string[]): string {
-  if (!region || region.length === 0) {
-    return '';
-  }
-
-  if (region.length >= 2) {
-    return region[1] ?? region[0] ?? '';
-  }
-
-  return region[0] ?? '';
-}
-
-function buildPartnerReviewApplications(
-  profile: PlatformMembershipPartnerProfileResponseDto,
-): PartnerReviewCompatItem[] {
-  return profile.applications.map((application) => ({
-    id: application.id,
-    name: application.name,
-    phone: application.phone,
-    city: resolvePartnerReviewCity(application.region),
-    appliedAt: application.createdAt,
-    reason: application.applyReason ?? '',
-    avatar: application.name.slice(0, 1) || '合',
-    status: normalizePartnerReviewStatus(application.status),
-  }));
-}
-
-function buildPartnerReviewResponse(
-  profile: PlatformMembershipPartnerProfileResponseDto,
-): PartnerReviewCompatResponse {
-  const applications = buildPartnerReviewApplications(profile);
-  const pendingCount = applications.filter(
-    (application) => application.status === 'pending',
-  ).length;
-  const approvedCount = applications.filter(
-    (application) => application.status === 'approved',
-  ).length;
-  const rejectedCount = applications.filter(
-    (application) => application.status === 'rejected',
-  ).length;
-
-  return {
-    applications,
-    stats: {
-      totalCount: applications.length,
-      pendingCount,
-      approvedCount,
-      rejectedCount,
-    },
-  };
-}
-
-function resolvePartnerReviewRejectReason(
-  body?: Record<string, unknown>,
-): string {
-  const reason = body?.reason;
-  if (typeof reason === 'string' && reason.trim() !== '') {
-    return reason.trim();
-  }
-
-  return '审核未通过';
-}
 
 @ApiTags('PlatformMembership')
 @ApiBearerAuth()
@@ -162,9 +60,9 @@ export class PlatformMembershipController {
     type: PlatformMembershipCenterResponseDto,
   })
   getCenter(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PlatformMembershipCenterResponseDto> {
-    return this.platformMembershipService.getCenter(request.user);
+    return this.platformMembershipService.getCenter(user);
   }
 
   @Get('profile')
@@ -174,9 +72,9 @@ export class PlatformMembershipController {
     type: PlatformMembershipProfileResponseDto,
   })
   getProfile(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PlatformMembershipProfileResponseDto> {
-    return this.platformMembershipService.getProfile(request.user);
+    return this.platformMembershipService.getProfile(user);
   }
 
   @Get('plans')
@@ -206,9 +104,9 @@ export class PlatformMembershipController {
     type: PlatformMembershipOrdersResponseDto,
   })
   listOrders(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PlatformMembershipOrdersResponseDto> {
-    return this.platformMembershipService.listOrders(request.user);
+    return this.platformMembershipService.listOrders(user);
   }
 
   @Post('orders')
@@ -218,10 +116,10 @@ export class PlatformMembershipController {
     type: PurchasePlatformMembershipOrderResponseDto,
   })
   purchaseOrder(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: PurchasePlatformMembershipOrderDto,
   ): Promise<PurchasePlatformMembershipOrderResponseDto> {
-    return this.platformMembershipService.purchaseOrder(request.user, dto);
+    return this.platformMembershipService.purchaseOrder(user, dto);
   }
 
   @Get('points/logs')
@@ -231,9 +129,9 @@ export class PlatformMembershipController {
     type: PlatformMembershipPointsLogsResponseDto,
   })
   listPointsLogs(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PlatformMembershipPointsLogsResponseDto> {
-    return this.platformMembershipService.listPointsLogs(request.user);
+    return this.platformMembershipService.listPointsLogs(user);
   }
 
   @Get('beans/logs')
@@ -243,9 +141,9 @@ export class PlatformMembershipController {
     type: PlatformMembershipBeanLogsResponseDto,
   })
   listBeanLogs(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PlatformMembershipBeanLogsResponseDto> {
-    return this.platformMembershipService.listBeanLogs(request.user);
+    return this.platformMembershipService.listBeanLogs(user);
   }
 
   @Get('promo')
@@ -256,9 +154,9 @@ export class PlatformMembershipController {
     type: PlatformMembershipPromoCenterResponseDto,
   })
   getPromoCenter(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
-    return this.platformMembershipService.getPromoCenter(request.user);
+    return this.platformMembershipService.getPromoCenter(user);
   }
 
   @Get('partner/profile')
@@ -270,9 +168,9 @@ export class PlatformMembershipController {
     type: PlatformMembershipPartnerProfileResponseDto,
   })
   getPartnerProfile(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.platformMembershipService.getPartnerProfile(request.user);
+    return this.platformMembershipService.getPartnerProfile(user);
   }
 
   @Post('partner/apply')
@@ -282,10 +180,10 @@ export class PlatformMembershipController {
     type: PlatformMembershipPartnerProfileResponseDto,
   })
   applyPartner(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ApplyPlatformPartnerDto,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.platformMembershipService.applyPartner(request.user, dto);
+    return this.platformMembershipService.applyPartner(user, dto);
   }
 
   @Patch('partner/applications/:id/reviewing')
@@ -296,11 +194,11 @@ export class PlatformMembershipController {
     type: PlatformMembershipPartnerProfileResponseDto,
   })
   markPartnerApplicationReviewing(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     return this.platformMembershipService.markPartnerApplicationReviewing(
-      request.user,
+      user,
       applicationId,
     );
   }
@@ -313,11 +211,11 @@ export class PlatformMembershipController {
     type: PlatformMembershipPartnerProfileResponseDto,
   })
   approvePartnerApplication(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     return this.platformMembershipService.approvePartnerApplication(
-      request.user,
+      user,
       applicationId,
     );
   }
@@ -330,12 +228,12 @@ export class PlatformMembershipController {
     type: PlatformMembershipPartnerProfileResponseDto,
   })
   rejectPartnerApplication(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) applicationId: number,
     @Body() dto: RejectPlatformPartnerApplicationDto,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     return this.platformMembershipService.rejectPartnerApplication(
-      request.user,
+      user,
       applicationId,
       dto,
     );
@@ -348,11 +246,11 @@ export class PlatformMembershipController {
     type: PlatformMembershipPartnerProfileResponseDto,
   })
   cancelPartnerApplication(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     return this.platformMembershipService.cancelPartnerApplication(
-      request.user,
+      user,
       applicationId,
     );
   }
@@ -365,85 +263,14 @@ export class PlatformMembershipController {
     type: PlatformMembershipPartnerProfileResponseDto,
   })
   addPartnerFollowUpNote(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) applicationId: number,
     @Body() dto: CreatePlatformPartnerFollowUpNoteDto,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     return this.platformMembershipService.addPartnerFollowUpNote(
-      request.user,
+      user,
       applicationId,
       dto,
-    );
-  }
-}
-
-@ApiExcludeController()
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard)
-@BlockSubAccount('子账号无权访问平台会员中心')
-@Controller('promotion-detail')
-export class PromotionDetailCompatController {
-  constructor(
-    private readonly platformMembershipService: PlatformMembershipService,
-  ) {}
-
-  @Get()
-  @RequirePermissions('members:view')
-  getDetail(
-    @Req() request: { user: AuthenticatedUser },
-    @Query() query: Record<string, unknown>,
-  ): Promise<PromotionDetailCompatResponse> {
-    return this.platformMembershipService.getPromotionDetailCompat(
-      request.user,
-      query,
-    );
-  }
-}
-
-@ApiExcludeController()
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard, SubAccountBlockGuard)
-@BlockSubAccount('子账号无权访问平台会员中心')
-@Controller('partner-review')
-export class PartnerReviewController {
-  constructor(
-    private readonly platformMembershipService: PlatformMembershipService,
-  ) {}
-
-  @Get()
-  @RequirePermissions('partner:review')
-  async list(
-    @Req() request: { user: AuthenticatedUser },
-  ): Promise<PartnerReviewCompatResponse> {
-    const profile = await this.platformMembershipService.getPartnerProfile(
-      request.user,
-    );
-    return buildPartnerReviewResponse(profile);
-  }
-
-  @Post(':id/approve')
-  @RequirePermissions('partner:review')
-  approve(
-    @Req() request: { user: AuthenticatedUser },
-    @Param('id', ParseIntPipe) applicationId: number,
-  ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.platformMembershipService.approvePartnerApplication(
-      request.user,
-      applicationId,
-    );
-  }
-
-  @Post(':id/reject')
-  @RequirePermissions('partner:review')
-  reject(
-    @Req() request: { user: AuthenticatedUser },
-    @Param('id', ParseIntPipe) applicationId: number,
-    @Body() body?: Record<string, unknown>,
-  ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.platformMembershipService.rejectPartnerApplication(
-      request.user,
-      applicationId,
-      { reason: resolvePartnerReviewRejectReason(body) },
     );
   }
 }

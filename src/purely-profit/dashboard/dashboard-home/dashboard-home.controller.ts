@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -28,9 +29,9 @@ export class DashboardHomeController {
     type: DashboardHomeOverviewResponseDto,
   })
   getOverview(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetDashboardHomeOverviewQueryDto,
   ): Promise<DashboardHomeOverviewResponseDto> {
-    return this.dashboardHomeService.getOverview(request.user, query);
+    return this.dashboardHomeService.getOverview(user, query);
   }
 }

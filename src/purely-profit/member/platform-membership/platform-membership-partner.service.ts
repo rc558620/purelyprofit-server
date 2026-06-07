@@ -6,24 +6,19 @@ import {
   type CreatePlatformPartnerFollowUpNoteDto,
 } from './dto/platform-membership-query.dto';
 import type { PlatformMembershipPartnerProfileResponseDto } from './dto/platform-membership-response.dto';
+import { buildPartnerApplicationPayload } from './platform-membership-partner.domain';
 import {
-  buildPartnerApplicationPayload,
-  buildPartnerProfileResponse,
-} from './platform-membership-partner.domain';
+  findBlockingApplication,
+  hasApprovedPartnerForApplicant,
+  upsertApprovedPartnerSnapshot,
+} from './platform-membership-partner-application.domain';
+import { buildPartnerProfileByStoreId } from './platform-membership-partner-profile.domain';
 import {
   ensurePlatformMembershipStoreOwner,
-  findStoreMembershipPromoRecords,
   findStorePartnerApplications,
-  findStorePartnerByApplicant,
   findStorePartners,
   getScopedStorePartnerApplicationOrThrow,
 } from './platform-membership.query';
-import type {
-  PartnerSnapshotPayload,
-  PrismaExecutor,
-  StorePartnerApplicationRecord,
-  StorePartnerRecord,
-} from './platform-membership.types';
 
 @Injectable()
 export class PlatformMembershipPartnerService {
@@ -35,7 +30,7 @@ export class PlatformMembershipPartnerService {
   async getPartnerProfileByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.buildPartnerProfile(this.prisma, storeId);
+    return buildPartnerProfileByStoreId(this.prisma, storeId);
   }
 
   async applyPartner(
@@ -51,14 +46,11 @@ export class PlatformMembershipPartnerService {
     ]);
     const payload = buildPartnerApplicationPayload(dto);
 
-    if (this.hasApprovedPartnerForApplicant(approvedPartners, payload)) {
+    if (hasApprovedPartnerForApplicant(approvedPartners, payload)) {
       throw new ConflictException('该合伙人已通过审核，无需重复申请');
     }
 
-    const blockingApplication = this.findBlockingApplication(
-      applications,
-      payload,
-    );
+    const blockingApplication = findBlockingApplication(applications, payload);
 
     if (blockingApplication?.status === 'approved') {
       throw new ConflictException('该合伙人已通过审核，无需重复申请');
@@ -80,7 +72,7 @@ export class PlatformMembershipPartnerService {
         },
       });
 
-      return this.buildPartnerProfile(tx, storeId);
+      return buildPartnerProfileByStoreId(tx, storeId);
     });
 
     await this.cacheInvalidatorService.invalidatePulseDashboardHome();
@@ -120,7 +112,7 @@ export class PlatformMembershipPartnerService {
         throw new ConflictException('申请状态已变化，请刷新后重试');
       }
 
-      return this.buildPartnerProfile(tx, storeId);
+      return buildPartnerProfileByStoreId(tx, storeId);
     });
 
     await this.cacheInvalidatorService.invalidatePulseDashboardHome();
@@ -164,9 +156,14 @@ export class PlatformMembershipPartnerService {
         throw new ConflictException('申请状态已变化，请刷新后重试');
       }
 
-      await this.upsertApprovedPartnerSnapshot(tx, storeId, application, now);
+      await upsertApprovedPartnerSnapshot({
+        prismaExecutor: tx,
+        storeId,
+        application,
+        approvedAt: now,
+      });
 
-      return this.buildPartnerProfile(tx, storeId);
+      return buildPartnerProfileByStoreId(tx, storeId);
     });
 
     await this.cacheInvalidatorService.invalidatePulseDashboardHome();
@@ -218,7 +215,7 @@ export class PlatformMembershipPartnerService {
         },
       });
 
-      return this.buildPartnerProfile(tx, storeId);
+      return buildPartnerProfileByStoreId(tx, storeId);
     });
 
     await this.cacheInvalidatorService.invalidatePulseDashboardHome();
@@ -259,7 +256,7 @@ export class PlatformMembershipPartnerService {
         throw new ConflictException('申请状态已变化，请刷新后重试');
       }
 
-      return this.buildPartnerProfile(tx, storeId);
+      return buildPartnerProfileByStoreId(tx, storeId);
     });
 
     await this.cacheInvalidatorService.invalidatePulseDashboardHome();
@@ -284,128 +281,7 @@ export class PlatformMembershipPartnerService {
         },
       });
 
-      return this.buildPartnerProfile(tx, storeId);
+      return buildPartnerProfileByStoreId(tx, storeId);
     });
-  }
-
-  private async buildPartnerProfile(
-    prismaExecutor: PrismaExecutor,
-    storeId: number,
-  ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    const [partners, promoRecords, applications] = await Promise.all([
-      findStorePartners(prismaExecutor, storeId),
-      findStoreMembershipPromoRecords(prismaExecutor, storeId),
-      findStorePartnerApplications(prismaExecutor, storeId),
-    ]);
-
-    return buildPartnerProfileResponse({
-      partners,
-      promoRecords,
-      applications,
-    });
-  }
-
-  private findBlockingApplication(
-    applications: StorePartnerApplicationRecord[],
-    payload: PartnerSnapshotPayload,
-  ): StorePartnerApplicationRecord | null {
-    return (
-      applications.find(
-        (application) =>
-          this.isSameApplicant(application, payload) &&
-          (application.status === 'pending' ||
-            application.status === 'reviewing' ||
-            application.status === 'approved'),
-      ) ?? null
-    );
-  }
-
-  private hasApprovedPartnerForApplicant(
-    partners: StorePartnerRecord[],
-    payload: PartnerSnapshotPayload,
-  ): boolean {
-    return partners.some((partner) => this.isSameApplicant(partner, payload));
-  }
-
-  private isSameApplicant(
-    applicant:
-      | Pick<StorePartnerApplicationRecord, 'idCard' | 'phone'>
-      | Pick<StorePartnerRecord, 'idCard' | 'phone'>,
-    payload: Pick<PartnerSnapshotPayload, 'idCard' | 'phone'>,
-  ): boolean {
-    const normalizedIdCard = applicant.idCard?.trim().toUpperCase();
-
-    if (normalizedIdCard) {
-      return normalizedIdCard === payload.idCard;
-    }
-
-    return applicant.phone?.trim() === payload.phone;
-  }
-
-  private async upsertApprovedPartnerSnapshot(
-    prismaExecutor: PrismaExecutor,
-    storeId: number,
-    application: StorePartnerApplicationRecord,
-    approvedAt: Date,
-  ): Promise<void> {
-    const payload = this.toPartnerSnapshotPayload(application);
-    const existingPartner = await findStorePartnerByApplicant(
-      prismaExecutor,
-      storeId,
-      payload,
-    );
-
-    if (existingPartner) {
-      await prismaExecutor.storePartner.update({
-        where: { id: existingPartner.id },
-        data: {
-          ...payload,
-          status: 'approved',
-          reviewedAt: approvedAt,
-          joinedAt: approvedAt,
-        },
-      });
-      return;
-    }
-
-    await prismaExecutor.storePartner.create({
-      data: {
-        storeId,
-        status: 'approved',
-        ...payload,
-        beanBalance: 0,
-        totalEarnedBeans: 0,
-        totalWithdrawnBeans: 0,
-        reviewedAt: approvedAt,
-        joinedAt: approvedAt,
-      },
-    });
-  }
-
-  private toPartnerSnapshotPayload(
-    application: Pick<
-      StorePartnerApplicationRecord,
-      | 'name'
-      | 'phone'
-      | 'idCard'
-      | 'region'
-      | 'intention'
-      | 'applyReason'
-      | 'paymentAccountType'
-      | 'paymentAccountNo'
-      | 'paymentAccountName'
-    >,
-  ): PartnerSnapshotPayload {
-    return {
-      name: application.name,
-      phone: application.phone,
-      idCard: application.idCard,
-      region: application.region,
-      intention: application.intention,
-      applyReason: application.applyReason,
-      paymentAccountType: application.paymentAccountType,
-      paymentAccountNo: application.paymentAccountNo,
-      paymentAccountName: application.paymentAccountName,
-    };
   }
 }

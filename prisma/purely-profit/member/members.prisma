@@ -1,0 +1,146 @@
+// 会员档案与会员积分流水模型
+
+enum MemberGender {
+  UNKNOWN
+  MALE
+  FEMALE
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  BANNED
+}
+
+enum MemberPointsChangeType {
+  INCREASE
+  DECREASE
+}
+
+enum MemberPointsSource {
+  purchase_bonus
+  deduct_payment
+  admin_adjust
+  expire
+}
+
+enum MemberBeanSource {
+  promo_reward
+  deduct_payment
+  withdrawal
+  admin_adjust
+}
+
+enum MemberRechargeChannel {
+  wechat
+  alipay
+  card
+}
+
+model Member {
+  id                 Int                 @id @default(autoincrement())
+  storeId            Int                 @map("store_id")
+  store              Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name               String
+  phone              String?
+  gender             MemberGender        @default(UNKNOWN)
+  level              String              @default("free")
+  tags               String[]            @default([])
+  note               String?
+  birthday           DateTime?
+  lastConsumeAt      DateTime?           @map("last_consume_at")
+  totalConsumeAmount Decimal             @default(0) @map("total_consume_amount") @db.Decimal(12, 2)
+  totalConsumeCount  Int                 @default(0) @map("total_consume_count")
+  points             Int                 @default(0)
+  totalPointsEarned  Int                 @default(0) @map("total_points_earned")
+  beanBalance        Int                 @default(0) @map("bean_balance")
+  isPartner          Boolean             @default(false) @map("is_partner")
+  partnerLevel       String?             @map("partner_level")
+  totalRecharged     Int                 @default(0) @map("total_recharged")
+  rechargeCount      Int                 @default(0) @map("recharge_count")
+  invitedCount       Int                 @default(0) @map("invited_count")
+  bannedReason       String?             @map("banned_reason")
+  status             MemberStatus        @default(ACTIVE)
+  memberPointsLogs   MemberPointsLog[]
+  memberBeanLogs     MemberBeanLog[]
+  memberRechargeLogs MemberRechargeLog[]
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  @@unique([storeId, phone])
+  @@index([storeId, updatedAt])
+  @@index([storeId, status, updatedAt])
+  @@index([storeId, level, updatedAt])
+  @@index([storeId, isPartner, updatedAt])
+  @@index([phone])
+  @@map("members")
+}
+
+model MemberPointsLog {
+  id              Int                    @id @default(autoincrement())
+  memberId        Int                    @map("member_id")
+  member          Member                 @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  storeId         Int                    @map("store_id")
+  store           Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  operatorStaffId Int?                   @map("operator_staff_id")
+  operatorStaff   Staff?                 @relation("MemberPointsLogsOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
+  changeType      MemberPointsChangeType @map("change_type")
+  source          MemberPointsSource     @default(admin_adjust)
+  changeAmount    Int                    @map("change_amount")
+  beforePoints    Int                    @map("before_points")
+  afterPoints     Int                    @map("after_points")
+  reason          String
+  remark          String?
+  expiresAt       DateTime?              @map("expires_at")
+  createdAt       DateTime               @default(now()) @map("created_at")
+
+  @@index([memberId, createdAt])
+  @@index([storeId, createdAt])
+  @@index([operatorStaffId, createdAt])
+  @@index([source, createdAt])
+  @@map("member_points_logs")
+}
+
+model MemberBeanLog {
+  id              Int              @id @default(autoincrement())
+  memberId        Int              @map("member_id")
+  member          Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  storeId         Int              @map("store_id")
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  operatorStaffId Int?             @map("operator_staff_id")
+  operatorStaff   Staff?           @relation("MemberBeanLogsOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
+  source          MemberBeanSource
+  changeAmount    Int              @map("change_amount")
+  beforeBalance   Int              @map("before_balance")
+  afterBalance    Int              @map("after_balance")
+  reason          String
+  relatedPromoId  String?          @map("related_promo_id")
+  relatedUser     String?          @map("related_user")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  @@index([memberId, createdAt])
+  @@index([storeId, createdAt])
+  @@index([operatorStaffId, createdAt])
+  @@index([source, createdAt])
+  @@map("member_bean_logs")
+}
+
+model MemberRechargeLog {
+  id              Int                   @id @default(autoincrement())
+  memberId        Int                   @map("member_id")
+  member          Member                @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  storeId         Int                   @map("store_id")
+  store           Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  operatorStaffId Int?                  @map("operator_staff_id")
+  operatorStaff   Staff?                @relation("MemberRechargeLogsOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
+  planName        String                @map("plan_name")
+  amount          Int
+  pointsAwarded   Int                   @default(0) @map("points_awarded")
+  channel         MemberRechargeChannel
+  createdAt       DateTime              @default(now()) @map("created_at")
+
+  @@index([memberId, createdAt])
+  @@index([storeId, createdAt])
+  @@index([operatorStaffId, createdAt])
+  @@map("member_recharge_logs")
+}

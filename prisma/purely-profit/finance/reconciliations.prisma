@@ -1,0 +1,75 @@
+// purely-profit/finance: 对账模型
+
+enum FinanceReconciliationStatus {
+  draft
+  confirmed
+  discrepancy
+  adjusted
+}
+
+enum FinanceReconciliationType {
+  daily
+  weekly
+  monthly
+  payment
+  supplier
+  custom
+}
+
+enum FinancePaymentChannel {
+  cash
+  wechat
+  alipay
+  card
+  bank
+  all
+}
+
+model FinanceReconciliationRecord {
+  id              Int                         @id @default(autoincrement())
+  storeId         Int                         @map("store_id")
+  store           Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  operatorStaffId Int?                        @map("operator_staff_id")
+  operatorStaff   Staff?                      @relation("FinanceReconciliationOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
+  title           String
+  type            FinanceReconciliationType
+  status          FinanceReconciliationStatus @default(draft)
+  channel         FinancePaymentChannel?
+  counterpart     String?
+  periodStart     DateTime                    @map("period_start")
+  periodEnd       DateTime                    @map("period_end")
+  bookIncome      Decimal                     @map("book_income") @db.Decimal(12, 2)
+  bookExpense     Decimal                     @map("book_expense") @db.Decimal(12, 2)
+  bookNet         Decimal                     @map("book_net") @db.Decimal(12, 2)
+  actualIncome    Decimal                     @map("actual_income") @db.Decimal(12, 2)
+  actualExpense   Decimal                     @map("actual_expense") @db.Decimal(12, 2)
+  actualNet       Decimal                     @map("actual_net") @db.Decimal(12, 2)
+  diffAmount      Decimal                     @map("diff_amount") @db.Decimal(12, 2)
+  adjustNote      String?                     @map("adjust_note")
+  operator        String?
+  note            String?
+  date            DateTime
+  items           FinanceReconciliationItem[]
+  createdAt       DateTime                    @default(now()) @map("created_at")
+  updatedAt       DateTime                    @updatedAt @map("updated_at")
+
+  @@index([storeId, status, date])
+  @@index([storeId, type, date])
+  @@index([operatorStaffId, createdAt])
+  @@map("finance_reconciliation_records")
+}
+
+model FinanceReconciliationItem {
+  id               Int                         @id @default(autoincrement())
+  reconciliationId Int                         @map("reconciliation_id")
+  reconciliation   FinanceReconciliationRecord @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  description      String
+  bookAmount       Decimal                     @map("book_amount") @db.Decimal(12, 2)
+  actualAmount     Decimal                     @map("actual_amount") @db.Decimal(12, 2)
+  difference       Decimal                     @db.Decimal(12, 2)
+  note             String?
+  createdAt        DateTime                    @default(now()) @map("created_at")
+
+  @@index([reconciliationId, createdAt])
+  @@map("finance_reconciliation_items")
+}

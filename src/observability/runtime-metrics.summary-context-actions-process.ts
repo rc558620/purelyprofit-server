@@ -1,4 +1,4 @@
-import type { SummaryActionParamsById } from './metrics.protocol';
+import type { SummaryActionParamsById } from './metrics-summary.protocol';
 import { buildProcessActionPayload } from './runtime-metrics.summary-actions';
 import { buildDrawerActionMeta } from './runtime-metrics.summary-context-actions-shared';
 import type {

@@ -1,17 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -46,10 +34,10 @@ export class PurchasesController {
   @ApiOperation({ summary: '获取进货单列表' })
   @ApiOkResponse({ type: PaginatedPurchasesResponseDto })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListPurchasesQueryDto,
   ): Promise<PaginatedPurchasesResponseDto> {
-    return this.purchasesService.list(request.user, query);
+    return this.purchasesService.list(user, query);
   }
 
   @Get('stats')
@@ -57,10 +45,10 @@ export class PurchasesController {
   @ApiOperation({ summary: '获取进货统计' })
   @ApiOkResponse({ type: PurchaseStatsResponseDto })
   getStats(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: PurchaseStatsQueryDto,
   ): Promise<PurchaseStatsResponseDto> {
-    return this.purchasesService.getStats(request.user, query);
+    return this.purchasesService.getStats(user, query);
   }
 
   @Post()
@@ -68,10 +56,10 @@ export class PurchasesController {
   @ApiOperation({ summary: '创建进货单' })
   @ApiCreatedResponse({ type: PurchaseResponseDto })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreatePurchaseDto,
   ): Promise<PurchaseResponseDto> {
-    return this.purchasesService.create(request.user, dto);
+    return this.purchasesService.create(user, dto);
   }
 
   @Delete(':id')
@@ -80,9 +68,9 @@ export class PurchasesController {
   @ApiOperation({ summary: '删除进货单' })
   @ApiNoContentResponse()
   async remove(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) purchaseId: number,
   ): Promise<void> {
-    await this.purchasesService.remove(request.user, purchaseId);
+    await this.purchasesService.remove(user, purchaseId);
   }
 }

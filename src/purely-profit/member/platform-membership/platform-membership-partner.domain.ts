@@ -7,7 +7,7 @@ import type {
 import {
   buildApprovedPartnerResponse,
   buildApprovedPartnersResponse,
-} from './platform-membership.domain';
+} from './membership-profile.mapper';
 import { buildPartnerLevel } from './platform-membership-promo.domain';
 import type {
   PartnerSnapshotPayload,

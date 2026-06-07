@@ -5,7 +5,7 @@ import {
   DEFAULT_MEMBERSHIP_PLAN_SETTINGS,
   PLATFORM_MEMBERSHIP_PLAN_ORDER,
 } from './platform-membership.constants';
-import { toPlanConfig } from './platform-membership.domain';
+import { toPlanConfig } from './membership-plan-resolver';
 import type {
   MembershipPlanConfig,
   MembershipPlanSettingIdValue,

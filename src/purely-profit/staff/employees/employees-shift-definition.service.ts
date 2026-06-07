@@ -14,7 +14,7 @@ import {
   UpdateEmployeeShiftDefinitionDto,
 } from './dto/employee-shift-definition.dto';
 import { EmployeeStoreQueryDto } from './dto/employee-dictionary.dto';
-import { parseTimeToMinutes } from './employees.domain';
+import { parseTimeToMinutes } from './employees-shift.domain';
 import { toEmployeeShiftDefinitionResponse } from './employees.mapper';
 import { EmployeesAccessService } from './employees-access.service';
 

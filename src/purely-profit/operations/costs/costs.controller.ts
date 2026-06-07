@@ -1,17 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -49,10 +37,10 @@ export class CostsController {
   @ApiOperation({ summary: '获取成本记录列表' })
   @ApiOkResponse({ type: [CostRecordResponseDto] })
   listRecords(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListCostRecordsQueryDto,
   ): Promise<CostRecordResponseDto[]> {
-    return this.costsService.listRecords(request.user, query);
+    return this.costsService.listRecords(user, query);
   }
 
   @Get('stats')
@@ -60,10 +48,10 @@ export class CostsController {
   @ApiOperation({ summary: '获取成本统计' })
   @ApiOkResponse({ type: CostStatsResponseDto })
   getStats(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: CostRecordStatsQueryDto,
   ): Promise<CostStatsResponseDto> {
-    return this.costsService.getStats(request.user, query);
+    return this.costsService.getStats(user, query);
   }
 
   @Get('report')
@@ -71,10 +59,10 @@ export class CostsController {
   @ApiOperation({ summary: '获取报表中心成本报表数据' })
   @ApiOkResponse({ type: CostReportResponseDto })
   getReport(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: CostReportQueryDto,
   ): Promise<CostReportResponseDto> {
-    return this.costsService.getReport(request.user, query);
+    return this.costsService.getReport(user, query);
   }
 
   @Post(['records', ''])
@@ -82,10 +70,10 @@ export class CostsController {
   @ApiOperation({ summary: '新增成本记录' })
   @ApiCreatedResponse({ type: CostRecordResponseDto })
   createRecord(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateCostRecordDto,
   ): Promise<CostRecordResponseDto> {
-    return this.costsService.createRecord(request.user, dto);
+    return this.costsService.createRecord(user, dto);
   }
 
   @Delete(['records/:id', ':id'])
@@ -94,9 +82,9 @@ export class CostsController {
   @ApiOperation({ summary: '删除成本记录' })
   @ApiNoContentResponse({ description: '删除成功' })
   deleteRecord(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) recordId: number,
   ): Promise<void> {
-    return this.costsService.deleteRecord(request.user, recordId);
+    return this.costsService.deleteRecord(user, recordId);
   }
 }

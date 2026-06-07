@@ -4,10 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  Prisma,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
   SpaceStatus as PrismaSpaceStatus,
-  SpaceReservationStatus as PrismaSpaceReservationStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -16,6 +14,7 @@ import type {
   TransferSpaceSessionDto,
   TransferSpaceSessionResponseDto,
 } from './dto/space-session.dto';
+import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { toSpaceSessionResponse } from './space-sessions.mapper';
 import type { SpaceStatusValue } from './spaces.constants';
 
@@ -24,6 +23,7 @@ export class SpaceSessionTransferService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly reservationsStateService: SpaceReservationsStateService,
   ) {}
 
   async transferSession(
@@ -172,7 +172,8 @@ export class SpaceSessionTransferService {
         throw new ConflictException('只能换到同类型空间');
       }
       if (
-        latestTargetSpace.enableDirtyRoom !== latestSession.space.enableDirtyRoom
+        latestTargetSpace.enableDirtyRoom !==
+        latestSession.space.enableDirtyRoom
       ) {
         throw new ConflictException(
           '目标空间与当前空间的脏房模式不一致，无法换房',
@@ -193,7 +194,7 @@ export class SpaceSessionTransferService {
 
       const sourceSpaceStatus = latestSession.space.enableDirtyRoom
         ? PrismaSpaceStatus.cleaning
-        : await this.resolveReservationBackStatus(
+        : await this.reservationsStateService.resolveReservationBackStatus(
             transaction,
             latestSession.spaceId,
           );
@@ -247,46 +248,5 @@ export class SpaceSessionTransferService {
 
   private toSpaceStatusValue(status: PrismaSpaceStatus): SpaceStatusValue {
     return status;
-  }
-
-  private async resolveReservationBackStatus(
-    transaction: Prisma.TransactionClient,
-    spaceId: number,
-  ): Promise<PrismaSpaceStatus> {
-    const todayRange = this.getTodayRange();
-    const hasTodayPendingReservation =
-      await transaction.spaceReservation.findFirst({
-        where: {
-          spaceId,
-          status: PrismaSpaceReservationStatus.pending,
-          reservedAt: {
-            gte: todayRange.start,
-            lte: todayRange.end,
-          },
-        },
-        select: {
-          id: true,
-        },
-      });
-
-    return hasTodayPendingReservation
-      ? PrismaSpaceStatus.reserved
-      : PrismaSpaceStatus.idle;
-  }
-
-  private getTodayRange(): { start: Date; end: Date } {
-    const now = new Date();
-    const start = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      0,
-      0,
-      0,
-      0,
-    );
-    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
-
-    return { start, end };
   }
 }

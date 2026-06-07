@@ -7,15 +7,11 @@ import {
   buildFinanceOverviewCacheKey,
 } from '../../redis/cache-keys';
 import { RedisService } from '../../redis/redis.service';
-import type {
-  FinanceOverviewQueryDto,
-  FinanceReportQueryDto,
-} from './dto/finance-query.dto';
-import type {
-  FinanceOverviewResponseDto,
-  FinanceReportResponseDto,
-} from './dto/finance-response.dto';
-import { buildFinanceReportResponse } from './finance-account.domain';
+import type { FinanceOverviewQueryDto } from './dto/finance-overview.query.dto';
+import type { FinanceReportQueryDto } from './dto/finance-report.query.dto';
+import type { FinanceOverviewResponseDto } from './dto/finance-overview.response.dto';
+import type { FinanceReportResponseDto } from './dto/finance-report.response.dto';
+import { buildFinanceReportResponse } from './finance-account-report.domain';
 import {
   buildEmptyOverviewResponse,
   buildFinanceOverviewResponse,
@@ -28,15 +24,14 @@ import {
   queryOverviewCashFlowRecords,
 } from './finance-overview-report.query';
 import type { FinanceReportQueryInput } from './finance.types';
+import { getDayStart } from './finance-date.utils';
+import { addMoneyValues, toMoneyNumber } from './finance-money.utils';
 import {
-  addMoneyValues,
-  getDayStart,
   getFinanceReportRange,
   getOverviewCurrentRange,
   getOverviewPreviousRange,
   getPreviousFinanceReportRange,
-  toMoneyNumber,
-} from './finance.utils';
+} from './finance-range.utils';
 
 const FINANCE_OVERVIEW_CACHE_TTL_SECONDS = 120;
 const FINANCE_OVERVIEW_REFRESH_AFTER_MS = 30_000;
@@ -79,7 +74,12 @@ export class FinanceOverviewService {
       return cachedPayload.data;
     }
 
-    return this.refreshOverviewCache(cacheKey, storeId, period, callerIsSubAccount);
+    return this.refreshOverviewCache(
+      cacheKey,
+      storeId,
+      period,
+      callerIsSubAccount,
+    );
   }
 
   async warmOverviewCache(
@@ -199,10 +199,14 @@ export class FinanceOverviewService {
     }
 
     const clampedPreviousRange =
-      await this.platformMembershipAccessService.clampHistoryRange(storeId, {
-        start: previousRange.prevStart,
-        end: previousRange.prevEnd,
-      }, callerIsSubAccount);
+      await this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        {
+          start: previousRange.prevStart,
+          end: previousRange.prevEnd,
+        },
+        callerIsSubAccount,
+      );
     const queryStart = clampedPreviousRange.empty
       ? clampedCurrentRange.start
       : Math.max(

@@ -5,7 +5,6 @@ import {
   HttpCode,
   HttpStatus,
   Patch,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -14,6 +13,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import {
@@ -48,9 +48,9 @@ export class SessionController {
     type: PulseSessionBootstrapResponseDto,
   })
   bootstrap(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PulseSessionBootstrapResponseDto> {
-    return this.sessionService.bootstrap(request.user);
+    return this.sessionService.bootstrap(user);
   }
 
   /**
@@ -71,9 +71,9 @@ export class SessionController {
     type: PulseSwitchCurrentStoreResponseDto,
   })
   switchCurrentStore(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: PulseSwitchCurrentStoreDto,
   ): Promise<PulseSwitchCurrentStoreResponseDto> {
-    return this.sessionService.switchCurrentStore(request.user, dto.storeId);
+    return this.sessionService.switchCurrentStore(user, dto.storeId);
   }
 }

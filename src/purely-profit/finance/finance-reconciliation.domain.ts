@@ -2,7 +2,7 @@ import { FinanceReconciliationStatus, Prisma } from '@prisma/client';
 import type {
   FinanceReconciliationRecordResponseDto,
   FinanceReconciliationStatsDto,
-} from './dto/finance-response.dto';
+} from './dto/finance-reconciliation.response.dto';
 import type {
   FinanceReconciliationItemInput,
   FinanceReconciliationRecordWithItems,
@@ -14,8 +14,8 @@ import {
   roundMoneyValue,
   toMoneyNumber,
   toPrismaDecimal,
-  trimOptionalString,
-} from './finance.utils';
+} from './finance-money.utils';
+import { trimOptionalString } from './finance-string.utils';
 
 export function filterReconciliations(
   records: FinanceReconciliationRecordWithItems[],

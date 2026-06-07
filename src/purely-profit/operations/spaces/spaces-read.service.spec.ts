@@ -5,8 +5,10 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SPACE_WITH_RELATIONS_INCLUDE } from './spaces.query';
+import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
+import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceSessionReadService } from './space-session-read.service';
-import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { SpaceSessionReadStateService } from './space-session-read-state.service';
 import { SpacesReadService } from './spaces-read.service';
 
 type SpaceRecord = {
@@ -104,7 +106,7 @@ describe('SpacesReadService', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         {
-          provide: SpaceSessionSettlementService,
+          provide: SpaceSessionAutoCheckoutService,
           useValue: settlementService,
         },
       ],
@@ -197,17 +199,12 @@ describe('SpaceSessionReadService 状态修复', () => {
     space: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
-      update: jest.fn(),
     },
     spaceSession: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
     },
-    spaceReservation: {
-      findFirst: jest.fn(),
-    },
-    $transaction: jest.fn(),
   };
 
   const commerceAccessService = {
@@ -217,6 +214,10 @@ describe('SpaceSessionReadService 状态修复', () => {
 
   const settlementService = {
     autoCheckoutExpiredCountdownSessions: jest.fn(),
+  };
+
+  const readStateService = {
+    syncOccupiedSpaceStates: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -248,12 +249,7 @@ describe('SpaceSessionReadService 状态修复', () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
     settlementService.autoCheckoutExpiredCountdownSessions.mockResolvedValue(0);
-    prismaService.$transaction.mockImplementation((callback) =>
-      callback({
-        space: prismaService.space,
-        spaceReservation: prismaService.spaceReservation,
-      }),
-    );
+    readStateService.syncOccupiedSpaceStates.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -262,8 +258,12 @@ describe('SpaceSessionReadService 状态修复', () => {
         { provide: CommerceAccessService, useValue: commerceAccessService },
         { provide: ConfigService, useValue: {} },
         {
-          provide: SpaceSessionSettlementService,
+          provide: SpaceSessionAutoCheckoutService,
           useValue: settlementService,
+        },
+        {
+          provide: SpaceSessionReadStateService,
+          useValue: readStateService,
         },
       ],
     }).compile();
@@ -271,48 +271,21 @@ describe('SpaceSessionReadService 状态修复', () => {
     service = module.get<SpaceSessionReadService>(SpaceSessionReadService);
   });
 
-  it('listStoreSpaceSessions 在查询 active 会话时，应自动修复 occupied 状态但无 active session 的空间', async () => {
-    // 模拟查询返回一个 active session
+  it('listStoreSpaceSessions 在查询 active 会话时，应委托 readStateService 同步修复状态', async () => {
     prismaService.spaceSession.findMany.mockResolvedValueOnce([]);
-    // 模拟存在一个 occupied 状态但无 active session 的空间
-    prismaService.space.findMany.mockResolvedValueOnce([{ id: 11 }]);
-    // 模拟该空间没有 active session
-    prismaService.spaceSession.findFirst.mockResolvedValueOnce(null);
-    // 模拟没有 pending 预约
-    prismaService.spaceReservation.findFirst.mockResolvedValueOnce(null);
-    // 模拟修复操作
-    prismaService.space.update.mockResolvedValueOnce({});
 
     const result = await service.listStoreSpaceSessions(user, {});
 
-    // 验证状态修复逻辑被调用
-    expect(prismaService.space.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          storeId: 18,
-          status: 'occupied',
-        }),
-      }),
-    );
-    expect(prismaService.space.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 11 },
-        data: { status: 'idle' },
-      }),
-    );
+    expect(readStateService.syncOccupiedSpaceStates).toHaveBeenCalledWith(18);
     expect(result).toEqual([]);
   });
 
-  it('listStoreSpaceSessions 如果 occupied 空间有 active session，则不修复状态', async () => {
+  it('listStoreSpaceSessions 如果 occupied 空间有 active session，委托 readStateService 即可', async () => {
     prismaService.spaceSession.findMany.mockResolvedValueOnce([]);
-    prismaService.space.findMany.mockResolvedValueOnce([{ id: 11 }]);
-    // 模拟该空间有 active session
-    prismaService.spaceSession.findFirst.mockResolvedValueOnce({ id: 1 });
 
     await service.listStoreSpaceSessions(user, {});
 
-    // 验证不调用状态修复
-    expect(prismaService.space.update).not.toHaveBeenCalled();
+    expect(readStateService.syncOccupiedSpaceStates).toHaveBeenCalledWith(18);
   });
 
   it('getSpaceSessionDetail 会先补偿自动结账并返回最新会话详情', async () => {
@@ -394,5 +367,60 @@ describe('SpaceSessionReadService 状态修复', () => {
     expect(prismaService.spaceSession.findUnique).toHaveBeenCalledTimes(2);
     expect(result.status).toBe('settled');
     expect(result.orderId).toBe('12');
+  });
+});
+
+describe('SpaceSessionReadStateService', () => {
+  let service: SpaceSessionReadStateService;
+
+  const prismaService = {
+    space: {
+      findMany: jest.fn(),
+    },
+    spaceSession: {
+      findFirst: jest.fn(),
+    },
+  };
+
+  const reservationsStateService = {
+    repairInconsistentOccupiedSpace: jest.fn(),
+  };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    reservationsStateService.repairInconsistentOccupiedSpace.mockResolvedValue(
+      undefined,
+    );
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        SpaceSessionReadStateService,
+        { provide: PrismaService, useValue: prismaService },
+        {
+          provide: SpaceReservationsStateService,
+          useValue: reservationsStateService,
+        },
+      ],
+    }).compile();
+
+    service = module.get<SpaceSessionReadStateService>(
+      SpaceSessionReadStateService,
+    );
+  });
+
+  it('syncOccupiedSpaceStates 在发现异常 occupied 空间时委托预约状态服务修复', async () => {
+    prismaService.space.findMany.mockResolvedValue([{ id: 7 }, { id: 8 }]);
+    prismaService.spaceSession.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 12 });
+
+    await service.syncOccupiedSpaceStates(18);
+
+    expect(
+      reservationsStateService.repairInconsistentOccupiedSpace,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      reservationsStateService.repairInconsistentOccupiedSpace,
+    ).toHaveBeenCalledWith(7);
   });
 });

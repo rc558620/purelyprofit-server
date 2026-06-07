@@ -36,7 +36,7 @@ import type {
   PulseDashboardHomeResponseDto,
   PulseDashboardRevenueSummaryDto,
   PulseDashboardRevenueTrendDto,
-} from './dto/pulse-dashboard-response.dto';
+} from './dto/pulse-dashboard-home.response.dto';
 
 const PULSE_DASHBOARD_HOME_CACHE_TTL_SECONDS = 30;
 

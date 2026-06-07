@@ -3,20 +3,20 @@ import { Prisma } from '@prisma/client';
 import type {
   FinanceCashFlowRecordResponseDto,
   FinanceCashFlowStatsDto,
-  FinanceReportCashFlowRowDto,
-} from './dto/finance-response.dto';
+} from './dto/finance-cash-flow.response.dto';
+import type { FinanceReportCashFlowRowDto } from './dto/finance-report.response.dto';
 import {
   CASH_FLOW_CATEGORY_RULES,
   FINANCE_REPORT_PAYMENT_LABELS,
   type FinanceCashFlowCategoryRule,
 } from './finance.constants';
 import type { FinanceCashFlowStatsRow } from './finance.types';
+import { formatReportDateLabel } from './finance-date.utils';
 import {
   addMoneyValues,
-  formatReportDateLabel,
   roundMoneyValue,
   toMoneyNumber,
-} from './finance.utils';
+} from './finance-money.utils';
 
 export function assertCashFlowCategoryCanCreateManually(
   category: string,

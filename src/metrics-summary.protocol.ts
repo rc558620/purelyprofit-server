@@ -1,1 +1,1 @@
-export * from './observability/metrics.protocol';
+export * from './observability/metrics-summary.protocol';

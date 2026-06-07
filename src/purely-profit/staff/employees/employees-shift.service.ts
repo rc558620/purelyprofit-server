@@ -18,7 +18,7 @@ import {
   isTimeRangeOverlapping,
   parseTimeToMinutes,
   resolveShiftTypeFromDefinition,
-} from './employees.domain';
+} from './employees-shift.domain';
 import { EmployeesAccessService } from './employees-access.service';
 import { toEmployeeShiftResponse } from './employees.mapper';
 import { buildDateRange, toNullableText } from './employees.utils';

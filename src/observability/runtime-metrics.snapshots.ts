@@ -1,4 +1,4 @@
-import type { MetricsSnapshot } from './metrics.protocol';
+import type { MetricsSnapshot } from './metrics-snapshot.protocol';
 import type { HealthSnapshot } from './observability.protocol';
 import { buildMetricsSummary } from './runtime-metrics.summary';
 import {

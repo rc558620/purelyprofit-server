@@ -1,1 +1,1 @@
-ignored_ports: '3000'
+ignored_ports: 3000,3001,3002

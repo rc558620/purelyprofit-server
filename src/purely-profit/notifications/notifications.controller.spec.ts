@@ -72,7 +72,7 @@ describe('NotificationsController', () => {
     };
     notificationsService.getUnreadSummary.mockResolvedValue(response);
 
-    await expect(controller.getUnreadSummary({ user }, query)).resolves.toEqual(
+    await expect(controller.getUnreadSummary(user, query)).resolves.toEqual(
       response,
     );
     expect(notificationsService.getUnreadSummary).toHaveBeenCalledWith(
@@ -95,7 +95,7 @@ describe('NotificationsController', () => {
     };
     notificationsService.list.mockResolvedValue(response);
 
-    await expect(controller.list({ user }, query)).resolves.toEqual(response);
+    await expect(controller.list(user, query)).resolves.toEqual(response);
     expect(notificationsService.list).toHaveBeenCalledWith(user, query);
   });
 
@@ -110,7 +110,7 @@ describe('NotificationsController', () => {
     notificationsService.markRead.mockResolvedValue(response);
 
     await expect(
-      controller.markRead({ user }, 'inventory:product:5', query),
+      controller.markRead(user, 'inventory:product:5', query),
     ).resolves.toEqual(response);
     expect(notificationsService.markRead).toHaveBeenCalledWith(
       user,
@@ -128,7 +128,7 @@ describe('NotificationsController', () => {
     };
     notificationsService.markAllRead.mockResolvedValue(response);
 
-    await expect(controller.markAllRead({ user }, query)).resolves.toEqual(
+    await expect(controller.markAllRead(user, query)).resolves.toEqual(
       response,
     );
     expect(notificationsService.markAllRead).toHaveBeenCalledWith(user, query);

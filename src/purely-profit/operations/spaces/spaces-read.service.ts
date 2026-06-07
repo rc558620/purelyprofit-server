@@ -8,14 +8,14 @@ import {
   buildListSpacesWhere,
   SPACE_WITH_RELATIONS_INCLUDE,
 } from './spaces.query';
-import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
 
 @Injectable()
 export class SpacesReadService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
-    private readonly settlementService: SpaceSessionSettlementService,
+    private readonly autoCheckoutService: SpaceSessionAutoCheckoutService,
   ) {}
 
   async listSpaces(
@@ -34,7 +34,7 @@ export class SpacesReadService {
       return [];
     }
 
-    await this.settlementService.autoCheckoutExpiredCountdownSessions(
+    await this.autoCheckoutService.autoCheckoutExpiredCountdownSessions(
       user,
       storeId,
       Date.now(),

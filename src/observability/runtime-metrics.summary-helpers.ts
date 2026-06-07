@@ -3,7 +3,7 @@ import type {
   SummaryImpactLevel,
   SummaryStatus,
   SummaryTrend,
-} from './metrics.protocol';
+} from './metrics-summary.protocol';
 import { roundMetric } from './runtime-metrics.state';
 
 export const SUMMARY_SEVERITY_RANK: Record<SummaryStatus, number> = {

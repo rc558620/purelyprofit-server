@@ -1,129 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import Decimal from 'decimal.js';
 import { DAY_MS } from './finance.constants';
-import {
-  FINANCE_DEFAULT_PAGE,
-  FINANCE_DEFAULT_PAGE_SIZE,
-  type FinanceCashFlowFilterRange,
-  type FinanceCashFlowListQueryInput,
-  type FinanceOverviewPeriodValue,
-  type FinanceReportQueryInput,
-  type FinanceReportRange,
-  type PaginationState,
+import { getDayEnd, getDayStart, getWeekStart } from './finance-date.utils';
+import type {
+  FinanceCashFlowFilterRange,
+  FinanceCashFlowListQueryInput,
+  FinanceOverviewPeriodValue,
+  FinanceReportQueryInput,
+  FinanceReportRange,
 } from './finance.types';
-
-export type PrismaDecimalLike = Prisma.Decimal | Decimal | number | string;
-
-export function buildPaginationState(
-  page?: number,
-  pageSize?: number,
-): PaginationState {
-  return {
-    page: page ?? FINANCE_DEFAULT_PAGE,
-    pageSize: pageSize ?? FINANCE_DEFAULT_PAGE_SIZE,
-    total: 0,
-    totalPages: 0,
-  };
-}
-
-export function buildPaginationMeta(
-  page: number,
-  pageSize: number,
-  total: number,
-): PaginationState {
-  return {
-    page,
-    pageSize,
-    total,
-    totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
-  };
-}
-
-export function paginateArray<T>(items: T[], meta: PaginationState): T[] {
-  const start = (meta.page - 1) * meta.pageSize;
-  return items.slice(start, start + meta.pageSize);
-}
-
-export function toPrismaDecimal(value: number): Prisma.Decimal {
-  return new Prisma.Decimal(value.toFixed(2));
-}
-
-export function roundMoneyValue(value: PrismaDecimalLike): number {
-  return new Decimal(value.toString())
-    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-    .toNumber();
-}
-
-export function toMoneyNumber(value: PrismaDecimalLike): number {
-  return roundMoneyValue(new Decimal(value.toString()));
-}
-
-export function addMoneyValues(left: number, right: number): number {
-  return roundMoneyValue(new Decimal(left).plus(right));
-}
-
-export function subtractMoneyValues(left: number, right: number): number {
-  return roundMoneyValue(new Decimal(left).minus(right));
-}
-
-export function calcPercent(amount: number, total: number): number {
-  if (isZeroValue(total)) {
-    return 0;
-  }
-
-  return new Decimal(amount)
-    .div(total)
-    .mul(100)
-    .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-    .toNumber();
-}
-
-export function isZeroValue(value: number): boolean {
-  return new Decimal(value).isZero();
-}
-
-export function trimOptionalString(value?: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed === '' ? null : trimmed;
-}
-
-export function getDayStart(timestamp: number): number {
-  const current = new Date(timestamp);
-  current.setHours(0, 0, 0, 0);
-  return current.getTime();
-}
-
-export function getDayEnd(timestamp: number): number {
-  const current = new Date(timestamp);
-  current.setHours(23, 59, 59, 999);
-  return current.getTime();
-}
-
-export function formatReportDateLabel(timestamp: number): string {
-  const current = new Date(timestamp);
-  return `${current.getFullYear()}-${current.getMonth() + 1}-${current.getDate()}`;
-}
-
-export function formatMonthDay(timestamp: number): string {
-  const current = new Date(timestamp);
-  const month = String(current.getMonth() + 1).padStart(2, '0');
-  const day = String(current.getDate()).padStart(2, '0');
-  return `${month}/${day}`;
-}
-
-export function getWeekStart(current: Date): number {
-  const day = current.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  const monday = new Date(current);
-  monday.setDate(current.getDate() + diff);
-  monday.setHours(0, 0, 0, 0);
-  return monday.getTime();
-}
 
 export function getOverviewCurrentRange(period: FinanceOverviewPeriodValue): {
   start: number;
@@ -168,7 +52,6 @@ export function getOverviewCurrentRange(period: FinanceOverviewPeriodValue): {
     };
   }
 
-  // 默认按年处理
   const current = new Date(todayStart);
   return {
     start: new Date(current.getFullYear(), 0, 1).getTime(),
@@ -402,7 +285,6 @@ export function getCashFlowFilterRange(
     };
   }
 
-  // year
   return {
     start: new Date(now.getFullYear(), 0, 1).getTime(),
     end: nowMs,
@@ -478,7 +360,6 @@ export function getPreviousCashFlowRange(
     };
   }
 
-  // year
   const currentYearStart = new Date(now.getFullYear(), 0, 1).getTime();
   return {
     start: new Date(now.getFullYear() - 1, 0, 1).getTime(),

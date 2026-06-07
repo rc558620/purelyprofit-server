@@ -1,12 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Patch,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -39,10 +32,10 @@ export class StoresController {
     type: StoreResponseDto,
   })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateStoreDto,
   ): Promise<StoreResponseDto> {
-    return this.storesService.create(request.user, dto);
+    return this.storesService.create(user, dto);
   }
 
   @Get()
@@ -53,9 +46,9 @@ export class StoresController {
     type: StoreResponseDto,
   })
   getStore(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<StoreResponseDto> {
-    return this.storesService.getStore(request.user);
+    return this.storesService.getStore(user);
   }
 
   @Get('current')
@@ -66,9 +59,9 @@ export class StoresController {
     type: StoreResponseDto,
   })
   getCurrent(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<StoreResponseDto> {
-    return this.storesService.getCurrent(request.user);
+    return this.storesService.getCurrent(user);
   }
 
   @Patch('current')
@@ -79,9 +72,9 @@ export class StoresController {
     type: StoreResponseDto,
   })
   updateCurrent(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateStoreDto,
   ): Promise<StoreResponseDto> {
-    return this.storesService.updateCurrent(request.user, dto);
+    return this.storesService.updateCurrent(user, dto);
   }
 }

@@ -20,28 +20,15 @@ import type {
 import { toSpaceSessionResponse } from './space-sessions.mapper';
 import { normalizeOpenSessionPayload } from './space-session-payload.shared';
 import { ensureOpenSessionPayload } from './space-session-open-validation.shared';
+import { SpaceReservationsStateService } from './space-reservations-state.service';
 import type { SpaceBillingModeValue } from './spaces.constants';
-
-const getTodayRange = (): { start: Date; end: Date } => {
-  const now = new Date();
-  const start = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    0,
-    0,
-    0,
-    0,
-  );
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
-  return { start, end };
-};
 
 @Injectable()
 export class SpaceSessionOpenService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly reservationsStateService: SpaceReservationsStateService,
   ) {}
 
   async openSession(
@@ -85,7 +72,9 @@ export class SpaceSessionOpenService {
       if (!occupiedSession) {
         // 空间状态异常：标记为 occupied 但不存在 active session
         // 自动修复为正确状态后，继续处理开台逻辑
-        await this.syncOccupiedSpaceStatus(space.id);
+        await this.reservationsStateService.repairInconsistentOccupiedSpace(
+          space.id,
+        );
         // 继续执行后续开台逻辑，不抛异常
       } else {
         // 空间确实在使用中，拒绝重复开台
@@ -115,7 +104,7 @@ export class SpaceSessionOpenService {
     ensureOpenSessionPayload(payload, space.capacity ?? undefined);
 
     if (payload.reservationId !== undefined) {
-      await this.ensureReservationCanBeFulfilled(
+      await this.reservationsStateService.ensureReservationCanBeFulfilled(
         space.storeId,
         space.id,
         payload.reservationId,
@@ -213,61 +202,6 @@ export class SpaceSessionOpenService {
     });
 
     return toSpaceSessionResponse(session);
-  }
-
-  private async ensureReservationCanBeFulfilled(
-    storeId: number,
-    spaceId: number,
-    reservationId: number,
-  ): Promise<void> {
-    const reservation = await this.prisma.spaceReservation.findUnique({
-      where: { id: reservationId },
-      select: {
-        id: true,
-        storeId: true,
-        spaceId: true,
-        status: true,
-      },
-    });
-
-    if (!reservation) {
-      throw new NotFoundException('预约不存在');
-    }
-    if (reservation.storeId !== storeId || reservation.spaceId !== spaceId) {
-      throw new ConflictException('该预约不属于当前空间，无法履约开台');
-    }
-    if (reservation.status !== PrismaSpaceReservationStatus.pending) {
-      throw new ConflictException('当前预约已处理，无法再次履约开台');
-    }
-  }
-
-  private async syncOccupiedSpaceStatus(spaceId: number): Promise<void> {
-    const todayRange = getTodayRange();
-
-    await this.prisma.$transaction(async (transaction) => {
-      // 检查是否有 pending 预约；如有则改为 reserved，否则改为 idle
-      const hasTodayPendingReservation =
-        await transaction.spaceReservation.findFirst({
-          where: {
-            spaceId,
-            status: PrismaSpaceReservationStatus.pending,
-            reservedAt: {
-              gte: todayRange.start,
-              lte: todayRange.end,
-            },
-          },
-          select: { id: true },
-        });
-
-      const nextStatus = hasTodayPendingReservation
-        ? PrismaSpaceStatus.reserved
-        : PrismaSpaceStatus.idle;
-
-      await transaction.space.update({
-        where: { id: spaceId },
-        data: { status: nextStatus },
-      });
-    });
   }
 
   private toPrismaSpaceBillingMode(

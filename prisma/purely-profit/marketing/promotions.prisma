@@ -1,0 +1,43 @@
+// purely-profit/marketing: 营销活动模型
+
+enum MarketingPromotionType {
+  discount
+  reduce
+  recharge_gift
+  free
+  points_2x
+}
+
+model MarketingPromotion {
+  id            Int                    @id @default(autoincrement())
+  storeId       Int                    @map("store_id")
+  store         Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  /// 活动名称
+  name          String
+  /// 活动类型
+  type          MarketingPromotionType
+  /// 活动描述
+  description   String                 @default("")
+  /// 优惠参数（JSON，按 type 存不同结构）
+  params        Json                   @default("{}")
+  /// 开始时间
+  startAt       DateTime               @map("start_at")
+  /// 结束时间
+  endAt         DateTime               @map("end_at")
+  /// 参与人次（实际使用次数）
+  usageCount    Int                    @default(0) @map("usage_count")
+  /// 核销总金额（分）
+  totalDiscount Int                    @default(0) @map("total_discount")
+  /// 是否上架
+  enabled       Boolean                @default(true)
+  recharges     MarketingRecharge[]
+  consumptions  MarketingConsumption[]
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+
+  @@index([storeId, enabled, startAt])
+  @@index([storeId, createdAt])
+  @@map("marketing_promotions")
+}
+
+/// 营销商品分类

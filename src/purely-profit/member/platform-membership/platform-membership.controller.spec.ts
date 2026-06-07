@@ -6,11 +6,9 @@ import {
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { SubAccountBlockGuard } from '../../access-control/guards/sub-account-block.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import {
-  PartnerReviewController,
-  PlatformMembershipController,
-  PromotionDetailCompatController,
-} from './platform-membership.controller';
+import { PartnerReviewController } from './partner-review.controller';
+import { PlatformMembershipController } from './platform-membership.controller';
+import { PromotionDetailCompatController } from './promotion-detail-compat.controller';
 
 describe('PlatformMembership controllers metadata', () => {
   const cases = [

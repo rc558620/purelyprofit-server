@@ -4,7 +4,8 @@ import { SpaceReservationStatus as PrismaSpaceReservationStatus } from '@prisma/
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
+import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceReservationsService } from './space-reservations.service';
 
 describe('SpaceReservationsService', () => {
@@ -26,6 +27,13 @@ describe('SpaceReservationsService', () => {
 
   const settlementService = {
     autoCheckoutExpiredCountdownSessions: jest.fn(),
+  };
+
+  const stateService = {
+    ensureReservationCanBeFulfilled: jest.fn(),
+    resolveReservationBackStatus: jest.fn(),
+    syncNonOccupiedSpaceStatus: jest.fn(),
+    cancelMatchedReservationAfterCheckout: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -65,8 +73,12 @@ describe('SpaceReservationsService', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         {
-          provide: SpaceSessionSettlementService,
+          provide: SpaceSessionAutoCheckoutService,
           useValue: settlementService,
+        },
+        {
+          provide: SpaceReservationsStateService,
+          useValue: stateService,
         },
       ],
     }).compile();

@@ -1,245 +1,51 @@
-import {
-  ConflictException,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
-import { StaffStatus, type Prisma } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
-import { RedisService } from '../../redis/redis.service';
-import {
-  normalizeStoreProfileMetadata,
-  type StoreProfileMetadata,
-} from '../stores/dto/store-response.dto';
-import type { AuthenticatedUser } from './strategies/jwt.strategy';
+import { Injectable } from '@nestjs/common';
 import type { AccountIdentifiers, PhoneUserRecord } from './auth-account.types';
+import { AuthAccountLookupService } from './auth-account-lookup.service';
+import { AuthAccountMembershipService } from './auth-account-membership.service';
 import type {
   ProfileMembershipRecord,
   ProfileUserRecord,
 } from './auth-profile.types';
-import {
-  buildAccountIdentifiers,
-  buildPulseAdminMemberBanReasonKey,
-  buildStoreProfileKey,
-  resolveLoginEmail,
-  resolveLoginPhone,
-} from './auth.utils';
+import type { AuthenticatedUser } from './strategies/jwt.strategy';
+import type { StoreProfileMetadata } from '../stores/dto/store-response.dto';
 
 @Injectable()
 export class AuthAccountService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly authAccountLookupService: AuthAccountLookupService,
+    private readonly authAccountMembershipService: AuthAccountMembershipService,
   ) {}
 
   async findUserByLoginAccount(
     account: string,
   ): Promise<PhoneUserRecord | null> {
-    const loginPhone = resolveLoginPhone(account);
-    if (loginPhone) {
-      return this.findUserByPhone(loginPhone);
-    }
-
-    const loginEmail = resolveLoginEmail(account);
-    if (!loginEmail) {
-      return null;
-    }
-
-    return this.findUserByEmail(loginEmail);
+    return this.authAccountLookupService.findUserByLoginAccount(account);
   }
 
   async findUserByEmail(email: string): Promise<PhoneUserRecord | null> {
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        email,
-        isActive: true,
-        userId: { not: null },
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      select: {
-        phone: true,
-        user: {
-          select: {
-            id: true,
-            email: true,
-            password: true,
-          },
-        },
-      },
-    });
-
-    if (staff?.user && staff.phone) {
-      return {
-        ...staff.user,
-        phone: staff.phone,
-      };
-    }
-
-    const user = await this.prisma.user.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        email: true,
-        password: true,
-      },
-    });
-
-    if (!user) {
-      return null;
-    }
-
-    const relatedStaff = await this.prisma.staff.findFirst({
-      where: {
-        userId: user.id,
-        isActive: true,
-        phone: { not: null },
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      select: { phone: true },
-    });
-
-    if (!relatedStaff?.phone) {
-      return null;
-    }
-
-    return {
-      ...user,
-      phone: relatedStaff.phone,
-    };
+    return this.authAccountLookupService.findUserByEmail(email);
   }
 
   async findUserByPhone(phone: string): Promise<PhoneUserRecord | null> {
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        phone,
-        isActive: true,
-        userId: { not: null },
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      select: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            password: true,
-          },
-        },
-      },
-    });
-
-    if (staff?.user) {
-      return {
-        ...staff.user,
-        phone,
-      };
-    }
-
-    const aliasEmail = buildAccountIdentifiers(phone).email;
-    const aliasUser = await this.prisma.user.findUnique({
-      where: { email: aliasEmail },
-      select: {
-        id: true,
-        email: true,
-        password: true,
-      },
-    });
-
-    return aliasUser
-      ? {
-          ...aliasUser,
-          phone,
-        }
-      : null;
+    return this.authAccountLookupService.findUserByPhone(phone);
   }
 
   async ensureUserNotBanned(userId: number): Promise<void> {
-    const relatedStoreIds = await this.findUserRelatedStoreIds(userId);
-    if (relatedStoreIds.length === 0) {
-      return;
-    }
-
-    const banReasons = await Promise.all(
-      relatedStoreIds.map((storeId) =>
-        this.redisService.get(buildPulseAdminMemberBanReasonKey(storeId)),
-      ),
-    );
-    const hasBannedStore = banReasons.some((reason) => Boolean(reason?.trim()));
-
-    if (hasBannedStore) {
-      throw new UnauthorizedException('账号已被封禁');
-    }
+    await this.authAccountMembershipService.ensureUserNotBanned(userId);
   }
 
   async findProfileUserOrThrow(userId: number): Promise<ProfileUserRecord> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatar: true,
-        realName: true,
-        idNumber: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-
-    if (!user) {
-      throw new UnauthorizedException('用户不存在');
-    }
-
-    return user;
+    return this.authAccountLookupService.findProfileUserOrThrow(userId);
   }
 
   async findCurrentMembership(
     user: AuthenticatedUser,
   ): Promise<ProfileMembershipRecord | null> {
-    if (!user.currentMembership) {
-      return null;
-    }
-
-    const membership = await this.prisma.$queryRaw<
-      Pick<
-        ProfileMembershipRecord,
-        'storeName' | 'address' | 'storeCreatedAt' | 'storeUpdatedAt'
-      >[]
-    >`
-      SELECT
-        s.name AS "storeName",
-        s.address,
-        s.created_at AS "storeCreatedAt",
-        s.updated_at AS "storeUpdatedAt"
-      FROM staffs st
-      INNER JOIN stores s ON s.id = st.store_id
-      WHERE st.id = ${user.currentMembership.staffId}
-        AND st.store_id = ${user.currentMembership.storeId}
-      LIMIT 1
-    `;
-
-    const currentStore = membership[0];
-    if (!currentStore) {
-      return null;
-    }
-
-    return {
-      staffId: user.currentMembership.staffId,
-      storeId: user.currentMembership.storeId,
-      role: user.currentMembership.role,
-      permissions: user.currentMembership.permissions,
-      isActive: user.currentMembership.isActive,
-      identityType: user.currentMembership.subjectType,
-      subAccountRole: user.currentMembership.subAccountRole,
-      ...currentStore,
-    };
+    return this.authAccountMembershipService.findCurrentMembership(user);
   }
 
   async updateAvatar(userId: number, avatar: string | null): Promise<void> {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        avatar,
-      },
-    });
+    await this.authAccountLookupService.updateAvatar(userId, avatar);
   }
 
   async verifyRealName(
@@ -247,163 +53,30 @@ export class AuthAccountService {
     realName: string,
     idNumber: string,
   ): Promise<void> {
-    const existingVerifiedUser = await this.prisma.user.findFirst({
-      where: {
-        idNumber,
-        id: { not: userId },
-      },
-      select: { id: true },
-    });
-
-    if (existingVerifiedUser) {
-      throw new ConflictException('该身份证号码已完成实名认证');
-    }
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        realName,
-        idNumber,
-      },
-    });
+    await this.authAccountLookupService.verifyRealName(
+      userId,
+      realName,
+      idNumber,
+    );
   }
 
   async readStoreProfileMetadata(
     storeId: number,
   ): Promise<StoreProfileMetadata> {
-    try {
-      const raw = await this.redisService.get(buildStoreProfileKey(storeId));
-      if (!raw) {
-        return normalizeStoreProfileMetadata(null);
-      }
-
-      return normalizeStoreProfileMetadata(JSON.parse(raw));
-    } catch {
-      return normalizeStoreProfileMetadata(null);
-    }
+    return this.authAccountMembershipService.readStoreProfileMetadata(storeId);
   }
 
   async syncStaffMemberships(
     userId: number,
     identifiers: AccountIdentifiers,
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.staff.updateMany({
-        where: {
-          userId: null,
-          OR: [{ email: identifiers.email }, { phone: identifiers.phone }],
-        },
-        data: {
-          userId,
-        },
-      });
-
-      const invitedStaffs = await tx.staff.findMany({
-        where: {
-          OR: [
-            { userId },
-            { email: identifiers.email },
-            { phone: identifiers.phone },
-          ],
-          status: StaffStatus.INVITED,
-          isActive: true,
-        },
-        select: {
-          id: true,
-          storeId: true,
-        },
-        orderBy: [{ storeId: 'asc' }, { id: 'asc' }],
-      });
-
-      if (invitedStaffs.length === 0) {
-        return;
-      }
-
-      const activatableStaffIds = await this.resolveActivatableStaffIds(
-        tx,
-        invitedStaffs,
-      );
-
-      if (activatableStaffIds.length === 0) {
-        return;
-      }
-
-      await tx.staff.updateMany({
-        where: {
-          id: {
-            in: activatableStaffIds,
-          },
-        },
-        data: {
-          userId,
-          status: StaffStatus.ACTIVE,
-          isSeatActive: true,
-          isActive: true,
-        },
-      });
-    });
-  }
-
-  private async findUserRelatedStoreIds(userId: number): Promise<number[]> {
-    const stores = await this.prisma.store.findMany({
-      where: {
-        OR: [
-          { ownerId: userId },
-          {
-            staffs: {
-              some: {
-                userId,
-                isActive: true,
-              },
-            },
-          },
-        ],
-      },
-      select: {
-        id: true,
-      },
-      orderBy: {
-        id: 'asc',
-      },
-    });
-
-    return stores.map((store) => store.id);
-  }
-
-  private async resolveActivatableStaffIds(
-    tx: Prisma.TransactionClient,
-    invitedStaffs: Array<{ id: number; storeId: number }>,
-  ): Promise<number[]> {
-    const [firstInvitedStaff] = invitedStaffs;
-    if (!firstInvitedStaff) {
-      return [];
-    }
-
-    const store = await tx.store.findUnique({
-      where: { id: firstInvitedStaff.storeId },
-      select: {
-        id: true,
-        maxAccountSeats: true,
-      },
-    });
-
-    if (!store) {
-      return [];
-    }
-
-    const activeSeatCount = await tx.staff.count({
-      where: {
-        storeId: store.id,
-        status: StaffStatus.ACTIVE,
-        isSeatActive: true,
-        isActive: true,
-      },
-    });
-
-    if (activeSeatCount >= store.maxAccountSeats) {
-      return [];
-    }
-
-    return [firstInvitedStaff.id];
+    await this.authAccountLookupService.syncStaffMemberships(
+      userId,
+      identifiers,
+    );
+    await this.authAccountMembershipService.activateInvitedStaffMemberships(
+      userId,
+      identifiers,
+    );
   }
 }

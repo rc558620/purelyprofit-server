@@ -4,16 +4,18 @@ import type {
   PlatformMembershipBeanLogsResponseDto,
   PlatformMembershipPointsLogsResponseDto,
 } from './dto/platform-membership-response.dto';
+import { normalizeMembershipProfileFromPaidOrders } from './membership-plan-resolver';
 import {
   buildApprovedPartnerResponse,
   buildApprovedPartnersResponse,
-  buildBeanOverview,
   buildMembershipInfo,
+} from './membership-profile.mapper';
+import {
+  buildBeanOverview,
   buildPointsOverview,
   mapBeanLog,
   mapPointsLog,
-  normalizeMembershipProfileFromPaidOrders,
-} from './platform-membership.domain';
+} from './platform-membership-ledger.domain';
 import {
   ensureMembershipProfile,
   findPaidStoreMembershipOrders,

@@ -1,10 +1,10 @@
+import type { MetricsCachePrewarmSnapshot } from './metrics-snapshot.protocol';
 import type {
-  MetricsCachePrewarmSnapshot,
   MetricsSummaryCachePrewarmFailedCategory,
   MetricsSummaryCachePrewarmHottestCategory,
   MetricsSummaryCachePrewarmLatestCycle,
   MetricsSummaryCachePrewarmLatestFailedCategory,
-} from './metrics.protocol';
+} from './metrics-summary.protocol';
 
 export type SummaryCachePrewarmDerivedData = {
   latestCycle: MetricsSummaryCachePrewarmLatestCycle | null;

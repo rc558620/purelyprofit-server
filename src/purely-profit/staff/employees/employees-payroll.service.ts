@@ -20,7 +20,7 @@ import {
   buildPayrollReport,
   formatPayrollMonth,
   resolvePayrollMonthFilter,
-} from './employees.domain';
+} from './employees-payroll.domain';
 import { EmployeesAccessService } from './employees-access.service';
 import { toEmployeePayrollResponse } from './employees.mapper';
 import {

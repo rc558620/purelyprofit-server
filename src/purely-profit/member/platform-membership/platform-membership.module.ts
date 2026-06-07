@@ -1,10 +1,8 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { AuthModule } from '../../auth/auth.module';
-import {
-  PartnerReviewController,
-  PlatformMembershipController,
-  PromotionDetailCompatController,
-} from './platform-membership.controller';
+import { PartnerReviewController } from './partner-review.controller';
+import { PlatformMembershipController } from './platform-membership.controller';
+import { PromotionDetailCompatController } from './promotion-detail-compat.controller';
 import { PlatformMembershipAccessService } from './platform-membership-access.service';
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
 import { PlatformMembershipOrderService } from './platform-membership-order.service';

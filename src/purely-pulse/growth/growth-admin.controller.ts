@@ -6,7 +6,6 @@ import {
   ParseIntPipe,
   Patch,
   Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -15,6 +14,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import {
@@ -44,10 +44,10 @@ export class PulseGrowthAdminController {
       '返回 purelyPulse promotion-detail 页面所需的地区、合伙人与趋势数据',
   })
   getPromoDetail(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: Record<string, unknown>,
   ): Promise<PulseAdminPromoDetailResponse> {
-    return this.growthService.admin.promo.getDetail(request.user, query);
+    return this.growthService.admin.promo.getDetail(user, query);
   }
 
   @Get('partner-applications')
@@ -58,21 +58,21 @@ export class PulseGrowthAdminController {
     type: PulseAdminPartnerApplicationsResponseDto,
   })
   listPartnerApplications(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetPulseAdminPartnerApplicationsQueryDto,
   ): Promise<PulseAdminPartnerApplicationsResponseDto> {
-    return this.growthService.admin.partnerApplications.list(request.user, query);
+    return this.growthService.admin.partnerApplications.list(user, query);
   }
 
   @Patch('partner-applications/:id/approve')
   @ApiOperation({ summary: 'Pulse 平台通过合伙人申请' })
   approvePartnerApplication(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) applicationId: number,
     @Body() dto: PulseAdminApprovePartnerApplicationDto,
   ): Promise<{ success: true }> {
     return this.growthService.admin.partnerApplications.approve(
-      request.user,
+      user,
       applicationId,
       dto,
     );
@@ -81,12 +81,12 @@ export class PulseGrowthAdminController {
   @Patch('partner-applications/:id/reject')
   @ApiOperation({ summary: 'Pulse 平台拒绝合伙人申请' })
   rejectPartnerApplication(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) applicationId: number,
     @Body() dto: PulseAdminRejectPartnerApplicationDto,
   ): Promise<{ success: true }> {
     return this.growthService.admin.partnerApplications.reject(
-      request.user,
+      user,
       applicationId,
       dto,
     );
@@ -100,21 +100,21 @@ export class PulseGrowthAdminController {
     type: PulseAdminPayoutsResponseDto,
   })
   listPayouts(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetPulseAdminPayoutsQueryDto,
   ): Promise<PulseAdminPayoutsResponseDto> {
-    return this.growthService.admin.payouts.list(request.user, query);
+    return this.growthService.admin.payouts.list(user, query);
   }
 
   @Patch('payouts/:id/approve')
   @ApiOperation({ summary: 'Pulse 平台确认合伙人打款' })
   approvePayout(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) payoutId: number,
     @Body() dto: PulseAdminApprovePayoutDto,
   ): Promise<{ success: true }> {
     return this.growthService.admin.payouts.approve(
-      request.user,
+      user,
       payoutId,
       dto,
     );
@@ -123,10 +123,10 @@ export class PulseGrowthAdminController {
   @Patch('payouts/:id/reject')
   @ApiOperation({ summary: 'Pulse 平台拒绝合伙人打款' })
   rejectPayout(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) payoutId: number,
     @Body() dto: PulseAdminRejectPayoutDto,
   ): Promise<{ success: true }> {
-    return this.growthService.admin.payouts.reject(request.user, payoutId, dto);
+    return this.growthService.admin.payouts.reject(user, payoutId, dto);
   }
 }

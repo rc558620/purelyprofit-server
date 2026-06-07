@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Patch, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import {
@@ -33,9 +34,9 @@ export class PulseMembershipSettingsController {
     type: MembershipSettingsResponseDto,
   })
   getSettings(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<MembershipSettingsResponseDto> {
-    return this.pulseMembershipSettingsService.getSettings(request.user);
+    return this.pulseMembershipSettingsService.getSettings(user);
   }
 
   @Patch('monthly')
@@ -45,10 +46,10 @@ export class PulseMembershipSettingsController {
     type: MembershipPlanSettingItemDto,
   })
   updateMonthly(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateMonthlyMembershipSettingDto,
   ): Promise<MembershipPlanSettingItemDto> {
-    return this.pulseMembershipSettingsService.updateMonthly(request.user, dto);
+    return this.pulseMembershipSettingsService.updateMonthly(user, dto);
   }
 
   @Patch('quarterly')
@@ -58,11 +59,11 @@ export class PulseMembershipSettingsController {
     type: MembershipPlanSettingItemDto,
   })
   updateQuarterly(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateQuarterlyMembershipSettingDto,
   ): Promise<MembershipPlanSettingItemDto> {
     return this.pulseMembershipSettingsService.updateQuarterly(
-      request.user,
+      user,
       dto,
     );
   }
@@ -74,10 +75,10 @@ export class PulseMembershipSettingsController {
     type: MembershipPlanSettingItemDto,
   })
   updateYearly(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateYearlyMembershipSettingDto,
   ): Promise<MembershipPlanSettingItemDto> {
-    return this.pulseMembershipSettingsService.updateYearly(request.user, dto);
+    return this.pulseMembershipSettingsService.updateYearly(user, dto);
   }
 
   @Patch('lifetime')
@@ -87,11 +88,11 @@ export class PulseMembershipSettingsController {
     type: MembershipPlanSettingItemDto,
   })
   updateLifetime(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateLifetimeMembershipSettingDto,
   ): Promise<MembershipPlanSettingItemDto> {
     return this.pulseMembershipSettingsService.updateLifetime(
-      request.user,
+      user,
       dto,
     );
   }

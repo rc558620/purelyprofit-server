@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -30,9 +31,9 @@ export class BusinessAnalysisController {
     type: BusinessAnalysisResponseDto,
   })
   getAnalysis(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetBusinessAnalysisQueryDto,
   ): Promise<BusinessAnalysisResponseDto> {
-    return this.businessAnalysisService.getAnalysis(request.user, query);
+    return this.businessAnalysisService.getAnalysis(user, query);
   }
 }

@@ -316,11 +316,11 @@ describe('PlatformMembershipService', () => {
         service.applyPartner(subAccountUser, {
           name: '测试合伙人',
           phone: '13800138000',
-          wechatNumber: 'wx_partner_test',
+          idCard: '440301199001011234',
+          paymentMethod: 'wechat',
+          paymentAccount: 'wx_partner_test',
           region: ['北京市', '北京市', '朝阳区'],
-          cityCode: '110100',
-          storeName: '纯利宝测试门店',
-          industry: '餐饮',
+          intention: 'resource',
           applyReason: '测试申请',
         }),
       markPartnerApplicationReviewing: () =>

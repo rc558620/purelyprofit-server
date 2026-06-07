@@ -1,15 +1,8 @@
 import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+  UserWithRequestId,
+  type UserWithRequestIdValue,
+} from '../../auth/user-with-request-id.decorator';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -47,15 +40,15 @@ export class SpaceReservationsController {
   })
   @ApiOkResponse({ type: [SpaceReservationResponseDto] })
   listBySpace(
-    @Req() request: { user: AuthenticatedUser; id: string | number },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('spaceId', ParseIntPipe) spaceId: number,
     @Query() query: ListSpaceReservationsQueryDto,
   ): Promise<SpaceReservationResponseDto[]> {
     return this.spaceReservationsService.listSpaceReservations(
-      request.user,
+      ctx.user,
       spaceId,
       query,
-      String(request.id),
+      ctx.requestId,
     );
   }
 
@@ -67,13 +60,13 @@ export class SpaceReservationsController {
   })
   @ApiOkResponse({ type: [SpaceReservationResponseDto] })
   listStoreReservations(
-    @Req() request: { user: AuthenticatedUser; id: string | number },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Query() query: ListSpaceReservationsQueryDto,
   ): Promise<SpaceReservationResponseDto[]> {
     return this.spaceReservationsService.listStoreSpaceReservations(
-      request.user,
+      ctx.user,
       query,
-      String(request.id),
+      ctx.requestId,
     );
   }
 
@@ -82,12 +75,12 @@ export class SpaceReservationsController {
   @ApiOperation({ summary: '新增空间预约' })
   @ApiCreatedResponse({ type: SpaceReservationResponseDto })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('spaceId', ParseIntPipe) spaceId: number,
     @Body() dto: CreateSpaceReservationDto,
   ): Promise<SpaceReservationResponseDto> {
     return this.spaceReservationsService.createSpaceReservation(
-      request.user,
+      ctx.user,
       spaceId,
       dto,
     );
@@ -98,12 +91,12 @@ export class SpaceReservationsController {
   @ApiOperation({ summary: '更新空间预约' })
   @ApiOkResponse({ type: SpaceReservationResponseDto })
   update(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) reservationId: number,
     @Body() dto: UpdateSpaceReservationDto,
   ): Promise<SpaceReservationResponseDto> {
     return this.spaceReservationsService.updateSpaceReservation(
-      request.user,
+      ctx.user,
       reservationId,
       dto,
     );
@@ -114,11 +107,11 @@ export class SpaceReservationsController {
   @ApiOperation({ summary: '取消空间预约' })
   @ApiOkResponse({ type: SpaceReservationResponseDto })
   cancel(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) reservationId: number,
   ): Promise<SpaceReservationResponseDto> {
     return this.spaceReservationsService.cancelSpaceReservation(
-      request.user,
+      ctx.user,
       reservationId,
     );
   }

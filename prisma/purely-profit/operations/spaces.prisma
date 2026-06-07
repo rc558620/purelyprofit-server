@@ -1,0 +1,140 @@
+// 空间与预约会话模型
+
+enum SpaceStatus {
+  idle
+  occupied
+  reserved
+  cleaning
+}
+
+enum SpaceReservationStatus {
+  pending
+  fulfilled
+  cancelled
+}
+
+enum SpaceSessionStatus {
+  active
+  settled
+}
+
+enum SpaceBillingMode {
+  timed
+  items
+  mixed
+  countdown
+}
+
+model SpaceType {
+  id        Int      @id @default(autoincrement())
+  storeId   Int      @map("store_id")
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  spaces    Space[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([storeId, name])
+  @@index([storeId, updatedAt])
+  @@map("space_types")
+}
+
+model SpaceZone {
+  id        Int      @id @default(autoincrement())
+  storeId   Int      @map("store_id")
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  spaces    Space[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([storeId, name])
+  @@index([storeId, updatedAt])
+  @@map("space_zones")
+}
+
+model Space {
+  id              Int                @id @default(autoincrement())
+  storeId         Int                @map("store_id")
+  store           Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  typeId          Int                @map("type_id")
+  type            SpaceType          @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  zoneId          Int?               @map("zone_id")
+  zone            SpaceZone?         @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  name            String
+  capacity        Int?
+  enableDirtyRoom Boolean            @default(false) @map("enable_dirty_room")
+  autoCheckout    Boolean            @default(false) @map("auto_checkout")
+  status          SpaceStatus        @default(idle)
+  reservations    SpaceReservation[]
+  sessions        SpaceSession[]
+  sortOrder       Int                @default(1) @map("sort_order")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  @@unique([storeId, name])
+  @@index([storeId, status, sortOrder])
+  @@index([storeId, typeId, sortOrder])
+  @@index([storeId, zoneId, sortOrder])
+  @@map("spaces")
+}
+
+model SpaceReservation {
+  id            Int                    @id @default(autoincrement())
+  storeId       Int                    @map("store_id")
+  store         Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  spaceId       Int                    @map("space_id")
+  space         Space                  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  guestName     String                 @map("guest_name")
+  phone         String?
+  reservedAt    DateTime               @map("reserved_at")
+  reservedEndAt DateTime?              @map("reserved_end_at")
+  guestCount    Int?                   @map("guest_count")
+  note          String?
+  status        SpaceReservationStatus @default(pending)
+  session       SpaceSession?
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+
+  @@index([spaceId, status, reservedAt])
+  @@index([storeId, status, reservedAt])
+  @@index([storeId, createdAt])
+  @@map("space_reservations")
+}
+
+model SpaceSession {
+  id                   Int                 @id @default(autoincrement())
+  storeId              Int                 @map("store_id")
+  store                Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  spaceId              Int                 @map("space_id")
+  space                Space               @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  reservationId        Int?                @unique @map("reservation_id")
+  reservation          SpaceReservation?   @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  saleOrderId          Int?                @unique @map("sale_order_id")
+  saleOrder            SaleOrder?          @relation(fields: [saleOrderId], references: [id], onDelete: SetNull)
+  guestName            String?             @map("guest_name")
+  guestPhone           String?             @map("guest_phone")
+  guestCount           Int?                @map("guest_count")
+  startTime            DateTime            @map("start_time")
+  endTime              DateTime?           @map("end_time")
+  billingMode          SpaceBillingMode    @map("billing_mode")
+  hourlyRate           Decimal?            @map("hourly_rate") @db.Decimal(12, 2)
+  timeCost             Decimal?            @map("time_cost") @db.Decimal(12, 2)
+  countdownMinutes     Int?                @map("countdown_minutes")
+  autoCheckout         Boolean?            @map("auto_checkout")
+  prepaidPaymentMethod SalesPaymentMethod? @map("prepaid_payment_method")
+  prepaidGrouponCode   String?             @map("prepaid_groupon_code")
+  prepaidNote          String?             @map("prepaid_note")
+  prepaidAmount        Decimal?            @map("prepaid_amount") @db.Decimal(12, 2)
+  items                Json                @default("[]")
+  itemsCost            Decimal             @default(0) @map("items_cost") @db.Decimal(12, 2)
+  renewRecords         Json                @default("[]") @map("renew_records")
+  status               SpaceSessionStatus  @default(active)
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+
+  @@index([spaceId, status, startTime])
+  @@index([storeId, status, startTime])
+  @@index([storeId, endTime])
+  @@map("space_sessions")
+}

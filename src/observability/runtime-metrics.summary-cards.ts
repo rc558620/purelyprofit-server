@@ -2,7 +2,7 @@ import {
   SUMMARY_ACTION_TEXT_MODE,
   SUMMARY_ACTION_VERSION,
   SUMMARY_PROTOCOL_VERSION,
-} from './metrics.protocol';
+} from './metrics-summary.protocol';
 import type {
   MetricsSummary,
   MetricsSummaryCachePrewarmCard,
@@ -19,7 +19,7 @@ import type {
   SummaryImpactLevel,
   SummaryImpactScope,
   SummaryOwnerType,
-} from './metrics.protocol';
+} from './metrics-summary.protocol';
 import { MAX_TOP_HIGHLIGHTS } from './runtime-metrics.state';
 import type { SummaryBuildContext } from './runtime-metrics.summary-context.types';
 

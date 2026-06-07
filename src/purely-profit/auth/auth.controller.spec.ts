@@ -80,7 +80,7 @@ describe('AuthController', () => {
     };
     authService.getCapability.mockResolvedValue(response);
 
-    await expect(controller.capability({ user })).resolves.toEqual(response);
+    await expect(controller.capability(user)).resolves.toEqual(response);
     expect(authService.getCapability).toHaveBeenCalledWith(user);
   });
 
@@ -115,7 +115,7 @@ describe('AuthController', () => {
     };
     authService.getProfile.mockResolvedValue(response);
 
-    await expect(controller.profile({ user })).resolves.toEqual(response);
+    await expect(controller.profile(user)).resolves.toEqual(response);
     expect(authService.getProfile).toHaveBeenCalledWith(user);
   });
 
@@ -170,8 +170,8 @@ describe('AuthController', () => {
     authService.getProfile.mockResolvedValue(profileResponse);
     authService.getCapability.mockResolvedValue(capabilityResponse);
 
-    const profile = await controller.profile({ user });
-    const capability = await controller.capability({ user });
+    const profile = await controller.profile(user);
+    const capability = await controller.capability(user);
 
     expect(profile.currentMembership).toMatchObject({
       identityType: capability.identityType,

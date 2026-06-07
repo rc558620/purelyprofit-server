@@ -13,7 +13,7 @@ import {
   UpdateEmployeeLeaveDto,
 } from './dto/employee-leave.dto';
 import { EmployeesAccessService } from './employees-access.service';
-import { assertLeaveBusinessRules } from './employees.domain';
+import { assertLeaveBusinessRules } from './employees-leave.domain';
 import { toEmployeeLeaveResponse } from './employees.mapper';
 import { toDecimalNumber, toNullableText } from './employees.utils';
 

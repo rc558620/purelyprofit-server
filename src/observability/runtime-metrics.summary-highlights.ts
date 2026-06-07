@@ -1,4 +1,4 @@
-import type { SummaryHighlight } from './metrics.protocol';
+import type { SummaryHighlight } from './metrics-summary.protocol';
 import type { SummaryBuildContext } from './runtime-metrics.summary-context.types';
 import { buildCachePrewarmSummaryHighlights } from './runtime-metrics.summary-highlights-cache-prewarm';
 import { buildHttpSummaryHighlights } from './runtime-metrics.summary-highlights-http';

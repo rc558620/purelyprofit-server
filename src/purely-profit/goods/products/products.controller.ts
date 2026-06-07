@@ -1,18 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -46,10 +33,10 @@ export class ProductsController {
   @ApiOperation({ summary: '获取商品列表' })
   @ApiOkResponse({ type: PaginatedProductsResponseDto })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListProductsQueryDto,
   ): Promise<PaginatedProductsResponseDto> {
-    return this.productsService.list(request.user, query);
+    return this.productsService.list(user, query);
   }
 
   @Get(':id')
@@ -57,10 +44,10 @@ export class ProductsController {
   @ApiOperation({ summary: '获取商品详情' })
   @ApiOkResponse({ type: ProductResponseDto })
   detail(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) productId: number,
   ): Promise<ProductResponseDto> {
-    return this.productsService.detail(request.user, productId);
+    return this.productsService.detail(user, productId);
   }
 
   @Post()
@@ -68,10 +55,10 @@ export class ProductsController {
   @ApiOperation({ summary: '新增商品' })
   @ApiCreatedResponse({ type: ProductResponseDto })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateProductDto,
   ): Promise<ProductResponseDto> {
-    return this.productsService.create(request.user, dto);
+    return this.productsService.create(user, dto);
   }
 
   @Patch(':id')
@@ -79,11 +66,11 @@ export class ProductsController {
   @ApiOperation({ summary: '更新商品' })
   @ApiOkResponse({ type: ProductResponseDto })
   update(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) productId: number,
     @Body() dto: UpdateProductDto,
   ): Promise<ProductResponseDto> {
-    return this.productsService.update(request.user, productId, dto);
+    return this.productsService.update(user, productId, dto);
   }
 
   @Delete(':id')
@@ -92,9 +79,9 @@ export class ProductsController {
   @ApiOperation({ summary: '删除商品' })
   @ApiNoContentResponse()
   async remove(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) productId: number,
   ): Promise<void> {
-    await this.productsService.remove(request.user, productId);
+    await this.productsService.remove(user, productId);
   }
 }

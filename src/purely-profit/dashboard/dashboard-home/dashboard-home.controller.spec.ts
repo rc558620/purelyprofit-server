@@ -110,7 +110,7 @@ describe('DashboardHomeController', () => {
     };
     dashboardHomeService.getOverview.mockResolvedValue(response);
 
-    await expect(controller.getOverview({ user }, query)).resolves.toEqual(
+    await expect(controller.getOverview(user, query)).resolves.toEqual(
       response,
     );
     expect(dashboardHomeService.getOverview).toHaveBeenCalledWith(user, query);

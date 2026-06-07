@@ -1,8 +1,6 @@
-import type {
-  PaginatedFinanceAccountsResponseDto,
-  PaginatedFinanceCashFlowRecordsResponseDto,
-  PaginatedFinanceReconciliationsResponseDto,
-} from './dto/finance-response.dto';
+import type { PaginatedFinanceAccountsResponseDto } from './dto/finance-account.response.dto';
+import type { PaginatedFinanceCashFlowRecordsResponseDto } from './dto/finance-cash-flow.response.dto';
+import type { PaginatedFinanceReconciliationsResponseDto } from './dto/finance-reconciliation.response.dto';
 import { mapAccountRecord } from './finance-account.domain';
 import { mapCashFlowRecord } from './finance-cash-flow.domain';
 import { mapReconciliationRecord } from './finance-reconciliation.domain';
@@ -12,7 +10,7 @@ import type {
   FinanceReconciliationRecordWithItems,
   PaginationState,
 } from './finance.types';
-import { buildPaginationMeta } from './finance.utils';
+import { buildPaginationMeta } from './finance-pagination.utils';
 
 export function buildPaginatedCashFlowRecordsResponse(
   records: FinanceCashFlowRecordWithAmount[],

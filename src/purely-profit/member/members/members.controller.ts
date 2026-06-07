@@ -10,7 +10,6 @@ import {
   Patch,
   Post,
   Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -24,21 +23,26 @@ import {
 } from '@nestjs/swagger';
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
+import { CurrentUser } from '../../auth/current-user.decorator';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   AdjustMemberBeansDto,
   AdjustMemberBeansResponseDto,
+  ListMemberBeansLogsQueryDto,
+  MemberBeansOverviewResponseDto,
+  PaginatedMemberBeansLogsResponseDto,
+} from './dto/member-beans.dto';
+import {
+  MemberLogsOverviewQueryDto,
+} from './dto/member-asset-shared.dto';
+import {
   AdjustMemberPointsDto,
   AdjustMemberPointsResponseDto,
-  ListMemberBeansLogsQueryDto,
   ListMemberPointsLogsQueryDto,
-  MemberBeansOverviewResponseDto,
-  MemberLogsOverviewQueryDto,
   MemberPointsOverviewResponseDto,
-  PaginatedMemberBeansLogsResponseDto,
   PaginatedMemberPointsLogsResponseDto,
-} from './dto/adjust-member-points.dto';
+} from './dto/member-points.dto';
 import { CreateMemberDto } from './dto/create-member.dto';
 import {
   MemberMetaQueryDto,
@@ -77,10 +81,10 @@ export class MembersController {
     type: MemberResponseDto,
   })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateMemberDto,
   ): Promise<MemberResponseDto> {
-    return this.membersService.create(request.user, dto);
+    return this.membersService.create(user, dto);
   }
 
   @Get()
@@ -91,10 +95,10 @@ export class MembersController {
     type: PaginatedMembersResponseDto,
   })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListMembersQueryDto,
   ): Promise<PaginatedMembersResponseDto> {
-    return this.membersService.list(request.user, query);
+    return this.membersService.list(user, query);
   }
 
   @Get('meta')
@@ -105,10 +109,10 @@ export class MembersController {
     type: MembersMetaResponseDto,
   })
   getMeta(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: MemberMetaQueryDto,
   ): Promise<MembersMetaResponseDto> {
-    return this.membersService.getMeta(request.user, query);
+    return this.membersService.getMeta(user, query);
   }
 
   @Get('overview')
@@ -119,10 +123,10 @@ export class MembersController {
     type: MembersOverviewResponseDto,
   })
   getOverview(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: MemberOverviewQueryDto,
   ): Promise<MembersOverviewResponseDto> {
-    return this.membersService.getOverview(request.user, query);
+    return this.membersService.getOverview(user, query);
   }
 
   @Get('snapshots')
@@ -133,10 +137,10 @@ export class MembersController {
     type: [MemberSnapshotDto],
   })
   listSnapshots(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListMemberSnapshotsQueryDto,
   ): Promise<MemberSnapshotDto[]> {
-    return this.membersService.listSnapshots(request.user, query);
+    return this.membersService.listSnapshots(user, query);
   }
 
   @Get('points/overview')
@@ -147,10 +151,10 @@ export class MembersController {
     type: MemberPointsOverviewResponseDto,
   })
   getPointsOverview(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: MemberLogsOverviewQueryDto,
   ): Promise<MemberPointsOverviewResponseDto> {
-    return this.membersPointsService.getPointsOverview(request.user, query);
+    return this.membersPointsService.getPointsOverview(user, query);
   }
 
   @Get('points/logs')
@@ -161,10 +165,10 @@ export class MembersController {
     type: PaginatedMemberPointsLogsResponseDto,
   })
   listPointsLogs(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListMemberPointsLogsQueryDto,
   ): Promise<PaginatedMemberPointsLogsResponseDto> {
-    return this.membersPointsService.listPointsLogs(request.user, query);
+    return this.membersPointsService.listPointsLogs(user, query);
   }
 
   @Post('points/adjust')
@@ -175,10 +179,10 @@ export class MembersController {
     type: AdjustMemberPointsResponseDto,
   })
   adjustPoints(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: AdjustMemberPointsDto,
   ): Promise<AdjustMemberPointsResponseDto> {
-    return this.membersPointsService.adjustPoints(request.user, dto);
+    return this.membersPointsService.adjustPoints(user, dto);
   }
 
   @Get('beans/overview')
@@ -189,10 +193,10 @@ export class MembersController {
     type: MemberBeansOverviewResponseDto,
   })
   getBeansOverview(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: MemberLogsOverviewQueryDto,
   ): Promise<MemberBeansOverviewResponseDto> {
-    return this.membersPointsService.getBeansOverview(request.user, query);
+    return this.membersPointsService.getBeansOverview(user, query);
   }
 
   @Get('beans/logs')
@@ -203,10 +207,10 @@ export class MembersController {
     type: PaginatedMemberBeansLogsResponseDto,
   })
   listBeanLogs(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListMemberBeansLogsQueryDto,
   ): Promise<PaginatedMemberBeansLogsResponseDto> {
-    return this.membersPointsService.listBeanLogs(request.user, query);
+    return this.membersPointsService.listBeanLogs(user, query);
   }
 
   @Post('beans/adjust')
@@ -217,10 +221,10 @@ export class MembersController {
     type: AdjustMemberBeansResponseDto,
   })
   adjustBeans(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: AdjustMemberBeansDto,
   ): Promise<AdjustMemberBeansResponseDto> {
-    return this.membersPointsService.adjustBeans(request.user, dto);
+    return this.membersPointsService.adjustBeans(user, dto);
   }
 
   @Get(':id/points/logs')
@@ -231,12 +235,12 @@ export class MembersController {
     type: PaginatedMemberPointsLogsResponseDto,
   })
   listMemberPointsLogs(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) memberId: number,
     @Query() query: ListMemberPointsLogsQueryDto,
   ): Promise<PaginatedMemberPointsLogsResponseDto> {
     return this.membersPointsService.listPointsLogsForMember(
-      request.user,
+      user,
       memberId,
       query,
     );
@@ -250,11 +254,11 @@ export class MembersController {
     type: AdjustMemberPointsResponseDto,
   })
   adjustMemberPoints(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) memberId: number,
     @Body() dto: AdjustMemberPointsDto,
   ): Promise<AdjustMemberPointsResponseDto> {
-    return this.membersPointsService.adjustPoints(request.user, dto, memberId);
+    return this.membersPointsService.adjustPoints(user, dto, memberId);
   }
 
   @Get(':id/beans/logs')
@@ -265,12 +269,12 @@ export class MembersController {
     type: PaginatedMemberBeansLogsResponseDto,
   })
   listMemberBeanLogs(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) memberId: number,
     @Query() query: ListMemberBeansLogsQueryDto,
   ): Promise<PaginatedMemberBeansLogsResponseDto> {
     return this.membersPointsService.listBeanLogsForMember(
-      request.user,
+      user,
       memberId,
       query,
     );
@@ -284,11 +288,11 @@ export class MembersController {
     type: AdjustMemberBeansResponseDto,
   })
   adjustMemberBeans(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) memberId: number,
     @Body() dto: AdjustMemberBeansDto,
   ): Promise<AdjustMemberBeansResponseDto> {
-    return this.membersPointsService.adjustBeans(request.user, dto, memberId);
+    return this.membersPointsService.adjustBeans(user, dto, memberId);
   }
 
   @Get(':id')
@@ -299,10 +303,10 @@ export class MembersController {
     type: MemberResponseDto,
   })
   getDetail(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) memberId: number,
   ): Promise<MemberResponseDto> {
-    return this.membersService.getDetail(request.user, memberId);
+    return this.membersService.getDetail(user, memberId);
   }
 
   @Patch(':id')
@@ -313,11 +317,11 @@ export class MembersController {
     type: MemberResponseDto,
   })
   update(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) memberId: number,
     @Body() dto: UpdateMemberDto,
   ): Promise<MemberResponseDto> {
-    return this.membersService.update(request.user, memberId, dto);
+    return this.membersService.update(user, memberId, dto);
   }
 
   @Delete(':id')
@@ -326,10 +330,10 @@ export class MembersController {
   @ApiOperation({ summary: '删除会员' })
   @ApiNoContentResponse({ description: '删除成功' })
   async remove(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) memberId: number,
   ): Promise<void> {
-    await this.membersService.remove(request.user, memberId);
+    await this.membersService.remove(user, memberId);
   }
 }
 
@@ -343,19 +347,19 @@ export class MemberPointsController {
   @Get()
   @RequirePermissions('members:view')
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListMemberPointsLogsQueryDto,
   ): Promise<PaginatedMemberPointsLogsResponseDto> {
-    return this.membersPointsService.listPointsLogs(request.user, query);
+    return this.membersPointsService.listPointsLogs(user, query);
   }
 
   @Post('adjust')
   @RequirePermissions('members:update')
   adjust(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: AdjustMemberPointsDto,
   ): Promise<AdjustMemberPointsResponseDto> {
-    return this.membersPointsService.adjustPoints(request.user, dto);
+    return this.membersPointsService.adjustPoints(user, dto);
   }
 }
 
@@ -369,18 +373,18 @@ export class PartnerBeansController {
   @Get()
   @RequirePermissions('members:view')
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListMemberBeansLogsQueryDto,
   ): Promise<PaginatedMemberBeansLogsResponseDto> {
-    return this.membersPointsService.listBeanLogs(request.user, query);
+    return this.membersPointsService.listBeanLogs(user, query);
   }
 
   @Post('adjust')
   @RequirePermissions('members:update')
   adjust(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: AdjustMemberBeansDto,
   ): Promise<AdjustMemberBeansResponseDto> {
-    return this.membersPointsService.adjustBeans(request.user, dto);
+    return this.membersPointsService.adjustBeans(user, dto);
   }
 }

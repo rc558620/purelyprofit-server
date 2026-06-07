@@ -1,7 +1,7 @@
 import type {
   MetricsSummarySeverityMap,
   SummaryStatus,
-} from './metrics.protocol';
+} from './metrics-summary.protocol';
 import type {
   SummaryAggregateMetrics,
   SummaryMetricsInput,

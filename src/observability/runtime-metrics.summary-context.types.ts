@@ -4,6 +4,8 @@ import type {
   MetricsProcessSnapshot,
   MetricsRedisSnapshot,
   MetricsSqlSnapshot,
+} from './metrics-snapshot.protocol';
+import type {
   MetricsSummarySeverityMap,
   SummaryActionId,
   SummaryActionParams,
@@ -17,7 +19,7 @@ import type {
   SummaryOwnerType,
   SummaryStatus,
   SummaryTrend,
-} from './metrics.protocol';
+} from './metrics-summary.protocol';
 import type { SummaryCachePrewarmDerivedData } from './runtime-metrics.summary-context-cache-prewarm';
 
 export type SummaryMetricsInput = {

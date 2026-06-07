@@ -1,17 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -50,10 +38,10 @@ export class SalesRecordController {
   @ApiOperation({ summary: '获取开始营业商品列表' })
   @ApiOkResponse({ type: [SalesProductResponseDto] })
   listProducts(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListSalesProductsQueryDto,
   ): Promise<SalesProductResponseDto[]> {
-    return this.salesRecordService.listProducts(request.user, query);
+    return this.salesRecordService.listProducts(user, query);
   }
 
   @Get()
@@ -61,10 +49,10 @@ export class SalesRecordController {
   @ApiOperation({ summary: '获取销售记录列表' })
   @ApiOkResponse({ type: SalesRecordListResponseDto })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListSalesRecordsQueryDto,
   ): Promise<SalesRecordListResponseDto> {
-    return this.salesRecordService.list(request.user, query);
+    return this.salesRecordService.list(user, query);
   }
 
   @Get('stats')
@@ -72,10 +60,10 @@ export class SalesRecordController {
   @ApiOperation({ summary: '获取销售记录统计' })
   @ApiOkResponse({ type: SalesStatsResponseDto })
   getStats(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: SalesStatsQueryDto,
   ): Promise<SalesStatsResponseDto> {
-    return this.salesRecordService.getStats(request.user, query);
+    return this.salesRecordService.getStats(user, query);
   }
 
   @Get('report')
@@ -83,10 +71,10 @@ export class SalesRecordController {
   @ApiOperation({ summary: '获取报表中心销售报表数据' })
   @ApiOkResponse({ type: SalesReportResponseDto })
   getReport(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: SalesReportQueryDto,
   ): Promise<SalesReportResponseDto> {
-    return this.salesRecordService.getReport(request.user, query);
+    return this.salesRecordService.getReport(user, query);
   }
 
   @Post()
@@ -94,10 +82,10 @@ export class SalesRecordController {
   @ApiOperation({ summary: '新增销售记录' })
   @ApiCreatedResponse({ type: SalesRecordResponseDto })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateSalesRecordDto,
   ): Promise<SalesRecordResponseDto> {
-    return this.salesRecordService.create(request.user, dto);
+    return this.salesRecordService.create(user, dto);
   }
 
   @Delete(':id')
@@ -106,10 +94,10 @@ export class SalesRecordController {
   @ApiOperation({ summary: '删除销售记录' })
   @ApiNoContentResponse()
   async remove(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) salesRecordId: number,
   ): Promise<void> {
-    await this.salesRecordService.remove(request.user, salesRecordId);
+    await this.salesRecordService.remove(user, salesRecordId);
   }
 }
 
@@ -125,10 +113,10 @@ export class SalesOrdersCompatController {
   @ApiOperation({ summary: '获取开始营业商品列表（purelyProfit 前端兼容）' })
   @ApiOkResponse({ type: [SalesProductResponseDto] })
   listProducts(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListSalesProductsQueryDto,
   ): Promise<SalesProductResponseDto[]> {
-    return this.salesRecordService.listProducts(request.user, query);
+    return this.salesRecordService.listProducts(user, query);
   }
 
   @Get()
@@ -136,10 +124,10 @@ export class SalesOrdersCompatController {
   @ApiOperation({ summary: '获取销售记录列表（purelyProfit 前端兼容）' })
   @ApiOkResponse({ type: SalesRecordListResponseDto })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListSalesRecordsQueryDto,
   ): Promise<SalesRecordListResponseDto> {
-    return this.salesRecordService.listFrontendOrders(request.user, query);
+    return this.salesRecordService.listFrontendOrders(user, query);
   }
 
   @Get('report')
@@ -147,10 +135,10 @@ export class SalesOrdersCompatController {
   @ApiOperation({ summary: '获取报表中心销售报表数据（purelyProfit 前端兼容）' })
   @ApiOkResponse({ type: SalesReportResponseDto })
   getReport(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: SalesReportQueryDto,
   ): Promise<SalesReportResponseDto> {
-    return this.salesRecordService.getReport(request.user, query);
+    return this.salesRecordService.getReport(user, query);
   }
 
   @Post()
@@ -158,10 +146,10 @@ export class SalesOrdersCompatController {
   @ApiOperation({ summary: '新增销售记录（purelyProfit 前端兼容）' })
   @ApiCreatedResponse({ type: SalesRecordResponseDto })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateSalesRecordDto,
   ): Promise<SalesRecordResponseDto> {
-    return this.salesRecordService.create(request.user, dto, {
+    return this.salesRecordService.create(user, dto, {
       skipAccessCheck: true,
       assignToCurrentShiftOperator: true,
     });
@@ -173,9 +161,9 @@ export class SalesOrdersCompatController {
   @ApiOperation({ summary: '删除销售记录（purelyProfit 前端兼容）' })
   @ApiNoContentResponse()
   async remove(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) salesRecordId: number,
   ): Promise<void> {
-    await this.salesRecordService.remove(request.user, salesRecordId);
+    await this.salesRecordService.remove(user, salesRecordId);
   }
 }

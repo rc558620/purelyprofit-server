@@ -2,13 +2,8 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
-import {
-  Prisma,
-  SpaceReservationStatus as PrismaSpaceReservationStatus,
-  SpaceStatus as PrismaSpaceStatus,
-} from '@prisma/client';
+import { Prisma, SpaceStatus as PrismaSpaceStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
@@ -20,29 +15,26 @@ import type {
   UpdateSpaceStatusDto,
 } from './dto/space.dto';
 import { SpaceReservationsService } from './space-reservations.service';
-import { SpaceTypesService } from './space-types.service';
-import { SpaceZonesService } from './space-zones.service';
+import { SpacesRefResolverService } from './spaces-ref-resolver.service';
 import { toSpaceResponse } from './spaces.mapper';
 import {
+  closeSortOrderGapAfterRemove,
+  ensureSpaceNameUnique,
+  findManagedSpaceOrThrow,
+  findSpaceRemovalCandidateOrThrow,
   normalizeTargetSortOrder,
-  reorderSpaceSortOrder,
+  resolveManagedSpaceSortOrder,
   shiftSortOrdersForInsert,
   SPACE_WITH_RELATIONS_INCLUDE,
 } from './spaces.query';
-import type {
-  ManagedSpaceRecord,
-  ResolvedCreateSpaceRefs,
-  ResolvedUpdateSpaceRefs,
-  SpaceRemovalCandidate,
-} from './spaces.types';
+import type { ManagedSpaceRecord, SpaceRemovalCandidate } from './spaces.types';
 
 @Injectable()
 export class SpacesWriteService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
-    private readonly spaceTypesService: SpaceTypesService,
-    private readonly spaceZonesService: SpaceZonesService,
+    private readonly spacesRefResolverService: SpacesRefResolverService,
     private readonly spaceReservationsService: SpaceReservationsService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
@@ -65,9 +57,12 @@ export class SpacesWriteService {
     await this.platformMembershipAccessService.ensureSpaceQuotaAvailable(
       storeId,
     );
-    await this.ensureUniqueSpaceName(storeId, name);
+    await ensureSpaceNameUnique(this.prisma, { storeId, name });
 
-    const refs = await this.resolveCreateSpaceRefs(storeId, dto);
+    const refs = await this.spacesRefResolverService.resolveCreateSpaceRefs(
+      storeId,
+      dto,
+    );
 
     const created = await this.prisma.$transaction(async (transaction) => {
       const existingCount = await transaction.space.count({
@@ -110,13 +105,20 @@ export class SpacesWriteService {
     const nextName = dto.name?.trim();
 
     if (nextName && nextName !== space.name) {
-      await this.ensureUniqueSpaceName(space.storeId, nextName, space.id);
+      await ensureSpaceNameUnique(this.prisma, {
+        storeId: space.storeId,
+        name: nextName,
+        excludeSpaceId: space.id,
+      });
     }
 
-    const refs = await this.resolveUpdateSpaceRefs(space.storeId, dto);
+    const refs = await this.spacesRefResolverService.resolveUpdateSpaceRefs(
+      space.storeId,
+      dto,
+    );
 
     const updated = await this.prisma.$transaction(async (transaction) => {
-      const targetSortOrder = await this.resolveUpdateSortOrder(
+      const targetSortOrder = await resolveManagedSpaceSortOrder(
         transaction,
         space,
         dto.sortOrder,
@@ -164,19 +166,11 @@ export class SpacesWriteService {
         where: { id: space.id },
       });
 
-      await transaction.space.updateMany({
-        where: {
-          storeId: space.storeId,
-          sortOrder: {
-            gt: space.sortOrder,
-          },
-        },
-        data: {
-          sortOrder: {
-            decrement: 1,
-          },
-        },
-      });
+      await closeSortOrderGapAfterRemove(
+        transaction,
+        space.storeId,
+        space.sortOrder,
+      );
     });
   }
 
@@ -233,7 +227,7 @@ export class SpacesWriteService {
     user: AuthenticatedUser,
     spaceId: number,
   ): Promise<ManagedSpaceRecord> {
-    const space = await this.requireManagedSpace(spaceId);
+    const space = await findManagedSpaceOrThrow(this.prisma, spaceId);
 
     await this.commerceAccessService.ensureCanAccessStore(
       user,
@@ -249,7 +243,7 @@ export class SpacesWriteService {
     user: AuthenticatedUser,
     spaceId: number,
   ): Promise<SpaceRemovalCandidate> {
-    const space = await this.requireSpaceRemovalCandidate(spaceId);
+    const space = await findSpaceRemovalCandidateOrThrow(this.prisma, spaceId);
 
     await this.commerceAccessService.ensureCanAccessStore(
       user,
@@ -259,108 +253,6 @@ export class SpacesWriteService {
     );
 
     return space;
-  }
-
-  private async requireManagedSpace(
-    spaceId: number,
-  ): Promise<ManagedSpaceRecord> {
-    const space = await this.prisma.space.findUnique({
-      where: { id: spaceId },
-      include: SPACE_WITH_RELATIONS_INCLUDE,
-    });
-
-    if (!space) {
-      throw new NotFoundException('空间不存在');
-    }
-
-    return space;
-  }
-
-  private async requireSpaceRemovalCandidate(
-    spaceId: number,
-  ): Promise<SpaceRemovalCandidate> {
-    const space = await this.prisma.space.findUnique({
-      where: { id: spaceId },
-      select: {
-        id: true,
-        storeId: true,
-        status: true,
-        sortOrder: true,
-        _count: {
-          select: {
-            reservations: {
-              where: {
-                status: PrismaSpaceReservationStatus.pending,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!space) {
-      throw new NotFoundException('空间不存在');
-    }
-
-    return space;
-  }
-
-  private async resolveCreateSpaceRefs(
-    storeId: number,
-    dto: CreateSpaceDto,
-  ): Promise<ResolvedCreateSpaceRefs> {
-    const [type, zone] = await Promise.all([
-      this.spaceTypesService.resolveSpaceTypeByName(storeId, dto.type),
-      this.spaceZonesService.resolveSpaceZoneByName(storeId, dto.zone),
-    ]);
-
-    return {
-      typeId: type.id,
-      zoneId: zone?.id ?? null,
-    };
-  }
-
-  private async resolveUpdateSpaceRefs(
-    storeId: number,
-    dto: UpdateSpaceDto,
-  ): Promise<ResolvedUpdateSpaceRefs> {
-    const [type, zone] = await Promise.all([
-      dto.type !== undefined
-        ? this.spaceTypesService.resolveSpaceTypeByName(storeId, dto.type)
-        : Promise.resolve(null),
-      dto.zone !== undefined
-        ? this.spaceZonesService.resolveSpaceZoneByName(storeId, dto.zone)
-        : Promise.resolve(null),
-    ]);
-
-    return {
-      ...(dto.type !== undefined && type ? { typeId: type.id } : {}),
-      ...(dto.zone !== undefined ? { zoneId: zone?.id ?? null } : {}),
-    };
-  }
-
-  private resolveUpdateSortOrder(
-    transaction: Prisma.TransactionClient,
-    space: ManagedSpaceRecord,
-    nextSortOrder: number | undefined,
-  ): Promise<number | undefined> {
-    if (nextSortOrder === undefined) {
-      return Promise.resolve(undefined);
-    }
-
-    if (nextSortOrder === space.sortOrder) {
-      return Promise.resolve(
-        normalizeTargetSortOrder(nextSortOrder, space.sortOrder),
-      );
-    }
-
-    return reorderSpaceSortOrder(
-      transaction,
-      space.storeId,
-      space.id,
-      space.sortOrder,
-      nextSortOrder,
-    );
   }
 
   private ensureManualStatusChangeAllowed(
@@ -395,26 +287,5 @@ export class SpacesWriteService {
     });
 
     return toSpaceResponse(updated);
-  }
-
-  private async ensureUniqueSpaceName(
-    storeId: number,
-    name: string,
-    excludeSpaceId?: number,
-  ): Promise<void> {
-    const duplicate = await this.prisma.space.findFirst({
-      where: {
-        storeId,
-        name,
-        ...(excludeSpaceId !== undefined
-          ? { id: { not: excludeSpaceId } }
-          : {}),
-      },
-      select: { id: true },
-    });
-
-    if (duplicate) {
-      throw new ConflictException('空间名称已存在');
-    }
   }
 }

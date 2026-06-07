@@ -1,8 +1,8 @@
 import type {
   FinanceCompareDto,
-  FinanceOverviewResponseDto,
   FinanceSourceGroupDto,
-} from './dto/finance-response.dto';
+} from './dto/finance-shared.response.dto';
+import type { FinanceOverviewResponseDto } from './dto/finance-overview.response.dto';
 import type { FinanceOverviewPeriodValue } from './finance.types';
 import {
   CASH_FLOW_CATEGORY_RULES,
@@ -11,15 +11,14 @@ import {
   type FinancePeriodTotals,
 } from './finance.constants';
 import { FINANCE_OVERVIEW_DISPLAY_DAYS } from './finance.types';
+import { formatMonthDay, getDayStart } from './finance-date.utils';
 import {
   addMoneyValues,
   calcPercent,
-  formatMonthDay,
-  getDayStart,
   isZeroValue,
   roundMoneyValue,
   subtractMoneyValues,
-} from './finance.utils';
+} from './finance-money.utils';
 
 export function makeOverviewTotals(): FinancePeriodTotals {
   return {

@@ -1,18 +1,8 @@
 import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+  UserWithRequestId,
+  type UserWithRequestIdValue,
+} from '../../auth/user-with-request-id.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -52,13 +42,13 @@ export class SpacesController {
   @ApiOperation({ summary: '获取空间管理看板数据' })
   @ApiOkResponse({ type: SpacesDashboardResponseDto })
   getDashboard(
-    @Req() request: { user: AuthenticatedUser; id: string | number },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Query() query: GetSpacesDashboardQueryDto,
   ): Promise<SpacesDashboardResponseDto> {
     return this.spaceDashboardService.getSpacesDashboard(
-      request.user,
+      ctx.user,
       query,
-      String(request.id),
+      ctx.requestId,
     );
   }
 
@@ -67,13 +57,13 @@ export class SpacesController {
   @ApiOperation({ summary: '获取空间列表' })
   @ApiOkResponse({ type: [SpaceResponseDto] })
   list(
-    @Req() request: { user: AuthenticatedUser; id: string | number },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Query() query: ListSpacesQueryDto,
   ): Promise<SpaceResponseDto[]> {
     return this.spacesService.listSpaces(
-      request.user,
+      ctx.user,
       query,
-      String(request.id),
+      ctx.requestId,
     );
   }
 
@@ -82,10 +72,10 @@ export class SpacesController {
   @ApiOperation({ summary: '新增空间' })
   @ApiCreatedResponse({ type: SpaceResponseDto })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Body() dto: CreateSpaceDto,
   ): Promise<SpaceResponseDto> {
-    return this.spacesService.createSpace(request.user, dto);
+    return this.spacesService.createSpace(ctx.user, dto);
   }
 
   @Patch(':id')
@@ -93,11 +83,11 @@ export class SpacesController {
   @ApiOperation({ summary: '更新空间' })
   @ApiOkResponse({ type: SpaceResponseDto })
   update(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) spaceId: number,
     @Body() dto: UpdateSpaceDto,
   ): Promise<SpaceResponseDto> {
-    return this.spacesService.updateSpace(request.user, spaceId, dto);
+    return this.spacesService.updateSpace(ctx.user, spaceId, dto);
   }
 
   @Post(':id/mark-ready')
@@ -105,10 +95,10 @@ export class SpacesController {
   @ApiOperation({ summary: '标记空间为可用' })
   @ApiOkResponse({ type: SpaceResponseDto })
   markReady(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) spaceId: number,
   ): Promise<SpaceResponseDto> {
-    return this.spacesService.markSpaceReady(request.user, spaceId);
+    return this.spacesService.markSpaceReady(ctx.user, spaceId);
   }
 
   @Patch(':id/status')
@@ -116,11 +106,11 @@ export class SpacesController {
   @ApiOperation({ summary: '更新空间状态（兼容前端状态接口）' })
   @ApiOkResponse({ type: SpaceResponseDto })
   updateStatus(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) spaceId: number,
     @Body() dto: UpdateSpaceStatusDto,
   ): Promise<SpaceResponseDto> {
-    return this.spacesService.updateSpaceStatus(request.user, spaceId, dto);
+    return this.spacesService.updateSpaceStatus(ctx.user, spaceId, dto);
   }
 
   @Delete(':id')
@@ -129,9 +119,9 @@ export class SpacesController {
   @ApiOperation({ summary: '删除空间' })
   @ApiNoContentResponse()
   async remove(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) spaceId: number,
   ): Promise<void> {
-    await this.spacesService.removeSpace(request.user, spaceId);
+    await this.spacesService.removeSpace(ctx.user, spaceId);
   }
 }

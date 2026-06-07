@@ -13,11 +13,9 @@ import { SubjectCapabilityService } from './subject-capability.service';
 import { PermissionsGuard } from './guards/permissions.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MarketingController } from '../marketing/marketing.controller';
-import {
-  PartnerReviewController,
-  PlatformMembershipController,
-  PromotionDetailCompatController,
-} from '../member/platform-membership/platform-membership.controller';
+import { PartnerReviewController } from '../member/platform-membership/partner-review.controller';
+import { PlatformMembershipController } from '../member/platform-membership/platform-membership.controller';
+import { PromotionDetailCompatController } from '../member/platform-membership/promotion-detail-compat.controller';
 import {
   SalesOrdersCompatController,
   SalesRecordController,
@@ -27,7 +25,10 @@ import { FinanceController } from '../finance/finance.controller';
 import { InventoryController } from '../goods/inventory/inventory.controller';
 import { BusinessAnalysisController } from '../dashboard/business-analysis/business-analysis.controller';
 import { DashboardHomeController } from '../dashboard/dashboard-home/dashboard-home.controller';
-import { EmployeesController } from '../staff/employees/employees.controller';
+import {
+  EmployeesController,
+  EmployeesPayrollsController,
+} from '../staff/employees/employees.controller';
 import { StoresController } from '../stores/stores.controller';
 import { SubAccountBlockGuard } from './guards/sub-account-block.guard';
 
@@ -306,25 +307,25 @@ describe('Permission metadata regression', () => {
     expect(
       Reflect.getMetadata(
         REQUIRE_PERMISSIONS_KEY,
-        EmployeesController.prototype.savePayroll,
+        EmployeesPayrollsController.prototype.savePayroll,
       ),
     ).toEqual(['finance:view']);
     expect(
       Reflect.getMetadata(
         REQUIRE_PERMISSIONS_KEY,
-        EmployeesController.prototype.updatePayroll,
+        EmployeesPayrollsController.prototype.updatePayroll,
       ),
     ).toEqual(['finance:view']);
     expect(
       Reflect.getMetadata(
         REQUIRE_PERMISSIONS_KEY,
-        EmployeesController.prototype.confirmPayroll,
+        EmployeesPayrollsController.prototype.confirmPayroll,
       ),
     ).toEqual(['finance:view']);
     expect(
       Reflect.getMetadata(
         REQUIRE_PERMISSIONS_KEY,
-        EmployeesController.prototype.removePayroll,
+        EmployeesPayrollsController.prototype.removePayroll,
       ),
     ).toEqual(['finance:view']);
   });

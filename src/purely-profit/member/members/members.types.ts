@@ -2,12 +2,14 @@ import type { Prisma, MemberGender } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type {
-  AdjustmentDirectionValue,
   MemberBeanRecordSourceValue,
   MemberBeanRecordTypeValue,
+} from './dto/member-beans.dto';
+import type { AdjustmentDirectionValue } from './dto/member-asset-shared.dto';
+import type {
   MemberPointsRecordSourceValue,
   MemberPointsRecordTypeValue,
-} from './dto/adjust-member-points.dto';
+} from './dto/member-points.dto';
 import type { MemberRecord } from './members.mapper';
 import type {
   MemberLevelValue,

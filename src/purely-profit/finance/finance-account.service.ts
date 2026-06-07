@@ -10,12 +10,12 @@ import {
   CreateFinanceAccountDto,
   ListFinanceAccountsQueryDto,
   SettleFinanceAccountDto,
-} from './dto/finance-query.dto';
+} from './dto/finance-account.query.dto';
 import type {
   FinanceAccountRecordResponseDto,
   FinanceAccountsStatsDto,
   PaginatedFinanceAccountsResponseDto,
-} from './dto/finance-response.dto';
+} from './dto/finance-account.response.dto';
 import {
   assertAccountCategoryCanCreateManually,
   assertAccountTypeMatchesCategory,
@@ -36,12 +36,12 @@ import {
 import { buildPaginatedAccountsResponse } from './finance.mapper';
 import type { FinanceAccountsListQueryInput } from './finance.types';
 import {
-  buildPaginationState,
   roundMoneyValue,
   toMoneyNumber,
   toPrismaDecimal,
-  trimOptionalString,
-} from './finance.utils';
+} from './finance-money.utils';
+import { buildPaginationState } from './finance-pagination.utils';
+import { trimOptionalString } from './finance-string.utils';
 
 @Injectable()
 export class FinanceAccountService {

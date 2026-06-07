@@ -2,7 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { PulseMembershipController } from './membership.controller';
+import { PulseMembershipAdminController } from './membership-admin.controller';
 import {
   PulseAdminMemberMembershipDto,
   PulseAdminMemberSubAccountQuotaDto,
@@ -46,7 +46,7 @@ describe('PulseAdminMemberSubAccountQuotaDto', () => {
   });
 });
 
-describe('PulseMembershipController membership', () => {
+describe('PulseMembershipAdminController membership', () => {
   const user: AuthenticatedUser = {
     id: 101,
     email: 'dev@example.com',
@@ -63,19 +63,12 @@ describe('PulseMembershipController membership', () => {
     const pulseMembershipService = {
       setAdminMemberMembership: jest.fn().mockResolvedValue({ id: '48' }),
     };
-    const controller = new PulseMembershipController(
+    const controller = new PulseMembershipAdminController(
       pulseMembershipService as never,
     );
 
     await controller.setAdminMemberMembership(
-      {
-        user,
-        ip: '127.0.0.1',
-        headers: {
-          'x-request-id': 'req-001',
-          'user-agent': 'jest-agent',
-        },
-      },
+      user,
       '48',
       plainToInstance(PulseAdminMemberMembershipDto, {
         memberId: '48',
@@ -83,6 +76,11 @@ describe('PulseMembershipController membership', () => {
         confirmDowngradeToFree: true,
         actionSource: 'member-detail-membership-modal',
       }),
+      {
+        requestId: 'req-001',
+        userAgent: 'jest-agent',
+        ip: '127.0.0.1',
+      },
     );
 
     expect(pulseMembershipService.setAdminMemberMembership).toHaveBeenCalledWith(
@@ -102,7 +100,7 @@ describe('PulseMembershipController membership', () => {
   });
 });
 
-describe('PulseMembershipController sub-account quota', () => {
+describe('PulseMembershipAdminController sub-account quota', () => {
   const user: AuthenticatedUser = {
     id: 101,
     email: 'dev@example.com',
@@ -121,12 +119,12 @@ describe('PulseMembershipController sub-account quota', () => {
         .fn()
         .mockResolvedValue({ id: '48' }),
     };
-    const controller = new PulseMembershipController(
+    const controller = new PulseMembershipAdminController(
       pulseMembershipService as never,
     );
 
     await controller.updateAdminMemberSubAccountQuota(
-      { user },
+      user,
       '48',
       plainToInstance(PulseAdminMemberSubAccountQuotaDto, {
         memberId: '48',
@@ -682,7 +680,7 @@ describe('PulseMembershipService admin', () => {
       )
       .mockResolvedValue(undefined as never);
     jest
-      .spyOn(context.queryService as never, 'findMembershipProfileByStoreId' as never)
+      .spyOn(context.memberReadService as never, 'findMembershipProfileByStoreId' as never)
       .mockResolvedValue({
         currentPlanId: 'quarterly',
         expiresAt: new Date('2099-05-21T00:00:00.000Z'),
@@ -691,7 +689,7 @@ describe('PulseMembershipService admin', () => {
         subAccountQuota: 0,
       } as never);
     jest
-      .spyOn(context.queryService as never, 'buildAdminMemberDetail' as never)
+      .spyOn(context.memberReadService as never, 'buildAdminMemberDetail' as never)
       .mockResolvedValue({
         id: '18',
         name: '张三',
@@ -769,7 +767,7 @@ describe('PulseMembershipService admin', () => {
       )
       .mockResolvedValue(undefined as never);
     jest
-      .spyOn(context.queryService as never, 'findMembershipProfileByStoreId' as never)
+      .spyOn(context.memberReadService as never, 'findMembershipProfileByStoreId' as never)
       .mockResolvedValue({
         currentPlanId: 'monthly',
         expiresAt: new Date('2099-05-21T00:00:00.000Z'),
@@ -801,7 +799,7 @@ describe('PulseMembershipService admin', () => {
       )
       .mockResolvedValue(undefined as never);
     jest
-      .spyOn(context.queryService as never, 'findMembershipProfileByStoreId' as never)
+      .spyOn(context.memberReadService as never, 'findMembershipProfileByStoreId' as never)
       .mockResolvedValue({
         currentPlanId: null,
         expiresAt: null,
@@ -810,7 +808,7 @@ describe('PulseMembershipService admin', () => {
         subAccountQuota: 0,
       } as never);
     jest
-      .spyOn(context.queryService as never, 'buildAdminMemberDetail' as never)
+      .spyOn(context.memberReadService as never, 'buildAdminMemberDetail' as never)
       .mockResolvedValue({
         id: '18',
         name: '张三',
@@ -961,7 +959,7 @@ describe('PulseMembershipService admin', () => {
       )
       .mockResolvedValue(undefined as never);
     jest
-      .spyOn(context.queryService as never, 'buildAdminMemberDetail' as never)
+      .spyOn(context.memberReadService as never, 'buildAdminMemberDetail' as never)
       .mockResolvedValue({
         id: '18',
         name: '张三',

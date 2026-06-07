@@ -1,18 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -45,10 +32,10 @@ export class SpaceTypesController {
   @ApiOperation({ summary: '获取空间类型列表' })
   @ApiOkResponse({ type: [SpaceTypeResponseDto] })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListSpaceTypesQueryDto,
   ): Promise<SpaceTypeResponseDto[]> {
-    return this.spaceTypesService.listSpaceTypes(request.user, query);
+    return this.spaceTypesService.listSpaceTypes(user, query);
   }
 
   @Post()
@@ -56,10 +43,10 @@ export class SpaceTypesController {
   @ApiOperation({ summary: '新增空间类型' })
   @ApiCreatedResponse({ type: SpaceTypeResponseDto })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateSpaceTypeDto,
   ): Promise<SpaceTypeResponseDto> {
-    return this.spaceTypesService.createSpaceType(request.user, dto);
+    return this.spaceTypesService.createSpaceType(user, dto);
   }
 
   @Patch(':id')
@@ -67,11 +54,11 @@ export class SpaceTypesController {
   @ApiOperation({ summary: '更新空间类型' })
   @ApiOkResponse({ type: SpaceTypeResponseDto })
   update(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) typeId: number,
     @Body() dto: UpdateSpaceTypeDto,
   ): Promise<SpaceTypeResponseDto> {
-    return this.spaceTypesService.updateSpaceType(request.user, typeId, dto);
+    return this.spaceTypesService.updateSpaceType(user, typeId, dto);
   }
 
   @Delete(':id')
@@ -80,9 +67,9 @@ export class SpaceTypesController {
   @ApiOperation({ summary: '删除空间类型' })
   @ApiNoContentResponse()
   async remove(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) typeId: number,
   ): Promise<void> {
-    await this.spaceTypesService.removeSpaceType(request.user, typeId);
+    await this.spaceTypesService.removeSpaceType(user, typeId);
   }
 }

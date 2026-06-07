@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -6,6 +6,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { ApplyWithdrawalResponseDto } from '../../purely-profit/member/withdrawals/dto/withdrawal-response.dto';
@@ -30,9 +31,9 @@ export class PulseGrowthWithdrawalsController {
     type: PulseWithdrawalAccountResponseDto,
   })
   getAccount(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PulseWithdrawalAccountResponseDto> {
-    return this.growthService.getWithdrawalAccount(request.user);
+    return this.growthService.getWithdrawalAccount(user);
   }
 
   @Patch('account')
@@ -42,10 +43,10 @@ export class PulseGrowthWithdrawalsController {
     type: PulseWithdrawalAccountResponseDto,
   })
   updateAccount(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdatePulseWithdrawalAccountDto,
   ): Promise<PulseWithdrawalAccountResponseDto> {
-    return this.growthService.updateWithdrawalAccount(request.user, dto);
+    return this.growthService.updateWithdrawalAccount(user, dto);
   }
 
   @Post('apply')
@@ -54,11 +55,11 @@ export class PulseGrowthWithdrawalsController {
     description: '兼容路由：当前默认拒绝代目标商家发起提现申请',
   })
   apply(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: PulseApplyWithdrawalDto,
   ): Promise<ApplyWithdrawalResponseDto> {
     return this.growthService.applyWithdrawal(
-      request.user,
+      user,
       dto.beanAmount,
       dto.partnerId,
     );

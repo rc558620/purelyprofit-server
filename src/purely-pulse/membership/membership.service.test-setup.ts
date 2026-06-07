@@ -9,9 +9,16 @@ import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import { RedisService } from '../../redis/redis.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import { PulseMembershipAccessService } from './membership-access.service';
+import { PulseMembershipAdminBeansMutationService } from './membership-admin-beans-mutation.service';
+import { PulseMembershipAdminMemberReadService } from './membership-admin-member-read.service';
+import { PulseMembershipAdminMembershipMutationService } from './membership-admin-membership-mutation.service';
+import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
+import { PulseMembershipAdminPointsMutationService } from './membership-admin-points-mutation.service';
+import { PulseMembershipAdminSubAccountMutationService } from './membership-admin-sub-account-mutation.service';
 import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
 import { PulseMembershipAdminService } from './membership-admin.service';
+import { PulseMembershipAdminSubAccountReadService } from './membership-admin-sub-account-read.service';
 import { PulseMembershipLedgerService } from './membership-ledger.service';
 import { PulseMembershipOrdersService } from './membership-orders.service';
 import { PulseMembershipService } from './membership.service';
@@ -79,6 +86,9 @@ export interface PulseMembershipRedisServiceMock {
 
 export interface PulseMembershipCacheInvalidatorServiceMock {
   invalidatePulseDashboardHome: jest.Mock;
+  invalidatePulseDashboardOverview: jest.Mock;
+  invalidatePulseSessionNotification: jest.Mock;
+  invalidatePulseSessionBootstrap: jest.Mock;
 }
 
 export interface PulseMembershipServiceTestingContext {
@@ -86,6 +96,7 @@ export interface PulseMembershipServiceTestingContext {
   adminService: PulseMembershipAdminService;
   mutationService: PulseMembershipAdminMutationService;
   queryService: PulseMembershipAdminQueryService;
+  memberReadService: PulseMembershipAdminMemberReadService;
   platformMembershipService: PulseMembershipPlatformMembershipServiceMock;
   prismaService: PulseMembershipPrismaServiceMock;
   pulseStoreContextService: PulseMembershipStoreContextServiceMock;
@@ -177,6 +188,9 @@ function createRedisServiceMock(): PulseMembershipRedisServiceMock {
 function createCacheInvalidatorServiceMock(): PulseMembershipCacheInvalidatorServiceMock {
   return {
     invalidatePulseDashboardHome: jest.fn(),
+    invalidatePulseDashboardOverview: jest.fn(),
+    invalidatePulseSessionNotification: jest.fn(),
+    invalidatePulseSessionBootstrap: jest.fn(),
   };
 }
 
@@ -221,7 +235,14 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
       PulseMembershipOrdersService,
       PulseMembershipAdminService,
       PulseMembershipAdminQueryService,
+      PulseMembershipAdminMutationStateService,
+      PulseMembershipAdminMembershipMutationService,
+      PulseMembershipAdminPointsMutationService,
+      PulseMembershipAdminBeansMutationService,
+      PulseMembershipAdminSubAccountMutationService,
       PulseMembershipAdminMutationService,
+      PulseMembershipAdminMemberReadService,
+      PulseMembershipAdminSubAccountReadService,
       {
         provide: PlatformMembershipService,
         useValue: platformMembershipService,
@@ -245,6 +266,8 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
         useValue: {
           listSubAccountSlots: jest.fn().mockResolvedValue([]),
           listAssignableHandoverCandidates: jest.fn().mockResolvedValue([]),
+          updateQuota: jest.fn().mockResolvedValue(undefined),
+          updateSlot: jest.fn().mockResolvedValue(undefined),
           getStoreSubAccountSummary: jest.fn().mockResolvedValue({
             quota: 2,
             usedCount: 0,
@@ -282,6 +305,9 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
     ),
     queryService: module.get<PulseMembershipAdminQueryService>(
       PulseMembershipAdminQueryService,
+    ),
+    memberReadService: module.get<PulseMembershipAdminMemberReadService>(
+      PulseMembershipAdminMemberReadService,
     ),
     platformMembershipService,
     prismaService,

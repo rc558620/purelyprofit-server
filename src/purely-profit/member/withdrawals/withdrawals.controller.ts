@@ -1,15 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -50,9 +40,9 @@ export class WithdrawalsController {
     type: WithdrawalOverviewResponseDto,
   })
   getOverview(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<WithdrawalOverviewResponseDto> {
-    return this.withdrawalsService.getOverview(request.user);
+    return this.withdrawalsService.getOverview(user);
   }
 
   @Get()
@@ -63,10 +53,10 @@ export class WithdrawalsController {
     type: [WithdrawalRecordResponseDto],
   })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListWithdrawalsQueryDto,
   ): Promise<WithdrawalRecordResponseDto[]> {
-    return this.withdrawalsService.list(request.user, query);
+    return this.withdrawalsService.list(user, query);
   }
 
   @Post('apply')
@@ -77,10 +67,10 @@ export class WithdrawalsController {
     type: ApplyWithdrawalResponseDto,
   })
   apply(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ApplyWithdrawalDto,
   ): Promise<ApplyWithdrawalResponseDto> {
-    return this.withdrawalsService.apply(request.user, dto);
+    return this.withdrawalsService.apply(user, dto);
   }
 
   @Patch(':id/approve')
@@ -91,10 +81,10 @@ export class WithdrawalsController {
     type: ReviewWithdrawalResponseDto,
   })
   approve(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) withdrawalId: number,
   ): Promise<ReviewWithdrawalResponseDto> {
-    return this.withdrawalsService.approve(request.user, withdrawalId);
+    return this.withdrawalsService.approve(user, withdrawalId);
   }
 
   @Patch(':id/reject')
@@ -105,11 +95,11 @@ export class WithdrawalsController {
     type: ReviewWithdrawalResponseDto,
   })
   reject(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) withdrawalId: number,
     @Body() dto: RejectWithdrawalDto,
   ): Promise<ReviewWithdrawalResponseDto> {
-    return this.withdrawalsService.reject(request.user, withdrawalId, dto);
+    return this.withdrawalsService.reject(user, withdrawalId, dto);
   }
 
   @Patch(':id/pay')
@@ -120,10 +110,10 @@ export class WithdrawalsController {
     type: ReviewWithdrawalResponseDto,
   })
   pay(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) withdrawalId: number,
   ): Promise<ReviewWithdrawalResponseDto> {
-    return this.withdrawalsService.pay(request.user, withdrawalId);
+    return this.withdrawalsService.pay(user, withdrawalId);
   }
 }
 
@@ -137,54 +127,54 @@ export class PartnerPayoutController {
   @Get(['', 'overview'])
   @RequirePermissions('partner:view')
   getOverview(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<WithdrawalOverviewResponseDto> {
-    return this.withdrawalsService.getOverview(request.user);
+    return this.withdrawalsService.getOverview(user);
   }
 
   @Get('records')
   @RequirePermissions('partner:view')
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListWithdrawalsQueryDto,
   ): Promise<WithdrawalRecordResponseDto[]> {
-    return this.withdrawalsService.list(request.user, query);
+    return this.withdrawalsService.list(user, query);
   }
 
   @Post(['', 'apply'])
   @RequirePermissions('partner:withdraw')
   apply(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ApplyWithdrawalDto,
   ): Promise<ApplyWithdrawalResponseDto> {
-    return this.withdrawalsService.apply(request.user, dto);
+    return this.withdrawalsService.apply(user, dto);
   }
 
   @Patch(':id/approve')
   @RequirePermissions('partner:review')
   approve(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) withdrawalId: number,
   ): Promise<ReviewWithdrawalResponseDto> {
-    return this.withdrawalsService.approve(request.user, withdrawalId);
+    return this.withdrawalsService.approve(user, withdrawalId);
   }
 
   @Patch(':id/reject')
   @RequirePermissions('partner:review')
   reject(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) withdrawalId: number,
     @Body() dto: RejectWithdrawalDto,
   ): Promise<ReviewWithdrawalResponseDto> {
-    return this.withdrawalsService.reject(request.user, withdrawalId, dto);
+    return this.withdrawalsService.reject(user, withdrawalId, dto);
   }
 
   @Patch(':id/pay')
   @RequirePermissions('partner:review')
   pay(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) withdrawalId: number,
   ): Promise<ReviewWithdrawalResponseDto> {
-    return this.withdrawalsService.pay(request.user, withdrawalId);
+    return this.withdrawalsService.pay(user, withdrawalId);
   }
 }

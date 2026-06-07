@@ -66,7 +66,11 @@ describe('SpacesService', () => {
     spacesReadService.listSpaces.mockResolvedValue(result);
 
     await expect(service.listSpaces(user, query)).resolves.toBe(result);
-    expect(spacesReadService.listSpaces).toHaveBeenCalledWith(user, query);
+    expect(spacesReadService.listSpaces).toHaveBeenCalledWith(
+      user,
+      query,
+      undefined,
+    );
   });
 
   it('写操作委托给 write service', async () => {

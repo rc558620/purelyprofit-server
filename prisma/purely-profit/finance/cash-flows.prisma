@@ -1,0 +1,55 @@
+// purely-profit/finance: 现金流水模型
+
+enum FinanceCashFlowDirection {
+  income
+  expense
+}
+
+enum FinanceCashFlowCategory {
+  sales
+  refund
+  transfer_in
+  other_income
+  purchase
+  rent
+  utilities
+  salary
+  marketing
+  tax
+  transfer_out
+  other_expense
+}
+
+enum FinanceCashFlowPayment {
+  cash
+  wechat
+  alipay
+  card
+  bank
+  other
+}
+
+model FinanceCashFlowRecord {
+  id              Int                      @id @default(autoincrement())
+  storeId         Int                      @map("store_id")
+  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  saleOrderId     Int?                     @unique @map("sale_order_id")
+  saleOrder       SaleOrder?               @relation(fields: [saleOrderId], references: [id], onDelete: SetNull)
+  operatorStaffId Int?                     @map("operator_staff_id")
+  operatorStaff   Staff?                   @relation("FinanceCashFlowOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
+  direction       FinanceCashFlowDirection
+  category        FinanceCashFlowCategory
+  title           String
+  amount          Decimal                  @db.Decimal(12, 2)
+  payment         FinanceCashFlowPayment
+  note            String?
+  date            DateTime
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  @@index([storeId, date])
+  @@index([storeId, direction, date])
+  @@index([storeId, category, date])
+  @@index([operatorStaffId, createdAt])
+  @@map("finance_cash_flow_records")
+}

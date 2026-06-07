@@ -1,6 +1,6 @@
 ---
 name: purelyprofit-server-backend-architecture
-description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。该 skill 说明 purely-profit 与 purely-pulse 的产品线语义、会员配置层与运行态边界、NestJS + Fastify 启动链路、Config/Prisma/Redis 基础设施、JWT 鉴权、access-control 能力快照、子账号配额与首页模块限制、员工班次/交接班域拆分、Swagger 与 DTO 规范、缓存失效与预热接入方式，以及新增接口的落位流程。适用于理解仓库结构、开发或修改 purelyProfit / purelyPulse 接口、接入数据库或缓存、处理会员权益限制、扩展空间/员工/交班能力，并保持代码风格与目录约定一致时使用。
+description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。该 skill 说明 purely-profit 与 purely-pulse 的产品线语义、会员配置层与运行态边界、NestJS + Fastify 启动链路、Config/Prisma/Redis 基础设施、JWT 鉴权与 capability 快照、auth 账号查询/会籍协同拆分、marketing 多 controller 与 facade 分层、finance DTO/response 拆分、Pulse membership admin 读写拆分、空间域 request/response DTO 与 session 子 service 拆分、runtime-metrics summary 观测聚合，以及新增接口的落位流程。适用于理解仓库结构、开发或修改 purelyProfit / purelyPulse 接口、接入数据库或缓存、处理会员权益限制、扩展营销/财务/空间/员工/会员能力，并保持代码风格与目录约定一致时使用。
 ---
 
 # purelyprofit-server 后端架构指南
@@ -116,12 +116,16 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。
 
 - `src/redis/cache-invalidator.service.ts`：统一承接 dashboard、finance、marketing、Pulse session 等衍生缓存失效
 - `src/redis/cache-prewarm.service.ts`：定时预热首页、经营分析、财务概览等热点缓存
-- `src/observability/*`：已有 cache-prewarm 指标与摘要链路，新增预热类别时要同步考虑观测聚合
+- `src/observability/runtime-metrics*.ts`：运行态观测已拆成 `summary/highlights/context/actions/cards` 多层聚合；新增指标、摘要卡片或预热分类时要同步补 summary 组装链路
 - `src/purely-profit/access-control/*` + `src/purely-profit/auth/auth-capability.service.ts`：老板、员工、子账号三类身份统一走 capability 快照，决定 `allowedHomeModules`、`hiddenHomeModules`、`canAccessHome`、`canUseHandover`
+- `src/purely-profit/auth/*`：auth 域已拆成 `account lookup`、`account membership`、`authentication`、`password`、`profile`、`session` 等子 service，并补了 `CurrentUser` / `RequestId` / `RequestAuditContext` 等 decorator；扩展登录、资料、审计链路时优先复用这些边界
 - `src/purely-profit/member/platform-membership/store-sub-account*.ts`：子账号配额、槽位分配、登录账号、交班候选人解析已沉淀在平台会员模块，不要把子账号规则散落到员工或 auth controller
+- `src/purely-profit/marketing/*`：营销域已拆成 overview/customers/transactions/promotions/products/categories 多 controller + facade + 子 service；新增营销接口优先落到对应子域，不要继续堆到单个大 service
+- `src/purely-profit/finance/*`：财务域已按 account/cash-flow/overview/reconciliation/report 拆分 query DTO、response DTO、domain 与工具函数；扩展财务接口时优先沿用分域 DTO 与 mapper
 - `src/purely-profit/staff/employees/*`：员工域已覆盖档案、部门、职位、班次定义、排班、请假、工资单、子账号维护，新增员工能力优先延续该聚合边界
 - `src/purely-profit/operations/handover/*`：交班域已拆成 `page/confirm/records/additional-items/shared`，写操作要基于当前班次可操作性，并拦截重复交班
-- `src/purely-profit/operations/spaces/*`：空间域已拆成 `read/write/dashboard/reservations/sessions` 等协作 service
+- `src/purely-profit/operations/spaces/*`：空间域已拆成 request/response DTO、`read/write/dashboard/reservations/sessions`、`open/renew/checkout/transfer/settlement/auto-checkout`、state/shared/query-builder 等协作 service
+- `src/purely-pulse/membership/*`：Pulse 会员域已拆成 admin controller、member/sub-account read、membership/points/beans/sub-account mutation、mutation state 与 query helper；开发者视角接口优先沿用这套读写拆分
 
 ## 核心约定
 
@@ -212,19 +216,24 @@ src/purely-pulse/<domain>/
 
 - 不要再把新模块放回旧的 `src/auth/*`、`src/member/*`、`src/operations/*` 顶层路径
 - `purely-profit` 通常先按业务域再按子模块细分，例如 `member/members`、`operations/spaces`
+- `purely-profit/auth` 这类横切域，优先按职责拆 `lookup/membership/authentication/password/profile/session` 等 service，不要让 `AuthService` 回到巨石状态
+- `purely-profit/marketing` 优先按 overview/customers/transactions/promotions/products/categories 分 controller 与 facade，`marketing.controller.ts`、`marketing.service.ts` 可仅作为 barrel 导出层
+- `purely-profit/finance` 优先按 account/cash-flow/overview/reconciliation/report 拆 DTO、domain、service helper，不要把所有列表查询参数继续塞回一个 query dto
 - `purely-pulse` 多模块共享目标门店语义时，优先复用 `pulse-store-context.service.ts`
-- `operations/spaces` 这类复杂域继续沿用 `spaces-write`、`space-dashboard`、`space-reservations`、`space-sessions` 这类协作拆分
+- `purely-pulse/membership` 新增开发者管理能力时，优先判断属于 read、query、mutation state 还是某个具体 mutation service
+- `operations/spaces` 这类复杂域继续沿用 `spaces-write`、`space-dashboard`、`space-reservations`、`space-session-*` 这类协作拆分
 
 ### Controller 与 DTO
 
 Controller 约定：
 
 - 使用 `@Controller()`、`@Get()`、`@Post()`、`@Patch()`、`@Delete()`
-- 参数优先使用 `@Body()`、`@Param()`、`@Query()`、`@Req()`
-- 需要鉴权时用 `@UseGuards(JwtAuthGuard)`
+- 参数优先使用 `@Body()`、`@Param()`、`@Query()`、`@Req()`；登录态用户优先通过 `@CurrentUser()` 等 decorator 获取，不要在 controller 手动解 request
+- 需要鉴权时用 `@UseGuards(JwtAuthGuard)`，能力校验优先叠加 `PermissionsGuard` / `RequirePermissions`
 - Swagger 注解最少补齐 `@ApiTags`、`@ApiOperation`、`@ApiOkResponse()` / `@ApiCreatedResponse()`
 - Bearer 接口补 `@ApiBearerAuth()`
 - `summary` / `description` 里明确当前接口属于 `purely-profit` 还是 `purely-pulse`
+- 当一个业务域 controller 过多时，可保留 barrel 文件统一导出，真实实现落在细分 controller 文件中
 
 DTO 约定：
 
@@ -232,6 +241,7 @@ DTO 约定：
 - 使用 `class-validator` 与 `@ApiProperty()` / `@ApiPropertyOptional()`
 - 错误文案直接写中文
 - DTO 优先停留在 controller 边界；进入 service 后，如需复杂类型推导、raw SQL 组装或 mapper 流转，优先改用局部 `interface` / `type`
+- 列表 query、request body、response view model 已在 finance、marketing、spaces 等域按用途细拆；新增接口优先补专属 DTO，不要复用语义不准的旧 DTO
 - 共享常量、联合类型、纯 helper 优先放无装饰器的 `*.utils.ts` / `*.types.ts` / `*.constants.ts`
 
 ### Auth 与 Access
@@ -242,10 +252,12 @@ Auth 基线：
 - 注册验证码、找回密码验证码存储在 Redis，TTL 由 `auth.*` 配置驱动
 - 登录支持 `phone` 与 `account`，其中 `account` 当前兼容 `admin`
 - 密码统一使用 `bcryptjs`
+- `AuthModule` 当前以 `AuthService` 编排，底下拆分 `AuthAccountLookupService`、`AuthAccountMembershipService`、`AuthAuthenticationService`、`AuthPasswordService`、`AuthProfileService`、`AuthSessionService`
 - JWT 在 service 内统一签发
 - JWT payload 保持精简，由 `JwtStrategy.validate()` 再查库补齐核心身份信息
 - `JwtAuthGuard` 保护登录态接口
 - `AuthService.getProfile()` 兼容前端 `me/profile`
+- 需要当前登录人、请求编号、审计上下文时，优先复用 `CurrentUser`、`RequestId`、`RequestAuditContext` 等 decorator
 
 Access 基线：
 
@@ -340,9 +352,13 @@ Redis：
 - `src/redis/cache-invalidator.service.ts`
 - `src/redis/cache-prewarm.service.ts`
 - `src/observability/runtime-metrics.ts`
+- `src/observability/runtime-metrics.summary.ts`
 - `src/purely-profit/auth/auth.module.ts`
 - `src/purely-profit/auth/auth.controller.ts`
 - `src/purely-profit/auth/auth.service.ts`
+- `src/purely-profit/auth/auth-account-lookup.service.ts`
+- `src/purely-profit/auth/auth-account-membership.service.ts`
+- `src/purely-profit/auth/current-user.decorator.ts`
 - `src/purely-profit/auth/strategies/jwt.strategy.ts`
 - `src/purely-profit/access-control/access-control.service.ts`
 - `src/purely-profit/access-control/subject-capability.service.ts`
@@ -350,18 +366,28 @@ Redis：
 - `src/purely-profit/member/platform-membership/platform-membership.service.ts`
 - `src/purely-profit/member/platform-membership/platform-membership-access.service.ts`
 - `src/purely-profit/member/platform-membership/store-sub-account.service.ts`
+- `src/purely-profit/dashboard/dashboard-home/dashboard-home.controller.ts`
 - `src/purely-profit/dashboard/dashboard-home/dashboard-home.service.ts`
+- `src/purely-profit/finance/finance.controller.ts`
+- `src/purely-profit/finance/finance.service.ts`
+- `src/purely-profit/marketing/marketing.module.ts`
+- `src/purely-profit/marketing/marketing-overview.controller.ts`
+- `src/purely-profit/marketing/marketing-customers.facade.service.ts`
 - `src/purely-profit/staff/employees/employees.controller.ts`
 - `src/purely-profit/staff/employees/employees-shift-definition.service.ts`
 - `src/purely-profit/operations/handover/handover.service.ts`
 - `src/purely-profit/operations/handover/handover-confirm.service.ts`
 - `src/purely-profit/operations/handover/handover.shared.ts`
+- `src/purely-profit/operations/spaces/spaces.module.ts`
 - `src/purely-profit/operations/spaces/spaces.service.ts`
-- `src/purely-profit/operations/spaces/space-reservations.service.ts`
-- `src/purely-profit/operations/spaces/space-sessions.service.ts`
+- `src/purely-profit/operations/spaces/space-session-read.service.ts`
+- `src/purely-profit/operations/spaces/space-session-open.service.ts`
+- `src/purely-profit/operations/spaces/space-session-settlement.service.ts`
 - `src/purely-pulse/session/session.controller.ts`
 - `src/purely-pulse/pulse-store-context.service.ts`
-- `src/purely-pulse/membership/membership.service.ts`
+- `src/purely-pulse/membership/membership.module.ts`
+- `src/purely-pulse/membership/membership-admin.controller.ts`
+- `src/purely-pulse/membership/membership-admin-query.service.ts`
 - `src/purely-pulse/membership-settings/membership-settings.service.ts`
 - `prisma/schema.prisma`
 - `.env.example`

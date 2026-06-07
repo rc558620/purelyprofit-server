@@ -11,12 +11,12 @@ import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import {
   CreateFinanceCashFlowRecordDto,
   ListFinanceCashFlowRecordsQueryDto,
-} from './dto/finance-query.dto';
+} from './dto/finance-cash-flow.query.dto';
 import type {
   FinanceCashFlowRecordResponseDto,
   FinanceCashFlowStatsDto,
   PaginatedFinanceCashFlowRecordsResponseDto,
-} from './dto/finance-response.dto';
+} from './dto/finance-cash-flow.response.dto';
 import {
   assertCashFlowCategoryCanCreateManually,
   assertCashFlowDirectionMatchesCategory,
@@ -34,14 +34,16 @@ import {
 import { buildPaginatedCashFlowRecordsResponse } from './finance.mapper';
 import type { FinanceCashFlowListQueryInput } from './finance.types';
 import {
-  buildPaginationState,
-  getCashFlowFilterRange,
-  getPreviousCashFlowRange,
   isZeroValue,
   roundMoneyValue,
-  trimOptionalString,
   toPrismaDecimal,
-} from './finance.utils';
+} from './finance-money.utils';
+import { buildPaginationState } from './finance-pagination.utils';
+import {
+  getCashFlowFilterRange,
+  getPreviousCashFlowRange,
+} from './finance-range.utils';
+import { trimOptionalString } from './finance-string.utils';
 
 @Injectable()
 export class FinanceCashFlowService {

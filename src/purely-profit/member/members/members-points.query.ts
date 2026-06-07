@@ -6,35 +6,22 @@ import type {
   MemberBeanLogRecord,
   MemberPointsLogRecord,
 } from './members-points.mapper';
+import { MEMBER_RETURNING_SQL, requireMemberRow } from './members-query.shared';
 import {
-  MEMBER_RETURNING_SQL,
-  buildStoreIdWhereClause,
-  requireMemberRow,
-} from './members-query.shared';
+  createMemberAssetLogsQueryConfig,
+  queryConfiguredMemberAssetLogs,
+  queryConfiguredMemberAssetOverview,
+} from './members-points.shared';
 import type {
   ApplyMemberBeansAdjustmentInput,
   ApplyMemberPointsAdjustmentInput,
-  CountRow,
   MemberAssetLogsQueryConfig,
-  MemberAssetLogsWhereClauseConfig,
   MemberAssetOverviewQueryConfig,
-  QueryMemberAssetLogsInput,
+  MemberBeansOverviewRow,
+  MemberPointsOverviewRow,
   QueryMemberBeanLogsInput,
   QueryMemberPointsLogsInput,
 } from './members.types';
-
-export interface MemberPointsOverviewRow {
-  totalCount: number;
-  adminAdjustCount: number;
-  todayChangeCount: number;
-}
-
-export interface MemberBeansOverviewRow {
-  totalCount: number;
-  adminAdjustCount: number;
-  promoRewardCount: number;
-  withdrawCount: number;
-}
 
 interface MemberAssetQueryConfig<TType, TSource> {
   overview: MemberAssetOverviewQueryConfig;
@@ -186,89 +173,11 @@ function requireBeanLogRow(log?: MemberBeanLogRecord): MemberBeanLogRecord {
   return log;
 }
 
-function buildMemberAssetLogsWhereClause<TType, TSource>(
-  params: QueryMemberAssetLogsInput<TType, TSource>,
-  config: MemberAssetLogsWhereClauseConfig<TType, TSource>,
-): Prisma.Sql {
-  const filters: Prisma.Sql[] = [buildStoreIdWhereClause(params.storeId)];
-
-  if (params.memberId) {
-    filters.push(Prisma.sql`l.member_id = ${params.memberId}`);
-  }
-
-  filters.push(...config.buildTypeFilters(params.type));
-
-  if (params.source) {
-    filters.push(config.buildSourceFilter(params.source));
-  }
-
-  if (params.keyword) {
-    filters.push(config.buildKeywordFilter(params.keyword));
-  }
-
-  return Prisma.join(filters, ' AND ');
-}
-
-function createMemberAssetLogsQueryConfig<TType, TSource>(params: {
-  selectSql: Prisma.Sql;
-  fromSql: Prisma.Sql;
-  whereClause: MemberAssetLogsWhereClauseConfig<TType, TSource>;
-}): MemberAssetLogsQueryConfig<TType, TSource> {
-  return {
-    selectSql: params.selectSql,
-    fromSql: params.fromSql,
-    buildWhereClause: (queryParams) =>
-      buildMemberAssetLogsWhereClause(queryParams, params.whereClause),
-  };
-}
-
-async function queryMemberAssetOverview<TRow>(
-  prisma: PrismaService,
-  storeId: number,
-  config: MemberAssetOverviewQueryConfig,
-): Promise<TRow | null> {
-  const rows = await prisma.$queryRaw<TRow[]>`
-    SELECT ${config.selectSql}
-    ${config.fromSql}
-    WHERE store_id = ${storeId}
-  `;
-
-  return rows[0] ?? null;
-}
-
-async function queryMemberAssetLogs<TType, TSource, TRow>(
-  prisma: PrismaService,
-  params: QueryMemberAssetLogsInput<TType, TSource>,
-  config: MemberAssetLogsQueryConfig<TType, TSource>,
-): Promise<{ items: TRow[]; total: number }> {
-  const whereClause = config.buildWhereClause(params);
-  const [items, countRows] = await Promise.all([
-    prisma.$queryRaw<TRow[]>`
-      SELECT ${config.selectSql}
-      ${config.fromSql}
-      WHERE ${whereClause}
-      ORDER BY l.created_at DESC, l.id DESC
-      OFFSET ${params.skip}
-      LIMIT ${params.take}
-    `,
-    prisma.$queryRaw<CountRow[]>`
-      SELECT COUNT(*)::int AS count
-      ${config.fromSql}
-      WHERE ${whereClause}
-    `,
-  ]);
-
-  return {
-    items,
-    total: countRows[0]?.count ?? 0,
-  };
-}
-
 export async function queryMemberPointsOverview(
   prisma: PrismaService,
   storeId: number,
 ): Promise<MemberPointsOverviewRow | null> {
-  return queryMemberAssetOverview(
+  return queryConfiguredMemberAssetOverview(
     prisma,
     storeId,
     POINTS_MEMBER_ASSET_QUERY_CONFIG.overview,
@@ -279,7 +188,7 @@ export async function queryMemberPointsLogs(
   prisma: PrismaService,
   params: QueryMemberPointsLogsInput,
 ): Promise<{ items: MemberPointsLogRecord[]; total: number }> {
-  return queryMemberAssetLogs(
+  return queryConfiguredMemberAssetLogs(
     prisma,
     params,
     POINTS_MEMBER_ASSET_QUERY_CONFIG.logs,
@@ -344,7 +253,7 @@ export async function queryMemberBeansOverview(
   prisma: PrismaService,
   storeId: number,
 ): Promise<MemberBeansOverviewRow | null> {
-  return queryMemberAssetOverview(
+  return queryConfiguredMemberAssetOverview(
     prisma,
     storeId,
     BEANS_MEMBER_ASSET_QUERY_CONFIG.overview,
@@ -355,7 +264,7 @@ export async function queryMemberBeanLogs(
   prisma: PrismaService,
   params: QueryMemberBeanLogsInput,
 ): Promise<{ items: MemberBeanLogRecord[]; total: number }> {
-  return queryMemberAssetLogs(
+  return queryConfiguredMemberAssetLogs(
     prisma,
     params,
     BEANS_MEMBER_ASSET_QUERY_CONFIG.logs,

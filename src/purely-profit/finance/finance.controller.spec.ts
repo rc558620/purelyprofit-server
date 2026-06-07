@@ -82,7 +82,7 @@ describe('FinanceController', () => {
     financeService.getOverview.mockResolvedValue(response);
 
     await expect(
-      controller.getOverview({ user }, { period: 'month' }),
+      controller.getOverview(user, { period: 'month' }),
     ).resolves.toEqual(response);
     expect(financeService.getOverview).toHaveBeenCalledWith(user, {
       period: 'month',
@@ -109,7 +109,7 @@ describe('FinanceController', () => {
     };
     financeService.getReport.mockResolvedValue(response);
 
-    await expect(controller.getReport({ user }, query)).resolves.toEqual(
+    await expect(controller.getReport(user, query)).resolves.toEqual(
       response,
     );
     expect(financeService.getReport).toHaveBeenCalledWith(user, query);
@@ -158,18 +158,18 @@ describe('FinanceController', () => {
 
     await expect(
       controller.listCashFlowRecords(
-        { user },
+        user,
         { period: 'month', directionFilter: 'income', page: 1, pageSize: 20 },
       ),
     ).resolves.toEqual(listResponse);
     await expect(
-      controller.getCashFlowStats({ user }, { period: 'week' }),
+      controller.getCashFlowStats(user, { period: 'week' }),
     ).resolves.toEqual(statsResponse);
     await expect(
-      controller.createCashFlowRecord({ user }, createDto),
+      controller.createCashFlowRecord(user, createDto),
     ).resolves.toEqual(recordResponse);
     await expect(
-      controller.deleteCashFlowRecord({ user }, 9),
+      controller.deleteCashFlowRecord(user, 9),
     ).resolves.toBeUndefined();
 
     expect(financeService.listCashFlowRecords).toHaveBeenCalledWith(user, {
@@ -236,7 +236,7 @@ describe('FinanceController', () => {
 
     await expect(
       controller.listAccounts(
-        { user },
+        user,
         {
           typeFilter: 'receivable',
           statusFilter: 'partial',
@@ -245,21 +245,21 @@ describe('FinanceController', () => {
         },
       ),
     ).resolves.toEqual(listResponse);
-    await expect(controller.getAccountsStats({ user })).resolves.toEqual(
+    await expect(controller.getAccountsStats(user)).resolves.toEqual(
       statsResponse,
     );
     await expect(
-      controller.createAccount({ user }, createDto),
+      controller.createAccount(user, createDto),
     ).resolves.toEqual(listResponse.items[0]);
     await expect(
-      controller.settleAccount({ user }, 2, settleDto),
+      controller.settleAccount(user, 2, settleDto),
     ).resolves.toEqual({
       ...listResponse.items[0],
       paidAmount: 1500,
       remaining: 3500,
     });
     await expect(
-      controller.deleteAccount({ user }, 2),
+      controller.deleteAccount(user, 2),
     ).resolves.toBeUndefined();
 
     expect(financeService.listAccounts).toHaveBeenCalledWith(user, {
@@ -340,25 +340,25 @@ describe('FinanceController', () => {
 
     await expect(
       controller.listReconciliations(
-        { user },
+        user,
         { statusFilter: 'discrepancy', page: 1, pageSize: 20 },
       ),
     ).resolves.toEqual(listResponse);
-    await expect(controller.getReconciliationStats({ user })).resolves.toEqual(
+    await expect(controller.getReconciliationStats(user)).resolves.toEqual(
       statsResponse,
     );
     await expect(
-      controller.createReconciliation({ user }, createDto),
+      controller.createReconciliation(user, createDto),
     ).resolves.toEqual(listResponse.items[0]);
     await expect(
-      controller.confirmReconciliation({ user }, 3, confirmDto),
+      controller.confirmReconciliation(user, 3, confirmDto),
     ).resolves.toEqual({
       ...listResponse.items[0],
       status: 'adjusted',
       adjustNote: '微信手续费差额',
     });
     await expect(
-      controller.deleteReconciliation({ user }, 3),
+      controller.deleteReconciliation(user, 3),
     ).resolves.toBeUndefined();
 
     expect(financeService.listReconciliations).toHaveBeenCalledWith(user, {

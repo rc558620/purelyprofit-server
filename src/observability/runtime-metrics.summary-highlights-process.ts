@@ -1,5 +1,5 @@
 import { buildProcessActionPayload } from './runtime-metrics.summary-actions';
-import type { SummaryHighlight } from './metrics.protocol';
+import type { SummaryHighlight } from './metrics-summary.protocol';
 import type { SummaryBuildContext } from './runtime-metrics.summary-context.types';
 import { buildSummaryHighlight } from './runtime-metrics.summary-highlights-shared';
 

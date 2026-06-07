@@ -1,18 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -53,10 +40,10 @@ export class StaffController {
     type: StaffResponseDto,
   })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateStaffDto,
   ): Promise<StaffResponseDto> {
-    return this.staffService.create(request.user, dto);
+    return this.staffService.create(user, dto);
   }
 
   @Post('invite')
@@ -67,10 +54,10 @@ export class StaffController {
     type: StaffInviteResponseDto,
   })
   invite(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: InviteStaffDto,
   ): Promise<StaffInviteResponseDto> {
-    return this.staffService.invite(request.user, dto);
+    return this.staffService.invite(user, dto);
   }
 
   @Post('activate')
@@ -81,10 +68,10 @@ export class StaffController {
     type: StaffActivationResponseDto,
   })
   activate(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ActivateStaffDto,
   ): Promise<StaffActivationResponseDto> {
-    return this.staffService.activate(request.user, dto);
+    return this.staffService.activate(user, dto);
   }
 
   @Get()
@@ -95,10 +82,10 @@ export class StaffController {
     type: PaginatedStaffResponseDto,
   })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListStaffQueryDto,
   ): Promise<PaginatedStaffResponseDto> {
-    return this.staffService.list(request.user, query);
+    return this.staffService.list(user, query);
   }
 
   @Patch(':id')
@@ -109,11 +96,11 @@ export class StaffController {
     type: StaffResponseDto,
   })
   update(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) staffId: number,
     @Body() dto: UpdateStaffDto,
   ): Promise<StaffResponseDto> {
-    return this.staffService.update(request.user, staffId, dto);
+    return this.staffService.update(user, staffId, dto);
   }
 
   @Delete(':id')
@@ -122,9 +109,9 @@ export class StaffController {
   @ApiOperation({ summary: '删除员工' })
   @ApiNoContentResponse({ description: '删除成功' })
   async remove(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) staffId: number,
   ): Promise<void> {
-    await this.staffService.remove(request.user, staffId);
+    await this.staffService.remove(user, staffId);
   }
 }

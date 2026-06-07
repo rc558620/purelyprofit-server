@@ -1,10 +1,11 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { OnboardingStatusResponseDto } from './dto/onboarding-status.dto';
@@ -35,8 +36,8 @@ export class OnboardingController {
     type: OnboardingStatusResponseDto,
   })
   getStatus(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<OnboardingStatusResponseDto> {
-    return this.onboardingService.getStatus(request.user);
+    return this.onboardingService.getStatus(user);
   }
 }

@@ -2,17 +2,19 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
 import { DAY_MS, PURCHASE_BONUS_POINTS } from './platform-membership.constants';
+import { resolveEffectivePlanId } from './membership-plan-resolver';
+import {
+  buildPlanExpiryAt,
+  resolveFrontendMembershipExpiry,
+} from './membership-expiry.utils';
+import { buildProfileResponse } from './membership-profile.mapper';
 import {
   allocateBeansAcrossPartners,
   buildOrdersOverview,
-  buildPlanExpiryAt,
-  buildProfileResponse,
   calcMemberPlanPayment,
   generateWechatOrderId,
   mapOrder,
-  resolveEffectivePlanId,
-  resolveFrontendMembershipExpiry,
-} from './platform-membership.domain';
+} from './platform-membership-ledger.domain';
 import { PurchasePlatformMembershipOrderDto } from './dto/platform-membership-query.dto';
 import { PurchasePlatformMembershipOrderResponseDto } from './dto/platform-membership-response.dto';
 import {

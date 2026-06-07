@@ -1,0 +1,67 @@
+// purely-profit/operations/sales-records: 销售记录模型
+
+enum SalesPaymentMethod {
+  cash
+  wechat
+  alipay
+  card
+}
+
+enum SalesCalcMode {
+  profit
+  business
+}
+
+model SaleOrder {
+  id              Int                      @id @default(autoincrement())
+  storeId         Int                      @map("store_id")
+  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  operatorStaffId Int?                     @map("operator_staff_id")
+  operatorStaff   Staff?                   @relation("SaleOrderOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
+  orderNo         String                   @map("order_no")
+  totalRevenue    Decimal                  @map("total_revenue") @db.Decimal(12, 2)
+  totalProfit     Decimal                  @map("total_profit") @db.Decimal(12, 2)
+  totalQuantity   Int                      @map("total_quantity")
+  paymentMethod   SalesPaymentMethod       @map("payment_method")
+  calcMode        SalesCalcMode            @default(business) @map("calc_mode")
+  note            String?
+  date            DateTime
+  items           SaleOrderItem[]
+  inventoryLogs   InventoryAdjustmentLog[]
+  cashFlowRecord  FinanceCashFlowRecord?
+  spaceSession    SpaceSession?
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  @@unique([storeId, orderNo])
+  @@index([storeId, date])
+  @@index([operatorStaffId, createdAt])
+  @@map("sale_orders")
+}
+
+model SaleOrderItem {
+  id           Int       @id @default(autoincrement())
+  orderId      Int       @map("order_id")
+  order        SaleOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  storeId      Int       @map("store_id")
+  store        Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId    Int?      @map("product_id")
+  product      Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName  String    @map("product_name")
+  categoryName String    @map("category_name")
+  salePrice    Decimal   @map("sale_price") @db.Decimal(12, 2)
+  profit       Decimal   @db.Decimal(12, 2)
+  quantity     Int
+  image        String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([orderId, createdAt])
+  @@index([storeId, createdAt])
+  @@index([productId, createdAt])
+  @@index([categoryName, createdAt])
+  @@map("sale_order_items")
+}
+
+// ─── 营销中心 ─────────────────────────────────────────────────────────
+
+/// 营销顾客档案（商家自己的客人，与平台会员 Member 无关）

@@ -1,30 +1,38 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import {
-  ConfirmFinanceReconciliationDto,
   CreateFinanceAccountDto,
-  CreateFinanceCashFlowRecordDto,
-  CreateFinanceReconciliationDto,
-  type FinanceOverviewQueryDto,
-  type FinanceReportQueryDto,
   ListFinanceAccountsQueryDto,
-  ListFinanceCashFlowRecordsQueryDto,
-  ListFinanceReconciliationsQueryDto,
   type SettleFinanceAccountDto,
-} from './dto/finance-query.dto';
+} from './dto/finance-account.query.dto';
+import {
+  CreateFinanceCashFlowRecordDto,
+  ListFinanceCashFlowRecordsQueryDto,
+} from './dto/finance-cash-flow.query.dto';
+import type { FinanceOverviewQueryDto } from './dto/finance-overview.query.dto';
+import {
+  ConfirmFinanceReconciliationDto,
+  CreateFinanceReconciliationDto,
+  ListFinanceReconciliationsQueryDto,
+} from './dto/finance-reconciliation.query.dto';
+import type { FinanceReportQueryDto } from './dto/finance-report.query.dto';
 import type {
   FinanceAccountRecordResponseDto,
   FinanceAccountsStatsDto,
+  PaginatedFinanceAccountsResponseDto,
+} from './dto/finance-account.response.dto';
+import type {
   FinanceCashFlowRecordResponseDto,
   FinanceCashFlowStatsDto,
-  FinanceOverviewResponseDto,
-  FinanceReportResponseDto,
+  PaginatedFinanceCashFlowRecordsResponseDto,
+} from './dto/finance-cash-flow.response.dto';
+import type { FinanceOverviewResponseDto } from './dto/finance-overview.response.dto';
+import type { FinanceReportResponseDto } from './dto/finance-report.response.dto';
+import type {
   FinanceReconciliationRecordResponseDto,
   FinanceReconciliationStatsDto,
-  PaginatedFinanceAccountsResponseDto,
-  PaginatedFinanceCashFlowRecordsResponseDto,
   PaginatedFinanceReconciliationsResponseDto,
-} from './dto/finance-response.dto';
+} from './dto/finance-reconciliation.response.dto';
 import { FinanceAccountService } from './finance-account.service';
 import { FinanceCashFlowService } from './finance-cash-flow.service';
 import { FinanceOverviewService } from './finance-overview.service';

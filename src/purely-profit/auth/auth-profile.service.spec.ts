@@ -136,10 +136,12 @@ describe('AuthProfileService', () => {
   it('active membership 不匹配时回退到权限计算，但不返回子账号运行态字段', async () => {
     const staleUser: AuthenticatedUser = {
       ...user,
-      currentMembership: {
-        ...user.currentMembership,
-        staffId: 99,
-      },
+      currentMembership: user.currentMembership
+        ? {
+            ...user.currentMembership,
+            staffId: 99,
+          }
+        : null,
     };
 
     await expect(service.getProfile(staleUser)).resolves.toMatchObject({

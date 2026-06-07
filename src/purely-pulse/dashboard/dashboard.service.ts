@@ -11,12 +11,12 @@ import type {
   GetPulseDashboardStoresQueryDto,
   GetPulseRevenueDetailQueryDto,
 } from './dto/pulse-dashboard-query.dto';
+import type { PulseDashboardHomeResponseDto } from './dto/pulse-dashboard-home.response.dto';
 import type {
-  PulseDashboardHomeResponseDto,
   PulseDashboardOverviewResponseDto,
   PulseDashboardStoresResponseDto,
-  PulseRevenueDetailResponseDto,
-} from './dto/pulse-dashboard-response.dto';
+} from './dto/pulse-dashboard-overview.response.dto';
+import type { PulseRevenueDetailResponseDto } from './dto/pulse-dashboard-revenue-detail.response.dto';
 
 @Injectable()
 export class PulseDashboardService {

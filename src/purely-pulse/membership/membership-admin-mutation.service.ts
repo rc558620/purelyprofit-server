@@ -1,25 +1,18 @@
-import { StoreSubAccountRole } from '@prisma/client';
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
-import { StoreSubAccountService } from '../../purely-profit/member/platform-membership/store-sub-account.service';
-import type { UpdateStoreSubAccountSlotInput } from '../../purely-profit/member/platform-membership/store-sub-account.types';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-members.response.dto';
 import { PulseMembershipAccessService } from './membership-access.service';
-import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
-import { DAY_MS } from './membership.constants';
+import { PulseMembershipAdminBeansMutationService } from './membership-admin-beans-mutation.service';
+import { PulseMembershipAdminMemberReadService } from './membership-admin-member-read.service';
+import { PulseMembershipAdminMembershipMutationService } from './membership-admin-membership-mutation.service';
+import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
+import { PulseMembershipAdminPointsMutationService } from './membership-admin-points-mutation.service';
+import { PulseMembershipAdminSubAccountMutationService } from './membership-admin-sub-account-mutation.service';
 import type {
   PulseAdminMemberLevel,
   PulseAdminMembershipMutationInput,
   PulseAdminMembershipProfileRecord,
-  PulseAdminPartnerRecord,
   PulseAdminStatusMutationInput,
   PulseAdminSubAccountQuotaMutationInput,
   PulseAdminSubAccountSlotMutationInput,
@@ -28,15 +21,19 @@ import type {
 
 @Injectable()
 export class PulseMembershipAdminMutationService {
-  private readonly logger = new Logger(PulseMembershipAdminMutationService.name);
+  private readonly logger = new Logger(
+    PulseMembershipAdminMutationService.name,
+  );
 
   constructor(
-    private readonly platformMembershipService: PlatformMembershipService,
     private readonly prisma: PrismaService,
-    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly accessService: PulseMembershipAccessService,
-    private readonly storeSubAccountService: StoreSubAccountService,
-    private readonly queryService: PulseMembershipAdminQueryService,
+    private readonly memberReadService: PulseMembershipAdminMemberReadService,
+    private readonly mutationStateService: PulseMembershipAdminMutationStateService,
+    private readonly membershipMutationService: PulseMembershipAdminMembershipMutationService,
+    private readonly pointsMutationService: PulseMembershipAdminPointsMutationService,
+    private readonly beansMutationService: PulseMembershipAdminBeansMutationService,
+    private readonly subAccountMutationService: PulseMembershipAdminSubAccountMutationService,
   ) {}
 
   async adjustAdminMemberPoints(
@@ -45,46 +42,9 @@ export class PulseMembershipAdminMutationService {
     dto: PulseMembershipAdjustmentInput,
   ): Promise<PulseMemberDetailDto> {
     await this.assertAdminMemberMutationAccess(user, memberId);
+    await this.pointsMutationService.adjustAdminMemberPoints(memberId, dto);
 
-    const delta = this.resolveAdjustmentDelta(dto, '积分');
-    const current = await this.loadAdminMemberStateOrThrow(memberId);
-    const nextAvailablePoints = current.profile.availablePoints + delta;
-    const nextTotalPoints =
-      current.profile.totalPoints + (delta > 0 ? delta : 0);
-
-    if (nextAvailablePoints < 0) {
-      throw new BadRequestException('当前积分不足，无法扣减');
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      const profile = await tx.storeMembershipProfile.upsert({
-        where: { storeId: memberId },
-        create: {
-          storeId: memberId,
-          totalPoints: nextTotalPoints,
-          availablePoints: nextAvailablePoints,
-        },
-        update: {
-          totalPoints: nextTotalPoints,
-          availablePoints: nextAvailablePoints,
-        },
-        select: { id: true },
-      });
-
-      await tx.storeMembershipPointsLog.create({
-        data: {
-          storeId: memberId,
-          profileId: profile.id,
-          source: 'admin_adjust',
-          changeAmount: delta,
-          description: dto.reason.trim(),
-        },
-      });
-    });
-
-    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
-
-    return this.queryService.buildAdminMemberDetail(memberId);
+    return this.memberReadService.buildAdminMemberDetail(memberId);
   }
 
   async adjustAdminMemberBeans(
@@ -93,66 +53,9 @@ export class PulseMembershipAdminMutationService {
     dto: PulseMembershipAdjustmentInput,
   ): Promise<PulseMemberDetailDto> {
     await this.assertAdminMemberMutationAccess(user, memberId);
+    await this.beansMutationService.adjustAdminMemberBeans(memberId, dto);
 
-    const delta = this.resolveAdjustmentDelta(dto, '纯利豆');
-    const current = await this.loadAdminMemberStateOrThrow(memberId);
-    const nextBeanBalance = current.partner.beanBalance + delta;
-
-    if (nextBeanBalance < 0) {
-      throw new BadRequestException('当前纯利豆不足，无法扣减');
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      const totalEarnedBeans = Math.max(
-        current.partner.totalEarnedBeans + (delta > 0 ? delta : 0),
-        0,
-      );
-      const now = new Date();
-      const existingPartner = await tx.storePartner.findFirst({
-        where: { storeId: memberId, status: 'approved' },
-        select: { id: true, status: true },
-        orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
-      });
-      const partner = existingPartner
-        ? await tx.storePartner.update({
-            where: { id: existingPartner.id },
-            data: {
-              status: 'approved',
-              reviewedAt:
-                existingPartner.status === 'approved' ? undefined : now,
-              joinedAt: existingPartner.status === 'approved' ? undefined : now,
-              beanBalance: nextBeanBalance,
-              totalEarnedBeans,
-            },
-            select: { id: true },
-          })
-        : await tx.storePartner.create({
-            data: {
-              storeId: memberId,
-              status: 'approved',
-              reviewedAt: now,
-              joinedAt: now,
-              beanBalance: nextBeanBalance,
-              totalEarnedBeans,
-              totalWithdrawnBeans: current.partner.totalWithdrawnBeans,
-            },
-            select: { id: true },
-          });
-
-      await tx.storePartnerBeanLog.create({
-        data: {
-          storeId: memberId,
-          partnerId: partner.id,
-          source: 'admin_adjust',
-          changeAmount: delta,
-          description: dto.reason.trim(),
-        },
-      });
-    });
-
-    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
-
-    return this.queryService.buildAdminMemberDetail(memberId);
+    return this.memberReadService.buildAdminMemberDetail(memberId);
   }
 
   async setAdminMemberMembership(
@@ -162,11 +65,20 @@ export class PulseMembershipAdminMutationService {
   ): Promise<PulseMemberDetailDto> {
     await this.assertAdminMemberMutationAccess(user, memberId);
 
-    const nextLevel = this.resolveAdminMemberLevel(dto);
-    const current = await this.loadAdminMemberStateOrThrow(memberId);
-    this.assertFreeDowngradeConfirmed(current.profile, dto, nextLevel);
-    const nextExpiry = await this.resolveAdminMembershipExpiry(dto, nextLevel);
-    const nextPlanId = this.toMembershipPlanId(nextLevel);
+    const nextLevel = this.membershipMutationService.resolveAdminMemberLevel(dto);
+    const current =
+      await this.mutationStateService.loadAdminMemberStateOrThrow(memberId);
+    this.membershipMutationService.assertFreeDowngradeConfirmed(
+      current.profile,
+      dto,
+      nextLevel,
+    );
+    const nextExpiry =
+      await this.membershipMutationService.resolveAdminMembershipExpiry(
+        dto,
+        nextLevel,
+      );
+    const nextPlanId = this.membershipMutationService.toMembershipPlanId(nextLevel);
     const now = new Date();
 
     this.logMembershipLevelMutation({
@@ -197,9 +109,9 @@ export class PulseMembershipAdminMutationService {
       },
     });
 
-    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+    await this.mutationStateService.invalidatePulseDashboardHome();
 
-    return this.queryService.buildAdminMemberDetail(memberId);
+    return this.memberReadService.buildAdminMemberDetail(memberId);
   }
 
   async banAdminMember(
@@ -220,7 +132,7 @@ export class PulseMembershipAdminMutationService {
     await this.accessService.writeAdminMemberBanReason(memberId, reason);
     await this.accessService.kickAllStoreUsers(memberId);
 
-    return this.queryService.buildAdminMemberDetail(memberId);
+    return this.memberReadService.buildAdminMemberDetail(memberId);
   }
 
   async unbanAdminMember(
@@ -238,7 +150,7 @@ export class PulseMembershipAdminMutationService {
 
     await this.accessService.clearAdminMemberBanReason(memberId);
 
-    return this.queryService.buildAdminMemberDetail(memberId);
+    return this.memberReadService.buildAdminMemberDetail(memberId);
   }
 
   async updateAdminMemberSubAccountQuota(
@@ -247,21 +159,13 @@ export class PulseMembershipAdminMutationService {
     dto: PulseAdminSubAccountQuotaMutationInput,
   ): Promise<PulseMemberDetailDto> {
     await this.assertAdminMemberMutationAccess(user, memberId);
-
-    await this.storeSubAccountService.updateQuota(
+    await this.subAccountMutationService.updateAdminMemberSubAccountQuota(
       memberId,
-      dto.quota,
       user.id,
-      dto.reason,
+      dto,
     );
 
-    if (dto.roleSummary?.length) {
-      await this.syncAdminMemberSubAccountRoleSummary(memberId, dto.quota, dto);
-    }
-
-    await this.invalidateAdminMemberDerived(memberId);
-
-    return this.queryService.buildAdminMemberDetail(memberId);
+    return this.memberReadService.buildAdminMemberDetail(memberId);
   }
 
   async updateAdminMemberSubAccountSlot(
@@ -270,180 +174,19 @@ export class PulseMembershipAdminMutationService {
     dto: PulseAdminSubAccountSlotMutationInput,
   ): Promise<PulseMemberDetailDto> {
     await this.assertAdminMemberMutationAccess(user, memberId);
-
-    await this.storeSubAccountService.updateSlot(
+    await this.subAccountMutationService.updateAdminMemberSubAccountSlot(
       memberId,
-      dto as UpdateStoreSubAccountSlotInput,
-    );
-    await this.invalidateAdminMemberDerived(memberId);
-
-    return this.queryService.buildAdminMemberDetail(memberId);
-  }
-
-  private async syncAdminMemberSubAccountRoleSummary(
-    memberId: number,
-    quota: number,
-    dto: PulseAdminSubAccountQuotaMutationInput,
-  ): Promise<void> {
-    const roleSummary =
-      dto.roleSummary?.filter((item) => item.slot <= quota) ?? [];
-    if (roleSummary.length === 0) {
-      return;
-    }
-
-    const currentSummary =
-      await this.storeSubAccountService.getStoreSubAccountSummary(memberId);
-    const slotSnapshotMap = new Map(
-      currentSummary.slots.map((slot) => [slot.slotIndex, slot] as const),
+      dto,
     );
 
-    for (const item of roleSummary.sort(
-      (left, right) => left.slot - right.slot,
-    )) {
-      const currentSlot = slotSnapshotMap.get(item.slot);
-      const shouldKeepAssignedEmployee =
-        item.isAssigned ?? currentSlot?.isAssigned ?? false;
-      await this.storeSubAccountService.updateSlot(memberId, {
-        slotIndex: item.slot,
-        role: item.role as StoreSubAccountRole,
-        status: item.status ?? currentSlot?.status,
-        employeeId: shouldKeepAssignedEmployee
-          ? (currentSlot?.employeeId ?? null)
-          : null,
-        canAccessHome: currentSlot?.canAccessHome,
-        canUseHandover: currentSlot?.canUseHandover,
-      });
-    }
+    return this.memberReadService.buildAdminMemberDetail(memberId);
   }
 
-  private async assertAdminMemberMutationAccess(
+  async assertAdminMemberMutationAccess(
     user: AuthenticatedUser,
     memberId: number,
   ): Promise<void> {
-    await this.accessService.assertAdminMemberMutationAccess(user, memberId);
-  }
-
-  private async invalidateAdminMemberDerived(memberId: number): Promise<void> {
-    await Promise.all([
-      this.cacheInvalidatorService.invalidatePulseDashboardHome(),
-      this.cacheInvalidatorService.invalidatePulseDashboardOverview(memberId),
-      this.cacheInvalidatorService.invalidatePulseSessionNotification(memberId),
-      this.cacheInvalidatorService.invalidatePulseSessionBootstrap(memberId),
-      this.accessService.kickAllStoreUsers(memberId),
-    ]);
-  }
-
-  private async loadAdminMemberStateOrThrow(storeId: number): Promise<{
-    profile: PulseAdminMembershipProfileRecord;
-    partner: PulseAdminPartnerRecord;
-  }> {
-    const [store, profile, partner]: [
-      { id: number } | null,
-      Awaited<
-        ReturnType<
-          PulseMembershipAdminQueryService['findMembershipProfileByStoreId']
-        >
-      >,
-      PulseAdminPartnerRecord | null,
-    ] = await Promise.all([
-      this.prisma.store.findUnique({
-        where: { id: storeId },
-        select: { id: true },
-      }),
-      this.queryService.findMembershipProfileByStoreId(storeId),
-      this.prisma.storePartner.findFirst({
-        where: { storeId, status: 'approved' },
-        select: {
-          id: true,
-          status: true,
-          beanBalance: true,
-          totalEarnedBeans: true,
-          totalWithdrawnBeans: true,
-        },
-        orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
-      }),
-    ]);
-
-    if (!store) {
-      throw new NotFoundException('会员不存在');
-    }
-
-    return {
-      profile: profile ?? {
-        currentPlanId: null,
-        expiresAt: null,
-        totalPoints: 0,
-        availablePoints: 0,
-        subAccountQuota: 0,
-      },
-      partner: partner ?? {
-        id: 0,
-        status: 'approved',
-        beanBalance: 0,
-        totalEarnedBeans: 0,
-        totalWithdrawnBeans: 0,
-      },
-    };
-  }
-
-  private resolveAdjustmentDelta(
-    input: PulseMembershipAdjustmentInput,
-    assetLabel: string,
-  ): number {
-    if (typeof input.delta === 'number' && input.delta !== 0) {
-      return input.delta;
-    }
-
-    if (typeof input.amount !== 'number' || input.amount === 0) {
-      throw new BadRequestException(`缺少${assetLabel}调整值`);
-    }
-
-    switch (input.direction) {
-      case 'add':
-        return Math.abs(input.amount);
-      case 'subtract':
-      case 'deduct':
-      case 'reduce':
-        return -Math.abs(input.amount);
-      default:
-        return input.amount;
-    }
-  }
-
-  private resolveAdminMemberLevel(
-    dto: PulseAdminMembershipMutationInput,
-  ): PulseAdminMemberLevel {
-    const nextLevel = dto.level ?? dto.memberLevel ?? dto.membershipLevel;
-    if (!nextLevel) {
-      throw new BadRequestException('缺少会员等级');
-    }
-
-    return nextLevel;
-  }
-
-  private assertFreeDowngradeConfirmed(
-    profile: PulseAdminMembershipProfileRecord,
-    dto: PulseAdminMembershipMutationInput,
-    nextLevel: PulseAdminMemberLevel,
-  ): void {
-    if (nextLevel !== 'free') {
-      return;
-    }
-
-    const isCurrentlyActive =
-      profile.currentPlanId !== null
-      && profile.expiresAt !== null
-      && profile.expiresAt.getTime() > Date.now();
-
-    if (!isCurrentlyActive) {
-      return;
-    }
-
-    if (dto.confirmDowngradeToFree === true) {
-      return;
-    }
-
-    throw new BadRequestException('当前会员仍在有效期内，降级到免费会员需要显式确认');
+    await this.mutationStateService.assertAdminMemberMutationAccess(user, memberId);
   }
 
   private logMembershipLevelMutation(params: {
@@ -485,52 +228,6 @@ export class PulseMembershipAdminMutationService {
         userAgent: dto.auditContext?.userAgent ?? null,
       }),
     );
-  }
-
-  private async resolveAdminMembershipExpiry(
-    dto: PulseAdminMembershipMutationInput,
-    nextLevel: PulseAdminMemberLevel,
-  ): Promise<Date | null> {
-    const rawExpiry = dto.membershipExpiry ?? dto.expireAt ?? dto.expiryAt;
-    if (rawExpiry !== null && rawExpiry !== undefined) {
-      const explicitExpiry = new Date(rawExpiry);
-      if (Number.isNaN(explicitExpiry.getTime())) {
-        throw new BadRequestException('会员到期时间不合法');
-      }
-      return explicitExpiry;
-    }
-
-    if (nextLevel === 'free') {
-      return null;
-    }
-
-    if (nextLevel === 'lifetime') {
-      const lifetimePlan =
-        await this.platformMembershipService.getPlanConfig('lifetime');
-      if (lifetimePlan.validDays !== null && lifetimePlan.validDays > 0) {
-        return new Date(Date.now() + lifetimePlan.validDays * DAY_MS);
-      }
-      return null;
-    }
-
-    throw new BadRequestException('缺少会员到期时间');
-  }
-
-  private toMembershipPlanId(
-    level: PulseAdminMemberLevel,
-  ): PulseAdminMembershipProfileRecord['currentPlanId'] {
-    switch (level) {
-      case 'monthly':
-        return 'monthly';
-      case 'quarterly':
-        return 'quarterly';
-      case 'annual':
-        return 'yearly';
-      case 'lifetime':
-        return 'lifetime';
-      default:
-        return null;
-    }
   }
 
   private resolveBanReason(dto: PulseAdminStatusMutationInput): string {

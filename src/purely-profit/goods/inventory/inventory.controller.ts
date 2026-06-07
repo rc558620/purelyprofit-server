@@ -1,18 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -50,10 +37,10 @@ export class InventoryController {
   @ApiOperation({ summary: '获取库存盘点商品列表' })
   @ApiOkResponse({ type: [InventoryProductResponseDto] })
   listProducts(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListInventoryProductsQueryDto,
   ): Promise<InventoryProductResponseDto[]> {
-    return this.inventoryService.listProducts(request.user, query);
+    return this.inventoryService.listProducts(user, query);
   }
 
   @Delete('products/:id')
@@ -61,10 +48,10 @@ export class InventoryController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除库存盘点商品' })
   async removeProduct(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) productId: number,
   ): Promise<void> {
-    await this.inventoryService.removeProduct(request.user, productId);
+    await this.inventoryService.removeProduct(user, productId);
   }
 
   @Get('adjustments')
@@ -72,10 +59,10 @@ export class InventoryController {
   @ApiOperation({ summary: '获取库存调整记录列表' })
   @ApiOkResponse({ type: PaginatedInventoryAdjustmentsResponseDto })
   listAdjustments(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListInventoryAdjustmentsQueryDto,
   ): Promise<PaginatedInventoryAdjustmentsResponseDto> {
-    return this.inventoryService.listAdjustments(request.user, query);
+    return this.inventoryService.listAdjustments(user, query);
   }
 
   @Post('adjustments')
@@ -83,10 +70,10 @@ export class InventoryController {
   @ApiOperation({ summary: '新增库存调整记录' })
   @ApiCreatedResponse({ type: InventoryAdjustmentResponseDto })
   adjust(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: AdjustInventoryDto,
   ): Promise<InventoryAdjustmentResponseDto> {
-    return this.inventoryService.adjust(request.user, dto);
+    return this.inventoryService.adjust(user, dto);
   }
 
   @Patch('products/:id/alert-threshold')
@@ -94,12 +81,12 @@ export class InventoryController {
   @ApiOperation({ summary: '更新商品库存预警阈值' })
   @ApiOkResponse({ type: ProductThresholdResponseDto })
   updateAlertThreshold(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) productId: number,
     @Body() dto: UpdateAlertThresholdDto,
   ): Promise<ProductThresholdResponseDto> {
     return this.inventoryService.updateAlertThreshold(
-      request.user,
+      user,
       productId,
       dto,
     );
@@ -110,10 +97,10 @@ export class InventoryController {
   @ApiOperation({ summary: '获取库存统计' })
   @ApiOkResponse({ type: InventoryStatsResponseDto })
   getStats(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query('storeId', new ParseIntPipe({ optional: true })) storeId?: number,
   ): Promise<InventoryStatsResponseDto> {
-    return this.inventoryService.getStats(request.user, storeId);
+    return this.inventoryService.getStats(user, storeId);
   }
 
   @Get('report')
@@ -121,9 +108,9 @@ export class InventoryController {
   @ApiOperation({ summary: '获取报表中心库存报表数据' })
   @ApiOkResponse({ type: InventoryReportResponseDto })
   getReport(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListInventoryProductsQueryDto,
   ): Promise<InventoryReportResponseDto> {
-    return this.inventoryService.getReport(request.user, query);
+    return this.inventoryService.getReport(user, query);
   }
 }

@@ -1,4 +1,4 @@
-import type { MetricsSummarySeverityMap } from './metrics.protocol';
+import type { MetricsSummarySeverityMap } from './metrics-summary.protocol';
 import type {
   SummaryAggregateMetrics,
   SummaryBuildContext,

@@ -6,7 +6,6 @@ import {
   ParseIntPipe,
   Patch,
   Post,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -16,6 +15,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ApplyPlatformPartnerDto } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
@@ -36,18 +36,18 @@ export class PulseGrowthController {
   @ApiOperation({ summary: '获取目标商家推广中心兼容数据' })
   @ApiOkResponse({ description: '当前仍返回目标商家推广中心的兼容数据' })
   getPromoCenter(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
-    return this.growthService.getPromoCenter(request.user);
+    return this.growthService.getPromoCenter(user);
   }
 
   @Get('partner/profile')
   @ApiOperation({ summary: '获取目标商家合伙人档案的兼容接口' })
   @ApiOkResponse({ description: '当前仍返回目标商家合伙人档案的兼容数据' })
   getPartnerProfile(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.growthService.getPartnerProfile(request.user);
+    return this.growthService.getPartnerProfile(user);
   }
 
   @Post('partner/apply')
@@ -56,21 +56,21 @@ export class PulseGrowthController {
     description: '兼容路由：当前默认拒绝代目标商家提交合伙人申请',
   })
   applyPartner(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ApplyPlatformPartnerDto,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.growthService.applyPartner(request.user, dto);
+    return this.growthService.applyPartner(user, dto);
   }
 
   @Patch('partner/applications/:id/cancel')
   @ApiOperation({ summary: '撤销目标商家合伙人申请的兼容接口' })
   @ApiOkResponse({ description: '撤销成功，返回最新合伙人档案' })
   cancelPartnerApplication(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     return this.growthService.cancelPartnerApplication(
-      request.user,
+      user,
       applicationId,
     );
   }

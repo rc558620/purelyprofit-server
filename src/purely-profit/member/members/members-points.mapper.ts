@@ -1,13 +1,17 @@
 import {
   MemberBeansLogResponseDto,
-  MemberPointsLogResponseDto,
-} from './dto/adjust-member-points.dto';
+} from './dto/member-beans.dto';
 import type {
   MemberBeanRecordSourceValue,
   MemberBeanRecordTypeValue,
+} from './dto/member-beans.dto';
+import {
+  MemberPointsLogResponseDto,
+} from './dto/member-points.dto';
+import type {
   MemberPointsRecordSourceValue,
   MemberPointsRecordTypeValue,
-} from './dto/adjust-member-points.dto';
+} from './dto/member-points.dto';
 
 export interface MemberPointsLogRecord {
   id: number;

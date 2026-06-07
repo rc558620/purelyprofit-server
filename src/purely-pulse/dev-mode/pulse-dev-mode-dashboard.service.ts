@@ -5,7 +5,7 @@ import type { PulseDashboardPeriodValue } from '../dashboard/dto/pulse-dashboard
 import type {
   PulseDashboardOverviewResponseDto,
   PulseDashboardStoresResponseDto,
-} from '../dashboard/dto/pulse-dashboard-response.dto';
+} from '../dashboard/dto/pulse-dashboard-overview.response.dto';
 import {
   PERIOD_ORDER_LABEL,
   PERIOD_PROFIT_LABEL,

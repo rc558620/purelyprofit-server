@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiExcludeController,
@@ -6,6 +6,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { BusinessAnalysisResponseDto } from '../../purely-profit/dashboard/business-analysis/dto/business-analysis-response.dto';
@@ -16,12 +17,12 @@ import {
   GetPulseDashboardStoresQueryDto,
   GetPulseRevenueDetailQueryDto,
 } from './dto/pulse-dashboard-query.dto';
+import { PulseDashboardHomeResponseDto } from './dto/pulse-dashboard-home.response.dto';
 import {
-  PulseDashboardHomeResponseDto,
   PulseDashboardOverviewResponseDto,
   PulseDashboardStoresResponseDto,
-  PulseRevenueDetailResponseDto,
-} from './dto/pulse-dashboard-response.dto';
+} from './dto/pulse-dashboard-overview.response.dto';
+import type { PulseRevenueDetailResponseDto } from './dto/pulse-dashboard-revenue-detail.response.dto';
 import { PulseDashboardService } from './dashboard.service';
 
 @ApiTags('Pulse / Dashboard')
@@ -41,10 +42,10 @@ export class PulseDashboardController {
     type: PulseDashboardHomeResponseDto,
   })
   getHome(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetPulseDashboardHomeQueryDto,
   ): Promise<PulseDashboardHomeResponseDto> {
-    return this.pulseDashboardService.getHome(request.user, query);
+    return this.pulseDashboardService.getHome(user, query);
   }
 
   @Get('overview')
@@ -55,10 +56,10 @@ export class PulseDashboardController {
     type: PulseDashboardOverviewResponseDto,
   })
   getOverview(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetPulseDashboardOverviewQueryDto,
   ): Promise<PulseDashboardOverviewResponseDto> {
-    return this.pulseDashboardService.getOverview(request.user, query);
+    return this.pulseDashboardService.getOverview(user, query);
   }
 
   @Get('stores')
@@ -69,10 +70,10 @@ export class PulseDashboardController {
     type: PulseDashboardStoresResponseDto,
   })
   getStores(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetPulseDashboardStoresQueryDto,
   ): Promise<PulseDashboardStoresResponseDto> {
-    return this.pulseDashboardService.getStores(request.user, query);
+    return this.pulseDashboardService.getStores(user, query);
   }
 
   @Get('analysis')
@@ -82,10 +83,10 @@ export class PulseDashboardController {
       '当前返回当前选中目标商家门店的经营分析数据；传 storeId 时会切换到对应目标商家门店。该接口仍是目标商家观察态兼容实现。',
   })
   getAnalysis(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetPulseDashboardAnalysisQueryDto,
   ): Promise<BusinessAnalysisResponseDto> {
-    return this.pulseDashboardService.getAnalysis(request.user, query);
+    return this.pulseDashboardService.getAnalysis(user, query);
   }
 }
 
@@ -98,9 +99,9 @@ export class RevenueDetailController {
 
   @Get()
   getRevenueDetail(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetPulseRevenueDetailQueryDto,
   ): Promise<PulseRevenueDetailResponseDto> {
-    return this.pulseDashboardService.getRevenueDetail(request.user, query);
+    return this.pulseDashboardService.getRevenueDetail(user, query);
   }
 }

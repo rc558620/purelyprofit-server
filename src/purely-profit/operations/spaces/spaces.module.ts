@@ -5,14 +5,19 @@ import { PrismaModule } from '../../../prisma/prisma.module';
 import { RedisModule } from '../../../redis/redis.module';
 import { SalesRecordModule } from '../sales-record/sales-record.module';
 import { SpaceAutoCheckoutSchedulerService } from './space-auto-checkout-scheduler.service';
+import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
 import { SpaceDashboardService } from './space-dashboard.service';
 import { SpaceReservationsController } from './space-reservations.controller';
+import { SpacesRefResolverService } from './spaces-ref-resolver.service';
+import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceReservationsService } from './space-reservations.service';
 import { SpaceSessionCheckoutLockService } from './space-session-checkout-lock.service';
 import { SpaceSessionCheckoutService } from './space-session-checkout.service';
 import { SpaceSessionOpenService } from './space-session-open.service';
 import { SpaceSessionReadService } from './space-session-read.service';
+import { SpaceSessionReadStateService } from './space-session-read-state.service';
 import { SpaceSessionRenewService } from './space-session-renew.service';
+import { SpaceDashboardSummaryService } from './space-dashboard-summary.service';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
 import { SpaceSessionTransferService } from './space-session-transfer.service';
 import { SpaceSessionWriteService } from './space-session-write.service';
@@ -46,14 +51,19 @@ import { SpacesWriteService } from './spaces-write.service';
     SpacesService,
     SpacesReadService,
     SpacesWriteService,
+    SpacesRefResolverService,
     SpaceTypesService,
     SpaceZonesService,
+    SpaceReservationsStateService,
     SpaceReservationsService,
     SpaceSessionCheckoutLockService,
     SpaceSessionCheckoutService,
+    SpaceSessionAutoCheckoutService,
     SpaceSessionOpenService,
     SpaceSessionReadService,
+    SpaceSessionReadStateService,
     SpaceSessionRenewService,
+    SpaceDashboardSummaryService,
     SpaceSessionSettlementService,
     SpaceSessionTransferService,
     SpaceSessionWriteService,
@@ -61,6 +71,6 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceDashboardService,
     SpaceAutoCheckoutSchedulerService,
   ],
-  exports: [SpaceSessionSettlementService],
+  exports: [SpaceSessionSettlementService, SpaceSessionAutoCheckoutService],
 })
 export class SpacesModule {}

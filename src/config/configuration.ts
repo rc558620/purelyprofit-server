@@ -29,6 +29,13 @@ export default () => ({
       process.env.APP_HTTP_BODY_LIMIT_BYTES ?? '5242880',
       10,
     ),
+    portAutoShiftEnabled:
+      (process.env.APP_PORT_AUTO_SHIFT_ENABLED ??
+        (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+    portAutoShiftMaxOffset: parseInt(
+      process.env.APP_PORT_AUTO_SHIFT_MAX_OFFSET ?? '20',
+      10,
+    ),
     slowRequestLogEnabled:
       (process.env.APP_SLOW_REQUEST_LOG_ENABLED ?? 'true') === 'true',
     slowRequestThresholdMs: parseInt(

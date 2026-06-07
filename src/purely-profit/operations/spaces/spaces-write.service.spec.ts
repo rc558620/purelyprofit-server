@@ -6,9 +6,8 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SpaceReservationsService } from './space-reservations.service';
-import { SpaceTypesService } from './space-types.service';
+import { SpacesRefResolverService } from './spaces-ref-resolver.service';
 import { SpacesWriteService } from './spaces-write.service';
-import { SpaceZonesService } from './space-zones.service';
 
 type SpaceRecord = {
   id: number;
@@ -67,16 +66,13 @@ describe('SpacesWriteService', () => {
     ensureCanAccessStore: jest.fn(),
   };
 
-  const spaceTypesService = {
-    resolveSpaceTypeByName: jest.fn(),
-  };
-
-  const spaceZonesService = {
-    resolveSpaceZoneByName: jest.fn(),
-  };
-
   const spaceReservationsService = {
     resolveReservationBackStatus: jest.fn(),
+  };
+
+  const spacesRefResolverService = {
+    resolveCreateSpaceRefs: jest.fn(),
+    resolveUpdateSpaceRefs: jest.fn(),
   };
 
   const platformMembershipAccessService = {
@@ -153,25 +149,24 @@ describe('SpacesWriteService', () => {
 
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
-    spaceTypesService.resolveSpaceTypeByName.mockResolvedValue({
-      id: 101,
-      name: '台球台',
-    });
-    spaceZonesService.resolveSpaceZoneByName.mockResolvedValue({
-      id: 201,
-      name: '一楼',
-    });
     spaceReservationsService.resolveReservationBackStatus.mockResolvedValue(
       PrismaSpaceStatus.reserved,
     );
+    spacesRefResolverService.resolveCreateSpaceRefs.mockResolvedValue({
+      typeId: 101,
+      zoneId: 201,
+    });
+    spacesRefResolverService.resolveUpdateSpaceRefs.mockResolvedValue({});
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SpacesWriteService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
-        { provide: SpaceTypesService, useValue: spaceTypesService },
-        { provide: SpaceZonesService, useValue: spaceZonesService },
+        {
+          provide: SpacesRefResolverService,
+          useValue: spacesRefResolverService,
+        },
         {
           provide: SpaceReservationsService,
           useValue: spaceReservationsService,
@@ -238,13 +233,14 @@ describe('SpacesWriteService', () => {
       sortOrder: 99,
     });
 
-    expect(spaceTypesService.resolveSpaceTypeByName).toHaveBeenCalledWith(
+    expect(
+      spacesRefResolverService.resolveCreateSpaceRefs,
+    ).toHaveBeenCalledWith(
       18,
-      '台球台',
-    );
-    expect(spaceZonesService.resolveSpaceZoneByName).toHaveBeenCalledWith(
-      18,
-      '一楼',
+      expect.objectContaining({
+        type: '台球台',
+        zone: '一楼',
+      }),
     );
     expect(prismaTransaction.space.updateMany).toHaveBeenCalledWith({
       where: {
@@ -288,7 +284,9 @@ describe('SpacesWriteService', () => {
   it('updateSpace 会校验重名、清空区域并重排顺序', async () => {
     prismaService.space.findUnique.mockResolvedValueOnce(makeSpace());
     prismaService.space.findFirst.mockResolvedValueOnce(null);
-    spaceZonesService.resolveSpaceZoneByName.mockResolvedValueOnce(null);
+    spacesRefResolverService.resolveUpdateSpaceRefs.mockResolvedValueOnce({
+      zoneId: null,
+    });
     prismaTransaction.space.count.mockResolvedValueOnce(4);
     prismaTransaction.space.updateMany.mockResolvedValueOnce({ count: 2 });
     prismaTransaction.space.update.mockResolvedValueOnce(
@@ -314,9 +312,13 @@ describe('SpacesWriteService', () => {
       },
       select: { id: true },
     });
-    expect(spaceZonesService.resolveSpaceZoneByName).toHaveBeenCalledWith(
+    expect(
+      spacesRefResolverService.resolveUpdateSpaceRefs,
+    ).toHaveBeenCalledWith(
       18,
-      '',
+      expect.objectContaining({
+        zone: '',
+      }),
     );
     expect(prismaTransaction.space.updateMany).toHaveBeenCalledWith({
       where: {

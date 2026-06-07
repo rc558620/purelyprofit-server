@@ -22,7 +22,7 @@ import {
   buildEmployeeListOrderBy,
   buildEmployeeListWhere,
   buildEmployeesOverviewResponse,
-} from './employees.domain';
+} from './employees-list.domain';
 import { toEmployeeResponse } from './employees.mapper';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';

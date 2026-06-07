@@ -111,6 +111,15 @@ describe('SalesRecordWriteService', () => {
     },
   };
 
+  const schedulerSystemUser: AuthenticatedUser = {
+    ...user,
+    id: 0,
+    email: 'system@auto-checkout',
+    phone: '',
+    name: '系统自动结账',
+    currentMembership: null,
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
@@ -292,6 +301,63 @@ describe('SalesRecordWriteService', () => {
       18,
       'operation-entry:create',
       '无权操作该门店销售记录',
+    );
+  });
+
+  it('create 在系统自动结账入口下应直接使用可信门店并跳过权限用户校验', async () => {
+    const preparedItems = [
+      {
+        productId: null,
+        productName: '台位费（固定）',
+        categoryName: '场地费',
+        salePrice: 666,
+        profit: 666,
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ];
+    const response = { id: 'auto-1', orderNo: '#20260607-001' };
+
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(null);
+    salesRecordItemPreparationService.prepareItems.mockResolvedValue(
+      preparedItems,
+    );
+    salesRecordCreateFlowService.createRecord.mockResolvedValue(response);
+
+    await expect(
+      service.create(
+        schedulerSystemUser,
+        {
+          storeId: 18,
+          items: [
+            {
+              productId: 'SYS_TIME_BILLING',
+              productName: '台位费（固定）',
+              categoryName: '场地费',
+              salePrice: 666,
+              profit: 666,
+              quantity: 1,
+            },
+          ],
+          totalRevenue: 666,
+          totalProfit: 666,
+          totalQuantity: 1,
+          paymentMethod: 'wechat',
+          calcMode: 'business',
+        },
+        { skipAccessCheck: true },
+      ),
+    ).resolves.toEqual(response);
+
+    expect(commerceAccessService.resolveSingleStoreId).not.toHaveBeenCalled();
+    expect(
+      commerceAccessService.findOperatorStaffIdForStore,
+    ).toHaveBeenCalledWith(schedulerSystemUser, 18);
+    expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: 18,
+        operatorStaffId: null,
+      }),
     );
   });
 

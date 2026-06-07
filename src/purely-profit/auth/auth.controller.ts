@@ -1,14 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Patch,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from './current-user.decorator';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -83,10 +74,10 @@ export class AuthController {
     type: PasswordOperationResponseDto,
   })
   changePassword(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ChangePasswordDto,
   ): Promise<PasswordOperationResponseDto> {
-    return this.authService.changePassword(request.user, dto);
+    return this.authService.changePassword(user, dto);
   }
 
   @Post('forgot-password')
@@ -125,8 +116,8 @@ export class AuthController {
     description: '返回当前用户信息、当前门店与权限上下文',
     type: ProfileResponseDto,
   })
-  me(@Req() request: { user: AuthenticatedUser }): Promise<ProfileResponseDto> {
-    return this.authService.getProfile(request.user);
+  me(@CurrentUser() user: AuthenticatedUser): Promise<ProfileResponseDto> {
+    return this.authService.getProfile(user);
   }
 
   @Get('profile')
@@ -138,9 +129,9 @@ export class AuthController {
     type: ProfileResponseDto,
   })
   profile(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<ProfileResponseDto> {
-    return this.authService.getProfile(request.user);
+    return this.authService.getProfile(user);
   }
 
   @Get('capability')
@@ -152,9 +143,9 @@ export class AuthController {
     type: AuthCapabilityResponseDto,
   })
   capability(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<AuthCapabilityResponseDto> {
-    return this.authService.getCapability(request.user);
+    return this.authService.getCapability(user);
   }
 
   @Patch('profile/avatar')
@@ -166,10 +157,10 @@ export class AuthController {
     type: ProfileResponseDto,
   })
   updateAvatar(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateAvatarDto,
   ): Promise<ProfileResponseDto> {
-    return this.authService.updateAvatar(request.user, dto);
+    return this.authService.updateAvatar(user, dto);
   }
 
   @Post('real-name/verify')
@@ -182,9 +173,9 @@ export class AuthController {
     type: ProfileResponseDto,
   })
   verifyRealName(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: VerifyRealNameDto,
   ): Promise<ProfileResponseDto> {
-    return this.authService.verifyRealName(request.user, dto);
+    return this.authService.verifyRealName(user, dto);
   }
 }

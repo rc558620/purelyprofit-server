@@ -4,7 +4,7 @@ import type {
   SummaryActionTab,
   SummaryProcessFocus,
   SummaryStatus,
-} from './metrics.protocol';
+} from './metrics-summary.protocol';
 
 export function buildProcessActionPayload(
   focus: SummaryProcessFocus,

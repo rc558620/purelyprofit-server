@@ -1,12 +1,12 @@
 import {
   SUMMARY_ACTION_TEXT_MODE,
   SUMMARY_ACTION_VERSION,
-} from './metrics.protocol';
+} from './metrics-summary.protocol';
 import type {
   SummaryActionParams,
   SummaryActionPayload,
   SummaryHighlight,
-} from './metrics.protocol';
+} from './metrics-summary.protocol';
 import type {
   SummaryHighlightActionMeta,
   SummaryProcessActionMeta,

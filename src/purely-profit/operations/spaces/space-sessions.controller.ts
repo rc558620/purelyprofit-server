@@ -1,15 +1,8 @@
 import {
-  BadRequestException,
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+  UserWithRequestId,
+  type UserWithRequestIdValue,
+} from '../../auth/user-with-request-id.decorator';
+import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -53,13 +46,13 @@ export class SpaceSessionsController {
     type: SpaceSessionResponseDto,
   })
   getActiveSession(
-    @Req() request: { user: AuthenticatedUser; id: string | number },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('spaceId', ParseIntPipe) spaceId: number,
   ): Promise<SpaceSessionResponseDto | null> {
     return this.spaceSessionsService.getActiveSpaceSession(
-      request.user,
+      ctx.user,
       spaceId,
-      String(request.id),
+      ctx.requestId,
     );
   }
 
@@ -68,15 +61,15 @@ export class SpaceSessionsController {
   @ApiOperation({ summary: '获取某空间的会话列表（支持分页/筛选/搜索）' })
   @ApiOkResponse({ type: PaginatedSpaceSessionsResponseDto })
   listSessions(
-    @Req() request: { user: AuthenticatedUser; id: string | number },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('spaceId', ParseIntPipe) spaceId: number,
     @Query() query: ListSpaceSessionsQueryDto,
   ): Promise<PaginatedSpaceSessionsResponseDto> {
     return this.spaceSessionsService.listSpaceSessions(
-      request.user,
+      ctx.user,
       spaceId,
       query,
-      String(request.id),
+      ctx.requestId,
     );
   }
 
@@ -89,13 +82,13 @@ export class SpaceSessionsController {
   })
   @ApiOkResponse({ type: [SpaceSessionResponseDto] })
   listStoreActiveSessions(
-    @Req() request: { user: AuthenticatedUser; id: string | number },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Query() query: ListSpaceSessionsQueryDto,
   ): Promise<SpaceSessionResponseDto[]> {
     return this.spaceSessionsService.listStoreActiveSpaceSessions(
-      request.user,
+      ctx.user,
       query,
-      String(request.id),
+      ctx.requestId,
     );
   }
 
@@ -108,13 +101,13 @@ export class SpaceSessionsController {
   })
   @ApiOkResponse({ type: [SpaceSessionResponseDto] })
   listStoreSessions(
-    @Req() request: { user: AuthenticatedUser; id: string | number },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Query() query: ListSpaceSessionsQueryDto,
   ): Promise<SpaceSessionResponseDto[]> {
     return this.spaceSessionsService.listStoreSpaceSessions(
-      request.user,
+      ctx.user,
       query,
-      String(request.id),
+      ctx.requestId,
     );
   }
 
@@ -123,13 +116,13 @@ export class SpaceSessionsController {
   @ApiOperation({ summary: '获取空间会话详情' })
   @ApiOkResponse({ type: SpaceSessionResponseDto })
   getSessionDetail(
-    @Req() request: { user: AuthenticatedUser; id: string | number },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) sessionId: number,
   ): Promise<SpaceSessionResponseDto> {
     return this.spaceSessionsService.getSpaceSessionDetail(
-      request.user,
+      ctx.user,
       sessionId,
-      String(request.id),
+      ctx.requestId,
     );
   }
 
@@ -138,12 +131,12 @@ export class SpaceSessionsController {
   @ApiOperation({ summary: '空间开台并创建使用会话' })
   @ApiCreatedResponse({ type: SpaceSessionResponseDto })
   openSession(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('spaceId', ParseIntPipe) spaceId: number,
     @Body() dto: OpenSpaceSessionDto,
   ): Promise<SpaceSessionResponseDto> {
     return this.spaceSessionsService.openSpaceSession(
-      request.user,
+      ctx.user,
       spaceId,
       dto,
     );
@@ -154,7 +147,7 @@ export class SpaceSessionsController {
   @ApiOperation({ summary: '开台（兼容前端根路径接口）' })
   @ApiCreatedResponse({ type: SpaceSessionResponseDto })
   openSessionByRootPath(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Body() dto: OpenSpaceSessionDto,
   ): Promise<SpaceSessionResponseDto> {
     if (dto.spaceId === undefined) {
@@ -162,7 +155,7 @@ export class SpaceSessionsController {
     }
 
     return this.spaceSessionsService.openSpaceSession(
-      request.user,
+      ctx.user,
       dto.spaceId,
       dto,
     );
@@ -173,12 +166,12 @@ export class SpaceSessionsController {
   @ApiOperation({ summary: '给空间会话追加商品' })
   @ApiOkResponse({ type: SpaceSessionResponseDto })
   addItems(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) sessionId: number,
     @Body() dto: AddSpaceSessionItemsDto,
   ): Promise<SpaceSessionResponseDto> {
     return this.spaceSessionsService.addItemsToSpaceSession(
-      request.user,
+      ctx.user,
       sessionId,
       dto,
     );
@@ -189,12 +182,12 @@ export class SpaceSessionsController {
   @ApiOperation({ summary: '给倒计时会话续费' })
   @ApiOkResponse({ type: RenewSpaceSessionResponseDto })
   renew(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) sessionId: number,
     @Body() dto: RenewSpaceSessionDto,
   ): Promise<RenewSpaceSessionResponseDto> {
     return this.spaceSessionsService.renewSpaceSession(
-      request.user,
+      ctx.user,
       sessionId,
       dto,
     );
@@ -205,12 +198,12 @@ export class SpaceSessionsController {
   @ApiOperation({ summary: '将使用中的会话换到同类型空闲空间' })
   @ApiOkResponse({ type: TransferSpaceSessionResponseDto })
   transfer(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) sessionId: number,
     @Body() dto: TransferSpaceSessionDto,
   ): Promise<TransferSpaceSessionResponseDto> {
     return this.spaceSessionsService.transferSpaceSession(
-      request.user,
+      ctx.user,
       sessionId,
       dto,
     );
@@ -221,12 +214,12 @@ export class SpaceSessionsController {
   @ApiOperation({ summary: '创建空间会话的结账预览锁单' })
   @ApiOkResponse({ type: CheckoutSpaceSessionPreviewResponseDto })
   previewCheckout(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) sessionId: number,
     @Body() dto: CheckoutSpaceSessionPreviewDto,
   ): Promise<CheckoutSpaceSessionPreviewResponseDto> {
     return this.spaceSessionsService.previewSpaceSessionCheckout(
-      request.user,
+      ctx.user,
       sessionId,
       dto,
     );
@@ -237,12 +230,12 @@ export class SpaceSessionsController {
   @ApiOperation({ summary: '结账并关闭使用会话' })
   @ApiOkResponse({ type: CheckoutSpaceSessionResponseDto })
   checkout(
-    @Req() request: { user: AuthenticatedUser },
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) sessionId: number,
     @Body() dto: CheckoutSpaceSessionDto,
   ): Promise<CheckoutSpaceSessionResponseDto> {
     return this.spaceSessionsService.checkoutSpaceSession(
-      request.user,
+      ctx.user,
       sessionId,
       dto,
     );

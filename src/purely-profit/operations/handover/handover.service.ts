@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { StaffRole, StoreSubAccountRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import { SpaceSessionSettlementService } from '../spaces/space-session-settlement.service';
+import { SpaceSessionAutoCheckoutService } from '../spaces/space-session-auto-checkout.service';
 import type {
   CreateHandoverAdditionalItemDto,
   HandoverAdditionalItemDto,
@@ -41,7 +41,7 @@ export class HandoverService {
     private readonly handoverConfirmService: HandoverConfirmService,
     private readonly handoverRecordsService: HandoverRecordsService,
     private readonly handoverAdditionalItemsService: HandoverAdditionalItemsService,
-    private readonly spaceSessionSettlementService: SpaceSessionSettlementService,
+    private readonly spaceSessionAutoCheckoutService: SpaceSessionAutoCheckoutService,
   ) {}
 
   async getHandoverPage(
@@ -181,7 +181,7 @@ export class HandoverService {
     user: AuthenticatedUser,
     trigger: string,
   ): Promise<void> {
-    await this.spaceSessionSettlementService.autoCheckoutExpiredCountdownSessions(
+    await this.spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions(
       user,
       ensureMembershipStoreId(user),
       Date.now(),

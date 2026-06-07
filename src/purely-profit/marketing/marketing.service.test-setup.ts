@@ -13,7 +13,14 @@ import { MarketingProductCategoriesService } from './marketing-product-categorie
 import { MarketingProductsService } from './marketing-products.service';
 import { MarketingPromotionsService } from './marketing-promotions.service';
 import { MarketingRechargesService } from './marketing-recharges.service';
-import { MarketingService } from './marketing.service';
+import {
+  MarketingCustomersFacadeService,
+  MarketingOverviewFacadeService,
+  MarketingProductsFacadeService,
+  MarketingPromotionsFacadeService,
+  MarketingService,
+  MarketingTransactionsFacadeService,
+} from './marketing.service';
 import { MarketingSharedService } from './marketing-shared.service';
 
 export interface MarketingPrismaServiceMock {
@@ -200,6 +207,11 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
   const module: TestingModule = await Test.createTestingModule({
     providers: [
       MarketingService,
+      MarketingOverviewFacadeService,
+      MarketingCustomersFacadeService,
+      MarketingTransactionsFacadeService,
+      MarketingPromotionsFacadeService,
+      MarketingProductsFacadeService,
       MarketingSharedService,
       MarketingOverviewService,
       MarketingCustomersService,

@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PaginationMetaDto } from '../../stores/dto/store-response.dto';
-import type { AdjustmentDirectionValue } from './dto/adjust-member-points.dto';
+import type { AdjustmentDirectionValue } from './dto/member-asset-shared.dto';
 
 export const MEMBER_STATUS_VALUES = ['active', 'inactive', 'banned'] as const;
 export const MEMBER_LEVEL_VALUES = [

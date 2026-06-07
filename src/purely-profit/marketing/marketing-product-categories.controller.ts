@@ -1,0 +1,89 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { RequirePermissions } from '../access-control/decorators/require-permissions.decorator';
+import { PermissionsGuard } from '../access-control/guards/permissions.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import {
+  CreateMarketingProductCategoryDto,
+  MarketingProductCategoriesResponseDto,
+  MarketingProductCategoryDto,
+  UpdateMarketingProductCategoryDto,
+} from './dto/marketing-product.dto';
+import { MarketingService } from './marketing.service';
+
+@ApiTags('营销中心')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Controller('marketing/product-categories')
+export class MarketingProductCategoriesController {
+  constructor(private readonly marketingService: MarketingService) {}
+
+  @Get()
+  @RequirePermissions('marketing:view')
+  @ApiOperation({ summary: '产品分类列表' })
+  @ApiOkResponse({ type: MarketingProductCategoriesResponseDto })
+  listProductCategories(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('storeId', new ParseIntPipe({ optional: true })) storeId?: number,
+  ): Promise<MarketingProductCategoriesResponseDto> {
+    return this.marketingService.listProductCategories(user, storeId);
+  }
+
+  @Post()
+  @RequirePermissions('marketing:manage')
+  @ApiOperation({ summary: '新增产品分类' })
+  @ApiCreatedResponse({ type: MarketingProductCategoryDto })
+  createProductCategory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateMarketingProductCategoryDto,
+    @Query('storeId', ParseIntPipe) storeId: number,
+  ): Promise<MarketingProductCategoryDto> {
+    return this.marketingService.createProductCategory(user, storeId, dto);
+  }
+
+  @Patch(':id')
+  @RequirePermissions('marketing:manage')
+  @ApiOperation({ summary: '编辑产品分类' })
+  @ApiOkResponse({ type: MarketingProductCategoryDto })
+  updateProductCategory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateMarketingProductCategoryDto,
+  ): Promise<MarketingProductCategoryDto> {
+    return this.marketingService.updateProductCategory(user, id, dto);
+  }
+
+  @Delete(':id')
+  @RequirePermissions('marketing:manage')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: '删除产品分类' })
+  @ApiNoContentResponse()
+  deleteProductCategory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<void> {
+    return this.marketingService.deleteProductCategory(user, id);
+  }
+}

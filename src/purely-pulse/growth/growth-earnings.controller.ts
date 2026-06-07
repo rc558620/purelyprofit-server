@@ -1,10 +1,11 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import {
@@ -28,9 +29,9 @@ export class PulseGrowthEarningsController {
     type: PulseEarningsOverviewResponseDto,
   })
   getOverview(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<PulseEarningsOverviewResponseDto> {
-    return this.growthService.getEarningsOverview(request.user);
+    return this.growthService.getEarningsOverview(user);
   }
 
   @Get('logs')
@@ -40,9 +41,9 @@ export class PulseGrowthEarningsController {
     type: PulseEarningsLogsResponseDto,
   })
   getLogs(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetPulseEarningsLogsQueryDto,
   ): Promise<PulseEarningsLogsResponseDto> {
-    return this.growthService.getEarningsLogs(request.user, query);
+    return this.growthService.getEarningsLogs(user, query);
   }
 }

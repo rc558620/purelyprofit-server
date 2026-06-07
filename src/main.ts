@@ -9,6 +9,10 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { recordHttpRequest } from './observability';
 import { AppModule } from './app.module';
 
+interface ListenAddressInUseError extends Error {
+  code?: string;
+}
+
 function resolveCorsOrigin(corsOrigin: string): true | string[] {
   if (corsOrigin === '*') {
     return true;
@@ -70,7 +74,51 @@ function setupHttpObservability(
   });
 }
 
-async function bootstrap() {
+function isListenAddressInUseError(
+  error: unknown,
+): error is ListenAddressInUseError {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error as ListenAddressInUseError).code === 'EADDRINUSE'
+  );
+}
+
+async function listenWithPortFallback(
+  app: NestFastifyApplication,
+  preferredPort: number,
+  host: string,
+  autoShiftEnabled: boolean,
+  maxOffset: number,
+): Promise<number> {
+  const safeMaxOffset = Math.max(0, maxOffset);
+
+  for (let offset = 0; offset <= safeMaxOffset; offset += 1) {
+    const currentPort = preferredPort + offset;
+
+    try {
+      await app.listen(currentPort, host);
+      return currentPort;
+    } catch (error) {
+      const canRetry =
+        autoShiftEnabled &&
+        isListenAddressInUseError(error) &&
+        offset < safeMaxOffset;
+
+      if (!canRetry) {
+        throw error;
+      }
+
+      console.warn(
+        `[bootstrap] 端口 ${currentPort} 已被占用，自动尝试 ${currentPort + 1}`,
+      );
+    }
+  }
+
+  throw new Error('服务启动失败：未找到可用监听端口');
+}
+
+export async function bootstrap(): Promise<void> {
   const bootstrapConfigService = new ConfigService();
   const isProduction =
     (bootstrapConfigService.get<string>('nodeEnv') ?? 'development') ===
@@ -130,12 +178,31 @@ async function bootstrap() {
     SwaggerModule.setup('api-docs', app, document);
   }
 
-  const port = configService.get<number>('port') ?? 3000;
+  const preferredPort = configService.get<number>('port') ?? 3000;
+  const portAutoShiftEnabled =
+    configService.get<boolean>('app.portAutoShiftEnabled') ?? !isProduction;
+  const portAutoShiftMaxOffset =
+    configService.get<number>('app.portAutoShiftMaxOffset') ?? 20;
+  const listeningPort = await listenWithPortFallback(
+    app,
+    preferredPort,
+    '0.0.0.0',
+    portAutoShiftEnabled,
+    portAutoShiftMaxOffset,
+  );
 
-  await app.listen(port, '0.0.0.0');
-  console.log(`Server running on http://localhost:${port}`);
+  if (listeningPort !== preferredPort) {
+    console.warn(
+      `[bootstrap] 默认端口 ${preferredPort} 已被占用，服务改为监听 ${listeningPort}`,
+    );
+  }
+
+  console.log(`Server running on http://localhost:${listeningPort}`);
   if (swaggerEnabled) {
-    console.log(`Swagger docs at http://localhost:${port}/api-docs`);
+    console.log(`Swagger docs at http://localhost:${listeningPort}/api-docs`);
   }
 }
-void bootstrap();
+
+if (require.main === module) {
+  void bootstrap();
+}

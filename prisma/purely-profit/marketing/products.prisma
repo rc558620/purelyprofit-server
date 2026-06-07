@@ -1,0 +1,43 @@
+// purely-profit/marketing: 营销商品模型
+
+model MarketingProductCategory {
+  id        Int                @id @default(autoincrement())
+  storeId   Int                @map("store_id")
+  store     Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  icon      String?
+  products  MarketingProduct[]
+  createdAt DateTime           @default(now()) @map("created_at")
+  updatedAt DateTime           @updatedAt @map("updated_at")
+
+  @@unique([storeId, name])
+  @@index([storeId, updatedAt])
+  @@map("marketing_product_categories")
+}
+
+/// 营销商品
+
+model MarketingProduct {
+  id              Int                      @id @default(autoincrement())
+  storeId         Int                      @map("store_id")
+  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  categoryId      Int                      @map("category_id")
+  category        MarketingProductCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name            String
+  price           Int
+  originalPrice   Int?                     @map("original_price")
+  image           String?
+  description     String?
+  durationMinutes Int?                     @map("duration_minutes")
+  personCount     Int?                     @map("person_count")
+  isActive        Boolean                  @default(true) @map("is_active")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  @@index([storeId, createdAt])
+  @@index([storeId, categoryId, createdAt])
+  @@index([storeId, isActive, updatedAt])
+  @@index([storeId, name])
+  @@index([storeId, price])
+  @@map("marketing_products")
+}

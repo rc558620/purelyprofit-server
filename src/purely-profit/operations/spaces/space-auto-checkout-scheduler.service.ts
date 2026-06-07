@@ -5,7 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
 
 /**
  * 后台定时调度：每隔固定时间扫描所有门店，自动结账已到期的倒计时空间会话。
@@ -28,7 +28,7 @@ export class SpaceAutoCheckoutSchedulerService
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly settlementService: SpaceSessionSettlementService,
+    private readonly autoCheckoutService: SpaceSessionAutoCheckoutService,
   ) {
     this.enabled =
       this.configService.get<boolean>('app.spaceAutoCheckoutEnabled') ?? true;
@@ -82,7 +82,9 @@ export class SpaceAutoCheckoutSchedulerService
 
     try {
       const settledCount =
-        await this.settlementService.autoCheckoutAllExpiredSessions(Date.now());
+        await this.autoCheckoutService.autoCheckoutAllExpiredSessions(
+          Date.now(),
+        );
       const durationMs = Date.now() - startedAt;
 
       if (settledCount > 0) {

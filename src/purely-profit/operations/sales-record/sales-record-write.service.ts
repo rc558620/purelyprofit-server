@@ -38,12 +38,14 @@ export class SalesRecordWriteService {
     options: CreateSalesRecordOptions = {},
   ): Promise<SalesRecordResponseDto> {
     const storeId = options.skipAccessCheck
-      ? await this.commerceAccessService.resolveSingleStoreId(
-          user,
-          dto.storeId,
-          'operation-entry:create',
-          '无权操作该门店销售记录',
-        )
+      ? user.currentMembership
+        ? await this.commerceAccessService.resolveSingleStoreId(
+            user,
+            dto.storeId,
+            'operation-entry:create',
+            '无权操作该门店销售记录',
+          )
+        : this.requireTrustedStoreId(dto.storeId)
       : await this.commerceAccessService.resolveSingleStoreId(
           user,
           dto.storeId,
@@ -135,6 +137,14 @@ export class SalesRecordWriteService {
 
   private async invalidateStoreDerivedCaches(storeId: number): Promise<void> {
     await this.cacheInvalidatorService.invalidateSalesDerived(storeId);
+  }
+
+  private requireTrustedStoreId(storeId: number | undefined): number {
+    if (storeId === undefined) {
+      throw new NotFoundException('销售记录缺少门店信息');
+    }
+
+    return storeId;
   }
 
   private async resolveOperatorStaffId(

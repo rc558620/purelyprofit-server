@@ -1,0 +1,196 @@
+// 员工档案、排班、请假与工资模型
+
+enum EmployeeStatus {
+  active
+  resigned
+}
+
+enum EmployeeGender {
+  male
+  female
+  unset
+}
+
+enum EmployeeLeaveType {
+  personal
+  sick
+  annual
+  marriage
+  other
+}
+
+enum EmployeeShiftType {
+  morning
+  nine_to_six
+  middle
+  late
+  full
+  custom
+}
+
+enum EmployeePayrollStatus {
+  draft
+  confirmed
+}
+
+model EmployeeDepartment {
+  id        Int        @id @default(autoincrement())
+  storeId   Int        @map("store_id")
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  employees Employee[]
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  @@unique([storeId, name])
+  @@index([storeId, updatedAt])
+  @@map("employee_departments")
+}
+
+model EmployeePosition {
+  id        Int        @id @default(autoincrement())
+  storeId   Int        @map("store_id")
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name      String
+  employees Employee[]
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  @@unique([storeId, name])
+  @@index([storeId, updatedAt])
+  @@map("employee_positions")
+}
+
+model Employee {
+  id               Int                   @id @default(autoincrement())
+  storeId          Int                   @map("store_id")
+  store            Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  linkedStaffId    Int?                  @unique @map("linked_staff_id")
+  linkedStaff      Staff?                @relation("StaffEmployeeProfile", fields: [linkedStaffId], references: [id], onDelete: SetNull)
+  departmentId     Int?                  @map("department_id")
+  departmentRecord EmployeeDepartment?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  positionId       Int?                  @map("position_id")
+  positionRecord   EmployeePosition?     @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  empNo            String                @map("emp_no")
+  name             String
+  phone            String
+  position         String
+  department       String
+  joinDate         DateTime              @map("join_date")
+  baseSalary       Decimal               @map("base_salary") @db.Decimal(12, 2)
+  avatar           String?
+  idCard           String?               @map("id_card")
+  gender           EmployeeGender        @default(unset)
+  emergencyContact String?               @map("emergency_contact")
+  emergencyPhone   String?               @map("emergency_phone")
+  contractEndDate  DateTime?             @map("contract_end_date")
+  note             String?
+  status           EmployeeStatus        @default(active)
+  resignDate       DateTime?             @map("resign_date")
+  resignReason     String?               @map("resign_reason")
+  subAccounts      StoreSubAccount[]     @relation("EmployeeSubAccounts")
+  handoverFrom     StoreHandoverRecord[] @relation("HandoverFromEmployee")
+  handoverTo       StoreHandoverRecord[] @relation("HandoverToEmployee")
+  leaveRecords     EmployeeLeave[]
+  shiftRecords     EmployeeShift[]
+  payrollRecords   EmployeePayroll[]
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+
+  @@unique([storeId, empNo])
+  @@index([storeId, status, updatedAt])
+  @@index([storeId, department, updatedAt])
+  @@index([storeId, position, updatedAt])
+  @@index([storeId, joinDate])
+  @@map("employees")
+}
+
+model EmployeeShiftDefinition {
+  id               Int             @id @default(autoincrement())
+  storeId          Int             @map("store_id")
+  store            Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name             String
+  defaultStartTime String          @map("default_start_time")
+  defaultEndTime   String          @map("default_end_time")
+  shiftRecords     EmployeeShift[]
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  @@unique([storeId, name])
+  @@index([storeId, updatedAt])
+  @@map("employee_shift_definitions")
+}
+
+model EmployeeLeave {
+  id           Int               @id @default(autoincrement())
+  storeId      Int               @map("store_id")
+  store        Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  employeeId   Int               @map("employee_id")
+  employee     Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeName String            @map("employee_name")
+  type         EmployeeLeaveType
+  startDate    DateTime          @map("start_date")
+  endDate      DateTime          @map("end_date")
+  days         Decimal           @db.Decimal(6, 2)
+  deductSalary Boolean           @map("deduct_salary")
+  deductAmount Decimal           @map("deduct_amount") @db.Decimal(12, 2)
+  note         String?
+  createdAt    DateTime          @default(now()) @map("created_at")
+
+  @@index([employeeId, startDate])
+  @@index([storeId, startDate])
+  @@map("employee_leaves")
+}
+
+model EmployeeShift {
+  id                Int                      @id @default(autoincrement())
+  storeId           Int                      @map("store_id")
+  store             Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  employeeId        Int                      @map("employee_id")
+  employee          Employee                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeName      String                   @map("employee_name")
+  shiftType         EmployeeShiftType?       @map("shift_type")
+  shiftDefinitionId Int?                     @map("shift_definition_id")
+  shiftDefinition   EmployeeShiftDefinition? @relation(fields: [shiftDefinitionId], references: [id], onDelete: SetNull)
+  shiftName         String                   @map("shift_name")
+  date              DateTime
+  startTime         String                   @map("start_time")
+  endTime           String                   @map("end_time")
+  note              String?
+  createdAt         DateTime                 @default(now()) @map("created_at")
+
+  @@index([employeeId, date])
+  @@index([storeId, date])
+  @@index([shiftDefinitionId, date])
+  @@map("employee_shifts")
+}
+
+model EmployeePayroll {
+  id                 Int                   @id @default(autoincrement())
+  storeId            Int                   @map("store_id")
+  store              Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  employeeId         Int                   @map("employee_id")
+  employee           Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeName       String                @map("employee_name")
+  month              String
+  baseSalary         Decimal               @map("base_salary") @db.Decimal(12, 2)
+  leaveDeduction     Decimal               @map("leave_deduction") @db.Decimal(12, 2)
+  otherDeduction     Decimal               @map("other_deduction") @db.Decimal(12, 2)
+  otherDeductionNote String?               @map("other_deduction_note")
+  bonus              Decimal               @db.Decimal(12, 2)
+  actualSalary       Decimal               @map("actual_salary") @db.Decimal(12, 2)
+  socialInsurance    Decimal?              @map("social_insurance") @db.Decimal(12, 2)
+  housingFund        Decimal?              @map("housing_fund") @db.Decimal(12, 2)
+  totalLaborCost     Decimal               @map("total_labor_cost") @db.Decimal(12, 2)
+  status             EmployeePayrollStatus @default(draft)
+  confirmedAt        DateTime?             @map("confirmed_at")
+  note               String?
+  costRecords        CostRecord[]
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+
+  @@unique([employeeId, month])
+  @@index([storeId, month])
+  @@index([storeId, status, month])
+  @@map("employee_payrolls")
+}

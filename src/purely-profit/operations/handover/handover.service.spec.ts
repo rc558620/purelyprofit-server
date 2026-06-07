@@ -4,7 +4,7 @@ import { HandoverConfirmService } from './handover-confirm.service';
 import { HandoverPageService } from './handover-page.service';
 import { HandoverRecordsService } from './handover-records.service';
 import { HandoverService } from './handover.service';
-import { SpaceSessionSettlementService } from '../spaces/space-session-settlement.service';
+import { SpaceSessionAutoCheckoutService } from '../spaces/space-session-auto-checkout.service';
 import {
   createManagerUser,
   createOwnerUser,
@@ -40,7 +40,7 @@ describe('HandoverService', () => {
     deleteAdditionalItem: jest.fn(),
   };
 
-  const spaceSessionSettlementService = {
+  const spaceSessionAutoCheckoutService = {
     autoCheckoutExpiredCountdownSessions: jest.fn(),
   };
 
@@ -55,7 +55,7 @@ describe('HandoverService', () => {
       operationBlockedReason: null,
       selectedShiftType: 'morning',
     });
-    spaceSessionSettlementService.autoCheckoutExpiredCountdownSessions.mockResolvedValue(
+    spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions.mockResolvedValue(
       0,
     );
 
@@ -70,8 +70,8 @@ describe('HandoverService', () => {
           useValue: handoverAdditionalItemsService,
         },
         {
-          provide: SpaceSessionSettlementService,
-          useValue: spaceSessionSettlementService,
+          provide: SpaceSessionAutoCheckoutService,
+          useValue: spaceSessionAutoCheckoutService,
         },
       ],
     }).compile();
@@ -108,7 +108,7 @@ describe('HandoverService', () => {
 
       expect(result).toBe(mockResult);
       expect(
-        spaceSessionSettlementService.autoCheckoutExpiredCountdownSessions,
+        spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions,
       ).toHaveBeenCalledWith(
         subAccountUser,
         100,
@@ -129,7 +129,7 @@ describe('HandoverService', () => {
 
       expect(result).toBe(mockRecord);
       expect(
-        spaceSessionSettlementService.autoCheckoutExpiredCountdownSessions,
+        spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions,
       ).toHaveBeenCalledWith(
         ownerUser,
         100,

@@ -1,16 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -61,10 +50,10 @@ export class HandoverController {
     type: HandoverPageResponseDto,
   })
   getPage(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: HandoverPageQueryDto,
   ): Promise<HandoverPageResponseDto> {
-    return this.handoverService.getHandoverPage(request.user, query);
+    return this.handoverService.getHandoverPage(user, query);
   }
 
   @Post('handover/confirm')
@@ -75,10 +64,10 @@ export class HandoverController {
     type: HandoverRecordListItemDto,
   })
   confirm(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ConfirmHandoverRequestDto,
   ): Promise<HandoverRecordListItemDto> {
-    return this.handoverService.confirmHandover(request.user, dto);
+    return this.handoverService.confirmHandover(user, dto);
   }
 
   @Get('handover-additional-items')
@@ -89,9 +78,9 @@ export class HandoverController {
     type: HandoverAdditionalItemListResponseDto,
   })
   listAdditionalItems(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<HandoverAdditionalItemListResponseDto> {
-    return this.handoverService.listAdditionalItems(request.user);
+    return this.handoverService.listAdditionalItems(user);
   }
 
   @Post('handover-additional-items')
@@ -102,10 +91,10 @@ export class HandoverController {
     type: HandoverAdditionalItemDto,
   })
   createAdditionalItem(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateHandoverAdditionalItemDto,
   ): Promise<HandoverAdditionalItemDto> {
-    return this.handoverService.createAdditionalItem(request.user, dto);
+    return this.handoverService.createAdditionalItem(user, dto);
   }
 
   @Patch('handover-additional-items/:id')
@@ -116,11 +105,11 @@ export class HandoverController {
     type: HandoverAdditionalItemDto,
   })
   updateAdditionalItem(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateHandoverAdditionalItemDto,
   ): Promise<HandoverAdditionalItemDto> {
-    return this.handoverService.updateAdditionalItem(request.user, id, dto);
+    return this.handoverService.updateAdditionalItem(user, id, dto);
   }
 
   @Delete('handover-additional-items/:id')
@@ -131,10 +120,10 @@ export class HandoverController {
     type: Boolean,
   })
   async deleteAdditionalItem(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<boolean> {
-    await this.handoverService.deleteAdditionalItem(request.user, id);
+    await this.handoverService.deleteAdditionalItem(user, id);
     return true;
   }
 
@@ -146,10 +135,10 @@ export class HandoverController {
     type: HandoverRecordListItemDto,
   })
   create(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateHandoverRecordDto,
   ): Promise<HandoverRecordListItemDto> {
-    return this.handoverService.createHandoverRecord(request.user, dto);
+    return this.handoverService.createHandoverRecord(user, dto);
   }
 
   @Post('handover/:id/complete')
@@ -160,11 +149,11 @@ export class HandoverController {
     type: HandoverRecordListItemDto,
   })
   complete(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CompleteHandoverRecordDto,
   ): Promise<HandoverRecordListItemDto> {
-    return this.handoverService.completeHandoverRecord(request.user, id, dto);
+    return this.handoverService.completeHandoverRecord(user, id, dto);
   }
 
   @Post('handover/:id/cancel')
@@ -175,11 +164,11 @@ export class HandoverController {
     type: HandoverRecordListItemDto,
   })
   cancel(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CancelHandoverRecordDto,
   ): Promise<HandoverRecordListItemDto> {
-    return this.handoverService.cancelHandoverRecord(request.user, id, dto);
+    return this.handoverService.cancelHandoverRecord(user, id, dto);
   }
 
   @Get('handover')
@@ -190,12 +179,12 @@ export class HandoverController {
     type: HandoverRecordListResponseDto,
   })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
     @Query('offset', new ParseIntPipe({ optional: true })) offset = 0,
   ): Promise<HandoverRecordListResponseDto> {
     return this.handoverService.listHandoverRecords(
-      request.user,
+      user,
       limit,
       offset,
     );
@@ -209,11 +198,11 @@ export class HandoverController {
     type: HandoverRecordSummaryListResponseDto,
   })
   listRecordSummaries(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: HandoverRecordSummaryQueryDto,
   ): Promise<HandoverRecordSummaryListResponseDto> {
     return this.handoverService.listHandoverRecordSummaries(
-      request.user,
+      user,
       query,
     );
   }
@@ -226,9 +215,9 @@ export class HandoverController {
     type: HandoverRecordListItemDto,
   })
   getMyPending(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<HandoverRecordListItemDto | null> {
-    return this.handoverService.getMyPendingHandover(request.user);
+    return this.handoverService.getMyPendingHandover(user);
   }
 
   @Get('handover/candidates')
@@ -239,9 +228,9 @@ export class HandoverController {
     type: [HandoverCandidateDto],
   })
   getCandidates(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<HandoverCandidateDto[]> {
-    const storeId = request.user.currentMembership?.storeId;
+    const storeId = user.currentMembership?.storeId;
     if (!storeId) {
       return Promise.resolve([]);
     }
@@ -256,9 +245,9 @@ export class HandoverController {
     type: HandoverRecordListItemDto,
   })
   getOne(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<HandoverRecordListItemDto> {
-    return this.handoverService.getHandoverRecord(request.user, id);
+    return this.handoverService.getHandoverRecord(user, id);
   }
 }

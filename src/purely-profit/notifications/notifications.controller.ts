@@ -4,7 +4,6 @@ import {
   Param,
   Patch,
   Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -15,6 +14,7 @@ import {
 } from '@nestjs/swagger';
 import { RequirePermissions } from '../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../access-control/guards/permissions.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import {
@@ -42,10 +42,10 @@ export class NotificationsController {
     type: NotificationsUnreadSummaryResponseDto,
   })
   getUnreadSummary(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: NotificationsStoreQueryDto,
   ): Promise<NotificationsUnreadSummaryResponseDto> {
-    return this.notificationsService.getUnreadSummary(request.user, query);
+    return this.notificationsService.getUnreadSummary(user, query);
   }
 
   @Get()
@@ -56,10 +56,10 @@ export class NotificationsController {
     type: NotificationsListResponseDto,
   })
   list(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListNotificationsQueryDto,
   ): Promise<NotificationsListResponseDto> {
-    return this.notificationsService.list(request.user, query);
+    return this.notificationsService.list(user, query);
   }
 
   @Patch('read-all')
@@ -70,10 +70,10 @@ export class NotificationsController {
     type: MarkAllNotificationsReadResponseDto,
   })
   markAllRead(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: NotificationsStoreQueryDto,
   ): Promise<MarkAllNotificationsReadResponseDto> {
-    return this.notificationsService.markAllRead(request.user, query);
+    return this.notificationsService.markAllRead(user, query);
   }
 
   @Patch(':id/read')
@@ -84,12 +84,12 @@ export class NotificationsController {
     type: MarkNotificationReadResponseDto,
   })
   markRead(
-    @Req() request: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') notificationId: string,
     @Query() query: NotificationsStoreQueryDto,
   ): Promise<MarkNotificationReadResponseDto> {
     return this.notificationsService.markRead(
-      request.user,
+      user,
       notificationId,
       query,
     );

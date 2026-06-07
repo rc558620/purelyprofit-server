@@ -97,17 +97,17 @@ describe('CostsController', () => {
 
     await expect(
       controller.listRecords(
-        { user },
+        user,
         { period: 'month', typeFilter: 'fixed' },
       ),
     ).resolves.toEqual(records);
     await expect(
-      controller.getStats({ user }, { period: 'week' }),
+      controller.getStats(user, { period: 'week' }),
     ).resolves.toEqual(stats);
-    await expect(controller.createRecord({ user }, createDto)).resolves.toEqual(
+    await expect(controller.createRecord(user, createDto)).resolves.toEqual(
       createdRecord,
     );
-    await expect(controller.deleteRecord({ user }, 2)).resolves.toBeUndefined();
+    await expect(controller.deleteRecord(user, 2)).resolves.toBeUndefined();
 
     expect(costsService.listRecords).toHaveBeenCalledWith(user, {
       period: 'month',

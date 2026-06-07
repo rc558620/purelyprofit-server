@@ -12,6 +12,8 @@ import { SubjectCapabilityService } from '../access-control/subject-capability.s
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { AUTH_TOKEN_VERSION_KEY_PREFIX } from './auth.constants';
+import { AuthAccountLookupService } from './auth-account-lookup.service';
+import { AuthAccountMembershipService } from './auth-account-membership.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCapabilityService } from './auth-capability.service';
@@ -98,6 +100,8 @@ describe('AuthService', () => {
       providers: [
         AuthService,
         AuthAccountService,
+        AuthAccountLookupService,
+        AuthAccountMembershipService,
         AuthAuthenticationService,
         AuthCodeService,
         AuthPasswordService,

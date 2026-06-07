@@ -7,7 +7,7 @@ import {
 import { formatDateLabel, type TimeRange } from './dashboard-time.utils';
 import type { DashboardTrendSaleRow } from './dashboard.types';
 import type { PulseDashboardPeriodValue } from './dto/pulse-dashboard-query.dto';
-import type { PulseDashboardSalesTrendDto } from './dto/pulse-dashboard-response.dto';
+import type { PulseDashboardSalesTrendDto } from './dto/pulse-dashboard-overview.response.dto';
 
 export function buildDashboardSalesTrend(
   rows: DashboardTrendSaleRow[],
