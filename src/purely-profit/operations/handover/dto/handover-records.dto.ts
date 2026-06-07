@@ -1,5 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { EmployeeShiftType, HandoverMode, HandoverStatus } from '@prisma/client';
+import {
+  EmployeeShiftType,
+  HandoverMode,
+  HandoverStatus,
+} from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsEnum,
@@ -109,6 +113,12 @@ export class HandoverRecordShiftInfoDto {
 
   @ApiProperty({ example: '06-02  09:00–17:00', description: '班次时间描述' })
   timeDesc: string;
+
+  @ApiProperty({
+    example: 1748766600000,
+    description: '班次归属时间戳(ms)，用于判定班次日期，对应排班日期',
+  })
+  shiftReferenceAt: number;
 }
 
 export class HandoverRecordDetailAdditionalItemDto {
@@ -354,6 +364,12 @@ export class HandoverRecordSummaryDto {
 
   @ApiProperty({ example: 1748766600000, description: '创建时间戳(ms)' })
   createdAt: number;
+
+  @ApiProperty({
+    example: 1748766600000,
+    description: '班次归属时间戳(ms)，对应排班日期，用于前端跳转班次详情',
+  })
+  shiftReferenceAt: number;
 }
 
 export class HandoverRecordSummaryListResponseDto {

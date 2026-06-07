@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: purely_profit/dashboard/business_analysis
+title: 经营分析与数据可视化
+scope:
+    - src/purely-profit/dashboard/business-analysis/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/goods/products
+    - path: purely_pulse/dashboard
+    - path: observability
+    - path: purely_profit/goods/inventory
+    - path: purely_profit/finance/cash_flow
+    - path: purely_profit/operations/sales_record/sales_record_read
+    - path: purely_profit/commerce

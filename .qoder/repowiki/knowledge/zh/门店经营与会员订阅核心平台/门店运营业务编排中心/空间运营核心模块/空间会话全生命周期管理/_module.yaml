@@ -1,0 +1,53 @@
+schema_version: 1
+module_path: purely_profit/operations/spaces/sessions
+title: 空间会话全生命周期管理
+scope:
+    - src/purely-profit/operations/spaces/space-sessions.controller.ts
+    - src/purely-profit/operations/spaces/space-sessions.service.ts
+    - src/purely-profit/operations/spaces/space-sessions.mapper.ts
+    - src/purely-profit/operations/spaces/space-sessions.query.ts
+    - src/purely-profit/operations/spaces/space-sessions.query-builder.ts
+    - src/purely-profit/operations/spaces/space-sessions.types.ts
+    - src/purely-profit/operations/spaces/space-session-open.service.ts
+    - src/purely-profit/operations/spaces/space-session-renew.service.ts
+    - src/purely-profit/operations/spaces/space-session-transfer.service.ts
+    - src/purely-profit/operations/spaces/space-session-checkout.service.ts
+    - src/purely-profit/operations/spaces/space-session-settlement.service.ts
+    - src/purely-profit/operations/spaces/space-session-auto-checkout.service.ts
+    - src/purely-profit/operations/spaces/space-session-read.service.ts
+    - src/purely-profit/operations/spaces/space-session-write.service.ts
+    - src/purely-profit/operations/spaces/space-session-read-state.service.ts
+    - src/purely-profit/operations/spaces/space-session-checkout-lock.service.ts
+    - src/purely-profit/operations/spaces/space-auto-checkout-scheduler.service.ts
+    - src/purely-profit/operations/spaces/space-dashboard.service.ts
+    - src/purely-profit/operations/spaces/space-dashboard-summary.service.ts
+    - src/purely-profit/operations/spaces/space-session-open-validation.shared.ts
+    - src/purely-profit/operations/spaces/space-session-payload.shared.ts
+    - src/purely-profit/operations/spaces/space-session-checkout-payload.shared.ts
+    - src/purely-profit/operations/spaces/space-session-items.shared.ts
+    - src/purely-profit/operations/spaces/space-session-settlement.shared.ts
+    - src/purely-profit/operations/spaces/dto/space-session.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session.query.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session.request.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session.response.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session-shared.response.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session-open.request.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session-renew.request.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session-renew.response.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session-transfer.request.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session-transfer.response.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session-checkout.request.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session-checkout.response.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session-items.request.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session-list.query.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session-list.response.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-session.constants.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/operations/handover
+    - path: purely_profit/operations/spaces/reservations
+    - path: data_layer
+    - path: cache_layer
+    - path: purely_profit/operations/spaces/space_management
+    - path: purely_profit/operations/sales_record/sales_record_write

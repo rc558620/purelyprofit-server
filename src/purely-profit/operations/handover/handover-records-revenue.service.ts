@@ -17,6 +17,7 @@ import {
   SALE_ORDER_ITEM_SELECT,
   attachPaymentRatios,
   buildCashFlowWhere,
+  buildNonSpaceSessionOrderWhere,
   buildRecordRevenueSummary,
   buildRevenueAmounts,
   buildSaleOrderWhere,
@@ -35,7 +36,7 @@ export class HandoverRecordsRevenueService {
     shiftRange: ShiftDateRange,
     operatorStaffId: number | null,
   ): Promise<number> {
-    const orderWhere = buildSaleOrderWhere(
+    const additionalOrderWhere = buildNonSpaceSessionOrderWhere(
       storeId,
       shiftRange,
       operatorStaffId,
@@ -43,7 +44,7 @@ export class HandoverRecordsRevenueService {
     const refundWhere = buildSpaceRefundOrderWhere(storeId, shiftRange);
     const [spaceRevenue, additionalRevenue, refundRevenue] = await Promise.all([
       this.loadSpaceRevenue(storeId, shiftRange),
-      this.loadAdditionalRevenue(orderWhere),
+      this.loadAdditionalRevenue(additionalOrderWhere),
       this.loadRefundRevenue(refundWhere),
     ]);
 
@@ -71,6 +72,11 @@ export class HandoverRecordsRevenueService {
     >
   > {
     const orderWhere = buildSaleOrderWhere(
+      storeId,
+      shiftRange,
+      operatorStaffId,
+    );
+    const additionalOrderWhere = buildNonSpaceSessionOrderWhere(
       storeId,
       shiftRange,
       operatorStaffId,
@@ -130,7 +136,7 @@ export class HandoverRecordsRevenueService {
       }),
       this.prisma.saleOrder.count({ where: orderWhere }),
       this.loadSpaceRevenue(storeId, shiftRange),
-      this.loadAdditionalRevenue(orderWhere),
+      this.loadAdditionalRevenue(additionalOrderWhere),
       this.loadRefundRevenue(refundWhere),
       this.prisma.financeCashFlowRecord.aggregate({
         where: {
@@ -177,15 +183,10 @@ export class HandoverRecordsRevenueService {
   }
 
   private loadAdditionalRevenue(
-    orderWhere: ReturnType<typeof buildSaleOrderWhere>,
+    orderWhere: ReturnType<typeof buildNonSpaceSessionOrderWhere>,
   ) {
     return this.prisma.saleOrder.aggregate({
-      where: {
-        ...orderWhere,
-        spaceSession: {
-          is: null,
-        },
-      },
+      where: orderWhere,
       _sum: { totalRevenue: true },
     });
   }

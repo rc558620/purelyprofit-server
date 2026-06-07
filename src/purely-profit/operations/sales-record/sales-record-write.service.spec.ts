@@ -361,6 +361,74 @@ describe('SalesRecordWriteService', () => {
     );
   });
 
+  it('create 在系统自动结账入口下存在当班员工时应归属到待交班班次员工', async () => {
+    jest.useFakeTimers().setSystemTime(new Date(2026, 5, 4, 10, 30, 0));
+    const preparedItems = [
+      {
+        productId: null,
+        productName: '台位费（固定）',
+        categoryName: '场地费',
+        salePrice: 100,
+        profit: 100,
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ];
+    const response = { id: 'auto-2', orderNo: '#20260607-002' };
+
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(null);
+    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
+      {
+        employeeId: 6,
+        employeeName: '早班员工',
+        shiftType: 'morning',
+        date: new Date('2026-06-04T00:00:00.000Z'),
+        startTime: '09:00',
+        endTime: '18:00',
+      },
+    );
+    prismaService.employee.findUnique.mockResolvedValue({
+      linkedStaffId: 42,
+    });
+    salesRecordItemPreparationService.prepareItems.mockResolvedValue(
+      preparedItems,
+    );
+    salesRecordCreateFlowService.createRecord.mockResolvedValue(response);
+
+    await expect(
+      service.create(
+        schedulerSystemUser,
+        {
+          storeId: 18,
+          items: [
+            {
+              productId: 'SYS_TIME_BILLING',
+              productName: '台位费（固定）',
+              categoryName: '场地费',
+              salePrice: 100,
+              profit: 100,
+              quantity: 1,
+            },
+          ],
+          totalRevenue: 100,
+          totalProfit: 100,
+          totalQuantity: 1,
+          paymentMethod: 'wechat',
+          calcMode: 'business',
+        },
+        { skipAccessCheck: true },
+      ),
+    ).resolves.toEqual(response);
+
+    expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: 18,
+        operatorStaffId: 42,
+      }),
+    );
+    jest.useRealTimers();
+  });
+
   it('create 在 additional 入口下主账号应归属到待交班班次员工', async () => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 5, 4, 10, 30, 0));
     const preparedItems = [

@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: cache_layer
+title: Redis 缓存基础设施与预热管理
+scope:
+    - src/redis/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/auth/authentication_session
+    - path: observability
+    - path: purely_profit/notifications
+    - path: purely_profit/stores
+    - path: purely_profit/operations/spaces/sessions
+    - path: purely_profit/dashboard/dashboard_home

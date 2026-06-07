@@ -68,7 +68,6 @@ export class HandoverPageShiftService {
         requestedShiftType: query.shiftType,
         ownedShiftCompleted,
         receiverCandidate,
-        shiftRecord,
         ownedSelection,
       });
 
@@ -95,7 +94,6 @@ export class HandoverPageShiftService {
     requestedShiftType?: EmployeeShiftType;
     ownedShiftCompleted: boolean;
     receiverCandidate: ResolvedHandoverPageShiftContext['receiverCandidate'];
-    shiftRecord: ResolvedHandoverPageShiftContext['shiftRecord'];
     ownedSelection: OwnedShiftSelection;
   }): Promise<boolean> {
     const {
@@ -104,7 +102,6 @@ export class HandoverPageShiftService {
       requestedShiftType,
       ownedShiftCompleted,
       receiverCandidate,
-      shiftRecord,
       ownedSelection,
     } = params;
     // 仅当满足以下条件时才返回 true：
@@ -129,10 +126,21 @@ export class HandoverPageShiftService {
     }
 
     // 确定用于查询后续班次的基准班次
-    let targetShift = operationShiftRecord ?? shiftRecord;
+    let targetShift = operationShiftRecord;
 
-    // 当 operationShiftRecord 和 shiftRecord 都为 null 时（所有班次都已交班，
-    // findCurrentShiftRecord 只查找未交班班次导致返回 null），
+    // 收银员的可操作班次为空时，回退到该收银员自己的最后一个班次作为基准，
+    // 避免使用 shiftRecord（可能是全店当前班次）导致基准偏移到别人的末班，
+    // 从而漏判后续全店班次。
+    if (!targetShift && ownedSelection.isCashier) {
+      targetShift =
+        await this.handoverPageShiftRecordService.findLastShiftRecord(
+          membership.storeId,
+          membership.linkedEmployeeId,
+        );
+    }
+
+    // 当 operationShiftRecord 和收银员自己的最后班次都为 null 时
+    // （所有班次都已交班且找不到任何班次），
     // 回退查询今日最后一个班次（不限是否已交班）来判断是否有后续班次。
     // 收银员只查自己的班次；老板/经理查全店。
     if (!targetShift) {

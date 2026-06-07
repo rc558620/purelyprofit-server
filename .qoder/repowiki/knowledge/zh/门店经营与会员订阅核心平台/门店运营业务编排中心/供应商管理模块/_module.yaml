@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: purely_profit/operations/suppliers
+title: 供应商管理模块
+scope:
+    - src/purely-profit/operations/suppliers/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/operations/purchases

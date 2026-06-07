@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: purely_profit/member/members
+title: 会员管理与资产服务
+scope:
+    - src/purely-profit/member/members/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/marketing
+    - path: purely_profit/marketing/customers
+    - path: purely_profit/auth/profile_account
+    - path: purely_pulse/membership
+    - path: purely_profit/member/platform_membership
+    - path: purely_profit/marketing/consumptions_recharges_points

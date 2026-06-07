@@ -17,6 +17,8 @@ import {
   SALE_ORDER_ITEM_SELECT,
   attachPaymentRatios,
   buildCashFlowWhere,
+  buildNonSpaceSessionOrderWhere,
+  buildSaleOrderItemOrderWhere,
   buildSaleOrderWhere,
   buildSpaceRefundOrderWhere,
   mapPaymentItems,
@@ -135,6 +137,11 @@ export class HandoverPageService {
       shiftRange,
       displayOperatorStaffId,
     );
+    const additionalOrderWhere = buildNonSpaceSessionOrderWhere(
+      membership.storeId,
+      shiftRange,
+      displayOperatorStaffId,
+    );
     const cashFlowWhere = buildCashFlowWhere(
       membership.storeId,
       shiftRange,
@@ -154,12 +161,20 @@ export class HandoverPageService {
       refundRevenue,
       pettyCash,
     ] = await Promise.all([
-      this.loadPaymentOrderItems(membership.storeId, orderWhere),
-      this.loadRecentOrderItems(membership.storeId, orderWhere),
+      this.loadPaymentOrderItems(
+        membership.storeId,
+        shiftRange,
+        displayOperatorStaffId,
+      ),
+      this.loadRecentOrderItems(
+        membership.storeId,
+        shiftRange,
+        displayOperatorStaffId,
+      ),
       this.loadRefundOrders(refundWhere),
       this.prisma.saleOrder.count({ where: orderWhere }),
       this.loadSpaceRevenue(membership.storeId, startAt, endAt),
-      this.loadAdditionalRevenue(orderWhere),
+      this.loadAdditionalRevenue(additionalOrderWhere),
       this.loadRefundRevenue(refundWhere),
       this.loadPettyCash(cashFlowWhere),
     ]);
@@ -180,12 +195,17 @@ export class HandoverPageService {
 
   private async loadPaymentOrderItems(
     storeId: number,
-    orderWhere: ReturnType<typeof buildSaleOrderWhere>,
+    shiftRange: { startAt: Date; endAt: Date },
+    operatorStaffId: number | null,
   ): Promise<OrderItemRow[]> {
     return this.prisma.saleOrderItem.findMany({
       where: {
         storeId,
-        order: orderWhere,
+        order: buildSaleOrderItemOrderWhere(
+          storeId,
+          shiftRange,
+          operatorStaffId,
+        ),
       },
       select: SALE_ORDER_ITEM_SELECT,
     });
@@ -193,12 +213,17 @@ export class HandoverPageService {
 
   private async loadRecentOrderItems(
     storeId: number,
-    orderWhere: ReturnType<typeof buildSaleOrderWhere>,
+    shiftRange: { startAt: Date; endAt: Date },
+    operatorStaffId: number | null,
   ): Promise<OrderItemRow[]> {
     return this.prisma.saleOrderItem.findMany({
       where: {
         storeId,
-        order: orderWhere,
+        order: buildSaleOrderItemOrderWhere(
+          storeId,
+          shiftRange,
+          operatorStaffId,
+        ),
       },
       select: SALE_ORDER_ITEM_SELECT,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -246,15 +271,10 @@ export class HandoverPageService {
   }
 
   private async loadAdditionalRevenue(
-    orderWhere: ReturnType<typeof buildSaleOrderWhere>,
+    orderWhere: ReturnType<typeof buildNonSpaceSessionOrderWhere>,
   ) {
     return this.prisma.saleOrder.aggregate({
-      where: {
-        ...orderWhere,
-        spaceSession: {
-          is: null,
-        },
-      },
+      where: orderWhere,
       _sum: { totalRevenue: true },
     });
   }

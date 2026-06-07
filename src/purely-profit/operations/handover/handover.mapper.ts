@@ -171,8 +171,10 @@ export const buildRecordSummaryDto = (params: {
   status: HandoverStatusDto;
   handoverAt: Date | null;
   createdAt: Date;
+  shiftDate?: Date | null;
 }): HandoverRecordSummaryDto => {
-  const referenceDate = params.handoverAt ?? params.createdAt;
+  const referenceDate =
+    params.shiftDate ?? params.handoverAt ?? params.createdAt;
   return {
     id: params.id,
     operatorName: params.operatorName,
@@ -196,6 +198,7 @@ export const buildRecordSummaryDto = (params: {
     displayStatus: mapRecordDisplayStatus(params.status),
     handoverAt: params.handoverAt?.getTime() ?? null,
     createdAt: params.createdAt.getTime(),
+    shiftReferenceAt: referenceDate.getTime(),
   };
 };
 

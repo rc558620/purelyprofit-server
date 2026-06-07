@@ -118,6 +118,7 @@ export type RecordShiftSnapshot = {
   employeeName?: string | null;
   shiftType: EmployeeShiftType | null;
   shiftName?: string | null;
+  date?: Date;
   startTime: string;
   endTime: string;
 };

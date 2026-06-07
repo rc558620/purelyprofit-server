@@ -363,11 +363,38 @@ describe('HandoverPageService - 已交班后切班逻辑', () => {
       endTime: '17:15',
       createdAt: new Date('2026-06-05T17:05:00.000Z'),
     });
-    prismaService.employeeShift.findMany.mockResolvedValue([
-      firstShift,
-      secondShift,
-      thirdShift,
-    ]);
+    prismaService.employeeShift.findMany.mockImplementation(
+      ({
+        where,
+        orderBy,
+      }: {
+        where?: { employeeId?: number };
+        orderBy?: Array<Record<string, string>>;
+      }) => {
+        // 模拟员工维度过滤：只返回属于该员工的班次
+        if (typeof where?.employeeId === 'number') {
+          const scoped = [firstShift, secondShift, thirdShift].filter(
+            (s) => s.employeeId === where.employeeId,
+          );
+          const firstOrder = orderBy?.[0];
+          const isDesc =
+            typeof firstOrder === 'object' &&
+            firstOrder !== null &&
+            Object.values(firstOrder)[0] === 'desc';
+          return Promise.resolve(isDesc ? [...scoped].reverse() : scoped);
+        }
+        const firstOrder = orderBy?.[0];
+        const isDesc =
+          typeof firstOrder === 'object' &&
+          firstOrder !== null &&
+          Object.values(firstOrder)[0] === 'desc';
+        return Promise.resolve(
+          isDesc
+            ? [thirdShift, secondShift, firstShift]
+            : [firstShift, secondShift, thirdShift],
+        );
+      },
+    );
     prismaService.storeHandoverRecord.count.mockImplementation(({ where }) => {
       const snapshotCondition = Array.isArray(where?.OR)
         ? where.OR.find((item) => item?.employeeShiftIdSnapshot)
@@ -390,7 +417,9 @@ describe('HandoverPageService - 已交班后切班逻辑', () => {
       endTime: '17:15',
     });
     expect(result.receiverName).toBe('');
-    expect(result.handoverCompletedAndNoUpcomingShift).toBe(true);
+    // 收银员自己的班次都已交完，但全店还有后续班次（602、603），
+    // 所以 handoverCompletedAndNoUpcomingShift 应为 false
+    expect(result.handoverCompletedAndNoUpcomingShift).toBe(false);
   });
 
   it('仅带 operatorName 刷新时不应锁定到同员工后续班次', async () => {

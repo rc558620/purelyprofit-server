@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: purely_pulse/dashboard
+title: Pulse 平台数据看板与经营分析
+scope:
+    - src/purely-pulse/dashboard/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/dashboard
+    - path: purely_pulse/growth
+    - path: purely_profit/dashboard/business_analysis
+    - path: purely_pulse/membership
+    - path: purely_pulse/session

@@ -132,7 +132,40 @@ export const buildPageShiftInfo = (params: {
   });
 };
 
+/**
+ * 构建 SaleOrder 查询条件：
+ * 1. 常规销售单按 operatorStaffId 过滤（收银员只看自己的单）
+ * 2. OR 空间会话关联的销售单不按 operatorStaffId 过滤
+ *    （自动结账由系统用户创建，历史数据 operatorStaffId 可能为 null，
+ *    但空间会话本身属于门店且时间在班次范围内，应该对该班次可见）
+ */
 export const buildSaleOrderWhere = (
+  storeId: number,
+  shiftRange: ShiftRangeLike,
+  operatorStaffId: number | null,
+): Prisma.SaleOrderWhereInput => {
+  const dateFilter: Prisma.DateTimeFilter = {
+    gte: shiftRange.startAt,
+    lte: shiftRange.endAt,
+  };
+
+  if (!operatorStaffId) {
+    return { storeId, date: dateFilter };
+  }
+
+  return {
+    OR: [
+      { storeId, date: dateFilter, operatorStaffId },
+      { storeId, date: dateFilter, spaceSession: { isNot: null } },
+    ],
+  };
+};
+
+/**
+ * 构建不含空间会话的 SaleOrder 查询条件，
+ * 用于 additionalRevenue 统计（仅统计非空间会话订单的营收）
+ */
+export const buildNonSpaceSessionOrderWhere = (
   storeId: number,
   shiftRange: ShiftRangeLike,
   operatorStaffId: number | null,
@@ -142,21 +175,71 @@ export const buildSaleOrderWhere = (
     gte: shiftRange.startAt,
     lte: shiftRange.endAt,
   },
+  spaceSession: {
+    is: null,
+  },
   ...(operatorStaffId ? { operatorStaffId } : {}),
 });
 
+/**
+ * 构建 SaleOrderItem 查询条件：
+ * 1. 常规销售单按 operatorStaffId 过滤（收银员只看自己的单）
+ * 2. OR 空间会话关联的销售单不按 operatorStaffId 过滤
+ *    （自动结账由系统用户创建，历史数据 operatorStaffId 可能为 null，
+ *    但空间会话本身属于门店且时间在班次范围内，应该对该班次可见）
+ */
+export const buildSaleOrderItemOrderWhere = (
+  storeId: number,
+  shiftRange: ShiftRangeLike,
+  operatorStaffId: number | null,
+): Prisma.SaleOrderItemWhereInput['order'] => {
+  const dateFilter: Prisma.DateTimeFilter = {
+    gte: shiftRange.startAt,
+    lte: shiftRange.endAt,
+  };
+
+  if (!operatorStaffId) {
+    return { storeId, date: dateFilter };
+  }
+
+  return {
+    OR: [
+      { storeId, date: dateFilter, operatorStaffId },
+      { storeId, date: dateFilter, spaceSession: { isNot: null } },
+    ],
+  };
+};
+
+/**
+ * 构建现金流水查询条件：
+ * 1. 常规流水按 operatorStaffId 过滤
+ * 2. OR 关联销售单的流水（空间会话自动结账）不按 operatorStaffId 过滤
+ */
 export const buildCashFlowWhere = (
   storeId: number,
   shiftRange: ShiftRangeLike,
   operatorStaffId: number | null,
-): Prisma.FinanceCashFlowRecordWhereInput => ({
-  storeId,
-  date: {
+): Prisma.FinanceCashFlowRecordWhereInput => {
+  const dateFilter: Prisma.DateTimeFilter = {
     gte: shiftRange.startAt,
     lte: shiftRange.endAt,
-  },
-  ...(operatorStaffId ? { operatorStaffId } : {}),
-});
+  };
+
+  if (!operatorStaffId) {
+    return { storeId, date: dateFilter };
+  }
+
+  return {
+    OR: [
+      { storeId, date: dateFilter, operatorStaffId },
+      {
+        storeId,
+        date: dateFilter,
+        saleOrder: { spaceSession: { isNot: null } },
+      },
+    ],
+  };
+};
 
 export const buildSpaceRefundOrderWhere = (
   storeId: number,

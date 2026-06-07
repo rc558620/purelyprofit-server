@@ -52,6 +52,7 @@ export class HandoverRecordsDetailService {
       status: record.status,
       handoverAt: record.handoverAt,
       createdAt: record.createdAt,
+      shiftDate: context.shiftRecord?.date,
     });
   }
 
@@ -98,10 +99,13 @@ export class HandoverRecordsDetailService {
         startTime: context.shiftRecord?.startTime ?? null,
         endTime: context.shiftRecord?.endTime ?? null,
         timeDesc: formatShiftTimeDesc(
-          context.referenceDate,
+          context.shiftRecord?.date ?? context.referenceDate,
           context.shiftRecord?.startTime,
           context.shiftRecord?.endTime,
         ),
+        shiftReferenceAt: (
+          context.shiftRecord?.date ?? context.referenceDate
+        ).getTime(),
       },
       additionalItems: mapRecordAdditionalItems(record),
       revenueSummary: revenueDetail.revenueSummary,

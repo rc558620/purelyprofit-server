@@ -93,14 +93,22 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       }),
     );
     expect(prismaService.saleOrder.count).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        storeId: 100,
-        operatorStaffId: 2,
-        date: {
-          gte: expectedShiftRange.startAt,
-          lte: expectedShiftEndAt,
-        },
-      }),
+      where: {
+        OR: [
+          expect.objectContaining({
+            storeId: 100,
+            operatorStaffId: 2,
+            date: {
+              gte: expectedShiftRange.startAt,
+              lte: expectedShiftEndAt,
+            },
+          }),
+          expect.objectContaining({
+            storeId: 100,
+            spaceSession: { isNot: null },
+          }),
+        ],
+      },
     });
   });
   it('班次超时未交班时 space-management 结账收入仍应统计到当前交班页班次', async () => {
@@ -152,14 +160,22 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       _sum: { timeCost: true },
     });
     expect(prismaService.saleOrder.count).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        storeId: 100,
-        operatorStaffId: 2,
-        date: {
-          gte: expectedShiftRange.startAt,
-          lte: expectedShiftEndAt,
-        },
-      }),
+      where: {
+        OR: [
+          expect.objectContaining({
+            storeId: 100,
+            operatorStaffId: 2,
+            date: {
+              gte: expectedShiftRange.startAt,
+              lte: expectedShiftEndAt,
+            },
+          }),
+          expect.objectContaining({
+            storeId: 100,
+            spaceSession: { isNot: null },
+          }),
+        ],
+      },
     });
   });
   it('切到存在后续班次的超时班次时收入仍应继续累计到当前交班时刻', async () => {
@@ -438,7 +454,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         where: expect.objectContaining({
           storeId: 100,
           order: expect.objectContaining({
-            operatorStaffId: 2,
+            OR: expect.arrayContaining([
+              expect.objectContaining({ operatorStaffId: 2 }),
+            ]),
           }),
         }),
       }),

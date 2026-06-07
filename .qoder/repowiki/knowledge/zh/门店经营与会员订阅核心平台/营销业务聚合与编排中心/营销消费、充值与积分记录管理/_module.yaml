@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: purely_profit/marketing/consumptions_recharges_points
+title: 营销消费、充值与积分记录管理
+scope:
+    - src/purely-profit/marketing/marketing-consumptions.service.ts
+    - src/purely-profit/marketing/marketing-recharges.service.ts
+    - src/purely-profit/marketing/marketing-points-records.service.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/marketing/overview
+    - path: purely_profit/member/platform_membership
+    - path: purely_profit/finance/cash_flow
+    - path: purely_profit/member/members

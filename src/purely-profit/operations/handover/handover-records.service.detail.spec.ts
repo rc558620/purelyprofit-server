@@ -15,6 +15,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           employeeName: '老板',
           shiftType: EmployeeShiftType.morning,
           shiftName: '早班',
+          date: new Date('2026-05-13'),
           startTime: '09:00',
           endTime: '17:00',
         },
@@ -64,6 +65,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           employeeName: '收银员1',
           shiftType: EmployeeShiftType.morning,
           shiftName: '早班',
+          date: new Date('2026-06-04'),
           startTime: '09:00',
           endTime: '19:10',
         },
@@ -72,6 +74,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           employeeName: '收银员2',
           shiftType: EmployeeShiftType.late,
           shiftName: '晚班',
+          date: new Date('2026-06-04'),
           startTime: '17:00',
           endTime: '23:00',
         },
@@ -149,9 +152,16 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       ]);
       expect(prismaService.saleOrder.count).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({
-            operatorStaffId: 2,
-          }),
+          where: {
+            OR: [
+              expect.objectContaining({
+                operatorStaffId: 2,
+              }),
+              expect.objectContaining({
+                spaceSession: { isNot: null },
+              }),
+            ],
+          },
         }),
       );
     });
@@ -174,6 +184,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           employeeName: '收银员1',
           shiftType: EmployeeShiftType.morning,
           shiftName: '早班',
+          date: new Date('2026-06-04'),
           startTime: '09:00',
           endTime: '18:00',
         },
@@ -221,13 +232,20 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       });
       expect(prismaService.saleOrder.count).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({
-            operatorStaffId: 101,
-            date: {
-              gte: new Date(2026, 5, 4, 9, 0, 0),
-              lte: overdueHandoverAt,
-            },
-          }),
+          where: {
+            OR: [
+              expect.objectContaining({
+                operatorStaffId: 101,
+                date: {
+                  gte: new Date(2026, 5, 4, 9, 0, 0),
+                  lte: overdueHandoverAt,
+                },
+              }),
+              expect.objectContaining({
+                spaceSession: { isNot: null },
+              }),
+            ],
+          },
         }),
       );
     });
@@ -249,6 +267,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           employeeName: '收银员1',
           shiftType: EmployeeShiftType.morning,
           shiftName: '早班',
+          date: new Date('2026-06-04'),
           startTime: '09:00',
           endTime: '19:00',
         },
@@ -390,13 +409,20 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       expect(prismaService.employeeShift.findMany).not.toHaveBeenCalled();
       expect(prismaService.saleOrder.count).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({
-            operatorStaffId: 2,
-            date: {
-              gte: new Date(2026, 5, 5, 16, 1, 0),
-              lte: new Date(2026, 5, 5, 17, 5, 0),
-            },
-          }),
+          where: {
+            OR: [
+              expect.objectContaining({
+                operatorStaffId: 2,
+                date: {
+                  gte: new Date(2026, 5, 5, 16, 1, 0),
+                  lte: new Date(2026, 5, 5, 17, 5, 0),
+                },
+              }),
+              expect.objectContaining({
+                spaceSession: { isNot: null },
+              }),
+            ],
+          },
         }),
       );
     });
@@ -426,6 +452,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           employeeName: '老板',
           shiftType: EmployeeShiftType.morning,
           shiftName: '早班',
+          date: new Date('2026-06-05'),
           startTime: '09:00',
           endTime: '17:00',
         },

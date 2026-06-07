@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: purely_profit/staff/employees
+title: 员工全生命周期与薪酬排班管理
+scope:
+    - src/purely-profit/staff/employees/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/staff/seats
+    - path: purely_profit/operations/costs
+    - path: purely_profit/auth/profile_account
+    - path: purely_profit/finance/cash_flow
+    - path: purely_profit/operations/handover/page_shift

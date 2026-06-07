@@ -1,0 +1,27 @@
+schema_version: 1
+module_path: ""
+title: PurelyProfit 商家经营与会员增长平台核心
+scope:
+    - README.md
+    - .gitignore
+    - package.json
+    - nest-cli.json
+    - tsconfig.json
+    - prisma.config.ts
+    - scripts/
+    - test/
+    - src/app.module.ts
+    - src/app.controller.ts
+    - src/app.service.ts
+    - src/main.ts
+    - src/config/
+    - src/metrics-summary.protocol.ts
+    - .env
+    - .env.example
+    - .prettierrc
+    - eslint.config.mjs
+    - pnpm-lock.yaml
+    - tsconfig.build.json
+source_files: []
+depends_on: []
+related_to: []

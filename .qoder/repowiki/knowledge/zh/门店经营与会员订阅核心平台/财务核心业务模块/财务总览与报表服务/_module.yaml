@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: purely_profit/finance/overview
+title: 财务总览与报表服务
+scope:
+    - src/purely-profit/finance/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/dashboard
+    - path: purely_profit/dashboard/profit_detail
+    - path: purely_profit/finance/reconciliation

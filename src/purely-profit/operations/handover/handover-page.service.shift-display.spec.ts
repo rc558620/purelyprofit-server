@@ -64,7 +64,9 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
         where: expect.objectContaining({
           storeId: 100,
           order: expect.objectContaining({
-            operatorStaffId: 101,
+            OR: expect.arrayContaining([
+              expect.objectContaining({ operatorStaffId: 101 }),
+            ]),
           }),
         }),
       }),
@@ -325,7 +327,9 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
       endTime: '23:00',
       operatorName: '收银员2',
     });
-    expect(new Date(result.shiftInfo.shiftReferenceAt).getFullYear()).toBe(2026);
+    expect(new Date(result.shiftInfo.shiftReferenceAt).getFullYear()).toBe(
+      2026,
+    );
     expect(new Date(result.shiftInfo.shiftReferenceAt).getMonth()).toBe(5);
     expect(new Date(result.shiftInfo.shiftReferenceAt).getDate()).toBe(4);
     expect(result.receiverName).toBe('收银员1');
@@ -333,23 +337,28 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           order: expect.objectContaining({
-            date: expect.objectContaining({
-              gte: expect.any(Date),
-              lte: expect.any(Date),
-            }),
-            operatorStaffId: 102,
+            OR: expect.arrayContaining([
+              expect.objectContaining({
+                date: expect.objectContaining({
+                  gte: expect.any(Date),
+                  lte: expect.any(Date),
+                }),
+                operatorStaffId: 102,
+              }),
+            ]),
           }),
         }),
       }),
     );
     const firstOrderQuery =
       prismaService.saleOrderItem.findMany.mock.calls[0][0];
-    expect(firstOrderQuery.where.order.date.gte.getFullYear()).toBe(2026);
-    expect(firstOrderQuery.where.order.date.gte.getMonth()).toBe(5);
-    expect(firstOrderQuery.where.order.date.gte.getDate()).toBe(4);
-    expect(firstOrderQuery.where.order.date.lte.getFullYear()).toBe(2026);
-    expect(firstOrderQuery.where.order.date.lte.getMonth()).toBe(5);
-    expect(firstOrderQuery.where.order.date.lte.getDate()).toBe(5);
+    const firstOrderBranch = firstOrderQuery.where.order.OR[0];
+    expect(firstOrderBranch.date.gte.getFullYear()).toBe(2026);
+    expect(firstOrderBranch.date.gte.getMonth()).toBe(5);
+    expect(firstOrderBranch.date.gte.getDate()).toBe(4);
+    expect(firstOrderBranch.date.lte.getFullYear()).toBe(2026);
+    expect(firstOrderBranch.date.lte.getMonth()).toBe(5);
+    expect(firstOrderBranch.date.lte.getDate()).toBe(5);
   });
 
   it('主账号查看收银员班次时应返回收银员头像', async () => {
@@ -398,7 +407,9 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           order: expect.objectContaining({
-            operatorStaffId: 2,
+            OR: expect.arrayContaining([
+              expect.objectContaining({ operatorStaffId: 2 }),
+            ]),
           }),
         }),
       }),

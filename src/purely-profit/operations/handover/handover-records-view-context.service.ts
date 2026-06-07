@@ -30,7 +30,12 @@ export class HandoverRecordsViewContextService {
   ): Promise<RecordViewContext> {
     const referenceDate = record.handoverAt ?? record.createdAt;
     const shiftRecord = await this.resolveRecordShiftRecord(storeId, record);
-    const shiftRange = this.buildRecordShiftRange(referenceDate, shiftRecord);
+    const shiftBaseDate = shiftRecord?.date ?? referenceDate;
+    const shiftRange = this.buildRecordShiftRange(
+      shiftBaseDate,
+      shiftRecord,
+      referenceDate,
+    );
     const operatorProfile = await this.resolveRecordOperatorProfile(
       record,
       shiftRecord,
@@ -47,8 +52,9 @@ export class HandoverRecordsViewContextService {
   }
 
   private buildRecordShiftRange(
-    referenceDate: Date,
+    baseDate: Date,
     shiftRecord: RecordShiftSnapshot | null,
+    extendToReference?: Date,
   ): ShiftDateRange {
     const fallbackShiftType =
       shiftRecord?.shiftType ?? EmployeeShiftType.morning;
@@ -58,9 +64,9 @@ export class HandoverRecordsViewContextService {
       buildShiftDateRange(
         shiftRecord?.startTime ?? fallbackTime.startTime,
         shiftRecord?.endTime ?? fallbackTime.endTime,
-        referenceDate,
+        baseDate,
       ),
-      referenceDate,
+      extendToReference ?? baseDate,
     );
   }
 
@@ -91,7 +97,13 @@ export class HandoverRecordsViewContextService {
 
     const referenceDate = record.handoverAt ?? record.createdAt;
     const dayRange = {
-      gte: startOfDay(referenceDate),
+      gte: startOfDay(
+        new Date(
+          referenceDate.getFullYear(),
+          referenceDate.getMonth(),
+          referenceDate.getDate() - 7,
+        ),
+      ),
       lte: endOfDay(referenceDate),
     };
 
@@ -107,6 +119,7 @@ export class HandoverRecordsViewContextService {
           employeeName: true,
           shiftType: true,
           shiftName: true,
+          date: true,
           startTime: true,
           endTime: true,
         },
@@ -116,7 +129,7 @@ export class HandoverRecordsViewContextService {
         const shiftRange = buildShiftDateRange(
           shift.startTime,
           shift.endTime,
-          referenceDate,
+          shift.date,
         );
         return (
           shiftRange.startAt.getTime() <= referenceDate.getTime() &&
@@ -132,7 +145,7 @@ export class HandoverRecordsViewContextService {
           const shiftRange = buildShiftDateRange(
             shift.startTime,
             shift.endTime,
-            referenceDate,
+            shift.date,
           );
           return shiftRange.startAt.getTime() <= referenceDate.getTime();
         })
@@ -140,12 +153,12 @@ export class HandoverRecordsViewContextService {
           const leftStartAt = buildShiftDateRange(
             left.startTime,
             left.endTime,
-            referenceDate,
+            left.date,
           ).startAt;
           const rightStartAt = buildShiftDateRange(
             right.startTime,
             right.endTime,
-            referenceDate,
+            right.date,
           ).startAt;
           return rightStartAt.getTime() - leftStartAt.getTime();
         })[0];
@@ -164,6 +177,7 @@ export class HandoverRecordsViewContextService {
           employeeName: true,
           shiftType: true,
           shiftName: true,
+          date: true,
           startTime: true,
           endTime: true,
         },
@@ -209,6 +223,7 @@ export class HandoverRecordsViewContextService {
         select: {
           storeId: true,
           createdAt: true,
+          date: true,
         },
       });
       if (
@@ -218,6 +233,19 @@ export class HandoverRecordsViewContextService {
       ) {
         return null;
       }
+
+      return {
+        employeeId: record.fromEmployeeId,
+        employeeName:
+          toDisplayName(record.fromEmployeeNameSnapshot) ??
+          toDisplayName(record.fromEmployee?.name) ??
+          null,
+        shiftType,
+        shiftName: toDisplayName(record.shiftNameSnapshot),
+        date: linkedShift?.date,
+        startTime,
+        endTime,
+      };
     }
 
     return {

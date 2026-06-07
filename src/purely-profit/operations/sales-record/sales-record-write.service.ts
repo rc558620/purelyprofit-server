@@ -159,6 +159,31 @@ export class SalesRecordWriteService {
         storeId,
       );
 
+    // 系统用户（如自动结账调度）没有 membership，无法通过常规路径
+    // 解析 operatorStaffId。为避免其创建的销售单在交班页面因
+    // operatorStaffId 为 null 而被过滤掉，此处回退到当前班次员工。
+    if (!user.currentMembership) {
+      try {
+        const pendingStaffId = await this.findPendingHandoverOperatorStaffId(
+          storeId,
+          orderDate,
+        );
+        if (pendingStaffId !== null) {
+          return pendingStaffId;
+        }
+
+        return (
+          (await this.findCurrentShiftOperatorStaffId(storeId, orderDate)) ??
+          currentOperatorStaffId
+        );
+      } catch (error) {
+        this.logger.warn(
+          `resolveOperatorStaffId system-user fallback storeId=${storeId} orderDate=${orderDate.toISOString()} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+        );
+        return currentOperatorStaffId;
+      }
+    }
+
     if (!this.shouldAssignToCurrentShiftOperator(user, storeId, options)) {
       return currentOperatorStaffId;
     }

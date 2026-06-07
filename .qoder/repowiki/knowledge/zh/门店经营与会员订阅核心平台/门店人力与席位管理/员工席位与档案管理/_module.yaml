@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: purely_profit/staff/seats
+title: 员工席位与档案管理
+scope:
+    - src/purely-profit/staff/seats/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/staff/employees
+    - path: purely_profit/subscriptions
+    - path: purely_profit/auth/profile_account

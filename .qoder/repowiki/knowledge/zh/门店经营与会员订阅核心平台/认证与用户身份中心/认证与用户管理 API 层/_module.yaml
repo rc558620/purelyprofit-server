@@ -1,0 +1,17 @@
+schema_version: 1
+module_path: purely_profit/auth/api_layer
+title: 认证与用户管理 API 层
+scope:
+    - src/purely-profit/auth/dto/
+    - src/purely-profit/auth/auth.controller.ts
+    - src/purely-profit/auth/auth.module.ts
+    - src/purely-profit/auth/current-user.decorator.ts
+    - src/purely-profit/auth/request-audit-context.decorator.ts
+    - src/purely-profit/auth/request-id.decorator.ts
+    - src/purely-profit/auth/user-with-request-id.decorator.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/auth/password_management
+    - path: purely_profit/commerce
+    - path: observability
