@@ -227,14 +227,24 @@ describe('profit-detail.utils', () => {
       currentRange: { start: 10, end: 20, clamped: true, empty: false },
       previousRange: { start: 1, end: 9, clamped: false, empty: true },
     });
-    expect(clampHistoryRange).toHaveBeenNthCalledWith(1, 18, {
-      start: 10,
-      end: 20,
-    }, false);
-    expect(clampHistoryRange).toHaveBeenNthCalledWith(2, 18, {
-      start: 1,
-      end: 9,
-    }, false);
+    expect(clampHistoryRange).toHaveBeenNthCalledWith(
+      1,
+      18,
+      {
+        start: 10,
+        end: 20,
+      },
+      false,
+    );
+    expect(clampHistoryRange).toHaveBeenNthCalledWith(
+      2,
+      18,
+      {
+        start: 1,
+        end: 9,
+      },
+      false,
+    );
   });
 
   it('fetchProfitRows 会统一复用 query helper 与 select 常量', async () => {

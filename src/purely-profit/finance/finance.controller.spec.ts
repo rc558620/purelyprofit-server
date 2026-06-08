@@ -109,9 +109,7 @@ describe('FinanceController', () => {
     };
     financeService.getReport.mockResolvedValue(response);
 
-    await expect(controller.getReport(user, query)).resolves.toEqual(
-      response,
-    );
+    await expect(controller.getReport(user, query)).resolves.toEqual(response);
     expect(financeService.getReport).toHaveBeenCalledWith(user, query);
   });
 
@@ -157,10 +155,12 @@ describe('FinanceController', () => {
     financeService.deleteCashFlowRecord.mockResolvedValue(undefined);
 
     await expect(
-      controller.listCashFlowRecords(
-        user,
-        { period: 'month', directionFilter: 'income', page: 1, pageSize: 20 },
-      ),
+      controller.listCashFlowRecords(user, {
+        period: 'month',
+        directionFilter: 'income',
+        page: 1,
+        pageSize: 20,
+      }),
     ).resolves.toEqual(listResponse);
     await expect(
       controller.getCashFlowStats(user, { period: 'week' }),
@@ -235,32 +235,27 @@ describe('FinanceController', () => {
     financeService.deleteAccount.mockResolvedValue(undefined);
 
     await expect(
-      controller.listAccounts(
-        user,
-        {
-          typeFilter: 'receivable',
-          statusFilter: 'partial',
-          page: 1,
-          pageSize: 20,
-        },
-      ),
+      controller.listAccounts(user, {
+        typeFilter: 'receivable',
+        statusFilter: 'partial',
+        page: 1,
+        pageSize: 20,
+      }),
     ).resolves.toEqual(listResponse);
     await expect(controller.getAccountsStats(user)).resolves.toEqual(
       statsResponse,
     );
-    await expect(
-      controller.createAccount(user, createDto),
-    ).resolves.toEqual(listResponse.items[0]);
-    await expect(
-      controller.settleAccount(user, 2, settleDto),
-    ).resolves.toEqual({
-      ...listResponse.items[0],
-      paidAmount: 1500,
-      remaining: 3500,
-    });
-    await expect(
-      controller.deleteAccount(user, 2),
-    ).resolves.toBeUndefined();
+    await expect(controller.createAccount(user, createDto)).resolves.toEqual(
+      listResponse.items[0],
+    );
+    await expect(controller.settleAccount(user, 2, settleDto)).resolves.toEqual(
+      {
+        ...listResponse.items[0],
+        paidAmount: 1500,
+        remaining: 3500,
+      },
+    );
+    await expect(controller.deleteAccount(user, 2)).resolves.toBeUndefined();
 
     expect(financeService.listAccounts).toHaveBeenCalledWith(user, {
       typeFilter: 'receivable',
@@ -339,10 +334,11 @@ describe('FinanceController', () => {
     financeService.deleteReconciliation.mockResolvedValue(undefined);
 
     await expect(
-      controller.listReconciliations(
-        user,
-        { statusFilter: 'discrepancy', page: 1, pageSize: 20 },
-      ),
+      controller.listReconciliations(user, {
+        statusFilter: 'discrepancy',
+        page: 1,
+        pageSize: 20,
+      }),
     ).resolves.toEqual(listResponse);
     await expect(controller.getReconciliationStats(user)).resolves.toEqual(
       statsResponse,

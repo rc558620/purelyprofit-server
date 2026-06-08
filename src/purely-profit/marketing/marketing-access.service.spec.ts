@@ -23,7 +23,9 @@ describe('MarketingAccessService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(null);
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(
+      null,
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -38,13 +40,15 @@ describe('MarketingAccessService', () => {
   it('getManageableStoreId 在当前 membership 有权限时返回 storeId', async () => {
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(18);
 
-    await expect(service.getManageableStoreId(user, 'marketing:view')).resolves.toBe(
-      18,
-    );
+    await expect(
+      service.getManageableStoreId(user, 'marketing:view'),
+    ).resolves.toBe(18);
   });
 
   it('getManageableStoreId 在当前 membership 无权限时返回 null', async () => {
-    await expect(service.getManageableStoreId(user, 'marketing:view')).resolves.toBeNull();
+    await expect(
+      service.getManageableStoreId(user, 'marketing:view'),
+    ).resolves.toBeNull();
   });
 
   it('resolveViewStoreId 在无权限且未指定 storeId 时返回 null', async () => {

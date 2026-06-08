@@ -113,11 +113,7 @@ export class PulseGrowthAdminController {
     @Param('id', ParseIntPipe) payoutId: number,
     @Body() dto: PulseAdminApprovePayoutDto,
   ): Promise<{ success: true }> {
-    return this.growthService.admin.payouts.approve(
-      user,
-      payoutId,
-      dto,
-    );
+    return this.growthService.admin.payouts.approve(user, payoutId, dto);
   }
 
   @Patch('payouts/:id/reject')

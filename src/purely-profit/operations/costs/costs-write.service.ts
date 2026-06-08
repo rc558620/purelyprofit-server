@@ -8,7 +8,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toOptionalText } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { getPayrollCostDate, toCostDecimal } from './costs.domain';
 import { buildCostRecordResponse } from './costs.mapper';
 import type {

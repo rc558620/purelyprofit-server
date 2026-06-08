@@ -2,6 +2,13 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { FinanceReconciliationStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import {
+  buildFinanceReconciliationsListCacheKey,
+  buildFinanceReconciliationsStatsCacheKey,
+} from './finance.cache-keys';
+import { CacheInvalidatorService } from '../../redis/invalidator';
+import { RedisService } from '../../redis/redis.service';
 import {
   ConfirmFinanceReconciliationDto,
   CreateFinanceReconciliationDto,
@@ -30,17 +37,19 @@ import {
 } from './finance-reconciliation.query';
 import { buildPaginatedReconciliationsResponse } from './finance.mapper';
 import type { FinanceReconciliationsListQueryInput } from './finance.types';
-import {
-  roundMoneyValue,
-  toPrismaDecimal,
-} from './finance-money.utils';
+import { roundMoneyValue, toPrismaDecimal } from './finance-money.utils';
 import { buildPaginationState } from './finance-pagination.utils';
 import { trimOptionalString } from './finance-string.utils';
+
+const FINANCE_RECONCILIATIONS_CACHE_TTL_SECONDS = 60;
+const FINANCE_RECONCILIATIONS_REFRESH_AFTER_MS = 15_000;
 
 @Injectable()
 export class FinanceReconciliationService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly financeAccessService: FinanceAccessService,
   ) {}
 
@@ -57,17 +66,21 @@ export class FinanceReconciliationService {
       page: query.page,
       pageSize: query.pageSize,
     };
-    const pageState = buildPaginationState(
-      reconciliationQuery.page,
-      reconciliationQuery.pageSize,
-    );
-    const { items, total } = await queryReconciliationRecordPage(
-      this.prisma,
+    const cacheKey = buildFinanceReconciliationsListCacheKey(
       storeId,
       reconciliationQuery,
     );
 
-    return buildPaginatedReconciliationsResponse(items, pageState, total);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: FINANCE_RECONCILIATIONS_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_RECONCILIATIONS_REFRESH_AFTER_MS,
+      loadValue: () =>
+        this.buildReconciliationsList(storeId, reconciliationQuery),
+      refreshValue: () =>
+        this.buildReconciliationsList(storeId, reconciliationQuery),
+    });
   }
 
   async getReconciliationStats(
@@ -75,8 +88,16 @@ export class FinanceReconciliationService {
   ): Promise<FinanceReconciliationStatsDto> {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const records = await queryReconciliationRecords(this.prisma, storeId);
-    return buildReconciliationStats(records);
+    const cacheKey = buildFinanceReconciliationsStatsCacheKey(storeId);
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: FINANCE_RECONCILIATIONS_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_RECONCILIATIONS_REFRESH_AFTER_MS,
+      loadValue: () => this.buildReconciliationStats(storeId),
+      refreshValue: () => this.buildReconciliationStats(storeId),
+    });
   }
 
   async createReconciliation(
@@ -128,6 +149,8 @@ export class FinanceReconciliationService {
       },
     });
 
+    await this.cacheInvalidatorService.invalidateFinanceDerived(storeId);
+
     return mapReconciliationRecord(createdRecord);
   }
 
@@ -155,6 +178,8 @@ export class FinanceReconciliationService {
       adjustNote,
     });
 
+    await this.cacheInvalidatorService.invalidateFinanceDerived(storeId);
+
     return mapReconciliationRecord(updatedRecord);
   }
 
@@ -172,5 +197,30 @@ export class FinanceReconciliationService {
       throw new NotFoundException('对账单不存在');
     }
     await deleteReconciliationRecordEntity(this.prisma, recordId);
+    await this.cacheInvalidatorService.invalidateFinanceDerived(storeId);
+  }
+
+  private async buildReconciliationsList(
+    storeId: number,
+    reconciliationQuery: FinanceReconciliationsListQueryInput,
+  ): Promise<PaginatedFinanceReconciliationsResponseDto> {
+    const pageState = buildPaginationState(
+      reconciliationQuery.page,
+      reconciliationQuery.pageSize,
+    );
+    const { items, total } = await queryReconciliationRecordPage(
+      this.prisma,
+      storeId,
+      reconciliationQuery,
+    );
+
+    return buildPaginatedReconciliationsResponse(items, pageState, total);
+  }
+
+  private async buildReconciliationStats(
+    storeId: number,
+  ): Promise<FinanceReconciliationStatsDto> {
+    const records = await queryReconciliationRecords(this.prisma, storeId);
+    return buildReconciliationStats(records);
   }
 }

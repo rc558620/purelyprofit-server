@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { RedisModule } from '../../redis/redis.module';
 import { PlatformMembershipModule } from '../member/platform-membership/platform-membership.module';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthAccountMembershipService } from './auth-account-membership.service';
@@ -21,6 +22,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 @Module({
   imports: [
     PassportModule,
+    forwardRef(() => RedisModule),
     forwardRef(() => PlatformMembershipModule),
     JwtModule.registerAsync({
       inject: [ConfigService],

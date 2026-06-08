@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: purely_profit
-title: 门店经营与会员订阅核心平台
-scope:
-    - src/purely-profit/
-source_files: []
-depends_on: []
-related_to: []

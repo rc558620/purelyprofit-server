@@ -2,7 +2,17 @@ import {
   UserWithRequestId,
   type UserWithRequestIdValue,
 } from '../../auth/user-with-request-id.decorator';
-import { BadRequestException, Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -135,11 +145,7 @@ export class SpaceSessionsController {
     @Param('spaceId', ParseIntPipe) spaceId: number,
     @Body() dto: OpenSpaceSessionDto,
   ): Promise<SpaceSessionResponseDto> {
-    return this.spaceSessionsService.openSpaceSession(
-      ctx.user,
-      spaceId,
-      dto,
-    );
+    return this.spaceSessionsService.openSpaceSession(ctx.user, spaceId, dto);
   }
 
   @Post('space-sessions')

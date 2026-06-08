@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import type {
   CreateRechargeDto,
   ListRechargesQueryDto,

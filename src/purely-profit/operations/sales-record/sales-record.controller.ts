@@ -1,5 +1,17 @@
 import { CurrentUser } from '../../auth/current-user.decorator';
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseIntPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -132,7 +144,9 @@ export class SalesOrdersCompatController {
 
   @Get('report')
   @RequirePermissions('report:view')
-  @ApiOperation({ summary: '获取报表中心销售报表数据（purelyProfit 前端兼容）' })
+  @ApiOperation({
+    summary: '获取报表中心销售报表数据（purelyProfit 前端兼容）',
+  })
   @ApiOkResponse({ type: SalesReportResponseDto })
   getReport(
     @CurrentUser() user: AuthenticatedUser,

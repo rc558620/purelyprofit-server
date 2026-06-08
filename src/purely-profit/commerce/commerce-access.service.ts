@@ -5,9 +5,7 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 
 @Injectable()
 export class CommerceAccessService {
-  constructor(
-    private readonly accessControlService: AccessControlService,
-  ) {}
+  constructor(private readonly accessControlService: AccessControlService) {}
 
   async getManageableStoreId(
     user: AuthenticatedUser,

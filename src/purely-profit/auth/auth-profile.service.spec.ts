@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import { AccessControlService } from '../access-control/access-control.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthProfileService } from './auth-profile.service';
@@ -17,6 +18,10 @@ describe('AuthProfileService', () => {
 
   const accessControlService = {
     getEffectivePermissions: jest.fn(),
+  };
+
+  const cacheInvalidatorService = {
+    invalidatePulseOnboardingStatusByUser: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -73,13 +78,19 @@ describe('AuthProfileService', () => {
       region: ['北京市', '北京市', '朝阳区'],
       storeLogo: 'https://img.test/store.png',
     });
-    accessControlService.getEffectivePermissions.mockReturnValue(['staff:view']);
+    accessControlService.getEffectivePermissions.mockReturnValue([
+      'staff:view',
+    ]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthProfileService,
         { provide: AuthAccountService, useValue: authAccountService },
         { provide: AccessControlService, useValue: accessControlService },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
+        },
       ],
     }).compile();
 
@@ -129,8 +140,23 @@ describe('AuthProfileService', () => {
     });
     expect(authAccountService.findProfileUserOrThrow).toHaveBeenCalledWith(1);
     expect(authAccountService.findCurrentMembership).toHaveBeenCalledWith(user);
-    expect(authAccountService.readStoreProfileMetadata).toHaveBeenCalledWith(18);
+    expect(authAccountService.readStoreProfileMetadata).toHaveBeenCalledWith(
+      18,
+    );
     expect(accessControlService.getEffectivePermissions).not.toHaveBeenCalled();
+  });
+
+  it('实名认证后会失效 Pulse onboarding 状态缓存', async () => {
+    await service.verifyRealName(user, '李老板', '440301199001011234');
+
+    expect(authAccountService.verifyRealName).toHaveBeenCalledWith(
+      1,
+      '李老板',
+      '440301199001011234',
+    );
+    expect(
+      cacheInvalidatorService.invalidatePulseOnboardingStatusByUser,
+    ).toHaveBeenCalledWith(1);
   });
 
   it('active membership 不匹配时回退到权限计算，但不返回子账号运行态字段', async () => {

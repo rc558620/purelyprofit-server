@@ -1,7 +1,8 @@
-import {
-  DAY_MS,
-} from './dashboard-home.constants';
-import type { DashboardHomePeriodValue, TimeRange } from './dashboard-home.types';
+import { DAY_MS } from './dashboard-home.constants';
+import type {
+  DashboardHomePeriodValue,
+  TimeRange,
+} from './dashboard-home.types';
 import {
   getDayStartTimestamp,
   getMonthStartTimestamp,

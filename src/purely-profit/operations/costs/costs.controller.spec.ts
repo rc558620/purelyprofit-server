@@ -96,10 +96,7 @@ describe('CostsController', () => {
     costsService.deleteRecord.mockResolvedValue(undefined);
 
     await expect(
-      controller.listRecords(
-        user,
-        { period: 'month', typeFilter: 'fixed' },
-      ),
+      controller.listRecords(user, { period: 'month', typeFilter: 'fixed' }),
     ).resolves.toEqual(records);
     await expect(
       controller.getStats(user, { period: 'week' }),

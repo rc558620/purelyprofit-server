@@ -20,7 +20,8 @@ export const resolveSpaceSessionPageQuery = (
   page?: number,
   pageSize?: number,
 ) => {
-  const defaultPageSize = configService.get<number>('app.defaultPageSize') ?? 20;
+  const defaultPageSize =
+    configService.get<number>('app.defaultPageSize') ?? 20;
   const maxPageSize = configService.get<number>('app.maxPageSize') ?? 100;
 
   return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);

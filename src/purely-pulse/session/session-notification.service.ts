@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { buildPulseSessionNotificationCacheKey } from '../../redis/cache-keys';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import { buildPulseSessionNotificationCacheKey } from '../pulse.cache-keys';
 import { RedisService } from '../../redis/redis.service';
 
 const DAY_MS = 86_400_000;
 const SESSION_NOTIFICATION_CACHE_TTL_SECONDS = 15;
+const SESSION_NOTIFICATION_REFRESH_AFTER_MS = 5_000;
 
 @Injectable()
 export class SessionNotificationService {
@@ -15,11 +17,18 @@ export class SessionNotificationService {
 
   async countUnreadNotifications(storeId: number): Promise<number> {
     const cacheKey = buildPulseSessionNotificationCacheKey(storeId);
-    const cachedCount = await this.redisService.getJson<number>(cacheKey);
-    if (cachedCount !== null) {
-      return cachedCount;
-    }
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: SESSION_NOTIFICATION_CACHE_TTL_SECONDS,
+      refreshAfterMs: SESSION_NOTIFICATION_REFRESH_AFTER_MS,
+      loadValue: () => this.buildUnreadNotificationsCount(storeId),
+    });
+  }
 
+  private async buildUnreadNotificationsCount(
+    storeId: number,
+  ): Promise<number> {
     const now = Date.now();
     const upcomingWindowEnd = getDayEnd(now + DAY_MS * 7);
 
@@ -52,28 +61,19 @@ export class SessionNotificationService {
       }),
     ]);
 
-    const subscriptionAlert = shouldAlertSubscription(
-      expiringSubscription?.expiresAt ?? null,
-      now,
-      upcomingWindowEnd,
-    )
-      ? 1
-      : 0;
-
-    const unreadCount =
+    return (
       lowStockCount +
       overdueAccountCount +
       pendingWithdrawalCount +
       upcomingLeaveCount +
-      subscriptionAlert;
-
-    await this.redisService.setJson(
-      cacheKey,
-      unreadCount,
-      SESSION_NOTIFICATION_CACHE_TTL_SECONDS,
+      (shouldAlertSubscription(
+        expiringSubscription?.expiresAt ?? null,
+        now,
+        upcomingWindowEnd,
+      )
+        ? 1
+        : 0)
     );
-
-    return unreadCount;
   }
 
   private async countLowStockProducts(storeId: number): Promise<number> {

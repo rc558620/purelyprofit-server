@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, forwardRef } from '@nestjs/common';
 import { STORE_SUB_ACCOUNT_ROLE_LABELS } from '../access-control/access-control.constants';
 import { AccessControlService } from '../access-control/access-control.service';
 import {
@@ -10,6 +10,7 @@ import {
   toOptionalMediaText,
 } from '../commerce/commerce.utils';
 import { AuthAccountService } from './auth-account.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ProfileResponseDto } from './dto/profile-response.dto';
 import type {
   ProfileMembershipRecord,
@@ -23,6 +24,8 @@ export class AuthProfileService {
   constructor(
     private readonly authAccountService: AuthAccountService,
     private readonly accessControlService: AccessControlService,
+    @Inject(forwardRef(() => CacheInvalidatorService))
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async getProfile(user: AuthenticatedUser): Promise<ProfileResponseDto> {
@@ -52,6 +55,9 @@ export class AuthProfileService {
     idNumber: string,
   ): Promise<ProfileResponseDto> {
     await this.authAccountService.verifyRealName(user.id, realName, idNumber);
+    await this.cacheInvalidatorService.invalidatePulseOnboardingStatusByUser(
+      user.id,
+    );
     return this.getProfile(user);
   }
 
@@ -89,12 +95,16 @@ export class AuthProfileService {
 
             return {
               identityType:
-                currentMembership.identityType ?? activeMembership?.subjectType ?? 'staff',
+                currentMembership.identityType ??
+                activeMembership?.subjectType ??
+                'staff',
               ...(currentMembership.subAccountRole
                 ? {
                     subAccountRole: currentMembership.subAccountRole,
                     subAccountRoleLabel:
-                      STORE_SUB_ACCOUNT_ROLE_LABELS[currentMembership.subAccountRole],
+                      STORE_SUB_ACCOUNT_ROLE_LABELS[
+                        currentMembership.subAccountRole
+                      ],
                   }
                 : {}),
               staffId: currentMembership.staffId,

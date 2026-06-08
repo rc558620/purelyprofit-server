@@ -93,9 +93,7 @@ export function buildFinanceReportSummary(
   }
 
   const netCashFlow = roundMoneyValue(totalIncome - totalExpense);
-  const previousNetCashFlow = roundMoneyValue(
-    previousIncome - previousExpense,
-  );
+  const previousNetCashFlow = roundMoneyValue(previousIncome - previousExpense);
 
   return {
     totalIncome,
@@ -128,8 +126,7 @@ export function buildFinanceReportAccountRows(
     .map((record) => ({
       id: String(record.id),
       type: record.type,
-      typeLabel:
-        FINANCE_REPORT_ACCOUNT_TYPE_LABELS[record.type] ?? record.type,
+      typeLabel: FINANCE_REPORT_ACCOUNT_TYPE_LABELS[record.type] ?? record.type,
       counterpart: record.counterpart,
       amount: toMoneyNumber(record.amount),
       remaining: toMoneyNumber(record.remaining),

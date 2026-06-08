@@ -3,7 +3,8 @@ import { BusinessAnalysisService } from '../../purely-profit/dashboard/business-
 import type { GetBusinessAnalysisQueryDto } from '../../purely-profit/dashboard/business-analysis/dto/business-analysis-query.dto';
 import type { BusinessAnalysisResponseDto } from '../../purely-profit/dashboard/business-analysis/dto/business-analysis-response.dto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { buildPulseDashboardOverviewCacheKey } from '../../redis/cache-keys';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import { buildPulseDashboardOverviewCacheKey } from '../pulse.cache-keys';
 import { RedisService } from '../../redis/redis.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PulseStoreContextService } from '../pulse-store-context.service';
@@ -52,6 +53,7 @@ import type {
 } from './dto/pulse-dashboard-overview.response.dto';
 
 const PULSE_DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS = 20;
+const PULSE_DASHBOARD_OVERVIEW_REFRESH_AFTER_MS = 10_000;
 
 @Injectable()
 export class PulseDashboardOverviewService {
@@ -77,58 +79,14 @@ export class PulseDashboardOverviewService {
       targetStore.id,
       period,
     );
-    const cachedResponse =
-      await this.redisService.getJson<PulseDashboardOverviewResponseDto>(
-        cacheKey,
-      );
-    if (cachedResponse !== null) {
-      return cachedResponse;
-    }
 
-    const storeIds = [targetStore.id];
-    const currentRange = buildCurrentRange(period);
-    const compareRange = buildCompareRange(period, currentRange);
-
-    const [currentAgg, compareAgg, costSum, compareCostSum] = await Promise.all(
-      [
-        this.dashboardAggregatorService.aggregateSales(storeIds, currentRange),
-        this.dashboardAggregatorService.aggregateSales(storeIds, compareRange),
-        this.dashboardAggregatorService.aggregateCosts(storeIds, currentRange),
-        this.dashboardAggregatorService.aggregateCosts(storeIds, compareRange),
-      ],
-    );
-
-    const currentProfit = subtractMoney(currentAgg.totalRevenue, costSum);
-    const compareProfit = subtractMoney(
-      compareAgg.totalRevenue,
-      compareCostSum,
-    );
-
-    const response = {
-      stats: this.buildStats(
-        period,
-        currentAgg,
-        compareAgg,
-        currentProfit,
-        compareProfit,
-        costSum,
-      ),
-      salesTrend: await this.buildSalesTrend(storeIds, period, currentRange),
-      meta: this.buildMeta(
-        period,
-        targetStore.id,
-        storeIds.length,
-        currentRange,
-      ),
-    };
-
-    await this.redisService.setJson(
+    return this.redisService.getOrLoadRefreshableJson({
       cacheKey,
-      response,
-      PULSE_DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS,
-    );
-
-    return response;
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: PULSE_DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS,
+      refreshAfterMs: PULSE_DASHBOARD_OVERVIEW_REFRESH_AFTER_MS,
+      loadValue: () => this.buildOverview(targetStore, period),
+    });
   }
 
   async getStores(
@@ -231,6 +189,48 @@ export class PulseDashboardOverviewService {
       targetStore.id,
       proxyQuery,
     );
+  }
+
+  private async buildOverview(
+    targetStore: PulseTargetStoreSummary,
+    period: PulseDashboardPeriodValue,
+  ): Promise<PulseDashboardOverviewResponseDto> {
+    const storeIds = [targetStore.id];
+    const currentRange = buildCurrentRange(period);
+    const compareRange = buildCompareRange(period, currentRange);
+
+    const [currentAgg, compareAgg, costSum, compareCostSum] = await Promise.all(
+      [
+        this.dashboardAggregatorService.aggregateSales(storeIds, currentRange),
+        this.dashboardAggregatorService.aggregateSales(storeIds, compareRange),
+        this.dashboardAggregatorService.aggregateCosts(storeIds, currentRange),
+        this.dashboardAggregatorService.aggregateCosts(storeIds, compareRange),
+      ],
+    );
+
+    const currentProfit = subtractMoney(currentAgg.totalRevenue, costSum);
+    const compareProfit = subtractMoney(
+      compareAgg.totalRevenue,
+      compareCostSum,
+    );
+
+    return {
+      stats: this.buildStats(
+        period,
+        currentAgg,
+        compareAgg,
+        currentProfit,
+        compareProfit,
+        costSum,
+      ),
+      salesTrend: await this.buildSalesTrend(storeIds, period, currentRange),
+      meta: this.buildMeta(
+        period,
+        targetStore.id,
+        storeIds.length,
+        currentRange,
+      ),
+    };
   }
 
   private async resolveDashboardTargetStore(

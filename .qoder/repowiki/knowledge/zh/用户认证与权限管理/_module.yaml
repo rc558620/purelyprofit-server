@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: auth
-title: 用户认证与权限管理
-scope:
-    - src/purely-profit/auth/
-source_files: []
-depends_on: []
-related_to: []

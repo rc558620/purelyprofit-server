@@ -1,21 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { recordCachePrewarmCycle } from '../observability';
-import { BusinessAnalysisService } from '../purely-profit/dashboard/business-analysis/business-analysis.service';
-import { DashboardHomeService } from '../purely-profit/dashboard/dashboard-home/dashboard-home.service';
-import { FinanceOverviewService } from '../purely-profit/finance/finance-overview.service';
-import type { CachePrewarmCycleMetrics } from './cache-prewarm.types';
-import { createCachePrewarmCategoryConfigs } from './cache-prewarm.config';
-import {
-  buildCachePrewarmCycleSummaryLog,
-  shouldLogCachePrewarmCycleSummary,
-} from './cache-prewarm.log';
-import {
-  buildCachePrewarmCategoryResultsMap,
-  buildCachePrewarmCycleMetrics,
-  buildFailedCachePrewarmCycleMetrics,
-} from './cache-prewarm.utils';
-import { RedisService } from './redis.service';
+import { CachePrewarmCycleService } from './cache-prewarm-cycle.service';
 
 @Injectable()
 export class CachePrewarmService implements OnModuleInit, OnModuleDestroy {
@@ -34,10 +19,7 @@ export class CachePrewarmService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly redisService: RedisService,
-    private readonly dashboardHomeService: DashboardHomeService,
-    private readonly businessAnalysisService: BusinessAnalysisService,
-    private readonly financeOverviewService: FinanceOverviewService,
+    private readonly cycleService: CachePrewarmCycleService,
   ) {
     this.enabled =
       this.configService.get<boolean>('app.cachePrewarmEnabled') ?? true;
@@ -94,71 +76,18 @@ export class CachePrewarmService implements OnModuleInit, OnModuleDestroy {
 
     this.isRunning = true;
     this.cycleCount += 1;
-    const currentCycle = this.cycleCount;
-    const startedAt = Date.now();
 
     try {
-      const categoryConfigs = createCachePrewarmCategoryConfigs({
-        dashboardHomeService: this.dashboardHomeService,
-        businessAnalysisService: this.businessAnalysisService,
-        financeOverviewService: this.financeOverviewService,
+      await this.cycleService.runCycle({
+        cycleId: this.cycleCount,
+        batchSize: this.batchSize,
+        concurrency: this.concurrency,
+        logEnabled: this.logEnabled,
+        logSampleEvery: this.logSampleEvery,
+        slowCycleThresholdMs: this.slowCycleThresholdMs,
       });
-      const cacheKeysByCategory = await Promise.all(
-        categoryConfigs.map((config) =>
-          this.redisService.scanKeysByPattern(
-            config.scanPattern(),
-            this.batchSize,
-          ),
-        ),
-      );
-      const categoryResultEntries = await Promise.all(
-        categoryConfigs.map(async (config, index) => {
-          const cacheKeys = cacheKeysByCategory[index] ?? [];
-          return [
-            config.category,
-            await config.prewarm(cacheKeys, {
-              concurrency: this.concurrency,
-            }),
-          ] as const;
-        }),
-      );
-
-      const durationMs = Date.now() - startedAt;
-      const metrics: CachePrewarmCycleMetrics = buildCachePrewarmCycleMetrics(
-        durationMs,
-        buildCachePrewarmCategoryResultsMap(categoryResultEntries),
-      );
-
-      recordCachePrewarmCycle(metrics);
-      this.logCycleSummary(currentCycle, metrics);
-    } catch (error: unknown) {
-      const durationMs = Date.now() - startedAt;
-      recordCachePrewarmCycle(buildFailedCachePrewarmCycleMetrics(durationMs));
-      console.error('[cache-prewarm] cycle failed', error);
     } finally {
       this.isRunning = false;
     }
-  }
-
-  private logCycleSummary(
-    cycleId: number,
-    metrics: CachePrewarmCycleMetrics,
-  ): void {
-    if (!this.logEnabled) {
-      return;
-    }
-
-    if (
-      !shouldLogCachePrewarmCycleSummary(
-        cycleId,
-        metrics,
-        this.logSampleEvery,
-        this.slowCycleThresholdMs,
-      )
-    ) {
-      return;
-    }
-
-    console.info(buildCachePrewarmCycleSummaryLog(cycleId, metrics));
   }
 }

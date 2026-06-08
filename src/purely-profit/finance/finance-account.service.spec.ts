@@ -2,6 +2,8 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { FinanceAccountStatus, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import { CacheInvalidatorService } from '../../redis/invalidator';
+import { RedisService } from '../../redis/redis.service';
 import { FinanceAccountService } from './finance-account.service';
 import {
   createFinanceAccountPrismaMock,
@@ -17,6 +19,11 @@ describe('FinanceAccountService', () => {
   let prismaService: ReturnType<typeof createFinanceAccountPrismaMock>;
   let platformMembershipAccessService: ReturnType<
     typeof createPlatformMembershipAccessServiceMock
+  >;
+  let redisService: Pick<RedisService, 'getOrLoadRefreshableJson'>;
+  let cacheInvalidatorService: Pick<
+    CacheInvalidatorService,
+    'invalidateFinanceDerived'
   >;
 
   const user: AuthenticatedUser = createFinanceSpecUser();
@@ -35,10 +42,42 @@ describe('FinanceAccountService', () => {
     }).compile();
 
     service = module.get<FinanceAccountService>(FinanceAccountService);
+    redisService = module.get(RedisService);
+    cacheInvalidatorService = module.get(CacheInvalidatorService);
   });
 
   afterEach(() => {
     useFinanceSpecRealTimers();
+  });
+
+  it('listAccounts 会通过 refreshable cache 包裹列表读取', async () => {
+    prismaService.financeAccountRecord.findMany.mockResolvedValue([]);
+    prismaService.financeAccountRecord.count.mockResolvedValue(0);
+
+    await expect(
+      service.listAccounts(user, {
+        typeFilter: 'receivable',
+        statusFilter: 'pending',
+        searchText: '张三',
+        page: 1,
+        pageSize: 10,
+      }),
+    ).resolves.toEqual({
+      items: [],
+      meta: {
+        page: 1,
+        pageSize: 10,
+        total: 0,
+        totalPages: 0,
+      },
+    });
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey:
+          'profit:finance:accounts:list:store:18:type:receivable:status:pending:search:%E5%BC%A0%E4%B8%89:page:1:pageSize:10',
+        ttlSeconds: 60,
+      }),
+    );
   });
 
   it('createAccount 会按前端规则派生 overdue 状态和 remaining', async () => {
@@ -170,6 +209,37 @@ describe('FinanceAccountService', () => {
     await expect(
       service.settleAccount(user, 12, { payAmount: 500 }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('createAccount 成功后会失效财务派生缓存', async () => {
+    prismaService.financeAccountRecord.create.mockResolvedValue({
+      id: 13,
+      type: 'receivable',
+      category: 'sales_credit',
+      counterpart: '测试客户',
+      amount: new Prisma.Decimal('100.00'),
+      paidAmount: new Prisma.Decimal('0.00'),
+      remaining: new Prisma.Decimal('100.00'),
+      status: FinanceAccountStatus.pending,
+      dueDate: null,
+      date: new Date('2026-05-14T00:00:00.000Z'),
+      note: null,
+      createdAt: new Date('2026-05-14T12:00:00.000Z'),
+      updatedAt: new Date('2026-05-14T12:00:00.000Z'),
+    });
+
+    await service.createAccount(user, {
+      type: 'receivable',
+      category: 'sales_credit',
+      counterpart: '测试客户',
+      amount: 100,
+      paidAmount: 0,
+      date: new Date('2026-05-14T00:00:00.000Z').getTime(),
+    });
+
+    expect(
+      cacheInvalidatorService.invalidateFinanceDerived,
+    ).toHaveBeenCalledWith(18);
   });
 
   it('缺少当前门店时拒绝访问财务接口', async () => {

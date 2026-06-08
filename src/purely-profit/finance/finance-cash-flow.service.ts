@@ -7,7 +7,13 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import {
+  buildFinanceCashFlowListCacheKey,
+  buildFinanceCashFlowStatsCacheKey,
+} from './finance.cache-keys';
+import { CacheInvalidatorService } from '../../redis/invalidator';
+import { RedisService } from '../../redis/redis.service';
 import {
   CreateFinanceCashFlowRecordDto,
   ListFinanceCashFlowRecordsQueryDto,
@@ -45,10 +51,14 @@ import {
 } from './finance-range.utils';
 import { trimOptionalString } from './finance-string.utils';
 
+const FINANCE_CASH_FLOW_CACHE_TTL_SECONDS = 60;
+const FINANCE_CASH_FLOW_REFRESH_AFTER_MS = 15_000;
+
 @Injectable()
 export class FinanceCashFlowService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly financeAccessService: FinanceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
@@ -62,6 +72,7 @@ export class FinanceCashFlowService {
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const callerIsSubAccount =
       user.currentMembership?.subjectType === 'sub_account';
+    const scope = callerIsSubAccount ? 'sub_account' : 'owner';
     const cashFlowQuery: FinanceCashFlowListQueryInput = {
       period: query.period,
       directionFilter: query.directionFilter,
@@ -77,6 +88,111 @@ export class FinanceCashFlowService {
       page: query.page,
       pageSize: query.pageSize,
     };
+    const cacheKey = buildFinanceCashFlowListCacheKey(storeId, {
+      ...cashFlowQuery,
+      scope,
+    });
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: FINANCE_CASH_FLOW_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_CASH_FLOW_REFRESH_AFTER_MS,
+      loadValue: () =>
+        this.buildCashFlowRecords(storeId, cashFlowQuery, callerIsSubAccount),
+      refreshValue: () =>
+        this.buildCashFlowRecords(storeId, cashFlowQuery, callerIsSubAccount),
+    });
+  }
+
+  async getCashFlowStats(
+    user: AuthenticatedUser,
+    query: ListFinanceCashFlowRecordsQueryDto,
+  ): Promise<FinanceCashFlowStatsDto> {
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
+    const scope = callerIsSubAccount ? 'sub_account' : 'owner';
+    const cashFlowQuery: FinanceCashFlowListQueryInput = {
+      period: query.period,
+      directionFilter: query.directionFilter,
+      customDayYear: query.customDayYear,
+      customDayMonth: query.customDayMonth,
+      customDayDay: query.customDayDay,
+      customRangeStartYear: query.customRangeStartYear,
+      customRangeStartMonth: query.customRangeStartMonth,
+      customRangeStartDay: query.customRangeStartDay,
+      customRangeEndYear: query.customRangeEndYear,
+      customRangeEndMonth: query.customRangeEndMonth,
+      customRangeEndDay: query.customRangeEndDay,
+    };
+    const cacheKey = buildFinanceCashFlowStatsCacheKey(storeId, {
+      ...cashFlowQuery,
+      scope,
+    });
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: FINANCE_CASH_FLOW_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_CASH_FLOW_REFRESH_AFTER_MS,
+      loadValue: () =>
+        this.buildCashFlowStats(storeId, cashFlowQuery, callerIsSubAccount),
+      refreshValue: () =>
+        this.buildCashFlowStats(storeId, cashFlowQuery, callerIsSubAccount),
+    });
+  }
+
+  async createCashFlowRecord(
+    user: AuthenticatedUser,
+    dto: CreateFinanceCashFlowRecordDto,
+  ): Promise<FinanceCashFlowRecordResponseDto> {
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const operatorStaffId = user.currentMembership?.staffId ?? null;
+
+    assertCashFlowCategoryCanCreateManually(dto.category);
+    assertCashFlowDirectionMatchesCategory(dto.direction, dto.category);
+
+    const createdRecord = await createCashFlowRecordEntity(this.prisma, {
+      storeId,
+      operatorStaffId,
+      direction: dto.direction,
+      category: dto.category,
+      title: dto.title.trim(),
+      amount: toPrismaDecimal(dto.amount),
+      payment: dto.payment,
+      note: trimOptionalString(dto.note),
+      date: new Date(dto.date),
+    });
+
+    await this.invalidateDerivedCaches(storeId);
+
+    return mapCashFlowRecord(createdRecord);
+  }
+
+  async deleteCashFlowRecord(
+    user: AuthenticatedUser,
+    recordId: number,
+  ): Promise<void> {
+    const storeId =
+      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+    const record = await this.ensureCashFlowRecordExists(storeId, recordId);
+
+    if (record.saleOrderId !== null) {
+      throw new ConflictException('销售收入流水需通过删除销售记录回滚');
+    }
+
+    await deleteCashFlowRecordEntity(this.prisma, recordId);
+    await this.invalidateDerivedCaches(storeId);
+  }
+
+  private async buildCashFlowRecords(
+    storeId: number,
+    cashFlowQuery: FinanceCashFlowListQueryInput,
+    callerIsSubAccount: boolean,
+  ): Promise<PaginatedFinanceCashFlowRecordsResponseDto> {
     const range = getCashFlowFilterRange(cashFlowQuery);
     const clampedRange =
       await this.platformMembershipAccessService.clampHistoryRange(
@@ -112,27 +228,11 @@ export class FinanceCashFlowService {
     return buildPaginatedCashFlowRecordsResponse(records, pageState, total);
   }
 
-  async getCashFlowStats(
-    user: AuthenticatedUser,
-    query: ListFinanceCashFlowRecordsQueryDto,
+  private async buildCashFlowStats(
+    storeId: number,
+    cashFlowQuery: FinanceCashFlowListQueryInput,
+    callerIsSubAccount: boolean,
   ): Promise<FinanceCashFlowStatsDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const callerIsSubAccount =
-      user.currentMembership?.subjectType === 'sub_account';
-    const cashFlowQuery: FinanceCashFlowListQueryInput = {
-      period: query.period,
-      directionFilter: query.directionFilter,
-      customDayYear: query.customDayYear,
-      customDayMonth: query.customDayMonth,
-      customDayDay: query.customDayDay,
-      customRangeStartYear: query.customRangeStartYear,
-      customRangeStartMonth: query.customRangeStartMonth,
-      customRangeStartDay: query.customRangeStartDay,
-      customRangeEndYear: query.customRangeEndYear,
-      customRangeEndMonth: query.customRangeEndMonth,
-      customRangeEndDay: query.customRangeEndDay,
-    };
     const range = getCashFlowFilterRange(cashFlowQuery);
     const clampedRange =
       await this.platformMembershipAccessService.clampHistoryRange(
@@ -195,50 +295,6 @@ export class FinanceCashFlowService {
               100,
           ),
     };
-  }
-
-  async createCashFlowRecord(
-    user: AuthenticatedUser,
-    dto: CreateFinanceCashFlowRecordDto,
-  ): Promise<FinanceCashFlowRecordResponseDto> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const operatorStaffId = user.currentMembership?.staffId ?? null;
-
-    assertCashFlowCategoryCanCreateManually(dto.category);
-    assertCashFlowDirectionMatchesCategory(dto.direction, dto.category);
-
-    const createdRecord = await createCashFlowRecordEntity(this.prisma, {
-      storeId,
-      operatorStaffId,
-      direction: dto.direction,
-      category: dto.category,
-      title: dto.title.trim(),
-      amount: toPrismaDecimal(dto.amount),
-      payment: dto.payment,
-      note: trimOptionalString(dto.note),
-      date: new Date(dto.date),
-    });
-
-    await this.invalidateDerivedCaches(storeId);
-
-    return mapCashFlowRecord(createdRecord);
-  }
-
-  async deleteCashFlowRecord(
-    user: AuthenticatedUser,
-    recordId: number,
-  ): Promise<void> {
-    const storeId =
-      await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const record = await this.ensureCashFlowRecordExists(storeId, recordId);
-
-    if (record.saleOrderId !== null) {
-      throw new ConflictException('销售收入流水需通过删除销售记录回滚');
-    }
-
-    await deleteCashFlowRecordEntity(this.prisma, recordId);
-    await this.invalidateDerivedCaches(storeId);
   }
 
   private async invalidateDerivedCaches(storeId: number): Promise<void> {

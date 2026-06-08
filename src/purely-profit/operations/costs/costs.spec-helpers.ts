@@ -3,7 +3,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { CostsReadService } from './costs-read.service';
 import { CostsService } from './costs.service';
 import { CostsWriteService } from './costs-write.service';

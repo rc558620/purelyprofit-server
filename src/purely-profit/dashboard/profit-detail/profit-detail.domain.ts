@@ -4,6 +4,7 @@ import {
   multiplyMoneyValue,
   toDecimalNumber,
   toOptionalMediaText,
+  toOptionalText,
 } from '../../commerce/commerce.utils';
 import type {
   AggregatedRankProduct,
@@ -20,6 +21,23 @@ export function createEmptySalesAggregation(): SalesAggregationResult {
     dailyRevenueMap: new Map<number, number>(),
     rankMap: new Map<string, AggregatedRankProduct>(),
   };
+}
+
+function shouldPrefixProfitSpaceName(productName: string): boolean {
+  return (
+    productName === '预付抵扣' ||
+    productName === '续费抵扣' ||
+    productName.startsWith('台位费（')
+  );
+}
+
+function resolveProfitProductName(row: SaleOrderItemRow): string {
+  const spaceName = toOptionalText(row.order.spaceSession?.space?.name);
+  if (!spaceName || !shouldPrefixProfitSpaceName(row.productName)) {
+    return row.productName;
+  }
+
+  return `${spaceName}${row.productName}`;
 }
 
 export function aggregateSales(
@@ -113,10 +131,13 @@ function mergeRankProduct(
   itemRevenue: number,
   itemProfit: number,
 ): void {
+  const displayName = resolveProfitProductName(row);
   const rankKey =
-    row.productId !== null
-      ? String(row.productId)
-      : `snapshot:${row.productName}`;
+    displayName !== row.productName
+      ? `space:${displayName}`
+      : row.productId !== null
+        ? String(row.productId)
+        : `snapshot:${displayName}`;
   const currentProduct = rankMap.get(rankKey);
 
   if (currentProduct) {
@@ -138,7 +159,7 @@ function mergeRankProduct(
   const image = toOptionalMediaText(row.image);
   rankMap.set(rankKey, {
     id: rankKey,
-    name: row.productName,
+    name: displayName,
     category: row.categoryName,
     price,
     profitPerUnit,

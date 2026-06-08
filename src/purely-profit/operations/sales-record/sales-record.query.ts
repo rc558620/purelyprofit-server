@@ -72,6 +72,15 @@ export async function querySaleOrders(
       items: {
         orderBy: [{ id: 'asc' }],
       },
+      spaceSession: {
+        select: {
+          space: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
     },
     orderBy: [{ date: 'desc' }, { id: 'desc' }],
     skip: params.skip,

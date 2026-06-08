@@ -27,8 +27,7 @@ describe('PulseDashboardHomeService', () => {
   };
 
   const redisService = {
-    getJson: jest.fn(),
-    setJson: jest.fn(),
+    getOrLoadRefreshableJson: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -46,8 +45,10 @@ describe('PulseDashboardHomeService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-30T12:00:00.000Z'));
     jest.clearAllMocks();
-    redisService.getJson.mockResolvedValue(null);
-    redisService.setJson.mockResolvedValue(undefined);
+    redisService.getOrLoadRefreshableJson.mockImplementation(
+      async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
+        loadValue(),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -87,7 +88,7 @@ describe('PulseDashboardHomeService', () => {
       pendingApplicationCount: 0,
       generatedAt: Date.now(),
     };
-    redisService.getJson.mockResolvedValue(cached);
+    redisService.getOrLoadRefreshableJson.mockResolvedValue(cached);
 
     await expect(service.getHome(user, {})).resolves.toEqual(cached);
     expect(prismaService.storePartner.count).not.toHaveBeenCalled();
@@ -154,10 +155,11 @@ describe('PulseDashboardHomeService', () => {
       { label: '年卡会员', value: 0 },
       { label: '其他充值', value: 0 },
     ]);
-    expect(redisService.setJson).toHaveBeenCalledWith(
-      'pulse:dashboard:home:period:month:region:all',
-      result,
-      30,
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: 'pulse:dashboard:home:period:month:region:all',
+        ttlSeconds: 30,
+      }),
     );
   });
 

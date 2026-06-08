@@ -109,7 +109,9 @@ export const toSpaceSessionResponse = (
     ...(session.hourlyRate !== null
       ? { hourlyRate: Number(session.hourlyRate) }
       : {}),
-    ...(session.timeCost !== null ? { timeCost: Number(session.timeCost) } : {}),
+    ...(session.timeCost !== null
+      ? { timeCost: Number(session.timeCost) }
+      : {}),
     ...(session.countdownMinutes !== null
       ? { countdownMinutes: session.countdownMinutes }
       : {}),

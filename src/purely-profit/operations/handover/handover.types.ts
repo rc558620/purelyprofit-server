@@ -92,6 +92,9 @@ export type OrderItemRow = {
     spaceSession: {
       prepaidPaymentMethod: SalesPaymentMethod | null;
       renewRecords: Prisma.JsonValue;
+      space: {
+        name: string;
+      } | null;
     } | null;
   };
 };

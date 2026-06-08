@@ -31,9 +31,7 @@ describe('SubAccountBlockGuard', () => {
   });
 
   it('未标记 BlockSubAccount 时直接放行', () => {
-    reflector.getAllAndOverride = jest
-      .fn()
-      .mockReturnValueOnce(undefined);
+    reflector.getAllAndOverride = jest.fn().mockReturnValueOnce(undefined);
 
     expect(guard.canActivate(createContext('sub_account'))).toBe(true);
     expect(reflector.getAllAndOverride).toHaveBeenCalledWith(

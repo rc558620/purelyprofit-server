@@ -2,7 +2,13 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { PartnerWithdrawalStatus, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import {
+  buildCacheRefreshTaskKey,
+  buildWithdrawalsListCacheKey,
+  buildWithdrawalsOverviewCacheKey,
+} from '../../../redis/keys';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { RedisService } from '../../../redis/redis.service';
 import {
   type ApplyWithdrawalDto,
   type ListWithdrawalsQueryDto,
@@ -42,10 +48,16 @@ type ApplyWithdrawalTransactionInput = {
   accountName: string;
 };
 
+const WITHDRAWALS_OVERVIEW_CACHE_TTL_SECONDS = 90;
+const WITHDRAWALS_OVERVIEW_REFRESH_AFTER_MS = 20_000;
+const WITHDRAWALS_LIST_CACHE_TTL_SECONDS = 45;
+const WITHDRAWALS_LIST_REFRESH_AFTER_MS = 15_000;
+
 @Injectable()
 export class WithdrawalsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly withdrawalsSharedService: WithdrawalsSharedService,
   ) {}
@@ -55,7 +67,16 @@ export class WithdrawalsService {
   ): Promise<WithdrawalOverviewResponseDto> {
     const storeId =
       this.withdrawalsSharedService.getCurrentStoreIdOrThrow(user);
-    return this.withdrawalsSharedService.buildOverview(this.prisma, storeId);
+    const cacheKey = buildWithdrawalsOverviewCacheKey(storeId);
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: WITHDRAWALS_OVERVIEW_CACHE_TTL_SECONDS,
+      refreshAfterMs: WITHDRAWALS_OVERVIEW_REFRESH_AFTER_MS,
+      loadValue: () =>
+        this.withdrawalsSharedService.buildOverview(this.prisma, storeId),
+    });
   }
 
   async list(
@@ -64,16 +85,28 @@ export class WithdrawalsService {
   ): Promise<WithdrawalRecordResponseDto[]> {
     const storeId =
       this.withdrawalsSharedService.getCurrentStoreIdOrThrow(user);
-    const records = await this.prisma.partnerWithdrawal.findMany({
-      where: {
-        storeId,
-        ...(query.status ? { status: query.status } : {}),
-      },
-      select: withdrawalRecordSelect,
-      orderBy: [{ appliedAt: 'desc' }, { id: 'desc' }],
+    const cacheKey = buildWithdrawalsListCacheKey(storeId, {
+      status: query.status,
     });
 
-    return records.map((record) => mapWithdrawalRecord(record));
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: WITHDRAWALS_LIST_CACHE_TTL_SECONDS,
+      refreshAfterMs: WITHDRAWALS_LIST_REFRESH_AFTER_MS,
+      loadValue: async () => {
+        const records = await this.prisma.partnerWithdrawal.findMany({
+          where: {
+            storeId,
+            ...(query.status ? { status: query.status } : {}),
+          },
+          select: withdrawalRecordSelect,
+          orderBy: [{ appliedAt: 'desc' }, { id: 'desc' }],
+        });
+
+        return records.map((record) => mapWithdrawalRecord(record));
+      },
+    });
   }
 
   async apply(
@@ -350,9 +383,11 @@ export class WithdrawalsService {
   }
 
   private async invalidateDashboardCaches(storeId: number): Promise<void> {
-    await this.cacheInvalidatorService.invalidateDashboardAndPulseSession(
-      storeId,
-    );
+    await Promise.all([
+      this.cacheInvalidatorService.invalidateDashboardAndPulseSession(storeId),
+      this.cacheInvalidatorService.invalidateWithdrawalsDerived(storeId),
+      this.cacheInvalidatorService.invalidatePulseGrowthEarnings(storeId),
+    ]);
   }
 
   private async buildReviewResponse(
@@ -360,7 +395,7 @@ export class WithdrawalsService {
     storeId: number,
     withdrawalId: number,
   ): Promise<ReviewWithdrawalResponseDto> {
-    const updatedRecord =
+    const record =
       await this.withdrawalsSharedService.findWithdrawalByIdOrThrow(
         tx,
         withdrawalId,
@@ -369,7 +404,7 @@ export class WithdrawalsService {
     return this.withdrawalsSharedService.buildOperationResponse(
       tx,
       storeId,
-      updatedRecord,
-    );
+      record,
+    ) as Promise<ReviewWithdrawalResponseDto>;
   }
 }

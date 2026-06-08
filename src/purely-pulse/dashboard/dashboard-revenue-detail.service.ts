@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import { buildPulseDashboardRevenueDetailCacheKey } from '../pulse.cache-keys';
 import { RedisService } from '../../redis/redis.service';
 import {
   DEFAULT_REVENUE_DETAIL_PERIOD,
@@ -40,6 +42,9 @@ import type {
 } from './dto/pulse-dashboard-query.dto';
 import type { PulseRevenueDetailResponseDto } from './dto/pulse-dashboard-revenue-detail.response.dto';
 
+const PULSE_DASHBOARD_REVENUE_DETAIL_CACHE_TTL_SECONDS = 20;
+const PULSE_DASHBOARD_REVENUE_DETAIL_REFRESH_AFTER_MS = 8_000;
+
 @Injectable()
 export class PulseDashboardRevenueDetailService {
   constructor(
@@ -49,6 +54,30 @@ export class PulseDashboardRevenueDetailService {
 
   async getRevenueDetail(
     _user: AuthenticatedUser,
+    queryDto: GetPulseRevenueDetailQueryDto,
+  ): Promise<PulseRevenueDetailResponseDto> {
+    const cacheKey = buildPulseDashboardRevenueDetailCacheKey({
+      period: queryDto.period,
+      date: queryDto.date,
+      startDate: queryDto.startDate,
+      endDate: queryDto.endDate,
+      regionValues: queryDto.regionValues,
+      regionCode: queryDto.regionCode,
+      provinceCode: queryDto.provinceCode,
+      cityCode: queryDto.cityCode,
+      districtCode: queryDto.districtCode,
+    });
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: PULSE_DASHBOARD_REVENUE_DETAIL_CACHE_TTL_SECONDS,
+      refreshAfterMs: PULSE_DASHBOARD_REVENUE_DETAIL_REFRESH_AFTER_MS,
+      loadValue: () => this.buildRevenueDetail(queryDto),
+    });
+  }
+
+  private async buildRevenueDetail(
     queryDto: GetPulseRevenueDetailQueryDto,
   ): Promise<PulseRevenueDetailResponseDto> {
     const now = new Date();

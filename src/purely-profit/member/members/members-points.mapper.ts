@@ -1,13 +1,9 @@
-import {
-  MemberBeansLogResponseDto,
-} from './dto/member-beans.dto';
+import { MemberBeansLogResponseDto } from './dto/member-beans.dto';
 import type {
   MemberBeanRecordSourceValue,
   MemberBeanRecordTypeValue,
 } from './dto/member-beans.dto';
-import {
-  MemberPointsLogResponseDto,
-} from './dto/member-points.dto';
+import { MemberPointsLogResponseDto } from './dto/member-points.dto';
 import type {
   MemberPointsRecordSourceValue,
   MemberPointsRecordTypeValue,

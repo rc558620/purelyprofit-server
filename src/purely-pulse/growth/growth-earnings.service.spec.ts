@@ -6,7 +6,7 @@ import { PulseGrowthAccessService } from './growth-access.service';
 import {
   buildPulseGrowthEarningsLogsCacheKey,
   buildPulseGrowthEarningsOverviewCacheKey,
-} from '../../redis/cache-keys';
+} from '../pulse.cache-keys';
 import { PulseGrowthEarningsService } from './growth-earnings.service';
 import * as growthEarningsDomain from './growth-earnings.domain';
 import * as growthEarningsQuery from './growth-earnings.query';

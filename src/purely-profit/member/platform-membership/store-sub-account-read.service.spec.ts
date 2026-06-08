@@ -1,9 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
-import {
-  StoreSubAccountRole,
-  StoreSubAccountStatus,
-} from '@prisma/client';
+import { StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlatformMembershipAccessService } from './platform-membership-access.service';
 import { StoreSubAccountReadService } from './store-sub-account-read.service';
@@ -43,7 +40,9 @@ describe('StoreSubAccountReadService', () => {
       ],
     }).compile();
 
-    service = module.get<StoreSubAccountReadService>(StoreSubAccountReadService);
+    service = module.get<StoreSubAccountReadService>(
+      StoreSubAccountReadService,
+    );
   });
 
   it('返回门店子账号汇总与角色统计', async () => {

@@ -30,7 +30,9 @@ describe('MembersAccessService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(null);
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(
+      null,
+    );
     accessControlService.resolveCurrentStaffIdForStore.mockReturnValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
@@ -153,6 +155,8 @@ describe('MembersAccessService', () => {
   });
 
   it('findOperatorStaffIdForStore 在当前 membership 未命中时返回 null', async () => {
-    await expect(service.findOperatorStaffIdForStore(user, 6)).resolves.toBeNull();
+    await expect(
+      service.findOperatorStaffIdForStore(user, 6),
+    ).resolves.toBeNull();
   });
 });

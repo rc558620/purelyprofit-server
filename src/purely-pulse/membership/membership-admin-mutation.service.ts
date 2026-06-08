@@ -65,7 +65,8 @@ export class PulseMembershipAdminMutationService {
   ): Promise<PulseMemberDetailDto> {
     await this.assertAdminMemberMutationAccess(user, memberId);
 
-    const nextLevel = this.membershipMutationService.resolveAdminMemberLevel(dto);
+    const nextLevel =
+      this.membershipMutationService.resolveAdminMemberLevel(dto);
     const current =
       await this.mutationStateService.loadAdminMemberStateOrThrow(memberId);
     this.membershipMutationService.assertFreeDowngradeConfirmed(
@@ -78,7 +79,8 @@ export class PulseMembershipAdminMutationService {
         dto,
         nextLevel,
       );
-    const nextPlanId = this.membershipMutationService.toMembershipPlanId(nextLevel);
+    const nextPlanId =
+      this.membershipMutationService.toMembershipPlanId(nextLevel);
     const now = new Date();
 
     this.logMembershipLevelMutation({
@@ -186,7 +188,10 @@ export class PulseMembershipAdminMutationService {
     user: AuthenticatedUser,
     memberId: number,
   ): Promise<void> {
-    await this.mutationStateService.assertAdminMemberMutationAccess(user, memberId);
+    await this.mutationStateService.assertAdminMemberMutationAccess(
+      user,
+      memberId,
+    );
   }
 
   private logMembershipLevelMutation(params: {

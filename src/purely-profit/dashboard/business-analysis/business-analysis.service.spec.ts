@@ -12,18 +12,15 @@ describe('BusinessAnalysisService', () => {
   let service: BusinessAnalysisService;
 
   const prismaService = {
-    saleOrderItem: {
-      findMany: jest.fn(),
-    },
-    costRecord: {
-      findMany: jest.fn(),
-    },
+    $queryRaw: jest.fn(),
   };
 
   const redisService = {
-    getJson: jest.fn(),
-    setJson: jest.fn(),
-    runBackgroundRefresh: jest.fn(),
+    getOrLoadRefreshableJson: jest.fn(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    ),
+    writeRefreshableJson: jest.fn().mockResolvedValue(undefined),
   };
 
   const commerceAccessService = {
@@ -62,9 +59,10 @@ describe('BusinessAnalysisService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-13T12:00:00.000Z'));
     jest.clearAllMocks();
-    redisService.getJson.mockResolvedValue(null);
-    redisService.setJson.mockResolvedValue(undefined);
-    redisService.runBackgroundRefresh.mockResolvedValue(undefined);
+    redisService.getOrLoadRefreshableJson.mockImplementation(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    );
     platformMembershipAccessService.clampHistoryRange.mockImplementation(
       (_storeId: number, range: { start: number; end: number }) => ({
         ...range,
@@ -74,6 +72,7 @@ describe('BusinessAnalysisService', () => {
     platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
       undefined,
     );
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BusinessAnalysisService,
@@ -96,67 +95,85 @@ describe('BusinessAnalysisService', () => {
 
   it('getAnalysis 按前端 custom_range 参数聚合返回', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
-    prismaService.saleOrderItem.findMany.mockResolvedValue([
-      {
-        productId: 1,
-        productName: '可口可乐 330ml',
-        categoryName: '饮品',
-        salePrice: new Prisma.Decimal('6.50'),
-        profit: new Prisma.Decimal('2.50'),
-        quantity: 2,
-        image: 'https://example.com/coke.png',
-        createdAt: new Date('2026-05-12T10:00:00.000Z'),
-        order: {
-          id: 101,
-          date: new Date('2026-05-12T10:00:00.000Z'),
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          currentRevenue: new Prisma.Decimal('22.00'),
+          currentOrderCount: 2,
+          previousRevenue: new Prisma.Decimal('8.00'),
+          previousOrderCount: 1,
         },
-      },
-      {
-        productId: 2,
-        productName: '奥利奥',
-        categoryName: '零食',
-        salePrice: new Prisma.Decimal('9.00'),
-        profit: new Prisma.Decimal('3.00'),
-        quantity: 1,
-        image: null,
-        createdAt: new Date('2026-05-13T10:00:00.000Z'),
-        order: {
-          id: 102,
-          date: new Date('2026-05-13T10:00:00.000Z'),
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucketAt: new Date('2026-05-12T00:00:00.000Z'),
+          revenue: new Prisma.Decimal('13.00'),
         },
-      },
-      {
-        productId: 3,
-        productName: '上期商品',
-        categoryName: '饮品',
-        salePrice: new Prisma.Decimal('8.00'),
-        profit: new Prisma.Decimal('2.00'),
-        quantity: 1,
-        image: null,
-        createdAt: new Date('2026-05-10T10:00:00.000Z'),
-        order: {
-          id: 90,
-          date: new Date('2026-05-10T10:00:00.000Z'),
+        {
+          bucketAt: new Date('2026-05-13T00:00:00.000Z'),
+          revenue: new Prisma.Decimal('9.00'),
         },
-      },
-    ]);
-    prismaService.costRecord.findMany.mockResolvedValue([
-      {
-        category: 'purchase',
-        amount: new Prisma.Decimal('8.00'),
-        date: new Date('2026-05-12T09:00:00.000Z'),
-      },
-      {
-        category: 'utilities',
-        amount: new Prisma.Decimal('3.00'),
-        date: new Date('2026-05-13T09:00:00.000Z'),
-      },
-      {
-        category: 'rent',
-        amount: new Prisma.Decimal('4.00'),
-        date: new Date('2026-05-10T09:00:00.000Z'),
-      },
-    ]);
+      ])
+      .mockResolvedValueOnce([
+        {
+          categoryName: '饮品',
+          revenue: new Prisma.Decimal('13.00'),
+          profit: new Prisma.Decimal('5.00'),
+          quantity: 2,
+        },
+        {
+          categoryName: '零食',
+          revenue: new Prisma.Decimal('9.00'),
+          profit: new Prisma.Decimal('3.00'),
+          quantity: 1,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          productId: 1,
+          productName: '可口可乐 330ml',
+          categoryName: '饮品',
+          totalRevenue: new Prisma.Decimal('13.00'),
+          totalProfit: new Prisma.Decimal('5.00'),
+          quantity: 2,
+          image: 'https://example.com/coke.png',
+        },
+        {
+          productId: 2,
+          productName: '奥利奥',
+          categoryName: '零食',
+          totalRevenue: new Prisma.Decimal('9.00'),
+          totalProfit: new Prisma.Decimal('3.00'),
+          quantity: 1,
+          image: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          currentTotalCost: new Prisma.Decimal('11.00'),
+          previousTotalCost: new Prisma.Decimal('4.00'),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucketAt: new Date('2026-05-12T00:00:00.000Z'),
+          amount: new Prisma.Decimal('8.00'),
+        },
+        {
+          bucketAt: new Date('2026-05-13T00:00:00.000Z'),
+          amount: new Prisma.Decimal('3.00'),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          category: 'purchase',
+          amount: new Prisma.Decimal('8.00'),
+        },
+        {
+          category: 'utilities',
+          amount: new Prisma.Decimal('3.00'),
+        },
+      ]);
 
     await expect(
       service.getAnalysis(user, {
@@ -220,6 +237,7 @@ describe('BusinessAnalysisService', () => {
         },
       ],
     });
+    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(7);
   });
 
   it('getAnalysis 在导出模式下会校验报表导出权限', async () => {
@@ -249,25 +267,42 @@ describe('BusinessAnalysisService', () => {
         end: new Date('2026-05-07T23:59:59.999Z').getTime(),
         empty: true,
       });
-    prismaService.saleOrderItem.findMany.mockResolvedValue([]);
-    prismaService.costRecord.findMany.mockResolvedValue([]);
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          currentRevenue: new Prisma.Decimal('0'),
+          currentOrderCount: 0,
+          previousRevenue: new Prisma.Decimal('0'),
+          previousOrderCount: 0,
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          currentTotalCost: new Prisma.Decimal('0'),
+          previousTotalCost: new Prisma.Decimal('0'),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
 
     await service.getAnalysis(user, {
       period: 'month',
     });
 
-    expect(prismaService.saleOrderItem.findMany).toHaveBeenCalledWith(
+    expect(
+      platformMembershipAccessService.clampHistoryRange,
+    ).toHaveBeenNthCalledWith(
+      1,
+      18,
       expect.objectContaining({
-        where: expect.objectContaining({
-          order: {
-            date: {
-              gte: new Date('2026-05-08T00:00:00.000Z'),
-              lte: new Date('2026-05-13T12:00:00.000Z'),
-            },
-          },
-        }),
+        start: new Date(2026, 4, 1, 0, 0, 0, 0).getTime(),
       }),
+      false,
     );
+    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(7);
   });
 
   it('today 周期显式传入 startTime/endTime 时按前端边界查询并返回当天成本趋势', async () => {
@@ -282,29 +317,58 @@ describe('BusinessAnalysisService', () => {
       end: new Date(2026, 4, 26, 23, 59, 59, 999).getTime(),
       empty: true,
     });
-    prismaService.saleOrderItem.findMany.mockResolvedValue([
-      {
-        productId: 11,
-        productName: '今日商品',
-        categoryName: '饮品',
-        salePrice: new Prisma.Decimal('14146.67'),
-        profit: new Prisma.Decimal('14146.67'),
-        quantity: 2,
-        image: null,
-        createdAt: new Date(2026, 4, 27, 10, 0, 0, 0),
-        order: {
-          id: 301,
-          date: new Date(2026, 4, 27, 10, 0, 0, 0),
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          currentRevenue: new Prisma.Decimal('28293.34'),
+          currentOrderCount: 1,
+          previousRevenue: new Prisma.Decimal('0'),
+          previousOrderCount: 0,
         },
-      },
-    ]);
-    prismaService.costRecord.findMany.mockResolvedValue([
-      {
-        category: 'purchase',
-        amount: new Prisma.Decimal('500.00'),
-        date: new Date(2026, 4, 27, 9, 0, 0, 0),
-      },
-    ]);
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucketAt: new Date(2026, 4, 27, 0, 0, 0, 0),
+          revenue: new Prisma.Decimal('28293.34'),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          categoryName: '饮品',
+          revenue: new Prisma.Decimal('28293.34'),
+          profit: new Prisma.Decimal('28293.34'),
+          quantity: 2,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          productId: 11,
+          productName: '今日商品',
+          categoryName: '饮品',
+          totalRevenue: new Prisma.Decimal('28293.34'),
+          totalProfit: new Prisma.Decimal('28293.34'),
+          quantity: 2,
+          image: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          currentTotalCost: new Prisma.Decimal('500.00'),
+          previousTotalCost: new Prisma.Decimal('0'),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucketAt: new Date(2026, 4, 27, 0, 0, 0, 0),
+          amount: new Prisma.Decimal('500.00'),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          category: 'purchase',
+          amount: new Prisma.Decimal('500.00'),
+        },
+      ]);
 
     const response = await service.getAnalysis(user, {
       period: 'today',
@@ -312,28 +376,6 @@ describe('BusinessAnalysisService', () => {
       endTime: new Date(2026, 4, 27, 18, 0, 0, 0).getTime(),
     });
 
-    expect(prismaService.saleOrderItem.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          order: {
-            date: {
-              gte: new Date(2026, 4, 27, 0, 0, 0, 0),
-              lte: new Date(2026, 4, 27, 18, 0, 0, 0),
-            },
-          },
-        }),
-      }),
-    );
-    expect(prismaService.costRecord.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          date: {
-            gte: new Date(2026, 4, 27, 0, 0, 0, 0),
-            lte: new Date(2026, 4, 27, 18, 0, 0, 0),
-          },
-        }),
-      }),
-    );
     expect(response.heroSummary.totalCost.current).toBe(500);
     expect(response.dailyTrend).toEqual([
       { dateLabel: '05/27', revenue: 28293.34, cost: 500, profit: 27793.34 },

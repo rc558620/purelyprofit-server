@@ -1,4 +1,8 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { StaffRole } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AccessControlService } from '../../access-control/access-control.service';
@@ -34,7 +38,9 @@ describe('StaffAccessService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(null);
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(
+      null,
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -50,11 +56,15 @@ describe('StaffAccessService', () => {
   it('getManageableStoreId 在当前 membership 有权限时直接返回门店', async () => {
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(18);
 
-    await expect(service.getManageableStoreId(user, 'staff:view')).resolves.toBe(18);
+    await expect(
+      service.getManageableStoreId(user, 'staff:view'),
+    ).resolves.toBe(18);
   });
 
   it('getManageableStoreId 在当前 membership 无权限时返回 null', async () => {
-    await expect(service.getManageableStoreId(user, 'staff:view')).resolves.toBeNull();
+    await expect(
+      service.getManageableStoreId(user, 'staff:view'),
+    ).resolves.toBeNull();
   });
 
   it('ensureCanManageStaff 在门店不匹配时抛出异常', async () => {

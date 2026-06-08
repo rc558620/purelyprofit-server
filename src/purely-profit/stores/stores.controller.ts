@@ -45,9 +45,7 @@ export class StoresController {
     description: '返回当前账号唯一绑定的门店信息',
     type: StoreResponseDto,
   })
-  getStore(
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<StoreResponseDto> {
+  getStore(@CurrentUser() user: AuthenticatedUser): Promise<StoreResponseDto> {
     return this.storesService.getStore(user);
   }
 

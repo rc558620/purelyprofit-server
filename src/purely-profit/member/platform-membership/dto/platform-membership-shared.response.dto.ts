@@ -24,7 +24,11 @@ export const PLATFORM_PARTNER_STATUS = [
   'rejected',
 ] as const;
 
-export const PLATFORM_POINTS_RECORD_TYPES = ['earn', 'spend', 'expire'] as const;
+export const PLATFORM_POINTS_RECORD_TYPES = [
+  'earn',
+  'spend',
+  'expire',
+] as const;
 export const PLATFORM_POINTS_RECORD_SOURCES = [
   'purchase_bonus',
   'deduct_payment',
@@ -32,7 +36,11 @@ export const PLATFORM_POINTS_RECORD_SOURCES = [
   'expire',
 ] as const;
 
-export const PLATFORM_BEAN_RECORD_TYPES = ['earn', 'spend', 'withdraw'] as const;
+export const PLATFORM_BEAN_RECORD_TYPES = [
+  'earn',
+  'spend',
+  'withdraw',
+] as const;
 export const PLATFORM_BEAN_RECORD_SOURCES = [
   'promo_reward',
   'deduct_payment',

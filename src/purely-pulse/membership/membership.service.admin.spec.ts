@@ -83,7 +83,9 @@ describe('PulseMembershipAdminController membership', () => {
       },
     );
 
-    expect(pulseMembershipService.setAdminMemberMembership).toHaveBeenCalledWith(
+    expect(
+      pulseMembershipService.setAdminMemberMembership,
+    ).toHaveBeenCalledWith(
       user,
       48,
       expect.objectContaining({
@@ -680,7 +682,10 @@ describe('PulseMembershipService admin', () => {
       )
       .mockResolvedValue(undefined as never);
     jest
-      .spyOn(context.memberReadService as never, 'findMembershipProfileByStoreId' as never)
+      .spyOn(
+        context.memberReadService as never,
+        'findMembershipProfileByStoreId' as never,
+      )
       .mockResolvedValue({
         currentPlanId: 'quarterly',
         expiresAt: new Date('2099-05-21T00:00:00.000Z'),
@@ -689,7 +694,10 @@ describe('PulseMembershipService admin', () => {
         subAccountQuota: 0,
       } as never);
     jest
-      .spyOn(context.memberReadService as never, 'buildAdminMemberDetail' as never)
+      .spyOn(
+        context.memberReadService as never,
+        'buildAdminMemberDetail' as never,
+      )
       .mockResolvedValue({
         id: '18',
         name: '张三',
@@ -767,7 +775,10 @@ describe('PulseMembershipService admin', () => {
       )
       .mockResolvedValue(undefined as never);
     jest
-      .spyOn(context.memberReadService as never, 'findMembershipProfileByStoreId' as never)
+      .spyOn(
+        context.memberReadService as never,
+        'findMembershipProfileByStoreId' as never,
+      )
       .mockResolvedValue({
         currentPlanId: 'monthly',
         expiresAt: new Date('2099-05-21T00:00:00.000Z'),
@@ -783,7 +794,9 @@ describe('PulseMembershipService admin', () => {
         level: 'free',
       }),
     ).rejects.toThrow('当前会员仍在有效期内，降级到免费会员需要显式确认');
-    expect(context.prismaService.storeMembershipProfile.upsert).not.toHaveBeenCalled();
+    expect(
+      context.prismaService.storeMembershipProfile.upsert,
+    ).not.toHaveBeenCalled();
   });
 
   it('setAdminMemberMembership 设置为 lifetime 时按配置有效期落盘', async () => {
@@ -799,7 +812,10 @@ describe('PulseMembershipService admin', () => {
       )
       .mockResolvedValue(undefined as never);
     jest
-      .spyOn(context.memberReadService as never, 'findMembershipProfileByStoreId' as never)
+      .spyOn(
+        context.memberReadService as never,
+        'findMembershipProfileByStoreId' as never,
+      )
       .mockResolvedValue({
         currentPlanId: null,
         expiresAt: null,
@@ -808,7 +824,10 @@ describe('PulseMembershipService admin', () => {
         subAccountQuota: 0,
       } as never);
     jest
-      .spyOn(context.memberReadService as never, 'buildAdminMemberDetail' as never)
+      .spyOn(
+        context.memberReadService as never,
+        'buildAdminMemberDetail' as never,
+      )
       .mockResolvedValue({
         id: '18',
         name: '张三',
@@ -959,7 +978,10 @@ describe('PulseMembershipService admin', () => {
       )
       .mockResolvedValue(undefined as never);
     jest
-      .spyOn(context.memberReadService as never, 'buildAdminMemberDetail' as never)
+      .spyOn(
+        context.memberReadService as never,
+        'buildAdminMemberDetail' as never,
+      )
       .mockResolvedValue({
         id: '18',
         name: '张三',

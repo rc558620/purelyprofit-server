@@ -4,7 +4,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { resolvePagination } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { CostsService } from '../costs/costs.service';
 import type {
   CreatePurchaseDto,

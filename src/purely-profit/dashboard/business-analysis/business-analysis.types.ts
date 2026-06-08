@@ -57,6 +57,50 @@ export type CostRecordCostRow = Prisma.CostRecordGetPayload<{
   select: typeof BUSINESS_ANALYSIS_COST_RECORD_SELECT;
 }>;
 
+export interface BusinessAnalysisSalesSummaryRow {
+  currentRevenue: Prisma.Decimal | null;
+  currentOrderCount: number;
+  previousRevenue: Prisma.Decimal | null;
+  previousOrderCount: number;
+}
+
+export interface BusinessAnalysisDailyRevenueRow {
+  bucketAt: Date;
+  revenue: Prisma.Decimal | null;
+}
+
+export interface BusinessAnalysisCategoryRow {
+  categoryName: string;
+  revenue: Prisma.Decimal | null;
+  profit: Prisma.Decimal | null;
+  quantity: number;
+}
+
+export interface BusinessAnalysisRankRow {
+  productId: number | null;
+  productName: string;
+  categoryName: string;
+  totalRevenue: Prisma.Decimal | null;
+  totalProfit: Prisma.Decimal | null;
+  quantity: number;
+  image: string | null;
+}
+
+export interface BusinessAnalysisCostSummaryRow {
+  currentTotalCost: Prisma.Decimal | null;
+  previousTotalCost: Prisma.Decimal | null;
+}
+
+export interface BusinessAnalysisDailyCostRow {
+  bucketAt: Date;
+  amount: Prisma.Decimal | null;
+}
+
+export interface BusinessAnalysisCostBucketRow {
+  category: string;
+  amount: Prisma.Decimal | null;
+}
+
 export interface AggregatedCategory {
   revenue: number;
   profit: number;

@@ -24,7 +24,10 @@ export function resolveFrontendMembershipExpiry(
 }
 
 export function isMembershipProfileActive(
-  profile: Pick<StoreMembershipProfileRecord, 'currentPlanId' | 'startsAt' | 'expiresAt'>,
+  profile: Pick<
+    StoreMembershipProfileRecord,
+    'currentPlanId' | 'startsAt' | 'expiresAt'
+  >,
   nowMs: number = Date.now(),
 ): boolean {
   const expiredAt = resolveFrontendMembershipExpiry(profile)?.getTime() ?? null;

@@ -1,12 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import {
-  WITHDRAWAL_ACCOUNT_TYPE_VALUES,
-} from '../../../purely-profit/member/withdrawals/dto/apply-withdrawal.dto';
-import type {
-  WithdrawalAccountTypeValue,
-} from '../../../purely-profit/member/withdrawals/dto/apply-withdrawal.dto';
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import { WITHDRAWAL_ACCOUNT_TYPE_VALUES } from '../../../purely-profit/member/withdrawals/dto/apply-withdrawal.dto';
+import type { WithdrawalAccountTypeValue } from '../../../purely-profit/member/withdrawals/dto/apply-withdrawal.dto';
 
 function trimString(value: unknown): unknown {
   return typeof value === 'string' ? value.trim() : value;

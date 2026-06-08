@@ -1,7 +1,4 @@
-import {
-  StoreSubAccountRole,
-  StoreSubAccountStatus,
-} from '@prisma/client';
+import { StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
 import {
   buildMembershipRuleSnapshot,
   buildSubAccountBenefitSnapshot,

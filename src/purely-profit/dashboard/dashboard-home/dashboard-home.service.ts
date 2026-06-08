@@ -5,22 +5,47 @@ import { SubjectCapabilityService } from '../../access-control/subject-capabilit
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { buildProfitDashboardHomeCacheKey } from '../../../redis/cache-keys';
+import {
+  buildCacheRefreshTaskKey,
+  buildProfitDashboardHomeActivitiesCacheKey,
+  buildProfitDashboardHomeCacheKey,
+  buildProfitDashboardHomeStatsCacheKey,
+  buildProfitDashboardHomeTrendCacheKey,
+} from '../../../redis/keys';
 import { RedisService } from '../../../redis/redis.service';
 import type { GetDashboardHomeOverviewQueryDto } from './dto/dashboard-home-query.dto';
-import type { DashboardHomeOverviewResponseDto } from './dto/dashboard-home-response.dto';
+import type {
+  DashboardHomeOverviewResponseDto,
+  DashboardHomeSalesTrendDto,
+} from './dto/dashboard-home-response.dto';
 import {
   buildDashboardHomeOverviewResponse,
   type DashboardHomeOverviewWithoutCapability,
 } from './dashboard-home.mapper';
-import { loadDashboardHomeOverviewData } from './dashboard-home.query';
+import {
+  loadDashboardHomeActivitiesData,
+  loadDashboardHomeStatsData,
+  loadDashboardHomeTrendRows,
+} from './dashboard-home.query';
 import {
   buildCompareRange,
   buildCurrentRange,
   buildDashboardHomeQueryInput,
+  buildDashboardHomeSalesTrend,
 } from './dashboard-home.utils';
+import type {
+  DashboardHomeActivitiesData,
+  DashboardHomePeriodValue,
+  DashboardHomeStatsData,
+  TimeRange,
+} from './dashboard-home.types';
 
 const PROFIT_DASHBOARD_HOME_CACHE_TTL_SECONDS = 30;
+const PROFIT_DASHBOARD_HOME_STATS_REFRESH_AFTER_MS = 10_000;
+const PROFIT_DASHBOARD_HOME_TREND_CACHE_TTL_SECONDS = 60;
+const PROFIT_DASHBOARD_HOME_TREND_REFRESH_AFTER_MS = 20_000;
+const PROFIT_DASHBOARD_HOME_ACTIVITIES_CACHE_TTL_SECONDS = 45;
+const PROFIT_DASHBOARD_HOME_ACTIVITIES_REFRESH_AFTER_MS = 15_000;
 
 @Injectable()
 export class DashboardHomeService {
@@ -51,18 +76,28 @@ export class DashboardHomeService {
       requiredPermission,
       '无权查看该门店首页概览',
     );
+    const currentRange = buildCurrentRange(period);
+    const compareRange = buildCompareRange(period, currentRange);
+    const now = Date.now();
+    const [statsData, salesTrend, activitiesData] = await Promise.all([
+      this.loadStatsCache(storeId, period, currentRange, compareRange),
+      this.loadTrendCache(storeId, period, currentRange),
+      this.loadActivitiesCache(storeId, period, now),
+    ]);
 
-    const cachedResponse =
-      await this.redisService.getJson<DashboardHomeOverviewWithoutCapability>(
-        buildProfitDashboardHomeCacheKey(storeId, period),
-      );
-
-    if (cachedResponse !== null) {
-      return { ...cachedResponse, capability: capabilitySnapshot };
-    }
-
-    const response = await this.warmOverviewCache(storeId, period);
-    return { ...response, capability: capabilitySnapshot };
+    return {
+      ...this.buildOverviewResponse(
+        period,
+        storeId,
+        currentRange,
+        compareRange,
+        now,
+        statsData,
+        salesTrend,
+        activitiesData,
+      ),
+      capability: capabilitySnapshot,
+    };
   }
 
   async warmOverviewCache(
@@ -73,21 +108,21 @@ export class DashboardHomeService {
     const currentRange = buildCurrentRange(period);
     const compareRange = buildCompareRange(period, currentRange);
     const now = Date.now();
-    const overviewData = await loadDashboardHomeOverviewData(this.prisma, {
-      storeId,
-      currentRange,
-      compareRange,
-      now,
-    });
-
-    const response = buildDashboardHomeOverviewResponse({
+    const [statsData, salesTrend, activitiesData] = await Promise.all([
+      this.refreshStatsCache(storeId, period, currentRange, compareRange),
+      this.refreshTrendCache(storeId, period, currentRange),
+      this.refreshActivitiesCache(storeId, period, now),
+    ]);
+    const response = this.buildOverviewResponse(
       period,
       storeId,
       currentRange,
       compareRange,
       now,
-      overviewData,
-    });
+      statsData,
+      salesTrend,
+      activitiesData,
+    );
 
     await this.redisService.setJson(
       cacheKey,
@@ -96,6 +131,154 @@ export class DashboardHomeService {
     );
 
     return response;
+  }
+
+  private async loadStatsCache(
+    storeId: number,
+    period: DashboardHomePeriodValue,
+    currentRange: TimeRange,
+    compareRange: TimeRange,
+  ): Promise<DashboardHomeStatsData> {
+    const cacheKey = buildProfitDashboardHomeStatsCacheKey(storeId, period);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: PROFIT_DASHBOARD_HOME_CACHE_TTL_SECONDS,
+      refreshAfterMs: PROFIT_DASHBOARD_HOME_STATS_REFRESH_AFTER_MS,
+      loadValue: () =>
+        loadDashboardHomeStatsData(this.prisma, {
+          storeId,
+          currentRange,
+          compareRange,
+        }),
+    });
+  }
+
+  private async refreshStatsCache(
+    storeId: number,
+    period: DashboardHomePeriodValue,
+    currentRange: TimeRange,
+    compareRange: TimeRange,
+  ): Promise<DashboardHomeStatsData> {
+    const cacheKey = buildProfitDashboardHomeStatsCacheKey(storeId, period);
+    const data = await loadDashboardHomeStatsData(this.prisma, {
+      storeId,
+      currentRange,
+      compareRange,
+    });
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      PROFIT_DASHBOARD_HOME_CACHE_TTL_SECONDS,
+      PROFIT_DASHBOARD_HOME_STATS_REFRESH_AFTER_MS,
+    );
+    return data;
+  }
+
+  private async loadTrendCache(
+    storeId: number,
+    period: DashboardHomePeriodValue,
+    currentRange: TimeRange,
+  ): Promise<DashboardHomeSalesTrendDto> {
+    const cacheKey = buildProfitDashboardHomeTrendCacheKey(storeId, period);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: PROFIT_DASHBOARD_HOME_TREND_CACHE_TTL_SECONDS,
+      refreshAfterMs: PROFIT_DASHBOARD_HOME_TREND_REFRESH_AFTER_MS,
+      loadValue: async () => {
+        const trendRows = await loadDashboardHomeTrendRows(this.prisma, {
+          storeId,
+          period,
+          currentRange,
+        });
+        return buildDashboardHomeSalesTrend(period, currentRange, trendRows);
+      },
+    });
+  }
+
+  private async refreshTrendCache(
+    storeId: number,
+    period: DashboardHomePeriodValue,
+    currentRange: TimeRange,
+  ): Promise<DashboardHomeSalesTrendDto> {
+    const cacheKey = buildProfitDashboardHomeTrendCacheKey(storeId, period);
+    const trendRows = await loadDashboardHomeTrendRows(this.prisma, {
+      storeId,
+      period,
+      currentRange,
+    });
+    const data = buildDashboardHomeSalesTrend(period, currentRange, trendRows);
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      PROFIT_DASHBOARD_HOME_TREND_CACHE_TTL_SECONDS,
+      PROFIT_DASHBOARD_HOME_TREND_REFRESH_AFTER_MS,
+    );
+    return data;
+  }
+
+  private async loadActivitiesCache(
+    storeId: number,
+    period: DashboardHomePeriodValue,
+    now: number,
+  ): Promise<DashboardHomeActivitiesData> {
+    const cacheKey = buildProfitDashboardHomeActivitiesCacheKey(
+      storeId,
+      period,
+    );
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: PROFIT_DASHBOARD_HOME_ACTIVITIES_CACHE_TTL_SECONDS,
+      refreshAfterMs: PROFIT_DASHBOARD_HOME_ACTIVITIES_REFRESH_AFTER_MS,
+      loadValue: () =>
+        loadDashboardHomeActivitiesData(this.prisma, { storeId, now }),
+    });
+  }
+
+  private async refreshActivitiesCache(
+    storeId: number,
+    period: DashboardHomePeriodValue,
+    now: number,
+  ): Promise<DashboardHomeActivitiesData> {
+    const cacheKey = buildProfitDashboardHomeActivitiesCacheKey(
+      storeId,
+      period,
+    );
+    const data = await loadDashboardHomeActivitiesData(this.prisma, {
+      storeId,
+      now,
+    });
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      PROFIT_DASHBOARD_HOME_ACTIVITIES_CACHE_TTL_SECONDS,
+      PROFIT_DASHBOARD_HOME_ACTIVITIES_REFRESH_AFTER_MS,
+    );
+    return data;
+  }
+
+  private buildOverviewResponse(
+    period: DashboardHomePeriodValue,
+    storeId: number,
+    currentRange: TimeRange,
+    compareRange: TimeRange,
+    now: number,
+    statsData: DashboardHomeStatsData,
+    salesTrend: DashboardHomeSalesTrendDto,
+    activitiesData: DashboardHomeActivitiesData,
+  ): DashboardHomeOverviewWithoutCapability {
+    return buildDashboardHomeOverviewResponse({
+      period,
+      storeId,
+      currentRange,
+      compareRange,
+      now,
+      statsData,
+      salesTrend,
+      activitiesData,
+    });
   }
 
   private async buildCapabilitySnapshot(

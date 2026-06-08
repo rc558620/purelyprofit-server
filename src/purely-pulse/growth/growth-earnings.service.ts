@@ -9,7 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   buildPulseGrowthEarningsLogsCacheKey,
   buildPulseGrowthEarningsOverviewCacheKey,
-} from '../../redis/cache-keys';
+} from '../pulse.cache-keys';
 import { RedisService } from '../../redis/redis.service';
 import {
   PULSE_EARNINGS_LOG_DEFAULT_LIMIT,

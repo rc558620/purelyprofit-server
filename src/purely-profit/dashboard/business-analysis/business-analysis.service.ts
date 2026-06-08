@@ -6,13 +6,13 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import {
   buildBusinessAnalysisCacheKey,
   buildCacheRefreshTaskKey,
-} from '../../../redis/cache-keys';
+} from '../../../redis/keys';
 import { RedisService } from '../../../redis/redis.service';
 import { GetBusinessAnalysisQueryDto } from './dto/business-analysis-query.dto';
 import type { BusinessAnalysisResponseDto } from './dto/business-analysis-response.dto';
 import {
-  aggregateCosts,
-  aggregateSales,
+  buildCostAggregation,
+  buildSalesAggregation,
   createEmptyCostAggregation,
   createEmptySalesAggregation,
 } from './business-analysis.domain';
@@ -20,7 +20,7 @@ import {
   buildBusinessAnalysisResponse,
   buildEmptyAnalysisResponse,
 } from './business-analysis.mapper';
-import { fetchBusinessAnalysisRows } from './business-analysis.query';
+import { fetchBusinessAnalysisMetrics } from './business-analysis.query';
 import {
   getPreviousRange,
   resolveCurrentRange,
@@ -29,11 +29,23 @@ import {
 const BUSINESS_ANALYSIS_CACHE_TTL_SECONDS = 120;
 const BUSINESS_ANALYSIS_REFRESH_AFTER_MS = 30_000;
 
-type BusinessAnalysisCachePayload = {
-  generatedAt: number;
-  refreshAt: number;
-  data: BusinessAnalysisResponseDto;
-};
+function normalizeBusinessAnalysisQuery(
+  query: GetBusinessAnalysisQueryDto,
+): GetBusinessAnalysisQueryDto {
+  const rawPeriod = (query as { period?: string }).period;
+  if (
+    rawPeriod !== 'all' ||
+    query.startTime === undefined ||
+    query.endTime === undefined
+  ) {
+    return query;
+  }
+
+  return {
+    ...query,
+    period: 'custom_range',
+  };
+}
 
 @Injectable()
 export class BusinessAnalysisService {
@@ -65,29 +77,26 @@ export class BusinessAnalysisService {
     query: GetBusinessAnalysisQueryDto,
     callerIsSubAccount = false,
   ): Promise<BusinessAnalysisResponseDto> {
-    if (query.export) {
+    const normalizedQuery = normalizeBusinessAnalysisQuery(query);
+
+    if (normalizedQuery.export) {
       await this.platformMembershipAccessService.ensureReportExportEnabled(
         storeId,
         callerIsSubAccount,
       );
-      return this.buildAnalysis(storeId, query, callerIsSubAccount);
+      return this.buildAnalysis(storeId, normalizedQuery, callerIsSubAccount);
     }
 
-    const cacheKey = buildBusinessAnalysisCacheKey(storeId, query);
-    const cachedPayload =
-      await this.redisService.getJson<BusinessAnalysisCachePayload>(cacheKey);
-
-    if (cachedPayload !== null) {
-      this.scheduleAnalysisRefresh(
-        cacheKey,
-        storeId,
-        query,
-        cachedPayload.refreshAt,
-      );
-      return cachedPayload.data;
-    }
-
-    return this.refreshAnalysisCache(cacheKey, storeId, query, callerIsSubAccount);
+    const cacheKey = buildBusinessAnalysisCacheKey(storeId, normalizedQuery);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: BUSINESS_ANALYSIS_CACHE_TTL_SECONDS,
+      refreshAfterMs: BUSINESS_ANALYSIS_REFRESH_AFTER_MS,
+      loadValue: () =>
+        this.buildAnalysis(storeId, normalizedQuery, callerIsSubAccount),
+      refreshValue: () => this.buildAnalysis(storeId, normalizedQuery, false),
+    });
   }
 
   async warmAnalysisCache(
@@ -97,47 +106,17 @@ export class BusinessAnalysisService {
       'period' | 'startTime' | 'endTime'
     >,
   ): Promise<BusinessAnalysisResponseDto> {
-    const cacheKey = buildBusinessAnalysisCacheKey(storeId, query);
-    return this.refreshAnalysisCache(cacheKey, storeId, query, false);
-  }
-
-  private scheduleAnalysisRefresh(
-    cacheKey: string,
-    storeId: number,
-    query: GetBusinessAnalysisQueryDto,
-    refreshAt: number,
-  ): void {
-    if (refreshAt > Date.now()) {
-      return;
-    }
-
-    this.redisService.runBackgroundRefresh(
-      buildCacheRefreshTaskKey(cacheKey),
-      async () => {
-        await this.refreshAnalysisCache(cacheKey, storeId, query, false);
-      },
+    const normalizedQuery = normalizeBusinessAnalysisQuery(
+      query as GetBusinessAnalysisQueryDto,
     );
-  }
-
-  private async refreshAnalysisCache(
-    cacheKey: string,
-    storeId: number,
-    query: GetBusinessAnalysisQueryDto,
-    callerIsSubAccount: boolean,
-  ): Promise<BusinessAnalysisResponseDto> {
-    const data = await this.buildAnalysis(storeId, query, callerIsSubAccount);
-    const now = Date.now();
-
-    await this.redisService.setJson(
+    const cacheKey = buildBusinessAnalysisCacheKey(storeId, normalizedQuery);
+    const data = await this.buildAnalysis(storeId, normalizedQuery, false);
+    await this.redisService.writeRefreshableJson(
       cacheKey,
-      {
-        generatedAt: now,
-        refreshAt: now + BUSINESS_ANALYSIS_REFRESH_AFTER_MS,
-        data,
-      } satisfies BusinessAnalysisCachePayload,
+      data,
       BUSINESS_ANALYSIS_CACHE_TTL_SECONDS,
+      BUSINESS_ANALYSIS_REFRESH_AFTER_MS,
     );
-
     return data;
   }
 
@@ -168,37 +147,35 @@ export class BusinessAnalysisService {
       return buildEmptyAnalysisResponse();
     }
 
-    const { saleItems, costRows } = await fetchBusinessAnalysisRows(
+    const metricsRows = await fetchBusinessAnalysisMetrics(
       this.prisma,
       storeId,
       clampedCurrentRange,
       clampedPreviousRange,
     );
-
-    const currentSales = aggregateSales(
-      saleItems,
-      clampedCurrentRange.start,
-      clampedCurrentRange.end,
-    );
+    const currentSales = buildSalesAggregation({
+      revenue: Number(metricsRows.salesSummaryRow.currentRevenue ?? 0),
+      orderCount: metricsRows.salesSummaryRow.currentOrderCount,
+      dailyRows: metricsRows.salesDailyRows,
+      categoryRows: metricsRows.salesCategoryRows,
+      rankRows: metricsRows.salesRankRows,
+    });
     const previousSales = clampedPreviousRange.empty
       ? createEmptySalesAggregation()
-      : aggregateSales(
-          saleItems,
-          clampedPreviousRange.start,
-          clampedPreviousRange.end,
-        );
-    const currentCosts = aggregateCosts(
-      costRows,
-      clampedCurrentRange.start,
-      clampedCurrentRange.end,
-    );
+      : buildSalesAggregation({
+          revenue: Number(metricsRows.salesSummaryRow.previousRevenue ?? 0),
+          orderCount: metricsRows.salesSummaryRow.previousOrderCount,
+        });
+    const currentCosts = buildCostAggregation({
+      totalCost: Number(metricsRows.costSummaryRow.currentTotalCost ?? 0),
+      dailyRows: metricsRows.costDailyRows,
+      bucketRows: metricsRows.costBucketRows,
+    });
     const previousCosts = clampedPreviousRange.empty
       ? createEmptyCostAggregation()
-      : aggregateCosts(
-          costRows,
-          clampedPreviousRange.start,
-          clampedPreviousRange.end,
-        );
+      : buildCostAggregation({
+          totalCost: Number(metricsRows.costSummaryRow.previousTotalCost ?? 0),
+        });
 
     return buildBusinessAnalysisResponse({
       currentRange: clampedCurrentRange,

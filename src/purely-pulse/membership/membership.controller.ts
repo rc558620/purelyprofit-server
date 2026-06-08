@@ -128,10 +128,7 @@ export class PulseMembershipController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) orderId: number,
   ): Promise<PulseMembershipOrderPayStatusResponseDto> {
-    return this.pulseMembershipService.getOrderPayStatus(
-      user,
-      orderId,
-    );
+    return this.pulseMembershipService.getOrderPayStatus(user, orderId);
   }
 
   @Get('points/logs')
@@ -170,5 +167,4 @@ export class PulseMembershipController {
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
     return this.pulseMembershipService.getPromoCenter(user);
   }
-
 }

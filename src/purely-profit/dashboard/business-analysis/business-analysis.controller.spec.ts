@@ -1,9 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { BusinessAnalysisController } from './business-analysis.controller';
 import { BusinessAnalysisService } from './business-analysis.service';
+import { GetBusinessAnalysisQueryDto } from './dto/business-analysis-query.dto';
 
 const ALLOW_GUARD = { canActivate: jest.fn(() => true) };
 
@@ -84,5 +87,37 @@ describe('BusinessAnalysisController', () => {
       user,
       query,
     );
+  });
+
+  it('GetBusinessAnalysisQueryDto 兼容旧版 all + 时间范围入参', async () => {
+    const dto = plainToInstance(GetBusinessAnalysisQueryDto, {
+      period: 'all',
+      startTime: 1767196800000,
+      endTime: 1798732799999,
+    });
+
+    await expect(
+      validate(dto, {
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      }),
+    ).resolves.toEqual([]);
+    expect(dto.period).toBe('custom_range');
+  });
+
+  it('GetBusinessAnalysisQueryDto 缺少时间范围时仍拦截 all', async () => {
+    const dto = plainToInstance(GetBusinessAnalysisQueryDto, {
+      period: 'all',
+    });
+
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].constraints).toMatchObject({
+      isIn: '统计周期不合法',
+    });
   });
 });

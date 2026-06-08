@@ -1,6 +1,12 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import {
+  buildPulseGrowthAdminPartnerApplicationsCacheKey,
+  buildPulseGrowthAdminPayoutsCacheKey,
+} from '../pulse.cache-keys';
+import { RedisService } from '../../redis/redis.service';
 import {
   PULSE_ADMIN_PARTNER_APPLICATION_DEFAULT_LIMIT,
   PULSE_ADMIN_PAYOUT_DEFAULT_LIMIT,
@@ -27,10 +33,14 @@ import {
   queryAdminPromoPartners,
 } from './growth-admin.query';
 
+const PULSE_GROWTH_ADMIN_CACHE_TTL_SECONDS = 30;
+const PULSE_GROWTH_ADMIN_REFRESH_AFTER_MS = 10_000;
+
 @Injectable()
 export class PulseGrowthAdminQueryService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly accessService: PulseGrowthAccessService,
   ) {}
 
@@ -54,6 +64,70 @@ export class PulseGrowthAdminQueryService {
     const where = await this.accessService.buildPartnerApplicationWhere(user);
     const cursorPagination =
       this.resolveAdminPartnerApplicationsCursorPagination(query);
+    const cacheKey = buildPulseGrowthAdminPartnerApplicationsCacheKey({
+      mode: user.pulseMode ?? 'normal',
+      scope: this.resolveAdminScope(where),
+      tab: query.tab,
+      cursor: query.cursor,
+      limit: cursorPagination.limit,
+    });
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: PULSE_GROWTH_ADMIN_CACHE_TTL_SECONDS,
+      refreshAfterMs: PULSE_GROWTH_ADMIN_REFRESH_AFTER_MS,
+      loadValue: () =>
+        this.buildAdminPartnerApplicationsResponse(
+          where,
+          query,
+          cursorPagination,
+        ),
+      refreshValue: () =>
+        this.buildAdminPartnerApplicationsResponse(
+          where,
+          query,
+          cursorPagination,
+        ),
+    });
+  }
+
+  async listAdminPayouts(
+    user: AuthenticatedUser,
+    query: GetPulseAdminPayoutsQueryDto,
+  ): Promise<PulseAdminPayoutsResponseDto> {
+    const where = await this.accessService.buildAdminPayoutWhere(user);
+    const cursorPagination = this.resolveAdminPayoutCursorPagination(query);
+    const cacheKey = buildPulseGrowthAdminPayoutsCacheKey({
+      mode: user.pulseMode ?? 'normal',
+      scope: this.resolveAdminScope(where),
+      tab: query.tab,
+      cursor: query.cursor,
+      limit: cursorPagination.limit,
+    });
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: PULSE_GROWTH_ADMIN_CACHE_TTL_SECONDS,
+      refreshAfterMs: PULSE_GROWTH_ADMIN_REFRESH_AFTER_MS,
+      loadValue: () =>
+        this.buildAdminPayoutsResponse(where, query, cursorPagination),
+      refreshValue: () =>
+        this.buildAdminPayoutsResponse(where, query, cursorPagination),
+    });
+  }
+
+  private async buildAdminPartnerApplicationsResponse(
+    where: Awaited<
+      ReturnType<PulseGrowthAccessService['buildPartnerApplicationWhere']>
+    >,
+    query: GetPulseAdminPartnerApplicationsQueryDto,
+    cursorPagination: {
+      cursor?: { createdAt: Date; id: number };
+      limit?: number;
+    },
+  ): Promise<PulseAdminPartnerApplicationsResponseDto> {
     const [applications, stats] = await Promise.all([
       queryAdminPartnerApplications(this.prisma, {
         where,
@@ -71,12 +145,16 @@ export class PulseGrowthAdminQueryService {
     });
   }
 
-  async listAdminPayouts(
-    user: AuthenticatedUser,
+  private async buildAdminPayoutsResponse(
+    where: Awaited<
+      ReturnType<PulseGrowthAccessService['buildAdminPayoutWhere']>
+    >,
     query: GetPulseAdminPayoutsQueryDto,
+    cursorPagination: {
+      cursor?: { appliedAt: Date; id: number };
+      limit?: number;
+    },
   ): Promise<PulseAdminPayoutsResponseDto> {
-    const where = await this.accessService.buildAdminPayoutWhere(user);
-    const cursorPagination = this.resolveAdminPayoutCursorPagination(query);
     const [withdrawals, stats] = await Promise.all([
       queryAdminPayouts(this.prisma, {
         where,
@@ -92,6 +170,16 @@ export class PulseGrowthAdminQueryService {
       stats,
       limit: cursorPagination.limit,
     });
+  }
+
+  private resolveAdminScope(
+    where:
+      | Awaited<
+          ReturnType<PulseGrowthAccessService['buildPartnerApplicationWhere']>
+        >
+      | Awaited<ReturnType<PulseGrowthAccessService['buildAdminPayoutWhere']>>,
+  ): string {
+    return typeof where.storeId === 'number' ? `store:${where.storeId}` : 'all';
   }
 
   private resolveAdminPartnerApplicationsCursorPagination(

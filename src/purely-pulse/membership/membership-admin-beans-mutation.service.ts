@@ -15,9 +15,8 @@ export class PulseMembershipAdminBeansMutationService {
     dto: PulseMembershipAdjustmentInput,
   ): Promise<void> {
     const delta = this.resolveAdjustmentDelta(dto, '纯利豆');
-    const current = await this.mutationStateService.loadAdminMemberStateOrThrow(
-      memberId,
-    );
+    const current =
+      await this.mutationStateService.loadAdminMemberStateOrThrow(memberId);
     const nextBeanBalance = current.partner.beanBalance + delta;
 
     if (nextBeanBalance < 0) {

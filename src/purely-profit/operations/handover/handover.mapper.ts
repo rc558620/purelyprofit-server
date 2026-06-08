@@ -48,6 +48,19 @@ const parseRenewPaymentMethods = (
   });
 };
 
+const shouldPrefixSpaceName = (productName: string): boolean =>
+  productName === SPACE_PREPAID_DEDUCTION_ITEM_NAME ||
+  productName.startsWith('台位费（');
+
+const resolveOrderItemProductName = (item: OrderItemRow): string => {
+  const spaceName = toDisplayName(item.order.spaceSession?.space?.name);
+  if (!spaceName || !shouldPrefixSpaceName(item.productName)) {
+    return item.productName;
+  }
+
+  return `${spaceName}${item.productName}`;
+};
+
 export const resolveOrderItemPaymentMethod = (
   item: OrderItemRow,
 ): SalesPaymentMethod => {
@@ -85,7 +98,7 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
   const paymentMethod = resolveOrderItemPaymentMethod(item);
   return {
     id: String(item.id),
-    productName: item.productName,
+    productName: resolveOrderItemProductName(item),
     quantity: item.quantity,
     totalRevenue,
     paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,

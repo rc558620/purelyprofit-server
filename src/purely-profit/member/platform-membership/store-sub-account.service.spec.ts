@@ -99,7 +99,10 @@ describe('StoreSubAccountService', () => {
     storeSubAccountSlotService.updateSlot.mockResolvedValue(summary);
 
     await expect(service.updateSlot(1, input)).resolves.toEqual(summary);
-    expect(storeSubAccountSlotService.updateSlot).toHaveBeenCalledWith(1, input);
+    expect(storeSubAccountSlotService.updateSlot).toHaveBeenCalledWith(
+      1,
+      input,
+    );
   });
 
   it('应将 getStoreSubAccountSummary 委托给 read service', async () => {
@@ -114,7 +117,9 @@ describe('StoreSubAccountService', () => {
       summary,
     );
 
-    await expect(service.getStoreSubAccountSummary(1)).resolves.toEqual(summary);
+    await expect(service.getStoreSubAccountSummary(1)).resolves.toEqual(
+      summary,
+    );
     expect(
       storeSubAccountReadService.getStoreSubAccountSummary,
     ).toHaveBeenCalledWith(1);
@@ -189,9 +194,9 @@ describe('StoreSubAccountService', () => {
     };
     prismaService.storeSubAccount.findFirst.mockResolvedValue(record);
 
-    await expect(service.findAssignedSubAccountByEmployee(1, 100)).resolves.toBe(
-      record,
-    );
+    await expect(
+      service.findAssignedSubAccountByEmployee(1, 100),
+    ).resolves.toBe(record);
     expect(prismaService.storeSubAccount.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 1,

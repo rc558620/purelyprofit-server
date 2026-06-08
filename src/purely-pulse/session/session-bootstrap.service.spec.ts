@@ -28,8 +28,7 @@ describe('SessionBootstrapService', () => {
   };
 
   const redisService = {
-    getJson: jest.fn().mockResolvedValue(null),
-    setJson: jest.fn().mockResolvedValue(undefined),
+    getOrLoadRefreshableJson: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -47,8 +46,10 @@ describe('SessionBootstrapService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-21T12:00:00.000Z'));
     jest.clearAllMocks();
-    redisService.getJson.mockResolvedValue(null);
-    redisService.setJson.mockResolvedValue(undefined);
+    redisService.getOrLoadRefreshableJson.mockImplementation(
+      async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
+        loadValue(),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -110,7 +111,7 @@ describe('SessionBootstrapService', () => {
       },
       source: 'selected',
     });
-    redisService.getJson.mockResolvedValue(cachedResponse);
+    redisService.getOrLoadRefreshableJson.mockResolvedValue(cachedResponse);
 
     await expect(service.bootstrap(user)).resolves.toEqual(cachedResponse);
     expect(prismaService.user.findUnique).not.toHaveBeenCalled();
@@ -236,6 +237,12 @@ describe('SessionBootstrapService', () => {
     expect(
       sessionNotificationService.countUnreadNotifications,
     ).not.toHaveBeenCalled();
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: 'pulse:session:bootstrap:user:101:mode:normal:store:none',
+        ttlSeconds: 15,
+      }),
+    );
   });
 
   it('bootstrap 当前用户不存在时抛错', async () => {

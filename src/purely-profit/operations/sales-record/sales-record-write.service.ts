@@ -4,7 +4,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toOptionalText } from '../../commerce/commerce.utils';
 import { InventoryService } from '../../goods/inventory/inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import type {
   CreateSalesRecordDto,
   SalesRecordResponseDto,

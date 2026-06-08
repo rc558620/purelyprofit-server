@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
+import { Transform, type TransformFnParams, Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, Min } from 'class-validator';
 import {
   transformOptionalBoolean,
@@ -12,6 +12,27 @@ import {
 
 export { BUSINESS_ANALYSIS_PERIOD_VALUES } from '../business-analysis.types';
 export type { BusinessAnalysisPeriod } from '../business-analysis.types';
+
+type LegacyBusinessAnalysisPeriodContext = Partial<{
+  startTime: number | string;
+  endTime: number | string;
+}>;
+
+function normalizeBusinessAnalysisPeriodInput({
+  value,
+  obj,
+}: TransformFnParams): unknown {
+  if (value !== 'all') {
+    return value;
+  }
+
+  const query = obj as LegacyBusinessAnalysisPeriodContext | undefined;
+  if (query?.startTime === undefined || query?.endTime === undefined) {
+    return value;
+  }
+
+  return 'custom_range';
+}
 
 export class GetBusinessAnalysisQueryDto {
   @ApiPropertyOptional({
@@ -27,8 +48,10 @@ export class GetBusinessAnalysisQueryDto {
   @ApiProperty({
     enum: BUSINESS_ANALYSIS_PERIOD_VALUES,
     example: 'month',
-    description: '统计周期；自定义周期时需额外传 startTime/endTime',
+    description:
+      '统计周期；自定义周期时需额外传 startTime/endTime，兼容旧版 all + 时间范围入参',
   })
+  @Transform(normalizeBusinessAnalysisPeriodInput)
   @IsIn(BUSINESS_ANALYSIS_PERIOD_VALUES, { message: '统计周期不合法' })
   period: BusinessAnalysisPeriod;
 

@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../redis/redis.service';
 import { SalesRecordReportService } from './sales-record-report.service';
 
 describe('SalesRecordReportService', () => {
@@ -13,6 +14,10 @@ describe('SalesRecordReportService', () => {
     saleOrder: {
       findMany: jest.fn(),
     },
+  };
+
+  const redisService = {
+    getOrLoadRefreshableJson: jest.fn(),
   };
 
   const commerceAccessService = {
@@ -62,11 +67,16 @@ describe('SalesRecordReportService', () => {
     platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
       undefined,
     );
+    redisService.getOrLoadRefreshableJson.mockImplementation(
+      async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
+        loadValue(),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SalesRecordReportService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         {
           provide: PlatformMembershipAccessService,
@@ -95,7 +105,6 @@ describe('SalesRecordReportService', () => {
       platformMembershipAccessService.ensureReportExportEnabled,
     ).toHaveBeenCalledWith(18, false);
   });
-
 
   it('getReport 返回报表中心可直接消费的按天商品聚合数据', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
@@ -295,6 +304,174 @@ describe('SalesRecordReportService', () => {
           productName: '鲜奶',
           quantity: 3,
           revenue: 19.5,
+        },
+      ],
+    });
+  });
+
+  it('getReport 会为台位费和预付抵扣补充空间名称并按空间拆分聚合', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.findMany.mockResolvedValue([
+      {
+        id: 31,
+        storeId: 18,
+        operatorStaffId: 8,
+        orderNo: '#20260514-004',
+        totalRevenue: new Prisma.Decimal('34.00'),
+        totalProfit: new Prisma.Decimal('34.00'),
+        totalQuantity: 2,
+        paymentMethod: 'cash',
+        calcMode: 'business',
+        note: null,
+        date: new Date('2026-05-14T12:00:00.000Z'),
+        createdAt: new Date('2026-05-14T12:00:00.000Z'),
+        updatedAt: new Date('2026-05-14T12:00:00.000Z'),
+        spaceSession: {
+          space: {
+            name: '大厅A01',
+          },
+        },
+        items: [
+          {
+            id: 301,
+            orderId: 31,
+            storeId: 18,
+            productId: 401,
+            productName: '特调咖啡',
+            categoryName: '饮品',
+            salePrice: new Prisma.Decimal('24.00'),
+            profit: new Prisma.Decimal('24.00'),
+            quantity: 1,
+            image: null,
+            createdAt: new Date('2026-05-14T12:00:00.000Z'),
+          },
+          {
+            id: 302,
+            orderId: 31,
+            storeId: 18,
+            productId: null,
+            productName: '台位费（固定）',
+            categoryName: '场地费',
+            salePrice: new Prisma.Decimal('10.00'),
+            profit: new Prisma.Decimal('10.00'),
+            quantity: 1,
+            image: null,
+            createdAt: new Date('2026-05-14T12:00:00.000Z'),
+          },
+        ],
+      },
+      {
+        id: 32,
+        storeId: 18,
+        operatorStaffId: 8,
+        orderNo: '#20260514-005',
+        totalRevenue: new Prisma.Decimal('8.00'),
+        totalProfit: new Prisma.Decimal('8.00'),
+        totalQuantity: 1,
+        paymentMethod: 'cash',
+        calcMode: 'business',
+        note: null,
+        date: new Date('2026-05-14T12:10:00.000Z'),
+        createdAt: new Date('2026-05-14T12:10:00.000Z'),
+        updatedAt: new Date('2026-05-14T12:10:00.000Z'),
+        spaceSession: {
+          space: {
+            name: '大厅A02',
+          },
+        },
+        items: [
+          {
+            id: 303,
+            orderId: 32,
+            storeId: 18,
+            productId: null,
+            productName: '台位费（固定）',
+            categoryName: '场地费',
+            salePrice: new Prisma.Decimal('8.00'),
+            profit: new Prisma.Decimal('8.00'),
+            quantity: 1,
+            image: null,
+            createdAt: new Date('2026-05-14T12:10:00.000Z'),
+          },
+        ],
+      },
+      {
+        id: 33,
+        storeId: 18,
+        operatorStaffId: 8,
+        orderNo: '#20260514-006',
+        totalRevenue: new Prisma.Decimal('-5.00'),
+        totalProfit: new Prisma.Decimal('-5.00'),
+        totalQuantity: 1,
+        paymentMethod: 'wechat',
+        calcMode: 'business',
+        note: null,
+        date: new Date('2026-05-14T12:20:00.000Z'),
+        createdAt: new Date('2026-05-14T12:20:00.000Z'),
+        updatedAt: new Date('2026-05-14T12:20:00.000Z'),
+        spaceSession: {
+          space: {
+            name: '大厅A01',
+          },
+        },
+        items: [
+          {
+            id: 304,
+            orderId: 33,
+            storeId: 18,
+            productId: null,
+            productName: '预付抵扣',
+            categoryName: '场地费',
+            salePrice: new Prisma.Decimal('-5.00'),
+            profit: new Prisma.Decimal('-5.00'),
+            quantity: 1,
+            image: null,
+            createdAt: new Date('2026-05-14T12:20:00.000Z'),
+          },
+        ],
+      },
+    ]);
+
+    await expect(
+      service.getReport(user, {
+        storeId: 18,
+        period: 'month',
+      }),
+    ).resolves.toEqual({
+      summary: {
+        totalQuantity: 4,
+        totalRevenue: 37,
+        orderCount: 4,
+        avgOrderValue: 9.25,
+      },
+      dailySales: [
+        {
+          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-401`,
+          dateLabel: '05/14',
+          productName: '特调咖啡',
+          quantity: 1,
+          revenue: 24,
+        },
+        {
+          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A02台位费（固定）`,
+          dateLabel: '05/14',
+          productName: '大厅A02台位费（固定）',
+          quantity: 1,
+          revenue: 8,
+        },
+        {
+          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A01预付抵扣`,
+          dateLabel: '05/14',
+          productName: '大厅A01预付抵扣',
+          quantity: 1,
+          revenue: -5,
+        },
+        {
+          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A01台位费（固定）`,
+          dateLabel: '05/14',
+          productName: '大厅A01台位费（固定）',
+          quantity: 1,
+          revenue: 10,
         },
       ],
     });

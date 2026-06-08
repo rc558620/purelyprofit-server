@@ -1,5 +1,18 @@
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -257,11 +270,7 @@ export class FinanceController {
     @Param('id', ParseIntPipe) recordId: number,
     @Body() dto: ConfirmFinanceReconciliationDto,
   ): Promise<FinanceReconciliationRecordResponseDto> {
-    return this.financeService.confirmReconciliation(
-      user,
-      recordId,
-      dto,
-    );
+    return this.financeService.confirmReconciliation(user, recordId, dto);
   }
 
   @Delete('reconciliation/:id')

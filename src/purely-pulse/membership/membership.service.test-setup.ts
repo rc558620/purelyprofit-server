@@ -5,7 +5,7 @@ import { PlatformMembershipAccessService } from '../../purely-profit/member/plat
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
 import { StoreSubAccountService } from '../../purely-profit/member/platform-membership/store-sub-account.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import { PulseMembershipAccessService } from './membership-access.service';

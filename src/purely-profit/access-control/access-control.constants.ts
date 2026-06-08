@@ -92,7 +92,10 @@ export function toStoreSubAccountRoleCode(
   return STORE_SUB_ACCOUNT_ROLE_PRISMA_TO_CODE[role];
 }
 
-export const STORE_SUB_ACCOUNT_ROLE_LABELS: Record<StoreSubAccountRole, string> = {
+export const STORE_SUB_ACCOUNT_ROLE_LABELS: Record<
+  StoreSubAccountRole,
+  string
+> = {
   [StoreSubAccountRole.cashier]: '收银员',
   [StoreSubAccountRole.finance]: '财务',
   [StoreSubAccountRole.manager]: '店长',

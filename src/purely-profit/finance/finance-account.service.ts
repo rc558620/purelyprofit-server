@@ -5,7 +5,13 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import {
+  buildFinanceAccountsListCacheKey,
+  buildFinanceAccountsStatsCacheKey,
+} from './finance.cache-keys';
+import { CacheInvalidatorService } from '../../redis/invalidator';
+import { RedisService } from '../../redis/redis.service';
 import {
   CreateFinanceAccountDto,
   ListFinanceAccountsQueryDto,
@@ -43,10 +49,14 @@ import {
 import { buildPaginationState } from './finance-pagination.utils';
 import { trimOptionalString } from './finance-string.utils';
 
+const FINANCE_ACCOUNTS_CACHE_TTL_SECONDS = 60;
+const FINANCE_ACCOUNTS_REFRESH_AFTER_MS = 15_000;
+
 @Injectable()
 export class FinanceAccountService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly financeAccessService: FinanceAccessService,
   ) {}
@@ -64,17 +74,16 @@ export class FinanceAccountService {
       page: query.page,
       pageSize: query.pageSize,
     };
-    const { items, total } = await queryAccountRecords(
-      this.prisma,
-      storeId,
-      accountQuery,
-    );
-    const pageState = buildPaginationState(
-      accountQuery.page,
-      accountQuery.pageSize,
-    );
+    const cacheKey = buildFinanceAccountsListCacheKey(storeId, accountQuery);
 
-    return buildPaginatedAccountsResponse(items, pageState, total);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: FINANCE_ACCOUNTS_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_ACCOUNTS_REFRESH_AFTER_MS,
+      loadValue: () => this.buildAccountsList(storeId, accountQuery),
+      refreshValue: () => this.buildAccountsList(storeId, accountQuery),
+    });
   }
 
   async getAccountsStats(
@@ -82,8 +91,16 @@ export class FinanceAccountService {
   ): Promise<FinanceAccountsStatsDto> {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const records = await queryAccountStatsRows(this.prisma, storeId);
-    return buildAccountsStats(records);
+    const cacheKey = buildFinanceAccountsStatsCacheKey(storeId);
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: FINANCE_ACCOUNTS_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_ACCOUNTS_REFRESH_AFTER_MS,
+      loadValue: () => this.buildAccountsStats(storeId),
+      refreshValue: () => this.buildAccountsStats(storeId),
+    });
   }
 
   async createAccount(
@@ -177,9 +194,34 @@ export class FinanceAccountService {
     await this.invalidateDashboardCaches(storeId);
   }
 
-  private async invalidateDashboardCaches(storeId: number): Promise<void> {
-    await this.cacheInvalidatorService.invalidateDashboardAndPulseSession(
+  private async buildAccountsList(
+    storeId: number,
+    accountQuery: FinanceAccountsListQueryInput,
+  ): Promise<PaginatedFinanceAccountsResponseDto> {
+    const { items, total } = await queryAccountRecords(
+      this.prisma,
       storeId,
+      accountQuery,
     );
+    const pageState = buildPaginationState(
+      accountQuery.page,
+      accountQuery.pageSize,
+    );
+
+    return buildPaginatedAccountsResponse(items, pageState, total);
+  }
+
+  private async buildAccountsStats(
+    storeId: number,
+  ): Promise<FinanceAccountsStatsDto> {
+    const records = await queryAccountStatsRows(this.prisma, storeId);
+    return buildAccountsStats(records);
+  }
+
+  private async invalidateDashboardCaches(storeId: number): Promise<void> {
+    await Promise.all([
+      this.cacheInvalidatorService.invalidateDashboardAndPulseSession(storeId),
+      this.cacheInvalidatorService.invalidateFinanceDerived(storeId),
+    ]);
   }
 }

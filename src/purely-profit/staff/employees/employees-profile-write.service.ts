@@ -1,14 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import {
-  EmployeePayrollStatus,
-  Prisma,
-  type Employee,
-} from '@prisma/client';
+import { EmployeePayrollStatus, Prisma, type Employee } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { CostsService } from '../../operations/costs/costs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EmployeeResponseDto } from './dto/employee-response.dto';
 import { ResignEmployeeDto } from './dto/resign-employee.dto';
@@ -205,7 +201,8 @@ export class EmployeesProfileWriteService {
       dto.phone !== undefined && previousEmployee.phone !== nextEmployee.phone;
     const baseSalaryChanged =
       dto.baseSalary !== undefined &&
-      previousEmployee.baseSalary.toString() !== nextEmployee.baseSalary.toString();
+      previousEmployee.baseSalary.toString() !==
+        nextEmployee.baseSalary.toString();
 
     if (!nameChanged && !phoneChanged && !baseSalaryChanged) {
       return;
@@ -354,10 +351,7 @@ export class EmployeesProfileWriteService {
     nameChanged: boolean,
     phoneChanged: boolean,
   ): Promise<void> {
-    if (
-      employee.linkedStaffId === null ||
-      (!nameChanged && !phoneChanged)
-    ) {
+    if (employee.linkedStaffId === null || (!nameChanged && !phoneChanged)) {
       return;
     }
 

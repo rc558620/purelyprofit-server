@@ -21,8 +21,7 @@ describe('PulseDashboardOverviewService', () => {
   };
 
   const redisService = {
-    getJson: jest.fn().mockResolvedValue(null),
-    setJson: jest.fn().mockResolvedValue(undefined),
+    getOrLoadRefreshableJson: jest.fn(),
   };
 
   const dashboardAggregatorService = {
@@ -55,8 +54,10 @@ describe('PulseDashboardOverviewService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-30T12:00:00.000Z'));
     jest.clearAllMocks();
-    redisService.getJson.mockResolvedValue(null);
-    redisService.setJson.mockResolvedValue(undefined);
+    redisService.getOrLoadRefreshableJson.mockImplementation(
+      async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
+        loadValue(),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -119,13 +120,16 @@ describe('PulseDashboardOverviewService', () => {
       ownerId: 301,
       ownerName: '张三',
     });
-    redisService.getJson.mockResolvedValue(cachedResponse);
+    redisService.getOrLoadRefreshableJson.mockResolvedValue(cachedResponse);
 
     await expect(service.getOverview(user, {})).resolves.toEqual(
       cachedResponse,
     );
-    expect(redisService.getJson).toHaveBeenCalledWith(
-      'pulse:dashboard:overview:store:18:period:today',
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: 'pulse:dashboard:overview:store:18:period:today',
+        ttlSeconds: 20,
+      }),
     );
     expect(dashboardAggregatorService.aggregateSales).not.toHaveBeenCalled();
     expect(prismaService.saleOrder.findMany).not.toHaveBeenCalled();
@@ -179,10 +183,11 @@ describe('PulseDashboardOverviewService', () => {
       revenue: 1000,
       totalCost: 650,
     });
-    expect(redisService.setJson).toHaveBeenCalledWith(
-      'pulse:dashboard:overview:store:18:period:today',
-      response,
-      20,
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: 'pulse:dashboard:overview:store:18:period:today',
+        ttlSeconds: 20,
+      }),
     );
     expect(dashboardAggregatorService.aggregateSales).toHaveBeenCalledTimes(2);
     expect(dashboardAggregatorService.aggregateCosts).toHaveBeenCalledTimes(2);

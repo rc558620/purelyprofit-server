@@ -16,7 +16,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CostsService } from '../../operations/costs/costs.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { EmployeesAccessService } from './employees-access.service';
 import { EmployeesDictionaryService } from './employees-dictionary.service';
 import { EmployeesLeaveService } from './employees-leave.service';

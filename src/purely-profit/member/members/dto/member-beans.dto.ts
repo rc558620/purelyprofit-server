@@ -29,7 +29,8 @@ export const MEMBER_BEAN_RECORD_SOURCES = [
   'admin_adjust',
 ] as const;
 
-export type MemberBeanRecordTypeValue = (typeof MEMBER_BEAN_RECORD_TYPES)[number];
+export type MemberBeanRecordTypeValue =
+  (typeof MEMBER_BEAN_RECORD_TYPES)[number];
 export type MemberBeanRecordSourceValue =
   (typeof MEMBER_BEAN_RECORD_SOURCES)[number];
 

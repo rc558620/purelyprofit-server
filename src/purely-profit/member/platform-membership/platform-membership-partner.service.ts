@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import {
   ApplyPlatformPartnerDto,
   type CreatePlatformPartnerFollowUpNoteDto,
@@ -75,7 +75,7 @@ export class PlatformMembershipPartnerService {
       return buildPartnerProfileByStoreId(tx, storeId);
     });
 
-    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+    await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
 
     return response;
   }
@@ -115,7 +115,7 @@ export class PlatformMembershipPartnerService {
       return buildPartnerProfileByStoreId(tx, storeId);
     });
 
-    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+    await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
 
     return response;
   }
@@ -166,7 +166,7 @@ export class PlatformMembershipPartnerService {
       return buildPartnerProfileByStoreId(tx, storeId);
     });
 
-    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+    await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
 
     return response;
   }
@@ -218,7 +218,7 @@ export class PlatformMembershipPartnerService {
       return buildPartnerProfileByStoreId(tx, storeId);
     });
 
-    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+    await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
 
     return response;
   }
@@ -259,7 +259,7 @@ export class PlatformMembershipPartnerService {
       return buildPartnerProfileByStoreId(tx, storeId);
     });
 
-    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+    await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
 
     return response;
   }

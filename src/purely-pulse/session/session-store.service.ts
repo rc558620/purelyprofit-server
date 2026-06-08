@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import type { PulseSwitchCurrentStoreResponseDto } from './dto/session-bootstrap.dto';
 import { buildStoreDto } from './session.utils';
@@ -20,9 +20,14 @@ export class SessionStoreService {
       user,
       storeId,
     );
-    await this.cacheInvalidatorService.invalidatePulseSessionBootstrapByUser(
-      user.id,
-    );
+    await Promise.all([
+      this.cacheInvalidatorService.invalidatePulseSessionBootstrapByUser(
+        user.id,
+      ),
+      this.cacheInvalidatorService.invalidatePulseOnboardingStatusByUser(
+        user.id,
+      ),
+    ]);
 
     return {
       success: true,

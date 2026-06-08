@@ -52,7 +52,11 @@ export class ProfitDetailService {
     );
     const callerIsSubAccount =
       user.currentMembership?.subjectType === 'sub_account';
-    const snapshot = await this.buildProfitSnapshot(storeId, query, callerIsSubAccount);
+    const snapshot = await this.buildProfitSnapshot(
+      storeId,
+      query,
+      callerIsSubAccount,
+    );
 
     if (!snapshot) {
       return buildEmptyProfitDetailResponse();
@@ -81,7 +85,11 @@ export class ProfitDetailService {
       );
     }
 
-    const snapshot = await this.buildProfitSnapshot(storeId, query, callerIsSubAccount);
+    const snapshot = await this.buildProfitSnapshot(
+      storeId,
+      query,
+      callerIsSubAccount,
+    );
 
     if (!snapshot) {
       return buildEmptyProfitReportResponse();

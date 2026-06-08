@@ -245,10 +245,14 @@ export class CostsReadService {
     }
 
     const clampedPreviousRange =
-      await this.platformMembershipAccessService.clampHistoryRange(storeId, {
-        start: previousRange.gte.getTime(),
-        end: previousRange.lte.getTime(),
-      }, callerIsSubAccount);
+      await this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        {
+          start: previousRange.gte.getTime(),
+          end: previousRange.lte.getTime(),
+        },
+        callerIsSubAccount,
+      );
 
     if (clampedPreviousRange.empty) {
       return null;

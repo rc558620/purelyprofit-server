@@ -1,5 +1,14 @@
 import { CurrentUser } from './current-user.decorator';
-import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -128,9 +137,7 @@ export class AuthController {
     description: '返回当前用户信息、当前门店与权限上下文',
     type: ProfileResponseDto,
   })
-  profile(
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<ProfileResponseDto> {
+  profile(@CurrentUser() user: AuthenticatedUser): Promise<ProfileResponseDto> {
     return this.authService.getProfile(user);
   }
 

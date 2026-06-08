@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { toDecimalNumber } from '../../commerce/commerce.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  buildCacheRefreshTaskKey,
+  buildSalesReportCacheKey,
+} from '../../../redis/keys';
+import { RedisService } from '../../../redis/redis.service';
 import type {
   SalesReportQueryDto,
   SalesReportResponseDto,
@@ -14,12 +18,15 @@ import {
   buildEmptySalesReport,
   buildSalesCurrentRange,
 } from './sales-record-read.utils';
-import { sumMoney } from './sales-record.utils';
+
+const SALES_REPORT_CACHE_TTL_SECONDS = 60;
+const SALES_REPORT_REFRESH_AFTER_MS = 15_000;
 
 @Injectable()
 export class SalesRecordReportService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
@@ -48,6 +55,37 @@ export class SalesRecordReportService {
       );
     }
 
+    const cacheKey = buildSalesReportCacheKey(storeId, {
+      scope: callerIsSubAccount ? 'sub_account' : 'owner',
+      period: query.period,
+      year: query.year,
+      customDate:
+        query.customDate !== undefined ? String(query.customDate) : undefined,
+      rangeStartDate:
+        query.rangeStartDate !== undefined
+          ? String(query.rangeStartDate)
+          : undefined,
+      rangeEndDate:
+        query.rangeEndDate !== undefined
+          ? String(query.rangeEndDate)
+          : undefined,
+    });
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: SALES_REPORT_CACHE_TTL_SECONDS,
+      refreshAfterMs: SALES_REPORT_REFRESH_AFTER_MS,
+      loadValue: () => this.buildReport(storeId, callerIsSubAccount, query),
+      refreshValue: () => this.buildReport(storeId, false, query),
+    });
+  }
+
+  private async buildReport(
+    storeId: number,
+    callerIsSubAccount: boolean,
+    query: SalesReportQueryDto,
+  ): Promise<SalesReportResponseDto> {
     const range = await this.platformMembershipAccessService.clampHistoryRange(
       storeId,
       buildSalesCurrentRange(query),
@@ -66,8 +104,10 @@ export class SalesRecordReportService {
       (sum, order) => sum + order.totalQuantity,
       0,
     );
-    const totalRevenue = sumMoney(orders, (order) =>
-      toDecimalNumber(order.totalRevenue),
+    const totalRevenue = Number(
+      orders
+        .reduce((sum, order) => sum + Number(order.totalRevenue), 0)
+        .toFixed(2),
     );
     const dailySales = aggregateReportRows(orders);
     const orderCount = dailySales.length;

@@ -10,7 +10,5 @@ export const BLOCK_SUB_ACCOUNT_MESSAGE_KEY = 'block_sub_account_message';
 export const BlockSubAccount = (message?: string) =>
   applyDecorators(
     SetMetadata(BLOCK_SUB_ACCOUNT_KEY, true),
-    ...(message
-      ? [SetMetadata(BLOCK_SUB_ACCOUNT_MESSAGE_KEY, message)]
-      : []),
+    ...(message ? [SetMetadata(BLOCK_SUB_ACCOUNT_MESSAGE_KEY, message)] : []),
   );

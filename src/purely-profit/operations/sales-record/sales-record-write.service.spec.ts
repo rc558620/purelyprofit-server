@@ -4,7 +4,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { InventoryService } from '../../goods/inventory/inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { HandoverPageShiftRecordService } from '../handover/handover-page-shift-record.service';
 import { SalesRecordCreateFlowService } from './sales-record-create-flow.service';
 import { SalesRecordItemPreparationService } from './sales-record-item-preparation.service';

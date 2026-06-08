@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import { OnboardingStatusService } from './onboarding-status.service';
 
@@ -14,6 +15,10 @@ describe('OnboardingStatusService', () => {
     storeMembershipProfile: {
       findUnique: jest.fn(),
     },
+  };
+
+  const redisService = {
+    getOrLoadRefreshableJson: jest.fn(),
   };
 
   const pulseStoreContextService = {
@@ -35,11 +40,16 @@ describe('OnboardingStatusService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-21T12:00:00.000Z'));
     jest.clearAllMocks();
+    redisService.getOrLoadRefreshableJson.mockImplementation(
+      async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
+        loadValue(),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OnboardingStatusService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
         {
           provide: PulseStoreContextService,
           useValue: pulseStoreContextService,
@@ -98,6 +108,12 @@ describe('OnboardingStatusService', () => {
       where: { id: 301 },
       select: { realName: true, idNumber: true },
     });
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: 'pulse:onboarding:status:user:101:mode:normal:store:18',
+        ttlSeconds: 20,
+      }),
+    );
   });
 
   it('getStatus 未选中目标商家时返回未完成态', async () => {
@@ -129,6 +145,12 @@ describe('OnboardingStatusService', () => {
     expect(
       prismaService.storeMembershipProfile.findUnique,
     ).not.toHaveBeenCalled();
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: 'pulse:onboarding:status:user:101:mode:normal:store:none',
+        ttlSeconds: 20,
+      }),
+    );
   });
 
   it('getStatus 目标商家会员过期时 membershipActive 为 false', async () => {

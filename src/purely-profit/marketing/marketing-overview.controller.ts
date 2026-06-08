@@ -1,5 +1,16 @@
-import { Controller, Get, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  ParseIntPipe,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { RequirePermissions } from '../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../access-control/guards/permissions.guard';
 import { CurrentUser } from '../auth/current-user.decorator';

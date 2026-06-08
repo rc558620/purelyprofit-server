@@ -2,7 +2,20 @@ import {
   UserWithRequestId,
   type UserWithRequestIdValue,
 } from '../../auth/user-with-request-id.decorator';
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -60,11 +73,7 @@ export class SpacesController {
     @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Query() query: ListSpacesQueryDto,
   ): Promise<SpaceResponseDto[]> {
-    return this.spacesService.listSpaces(
-      ctx.user,
-      query,
-      ctx.requestId,
-    );
+    return this.spacesService.listSpaces(ctx.user, query, ctx.requestId);
   }
 
   @Post()

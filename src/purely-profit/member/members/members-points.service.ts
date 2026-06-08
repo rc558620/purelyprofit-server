@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import {
   AdjustMemberBeansDto,
   AdjustMemberBeansResponseDto,
@@ -44,6 +45,7 @@ export class MembersPointsService {
     private readonly prisma: PrismaService,
     private readonly membersAccessService: MembersAccessService,
     private readonly configService: ConfigService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async getPointsOverview(
@@ -297,6 +299,10 @@ export class MembersPointsService {
 
     const result = await this.prisma.$transaction((transaction) =>
       params.apply(transaction, params.buildApplyInput(adjustment)),
+    );
+
+    await this.cacheInvalidatorService.invalidateMembersDerived(
+      result.member.storeId,
     );
 
     return {

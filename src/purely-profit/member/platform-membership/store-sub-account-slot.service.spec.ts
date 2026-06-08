@@ -1,8 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import {
-  StoreSubAccountRole,
-  StoreSubAccountStatus,
-} from '@prisma/client';
+import { StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlatformMembershipAccessService } from './platform-membership-access.service';
@@ -78,7 +75,9 @@ describe('StoreSubAccountSlotService', () => {
       ],
     }).compile();
 
-    service = module.get<StoreSubAccountSlotService>(StoreSubAccountSlotService);
+    service = module.get<StoreSubAccountSlotService>(
+      StoreSubAccountSlotService,
+    );
     prismaService = module.get(PrismaService);
     membershipAccessService = module.get(PlatformMembershipAccessService);
     storeSubAccountLoginService = module.get(StoreSubAccountLoginService);
@@ -92,11 +91,13 @@ describe('StoreSubAccountSlotService', () => {
           upsert: jest.fn().mockResolvedValue(undefined),
         },
         storeSubAccount: {
-          findMany: jest.fn().mockResolvedValue([
-            { slotIndex: 1 },
-            { slotIndex: 4 },
-            { slotIndex: 5 },
-          ]),
+          findMany: jest
+            .fn()
+            .mockResolvedValue([
+              { slotIndex: 1 },
+              { slotIndex: 4 },
+              { slotIndex: 5 },
+            ]),
           update: jest.fn().mockResolvedValue(undefined),
           create: jest.fn().mockResolvedValue(undefined),
           updateMany: jest.fn().mockResolvedValue(undefined),

@@ -2,7 +2,7 @@ import type { Provider } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
 import { FinanceAccessService } from './finance-access.service';
 import { FinanceAccountService } from './finance-account.service';
@@ -14,9 +14,11 @@ const FINANCE_SPEC_TIME = new Date('2026-05-14T12:00:00.000Z');
 
 function createRedisServiceMock() {
   return {
-    getJson: jest.fn().mockResolvedValue(null),
-    setJson: jest.fn().mockResolvedValue(undefined),
-    runBackgroundRefresh: jest.fn(),
+    getOrLoadRefreshableJson: jest.fn(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    ),
+    writeRefreshableJson: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -104,6 +106,7 @@ export function createFinanceAccountPrismaMock() {
   return {
     financeAccountRecord: {
       findMany: jest.fn(),
+      count: jest.fn(),
       create: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
@@ -161,6 +164,7 @@ export function createFinanceCashFlowProviders(
       provide: CacheInvalidatorService,
       useValue: createCacheInvalidatorServiceMock(),
     },
+    { provide: RedisService, useValue: createRedisServiceMock() },
   ];
 }
 
@@ -182,6 +186,7 @@ export function createFinanceAccountProviders(
       provide: CacheInvalidatorService,
       useValue: createCacheInvalidatorServiceMock(),
     },
+    { provide: RedisService, useValue: createRedisServiceMock() },
   ];
 }
 
@@ -199,6 +204,11 @@ export function createFinanceReconciliationProviders(
       provide: PlatformMembershipAccessService,
       useValue: platformMembershipAccessService,
     },
+    {
+      provide: CacheInvalidatorService,
+      useValue: createCacheInvalidatorServiceMock(),
+    },
+    { provide: RedisService, useValue: createRedisServiceMock() },
   ];
 }
 

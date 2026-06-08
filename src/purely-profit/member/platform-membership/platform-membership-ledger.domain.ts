@@ -26,10 +26,7 @@ import type {
 
 type ApprovedPartnerLike = Pick<
   StorePartnerRecord,
-  | 'status'
-  | 'beanBalance'
-  | 'totalEarnedBeans'
-  | 'totalWithdrawnBeans'
+  'status' | 'beanBalance' | 'totalEarnedBeans' | 'totalWithdrawnBeans'
 >;
 
 export function buildOrdersOverview(

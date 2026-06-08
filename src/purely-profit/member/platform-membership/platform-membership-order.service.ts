@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { DAY_MS, PURCHASE_BONUS_POINTS } from './platform-membership.constants';
 import { resolveEffectivePlanId } from './membership-plan-resolver';
 import {
@@ -226,7 +226,7 @@ export class PlatformMembershipOrderService {
       };
     });
 
-    await this.cacheInvalidatorService.invalidatePulseDashboardHome();
+    await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
 
     return response;
   }

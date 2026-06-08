@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
-import { buildPulseSessionBootstrapCacheKey } from '../../redis/cache-keys';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import { buildPulseSessionBootstrapCacheKey } from '../pulse.cache-keys';
 import { RedisService } from '../../redis/redis.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import type { PulseSessionBootstrapResponseDto } from './dto/session-bootstrap.dto';
@@ -14,6 +15,7 @@ import {
 } from './session.utils';
 
 const SESSION_BOOTSTRAP_CACHE_TTL_SECONDS = 15;
+const SESSION_BOOTSTRAP_REFRESH_AFTER_MS = 5_000;
 
 @Injectable()
 export class SessionBootstrapService {
@@ -36,43 +38,36 @@ export class SessionBootstrapService {
       user.pulseMode ?? 'normal',
       targetStore?.id ?? null,
     );
-    const cachedResponse =
-      await this.redisService.getJson<PulseSessionBootstrapResponseDto>(
-        cacheKey,
-      );
-    if (cachedResponse !== null) {
-      return cachedResponse;
-    }
 
-    const profileUser = await this.findProfileUserOrThrow(user.id);
-    const [membership, unreadNotificationCount] = await Promise.all([
-      targetStore
-        ? this.findMembershipSummary(targetStore.id)
-        : Promise.resolve(null),
-      targetStore
-        ? this.sessionNotificationService.countUnreadNotifications(
-            targetStore.id,
-          )
-        : Promise.resolve(0),
-    ]);
-
-    const response: PulseSessionBootstrapResponseDto = {
-      mode: user.pulseMode ?? 'normal',
-      user: buildUserDto(profileUser, user.phone),
-      store: targetStore ? buildStoreDto(targetStore) : null,
-      membership: buildMembershipDto(membership),
-      unreadNotificationCount,
-      targetStoreSelected: hasSelectedStore,
-      hasOnboarded: hasSelectedStore,
-    };
-
-    await this.redisService.setJson(
+    return this.redisService.getOrLoadRefreshableJson({
       cacheKey,
-      response,
-      SESSION_BOOTSTRAP_CACHE_TTL_SECONDS,
-    );
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: SESSION_BOOTSTRAP_CACHE_TTL_SECONDS,
+      refreshAfterMs: SESSION_BOOTSTRAP_REFRESH_AFTER_MS,
+      loadValue: async () => {
+        const profileUser = await this.findProfileUserOrThrow(user.id);
+        const [membership, unreadNotificationCount] = await Promise.all([
+          targetStore
+            ? this.findMembershipSummary(targetStore.id)
+            : Promise.resolve(null),
+          targetStore
+            ? this.sessionNotificationService.countUnreadNotifications(
+                targetStore.id,
+              )
+            : Promise.resolve(0),
+        ]);
 
-    return response;
+        return {
+          mode: user.pulseMode ?? 'normal',
+          user: buildUserDto(profileUser, user.phone),
+          store: targetStore ? buildStoreDto(targetStore) : null,
+          membership: buildMembershipDto(membership),
+          unreadNotificationCount,
+          targetStoreSelected: hasSelectedStore,
+          hasOnboarded: hasSelectedStore,
+        } satisfies PulseSessionBootstrapResponseDto;
+      },
+    });
   }
 
   private async findProfileUserOrThrow(

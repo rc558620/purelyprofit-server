@@ -2,7 +2,8 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { RedisService } from '../../../redis/redis.service';
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
 import { PlatformMembershipOrderService } from './platform-membership-order.service';
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
@@ -65,6 +66,11 @@ describe('PlatformMembershipService', () => {
 
   const cacheInvalidatorService = {
     invalidatePulseDashboardHome: jest.fn(),
+    invalidateMembershipDerived: jest.fn(),
+  };
+
+  const redisService = {
+    getOrLoadRefreshableJson: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -207,6 +213,10 @@ describe('PlatformMembershipService', () => {
     });
     prismaService.storePartner.upsert.mockResolvedValue({ id: 11 });
     prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
+    redisService.getOrLoadRefreshableJson.mockImplementation(
+      async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
+        loadValue(),
+    );
     prismaService.membershipPlanSetting.findMany.mockResolvedValue([
       {
         planId: 'monthly',
@@ -259,6 +269,7 @@ describe('PlatformMembershipService', () => {
         PlatformMembershipPartnerService,
         PlatformMembershipOrderService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
         {
           provide: CacheInvalidatorService,
           useValue: cacheInvalidatorService,
@@ -285,64 +296,68 @@ describe('PlatformMembershipService', () => {
     'rejectPartnerApplication',
     'cancelPartnerApplication',
     'addPartnerFollowUpNote',
-  ] as const)('子账号访问会员中心 service %s 时仍会被拒绝', async (methodName) => {
-    const subAccountUser: AuthenticatedUser = {
-      ...user,
-      currentMembership: {
-        ...user.currentMembership!,
-        subjectType: 'sub_account',
-        role: 'STAFF',
-        permissions: ['partner:view'],
-        subAccountId: 3,
-        subAccountRole: 'manager',
-        subAccountStatus: 'active',
-        subAccountAssigned: true,
-        linkedEmployeeId: 12,
-      },
-    };
+  ] as const)(
+    '子账号访问会员中心 service %s 时仍会被拒绝',
+    async (methodName) => {
+      const subAccountUser: AuthenticatedUser = {
+        ...user,
+        currentMembership: {
+          ...user.currentMembership!,
+          subjectType: 'sub_account',
+          role: 'STAFF',
+          permissions: ['partner:view'],
+          subAccountId: 3,
+          subAccountRole: 'manager',
+          subAccountStatus: 'active',
+          subAccountAssigned: true,
+          linkedEmployeeId: 12,
+        },
+      };
 
-    const invocations: Record<string, () => Promise<unknown>> = {
-      getCenter: () => service.getCenter(subAccountUser),
-      getProfile: () => service.getProfile(subAccountUser),
-      listOrders: () => service.listOrders(subAccountUser),
-      purchaseOrder: () => service.purchaseOrder(subAccountUser, { planId: 'monthly' }),
-      listPointsLogs: () => service.listPointsLogs(subAccountUser),
-      listBeanLogs: () => service.listBeanLogs(subAccountUser),
-      getPromoCenter: () => service.getPromoCenter(subAccountUser),
-      getPromotionDetailCompat: () =>
-        service.getPromotionDetailCompat(subAccountUser, {}),
-      getPartnerProfile: () => service.getPartnerProfile(subAccountUser),
-      applyPartner: () =>
-        service.applyPartner(subAccountUser, {
-          name: '测试合伙人',
-          phone: '13800138000',
-          idCard: '440301199001011234',
-          paymentMethod: 'wechat',
-          paymentAccount: 'wx_partner_test',
-          region: ['北京市', '北京市', '朝阳区'],
-          intention: 'resource',
-          applyReason: '测试申请',
-        }),
-      markPartnerApplicationReviewing: () =>
-        service.markPartnerApplicationReviewing(subAccountUser, 1),
-      approvePartnerApplication: () =>
-        service.approvePartnerApplication(subAccountUser, 1),
-      rejectPartnerApplication: () =>
-        service.rejectPartnerApplication(subAccountUser, 1, {
-          reason: '资料不完整',
-        }),
-      cancelPartnerApplication: () =>
-        service.cancelPartnerApplication(subAccountUser, 1),
-      addPartnerFollowUpNote: () =>
-        service.addPartnerFollowUpNote(subAccountUser, 1, {
-          content: '补充回访记录',
-        }),
-    };
+      const invocations: Record<string, () => Promise<unknown>> = {
+        getCenter: () => service.getCenter(subAccountUser),
+        getProfile: () => service.getProfile(subAccountUser),
+        listOrders: () => service.listOrders(subAccountUser),
+        purchaseOrder: () =>
+          service.purchaseOrder(subAccountUser, { planId: 'monthly' }),
+        listPointsLogs: () => service.listPointsLogs(subAccountUser),
+        listBeanLogs: () => service.listBeanLogs(subAccountUser),
+        getPromoCenter: () => service.getPromoCenter(subAccountUser),
+        getPromotionDetailCompat: () =>
+          service.getPromotionDetailCompat(subAccountUser, {}),
+        getPartnerProfile: () => service.getPartnerProfile(subAccountUser),
+        applyPartner: () =>
+          service.applyPartner(subAccountUser, {
+            name: '测试合伙人',
+            phone: '13800138000',
+            idCard: '440301199001011234',
+            paymentMethod: 'wechat',
+            paymentAccount: 'wx_partner_test',
+            region: ['北京市', '北京市', '朝阳区'],
+            intention: 'resource',
+            applyReason: '测试申请',
+          }),
+        markPartnerApplicationReviewing: () =>
+          service.markPartnerApplicationReviewing(subAccountUser, 1),
+        approvePartnerApplication: () =>
+          service.approvePartnerApplication(subAccountUser, 1),
+        rejectPartnerApplication: () =>
+          service.rejectPartnerApplication(subAccountUser, 1, {
+            reason: '资料不完整',
+          }),
+        cancelPartnerApplication: () =>
+          service.cancelPartnerApplication(subAccountUser, 1),
+        addPartnerFollowUpNote: () =>
+          service.addPartnerFollowUpNote(subAccountUser, 1, {
+            content: '补充回访记录',
+          }),
+      };
 
-    await expect(invocations[methodName]()).rejects.toThrow(
-      '子账号无权访问平台会员中心',
-    );
-  });
+      await expect(invocations[methodName]()).rejects.toThrow(
+        '子账号无权访问平台会员中心',
+      );
+    },
+  );
 
   it('listPlans 返回和前端一致的套餐配置', async () => {
     await expect(service.listPlans()).resolves.toEqual([
@@ -926,7 +941,7 @@ describe('PlatformMembershipService', () => {
       },
     });
     expect(
-      cacheInvalidatorService.invalidatePulseDashboardHome,
+      cacheInvalidatorService.invalidateMembershipDerived,
     ).toHaveBeenCalled();
     expect(prismaService.storePartner.upsert).not.toHaveBeenCalled();
     expect(prismaService.storePartner.create).not.toHaveBeenCalled();
@@ -1131,7 +1146,7 @@ describe('PlatformMembershipService', () => {
       },
     });
     expect(
-      cacheInvalidatorService.invalidatePulseDashboardHome,
+      cacheInvalidatorService.invalidateMembershipDerived,
     ).toHaveBeenCalled();
     expect(prismaService.storePartner.upsert).not.toHaveBeenCalled();
     expect(prismaService.storePartner.update).not.toHaveBeenCalled();
@@ -1232,7 +1247,7 @@ describe('PlatformMembershipService', () => {
       }),
     );
     expect(
-      cacheInvalidatorService.invalidatePulseDashboardHome,
+      cacheInvalidatorService.invalidateMembershipDerived,
     ).toHaveBeenCalled();
     expect(result.isPartner).toBe(true);
     expect(result.currentApplication?.status).toBe('approved');
@@ -1277,7 +1292,7 @@ describe('PlatformMembershipService', () => {
       },
     });
     expect(
-      cacheInvalidatorService.invalidatePulseDashboardHome,
+      cacheInvalidatorService.invalidateMembershipDerived,
     ).toHaveBeenCalled();
     expect(prismaService.storePartner.deleteMany).not.toHaveBeenCalled();
     expect(result.currentApplication).toBeNull();
@@ -1521,7 +1536,7 @@ describe('PlatformMembershipService', () => {
       },
     });
     expect(
-      cacheInvalidatorService.invalidatePulseDashboardHome,
+      cacheInvalidatorService.invalidateMembershipDerived,
     ).toHaveBeenCalled();
     expect(result.currentApplication?.status).toBe('rejected');
     expect(result.currentApplication?.followUpNotes[0]?.content).toBe(
@@ -1734,7 +1749,7 @@ describe('PlatformMembershipService', () => {
       },
     });
     expect(
-      cacheInvalidatorService.invalidatePulseDashboardHome,
+      cacheInvalidatorService.invalidateMembershipDerived,
     ).toHaveBeenCalled();
     expect(prismaService.storePartnerBeanLog.create).toHaveBeenCalledWith({
       data: {

@@ -63,7 +63,8 @@ export class ProfileMembershipDto {
 
   @ApiProperty({
     type: [String],
-    description: '当前门店接口权限列表；不等同于首页入口可见性，应结合 capability/allowedHomeModules 判断',
+    description:
+      '当前门店接口权限列表；不等同于首页入口可见性，应结合 capability/allowedHomeModules 判断',
   })
   @IsArray({ message: '当前门店权限列表必须是数组' })
   @IsString({ each: true, message: '权限项必须是字符串' })
@@ -92,7 +93,8 @@ export class ProfileMembershipDto {
 
   @ApiPropertyOptional({
     example: true,
-    description: '子账号是否已绑定岗位，仅当 identityType 为 sub_account 时返回',
+    description:
+      '子账号是否已绑定岗位，仅当 identityType 为 sub_account 时返回',
   })
   @IsOptional()
   @IsBoolean({ message: '子账号绑定状态必须是布尔值' })
@@ -100,7 +102,8 @@ export class ProfileMembershipDto {
 
   @ApiPropertyOptional({
     example: true,
-    description: '子账号是否允许访问首页，仅当 identityType 为 sub_account 时返回',
+    description:
+      '子账号是否允许访问首页，仅当 identityType 为 sub_account 时返回',
   })
   @IsOptional()
   @IsBoolean({ message: '首页访问开关必须是布尔值' })
@@ -108,7 +111,8 @@ export class ProfileMembershipDto {
 
   @ApiPropertyOptional({
     example: true,
-    description: '子账号是否允许使用交班，仅当 identityType 为 sub_account 时返回',
+    description:
+      '子账号是否允许使用交班，仅当 identityType 为 sub_account 时返回',
   })
   @IsOptional()
   @IsBoolean({ message: '交班权限开关必须是布尔值' })

@@ -5,6 +5,21 @@ import { recordRedisOperation } from '../observability';
 
 type RedisOutcome = 'hit' | 'miss' | 'neutral';
 
+export interface RefreshableCachePayload<T> {
+  generatedAt: number;
+  refreshAt: number;
+  data: T;
+}
+
+export interface RefreshableCacheLoadOptions<T> {
+  cacheKey: string;
+  taskKey: string;
+  ttlSeconds: number;
+  refreshAfterMs: number;
+  loadValue: () => Promise<T>;
+  refreshValue?: () => Promise<T>;
+}
+
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private client!: Redis;
@@ -122,18 +137,141 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.client;
   }
 
+  async getOrLoadRefreshableJson<T>(
+    options: RefreshableCacheLoadOptions<T>,
+  ): Promise<T> {
+    const cachedValue = await this.getJson<unknown>(options.cacheKey);
+    const normalizedCached = this.normalizeRefreshableCachePayload<T>(
+      cachedValue,
+      options.refreshAfterMs,
+    );
+
+    if (normalizedCached !== null) {
+      if (normalizedCached.isLegacy) {
+        this.runBackgroundRefresh(options.taskKey, async () => {
+          await this.writeRefreshableJson(
+            options.cacheKey,
+            normalizedCached.payload.data,
+            options.ttlSeconds,
+            options.refreshAfterMs,
+          );
+        });
+      } else {
+        this.scheduleBackgroundRefresh(
+          options.taskKey,
+          normalizedCached.payload.refreshAt,
+          async () => {
+            const refreshedValue = await (
+              options.refreshValue ?? options.loadValue
+            )();
+            await this.writeRefreshableJson(
+              options.cacheKey,
+              refreshedValue,
+              options.ttlSeconds,
+              options.refreshAfterMs,
+            );
+          },
+        );
+      }
+      return normalizedCached.payload.data;
+    }
+
+    const loadedValue = await options.loadValue();
+    await this.writeRefreshableJson(
+      options.cacheKey,
+      loadedValue,
+      options.ttlSeconds,
+      options.refreshAfterMs,
+    );
+    return loadedValue;
+  }
+
+  async writeRefreshableJson<T>(
+    cacheKey: string,
+    data: T,
+    ttlSeconds: number,
+    refreshAfterMs: number,
+  ): Promise<RefreshableCachePayload<T>> {
+    const now = Date.now();
+    const payload: RefreshableCachePayload<T> = {
+      generatedAt: now,
+      refreshAt: now + Math.max(0, refreshAfterMs),
+      data,
+    };
+    await this.setJson(cacheKey, payload, ttlSeconds);
+    return payload;
+  }
+
+  private normalizeRefreshableCachePayload<T>(
+    cachedValue: unknown,
+    refreshAfterMs: number,
+  ): {
+    payload: RefreshableCachePayload<T>;
+    isLegacy: boolean;
+  } | null {
+    if (cachedValue === null) {
+      return null;
+    }
+
+    if (this.isRefreshableCachePayload<T>(cachedValue)) {
+      return {
+        payload: cachedValue,
+        isLegacy: false,
+      };
+    }
+
+    const now = Date.now();
+    return {
+      payload: {
+        generatedAt: now,
+        refreshAt: now + Math.max(0, refreshAfterMs),
+        data: cachedValue as T,
+      },
+      isLegacy: true,
+    };
+  }
+
+  private isRefreshableCachePayload<T>(
+    value: unknown,
+  ): value is RefreshableCachePayload<T> {
+    if (value === null || typeof value !== 'object') {
+      return false;
+    }
+
+    const payload = value as Record<string, unknown>;
+    return (
+      typeof payload.generatedAt === 'number' &&
+      typeof payload.refreshAt === 'number' &&
+      'data' in payload
+    );
+  }
+
+  scheduleBackgroundRefresh(
+    taskKey: string,
+    refreshAt: number,
+    handler: () => Promise<void>,
+  ): void {
+    if (refreshAt > Date.now()) {
+      return;
+    }
+
+    this.runBackgroundRefresh(taskKey, handler);
+  }
+
   runBackgroundRefresh(taskKey: string, handler: () => Promise<void>): void {
     if (this.backgroundRefreshTasks.has(taskKey)) {
       return;
     }
 
-    const task = handler()
-      .catch((error: unknown) => {
+    const task = (async () => {
+      try {
+        await handler();
+      } catch (error: unknown) {
         console.error(`[cache-refresh] ${taskKey} failed`, error);
-      })
-      .finally(() => {
+      } finally {
         this.backgroundRefreshTasks.delete(taskKey);
-      });
+      }
+    })();
 
     this.backgroundRefreshTasks.set(taskKey, task);
   }

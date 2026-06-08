@@ -1,7 +1,4 @@
-import {
-  StoreSubAccountRole,
-  StoreSubAccountStatus,
-} from '@prisma/client';
+import { StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
 import { resolveFrontendMembershipExpiry } from './membership-expiry.utils';
 import type { PlatformMembershipPlanId } from './dto/platform-membership-query.dto';
 

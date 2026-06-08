@@ -1,5 +1,13 @@
 import { CurrentUser } from '../../auth/current-user.decorator';
-import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiExcludeController } from '@nestjs/swagger';
 import { BlockSubAccount } from '../../access-control/decorators/block-sub-account.decorator';
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
@@ -30,7 +38,8 @@ export class PartnerReviewController {
   async list(
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<PartnerReviewCompatResponse> {
-    const profile = await this.platformMembershipService.getPartnerProfile(user);
+    const profile =
+      await this.platformMembershipService.getPartnerProfile(user);
     return buildPartnerReviewResponse(profile);
   }
 

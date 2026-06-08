@@ -18,7 +18,10 @@ describe('PlatformMembership controllers metadata', () => {
   ];
 
   it.each(cases)('%p 应配置子账号封禁 guard 与文案', (controller) => {
-    const guards = Reflect.getMetadata(GUARDS_METADATA, controller) as unknown[];
+    const guards = Reflect.getMetadata(
+      GUARDS_METADATA,
+      controller,
+    ) as unknown[];
 
     expect(guards).toEqual([
       JwtAuthGuard,
@@ -26,8 +29,8 @@ describe('PlatformMembership controllers metadata', () => {
       SubAccountBlockGuard,
     ]);
     expect(Reflect.getMetadata(BLOCK_SUB_ACCOUNT_KEY, controller)).toBe(true);
-    expect(
-      Reflect.getMetadata(BLOCK_SUB_ACCOUNT_MESSAGE_KEY, controller),
-    ).toBe('子账号无权访问平台会员中心');
+    expect(Reflect.getMetadata(BLOCK_SUB_ACCOUNT_MESSAGE_KEY, controller)).toBe(
+      '子账号无权访问平台会员中心',
+    );
   });
 });

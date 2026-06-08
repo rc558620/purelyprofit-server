@@ -10,12 +10,8 @@ import {
   Min,
 } from 'class-validator';
 import { PlatformMembershipApprovedPartnerDto } from '../../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
-import {
-  WITHDRAWAL_ACCOUNT_TYPE_VALUES,
-} from '../../../purely-profit/member/withdrawals/dto/apply-withdrawal.dto';
-import type {
-  WithdrawalAccountTypeValue,
-} from '../../../purely-profit/member/withdrawals/dto/apply-withdrawal.dto';
+import { WITHDRAWAL_ACCOUNT_TYPE_VALUES } from '../../../purely-profit/member/withdrawals/dto/apply-withdrawal.dto';
+import type { WithdrawalAccountTypeValue } from '../../../purely-profit/member/withdrawals/dto/apply-withdrawal.dto';
 
 function trimString(value: unknown): unknown {
   return typeof value === 'string' ? value.trim() : value;

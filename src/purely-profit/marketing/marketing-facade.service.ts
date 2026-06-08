@@ -80,7 +80,11 @@ export class MarketingFacadeService {
     storeId: number,
     dto: CreateCustomerDto,
   ): Promise<MarketingCustomerDto> {
-    return this.marketingCustomersFacadeService.createCustomer(user, storeId, dto);
+    return this.marketingCustomersFacadeService.createCustomer(
+      user,
+      storeId,
+      dto,
+    );
   }
 
   updateCustomer(
@@ -96,7 +100,10 @@ export class MarketingFacadeService {
   }
 
   deleteCustomer(user: AuthenticatedUser, customerId: number): Promise<void> {
-    return this.marketingCustomersFacadeService.deleteCustomer(user, customerId);
+    return this.marketingCustomersFacadeService.deleteCustomer(
+      user,
+      customerId,
+    );
   }
 
   listRecharges(
@@ -134,7 +141,10 @@ export class MarketingFacadeService {
     user: AuthenticatedUser,
     query: ListPointsRecordsQueryDto & { storeId?: number },
   ): Promise<MarketingPointsRecordsResponseDto> {
-    return this.marketingTransactionsFacadeService.listPointsRecords(user, query);
+    return this.marketingTransactionsFacadeService.listPointsRecords(
+      user,
+      query,
+    );
   }
 
   listCustomerPointsRecords(
@@ -184,7 +194,10 @@ export class MarketingFacadeService {
     user: AuthenticatedUser,
     promotionId: number,
   ): Promise<MarketingPromotionDto> {
-    return this.marketingPromotionsFacadeService.getPromotion(user, promotionId);
+    return this.marketingPromotionsFacadeService.getPromotion(
+      user,
+      promotionId,
+    );
   }
 
   createPromotion(
@@ -234,7 +247,10 @@ export class MarketingFacadeService {
     user: AuthenticatedUser,
     storeId?: number,
   ): Promise<MarketingProductCategoriesResponseDto> {
-    return this.marketingProductsFacadeService.listProductCategories(user, storeId);
+    return this.marketingProductsFacadeService.listProductCategories(
+      user,
+      storeId,
+    );
   }
 
   createProductCategory(
@@ -283,7 +299,11 @@ export class MarketingFacadeService {
     storeId: number,
     dto: CreateMarketingProductDto,
   ): Promise<MarketingProductDto> {
-    return this.marketingProductsFacadeService.createProduct(user, storeId, dto);
+    return this.marketingProductsFacadeService.createProduct(
+      user,
+      storeId,
+      dto,
+    );
   }
 
   updateProduct(
@@ -291,7 +311,11 @@ export class MarketingFacadeService {
     productId: number,
     dto: UpdateMarketingProductDto,
   ): Promise<MarketingProductDto> {
-    return this.marketingProductsFacadeService.updateProduct(user, productId, dto);
+    return this.marketingProductsFacadeService.updateProduct(
+      user,
+      productId,
+      dto,
+    );
   }
 
   toggleProduct(
@@ -299,7 +323,11 @@ export class MarketingFacadeService {
     productId: number,
     dto: ToggleMarketingProductDto,
   ): Promise<MarketingProductDto> {
-    return this.marketingProductsFacadeService.toggleProduct(user, productId, dto);
+    return this.marketingProductsFacadeService.toggleProduct(
+      user,
+      productId,
+      dto,
+    );
   }
 
   deleteProduct(user: AuthenticatedUser, productId: number): Promise<void> {

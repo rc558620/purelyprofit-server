@@ -290,6 +290,100 @@ describe('ProfitDetailService', () => {
     });
   });
 
+  it('getReport 会为台位费与抵扣商品补充空间名称并按空间拆分', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.saleOrderItem.findMany.mockResolvedValue([
+      {
+        productId: null,
+        productName: '台位费（固定）',
+        categoryName: '场地费',
+        salePrice: new Prisma.Decimal('10.00'),
+        profit: new Prisma.Decimal('10.00'),
+        quantity: 1,
+        image: null,
+        order: {
+          date: new Date(2026, 4, 12, 10, 0, 0, 0),
+          spaceSession: {
+            space: {
+              name: '大厅A01',
+            },
+          },
+        },
+      },
+      {
+        productId: null,
+        productName: '台位费（固定）',
+        categoryName: '场地费',
+        salePrice: new Prisma.Decimal('8.00'),
+        profit: new Prisma.Decimal('8.00'),
+        quantity: 1,
+        image: null,
+        order: {
+          date: new Date(2026, 4, 12, 11, 0, 0, 0),
+          spaceSession: {
+            space: {
+              name: '大厅A02',
+            },
+          },
+        },
+      },
+      {
+        productId: null,
+        productName: '预付抵扣',
+        categoryName: '场地费',
+        salePrice: new Prisma.Decimal('-5.00'),
+        profit: new Prisma.Decimal('-5.00'),
+        quantity: 1,
+        image: null,
+        order: {
+          date: new Date(2026, 4, 12, 12, 0, 0, 0),
+          spaceSession: {
+            space: {
+              name: '大厅A01',
+            },
+          },
+        },
+      },
+    ]);
+    prismaService.costRecord.findMany.mockResolvedValue([]);
+
+    const result = await service.getReport(user, {
+      period: 'custom_range',
+      rangeStartDate: new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
+      rangeEndDate: new Date(2026, 4, 12, 23, 59, 59, 999).getTime(),
+    });
+
+    expect(result.products).toEqual([
+      {
+        id: 'space:大厅A01台位费（固定）',
+        name: '大厅A01台位费（固定）',
+        category: '场地费',
+        quantity: 1,
+        totalRevenue: 10,
+        totalProfit: 10,
+        profitRate: 100,
+      },
+      {
+        id: 'space:大厅A02台位费（固定）',
+        name: '大厅A02台位费（固定）',
+        category: '场地费',
+        quantity: 1,
+        totalRevenue: 8,
+        totalProfit: 8,
+        profitRate: 100,
+      },
+      {
+        id: 'space:大厅A01预付抵扣',
+        name: '大厅A01预付抵扣',
+        category: '场地费',
+        quantity: 1,
+        totalRevenue: -5,
+        totalProfit: -5,
+        profitRate: 100,
+      },
+    ]);
+  });
+
   it('year 周期按整年范围查询并比较上一年', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     prismaService.saleOrderItem.findMany.mockResolvedValue([]);

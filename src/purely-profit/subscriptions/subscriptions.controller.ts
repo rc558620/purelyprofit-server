@@ -1,5 +1,13 @@
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -29,10 +37,7 @@ export class SubscriptionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('storeId', ParseIntPipe) storeId: number,
   ): Promise<StoreSubscriptionResponseDto> {
-    return this.subscriptionsService.getStoreSubscription(
-      user,
-      storeId,
-    );
+    return this.subscriptionsService.getStoreSubscription(user, storeId);
   }
 
   @Patch('stores/:storeId')

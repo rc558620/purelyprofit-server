@@ -88,10 +88,6 @@ export class NotificationsController {
     @Param('id') notificationId: string,
     @Query() query: NotificationsStoreQueryDto,
   ): Promise<MarkNotificationReadResponseDto> {
-    return this.notificationsService.markRead(
-      user,
-      notificationId,
-      query,
-    );
+    return this.notificationsService.markRead(user, notificationId, query);
   }
 }

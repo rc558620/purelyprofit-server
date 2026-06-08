@@ -77,11 +77,7 @@ export class EmployeesDictionaryController {
     @Param('id', ParseIntPipe) departmentId: number,
     @Body() dto: UpdateEmployeeDictionaryDto,
   ): Promise<EmployeeDepartmentResponseDto> {
-    return this.employeesService.updateDepartment(
-      user,
-      departmentId,
-      dto,
-    );
+    return this.employeesService.updateDepartment(user, departmentId, dto);
   }
 
   @Delete('departments/:id')
@@ -189,9 +185,6 @@ export class EmployeesDictionaryController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) shiftDefinitionId: number,
   ): Promise<void> {
-    await this.employeesService.removeShiftDefinition(
-      user,
-      shiftDefinitionId,
-    );
+    await this.employeesService.removeShiftDefinition(user, shiftDefinitionId);
   }
 }

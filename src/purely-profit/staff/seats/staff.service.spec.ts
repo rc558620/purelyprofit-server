@@ -56,7 +56,9 @@ describe('StaffService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(null);
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(
+      null,
+    );
 
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, number> = {

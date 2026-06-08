@@ -8,6 +8,11 @@ import {
 import type {
   AggregatedCategory,
   AggregatedRankProduct,
+  BusinessAnalysisCategoryRow,
+  BusinessAnalysisCostBucketRow,
+  BusinessAnalysisDailyCostRow,
+  BusinessAnalysisDailyRevenueRow,
+  BusinessAnalysisRankRow,
   CostRecordCostRow,
   CostAggregationResult,
   CostBucketKey,
@@ -31,6 +36,81 @@ export function createEmptyCostAggregation(): CostAggregationResult {
     dailyCostMap: new Map<number, number>(),
     costBucketMap: new Map<CostBucketKey, number>(),
   };
+}
+
+export function buildSalesAggregation(input: {
+  revenue: number;
+  orderCount: number;
+  dailyRows?: BusinessAnalysisDailyRevenueRow[];
+  categoryRows?: BusinessAnalysisCategoryRow[];
+  rankRows?: BusinessAnalysisRankRow[];
+}): SalesAggregationResult {
+  const result = createEmptySalesAggregation();
+  result.revenue = input.revenue;
+  result.orderCount = input.orderCount;
+
+  for (const row of input.dailyRows ?? []) {
+    result.dailyRevenueMap.set(
+      getDayStartTimestamp(row.bucketAt.getTime()),
+      toDecimalNumber(row.revenue),
+    );
+  }
+
+  for (const row of input.categoryRows ?? []) {
+    result.categoryMap.set(row.categoryName, {
+      revenue: toDecimalNumber(row.revenue),
+      profit: toDecimalNumber(row.profit),
+      quantity: row.quantity,
+    });
+  }
+
+  for (const row of input.rankRows ?? []) {
+    const rankKey =
+      row.productId !== null
+        ? String(row.productId)
+        : `snapshot:${row.productName}`;
+    const image = toOptionalMediaText(row.image);
+    result.rankMap.set(rankKey, {
+      id: rankKey,
+      name: row.productName,
+      category: row.categoryName,
+      totalRevenue: toDecimalNumber(row.totalRevenue),
+      totalProfit: toDecimalNumber(row.totalProfit),
+      quantity: row.quantity,
+      ...(image ? { image } : {}),
+    });
+  }
+
+  return result;
+}
+
+export function buildCostAggregation(input: {
+  totalCost: number;
+  dailyRows?: BusinessAnalysisDailyCostRow[];
+  bucketRows?: BusinessAnalysisCostBucketRow[];
+}): CostAggregationResult {
+  const result = createEmptyCostAggregation();
+  result.totalCost = input.totalCost;
+
+  for (const row of input.dailyRows ?? []) {
+    result.dailyCostMap.set(
+      getDayStartTimestamp(row.bucketAt.getTime()),
+      toDecimalNumber(row.amount),
+    );
+  }
+
+  for (const row of input.bucketRows ?? []) {
+    const bucket = mapCostBucket(row.category);
+    result.costBucketMap.set(
+      bucket,
+      addMoneyValues(
+        result.costBucketMap.get(bucket) ?? 0,
+        toDecimalNumber(row.amount),
+      ),
+    );
+  }
+
+  return result;
 }
 
 export function aggregateSales(
@@ -164,7 +244,7 @@ export function aggregateCosts(
   };
 }
 
-function mapCostBucket(category: string): CostBucketKey {
+export function mapCostBucket(category: string): CostBucketKey {
   switch (category) {
     case 'purchase':
       return 'purchase';

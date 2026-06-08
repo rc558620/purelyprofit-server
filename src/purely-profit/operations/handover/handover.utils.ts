@@ -3,15 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { ShiftDateRange } from './handover.types';
 
 export const startOfDay = (date: Date): Date =>
-  new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    0,
-    0,
-    0,
-    0,
-  );
+  new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
 
 export const endOfDay = (date: Date): Date =>
   new Date(

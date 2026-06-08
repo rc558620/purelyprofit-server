@@ -140,8 +140,16 @@ export async function buildClampedRanges(
   callerIsSubAccount = false,
 ): Promise<ProfitClampedRanges> {
   const [clampedCurrentRange, clampedPreviousRange] = await Promise.all([
-    platformMembershipAccessService.clampHistoryRange(storeId, currentRange, callerIsSubAccount),
-    platformMembershipAccessService.clampHistoryRange(storeId, previousRange, callerIsSubAccount),
+    platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      currentRange,
+      callerIsSubAccount,
+    ),
+    platformMembershipAccessService.clampHistoryRange(
+      storeId,
+      previousRange,
+      callerIsSubAccount,
+    ),
   ]);
 
   return {

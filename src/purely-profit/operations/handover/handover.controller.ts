@@ -1,5 +1,16 @@
 import { CurrentUser } from '../../auth/current-user.decorator';
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -183,11 +194,7 @@ export class HandoverController {
     @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
     @Query('offset', new ParseIntPipe({ optional: true })) offset = 0,
   ): Promise<HandoverRecordListResponseDto> {
-    return this.handoverService.listHandoverRecords(
-      user,
-      limit,
-      offset,
-    );
+    return this.handoverService.listHandoverRecords(user, limit, offset);
   }
 
   @Get('handover/records-summary')
@@ -201,10 +208,7 @@ export class HandoverController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: HandoverRecordSummaryQueryDto,
   ): Promise<HandoverRecordSummaryListResponseDto> {
-    return this.handoverService.listHandoverRecordSummaries(
-      user,
-      query,
-    );
+    return this.handoverService.listHandoverRecordSummaries(user, query);
   }
 
   @Get('handover/my-pending')

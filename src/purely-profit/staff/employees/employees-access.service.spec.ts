@@ -31,7 +31,9 @@ describe('EmployeesAccessService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(null);
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(
+      null,
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -71,7 +73,9 @@ describe('EmployeesAccessService', () => {
   });
 
   it('getManageableStoreId 在当前 membership 无权限时返回 null', async () => {
-    await expect(service.getManageableStoreId(user, 'staff:view')).resolves.toBeNull();
+    await expect(
+      service.getManageableStoreId(user, 'staff:view'),
+    ).resolves.toBeNull();
   });
 
   it('getManageableStoreId 支持工资场景的多权限兜底', async () => {

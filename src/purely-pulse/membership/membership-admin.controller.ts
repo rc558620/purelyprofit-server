@@ -159,7 +159,11 @@ export class PulseMembershipAdminController {
     @Body() dto: AdjustMemberBeansDto,
   ): Promise<PulseMemberDetailDto> {
     const memberId = this.resolveAdminMemberId(rawMemberId, dto);
-    return this.pulseMembershipService.adjustAdminMemberBeans(user, memberId, dto);
+    return this.pulseMembershipService.adjustAdminMemberBeans(
+      user,
+      memberId,
+      dto,
+    );
   }
 
   @Post('members/:id/membership')
@@ -175,10 +179,14 @@ export class PulseMembershipAdminController {
     @RequestAuditContext() auditContext: RequestAuditContextValue,
   ): Promise<PulseMemberDetailDto> {
     const memberId = this.resolveAdminMemberId(rawMemberId, dto);
-    return this.pulseMembershipService.setAdminMemberMembership(user, memberId, {
-      ...dto,
-      auditContext,
-    });
+    return this.pulseMembershipService.setAdminMemberMembership(
+      user,
+      memberId,
+      {
+        ...dto,
+        auditContext,
+      },
+    );
   }
 
   @Post('members/:id/ban')

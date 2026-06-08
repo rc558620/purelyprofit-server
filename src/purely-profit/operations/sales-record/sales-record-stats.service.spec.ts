@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../redis/redis.service';
 import { SalesRecordStatsService } from './sales-record-stats.service';
 
 describe('SalesRecordStatsService', () => {
@@ -13,6 +14,10 @@ describe('SalesRecordStatsService', () => {
     saleOrder: {
       aggregate: jest.fn(),
     },
+  };
+
+  const redisService = {
+    getOrLoadRefreshableJson: jest.fn(),
   };
 
   const commerceAccessService = {
@@ -58,11 +63,16 @@ describe('SalesRecordStatsService', () => {
         empty: false,
       }),
     );
+    redisService.getOrLoadRefreshableJson.mockImplementation(
+      async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
+        loadValue(),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SalesRecordStatsService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         {
           provide: PlatformMembershipAccessService,

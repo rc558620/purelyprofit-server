@@ -1,47 +1,63 @@
 import type {
   DashboardHomeMetaDto,
   DashboardHomeOverviewResponseDto,
+  DashboardHomeSalesTrendDto,
 } from './dto/dashboard-home-response.dto';
+import type {
+  DashboardHomeActivitiesData,
+  DashboardHomePeriodValue,
+  DashboardHomeStatsData,
+  TimeRange,
+} from './dashboard-home.types';
+import {
+  buildDashboardHomeActivities,
+  buildDashboardHomeStats,
+} from './dashboard-home.utils';
 
 export type DashboardHomeOverviewWithoutCapability = Omit<
   DashboardHomeOverviewResponseDto,
   'capability'
 >;
-import type { BuildDashboardHomeOverviewResponseParams } from './dashboard-home.types';
-import {
-  buildDashboardHomeActivities,
-  buildDashboardHomeSalesTrend,
-  buildDashboardHomeStats,
-} from './dashboard-home.utils';
 
-export function buildDashboardHomeOverviewResponse(
-  params: BuildDashboardHomeOverviewResponseParams,
-): DashboardHomeOverviewWithoutCapability {
-  const { period, storeId, currentRange, compareRange, now, overviewData } =
-    params;
+export function buildDashboardHomeOverviewResponse(params: {
+  period: DashboardHomePeriodValue;
+  storeId: number;
+  currentRange: TimeRange;
+  compareRange: TimeRange;
+  now: number;
+  statsData: DashboardHomeStatsData;
+  salesTrend: DashboardHomeSalesTrendDto;
+  activitiesData: DashboardHomeActivitiesData;
+}): DashboardHomeOverviewWithoutCapability {
+  const {
+    period,
+    storeId,
+    currentRange,
+    compareRange,
+    now,
+    statsData,
+    salesTrend,
+    activitiesData,
+  } = params;
 
   return {
     stats: buildDashboardHomeStats(
       period,
-      overviewData.currentSales,
-      overviewData.compareSales,
-      overviewData.currentCosts,
-      overviewData.compareCosts,
+      statsData.currentSales,
+      statsData.compareSales,
+      statsData.currentCosts,
+      statsData.compareCosts,
     ),
-    salesTrend: buildDashboardHomeSalesTrend(
-      period,
-      currentRange,
-      overviewData.saleTrendRows,
-    ),
+    salesTrend,
     activities: buildDashboardHomeActivities({
       period,
-      currentSales: overviewData.currentSales,
-      compareSales: overviewData.compareSales,
-      lowStockProducts: overviewData.lowStockProducts,
-      overdueAccounts: overviewData.overdueAccounts,
-      activePromotions: overviewData.activePromotions,
-      pendingWithdrawals: overviewData.pendingWithdrawals,
-      upcomingLeave: overviewData.upcomingLeaves[0],
+      currentSales: statsData.currentSales,
+      compareSales: statsData.compareSales,
+      lowStockProducts: activitiesData.lowStockProducts,
+      overdueAccounts: activitiesData.overdueAccounts,
+      activePromotions: activitiesData.activePromotions,
+      pendingWithdrawals: activitiesData.pendingWithdrawals,
+      upcomingLeave: activitiesData.upcomingLeaves[0],
     }),
     meta: buildDashboardHomeMeta(
       period,
@@ -49,23 +65,23 @@ export function buildDashboardHomeOverviewResponse(
       currentRange,
       compareRange,
       now,
-      overviewData,
+      statsData,
     ),
   };
 }
 
 function buildDashboardHomeMeta(
-  period: BuildDashboardHomeOverviewResponseParams['period'],
+  period: DashboardHomePeriodValue,
   storeId: number,
-  currentRange: BuildDashboardHomeOverviewResponseParams['currentRange'],
-  compareRange: BuildDashboardHomeOverviewResponseParams['compareRange'],
+  currentRange: TimeRange,
+  compareRange: TimeRange,
   now: number,
-  overviewData: BuildDashboardHomeOverviewResponseParams['overviewData'],
+  statsData: DashboardHomeStatsData,
 ): DashboardHomeMetaDto {
   return {
     period,
     storeId,
-    storeName: overviewData.store?.name ?? `门店 ${storeId}`,
+    storeName: statsData.store?.name ?? `门店 ${storeId}`,
     startAt: currentRange.start,
     endAt: currentRange.end,
     compareStartAt: compareRange.start,

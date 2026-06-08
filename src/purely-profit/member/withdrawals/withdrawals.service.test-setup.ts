@@ -2,7 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PartnerWithdrawalStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { RedisService } from '../../../redis/redis.service';
 import { WithdrawalsSharedService } from './withdrawals-shared.service';
 import { WithdrawalsService } from './withdrawals.service';
 
@@ -199,6 +200,16 @@ export async function createWithdrawalsServiceTestingContext(): Promise<Withdraw
 
   const cacheInvalidatorService = {
     invalidateDashboardAndPulseSession: jest.fn(),
+    invalidateWithdrawalsDerived: jest.fn(),
+    invalidatePulseGrowthEarnings: jest.fn(),
+  };
+  const redisService = {
+    getOrLoadRefreshableJson: jest
+      .fn()
+      .mockImplementation(
+        async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
+          loadValue(),
+      ),
   };
 
   const module: TestingModule = await Test.createTestingModule({
@@ -206,6 +217,7 @@ export async function createWithdrawalsServiceTestingContext(): Promise<Withdraw
       WithdrawalsService,
       WithdrawalsSharedService,
       { provide: PrismaService, useValue: prismaService },
+      { provide: RedisService, useValue: redisService },
       {
         provide: CacheInvalidatorService,
         useValue: cacheInvalidatorService,

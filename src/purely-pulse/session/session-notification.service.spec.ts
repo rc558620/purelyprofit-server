@@ -23,13 +23,16 @@ describe('SessionNotificationService', () => {
   };
 
   const redisService = {
-    getJson: jest.fn().mockResolvedValue(null),
-    setJson: jest.fn().mockResolvedValue(undefined),
+    getOrLoadRefreshableJson: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-21T12:00:00.000Z'));
     jest.clearAllMocks();
+    redisService.getOrLoadRefreshableJson.mockImplementation(
+      async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
+        loadValue(),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -80,6 +83,12 @@ describe('SessionNotificationService', () => {
       where: { storeId: 18 },
       select: { expiresAt: true },
     });
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: 'pulse:session:notifications:store:18',
+        ttlSeconds: 15,
+      }),
+    );
   });
 
   it('countUnreadNotifications 订阅未到期窗口内时不增加订阅提醒', async () => {

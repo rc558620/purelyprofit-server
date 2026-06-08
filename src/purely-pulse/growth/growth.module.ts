@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../../purely-profit/auth/auth.module';
+import { RedisModule } from '../../redis/redis.module';
 import { PlatformMembershipModule } from '../../purely-profit/member/platform-membership/platform-membership.module';
 import { WithdrawalsModule } from '../../purely-profit/member/withdrawals/withdrawals.module';
 import { PulseStoreContextModule } from '../pulse-store-context.module';
@@ -21,6 +22,7 @@ import { PulseGrowthWithdrawalsController } from './growth-withdrawals.controlle
     PlatformMembershipModule,
     WithdrawalsModule,
     PulseStoreContextModule,
+    RedisModule,
   ],
   controllers: [
     PulseGrowthController,

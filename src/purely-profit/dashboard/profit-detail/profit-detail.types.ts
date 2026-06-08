@@ -62,6 +62,15 @@ export const PROFIT_DETAIL_SALE_ORDER_ITEM_SELECT =
     order: {
       select: {
         date: true,
+        spaceSession: {
+          select: {
+            space: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
       },
     },
   });

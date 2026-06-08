@@ -50,6 +50,11 @@ export const SALE_ORDER_ITEM_SELECT = {
         select: {
           prepaidPaymentMethod: true,
           renewRecords: true,
+          space: {
+            select: {
+              name: true,
+            },
+          },
         },
       },
     },

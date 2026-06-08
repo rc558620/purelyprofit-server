@@ -2,6 +2,8 @@ import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { FinanceReconciliationStatus, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import { CacheInvalidatorService } from '../../redis/invalidator';
+import { RedisService } from '../../redis/redis.service';
 import { FinanceReconciliationService } from './finance-reconciliation.service';
 import {
   createFinanceReconciliationPrismaMock,
@@ -17,6 +19,11 @@ describe('FinanceReconciliationService', () => {
   let prismaService: ReturnType<typeof createFinanceReconciliationPrismaMock>;
   let platformMembershipAccessService: ReturnType<
     typeof createPlatformMembershipAccessServiceMock
+  >;
+  let redisService: Pick<RedisService, 'getOrLoadRefreshableJson'>;
+  let cacheInvalidatorService: Pick<
+    CacheInvalidatorService,
+    'invalidateFinanceDerived'
   >;
 
   const user: AuthenticatedUser = createFinanceSpecUser();
@@ -37,6 +44,8 @@ describe('FinanceReconciliationService', () => {
     service = module.get<FinanceReconciliationService>(
       FinanceReconciliationService,
     );
+    redisService = module.get(RedisService);
+    cacheInvalidatorService = module.get(CacheInvalidatorService);
   });
 
   afterEach(() => {
@@ -161,6 +170,33 @@ describe('FinanceReconciliationService', () => {
         ],
       },
     });
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey:
+          'profit:finance:reconciliations:list:store:18:status:discrepancy:type:supplier:search:%E4%BE%9B%E5%BA%94%E5%95%86:page:2:pageSize:10',
+        ttlSeconds: 60,
+      }),
+    );
+  });
+
+  it('getReconciliationStats 会通过 refreshable cache 包裹统计读取', async () => {
+    prismaService.financeReconciliationRecord.findMany.mockResolvedValue([]);
+
+    await expect(service.getReconciliationStats(user)).resolves.toEqual({
+      totalCount: 0,
+      confirmedCount: 0,
+      discrepancyCount: 0,
+      adjustedCount: 0,
+      draftCount: 0,
+      totalDiffAmount: 0,
+      newThisMonth: 0,
+    });
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey: 'profit:finance:reconciliations:stats:store:18',
+        ttlSeconds: 60,
+      }),
+    );
   });
 
   it('createReconciliation 会按前端逻辑计算净额、差异和状态', async () => {
@@ -216,6 +252,9 @@ describe('FinanceReconciliationService', () => {
       operator: '财务张姐',
       note: '节假日汇总',
     });
+    expect(
+      cacheInvalidatorService.invalidateFinanceDerived,
+    ).toHaveBeenCalledWith(18);
   });
 
   it('confirmReconciliation 带调整说明时标记为 adjusted', async () => {
@@ -281,6 +320,9 @@ describe('FinanceReconciliationService', () => {
       status: 'adjusted',
       adjustNote: '微信手续费差额',
     });
+    expect(
+      cacheInvalidatorService.invalidateFinanceDerived,
+    ).toHaveBeenCalledWith(18);
   });
 
   it('删除不存在的对账单时抛 NotFound', async () => {

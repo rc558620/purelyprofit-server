@@ -2,6 +2,14 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  buildCacheRefreshTaskKey,
+  buildMembersListCacheKey,
+  buildMembersMetaCacheKey,
+  buildMembersOverviewCacheKey,
+} from '../../../redis/keys';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { RedisService } from '../../../redis/redis.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import {
   MemberMetaQueryDto,
@@ -46,12 +54,21 @@ import {
   toDbMemberStatus,
 } from './members.utils';
 
+const MEMBERS_LIST_CACHE_TTL_SECONDS = 90;
+const MEMBERS_LIST_REFRESH_AFTER_MS = 20_000;
+const MEMBERS_META_CACHE_TTL_SECONDS = 300;
+const MEMBERS_META_REFRESH_AFTER_MS = 60_000;
+const MEMBERS_OVERVIEW_CACHE_TTL_SECONDS = 120;
+const MEMBERS_OVERVIEW_REFRESH_AFTER_MS = 30_000;
+
 @Injectable()
 export class MembersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly membersAccessService: MembersAccessService,
     private readonly configService: ConfigService,
+    private readonly redisService: RedisService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async create(
@@ -108,6 +125,7 @@ export class MembersService {
       return createdMember;
     });
 
+    await this.invalidateMembersDerived(member.storeId);
     return this.buildMemberResponse(member);
   }
 
@@ -133,20 +151,37 @@ export class MembersService {
       };
     }
 
-    const { items, total } = await queryMembersPage(this.prisma, {
-      storeId,
-      status: toDbMemberStatus(query.status),
+    const cacheKey = buildMembersListCacheKey(storeId, {
+      status: query.status,
       level: query.level,
       keyword: query.keyword,
-      onlyPartners: query.partner,
-      skip,
-      take,
+      partner: query.partner,
+      page: currentPage,
+      pageSize: take,
     });
 
-    return {
-      items: items.map((item) => toMemberResponse(item)),
-      meta: buildPaginationMeta(total, currentPage, take),
-    };
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: MEMBERS_LIST_CACHE_TTL_SECONDS,
+      refreshAfterMs: MEMBERS_LIST_REFRESH_AFTER_MS,
+      loadValue: async () => {
+        const { items, total } = await queryMembersPage(this.prisma, {
+          storeId,
+          status: toDbMemberStatus(query.status),
+          level: query.level,
+          keyword: query.keyword,
+          onlyPartners: query.partner,
+          skip,
+          take,
+        });
+
+        return {
+          items: items.map((item) => toMemberResponse(item)),
+          meta: buildPaginationMeta(total, currentPage, take),
+        };
+      },
+    });
   }
 
   async getMeta(
@@ -166,15 +201,24 @@ export class MembersService {
       };
     }
 
-    const { levelRows, statusRows } = await queryMembersMeta(
-      this.prisma,
-      storeId,
-    );
+    const cacheKey = buildMembersMetaCacheKey(storeId);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: MEMBERS_META_CACHE_TTL_SECONDS,
+      refreshAfterMs: MEMBERS_META_REFRESH_AFTER_MS,
+      loadValue: async () => {
+        const { levelRows, statusRows } = await queryMembersMeta(
+          this.prisma,
+          storeId,
+        );
 
-    return {
-      levels: buildMemberLevelMetaRows(levelRows),
-      statuses: buildMemberStatusMetaRows(statusRows),
-    };
+        return {
+          levels: buildMemberLevelMetaRows(levelRows),
+          statuses: buildMemberStatusMetaRows(statusRows),
+        };
+      },
+    });
   }
 
   async getOverview(
@@ -191,10 +235,16 @@ export class MembersService {
       return buildEmptyMembersOverviewResponse();
     }
 
-    return (
-      (await queryMembersOverview(this.prisma, storeId)) ??
-      buildEmptyMembersOverviewResponse()
-    );
+    const cacheKey = buildMembersOverviewCacheKey(storeId);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: MEMBERS_OVERVIEW_CACHE_TTL_SECONDS,
+      refreshAfterMs: MEMBERS_OVERVIEW_REFRESH_AFTER_MS,
+      loadValue: async () =>
+        (await queryMembersOverview(this.prisma, storeId)) ??
+        buildEmptyMembersOverviewResponse(),
+    });
   }
 
   async listSnapshots(
@@ -307,6 +357,7 @@ export class MembersService {
       return updatedMember;
     });
 
+    await this.invalidateMembersDerived(member.storeId);
     return this.buildMemberResponse(member);
   }
 
@@ -319,6 +370,11 @@ export class MembersService {
       );
 
     await deleteMemberRecord(this.prisma, existingMember.id);
+    await this.invalidateMembersDerived(existingMember.storeId);
+  }
+
+  private async invalidateMembersDerived(storeId: number): Promise<void> {
+    await this.cacheInvalidatorService.invalidateMembersDerived(storeId);
   }
 
   private resolveViewStoreId(

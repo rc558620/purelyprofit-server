@@ -275,12 +275,12 @@ export class InventoryService {
     return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
   }
 
-  private resolveAdjustPermission(dto: AdjustInventoryInput): 'inventory:update' | 'operation-entry:create' {
+  private resolveAdjustPermission(
+    dto: AdjustInventoryInput,
+  ): 'inventory:update' | 'operation-entry:create' {
     const mode = dto.mode ?? (dto.targetStock !== undefined ? 'set' : 'delta');
     const isOperationEntryDeduction =
-      dto.adjustType === 'manual' &&
-      mode === 'delta' &&
-      (dto.delta ?? 0) < 0;
+      dto.adjustType === 'manual' && mode === 'delta' && (dto.delta ?? 0) < 0;
 
     return isOperationEntryDeduction
       ? 'operation-entry:create'

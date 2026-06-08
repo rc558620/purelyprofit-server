@@ -6,6 +6,7 @@ import {
 import { PartnerWithdrawalStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import type {
   PulseAdminApprovePayoutDto,
   PulseAdminRejectPayoutDto,
@@ -17,6 +18,7 @@ import { queryAdminPayoutActionRecord } from './growth-admin.query';
 export class PulseGrowthAdminPayoutService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly accessService: PulseGrowthAccessService,
   ) {}
 
@@ -68,6 +70,8 @@ export class PulseGrowthAdminPayoutService {
     if (updateResult.count !== 1) {
       throw new ConflictException('打款申请状态已变化，请刷新后重试');
     }
+
+    await this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries();
 
     return { success: true };
   }
@@ -152,6 +156,8 @@ export class PulseGrowthAdminPayoutService {
         },
       });
     });
+
+    await this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries();
 
     return { success: true };
   }

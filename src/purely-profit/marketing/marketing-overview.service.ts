@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   buildCacheRefreshTaskKey,
   buildMarketingOverviewCacheKey,
-} from '../../redis/cache-keys';
+} from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
 import type { MarketingOverviewDto } from './dto/marketing-response.dto';
 import {
@@ -16,12 +16,6 @@ import { MarketingSharedService } from './marketing-shared.service';
 
 const MARKETING_OVERVIEW_CACHE_TTL_SECONDS = 120;
 const MARKETING_OVERVIEW_REFRESH_AFTER_MS = 30_000;
-
-type MarketingOverviewCachePayload = {
-  generatedAt: number;
-  refreshAt: number;
-  data: MarketingOverviewDto;
-};
 
 @Injectable()
 export class MarketingOverviewService {
@@ -45,56 +39,13 @@ export class MarketingOverviewService {
     }
 
     const cacheKey = buildMarketingOverviewCacheKey(resolvedStoreId);
-    const cachedPayload =
-      await this.redisService.getJson<MarketingOverviewCachePayload>(cacheKey);
-
-    if (cachedPayload !== null) {
-      this.scheduleOverviewRefresh(
-        cacheKey,
-        resolvedStoreId,
-        cachedPayload.refreshAt,
-      );
-      return cachedPayload.data;
-    }
-
-    return this.refreshOverviewCache(cacheKey, resolvedStoreId);
-  }
-
-  private scheduleOverviewRefresh(
-    cacheKey: string,
-    storeId: number,
-    refreshAt: number,
-  ): void {
-    if (refreshAt > Date.now()) {
-      return;
-    }
-
-    this.redisService.runBackgroundRefresh(
-      buildCacheRefreshTaskKey(cacheKey),
-      async () => {
-        await this.refreshOverviewCache(cacheKey, storeId);
-      },
-    );
-  }
-
-  private async refreshOverviewCache(
-    cacheKey: string,
-    storeId: number,
-  ): Promise<MarketingOverviewDto> {
-    const data = await this.buildOverview(storeId);
-    const now = Date.now();
-
-    await this.redisService.setJson(
+    return this.redisService.getOrLoadRefreshableJson({
       cacheKey,
-      {
-        generatedAt: now,
-        refreshAt: now + MARKETING_OVERVIEW_REFRESH_AFTER_MS,
-        data,
-      } satisfies MarketingOverviewCachePayload,
-      MARKETING_OVERVIEW_CACHE_TTL_SECONDS,
-    );
-
-    return data;
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: MARKETING_OVERVIEW_CACHE_TTL_SECONDS,
+      refreshAfterMs: MARKETING_OVERVIEW_REFRESH_AFTER_MS,
+      loadValue: () => this.buildOverview(resolvedStoreId),
+    });
   }
 
   private async buildOverview(storeId: number): Promise<MarketingOverviewDto> {

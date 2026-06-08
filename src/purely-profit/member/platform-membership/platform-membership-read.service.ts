@@ -84,7 +84,10 @@ export class PlatformMembershipReadService {
     return {
       memberInfo: profileResponse.memberInfo,
       remainingDays: calcRemainingDays(effectiveProfile),
-      stats: buildCenterStats(promoRecords, profileResponse.approvedPartners.length),
+      stats: buildCenterStats(
+        promoRecords,
+        profileResponse.approvedPartners.length,
+      ),
       paidOrderCount: paidOrders.length,
       myPartnerApplication: buildCurrentPartnerApplication(
         applications,
@@ -146,13 +149,14 @@ export class PlatformMembershipReadService {
   async getPromoCenterByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
-    const [profile, partners, promoRecords, paidOrders, plans] = await Promise.all([
-      ensureMembershipProfile(this.prisma, storeId),
-      findStorePartners(this.prisma, storeId),
-      findStoreMembershipPromoRecords(this.prisma, storeId),
-      findPaidStoreMembershipOrders(this.prisma, storeId),
-      loadPlanCatalog(this.prisma),
-    ]);
+    const [profile, partners, promoRecords, paidOrders, plans] =
+      await Promise.all([
+        ensureMembershipProfile(this.prisma, storeId),
+        findStorePartners(this.prisma, storeId),
+        findStoreMembershipPromoRecords(this.prisma, storeId),
+        findPaidStoreMembershipOrders(this.prisma, storeId),
+        loadPlanCatalog(this.prisma),
+      ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,
@@ -177,13 +181,14 @@ export class PlatformMembershipReadService {
     storeId: number,
     rawQuery: Record<string, unknown>,
   ): Promise<PromotionDetailCompatResponse> {
-    const [profile, partners, promoRecords, paidOrders, plans] = await Promise.all([
-      ensureMembershipProfile(this.prisma, storeId),
-      findStorePartners(this.prisma, storeId),
-      findStoreMembershipPromoRecords(this.prisma, storeId),
-      findPaidStoreMembershipOrders(this.prisma, storeId),
-      loadPlanCatalog(this.prisma),
-    ]);
+    const [profile, partners, promoRecords, paidOrders, plans] =
+      await Promise.all([
+        ensureMembershipProfile(this.prisma, storeId),
+        findStorePartners(this.prisma, storeId),
+        findStoreMembershipPromoRecords(this.prisma, storeId),
+        findPaidStoreMembershipOrders(this.prisma, storeId),
+        loadPlanCatalog(this.prisma),
+      ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,

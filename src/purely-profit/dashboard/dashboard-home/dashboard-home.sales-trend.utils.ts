@@ -12,7 +12,7 @@ import {
 } from './dashboard-home.constants';
 import type {
   DashboardHomePeriodValue,
-  SaleOrderRow,
+  DashboardHomeTrendRevenueRow,
   TimeRange,
 } from './dashboard-home.types';
 import type { DashboardHomeSalesTrendDto } from './dto/dashboard-home-response.dto';
@@ -20,33 +20,33 @@ import type { DashboardHomeSalesTrendDto } from './dto/dashboard-home-response.d
 export function buildDashboardHomeSalesTrend(
   period: DashboardHomePeriodValue,
   currentRange: TimeRange,
-  saleOrders: SaleOrderRow[],
+  trendRows: DashboardHomeTrendRevenueRow[],
 ): DashboardHomeSalesTrendDto {
   if (period === 'today') {
-    return buildTodaySalesTrend(currentRange, saleOrders);
+    return buildTodaySalesTrend(currentRange, trendRows);
   }
 
   if (period === 'week') {
-    return buildRecentDaySalesTrend(7, currentRange.end, saleOrders);
+    return buildRecentDaySalesTrend(7, currentRange.end, trendRows);
   }
 
   if (period === 'month') {
-    return buildCurrentMonthSalesTrend(currentRange, saleOrders);
+    return buildCurrentMonthSalesTrend(currentRange, trendRows);
   }
 
-  return buildYearSalesTrend(period, saleOrders);
+  return buildYearSalesTrend(period, trendRows);
 }
 
 function buildTodaySalesTrend(
   currentRange: TimeRange,
-  saleOrders: SaleOrderRow[],
+  trendRows: DashboardHomeTrendRevenueRow[],
 ): DashboardHomeSalesTrendDto {
   const todayStart = getDayStartTimestamp(currentRange.end);
   const actual: Array<number | null> = TODAY_BUCKET_LABELS.map(() => null);
   const forecast: Array<number | null> = TODAY_BUCKET_LABELS.map(() => null);
 
-  for (const row of saleOrders) {
-    const timestamp = row.date.getTime();
+  for (const row of trendRows) {
+    const timestamp = row.bucketAt.getTime();
     if (timestamp < currentRange.start || timestamp > currentRange.end) {
       continue;
     }
@@ -54,7 +54,7 @@ function buildTodaySalesTrend(
     const bucketIndex = getTodayBucketIndex(timestamp);
     actual[bucketIndex] = addMoneyValues(
       actual[bucketIndex] ?? 0,
-      toDecimalNumber(row.totalRevenue),
+      toDecimalNumber(row.revenue),
     );
   }
 
@@ -99,12 +99,12 @@ function buildTodaySalesTrend(
 function buildRecentDaySalesTrend(
   days: number,
   anchorTimestamp: number,
-  saleOrders: SaleOrderRow[],
+  trendRows: DashboardHomeTrendRevenueRow[],
 ): DashboardHomeSalesTrendDto {
   const lastDayStart = getDayStartTimestamp(anchorTimestamp);
   const firstDayStart = lastDayStart - DAY_MS * (days - 1);
   const revenueMap = buildDailyRevenueMap(
-    saleOrders,
+    trendRows,
     firstDayStart,
     anchorTimestamp,
   );
@@ -131,10 +131,10 @@ function buildRecentDaySalesTrend(
 
 function buildCurrentMonthSalesTrend(
   currentRange: TimeRange,
-  saleOrders: SaleOrderRow[],
+  trendRows: DashboardHomeTrendRevenueRow[],
 ): DashboardHomeSalesTrendDto {
   const revenueMap = buildDailyRevenueMap(
-    saleOrders,
+    trendRows,
     currentRange.start,
     currentRange.end,
   );
@@ -164,7 +164,7 @@ function buildCurrentMonthSalesTrend(
 
 function buildYearSalesTrend(
   period: DashboardHomePeriodValue,
-  saleOrders: SaleOrderRow[],
+  trendRows: DashboardHomeTrendRevenueRow[],
 ): DashboardHomeSalesTrendDto {
   const year =
     period === 'last_year'
@@ -172,8 +172,8 @@ function buildYearSalesTrend(
       : new Date().getFullYear();
   const revenueMap = new Map<number, number>();
 
-  for (const row of saleOrders) {
-    const date = row.date;
+  for (const row of trendRows) {
+    const date = row.bucketAt;
     if (date.getFullYear() !== year) {
       continue;
     }
@@ -183,7 +183,7 @@ function buildYearSalesTrend(
       monthIndex,
       addMoneyValues(
         revenueMap.get(monthIndex) ?? 0,
-        toDecimalNumber(row.totalRevenue),
+        toDecimalNumber(row.revenue),
       ),
     );
   }
@@ -202,14 +202,14 @@ function buildYearSalesTrend(
 }
 
 function buildDailyRevenueMap(
-  saleOrders: SaleOrderRow[],
+  trendRows: DashboardHomeTrendRevenueRow[],
   start: number,
   end: number,
 ): Map<number, number> {
   const revenueMap = new Map<number, number>();
 
-  for (const row of saleOrders) {
-    const timestamp = row.date.getTime();
+  for (const row of trendRows) {
+    const timestamp = row.bucketAt.getTime();
     if (timestamp < start || timestamp > end) {
       continue;
     }
@@ -219,7 +219,7 @@ function buildDailyRevenueMap(
       dayStart,
       addMoneyValues(
         revenueMap.get(dayStart) ?? 0,
-        toDecimalNumber(row.totalRevenue),
+        toDecimalNumber(row.revenue),
       ),
     );
   }

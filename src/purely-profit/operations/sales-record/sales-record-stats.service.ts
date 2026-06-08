@@ -3,6 +3,11 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  buildCacheRefreshTaskKey,
+  buildSalesStatsCacheKey,
+} from '../../../redis/keys';
+import { RedisService } from '../../../redis/redis.service';
 import type {
   SalesStatsQueryDto,
   SalesStatsResponseDto,
@@ -17,10 +22,14 @@ import {
 } from './sales-record-read.utils';
 import { buildCurrentRange, buildPreviousRange } from './sales-record.utils';
 
+const SALES_STATS_CACHE_TTL_SECONDS = 60;
+const SALES_STATS_REFRESH_AFTER_MS = 15_000;
+
 @Injectable()
 export class SalesRecordStatsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
@@ -42,6 +51,37 @@ export class SalesRecordStatsService {
 
     const callerIsSubAccount =
       user.currentMembership?.subjectType === 'sub_account';
+    const cacheKey = buildSalesStatsCacheKey(storeId, {
+      scope: callerIsSubAccount ? 'sub_account' : 'owner',
+      period: query.period,
+      year: query.year,
+      customDate:
+        query.customDate !== undefined ? String(query.customDate) : undefined,
+      rangeStartDate:
+        query.rangeStartDate !== undefined
+          ? String(query.rangeStartDate)
+          : undefined,
+      rangeEndDate:
+        query.rangeEndDate !== undefined
+          ? String(query.rangeEndDate)
+          : undefined,
+    });
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: SALES_STATS_CACHE_TTL_SECONDS,
+      refreshAfterMs: SALES_STATS_REFRESH_AFTER_MS,
+      loadValue: () => this.buildStats(storeId, callerIsSubAccount, query),
+      refreshValue: () => this.buildStats(storeId, false, query),
+    });
+  }
+
+  private async buildStats(
+    storeId: number,
+    callerIsSubAccount: boolean,
+    query: SalesStatsQueryDto,
+  ): Promise<SalesStatsResponseDto> {
     const queryInput = toSalesRecordQueryInput(query);
     const currentRange = buildCurrentRange(queryInput);
     const previousRange = buildPreviousRange(queryInput, currentRange);

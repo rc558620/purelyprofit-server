@@ -94,6 +94,16 @@ export default () => ({
       process.env.APP_SPACE_AUTO_CHECKOUT_INITIAL_DELAY_MS ?? '10000',
       10,
     ),
+    clientErrorLogEnabled:
+      (process.env.APP_CLIENT_ERROR_LOG_ENABLED ?? 'true') === 'true',
+    clientErrorStackMaxLength: parseInt(
+      process.env.APP_CLIENT_ERROR_STACK_MAX_LENGTH ?? '2000',
+      10,
+    ),
+    clientErrorDetailsMaxLength: parseInt(
+      process.env.APP_CLIENT_ERROR_DETAILS_MAX_LENGTH ?? '2000',
+      10,
+    ),
   },
 
   database: {

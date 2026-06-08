@@ -98,9 +98,19 @@ export class HandoverOrderItemDto {
   @ApiProperty({ example: 1748765400000, description: '订单时间戳(ms)' })
   date: number;
 
-  @ApiProperty({ example: 18, description: '当前库存', required: false, nullable: true })
+  @ApiProperty({
+    example: 18,
+    description: '当前库存',
+    required: false,
+    nullable: true,
+  })
   currentStock?: number | null;
 
-  @ApiProperty({ example: '杯', description: '库存单位', required: false, nullable: true })
+  @ApiProperty({
+    example: '杯',
+    description: '库存单位',
+    required: false,
+    nullable: true,
+  })
   stockUnit?: string | null;
 }

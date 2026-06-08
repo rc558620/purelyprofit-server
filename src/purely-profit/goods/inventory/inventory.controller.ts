@@ -1,5 +1,18 @@
 import { CurrentUser } from '../../auth/current-user.decorator';
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -85,11 +98,7 @@ export class InventoryController {
     @Param('id', ParseIntPipe) productId: number,
     @Body() dto: UpdateAlertThresholdDto,
   ): Promise<ProductThresholdResponseDto> {
-    return this.inventoryService.updateAlertThreshold(
-      user,
-      productId,
-      dto,
-    );
+    return this.inventoryService.updateAlertThreshold(user, productId, dto);
   }
 
   @Get('stats')

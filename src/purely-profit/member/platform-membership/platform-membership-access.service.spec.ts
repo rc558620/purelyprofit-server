@@ -167,9 +167,7 @@ describe('PlatformMembershipAccessService', () => {
   it('子账号调用时 getHistoryWindowStart 应始终返回 null（无历史窗口限制）', async () => {
     prismaService.storeMembershipProfile.findUnique.mockResolvedValue(null);
 
-    await expect(
-      service.getHistoryWindowStart(18, true),
-    ).resolves.toBeNull();
+    await expect(service.getHistoryWindowStart(18, true)).resolves.toBeNull();
     expect(
       prismaService.storeMembershipProfile.findUnique,
     ).not.toHaveBeenCalled();
@@ -182,9 +180,7 @@ describe('PlatformMembershipAccessService', () => {
       start: new Date(2026, 4, 1, 0, 0, 0, 0).getTime(),
       end: new Date(2026, 4, 23, 23, 59, 59, 999).getTime(),
     };
-    await expect(
-      service.clampHistoryRange(18, range, true),
-    ).resolves.toEqual({
+    await expect(service.clampHistoryRange(18, range, true)).resolves.toEqual({
       start: range.start,
       end: range.end,
       clamped: false,

@@ -69,9 +69,6 @@ export class PulseGrowthController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) applicationId: number,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
-    return this.growthService.cancelPartnerApplication(
-      user,
-      applicationId,
-    );
+    return this.growthService.cancelPartnerApplication(user, applicationId);
   }
 }

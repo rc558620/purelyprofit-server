@@ -206,10 +206,13 @@ describe('PulseGrowthService', () => {
       }),
     ).resolves.toEqual(mapped);
 
-    expect(adminService.listAdminPartnerApplications).toHaveBeenCalledWith(user, {
-      tab: 'pending',
-      limit: 20,
-    });
+    expect(adminService.listAdminPartnerApplications).toHaveBeenCalledWith(
+      user,
+      {
+        tab: 'pending',
+        limit: 20,
+      },
+    );
   });
 
   it('admin.payouts.reject 按子域入口委托 admin service', async () => {
@@ -359,6 +362,12 @@ describe('PulseGrowthAdminQueryService', () => {
   let service: PulseGrowthAdminQueryService;
 
   const prismaService = {};
+  const redisService = {
+    getOrLoadRefreshableJson: jest.fn(
+      async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
+        loadValue(),
+    ),
+  };
   const accessService = {
     buildAdminStoreWhere: jest.fn(),
     buildAdminPayoutWhere: jest.fn(),
@@ -380,11 +389,16 @@ describe('PulseGrowthAdminQueryService', () => {
   beforeEach(async () => {
     jest.restoreAllMocks();
     jest.clearAllMocks();
+    redisService.getOrLoadRefreshableJson.mockImplementation(
+      async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
+        loadValue(),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PulseGrowthAdminQueryService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
         { provide: PulseGrowthAccessService, useValue: accessService },
       ],
     }).compile();
@@ -444,6 +458,13 @@ describe('PulseGrowthAdminQueryService', () => {
       stats,
       limit: 30,
     });
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey:
+          'pulse:growth:admin:partner-applications:mode:normal:scope:store%3A18:tab:pending:cursor:1747123200000_128:limit:30',
+        ttlSeconds: 30,
+      }),
+    );
   });
 
   it('listAdminPartnerApplications cursor 非法时抛错', async () => {
@@ -508,6 +529,13 @@ describe('PulseGrowthAdminQueryService', () => {
       stats,
       limit: 30,
     });
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cacheKey:
+          'pulse:growth:admin:payouts:mode:normal:scope:store%3A18:tab:pending:cursor:1747123200000_128:limit:30',
+        ttlSeconds: 30,
+      }),
+    );
   });
 
   it('listAdminPayouts cursor 非法时抛错', async () => {

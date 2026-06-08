@@ -15,9 +15,8 @@ export class PulseMembershipAdminPointsMutationService {
     dto: PulseMembershipAdjustmentInput,
   ): Promise<void> {
     const delta = this.resolveAdjustmentDelta(dto, '积分');
-    const current = await this.mutationStateService.loadAdminMemberStateOrThrow(
-      memberId,
-    );
+    const current =
+      await this.mutationStateService.loadAdminMemberStateOrThrow(memberId);
     const nextAvailablePoints = current.profile.availablePoints + delta;
     const nextTotalPoints =
       current.profile.totalPoints + (delta > 0 ? delta : 0);

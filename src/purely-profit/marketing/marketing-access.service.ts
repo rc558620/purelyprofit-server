@@ -6,9 +6,7 @@ export type MarketingPermission = 'marketing:view' | 'marketing:manage';
 
 @Injectable()
 export class MarketingAccessService {
-  constructor(
-    private readonly accessControlService: AccessControlService,
-  ) {}
+  constructor(private readonly accessControlService: AccessControlService) {}
 
   /**
    * 获取当前用户可管理的门店 ID。

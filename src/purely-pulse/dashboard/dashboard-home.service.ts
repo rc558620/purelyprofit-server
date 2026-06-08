@@ -2,7 +2,8 @@ import { Prisma } from '@prisma/client';
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
-import { buildPulseDashboardHomeCacheKey } from '../../redis/cache-keys';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import { buildPulseDashboardHomeCacheKey } from '../pulse.cache-keys';
 import { RedisService } from '../../redis/redis.service';
 import {
   DEFAULT_HOME_REVENUE_PERIOD,
@@ -39,6 +40,7 @@ import type {
 } from './dto/pulse-dashboard-home.response.dto';
 
 const PULSE_DASHBOARD_HOME_CACHE_TTL_SECONDS = 30;
+const PULSE_DASHBOARD_HOME_REFRESH_AFTER_MS = 10_000;
 
 @Injectable()
 export class PulseDashboardHomeService {
@@ -54,12 +56,20 @@ export class PulseDashboardHomeService {
     const revenuePeriod = queryDto.revenuePeriod ?? DEFAULT_HOME_REVENUE_PERIOD;
     const region = queryDto.region;
     const cacheKey = buildPulseDashboardHomeCacheKey(revenuePeriod, region);
-    const cachedResponse =
-      await this.redisService.getJson<PulseDashboardHomeResponseDto>(cacheKey);
-    if (cachedResponse !== null) {
-      return cachedResponse;
-    }
 
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: PULSE_DASHBOARD_HOME_CACHE_TTL_SECONDS,
+      refreshAfterMs: PULSE_DASHBOARD_HOME_REFRESH_AFTER_MS,
+      loadValue: () => this.buildHome(revenuePeriod, region),
+    });
+  }
+
+  private async buildHome(
+    revenuePeriod: PulseHomeRevenuePeriodValue,
+    region: string | undefined,
+  ): Promise<PulseDashboardHomeResponseDto> {
     const now = new Date();
     const revenueQueryRange = this.buildRevenueQueryRange(revenuePeriod, now);
 
@@ -177,7 +187,7 @@ export class PulseDashboardHomeService {
       return Math.max(0, Math.round(onlineCount * ratio));
     });
 
-    const response: PulseDashboardHomeResponseDto = {
+    return {
       online: {
         onlineCount,
         onlinePeak,
@@ -199,14 +209,6 @@ export class PulseDashboardHomeService {
       pendingApplicationCount,
       generatedAt: Date.now(),
     };
-
-    await this.redisService.setJson(
-      cacheKey,
-      response,
-      PULSE_DASHBOARD_HOME_CACHE_TTL_SECONDS,
-    );
-
-    return response;
   }
 
   private async queryPartnerTop(

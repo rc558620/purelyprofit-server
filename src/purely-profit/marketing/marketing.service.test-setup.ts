@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
 import { MarketingAccessService } from './marketing-access.service';
 import { MarketingConsumptionsService } from './marketing-consumptions.service';
@@ -159,9 +159,11 @@ function createPlatformMembershipAccessServiceMock(): MarketingPlatformMembershi
 
 function createRedisServiceMock() {
   return {
-    getJson: jest.fn().mockResolvedValue(null),
-    setJson: jest.fn().mockResolvedValue(undefined),
-    runBackgroundRefresh: jest.fn(),
+    getOrLoadRefreshableJson: jest.fn(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    ),
+    writeRefreshableJson: jest.fn().mockResolvedValue(undefined),
   };
 }
 

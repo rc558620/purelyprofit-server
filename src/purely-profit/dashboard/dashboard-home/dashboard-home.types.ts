@@ -95,10 +95,20 @@ export interface TimeRange {
   end: number;
 }
 
-export interface LoadDashboardHomeOverviewDataParams {
+export interface LoadDashboardHomeStatsDataParams {
   storeId: number;
   currentRange: TimeRange;
   compareRange: TimeRange;
+}
+
+export interface LoadDashboardHomeTrendDataParams {
+  storeId: number;
+  period: DashboardHomePeriodValue;
+  currentRange: TimeRange;
+}
+
+export interface LoadDashboardHomeActivitiesDataParams {
+  storeId: number;
   now: number;
 }
 
@@ -109,26 +119,6 @@ export const DASHBOARD_HOME_STORE_SELECT =
 
 export type DashboardHomeStoreRow = Prisma.StoreGetPayload<{
   select: typeof DASHBOARD_HOME_STORE_SELECT;
-}>;
-
-export const DASHBOARD_HOME_SALE_ORDER_SELECT =
-  Prisma.validator<Prisma.SaleOrderSelect>()({
-    totalRevenue: true,
-    date: true,
-  });
-
-export type SaleOrderRow = Prisma.SaleOrderGetPayload<{
-  select: typeof DASHBOARD_HOME_SALE_ORDER_SELECT;
-}>;
-
-export const DASHBOARD_HOME_COST_RECORD_SELECT =
-  Prisma.validator<Prisma.CostRecordSelect>()({
-    amount: true,
-    date: true,
-  });
-
-export type CostRecordRow = Prisma.CostRecordGetPayload<{
-  select: typeof DASHBOARD_HOME_COST_RECORD_SELECT;
 }>;
 
 export const DASHBOARD_HOME_PRODUCT_ALERT_SELECT =
@@ -194,6 +184,21 @@ export type UpcomingLeaveRow = Prisma.EmployeeLeaveGetPayload<{
   select: typeof DASHBOARD_HOME_UPCOMING_LEAVE_SELECT;
 }>;
 
+export interface DashboardHomeTrendRevenueRow {
+  bucketAt: Date;
+  revenue: Prisma.Decimal | null;
+}
+
+export interface SaleOrderRow {
+  date: Date;
+  totalRevenue: Prisma.Decimal;
+}
+
+export interface CostRecordRow {
+  date: Date;
+  amount: Prisma.Decimal;
+}
+
 export interface AggregatedSalesResult {
   revenue: number;
   orderCount: number;
@@ -203,27 +208,20 @@ export interface AggregatedCostsResult {
   totalCost: number;
 }
 
-export interface DashboardHomeOverviewData {
+export interface DashboardHomeStatsData {
   store: DashboardHomeStoreRow | null;
-  saleTrendRows: SaleOrderRow[];
   currentSales: AggregatedSalesResult;
   compareSales: AggregatedSalesResult;
   currentCosts: AggregatedCostsResult;
   compareCosts: AggregatedCostsResult;
+}
+
+export interface DashboardHomeActivitiesData {
   lowStockProducts: ProductAlertRow[];
   overdueAccounts: OverdueAccountRow[];
   activePromotions: ActivePromotionRow[];
   pendingWithdrawals: PendingWithdrawalRow[];
   upcomingLeaves: UpcomingLeaveRow[];
-}
-
-export interface BuildDashboardHomeOverviewResponseParams {
-  period: DashboardHomePeriodValue;
-  storeId: number;
-  currentRange: TimeRange;
-  compareRange: TimeRange;
-  now: number;
-  overviewData: DashboardHomeOverviewData;
 }
 
 export interface ActivityDraft {

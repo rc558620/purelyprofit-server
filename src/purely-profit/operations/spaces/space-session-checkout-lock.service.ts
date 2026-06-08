@@ -1,7 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { RedisService } from '../../../redis/redis.service';
-import type { SpaceCountdownFeeModeValue, SpaceTimeFeeModeValue } from './dto/space-session.dto';
+import type {
+  SpaceCountdownFeeModeValue,
+  SpaceTimeFeeModeValue,
+} from './dto/space-session.dto';
 import type { SpaceSessionCheckoutLockPayload } from './space-sessions.types';
 
 const DEFAULT_SPACE_SESSION_CHECKOUT_LOCK_TTL_SECONDS = 5 * 60;

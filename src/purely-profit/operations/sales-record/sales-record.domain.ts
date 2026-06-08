@@ -29,6 +29,15 @@ export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
     items: {
       orderBy: [{ id: 'asc' }];
     };
+    spaceSession: {
+      select: {
+        space: {
+          select: {
+            name: true;
+          };
+        };
+      };
+    };
   };
 }>;
 
@@ -108,6 +117,43 @@ function getDayStart(timestamp: number): number {
   return d.getTime();
 }
 
+function shouldPrefixReportSpaceName(productName: string): boolean {
+  return productName === '预付抵扣' || productName.startsWith('台位费（');
+}
+
+function resolveReportProductName(
+  order: SaleOrderWithItems,
+  item: SaleOrderWithItems['items'][number],
+): string {
+  const spaceName = toOptionalText(order.spaceSession?.space?.name);
+  if (!spaceName || !shouldPrefixReportSpaceName(item.productName)) {
+    return item.productName;
+  }
+
+  return `${spaceName}${item.productName}`;
+}
+
+function buildReportRowId(
+  dayStart: number,
+  order: SaleOrderWithItems,
+  item: SaleOrderWithItems['items'][number],
+): string {
+  const displayName = resolveReportProductName(order, item);
+  if (displayName !== item.productName) {
+    return `${dayStart}-space_${displayName}`;
+  }
+
+  return `${dayStart}-${item.productId ?? `manual_${displayName}`}`;
+}
+
+function getReportRowDayStart(rowId: string): number {
+  return Number(rowId.split('-', 1)[0] ?? 0);
+}
+
+function isSpaceReportRow(rowId: string): boolean {
+  return rowId.includes('-space_');
+}
+
 export function aggregateReportRows(
   orders: SaleOrderWithItems[],
 ): SalesDailyRowDto[] {
@@ -118,7 +164,8 @@ export function aggregateReportRows(
     const dateLabel = formatReportMonthDay(dayStart);
 
     for (const item of order.items) {
-      const rowId = `${dayStart}-${item.productId ?? `manual_${item.productName}`}`;
+      const productName = resolveReportProductName(order, item);
+      const rowId = buildReportRowId(dayStart, order, item);
       const revenue = sumMoney(
         [item],
         (currentItem) =>
@@ -133,7 +180,7 @@ export function aggregateReportRows(
       rows.set(rowId, {
         id: rowId,
         dateLabel,
-        productName: item.productName,
+        productName,
         quantity: item.quantity,
         revenue,
       });
@@ -141,6 +188,18 @@ export function aggregateReportRows(
   }
 
   return Array.from(rows.values()).sort((left, right) => {
+    const leftDayStart = getReportRowDayStart(left.id);
+    const rightDayStart = getReportRowDayStart(right.id);
+    if (leftDayStart !== rightDayStart) {
+      return rightDayStart - leftDayStart;
+    }
+
+    const leftIsSpace = isSpaceReportRow(left.id);
+    const rightIsSpace = isSpaceReportRow(right.id);
+    if (leftIsSpace !== rightIsSpace) {
+      return leftIsSpace ? 1 : -1;
+    }
+
     if (left.id === right.id) {
       return 0;
     }

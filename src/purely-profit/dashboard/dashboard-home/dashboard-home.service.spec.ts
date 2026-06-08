@@ -12,15 +12,14 @@ describe('DashboardHomeService', () => {
   let service: DashboardHomeService;
 
   const prismaService = {
+    $queryRaw: jest.fn(),
     store: {
       findUnique: jest.fn(),
     },
     saleOrder: {
-      findMany: jest.fn(),
       aggregate: jest.fn(),
     },
     costRecord: {
-      findMany: jest.fn(),
       aggregate: jest.fn(),
     },
     product: {
@@ -45,7 +44,11 @@ describe('DashboardHomeService', () => {
   };
 
   const redisService = {
-    getJson: jest.fn().mockResolvedValue(null),
+    getOrLoadRefreshableJson: jest.fn(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    ),
+    writeRefreshableJson: jest.fn().mockResolvedValue(undefined),
     setJson: jest.fn().mockResolvedValue(undefined),
   };
 
@@ -115,6 +118,11 @@ describe('DashboardHomeService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 4, 14, 15, 0, 0, 0));
     jest.clearAllMocks();
+    redisService.getOrLoadRefreshableJson.mockImplementation(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    );
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DashboardHomeService,
@@ -141,20 +149,6 @@ describe('DashboardHomeService', () => {
     prismaService.store.findUnique.mockResolvedValue({
       name: '纯利宝测试门店',
     });
-    prismaService.saleOrder.findMany.mockResolvedValue([
-      {
-        totalRevenue: new Prisma.Decimal('80.00'),
-        date: new Date(2026, 4, 13, 9, 30, 0, 0),
-      },
-      {
-        totalRevenue: new Prisma.Decimal('100.00'),
-        date: new Date(2026, 4, 14, 9, 0, 0, 0),
-      },
-      {
-        totalRevenue: new Prisma.Decimal('120.00'),
-        date: new Date(2026, 4, 14, 13, 0, 0, 0),
-      },
-    ]);
     prismaService.saleOrder.aggregate
       .mockResolvedValueOnce({
         _sum: { totalRevenue: new Prisma.Decimal('220.00') },
@@ -171,6 +165,16 @@ describe('DashboardHomeService', () => {
       .mockResolvedValueOnce({
         _sum: { amount: new Prisma.Decimal('20.00') },
       });
+    prismaService.$queryRaw.mockResolvedValueOnce([
+      {
+        bucketAt: new Date(2026, 4, 14, 9, 0, 0, 0),
+        revenue: new Prisma.Decimal('100.00'),
+      },
+      {
+        bucketAt: new Date(2026, 4, 14, 13, 0, 0, 0),
+        revenue: new Prisma.Decimal('120.00'),
+      },
+    ]);
     prismaService.product.findMany.mockResolvedValue([
       {
         id: 5,
@@ -358,6 +362,7 @@ describe('DashboardHomeService', () => {
         generatedAt: new Date(2026, 4, 14, 15, 0, 0, 0).getTime(),
       },
     });
+    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledTimes(3);
   });
 
   it('cashier 首页能力开放时允许通过 operation-entry:view 访问概览接口', async () => {
@@ -379,18 +384,15 @@ describe('DashboardHomeService', () => {
     };
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
-    redisService.getJson.mockResolvedValue({
-      stats: {
-        profitLabel: '今日净利润 (元)',
-        profit: 0,
-        profitChange: null,
-        profitCompareLabel: '较昨日',
-        orderLabel: '今日订单数',
-        orderCount: 0,
-        orderChange: null,
-        orderCompareLabel: '较昨日',
-      },
-      salesTrend: {
+    redisService.getOrLoadRefreshableJson
+      .mockResolvedValueOnce({
+        store: { name: '纯利宝测试门店' },
+        currentSales: { revenue: 0, orderCount: 0 },
+        compareSales: { revenue: 0, orderCount: 0 },
+        currentCosts: { totalCost: 0 },
+        compareCosts: { totalCost: 0 },
+      })
+      .mockResolvedValueOnce({
         title: '销售趋势图',
         categories: [],
         actual: [],
@@ -398,19 +400,14 @@ describe('DashboardHomeService', () => {
         isYearMode: false,
         seriesNameActual: '实收',
         seriesNameForecast: '预测',
-      },
-      activities: [],
-      meta: {
-        period: 'today',
-        storeId: 18,
-        storeName: '纯利宝测试门店',
-        startAt: 1,
-        endAt: 2,
-        compareStartAt: 3,
-        compareEndAt: 4,
-        generatedAt: 5,
-      },
-    });
+      })
+      .mockResolvedValueOnce({
+        lowStockProducts: [],
+        overdueAccounts: [],
+        activePromotions: [],
+        pendingWithdrawals: [],
+        upcomingLeaves: [],
+      });
     storeSubAccountService.getStoreSubAccountSummary.mockResolvedValue({
       quota: 3,
       usedCount: 1,

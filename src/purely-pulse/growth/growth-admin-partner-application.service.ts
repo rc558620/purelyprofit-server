@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import type {
   PulseAdminApprovePartnerApplicationDto,
   PulseAdminRejectPartnerApplicationDto,
@@ -14,6 +15,7 @@ export class PulseGrowthAdminPartnerApplicationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly platformMembershipService: PlatformMembershipService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly accessService: PulseGrowthAccessService,
   ) {}
 
@@ -57,6 +59,8 @@ export class PulseGrowthAdminPartnerApplicationService {
       );
     }
 
+    await this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries();
+
     return { success: true };
   }
 
@@ -85,6 +89,8 @@ export class PulseGrowthAdminPartnerApplicationService {
       applicationId,
       { reason: dto.reason },
     );
+
+    await this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries();
 
     return { success: true };
   }

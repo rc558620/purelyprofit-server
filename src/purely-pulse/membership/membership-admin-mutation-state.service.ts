@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import { PulseMembershipAccessService } from './membership-access.service';
 import { PulseMembershipAdminMemberReadService } from './membership-admin-member-read.service';
 import type {
@@ -35,6 +35,7 @@ export class PulseMembershipAdminMutationStateService {
       this.cacheInvalidatorService.invalidatePulseDashboardOverview(memberId),
       this.cacheInvalidatorService.invalidatePulseSessionNotification(memberId),
       this.cacheInvalidatorService.invalidatePulseSessionBootstrap(memberId),
+      this.cacheInvalidatorService.invalidatePulseOnboardingStatus(memberId),
       this.accessService.kickAllStoreUsers(memberId),
     ]);
   }

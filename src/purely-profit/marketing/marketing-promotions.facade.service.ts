@@ -44,7 +44,11 @@ export class MarketingPromotionsFacadeService {
     promotionId: number,
     dto: UpdatePromotionDto,
   ): Promise<MarketingPromotionDto> {
-    return this.marketingPromotionsService.updatePromotion(user, promotionId, dto);
+    return this.marketingPromotionsService.updatePromotion(
+      user,
+      promotionId,
+      dto,
+    );
   }
 
   deletePromotion(user: AuthenticatedUser, promotionId: number): Promise<void> {

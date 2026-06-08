@@ -19,7 +19,10 @@ import type {
 export function normalizeMembershipProfileFromPaidOrders(params: {
   profile: StoreMembershipProfileRecord;
   paidOrders: Pick<StoreMembershipOrderRecord, 'planId' | 'createdAt'>[];
-  plans: Pick<MembershipPlanConfig, 'id' | 'name' | 'durationMonths' | 'validDays'>[];
+  plans: Pick<
+    MembershipPlanConfig,
+    'id' | 'name' | 'durationMonths' | 'validDays'
+  >[];
   nowMs?: number;
 }): StoreMembershipProfileRecord {
   const { profile, paidOrders, plans, nowMs = Date.now() } = params;
@@ -88,15 +91,24 @@ export function resolveEffectivePlanId(
 
 function rebuildMembershipProfileFromPaidOrders(params: {
   paidOrders: Pick<StoreMembershipOrderRecord, 'planId' | 'createdAt'>[];
-  plans: Pick<MembershipPlanConfig, 'id' | 'name' | 'durationMonths' | 'validDays'>[];
-}): Pick<StoreMembershipProfileRecord, 'currentPlanId' | 'startsAt' | 'expiresAt'> | null {
+  plans: Pick<
+    MembershipPlanConfig,
+    'id' | 'name' | 'durationMonths' | 'validDays'
+  >[];
+}): Pick<
+  StoreMembershipProfileRecord,
+  'currentPlanId' | 'startsAt' | 'expiresAt'
+> | null {
   const { paidOrders, plans } = params;
   const planById = new Map(plans.map((plan) => [plan.id, plan]));
   const orderedPaidOrders = [...paidOrders].sort(
     (left, right) => left.createdAt.getTime() - right.createdAt.getTime(),
   );
 
-  let snapshot: Pick<StoreMembershipProfileRecord, 'currentPlanId' | 'startsAt' | 'expiresAt'> = {
+  let snapshot: Pick<
+    StoreMembershipProfileRecord,
+    'currentPlanId' | 'startsAt' | 'expiresAt'
+  > = {
     currentPlanId: null,
     startsAt: null,
     expiresAt: null,

@@ -12,15 +12,8 @@ import type {
   SpaceDashboardActiveSessionSummaryDto,
   SpaceDashboardReservationSummaryDto,
 } from './dto/space.dto';
-import {
-  parseSpaceSessionItems,
-  parseSpaceSessionRenewRecords,
-} from './space-sessions.mapper';
-import { sumLineTotal } from './space-session-items.shared';
-import type {
-  SpaceSessionItemRecord,
-  SpaceSessionRenewRecord,
-} from './space-sessions.types';
+import { parseSpaceSessionRenewRecords } from './space-sessions.mapper';
+import type { SpaceSessionRenewRecord } from './space-sessions.types';
 
 export interface DashboardSpaceSummaryBundle {
   activeSessionSummaryBySpaceId: Map<
@@ -168,33 +161,37 @@ export class SpaceDashboardSummaryService {
     todayRevenue: number;
   }> {
     const todayRange = getTodayRange();
-    const sessions = await this.prisma.spaceSession.findMany({
-      where: {
-        storeId,
-        status: PrismaSpaceSessionStatus.settled,
-        endTime: {
-          gte: todayRange.start,
-          lte: todayRange.end,
+    const [todaySettled, revenueAgg] = await Promise.all([
+      this.prisma.spaceSession.count({
+        where: {
+          storeId,
+          status: PrismaSpaceSessionStatus.settled,
+          endTime: {
+            gte: todayRange.start,
+            lte: todayRange.end,
+          },
         },
-      },
-      select: {
-        id: true,
-        items: true,
-      },
-    });
+      }),
+      this.prisma.saleOrder.aggregate({
+        where: {
+          storeId,
+          date: {
+            gte: todayRange.start,
+            lte: todayRange.end,
+          },
+          spaceSession: {
+            isNot: null,
+          },
+        },
+        _sum: {
+          totalRevenue: true,
+        },
+      }),
+    ]);
 
     return {
-      todaySettled: sessions.length,
-      todayRevenue: Number(
-        sessions
-          .reduce((sum, session) => {
-            const items: SpaceSessionItemRecord[] = parseSpaceSessionItems(
-              session.items,
-            );
-            return sum + sumLineTotal(items);
-          }, 0)
-          .toFixed(2),
-      ),
+      todaySettled,
+      todayRevenue: Number(revenueAgg._sum.totalRevenue ?? 0),
     };
   }
 

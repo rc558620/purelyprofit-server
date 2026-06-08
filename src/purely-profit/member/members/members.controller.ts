@@ -33,9 +33,7 @@ import {
   MemberBeansOverviewResponseDto,
   PaginatedMemberBeansLogsResponseDto,
 } from './dto/member-beans.dto';
-import {
-  MemberLogsOverviewQueryDto,
-} from './dto/member-asset-shared.dto';
+import { MemberLogsOverviewQueryDto } from './dto/member-asset-shared.dto';
 import {
   AdjustMemberPointsDto,
   AdjustMemberPointsResponseDto,

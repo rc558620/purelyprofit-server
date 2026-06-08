@@ -440,6 +440,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.card,
             renewRecords: [],
+            space: {
+              name: '大厅A01',
+            },
           },
         },
       },
@@ -495,6 +498,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,
             renewRecords: [],
+            space: {
+              name: '大厅A02',
+            },
           },
         },
       },
@@ -542,7 +548,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     expect(result.orderItems[1]).toMatchObject({
       id: '3',
-      productName: '台位费（1分钟）',
+      productName: '大厅A02台位费（1分钟）',
       totalRevenue: 11.1,
       paymentLabel: '支付宝',
       paymentColor: '#1677ff',
@@ -667,6 +673,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,
             renewRecords: [],
+            space: {
+              name: '大厅A03',
+            },
           },
         },
       },
@@ -678,7 +687,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
 
     expect(result.orderItems).toHaveLength(1);
     expect(result.orderItems[0]).toMatchObject({
-      productName: '预付抵扣',
+      productName: '大厅A03预付抵扣',
       totalRevenue: -666,
       paymentLabel: '微信',
       paymentColor: '#22c55e',
@@ -707,6 +716,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,
             renewRecords: [],
+            space: {
+              name: '大厅A04',
+            },
           },
         },
       },
@@ -717,7 +729,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
 
     expect(result.orderItems[0]).toMatchObject({
-      productName: '台位费（1分钟）',
+      productName: '大厅A04台位费（1分钟）',
       totalRevenue: 9.25,
       paymentLabel: '支付宝',
       paymentColor: '#1677ff',

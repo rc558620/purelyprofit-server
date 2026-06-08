@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PlatformMembershipModule } from '../member/platform-membership/platform-membership.module';
 import { FinanceAccessService } from './finance-access.service';
@@ -10,7 +10,7 @@ import { FinanceReconciliationService } from './finance-reconciliation.service';
 import { FinanceService } from './finance.service';
 
 @Module({
-  imports: [AuthModule, PlatformMembershipModule],
+  imports: [forwardRef(() => AuthModule), PlatformMembershipModule],
   controllers: [FinanceController],
   providers: [
     FinanceAccessService,

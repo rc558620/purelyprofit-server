@@ -62,10 +62,7 @@ export class PulseMembershipSettingsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateQuarterlyMembershipSettingDto,
   ): Promise<MembershipPlanSettingItemDto> {
-    return this.pulseMembershipSettingsService.updateQuarterly(
-      user,
-      dto,
-    );
+    return this.pulseMembershipSettingsService.updateQuarterly(user, dto);
   }
 
   @Patch('yearly')
@@ -91,9 +88,6 @@ export class PulseMembershipSettingsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateLifetimeMembershipSettingDto,
   ): Promise<MembershipPlanSettingItemDto> {
-    return this.pulseMembershipSettingsService.updateLifetime(
-      user,
-      dto,
-    );
+    return this.pulseMembershipSettingsService.updateLifetime(user, dto);
   }
 }

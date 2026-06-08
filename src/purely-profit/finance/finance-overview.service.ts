@@ -2,10 +2,8 @@ import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  buildCacheRefreshTaskKey,
-  buildFinanceOverviewCacheKey,
-} from '../../redis/cache-keys';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import { buildFinanceOverviewCacheKey } from './finance.cache-keys';
 import { RedisService } from '../../redis/redis.service';
 import type { FinanceOverviewQueryDto } from './dto/finance-overview.query.dto';
 import type { FinanceReportQueryDto } from './dto/finance-report.query.dto';
@@ -36,12 +34,6 @@ import {
 const FINANCE_OVERVIEW_CACHE_TTL_SECONDS = 120;
 const FINANCE_OVERVIEW_REFRESH_AFTER_MS = 30_000;
 
-type FinanceOverviewCachePayload = {
-  generatedAt: number;
-  refreshAt: number;
-  data: FinanceOverviewResponseDto;
-};
-
 @Injectable()
 export class FinanceOverviewService {
   constructor(
@@ -61,25 +53,15 @@ export class FinanceOverviewService {
       user.currentMembership?.subjectType === 'sub_account';
     const period = query.period ?? 'month';
     const cacheKey = buildFinanceOverviewCacheKey(storeId, period);
-    const cachedPayload =
-      await this.redisService.getJson<FinanceOverviewCachePayload>(cacheKey);
 
-    if (cachedPayload !== null) {
-      this.scheduleOverviewRefresh(
-        cacheKey,
-        storeId,
-        period,
-        cachedPayload.refreshAt,
-      );
-      return cachedPayload.data;
-    }
-
-    return this.refreshOverviewCache(
+    return this.redisService.getOrLoadRefreshableJson({
       cacheKey,
-      storeId,
-      period,
-      callerIsSubAccount,
-    );
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: FINANCE_OVERVIEW_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_OVERVIEW_REFRESH_AFTER_MS,
+      loadValue: () => this.buildOverview(storeId, period, callerIsSubAccount),
+      refreshValue: () => this.buildOverview(storeId, period, false),
+    });
   }
 
   async warmOverviewCache(
@@ -87,7 +69,14 @@ export class FinanceOverviewService {
     period: NonNullable<FinanceOverviewQueryDto['period']> | 'month',
   ): Promise<FinanceOverviewResponseDto> {
     const cacheKey = buildFinanceOverviewCacheKey(storeId, period);
-    return this.refreshOverviewCache(cacheKey, storeId, period, false);
+    const data = await this.buildOverview(storeId, period, false);
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      FINANCE_OVERVIEW_CACHE_TTL_SECONDS,
+      FINANCE_OVERVIEW_REFRESH_AFTER_MS,
+    );
+    return data;
   }
 
   async getReport(
@@ -136,46 +125,6 @@ export class FinanceOverviewService {
     });
 
     return buildFinanceReportResponse(reportData);
-  }
-
-  private scheduleOverviewRefresh(
-    cacheKey: string,
-    storeId: number,
-    period: NonNullable<FinanceOverviewQueryDto['period']> | 'month',
-    refreshAt: number,
-  ): void {
-    if (refreshAt > Date.now()) {
-      return;
-    }
-
-    this.redisService.runBackgroundRefresh(
-      buildCacheRefreshTaskKey(cacheKey),
-      async () => {
-        await this.refreshOverviewCache(cacheKey, storeId, period, false);
-      },
-    );
-  }
-
-  private async refreshOverviewCache(
-    cacheKey: string,
-    storeId: number,
-    period: NonNullable<FinanceOverviewQueryDto['period']> | 'month',
-    callerIsSubAccount: boolean,
-  ): Promise<FinanceOverviewResponseDto> {
-    const data = await this.buildOverview(storeId, period, callerIsSubAccount);
-    const now = Date.now();
-
-    await this.redisService.setJson(
-      cacheKey,
-      {
-        generatedAt: now,
-        refreshAt: now + FINANCE_OVERVIEW_REFRESH_AFTER_MS,
-        data,
-      } satisfies FinanceOverviewCachePayload,
-      FINANCE_OVERVIEW_CACHE_TTL_SECONDS,
-    );
-
-    return data;
   }
 
   private async buildOverview(
