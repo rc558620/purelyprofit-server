@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { SpaceStatus } from '@prisma/client';
+import { Prisma, SpaceStatus } from '@prisma/client';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SalesRecordService } from '../sales-record/sales-record.service';
@@ -132,5 +132,85 @@ describe('SpaceSessionCheckoutService', () => {
       spaceStatus: 'cleaning',
       salesOrder: createdOrder,
     });
+  });
+
+  it('手动结账倒计时在按实际计时时也应抵扣开台预付款', async () => {
+    const user = createSpaceTestUser();
+    const checkoutAt = createSpaceCheckoutAt();
+    const baseSession = createSpaceSessionRecord();
+    const baseUpdatedSession = createUpdatedSpaceSession();
+    const session = {
+      ...baseSession,
+      billingMode: 'countdown' as const,
+      hourlyRate: new Prisma.Decimal(60),
+      countdownMinutes: 60,
+      autoCheckout: false,
+      prepaidPaymentMethod: 'cash' as const,
+      prepaidAmount: new Prisma.Decimal(30),
+      space: {
+        ...baseSession.space,
+        enableDirtyRoom: true,
+      },
+    };
+    const updatedSession = {
+      ...baseUpdatedSession,
+      billingMode: 'countdown' as const,
+      hourlyRate: new Prisma.Decimal(60),
+      countdownMinutes: 60,
+      autoCheckout: false,
+      prepaidPaymentMethod: 'cash' as const,
+      prepaidAmount: new Prisma.Decimal(30),
+      space: {
+        ...baseUpdatedSession.space,
+        enableDirtyRoom: true,
+      },
+    };
+    const createdOrder = createSalesOrderResponse();
+
+    prismaService.spaceSession.findUnique.mockResolvedValue(session);
+    checkoutLockService.requireValidLock.mockResolvedValue({
+      sessionId: 9,
+      lockId: 'lock_2',
+      lockedAt: checkoutAt,
+      expiresAt: checkoutAt + 5 * 60 * 1000,
+      sessionUpdatedAt: session.updatedAt.getTime(),
+      timeFeeMode: 'timed',
+      countdownFeeMode: 'timed',
+    });
+    salesRecordService.create.mockResolvedValue(createdOrder);
+    transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
+    transactionClient.space.update.mockResolvedValue({
+      id: 7,
+      status: SpaceStatus.cleaning,
+    });
+    transactionClient.spaceReservation.findMany.mockResolvedValue([]);
+    transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
+
+    await service.checkoutSpaceSession(user, 9, {
+      paymentMethod: 'cash',
+      lockId: 'lock_2',
+      lockedAt: checkoutAt,
+      timeFeeMode: 'timed',
+      countdownFeeMode: 'timed',
+    });
+
+    expect(salesRecordService.create).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            productId: 'SYS_PREPAID_DEDUCTION',
+            productName: '预付抵扣',
+            salePrice: -30,
+            profit: -30,
+            quantity: 1,
+          }),
+        ]),
+        totalRevenue: 80,
+        totalProfit: 68,
+        totalQuantity: 2,
+      }),
+      expectedSalesRecordCreateOptions,
+    );
   });
 });

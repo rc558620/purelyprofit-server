@@ -101,6 +101,7 @@ export interface MarketingProductRow {
   originalPrice: number | null;
   image: string | null;
   description: string | null;
+  stock: number;
   durationMinutes: number | null;
   personCount: number | null;
   isActive: boolean;

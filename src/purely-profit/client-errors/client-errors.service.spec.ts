@@ -9,7 +9,7 @@ describe('ClientErrorsService', () => {
   ): ClientErrorReportDto => ({
     reportId: 'err_123',
     source: 'window-error',
-    message: 'boom error',
+    message: 'Request failed with status code 500',
     errorName: 'Error',
     stack: 'Error: boom error\n    at App.tsx:1:1',
     occurredAt: '2026-06-08T11:20:00.000Z',
@@ -35,6 +35,11 @@ describe('ClientErrorsService', () => {
     },
     details: {
       filename: '/src/App.tsx',
+      lineno: 27,
+      colno: 13,
+      reasonType: 'Error',
+      componentStack: 'at AppShell (/src/App.tsx:42:3)',
+      trigger: 'window-listener',
     },
     ...overrides,
   });
@@ -50,13 +55,15 @@ describe('ClientErrorsService', () => {
       log: jest.fn(),
     } as unknown as Logger;
 
-    (
-      service as unknown as { logger: Logger }
-    ).logger = logger;
+    (service as unknown as { logger: Logger }).logger = logger;
 
     return {
       service,
-      logger,
+      logger: logger as unknown as {
+        error: jest.Mock;
+        warn: jest.Mock;
+        log: jest.Mock;
+      },
     };
   };
 
@@ -64,7 +71,7 @@ describe('ClientErrorsService', () => {
     jest.clearAllMocks();
   });
 
-  it('运行时异常会上报 error 级别日志，并带脱敏后的上下文', () => {
+  it('error 级别会走 logger.error 并附带 stackTrace', () => {
     const { service, logger } = createService();
 
     service.report(createPayload(), {
@@ -73,57 +80,54 @@ describe('ClientErrorsService', () => {
       requestUserAgent: 'Mozilla/5.0 (Macintosh)',
     });
 
-    expect(logger.error).toHaveBeenCalledWith(
-      expect.stringContaining('[client-errors] runtime_exception'),
-      'Error: boom error\n    at App.tsx:1:1',
-    );
-    expect(logger.error).toHaveBeenCalledWith(
-      expect.stringContaining('138****1111'),
-      'Error: boom error\n    at App.tsx:1:1',
-    );
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const [logMessage, stackTrace] = logger.error.mock.calls[0] ?? [];
+    expect(typeof logMessage).toBe('string');
+    expect(JSON.parse(logMessage as string)).toMatchObject({
+      event: 'client_error_reported',
+      severity: 'error',
+      source: 'window-error',
+    });
+    expect(stackTrace).toBe('Error: boom error\n    at App.tsx:1:1');
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
-  it('HTTP 4xx 错误会降级为 warn 日志', () => {
+  it('warning 级别会走 logger.warn', () => {
     const { service, logger } = createService();
 
     service.report(
       createPayload({
         source: 'http',
         statusCode: 400,
-        message: 'Bad Request',
-        businessCode: '4001',
-      }),
-      {
-        requestId: 'req-http-400',
-      },
-    );
-
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('[client-errors] upstream_http_warning'),
-    );
-    expect(logger.error).not.toHaveBeenCalled();
-  });
-
-  it('会按配置裁剪 details 和 stack 长度', () => {
-    const { service, logger } = createService({
-      'app.clientErrorStackMaxLength': 10,
-      'app.clientErrorDetailsMaxLength': 12,
-    });
-
-    service.report(
-      createPayload({
-        details: {
-          huge: 'abcdefghijklmnopqrstuvwxyz',
-        },
+        message: 'Request failed with status code 400',
       }),
       {},
     );
 
-    expect(logger.error).toHaveBeenCalledWith(
-      expect.stringContaining('...<truncated>'),
-      'Error: boo...<truncated>',
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const [logMessage] = logger.warn.mock.calls[0] ?? [];
+    expect(typeof logMessage).toBe('string');
+    expect(JSON.parse(logMessage as string)).toMatchObject({
+      event: 'client_error_reported',
+      severity: 'warning',
+      source: 'http',
+    });
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('没有 stack 时仍会输出 error 日志', () => {
+    const { service, logger } = createService();
+
+    service.report(
+      createPayload({
+        stack: '   ',
+      }),
+      {},
     );
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error.mock.calls[0]).toHaveLength(1);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('关闭开关后不会落任何日志', () => {

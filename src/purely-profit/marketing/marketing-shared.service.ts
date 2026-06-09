@@ -108,6 +108,7 @@ export class MarketingSharedService {
       originalPrice: product.originalPrice,
       image: product.image,
       description: product.description,
+      stock: product.stock,
       durationMinutes: product.durationMinutes,
       personCount: product.personCount,
       isActive: product.isActive,

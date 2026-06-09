@@ -121,9 +121,15 @@ describe('SpaceSessionOpenService', () => {
       countdownMinutes: null,
       autoCheckout: null,
       prepaidPaymentMethod: null,
+      prepaidCustomerPaymentMethod: null,
+      prepaidSettlementChannel: null,
       prepaidGrouponCode: null,
+      prepaidGrouponPlatform: null,
+      prepaidVoucherCode: null,
+      prepaidVoucherPlatform: null,
       prepaidNote: null,
       prepaidAmount: null,
+      prepaidVoucherFaceAmount: null,
       items: [],
       itemsCost: new Prisma.Decimal(0),
       renewRecords: [],
@@ -176,9 +182,15 @@ describe('SpaceSessionOpenService', () => {
       countdownMinutes: null,
       autoCheckout: null,
       prepaidPaymentMethod: null,
+      prepaidCustomerPaymentMethod: null,
+      prepaidSettlementChannel: null,
       prepaidGrouponCode: null,
+      prepaidGrouponPlatform: null,
+      prepaidVoucherCode: null,
+      prepaidVoucherPlatform: null,
       prepaidNote: null,
       prepaidAmount: null,
+      prepaidVoucherFaceAmount: null,
       items: [],
       itemsCost: new Prisma.Decimal(0),
       renewRecords: [],
@@ -206,5 +218,94 @@ describe('SpaceSessionOpenService', () => {
     expect(
       reservationsStateService.ensureReservationCanBeFulfilled,
     ).toHaveBeenCalledWith(18, 7, 21);
+  });
+
+  it('非自动结账倒计时开台也应保存预付款扩展字段', async () => {
+    const now = new Date('2026-06-07T10:00:00.000Z');
+    prismaService.space.findUnique.mockResolvedValue({
+      id: 7,
+      storeId: 18,
+      capacity: 4,
+      status: 'idle',
+      type: { name: '台球桌' },
+    });
+    transaction.spaceSession.findFirst.mockResolvedValue(null);
+    transaction.spaceSession.create.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+      spaceId: 7,
+      reservationId: null,
+      guestName: '张三',
+      guestPhone: '13800138000',
+      guestCount: 2,
+      startTime: now,
+      endTime: null,
+      billingMode: 'countdown',
+      hourlyRate: new Prisma.Decimal(68),
+      timeCost: null,
+      countdownMinutes: 60,
+      autoCheckout: false,
+      prepaidPaymentMethod: 'cash',
+      prepaidCustomerPaymentMethod: 'groupon_voucher',
+      prepaidSettlementChannel: 'meituan_groupon',
+      prepaidGrouponCode: 'MT100',
+      prepaidGrouponPlatform: '美团',
+      prepaidVoucherCode: 'MT100',
+      prepaidVoucherPlatform: '美团',
+      prepaidNote: '提前到店',
+      prepaidAmount: new Prisma.Decimal(168),
+      prepaidVoucherFaceAmount: new Prisma.Decimal(168),
+      items: [],
+      itemsCost: new Prisma.Decimal(0),
+      renewRecords: [],
+      status: 'active',
+      saleOrderId: null,
+      createdAt: now,
+      updatedAt: now,
+      space: {
+        id: 7,
+        name: 'A01',
+        type: { name: '台球桌' },
+      },
+    });
+    transaction.space.update.mockResolvedValue(undefined);
+
+    await service.openSession(user, 7, {
+      billingMode: 'countdown',
+      hourlyRate: 68,
+      countdownMinutes: 60,
+      autoCheckout: false,
+      guestName: '张三',
+      guestPhone: '13800138000',
+      guestCount: 2,
+      prepaidPaymentMethod: 'cash',
+      prepaidCustomerPaymentMethod: 'groupon_voucher',
+      prepaidSettlementChannel: 'meituan_groupon',
+      prepaidGrouponCode: 'MT100',
+      prepaidGrouponPlatform: '美团',
+      prepaidVoucherCode: 'MT100',
+      prepaidVoucherPlatform: '美团',
+      prepaidNote: '提前到店',
+      prepaidAmount: 168,
+      prepaidVoucherFaceAmount: 168,
+    });
+
+    expect(transaction.spaceSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          autoCheckout: false,
+          prepaidPaymentMethod: 'cash',
+          prepaidCustomerPaymentMethod: 'groupon_voucher',
+          prepaidSettlementChannel: 'meituan_groupon',
+          prepaidGrouponCode: 'MT100',
+          prepaidGrouponPlatform: '美团',
+          prepaidVoucherCode: 'MT100',
+          prepaidVoucherPlatform: '美团',
+          prepaidNote: '提前到店',
+          prepaidAmount: new Prisma.Decimal(168),
+          prepaidVoucherFaceAmount: new Prisma.Decimal(168),
+        }),
+      }),
+    );
   });
 });

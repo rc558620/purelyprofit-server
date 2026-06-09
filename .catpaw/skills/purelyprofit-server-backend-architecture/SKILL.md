@@ -1,6 +1,6 @@
 ---
 name: purelyprofit-server-backend-architecture
-description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。该 skill 说明 purely-profit 与 purely-pulse 的产品线语义、会员配置层与运行态边界、NestJS + Fastify 启动链路、Config/Prisma/Redis 基础设施、JWT 鉴权与 capability 快照、auth 账号查询/会籍协同拆分、marketing 多 controller 与 facade 分层、finance DTO/response 拆分、Pulse membership admin 读写拆分、空间域 request/response DTO 与 session 子 service 拆分、runtime-metrics summary 观测聚合，以及新增接口的落位流程。适用于理解仓库结构、开发或修改 purelyProfit / purelyPulse 接口、接入数据库或缓存、处理会员权益限制、扩展营销/财务/空间/员工/会员能力，并保持代码风格与目录约定一致时使用。
+description: purelyprofit-server 是 purelyProfit 业务主仓的后端接口仓库，同时承载 purely-profit、purely-pulse、purely-club 三条产品线语义。该 skill 说明三条产品线的视角边界、会员配置层与运行态边界、NestJS + Fastify 启动链路、Config/Prisma/Redis 基础设施、JWT 鉴权与 capability 快照、auth 账号查询/会籍协同拆分、marketing 多 controller 与 facade 分层、finance DTO/response 拆分、Pulse membership admin 读写拆分、空间域 request/response DTO 与 session 子 service 拆分、runtime-metrics summary 观测聚合，以及新增接口的落位流程。适用于理解仓库结构、开发或修改 purelyProfit / purelyPulse / purelyClub 接口、接入数据库或缓存、处理会员权益限制、扩展营销/财务/空间/员工/会员能力，并保持代码风格与目录约定一致时使用。
 ---
 
 # purelyprofit-server 后端架构指南
@@ -9,7 +9,7 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。
 
 遇到下面场景时优先使用：
 
-- 在 `purelyprofit-server` 中新增、修改、排查 `purely-profit` / `purely-pulse` 接口
+- 在 `purelyprofit-server` 中新增、修改、排查 `purely-profit` / `purely-pulse` / `purely-club` 接口
 - 需要判断代码该放在哪个模块、目录或 service
 - 需要沿用现有 DTO、Swagger、JWT、Prisma、Redis 约定
 - 需要处理会员套餐配置、运行态权益限制、目标门店上下文
@@ -18,11 +18,12 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。
 
 ## 默认工作假设
 
-默认把 `purelyprofit-server` 视为 purelyProfit 业务后端。
+默认把 `purelyprofit-server` 视为纯利业务主仓的后端集合，而不是只服务老板端。
 
 除非用户明确说明是在调整脚手架、基础设施或工程配置，否则优先按下面方式理解需求：
 
-- 目标通常是新增、修改或排查 `purely-profit` / `purely-pulse` 相关接口
+- 目标通常是新增、修改或排查 `purely-profit` / `purely-pulse` / `purely-club` 相关接口
+- 先判断当前需求属于老板端、平台端还是个人端，再决定模块归属与接口语义
 - 优先关注 DTO 校验、鉴权、数据库读写、缓存协作、响应字段
 - 涉及字段、状态、筛选项、展示结构、业务流程时，先对齐前端页面、请求层、types、表单与交互
 - 新需求优先落到现有业务模块，不要写成一次性脚本或临时逻辑
@@ -31,18 +32,39 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。
 
 ## 产品线与业务语义
 
-### 产品线视角
+### 1. 产品线与目录
 
 - `src/purely-profit/*`：老板/商家自己使用系统，关注门店、员工、会员、营销、财务、空间、经营数据
 - `src/purely-pulse/*`：开发者/平台运营观察商家，关注目标商家、门店、区域、入驻、会员、推广、收益、分析
-- 页面联调或 `page-check` 场景里，前端通常是 `purelyProfit`，但后端仍要先判断链路属于 `purely-profit` 还是 `purely-pulse`
-- `purely-pulse` 默认要先确认“目标商家/目标门店/目标区域”，不要默认绑定当前商家自己
-- 除非用户明确要求模拟老板视角，否则不要把 `purely-pulse` 写成老板端自助接口
+- `src/purely-club/*`：个人端/消费者/会员自己使用系统，关注个人账户、资料、会员权益、储值、消费记录、预约、空间使用、个人中心等能力
+- 处理需求前，先判断当前链路属于 `purely-profit`、`purely-pulse` 还是 `purely-club`
 
-### `member` 与 `marketing` 边界
+### 2. 默认业务视角
+
+- `purely-profit`：默认按商家/老板使用自己系统的视角理解，不要误写成平台/开发者审查商家的后台接口
+- `purely-pulse`：默认按开发者/平台运营观察商家的视角理解，不要误写成老板端自助接口
+- `purely-club`：默认按个人用户操作自己数据与权益的视角理解，不要误写成商家后台或平台运营接口
+
+### 3. 资金归属默认语义
+
+- `purely-profit`：商家充值、开通会员、续费、购买平台能力等，默认进入开发者/平台侧账户与账单体系
+- `purely-club`：用户充值/储值，默认进入目标商家名下的个人会员/顾客储值账户
+- 设计接口与字段时，要同时考虑账户归属、余额变更、退款、赠送金额与账务一致性
+
+### 4. 页面联调与目标对象
+
+- 页面联调或 `page-check` 场景里，前端可能是 `purelyProfit` 或 `purelyClub`，后端仍要先判断链路属于 `purely-profit`、`purely-pulse` 还是 `purely-club`
+- `purely-pulse` 默认要先确认“目标商家/目标门店/目标区域”，不要默认绑定当前商家自己
+- `purely-club` 默认要先确认“当前登录个人用户自己的数据范围”，不要把老板态、门店管理态或平台运营态字段直接暴露给个人端
+- 除非用户明确要求走后台代运营/人工协助链路，否则不要把 `purely-club` 写成商家后台接口
+
+### 5. `member` 与 `marketing` 边界
 
 - `member`：商家老板向平台购买的会员服务，属于“平台 ↔ 商家老板”关系
 - `marketing`：商家运营自己的顾客，属于“商家 ↔ 顾客”关系
+- `member` 里的商家充值/续费/购买套餐，默认理解为资金进入开发者/平台侧账户与账单体系
+- `purely-club` 里的会员、储值、积分、消费记录、预约记录等概念，默认按“个人用户查看自己的运行态数据”理解
+- `purely-club` 的“充值/储值”不是给平台钱包充值，而是给商家侧顾客余额体系充值
 - 前端 `pages/main/member` 默认理解为“商家老板自己的平台会员中心”
 - 前端 `marketing` 默认理解为“商家自己的客人/顾客运营”
 - “老板开通会员、续费、平台积分、推广返利、合伙人、纯利豆、提现”优先按平台会员中心 / 订阅 / 账单语义设计
@@ -70,7 +92,7 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。
 
 当需求和现有前端页面、模块、类型定义有关时，默认遵守：
 
-- 写后端接口前先看前端页面、hooks、types、表单字段与展示逻辑
+- 写后端接口前先看前端页面、hooks、types、表单字段与展示逻辑，先确认对齐的是 `purelyProfit` 还是 `purelyClub`
 - 字段命名、枚举值、可选字段、时间字段、金额单位、状态语义优先对齐前端现状
 - 前端已有明确 view model / schema / 列表项结构时，后端尽量直接对齐
 - 不要在没有前端依据时随意新增字段、筛选项、状态枚举或业务概念，除非用户明确要求先做预埋
@@ -92,16 +114,17 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。
 
 ### 目录结构
 
-当前仓库以“基础设施模块 + 双产品线业务模块”组织：
+当前仓库以“基础设施模块 + 多产品线业务模块”组织：
 
 - `src/main.ts`：应用启动、全局校验、全局前缀、CORS、慢请求日志、Swagger
-- `src/app.module.ts`：根模块装配，统一挂载 `purely-profit` 与 `purely-pulse`
+- `src/app.module.ts`：根模块装配，统一挂载当前启用的产品线模块
 - `src/config/*`：环境变量映射
 - `src/prisma/*`：数据库客户端与生命周期管理
 - `src/redis/*`：Redis 客户端、缓存失效、缓存预热
 - `src/observability/*`：运行态指标、摘要卡片、缓存预热观测上下文
 - `src/purely-profit/*`：老板端/商家端业务
 - `src/purely-pulse/*`：开发者/平台观察端业务
+- `src/purely-club/*`：个人端/消费者端业务；即使当前模块还在持续扩展，也要先按个人端语义理解目录归属
 - `prisma/schema.prisma`：数据库模型事实来源
 - `.env.example`：环境变量示例
 
@@ -109,6 +132,7 @@ description: purelyprofit-server 是 purelyProfit 业务的后端接口仓库。
 
 - Profit：`access-control`、`auth`、`commerce`、`dashboard`、`finance`、`goods`、`marketing`、`member`、`notifications`、`operations`、`staff`、`stores`、`subscriptions`
 - Pulse：`dashboard`、`dev-mode`、`growth`、`membership`、`membership-settings`、`onboarding`、`session`、`pulse-store-context.*`
+- Club：个人端能力优先落 `src/purely-club/*`，语义围绕当前登录用户自己的资料、权益、消费、预约、空间会话与个人中心
 
 ### 最近新增的项目能力
 

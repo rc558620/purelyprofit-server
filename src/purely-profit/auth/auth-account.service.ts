@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import type { AccountIdentifiers, PhoneUserRecord } from './auth-account.types';
+import type {
+  AccountIdentifiers,
+  AuthProductScope,
+  PhoneUserRecord,
+} from './auth-account.types';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthAccountMembershipService } from './auth-account-membership.service';
 import type {
@@ -18,16 +22,26 @@ export class AuthAccountService {
 
   async findUserByLoginAccount(
     account: string,
+    productScope: AuthProductScope,
   ): Promise<PhoneUserRecord | null> {
-    return this.authAccountLookupService.findUserByLoginAccount(account);
+    return this.authAccountLookupService.findUserByLoginAccount(
+      account,
+      productScope,
+    );
   }
 
-  async findUserByEmail(email: string): Promise<PhoneUserRecord | null> {
-    return this.authAccountLookupService.findUserByEmail(email);
+  async findUserByEmail(
+    email: string,
+    productScope: AuthProductScope,
+  ): Promise<PhoneUserRecord | null> {
+    return this.authAccountLookupService.findUserByEmail(email, productScope);
   }
 
-  async findUserByPhone(phone: string): Promise<PhoneUserRecord | null> {
-    return this.authAccountLookupService.findUserByPhone(phone);
+  async findUserByPhone(
+    phone: string,
+    productScope: AuthProductScope,
+  ): Promise<PhoneUserRecord | null> {
+    return this.authAccountLookupService.findUserByPhone(phone, productScope);
   }
 
   async ensureUserNotBanned(userId: number): Promise<void> {

@@ -36,6 +36,10 @@ import { PulseMembershipSettingsModule } from './purely-pulse/membership-setting
 import { PulseDashboardModule } from './purely-pulse/dashboard/dashboard.module';
 import { ClientErrorsModule } from './purely-profit/client-errors/client-errors.module';
 import { PulseGrowthModule } from './purely-pulse/growth/growth.module';
+import { PulseAuthModule } from './purely-pulse/auth/pulse-auth.module';
+import { ClubAuthModule } from './purely-club/auth/club-auth.module';
+import { ClubMemberModule } from './purely-club/member/club-member.module';
+import { ClubStoresModule } from './purely-club/stores/club-stores.module';
 
 @Module({
   imports: [
@@ -77,6 +81,10 @@ import { PulseGrowthModule } from './purely-pulse/growth/growth.module';
     PulseMembershipSettingsModule,
     PulseDashboardModule,
     PulseGrowthModule,
+    PulseAuthModule,
+    ClubAuthModule,
+    ClubMemberModule,
+    ClubStoresModule,
   ],
   controllers: [AppController],
   providers: [AppService],

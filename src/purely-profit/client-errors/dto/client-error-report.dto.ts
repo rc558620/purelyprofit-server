@@ -68,7 +68,10 @@ export class ClientErrorUserDto {
   @IsString({ message: 'user.name 必须是字符串' })
   name?: string;
 
-  @ApiPropertyOptional({ example: '13800001111', description: '当前用户手机号' })
+  @ApiPropertyOptional({
+    example: '13800001111',
+    description: '当前用户手机号',
+  })
   @IsOptional()
   @IsString({ message: 'user.phone 必须是字符串' })
   phone?: string;
@@ -110,7 +113,10 @@ export class ClientErrorReportDto {
   @IsIn(CLIENT_ERROR_SOURCE_VALUES, { message: 'source 不合法' })
   source: ClientErrorSource;
 
-  @ApiProperty({ example: 'Request failed with status code 500', description: '错误消息' })
+  @ApiProperty({
+    example: 'Request failed with status code 500',
+    description: '错误消息',
+  })
   @IsString({ message: 'message 必须是字符串' })
   message: string;
 
@@ -155,13 +161,19 @@ export class ClientErrorReportDto {
   @Type(() => ClientErrorAppDto)
   app: ClientErrorAppDto;
 
-  @ApiPropertyOptional({ type: ClientErrorUserDto, description: '当前用户上下文' })
+  @ApiPropertyOptional({
+    type: ClientErrorUserDto,
+    description: '当前用户上下文',
+  })
   @IsOptional()
   @ValidateNested()
   @Type(() => ClientErrorUserDto)
   user?: ClientErrorUserDto;
 
-  @ApiPropertyOptional({ type: ClientErrorStoreDto, description: '当前门店上下文' })
+  @ApiPropertyOptional({
+    type: ClientErrorStoreDto,
+    description: '当前门店上下文',
+  })
   @IsOptional()
   @ValidateNested()
   @Type(() => ClientErrorStoreDto)

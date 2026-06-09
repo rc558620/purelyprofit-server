@@ -59,9 +59,15 @@ export interface SpaceSessionRecord {
   countdownMinutes: number | null;
   autoCheckout: boolean | null;
   prepaidPaymentMethod: SalesPaymentMethodValue | null;
+  prepaidCustomerPaymentMethod: string | null;
+  prepaidSettlementChannel: string | null;
   prepaidGrouponCode: string | null;
+  prepaidGrouponPlatform: string | null;
+  prepaidVoucherCode: string | null;
+  prepaidVoucherPlatform: string | null;
   prepaidNote: string | null;
   prepaidAmount: Prisma.Decimal | null;
+  prepaidVoucherFaceAmount: Prisma.Decimal | null;
   items: Prisma.JsonValue;
   itemsCost: Prisma.Decimal;
   renewRecords: Prisma.JsonValue;

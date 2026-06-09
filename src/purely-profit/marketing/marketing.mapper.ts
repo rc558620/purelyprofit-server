@@ -171,6 +171,7 @@ export function mapProductRow(row: MarketingProductRow): MarketingProductDto {
     originalPrice: row.originalPrice ?? undefined,
     image: toOptionalMediaText(row.image) ?? undefined,
     description: toOptionalText(row.description) ?? undefined,
+    stock: row.stock,
     durationMinutes: row.durationMinutes ?? undefined,
     personCount: row.personCount ?? undefined,
     isActive: row.isActive,

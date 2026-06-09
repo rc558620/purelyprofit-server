@@ -29,6 +29,7 @@ describe('AuthController', () => {
     name: '老板',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    accountScope: 'purely_profit',
     currentMembership: {
       staffId: 8,
       storeId: 18,

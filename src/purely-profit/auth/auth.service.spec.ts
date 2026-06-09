@@ -11,6 +11,7 @@ import { AccessControlService } from '../access-control/access-control.service';
 import { SubjectCapabilityService } from '../access-control/subject-capability.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import { AUTH_TOKEN_VERSION_KEY_PREFIX } from './auth.constants';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthAccountMembershipService } from './auth-account-membership.service';
@@ -72,6 +73,9 @@ describe('AuthService', () => {
   const platformMembershipAccessService = {
     getSubAccountQuota: jest.fn().mockResolvedValue(0),
   };
+  const cacheInvalidatorService = {
+    invalidatePulseOnboardingStatusByUser: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -79,6 +83,7 @@ describe('AuthService', () => {
       const configMap: Record<string, unknown> = {
         'auth.passwordResetCodeTtlSeconds': 600,
         'auth.registerCodeTtlSeconds': 600,
+        'pulse.devAccountEmails': ['dev@example.com'],
         nodeEnv: 'development',
       };
 
@@ -91,7 +96,8 @@ describe('AuthService', () => {
     prismaService.$queryRaw.mockResolvedValue([]);
     prismaService.user.create.mockResolvedValue({
       id: 1,
-      email: 'phone_13800138000@purelyprofit.local',
+      email: 'profit_phone_13800138000@purelyprofit.local',
+      accountScope: 'purely_profit',
     });
     prismaService.staff.updateMany.mockResolvedValue({ count: 0 });
     prismaService.staff.findMany.mockResolvedValue([]);
@@ -118,6 +124,10 @@ describe('AuthService', () => {
         {
           provide: PlatformMembershipAccessService,
           useValue: platformMembershipAccessService,
+        },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
         },
       ],
     }).compile();
@@ -163,6 +173,7 @@ describe('AuthService', () => {
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 1,
       phone: '13619654020',
+      accountScope: 'developer',
       sessionVersion: 0,
     });
   });
@@ -187,7 +198,12 @@ describe('AuthService', () => {
 
     expect(prismaService.staff.findFirst).toHaveBeenCalledWith({
       where: {
-        email: 'account_aaaaaa3@purelyprofit.local',
+        email: {
+          in: [
+            'profit_account_aaaaaa3@purelyprofit.local',
+            'account_aaaaaa3@purelyprofit.local',
+          ],
+        },
         isActive: true,
         userId: { not: null },
       },
@@ -207,8 +223,57 @@ describe('AuthService', () => {
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 59,
       phone: '13145645646',
+      accountScope: 'purely_profit',
       sessionVersion: 0,
     });
+  });
+
+  it('purely-pulse 登录仅允许开发者账号', async () => {
+    const hashedPassword = await bcrypt.hash('dev123456', 4);
+    prismaService.staff.findFirst.mockResolvedValue({
+      user: {
+        id: 66,
+        email: 'dev@example.com',
+        password: hashedPassword,
+      },
+    });
+    redisService.get.mockResolvedValue('0');
+    jwtService.signAsync.mockResolvedValue('pulse-dev-token');
+
+    await expect(
+      service.loginPulse({
+        phone: '13800138000',
+        password: 'dev123456',
+      }),
+    ).resolves.toEqual({ access_token: 'pulse-dev-token' });
+
+    expect(jwtService.signAsync).toHaveBeenCalledWith({
+      sub: 66,
+      phone: '13800138000',
+      accountScope: 'developer',
+      sessionVersion: 0,
+    });
+  });
+
+  it('purely-pulse 登录会拒绝普通 purely-profit 账号', async () => {
+    const hashedPassword = await bcrypt.hash('profit123', 4);
+    prismaService.staff.findFirst.mockResolvedValue({
+      user: {
+        id: 67,
+        email: 'profit_phone_13800138000@purelyprofit.local',
+        password: hashedPassword,
+      },
+    });
+    redisService.get.mockResolvedValue('0');
+
+    await expect(
+      service.loginPulse({
+        phone: '13800138000',
+        password: 'profit123',
+      }),
+    ).rejects.toThrow('当前账号不可登录 purely-pulse，请使用开发者账号');
+
+    expect(jwtService.signAsync).not.toHaveBeenCalled();
   });
 
   it('Pulse 已封禁账号不允许重新登录', async () => {
@@ -253,6 +318,7 @@ describe('AuthService', () => {
         name: '测试用户',
         createdAt: new Date(),
         updatedAt: new Date(),
+        accountScope: 'purely_profit',
         currentMembership: null,
       },
       {
@@ -272,6 +338,7 @@ describe('AuthService', () => {
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 1,
       phone: '13800138000',
+      accountScope: 'purely_profit',
       sessionVersion: 1,
     });
   });
@@ -297,7 +364,7 @@ describe('AuthService', () => {
     expect(result.expiresInSeconds).toBe(600);
     expect(result.resetCode).toMatch(/^\d{6}$/);
     expect(redisService.set).toHaveBeenCalledWith(
-      'auth:password-reset:13800138000',
+      'auth:password-reset:purely_profit:13800138000',
       result.resetCode,
       600,
     );
@@ -325,7 +392,7 @@ describe('AuthService', () => {
       sendError,
     );
     expect(redisService.del).toHaveBeenCalledWith(
-      'auth:password-reset:13800138000',
+      'auth:password-reset:purely_profit:13800138000',
     );
   });
 
@@ -382,6 +449,7 @@ describe('AuthService', () => {
       name: '测试用户',
       createdAt: new Date('2026-05-12T10:00:00.000Z'),
       updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      accountScope: 'purely_profit',
       currentMembership: null,
     });
 
@@ -420,6 +488,7 @@ describe('AuthService', () => {
       name: '房东莎莎的',
       createdAt: new Date('2026-05-12T10:00:00.000Z'),
       updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      accountScope: 'purely_profit',
       currentMembership: {
         staffId: 55,
         storeId: 48,

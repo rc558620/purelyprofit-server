@@ -10,12 +10,24 @@ import {
   PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX,
   STORE_PROFILE_KEY_PREFIX,
 } from './auth.constants';
-import type { AccountIdentifiers } from './auth-account.types';
+import type {
+  AccountIdentifiers,
+  AuthProductScope,
+  AuthenticatedAccountScope,
+} from './auth-account.types';
 import type { ProfileUserRecord } from './auth-profile.types';
 
 const LOCAL_LOGIN_DOMAIN = 'purelyprofit.local';
-const PHONE_LOGIN_PREFIX = 'phone_';
-const ACCOUNT_LOGIN_PREFIX = 'account_';
+const PRODUCT_PHONE_LOGIN_PREFIX: Record<AuthProductScope, string> = {
+  purely_profit: 'profit_phone_',
+  purely_club: 'club_phone_',
+};
+const PRODUCT_ACCOUNT_LOGIN_PREFIX: Record<AuthProductScope, string> = {
+  purely_profit: 'profit_account_',
+  purely_club: 'club_account_',
+};
+const LEGACY_PROFIT_PHONE_LOGIN_PREFIX = 'phone_';
+const LEGACY_PROFIT_ACCOUNT_LOGIN_PREFIX = 'account_';
 
 export function normalizePhone(phone: string): string {
   return phone.trim();
@@ -25,15 +37,59 @@ export function normalizeLoginAccount(account: string): string {
   return account.trim().toLowerCase();
 }
 
-export function buildAccountIdentifiers(phone: string): AccountIdentifiers {
+export function buildAccountIdentifiers(
+  scope: AuthProductScope,
+  phone: string,
+): AccountIdentifiers {
   return {
     phone,
-    email: `${PHONE_LOGIN_PREFIX}${phone}@${LOCAL_LOGIN_DOMAIN}`,
+    email: buildPhoneLoginEmail(scope, phone),
+    accountScope: scope,
   };
 }
 
-export function buildLoginEmailFromAccount(account: string): string {
-  return `${ACCOUNT_LOGIN_PREFIX}${normalizeLoginAccount(account)}@${LOCAL_LOGIN_DOMAIN}`;
+export function buildPhoneLoginEmail(
+  scope: AuthProductScope,
+  phone: string,
+): string {
+  return `${PRODUCT_PHONE_LOGIN_PREFIX[scope]}${phone}@${LOCAL_LOGIN_DOMAIN}`;
+}
+
+export function buildLoginEmailFromAccount(
+  scope: AuthProductScope,
+  account: string,
+): string {
+  return `${PRODUCT_ACCOUNT_LOGIN_PREFIX[scope]}${normalizeLoginAccount(account)}@${LOCAL_LOGIN_DOMAIN}`;
+}
+
+export function buildLegacyProfitPhoneLoginEmail(phone: string): string {
+  return `${LEGACY_PROFIT_PHONE_LOGIN_PREFIX}${phone}@${LOCAL_LOGIN_DOMAIN}`;
+}
+
+export function buildLegacyProfitAccountLoginEmail(account: string): string {
+  return `${LEGACY_PROFIT_ACCOUNT_LOGIN_PREFIX}${normalizeLoginAccount(account)}@${LOCAL_LOGIN_DOMAIN}`;
+}
+
+export function buildPhoneLoginEmails(
+  scope: AuthProductScope,
+  phone: string,
+): string[] {
+  const emails = [buildPhoneLoginEmail(scope, phone)];
+  if (scope === 'purely_profit') {
+    emails.push(buildLegacyProfitPhoneLoginEmail(phone));
+  }
+  return emails;
+}
+
+export function buildAccountLoginEmails(
+  scope: AuthProductScope,
+  account: string,
+): string[] {
+  const emails = [buildLoginEmailFromAccount(scope, account)];
+  if (scope === 'purely_profit') {
+    emails.push(buildLegacyProfitAccountLoginEmail(account));
+  }
+  return emails;
 }
 
 export function resolveLoginPhone(account: string): string | null {
@@ -51,7 +107,10 @@ export function resolveLoginPhone(account: string): string | null {
   return ADMIN_LOGIN_PHONE;
 }
 
-export function resolveLoginEmail(account: string): string | null {
+export function resolveLoginEmail(
+  scope: AuthProductScope,
+  account: string,
+): string | null {
   const normalizedAccount = account.trim();
   if (
     !normalizedAccount ||
@@ -61,7 +120,11 @@ export function resolveLoginEmail(account: string): string | null {
     return null;
   }
 
-  return buildLoginEmailFromAccount(normalizedAccount);
+  if (scope !== 'purely_profit') {
+    return null;
+  }
+
+  return buildLoginEmailFromAccount(scope, normalizedAccount);
 }
 
 export function extractPhoneFromLoginAccount(account: string): string | null {
@@ -86,26 +149,33 @@ export function resolveSubAccountLoginEmail(
 ): string {
   const normalizedAccount = account?.trim();
   if (!normalizedAccount) {
-    return buildAccountIdentifiers(phone).email;
+    return buildAccountIdentifiers('purely_profit', phone).email;
   }
 
-  return buildLoginEmailFromAccount(normalizedAccount);
+  return buildLoginEmailFromAccount('purely_profit', normalizedAccount);
 }
 
 export function extractCustomLoginAccount(email: string): string | null {
   const normalizedEmail = email.trim().toLowerCase();
-  const prefix = ACCOUNT_LOGIN_PREFIX;
+  const customPrefixes = [
+    PRODUCT_ACCOUNT_LOGIN_PREFIX.purely_profit,
+    LEGACY_PROFIT_ACCOUNT_LOGIN_PREFIX,
+  ];
   const suffix = `@${LOCAL_LOGIN_DOMAIN}`;
 
-  if (
-    !normalizedEmail.startsWith(prefix) ||
-    !normalizedEmail.endsWith(suffix)
-  ) {
+  if (!normalizedEmail.endsWith(suffix)) {
+    return null;
+  }
+
+  const matchedPrefix = customPrefixes.find((prefix) =>
+    normalizedEmail.startsWith(prefix),
+  );
+  if (!matchedPrefix) {
     return null;
   }
 
   return normalizedEmail.slice(
-    prefix.length,
+    matchedPrefix.length,
     normalizedEmail.length - suffix.length,
   );
 }
@@ -116,6 +186,40 @@ export function normalizeLoginEmail(email: string): string {
 
 export function isSameLoginEmail(left: string, right: string): boolean {
   return normalizeLoginEmail(left) === normalizeLoginEmail(right);
+}
+
+export function resolveProductAccountScopeFromEmail(
+  email: string,
+): AuthProductScope | null {
+  const normalizedEmail = normalizeLoginEmail(email);
+  if (
+    normalizedEmail.startsWith(PRODUCT_PHONE_LOGIN_PREFIX.purely_club) ||
+    normalizedEmail.startsWith(PRODUCT_ACCOUNT_LOGIN_PREFIX.purely_club)
+  ) {
+    return 'purely_club';
+  }
+
+  if (
+    normalizedEmail.startsWith(PRODUCT_PHONE_LOGIN_PREFIX.purely_profit) ||
+    normalizedEmail.startsWith(PRODUCT_ACCOUNT_LOGIN_PREFIX.purely_profit) ||
+    normalizedEmail.startsWith(LEGACY_PROFIT_PHONE_LOGIN_PREFIX) ||
+    normalizedEmail.startsWith(LEGACY_PROFIT_ACCOUNT_LOGIN_PREFIX)
+  ) {
+    return 'purely_profit';
+  }
+
+  return null;
+}
+
+export function resolveAuthenticatedAccountScope(
+  email: string,
+  isDeveloper: boolean,
+): AuthenticatedAccountScope {
+  if (isDeveloper) {
+    return 'developer';
+  }
+
+  return resolveProductAccountScopeFromEmail(email) ?? 'purely_profit';
 }
 
 export function maskPhone(phone: string): string {
@@ -168,12 +272,18 @@ export function generateNumericCode(
   return randomInt(0, max).toString().padStart(length, '0');
 }
 
-export function buildPasswordResetCodeKey(phone: string): string {
-  return `${AUTH_PASSWORD_RESET_CODE_KEY_PREFIX}${phone}`;
+export function buildPasswordResetCodeKey(
+  scope: AuthProductScope,
+  phone: string,
+): string {
+  return `${AUTH_PASSWORD_RESET_CODE_KEY_PREFIX}${scope}:${phone}`;
 }
 
-export function buildRegisterCodeKey(phone: string): string {
-  return `${AUTH_REGISTER_CODE_KEY_PREFIX}${phone}`;
+export function buildRegisterCodeKey(
+  scope: AuthProductScope,
+  phone: string,
+): string {
+  return `${AUTH_REGISTER_CODE_KEY_PREFIX}${scope}:${phone}`;
 }
 
 export function buildTokenVersionKey(userId: number): string {

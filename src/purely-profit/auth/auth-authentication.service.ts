@@ -4,6 +4,9 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { ADMIN_LOGIN_PHONE } from './auth.constants';
+import type { AuthenticatedAccountScope } from './auth-account.types';
 import { ensurePasswordConfirmation } from './auth.utils';
 import { AuthAccountService } from './auth-account.service';
 import { AuthCodeService } from './auth-code.service';
@@ -20,12 +23,21 @@ import type {
 
 @Injectable()
 export class AuthAuthenticationService {
+  private readonly pulseDevAccountEmails: Set<string>;
+
   constructor(
     private readonly authAccountService: AuthAccountService,
     private readonly authCodeService: AuthCodeService,
     private readonly authPasswordService: AuthPasswordService,
     private readonly authSessionService: AuthSessionService,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.pulseDevAccountEmails = new Set(
+      (configService.get<string[]>('pulse.devAccountEmails') ?? []).map(
+        (email) => email.trim().toLowerCase(),
+      ),
+    );
+  }
 
   async register(params: RegisterAuthParams): Promise<AuthTokenResponseDto> {
     ensurePasswordConfirmation(
@@ -35,6 +47,7 @@ export class AuthAuthenticationService {
     );
     const existing = await this.authAccountService.findUserByPhone(
       params.phone,
+      params.productScope,
     );
     if (existing) {
       throw new ConflictException('手机号已被注册');
@@ -43,25 +56,33 @@ export class AuthAuthenticationService {
     await this.authCodeService.ensureRegisterCodeValid(
       params.phone,
       params.code,
+      params.productScope,
     );
 
     const user = await this.authPasswordService.createUserFromPhone({
       phone: params.phone,
       name: params.name,
       password: params.password,
+      productScope: params.productScope,
     });
 
-    await Promise.all([
-      this.authCodeService.clearRegisterCode(params.phone),
-      this.authAccountService.syncStaffMemberships(user.id, {
+    await this.authCodeService.clearRegisterCode(
+      params.phone,
+      params.productScope,
+    );
+
+    if (params.productScope === 'purely_profit') {
+      await this.authAccountService.syncStaffMemberships(user.id, {
         phone: params.phone,
         email: user.email,
-      }),
-    ]);
+        accountScope: params.productScope,
+      });
+    }
 
     return this.authSessionService.signToken(user.id, {
       phone: params.phone,
       email: user.email,
+      accountScope: user.accountScope,
     });
   }
 
@@ -72,6 +93,7 @@ export class AuthAuthenticationService {
 
     const user = await this.authAccountService.findUserByLoginAccount(
       params.loginAccount,
+      params.productScope,
     );
 
     if (
@@ -84,15 +106,27 @@ export class AuthAuthenticationService {
       throw new UnauthorizedException('账号或密码错误');
     }
 
-    await this.authAccountService.syncStaffMemberships(user.id, {
-      phone: user.phone,
-      email: user.email,
-    });
-    await this.authAccountService.ensureUserNotBanned(user.id);
+    const resolvedAccountScope = this.resolveAccountScopeForLogin(user);
+
+    if (params.requireDeveloper && resolvedAccountScope !== 'developer') {
+      throw new UnauthorizedException(
+        '当前账号不可登录 purely-pulse，请使用开发者账号',
+      );
+    }
+
+    if (params.productScope === 'purely_profit') {
+      await this.authAccountService.syncStaffMemberships(user.id, {
+        phone: user.phone,
+        email: user.email,
+        accountScope: resolvedAccountScope,
+      });
+      await this.authAccountService.ensureUserNotBanned(user.id);
+    }
 
     return this.authSessionService.signToken(user.id, {
       phone: user.phone,
       email: user.email,
+      accountScope: resolvedAccountScope,
     });
   }
 
@@ -114,6 +148,7 @@ export class AuthAuthenticationService {
     const token = await this.authSessionService.signToken(currentUser.id, {
       phone: params.phone,
       email: currentUser.email,
+      accountScope: params.accountScope,
     });
 
     return {
@@ -133,30 +168,61 @@ export class AuthAuthenticationService {
     await this.authCodeService.ensurePasswordResetCodeValid(
       params.phone,
       params.code,
+      params.productScope,
     );
 
-    const user = await this.authAccountService.findUserByPhone(params.phone);
+    const user = await this.authAccountService.findUserByPhone(
+      params.phone,
+      params.productScope,
+    );
 
     if (!user) {
-      await this.authCodeService.clearPasswordResetCode(params.phone);
+      await this.authCodeService.clearPasswordResetCode(
+        params.phone,
+        params.productScope,
+      );
       throw new UnauthorizedException('验证码无效或已过期');
     }
 
     await this.authPasswordService.resetPassword(user, params.password);
 
     await Promise.all([
-      this.authCodeService.clearPasswordResetCode(params.phone),
+      this.authCodeService.clearPasswordResetCode(
+        params.phone,
+        params.productScope,
+      ),
       this.authSessionService.bumpTokenVersion(user.id),
     ]);
 
     const token = await this.authSessionService.signToken(user.id, {
       phone: params.phone,
       email: user.email,
+      accountScope: user.accountScope,
     });
 
     return {
       message: '密码重置成功，旧登录态已失效',
       access_token: token.access_token,
     };
+  }
+
+  private resolveAccountScopeForLogin(user: {
+    email: string;
+    phone: string;
+    accountScope: AuthenticatedAccountScope;
+  }): AuthenticatedAccountScope {
+    if (user.accountScope === 'developer') {
+      return 'developer';
+    }
+
+    const normalizedEmail = user.email.trim().toLowerCase();
+    if (
+      user.phone === ADMIN_LOGIN_PHONE ||
+      this.pulseDevAccountEmails.has(normalizedEmail)
+    ) {
+      return 'developer';
+    }
+
+    return user.accountScope;
   }
 }

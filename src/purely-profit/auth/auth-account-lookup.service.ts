@@ -4,10 +4,16 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { AccountIdentifiers, PhoneUserRecord } from './auth-account.types';
+import type {
+  AccountIdentifiers,
+  AuthProductScope,
+  PhoneUserRecord,
+} from './auth-account.types';
 import type { ProfileUserRecord } from './auth-profile.types';
+import { ADMIN_LOGIN_PHONE } from './auth.constants';
 import {
-  buildAccountIdentifiers,
+  buildAccountLoginEmails,
+  buildPhoneLoginEmails,
   resolveLoginEmail,
   resolveLoginPhone,
 } from './auth.utils';
@@ -18,49 +24,76 @@ export class AuthAccountLookupService {
 
   async findUserByLoginAccount(
     account: string,
+    productScope: AuthProductScope,
   ): Promise<PhoneUserRecord | null> {
     const loginPhone = resolveLoginPhone(account);
     if (loginPhone) {
-      return this.findUserByPhone(loginPhone);
+      return this.findUserByPhone(loginPhone, productScope);
     }
 
-    const loginEmail = resolveLoginEmail(account);
+    const loginEmail = resolveLoginEmail(productScope, account);
     if (!loginEmail) {
       return null;
     }
 
-    return this.findUserByEmail(loginEmail);
+    return this.findProfitUserByLoginEmails(
+      buildAccountLoginEmails('purely_profit', account),
+    );
   }
 
-  async findUserByEmail(email: string): Promise<PhoneUserRecord | null> {
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        email,
-        isActive: true,
-        userId: { not: null },
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      select: {
-        phone: true,
-        user: {
-          select: {
-            id: true,
-            email: true,
-            password: true,
-          },
-        },
-      },
-    });
-
-    if (staff?.user && staff.phone) {
-      return {
-        ...staff.user,
-        phone: staff.phone,
-      };
+  async findUserByEmail(
+    email: string,
+    productScope: AuthProductScope,
+  ): Promise<PhoneUserRecord | null> {
+    if (productScope !== 'purely_profit') {
+      return null;
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+    return this.findProfitUserByLoginEmails([email]);
+  }
+
+  async findUserByPhone(
+    phone: string,
+    productScope: AuthProductScope,
+  ): Promise<PhoneUserRecord | null> {
+    if (phone === ADMIN_LOGIN_PHONE) {
+      const developer = await this.findDeveloperUserByPhone(phone);
+      if (developer) {
+        return developer;
+      }
+    }
+
+    if (productScope === 'purely_profit') {
+      const staff = await this.prisma.staff.findFirst({
+        where: {
+          phone,
+          isActive: true,
+          userId: { not: null },
+        },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        select: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              password: true,
+            },
+          },
+        },
+      });
+
+      if (staff?.user) {
+        return {
+          ...staff.user,
+          phone,
+          accountScope: 'purely_profit',
+        };
+      }
+    }
+
+    const candidateEmails = buildPhoneLoginEmails(productScope, phone);
+    const user = await this.prisma.user.findFirst({
+      where: { email: { in: candidateEmails } },
       select: {
         id: true,
         email: true,
@@ -72,68 +105,11 @@ export class AuthAccountLookupService {
       return null;
     }
 
-    const relatedStaff = await this.prisma.staff.findFirst({
-      where: {
-        userId: user.id,
-        isActive: true,
-        phone: { not: null },
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      select: { phone: true },
-    });
-
-    if (!relatedStaff?.phone) {
-      return null;
-    }
-
     return {
       ...user,
-      phone: relatedStaff.phone,
+      phone,
+      accountScope: productScope,
     };
-  }
-
-  async findUserByPhone(phone: string): Promise<PhoneUserRecord | null> {
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        phone,
-        isActive: true,
-        userId: { not: null },
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      select: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            password: true,
-          },
-        },
-      },
-    });
-
-    if (staff?.user) {
-      return {
-        ...staff.user,
-        phone,
-      };
-    }
-
-    const aliasEmail = buildAccountIdentifiers(phone).email;
-    const aliasUser = await this.prisma.user.findUnique({
-      where: { email: aliasEmail },
-      select: {
-        id: true,
-        email: true,
-        password: true,
-      },
-    });
-
-    return aliasUser
-      ? {
-          ...aliasUser,
-          phone,
-        }
-      : null;
   }
 
   async findProfileUserOrThrow(userId: number): Promise<ProfileUserRecord> {
@@ -206,5 +182,101 @@ export class AuthAccountLookupService {
         userId,
       },
     });
+  }
+
+  private async findProfitUserByLoginEmails(
+    emails: string[],
+  ): Promise<PhoneUserRecord | null> {
+    const staff = await this.prisma.staff.findFirst({
+      where: {
+        email: { in: emails },
+        isActive: true,
+        userId: { not: null },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: {
+        phone: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            password: true,
+          },
+        },
+      },
+    });
+
+    if (staff?.user && staff.phone) {
+      return {
+        ...staff.user,
+        phone: staff.phone,
+        accountScope: 'purely_profit',
+      };
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { email: { in: emails } },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+      },
+    });
+
+    if (!user) {
+      return null;
+    }
+
+    const relatedStaff = await this.prisma.staff.findFirst({
+      where: {
+        userId: user.id,
+        isActive: true,
+        phone: { not: null },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: { phone: true },
+    });
+
+    if (!relatedStaff?.phone) {
+      return null;
+    }
+
+    return {
+      ...user,
+      phone: relatedStaff.phone,
+      accountScope: 'purely_profit',
+    };
+  }
+
+  private async findDeveloperUserByPhone(
+    phone: string,
+  ): Promise<PhoneUserRecord | null> {
+    const staff = await this.prisma.staff.findFirst({
+      where: {
+        phone,
+        isActive: true,
+        userId: { not: null },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            password: true,
+          },
+        },
+      },
+    });
+
+    if (!staff?.user) {
+      return null;
+    }
+
+    return {
+      ...staff.user,
+      phone,
+      accountScope: 'developer',
+    };
   }
 }

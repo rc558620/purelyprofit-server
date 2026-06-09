@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { AuthProductScope } from './auth-account.types';
 import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCapabilityService } from './auth-capability.service';
 import { AuthCodeService } from './auth-code.service';
@@ -38,28 +39,33 @@ export class AuthService {
   async sendRegisterCode(
     dto: SendRegisterCodeDto,
   ): Promise<SendRegisterCodeResponseDto> {
-    return this.authCodeService.sendRegisterCode(normalizePhone(dto.phone));
+    return this.sendRegisterCodeByScope(dto, 'purely_profit');
+  }
+
+  async sendClubRegisterCode(
+    dto: SendRegisterCodeDto,
+  ): Promise<SendRegisterCodeResponseDto> {
+    return this.sendRegisterCodeByScope(dto, 'purely_club');
   }
 
   async register(dto: RegisterDto): Promise<AuthTokenResponseDto> {
-    const params: RegisterAuthParams = {
-      phone: normalizePhone(dto.phone),
-      code: dto.code,
-      password: dto.password,
-      confirmPassword: dto.confirmPassword,
-      name: dto.name,
-    };
+    return this.registerByScope(dto, 'purely_profit');
+  }
 
-    return this.authAuthenticationService.register(params);
+  async registerClub(dto: RegisterDto): Promise<AuthTokenResponseDto> {
+    return this.registerByScope(dto, 'purely_club');
   }
 
   async login(dto: LoginDto): Promise<AuthTokenResponseDto> {
-    const params: LoginAuthParams = {
-      loginAccount: dto.phone ?? dto.account,
-      password: dto.password,
-    };
+    return this.loginByScope(dto, 'purely_profit');
+  }
 
-    return this.authAuthenticationService.login(params);
+  async loginClub(dto: LoginDto): Promise<AuthTokenResponseDto> {
+    return this.loginByScope(dto, 'purely_club');
+  }
+
+  async loginPulse(dto: LoginDto): Promise<AuthTokenResponseDto> {
+    return this.loginByScope(dto, 'purely_profit', true);
   }
 
   async changePassword(
@@ -72,6 +78,7 @@ export class AuthService {
       currentPassword: dto.currentPassword,
       newPassword: dto.newPassword,
       confirmPassword: dto.confirmPassword,
+      accountScope: user.accountScope ?? 'purely_profit',
     };
 
     return this.authAuthenticationService.changePassword(params);
@@ -80,22 +87,25 @@ export class AuthService {
   async forgotPassword(
     dto: ForgotPasswordDto,
   ): Promise<ForgotPasswordResponseDto> {
-    return this.authCodeService.sendPasswordResetCode(
-      normalizePhone(dto.phone),
-    );
+    return this.forgotPasswordByScope(dto, 'purely_profit');
+  }
+
+  async forgotClubPassword(
+    dto: ForgotPasswordDto,
+  ): Promise<ForgotPasswordResponseDto> {
+    return this.forgotPasswordByScope(dto, 'purely_club');
   }
 
   async resetPassword(
     dto: ResetPasswordDto,
   ): Promise<PasswordOperationResponseDto> {
-    const params: ResetPasswordAuthParams = {
-      phone: normalizePhone(dto.phone),
-      code: dto.code,
-      password: dto.password,
-      confirmPassword: dto.confirmPassword,
-    };
+    return this.resetPasswordByScope(dto, 'purely_profit');
+  }
 
-    return this.authAuthenticationService.resetPassword(params);
+  async resetClubPassword(
+    dto: ResetPasswordDto,
+  ): Promise<PasswordOperationResponseDto> {
+    return this.resetPasswordByScope(dto, 'purely_club');
   }
 
   async updateAvatar(
@@ -124,5 +134,71 @@ export class AuthService {
     user: AuthenticatedUser,
   ): Promise<AuthCapabilityResponseDto> {
     return this.authCapabilityService.getCapability(user);
+  }
+
+  private async sendRegisterCodeByScope(
+    dto: SendRegisterCodeDto,
+    productScope: AuthProductScope,
+  ): Promise<SendRegisterCodeResponseDto> {
+    return this.authCodeService.sendRegisterCode(
+      normalizePhone(dto.phone),
+      productScope,
+    );
+  }
+
+  private async registerByScope(
+    dto: RegisterDto,
+    productScope: AuthProductScope,
+  ): Promise<AuthTokenResponseDto> {
+    const params: RegisterAuthParams = {
+      phone: normalizePhone(dto.phone),
+      code: dto.code,
+      password: dto.password,
+      confirmPassword: dto.confirmPassword,
+      name: dto.name,
+      productScope,
+    };
+
+    return this.authAuthenticationService.register(params);
+  }
+
+  private async loginByScope(
+    dto: LoginDto,
+    productScope: AuthProductScope,
+    requireDeveloper = false,
+  ): Promise<AuthTokenResponseDto> {
+    const params: LoginAuthParams = {
+      loginAccount: dto.phone ?? dto.account,
+      password: dto.password,
+      productScope,
+      requireDeveloper,
+    };
+
+    return this.authAuthenticationService.login(params);
+  }
+
+  private async forgotPasswordByScope(
+    dto: ForgotPasswordDto,
+    productScope: AuthProductScope,
+  ): Promise<ForgotPasswordResponseDto> {
+    return this.authCodeService.sendPasswordResetCode(
+      normalizePhone(dto.phone),
+      productScope,
+    );
+  }
+
+  private async resetPasswordByScope(
+    dto: ResetPasswordDto,
+    productScope: AuthProductScope,
+  ): Promise<PasswordOperationResponseDto> {
+    const params: ResetPasswordAuthParams = {
+      phone: normalizePhone(dto.phone),
+      code: dto.code,
+      password: dto.password,
+      confirmPassword: dto.confirmPassword,
+      productScope,
+    };
+
+    return this.authAuthenticationService.resetPassword(params);
   }
 }

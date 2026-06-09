@@ -59,9 +59,15 @@ export const createSpaceSessionRecord = (): SpaceSessionSettlementRecord =>
     countdownMinutes: null,
     autoCheckout: false,
     prepaidPaymentMethod: null,
+    prepaidCustomerPaymentMethod: null,
+    prepaidSettlementChannel: null,
     prepaidGrouponCode: null,
+    prepaidGrouponPlatform: null,
+    prepaidVoucherCode: null,
+    prepaidVoucherPlatform: null,
     prepaidNote: null,
     prepaidAmount: null,
+    prepaidVoucherFaceAmount: null,
     items: [
       {
         productId: '201',

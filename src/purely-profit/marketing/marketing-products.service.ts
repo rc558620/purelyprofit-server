@@ -89,6 +89,7 @@ export class MarketingProductsService {
         originalPrice: dto.originalPrice ?? null,
         image: toNullableMediaText(dto.image) ?? null,
         description: toNullableText(dto.description) ?? null,
+        stock: dto.stock ?? 0,
         durationMinutes: dto.durationMinutes ?? null,
         personCount: dto.personCount ?? null,
       },
@@ -130,6 +131,7 @@ export class MarketingProductsService {
         ...(dto.description !== undefined
           ? { description: toNullableText(dto.description) }
           : {}),
+        ...(dto.stock !== undefined ? { stock: dto.stock } : {}),
         ...(dto.durationMinutes !== undefined
           ? { durationMinutes: dto.durationMinutes }
           : {}),
@@ -204,6 +206,7 @@ export class MarketingProductsService {
       originalPrice: row.originalPrice,
       image: row.image,
       description: row.description,
+      stock: row.stock,
       durationMinutes: row.durationMinutes,
       personCount: row.personCount,
       isActive: row.isActive,

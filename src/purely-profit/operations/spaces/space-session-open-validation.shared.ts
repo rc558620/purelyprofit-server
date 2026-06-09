@@ -39,42 +39,50 @@ export const ensureOpenSessionPayload = (
       throw new BadRequestException('请输入台位费');
     }
     assertMoneyPrecision(payload.hourlyRate, '台位费');
-    if (payload.autoCheckout) {
-      const prepaidVoucherCode =
-        payload.prepaidVoucherCode ?? payload.prepaidGrouponCode;
-      const prepaidVoucherPlatform =
-        payload.prepaidVoucherPlatform ?? payload.prepaidGrouponPlatform;
-      const prepaidVoucherFaceAmount =
-        payload.prepaidVoucherFaceAmount ?? payload.prepaidAmount;
-      const prepaidCustomerPaymentMethod =
-        payload.prepaidCustomerPaymentMethod ??
-        (prepaidVoucherCode || prepaidVoucherPlatform
-          ? 'groupon_voucher'
-          : payload.prepaidPaymentMethod);
-      const prepaidSettlementChannel =
-        payload.prepaidSettlementChannel ??
-        (prepaidCustomerPaymentMethod === 'groupon_voucher'
-          ? (() => {
-              const normalized = prepaidVoucherPlatform?.trim().toLowerCase();
-              if (!normalized) {
-                return 'other_platform' as const;
-              }
-              if (normalized.includes('美团')) {
-                return 'meituan_groupon' as const;
-              }
-              if (normalized.includes('抖音')) {
-                return 'douyin_groupon' as const;
-              }
-              return 'other_platform' as const;
-            })()
-          : 'direct_cashier');
 
+    const prepaidVoucherCode =
+      payload.prepaidVoucherCode ?? payload.prepaidGrouponCode;
+    const prepaidVoucherPlatform =
+      payload.prepaidVoucherPlatform ?? payload.prepaidGrouponPlatform;
+    const prepaidVoucherFaceAmount =
+      payload.prepaidVoucherFaceAmount ?? payload.prepaidAmount;
+    const prepaidCustomerPaymentMethod =
+      payload.prepaidCustomerPaymentMethod ??
+      (prepaidVoucherCode || prepaidVoucherPlatform
+        ? 'groupon_voucher'
+        : payload.prepaidPaymentMethod);
+    const prepaidSettlementChannel =
+      payload.prepaidSettlementChannel ??
+      (prepaidCustomerPaymentMethod === 'groupon_voucher'
+        ? (() => {
+            const normalized = prepaidVoucherPlatform?.trim().toLowerCase();
+            if (!normalized) {
+              return 'other_platform' as const;
+            }
+            if (normalized.includes('美团')) {
+              return 'meituan_groupon' as const;
+            }
+            if (normalized.includes('抖音')) {
+              return 'douyin_groupon' as const;
+            }
+            return 'other_platform' as const;
+          })()
+        : 'direct_cashier');
+    const hasPrepaid =
+      payload.prepaidPaymentMethod !== undefined ||
+      payload.prepaidAmount !== undefined ||
+      prepaidVoucherFaceAmount !== undefined ||
+      prepaidVoucherCode !== undefined ||
+      prepaidVoucherPlatform !== undefined ||
+      payload.prepaidNote !== undefined;
+
+    if (hasPrepaid) {
       if (
         payload.prepaidPaymentMethod === undefined ||
         payload.prepaidAmount === undefined ||
         payload.prepaidAmount <= 0
       ) {
-        throw new BadRequestException('自动结账模式下请输入付款金额与支付方式');
+        throw new BadRequestException('开启预付款后请输入付款金额与支付方式');
       }
       assertMoneyPrecision(payload.prepaidAmount, '预付金额');
 
@@ -91,6 +99,7 @@ export const ensureOpenSessionPayload = (
         assertMoneyPrecision(prepaidVoucherFaceAmount, '预付券面金额');
       }
     }
+
     return;
   }
 

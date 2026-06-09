@@ -167,11 +167,21 @@ export class SpaceSessionOpenService {
           countdownMinutes: payload.countdownMinutes ?? null,
           autoCheckout: payload.autoCheckout ?? null,
           prepaidPaymentMethod: payload.prepaidPaymentMethod ?? null,
+          prepaidCustomerPaymentMethod:
+            payload.prepaidCustomerPaymentMethod ?? null,
+          prepaidSettlementChannel: payload.prepaidSettlementChannel ?? null,
           prepaidGrouponCode: payload.prepaidGrouponCode ?? null,
+          prepaidGrouponPlatform: payload.prepaidGrouponPlatform ?? null,
+          prepaidVoucherCode: payload.prepaidVoucherCode ?? null,
+          prepaidVoucherPlatform: payload.prepaidVoucherPlatform ?? null,
           prepaidNote: payload.prepaidNote ?? null,
           prepaidAmount:
             payload.prepaidAmount !== undefined
               ? new Prisma.Decimal(payload.prepaidAmount)
+              : null,
+          prepaidVoucherFaceAmount:
+            payload.prepaidVoucherFaceAmount !== undefined
+              ? new Prisma.Decimal(payload.prepaidVoucherFaceAmount)
               : null,
           items: [],
           itemsCost: new Prisma.Decimal(0),

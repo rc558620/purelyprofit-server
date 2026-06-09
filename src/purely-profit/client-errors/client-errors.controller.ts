@@ -6,15 +6,9 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
-import {
-  ApiNoContentResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
-import {
-  ClientErrorsService,
-  type ClientErrorRequestMeta,
-} from './client-errors.service';
+import { ApiNoContentResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ClientErrorsService } from './client-errors.service';
+import type { ClientErrorRequestMeta } from './client-errors.types';
 import { ClientErrorReportDto } from './dto/client-error-report.dto';
 
 const readHeaderValue = (
@@ -38,7 +32,11 @@ export class ClientErrorsController {
   @ApiNoContentResponse({ description: '错误日志接收成功' })
   report(
     @Body() payload: ClientErrorReportDto,
-    @Req() request: { ip?: string; headers: Record<string, string | string[] | undefined> },
+    @Req()
+    request: {
+      ip?: string;
+      headers: Record<string, string | string[] | undefined>;
+    },
   ): void {
     const requestMeta: ClientErrorRequestMeta = {
       clientIp: request.ip,

@@ -6,14 +6,14 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
-import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
+import { PulseJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { OnboardingStatusResponseDto } from './dto/onboarding-status.dto';
 import { OnboardingService } from './onboarding.service';
 
 @ApiTags('Pulse / Onboarding')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(PulseJwtAuthGuard)
 @Controller('pulse/onboarding')
 export class OnboardingController {
   constructor(private readonly onboardingService: OnboardingService) {}

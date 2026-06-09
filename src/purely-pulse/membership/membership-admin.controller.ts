@@ -22,7 +22,7 @@ import {
   RequestAuditContext,
   type RequestAuditContextValue,
 } from '../../purely-profit/auth/request-audit-context.decorator';
-import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
+import { PulseJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { AdjustMemberBeansDto } from '../../purely-profit/member/members/dto/member-beans.dto';
 import { AdjustMemberPointsDto } from '../../purely-profit/member/members/dto/member-points.dto';
@@ -51,7 +51,7 @@ import type {
 
 @ApiTags('Pulse / Membership')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(PulseJwtAuthGuard)
 @Controller('pulse/membership/admin')
 export class PulseMembershipAdminController {
   constructor(

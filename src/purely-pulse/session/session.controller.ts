@@ -14,7 +14,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
-import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
+import { PulseJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import {
   PulseSessionBootstrapResponseDto,
@@ -25,7 +25,7 @@ import { SessionService } from './session.service';
 
 @ApiTags('Pulse / Session')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(PulseJwtAuthGuard)
 @Controller('pulse/session')
 export class SessionController {
   constructor(private readonly sessionService: SessionService) {}

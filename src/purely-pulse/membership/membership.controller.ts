@@ -15,7 +15,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
-import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
+import { PulseJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PurchasePlatformMembershipOrderDto } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 import {
@@ -37,7 +37,7 @@ import { PulseMembershipService } from './membership.service';
 
 @ApiTags('Pulse / Membership')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(PulseJwtAuthGuard)
 @Controller('pulse/membership')
 export class PulseMembershipController {
   constructor(

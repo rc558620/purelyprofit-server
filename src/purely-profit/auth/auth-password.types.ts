@@ -1,7 +1,13 @@
+import type {
+  AuthProductScope,
+  AuthenticatedAccountScope,
+} from './auth-account.types';
+
 export interface CreateUserFromPhoneParams {
   phone: string;
   name?: string;
   password: string;
+  productScope: AuthProductScope;
 }
 
 export interface RegisterAuthParams {
@@ -10,11 +16,14 @@ export interface RegisterAuthParams {
   password: string;
   confirmPassword?: string;
   name?: string;
+  productScope: AuthProductScope;
 }
 
 export interface LoginAuthParams {
   loginAccount?: string;
   password: string;
+  productScope: AuthProductScope;
+  requireDeveloper?: boolean;
 }
 
 export interface UpdateUserPasswordParams {
@@ -29,6 +38,7 @@ export interface ChangePasswordAuthParams {
   currentPassword: string;
   newPassword: string;
   confirmPassword?: string;
+  accountScope: AuthenticatedAccountScope;
 }
 
 export interface ResetPasswordAuthParams {
@@ -36,4 +46,5 @@ export interface ResetPasswordAuthParams {
   code: string;
   password: string;
   confirmPassword?: string;
+  productScope: AuthProductScope;
 }

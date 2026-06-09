@@ -16,7 +16,11 @@ import { AuthProfileService } from './auth-profile.service';
 import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthSmsService } from './auth-sms.service';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import {
+  ClubJwtAuthGuard,
+  JwtAuthGuard,
+  PulseJwtAuthGuard,
+} from './guards/jwt-auth.guard';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
@@ -51,7 +55,15 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthSmsService,
     JwtStrategy,
     JwtAuthGuard,
+    ClubJwtAuthGuard,
+    PulseJwtAuthGuard,
   ],
-  exports: [JwtAuthGuard, JwtModule],
+  exports: [
+    AuthService,
+    JwtAuthGuard,
+    ClubJwtAuthGuard,
+    PulseJwtAuthGuard,
+    JwtModule,
+  ],
 })
 export class AuthModule {}

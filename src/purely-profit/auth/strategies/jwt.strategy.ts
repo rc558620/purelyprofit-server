@@ -15,6 +15,8 @@ import {
   ADMIN_LOGIN_PHONE,
   AUTH_TOKEN_VERSION_KEY_PREFIX,
 } from '../auth.constants';
+import type { AuthenticatedAccountScope } from '../auth-account.types';
+import { resolveAuthenticatedAccountScope } from '../auth.utils';
 
 export type PulseMode = 'normal' | 'developer';
 
@@ -25,6 +27,7 @@ export interface AuthenticatedUser {
   name: string | null;
   createdAt: Date;
   updatedAt: Date;
+  accountScope?: AuthenticatedAccountScope;
   currentMembership: AuthenticatedMembership | null;
   pulseMode?: PulseMode;
   isPulseDeveloper?: boolean;
@@ -33,6 +36,7 @@ export interface AuthenticatedUser {
 export interface JwtPayload {
   sub: number;
   phone: string;
+  accountScope?: AuthenticatedAccountScope;
   sessionVersion?: number;
 }
 
@@ -108,6 +112,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       this.pulseDevAccountEmails.has(normalizedEmail) ||
       payload.phone === ADMIN_LOGIN_PHONE;
     const pulseMode: PulseMode = isPulseDeveloper ? 'developer' : 'normal';
+    const accountScope =
+      payload.accountScope ??
+      resolveAuthenticatedAccountScope(user.email, isPulseDeveloper);
 
     return {
       id: user.id,
@@ -116,6 +123,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       name: user.name,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      accountScope,
       currentMembership: currentMembership
         ? this.accessControlService.buildMembershipContext(
             {
@@ -241,7 +249,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     const banReasons = await Promise.all(
       relatedStoreIds.map((storeId) =>
-        this.redisService.get(this.getPulseAdminMemberBanReasonKey(storeId)),
+        this.redisService.get(
+          `${PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX}${storeId}:ban-reason`,
+        ),
       ),
     );
     const hasBannedStore = banReasons.some((reason) => Boolean(reason?.trim()));
@@ -275,9 +285,5 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
 
     return stores.map((store) => store.id);
-  }
-
-  private getPulseAdminMemberBanReasonKey(storeId: number): string {
-    return `${PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX}${storeId}:ban-reason`;
   }
 }

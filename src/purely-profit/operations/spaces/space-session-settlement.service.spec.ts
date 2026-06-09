@@ -91,4 +91,54 @@ describe('SpaceSessionSettlementService', () => {
       spaceStatus: PrismaSpaceStatus.cleaning,
     });
   });
+
+  it('结账销售单可写入预付抵扣负项', async () => {
+    const user = createSpaceTestUser();
+    const params = createSettleSpaceSessionParams();
+    params.settlement.orderItems = [
+      ...params.settlement.orderItems,
+      {
+        productId: 'SYS_PREPAID_DEDUCTION',
+        productName: '预付抵扣',
+        categoryName: '场地费',
+        salePrice: -30,
+        profit: -30,
+        quantity: 1,
+      },
+    ];
+    params.settlement.prepaidDeduction = 30;
+    params.settlement.totalAmount = -10;
+    params.settlement.totalRevenue = -10;
+    params.settlement.totalProfit = -22;
+    params.settlement.totalQuantity = 1;
+    const createdOrder = createSalesOrderResponse();
+    const updatedSession = createUpdatedSpaceSession();
+
+    salesRecordService.create.mockResolvedValue(createdOrder);
+    transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
+    transactionClient.space.update.mockResolvedValue({
+      id: 7,
+      status: PrismaSpaceStatus.cleaning,
+    });
+    transactionClient.spaceReservation.findMany.mockResolvedValue([]);
+    transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
+
+    await service.settleSession(user, params);
+
+    expect(salesRecordService.create).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            productId: 'SYS_PREPAID_DEDUCTION',
+            salePrice: -30,
+            profit: -30,
+          }),
+        ]),
+        totalRevenue: -10,
+        totalProfit: -22,
+      }),
+      expectedSalesRecordCreateOptions,
+    );
+  });
 });

@@ -28,6 +28,7 @@ model MarketingProduct {
   originalPrice   Int?                     @map("original_price")
   image           String?
   description     String?
+  stock           Int                      @default(0)
   durationMinutes Int?                     @map("duration_minutes")
   personCount     Int?                     @map("person_count")
   isActive        Boolean                  @default(true) @map("is_active")

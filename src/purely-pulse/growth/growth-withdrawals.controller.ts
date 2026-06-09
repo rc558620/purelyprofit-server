@@ -7,7 +7,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
-import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
+import { PulseJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { ApplyWithdrawalResponseDto } from '../../purely-profit/member/withdrawals/dto/withdrawal-response.dto';
 import {
@@ -19,7 +19,7 @@ import { PulseGrowthService } from './growth.service';
 
 @ApiTags('Pulse - Growth')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(PulseJwtAuthGuard)
 @Controller('pulse/growth/withdrawals')
 export class PulseGrowthWithdrawalsController {
   constructor(private readonly growthService: PulseGrowthService) {}

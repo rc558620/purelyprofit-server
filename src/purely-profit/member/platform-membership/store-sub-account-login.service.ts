@@ -76,7 +76,7 @@ export class StoreSubAccountLoginService {
     }
 
     const nextLoginEmail = normalizedLoginAccount
-      ? buildLoginEmailFromAccount(normalizedLoginAccount)
+      ? buildLoginEmailFromAccount('purely_profit', normalizedLoginAccount)
       : null;
 
     if (employee.linkedStaff) {
@@ -133,8 +133,10 @@ export class StoreSubAccountLoginService {
       normalizedPassword,
     );
 
-    const nextStaffEmail =
-      nextLoginEmail ?? buildAccountIdentifiers(employee.phone).email;
+      const nextStaffEmail =
+        nextLoginEmail ??
+        buildAccountIdentifiers('purely_profit', employee.phone).email;
+
     const existingStaff = await this.prisma.staff.findFirst({
       where: {
         phone: employee.phone,
@@ -204,7 +206,7 @@ export class StoreSubAccountLoginService {
     name: string,
     password: string,
   ): Promise<{ id: number }> {
-    const aliasEmail = buildAccountIdentifiers(phone).email;
+    const aliasEmail = buildAccountIdentifiers('purely_profit', phone).email;
 
     const existingStaffWithUser = await this.prisma.staff.findFirst({
       where: {

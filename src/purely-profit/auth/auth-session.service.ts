@@ -20,6 +20,7 @@ export class AuthSessionService {
     const payload: JwtPayload = {
       sub: userId,
       phone: identifiers.phone,
+      accountScope: identifiers.accountScope,
       sessionVersion: await this.getTokenVersion(userId),
     };
 

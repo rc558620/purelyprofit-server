@@ -128,6 +128,13 @@ export class CreateMarketingProductDto {
   @MaxLength(200, { message: '产品描述最长 200 个字符' })
   description?: string;
 
+  @ApiPropertyOptional({ example: 20, description: '库存数量' })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '库存必须是整数' })
+  @Min(0, { message: '库存必须大于等于 0' })
+  stock?: number;
+
   @ApiPropertyOptional({ example: 60, description: '服务时长（分钟）' })
   @IsOptional()
   @Transform(transformOptionalInt)
@@ -194,6 +201,13 @@ export class UpdateMarketingProductDto {
   @IsString({ message: '产品描述必须是字符串' })
   @MaxLength(200, { message: '产品描述最长 200 个字符' })
   description?: string;
+
+  @ApiPropertyOptional({ example: 20, description: '库存数量' })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '库存必须是整数' })
+  @Min(0, { message: '库存必须大于等于 0' })
+  stock?: number;
 
   @ApiPropertyOptional({ example: 60, description: '服务时长（分钟）' })
   @IsOptional()
@@ -264,6 +278,9 @@ export class MarketingProductDto {
 
   @ApiPropertyOptional({ example: '专业推拿师一对一服务' })
   description?: string;
+
+  @ApiProperty({ example: 20, description: '库存数量' })
+  stock: number;
 
   @ApiPropertyOptional({ example: 60 })
   durationMinutes?: number;

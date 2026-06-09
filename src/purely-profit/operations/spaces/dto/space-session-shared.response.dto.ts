@@ -11,6 +11,12 @@ import {
   type SpaceBillingModeValue,
   type SpaceSessionStatusValue,
 } from '../spaces.constants';
+import {
+  SPACE_CUSTOMER_PAYMENT_METHOD_VALUES,
+  SPACE_SETTLEMENT_CHANNEL_VALUES,
+  type SpaceCustomerPaymentMethodValue,
+  type SpaceSettlementChannelValue,
+} from './space-session.constants';
 
 export class SpaceSessionItemResponseDto {
   @ApiProperty({ example: 'SYS_TIME_BILLING', description: '商品 ID' })
@@ -122,14 +128,40 @@ export class SpaceSessionResponseDto {
   })
   prepaidPaymentMethod?: SalesPaymentMethodValue;
 
+  @ApiPropertyOptional({
+    example: 'groupon_voucher',
+    description: '预付顾客支付方式',
+    enum: SPACE_CUSTOMER_PAYMENT_METHOD_VALUES,
+  })
+  prepaidCustomerPaymentMethod?: SpaceCustomerPaymentMethodValue;
+
+  @ApiPropertyOptional({
+    example: 'meituan_groupon',
+    description: '预付结算渠道',
+    enum: SPACE_SETTLEMENT_CHANNEL_VALUES,
+  })
+  prepaidSettlementChannel?: SpaceSettlementChannelValue;
+
   @ApiPropertyOptional({ example: 'MT123456', description: '预付团购券码' })
   prepaidGrouponCode?: string;
+
+  @ApiPropertyOptional({ example: '美团', description: '预付团购平台' })
+  prepaidGrouponPlatform?: string;
+
+  @ApiPropertyOptional({ example: 'MT123456', description: '预付券码' })
+  prepaidVoucherCode?: string;
+
+  @ApiPropertyOptional({ example: '美团', description: '预付券所属平台' })
+  prepaidVoucherPlatform?: string;
 
   @ApiPropertyOptional({ example: '美团团购券', description: '预付备注' })
   prepaidNote?: string;
 
   @ApiPropertyOptional({ example: 88, description: '预付金额（元）' })
   prepaidAmount?: number;
+
+  @ApiPropertyOptional({ example: 88, description: '预付券面金额（元）' })
+  prepaidVoucherFaceAmount?: number;
 
   @ApiProperty({ type: [SpaceSessionItemResponseDto], description: '消费明细' })
   @IsArray()

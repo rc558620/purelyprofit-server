@@ -34,16 +34,20 @@ import { VerifyRealNameDto } from './dto/verify-real-name.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
 
-@ApiTags('Auth')
+@ApiTags('Profit / Auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register/send-code')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '发送注册短信验证码' })
+  @ApiOperation({
+    summary: '发送 purely-profit 注册短信验证码',
+    description:
+      '面向 purely-profit 老板端/商家端账号注册。仅为 purely-profit 新账号发送验证码，不适用于 purely-club 或 purely-pulse 登录入口。',
+  })
   @ApiOkResponse({
-    description: '发送注册验证码成功',
+    description: '发送 purely-profit 注册验证码成功',
     type: SendRegisterCodeResponseDto,
   })
   sendRegisterCode(
@@ -53,9 +57,13 @@ export class AuthController {
   }
 
   @Post('register')
-  @ApiOperation({ summary: '注册' })
+  @ApiOperation({
+    summary: 'purely-profit 注册',
+    description:
+      '创建 purely-profit 老板端/商家端账号。注册成功后的账号仅用于 purely-profit 登录；如需个人端账号，请使用 purely-club 注册入口。',
+  })
   @ApiCreatedResponse({
-    description: '注册成功，返回 JWT token',
+    description: 'purely-profit 注册成功，返回 JWT token',
     type: AuthTokenResponseDto,
   })
   register(@Body() dto: RegisterDto): Promise<AuthTokenResponseDto> {
@@ -64,9 +72,13 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '登录' })
+  @ApiOperation({
+    summary: 'purely-profit 登录',
+    description:
+      '仅接受 purely-profit 老板端/商家端账号登录。purely-club 注册账号与非开发者账号不能通过该入口登录。',
+  })
   @ApiOkResponse({
-    description: '登录成功，返回 JWT token',
+    description: 'purely-profit 登录成功，返回 JWT token',
     type: AuthTokenResponseDto,
   })
   login(@Body() dto: LoginDto): Promise<AuthTokenResponseDto> {
@@ -91,9 +103,13 @@ export class AuthController {
 
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '发送找回密码短信验证码' })
+  @ApiOperation({
+    summary: '发送 purely-profit 找回密码短信验证码',
+    description:
+      '仅面向 purely-profit 账号找回密码。即使手机号不存在也返回统一文案，不暴露注册状态。',
+  })
   @ApiOkResponse({
-    description: '如手机号存在则发送验证码短信，统一返回通用文案',
+    description: '如手机号存在则发送 purely-profit 找回密码验证码短信，统一返回通用文案',
     type: ForgotPasswordResponseDto,
   })
   forgotPassword(
@@ -104,9 +120,13 @@ export class AuthController {
 
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '通过短信验证码重置密码' })
+  @ApiOperation({
+    summary: '通过短信验证码重置 purely-profit 密码',
+    description:
+      '仅重置 purely-profit 账号密码。重置成功后返回新的 JWT token，并使旧登录态失效。',
+  })
   @ApiOkResponse({
-    description: '重置密码成功并返回新的 JWT token',
+    description: '重置 purely-profit 密码成功并返回新的 JWT token',
     type: PasswordOperationResponseDto,
   })
   resetPassword(

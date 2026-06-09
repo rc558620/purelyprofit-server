@@ -11,6 +11,7 @@ import {
 } from './auth.constants';
 import { AuthAccountService } from './auth-account.service';
 import { AuthSmsService } from './auth-sms.service';
+import type { AuthProductScope } from './auth-account.types';
 import { ForgotPasswordResponseDto } from './dto/forgot-password-response.dto';
 import { SendRegisterCodeResponseDto } from './dto/send-register-code-response.dto';
 import {
@@ -28,16 +29,22 @@ export class AuthCodeService {
     private readonly authAccountService: AuthAccountService,
   ) {}
 
-  async sendRegisterCode(phone: string): Promise<SendRegisterCodeResponseDto> {
+  async sendRegisterCode(
+    phone: string,
+    productScope: AuthProductScope,
+  ): Promise<SendRegisterCodeResponseDto> {
     const expiresInSeconds = this.getRegisterCodeTtlSeconds();
-    const existingUser = await this.authAccountService.findUserByPhone(phone);
+    const existingUser = await this.authAccountService.findUserByPhone(
+      phone,
+      productScope,
+    );
 
     if (existingUser) {
       throw new ConflictException('手机号已被注册');
     }
 
     const registerCode = generateNumericCode();
-    const registerCodeKey = buildRegisterCodeKey(phone);
+    const registerCodeKey = buildRegisterCodeKey(productScope, phone);
     await this.redisService.set(
       registerCodeKey,
       registerCode,
@@ -70,33 +77,46 @@ export class AuthCodeService {
     return response;
   }
 
-  async ensureRegisterCodeValid(phone: string, code: string): Promise<void> {
-    const cachedCode = await this.redisService.get(buildRegisterCodeKey(phone));
+  async ensureRegisterCodeValid(
+    phone: string,
+    code: string,
+    productScope: AuthProductScope,
+  ): Promise<void> {
+    const cachedCode = await this.redisService.get(
+      buildRegisterCodeKey(productScope, phone),
+    );
     if (!cachedCode || cachedCode !== code) {
       throw new UnauthorizedException('验证码无效或已过期');
     }
   }
 
-  async clearRegisterCode(phone: string): Promise<void> {
-    await this.redisService.del(buildRegisterCodeKey(phone));
+  async clearRegisterCode(
+    phone: string,
+    productScope: AuthProductScope,
+  ): Promise<void> {
+    await this.redisService.del(buildRegisterCodeKey(productScope, phone));
   }
 
   async sendPasswordResetCode(
     phone: string,
+    productScope: AuthProductScope,
   ): Promise<ForgotPasswordResponseDto> {
     const expiresInSeconds = this.getPasswordResetCodeTtlSeconds();
     const response: ForgotPasswordResponseDto = {
       message: '如手机号已注册，重置验证码短信已发送，请注意查收',
       expiresInSeconds,
     };
-    const user = await this.authAccountService.findUserByPhone(phone);
+    const user = await this.authAccountService.findUserByPhone(
+      phone,
+      productScope,
+    );
 
     if (!user) {
       return response;
     }
 
     const resetCode = generateNumericCode();
-    const resetCodeKey = buildPasswordResetCodeKey(phone);
+    const resetCodeKey = buildPasswordResetCodeKey(productScope, phone);
     await this.redisService.set(resetCodeKey, resetCode, expiresInSeconds);
 
     try {
@@ -123,17 +143,23 @@ export class AuthCodeService {
   async ensurePasswordResetCodeValid(
     phone: string,
     code: string,
+    productScope: AuthProductScope,
   ): Promise<void> {
     const cachedCode = await this.redisService.get(
-      buildPasswordResetCodeKey(phone),
+      buildPasswordResetCodeKey(productScope, phone),
     );
     if (!cachedCode || cachedCode !== code) {
       throw new UnauthorizedException('验证码无效或已过期');
     }
   }
 
-  async clearPasswordResetCode(phone: string): Promise<void> {
-    await this.redisService.del(buildPasswordResetCodeKey(phone));
+  async clearPasswordResetCode(
+    phone: string,
+    productScope: AuthProductScope,
+  ): Promise<void> {
+    await this.redisService.del(
+      buildPasswordResetCodeKey(productScope, phone),
+    );
   }
 
   private getPasswordResetCodeTtlSeconds(): number {

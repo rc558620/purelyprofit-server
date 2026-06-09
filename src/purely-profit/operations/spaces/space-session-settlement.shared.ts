@@ -68,7 +68,10 @@ export const buildSpaceSessionSettlement = (params: {
     });
   }
 
-  const prepaidDeduction = resolveSpaceSessionPrepaidDeduction(session);
+  const prepaidDeduction = resolveSpaceSessionPrepaidDeduction(
+    session,
+    resolvedFeeMode.timeFeeMode,
+  );
   if (prepaidDeduction > 0) {
     orderItems.push({
       productId: 'SYS_PREPAID_DEDUCTION',
@@ -166,12 +169,13 @@ const resolveSpaceSessionFeeMode = (
 const resolveSpaceSessionPrepaidDeduction = (
   session: Pick<
     SpaceSessionRecord,
-    'autoCheckout' | 'billingMode' | 'prepaidAmount'
+    'billingMode' | 'prepaidAmount'
   >,
+  timeFeeMode?: CheckoutPreviewFeeMode['timeFeeMode'],
 ): number => {
   if (
-    !session.autoCheckout ||
     session.billingMode !== PrismaSpaceBillingMode.countdown ||
+    timeFeeMode !== 'timed' ||
     session.prepaidAmount === null
   ) {
     return 0;

@@ -7,7 +7,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
-import { JwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
+import { PulseJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { BusinessAnalysisResponseDto } from '../../purely-profit/dashboard/business-analysis/dto/business-analysis-response.dto';
 import {
@@ -27,7 +27,7 @@ import { PulseDashboardService } from './dashboard.service';
 
 @ApiTags('Pulse / Dashboard')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(PulseJwtAuthGuard)
 @Controller('pulse/dashboard')
 export class PulseDashboardController {
   constructor(private readonly pulseDashboardService: PulseDashboardService) {}
@@ -92,7 +92,7 @@ export class PulseDashboardController {
 
 @ApiExcludeController()
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(PulseJwtAuthGuard)
 @Controller('revenue-detail')
 export class RevenueDetailController {
   constructor(private readonly pulseDashboardService: PulseDashboardService) {}

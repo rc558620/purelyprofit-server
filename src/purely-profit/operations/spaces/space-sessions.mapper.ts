@@ -10,6 +10,10 @@ import type {
   SpaceSessionRecord,
   SpaceSessionRenewRecord,
 } from './space-sessions.types';
+import type {
+  SpaceCustomerPaymentMethodValue,
+  SpaceSettlementChannelValue,
+} from './dto/space-session.constants';
 import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types';
 
 export const parseSpaceSessionItems = (
@@ -121,12 +125,36 @@ export const toSpaceSessionResponse = (
     ...(session.prepaidPaymentMethod
       ? { prepaidPaymentMethod: session.prepaidPaymentMethod }
       : {}),
+    ...(session.prepaidCustomerPaymentMethod
+      ? {
+          prepaidCustomerPaymentMethod:
+            session.prepaidCustomerPaymentMethod as SpaceCustomerPaymentMethodValue,
+        }
+      : {}),
+    ...(session.prepaidSettlementChannel
+      ? {
+          prepaidSettlementChannel:
+            session.prepaidSettlementChannel as SpaceSettlementChannelValue,
+        }
+      : {}),
     ...(session.prepaidGrouponCode
       ? { prepaidGrouponCode: session.prepaidGrouponCode }
+      : {}),
+    ...(session.prepaidGrouponPlatform
+      ? { prepaidGrouponPlatform: session.prepaidGrouponPlatform }
+      : {}),
+    ...(session.prepaidVoucherCode
+      ? { prepaidVoucherCode: session.prepaidVoucherCode }
+      : {}),
+    ...(session.prepaidVoucherPlatform
+      ? { prepaidVoucherPlatform: session.prepaidVoucherPlatform }
       : {}),
     ...(session.prepaidNote ? { prepaidNote: session.prepaidNote } : {}),
     ...(session.prepaidAmount !== null
       ? { prepaidAmount: Number(session.prepaidAmount) }
+      : {}),
+    ...(session.prepaidVoucherFaceAmount !== null
+      ? { prepaidVoucherFaceAmount: Number(session.prepaidVoucherFaceAmount) }
       : {}),
     items: items.map((item): SpaceSessionItemResponseDto => ({ ...item })),
     itemsCost: Number(session.itemsCost),

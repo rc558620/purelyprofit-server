@@ -18,8 +18,11 @@ export class AuthPasswordService {
 
   async createUserFromPhone(
     params: CreateUserFromPhoneParams,
-  ): Promise<{ id: number; email: string }> {
-    const accountIdentifiers = buildAccountIdentifiers(params.phone);
+  ): Promise<{ id: number; email: string; accountScope: CreateUserFromPhoneParams['productScope'] }> {
+    const accountIdentifiers = buildAccountIdentifiers(
+      params.productScope,
+      params.phone,
+    );
     const hashedPassword = await bcrypt.hash(params.password, 10);
 
     return this.prisma.user.create({
@@ -32,7 +35,10 @@ export class AuthPasswordService {
         id: true,
         email: true,
       },
-    });
+    }).then((user) => ({
+      ...user,
+      accountScope: params.productScope,
+    }));
   }
 
   async verifyPassword(
