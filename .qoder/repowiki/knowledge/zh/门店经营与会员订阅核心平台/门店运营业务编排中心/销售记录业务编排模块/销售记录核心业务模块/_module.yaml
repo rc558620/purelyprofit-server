@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: purely_profit/operations/sales_record/sales_record_core
+title: 销售记录核心业务模块
+scope:
+    - src/purely-profit/operations/sales-record/
+source_files: []
+depends_on: []
+related_to: []

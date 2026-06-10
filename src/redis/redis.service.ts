@@ -5,6 +5,58 @@ import { recordRedisOperation } from '../observability';
 
 type RedisOutcome = 'hit' | 'miss' | 'neutral';
 
+class ConcurrencyLimiter {
+  private active = 0;
+  private readonly queue: Array<() => void> = [];
+
+  constructor(private readonly concurrency: number) {}
+
+  run<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const execute = () => {
+        this.active += 1;
+        fn()
+          .then(resolve, reject)
+          .finally(() => {
+            this.active -= 1;
+            const next = this.queue.shift();
+            if (next) {
+              next();
+            }
+          });
+      };
+
+      if (this.active < this.concurrency) {
+        execute();
+      } else {
+        this.queue.push(execute);
+      }
+    });
+  }
+
+  async drain(): Promise<void> {
+    while (this.active > 0 || this.queue.length > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+  }
+}
+
+function countPipelineDeleted(
+  results: Array<[Error | null, unknown]> | null,
+): number {
+  if (!results) {
+    return 0;
+  }
+
+  let count = 0;
+  for (const [err, value] of results) {
+    if (!err && typeof value === 'number') {
+      count += value;
+    }
+  }
+  return count;
+}
+
 export interface RefreshableCachePayload<T> {
   generatedAt: number;
   refreshAt: number;
@@ -26,12 +78,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly slowRedisLogEnabled: boolean;
   private readonly slowRedisThresholdMs: number;
   private readonly backgroundRefreshTasks = new Map<string, Promise<void>>();
+  private readonly refreshQueue: ConcurrencyLimiter;
 
   constructor(private readonly configService: ConfigService) {
     this.slowRedisLogEnabled =
       this.configService.get<boolean>('app.slowRedisLogEnabled') ?? true;
     this.slowRedisThresholdMs =
       this.configService.get<number>('app.slowRedisThresholdMs') ?? 20;
+    const refreshConcurrency =
+      this.configService.get<number>('app.cacheRefreshConcurrency') ?? 8;
+    this.refreshQueue = new ConcurrencyLimiter(refreshConcurrency);
   }
 
   onModuleInit() {
@@ -40,10 +96,19 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       port: this.configService.get<number>('redis.port'),
       password: this.configService.get<string>('redis.password') || undefined,
       db: this.configService.get<number>('redis.db'),
+      connectTimeout:
+        this.configService.get<number>('redis.connectTimeoutMs') ?? 5_000,
+      commandTimeout:
+        this.configService.get<number>('redis.commandTimeoutMs') ?? 3_000,
+      maxRetriesPerRequest:
+        this.configService.get<number>('redis.maxRetriesPerRequest') ?? 3,
+      enableReadyCheck: true,
+      lazyConnect: false,
     });
   }
 
   async onModuleDestroy() {
+    await this.refreshQueue.drain();
     await this.client.quit();
   }
 
@@ -98,8 +163,55 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async delByPattern(pattern: string): Promise<number> {
-    const keys = await this.scanKeysByPattern(pattern);
-    return this.delMany(keys);
+    const startedAt = Date.now();
+    let cursor = '0';
+    let totalDeleted = 0;
+    const pipelineBatchSize = 200;
+    const pipeline = this.client.pipeline();
+    let pendingOps = 0;
+
+    do {
+      const [nextCursor, batchKeys] = await this.client.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        100,
+      );
+      cursor = nextCursor;
+
+      for (const key of batchKeys) {
+        pipeline.unlink(key);
+        pendingOps += 1;
+
+        if (pendingOps >= pipelineBatchSize) {
+          const results = await pipeline.exec();
+          totalDeleted += countPipelineDeleted(results);
+          pendingOps = 0;
+        }
+      }
+    } while (cursor !== '0');
+
+    if (pendingOps > 0) {
+      const results = await pipeline.exec();
+      totalDeleted += countPipelineDeleted(results);
+    }
+
+    const durationMs = Date.now() - startedAt;
+    recordRedisOperation({
+      command: 'UNLINK',
+      durationMs,
+      outcome: totalDeleted > 0 ? 'hit' : 'miss',
+      slowThresholdMs: this.slowRedisThresholdMs,
+    });
+
+    if (this.slowRedisLogEnabled && durationMs >= this.slowRedisThresholdMs) {
+      console.warn(
+        `[slow-redis] UNLINK ${durationMs}ms pattern=${pattern} deleted=${totalDeleted}`,
+      );
+    }
+
+    return totalDeleted;
   }
 
   async scanKeysByPattern(pattern: string, limit?: number): Promise<string[]> {
@@ -263,7 +375,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const task = (async () => {
+    const task = this.refreshQueue.run(async () => {
       try {
         await handler();
       } catch (error: unknown) {
@@ -271,7 +383,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       } finally {
         this.backgroundRefreshTasks.delete(taskKey);
       }
-    })();
+    });
 
     this.backgroundRefreshTasks.set(taskKey, task);
   }

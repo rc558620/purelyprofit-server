@@ -54,6 +54,8 @@ export default () => ({
       process.env.APP_SLOW_REDIS_THRESHOLD_MS ?? '20',
       10,
     ),
+    sqlMetricsEnabled:
+      (process.env.APP_SQL_METRICS_ENABLED ?? 'true') === 'true',
     defaultPageSize: parseInt(process.env.APP_DEFAULT_PAGE_SIZE ?? '20', 10),
     maxPageSize: parseInt(process.env.APP_MAX_PAGE_SIZE ?? '100', 10),
     cachePrewarmEnabled:
@@ -82,6 +84,10 @@ export default () => ({
     ),
     cachePrewarmSlowCycleThresholdMs: parseInt(
       process.env.APP_CACHE_PREWARM_SLOW_CYCLE_THRESHOLD_MS ?? '1500',
+      10,
+    ),
+    cacheRefreshConcurrency: parseInt(
+      process.env.APP_CACHE_REFRESH_CONCURRENCY ?? '8',
       10,
     ),
     spaceAutoCheckoutEnabled:
@@ -124,6 +130,18 @@ export default () => ({
     port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
     password: process.env.REDIS_PASSWORD ?? '',
     db: parseInt(process.env.REDIS_DB ?? '0', 10),
+    connectTimeoutMs: parseInt(
+      process.env.REDIS_CONNECT_TIMEOUT_MS ?? '5000',
+      10,
+    ),
+    commandTimeoutMs: parseInt(
+      process.env.REDIS_COMMAND_TIMEOUT_MS ?? '3000',
+      10,
+    ),
+    maxRetriesPerRequest: parseInt(
+      process.env.REDIS_MAX_RETRIES_PER_REQUEST ?? '3',
+      10,
+    ),
   },
 
   jwt: {

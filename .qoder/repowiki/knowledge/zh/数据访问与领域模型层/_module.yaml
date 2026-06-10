@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: data_layer
+title: 数据访问与领域模型层
+scope:
+    - src/prisma/
+    - prisma/
+source_files: []
+depends_on: []
+related_to: []

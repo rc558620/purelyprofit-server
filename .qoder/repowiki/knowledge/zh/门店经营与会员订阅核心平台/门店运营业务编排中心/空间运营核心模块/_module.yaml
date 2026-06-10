@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: purely_profit/operations/spaces
+title: 空间运营核心模块
+scope:
+    - src/purely-profit/operations/spaces/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/operations/handover

@@ -2,7 +2,6 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
   MarketingConsumptionRow,
-  MarketingCountRow,
   MarketingCustomerRow,
   MarketingPointsRecordListQueryInput,
   MarketingPointsRecordRow,
@@ -178,11 +177,15 @@ export async function queryRechargeRowById(
   return rows[0] ?? null;
 }
 
+interface PointsRecordRowWithTotal extends MarketingPointsRecordRow {
+  _total: number;
+}
+
 export async function queryPointsRecordPage(
   prisma: PrismaService,
   input: MarketingPointsRecordListQueryInput & { skip: number; take: number },
-): Promise<MarketingPointsRecordRow[]> {
-  return prisma.$queryRaw<MarketingPointsRecordRow[]>`
+): Promise<{ items: MarketingPointsRecordRow[]; total: number }> {
+  const rows = await prisma.$queryRaw<PointsRecordRowWithTotal[]>`
     SELECT
       pr.id,
       pr.store_id AS "storeId",
@@ -190,7 +193,8 @@ export async function queryPointsRecordPage(
       pr.amount,
       pr.type::text AS "type",
       pr.description,
-      pr.created_at AS "createdAt"
+      pr.created_at AS "createdAt",
+      COUNT(*) OVER()::int AS _total
     FROM marketing_points_records pr
     WHERE pr.store_id = ${input.storeId}
       ${input.customerId ? Prisma.sql`AND pr.customer_id = ${input.customerId}` : Prisma.empty}
@@ -200,23 +204,9 @@ export async function queryPointsRecordPage(
     ORDER BY pr.created_at DESC, pr.id DESC
     LIMIT ${input.take} OFFSET ${input.skip}
   `;
-}
 
-export async function countPointsRecords(
-  prisma: PrismaService,
-  input: MarketingPointsRecordListQueryInput,
-): Promise<number> {
-  const rows = await prisma.$queryRaw<MarketingCountRow[]>`
-    SELECT COUNT(*)::int AS count
-    FROM marketing_points_records pr
-    WHERE pr.store_id = ${input.storeId}
-      ${input.customerId ? Prisma.sql`AND pr.customer_id = ${input.customerId}` : Prisma.empty}
-      ${input.type ? Prisma.sql`AND pr.type = ${input.type}::"MarketingPointsChangeType"` : Prisma.empty}
-      ${input.startMs ? Prisma.sql`AND pr.created_at >= ${new Date(input.startMs)}` : Prisma.empty}
-      ${input.endMs ? Prisma.sql`AND pr.created_at <= ${new Date(input.endMs)}` : Prisma.empty}
-  `;
-
-  return rows[0]?.count ?? 0;
+  const total = rows[0]?._total ?? 0;
+  return { items: rows, total };
 }
 
 export async function queryCustomerPointsRecordPage(
@@ -226,8 +216,8 @@ export async function queryCustomerPointsRecordPage(
     skip: number;
     take: number;
   },
-): Promise<MarketingPointsRecordRow[]> {
-  return prisma.$queryRaw<MarketingPointsRecordRow[]>`
+): Promise<{ items: MarketingPointsRecordRow[]; total: number }> {
+  const rows = await prisma.$queryRaw<PointsRecordRowWithTotal[]>`
     SELECT
       pr.id,
       pr.store_id AS "storeId",
@@ -235,7 +225,8 @@ export async function queryCustomerPointsRecordPage(
       pr.amount,
       pr.type::text AS "type",
       pr.description,
-      pr.created_at AS "createdAt"
+      pr.created_at AS "createdAt",
+      COUNT(*) OVER()::int AS _total
     FROM marketing_points_records pr
     WHERE pr.customer_id = ${customerId}
       ${input.type ? Prisma.sql`AND pr.type = ${input.type}::"MarketingPointsChangeType"` : Prisma.empty}
@@ -244,23 +235,9 @@ export async function queryCustomerPointsRecordPage(
     ORDER BY pr.created_at DESC, pr.id DESC
     LIMIT ${input.take} OFFSET ${input.skip}
   `;
-}
 
-export async function countCustomerPointsRecords(
-  prisma: PrismaService,
-  customerId: number,
-  input: Omit<MarketingPointsRecordListQueryInput, 'storeId' | 'customerId'>,
-): Promise<number> {
-  const rows = await prisma.$queryRaw<MarketingCountRow[]>`
-    SELECT COUNT(*)::int AS count
-    FROM marketing_points_records pr
-    WHERE pr.customer_id = ${customerId}
-      ${input.type ? Prisma.sql`AND pr.type = ${input.type}::"MarketingPointsChangeType"` : Prisma.empty}
-      ${input.startMs ? Prisma.sql`AND pr.created_at >= ${new Date(input.startMs)}` : Prisma.empty}
-      ${input.endMs ? Prisma.sql`AND pr.created_at <= ${new Date(input.endMs)}` : Prisma.empty}
-  `;
-
-  return rows[0]?.count ?? 0;
+  const total = rows[0]?._total ?? 0;
+  return { items: rows, total };
 }
 
 export async function queryCustomerConsumptionPage(

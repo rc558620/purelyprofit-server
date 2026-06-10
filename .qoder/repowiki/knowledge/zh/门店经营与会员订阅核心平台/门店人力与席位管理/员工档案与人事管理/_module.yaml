@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: purely_profit/staff/employees
+title: 员工档案与人事管理
+scope:
+    - src/purely-profit/staff/employees/
+source_files: []
+depends_on: []
+related_to: []

@@ -1,0 +1,16 @@
+schema_version: 1
+module_path: purely_profit/operations/spaces/reservations
+title: 空间预约管理
+scope:
+    - src/purely-profit/operations/spaces/space-reservations.controller.ts
+    - src/purely-profit/operations/spaces/space-reservations.service.ts
+    - src/purely-profit/operations/spaces/space-reservations-state.service.ts
+    - src/purely-profit/operations/spaces/space-reservations.shared.ts
+    - src/purely-profit/operations/spaces/space-reservations.types.ts
+    - src/purely-profit/operations/spaces/dto/space-reservation.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-reservation.query.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-reservation.request.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-reservation.response.dto.ts
+source_files: []
+depends_on: []
+related_to: []

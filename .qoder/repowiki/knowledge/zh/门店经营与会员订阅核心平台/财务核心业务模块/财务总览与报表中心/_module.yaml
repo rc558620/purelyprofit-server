@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: purely_profit/finance/overview
+title: 财务总览与报表中心
+scope:
+    - src/purely-profit/finance/
+source_files: []
+depends_on: []
+related_to: []

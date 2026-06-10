@@ -17,19 +17,18 @@ describe('MarketingService points records', () => {
 
   it('listPointsRecords 返回前端积分流水契约', async () => {
     context.accessService.resolveViewStoreId.mockResolvedValueOnce(18);
-    context.prismaService.$queryRaw
-      .mockResolvedValueOnce([
-        {
-          id: 301,
-          storeId: 18,
-          customerId: 9,
-          amount: -500,
-          type: 'spend',
-          description: '消费抵扣：商务套餐 × 2',
-          createdAt: new Date('2026-05-15T10:00:00.000Z'),
-        },
-      ])
-      .mockResolvedValueOnce([{ count: 1 }]);
+    context.prismaService.$queryRaw.mockResolvedValueOnce([
+      {
+        id: 301,
+        storeId: 18,
+        customerId: 9,
+        amount: -500,
+        type: 'spend',
+        description: '消费抵扣：商务套餐 × 2',
+        createdAt: new Date('2026-05-15T10:00:00.000Z'),
+        _total: 1,
+      },
+    ]);
 
     const result = await context.service.listPointsRecords(context.user, {
       page: 1,
@@ -86,9 +85,9 @@ describe('MarketingService points records', () => {
           type: 'gift',
           description: '活动赠送积分',
           createdAt: new Date('2026-05-13T10:00:00.000Z'),
+          _total: 1,
         },
-      ])
-      .mockResolvedValueOnce([{ count: 1 }]);
+      ]);
 
     const result = await context.service.listCustomerPointsRecords(
       context.user,

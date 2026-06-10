@@ -1,12 +1,8 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { type MemberRecord, type MemberRechargeRecord } from './members.mapper';
-import {
-  buildStoreIdWhereClause,
-  MEMBER_SELECT_SQL,
-} from './members-query.shared';
+import { buildStoreIdWhereClause } from './members-query.shared';
 import type {
-  CountRow,
   MemberLevelMetaRow,
   MemberOverviewRow,
   MemberSnapshotRow,
@@ -71,6 +67,10 @@ function buildSnapshotWhereClause(
   return Prisma.join(filters, ' AND ');
 }
 
+interface MemberRecordWithTotal extends MemberRecord {
+  _total: number;
+}
+
 export async function queryMembersPage(
   prisma: PrismaService,
   params: {
@@ -90,25 +90,41 @@ export async function queryMembersPage(
     params.keyword,
     params.onlyPartners,
   );
-  const [items, countRows] = await Promise.all([
-    prisma.$queryRaw<MemberRecord[]>`
-      ${MEMBER_SELECT_SQL}
-      WHERE ${whereClause}
-      ORDER BY updated_at DESC, id DESC
-      OFFSET ${params.skip}
-      LIMIT ${params.take}
-    `,
-    prisma.$queryRaw<CountRow[]>`
-      SELECT COUNT(*)::int AS count
-      FROM members
-      WHERE ${whereClause}
-    `,
-  ]);
+  const rows = await prisma.$queryRaw<MemberRecordWithTotal[]>`
+    SELECT
+      id,
+      store_id AS "storeId",
+      name,
+      phone,
+      gender,
+      level,
+      note,
+      birthday,
+      last_consume_at AS "lastConsumeAt",
+      points,
+      total_points_earned AS "totalPointsEarned",
+      bean_balance AS "beanBalance",
+      is_partner AS "isPartner",
+      partner_level AS "partnerLevel",
+      total_recharged AS "totalRecharged",
+      recharge_count AS "rechargeCount",
+      invited_count AS "invitedCount",
+      banned_reason AS "bannedReason",
+      status,
+      created_at AS "createdAt",
+      updated_at AS "updatedAt",
+      COUNT(*) OVER()::int AS _total
+    FROM members
+    WHERE ${whereClause}
+    ORDER BY updated_at DESC, id DESC
+    OFFSET ${params.skip}
+    LIMIT ${params.take}
+  `;
 
-  return {
-    items,
-    total: countRows[0]?.count ?? 0,
-  };
+  const total = rows[0]?._total ?? 0;
+  const items: MemberRecord[] = rows;
+
+  return { items, total };
 }
 
 export async function queryMembersMeta(

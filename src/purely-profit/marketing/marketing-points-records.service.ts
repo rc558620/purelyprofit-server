@@ -8,8 +8,6 @@ import type {
 import type { MarketingPointsRecordsResponseDto } from './dto/marketing-response.dto';
 import { mapPointsRecordRow } from './marketing.mapper';
 import {
-  countCustomerPointsRecords,
-  countPointsRecords,
   queryCustomerPointsRecordPage,
   queryPointsRecordPage,
 } from './marketing.query';
@@ -54,10 +52,11 @@ export class MarketingPointsRecordsService {
       endMs: query.endMs,
     };
 
-    const [rows, total] = await Promise.all([
-      queryPointsRecordPage(this.prisma, { ...listQuery, skip, take }),
-      countPointsRecords(this.prisma, listQuery),
-    ]);
+    const { items: rows, total } = await queryPointsRecordPage(this.prisma, {
+      ...listQuery,
+      skip,
+      take,
+    });
 
     return {
       items: rows.map(mapPointsRecordRow),
@@ -88,14 +87,11 @@ export class MarketingPointsRecordsService {
       endMs: query.endMs,
     };
 
-    const [rows, total] = await Promise.all([
-      queryCustomerPointsRecordPage(this.prisma, customerId, {
-        ...listQuery,
-        skip,
-        take,
-      }),
-      countCustomerPointsRecords(this.prisma, customerId, listQuery),
-    ]);
+    const { items: rows, total } = await queryCustomerPointsRecordPage(
+      this.prisma,
+      customerId,
+      { ...listQuery, skip, take },
+    );
 
     return {
       items: rows.map(mapPointsRecordRow),

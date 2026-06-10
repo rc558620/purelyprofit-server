@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: purely_profit/operations
+title: 门店运营业务编排中心
+scope:
+    - src/purely-profit/operations/
+source_files: []
+depends_on: []
+related_to: []

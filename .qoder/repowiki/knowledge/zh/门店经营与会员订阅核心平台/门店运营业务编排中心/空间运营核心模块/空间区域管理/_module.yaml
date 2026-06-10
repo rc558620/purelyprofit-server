@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: purely_profit/operations/spaces/zones
+title: 空间区域管理
+scope:
+    - src/purely-profit/operations/spaces/space-zones.controller.ts
+    - src/purely-profit/operations/spaces/space-zones.service.ts
+    - src/purely-profit/operations/spaces/dto/space-zone.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-zone.query.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-zone.request.dto.ts
+    - src/purely-profit/operations/spaces/dto/space-zone.response.dto.ts
+source_files: []
+depends_on: []
+related_to: []

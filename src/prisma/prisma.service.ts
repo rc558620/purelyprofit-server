@@ -28,29 +28,36 @@ export class PrismaService
       configService.get<boolean>('app.slowQueryLogEnabled') ?? true;
     const slowQueryThresholdMs =
       configService.get<number>('app.slowQueryThresholdMs') ?? 80;
+    const sqlMetricsEnabled =
+      configService.get<boolean>('app.sqlMetricsEnabled') ?? true;
+    const queryListenerEnabled = sqlMetricsEnabled || slowQueryLogEnabled;
 
     super({
       adapter,
-      log: [{ emit: 'event', level: 'query' }],
+      log: queryListenerEnabled ? [{ emit: 'event', level: 'query' }] : [],
     });
 
-    this.$on('query', (event: Prisma.QueryEvent) => {
-      recordSqlQuery({
-        query: event.query,
-        durationMs: event.duration,
-        slowThresholdMs: slowQueryThresholdMs,
+    if (queryListenerEnabled) {
+      this.$on('query', (event: Prisma.QueryEvent) => {
+        if (sqlMetricsEnabled) {
+          recordSqlQuery({
+            query: event.query,
+            durationMs: event.duration,
+            slowThresholdMs: slowQueryThresholdMs,
+          });
+        }
+
+        if (slowQueryLogEnabled && event.duration >= slowQueryThresholdMs) {
+          const compactQuery = event.query
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 240);
+          console.warn(
+            `[slow-query] ${event.duration}ms target=postgres query="${compactQuery}"`,
+          );
+        }
       });
-
-      if (slowQueryLogEnabled && event.duration >= slowQueryThresholdMs) {
-        const compactQuery = event.query
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 240);
-        console.warn(
-          `[slow-query] ${event.duration}ms target=postgres query="${compactQuery}"`,
-        );
-      }
-    });
+    }
   }
 
   async onModuleInit() {

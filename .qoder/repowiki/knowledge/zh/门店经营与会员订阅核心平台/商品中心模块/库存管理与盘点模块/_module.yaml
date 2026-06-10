@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: purely_profit/goods/inventory
+title: 库存管理与盘点模块
+scope:
+    - src/purely-profit/goods/inventory/
+source_files: []
+depends_on: []
+related_to: []

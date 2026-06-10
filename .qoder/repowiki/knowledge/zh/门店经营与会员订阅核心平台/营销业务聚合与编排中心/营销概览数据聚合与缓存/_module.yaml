@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: purely_profit/marketing/overview
+title: 营销概览数据聚合与缓存
+scope:
+    - src/purely-profit/marketing/marketing-overview.controller.ts
+    - src/purely-profit/marketing/marketing-overview.facade.service.ts
+    - src/purely-profit/marketing/marketing-overview.service.ts
+source_files: []
+depends_on: []
+related_to: []

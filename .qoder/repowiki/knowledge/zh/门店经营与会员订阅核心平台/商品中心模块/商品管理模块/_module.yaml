@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: purely_profit/goods/products
+title: 商品管理模块
+scope:
+    - src/purely-profit/goods/products/
+source_files: []
+depends_on: []
+related_to: []

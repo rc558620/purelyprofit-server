@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: purely_profit/finance/cash_flow
+title: 现金流水管理
+scope:
+    - src/purely-profit/finance/
+source_files: []
+depends_on: []
+related_to: []

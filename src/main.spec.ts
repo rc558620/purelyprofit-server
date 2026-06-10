@@ -17,6 +17,7 @@ describe('main bootstrap', () => {
     useGlobalPipes: jest.fn(),
     setGlobalPrefix: jest.fn(),
     enableCors: jest.fn(),
+    register: jest.fn().mockResolvedValue(undefined),
     get: jest.fn(),
     getHttpAdapter: jest.fn(() => ({
       getInstance: () => ({
@@ -133,7 +134,8 @@ describe('main bootstrap', () => {
         { name: 'Club / Orders' },
         {
           name: 'Dev Only / Fallback',
-          description: '仅开发联调使用的支付兜底接口，生产链路请改用支付回调驱动。',
+          description:
+            '仅开发联调使用的支付兜底接口，生产链路请改用支付回调驱动。',
         },
       ],
       paths: {

@@ -12,6 +12,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
+    "start:cluster": "node dist/cluster-main",
     "prisma:migrate:status": "prisma migrate status",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate:baseline:local": "node -e \"const fs=require('fs');const path=require('path');const{spawnSync}=require('child_process');const bin=process.platform==='win32'?'pnpm.cmd':'pnpm';const dirs=fs.readdirSync('prisma/migrations').filter(name=>fs.statSync(path.join('prisma/migrations',name)).isDirectory()).sort();for(const name of dirs){const result=spawnSync(bin,['prisma','migrate','resolve','--applied',name],{encoding:'utf8'});const output=(result.stdout||'')+(result.stderr||'');if(result.status===0||output.includes('P3008')){console.log(name);continue;}process.stderr.write(output);process.exit(result.status??1);}\"",
@@ -29,6 +30,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@fastify/compress": "^9.0.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/multipart": "^10.0.0",
     "@fastify/static": "^9.1.3",

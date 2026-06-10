@@ -5,6 +5,7 @@ import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
+import compress from '@fastify/compress';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { recordHttpRequest } from './observability';
 import { AppModule } from './app.module';
@@ -60,9 +61,33 @@ function setupHttpObservability(
 ): void {
   const requestStartTimeMap = new Map<string, number>();
   const httpAdapter = app.getHttpAdapter().getInstance();
+  const STALE_ENTRY_MAX_AGE_MS = 5 * 60_000;
+  const CLEANUP_INTERVAL_MS = 60_000;
+
+  const cleanupStaleEntries = () => {
+    const now = Date.now();
+    for (const [requestId, startedAt] of requestStartTimeMap) {
+      if (now - startedAt > STALE_ENTRY_MAX_AGE_MS) {
+        requestStartTimeMap.delete(requestId);
+      }
+    }
+  };
+
+  const cleanupTimer = setInterval(cleanupStaleEntries, CLEANUP_INTERVAL_MS);
+  cleanupTimer.unref?.();
 
   httpAdapter.addHook('onRequest', (request, _reply, done) => {
     requestStartTimeMap.set(String(request.id), Date.now());
+    done();
+  });
+
+  httpAdapter.addHook('onError', (request, _reply, _error, done) => {
+    requestStartTimeMap.delete(String(request.id));
+    done();
+  });
+
+  httpAdapter.addHook('onTimeout', (request, _reply, done) => {
+    requestStartTimeMap.delete(String(request.id));
     done();
   });
 
@@ -96,6 +121,9 @@ function setupHttpObservability(
 
     done();
   });
+
+  process.on('SIGTERM', () => clearInterval(cleanupTimer));
+  process.on('SIGINT', () => clearInterval(cleanupTimer));
 }
 
 function isListenAddressInUseError(
@@ -137,7 +165,10 @@ export function filterSwaggerDocumentForEnvironment(
     }
 
     operation.tags = Array.from(
-      new Set([...(operation.tags ?? []), CLUB_MANUAL_CONFIRM_PAID_FALLBACK_TAG]),
+      new Set([
+        ...(operation.tags ?? []),
+        CLUB_MANUAL_CONFIRM_PAID_FALLBACK_TAG,
+      ]),
     );
   }
 
@@ -223,6 +254,11 @@ export async function bootstrap(): Promise<void> {
     }),
   );
 
+  await app.register(compress, {
+    encodings: ['gzip', 'deflate'],
+    threshold: 1024,
+  });
+
   const configService = app.get(ConfigService);
   app.setGlobalPrefix('api');
 
@@ -248,7 +284,8 @@ export async function bootstrap(): Promise<void> {
 
     const document = SwaggerModule.createDocument(app, config);
     const manualConfirmPaidEnabled =
-      configService.get<boolean>('club.manualConfirmPaidEnabled') ?? !isProduction;
+      configService.get<boolean>('club.manualConfirmPaidEnabled') ??
+      !isProduction;
     filterSwaggerDocumentForEnvironment(document, {
       manualConfirmPaidEnabled,
     });
