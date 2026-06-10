@@ -110,8 +110,6 @@ export interface CostReportCostRow extends CostAmountRow {
   createdAt: Date;
 }
 
-export type CostReportPreviousRow = CostAmountRow;
-
 export interface CostReportPayrollRow {
   id: number;
   employeeName: string;

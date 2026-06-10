@@ -8,6 +8,7 @@ describe('SalesRecordCreateFlowService', () => {
   let service: SalesRecordCreateFlowService;
 
   const transactionClient = {
+    $executeRaw: jest.fn(),
     saleOrder: {
       count: jest.fn(),
       create: jest.fn(),
@@ -164,6 +165,7 @@ describe('SalesRecordCreateFlowService', () => {
       createdAt: createdAt.getTime(),
     });
 
+    expect(transactionClient.$executeRaw).toHaveBeenCalledTimes(1);
     expect(transactionClient.saleOrder.count).toHaveBeenCalledTimes(1);
     expect(transactionClient.saleOrder.create).toHaveBeenCalledTimes(1);
     expect(inventoryService.recordSaleDeduction).toHaveBeenCalledWith(
@@ -254,6 +256,7 @@ describe('SalesRecordCreateFlowService', () => {
       options: { skipInventoryValidationAndDeduction: true },
     });
 
+    expect(transactionClient.$executeRaw).toHaveBeenCalledTimes(1);
     expect(inventoryService.recordSaleDeduction).not.toHaveBeenCalled();
     expect(
       transactionClient.financeCashFlowRecord.create,

@@ -6,6 +6,8 @@ import {
 import { BusinessAnalysisService } from '../purely-profit/dashboard/business-analysis/business-analysis.service';
 import { DashboardHomeService } from '../purely-profit/dashboard/dashboard-home/dashboard-home.service';
 import { FinanceOverviewService } from '../purely-profit/finance/finance-overview.service';
+import { MarketingOverviewService } from '../purely-profit/marketing/marketing-overview.service';
+import { MembersService } from '../purely-profit/member/members/members.service';
 import { CachePrewarmCycleService } from './cache-prewarm-cycle.service';
 import { RedisService } from './redis.service';
 
@@ -22,6 +24,15 @@ type BusinessAnalysisServiceMock = {
 };
 
 type FinanceOverviewServiceMock = {
+  warmOverviewCache: jest.Mock;
+};
+
+type MarketingOverviewServiceMock = {
+  warmOverviewCache: jest.Mock;
+};
+
+type MembersServiceMock = {
+  warmMetaCache: jest.Mock;
   warmOverviewCache: jest.Mock;
 };
 
@@ -49,17 +60,34 @@ function createFinanceOverviewServiceMock(): FinanceOverviewServiceMock {
   };
 }
 
+function createMarketingOverviewServiceMock(): MarketingOverviewServiceMock {
+  return {
+    warmOverviewCache: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createMembersServiceMock(): MembersServiceMock {
+  return {
+    warmMetaCache: jest.fn().mockResolvedValue(undefined),
+    warmOverviewCache: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 async function createTestingContext(): Promise<{
   service: CachePrewarmCycleService;
   redisService: RedisServiceMock;
   dashboardHomeService: DashboardHomeServiceMock;
   businessAnalysisService: BusinessAnalysisServiceMock;
   financeOverviewService: FinanceOverviewServiceMock;
+  marketingOverviewService: MarketingOverviewServiceMock;
+  membersService: MembersServiceMock;
 }> {
   const redisService = createRedisServiceMock();
   const dashboardHomeService = createDashboardHomeServiceMock();
   const businessAnalysisService = createBusinessAnalysisServiceMock();
   const financeOverviewService = createFinanceOverviewServiceMock();
+  const marketingOverviewService = createMarketingOverviewServiceMock();
+  const membersService = createMembersServiceMock();
 
   const module: TestingModule = await Test.createTestingModule({
     providers: [
@@ -68,6 +96,8 @@ async function createTestingContext(): Promise<{
       { provide: DashboardHomeService, useValue: dashboardHomeService },
       { provide: BusinessAnalysisService, useValue: businessAnalysisService },
       { provide: FinanceOverviewService, useValue: financeOverviewService },
+      { provide: MarketingOverviewService, useValue: marketingOverviewService },
+      { provide: MembersService, useValue: membersService },
     ],
   }).compile();
 
@@ -77,6 +107,8 @@ async function createTestingContext(): Promise<{
     dashboardHomeService,
     businessAnalysisService,
     financeOverviewService,
+    marketingOverviewService,
+    membersService,
   };
 }
 
@@ -120,18 +152,30 @@ describe('CachePrewarmCycleService', () => {
     context.financeOverviewService.warmOverviewCache.mockImplementationOnce(
       () => new Promise((resolve) => setTimeout(resolve, 10)),
     );
+    context.marketingOverviewService.warmOverviewCache.mockImplementationOnce(
+      () => new Promise((resolve) => setTimeout(resolve, 15)),
+    );
+    context.membersService.warmMetaCache.mockImplementationOnce(
+      () => new Promise((resolve) => setTimeout(resolve, 12)),
+    );
+    context.membersService.warmOverviewCache.mockImplementationOnce(
+      () => new Promise((resolve) => setTimeout(resolve, 8)),
+    );
     context.redisService.scanKeysByPattern
       .mockResolvedValueOnce(['profit:dashboard:home:store:18:period:today'])
       .mockResolvedValueOnce([
         'profit:business-analysis:store:18:period:month:start:na:end:na',
       ])
+      .mockResolvedValueOnce(['profit:marketing:overview:store:18'])
+      .mockResolvedValueOnce(['profit:members:meta:store:18'])
+      .mockResolvedValueOnce(['profit:members:overview:store:18'])
       .mockResolvedValueOnce(['profit:finance:overview:store:18:period:month']);
 
     const runPromise = runDefaultCycle(context.service);
     await jest.runAllTimersAsync();
     await runPromise;
 
-    expect(context.redisService.scanKeysByPattern).toHaveBeenCalledTimes(3);
+    expect(context.redisService.scanKeysByPattern).toHaveBeenCalledTimes(6);
     expect(context.dashboardHomeService.warmOverviewCache).toHaveBeenCalledWith(
       18,
       'today',
@@ -146,11 +190,16 @@ describe('CachePrewarmCycleService', () => {
     expect(
       context.financeOverviewService.warmOverviewCache,
     ).toHaveBeenCalledWith(18, 'month');
+    expect(
+      context.marketingOverviewService.warmOverviewCache,
+    ).toHaveBeenCalledWith(18);
+    expect(context.membersService.warmMetaCache).toHaveBeenCalledWith(18);
+    expect(context.membersService.warmOverviewCache).toHaveBeenCalledWith(18);
 
     const metrics = getRuntimeMetricsSnapshot();
     expect(metrics.cachePrewarm.totalCycles).toBe(1);
-    expect(metrics.cachePrewarm.hitCount).toBe(3);
-    expect(metrics.cachePrewarm.refreshedCount).toBe(3);
+    expect(metrics.cachePrewarm.hitCount).toBe(6);
+    expect(metrics.cachePrewarm.refreshedCount).toBe(6);
     expect(metrics.cachePrewarm.failedCount).toBe(0);
     expect(metrics.cachePrewarm.recentCycles[0]?.slowKeySamples).toEqual([
       expect.objectContaining({
@@ -163,6 +212,16 @@ describe('CachePrewarmCycleService', () => {
         cacheKey:
           'profit:business-analysis:store:18:period:month:start:na:end:na',
         durationMs: 20,
+      }),
+      expect.objectContaining({
+        category: 'marketingOverview',
+        cacheKey: 'profit:marketing:overview:store:18',
+        durationMs: 15,
+      }),
+      expect.objectContaining({
+        category: 'membersMeta',
+        cacheKey: 'profit:members:meta:store:18',
+        durationMs: 12,
       }),
       expect.objectContaining({
         category: 'financeOverview',
@@ -180,6 +239,9 @@ describe('CachePrewarmCycleService', () => {
       .mockResolvedValueOnce([
         'profit:business-analysis:store:18:period:invalid:start:na:end:na',
       ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce(['profit:finance:overview:store:18:period:month']);
     context.dashboardHomeService.warmOverviewCache.mockRejectedValueOnce(
       new Error('boom'),
@@ -189,7 +251,7 @@ describe('CachePrewarmCycleService', () => {
 
     expect(console.info).toHaveBeenCalledWith(
       expect.stringContaining(
-        'failedKeyCountByCategory=dashboardHome:1,businessAnalysis:0,financeOverview:0',
+        'failedKeyCountByCategory=dashboardHome:1,businessAnalysis:0,financeOverview:0,marketingOverview:0,membersMeta:0,membersOverview:0',
       ),
     );
     expect(console.warn).toHaveBeenCalledWith(
@@ -214,6 +276,9 @@ describe('CachePrewarmCycleService', () => {
       dashboardHome: 'profit:dashboard:home:store:18:period:today',
       businessAnalysis: null,
       financeOverview: null,
+      marketingOverview: null,
+      membersMeta: null,
+      membersOverview: null,
     });
     expect(metrics.cachePrewarm.recentCycles[0]?.slowestFailedReason).toBe(
       'Error:boom',
@@ -265,7 +330,13 @@ describe('CachePrewarmCycleService', () => {
         'profit:business-analysis:store:18:period:month:start:na:end:na',
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce(['profit:dashboard:home:store:18:period:today'])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce(['profit:finance:overview:store:18:period:month']);
     context.dashboardHomeService.warmOverviewCache
@@ -324,6 +395,21 @@ describe('CachePrewarmCycleService', () => {
           },
         ],
       },
+      {
+        category: 'marketingOverview',
+        failedCount: 0,
+        topReasons: [],
+      },
+      {
+        category: 'membersMeta',
+        failedCount: 0,
+        topReasons: [],
+      },
+      {
+        category: 'membersOverview',
+        failedCount: 0,
+        topReasons: [],
+      },
     ]);
   });
 
@@ -338,6 +424,9 @@ describe('CachePrewarmCycleService', () => {
         'profit:dashboard:home:store:19:period:today',
         'profit:dashboard:home:store:20:period:today',
       ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     context.dashboardHomeService.warmOverviewCache.mockImplementation(

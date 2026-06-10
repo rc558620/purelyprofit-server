@@ -45,6 +45,18 @@ export function buildCachePrewarmDerivedData(
               category: 'financeOverview' as const,
               ...latestCycleSnapshot.durationDistribution.financeOverview,
             },
+            {
+              category: 'marketingOverview' as const,
+              ...latestCycleSnapshot.durationDistribution.marketingOverview,
+            },
+            {
+              category: 'membersMeta' as const,
+              ...latestCycleSnapshot.durationDistribution.membersMeta,
+            },
+            {
+              category: 'membersOverview' as const,
+              ...latestCycleSnapshot.durationDistribution.membersOverview,
+            },
           ] as const
         )
           .filter((entry) => entry.sampleCount > 0)
@@ -98,6 +110,27 @@ export function buildCachePrewarmDerivedData(
           lastFailedKey: cachePrewarm.lastFailedKeyByCategory.financeOverview,
           lastFailedSample:
             cachePrewarm.lastFailedSampleByCategory.financeOverview,
+        },
+        {
+          category: 'marketingOverview' as const,
+          lastFailedAt: cachePrewarm.lastFailedAtByCategory.marketingOverview,
+          lastFailedKey: cachePrewarm.lastFailedKeyByCategory.marketingOverview,
+          lastFailedSample:
+            cachePrewarm.lastFailedSampleByCategory.marketingOverview,
+        },
+        {
+          category: 'membersMeta' as const,
+          lastFailedAt: cachePrewarm.lastFailedAtByCategory.membersMeta,
+          lastFailedKey: cachePrewarm.lastFailedKeyByCategory.membersMeta,
+          lastFailedSample:
+            cachePrewarm.lastFailedSampleByCategory.membersMeta,
+        },
+        {
+          category: 'membersOverview' as const,
+          lastFailedAt: cachePrewarm.lastFailedAtByCategory.membersOverview,
+          lastFailedKey: cachePrewarm.lastFailedKeyByCategory.membersOverview,
+          lastFailedSample:
+            cachePrewarm.lastFailedSampleByCategory.membersOverview,
         },
       ] as const
     )

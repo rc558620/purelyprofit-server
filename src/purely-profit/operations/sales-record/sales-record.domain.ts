@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import Decimal from 'decimal.js';
 import {
   toDecimalNumber,
   toOptionalText,
@@ -10,7 +11,7 @@ import type {
   SalesRecordItemResponseDto,
   SalesRecordResponseDto,
 } from './dto/sales-record.dto';
-import { isSameMoney, sumMoney } from './sales-record.utils';
+import { isSameMoney } from './sales-record.utils';
 
 // ---------------------------------------------------------------------------
 // 内部类型
@@ -150,10 +151,6 @@ function getReportRowDayStart(rowId: string): number {
   return Number(rowId.split('-', 1)[0] ?? 0);
 }
 
-function isSpaceReportRow(rowId: string): boolean {
-  return rowId.includes('-space_');
-}
-
 export function aggregateReportRows(
   orders: SaleOrderWithItems[],
 ): SalesDailyRowDto[] {
@@ -166,15 +163,14 @@ export function aggregateReportRows(
     for (const item of order.items) {
       const productName = resolveReportProductName(order, item);
       const rowId = buildReportRowId(dayStart, order, item);
-      const revenue = sumMoney(
-        [item],
-        (currentItem) =>
-          toDecimalNumber(currentItem.salePrice) * currentItem.quantity,
-      );
+      const revenue = new Decimal(toDecimalNumber(item.salePrice))
+        .mul(item.quantity)
+        .toDecimalPlaces(2)
+        .toNumber();
       const existing = rows.get(rowId);
       if (existing) {
         existing.quantity += item.quantity;
-        existing.revenue = Number((existing.revenue + revenue).toFixed(2));
+        existing.revenue = new Decimal(existing.revenue).add(revenue).toDecimalPlaces(2).toNumber();
         continue;
       }
       rows.set(rowId, {
@@ -188,16 +184,16 @@ export function aggregateReportRows(
   }
 
   return Array.from(rows.values()).sort((left, right) => {
+    // 主要排序：日期降序（保持当前日期排序）
     const leftDayStart = getReportRowDayStart(left.id);
     const rightDayStart = getReportRowDayStart(right.id);
     if (leftDayStart !== rightDayStart) {
       return rightDayStart - leftDayStart;
     }
 
-    const leftIsSpace = isSpaceReportRow(left.id);
-    const rightIsSpace = isSpaceReportRow(right.id);
-    if (leftIsSpace !== rightIsSpace) {
-      return leftIsSpace ? 1 : -1;
+    // 次要排序：数量降序（同日期内卖得最多的在最顶部）
+    if (left.quantity !== right.quantity) {
+      return right.quantity - left.quantity;
     }
 
     if (left.id === right.id) {

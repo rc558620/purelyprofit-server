@@ -69,7 +69,7 @@ describe('ClubMemberService', () => {
         balance: 35000,
         points: 1280,
         tier: 'gold',
-        totalSpent: 520000,
+        totalSpent: 320000,
         createdAt: new Date('2024-05-28T00:00:00.000Z'),
       }),
     );
@@ -82,7 +82,7 @@ describe('ClubMemberService', () => {
       points: 1280,
       memberCode: 'PC20240528028',
       joinDate: '2024-05-28',
-      totalConsume: 5200,
+      totalConsume: 3200,
     });
     expect(clubStoresService.getCurrent).toHaveBeenCalledWith(user);
     expect(prismaService.member.findFirst).toHaveBeenCalledWith({
@@ -140,6 +140,108 @@ describe('ClubMemberService', () => {
       joinDate: '2024-06-01',
       totalConsume: 1888.6,
     });
+  });
+
+  it('getLevelStatus 返回当前等级、下一等级与升级进度', async () => {
+    prismaService.member.findFirst.mockResolvedValue(
+      createMember({
+        id: 28,
+        level: 'gold',
+        points: 260,
+        totalConsumeAmount: new Decimal('3200.50'),
+        createdAt: new Date('2024-06-01T00:00:00.000Z'),
+      }),
+    );
+    prismaService.marketingCustomer.findUnique.mockResolvedValue(
+      createMarketingCustomer({
+        id: 102,
+        balance: 35000,
+        points: 1280,
+        tier: 'gold',
+        totalSpent: 320000,
+        createdAt: new Date('2024-05-28T00:00:00.000Z'),
+      }),
+    );
+
+    await expect(service.getLevelStatus(user)).resolves.toEqual({
+      currentLevel: 'gold',
+      currentLevelLabel: '黄金会员',
+      currentRequiredConsume: 3000,
+      totalConsume: 3200,
+      nextLevel: 'platinum',
+      nextLevelLabel: '铂金会员',
+      nextRequiredConsume: 5000,
+      amountToNextLevel: 1800,
+      progressPct: 64,
+      isTopLevel: false,
+    });
+  });
+
+  it('getLevelStatus 在最高等级时返回顶级状态', async () => {
+    prismaService.member.findFirst.mockResolvedValue(
+      createMember({
+        id: 88,
+        level: 'diamond',
+        points: 2880,
+        totalConsumeAmount: new Decimal('10088.88'),
+        createdAt: new Date('2024-06-01T00:00:00.000Z'),
+      }),
+    );
+    prismaService.marketingCustomer.findUnique.mockResolvedValue(
+      createMarketingCustomer({
+        id: 302,
+        balance: 88000,
+        points: 2880,
+        tier: 'diamond',
+        totalSpent: 1200000,
+        createdAt: new Date('2024-05-28T00:00:00.000Z'),
+      }),
+    );
+
+    await expect(service.getLevelStatus(user)).resolves.toEqual({
+      currentLevel: 'diamond',
+      currentLevelLabel: '钻石会员',
+      currentRequiredConsume: 10000,
+      totalConsume: 12000,
+      nextLevel: null,
+      nextLevelLabel: null,
+      nextRequiredConsume: null,
+      amountToNextLevel: 0,
+      progressPct: 100,
+      isTopLevel: true,
+    });
+  });
+
+  it('getLevels 返回 purely-club 前端展示所需的等级配置列表', async () => {
+    await expect(service.getLevels()).resolves.toEqual([
+      expect.objectContaining({
+        level: 'bronze',
+        label: '普通会员',
+        requiredConsume: 0,
+      }),
+      expect.objectContaining({
+        level: 'silver',
+        label: '白银会员',
+        requiredConsume: 1000,
+      }),
+      expect.objectContaining({
+        level: 'gold',
+        label: '黄金会员',
+        requiredConsume: 3000,
+      }),
+      expect.objectContaining({
+        level: 'platinum',
+        label: '铂金会员',
+        requiredConsume: 5000,
+      }),
+      expect.objectContaining({
+        level: 'diamond',
+        label: '钻石会员',
+        requiredConsume: 10000,
+      }),
+    ]);
+    expect(prismaService.member.findFirst).not.toHaveBeenCalled();
+    expect(prismaService.marketingCustomer.findUnique).not.toHaveBeenCalled();
   });
 
   it('getAccount 在当前门店没有会员档案时抛出 NotFoundException', async () => {

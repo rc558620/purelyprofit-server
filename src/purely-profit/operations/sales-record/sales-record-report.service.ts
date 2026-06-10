@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
@@ -104,11 +105,10 @@ export class SalesRecordReportService {
       (sum, order) => sum + order.totalQuantity,
       0,
     );
-    const totalRevenue = Number(
-      orders
-        .reduce((sum, order) => sum + Number(order.totalRevenue), 0)
-        .toFixed(2),
-    );
+    const totalRevenue = orders
+      .reduce((acc, order) => acc.add(new Decimal(order.totalRevenue)), new Decimal(0))
+      .toDecimalPlaces(2)
+      .toNumber();
     const dailySales = aggregateReportRows(orders);
     const orderCount = dailySales.length;
 
@@ -118,7 +118,9 @@ export class SalesRecordReportService {
         totalRevenue,
         orderCount,
         avgOrderValue:
-          orderCount > 0 ? Number((totalRevenue / orderCount).toFixed(2)) : 0,
+          orderCount > 0
+            ? new Decimal(totalRevenue).div(orderCount).toDecimalPlaces(2).toNumber()
+            : 0,
       },
       dailySales,
     };

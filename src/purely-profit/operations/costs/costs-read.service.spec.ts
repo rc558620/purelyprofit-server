@@ -11,15 +11,20 @@ import {
 
 describe('CostsReadService', () => {
   let service: CostsReadService;
-
-  const prismaService = createCostsPrismaMock();
-  const commerceAccessService = createCostsCommerceAccessServiceMock();
-  const platformMembershipAccessService =
-    createCostsPlatformMembershipAccessServiceMock();
+  let prismaService: ReturnType<typeof createCostsPrismaMock>;
+  let commerceAccessService: ReturnType<
+    typeof createCostsCommerceAccessServiceMock
+  >;
+  let platformMembershipAccessService: ReturnType<
+    typeof createCostsPlatformMembershipAccessServiceMock
+  >;
   const user = createCostsSpecUser();
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    prismaService = createCostsPrismaMock();
+    commerceAccessService = createCostsCommerceAccessServiceMock();
+    platformMembershipAccessService =
+      createCostsPlatformMembershipAccessServiceMock();
     platformMembershipAccessService.clampHistoryRange.mockImplementation(
       (_storeId: number, range: { start: number; end: number }) =>
         Promise.resolve({
@@ -83,12 +88,24 @@ describe('CostsReadService', () => {
 
   it('getStats 计算总额、固定/变动支出与上期对比', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.costRecord.findMany
-      .mockResolvedValueOnce([
-        { amount: new Prisma.Decimal('5000'), type: 'fixed' },
-        { amount: new Prisma.Decimal('300'), type: 'variable' },
-      ])
-      .mockResolvedValueOnce([{ amount: new Prisma.Decimal('4240') }]);
+    prismaService.costRecord.aggregate
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('5300') },
+        _count: { _all: 2 },
+      })
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('4240') },
+      });
+    prismaService.costRecord.groupBy.mockResolvedValue([
+      {
+        type: 'fixed',
+        _sum: { amount: new Prisma.Decimal('5000') },
+      },
+      {
+        type: 'variable',
+        _sum: { amount: new Prisma.Decimal('300') },
+      },
+    ]);
 
     await expect(
       service.getStats(user, { period: 'month', typeFilter: 'all' }),
@@ -103,8 +120,15 @@ describe('CostsReadService', () => {
 
   it('getStats 在自定义日期模式下不返回上期对比', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.costRecord.findMany.mockResolvedValue([
-      { amount: new Prisma.Decimal('1888'), type: 'fixed' },
+    prismaService.costRecord.aggregate.mockResolvedValue({
+      _sum: { amount: new Prisma.Decimal('1888') },
+      _count: { _all: 1 },
+    });
+    prismaService.costRecord.groupBy.mockResolvedValue([
+      {
+        type: 'fixed',
+        _sum: { amount: new Prisma.Decimal('1888') },
+      },
     ]);
 
     await expect(
@@ -120,7 +144,7 @@ describe('CostsReadService', () => {
       compareLastPeriod: null,
       recordCount: 1,
     });
-    expect(prismaService.costRecord.findMany).toHaveBeenCalledTimes(1);
+    expect(prismaService.costRecord.aggregate).toHaveBeenCalledTimes(1);
   });
 
   it('listRecords 在 custom_range 结束早于开始时按前端逻辑钳制到开始日', async () => {
@@ -206,8 +230,10 @@ describe('CostsReadService', () => {
           date: new Date('2026-05-14T00:00:00.000Z'),
           createdAt: new Date('2026-05-14T10:05:00.000Z'),
         },
-      ])
-      .mockResolvedValueOnce([{ amount: new Prisma.Decimal('4240.00') }]);
+      ]);
+    prismaService.costRecord.aggregate.mockResolvedValue({
+      _sum: { amount: new Prisma.Decimal('4240.00') },
+    });
 
     await expect(
       service.getReport(user, {
@@ -256,8 +282,10 @@ describe('CostsReadService', () => {
           date: new Date('2026-05-01T00:00:00.000Z'),
           createdAt: new Date('2026-05-14T12:00:00.000Z'),
         },
-      ])
-      .mockResolvedValueOnce([{ amount: new Prisma.Decimal('4000.00') }]);
+      ]);
+    prismaService.costRecord.aggregate.mockResolvedValue({
+      _sum: { amount: new Prisma.Decimal('4000.00') },
+    });
     prismaService.employeePayroll.findMany.mockResolvedValue([
       {
         id: 8,

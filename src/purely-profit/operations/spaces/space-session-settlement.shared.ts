@@ -68,10 +68,7 @@ export const buildSpaceSessionSettlement = (params: {
     });
   }
 
-  const prepaidDeduction = resolveSpaceSessionPrepaidDeduction(
-    session,
-    resolvedFeeMode.timeFeeMode,
-  );
+  const prepaidDeduction = resolveSpaceSessionPrepaidDeduction(session);
   if (prepaidDeduction > 0) {
     orderItems.push({
       productId: 'SYS_PREPAID_DEDUCTION',
@@ -167,15 +164,13 @@ const resolveSpaceSessionFeeMode = (
 };
 
 const resolveSpaceSessionPrepaidDeduction = (
-  session: Pick<
-    SpaceSessionRecord,
-    'billingMode' | 'prepaidAmount'
-  >,
-  timeFeeMode?: CheckoutPreviewFeeMode['timeFeeMode'],
+  session: Pick<SpaceSessionRecord, 'billingMode' | 'prepaidAmount'>,
 ): number => {
+  // 只要会话存在开台已收款，就应进入当前预计/结账/换房的扣减口径。
+  // 纯 items 模式没有台位开台语义，继续保持不扣减以兼容旧数据。
+
   if (
-    session.billingMode !== PrismaSpaceBillingMode.countdown ||
-    timeFeeMode !== 'timed' ||
+    session.billingMode === PrismaSpaceBillingMode.items ||
     session.prepaidAmount === null
   ) {
     return 0;

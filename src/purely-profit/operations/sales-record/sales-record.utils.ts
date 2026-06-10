@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
 import type { SalesRecordPeriodValue } from './sales-record.types';
 
@@ -178,7 +179,7 @@ export function normalizeMoney(value: number, errorMessage: string): number {
   if (!Number.isFinite(value) || value < 0) {
     throw new BadRequestException(errorMessage);
   }
-  return Number(value.toFixed(2));
+  return new Decimal(value).toDecimalPlaces(2).toNumber();
 }
 
 export function normalizeSignedMoney(
@@ -188,15 +189,18 @@ export function normalizeSignedMoney(
   if (!Number.isFinite(value)) {
     throw new BadRequestException(errorMessage);
   }
-  return Number(value.toFixed(2));
+  return new Decimal(value).toDecimalPlaces(2).toNumber();
 }
 
 export function isSameMoney(left: number, right: number): boolean {
-  return Math.abs(left - right) < 0.01;
+  return new Decimal(left).sub(right).abs().lt(0.01);
 }
 
 export function sumMoney<T>(items: T[], getter: (item: T) => number): number {
-  return Number(items.reduce((sum, item) => sum + getter(item), 0).toFixed(2));
+  return items
+    .reduce((acc, item) => acc.add(getter(item)), new Decimal(0))
+    .toDecimalPlaces(2)
+    .toNumber();
 }
 
 // ---------------------------------------------------------------------------

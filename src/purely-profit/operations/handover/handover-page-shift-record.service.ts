@@ -156,6 +156,7 @@ export class HandoverPageShiftRecordService {
   async findNextShiftRecord(
     storeId: number,
     currentShiftRecord: ShiftRecordRow | null,
+    employeeId?: number | null,
   ): Promise<ShiftRecordRow | null> {
     if (!currentShiftRecord) {
       return null;
@@ -163,7 +164,7 @@ export class HandoverPageShiftRecordService {
 
     const allShifts = await this.loadShifts(
       storeId,
-      null,
+      employeeId ?? null,
       currentShiftRecord.date,
     );
     if (allShifts.length === 0) {

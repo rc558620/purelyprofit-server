@@ -164,10 +164,15 @@ export class HandoverPageShiftService {
       return false;
     }
 
+    // 收银员查自己的后续班次；老板/经理查全店。
+    const nextLookupEmployeeId = ownedSelection.isCashier
+      ? membership.linkedEmployeeId
+      : null;
     const nextShiftRecord =
       await this.handoverPageShiftRecordService.findNextShiftRecord(
         membership.storeId,
         targetShift,
+        nextLookupEmployeeId,
       );
 
     return nextShiftRecord === null;

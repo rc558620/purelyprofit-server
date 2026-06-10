@@ -9,7 +9,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import type { HandoverRecordListItemDto } from './dto/handover-records.dto';
 import {
   ORDER_ITEMS_LIMIT,
-  roundMoney,
+  addMoney,
+  subMoney,
   toMoneyNumber,
   type ShiftDateRange,
 } from './handover.shared';
@@ -54,10 +55,9 @@ export class HandoverRecordsRevenueService {
       refundRevenue._sum.totalRevenue,
     );
 
-    return roundMoney(
-      revenueAmounts.additionalRevenueAmount +
-        revenueAmounts.spaceRevenueAmount -
-        revenueAmounts.refundAmount,
+    return subMoney(
+      addMoney(revenueAmounts.additionalRevenueAmount, revenueAmounts.spaceRevenueAmount),
+      revenueAmounts.refundAmount,
     );
   }
 

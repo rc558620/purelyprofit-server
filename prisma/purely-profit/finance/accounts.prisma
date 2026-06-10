@@ -40,7 +40,7 @@ model FinanceAccountRecord {
   createdAt       DateTime               @default(now()) @map("created_at")
   updatedAt       DateTime               @updatedAt @map("updated_at")
 
-  @@index([storeId, status, updatedAt])
+  @@index([storeId, status, updatedAt(sort: Desc), id(sort: Desc)])
   @@index([storeId, type, updatedAt])
   @@index([storeId, dueDate])
   @@index([operatorStaffId, createdAt])

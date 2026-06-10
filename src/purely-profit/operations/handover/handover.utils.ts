@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import Decimal from 'decimal.js';
 import type { ShiftDateRange } from './handover.types';
 
 export const startOfDay = (date: Date): Date =>
@@ -60,7 +61,7 @@ export const toDisplayName = (
 };
 
 export const roundMoney = (value: number): number =>
-  Math.round(value * 100) / 100;
+  new Decimal(value).toDecimalPlaces(2).toNumber();
 
 export const timeStringToMinutes = (timeStr: string): number => {
   const [hours, minutes] = timeStr.split(':').map((v) => parseInt(v, 10));
@@ -73,12 +74,28 @@ export const toMoneyNumber = (
   if (value === null || value === undefined) {
     return 0;
   }
-  const normalized = Number(value);
-  if (!Number.isFinite(normalized)) {
+  const d = new Decimal(value);
+  if (!d.isFinite()) {
     return 0;
   }
-  return roundMoney(normalized);
+  return d.toDecimalPlaces(2).toNumber();
 };
+
+/** Decimal 安全的金额乘法 */
+export const mulMoney = (a: number, b: number): number =>
+  new Decimal(a).mul(b).toDecimalPlaces(2).toNumber();
+
+/** Decimal 安全的金额加法 */
+export const addMoney = (a: number, b: number): number =>
+  new Decimal(a).add(b).toDecimalPlaces(2).toNumber();
+
+/** Decimal 安全的金额减法 */
+export const subMoney = (a: number, b: number): number =>
+  new Decimal(a).sub(b).toDecimalPlaces(2).toNumber();
+
+/** Decimal 安全的金额除法（保留 2 位小数） */
+export const divMoney = (a: number, b: number): number =>
+  b === 0 ? 0 : new Decimal(a).div(b).toDecimalPlaces(2).toNumber();
 
 export const buildCurrentDayRange = (): Prisma.DateTimeFilter =>
   buildDayRange(new Date());

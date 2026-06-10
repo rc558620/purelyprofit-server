@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { toDecimalNumber } from '../../commerce/commerce.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
@@ -103,20 +104,23 @@ export class CostsReadService {
       return buildEmptyCostStatsResponse();
     }
 
-    const currentRecords = await this.prisma.costRecord.findMany({
+    const currentAggregate = await this.prisma.costRecord.aggregate({
       where: currentWhere,
-      select: {
-        amount: true,
-        type: true,
-      },
+      _sum: { amount: true },
+      _count: { _all: true },
+    });
+    const currentTypeRows = await this.prisma.costRecord.groupBy({
+      by: ['type'],
+      where: currentWhere,
+      _sum: { amount: true },
     });
 
-    const total = sumCostAmounts(currentRecords);
-    const fixed = sumCostAmounts(
-      currentRecords.filter((record) => record.type === 'fixed'),
+    const total = toDecimalNumber(currentAggregate._sum.amount ?? 0);
+    const fixed = toDecimalNumber(
+      currentTypeRows.find((record) => record.type === 'fixed')?._sum.amount ?? 0,
     );
-    const variable = sumCostAmounts(
-      currentRecords.filter((record) => record.type === 'variable'),
+    const variable = toDecimalNumber(
+      currentTypeRows.find((record) => record.type === 'variable')?._sum.amount ?? 0,
     );
     const compareLastPeriod = await this.calculatePreviousPeriodChange(
       storeId,
@@ -130,7 +134,7 @@ export class CostsReadService {
       fixed,
       variable,
       compareLastPeriod,
-      recordCount: currentRecords.length,
+      recordCount: currentAggregate._count._all,
     };
   }
 
@@ -188,7 +192,7 @@ export class CostsReadService {
       return buildEmptyCostReportResponse();
     }
 
-    const { costRows, previousRows, payrollRows } = await queryCostReportRows(
+    const { costRows, previousTotal, payrollRows } = await queryCostReportRows(
       this.prisma,
       storeId,
       {
@@ -217,7 +221,7 @@ export class CostsReadService {
         recordCount: costRows.length,
         compareLastPeriod: calculateCostCompareLastPeriod(
           total,
-          sumCostAmounts(previousRows),
+          toDecimalNumber(previousTotal),
         ),
       },
       categories: buildCostReportCategories(costRows, total),
@@ -258,7 +262,7 @@ export class CostsReadService {
       return null;
     }
 
-    const previousRecords = await this.prisma.costRecord.findMany({
+    const previousAggregate = await this.prisma.costRecord.aggregate({
       where: {
         storeId,
         date: {
@@ -269,12 +273,12 @@ export class CostsReadService {
           ? { type: query.typeFilter }
           : {}),
       },
-      select: { amount: true },
+      _sum: { amount: true },
     });
 
     return calculateCostCompareLastPeriod(
       total,
-      sumCostAmounts(previousRecords),
+      toDecimalNumber(previousAggregate._sum.amount ?? 0),
     );
   }
 }

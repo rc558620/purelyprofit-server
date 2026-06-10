@@ -183,6 +183,9 @@ function buildCachePrewarmFailedReasonTopNByCategory(
     'dashboardHome',
     'businessAnalysis',
     'financeOverview',
+    'marketingOverview',
+    'membersMeta',
+    'membersOverview',
   ];
 
   return categories
@@ -214,6 +217,9 @@ function buildCachePrewarmLastFailedAtByCategory(
     dashboardHome: null,
     businessAnalysis: null,
     financeOverview: null,
+    marketingOverview: null,
+    membersMeta: null,
+    membersOverview: null,
   };
 
   for (const cycle of recentCycles) {
@@ -240,6 +246,9 @@ function buildCachePrewarmLastFailedKeyByCategory(
     dashboardHome: null,
     businessAnalysis: null,
     financeOverview: null,
+    marketingOverview: null,
+    membersMeta: null,
+    membersOverview: null,
   };
 
   for (const cycle of recentCycles) {
@@ -262,6 +271,9 @@ function buildCachePrewarmLastFailedSampleByCategory(
     dashboardHome: null,
     businessAnalysis: null,
     financeOverview: null,
+    marketingOverview: null,
+    membersMeta: null,
+    membersOverview: null,
   };
 
   for (const cycle of recentCycles) {

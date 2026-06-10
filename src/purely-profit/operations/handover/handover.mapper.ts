@@ -23,7 +23,7 @@ import type {
   OrderItemRow,
   RefundOrderRow,
 } from './handover.types';
-import { roundMoney, toDisplayName, toMoneyNumber } from './handover.utils';
+import { mulMoney, toDisplayName, toMoneyNumber } from './handover.utils';
 
 const SALES_PAYMENT_METHOD_VALUES = new Set(Object.values(SalesPaymentMethod));
 
@@ -92,9 +92,7 @@ export const resolveOrderItemPaymentMethod = (
 };
 
 export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
-  const totalRevenue = roundMoney(
-    toMoneyNumber(item.salePrice) * item.quantity,
-  );
+  const totalRevenue = mulMoney(toMoneyNumber(item.salePrice), item.quantity);
   const paymentMethod = resolveOrderItemPaymentMethod(item);
   return {
     id: String(item.id),

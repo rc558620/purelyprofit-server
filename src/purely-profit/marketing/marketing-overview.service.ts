@@ -48,6 +48,18 @@ export class MarketingOverviewService {
     });
   }
 
+  async warmOverviewCache(storeId: number): Promise<MarketingOverviewDto> {
+    const cacheKey = buildMarketingOverviewCacheKey(storeId);
+    const data = await this.buildOverview(storeId);
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      MARKETING_OVERVIEW_CACHE_TTL_SECONDS,
+      MARKETING_OVERVIEW_REFRESH_AFTER_MS,
+    );
+    return data;
+  }
+
   private async buildOverview(storeId: number): Promise<MarketingOverviewDto> {
     const now = new Date();
     const todayStart = new Date(now);

@@ -208,15 +208,7 @@ export class MembersService {
       ttlSeconds: MEMBERS_META_CACHE_TTL_SECONDS,
       refreshAfterMs: MEMBERS_META_REFRESH_AFTER_MS,
       loadValue: async () => {
-        const { levelRows, statusRows } = await queryMembersMeta(
-          this.prisma,
-          storeId,
-        );
-
-        return {
-          levels: buildMemberLevelMetaRows(levelRows),
-          statuses: buildMemberStatusMetaRows(statusRows),
-        };
+        return this.buildMetaPayload(storeId);
       },
     });
   }
@@ -241,10 +233,32 @@ export class MembersService {
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: MEMBERS_OVERVIEW_CACHE_TTL_SECONDS,
       refreshAfterMs: MEMBERS_OVERVIEW_REFRESH_AFTER_MS,
-      loadValue: async () =>
-        (await queryMembersOverview(this.prisma, storeId)) ??
-        buildEmptyMembersOverviewResponse(),
+      loadValue: async () => this.buildOverviewPayload(storeId),
     });
+  }
+
+  async warmMetaCache(storeId: number): Promise<MembersMetaResponseDto> {
+    const cacheKey = buildMembersMetaCacheKey(storeId);
+    const data = await this.buildMetaPayload(storeId);
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      MEMBERS_META_CACHE_TTL_SECONDS,
+      MEMBERS_META_REFRESH_AFTER_MS,
+    );
+    return data;
+  }
+
+  async warmOverviewCache(storeId: number): Promise<MembersOverviewResponseDto> {
+    const cacheKey = buildMembersOverviewCacheKey(storeId);
+    const data = await this.buildOverviewPayload(storeId);
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      MEMBERS_OVERVIEW_CACHE_TTL_SECONDS,
+      MEMBERS_OVERVIEW_REFRESH_AFTER_MS,
+    );
+    return data;
   }
 
   async listSnapshots(
@@ -410,6 +424,26 @@ export class MembersService {
     if (existingMember) {
       throw new ConflictException('该门店下会员手机号已存在');
     }
+  }
+
+  private async buildMetaPayload(
+    storeId: number,
+  ): Promise<MembersMetaResponseDto> {
+    const { levelRows, statusRows } = await queryMembersMeta(this.prisma, storeId);
+
+    return {
+      levels: buildMemberLevelMetaRows(levelRows),
+      statuses: buildMemberStatusMetaRows(statusRows),
+    };
+  }
+
+  private async buildOverviewPayload(
+    storeId: number,
+  ): Promise<MembersOverviewResponseDto> {
+    return (
+      (await queryMembersOverview(this.prisma, storeId)) ??
+      buildEmptyMembersOverviewResponse()
+    );
   }
 
   private async buildMemberResponse(

@@ -3,7 +3,34 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type {
   FinanceAccountRecordWithAmount,
   FinanceCashFlowRecordWithAmount,
+  FinanceCashFlowStatsRow,
 } from './finance.types';
+
+const financeReportCashFlowSelect = {
+  id: true,
+  direction: true,
+  category: true,
+  title: true,
+  amount: true,
+  payment: true,
+  date: true,
+} satisfies Prisma.FinanceCashFlowRecordSelect;
+
+const financeReportAccountSelect = {
+  id: true,
+  type: true,
+  category: true,
+  counterpart: true,
+  amount: true,
+  paidAmount: true,
+  remaining: true,
+  status: true,
+  dueDate: true,
+  date: true,
+  note: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.FinanceAccountRecordSelect;
 
 export async function queryOverviewCashFlowRecords(
   prisma: PrismaService,
@@ -38,14 +65,34 @@ export async function queryFinanceReportData(
     previousRange: { start: number; end: number; empty: boolean } | null;
   },
 ): Promise<{
-  currentCashFlowRecords: FinanceCashFlowRecordWithAmount[];
-  previousCashFlowRecords: FinanceCashFlowRecordWithAmount[];
+  currentCashFlowRecords: Array<
+    Pick<
+      FinanceCashFlowRecordWithAmount,
+      'id' | 'date' | 'title' | 'direction' | 'category' | 'amount' | 'payment'
+    >
+  >;
+  previousCashFlowRecords: Array<
+    Pick<FinanceCashFlowStatsRow, 'direction' | 'amount'>
+  >;
   accountRecords: FinanceAccountRecordWithAmount[];
 }> {
-  const [currentCashFlowRecords, previousCashFlowRecords, accountRecords] =
+  const [currentCashFlowRecords, previousCashFlowRows, accountRecords] =
     await Promise.all([
       params.currentRange.empty
-        ? Promise.resolve<FinanceCashFlowRecordWithAmount[]>([])
+        ? Promise.resolve<
+            Array<
+              Pick<
+                FinanceCashFlowRecordWithAmount,
+                | 'id'
+                | 'date'
+                | 'title'
+                | 'direction'
+                | 'category'
+                | 'amount'
+                | 'payment'
+              >
+            >
+          >([])
         : prisma.financeCashFlowRecord.findMany({
             where: {
               storeId: params.storeId,
@@ -54,28 +101,42 @@ export async function queryFinanceReportData(
                 lte: new Date(params.currentRange.end),
               },
             },
+            select: financeReportCashFlowSelect,
             orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
           }),
       params.previousRange && !params.previousRange.empty
-        ? prisma.financeCashFlowRecord.findMany({
-            where: {
-              storeId: params.storeId,
-              date: {
-                gte: new Date(params.previousRange.start),
-                lte: new Date(params.previousRange.end),
+        ? prisma.financeCashFlowRecord
+            .groupBy({
+              by: ['direction'],
+              where: {
+                storeId: params.storeId,
+                date: {
+                  gte: new Date(params.previousRange.start),
+                  lte: new Date(params.previousRange.end),
+                },
               },
-            },
-          })
-        : Promise.resolve<FinanceCashFlowRecordWithAmount[]>([]),
+              _sum: { amount: true },
+            })
+            .then((rows) =>
+              rows.map((row) => ({
+                direction: row.direction,
+                amount: row._sum.amount ?? new Prisma.Decimal(0),
+              })),
+            )
+        : Promise.resolve<Array<Pick<FinanceCashFlowStatsRow, 'direction' | 'amount'>>>([]),
       prisma.financeAccountRecord.findMany({
-        where: { storeId: params.storeId },
+        where: {
+          storeId: params.storeId,
+          status: { not: 'settled' },
+        },
+        select: financeReportAccountSelect,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),
     ]);
 
   return {
     currentCashFlowRecords,
-    previousCashFlowRecords,
+    previousCashFlowRecords: previousCashFlowRows,
     accountRecords,
   };
 }

@@ -1,0 +1,170 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, IsString } from 'class-validator';
+import {
+  CLUB_ORDER_PAYMENT_CHANNEL_VALUES,
+  CLUB_ORDER_PAYMENT_CONFIRMATION_SOURCE_VALUES,
+  CLUB_ORDER_STATUS_VALUES,
+  CLUB_ORDER_TYPE_VALUES,
+  type ClubOrderPaymentChannelValue,
+  type ClubOrderPaymentConfirmationSourceValue,
+  type ClubOrderStatusValue,
+  type ClubOrderTypeValue,
+} from '../club-order.types';
+
+export class CreateClubServiceOrderDto {
+  @ApiProperty({ example: 11, description: '当前选中的门店 ID' })
+  @Type(() => Number)
+  @IsInt({ message: 'storeId 必须是整数' })
+  storeId: number;
+
+  @ApiProperty({ example: 18, description: '服务商品 ID' })
+  @Type(() => Number)
+  @IsInt({ message: 'productId 必须是整数' })
+  productId: number;
+}
+
+export class ClubWechatPaymentParamsDto {
+  @ApiProperty({ example: '1773556800', description: '微信支付时间戳（秒）' })
+  @IsString({ message: 'timeStamp 必须是字符串' })
+  timeStamp: string;
+
+  @ApiProperty({ example: '2f9a43758d147637ad1ee19f', description: '随机串' })
+  @IsString({ message: 'nonceStr 必须是字符串' })
+  nonceStr: string;
+
+  @ApiProperty({
+    example: 'prepay_id=club_RC202606101230001234',
+    description: '微信预支付包',
+  })
+  @IsString({ message: 'package 必须是字符串' })
+  package: string;
+
+  @ApiProperty({ example: 'RSA', description: '签名算法' })
+  @IsString({ message: 'signType 必须是字符串' })
+  signType: string;
+
+  @ApiProperty({
+    example: 'F2B4977F7F6E9D4A91D3B5B43F3A12F6B7E90B6E96E8B86E9D3B4A7A6A7D15C1',
+    description: '支付签名',
+  })
+  @IsString({ message: 'paySign 必须是字符串' })
+  paySign: string;
+}
+
+export class ClubOrderStatusResponseDto {
+  @ApiProperty({ example: 'RC202606101230001234', description: '订单 ID' })
+  @IsString({ message: 'id 必须是字符串' })
+  id: string;
+
+  @ApiProperty({ example: 'RC202606101230001234', description: '订单号' })
+  @IsString({ message: 'orderNo 必须是字符串' })
+  orderNo: string;
+
+  @ApiProperty({
+    enum: CLUB_ORDER_TYPE_VALUES,
+    description: '订单类型：recharge=充值单，service=服务购买单',
+  })
+  @IsIn(CLUB_ORDER_TYPE_VALUES, { message: 'orderType 不合法' })
+  orderType: ClubOrderTypeValue;
+
+  @ApiProperty({ example: '会员充值', description: '订单标题' })
+  @IsString({ message: 'title 必须是字符串' })
+  title: string;
+
+  @ApiProperty({ example: 500, description: '订单应付金额，单位元' })
+  amount: number;
+
+  @ApiProperty({
+    enum: CLUB_ORDER_PAYMENT_CHANNEL_VALUES,
+    description: '支付渠道',
+  })
+  @IsIn(CLUB_ORDER_PAYMENT_CHANNEL_VALUES, { message: 'paymentChannel 不合法' })
+  paymentChannel: ClubOrderPaymentChannelValue;
+
+  @ApiProperty({
+    enum: CLUB_ORDER_STATUS_VALUES,
+    description: '订单状态',
+  })
+  @IsIn(CLUB_ORDER_STATUS_VALUES, { message: 'status 不合法' })
+  status: ClubOrderStatusValue;
+
+  @ApiProperty({ example: '2026-06-10T12:30:00.000Z', description: '创建时间' })
+  @IsString({ message: 'createdAt 必须是字符串' })
+  createdAt: string;
+
+  @ApiProperty({
+    example: '2026-06-10T12:45:00.000Z',
+    description: '订单过期时间',
+  })
+  @IsString({ message: 'expiresAt 必须是字符串' })
+  expiresAt: string;
+
+  @ApiPropertyOptional({
+    example: '2026-06-10T12:31:00.000Z',
+    description: '支付完成时间',
+  })
+  @IsOptional()
+  @IsString({ message: 'paidAt 必须是字符串' })
+  paidAt: string | null;
+
+  @ApiPropertyOptional({
+    example: '4200001234202606101234567890',
+    description: '支付流水号；收到微信支付回调后返回',
+  })
+  @IsOptional()
+  @IsString({ message: 'paymentTransactionId 必须是字符串' })
+  paymentTransactionId: string | null;
+
+  @ApiPropertyOptional({
+    example: '2026-06-10T12:31:03.000Z',
+    description: '服务端收到支付回调的时间；未收到回调时为空',
+  })
+  @IsOptional()
+  @IsString({ message: 'callbackReceivedAt 必须是字符串' })
+  callbackReceivedAt: string | null;
+
+  @ApiPropertyOptional({
+    enum: CLUB_ORDER_PAYMENT_CONFIRMATION_SOURCE_VALUES,
+    description: '订单被标记为已支付的确认来源',
+  })
+  @IsOptional()
+  @IsIn(CLUB_ORDER_PAYMENT_CONFIRMATION_SOURCE_VALUES, {
+    message: 'paymentConfirmationSource 不合法',
+  })
+  paymentConfirmationSource: ClubOrderPaymentConfirmationSourceValue | null;
+
+  @ApiProperty({
+    example: '微信支付回调已确认并完成落账',
+    description: '订单当前状态的人类可读说明，便于前端直接展示联调态信息',
+  })
+  @IsString({ message: 'statusReason 必须是字符串' })
+  statusReason: string;
+}
+
+export class ClubServiceOrderResponseDto extends ClubOrderStatusResponseDto {
+  @ApiProperty({ example: '18', description: '服务商品 ID' })
+  @IsString({ message: 'productId 必须是字符串' })
+  productId: string;
+
+  @ApiProperty({ example: '黄金焕肤疗程', description: '服务商品名称' })
+  @IsString({ message: 'productName 必须是字符串' })
+  productName: string;
+
+  @ApiProperty({ example: 688, description: '服务原价，单位元' })
+  originalAmount: number;
+
+  @ApiPropertyOptional({
+    example: 'https://cdn.example.com/products/18.png',
+    description: '服务封面图',
+  })
+  @IsOptional()
+  @IsString({ message: 'coverImage 必须是字符串' })
+  coverImage?: string;
+
+  @ApiProperty({
+    type: ClubWechatPaymentParamsDto,
+    description: '发起微信支付所需参数',
+  })
+  paymentParams: ClubWechatPaymentParamsDto;
+}

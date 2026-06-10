@@ -44,7 +44,10 @@ export type SummaryProcessFocus = 'cpu' | 'heap' | 'rss';
 export type SummaryCachePrewarmCategory =
   | 'dashboardHome'
   | 'businessAnalysis'
-  | 'financeOverview';
+  | 'financeOverview'
+  | 'marketingOverview'
+  | 'membersMeta'
+  | 'membersOverview';
 
 export type SummaryActionPanel =
   | 'process.resource_overview'

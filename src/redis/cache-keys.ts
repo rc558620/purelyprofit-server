@@ -159,6 +159,14 @@ export function buildMarketingOverviewCacheKey(storeId: number): string {
   return `profit:marketing:overview:store:${storeId}`;
 }
 
+export function buildMarketingOverviewPattern(storeId: number): string {
+  return `profit:marketing:overview:store:${storeId}`;
+}
+
+export function buildMarketingOverviewAllPattern(): string {
+  return 'profit:marketing:overview:store:*';
+}
+
 export function buildMembersListCacheKey(
   storeId: number,
   query: MembersListCacheQuery,
@@ -183,8 +191,24 @@ export function buildMembersMetaCacheKey(storeId: number): string {
   return `profit:members:meta:store:${storeId}`;
 }
 
+export function buildMembersMetaPattern(storeId: number): string {
+  return `profit:members:meta:store:${storeId}`;
+}
+
+export function buildMembersMetaAllPattern(): string {
+  return 'profit:members:meta:store:*';
+}
+
 export function buildMembersOverviewCacheKey(storeId: number): string {
   return `profit:members:overview:store:${storeId}`;
+}
+
+export function buildMembersOverviewPattern(storeId: number): string {
+  return `profit:members:overview:store:${storeId}`;
+}
+
+export function buildMembersOverviewAllPattern(): string {
+  return 'profit:members:overview:store:*';
 }
 
 export function buildWithdrawalsOverviewCacheKey(storeId: number): string {
@@ -303,6 +327,45 @@ export function parseProfitDashboardHomeCacheKey(cacheKey: string): {
   return {
     storeId: Number(rawStoreId),
     period: rawPeriod,
+  };
+}
+
+export function parseMarketingOverviewCacheKey(cacheKey: string): {
+  storeId: number;
+} | null {
+  const match = /^profit:marketing:overview:store:(\d+)$/.exec(cacheKey);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    storeId: Number(match[1]),
+  };
+}
+
+export function parseMembersMetaCacheKey(cacheKey: string): {
+  storeId: number;
+} | null {
+  const match = /^profit:members:meta:store:(\d+)$/.exec(cacheKey);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    storeId: Number(match[1]),
+  };
+}
+
+export function parseMembersOverviewCacheKey(cacheKey: string): {
+  storeId: number;
+} | null {
+  const match = /^profit:members:overview:store:(\d+)$/.exec(cacheKey);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    storeId: Number(match[1]),
   };
 }
 

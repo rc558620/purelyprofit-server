@@ -219,16 +219,25 @@ export function recordCachePrewarmCycle(input: {
   dashboardHitCount: number;
   businessAnalysisHitCount: number;
   financeOverviewHitCount: number;
+  marketingOverviewHitCount: number;
+  membersMetaHitCount: number;
+  membersOverviewHitCount: number;
   failedKeyCountByCategory: {
     dashboardHome: number;
     businessAnalysis: number;
     financeOverview: number;
+    marketingOverview: number;
+    membersMeta: number;
+    membersOverview: number;
   };
   slowestFailedReason: string | null;
   durationDistribution: {
     dashboardHome: CachePrewarmDurationDistribution;
     businessAnalysis: CachePrewarmDurationDistribution;
     financeOverview: CachePrewarmDurationDistribution;
+    marketingOverview: CachePrewarmDurationDistribution;
+    membersMeta: CachePrewarmDurationDistribution;
+    membersOverview: CachePrewarmDurationDistribution;
   };
   slowKeySamples: CachePrewarmSlowKeySample[];
 }): void {
@@ -258,10 +267,16 @@ export function recordCachePrewarmCycle(input: {
     dashboardHitCount: input.dashboardHitCount,
     businessAnalysisHitCount: input.businessAnalysisHitCount,
     financeOverviewHitCount: input.financeOverviewHitCount,
+    marketingOverviewHitCount: input.marketingOverviewHitCount,
+    membersMetaHitCount: input.membersMetaHitCount,
+    membersOverviewHitCount: input.membersOverviewHitCount,
     failedKeyCountByCategory: {
       dashboardHome: input.failedKeyCountByCategory.dashboardHome,
       businessAnalysis: input.failedKeyCountByCategory.businessAnalysis,
       financeOverview: input.failedKeyCountByCategory.financeOverview,
+      marketingOverview: input.failedKeyCountByCategory.marketingOverview,
+      membersMeta: input.failedKeyCountByCategory.membersMeta,
+      membersOverview: input.failedKeyCountByCategory.membersOverview,
     },
     slowestFailedReason: input.slowestFailedReason,
     durationDistribution: {
@@ -326,6 +341,69 @@ export function recordCachePrewarmCycle(input: {
         ),
         p95DurationMs: roundMetric(
           input.durationDistribution.financeOverview.p95DurationMs,
+        ),
+      },
+      marketingOverview: {
+        sampleCount: input.durationDistribution.marketingOverview.sampleCount,
+        totalDurationMs: roundMetric(
+          input.durationDistribution.marketingOverview.totalDurationMs,
+        ),
+        avgDurationMs: roundMetric(
+          input.durationDistribution.marketingOverview.avgDurationMs,
+        ),
+        minDurationMs: roundMetric(
+          input.durationDistribution.marketingOverview.minDurationMs,
+        ),
+        maxDurationMs: roundMetric(
+          input.durationDistribution.marketingOverview.maxDurationMs,
+        ),
+        p50DurationMs: roundMetric(
+          input.durationDistribution.marketingOverview.p50DurationMs,
+        ),
+        p95DurationMs: roundMetric(
+          input.durationDistribution.marketingOverview.p95DurationMs,
+        ),
+      },
+      membersMeta: {
+        sampleCount: input.durationDistribution.membersMeta.sampleCount,
+        totalDurationMs: roundMetric(
+          input.durationDistribution.membersMeta.totalDurationMs,
+        ),
+        avgDurationMs: roundMetric(
+          input.durationDistribution.membersMeta.avgDurationMs,
+        ),
+        minDurationMs: roundMetric(
+          input.durationDistribution.membersMeta.minDurationMs,
+        ),
+        maxDurationMs: roundMetric(
+          input.durationDistribution.membersMeta.maxDurationMs,
+        ),
+        p50DurationMs: roundMetric(
+          input.durationDistribution.membersMeta.p50DurationMs,
+        ),
+        p95DurationMs: roundMetric(
+          input.durationDistribution.membersMeta.p95DurationMs,
+        ),
+      },
+      membersOverview: {
+        sampleCount: input.durationDistribution.membersOverview.sampleCount,
+        totalDurationMs: roundMetric(
+          input.durationDistribution.membersOverview.totalDurationMs,
+        ),
+        avgDurationMs: roundMetric(
+          input.durationDistribution.membersOverview.avgDurationMs,
+        ),
+        minDurationMs: roundMetric(
+          input.durationDistribution.membersOverview.minDurationMs,
+        ),
+        maxDurationMs: roundMetric(
+          input.durationDistribution.membersOverview.maxDurationMs,
+        ),
+        p50DurationMs: roundMetric(
+          input.durationDistribution.membersOverview.p50DurationMs,
+        ),
+        p95DurationMs: roundMetric(
+          input.durationDistribution.membersOverview.p95DurationMs,
         ),
       },
     },

@@ -145,4 +145,16 @@ export default () => ({
   pulse: {
     devAccountEmails: parseStringList(process.env.PULSE_DEV_ACCOUNT_EMAILS),
   },
+
+  club: {
+    wechatCallbackSecret:
+      process.env.CLUB_WECHAT_CALLBACK_SECRET ?? 'club_wechat_callback_secret',
+    wechatCallbackMaxAgeSeconds: parseInt(
+      process.env.CLUB_WECHAT_CALLBACK_MAX_AGE_SECONDS ?? '300',
+      10,
+    ),
+    manualConfirmPaidEnabled:
+      (process.env.CLUB_MANUAL_CONFIRM_PAID_ENABLED ??
+        (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+  },
 });

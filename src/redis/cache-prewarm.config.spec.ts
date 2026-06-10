@@ -1,5 +1,8 @@
 import {
   buildBusinessAnalysisAllPattern,
+  buildMarketingOverviewAllPattern,
+  buildMembersMetaAllPattern,
+  buildMembersOverviewAllPattern,
   buildProfitDashboardHomeAllPattern,
 } from './cache-keys';
 import {
@@ -65,16 +68,29 @@ describe('cache prewarm config', () => {
       financeOverviewService: {
         warmOverviewCache: jest.fn(() => Promise.resolve()),
       },
+      marketingOverviewService: {
+        warmOverviewCache: jest.fn(() => Promise.resolve()),
+      },
+      membersService: {
+        warmMetaCache: jest.fn(() => Promise.resolve()),
+        warmOverviewCache: jest.fn(() => Promise.resolve()),
+      },
     });
 
     expect(configs.map((config) => config.category)).toEqual([
       'dashboardHome',
       'businessAnalysis',
+      'marketingOverview',
+      'membersMeta',
+      'membersOverview',
       'financeOverview',
     ]);
     expect(configs.map((config) => config.scanPattern())).toEqual([
       buildProfitDashboardHomeAllPattern(),
       buildBusinessAnalysisAllPattern(),
+      buildMarketingOverviewAllPattern(),
+      buildMembersMetaAllPattern(),
+      buildMembersOverviewAllPattern(),
       buildFinanceOverviewAllPattern(),
     ]);
   });

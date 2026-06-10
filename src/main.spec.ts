@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { bootstrap } from './main';
+import { bootstrap, filterSwaggerDocumentForEnvironment } from './main';
 
 jest.mock('@nestjs/core', () => ({
   NestFactory: {
@@ -83,6 +83,74 @@ describe('main bootstrap', () => {
       requestTimeout: 12000,
     });
     expect(app.listen).toHaveBeenCalledWith(3000, '0.0.0.0');
+  });
+
+  it('filterSwaggerDocumentForEnvironment 在关闭手动 confirm-paid 时隐藏 club 兜底接口', () => {
+    const document = {
+      tags: [{ name: 'Club / Orders' }],
+      paths: {
+        '/club/orders/{id}/confirm-paid': {
+          post: { summary: 'service', tags: ['Club / Orders'] },
+        },
+        '/club/recharge/orders/{id}/confirm-paid': {
+          post: { summary: 'recharge', tags: ['Club / Recharge'] },
+        },
+        '/club/orders/{id}': { get: { summary: 'query' } },
+      },
+    };
+
+    expect(
+      filterSwaggerDocumentForEnvironment(document, {
+        manualConfirmPaidEnabled: false,
+      }),
+    ).toEqual({
+      tags: [{ name: 'Club / Orders' }],
+      paths: {
+        '/club/orders/{id}': { get: { summary: 'query' } },
+      },
+    });
+  });
+
+  it('filterSwaggerDocumentForEnvironment 在开发态保留并高亮 club 兜底接口', () => {
+    const document = {
+      tags: [{ name: 'Club / Orders' }],
+      paths: {
+        '/club/orders/{id}/confirm-paid': {
+          post: { summary: 'service', tags: ['Club / Orders'] },
+        },
+        '/club/recharge/orders/{id}/confirm-paid': {
+          post: { summary: 'recharge', tags: ['Club / Recharge'] },
+        },
+      },
+    };
+
+    expect(
+      filterSwaggerDocumentForEnvironment(document, {
+        manualConfirmPaidEnabled: true,
+      }),
+    ).toEqual({
+      tags: [
+        { name: 'Club / Orders' },
+        {
+          name: 'Dev Only / Fallback',
+          description: '仅开发联调使用的支付兜底接口，生产链路请改用支付回调驱动。',
+        },
+      ],
+      paths: {
+        '/club/orders/{id}/confirm-paid': {
+          post: {
+            summary: 'service',
+            tags: ['Club / Orders', 'Dev Only / Fallback'],
+          },
+        },
+        '/club/recharge/orders/{id}/confirm-paid': {
+          post: {
+            summary: 'recharge',
+            tags: ['Club / Recharge', 'Dev Only / Fallback'],
+          },
+        },
+      },
+    });
   });
 
   it('开发环境默认端口被占用时会自动顺延端口', async () => {

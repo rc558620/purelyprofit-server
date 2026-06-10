@@ -30,6 +30,7 @@ describe('SpaceSessionCheckoutService', () => {
     ensureCanAccessStore: jest.fn(),
   };
   const checkoutLockService = {
+    createLock: jest.fn(),
     requireValidLock: jest.fn(),
     deleteLock: jest.fn(),
   };
@@ -62,6 +63,110 @@ describe('SpaceSessionCheckoutService', () => {
     service = module.get<SpaceSessionCheckoutService>(
       SpaceSessionCheckoutService,
     );
+  });
+
+  it('countdown 固定台位费预览应直接返回预付抵扣后的金额', async () => {
+    const user = createSpaceTestUser();
+    const checkoutAt = createSpaceCheckoutAt();
+    const baseSession = createSpaceSessionRecord();
+    const session = {
+      ...baseSession,
+      billingMode: 'countdown' as const,
+      hourlyRate: new Prisma.Decimal(777),
+      countdownMinutes: 60,
+      autoCheckout: false,
+      prepaidPaymentMethod: 'cash' as const,
+      prepaidAmount: new Prisma.Decimal(999),
+    };
+
+    prismaService.spaceSession.findUnique.mockResolvedValue(session);
+    checkoutLockService.createLock.mockResolvedValue({
+      lockId: 'lock_preview_1',
+      expiresAt: checkoutAt + 5 * 60 * 1000,
+    });
+
+    jest.spyOn(Date, 'now').mockReturnValue(checkoutAt);
+
+    const result = await service.previewSpaceSessionCheckout(user, 9, {
+      timeFeeMode: 'unit_price',
+      countdownFeeMode: 'fixed',
+    });
+
+    expect(result).toMatchObject({
+      lockId: 'lock_preview_1',
+      lockedAt: checkoutAt,
+      expiresAt: checkoutAt + 5 * 60 * 1000,
+      preview: {
+        timeCost: 777,
+        itemsCost: 20,
+        renewDeduction: 0,
+        prepaidDeduction: 999,
+        totalAmount: -202,
+        timeFeeMode: 'unit_price',
+        countdownFeeMode: 'fixed',
+      },
+    });
+
+    jest.restoreAllMocks();
+  });
+
+  it('timed 会话在按实际计时与按单价预览下都应扣减开台已收款', async () => {
+    const user = createSpaceTestUser();
+    const checkoutAt = createSpaceCheckoutAt();
+    const baseSession = createSpaceSessionRecord();
+    const session = {
+      ...baseSession,
+      startTime: new Date(2026, 5, 4, 9, 20, 0),
+      billingMode: 'timed' as const,
+      hourlyRate: new Prisma.Decimal(777),
+      items: [],
+      itemsCost: new Prisma.Decimal(0),
+      prepaidPaymentMethod: 'card' as const,
+      prepaidAmount: new Prisma.Decimal(1500),
+    };
+
+    prismaService.spaceSession.findUnique.mockResolvedValue(session);
+    checkoutLockService.createLock
+      .mockResolvedValueOnce({
+        lockId: 'lock_preview_timed',
+        expiresAt: checkoutAt + 5 * 60 * 1000,
+      })
+      .mockResolvedValueOnce({
+        lockId: 'lock_preview_unit_price',
+        expiresAt: checkoutAt + 5 * 60 * 1000,
+      });
+
+    jest.spyOn(Date, 'now').mockReturnValue(checkoutAt);
+
+    const timedResult = await service.previewSpaceSessionCheckout(user, 9, {
+      timeFeeMode: 'timed',
+      countdownFeeMode: 'timed',
+    });
+    const unitPriceResult = await service.previewSpaceSessionCheckout(user, 9, {
+      timeFeeMode: 'unit_price',
+      countdownFeeMode: 'fixed',
+    });
+
+    expect(timedResult.preview).toMatchObject({
+      durationMinutes: 70,
+      timeCost: 906.51,
+      itemsCost: 0,
+      prepaidDeduction: 1500,
+      totalAmount: -593.49,
+      timeFeeMode: 'timed',
+      countdownFeeMode: 'timed',
+    });
+    expect(unitPriceResult.preview).toMatchObject({
+      durationMinutes: 70,
+      timeCost: 777,
+      itemsCost: 0,
+      prepaidDeduction: 1500,
+      totalAmount: -723,
+      timeFeeMode: 'unit_price',
+      countdownFeeMode: 'fixed',
+    });
+
+    jest.restoreAllMocks();
   });
 
   it('checkout 应串起 settlement 并透传当前班次归属到销售记录创建', async () => {

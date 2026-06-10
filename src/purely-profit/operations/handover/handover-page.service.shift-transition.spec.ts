@@ -411,15 +411,20 @@ describe('HandoverPageService - 已交班后切班逻辑', () => {
     const result = await ctx.service.getHandoverPage(subAccountUser, {});
 
     expect(result.selectedShiftType).toBe(EmployeeShiftType.custom);
+    // handoverCompletedAndNoUpcomingShift 为 true 时，
+    // operatorName 应为空，前端不显示员工名字
     expect(result.shiftInfo).toMatchObject({
-      operatorName: '收银员3',
+      operatorName: '',
       startTime: '17:11',
       endTime: '17:15',
     });
+    // 不应返回头像，前端应使用默认头像
+    expect(result.shiftInfo.operatorAvatar).toBeUndefined();
+    expect(result.shiftInfo.avatar).toBeUndefined();
     expect(result.receiverName).toBe('');
-    // 收银员自己的班次都已交完，但全店还有后续班次（602、603），
-    // 所以 handoverCompletedAndNoUpcomingShift 应为 false
-    expect(result.handoverCompletedAndNoUpcomingShift).toBe(false);
+    // 收银员自己的班次都已交完，且收银员自己没有后续班次，
+    // 所以 handoverCompletedAndNoUpcomingShift 应为 true
+    expect(result.handoverCompletedAndNoUpcomingShift).toBe(true);
   });
 
   it('仅带 operatorName 刷新时不应锁定到同员工后续班次', async () => {
@@ -596,6 +601,54 @@ describe('HandoverPageService - 已交班后切班逻辑', () => {
 
     expect(result.handoverCompletedAndNoUpcomingShift).toBe(true);
     expect(result.receiverName).toBe('');
+  });
+
+  it('交班完成且无后续排班时，交班页面应返回空指标', async () => {
+    setSystemTime('2026-06-05T19:03:00');
+    const onlyShift = ctx.createShiftRecord({
+      id: 710,
+      employeeId: 20,
+      employeeName: '员工A',
+      shiftType: EmployeeShiftType.morning,
+      shiftName: '早班',
+      date: new Date('2026-06-05T00:00:00.000Z'),
+      startTime: '08:00',
+      endTime: '14:00',
+      createdAt: new Date('2026-06-05T07:50:00.000Z'),
+    });
+    prismaService.employeeShift.findMany.mockResolvedValue([onlyShift]);
+    prismaService.storeHandoverRecord.count.mockImplementation(({ where }) => {
+      const snapshotCondition = Array.isArray(where?.OR)
+        ? where.OR.find((item) => item?.employeeShiftIdSnapshot)
+        : null;
+      if (snapshotCondition?.employeeShiftIdSnapshot === 710) {
+        return Promise.resolve(1);
+      }
+      if (where?.fromEmployeeId === 20) {
+        return Promise.resolve(1);
+      }
+      return Promise.resolve(0);
+    });
+    prismaService.employee.findUnique.mockResolvedValue(
+      createEmployeeProfile({ linkedStaffId: 101 }),
+    );
+
+    const result = await ctx.service.getHandoverPage(subAccountUser, {});
+
+    // 交班完成且无后续排班时，不应加载任何指标数据
+    expect(result.handoverCompletedAndNoUpcomingShift).toBe(true);
+    expect(result.revenueSummary).toMatchObject({
+      additionalRevenue: 0,
+      spaceRevenue: 0,
+      totalRevenue: 0,
+      orderCount: 0,
+      refundAmount: 0,
+    });
+    expect(result.orderItems).toEqual([]);
+    expect(result.paymentItems).toEqual([]);
+    // 不应调用任何统计查询
+    expect(prismaService.spaceSession.aggregate).not.toHaveBeenCalled();
+    expect(prismaService.saleOrder.aggregate).not.toHaveBeenCalled();
   });
 
   it('老板无个人班次但全店班次都交完时 handoverCompletedAndNoUpcomingShift 应为 true', async () => {

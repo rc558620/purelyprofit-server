@@ -53,9 +53,12 @@ export const normalizeCheckoutPayload = (
   assertMoneyPrecision(dto.platformFee, '平台手续费');
   assertMoneyPrecision(dto.voucherFaceAmount, '券面金额');
 
+  const effectiveVoucherCode = voucherCode || grouponCode;
+  const effectiveVoucherPlatform = voucherPlatform || grouponPlatform;
+
   if (dto.customerPaymentMethod === 'groupon_voucher') {
-    assertRequiredNonEmpty(voucherCode, '券码');
-    assertRequiredNonEmpty(voucherPlatform, '券所属平台');
+    assertRequiredNonEmpty(effectiveVoucherCode, '券码');
+    assertRequiredNonEmpty(effectiveVoucherPlatform, '券所属平台');
     assertRequiredNonEmpty(dto.settlementChannel, '结算渠道');
     if (dto.voucherFaceAmount === undefined || dto.voucherFaceAmount <= 0) {
       throw new BadRequestException('券面金额必须大于 0');
@@ -90,8 +93,10 @@ export const normalizeCheckoutPayload = (
     ...(dto.settlementChannel !== undefined
       ? { settlementChannel: dto.settlementChannel }
       : {}),
-    ...(voucherCode ? { voucherCode } : {}),
-    ...(voucherPlatform ? { voucherPlatform } : {}),
+    ...(effectiveVoucherCode ? { voucherCode: effectiveVoucherCode } : {}),
+    ...(effectiveVoucherPlatform
+      ? { voucherPlatform: effectiveVoucherPlatform }
+      : {}),
     ...(dto.voucherFaceAmount !== undefined
       ? { voucherFaceAmount: dto.voucherFaceAmount }
       : {}),

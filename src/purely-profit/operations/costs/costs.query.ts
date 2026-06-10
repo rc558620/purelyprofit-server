@@ -7,7 +7,6 @@ import type {
   CostQueryInput,
   CostReportCategoryFilterValue,
   CostReportCostRow,
-  CostReportPreviousRow,
   CostReportPayrollRow,
 } from './costs.types';
 
@@ -45,7 +44,7 @@ export async function queryCostReportRows(
   categoryFilter: CostReportCategoryFilterValue,
 ): Promise<{
   costRows: CostReportCostRow[];
-  previousRows: CostReportPreviousRow[];
+  previousTotal: Prisma.Decimal;
   payrollRows: CostReportPayrollRow[];
 }> {
   const costRowsPromise: Promise<CostReportCostRow[]> =
@@ -70,20 +69,22 @@ export async function queryCostReportRows(
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
     });
 
-  const previousRowsPromise: Promise<CostReportPreviousRow[]> = previousRange
-    ? prisma.costRecord.findMany({
-        where: {
-          storeId,
-          date: {
-            gte: new Date(previousRange.start),
-            lte: new Date(previousRange.end),
+  const previousTotalPromise: Promise<Prisma.Decimal> = previousRange
+    ? prisma.costRecord
+        .aggregate({
+          where: {
+            storeId,
+            date: {
+              gte: new Date(previousRange.start),
+              lte: new Date(previousRange.end),
+            },
           },
-        },
-        select: {
-          amount: true,
-        },
-      })
-    : Promise.resolve([]);
+          _sum: {
+            amount: true,
+          },
+        })
+        .then((result) => result._sum.amount ?? new Prisma.Decimal(0))
+    : Promise.resolve(new Prisma.Decimal(0));
 
   const payrollRowsPromise: Promise<CostReportPayrollRow[]> =
     categoryFilter === 'salary'
@@ -107,15 +108,15 @@ export async function queryCostReportRows(
         })
       : Promise.resolve([]);
 
-  const [costRows, previousRows, payrollRows] = await Promise.all([
+  const [costRows, previousTotal, payrollRows] = await Promise.all([
     costRowsPromise,
-    previousRowsPromise,
+    previousTotalPromise,
     payrollRowsPromise,
   ]);
 
   return {
     costRows,
-    previousRows,
+    previousTotal,
     payrollRows,
   };
 }

@@ -110,6 +110,14 @@ export function countSaleOrders(
 // 订单号生成
 // ---------------------------------------------------------------------------
 
+function buildSalesOrderSequenceLockKey(date: Date): number {
+  return Number(
+    `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(
+      date.getDate(),
+    ).padStart(2, '0')}`,
+  );
+}
+
 export async function generateOrderNo(
   client: Prisma.TransactionClient,
   storeId: number,
@@ -117,6 +125,12 @@ export async function generateOrderNo(
 ): Promise<string> {
   const dayStart = getStartOfDay(date.getTime());
   const dayEnd = getEndOfDay(date.getTime());
+  await client.$executeRaw`
+    SELECT pg_advisory_xact_lock(
+      ${storeId},
+      ${buildSalesOrderSequenceLockKey(date)}
+    )
+  `;
   const count = await client.saleOrder.count({
     where: {
       storeId,

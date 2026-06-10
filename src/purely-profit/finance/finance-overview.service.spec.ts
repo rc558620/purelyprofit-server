@@ -258,55 +258,40 @@ describe('FinanceOverviewService', () => {
   });
 
   it('getReport 返回报表中心财务契约并支持 year 周期', async () => {
-    prismaService.financeCashFlowRecord.findMany
-      .mockResolvedValueOnce([
-        {
-          id: 1,
-          direction: 'income',
-          category: 'sales',
-          title: '午市营业额',
-          amount: new Prisma.Decimal('500.00'),
-          payment: 'wechat',
-          note: null,
-          date: new Date('2025-05-14T10:00:00.000Z'),
-          createdAt: new Date('2025-05-14T10:05:00.000Z'),
-        },
-        {
-          id: 2,
-          direction: 'expense',
-          category: 'purchase',
-          title: '采购牛奶',
-          amount: new Prisma.Decimal('120.00'),
-          payment: 'bank',
-          note: null,
-          date: new Date('2025-05-13T08:00:00.000Z'),
-          createdAt: new Date('2025-05-13T08:05:00.000Z'),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          id: 3,
-          direction: 'income',
-          category: 'sales',
-          title: '去年营业额',
-          amount: new Prisma.Decimal('300.00'),
-          payment: 'cash',
-          note: null,
-          date: new Date('2024-05-14T10:00:00.000Z'),
-          createdAt: new Date('2024-05-14T10:05:00.000Z'),
-        },
-        {
-          id: 4,
-          direction: 'expense',
-          category: 'rent',
-          title: '去年房租',
-          amount: new Prisma.Decimal('100.00'),
-          payment: 'bank',
-          note: null,
-          date: new Date('2024-05-02T10:00:00.000Z'),
-          createdAt: new Date('2024-05-02T10:05:00.000Z'),
-        },
-      ]);
+    prismaService.financeCashFlowRecord.findMany.mockResolvedValueOnce([
+      {
+        id: 1,
+        direction: 'income',
+        category: 'sales',
+        title: '午市营业额',
+        amount: new Prisma.Decimal('500.00'),
+        payment: 'wechat',
+        note: null,
+        date: new Date('2025-05-14T10:00:00.000Z'),
+        createdAt: new Date('2025-05-14T10:05:00.000Z'),
+      },
+      {
+        id: 2,
+        direction: 'expense',
+        category: 'purchase',
+        title: '采购牛奶',
+        amount: new Prisma.Decimal('120.00'),
+        payment: 'bank',
+        note: null,
+        date: new Date('2025-05-13T08:00:00.000Z'),
+        createdAt: new Date('2025-05-13T08:05:00.000Z'),
+      },
+    ]);
+    prismaService.financeCashFlowRecord.groupBy.mockResolvedValue([
+      {
+        direction: 'income',
+        _sum: { amount: new Prisma.Decimal('300.00') },
+      },
+      {
+        direction: 'expense',
+        _sum: { amount: new Prisma.Decimal('100.00') },
+      },
+    ]);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
       {
         id: 8,
@@ -430,11 +415,9 @@ describe('FinanceOverviewService', () => {
         }),
       }),
     );
-    expect(
-      prismaService.financeCashFlowRecord.findMany,
-    ).toHaveBeenNthCalledWith(
-      2,
+    expect(prismaService.financeCashFlowRecord.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({
+        by: ['direction'],
         where: expect.objectContaining({
           storeId: 18,
           date: {
@@ -442,6 +425,7 @@ describe('FinanceOverviewService', () => {
             lte: new Date(2024, 11, 31, 23, 59, 59, 999),
           },
         }),
+        _sum: { amount: true },
       }),
     );
   });

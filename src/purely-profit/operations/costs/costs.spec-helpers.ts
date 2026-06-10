@@ -38,6 +38,8 @@ export function createCostsPrismaMock() {
   return {
     costRecord: {
       findMany: jest.fn(),
+      aggregate: jest.fn(),
+      groupBy: jest.fn(),
       create: jest.fn(),
       findUnique: jest.fn(),
       delete: jest.fn(),

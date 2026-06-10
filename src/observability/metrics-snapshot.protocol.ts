@@ -122,6 +122,9 @@ export type MetricsCachePrewarmCycleSnapshot = {
   dashboardHitCount: number;
   businessAnalysisHitCount: number;
   financeOverviewHitCount: number;
+  marketingOverviewHitCount: number;
+  membersMetaHitCount: number;
+  membersOverviewHitCount: number;
   failedKeyCountByCategory: Record<SummaryCachePrewarmCategory, number>;
   slowestFailedReason: string | null;
   durationDistribution: Record<

@@ -48,8 +48,8 @@ model CostRecord {
 
   @@unique([storeId, sourceType, purchaseOrderId])
   @@unique([storeId, sourceType, payrollId])
-  @@index([storeId, date])
-  @@index([storeId, type, date])
+  @@index([storeId, date(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
+  @@index([storeId, type, date(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
   @@index([storeId, category, date])
   @@index([operatorStaffId, createdAt])
   @@map("cost_records")

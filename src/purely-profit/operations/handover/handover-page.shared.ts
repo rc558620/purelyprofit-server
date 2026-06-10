@@ -15,7 +15,12 @@ import {
   SHIFT_TIME_FALLBACKS,
   SPACE_PREPAID_DEDUCTION_ITEM_NAME,
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
+  addMoney,
   buildShiftDateRange,
+  divMoney,
+  mulMoney,
+  roundMoney,
+  subMoney,
   type DisplayOperatorInfo,
   type OrderItemRow,
   type RefundOrderRow,
@@ -24,7 +29,6 @@ import {
   mapRefundOrderItem,
   resolveOrderItemPaymentMethod,
   resolveShiftLabel,
-  roundMoney,
   toDisplayName,
   toMoneyNumber,
 } from './handover.shared';
@@ -295,7 +299,7 @@ export const mapPaymentItems = (
   const paymentAmountMap = new Map<SalesPaymentMethod, number>();
 
   for (const item of items) {
-    const rawAmount = roundMoney(toMoneyNumber(item.salePrice) * item.quantity);
+    const rawAmount = mulMoney(toMoneyNumber(item.salePrice), item.quantity);
     const amount =
       rawAmount > 0 ||
       item.productName === SPACE_PREPAID_DEDUCTION_ITEM_NAME ||
@@ -309,7 +313,7 @@ export const mapPaymentItems = (
     const paymentMethod = resolveOrderItemPaymentMethod(item);
     paymentAmountMap.set(
       paymentMethod,
-      roundMoney((paymentAmountMap.get(paymentMethod) ?? 0) + amount),
+      addMoney(paymentAmountMap.get(paymentMethod) ?? 0, amount),
     );
   }
 
@@ -328,11 +332,11 @@ export const attachPaymentRatios = (
 ): HandoverPaymentItemDto[] =>
   items.map((item) => ({
     ...item,
-    ratio: totalRevenue > 0 ? roundMoney(item.amount / totalRevenue) : 0,
+    ratio: totalRevenue > 0 ? divMoney(item.amount, totalRevenue) : 0,
   }));
 
 export const sumPaymentAmounts = (items: HandoverPaymentItemDto[]): number =>
-  roundMoney(items.reduce((sum, item) => sum + item.amount, 0));
+  items.reduce((acc, item) => addMoney(acc, item.amount), 0);
 
 export const buildRevenueAmounts = (
   spaceRevenue: Prisma.Decimal | number | string | null | undefined,
@@ -356,10 +360,9 @@ export const buildRecordRevenueSummary = (
   additionalRevenue: revenueAmounts.additionalRevenueAmount,
   spaceRevenue: revenueAmounts.spaceRevenueAmount,
   refundAmount: revenueAmounts.refundAmount,
-  totalRevenue: roundMoney(
-    revenueAmounts.additionalRevenueAmount +
-      revenueAmounts.spaceRevenueAmount -
-      revenueAmounts.refundAmount,
+  totalRevenue: subMoney(
+    addMoney(revenueAmounts.additionalRevenueAmount, revenueAmounts.spaceRevenueAmount),
+    revenueAmounts.refundAmount,
   ),
   orderCount,
   pettyCache: pettyCashAmount,

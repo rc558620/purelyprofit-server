@@ -41,16 +41,25 @@ function createCycleSnapshot(
     dashboardHitCount: 1,
     businessAnalysisHitCount: 1,
     financeOverviewHitCount: 1,
+    marketingOverviewHitCount: 0,
+    membersMetaHitCount: 0,
+    membersOverviewHitCount: 0,
     failedKeyCountByCategory: {
       dashboardHome: 0,
       businessAnalysis: 0,
       financeOverview: 0,
+      marketingOverview: 0,
+      membersMeta: 0,
+      membersOverview: 0,
     },
     slowestFailedReason: null,
     durationDistribution: {
       dashboardHome: createDurationDistribution(1, 80, 80, 80),
       businessAnalysis: createDurationDistribution(1, 60, 60, 60),
       financeOverview: createDurationDistribution(1, 40, 40, 40),
+      marketingOverview: createDurationDistribution(0, 0, 0, 0),
+      membersMeta: createDurationDistribution(0, 0, 0, 0),
+      membersOverview: createDurationDistribution(0, 0, 0, 0),
     },
     slowKeySamples: [],
     capturedAt: '2026-06-08T10:00:00.000Z',
@@ -89,21 +98,45 @@ function createCachePrewarmSnapshot(
         failedCount: 0,
         topReasons: [],
       },
+      {
+        category: 'marketingOverview',
+        failedCount: 0,
+        topReasons: [],
+      },
+      {
+        category: 'membersMeta',
+        failedCount: 0,
+        topReasons: [],
+      },
+      {
+        category: 'membersOverview',
+        failedCount: 0,
+        topReasons: [],
+      },
     ],
     lastFailedAtByCategory: {
       dashboardHome: null,
       businessAnalysis: null,
       financeOverview: null,
+      marketingOverview: null,
+      membersMeta: null,
+      membersOverview: null,
     },
     lastFailedKeyByCategory: {
       dashboardHome: null,
       businessAnalysis: null,
       financeOverview: null,
+      marketingOverview: null,
+      membersMeta: null,
+      membersOverview: null,
     },
     lastFailedSampleByCategory: {
       dashboardHome: null,
       businessAnalysis: null,
       financeOverview: null,
+      marketingOverview: null,
+      membersMeta: null,
+      membersOverview: null,
     },
     recentCycles: [createCycleSnapshot()],
     ...overrides,
@@ -197,12 +230,18 @@ describe('cache prewarm observability helpers', () => {
         dashboardHome: '2026-06-08T10:03:00.000Z',
         businessAnalysis: '2026-06-08T10:01:00.000Z',
         financeOverview: null,
+        marketingOverview: null,
+        membersMeta: null,
+        membersOverview: null,
       },
       lastFailedKeyByCategory: {
         dashboardHome: 'profit:dashboard:home:store:18:period:today',
         businessAnalysis:
           'profit:business-analysis:store:18:period:month:start:na:end:na',
         financeOverview: null,
+        marketingOverview: null,
+        membersMeta: null,
+        membersOverview: null,
       },
       lastFailedSampleByCategory: {
         dashboardHome: {
@@ -221,6 +260,9 @@ describe('cache prewarm observability helpers', () => {
           failedReason: 'timeout',
         },
         financeOverview: null,
+        marketingOverview: null,
+        membersMeta: null,
+        membersOverview: null,
       },
       recentCycles: [
         createCycleSnapshot({
@@ -231,6 +273,9 @@ describe('cache prewarm observability helpers', () => {
             dashboardHome: createDurationDistribution(1, 180, 180, 180),
             businessAnalysis: createDurationDistribution(1, 220, 220, 220),
             financeOverview: createDurationDistribution(1, 90, 90, 90),
+            marketingOverview: createDurationDistribution(0, 0, 0, 0),
+            membersMeta: createDurationDistribution(0, 0, 0, 0),
+            membersOverview: createDurationDistribution(0, 0, 0, 0),
           },
           slowKeySamples: [
             {
@@ -252,6 +297,9 @@ describe('cache prewarm observability helpers', () => {
             dashboardHome: createDurationDistribution(1, 80, 80, 80),
             businessAnalysis: createDurationDistribution(1, 210, 210, 210),
             financeOverview: createDurationDistribution(1, 70, 70, 70),
+            marketingOverview: createDurationDistribution(0, 0, 0, 0),
+            membersMeta: createDurationDistribution(0, 0, 0, 0),
+            membersOverview: createDurationDistribution(0, 0, 0, 0),
           },
           slowKeySamples: [
             {
@@ -370,6 +418,9 @@ describe('cache prewarm observability helpers', () => {
             dashboardHome: createDurationDistribution(1, 120, 120, 120),
             businessAnalysis: createDurationDistribution(1, 180, 180, 180),
             financeOverview: createDurationDistribution(1, 90, 90, 90),
+            marketingOverview: createDurationDistribution(0, 0, 0, 0),
+            membersMeta: createDurationDistribution(0, 0, 0, 0),
+            membersOverview: createDurationDistribution(0, 0, 0, 0),
           },
         }),
       ],
@@ -415,6 +466,9 @@ describe('cache prewarm observability helpers', () => {
             dashboardHome: 1,
             businessAnalysis: 0,
             financeOverview: 0,
+            marketingOverview: 0,
+            membersMeta: 0,
+            membersOverview: 0,
           },
         }),
       ],
@@ -440,16 +494,37 @@ describe('cache prewarm observability helpers', () => {
           failedCount: 0,
           topReasons: [],
         },
+        {
+          category: 'marketingOverview',
+          failedCount: 0,
+          topReasons: [],
+        },
+        {
+          category: 'membersMeta',
+          failedCount: 0,
+          topReasons: [],
+        },
+        {
+          category: 'membersOverview',
+          failedCount: 0,
+          topReasons: [],
+        },
       ],
       lastFailedAtByCategory: {
         dashboardHome: '2026-06-08T10:04:00.000Z',
         businessAnalysis: null,
         financeOverview: null,
+        marketingOverview: null,
+        membersMeta: null,
+        membersOverview: null,
       },
       lastFailedKeyByCategory: {
         dashboardHome: 'profit:dashboard:home:store:18:period:today',
         businessAnalysis: null,
         financeOverview: null,
+        marketingOverview: null,
+        membersMeta: null,
+        membersOverview: null,
       },
       lastFailedSampleByCategory: {
         dashboardHome: {
@@ -461,6 +536,9 @@ describe('cache prewarm observability helpers', () => {
         },
         businessAnalysis: null,
         financeOverview: null,
+        marketingOverview: null,
+        membersMeta: null,
+        membersOverview: null,
       },
     });
     const context = buildMetricsSummaryContext(

@@ -198,18 +198,18 @@ describe('SalesRecordReportService', () => {
       },
       dailySales: [
         {
-          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-manual_手冲咖啡`,
-          dateLabel: '05/14',
-          productName: '手冲咖啡',
-          quantity: 1,
-          revenue: 23.5,
-        },
-        {
           id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-201`,
           dateLabel: '05/14',
           productName: '可口可乐 330ml',
           quantity: 2,
           revenue: 13,
+        },
+        {
+          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-manual_手冲咖啡`,
+          dateLabel: '05/14',
+          productName: '手冲咖啡',
+          quantity: 1,
+          revenue: 23.5,
         },
         {
           id: `${new Date(2026, 4, 13, 0, 0, 0, 0).getTime()}-201`,
@@ -446,13 +446,6 @@ describe('SalesRecordReportService', () => {
       },
       dailySales: [
         {
-          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-401`,
-          dateLabel: '05/14',
-          productName: '特调咖啡',
-          quantity: 1,
-          revenue: 24,
-        },
-        {
           id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A02台位费（固定）`,
           dateLabel: '05/14',
           productName: '大厅A02台位费（固定）',
@@ -472,6 +465,13 @@ describe('SalesRecordReportService', () => {
           productName: '大厅A01台位费（固定）',
           quantity: 1,
           revenue: 10,
+        },
+        {
+          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-401`,
+          dateLabel: '05/14',
+          productName: '特调咖啡',
+          quantity: 1,
+          revenue: 24,
         },
       ],
     });

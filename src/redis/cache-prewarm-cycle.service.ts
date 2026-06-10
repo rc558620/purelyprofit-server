@@ -3,6 +3,8 @@ import { recordCachePrewarmCycle } from '../observability';
 import { BusinessAnalysisService } from '../purely-profit/dashboard/business-analysis/business-analysis.service';
 import { DashboardHomeService } from '../purely-profit/dashboard/dashboard-home/dashboard-home.service';
 import { FinanceOverviewService } from '../purely-profit/finance/finance-overview.service';
+import { MarketingOverviewService } from '../purely-profit/marketing/marketing-overview.service';
+import { MembersService } from '../purely-profit/member/members/members.service';
 import type {
   CachePrewarmCategoryConfig,
   CachePrewarmCategoryResultsMap,
@@ -36,6 +38,8 @@ export class CachePrewarmCycleService {
     private readonly dashboardHomeService: DashboardHomeService,
     private readonly businessAnalysisService: BusinessAnalysisService,
     private readonly financeOverviewService: FinanceOverviewService,
+    private readonly marketingOverviewService: MarketingOverviewService,
+    private readonly membersService: MembersService,
   ) {}
 
   async runCycle(input: CachePrewarmCycleRunInput): Promise<void> {
@@ -71,6 +75,8 @@ export class CachePrewarmCycleService {
       dashboardHomeService: this.dashboardHomeService,
       businessAnalysisService: this.businessAnalysisService,
       financeOverviewService: this.financeOverviewService,
+      marketingOverviewService: this.marketingOverviewService,
+      membersService: this.membersService,
     });
   }
 

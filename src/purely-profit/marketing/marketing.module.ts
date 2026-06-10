@@ -57,5 +57,6 @@ import { MarketingSharedService } from './marketing-shared.service';
     MarketingProductCategoriesService,
     MarketingProductsService,
   ],
+  exports: [MarketingOverviewService],
 })
 export class MarketingModule {}

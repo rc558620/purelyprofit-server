@@ -86,6 +86,9 @@ export function buildCachePrewarmCategoryResultsMap(
     dashboardHome: buildEmptyCachePrewarmCategoryResult(),
     businessAnalysis: buildEmptyCachePrewarmCategoryResult(),
     financeOverview: buildEmptyCachePrewarmCategoryResult(),
+    marketingOverview: buildEmptyCachePrewarmCategoryResult(),
+    membersMeta: buildEmptyCachePrewarmCategoryResult(),
+    membersOverview: buildEmptyCachePrewarmCategoryResult(),
   };
 
   for (const [category, result] of entries) {
@@ -133,10 +136,16 @@ export function buildCachePrewarmCycleMetrics(
     dashboardHitCount: results.dashboardHome.hitCount,
     businessAnalysisHitCount: results.businessAnalysis.hitCount,
     financeOverviewHitCount: results.financeOverview.hitCount,
+    marketingOverviewHitCount: results.marketingOverview.hitCount,
+    membersMetaHitCount: results.membersMeta.hitCount,
+    membersOverviewHitCount: results.membersOverview.hitCount,
     failedKeyCountByCategory: {
       dashboardHome: results.dashboardHome.failedCount,
       businessAnalysis: results.businessAnalysis.failedCount,
       financeOverview: results.financeOverview.failedCount,
+      marketingOverview: results.marketingOverview.failedCount,
+      membersMeta: results.membersMeta.failedCount,
+      membersOverview: results.membersOverview.failedCount,
     },
     slowestFailedReason: slowestFailedSample
       ? `${slowestFailedSample.errorTag}:${slowestFailedSample.failedReason}`
@@ -145,6 +154,9 @@ export function buildCachePrewarmCycleMetrics(
       dashboardHome: results.dashboardHome.durationDistribution,
       businessAnalysis: results.businessAnalysis.durationDistribution,
       financeOverview: results.financeOverview.durationDistribution,
+      marketingOverview: results.marketingOverview.durationDistribution,
+      membersMeta: results.membersMeta.durationDistribution,
+      membersOverview: results.membersOverview.durationDistribution,
     },
     slowKeySamples,
   };
@@ -163,16 +175,25 @@ export function buildFailedCachePrewarmCycleMetrics(
     dashboardHitCount: 0,
     businessAnalysisHitCount: 0,
     financeOverviewHitCount: 0,
+    marketingOverviewHitCount: 0,
+    membersMetaHitCount: 0,
+    membersOverviewHitCount: 0,
     failedKeyCountByCategory: {
       dashboardHome: 0,
       businessAnalysis: 0,
       financeOverview: 0,
+      marketingOverview: 0,
+      membersMeta: 0,
+      membersOverview: 0,
     },
     slowestFailedReason: null,
     durationDistribution: {
       dashboardHome: buildCachePrewarmDurationDistribution([]),
       businessAnalysis: buildCachePrewarmDurationDistribution([]),
       financeOverview: buildCachePrewarmDurationDistribution([]),
+      marketingOverview: buildCachePrewarmDurationDistribution([]),
+      membersMeta: buildCachePrewarmDurationDistribution([]),
+      membersOverview: buildCachePrewarmDurationDistribution([]),
     },
     slowKeySamples: [],
   };

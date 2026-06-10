@@ -27,9 +27,10 @@ import {
 } from './handover-page.shared';
 import {
   ORDER_ITEMS_LIMIT,
+  addMoney,
   buildShiftDateRange,
   extendShiftRangeToReference,
-  roundMoney,
+  subMoney,
   toMoneyNumber,
   type OrderItemRow,
   type RefundOrderRow,
@@ -47,6 +48,17 @@ type HandoverPageMetrics = {
   pettyCashAmount: number;
 };
 
+const EMPTY_METRICS: HandoverPageMetrics = {
+  orderCount: 0,
+  paymentOrderItems: [],
+  orderItems: [],
+  refundOrders: [],
+  additionalRevenueAmount: 0,
+  spaceRevenueAmount: 0,
+  refundAmount: 0,
+  pettyCashAmount: 0,
+};
+
 @Injectable()
 export class HandoverPageService {
   constructor(
@@ -60,6 +72,15 @@ export class HandoverPageService {
   ): Promise<HandoverPageResponseDto> {
     const shiftContext =
       await this.handoverPageShiftService.resolvePageShiftContext(user, query);
+
+    // 交班完成且无后续排班时，所有数据已通过交班确认归档，
+    // 不再加载任何指标，交班页面显示空态。
+    // 主账号在此之后通过 additional / space-management 发生的
+    // 记账和结账不应出现在交班页面中。
+    if (shiftContext.handoverCompletedAndNoUpcomingShift) {
+      return this.buildPageResponse(shiftContext, EMPTY_METRICS);
+    }
+
     const shiftRange = await this.resolvePageShiftRange(
       shiftContext,
       new Date(),
@@ -308,15 +329,25 @@ export class HandoverPageService {
   ): HandoverPageResponseDto {
     const paymentItems = mapPaymentItems(metrics.paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);
-    const totalRevenue = roundMoney(
-      metrics.additionalRevenueAmount +
-        metrics.spaceRevenueAmount -
-        metrics.refundAmount,
+    const totalRevenue = subMoney(
+      addMoney(metrics.additionalRevenueAmount, metrics.spaceRevenueAmount),
+      metrics.refundAmount,
     );
+
+    // 当所有班次已交接完成且无后续排班时，
+    // 清空操作员名字并移除头像，前端回退到用户注册时的默认头像。
+    let { shiftInfo } = shiftContext;
+    if (shiftContext.handoverCompletedAndNoUpcomingShift) {
+      const { operatorAvatar, avatar, ...rest } = shiftInfo;
+      shiftInfo = {
+        ...rest,
+        operatorName: '',
+      };
+    }
 
     return {
       selectedShiftType: shiftContext.shiftInfo.shiftType,
-      shiftInfo: shiftContext.shiftInfo,
+      shiftInfo,
       revenueSummary: {
         additionalRevenue: metrics.additionalRevenueAmount,
         spaceRevenue: metrics.spaceRevenueAmount,
