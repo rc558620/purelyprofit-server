@@ -154,6 +154,40 @@ export class ClubServiceOrderResponseDto extends ClubOrderStatusResponseDto {
   @ApiProperty({ example: 688, description: '服务原价，单位元' })
   originalAmount: number;
 
+  @ApiProperty({ example: 189, description: '本次优惠金额，单位元；未命中优惠时返回 0' })
+  discountAmount: number;
+
+  @ApiPropertyOptional({
+    example: '18',
+    description: '命中的活动 ID；未命中优惠时为空',
+  })
+  @IsOptional()
+  @IsString({ message: 'promotionId 必须是字符串' })
+  promotionId: string | null;
+
+  @ApiPropertyOptional({
+    example: 'first_order_discount',
+    description: '命中的活动类型；未命中优惠时为空',
+  })
+  @IsOptional()
+  @IsString({ message: 'promotionType 必须是字符串' })
+  promotionType: string | null;
+
+  @ApiPropertyOptional({
+    example: 75,
+    description: '命中的折扣率；75 表示 7.5 折，未命中优惠时为空',
+  })
+  @IsOptional()
+  discountRate: number | null;
+
+  @ApiPropertyOptional({
+    example: '首单 7.5 折',
+    description: '命中的活动标签；未命中优惠时为空',
+  })
+  @IsOptional()
+  @IsString({ message: 'promotionTag 必须是字符串' })
+  promotionTag: string | null;
+
   @ApiPropertyOptional({
     example: 'https://cdn.example.com/products/18.png',
     description: '服务封面图',

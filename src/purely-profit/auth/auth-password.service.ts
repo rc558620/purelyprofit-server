@@ -5,8 +5,10 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AUTH_PASSWORD_SALT_ROUNDS } from './auth.constants';
 import type { PhoneUserRecord } from './auth-account.types';
 import type {
+  CreatedUserFromPhoneRecord,
   CreateUserFromPhoneParams,
   UpdateUserPasswordParams,
 } from './auth-password.types';
@@ -18,14 +20,17 @@ export class AuthPasswordService {
 
   async createUserFromPhone(
     params: CreateUserFromPhoneParams,
-  ): Promise<{ id: number; email: string; accountScope: CreateUserFromPhoneParams['productScope'] }> {
+  ): Promise<CreatedUserFromPhoneRecord> {
     const accountIdentifiers = buildAccountIdentifiers(
       params.productScope,
       params.phone,
     );
-    const hashedPassword = await bcrypt.hash(params.password, 10);
+    const hashedPassword = await bcrypt.hash(
+      params.password,
+      AUTH_PASSWORD_SALT_ROUNDS,
+    );
 
-    return this.prisma.user.create({
+    const user = await this.prisma.user.create({
       data: {
         email: accountIdentifiers.email,
         password: hashedPassword,
@@ -35,10 +40,12 @@ export class AuthPasswordService {
         id: true,
         email: true,
       },
-    }).then((user) => ({
+    });
+
+    return {
       ...user,
       accountScope: params.productScope,
-    }));
+    };
   }
 
   async verifyPassword(
@@ -99,7 +106,10 @@ export class AuthPasswordService {
     userId: number,
     password: string,
   ): Promise<void> {
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(
+      password,
+      AUTH_PASSWORD_SALT_ROUNDS,
+    );
     await this.prisma.user.update({
       where: { id: userId },
       data: { password: hashedPassword },

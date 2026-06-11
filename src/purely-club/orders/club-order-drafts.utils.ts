@@ -252,6 +252,13 @@ export const toServiceOrderResponse = (
   productId: String(draft.metadata.productId),
   productName: draft.metadata.productName,
   originalAmount: convertFenToYuan(draft.metadata.originalAmountFen),
+  discountAmount: convertFenToYuan(draft.metadata.discountAmountFen),
+  promotionId: draft.metadata.promotionId
+    ? String(draft.metadata.promotionId)
+    : null,
+  promotionType: draft.metadata.promotionType,
+  discountRate: draft.metadata.discountRate,
+  promotionTag: draft.metadata.promotionTag,
   ...(draft.metadata.coverImage
     ? { coverImage: draft.metadata.coverImage }
     : {}),

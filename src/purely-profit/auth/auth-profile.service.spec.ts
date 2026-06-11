@@ -1,19 +1,23 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { AccessControlService } from '../access-control/access-control.service';
-import { AuthAccountService } from './auth-account.service';
+import { AuthAccountLookupService } from './auth-account-lookup.service';
+import { AuthAccountMembershipService } from './auth-account-membership.service';
 import { AuthProfileService } from './auth-profile.service';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
 
 describe('AuthProfileService', () => {
   let service: AuthProfileService;
 
-  const authAccountService = {
+  const authAccountLookupService = {
     findProfileUserOrThrow: jest.fn(),
-    findCurrentMembership: jest.fn(),
-    readStoreProfileMetadata: jest.fn(),
     updateAvatar: jest.fn(),
     verifyRealName: jest.fn(),
+  };
+
+  const authAccountMembershipService = {
+    findCurrentMembership: jest.fn(),
+    readStoreProfileMetadata: jest.fn(),
   };
 
   const accessControlService = {
@@ -50,7 +54,7 @@ describe('AuthProfileService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    authAccountService.findProfileUserOrThrow.mockResolvedValue({
+    authAccountLookupService.findProfileUserOrThrow.mockResolvedValue({
       id: 1,
       email: 'boss@example.com',
       name: '老板',
@@ -60,7 +64,7 @@ describe('AuthProfileService', () => {
       createdAt: new Date('2026-05-12T00:00:00.000Z'),
       updatedAt: new Date('2026-05-13T00:00:00.000Z'),
     });
-    authAccountService.findCurrentMembership.mockResolvedValue({
+    authAccountMembershipService.findCurrentMembership.mockResolvedValue({
       staffId: 8,
       storeId: 18,
       role: 'STAFF',
@@ -73,7 +77,7 @@ describe('AuthProfileService', () => {
       storeCreatedAt: new Date('2026-05-01T00:00:00.000Z'),
       storeUpdatedAt: new Date('2026-05-10T00:00:00.000Z'),
     });
-    authAccountService.readStoreProfileMetadata.mockResolvedValue({
+    authAccountMembershipService.readStoreProfileMetadata.mockResolvedValue({
       storeType: '零售',
       region: ['北京市', '北京市', '朝阳区'],
       storeLogo: 'https://img.test/store.png',
@@ -85,7 +89,14 @@ describe('AuthProfileService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthProfileService,
-        { provide: AuthAccountService, useValue: authAccountService },
+        {
+          provide: AuthAccountLookupService,
+          useValue: authAccountLookupService,
+        },
+        {
+          provide: AuthAccountMembershipService,
+          useValue: authAccountMembershipService,
+        },
         { provide: AccessControlService, useValue: accessControlService },
         {
           provide: CacheInvalidatorService,
@@ -138,18 +149,22 @@ describe('AuthProfileService', () => {
         canUseHandover: false,
       },
     });
-    expect(authAccountService.findProfileUserOrThrow).toHaveBeenCalledWith(1);
-    expect(authAccountService.findCurrentMembership).toHaveBeenCalledWith(user);
-    expect(authAccountService.readStoreProfileMetadata).toHaveBeenCalledWith(
-      18,
-    );
+    expect(
+      authAccountLookupService.findProfileUserOrThrow,
+    ).toHaveBeenCalledWith(1);
+    expect(
+      authAccountMembershipService.findCurrentMembership,
+    ).toHaveBeenCalledWith(user);
+    expect(
+      authAccountMembershipService.readStoreProfileMetadata,
+    ).toHaveBeenCalledWith(18);
     expect(accessControlService.getEffectivePermissions).not.toHaveBeenCalled();
   });
 
   it('实名认证后会失效 Pulse onboarding 状态缓存', async () => {
     await service.verifyRealName(user, '李老板', '440301199001011234');
 
-    expect(authAccountService.verifyRealName).toHaveBeenCalledWith(
+    expect(authAccountLookupService.verifyRealName).toHaveBeenCalledWith(
       1,
       '李老板',
       '440301199001011234',

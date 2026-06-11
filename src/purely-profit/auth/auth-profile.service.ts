@@ -9,7 +9,8 @@ import {
   toNullableMediaText,
   toOptionalMediaText,
 } from '../commerce/commerce.utils';
-import { AuthAccountService } from './auth-account.service';
+import { AuthAccountLookupService } from './auth-account-lookup.service';
+import { AuthAccountMembershipService } from './auth-account-membership.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ProfileResponseDto } from './dto/profile-response.dto';
 import type {
@@ -22,7 +23,8 @@ import { isVerifiedUser, maskIdNumber } from './auth.utils';
 @Injectable()
 export class AuthProfileService {
   constructor(
-    private readonly authAccountService: AuthAccountService,
+    private readonly authAccountLookupService: AuthAccountLookupService,
+    private readonly authAccountMembershipService: AuthAccountMembershipService,
     private readonly accessControlService: AccessControlService,
     @Inject(forwardRef(() => CacheInvalidatorService))
     private readonly cacheInvalidatorService: CacheInvalidatorService,
@@ -30,8 +32,8 @@ export class AuthProfileService {
 
   async getProfile(user: AuthenticatedUser): Promise<ProfileResponseDto> {
     const [profileUser, currentMembership] = await Promise.all([
-      this.authAccountService.findProfileUserOrThrow(user.id),
-      this.authAccountService.findCurrentMembership(user),
+      this.authAccountLookupService.findProfileUserOrThrow(user.id),
+      this.authAccountMembershipService.findCurrentMembership(user),
     ]);
 
     return this.buildProfileResponse(user, profileUser, currentMembership);
@@ -41,7 +43,7 @@ export class AuthProfileService {
     user: AuthenticatedUser,
     avatar: string | undefined,
   ): Promise<ProfileResponseDto> {
-    await this.authAccountService.updateAvatar(
+    await this.authAccountLookupService.updateAvatar(
       user.id,
       toNullableMediaText(avatar) ?? null,
     );
@@ -54,7 +56,11 @@ export class AuthProfileService {
     realName: string,
     idNumber: string,
   ): Promise<ProfileResponseDto> {
-    await this.authAccountService.verifyRealName(user.id, realName, idNumber);
+    await this.authAccountLookupService.verifyRealName(
+      user.id,
+      realName,
+      idNumber,
+    );
     await this.cacheInvalidatorService.invalidatePulseOnboardingStatusByUser(
       user.id,
     );
@@ -157,7 +163,7 @@ export class AuthProfileService {
         createdAt: currentMembership.storeCreatedAt,
         updatedAt: currentMembership.storeUpdatedAt,
       },
-      await this.authAccountService.readStoreProfileMetadata(
+      await this.authAccountMembershipService.readStoreProfileMetadata(
         currentMembership.storeId,
       ),
     );

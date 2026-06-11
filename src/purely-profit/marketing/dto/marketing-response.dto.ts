@@ -14,14 +14,18 @@ import {
   MARKETING_PROMOTION_STATUS_VALUES,
   MARKETING_PROMOTION_TYPE_VALUES,
   MARKETING_RECHARGE_TYPE_VALUES,
-  type MarketingCustomerStatus,
-  type MarketingCustomerTierValue,
-  type MarketingPayTypeValue,
-  type MarketingPointsChangeTypeValue,
-  type MarketingPromotionStatus,
-  type MarketingPromotionTypeValue,
-  type MarketingRechargeTypeValue,
+    type MarketingCustomerStatus,
+    type MarketingCustomerTierValue,
+    type MarketingMemberLevelIdValue,
+    type MarketingPayTypeValue,
+    type MarketingPointsChangeTypeValue,
+    type MarketingPointsRatioConfigValue,
+    type MarketingPromotionParamsValue,
+    type MarketingPromotionStatus,
+    type MarketingPromotionTypeValue,
+    type MarketingRechargeTypeValue,
 } from '../marketing.utils';
+
 import type { MarketingPaginationMeta } from '../marketing.utils';
 
 // ─── 分页元信息 ──────────────────────────────────────────────────────
@@ -251,6 +255,56 @@ export class MarketingPointsRecordsResponseDto {
   meta: MarketingPaginationMetaDto;
 }
 
+// ─── 会员等级设置 ─────────────────────────────────────────────────────
+
+export class MarketingMemberLevelDto {
+  @ApiProperty({ example: 'gold' })
+  id: MarketingMemberLevelIdValue;
+
+  @ApiProperty({ example: '黄金会员' })
+  name: string;
+
+  @ApiProperty({ example: 0.9, description: '等级折扣率，0~1 之间' })
+  discountRate: number;
+
+  @ApiProperty({ example: 500000, description: '升级所需累计消费金额，单位：分' })
+  spendThreshold: number;
+
+  @ApiProperty({ example: '累计消费 ≥ ¥5,000' })
+  description: string;
+
+  @ApiProperty({ example: true })
+  enabled: boolean;
+
+  @ApiProperty({ example: 1715000000000 })
+  updatedAt: number;
+}
+
+export class MarketingPointsRatioDto implements MarketingPointsRatioConfigValue {
+  @ApiProperty({ example: 100, description: '每消费多少分获得 1 积分' })
+  earnRatioCents: number;
+
+  @ApiProperty({ example: 100, description: '多少积分抵扣 1 元' })
+  redeemRatioPoints: number;
+
+  @ApiProperty({ example: 0.5, description: '单次消费最大积分抵扣比例，0~1 之间' })
+  maxRedeemRatio: number;
+
+  @ApiProperty({ example: true })
+  enabled: boolean;
+
+  @ApiProperty({ example: 1715000000000 })
+  updatedAt: number;
+}
+
+export class MarketingMemberLevelSettingsDto {
+  @ApiProperty({ type: [MarketingMemberLevelDto] })
+  levels: MarketingMemberLevelDto[];
+
+  @ApiProperty({ type: MarketingPointsRatioDto })
+  pointsRatio: MarketingPointsRatioDto;
+}
+
 // ─── 活动 ─────────────────────────────────────────────────────────────
 
 export class MarketingPromotionDto {
@@ -270,10 +324,16 @@ export class MarketingPromotionDto {
   description: string;
 
   @ApiProperty({
-    example: { threshold: 10000, reduceAmount: 2000 },
-    description: '优惠参数（按 type 不同，严格对齐前端命名）',
+    example: {
+      gradients: [
+        { rechargeAmount: 10000, giftAmount: 1000 },
+        { rechargeAmount: 30000, giftAmount: 5000 },
+      ],
+    },
+    description:
+      '优惠参数（按 type 不同，严格对齐前端命名；储值赠送支持 gradients 多档配置）',
   })
-  params: Record<string, number>;
+  params: MarketingPromotionParamsValue;
 
   /** 开始时间（毫秒时间戳） */
   @ApiProperty({ example: 1715000000000 })

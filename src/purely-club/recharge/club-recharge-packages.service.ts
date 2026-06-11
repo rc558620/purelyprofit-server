@@ -42,9 +42,9 @@ export class ClubRechargePackagesService {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
 
-    const mappedPackages = promotions
-      .map((promotion) => this.toRechargePackage(promotion))
-      .filter((item): item is ClubRechargePackageDto => item !== null);
+    const mappedPackages = promotions.flatMap((promotion) =>
+      this.toRechargePackages(promotion),
+    );
 
     return mappedPackages.length > 0
       ? this.markRecommendedPackage(mappedPackages)
@@ -54,31 +54,53 @@ export class ClubRechargePackagesService {
   /**
    * 将营销活动转换为充值套餐
    */
-  private toRechargePackage(
+  private toRechargePackages(
     promotion: ClubRechargePromotionRecord,
-  ): ClubRechargePackageDto | null {
-    const params = this.normalizePromotionParams(promotion.params);
-    if (!params) {
-      return null;
+  ): ClubRechargePackageDto[] {
+    const paramsList = this.normalizePromotionParams(promotion.params);
+    if (paramsList.length === 0) {
+      return [];
     }
 
     const normalizedName = promotion.name.trim();
     const normalizedDescription = promotion.description.trim();
     const tag = normalizedDescription || normalizedName || undefined;
 
-    return {
-      id: String(promotion.id),
+    return paramsList.map((params, index) => ({
+      id: this.buildPackageId(promotion.id, index, paramsList.length),
       amount: convertFenToYuan(params.rechargeAmountFen),
       bonusAmount: convertFenToYuan(params.giftAmountFen),
       ...(tag ? { tag } : {}),
       recommended: false,
-    };
+    }));
   }
 
   /**
    * 标准化营销活动参数
    */
   private normalizePromotionParams(
+    raw: unknown,
+  ): ClubRechargePromotionParams[] {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return [];
+    }
+
+    const candidate = raw as Partial<Record<string, unknown>>;
+    const gradients =
+      (Array.isArray(candidate.gradients) ? candidate.gradients : undefined) ??
+      (Array.isArray(candidate.tiers) ? candidate.tiers : undefined);
+
+    if (gradients) {
+      return gradients
+        .map((item) => this.normalizePromotionGradient(item))
+        .filter((item): item is ClubRechargePromotionParams => item !== null);
+    }
+
+    const legacyGradient = this.normalizePromotionGradient(candidate);
+    return legacyGradient ? [legacyGradient] : [];
+  }
+
+  private normalizePromotionGradient(
     raw: unknown,
   ): ClubRechargePromotionParams | null {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -125,6 +147,18 @@ export class ClubRechargePackagesService {
     }
 
     return 0;
+  }
+
+  private buildPackageId(
+    promotionId: number,
+    gradientIndex: number,
+    gradientCount: number,
+  ): string {
+    if (gradientCount <= 1) {
+      return String(promotionId);
+    }
+
+    return `${promotionId}:${gradientIndex}`;
   }
 
   /**

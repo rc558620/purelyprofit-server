@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Patch,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -16,6 +17,9 @@ import {
 import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { CurrentClubContext } from './current-club-context.decorator';
+import { ClubCurrentContextInterceptor } from './club-current-context.interceptor';
+import type { ClubCurrentContext } from './club-stores.types';
 import {
   ClubStoreSummaryDto,
   ClubStoresResponseDto,
@@ -27,6 +31,7 @@ import { ClubStoresService } from './club-stores.service';
 @ApiTags('Club / Stores')
 @ApiBearerAuth()
 @UseGuards(ClubJwtAuthGuard)
+@UseInterceptors(ClubCurrentContextInterceptor)
 @Controller('club/stores')
 export class ClubStoresController {
   constructor(private readonly clubStoresService: ClubStoresService) {}
@@ -50,9 +55,9 @@ export class ClubStoresController {
   })
   @ApiOkResponse({ type: ClubStoreSummaryDto })
   getCurrent(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClubContext() currentContext: ClubCurrentContext,
   ): Promise<ClubStoreSummaryDto> {
-    return this.clubStoresService.getCurrent(user);
+    return this.clubStoresService.getCurrent(currentContext);
   }
 
   @Patch('current')

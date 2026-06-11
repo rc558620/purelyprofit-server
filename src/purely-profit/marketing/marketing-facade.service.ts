@@ -1,18 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import type {
-  CreateConsumptionDto,
-  CreateCustomerDto,
-  CreatePromotionDto,
-  CreateRechargeDto,
-  ListCustomerPointsRecordsQueryDto,
-  ListCustomersQueryDto,
-  ListPointsRecordsQueryDto,
-  ListPromotionsQueryDto,
-  ListRechargesQueryDto,
-  UpdateCustomerDto,
-  UpdatePromotionDto,
+    CreateConsumptionDto,
+    CreateCustomerDto,
+    CreatePromotionDto,
+    CreateRechargeDto,
+    ListCustomerPointsRecordsQueryDto,
+    ListCustomersQueryDto,
+    ListPointsRecordsQueryDto,
+    ListPromotionsQueryDto,
+    ListRechargesQueryDto,
+    UpdateCustomerDto,
+    UpdateMarketingMemberLevelDto,
+    UpdateMarketingPointsRatioDto,
+    UpdatePromotionDto,
 } from './dto/marketing-query.dto';
+
 import type {
   CreateMarketingProductCategoryDto,
   CreateMarketingProductDto,
@@ -26,18 +29,22 @@ import type {
   UpdateMarketingProductDto,
 } from './dto/marketing-product.dto';
 import type {
-  MarketingConsumptionDto,
-  MarketingConsumptionsResponseDto,
-  MarketingCustomerDetailDto,
-  MarketingCustomerDto,
-  MarketingCustomersResponseDto,
-  MarketingOverviewDto,
-  MarketingPointsRecordsResponseDto,
-  MarketingPromotionDto,
-  MarketingPromotionsResponseDto,
-  MarketingRechargeDto,
-  MarketingRechargesResponseDto,
+    MarketingConsumptionDto,
+    MarketingConsumptionsResponseDto,
+    MarketingCustomerDetailDto,
+    MarketingCustomerDto,
+    MarketingCustomersResponseDto,
+    MarketingMemberLevelDto,
+    MarketingMemberLevelSettingsDto,
+    MarketingOverviewDto,
+    MarketingPointsRatioDto,
+    MarketingPointsRecordsResponseDto,
+    MarketingPromotionDto,
+    MarketingPromotionsResponseDto,
+    MarketingRechargeDto,
+    MarketingRechargesResponseDto,
 } from './dto/marketing-response.dto';
+
 import { MarketingCustomersFacadeService } from './marketing-customers.facade.service';
 import { MarketingOverviewFacadeService } from './marketing-overview.facade.service';
 import { MarketingProductsFacadeService } from './marketing-products.facade.service';
@@ -59,6 +66,42 @@ export class MarketingFacadeService {
     storeId?: number,
   ): Promise<MarketingOverviewDto> {
     return this.marketingOverviewFacadeService.getOverview(user, storeId);
+  }
+
+  getMemberLevelSettings(
+    user: AuthenticatedUser,
+    storeId?: number,
+  ): Promise<MarketingMemberLevelSettingsDto> {
+    return this.marketingOverviewFacadeService.getMemberLevelSettings(
+      user,
+      storeId,
+    );
+  }
+
+  updateMemberLevel(
+    user: AuthenticatedUser,
+    levelId: string,
+    dto: UpdateMarketingMemberLevelDto,
+    storeId?: number,
+  ): Promise<MarketingMemberLevelDto> {
+    return this.marketingOverviewFacadeService.updateMemberLevel(
+      user,
+      levelId,
+      dto,
+      storeId,
+    );
+  }
+
+  updatePointsRatio(
+    user: AuthenticatedUser,
+    dto: UpdateMarketingPointsRatioDto,
+    storeId?: number,
+  ): Promise<MarketingPointsRatioDto> {
+    return this.marketingOverviewFacadeService.updatePointsRatio(
+      user,
+      dto,
+      storeId,
+    );
   }
 
   listCustomers(

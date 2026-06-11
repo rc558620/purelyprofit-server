@@ -6,6 +6,7 @@ import {
   Post,
   Query,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -14,10 +15,11 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
-import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
-import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { ClubOrderStatusResponseDto } from '../orders/dto/club-order.dto';
+import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
+import { ClubCurrentContextInterceptor } from '../stores/club-current-context.interceptor';
+import type { ClubCurrentContext } from '../stores/club-stores.types';
+import { CurrentClubContext } from '../stores/current-club-context.decorator';
 import { ClubRechargeService } from './club-recharge.service';
 import {
   ClubRechargeOrderResponseDto,
@@ -29,6 +31,7 @@ import {
 @ApiTags('Club / Recharge')
 @ApiBearerAuth()
 @UseGuards(ClubJwtAuthGuard)
+@UseInterceptors(ClubCurrentContextInterceptor)
 @Controller('club/recharge')
 export class ClubRechargeController {
   constructor(private readonly clubRechargeService: ClubRechargeService) {}
@@ -41,10 +44,10 @@ export class ClubRechargeController {
   })
   @ApiOkResponse({ type: ClubRechargePackagesResponseDto })
   listPackages(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClubContext() currentContext: ClubCurrentContext,
     @Query() query: ListClubRechargePackagesQueryDto,
   ): Promise<ClubRechargePackagesResponseDto> {
-    return this.clubRechargeService.listPackages(user, query);
+    return this.clubRechargeService.listPackages(currentContext, query);
   }
 
   @Post('orders')
@@ -55,10 +58,10 @@ export class ClubRechargeController {
   })
   @ApiCreatedResponse({ type: ClubRechargeOrderResponseDto })
   createOrder(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClubContext() currentContext: ClubCurrentContext,
     @Body() dto: CreateClubRechargeOrderDto,
   ): Promise<ClubRechargeOrderResponseDto> {
-    return this.clubRechargeService.createOrder(user, dto);
+    return this.clubRechargeService.createOrder(currentContext, dto);
   }
 
   @Get('orders/:id')
@@ -69,10 +72,10 @@ export class ClubRechargeController {
   })
   @ApiOkResponse({ type: ClubRechargeOrderResponseDto })
   getOrderStatus(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClubContext() currentContext: ClubCurrentContext,
     @Param('id') orderId: string,
   ): Promise<ClubOrderStatusResponseDto> {
-    return this.clubRechargeService.getOrderStatus(user, orderId);
+    return this.clubRechargeService.getOrderStatus(currentContext, orderId);
   }
 
   @Post('orders/:id/confirm-paid')
@@ -83,9 +86,9 @@ export class ClubRechargeController {
   })
   @ApiOkResponse({ type: ClubRechargeOrderResponseDto })
   confirmOrderPaid(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClubContext() currentContext: ClubCurrentContext,
     @Param('id') orderId: string,
   ): Promise<ClubRechargeOrderResponseDto> {
-    return this.clubRechargeService.confirmOrderPaid(user, orderId);
+    return this.clubRechargeService.confirmOrderPaid(currentContext, orderId);
   }
 }

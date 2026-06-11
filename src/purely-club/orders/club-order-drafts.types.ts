@@ -20,6 +20,11 @@ export interface ClubServiceOrderMetadata {
   productName: string;
   originalAmountFen: number;
   coverImage: string | null;
+  promotionId: number | null;
+  promotionType: 'first_order_discount' | null;
+  discountRate: number | null;
+  discountAmountFen: number;
+  promotionTag: string | null;
 }
 
 export interface ClubOrderDraftPayload<

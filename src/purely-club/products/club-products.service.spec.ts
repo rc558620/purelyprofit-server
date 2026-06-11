@@ -1,22 +1,30 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { PrismaService } from '../../prisma/prisma.service';
-import { ClubStoresService } from '../stores/club-stores.service';
+import { ClubProductPromotionService } from './club-product-promotion.service';
+import { ClubProductQueryService } from './club-product-query.service';
+import { ClubProductViewService } from './club-product-view.service';
+import type {
+  ClubFirstOrderPromotion,
+  ClubProductRecord,
+} from './club-products.types';
 import { ClubProductsService } from './club-products.service';
 
 describe('ClubProductsService', () => {
   let service: ClubProductsService;
 
-  const prismaService = {
-    marketingProduct: {
-      findMany: jest.fn(),
-      findFirst: jest.fn(),
-    },
+  const clubProductQueryService = {
+    listActiveByStore: jest.fn(),
+    getActiveDetailByStore: jest.fn(),
+    resolveHotProductIds: jest.fn(),
   };
 
-  const clubStoresService = {
-    getCurrent: jest.fn(),
+  const clubProductPromotionService = {
+    resolveFirstOrderPromotion: jest.fn(),
+  };
+
+  const clubProductViewService = {
+    toClubProduct: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -30,20 +38,56 @@ describe('ClubProductsService', () => {
     currentMembership: null,
   };
 
-  beforeEach(async () => {
-    jest.clearAllMocks();
-    clubStoresService.getCurrent.mockResolvedValue({
+  const currentContext = {
+    user,
+    store: {
       id: 11,
       name: '望京旗舰店',
       address: '北京市朝阳区望京 SOHO T3 B1',
-      coverImage: 'https://cdn.example.com/store-cover.png',
-    });
+      createdAt: new Date('2026-05-12T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    },
+  };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    clubProductPromotionService.resolveFirstOrderPromotion.mockResolvedValue(
+      null,
+    );
+    clubProductQueryService.resolveHotProductIds.mockImplementation(
+      (products: ClubProductRecord[]) =>
+        new Set(products.slice(0, 3).map((item) => item.id)),
+    );
+    clubProductViewService.toClubProduct.mockImplementation(
+      (
+        product: ClubProductRecord,
+        hotProductIds: Set<number>,
+        firstOrderPromotion: ClubFirstOrderPromotion | null,
+      ) => ({
+        id: String(product.id),
+        name: product.name,
+        description: product.description?.trim() || '暂无服务说明',
+        coverImage: product.image?.trim() || '',
+        originalPrice: (product.originalPrice ?? product.price) / 100,
+        memberPrice: firstOrderPromotion
+          ? (product.price * firstOrderPromotion.discountRate) / 10000
+          : product.price / 100,
+        type: 'product',
+        tags: hotProductIds.has(product.id) ? ['热销'] : [],
+        isHot: hotProductIds.has(product.id),
+        details: [],
+      }),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubProductsService,
-        { provide: PrismaService, useValue: prismaService },
-        { provide: ClubStoresService, useValue: clubStoresService },
+        { provide: ClubProductQueryService, useValue: clubProductQueryService },
+        {
+          provide: ClubProductPromotionService,
+          useValue: clubProductPromotionService,
+        },
+        { provide: ClubProductViewService, useValue: clubProductViewService },
       ],
     }).compile();
 
@@ -51,120 +95,117 @@ describe('ClubProductsService', () => {
   });
 
   it('list 在 featured=true 时仅返回热门商品并映射到 club 视图', async () => {
-    prismaService.marketingProduct.findMany.mockResolvedValue([
-      createProduct({ id: 31, name: '经典养护套餐', createdAt: new Date('2026-06-03T00:00:00.000Z') }),
-      createProduct({ id: 30, name: '黄金焕肤疗程', personCount: 2, createdAt: new Date('2026-06-02T00:00:00.000Z') }),
-      createProduct({ id: 29, name: '头皮护理套组', durationMinutes: 100, createdAt: new Date('2026-06-01T00:00:00.000Z') }),
-      createProduct({ id: 28, name: '肩颈舒缓护理', createdAt: new Date('2026-05-31T00:00:00.000Z') }),
-    ]);
+    const products = [
+      createProduct({
+        id: 31,
+        name: '经典养护套餐',
+        createdAt: new Date('2026-06-03T00:00:00.000Z'),
+      }),
+      createProduct({
+        id: 30,
+        name: '黄金焕肤疗程',
+        createdAt: new Date('2026-06-02T00:00:00.000Z'),
+      }),
+      createProduct({
+        id: 29,
+        name: '头皮护理套组',
+        createdAt: new Date('2026-06-01T00:00:00.000Z'),
+      }),
+      createProduct({
+        id: 28,
+        name: '肩颈舒缓护理',
+        createdAt: new Date('2026-05-31T00:00:00.000Z'),
+      }),
+    ];
+    clubProductQueryService.listActiveByStore.mockResolvedValue(products);
 
-    await expect(service.list(user, { featured: true })).resolves.toEqual({
+    await expect(service.list(currentContext, { featured: true })).resolves.toEqual({
       items: [
-        expect.objectContaining({ id: '31', isHot: true, type: 'product' }),
-        expect.objectContaining({ id: '30', isHot: true, type: 'package' }),
-        expect.objectContaining({ id: '29', isHot: true, type: 'experience' }),
+        expect.objectContaining({ id: '31', isHot: true }),
+        expect.objectContaining({ id: '30', isHot: true }),
+        expect.objectContaining({ id: '29', isHot: true }),
       ],
     });
-    expect(prismaService.marketingProduct.findMany).toHaveBeenCalledWith({
-      where: {
-        storeId: 11,
-        isActive: true,
-      },
-      select: {
-        id: true,
-        categoryId: true,
-        name: true,
-        price: true,
-        originalPrice: true,
-        image: true,
-        description: true,
-        stock: true,
-        durationMinutes: true,
-        personCount: true,
-        createdAt: true,
-        category: {
-          select: {
-            name: true,
-          },
-        },
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(11);
+    expect(clubProductQueryService.resolveHotProductIds).toHaveBeenCalledWith(
+      products,
+    );
+    expect(clubProductViewService.toClubProduct).toHaveBeenCalledTimes(3);
+  });
+
+  it('list 命中首单优惠时透传活动信息给视图映射层', async () => {
+    const promotion = {
+      id: 18,
+      discountRate: 75,
+      tag: '首单 7.5 折',
+    } satisfies ClubFirstOrderPromotion;
+    clubProductQueryService.listActiveByStore.mockResolvedValue([
+      createProduct({ id: 31, price: 49900 }),
+    ]);
+    clubProductPromotionService.resolveFirstOrderPromotion.mockResolvedValue(
+      promotion,
+    );
+
+    await expect(service.list(currentContext, {})).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: '31',
+          memberPrice: 374.25,
+        }),
+      ],
     });
+    expect(
+      clubProductPromotionService.resolveFirstOrderPromotion,
+    ).toHaveBeenCalledWith(11, user.phone);
+    expect(clubProductViewService.toClubProduct).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 31 }),
+      expect.any(Set),
+      promotion,
+    );
   });
 
   it('getDetail 返回当前门店指定商品详情', async () => {
-    prismaService.marketingProduct.findFirst.mockResolvedValue(
-      createProduct({
-        id: 18,
+    const product = createProduct({
+      id: 18,
+      name: '黄金焕肤疗程',
+      price: 49900,
+      originalPrice: 68800,
+      description: '激活细胞，提亮肤色，7 天肉眼可见变化',
+      durationMinutes: 100,
+      personCount: 1,
+    });
+    clubProductQueryService.getActiveDetailByStore.mockResolvedValue(product);
+
+    await expect(service.getDetail(currentContext, 18)).resolves.toEqual(
+      expect.objectContaining({
+        id: '18',
         name: '黄金焕肤疗程',
-        price: 49900,
-        originalPrice: 68800,
-        description: '激活细胞，提亮肤色，7 天肉眼可见变化',
-        durationMinutes: 100,
-        personCount: 1,
+        memberPrice: 499,
       }),
     );
-
-    await expect(service.getDetail(user, 18)).resolves.toEqual({
-      id: '18',
-      name: '黄金焕肤疗程',
-      description: '激活细胞，提亮肤色，7 天肉眼可见变化',
-      coverImage: '',
-      originalPrice: 688,
-      memberPrice: 499,
-      type: 'experience',
-      tags: ['热销', '面部护理'],
-      isHot: true,
-      stock: 30,
-      validityDesc: '单次服务约 100 分钟 · 适用 1 人',
-      details: [
-        '激活细胞，提亮肤色，7 天肉眼可见变化',
-        '服务分类：面部护理',
-        '参考时长：100 分钟',
-        '适用人数：1 人',
-        '当前库存：30 份',
-      ],
-    });
+    expect(clubProductQueryService.getActiveDetailByStore).toHaveBeenCalledWith(
+      11,
+      18,
+    );
+    expect(clubProductViewService.toClubProduct).toHaveBeenCalledWith(
+      product,
+      new Set([18]),
+      null,
+    );
   });
 
   it('getDetail 在当前门店找不到商品时抛出 NotFoundException', async () => {
-    prismaService.marketingProduct.findFirst.mockResolvedValue(null);
+    clubProductQueryService.getActiveDetailByStore.mockResolvedValue(null);
 
-    await expect(service.getDetail(user, 99)).rejects.toBeInstanceOf(
+    await expect(service.getDetail(currentContext, 99)).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
 });
 
 function createProduct(
-  overrides?: Partial<{
-    id: number;
-    categoryId: number;
-    name: string;
-    price: number;
-    originalPrice: number | null;
-    image: string | null;
-    description: string | null;
-    stock: number;
-    durationMinutes: number | null;
-    personCount: number | null;
-    createdAt: Date;
-    category: { name: string };
-  }>,
-): {
-  id: number;
-  categoryId: number;
-  name: string;
-  price: number;
-  originalPrice: number | null;
-  image: string | null;
-  description: string | null;
-  stock: number;
-  durationMinutes: number | null;
-  personCount: number | null;
-  createdAt: Date;
-  category: { name: string };
-} {
+  overrides?: Partial<ClubProductRecord>,
+): ClubProductRecord {
   return {
     id: 1,
     categoryId: 3,

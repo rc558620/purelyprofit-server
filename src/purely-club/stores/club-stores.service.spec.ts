@@ -1,9 +1,12 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { StoresProfileService } from '../../purely-profit/stores/stores-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
-import { StoresProfileService } from '../../purely-profit/stores/stores-profile.service';
+import { ClubCurrentStoreContextService } from './club-current-store-context.service';
+import { ClubStoreAccessService } from './club-store-access.service';
+import { ClubStoreViewService } from './club-store-view.service';
 import { ClubStoresService } from './club-stores.service';
 
 describe('ClubStoresService', () => {
@@ -47,6 +50,9 @@ describe('ClubStoresService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        ClubStoreAccessService,
+        ClubCurrentStoreContextService,
+        ClubStoreViewService,
         ClubStoresService,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
@@ -100,13 +106,19 @@ describe('ClubStoresService', () => {
     expect(redisService.set).not.toHaveBeenCalled();
   });
 
-  it('getCurrent 在没有可访问门店时抛出 NotFoundException', async () => {
-    prismaService.store.findMany.mockResolvedValue([]);
-
-    await expect(service.getCurrent(user)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
-    expect(redisService.del).toHaveBeenCalledWith('club:selected-store:201');
+  it('getCurrent 返回当前上下文中的门店信息', async () => {
+    await expect(
+      service.getCurrent({
+        user,
+        store: createStore({ id: 11, name: '望京旗舰店' }),
+      }),
+    ).resolves.toEqual({
+      id: 11,
+      name: '望京旗舰店',
+      address: '北京市朝阳区望京 SOHO T3 B1',
+      coverImage: 'https://cdn.example.com/store-cover.png',
+    });
+    expect(redisService.del).not.toHaveBeenCalled();
   });
 
   it('switchCurrent 只允许切换到本人可访问的门店', async () => {

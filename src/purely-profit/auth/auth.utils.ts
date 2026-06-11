@@ -13,6 +13,7 @@ import {
 import type {
   AccountIdentifiers,
   AuthProductScope,
+  AuthResolvedIdentity,
   AuthenticatedAccountScope,
 } from './auth-account.types';
 import type { ProfileUserRecord } from './auth-profile.types';
@@ -220,6 +221,35 @@ export function resolveAuthenticatedAccountScope(
   }
 
   return resolveProductAccountScopeFromEmail(email) ?? 'purely_profit';
+}
+
+export function isPulseDeveloperAccount(
+  email: string,
+  phone: string,
+  pulseDevAccountEmails: Set<string>,
+): boolean {
+  return (
+    pulseDevAccountEmails.has(normalizeLoginEmail(email)) ||
+    phone === ADMIN_LOGIN_PHONE
+  );
+}
+
+export function resolveAuthIdentity(
+  email: string,
+  phone: string,
+  pulseDevAccountEmails: Set<string>,
+): AuthResolvedIdentity {
+  const isPulseDeveloper = isPulseDeveloperAccount(
+    email,
+    phone,
+    pulseDevAccountEmails,
+  );
+
+  return {
+    accountScope: resolveAuthenticatedAccountScope(email, isPulseDeveloper),
+    isPulseDeveloper,
+    pulseMode: isPulseDeveloper ? 'developer' : 'normal',
+  };
 }
 
 export function maskPhone(phone: string): string {

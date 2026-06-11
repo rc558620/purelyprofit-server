@@ -21,6 +21,7 @@ import { AuthCapabilityService } from './auth-capability.service';
 import { AuthCodeService } from './auth-code.service';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthProfileService } from './auth-profile.service';
+import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.service';
 import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthSmsService } from './auth-sms.service';
@@ -28,6 +29,7 @@ import { PlatformMembershipAccessService } from '../member/platform-membership/p
 
 describe('AuthService', () => {
   let service: AuthService;
+  let authProductAuthService: AuthProductAuthService;
 
   const prismaService = {
     user: {
@@ -69,6 +71,7 @@ describe('AuthService', () => {
   const authSmsService = {
     sendPasswordResetCode: jest.fn(),
     sendRegisterCode: jest.fn(),
+    sendLoginCode: jest.fn(),
   };
   const platformMembershipAccessService = {
     getSubAccountQuota: jest.fn().mockResolvedValue(0),
@@ -111,6 +114,7 @@ describe('AuthService', () => {
         AuthAuthenticationService,
         AuthCodeService,
         AuthPasswordService,
+        AuthProductAuthService,
         AuthProfileService,
         AuthSessionService,
         AuthCapabilityService,
@@ -133,6 +137,9 @@ describe('AuthService', () => {
     }).compile();
 
     service = module.get<AuthService>(AuthService);
+    authProductAuthService = module.get<AuthProductAuthService>(
+      AuthProductAuthService,
+    );
   });
 
   it('仅允许 admin 别名映射到固定手机号登录', async () => {
@@ -241,10 +248,16 @@ describe('AuthService', () => {
     jwtService.signAsync.mockResolvedValue('pulse-dev-token');
 
     await expect(
-      service.loginPulse({
-        phone: '13800138000',
-        password: 'dev123456',
-      }),
+      authProductAuthService.login(
+        {
+          phone: '13800138000',
+          password: 'dev123456',
+        },
+        {
+          productScope: 'purely_profit',
+          requireDeveloper: true,
+        },
+      ),
     ).resolves.toEqual({ access_token: 'pulse-dev-token' });
 
     expect(jwtService.signAsync).toHaveBeenCalledWith({
@@ -267,10 +280,16 @@ describe('AuthService', () => {
     redisService.get.mockResolvedValue('0');
 
     await expect(
-      service.loginPulse({
-        phone: '13800138000',
-        password: 'profit123',
-      }),
+      authProductAuthService.login(
+        {
+          phone: '13800138000',
+          password: 'profit123',
+        },
+        {
+          productScope: 'purely_profit',
+          requireDeveloper: true,
+        },
+      ),
     ).rejects.toThrow('当前账号不可登录 purely-pulse，请使用开发者账号');
 
     expect(jwtService.signAsync).not.toHaveBeenCalled();
@@ -394,6 +413,102 @@ describe('AuthService', () => {
     expect(redisService.del).toHaveBeenCalledWith(
       'auth:password-reset:purely_profit:13800138000',
     );
+  });
+
+  it('purely-club 登录验证码接口仅对已注册手机号发码', async () => {
+    prismaService.user.findFirst.mockResolvedValue({
+      id: 7,
+      email: 'club_phone_13800138000@purelyprofit.local',
+      password: 'hashed',
+    });
+    redisService.set.mockResolvedValue(undefined);
+    authSmsService.sendLoginCode.mockResolvedValue(undefined);
+
+    const result = await authProductAuthService.sendLoginCode(
+      {
+        phone: '13800138000',
+      },
+      'purely_club',
+    );
+
+    expect(result.message).toBe(
+      '如手机号已注册，登录验证码短信已发送，请注意查收',
+    );
+    expect(result.expiresInSeconds).toBe(600);
+    expect(result.code).toMatch(/^\d{6}$/);
+    expect(redisService.set).toHaveBeenCalledWith(
+      'auth:register:purely_club:13800138000',
+      result.code,
+      600,
+    );
+    expect(authSmsService.sendLoginCode).toHaveBeenCalledWith({
+      phone: '13800138000',
+      code: result.code,
+      expiresInSeconds: 600,
+    });
+  });
+
+  it('purely-club 不存在手机号时发送登录验证码仍返回统一文案', async () => {
+    prismaService.user.findFirst.mockResolvedValue(null);
+
+    const result = await authProductAuthService.sendLoginCode(
+      {
+        phone: '13800138000',
+      },
+      'purely_club',
+    );
+
+    expect(result).toEqual({
+      message: '如手机号已注册，登录验证码短信已发送，请注意查收',
+      expiresInSeconds: 600,
+    });
+    expect(redisService.set).not.toHaveBeenCalled();
+    expect(authSmsService.sendLoginCode).not.toHaveBeenCalled();
+  });
+
+  it('purely-club 支持通过短信验证码登录', async () => {
+    prismaService.user.findFirst.mockResolvedValue({
+      id: 7,
+      email: 'club_phone_13800138000@purelyprofit.local',
+      password: 'hashed-password',
+    });
+    redisService.get.mockResolvedValueOnce('123456').mockResolvedValueOnce('0');
+    redisService.del.mockResolvedValue(undefined);
+    jwtService.signAsync.mockResolvedValue('club-code-token');
+
+    await expect(
+      authProductAuthService.loginByCode(
+        {
+          phone: '13800138000',
+          code: '123456',
+        },
+        'purely_club',
+      ),
+    ).resolves.toEqual({ access_token: 'club-code-token' });
+
+    expect(redisService.del).toHaveBeenCalledWith(
+      'auth:register:purely_club:13800138000',
+    );
+    expect(jwtService.signAsync).toHaveBeenCalledWith({
+      sub: 7,
+      phone: '13800138000',
+      accountScope: 'purely_club',
+      sessionVersion: 0,
+    });
+  });
+
+  it('purely-club 验证码登录在验证码无效时拒绝登录', async () => {
+    redisService.get.mockResolvedValue(null);
+
+    await expect(
+      authProductAuthService.loginByCode(
+        {
+          phone: '13800138000',
+          code: '123456',
+        },
+        'purely_club',
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('验证码无效或过期时不允许重置密码', async () => {

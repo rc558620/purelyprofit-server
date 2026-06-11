@@ -11,6 +11,7 @@ import {
   MarketingPromotionsController,
   MarketingTransactionsController,
 } from './marketing.controller';
+import { MarketingOverviewController } from './marketing-overview.controller';
 import { MarketingConsumptionsService } from './marketing-consumptions.service';
 import { MarketingCustomersService } from './marketing-customers.service';
 import { MarketingOverviewService } from './marketing-overview.service';
@@ -33,6 +34,7 @@ import { MarketingSharedService } from './marketing-shared.service';
   imports: [PrismaModule, AccessControlModule, PlatformMembershipModule],
   controllers: [
     MarketingController,
+    MarketingOverviewController,
     MarketingCustomersController,
     MarketingTransactionsController,
     MarketingProductCategoriesController,

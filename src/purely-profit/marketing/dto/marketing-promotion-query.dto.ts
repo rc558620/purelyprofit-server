@@ -1,16 +1,21 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
 import {
+  MARKETING_MEMBER_LEVEL_ID_VALUES,
   MARKETING_PROMOTION_TYPE_VALUES,
+  type MarketingMemberLevelIdValue,
   type MarketingPromotionStatus,
   type MarketingPromotionTypeValue,
 } from '../marketing.utils';
@@ -41,7 +46,7 @@ export class CreatePromotionDto {
   name: string;
 
   @ApiPropertyOptional({
-    example: 'reduce',
+    example: 'first_order_discount',
     enum: MARKETING_PROMOTION_TYPE_VALUES,
     description: '活动类型',
   })
@@ -55,8 +60,13 @@ export class CreatePromotionDto {
   description?: string;
 
   @ApiPropertyOptional({
-    example: { threshold: 10000, reduceAmount: 2000 },
-    description: '优惠参数 JSON（按 type 不同格式各异）',
+    example: {
+      gradients: [
+        { rechargeAmount: 10000, giftAmount: 1000 },
+        { rechargeAmount: 30000, giftAmount: 5000 },
+      ],
+    },
+    description: '优惠参数 JSON（按 type 不同格式各异；储值赠送支持 gradients 多档配置）',
   })
   @IsOptional()
   params?: Record<string, unknown>;
@@ -97,7 +107,10 @@ export class UpdatePromotionDto {
   @MaxLength(500)
   description?: string;
 
-  @ApiPropertyOptional({ example: { threshold: 10000, discount: 2000 } })
+  @ApiPropertyOptional({
+    example: { discountRate: 80, audience: 'first_order' },
+    description: '更新活动参数；首单优惠可传折扣率，储值赠送可传 gradients 多档配置',
+  })
   @IsOptional()
   params?: Record<string, unknown>;
 
@@ -124,3 +137,82 @@ export class UpdatePromotionDto {
   @IsBoolean({ message: 'enabled 必须是布尔值' })
   enabled?: boolean;
 }
+
+export class UpdateMarketingMemberLevelDto {
+  @ApiPropertyOptional({
+    example: 0.9,
+    description: '等级折扣率，0~1 之间，如 0.9 表示 9 折',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'discountRate 必须是数字' })
+  @Min(0.01, { message: 'discountRate 必须大于等于 0.01' })
+  @Max(0.99, { message: 'discountRate 必须小于等于 0.99' })
+  discountRate?: number;
+
+  @ApiPropertyOptional({
+    example: 500000,
+    description: '升级所需累计消费金额，单位：分',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'spendThreshold 必须是整数' })
+  @Min(0, { message: 'spendThreshold 不能小于 0' })
+  spendThreshold?: number;
+
+  @ApiPropertyOptional({ example: '累计消费 ≥ ¥5,000', description: '等级说明' })
+  @IsOptional()
+  @IsString({ message: 'description 必须是字符串' })
+  @MaxLength(30, { message: 'description 最长 30 个字符' })
+  description?: string;
+
+  @ApiPropertyOptional({ example: true, description: '是否启用该等级' })
+  @IsOptional()
+  @IsBoolean({ message: 'enabled 必须是布尔值' })
+  enabled?: boolean;
+}
+
+export class UpdateMarketingPointsRatioDto {
+  @ApiPropertyOptional({
+    example: 100,
+    description: '每消费多少分获得 1 积分，如 100 表示消费 1 元得 1 分',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'earnRatioCents 必须是整数' })
+  @Min(1, { message: 'earnRatioCents 必须大于 0' })
+  earnRatioCents?: number;
+
+  @ApiPropertyOptional({
+    example: 100,
+    description: '多少积分抵扣 1 元',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'redeemRatioPoints 必须是整数' })
+  @Min(1, { message: 'redeemRatioPoints 必须大于 0' })
+  redeemRatioPoints?: number;
+
+  @ApiPropertyOptional({
+    example: 0.5,
+    description: '单次消费最大积分抵扣比例，0~1 之间',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'maxRedeemRatio 必须是数字' })
+  @Min(0.01, { message: 'maxRedeemRatio 必须大于等于 0.01' })
+  @Max(1, { message: 'maxRedeemRatio 必须小于等于 1' })
+  maxRedeemRatio?: number;
+
+  @ApiPropertyOptional({ example: true, description: '是否启用积分规则' })
+  @IsOptional()
+  @IsBoolean({ message: 'enabled 必须是布尔值' })
+  enabled?: boolean;
+}
+
+export const isMarketingMemberLevelId = (
+  value: string,
+): value is MarketingMemberLevelIdValue =>
+  MARKETING_MEMBER_LEVEL_ID_VALUES.includes(
+    value as MarketingMemberLevelIdValue,
+  );

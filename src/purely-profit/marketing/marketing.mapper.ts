@@ -32,6 +32,8 @@ import {
   maskPhone,
   type MarketingPayTypeValue,
   type MarketingPointsChangeTypeValue,
+  type MarketingPromotionParamsValue,
+  type MarketingPromotionParamValue,
   type MarketingPromotionTypeValue,
   type MarketingRechargeTypeValue,
 } from './marketing.utils';
@@ -116,18 +118,115 @@ export function buildPointsSpendDescription(
   return '消费抵扣积分';
 }
 
+function normalizePromotionParamValue(
+  value: unknown,
+): MarketingPromotionParamValue | undefined {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const normalizedItems = value
+      .map((item) => normalizePromotionParamValue(item))
+      .filter((item): item is MarketingPromotionParamValue => item !== undefined);
+    return normalizedItems;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const normalizedEntries = Object.entries(value)
+    .map(([key, entryValue]) => {
+      const normalizedValue = normalizePromotionParamValue(entryValue);
+      return normalizedValue === undefined ? null : [key, normalizedValue];
+    })
+    .filter(
+      (
+        entry,
+      ): entry is [string, MarketingPromotionParamValue] => entry !== null,
+    );
+
+  return Object.fromEntries(normalizedEntries);
+}
+
+function normalizeRechargeGiftParams(
+  value: MarketingPromotionParamsValue,
+): MarketingPromotionParamsValue {
+  const gradientsSource =
+    (Array.isArray(value.gradients) ? value.gradients : undefined) ??
+    (Array.isArray(value.tiers) ? value.tiers : undefined);
+
+  if (gradientsSource) {
+    const gradients = gradientsSource
+      .map((gradient) => normalizePromotionParamValue(gradient))
+      .filter(
+        (gradient): gradient is MarketingPromotionParamValue =>
+          gradient !== undefined,
+      );
+
+    const { tiers: _tiers, gradients: _gradients, ...rest } = value;
+    return {
+      ...rest,
+      gradients,
+    };
+  }
+
+  const rechargeAmount =
+    typeof value.rechargeAmount === 'number'
+      ? value.rechargeAmount
+      : typeof value.threshold === 'number'
+        ? value.threshold
+        : undefined;
+
+  const giftAmount =
+    typeof value.giftAmount === 'number' ? value.giftAmount : undefined;
+  const giftRatio =
+    typeof value.giftRatio === 'number' ? value.giftRatio : undefined;
+
+  if (
+    typeof rechargeAmount === 'number' &&
+    (typeof giftAmount === 'number' || typeof giftRatio === 'number')
+  ) {
+    return {
+      gradients: [
+        {
+          rechargeAmount,
+          ...(typeof giftAmount === 'number' ? { giftAmount } : {}),
+          ...(typeof giftRatio === 'number' ? { giftRatio } : {}),
+        },
+      ],
+    };
+  }
+
+  return value;
+}
+
 export function normalizePromotionParams(
   value: unknown,
-): Record<string, number> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  type?: string,
+): MarketingPromotionParamsValue {
+  const normalizedValue = normalizePromotionParamValue(value);
+  if (
+    !normalizedValue ||
+    Array.isArray(normalizedValue) ||
+    typeof normalizedValue !== 'object'
+  ) {
     return {};
   }
 
-  const entries = Object.entries(value).filter(
-    (entry): entry is [string, number] => typeof entry[1] === 'number',
-  );
+  const objectValue = normalizedValue as MarketingPromotionParamsValue;
 
-  return Object.fromEntries(entries);
+  if (type === 'recharge_gift') {
+    return normalizeRechargeGiftParams(objectValue);
+  }
+
+  return objectValue;
 }
 
 export function mapPromotionRow(
@@ -138,7 +237,7 @@ export function mapPromotionRow(
     name: row.name,
     type: row.type as MarketingPromotionTypeValue,
     description: row.description,
-    params: normalizePromotionParams(row.params),
+    params: normalizePromotionParams(row.params, row.type),
     startAt: row.startAt.getTime(),
     endAt: row.endAt.getTime(),
     usageCount: row.usageCount,

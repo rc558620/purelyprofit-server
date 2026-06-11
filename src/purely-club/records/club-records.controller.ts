@@ -1,13 +1,20 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
-import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { ClubCurrentContextInterceptor } from '../stores/club-current-context.interceptor';
+import type { ClubCurrentContext } from '../stores/club-stores.types';
+import { CurrentClubContext } from '../stores/current-club-context.decorator';
 import { ClubRecordsService } from './club-records.service';
 import {
   ClubRecordsResponseDto,
@@ -17,6 +24,7 @@ import {
 @ApiTags('Club / Records')
 @ApiBearerAuth()
 @UseGuards(ClubJwtAuthGuard)
+@UseInterceptors(ClubCurrentContextInterceptor)
 @Controller('club/records')
 export class ClubRecordsController {
   constructor(private readonly clubRecordsService: ClubRecordsService) {}
@@ -29,9 +37,9 @@ export class ClubRecordsController {
   })
   @ApiOkResponse({ type: ClubRecordsResponseDto })
   list(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClubContext() currentContext: ClubCurrentContext,
     @Query() query: ListClubRecordsQueryDto,
   ): Promise<ClubRecordsResponseDto> {
-    return this.clubRecordsService.list(user, query);
+    return this.clubRecordsService.list(currentContext, query);
   }
 }

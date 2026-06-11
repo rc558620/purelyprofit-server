@@ -15,7 +15,7 @@ describe('MarketingService promotions', () => {
     jest.useRealTimers();
   });
 
-  it('listPromotions 返回 status 衍生字段', async () => {
+  it('listPromotions 返回 status 衍生字段并兼容旧版单档充赠参数', async () => {
     context.accessService.resolveViewStoreId.mockResolvedValue(18);
     context.prismaService.marketingPromotion.findMany.mockResolvedValue([
       {
@@ -45,6 +45,229 @@ describe('MarketingService promotions', () => {
       id: '3',
       status: 'active',
       enabled: true,
+      params: {
+        gradients: [{ rechargeAmount: 10000, giftRatio: 0.2 }],
+      },
+    });
+  });
+
+  it('listPromotions 保留多档储值赠送参数结构', async () => {
+    context.accessService.resolveViewStoreId.mockResolvedValue(18);
+    context.prismaService.marketingPromotion.findMany.mockResolvedValue([
+      {
+        id: 4,
+        storeId: 18,
+        name: '充值多送',
+        type: 'recharge_gift',
+        description: '多档赠送',
+        params: {
+          gradients: [
+            { rechargeAmount: 10000, giftAmount: 1000 },
+            { rechargeAmount: 30000, giftAmount: 5000 },
+          ],
+        },
+        startAt: new Date('2026-05-01T00:00:00.000Z'),
+        endAt: new Date('2026-05-31T23:59:59.000Z'),
+        usageCount: 0,
+        totalDiscount: 0,
+        enabled: true,
+        createdAt: new Date('2026-04-21T00:00:00.000Z'),
+        updatedAt: new Date('2026-04-21T00:00:00.000Z'),
+      },
+    ]);
+    context.prismaService.marketingPromotion.count.mockResolvedValue(1);
+
+    const result = await context.service.listPromotions(context.user, {
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(result.items[0].params).toEqual({
+      gradients: [
+        { rechargeAmount: 10000, giftAmount: 1000 },
+        { rechargeAmount: 30000, giftAmount: 5000 },
+      ],
+    });
+  });
+
+  it('createPromotion 支持首单优惠类型', async () => {
+    context.accessService.ensureCanAccess.mockResolvedValue(undefined);
+    context.prismaService.marketingPromotion.create.mockResolvedValue({
+      id: 8,
+      storeId: 18,
+      name: '首单 8 折',
+      type: 'first_order_discount',
+      description: '新顾客首单专享',
+      params: { discountRate: 80, audience: 'first_order' },
+      startAt: new Date('2026-05-01T00:00:00.000Z'),
+      endAt: new Date('2026-05-31T23:59:59.000Z'),
+      usageCount: 0,
+      totalDiscount: 0,
+      enabled: true,
+      createdAt: new Date('2026-04-25T00:00:00.000Z'),
+      updatedAt: new Date('2026-04-25T00:00:00.000Z'),
+    });
+
+    const result = await context.service.createPromotion(context.user, 18, {
+      name: '首单 8 折',
+      type: 'first_order_discount',
+      description: '新顾客首单专享',
+      params: { discountRate: 80, audience: 'first_order' },
+      startAt: new Date('2026-05-01T00:00:00.000Z').getTime(),
+      endAt: new Date('2026-05-31T23:59:59.000Z').getTime(),
+      enabled: true,
+    });
+
+    expect(context.prismaService.marketingPromotion.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        storeId: 18,
+        type: 'first_order_discount',
+        params: { discountRate: 80, audience: 'first_order' },
+      }),
+    });
+    expect(result.type).toBe('first_order_discount');
+  });
+
+  it('getMemberLevelSettings 在未配置时返回默认等级和积分规则', async () => {
+    context.accessService.resolveViewStoreId.mockResolvedValue(18);
+    context.prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue(
+      null,
+    );
+
+    const result = await context.service.getMemberLevelSettings(context.user);
+
+    expect(result.levels).toEqual([
+      expect.objectContaining({ id: 'gold', spendThreshold: 0, discountRate: 0.9 }),
+      expect.objectContaining({ id: 'platinum', spendThreshold: 500000 }),
+      expect.objectContaining({ id: 'diamond', spendThreshold: 1000000 }),
+    ]);
+    expect(result.pointsRatio).toEqual(
+      expect.objectContaining({
+        earnRatioCents: 100,
+        redeemRatioPoints: 100,
+        maxRedeemRatio: 0.5,
+        enabled: true,
+      }),
+    );
+  });
+
+  it('updateMemberLevel 会合并默认配置并按门店 upsert', async () => {
+    context.accessService.resolveViewStoreId.mockResolvedValue(18);
+    context.accessService.ensureCanAccess.mockResolvedValue(undefined);
+    context.prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue(
+      {
+        levels: [
+          {
+            id: 'gold',
+            name: '黄金会员',
+            discountRate: 0.95,
+            spendThreshold: 3000,
+            description: '历史配置',
+            enabled: true,
+            updatedAt: 1,
+          },
+        ],
+        pointsRatio: {
+          earnRatioCents: 200,
+          redeemRatioPoints: 100,
+          maxRedeemRatio: 0.3,
+          enabled: true,
+          updatedAt: 2,
+        },
+      },
+    );
+    context.prismaService.marketingMemberLevelSetting.upsert.mockResolvedValue(
+      undefined,
+    );
+
+    const result = await context.service.updateMemberLevel(context.user, 'gold', {
+      discountRate: 0.88,
+      spendThreshold: 999999,
+      description: '注册即享 88 折',
+      enabled: false,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'gold',
+        discountRate: 0.88,
+        spendThreshold: 0,
+        description: '注册即享 88 折',
+        enabled: false,
+      }),
+    );
+    expect(
+      context.prismaService.marketingMemberLevelSetting.upsert,
+    ).toHaveBeenCalledWith({
+      where: { storeId: 18 },
+      create: expect.objectContaining({
+        storeId: 18,
+        levels: expect.arrayContaining([
+          expect.objectContaining({ id: 'gold', spendThreshold: 0 }),
+          expect.objectContaining({ id: 'platinum', spendThreshold: 500000 }),
+          expect.objectContaining({ id: 'diamond', spendThreshold: 1000000 }),
+        ]),
+        pointsRatio: expect.objectContaining({ earnRatioCents: 200 }),
+      }),
+      update: expect.objectContaining({
+        levels: expect.arrayContaining([
+          expect.objectContaining({ id: 'gold', spendThreshold: 0 }),
+        ]),
+      }),
+    });
+  });
+
+  it('updatePointsRatio 会更新积分规则并保留等级配置', async () => {
+    context.accessService.resolveViewStoreId.mockResolvedValue(18);
+    context.accessService.ensureCanAccess.mockResolvedValue(undefined);
+    context.prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue(
+      null,
+    );
+    context.prismaService.marketingMemberLevelSetting.upsert.mockResolvedValue(
+      undefined,
+    );
+
+    const result = await context.service.updatePointsRatio(context.user, {
+      earnRatioCents: 300,
+      redeemRatioPoints: 200,
+      maxRedeemRatio: 0.4,
+      enabled: false,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        earnRatioCents: 300,
+        redeemRatioPoints: 200,
+        maxRedeemRatio: 0.4,
+        enabled: false,
+      }),
+    );
+    expect(
+      context.prismaService.marketingMemberLevelSetting.upsert,
+    ).toHaveBeenCalledWith({
+      where: { storeId: 18 },
+      create: expect.objectContaining({
+        storeId: 18,
+        levels: expect.arrayContaining([
+          expect.objectContaining({ id: 'gold' }),
+          expect.objectContaining({ id: 'platinum' }),
+          expect.objectContaining({ id: 'diamond' }),
+        ]),
+        pointsRatio: expect.objectContaining({
+          earnRatioCents: 300,
+          redeemRatioPoints: 200,
+          maxRedeemRatio: 0.4,
+          enabled: false,
+        }),
+      }),
+      update: expect.objectContaining({
+        pointsRatio: expect.objectContaining({
+          earnRatioCents: 300,
+          redeemRatioPoints: 200,
+          maxRedeemRatio: 0.4,
+          enabled: false,
+        }),
+      }),
     });
   });
 });

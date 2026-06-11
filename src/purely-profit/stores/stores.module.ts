@@ -16,5 +16,6 @@ import { StoresWriteService } from './stores-write.service';
     StoresReadService,
     StoresWriteService,
   ],
+  exports: [StoresProfileService],
 })
 export class StoresModule {}

@@ -58,11 +58,105 @@ export const MARKETING_PROMOTION_TYPE_VALUES = [
   'discount',
   'reduce',
   'recharge_gift',
-  'free',
-  'points_2x',
+  'first_order_discount',
 ] as const;
 export type MarketingPromotionTypeValue =
   (typeof MARKETING_PROMOTION_TYPE_VALUES)[number];
+
+/** 会员等级配置 ID（与前端 member-level 页面一致） */
+export const MARKETING_MEMBER_LEVEL_ID_VALUES = [
+  'gold',
+  'platinum',
+  'diamond',
+] as const;
+export type MarketingMemberLevelIdValue =
+  (typeof MARKETING_MEMBER_LEVEL_ID_VALUES)[number];
+
+export interface MarketingMemberLevelConfigValue {
+  id: MarketingMemberLevelIdValue;
+  name: string;
+  discountRate: number;
+  spendThreshold: number;
+  description: string;
+  enabled: boolean;
+  updatedAt: number;
+}
+
+export interface MarketingPointsRatioConfigValue {
+  earnRatioCents: number;
+  redeemRatioPoints: number;
+  maxRedeemRatio: number;
+  enabled: boolean;
+  updatedAt: number;
+}
+
+export interface MarketingMemberLevelSettingsValue {
+  levels: MarketingMemberLevelConfigValue[];
+  pointsRatio: MarketingPointsRatioConfigValue;
+}
+
+export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettingsValue = {
+  levels: [
+    {
+      id: 'gold',
+      name: '黄金会员',
+      discountRate: 0.9,
+      spendThreshold: 0,
+      description: '注册即享 9 折优惠',
+      enabled: true,
+      updatedAt: 0,
+    },
+    {
+      id: 'platinum',
+      name: '铂金会员',
+      discountRate: 0.9,
+      spendThreshold: 500000,
+      description: '累计消费 ≥ ¥5,000',
+      enabled: true,
+      updatedAt: 0,
+    },
+    {
+      id: 'diamond',
+      name: '钻石会员',
+      discountRate: 0.8,
+      spendThreshold: 1000000,
+      description: '累计消费 ≥ ¥10,000',
+      enabled: true,
+      updatedAt: 0,
+    },
+  ],
+  pointsRatio: {
+    earnRatioCents: 100,
+    redeemRatioPoints: 100,
+    maxRedeemRatio: 0.5,
+    enabled: true,
+    updatedAt: 0,
+  },
+};
+
+export function cloneDefaultMarketingMemberLevelSettings(): MarketingMemberLevelSettingsValue {
+  return {
+    levels: DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels.map((level) => ({
+      ...level,
+    })),
+    pointsRatio: {
+      ...DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio,
+    },
+  };
+}
+
+export type MarketingPromotionParamValue =
+  | string
+  | number
+  | boolean
+  | null
+  | MarketingPromotionParamValue[]
+  | { [key: string]: MarketingPromotionParamValue };
+
+export type MarketingPromotionParamsValue = Record<
+  string,
+  MarketingPromotionParamValue
+>;
 
 /** 活动状态（前端按时间计算，不存库，与前端 PromotionStatus 完全一致）*/
 export const MARKETING_PROMOTION_STATUS_VALUES = [

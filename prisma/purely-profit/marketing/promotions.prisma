@@ -4,6 +4,7 @@ enum MarketingPromotionType {
   discount
   reduce
   recharge_gift
+  first_order_discount
   free
   points_2x
 }
@@ -38,6 +39,18 @@ model MarketingPromotion {
   @@index([storeId, enabled, startAt])
   @@index([storeId, createdAt])
   @@map("marketing_promotions")
+}
+
+model MarketingMemberLevelSetting {
+  id         Int      @id @default(autoincrement())
+  storeId     Int      @unique @map("store_id")
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  levels      Json     @default("[]")
+  pointsRatio Json     @default("{}") @map("points_ratio")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("marketing_member_level_settings")
 }
 
 /// 营销商品分类

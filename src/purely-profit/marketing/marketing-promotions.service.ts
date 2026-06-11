@@ -13,7 +13,7 @@ import type {
   MarketingPromotionsResponseDto,
 } from './dto/marketing-response.dto';
 import { buildPromotionWhere } from './marketing.domain';
-import { mapPromotionRow } from './marketing.mapper';
+import { mapPromotionRow, normalizePromotionParams } from './marketing.mapper';
 import { MarketingSharedService } from './marketing-shared.service';
 import {
   buildMarketingPaginationMeta,
@@ -95,13 +95,14 @@ export class MarketingPromotionsService {
     );
     this.assertPromotionRange(new Date(dto.startAt), new Date(dto.endAt));
 
+    const normalizedParams = normalizePromotionParams(dto.params, dto.type);
     const created = await this.prisma.marketingPromotion.create({
       data: {
         storeId,
         name: dto.name.trim(),
         type: dto.type as never,
         description: dto.description?.trim() ?? '',
-        params: (dto.params ?? {}) as Prisma.InputJsonValue,
+        params: normalizedParams as Prisma.InputJsonValue,
         startAt: new Date(dto.startAt),
         endAt: new Date(dto.endAt),
         enabled: dto.enabled ?? true,
@@ -140,7 +141,12 @@ export class MarketingPromotionsService {
           ? { description: dto.description.trim() }
           : {}),
         ...(dto.params !== undefined
-          ? { params: dto.params as Prisma.InputJsonValue }
+          ? {
+              params: normalizePromotionParams(
+                dto.params,
+                promotion.type,
+              ) as Prisma.InputJsonValue,
+            }
           : {}),
         ...(dto.startAt !== undefined ? { startAt: newStartAt } : {}),
         ...(dto.endAt !== undefined ? { endAt: newEndAt } : {}),

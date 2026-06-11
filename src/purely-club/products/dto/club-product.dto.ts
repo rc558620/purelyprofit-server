@@ -66,8 +66,40 @@ export class ClubProductDto {
   @ApiProperty({ example: 288, description: '原价，单位元' })
   originalPrice: number;
 
-  @ApiProperty({ example: 199, description: '会员价，单位元' })
+  @ApiProperty({ example: 199, description: '会员价，单位元；命中首单优惠时返回折后价' })
   memberPrice: number;
+
+  @ApiPropertyOptional({
+    example: '18',
+    description: '命中的首单优惠活动 ID；未命中时不返回',
+  })
+  @IsOptional()
+  @IsString({ message: 'promotionId 必须是字符串' })
+  promotionId?: string;
+
+  @ApiPropertyOptional({
+    example: 'first_order_discount',
+    description: '命中的活动类型；当前仅支持首单优惠',
+  })
+  @IsOptional()
+  @IsString({ message: 'promotionType 必须是字符串' })
+  promotionType?: string;
+
+  @ApiPropertyOptional({
+    example: 75,
+    description: '命中的折扣率；75 表示 7.5 折',
+  })
+  @IsOptional()
+  @IsInt({ message: 'discountRate 必须是整数' })
+  discountRate?: number;
+
+  @ApiPropertyOptional({
+    example: '首单 7.5 折',
+    description: '活动文案标签；命中首单优惠时返回',
+  })
+  @IsOptional()
+  @IsString({ message: 'promotionTag 必须是字符串' })
+  promotionTag?: string;
 
   @ApiProperty({
     example: 'package',

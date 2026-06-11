@@ -9,10 +9,11 @@ import {
   DEFAULT_PASSWORD_RESET_CODE_TTL_SECONDS,
   DEFAULT_REGISTER_CODE_TTL_SECONDS,
 } from './auth.constants';
-import { AuthAccountService } from './auth-account.service';
+import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthSmsService } from './auth-sms.service';
 import type { AuthProductScope } from './auth-account.types';
 import { ForgotPasswordResponseDto } from './dto/forgot-password-response.dto';
+import { SendLoginCodeResponseDto } from './dto/send-login-code-response.dto';
 import { SendRegisterCodeResponseDto } from './dto/send-register-code-response.dto';
 import {
   buildPasswordResetCodeKey,
@@ -26,7 +27,7 @@ export class AuthCodeService {
     private readonly redisService: RedisService,
     private readonly configService: ConfigService,
     private readonly authSmsService: AuthSmsService,
-    private readonly authAccountService: AuthAccountService,
+    private readonly authAccountLookupService: AuthAccountLookupService,
   ) {}
 
   async sendRegisterCode(
@@ -34,7 +35,7 @@ export class AuthCodeService {
     productScope: AuthProductScope,
   ): Promise<SendRegisterCodeResponseDto> {
     const expiresInSeconds = this.getRegisterCodeTtlSeconds();
-    const existingUser = await this.authAccountService.findUserByPhone(
+    const existingUser = await this.authAccountLookupService.findUserByPhone(
       phone,
       productScope,
     );
@@ -77,6 +78,49 @@ export class AuthCodeService {
     return response;
   }
 
+  async sendLoginCode(
+    phone: string,
+    productScope: AuthProductScope,
+  ): Promise<SendLoginCodeResponseDto> {
+    const expiresInSeconds = this.getRegisterCodeTtlSeconds();
+    const response: SendLoginCodeResponseDto = {
+      message: '如手机号已注册，登录验证码短信已发送，请注意查收',
+      expiresInSeconds,
+    };
+    const user = await this.authAccountLookupService.findUserByPhone(
+      phone,
+      productScope,
+    );
+
+    if (!user) {
+      return response;
+    }
+
+    const loginCode = generateNumericCode();
+    const registerCodeKey = buildRegisterCodeKey(productScope, phone);
+    await this.redisService.set(registerCodeKey, loginCode, expiresInSeconds);
+
+    try {
+      await this.authSmsService.sendLoginCode({
+        phone,
+        code: loginCode,
+        expiresInSeconds,
+      });
+    } catch (error) {
+      await this.redisService.del(registerCodeKey);
+      throw error;
+    }
+
+    if (this.isNonProductionEnv()) {
+      return {
+        ...response,
+        code: loginCode,
+      };
+    }
+
+    return response;
+  }
+
   async ensureRegisterCodeValid(
     phone: string,
     code: string,
@@ -106,7 +150,7 @@ export class AuthCodeService {
       message: '如手机号已注册，重置验证码短信已发送，请注意查收',
       expiresInSeconds,
     };
-    const user = await this.authAccountService.findUserByPhone(
+    const user = await this.authAccountLookupService.findUserByPhone(
       phone,
       productScope,
     );
@@ -157,9 +201,7 @@ export class AuthCodeService {
     phone: string,
     productScope: AuthProductScope,
   ): Promise<void> {
-    await this.redisService.del(
-      buildPasswordResetCodeKey(productScope, phone),
-    );
+    await this.redisService.del(buildPasswordResetCodeKey(productScope, phone));
   }
 
   private getPasswordResetCodeTtlSeconds(): number {

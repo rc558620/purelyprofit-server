@@ -88,6 +88,7 @@ model Store {
   marketingConsumptions      MarketingConsumption[]
   marketingPointsRecords     MarketingPointsRecord[]
   marketingPromotions        MarketingPromotion[]
+  marketingMemberLevelSetting MarketingMemberLevelSetting?
   marketingProductCategories MarketingProductCategory[]
   marketingProducts          MarketingProduct[]
   subAccounts                StoreSubAccount[]

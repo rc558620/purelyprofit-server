@@ -6,16 +6,13 @@ describe('JwtStrategy', () => {
     user: {
       findUnique: jest.fn(),
     },
-    store: {
-      findMany: jest.fn(),
-    },
-    $queryRaw: jest.fn(),
   };
-  const accessControlService = {
-    buildMembershipContext: jest.fn(),
+  const authAccountMembershipService = {
+    ensureUserNotBanned: jest.fn(),
+    resolveAuthenticatedMembership: jest.fn(),
   };
-  const redisService = {
-    get: jest.fn(),
+  const authSessionService = {
+    getTokenVersion: jest.fn(),
   };
   const configService = {
     get: jest.fn().mockImplementation((key: string) => {
@@ -31,18 +28,27 @@ describe('JwtStrategy', () => {
     }),
   };
 
+  const createStrategy = (): JwtStrategy =>
+    new JwtStrategy(
+      configService as never,
+      prisma as never,
+      authAccountMembershipService as never,
+      authSessionService as never,
+    );
+
   beforeEach(() => {
     jest.clearAllMocks();
-    accessControlService.buildMembershipContext.mockReset();
+    authAccountMembershipService.resolveAuthenticatedMembership.mockResolvedValue(
+      null,
+    );
+    authAccountMembershipService.ensureUserNotBanned.mockResolvedValue(
+      undefined,
+    );
+    authSessionService.getTokenVersion.mockResolvedValue(0);
   });
 
   it('sessionVersion 过期时拒绝旧 token', async () => {
-    const strategy = new JwtStrategy(
-      configService as never,
-      prisma as never,
-      accessControlService as never,
-      redisService as never,
-    );
+    const strategy = createStrategy();
 
     prisma.user.findUnique.mockResolvedValue({
       id: 1,
@@ -51,7 +57,7 @@ describe('JwtStrategy', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    redisService.get.mockResolvedValue('2');
+    authSessionService.getTokenVersion.mockResolvedValue(2);
 
     await expect(
       strategy.validate({
@@ -63,12 +69,7 @@ describe('JwtStrategy', () => {
   });
 
   it('命中开发者邮箱白名单时返回 developer 模式', async () => {
-    const strategy = new JwtStrategy(
-      configService as never,
-      prisma as never,
-      accessControlService as never,
-      redisService as never,
-    );
+    const strategy = createStrategy();
 
     prisma.user.findUnique.mockResolvedValue({
       id: 1,
@@ -77,9 +78,6 @@ describe('JwtStrategy', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    redisService.get.mockResolvedValue('0');
-    prisma.store.findMany.mockResolvedValue([]);
-    prisma.$queryRaw.mockResolvedValue([]);
 
     const result = await strategy.validate({
       sub: 1,
@@ -90,16 +88,12 @@ describe('JwtStrategy', () => {
     expect(result).toMatchObject({
       pulseMode: 'developer',
       isPulseDeveloper: true,
+      accountScope: 'developer',
     });
   });
 
   it('admin 别名手机号登录时返回 developer 模式', async () => {
-    const strategy = new JwtStrategy(
-      configService as never,
-      prisma as never,
-      accessControlService as never,
-      redisService as never,
-    );
+    const strategy = createStrategy();
 
     prisma.user.findUnique.mockResolvedValue({
       id: 2,
@@ -108,9 +102,6 @@ describe('JwtStrategy', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    redisService.get.mockResolvedValue('0');
-    prisma.store.findMany.mockResolvedValue([]);
-    prisma.$queryRaw.mockResolvedValue([]);
 
     const result = await strategy.validate({
       sub: 2,
@@ -121,16 +112,12 @@ describe('JwtStrategy', () => {
     expect(result).toMatchObject({
       pulseMode: 'developer',
       isPulseDeveloper: true,
+      accountScope: 'developer',
     });
   });
 
   it('封禁后旧登录态会在鉴权阶段被拒绝', async () => {
-    const strategy = new JwtStrategy(
-      configService as never,
-      prisma as never,
-      accessControlService as never,
-      redisService as never,
-    );
+    const strategy = createStrategy();
 
     prisma.user.findUnique.mockResolvedValue({
       id: 18,
@@ -139,10 +126,9 @@ describe('JwtStrategy', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    prisma.store.findMany.mockResolvedValue([{ id: 18 }]);
-    redisService.get
-      .mockResolvedValueOnce('0')
-      .mockResolvedValueOnce('违规操作');
+    authAccountMembershipService.ensureUserNotBanned.mockRejectedValue(
+      new UnauthorizedException('账号已被封禁'),
+    );
 
     await expect(
       strategy.validate({
@@ -154,12 +140,7 @@ describe('JwtStrategy', () => {
   });
 
   it('sessionVersion 匹配时允许通过', async () => {
-    const strategy = new JwtStrategy(
-      configService as never,
-      prisma as never,
-      accessControlService as never,
-      redisService as never,
-    );
+    const strategy = createStrategy();
 
     prisma.user.findUnique.mockResolvedValue({
       id: 1,
@@ -168,9 +149,7 @@ describe('JwtStrategy', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    redisService.get.mockResolvedValue('2');
-    prisma.store.findMany.mockResolvedValue([]);
-    prisma.$queryRaw.mockResolvedValue([]);
+    authSessionService.getTokenVersion.mockResolvedValue(2);
 
     const result = await strategy.validate({
       sub: 1,
@@ -183,16 +162,22 @@ describe('JwtStrategy', () => {
       email: 'user@example.com',
       phone: '13800138000',
       currentMembership: null,
+      accountScope: 'purely_profit',
     });
+    expect(
+      authAccountMembershipService.resolveAuthenticatedMembership,
+    ).toHaveBeenCalledWith(
+      {
+        sub: 1,
+        phone: '13800138000',
+        sessionVersion: 2,
+      },
+      'user@example.com',
+    );
   });
 
-  it('子账号表尚未迁移时拒绝登录，避免回退旧权限模型', async () => {
-    const strategy = new JwtStrategy(
-      configService as never,
-      prisma as never,
-      accessControlService as never,
-      redisService as never,
-    );
+  it('membership 上下文未就绪时拒绝登录', async () => {
+    const strategy = createStrategy();
 
     prisma.user.findUnique.mockResolvedValue({
       id: 9,
@@ -201,10 +186,10 @@ describe('JwtStrategy', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    redisService.get.mockResolvedValue('0');
-    prisma.store.findMany.mockResolvedValue([]);
-    prisma.$queryRaw.mockRejectedValueOnce(
-      new Error('relation "store_sub_accounts" does not exist'),
+    authAccountMembershipService.resolveAuthenticatedMembership.mockRejectedValue(
+      new UnauthorizedException(
+        '登录态能力上下文未就绪，请联系管理员完成系统升级后重试',
+      ),
     );
 
     await expect(
@@ -214,8 +199,5 @@ describe('JwtStrategy', () => {
         sessionVersion: 0,
       }),
     ).rejects.toThrow('登录态能力上下文未就绪，请联系管理员完成系统升级后重试');
-
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(accessControlService.buildMembershipContext).not.toHaveBeenCalled();
   });
 });

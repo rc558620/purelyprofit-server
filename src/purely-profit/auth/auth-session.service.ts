@@ -37,7 +37,7 @@ export class AuthSessionService {
     );
   }
 
-  private async getTokenVersion(userId: number): Promise<number> {
+  async getTokenVersion(userId: number): Promise<number> {
     const rawVersion = await this.redisService.get(
       buildTokenVersionKey(userId),
     );

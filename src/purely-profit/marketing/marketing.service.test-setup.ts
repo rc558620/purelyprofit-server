@@ -54,6 +54,10 @@ export interface MarketingPrismaServiceMock {
     delete: jest.Mock;
     findMany: jest.Mock;
   };
+  marketingMemberLevelSetting: {
+    findUnique: jest.Mock;
+    upsert: jest.Mock;
+  };
   marketingProductCategory: {
     count: jest.Mock;
     findMany: jest.Mock;
@@ -122,6 +126,10 @@ function createPrismaServiceMock(): MarketingPrismaServiceMock {
       update: jest.fn(),
       delete: jest.fn(),
       findMany: jest.fn(),
+    },
+    marketingMemberLevelSetting: {
+      findUnique: jest.fn(),
+      upsert: jest.fn(),
     },
     marketingProductCategory: {
       count: jest.fn(),

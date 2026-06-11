@@ -13,6 +13,7 @@ import { AuthCodeService } from './auth-code.service';
 import { AuthController } from './auth.controller';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthProfileService } from './auth-profile.service';
+import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.service';
 import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthSmsService } from './auth-sms.service';
@@ -50,6 +51,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthCapabilityService,
     AuthCodeService,
     AuthPasswordService,
+    AuthProductAuthService,
     AuthProfileService,
     AuthSessionService,
     AuthSmsService,
@@ -60,6 +62,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
   ],
   exports: [
     AuthService,
+    AuthProductAuthService,
     JwtAuthGuard,
     ClubJwtAuthGuard,
     PulseJwtAuthGuard,

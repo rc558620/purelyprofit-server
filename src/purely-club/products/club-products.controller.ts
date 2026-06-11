@@ -5,6 +5,7 @@ import {
   ParseIntPipe,
   Query,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -12,9 +13,10 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
-import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { ClubCurrentContextInterceptor } from '../stores/club-current-context.interceptor';
+import { CurrentClubContext } from '../stores/current-club-context.decorator';
+import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubProductsService } from './club-products.service';
 import {
   ClubProductDto,
@@ -25,6 +27,7 @@ import {
 @ApiTags('Club / Products')
 @ApiBearerAuth()
 @UseGuards(ClubJwtAuthGuard)
+@UseInterceptors(ClubCurrentContextInterceptor)
 @Controller('club/products')
 export class ClubProductsController {
   constructor(private readonly clubProductsService: ClubProductsService) {}
@@ -37,10 +40,10 @@ export class ClubProductsController {
   })
   @ApiOkResponse({ type: ClubProductsResponseDto })
   list(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClubContext() currentContext: ClubCurrentContext,
     @Query() query: ListClubProductsQueryDto,
   ): Promise<ClubProductsResponseDto> {
-    return this.clubProductsService.list(user, query);
+    return this.clubProductsService.list(currentContext, query);
   }
 
   @Get(':id')
@@ -51,9 +54,9 @@ export class ClubProductsController {
   })
   @ApiOkResponse({ type: ClubProductDto })
   getDetail(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClubContext() currentContext: ClubCurrentContext,
     @Param('id', ParseIntPipe) productId: number,
   ): Promise<ClubProductDto> {
-    return this.clubProductsService.getDetail(user, productId);
+    return this.clubProductsService.getDetail(currentContext, productId);
   }
 }

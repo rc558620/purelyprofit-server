@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type { AuthProductScope } from './auth-account.types';
 import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCapabilityService } from './auth-capability.service';
-import { AuthCodeService } from './auth-code.service';
+import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.service';
 import { AuthProfileService } from './auth-profile.service';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -18,20 +17,14 @@ import { SendRegisterCodeDto } from './dto/send-register-code.dto';
 import { SendRegisterCodeResponseDto } from './dto/send-register-code-response.dto';
 import { UpdateAvatarDto } from './dto/update-avatar.dto';
 import { VerifyRealNameDto } from './dto/verify-real-name.dto';
-import type {
-  ChangePasswordAuthParams,
-  LoginAuthParams,
-  RegisterAuthParams,
-  ResetPasswordAuthParams,
-} from './auth-password.types';
+import type { ChangePasswordAuthParams } from './auth-password.types';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
-import { normalizePhone } from './auth.utils';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly authAuthenticationService: AuthAuthenticationService,
-    private readonly authCodeService: AuthCodeService,
+    private readonly authProductAuthService: AuthProductAuthService,
     private readonly authProfileService: AuthProfileService,
     private readonly authCapabilityService: AuthCapabilityService,
   ) {}
@@ -39,33 +32,17 @@ export class AuthService {
   async sendRegisterCode(
     dto: SendRegisterCodeDto,
   ): Promise<SendRegisterCodeResponseDto> {
-    return this.sendRegisterCodeByScope(dto, 'purely_profit');
-  }
-
-  async sendClubRegisterCode(
-    dto: SendRegisterCodeDto,
-  ): Promise<SendRegisterCodeResponseDto> {
-    return this.sendRegisterCodeByScope(dto, 'purely_club');
+    return this.authProductAuthService.sendRegisterCode(dto, 'purely_profit');
   }
 
   async register(dto: RegisterDto): Promise<AuthTokenResponseDto> {
-    return this.registerByScope(dto, 'purely_profit');
-  }
-
-  async registerClub(dto: RegisterDto): Promise<AuthTokenResponseDto> {
-    return this.registerByScope(dto, 'purely_club');
+    return this.authProductAuthService.register(dto, 'purely_profit');
   }
 
   async login(dto: LoginDto): Promise<AuthTokenResponseDto> {
-    return this.loginByScope(dto, 'purely_profit');
-  }
-
-  async loginClub(dto: LoginDto): Promise<AuthTokenResponseDto> {
-    return this.loginByScope(dto, 'purely_club');
-  }
-
-  async loginPulse(dto: LoginDto): Promise<AuthTokenResponseDto> {
-    return this.loginByScope(dto, 'purely_profit', true);
+    return this.authProductAuthService.login(dto, {
+      productScope: 'purely_profit',
+    });
   }
 
   async changePassword(
@@ -87,25 +64,13 @@ export class AuthService {
   async forgotPassword(
     dto: ForgotPasswordDto,
   ): Promise<ForgotPasswordResponseDto> {
-    return this.forgotPasswordByScope(dto, 'purely_profit');
-  }
-
-  async forgotClubPassword(
-    dto: ForgotPasswordDto,
-  ): Promise<ForgotPasswordResponseDto> {
-    return this.forgotPasswordByScope(dto, 'purely_club');
+    return this.authProductAuthService.forgotPassword(dto, 'purely_profit');
   }
 
   async resetPassword(
     dto: ResetPasswordDto,
   ): Promise<PasswordOperationResponseDto> {
-    return this.resetPasswordByScope(dto, 'purely_profit');
-  }
-
-  async resetClubPassword(
-    dto: ResetPasswordDto,
-  ): Promise<PasswordOperationResponseDto> {
-    return this.resetPasswordByScope(dto, 'purely_club');
+    return this.authProductAuthService.resetPassword(dto, 'purely_profit');
   }
 
   async updateAvatar(
@@ -134,71 +99,5 @@ export class AuthService {
     user: AuthenticatedUser,
   ): Promise<AuthCapabilityResponseDto> {
     return this.authCapabilityService.getCapability(user);
-  }
-
-  private async sendRegisterCodeByScope(
-    dto: SendRegisterCodeDto,
-    productScope: AuthProductScope,
-  ): Promise<SendRegisterCodeResponseDto> {
-    return this.authCodeService.sendRegisterCode(
-      normalizePhone(dto.phone),
-      productScope,
-    );
-  }
-
-  private async registerByScope(
-    dto: RegisterDto,
-    productScope: AuthProductScope,
-  ): Promise<AuthTokenResponseDto> {
-    const params: RegisterAuthParams = {
-      phone: normalizePhone(dto.phone),
-      code: dto.code,
-      password: dto.password,
-      confirmPassword: dto.confirmPassword,
-      name: dto.name,
-      productScope,
-    };
-
-    return this.authAuthenticationService.register(params);
-  }
-
-  private async loginByScope(
-    dto: LoginDto,
-    productScope: AuthProductScope,
-    requireDeveloper = false,
-  ): Promise<AuthTokenResponseDto> {
-    const params: LoginAuthParams = {
-      loginAccount: dto.phone ?? dto.account,
-      password: dto.password,
-      productScope,
-      requireDeveloper,
-    };
-
-    return this.authAuthenticationService.login(params);
-  }
-
-  private async forgotPasswordByScope(
-    dto: ForgotPasswordDto,
-    productScope: AuthProductScope,
-  ): Promise<ForgotPasswordResponseDto> {
-    return this.authCodeService.sendPasswordResetCode(
-      normalizePhone(dto.phone),
-      productScope,
-    );
-  }
-
-  private async resetPasswordByScope(
-    dto: ResetPasswordDto,
-    productScope: AuthProductScope,
-  ): Promise<PasswordOperationResponseDto> {
-    const params: ResetPasswordAuthParams = {
-      phone: normalizePhone(dto.phone),
-      code: dto.code,
-      password: dto.password,
-      confirmPassword: dto.confirmPassword,
-      productScope,
-    };
-
-    return this.authAuthenticationService.resetPassword(params);
   }
 }

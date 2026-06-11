@@ -8,9 +8,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
+import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
-import { ClubStoresService } from '../stores/club-stores.service';
+import { ClubRechargeContextService } from './club-recharge-context.service';
+import { ClubRechargeCreationService } from './club-recharge-creation.service';
+import { ClubRechargePackagesService } from './club-recharge-packages.service';
+import { ClubRechargePaymentService } from './club-recharge-payment.service';
+import { ClubRechargeQueryService } from './club-recharge-query.service';
 import { ClubRechargeService } from './club-recharge.service';
+import { ClubRechargeSettlementService } from './club-recharge-settlement.service';
 
 describe('ClubRechargeService', () => {
   let service: ClubRechargeService;
@@ -40,13 +46,10 @@ describe('ClubRechargeService', () => {
     }),
   };
 
-  const clubStoresService = {
-    getCurrent: jest.fn(),
-  };
-
   const clubOrderDraftsService = {
     createDraft: jest.fn(),
     getDraft: jest.fn(),
+    getDraftByOrderId: jest.fn(),
     markPaid: jest.fn(),
     toOrderStatusResponse: jest.fn(),
   };
@@ -66,6 +69,17 @@ describe('ClubRechargeService', () => {
     currentMembership: null,
   };
 
+  const currentContext: ClubCurrentContext = {
+    user,
+    store: {
+      id: 11,
+      name: '望京旗舰店',
+      address: '北京市朝阳区望京 SOHO T3 B1',
+      createdAt: new Date('2026-05-12T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    },
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     configService.get.mockImplementation((key: string) => {
@@ -78,42 +92,43 @@ describe('ClubRechargeService', () => {
       async (callback: (tx: typeof prismaService) => Promise<unknown>) =>
         callback(prismaService),
     );
-    clubStoresService.getCurrent.mockResolvedValue({
-      id: 11,
-      name: '望京旗舰店',
-      address: '北京市朝阳区望京 SOHO T3 B1',
-      coverImage: 'https://cdn.example.com/store-cover.png',
-    });
-    clubOrderDraftsService.toOrderStatusResponse.mockImplementation((draft) => ({
-      id: draft.id,
-      orderNo: draft.orderNo,
-      orderType: 'recharge',
-      title: draft.title,
-      amount: 500,
-      paymentChannel: 'wechat',
-      status: draft.status,
-      createdAt: '2026-06-10T12:30:00.000Z',
-      expiresAt: '2026-06-10T12:45:00.000Z',
-      paidAt: draft.paidAtMs ? '2026-06-10T12:31:00.000Z' : null,
-      paymentTransactionId: draft.paymentTransactionId,
-      callbackReceivedAt: draft.callbackReceivedAtMs
-        ? '2026-06-10T12:31:03.000Z'
-        : null,
-      paymentConfirmationSource: draft.paymentConfirmationSource,
-      statusReason:
-        draft.paymentConfirmationSource === 'wechat_callback'
-          ? '微信支付回调已确认并完成落账'
-          : draft.paymentConfirmationSource === 'manual_confirm_paid'
-            ? '开发态 confirm-paid 已兜底确认支付'
-            : '待支付，等待微信支付结果',
-    }));
+    clubOrderDraftsService.toOrderStatusResponse.mockImplementation(
+      (draft) => ({
+        id: draft.id,
+        orderNo: draft.orderNo,
+        orderType: 'recharge',
+        title: draft.title,
+        amount: 500,
+        paymentChannel: 'wechat',
+        status: draft.status,
+        createdAt: '2026-06-10T12:30:00.000Z',
+        expiresAt: '2026-06-10T12:45:00.000Z',
+        paidAt: draft.paidAtMs ? '2026-06-10T12:31:00.000Z' : null,
+        paymentTransactionId: draft.paymentTransactionId,
+        callbackReceivedAt: draft.callbackReceivedAtMs
+          ? '2026-06-10T12:31:03.000Z'
+          : null,
+        paymentConfirmationSource: draft.paymentConfirmationSource,
+        statusReason:
+          draft.paymentConfirmationSource === 'wechat_callback'
+            ? '微信支付回调已确认并完成落账'
+            : draft.paymentConfirmationSource === 'manual_confirm_paid'
+              ? '开发态 confirm-paid 已兜底确认支付'
+              : '待支付，等待微信支付结果',
+      }),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        ClubRechargePackagesService,
+        ClubRechargeContextService,
+        ClubRechargeCreationService,
+        ClubRechargeQueryService,
+        ClubRechargeSettlementService,
+        ClubRechargePaymentService,
         ClubRechargeService,
         { provide: PrismaService, useValue: prismaService },
         { provide: ConfigService, useValue: configService },
-        { provide: ClubStoresService, useValue: clubStoresService },
         { provide: ClubOrderDraftsService, useValue: clubOrderDraftsService },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
       ],
@@ -138,7 +153,7 @@ describe('ClubRechargeService', () => {
       }),
     ]);
 
-    await expect(service.listPackages(user, {})).resolves.toEqual({
+    await expect(service.listPackages(currentContext, {})).resolves.toEqual({
       items: [
         {
           id: '18',
@@ -158,10 +173,47 @@ describe('ClubRechargeService', () => {
     });
   });
 
+  it('listPackages 支持单个活动返回多个充赠梯度套餐', async () => {
+    prismaService.marketingPromotion.findMany.mockResolvedValue([
+      createPromotion({
+        id: 21,
+        name: '储值多档赠送',
+        description: '暑期活动',
+        params: {
+          gradients: [
+            { rechargeAmount: 10000, giftAmount: 1000 },
+            { rechargeAmount: 30000, giftAmount: 5000 },
+          ],
+        },
+      }),
+    ]);
+
+    await expect(service.listPackages(currentContext, {})).resolves.toEqual({
+      items: [
+        {
+          id: '21:0',
+          amount: 100,
+          bonusAmount: 10,
+          tag: '暑期活动',
+          recommended: false,
+        },
+        {
+          id: '21:1',
+          amount: 300,
+          bonusAmount: 50,
+          tag: '暑期活动',
+          recommended: true,
+        },
+      ],
+    });
+  });
+
   it('listPackages 在 preview=true 时仅返回前三条套餐', async () => {
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
 
-    await expect(service.listPackages(user, { preview: true })).resolves.toEqual({
+    await expect(
+      service.listPackages(currentContext, { preview: true }),
+    ).resolves.toEqual({
       items: [
         expect.objectContaining({ id: 'default-100' }),
         expect.objectContaining({ id: 'default-200' }),
@@ -178,7 +230,7 @@ describe('ClubRechargeService', () => {
       }),
     ]);
 
-    await expect(service.listPackages(user, {})).resolves.toEqual({
+    await expect(service.listPackages(currentContext, {})).resolves.toEqual({
       items: [
         expect.objectContaining({ id: 'default-100' }),
         expect.objectContaining({ id: 'default-200' }),
@@ -200,44 +252,10 @@ describe('ClubRechargeService', () => {
       }),
     ]);
     prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
-    clubOrderDraftsService.createDraft.mockResolvedValue({
-      id: 'RC123',
-      orderNo: 'RC123',
-      orderType: 'recharge',
-      status: 'pending',
-      storeId: 11,
-      storeName: '望京旗舰店',
-      userId: 201,
-      phone: '13800138000',
-      customerId: 36,
-      title: '会员充值',
-      amountFen: 50000,
-      paymentChannel: 'wechat',
-      createdAtMs: Date.now(),
-      expiresAtMs: Date.now() + 900000,
-      paidAtMs: null,
-      paymentTransactionId: null,
-      callbackReceivedAtMs: null,
-      paymentConfirmationSource: null,
-      failureReason: null,
-      paymentParams: {
-        timeStamp: '1773556800',
-        nonceStr: 'nonce',
-        package: 'prepay_id=club_RC123',
-        signType: 'RSA',
-        paySign: 'SIGN',
-      },
-      metadata: {
-        packageId: '18',
-        promotionId: 18,
-        rechargeAmountFen: 50000,
-        bonusAmountFen: 10000,
-        customAmountFen: null,
-      },
-    });
+    clubOrderDraftsService.createDraft.mockResolvedValue(createRechargeDraft());
 
     await expect(
-      service.createOrder(user, { storeId: 11, packageId: '18' }),
+      service.createOrder(currentContext, { storeId: 11, packageId: '18' }),
     ).resolves.toEqual(
       expect.objectContaining({
         id: 'RC123',
@@ -264,29 +282,73 @@ describe('ClubRechargeService', () => {
     });
   });
 
+  it('createOrder 支持多梯度套餐并回填 promotionId', async () => {
+    prismaService.marketingPromotion.findMany.mockResolvedValue([
+      createPromotion({
+        id: 21,
+        name: '储值多档赠送',
+        description: '暑期活动',
+        params: {
+          gradients: [
+            { rechargeAmount: 10000, giftAmount: 1000 },
+            { rechargeAmount: 30000, giftAmount: 5000 },
+          ],
+        },
+      }),
+    ]);
+    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    clubOrderDraftsService.createDraft.mockResolvedValue({
+      ...createRechargeDraft(),
+      id: 'RC125',
+      orderNo: 'RC125',
+      amountFen: 30000,
+      paymentParams: {
+        timeStamp: '1773556800',
+        nonceStr: 'nonce',
+        package: 'prepay_id=club_RC125',
+        signType: 'RSA',
+        paySign: 'SIGN',
+      },
+      metadata: {
+        packageId: '21:1',
+        promotionId: 21,
+        rechargeAmountFen: 30000,
+        bonusAmountFen: 5000,
+        customAmountFen: null,
+      },
+    });
+
+    await expect(
+      service.createOrder(currentContext, { storeId: 11, packageId: '21:1' }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 'RC125',
+        rechargeAmount: 300,
+        bonusAmount: 50,
+        packageId: '21:1',
+      }),
+    );
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: {
+          packageId: '21:1',
+          promotionId: 21,
+          rechargeAmountFen: 30000,
+          bonusAmountFen: 5000,
+          customAmountFen: null,
+        },
+      }),
+    );
+  });
+
   it('createOrder 支持自定义充值金额', async () => {
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
     prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
     clubOrderDraftsService.createDraft.mockResolvedValue({
+      ...createRechargeDraft(),
       id: 'RC124',
       orderNo: 'RC124',
-      orderType: 'recharge',
-      status: 'pending',
-      storeId: 11,
-      storeName: '望京旗舰店',
-      userId: 201,
-      phone: '13800138000',
-      customerId: 36,
-      title: '会员充值',
       amountFen: 26800,
-      paymentChannel: 'wechat',
-      createdAtMs: Date.now(),
-      expiresAtMs: Date.now() + 900000,
-      paidAtMs: null,
-      paymentTransactionId: null,
-      callbackReceivedAtMs: null,
-      paymentConfirmationSource: null,
-      failureReason: null,
       paymentParams: {
         timeStamp: '1773556800',
         nonceStr: 'nonce',
@@ -304,7 +366,7 @@ describe('ClubRechargeService', () => {
     });
 
     await expect(
-      service.createOrder(user, { storeId: 11, customAmount: 268 }),
+      service.createOrder(currentContext, { storeId: 11, customAmount: 268 }),
     ).resolves.toEqual(
       expect.objectContaining({
         id: 'RC124',
@@ -320,7 +382,7 @@ describe('ClubRechargeService', () => {
     prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
 
     await expect(
-      service.createOrder(user, {
+      service.createOrder(currentContext, {
         storeId: 11,
         packageId: 'default-500',
         customAmount: 200,
@@ -333,50 +395,19 @@ describe('ClubRechargeService', () => {
     prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
 
     await expect(
-      service.createOrder(user, { storeId: 11, packageId: '404' }),
+      service.createOrder(currentContext, { storeId: 11, packageId: '404' }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('getOrderStatus 返回充值订单状态', async () => {
-    clubOrderDraftsService.getDraft.mockResolvedValue({
-      id: 'RC123',
-      orderNo: 'RC123',
-      orderType: 'recharge',
-      status: 'pending',
-      storeId: 11,
-      storeName: '望京旗舰店',
-      userId: 201,
-      phone: '13800138000',
-      customerId: 36,
-      title: '会员充值',
-      amountFen: 50000,
-      paymentChannel: 'wechat',
-      createdAtMs: Date.now(),
-      expiresAtMs: Date.now() + 900000,
-      paidAtMs: null,
-      paymentTransactionId: null,
-      callbackReceivedAtMs: null,
-      paymentConfirmationSource: null,
-      failureReason: null,
-      paymentParams: {
-        timeStamp: '1773556800',
-        nonceStr: 'nonce',
-        package: 'prepay_id=club_RC123',
-        signType: 'RSA',
-        paySign: 'SIGN',
-      },
-      metadata: {
-        packageId: '18',
-        promotionId: 18,
-        rechargeAmountFen: 50000,
-        bonusAmountFen: 10000,
-        customAmountFen: null,
-      },
-    });
+    clubOrderDraftsService.getDraft.mockResolvedValue(createRechargeDraft());
 
-    await expect(service.getOrderStatus(user, 'RC123')).resolves.toEqual(
+    await expect(
+      service.getOrderStatus(currentContext, 'RC123'),
+    ).resolves.toEqual(
       expect.objectContaining({
         id: 'RC123',
+        packageId: '18',
         status: 'pending',
       }),
     );
@@ -397,7 +428,9 @@ describe('ClubRechargeService', () => {
       paidAtMs: Date.now(),
     });
 
-    await expect(service.confirmOrderPaid(user, 'RC123')).resolves.toEqual(
+    await expect(
+      service.confirmOrderPaid(currentContext, 'RC123'),
+    ).resolves.toEqual(
       expect.objectContaining({
         id: 'RC123',
         packageId: '18',
@@ -426,10 +459,59 @@ describe('ClubRechargeService', () => {
       where: { id: 18, storeId: 11 },
       data: { usageCount: { increment: 1 } },
     });
-    expect(cacheInvalidatorService.invalidateMarketingOverview).toHaveBeenCalledWith(11);
+    expect(
+      cacheInvalidatorService.invalidateMarketingOverview,
+    ).toHaveBeenCalledWith(11);
     expect(clubOrderDraftsService.markPaid).toHaveBeenCalledWith(draft, {
       paymentConfirmationSource: 'manual_confirm_paid',
     });
+  });
+
+  it('confirmOrderPaidByCallback 校验金额后驱动回调落账', async () => {
+    const draft = createRechargeDraft();
+    clubOrderDraftsService.getDraftByOrderId.mockResolvedValue(draft);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+    clubOrderDraftsService.markPaid.mockResolvedValue({
+      ...draft,
+      status: 'paid',
+      paidAtMs: 1773558660000,
+      paymentTransactionId: 'wx_txn_001',
+      callbackReceivedAtMs: 1773558663000,
+      paymentConfirmationSource: 'wechat_callback',
+    });
+
+    await expect(
+      service.confirmOrderPaidByCallback('RC123', {
+        amountFen: 50000,
+        transactionId: 'wx_txn_001',
+        paidAtMs: 1773558660000,
+        callbackReceivedAtMs: 1773558663000,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 'RC123',
+        paymentConfirmationSource: 'wechat_callback',
+      }),
+    );
+    expect(clubOrderDraftsService.getDraftByOrderId).toHaveBeenCalledWith(
+      'RC123',
+      'recharge',
+    );
+  });
+
+  it('confirmOrderPaidByCallback 在金额不一致时抛出 BadRequestException', async () => {
+    clubOrderDraftsService.getDraftByOrderId.mockResolvedValue(
+      createRechargeDraft(),
+    );
+
+    await expect(
+      service.confirmOrderPaidByCallback('RC123', {
+        amountFen: 49999,
+        transactionId: 'wx_txn_001',
+        paidAtMs: 1773558660000,
+        callbackReceivedAtMs: 1773558663000,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('confirmOrderPaid 在关闭开发态兜底时拒绝调用', async () => {
@@ -440,21 +522,23 @@ describe('ClubRechargeService', () => {
       return configMap[key];
     });
 
-    await expect(service.confirmOrderPaid(user, 'RC123')).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(
+      service.confirmOrderPaid(currentContext, 'RC123'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
     expect(clubOrderDraftsService.getDraft).not.toHaveBeenCalled();
   });
 
   it('confirmOrderPaid 对已支付订单直接返回，不重复落账', async () => {
     const draft = {
       ...createRechargeDraft(),
-      status: 'paid',
+      status: 'paid' as const,
       paidAtMs: Date.now(),
     };
     clubOrderDraftsService.getDraft.mockResolvedValue(draft);
 
-    await expect(service.confirmOrderPaid(user, 'RC123')).resolves.toEqual(
+    await expect(
+      service.confirmOrderPaid(currentContext, 'RC123'),
+    ).resolves.toEqual(
       expect.objectContaining({
         id: 'RC123',
       }),

@@ -11,15 +11,17 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuthTokenResponseDto } from '../../purely-profit/auth/dto/auth-token-response.dto';
-import { ForgotPasswordDto } from '../../purely-profit/auth/dto/forgot-password.dto';
-import { ForgotPasswordResponseDto } from '../../purely-profit/auth/dto/forgot-password-response.dto';
-import { LoginDto } from '../../purely-profit/auth/dto/login.dto';
-import { PasswordOperationResponseDto } from '../../purely-profit/auth/dto/password-operation-response.dto';
-import { RegisterDto } from '../../purely-profit/auth/dto/register.dto';
-import { ResetPasswordDto } from '../../purely-profit/auth/dto/reset-password.dto';
-import { SendRegisterCodeDto } from '../../purely-profit/auth/dto/send-register-code.dto';
-import { SendRegisterCodeResponseDto } from '../../purely-profit/auth/dto/send-register-code-response.dto';
+import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ForgotPasswordResponseDto } from './dto/forgot-password-response.dto';
+import { LoginByCodeDto } from './dto/login-by-code.dto';
+import { LoginDto } from './dto/login.dto';
+import { PasswordOperationResponseDto } from './dto/password-operation-response.dto';
+import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { SendLoginCodeResponseDto } from './dto/send-login-code-response.dto';
+import { SendRegisterCodeDto } from './dto/send-register-code.dto';
+import { SendRegisterCodeResponseDto } from './dto/send-register-code-response.dto';
 import { ClubAuthService } from './club-auth.service';
 
 @ApiTags('Club / Auth')
@@ -42,6 +44,23 @@ export class ClubAuthController {
     @Body() dto: SendRegisterCodeDto,
   ): Promise<SendRegisterCodeResponseDto> {
     return this.clubAuthService.sendRegisterCode(dto);
+  }
+
+  @Post('login/send-code')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '发送 purely-club 登录短信验证码',
+    description:
+      '仅面向 purely-club 已注册账号发送登录验证码。即使手机号不存在也返回统一文案，不暴露注册状态。',
+  })
+  @ApiOkResponse({
+    description: '如手机号已注册则发送 purely-club 登录验证码短信，统一返回通用文案',
+    type: SendLoginCodeResponseDto,
+  })
+  sendLoginCode(
+    @Body() dto: SendRegisterCodeDto,
+  ): Promise<SendLoginCodeResponseDto> {
+    return this.clubAuthService.sendLoginCode(dto);
   }
 
   @Post('register')
@@ -71,6 +90,21 @@ export class ClubAuthController {
   })
   login(@Body() dto: LoginDto): Promise<AuthTokenResponseDto> {
     return this.clubAuthService.login(dto);
+  }
+
+  @Post('login/code')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '通过短信验证码登录 purely-club',
+    description:
+      '仅接受 purely-club 已注册账号通过手机号验证码登录。登录成功后返回 JWT token，并消费当前验证码。',
+  })
+  @ApiOkResponse({
+    description: 'purely-club 验证码登录成功，返回 JWT token',
+    type: AuthTokenResponseDto,
+  })
+  loginByCode(@Body() dto: LoginByCodeDto): Promise<AuthTokenResponseDto> {
+    return this.clubAuthService.loginByCode(dto);
   }
 
   @Post('forgot-password')

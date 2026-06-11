@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -6,9 +14,10 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
-import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { ClubCurrentContextInterceptor } from '../stores/club-current-context.interceptor';
+import type { ClubCurrentContext } from '../stores/club-stores.types';
+import { CurrentClubContext } from '../stores/current-club-context.decorator';
 import { ClubOrdersService } from './club-orders.service';
 import {
   ClubOrderStatusResponseDto,
@@ -19,6 +28,7 @@ import {
 @ApiTags('Club / Orders')
 @ApiBearerAuth()
 @UseGuards(ClubJwtAuthGuard)
+@UseInterceptors(ClubCurrentContextInterceptor)
 @Controller('club/orders')
 export class ClubOrdersController {
   constructor(private readonly clubOrdersService: ClubOrdersService) {}
@@ -31,10 +41,10 @@ export class ClubOrdersController {
   })
   @ApiCreatedResponse({ type: ClubServiceOrderResponseDto })
   createServiceOrder(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClubContext() currentContext: ClubCurrentContext,
     @Body() dto: CreateClubServiceOrderDto,
   ): Promise<ClubServiceOrderResponseDto> {
-    return this.clubOrdersService.createServiceOrder(user, dto);
+    return this.clubOrdersService.createServiceOrder(currentContext, dto);
   }
 
   @Get(':id')
@@ -45,10 +55,10 @@ export class ClubOrdersController {
   })
   @ApiOkResponse({ type: ClubOrderStatusResponseDto })
   getOrderStatus(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClubContext() currentContext: ClubCurrentContext,
     @Param('id') orderId: string,
   ): Promise<ClubOrderStatusResponseDto> {
-    return this.clubOrdersService.getOrderStatus(user, orderId);
+    return this.clubOrdersService.getOrderStatus(currentContext, orderId);
   }
 
   @Post(':id/confirm-paid')
@@ -59,9 +69,9 @@ export class ClubOrdersController {
   })
   @ApiOkResponse({ type: ClubServiceOrderResponseDto })
   confirmOrderPaid(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentClubContext() currentContext: ClubCurrentContext,
     @Param('id') orderId: string,
   ): Promise<ClubServiceOrderResponseDto> {
-    return this.clubOrdersService.confirmOrderPaid(user, orderId);
+    return this.clubOrdersService.confirmOrderPaid(currentContext, orderId);
   }
 }
