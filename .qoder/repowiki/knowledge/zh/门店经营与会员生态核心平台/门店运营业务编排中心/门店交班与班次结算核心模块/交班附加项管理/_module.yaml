@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: purely_profit/operations/handover/additional_items
+title: 交班附加项管理
+scope:
+    - src/purely-profit/operations/handover/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/operations/handover/core
+    - path: purely_profit/operations/handover/page_shift

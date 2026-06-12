@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: purely_profit/operations/sales_record/sales_record_write
+title: 销售记录写操作与创建流程
+scope:
+    - src/purely-profit/operations/sales-record/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/operations/sales_record/sales_record_read
+    - path: purely_profit/goods/inventory

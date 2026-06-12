@@ -26,6 +26,10 @@ import {
   buildOverviewLast30Days,
   buildOverviewMonthlyTrend,
 } from './marketing.mapper';
+import {
+  queryOverviewDailyTrend,
+  queryOverviewMonthlyTrend,
+} from './marketing-overview.query';
 import { MarketingSharedService } from './marketing-shared.service';
 import {
   cloneDefaultMarketingMemberLevelSettings,
@@ -214,7 +218,8 @@ export class MarketingOverviewService {
       todayRechargeAgg,
       thisMonthRechargeAgg,
       rechargeCount,
-      trendRechargeRows,
+      dailyTotals,
+      monthlyTotals,
     ] = await Promise.all([
       this.prisma.marketingCustomer.count({
         where: { storeId, visitCount: { gt: 0 } },
@@ -249,15 +254,8 @@ export class MarketingOverviewService {
       this.prisma.marketingRecharge.count({
         where: { storeId },
       }),
-      this.prisma.marketingRecharge.findMany({
-        where: {
-          storeId,
-          createdAt: { gte: previousYearStart },
-          type: { in: ['recharge', 'gift'] },
-        },
-        select: { createdAt: true, amount: true, giftAmount: true },
-        orderBy: { createdAt: 'asc' },
-      }),
+      queryOverviewDailyTrend(this.prisma, storeId),
+      queryOverviewMonthlyTrend(this.prisma, storeId, previousYearStart),
     ]);
 
     const totalRecharge =
@@ -281,14 +279,14 @@ export class MarketingOverviewService {
       activeMemberCount,
       inviteCode,
       inviteCodeQrCodeImageUrl: buildStoreInviteQrCodeImageUrl(storeId),
-      last30Days: buildOverviewLast30Days(trendRechargeRows),
+      last30Days: buildOverviewLast30Days(dailyTotals),
       currentYear,
       thisYearMonthlyTrend: buildOverviewMonthlyTrend(
-        trendRechargeRows,
+        monthlyTotals,
         currentYear,
       ),
       lastYearMonthlyTrend: buildOverviewMonthlyTrend(
-        trendRechargeRows,
+        monthlyTotals,
         currentYear - 1,
       ),
     };

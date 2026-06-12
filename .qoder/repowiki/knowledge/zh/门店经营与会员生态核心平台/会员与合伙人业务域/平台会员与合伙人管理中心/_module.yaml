@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: purely_profit/member/platform_membership
+title: 平台会员与合伙人管理中心
+scope:
+    - src/purely-profit/member/platform-membership/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/member/members
+    - path: purely_profit/subscriptions
+    - path: purely_profit/notifications
+    - path: purely_profit/auth/api_layer
+    - path: purely_profit/member/withdrawals
+    - path: purely_profit/staff/seats
+    - path: purely_profit/auth/profile_account

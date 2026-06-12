@@ -1,0 +1,16 @@
+schema_version: 1
+module_path: purely_pulse/membership
+title: Pulse 会员管理与订阅中心
+scope:
+    - src/purely-pulse/membership/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_pulse/store_context
+    - path: purely_pulse/dashboard
+    - path: purely_pulse/growth
+    - path: purely_pulse/dev_mode
+    - path: purely_pulse/membership_settings
+    - path: purely_profit/member
+    - path: data_layer
+    - path: purely_pulse/onboarding

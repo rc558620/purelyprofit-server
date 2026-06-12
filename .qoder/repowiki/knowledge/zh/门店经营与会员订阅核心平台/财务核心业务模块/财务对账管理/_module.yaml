@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: purely_profit/finance/reconciliation
-title: 财务对账管理
-scope:
-    - src/purely-profit/finance/
-source_files: []
-depends_on: []
-related_to: []

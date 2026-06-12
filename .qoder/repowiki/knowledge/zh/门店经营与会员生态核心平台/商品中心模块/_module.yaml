@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: purely_profit/goods
+title: 商品中心模块
+scope:
+    - src/purely-profit/goods/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/operations
+    - path: purely_profit/notifications
+    - path: purely_profit/commerce
+    - path: data_layer

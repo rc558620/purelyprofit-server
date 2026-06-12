@@ -1,0 +1,20 @@
+schema_version: 1
+module_path: purely_profit/auth/profile_account
+title: 用户档案与账户权限管理
+scope:
+    - src/purely-profit/auth/auth-profile.service.ts
+    - src/purely-profit/auth/auth-profile.types.ts
+    - src/purely-profit/auth/auth-account.service.ts
+    - src/purely-profit/auth/auth-account.types.ts
+    - src/purely-profit/auth/auth-account-lookup.service.ts
+    - src/purely-profit/auth/auth-account-membership.service.ts
+    - src/purely-profit/auth/auth-capability.service.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/auth/api_layer
+    - path: purely_profit/access_control
+    - path: purely_profit/staff/employees
+    - path: purely_profit/subscriptions
+    - path: purely_profit/staff/seats
+    - path: purely_profit/member/platform_membership

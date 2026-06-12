@@ -1,0 +1,18 @@
+schema_version: 1
+module_path: purely_profit/auth/authentication_session
+title: 认证与会话管理
+scope:
+    - src/purely-profit/auth/guards/
+    - src/purely-profit/auth/strategies/
+    - src/purely-profit/auth/auth-authentication.service.ts
+    - src/purely-profit/auth/auth-session.service.ts
+    - src/purely-profit/auth/auth.constants.ts
+    - src/purely-profit/auth/auth.utils.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/auth/password_management
+    - path: cache_layer
+    - path: purely_profit/subscriptions
+    - path: purely_profit/staff/seats
+    - path: purely_profit/access_control

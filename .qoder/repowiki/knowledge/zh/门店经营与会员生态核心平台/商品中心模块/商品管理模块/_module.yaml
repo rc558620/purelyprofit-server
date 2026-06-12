@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: purely_profit/goods/products
+title: 商品管理模块
+scope:
+    - src/purely-profit/goods/products/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/goods/categories
+    - path: purely_profit/goods/inventory
+    - path: purely_profit/marketing/products
+    - path: purely_profit/operations/sales_record
+    - path: purely_profit/operations/sales_record/sales_record_read
+    - path: purely_profit/dashboard/profit_detail

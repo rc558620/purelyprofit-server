@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: purely_profit/commerce
+title: 商业访问控制与通用工具
+scope:
+    - src/purely-profit/commerce/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/goods
+    - path: purely_profit/operations
+    - path: purely_profit/finance
+    - path: purely_profit/marketing
+    - path: purely_profit/dashboard

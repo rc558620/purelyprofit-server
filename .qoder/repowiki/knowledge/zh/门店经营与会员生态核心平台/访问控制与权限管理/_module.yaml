@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: purely_profit/access_control
+title: 访问控制与权限管理
+scope:
+    - src/purely-profit/access-control/
+source_files: []
+depends_on: []
+related_to:
+    - path: access_control
+    - path: purely_profit/auth/profile_account
+    - path: purely_profit/subscriptions
+    - path: purely_profit/staff/seats
+    - path: purely_profit/staff/employees
+    - path: purely_profit/auth/authentication_session

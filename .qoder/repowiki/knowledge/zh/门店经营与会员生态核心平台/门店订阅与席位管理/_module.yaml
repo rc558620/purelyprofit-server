@@ -1,0 +1,16 @@
+schema_version: 1
+module_path: purely_profit/subscriptions
+title: 门店订阅与席位管理
+scope:
+    - src/purely-profit/subscriptions/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/stores
+    - path: purely_profit/staff
+    - path: purely_profit/member/platform_membership
+    - path: purely_profit/access_control
+    - path: purely_profit/auth/authentication_session
+    - path: purely_profit/notifications
+    - path: purely_profit/staff/employees
+    - path: purely_profit/auth/profile_account

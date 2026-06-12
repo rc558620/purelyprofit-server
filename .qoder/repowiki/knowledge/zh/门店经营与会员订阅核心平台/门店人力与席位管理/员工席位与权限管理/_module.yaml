@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: purely_profit/staff/seats
-title: 员工席位与权限管理
-scope:
-    - src/purely-profit/staff/seats/
-source_files: []
-depends_on: []
-related_to: []

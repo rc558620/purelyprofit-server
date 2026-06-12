@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: purely_pulse/onboarding
+title: 商家入驻状态管理
+scope:
+    - src/purely-pulse/onboarding/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_pulse/session
+    - path: purely_pulse/store_context
+    - path: purely_pulse/membership
+    - path: purely_pulse/dev_mode
+    - path: purely_pulse/dashboard
+    - path: purely_pulse/membership_settings
+    - path: purely_pulse/growth

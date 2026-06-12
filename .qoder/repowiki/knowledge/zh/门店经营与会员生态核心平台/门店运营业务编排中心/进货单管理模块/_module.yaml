@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: purely_profit/operations/purchases
+title: 进货单管理模块
+scope:
+    - src/purely-profit/operations/purchases/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/operations/costs
+    - path: purely_profit/operations/suppliers
+    - path: purely_profit/goods/inventory
+    - path: purely_profit/finance/cash_flow

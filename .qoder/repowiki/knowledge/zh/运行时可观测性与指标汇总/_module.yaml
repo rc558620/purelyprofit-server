@@ -5,4 +5,8 @@ scope:
     - src/observability/
 source_files: []
 depends_on: []
-related_to: []
+related_to:
+    - path: cache_layer
+    - path: purely_profit/dashboard
+    - path: purely_profit/operations
+    - path: purely_pulse/session

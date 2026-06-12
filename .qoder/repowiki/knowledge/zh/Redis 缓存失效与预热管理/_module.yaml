@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: cache_layer
+title: Redis 缓存失效与预热管理
+scope:
+    - src/redis/
+source_files: []
+depends_on: []
+related_to: []

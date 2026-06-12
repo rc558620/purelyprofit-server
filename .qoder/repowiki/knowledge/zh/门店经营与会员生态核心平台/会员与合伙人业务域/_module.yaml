@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: purely_profit/member
+title: 会员与合伙人业务域
+scope:
+    - src/purely-profit/member/
+source_files: []
+depends_on: []
+related_to:
+    - path: cache_layer
+    - path: purely_profit/finance
+    - path: purely_profit/marketing
+    - path: purely_pulse/membership

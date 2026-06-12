@@ -1,0 +1,28 @@
+schema_version: 1
+module_path: purely_profit/operations/spaces/space_management
+title: 空间管理与看板服务
+scope:
+    - src/purely-profit/operations/spaces/spaces.controller.ts
+    - src/purely-profit/operations/spaces/spaces.service.ts
+    - src/purely-profit/operations/spaces/spaces-read.service.ts
+    - src/purely-profit/operations/spaces/spaces-write.service.ts
+    - src/purely-profit/operations/spaces/spaces.mapper.ts
+    - src/purely-profit/operations/spaces/spaces.query.ts
+    - src/purely-profit/operations/spaces/spaces.types.ts
+    - src/purely-profit/operations/spaces/spaces.constants.ts
+    - src/purely-profit/operations/spaces/spaces-ref-resolver.service.ts
+    - src/purely-profit/operations/spaces/spaces.module.ts
+    - src/purely-profit/operations/spaces/dto/space.dto.ts
+    - src/purely-profit/operations/spaces/dto/space.query.dto.ts
+    - src/purely-profit/operations/spaces/dto/space.request.dto.ts
+    - src/purely-profit/operations/spaces/dto/space.response.dto.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/operations/spaces/types
+    - path: purely_profit/operations/spaces/zones
+    - path: purely_profit/notifications
+    - path: purely_profit/operations/spaces/reservations
+    - path: purely_profit/operations/spaces/sessions
+    - path: purely_profit/dashboard/dashboard_home
+    - path: purely_profit/operations/handover

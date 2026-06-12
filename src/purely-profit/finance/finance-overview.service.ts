@@ -19,11 +19,11 @@ import {
 import { FinanceAccessService } from './finance-access.service';
 import {
   queryFinanceReportData,
-  queryOverviewCashFlowRecords,
+  queryOverviewCategoryTotals,
+  queryOverviewDailyTrend as queryFinanceDailyTrend,
 } from './finance-overview-report.query';
 import type { FinanceReportQueryInput } from './finance.types';
 import { getDayStart } from './finance-date.utils';
-import { addMoneyValues, toMoneyNumber } from './finance-money.utils';
 import {
   getFinanceReportRange,
   getOverviewCurrentRange,
@@ -156,51 +156,55 @@ export class FinanceOverviewService {
         },
         callerIsSubAccount,
       );
-    const queryStart = clampedPreviousRange.empty
-      ? clampedCurrentRange.start
-      : Math.max(
-          0,
-          Math.min(clampedCurrentRange.start, clampedPreviousRange.start),
-        );
-    const records = await queryOverviewCashFlowRecords(this.prisma, {
-      storeId,
-      start: queryStart,
-      end: clampedCurrentRange.end,
-    });
 
+    const [categoryTotals, dailyTrend] = await Promise.all([
+      queryOverviewCategoryTotals(this.prisma, {
+        storeId,
+        currentStart: clampedCurrentRange.start,
+        currentEnd: clampedCurrentRange.end,
+        prevStart: clampedPreviousRange.empty
+          ? null
+          : clampedPreviousRange.start,
+        prevEnd: clampedPreviousRange.empty
+          ? null
+          : clampedPreviousRange.end,
+      }),
+      queryFinanceDailyTrend(this.prisma, {
+        storeId,
+        start: clampedCurrentRange.start,
+        end: clampedCurrentRange.end,
+      }),
+    ]);
+
+    // Build period totals from category aggregates
     const currentTotals = makeOverviewTotals();
     const previousTotals = makeOverviewTotals();
+
+    for (const row of categoryTotals.current) {
+      const bucket = getCashFlowOverviewBucket(row.category);
+      if (bucket !== null) {
+        currentTotals[bucket] += row.amount;
+      }
+    }
+
+    for (const row of categoryTotals.previous) {
+      const bucket = getCashFlowOverviewBucket(row.category);
+      if (bucket !== null) {
+        previousTotals[bucket] += row.amount;
+      }
+    }
+
+    // Build daily maps from aggregated trend
     const incomeMap = new Map<number, number>();
     const expenseMap = new Map<number, number>();
 
-    for (const record of records) {
-      const amount = toMoneyNumber(record.amount);
-      const timestamp = record.date.getTime();
-      const bucket = getCashFlowOverviewBucket(record.category);
-      if (bucket === null) {
-        continue;
+    for (const row of dailyTrend) {
+      const dayStart = getDayStart(row.day);
+      if (row.income > 0) {
+        incomeMap.set(dayStart, row.income);
       }
-
-      if (
-        timestamp >= clampedCurrentRange.start &&
-        timestamp <= clampedCurrentRange.end
-      ) {
-        currentTotals[bucket] = addMoneyValues(currentTotals[bucket], amount);
-        const dayStart = getDayStart(timestamp);
-        const targetMap =
-          bucket === 'sales' || bucket === 'additional'
-            ? incomeMap
-            : expenseMap;
-        targetMap.set(
-          dayStart,
-          addMoneyValues(targetMap.get(dayStart) ?? 0, amount),
-        );
-      } else if (
-        !clampedPreviousRange.empty &&
-        timestamp >= clampedPreviousRange.start &&
-        timestamp <= clampedPreviousRange.end
-      ) {
-        previousTotals[bucket] = addMoneyValues(previousTotals[bucket], amount);
+      if (row.expense > 0) {
+        expenseMap.set(dayStart, row.expense);
       }
     }
 

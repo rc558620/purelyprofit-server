@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: purely_profit/dashboard/business_analysis
-title: 经营分析大屏数据服务
-scope:
-    - src/purely-profit/dashboard/business-analysis/
-source_files: []
-depends_on: []
-related_to: []

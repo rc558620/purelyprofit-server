@@ -1,0 +1,16 @@
+schema_version: 1
+module_path: purely_profit/staff/seats
+title: 员工席位与权限管理
+scope:
+    - src/purely-profit/staff/seats/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/staff/employees
+    - path: purely_profit/auth/api_layer
+    - path: purely_profit/access_control
+    - path: purely_profit/auth/authentication_session
+    - path: purely_profit/notifications
+    - path: purely_profit/member/platform_membership
+    - path: purely_profit/auth/profile_account
+    - path: purely_profit/operations/handover

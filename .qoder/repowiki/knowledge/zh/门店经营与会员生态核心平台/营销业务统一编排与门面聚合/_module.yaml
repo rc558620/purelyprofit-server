@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: purely_profit/marketing
+title: 营销业务统一编排与门面聚合
+scope:
+    - src/purely-profit/marketing/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/member
+    - path: purely_profit/dashboard
+    - path: purely_profit/notifications
+    - path: cache_layer
+    - path: purely_profit/commerce

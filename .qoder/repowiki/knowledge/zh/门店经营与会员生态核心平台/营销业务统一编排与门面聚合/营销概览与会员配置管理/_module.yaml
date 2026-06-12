@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: purely_profit/marketing/overview
+title: 营销概览与会员配置管理
+scope:
+    - src/purely-profit/marketing/marketing-overview.controller.ts
+    - src/purely-profit/marketing/marketing-overview.facade.service.ts
+    - src/purely-profit/marketing/marketing-overview.service.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/marketing/customers
+    - path: purely_profit/dashboard/dashboard_home
+    - path: purely_profit/marketing/shared_core
+    - path: purely_profit/dashboard/business_analysis

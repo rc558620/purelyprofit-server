@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: purely_pulse/growth
+title: Pulse 增长与合伙人管理中心
+scope:
+    - src/purely-pulse/growth/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_pulse/store_context
+    - path: purely_pulse/membership
+    - path: purely_pulse/dev_mode
+    - path: purely_pulse/dashboard
+    - path: purely_pulse/session
+    - path: purely_pulse/onboarding

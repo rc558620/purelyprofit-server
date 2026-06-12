@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: purely_profit/dashboard/profit_detail
-title: 利润详情与报表中心
-scope:
-    - src/purely-profit/dashboard/profit-detail/
-source_files: []
-depends_on: []
-related_to: []

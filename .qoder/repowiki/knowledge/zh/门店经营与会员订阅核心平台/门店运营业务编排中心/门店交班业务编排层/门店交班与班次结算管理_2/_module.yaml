@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: purely_profit/operations/handover/records
-title: 门店交班与班次结算管理
-scope:
-    - src/purely-profit/operations/handover/
-source_files: []
-depends_on: []
-related_to: []

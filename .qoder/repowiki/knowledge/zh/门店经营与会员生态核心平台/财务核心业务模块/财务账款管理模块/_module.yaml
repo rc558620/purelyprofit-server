@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: purely_profit/finance/account
+title: 财务账款管理模块
+scope:
+    - src/purely-profit/finance/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/finance/overview
+    - path: purely_profit/finance/cash_flow
+    - path: purely_profit/notifications
+    - path: purely_profit/operations/suppliers
+    - path: purely_profit/dashboard/business_analysis

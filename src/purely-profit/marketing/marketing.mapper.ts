@@ -28,7 +28,6 @@ import type {
 import {
   calcCustomerStatus,
   calcPromotionStatus,
-  calcRechargeTotal,
   maskPhone,
   type MarketingPayTypeValue,
   type MarketingPointsChangeTypeValue,
@@ -280,7 +279,7 @@ export function mapProductRow(row: MarketingProductRow): MarketingProductDto {
 }
 
 export function buildOverviewLast30Days(
-  rechargeRows: Array<{ createdAt: Date; amount: number; giftAmount: number }>,
+  dailyTotals: Array<{ date: Date; amount: number }>,
 ): MarketingOverviewTrendPoint[] {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -294,25 +293,23 @@ export function buildOverviewLast30Days(
     } satisfies MarketingOverviewTrendPoint;
   });
 
-  for (const row of rechargeRows) {
-    const createdAt = new Date(row.createdAt);
-    createdAt.setHours(0, 0, 0, 0);
-    const bucketIndex = Math.floor(
-      (createdAt.getTime() - rangeStart.getTime()) / 86400_000,
-    );
-    if (bucketIndex >= 0 && bucketIndex < buckets.length) {
-      buckets[bucketIndex].amount += calcRechargeTotal(
-        row.amount,
-        row.giftAmount,
-      );
-    }
+  const dailyMap = new Map<number, number>();
+  for (const row of dailyTotals) {
+    const dayTs = new Date(row.date);
+    dayTs.setHours(0, 0, 0, 0);
+    dailyMap.set(dayTs.getTime(), row.amount);
+  }
+
+  for (let i = 0; i < buckets.length; i++) {
+    const dayStart = rangeStart.getTime() + i * 86400_000;
+    buckets[i].amount = dailyMap.get(dayStart) ?? 0;
   }
 
   return buckets;
 }
 
 export function buildOverviewMonthlyTrend(
-  rechargeRows: Array<{ createdAt: Date; amount: number; giftAmount: number }>,
+  monthlyTotals: Array<{ year: number; month: number; amount: number }>,
   year: number,
 ): MarketingOverviewMonthlyTrendPoint[] {
   const monthly = OVERVIEW_MONTH_LABELS.map((label) => ({
@@ -320,16 +317,11 @@ export function buildOverviewMonthlyTrend(
     amount: null as number | null,
   }));
 
-  for (const row of rechargeRows) {
-    const createdAt = new Date(row.createdAt);
-    if (createdAt.getFullYear() !== year) {
+  for (const row of monthlyTotals) {
+    if (row.year !== year) {
       continue;
     }
-
-    const monthIndex = createdAt.getMonth();
-    monthly[monthIndex].amount =
-      (monthly[monthIndex].amount ?? 0) +
-      calcRechargeTotal(row.amount, row.giftAmount);
+    monthly[row.month].amount = row.amount;
   }
 
   return monthly;

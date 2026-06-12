@@ -5,4 +5,5 @@ scope:
     - src/purely-profit/access-control/
 source_files: []
 depends_on: []
-related_to: []
+related_to:
+    - path: purely_profit/access_control

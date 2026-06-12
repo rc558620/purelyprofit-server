@@ -141,3 +141,100 @@ export async function queryFinanceReportData(
     accountRecords,
   };
 }
+
+interface OverviewCategoryTotalRow {
+  category: string;
+  total: Prisma.Decimal;
+}
+
+export async function queryOverviewCategoryTotals(
+  prisma: PrismaService,
+  params: {
+    storeId: number;
+    currentStart: number;
+    currentEnd: number;
+    prevStart: number | null;
+    prevEnd: number | null;
+  },
+): Promise<{
+  current: Array<{ category: string; amount: number }>;
+  previous: Array<{ category: string; amount: number }>;
+}> {
+  const hasPrev = params.prevStart !== null && params.prevEnd !== null;
+  const prevStart = hasPrev
+    ? new Date(params.prevStart!)
+    : new Date(params.currentStart);
+  const prevEnd = hasPrev
+    ? new Date(params.prevEnd!)
+    : new Date(params.currentStart);
+
+  const rows = await prisma.$queryRaw<OverviewCategoryTotalRow[]>`
+    SELECT
+      category,
+      ROUND(SUM(amount), 2) AS "total"
+    FROM finance_cash_flow_records
+    WHERE store_id = ${params.storeId}
+      AND date >= ${new Date(params.currentStart)}
+      AND date <= ${new Date(params.currentEnd)}
+    GROUP BY category
+  `;
+
+  let prevRows: OverviewCategoryTotalRow[] = [];
+  if (hasPrev) {
+    prevRows = await prisma.$queryRaw<OverviewCategoryTotalRow[]>`
+      SELECT
+        category,
+        ROUND(SUM(amount), 2) AS "total"
+      FROM finance_cash_flow_records
+      WHERE store_id = ${params.storeId}
+        AND date >= ${prevStart}
+        AND date <= ${prevEnd}
+      GROUP BY category
+    `;
+  }
+
+  return {
+    current: rows.map((r) => ({
+      category: r.category,
+      amount: Number(r.total),
+    })),
+    previous: prevRows.map((r) => ({
+      category: r.category,
+      amount: Number(r.total),
+    })),
+  };
+}
+
+interface OverviewDailyTrendRow {
+  day: Date;
+  income_total: Prisma.Decimal;
+  expense_total: Prisma.Decimal;
+}
+
+export async function queryOverviewDailyTrend(
+  prisma: PrismaService,
+  params: {
+    storeId: number;
+    start: number;
+    end: number;
+  },
+): Promise<Array<{ day: number; income: number; expense: number }>> {
+  const rows = await prisma.$queryRaw<OverviewDailyTrendRow[]>`
+    SELECT
+      DATE_TRUNC('day', date)::date AS "day",
+      ROUND(SUM(amount) FILTER (WHERE direction = 'income'), 2) AS "income_total",
+      ROUND(SUM(amount) FILTER (WHERE direction = 'expense'), 2) AS "expense_total"
+    FROM finance_cash_flow_records
+    WHERE store_id = ${params.storeId}
+      AND date >= ${new Date(params.start)}
+      AND date <= ${new Date(params.end)}
+    GROUP BY DATE_TRUNC('day', date)
+    ORDER BY "day" ASC
+  `;
+
+  return rows.map((r) => ({
+    day: r.day.getTime(),
+    income: Number(r.income_total ?? 0),
+    expense: Number(r.expense_total ?? 0),
+  }));
+}

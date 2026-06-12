@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: purely_profit/member/withdrawals
+title: 合伙人提现管理
+scope:
+    - src/purely-profit/member/withdrawals/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/member/members
+    - path: purely_profit/finance/cash_flow
+    - path: purely_profit/member/platform_membership
+    - path: purely_profit/notifications

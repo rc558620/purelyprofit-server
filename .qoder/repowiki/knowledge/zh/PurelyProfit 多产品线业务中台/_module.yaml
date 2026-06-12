@@ -1,0 +1,27 @@
+schema_version: 1
+module_path: ""
+title: PurelyProfit 多产品线业务中台
+scope:
+    - .env
+    - .env.example
+    - .gitignore
+    - .prettierrc
+    - README.md
+    - eslint.config.mjs
+    - gen-token.js
+    - generate-token.js
+    - nest-cli.json
+    - package.json
+    - pnpm-lock.yaml
+    - prisma.config.ts
+    - simple-test.sh
+    - test-api.sh
+    - test-profit-api.js
+    - test-profit-api.ts
+    - tsconfig.build.json
+    - tsconfig.build.tsbuildinfo
+    - tsconfig.json
+    - verify-api-live.sh
+source_files: []
+depends_on: []
+related_to: []

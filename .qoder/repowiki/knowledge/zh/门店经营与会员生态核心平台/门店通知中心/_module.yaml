@@ -1,0 +1,25 @@
+schema_version: 1
+module_path: purely_profit/notifications
+title: 门店通知中心
+scope:
+    - src/purely-profit/notifications/
+source_files: []
+depends_on: []
+related_to:
+    - path: purely_profit/goods
+    - path: purely_profit/finance
+    - path: purely_profit/marketing
+    - path: purely_profit/dashboard/dashboard_home
+    - path: purely_profit/operations/spaces/sessions
+    - path: purely_profit/member/platform_membership
+    - path: purely_profit/goods/inventory
+    - path: purely_profit/operations/spaces/reservations
+    - path: purely_profit/finance/account
+    - path: purely_profit/operations/spaces/space_management
+    - path: purely_profit/subscriptions
+    - path: purely_profit/member/members
+    - path: purely_profit/staff/seats
+    - path: purely_profit/auth/api_layer
+    - path: purely_profit/member/withdrawals
+    - path: purely_profit/operations/handover/page_shift
+    - path: purely_profit/staff/employees
