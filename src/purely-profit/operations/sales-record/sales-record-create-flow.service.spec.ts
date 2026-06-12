@@ -191,6 +191,82 @@ describe('SalesRecordCreateFlowService', () => {
     );
   });
 
+  it('createRecord 复用外层事务时不应再次开启事务', async () => {
+    const orderDate = new Date('2026-05-14T12:10:00.000Z');
+    const createdAt = new Date('2026-05-14T12:12:00.000Z');
+    transactionClient.saleOrder.count.mockResolvedValue(4);
+    transactionClient.saleOrder.create.mockResolvedValue({
+      id: 15,
+      storeId: 18,
+      operatorStaffId: 8,
+      orderNo: '#20260514-005',
+      totalRevenue: new Prisma.Decimal('20'),
+      totalProfit: new Prisma.Decimal('8'),
+      totalQuantity: 1,
+      paymentMethod: 'cash',
+      calcMode: 'business',
+      note: '空间结账',
+      date: orderDate,
+      createdAt,
+      updatedAt: createdAt,
+      items: [
+        {
+          id: 105,
+          orderId: 15,
+          storeId: 18,
+          productId: 201,
+          productName: '面条',
+          categoryName: '主食',
+          salePrice: new Prisma.Decimal('20'),
+          profit: new Prisma.Decimal('8'),
+          quantity: 1,
+          image: null,
+          createdAt,
+        },
+      ],
+    });
+
+    await service.createRecord({
+      storeId: 18,
+      operatorStaffId: 8,
+      dto: {
+        items: [],
+        totalRevenue: 20,
+        totalProfit: 8,
+        totalQuantity: 1,
+        paymentMethod: 'cash',
+        calcMode: 'business',
+      } as never,
+      preparedItems: [
+        {
+          productId: 201,
+          productName: '面条',
+          categoryName: '主食',
+          salePrice: 20,
+          profit: 8,
+          quantity: 1,
+          countsTowardTotalQuantity: true,
+        },
+      ],
+      totalRevenue: 20,
+      totalProfit: 8,
+      totalQuantity: 1,
+      note: '空间结账',
+      orderDate,
+      options: {
+        skipInventoryValidationAndDeduction: true,
+        transactionClient,
+      },
+    });
+
+    expect(prismaService.$transaction).not.toHaveBeenCalled();
+    expect(transactionClient.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(inventoryService.recordSaleDeduction).not.toHaveBeenCalled();
+    expect(
+      transactionClient.financeCashFlowRecord.create,
+    ).toHaveBeenCalledTimes(1);
+  });
+
   it('createRecord 在跳过库存校验时不会触发扣减', async () => {
     const orderDate = new Date('2026-05-14T12:10:00.000Z');
     const createdAt = new Date('2026-05-14T12:12:00.000Z');

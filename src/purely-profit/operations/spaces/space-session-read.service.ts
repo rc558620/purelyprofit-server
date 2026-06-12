@@ -19,7 +19,6 @@ import {
   type SpaceSessionResponseDto,
 } from './dto/space-session.dto';
 import { toSpaceSessionResponse } from './space-sessions.mapper';
-import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
 import { SpaceSessionReadStateService } from './space-session-read-state.service';
 import type {
   SpaceSessionListQuery,
@@ -32,7 +31,6 @@ export class SpaceSessionReadService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly configService: ConfigService,
-    private readonly autoCheckoutService: SpaceSessionAutoCheckoutService,
     private readonly readStateService: SpaceSessionReadStateService,
   ) {}
 
@@ -41,6 +39,7 @@ export class SpaceSessionReadService {
     queryDto: ListSpaceSessionsQueryDto,
     requestId?: string,
   ): Promise<SpaceSessionResponseDto[]> {
+    void requestId;
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
       queryDto.storeId,
@@ -51,14 +50,6 @@ export class SpaceSessionReadService {
     if (storeId === null) {
       return [];
     }
-
-    await this.autoCheckoutService.autoCheckoutExpiredCountdownSessions(
-      user,
-      storeId,
-      Date.now(),
-      'space-sessions:list-store',
-      requestId,
-    );
 
     const query = toSpaceSessionListQuery(queryDto);
     const normalizedQuery: SpaceSessionListQuery = {
@@ -80,6 +71,7 @@ export class SpaceSessionReadService {
     queryDto: ListSpaceSessionsQueryDto,
     requestId?: string,
   ): Promise<SpaceSessionResponseDto[]> {
+    void requestId;
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
       queryDto.storeId,
@@ -90,14 +82,6 @@ export class SpaceSessionReadService {
     if (storeId === null) {
       return [];
     }
-
-    await this.autoCheckoutService.autoCheckoutExpiredCountdownSessions(
-      user,
-      storeId,
-      Date.now(),
-      'space-sessions:list-active',
-      requestId,
-    );
 
     const query = toSpaceSessionListQuery(queryDto);
     const normalizedQuery: SpaceSessionListQuery = {
@@ -114,6 +98,7 @@ export class SpaceSessionReadService {
     spaceId: number,
     requestId?: string,
   ): Promise<SpaceSessionResponseDto | null> {
+    void requestId;
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
       select: {
@@ -131,14 +116,6 @@ export class SpaceSessionReadService {
       space.storeId,
       'space:view',
       '无权查看该门店空间会话',
-    );
-
-    await this.autoCheckoutService.autoCheckoutExpiredCountdownSessions(
-      user,
-      space.storeId,
-      Date.now(),
-      'space-sessions:get-active',
-      requestId,
     );
 
     const session = await this.prisma.spaceSession.findFirst({
@@ -171,6 +148,7 @@ export class SpaceSessionReadService {
     queryDto: ListSpaceSessionsQueryDto,
     requestId?: string,
   ): Promise<PaginatedSpaceSessionsResponseDto> {
+    void requestId;
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
       select: {
@@ -188,14 +166,6 @@ export class SpaceSessionReadService {
       space.storeId,
       'space:view',
       '无权查看该门店空间会话',
-    );
-
-    await this.autoCheckoutService.autoCheckoutExpiredCountdownSessions(
-      user,
-      space.storeId,
-      Date.now(),
-      'space-sessions:list-by-space',
-      requestId,
     );
 
     const query = toSpaceSessionListQuery(queryDto);
@@ -242,7 +212,8 @@ export class SpaceSessionReadService {
     sessionId: number,
     requestId?: string,
   ): Promise<SpaceSessionResponseDto> {
-    let session = await this.prisma.spaceSession.findUnique({
+    void requestId;
+    const session = await this.prisma.spaceSession.findUnique({
       where: { id: sessionId },
       include: {
         space: {
@@ -269,37 +240,6 @@ export class SpaceSessionReadService {
       'space:view',
       '无权查看该门店空间会话',
     );
-
-    if (session.status === PrismaSpaceSessionStatus.active) {
-      await this.autoCheckoutService.autoCheckoutExpiredCountdownSessions(
-        user,
-        session.storeId,
-        Date.now(),
-        'space-sessions:detail',
-        requestId,
-      );
-
-      session = await this.prisma.spaceSession.findUnique({
-        where: { id: sessionId },
-        include: {
-          space: {
-            select: {
-              id: true,
-              name: true,
-              type: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      if (!session) {
-        throw new NotFoundException('空间会话不存在');
-      }
-    }
 
     return toSpaceSessionResponse(session);
   }

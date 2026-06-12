@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma, SpaceStatus } from '@prisma/client';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { RedisService } from '../../../redis/redis.service';
 import { SalesRecordService } from '../sales-record/sales-record.service';
 import { SpaceSessionCheckoutLockService } from './space-session-checkout-lock.service';
 import { SpaceSessionCheckoutService } from './space-session-checkout.service';
@@ -37,9 +39,22 @@ describe('SpaceSessionCheckoutService', () => {
   const salesRecordService = {
     create: jest.fn(),
   };
+  const cacheInvalidatorService = {
+    invalidateSalesDerived: jest.fn(),
+  };
+  const redisClient = {
+    set: jest.fn(),
+    eval: jest.fn(),
+  };
+  const redisService = {
+    getClient: jest.fn(() => redisClient),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    cacheInvalidatorService.invalidateSalesDerived.mockResolvedValue(undefined);
+    redisClient.set.mockResolvedValue('OK');
+    redisClient.eval.mockResolvedValue(1);
     prismaService.$transaction.mockImplementation(
       async (
         callback: (client: typeof transactionClient) => Promise<unknown>,
@@ -57,6 +72,11 @@ describe('SpaceSessionCheckoutService', () => {
           useValue: checkoutLockService,
         },
         { provide: SalesRecordService, useValue: salesRecordService },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
+        },
+        { provide: RedisService, useValue: redisService },
       ],
     }).compile();
 
@@ -185,6 +205,20 @@ describe('SpaceSessionCheckoutService', () => {
       sessionUpdatedAt: session.updatedAt.getTime(),
     });
     salesRecordService.create.mockResolvedValue(createdOrder);
+    transactionClient.$queryRaw.mockResolvedValue(undefined);
+    transactionClient.spaceSession.findUnique.mockResolvedValue({
+      status: 'active',
+      updatedAt: session.updatedAt,
+      reservationId: session.reservationId,
+      guestName: session.guestName,
+      guestPhone: session.guestPhone,
+      startTime: session.startTime,
+      spaceId: session.spaceId,
+    });
+    transactionClient.space.findUnique.mockResolvedValue({
+      id: 7,
+      enableDirtyRoom: true,
+    });
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
     transactionClient.space.update.mockResolvedValue({
       id: 7,
@@ -225,7 +259,13 @@ describe('SpaceSessionCheckoutService', () => {
         paymentMethod: 'cash',
         date: checkoutAt,
       }),
-      expectedSalesRecordCreateOptions,
+      expect.objectContaining({
+        ...expectedSalesRecordCreateOptions,
+        transactionClient,
+      }),
+    );
+    expect(cacheInvalidatorService.invalidateSalesDerived).toHaveBeenCalledWith(
+      18,
     );
     expect(checkoutLockService.deleteLock).toHaveBeenCalledWith('lock_1');
     expect(result).toMatchObject({
@@ -283,6 +323,20 @@ describe('SpaceSessionCheckoutService', () => {
       countdownFeeMode: 'timed',
     });
     salesRecordService.create.mockResolvedValue(createdOrder);
+    transactionClient.$queryRaw.mockResolvedValue(undefined);
+    transactionClient.spaceSession.findUnique.mockResolvedValue({
+      status: 'active',
+      updatedAt: session.updatedAt,
+      reservationId: session.reservationId,
+      guestName: session.guestName,
+      guestPhone: session.guestPhone,
+      startTime: session.startTime,
+      spaceId: session.spaceId,
+    });
+    transactionClient.space.findUnique.mockResolvedValue({
+      id: 7,
+      enableDirtyRoom: true,
+    });
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
     transactionClient.space.update.mockResolvedValue({
       id: 7,
@@ -315,7 +369,10 @@ describe('SpaceSessionCheckoutService', () => {
         totalProfit: 68,
         totalQuantity: 2,
       }),
-      expectedSalesRecordCreateOptions,
+      expect.objectContaining({
+        ...expectedSalesRecordCreateOptions,
+        transactionClient,
+      }),
     );
   });
 });

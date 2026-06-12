@@ -6,6 +6,7 @@ import {
 import {
   Prisma,
   SpaceReservationStatus as PrismaSpaceReservationStatus,
+  SpaceSessionStatus as PrismaSpaceSessionStatus,
   SpaceStatus as PrismaSpaceStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -77,6 +78,13 @@ export class SpaceReservationsStateService {
     transaction: Prisma.TransactionClient,
     spaceId: number,
   ): Promise<void> {
+    await transaction.$queryRaw`
+      SELECT id
+      FROM spaces
+      WHERE id = ${spaceId}
+      FOR UPDATE
+    `;
+
     const current = await transaction.space.findUnique({
       where: { id: spaceId },
       select: {
@@ -111,15 +119,53 @@ export class SpaceReservationsStateService {
 
   async repairInconsistentOccupiedSpace(spaceId: number): Promise<void> {
     await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT id
+        FROM spaces
+        WHERE id = ${spaceId}
+        FOR UPDATE
+      `;
+
+      const current = await transaction.space.findUnique({
+        where: { id: spaceId },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      if (!current) {
+        throw new NotFoundException('空间不存在');
+      }
+      if (current.status !== PrismaSpaceStatus.occupied) {
+        return;
+      }
+
+      const activeSession = await transaction.spaceSession.findFirst({
+        where: {
+          spaceId,
+          status: PrismaSpaceSessionStatus.active,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (activeSession) {
+        return;
+      }
+
       const nextStatus = await this.resolveReservationBackStatus(
         transaction,
         spaceId,
       );
 
-      await transaction.space.update({
-        where: { id: spaceId },
-        data: { status: nextStatus },
-      });
+      if (nextStatus !== current.status) {
+        await transaction.space.update({
+          where: { id: spaceId },
+          data: { status: nextStatus },
+        });
+      }
     });
   }
 

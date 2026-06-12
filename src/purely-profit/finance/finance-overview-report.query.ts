@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildDerivedOpenAccountWhere } from './finance-account.query';
 import type {
   FinanceAccountRecordWithAmount,
   FinanceCashFlowRecordWithAmount,
@@ -125,10 +126,10 @@ export async function queryFinanceReportData(
             )
         : Promise.resolve<Array<Pick<FinanceCashFlowStatsRow, 'direction' | 'amount'>>>([]),
       prisma.financeAccountRecord.findMany({
-        where: {
+        where: buildDerivedOpenAccountWhere({
           storeId: params.storeId,
-          status: { not: 'settled' },
-        },
+          now: params.currentRange.end,
+        }),
         select: financeReportAccountSelect,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),

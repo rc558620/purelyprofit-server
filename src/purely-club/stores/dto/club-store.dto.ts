@@ -3,8 +3,12 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
+  IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -47,6 +51,26 @@ export class ClubStoreSummaryDto {
   @IsOptional()
   @IsBoolean({ message: '门店营业状态必须是布尔值' })
   isOpen?: boolean;
+
+  @ApiPropertyOptional({
+    example: 39.984104,
+    description: '门店纬度，供 purely-club 首页腾讯地图定位使用',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: '门店纬度必须是数字' })
+  @Min(-90, { message: '门店纬度不能小于 -90' })
+  @Max(90, { message: '门店纬度不能大于 90' })
+  latitude?: number;
+
+  @ApiPropertyOptional({
+    example: 116.307503,
+    description: '门店经度，供 purely-club 首页腾讯地图定位使用',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: '门店经度必须是数字' })
+  @Min(-180, { message: '门店经度不能小于 -180' })
+  @Max(180, { message: '门店经度不能大于 180' })
+  longitude?: number;
 }
 
 export class ClubStoresResponseDto {
@@ -72,6 +96,24 @@ export class ClubSwitchCurrentStoreDto {
   @ApiProperty({ example: 1, description: '目标门店 ID' })
   @IsInt({ message: '目标门店 ID 必须是整数' })
   storeId: number;
+}
+
+export class ClubJoinStoreByInviteCodeDto {
+  @ApiProperty({ example: 'SHOP2024', description: '门店邀请码' })
+  @IsString({ message: '门店邀请码必须是字符串' })
+  @IsNotEmpty({ message: '门店邀请码不能为空' })
+  inviteCode: string;
+}
+
+export class ClubJoinStoreByScanDto {
+  @ApiProperty({
+    example:
+      'https://club.purelyprofit.local/pages/storeSelect/index?inviteCode=ABCD23',
+    description: '扫码得到的原始内容，支持门店邀请码、二维码 URL 或门店 ID',
+  })
+  @IsString({ message: '扫码内容必须是字符串' })
+  @IsNotEmpty({ message: '扫码内容不能为空' })
+  scanCode: string;
 }
 
 export class ClubSwitchCurrentStoreResponseDto {

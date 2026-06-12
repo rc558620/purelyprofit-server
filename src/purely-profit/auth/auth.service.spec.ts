@@ -680,6 +680,40 @@ describe('AuthService', () => {
     });
   });
 
+  it('更新昵称后返回最新 profile', async () => {
+    prismaService.user.update.mockResolvedValue(undefined);
+    prismaService.user.findUnique.mockResolvedValueOnce({
+      id: 1,
+      email: 'phone_13800138000@purelyprofit.local',
+      name: '新昵称',
+      avatar: '',
+      realName: null,
+      idNumber: null,
+      createdAt: new Date('2026-05-12T10:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+    });
+    prismaService.$queryRaw = jest.fn().mockResolvedValue([]);
+
+    const result = await service.updateNickname(
+      {
+        id: 1,
+        email: 'phone_13800138000@purelyprofit.local',
+        phone: '13800138000',
+        name: '测试用户',
+        createdAt: new Date('2026-05-12T10:00:00.000Z'),
+        updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+        currentMembership: null,
+      },
+      '新昵称',
+    );
+
+    expect(prismaService.user.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { name: '新昵称' },
+    });
+    expect(result.user.name).toBe('新昵称');
+  });
+
   it('更新头像后返回最新 profile', async () => {
     prismaService.user.update.mockResolvedValue(undefined);
     prismaService.user.findUnique.mockResolvedValueOnce({

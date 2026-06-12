@@ -32,14 +32,11 @@ import type {
   SpaceReservationRecord,
   SpaceReservationSessionSnapshot,
 } from './space-reservations.types';
-import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
-
 @Injectable()
 export class SpaceReservationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
-    private readonly autoCheckoutService: SpaceSessionAutoCheckoutService,
     private readonly stateService: SpaceReservationsStateService,
   ) {}
 
@@ -49,6 +46,7 @@ export class SpaceReservationsService {
     query: ListSpaceReservationsQueryDto,
     requestId?: string,
   ): Promise<SpaceReservationResponseDto[]> {
+    void requestId;
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
       select: {
@@ -66,14 +64,6 @@ export class SpaceReservationsService {
       space.storeId,
       'space:view',
       '无权查看该门店空间预约',
-    );
-
-    await this.autoCheckoutService.autoCheckoutExpiredCountdownSessions(
-      user,
-      space.storeId,
-      Date.now(),
-      'space-reservations:list-by-space',
-      requestId,
     );
 
     ensureReservationDateRange(query.dateFrom, query.dateTo);
@@ -99,6 +89,7 @@ export class SpaceReservationsService {
     query: ListSpaceReservationsQueryDto,
     requestId?: string,
   ): Promise<SpaceReservationResponseDto[]> {
+    void requestId;
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
       query.storeId,
@@ -109,14 +100,6 @@ export class SpaceReservationsService {
     if (storeId === null) {
       return [];
     }
-
-    await this.autoCheckoutService.autoCheckoutExpiredCountdownSessions(
-      user,
-      storeId,
-      Date.now(),
-      'space-reservations:list-store',
-      requestId,
-    );
 
     ensureReservationDateRange(query.dateFrom, query.dateTo);
     const reservedAt = buildReservationReservedAtFilter(
@@ -170,6 +153,7 @@ export class SpaceReservationsService {
     ensureReservationEndAfterStart(payload.reservedAt, payload.reservedEndAt);
 
     const conflict = await this.findReservationConflict(
+      this.prisma,
       space.id,
       payload.reservedAt,
       payload.reservedEndAt,
@@ -180,10 +164,48 @@ export class SpaceReservationsService {
     }
 
     const reservation = await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT id
+        FROM spaces
+        WHERE id = ${space.id}
+        FOR UPDATE
+      `;
+
+      const latestSpace = await transaction.space.findUnique({
+        where: { id: space.id },
+        select: {
+          id: true,
+          storeId: true,
+          capacity: true,
+        },
+      });
+
+      if (!latestSpace) {
+        throw new NotFoundException('空间不存在');
+      }
+
+      ensureReservationGuestCount(
+        payload.guestCount,
+        latestSpace.capacity ?? undefined,
+      );
+
+      const latestConflict = await this.findReservationConflict(
+        transaction,
+        latestSpace.id,
+        payload.reservedAt,
+        payload.reservedEndAt,
+      );
+
+      if (latestConflict) {
+        throw new ConflictException(
+          `与「${latestConflict.guestName}」的预约时间冲突`,
+        );
+      }
+
       const created = await transaction.spaceReservation.create({
         data: {
-          storeId: space.storeId,
-          spaceId: space.id,
+          storeId: latestSpace.storeId,
+          spaceId: latestSpace.id,
           guestName: payload.guestName,
           phone: payload.phone,
           reservedAt: new Date(payload.reservedAt),
@@ -194,7 +216,7 @@ export class SpaceReservationsService {
         },
       });
 
-      await this.syncNonOccupiedSpaceStatus(transaction, space.id);
+      await this.syncNonOccupiedSpaceStatus(transaction, latestSpace.id);
       return created;
     });
 
@@ -245,6 +267,7 @@ export class SpaceReservationsService {
     ensureReservationEndAfterStart(payload.reservedAt, payload.reservedEndAt);
 
     const conflict = await this.findReservationConflict(
+      this.prisma,
       reservation.spaceId,
       payload.reservedAt,
       payload.reservedEndAt,
@@ -256,6 +279,65 @@ export class SpaceReservationsService {
     }
 
     const updated = await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT id
+        FROM spaces
+        WHERE id = ${reservation.spaceId}
+        FOR UPDATE
+      `;
+      await transaction.$queryRaw`
+        SELECT id
+        FROM space_reservations
+        WHERE id = ${reservation.id}
+        FOR UPDATE
+      `;
+
+      const latestSpace = await transaction.space.findUnique({
+        where: { id: reservation.spaceId },
+        select: {
+          id: true,
+          capacity: true,
+        },
+      });
+      if (!latestSpace) {
+        throw new NotFoundException('空间不存在');
+      }
+
+      const latestReservation = await transaction.spaceReservation.findUnique({
+        where: { id: reservation.id },
+        select: {
+          id: true,
+          spaceId: true,
+          status: true,
+        },
+      });
+
+      if (!latestReservation) {
+        throw new NotFoundException('预约不存在');
+      }
+      if (latestReservation.status !== PrismaSpaceReservationStatus.pending) {
+        throw new ConflictException('当前预约已处理，无法修改');
+      }
+
+      ensureReservationGuestCount(
+        payload.guestCount,
+        latestSpace.capacity ?? undefined,
+      );
+
+      const latestConflict = await this.findReservationConflict(
+        transaction,
+        latestReservation.spaceId,
+        payload.reservedAt,
+        payload.reservedEndAt,
+        latestReservation.id,
+      );
+
+      if (latestConflict) {
+        throw new ConflictException(
+          `与「${latestConflict.guestName}」的预约时间冲突`,
+        );
+      }
+
       const nextReservation = await transaction.spaceReservation.update({
         where: { id: reservation.id },
         data: {
@@ -268,7 +350,10 @@ export class SpaceReservationsService {
         },
       });
 
-      await this.syncNonOccupiedSpaceStatus(transaction, reservation.spaceId);
+      await this.syncNonOccupiedSpaceStatus(
+        transaction,
+        latestReservation.spaceId,
+      );
       return nextReservation;
     });
 
@@ -305,6 +390,35 @@ export class SpaceReservationsService {
     }
 
     const updated = await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT id
+        FROM spaces
+        WHERE id = ${reservation.spaceId}
+        FOR UPDATE
+      `;
+      await transaction.$queryRaw`
+        SELECT id
+        FROM space_reservations
+        WHERE id = ${reservation.id}
+        FOR UPDATE
+      `;
+
+      const latestReservation = await transaction.spaceReservation.findUnique({
+        where: { id: reservation.id },
+        select: {
+          id: true,
+          spaceId: true,
+          status: true,
+        },
+      });
+
+      if (!latestReservation) {
+        throw new NotFoundException('预约不存在');
+      }
+      if (latestReservation.status !== PrismaSpaceReservationStatus.pending) {
+        throw new ConflictException('当前预约已处理，无法取消');
+      }
+
       const nextReservation = await transaction.spaceReservation.update({
         where: { id: reservation.id },
         data: {
@@ -312,7 +426,10 @@ export class SpaceReservationsService {
         },
       });
 
-      await this.syncNonOccupiedSpaceStatus(transaction, reservation.spaceId);
+      await this.syncNonOccupiedSpaceStatus(
+        transaction,
+        latestReservation.spaceId,
+      );
       return nextReservation;
     });
 
@@ -362,12 +479,13 @@ export class SpaceReservationsService {
   }
 
   private async findReservationConflict(
+    client: PrismaService | Prisma.TransactionClient,
     spaceId: number,
     reservedAt: number,
     reservedEndAt: number,
     excludeReservationId?: number,
   ): Promise<SpaceReservationRecord | null> {
-    const reservations = await this.prisma.spaceReservation.findMany({
+    const reservations = await client.spaceReservation.findMany({
       where: {
         spaceId,
         status: PrismaSpaceReservationStatus.pending,

@@ -10,6 +10,7 @@ describe('SpaceSessionTransferService', () => {
   let service: SpaceSessionTransferService;
 
   const transaction = {
+    $queryRaw: jest.fn(),
     spaceSession: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -118,24 +119,30 @@ describe('SpaceSessionTransferService', () => {
       enableDirtyRoom: false,
       autoCheckout: false,
     });
-    transaction.spaceSession.findUnique.mockResolvedValue({
-      id: 5,
-      storeId: 18,
-      spaceId: 7,
-      autoCheckout: false,
-      status: 'active',
-      space: {
-        id: 7,
-        name: 'A01',
+    transaction.spaceSession.findUnique
+      .mockResolvedValueOnce({
+        id: 5,
         storeId: 18,
-        enableDirtyRoom: false,
+        spaceId: 7,
+      })
+      .mockResolvedValueOnce({
+        id: 5,
+        storeId: 18,
+        spaceId: 7,
         autoCheckout: false,
-        type: {
-          id: 101,
-          name: '台球桌',
+        status: 'active',
+        space: {
+          id: 7,
+          name: 'A01',
+          storeId: 18,
+          enableDirtyRoom: false,
+          autoCheckout: false,
+          type: {
+            id: 101,
+            name: '台球桌',
+          },
         },
-      },
-    });
+      });
     transaction.space.findUnique.mockResolvedValue({
       id: 11,
       storeId: 18,
@@ -188,10 +195,72 @@ describe('SpaceSessionTransferService', () => {
       targetSpaceId: 11,
     });
 
+    expect(transaction.$queryRaw).toHaveBeenCalledTimes(3);
     expect(
       reservationsStateService.resolveReservationBackStatus,
     ).toHaveBeenCalledWith(transaction, 7);
     expect(result.sourceSpaceStatus).toBe('reserved');
     expect(result.targetSpaceStatus).toBe('occupied');
+  });
+
+  it('换房时若锁内发现会话已结账应阻止继续写入', async () => {
+    prismaService.spaceSession.findUnique.mockResolvedValue({
+      id: 5,
+      storeId: 18,
+      spaceId: 7,
+      autoCheckout: false,
+      status: 'active',
+      space: {
+        id: 7,
+        name: 'A01',
+        storeId: 18,
+        enableDirtyRoom: false,
+        autoCheckout: false,
+        type: {
+          id: 101,
+          name: '台球桌',
+        },
+      },
+    });
+    prismaService.space.findUnique.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+      name: 'A02',
+      status: 'idle',
+      typeId: 101,
+      enableDirtyRoom: false,
+      autoCheckout: false,
+    });
+    transaction.spaceSession.findUnique
+      .mockResolvedValueOnce({
+        id: 5,
+        storeId: 18,
+        spaceId: 7,
+      })
+      .mockResolvedValueOnce({
+        id: 5,
+        storeId: 18,
+        spaceId: 7,
+        autoCheckout: false,
+        status: 'settled',
+        space: {
+          id: 7,
+          name: 'A01',
+          storeId: 18,
+          enableDirtyRoom: false,
+          autoCheckout: false,
+          type: {
+            id: 101,
+            name: '台球桌',
+          },
+        },
+      });
+
+    await expect(
+      service.transferSession(user, 5, {
+        targetSpaceId: 11,
+      }),
+    ).rejects.toThrow('当前会话已结账，无法换房');
+    expect(transaction.spaceSession.update).not.toHaveBeenCalled();
   });
 });

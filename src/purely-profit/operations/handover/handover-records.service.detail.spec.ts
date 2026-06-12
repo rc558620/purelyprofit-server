@@ -38,7 +38,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       expect(result.orderItems).toEqual([]);
     });
 
-    it('记录缺少 fromEmployeeId 时也应按当天已完成顺序还原班次信息', async () => {
+    it('记录缺少 fromEmployeeId 时也应按交班时刻匹配活动班次信息', async () => {
       prismaService.storeHandoverRecord.findFirst.mockResolvedValue({
         ...mockRecord,
         id: 2,
@@ -116,14 +116,17 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       const result = await ctx.service.getHandoverRecord(ownerUser, 2);
 
       expect(result.shiftInfo).toMatchObject({
-        operatorName: '收银员1',
+        operatorName: '收银员2',
         operatorAvatar: 'https://cdn.example.com/cashier-1.png',
         avatar: 'https://cdn.example.com/cashier-1.png',
-        shiftType: EmployeeShiftType.morning,
-        shiftLabel: '早班',
-        startTime: '09:00',
-        endTime: '19:10',
+        shiftType: EmployeeShiftType.late,
+        shiftLabel: '晚班',
+        startTime: '17:00',
+        endTime: '23:00',
       });
+      expect(result.shiftInfo?.shiftReferenceAt).toBe(
+        new Date(2026, 5, 4, 17, 0, 0).getTime(),
+      );
       expect(result.additionalItems).toEqual([
         expect.objectContaining({
           itemId: 101,
@@ -401,6 +404,9 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         startTime: '16:01',
         endTime: '17:03',
       });
+      expect(result.shiftInfo?.shiftReferenceAt).toBe(
+        new Date(2026, 5, 5, 16, 1, 0).getTime(),
+      );
       expect(result.revenueSummary).toMatchObject({
         totalRevenue: 567,
         additionalRevenue: 567,

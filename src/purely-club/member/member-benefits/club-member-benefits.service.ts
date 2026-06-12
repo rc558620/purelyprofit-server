@@ -17,21 +17,25 @@ export class ClubMemberBenefitsService {
   ): Promise<ClubMemberBenefitsDto> {
     const snapshot =
       await this.clubMemberProfileService.getCurrentSnapshot(currentContext);
-    const levelConfigs = this.clubMemberLevelsService.listConfigs();
-    const currentLevelConfig =
-      levelConfigs.find((config) => config.level === snapshot.level) ??
-      levelConfigs[0];
+    const resolution = await this.clubMemberLevelsService.resolveLevelResolution(
+      snapshot,
+    );
+    const currentLevel = resolution.currentLevelConfig.level;
+    const levelConfigs = resolution.visibleLevelConfigs;
 
     return {
-      currentLevel: snapshot.level,
-      currentLevelLabel: currentLevelConfig.label,
+      currentLevel,
+      currentLevelLabel: resolution.currentLevelConfig.label,
       items: levelConfigs.map((config) => ({
         level: config.level,
         label: config.label,
         discountRate: config.discountRate,
         benefits: [...config.benefits],
-        unlocked: this.isLevelUnlocked(snapshot.level, config.level),
+        unlocked: this.isLevelUnlocked(currentLevel, config.level),
       })),
+      heldLevel: resolution.heldLevel,
+      heldLevelLabel: resolution.heldLevelLabel,
+      heldLevelVisible: resolution.heldLevelVisible,
     };
   }
 
@@ -44,11 +48,9 @@ export class ClubMemberBenefitsService {
 
   private getLevelRank(level: ClubMemberLevelValue): number {
     const rankMap: Record<ClubMemberLevelValue, number> = {
-      bronze: 1,
-      silver: 2,
-      gold: 3,
-      platinum: 4,
-      diamond: 5,
+      gold: 1,
+      platinum: 2,
+      diamond: 3,
     };
     return rankMap[level];
   }

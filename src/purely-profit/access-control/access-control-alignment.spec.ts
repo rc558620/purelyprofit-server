@@ -4,7 +4,10 @@ import {
   StoreSubAccountRole,
   StoreSubAccountStatus,
 } from '@prisma/client';
-import { REQUIRE_PERMISSIONS_KEY } from './decorators/require-permissions.decorator';
+import {
+  ALLOW_LEGACY_OWNER_ACCESS_KEY,
+  REQUIRE_PERMISSIONS_KEY,
+} from './decorators/require-permissions.decorator';
 import {
   AccessControlService,
   type AuthenticatedMembership,
@@ -13,6 +16,11 @@ import { SubjectCapabilityService } from './subject-capability.service';
 import { PermissionsGuard } from './guards/permissions.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MarketingController } from '../marketing/marketing.controller';
+import { MarketingCustomersController } from '../marketing/marketing-customers.controller';
+import { MarketingProductCategoriesController } from '../marketing/marketing-product-categories.controller';
+import { MarketingProductsController } from '../marketing/marketing-products.controller';
+import { MarketingPromotionsController } from '../marketing/marketing-promotions.controller';
+import { MarketingTransactionsController } from '../marketing/marketing-transactions.controller';
 import { PartnerReviewController } from '../member/platform-membership/partner-review.controller';
 import { PlatformMembershipController } from '../member/platform-membership/platform-membership.controller';
 import { PromotionDetailCompatController } from '../member/platform-membership/promotion-detail-compat.controller';
@@ -202,6 +210,19 @@ describe('Permission metadata regression', () => {
       JwtAuthGuard,
       PermissionsGuard,
     ]);
+  });
+
+  it.each([
+    MarketingController,
+    MarketingCustomersController,
+    MarketingPromotionsController,
+    MarketingProductsController,
+    MarketingProductCategoriesController,
+    MarketingTransactionsController,
+  ])('%p 应允许老 owner 走 marketing 兼容鉴权', (controller) => {
+    expect(
+      Reflect.getMetadata(ALLOW_LEGACY_OWNER_ACCESS_KEY, controller),
+    ).toBe(true);
   });
 
   it('营业收录与销售记录接口权限应拆分', () => {

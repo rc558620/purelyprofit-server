@@ -80,6 +80,13 @@ export class AuthService {
     return this.authProfileService.updateAvatar(user, dto.avatar);
   }
 
+  async updateNickname(
+    user: AuthenticatedUser,
+    nickname: string,
+  ): Promise<ProfileResponseDto> {
+    return this.authProfileService.updateNickname(user, nickname);
+  }
+
   async verifyRealName(
     user: AuthenticatedUser,
     dto: VerifyRealNameDto,

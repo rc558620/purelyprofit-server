@@ -248,6 +248,72 @@ describe('SalesRecordWriteService', () => {
         note: '补录',
       }),
     );
+    expect(cacheInvalidatorService.invalidateSalesDerived).toHaveBeenCalledWith(
+      18,
+    );
+  });
+
+  it('create 复用外层事务时不应提前失效缓存', async () => {
+    const preparedItems = [
+      {
+        productId: 201,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: 15.5,
+        profit: 4,
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ];
+    const response = { id: '11', orderNo: '#20260514-004' };
+
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    salesRecordItemPreparationService.prepareItems.mockResolvedValue(
+      preparedItems,
+    );
+    salesRecordCreateFlowService.createRecord.mockResolvedValue(response);
+
+    await expect(
+      service.create(
+        user,
+        {
+          storeId: 18,
+          items: [
+            {
+              productId: '201',
+              productName: '前端旧名称',
+              categoryName: '前端旧分类',
+              salePrice: 15.5,
+              profit: 4,
+              quantity: 1,
+            },
+          ],
+          totalRevenue: 15.5,
+          totalProfit: 4,
+          totalQuantity: 1,
+          paymentMethod: 'cash',
+          calcMode: 'business',
+        },
+        {
+          skipAccessCheck: true,
+          transactionClient,
+        },
+      ),
+    ).resolves.toEqual(response);
+
+    expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: 18,
+        options: expect.objectContaining({
+          skipAccessCheck: true,
+          transactionClient,
+        }),
+      }),
+    );
+    expect(
+      cacheInvalidatorService.invalidateSalesDerived,
+    ).not.toHaveBeenCalled();
   });
 
   it('create 在兼容 additional 入口时应回退到 operation-entry:create 权限', async () => {

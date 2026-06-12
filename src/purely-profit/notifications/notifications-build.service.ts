@@ -1,10 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import {
-  FinanceAccountStatus,
-  PartnerWithdrawalStatus,
-  StoreSubscriptionStatus,
-} from '@prisma/client';
+import { PartnerWithdrawalStatus, StoreSubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildDerivedFinanceAccountStatusWhere } from '../finance/finance-account.query';
 import { toDecimalNumber } from '../commerce/commerce.utils';
 import {
   DAY_MS,
@@ -66,10 +63,11 @@ export class NotificationsBuildService {
         take: LOW_STOCK_SOURCE_LIMIT,
       }),
       this.prisma.financeAccountRecord.findMany({
-        where: {
+        where: buildDerivedFinanceAccountStatusWhere({
           storeId,
-          status: FinanceAccountStatus.overdue,
-        },
+          status: 'overdue',
+          now,
+        }),
         select: {
           id: true,
           counterpart: true,

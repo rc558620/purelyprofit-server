@@ -100,17 +100,6 @@ describe('FinanceCashFlowService', () => {
       ])
       .mockResolvedValueOnce([
         {
-          id: 2,
-          direction: 'income',
-          category: 'sales',
-          title: '昨日营业额',
-          amount: new Prisma.Decimal('50.00'),
-          payment: 'cash',
-          note: null,
-          date: new Date('2026-04-10T10:00:00.000Z'),
-          createdAt: new Date('2026-04-10T10:00:00.000Z'),
-        },
-        {
           id: 3,
           direction: 'expense',
           category: 'rent',
@@ -133,8 +122,16 @@ describe('FinanceCashFlowService', () => {
       totalExpense: 100,
       netFlow: -100,
       recordCount: 1,
-      compareLastPeriod: -433.33,
+      compareLastPeriod: -400,
     });
+    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          direction: 'expense',
+        }),
+      }),
+    );
   });
 
   it('getCashFlowStats 在上一周期被裁剪为空时不计算环比', async () => {

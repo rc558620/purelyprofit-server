@@ -42,6 +42,8 @@ export interface CreateSalesRecordOptions {
   skipAccessCheck?: boolean;
   /** 兼容 additional/space-management：主账号或店长下单时，优先归属到当前待交班班次员工 */
   assignToCurrentShiftOperator?: boolean;
+  /** 复用外层事务，避免跨业务写链路出现部分提交 */
+  transactionClient?: Prisma.TransactionClient;
 }
 
 @Injectable()

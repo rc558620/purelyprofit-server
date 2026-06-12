@@ -112,19 +112,23 @@ export class SpaceSessionOpenService {
     }
 
     const session = await this.prisma.$transaction(async (transaction) => {
-      if (space.status === PrismaSpaceStatus.reserved) {
-        const latestPendingReservation =
-          await transaction.spaceReservation.findFirst({
-            where: {
-              spaceId: space.id,
-              status: PrismaSpaceReservationStatus.pending,
-            },
-            select: { id: true },
-          });
+      await transaction.$queryRaw`
+        SELECT id
+        FROM spaces
+        WHERE id = ${space.id}
+        FOR UPDATE
+      `;
 
-        if (!latestPendingReservation) {
-          throw new ConflictException('空间预约状态异常，请刷新后重试');
-        }
+      const latestSpace = await transaction.space.findUnique({
+        where: { id: space.id },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      if (!latestSpace) {
+        throw new NotFoundException('空间不存在');
       }
 
       const activeSession = await transaction.spaceSession.findFirst({
@@ -141,13 +145,81 @@ export class SpaceSessionOpenService {
         throw new ConflictException('空间当前使用中，无法重复开台');
       }
 
-      if (payload.reservationId !== undefined) {
-        await transaction.spaceReservation.update({
-          where: { id: payload.reservationId },
+      let effectiveSpaceStatus = latestSpace.status;
+      if (effectiveSpaceStatus === PrismaSpaceStatus.occupied) {
+        effectiveSpaceStatus =
+          await this.reservationsStateService.resolveReservationBackStatus(
+            transaction,
+            space.id,
+          );
+
+        await transaction.space.update({
+          where: { id: space.id },
           data: {
-            status: PrismaSpaceReservationStatus.fulfilled,
+            status: effectiveSpaceStatus,
           },
         });
+      }
+
+      if (effectiveSpaceStatus === PrismaSpaceStatus.cleaning) {
+        throw new ConflictException('空间待清洁，暂时无法开台');
+      }
+
+      if (effectiveSpaceStatus === PrismaSpaceStatus.reserved) {
+        const latestPendingReservation =
+          await transaction.spaceReservation.findFirst({
+            where: {
+              spaceId: space.id,
+              status: PrismaSpaceReservationStatus.pending,
+            },
+            select: { id: true },
+          });
+
+        if (!latestPendingReservation) {
+          throw new ConflictException('空间预约状态异常，请刷新后重试');
+        }
+      }
+
+      if (payload.reservationId !== undefined) {
+        const latestReservation = await transaction.spaceReservation.findUnique(
+          {
+            where: { id: payload.reservationId },
+            select: {
+              id: true,
+              storeId: true,
+              spaceId: true,
+              status: true,
+            },
+          },
+        );
+
+        if (!latestReservation) {
+          throw new NotFoundException('预约不存在');
+        }
+        if (
+          latestReservation.storeId !== space.storeId ||
+          latestReservation.spaceId !== space.id
+        ) {
+          throw new ConflictException('该预约不属于当前空间，无法履约开台');
+        }
+        if (latestReservation.status !== PrismaSpaceReservationStatus.pending) {
+          throw new ConflictException('当前预约已处理，无法再次履约开台');
+        }
+
+        const fulfilledReservation =
+          await transaction.spaceReservation.updateMany({
+            where: {
+              id: payload.reservationId,
+              status: PrismaSpaceReservationStatus.pending,
+            },
+            data: {
+              status: PrismaSpaceReservationStatus.fulfilled,
+            },
+          });
+
+        if (fulfilledReservation.count !== 1) {
+          throw new ConflictException('当前预约已处理，无法再次履约开台');
+        }
       }
 
       const created = await transaction.spaceSession.create({

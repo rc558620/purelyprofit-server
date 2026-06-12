@@ -76,6 +76,8 @@ describe('MarketingService overview', () => {
       thisMonthRecharge: 55000,
       rechargeCount: 7,
       activeMemberCount: 6,
+      inviteCode: buildExpectedInviteCode(18),
+      inviteCodeQrCodeImageUrl: buildExpectedInviteQrCodeImageUrl(18),
       last30Days: expect.any(Array),
       currentYear: 2026,
       thisYearMonthlyTrend: [
@@ -126,3 +128,21 @@ describe('MarketingService overview', () => {
     });
   });
 });
+
+function buildExpectedInviteCode(storeId: number): string {
+  const alphabet = '0123456789';
+  let seed = storeId * 1103515245 + 12345;
+  let inviteCode = '';
+
+  for (let index = 0; index < 6; index += 1) {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    inviteCode += alphabet[seed % alphabet.length];
+  }
+
+  return inviteCode;
+}
+
+function buildExpectedInviteQrCodeImageUrl(storeId: number): string {
+  const inviteCode = buildExpectedInviteCode(storeId);
+  return `https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&margin=0&data=${inviteCode}`;
+}

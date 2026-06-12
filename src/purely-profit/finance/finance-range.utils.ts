@@ -120,11 +120,28 @@ export function getFinanceReportRange(
     }
     case 'custom_month': {
       if (query.customDate === undefined) {
-        throw new BadRequestException('自定义单日模式需要传 customDate');
+        throw new BadRequestException('自定义月份模式需要传 customDate');
       }
+      const current = new Date(query.customDate);
       return {
-        start: getDayStart(query.customDate),
-        end: getDayEnd(query.customDate),
+        start: new Date(
+          current.getFullYear(),
+          current.getMonth(),
+          1,
+          0,
+          0,
+          0,
+          0,
+        ).getTime(),
+        end: new Date(
+          current.getFullYear(),
+          current.getMonth() + 1,
+          0,
+          23,
+          59,
+          59,
+          999,
+        ).getTime(),
         period,
       };
     }
@@ -156,11 +173,25 @@ export function getPreviousFinanceReportRange(
 
   switch (period) {
     case 'today':
-    case 'custom_month':
       return {
         start: getDayStart(currentRange.start - DAY_MS),
         end: currentRange.start - 1,
       };
+    case 'custom_month': {
+      const currentStart = new Date(currentRange.start);
+      return {
+        start: new Date(
+          currentStart.getFullYear(),
+          currentStart.getMonth() - 1,
+          1,
+          0,
+          0,
+          0,
+          0,
+        ).getTime(),
+        end: currentRange.start - 1,
+      };
+    }
     case 'week':
       return {
         start: currentRange.start - 7 * DAY_MS,

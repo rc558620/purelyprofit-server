@@ -24,6 +24,7 @@ import {
   HANDOVER_RECORD_INCLUDE,
   ensureMembershipContext,
   ensureMembershipStoreId,
+  isManagerMembership,
   mapRecordToDto,
   normalizeOptionalText,
   normalizeRequiredText,
@@ -92,11 +93,17 @@ export class HandoverRecordsService {
       throw new BadRequestException('只有待处理状态的交班记录可以完成');
     }
 
-    if (
-      record.toEmployeeId &&
-      record.toEmployeeId !== membership.linkedEmployeeId
-    ) {
-      throw new ForbiddenException('只有指定的接收员工可以确认完成交班');
+    const isOwnerOrManager =
+      membership.subjectType === 'owner' || isManagerMembership(membership);
+    const isFromEmployee =
+      record.fromEmployeeId === membership.linkedEmployeeId;
+
+    if (record.toEmployeeId) {
+      if (record.toEmployeeId !== membership.linkedEmployeeId) {
+        throw new ForbiddenException('只有指定的接收员工可以确认完成交班');
+      }
+    } else if (!isFromEmployee && !isOwnerOrManager) {
+      throw new ForbiddenException('只有发起人或主账号/管理员可以确认完成交班');
     }
 
     const updated = await this.prisma.storeHandoverRecord.update({
@@ -134,7 +141,7 @@ export class HandoverRecordsService {
     const isFromEmployee =
       record.fromEmployeeId === membership.linkedEmployeeId;
     const isOwnerOrManager =
-      membership.subjectType === 'owner' || membership.role === 'MANAGER';
+      membership.subjectType === 'owner' || isManagerMembership(membership);
     if (!isFromEmployee && !isOwnerOrManager) {
       throw new ForbiddenException('只有发起人或主账号/管理员可以取消交班');
     }

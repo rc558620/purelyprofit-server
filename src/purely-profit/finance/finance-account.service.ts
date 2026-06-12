@@ -148,28 +148,36 @@ export class FinanceAccountService {
   ): Promise<FinanceAccountRecordResponseDto> {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const record = await findAccountRecord(this.prisma, { storeId, recordId });
-    if (!record) {
-      throw new NotFoundException('账款记录不存在');
-    }
+    const updatedRecord = await this.prisma.$transaction(async (tx) => {
+      const record = await findAccountRecord(tx, { storeId, recordId });
+      if (!record) {
+        throw new NotFoundException('账款记录不存在');
+      }
 
-    const currentPaidAmount = toMoneyNumber(record.paidAmount);
-    const amount = toMoneyNumber(record.amount);
-    const payAmount = roundMoneyValue(dto.payAmount);
-    const nextPaidAmount = roundMoneyValue(currentPaidAmount + payAmount);
-    if (nextPaidAmount > amount) {
-      throw new ConflictException('本次收付金额超过剩余金额');
-    }
-    const derived = deriveAccountFields(
-      amount,
-      nextPaidAmount,
-      record.dueDate?.getTime() ?? undefined,
-    );
-    const updatedRecord = await updateAccountRecordSettlement(this.prisma, {
-      recordId,
-      paidAmount: toPrismaDecimal(nextPaidAmount),
-      remaining: toPrismaDecimal(derived.remaining),
-      status: derived.status,
+      const currentPaidAmount = toMoneyNumber(record.paidAmount);
+      const amount = toMoneyNumber(record.amount);
+      const payAmount = roundMoneyValue(dto.payAmount);
+      const nextPaidAmount = roundMoneyValue(currentPaidAmount + payAmount);
+      if (nextPaidAmount > amount) {
+        throw new ConflictException('本次收付金额超过剩余金额');
+      }
+      const derived = deriveAccountFields(
+        amount,
+        nextPaidAmount,
+        record.dueDate?.getTime() ?? undefined,
+      );
+      const settledRecord = await updateAccountRecordSettlement(tx, {
+        storeId,
+        recordId,
+        expectedPaidAmount: record.paidAmount,
+        paidAmount: toPrismaDecimal(nextPaidAmount),
+        remaining: toPrismaDecimal(derived.remaining),
+        status: derived.status,
+      });
+      if (!settledRecord) {
+        throw new ConflictException('账款记录已被其他操作更新，请刷新后重试');
+      }
+      return settledRecord;
     });
 
     await this.invalidateDashboardCaches(storeId);

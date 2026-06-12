@@ -150,15 +150,19 @@ export const expectedSalesRecordCreateOptions = {
 } as const;
 
 export const createSpaceTransactionClient = () => ({
+  $queryRaw: jest.fn(),
   spaceSession: {
+    findUnique: jest.fn(),
     update: jest.fn(),
   },
   space: {
+    findUnique: jest.fn(),
     update: jest.fn(),
   },
   spaceReservation: {
     findMany: jest.fn(),
     findFirst: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
 });

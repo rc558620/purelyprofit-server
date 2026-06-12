@@ -6,6 +6,7 @@
 //  - 手机号在响应中脱敏（maskPhone），原始号码不出现在 API 响应
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString } from 'class-validator';
 import {
   MARKETING_CUSTOMER_STATUS_VALUES,
   MARKETING_CUSTOMER_TIER_VALUES,
@@ -420,6 +421,20 @@ export class MarketingOverviewDto {
   /** 有过消费记录的会员人数（visitCount > 0） */
   @ApiProperty({ example: 87 })
   activeMemberCount: number;
+
+  /** 门店邀请码，purely-club 可通过该邀请码加入门店 */
+  @ApiProperty({ example: 'ABCD23', description: '门店邀请码' })
+  @IsString()
+  inviteCode: string;
+
+  /** 门店邀请码二维码图片 URL，前端扫码页可直接展示 */
+  @ApiProperty({
+    example:
+      'https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&margin=0&data=ABCD23',
+    description: '门店邀请码二维码图片地址',
+  })
+  @IsString()
+  inviteCodeQrCodeImageUrl: string;
 
   /** 近 30 天储值趋势 */
   @ApiProperty({ type: [MarketingOverviewTrendPointDto] })

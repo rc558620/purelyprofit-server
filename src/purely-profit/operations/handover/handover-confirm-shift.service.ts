@@ -67,6 +67,7 @@ export class HandoverConfirmShiftService {
   }
 
   async ensureShiftNotHandedOver(
+    prismaClient: PrismaService | Prisma.TransactionClient,
     storeId: number,
     shiftRecord: ShiftRecordRow | null,
     handoverAt: Date,
@@ -101,7 +102,7 @@ export class HandoverConfirmShiftService {
       return;
     }
 
-    const exists = await this.prisma.storeHandoverRecord.count({ where });
+    const exists = await prismaClient.storeHandoverRecord.count({ where });
     if (exists > 0) {
       throw new ConflictException('当前班次已完成交班，暂不允许重复操作');
     }

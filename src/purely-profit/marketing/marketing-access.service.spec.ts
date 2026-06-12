@@ -1,5 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { PrismaService } from '../../prisma/prisma.service';
 import { AccessControlService } from '../access-control/access-control.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { MarketingAccessService } from './marketing-access.service';
@@ -9,6 +10,11 @@ describe('MarketingAccessService', () => {
 
   const accessControlService = {
     resolveCurrentStoreIdByPermission: jest.fn(),
+  };
+  const prismaService = {
+    store: {
+      findFirst: jest.fn(),
+    },
   };
 
   const user: AuthenticatedUser = {
@@ -26,11 +32,13 @@ describe('MarketingAccessService', () => {
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(
       null,
     );
+    prismaService.store.findFirst.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MarketingAccessService,
         { provide: AccessControlService, useValue: accessControlService },
+        { provide: PrismaService, useValue: prismaService },
       ],
     }).compile();
 
@@ -49,6 +57,39 @@ describe('MarketingAccessService', () => {
     await expect(
       service.getManageableStoreId(user, 'marketing:view'),
     ).resolves.toBeNull();
+  });
+
+  it('getManageableStoreId 在老 owner 无 membership 时回退到 ownerId 门店', async () => {
+    prismaService.store.findFirst.mockResolvedValue({ id: 18 });
+
+    await expect(
+      service.getManageableStoreId(user, 'marketing:view'),
+    ).resolves.toBe(18);
+  });
+
+  it('getManageableStoreId 在 membership 无营销权限但同属 owner 门店时回退成功', async () => {
+    prismaService.store.findFirst.mockResolvedValue({ id: 18 });
+
+    await expect(
+      service.getManageableStoreId({
+        ...user,
+        currentMembership: {
+          staffId: 9,
+          storeId: 18,
+          role: 'STAFF',
+          permissions: ['goods:view'],
+          isActive: true,
+          subjectType: 'staff',
+          linkedEmployeeId: null,
+          subAccountId: null,
+          subAccountRole: null,
+          subAccountStatus: null,
+          subAccountAssigned: false,
+          canAccessHome: true,
+          canUseHandover: false,
+        },
+      }, 'marketing:view'),
+    ).resolves.toBe(18);
   });
 
   it('resolveViewStoreId 在无权限且未指定 storeId 时返回 null', async () => {

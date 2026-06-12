@@ -27,10 +27,10 @@ describe('SpaceSessionAutoCheckoutService', () => {
   };
   const redisClient = {
     set: jest.fn(),
+    eval: jest.fn(),
   };
   const redisService = {
     getClient: jest.fn(() => redisClient),
-    del: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -38,7 +38,7 @@ describe('SpaceSessionAutoCheckoutService', () => {
     prismaService.spaceSession.findMany.mockResolvedValue([]);
     settlementService.settleSession.mockResolvedValue(undefined);
     redisClient.set.mockResolvedValue('OK');
-    redisService.del.mockResolvedValue(undefined);
+    redisClient.eval.mockResolvedValue(1);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -106,8 +106,11 @@ describe('SpaceSessionAutoCheckoutService', () => {
         note: '倒计时到期自动结账',
       }),
     );
-    expect(redisService.del).toHaveBeenCalledWith(
+    expect(redisClient.eval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('GET', KEYS[1]) == ARGV[1]"),
+      1,
       'space:auto-checkout:store:18',
+      expect.any(String),
     );
     expect(result).toBe(1);
   });
@@ -121,11 +124,11 @@ describe('SpaceSessionAutoCheckoutService', () => {
 
     expect(prismaService.spaceSession.findMany).not.toHaveBeenCalled();
     expect(settlementService.settleSession).not.toHaveBeenCalled();
-    expect(redisService.del).not.toHaveBeenCalled();
+    expect(redisClient.eval).not.toHaveBeenCalled();
     expect(result).toBe(0);
   });
 
-  it('autoCheckoutExpiredCountdownSessions 在查询待结账会话失败时不应打断读链路', async () => {
+  it('autoCheckoutExpiredCountdownSessions 在查询待结账会话失败时不应中断调度流程', async () => {
     const user = createSpaceTestUser();
 
     prismaService.spaceSession.findMany.mockRejectedValueOnce(
@@ -136,23 +139,26 @@ describe('SpaceSessionAutoCheckoutService', () => {
       user,
       18,
       Date.now(),
-      'spaces:dashboard',
+      'scheduler:auto-checkout',
       'req-query-fail',
     );
 
     expect(result).toBe(0);
     expect(logger.error).toHaveBeenCalledWith(
       expect.stringContaining(
-        '[space-auto-checkout] aborted trigger=spaces:dashboard storeId=18 requestId=req-query-fail userId=1 reason=Error',
+        '[space-auto-checkout] aborted trigger=scheduler:auto-checkout storeId=18 requestId=req-query-fail userId=1 reason=Error',
       ),
       expect.any(String),
     );
-    expect(redisService.del).toHaveBeenCalledWith(
+    expect(redisClient.eval).toHaveBeenCalledWith(
+      expect.any(String),
+      1,
       'space:auto-checkout:store:18',
+      expect.any(String),
     );
   });
 
-  it('autoCheckoutExpiredCountdownSessions 在单个会话结账失败时不应打断读链路', async () => {
+  it('autoCheckoutExpiredCountdownSessions 在单个会话结账失败时不应打断后续处理', async () => {
     const user = createSpaceTestUser();
     const session = createSpaceSessionRecord();
     const checkoutAt = new Date(2026, 5, 4, 10, 0, 0).getTime();
@@ -176,44 +182,47 @@ describe('SpaceSessionAutoCheckoutService', () => {
       user,
       18,
       checkoutAt,
-      'spaces:list',
+      'scheduler:auto-checkout',
       'req-1',
     );
 
     expect(result).toBe(0);
-    expect(redisService.del).toHaveBeenCalledWith(
+    expect(redisClient.eval).toHaveBeenCalledWith(
+      expect.any(String),
+      1,
       'space:auto-checkout:store:18',
+      expect.any(String),
     );
     expect(logger.error).toHaveBeenCalledWith(
       expect.stringContaining(
-        '[space-auto-checkout] failed trigger=spaces:list storeId=18 requestId=req-1 sessionId=9 reason=Error',
+        '[space-auto-checkout] failed trigger=scheduler:auto-checkout storeId=18 requestId=req-1 sessionId=9 reason=Error',
       ),
       expect.any(String),
     );
     expect(logger.log).toHaveBeenCalledWith(
       expect.stringContaining(
-        '[space-auto-checkout] completed trigger=spaces:list storeId=18 requestId=req-1 count=0 failedCount=1',
+        '[space-auto-checkout] completed trigger=scheduler:auto-checkout storeId=18 requestId=req-1 count=0 failedCount=1',
       ),
     );
   });
 
-  it('autoCheckoutExpiredCountdownSessions 释放锁失败时不应打断读链路', async () => {
+  it('autoCheckoutExpiredCountdownSessions 释放锁失败时不应打断调度流程', async () => {
     const user = createSpaceTestUser();
 
-    redisService.del.mockRejectedValueOnce(new Error('redis del timeout'));
+    redisClient.eval.mockRejectedValueOnce(new Error('redis eval timeout'));
 
     const result = await service.autoCheckoutExpiredCountdownSessions(
       user,
       18,
       Date.now(),
-      'spaces:list',
+      'scheduler:auto-checkout',
       'req-release-fail',
     );
 
     expect(result).toBe(0);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining(
-        '[space-auto-checkout] release_lock_failed trigger=spaces:list storeId=18 requestId=req-release-fail userId=1 reason=Error',
+        '[space-auto-checkout] release_lock_failed trigger=scheduler:auto-checkout storeId=18 requestId=req-release-fail userId=1 reason=Error',
       ),
     );
   });
@@ -242,14 +251,14 @@ describe('SpaceSessionAutoCheckoutService', () => {
       user,
       18,
       checkoutAt,
-      'space-reservations:list-store',
+      'scheduler:auto-checkout',
       'req-2',
     );
 
     expect(result).toBe(0);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining(
-        '[space-auto-checkout] skipped_session trigger=space-reservations:list-store storeId=18 requestId=req-2 sessionId=9 reason=ConflictException',
+        '[space-auto-checkout] skipped_session trigger=scheduler:auto-checkout storeId=18 requestId=req-2 sessionId=9 reason=ConflictException',
       ),
     );
   });

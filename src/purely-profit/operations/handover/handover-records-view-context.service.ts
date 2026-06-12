@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EmployeeShiftType, HandoverStatus } from '@prisma/client';
+import { EmployeeShiftType } from '@prisma/client';
 import { toOptionalMediaText } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -166,44 +166,111 @@ export class HandoverRecordsViewContextService {
       return latestStartedShift ?? null;
     }
 
-    const [allShifts, completedRecords] = await Promise.all([
-      this.prisma.employeeShift.findMany({
-        where: {
-          storeId,
-          date: dayRange,
-        },
-        select: {
-          employeeId: true,
-          employeeName: true,
-          shiftType: true,
-          shiftName: true,
-          date: true,
-          startTime: true,
-          endTime: true,
-        },
-        orderBy: [{ startTime: 'asc' }, { id: 'asc' }],
-      }),
-      this.prisma.storeHandoverRecord.findMany({
-        where: {
-          storeId,
-          status: HandoverStatus.completed,
-          createdAt: dayRange,
-        },
-        select: {
-          id: true,
-        },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      }),
-    ]);
+    const allShifts = await this.prisma.employeeShift.findMany({
+      where: {
+        storeId,
+        date: dayRange,
+      },
+      select: {
+        employeeId: true,
+        employeeName: true,
+        shiftType: true,
+        shiftName: true,
+        date: true,
+        startTime: true,
+        endTime: true,
+      },
+      orderBy: [{ date: 'asc' }, { startTime: 'asc' }, { id: 'asc' }],
+    });
 
-    const currentRecordIndex = completedRecords.findIndex(
-      (item) => item.id === record.id,
-    );
-    if (currentRecordIndex < 0) {
+    return this.pickBestRecordShift(allShifts, referenceDate, record);
+  }
+
+  private pickBestRecordShift(
+    shifts: RecordShiftSnapshot[],
+    referenceDate: Date,
+    record: HandoverRecordRow,
+  ): RecordShiftSnapshot | null {
+    if (shifts.length === 0) {
       return null;
     }
 
-    return allShifts[currentRecordIndex] ?? null;
+    const snapshotEmployeeName =
+      toDisplayName(record.fromEmployeeNameSnapshot) ??
+      toDisplayName(record.fromEmployee?.name);
+    const nameScopedShifts = snapshotEmployeeName
+      ? shifts.filter(
+          (shift) => toDisplayName(shift.employeeName) === snapshotEmployeeName,
+        )
+      : shifts;
+    const candidateShifts =
+      nameScopedShifts.length > 0 ? nameScopedShifts : shifts;
+
+    const activeShifts = candidateShifts.filter((shift) => {
+      const shiftRange = buildShiftDateRange(
+        shift.startTime,
+        shift.endTime,
+        shift.date ?? referenceDate,
+      );
+      return (
+        shiftRange.startAt.getTime() <= referenceDate.getTime() &&
+        referenceDate.getTime() <= shiftRange.endAt.getTime()
+      );
+    });
+    const activeMatchedShift = this.pickByShiftType(
+      activeShifts,
+      record.shiftTypeSnapshot ?? null,
+    );
+    if (activeMatchedShift) {
+      return activeMatchedShift;
+    }
+
+    const startedShifts = candidateShifts
+      .filter((shift) => {
+        const shiftRange = buildShiftDateRange(
+          shift.startTime,
+          shift.endTime,
+          shift.date ?? referenceDate,
+        );
+        return shiftRange.startAt.getTime() <= referenceDate.getTime();
+      })
+      .sort((left, right) => {
+        const leftStartAt = buildShiftDateRange(
+          left.startTime,
+          left.endTime,
+          left.date ?? referenceDate,
+        ).startAt;
+        const rightStartAt = buildShiftDateRange(
+          right.startTime,
+          right.endTime,
+          right.date ?? referenceDate,
+        ).startAt;
+        return rightStartAt.getTime() - leftStartAt.getTime();
+      });
+    const latestStartedShift = this.pickByShiftType(
+      startedShifts,
+      record.shiftTypeSnapshot ?? null,
+    );
+    if (latestStartedShift) {
+      return latestStartedShift;
+    }
+
+    return (
+      this.pickByShiftType(candidateShifts, record.shiftTypeSnapshot ?? null) ??
+      candidateShifts[0] ??
+      null
+    );
+  }
+
+  private pickByShiftType(
+    shifts: RecordShiftSnapshot[],
+    shiftType: HandoverRecordRow['shiftTypeSnapshot'],
+  ): RecordShiftSnapshot | null {
+    if (!shiftType) {
+      return shifts[0] ?? null;
+    }
+
+    return shifts.find((shift) => shift.shiftType === shiftType) ?? null;
   }
 
   private async buildRecordShiftSnapshot(

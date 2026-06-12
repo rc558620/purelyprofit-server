@@ -113,13 +113,14 @@ export const buildShiftDateRange = (
   baseDate = new Date(),
 ): ShiftDateRange => {
   const now = new Date(baseDate);
-  const startAt = new Date(now);
-  startAt.setHours(0, 0, 0, 0);
-  const endAt = new Date(now);
-  endAt.setHours(23, 59, 59, 999);
 
   if (!TIME_TEXT_PATTERN.test(startTime) || !TIME_TEXT_PATTERN.test(endTime)) {
-    return { startAt, endAt };
+    const fallbackPoint = new Date(now);
+    fallbackPoint.setSeconds(0, 0);
+    return {
+      startAt: fallbackPoint,
+      endAt: new Date(fallbackPoint),
+    };
   }
 
   const parsedStart = createTimePoint(now, startTime);

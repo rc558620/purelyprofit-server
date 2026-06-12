@@ -12,7 +12,6 @@ import {
 } from './dto/space.dto';
 import { toSpaceResponse, type SpaceWithRelations } from './spaces.mapper';
 import { SPACE_WITH_RELATIONS_INCLUDE } from './spaces.query';
-import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
 import {
   SpaceDashboardSummaryService,
   type DashboardSpaceSummaryBundle,
@@ -23,7 +22,6 @@ export class SpaceDashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
-    private readonly autoCheckoutService: SpaceSessionAutoCheckoutService,
     private readonly summaryService: SpaceDashboardSummaryService,
   ) {}
 
@@ -32,6 +30,7 @@ export class SpaceDashboardService {
     query: GetSpacesDashboardQueryDto,
     requestId?: string,
   ): Promise<SpacesDashboardResponseDto> {
+    void requestId;
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
       query.storeId,
@@ -42,14 +41,6 @@ export class SpaceDashboardService {
     if (storeId === null) {
       return this.buildEmptyDashboard();
     }
-
-    await this.autoCheckoutService.autoCheckoutExpiredCountdownSessions(
-      user,
-      storeId,
-      Date.now(),
-      'spaces:dashboard',
-      requestId,
-    );
 
     const [spaces, sessionStats, dashboardSummaries] = await Promise.all([
       this.findSpacesByStore(storeId),

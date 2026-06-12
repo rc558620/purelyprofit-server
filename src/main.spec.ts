@@ -1,3 +1,4 @@
+import * as childProcess from 'node:child_process';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { bootstrap, filterSwaggerDocumentForEnvironment } from './main';
@@ -6,6 +7,10 @@ jest.mock('@nestjs/core', () => ({
   NestFactory: {
     create: jest.fn(),
   },
+}));
+
+jest.mock('node:child_process', () => ({
+  spawnSync: jest.fn(),
 }));
 
 describe('main bootstrap', () => {
@@ -37,6 +42,7 @@ describe('main bootstrap', () => {
     app.get.mockClear();
     app.listen.mockClear();
     createMock.mockResolvedValue(app as never);
+    (childProcess.spawnSync as jest.Mock).mockReturnValue({ stdout: '' } as never);
   });
 
   it('会把 Fastify 运行时参数传给适配器', async () => {
@@ -49,6 +55,7 @@ describe('main bootstrap', () => {
           'app.httpKeepAliveTimeoutMs': 70000,
           'app.httpRequestTimeoutMs': 12000,
           'app.corsOrigin': '*',
+          'app.portAutoTerminateEnabled': false,
           'app.portAutoShiftEnabled': false,
           'app.slowRequestLogEnabled': false,
           'app.slowRequestThresholdMs': 800,
@@ -155,7 +162,64 @@ describe('main bootstrap', () => {
     });
   });
 
-  it('开发环境默认端口被占用时会自动顺延端口', async () => {
+  it('开发环境启动前会清理 3000-3002 残留 node 进程', async () => {
+    const bootstrapConfig = {
+      get: jest.fn((key: string) => {
+        const configMap: Record<string, string | number | boolean> = {
+          nodeEnv: 'development',
+          'app.logEnabled': true,
+          'app.httpBodyLimitBytes': 1024,
+          'app.httpKeepAliveTimeoutMs': 70000,
+          'app.httpRequestTimeoutMs': 12000,
+          'app.corsOrigin': '*',
+          'app.portAutoTerminateEnabled': true,
+          'app.portAutoShiftEnabled': true,
+          'app.portAutoShiftMaxOffset': 2,
+          'app.slowRequestLogEnabled': false,
+          'app.slowRequestThresholdMs': 800,
+          'app.swaggerEnabled': false,
+          port: 3000,
+        };
+        return configMap[key];
+      }),
+    };
+    const runtimeConfig = {
+      get: bootstrapConfig.get,
+    };
+
+    jest
+      .spyOn(ConfigService.prototype, 'get')
+      .mockImplementation(bootstrapConfig.get);
+    app.get.mockImplementation((token: unknown) => {
+      if (token === ConfigService) {
+        return runtimeConfig;
+      }
+      return undefined;
+    });
+    (childProcess.spawnSync as jest.Mock)
+      .mockReturnValueOnce({
+        stdout:
+          'node 5009 f0rest 18u IPv4 0x1 0t0 TCP *:3000 (LISTEN)\nnode 69928 f0rest 18u IPv4 0x2 0t0 TCP *:3002 (LISTEN)\nredis-ser 3250 f0rest 6u IPv4 0x3 0t0 TCP 127.0.0.1:6379 (LISTEN)\n',
+      } as never)
+      .mockReturnValueOnce({ stdout: '' } as never)
+      .mockReturnValueOnce({ stdout: '' } as never);
+    jest.spyOn(process, 'kill').mockImplementation((() => true) as never);
+
+    await bootstrap();
+
+    expect(process.kill).toHaveBeenCalledWith(5009, 'SIGTERM');
+    expect(process.kill).toHaveBeenCalledWith(69928, 'SIGTERM');
+    expect(app.listen).toHaveBeenCalledTimes(1);
+    expect(app.listen).toHaveBeenCalledWith(3000, '0.0.0.0');
+    expect(console.warn).toHaveBeenCalledWith(
+      '[bootstrap] 启动前清理 3000-3002 端口残留进程: 5009@3000, 69928@3002',
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      'Server running on http://localhost:3000',
+    );
+  });
+
+  it('开发环境默认端口被占用时会先结束旧进程并复用原端口', async () => {
     const addressInUseError = Object.assign(new Error('EADDRINUSE'), {
       code: 'EADDRINUSE',
     });
@@ -168,6 +232,71 @@ describe('main bootstrap', () => {
           'app.httpKeepAliveTimeoutMs': 70000,
           'app.httpRequestTimeoutMs': 12000,
           'app.corsOrigin': '*',
+          'app.portAutoTerminateEnabled': true,
+          'app.portAutoShiftEnabled': true,
+          'app.portAutoShiftMaxOffset': 2,
+          'app.slowRequestLogEnabled': false,
+          'app.slowRequestThresholdMs': 800,
+          'app.swaggerEnabled': false,
+          port: 3000,
+        };
+        return configMap[key];
+      }),
+    };
+    const runtimeConfig = {
+      get: bootstrapConfig.get,
+    };
+
+    jest
+      .spyOn(ConfigService.prototype, 'get')
+      .mockImplementation(bootstrapConfig.get);
+    app.get.mockImplementation((token: unknown) => {
+      if (token === ConfigService) {
+        return runtimeConfig;
+      }
+      return undefined;
+    });
+    (childProcess.spawnSync as jest.Mock)
+      .mockReturnValueOnce({ stdout: '' } as never)
+      .mockReturnValueOnce({
+        stdout: 'node 4321 f0rest 18u IPv4 0x1 0t0 TCP *:3000 (LISTEN)\n',
+      } as never)
+      .mockReturnValueOnce({ stdout: '' } as never);
+    jest.spyOn(process, 'kill').mockImplementation((() => true) as never);
+    app.listen
+      .mockRejectedValueOnce(addressInUseError)
+      .mockResolvedValueOnce(undefined);
+
+    await bootstrap();
+
+    expect(process.kill).toHaveBeenCalledWith(4321, 'SIGTERM');
+    expect(app.listen).toHaveBeenNthCalledWith(1, 3000, '0.0.0.0');
+    expect(app.listen).toHaveBeenNthCalledWith(2, 3000, '0.0.0.0');
+    expect(console.warn).toHaveBeenCalledWith(
+      '[bootstrap] 端口 3000 已被占用，尝试停止旧进程: 4321',
+    );
+    expect(console.warn).toHaveBeenCalledWith(
+      '[bootstrap] 端口 3000 的旧进程已停止，重新尝试监听',
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      'Server running on http://localhost:3000',
+    );
+  });
+
+  it('开发环境无法结束旧进程时会自动顺延端口', async () => {
+    const addressInUseError = Object.assign(new Error('EADDRINUSE'), {
+      code: 'EADDRINUSE',
+    });
+    const bootstrapConfig = {
+      get: jest.fn((key: string) => {
+        const configMap: Record<string, string | number | boolean> = {
+          nodeEnv: 'development',
+          'app.logEnabled': true,
+          'app.httpBodyLimitBytes': 1024,
+          'app.httpKeepAliveTimeoutMs': 70000,
+          'app.httpRequestTimeoutMs': 12000,
+          'app.corsOrigin': '*',
+          'app.portAutoTerminateEnabled': false,
           'app.portAutoShiftEnabled': true,
           'app.portAutoShiftMaxOffset': 2,
           'app.slowRequestLogEnabled': false,

@@ -143,6 +143,15 @@ export class AuthAccountLookupService {
     });
   }
 
+  async updateName(userId: number, name: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        name,
+      },
+    });
+  }
+
   async verifyRealName(
     userId: number,
     realName: string,

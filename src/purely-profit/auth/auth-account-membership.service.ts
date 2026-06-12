@@ -1,5 +1,6 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import {
+  StaffRole,
   StaffStatus,
   StoreSubAccountRole,
   StoreSubAccountStatus,
@@ -95,10 +96,21 @@ export class AuthAccountMembershipService {
     payload: JwtPayload,
     userEmail: string,
   ): Promise<AuthenticatedMembership | null> {
-    const [currentMembership] = await this.findMembershipRows(
+    let [currentMembership] = await this.findMembershipRows(
       payload,
       userEmail,
     );
+
+    if (!currentMembership) {
+      const repaired = await this.repairLegacyOwnerMembership(
+        payload,
+        userEmail,
+      );
+      if (repaired) {
+        [currentMembership] = await this.findMembershipRows(payload, userEmail);
+      }
+    }
+
     return this.buildAuthenticatedMembership(currentMembership);
   }
 
@@ -249,6 +261,98 @@ export class AuthAccountMembershipService {
           }
         : null,
     );
+  }
+
+  private async repairLegacyOwnerMembership(
+    payload: JwtPayload,
+    userEmail: string,
+  ): Promise<boolean> {
+    const ownerStore = await this.prisma.store.findFirst({
+      where: { ownerId: payload.sub },
+      select: {
+        id: true,
+        owner: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    });
+
+    if (!ownerStore) {
+      return false;
+    }
+
+    const existingStaff = await this.prisma.staff.findFirst({
+      where: {
+        OR: [
+          { userId: payload.sub },
+          { email: userEmail },
+          { phone: payload.phone },
+        ],
+      },
+      select: {
+        id: true,
+        storeId: true,
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    });
+
+    if (existingStaff && existingStaff.storeId !== ownerStore.id) {
+      this.logger.warn(
+        `skip legacy owner membership repair for user ${payload.sub}: conflicting staff ${existingStaff.id} belongs to store ${existingStaff.storeId}`,
+      );
+      return false;
+    }
+
+    const normalizedOwnerName = ownerStore.owner.name?.trim();
+    const nextName = normalizedOwnerName && normalizedOwnerName.length > 0
+      ? normalizedOwnerName
+      : '老板';
+
+    if (existingStaff) {
+      await this.prisma.staff.update({
+        where: { id: existingStaff.id },
+        data: {
+          storeId: ownerStore.id,
+          userId: payload.sub,
+          email: ownerStore.owner.email,
+          phone: payload.phone,
+          name: nextName,
+          role: StaffRole.OWNER,
+          permissions: ['*'],
+          status: StaffStatus.ACTIVE,
+          isSeatActive: true,
+          isActive: true,
+        },
+      });
+      this.logger.log(
+        `repaired legacy owner staff ${existingStaff.id} for store ${ownerStore.id}`,
+      );
+      return true;
+    }
+
+    await this.prisma.staff.create({
+      data: {
+        storeId: ownerStore.id,
+        userId: payload.sub,
+        email: ownerStore.owner.email,
+        phone: payload.phone,
+        name: nextName,
+        role: StaffRole.OWNER,
+        permissions: ['*'],
+        status: StaffStatus.ACTIVE,
+        isSeatActive: true,
+        isActive: true,
+      },
+    });
+    this.logger.log(
+      `created legacy owner staff for store ${ownerStore.id} and user ${payload.sub}`,
+    );
+    return true;
   }
 
   private isMissingSubAccountSchemaError(error: unknown): boolean {

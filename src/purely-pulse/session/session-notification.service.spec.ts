@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { SessionNotificationService } from './session-notification.service';
@@ -63,7 +64,12 @@ describe('SessionNotificationService', () => {
     await expect(service.countUnreadNotifications(18)).resolves.toBe(9);
     expect(prismaService.$queryRaw).toHaveBeenCalled();
     expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
-      where: { storeId: 18, status: 'overdue' },
+      where: expect.objectContaining({
+        storeId: 18,
+        dueDate: { lt: new Date('2026-05-21T12:00:00.000Z') },
+        paidAmount: new Prisma.Decimal(0),
+        remaining: { gt: new Prisma.Decimal(0) },
+      }),
     });
     expect(prismaService.partnerWithdrawal.count).toHaveBeenCalledWith({
       where: { storeId: 18, status: 'pending' },
@@ -101,6 +107,14 @@ describe('SessionNotificationService', () => {
     });
 
     await expect(service.countUnreadNotifications(20)).resolves.toBe(3);
+    expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        storeId: 20,
+        dueDate: { lt: new Date('2026-05-21T12:00:00.000Z') },
+        paidAmount: new Prisma.Decimal(0),
+        remaining: { gt: new Prisma.Decimal(0) },
+      }),
+    });
   });
 
   it('countUnreadNotifications 订阅已过期或不存在时不增加订阅提醒', async () => {
@@ -117,5 +131,23 @@ describe('SessionNotificationService', () => {
     prismaService.storeMembershipProfile.findUnique.mockResolvedValue(null);
 
     await expect(service.countUnreadNotifications(21)).resolves.toBe(0);
+  });
+
+  it('countUnreadNotifications 不会把部分已收付的过期账款算作逾期提醒', async () => {
+    prismaService.$queryRaw.mockResolvedValue([{ count: BigInt(0) }]);
+    prismaService.financeAccountRecord.count.mockResolvedValue(0);
+    prismaService.partnerWithdrawal.count.mockResolvedValue(0);
+    prismaService.employeeLeave.count.mockResolvedValue(0);
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue(null);
+
+    await expect(service.countUnreadNotifications(22)).resolves.toBe(0);
+    expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        storeId: 22,
+        dueDate: { lt: new Date('2026-05-21T12:00:00.000Z') },
+        paidAmount: new Prisma.Decimal(0),
+        remaining: { gt: new Prisma.Decimal(0) },
+      }),
+    });
   });
 });

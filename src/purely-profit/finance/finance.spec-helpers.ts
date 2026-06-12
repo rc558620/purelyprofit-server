@@ -104,15 +104,22 @@ export function createFinanceCashFlowPrismaMock() {
 }
 
 export function createFinanceAccountPrismaMock() {
+  const financeAccountRecord = {
+    findMany: jest.fn(),
+    create: jest.fn(),
+    findFirst: jest.fn(),
+    updateMany: jest.fn(),
+    delete: jest.fn(),
+  };
+
   return {
-    financeAccountRecord: {
-      findMany: jest.fn(),
-      count: jest.fn(),
-      create: jest.fn(),
-      findFirst: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-    },
+    financeAccountRecord,
+    $transaction: jest.fn(
+      async (
+        callback: (tx: { financeAccountRecord: typeof financeAccountRecord }) =>
+          Promise<unknown>,
+      ) => callback({ financeAccountRecord }),
+    ),
   };
 }
 

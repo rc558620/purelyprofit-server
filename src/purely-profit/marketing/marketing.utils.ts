@@ -59,6 +59,8 @@ export const MARKETING_PROMOTION_TYPE_VALUES = [
   'reduce',
   'recharge_gift',
   'first_order_discount',
+  'free',
+  'points_2x',
 ] as const;
 export type MarketingPromotionTypeValue =
   (typeof MARKETING_PROMOTION_TYPE_VALUES)[number];

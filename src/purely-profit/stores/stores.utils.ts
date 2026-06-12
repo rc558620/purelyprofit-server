@@ -18,6 +18,29 @@ function normalizeStoreLogo(value: unknown): string | undefined {
   return normalizedValue;
 }
 
+function normalizeCoordinate(
+  value: unknown,
+  min: number,
+  max: number,
+): number | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  const parsedValue =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number.parseFloat(value)
+        : Number.NaN;
+
+  if (!Number.isFinite(parsedValue) || parsedValue < min || parsedValue > max) {
+    return undefined;
+  }
+
+  return parsedValue;
+}
+
 export function extractStoreCreatePayload(value: unknown): StoreCreatePayload {
   const candidate = value as RawCreateStorePayload;
 
@@ -34,6 +57,8 @@ export function extractStoreCreatePayload(value: unknown): StoreCreatePayload {
       : [],
     address: typeof candidate.address === 'string' ? candidate.address : '',
     storeLogo: normalizeStoreLogo(candidate.storeLogo),
+    latitude: normalizeCoordinate(candidate.latitude, -90, 90),
+    longitude: normalizeCoordinate(candidate.longitude, -180, 180),
   };
 }
 
@@ -44,5 +69,7 @@ export function buildStoreProfileMetadata(
     storeType: payload.storeType,
     region: payload.region,
     storeLogo: payload.storeLogo,
+    latitude: payload.latitude,
+    longitude: payload.longitude,
   });
 }

@@ -24,7 +24,12 @@ export class ClubStoreViewService {
       id: store.id,
       name: store.name,
       address: store.address ?? '',
+      isOpen: true,
       ...(metadata.storeLogo ? { coverImage: metadata.storeLogo } : {}),
+      ...(metadata.latitude !== undefined ? { latitude: metadata.latitude } : {}),
+      ...(metadata.longitude !== undefined
+        ? { longitude: metadata.longitude }
+        : {}),
     };
   }
 }

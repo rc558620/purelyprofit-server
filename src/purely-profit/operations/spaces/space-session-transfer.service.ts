@@ -119,6 +119,38 @@ export class SpaceSessionTransferService {
     }
 
     const result = await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT id
+        FROM space_sessions
+        WHERE id = ${session.id}
+        FOR UPDATE
+      `;
+
+      const lockedSession = await transaction.spaceSession.findUnique({
+        where: { id: session.id },
+        select: {
+          id: true,
+          storeId: true,
+          spaceId: true,
+        },
+      });
+
+      if (!lockedSession) {
+        throw new NotFoundException('空间会话不存在');
+      }
+
+      const lockSpaceIds = Array.from(
+        new Set([lockedSession.spaceId, dto.targetSpaceId]),
+      ).sort((left, right) => left - right);
+      for (const lockSpaceId of lockSpaceIds) {
+        await transaction.$queryRaw`
+          SELECT id
+          FROM spaces
+          WHERE id = ${lockSpaceId}
+          FOR UPDATE
+        `;
+      }
+
       const latestSession = await transaction.spaceSession.findUnique({
         where: { id: session.id },
         include: {

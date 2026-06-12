@@ -257,6 +257,43 @@ describe('FinanceOverviewService', () => {
     expect(prismaService.financeCashFlowRecord.findMany).not.toHaveBeenCalled();
   });
 
+  it('getReport 会将 custom_month 解析为整月区间并对比上月', async () => {
+    prismaService.financeCashFlowRecord.findMany.mockResolvedValueOnce([]);
+    prismaService.financeCashFlowRecord.groupBy.mockResolvedValue([]);
+    prismaService.financeAccountRecord.findMany.mockResolvedValue([]);
+
+    await service.getReport(user, {
+      period: 'custom_month',
+      customDate: new Date('2025-05-14T10:00:00.000Z').getTime(),
+    });
+
+    expect(
+      prismaService.financeCashFlowRecord.findMany,
+    ).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          storeId: 18,
+          date: {
+            gte: new Date(2025, 4, 1, 0, 0, 0, 0),
+            lte: new Date(2025, 4, 31, 23, 59, 59, 999),
+          },
+        }),
+      }),
+    );
+    expect(prismaService.financeCashFlowRecord.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          storeId: 18,
+          date: {
+            gte: new Date(2025, 3, 1, 0, 0, 0, 0),
+            lte: new Date(2025, 3, 30, 23, 59, 59, 999),
+          },
+        }),
+      }),
+    );
+  });
+
   it('getReport 返回报表中心财务契约并支持 year 周期', async () => {
     prismaService.financeCashFlowRecord.findMany.mockResolvedValueOnce([
       {
@@ -426,6 +463,34 @@ describe('FinanceOverviewService', () => {
           },
         }),
         _sum: { amount: true },
+      }),
+    );
+    expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            {
+              storeId: 18,
+              paidAmount: new Prisma.Decimal(0),
+              remaining: { gt: new Prisma.Decimal(0) },
+              OR: [
+                { dueDate: null },
+                { dueDate: { gte: new Date(2025, 11, 31, 23, 59, 59, 999) } },
+              ],
+            },
+            {
+              storeId: 18,
+              paidAmount: { gt: new Prisma.Decimal(0) },
+              remaining: { gt: new Prisma.Decimal(0) },
+            },
+            {
+              storeId: 18,
+              dueDate: { lt: new Date(2025, 11, 31, 23, 59, 59, 999) },
+              paidAmount: new Prisma.Decimal(0),
+              remaining: { gt: new Prisma.Decimal(0) },
+            },
+          ],
+        },
       }),
     );
   });

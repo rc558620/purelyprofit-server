@@ -199,6 +199,24 @@ describe('NotificationsService', () => {
         },
       ],
     });
+
+    expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        storeId: 18,
+        dueDate: { lt: new Date(2026, 4, 14, 15, 0, 0, 0) },
+        paidAmount: new Prisma.Decimal(0),
+        remaining: { gt: new Prisma.Decimal(0) },
+      }),
+      select: {
+        id: true,
+        counterpart: true,
+        remaining: true,
+        dueDate: true,
+        updatedAt: true,
+      },
+      orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }],
+      take: 20,
+    });
   });
 
   it('list 支持未读过滤并返回 readAt', async () => {

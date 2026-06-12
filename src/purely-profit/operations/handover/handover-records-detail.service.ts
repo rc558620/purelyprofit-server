@@ -103,9 +103,7 @@ export class HandoverRecordsDetailService {
           context.shiftRecord?.startTime,
           context.shiftRecord?.endTime,
         ),
-        shiftReferenceAt: (
-          context.shiftRecord?.date ?? context.referenceDate
-        ).getTime(),
+        shiftReferenceAt: context.shiftRange.startAt.getTime(),
       },
       additionalItems: mapRecordAdditionalItems(record),
       revenueSummary: revenueDetail.revenueSummary,

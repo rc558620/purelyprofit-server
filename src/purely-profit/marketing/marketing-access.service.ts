@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
 import { AccessControlService } from '../access-control/access-control.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 
@@ -6,7 +7,10 @@ export type MarketingPermission = 'marketing:view' | 'marketing:manage';
 
 @Injectable()
 export class MarketingAccessService {
-  constructor(private readonly accessControlService: AccessControlService) {}
+  constructor(
+    private readonly accessControlService: AccessControlService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * 获取当前用户可管理的门店 ID。
@@ -26,7 +30,28 @@ export class MarketingAccessService {
       return currentStoreId;
     }
 
-    return null;
+    const legacyOwnerStoreId = await this.findLegacyOwnerStoreId(user.id);
+    if (legacyOwnerStoreId === null) {
+      return null;
+    }
+
+    if (!user.currentMembership) {
+      return legacyOwnerStoreId;
+    }
+
+    return user.currentMembership.storeId === legacyOwnerStoreId
+      ? legacyOwnerStoreId
+      : null;
+  }
+
+  private async findLegacyOwnerStoreId(userId: number): Promise<number | null> {
+    const store = await this.prisma.store.findFirst({
+      where: { ownerId: userId },
+      select: { id: true },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    });
+
+    return store?.id ?? null;
   }
 
   /**

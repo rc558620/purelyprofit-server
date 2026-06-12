@@ -10,15 +10,19 @@ describe('SpaceSessionOpenService', () => {
   let service: SpaceSessionOpenService;
 
   const transaction = {
+    $queryRaw: jest.fn(),
     spaceReservation: {
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     spaceSession: {
       findFirst: jest.fn(),
       create: jest.fn(),
     },
     space: {
+      findUnique: jest.fn(),
       update: jest.fn(),
     },
   };
@@ -40,6 +44,7 @@ describe('SpaceSessionOpenService', () => {
   const reservationsStateService = {
     repairInconsistentOccupiedSpace: jest.fn(),
     ensureReservationCanBeFulfilled: jest.fn(),
+    resolveReservationBackStatus: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -75,6 +80,9 @@ describe('SpaceSessionOpenService', () => {
     reservationsStateService.ensureReservationCanBeFulfilled.mockResolvedValue(
       undefined,
     );
+    reservationsStateService.resolveReservationBackStatus.mockResolvedValue(
+      'idle',
+    );
     prismaService.$transaction.mockImplementation((callback) =>
       Promise.resolve(callback(transaction)),
     );
@@ -104,6 +112,10 @@ describe('SpaceSessionOpenService', () => {
       type: { name: '台球桌' },
     });
     prismaService.spaceSession.findFirst.mockResolvedValue(null);
+    transaction.space.findUnique.mockResolvedValue({
+      id: 7,
+      status: 'occupied',
+    });
     transaction.spaceSession.findFirst.mockResolvedValue(null);
     transaction.spaceSession.create.mockResolvedValue({
       id: 9,
@@ -153,6 +165,9 @@ describe('SpaceSessionOpenService', () => {
     expect(
       reservationsStateService.repairInconsistentOccupiedSpace,
     ).toHaveBeenCalledWith(7);
+    expect(
+      reservationsStateService.resolveReservationBackStatus,
+    ).toHaveBeenCalledWith(transaction, 7);
   });
 
   it('带 reservationId 开台时委托预约状态服务做履约校验', async () => {
@@ -164,8 +179,18 @@ describe('SpaceSessionOpenService', () => {
       status: 'idle',
       type: { name: '台球桌' },
     });
+    transaction.space.findUnique.mockResolvedValue({
+      id: 7,
+      status: 'idle',
+    });
     transaction.spaceSession.findFirst.mockResolvedValue(null);
-    transaction.spaceReservation.update.mockResolvedValue(undefined);
+    transaction.spaceReservation.findUnique.mockResolvedValue({
+      id: 21,
+      storeId: 18,
+      spaceId: 7,
+      status: 'pending',
+    });
+    transaction.spaceReservation.updateMany.mockResolvedValue({ count: 1 });
     transaction.spaceSession.create.mockResolvedValue({
       id: 10,
       storeId: 18,
@@ -218,6 +243,15 @@ describe('SpaceSessionOpenService', () => {
     expect(
       reservationsStateService.ensureReservationCanBeFulfilled,
     ).toHaveBeenCalledWith(18, 7, 21);
+    expect(transaction.spaceReservation.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 21,
+        status: 'pending',
+      },
+      data: {
+        status: 'fulfilled',
+      },
+    });
   });
 
   it('非自动结账倒计时开台也应保存预付款扩展字段', async () => {
@@ -228,6 +262,10 @@ describe('SpaceSessionOpenService', () => {
       capacity: 4,
       status: 'idle',
       type: { name: '台球桌' },
+    });
+    transaction.space.findUnique.mockResolvedValue({
+      id: 7,
+      status: 'idle',
     });
     transaction.spaceSession.findFirst.mockResolvedValue(null);
     transaction.spaceSession.create.mockResolvedValue({
@@ -307,5 +345,63 @@ describe('SpaceSessionOpenService', () => {
         }),
       }),
     );
+  });
+
+  it('开台时若锁内发现目标空间已被占用应阻止继续开台', async () => {
+    prismaService.space.findUnique.mockResolvedValue({
+      id: 7,
+      storeId: 18,
+      capacity: 4,
+      status: 'idle',
+      type: { name: '台球桌' },
+    });
+    transaction.space.findUnique.mockResolvedValue({
+      id: 7,
+      status: 'occupied',
+    });
+    transaction.spaceSession.findFirst.mockResolvedValue({ id: 99 });
+
+    await expect(
+      service.openSession(user, 7, {
+        billingMode: 'timed',
+        hourlyRate: 68,
+      }),
+    ).rejects.toThrow('空间当前使用中，无法重复开台');
+
+    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(transaction.spaceSession.create).not.toHaveBeenCalled();
+  });
+
+  it('履约开台时若锁内发现预约已处理应阻止继续开台', async () => {
+    prismaService.space.findUnique.mockResolvedValue({
+      id: 7,
+      storeId: 18,
+      capacity: 4,
+      status: 'idle',
+      type: { name: '台球桌' },
+    });
+    transaction.space.findUnique.mockResolvedValue({
+      id: 7,
+      status: 'reserved',
+    });
+    transaction.spaceSession.findFirst.mockResolvedValue(null);
+    transaction.spaceReservation.findFirst.mockResolvedValue({ id: 21 });
+    transaction.spaceReservation.findUnique.mockResolvedValue({
+      id: 21,
+      storeId: 18,
+      spaceId: 7,
+      status: 'fulfilled',
+    });
+
+    await expect(
+      service.openSession(user, 7, {
+        billingMode: 'timed',
+        hourlyRate: 68,
+        reservationId: 21,
+      }),
+    ).rejects.toThrow('当前预约已处理，无法再次履约开台');
+
+    expect(transaction.spaceReservation.updateMany).not.toHaveBeenCalled();
+    expect(transaction.spaceSession.create).not.toHaveBeenCalled();
   });
 });

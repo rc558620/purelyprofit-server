@@ -20,6 +20,8 @@ import {
   toMoneyNumber,
   toPrismaDecimal,
 } from './finance-money.utils';
+import { buildPaginationState, paginateArray } from './finance-pagination.utils';
+
 export function assertAccountCategoryCanCreateManually(category: string): void {
   const rule = getAccountCategoryRule(category);
   if (rule && !rule.allowManualCreate) {
@@ -39,7 +41,7 @@ export function assertAccountTypeMatchesCategory(
   }
 }
 
-export function getAccountCategoryRule(
+function getAccountCategoryRule(
   category: string,
 ): FinanceAccountCategoryRule | null {
   if (!(category in ACCOUNT_CATEGORY_RULES)) {
@@ -118,8 +120,21 @@ export function filterAndSortAccounts(
       if (statusDiff !== 0) {
         return statusDiff;
       }
-      return right.updatedAt.getTime() - left.updatedAt.getTime();
+      const updatedAtDiff = right.updatedAt.getTime() - left.updatedAt.getTime();
+      if (updatedAtDiff !== 0) {
+        return updatedAtDiff;
+      }
+      return right.id - left.id;
     });
+}
+
+export function paginateAccounts(
+  records: FinanceAccountRecordWithAmount[],
+  page?: number,
+  pageSize?: number,
+): FinanceAccountRecordWithAmount[] {
+  const pageState = buildPaginationState(page, pageSize);
+  return paginateArray(records, pageState);
 }
 
 export function mapAccountRecord(

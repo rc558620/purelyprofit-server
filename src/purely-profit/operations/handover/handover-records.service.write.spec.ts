@@ -171,6 +171,43 @@ describe('HandoverRecordsService - 写操作', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    it('未指定接收人的自交班记录仅允许发起人或主账号/管理员完成', async () => {
+      const selfRecord = {
+        ...mockRecord,
+        fromEmployeeId: 10,
+        toEmployeeId: null,
+        toEmployee: null,
+        handoverMode: HandoverMode.self_main_account,
+      };
+      const otherCashierUser = {
+        ...subAccountUser,
+        currentMembership: {
+          ...subAccountUser.currentMembership!,
+          linkedEmployeeId: 99,
+        },
+      };
+
+      prismaService.storeHandoverRecord.findFirst.mockResolvedValue(selfRecord);
+
+      await expect(
+        ctx.service.completeHandoverRecord(otherCashierUser, 1, {}),
+      ).rejects.toThrow(ForbiddenException);
+
+      prismaService.storeHandoverRecord.update.mockResolvedValue({
+        ...selfRecord,
+        status: HandoverStatus.completed,
+        handoverAt: new Date('2026-05-13T12:10:00.000Z'),
+      });
+
+      const ownerResult = await ctx.service.completeHandoverRecord(
+        ownerUser,
+        1,
+        {},
+      );
+
+      expect(ownerResult.status).toBe('completed');
+    });
+
     it('完成非 pending 状态的记录应抛出 BadRequestException', async () => {
       prismaService.storeHandoverRecord.findFirst.mockResolvedValue({
         ...mockRecord,

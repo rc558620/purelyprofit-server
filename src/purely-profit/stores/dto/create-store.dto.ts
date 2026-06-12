@@ -1,9 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -100,4 +104,26 @@ export class CreateStoreDto {
   @IsOptional()
   @IsString({ message: '门店 Logo 必须是字符串' })
   storeLogo?: string;
+
+  @ApiPropertyOptional({
+    example: 39.984104,
+    description: '门店纬度，供腾讯地图定位使用',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: '门店纬度必须是数字' })
+  @Min(-90, { message: '门店纬度不能小于 -90' })
+  @Max(90, { message: '门店纬度不能大于 90' })
+  latitude?: number;
+
+  @ApiPropertyOptional({
+    example: 116.307503,
+    description: '门店经度，供腾讯地图定位使用',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: '门店经度必须是数字' })
+  @Min(-180, { message: '门店经度不能小于 -180' })
+  @Max(180, { message: '门店经度不能大于 180' })
+  longitude?: number;
 }

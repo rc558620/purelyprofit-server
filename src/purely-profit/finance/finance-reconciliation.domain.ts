@@ -6,7 +6,6 @@ import type {
 import type {
   FinanceReconciliationItemInput,
   FinanceReconciliationRecordWithItems,
-  FinanceReconciliationsListQueryInput,
 } from './finance.types';
 import {
   addMoneyValues,
@@ -16,32 +15,6 @@ import {
   toPrismaDecimal,
 } from './finance-money.utils';
 import { trimOptionalString } from './finance-string.utils';
-
-export function filterReconciliations(
-  records: FinanceReconciliationRecordWithItems[],
-  query: FinanceReconciliationsListQueryInput,
-): FinanceReconciliationRecordWithItems[] {
-  const statusFilter = query.statusFilter ?? 'all';
-  const typeFilter = query.typeFilter ?? 'all';
-  const searchText = (query.searchText ?? '').trim().toLowerCase();
-
-  return records.filter((record) => {
-    if (statusFilter !== 'all' && record.status !== statusFilter) {
-      return false;
-    }
-    if (typeFilter !== 'all' && record.type !== typeFilter) {
-      return false;
-    }
-    if (searchText === '') {
-      return true;
-    }
-    const searchIndex =
-      `${record.title} ${record.counterpart ?? ''} ${record.note ?? ''}`
-        .toLowerCase()
-        .trim();
-    return searchIndex.includes(searchText);
-  });
-}
 
 export function buildReconciliationStats(
   records: FinanceReconciliationRecordWithItems[],

@@ -117,6 +117,18 @@ describe('HandoverConfirmService', () => {
       });
 
       expect(result.status).toBe('completed');
+      expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+      expect(prismaService.$executeRaw).toHaveBeenCalledTimes(1);
+      expect(
+        handoverConfirmShiftService.ensureShiftNotHandedOver,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          storeHandoverRecord: expect.any(Object),
+        }),
+        100,
+        expect.objectContaining({ id: 201 }),
+        confirmedAt,
+      );
       expect(prismaService.storeHandoverRecord.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -197,6 +209,7 @@ describe('HandoverConfirmService', () => {
           }),
         }),
       );
+      expect(prismaService.$executeRaw).toHaveBeenCalledTimes(1);
     });
 
     it('同一班次重复交班时应抛出异常', async () => {
@@ -215,6 +228,7 @@ describe('HandoverConfirmService', () => {
         }),
       ).rejects.toThrow('当前班次已完成交班，暂不允许重复操作');
       expect(prismaService.storeHandoverRecord.create).not.toHaveBeenCalled();
+      expect(prismaService.$executeRaw).toHaveBeenCalledTimes(1);
     });
 
     it('自定义班次会优先按 shiftReferenceAt 与 operatorName 锁定并写入快照', async () => {

@@ -38,10 +38,12 @@ import { ClientErrorsModule } from './purely-profit/client-errors/client-errors.
 import { PulseGrowthModule } from './purely-pulse/growth/growth.module';
 import { PulseAuthModule } from './purely-pulse/auth/pulse-auth.module';
 import { ClubAuthModule } from './purely-club/auth/club-auth.module';
+import { ClubHomeModule } from './purely-club/home/club-home.module';
 import { ClubMemberModule } from './purely-club/member/club-member.module';
 import { ClubOrdersModule } from './purely-club/orders/club-orders.module';
 import { ClubPaymentsModule } from './purely-club/payments/club-payments.module';
 import { ClubProductsModule } from './purely-club/products/club-products.module';
+import { ClubPromotionsModule } from './purely-club/promotions/club-promotions.module';
 import { ClubRechargeModule } from './purely-club/recharge/club-recharge.module';
 import { ClubRecordsModule } from './purely-club/records/club-records.module';
 import { ClubStoresModule } from './purely-club/stores/club-stores.module';
@@ -88,10 +90,12 @@ import { ClubStoresModule } from './purely-club/stores/club-stores.module';
     PulseGrowthModule,
     PulseAuthModule,
     ClubAuthModule,
+    ClubHomeModule,
     ClubMemberModule,
     ClubOrdersModule,
     ClubPaymentsModule,
     ClubProductsModule,
+    ClubPromotionsModule,
     ClubRechargeModule,
     ClubRecordsModule,
     ClubStoresModule,

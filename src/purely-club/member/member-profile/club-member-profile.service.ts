@@ -3,7 +3,7 @@ import { MemberStatus } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { ClubCurrentContext } from '../../stores/club-stores.types';
-import type { ClubMemberLevelValue } from '../dto/club-member-account.dto';
+import type { ClubMemberHeldLevelValue } from '../dto/club-member-account.dto';
 
 const CLUB_MEMBER_ACCOUNT_NOT_FOUND_MESSAGE = '当前门店暂无会员账户信息';
 
@@ -27,7 +27,7 @@ export interface ClubMemberSnapshot {
   memberId: number;
   storeId: number;
   balance: number;
-  level: ClubMemberLevelValue;
+  level: ClubMemberHeldLevelValue;
   points: number;
   memberCode: string;
   joinDate: string;
@@ -117,34 +117,34 @@ export class ClubMemberProfileService {
   private resolveLevel(
     marketingTier: string | undefined,
     memberLevel: string,
-  ): ClubMemberLevelValue {
+  ): ClubMemberHeldLevelValue {
     switch (marketingTier) {
-      case 'silver':
-        return 'silver';
-      case 'gold':
-        return 'gold';
       case 'diamond':
         return 'diamond';
+      case 'gold':
+        return 'gold';
+      case 'silver':
+        return 'silver';
       case 'regular':
-        return 'bronze';
+        return 'regular';
       default:
         break;
     }
 
     switch (memberLevel) {
-      case 'silver':
-        return 'silver';
-      case 'gold':
-        return 'gold';
-      case 'platinum':
-        return 'platinum';
       case 'diamond':
         return 'diamond';
+      case 'platinum':
+        return 'platinum';
+      case 'gold':
+        return 'gold';
+      case 'silver':
+        return 'silver';
       case 'bronze':
       case 'regular':
       case 'free':
       default:
-        return 'bronze';
+        return 'regular';
     }
   }
 

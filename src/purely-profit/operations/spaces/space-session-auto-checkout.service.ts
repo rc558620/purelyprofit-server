@@ -79,11 +79,11 @@ export class SpaceSessionAutoCheckoutService {
     trigger = 'space:auto-checkout',
     requestId?: string,
   ): Promise<number> {
-    let lockKey: string | null = null;
+    let lock: { key: string; token: string } | null = null;
 
     try {
-      lockKey = await this.acquireAutoCheckoutStoreLock(storeId);
-      if (!lockKey) {
+      lock = await this.acquireAutoCheckoutStoreLock(storeId);
+      if (!lock) {
         this.logger.warn(
           `[space-auto-checkout] skipped_concurrent ${this.buildAutoCheckoutLogContext(
             {
@@ -217,9 +217,9 @@ export class SpaceSessionAutoCheckoutService {
       );
       return 0;
     } finally {
-      if (lockKey) {
+      if (lock) {
         try {
-          await this.releaseAutoCheckoutStoreLock(lockKey);
+          await this.releaseAutoCheckoutStoreLock(lock);
         } catch (error) {
           this.logger.warn(
             `[space-auto-checkout] release_lock_failed ${this.buildAutoCheckoutLogContext(
@@ -267,18 +267,36 @@ export class SpaceSessionAutoCheckoutService {
 
   private async acquireAutoCheckoutStoreLock(
     storeId: number,
-  ): Promise<string | null> {
+  ): Promise<{ key: string; token: string } | null> {
     const token = randomUUID();
     const lockKey = `space:auto-checkout:store:${storeId}`;
     const result = await this.redisService
       .getClient()
       .set(lockKey, token, 'EX', AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS, 'NX');
 
-    return result === 'OK' ? lockKey : null;
+    return result === 'OK'
+      ? {
+          key: lockKey,
+          token,
+        }
+      : null;
   }
 
-  private async releaseAutoCheckoutStoreLock(lockKey: string): Promise<void> {
-    await this.redisService.del(lockKey);
+  private async releaseAutoCheckoutStoreLock(lock: {
+    key: string;
+    token: string;
+  }): Promise<void> {
+    await this.redisService.getClient().eval(
+      `
+        if redis.call('GET', KEYS[1]) == ARGV[1] then
+          return redis.call('DEL', KEYS[1])
+        end
+        return 0
+      `,
+      1,
+      lock.key,
+      lock.token,
+    );
   }
 
   private async findStoresWithPendingAutoCheckoutSessions(): Promise<number[]> {

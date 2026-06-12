@@ -5,48 +5,63 @@ import {
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
-export const createHandoverPrismaMock = () => ({
-  employee: {
-    findUnique: jest.fn(),
-  },
-  employeeShift: {
-    findUnique: jest.fn(),
-    findFirst: jest.fn(),
-    findMany: jest.fn(),
-  },
-  saleOrder: {
-    groupBy: jest.fn(),
-    findMany: jest.fn(),
-    aggregate: jest.fn(),
-    count: jest.fn(),
-  },
-  saleOrderItem: {
-    findMany: jest.fn(),
-  },
-  spaceSession: {
-    aggregate: jest.fn(),
-  },
-  financeCashFlowRecord: {
-    aggregate: jest.fn(),
-  },
-  storeHandoverAdditionalItem: {
-    findMany: jest.fn(),
-    findFirst: jest.fn(),
-    create: jest.fn(),
-    update: jest.fn(),
-    delete: jest.fn(),
-  },
-  storeHandoverAdditionalValue: {
-    findMany: jest.fn(),
-  },
-  storeHandoverRecord: {
-    create: jest.fn(),
-    findFirst: jest.fn(),
-    findMany: jest.fn(),
-    count: jest.fn(),
-    update: jest.fn(),
-  },
-});
+export const createHandoverPrismaMock = () => {
+  const prisma = {
+    $executeRaw: jest.fn(),
+    employee: {
+      findUnique: jest.fn(),
+    },
+    employeeShift: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+    },
+    saleOrder: {
+      groupBy: jest.fn(),
+      findMany: jest.fn(),
+      aggregate: jest.fn(),
+      count: jest.fn(),
+    },
+    saleOrderItem: {
+      findMany: jest.fn(),
+    },
+    spaceSession: {
+      aggregate: jest.fn(),
+    },
+    financeCashFlowRecord: {
+      aggregate: jest.fn(),
+    },
+    storeHandoverAdditionalItem: {
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+    storeHandoverAdditionalValue: {
+      findMany: jest.fn(),
+    },
+    storeHandoverRecord: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
+      update: jest.fn(),
+    },
+  };
+
+  return {
+    ...prisma,
+    $transaction: jest.fn((input: unknown) => {
+      if (typeof input === 'function') {
+        return Promise.resolve(
+          (input as (client: typeof prisma) => unknown)(prisma),
+        );
+      }
+      return Promise.resolve(input);
+    }),
+  };
+};
 
 export const createStoreSubAccountServiceMock = () => ({
   listAssignableHandoverCandidates: jest.fn(),

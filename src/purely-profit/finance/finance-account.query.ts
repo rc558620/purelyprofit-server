@@ -1,9 +1,88 @@
 import { FinanceAccountStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  filterAndSortAccounts,
+  paginateAccounts,
+} from './finance-account.domain';
 import type {
   FinanceAccountRecordWithAmount,
   FinanceAccountsListQueryInput,
+  FinanceAccountStatusFilterValue,
 } from './finance.types';
+
+export type DerivedFinanceAccountStatusFilter = Exclude<
+  FinanceAccountStatusFilterValue,
+  'all'
+>;
+
+const ZERO_MONEY = new Prisma.Decimal(0);
+
+export function buildDerivedClosedAccountWhere(params: {
+  storeId: number;
+}): Prisma.FinanceAccountRecordWhereInput {
+  return {
+    storeId: params.storeId,
+    remaining: { lte: ZERO_MONEY },
+  };
+}
+
+export function buildDerivedFinanceAccountStatusWhere(params: {
+  storeId: number;
+  status: DerivedFinanceAccountStatusFilter;
+  now: number;
+}): Prisma.FinanceAccountRecordWhereInput {
+  switch (params.status) {
+    case 'pending':
+      return {
+        storeId: params.storeId,
+        paidAmount: ZERO_MONEY,
+        remaining: { gt: ZERO_MONEY },
+        OR: [{ dueDate: null }, { dueDate: { gte: new Date(params.now) } }],
+      };
+    case 'partial':
+      return {
+        storeId: params.storeId,
+        paidAmount: { gt: ZERO_MONEY },
+        remaining: { gt: ZERO_MONEY },
+      };
+    case 'settled':
+      return buildDerivedClosedAccountWhere({
+        storeId: params.storeId,
+      });
+    case 'overdue':
+      return {
+        storeId: params.storeId,
+        dueDate: { lt: new Date(params.now) },
+        paidAmount: ZERO_MONEY,
+        remaining: { gt: ZERO_MONEY },
+      };
+  }
+}
+
+export function buildDerivedOpenAccountWhere(params: {
+  storeId: number;
+  now: number;
+}): Prisma.FinanceAccountRecordWhereInput {
+  return {
+    OR: [
+      buildDerivedFinanceAccountStatusWhere({
+        storeId: params.storeId,
+        status: 'pending',
+        now: params.now,
+      }),
+      buildDerivedFinanceAccountStatusWhere({
+        storeId: params.storeId,
+        status: 'partial',
+        now: params.now,
+      }),
+      buildDerivedFinanceAccountStatusWhere({
+        storeId: params.storeId,
+        status: 'overdue',
+        now: params.now,
+      }),
+    ],
+  };
+}
 
 const financeAccountRecordSelect = {
   id: true,
@@ -25,37 +104,47 @@ function buildFinanceAccountWhere(
   storeId: number,
   query: FinanceAccountsListQueryInput,
 ): Prisma.FinanceAccountRecordWhereInput {
-  const where: Prisma.FinanceAccountRecordWhereInput = {
-    storeId,
-  };
+  const conditions: Prisma.FinanceAccountRecordWhereInput[] = [{ storeId }];
 
   if (query.typeFilter && query.typeFilter !== 'all') {
-    where.type = query.typeFilter;
+    conditions.push({ type: query.typeFilter });
   }
 
   if (query.statusFilter && query.statusFilter !== 'all') {
-    where.status = query.statusFilter;
+    conditions.push(
+      query.statusFilter === 'settled'
+        ? buildDerivedClosedAccountWhere({
+            storeId,
+          })
+        : buildDerivedFinanceAccountStatusWhere({
+            storeId,
+            status: query.statusFilter,
+            now: Date.now(),
+          }),
+    );
   }
 
   const trimmedSearchText = query.searchText?.trim();
   if (trimmedSearchText) {
-    where.OR = [
-      {
-        counterpart: {
-          contains: trimmedSearchText,
-          mode: 'insensitive',
+    conditions.push({
+      OR: [
+        {
+          counterpart: {
+            contains: trimmedSearchText,
+            mode: 'insensitive',
+          },
         },
-      },
-      {
-        note: {
-          contains: trimmedSearchText,
-          mode: 'insensitive',
+        {
+          note: {
+            contains: trimmedSearchText,
+            mode: 'insensitive',
+          },
         },
-      },
-    ];
+      ],
+    });
   }
 
-  return where;
+  return conditions.length === 1 ? conditions[0] : { AND: conditions };
 }
 
 export async function queryAccountRecords(
@@ -63,24 +152,17 @@ export async function queryAccountRecords(
   storeId: number,
   query: FinanceAccountsListQueryInput,
 ): Promise<{ items: FinanceAccountRecordWithAmount[]; total: number }> {
-  const page = query.page ?? 1;
-  const pageSize = query.pageSize ?? 20;
   const where = buildFinanceAccountWhere(storeId, query);
-
-  const [items, total] = await Promise.all([
-    prisma.financeAccountRecord.findMany({
-      where,
-      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }, { id: 'desc' }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      select: financeAccountRecordSelect,
-    }),
-    prisma.financeAccountRecord.count({ where }),
-  ]);
+  const records = await prisma.financeAccountRecord.findMany({
+    where,
+    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    select: financeAccountRecordSelect,
+  });
+  const filteredRecords = filterAndSortAccounts(records, query);
 
   return {
-    items,
-    total,
+    items: paginateAccounts(filteredRecords, query.page, query.pageSize),
+    total: filteredRecords.length,
   };
 }
 
@@ -106,7 +188,7 @@ export async function createAccountRecordEntity(
 }
 
 export async function findAccountRecord(
-  prisma: PrismaService,
+  prisma: PrismaService | Prisma.TransactionClient,
   params: { storeId: number; recordId: number },
 ): Promise<FinanceAccountRecordWithAmount | null> {
   return prisma.financeAccountRecord.findFirst({
@@ -132,20 +214,37 @@ export async function findAccountRecordId(
 }
 
 export async function updateAccountRecordSettlement(
-  prisma: PrismaService,
+  prisma: PrismaService | Prisma.TransactionClient,
   params: {
+    storeId: number;
     recordId: number;
+    expectedPaidAmount: Prisma.Decimal;
     paidAmount: Prisma.Decimal;
     remaining: Prisma.Decimal;
     status: FinanceAccountStatus;
   },
-): Promise<FinanceAccountRecordWithAmount> {
-  return prisma.financeAccountRecord.update({
-    where: { id: params.recordId },
+): Promise<FinanceAccountRecordWithAmount | null> {
+  const updateResult = await prisma.financeAccountRecord.updateMany({
+    where: {
+      id: params.recordId,
+      storeId: params.storeId,
+      paidAmount: params.expectedPaidAmount,
+    },
     data: {
       paidAmount: params.paidAmount,
       remaining: params.remaining,
       status: params.status,
+    },
+  });
+
+  if (updateResult.count === 0) {
+    return null;
+  }
+
+  return prisma.financeAccountRecord.findFirst({
+    where: {
+      id: params.recordId,
+      storeId: params.storeId,
     },
     select: financeAccountRecordSelect,
   });

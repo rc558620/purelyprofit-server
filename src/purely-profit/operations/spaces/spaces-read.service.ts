@@ -8,14 +8,11 @@ import {
   buildListSpacesWhere,
   SPACE_WITH_RELATIONS_INCLUDE,
 } from './spaces.query';
-import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
-
 @Injectable()
 export class SpacesReadService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
-    private readonly autoCheckoutService: SpaceSessionAutoCheckoutService,
   ) {}
 
   async listSpaces(
@@ -23,6 +20,7 @@ export class SpacesReadService {
     query: ListSpacesQueryDto,
     requestId?: string,
   ): Promise<SpaceResponseDto[]> {
+    void requestId;
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
       query.storeId,
@@ -33,14 +31,6 @@ export class SpacesReadService {
     if (storeId === null) {
       return [];
     }
-
-    await this.autoCheckoutService.autoCheckoutExpiredCountdownSessions(
-      user,
-      storeId,
-      Date.now(),
-      'spaces:list',
-      requestId,
-    );
 
     const spaces = await this.prisma.space.findMany({
       where: buildListSpacesWhere(storeId, query),

@@ -345,6 +345,8 @@ export function buildEmptyMarketingOverview(): MarketingOverviewDto {
     thisMonthRecharge: 0,
     rechargeCount: 0,
     activeMemberCount: 0,
+    inviteCode: '',
+    inviteCodeQrCodeImageUrl: '',
     last30Days: buildOverviewLast30Days([]),
     currentYear,
     thisYearMonthlyTrend: buildOverviewMonthlyTrend([], currentYear),

@@ -182,11 +182,16 @@ export class SpacesWriteService {
     this.ensurePrimaryAccountOnly(user);
     const space = await this.requireUpdatableSpace(user, spaceId);
 
-    return this.updateSpaceStatusWithResolver(space.id, async (transaction) =>
-      this.spaceReservationsService.resolveReservationBackStatus(
-        transaction,
-        space.id,
-      ),
+    return this.updateSpaceStatusWithResolver(
+      space.id,
+      async (transaction) =>
+        this.spaceReservationsService.resolveReservationBackStatus(
+          transaction,
+          space.id,
+        ),
+      {
+        rejectIfOccupied: true,
+      },
     );
   }
 
@@ -201,13 +206,19 @@ export class SpacesWriteService {
 
     this.ensureManualStatusChangeAllowed(space.status, dto.status);
 
-    return this.updateSpaceStatusWithResolver(space.id, async (transaction) =>
-      dto.status === PrismaSpaceStatus.cleaning
-        ? PrismaSpaceStatus.cleaning
-        : this.spaceReservationsService.resolveReservationBackStatus(
-            transaction,
-            space.id,
-          ),
+    return this.updateSpaceStatusWithResolver(
+      space.id,
+      async (transaction) =>
+        dto.status === PrismaSpaceStatus.cleaning
+          ? PrismaSpaceStatus.cleaning
+          : this.spaceReservationsService.resolveReservationBackStatus(
+              transaction,
+              space.id,
+            ),
+      {
+        rejectIfOccupied: true,
+        targetStatus: dto.status,
+      },
     );
   }
 
@@ -275,8 +286,45 @@ export class SpacesWriteService {
     resolveNextStatus: (
       transaction: Prisma.TransactionClient,
     ) => Promise<PrismaSpaceStatus>,
+    options?: {
+      targetStatus?: PrismaSpaceStatus;
+      rejectIfOccupied?: boolean;
+    },
   ): Promise<SpaceResponseDto> {
     const updated = await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT id
+        FROM spaces
+        WHERE id = ${spaceId}
+        FOR UPDATE
+      `;
+
+      const latestSpace = await transaction.space.findUnique({
+        where: { id: spaceId },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      if (!latestSpace) {
+        throw new ConflictException('空间不存在或已删除，请刷新后重试');
+      }
+
+      if (options?.targetStatus !== undefined) {
+        this.ensureManualStatusChangeAllowed(
+          latestSpace.status,
+          options.targetStatus,
+        );
+      } else if (
+        options?.rejectIfOccupied &&
+        latestSpace.status === PrismaSpaceStatus.occupied
+      ) {
+        throw new ConflictException(
+          '空间当前使用中，请先完成会话流程后再调整状态',
+        );
+      }
+
       const nextStatus = await resolveNextStatus(transaction);
 
       return transaction.space.update({

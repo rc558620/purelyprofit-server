@@ -35,7 +35,9 @@ export class SalesRecordCreateFlowService {
     orderDate: Date;
     options?: CreateSalesRecordOptions;
   }): Promise<SalesRecordResponseDto> {
-    const created = await this.prisma.$transaction(async (transaction) => {
+    const createRecordWithinTransaction = async (
+      transaction: Prisma.TransactionClient,
+    ): Promise<SaleOrderWithItems> => {
       const orderNo = await generateOrderNo(
         transaction,
         params.storeId,
@@ -110,9 +112,13 @@ export class SalesRecordCreateFlowService {
         },
       });
 
-      return createdOrder;
-    });
+      return createdOrder as SaleOrderWithItems;
+    };
 
-    return mapSalesRecordResponse(created as SaleOrderWithItems);
+    const created = params.options?.transactionClient
+      ? await createRecordWithinTransaction(params.options.transactionClient)
+      : await this.prisma.$transaction(createRecordWithinTransaction);
+
+    return mapSalesRecordResponse(created);
   }
 }

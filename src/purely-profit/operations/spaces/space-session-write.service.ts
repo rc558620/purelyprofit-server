@@ -40,18 +40,9 @@ export class SpaceSessionWriteService {
   ): Promise<SpaceSessionResponseDto> {
     const session = await this.prisma.spaceSession.findUnique({
       where: { id: sessionId },
-      include: {
-        space: {
-          select: {
-            id: true,
-            name: true,
-            type: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
+      select: {
+        id: true,
+        storeId: true,
       },
     });
 
@@ -66,34 +57,66 @@ export class SpaceSessionWriteService {
       '无权在该门店空间追加商品',
     );
 
-    if (session.status !== PrismaSpaceSessionStatus.active) {
-      throw new ConflictException('当前会话已结账，无法继续点单');
-    }
+    const appendedItems = normalizeSessionItemsPayload(dto.items);
 
-    const mergedItems = mergeSessionItems(
-      parseSpaceSessionItems(session.items),
-      normalizeSessionItemsPayload(dto.items),
-    );
+    const updated = await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT id
+        FROM space_sessions
+        WHERE id = ${sessionId}
+        FOR UPDATE
+      `;
 
-    const updated = await this.prisma.spaceSession.update({
-      where: { id: session.id },
-      data: {
-        items: toSpaceSessionItemsJson(mergedItems),
-        itemsCost: new Prisma.Decimal(sumLineTotal(mergedItems)),
-      },
-      include: {
-        space: {
-          select: {
-            id: true,
-            name: true,
-            type: {
-              select: {
-                name: true,
+      const latestSession = await transaction.spaceSession.findUnique({
+        where: { id: sessionId },
+        include: {
+          space: {
+            select: {
+              id: true,
+              name: true,
+              type: {
+                select: {
+                  name: true,
+                },
               },
             },
           },
         },
-      },
+      });
+
+      if (!latestSession) {
+        throw new NotFoundException('空间会话不存在');
+      }
+
+      if (latestSession.status !== PrismaSpaceSessionStatus.active) {
+        throw new ConflictException('当前会话已结账，无法继续点单');
+      }
+
+      const mergedItems = mergeSessionItems(
+        parseSpaceSessionItems(latestSession.items),
+        appendedItems,
+      );
+
+      return transaction.spaceSession.update({
+        where: { id: latestSession.id },
+        data: {
+          items: toSpaceSessionItemsJson(mergedItems),
+          itemsCost: new Prisma.Decimal(sumLineTotal(mergedItems)),
+        },
+        include: {
+          space: {
+            select: {
+              id: true,
+              name: true,
+              type: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
     });
 
     return toSpaceSessionResponse(updated);

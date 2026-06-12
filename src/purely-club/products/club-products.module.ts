@@ -17,5 +17,6 @@ import { ClubProductsService } from './club-products.service';
     ClubProductViewService,
     ClubProductsService,
   ],
+  exports: [ClubProductsService],
 })
 export class ClubProductsModule {}

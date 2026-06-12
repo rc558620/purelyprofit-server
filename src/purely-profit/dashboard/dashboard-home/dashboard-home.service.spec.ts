@@ -362,7 +362,76 @@ describe('DashboardHomeService', () => {
         generatedAt: new Date(2026, 4, 14, 15, 0, 0, 0).getTime(),
       },
     });
+    expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        storeId: 18,
+        dueDate: { lt: new Date(2026, 4, 14, 15, 0, 0, 0) },
+        paidAmount: new Prisma.Decimal(0),
+        remaining: { gt: new Prisma.Decimal(0) },
+      }),
+      select: {
+        id: true,
+        counterpart: true,
+        remaining: true,
+        dueDate: true,
+        updatedAt: true,
+      },
+      orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }],
+      take: 5,
+    });
     expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledTimes(3);
+  });
+
+  it('getOverview 不会把部分已收付的过期账款视为首页逾期提醒', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.store.findUnique.mockResolvedValue({
+      name: '纯利宝测试门店',
+    });
+    prismaService.saleOrder.aggregate
+      .mockResolvedValueOnce({
+        _sum: { totalRevenue: new Prisma.Decimal('0.00') },
+        _count: { id: 0 },
+      })
+      .mockResolvedValueOnce({
+        _sum: { totalRevenue: new Prisma.Decimal('0.00') },
+        _count: { id: 0 },
+      });
+    prismaService.costRecord.aggregate
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('0.00') },
+      })
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('0.00') },
+      });
+    prismaService.$queryRaw.mockResolvedValueOnce([]);
+    prismaService.product.findMany.mockResolvedValue([]);
+    prismaService.financeAccountRecord.findMany.mockResolvedValue([]);
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.partnerWithdrawal.findMany.mockResolvedValue([]);
+    prismaService.employeeLeave.findMany.mockResolvedValue([]);
+
+    const result = await service.getOverview(user, { period: 'today' });
+
+    expect(result.activities.some((item) => item.id === 'finance-overdue')).toBe(
+      false,
+    );
+    expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        storeId: 18,
+        dueDate: { lt: new Date(2026, 4, 14, 15, 0, 0, 0) },
+        paidAmount: new Prisma.Decimal(0),
+        remaining: { gt: new Prisma.Decimal(0) },
+      }),
+      select: {
+        id: true,
+        counterpart: true,
+        remaining: true,
+        dueDate: true,
+        updatedAt: true,
+      },
+      orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }],
+      take: 5,
+    });
   });
 
   it('cashier 首页能力开放时允许通过 operation-entry:view 访问概览接口', async () => {

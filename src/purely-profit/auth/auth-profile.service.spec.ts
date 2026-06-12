@@ -12,6 +12,7 @@ describe('AuthProfileService', () => {
   const authAccountLookupService = {
     findProfileUserOrThrow: jest.fn(),
     updateAvatar: jest.fn(),
+    updateName: jest.fn(),
     verifyRealName: jest.fn(),
   };
 
@@ -81,6 +82,8 @@ describe('AuthProfileService', () => {
       storeType: '零售',
       region: ['北京市', '北京市', '朝阳区'],
       storeLogo: 'https://img.test/store.png',
+      latitude: 39.984104,
+      longitude: 116.307503,
     });
     accessControlService.getEffectivePermissions.mockReturnValue([
       'staff:view',
@@ -129,6 +132,8 @@ describe('AuthProfileService', () => {
         region: ['北京市', '北京市', '朝阳区'],
         address: '北京市朝阳区望京街道 1 号',
         storeLogo: 'https://img.test/store.png',
+        latitude: 39.984104,
+        longitude: 116.307503,
         createdAt: new Date('2026-05-01T00:00:00.000Z'),
         updatedAt: new Date('2026-05-10T00:00:00.000Z'),
       },
@@ -159,6 +164,18 @@ describe('AuthProfileService', () => {
       authAccountMembershipService.readStoreProfileMetadata,
     ).toHaveBeenCalledWith(18);
     expect(accessControlService.getEffectivePermissions).not.toHaveBeenCalled();
+  });
+
+  it('修改昵称后返回最新 profile', async () => {
+    await expect(service.updateNickname(user, '新老板')).resolves.toMatchObject({
+      user: {
+        id: 1,
+        phone: '13800138000',
+      },
+    });
+
+    expect(authAccountLookupService.updateName).toHaveBeenCalledWith(1, '新老板');
+    expect(authAccountLookupService.findProfileUserOrThrow).toHaveBeenCalledWith(1);
   });
 
   it('实名认证后会失效 Pulse onboarding 状态缓存', async () => {

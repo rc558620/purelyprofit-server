@@ -5,8 +5,10 @@ import {
   IsArray,
   IsDate,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
+  Max,
   Min,
 } from 'class-validator';
 
@@ -16,6 +18,8 @@ export interface StoreProfileMetadata {
   storeType: string;
   region: StoreRegionValue[];
   storeLogo?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface StoreRecordSnapshot {
@@ -37,6 +41,29 @@ function normalizeStoreLogo(value: unknown): string | undefined {
   }
 
   return normalizedValue;
+}
+
+function normalizeCoordinate(
+  value: unknown,
+  min: number,
+  max: number,
+): number | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  const parsedValue =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number.parseFloat(value)
+        : Number.NaN;
+
+  if (!Number.isFinite(parsedValue) || parsedValue < min || parsedValue > max) {
+    return undefined;
+  }
+
+  return parsedValue;
 }
 
 export function transformOptionalInt({
@@ -106,6 +133,8 @@ export function normalizeStoreProfileMetadata(
     storeType: unknown;
     region: unknown;
     storeLogo: unknown;
+    latitude: unknown;
+    longitude: unknown;
   }>;
 
   const region = Array.isArray(candidate.region)
@@ -118,11 +147,15 @@ export function normalizeStoreProfileMetadata(
   const storeType =
     typeof candidate.storeType === 'string' ? candidate.storeType.trim() : '';
   const storeLogo = normalizeStoreLogo(candidate.storeLogo);
+  const latitude = normalizeCoordinate(candidate.latitude, -90, 90);
+  const longitude = normalizeCoordinate(candidate.longitude, -180, 180);
 
   return {
     storeType,
     region,
     ...(storeLogo ? { storeLogo } : {}),
+    ...(latitude !== undefined ? { latitude } : {}),
+    ...(longitude !== undefined ? { longitude } : {}),
   };
 }
 
@@ -137,6 +170,10 @@ export function buildStoreResponseDto(
     region: metadata.region,
     address: store.address ?? '',
     ...(metadata.storeLogo ? { storeLogo: metadata.storeLogo } : {}),
+    ...(metadata.latitude !== undefined ? { latitude: metadata.latitude } : {}),
+    ...(metadata.longitude !== undefined
+      ? { longitude: metadata.longitude }
+      : {}),
     createdAt: store.createdAt,
     updatedAt: store.updatedAt,
   };
@@ -210,6 +247,26 @@ export class StoreResponseDto {
   @IsOptional()
   @IsString({ message: '门店 Logo 必须是字符串' })
   storeLogo?: string;
+
+  @ApiPropertyOptional({
+    example: 39.984104,
+    description: '门店纬度，供腾讯地图等地图组件定位使用',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: '门店纬度必须是数字' })
+  @Min(-90, { message: '门店纬度不能小于 -90' })
+  @Max(90, { message: '门店纬度不能大于 90' })
+  latitude?: number;
+
+  @ApiPropertyOptional({
+    example: 116.307503,
+    description: '门店经度，供腾讯地图等地图组件定位使用',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: '门店经度必须是数字' })
+  @Min(-180, { message: '门店经度不能小于 -180' })
+  @Max(180, { message: '门店经度不能大于 180' })
+  longitude?: number;
 
   @ApiProperty({
     example: '2026-05-12T10:00:00.000Z',

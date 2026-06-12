@@ -156,9 +156,13 @@ describe('StoresService', () => {
       districtName: '五华区',
       address: '南屏街',
       storeLogo: 'blob:http://localhost:5173/test',
+      latitude: '25.043844',
+      longitude: '102.710002',
     });
 
     await expect(validate(dto)).resolves.toEqual([]);
+    expect(dto.latitude).toBeCloseTo(25.043844);
+    expect(dto.longitude).toBeCloseTo(102.710002);
   });
 
   it('storeLogo 为 blob 临时地址时不会写入门店扩展字段', async () => {
@@ -196,6 +200,8 @@ describe('StoresService', () => {
       region: ['北京市', '北京市', '朝阳区'],
       address: '北京市朝阳区望京街道 1 号',
       storeLogo: 'blob:http://localhost:5173/test',
+      latitude: 39.984104,
+      longitude: 116.307503,
     });
 
     expect(redisService.set).toHaveBeenCalledWith(
@@ -203,6 +209,8 @@ describe('StoresService', () => {
       JSON.stringify({
         storeType: '零售',
         region: ['北京市', '北京市', '朝阳区'],
+        latitude: 39.984104,
+        longitude: 116.307503,
       }),
     );
     expect(result).toEqual({
@@ -211,6 +219,8 @@ describe('StoresService', () => {
       storeType: '零售',
       region: ['北京市', '北京市', '朝阳区'],
       address: '北京市朝阳区望京街道 1 号',
+      latitude: 39.984104,
+      longitude: 116.307503,
       createdAt,
       updatedAt,
     });
@@ -251,6 +261,8 @@ describe('StoresService', () => {
       region: ['北京市', '北京市', '朝阳区'],
       address: '北京市朝阳区望京街道 1 号',
       storeLogo: 'data:image/png;base64,abc',
+      latitude: 39.984104,
+      longitude: 116.307503,
     });
 
     expect(prismaService.store.create).toHaveBeenCalledWith({
@@ -288,6 +300,8 @@ describe('StoresService', () => {
       region: ['北京市', '北京市', '朝阳区'],
       address: '北京市朝阳区望京街道 1 号',
       storeLogo: 'data:image/png;base64,abc',
+      latitude: 39.984104,
+      longitude: 116.307503,
       createdAt,
       updatedAt,
     });

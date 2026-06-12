@@ -39,7 +39,7 @@ export function assertCashFlowDirectionMatchesCategory(
   }
 }
 
-export function getCashFlowCategoryRule(
+function getCashFlowCategoryRule(
   category: string,
 ): FinanceCashFlowCategoryRule | null {
   if (!(category in CASH_FLOW_CATEGORY_RULES)) {

@@ -51,6 +51,14 @@ export class AuthProfileService {
     return this.getProfile(user);
   }
 
+  async updateNickname(
+    user: AuthenticatedUser,
+    nickname: string,
+  ): Promise<ProfileResponseDto> {
+    await this.authAccountLookupService.updateName(user.id, nickname.trim());
+    return this.getProfile(user);
+  }
+
   async verifyRealName(
     user: AuthenticatedUser,
     realName: string,

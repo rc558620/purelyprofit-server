@@ -94,7 +94,9 @@ export class SalesRecordWriteService {
       options,
     });
 
-    await this.invalidateStoreDerivedCaches(storeId);
+    if (!options.transactionClient) {
+      await this.invalidateStoreDerivedCaches(storeId);
+    }
 
     return response;
   }

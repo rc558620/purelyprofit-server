@@ -58,4 +58,42 @@ export class ClubStoresService {
       store: await this.clubStoreViewService.toSummary(store),
     };
   }
+
+  async joinByScanCode(
+    user: AuthenticatedUser,
+    scanCode: string,
+  ): Promise<ClubSwitchCurrentStoreResponseDto> {
+    const targetStore = await this.clubStoreAccessService.joinStoreByScanCode(
+      user,
+      scanCode,
+    );
+    const store = await this.clubCurrentStoreContextService.switchCurrentStore(
+      user,
+      targetStore.id,
+    );
+
+    return {
+      success: true,
+      store: await this.clubStoreViewService.toSummary(store),
+    };
+  }
+
+  async joinByInviteCode(
+    user: AuthenticatedUser,
+    inviteCode: string,
+  ): Promise<ClubSwitchCurrentStoreResponseDto> {
+    const targetStore = await this.clubStoreAccessService.joinStoreByInviteCode(
+      user,
+      inviteCode,
+    );
+    const store = await this.clubCurrentStoreContextService.switchCurrentStore(
+      user,
+      targetStore.id,
+    );
+
+    return {
+      success: true,
+      store: await this.clubStoreViewService.toSummary(store),
+    };
+  }
 }

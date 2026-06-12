@@ -1,7 +1,16 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsIn, IsNumber, IsString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
+import {
+  CLUB_MEMBER_HELD_LEVEL_VALUES,
   CLUB_MEMBER_LEVEL_VALUES,
+  type ClubMemberHeldLevelValue,
   type ClubMemberLevelValue,
 } from '../../dto/club-member-account.dto';
 
@@ -58,4 +67,32 @@ export class ClubMemberBenefitsDto {
   })
   @IsArray({ message: '会员权益分组必须是数组' })
   items: ClubMemberBenefitLevelDto[];
+
+  @ApiPropertyOptional({
+    example: 'silver',
+    enum: CLUB_MEMBER_HELD_LEVEL_VALUES,
+    nullable: true,
+    description: '当前已持有等级；与 currentLevel 不一致时用于提示历史持有等级',
+  })
+  @IsOptional()
+  @IsIn(CLUB_MEMBER_HELD_LEVEL_VALUES, { message: '已持有等级不合法' })
+  heldLevel?: ClubMemberHeldLevelValue | null;
+
+  @ApiPropertyOptional({
+    example: '铂金会员',
+    nullable: true,
+    description: '当前已持有等级名称',
+  })
+  @IsOptional()
+  @IsString({ message: '已持有等级名称必须是字符串' })
+  heldLevelLabel?: string | null;
+
+  @ApiPropertyOptional({
+    example: false,
+    nullable: true,
+    description: '当前已持有等级是否仍在权益展示等级列表中',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '已持有等级展示标识必须是布尔值' })
+  heldLevelVisible?: boolean;
 }

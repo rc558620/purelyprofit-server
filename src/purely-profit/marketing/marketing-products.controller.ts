@@ -20,7 +20,10 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { RequirePermissions } from '../access-control/decorators/require-permissions.decorator';
+import {
+  AllowLegacyOwnerAccess,
+  RequirePermissions,
+} from '../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../access-control/guards/permissions.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -37,6 +40,7 @@ import { MarketingService } from './marketing.service';
 
 @ApiTags('营销中心')
 @ApiBearerAuth()
+@AllowLegacyOwnerAccess()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('marketing/products')
 export class MarketingProductsController {

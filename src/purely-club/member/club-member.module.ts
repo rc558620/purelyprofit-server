@@ -20,5 +20,6 @@ import { ClubMemberTransactionsService } from './member-transactions/club-member
     ClubMemberTransactionsService,
     ClubMemberService,
   ],
+  exports: [ClubMemberService],
 })
 export class ClubMemberModule {}

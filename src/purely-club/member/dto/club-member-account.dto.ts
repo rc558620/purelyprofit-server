@@ -1,8 +1,19 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
-export const CLUB_MEMBER_LEVEL_VALUES = [
-  'bronze',
+export const CLUB_MEMBER_LEVEL_VALUES = ['gold', 'platinum', 'diamond'] as const;
+export const CLUB_MEMBER_HELD_LEVEL_VALUES = [
+  'regular',
   'silver',
   'gold',
   'platinum',
@@ -10,6 +21,69 @@ export const CLUB_MEMBER_LEVEL_VALUES = [
 ] as const;
 
 export type ClubMemberLevelValue = (typeof CLUB_MEMBER_LEVEL_VALUES)[number];
+export type ClubMemberHeldLevelValue =
+  (typeof CLUB_MEMBER_HELD_LEVEL_VALUES)[number];
+
+function trimStringValue(value: unknown): unknown {
+  return typeof value === 'string' ? value.trim() : value;
+}
+
+export class ChangeClubMemberPasswordDto {
+  @ApiProperty({ example: 'password123', description: '当前密码' })
+  @IsString({ message: '当前密码必须是字符串' })
+  @MinLength(6, { message: '当前密码至少 6 位' })
+  currentPassword: string;
+
+  @ApiProperty({ example: 'newPassword123', description: '新密码' })
+  @IsString({ message: '新密码必须是字符串' })
+  @MinLength(6, { message: '新密码至少 6 位' })
+  newPassword: string;
+
+  @ApiPropertyOptional({ example: 'newPassword123', description: '确认新密码' })
+  @IsOptional()
+  @IsString({ message: '确认新密码必须是字符串' })
+  confirmPassword?: string;
+}
+
+export class UpdateClubMemberAvatarDto {
+  @ApiProperty({
+    example: 'https://cdn.example.com/avatar/club-user.png',
+    description: '头像地址或 base64 数据，传空串表示清空头像',
+  })
+  @Transform(({ value }: { value: unknown }) => trimStringValue(value))
+  @IsString({ message: '头像必须是字符串' })
+  avatar: string;
+}
+
+export class UpdateClubMemberNicknameDto {
+  @ApiProperty({ example: '小王', description: '当前 purely-club 用户昵称' })
+  @Transform(({ value }: { value: unknown }) => trimStringValue(value))
+  @IsString({ message: '昵称必须是字符串' })
+  @MinLength(1, { message: '昵称不能为空' })
+  @MaxLength(20, { message: '昵称最长 20 个字符' })
+  nickname: string;
+}
+
+export class ClubMemberProfileDto {
+  @ApiProperty({ example: '201', description: '当前 purely-club 用户 ID' })
+  @IsString({ message: '当前 purely-club 用户 ID 必须是字符串' })
+  id: string;
+
+  @ApiProperty({ example: '13800138000', description: '当前登录手机号' })
+  @IsString({ message: '当前登录手机号必须是字符串' })
+  phone: string;
+
+  @ApiProperty({
+    example: '小王',
+    description: '当前用户昵称，未设置时返回空串',
+  })
+  @IsString({ message: '当前用户昵称必须是字符串' })
+  nickname: string;
+
+  @ApiProperty({ example: '', description: '当前用户头像，未设置时返回空串' })
+  @IsString({ message: '当前用户头像必须是字符串' })
+  avatar: string;
+}
 
 export class ClubMemberAccountDto {
   @ApiProperty({ example: '201', description: '会员 ID' })
@@ -53,6 +127,34 @@ export class ClubMemberAccountDto {
     { message: '累计消费金额必须是最多两位小数的数字' },
   )
   totalConsume: number;
+
+  @ApiPropertyOptional({
+    example: 'silver',
+    enum: CLUB_MEMBER_HELD_LEVEL_VALUES,
+    nullable: true,
+    description: '当前已持有等级；用于承接 regular/silver 等历史等级语义',
+  })
+  @IsOptional()
+  @IsIn(CLUB_MEMBER_HELD_LEVEL_VALUES, { message: '已持有等级不合法' })
+  heldLevel?: ClubMemberHeldLevelValue | null;
+
+  @ApiPropertyOptional({
+    example: '白银会员',
+    nullable: true,
+    description: '当前已持有等级名称',
+  })
+  @IsOptional()
+  @IsString({ message: '已持有等级名称必须是字符串' })
+  heldLevelLabel?: string | null;
+
+  @ApiPropertyOptional({
+    example: false,
+    nullable: true,
+    description: '当前已持有等级是否仍在可展示等级列表中',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '已持有等级展示标识必须是布尔值' })
+  heldLevelVisible?: boolean;
 }
 
 export class ClubMemberLevelConfigDto {
@@ -175,4 +277,32 @@ export class ClubMemberLevelStatusDto {
   @ApiProperty({ example: false, description: '是否已达最高等级' })
   @IsBoolean({ message: '最高等级标识必须是布尔值' })
   isTopLevel: boolean;
+
+  @ApiPropertyOptional({
+    example: 'silver',
+    enum: CLUB_MEMBER_HELD_LEVEL_VALUES,
+    nullable: true,
+    description: '当前已持有等级；与展示等级一致时可与 currentLevel 相同',
+  })
+  @IsOptional()
+  @IsIn(CLUB_MEMBER_HELD_LEVEL_VALUES, { message: '已持有等级不合法' })
+  heldLevel?: ClubMemberHeldLevelValue | null;
+
+  @ApiPropertyOptional({
+    example: '铂金会员',
+    nullable: true,
+    description: '当前已持有等级名称',
+  })
+  @IsOptional()
+  @IsString({ message: '已持有等级名称必须是字符串' })
+  heldLevelLabel?: string | null;
+
+  @ApiPropertyOptional({
+    example: false,
+    nullable: true,
+    description: '当前已持有等级是否仍在可展示等级列表中',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '已持有等级展示标识必须是布尔值' })
+  heldLevelVisible?: boolean;
 }

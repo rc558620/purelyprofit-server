@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Patch,
+  Post,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -21,6 +22,8 @@ import { CurrentClubContext } from './current-club-context.decorator';
 import { ClubCurrentContextInterceptor } from './club-current-context.interceptor';
 import type { ClubCurrentContext } from './club-stores.types';
 import {
+  ClubJoinStoreByInviteCodeDto,
+  ClubJoinStoreByScanDto,
   ClubStoreSummaryDto,
   ClubStoresResponseDto,
   ClubSwitchCurrentStoreDto,
@@ -31,7 +34,6 @@ import { ClubStoresService } from './club-stores.service';
 @ApiTags('Club / Stores')
 @ApiBearerAuth()
 @UseGuards(ClubJwtAuthGuard)
-@UseInterceptors(ClubCurrentContextInterceptor)
 @Controller('club/stores')
 export class ClubStoresController {
   constructor(private readonly clubStoresService: ClubStoresService) {}
@@ -48,6 +50,7 @@ export class ClubStoresController {
   }
 
   @Get('current')
+  @UseInterceptors(ClubCurrentContextInterceptor)
   @ApiOperation({
     summary: '获取 purely-club 当前门店',
     description:
@@ -73,5 +76,35 @@ export class ClubStoresController {
     @Body() dto: ClubSwitchCurrentStoreDto,
   ): Promise<ClubSwitchCurrentStoreResponseDto> {
     return this.clubStoresService.switchCurrent(user, dto.storeId);
+  }
+
+  @Post('join-by-scan')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '通过扫码进入 purely-club 门店',
+    description:
+      '根据二维码扫码结果进入对应门店；支持直接识别门店邀请码、二维码 URL 或门店 ID，并在必要时自动补齐会员与营销顾客档案。',
+  })
+  @ApiOkResponse({ type: ClubSwitchCurrentStoreResponseDto })
+  joinByScan(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ClubJoinStoreByScanDto,
+  ): Promise<ClubSwitchCurrentStoreResponseDto> {
+    return this.clubStoresService.joinByScanCode(user, dto.scanCode);
+  }
+
+  @Post('join-by-invite-code')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '通过邀请码加入 purely-club 门店',
+    description:
+      '根据门店邀请码加入对应门店；若当前用户尚未建档，则自动补齐会员与营销顾客档案，并切换为当前门店。',
+  })
+  @ApiOkResponse({ type: ClubSwitchCurrentStoreResponseDto })
+  joinByInviteCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ClubJoinStoreByInviteCodeDto,
+  ): Promise<ClubSwitchCurrentStoreResponseDto> {
+    return this.clubStoresService.joinByInviteCode(user, dto.inviteCode);
   }
 }

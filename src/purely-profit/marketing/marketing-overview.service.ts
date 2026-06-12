@@ -7,6 +7,10 @@ import {
   buildMarketingOverviewCacheKey,
 } from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
+import {
+  buildStoreInviteCode,
+  buildStoreInviteQrCodeImageUrl,
+} from '../member/platform-membership/membership-profile.mapper';
 import type {
   UpdateMarketingMemberLevelDto,
   UpdateMarketingPointsRatioDto,
@@ -266,6 +270,7 @@ export class MarketingOverviewService {
       (thisMonthRechargeAgg._sum.amount ?? 0) +
       (thisMonthRechargeAgg._sum.giftAmount ?? 0);
     const currentYear = now.getFullYear();
+    const inviteCode = buildStoreInviteCode(storeId);
 
     return {
       totalBalance: balanceSum._sum.balance ?? 0,
@@ -274,6 +279,8 @@ export class MarketingOverviewService {
       thisMonthRecharge,
       rechargeCount,
       activeMemberCount,
+      inviteCode,
+      inviteCodeQrCodeImageUrl: buildStoreInviteQrCodeImageUrl(storeId),
       last30Days: buildOverviewLast30Days(trendRechargeRows),
       currentYear,
       thisYearMonthlyTrend: buildOverviewMonthlyTrend(

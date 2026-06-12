@@ -44,9 +44,11 @@ describe('SpacesWriteService', () => {
   let service: SpacesWriteService;
 
   const prismaTransaction = {
+    $queryRaw: jest.fn(),
     space: {
       count: jest.fn(),
       create: jest.fn(),
+      findUnique: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
       delete: jest.fn(),
@@ -152,6 +154,10 @@ describe('SpacesWriteService', () => {
     spaceReservationsService.resolveReservationBackStatus.mockResolvedValue(
       PrismaSpaceStatus.reserved,
     );
+    prismaTransaction.space.findUnique.mockResolvedValue({
+      id: 11,
+      status: PrismaSpaceStatus.idle,
+    });
     spacesRefResolverService.resolveCreateSpaceRefs.mockResolvedValue({
       typeId: 101,
       zoneId: 201,
@@ -389,6 +395,10 @@ describe('SpacesWriteService', () => {
         status: PrismaSpaceStatus.cleaning,
       }),
     );
+    prismaTransaction.space.findUnique.mockResolvedValueOnce({
+      id: 11,
+      status: PrismaSpaceStatus.cleaning,
+    });
     prismaTransaction.space.update.mockResolvedValueOnce(
       makeSpace({
         status: PrismaSpaceStatus.reserved,
@@ -423,6 +433,10 @@ describe('SpacesWriteService', () => {
 
   it('updateSpaceStatus 在改为 cleaning 时不会走预约状态回退', async () => {
     prismaService.space.findUnique.mockResolvedValueOnce(makeSpace());
+    prismaTransaction.space.findUnique.mockResolvedValueOnce({
+      id: 11,
+      status: PrismaSpaceStatus.idle,
+    });
     prismaTransaction.space.update.mockResolvedValueOnce(
       makeSpace({
         status: PrismaSpaceStatus.cleaning,
@@ -458,6 +472,46 @@ describe('SpacesWriteService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(prismaService.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('markSpaceReady 若锁内发现空间已被占用则阻止状态回写', async () => {
+    prismaService.space.findUnique.mockResolvedValueOnce(
+      makeSpace({
+        status: PrismaSpaceStatus.cleaning,
+      }),
+    );
+    prismaTransaction.space.findUnique.mockResolvedValueOnce({
+      id: 11,
+      status: PrismaSpaceStatus.occupied,
+    });
+
+    await expect(service.markSpaceReady(user, 11)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+
+    expect(prismaTransaction.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prismaTransaction.space.update).not.toHaveBeenCalled();
+  });
+
+  it('updateSpaceStatus 若锁内发现空间已被占用则阻止状态回写', async () => {
+    prismaService.space.findUnique.mockResolvedValueOnce(
+      makeSpace({
+        status: PrismaSpaceStatus.idle,
+      }),
+    );
+    prismaTransaction.space.findUnique.mockResolvedValueOnce({
+      id: 11,
+      status: PrismaSpaceStatus.occupied,
+    });
+
+    await expect(
+      service.updateSpaceStatus(user, 11, {
+        status: 'cleaning',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(prismaTransaction.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prismaTransaction.space.update).not.toHaveBeenCalled();
   });
 
   it('createSpace 在名称冲突时抛出冲突异常', async () => {

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildDerivedFinanceAccountStatusWhere } from '../../purely-profit/finance/finance-account.query';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import { buildPulseSessionNotificationCacheKey } from '../pulse.cache-keys';
 import { RedisService } from '../../redis/redis.service';
@@ -41,7 +42,11 @@ export class SessionNotificationService {
     ] = await Promise.all([
       this.countLowStockProducts(storeId),
       this.prisma.financeAccountRecord.count({
-        where: { storeId, status: 'overdue' },
+        where: buildDerivedFinanceAccountStatusWhere({
+          storeId,
+          status: 'overdue',
+          now,
+        }),
       }),
       this.prisma.partnerWithdrawal.count({
         where: { storeId, status: 'pending' },

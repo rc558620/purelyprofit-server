@@ -9,11 +9,13 @@ import { HandoverConfirmShiftService } from './handover-confirm-shift.service';
 import {
   HANDOVER_NOTE_MAX_LENGTH,
   HANDOVER_RECORD_INCLUDE,
+  buildShiftDateRange,
   ensureMembershipContext,
   mapRecordToDto,
   normalizeOptionalText,
   toDisplayName,
   type HandoverRecordRow,
+  type ShiftRecordRow,
 } from './handover.shared';
 
 @Injectable()
@@ -69,49 +71,73 @@ export class HandoverConfirmService {
         dto.additionalItems,
       );
 
-    await this.handoverConfirmShiftService.ensureShiftNotHandedOver(
-      membership.storeId,
-      sourceShiftRecord,
-      handoverAt,
-    );
-
-    const record = (await this.prisma.storeHandoverRecord.create({
-      data: {
-        storeId: membership.storeId,
-        fromEmployeeId: sourceEmployeeId,
-        toEmployeeId: receiverCandidate?.employeeId ?? null,
-        fromSubAccountId:
-          sourceEmployeeId !== null &&
-          sourceEmployeeId === membership.linkedEmployeeId
-            ? membership.subAccountId
-            : null,
-        toSubAccountId: receiverCandidate?.subAccountId ?? null,
-        actorStaffId: membership.staffId,
-        employeeShiftIdSnapshot: sourceShiftRecord?.id ?? null,
-        fromEmployeeNameSnapshot:
-          toDisplayName(sourceShiftRecord?.employeeName) ?? null,
-        shiftTypeSnapshot: sourceShiftRecord?.shiftType ?? null,
-        shiftNameSnapshot: toDisplayName(sourceShiftRecord?.shiftName) ?? null,
-        shiftStartTimeSnapshot: sourceShiftRecord?.startTime ?? null,
-        shiftEndTimeSnapshot: sourceShiftRecord?.endTime ?? null,
-        handoverMode,
-        status: HandoverStatus.completed,
+    const record = (await this.prisma.$transaction(async (tx) => {
+      await this.lockConfirmScope(tx, membership.storeId, sourceShiftRecord);
+      await this.handoverConfirmShiftService.ensureShiftNotHandedOver(
+        tx,
+        membership.storeId,
+        sourceShiftRecord,
         handoverAt,
-        note,
-        ...(validAdditionalItems.length > 0
-          ? {
-              additionalValues: {
-                create: validAdditionalItems.map((item) => ({
-                  itemId: item.id,
-                  value: item.value,
-                })),
-              },
-            }
-          : {}),
-      } as Prisma.StoreHandoverRecordUncheckedCreateInput,
-      include: HANDOVER_RECORD_INCLUDE,
+      );
+
+      return tx.storeHandoverRecord.create({
+        data: {
+          storeId: membership.storeId,
+          fromEmployeeId: sourceEmployeeId,
+          toEmployeeId: receiverCandidate?.employeeId ?? null,
+          fromSubAccountId:
+            sourceEmployeeId !== null &&
+            sourceEmployeeId === membership.linkedEmployeeId
+              ? membership.subAccountId
+              : null,
+          toSubAccountId: receiverCandidate?.subAccountId ?? null,
+          actorStaffId: membership.staffId,
+          employeeShiftIdSnapshot: sourceShiftRecord?.id ?? null,
+          fromEmployeeNameSnapshot:
+            toDisplayName(sourceShiftRecord?.employeeName) ?? null,
+          shiftTypeSnapshot: sourceShiftRecord?.shiftType ?? null,
+          shiftNameSnapshot:
+            toDisplayName(sourceShiftRecord?.shiftName) ?? null,
+          shiftStartTimeSnapshot: sourceShiftRecord?.startTime ?? null,
+          shiftEndTimeSnapshot: sourceShiftRecord?.endTime ?? null,
+          handoverMode,
+          status: HandoverStatus.completed,
+          handoverAt,
+          note,
+          ...(validAdditionalItems.length > 0
+            ? {
+                additionalValues: {
+                  create: validAdditionalItems.map((item) => ({
+                    itemId: item.id,
+                    value: item.value,
+                  })),
+                },
+              }
+            : {}),
+        } as Prisma.StoreHandoverRecordUncheckedCreateInput,
+        include: HANDOVER_RECORD_INCLUDE,
+      });
     })) as HandoverRecordRow;
 
     return mapRecordToDto(record);
+  }
+
+  private async lockConfirmScope(
+    tx: Prisma.TransactionClient,
+    storeId: number,
+    shiftRecord: ShiftRecordRow,
+  ): Promise<void> {
+    const shiftRange = buildShiftDateRange(
+      shiftRecord.startTime,
+      shiftRecord.endTime,
+      shiftRecord.date,
+    );
+    const scopeSeed =
+      shiftRecord.id ??
+      shiftRecord.employeeId ??
+      Math.floor(shiftRange.startAt.getTime() / 1000);
+    const scope = Math.abs(scopeSeed) % 2147483647;
+
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${storeId}, ${scope})`;
   }
 }

@@ -3,6 +3,7 @@ import {
   getDayStartTimestamp,
 } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { buildDerivedFinanceAccountStatusWhere } from '../../finance/finance-account.query';
 import { DAY_MS } from './dashboard-home.constants';
 import {
   DASHBOARD_HOME_ACTIVE_PROMOTION_SELECT,
@@ -160,10 +161,11 @@ export async function loadDashboardHomeActivitiesData(
       take: 12,
     }),
     prisma.financeAccountRecord.findMany({
-      where: {
+      where: buildDerivedFinanceAccountStatusWhere({
         storeId,
         status: 'overdue',
-      },
+        now,
+      }),
       select: DASHBOARD_HOME_OVERDUE_ACCOUNT_SELECT,
       orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }],
       take: 5,
