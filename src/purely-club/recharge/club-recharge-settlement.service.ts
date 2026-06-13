@@ -20,6 +20,7 @@ import {
   CLUB_MEMBER_NOT_FOUND_MESSAGE,
   CLUB_RECHARGE_CONFIRM_NOT_ALLOWED_MESSAGE,
 } from './club-recharge.constants';
+import Decimal from 'decimal.js';
 
 @Injectable()
 export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate<
@@ -52,6 +53,7 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     const customer = await this.findCustomer(tx, draft);
     await this.createRechargeRecord(tx, draft, customer.id);
     await this.updateCustomerAfterRecharge(tx, draft, customer);
+    await this.awardRechargePoints(tx, draft, customer.id);
     await this.increasePromotionUsage(tx, draft);
   }
 
@@ -122,6 +124,82 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
         tier: calcCustomerTier(newTotalSpent) as never,
       },
     });
+  }
+
+  /**
+   * 查找门店当前有效的 points_recharge 活动，按充值金额计算赠送积分并落账。
+   * rechargeRatioPercent = 2 表示充 ¥100 赠 2 积分。
+   */
+  private async awardRechargePoints(
+    tx: Prisma.TransactionClient,
+    draft: ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'>,
+    customerId: number,
+  ): Promise<void> {
+    const now = new Date();
+    const pointsPromotion = await tx.marketingPromotion.findFirst({
+      where: {
+        storeId: draft.storeId,
+        type: 'points_recharge',
+        enabled: true,
+        startAt: { lte: now },
+        endAt: { gte: now },
+      },
+      select: { id: true, params: true, name: true },
+    });
+
+    if (!pointsPromotion) {
+      return;
+    }
+
+    const params =
+      pointsPromotion.params && typeof pointsPromotion.params === 'object'
+        ? (pointsPromotion.params as Record<string, unknown>)
+        : {};
+
+    const ratioPercent =
+      typeof params.rechargeRatioPercent === 'number'
+        ? params.rechargeRatioPercent
+        : typeof params.pointsRatio === 'number'
+          ? params.pointsRatio
+          : null;
+
+    if (ratioPercent === null || ratioPercent <= 0) {
+      return;
+    }
+
+    // 充值金额（分）→ 元，再按比例计算积分
+    const rechargeYuan = new Decimal(draft.metadata.rechargeAmountFen).div(100);
+    const earnedPoints = rechargeYuan
+      .mul(ratioPercent)
+      .div(100)
+      .toDecimalPlaces(0)
+      .toNumber();
+
+    if (earnedPoints <= 0) {
+      return;
+    }
+
+    await tx.marketingCustomer.update({
+      where: { id: customerId },
+      data: { points: { increment: earnedPoints } },
+    });
+
+    await tx.$executeRaw`
+      INSERT INTO marketing_points_records (
+        store_id,
+        customer_id,
+        amount,
+        type,
+        description
+      )
+      VALUES (
+        ${draft.storeId},
+        ${customerId},
+        ${earnedPoints},
+        ${'gift'}::"MarketingPointsChangeType",
+        ${`充值赠送积分（${pointsPromotion.name}）`}
+      )
+    `;
   }
 
   private async increasePromotionUsage(

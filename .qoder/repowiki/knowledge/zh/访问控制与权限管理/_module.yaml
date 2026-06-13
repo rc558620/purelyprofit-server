@@ -7,3 +7,4 @@ source_files: []
 depends_on: []
 related_to:
     - path: purely_profit/access_control
+    - path: purely_profit/auth/profile_account

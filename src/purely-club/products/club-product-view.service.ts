@@ -65,6 +65,8 @@ export class ClubProductViewService {
       ),
       memberPrice: this.convertFenToYuan(pricing.memberPriceFen),
       finalPrice: this.convertFenToYuan(pricing.finalPriceFen),
+      memberDiscountRate: pricingContext.memberDiscountRate,
+      levelOverridden: pricing.levelOverridden,
       ...(pricing.bestDiscount
         ? {
             promotionId: pricing.bestDiscount.promotionId,
@@ -161,8 +163,32 @@ export class ClubProductViewService {
     // 4. 最终价格 = 折扣后价 - 满减总额
     const finalPriceFen = Math.max(afterDiscountFen - totalReduceFen, 0);
 
-    // 5. 构建已应用活动列表
+    // 5. 构建已应用活动列表（包含会员等级折扣）
     const appliedPromotions: ClubAppliedPromotion[] = [];
+
+    // 5a. 会员等级折扣（始终展示，被覆盖时划线）
+    if (hasLevelDiscount) {
+      const levelSavingFen = Math.max(amountFen - baselineAmountFen, 0);
+      const discountRate10 = Math.round(
+        (pricingContext.memberDiscountRate ?? 1) * 10,
+      );
+      const discountLabel =
+        discountRate10 % 1 === 0
+          ? `${discountRate10}折会员价`
+          : `${((pricingContext.memberDiscountRate ?? 1) * 10).toFixed(1)}折会员价`;
+      appliedPromotions.push({
+        id: 'member_level',
+        type: 'member_level',
+        tag: discountLabel,
+        discountRate: Math.round(
+          (pricingContext.memberDiscountRate ?? 1) * 100,
+        ),
+        savingAmount: this.convertFenToYuan(levelSavingFen),
+        overridden: levelOverridden,
+      });
+    }
+
+    // 5b. 折扣活动（胜出的活动折扣 / 首单优惠）
     if (chosenDiscount) {
       appliedPromotions.push({
         id: chosenDiscount.promotionId,
@@ -174,6 +200,8 @@ export class ClubProductViewService {
         ),
       });
     }
+
+    // 5c. 满减活动
     reduceApplied.forEach(({ promotion, savingFen }) => {
       appliedPromotions.push({
         id: String(promotion.id),

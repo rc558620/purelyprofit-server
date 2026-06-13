@@ -12,10 +12,5 @@ scope:
 source_files: []
 depends_on: []
 related_to:
-    - path: purely_pulse/dashboard
-    - path: purely_pulse/membership
-    - path: purely_pulse/growth
     - path: purely_pulse/session
-    - path: purely_profit/stores
     - path: purely_pulse/onboarding
-    - path: purely_pulse/membership_settings

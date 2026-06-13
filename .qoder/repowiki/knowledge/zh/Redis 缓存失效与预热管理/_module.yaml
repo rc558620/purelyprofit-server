@@ -5,4 +5,8 @@ scope:
     - src/redis/
 source_files: []
 depends_on: []
-related_to: []
+related_to:
+    - path: purely_profit/auth/authentication_session
+    - path: purely_profit/notifications
+    - path: observability
+    - path: purely_profit/auth/password_management

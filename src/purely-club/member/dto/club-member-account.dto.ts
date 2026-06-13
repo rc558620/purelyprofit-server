@@ -11,7 +11,12 @@ import {
   MinLength,
 } from 'class-validator';
 
-export const CLUB_MEMBER_LEVEL_VALUES = ['gold', 'platinum', 'diamond'] as const;
+export const CLUB_MEMBER_LEVEL_VALUES = [
+  'regular',
+  'gold',
+  'platinum',
+  'diamond',
+] as const;
 export const CLUB_MEMBER_HELD_LEVEL_VALUES = [
   'regular',
   'silver',
@@ -260,7 +265,10 @@ export class ClubMemberLevelStatusDto {
   )
   nextRequiredConsume: number | null;
 
-  @ApiProperty({ example: 1800, description: '距离下一等级还需消费金额，单位元' })
+  @ApiProperty({
+    example: 1800,
+    description: '距离下一等级还需消费金额，单位元',
+  })
   @IsNumber(
     { maxDecimalPlaces: 2 },
     { message: '升级差额必须是最多两位小数的数字' },

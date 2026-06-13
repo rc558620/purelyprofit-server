@@ -44,6 +44,11 @@ const CLUB_MEMBER_LEVEL_META: Record<
     extraBenefits: string[];
   }
 > = {
+  regular: {
+    color: '#8c8c8c',
+    bgColor: '#f5f5f5',
+    extraBenefits: ['充值即可升级享会员折扣'],
+  },
   gold: {
     color: '#b7862f',
     bgColor: '#fbf3df',
@@ -280,6 +285,11 @@ export class ClubMemberLevelsService {
     totalConsume: number,
     fallbackLevel: ClubMemberLevelValue,
   ): ClubMemberLevelConfigDto {
+    // 未产生任何充值/消费时，强制返回普通会员（无等级折扣）
+    if (totalConsume <= 0) {
+      return this.buildRegularLevelConfig();
+    }
+
     const matched = [...configs]
       .reverse()
       .find((config) => totalConsume >= config.requiredConsume);
@@ -291,6 +301,19 @@ export class ClubMemberLevelsService {
     return (
       configs.find((config) => config.level === fallbackLevel) ?? configs[0]
     );
+  }
+
+  private buildRegularLevelConfig(): ClubMemberLevelConfigDto {
+    const meta = CLUB_MEMBER_LEVEL_META.regular;
+    return {
+      level: 'regular',
+      label: '普通会员',
+      color: meta.color,
+      bgColor: meta.bgColor,
+      requiredConsume: 0,
+      discountRate: 1,
+      benefits: ['充值即可升级享会员折扣'],
+    };
   }
 
   private resolveVisibleFallbackLevel(

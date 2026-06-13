@@ -63,11 +63,13 @@ export interface ClubAppliedPromotion {
   /** 活动 ID */
   id: string;
   /** 活动类型 */
-  type: 'discount' | 'first_order_discount' | 'reduce';
-  /** 展示标签（如 "7折 优惠"、"首单 8折"、"满500减50"） */
+  type: 'discount' | 'first_order_discount' | 'reduce' | 'member_level';
+  /** 展示标签（如 "7折 优惠"、"首单 8折"、"满500减50"、"9折会员价"） */
   tag: string;
-  /** 折扣率（0-100 整数），仅 discount / first_order_discount 有值 */
+  /** 折扣率（0-100 整数），仅 discount / first_order_discount / member_level 有值 */
   discountRate?: number;
   /** 该活动节省金额（元） */
   savingAmount: number;
+  /** 是否被更优折扣覆盖（前端划线展示） */
+  overridden?: boolean;
 }

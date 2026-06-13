@@ -17,9 +17,8 @@ export class ClubMemberBenefitsService {
   ): Promise<ClubMemberBenefitsDto> {
     const snapshot =
       await this.clubMemberProfileService.getCurrentSnapshot(currentContext);
-    const resolution = await this.clubMemberLevelsService.resolveLevelResolution(
-      snapshot,
-    );
+    const resolution =
+      await this.clubMemberLevelsService.resolveLevelResolution(snapshot);
     const currentLevel = resolution.currentLevelConfig.level;
     const levelConfigs = resolution.visibleLevelConfigs;
 
@@ -48,6 +47,7 @@ export class ClubMemberBenefitsService {
 
   private getLevelRank(level: ClubMemberLevelValue): number {
     const rankMap: Record<ClubMemberLevelValue, number> = {
+      regular: 0,
       gold: 1,
       platinum: 2,
       diamond: 3,

@@ -250,17 +250,31 @@ export class ClubOrderPromotionsService {
       return null;
     }
 
-    const rawDiscountRate = (params as Record<string, unknown>).discountRate;
-    if (rawDiscountRate === null || rawDiscountRate === undefined) {
-      return null;
+    const candidate = params as Record<string, unknown>;
+
+    // 兼容两种存储格式：
+    // 1. discountRate: 80 —— 0-100 整数
+    // 2. rate: 0.8 —— 0-1 小数
+    const rawDiscountRate = candidate.discountRate;
+    const rawRate = candidate.rate;
+
+    let discountRate: number | null = null;
+
+    if (rawDiscountRate !== null && rawDiscountRate !== undefined) {
+      const parsed = Number(rawDiscountRate);
+      if (Number.isFinite(parsed) && parsed > 0 && parsed < 100) {
+        discountRate = parsed;
+      }
     }
 
-    const discountRate = Number(rawDiscountRate);
-    if (
-      !Number.isFinite(discountRate) ||
-      discountRate <= 0 ||
-      discountRate >= 100
-    ) {
+    if (discountRate === null && rawRate !== null && rawRate !== undefined) {
+      const parsed = Number(rawRate);
+      if (Number.isFinite(parsed) && parsed > 0 && parsed < 1) {
+        discountRate = parsed * 100;
+      }
+    }
+
+    if (discountRate === null) {
       return null;
     }
 

@@ -115,6 +115,22 @@ export class ClubProductDto {
   finalPrice: number;
 
   @ApiPropertyOptional({
+    example: 0.9,
+    nullable: true,
+    description: '会员等级折扣率（0~1），如 0.9 表示 9 折；null 表示无等级折扣',
+  })
+  @IsOptional()
+  memberDiscountRate?: number | null;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: '等级折扣是否被活动折扣覆盖（前端划线展示）',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'levelOverridden 必须是布尔值' })
+  levelOverridden?: boolean;
+
+  @ApiPropertyOptional({
     example: 50,
     description: '满减减免金额（元）；无满减时不返回',
   })

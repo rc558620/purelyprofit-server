@@ -30,7 +30,9 @@ interface ClubPromotionPresentation {
 export class ClubPromotionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(currentContext: ClubCurrentContext): Promise<ClubPromotionsResponseDto> {
+  async list(
+    currentContext: ClubCurrentContext,
+  ): Promise<ClubPromotionsResponseDto> {
     const now = new Date();
     const promotions = await this.prisma.marketingPromotion.findMany({
       where: {
@@ -92,7 +94,10 @@ export class ClubPromotionsService {
       startAt: promotion.startAt.getTime(),
       endAt: promotion.endAt.getTime(),
       statusText: this.buildStatusText(promotion.endAt, now),
-      timeRangeText: this.buildTimeRangeText(promotion.startAt, promotion.endAt),
+      timeRangeText: this.buildTimeRangeText(
+        promotion.startAt,
+        promotion.endAt,
+      ),
       priority: presentation.priority,
       sort: presentation.sort,
       ...(bannerImage ? { bannerImage } : {}),
@@ -154,6 +159,22 @@ export class ClubPromotionsService {
           actionType: 'view_products',
           actionTarget: 'club_products',
         };
+      case 'points_recharge':
+        return {
+          priority: 45,
+          sort: 65,
+          actionText: '去消费',
+          actionType: 'view_products',
+          actionTarget: 'club_products',
+        };
+      case 'discount_day':
+        return {
+          priority: 85,
+          sort: 15,
+          actionText: '去看看',
+          actionType: 'view_products',
+          actionTarget: 'club_products',
+        };
       default:
         return {
           priority: 40,
@@ -190,10 +211,12 @@ export class ClubPromotionsService {
       this.readNestedString(params.banner, 'url'),
     ];
 
-    return candidates.find(
-      (candidate): candidate is string =>
-        typeof candidate === 'string' && candidate.trim().length > 0,
-    )?.trim();
+    return candidates
+      .find(
+        (candidate): candidate is string =>
+          typeof candidate === 'string' && candidate.trim().length > 0,
+      )
+      ?.trim();
   }
 
   private readNestedString(value: unknown, key: string): string | undefined {
@@ -249,6 +272,24 @@ export class ClubPromotionsService {
       return '消费积分双倍';
     }
 
+    if (type === 'points_recharge') {
+      const ratio =
+        this.toNumber(params.rechargeRatioPercent) ??
+        this.toNumber(params.pointsRatio);
+      if (ratio !== null && ratio > 0) {
+        return `充值赠积分 ${ratio}%`;
+      }
+      return '充值赠积分';
+    }
+
+    if (type === 'discount_day') {
+      const discountText = this.toDiscountText(params.discountRate);
+      if (discountText) {
+        return `折扣日 ${discountText}`;
+      }
+      return '折扣日优惠';
+    }
+
     return name || '限时优惠';
   }
 
@@ -257,8 +298,13 @@ export class ClubPromotionsService {
   ): string | null {
     const gradients = Array.isArray(params.gradients) ? params.gradients : [];
     const bestGradient = gradients
-      .map((gradient) => (gradient && typeof gradient === 'object' ? gradient : null))
-      .filter((gradient): gradient is MarketingPromotionParamsValue => gradient !== null)
+      .map((gradient) =>
+        gradient && typeof gradient === 'object' ? gradient : null,
+      )
+      .filter(
+        (gradient): gradient is MarketingPromotionParamsValue =>
+          gradient !== null,
+      )
       .reduce<MarketingPromotionParamsValue | null>((best, current) => {
         const currentRechargeAmount = this.toNumber(
           current.rechargeAmount ?? current.threshold,
@@ -272,7 +318,10 @@ export class ClubPromotionsService {
         if (currentRechargeAmount === null) {
           return best;
         }
-        if (bestRechargeAmount === null || currentRechargeAmount > bestRechargeAmount) {
+        if (
+          bestRechargeAmount === null ||
+          currentRechargeAmount > bestRechargeAmount
+        ) {
           return current;
         }
         return best;
@@ -315,6 +364,10 @@ export class ClubPromotionsService {
         return '免费体验';
       case 'points_2x':
         return '双倍积分';
+      case 'points_recharge':
+        return '积分抵现';
+      case 'discount_day':
+        return '折扣日';
       default:
         return '限时优惠';
     }
@@ -326,7 +379,8 @@ export class ClubPromotionsService {
       return null;
     }
 
-    const normalizedDiscountRate = discountRate > 1 ? discountRate : discountRate * 100;
+    const normalizedDiscountRate =
+      discountRate > 1 ? discountRate : discountRate * 100;
     if (normalizedDiscountRate >= 100) {
       return null;
     }

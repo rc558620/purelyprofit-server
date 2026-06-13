@@ -178,8 +178,8 @@ export class ClubMemberProfileService {
         break;
     }
 
-    // 最终回落到 club 体系最低等级黄金会员（注册即享，门槛 0）
-    return 'gold';
+    // 最终回落到普通会员（无等级折扣）
+    return 'regular';
   }
 
   private resolveJoinDate(
