@@ -21,6 +21,7 @@ import {
   CLUB_RECHARGE_PACKAGE_NOT_FOUND_MESSAGE,
 } from './club-recharge.constants';
 import { convertYuanToFen } from './club-recharge.utils';
+import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 
 @Injectable()
 export class ClubRechargeCreationService {
@@ -28,6 +29,7 @@ export class ClubRechargeCreationService {
     private readonly clubRechargeContextService: ClubRechargeContextService,
     private readonly clubRechargePackagesService: ClubRechargePackagesService,
     private readonly clubOrderDraftsService: ClubOrderDraftsService,
+    private readonly clubWechatJsapiService: ClubWechatJsapiService,
   ) {}
 
   async createOrder(
@@ -40,10 +42,27 @@ export class ClubRechargeCreationService {
         currentContext.store.id,
         currentContext.user.phone,
       );
-    const packages = await this.clubRechargePackagesService.loadPackagesForStore(
-      currentContext.store.id,
-    );
+    const packages =
+      await this.clubRechargePackagesService.loadPackagesForStore(
+        currentContext.store.id,
+      );
     const selection = this.resolveRechargeOrderSelection(dto, packages);
+
+    // 预生成订单号以保证 JSAPI out_trade_no 与 draft orderNo 一致
+    const now = Date.now();
+    const orderNo = this.buildRechargeOrderNo(now);
+
+    // 若前端传入 openid，则调用微信 JSAPI 真实下单；否则走开发态 mock
+    const paymentParams = dto.openid
+      ? await this.clubWechatJsapiService.createJsapiPaymentParams({
+          storeId: currentContext.store.id,
+          orderNo,
+          description: '会员充值',
+          amountFen: selection.rechargeAmountFen,
+          openid: dto.openid,
+        })
+      : undefined;
+
     const draft = await this.clubOrderDraftsService.createDraft<
       ClubRechargeOrderMetadata,
       'recharge'
@@ -56,6 +75,8 @@ export class ClubRechargeCreationService {
       title: '会员充值',
       amountFen: selection.rechargeAmountFen,
       metadata: selection,
+      orderNo,
+      paymentParams,
     });
 
     return toClubRechargeOrderResponse(
@@ -138,5 +159,28 @@ export class ClubRechargeCreationService {
     if (currentContext.store.id !== requestedStoreId) {
       throw new BadRequestException('当前门店已切换，请刷新页面后重试');
     }
+  }
+
+  /**
+   * 预生成充值单号，格式与 club-order-drafts.utils 中的 buildOrderNo 保持一致：
+   * RC{yyyyMMddHHmmssSSS}{4位随机HEX大写}
+   */
+  private buildRechargeOrderNo(now: number): string {
+    const date = new Date(now);
+    const pad = (v: number, w = 2): string => String(v).padStart(w, '0');
+    const serial = [
+      date.getFullYear(),
+      pad(date.getMonth() + 1),
+      pad(date.getDate()),
+      pad(date.getHours()),
+      pad(date.getMinutes()),
+      pad(date.getSeconds()),
+      pad(date.getMilliseconds(), 3),
+      Math.floor(Math.random() * 0xffff)
+        .toString(16)
+        .padStart(4, '0')
+        .toUpperCase(),
+    ].join('');
+    return `RC${serial}`;
   }
 }

@@ -25,9 +25,9 @@ export class ClubProductsService {
     currentContext: ClubCurrentContext,
     query: ListClubProductsQueryDto,
   ): Promise<ClubProductsResponseDto> {
-    const [products, firstOrderPromotion] = await Promise.all([
+    const [products, pricingContext] = await Promise.all([
       this.clubProductQueryService.listActiveByStore(currentContext.store.id),
-      this.clubProductPromotionService.resolveFirstOrderPromotion(
+      this.clubProductPromotionService.resolvePricingContext(
         currentContext.store.id,
         currentContext.user.phone,
       ),
@@ -46,7 +46,7 @@ export class ClubProductsService {
           this.clubProductViewService.toClubProduct(
             product,
             hotProductIds,
-            firstOrderPromotion,
+            pricingContext,
           ),
         ),
     };
@@ -56,12 +56,12 @@ export class ClubProductsService {
     currentContext: ClubCurrentContext,
     productId: number,
   ): Promise<ClubProductDto> {
-    const [product, firstOrderPromotion] = await Promise.all([
+    const [product, pricingContext] = await Promise.all([
       this.clubProductQueryService.getActiveDetailByStore(
         currentContext.store.id,
         productId,
       ),
-      this.clubProductPromotionService.resolveFirstOrderPromotion(
+      this.clubProductPromotionService.resolvePricingContext(
         currentContext.store.id,
         currentContext.user.phone,
       ),
@@ -73,7 +73,7 @@ export class ClubProductsService {
     return this.clubProductViewService.toClubProduct(
       product,
       new Set([product.id]),
-      firstOrderPromotion,
+      pricingContext,
     );
   }
 

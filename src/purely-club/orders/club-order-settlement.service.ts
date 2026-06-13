@@ -56,6 +56,7 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     await this.updateCustomerMetrics(
       tx,
       settlementContext.customer.id,
+      settlementContext.customer.balance,
       settlementContext.customer.totalSpent,
       draft.amountFen,
     );
@@ -75,6 +76,7 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
   ): Promise<{
     customer: {
       id: number;
+      balance: number;
       totalSpent: number;
     };
     product: {
@@ -89,6 +91,7 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       },
       select: {
         id: true,
+        balance: true,
         totalSpent: true,
       },
     });
@@ -129,9 +132,10 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
         storeId: draft.storeId,
         customerId,
         amount: draft.amountFen,
-        balancePaid: 0,
+        // club 端服务购买以余额支付为主，全额记为余额抵扣
+        balancePaid: draft.amountFen,
         pointsDeducted: 0,
-        payType: 'wechat',
+        payType: 'balance',
         itemsSummary: draft.metadata.productName,
         promotionId: draft.metadata.promotionId,
       },
@@ -141,13 +145,18 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
   private async updateCustomerMetrics(
     tx: Prisma.TransactionClient,
     customerId: number,
+    currentBalance: number,
     currentTotalSpent: number,
     amountFen: number,
   ): Promise<void> {
+    if (currentBalance < amountFen) {
+      throw new BadRequestException('账户余额不足，无法完成本次购买');
+    }
     const newTotalSpent = currentTotalSpent + amountFen;
     await tx.marketingCustomer.update({
       where: { id: customerId },
       data: {
+        balance: { decrement: amountFen },
         totalSpent: { increment: amountFen },
         visitCount: { increment: 1 },
         lastVisitAt: new Date(),

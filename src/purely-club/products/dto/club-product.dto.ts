@@ -14,6 +14,7 @@ import {
   transformOptionalBoolean,
   transformOptionalInt,
 } from '../../../purely-profit/stores/dto/store-response.dto';
+import type { ClubAppliedPromotion } from '../club-products.types';
 
 const CLUB_SERVICE_PRODUCT_TYPE_VALUES = [
   'product',
@@ -55,7 +56,10 @@ export class ClubProductDto {
   @IsString({ message: '商品名称必须是字符串' })
   name: string;
 
-  @ApiProperty({ example: '深层清洁 + 补水保湿，恢复肌肤光泽活力', description: '商品描述' })
+  @ApiProperty({
+    example: '深层清洁 + 补水保湿，恢复肌肤光泽活力',
+    description: '商品描述',
+  })
   @IsString({ message: '商品描述必须是字符串' })
   description: string;
 
@@ -66,7 +70,10 @@ export class ClubProductDto {
   @ApiProperty({ example: 288, description: '原价，单位元' })
   originalPrice: number;
 
-  @ApiProperty({ example: 199, description: '会员价，单位元；命中首单优惠时返回折后价' })
+  @ApiProperty({
+    example: 199,
+    description: '会员价，单位元；命中首单优惠时返回折后价',
+  })
   memberPrice: number;
 
   @ApiPropertyOptional({
@@ -100,6 +107,27 @@ export class ClubProductDto {
   @IsOptional()
   @IsString({ message: 'promotionTag 必须是字符串' })
   promotionTag?: string;
+
+  @ApiProperty({
+    example: 199,
+    description: '最终价格（叠加所有优惠后），单位元',
+  })
+  finalPrice: number;
+
+  @ApiPropertyOptional({
+    example: 50,
+    description: '满减减免金额（元）；无满减时不返回',
+  })
+  @IsOptional()
+  reduceAmount?: number;
+
+  @ApiPropertyOptional({
+    description: '已应用的优惠活动列表（折扣竞争 + 满减叠加）',
+    type: [Object],
+  })
+  @IsOptional()
+  @IsArray({ message: 'appliedPromotions 必须是数组' })
+  appliedPromotions?: ClubAppliedPromotion[];
 
   @ApiProperty({
     example: 'package',

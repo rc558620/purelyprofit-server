@@ -5,7 +5,7 @@ import { ClubProductPromotionService } from './club-product-promotion.service';
 import { ClubProductQueryService } from './club-product-query.service';
 import { ClubProductViewService } from './club-product-view.service';
 import type {
-  ClubFirstOrderPromotion,
+  ClubProductPricingContext,
   ClubProductRecord,
 } from './club-products.types';
 import { ClubProductsService } from './club-products.service';
@@ -20,7 +20,7 @@ describe('ClubProductsService', () => {
   };
 
   const clubProductPromotionService = {
-    resolveFirstOrderPromotion: jest.fn(),
+    resolvePricingContext: jest.fn(),
   };
 
   const clubProductViewService = {
@@ -49,10 +49,17 @@ describe('ClubProductsService', () => {
     },
   };
 
+  const emptyPricingContext: ClubProductPricingContext = {
+    memberDiscountRate: null,
+    firstOrderPromotions: [],
+    discountPromotions: [],
+    reducePromotions: [],
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
-    clubProductPromotionService.resolveFirstOrderPromotion.mockResolvedValue(
-      null,
+    clubProductPromotionService.resolvePricingContext.mockResolvedValue(
+      emptyPricingContext,
     );
     clubProductQueryService.resolveHotProductIds.mockImplementation(
       (products: ClubProductRecord[]) =>
@@ -62,16 +69,15 @@ describe('ClubProductsService', () => {
       (
         product: ClubProductRecord,
         hotProductIds: Set<number>,
-        firstOrderPromotion: ClubFirstOrderPromotion | null,
+        pricingContext: ClubProductPricingContext,
       ) => ({
         id: String(product.id),
         name: product.name,
         description: product.description?.trim() || '暂无服务说明',
         coverImage: product.image?.trim() || '',
         originalPrice: (product.originalPrice ?? product.price) / 100,
-        memberPrice: firstOrderPromotion
-          ? (product.price * firstOrderPromotion.discountRate) / 10000
-          : product.price / 100,
+        // 简化：直接取原价，实际价格逻辑由 ClubProductViewService 单元测试覆盖
+        memberPrice: product.price / 100,
         type: 'product',
         tags: hotProductIds.has(product.id) ? ['热销'] : [],
         isHot: hotProductIds.has(product.id),
@@ -119,7 +125,9 @@ describe('ClubProductsService', () => {
     ];
     clubProductQueryService.listActiveByStore.mockResolvedValue(products);
 
-    await expect(service.list(currentContext, { featured: true })).resolves.toEqual({
+    await expect(
+      service.list(currentContext, { featured: true }),
+    ).resolves.toEqual({
       items: [
         expect.objectContaining({ id: '31', isHot: true }),
         expect.objectContaining({ id: '30', isHot: true }),
@@ -133,34 +141,29 @@ describe('ClubProductsService', () => {
     expect(clubProductViewService.toClubProduct).toHaveBeenCalledTimes(3);
   });
 
-  it('list 命中首单优惠时透传活动信息给视图映射层', async () => {
-    const promotion = {
-      id: 18,
-      discountRate: 75,
-      tag: '首单 7.5 折',
-    } satisfies ClubFirstOrderPromotion;
+  it('list 将 pricingContext 透传给视图映射层', async () => {
+    const pricingContext: ClubProductPricingContext = {
+      memberDiscountRate: null,
+      firstOrderPromotions: [{ id: 18, discountRate: 75, tag: '首单 7.5 折' }],
+      discountPromotions: [],
+      reducePromotions: [],
+    };
     clubProductQueryService.listActiveByStore.mockResolvedValue([
       createProduct({ id: 31, price: 49900 }),
     ]);
-    clubProductPromotionService.resolveFirstOrderPromotion.mockResolvedValue(
-      promotion,
+    clubProductPromotionService.resolvePricingContext.mockResolvedValue(
+      pricingContext,
     );
 
-    await expect(service.list(currentContext, {})).resolves.toEqual({
-      items: [
-        expect.objectContaining({
-          id: '31',
-          memberPrice: 374.25,
-        }),
-      ],
-    });
+    await service.list(currentContext, {});
+
     expect(
-      clubProductPromotionService.resolveFirstOrderPromotion,
+      clubProductPromotionService.resolvePricingContext,
     ).toHaveBeenCalledWith(11, user.phone);
     expect(clubProductViewService.toClubProduct).toHaveBeenCalledWith(
       expect.objectContaining({ id: 31 }),
       expect.any(Set),
-      promotion,
+      pricingContext,
     );
   });
 
@@ -190,7 +193,7 @@ describe('ClubProductsService', () => {
     expect(clubProductViewService.toClubProduct).toHaveBeenCalledWith(
       product,
       new Set([18]),
-      null,
+      emptyPricingContext,
     );
   });
 

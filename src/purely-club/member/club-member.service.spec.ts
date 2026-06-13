@@ -22,6 +22,9 @@ describe('ClubMemberService', () => {
     marketingCustomer: {
       findUnique: jest.fn(),
     },
+    marketingRecharge: {
+      aggregate: jest.fn(),
+    },
     marketingMemberLevelSetting: {
       findUnique: jest.fn(),
     },
@@ -35,6 +38,7 @@ describe('ClubMemberService', () => {
     changePassword: jest.fn(),
     updateAvatar: jest.fn(),
     updateNickname: jest.fn(),
+    getProfile: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -61,7 +65,13 @@ describe('ClubMemberService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue(null);
+    prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue(
+      null,
+    );
+    // 默认 aggregate 返回 0，避免未显式 mock 的测试报错
+    prismaService.marketingRecharge.aggregate.mockResolvedValue({
+      _sum: { amount: null, giftAmount: null },
+    });
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubMemberProfileService,
@@ -159,6 +169,31 @@ describe('ClubMemberService', () => {
     expect(authService.updateNickname).toHaveBeenCalledWith(user, '新昵称');
   });
 
+  it('getProfile 返回 purely-club 当前用户基础资料', async () => {
+    authService.getProfile.mockResolvedValue({
+      user: {
+        id: 201,
+        phone: '13800138000',
+        email: 'club_phone_13800138000@purelyprofit.local',
+        name: '俱乐部用户',
+        avatar: 'https://cdn.example.com/avatar-profile.png',
+        verified: false,
+        createdAt: new Date('2026-05-12T00:00:00.000Z'),
+        updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+      },
+      store: null,
+      currentMembership: null,
+    });
+
+    await expect(service.getProfile(user)).resolves.toEqual({
+      id: '201',
+      phone: '13800138000',
+      nickname: '俱乐部用户',
+      avatar: 'https://cdn.example.com/avatar-profile.png',
+    });
+    expect(authService.getProfile).toHaveBeenCalledWith(user);
+  });
+
   it('getAccount 优先返回当前门店营销顾客余额与等级信息', async () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
@@ -171,6 +206,7 @@ describe('ClubMemberService', () => {
     );
     prismaService.marketingCustomer.findUnique.mockResolvedValue(
       createMarketingCustomer({
+        id: 36,
         balance: 35000,
         points: 1280,
         tier: 'gold',
@@ -178,6 +214,10 @@ describe('ClubMemberService', () => {
         createdAt: new Date('2024-05-28T00:00:00.000Z'),
       }),
     );
+    // 从 marketingRecharge 聚合：充值 320000 分 = ¥3200
+    prismaService.marketingRecharge.aggregate.mockResolvedValue({
+      _sum: { amount: 320000, giftAmount: 0 },
+    });
 
     await expect(service.getAccount(currentContext)).resolves.toEqual({
       id: '28',
@@ -214,12 +254,17 @@ describe('ClubMemberService', () => {
         },
       },
       select: {
+        id: true,
         balance: true,
         points: true,
         tier: true,
         totalSpent: true,
         createdAt: true,
       },
+    });
+    expect(prismaService.marketingRecharge.aggregate).toHaveBeenCalledWith({
+      where: { customerId: 36, type: 'recharge' },
+      _sum: { amount: true, giftAmount: true },
     });
   });
 
@@ -269,6 +314,10 @@ describe('ClubMemberService', () => {
         createdAt: new Date('2024-07-01T00:00:00.000Z'),
       }),
     );
+    // 充值流水聚合：68000 分 = ¥680
+    prismaService.marketingRecharge.aggregate.mockResolvedValue({
+      _sum: { amount: 68000, giftAmount: 0 },
+    });
 
     await expect(service.getAccount(currentContext)).resolves.toEqual({
       id: '38',
@@ -304,6 +353,10 @@ describe('ClubMemberService', () => {
         createdAt: new Date('2024-05-28T00:00:00.000Z'),
       }),
     );
+    // 充值流水聚合：320000 分 = ¥3200
+    prismaService.marketingRecharge.aggregate.mockResolvedValue({
+      _sum: { amount: 320000, giftAmount: 0 },
+    });
 
     await expect(service.getLevelStatus(currentContext)).resolves.toEqual({
       currentLevel: 'gold',
@@ -341,6 +394,10 @@ describe('ClubMemberService', () => {
         createdAt: new Date('2024-07-01T00:00:00.000Z'),
       }),
     );
+    // 充值流水聚合：68000 分 = ¥680
+    prismaService.marketingRecharge.aggregate.mockResolvedValue({
+      _sum: { amount: 68000, giftAmount: 0 },
+    });
 
     await expect(service.getLevelStatus(currentContext)).resolves.toEqual({
       currentLevel: 'gold',
@@ -378,6 +435,10 @@ describe('ClubMemberService', () => {
         createdAt: new Date('2024-05-28T00:00:00.000Z'),
       }),
     );
+    // 充值流水聚合：1200000 分 = ¥12000
+    prismaService.marketingRecharge.aggregate.mockResolvedValue({
+      _sum: { amount: 1200000, giftAmount: 0 },
+    });
 
     await expect(service.getLevelStatus(currentContext)).resolves.toEqual({
       currentLevel: 'diamond',
@@ -479,7 +540,9 @@ describe('ClubMemberService', () => {
     ]);
     expect(prismaService.member.findFirst).not.toHaveBeenCalled();
     expect(prismaService.marketingCustomer.findUnique).not.toHaveBeenCalled();
-    expect(prismaService.marketingMemberLevelSetting.findUnique).toHaveBeenCalledWith({
+    expect(
+      prismaService.marketingMemberLevelSetting.findUnique,
+    ).toHaveBeenCalledWith({
       where: { storeId: 11 },
       select: { levels: true },
     });
@@ -504,6 +567,10 @@ describe('ClubMemberService', () => {
         createdAt: new Date('2024-05-28T00:00:00.000Z'),
       }),
     );
+    // 充值流水聚合：320000 分 = ¥3200（gold 默认等级 totalConsume>=0 即解锁）
+    prismaService.marketingRecharge.aggregate.mockResolvedValue({
+      _sum: { amount: 320000, giftAmount: 0 },
+    });
 
     await expect(service.getBenefits(currentContext)).resolves.toEqual(
       expect.objectContaining({
@@ -613,7 +680,11 @@ describe('ClubMemberService', () => {
     });
 
     await expect(service.getLevels(currentContext)).resolves.toEqual([
-      expect.objectContaining({ level: 'gold', discountRate: 0.88, requiredConsume: 0 }),
+      expect.objectContaining({
+        level: 'gold',
+        discountRate: 0.88,
+        requiredConsume: 0,
+      }),
       expect.objectContaining({
         level: 'platinum',
         discountRate: 0.85,
@@ -742,6 +813,7 @@ function createMember(
 
 function createMarketingCustomer(
   overrides?: Partial<{
+    id: number;
     balance: number;
     points: number;
     tier: string;
@@ -749,6 +821,7 @@ function createMarketingCustomer(
     createdAt: Date;
   }>,
 ): {
+  id: number;
   balance: number;
   points: number;
   tier: string;
@@ -756,6 +829,7 @@ function createMarketingCustomer(
   createdAt: Date;
 } {
   return {
+    id: 1,
     balance: 0,
     points: 0,
     tier: 'regular',

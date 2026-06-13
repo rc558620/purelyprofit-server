@@ -16,6 +16,7 @@ interface ClubMemberAccountRecord {
 }
 
 interface ClubMarketingCustomerRecord {
+  id: number;
   balance: number;
   points: number;
   tier: string;
@@ -41,18 +42,33 @@ export class ClubMemberProfileService {
   async getCurrentSnapshot(
     currentContext: ClubCurrentContext,
   ): Promise<ClubMemberSnapshot> {
-    const member = await this.findCurrentMember(
+    const snapshot = await this.getSnapshotByStoreAndPhone(
       currentContext.store.id,
       currentContext.user.phone,
     );
-    if (!member) {
+    if (!snapshot) {
       throw new NotFoundException(CLUB_MEMBER_ACCOUNT_NOT_FOUND_MESSAGE);
     }
 
-    const marketingCustomer = await this.findMarketingCustomer(
-      currentContext.store.id,
-      currentContext.user.phone,
-    );
+    return snapshot;
+  }
+
+  async getSnapshotByStoreAndPhone(
+    storeId: number,
+    phone: string,
+  ): Promise<ClubMemberSnapshot | null> {
+    const member = await this.findCurrentMember(storeId, phone);
+    if (!member) {
+      return null;
+    }
+
+    const marketingCustomer = await this.findMarketingCustomer(storeId, phone);
+
+    // 若有营销顾客档案，从充值流水实时聚合累计充值总额，避免 totalSpent 历史数据不准的问题
+    const totalRechargeFen = marketingCustomer
+      ? await this.sumRechargeAmount(marketingCustomer.id)
+      : null;
+
     const joinDate = this.resolveJoinDate(
       member.createdAt,
       marketingCustomer?.createdAt,
@@ -60,15 +76,15 @@ export class ClubMemberProfileService {
 
     return {
       memberId: member.id,
-      storeId: currentContext.store.id,
+      storeId,
       balance: this.convertFenToYuan(marketingCustomer?.balance ?? 0),
-      level: this.resolveLevel(marketingCustomer?.tier, member.level),
+      level: this.resolveLevel(member.level, marketingCustomer?.tier),
       points: marketingCustomer?.points ?? member.points,
       memberCode: this.buildMemberCode(joinDate, member.id),
       joinDate,
       totalConsume: this.resolveTotalConsume(
         member.totalConsumeAmount,
-        marketingCustomer?.totalSpent,
+        totalRechargeFen,
       ),
     };
   }
@@ -105,6 +121,7 @@ export class ClubMemberProfileService {
         },
       },
       select: {
+        id: true,
         balance: true,
         points: true,
         tier: true,
@@ -114,23 +131,26 @@ export class ClubMemberProfileService {
     });
   }
 
-  private resolveLevel(
-    marketingTier: string | undefined,
-    memberLevel: string,
-  ): ClubMemberHeldLevelValue {
-    switch (marketingTier) {
-      case 'diamond':
-        return 'diamond';
-      case 'gold':
-        return 'gold';
-      case 'silver':
-        return 'silver';
-      case 'regular':
-        return 'regular';
-      default:
-        break;
-    }
+  private async sumRechargeAmount(customerId: number): Promise<number> {
+    const result = await this.prisma.marketingRecharge.aggregate({
+      where: {
+        customerId,
+        type: 'recharge',
+      },
+      _sum: {
+        amount: true,
+        giftAmount: true,
+      },
+    });
 
+    return (result._sum.amount ?? 0) + (result._sum.giftAmount ?? 0);
+  }
+
+  private resolveLevel(
+    memberLevel: string,
+    marketingTier: string | undefined,
+  ): ClubMemberHeldLevelValue {
+    // 优先以 member.level 为准，该字段语义和 club 等级体系完全对齐
     switch (memberLevel) {
       case 'diamond':
         return 'diamond';
@@ -140,12 +160,26 @@ export class ClubMemberProfileService {
         return 'gold';
       case 'silver':
         return 'silver';
-      case 'bronze':
-      case 'regular':
-      case 'free':
       default:
-        return 'regular';
+        break;
     }
+
+    // member.level 无有效等级（free / bronze / regular 等历史值）时，
+    // 用 marketingTier 补充白银/钻石历史持有信息。
+    // 注意：营销 tier 'gold' 不做映射——其门槛（¥2000）远低于 club 铂金门槛（¥5000），
+    // 若直接映射会导致充值达到铂金门槛后 heldLevel 仍停留在 'gold'，
+    // 与 currentLevel（由 totalConsume vs spendThreshold 计算得出的铂金）不一致。
+    switch (marketingTier) {
+      case 'diamond':
+        return 'diamond';
+      case 'silver':
+        return 'silver';
+      default:
+        break;
+    }
+
+    // 最终回落到 club 体系最低等级黄金会员（注册即享，门槛 0）
+    return 'gold';
   }
 
   private resolveJoinDate(
@@ -162,10 +196,11 @@ export class ClubMemberProfileService {
 
   private resolveTotalConsume(
     memberTotalConsumeAmount: Decimal,
-    marketingTotalSpent: number | undefined,
+    totalRechargeFen: number | null,
   ): number {
-    if (typeof marketingTotalSpent === 'number') {
-      return this.convertFenToYuan(marketingTotalSpent);
+    // 优先使用从充值流水实时聚合的真实充值总额
+    if (typeof totalRechargeFen === 'number') {
+      return this.convertFenToYuan(totalRechargeFen);
     }
 
     return new Decimal(memberTotalConsumeAmount.toString())

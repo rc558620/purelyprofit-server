@@ -9,6 +9,8 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
+import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
+import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { ClubOrderDraftsService } from './club-order-drafts.service';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
@@ -17,6 +19,7 @@ import { ClubOrderServicePaymentService } from './club-order-service-payment.ser
 import { ClubOrderServiceQueryService } from './club-order-service-query.service';
 import { ClubOrderSettlementService } from './club-order-settlement.service';
 import { ClubOrdersService } from './club-orders.service';
+import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 
 describe('ClubOrdersService', () => {
   let service: ClubOrdersService;
@@ -34,12 +37,27 @@ describe('ClubOrdersService', () => {
     },
     marketingPromotion: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       updateMany: jest.fn(),
     },
     marketingConsumption: {
       create: jest.fn(),
       count: jest.fn(),
     },
+    member: {
+      findFirst: jest.fn(),
+    },
+    marketingMemberLevelSetting: {
+      findUnique: jest.fn(),
+    },
+  };
+
+  const clubMemberProfileService = {
+    getSnapshotByStoreAndPhone: jest.fn(),
+  };
+
+  const clubMemberLevelsService = {
+    resolveCurrentLevelConfig: jest.fn(),
   };
 
   const configService = {
@@ -62,6 +80,10 @@ describe('ClubOrdersService', () => {
 
   const cacheInvalidatorService = {
     invalidateMarketingOverview: jest.fn(),
+  };
+
+  const clubWechatJsapiService = {
+    createJsapiPaymentParams: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -157,7 +179,9 @@ describe('ClubOrdersService', () => {
       statusReason: '待支付，等待微信支付结果',
     });
     prismaService.marketingConsumption.count.mockResolvedValue(0);
-    prismaService.marketingPromotion.findFirst.mockResolvedValue(null);
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    // 默认无会员折扣
+    clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -172,6 +196,12 @@ describe('ClubOrdersService', () => {
         { provide: ConfigService, useValue: configService },
         { provide: ClubOrderDraftsService, useValue: clubOrderDraftsService },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
+        { provide: ClubWechatJsapiService, useValue: clubWechatJsapiService },
+        {
+          provide: ClubMemberProfileService,
+          useValue: clubMemberProfileService,
+        },
+        { provide: ClubMemberLevelsService, useValue: clubMemberLevelsService },
       ],
     }).compile();
 
@@ -191,7 +221,10 @@ describe('ClubOrdersService', () => {
     clubOrderDraftsService.createDraft.mockResolvedValue(createServiceDraft());
 
     await expect(
-      service.createServiceOrder(currentContext, { storeId: 11, productId: 18 }),
+      service.createServiceOrder(currentContext, {
+        storeId: 11,
+        productId: 18,
+      }),
     ).resolves.toEqual(
       expect.objectContaining({
         id: 'SV123',
@@ -200,26 +233,96 @@ describe('ClubOrdersService', () => {
         amount: 499,
       }),
     );
-    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith({
-      user,
-      orderType: 'service',
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user,
+        orderType: 'service',
+        storeId: 11,
+        storeName: '望京旗舰店',
+        customerId: 36,
+        title: '购买黄金焕肤疗程',
+        amountFen: 49900,
+        metadata: {
+          productId: 18,
+          productName: '黄金焕肤疗程',
+          originalAmountFen: 68800,
+          coverImage: 'https://cdn.example.com/products/18.png',
+          memberBaselineFen: 49900,
+          promotionId: null,
+          promotionType: null,
+          discountRate: null,
+          discountAmountFen: 0,
+          promotionDiscountAmountFen: 0,
+          totalReduceFen: 0,
+          promotionTag: null,
+        },
+      }),
+    );
+  });
+
+  it('createServiceOrder 会员 8 折时按折后价创建订单草稿', async () => {
+    // 会员快照存在，等级配置 discountRate = 0.8
+    clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue({
+      memberId: 1,
       storeId: 11,
-      storeName: '望京旗舰店',
-      customerId: 36,
-      title: '购买黄金焕肤疗程',
-      amountFen: 49900,
-      metadata: {
-        productId: 18,
-        productName: '黄金焕肤疗程',
-        originalAmountFen: 68800,
-        coverImage: 'https://cdn.example.com/products/18.png',
-        promotionId: null,
-        promotionType: null,
-        discountRate: null,
-        discountAmountFen: 0,
-        promotionTag: null,
-      },
+      balance: 200000,
+      level: 'gold',
+      points: 0,
+      memberCode: 'MC001',
+      joinDate: '2026-01-01',
+      totalConsume: 100000,
     });
+    clubMemberLevelsService.resolveCurrentLevelConfig.mockResolvedValue({
+      level: 'gold',
+      label: '黄金会员',
+      color: '#b7862f',
+      bgColor: '#fbf3df',
+      requiredConsume: 0,
+      discountRate: 0.8,
+      benefits: ['8折会员专属价'],
+    });
+
+    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingProduct.findFirst.mockResolvedValue({
+      id: 18,
+      name: '黄金焕肤疗程',
+      price: 49900,
+      originalPrice: 68800,
+      image: 'https://cdn.example.com/products/18.png',
+      stock: 20,
+    });
+
+    // 会员折后价 49900 * 0.8 = 39920
+    const memberPriceDraft = {
+      ...createServiceDraft(),
+      amountFen: 39920,
+      metadata: {
+        ...createServiceDraft().metadata,
+        discountAmountFen: 9980,
+        promotionDiscountAmountFen: 0,
+      },
+    };
+    clubOrderDraftsService.createDraft.mockResolvedValue(memberPriceDraft);
+
+    await expect(
+      service.createServiceOrder(currentContext, {
+        storeId: 11,
+        productId: 18,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'SV123', amount: 399.2 }));
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountFen: 39920,
+        metadata: expect.objectContaining({
+          promotionId: null,
+          promotionType: null,
+          discountRate: null,
+          discountAmountFen: 9980,
+          promotionDiscountAmountFen: 0,
+          promotionTag: null,
+        }),
+      }),
+    );
   });
 
   it('createServiceOrder 命中首单优惠时按折后价创建订单草稿', async () => {
@@ -232,11 +335,14 @@ describe('ClubOrdersService', () => {
       image: 'https://cdn.example.com/products/18.png',
       stock: 20,
     });
-    prismaService.marketingPromotion.findFirst.mockResolvedValue({
-      id: 88,
-      name: '首单 7.5 折',
-      params: { discountRate: 75, audience: 'first_order' },
-    });
+    prismaService.marketingPromotion.findMany.mockResolvedValue([
+      {
+        id: 88,
+        name: '首单 7.5 折',
+        type: 'first_order_discount',
+        params: { discountRate: 75 },
+      },
+    ]);
     clubOrderDraftsService.createDraft.mockResolvedValue({
       ...createServiceDraft(),
       amountFen: 37425,
@@ -246,12 +352,16 @@ describe('ClubOrdersService', () => {
         promotionType: 'first_order_discount',
         discountRate: 75,
         discountAmountFen: 12475,
+        promotionDiscountAmountFen: 12475,
         promotionTag: '首单 7.5 折',
       },
     });
 
     await expect(
-      service.createServiceOrder(currentContext, { storeId: 11, productId: 18 }),
+      service.createServiceOrder(currentContext, {
+        storeId: 11,
+        productId: 18,
+      }),
     ).resolves.toEqual(
       expect.objectContaining({
         amount: 374.25,
@@ -261,26 +371,259 @@ describe('ClubOrdersService', () => {
         discountRate: 75,
       }),
     );
-    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith({
-      user,
-      orderType: 'service',
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user,
+        orderType: 'service',
+        storeId: 11,
+        storeName: '望京旗舰店',
+        customerId: 36,
+        title: '购买黄金焕肤疗程',
+        amountFen: 37425,
+        metadata: expect.objectContaining({
+          memberBaselineFen: 49900,
+          promotionId: 88,
+          promotionType: 'first_order_discount',
+          discountRate: 75,
+          discountAmountFen: 12475,
+          promotionDiscountAmountFen: 12475,
+          totalReduceFen: 0,
+          promotionTag: '首单 7.5 折',
+        }),
+      }),
+    );
+  });
+
+  it('createServiceOrder 活动折扣(7折)优于会员折扣(8折)时覆盖会员折扣', async () => {
+    // 会员 8 折
+    clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue({
+      memberId: 1,
       storeId: 11,
-      storeName: '望京旗舰店',
-      customerId: 36,
-      title: '购买黄金焕肤疗程',
-      amountFen: 37425,
-      metadata: {
-        productId: 18,
-        productName: '黄金焕肤疗程',
-        originalAmountFen: 68800,
-        coverImage: 'https://cdn.example.com/products/18.png',
-        promotionId: 88,
-        promotionType: 'first_order_discount',
-        discountRate: 75,
-        discountAmountFen: 12475,
-        promotionTag: '首单 7.5 折',
-      },
+      balance: 200000,
+      level: 'gold',
+      points: 0,
+      memberCode: 'MC001',
+      joinDate: '2026-01-01',
+      totalConsume: 100000,
     });
+    clubMemberLevelsService.resolveCurrentLevelConfig.mockResolvedValue({
+      level: 'gold',
+      label: '黄金会员',
+      color: '#b7862f',
+      bgColor: '#fbf3df',
+      requiredConsume: 0,
+      discountRate: 0.8,
+      benefits: ['8折会员专属价'],
+    });
+    // 活动 7 折，力度更大
+    prismaService.marketingPromotion.findMany.mockResolvedValue([
+      {
+        id: 99,
+        name: '限时 7 折',
+        type: 'discount',
+        params: { discountRate: 70 },
+      },
+    ]);
+    prismaService.marketingConsumption.count.mockResolvedValue(1);
+
+    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingProduct.findFirst.mockResolvedValue({
+      id: 18,
+      name: '黄金焕肤疗程',
+      price: 49900,
+      originalPrice: 68800,
+      image: null,
+      stock: 5,
+    });
+
+    // 活动 7 折: 49900 * 70 / 100 = 34930，优于会员 8 折 39920，取活动价
+    const activePriceDraft = {
+      ...createServiceDraft(),
+      amountFen: 34930,
+      metadata: {
+        ...createServiceDraft().metadata,
+        coverImage: null,
+        memberBaselineFen: 39920,
+        promotionId: 99,
+        promotionType: 'discount' as const,
+        discountRate: 70,
+        discountAmountFen: 14970,
+        promotionDiscountAmountFen: 14970,
+        totalReduceFen: 0,
+        promotionTag: '限时 7 折',
+      },
+    };
+    clubOrderDraftsService.createDraft.mockResolvedValue(activePriceDraft);
+
+    await expect(
+      service.createServiceOrder(currentContext, {
+        storeId: 11,
+        productId: 18,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'SV123' }));
+    // 应以活动折扣价 34930 下单，不用会员折扣价
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountFen: 34930,
+        metadata: expect.objectContaining({
+          promotionId: 99,
+          promotionType: 'discount',
+          discountRate: 70,
+        }),
+      }),
+    );
+  });
+
+  it('createServiceOrder 活动折扣(8.5折)不如会员折扣(8折)时沿用会员折扣', async () => {
+    // 会员 8 折
+    clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue({
+      memberId: 1,
+      storeId: 11,
+      balance: 200000,
+      level: 'gold',
+      points: 0,
+      memberCode: 'MC001',
+      joinDate: '2026-01-01',
+      totalConsume: 100000,
+    });
+    clubMemberLevelsService.resolveCurrentLevelConfig.mockResolvedValue({
+      level: 'gold',
+      label: '黄金会员',
+      color: '#b7862f',
+      bgColor: '#fbf3df',
+      requiredConsume: 0,
+      discountRate: 0.8,
+      benefits: ['8折会员专属价'],
+    });
+    // 活动 8.5 折，力度不如会员
+    prismaService.marketingPromotion.findMany.mockResolvedValue([
+      {
+        id: 100,
+        name: '限时 8.5 折',
+        type: 'discount',
+        params: { discountRate: 85 },
+      },
+    ]);
+    prismaService.marketingConsumption.count.mockResolvedValue(1);
+
+    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingProduct.findFirst.mockResolvedValue({
+      id: 18,
+      name: '黄金焕肤疗程',
+      price: 49900,
+      originalPrice: 68800,
+      image: null,
+      stock: 5,
+    });
+
+    // 会员 8 折: 39920，活动 8.5 折: 42415，会员折扣更优，活动不生效
+    const memberOnlyDraft = {
+      ...createServiceDraft(),
+      amountFen: 39920,
+      metadata: {
+        ...createServiceDraft().metadata,
+        coverImage: null,
+        memberBaselineFen: 39920,
+        discountAmountFen: 9980,
+        promotionDiscountAmountFen: 0,
+        totalReduceFen: 0,
+      },
+    };
+    clubOrderDraftsService.createDraft.mockResolvedValue(memberOnlyDraft);
+
+    await expect(
+      service.createServiceOrder(currentContext, {
+        storeId: 11,
+        productId: 18,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'SV123' }));
+    // 不命中活动，以会员折后价下单
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountFen: 39920,
+        metadata: expect.objectContaining({
+          promotionId: null,
+          promotionType: null,
+        }),
+      }),
+    );
+  });
+
+  it('createServiceOrder 会员 8 折叠加满减优惠时同时扣减', async () => {
+    // 会员 8 折
+    clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue({
+      memberId: 1,
+      storeId: 11,
+      balance: 200000,
+      level: 'gold',
+      points: 0,
+      memberCode: 'MC001',
+      joinDate: '2026-01-01',
+      totalConsume: 100000,
+    });
+    clubMemberLevelsService.resolveCurrentLevelConfig.mockResolvedValue({
+      level: 'gold',
+      label: '黄金会员',
+      color: '#b7862f',
+      bgColor: '#fbf3df',
+      requiredConsume: 0,
+      discountRate: 0.8,
+      benefits: ['8折会员专属价'],
+    });
+    // 满 200 减 30（threshold=20000, reduceAmount=3000）
+    prismaService.marketingPromotion.findMany.mockResolvedValue([
+      {
+        id: 101,
+        name: '满200减30',
+        type: 'reduce',
+        params: { threshold: 20000, reduceAmount: 3000 },
+      },
+    ]);
+    prismaService.marketingConsumption.count.mockResolvedValue(1);
+
+    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingProduct.findFirst.mockResolvedValue({
+      id: 18,
+      name: '黄金焕肤疗程',
+      price: 49900,
+      originalPrice: 68800,
+      image: null,
+      stock: 5,
+    });
+
+    // 会员 8 折: 39920，满减再减 3000 = 36920
+    const memberPlusReduceDraft = {
+      ...createServiceDraft(),
+      amountFen: 36920,
+      metadata: {
+        ...createServiceDraft().metadata,
+        coverImage: null,
+        memberBaselineFen: 39920,
+        discountAmountFen: 12980,
+        promotionDiscountAmountFen: 0,
+        totalReduceFen: 3000,
+      },
+    };
+    clubOrderDraftsService.createDraft.mockResolvedValue(memberPlusReduceDraft);
+
+    await expect(
+      service.createServiceOrder(currentContext, {
+        storeId: 11,
+        productId: 18,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'SV123' }));
+    // 满减叠加会员折扣
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountFen: 36920,
+        metadata: expect.objectContaining({
+          promotionId: null,
+          promotionType: null,
+          totalReduceFen: 3000,
+          memberBaselineFen: 39920,
+        }),
+      }),
+    );
   });
 
   it('createServiceOrder 在当前门店变化时抛出 BadRequestException', async () => {
@@ -290,7 +633,10 @@ describe('ClubOrdersService', () => {
     };
 
     await expect(
-      service.createServiceOrder(contextWithDifferentStore, { storeId: 11, productId: 18 }),
+      service.createServiceOrder(contextWithDifferentStore, {
+        storeId: 11,
+        productId: 18,
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(clubOrderDraftsService.createDraft).not.toHaveBeenCalled();
   });
@@ -307,14 +653,19 @@ describe('ClubOrdersService', () => {
     });
 
     await expect(
-      service.createServiceOrder(currentContext, { storeId: 11, productId: 18 }),
+      service.createServiceOrder(currentContext, {
+        storeId: 11,
+        productId: 18,
+      }),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('getOrderStatus 读取当前用户的服务订单状态', async () => {
     clubOrderDraftsService.getDraft.mockResolvedValue(createServiceDraft());
 
-    await expect(service.getOrderStatus(currentContext, 'SV123')).resolves.toEqual(
+    await expect(
+      service.getOrderStatus(currentContext, 'SV123'),
+    ).resolves.toEqual(
       expect.objectContaining({
         id: 'SV123',
         status: 'pending',
@@ -332,6 +683,7 @@ describe('ClubOrdersService', () => {
     clubOrderDraftsService.getDraft.mockResolvedValue(draft);
     prismaService.marketingCustomer.findFirst.mockResolvedValueOnce({
       id: 36,
+      balance: 100000,
       totalSpent: 52000,
     });
     prismaService.marketingProduct.findFirst.mockResolvedValueOnce({
@@ -344,7 +696,9 @@ describe('ClubOrdersService', () => {
       paidAtMs: Date.now(),
     });
 
-    await expect(service.confirmOrderPaid(currentContext, 'SV123')).resolves.toEqual(
+    await expect(
+      service.confirmOrderPaid(currentContext, 'SV123'),
+    ).resolves.toEqual(
       expect.objectContaining({
         id: 'SV123',
         productId: '18',
@@ -356,9 +710,9 @@ describe('ClubOrdersService', () => {
         storeId: 11,
         customerId: 36,
         amount: 49900,
-        balancePaid: 0,
+        balancePaid: 49900,
         pointsDeducted: 0,
-        payType: 'wechat',
+        payType: 'balance',
         itemsSummary: '黄金焕肤疗程',
         promotionId: null,
       },
@@ -366,6 +720,7 @@ describe('ClubOrdersService', () => {
     expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
       where: { id: 36 },
       data: {
+        balance: { decrement: 49900 },
         totalSpent: { increment: 49900 },
         visitCount: { increment: 1 },
         lastVisitAt: expect.any(Date),
@@ -399,12 +754,14 @@ describe('ClubOrdersService', () => {
         promotionType: 'first_order_discount' as const,
         discountRate: 75,
         discountAmountFen: 12475,
+        promotionDiscountAmountFen: 12475,
         promotionTag: '首单 7.5 折',
       },
     };
     clubOrderDraftsService.getDraft.mockResolvedValue(draft);
     prismaService.marketingCustomer.findFirst.mockResolvedValueOnce({
       id: 36,
+      balance: 100000,
       totalSpent: 52000,
     });
     prismaService.marketingProduct.findFirst.mockResolvedValueOnce({
@@ -456,6 +813,7 @@ describe('ClubOrdersService', () => {
     clubOrderDraftsService.getDraftByOrderId.mockResolvedValue(draft);
     prismaService.marketingCustomer.findFirst.mockResolvedValueOnce({
       id: 36,
+      balance: 100000,
       totalSpent: 52000,
     });
     prismaService.marketingProduct.findFirst.mockResolvedValueOnce({
@@ -513,7 +871,9 @@ describe('ClubOrdersService', () => {
     };
     clubOrderDraftsService.getDraft.mockResolvedValue(draft);
 
-    await expect(service.confirmOrderPaid(currentContext, 'SV123')).resolves.toEqual(
+    await expect(
+      service.confirmOrderPaid(currentContext, 'SV123'),
+    ).resolves.toEqual(
       expect.objectContaining({
         id: 'SV123',
       }),
@@ -556,10 +916,13 @@ function createServiceDraft() {
       productName: '黄金焕肤疗程',
       originalAmountFen: 68800,
       coverImage: 'https://cdn.example.com/products/18.png',
+      memberBaselineFen: 49900,
       promotionId: null,
       promotionType: null,
       discountRate: null,
       discountAmountFen: 0,
+      promotionDiscountAmountFen: 0,
+      totalReduceFen: 0,
       promotionTag: null,
     },
   };

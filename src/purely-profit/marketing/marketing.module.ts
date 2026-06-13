@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/club-member-levels.service';
+import { ClubMemberProfileService } from '../../purely-club/member/member-profile/club-member-profile.service';
 import { AccessControlModule } from '../access-control/access-control.module';
 import { PlatformMembershipModule } from '../member/platform-membership/platform-membership.module';
 import { PrismaModule } from '../../prisma/prisma.module';
@@ -58,6 +60,8 @@ import { MarketingSharedService } from './marketing-shared.service';
     MarketingPromotionsService,
     MarketingProductCategoriesService,
     MarketingProductsService,
+    ClubMemberProfileService,
+    ClubMemberLevelsService,
   ],
   exports: [MarketingOverviewService],
 })

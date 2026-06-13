@@ -65,6 +65,11 @@ export class ClubMemberService {
     return this.toProfileDto(profile.user);
   }
 
+  async getProfile(user: AuthenticatedUser): Promise<ClubMemberProfileDto> {
+    const profile = await this.authService.getProfile(user);
+    return this.toProfileDto(profile.user);
+  }
+
   async getAccount(
     currentContext: ClubCurrentContext,
   ): Promise<ClubMemberAccountDto> {
@@ -83,7 +88,9 @@ export class ClubMemberService {
     return this.clubMemberLevelsService.buildLevelStatus(snapshot);
   }
 
-  getLevels(currentContext: ClubCurrentContext): Promise<ClubMemberLevelConfigDto[]> {
+  getLevels(
+    currentContext: ClubCurrentContext,
+  ): Promise<ClubMemberLevelConfigDto[]> {
     return this.clubMemberLevelsService.listConfigs(currentContext.store.id);
   }
 

@@ -4,6 +4,7 @@ import { RedisService } from '../../redis/redis.service';
 import type {
   ClubOrderStatusResponseDto,
   ClubServiceOrderResponseDto,
+  ClubWechatPaymentParamsDto,
 } from './dto/club-order.dto';
 import type { ClubOrderTypeValue } from './club-order.types';
 import type {
@@ -38,6 +39,16 @@ export class ClubOrderDraftsService {
     title: string;
     amountFen: number;
     metadata: TMetadata;
+    /**
+     * 外部预生成的订单号（与 JSAPI out_trade_no 保持一致）；
+     * 不传时内部自动生成。
+     */
+    orderNo?: string;
+    /**
+     * 真实 JSAPI 下单返回的支付参数；
+     * 不传时 createDraftPayload 会生成开发态 mock 参数。
+     */
+    paymentParams?: ClubWechatPaymentParamsDto;
   }): Promise<ClubOrderDraftPayload<TMetadata, TOrderType>> {
     const draft = createDraftPayload({
       ...params,

@@ -1,7 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
-import type { ClubEligibleFirstOrderPromotion } from './club-order-promotions.service';
+import type { ClubServicePricingResolution } from './club-order-promotions.service';
 import type { ClubServiceOrderMetadata } from './club-order-drafts.types';
 import type { CreateClubServiceOrderDto } from './dto/club-order.dto';
 import {
@@ -71,18 +75,21 @@ export class ClubOrderServiceContextService {
 
   buildDraftMetadata(
     product: ClubOrderProductSummary,
-    eligiblePromotion: ClubEligibleFirstOrderPromotion | null,
+    pricing: ClubServicePricingResolution,
   ): ClubServiceOrderMetadata {
     return {
       productId: product.id,
       productName: product.name,
       originalAmountFen: product.originalPrice ?? product.price,
       coverImage: product.image?.trim() || null,
-      promotionId: eligiblePromotion?.id ?? null,
-      promotionType: eligiblePromotion ? 'first_order_discount' : null,
-      discountRate: eligiblePromotion?.discountRate ?? null,
-      discountAmountFen: eligiblePromotion?.discountAmountFen ?? 0,
-      promotionTag: eligiblePromotion?.tag ?? null,
+      memberBaselineFen: pricing.memberBaselineFen,
+      promotionId: pricing.promotionId,
+      promotionType: pricing.promotionType,
+      discountRate: pricing.discountRate,
+      discountAmountFen: pricing.discountAmountFen,
+      promotionDiscountAmountFen: pricing.promotionDiscountAmountFen,
+      totalReduceFen: pricing.totalReduceFen,
+      promotionTag: pricing.promotionTag,
     };
   }
 

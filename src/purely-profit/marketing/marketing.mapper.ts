@@ -344,5 +344,6 @@ export function buildEmptyMarketingOverview(): MarketingOverviewDto {
     currentYear,
     thisYearMonthlyTrend: buildOverviewMonthlyTrend([], currentYear),
     lastYearMonthlyTrend: buildOverviewMonthlyTrend([], currentYear - 1),
+    wechatPayConfig: { configured: false },
   };
 }

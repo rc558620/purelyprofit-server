@@ -44,6 +44,16 @@ describe('MarketingService overview', () => {
       .mockResolvedValueOnce({ _sum: { amount: 20000, giftAmount: 3000 } })
       .mockResolvedValueOnce({ _sum: { amount: 50000, giftAmount: 5000 } });
     context.prismaService.marketingRecharge.count.mockResolvedValue(7);
+    context.prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        { date: new Date('2026-05-14T00:00:00.000Z'), total: 12000 },
+        { date: new Date('2026-05-15T00:00:00.000Z'), total: 8000 },
+      ])
+      .mockResolvedValueOnce([
+        { year: 2025, month: 2, total: 25000 },
+        { year: 2026, month: 1, total: 15000 },
+        { year: 2026, month: 4, total: 20000 },
+      ]);
     context.prismaService.marketingRecharge.findMany.mockResolvedValue([
       {
         createdAt: new Date('2025-03-05T08:00:00.000Z'),
@@ -66,6 +76,12 @@ describe('MarketingService overview', () => {
         giftAmount: 0,
       },
     ]);
+    context.prismaService.store.findUnique.mockResolvedValue({
+      wechatMchId: null,
+      wechatMchName: null,
+      wechatApiV3Key: null,
+      wechatConfiguredAt: null,
+    });
 
     const result = await context.service.getOverview(context.user, 18);
 
@@ -108,6 +124,9 @@ describe('MarketingService overview', () => {
         { label: '11月', amount: null },
         { label: '12月', amount: null },
       ],
+      wechatPayConfig: {
+        configured: false,
+      },
     });
     expect(result).not.toHaveProperty('totalCustomers');
     expect(result).not.toHaveProperty('newCustomersLast30d');
@@ -126,6 +145,33 @@ describe('MarketingService overview', () => {
       date: '5/15',
       amount: 8000,
     });
+  });
+
+  it('getOverview 在门店微信收款字段未迁移时降级返回未配置状态', async () => {
+    context.accessService.resolveViewStoreId.mockResolvedValue(18);
+    context.platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
+      undefined,
+    );
+    context.prismaService.marketingCustomer.count.mockResolvedValueOnce(0);
+    context.prismaService.marketingCustomer.aggregate.mockResolvedValue({
+      _sum: { balance: 0 },
+    });
+    context.prismaService.marketingRecharge.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: 0, giftAmount: 0 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0, giftAmount: 0 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0, giftAmount: 0 } });
+    context.prismaService.marketingRecharge.count.mockResolvedValue(0);
+    context.prismaService.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    context.prismaService.marketingRecharge.findMany.mockResolvedValue([]);
+    context.prismaService.store.findUnique.mockRejectedValueOnce(
+      new Error('column stores.wechat_mch_id does not exist'),
+    );
+
+    const result = await context.service.getOverview(context.user, 18);
+
+    expect(result.wechatPayConfig).toEqual({ configured: false });
   });
 });
 

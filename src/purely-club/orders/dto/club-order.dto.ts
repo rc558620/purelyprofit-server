@@ -22,6 +22,15 @@ export class CreateClubServiceOrderDto {
   @Type(() => Number)
   @IsInt({ message: 'productId 必须是整数' })
   productId: number;
+
+  @ApiPropertyOptional({
+    example: 'oLSdB5A3FRSxSCKrGNGKBhYQ_xyz',
+    description:
+      '微信用户 openid；前端通过 wx.login 换取后传入，用于 JSAPI 下单',
+  })
+  @IsOptional()
+  @IsString({ message: 'openid 必须是字符串' })
+  openid?: string;
 }
 
 export class ClubWechatPaymentParamsDto {
@@ -154,7 +163,10 @@ export class ClubServiceOrderResponseDto extends ClubOrderStatusResponseDto {
   @ApiProperty({ example: 688, description: '服务原价，单位元' })
   originalAmount: number;
 
-  @ApiProperty({ example: 189, description: '本次优惠金额，单位元；未命中优惠时返回 0' })
+  @ApiProperty({
+    example: 189,
+    description: '本次优惠金额，单位元；未命中优惠时返回 0',
+  })
   discountAmount: number;
 
   @ApiPropertyOptional({

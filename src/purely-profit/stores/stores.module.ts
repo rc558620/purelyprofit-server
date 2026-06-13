@@ -5,6 +5,7 @@ import { StoresController } from './stores.controller';
 import { StoresProfileService } from './stores-profile.service';
 import { StoresReadService } from './stores-read.service';
 import { StoresService } from './stores.service';
+import { StoresWechatPayService } from './stores-wechat-pay.service';
 import { StoresWriteService } from './stores-write.service';
 
 @Module({
@@ -15,7 +16,8 @@ import { StoresWriteService } from './stores-write.service';
     StoresProfileService,
     StoresReadService,
     StoresWriteService,
+    StoresWechatPayService,
   ],
-  exports: [StoresProfileService],
+  exports: [StoresProfileService, StoresWechatPayService],
 })
 export class StoresModule {}

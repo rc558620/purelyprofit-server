@@ -1,8 +1,9 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AuthModule } from '../../purely-profit/auth/auth.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubOrdersModule } from '../orders/club-orders.module';
 import { ClubStoresModule } from '../stores/club-stores.module';
+import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
 import { ClubRechargeController } from './club-recharge.controller';
 import { ClubRechargeContextService } from './club-recharge-context.service';
 import { ClubRechargeCreationService } from './club-recharge-creation.service';
@@ -13,7 +14,13 @@ import { ClubRechargeService } from './club-recharge.service';
 import { ClubRechargeSettlementService } from './club-recharge-settlement.service';
 
 @Module({
-  imports: [AuthModule, PrismaModule, ClubStoresModule, ClubOrdersModule],
+  imports: [
+    forwardRef(() => AuthModule),
+    PrismaModule,
+    ClubStoresModule,
+    ClubOrdersModule,
+    ClubWechatPayModule,
+  ],
   controllers: [ClubRechargeController],
   providers: [
     ClubRechargeContextService,

@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ClubOrderServicePaymentService } from '../orders/club-order-service-payment.service';
 import { ClubRechargePaymentService } from '../recharge/club-recharge-payment.service';
 import { ClubPaymentCallbackDispatchService } from './club-payment-callback-dispatch.service';
+import type { ClubPaymentCallbackSettlementParams } from './club-payments.types';
 
 describe('ClubPaymentCallbackDispatchService', () => {
   let service: ClubPaymentCallbackDispatchService;
@@ -13,6 +14,13 @@ describe('ClubPaymentCallbackDispatchService', () => {
 
   const clubOrderServicePaymentService = {
     confirmOrderPaidByCallback: jest.fn(),
+  };
+
+  const settlement: ClubPaymentCallbackSettlementParams = {
+    amountFen: 50000,
+    transactionId: '4200001234202606101234567890',
+    paidAtMs: Date.now(),
+    callbackReceivedAtMs: Date.now(),
   };
 
   beforeEach(async () => {
@@ -37,48 +45,29 @@ describe('ClubPaymentCallbackDispatchService', () => {
     );
   });
 
-  it('dispatchWechatCallback 在 recharge 订单时驱动充值支付服务', async () => {
-    const payload = {
-      orderNo: 'RC123',
-      orderType: 'recharge' as const,
-      amountFen: 50000,
-      transactionId: '4200001234202606101234567890',
-      status: 'SUCCESS' as const,
-      paidAt: '2026-06-10T12:31:00.000Z',
-    };
+  it('dispatchByOrderNo 在 RC 前缀时驱动充值支付服务', async () => {
     clubRechargePaymentService.confirmOrderPaidByCallback.mockResolvedValue({
       orderNo: 'RC123',
       orderType: 'recharge',
       status: 'paid',
     });
 
-    await expect(service.dispatchWechatCallback(payload)).resolves.toEqual({
+    await expect(
+      service.dispatchByOrderNo('RC123', settlement),
+    ).resolves.toEqual({
       orderNo: 'RC123',
       orderType: 'recharge',
       status: 'paid',
     });
     expect(
       clubRechargePaymentService.confirmOrderPaidByCallback,
-    ).toHaveBeenCalledWith(
-      'RC123',
-      expect.objectContaining({
-        amountFen: 50000,
-        transactionId: '4200001234202606101234567890',
-      }),
-    );
+    ).toHaveBeenCalledWith('RC123', settlement);
     expect(
       clubOrderServicePaymentService.confirmOrderPaidByCallback,
     ).not.toHaveBeenCalled();
   });
 
-  it('dispatchWechatCallback 在 service 订单时驱动服务支付服务', async () => {
-    const payload = {
-      orderNo: 'SV123',
-      orderType: 'service' as const,
-      amountFen: 49900,
-      transactionId: '4200001234202606109999999999',
-      status: 'SUCCESS' as const,
-    };
+  it('dispatchByOrderNo 在 SV 前缀时驱动服务支付服务', async () => {
     clubOrderServicePaymentService.confirmOrderPaidByCallback.mockResolvedValue(
       {
         orderNo: 'SV123',
@@ -87,7 +76,13 @@ describe('ClubPaymentCallbackDispatchService', () => {
       },
     );
 
-    await expect(service.dispatchWechatCallback(payload)).resolves.toEqual({
+    await expect(
+      service.dispatchByOrderNo('SV123', {
+        ...settlement,
+        amountFen: 49900,
+        transactionId: '4200001234202606109999999999',
+      }),
+    ).resolves.toEqual({
       orderNo: 'SV123',
       orderType: 'service',
       status: 'paid',
@@ -96,34 +91,16 @@ describe('ClubPaymentCallbackDispatchService', () => {
       clubOrderServicePaymentService.confirmOrderPaidByCallback,
     ).toHaveBeenCalledWith(
       'SV123',
-      expect.objectContaining({
-        amountFen: 49900,
-        transactionId: '4200001234202606109999999999',
-      }),
+      expect.objectContaining({ amountFen: 49900 }),
     );
     expect(
       clubRechargePaymentService.confirmOrderPaidByCallback,
     ).not.toHaveBeenCalled();
   });
 
-  it('dispatchWechatCallback 在 paidAt 非法时抛出 BadRequestException', () => {
-    const payload = {
-      orderNo: 'RC123',
-      orderType: 'recharge' as const,
-      amountFen: 50000,
-      transactionId: '4200001234202606101234567890',
-      status: 'SUCCESS' as const,
-      paidAt: 'not-a-date',
-    };
-
-    expect(() => service.dispatchWechatCallback(payload)).toThrow(
+  it('dispatchByOrderNo 在未知前缀时抛出 BadRequestException', () => {
+    expect(() => service.dispatchByOrderNo('XX123', settlement)).toThrow(
       BadRequestException,
     );
-    expect(
-      clubRechargePaymentService.confirmOrderPaidByCallback,
-    ).not.toHaveBeenCalled();
-    expect(
-      clubOrderServicePaymentService.confirmOrderPaidByCallback,
-    ).not.toHaveBeenCalled();
   });
 });

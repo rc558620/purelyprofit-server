@@ -305,6 +305,74 @@ describe('BusinessAnalysisService', () => {
     expect(prismaService.$queryRaw).toHaveBeenCalledTimes(7);
   });
 
+  it('year 周期不会再被 90 天旧上限截断，6 月趋势点仍会返回', async () => {
+    jest.setSystemTime(new Date('2026-06-13T12:00:00.000Z'));
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          currentRevenue: new Prisma.Decimal('100.00'),
+          currentOrderCount: 1,
+          previousRevenue: new Prisma.Decimal('0'),
+          previousOrderCount: 0,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucketAt: new Date('2026-06-08T00:00:00.000Z'),
+          revenue: new Prisma.Decimal('100.00'),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          categoryName: '饮品',
+          revenue: new Prisma.Decimal('100.00'),
+          profit: new Prisma.Decimal('80.00'),
+          quantity: 1,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          productId: 11,
+          productName: '六月商品',
+          categoryName: '饮品',
+          totalRevenue: new Prisma.Decimal('100.00'),
+          totalProfit: new Prisma.Decimal('80.00'),
+          quantity: 1,
+          image: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          currentTotalCost: new Prisma.Decimal('20.00'),
+          previousTotalCost: new Prisma.Decimal('0'),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucketAt: new Date('2026-06-08T00:00:00.000Z'),
+          amount: new Prisma.Decimal('20.00'),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          category: 'purchase',
+          amount: new Prisma.Decimal('20.00'),
+        },
+      ]);
+
+    const response = await service.getAnalysis(user, {
+      period: 'year',
+    });
+
+    expect(response.dailyTrend.length).toBeGreaterThan(90);
+    expect(response.dailyTrend).toEqual(
+      expect.arrayContaining([
+        { dateLabel: '06/08', revenue: 100, cost: 20, profit: 80 },
+      ]),
+    );
+  });
+
   it('today 周期显式传入 startTime/endTime 时按前端边界查询并返回当天成本趋势', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     platformMembershipAccessService.clampHistoryRange.mockResolvedValueOnce({

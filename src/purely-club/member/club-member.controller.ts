@@ -84,7 +84,8 @@ export class ClubMemberController {
   @Patch('profile/nickname')
   @ApiOperation({
     summary: '修改当前 purely-club 用户昵称',
-    description: '仅更新当前登录 purely-club 用户自己的昵称，不允许修改其他用户资料。',
+    description:
+      '仅更新当前登录 purely-club 用户自己的昵称，不允许修改其他用户资料。',
   })
   @ApiOkResponse({
     description: '更新 purely-club 用户昵称成功并返回最新资料',
@@ -95,6 +96,22 @@ export class ClubMemberController {
     @Body() dto: UpdateClubMemberNicknameDto,
   ): Promise<ClubMemberProfileDto> {
     return this.clubMemberService.updateNickname(user, dto);
+  }
+
+  @Get('profile')
+  @ApiOperation({
+    summary: '获取当前 purely-club 用户资料',
+    description:
+      '返回当前登录 purely-club 用户自己的基础资料，仅包含 id、手机号、昵称与头像。',
+  })
+  @ApiOkResponse({
+    description: '获取 purely-club 当前用户资料成功',
+    type: ClubMemberProfileDto,
+  })
+  getProfile(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ClubMemberProfileDto> {
+    return this.clubMemberService.getProfile(user);
   }
 
   @Get('account')

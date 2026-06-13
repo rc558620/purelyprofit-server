@@ -108,7 +108,8 @@ export class ClubMemberLevelsService {
     return {
       heldLevel: snapshot.level,
       heldLevelLabel:
-        heldLevelConfig?.label ?? CLUB_MEMBER_HELD_LEVEL_LABEL_MAP[snapshot.level],
+        heldLevelConfig?.label ??
+        CLUB_MEMBER_HELD_LEVEL_LABEL_MAP[snapshot.level],
       heldLevelVisible,
       currentLevelConfig,
       visibleLevelConfigs,
@@ -126,7 +127,7 @@ export class ClubMemberLevelsService {
       (config) => config.level === currentLevelConfig.level,
     );
     const nextLevelConfig =
-      currentIndex >= 0 ? configs[currentIndex + 1] ?? null : null;
+      currentIndex >= 0 ? (configs[currentIndex + 1] ?? null) : null;
 
     if (!nextLevelConfig) {
       return {
@@ -218,7 +219,8 @@ export class ClubMemberLevelsService {
             ? Math.max(0, Math.round(matched.spendThreshold))
             : fallbackLevel.spendThreshold,
         description:
-          typeof matched?.description === 'string' && matched.description.trim().length > 0
+          typeof matched?.description === 'string' &&
+          matched.description.trim().length > 0
             ? matched.description.trim()
             : fallbackLevel.description,
         enabled:
@@ -240,7 +242,9 @@ export class ClubMemberLevelsService {
       (levelSetting) => levelSetting.enabled || levelSetting.id === 'gold',
     );
 
-    return effectiveLevels.map((levelSetting) => this.toConfigDto(levelSetting));
+    return effectiveLevels.map((levelSetting) =>
+      this.toConfigDto(levelSetting),
+    );
   }
 
   private toConfigDto(
@@ -248,14 +252,16 @@ export class ClubMemberLevelsService {
   ): ClubMemberLevelConfigDto {
     const meta = CLUB_MEMBER_LEVEL_META[levelSetting.id];
     const requiredConsume = this.convertFenToYuan(levelSetting.spendThreshold);
+    const isRegisterLevel = levelSetting.id === 'gold';
     const benefits = new Set<string>([
       this.formatDiscountLabel(levelSetting.discountRate),
-      levelSetting.description.trim(),
+      // 注册即享等级展示 description；有充值门槛的等级改用动态充值门槛文案
+      ...(isRegisterLevel ? [levelSetting.description.trim()] : []),
       ...meta.extraBenefits,
     ]);
 
-    if (levelSetting.id !== 'gold' && requiredConsume > 0) {
-      benefits.add(`累计消费满 ¥${this.formatAmount(requiredConsume)} 解锁`);
+    if (!isRegisterLevel && requiredConsume > 0) {
+      benefits.add(`累计充值 ¥${this.formatAmount(requiredConsume)} 可升级`);
     }
 
     return {
@@ -282,7 +288,9 @@ export class ClubMemberLevelsService {
       return matched;
     }
 
-    return configs.find((config) => config.level === fallbackLevel) ?? configs[0];
+    return (
+      configs.find((config) => config.level === fallbackLevel) ?? configs[0]
+    );
   }
 
   private resolveVisibleFallbackLevel(

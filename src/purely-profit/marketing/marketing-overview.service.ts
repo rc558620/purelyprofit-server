@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -47,8 +47,17 @@ type MarketingMemberLevelSettingRecord = {
   pointsRatio: Prisma.JsonValue;
 };
 
+type MarketingOverviewWechatPayRecord = {
+  wechatMchId: string | null;
+  wechatMchName: string | null;
+  wechatApiV3Key: string | null;
+  wechatConfiguredAt: Date | null;
+};
+
 @Injectable()
 export class MarketingOverviewService {
+  private readonly logger = new Logger(MarketingOverviewService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
@@ -220,6 +229,7 @@ export class MarketingOverviewService {
       rechargeCount,
       dailyTotals,
       monthlyTotals,
+      storeRecord,
     ] = await Promise.all([
       this.prisma.marketingCustomer.count({
         where: { storeId, visitCount: { gt: 0 } },
@@ -256,6 +266,7 @@ export class MarketingOverviewService {
       }),
       queryOverviewDailyTrend(this.prisma, storeId),
       queryOverviewMonthlyTrend(this.prisma, storeId, previousYearStart),
+      this.findStoreWechatPayConfig(storeId),
     ]);
 
     const totalRecharge =
@@ -269,6 +280,10 @@ export class MarketingOverviewService {
       (thisMonthRechargeAgg._sum.giftAmount ?? 0);
     const currentYear = now.getFullYear();
     const inviteCode = buildStoreInviteCode(storeId);
+
+    const wechatConfigured = !!(
+      storeRecord?.wechatMchId && storeRecord?.wechatApiV3Key
+    );
 
     return {
       totalBalance: balanceSum._sum.balance ?? 0,
@@ -289,7 +304,80 @@ export class MarketingOverviewService {
         monthlyTotals,
         currentYear - 1,
       ),
+      wechatPayConfig: {
+        configured: wechatConfigured,
+        ...(storeRecord?.wechatMchId ? { mchId: storeRecord.wechatMchId } : {}),
+        ...(storeRecord?.wechatMchName
+          ? { mchName: storeRecord.wechatMchName }
+          : {}),
+        ...(storeRecord?.wechatConfiguredAt
+          ? { configuredAt: storeRecord.wechatConfiguredAt.toISOString() }
+          : {}),
+      },
     };
+  }
+
+  private async findStoreWechatPayConfig(
+    storeId: number,
+  ): Promise<MarketingOverviewWechatPayRecord | null> {
+    try {
+      return await this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: {
+          wechatMchId: true,
+          wechatMchName: true,
+          wechatApiV3Key: true,
+          wechatConfiguredAt: true,
+        },
+      });
+    } catch (error: unknown) {
+      if (!this.isMissingWechatPaySchemaError(error)) {
+        throw error;
+      }
+
+      this.logger.warn(
+        `读取营销概览门店 ${storeId} 的微信收款配置时检测到字段尚未迁移，按未配置降级返回；如需启用微信收款，请先执行 migration 20260613120000_add_store_wechat_pay_config`,
+      );
+      return this.buildEmptyWechatPayConfigRecord();
+    }
+  }
+
+  private buildEmptyWechatPayConfigRecord(): MarketingOverviewWechatPayRecord {
+    return {
+      wechatMchId: null,
+      wechatMchName: null,
+      wechatApiV3Key: null,
+      wechatConfiguredAt: null,
+    };
+  }
+
+  private isMissingWechatPaySchemaError(error: unknown): boolean {
+    const message =
+      error instanceof Error
+        ? error.message.toLowerCase()
+        : String(error).toLowerCase();
+
+    if (
+      !message.includes('wechat_mch_id') &&
+      !message.includes('wechat_mch_name') &&
+      !message.includes('wechat_api_v3_key') &&
+      !message.includes('wechat_configured_at') &&
+      !message.includes('wechatmchid') &&
+      !message.includes('wechatmchname') &&
+      !message.includes('wechatapiv3key')
+    ) {
+      return false;
+    }
+
+    return (
+      message.includes('p2022') ||
+      message.includes('does not exist') ||
+      message.includes("doesn't exist") ||
+      message.includes('unknown column') ||
+      message.includes('no such column') ||
+      message.includes('unknown field') ||
+      message.includes('column')
+    );
   }
 
   private async resolveManageStoreId(

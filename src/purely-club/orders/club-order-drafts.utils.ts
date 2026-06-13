@@ -80,7 +80,8 @@ export const createDraftPayload = <
 >(
   params: CreateClubOrderDraftParams<TMetadata, TOrderType>,
 ): ClubOrderDraftPayload<TMetadata, TOrderType> => {
-  const orderNo = buildOrderNo(params.orderType, params.now);
+  // 优先使用外部预生成的订单号（需与 JSAPI out_trade_no 保持一致）
+  const orderNo = params.orderNo ?? buildOrderNo(params.orderType, params.now);
 
   return {
     id: orderNo,
@@ -102,7 +103,10 @@ export const createDraftPayload = <
     callbackReceivedAtMs: null,
     paymentConfirmationSource: null,
     failureReason: null,
-    paymentParams: buildPaymentParams(orderNo, params.now, params.amountFen),
+    // 优先使用外部传入的真实 JSAPI 参数；未传时生成 mock 参数（开发态兜底）
+    paymentParams:
+      params.paymentParams ??
+      buildPaymentParams(orderNo, params.now, params.amountFen),
     metadata: params.metadata,
   };
 };

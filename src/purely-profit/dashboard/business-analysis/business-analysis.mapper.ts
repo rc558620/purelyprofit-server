@@ -22,7 +22,8 @@ import {
 } from './business-analysis.types';
 
 const DAY_MS = 86_400_000;
-const MAX_TREND_DAYS = 90;
+// 经营分析的最长预设周期是今年，趋势图至少要覆盖完整自然年，避免 6 月之后的数据被截断。
+const MAX_TREND_DAYS = 366;
 
 export function buildEmptyAnalysisResponse(): BusinessAnalysisResponseDto {
   return {

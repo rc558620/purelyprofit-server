@@ -1,6 +1,9 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import type { ClubMemberLevelValue } from '../../purely-club/member/dto/club-member-account.dto';
+import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/club-member-levels.service';
+import { ClubMemberProfileService } from '../../purely-club/member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { toNullableMediaText } from '../commerce/commerce.utils';
 import type {
@@ -35,6 +38,8 @@ export class MarketingCustomersService {
     private readonly prisma: PrismaService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly marketingSharedService: MarketingSharedService,
+    private readonly clubMemberProfileService: ClubMemberProfileService,
+    private readonly clubMemberLevelsService: ClubMemberLevelsService,
   ) {}
 
   async listCustomers(
@@ -108,7 +113,7 @@ export class MarketingCustomersService {
       'marketing:view',
     );
 
-    const [recentRecharges, recentConsumptions, rechargeSummary] =
+    const [recentRecharges, recentConsumptions, rechargeSummary, clubLevel] =
       await Promise.all([
         queryCustomerRecentRecharges(this.prisma, customerId, 5),
         queryCustomerRecentConsumptions(this.prisma, customerId, 5),
@@ -116,10 +121,12 @@ export class MarketingCustomersService {
           where: { customerId },
           _sum: { amount: true, giftAmount: true },
         }),
+        this.resolveClubLevel(customer.storeId, customer.phone),
       ]);
 
     return {
       ...mapCustomerRow(customer),
+      ...clubLevel,
       totalRecharge:
         (rechargeSummary._sum.amount ?? 0) +
         (rechargeSummary._sum.giftAmount ?? 0),
@@ -210,6 +217,33 @@ export class MarketingCustomersService {
 
   private async invalidateOverviewCache(storeId: number): Promise<void> {
     await this.cacheInvalidatorService.invalidateMarketingOverview(storeId);
+  }
+
+  private async resolveClubLevel(
+    storeId: number,
+    phone: string | null,
+  ): Promise<Pick<MarketingCustomerDetailDto, 'clubLevel' | 'clubLevelLabel'>> {
+    const normalizedPhone = phone?.trim();
+    if (!normalizedPhone) {
+      return {};
+    }
+
+    const snapshot =
+      await this.clubMemberProfileService.getSnapshotByStoreAndPhone(
+        storeId,
+        normalizedPhone,
+      );
+    if (!snapshot) {
+      return {};
+    }
+
+    const currentLevelConfig =
+      await this.clubMemberLevelsService.resolveCurrentLevelConfig(snapshot);
+
+    return {
+      clubLevel: currentLevelConfig.level as ClubMemberLevelValue,
+      clubLevelLabel: currentLevelConfig.label,
+    };
   }
 
   private async ensureUniquePhone(

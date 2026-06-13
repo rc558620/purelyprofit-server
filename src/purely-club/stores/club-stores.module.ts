@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AuthModule } from '../../purely-profit/auth/auth.module';
 import { StoresModule } from '../../purely-profit/stores/stores.module';
 import { RedisModule } from '../../redis/redis.module';
@@ -11,7 +11,12 @@ import { ClubStoresController } from './club-stores.controller';
 import { ClubStoresService } from './club-stores.service';
 
 @Module({
-  imports: [AuthModule, PrismaModule, RedisModule, StoresModule],
+  imports: [
+    forwardRef(() => AuthModule),
+    PrismaModule,
+    RedisModule,
+    StoresModule,
+  ],
   controllers: [ClubStoresController],
   providers: [
     ClubStoreAccessService,

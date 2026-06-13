@@ -100,6 +100,10 @@ model Store {
   spaces                     Space[]
   spaceReservations          SpaceReservation[]
   spaceSessions              SpaceSession[]
+  wechatMchId                String?                       @map("wechat_mch_id")
+  wechatMchName              String?                       @map("wechat_mch_name")
+  wechatApiV3Key             String?                       @map("wechat_api_v3_key")
+  wechatConfiguredAt         DateTime?                     @map("wechat_configured_at")
   createdAt                  DateTime                      @default(now()) @map("created_at")
   updatedAt                  DateTime                      @updatedAt @map("updated_at")
 

@@ -6,6 +6,10 @@
 //  - 手机号在响应中脱敏（maskPhone），原始号码不出现在 API 响应
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  CLUB_MEMBER_LEVEL_VALUES,
+  type ClubMemberLevelValue,
+} from '../../../purely-club/member/dto/club-member-account.dto';
 import { IsString } from 'class-validator';
 import {
   MARKETING_CUSTOMER_STATUS_VALUES,
@@ -15,16 +19,16 @@ import {
   MARKETING_PROMOTION_STATUS_VALUES,
   MARKETING_PROMOTION_TYPE_VALUES,
   MARKETING_RECHARGE_TYPE_VALUES,
-    type MarketingCustomerStatus,
-    type MarketingCustomerTierValue,
-    type MarketingMemberLevelIdValue,
-    type MarketingPayTypeValue,
-    type MarketingPointsChangeTypeValue,
-    type MarketingPointsRatioConfigValue,
-    type MarketingPromotionParamsValue,
-    type MarketingPromotionStatus,
-    type MarketingPromotionTypeValue,
-    type MarketingRechargeTypeValue,
+  type MarketingCustomerStatus,
+  type MarketingCustomerTierValue,
+  type MarketingMemberLevelIdValue,
+  type MarketingPayTypeValue,
+  type MarketingPointsChangeTypeValue,
+  type MarketingPointsRatioConfigValue,
+  type MarketingPromotionParamsValue,
+  type MarketingPromotionStatus,
+  type MarketingPromotionTypeValue,
+  type MarketingRechargeTypeValue,
 } from '../marketing.utils';
 
 import type { MarketingPaginationMeta } from '../marketing.utils';
@@ -104,6 +108,21 @@ export class MarketingCustomerDto {
 }
 
 export class MarketingCustomerDetailDto extends MarketingCustomerDto {
+  @ApiPropertyOptional({
+    example: 'platinum',
+    enum: CLUB_MEMBER_LEVEL_VALUES,
+    description:
+      '对齐 purely-club 当前会员等级；未开通 purely-club 会员时不返回',
+  })
+  clubLevel?: ClubMemberLevelValue;
+
+  @ApiPropertyOptional({
+    example: '铂金会员',
+    description:
+      '对齐 purely-club 当前会员等级名称；未开通 purely-club 会员时不返回',
+  })
+  clubLevelLabel?: string;
+
   /** 累计充值金额（分）= amount + giftAmount 汇总 */
   @ApiProperty({ example: 268000, description: '累计充值金额，单位：分' })
   totalRecharge: number;
@@ -268,7 +287,10 @@ export class MarketingMemberLevelDto {
   @ApiProperty({ example: 0.9, description: '等级折扣率，0~1 之间' })
   discountRate: number;
 
-  @ApiProperty({ example: 500000, description: '升级所需累计消费金额，单位：分' })
+  @ApiProperty({
+    example: 500000,
+    description: '升级所需累计消费金额，单位：分',
+  })
   spendThreshold: number;
 
   @ApiProperty({ example: '累计消费 ≥ ¥5,000' })
@@ -288,7 +310,10 @@ export class MarketingPointsRatioDto implements MarketingPointsRatioConfigValue 
   @ApiProperty({ example: 100, description: '多少积分抵扣 1 元' })
   redeemRatioPoints: number;
 
-  @ApiProperty({ example: 0.5, description: '单次消费最大积分抵扣比例，0~1 之间' })
+  @ApiProperty({
+    example: 0.5,
+    description: '单次消费最大积分抵扣比例，0~1 之间',
+  })
   maxRedeemRatio: number;
 
   @ApiProperty({ example: true })
@@ -397,6 +422,32 @@ export class MarketingOverviewMonthlyTrendPointDto {
   amount: number | null;
 }
 
+export class MarketingWechatPayConfigDto {
+  @ApiProperty({
+    example: true,
+    description: '是否已配置微信收款（mchId + apiV3Key 均存在时为 true）',
+  })
+  configured: boolean;
+
+  @ApiPropertyOptional({
+    example: '1234567890',
+    description: '微信商户号；未配置时不返回',
+  })
+  mchId?: string;
+
+  @ApiPropertyOptional({
+    example: '纯利优选昆明店',
+    description: '微信商户名称；未配置时不返回',
+  })
+  mchName?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-06-13T12:00:00.000Z',
+    description: '最近一次配置时间；未配置时不返回',
+  })
+  configuredAt?: string;
+}
+
 export class MarketingOverviewDto {
   /** 储值总额（分）= 全部未消费余额之和 */
   @ApiProperty({ example: 5000000, description: '储值余额总计，单位：分' })
@@ -440,7 +491,7 @@ export class MarketingOverviewDto {
   @ApiProperty({ type: [MarketingOverviewTrendPointDto] })
   last30Days: MarketingOverviewTrendPointDto[];
 
-  /** 当前年份，用于“今年 / 去年”趋势切换 */
+  /** 当前年份，用于"今年 / 去年"趋势切换 */
   @ApiProperty({ example: 2026 })
   currentYear: number;
 
@@ -451,4 +502,8 @@ export class MarketingOverviewDto {
   /** 去年每月储值趋势（仅含 recharge/gift） */
   @ApiProperty({ type: [MarketingOverviewMonthlyTrendPointDto] })
   lastYearMonthlyTrend: MarketingOverviewMonthlyTrendPointDto[];
+
+  /** 微信收款配置状态 */
+  @ApiProperty({ type: MarketingWechatPayConfigDto })
+  wechatPayConfig: MarketingWechatPayConfigDto;
 }

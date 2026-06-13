@@ -13,6 +13,7 @@ import type {
 } from '../orders/club-order-drafts.types';
 import type { ClubOrderStatusResponseDto } from '../orders/dto/club-order.dto';
 import { ClubPaymentSettlementTemplate } from '../payments/club-payment-settlement.template';
+import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
 import type { ClubRechargeOrderResponseDto } from './dto/club-recharge.dto';
 import { toClubRechargeOrderResponse } from './club-recharge.mapper';
 import {
@@ -50,7 +51,7 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
   ): Promise<void> {
     const customer = await this.findCustomer(tx, draft);
     await this.createRechargeRecord(tx, draft, customer.id);
-    await this.increaseCustomerBalance(tx, draft, customer.id);
+    await this.updateCustomerAfterRecharge(tx, draft, customer);
     await this.increasePromotionUsage(tx, draft);
   }
 
@@ -66,13 +67,13 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
   private async findCustomer(
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'>,
-  ): Promise<{ id: number }> {
+  ): Promise<{ id: number; totalSpent: number }> {
     const customer = await tx.marketingCustomer.findFirst({
       where: {
         id: draft.customerId ?? undefined,
         storeId: draft.storeId,
       },
-      select: { id: true },
+      select: { id: true, totalSpent: true },
     });
 
     if (!customer) {
@@ -100,18 +101,25 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     });
   }
 
-  private increaseCustomerBalance(
+  /**
+   * 充值落账后更新顾客储值余额、累计消费额与会员等级。
+   * 充值金额（含赠送）同步计入 totalSpent，以驱动会员等级升级。
+   */
+  private updateCustomerAfterRecharge(
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'>,
-    customerId: number,
+    customer: { id: number; totalSpent: number },
   ): Promise<unknown> {
+    const totalCreditFen =
+      draft.metadata.rechargeAmountFen + draft.metadata.bonusAmountFen;
+    const newTotalSpent = customer.totalSpent + totalCreditFen;
+
     return tx.marketingCustomer.update({
-      where: { id: customerId },
+      where: { id: customer.id },
       data: {
-        balance: {
-          increment:
-            draft.metadata.rechargeAmountFen + draft.metadata.bonusAmountFen,
-        },
+        balance: { increment: totalCreditFen },
+        totalSpent: { increment: totalCreditFen },
+        tier: calcCustomerTier(newTotalSpent) as never,
       },
     });
   }

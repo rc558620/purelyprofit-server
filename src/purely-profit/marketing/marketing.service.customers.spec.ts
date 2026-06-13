@@ -100,6 +100,29 @@ describe('MarketingService customers', () => {
     context.prismaService.marketingRecharge.aggregate.mockResolvedValue({
       _sum: { amount: 30000, giftAmount: 5000 },
     });
+    context.clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue(
+      {
+        memberId: 201,
+        storeId: 18,
+        balance: 200,
+        level: 'gold',
+        points: 300,
+        memberCode: 'PC202604010201',
+        joinDate: '2026-04-01',
+        totalConsume: 5200,
+      },
+    );
+    context.clubMemberLevelsService.resolveCurrentLevelConfig.mockResolvedValue(
+      {
+        level: 'platinum',
+        label: '铂金会员',
+        color: '#9f67d4',
+        bgColor: '#f3efff',
+        requiredConsume: 5000,
+        discountRate: 0.9,
+        benefits: ['9 折会员专属价'],
+      },
+    );
 
     const result = await context.service.getCustomer(context.user, 9);
 
@@ -113,6 +136,16 @@ describe('MarketingService customers', () => {
     );
     expect(result).not.toHaveProperty('createdAt');
     expect(result.status).toBe('active');
+    expect(result.clubLevel).toBe('platinum');
+    expect(result.clubLevelLabel).toBe('铂金会员');
+    expect(
+      context.clubMemberProfileService.getSnapshotByStoreAndPhone,
+    ).toHaveBeenCalledWith(18, '13800138000');
+    expect(
+      context.clubMemberLevelsService.resolveCurrentLevelConfig,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ memberId: 201, totalConsume: 5200 }),
+    );
     expect(result.recentRecharges[0]).toEqual({
       id: '100',
       customerId: '9',

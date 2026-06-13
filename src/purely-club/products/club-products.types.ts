@@ -38,8 +38,36 @@ export interface ClubProductRecord {
   } | null;
 }
 
-export interface ClubFirstOrderPromotion {
+export interface ClubProductDiscountPromotion {
   id: number;
   discountRate: number;
   tag: string;
+}
+
+export interface ClubProductReducePromotion {
+  id: number;
+  thresholdFen: number;
+  reduceAmountFen: number;
+  tag: string;
+}
+
+export interface ClubProductPricingContext {
+  memberDiscountRate: number | null;
+  firstOrderPromotions: ClubProductDiscountPromotion[];
+  discountPromotions: ClubProductDiscountPromotion[];
+  reducePromotions: ClubProductReducePromotion[];
+}
+
+/** 已应用的优惠活动摘要（返回给前端展示） */
+export interface ClubAppliedPromotion {
+  /** 活动 ID */
+  id: string;
+  /** 活动类型 */
+  type: 'discount' | 'first_order_discount' | 'reduce';
+  /** 展示标签（如 "7折 优惠"、"首单 8折"、"满500减50"） */
+  tag: string;
+  /** 折扣率（0-100 整数），仅 discount / first_order_discount 有值 */
+  discountRate?: number;
+  /** 该活动节省金额（元） */
+  savingAmount: number;
 }

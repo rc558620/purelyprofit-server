@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/club-member-levels.service';
+import { ClubMemberProfileService } from '../../purely-club/member/member-profile/club-member-profile.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
-import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
 import { MarketingAccessService } from './marketing-access.service';
@@ -74,6 +76,9 @@ export interface MarketingPrismaServiceMock {
     update: jest.Mock;
     delete: jest.Mock;
   };
+  store: {
+    findUnique: jest.Mock;
+  };
   $queryRaw: jest.Mock;
   $transaction: jest.Mock;
 }
@@ -87,11 +92,21 @@ export interface MarketingPlatformMembershipAccessServiceMock {
   ensureMarketingFeatureEnabled: jest.Mock;
 }
 
+export interface MarketingClubMemberProfileServiceMock {
+  getSnapshotByStoreAndPhone: jest.Mock;
+}
+
+export interface MarketingClubMemberLevelsServiceMock {
+  resolveCurrentLevelConfig: jest.Mock;
+}
+
 export interface MarketingServiceTestingContext {
   service: MarketingService;
   prismaService: MarketingPrismaServiceMock;
   accessService: MarketingAccessServiceMock;
   platformMembershipAccessService: MarketingPlatformMembershipAccessServiceMock;
+  clubMemberProfileService: MarketingClubMemberProfileServiceMock;
+  clubMemberLevelsService: MarketingClubMemberLevelsServiceMock;
   user: AuthenticatedUser;
 }
 
@@ -147,6 +162,9 @@ function createPrismaServiceMock(): MarketingPrismaServiceMock {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    store: {
+      findUnique: jest.fn(),
+    },
     $queryRaw: jest.fn(),
     $transaction: jest.fn(),
   };
@@ -162,6 +180,18 @@ function createAccessServiceMock(): MarketingAccessServiceMock {
 function createPlatformMembershipAccessServiceMock(): MarketingPlatformMembershipAccessServiceMock {
   return {
     ensureMarketingFeatureEnabled: jest.fn(),
+  };
+}
+
+function createClubMemberProfileServiceMock(): MarketingClubMemberProfileServiceMock {
+  return {
+    getSnapshotByStoreAndPhone: jest.fn(),
+  };
+}
+
+function createClubMemberLevelsServiceMock(): MarketingClubMemberLevelsServiceMock {
+  return {
+    resolveCurrentLevelConfig: jest.fn(),
   };
 }
 
@@ -213,6 +243,8 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
   const accessService = createAccessServiceMock();
   const platformMembershipAccessService =
     createPlatformMembershipAccessServiceMock();
+  const clubMemberProfileService = createClubMemberProfileServiceMock();
+  const clubMemberLevelsService = createClubMemberLevelsServiceMock();
 
   const module: TestingModule = await Test.createTestingModule({
     providers: [
@@ -242,6 +274,14 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
         provide: PlatformMembershipAccessService,
         useValue: platformMembershipAccessService,
       },
+      {
+        provide: ClubMemberProfileService,
+        useValue: clubMemberProfileService,
+      },
+      {
+        provide: ClubMemberLevelsService,
+        useValue: clubMemberLevelsService,
+      },
     ],
   }).compile();
 
@@ -250,6 +290,8 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
     prismaService,
     accessService,
     platformMembershipAccessService,
+    clubMemberProfileService,
+    clubMemberLevelsService,
     user: createAuthenticatedUser(),
   };
 }

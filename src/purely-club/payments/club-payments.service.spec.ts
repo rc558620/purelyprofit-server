@@ -1,7 +1,10 @@
+import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ClubPaymentCallbackDispatchService } from './club-payment-callback-dispatch.service';
 import { ClubPaymentCallbackSignatureService } from './club-payment-callback-signature.service';
+import { ClubWechatCallbackDecryptorService } from './club-wechat-callback-decryptor.service';
 import { ClubPaymentsService } from './club-payments.service';
+import type { ClubWechatPaymentCallbackDto } from './dto/club-wechat-callback.dto';
 
 describe('ClubPaymentsService', () => {
   let service: ClubPaymentsService;
@@ -11,8 +14,27 @@ describe('ClubPaymentsService', () => {
   };
 
   const clubPaymentCallbackDispatchService = {
-    dispatchWechatCallback: jest.fn(),
+    dispatchByOrderNo: jest.fn(),
   };
+
+  const clubWechatCallbackDecryptorService = {
+    decryptCallback: jest.fn(),
+    validateAndExtract: jest.fn(),
+  };
+
+  const makeCallbackPayload = (): ClubWechatPaymentCallbackDto => ({
+    id: 'notify-id-123',
+    create_time: '2026-06-10T12:31:00+08:00',
+    event_type: 'TRANSACTION.SUCCESS',
+    resource_type: 'encrypt-resource',
+    summary: '支付成功',
+    resource: {
+      algorithm: 'AEAD_AES_256_GCM',
+      ciphertext: 'BASE64_ENCRYPTED_CONTENT',
+      nonce: 'NONCE12345678',
+      associated_data: 'transaction',
+    },
+  });
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -28,56 +50,74 @@ describe('ClubPaymentsService', () => {
           provide: ClubPaymentCallbackDispatchService,
           useValue: clubPaymentCallbackDispatchService,
         },
+        {
+          provide: ClubWechatCallbackDecryptorService,
+          useValue: clubWechatCallbackDecryptorService,
+        },
       ],
     }).compile();
 
     service = module.get<ClubPaymentsService>(ClubPaymentsService);
   });
 
-  it('handleWechatCallback 先验签再分发落账并返回 ack', async () => {
-    const payload = {
-      orderNo: 'RC123',
-      orderType: 'recharge' as const,
-      amountFen: 50000,
-      transactionId: '4200001234202606101234567890',
-      status: 'SUCCESS' as const,
-      paidAt: '2026-06-10T12:31:00.000Z',
-    };
+  it('handleWechatCallback 先验签，解密，再落账，最终返回 ack', async () => {
+    const payload = makeCallbackPayload();
+    const rawBody = JSON.stringify(payload);
     const headers = {
-      timestamp: '1718000000',
+      timestamp: String(Math.floor(Date.now() / 1000)),
       nonce: 'callback-nonce',
       signature: 'CALLBACK_SIGNATURE',
     };
-    clubPaymentCallbackDispatchService.dispatchWechatCallback.mockResolvedValue({
+
+    const decryptedTx = {
+      out_trade_no: 'RC123',
+      transaction_id: 'wxTx123',
+      trade_state: 'SUCCESS',
+      mchid: 'mch123',
+      appid: 'app123',
+    };
+    clubWechatCallbackDecryptorService.decryptCallback.mockResolvedValue(
+      decryptedTx,
+    );
+    clubWechatCallbackDecryptorService.validateAndExtract.mockReturnValue({
+      orderNo: 'RC123',
+      transactionId: 'wxTx123',
+      amountFen: 50000,
+      paidAt: '2026-06-10T12:31:00+08:00',
+    });
+    clubPaymentCallbackDispatchService.dispatchByOrderNo.mockResolvedValue({
       orderNo: 'RC123',
       orderType: 'recharge',
       status: 'paid',
     });
 
-    await expect(service.handleWechatCallback(payload, headers)).resolves.toEqual({
+    await expect(
+      service.handleWechatCallback(payload, headers, rawBody),
+    ).resolves.toEqual({
       success: true,
       orderNo: 'RC123',
       orderType: 'recharge',
       status: 'paid',
     });
+
     expect(
       clubPaymentCallbackSignatureService.assertWechatCallbackSignature,
-    ).toHaveBeenCalledWith(payload, headers);
+    ).toHaveBeenCalledWith(rawBody, headers);
     expect(
-      clubPaymentCallbackDispatchService.dispatchWechatCallback,
+      clubWechatCallbackDecryptorService.decryptCallback,
     ).toHaveBeenCalledWith(payload);
+    expect(
+      clubPaymentCallbackDispatchService.dispatchByOrderNo,
+    ).toHaveBeenCalledWith(
+      'RC123',
+      expect.objectContaining({ amountFen: 50000, transactionId: 'wxTx123' }),
+    );
   });
 
-  it('handleWechatCallback 在验签失败时停止后续分发', async () => {
-    const payload = {
-      orderNo: 'SV123',
-      orderType: 'service' as const,
-      amountFen: 49900,
-      transactionId: '4200001234202606109999999999',
-      status: 'SUCCESS' as const,
-    };
+  it('handleWechatCallback 在验签失败时停止后续处理', async () => {
+    const payload = makeCallbackPayload();
     const headers = {
-      timestamp: '1718000000',
+      timestamp: String(Math.floor(Date.now() / 1000)),
       nonce: 'callback-nonce',
       signature: 'BAD_SIGNATURE',
     };
@@ -87,11 +127,36 @@ describe('ClubPaymentsService', () => {
       },
     );
 
-    await expect(service.handleWechatCallback(payload, headers)).rejects.toThrow(
-      'invalid-signature',
-    );
+    await expect(
+      service.handleWechatCallback(payload, headers, '{}'),
+    ).rejects.toThrow('invalid-signature');
     expect(
-      clubPaymentCallbackDispatchService.dispatchWechatCallback,
+      clubWechatCallbackDecryptorService.decryptCallback,
+    ).not.toHaveBeenCalled();
+    expect(
+      clubPaymentCallbackDispatchService.dispatchByOrderNo,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('handleWechatCallback 在非 TRANSACTION.SUCCESS 事件时拒绝处理', async () => {
+    // 让验签 mock 通过，测试事件类型过滤逻辑
+    clubPaymentCallbackSignatureService.assertWechatCallbackSignature.mockImplementation(
+      () => undefined,
+    );
+
+    const payload = makeCallbackPayload();
+    payload.event_type = 'REFUND.SUCCESS';
+    const headers = {
+      timestamp: String(Math.floor(Date.now() / 1000)),
+      nonce: 'callback-nonce',
+      signature: 'SIGNATURE',
+    };
+
+    await expect(
+      service.handleWechatCallback(payload, headers, '{}'),
+    ).rejects.toThrow(BadRequestException);
+    expect(
+      clubWechatCallbackDecryptorService.decryptCallback,
     ).not.toHaveBeenCalled();
   });
 });

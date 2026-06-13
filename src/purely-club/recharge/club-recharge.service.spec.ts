@@ -10,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
+import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubRechargeContextService } from './club-recharge-context.service';
 import { ClubRechargeCreationService } from './club-recharge-creation.service';
 import { ClubRechargePackagesService } from './club-recharge-packages.service';
@@ -131,6 +132,10 @@ describe('ClubRechargeService', () => {
         { provide: ConfigService, useValue: configService },
         { provide: ClubOrderDraftsService, useValue: clubOrderDraftsService },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
+        {
+          provide: ClubWechatJsapiService,
+          useValue: { createJsapiPaymentParams: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -264,22 +269,24 @@ describe('ClubRechargeService', () => {
         packageId: '18',
       }),
     );
-    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith({
-      user,
-      orderType: 'recharge',
-      storeId: 11,
-      storeName: '望京旗舰店',
-      customerId: 36,
-      title: '会员充值',
-      amountFen: 50000,
-      metadata: {
-        packageId: '18',
-        promotionId: 18,
-        rechargeAmountFen: 50000,
-        bonusAmountFen: 10000,
-        customAmountFen: null,
-      },
-    });
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user,
+        orderType: 'recharge',
+        storeId: 11,
+        storeName: '望京旗舰店',
+        customerId: 36,
+        title: '会员充值',
+        amountFen: 50000,
+        metadata: {
+          packageId: '18',
+          promotionId: 18,
+          rechargeAmountFen: 50000,
+          bonusAmountFen: 10000,
+          customAmountFen: null,
+        },
+      }),
+    );
   });
 
   it('createOrder 支持多梯度套餐并回填 promotionId', async () => {
@@ -421,7 +428,10 @@ describe('ClubRechargeService', () => {
   it('confirmOrderPaid 真实写入充值流水并更新订单状态', async () => {
     const draft = createRechargeDraft();
     clubOrderDraftsService.getDraft.mockResolvedValue(draft);
-    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({
+      id: 36,
+      totalSpent: 0,
+    });
     clubOrderDraftsService.markPaid.mockResolvedValue({
       ...draft,
       status: 'paid',
@@ -449,10 +459,15 @@ describe('ClubRechargeService', () => {
         note: 'club充值订单 RC123',
       },
     });
+    // 充值落账：余额 + 充值总额，同步 totalSpent 驱动等级升级
+    // rechargeAmountFen(50000) + bonusAmountFen(10000) = 60000 分
+    // 原 totalSpent=0，新 totalSpent=60000 >= silver 门槛(50000) → tier='silver'
     expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
       where: { id: 36 },
       data: {
         balance: { increment: 60000 },
+        totalSpent: { increment: 60000 },
+        tier: 'silver',
       },
     });
     expect(prismaService.marketingPromotion.updateMany).toHaveBeenCalledWith({
@@ -470,7 +485,10 @@ describe('ClubRechargeService', () => {
   it('confirmOrderPaidByCallback 校验金额后驱动回调落账', async () => {
     const draft = createRechargeDraft();
     clubOrderDraftsService.getDraftByOrderId.mockResolvedValue(draft);
-    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({
+      id: 36,
+      totalSpent: 0,
+    });
     clubOrderDraftsService.markPaid.mockResolvedValue({
       ...draft,
       status: 'paid',

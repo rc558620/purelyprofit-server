@@ -97,44 +97,45 @@ export interface MarketingMemberLevelSettingsValue {
   pointsRatio: MarketingPointsRatioConfigValue;
 }
 
-export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettingsValue = {
-  levels: [
-    {
-      id: 'gold',
-      name: '黄金会员',
-      discountRate: 0.9,
-      spendThreshold: 0,
-      description: '注册即享 9 折优惠',
+export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettingsValue =
+  {
+    levels: [
+      {
+        id: 'gold',
+        name: '黄金会员',
+        discountRate: 0.9,
+        spendThreshold: 0,
+        description: '注册即享 9 折优惠',
+        enabled: true,
+        updatedAt: 0,
+      },
+      {
+        id: 'platinum',
+        name: '铂金会员',
+        discountRate: 0.9,
+        spendThreshold: 500000,
+        description: '累计充值 ≥ ¥5,000 升级',
+        enabled: true,
+        updatedAt: 0,
+      },
+      {
+        id: 'diamond',
+        name: '钻石会员',
+        discountRate: 0.8,
+        spendThreshold: 1000000,
+        description: '累计充值 ≥ ¥10,000 升级',
+        enabled: true,
+        updatedAt: 0,
+      },
+    ],
+    pointsRatio: {
+      earnRatioCents: 100,
+      redeemRatioPoints: 100,
+      maxRedeemRatio: 0.5,
       enabled: true,
       updatedAt: 0,
     },
-    {
-      id: 'platinum',
-      name: '铂金会员',
-      discountRate: 0.9,
-      spendThreshold: 500000,
-      description: '累计消费 ≥ ¥5,000',
-      enabled: true,
-      updatedAt: 0,
-    },
-    {
-      id: 'diamond',
-      name: '钻石会员',
-      discountRate: 0.8,
-      spendThreshold: 1000000,
-      description: '累计消费 ≥ ¥10,000',
-      enabled: true,
-      updatedAt: 0,
-    },
-  ],
-  pointsRatio: {
-    earnRatioCents: 100,
-    redeemRatioPoints: 100,
-    maxRedeemRatio: 0.5,
-    enabled: true,
-    updatedAt: 0,
-  },
-};
+  };
 
 export function cloneDefaultMarketingMemberLevelSettings(): MarketingMemberLevelSettingsValue {
   return {

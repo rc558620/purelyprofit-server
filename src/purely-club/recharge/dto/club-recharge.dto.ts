@@ -30,7 +30,10 @@ export class CreateClubRechargeOrderDto {
   @IsInt({ message: 'storeId 必须是整数' })
   storeId: number;
 
-  @ApiPropertyOptional({ example: '18', description: '充值套餐 ID；选择套餐时必填' })
+  @ApiPropertyOptional({
+    example: '18',
+    description: '充值套餐 ID；选择套餐时必填',
+  })
   @IsOptional()
   @IsString({ message: 'packageId 必须是字符串' })
   packageId?: string;
@@ -46,6 +49,15 @@ export class CreateClubRechargeOrderDto {
     { message: 'customAmount 必须是合法金额，且最多保留两位小数' },
   )
   customAmount?: number;
+
+  @ApiPropertyOptional({
+    example: 'oLSdB5A3FRSxSCKrGNGKBhYQ_xyz',
+    description:
+      '微信用户 openid；前端通过 wx.login 换取后传入，用于 JSAPI 下单',
+  })
+  @IsOptional()
+  @IsString({ message: 'openid 必须是字符串' })
+  openid?: string;
 }
 
 export class ClubRechargePackageDto {
@@ -81,7 +93,10 @@ export class ClubRechargeOrderResponseDto extends ClubOrderStatusResponseDto {
   @ApiProperty({ example: 80, description: '赠送金额，单位元' })
   bonusAmount: number;
 
-  @ApiPropertyOptional({ example: '18', description: '充值套餐 ID；自定义充值时为空' })
+  @ApiPropertyOptional({
+    example: '18',
+    description: '充值套餐 ID；自定义充值时为空',
+  })
   @IsOptional()
   @IsString({ message: 'packageId 必须是字符串' })
   packageId: string | null;

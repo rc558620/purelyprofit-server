@@ -1,5 +1,13 @@
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -15,7 +23,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { StoreResponseDto } from './dto/store-response.dto';
+import {
+  UpdateWechatPayConfigDto,
+  WechatPayConfigResponseDto,
+} from './dto/wechat-pay-config.dto';
 import { StoresService } from './stores.service';
+import { StoresWechatPayService } from './stores-wechat-pay.service';
 
 @ApiTags('Stores')
 @ApiBearerAuth()
@@ -23,7 +36,10 @@ import { StoresService } from './stores.service';
 @BlockSubAccount()
 @Controller('stores')
 export class StoresController {
-  constructor(private readonly storesService: StoresService) {}
+  constructor(
+    private readonly storesService: StoresService,
+    private readonly storesWechatPayService: StoresWechatPayService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: '创建门店' })
@@ -74,5 +90,32 @@ export class StoresController {
     @Body() dto: CreateStoreDto,
   ): Promise<StoreResponseDto> {
     return this.storesService.updateCurrent(user, dto);
+  }
+
+  @Get('current/wechat-pay-config')
+  @RequirePermissions('store:view')
+  @ApiOperation({ summary: '获取门店微信收款配置' })
+  @ApiOkResponse({
+    description: '返回门店微信收款配置，apiV3Key 不在响应中返回',
+    type: WechatPayConfigResponseDto,
+  })
+  getWechatPayConfig(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<WechatPayConfigResponseDto> {
+    return this.storesWechatPayService.getWechatPayConfig(user);
+  }
+
+  @Put('current/wechat-pay-config')
+  @RequirePermissions('store:update')
+  @ApiOperation({ summary: '更新门店微信收款配置' })
+  @ApiOkResponse({
+    description: '更新成功，返回最新配置（apiV3Key 不在响应中返回）',
+    type: WechatPayConfigResponseDto,
+  })
+  updateWechatPayConfig(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateWechatPayConfigDto,
+  ): Promise<WechatPayConfigResponseDto> {
+    return this.storesWechatPayService.updateWechatPayConfig(user, dto);
   }
 }

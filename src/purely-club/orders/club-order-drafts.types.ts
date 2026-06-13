@@ -20,10 +20,17 @@ export interface ClubServiceOrderMetadata {
   productName: string;
   originalAmountFen: number;
   coverImage: string | null;
+  /** 会员基准价（原价 × 等级折扣率，单位：分） */
+  memberBaselineFen: number;
   promotionId: number | null;
-  promotionType: 'first_order_discount' | null;
+  promotionType: 'first_order_discount' | 'discount' | 'reduce' | null;
   discountRate: number | null;
+  /** 总优惠金额 = 原价 - 最终价（单位：分） */
   discountAmountFen: number;
+  /** 折扣活动单独贡献的优惠金额（单位：分） */
+  promotionDiscountAmountFen: number;
+  /** 总满减减免金额（单位：分） */
+  totalReduceFen: number;
   promotionTag: string | null;
 }
 
@@ -74,4 +81,14 @@ export interface CreateClubOrderDraftParams<
   amountFen: number;
   metadata: TMetadata;
   now: number;
+  /**
+   * 外部预生成的订单号（与 JSAPI out_trade_no 保持一致）。
+   * 不传时 createDraftPayload 自动生成。
+   */
+  orderNo?: string;
+  /**
+   * 外部注入的微信支付参数（真实 JSAPI 下单结果）。
+   * 不传时 createDraftPayload 会生成 mock 参数（仅用于开发态）。
+   */
+  paymentParams?: ClubWechatPaymentParamsDto;
 }
