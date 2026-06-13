@@ -338,7 +338,10 @@ export class MarketingOverviewService {
             : undefined;
         return this.normalizeMemberLevel(matched, defaultLevel);
       }),
-      pointsRatio: this.normalizePointsRatio(settings.pointsRatio, fallback.pointsRatio),
+      pointsRatio: this.normalizePointsRatio(
+        settings.pointsRatio,
+        fallback.pointsRatio,
+      ),
     };
   }
 
@@ -361,7 +364,8 @@ export class MarketingOverviewService {
         typeof raw?.description === 'string'
           ? raw.description
           : fallback.description,
-      enabled: typeof raw?.enabled === 'boolean' ? raw.enabled : fallback.enabled,
+      enabled:
+        typeof raw?.enabled === 'boolean' ? raw.enabled : fallback.enabled,
       updatedAt:
         typeof raw?.updatedAt === 'number' ? raw.updatedAt : fallback.updatedAt,
     };
@@ -408,11 +412,15 @@ export class MarketingOverviewService {
       where: { storeId },
       create: {
         storeId,
-        levels: settings.levels.map((level) => ({ ...level })) as Prisma.InputJsonValue,
+        levels: settings.levels.map((level) => ({
+          ...level,
+        })) as Prisma.InputJsonValue,
         pointsRatio: { ...settings.pointsRatio } as Prisma.InputJsonValue,
       },
       update: {
-        levels: settings.levels.map((level) => ({ ...level })) as Prisma.InputJsonValue,
+        levels: settings.levels.map((level) => ({
+          ...level,
+        })) as Prisma.InputJsonValue,
         pointsRatio: { ...settings.pointsRatio } as Prisma.InputJsonValue,
       },
     });

@@ -132,7 +132,9 @@ function normalizePromotionParamValue(
   if (Array.isArray(value)) {
     const normalizedItems = value
       .map((item) => normalizePromotionParamValue(item))
-      .filter((item): item is MarketingPromotionParamValue => item !== undefined);
+      .filter(
+        (item): item is MarketingPromotionParamValue => item !== undefined,
+      );
     return normalizedItems;
   }
 
@@ -146,9 +148,8 @@ function normalizePromotionParamValue(
       return normalizedValue === undefined ? null : [key, normalizedValue];
     })
     .filter(
-      (
-        entry,
-      ): entry is [string, MarketingPromotionParamValue] => entry !== null,
+      (entry): entry is [string, MarketingPromotionParamValue] =>
+        entry !== null,
     );
 
   return Object.fromEntries(normalizedEntries);

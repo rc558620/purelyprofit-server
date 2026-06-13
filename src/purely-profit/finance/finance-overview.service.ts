@@ -165,9 +165,7 @@ export class FinanceOverviewService {
         prevStart: clampedPreviousRange.empty
           ? null
           : clampedPreviousRange.start,
-        prevEnd: clampedPreviousRange.empty
-          ? null
-          : clampedPreviousRange.end,
+        prevEnd: clampedPreviousRange.empty ? null : clampedPreviousRange.end,
       }),
       queryFinanceDailyTrend(this.prisma, {
         storeId,

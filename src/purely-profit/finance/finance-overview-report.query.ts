@@ -124,7 +124,9 @@ export async function queryFinanceReportData(
                 amount: row._sum.amount ?? new Prisma.Decimal(0),
               })),
             )
-        : Promise.resolve<Array<Pick<FinanceCashFlowStatsRow, 'direction' | 'amount'>>>([]),
+        : Promise.resolve<
+            Array<Pick<FinanceCashFlowStatsRow, 'direction' | 'amount'>>
+          >([]),
       prisma.financeAccountRecord.findMany({
         where: buildDerivedOpenAccountWhere({
           storeId: params.storeId,
