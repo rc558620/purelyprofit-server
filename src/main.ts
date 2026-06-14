@@ -186,9 +186,13 @@ function findListeningProcesses(): ListeningProcessInfo[] {
     return [];
   }
 
-  const result = childProcess.spawnSync('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN'], {
-    encoding: 'utf8',
-  });
+  const result = childProcess.spawnSync(
+    'lsof',
+    ['-nP', '-iTCP', '-sTCP:LISTEN'],
+    {
+      encoding: 'utf8',
+    },
+  );
 
   if (result.error) {
     return [];
@@ -231,12 +235,16 @@ async function forceStopProcessIds(
       process.kill(processId, signal);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'unknown error';
-      console.warn(`[bootstrap] 发送 ${signal} 给进程 ${processId} 失败: ${message}`);
+      console.warn(
+        `[bootstrap] 发送 ${signal} 给进程 ${processId} 失败: ${message}`,
+      );
     }
   }
 }
 
-async function terminateProcessesListeningOnPort(port: number): Promise<boolean> {
+async function terminateProcessesListeningOnPort(
+  port: number,
+): Promise<boolean> {
   const processIds = findNodeProcessIdsListeningOnPort(port);
 
   if (processIds.length === 0) {
@@ -283,7 +291,9 @@ async function terminateNodeProcessesInPortRange(
     return [];
   }
 
-  const processIds = Array.from(new Set(targetProcesses.map((item) => item.pid)));
+  const processIds = Array.from(
+    new Set(targetProcesses.map((item) => item.pid)),
+  );
   const descriptors = targetProcesses.map((item) => `${item.pid}@${item.port}`);
 
   console.warn(

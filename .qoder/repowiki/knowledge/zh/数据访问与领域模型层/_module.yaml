@@ -6,6 +6,4 @@ scope:
     - prisma/
 source_files: []
 depends_on: []
-related_to:
-    - path: observability
-    - path: purely_profit/commerce
+related_to: []

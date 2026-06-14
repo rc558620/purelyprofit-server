@@ -59,12 +59,12 @@ export function buildDashboardHomeActivities(
       type: 'warning',
       icon: 'inventory',
       title: `${item.name} 库存预警`,
-      time: `${formatRelativeTime(item.updatedAt.getTime(), now)} · 系统`,
+      time: `${formatRelativeTime(toTimestamp(item.updatedAt), now)} · 系统`,
       tag: `剩${item.stock}件`,
       bizType: 'inventory',
       bizId: String(item.id),
       actionUrl: '/stocktaking',
-      createdAt: item.updatedAt.getTime(),
+      createdAt: toTimestamp(item.updatedAt),
     });
   }
 
@@ -79,12 +79,12 @@ export function buildDashboardHomeActivities(
       type: 'warning',
       icon: 'finance',
       title: `有${params.overdueAccounts.length}笔账款已逾期`,
-      time: `${formatRelativeTime(latestOverdue.updatedAt.getTime(), now)} · 财务管理`,
+      time: `${formatRelativeTime(toTimestamp(latestOverdue.updatedAt), now)} · 财务管理`,
       tag: `¥${formatMoneyText(totalRemaining)}`,
       bizType: 'finance_account',
       bizId: String(latestOverdue.id),
       actionUrl: '/accounts-management',
-      createdAt: latestOverdue.updatedAt.getTime(),
+      createdAt: toTimestamp(latestOverdue.updatedAt),
     });
   }
 
@@ -95,12 +95,12 @@ export function buildDashboardHomeActivities(
       type: 'info',
       icon: 'marketing',
       title: `当前有${params.activePromotions.length}个营销活动进行中`,
-      time: `${formatRelativeTime(latestPromotion.updatedAt.getTime(), now)} · 营销中心`,
-      tag: `至${formatMonthDayLabel(latestPromotion.endAt.getTime())}`,
+      time: `${formatRelativeTime(toTimestamp(latestPromotion.updatedAt), now)} · 营销中心`,
+      tag: `至${formatMonthDayLabel(toTimestamp(latestPromotion.endAt))}`,
       bizType: 'marketing_promotion',
       bizId: String(latestPromotion.id),
       actionUrl: '/marketing-center',
-      createdAt: latestPromotion.updatedAt.getTime(),
+      createdAt: toTimestamp(latestPromotion.updatedAt),
     });
   }
 
@@ -115,12 +115,12 @@ export function buildDashboardHomeActivities(
       type: 'info',
       icon: 'withdrawal',
       title: `有${params.pendingWithdrawals.length}笔提现待处理`,
-      time: `${formatRelativeTime(latestWithdrawal.appliedAt.getTime(), now)} · 会员中心`,
+      time: `${formatRelativeTime(toTimestamp(latestWithdrawal.appliedAt), now)} · 会员中心`,
       tag: `待审${totalBeans}豆`,
       bizType: 'withdrawal',
       bizId: String(latestWithdrawal.id),
       actionUrl: '/member-center',
-      createdAt: latestWithdrawal.appliedAt.getTime(),
+      createdAt: toTimestamp(latestWithdrawal.appliedAt),
     });
   }
 
@@ -131,12 +131,12 @@ export function buildDashboardHomeActivities(
       type: 'info',
       icon: 'employee',
       title: `${leave.employeeName}${LEAVE_TYPE_LABELS[leave.type]}即将开始`,
-      time: `${formatRelativeTime(leave.createdAt.getTime(), now)} · 员工管理`,
+      time: `${formatRelativeTime(toTimestamp(leave.createdAt), now)} · 员工管理`,
       tag: `${formatMoneyText(toDecimalNumber(leave.days))}天`,
       bizType: 'employee_leave',
       bizId: String(leave.id),
       actionUrl: '/employee-management',
-      createdAt: leave.createdAt.getTime(),
+      createdAt: toTimestamp(leave.createdAt),
     });
   }
 
@@ -155,6 +155,13 @@ function formatMoneyText(value: number): string {
 function formatSignedPercent(value: number): string {
   const formatted = formatMoneyText(Math.abs(value));
   return `${value > 0 ? '+' : '-'}${formatted}%`;
+}
+
+function toTimestamp(value: Date | string | number): number {
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+  return new Date(value).getTime();
 }
 
 function formatRelativeTime(timestamp: number, now: number): string {

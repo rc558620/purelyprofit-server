@@ -81,7 +81,7 @@ describe('ClubHomeService', () => {
           name: '首单 8 折',
           type: 'first_order_discount',
           description: '',
-          benefitText: '首单 8折',
+          benefitText: '',
           params: { discountRate: 80 },
           startAt: 1780272000000,
           endAt: 1782863999000,

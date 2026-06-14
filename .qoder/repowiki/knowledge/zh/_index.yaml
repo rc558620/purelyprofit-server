@@ -2,7 +2,7 @@
 schema_version: 1
 locale: zh-CN
 branch: main
-exported_at: "2026-06-13T13:17:09Z"
+exported_at: "2026-06-14T01:35:07Z"
 modules:
     "":
         dir_name: PurelyProfit 多产品线业务中台
@@ -55,9 +55,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: observability
-            - path: purely_profit/commerce
+        related_to: []
     observability:
         dir_name: 运行时可观测性与指标汇总
         title: 运行时可观测性与指标汇总
@@ -70,6 +68,115 @@ modules:
             - path: cache_layer
             - path: data_layer
             - path: purely_profit/finance/overview
+    purely_club:
+        dir_name: Purely Club 个人端业务中台
+        title: Purely Club 个人端业务中台
+        scope:
+            - src/purely-club/
+        source_files: []
+        children:
+            - purely_club/payments
+            - purely_club/orders
+            - purely_club/auth
+            - purely_club/promotions
+            - purely_club/stores
+            - purely_club/products
+            - purely_club/recharge
+            - purely_club/home
+            - purely_club/records
+            - purely_club/member
+        depends_on: []
+        related_to: []
+    purely_club/auth:
+        dir_name: Purely Club 认证与账户管理
+        title: Purely Club 认证与账户管理
+        scope:
+            - src/purely-club/auth/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    purely_club/home:
+        dir_name: 俱乐部首页数据聚合
+        title: 俱乐部首页数据聚合
+        scope:
+            - src/purely-club/home/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    purely_club/member:
+        dir_name: Purely Club 会员账户与权益管理
+        title: Purely Club 会员账户与权益管理
+        scope:
+            - src/purely-club/member/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    purely_club/orders:
+        dir_name: 俱乐部服务订单与支付结算
+        title: 俱乐部服务订单与支付结算
+        scope:
+            - src/purely-club/orders/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    purely_club/payments:
+        dir_name: 微信支付与回调处理模块
+        title: 微信支付与回调处理模块
+        scope:
+            - src/purely-club/payments/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    purely_club/products:
+        dir_name: 俱乐部商品管理与定价服务
+        title: 俱乐部商品管理与定价服务
+        scope:
+            - src/purely-club/products/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    purely_club/promotions:
+        dir_name: 俱乐部营销活动展示
+        title: 俱乐部营销活动展示
+        scope:
+            - src/purely-club/promotions/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    purely_club/recharge:
+        dir_name: Purely Club 会员充值管理
+        title: Purely Club 会员充值管理
+        scope:
+            - src/purely-club/recharge/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    purely_club/records:
+        dir_name: 门店会员流水查询与展示
+        title: 门店会员流水查询与展示
+        scope:
+            - src/purely-club/records/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    purely_club/stores:
+        dir_name: Purely Club 门店管理与上下文服务
+        title: Purely Club 门店管理与上下文服务
+        scope:
+            - src/purely-club/stores/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
     purely_profit:
         dir_name: 门店经营与会员生态核心
         title: 门店经营与会员生态核心
@@ -77,22 +184,21 @@ modules:
             - src/purely-profit/
         source_files: []
         children:
-            - purely_profit/staff
-            - purely_profit/dashboard
+            - purely_profit/auth
             - purely_profit/operations
-            - purely_profit/member
-            - purely_profit/notifications
-            - purely_profit/finance
+            - purely_profit/staff
             - purely_profit/goods
             - purely_profit/access_control
-            - purely_profit/commerce
+            - purely_profit/member
             - purely_profit/marketing
             - purely_profit/stores
-            - purely_profit/auth
+            - purely_profit/notifications
             - purely_profit/subscriptions
+            - purely_profit/finance
+            - purely_profit/commerce
+            - purely_profit/dashboard
         depends_on: []
-        related_to:
-            - path: purely_pulse
+        related_to: []
     purely_profit/access_control:
         dir_name: 访问控制与权限管理
         title: 访问控制与权限管理
@@ -110,9 +216,9 @@ modules:
             - src/purely-profit/auth/
         source_files: []
         children:
+            - purely_profit/auth/authentication_session
             - purely_profit/auth/api_layer
             - purely_profit/auth/password_management
-            - purely_profit/auth/authentication_session
             - purely_profit/auth/profile_account
         depends_on: []
         related_to:
@@ -194,9 +300,9 @@ modules:
             - src/purely-profit/dashboard/
         source_files: []
         children:
-            - purely_profit/dashboard/business_analysis
-            - purely_profit/dashboard/dashboard_home
             - purely_profit/dashboard/profit_detail
+            - purely_profit/dashboard/dashboard_home
+            - purely_profit/dashboard/business_analysis
         depends_on: []
         related_to:
             - path: purely_profit/finance
@@ -238,10 +344,10 @@ modules:
             - src/purely-profit/finance/
         source_files: []
         children:
-            - purely_profit/finance/cash_flow
             - purely_profit/finance/overview
-            - purely_profit/finance/reconciliation
             - purely_profit/finance/account
+            - purely_profit/finance/cash_flow
+            - purely_profit/finance/reconciliation
         depends_on: []
         related_to:
             - path: purely_profit/dashboard
@@ -293,8 +399,8 @@ modules:
             - src/purely-profit/goods/
         source_files: []
         children:
-            - purely_profit/goods/categories
             - purely_profit/goods/products
+            - purely_profit/goods/categories
             - purely_profit/goods/inventory
         depends_on: []
         related_to:
@@ -329,21 +435,20 @@ modules:
         related_to:
             - path: purely_profit/operations/suppliers
     purely_profit/marketing:
-        dir_name: 营销业务统一接入与编排层
-        title: 营销业务统一接入与编排层
+        dir_name: 营销业务统一编排与门面聚合
+        title: 营销业务统一编排与门面聚合
         scope:
             - src/purely-profit/marketing/
         source_files: []
         children:
-            - purely_profit/marketing/consumptions_recharges_points
-            - purely_profit/marketing/shared_core
             - purely_profit/marketing/promotions
             - purely_profit/marketing/products
-            - purely_profit/marketing/customers
+            - purely_profit/marketing/consumptions_recharges_points
+            - purely_profit/marketing/shared_core
             - purely_profit/marketing/overview
+            - purely_profit/marketing/customers
         depends_on: []
-        related_to:
-            - path: purely_profit/member
+        related_to: []
     purely_profit/marketing/consumptions_recharges_points:
         dir_name: 营销消费充值与积分记录管理
         title: 营销消费充值与积分记录管理
@@ -405,8 +510,8 @@ modules:
         related_to:
             - path: purely_profit/marketing/customers
     purely_profit/marketing/shared_core:
-        dir_name: 营销业务核心模块
-        title: 营销业务核心模块
+        dir_name: 营销业务核心与共享逻辑
+        title: 营销业务核心与共享逻辑
         scope:
             - src/purely-profit/marketing/dto/
             - src/purely-profit/marketing/marketing-access.service.ts
@@ -423,8 +528,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: purely_profit/commerce
+        related_to: []
     purely_profit/member:
         dir_name: 会员与合伙人业务域
         title: 会员与合伙人业务域
@@ -432,8 +536,8 @@ modules:
             - src/purely-profit/member/
         source_files: []
         children:
-            - purely_profit/member/withdrawals
             - purely_profit/member/platform_membership
+            - purely_profit/member/withdrawals
             - purely_profit/member/members
         depends_on: []
         related_to:
@@ -486,12 +590,12 @@ modules:
             - src/purely-profit/operations/
         source_files: []
         children:
-            - purely_profit/operations/suppliers
-            - purely_profit/operations/sales_record
             - purely_profit/operations/handover
-            - purely_profit/operations/spaces
             - purely_profit/operations/purchases
+            - purely_profit/operations/sales_record
             - purely_profit/operations/costs
+            - purely_profit/operations/suppliers
+            - purely_profit/operations/spaces
         depends_on: []
         related_to:
             - path: purely_profit/dashboard
@@ -514,10 +618,10 @@ modules:
             - src/purely-profit/operations/handover/
         source_files: []
         children:
-            - purely_profit/operations/handover/core
-            - purely_profit/operations/handover/page_shift
-            - purely_profit/operations/handover/records
             - purely_profit/operations/handover/additional_items
+            - purely_profit/operations/handover/records
+            - purely_profit/operations/handover/page_shift
+            - purely_profit/operations/handover/core
         depends_on: []
         related_to:
             - path: purely_profit/operations/spaces
@@ -533,7 +637,7 @@ modules:
         related_to:
             - path: purely_profit/operations/handover/core
     purely_profit/operations/handover/core:
-        dir_name: 门店交班与班次结算管理
+        dir_name: 门店交班与班次结算管理_2
         title: 门店交班与班次结算管理
         scope:
             - src/purely-profit/operations/handover/
@@ -552,7 +656,7 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/operations/handover/records:
-        dir_name: 门店交班与班次结算管理_2
+        dir_name: 门店交班与班次结算管理
         title: 门店交班与班次结算管理
         scope:
             - src/purely-profit/operations/handover/
@@ -577,10 +681,10 @@ modules:
             - src/purely-profit/operations/sales-record/
         source_files: []
         children:
+            - purely_profit/operations/sales_record/sales_record_write
+            - purely_profit/operations/sales_record/sales_record_read
             - purely_profit/operations/sales_record/sales_record_reporting
             - purely_profit/operations/sales_record/sales_record_core
-            - purely_profit/operations/sales_record/sales_record_read
-            - purely_profit/operations/sales_record/sales_record_write
         depends_on: []
         related_to:
             - path: purely_profit/operations/spaces/sessions
@@ -628,11 +732,11 @@ modules:
             - src/purely-profit/operations/spaces/
         source_files: []
         children:
-            - purely_profit/operations/spaces/reservations
-            - purely_profit/operations/spaces/sessions
             - purely_profit/operations/spaces/types
             - purely_profit/operations/spaces/space_management
             - purely_profit/operations/spaces/zones
+            - purely_profit/operations/spaces/reservations
+            - purely_profit/operations/spaces/sessions
         depends_on: []
         related_to:
             - path: purely_profit/operations/handover
@@ -771,8 +875,8 @@ modules:
             - src/purely-profit/staff/
         source_files: []
         children:
-            - purely_profit/staff/employees
             - purely_profit/staff/seats
+            - purely_profit/staff/employees
         depends_on: []
         related_to:
             - path: purely_profit/operations
@@ -823,14 +927,14 @@ modules:
             - src/purely-pulse/
         source_files: []
         children:
-            - purely_pulse/growth
-            - purely_pulse/store_context
-            - purely_pulse/dev_mode
-            - purely_pulse/onboarding
-            - purely_pulse/membership_settings
-            - purely_pulse/session
-            - purely_pulse/membership
             - purely_pulse/dashboard
+            - purely_pulse/membership
+            - purely_pulse/session
+            - purely_pulse/store_context
+            - purely_pulse/onboarding
+            - purely_pulse/dev_mode
+            - purely_pulse/growth
+            - purely_pulse/membership_settings
         depends_on: []
         related_to:
             - path: purely_profit
