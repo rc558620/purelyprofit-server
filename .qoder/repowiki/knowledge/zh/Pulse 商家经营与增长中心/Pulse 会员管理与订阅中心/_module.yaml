@@ -6,5 +6,6 @@ scope:
 source_files: []
 depends_on: []
 related_to:
-    - path: purely_pulse/growth
     - path: purely_pulse/membership_settings
+    - path: purely_profit/member/members
+    - path: purely_pulse/growth

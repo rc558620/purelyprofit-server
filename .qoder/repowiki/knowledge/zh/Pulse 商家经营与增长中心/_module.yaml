@@ -5,5 +5,4 @@ scope:
     - src/purely-pulse/
 source_files: []
 depends_on: []
-related_to:
-    - path: purely_profit
+related_to: []

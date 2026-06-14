@@ -278,7 +278,7 @@ export class ClubOrderPromotionsService {
       return null;
     }
 
-    return Math.round(discountRate);
+    return new Decimal(discountRate).toDecimalPlaces(1).toNumber();
   }
 
   private resolveReduceConfig(

@@ -6,4 +6,5 @@ scope:
 source_files: []
 depends_on: []
 related_to:
-    - path: purely_pulse/store_context
+    - path: purely_pulse/dashboard
+    - path: purely_profit/notifications

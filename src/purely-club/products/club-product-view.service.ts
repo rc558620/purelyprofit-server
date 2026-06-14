@@ -122,8 +122,10 @@ export class ClubProductViewService {
         amountFen: baselineAmountFen,
         promotionId: 'member_level',
         promotionType: 'discount' as const,
-        discountRate: Math.round((pricingContext.memberDiscountRate ?? 1) * 100),
-        promotionTag: `${Math.round((pricingContext.memberDiscountRate ?? 1) * 10)}折会员价`,
+        discountRate: this.toRate100(pricingContext.memberDiscountRate),
+        promotionTag: this.buildLevelDiscountTag(
+          pricingContext.memberDiscountRate,
+        ),
       };
     }
 
@@ -190,20 +192,11 @@ export class ClubProductViewService {
     // 5a. 会员等级折扣（始终展示，被覆盖时划线）
     if (hasLevelDiscount) {
       const levelSavingFen = Math.max(amountFen - baselineAmountFen, 0);
-      const discountRate10 = Math.round(
-        (pricingContext.memberDiscountRate ?? 1) * 10,
-      );
-      const discountLabel =
-        discountRate10 % 1 === 0
-          ? `${discountRate10}折会员价`
-          : `${((pricingContext.memberDiscountRate ?? 1) * 10).toFixed(1)}折会员价`;
       appliedPromotions.push({
         id: 'member_level',
         type: 'member_level',
-        tag: discountLabel,
-        discountRate: Math.round(
-          (pricingContext.memberDiscountRate ?? 1) * 100,
-        ),
+        tag: this.buildLevelDiscountTag(pricingContext.memberDiscountRate),
+        discountRate: this.toRate100(pricingContext.memberDiscountRate),
         savingAmount: this.convertFenToYuan(levelSavingFen),
         overridden: levelOverridden,
       });
@@ -357,5 +350,22 @@ export class ClubProductViewService {
 
   private convertFenToYuan(amountFen: number): number {
     return new Decimal(amountFen).div(100).toDecimalPlaces(2).toNumber();
+  }
+
+  /** 等级折扣率 → 0-100 整数或一位小数（如 0.81 → 81，0.8 → 80） */
+  private toRate100(memberDiscountRate: number | null): number {
+    return new Decimal(memberDiscountRate ?? 1)
+      .mul(100)
+      .toDecimalPlaces(0)
+      .toNumber();
+  }
+
+  /** 等级折扣率 → "X折会员价" 标签（如 0.81 → "8.1折会员价"，0.8 → "8折会员价"） */
+  private buildLevelDiscountTag(memberDiscountRate: number | null): string {
+    const fold = new Decimal(memberDiscountRate ?? 1)
+      .mul(10)
+      .toDecimalPlaces(1);
+    const foldText = fold.isInteger() ? fold.toFixed(0) : fold.toFixed(1);
+    return `${foldText}折会员价`;
   }
 }

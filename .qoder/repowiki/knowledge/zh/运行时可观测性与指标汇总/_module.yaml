@@ -7,5 +7,3 @@ source_files: []
 depends_on: []
 related_to:
     - path: cache_layer
-    - path: data_layer
-    - path: purely_profit/finance/overview
