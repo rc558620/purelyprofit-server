@@ -56,6 +56,24 @@ export class ClubProductDto {
   @IsString({ message: '商品名称必须是字符串' })
   name: string;
 
+  @ApiPropertyOptional({ example: '1', description: '关联分类 ID' })
+  @IsOptional()
+  @IsString({ message: '分类 ID 必须是字符串' })
+  categoryId?: string;
+
+  @ApiPropertyOptional({ example: '推拿按摩', description: '分类名称（展示用）' })
+  @IsOptional()
+  @IsString({ message: '分类名称必须是字符串' })
+  categoryName?: string;
+
+  @ApiPropertyOptional({
+    example: '服务内容',
+    description: '服务描述标题（商家自定义，如"服务内容"、"注意事项"等）',
+  })
+  @IsOptional()
+  @IsString({ message: '描述标题必须是字符串' })
+  descriptionTitle?: string;
+
   @ApiProperty({
     example: '深层清洁 + 补水保湿，恢复肌肤光泽活力',
     description: '商品描述',
@@ -166,10 +184,29 @@ export class ClubProductDto {
   @IsBoolean({ message: '热门标记必须是布尔值' })
   isHot: boolean;
 
+  @ApiProperty({ example: true, description: '是否上架' })
+  @IsBoolean({ message: 'isActive 必须是布尔值' })
+  isActive: boolean;
+
   @ApiPropertyOptional({ example: 30, description: '剩余库存；未设置时不返回' })
   @IsOptional()
   @IsInt({ message: '库存必须是整数' })
   stock?: number;
+
+  @ApiPropertyOptional({ example: '份', description: '库存单位（如「份」「个」）' })
+  @IsOptional()
+  @IsString({ message: '库存单位必须是字符串' })
+  unit?: string;
+
+  @ApiPropertyOptional({ example: 60, description: '服务时长（分钟）' })
+  @IsOptional()
+  @IsInt({ message: '服务时长必须是整数' })
+  durationMinutes?: number;
+
+  @ApiPropertyOptional({ example: 1, description: '适用人数' })
+  @IsOptional()
+  @IsInt({ message: '适用人数必须是整数' })
+  personCount?: number;
 
   @ApiPropertyOptional({
     example: '单次服务约 60 分钟 · 适用 1 人',
@@ -179,14 +216,12 @@ export class ClubProductDto {
   @IsString({ message: '有效期说明必须是字符串' })
   validityDesc?: string;
 
-  @ApiProperty({
-    example: ['深层清洁护理', '服务分类：面部护理', '参考时长：60 分钟'],
-    description: '服务详情条目',
-    type: [String],
-  })
-  @IsArray({ message: '服务详情必须是数组' })
-  @IsString({ each: true, message: '服务详情项必须是字符串' })
-  details: string[];
+  @ApiProperty({ example: 1715000000000, description: '创建时间戳（毫秒）' })
+  createdAt: number;
+
+  @ApiPropertyOptional({ example: 1715086399999, description: '最后更新时间戳（毫秒）' })
+  @IsOptional()
+  updatedAt?: number;
 }
 
 export class ClubProductsResponseDto {

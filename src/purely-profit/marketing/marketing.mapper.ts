@@ -269,6 +269,7 @@ export function mapProductRow(row: MarketingProductRow): MarketingProductDto {
     price: row.price,
     originalPrice: row.originalPrice ?? undefined,
     image: toOptionalMediaText(row.image) ?? undefined,
+    descriptionTitle: toOptionalText(row.descriptionTitle) ?? undefined,
     description: toOptionalText(row.description) ?? undefined,
     stock: row.stock,
     durationMinutes: row.durationMinutes ?? undefined,

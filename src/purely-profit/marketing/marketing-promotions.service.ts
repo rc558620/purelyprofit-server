@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -18,6 +22,7 @@ import { MarketingSharedService } from './marketing-shared.service';
 import {
   buildMarketingPaginationMeta,
   resolveMarketingPagination,
+  type MarketingPromotionTypeValue,
 } from './marketing.utils';
 
 @Injectable()
@@ -94,6 +99,7 @@ export class MarketingPromotionsService {
       'marketing:manage',
     );
     this.assertPromotionRange(new Date(dto.startAt), new Date(dto.endAt));
+    await this.ensurePromotionTypeUnique(storeId, dto.type);
 
     const normalizedParams = normalizePromotionParams(dto.params, dto.type);
     const created = await this.prisma.marketingPromotion.create({
@@ -132,6 +138,11 @@ export class MarketingPromotionsService {
     const newEndAt =
       dto.endAt !== undefined ? new Date(dto.endAt) : promotion.endAt;
     this.assertPromotionRange(newStartAt, newEndAt);
+    await this.ensurePromotionTypeUnique(
+      promotion.storeId,
+      promotion.type as MarketingPromotionTypeValue,
+      promotionId,
+    );
 
     const updated = await this.prisma.marketingPromotion.update({
       where: { id: promotionId },
@@ -185,6 +196,28 @@ export class MarketingPromotionsService {
 
   private async invalidateDashboardCaches(storeId: number): Promise<void> {
     await this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId);
+  }
+
+  private async ensurePromotionTypeUnique(
+    storeId: number,
+    type: MarketingPromotionTypeValue,
+    excludePromotionId?: number,
+  ): Promise<void> {
+    const duplicatedCount = await this.prisma.marketingPromotion.count({
+      where: {
+        storeId,
+        type,
+        ...(excludePromotionId !== undefined
+          ? { id: { not: excludePromotionId } }
+          : {}),
+      },
+    });
+
+    if ((duplicatedCount ?? 0) > 0) {
+      throw new ConflictException(
+        '当前门店已存在相同活动类型，请直接编辑现有活动',
+      );
+    }
   }
 
   private assertPromotionRange(startAt: Date, endAt: Date): void {

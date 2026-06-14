@@ -51,6 +51,7 @@ export interface MarketingPrismaServiceMock {
     count: jest.Mock;
     updateMany: jest.Mock;
     findUnique: jest.Mock;
+    findFirst: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
     delete: jest.Mock;
@@ -137,6 +138,7 @@ function createPrismaServiceMock(): MarketingPrismaServiceMock {
       count: jest.fn(),
       updateMany: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),

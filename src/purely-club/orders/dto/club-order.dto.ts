@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString } from 'class-validator';
 import {
   CLUB_ORDER_PAYMENT_CHANNEL_VALUES,
   CLUB_ORDER_PAYMENT_CONFIRMATION_SOURCE_VALUES,
@@ -31,6 +31,14 @@ export class CreateClubServiceOrderDto {
   @IsOptional()
   @IsString({ message: 'openid 必须是字符串' })
   openid?: string;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '是否使用积分抵扣；true 时后端按 1积分=1元汇率计算抵扣金额',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'usePoints 必须是布尔值' })
+  usePoints?: boolean;
 }
 
 export class ClubWechatPaymentParamsDto {

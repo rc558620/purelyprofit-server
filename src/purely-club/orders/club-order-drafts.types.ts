@@ -25,13 +25,17 @@ export interface ClubServiceOrderMetadata {
   promotionId: number | null;
   promotionType: 'first_order_discount' | 'discount' | 'reduce' | null;
   discountRate: number | null;
-  /** 总优惠金额 = 原价 - 最终价（单位：分） */
+  /** 总优惠金额 = 原价 - 最终价（不含积分抵扣，单位：分） */
   discountAmountFen: number;
   /** 折扣活动单独贡献的优惠金额（单位：分） */
   promotionDiscountAmountFen: number;
   /** 总满减减免金额（单位：分） */
   totalReduceFen: number;
   promotionTag: string | null;
+  /** 积分抵扣金额（单位：分）；0 表示未使用积分 */
+  pointsDeductFen: number;
+  /** 实际消耗的积分数量 */
+  pointsUsed: number;
 }
 
 export interface ClubOrderDraftPayload<

@@ -132,7 +132,7 @@ export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettin
     ],
     pointsRatio: {
       earnRatioCents: 100,
-      redeemRatioPoints: 100,
+      redeemRatioPoints: 1,
       maxRedeemRatio: 0.5,
       enabled: true,
       updatedAt: 0,

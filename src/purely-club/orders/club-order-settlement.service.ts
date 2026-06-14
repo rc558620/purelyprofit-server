@@ -60,6 +60,14 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       settlementContext.customer.totalSpent,
       draft.amountFen,
     );
+    // 若使用了积分抵扣，结算时从账户中扣除积分
+    if (draft.metadata.pointsUsed > 0) {
+      await this.deductCustomerPoints(
+        tx,
+        settlementContext.customer.id,
+        draft.metadata.pointsUsed,
+      );
+    }
     await this.decrementProductStock(tx, draft);
     await this.increasePromotionUsage(tx, draft);
   }
@@ -196,6 +204,19 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       data: {
         usageCount: { increment: 1 },
         totalDiscount: { increment: draft.metadata.discountAmountFen },
+      },
+    });
+  }
+
+  private async deductCustomerPoints(
+    tx: Prisma.TransactionClient,
+    customerId: number,
+    pointsUsed: number,
+  ): Promise<void> {
+    await tx.marketingCustomer.update({
+      where: { id: customerId },
+      data: {
+        points: { decrement: pointsUsed },
       },
     });
   }

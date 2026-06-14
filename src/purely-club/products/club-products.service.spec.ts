@@ -51,6 +51,7 @@ describe('ClubProductsService', () => {
 
   const emptyPricingContext: ClubProductPricingContext = {
     memberDiscountRate: null,
+    isFirstOrderBuyer: false,
     firstOrderPromotions: [],
     discountPromotions: [],
     reducePromotions: [],
@@ -144,6 +145,7 @@ describe('ClubProductsService', () => {
   it('list 将 pricingContext 透传给视图映射层', async () => {
     const pricingContext: ClubProductPricingContext = {
       memberDiscountRate: null,
+      isFirstOrderBuyer: true,
       firstOrderPromotions: [{ id: 18, discountRate: 75, tag: '首单 7.5 折' }],
       discountPromotions: [],
       reducePromotions: [],
@@ -216,6 +218,7 @@ function createProduct(
     price: 19900,
     originalPrice: 28800,
     image: null,
+    descriptionTitle: null,
     description: '深层清洁 + 补水保湿，恢复肌肤光泽活力',
     stock: 30,
     durationMinutes: 60,

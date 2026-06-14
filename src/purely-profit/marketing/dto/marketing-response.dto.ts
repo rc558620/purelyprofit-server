@@ -329,6 +329,13 @@ export class MarketingMemberLevelSettingsDto {
 
   @ApiProperty({ type: MarketingPointsRatioDto })
   pointsRatio: MarketingPointsRatioDto;
+
+  @ApiProperty({
+    example: true,
+    description:
+      '积分功能开关；仅当当前存在启用中的充值赠积分活动且赠送比例大于 0 时返回 true',
+  })
+  pointsFeatureEnabled: boolean;
 }
 
 // ─── 活动 ─────────────────────────────────────────────────────────────

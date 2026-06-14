@@ -9,6 +9,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { transformOptionalInt } from '../../stores/dto/store-response.dto';
 
@@ -120,6 +121,15 @@ export class CreateMarketingProductDto {
   image?: string;
 
   @ApiPropertyOptional({
+    example: '服务内容',
+    description: '产品描述标题（如：商品描述、服务内容、注意事项等）',
+  })
+  @IsOptional()
+  @IsString({ message: '产品描述标题必须是字符串' })
+  @MaxLength(20, { message: '产品描述标题最长 20 个字符' })
+  descriptionTitle?: string;
+
+  @ApiPropertyOptional({
     example: '专业推拿师一对一服务',
     description: '产品描述',
   })
@@ -194,6 +204,15 @@ export class UpdateMarketingProductDto {
   image?: string;
 
   @ApiPropertyOptional({
+    example: '服务内容',
+    description: '产品描述标题（空字符串表示清空）',
+  })
+  @IsOptional()
+  @IsString({ message: '产品描述标题必须是字符串' })
+  @MaxLength(20, { message: '产品描述标题最长 20 个字符' })
+  descriptionTitle?: string;
+
+  @ApiPropertyOptional({
     example: '专业推拿师一对一服务',
     description: '产品描述（空字符串表示清空）',
   })
@@ -209,19 +228,39 @@ export class UpdateMarketingProductDto {
   @Min(0, { message: '库存必须大于等于 0' })
   stock?: number;
 
-  @ApiPropertyOptional({ example: 60, description: '服务时长（分钟）' })
+  @ApiPropertyOptional({
+    example: 60,
+    description: '服务时长（分钟）；传 null 表示清空',
+    nullable: true,
+  })
   @IsOptional()
-  @Transform(transformOptionalInt)
+  @Transform(({ value }) => {
+    if (value === null) return null;
+    if (value === '' || value === undefined) return undefined;
+    const n = parseInt(value, 10);
+    return Number.isNaN(n) ? undefined : n;
+  })
+  @ValidateIf((o: UpdateMarketingProductDto) => o.durationMinutes !== null)
   @IsInt({ message: '服务时长必须是整数' })
   @Min(1, { message: '服务时长必须大于 0' })
-  durationMinutes?: number;
+  durationMinutes?: number | null;
 
-  @ApiPropertyOptional({ example: 3, description: '适用人数' })
+  @ApiPropertyOptional({
+    example: 3,
+    description: '适用人数；传 null 表示清空',
+    nullable: true,
+  })
   @IsOptional()
-  @Transform(transformOptionalInt)
+  @Transform(({ value }) => {
+    if (value === null) return null;
+    if (value === '' || value === undefined) return undefined;
+    const n = parseInt(value, 10);
+    return Number.isNaN(n) ? undefined : n;
+  })
+  @ValidateIf((o: UpdateMarketingProductDto) => o.personCount !== null)
   @IsInt({ message: '适用人数必须是整数' })
   @Min(1, { message: '适用人数必须大于 0' })
-  personCount?: number;
+  personCount?: number | null;
 }
 
 export class ToggleMarketingProductDto {
@@ -275,6 +314,9 @@ export class MarketingProductDto {
     example: 'https://cdn.example.com/products/product.jpg',
   })
   image?: string;
+
+  @ApiPropertyOptional({ example: '服务内容', description: '产品描述标题' })
+  descriptionTitle?: string;
 
   @ApiPropertyOptional({ example: '专业推拿师一对一服务' })
   description?: string;

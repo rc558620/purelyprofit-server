@@ -110,6 +110,7 @@ export class ClubProductPromotionService {
 
     return {
       memberDiscountRate,
+      isFirstOrderBuyer: consumptionCount === 0,
       firstOrderPromotions,
       discountPromotions,
       reducePromotions,

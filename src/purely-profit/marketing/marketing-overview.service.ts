@@ -97,18 +97,27 @@ export class MarketingOverviewService {
         storeId,
       );
     if (!resolvedStoreId) {
-      return cloneDefaultMarketingMemberLevelSettings();
+      return {
+        ...cloneDefaultMarketingMemberLevelSettings(),
+        pointsFeatureEnabled: false,
+      };
     }
 
-    const settings = await this.prisma.marketingMemberLevelSetting.findUnique({
-      where: { storeId: resolvedStoreId },
-      select: {
-        levels: true,
-        pointsRatio: true,
-      },
-    });
+    const [settings, pointsFeatureEnabled] = await Promise.all([
+      this.prisma.marketingMemberLevelSetting.findUnique({
+        where: { storeId: resolvedStoreId },
+        select: {
+          levels: true,
+          pointsRatio: true,
+        },
+      }),
+      this.resolvePointsFeatureEnabled(resolvedStoreId),
+    ]);
 
-    return this.normalizeMemberLevelSettings(settings);
+    return {
+      ...this.normalizeMemberLevelSettings(settings),
+      pointsFeatureEnabled,
+    };
   }
 
   async updateMemberLevel(
@@ -402,9 +411,38 @@ export class MarketingOverviewService {
     return resolvedStoreId;
   }
 
+  private async resolvePointsFeatureEnabled(storeId: number): Promise<boolean> {
+    const now = new Date();
+    const promotion = await this.prisma.marketingPromotion.findFirst({
+      where: {
+        storeId,
+        type: 'points_recharge',
+        enabled: true,
+        startAt: { lte: now },
+        endAt: { gte: now },
+      },
+      select: { params: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (!promotion?.params || typeof promotion.params !== 'object') {
+      return false;
+    }
+
+    const params = promotion.params as Record<string, unknown>;
+    const rechargeRatioPercent =
+      typeof params.rechargeRatioPercent === 'number'
+        ? params.rechargeRatioPercent
+        : typeof params.pointsRatio === 'number'
+          ? params.pointsRatio
+          : null;
+
+    return rechargeRatioPercent !== null && rechargeRatioPercent > 0;
+  }
+
   private normalizeMemberLevelSettings(
     settings: MarketingMemberLevelSettingRecord | null,
-  ): MarketingMemberLevelSettingsDto {
+  ): Omit<MarketingMemberLevelSettingsDto, 'pointsFeatureEnabled'> {
     const fallback = cloneDefaultMarketingMemberLevelSettings();
     if (!settings) {
       return fallback;

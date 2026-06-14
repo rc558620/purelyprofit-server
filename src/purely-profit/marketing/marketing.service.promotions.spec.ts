@@ -92,6 +92,7 @@ describe('MarketingService promotions', () => {
 
   it('createPromotion 支持首单优惠类型', async () => {
     context.accessService.ensureCanAccess.mockResolvedValue(undefined);
+    context.prismaService.marketingPromotion.count.mockResolvedValue(0);
     context.prismaService.marketingPromotion.create.mockResolvedValue({
       id: 8,
       storeId: 18,
@@ -128,11 +129,57 @@ describe('MarketingService promotions', () => {
     expect(result.type).toBe('first_order_discount');
   });
 
+  it('createPromotion 不允许同门店重复创建相同活动类型', async () => {
+    context.accessService.ensureCanAccess.mockResolvedValue(undefined);
+    context.prismaService.marketingPromotion.count.mockResolvedValue(1);
+
+    await expect(
+      context.service.createPromotion(context.user, 18, {
+        name: '新人 8 折',
+        type: 'first_order_discount',
+        description: '首单专享',
+        params: { discountRate: 80, audience: 'first_order' },
+        startAt: new Date('2026-05-01T00:00:00.000Z').getTime(),
+        endAt: new Date('2026-05-31T23:59:59.000Z').getTime(),
+        enabled: true,
+      }),
+    ).rejects.toThrow('当前门店已存在相同活动类型，请直接编辑现有活动');
+    expect(context.prismaService.marketingPromotion.create).not.toHaveBeenCalled();
+  });
+
+  it('updatePromotion 不允许编辑到重复活动类型记录', async () => {
+    context.prismaService.marketingPromotion.findUnique.mockResolvedValue({
+      id: 9,
+      storeId: 18,
+      name: '首单 85 折',
+      type: 'first_order_discount',
+      description: '首单专享',
+      params: { discountRate: 85, audience: 'first_order' },
+      startAt: new Date('2026-05-01T00:00:00.000Z'),
+      endAt: new Date('2026-05-31T23:59:59.000Z'),
+      usageCount: 0,
+      totalDiscount: 0,
+      enabled: true,
+      createdAt: new Date('2026-04-25T00:00:00.000Z'),
+      updatedAt: new Date('2026-04-25T00:00:00.000Z'),
+    });
+    context.accessService.ensureCanAccess.mockResolvedValue(undefined);
+    context.prismaService.marketingPromotion.count.mockResolvedValue(1);
+
+    await expect(
+      context.service.updatePromotion(context.user, 9, {
+        name: '首单 8 折',
+      }),
+    ).rejects.toThrow('当前门店已存在相同活动类型，请直接编辑现有活动');
+    expect(context.prismaService.marketingPromotion.update).not.toHaveBeenCalled();
+  });
+
   it('getMemberLevelSettings 在未配置时返回默认等级和积分规则', async () => {
     context.accessService.resolveViewStoreId.mockResolvedValue(18);
     context.prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue(
       null,
     );
+    context.prismaService.marketingPromotion.findFirst.mockResolvedValue(null);
 
     const result = await context.service.getMemberLevelSettings(context.user);
 
@@ -144,11 +191,35 @@ describe('MarketingService promotions', () => {
     expect(result.pointsRatio).toEqual(
       expect.objectContaining({
         earnRatioCents: 100,
-        redeemRatioPoints: 100,
+        redeemRatioPoints: 1,
         maxRedeemRatio: 0.5,
         enabled: true,
       }),
     );
+    expect(result.pointsFeatureEnabled).toBe(false);
+  });
+
+  it('getMemberLevelSettings 在存在有效充值赠积分活动时返回 pointsFeatureEnabled=true', async () => {
+    context.accessService.resolveViewStoreId.mockResolvedValue(18);
+    context.prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue(
+      null,
+    );
+    context.prismaService.marketingPromotion.findFirst.mockResolvedValue({
+      params: { rechargeRatioPercent: 2 },
+    });
+
+    const result = await context.service.getMemberLevelSettings(context.user);
+
+    expect(context.prismaService.marketingPromotion.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          storeId: 18,
+          type: 'points_recharge',
+          enabled: true,
+        }),
+      }),
+    );
+    expect(result.pointsFeatureEnabled).toBe(true);
   });
 
   it('updateMemberLevel 会合并默认配置并按门店 upsert', async () => {

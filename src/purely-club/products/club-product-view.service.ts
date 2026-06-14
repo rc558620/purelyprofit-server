@@ -58,6 +58,11 @@ export class ClubProductViewService {
     return {
       id: String(product.id),
       name: product.name,
+      categoryId: String(product.categoryId),
+      categoryName: this.getCategoryName(product) || undefined,
+      ...(product.descriptionTitle?.trim()
+        ? { descriptionTitle: product.descriptionTitle.trim() }
+        : {}),
       description: product.description?.trim() || '暂无服务说明',
       coverImage: product.image?.trim() || '',
       originalPrice: this.convertFenToYuan(
@@ -67,7 +72,7 @@ export class ClubProductViewService {
       finalPrice: this.convertFenToYuan(pricing.finalPriceFen),
       memberDiscountRate: pricingContext.memberDiscountRate,
       levelOverridden: pricing.levelOverridden,
-      ...(pricing.bestDiscount
+      ...(pricing.bestDiscount && pricing.bestDiscount.promotionId !== 'member_level'
         ? {
             promotionId: pricing.bestDiscount.promotionId,
             promotionType: pricing.bestDiscount.promotionType,
@@ -84,9 +89,13 @@ export class ClubProductViewService {
       type: this.resolveProductType(product),
       tags,
       isHot,
+      isActive: product.isActive,
       ...(stock >= 0 ? { stock } : {}),
+      ...(product.durationMinutes ? { durationMinutes: product.durationMinutes } : {}),
+      ...(product.personCount ? { personCount: product.personCount } : {}),
       ...(validityDesc ? { validityDesc } : {}),
-      details: this.buildDetails(product, stock),
+      createdAt: product.createdAt.getTime(),
+      updatedAt: product.updatedAt.getTime(),
     };
   }
 
@@ -104,32 +113,44 @@ export class ClubProductViewService {
       pricingContext.memberDiscountRate < 1;
 
     // 2. 折扣竞争：等级折扣 / 活动折扣 / 首单折扣 三选一，取力度最大（最终价最低）
-    //    活动折扣必须优于会员基准价才生效
+    //    规则：所有折扣都基于原价计算，然后选出最低价格的方案
     let bestDiscount: ClubProductPricingCandidate | null = null;
 
-    // 2a. 活动折扣（discount 类型）
+    // 2a. 会员等级折扣（如果有的话，也参与竞争）
+    if (hasLevelDiscount) {
+      bestDiscount = {
+        amountFen: baselineAmountFen,
+        promotionId: 'member_level',
+        promotionType: 'discount' as const,
+        discountRate: Math.round((pricingContext.memberDiscountRate ?? 1) * 100),
+        promotionTag: `${Math.round((pricingContext.memberDiscountRate ?? 1) * 10)}折会员价`,
+      };
+    }
+
+    // 2b. 活动折扣（discount 类型，与等级折扣竞争）
     pricingContext.discountPromotions.forEach((promotion) => {
       const candidate = this.buildDiscountCandidate(amountFen, promotion);
       if (
         candidate &&
-        candidate.amountFen < baselineAmountFen &&
         this.isBetterCandidate(candidate, bestDiscount)
       ) {
         bestDiscount = candidate;
       }
     });
 
-    // 2b. 首单优惠（first_order_discount 类型，同样基于原价竞争）
-    pricingContext.firstOrderPromotions.forEach((promotion) => {
-      const candidate = this.buildFirstOrderCandidate(amountFen, promotion);
-      if (
-        candidate &&
-        candidate.amountFen < baselineAmountFen &&
-        this.isBetterCandidate(candidate, bestDiscount)
-      ) {
-        bestDiscount = candidate;
-      }
-    });
+    // 2c. 首单优惠（first_order_discount 类型，与等级折扣和活动折扣竞争）
+    //     防御性校验：仅当 isFirstOrderBuyer 为 true 时才允许首单折扣参与竞争
+    if (pricingContext.isFirstOrderBuyer) {
+      pricingContext.firstOrderPromotions.forEach((promotion) => {
+        const candidate = this.buildFirstOrderCandidate(amountFen, promotion);
+        if (
+          candidate &&
+          this.isBetterCandidate(candidate, bestDiscount)
+        ) {
+          bestDiscount = candidate;
+        }
+      });
+    }
 
     // 判断等级折扣是否被活动覆盖
     // 用 const 重新绑定，避免 TypeScript forEach 回调内突变窄化问题
@@ -189,7 +210,8 @@ export class ClubProductViewService {
     }
 
     // 5b. 折扣活动（胜出的活动折扣 / 首单优惠）
-    if (chosenDiscount) {
+    //     排除会员等级折扣（已在 5a 添加），避免重复展示
+    if (chosenDiscount && chosenDiscount.promotionId !== 'member_level') {
       appliedPromotions.push({
         id: chosenDiscount.promotionId,
         type: chosenDiscount.promotionType,
@@ -298,21 +320,6 @@ export class ClubProductViewService {
       parts.push(`适用 ${product.personCount} 人`);
     }
     return parts.length > 0 ? parts.join(' · ') : undefined;
-  }
-
-  private buildDetails(product: ClubProductRecord, stock: number): string[] {
-    const categoryName = this.getCategoryName(product);
-    const details = [
-      product.description?.trim() || '',
-      categoryName ? `服务分类：${categoryName}` : '',
-      product.durationMinutes
-        ? `参考时长：${product.durationMinutes} 分钟`
-        : '',
-      product.personCount ? `适用人数：${product.personCount} 人` : '',
-      stock >= 0 ? `当前库存：${stock} 份` : '',
-    ].filter((item) => item.length > 0);
-
-    return details.length > 0 ? details : ['暂无服务详情'];
   }
 
   private getCategoryName(product: ClubProductRecord): string {

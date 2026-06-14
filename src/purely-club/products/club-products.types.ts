@@ -9,11 +9,14 @@ export const clubProductSelect = {
   price: true,
   originalPrice: true,
   image: true,
+  descriptionTitle: true,
   description: true,
   stock: true,
   durationMinutes: true,
   personCount: true,
+  isActive: true,
   createdAt: true,
+  updatedAt: true,
   category: {
     select: {
       name: true,
@@ -28,11 +31,14 @@ export interface ClubProductRecord {
   price: number;
   originalPrice: number | null;
   image: string | null;
+  descriptionTitle: string | null;
   description: string | null;
   stock?: number | null;
   durationMinutes: number | null;
   personCount: number | null;
+  isActive: boolean;
   createdAt: Date;
+  updatedAt: Date;
   category?: {
     name: string;
   } | null;
@@ -53,6 +59,8 @@ export interface ClubProductReducePromotion {
 
 export interface ClubProductPricingContext {
   memberDiscountRate: number | null;
+  /** 当前用户是否为首单买家（consumptionCount === 0）；用于在视图层显式拦截首单折扣 */
+  isFirstOrderBuyer: boolean;
   firstOrderPromotions: ClubProductDiscountPromotion[];
   discountPromotions: ClubProductDiscountPromotion[];
   reducePromotions: ClubProductReducePromotion[];

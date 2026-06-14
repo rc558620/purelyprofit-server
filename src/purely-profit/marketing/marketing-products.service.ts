@@ -88,6 +88,7 @@ export class MarketingProductsService {
         price: dto.price,
         originalPrice: dto.originalPrice ?? null,
         image: toNullableMediaText(dto.image) ?? null,
+        descriptionTitle: toNullableText(dto.descriptionTitle) ?? null,
         description: toNullableText(dto.description) ?? null,
         stock: dto.stock ?? 0,
         durationMinutes: dto.durationMinutes ?? null,
@@ -123,20 +124,23 @@ export class MarketingProductsService {
         ...(dto.categoryId !== undefined ? { categoryId: dto.categoryId } : {}),
         ...(dto.price !== undefined ? { price: dto.price } : {}),
         ...(dto.originalPrice !== undefined
-          ? { originalPrice: dto.originalPrice }
+          ? { originalPrice: dto.originalPrice ?? null }
           : {}),
         ...(dto.image !== undefined
           ? { image: toNullableMediaText(dto.image) }
+          : {}),
+        ...(dto.descriptionTitle !== undefined
+          ? { descriptionTitle: toNullableText(dto.descriptionTitle) }
           : {}),
         ...(dto.description !== undefined
           ? { description: toNullableText(dto.description) }
           : {}),
         ...(dto.stock !== undefined ? { stock: dto.stock } : {}),
         ...(dto.durationMinutes !== undefined
-          ? { durationMinutes: dto.durationMinutes }
+          ? { durationMinutes: dto.durationMinutes ?? null }
           : {}),
         ...(dto.personCount !== undefined
-          ? { personCount: dto.personCount }
+          ? { personCount: dto.personCount ?? null }
           : {}),
       },
       include: MARKETING_PRODUCT_ROW_INCLUDE,
@@ -205,6 +209,7 @@ export class MarketingProductsService {
       price: row.price,
       originalPrice: row.originalPrice,
       image: row.image,
+      descriptionTitle: row.descriptionTitle,
       description: row.description,
       stock: row.stock,
       durationMinutes: row.durationMinutes,

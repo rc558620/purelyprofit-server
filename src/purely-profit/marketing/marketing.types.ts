@@ -100,6 +100,7 @@ export interface MarketingProductRow {
   price: number;
   originalPrice: number | null;
   image: string | null;
+  descriptionTitle: string | null;
   description: string | null;
   stock: number;
   durationMinutes: number | null;
