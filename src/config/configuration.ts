@@ -187,6 +187,12 @@ export default () => ({
     appId: process.env.WECHAT_APP_ID ?? '',
 
     /**
+     * 微信小程序 AppSecret（code2session 接口鉴权，严禁泄露/明文落库）
+     * 对应环境变量：WECHAT_APP_SECRET
+     */
+    appSecret: process.env.WECHAT_APP_SECRET ?? '',
+
+    /**
      * 微信支付回调通知地址（商家服务器公网可达地址）
      * 对应环境变量：WECHAT_PAY_NOTIFY_URL
      * 示例：https://api.yourdomain.com/club/payments/wechat/callback

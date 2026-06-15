@@ -26,6 +26,7 @@ describe('ClubRechargeService', () => {
     $transaction: jest.fn(),
     marketingPromotion: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
       updateMany: jest.fn(),
     },
     marketingCustomer: {
@@ -45,6 +46,10 @@ describe('ClubRechargeService', () => {
       };
       return configMap[key];
     }),
+  };
+
+  const clubWechatJsapiService = {
+    createJsapiPaymentParams: jest.fn(),
   };
 
   const clubOrderDraftsService = {
@@ -70,8 +75,30 @@ describe('ClubRechargeService', () => {
     currentMembership: null,
   };
 
+  const wechatUser: AuthenticatedUser = {
+    id: 301,
+    email: 'club_wechat_oOPENID123@purelyprofit.local',
+    phone: 'club_wechat:oOPENID123',
+    name: '微信昵称',
+    createdAt: new Date('2026-05-12T00:00:00.000Z'),
+    updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    accountScope: 'purely_club',
+    currentMembership: null,
+  };
+
   const currentContext: ClubCurrentContext = {
     user,
+    store: {
+      id: 11,
+      name: '望京旗舰店',
+      address: '北京市朝阳区望京 SOHO T3 B1',
+      createdAt: new Date('2026-05-12T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    },
+  };
+
+  const wechatCurrentContext: ClubCurrentContext = {
+    user: wechatUser,
     store: {
       id: 11,
       name: '望京旗舰店',
@@ -93,6 +120,7 @@ describe('ClubRechargeService', () => {
       async (callback: (tx: typeof prismaService) => Promise<unknown>) =>
         callback(prismaService),
     );
+    prismaService.marketingPromotion.findFirst.mockResolvedValue(null);
     clubOrderDraftsService.toOrderStatusResponse.mockImplementation(
       (draft) => ({
         id: draft.id,
@@ -132,10 +160,7 @@ describe('ClubRechargeService', () => {
         { provide: ConfigService, useValue: configService },
         { provide: ClubOrderDraftsService, useValue: clubOrderDraftsService },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
-        {
-          provide: ClubWechatJsapiService,
-          useValue: { createJsapiPaymentParams: jest.fn() },
-        },
+        { provide: ClubWechatJsapiService, useValue: clubWechatJsapiService },
       ],
     }).compile();
 
@@ -348,6 +373,83 @@ describe('ClubRechargeService', () => {
     );
   });
 
+  it('createOrder 对微信登录用户使用稳定标识查顾客并走 JSAPI 下单', async () => {
+    prismaService.marketingPromotion.findMany.mockResolvedValue([
+      createPromotion({
+        id: 18,
+        name: '储值赠 20%',
+        description: '最受欢迎',
+        params: { rechargeAmount: 50000, giftRatio: 0.2 },
+      }),
+    ]);
+    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 66 });
+    clubWechatJsapiService.createJsapiPaymentParams.mockResolvedValue({
+      timeStamp: '1773556800',
+      nonceStr: 'wx-nonce',
+      package: 'prepay_id=club_RCWX123',
+      signType: 'RSA',
+      paySign: 'WX-SIGN',
+    });
+    clubOrderDraftsService.createDraft.mockResolvedValue({
+      ...createRechargeDraft(),
+      id: 'RCWX123',
+      orderNo: 'RCWX123',
+      userId: 301,
+      phone: 'club_wechat:oOPENID123',
+      customerId: 66,
+      paymentParams: {
+        timeStamp: '1773556800',
+        nonceStr: 'wx-nonce',
+        package: 'prepay_id=club_RCWX123',
+        signType: 'RSA',
+        paySign: 'WX-SIGN',
+      },
+    });
+
+    await expect(
+      service.createOrder(wechatCurrentContext, {
+        storeId: 11,
+        packageId: '18',
+        openid: 'oOPENID123',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 'RCWX123',
+        rechargeAmount: 500,
+        bonusAmount: 100,
+        packageId: '18',
+      }),
+    );
+    expect(prismaService.marketingCustomer.findUnique).toHaveBeenCalledWith({
+      where: {
+        storeId_phone: {
+          storeId: 11,
+          phone: 'club_wechat:oOPENID123',
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+    expect(
+      clubWechatJsapiService.createJsapiPaymentParams,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: 11,
+        description: '会员充值',
+        amountFen: 50000,
+        openid: 'oOPENID123',
+      }),
+    );
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: wechatUser,
+        customerId: 66,
+        amountFen: 50000,
+      }),
+    );
+  });
+
   it('createOrder 支持自定义充值金额', async () => {
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
     prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
@@ -515,6 +617,64 @@ describe('ClubRechargeService', () => {
       'RC123',
       'recharge',
     );
+  });
+
+  it('confirmOrderPaidByCallback 对微信登录用户充值订单也能完成余额落账', async () => {
+    const draft = {
+      ...createRechargeDraft(),
+      id: 'RCWX123',
+      orderNo: 'RCWX123',
+      userId: 301,
+      phone: 'club_wechat:oOPENID123',
+      customerId: 66,
+    };
+    clubOrderDraftsService.getDraftByOrderId.mockResolvedValue(draft);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({
+      id: 66,
+      totalSpent: 10000,
+    });
+    clubOrderDraftsService.markPaid.mockResolvedValue({
+      ...draft,
+      status: 'paid',
+      paidAtMs: 1773558660000,
+      paymentTransactionId: 'wx_txn_wechat_002',
+      callbackReceivedAtMs: 1773558663000,
+      paymentConfirmationSource: 'wechat_callback',
+    });
+
+    await expect(
+      service.confirmOrderPaidByCallback('RCWX123', {
+        amountFen: 50000,
+        transactionId: 'wx_txn_wechat_002',
+        paidAtMs: 1773558660000,
+        callbackReceivedAtMs: 1773558663000,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 'RCWX123',
+        paymentConfirmationSource: 'wechat_callback',
+      }),
+    );
+    expect(prismaService.marketingRecharge.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        storeId: 11,
+        customerId: 66,
+        amount: 50000,
+      }),
+    });
+    expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
+      where: { id: 66 },
+      data: expect.objectContaining({
+        balance: { increment: 60000 },
+        totalSpent: { increment: 60000 },
+      }),
+    });
+    expect(clubOrderDraftsService.markPaid).toHaveBeenCalledWith(draft, {
+      paymentConfirmationSource: 'wechat_callback',
+      paymentTransactionId: 'wx_txn_wechat_002',
+      paidAtMs: 1773558660000,
+      callbackReceivedAtMs: 1773558663000,
+    });
   });
 
   it('confirmOrderPaidByCallback 在金额不一致时抛出 BadRequestException', async () => {

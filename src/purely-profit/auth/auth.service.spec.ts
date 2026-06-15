@@ -30,6 +30,7 @@ import { PlatformMembershipAccessService } from '../member/platform-membership/p
 describe('AuthService', () => {
   let service: AuthService;
   let authProductAuthService: AuthProductAuthService;
+  let authAccountLookupService: AuthAccountLookupService;
 
   const prismaService = {
     user: {
@@ -139,6 +140,9 @@ describe('AuthService', () => {
     service = module.get<AuthService>(AuthService);
     authProductAuthService = module.get<AuthProductAuthService>(
       AuthProductAuthService,
+    );
+    authAccountLookupService = module.get<AuthAccountLookupService>(
+      AuthAccountLookupService,
     );
   });
 
@@ -511,6 +515,190 @@ describe('AuthService', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it('purely-club 登录即注册在手机号未注册时自动创建账号', async () => {
+    prismaService.user.findFirst.mockResolvedValue(null);
+    prismaService.user.create.mockResolvedValueOnce({
+      id: 77,
+      email: 'club_phone_13800138000@purelyprofit.local',
+    });
+    redisService.get.mockResolvedValueOnce('123456').mockResolvedValueOnce('0');
+    redisService.del.mockResolvedValue(undefined);
+    jwtService.signAsync.mockResolvedValue('club-auto-register-token');
+
+    await expect(
+      authProductAuthService.loginByCodeOrRegister(
+        {
+          phone: '13800138000',
+          code: '123456',
+        },
+        'purely_club',
+      ),
+    ).resolves.toEqual({ access_token: 'club-auto-register-token' });
+
+    expect(prismaService.user.create).toHaveBeenCalledWith({
+      data: {
+        email: 'club_phone_13800138000@purelyprofit.local',
+        password: expect.any(String),
+        name: undefined,
+      },
+      select: {
+        id: true,
+        email: true,
+      },
+    });
+    expect(jwtService.signAsync).toHaveBeenCalledWith({
+      sub: 77,
+      phone: '13800138000',
+      accountScope: 'purely_club',
+      sessionVersion: 0,
+    });
+  });
+
+  it('purely-club 微信登录会使用稳定的 club wechat 标识签 token', async () => {
+    prismaService.user.findUnique.mockResolvedValue(null);
+    prismaService.user.findFirst.mockResolvedValueOnce(null);
+    prismaService.user.create.mockResolvedValueOnce({
+      id: 88,
+      email: 'club_wechat_oOPENID123@purelyprofit.local',
+    });
+    redisService.get.mockResolvedValue('0');
+    jwtService.signAsync.mockResolvedValue('club-wechat-token');
+
+    await expect(
+      authProductAuthService.wechatLogin(
+        {
+          openid: 'oOPENID123',
+          nickname: '小王',
+          avatar: 'https://cdn.example.com/avatar.png',
+        },
+        'purely_club',
+      ),
+    ).resolves.toEqual({ access_token: 'club-wechat-token' });
+
+    expect(jwtService.signAsync).toHaveBeenCalledWith({
+      sub: 88,
+      phone: 'club_wechat:oOPENID123',
+      accountScope: 'purely_club',
+      sessionVersion: 0,
+    });
+  });
+
+  it('purely-club 微信登录拿到真实手机号后，手机号登录会复用同一账号', async () => {
+    prismaService.user.findFirst.mockReset();
+    prismaService.user.create.mockReset();
+    jwtService.signAsync.mockReset();
+    redisService.get.mockReset();
+    redisService.del.mockReset();
+
+    prismaService.user.findFirst
+      .mockResolvedValueOnce({
+        id: 88,
+        email: 'club_wechat_oOPENID123@purelyprofit.local',
+        password: 'hashed-password',
+      })
+      .mockResolvedValueOnce({
+        id: 88,
+        email: 'club_wechat_oOPENID123@purelyprofit.local',
+        password: 'hashed-password',
+      });
+    redisService.get.mockResolvedValueOnce('123456').mockResolvedValueOnce('0');
+    redisService.del.mockResolvedValue(undefined);
+    jwtService.signAsync.mockResolvedValue('club-phone-reuse-token');
+
+    await expect(
+      authProductAuthService.loginByCodeOrRegister(
+        {
+          phone: '13800138000',
+          code: '123456',
+        },
+        'purely_club',
+      ),
+    ).resolves.toEqual({ access_token: 'club-phone-reuse-token' });
+
+    expect(prismaService.user.create).not.toHaveBeenCalled();
+    expect(jwtService.signAsync).toHaveBeenCalledWith({
+      sub: 88,
+      phone: '13800138000',
+      accountScope: 'purely_club',
+      sessionVersion: 0,
+    });
+  });
+
+  it('purely-club 微信登录传入手机号时，会优先合并已有手机号账号', async () => {
+    prismaService.user.findUnique.mockReset();
+    prismaService.user.findFirst.mockReset();
+    prismaService.user.update.mockReset();
+    prismaService.user.create.mockReset();
+    jwtService.signAsync.mockReset();
+    redisService.get.mockReset();
+
+    prismaService.user.findUnique.mockResolvedValue(null);
+    prismaService.user.findFirst.mockResolvedValueOnce({
+      id: 66,
+      email: 'club_phone_13800138000@purelyprofit.local',
+      password: 'hashed-password',
+    });
+    prismaService.user.update.mockResolvedValue(undefined);
+    redisService.get.mockResolvedValue('0');
+    jwtService.signAsync.mockResolvedValue('club-wechat-merge-token');
+
+    await expect(
+      authProductAuthService.wechatLogin(
+        {
+          openid: 'oOPENID456',
+          unionid: 'union-456',
+          nickname: '阿杰',
+          avatar: 'https://cdn.example.com/avatar-456.png',
+          phone: '13800138000',
+        },
+        'purely_club',
+      ),
+    ).resolves.toEqual({ access_token: 'club-wechat-merge-token' });
+
+    expect(prismaService.user.update).toHaveBeenCalledWith({
+      where: { id: 66 },
+      data: {
+        wechatOpenid: 'oOPENID456',
+        wechatUnionid: 'union-456',
+        wechatNickname: '阿杰',
+        wechatAvatar: 'https://cdn.example.com/avatar-456.png',
+        wechatPhone: '13800138000',
+      },
+    });
+    expect(prismaService.user.create).not.toHaveBeenCalled();
+    expect(jwtService.signAsync).toHaveBeenCalledWith({
+      sub: 66,
+      phone: '13800138000',
+      accountScope: 'purely_club',
+      sessionVersion: 0,
+    });
+  });
+
+  it('微信资料回写会在通用昵称头像为空时做回填', async () => {
+    prismaService.user.findUnique.mockResolvedValueOnce({
+      name: null,
+      avatar: null,
+    });
+    prismaService.user.update.mockResolvedValue(undefined);
+
+    await authAccountLookupService.updateWechatProfile(9, {
+      nickname: '微信昵称',
+      avatar: 'https://cdn.example.com/wx.png',
+      unionid: 'union-1',
+    });
+
+    expect(prismaService.user.update).toHaveBeenCalledWith({
+      where: { id: 9 },
+      data: {
+        wechatNickname: '微信昵称',
+        name: '微信昵称',
+        wechatAvatar: 'https://cdn.example.com/wx.png',
+        avatar: 'https://cdn.example.com/wx.png',
+        wechatUnionid: 'union-1',
+      },
+    });
+  });
+
   it('验证码无效或过期时不允许重置密码', async () => {
     redisService.get.mockResolvedValue(null);
 
@@ -542,6 +730,33 @@ describe('AuthService', () => {
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prismaService.user.update).not.toHaveBeenCalled();
+  });
+
+  it('微信登录用户获取 profile 时不回显内部标识到手机号字段', async () => {
+    prismaService.user.findUnique.mockResolvedValueOnce({
+      id: 9,
+      email: 'club_wechat_oOPENID123@purelyprofit.local',
+      name: '微信用户',
+      avatar: 'https://cdn.example.com/wx.png',
+      realName: null,
+      idNumber: null,
+      createdAt: new Date('2026-05-12T10:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+    });
+    prismaService.$queryRaw = jest.fn().mockResolvedValue([]);
+
+    const result = await service.getProfile({
+      id: 9,
+      email: 'club_wechat_oOPENID123@purelyprofit.local',
+      phone: 'club_wechat:oOPENID123',
+      name: '微信用户',
+      createdAt: new Date('2026-05-12T10:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      accountScope: 'purely_club',
+      currentMembership: null,
+    });
+
+    expect(result.user.phone).toBe('');
   });
 
   it('获取 profile 时返回真实头像与实名认证信息', async () => {

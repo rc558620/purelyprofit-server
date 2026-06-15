@@ -97,8 +97,30 @@ describe('ClubOrdersService', () => {
     currentMembership: null,
   };
 
+  const wechatUser: AuthenticatedUser = {
+    id: 301,
+    email: 'club_wechat_oOPENID123@purelyprofit.local',
+    phone: 'club_wechat:oOPENID123',
+    name: '微信昵称',
+    createdAt: new Date('2026-05-12T00:00:00.000Z'),
+    updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    accountScope: 'purely_club',
+    currentMembership: null,
+  };
+
   const currentContext: ClubCurrentContext = {
     user,
+    store: {
+      id: 11,
+      name: '望京旗舰店',
+      address: '北京市朝阳区望京 SOHO T3 B1',
+      createdAt: new Date('2026-05-12T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    },
+  };
+
+  const wechatCurrentContext: ClubCurrentContext = {
+    user: wechatUser,
     store: {
       id: 11,
       name: '望京旗舰店',
@@ -255,6 +277,8 @@ describe('ClubOrdersService', () => {
           promotionDiscountAmountFen: 0,
           totalReduceFen: 0,
           promotionTag: null,
+          pointsDeductFen: 0,
+          pointsUsed: 0,
         },
       }),
     );
@@ -321,6 +345,85 @@ describe('ClubOrdersService', () => {
           promotionDiscountAmountFen: 0,
           promotionTag: null,
         }),
+      }),
+    );
+  });
+
+  it('createServiceOrder 对微信登录用户使用稳定标识查顾客并走 JSAPI 下单', async () => {
+    prismaService.marketingCustomer.findUnique.mockResolvedValue({
+      id: 66,
+      points: 300,
+    });
+    prismaService.marketingProduct.findFirst.mockResolvedValue({
+      id: 18,
+      name: '黄金焕肤疗程',
+      price: 49900,
+      originalPrice: 68800,
+      image: 'https://cdn.example.com/products/18.png',
+      stock: 20,
+    });
+    clubWechatJsapiService.createJsapiPaymentParams.mockResolvedValue({
+      timeStamp: '1773556800',
+      nonceStr: 'wx-nonce',
+      package: 'prepay_id=club_SVWX123',
+      signType: 'RSA',
+      paySign: 'WX-SIGN',
+    });
+    clubOrderDraftsService.createDraft.mockResolvedValue({
+      ...createServiceDraft(),
+      id: 'SVWX123',
+      orderNo: 'SVWX123',
+      userId: 301,
+      phone: 'club_wechat:oOPENID123',
+      customerId: 66,
+      paymentParams: {
+        timeStamp: '1773556800',
+        nonceStr: 'wx-nonce',
+        package: 'prepay_id=club_SVWX123',
+        signType: 'RSA',
+        paySign: 'WX-SIGN',
+      },
+    });
+
+    await expect(
+      service.createServiceOrder(wechatCurrentContext, {
+        storeId: 11,
+        productId: 18,
+        openid: 'oOPENID123',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 'SVWX123',
+        productId: '18',
+        productName: '黄金焕肤疗程',
+      }),
+    );
+    expect(prismaService.marketingCustomer.findUnique).toHaveBeenCalledWith({
+      where: {
+        storeId_phone: {
+          storeId: 11,
+          phone: 'club_wechat:oOPENID123',
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+    expect(
+      clubWechatJsapiService.createJsapiPaymentParams,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storeId: 11,
+        description: '购买黄金焕肤疗程',
+        amountFen: 49900,
+        openid: 'oOPENID123',
+      }),
+    );
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: wechatUser,
+        customerId: 66,
+        amountFen: 49900,
       }),
     );
   });
@@ -791,6 +894,69 @@ describe('ClubOrdersService', () => {
         usageCount: { increment: 1 },
         totalDiscount: { increment: 12475 },
       },
+    });
+  });
+
+  it('confirmOrderPaidByCallback 对微信登录用户订单也能完成消费落账', async () => {
+    const draft = {
+      ...createServiceDraft(),
+      id: 'SVWX123',
+      orderNo: 'SVWX123',
+      userId: 301,
+      phone: 'club_wechat:oOPENID123',
+      customerId: 66,
+    };
+    clubOrderDraftsService.getDraftByOrderId.mockResolvedValue(draft);
+    prismaService.marketingCustomer.findFirst.mockResolvedValueOnce({
+      id: 66,
+      balance: 90000,
+      totalSpent: 120000,
+    });
+    prismaService.marketingProduct.findFirst.mockResolvedValueOnce({
+      id: 18,
+      stock: 12,
+    });
+    clubOrderDraftsService.markPaid.mockResolvedValue({
+      ...draft,
+      status: 'paid',
+      paidAtMs: 1773558660000,
+      paymentTransactionId: 'wx_txn_wechat_001',
+      callbackReceivedAtMs: 1773558663000,
+      paymentConfirmationSource: 'wechat_callback',
+    });
+
+    await expect(
+      service.confirmOrderPaidByCallback('SVWX123', {
+        amountFen: 49900,
+        transactionId: 'wx_txn_wechat_001',
+        paidAtMs: 1773558660000,
+        callbackReceivedAtMs: 1773558663000,
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 'SVWX123',
+        paymentConfirmationSource: 'wechat_callback',
+      }),
+    );
+    expect(prismaService.marketingConsumption.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        storeId: 11,
+        customerId: 66,
+        amount: 49900,
+      }),
+    });
+    expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
+      where: { id: 66 },
+      data: expect.objectContaining({
+        balance: { decrement: 49900 },
+        totalSpent: { increment: 49900 },
+      }),
+    });
+    expect(clubOrderDraftsService.markPaid).toHaveBeenCalledWith(draft, {
+      paymentConfirmationSource: 'wechat_callback',
+      paymentTransactionId: 'wx_txn_wechat_001',
+      paidAtMs: 1773558660000,
+      callbackReceivedAtMs: 1773558663000,
     });
   });
 

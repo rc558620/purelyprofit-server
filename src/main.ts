@@ -473,7 +473,12 @@ export async function bootstrap(): Promise<void> {
   app.setGlobalPrefix('api');
 
   const corsOrigin = configService.get<string>('app.corsOrigin') ?? '*';
-  app.enableCors({ origin: resolveCorsOrigin(corsOrigin) });
+  app.enableCors({
+    origin: resolveCorsOrigin(corsOrigin),
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Requested-With'],
+    credentials: true,
+  });
 
   const slowRequestLogEnabled =
     configService.get<boolean>('app.slowRequestLogEnabled') ?? true;

@@ -19,7 +19,7 @@ import {
 import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { PasswordOperationResponseDto } from '../auth/dto/password-operation-response.dto';
+import { PasswordOperationResponseDto } from '../../purely-profit/auth/dto/password-operation-response.dto';
 import { ClubCurrentContextInterceptor } from '../stores/club-current-context.interceptor';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { CurrentClubContext } from '../stores/current-club-context.decorator';

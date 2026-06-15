@@ -26,17 +26,27 @@ enum StoreSubscriptionStatus {
 }
 
 model User {
-  id              Int      @id @default(autoincrement())
-  email           String   @unique
-  password        String
-  name            String?
-  avatar          String?
-  realName        String?  @map("real_name")
-  idNumber        String?  @unique @map("id_number")
-  store           Store?
-  staffMembership Staff?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id               Int      @id @default(autoincrement())
+  email            String   @unique
+  password         String
+  name             String?
+  avatar           String?
+  realName         String?  @map("real_name")
+  idNumber         String?  @unique @map("id_number")
+  /// purely-club 微信小程序 openid（每个 appid 下唯一）
+  wechatOpenid     String?  @unique @map("wechat_openid")
+  /// 微信 unionid（同一主体下跨应用唯一，部分场景才返回）
+  wechatUnionid    String?  @map("wechat_unionid")
+  /// 微信登录时拉取的头像 URL
+  wechatAvatar     String?  @map("wechat_avatar")
+  /// 微信登录时拉取的昵称
+  wechatNickname   String?  @map("wechat_nickname")
+  /// 微信授权手机号（open-type=getPhoneNumber 解密，用于与手机号账号互通）
+  wechatPhone      String?  @map("wechat_phone")
+  store            Store?
+  staffMembership  Staff?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("users")
 }

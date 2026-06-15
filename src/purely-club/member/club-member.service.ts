@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AuthService } from '../../purely-profit/auth/auth.service';
 import type { ProfileUserDto } from '../../purely-profit/auth/dto/profile-response.dto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { PasswordOperationResponseDto } from '../auth/dto/password-operation-response.dto';
+import { PasswordOperationResponseDto } from '../../purely-profit/auth/dto/password-operation-response.dto';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import {
   type ChangeClubMemberPasswordDto,

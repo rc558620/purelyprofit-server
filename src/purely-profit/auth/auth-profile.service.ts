@@ -18,7 +18,7 @@ import type {
   ProfileUserRecord,
 } from './auth-profile.types';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
-import { isVerifiedUser, maskIdNumber } from './auth.utils';
+import { getDisplayPhone, isVerifiedUser, maskIdNumber } from './auth.utils';
 
 @Injectable()
 export class AuthProfileService {
@@ -87,7 +87,7 @@ export class AuthProfileService {
     return {
       user: {
         id: profileUser.id,
-        phone: user.phone,
+        phone: getDisplayPhone(user.phone),
         email: profileUser.email,
         name: profileUser.name,
         avatar: toOptionalMediaText(profileUser.avatar) ?? '',

@@ -13,6 +13,7 @@ import type { ProfileUserRecord } from './auth-profile.types';
 import { ADMIN_LOGIN_PHONE } from './auth.constants';
 import {
   buildAccountLoginEmails,
+  buildClubWechatMemberPhone,
   buildPhoneLoginEmails,
   resolveLoginEmail,
   resolveLoginPhone,
@@ -91,6 +92,25 @@ export class AuthAccountLookupService {
       }
     }
 
+    if (productScope === 'purely_club') {
+      const wechatBoundUser = await this.prisma.user.findFirst({
+        where: { wechatPhone: phone },
+        select: {
+          id: true,
+          email: true,
+          password: true,
+        },
+      });
+
+      if (wechatBoundUser) {
+        return {
+          ...wechatBoundUser,
+          phone,
+          accountScope: 'purely_club',
+        };
+      }
+    }
+
     const candidateEmails = buildPhoneLoginEmails(productScope, phone);
     const user = await this.prisma.user.findFirst({
       where: { email: { in: candidateEmails } },
@@ -110,6 +130,112 @@ export class AuthAccountLookupService {
       phone,
       accountScope: productScope,
     };
+  }
+
+  /**
+   * 通过微信 openid 查找 purely-club 用户
+   * openid 在 users 表中有唯一索引，直接精确查找
+   */
+  async findUserByWechatOpenid(
+    openid: string,
+  ): Promise<PhoneUserRecord | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { wechatOpenid: openid },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        wechatPhone: true,
+      },
+    });
+
+    if (!user) {
+      return null;
+    }
+
+    // 优先使用微信授权拿到的真实手机号（wechat_phone），
+    // 保证微信登录与手机号登录使用同一个 phone 标识，确保会员数据一致。
+    // 若尚未绑定真实手机号（历史账号或未授权），则回退到 openid 派生标识。
+    const { wechatPhone, ...userWithoutPhone } = user;
+    return {
+      ...userWithoutPhone,
+      phone: wechatPhone ?? buildClubWechatMemberPhone(openid),
+      accountScope: 'purely_club',
+    };
+  }
+
+  /**
+   * 更新微信用户的头像和昵称（微信用户已存在时刷新信息）
+   */
+  async updateWechatProfile(
+    userId: number,
+    params: { nickname?: string; avatar?: string; unionid?: string },
+  ): Promise<void> {
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        name: true,
+        avatar: true,
+      },
+    });
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(params.nickname != null && {
+          wechatNickname: params.nickname,
+          // 仅在还没有通用昵称时回填，避免覆盖用户在站内主动修改的昵称
+          ...(currentUser?.name ? {} : { name: params.nickname }),
+        }),
+        ...(params.avatar != null && {
+          wechatAvatar: params.avatar,
+          // 仅在还没有通用头像时回填，避免覆盖用户在站内主动修改的头像
+          ...(currentUser?.avatar ? {} : { avatar: params.avatar }),
+        }),
+        ...(params.unionid != null && { wechatUnionid: params.unionid }),
+      },
+    });
+  }
+
+  /**
+   * 将微信授权手机号写入 wechat_phone 字段（用于账号体系打通后的查找）
+   *
+   * 该手机号从 open-type=getPhoneNumber 回调中解密获得，代表用户微信绑定的真实手机号。
+   * 写入后 findUserByPhone 会优先命中 wechat_phone，实现微信与手机号登录互通。
+   */
+  async updateWechatPhone(userId: number, phone: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { wechatPhone: phone },
+    });
+  }
+
+  /**
+   * 将微信 openid 绑定到已有的手机号账号（账号合并）
+   *
+   * 场景：用户先通过手机号注册，后续首次微信登录时携带了真实手机号 → 自动合并为同一账号。
+   * 合并后用户可以用手机号或微信任意一种方式登录，操作同一份数据。
+   */
+  async bindWechatToUser(
+    userId: number,
+    params: {
+      openid: string;
+      unionid?: string;
+      nickname?: string;
+      avatar?: string;
+      phone?: string;
+    },
+  ): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        wechatOpenid: params.openid,
+        ...(params.unionid != null && { wechatUnionid: params.unionid }),
+        ...(params.nickname != null && { wechatNickname: params.nickname }),
+        ...(params.avatar != null && { wechatAvatar: params.avatar }),
+        ...(params.phone != null && { wechatPhone: params.phone }),
+      },
+    });
   }
 
   async findProfileUserOrThrow(userId: number): Promise<ProfileUserRecord> {

@@ -29,6 +29,9 @@ const PRODUCT_ACCOUNT_LOGIN_PREFIX: Record<AuthProductScope, string> = {
 };
 const LEGACY_PROFIT_PHONE_LOGIN_PREFIX = 'phone_';
 const LEGACY_PROFIT_ACCOUNT_LOGIN_PREFIX = 'account_';
+const CLUB_WECHAT_MEMBER_PHONE_PREFIX = 'club_wechat:';
+const CLUB_WECHAT_LOGIN_PREFIX = 'club_wechat_';
+const MAINLAND_MOBILE_PHONE_PATTERN = /^1[3-9]\d{9}$/;
 
 export function normalizePhone(phone: string): string {
   return phone.trim();
@@ -129,7 +132,7 @@ export function resolveLoginEmail(
 }
 
 export function extractPhoneFromLoginAccount(account: string): string | null {
-  return /^1[3-9]\d{9}$/.test(account) ? account : null;
+  return MAINLAND_MOBILE_PHONE_PATTERN.test(account) ? account : null;
 }
 
 export function isCustomLoginAccount(account: string): boolean {
@@ -195,7 +198,8 @@ export function resolveProductAccountScopeFromEmail(
   const normalizedEmail = normalizeLoginEmail(email);
   if (
     normalizedEmail.startsWith(PRODUCT_PHONE_LOGIN_PREFIX.purely_club) ||
-    normalizedEmail.startsWith(PRODUCT_ACCOUNT_LOGIN_PREFIX.purely_club)
+    normalizedEmail.startsWith(PRODUCT_ACCOUNT_LOGIN_PREFIX.purely_club) ||
+    normalizedEmail.startsWith(CLUB_WECHAT_LOGIN_PREFIX)
   ) {
     return 'purely_club';
   }
@@ -250,6 +254,22 @@ export function resolveAuthIdentity(
     isPulseDeveloper,
     pulseMode: isPulseDeveloper ? 'developer' : 'normal',
   };
+}
+
+export function isMainlandMobilePhone(phone: string): boolean {
+  return MAINLAND_MOBILE_PHONE_PATTERN.test(phone);
+}
+
+export function buildClubWechatMemberPhone(openid: string): string {
+  return `${CLUB_WECHAT_MEMBER_PHONE_PREFIX}${openid}`;
+}
+
+export function isClubWechatMemberPhone(phone: string): boolean {
+  return phone.startsWith(CLUB_WECHAT_MEMBER_PHONE_PREFIX);
+}
+
+export function getDisplayPhone(phone: string): string {
+  return isMainlandMobilePhone(phone) ? phone : '';
 }
 
 export function maskPhone(phone: string): string {

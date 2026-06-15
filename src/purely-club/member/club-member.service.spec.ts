@@ -63,6 +63,23 @@ describe('ClubMemberService', () => {
     },
   };
 
+  const wechatCurrentContext: ClubCurrentContext = {
+    user: {
+      ...user,
+      id: 301,
+      email: 'club_wechat_oOPENID123@purelyprofit.local',
+      phone: 'club_wechat:oOPENID123',
+      name: '微信昵称',
+    },
+    store: {
+      id: 11,
+      name: '望京旗舰店',
+      address: '北京市朝阳区望京 SOHO T3 B1',
+      createdAt: new Date('2026-05-12T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    },
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue(
@@ -228,9 +245,9 @@ describe('ClubMemberService', () => {
       memberCode: 'PC20240528028',
       joinDate: '2024-05-28',
       totalConsume: 3200,
-      heldLevel: 'gold',
-      heldLevelLabel: '黄金会员',
-      heldLevelVisible: true,
+      heldLevel: 'regular',
+      heldLevelLabel: '普通会员',
+      heldLevelVisible: false,
     });
     expect(prismaService.member.findFirst).toHaveBeenCalledWith({
       where: {
@@ -292,6 +309,72 @@ describe('ClubMemberService', () => {
       heldLevel: 'platinum',
       heldLevelLabel: '铂金会员',
       heldLevelVisible: true,
+    });
+  });
+
+  it('getAccount 对微信登录用户使用稳定标识查询会员与顾客档案', async () => {
+    prismaService.member.findFirst.mockResolvedValue(
+      createMember({
+        id: 58,
+        level: 'gold',
+        points: 420,
+        totalConsumeAmount: new Decimal('1260.00'),
+        createdAt: new Date('2024-08-01T00:00:00.000Z'),
+      }),
+    );
+    prismaService.marketingCustomer.findUnique.mockResolvedValue(
+      createMarketingCustomer({
+        id: 66,
+        balance: 26800,
+        points: 920,
+        tier: 'gold',
+        totalSpent: 126000,
+        createdAt: new Date('2024-08-01T00:00:00.000Z'),
+      }),
+    );
+    prismaService.marketingRecharge.aggregate.mockResolvedValue({
+      _sum: { amount: 126000, giftAmount: 0 },
+    });
+
+    await expect(
+      service.getAccount(wechatCurrentContext),
+    ).resolves.toMatchObject({
+      id: '58',
+      storeId: '11',
+      balance: 268,
+      points: 920,
+      totalConsume: 1260,
+      heldLevel: 'gold',
+    });
+    expect(prismaService.member.findFirst).toHaveBeenCalledWith({
+      where: {
+        storeId: 11,
+        phone: 'club_wechat:oOPENID123',
+        status: { not: 'BANNED' },
+      },
+      select: {
+        id: true,
+        level: true,
+        points: true,
+        totalConsumeAmount: true,
+        createdAt: true,
+      },
+    });
+    expect(prismaService.marketingCustomer.findUnique).toHaveBeenCalledWith({
+      where: {
+        storeId_phone: {
+          storeId: 11,
+          phone: 'club_wechat:oOPENID123',
+        },
+      },
+      select: {
+        id: true,
+        balance: true,
+        points: true,
+        tier: true,
+        totalSpent: true,
+        createdAt: true,
+      },
     });
   });
 
@@ -576,9 +659,9 @@ describe('ClubMemberService', () => {
       expect.objectContaining({
         currentLevel: 'gold',
         currentLevelLabel: '黄金会员',
-        heldLevel: 'gold',
-        heldLevelLabel: '黄金会员',
-        heldLevelVisible: true,
+        heldLevel: 'regular',
+        heldLevelLabel: '普通会员',
+        heldLevelVisible: false,
         items: expect.arrayContaining([
           expect.objectContaining({ level: 'gold', unlocked: true }),
           expect.objectContaining({ level: 'platinum', unlocked: false }),

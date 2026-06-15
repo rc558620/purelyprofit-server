@@ -4,8 +4,10 @@ import { AuthCodeService } from '../../purely-profit/auth/auth-code.service';
 import type { AuthProductScope } from './auth-account.types';
 import type {
   LoginAuthParams,
+  LoginByCodeOrRegisterAuthParams,
   RegisterAuthParams,
   ResetPasswordAuthParams,
+  WechatLoginAuthParams,
 } from './auth-password.types';
 import { normalizePhone } from './auth-phone.utils';
 
@@ -158,5 +160,63 @@ export class AuthProductAuthService {
     };
 
     return this.authAuthenticationService.resetPassword(params);
+  }
+
+  /**
+   * purely-club 专用：发送登录即注册验证码
+   * 无论手机号是否已注册都发送，不暴露注册状态
+   */
+  async sendClubLoginOrRegisterCode(
+    payload: AuthPhonePayload,
+  ): Promise<SendLoginCodeResult> {
+    return this.authCodeService.sendClubLoginOrRegisterCode(
+      normalizePhone(payload.phone),
+    );
+  }
+
+  /**
+   * 手机号验证码登录即注册（purely-club 专用）
+   * 验证码有效 → 已有账号则登录，无账号则自动创建
+   */
+  async loginByCodeOrRegister(
+    payload: AuthLoginByCodePayload,
+    productScope: AuthProductScope,
+  ): Promise<AuthTokenResult> {
+    const params: LoginByCodeOrRegisterAuthParams = {
+      phone: normalizePhone(payload.phone),
+      code: payload.code,
+      productScope,
+    };
+
+    return this.authAuthenticationService.loginByCodeOrRegister(params);
+  }
+
+  /**
+   * 微信小程序登录即注册（purely-club 专用）
+   * openid 已存在则登录并刷新微信信息；
+   * 若传入 phone 且存在对应手机号账号，则绑定 openid（账号合并）；
+   * 否则自动注册新账号
+   */
+  async wechatLogin(
+    payload: {
+      openid: string;
+      unionid?: string;
+      nickname?: string;
+      avatar?: string;
+      /** 微信授权的真实手机号（纯数字格式，如 13800138000） */
+      phone?: string;
+    },
+    productScope: AuthProductScope,
+  ): Promise<AuthTokenResult> {
+    const params: WechatLoginAuthParams = {
+      openid: payload.openid,
+      unionid: payload.unionid,
+      nickname: payload.nickname,
+      avatar: payload.avatar,
+      phone: payload.phone,
+      productScope,
+    };
+
+    return this.authAuthenticationService.wechatLogin(params);
   }
 }

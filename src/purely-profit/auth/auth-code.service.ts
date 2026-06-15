@@ -121,6 +121,46 @@ export class AuthCodeService {
     return response;
   }
 
+  /**
+   * purely-club 登录即注册验证码
+   *
+   * 与 sendLoginCode 不同的是：
+   *  - 无论手机号是否已注册，都发送验证码
+   *  - 发送成功统一返回通用文案，不暴露注册状态
+   *  - 后续由 loginByCodeOrRegister 决定是登录还是自动注册
+   */
+  async sendClubLoginOrRegisterCode(
+    phone: string,
+  ): Promise<SendLoginCodeResponseDto> {
+    const expiresInSeconds = this.getRegisterCodeTtlSeconds();
+    const code = generateNumericCode();
+    const codeKey = buildRegisterCodeKey('purely_club', phone);
+
+    await this.redisService.set(codeKey, code, expiresInSeconds);
+
+    try {
+      await this.authSmsService.sendLoginCode({
+        phone,
+        code,
+        expiresInSeconds,
+      });
+    } catch (error) {
+      await this.redisService.del(codeKey);
+      throw error;
+    }
+
+    const response: SendLoginCodeResponseDto = {
+      message: '验证码已发送，请注意查收',
+      expiresInSeconds,
+    };
+
+    if (this.isNonProductionEnv()) {
+      return { ...response, code };
+    }
+
+    return response;
+  }
+
   async ensureRegisterCodeValid(
     phone: string,
     code: string,

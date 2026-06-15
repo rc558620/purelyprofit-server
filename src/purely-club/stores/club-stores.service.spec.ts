@@ -48,6 +48,17 @@ describe('ClubStoresService', () => {
     currentMembership: null,
   };
 
+  const wechatUser: AuthenticatedUser = {
+    id: 301,
+    email: 'club_wechat_oOPENID123@purelyprofit.local',
+    phone: 'club_wechat:oOPENID123',
+    name: '微信昵称',
+    createdAt: new Date('2026-05-12T00:00:00.000Z'),
+    updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    accountScope: 'purely_club',
+    currentMembership: null,
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     prismaService.$transaction.mockImplementation(async (operations) =>
@@ -89,6 +100,7 @@ describe('ClubStoresService', () => {
           id: 11,
           name: '望京旗舰店',
           address: '北京市朝阳区望京 SOHO T3 B1',
+          isOpen: true,
           coverImage: 'https://cdn.example.com/store-cover.png',
           latitude: 39.984104,
           longitude: 116.307503,
@@ -97,6 +109,7 @@ describe('ClubStoresService', () => {
           id: 12,
           name: '三里屯店',
           address: '北京市朝阳区望京 SOHO T3 B1',
+          isOpen: true,
           coverImage: 'https://cdn.example.com/store-cover.png',
           latitude: 39.984104,
           longitude: 116.307503,
@@ -133,6 +146,7 @@ describe('ClubStoresService', () => {
       id: 11,
       name: '望京旗舰店',
       address: '北京市朝阳区望京 SOHO T3 B1',
+      isOpen: true,
       coverImage: 'https://cdn.example.com/store-cover.png',
       latitude: 39.984104,
       longitude: 116.307503,
@@ -151,6 +165,7 @@ describe('ClubStoresService', () => {
         id: 18,
         name: '中关村店',
         address: '北京市朝阳区望京 SOHO T3 B1',
+        isOpen: true,
         coverImage: 'https://cdn.example.com/store-cover.png',
         latitude: 39.984104,
         longitude: 116.307503,
@@ -209,6 +224,7 @@ describe('ClubStoresService', () => {
         id: 18,
         name: '中关村店',
         address: '北京市朝阳区望京 SOHO T3 B1',
+        isOpen: true,
         coverImage: 'https://cdn.example.com/store-cover.png',
         latitude: 39.984104,
         longitude: 116.307503,
@@ -280,6 +296,7 @@ describe('ClubStoresService', () => {
         id: 18,
         name: '中关村店',
         address: '北京市朝阳区望京 SOHO T3 B1',
+        isOpen: true,
         coverImage: 'https://cdn.example.com/store-cover.png',
         latitude: 39.984104,
         longitude: 116.307503,
@@ -331,10 +348,81 @@ describe('ClubStoresService', () => {
     );
   });
 
-  it('joinByScanCode 在扫码内容无法识别时拒绝加入', async () => {
-    await expect(service.joinByScanCode(user, 'not-a-store-code')).rejects.toThrow(
-      '扫码结果无效，未识别到门店邀请码',
+  it('joinByInviteCode 对微信登录用户使用稳定标识建档', async () => {
+    prismaService.store.findMany.mockResolvedValue([
+      createStore({ id: 18, name: '中关村店' }),
+      createStore({ id: 11, name: '望京旗舰店' }),
+    ]);
+    prismaService.member.findUnique.mockResolvedValue(null);
+    prismaService.member.upsert.mockResolvedValue({ id: 4801 });
+    prismaService.marketingCustomer.upsert.mockResolvedValue({ id: 5801 });
+    prismaService.store.findFirst.mockResolvedValue(
+      createStore({ id: 18, name: '中关村店' }),
     );
+
+    await expect(
+      service.joinByInviteCode(wechatUser, buildExpectedInviteCode(18)),
+    ).resolves.toEqual({
+      success: true,
+      store: {
+        id: 18,
+        name: '中关村店',
+        address: '北京市朝阳区望京 SOHO T3 B1',
+        isOpen: true,
+        coverImage: 'https://cdn.example.com/store-cover.png',
+        latitude: 39.984104,
+        longitude: 116.307503,
+      },
+    });
+    expect(prismaService.member.findUnique).toHaveBeenCalledWith({
+      where: {
+        storeId_phone: {
+          storeId: 18,
+          phone: 'club_wechat:oOPENID123',
+        },
+      },
+      select: {
+        status: true,
+      },
+    });
+    expect(prismaService.member.upsert).toHaveBeenCalledWith({
+      where: {
+        storeId_phone: {
+          storeId: 18,
+          phone: 'club_wechat:oOPENID123',
+        },
+      },
+      create: {
+        storeId: 18,
+        name: '微信昵称',
+        phone: 'club_wechat:oOPENID123',
+      },
+      update: {},
+    });
+    expect(prismaService.marketingCustomer.upsert).toHaveBeenCalledWith({
+      where: {
+        storeId_phone: {
+          storeId: 18,
+          phone: 'club_wechat:oOPENID123',
+        },
+      },
+      create: {
+        storeId: 18,
+        name: '微信昵称',
+        phone: 'club_wechat:oOPENID123',
+      },
+      update: {},
+    });
+    expect(redisService.set).toHaveBeenCalledWith(
+      'club:selected-store:301',
+      '18',
+    );
+  });
+
+  it('joinByScanCode 在扫码内容无法识别时拒绝加入', async () => {
+    await expect(
+      service.joinByScanCode(user, 'not-a-store-code'),
+    ).rejects.toThrow('扫码结果无效，未识别到门店邀请码');
     expect(prismaService.store.findMany).not.toHaveBeenCalled();
   });
 
@@ -344,9 +432,9 @@ describe('ClubStoresService', () => {
       createStore({ id: 12, name: '三里屯店' }),
     ]);
 
-    await expect(service.joinByInviteCode(user, 'INVALID')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      service.joinByInviteCode(user, 'INVALID'),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(prismaService.member.upsert).not.toHaveBeenCalled();
     expect(prismaService.marketingCustomer.upsert).not.toHaveBeenCalled();
   });

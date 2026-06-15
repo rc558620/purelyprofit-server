@@ -1,60 +1,33 @@
-import {
-  Body,
-  Controller,
-  HttpCode,
-  HttpStatus,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import {
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { ClubAuthService } from './club-auth.service';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ForgotPasswordResponseDto } from './dto/forgot-password-response.dto';
 import { LoginByCodeDto } from './dto/login-by-code.dto';
-import { LoginDto } from './dto/login.dto';
-import { PasswordOperationResponseDto } from './dto/password-operation-response.dto';
-import { RegisterDto } from './dto/register.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SendLoginCodeResponseDto } from './dto/send-login-code-response.dto';
 import { SendRegisterCodeDto } from './dto/send-register-code.dto';
-import { SendRegisterCodeResponseDto } from './dto/send-register-code-response.dto';
-import { ClubAuthService } from './club-auth.service';
+import { WechatLoginDto } from './dto/wechat-login.dto';
 
 @ApiTags('Club / Auth')
 @Controller('club/auth')
 export class ClubAuthController {
   constructor(private readonly clubAuthService: ClubAuthService) {}
 
-  @Post('register/send-code')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: '发送 purely-club 注册短信验证码',
-    description:
-      '面向 purely-club 个人端账号注册。仅为 purely-club 新账号发送验证码，不适用于 purely-profit 或 purely-pulse 登录入口。',
-  })
-  @ApiOkResponse({
-    description: '发送 purely-club 注册验证码成功',
-    type: SendRegisterCodeResponseDto,
-  })
-  sendRegisterCode(
-    @Body() dto: SendRegisterCodeDto,
-  ): Promise<SendRegisterCodeResponseDto> {
-    return this.clubAuthService.sendRegisterCode(dto);
-  }
-
   @Post('login/send-code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: '发送 purely-club 登录短信验证码',
+    summary: '发送 purely-club 登录验证码',
     description:
-      '仅面向 purely-club 已注册账号发送登录验证码。即使手机号不存在也返回统一文案，不暴露注册状态。',
+      '无论手机号是否已注册均发送验证码。' +
+      '验证码有效期由 AUTH_REGISTER_CODE_TTL_SECONDS 控制（默认 600 秒）。' +
+      '后续通过 POST /club/auth/login/code 完成登录或自动注册。',
   })
   @ApiOkResponse({
-    description: '如手机号已注册则发送 purely-club 登录验证码短信，统一返回通用文案',
+    description: '验证码发送成功',
     type: SendLoginCodeResponseDto,
   })
   sendLoginCode(
@@ -63,81 +36,37 @@ export class ClubAuthController {
     return this.clubAuthService.sendLoginCode(dto);
   }
 
-  @Post('register')
-  @ApiOperation({
-    summary: 'purely-club 注册',
-    description:
-      '创建 purely-club 个人端账号。注册成功后的账号仅用于 purely-club 登录；不能直接用于 purely-profit 或 purely-pulse 登录入口。',
-  })
-  @ApiCreatedResponse({
-    description: 'purely-club 注册成功，返回 JWT token',
-    type: AuthTokenResponseDto,
-  })
-  register(@Body() dto: RegisterDto): Promise<AuthTokenResponseDto> {
-    return this.clubAuthService.register(dto);
-  }
-
-  @Post('login')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'purely-club 登录',
-    description:
-      '仅接受 purely-club 个人端账号登录。purely-profit 注册账号与非开发者账号不能通过该入口登录 purely-club。',
-  })
-  @ApiOkResponse({
-    description: 'purely-club 登录成功，返回 JWT token',
-    type: AuthTokenResponseDto,
-  })
-  login(@Body() dto: LoginDto): Promise<AuthTokenResponseDto> {
-    return this.clubAuthService.login(dto);
-  }
-
   @Post('login/code')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: '通过短信验证码登录 purely-club',
+    summary: '手机号验证码登录（登录即注册）',
     description:
-      '仅接受 purely-club 已注册账号通过手机号验证码登录。登录成功后返回 JWT token，并消费当前验证码。',
+      '使用手机号 + 验证码完成登录。' +
+      '若该手机号在 purely-club 尚无账号，将自动创建账号后签发 JWT token。' +
+      '验证码来自 POST /club/auth/login/send-code，一次性消费。',
   })
   @ApiOkResponse({
-    description: 'purely-club 验证码登录成功，返回 JWT token',
+    description: '登录成功，返回 JWT token',
     type: AuthTokenResponseDto,
   })
   loginByCode(@Body() dto: LoginByCodeDto): Promise<AuthTokenResponseDto> {
     return this.clubAuthService.loginByCode(dto);
   }
 
-  @Post('forgot-password')
-  @HttpCode(HttpStatus.OK)
+  @Post('login/wechat')
   @ApiOperation({
-    summary: '发送 purely-club 找回密码短信验证码',
+    summary: '微信小程序登录（登录即注册）',
     description:
-      '仅面向 purely-club 账号找回密码。即使手机号不存在也返回统一文案，不暴露注册状态。',
+      '使用微信小程序 wx.login() 返回的 code 完成登录。' +
+      '服务端将 code 换取 openid（及 unionid），若该 openid 已有账号则登录并刷新微信昵称/头像；' +
+      '若尚无账号，则自动创建 purely-club 账号后签发 JWT token。' +
+      'nickname / avatar 为可选项，由前端通过 wx.getUserProfile 或授权组件获取后传入。',
   })
-  @ApiOkResponse({
-    description: '如手机号存在则发送 purely-club 找回密码验证码短信，统一返回通用文案',
-    type: ForgotPasswordResponseDto,
+  @ApiCreatedResponse({
+    description: '微信登录成功，返回 JWT token',
+    type: AuthTokenResponseDto,
   })
-  forgotPassword(
-    @Body() dto: ForgotPasswordDto,
-  ): Promise<ForgotPasswordResponseDto> {
-    return this.clubAuthService.forgotPassword(dto);
-  }
-
-  @Post('reset-password')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: '通过短信验证码重置 purely-club 密码',
-    description:
-      '仅重置 purely-club 账号密码。重置成功后返回新的 JWT token，并使旧登录态失效。',
-  })
-  @ApiOkResponse({
-    description: '重置 purely-club 密码成功并返回新的 JWT token',
-    type: PasswordOperationResponseDto,
-  })
-  resetPassword(
-    @Body() dto: ResetPasswordDto,
-  ): Promise<PasswordOperationResponseDto> {
-    return this.clubAuthService.resetPassword(dto);
+  wechatLogin(@Body() dto: WechatLoginDto): Promise<AuthTokenResponseDto> {
+    return this.clubAuthService.wechatLogin(dto);
   }
 }
