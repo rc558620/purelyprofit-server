@@ -5,5 +5,4 @@ scope:
     - src/observability/
 source_files: []
 depends_on: []
-related_to:
-    - path: purely_profit/dashboard
+related_to: []

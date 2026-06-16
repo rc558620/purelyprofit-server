@@ -5,9 +5,4 @@ scope:
     - src/purely-pulse/growth/
 source_files: []
 depends_on: []
-related_to:
-    - path: purely_profit/member
-    - path: purely_pulse/dashboard
-    - path: purely_pulse/onboarding
-    - path: purely_profit/auth/authentication_session
-    - path: purely_pulse/membership
+related_to: []

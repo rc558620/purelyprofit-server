@@ -5,8 +5,4 @@ scope:
     - src/purely-pulse/session/
 source_files: []
 depends_on: []
-related_to:
-    - path: purely_profit/auth/authentication_session
-    - path: purely_pulse/dashboard
-    - path: purely_pulse/onboarding
-    - path: purely_pulse/dev_mode
+related_to: []

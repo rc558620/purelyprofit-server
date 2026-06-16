@@ -11,9 +11,4 @@ scope:
     - src/purely-pulse/pulse-store-context.utils.ts
 source_files: []
 depends_on: []
-related_to:
-    - path: purely_club/stores
-    - path: purely_profit/stores
-    - path: purely_pulse/onboarding
-    - path: cache_layer
-    - path: purely_pulse/dashboard
+related_to: []

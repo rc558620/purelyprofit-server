@@ -5,6 +5,4 @@ scope:
     - src/purely-pulse/dev-mode/
 source_files: []
 depends_on: []
-related_to:
-    - path: purely_pulse/dashboard
-    - path: purely_pulse/session
+related_to: []

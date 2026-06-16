@@ -5,8 +5,4 @@ scope:
     - src/purely-pulse/membership/
 source_files: []
 depends_on: []
-related_to:
-    - path: purely_club/member
-    - path: purely_pulse/membership_settings
-    - path: purely_profit/member/members
-    - path: purely_pulse/growth
+related_to: []

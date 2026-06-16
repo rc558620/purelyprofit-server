@@ -5,7 +5,4 @@ scope:
     - src/purely-pulse/onboarding/
 source_files: []
 depends_on: []
-related_to:
-    - path: purely_pulse/store_context
-    - path: purely_pulse/growth
-    - path: purely_pulse/session
+related_to: []
