@@ -10,6 +10,8 @@ export class PrismaService
   extends PrismaClient<Prisma.PrismaClientOptions, 'query'>
   implements OnModuleInit, OnModuleDestroy
 {
+  private readonly pool: Pool;
+
   constructor(configService: ConfigService) {
     const connectionString = configService.get<string>('database.url');
     const poolMax = configService.get<number>('database.poolMax') ?? 20;
@@ -36,6 +38,8 @@ export class PrismaService
       adapter,
       log: queryListenerEnabled ? [{ emit: 'event', level: 'query' }] : [],
     });
+
+    this.pool = pool;
 
     if (queryListenerEnabled) {
       this.$on('query', (event: Prisma.QueryEvent) => {
@@ -66,5 +70,10 @@ export class PrismaService
 
   async onModuleDestroy() {
     await this.$disconnect();
+    await this.pool.end();
+  }
+
+  async checkReadiness(): Promise<void> {
+    await this.$queryRaw`SELECT 1`;
   }
 }

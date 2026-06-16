@@ -7,6 +7,7 @@ describe('ClubPaymentCallbackSignatureService', () => {
   let service: ClubPaymentCallbackSignatureService;
 
   const configState: Record<string, string | number> = {
+    nodeEnv: 'development',
     'club.wechatCallbackMaxAgeSeconds': 300,
     'wechat.platformPublicKeyContent': '',
   };
@@ -17,6 +18,7 @@ describe('ClubPaymentCallbackSignatureService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    configState.nodeEnv = 'development';
     configState['club.wechatCallbackMaxAgeSeconds'] = 300;
     configState['wechat.platformPublicKeyContent'] = '';
 
@@ -48,6 +50,19 @@ describe('ClubPaymentCallbackSignatureService', () => {
     expect(() =>
       service.assertWechatCallbackSignature(rawBody, headers),
     ).not.toThrow();
+  });
+
+  it('assertWechatCallbackSignature 在生产环境缺少平台公钥时拒绝通过', () => {
+    configState.nodeEnv = 'production';
+    const rawBody = '{}';
+
+    expect(() =>
+      service.assertWechatCallbackSignature(rawBody, {
+        timestamp: String(Math.floor(Date.now() / 1000)),
+        nonce: 'callback-nonce',
+        signature: 'IGNORED',
+      }),
+    ).toThrow(UnauthorizedException);
   });
 
   it('assertWechatCallbackSignature 在回调已过期时拒绝通过', () => {

@@ -1,7 +1,10 @@
 import * as childProcess from 'node:child_process';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { bootstrap, filterSwaggerDocumentForEnvironment } from './main';
+import {
+  bootstrap,
+  filterSwaggerDocumentForEnvironment,
+} from './main';
 
 jest.mock('@nestjs/core', () => ({
   NestFactory: {
@@ -45,7 +48,7 @@ describe('main bootstrap', () => {
     (childProcess.spawnSync as jest.Mock).mockReturnValue({ stdout: '' } as never);
   });
 
-  it('会把 Fastify 运行时参数传给适配器', async () => {
+  it('生产环境会校验关键配置', async () => {
     const bootstrapConfig = {
       get: jest.fn((key: string) => {
         const configMap: Record<string, string | number | boolean> = {
@@ -60,6 +63,61 @@ describe('main bootstrap', () => {
           'app.slowRequestLogEnabled': false,
           'app.slowRequestThresholdMs': 800,
           'app.swaggerEnabled': false,
+          'database.url': 'postgresql://demo',
+          'jwt.secret': 'secret',
+          'club.manualConfirmPaidEnabled': false,
+          'wechat.platformPublicKeyContent': '',
+          'wechat.payNotifyUrl': 'https://api.yourdomain.com/api/club/payments/wechat/callback',
+          port: 3000,
+        };
+        return configMap[key];
+      }),
+    };
+    const runtimeConfig = {
+      get: bootstrapConfig.get,
+    };
+
+    jest
+      .spyOn(ConfigService.prototype, 'get')
+      .mockImplementation(bootstrapConfig.get);
+    app.get.mockImplementation((token: unknown) => {
+      if (token === ConfigService) {
+        return runtimeConfig;
+      }
+      return undefined;
+    });
+
+    await expect(bootstrap()).rejects.toThrow(
+      '[bootstrap] 生产配置校验失败:',
+    );
+    expect(app.listen).not.toHaveBeenCalled();
+  });
+
+  it('会把 Fastify 运行时参数传给适配器', async () => {
+    const bootstrapConfig = {
+      get: jest.fn((key: string) => {
+        const configMap: Record<string, string | number | boolean> = {
+          nodeEnv: 'production',
+          'app.logEnabled': false,
+          'app.httpBodyLimitBytes': 1024,
+          'app.httpKeepAliveTimeoutMs': 70000,
+          'app.httpRequestTimeoutMs': 12000,
+          'app.corsOrigin': 'https://app.purelyprofit.com',
+          'app.portAutoTerminateEnabled': false,
+          'app.portAutoShiftEnabled': false,
+          'app.slowRequestLogEnabled': false,
+          'app.slowRequestThresholdMs': 800,
+          'app.swaggerEnabled': false,
+          'database.url': 'postgresql://demo',
+          'jwt.secret': 'jwt-secret-demo',
+          'redis.host': '127.0.0.1',
+          'club.manualConfirmPaidEnabled': false,
+          'wechat.appId': 'wx_prod_demo_app_id',
+          'wechat.appSecret': 'prod-demo-app-secret',
+          'wechat.mchSerialNo': 'prod-demo-mch-serial-no',
+          'wechat.privateKeyContent': '-----BEGIN PRIVATE KEY-----demo-----END PRIVATE KEY-----',
+          'wechat.platformPublicKeyContent': '-----BEGIN PUBLIC KEY-----demo-----END PUBLIC KEY-----',
+          'wechat.payNotifyUrl': 'https://api.purelyprofit.com/api/club/payments/wechat/callback',
           port: 3000,
         };
         return configMap[key];

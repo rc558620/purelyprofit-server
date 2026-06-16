@@ -68,12 +68,19 @@ export class ClubPaymentCallbackSignatureService {
         signature,
         platformPublicKey,
       );
-    } else {
-      this.logger.warn(
-        'WECHAT_PLATFORM_PUBLIC_KEY_CONTENT 未配置，跳过 RSA 验签（仅靠时间戳防重放）。' +
-          '生产环境请配置微信平台公钥以启用完整签名校验。',
+      return;
+    }
+
+    if (this.isProduction()) {
+      throw new UnauthorizedException(
+        '生产环境未配置微信支付平台公钥，拒绝处理支付回调',
       );
     }
+
+    this.logger.warn(
+      'WECHAT_PLATFORM_PUBLIC_KEY_CONTENT 未配置，跳过 RSA 验签（仅靠时间戳防重放）。' +
+        '生产环境请配置微信平台公钥以启用完整签名校验。',
+    );
   }
 
   // ─── 私有方法 ─────────────────────────────────────────────────────────────
@@ -140,6 +147,10 @@ export class ClubPaymentCallbackSignatureService {
     return (
       this.configService.get<number>('club.wechatCallbackMaxAgeSeconds') ?? 300
     );
+  }
+
+  private isProduction(): boolean {
+    return this.configService.get<string>('nodeEnv') === 'production';
   }
 
   /**

@@ -1242,7 +1242,7 @@ describe('EmployeesService', () => {
       where: { id: 41 },
       data: {
         date: new Date('2026-05-08T00:00:00.000Z'),
-        shiftType: 'late',
+        shiftType: 'custom',
         shiftDefinitionId: 9,
         shiftName: '晚班',
         startTime: '17:30',

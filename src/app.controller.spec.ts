@@ -14,17 +14,36 @@ import {
   SUMMARY_ACTION_VERSION,
   SUMMARY_PROTOCOL_VERSION,
 } from './observability';
-import type { HealthSnapshot, MetricsSnapshot } from './observability';
+import type {
+  HealthSnapshot,
+  MetricsSnapshot,
+  ReadinessSnapshot,
+} from './observability';
+import { PrismaService } from './prisma/prisma.service';
+import { RedisService } from './redis/redis.service';
 
 describe('AppController', () => {
   let appController: AppController;
 
+  const prismaService = {
+    checkReadiness: jest.fn().mockResolvedValue(undefined),
+  };
+  const redisService = {
+    checkReadiness: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     resetRuntimeMetrics();
+    prismaService.checkReadiness.mockResolvedValue(undefined);
+    redisService.checkReadiness.mockResolvedValue(undefined);
 
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [AppService],
+      providers: [
+        AppService,
+        { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
+      ],
     }).compile();
 
     appController = app.get<AppController>(AppController);
@@ -67,6 +86,27 @@ describe('AppController', () => {
           sqlQueries: 0,
           redisCalls: 0,
         },
+      });
+    });
+
+    it('should expose readiness snapshot', async () => {
+      const readiness: ReadinessSnapshot = await appController.getReadiness();
+
+      expect(readiness).toMatchObject({
+        status: 'ok',
+        generatedAt: expect.any(String),
+        dependencies: [
+          {
+            name: 'database',
+            status: 'up',
+            latencyMs: expect.any(Number),
+          },
+          {
+            name: 'redis',
+            status: 'up',
+            latencyMs: expect.any(Number),
+          },
+        ],
       });
     });
 

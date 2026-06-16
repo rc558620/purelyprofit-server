@@ -46,7 +46,7 @@ describe('EmployeesAccessService', () => {
     service = module.get<EmployeesAccessService>(EmployeesAccessService);
   });
 
-  it('getManageableStoreId 在当前 membership 有权限时直接返回当前门店', async () => {
+  it('getManageableStoreId 在当前 membership 有权限时直接返回当前门店', () => {
     const managerUser: AuthenticatedUser = {
       ...user,
       currentMembership: {
@@ -67,25 +67,21 @@ describe('EmployeesAccessService', () => {
     };
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(48);
 
-    await expect(
-      service.getManageableStoreId(managerUser, 'staff:view'),
-    ).resolves.toBe(48);
+    expect(service.getManageableStoreId(managerUser, 'staff:view')).toBe(48);
   });
 
-  it('getManageableStoreId 在当前 membership 无权限时返回 null', async () => {
-    await expect(
-      service.getManageableStoreId(user, 'staff:view'),
-    ).resolves.toBeNull();
+  it('getManageableStoreId 在当前 membership 无权限时返回 null', () => {
+    expect(service.getManageableStoreId(user, 'staff:view')).toBeNull();
   });
 
-  it('getManageableStoreId 支持工资场景的多权限兜底', async () => {
+  it('getManageableStoreId 支持工资场景的多权限兜底', () => {
     accessControlService.resolveCurrentStoreIdByPermission
       .mockReturnValueOnce(null)
       .mockReturnValueOnce(8);
 
-    await expect(
-      service.getManageableStoreId(user, ['staff:update', 'finance:view']),
-    ).resolves.toBe(8);
+    expect(service.getManageableStoreId(user, ['staff:update', 'finance:view'])).toBe(
+      8,
+    );
     expect(
       accessControlService.resolveCurrentStoreIdByPermission,
     ).toHaveBeenNthCalledWith(1, user, 'staff:update');
@@ -94,18 +90,18 @@ describe('EmployeesAccessService', () => {
     ).toHaveBeenNthCalledWith(2, user, 'finance:view');
   });
 
-  it('resolveViewStoreId 在查询其他门店时抛出无权限异常', async () => {
-    await expect(
+  it('resolveViewStoreId 在查询其他门店时抛出无权限异常', () => {
+    expect(() =>
       service.resolveViewStoreId(user, 9, '无权查看该门店员工列表'),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).toThrow(ForbiddenException);
   });
 
-  it('ensureCanManageEmployees 在目标门店不匹配时抛出异常', async () => {
+  it('ensureCanManageEmployees 在目标门店不匹配时抛出异常', () => {
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
 
-    await expect(
-      service.ensureCanManageEmployees(user, 9, 'staff:update'),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(() => service.ensureCanManageEmployees(user, 9, 'staff:update')).toThrow(
+      ForbiddenException,
+    );
   });
 
   it('findEmployeeOrThrow 返回员工并校验门店权限', async () => {
@@ -133,9 +129,9 @@ describe('EmployeesAccessService', () => {
     );
   });
 
-  it('resolveSingleStoreId 在无门店权限时抛出异常', async () => {
-    await expect(
-      service.resolveSingleStoreId(user, undefined, 'staff:view'),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+  it('resolveSingleStoreId 在无门店权限时抛出异常', () => {
+    expect(() => service.resolveSingleStoreId(user, undefined, 'staff:view')).toThrow(
+      ForbiddenException,
+    );
   });
 });

@@ -1,29 +1,45 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module';
+import { AppController } from '../src/app.controller';
+import { AppService } from '../src/app.service';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
 
-  beforeEach(async () => {
+  const appService = {
+    getHello: jest.fn(() => 'Hello World!'),
+    getHealth: jest.fn(),
+    getReadiness: jest.fn(),
+    getMetrics: jest.fn(),
+  };
+
+  beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
+      controllers: [AppController],
+      providers: [{ provide: AppService, useValue: appService }],
     }).compile();
 
     app = moduleFixture.createNestApplication();
     await app.init();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    appService.getHello.mockReturnValue('Hello World!');
+  });
+
+  it('/ (GET)', async () => {
+    await request(app.getHttpServer())
       .get('/')
       .expect(200)
       .expect('Hello World!');
-  });
 
-  afterEach(async () => {
-    await app.close();
+    expect(appService.getHello).toHaveBeenCalledTimes(1);
   });
 });

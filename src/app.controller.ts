@@ -1,6 +1,10 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { HealthSnapshot, MetricsSnapshot } from './observability';
+import type {
+  HealthSnapshot,
+  MetricsSnapshot,
+  ReadinessSnapshot,
+} from './observability';
 import { AppService } from './app.service';
 
 @ApiTags('App')
@@ -20,6 +24,13 @@ export class AppController {
   @Get('healthz')
   getHealth(): HealthSnapshot {
     return this.appService.getHealth();
+  }
+
+  @ApiOperation({ summary: '获取服务就绪状态' })
+  @ApiOkResponse({ description: '返回 PostgreSQL 与 Redis 的 readiness 检查结果' })
+  @Get('readyz')
+  async getReadiness(): Promise<ReadinessSnapshot> {
+    return this.appService.getReadiness();
   }
 
   @ApiOperation({ summary: '获取运行时观测指标快照' })

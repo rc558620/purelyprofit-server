@@ -24,3 +24,22 @@ export type HealthSnapshot = {
   process: ObservabilityProcessSnapshot;
   counters: HealthCountersSnapshot;
 };
+
+export type ReadinessDependencyName = 'database' | 'redis';
+
+export type ReadinessDependencyStatus = 'up' | 'down';
+
+export type ReadinessDependencySnapshot = {
+  name: ReadinessDependencyName;
+  status: ReadinessDependencyStatus;
+  latencyMs: number;
+  details?: string;
+};
+
+export type ReadinessStatus = 'ok' | 'error';
+
+export type ReadinessSnapshot = {
+  status: ReadinessStatus;
+  generatedAt: string;
+  dependencies: ReadinessDependencySnapshot[];
+};

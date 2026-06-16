@@ -55,7 +55,9 @@ export class SpaceAutoCheckoutSchedulerService
       this.intervalTimer = setInterval(() => {
         void this.runCycle();
       }, this.intervalMs);
+      this.intervalTimer.unref?.();
     }, this.initialDelayMs);
+    this.initialDelayTimer.unref?.();
   }
 
   onModuleDestroy(): void {

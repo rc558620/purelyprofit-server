@@ -49,7 +49,7 @@ describe('FinanceOverviewService', () => {
     await expect(
       service.getOverview(user, { period: 'month' }),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(prismaService.financeCashFlowRecord.findMany).not.toHaveBeenCalled();
+    expect(prismaService.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('getOverview 会按会员历史窗口裁剪查询范围', async () => {
@@ -67,21 +67,19 @@ describe('FinanceOverviewService', () => {
         end: new Date('2026-04-30T23:59:59.999Z').getTime(),
         empty: true,
       });
-    prismaService.financeCashFlowRecord.findMany.mockResolvedValue([]);
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
 
     await service.getOverview(user, { period: 'month' });
 
-    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          storeId: 18,
-          date: {
-            gte: new Date(clampedStart),
-            lte: new Date(clampedEnd),
-          },
-        }),
-      }),
-    );
+    expect(prismaService.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prismaService.$queryRaw.mock.calls[0]?.slice(1)).toEqual([
+      18,
+      new Date(clampedStart),
+      new Date(clampedEnd),
+    ]);
   });
 
   it('getOverview 在历史窗口被裁空时返回空结构', async () => {
@@ -117,57 +115,41 @@ describe('FinanceOverviewService', () => {
         ],
       },
     });
-    expect(prismaService.financeCashFlowRecord.findMany).not.toHaveBeenCalled();
+    expect(prismaService.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('getOverview 将 refund/transfer_in/other_income 统一归到附加收入', async () => {
-    prismaService.financeCashFlowRecord.findMany.mockResolvedValue([
-      {
-        category: 'sales',
-        amount: new Prisma.Decimal('1000.00'),
-        date: new Date('2026-05-12T10:00:00.000Z'),
-      },
-      {
-        category: 'refund',
-        amount: new Prisma.Decimal('80.00'),
-        date: new Date('2026-05-12T11:00:00.000Z'),
-      },
-      {
-        category: 'transfer_in',
-        amount: new Prisma.Decimal('20.00'),
-        date: new Date('2026-05-13T09:00:00.000Z'),
-      },
-      {
-        category: 'other_income',
-        amount: new Prisma.Decimal('200.00'),
-        date: new Date('2026-05-13T10:00:00.000Z'),
-      },
-      {
-        category: 'purchase',
-        amount: new Prisma.Decimal('300.00'),
-        date: new Date('2026-05-11T10:00:00.000Z'),
-      },
-      {
-        category: 'rent',
-        amount: new Prisma.Decimal('100.00'),
-        date: new Date('2026-05-10T10:00:00.000Z'),
-      },
-      {
-        category: 'sales',
-        amount: new Prisma.Decimal('500.00'),
-        date: new Date('2026-04-20T10:00:00.000Z'),
-      },
-      {
-        category: 'refund',
-        amount: new Prisma.Decimal('50.00'),
-        date: new Date('2026-04-21T10:00:00.000Z'),
-      },
-      {
-        category: 'purchase',
-        amount: new Prisma.Decimal('100.00'),
-        date: new Date('2026-04-25T10:00:00.000Z'),
-      },
-    ]);
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        { category: 'sales', total: new Prisma.Decimal('1000.00') },
+        { category: 'refund', total: new Prisma.Decimal('80.00') },
+        { category: 'transfer_in', total: new Prisma.Decimal('20.00') },
+        { category: 'other_income', total: new Prisma.Decimal('200.00') },
+        { category: 'purchase', total: new Prisma.Decimal('300.00') },
+        { category: 'rent', total: new Prisma.Decimal('100.00') },
+      ])
+      .mockResolvedValueOnce([
+        {
+          day: new Date('2026-05-10T00:00:00.000Z'),
+          income_total: new Prisma.Decimal('0.00'),
+          expense_total: new Prisma.Decimal('100.00'),
+        },
+        {
+          day: new Date('2026-05-12T00:00:00.000Z'),
+          income_total: new Prisma.Decimal('1080.00'),
+          expense_total: new Prisma.Decimal('0.00'),
+        },
+        {
+          day: new Date('2026-05-13T00:00:00.000Z'),
+          income_total: new Prisma.Decimal('220.00'),
+          expense_total: new Prisma.Decimal('300.00'),
+        },
+      ])
+      .mockResolvedValueOnce([
+        { category: 'sales', total: new Prisma.Decimal('500.00') },
+        { category: 'refund', total: new Prisma.Decimal('50.00') },
+        { category: 'purchase', total: new Prisma.Decimal('100.00') },
+      ]);
 
     await expect(
       service.getOverview(user, { period: 'month' }),
@@ -197,28 +179,26 @@ describe('FinanceOverviewService', () => {
   });
 
   it('getOverview 将 salary/transfer_out/other_expense 统一归到成本支出', async () => {
-    prismaService.financeCashFlowRecord.findMany.mockResolvedValue([
-      {
-        category: 'salary',
-        amount: new Prisma.Decimal('50.00'),
-        date: new Date('2026-05-12T10:00:00.000Z'),
-      },
-      {
-        category: 'transfer_out',
-        amount: new Prisma.Decimal('30.00'),
-        date: new Date('2026-05-13T11:00:00.000Z'),
-      },
-      {
-        category: 'other_expense',
-        amount: new Prisma.Decimal('20.00'),
-        date: new Date('2026-05-13T12:00:00.000Z'),
-      },
-      {
-        category: 'purchase',
-        amount: new Prisma.Decimal('40.00'),
-        date: new Date('2026-05-13T13:00:00.000Z'),
-      },
-    ]);
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        { category: 'salary', total: new Prisma.Decimal('50.00') },
+        { category: 'transfer_out', total: new Prisma.Decimal('30.00') },
+        { category: 'other_expense', total: new Prisma.Decimal('20.00') },
+        { category: 'purchase', total: new Prisma.Decimal('40.00') },
+      ])
+      .mockResolvedValueOnce([
+        {
+          day: new Date('2026-05-12T00:00:00.000Z'),
+          income_total: new Prisma.Decimal('0.00'),
+          expense_total: new Prisma.Decimal('50.00'),
+        },
+        {
+          day: new Date('2026-05-13T00:00:00.000Z'),
+          income_total: new Prisma.Decimal('0.00'),
+          expense_total: new Prisma.Decimal('90.00'),
+        },
+      ])
+      .mockResolvedValueOnce([]);
 
     await expect(
       service.getOverview(user, { period: 'month' }),

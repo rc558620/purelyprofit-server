@@ -7,13 +7,18 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { PermissionsGuard } from '../src/purely-profit/access-control/guards/permissions.guard';
-import { JwtAuthGuard } from '../src/purely-profit/auth/guards/jwt-auth.guard';
+import {
+  JwtAuthGuard,
+  PulseJwtAuthGuard,
+} from '../src/purely-profit/auth/guards/jwt-auth.guard';
 import { PlatformMembershipController } from '../src/purely-profit/member/platform-membership/platform-membership.controller';
 import { PlatformMembershipService } from '../src/purely-profit/member/platform-membership/platform-membership.service';
 import { WithdrawalsController } from '../src/purely-profit/member/withdrawals/withdrawals.controller';
 import { WithdrawalsService } from '../src/purely-profit/member/withdrawals/withdrawals.service';
 import { PulseGrowthController } from '../src/purely-pulse/growth/growth.controller';
+import { PulseGrowthEarningsController } from '../src/purely-pulse/growth/growth-earnings.controller';
 import { PulseGrowthService } from '../src/purely-pulse/growth/growth.service';
+import { PulseGrowthWithdrawalsController } from '../src/purely-pulse/growth/growth-withdrawals.controller';
 
 describe('Partner Phase 3 controllers (e2e)', () => {
   let app: INestApplication<App>;
@@ -90,6 +95,8 @@ describe('Partner Phase 3 controllers (e2e)', () => {
         PlatformMembershipController,
         WithdrawalsController,
         PulseGrowthController,
+        PulseGrowthEarningsController,
+        PulseGrowthWithdrawalsController,
       ],
       providers: [
         {
@@ -102,6 +109,7 @@ describe('Partner Phase 3 controllers (e2e)', () => {
     });
 
     moduleBuilder.overrideGuard(JwtAuthGuard).useValue(authGuard);
+    moduleBuilder.overrideGuard(PulseJwtAuthGuard).useValue(authGuard);
     moduleBuilder.overrideGuard(PermissionsGuard).useValue(permissionsGuard);
 
     const moduleFixture: TestingModule = await moduleBuilder.compile();

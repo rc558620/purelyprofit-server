@@ -13,23 +13,28 @@ class ConcurrencyLimiter {
 
   run<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const execute = () => {
+      const execute = async (): Promise<void> => {
         this.active += 1;
-        fn()
-          .then(resolve, reject)
-          .finally(() => {
-            this.active -= 1;
-            const next = this.queue.shift();
-            if (next) {
-              next();
-            }
-          });
+        try {
+          const result = await fn();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        } finally {
+          this.active -= 1;
+          const next = this.queue.shift();
+          if (next) {
+            next();
+          }
+        }
       };
 
       if (this.active < this.concurrency) {
-        execute();
+        void execute();
       } else {
-        this.queue.push(execute);
+        this.queue.push(() => {
+          void execute();
+        });
       }
     });
   }
@@ -247,6 +252,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   getClient(): Redis {
     return this.client;
+  }
+
+  async checkReadiness(): Promise<void> {
+    const pong = await this.observeRedisCommand('PING', () => this.client.ping());
+    if (pong !== 'PONG') {
+      throw new Error(`unexpected redis ping response: ${String(pong)}`);
+    }
   }
 
   async getOrLoadRefreshableJson<T>(
