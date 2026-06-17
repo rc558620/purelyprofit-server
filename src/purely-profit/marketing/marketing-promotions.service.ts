@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -38,6 +40,7 @@ const MARKETING_PROMOTIONS_LIST_REFRESH_AFTER_MS = 20_000;
 export class MarketingPromotionsService {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => RedisService))
     private readonly redisService: RedisService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly marketingSharedService: MarketingSharedService,
@@ -90,7 +93,10 @@ export class MarketingPromotionsService {
   ): Promise<MarketingPromotionsResponseDto> {
     const where = buildPromotionWhere({
       storeId: resolvedStoreId,
-      status: statusFilter !== 'all' ? (statusFilter as 'upcoming' | 'active' | 'ended') : undefined,
+      status:
+        statusFilter !== 'all'
+          ? (statusFilter as 'upcoming' | 'active' | 'ended')
+          : undefined,
     });
 
     const [rows, total] = await Promise.all([

@@ -1,4 +1,9 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  forwardRef,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import type { ClubMemberLevelValue } from '../../purely-club/member/dto/club-member-account.dto';
 import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../../purely-club/member/member-profile/club-member-profile.service';
@@ -45,6 +50,7 @@ const MARKETING_CUSTOMERS_LIST_REFRESH_AFTER_MS = 20_000;
 export class MarketingCustomersService {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => RedisService))
     private readonly redisService: RedisService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly marketingSharedService: MarketingSharedService,
@@ -113,8 +119,14 @@ export class MarketingCustomersService {
   ): Promise<MarketingCustomersResponseDto> {
     const where = buildCustomerWhere({
       storeId: resolvedStoreId,
-      status: statusFilter !== 'all' ? (statusFilter as 'active' | 'dormant' | 'lost') : undefined,
-      tier: tierFilter !== 'all' ? (tierFilter as 'regular' | 'silver' | 'gold' | 'diamond') : undefined,
+      status:
+        statusFilter !== 'all'
+          ? (statusFilter as 'active' | 'dormant' | 'lost')
+          : undefined,
+      tier:
+        tierFilter !== 'all'
+          ? (tierFilter as 'regular' | 'silver' | 'gold' | 'diamond')
+          : undefined,
       keyword: keywordFilter || undefined,
     });
 

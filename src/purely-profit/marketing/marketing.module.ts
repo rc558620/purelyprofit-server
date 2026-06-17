@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../../purely-club/member/member-profile/club-member-profile.service';
 import { AccessControlModule } from '../access-control/access-control.module';
@@ -34,7 +34,12 @@ import {
 import { MarketingSharedService } from './marketing-shared.service';
 
 @Module({
-  imports: [PrismaModule, RedisModule, AccessControlModule, PlatformMembershipModule],
+  imports: [
+    PrismaModule,
+    forwardRef(() => RedisModule),
+    AccessControlModule,
+    PlatformMembershipModule,
+  ],
   controllers: [
     MarketingController,
     MarketingOverviewController,
