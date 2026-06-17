@@ -169,8 +169,9 @@ export class ClubWechatCallbackDecryptorService {
       throw new InternalServerErrorException('微信回调缺少 transaction_id');
     }
 
-    // 优先取用户实付金额，回落到订单总金额
-    const amountFen = tx.amount?.payer_total ?? tx.amount?.total ?? 0;
+    // 使用订单总金额（含积分/优惠券抵扣前的金额），与 draft.amountFen 口径一致
+    // payer_total 是用户实付金额（扣除了优惠券等），与 draft.amountFen 不一致
+    const amountFen = tx.amount?.total ?? 0;
 
     return {
       orderNo: tx.out_trade_no,

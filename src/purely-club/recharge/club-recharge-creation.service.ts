@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
+import { buildOrderNo } from '../orders/club-order-drafts.utils';
 import type { ClubRechargeOrderMetadata } from '../orders/club-order-drafts.types';
 import {
   type ClubRechargeOrderResponseDto,
@@ -50,7 +51,7 @@ export class ClubRechargeCreationService {
 
     // 预生成订单号以保证 JSAPI out_trade_no 与 draft orderNo 一致
     const now = Date.now();
-    const orderNo = this.buildRechargeOrderNo(now);
+    const orderNo = buildOrderNo('recharge', now);
 
     // 若前端传入 openid，则调用微信 JSAPI 真实下单；否则走开发态 mock
     const paymentParams = dto.openid
@@ -161,26 +162,4 @@ export class ClubRechargeCreationService {
     }
   }
 
-  /**
-   * 预生成充值单号，格式与 club-order-drafts.utils 中的 buildOrderNo 保持一致：
-   * RC{yyyyMMddHHmmssSSS}{4位随机HEX大写}
-   */
-  private buildRechargeOrderNo(now: number): string {
-    const date = new Date(now);
-    const pad = (v: number, w = 2): string => String(v).padStart(w, '0');
-    const serial = [
-      date.getFullYear(),
-      pad(date.getMonth() + 1),
-      pad(date.getDate()),
-      pad(date.getHours()),
-      pad(date.getMinutes()),
-      pad(date.getSeconds()),
-      pad(date.getMilliseconds(), 3),
-      Math.floor(Math.random() * 0xffff)
-        .toString(16)
-        .padStart(4, '0')
-        .toUpperCase(),
-    ].join('');
-    return `RC${serial}`;
-  }
 }

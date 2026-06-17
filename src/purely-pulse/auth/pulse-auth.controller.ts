@@ -1,9 +1,5 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
-import {
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthTokenResponseDto } from '../../purely-profit/auth/dto/auth-token-response.dto';
 import { LoginDto } from '../../purely-profit/auth/dto/login.dto';
 import { PulseAuthService } from './pulse-auth.service';

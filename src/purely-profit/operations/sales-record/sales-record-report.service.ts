@@ -106,7 +106,10 @@ export class SalesRecordReportService {
       0,
     );
     const totalRevenue = orders
-      .reduce((acc, order) => acc.add(new Decimal(order.totalRevenue)), new Decimal(0))
+      .reduce(
+        (acc, order) => acc.add(new Decimal(order.totalRevenue)),
+        new Decimal(0),
+      )
       .toDecimalPlaces(2)
       .toNumber();
     const dailySales = aggregateReportRows(orders);
@@ -119,7 +122,10 @@ export class SalesRecordReportService {
         orderCount,
         avgOrderValue:
           orderCount > 0
-            ? new Decimal(totalRevenue).div(orderCount).toDecimalPlaces(2).toNumber()
+            ? new Decimal(totalRevenue)
+                .div(orderCount)
+                .toDecimalPlaces(2)
+                .toNumber()
             : 0,
       },
       dailySales,

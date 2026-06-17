@@ -30,7 +30,11 @@ export class ClubOrderServicePaymentService {
         loadDraftForManualConfirm: (
           currentContext: ClubCurrentContext,
           orderId: string,
-        ) => this.clubOrderServiceQueryService.getServiceDraft(currentContext, orderId),
+        ) =>
+          this.clubOrderServiceQueryService.getServiceDraft(
+            currentContext,
+            orderId,
+          ),
         loadDraftByOrderId: (orderId: string) =>
           this.clubOrderServiceQueryService.getServiceDraftByOrderId(orderId),
         resolveDraftAmountFen: (draft) => draft.amountFen,

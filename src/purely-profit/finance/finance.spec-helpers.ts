@@ -117,8 +117,9 @@ export function createFinanceAccountPrismaMock() {
     financeAccountRecord,
     $transaction: jest.fn(
       async (
-        callback: (tx: { financeAccountRecord: typeof financeAccountRecord }) =>
-          Promise<unknown>,
+        callback: (tx: {
+          financeAccountRecord: typeof financeAccountRecord;
+        }) => Promise<unknown>,
       ) => callback({ financeAccountRecord }),
     ),
   };

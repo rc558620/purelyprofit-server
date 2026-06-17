@@ -133,9 +133,9 @@ export class StoreSubAccountLoginService {
       normalizedPassword,
     );
 
-      const nextStaffEmail =
-        nextLoginEmail ??
-        buildAccountIdentifiers('purely_profit', employee.phone).email;
+    const nextStaffEmail =
+      nextLoginEmail ??
+      buildAccountIdentifiers('purely_profit', employee.phone).email;
 
     const existingStaff = await this.prisma.staff.findFirst({
       where: {

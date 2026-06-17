@@ -12,6 +12,9 @@ const ORDER_NO_TYPE_MAP: Record<string, 'recharge' | 'service'> = {
   SV: 'service',
 };
 
+/** 订单号格式正则：SV/RC + 年4位+月2位+日2位+时2位+分2位+秒2位+毫秒3位 + 4位HEX */
+const ORDER_NO_PATTERN = /^(?:RC|SV)\d{17}[0-9A-Fa-f]{4}$/;
+
 @Injectable()
 export class ClubPaymentCallbackDispatchService {
   constructor(
@@ -30,6 +33,12 @@ export class ClubPaymentCallbackDispatchService {
     orderNo: string,
     settlementParams: ClubPaymentCallbackSettlementParams,
   ): Promise<ClubPaymentCallbackResult> {
+    if (!ORDER_NO_PATTERN.test(orderNo)) {
+      throw new BadRequestException(
+        `订单号格式异常: ${orderNo}（期望格式 RC/SV + 时间戳 + 随机HEX）`,
+      );
+    }
+
     const orderType = this.resolveOrderTypeByOrderNo(orderNo);
 
     if (orderType === 'recharge') {

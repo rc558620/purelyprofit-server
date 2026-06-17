@@ -119,9 +119,7 @@ describe('StoreSubAccountSlotService', () => {
       membershipAccessService.getSubAccountBenefitSnapshot.mockResolvedValue({
         rawQuota: 5,
       });
-      prismaService.$transaction.mockImplementation(async (callback) =>
-        callback(tx),
-      );
+      prismaService.$transaction.mockImplementation((callback) => callback(tx));
       storeSubAccountReadService.getStoreSubAccountSummary.mockResolvedValue(
         summary,
       );

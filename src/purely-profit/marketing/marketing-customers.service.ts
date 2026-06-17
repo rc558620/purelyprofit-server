@@ -5,6 +5,12 @@ import { ClubMemberProfileService } from '../../purely-club/member/member-profil
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CacheInvalidatorService } from '../../redis/invalidator';
+import { RedisService } from '../../redis/redis.service';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import {
+  buildMarketingCustomersListCacheKey,
+  buildMarketingCustomersListPattern,
+} from '../../redis/cache-keys';
 import { toNullableMediaText } from '../commerce/commerce.utils';
 import type {
   CreateCustomerDto,
@@ -32,10 +38,14 @@ import {
   resolveMarketingPagination,
 } from './marketing.utils';
 
+const MARKETING_CUSTOMERS_LIST_CACHE_TTL_SECONDS = 60;
+const MARKETING_CUSTOMERS_LIST_REFRESH_AFTER_MS = 20_000;
+
 @Injectable()
 export class MarketingCustomersService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly marketingSharedService: MarketingSharedService,
     private readonly clubMemberProfileService: ClubMemberProfileService,
@@ -62,11 +72,50 @@ export class MarketingCustomersService {
       query.page,
       query.pageSize,
     );
+    const statusFilter = query.status ?? 'all';
+    const tierFilter = query.tier ?? 'all';
+    const keywordFilter = query.keyword ?? '';
+    const cacheKey = buildMarketingCustomersListCacheKey(
+      resolvedStoreId,
+      statusFilter,
+      tierFilter,
+      keywordFilter,
+      page,
+      take,
+    );
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: MARKETING_CUSTOMERS_LIST_CACHE_TTL_SECONDS,
+      refreshAfterMs: MARKETING_CUSTOMERS_LIST_REFRESH_AFTER_MS,
+      loadValue: () =>
+        this.queryCustomers(
+          resolvedStoreId,
+          statusFilter,
+          tierFilter,
+          keywordFilter,
+          skip,
+          take,
+          page,
+        ),
+    });
+  }
+
+  private async queryCustomers(
+    resolvedStoreId: number,
+    statusFilter: string,
+    tierFilter: string,
+    keywordFilter: string,
+    skip: number,
+    take: number,
+    page: number,
+  ): Promise<MarketingCustomersResponseDto> {
     const where = buildCustomerWhere({
       storeId: resolvedStoreId,
-      status: query.status,
-      tier: query.tier,
-      keyword: query.keyword,
+      status: statusFilter !== 'all' ? (statusFilter as 'active' | 'dormant' | 'lost') : undefined,
+      tier: tierFilter !== 'all' ? (tierFilter as 'regular' | 'silver' | 'gold' | 'diamond') : undefined,
+      keyword: keywordFilter || undefined,
     });
 
     const [rows, total] = await Promise.all([
@@ -216,7 +265,12 @@ export class MarketingCustomersService {
   }
 
   private async invalidateOverviewCache(storeId: number): Promise<void> {
-    await this.cacheInvalidatorService.invalidateMarketingOverview(storeId);
+    await Promise.all([
+      this.cacheInvalidatorService.invalidateMarketingOverview(storeId),
+      this.redisService.delByPattern(
+        buildMarketingCustomersListPattern(storeId),
+      ),
+    ]);
   }
 
   private async resolveClubLevel(

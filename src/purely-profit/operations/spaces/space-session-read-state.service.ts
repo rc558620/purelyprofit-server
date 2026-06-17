@@ -28,20 +28,34 @@ export class SpaceSessionReadStateService {
       return;
     }
 
-    for (const space of occupiedSpaces) {
-      const activeSession = await this.prisma.spaceSession.findFirst({
-        where: {
-          spaceId: space.id,
-          status: PrismaSpaceSessionStatus.active,
-        },
-        select: { id: true },
-      });
+    const occupiedSpaceIds = occupiedSpaces.map((space) => space.id);
 
-      if (!activeSession) {
-        await this.reservationsStateService.repairInconsistentOccupiedSpace(
-          space.id,
-        );
-      }
+    const activeSessions = await this.prisma.spaceSession.findMany({
+      where: {
+        spaceId: { in: occupiedSpaceIds },
+        status: PrismaSpaceSessionStatus.active,
+      },
+      select: {
+        spaceId: true,
+      },
+    });
+
+    const spacesWithActiveSession = new Set(
+      activeSessions.map((session) => session.spaceId),
+    );
+
+    const inconsistentSpaceIds = occupiedSpaceIds.filter(
+      (id) => !spacesWithActiveSession.has(id),
+    );
+
+    if (inconsistentSpaceIds.length === 0) {
+      return;
     }
+
+    await Promise.all(
+      inconsistentSpaceIds.map((spaceId) =>
+        this.reservationsStateService.repairInconsistentOccupiedSpace(spaceId),
+      ),
+    );
   }
 }

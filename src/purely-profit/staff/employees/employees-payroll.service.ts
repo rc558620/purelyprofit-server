@@ -71,6 +71,7 @@ export class EmployeesPayrollService {
           : {}),
       },
       orderBy: [{ month: 'desc' }, { employeeName: 'asc' }, { id: 'asc' }],
+      take: 500,
     });
 
     return buildPayrollReport(rows);
@@ -101,6 +102,7 @@ export class EmployeesPayrollService {
           : {}),
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 200,
     });
     return rows.map(toEmployeePayrollResponse);
   }

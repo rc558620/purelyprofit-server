@@ -19,7 +19,6 @@ import {
   buildShiftDateRange,
   divMoney,
   mulMoney,
-  roundMoney,
   subMoney,
   type DisplayOperatorInfo,
   type OrderItemRow,
@@ -361,7 +360,10 @@ export const buildRecordRevenueSummary = (
   spaceRevenue: revenueAmounts.spaceRevenueAmount,
   refundAmount: revenueAmounts.refundAmount,
   totalRevenue: subMoney(
-    addMoney(revenueAmounts.additionalRevenueAmount, revenueAmounts.spaceRevenueAmount),
+    addMoney(
+      revenueAmounts.additionalRevenueAmount,
+      revenueAmounts.spaceRevenueAmount,
+    ),
     revenueAmounts.refundAmount,
   ),
   orderCount,

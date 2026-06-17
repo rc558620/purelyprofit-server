@@ -8,6 +8,7 @@ import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils'
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ClubPaymentSettlementTemplate } from '../payments/club-payment-settlement.template';
+import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubOrderDraftsService } from './club-order-drafts.service';
 import type {
   ClubOrderDraftPayload,
@@ -35,8 +36,9 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     prisma: PrismaService,
     clubOrderDraftsService: ClubOrderDraftsService,
     cacheInvalidatorService: CacheInvalidatorService,
+    paymentLockService: ClubPaymentLockService,
   ) {
-    super(prisma, clubOrderDraftsService, cacheInvalidatorService);
+    super(prisma, clubOrderDraftsService, cacheInvalidatorService, paymentLockService);
   }
 
   protected assertDraftPayable(
@@ -52,13 +54,31 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     draft: ClubOrderDraftPayload<ClubServiceOrderMetadata, 'service'>,
   ): Promise<void> {
     const settlementContext = await this.loadSettlementContext(tx, draft);
-    await this.recordConsumption(tx, draft, settlementContext.customer.id);
+
+    // Club 端服务购买实际走微信支付（JSAPI），不扣余额
+    // 积分抵扣部分在创建订单时已计算到 finalAmountFen 中
+    const pointsDeductFen = draft.metadata.pointsDeductFen;
+    const wechatPaidFen = draft.amountFen; // 用户实际通过微信支付的金额（已扣除积分抵扣）
+
+    // recordConsumption、decrementProductStock、increasePromotionUsage 互不依赖，可并行
+    await Promise.all([
+      this.recordConsumption(
+        tx,
+        draft,
+        settlementContext.customer.id,
+        wechatPaidFen,
+        pointsDeductFen,
+      ),
+      this.decrementProductStock(tx, draft),
+      this.increasePromotionUsage(tx, draft),
+    ]);
+
+    // updateCustomerMetrics 和 deductCustomerPoints 操作同一行 marketingCustomer，需串行
     await this.updateCustomerMetrics(
       tx,
       settlementContext.customer.id,
-      settlementContext.customer.balance,
       settlementContext.customer.totalSpent,
-      draft.amountFen,
+      draft.metadata.originalAmountFen,
     );
     // 若使用了积分抵扣，结算时从账户中扣除积分
     if (draft.metadata.pointsUsed > 0) {
@@ -68,8 +88,6 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
         draft.metadata.pointsUsed,
       );
     }
-    await this.decrementProductStock(tx, draft);
-    await this.increasePromotionUsage(tx, draft);
   }
 
   protected toResponse(
@@ -84,7 +102,6 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
   ): Promise<{
     customer: {
       id: number;
-      balance: number;
       totalSpent: number;
     };
     product: {
@@ -92,33 +109,33 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       stock: number;
     };
   }> {
-    const customer = await tx.marketingCustomer.findFirst({
-      where: {
-        id: draft.customerId ?? undefined,
-        storeId: draft.storeId,
-      },
-      select: {
-        id: true,
-        balance: true,
-        totalSpent: true,
-      },
-    });
+    const [customer, product] = await Promise.all([
+      tx.marketingCustomer.findFirst({
+        where: {
+          id: draft.customerId ?? undefined,
+          storeId: draft.storeId,
+        },
+        select: {
+          id: true,
+          totalSpent: true,
+        },
+      }),
+      tx.marketingProduct.findFirst({
+        where: {
+          id: draft.metadata.productId,
+          storeId: draft.storeId,
+          isActive: true,
+        },
+        select: {
+          id: true,
+          stock: true,
+        },
+      }),
+    ]);
 
     if (!customer) {
       throw new NotFoundException(CLUB_MEMBER_NOT_FOUND_MESSAGE);
     }
-
-    const product = await tx.marketingProduct.findFirst({
-      where: {
-        id: draft.metadata.productId,
-        storeId: draft.storeId,
-        isActive: true,
-      },
-      select: {
-        id: true,
-        stock: true,
-      },
-    });
 
     if (!product || product.stock <= 0) {
       throw new NotFoundException(CLUB_PRODUCT_NOT_FOUND_MESSAGE);
@@ -134,16 +151,18 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<ClubServiceOrderMetadata, 'service'>,
     customerId: number,
+    wechatPaidFen: number,
+    pointsDeductFen: number,
   ): Promise<void> {
     await tx.marketingConsumption.create({
       data: {
         storeId: draft.storeId,
         customerId,
-        amount: draft.amountFen,
-        // club 端服务购买以余额支付为主，全额记为余额抵扣
-        balancePaid: draft.amountFen,
-        pointsDeducted: 0,
-        payType: 'balance',
+        amount: draft.metadata.originalAmountFen,
+        // Club 端服务购买走微信支付，余额支付为 0
+        balancePaid: 0,
+        pointsDeducted: pointsDeductFen,
+        payType: 'wechat',
         itemsSummary: draft.metadata.productName,
         promotionId: draft.metadata.promotionId,
       },
@@ -153,19 +172,16 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
   private async updateCustomerMetrics(
     tx: Prisma.TransactionClient,
     customerId: number,
-    currentBalance: number,
     currentTotalSpent: number,
-    amountFen: number,
+    // 以原价金额作为累计消费的统计口径，与充值侧 totalSpent 对齐
+    originalAmountFen: number,
   ): Promise<void> {
-    if (currentBalance < amountFen) {
-      throw new BadRequestException('账户余额不足，无法完成本次购买');
-    }
-    const newTotalSpent = currentTotalSpent + amountFen;
+    const newTotalSpent = currentTotalSpent + originalAmountFen;
     await tx.marketingCustomer.update({
       where: { id: customerId },
       data: {
-        balance: { decrement: amountFen },
-        totalSpent: { increment: amountFen },
+        // Club 端服务购买走微信支付，不扣余额
+        totalSpent: { increment: originalAmountFen },
         visitCount: { increment: 1 },
         lastVisitAt: new Date(),
         tier: calcCustomerTier(newTotalSpent) as never,

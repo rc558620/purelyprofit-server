@@ -12,9 +12,7 @@ export const CurrentClubContext = createParamDecorator(
     }>();
 
     if (!request.clubCurrentContext) {
-      throw new InternalServerErrorException(
-        '当前请求缺少 purely-club 上下文',
-      );
+      throw new InternalServerErrorException('当前请求缺少 purely-club 上下文');
     }
 
     return request.clubCurrentContext;

@@ -22,6 +22,7 @@ export class PrismaService
     const pool = new Pool({
       connectionString,
       max: poolMax,
+      min: configService.get<number>('database.poolMin') ?? 5,
       idleTimeoutMillis: poolIdleTimeoutMs,
       connectionTimeoutMillis: poolConnectionTimeoutMs,
     });

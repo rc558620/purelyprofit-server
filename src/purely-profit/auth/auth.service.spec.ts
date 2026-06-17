@@ -64,6 +64,7 @@ describe('AuthService', () => {
   const redisService = {
     get: jest.fn(),
     set: jest.fn(),
+    setIfAbsent: jest.fn(),
     del: jest.fn(),
   };
   const configService = {
@@ -87,6 +88,7 @@ describe('AuthService', () => {
       const configMap: Record<string, unknown> = {
         'auth.passwordResetCodeTtlSeconds': 600,
         'auth.registerCodeTtlSeconds': 600,
+        'auth.smsSendCooldownSeconds': 60,
         'pulse.devAccountEmails': ['dev@example.com'],
         nodeEnv: 'development',
       };
@@ -97,6 +99,7 @@ describe('AuthService', () => {
       (callback: (tx: typeof prismaService) => unknown) =>
         callback(prismaService),
     );
+    redisService.setIfAbsent.mockResolvedValue(true);
     prismaService.$queryRaw.mockResolvedValue([]);
     prismaService.user.create.mockResolvedValue({
       id: 1,
@@ -366,6 +369,48 @@ describe('AuthService', () => {
     });
   });
 
+  it('purely-profit 注册验证码发送会写入冷却键并缓存验证码', async () => {
+    prismaService.staff.findFirst.mockResolvedValue(null);
+    prismaService.user.findFirst.mockResolvedValue(null);
+    redisService.set.mockResolvedValue(undefined);
+    authSmsService.sendRegisterCode.mockResolvedValue(undefined);
+
+    const result = await service.sendRegisterCode({
+      phone: '13800138000',
+    });
+
+    expect(result.message).toBe('验证码已发送，请注意查收');
+    expect(result.expiresInSeconds).toBe(600);
+    expect(result.code).toMatch(/^\d{6}$/);
+    expect(redisService.setIfAbsent).toHaveBeenCalledWith(
+      'auth:sms-cooldown:register:purely_profit:13800138000',
+      '1',
+      60,
+    );
+    expect(redisService.set).toHaveBeenCalledWith(
+      'auth:register:purely_profit:13800138000',
+      result.code,
+      600,
+    );
+    expect(authSmsService.sendRegisterCode).toHaveBeenCalledWith({
+      phone: '13800138000',
+      code: result.code,
+      expiresInSeconds: 600,
+    });
+  });
+
+  it('purely-profit 注册验证码发送在冷却期内会拒绝再次发送', async () => {
+    prismaService.staff.findFirst.mockResolvedValue(null);
+    prismaService.user.findFirst.mockResolvedValue(null);
+    redisService.setIfAbsent.mockResolvedValue(false);
+
+    await expect(
+      service.sendRegisterCode({ phone: '13800138000' }),
+    ).rejects.toThrow('短信发送过于频繁，请 60 秒后再试');
+    expect(redisService.set).not.toHaveBeenCalled();
+    expect(authSmsService.sendRegisterCode).not.toHaveBeenCalled();
+  });
+
   it('找回密码会缓存验证码并尝试发送短信', async () => {
     prismaService.staff.findFirst.mockResolvedValue({
       user: {
@@ -386,6 +431,11 @@ describe('AuthService', () => {
     );
     expect(result.expiresInSeconds).toBe(600);
     expect(result.resetCode).toMatch(/^\d{6}$/);
+    expect(redisService.setIfAbsent).toHaveBeenCalledWith(
+      'auth:sms-cooldown:password-reset:purely_profit:13800138000',
+      '1',
+      60,
+    );
     expect(redisService.set).toHaveBeenCalledWith(
       'auth:password-reset:purely_profit:13800138000',
       result.resetCode,
@@ -396,6 +446,23 @@ describe('AuthService', () => {
       code: result.resetCode,
       expiresInSeconds: 600,
     });
+  });
+
+  it('找回密码短信发送在冷却期内会拒绝再次发送', async () => {
+    prismaService.staff.findFirst.mockResolvedValue({
+      user: {
+        id: 1,
+        email: 'phone_13800138000@purelyprofit.local',
+        password: 'hashed',
+      },
+    });
+    redisService.setIfAbsent.mockResolvedValue(false);
+
+    await expect(
+      service.forgotPassword({ phone: '13800138000' }),
+    ).rejects.toThrow('短信发送过于频繁，请 60 秒后再试');
+    expect(redisService.set).not.toHaveBeenCalled();
+    expect(authSmsService.sendPasswordResetCode).not.toHaveBeenCalled();
   });
 
   it('短信发送失败时会删除验证码并抛出异常', async () => {
@@ -419,6 +486,46 @@ describe('AuthService', () => {
     );
   });
 
+  it('purely-club 登录即注册验证码发送会写入冷却键并缓存验证码', async () => {
+    redisService.set.mockResolvedValue(undefined);
+    authSmsService.sendLoginCode.mockResolvedValue(undefined);
+
+    const result = await authProductAuthService.sendClubLoginOrRegisterCode({
+      phone: '13800138000',
+    });
+
+    expect(result.message).toBe('验证码已发送，请注意查收');
+    expect(result.expiresInSeconds).toBe(600);
+    expect(result.code).toMatch(/^\d{6}$/);
+    expect(redisService.setIfAbsent).toHaveBeenCalledWith(
+      'auth:sms-cooldown:login:purely_club:13800138000',
+      '1',
+      60,
+    );
+    expect(redisService.set).toHaveBeenCalledWith(
+      'auth:register:purely_club:13800138000',
+      result.code,
+      600,
+    );
+    expect(authSmsService.sendLoginCode).toHaveBeenCalledWith({
+      phone: '13800138000',
+      code: result.code,
+      expiresInSeconds: 600,
+    });
+  });
+
+  it('purely-club 登录即注册验证码发送在冷却期内会拒绝再次发送', async () => {
+    redisService.setIfAbsent.mockResolvedValue(false);
+
+    await expect(
+      authProductAuthService.sendClubLoginOrRegisterCode({
+        phone: '13800138000',
+      }),
+    ).rejects.toThrow('短信发送过于频繁，请 60 秒后再试');
+    expect(redisService.set).not.toHaveBeenCalled();
+    expect(authSmsService.sendLoginCode).not.toHaveBeenCalled();
+  });
+
   it('purely-club 登录验证码接口仅对已注册手机号发码', async () => {
     prismaService.user.findFirst.mockResolvedValue({
       id: 7,
@@ -440,6 +547,11 @@ describe('AuthService', () => {
     );
     expect(result.expiresInSeconds).toBe(600);
     expect(result.code).toMatch(/^\d{6}$/);
+    expect(redisService.setIfAbsent).toHaveBeenCalledWith(
+      'auth:sms-cooldown:login:purely_club:13800138000',
+      '1',
+      60,
+    );
     expect(redisService.set).toHaveBeenCalledWith(
       'auth:register:purely_club:13800138000',
       result.code,
@@ -450,6 +562,26 @@ describe('AuthService', () => {
       code: result.code,
       expiresInSeconds: 600,
     });
+  });
+
+  it('purely-club 登录验证码发送在冷却期内会拒绝再次发送', async () => {
+    prismaService.user.findFirst.mockResolvedValue({
+      id: 7,
+      email: 'club_phone_13800138000@purelyprofit.local',
+      password: 'hashed',
+    });
+    redisService.setIfAbsent.mockResolvedValue(false);
+
+    await expect(
+      authProductAuthService.sendLoginCode(
+        {
+          phone: '13800138000',
+        },
+        'purely_club',
+      ),
+    ).rejects.toThrow('短信发送过于频繁，请 60 秒后再试');
+    expect(redisService.set).not.toHaveBeenCalled();
+    expect(authSmsService.sendLoginCode).not.toHaveBeenCalled();
   });
 
   it('purely-club 不存在手机号时发送登录验证码仍返回统一文案', async () => {

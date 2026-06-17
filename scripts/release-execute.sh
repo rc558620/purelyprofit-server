@@ -30,6 +30,50 @@ LOADED_ENV_FILE="false"
 DEFAULT_BACKUP_MODE="none"
 DEFAULT_RESTART_MODE="none"
 BACKUP_FILE_PATH=""
+CURRENT_STAGE="初始化"
+LAST_COMPLETED_STAGE="未开始"
+
+set_stage() {
+  CURRENT_STAGE="$1"
+}
+
+mark_stage_complete() {
+  LAST_COMPLETED_STAGE="$1"
+}
+
+print_release_summary() {
+  local exit_code="$1"
+  local result="success"
+
+  if [ "$exit_code" -ne 0 ]; then
+    result="failed"
+  fi
+
+  echo
+  echo "Release summary:"
+  echo "- result: ${result}"
+  echo "- current stage: ${CURRENT_STAGE}"
+  echo "- last completed stage: ${LAST_COMPLETED_STAGE}"
+  if [ -n "$BACKUP_FILE_PATH" ]; then
+    echo "- backup file: ${BACKUP_FILE_PATH}"
+  fi
+}
+
+on_release_exit() {
+  local exit_code="$?"
+
+  if [ "$exit_code" -ne 0 ]; then
+    echo >&2
+    echo "✗ Release 在阶段 [${CURRENT_STAGE}] 失败" >&2
+    if [ -n "$BACKUP_FILE_PATH" ]; then
+      echo "- 最近备份产物: ${BACKUP_FILE_PATH}" >&2
+    fi
+  fi
+
+  print_release_summary "$exit_code"
+}
+
+trap on_release_exit EXIT
 
 is_true() {
   case "${1:-false}" in
@@ -378,17 +422,20 @@ validate_release_inputs() {
   fi
 }
 
+set_stage "加载环境变量"
 load_env_file_if_present
+mark_stage_complete "$CURRENT_STAGE"
 
 if ! is_true "$RELEASE_DRY_RUN" && ! is_true "$RELEASE_FORCE"; then
   fail "发布执行脚本默认受保护；请显式传入 RELEASE_FORCE=true，或先用 RELEASE_DRY_RUN=true 预演。"
 fi
 
+set_stage "校验发布环境"
 validate_release_environment
 validate_release_inputs
-
 resolve_default_backup_mode
 resolve_default_restart_mode
+mark_stage_complete "$CURRENT_STAGE"
 
 echo "Release project root: $PROJECT_ROOT"
 echo "Release dry run: $RELEASE_DRY_RUN"
@@ -417,6 +464,7 @@ else
   echo "Restart command: <not provided>"
 fi
 
+set_stage "发布前备份"
 if ! is_true "$RELEASE_SKIP_BACKUP"; then
   if [ -n "$RELEASE_BACKUP_CMD" ]; then
     run_shell_command "执行发布前备份命令" "$RELEASE_BACKUP_CMD"
@@ -428,25 +476,33 @@ if ! is_true "$RELEASE_SKIP_BACKUP"; then
 else
   echo "- 跳过发布前备份命令"
 fi
+mark_stage_complete "$CURRENT_STAGE"
 
+set_stage "发布前预检查"
 if ! is_true "$RELEASE_SKIP_DB_PRECHECK"; then
   run_command "发布前预检查" pnpm run release:precheck
 else
   echo "- 跳过发布前预检查"
 fi
+mark_stage_complete "$CURRENT_STAGE"
 
+set_stage "构建产物"
 if ! is_true "$RELEASE_SKIP_BUILD"; then
   run_command "构建产物" pnpm run build
 else
   echo "- 跳过构建产物"
 fi
+mark_stage_complete "$CURRENT_STAGE"
 
+set_stage "执行数据库迁移"
 if ! is_true "$RELEASE_SKIP_MIGRATE_DEPLOY"; then
   run_command "执行 Prisma migrate deploy" pnpm run prisma:migrate:deploy
 else
   echo "- 跳过 Prisma migrate deploy"
 fi
+mark_stage_complete "$CURRENT_STAGE"
 
+set_stage "准备 smoke 数据"
 if ! is_true "$RELEASE_SKIP_SMOKE"; then
   if [ -n "$RELEASE_SMOKE_PREPARE_CMD" ]; then
     run_smoke_prepare_command
@@ -456,7 +512,9 @@ if ! is_true "$RELEASE_SKIP_SMOKE"; then
 else
   echo "- 已跳过上线后 smoke 检查，连带跳过 smoke 数据准备"
 fi
+mark_stage_complete "$CURRENT_STAGE"
 
+set_stage "重启服务"
 if [ -n "$RELEASE_RESTART_CMD" ]; then
   run_shell_command "执行服务重启命令" "$RELEASE_RESTART_CMD"
 elif [ "$DEFAULT_RESTART_MODE" != "none" ]; then
@@ -464,12 +522,16 @@ elif [ "$DEFAULT_RESTART_MODE" != "none" ]; then
 else
   echo "- 未提供 RELEASE_RESTART_CMD，且未命中默认重启策略，默认认为服务会由外部发布平台完成重启"
 fi
+mark_stage_complete "$CURRENT_STAGE"
 
+set_stage "执行上线后 smoke 检查"
 if ! is_true "$RELEASE_SKIP_SMOKE"; then
   run_command "执行上线后 smoke 检查" pnpm run smoke:live
 else
   echo "- 跳过上线后 smoke 检查"
 fi
+mark_stage_complete "$CURRENT_STAGE"
+set_stage "完成发布"
 
 echo
 if is_true "$RELEASE_DRY_RUN"; then
@@ -477,3 +539,4 @@ if is_true "$RELEASE_DRY_RUN"; then
 else
   echo "Release 执行完成"
 fi
+mark_stage_complete "$CURRENT_STAGE"

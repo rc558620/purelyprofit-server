@@ -31,6 +31,7 @@ export class ClubRecordsService {
     const entries = await this.clubRecordQueryService.listLedgerEntries(
       currentContext.store.id,
       customer.id,
+      query.limit,
     );
 
     return {

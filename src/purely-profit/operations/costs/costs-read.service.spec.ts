@@ -208,29 +208,28 @@ describe('CostsReadService', () => {
 
   it('getReport 返回报表中心成本分类汇总与上期对比', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.costRecord.findMany
-      .mockResolvedValueOnce([
-        {
-          id: 1,
-          title: '房租',
-          type: 'fixed',
-          category: 'rent',
-          amount: new Prisma.Decimal('5000.00'),
-          note: '5 月房租',
-          date: new Date('2026-05-01T00:00:00.000Z'),
-          createdAt: new Date('2026-05-14T10:00:00.000Z'),
-        },
-        {
-          id: 2,
-          title: '营销物料',
-          type: 'variable',
-          category: 'marketing',
-          amount: new Prisma.Decimal('300.00'),
-          note: null,
-          date: new Date('2026-05-14T00:00:00.000Z'),
-          createdAt: new Date('2026-05-14T10:05:00.000Z'),
-        },
-      ]);
+    prismaService.costRecord.findMany.mockResolvedValueOnce([
+      {
+        id: 1,
+        title: '房租',
+        type: 'fixed',
+        category: 'rent',
+        amount: new Prisma.Decimal('5000.00'),
+        note: '5 月房租',
+        date: new Date('2026-05-01T00:00:00.000Z'),
+        createdAt: new Date('2026-05-14T10:00:00.000Z'),
+      },
+      {
+        id: 2,
+        title: '营销物料',
+        type: 'variable',
+        category: 'marketing',
+        amount: new Prisma.Decimal('300.00'),
+        note: null,
+        date: new Date('2026-05-14T00:00:00.000Z'),
+        createdAt: new Date('2026-05-14T10:05:00.000Z'),
+      },
+    ]);
     prismaService.costRecord.aggregate.mockResolvedValue({
       _sum: { amount: new Prisma.Decimal('4240.00') },
     });
@@ -270,19 +269,18 @@ describe('CostsReadService', () => {
 
   it('getReport 在 salary 分类下会合并工资草稿明细', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.costRecord.findMany
-      .mockResolvedValueOnce([
-        {
-          id: 3,
-          title: '王五2026-05工资',
-          type: 'fixed',
-          category: 'salary',
-          amount: new Prisma.Decimal('5000.00'),
-          note: '含加班',
-          date: new Date('2026-05-01T00:00:00.000Z'),
-          createdAt: new Date('2026-05-14T12:00:00.000Z'),
-        },
-      ]);
+    prismaService.costRecord.findMany.mockResolvedValueOnce([
+      {
+        id: 3,
+        title: '王五2026-05工资',
+        type: 'fixed',
+        category: 'salary',
+        amount: new Prisma.Decimal('5000.00'),
+        note: '含加班',
+        date: new Date('2026-05-01T00:00:00.000Z'),
+        createdAt: new Date('2026-05-14T12:00:00.000Z'),
+      },
+    ]);
     prismaService.costRecord.aggregate.mockResolvedValue({
       _sum: { amount: new Prisma.Decimal('4000.00') },
     });

@@ -6,6 +6,7 @@ import {
   AUTH_PASSWORD_RESET_CODE_KEY_PREFIX,
   AUTH_PASSWORD_RESET_CODE_LENGTH,
   AUTH_REGISTER_CODE_KEY_PREFIX,
+  AUTH_SMS_SEND_COOLDOWN_KEY_PREFIX,
   AUTH_TOKEN_VERSION_KEY_PREFIX,
   PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX,
   STORE_PROFILE_KEY_PREFIX,
@@ -334,6 +335,14 @@ export function buildRegisterCodeKey(
   phone: string,
 ): string {
   return `${AUTH_REGISTER_CODE_KEY_PREFIX}${scope}:${phone}`;
+}
+
+export function buildSmsSendCooldownKey(
+  scene: 'register' | 'login' | 'password-reset',
+  scope: AuthProductScope,
+  phone: string,
+): string {
+  return `${AUTH_SMS_SEND_COOLDOWN_KEY_PREFIX}${scene}:${scope}:${phone}`;
 }
 
 export function buildTokenVersionKey(userId: number): string {

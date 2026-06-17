@@ -24,9 +24,12 @@ export class ClubStoreViewService {
       id: store.id,
       name: store.name,
       address: store.address ?? '',
+      // TODO: 等门店数据模型增加 businessHours 字段后，基于当前时间与营业时段动态计算
       isOpen: true,
       ...(metadata.storeLogo ? { coverImage: metadata.storeLogo } : {}),
-      ...(metadata.latitude !== undefined ? { latitude: metadata.latitude } : {}),
+      ...(metadata.latitude !== undefined
+        ? { latitude: metadata.latitude }
+        : {}),
       ...(metadata.longitude !== undefined
         ? { longitude: metadata.longitude }
         : {}),

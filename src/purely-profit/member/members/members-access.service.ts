@@ -86,20 +86,16 @@ export class MembersAccessService {
     }
   }
 
-  async getManageableStoreId(
+  getManageableStoreId(
     user: AuthenticatedUser,
     requiredPermission: MembersPermission,
   ): Promise<number | null> {
-    const currentStoreId =
+    return Promise.resolve(
       this.accessControlService.resolveCurrentStoreIdByPermission(
         user,
         requiredPermission,
-      );
-    if (currentStoreId !== null) {
-      return currentStoreId;
-    }
-
-    return null;
+      ),
+    );
   }
 
   async findManageableMemberOrThrow(
@@ -122,16 +118,12 @@ export class MembersAccessService {
     return member;
   }
 
-  async findOperatorStaffIdForStore(
+  findOperatorStaffIdForStore(
     user: AuthenticatedUser,
     storeId: number,
   ): Promise<number | null> {
-    const currentStaffId =
-      this.accessControlService.resolveCurrentStaffIdForStore(user, storeId);
-    if (currentStaffId !== null) {
-      return currentStaffId;
-    }
-
-    return null;
+    return Promise.resolve(
+      this.accessControlService.resolveCurrentStaffIdForStore(user, storeId),
+    );
   }
 }

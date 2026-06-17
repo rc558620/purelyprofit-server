@@ -26,8 +26,12 @@ export class AppService {
 
   async getReadiness(): Promise<ReadinessSnapshot> {
     const dependencies = await Promise.all([
-      this.checkDependency('database', async () => this.prismaService.checkReadiness()),
-      this.checkDependency('redis', async () => this.redisService.checkReadiness()),
+      this.checkDependency('database', async () =>
+        this.prismaService.checkReadiness(),
+      ),
+      this.checkDependency('redis', async () =>
+        this.redisService.checkReadiness(),
+      ),
     ]);
 
     return {

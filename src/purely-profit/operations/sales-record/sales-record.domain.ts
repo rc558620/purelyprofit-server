@@ -170,7 +170,10 @@ export function aggregateReportRows(
       const existing = rows.get(rowId);
       if (existing) {
         existing.quantity += item.quantity;
-        existing.revenue = new Decimal(existing.revenue).add(revenue).toDecimalPlaces(2).toNumber();
+        existing.revenue = new Decimal(existing.revenue)
+          .add(revenue)
+          .toDecimalPlaces(2)
+          .toNumber();
         continue;
       }
       rows.set(rowId, {

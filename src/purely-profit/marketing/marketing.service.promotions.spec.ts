@@ -119,7 +119,9 @@ describe('MarketingService promotions', () => {
       enabled: true,
     });
 
-    expect(context.prismaService.marketingPromotion.create).toHaveBeenCalledWith({
+    expect(
+      context.prismaService.marketingPromotion.create,
+    ).toHaveBeenCalledWith({
       data: expect.objectContaining({
         storeId: 18,
         type: 'first_order_discount',
@@ -144,7 +146,9 @@ describe('MarketingService promotions', () => {
         enabled: true,
       }),
     ).rejects.toThrow('当前门店已存在相同活动类型，请直接编辑现有活动');
-    expect(context.prismaService.marketingPromotion.create).not.toHaveBeenCalled();
+    expect(
+      context.prismaService.marketingPromotion.create,
+    ).not.toHaveBeenCalled();
   });
 
   it('updatePromotion 不允许编辑到重复活动类型记录', async () => {
@@ -171,7 +175,9 @@ describe('MarketingService promotions', () => {
         name: '首单 8 折',
       }),
     ).rejects.toThrow('当前门店已存在相同活动类型，请直接编辑现有活动');
-    expect(context.prismaService.marketingPromotion.update).not.toHaveBeenCalled();
+    expect(
+      context.prismaService.marketingPromotion.update,
+    ).not.toHaveBeenCalled();
   });
 
   it('getMemberLevelSettings 在未配置时返回默认等级和积分规则', async () => {
@@ -184,7 +190,11 @@ describe('MarketingService promotions', () => {
     const result = await context.service.getMemberLevelSettings(context.user);
 
     expect(result.levels).toEqual([
-      expect.objectContaining({ id: 'gold', spendThreshold: 0, discountRate: 0.9 }),
+      expect.objectContaining({
+        id: 'gold',
+        spendThreshold: 0,
+        discountRate: 0.9,
+      }),
       expect.objectContaining({ id: 'platinum', spendThreshold: 500000 }),
       expect.objectContaining({ id: 'diamond', spendThreshold: 1000000 }),
     ]);
@@ -210,7 +220,9 @@ describe('MarketingService promotions', () => {
 
     const result = await context.service.getMemberLevelSettings(context.user);
 
-    expect(context.prismaService.marketingPromotion.findFirst).toHaveBeenCalledWith(
+    expect(
+      context.prismaService.marketingPromotion.findFirst,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           storeId: 18,
@@ -251,12 +263,16 @@ describe('MarketingService promotions', () => {
       undefined,
     );
 
-    const result = await context.service.updateMemberLevel(context.user, 'gold', {
-      discountRate: 0.88,
-      spendThreshold: 999999,
-      description: '注册即享 88 折',
-      enabled: false,
-    });
+    const result = await context.service.updateMemberLevel(
+      context.user,
+      'gold',
+      {
+        discountRate: 0.88,
+        spendThreshold: 999999,
+        description: '注册即享 88 折',
+        enabled: false,
+      },
+    );
 
     expect(result).toEqual(
       expect.objectContaining({

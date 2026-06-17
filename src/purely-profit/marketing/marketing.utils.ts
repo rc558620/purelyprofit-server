@@ -139,6 +139,15 @@ export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettin
     },
   };
 
+/**
+ * Returns a read-only reference to the default settings.
+ * Use this for read-only consumption (e.g. fallback values in normalization).
+ * For mutable copies, use cloneDefaultMarketingMemberLevelSettings() instead.
+ */
+export function getReadOnlyDefaultMarketingMemberLevelSettings(): Readonly<MarketingMemberLevelSettingsValue> {
+  return DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS;
+}
+
 export function cloneDefaultMarketingMemberLevelSettings(): MarketingMemberLevelSettingsValue {
   return {
     levels: DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels.map((level) => ({

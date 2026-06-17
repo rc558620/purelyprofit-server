@@ -33,8 +33,8 @@ import {
 import { MarketingSharedService } from './marketing-shared.service';
 import {
   cloneDefaultMarketingMemberLevelSettings,
+  getReadOnlyDefaultMarketingMemberLevelSettings,
   type MarketingMemberLevelConfigValue,
-  type MarketingMemberLevelIdValue,
   type MarketingMemberLevelSettingsValue,
   type MarketingPointsRatioConfigValue,
 } from './marketing.utils';
@@ -443,9 +443,9 @@ export class MarketingOverviewService {
   private normalizeMemberLevelSettings(
     settings: MarketingMemberLevelSettingRecord | null,
   ): Omit<MarketingMemberLevelSettingsDto, 'pointsFeatureEnabled'> {
-    const fallback = cloneDefaultMarketingMemberLevelSettings();
+    const fallback = getReadOnlyDefaultMarketingMemberLevelSettings();
     if (!settings) {
-      return fallback;
+      return { ...fallback };
     }
 
     const rawLevels = Array.isArray(settings.levels) ? settings.levels : [];
@@ -538,16 +538,12 @@ export class MarketingOverviewService {
       where: { storeId },
       create: {
         storeId,
-        levels: settings.levels.map((level) => ({
-          ...level,
-        })) as Prisma.InputJsonValue,
-        pointsRatio: { ...settings.pointsRatio } as Prisma.InputJsonValue,
+        levels: settings.levels as Prisma.InputJsonValue,
+        pointsRatio: settings.pointsRatio as Prisma.InputJsonValue,
       },
       update: {
-        levels: settings.levels.map((level) => ({
-          ...level,
-        })) as Prisma.InputJsonValue,
-        pointsRatio: { ...settings.pointsRatio } as Prisma.InputJsonValue,
+        levels: settings.levels as Prisma.InputJsonValue,
+        pointsRatio: settings.pointsRatio as Prisma.InputJsonValue,
       },
     });
   }

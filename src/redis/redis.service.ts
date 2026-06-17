@@ -19,7 +19,7 @@ class ConcurrencyLimiter {
           const result = await fn();
           resolve(result);
         } catch (error) {
-          reject(error);
+          reject(error instanceof Error ? error : new Error(String(error)));
         } finally {
           this.active -= 1;
           const next = this.queue.shift();
@@ -145,6 +145,27 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async setIfAbsent(
+    key: string,
+    value: string,
+    ttlSeconds: number,
+  ): Promise<boolean> {
+    return this.observeRedisCommand(
+      'SET',
+      async () => {
+        const result = await this.client.set(
+          key,
+          value,
+          'EX',
+          ttlSeconds,
+          'NX',
+        );
+        return result === 'OK';
+      },
+      (result) => (result ? 'hit' : 'miss'),
+    );
+  }
+
   async setJson(
     key: string,
     value: unknown,
@@ -239,6 +260,25 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return keys;
   }
 
+  async mgetJson<T>(keys: string[]): Promise<(T | null)[]> {
+    if (keys.length === 0) {
+      return [];
+    }
+
+    const rawValues = await this.observeRedisCommand(
+      'MGET',
+      () => this.client.mget(...keys),
+      (results) => {
+        const hitCount = results.filter((v) => v !== null).length;
+        return hitCount === 0 ? 'miss' : hitCount === results.length ? 'hit' : 'neutral';
+      },
+    );
+
+    return rawValues.map((raw) =>
+      raw === null ? null : (JSON.parse(raw) as T),
+    );
+  }
+
   async exists(key: string): Promise<boolean> {
     return this.observeRedisCommand(
       'EXISTS',
@@ -255,7 +295,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async checkReadiness(): Promise<void> {
-    const pong = await this.observeRedisCommand('PING', () => this.client.ping());
+    const pong = await this.observeRedisCommand('PING', () =>
+      this.client.ping(),
+    );
     if (pong !== 'PONG') {
       throw new Error(`unexpected redis ping response: ${String(pong)}`);
     }

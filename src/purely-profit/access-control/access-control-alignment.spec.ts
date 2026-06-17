@@ -33,10 +33,7 @@ import { FinanceController } from '../finance/finance.controller';
 import { InventoryController } from '../goods/inventory/inventory.controller';
 import { BusinessAnalysisController } from '../dashboard/business-analysis/business-analysis.controller';
 import { DashboardHomeController } from '../dashboard/dashboard-home/dashboard-home.controller';
-import {
-  EmployeesController,
-  EmployeesPayrollsController,
-} from '../staff/employees/employees.controller';
+import { EmployeesPayrollsController } from '../staff/employees/employees.controller';
 import { StoresController } from '../stores/stores.controller';
 import { SubAccountBlockGuard } from './guards/sub-account-block.guard';
 
@@ -220,9 +217,9 @@ describe('Permission metadata regression', () => {
     MarketingProductCategoriesController,
     MarketingTransactionsController,
   ])('%p 应允许老 owner 走 marketing 兼容鉴权', (controller) => {
-    expect(
-      Reflect.getMetadata(ALLOW_LEGACY_OWNER_ACCESS_KEY, controller),
-    ).toBe(true);
+    expect(Reflect.getMetadata(ALLOW_LEGACY_OWNER_ACCESS_KEY, controller)).toBe(
+      true,
+    );
   });
 
   it('营业收录与销售记录接口权限应拆分', () => {

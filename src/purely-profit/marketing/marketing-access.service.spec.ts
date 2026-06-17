@@ -71,24 +71,27 @@ describe('MarketingAccessService', () => {
     prismaService.store.findFirst.mockResolvedValue({ id: 18 });
 
     await expect(
-      service.getManageableStoreId({
-        ...user,
-        currentMembership: {
-          staffId: 9,
-          storeId: 18,
-          role: 'STAFF',
-          permissions: ['goods:view'],
-          isActive: true,
-          subjectType: 'staff',
-          linkedEmployeeId: null,
-          subAccountId: null,
-          subAccountRole: null,
-          subAccountStatus: null,
-          subAccountAssigned: false,
-          canAccessHome: true,
-          canUseHandover: false,
+      service.getManageableStoreId(
+        {
+          ...user,
+          currentMembership: {
+            staffId: 9,
+            storeId: 18,
+            role: 'STAFF',
+            permissions: ['goods:view'],
+            isActive: true,
+            subjectType: 'staff',
+            linkedEmployeeId: null,
+            subAccountId: null,
+            subAccountRole: null,
+            subAccountStatus: null,
+            subAccountAssigned: false,
+            canAccessHome: true,
+            canUseHandover: false,
+          },
         },
-      }, 'marketing:view'),
+        'marketing:view',
+      ),
     ).resolves.toBe(18);
   });
 

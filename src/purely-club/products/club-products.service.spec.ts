@@ -4,10 +4,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { ClubProductPromotionService } from './club-product-promotion.service';
 import { ClubProductQueryService } from './club-product-query.service';
 import { ClubProductViewService } from './club-product-view.service';
-import type {
-  ClubProductPricingContext,
-  ClubProductRecord,
-} from './club-products.types';
+import type { ClubProductRecord } from './club-products.types';
 import { ClubProductsService } from './club-products.service';
 
 describe('ClubProductsService', () => {
@@ -67,11 +64,7 @@ describe('ClubProductsService', () => {
         new Set(products.slice(0, 3).map((item) => item.id)),
     );
     clubProductViewService.toClubProduct.mockImplementation(
-      (
-        product: ClubProductRecord,
-        hotProductIds: Set<number>,
-        pricingContext: ClubProductPricingContext,
-      ) => ({
+      (product: ClubProductRecord, hotProductIds: Set<number>) => ({
         id: String(product.id),
         name: product.name,
         description: product.description?.trim() || '暂无服务说明',

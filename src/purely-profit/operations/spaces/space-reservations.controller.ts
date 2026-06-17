@@ -23,7 +23,6 @@ import {
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   CreateSpaceReservationDto,
   ListSpaceReservationsQueryDto,

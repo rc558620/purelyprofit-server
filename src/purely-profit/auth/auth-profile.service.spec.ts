@@ -167,15 +167,22 @@ describe('AuthProfileService', () => {
   });
 
   it('修改昵称后返回最新 profile', async () => {
-    await expect(service.updateNickname(user, '新老板')).resolves.toMatchObject({
-      user: {
-        id: 1,
-        phone: '13800138000',
+    await expect(service.updateNickname(user, '新老板')).resolves.toMatchObject(
+      {
+        user: {
+          id: 1,
+          phone: '13800138000',
+        },
       },
-    });
+    );
 
-    expect(authAccountLookupService.updateName).toHaveBeenCalledWith(1, '新老板');
-    expect(authAccountLookupService.findProfileUserOrThrow).toHaveBeenCalledWith(1);
+    expect(authAccountLookupService.updateName).toHaveBeenCalledWith(
+      1,
+      '新老板',
+    );
+    expect(
+      authAccountLookupService.findProfileUserOrThrow,
+    ).toHaveBeenCalledWith(1);
   });
 
   it('实名认证后会失效 Pulse onboarding 状态缓存', async () => {

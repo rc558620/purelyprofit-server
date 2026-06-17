@@ -170,7 +170,10 @@ function normalizeRechargeGiftParams(
           gradient !== undefined,
       );
 
-    const { tiers: _tiers, gradients: _gradients, ...rest } = value;
+    const rest = { ...value };
+    delete rest.tiers;
+    delete rest.gradients;
+
     return {
       ...rest,
       gradients,

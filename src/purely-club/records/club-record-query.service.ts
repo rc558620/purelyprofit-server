@@ -33,6 +33,7 @@ export class ClubRecordQueryService {
   async listLedgerEntries(
     storeId: number,
     customerId: number,
+    limit = 50,
   ): Promise<ClubLedgerEntry[]> {
     const [recharges, consumptions] = await Promise.all([
       this.prisma.marketingRecharge.findMany({
@@ -49,6 +50,7 @@ export class ClubRecordQueryService {
           createdAt: true,
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: limit,
       }),
       this.prisma.marketingConsumption.findMany({
         where: {
@@ -63,6 +65,7 @@ export class ClubRecordQueryService {
           createdAt: true,
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: limit,
       }),
     ]);
 
@@ -77,7 +80,8 @@ export class ClubRecordQueryService {
           return timeDiff;
         }
         return right.id.localeCompare(left.id);
-      });
+      })
+      .slice(0, limit);
   }
 
   private mapRechargeRow(row: ClubRechargeLedgerRow): ClubLedgerEntry | null {

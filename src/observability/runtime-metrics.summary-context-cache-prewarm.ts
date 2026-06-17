@@ -122,8 +122,7 @@ export function buildCachePrewarmDerivedData(
           category: 'membersMeta' as const,
           lastFailedAt: cachePrewarm.lastFailedAtByCategory.membersMeta,
           lastFailedKey: cachePrewarm.lastFailedKeyByCategory.membersMeta,
-          lastFailedSample:
-            cachePrewarm.lastFailedSampleByCategory.membersMeta,
+          lastFailedSample: cachePrewarm.lastFailedSampleByCategory.membersMeta,
         },
         {
           category: 'membersOverview' as const,

@@ -1,5 +1,7 @@
 import {
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -8,6 +10,7 @@ import { RedisService } from '../../redis/redis.service';
 import {
   DEFAULT_PASSWORD_RESET_CODE_TTL_SECONDS,
   DEFAULT_REGISTER_CODE_TTL_SECONDS,
+  DEFAULT_SMS_SEND_COOLDOWN_SECONDS,
 } from './auth.constants';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthSmsService } from './auth-sms.service';
@@ -18,6 +21,7 @@ import { SendRegisterCodeResponseDto } from './dto/send-register-code-response.d
 import {
   buildPasswordResetCodeKey,
   buildRegisterCodeKey,
+  buildSmsSendCooldownKey,
   generateNumericCode,
 } from './auth.utils';
 
@@ -43,6 +47,8 @@ export class AuthCodeService {
     if (existingUser) {
       throw new ConflictException('手机号已被注册');
     }
+
+    await this.ensureSmsSendCooldown('register', productScope, phone);
 
     const registerCode = generateNumericCode();
     const registerCodeKey = buildRegisterCodeKey(productScope, phone);
@@ -96,6 +102,8 @@ export class AuthCodeService {
       return response;
     }
 
+    await this.ensureSmsSendCooldown('login', productScope, phone);
+
     const loginCode = generateNumericCode();
     const registerCodeKey = buildRegisterCodeKey(productScope, phone);
     await this.redisService.set(registerCodeKey, loginCode, expiresInSeconds);
@@ -133,6 +141,8 @@ export class AuthCodeService {
     phone: string,
   ): Promise<SendLoginCodeResponseDto> {
     const expiresInSeconds = this.getRegisterCodeTtlSeconds();
+    await this.ensureSmsSendCooldown('login', 'purely_club', phone);
+
     const code = generateNumericCode();
     const codeKey = buildRegisterCodeKey('purely_club', phone);
 
@@ -199,6 +209,8 @@ export class AuthCodeService {
       return response;
     }
 
+    await this.ensureSmsSendCooldown('password-reset', productScope, phone);
+
     const resetCode = generateNumericCode();
     const resetCodeKey = buildPasswordResetCodeKey(productScope, phone);
     await this.redisService.set(resetCodeKey, resetCode, expiresInSeconds);
@@ -244,6 +256,30 @@ export class AuthCodeService {
     await this.redisService.del(buildPasswordResetCodeKey(productScope, phone));
   }
 
+  private async ensureSmsSendCooldown(
+    scene: 'register' | 'login' | 'password-reset',
+    productScope: AuthProductScope,
+    phone: string,
+  ): Promise<void> {
+    const cooldownSeconds = this.getSmsSendCooldownSeconds();
+    if (cooldownSeconds <= 0) {
+      return;
+    }
+
+    const cooldownKey = buildSmsSendCooldownKey(scene, productScope, phone);
+    const acquired = await this.redisService.setIfAbsent(
+      cooldownKey,
+      '1',
+      cooldownSeconds,
+    );
+    if (!acquired) {
+      throw new HttpException(
+        `短信发送过于频繁，请 ${cooldownSeconds} 秒后再试`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
   private getPasswordResetCodeTtlSeconds(): number {
     return (
       this.configService.get<number>('auth.passwordResetCodeTtlSeconds') ??
@@ -255,6 +291,13 @@ export class AuthCodeService {
     return (
       this.configService.get<number>('auth.registerCodeTtlSeconds') ??
       DEFAULT_REGISTER_CODE_TTL_SECONDS
+    );
+  }
+
+  private getSmsSendCooldownSeconds(): number {
+    return (
+      this.configService.get<number>('auth.smsSendCooldownSeconds') ??
+      DEFAULT_SMS_SEND_COOLDOWN_SECONDS
     );
   }
 

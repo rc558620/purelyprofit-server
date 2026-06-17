@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { PartnerWithdrawalStatus, StoreSubscriptionStatus } from '@prisma/client';
+import {
+  PartnerWithdrawalStatus,
+  StoreSubscriptionStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildDerivedFinanceAccountStatusWhere } from '../finance/finance-account.query';
 import { toDecimalNumber } from '../commerce/commerce.utils';

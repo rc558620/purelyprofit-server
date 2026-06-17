@@ -466,7 +466,9 @@ describe('FinanceAccountService', () => {
       createdAt: new Date('2026-05-10T00:00:00.000Z'),
       updatedAt: new Date('2026-05-11T00:00:00.000Z'),
     });
-    prismaService.financeAccountRecord.updateMany.mockResolvedValue({ count: 0 });
+    prismaService.financeAccountRecord.updateMany.mockResolvedValue({
+      count: 0,
+    });
 
     await expect(
       service.settleAccount(user, 14, { payAmount: 100 }),
@@ -548,7 +550,9 @@ describe('FinanceAccountService', () => {
         createdAt: new Date('2026-05-10T00:00:00.000Z'),
         updatedAt: new Date('2026-05-14T12:00:00.000Z'),
       });
-    prismaService.financeAccountRecord.updateMany.mockResolvedValue({ count: 1 });
+    prismaService.financeAccountRecord.updateMany.mockResolvedValue({
+      count: 1,
+    });
 
     await expect(
       service.settleAccount(user, 15, { payAmount: 300 }),

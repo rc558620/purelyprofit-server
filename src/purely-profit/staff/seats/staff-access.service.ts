@@ -63,7 +63,7 @@ export class StaffAccessService {
     }
   }
 
-  async getManageableStoreId(
+  getManageableStoreId(
     user: AuthenticatedUser,
     requiredPermission:
       | 'staff:view'
@@ -71,16 +71,12 @@ export class StaffAccessService {
       | 'staff:update'
       | 'staff:delete',
   ): Promise<number | null> {
-    const currentStoreId =
+    return Promise.resolve(
       this.accessControlService.resolveCurrentStoreIdByPermission(
         user,
         requiredPermission,
-      );
-    if (currentStoreId !== null) {
-      return currentStoreId;
-    }
-
-    return null;
+      ),
+    );
   }
 
   async findManageableStaffOrThrow(

@@ -28,7 +28,11 @@ const STORE_INVITE_CODE_ALPHABET = '0123456789';
 const STORE_INVITE_QR_CODE_BASE_URL =
   'https://api.qrserver.com/v1/create-qr-code/';
 const STORE_INVITE_QR_CODE_SIZE = 240;
-const STORE_SCAN_CODE_INVITE_CODE_QUERY_KEYS = ['inviteCode', 'code', 'invite_code'];
+const STORE_SCAN_CODE_INVITE_CODE_QUERY_KEYS = [
+  'inviteCode',
+  'code',
+  'invite_code',
+];
 const STORE_SCAN_CODE_STORE_ID_QUERY_KEYS = ['storeId', 'store_id'];
 
 export function buildProfileResponse(
@@ -103,7 +107,8 @@ export function buildStoreInviteCode(storeId: number): string {
 
   for (let index = 0; index < 6; index += 1) {
     seed = (seed * 1103515245 + 12345) >>> 0;
-    inviteCode += STORE_INVITE_CODE_ALPHABET[seed % STORE_INVITE_CODE_ALPHABET.length];
+    inviteCode +=
+      STORE_INVITE_CODE_ALPHABET[seed % STORE_INVITE_CODE_ALPHABET.length];
   }
 
   return inviteCode;
@@ -143,14 +148,18 @@ export function resolveInviteCodeFromClubStoreScanCode(
   }
 
   for (const queryKey of STORE_SCAN_CODE_INVITE_CODE_QUERY_KEYS) {
-    const inviteCode = normalizeInviteCodeCandidate(parsedUrl.searchParams.get(queryKey));
+    const inviteCode = normalizeInviteCodeCandidate(
+      parsedUrl.searchParams.get(queryKey),
+    );
     if (inviteCode) {
       return inviteCode;
     }
   }
 
   for (const queryKey of STORE_SCAN_CODE_STORE_ID_QUERY_KEYS) {
-    const storeId = normalizeStoreIdCandidate(parsedUrl.searchParams.get(queryKey));
+    const storeId = normalizeStoreIdCandidate(
+      parsedUrl.searchParams.get(queryKey),
+    );
     if (storeId !== null) {
       return buildStoreInviteCode(storeId);
     }
@@ -170,7 +179,9 @@ export function resolveInviteCodeFromClubStoreScanCode(
   return null;
 }
 
-function normalizeInviteCodeCandidate(value: string | null | undefined): string | null {
+function normalizeInviteCodeCandidate(
+  value: string | null | undefined,
+): string | null {
   const normalizedValue = value?.trim().toUpperCase();
   if (!normalizedValue) {
     return null;
@@ -179,7 +190,9 @@ function normalizeInviteCodeCandidate(value: string | null | undefined): string 
   return /^[A-Z0-9]{6,32}$/.test(normalizedValue) ? normalizedValue : null;
 }
 
-function normalizeStoreIdCandidate(value: string | null | undefined): number | null {
+function normalizeStoreIdCandidate(
+  value: string | null | undefined,
+): number | null {
   const normalizedValue = value?.trim();
   if (!normalizedValue || !/^\d+$/.test(normalizedValue)) {
     return null;

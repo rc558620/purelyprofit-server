@@ -2,8 +2,8 @@ import { FinanceAccountStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   filterAndSortAccounts,
-  paginateAccounts,
 } from './finance-account.domain';
+import { buildPaginationState } from './finance-pagination.utils';
 import type {
   FinanceAccountRecordWithAmount,
   FinanceAccountsListQueryInput,
@@ -153,16 +153,23 @@ export async function queryAccountRecords(
   query: FinanceAccountsListQueryInput,
 ): Promise<{ items: FinanceAccountRecordWithAmount[]; total: number }> {
   const where = buildFinanceAccountWhere(storeId, query);
-  const records = await prisma.financeAccountRecord.findMany({
-    where,
-    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-    select: financeAccountRecordSelect,
-  });
+  const pageState = buildPaginationState(query.page, query.pageSize);
+
+  const [total, records] = await Promise.all([
+    prisma.financeAccountRecord.count({ where }),
+    prisma.financeAccountRecord.findMany({
+      where,
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: financeAccountRecordSelect,
+      skip: (pageState.page - 1) * pageState.pageSize,
+      take: pageState.pageSize,
+    }),
+  ]);
   const filteredRecords = filterAndSortAccounts(records, query);
 
   return {
-    items: paginateAccounts(filteredRecords, query.page, query.pageSize),
-    total: filteredRecords.length,
+    items: filteredRecords,
+    total,
   };
 }
 
@@ -174,6 +181,7 @@ export async function queryAccountStatsRows(
     where: { storeId },
     orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     select: financeAccountRecordSelect,
+    take: 500,
   });
 }
 

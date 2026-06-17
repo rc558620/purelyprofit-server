@@ -57,24 +57,22 @@ describe('AuthAccountMembershipService', () => {
       canUseHandover: true,
     } satisfies AuthenticatedMembership;
 
-    prisma.$queryRaw
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          id: 21,
-          storeId: 9,
-          role: 'OWNER',
-          permissions: ['*'],
-          isActive: true,
-          linkedEmployeeId: null,
-          subAccountId: null,
-          subAccountRole: null,
-          subAccountStatus: null,
-          subAccountAssigned: null,
-          subAccountCanAccessHome: null,
-          subAccountCanUseHandover: null,
-        },
-      ]);
+    prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: 21,
+        storeId: 9,
+        role: 'OWNER',
+        permissions: ['*'],
+        isActive: true,
+        linkedEmployeeId: null,
+        subAccountId: null,
+        subAccountRole: null,
+        subAccountStatus: null,
+        subAccountAssigned: null,
+        subAccountCanAccessHome: null,
+        subAccountCanUseHandover: null,
+      },
+    ]);
     prisma.store.findFirst.mockResolvedValue({
       id: 9,
       owner: {

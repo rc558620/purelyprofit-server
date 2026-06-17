@@ -27,7 +27,9 @@ export class AppController {
   }
 
   @ApiOperation({ summary: '获取服务就绪状态' })
-  @ApiOkResponse({ description: '返回 PostgreSQL 与 Redis 的 readiness 检查结果' })
+  @ApiOkResponse({
+    description: '返回 PostgreSQL 与 Redis 的 readiness 检查结果',
+  })
   @Get('readyz')
   async getReadiness(): Promise<ReadinessSnapshot> {
     return this.appService.getReadiness();

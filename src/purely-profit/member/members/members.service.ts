@@ -249,7 +249,9 @@ export class MembersService {
     return data;
   }
 
-  async warmOverviewCache(storeId: number): Promise<MembersOverviewResponseDto> {
+  async warmOverviewCache(
+    storeId: number,
+  ): Promise<MembersOverviewResponseDto> {
     const cacheKey = buildMembersOverviewCacheKey(storeId);
     const data = await this.buildOverviewPayload(storeId);
     await this.redisService.writeRefreshableJson(
@@ -429,7 +431,10 @@ export class MembersService {
   private async buildMetaPayload(
     storeId: number,
   ): Promise<MembersMetaResponseDto> {
-    const { levelRows, statusRows } = await queryMembersMeta(this.prisma, storeId);
+    const { levelRows, statusRows } = await queryMembersMeta(
+      this.prisma,
+      storeId,
+    );
 
     return {
       levels: buildMemberLevelMetaRows(levelRows),

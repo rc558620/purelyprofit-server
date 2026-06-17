@@ -61,7 +61,10 @@ export class ClubProductDto {
   @IsString({ message: '分类 ID 必须是字符串' })
   categoryId?: string;
 
-  @ApiPropertyOptional({ example: '推拿按摩', description: '分类名称（展示用）' })
+  @ApiPropertyOptional({
+    example: '推拿按摩',
+    description: '分类名称（展示用）',
+  })
   @IsOptional()
   @IsString({ message: '分类名称必须是字符串' })
   categoryName?: string;
@@ -193,7 +196,10 @@ export class ClubProductDto {
   @IsInt({ message: '库存必须是整数' })
   stock?: number;
 
-  @ApiPropertyOptional({ example: '份', description: '库存单位（如「份」「个」）' })
+  @ApiPropertyOptional({
+    example: '份',
+    description: '库存单位（如「份」「个」）',
+  })
   @IsOptional()
   @IsString({ message: '库存单位必须是字符串' })
   unit?: string;
@@ -219,7 +225,10 @@ export class ClubProductDto {
   @ApiProperty({ example: 1715000000000, description: '创建时间戳（毫秒）' })
   createdAt: number;
 
-  @ApiPropertyOptional({ example: 1715086399999, description: '最后更新时间戳（毫秒）' })
+  @ApiPropertyOptional({
+    example: 1715086399999,
+    description: '最后更新时间戳（毫秒）',
+  })
   @IsOptional()
   updatedAt?: number;
 }

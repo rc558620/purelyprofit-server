@@ -43,6 +43,7 @@ export class ClubPromotionsService {
       },
       select: clubPromotionSelect,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 100,
     });
 
     return {

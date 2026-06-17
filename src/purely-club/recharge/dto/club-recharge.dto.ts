@@ -6,6 +6,8 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
+  Min,
 } from 'class-validator';
 import { transformOptionalBoolean } from '../../../purely-profit/stores/dto/store-response.dto';
 import {
@@ -48,6 +50,8 @@ export class CreateClubRechargeOrderDto {
     { allowInfinity: false, allowNaN: false, maxDecimalPlaces: 2 },
     { message: 'customAmount 必须是合法金额，且最多保留两位小数' },
   )
+  @Min(0.01, { message: '自定义充值金额最小 0.01 元' })
+  @Max(50000, { message: '自定义充值金额最大 50000 元' })
   customAmount?: number;
 
   @ApiPropertyOptional({

@@ -20,7 +20,10 @@ import {
   toMoneyNumber,
   toPrismaDecimal,
 } from './finance-money.utils';
-import { buildPaginationState, paginateArray } from './finance-pagination.utils';
+import {
+  buildPaginationState,
+  paginateArray,
+} from './finance-pagination.utils';
 
 export function assertAccountCategoryCanCreateManually(category: string): void {
   const rule = getAccountCategoryRule(category);
@@ -120,7 +123,8 @@ export function filterAndSortAccounts(
       if (statusDiff !== 0) {
         return statusDiff;
       }
-      const updatedAtDiff = right.updatedAt.getTime() - left.updatedAt.getTime();
+      const updatedAtDiff =
+        right.updatedAt.getTime() - left.updatedAt.getTime();
       if (updatedAtDiff !== 0) {
         return updatedAtDiff;
       }

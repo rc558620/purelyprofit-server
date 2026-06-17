@@ -227,10 +227,10 @@ async function waitForPortToBeReleased(
   return findNodeProcessIdsListeningOnPort(port).length === 0;
 }
 
-async function forceStopProcessIds(
+function forceStopProcessIds(
   processIds: number[],
   signal: NodeJS.Signals,
-): Promise<void> {
+): void {
   for (const processId of processIds) {
     try {
       process.kill(processId, signal);
@@ -256,7 +256,7 @@ async function terminateProcessesListeningOnPort(
     `[bootstrap] 端口 ${port} 已被占用，尝试停止旧进程: ${processIds.join(', ')}`,
   );
 
-  await forceStopProcessIds(processIds, 'SIGTERM');
+  forceStopProcessIds(processIds, 'SIGTERM');
 
   if (await waitForPortToBeReleased(port, 1500, 150)) {
     console.warn(`[bootstrap] 端口 ${port} 的旧进程已停止，重新尝试监听`);
@@ -266,7 +266,7 @@ async function terminateProcessesListeningOnPort(
   console.warn(
     `[bootstrap] 端口 ${port} 的旧进程未及时退出，升级为 SIGKILL 强制停止`,
   );
-  await forceStopProcessIds(processIds, 'SIGKILL');
+  forceStopProcessIds(processIds, 'SIGKILL');
 
   if (await waitForPortToBeReleased(port, 1500, 150)) {
     console.warn(`[bootstrap] 端口 ${port} 的旧进程已强制停止，重新尝试监听`);
@@ -301,7 +301,7 @@ async function terminateNodeProcessesInPortRange(
     `[bootstrap] 启动前清理 ${startPort}-${endPort} 端口残留进程: ${descriptors.join(', ')}`,
   );
 
-  await forceStopProcessIds(processIds, 'SIGTERM');
+  forceStopProcessIds(processIds, 'SIGTERM');
   await delay(1200);
 
   const remainingProcesses = findListeningProcesses()
@@ -316,7 +316,7 @@ async function terminateNodeProcessesInPortRange(
     console.warn(
       `[bootstrap] ${startPort}-${endPort} 仍有残留端口，占用进程升级为 SIGKILL: ${remainingIds.join(', ')}`,
     );
-    await forceStopProcessIds(remainingIds, 'SIGKILL');
+    forceStopProcessIds(remainingIds, 'SIGKILL');
     await delay(1200);
   }
 
@@ -446,7 +446,11 @@ function validateProductionConfiguration(configService: ConfigService): void {
     errors.push('jwt.secret 未配置或仍在使用默认值');
   }
 
-  if (!corsOrigin || corsOrigin === '*' || corsOrigin.includes('yourdomain.com')) {
+  if (
+    !corsOrigin ||
+    corsOrigin === '*' ||
+    corsOrigin.includes('yourdomain.com')
+  ) {
     errors.push('app.corsOrigin 生产环境必须配置为正式域名白名单');
   }
 
@@ -454,16 +458,24 @@ function validateProductionConfiguration(configService: ConfigService): void {
     errors.push('wechat.appId 未配置或仍在使用示例值');
   }
 
-  if (!wechatAppSecret || wechatAppSecret.includes('your_miniprogram_appsecret')) {
+  if (
+    !wechatAppSecret ||
+    wechatAppSecret.includes('your_miniprogram_appsecret')
+  ) {
     errors.push('wechat.appSecret 未配置或仍在使用示例值');
   }
 
-  if (!wechatMchSerialNo || wechatMchSerialNo.includes('your_mch_api_certificate_serial_no')) {
+  if (
+    !wechatMchSerialNo ||
+    wechatMchSerialNo.includes('your_mch_api_certificate_serial_no')
+  ) {
     errors.push('wechat.mchSerialNo 未配置或仍在使用示例值');
   }
 
   if (!wechatPrivateKeyPath && !wechatPrivateKeyContent) {
-    errors.push('wechat.privateKeyPath / wechat.privateKeyContent 至少要配置一个');
+    errors.push(
+      'wechat.privateKeyPath / wechat.privateKeyContent 至少要配置一个',
+    );
   }
 
   if (wechatPrivateKeyPath && !existsSync(wechatPrivateKeyPath)) {
@@ -501,9 +513,7 @@ function validateProductionConfiguration(configService: ConfigService): void {
   }
 
   if (errors.length > 0) {
-    throw new Error(
-      `[bootstrap] 生产配置校验失败:\n- ${errors.join('\n- ')}`,
-    );
+    throw new Error(`[bootstrap] 生产配置校验失败:\n- ${errors.join('\n- ')}`);
   }
 }
 
@@ -582,6 +592,9 @@ export async function bootstrap(): Promise<void> {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
     }),
   );
 
@@ -600,7 +613,12 @@ export async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: resolveCorsOrigin(corsOrigin),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Requested-With'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Request-Id',
+      'X-Requested-With',
+    ],
     credentials: true,
   });
 

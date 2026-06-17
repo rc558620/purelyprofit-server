@@ -412,9 +412,9 @@ describe('DashboardHomeService', () => {
 
     const result = await service.getOverview(user, { period: 'today' });
 
-    expect(result.activities.some((item) => item.id === 'finance-overdue')).toBe(
-      false,
-    );
+    expect(
+      result.activities.some((item) => item.id === 'finance-overdue'),
+    ).toBe(false);
     expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith({
       where: expect.objectContaining({
         storeId: 18,

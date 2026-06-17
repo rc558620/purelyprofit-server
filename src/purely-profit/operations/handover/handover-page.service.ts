@@ -338,9 +338,10 @@ export class HandoverPageService {
     // 清空操作员名字并移除头像，前端回退到用户注册时的默认头像。
     let { shiftInfo } = shiftContext;
     if (shiftContext.handoverCompletedAndNoUpcomingShift) {
-      const { operatorAvatar, avatar, ...rest } = shiftInfo;
       shiftInfo = {
-        ...rest,
+        ...shiftInfo,
+        operatorAvatar: undefined,
+        avatar: undefined,
         operatorName: '',
       };
     }

@@ -66,7 +66,8 @@ export class CreatePromotionDto {
         { rechargeAmount: 30000, giftAmount: 5000 },
       ],
     },
-    description: '优惠参数 JSON（按 type 不同格式各异；储值赠送支持 gradients 多档配置）',
+    description:
+      '优惠参数 JSON（按 type 不同格式各异；储值赠送支持 gradients 多档配置）',
   })
   @IsOptional()
   params?: Record<string, unknown>;
@@ -109,7 +110,8 @@ export class UpdatePromotionDto {
 
   @ApiPropertyOptional({
     example: { discountRate: 80, audience: 'first_order' },
-    description: '更新活动参数；首单优惠可传折扣率，储值赠送可传 gradients 多档配置',
+    description:
+      '更新活动参数；首单优惠可传折扣率，储值赠送可传 gradients 多档配置',
   })
   @IsOptional()
   params?: Record<string, unknown>;
@@ -160,7 +162,10 @@ export class UpdateMarketingMemberLevelDto {
   @Min(0, { message: 'spendThreshold 不能小于 0' })
   spendThreshold?: number;
 
-  @ApiPropertyOptional({ example: '累计消费 ≥ ¥5,000', description: '等级说明' })
+  @ApiPropertyOptional({
+    example: '累计消费 ≥ ¥5,000',
+    description: '等级说明',
+  })
   @IsOptional()
   @IsString({ message: 'description 必须是字符串' })
   @MaxLength(30, { message: 'description 最长 30 个字符' })

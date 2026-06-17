@@ -13,6 +13,7 @@ import type {
 } from '../orders/club-order-drafts.types';
 import type { ClubOrderStatusResponseDto } from '../orders/dto/club-order.dto';
 import { ClubPaymentSettlementTemplate } from '../payments/club-payment-settlement.template';
+import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
 import type { ClubRechargeOrderResponseDto } from './dto/club-recharge.dto';
 import { toClubRechargeOrderResponse } from './club-recharge.mapper';
@@ -34,8 +35,9 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     prisma: PrismaService,
     clubOrderDraftsService: ClubOrderDraftsService,
     cacheInvalidatorService: CacheInvalidatorService,
+    paymentLockService: ClubPaymentLockService,
   ) {
-    super(prisma, clubOrderDraftsService, cacheInvalidatorService);
+    super(prisma, clubOrderDraftsService, cacheInvalidatorService, paymentLockService);
   }
 
   protected assertDraftPayable(

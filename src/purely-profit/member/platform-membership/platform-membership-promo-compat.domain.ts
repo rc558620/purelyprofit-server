@@ -1,4 +1,3 @@
-import type { PlatformMembershipPromoStatsDto } from './dto/platform-membership-response.dto';
 import { DAY_MS } from './platform-membership.constants';
 import {
   buildApprovedPartnerResponse,

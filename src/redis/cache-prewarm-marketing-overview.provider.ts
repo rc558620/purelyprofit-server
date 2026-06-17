@@ -18,7 +18,8 @@ export const marketingOverviewCachePrewarmProvider: CachePrewarmProfitReadCatego
         'marketingOverview',
         cacheKeys,
         parseMarketingOverviewCacheKey,
-        (parsed) => input.marketingOverviewService.warmOverviewCache(parsed.storeId),
+        (parsed) =>
+          input.marketingOverviewService.warmOverviewCache(parsed.storeId),
         options,
       ),
   });

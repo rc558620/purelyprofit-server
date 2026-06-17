@@ -26,9 +26,10 @@ export class ClubRechargeQueryService {
     currentContext: ClubCurrentContext,
     query: ListClubRechargePackagesQueryDto,
   ): Promise<ClubRechargePackagesResponseDto> {
-    const packages = await this.clubRechargePackagesService.loadPackagesForStore(
-      currentContext.store.id,
-    );
+    const packages =
+      await this.clubRechargePackagesService.loadPackagesForStore(
+        currentContext.store.id,
+      );
 
     return {
       items: query.preview

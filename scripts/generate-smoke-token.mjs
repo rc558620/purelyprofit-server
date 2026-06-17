@@ -188,36 +188,40 @@ async function resolveUser() {
     );
   }
 
-  if (!user.staffMembership) {
-    throw new Error(`smoke 用户 ${user.email} 未绑定 staffMembership，无法访问业务接口。`);
-  }
+  if (accountScope === 'purely_profit') {
+    if (!user.staffMembership) {
+      throw new Error(
+        `smoke 用户 ${user.email} 未绑定 staffMembership，无法访问 purely-profit 接口。`,
+      );
+    }
 
-  if (
-    configuredStoreId !== null &&
-    user.staffMembership.storeId !== configuredStoreId
-  ) {
-    throw new Error(
-      `声明的 SMOKE_STORE_ID=${configuredStoreId} 与用户实际门店 ${user.staffMembership.storeId} 不一致。`,
-    );
-  }
+    if (
+      configuredStoreId !== null &&
+      user.staffMembership.storeId !== configuredStoreId
+    ) {
+      throw new Error(
+        `声明的 SMOKE_STORE_ID=${configuredStoreId} 与用户实际门店 ${user.staffMembership.storeId} 不一致。`,
+      );
+    }
 
-  const hasReportPermission =
-    user.staffMembership.permissions.includes('*') ||
-    user.staffMembership.permissions.includes('report:view');
-  if (!hasReportPermission) {
-    throw new Error(
-      `smoke 用户 ${user.email} 缺少 report:view 权限，无法校验利润报表接口。`,
-    );
-  }
+    const hasReportPermission =
+      user.staffMembership.permissions.includes('*') ||
+      user.staffMembership.permissions.includes('report:view');
+    if (!hasReportPermission) {
+      throw new Error(
+        `smoke 用户 ${user.email} 缺少 report:view 权限，无法校验利润报表接口。`,
+      );
+    }
 
-  if (
-    user.staffMembership.status !== 'ACTIVE' ||
-    !user.staffMembership.isActive ||
-    !user.staffMembership.isSeatActive
-  ) {
-    throw new Error(
-      `smoke 用户 ${user.email} 的 staffMembership 未激活，无法访问业务接口。`,
-    );
+    if (
+      user.staffMembership.status !== 'ACTIVE' ||
+      !user.staffMembership.isActive ||
+      !user.staffMembership.isSeatActive
+    ) {
+      throw new Error(
+        `smoke 用户 ${user.email} 的 staffMembership 未激活，无法访问 purely-profit 接口。`,
+      );
+    }
   }
 
   return user;
@@ -253,9 +257,9 @@ async function resolveTokenVersion(userId) {
 async function main() {
   const user = await resolveUser();
   const phone = resolveTokenPhone(user);
-  const storeId = configuredStoreId ?? user.staffMembership?.storeId;
-  if (!storeId) {
-    throw new Error('smoke 用户未绑定门店，无法推导默认业务 smoke 路径。');
+  const storeId = configuredStoreId ?? user.staffMembership?.storeId ?? null;
+  if (storeId === null) {
+    throw new Error('缺少 SMOKE_STORE_ID，无法推导当前 smoke 门店。');
   }
 
   const tokenVersion = await resolveTokenVersion(user.id);
@@ -274,7 +278,11 @@ async function main() {
       `SMOKE_LOGIN_PHONE=${phone}\n` +
       `SMOKE_LOGIN_EMAIL=${user.email}\n` +
       `SMOKE_STORE_ID=${storeId}\n` +
-      `SMOKE_PROFIT_REPORT_PATH=${profitReportPath}\n`,
+      `SMOKE_PROFIT_REPORT_PATH=${profitReportPath}\n` +
+      'SMOKE_CLUB_PROFILE_PATH=/club/member/profile\n' +
+      'SMOKE_CLUB_CURRENT_STORE_PATH=/club/stores/current\n' +
+      'SMOKE_PULSE_SWITCH_STORE_PATH=/pulse/session/current-store\n' +
+      'SMOKE_PULSE_BOOTSTRAP_PATH=/pulse/session/bootstrap\n',
   );
 }
 

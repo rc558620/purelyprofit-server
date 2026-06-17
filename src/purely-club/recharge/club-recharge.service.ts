@@ -37,14 +37,20 @@ export class ClubRechargeService {
     currentContext: ClubCurrentContext,
     orderId: string,
   ): Promise<ClubOrderStatusResponseDto> {
-    return this.clubRechargeQueryService.getOrderStatus(currentContext, orderId);
+    return this.clubRechargeQueryService.getOrderStatus(
+      currentContext,
+      orderId,
+    );
   }
 
   confirmOrderPaid(
     currentContext: ClubCurrentContext,
     orderId: string,
   ): Promise<ClubRechargeOrderResponseDto> {
-    return this.clubRechargePaymentService.confirmOrderPaid(currentContext, orderId);
+    return this.clubRechargePaymentService.confirmOrderPaid(
+      currentContext,
+      orderId,
+    );
   }
 
   confirmOrderPaidByCallback(

@@ -1,7 +1,4 @@
-import {
-  INestApplication,
-  ValidationPipe,
-} from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -193,7 +190,9 @@ describe('Marketing auth chain (e2e)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    authAccountMembershipService.ensureUserNotBanned.mockResolvedValue(undefined);
+    authAccountMembershipService.ensureUserNotBanned.mockResolvedValue(
+      undefined,
+    );
     authSessionService.getTokenVersion.mockResolvedValue(0);
     platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
       undefined,
@@ -211,7 +210,11 @@ describe('Marketing auth chain (e2e)', () => {
     ]);
     prismaService.marketingProductCategory.findUnique.mockResolvedValue(null);
     prismaService.marketingProductCategory.create.mockImplementation(
-      ({ data }: { data: { storeId: number; name: string; icon: string | null } }) =>
+      ({
+        data,
+      }: {
+        data: { storeId: number; name: string; icon: string | null };
+      }) =>
         Promise.resolve({
           id: 6,
           storeId: data.storeId,
@@ -228,7 +231,8 @@ describe('Marketing auth chain (e2e)', () => {
       },
     );
     authAccountMembershipService.resolveAuthenticatedMembership.mockImplementation(
-      ({ sub }: { sub: number }) => Promise.resolve(membershipRecords[sub] ?? null),
+      ({ sub }: { sub: number }) =>
+        Promise.resolve(membershipRecords[sub] ?? null),
     );
   });
 
@@ -266,7 +270,9 @@ describe('Marketing auth chain (e2e)', () => {
     expect(
       platformMembershipAccessService.ensureMarketingFeatureEnabled,
     ).toHaveBeenCalledWith(18, false);
-    expect(prismaService.marketingProductCategory.findMany).toHaveBeenCalledWith({
+    expect(
+      prismaService.marketingProductCategory.findMany,
+    ).toHaveBeenCalledWith({
       where: { storeId: 18 },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });
@@ -310,7 +316,9 @@ describe('Marketing auth chain (e2e)', () => {
     expect(
       platformMembershipAccessService.ensureMarketingFeatureEnabled,
     ).toHaveBeenCalledWith(18, false);
-    expect(prismaService.marketingProductCategory.findUnique).toHaveBeenCalledWith({
+    expect(
+      prismaService.marketingProductCategory.findUnique,
+    ).toHaveBeenCalledWith({
       where: { storeId_name: { storeId: 18, name: '肩颈放松' } },
       select: { id: true },
     });
@@ -336,7 +344,9 @@ describe('Marketing auth chain (e2e)', () => {
     expect(
       platformMembershipAccessService.ensureMarketingFeatureEnabled,
     ).toHaveBeenCalledWith(18, false);
-    expect(prismaService.marketingProductCategory.create).toHaveBeenCalledTimes(1);
+    expect(prismaService.marketingProductCategory.create).toHaveBeenCalledTimes(
+      1,
+    );
   });
 
   it('GET /marketing/product-categories 历史 membership 门店不匹配时返回 403', async () => {
@@ -348,7 +358,9 @@ describe('Marketing auth chain (e2e)', () => {
         expect(body.message).toBe('当前账号缺少接口访问权限');
       });
 
-    expect(prismaService.marketingProductCategory.findMany).not.toHaveBeenCalled();
+    expect(
+      prismaService.marketingProductCategory.findMany,
+    ).not.toHaveBeenCalled();
   });
 
   it('POST /marketing/product-categories 历史 membership 门店不匹配时返回 403', async () => {
@@ -361,8 +373,12 @@ describe('Marketing auth chain (e2e)', () => {
         expect(body.message).toBe('当前账号缺少接口访问权限');
       });
 
-    expect(prismaService.marketingProductCategory.findUnique).not.toHaveBeenCalled();
-    expect(prismaService.marketingProductCategory.create).not.toHaveBeenCalled();
+    expect(
+      prismaService.marketingProductCategory.findUnique,
+    ).not.toHaveBeenCalled();
+    expect(
+      prismaService.marketingProductCategory.create,
+    ).not.toHaveBeenCalled();
   });
 
   it('POST /marketing/products 异店 membership + 显式 storeId 串店写入时返回 403', async () => {

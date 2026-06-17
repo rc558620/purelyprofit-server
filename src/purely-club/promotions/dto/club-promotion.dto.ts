@@ -45,10 +45,16 @@ export class ClubPromotionDto {
   @IsObject({ message: '活动参数必须是对象' })
   params: MarketingPromotionParamsValue;
 
-  @ApiProperty({ example: 1715000000000, description: '开始时间（毫秒时间戳）' })
+  @ApiProperty({
+    example: 1715000000000,
+    description: '开始时间（毫秒时间戳）',
+  })
   startAt: number;
 
-  @ApiProperty({ example: 1715086399999, description: '结束时间（毫秒时间戳）' })
+  @ApiProperty({
+    example: 1715086399999,
+    description: '结束时间（毫秒时间戳）',
+  })
   endAt: number;
 
   @ApiProperty({ example: '进行中', description: '活动状态文案' })
@@ -93,6 +99,9 @@ export class ClubPromotionDto {
 }
 
 export class ClubPromotionsResponseDto {
-  @ApiProperty({ type: [ClubPromotionDto], description: '当前门店进行中的活动列表' })
+  @ApiProperty({
+    type: [ClubPromotionDto],
+    description: '当前门店进行中的活动列表',
+  })
   items: ClubPromotionDto[];
 }

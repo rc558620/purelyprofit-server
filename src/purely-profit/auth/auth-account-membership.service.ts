@@ -96,10 +96,7 @@ export class AuthAccountMembershipService {
     payload: JwtPayload,
     userEmail: string,
   ): Promise<AuthenticatedMembership | null> {
-    let [currentMembership] = await this.findMembershipRows(
-      payload,
-      userEmail,
-    );
+    let [currentMembership] = await this.findMembershipRows(payload, userEmail);
 
     if (!currentMembership) {
       const repaired = await this.repairLegacyOwnerMembership(
@@ -309,9 +306,10 @@ export class AuthAccountMembershipService {
     }
 
     const normalizedOwnerName = ownerStore.owner.name?.trim();
-    const nextName = normalizedOwnerName && normalizedOwnerName.length > 0
-      ? normalizedOwnerName
-      : '老板';
+    const nextName =
+      normalizedOwnerName && normalizedOwnerName.length > 0
+        ? normalizedOwnerName
+        : '老板';
 
     if (existingStaff) {
       await this.prisma.staff.update({

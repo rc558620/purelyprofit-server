@@ -79,6 +79,7 @@ export class SpaceReservationsService {
         ...(reservedAt ? { reservedAt } : {}),
       },
       orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      take: 200,
     });
 
     return items.map((item) => this.toSpaceReservationResponse(item));
@@ -114,6 +115,7 @@ export class SpaceReservationsService {
         ...(reservedAt ? { reservedAt } : {}),
       },
       orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      take: 200,
     });
 
     return items.map((item) => this.toSpaceReservationResponse(item));
@@ -485,25 +487,25 @@ export class SpaceReservationsService {
     reservedEndAt: number,
     excludeReservationId?: number,
   ): Promise<SpaceReservationRecord | null> {
-    const reservations = await client.spaceReservation.findMany({
-      where: {
-        spaceId,
-        status: PrismaSpaceReservationStatus.pending,
-        ...(excludeReservationId !== undefined
-          ? {
-              id: {
-                not: excludeReservationId,
-              },
-            }
-          : {}),
-      },
+    const where: Prisma.SpaceReservationWhereInput = {
+      spaceId,
+      status: PrismaSpaceReservationStatus.pending,
+      reservedAt: { lt: new Date(reservedEndAt) },
+      reservedEndAt: { gt: new Date(reservedAt) },
+      ...(excludeReservationId !== undefined
+        ? {
+            id: {
+              not: excludeReservationId,
+            },
+          }
+        : {}),
+    };
+
+    const conflict = await client.spaceReservation.findFirst({
+      where,
       orderBy: [{ reservedAt: 'asc' }, { id: 'asc' }],
     });
 
-    return findReservationTimeConflict(
-      reservations as SpaceReservationRecord[],
-      reservedAt,
-      reservedEndAt,
-    );
+    return conflict as SpaceReservationRecord | null;
   }
 }

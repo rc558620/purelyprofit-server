@@ -395,3 +395,39 @@ export function parseBusinessAnalysisCacheKey(cacheKey: string): {
     endTime: rawEndTime === 'na' ? undefined : Number(rawEndTime),
   };
 }
+
+export function buildMarketingPromotionsListCacheKey(
+  storeId: number,
+  status: string,
+  page: number,
+  pageSize: number,
+): string {
+  return `profit:marketing:promotions:list:store:${storeId}:status:${status}:page:${page}:pageSize:${pageSize}`;
+}
+
+export function buildMarketingPromotionsListPattern(storeId: number): string {
+  return `profit:marketing:promotions:list:store:${storeId}:*`;
+}
+
+export function buildMarketingCustomersListCacheKey(
+  storeId: number,
+  status: string,
+  tier: string,
+  keyword: string,
+  page: number,
+  pageSize: number,
+): string {
+  return [
+    'profit:marketing:customers:list',
+    `store:${storeId}`,
+    `status:${status}`,
+    `tier:${tier}`,
+    `keyword:${encodeURIComponent(keyword || 'na')}`,
+    `page:${page}`,
+    `pageSize:${pageSize}`,
+  ].join(':');
+}
+
+export function buildMarketingCustomersListPattern(storeId: number): string {
+  return `profit:marketing:customers:list:store:${storeId}:*`;
+}

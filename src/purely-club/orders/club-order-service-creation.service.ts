@@ -4,12 +4,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from './club-order-drafts.service';
+import { buildOrderNo } from './club-order-drafts.utils';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
-import {
-  CLUB_POINTS_MAX_DEDUCT_RATIO,
-  CLUB_POINTS_TO_YUAN_RATE,
-} from './club-orders.constants';
+import { CLUB_POINTS_MAX_DEDUCT_RATIO } from './club-orders.constants';
 import type {
   ClubServiceOrderResponseDto,
   CreateClubServiceOrderDto,
@@ -54,7 +52,7 @@ export class ClubOrderServiceCreationService {
 
     // 预生成订单号保证 JSAPI out_trade_no 与 draft orderNo 一致
     const now = Date.now();
-    const orderNo = this.buildServiceOrderNo(now);
+    const orderNo = buildOrderNo('service', now);
 
     // 若前端传入 openid，则调用微信 JSAPI 真实下单
     const paymentParams = dto.openid
@@ -90,7 +88,7 @@ export class ClubOrderServiceCreationService {
 
   /**
    * 计算积分抵扣金额
-   * 规则：1 积分 = 1 元 = 100 分，最多抵扣折后价的 50%
+   * 规则：1 积分 = 100 分（即 1 元），最多抵扣折后价的 50%
    */
   private async calcPointsDeduction(
     storeId: number,
@@ -118,37 +116,15 @@ export class ClubOrderServiceCreationService {
         .mul(CLUB_POINTS_MAX_DEDUCT_RATIO)
         .toNumber(),
     );
-    // 1 积分 = 1 元 = 100 分
-    const pointsToFen = (pts: number): number => pts * 100 * CLUB_POINTS_TO_YUAN_RATE;
-    const availableDeductFen = pointsToFen(availablePoints);
+
+    // 1 积分 = 100 分（1 元），可用积分对应的抵扣金额
+    const availableDeductFen = availablePoints * 100;
 
     const pointsDeductFen = Math.min(maxDeductFen, availableDeductFen);
     // 实际消耗积分 = 抵扣分数 ÷ 100（向上取整避免少扣）
-    const pointsUsed = Math.ceil(pointsDeductFen / 100 / CLUB_POINTS_TO_YUAN_RATE);
+    const pointsUsed = Math.ceil(pointsDeductFen / 100);
 
     return { pointsDeductFen, pointsUsed };
   }
 
-  /**
-   * 预生成服务单号，格式与 club-order-drafts.utils 中的 buildOrderNo 一致：
-   * SV{yyyyMMddHHmmssSSS}{4位随机HEX大写}
-   */
-  private buildServiceOrderNo(now: number): string {
-    const date = new Date(now);
-    const pad = (v: number, w = 2): string => String(v).padStart(w, '0');
-    const serial = [
-      date.getFullYear(),
-      pad(date.getMonth() + 1),
-      pad(date.getDate()),
-      pad(date.getHours()),
-      pad(date.getMinutes()),
-      pad(date.getSeconds()),
-      pad(date.getMilliseconds(), 3),
-      Math.floor(Math.random() * 0xffff)
-        .toString(16)
-        .padStart(4, '0')
-        .toUpperCase(),
-    ].join('');
-    return `SV${serial}`;
-  }
 }

@@ -23,11 +23,12 @@ export class ClubAuthController {
     summary: '发送 purely-club 登录验证码',
     description:
       '无论手机号是否已注册均发送验证码。' +
+      '同一手机号 60 秒内不可重复发送。' +
       '验证码有效期由 AUTH_REGISTER_CODE_TTL_SECONDS 控制（默认 600 秒）。' +
       '后续通过 POST /club/auth/login/code 完成登录或自动注册。',
   })
   @ApiOkResponse({
-    description: '验证码发送成功',
+    description: '验证码发送成功；同一手机号 60 秒内不可重复发送',
     type: SendLoginCodeResponseDto,
   })
   sendLoginCode(

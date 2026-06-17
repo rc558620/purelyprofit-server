@@ -1,6 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, ValidateNested } from 'class-validator';
+import { IsArray, IsOptional, ValidateNested } from 'class-validator';
 import { ClubMemberAccountDto } from '../../member/dto/club-member-account.dto';
 import { ClubProductDto } from '../../products/dto/club-product.dto';
 import { ClubPromotionDto } from '../../promotions/dto/club-promotion.dto';
@@ -15,13 +15,15 @@ export class ClubHomeResponseDto {
   @Type(() => ClubStoreSummaryDto)
   currentStore: ClubStoreSummaryDto;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     type: ClubMemberAccountDto,
-    description: '当前用户在当前门店的会员账户信息',
+    nullable: true,
+    description: '当前用户在当前门店的会员账户信息；降级时返回 null',
   })
+  @IsOptional()
   @ValidateNested()
   @Type(() => ClubMemberAccountDto)
-  account: ClubMemberAccountDto;
+  account: ClubMemberAccountDto | null;
 
   @ApiProperty({
     type: [ClubPromotionDto],

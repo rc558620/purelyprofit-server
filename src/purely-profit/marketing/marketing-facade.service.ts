@@ -1,19 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import type {
-    CreateConsumptionDto,
-    CreateCustomerDto,
-    CreatePromotionDto,
-    CreateRechargeDto,
-    ListCustomerPointsRecordsQueryDto,
-    ListCustomersQueryDto,
-    ListPointsRecordsQueryDto,
-    ListPromotionsQueryDto,
-    ListRechargesQueryDto,
-    UpdateCustomerDto,
-    UpdateMarketingMemberLevelDto,
-    UpdateMarketingPointsRatioDto,
-    UpdatePromotionDto,
+  CreateConsumptionDto,
+  CreateCustomerDto,
+  CreatePromotionDto,
+  CreateRechargeDto,
+  ListCustomerPointsRecordsQueryDto,
+  ListCustomersQueryDto,
+  ListPointsRecordsQueryDto,
+  ListPromotionsQueryDto,
+  ListRechargesQueryDto,
+  UpdateCustomerDto,
+  UpdateMarketingMemberLevelDto,
+  UpdateMarketingPointsRatioDto,
+  UpdatePromotionDto,
 } from './dto/marketing-query.dto';
 
 import type {
@@ -29,20 +29,20 @@ import type {
   UpdateMarketingProductDto,
 } from './dto/marketing-product.dto';
 import type {
-    MarketingConsumptionDto,
-    MarketingConsumptionsResponseDto,
-    MarketingCustomerDetailDto,
-    MarketingCustomerDto,
-    MarketingCustomersResponseDto,
-    MarketingMemberLevelDto,
-    MarketingMemberLevelSettingsDto,
-    MarketingOverviewDto,
-    MarketingPointsRatioDto,
-    MarketingPointsRecordsResponseDto,
-    MarketingPromotionDto,
-    MarketingPromotionsResponseDto,
-    MarketingRechargeDto,
-    MarketingRechargesResponseDto,
+  MarketingConsumptionDto,
+  MarketingConsumptionsResponseDto,
+  MarketingCustomerDetailDto,
+  MarketingCustomerDto,
+  MarketingCustomersResponseDto,
+  MarketingMemberLevelDto,
+  MarketingMemberLevelSettingsDto,
+  MarketingOverviewDto,
+  MarketingPointsRatioDto,
+  MarketingPointsRecordsResponseDto,
+  MarketingPromotionDto,
+  MarketingPromotionsResponseDto,
+  MarketingRechargeDto,
+  MarketingRechargesResponseDto,
 } from './dto/marketing-response.dto';
 
 import { MarketingCustomersFacadeService } from './marketing-customers.facade.service';

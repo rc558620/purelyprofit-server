@@ -50,6 +50,26 @@ function main() {
   }
 
   if (
+    packageJson.scripts['release:precheck:quality'] !==
+    'pnpm run lint && pnpm run test && pnpm run test:e2e'
+  ) {
+    fail('package.json 未正确注册 release:precheck:quality');
+  }
+
+  if (
+    packageJson.scripts['release:precheck:build'] !== 'pnpm run build'
+  ) {
+    fail('package.json 未正确注册 release:precheck:build');
+  }
+
+  if (
+    packageJson.scripts['release:precheck'] !==
+    'pnpm run release:precheck:quality && pnpm run release:precheck:db && pnpm run release:precheck:build && pnpm run smoke:prepare:regression'
+  ) {
+    fail('package.json 未正确注册 release:precheck');
+  }
+
+  if (
     packageJson.scripts['release:execute:dry-run'] !==
     'RELEASE_DRY_RUN=true bash ./scripts/release-execute.sh'
   ) {
@@ -58,11 +78,16 @@ function main() {
 
   expectIncludes(prepareScript, 'SMOKE_STORE_ID', 'smoke prepare 脚本');
   expectIncludes(prepareScript, 'SMOKE_PROFIT_REPORT_PATH', 'smoke prepare 脚本');
+  expectIncludes(prepareScript, 'SMOKE_CLUB_LOGIN_EMAIL', 'smoke prepare 脚本');
+  expectIncludes(prepareScript, 'SMOKE_PULSE_LOGIN_EMAIL', 'smoke prepare 脚本');
   expectIncludes(tokenScript, 'SMOKE_LOGIN_EMAIL', 'smoke token 脚本');
   expectIncludes(tokenScript, 'configuredStoreId', 'smoke token 脚本');
   expectIncludes(tokenScript, 'SMOKE_PROFIT_REPORT_PATH', 'smoke token 脚本');
+  expectIncludes(tokenScript, 'SMOKE_PULSE_BOOTSTRAP_PATH', 'smoke token 脚本');
   expectIncludes(verifyScript, 'apply_smoke_metadata()', 'smoke live 脚本');
-  expectIncludes(verifyScript, 'ensure_profit_report_path()', 'smoke live 脚本');
+  expectIncludes(verifyScript, 'resolve_scoped_token()', 'smoke live 脚本');
+  expectIncludes(verifyScript, 'CLUB_CURRENT_STORE_PATH', 'smoke live 脚本');
+  expectIncludes(verifyScript, 'PULSE_BOOTSTRAP_PATH', 'smoke live 脚本');
   expectIncludes(releaseScript, 'run_smoke_prepare_command()', 'release 脚本');
   expectIncludes(releaseScript, 'apply_smoke_metadata()', 'release 脚本');
 

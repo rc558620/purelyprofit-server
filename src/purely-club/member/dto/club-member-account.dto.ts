@@ -9,6 +9,7 @@ import {
   IsString,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 export const CLUB_MEMBER_LEVEL_VALUES = [
@@ -45,8 +46,9 @@ export class ChangeClubMemberPasswordDto {
   newPassword: string;
 
   @ApiPropertyOptional({ example: 'newPassword123', description: '确认新密码' })
-  @IsOptional()
+  @ValidateIf((o: ChangeClubMemberPasswordDto) => o.confirmPassword !== undefined)
   @IsString({ message: '确认新密码必须是字符串' })
+  @MinLength(6, { message: '确认新密码至少 6 位' })
   confirmPassword?: string;
 }
 

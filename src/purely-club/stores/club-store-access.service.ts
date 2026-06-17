@@ -11,6 +11,7 @@ import {
   resolveInviteCodeFromClubStoreScanCode,
 } from '../../purely-profit/member/platform-membership/membership-profile.mapper';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import {
   clubAccessibleStoreSelect,
   type ClubAccessibleStoreRecord,
@@ -18,11 +19,15 @@ import {
 
 const CLUB_INVALID_INVITE_CODE_MESSAGE = '邀请码无效或门店不存在';
 const CLUB_INVALID_SCAN_CODE_MESSAGE = '扫码结果无效，未识别到门店邀请码';
-const CLUB_BANNED_MEMBER_MESSAGE = '当前账号已被该门店禁用，暂无法通过邀请码加入';
+const CLUB_BANNED_MEMBER_MESSAGE =
+  '当前账号已被该门店禁用，暂无法通过邀请码加入';
 
 @Injectable()
 export class ClubStoreAccessService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
+  ) {}
 
   async findAccessibleStores(
     user: AuthenticatedUser,
@@ -135,16 +140,75 @@ export class ClubStoreAccessService {
     return store;
   }
 
+  /**
+   * 根据邀请码反查门店。
+   *
+   * 优化策略：先从 Redis 缓存反查，命中则直接用 storeId 查记录；
+   * 未命中时遍历 storeId 范围做 buildStoreInviteCode 反推（避免全表加载到内存），
+   * 找到后写入缓存供后续请求直接命中。
+   */
   private async findStoreByInviteCode(
     inviteCode: string,
   ): Promise<ClubAccessibleStoreRecord | null> {
-    const stores = await this.prisma.store.findMany({
-      select: clubAccessibleStoreSelect,
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-    });
+    // 1. 尝试从 Redis 缓存反查
+    const cachedStoreId = await this.loadCachedStoreIdByInviteCode(inviteCode);
+    if (cachedStoreId !== null) {
+      return this.prisma.store.findFirst({
+        where: { id: cachedStoreId },
+        select: clubAccessibleStoreSelect,
+      });
+    }
 
-    return (
-      stores.find((store) => buildStoreInviteCode(store.id) === inviteCode) ?? null
+    // 2. 缓存未命中，遍历 storeId 范围反推
+    const maxStore = await this.prisma.store.findFirst({
+      select: { id: true },
+      orderBy: { id: 'desc' },
+    });
+    const maxId = maxStore?.id ?? 0;
+
+    let matchedStoreId: number | null = null;
+    for (let id = 1; id <= maxId; id += 1) {
+      if (buildStoreInviteCode(id) === inviteCode) {
+        matchedStoreId = id;
+        break;
+      }
+    }
+
+    if (matchedStoreId === null) {
+      return null;
+    }
+
+    // 3. 写入缓存供后续请求使用
+    await this.cacheStoreIdByInviteCode(inviteCode, matchedStoreId);
+
+    return this.prisma.store.findFirst({
+      where: { id: matchedStoreId },
+      select: clubAccessibleStoreSelect,
+    });
+  }
+
+  private async loadCachedStoreIdByInviteCode(
+    inviteCode: string,
+  ): Promise<number | null> {
+    const raw = await this.redisService.get(
+      `club:invite-code:${inviteCode}`,
+    );
+    if (!raw) {
+      return null;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  private async cacheStoreIdByInviteCode(
+    inviteCode: string,
+    storeId: number,
+  ): Promise<void> {
+    // 缓存 24 小时，inviteCode→storeId 映射不会变化
+    await this.redisService.set(
+      `club:invite-code:${inviteCode}`,
+      `${storeId}`,
+      86400,
     );
   }
 

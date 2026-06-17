@@ -14,10 +14,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from '../../redis/redis.service';
 
 export interface WechatCode2SessionResult {
   openid: string;
   unionid?: string;
+  /** session_key 仅用于服务端解密，不暴露给前端 */
   sessionKey: string;
 }
 
@@ -50,7 +52,10 @@ interface WechatGetPhoneNumberRawResponse {
 export class ClubWechatAuthService {
   private readonly logger = new Logger(ClubWechatAuthService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly redisService: RedisService,
+  ) {}
 
   /**
    * 用微信小程序 code 换取 openid / unionid / session_key
@@ -183,13 +188,26 @@ export class ClubWechatAuthService {
     };
   }
 
+  private static readonly ACCESS_TOKEN_CACHE_KEY = 'club:wechat:access_token';
+  /** access_token 有效期 7200s，提前 5 分钟刷新以避免边界问题 */
+  private static readonly ACCESS_TOKEN_CACHE_TTL_SECONDS = 7200 - 300;
+
   /**
    * 获取微信小程序 access_token（用于调用 getPhoneNumber 等服务端接口）
    *
-   * 生产环境应配合 Redis 缓存避免频繁换取（token 有效期 7200s），
-   * 此处简化实现：每次请求时实时换取。如有性能要求可后续加缓存。
+   * 优先从 Redis 缓存读取，命中则直接返回；
+   * 未命中时调用微信 API 换取新 token 并写入缓存（TTL 6900s，提前 5 分钟过期）。
    */
   private async getAccessToken(appId: string): Promise<string> {
+    // 1. 尝试从 Redis 缓存获取
+    const cached = await this.redisService.get(
+      ClubWechatAuthService.ACCESS_TOKEN_CACHE_KEY,
+    );
+    if (cached) {
+      return cached;
+    }
+
+    // 2. 缓存未命中，向微信服务器换取
     const appSecret = this.getRequiredConfig('wechat.appSecret');
 
     const url = new URL('https://api.weixin.qq.com/cgi-bin/token');
@@ -197,7 +215,7 @@ export class ClubWechatAuthService {
     url.searchParams.set('appid', appId);
     url.searchParams.set('secret', appSecret);
 
-    let result: { access_token?: string; errcode?: number; errmsg?: string };
+    let result: { access_token?: string; errcode?: number; errmsg?: string; expires_in?: number };
     try {
       const response = await fetch(url.toString(), {
         headers: { 'User-Agent': 'purelyprofit-server/1.0' },
@@ -214,6 +232,13 @@ export class ClubWechatAuthService {
       );
       throw new InternalServerErrorException('微信服务暂时不可用，请稍后重试');
     }
+
+    // 3. 写入 Redis 缓存
+    await this.redisService.set(
+      ClubWechatAuthService.ACCESS_TOKEN_CACHE_KEY,
+      result.access_token,
+      ClubWechatAuthService.ACCESS_TOKEN_CACHE_TTL_SECONDS,
+    );
 
     return result.access_token;
   }

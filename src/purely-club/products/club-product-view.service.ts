@@ -72,7 +72,8 @@ export class ClubProductViewService {
       finalPrice: this.convertFenToYuan(pricing.finalPriceFen),
       memberDiscountRate: pricingContext.memberDiscountRate,
       levelOverridden: pricing.levelOverridden,
-      ...(pricing.bestDiscount && pricing.bestDiscount.promotionId !== 'member_level'
+      ...(pricing.bestDiscount &&
+      pricing.bestDiscount.promotionId !== 'member_level'
         ? {
             promotionId: pricing.bestDiscount.promotionId,
             promotionType: pricing.bestDiscount.promotionType,
@@ -91,7 +92,9 @@ export class ClubProductViewService {
       isHot,
       isActive: product.isActive,
       ...(stock >= 0 ? { stock } : {}),
-      ...(product.durationMinutes ? { durationMinutes: product.durationMinutes } : {}),
+      ...(product.durationMinutes
+        ? { durationMinutes: product.durationMinutes }
+        : {}),
       ...(product.personCount ? { personCount: product.personCount } : {}),
       ...(validityDesc ? { validityDesc } : {}),
       createdAt: product.createdAt.getTime(),
@@ -132,10 +135,7 @@ export class ClubProductViewService {
     // 2b. 活动折扣（discount 类型，与等级折扣竞争）
     pricingContext.discountPromotions.forEach((promotion) => {
       const candidate = this.buildDiscountCandidate(amountFen, promotion);
-      if (
-        candidate &&
-        this.isBetterCandidate(candidate, bestDiscount)
-      ) {
+      if (candidate && this.isBetterCandidate(candidate, bestDiscount)) {
         bestDiscount = candidate;
       }
     });
@@ -145,10 +145,7 @@ export class ClubProductViewService {
     if (pricingContext.isFirstOrderBuyer) {
       pricingContext.firstOrderPromotions.forEach((promotion) => {
         const candidate = this.buildFirstOrderCandidate(amountFen, promotion);
-        if (
-          candidate &&
-          this.isBetterCandidate(candidate, bestDiscount)
-        ) {
+        if (candidate && this.isBetterCandidate(candidate, bestDiscount)) {
           bestDiscount = candidate;
         }
       });

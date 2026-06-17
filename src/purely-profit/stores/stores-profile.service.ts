@@ -42,7 +42,11 @@ export class StoresProfileService {
       const metadata = normalizeStoreProfileMetadata(
         JSON.parse(raw) as unknown,
       );
-      if (JSON.stringify(metadata) !== raw) {
+
+      // Compare stringified result with raw to detect normalization changes
+      // Use a stable stringify to avoid key-order discrepancies
+      const normalizedRaw = JSON.stringify(metadata);
+      if (normalizedRaw !== raw) {
         await this.persistStoreProfileMetadata(storeId, metadata);
       }
 

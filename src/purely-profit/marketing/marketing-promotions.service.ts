@@ -7,6 +7,12 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
+import { RedisService } from '../../redis/redis.service';
+import { buildCacheRefreshTaskKey } from '../../redis/keys';
+import {
+  buildMarketingPromotionsListCacheKey,
+  buildMarketingPromotionsListPattern,
+} from '../../redis/cache-keys';
 import type {
   CreatePromotionDto,
   ListPromotionsQueryDto,
@@ -25,10 +31,14 @@ import {
   type MarketingPromotionTypeValue,
 } from './marketing.utils';
 
+const MARKETING_PROMOTIONS_LIST_CACHE_TTL_SECONDS = 60;
+const MARKETING_PROMOTIONS_LIST_REFRESH_AFTER_MS = 20_000;
+
 @Injectable()
 export class MarketingPromotionsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly marketingSharedService: MarketingSharedService,
   ) {}
@@ -53,9 +63,34 @@ export class MarketingPromotionsService {
       query.page,
       query.pageSize,
     );
+    const statusFilter = query.status ?? 'all';
+    const cacheKey = buildMarketingPromotionsListCacheKey(
+      resolvedStoreId,
+      statusFilter,
+      page,
+      take,
+    );
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: MARKETING_PROMOTIONS_LIST_CACHE_TTL_SECONDS,
+      refreshAfterMs: MARKETING_PROMOTIONS_LIST_REFRESH_AFTER_MS,
+      loadValue: () =>
+        this.queryPromotions(resolvedStoreId, statusFilter, skip, take, page),
+    });
+  }
+
+  private async queryPromotions(
+    resolvedStoreId: number,
+    statusFilter: string,
+    skip: number,
+    take: number,
+    page: number,
+  ): Promise<MarketingPromotionsResponseDto> {
     const where = buildPromotionWhere({
       storeId: resolvedStoreId,
-      status: query.status,
+      status: statusFilter !== 'all' ? (statusFilter as 'upcoming' | 'active' | 'ended') : undefined,
     });
 
     const [rows, total] = await Promise.all([
@@ -195,7 +230,12 @@ export class MarketingPromotionsService {
   }
 
   private async invalidateDashboardCaches(storeId: number): Promise<void> {
-    await this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId);
+    await Promise.all([
+      this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId),
+      this.redisService.delByPattern(
+        buildMarketingPromotionsListPattern(storeId),
+      ),
+    ]);
   }
 
   private async ensurePromotionTypeUnique(

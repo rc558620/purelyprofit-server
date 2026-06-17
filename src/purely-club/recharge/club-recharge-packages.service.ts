@@ -22,7 +22,9 @@ export class ClubRechargePackagesService {
    * 加载门店充值套餐列表
    * 优先从营销活动加载，无活动时返回默认套餐
    */
-  async loadPackagesForStore(storeId: number): Promise<ClubRechargePackageDto[]> {
+  async loadPackagesForStore(
+    storeId: number,
+  ): Promise<ClubRechargePackageDto[]> {
     const now = new Date();
     const promotions = await this.prisma.marketingPromotion.findMany({
       where: {
@@ -115,7 +117,10 @@ export class ClubRechargePackagesService {
       return null;
     }
 
-    const giftAmountFen = this.resolveGiftAmountFen(candidate, rechargeAmountFen);
+    const giftAmountFen = this.resolveGiftAmountFen(
+      candidate,
+      rechargeAmountFen,
+    );
     if (giftAmountFen < 0) {
       return null;
     }
@@ -167,27 +172,30 @@ export class ClubRechargePackagesService {
   private markRecommendedPackage(
     packages: ClubRechargePackageDto[],
   ): ClubRechargePackageDto[] {
-    const recommendedId = packages.reduce<string | null>((bestId, currentPackage) => {
-      if (!bestId) {
-        return currentPackage.id;
-      }
+    const recommendedId = packages.reduce<string | null>(
+      (bestId, currentPackage) => {
+        if (!bestId) {
+          return currentPackage.id;
+        }
 
-      const bestPackage = packages.find((item) => item.id === bestId);
-      if (!bestPackage) {
-        return currentPackage.id;
-      }
+        const bestPackage = packages.find((item) => item.id === bestId);
+        if (!bestPackage) {
+          return currentPackage.id;
+        }
 
-      if (currentPackage.bonusAmount > bestPackage.bonusAmount) {
-        return currentPackage.id;
-      }
-      if (
-        currentPackage.bonusAmount === bestPackage.bonusAmount &&
-        currentPackage.amount > bestPackage.amount
-      ) {
-        return currentPackage.id;
-      }
-      return bestId;
-    }, null);
+        if (currentPackage.bonusAmount > bestPackage.bonusAmount) {
+          return currentPackage.id;
+        }
+        if (
+          currentPackage.bonusAmount === bestPackage.bonusAmount &&
+          currentPackage.amount > bestPackage.amount
+        ) {
+          return currentPackage.id;
+        }
+        return bestId;
+      },
+      null,
+    );
 
     return packages.map((item) => ({
       ...item,

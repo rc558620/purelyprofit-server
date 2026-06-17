@@ -1,0 +1,172 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run release in dry-run mode
+        required: true
+        default: true
+        type: boolean
+      skip_smoke:
+        description: Skip post-release smoke checks
+        required: true
+        default: false
+        type: boolean
+      skip_db_precheck:
+        description: Skip release precheck DB gate
+        required: true
+        default: false
+        type: boolean
+      skip_build:
+        description: Skip build inside release script
+        required: true
+        default: false
+        type: boolean
+      skip_migrate_deploy:
+        description: Skip prisma migrate deploy
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on:
+      - self-hosted
+      - production
+    timeout-minutes: 90
+    environment:
+      name: production
+    env:
+      CI: 'true'
+      NODE_ENV: production
+      TZ: Asia/Shanghai
+      PORT: ${{ vars.PORT || '3000' }}
+      APP_CORS_ORIGIN: ${{ vars.APP_CORS_ORIGIN }}
+      APP_SWAGGER_ENABLED: 'false'
+      APP_PORT_AUTO_TERMINATE_ENABLED: 'false'
+      APP_PORT_AUTO_SHIFT_ENABLED: 'false'
+      CLUB_MANUAL_CONFIRM_PAID_ENABLED: 'false'
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SHADOW_DATABASE_URL: ${{ secrets.SHADOW_DATABASE_URL }}
+      DATABASE_POOL_MAX: ${{ vars.DATABASE_POOL_MAX || '20' }}
+      DATABASE_POOL_IDLE_TIMEOUT_MS: ${{ vars.DATABASE_POOL_IDLE_TIMEOUT_MS || '30000' }}
+      DATABASE_POOL_CONNECTION_TIMEOUT_MS: ${{ vars.DATABASE_POOL_CONNECTION_TIMEOUT_MS || '5000' }}
+      REDIS_HOST: ${{ secrets.REDIS_HOST }}
+      REDIS_PORT: ${{ vars.REDIS_PORT || '6379' }}
+      REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+      REDIS_DB: ${{ vars.REDIS_DB || '0' }}
+      REDIS_CONNECT_TIMEOUT_MS: ${{ vars.REDIS_CONNECT_TIMEOUT_MS || '5000' }}
+      REDIS_COMMAND_TIMEOUT_MS: ${{ vars.REDIS_COMMAND_TIMEOUT_MS || '3000' }}
+      REDIS_MAX_RETRIES_PER_REQUEST: ${{ vars.REDIS_MAX_RETRIES_PER_REQUEST || '3' }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      JWT_EXPIRES_IN: ${{ vars.JWT_EXPIRES_IN || '7d' }}
+      WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
+      WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
+      WECHAT_MCH_SERIAL_NO: ${{ secrets.WECHAT_MCH_SERIAL_NO }}
+      WECHAT_PRIVATE_KEY_PATH: ${{ secrets.WECHAT_PRIVATE_KEY_PATH }}
+      WECHAT_PRIVATE_KEY_CONTENT: ${{ secrets.WECHAT_PRIVATE_KEY_CONTENT }}
+      WECHAT_PAY_NOTIFY_URL: ${{ vars.WECHAT_PAY_NOTIFY_URL }}
+      WECHAT_PLATFORM_PUBLIC_KEY_CONTENT: ${{ secrets.WECHAT_PLATFORM_PUBLIC_KEY_CONTENT }}
+      SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL || 'http://localhost:3000/api' }}
+      RELEASE_LOAD_ENV_FILE: 'false'
+      RELEASE_VALIDATE_ENV: 'true'
+      RELEASE_REQUIRE_BACKUP: ${{ vars.RELEASE_REQUIRE_BACKUP || 'true' }}
+      RELEASE_REQUIRE_RESTART: ${{ vars.RELEASE_REQUIRE_RESTART || 'true' }}
+      RELEASE_USE_DEFAULT_BACKUP: ${{ vars.RELEASE_USE_DEFAULT_BACKUP || 'true' }}
+      RELEASE_BACKUP_DIR: ${{ vars.RELEASE_BACKUP_DIR }}
+      RELEASE_BACKUP_FILE_PREFIX: ${{ vars.RELEASE_BACKUP_FILE_PREFIX || 'purelyprofit-server' }}
+      RELEASE_BACKUP_RETENTION_DAYS: ${{ vars.RELEASE_BACKUP_RETENTION_DAYS || '14' }}
+      RELEASE_RESTART_CMD: ${{ vars.RELEASE_RESTART_CMD }}
+      RELEASE_SYSTEMD_SERVICE_NAME: ${{ vars.RELEASE_SYSTEMD_SERVICE_NAME }}
+      RELEASE_PM2_APP_NAME: ${{ vars.RELEASE_PM2_APP_NAME }}
+      RELEASE_LAUNCHD_SERVICE_NAME: ${{ vars.RELEASE_LAUNCHD_SERVICE_NAME }}
+    steps:
+      - name: Ensure main branch only
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_NAME}" != 'main' ]; then
+            echo 'Production deploy only supports main branch.'
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify release prerequisites
+        shell: bash
+        run: |
+          command -v bash >/dev/null || { echo 'Missing bash on self-hosted runner.'; exit 1; }
+          command -v psql >/dev/null || { echo 'Missing psql on self-hosted runner.'; exit 1; }
+          command -v pg_dump >/dev/null || { echo 'Missing pg_dump on self-hosted runner.'; exit 1; }
+
+      - name: Verify release strategy
+        shell: bash
+        run: |
+          if [ -z "${RELEASE_RESTART_CMD}" ] && [ -z "${RELEASE_SYSTEMD_SERVICE_NAME}" ] && [ -z "${RELEASE_PM2_APP_NAME}" ] && [ -z "${RELEASE_LAUNCHD_SERVICE_NAME}" ]; then
+            echo 'Missing release restart strategy. Configure RELEASE_RESTART_CMD or one of RELEASE_SYSTEMD_SERVICE_NAME / RELEASE_PM2_APP_NAME / RELEASE_LAUNCHD_SERVICE_NAME.'
+            exit 1
+          fi
+
+      - name: Execute production release
+        shell: bash
+        env:
+          RELEASE_DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+          RELEASE_FORCE: ${{ inputs.dry_run && 'false' || 'true' }}
+          RELEASE_SKIP_SMOKE: ${{ inputs.skip_smoke && 'true' || 'false' }}
+          RELEASE_SKIP_DB_PRECHECK: ${{ inputs.skip_db_precheck && 'true' || 'false' }}
+          RELEASE_SKIP_BUILD: ${{ inputs.skip_build && 'true' || 'false' }}
+          RELEASE_SKIP_MIGRATE_DEPLOY: ${{ inputs.skip_migrate_deploy && 'true' || 'false' }}
+        run: pnpm run release:execute
+
+      - name: Publish deploy summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Deploy Production'
+            echo "- Result: ${{ job.status }}"
+            echo "- Branch: ${GITHUB_REF_NAME}"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Dry run: ${{ inputs.dry_run }}"
+            echo "- Skip smoke: ${{ inputs.skip_smoke }}"
+            echo "- Skip DB precheck: ${{ inputs.skip_db_precheck }}"
+            echo "- Skip build: ${{ inputs.skip_build }}"
+            echo "- Skip migrate deploy: ${{ inputs.skip_migrate_deploy }}"
+            echo "- Smoke base URL: ${SMOKE_BASE_URL}"
+            if [ -n "${RELEASE_RESTART_CMD}" ]; then
+              echo '- Restart strategy: custom command'
+            elif [ -n "${RELEASE_SYSTEMD_SERVICE_NAME}" ]; then
+              echo "- Restart strategy: systemd (${RELEASE_SYSTEMD_SERVICE_NAME})"
+            elif [ -n "${RELEASE_PM2_APP_NAME}" ]; then
+              echo "- Restart strategy: pm2 (${RELEASE_PM2_APP_NAME})"
+            elif [ -n "${RELEASE_LAUNCHD_SERVICE_NAME}" ]; then
+              echo "- Restart strategy: launchd (${RELEASE_LAUNCHD_SERVICE_NAME})"
+            else
+              echo '- Restart strategy: missing'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

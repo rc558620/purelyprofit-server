@@ -56,7 +56,10 @@ export class HandoverRecordsRevenueService {
     );
 
     return subMoney(
-      addMoney(revenueAmounts.additionalRevenueAmount, revenueAmounts.spaceRevenueAmount),
+      addMoney(
+        revenueAmounts.additionalRevenueAmount,
+        revenueAmounts.spaceRevenueAmount,
+      ),
       revenueAmounts.refundAmount,
     );
   }

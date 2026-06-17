@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { AuthService } from '../../purely-profit/auth/auth.service';
 import type { ProfileUserDto } from '../../purely-profit/auth/dto/profile-response.dto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -40,6 +40,13 @@ export class ClubMemberService {
     user: AuthenticatedUser,
     dto: ChangeClubMemberPasswordDto,
   ): Promise<PasswordOperationResponseDto> {
+    if (
+      dto.confirmPassword !== undefined &&
+      dto.confirmPassword !== dto.newPassword
+    ) {
+      throw new BadRequestException('确认新密码与新密码不一致');
+    }
+
     return this.authService.changePassword(user, {
       currentPassword: dto.currentPassword,
       newPassword: dto.newPassword,

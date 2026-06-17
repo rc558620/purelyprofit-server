@@ -57,17 +57,14 @@ export class ClubMemberProfileService {
     storeId: number,
     phone: string,
   ): Promise<ClubMemberSnapshot | null> {
-    const member = await this.findCurrentMember(storeId, phone);
+    const [member, marketingCustomer] = await Promise.all([
+      this.findCurrentMember(storeId, phone),
+      this.findMarketingCustomer(storeId, phone),
+    ]);
+
     if (!member) {
       return null;
     }
-
-    const marketingCustomer = await this.findMarketingCustomer(storeId, phone);
-
-    // 若有营销顾客档案，从充值流水实时聚合累计充值总额，避免 totalSpent 历史数据不准的问题
-    const totalRechargeFen = marketingCustomer
-      ? await this.sumRechargeAmount(marketingCustomer.id)
-      : null;
 
     const joinDate = this.resolveJoinDate(
       member.createdAt,
@@ -84,7 +81,7 @@ export class ClubMemberProfileService {
       joinDate,
       totalConsume: this.resolveTotalConsume(
         member.totalConsumeAmount,
-        totalRechargeFen,
+        marketingCustomer?.totalSpent ?? null,
       ),
     };
   }
@@ -129,21 +126,6 @@ export class ClubMemberProfileService {
         createdAt: true,
       },
     });
-  }
-
-  private async sumRechargeAmount(customerId: number): Promise<number> {
-    const result = await this.prisma.marketingRecharge.aggregate({
-      where: {
-        customerId,
-        type: 'recharge',
-      },
-      _sum: {
-        amount: true,
-        giftAmount: true,
-      },
-    });
-
-    return (result._sum.amount ?? 0) + (result._sum.giftAmount ?? 0);
   }
 
   private resolveLevel(
@@ -194,13 +176,19 @@ export class ClubMemberProfileService {
     return this.formatDateOnly(joinedAt);
   }
 
+  /**
+   * 解析累计消费金额。
+   *
+   * 优先使用 marketingCustomer.totalSpent（消费侧实时累计，包含服务购买+充值），
+   * 这才是真正的"累计消费"语义；
+   * 若无营销顾客档案则回落到 member.totalConsumeAmount（旧字段，可能不准）。
+   */
   private resolveTotalConsume(
     memberTotalConsumeAmount: Decimal,
-    totalRechargeFen: number | null,
+    marketingTotalSpentFen: number | null,
   ): number {
-    // 优先使用从充值流水实时聚合的真实充值总额
-    if (typeof totalRechargeFen === 'number') {
-      return this.convertFenToYuan(totalRechargeFen);
+    if (typeof marketingTotalSpentFen === 'number') {
+      return this.convertFenToYuan(marketingTotalSpentFen);
     }
 
     return new Decimal(memberTotalConsumeAmount.toString())

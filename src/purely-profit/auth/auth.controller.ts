@@ -44,10 +44,11 @@ export class AuthController {
   @ApiOperation({
     summary: '发送 purely-profit 注册短信验证码',
     description:
-      '面向 purely-profit 老板端/商家端账号注册。仅为 purely-profit 新账号发送验证码，不适用于 purely-club 或 purely-pulse 登录入口。',
+      '面向 purely-profit 老板端/商家端账号注册。仅为 purely-profit 新账号发送验证码，不适用于 purely-club 或 purely-pulse 登录入口。60 秒内不可重复发送。',
   })
   @ApiOkResponse({
-    description: '发送 purely-profit 注册验证码成功',
+    description:
+      '发送 purely-profit 注册验证码成功；同一手机号 60 秒内不可重复发送',
     type: SendRegisterCodeResponseDto,
   })
   sendRegisterCode(
@@ -106,10 +107,11 @@ export class AuthController {
   @ApiOperation({
     summary: '发送 purely-profit 找回密码短信验证码',
     description:
-      '仅面向 purely-profit 账号找回密码。即使手机号不存在也返回统一文案，不暴露注册状态。',
+      '仅面向 purely-profit 账号找回密码。即使手机号不存在也返回统一文案，不暴露注册状态。同一手机号 60 秒内不可重复发送。',
   })
   @ApiOkResponse({
-    description: '如手机号存在则发送 purely-profit 找回密码验证码短信，统一返回通用文案',
+    description:
+      '如手机号存在则发送 purely-profit 找回密码验证码短信，统一返回通用文案；同一手机号 60 秒内不可重复发送',
     type: ForgotPasswordResponseDto,
   })
   forgotPassword(

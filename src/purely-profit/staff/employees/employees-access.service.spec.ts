@@ -79,9 +79,9 @@ describe('EmployeesAccessService', () => {
       .mockReturnValueOnce(null)
       .mockReturnValueOnce(8);
 
-    expect(service.getManageableStoreId(user, ['staff:update', 'finance:view'])).toBe(
-      8,
-    );
+    expect(
+      service.getManageableStoreId(user, ['staff:update', 'finance:view']),
+    ).toBe(8);
     expect(
       accessControlService.resolveCurrentStoreIdByPermission,
     ).toHaveBeenNthCalledWith(1, user, 'staff:update');
@@ -99,9 +99,9 @@ describe('EmployeesAccessService', () => {
   it('ensureCanManageEmployees 在目标门店不匹配时抛出异常', () => {
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
 
-    expect(() => service.ensureCanManageEmployees(user, 9, 'staff:update')).toThrow(
-      ForbiddenException,
-    );
+    expect(() =>
+      service.ensureCanManageEmployees(user, 9, 'staff:update'),
+    ).toThrow(ForbiddenException);
   });
 
   it('findEmployeeOrThrow 返回员工并校验门店权限', async () => {
@@ -130,8 +130,8 @@ describe('EmployeesAccessService', () => {
   });
 
   it('resolveSingleStoreId 在无门店权限时抛出异常', () => {
-    expect(() => service.resolveSingleStoreId(user, undefined, 'staff:view')).toThrow(
-      ForbiddenException,
-    );
+    expect(() =>
+      service.resolveSingleStoreId(user, undefined, 'staff:view'),
+    ).toThrow(ForbiddenException);
   });
 });

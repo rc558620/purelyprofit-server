@@ -116,10 +116,9 @@ describe('cache prewarm providers', () => {
       membersService,
     });
 
-    const result = await provider.prewarm(
-      [buildMembersMetaCacheKey(18)],
-      { concurrency: 1 },
-    );
+    const result = await provider.prewarm([buildMembersMetaCacheKey(18)], {
+      concurrency: 1,
+    });
 
     expect(provider.category).toBe('membersMeta');
     expect(membersService.warmMetaCache).toHaveBeenCalledWith(18);
@@ -138,10 +137,9 @@ describe('cache prewarm providers', () => {
       membersService,
     });
 
-    const result = await provider.prewarm(
-      [buildMembersOverviewCacheKey(18)],
-      { concurrency: 1 },
-    );
+    const result = await provider.prewarm([buildMembersOverviewCacheKey(18)], {
+      concurrency: 1,
+    });
 
     expect(provider.category).toBe('membersOverview');
     expect(membersService.warmOverviewCache).toHaveBeenCalledWith(18);

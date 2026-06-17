@@ -279,11 +279,13 @@ export class FinanceCashFlowService {
       };
     }
 
-    const previousRecords = await queryCashFlowStatsRows(this.prisma, {
-      storeId,
-      range: clampedPreviousRange,
-      directionFilter: directionFilter === 'all' ? undefined : directionFilter,
-    });
+    const [previousRecords] = await Promise.all([
+      queryCashFlowStatsRows(this.prisma, {
+        storeId,
+        range: clampedPreviousRange,
+        directionFilter: directionFilter === 'all' ? undefined : directionFilter,
+      }),
+    ]);
     const previousStats = buildCashFlowBaseStats(previousRecords);
 
     return {

@@ -117,10 +117,12 @@ export class CostsReadService {
 
     const total = toDecimalNumber(currentAggregate._sum.amount ?? 0);
     const fixed = toDecimalNumber(
-      currentTypeRows.find((record) => record.type === 'fixed')?._sum.amount ?? 0,
+      currentTypeRows.find((record) => record.type === 'fixed')?._sum.amount ??
+        0,
     );
     const variable = toDecimalNumber(
-      currentTypeRows.find((record) => record.type === 'variable')?._sum.amount ?? 0,
+      currentTypeRows.find((record) => record.type === 'variable')?._sum
+        .amount ?? 0,
     );
     const compareLastPeriod = await this.calculatePreviousPeriodChange(
       storeId,

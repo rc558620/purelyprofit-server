@@ -12,6 +12,7 @@ import { ClubOrderServiceCreationService } from './club-order-service-creation.s
 import { ClubOrderServicePaymentService } from './club-order-service-payment.service';
 import { ClubOrderServiceQueryService } from './club-order-service-query.service';
 import { ClubOrderSettlementService } from './club-order-settlement.service';
+import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubOrdersController } from './club-orders.controller';
 import { ClubOrdersService } from './club-orders.service';
 
@@ -33,6 +34,7 @@ import { ClubOrdersService } from './club-orders.service';
     ClubOrderServiceQueryService,
     ClubOrderServicePaymentService,
     ClubOrderSettlementService,
+    ClubPaymentLockService,
     ClubOrdersService,
   ],
   exports: [

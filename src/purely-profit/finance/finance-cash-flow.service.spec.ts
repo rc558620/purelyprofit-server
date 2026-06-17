@@ -124,7 +124,9 @@ describe('FinanceCashFlowService', () => {
       recordCount: 1,
       compareLastPeriod: -400,
     });
-    expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenNthCalledWith(
+    expect(
+      prismaService.financeCashFlowRecord.findMany,
+    ).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         where: expect.objectContaining({

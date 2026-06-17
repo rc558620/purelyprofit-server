@@ -1,5 +1,5 @@
 /**
- * 幂等准备 purely-profit smoke 账号、门店与 staffMembership。
+ * 幂等准备发布 smoke 所需的 purely-profit / purely-club 账号、门店与访问关系。
  * 用法：node scripts/seed-owner.mjs
  *
  * 可选环境变量：
@@ -98,15 +98,25 @@ function buildProfitPhoneEmails(phone) {
   ];
 }
 
-function buildSmokeMetadata(user, store) {
+function buildClubPhoneEmail(phone) {
+  return `club_phone_${phone}@${LOCAL_LOGIN_DOMAIN}`;
+}
+
+function buildSmokeMetadata(profitUser, clubUser, store) {
   return {
     SMOKE_ACCOUNT_SCOPE: 'purely_profit',
     SMOKE_LOGIN_PHONE: PHONE,
     SMOKE_LOGIN_NAME: NAME,
-    SMOKE_LOGIN_EMAIL: user.email,
+    SMOKE_LOGIN_EMAIL: profitUser.email,
+    SMOKE_PULSE_LOGIN_EMAIL: profitUser.email,
+    SMOKE_CLUB_LOGIN_EMAIL: clubUser.email,
     SMOKE_STORE_ID: String(store.id),
     SMOKE_STORE_NAME: store.name,
     SMOKE_PROFIT_REPORT_PATH: `/profit-detail/report?storeId=${store.id}&period=month`,
+    SMOKE_CLUB_PROFILE_PATH: '/club/member/profile',
+    SMOKE_CLUB_CURRENT_STORE_PATH: '/club/stores/current',
+    SMOKE_PULSE_SWITCH_STORE_PATH: '/pulse/session/current-store',
+    SMOKE_PULSE_BOOTSTRAP_PATH: '/pulse/session/bootstrap',
   };
 }
 
@@ -242,6 +252,60 @@ async function ensureUser() {
   return createdUser;
 }
 
+async function findExistingClubUser() {
+  return prisma.user.findFirst({
+    where: {
+      email: buildClubPhoneEmail(PHONE),
+    },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+    },
+  });
+}
+
+async function ensureClubUser() {
+  const existingUser = await findExistingClubUser();
+  const hashedPassword = await bcrypt.hash(PASSWORD, 10);
+
+  if (existingUser) {
+    const updatedUser = await prisma.user.update({
+      where: { id: existingUser.id },
+      data: {
+        password: hashedPassword,
+        name: NAME,
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+      },
+    });
+    console.log(
+      `♻️ purely-club smoke 用户已存在，已同步密码与名称 id=${updatedUser.id} email=${updatedUser.email}`,
+    );
+    return updatedUser;
+  }
+
+  const createdUser = await prisma.user.create({
+    data: {
+      email: buildClubPhoneEmail(PHONE),
+      password: hashedPassword,
+      name: NAME,
+    },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+    },
+  });
+  console.log(
+    `✅ purely-club smoke 用户已创建 id=${createdUser.id} email=${createdUser.email}`,
+  );
+  return createdUser;
+}
+
 async function ensureStore(user) {
   if (user.store) {
     const updatedStore = await prisma.store.update({
@@ -373,6 +437,65 @@ async function ensureSubscription(user, store) {
   return createdSubscription;
 }
 
+function resolveMemberDisplayName(user) {
+  const trimmedName = user.name?.trim();
+  if (trimmedName) {
+    return trimmedName;
+  }
+
+  return `纯利会员${PHONE.slice(-4)}`;
+}
+
+async function ensureClubStoreAccess(user, store) {
+  const displayName = resolveMemberDisplayName(user);
+  const [member, marketingCustomer] = await prisma.$transaction([
+    prisma.member.upsert({
+      where: {
+        storeId_phone: {
+          storeId: store.id,
+          phone: PHONE,
+        },
+      },
+      create: {
+        storeId: store.id,
+        name: displayName,
+        phone: PHONE,
+      },
+      update: {
+        name: displayName,
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    }),
+    prisma.marketingCustomer.upsert({
+      where: {
+        storeId_phone: {
+          storeId: store.id,
+          phone: PHONE,
+        },
+      },
+      create: {
+        storeId: store.id,
+        name: displayName,
+        phone: PHONE,
+      },
+      update: {
+        name: displayName,
+      },
+      select: {
+        id: true,
+      },
+    }),
+  ]);
+
+  console.log(
+    `♻️ 已同步 purely-club 门店访问 member=${member.id} marketingCustomer=${marketingCustomer.id}`,
+  );
+}
+
 async function ensureStaffMembership(user, store) {
   const staffPayload = {
     storeId: store.id,
@@ -420,18 +543,23 @@ async function ensureStaffMembership(user, store) {
 }
 
 async function main() {
-  const user = await ensureUser();
-  const store = await ensureStore(user);
+  const profitUser = await ensureUser();
+  const clubUser = await ensureClubUser();
+  const store = await ensureStore(profitUser);
 
-  if (store.ownerId === user.id && store.maxAccountSeats !== STORE_MAX_ACCOUNT_SEATS) {
+  if (
+    store.ownerId === profitUser.id &&
+    store.maxAccountSeats !== STORE_MAX_ACCOUNT_SEATS
+  ) {
     await prisma.store.update({
       where: { id: store.id },
       data: { maxAccountSeats: STORE_MAX_ACCOUNT_SEATS },
     });
   }
 
-  await ensureSubscription(user, store);
-  await ensureStaffMembership(user, store);
+  await ensureSubscription(profitUser, store);
+  await ensureStaffMembership(profitUser, store);
+  await ensureClubStoreAccess(clubUser, store);
 
   console.log('');
   console.log('==============================');
@@ -439,12 +567,13 @@ async function main() {
   console.log('==============================');
   console.log(` 手机号：${PHONE}`);
   console.log(` 密  码：${PASSWORD}`);
-  console.log(` 姓  名：${NAME}`);
+  console.log(` 老板账号：${profitUser.email}`);
+  console.log(` 会员账号：${clubUser.email}`);
   console.log(` 门店ID：${store.id}`);
   console.log(` 门店名：${store.name}`);
   console.log('==============================');
 
-  const smokeMetadata = buildSmokeMetadata(user, store);
+  const smokeMetadata = buildSmokeMetadata(profitUser, clubUser, store);
   for (const [key, value] of Object.entries(smokeMetadata)) {
     process.stdout.write(`${key}=${value}\n`);
   }

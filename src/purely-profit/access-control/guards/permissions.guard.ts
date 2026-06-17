@@ -78,7 +78,7 @@ export class PermissionsGuard implements CanActivate {
 
   private async canAccessByLegacyOwner(
     userId: number | undefined,
-    currentMembership?: { storeId?: number } | undefined,
+    currentMembership?: { storeId?: number },
   ): Promise<boolean> {
     if (typeof userId !== 'number') {
       return false;

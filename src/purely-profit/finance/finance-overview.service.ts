@@ -104,19 +104,20 @@ export class FinanceOverviewService {
 
     const range = getFinanceReportRange(reportQuery);
     const previousRange = getPreviousFinanceReportRange(reportQuery, range);
-    const clampedCurrentRange =
-      await this.platformMembershipAccessService.clampHistoryRange(
+    const [clampedCurrentRange, clampedPreviousRange] = await Promise.all([
+      this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         range,
         callerIsSubAccount,
-      );
-    const clampedPreviousRange = previousRange
-      ? await this.platformMembershipAccessService.clampHistoryRange(
-          storeId,
-          previousRange,
-          callerIsSubAccount,
-        )
-      : null;
+      ),
+      previousRange
+        ? this.platformMembershipAccessService.clampHistoryRange(
+            storeId,
+            previousRange,
+            callerIsSubAccount,
+          )
+        : Promise.resolve(null),
+    ]);
 
     const reportData = await queryFinanceReportData(this.prisma, {
       storeId,
@@ -137,25 +138,25 @@ export class FinanceOverviewService {
       currentRange.start,
       currentRange.end,
     );
-    const clampedCurrentRange =
-      await this.platformMembershipAccessService.clampHistoryRange(
+    const [clampedCurrentRange, clampedPreviousRange] = await Promise.all([
+      this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         currentRange,
         callerIsSubAccount,
-      );
-    if (clampedCurrentRange.empty) {
-      return buildEmptyOverviewResponse();
-    }
-
-    const clampedPreviousRange =
-      await this.platformMembershipAccessService.clampHistoryRange(
+      ),
+      this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         {
           start: previousRange.prevStart,
           end: previousRange.prevEnd,
         },
         callerIsSubAccount,
-      );
+      ),
+    ]);
+
+    if (clampedCurrentRange.empty) {
+      return buildEmptyOverviewResponse();
+    }
 
     const [categoryTotals, dailyTrend] = await Promise.all([
       queryOverviewCategoryTotals(this.prisma, {

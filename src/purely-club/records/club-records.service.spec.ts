@@ -105,7 +105,9 @@ describe('ClubRecordsService', () => {
     clubRecordQueryService.listLedgerEntries.mockResolvedValue([]);
     clubRecordViewService.buildRecordItems.mockReturnValue([]);
 
-    await expect(service.list(currentContext, { type: 'recharge' })).resolves.toEqual({
+    await expect(
+      service.list(currentContext, { type: 'recharge' }),
+    ).resolves.toEqual({
       items: [],
     });
     expect(clubRecordViewService.buildRecordItems).toHaveBeenCalledWith(
@@ -116,7 +118,9 @@ describe('ClubRecordsService', () => {
   it('list 在当前门店没有营销顾客档案时返回空列表', async () => {
     clubRecordQueryService.findCustomerByStoreAndPhone.mockResolvedValue(null);
 
-    await expect(service.list(currentContext, {})).resolves.toEqual({ items: [] });
+    await expect(service.list(currentContext, {})).resolves.toEqual({
+      items: [],
+    });
     expect(clubRecordQueryService.listLedgerEntries).not.toHaveBeenCalled();
     expect(clubRecordViewService.buildRecordItems).not.toHaveBeenCalled();
   });

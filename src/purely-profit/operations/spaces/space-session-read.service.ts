@@ -266,6 +266,7 @@ export class SpaceSessionReadService {
         },
       },
       orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
+      take: 200,
     });
 
     return sessions.map((session) => toSpaceSessionResponse(session));
