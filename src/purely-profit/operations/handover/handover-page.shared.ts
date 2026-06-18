@@ -170,24 +170,35 @@ export const buildSaleOrderWhere = (
 };
 
 /**
- * 构建不含空间会话的 SaleOrder 查询条件，
- * 用于 additionalRevenue 统计（仅统计非空间会话订单的营收）
+ * 构建 additionalRevenue 统计的 SaleOrder 查询条件：
+ * 1. 常规销售单（spaceSession IS NULL）按 operatorStaffId 过滤
+ * 2. OR 空间会话结账单中营收 ≥ 0 的订单（结账包含台位费+商品-预付抵扣等）
+ *    不按 operatorStaffId 过滤（自动结账由系统创建，历史数据可能为 null）
+ * 3. 排除负收入的空间会话结账单（退款），由 refundAmount 单独统计
  */
 export const buildNonSpaceSessionOrderWhere = (
   storeId: number,
   shiftRange: ShiftRangeLike,
   operatorStaffId: number | null,
-): Prisma.SaleOrderWhereInput => ({
-  storeId,
-  date: {
+): Prisma.SaleOrderWhereInput => {
+  const dateFilter: Prisma.DateTimeFilter = {
     gte: shiftRange.startAt,
     lte: shiftRange.endAt,
-  },
-  spaceSession: {
-    is: null,
-  },
-  ...(operatorStaffId ? { operatorStaffId } : {}),
-});
+  };
+
+  const operatorCondition = operatorStaffId
+    ? { operatorStaffId }
+    : {};
+
+  return {
+    storeId,
+    date: dateFilter,
+    OR: [
+      { spaceSession: { is: null }, ...operatorCondition },
+      { totalRevenue: { gte: 0 }, spaceSession: { isNot: null } },
+    ],
+  };
+};
 
 /**
  * 构建 SaleOrderItem 查询条件：
@@ -359,11 +370,9 @@ export const buildRecordRevenueSummary = (
   additionalRevenue: revenueAmounts.additionalRevenueAmount,
   spaceRevenue: revenueAmounts.spaceRevenueAmount,
   refundAmount: revenueAmounts.refundAmount,
+  // additionalRevenue 已包含空间会话结账订单，不再叠加 spaceRevenue。
   totalRevenue: subMoney(
-    addMoney(
-      revenueAmounts.additionalRevenueAmount,
-      revenueAmounts.spaceRevenueAmount,
-    ),
+    revenueAmounts.additionalRevenueAmount,
     revenueAmounts.refundAmount,
   ),
   orderCount,

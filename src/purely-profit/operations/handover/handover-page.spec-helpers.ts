@@ -235,7 +235,8 @@ export const setupHandoverPageSpec = (): {
       },
     ]);
     prismaService.saleOrder.aggregate.mockImplementation(({ where }) => {
-      if (where?.spaceSession?.is === null) {
+      // additionalRevenue 查询（带 OR 条件：非空间会话 + 正收入空间会话结账）
+      if (Array.isArray(where?.OR)) {
         return Promise.resolve({
           _sum: { totalRevenue: new Prisma.Decimal('988.00') },
         });

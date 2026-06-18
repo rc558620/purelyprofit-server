@@ -19,8 +19,11 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     expect(prismaService.saleOrder.aggregate).toHaveBeenCalledWith({
       where: expect.objectContaining({
         storeId: 100,
-        operatorStaffId: 2,
-        spaceSession: { is: null },
+        date: expect.any(Object),
+        OR: [
+          { spaceSession: { is: null }, operatorStaffId: 2 },
+          { totalRevenue: { gte: 0 }, spaceSession: { isNot: null } },
+        ],
       }),
       _sum: { totalRevenue: true },
     });
@@ -28,7 +31,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       additionalRevenue: 988,
       spaceRevenue: 9.25,
       refundAmount: 0,
-      totalRevenue: 997.25,
+      totalRevenue: 988,
       orderCount: 3,
     });
   });
@@ -47,7 +50,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     mockEmptySaleOrderItems();
     prismaService.saleOrder.aggregate.mockImplementation(({ where }) => {
-      if (where?.spaceSession?.is === null) {
+      // 检测 additionalRevenue 查询（带 OR 条件）
+      if (Array.isArray(where?.OR)) {
         return Promise.resolve({
           _sum: { totalRevenue: new Prisma.Decimal('66.80') },
         });
@@ -83,12 +87,14 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           storeId: 100,
-          operatorStaffId: 2,
           date: {
             gte: expectedShiftRange.startAt,
             lte: expectedShiftEndAt,
           },
-          spaceSession: { is: null },
+          OR: [
+            { spaceSession: { is: null }, operatorStaffId: 2 },
+            { totalRevenue: { gte: 0 }, spaceSession: { isNot: null } },
+          ],
         }),
       }),
     );
@@ -145,7 +151,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       additionalRevenue: 0,
       spaceRevenue: 88.6,
       refundAmount: 0,
-      totalRevenue: 88.6,
+      // additionalRevenue 已包含结账订单，不再叠加 spaceRevenue
+      totalRevenue: 0,
       orderCount: 1,
     });
     expect(prismaService.spaceSession.aggregate).toHaveBeenCalledWith({
@@ -266,12 +273,14 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           storeId: 100,
-          operatorStaffId: 30,
           date: {
             gte: new Date(2026, 5, 5, 17, 6, 0),
             lte: new Date(2026, 5, 5, 20, 0, 0),
           },
-          spaceSession: { is: null },
+          OR: [
+            { spaceSession: { is: null }, operatorStaffId: 30 },
+            { totalRevenue: { gte: 0 }, spaceSession: { isNot: null } },
+          ],
         }),
       }),
     );
@@ -388,12 +397,14 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           storeId: 100,
-          operatorStaffId: 30,
           date: {
             gte: new Date(2026, 5, 5, 17, 14, 0),
             lte: new Date(2026, 5, 5, 17, 14, 30),
           },
-          spaceSession: { is: null },
+          OR: [
+            { spaceSession: { is: null }, operatorStaffId: 30 },
+            { totalRevenue: { gte: 0 }, spaceSession: { isNot: null } },
+          ],
         }),
       }),
     );
@@ -534,7 +545,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       additionalRevenue: 988,
       spaceRevenue: 9.25,
       refundAmount: 547.6,
-      totalRevenue: 449.65,
+      totalRevenue: 440.4,
     });
     expect(result.orderItems[0]).toMatchObject({
       id: 'refund-order-88',

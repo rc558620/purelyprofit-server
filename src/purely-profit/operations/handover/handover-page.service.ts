@@ -27,7 +27,6 @@ import {
 } from './handover-page.shared';
 import {
   ORDER_ITEMS_LIMIT,
-  addMoney,
   buildShiftDateRange,
   extendShiftRangeToReference,
   subMoney,
@@ -329,8 +328,10 @@ export class HandoverPageService {
   ): HandoverPageResponseDto {
     const paymentItems = mapPaymentItems(metrics.paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);
+    // additionalRevenue 已包含空间会话结账订单（含台位费+商品-预付抵扣），
+    // 不再叠加 spaceRevenue，避免 timeCost 双重计入。
     const totalRevenue = subMoney(
-      addMoney(metrics.additionalRevenueAmount, metrics.spaceRevenueAmount),
+      metrics.additionalRevenueAmount,
       metrics.refundAmount,
     );
 
