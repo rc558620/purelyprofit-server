@@ -20,10 +20,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       where: expect.objectContaining({
         storeId: 100,
         date: expect.any(Object),
-        OR: [
-          { spaceSession: { is: null }, operatorStaffId: 2 },
-          { spaceSession: { isNot: null } }
-        ],
+        spaceSession: { is: null },
+        operatorStaffId: 2,
       }),
       _sum: { totalRevenue: true },
     });
@@ -50,8 +48,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     mockEmptySaleOrderItems();
     prismaService.saleOrder.aggregate.mockImplementation(({ where }) => {
-      // 检测 additionalRevenue 查询（带 OR 条件）
-      if (Array.isArray(where?.OR)) {
+      // 检测 additionalRevenue 查询（仅非空间会话订单）
+      if (where?.spaceSession?.is === null) {
         return Promise.resolve({
           _sum: { totalRevenue: new Prisma.Decimal('66.80') },
         });
@@ -63,8 +61,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     prismaService.saleOrder.count.mockResolvedValue(1);
     prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: null },
+      _sum: { timeCost: null, itemsCost: null },
     });
+    prismaService.spaceSession.findMany.mockResolvedValue([]);
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {});
     const expectedShiftRange = buildShiftDateRange(
@@ -91,10 +90,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
             gte: expectedShiftRange.startAt,
             lte: expectedShiftEndAt,
           },
-          OR: [
-            { spaceSession: { is: null }, operatorStaffId: 2 },
-            { spaceSession: { isNot: null } }
-          ],
+          spaceSession: { is: null },
+          operatorStaffId: 2,
         }),
       }),
     );
@@ -135,8 +132,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     prismaService.saleOrder.count.mockResolvedValue(1);
     prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: new Prisma.Decimal('88.60') },
+      _sum: { timeCost: new Prisma.Decimal('88.60'), itemsCost: new Prisma.Decimal('0') },
     });
+    prismaService.spaceSession.findMany.mockResolvedValue([]);
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {});
     const expectedShiftRange = buildShiftDateRange(
@@ -148,11 +146,10 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
 
     expect(result.selectedShiftType).toBe(EmployeeShiftType.morning);
     expect(result.revenueSummary).toMatchObject({
-      additionalRevenue: -88.6,
+      additionalRevenue: 0,
       spaceRevenue: 88.6,
       refundAmount: 0,
-      // additionalRevenue 已包含结账订单，不再叠加 spaceRevenue
-      totalRevenue: 0,
+      totalRevenue: 88.6,
       orderCount: 1,
     });
     expect(prismaService.spaceSession.aggregate).toHaveBeenCalledWith({
@@ -164,7 +161,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           lte: expectedShiftEndAt,
         },
       },
-      _sum: { timeCost: true },
+      _sum: { timeCost: true, itemsCost: true },
     });
     expect(prismaService.saleOrder.count).toHaveBeenCalledWith({
       where: {
@@ -246,8 +243,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     prismaService.saleOrder.count.mockResolvedValue(0);
     prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: null },
+      _sum: { timeCost: null, itemsCost: null },
     });
+    prismaService.spaceSession.findMany.mockResolvedValue([]);
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {});
 
@@ -266,7 +264,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           lte: new Date(2026, 5, 5, 20, 0, 0),
         },
       },
-      _sum: { timeCost: true },
+      _sum: { timeCost: true, itemsCost: true },
     });
     expect(prismaService.saleOrder.aggregate).toHaveBeenNthCalledWith(
       1,
@@ -277,10 +275,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
             gte: new Date(2026, 5, 5, 17, 6, 0),
             lte: new Date(2026, 5, 5, 20, 0, 0),
           },
-          OR: [
-            { spaceSession: { is: null }, operatorStaffId: 30 },
-            { spaceSession: { isNot: null } }
-          ],
+          spaceSession: { is: null },
+          operatorStaffId: 30,
         }),
       }),
     );
@@ -350,8 +346,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     prismaService.saleOrder.count.mockResolvedValue(0);
     prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: null },
+      _sum: { timeCost: null, itemsCost: null },
     });
+    prismaService.spaceSession.findMany.mockResolvedValue([]);
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {});
 
@@ -390,7 +387,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           lte: new Date(2026, 5, 5, 17, 14, 30),
         },
       },
-      _sum: { timeCost: true },
+      _sum: { timeCost: true, itemsCost: true },
     });
     expect(prismaService.saleOrder.aggregate).toHaveBeenNthCalledWith(
       1,
@@ -401,10 +398,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
             gte: new Date(2026, 5, 5, 17, 14, 0),
             lte: new Date(2026, 5, 5, 17, 14, 30),
           },
-          OR: [
-            { spaceSession: { is: null }, operatorStaffId: 30 },
-            { spaceSession: { isNot: null } }
-          ],
+          spaceSession: { is: null },
+          operatorStaffId: 30,
         }),
       }),
     );
@@ -531,9 +526,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     ]);
     prismaService.saleOrder.aggregate
       .mockResolvedValueOnce({
-        // additionalRevenue now includes ALL orders (positive + negative space-session)
-        // 988 (positive orders) + (-547.60) (refund) = 440.40
-        _sum: { totalRevenue: new Prisma.Decimal('440.40') },
+        // additionalRevenue 仅统计非空间订单，退款订单有 spaceSession 不包含在内
+        _sum: { totalRevenue: new Prisma.Decimal('978.75') },
       })
       .mockResolvedValueOnce({
         _sum: { totalRevenue: new Prisma.Decimal('-547.60') },
@@ -547,7 +541,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       additionalRevenue: 978.75,
       spaceRevenue: 9.25,
       refundAmount: 547.6,
-      totalRevenue: 440.4,
+      totalRevenue: 988,
     });
     expect(result.orderItems[0]).toMatchObject({
       id: 'refund-order-88',
@@ -643,12 +637,13 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     ]);
     prismaService.saleOrder.count.mockResolvedValue(0);
     prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: null },
+      _sum: { timeCost: null, itemsCost: null },
     });
+    prismaService.spaceSession.findMany.mockResolvedValue([]);
     prismaService.saleOrder.aggregate
       .mockResolvedValueOnce({
-        // additionalRevenue now includes ALL orders, including the -88.80 refund
-        _sum: { totalRevenue: new Prisma.Decimal('-88.80') },
+        // additionalRevenue 仅统计非空间订单，退款订单有 spaceSession 不包含在内
+        _sum: { totalRevenue: null },
       })
       .mockResolvedValueOnce({
         _sum: { totalRevenue: new Prisma.Decimal('-88.80') },
@@ -662,7 +657,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       additionalRevenue: 0,
       spaceRevenue: 0,
       refundAmount: 88.8,
-      totalRevenue: -88.8,
+      totalRevenue: 0,
     });
     expect(result.orderItems[0]).toMatchObject({
       id: 'refund-order-99',

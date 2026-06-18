@@ -59,8 +59,9 @@ export const setupHandoverRecordsSpec = (): {
       _sum: { totalRevenue: null },
     });
     prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: null },
+      _sum: { timeCost: null, itemsCost: null },
     });
+    prismaService.spaceSession.findMany.mockResolvedValue([]);
     prismaService.financeCashFlowRecord.aggregate.mockResolvedValue({
       _sum: { amount: null },
     });

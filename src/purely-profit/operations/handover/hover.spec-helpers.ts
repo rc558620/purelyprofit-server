@@ -27,6 +27,7 @@ export const createHandoverPrismaMock = () => {
     },
     spaceSession: {
       aggregate: jest.fn(),
+      findMany: jest.fn(),
     },
     financeCashFlowRecord: {
       aggregate: jest.fn(),

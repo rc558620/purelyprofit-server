@@ -38,5 +38,7 @@ export const ORDER_ITEMS_LIMIT = 50;
 export const SPACE_PREPAID_DEDUCTION_ITEM_NAME = '预付抵扣';
 export const SPACE_RENEW_DEDUCTION_ITEM_NAME = '续费抵扣';
 export const SPACE_REFUND_ITEM_NAME = '空间退款';
+export const SPACE_GUEST_PAYABLE_ITEM_NAME = '客人应付';
+export const SPACE_GUEST_PAYABLE_COLOR = '#f43f5e';
 export const CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE =
   '当前班次不属于该收银员，暂不允许操作';

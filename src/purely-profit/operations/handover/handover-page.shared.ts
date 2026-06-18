@@ -13,6 +13,8 @@ import {
   ORDER_ITEMS_LIMIT,
   PAYMENT_METHOD_CONFIG,
   SHIFT_TIME_FALLBACKS,
+  SPACE_GUEST_PAYABLE_COLOR,
+  SPACE_GUEST_PAYABLE_ITEM_NAME,
   SPACE_PREPAID_DEDUCTION_ITEM_NAME,
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
   addMoney,
@@ -171,11 +173,8 @@ export const buildSaleOrderWhere = (
 
 /**
  * 构建 additionalRevenue 统计的 SaleOrder 查询条件：
- * 1. 常规销售单（spaceSession IS NULL）按 operatorStaffId 过滤
- * 2. OR 空间会话结账单（含正收入与负收入/需退款），
- *    不按 operatorStaffId 过滤（自动结账由系统创建，历史数据可能为 null）
- * 注：负收入结账订单也需出现在本班销售记录中（客人预付超出需退款），
- *    为避免与 refundAmount 双重计算，展示侧公式须做补偿（见 buildPageResponse）。
+ * 仅统计常规销售单（spaceSession IS NULL），按 operatorStaffId 过滤。
+ * 空间会话结账订单的收入统一由 spaceRevenue 统计，不在此处重复计算。
  */
 export const buildNonSpaceSessionOrderWhere = (
   storeId: number,
@@ -192,10 +191,8 @@ export const buildNonSpaceSessionOrderWhere = (
   return {
     storeId,
     date: dateFilter,
-    OR: [
-      { spaceSession: { is: null }, ...operatorCondition },
-      { spaceSession: { isNot: null } },
-    ],
+    spaceSession: { is: null },
+    ...operatorCondition,
   };
 };
 
@@ -278,13 +275,64 @@ export const buildSpaceRefundOrderWhere = (
   },
 });
 
+export const buildGuestPayableItems = (
+  settledSessions: Array<{
+    id: number;
+    timeCost: Prisma.Decimal | null;
+    itemsCost: Prisma.Decimal;
+    prepaidAmount: Prisma.Decimal | null;
+    endTime: Date | null;
+    space: { name: string };
+    saleOrder: {
+      paymentMethod: SalesPaymentMethod;
+      date: Date;
+    } | null;
+  }>,
+): HandoverOrderItemDto[] => {
+  const items: HandoverOrderItemDto[] = [];
+
+  for (const session of settledSessions) {
+    const consumption = addMoney(
+      toMoneyNumber(session.timeCost),
+      toMoneyNumber(session.itemsCost),
+    );
+    const prepaid = toMoneyNumber(session.prepaidAmount);
+    if (consumption <= prepaid) continue;
+
+    const payableAmount = subMoney(consumption, prepaid);
+    if (payableAmount <= 0) continue;
+
+    const paymentMethod =
+      session.saleOrder?.paymentMethod ?? SalesPaymentMethod.wechat;
+    const date = session.endTime?.getTime() ?? Date.now();
+    const spaceName = session.space?.name ?? '';
+
+    items.push({
+      id: `guest-payable-${session.id}`,
+      productName: `${spaceName}${SPACE_GUEST_PAYABLE_ITEM_NAME}`,
+      quantity: 1,
+      totalRevenue: payableAmount,
+      paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
+      paymentColor: SPACE_GUEST_PAYABLE_COLOR,
+      date,
+      currentStock: null,
+      stockUnit: null,
+    });
+  }
+
+  return items;
+};
+
 export const mergeDisplayedOrderItems = (
   orderItems: OrderItemRow[],
   refundOrders: RefundOrderRow[],
+  settledSpaceSessions: Parameters<typeof buildGuestPayableItems>[0] = [],
 ): HandoverOrderItemDto[] => {
+  const guestPayableItems = buildGuestPayableItems(settledSpaceSessions);
   const merged = [
     ...refundOrders.map((order) => mapRefundOrderItem(order)),
     ...orderItems.map((item) => mapOrderItem(item)),
+    ...guestPayableItems,
   ];
 
   return merged
@@ -366,21 +414,16 @@ export const buildRecordRevenueSummary = (
   orderCount: number,
   pettyCashAmount: number,
 ): NonNullable<HandoverRecordListItemDto['revenueSummary']> => {
-  // additionalRevenue 已包含全部空间会话结账订单（含负收入退款订单），
-  // 展示营业收入时需加回 refundAmount（抵消负订单）再扣除 spaceRevenue（避免与"空间管理"重复）；
-  // totalRevenue = displayedAdditional + spaceRevenue - refundAmount，
-  // 使卡片三项之和等于营业额。
-  const displayedAdditionalRevenue = subMoney(
-    addMoney(revenueAmounts.additionalRevenueAmount, revenueAmounts.refundAmount),
-    revenueAmounts.spaceRevenueAmount,
-  );
+  // 营业收入 = additionalRevenue（仅非空间订单，不含负数）
+  // 空间管理 = spaceRevenue（空间会话消费金额）
+  // 本班营业额 = 营业收入 + 空间管理
   return {
-    additionalRevenue: displayedAdditionalRevenue,
+    additionalRevenue: revenueAmounts.additionalRevenueAmount,
     spaceRevenue: revenueAmounts.spaceRevenueAmount,
     refundAmount: revenueAmounts.refundAmount,
-    totalRevenue: subMoney(
-      addMoney(displayedAdditionalRevenue, revenueAmounts.spaceRevenueAmount),
-      revenueAmounts.refundAmount,
+    totalRevenue: addMoney(
+      revenueAmounts.additionalRevenueAmount,
+      revenueAmounts.spaceRevenueAmount,
     ),
     orderCount,
     pettyCache: pettyCashAmount,

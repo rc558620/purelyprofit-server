@@ -160,8 +160,9 @@ export const setupHandoverPageSpec = (): {
     });
     prismaService.saleOrder.count.mockResolvedValue(0);
     prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: null },
+      _sum: { timeCost: null, itemsCost: null },
     });
+    prismaService.spaceSession.findMany.mockResolvedValue([]);
     prismaService.financeCashFlowRecord.aggregate.mockResolvedValue({
       _sum: { amount: null },
     });
@@ -235,10 +236,10 @@ export const setupHandoverPageSpec = (): {
       },
     ]);
     prismaService.saleOrder.aggregate.mockImplementation(({ where }) => {
-      // additionalRevenue 查询（带 OR 条件：非空间会话 + 正收入空间会话结账）
-      if (Array.isArray(where?.OR)) {
+      // additionalRevenue 查询（仅非空间会话订单，spaceSession.is === null）
+      if (where?.spaceSession?.is === null) {
         return Promise.resolve({
-          _sum: { totalRevenue: new Prisma.Decimal('988.00') },
+          _sum: { totalRevenue: new Prisma.Decimal('978.75') },
         });
       }
 
@@ -258,8 +259,9 @@ export const setupHandoverPageSpec = (): {
     prismaService.saleOrder.findMany.mockResolvedValue([]);
     prismaService.saleOrder.count.mockResolvedValue(3);
     prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: new Prisma.Decimal('9.25') },
+      _sum: { timeCost: new Prisma.Decimal('9.25'), itemsCost: new Prisma.Decimal('0') },
     });
+    prismaService.spaceSession.findMany.mockResolvedValue([]);
     prismaService.financeCashFlowRecord.aggregate
       .mockResolvedValueOnce({ _sum: { amount: null } })
       .mockResolvedValueOnce({ _sum: { amount: null } });

@@ -9,6 +9,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import type { HandoverRecordListItemDto } from './dto/handover-records.dto';
 import {
   ORDER_ITEMS_LIMIT,
+  addMoney,
   subMoney,
   toMoneyNumber,
   type ShiftDateRange,
@@ -49,7 +50,10 @@ export class HandoverRecordsRevenueService {
     ]);
 
     const revenueAmounts = buildRevenueAmounts(
-      spaceRevenue._sum.timeCost,
+      addMoney(
+        toMoneyNumber(spaceRevenue._sum.timeCost),
+        toMoneyNumber(spaceRevenue._sum.itemsCost),
+      ),
       additionalRevenue._sum.totalRevenue,
       refundRevenue._sum.totalRevenue,
     );
@@ -97,6 +101,7 @@ export class HandoverRecordsRevenueService {
       additionalRevenue,
       refundRevenue,
       pettyCash,
+      settledSpaceSessions,
     ] = await Promise.all([
       this.prisma.saleOrderItem.findMany({
         where: {
@@ -147,12 +152,16 @@ export class HandoverRecordsRevenueService {
         },
         _sum: { amount: true },
       }),
+      this.loadSettledSpaceSessions(storeId, shiftRange),
     ]);
 
     const paymentItems = mapPaymentItems(paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);
     const revenueAmounts = buildRevenueAmounts(
-      spaceRevenue._sum.timeCost,
+      addMoney(
+        toMoneyNumber(spaceRevenue._sum.timeCost),
+        toMoneyNumber(spaceRevenue._sum.itemsCost),
+      ),
       additionalRevenue._sum.totalRevenue,
       refundRevenue._sum.totalRevenue,
     );
@@ -164,7 +173,11 @@ export class HandoverRecordsRevenueService {
         toMoneyNumber(pettyCash._sum.amount),
       ),
       paymentItems: attachPaymentRatios(paymentItems, totalReceivedAmount),
-      orderItems: mergeDisplayedOrderItems(orderItems, refundOrders),
+      orderItems: mergeDisplayedOrderItems(
+        orderItems,
+        refundOrders,
+        settledSpaceSessions,
+      ),
     };
   }
 
@@ -178,7 +191,41 @@ export class HandoverRecordsRevenueService {
           lte: shiftRange.endAt,
         },
       },
-      _sum: { timeCost: true },
+      _sum: { timeCost: true, itemsCost: true },
+    });
+  }
+
+  private loadSettledSpaceSessions(
+    storeId: number,
+    shiftRange: ShiftDateRange,
+  ) {
+    return this.prisma.spaceSession.findMany({
+      where: {
+        storeId,
+        status: SpaceSessionStatus.settled,
+        endTime: {
+          gte: shiftRange.startAt,
+          lte: shiftRange.endAt,
+        },
+      },
+      select: {
+        id: true,
+        timeCost: true,
+        itemsCost: true,
+        prepaidAmount: true,
+        endTime: true,
+        space: {
+          select: {
+            name: true,
+          },
+        },
+        saleOrder: {
+          select: {
+            paymentMethod: true,
+            date: true,
+          },
+        },
+      },
     });
   }
 

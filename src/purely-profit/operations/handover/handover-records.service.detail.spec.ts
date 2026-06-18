@@ -300,12 +300,13 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       ]);
       prismaService.saleOrder.count.mockResolvedValue(0);
       prismaService.spaceSession.aggregate.mockResolvedValue({
-        _sum: { timeCost: null },
+        _sum: { timeCost: null, itemsCost: null },
       });
+      prismaService.spaceSession.findMany.mockResolvedValue([]);
       prismaService.saleOrder.aggregate
         .mockResolvedValueOnce({
-          // additionalRevenue now includes ALL orders, including the -45.50 refund
-          _sum: { totalRevenue: new Prisma.Decimal('-45.50') },
+          // additionalRevenue 仅统计非空间订单，退款订单有 spaceSession 不包含在内
+          _sum: { totalRevenue: null },
         })
         .mockResolvedValueOnce({
           _sum: { totalRevenue: new Prisma.Decimal('-45.50') },
@@ -317,7 +318,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         additionalRevenue: 0,
         spaceRevenue: 0,
         refundAmount: 45.5,
-        totalRevenue: -45.5,
+        totalRevenue: 0,
         orderCount: 0,
       });
       expect(result.orderItems?.[0]).toMatchObject({

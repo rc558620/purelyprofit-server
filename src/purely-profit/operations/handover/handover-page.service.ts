@@ -30,12 +30,25 @@ import {
   addMoney,
   buildShiftDateRange,
   extendShiftRangeToReference,
-  subMoney,
   toMoneyNumber,
   type OrderItemRow,
   type RefundOrderRow,
   type ResolvedHandoverPageShiftContext,
 } from './handover.shared';
+import type { Prisma, SalesPaymentMethod } from '@prisma/client';
+
+type SettledSpaceSessionRow = {
+  id: number;
+  timeCost: Prisma.Decimal | null;
+  itemsCost: Prisma.Decimal;
+  prepaidAmount: Prisma.Decimal | null;
+  endTime: Date | null;
+  space: { name: string };
+  saleOrder: {
+    paymentMethod: SalesPaymentMethod;
+    date: Date;
+  } | null;
+};
 
 type HandoverPageMetrics = {
   orderCount: number;
@@ -46,6 +59,7 @@ type HandoverPageMetrics = {
   spaceRevenueAmount: number;
   refundAmount: number;
   pettyCashAmount: number;
+  settledSpaceSessions: SettledSpaceSessionRow[];
 };
 
 const EMPTY_METRICS: HandoverPageMetrics = {
@@ -57,6 +71,7 @@ const EMPTY_METRICS: HandoverPageMetrics = {
   spaceRevenueAmount: 0,
   refundAmount: 0,
   pettyCashAmount: 0,
+  settledSpaceSessions: [],
 };
 
 @Injectable()
@@ -181,6 +196,7 @@ export class HandoverPageService {
       additionalRevenue,
       refundRevenue,
       pettyCash,
+      settledSpaceSessions,
     ] = await Promise.all([
       this.loadPaymentOrderItems(
         membership.storeId,
@@ -198,6 +214,7 @@ export class HandoverPageService {
       this.loadAdditionalRevenue(additionalOrderWhere),
       this.loadRefundRevenue(refundWhere),
       this.loadPettyCash(cashFlowWhere),
+      this.loadSettledSpaceSessions(membership.storeId, startAt, endAt),
     ]);
 
     return {
@@ -208,9 +225,13 @@ export class HandoverPageService {
       additionalRevenueAmount: toMoneyNumber(
         additionalRevenue._sum.totalRevenue,
       ),
-      spaceRevenueAmount: toMoneyNumber(spaceRevenue._sum.timeCost),
+      spaceRevenueAmount: addMoney(
+        toMoneyNumber(spaceRevenue._sum.timeCost),
+        toMoneyNumber(spaceRevenue._sum.itemsCost),
+      ),
       refundAmount: Math.abs(toMoneyNumber(refundRevenue._sum.totalRevenue)),
       pettyCashAmount: toMoneyNumber(pettyCash._sum.amount),
+      settledSpaceSessions,
     };
   }
 
@@ -287,7 +308,42 @@ export class HandoverPageService {
           lte: endAt,
         },
       },
-      _sum: { timeCost: true },
+      _sum: { timeCost: true, itemsCost: true },
+    });
+  }
+
+  private async loadSettledSpaceSessions(
+    storeId: number,
+    startAt: Date,
+    endAt: Date,
+  ): Promise<SettledSpaceSessionRow[]> {
+    return this.prisma.spaceSession.findMany({
+      where: {
+        storeId,
+        status: SpaceSessionStatus.settled,
+        endTime: {
+          gte: startAt,
+          lte: endAt,
+        },
+      },
+      select: {
+        id: true,
+        timeCost: true,
+        itemsCost: true,
+        prepaidAmount: true,
+        endTime: true,
+        space: {
+          select: {
+            name: true,
+          },
+        },
+        saleOrder: {
+          select: {
+            paymentMethod: true,
+            date: true,
+          },
+        },
+      },
     });
   }
 
@@ -329,17 +385,12 @@ export class HandoverPageService {
   ): HandoverPageResponseDto {
     const paymentItems = mapPaymentItems(metrics.paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);
-    // additionalRevenue 已包含全部空间会话结账订单（含负收入退款订单），
-    // 展示营业收入时需加回 refundAmount（抵消负订单）再扣除 spaceRevenue（避免与"空间管理"重复）；
-    // totalRevenue 恢复 displayedAdditional + spaceRevenue - refundAmount，
-    // 使卡片「营业收入 + 空间管理 - 退款金额」三项之和等于营业额。
-    const displayedAdditionalRevenue = subMoney(
-      addMoney(metrics.additionalRevenueAmount, metrics.refundAmount),
+    // 营业收入 = additionalRevenue（仅非空间订单，不含负数）
+    // 空间管理 = spaceRevenue（空间会话消费金额 = itemsCost + timeCost）
+    // 本班营业额 = 营业收入 + 空间管理
+    const totalRevenue = addMoney(
+      metrics.additionalRevenueAmount,
       metrics.spaceRevenueAmount,
-    );
-    const totalRevenue = subMoney(
-      addMoney(displayedAdditionalRevenue, metrics.spaceRevenueAmount),
-      metrics.refundAmount,
     );
 
     // 当所有班次已交接完成且无后续排班时，
@@ -358,7 +409,7 @@ export class HandoverPageService {
       selectedShiftType: shiftContext.shiftInfo.shiftType,
       shiftInfo,
       revenueSummary: {
-        additionalRevenue: displayedAdditionalRevenue,
+        additionalRevenue: metrics.additionalRevenueAmount,
         spaceRevenue: metrics.spaceRevenueAmount,
         totalRevenue,
         orderCount: metrics.orderCount,
@@ -369,6 +420,7 @@ export class HandoverPageService {
       orderItems: mergeDisplayedOrderItems(
         metrics.orderItems,
         metrics.refundOrders,
+        metrics.settledSpaceSessions,
       ),
       receiverName: shiftContext.receiverCandidate?.employeeName ?? '',
       canOperate: shiftContext.operationAccess.canOperate,
