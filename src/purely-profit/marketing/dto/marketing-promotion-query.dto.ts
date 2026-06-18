@@ -179,8 +179,8 @@ export class UpdateMarketingMemberLevelDto {
 
 export class UpdateMarketingPointsRatioDto {
   @ApiPropertyOptional({
-    example: 100,
-    description: '每消费多少分获得 1 积分，如 100 表示消费 1 元得 1 分',
+    example: 200,
+    description: '每消费多少元得 1 积分，如 200 表示消费 200 元得 1 积分',
   })
   @IsOptional()
   @Type(() => Number)

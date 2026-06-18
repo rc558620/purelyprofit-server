@@ -283,7 +283,8 @@ export class FinanceCashFlowService {
       queryCashFlowStatsRows(this.prisma, {
         storeId,
         range: clampedPreviousRange,
-        directionFilter: directionFilter === 'all' ? undefined : directionFilter,
+        directionFilter:
+          directionFilter === 'all' ? undefined : directionFilter,
       }),
     ]);
     const previousStats = buildCashFlowBaseStats(previousRecords);

@@ -190,9 +190,7 @@ export class ClubStoreAccessService {
   private async loadCachedStoreIdByInviteCode(
     inviteCode: string,
   ): Promise<number | null> {
-    const raw = await this.redisService.get(
-      `club:invite-code:${inviteCode}`,
-    );
+    const raw = await this.redisService.get(`club:invite-code:${inviteCode}`);
     if (!raw) {
       return null;
     }

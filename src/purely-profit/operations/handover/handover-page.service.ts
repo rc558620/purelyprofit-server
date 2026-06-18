@@ -329,11 +329,12 @@ export class HandoverPageService {
   ): HandoverPageResponseDto {
     const paymentItems = mapPaymentItems(metrics.paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);
-    // additionalRevenue 已包含空间会话结账订单（其 totalRevenue 含 timeCost），
-    // 展示时从营业收入中扣除 spaceRevenue，避免与"空间管理"卡片重复展示；
-    // totalRevenue 重新叠加 spaceRevenue，使卡片三项之和等于营业额。
+    // additionalRevenue 已包含全部空间会话结账订单（含负收入退款订单），
+    // 展示营业收入时需加回 refundAmount（抵消负订单）再扣除 spaceRevenue（避免与"空间管理"重复）；
+    // totalRevenue 恢复 displayedAdditional + spaceRevenue - refundAmount，
+    // 使卡片「营业收入 + 空间管理 - 退款金额」三项之和等于营业额。
     const displayedAdditionalRevenue = subMoney(
-      metrics.additionalRevenueAmount,
+      addMoney(metrics.additionalRevenueAmount, metrics.refundAmount),
       metrics.spaceRevenueAmount,
     );
     const totalRevenue = subMoney(

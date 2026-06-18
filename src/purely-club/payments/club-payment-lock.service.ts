@@ -22,13 +22,9 @@ export class ClubPaymentLockService {
    */
   async acquireLock(orderId: string): Promise<boolean> {
     const key = `${CLUB_PAYMENT_LOCK_KEY_PREFIX}${orderId}`;
-    const result = await this.redisService.getClient().set(
-      key,
-      `${Date.now()}`,
-      'EX',
-      CLUB_PAYMENT_LOCK_TTL_SECONDS,
-      'NX',
-    );
+    const result = await this.redisService
+      .getClient()
+      .set(key, `${Date.now()}`, 'EX', CLUB_PAYMENT_LOCK_TTL_SECONDS, 'NX');
     return result === 'OK';
   }
 
@@ -38,9 +34,7 @@ export class ClubPaymentLockService {
    */
   async releaseLock(orderId: string): Promise<void> {
     try {
-      await this.redisService.del(
-        `${CLUB_PAYMENT_LOCK_KEY_PREFIX}${orderId}`,
-      );
+      await this.redisService.del(`${CLUB_PAYMENT_LOCK_KEY_PREFIX}${orderId}`);
     } catch (error) {
       this.logger.warn(
         `释放支付锁失败: orderId=${orderId}，锁将在 TTL 后自动过期`,

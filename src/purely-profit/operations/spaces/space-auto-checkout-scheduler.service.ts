@@ -5,6 +5,8 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
+import { RedisService } from '../../../redis/redis.service';
 import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
 
 /**
@@ -21,7 +23,9 @@ export class SpaceAutoCheckoutSchedulerService
   private readonly logger = new Logger(SpaceAutoCheckoutSchedulerService.name);
   private initialDelayTimer: NodeJS.Timeout | null = null;
   private intervalTimer: NodeJS.Timeout | null = null;
-  private isRunning = false;
+  private cycleLockToken: string | null = null;
+  private readonly lockTtlSeconds = 90;
+  private readonly lockKey = 'space:auto-checkout-scheduler:cycle';
   private readonly enabled: boolean;
   private readonly intervalMs: number;
   private readonly initialDelayMs: number;
@@ -29,6 +33,7 @@ export class SpaceAutoCheckoutSchedulerService
   constructor(
     private readonly configService: ConfigService,
     private readonly autoCheckoutService: SpaceSessionAutoCheckoutService,
+    private readonly redisService: RedisService,
   ) {
     this.enabled =
       this.configService.get<boolean>('app.spaceAutoCheckoutEnabled') ?? true;
@@ -75,11 +80,17 @@ export class SpaceAutoCheckoutSchedulerService
   }
 
   private async runCycle(): Promise<void> {
-    if (this.isRunning) {
+    const token = randomUUID();
+    const acquired = await this.redisService.setIfAbsent(
+      this.lockKey,
+      token,
+      this.lockTtlSeconds,
+    );
+    if (!acquired) {
       return;
     }
+    this.cycleLockToken = token;
 
-    this.isRunning = true;
     const startedAt = Date.now();
 
     try {
@@ -103,7 +114,25 @@ export class SpaceAutoCheckoutSchedulerService
         error instanceof Error ? error.stack : undefined,
       );
     } finally {
-      this.isRunning = false;
+      await this.releaseCycleLock();
+    }
+  }
+
+  private async releaseCycleLock(): Promise<void> {
+    if (!this.cycleLockToken) {
+      return;
+    }
+    try {
+      const current = await this.redisService.get(this.lockKey);
+      if (current === this.cycleLockToken) {
+        await this.redisService.del(this.lockKey);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[space-auto-checkout-scheduler] releaseLock failed reason=${error instanceof Error ? error.message : 'UnknownError'}`,
+      );
+    } finally {
+      this.cycleLockToken = null;
     }
   }
 }

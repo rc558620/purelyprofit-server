@@ -7,11 +7,11 @@ import { ClubOrderDraftsService } from './club-order-drafts.service';
 import { buildOrderNo } from './club-order-drafts.utils';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
-import { CLUB_POINTS_MAX_DEDUCT_RATIO } from './club-orders.constants';
 import type {
   ClubServiceOrderResponseDto,
   CreateClubServiceOrderDto,
 } from './dto/club-order.dto';
+import { DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS } from '../../purely-profit/marketing/marketing.utils';
 
 @Injectable()
 export class ClubOrderServiceCreationService {
@@ -41,7 +41,7 @@ export class ClubOrderServiceCreationService {
     const productName = context.product.name;
 
     // ── 积分抵扣计算 ──────────────────────────────────────────────────────────
-    // 规则：1 积分 = 1 元（100 分），最多可抵扣折后价的 50%
+    // 根据会员等级配置中的积分规则进行计算
     const { pointsDeductFen, pointsUsed } = await this.calcPointsDeduction(
       currentContext.store.id,
       currentContext.user.phone,
@@ -88,7 +88,10 @@ export class ClubOrderServiceCreationService {
 
   /**
    * 计算积分抵扣金额
-   * 规则：1 积分 = 100 分（即 1 元），最多抵扣折后价的 50%
+   * 根据 marketingMemberLevelSettings 中的积分规则动态计算：
+   * - redeemRatioPoints: 多少积分抵扣 1 元
+   * - maxRedeemRatio: 单次消费最大积分抵扣比例（0-1）
+   * - enabled: 积分规则是否启用
    */
   private async calcPointsDeduction(
     storeId: number,
@@ -97,6 +100,14 @@ export class ClubOrderServiceCreationService {
     usePoints: boolean,
   ): Promise<{ pointsDeductFen: number; pointsUsed: number }> {
     if (!usePoints || priceAfterDiscountFen <= 0) {
+      return { pointsDeductFen: 0, pointsUsed: 0 };
+    }
+
+    // 获取积分规则配置
+    const pointsRatio = await this.getPointsRatioConfig(storeId);
+
+    // 若积分规则未启用，不进行积分抵扣
+    if (!pointsRatio.enabled) {
       return { pointsDeductFen: 0, pointsUsed: 0 };
     }
 
@@ -110,21 +121,67 @@ export class ClubOrderServiceCreationService {
       return { pointsDeductFen: 0, pointsUsed: 0 };
     }
 
-    // 最多可抵扣金额（分）= 折后价 × 50%，向下取整到整分
+    // 最多可抵扣金额（分）= 折后价 × 配置的抵扣比例上限，向下取整到整分
     const maxDeductFen = Math.floor(
       new Decimal(priceAfterDiscountFen)
-        .mul(CLUB_POINTS_MAX_DEDUCT_RATIO)
+        .mul(pointsRatio.maxRedeemRatio)
         .toNumber(),
     );
 
-    // 1 积分 = 100 分（1 元），可用积分对应的抵扣金额
-    const availableDeductFen = availablePoints * 100;
+    // 1 积分对应的抵扣金额（分）= 100 / redeemRatioPoints
+    // 例如 redeemRatioPoints=100 表示 100 积分 = 1 元，即 1 积分 = 1 分
+    // 例如 redeemRatioPoints=50 表示 50 积分 = 1 元，即 1 积分 = 2 分
+    const pointsToFenRatio = 100 / pointsRatio.redeemRatioPoints;
+    const availableDeductFen = availablePoints * pointsToFenRatio;
 
     const pointsDeductFen = Math.min(maxDeductFen, availableDeductFen);
-    // 实际消耗积分 = 抵扣分数 ÷ 100（向上取整避免少扣）
-    const pointsUsed = Math.ceil(pointsDeductFen / 100);
+    // 实际消耗积分 = 抵扣分数 ÷ 积分汇率，向上取整避免少扣
+    const pointsUsed = Math.ceil(pointsDeductFen / pointsToFenRatio);
 
     return { pointsDeductFen, pointsUsed };
   }
 
+  /**
+   * 获取积分规则配置
+   * 从 marketingMemberLevelSetting 中读取，若未配置则使用默认值
+   */
+  private async getPointsRatioConfig(storeId: number): Promise<{
+    redeemRatioPoints: number;
+    maxRedeemRatio: number;
+    enabled: boolean;
+  }> {
+    const settings = await this.prisma.marketingMemberLevelSetting.findUnique({
+      where: { storeId },
+      select: { pointsRatio: true },
+    });
+
+    // 若未配置，使用默认值
+    if (
+      !settings?.pointsRatio ||
+      typeof settings.pointsRatio !== 'object' ||
+      Array.isArray(settings.pointsRatio)
+    ) {
+      return DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio;
+    }
+
+    const pointsRatioData = settings.pointsRatio as Record<string, unknown>;
+    return {
+      redeemRatioPoints:
+        typeof pointsRatioData.redeemRatioPoints === 'number' &&
+        pointsRatioData.redeemRatioPoints > 0
+          ? pointsRatioData.redeemRatioPoints
+          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio
+              .redeemRatioPoints,
+      maxRedeemRatio:
+        typeof pointsRatioData.maxRedeemRatio === 'number' &&
+        pointsRatioData.maxRedeemRatio >= 0 &&
+        pointsRatioData.maxRedeemRatio <= 1
+          ? pointsRatioData.maxRedeemRatio
+          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.maxRedeemRatio,
+      enabled:
+        typeof pointsRatioData.enabled === 'boolean'
+          ? pointsRatioData.enabled
+          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.enabled,
+    };
+  }
 }

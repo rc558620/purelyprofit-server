@@ -276,4 +276,54 @@ describe('SalesRecordItemPreparationService', () => {
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('prepareItems 在 preserveCallerPrices 时保留调用方传入的价格而非商品目录价格', async () => {
+    prismaService.product.findMany.mockResolvedValue([
+      {
+        id: 201,
+        name: '可口可乐 330ml',
+        category: '饮品',
+        code: 'COLA001',
+        price: new Prisma.Decimal('15.50'),
+        profit: new Prisma.Decimal('4.00'),
+        stock: 20,
+        isActive: true,
+        image: null,
+      },
+    ]);
+
+    await expect(
+      service.prepareItems(
+        18,
+        {
+          items: [
+            {
+              productId: '201',
+              productName: '可口可乐 330ml',
+              categoryName: '饮品',
+              salePrice: 10,
+              profit: 2,
+              quantity: 2,
+            },
+          ],
+          totalRevenue: 20,
+          totalProfit: 4,
+          totalQuantity: 2,
+          paymentMethod: 'cash',
+          calcMode: 'business',
+        },
+        { preserveCallerPrices: true },
+      ),
+    ).resolves.toEqual([
+      {
+        productId: 201,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: 10,
+        profit: 2,
+        quantity: 2,
+        countsTowardTotalQuantity: true,
+      },
+    ]);
+  });
 });

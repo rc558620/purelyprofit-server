@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import {
   SpaceBillingMode as PrismaSpaceBillingMode,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
@@ -23,8 +24,7 @@ import {
 import { normalizeRenewPayload } from './space-session-payload.shared';
 import type { SpaceSessionRenewRecord } from './space-sessions.types';
 
-const generateSpaceSessionRenewRecordId = (): string =>
-  `rn_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+const generateSpaceSessionRenewRecordId = (): string => `rn_${randomUUID()}`;
 
 @Injectable()
 export class SpaceSessionRenewService {

@@ -20,6 +20,7 @@ import { ClubOrderServiceQueryService } from './club-order-service-query.service
 import { ClubOrderSettlementService } from './club-order-settlement.service';
 import { ClubOrdersService } from './club-orders.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
+import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 
 describe('ClubOrdersService', () => {
   let service: ClubOrdersService;
@@ -49,6 +50,9 @@ describe('ClubOrdersService', () => {
     },
     marketingMemberLevelSetting: {
       findUnique: jest.fn(),
+    },
+    marketingPointsRecord: {
+      create: jest.fn(),
     },
   };
 
@@ -84,6 +88,11 @@ describe('ClubOrdersService', () => {
 
   const clubWechatJsapiService = {
     createJsapiPaymentParams: jest.fn(),
+  };
+
+  const clubPaymentLockService = {
+    acquireLock: jest.fn().mockResolvedValue(true),
+    releaseLock: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -219,6 +228,7 @@ describe('ClubOrdersService', () => {
         { provide: ClubOrderDraftsService, useValue: clubOrderDraftsService },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
         { provide: ClubWechatJsapiService, useValue: clubWechatJsapiService },
+        { provide: ClubPaymentLockService, useValue: clubPaymentLockService },
         {
           provide: ClubMemberProfileService,
           useValue: clubMemberProfileService,
@@ -1090,6 +1100,8 @@ function createServiceDraft() {
       promotionDiscountAmountFen: 0,
       totalReduceFen: 0,
       promotionTag: null,
+      pointsDeductFen: 0,
+      pointsUsed: 0,
     },
   };
 }

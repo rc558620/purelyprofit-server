@@ -7,7 +7,6 @@ import {
 import { randomUUID } from 'node:crypto';
 import {
   Prisma,
-  SpaceReservationStatus as PrismaSpaceReservationStatus,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
   SpaceStatus as PrismaSpaceStatus,
 } from '@prisma/client';
@@ -32,6 +31,8 @@ import type {
   SpaceSessionSettlement,
   SpaceSessionSettlementRecord,
 } from './space-sessions.types';
+import type { SpaceReservationSessionSnapshot } from './space-reservations.types';
+import { SpaceReservationsStateService } from './space-reservations-state.service';
 
 export interface SettleSpaceSessionParams {
   session: SpaceSessionSettlementRecord;
@@ -60,6 +61,7 @@ export class SpaceSessionSettlementService {
     private readonly salesRecordService: SalesRecordService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly redisService: RedisService,
+    private readonly reservationsStateService: SpaceReservationsStateService,
   ) {}
 
   async settleSession(
@@ -165,16 +167,19 @@ export class SpaceSessionSettlementService {
         });
 
         const cancelledReservationId =
-          await this.cancelMatchedReservationAfterCheckout(transaction, {
-            reservationId: latestSession.reservationId,
-            guestName: latestSession.guestName,
-            guestPhone: latestSession.guestPhone,
-            startTime: latestSession.startTime,
-            spaceId: latestSession.spaceId,
-          });
+          await this.reservationsStateService.cancelMatchedReservationAfterCheckout(
+            transaction,
+            {
+              reservationId: latestSession.reservationId,
+              guestName: latestSession.guestName,
+              guestPhone: latestSession.guestPhone,
+              startTime: latestSession.startTime,
+              spaceId: latestSession.spaceId,
+            } satisfies SpaceReservationSessionSnapshot,
+          );
         const nextSpaceStatus = latestSpace.enableDirtyRoom
           ? PrismaSpaceStatus.cleaning
-          : await this.resolveReservationBackStatus(
+          : await this.reservationsStateService.resolveReservationBackStatus(
               transaction,
               params.session.spaceId,
             );
@@ -250,93 +255,10 @@ export class SpaceSessionSettlementService {
       skipAccessCheck: true,
       // 主账号/店长代客结账时，应优先归属到当前待交班班次员工，避免逾期未交班后账目落到下一班。
       assignToCurrentShiftOperator: true,
+      // 会话中的商品价格可能与当前目录价格不一致（如开台后调价），应使用会话记录的价格。
+      preserveCallerPrices: true,
       transactionClient: params.transaction,
     });
-  }
-
-  private async cancelMatchedReservationAfterCheckout(
-    transaction: Prisma.TransactionClient,
-    session: {
-      reservationId: number | null;
-      guestName: string | null;
-      guestPhone: string | null;
-      startTime: Date;
-      spaceId: number;
-    },
-  ): Promise<number | null> {
-    if (session.reservationId !== null) {
-      return null;
-    }
-
-    const guestName = session.guestName?.trim();
-    const guestPhone = session.guestPhone?.trim();
-    if (!guestName || !guestPhone) {
-      return null;
-    }
-
-    const todayRange = this.getTodayRange();
-    const candidates = await transaction.spaceReservation.findMany({
-      where: {
-        spaceId: session.spaceId,
-        status: PrismaSpaceReservationStatus.pending,
-        guestName,
-        phone: guestPhone,
-        reservedAt: {
-          gte: todayRange.start,
-          lte: todayRange.end,
-        },
-      },
-      orderBy: [{ reservedAt: 'asc' }, { id: 'asc' }],
-    });
-
-    const sortedCandidates = candidates.sort(
-      (a, b) =>
-        Math.abs(a.reservedAt.getTime() - session.startTime.getTime()) -
-        Math.abs(b.reservedAt.getTime() - session.startTime.getTime()),
-    );
-
-    for (const candidate of sortedCandidates) {
-      const updated = await transaction.spaceReservation.updateMany({
-        where: {
-          id: candidate.id,
-          status: PrismaSpaceReservationStatus.pending,
-        },
-        data: {
-          status: PrismaSpaceReservationStatus.cancelled,
-        },
-      });
-
-      if (updated.count > 0) {
-        return candidate.id;
-      }
-    }
-
-    return null;
-  }
-
-  private async resolveReservationBackStatus(
-    transaction: Prisma.TransactionClient,
-    spaceId: number,
-  ): Promise<PrismaSpaceStatus> {
-    const todayRange = this.getTodayRange();
-    const hasTodayPendingReservation =
-      await transaction.spaceReservation.findFirst({
-        where: {
-          spaceId,
-          status: PrismaSpaceReservationStatus.pending,
-          reservedAt: {
-            gte: todayRange.start,
-            lte: todayRange.end,
-          },
-        },
-        select: {
-          id: true,
-        },
-      });
-
-    return hasTodayPendingReservation
-      ? PrismaSpaceStatus.reserved
-      : PrismaSpaceStatus.idle;
   }
 
   private async acquireSettlementLock(
@@ -377,21 +299,5 @@ export class SpaceSessionSettlementService {
       lock.key,
       lock.token,
     );
-  }
-
-  private getTodayRange(): { start: Date; end: Date } {
-    const now = new Date();
-    const start = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      0,
-      0,
-      0,
-      0,
-    );
-    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
-
-    return { start, end };
   }
 }

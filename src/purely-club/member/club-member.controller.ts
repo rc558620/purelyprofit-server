@@ -30,6 +30,7 @@ import {
   ClubMemberLevelConfigDto,
   ClubMemberLevelStatusDto,
   ClubMemberProfileDto,
+  ClubPointsRatioDto,
   UpdateClubMemberAvatarDto,
   UpdateClubMemberNicknameDto,
 } from './dto/club-member-account.dto';
@@ -154,6 +155,20 @@ export class ClubMemberController {
     @CurrentClubContext() currentContext: ClubCurrentContext,
   ): Promise<ClubMemberLevelConfigDto[]> {
     return this.clubMemberService.getLevels(currentContext);
+  }
+
+  @Get('points-ratio')
+  @UseInterceptors(ClubCurrentContextInterceptor)
+  @ApiOperation({
+    summary: '获取 purely-club 当前门店的积分规则配置',
+    description:
+      '返回当前门店的积分规则（兑换比例、最大抵扣比例、启用状态），用于 serviceDetail 页面计算积分可抵扣的最大金额。',
+  })
+  @ApiOkResponse({ type: ClubPointsRatioDto })
+  getPointsRatio(
+    @CurrentClubContext() currentContext: ClubCurrentContext,
+  ): Promise<ClubPointsRatioDto> {
+    return this.clubMemberService.getPointsRatio(currentContext);
   }
 
   @Get('benefits')

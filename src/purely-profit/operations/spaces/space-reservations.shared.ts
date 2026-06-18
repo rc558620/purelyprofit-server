@@ -8,6 +8,7 @@ import type {
   SpaceReservationMutationDto,
   SpaceReservationRecord,
 } from './space-reservations.types';
+import type { SpaceReservationStatusValue } from './spaces.constants';
 
 const SPACE_CONTACT_PATTERN = /^[0-9+\-\s]{6,20}$/;
 
@@ -183,9 +184,24 @@ export const getTodayRange = (): { start: Date; end: Date } => {
   return { start, end };
 };
 
+const RESERVATION_STATUS_MAP: Record<
+  PrismaSpaceReservationStatus,
+  SpaceReservationStatusValue
+> = {
+  [PrismaSpaceReservationStatus.pending]: 'pending',
+  [PrismaSpaceReservationStatus.fulfilled]: 'fulfilled',
+  [PrismaSpaceReservationStatus.cancelled]: 'cancelled',
+};
+
 const toSpaceReservationStatusValue = (
   status: PrismaSpaceReservationStatus,
-): PrismaSpaceReservationStatus => status;
+): SpaceReservationStatusValue => {
+  const mapped = RESERVATION_STATUS_MAP[status];
+  if (!mapped) {
+    throw new Error(`Unknown reservation status: ${status}`);
+  }
+  return mapped;
+};
 
 const assertPositiveInteger = (value: number, label: string): void => {
   if (!Number.isInteger(value) || value <= 0) {

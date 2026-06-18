@@ -172,9 +172,10 @@ export const buildSaleOrderWhere = (
 /**
  * 构建 additionalRevenue 统计的 SaleOrder 查询条件：
  * 1. 常规销售单（spaceSession IS NULL）按 operatorStaffId 过滤
- * 2. OR 空间会话结账单中营收 ≥ 0 的订单（结账包含台位费+商品-预付抵扣等）
+ * 2. OR 空间会话结账单（含正收入与负收入/需退款），
  *    不按 operatorStaffId 过滤（自动结账由系统创建，历史数据可能为 null）
- * 3. 排除负收入的空间会话结账单（退款），由 refundAmount 单独统计
+ * 注：负收入结账订单也需出现在本班销售记录中（客人预付超出需退款），
+ *    为避免与 refundAmount 双重计算，展示侧公式须做补偿（见 buildPageResponse）。
  */
 export const buildNonSpaceSessionOrderWhere = (
   storeId: number,
@@ -186,16 +187,14 @@ export const buildNonSpaceSessionOrderWhere = (
     lte: shiftRange.endAt,
   };
 
-  const operatorCondition = operatorStaffId
-    ? { operatorStaffId }
-    : {};
+  const operatorCondition = operatorStaffId ? { operatorStaffId } : {};
 
   return {
     storeId,
     date: dateFilter,
     OR: [
       { spaceSession: { is: null }, ...operatorCondition },
-      { totalRevenue: { gte: 0 }, spaceSession: { isNot: null } },
+      { spaceSession: { isNot: null } },
     ],
   };
 };
@@ -367,11 +366,12 @@ export const buildRecordRevenueSummary = (
   orderCount: number,
   pettyCashAmount: number,
 ): NonNullable<HandoverRecordListItemDto['revenueSummary']> => {
-  // additionalRevenue 已包含空间会话结账订单（其 totalRevenue 含 timeCost），
-  // 展示时从营业收入中扣除 spaceRevenue，避免与"空间管理"卡片重复展示；
-  // totalRevenue 重新叠加 spaceRevenue，使卡片三项之和等于营业额。
+  // additionalRevenue 已包含全部空间会话结账订单（含负收入退款订单），
+  // 展示营业收入时需加回 refundAmount（抵消负订单）再扣除 spaceRevenue（避免与"空间管理"重复）；
+  // totalRevenue = displayedAdditional + spaceRevenue - refundAmount，
+  // 使卡片三项之和等于营业额。
   const displayedAdditionalRevenue = subMoney(
-    revenueAmounts.additionalRevenueAmount,
+    addMoney(revenueAmounts.additionalRevenueAmount, revenueAmounts.refundAmount),
     revenueAmounts.spaceRevenueAmount,
   );
   return {

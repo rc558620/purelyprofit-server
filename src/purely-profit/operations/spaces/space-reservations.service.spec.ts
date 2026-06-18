@@ -213,6 +213,55 @@ describe('SpaceReservationsService', () => {
     expect(transaction.spaceReservation.create).not.toHaveBeenCalled();
   });
 
+  it('createSpaceReservation 允许在已过时预约的时间段内创建新预约（BUG-4 修复）', async () => {
+    // 场景：现在 08:01，旧预约 A (08:00-09:00) 已过时，新增预约 B (08:30-09:30) 应该成功
+    const now = Date.now();
+    const reservedAtA = now - 1 * 60 * 1000; // 08:00
+    const reservedEndAtA = now + 59 * 60 * 1000; // 09:00
+    const reservedAtB = now + 29 * 60 * 1000; // 08:30
+    const reservedEndAtB = now + 89 * 60 * 1000; // 09:30
+
+    prismaService.space.findUnique.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+      capacity: 4,
+    });
+    prismaService.spaceReservation.findMany.mockResolvedValue([]);
+    transaction.space.findUnique.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+      capacity: 4,
+    });
+    // 锁内返回已过时的预约 A，但应该被忽略
+    transaction.spaceReservation.findFirst.mockResolvedValue(null);
+    transaction.spaceReservation.create.mockResolvedValue({
+      id: 41,
+      spaceId: 11,
+      guestName: '张三',
+      phone: '13800138000',
+      reservedAt: new Date(reservedAtB),
+      reservedEndAt: new Date(reservedEndAtB),
+      guestCount: 2,
+      note: null,
+      status: PrismaSpaceReservationStatus.pending,
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    });
+
+    const result = await service.createSpaceReservation(user, 11, {
+      guestName: '张三',
+      phone: '13800138000',
+      reservedAt: reservedAtB,
+      reservedEndAt: reservedEndAtB,
+      guestCount: 2,
+    });
+
+    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(transaction.spaceReservation.create).toHaveBeenCalled();
+    expect(result.status).toBe('pending');
+    expect(result.guestName).toBe('张三');
+  });
+
   it('updateSpaceReservation 若锁内发现预约已处理则阻止修改', async () => {
     const now = Date.now();
     prismaService.spaceReservation.findUnique.mockResolvedValue({

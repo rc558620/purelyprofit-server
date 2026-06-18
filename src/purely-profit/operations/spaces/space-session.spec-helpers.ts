@@ -147,6 +147,7 @@ export const expectedSalesRecordCreateOptions = {
   skipInventoryValidationAndDeduction: true,
   skipAccessCheck: true,
   assignToCurrentShiftOperator: true,
+  preserveCallerPrices: true,
 } as const;
 
 export const createSpaceTransactionClient = () => ({

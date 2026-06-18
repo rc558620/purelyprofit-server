@@ -44,6 +44,8 @@ export interface CreateSalesRecordOptions {
   assignToCurrentShiftOperator?: boolean;
   /** 复用外层事务，避免跨业务写链路出现部分提交 */
   transactionClient?: Prisma.TransactionClient;
+  /** 保留调用方传入的单价/利润，不用商品目录当前价格覆盖（空间结账等场景） */
+  preserveCallerPrices?: boolean;
 }
 
 @Injectable()
@@ -115,18 +117,25 @@ export class SalesRecordItemPreparationService {
           );
         }
 
+        const salePrice = options.preserveCallerPrices
+          ? normalizeSignedMoney(item.salePrice, '销售单价格式不正确')
+          : normalizeMoney(
+              toDecimalNumber(matchedProduct.price),
+              '销售单价不能小于 0',
+            );
+        const profit = options.preserveCallerPrices
+          ? normalizeSignedMoney(item.profit, '单件利润格式不正确')
+          : normalizeMoney(
+              toDecimalNumber(matchedProduct.profit),
+              '单件利润不能小于 0',
+            );
+
         return {
           productId: matchedProduct.id,
           productName: matchedProduct.name,
           categoryName: matchedProduct.category,
-          salePrice: normalizeMoney(
-            toDecimalNumber(matchedProduct.price),
-            '销售单价不能小于 0',
-          ),
-          profit: normalizeMoney(
-            toDecimalNumber(matchedProduct.profit),
-            '单件利润不能小于 0',
-          ),
+          salePrice,
+          profit,
           quantity,
           countsTowardTotalQuantity: true,
           image: matchedProduct.image ?? undefined,

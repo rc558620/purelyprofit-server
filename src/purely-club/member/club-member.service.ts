@@ -3,6 +3,8 @@ import { AuthService } from '../../purely-profit/auth/auth.service';
 import type { ProfileUserDto } from '../../purely-profit/auth/dto/profile-response.dto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PasswordOperationResponseDto } from '../../purely-profit/auth/dto/password-operation-response.dto';
+import { PrismaService } from '../../prisma/prisma.service';
+import { DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS } from '../../purely-profit/marketing/marketing.utils';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import {
   type ChangeClubMemberPasswordDto,
@@ -10,6 +12,7 @@ import {
   type ClubMemberLevelConfigDto,
   type ClubMemberLevelStatusDto,
   type ClubMemberProfileDto,
+  ClubPointsRatioDto,
   type UpdateClubMemberAvatarDto,
   type UpdateClubMemberNicknameDto,
 } from './dto/club-member-account.dto';
@@ -34,6 +37,7 @@ export class ClubMemberService {
     private readonly clubMemberLevelsService: ClubMemberLevelsService,
     private readonly clubMemberBenefitsService: ClubMemberBenefitsService,
     private readonly clubMemberTransactionsService: ClubMemberTransactionsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async changePassword(
@@ -99,6 +103,44 @@ export class ClubMemberService {
     currentContext: ClubCurrentContext,
   ): Promise<ClubMemberLevelConfigDto[]> {
     return this.clubMemberLevelsService.listConfigs(currentContext.store.id);
+  }
+
+  async getPointsRatio(
+    currentContext: ClubCurrentContext,
+  ): Promise<ClubPointsRatioDto> {
+    const settings = await this.prisma.marketingMemberLevelSetting.findUnique({
+      where: { storeId: currentContext.store.id },
+      select: { pointsRatio: true },
+    });
+
+    // 若未配置，使用默认值
+    if (
+      !settings?.pointsRatio ||
+      typeof settings.pointsRatio !== 'object' ||
+      Array.isArray(settings.pointsRatio)
+    ) {
+      return DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio;
+    }
+
+    const pointsRatioData = settings.pointsRatio as Record<string, unknown>;
+    return {
+      redeemRatioPoints:
+        typeof pointsRatioData.redeemRatioPoints === 'number' &&
+        pointsRatioData.redeemRatioPoints > 0
+          ? pointsRatioData.redeemRatioPoints
+          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio
+              .redeemRatioPoints,
+      maxRedeemRatio:
+        typeof pointsRatioData.maxRedeemRatio === 'number' &&
+        pointsRatioData.maxRedeemRatio >= 0 &&
+        pointsRatioData.maxRedeemRatio <= 1
+          ? pointsRatioData.maxRedeemRatio
+          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.maxRedeemRatio,
+      enabled:
+        typeof pointsRatioData.enabled === 'boolean'
+          ? pointsRatioData.enabled
+          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.enabled,
+    };
   }
 
   async getBenefits(

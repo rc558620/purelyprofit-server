@@ -270,7 +270,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       () => this.client.mget(...keys),
       (results) => {
         const hitCount = results.filter((v) => v !== null).length;
-        return hitCount === 0 ? 'miss' : hitCount === results.length ? 'hit' : 'neutral';
+        return hitCount === 0
+          ? 'miss'
+          : hitCount === results.length
+            ? 'hit'
+            : 'neutral';
       },
     );
 

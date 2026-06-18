@@ -487,10 +487,16 @@ export class SpaceReservationsService {
     reservedEndAt: number,
     excludeReservationId?: number,
   ): Promise<SpaceReservationRecord | null> {
+    // 业务规则：已过时的预约（reservedAt <= now）不再参与冲突占位
+    // 允许用户在已过时预约的时间段内创建新预约
+    const now = new Date();
     const where: Prisma.SpaceReservationWhereInput = {
       spaceId,
       status: PrismaSpaceReservationStatus.pending,
-      reservedAt: { lt: new Date(reservedEndAt) },
+      reservedAt: {
+        lt: new Date(reservedEndAt),
+        gte: now, // ← 排除已过时的预约（reservedAt > now）
+      },
       reservedEndAt: { gt: new Date(reservedAt) },
       ...(excludeReservationId !== undefined
         ? {

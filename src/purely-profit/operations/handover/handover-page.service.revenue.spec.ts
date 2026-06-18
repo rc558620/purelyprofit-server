@@ -22,7 +22,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         date: expect.any(Object),
         OR: [
           { spaceSession: { is: null }, operatorStaffId: 2 },
-          { totalRevenue: { gte: 0 }, spaceSession: { isNot: null } },
+          { spaceSession: { isNot: null } }
         ],
       }),
       _sum: { totalRevenue: true },
@@ -93,7 +93,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           },
           OR: [
             { spaceSession: { is: null }, operatorStaffId: 2 },
-            { totalRevenue: { gte: 0 }, spaceSession: { isNot: null } },
+            { spaceSession: { isNot: null } }
           ],
         }),
       }),
@@ -279,7 +279,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           },
           OR: [
             { spaceSession: { is: null }, operatorStaffId: 30 },
-            { totalRevenue: { gte: 0 }, spaceSession: { isNot: null } },
+            { spaceSession: { isNot: null } }
           ],
         }),
       }),
@@ -403,7 +403,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           },
           OR: [
             { spaceSession: { is: null }, operatorStaffId: 30 },
-            { totalRevenue: { gte: 0 }, spaceSession: { isNot: null } },
+            { spaceSession: { isNot: null } }
           ],
         }),
       }),
@@ -531,7 +531,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     ]);
     prismaService.saleOrder.aggregate
       .mockResolvedValueOnce({
-        _sum: { totalRevenue: new Prisma.Decimal('988.00') },
+        // additionalRevenue now includes ALL orders (positive + negative space-session)
+        // 988 (positive orders) + (-547.60) (refund) = 440.40
+        _sum: { totalRevenue: new Prisma.Decimal('440.40') },
       })
       .mockResolvedValueOnce({
         _sum: { totalRevenue: new Prisma.Decimal('-547.60') },
@@ -645,7 +647,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     prismaService.saleOrder.aggregate
       .mockResolvedValueOnce({
-        _sum: { totalRevenue: null },
+        // additionalRevenue now includes ALL orders, including the -88.80 refund
+        _sum: { totalRevenue: new Prisma.Decimal('-88.80') },
       })
       .mockResolvedValueOnce({
         _sum: { totalRevenue: new Prisma.Decimal('-88.80') },

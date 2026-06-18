@@ -46,7 +46,9 @@ export class ChangeClubMemberPasswordDto {
   newPassword: string;
 
   @ApiPropertyOptional({ example: 'newPassword123', description: '确认新密码' })
-  @ValidateIf((o: ChangeClubMemberPasswordDto) => o.confirmPassword !== undefined)
+  @ValidateIf(
+    (o: ChangeClubMemberPasswordDto) => o.confirmPassword !== undefined,
+  )
   @IsString({ message: '确认新密码必须是字符串' })
   @MinLength(6, { message: '确认新密码至少 6 位' })
   confirmPassword?: string;
@@ -315,4 +317,34 @@ export class ClubMemberLevelStatusDto {
   @IsOptional()
   @IsBoolean({ message: '已持有等级展示标识必须是布尔值' })
   heldLevelVisible?: boolean;
+}
+
+// ─── 积分规则配置 ────────────────────────────────────────────────────────────
+
+/**
+ * 会员积分规则配置 DTO
+ * 用于 serviceDetail 页面计算积分可抵扣的最大金额
+ */
+export class ClubPointsRatioDto {
+  @ApiProperty({
+    example: 100,
+    description: '多少积分抵扣 1 元；例如 100 表示 100 积分 = 1 元',
+  })
+  @IsNumber({}, { message: 'redeemRatioPoints 必须是数字' })
+  redeemRatioPoints: number;
+
+  @ApiProperty({
+    example: 0.5,
+    description:
+      '单次消费最大积分抵扣比例（0-1）；例如 0.5 表示最多抵扣折后价的 50%',
+  })
+  @IsNumber({}, { message: 'maxRedeemRatio 必须是数字' })
+  maxRedeemRatio: number;
+
+  @ApiProperty({
+    example: true,
+    description: '积分规则是否启用',
+  })
+  @IsBoolean({ message: 'enabled 必须是布尔值' })
+  enabled: boolean;
 }

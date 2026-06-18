@@ -304,7 +304,10 @@ export class MarketingMemberLevelDto {
 }
 
 export class MarketingPointsRatioDto implements MarketingPointsRatioConfigValue {
-  @ApiProperty({ example: 100, description: '每消费多少分获得 1 积分' })
+  @ApiProperty({
+    example: 200,
+    description: '每消费多少元得 1 积分；如 200 表示消费 200 元得 1 积分',
+  })
   earnRatioCents: number;
 
   @ApiProperty({ example: 100, description: '多少积分抵扣 1 元' })

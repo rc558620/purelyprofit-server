@@ -215,7 +215,12 @@ export class ClubWechatAuthService {
     url.searchParams.set('appid', appId);
     url.searchParams.set('secret', appSecret);
 
-    let result: { access_token?: string; errcode?: number; errmsg?: string; expires_in?: number };
+    let result: {
+      access_token?: string;
+      errcode?: number;
+      errmsg?: string;
+      expires_in?: number;
+    };
     try {
       const response = await fetch(url.toString(), {
         headers: { 'User-Agent': 'purelyprofit-server/1.0' },

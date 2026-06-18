@@ -15,7 +15,9 @@ export const mergeSessionItems = (
 
   for (const item of appendedItems) {
     const existing = mergedItems.find(
-      (currentItem) => currentItem.productId === item.productId,
+      (currentItem) =>
+        currentItem.productId === item.productId &&
+        currentItem.salePrice === item.salePrice,
     );
     if (existing) {
       existing.quantity += item.quantity;

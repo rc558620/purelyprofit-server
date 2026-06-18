@@ -304,7 +304,8 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       });
       prismaService.saleOrder.aggregate
         .mockResolvedValueOnce({
-          _sum: { totalRevenue: null },
+          // additionalRevenue now includes ALL orders, including the -45.50 refund
+          _sum: { totalRevenue: new Prisma.Decimal('-45.50') },
         })
         .mockResolvedValueOnce({
           _sum: { totalRevenue: new Prisma.Decimal('-45.50') },

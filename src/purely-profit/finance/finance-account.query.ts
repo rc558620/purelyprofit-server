@@ -1,8 +1,6 @@
 import { FinanceAccountStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  filterAndSortAccounts,
-} from './finance-account.domain';
+import { filterAndSortAccounts } from './finance-account.domain';
 import { buildPaginationState } from './finance-pagination.utils';
 import type {
   FinanceAccountRecordWithAmount,

@@ -26,7 +26,10 @@ const CLUB_ORDER_PAYMENT_SIGN_TYPE = 'RSA';
 const pad = (value: number, width = 2): string =>
   String(value).padStart(width, '0');
 
-export const buildOrderNo = (orderType: ClubOrderTypeValue, now: number): string => {
+export const buildOrderNo = (
+  orderType: ClubOrderTypeValue,
+  now: number,
+): string => {
   const date = new Date(now);
   const prefix = orderType === 'recharge' ? 'RC' : 'SV';
   const serial = [
