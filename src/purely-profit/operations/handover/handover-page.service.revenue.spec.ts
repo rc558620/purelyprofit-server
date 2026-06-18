@@ -28,7 +28,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       _sum: { totalRevenue: true },
     });
     expect(result.revenueSummary).toMatchObject({
-      additionalRevenue: 988,
+      additionalRevenue: 978.75,
       spaceRevenue: 9.25,
       refundAmount: 0,
       totalRevenue: 988,
@@ -148,7 +148,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
 
     expect(result.selectedShiftType).toBe(EmployeeShiftType.morning);
     expect(result.revenueSummary).toMatchObject({
-      additionalRevenue: 0,
+      additionalRevenue: -88.6,
       spaceRevenue: 88.6,
       refundAmount: 0,
       // additionalRevenue 已包含结账订单，不再叠加 spaceRevenue
@@ -542,7 +542,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
 
     expect(result.revenueSummary).toMatchObject({
-      additionalRevenue: 988,
+      additionalRevenue: 978.75,
       spaceRevenue: 9.25,
       refundAmount: 547.6,
       totalRevenue: 440.4,

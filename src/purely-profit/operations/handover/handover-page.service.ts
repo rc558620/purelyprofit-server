@@ -27,6 +27,7 @@ import {
 } from './handover-page.shared';
 import {
   ORDER_ITEMS_LIMIT,
+  addMoney,
   buildShiftDateRange,
   extendShiftRangeToReference,
   subMoney,
@@ -328,10 +329,15 @@ export class HandoverPageService {
   ): HandoverPageResponseDto {
     const paymentItems = mapPaymentItems(metrics.paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);
-    // additionalRevenue 已包含空间会话结账订单（含台位费+商品-预付抵扣），
-    // 不再叠加 spaceRevenue，避免 timeCost 双重计入。
-    const totalRevenue = subMoney(
+    // additionalRevenue 已包含空间会话结账订单（其 totalRevenue 含 timeCost），
+    // 展示时从营业收入中扣除 spaceRevenue，避免与"空间管理"卡片重复展示；
+    // totalRevenue 重新叠加 spaceRevenue，使卡片三项之和等于营业额。
+    const displayedAdditionalRevenue = subMoney(
       metrics.additionalRevenueAmount,
+      metrics.spaceRevenueAmount,
+    );
+    const totalRevenue = subMoney(
+      addMoney(displayedAdditionalRevenue, metrics.spaceRevenueAmount),
       metrics.refundAmount,
     );
 
@@ -351,7 +357,7 @@ export class HandoverPageService {
       selectedShiftType: shiftContext.shiftInfo.shiftType,
       shiftInfo,
       revenueSummary: {
-        additionalRevenue: metrics.additionalRevenueAmount,
+        additionalRevenue: displayedAdditionalRevenue,
         spaceRevenue: metrics.spaceRevenueAmount,
         totalRevenue,
         orderCount: metrics.orderCount,

@@ -366,15 +366,23 @@ export const buildRecordRevenueSummary = (
   revenueAmounts: ReturnType<typeof buildRevenueAmounts>,
   orderCount: number,
   pettyCashAmount: number,
-): NonNullable<HandoverRecordListItemDto['revenueSummary']> => ({
-  additionalRevenue: revenueAmounts.additionalRevenueAmount,
-  spaceRevenue: revenueAmounts.spaceRevenueAmount,
-  refundAmount: revenueAmounts.refundAmount,
-  // additionalRevenue 已包含空间会话结账订单，不再叠加 spaceRevenue。
-  totalRevenue: subMoney(
+): NonNullable<HandoverRecordListItemDto['revenueSummary']> => {
+  // additionalRevenue 已包含空间会话结账订单（其 totalRevenue 含 timeCost），
+  // 展示时从营业收入中扣除 spaceRevenue，避免与"空间管理"卡片重复展示；
+  // totalRevenue 重新叠加 spaceRevenue，使卡片三项之和等于营业额。
+  const displayedAdditionalRevenue = subMoney(
     revenueAmounts.additionalRevenueAmount,
-    revenueAmounts.refundAmount,
-  ),
-  orderCount,
-  pettyCache: pettyCashAmount,
-});
+    revenueAmounts.spaceRevenueAmount,
+  );
+  return {
+    additionalRevenue: displayedAdditionalRevenue,
+    spaceRevenue: revenueAmounts.spaceRevenueAmount,
+    refundAmount: revenueAmounts.refundAmount,
+    totalRevenue: subMoney(
+      addMoney(displayedAdditionalRevenue, revenueAmounts.spaceRevenueAmount),
+      revenueAmounts.refundAmount,
+    ),
+    orderCount,
+    pettyCache: pettyCashAmount,
+  };
+};
