@@ -1,17 +1,42 @@
 import {
+  EmployeePayrollStatus,
+  SpaceReservationStatus as PrismaSpaceReservationStatus,
+  Prisma,
+} from '@prisma/client';
+import {
   getDayEndTimestamp,
   getDayStartTimestamp,
 } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { buildDerivedFinanceAccountStatusWhere } from '../../finance/finance-account.query';
-import { DAY_MS } from './dashboard-home.constants';
+import {
+  buildDerivedFinanceAccountStatusWhere,
+  buildUpcomingDueAccountWhere,
+} from '../../finance/finance-account.query';
+import {
+  DAY_MS,
+  DRAFT_PAYROLL_MAX_MONTHS_AGO,
+  MAX_DRAFT_PAYROLL_COUNT,
+  MAX_INACTIVE_VIP_COUNT,
+  MAX_TODAY_RECHARGE_COUNT,
+  REVENUE_DECLINE_CONSECUTIVE_DAYS,
+  UPCOMING_ACCOUNT_DUE_WITHIN_DAYS,
+  UPCOMING_RESERVATION_WITHIN_HOURS,
+  VIP_INACTIVE_THRESHOLD_DAYS,
+  VIP_MEMBER_LEVELS,
+} from './dashboard-home.constants';
 import {
   DASHBOARD_HOME_ACTIVE_PROMOTION_SELECT,
+  DASHBOARD_HOME_DRAFT_PAYROLL_SELECT,
+  DASHBOARD_HOME_INACTIVE_VIP_SELECT,
   DASHBOARD_HOME_OVERDUE_ACCOUNT_SELECT,
   DASHBOARD_HOME_PENDING_WITHDRAWAL_SELECT,
   DASHBOARD_HOME_PRODUCT_ALERT_SELECT,
   DASHBOARD_HOME_STORE_SELECT,
+  DASHBOARD_HOME_TODAY_RECHARGE_SELECT,
+  DASHBOARD_HOME_UPCOMING_ACCOUNT_SELECT,
   DASHBOARD_HOME_UPCOMING_LEAVE_SELECT,
+  DASHBOARD_HOME_UPCOMING_RESERVATION_SELECT,
+  type DailyRevenueRow,
   type DashboardHomeActivitiesData,
   type DashboardHomePeriodValue,
   type DashboardHomeStatsData,
@@ -77,16 +102,28 @@ export async function loadDashboardHomeStatsData(
       where: { id: storeId },
       select: DASHBOARD_HOME_STORE_SELECT,
     }),
-    prisma.saleOrder.aggregate({
-      where: buildRangeWhere(storeId, currentRange),
-      _sum: { totalRevenue: true },
-      _count: { id: true },
-    }),
-    prisma.saleOrder.aggregate({
-      where: buildRangeWhere(storeId, compareRange),
-      _sum: { totalRevenue: true },
-      _count: { id: true },
-    }),
+    prisma.$queryRaw<[{ revenue: Prisma.Decimal | null; order_count: bigint }]>`
+      SELECT
+        COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue,
+        COUNT(DISTINCT so.id) AS order_count
+      FROM sale_order_items soi
+      INNER JOIN sale_orders so ON so.id = soi.order_id
+      WHERE so.store_id = ${storeId}
+        AND so.date >= ${new Date(currentRange.start)}
+        AND so.date <= ${new Date(currentRange.end)}
+        AND soi.product_name != '预付抵扣'
+    `,
+    prisma.$queryRaw<[{ revenue: Prisma.Decimal | null; order_count: bigint }]>`
+      SELECT
+        COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue,
+        COUNT(DISTINCT so.id) AS order_count
+      FROM sale_order_items soi
+      INNER JOIN sale_orders so ON so.id = soi.order_id
+      WHERE so.store_id = ${storeId}
+        AND so.date >= ${new Date(compareRange.start)}
+        AND so.date <= ${new Date(compareRange.end)}
+        AND soi.product_name != '预付抵扣'
+    `,
     prisma.costRecord.aggregate({
       where: buildRangeWhere(storeId, currentRange),
       _sum: { amount: true },
@@ -100,12 +137,12 @@ export async function loadDashboardHomeStatsData(
   return {
     store,
     currentSales: {
-      revenue: Number(currentSalesAgg._sum.totalRevenue ?? 0),
-      orderCount: currentSalesAgg._count.id,
+      revenue: Number(currentSalesAgg[0]?.revenue ?? 0),
+      orderCount: Number(currentSalesAgg[0]?.order_count ?? 0),
     },
     compareSales: {
-      revenue: Number(compareSalesAgg._sum.totalRevenue ?? 0),
-      orderCount: compareSalesAgg._count.id,
+      revenue: Number(compareSalesAgg[0]?.revenue ?? 0),
+      orderCount: Number(compareSalesAgg[0]?.order_count ?? 0),
     },
     currentCosts: {
       totalCost: Number(currentCostsAgg._sum.amount ?? 0),
@@ -123,17 +160,21 @@ export async function loadDashboardHomeTrendRows(
   const trendStart = resolveTrendStart(params.period, params.currentRange);
   const sqlGranularity = resolveTrendSqlGranularity(params.period);
 
-  return prisma.$queryRaw<DashboardHomeTrendRevenueRow[]>`
+  const rows = await prisma.$queryRaw<DashboardHomeTrendRevenueRow[]>`
     SELECT
-      date_trunc(${sqlGranularity}, date) AS "bucketAt",
-      COALESCE(SUM(total_revenue), 0) AS revenue
-    FROM sale_orders
-    WHERE store_id = ${params.storeId}
-      AND date >= ${new Date(trendStart)}
-      AND date <= ${new Date(params.currentRange.end)}
+      date_trunc(${sqlGranularity}, so.date) AS "bucketAt",
+      COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue
+    FROM sale_order_items soi
+    INNER JOIN sale_orders so ON so.id = soi.order_id
+    WHERE so.store_id = ${params.storeId}
+      AND so.date >= ${new Date(trendStart)}
+      AND so.date <= ${new Date(params.currentRange.end)}
+      AND soi.product_name != '预付抵扣'
     GROUP BY 1
     ORDER BY 1 ASC
   `;
+
+  return normalizeRawBucketAt(rows);
 }
 
 export async function loadDashboardHomeActivitiesData(
@@ -142,7 +183,16 @@ export async function loadDashboardHomeActivitiesData(
 ): Promise<DashboardHomeActivitiesData> {
   const { storeId, now } = params;
   const todayStart = getDayStartTimestamp(now);
+  const todayEnd = getDayEndTimestamp(now);
   const upcomingLeaveEnd = getDayEndTimestamp(todayStart + DAY_MS * 3);
+  const reservationWindowEnd =
+    now + UPCOMING_RESERVATION_WITHIN_HOURS * 60 * 60 * 1000;
+  const vipInactiveThreshold = new Date(
+    now - VIP_INACTIVE_THRESHOLD_DAYS * DAY_MS,
+  );
+  const revenueLookbackStart = getDayStartTimestamp(
+    now - (REVENUE_DECLINE_CONSECUTIVE_DAYS + 1) * DAY_MS,
+  );
 
   const [
     lowStockProducts,
@@ -150,6 +200,13 @@ export async function loadDashboardHomeActivitiesData(
     activePromotions,
     pendingWithdrawals,
     upcomingLeaves,
+    todayNewMemberCount,
+    todayRecharges,
+    upcomingReservations,
+    upcomingAccounts,
+    draftPayrolls,
+    inactiveVips,
+    dailyRevenueRows,
   ] = await Promise.all([
     prisma.product.findMany({
       where: {
@@ -206,6 +263,74 @@ export async function loadDashboardHomeActivitiesData(
       orderBy: [{ startDate: 'asc' }, { createdAt: 'desc' }],
       take: 1,
     }),
+    prisma.member.count({
+      where: {
+        storeId,
+        createdAt: {
+          gte: new Date(todayStart),
+          lte: new Date(todayEnd),
+        },
+      },
+    }),
+    prisma.memberRechargeLog.findMany({
+      where: {
+        storeId,
+        createdAt: {
+          gte: new Date(todayStart),
+          lte: new Date(todayEnd),
+        },
+      },
+      select: DASHBOARD_HOME_TODAY_RECHARGE_SELECT,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: MAX_TODAY_RECHARGE_COUNT,
+    }),
+    prisma.spaceReservation.findMany({
+      where: {
+        storeId,
+        status: PrismaSpaceReservationStatus.pending,
+        reservedAt: {
+          gte: new Date(now),
+          lte: new Date(reservationWindowEnd),
+        },
+      },
+      select: DASHBOARD_HOME_UPCOMING_RESERVATION_SELECT,
+      orderBy: [{ reservedAt: 'asc' }, { id: 'asc' }],
+      take: 3,
+    }),
+    prisma.financeAccountRecord.findMany({
+      where: buildUpcomingDueAccountWhere({
+        storeId,
+        now,
+        withinDays: UPCOMING_ACCOUNT_DUE_WITHIN_DAYS,
+      }),
+      select: DASHBOARD_HOME_UPCOMING_ACCOUNT_SELECT,
+      orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }],
+      take: 5,
+    }),
+    prisma.employeePayroll.findMany({
+      where: {
+        storeId,
+        status: EmployeePayrollStatus.draft,
+        month: {
+          gte: buildRecentPayrollMonthFilter(),
+        },
+      },
+      select: DASHBOARD_HOME_DRAFT_PAYROLL_SELECT,
+      orderBy: [{ month: 'desc' }, { updatedAt: 'desc' }],
+      take: MAX_DRAFT_PAYROLL_COUNT,
+    }),
+    prisma.member.findMany({
+      where: {
+        storeId,
+        level: { in: [...VIP_MEMBER_LEVELS] },
+        lastConsumeAt: { lt: vipInactiveThreshold },
+        status: 'ACTIVE',
+      },
+      select: DASHBOARD_HOME_INACTIVE_VIP_SELECT,
+      orderBy: [{ lastConsumeAt: 'asc' }, { updatedAt: 'desc' }],
+      take: MAX_INACTIVE_VIP_COUNT,
+    }),
+    loadRecentDailyRevenue(prisma, storeId, revenueLookbackStart, now),
   ]);
 
   return {
@@ -214,5 +339,66 @@ export async function loadDashboardHomeActivitiesData(
     activePromotions,
     pendingWithdrawals,
     upcomingLeaves,
+    todayNewMemberCount,
+    todayRecharges,
+    upcomingReservations,
+    upcomingAccounts,
+    draftPayrolls,
+    inactiveVips,
+    dailyRevenueRows,
   };
+}
+
+/**
+ * Prisma $queryRaw 返回的 date_trunc 结果是字符串而非 Date 对象，
+ * 需要统一转换为 Date 以便后续 .getTime() / .getFullYear() 等调用。
+ */
+function normalizeRawBucketAt<
+  T extends { bucketAt: Date | string },
+>(rows: T[]): T[] {
+  return rows.map((row) => ({
+    ...row,
+    bucketAt: row.bucketAt instanceof Date ? row.bucketAt : new Date(row.bucketAt),
+  }));
+}
+
+/**
+ * 加载近 N+1 天每日营收，用于检测连续下滑趋势。
+ * 使用原始 SQL 以复用已有的 sale_order_items + sale_orders 聚合模式。
+ */
+async function loadRecentDailyRevenue(
+  prisma: PrismaService,
+  storeId: number,
+  rangeStart: number,
+  now: number,
+): Promise<DailyRevenueRow[]> {
+  const rows = await prisma.$queryRaw<DailyRevenueRow[]>`
+    SELECT
+      date_trunc('day', so.date) AS "bucketAt",
+      COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue
+    FROM sale_order_items soi
+    INNER JOIN sale_orders so ON so.id = soi.order_id
+    WHERE so.store_id = ${storeId}
+      AND so.date >= ${new Date(rangeStart)}
+      AND so.date <= ${new Date(now)}
+      AND soi.product_name != '预付抵扣'
+    GROUP BY 1
+    ORDER BY 1 ASC
+  `;
+
+  return normalizeRawBucketAt(rows);
+}
+
+/**
+ * 生成近 DRAFT_PAYROLL_MAX_MONTHS_AGO 个月的月份过滤下界，格式 YYYY-MM。
+ * 用于只查近期未确认的工资单，避免把历史遗留草稿也拉出来。
+ */
+function buildRecentPayrollMonthFilter(): string {
+  const now = new Date();
+  const target = new Date(
+    now.getFullYear(),
+    now.getMonth() - DRAFT_PAYROLL_MAX_MONTHS_AGO,
+    1,
+  );
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}`;
 }

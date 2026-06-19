@@ -1,9 +1,5 @@
 import { Prisma } from '@prisma/client';
-import {
-  getEndOfDay,
-  getStartOfDay,
-  toDecimalNumber,
-} from '../../commerce/commerce.utils';
+import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { SaleOrderWithItems } from './sales-record.domain';
 import { buildOrderNo, type SalesPeriodRange } from './sales-record.utils';
@@ -25,25 +21,32 @@ export async function aggregateOrderStats(
   storeId: number,
   range: SalesPeriodRange,
 ): Promise<SalesStatsAggregation> {
-  const aggregation = await prisma.saleOrder.aggregate({
-    where: {
-      storeId,
-      date: {
-        gte: new Date(range.start),
-        lte: new Date(range.end),
+  // 从 sale_order_items 聚合，排除预付抵扣行，只算实际消费
+  const result = await prisma.$queryRaw<
+    [
+      {
+        revenue: Prisma.Decimal | null;
+        profit: Prisma.Decimal | null;
+        order_count: bigint;
       },
-    },
-    _count: { id: true },
-    _sum: {
-      totalRevenue: true,
-      totalProfit: true,
-    },
-  });
+    ]
+  >`
+    SELECT
+      COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue,
+      COALESCE(SUM(soi.profit * soi.quantity), 0) AS profit,
+      COUNT(DISTINCT so.id) AS order_count
+    FROM sale_order_items soi
+    INNER JOIN sale_orders so ON so.id = soi.order_id
+    WHERE so.store_id = ${storeId}
+      AND so.date >= ${new Date(range.start)}
+      AND so.date <= ${new Date(range.end)}
+      AND soi.product_name != '预付抵扣'
+  `;
 
   return {
-    totalRevenue: toDecimalNumber(aggregation._sum.totalRevenue),
-    totalProfit: toDecimalNumber(aggregation._sum.totalProfit),
-    orderCount: aggregation._count.id,
+    totalRevenue: Number(result[0]?.revenue ?? 0),
+    totalProfit: Number(result[0]?.profit ?? 0),
+    orderCount: Number(result[0]?.order_count ?? 0),
   };
 }
 

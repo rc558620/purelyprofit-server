@@ -58,6 +58,13 @@ export function buildDashboardHomeOverviewResponse(params: {
       activePromotions: activitiesData.activePromotions,
       pendingWithdrawals: activitiesData.pendingWithdrawals,
       upcomingLeave: activitiesData.upcomingLeaves[0],
+      todayNewMemberCount: activitiesData.todayNewMemberCount,
+      todayRecharges: activitiesData.todayRecharges,
+      upcomingReservations: activitiesData.upcomingReservations,
+      upcomingAccounts: activitiesData.upcomingAccounts,
+      draftPayrolls: activitiesData.draftPayrolls,
+      inactiveVips: activitiesData.inactiveVips,
+      dailyRevenueRows: activitiesData.dailyRevenueRows,
     }),
     meta: buildDashboardHomeMeta(
       period,

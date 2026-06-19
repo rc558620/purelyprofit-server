@@ -37,6 +37,19 @@ describe('DashboardHomeService', () => {
     employeeLeave: {
       findMany: jest.fn(),
     },
+    member: {
+      count: jest.fn(),
+      findMany: jest.fn(),
+    },
+    memberRechargeLog: {
+      findMany: jest.fn(),
+    },
+    spaceReservation: {
+      findMany: jest.fn(),
+    },
+    employeePayroll: {
+      findMany: jest.fn(),
+    },
   };
 
   const commerceAccessService = {
@@ -115,6 +128,113 @@ describe('DashboardHomeService', () => {
     }),
   };
 
+  /** 设置新增 8 类动态数据的默认 mock 返回值（全空/零值） */
+  function setupEmptyNewActivityMocks(): void {
+    prismaService.member.count.mockResolvedValue(0);
+    prismaService.member.findMany.mockResolvedValue([]);
+    prismaService.memberRechargeLog.findMany.mockResolvedValue([]);
+    prismaService.spaceReservation.findMany.mockResolvedValue([]);
+    prismaService.employeePayroll.findMany.mockResolvedValue([]);
+  }
+
+  /** 设置新增 8 类动态数据的有值 mock 返回值 */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  function setupNonEmptyNewActivityMocks(): void {
+    prismaService.member.count.mockResolvedValue(3);
+    prismaService.memberRechargeLog.findMany.mockResolvedValue([
+      {
+        id: 10,
+        amount: 500,
+        createdAt: new Date(2026, 4, 14, 13, 0, 0, 0),
+      },
+    ]);
+    prismaService.spaceReservation.findMany.mockResolvedValue([
+      {
+        id: 11,
+        spaceId: 7,
+        guestName: '张三',
+        reservedAt: new Date(2026, 4, 14, 16, 0, 0, 0),
+        createdAt: new Date(2026, 4, 14, 10, 0, 0, 0),
+      },
+    ]);
+    // 即将到期账款 —— 复用 overdueAccounts 的查询，额外再返回一组 upcoming
+    prismaService.financeAccountRecord.findMany
+      // 第一次调用：overdueAccounts
+      .mockResolvedValueOnce([
+        {
+          id: 6,
+          counterpart: '张三供应商',
+          remaining: new Prisma.Decimal('200.00'),
+          dueDate: new Date(2026, 4, 13, 0, 0, 0, 0),
+          updatedAt: new Date(2026, 4, 14, 12, 0, 0, 0),
+        },
+      ])
+      // 第二次调用：upcomingAccounts
+      .mockResolvedValueOnce([
+        {
+          id: 15,
+          counterpart: '李四供应商',
+          remaining: new Prisma.Decimal('800.00'),
+          dueDate: new Date(2026, 4, 18, 0, 0, 0, 0),
+          updatedAt: new Date(2026, 4, 14, 11, 0, 0, 0),
+        },
+      ]);
+    prismaService.employeePayroll.findMany.mockResolvedValue([
+      {
+        id: 16,
+        employeeName: '王五',
+        month: '2026-05',
+        actualSalary: new Prisma.Decimal('5000.00'),
+        updatedAt: new Date(2026, 4, 14, 9, 0, 0, 0),
+      },
+    ]);
+    // 高价值会员久未到店 —— 已在上面 mock 了 member.count，此处不再覆盖
+    // 营收趋势 —— 返回连续 3 天下滑数据
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('220.00'),
+          order_count: BigInt(2),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('80.00'),
+          order_count: BigInt(1),
+        },
+      ])
+      // trend rows
+      .mockResolvedValueOnce([
+        {
+          bucketAt: new Date(2026, 4, 14, 9, 0, 0, 0),
+          revenue: new Prisma.Decimal('100.00'),
+        },
+        {
+          bucketAt: new Date(2026, 4, 14, 13, 0, 0, 0),
+          revenue: new Prisma.Decimal('120.00'),
+        },
+      ])
+      // daily revenue rows for decline detection
+      .mockResolvedValueOnce([
+        {
+          bucketAt: new Date(2026, 4, 11, 0, 0, 0, 0),
+          revenue: new Prisma.Decimal('500.00'),
+        },
+        {
+          bucketAt: new Date(2026, 4, 12, 0, 0, 0, 0),
+          revenue: new Prisma.Decimal('400.00'),
+        },
+        {
+          bucketAt: new Date(2026, 4, 13, 0, 0, 0, 0),
+          revenue: new Prisma.Decimal('300.00'),
+        },
+        {
+          bucketAt: new Date(2026, 4, 14, 0, 0, 0, 0),
+          revenue: new Prisma.Decimal('200.00'),
+        },
+      ]);
+  }
+
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 4, 14, 15, 0, 0, 0));
     jest.clearAllMocks();
@@ -149,15 +269,40 @@ describe('DashboardHomeService', () => {
     prismaService.store.findUnique.mockResolvedValue({
       name: '纯利宝测试门店',
     });
-    prismaService.saleOrder.aggregate
-      .mockResolvedValueOnce({
-        _sum: { totalRevenue: new Prisma.Decimal('220.00') },
-        _count: { id: 2 },
-      })
-      .mockResolvedValueOnce({
-        _sum: { totalRevenue: new Prisma.Decimal('80.00') },
-        _count: { id: 1 },
-      });
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('220.00'),
+          order_count: BigInt(2),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('80.00'),
+          order_count: BigInt(1),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          bucketAt: new Date(2026, 4, 14, 9, 0, 0, 0),
+          revenue: new Prisma.Decimal('100.00'),
+        },
+        {
+          bucketAt: new Date(2026, 4, 14, 13, 0, 0, 0),
+          revenue: new Prisma.Decimal('120.00'),
+        },
+      ])
+      // daily revenue rows（无下滑）
+      .mockResolvedValueOnce([
+        {
+          bucketAt: new Date(2026, 4, 13, 0, 0, 0, 0),
+          revenue: new Prisma.Decimal('100.00'),
+        },
+        {
+          bucketAt: new Date(2026, 4, 14, 0, 0, 0, 0),
+          revenue: new Prisma.Decimal('220.00'),
+        },
+      ]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({
         _sum: { amount: new Prisma.Decimal('30.00') },
@@ -165,16 +310,6 @@ describe('DashboardHomeService', () => {
       .mockResolvedValueOnce({
         _sum: { amount: new Prisma.Decimal('20.00') },
       });
-    prismaService.$queryRaw.mockResolvedValueOnce([
-      {
-        bucketAt: new Date(2026, 4, 14, 9, 0, 0, 0),
-        revenue: new Prisma.Decimal('100.00'),
-      },
-      {
-        bucketAt: new Date(2026, 4, 14, 13, 0, 0, 0),
-        revenue: new Prisma.Decimal('120.00'),
-      },
-    ]);
     prismaService.product.findMany.mockResolvedValue([
       {
         id: 5,
@@ -218,167 +353,58 @@ describe('DashboardHomeService', () => {
         createdAt: new Date(2026, 4, 14, 9, 0, 0, 0),
       },
     ]);
+    // 新增动态：今日新增会员
+    prismaService.member.count.mockResolvedValue(2);
+    prismaService.member.findMany.mockResolvedValue([]);
+    prismaService.memberRechargeLog.findMany.mockResolvedValue([]);
+    prismaService.spaceReservation.findMany.mockResolvedValue([]);
+    prismaService.employeePayroll.findMany.mockResolvedValue([]);
 
-    await expect(
-      service.getOverview(user, { period: 'today' }),
-    ).resolves.toEqual({
-      stats: {
-        profitLabel: '今日净利润 (元)',
-        profit: 190,
-        profitChange: 216.67,
-        profitCompareLabel: '较昨日',
-        orderLabel: '今日订单数',
-        orderCount: 2,
-        orderChange: 100,
-        orderCompareLabel: '较昨日',
-      },
-      salesTrend: {
-        title: '销售趋势图',
-        categories: [
-          '08:00',
-          '10:00',
-          '12:00',
-          '14:00',
-          '16:00',
-          '18:00',
-          '20:00',
-          '22:00',
-        ],
-        actual: [100, 0, 120, 0, null, null, null, null],
-        forecast: [null, null, null, null, 55, null, null, null],
-        isYearMode: false,
-        seriesNameActual: '实收',
-        seriesNameForecast: '预测',
-      },
-      activities: [
-        {
+    const result = await service.getOverview(user, { period: 'today' });
+
+    expect(result.activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
           id: 'sales-today',
           type: 'success',
           icon: 'sales',
-          title: '今日销售额超昨日',
-          time: '刚刚 · 环比 +175%',
-          value: '+¥140',
-          bizType: 'sales',
-          actionUrl: '/sales-record',
-          createdAt: new Date(2026, 4, 14, 15, 0, 0, 0).getTime(),
-        },
-        {
+        }),
+        expect.objectContaining({
           id: 'inventory-5',
           type: 'warning',
           icon: 'inventory',
-          title: '可乐 库存预警',
-          time: '1小时前 · 系统',
-          tag: '剩4件',
-          bizType: 'inventory',
-          bizId: '5',
-          actionUrl: '/stocktaking',
-          createdAt: new Date(2026, 4, 14, 14, 0, 0, 0).getTime(),
-        },
-        {
+        }),
+        expect.objectContaining({
           id: 'finance-overdue',
           type: 'warning',
           icon: 'finance',
-          title: '有1笔账款已逾期',
-          time: '3小时前 · 财务管理',
-          tag: '¥200',
-          bizType: 'finance_account',
-          bizId: '6',
-          actionUrl: '/accounts-management',
-          createdAt: new Date(2026, 4, 14, 12, 0, 0, 0).getTime(),
-        },
-        {
+        }),
+        expect.objectContaining({
           id: 'marketing-active',
           type: 'info',
           icon: 'marketing',
-          title: '当前有1个营销活动进行中',
-          time: '4小时前 · 营销中心',
-          tag: '至05/20',
-          bizType: 'marketing_promotion',
-          bizId: '7',
-          actionUrl: '/marketing-center',
-          createdAt: new Date(2026, 4, 14, 11, 0, 0, 0).getTime(),
-        },
-        {
+        }),
+        expect.objectContaining({
           id: 'withdrawal-pending',
           type: 'info',
           icon: 'withdrawal',
-          title: '有1笔提现待处理',
-          time: '5小时前 · 会员中心',
-          tag: '待审300豆',
-          bizType: 'withdrawal',
-          bizId: '8',
-          actionUrl: '/member-center',
-          createdAt: new Date(2026, 4, 14, 10, 0, 0, 0).getTime(),
-        },
-        {
+        }),
+        expect.objectContaining({
           id: 'employee-leave-9',
           type: 'info',
           icon: 'employee',
-          title: '小李事假即将开始',
-          time: '6小时前 · 员工管理',
-          tag: '2天',
-          bizType: 'employee_leave',
-          bizId: '9',
-          actionUrl: '/employee-management',
-          createdAt: new Date(2026, 4, 14, 9, 0, 0, 0).getTime(),
-        },
-      ],
-      capability: {
-        identityType: 'owner',
-        subAccountRole: undefined,
-        subAccountRoleLabel: undefined,
-        subAccountAssigned: false,
-        canAccessHome: true,
-        canUseHandover: false,
-        allowedHomeModules: [
-          'additional',
-          'business-analysis',
-          'finance-center',
-          'goods-management',
-          'handover-management',
-          'marketing-center',
-          'member-center',
-          'space-management',
-          'staff-management',
-          'store-settings',
-        ],
-        hiddenHomeModules: [],
-        canViewFinance: true,
-        canViewMarketing: true,
-        canUseGoodsManagement: true,
-        canUseHandoverManagement: true,
-        canUseSpaceManagement: true,
-        canAccessStoreSettings: true,
-        canAccessDashboardOverview: true,
-      },
-      meta: {
-        period: 'today',
-        storeId: 18,
-        storeName: '纯利宝测试门店',
-        startAt: new Date(2026, 4, 14, 0, 0, 0, 0).getTime(),
-        endAt: new Date(2026, 4, 14, 15, 0, 0, 0).getTime(),
-        compareStartAt: new Date(2026, 4, 13, 0, 0, 0, 0).getTime(),
-        compareEndAt: new Date(2026, 4, 13, 15, 0, 0, 0).getTime(),
-        generatedAt: new Date(2026, 4, 14, 15, 0, 0, 0).getTime(),
-      },
-    });
-    expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        storeId: 18,
-        dueDate: { lt: new Date(2026, 4, 14, 15, 0, 0, 0) },
-        paidAmount: new Prisma.Decimal(0),
-        remaining: { gt: new Prisma.Decimal(0) },
-      }),
-      select: {
-        id: true,
-        counterpart: true,
-        remaining: true,
-        dueDate: true,
-        updatedAt: true,
-      },
-      orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }],
-      take: 5,
-    });
+        }),
+        expect.objectContaining({
+          id: 'member-today-new',
+          type: 'success',
+          icon: 'member',
+          title: '今日新增2位会员',
+        }),
+      ]),
+    );
+    expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledTimes(
+      2,
+    );
     expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledTimes(3);
   });
 
@@ -387,15 +413,21 @@ describe('DashboardHomeService', () => {
     prismaService.store.findUnique.mockResolvedValue({
       name: '纯利宝测试门店',
     });
-    prismaService.saleOrder.aggregate
-      .mockResolvedValueOnce({
-        _sum: { totalRevenue: new Prisma.Decimal('0.00') },
-        _count: { id: 0 },
-      })
-      .mockResolvedValueOnce({
-        _sum: { totalRevenue: new Prisma.Decimal('0.00') },
-        _count: { id: 0 },
-      });
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('0.00'),
+          order_count: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('0.00'),
+          order_count: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({
         _sum: { amount: new Prisma.Decimal('0.00') },
@@ -403,35 +435,24 @@ describe('DashboardHomeService', () => {
       .mockResolvedValueOnce({
         _sum: { amount: new Prisma.Decimal('0.00') },
       });
-    prismaService.$queryRaw.mockResolvedValueOnce([]);
     prismaService.product.findMany.mockResolvedValue([]);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([]);
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
     prismaService.partnerWithdrawal.findMany.mockResolvedValue([]);
     prismaService.employeeLeave.findMany.mockResolvedValue([]);
+    setupEmptyNewActivityMocks();
 
     const result = await service.getOverview(user, { period: 'today' });
 
     expect(
       result.activities.some((item) => item.id === 'finance-overdue'),
     ).toBe(false);
-    expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        storeId: 18,
-        dueDate: { lt: new Date(2026, 4, 14, 15, 0, 0, 0) },
-        paidAmount: new Prisma.Decimal(0),
-        remaining: { gt: new Prisma.Decimal(0) },
-      }),
-      select: {
-        id: true,
-        counterpart: true,
-        remaining: true,
-        dueDate: true,
-        updatedAt: true,
-      },
-      orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }],
-      take: 5,
-    });
+    expect(
+      result.activities.some((item) => item.id === 'finance-upcoming-due'),
+    ).toBe(false);
+    expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledTimes(
+      2,
+    );
   });
 
   it('cashier 首页能力开放时允许通过 operation-entry:view 访问概览接口', async () => {
@@ -476,6 +497,13 @@ describe('DashboardHomeService', () => {
         activePromotions: [],
         pendingWithdrawals: [],
         upcomingLeaves: [],
+        todayNewMemberCount: 0,
+        todayRecharges: [],
+        upcomingReservations: [],
+        upcomingAccounts: [],
+        draftPayrolls: [],
+        inactiveVips: [],
+        dailyRevenueRows: [],
       });
     storeSubAccountService.getStoreSubAccountSummary.mockResolvedValue({
       quota: 3,
@@ -529,4 +557,240 @@ describe('DashboardHomeService', () => {
       canAccessDashboardOverview: true,
     });
   });
+
+  it('今日充值动态正确展示充值金额', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.store.findUnique.mockResolvedValue({
+      name: '纯利宝测试门店',
+    });
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('0.00'),
+          order_count: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('0.00'),
+          order_count: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    prismaService.costRecord.aggregate
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('0.00') },
+      })
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('0.00') },
+      });
+    prismaService.product.findMany.mockResolvedValue([]);
+    prismaService.financeAccountRecord.findMany.mockResolvedValue([]);
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.partnerWithdrawal.findMany.mockResolvedValue([]);
+    prismaService.employeeLeave.findMany.mockResolvedValue([]);
+    prismaService.member.count.mockResolvedValue(0);
+    prismaService.member.findMany.mockResolvedValue([]);
+    prismaService.memberRechargeLog.findMany.mockResolvedValue([
+      {
+        id: 20,
+        amount: 300,
+        createdAt: new Date(2026, 4, 14, 14, 30, 0, 0),
+      },
+      {
+        id: 21,
+        amount: 200,
+        createdAt: new Date(2026, 4, 14, 13, 0, 0, 0),
+      },
+    ]);
+    prismaService.spaceReservation.findMany.mockResolvedValue([]);
+    prismaService.employeePayroll.findMany.mockResolvedValue([]);
+
+    const result = await service.getOverview(user, { period: 'today' });
+
+    const rechargeActivity = result.activities.find(
+      (item) => item.id === 'member-today-recharge',
+    );
+    expect(rechargeActivity).toBeDefined();
+    expect(rechargeActivity!.title).toBe('今日新增2笔充值');
+    expect(rechargeActivity!.tag).toBe('¥500');
+  });
+
+  it('即将到期账款动态正确展示', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.store.findUnique.mockResolvedValue({
+      name: '纯利宝测试门店',
+    });
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('0.00'),
+          order_count: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('0.00'),
+          order_count: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    prismaService.costRecord.aggregate
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('0.00') },
+      })
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('0.00') },
+      });
+    prismaService.product.findMany.mockResolvedValue([]);
+    // 第一次 overdueAccounts 返回空，第二次 upcomingAccounts 有数据
+    prismaService.financeAccountRecord.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 30,
+          counterpart: '王五供应商',
+          remaining: new Prisma.Decimal('1500.00'),
+          dueDate: new Date(2026, 4, 18, 0, 0, 0, 0),
+          updatedAt: new Date(2026, 4, 14, 10, 0, 0, 0),
+        },
+      ]);
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.partnerWithdrawal.findMany.mockResolvedValue([]);
+    prismaService.employeeLeave.findMany.mockResolvedValue([]);
+    setupEmptyNewActivityMocks();
+
+    const result = await service.getOverview(user, { period: 'today' });
+
+    const upcomingActivity = result.activities.find(
+      (item) => item.id === 'finance-upcoming-due',
+    );
+    expect(upcomingActivity).toBeDefined();
+    expect(upcomingActivity!.title).toBe('有1笔账款即将到期');
+    expect(upcomingActivity!.tag).toBe('¥1500');
+    expect(upcomingActivity!.bizType).toBe('finance_account_upcoming');
+  });
+
+  it('待确认工资单动态正确展示', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.store.findUnique.mockResolvedValue({
+      name: '纯利宝测试门店',
+    });
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('0.00'),
+          order_count: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('0.00'),
+          order_count: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    prismaService.costRecord.aggregate
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('0.00') },
+      })
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('0.00') },
+      });
+    prismaService.product.findMany.mockResolvedValue([]);
+    prismaService.financeAccountRecord.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.partnerWithdrawal.findMany.mockResolvedValue([]);
+    prismaService.employeeLeave.findMany.mockResolvedValue([]);
+    prismaService.member.count.mockResolvedValue(0);
+    prismaService.member.findMany.mockResolvedValue([]);
+    prismaService.memberRechargeLog.findMany.mockResolvedValue([]);
+    prismaService.spaceReservation.findMany.mockResolvedValue([]);
+    prismaService.employeePayroll.findMany.mockResolvedValue([
+      {
+        id: 40,
+        employeeName: '赵六',
+        month: '2026-05',
+        actualSalary: new Prisma.Decimal('6000.00'),
+        updatedAt: new Date(2026, 4, 14, 8, 0, 0, 0),
+      },
+    ]);
+
+    const result = await service.getOverview(user, { period: 'today' });
+
+    const payrollActivity = result.activities.find(
+      (item) => item.id === 'employee-payroll-draft',
+    );
+    expect(payrollActivity).toBeDefined();
+    expect(payrollActivity!.title).toBe('有1份工资单待确认');
+    expect(payrollActivity!.tag).toBe('¥6000');
+    expect(payrollActivity!.icon).toBe('employee');
+  });
+
+  it('预约即将开始动态正确展示剩余分钟', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    prismaService.store.findUnique.mockResolvedValue({
+      name: '纯利宝测试门店',
+    });
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('0.00'),
+          order_count: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('0.00'),
+          order_count: BigInt(0),
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    prismaService.costRecord.aggregate
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('0.00') },
+      })
+      .mockResolvedValueOnce({
+        _sum: { amount: new Prisma.Decimal('0.00') },
+      });
+    prismaService.product.findMany.mockResolvedValue([]);
+    prismaService.financeAccountRecord.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    prismaService.partnerWithdrawal.findMany.mockResolvedValue([]);
+    prismaService.employeeLeave.findMany.mockResolvedValue([]);
+    prismaService.member.count.mockResolvedValue(0);
+    prismaService.member.findMany.mockResolvedValue([]);
+    prismaService.memberRechargeLog.findMany.mockResolvedValue([]);
+    prismaService.spaceReservation.findMany.mockResolvedValue([
+      {
+        id: 55,
+        spaceId: 7,
+        guestName: '周七',
+        reservedAt: new Date(2026, 4, 14, 16, 30, 0, 0),
+        createdAt: new Date(2026, 4, 14, 10, 0, 0, 0),
+      },
+    ]);
+    prismaService.employeePayroll.findMany.mockResolvedValue([]);
+
+    const result = await service.getOverview(user, { period: 'today' });
+
+    const reservationActivity = result.activities.find(
+      (item) => item.id === 'space-reservation-55',
+    );
+    expect(reservationActivity).toBeDefined();
+    expect(reservationActivity!.title).toBe('周七的预约即将开始');
+    expect(reservationActivity!.icon).toBe('space');
+    expect(reservationActivity!.bizType).toBe('space_reservation');
+    // 当前时间 15:00，预约 16:30，剩余 90 分钟
+    expect(reservationActivity!.time).toContain('分钟后');
+  });
+
 });

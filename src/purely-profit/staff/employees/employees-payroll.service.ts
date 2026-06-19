@@ -7,6 +7,7 @@ import { EmployeePayrollStatus, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CostsService } from '../../operations/costs/costs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import {
   EmployeePayrollReportResponseDto,
   EmployeePayrollResponseDto,
@@ -36,6 +37,7 @@ export class EmployeesPayrollService {
     private readonly prisma: PrismaService,
     private readonly employeesAccessService: EmployeesAccessService,
     private readonly costsService: CostsService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async getPayrollReport(
@@ -184,6 +186,11 @@ export class EmployeesPayrollService {
       });
     });
 
+    // 首页动态依赖工资单数据（工资单待确认）
+    await this.cacheInvalidatorService.invalidateProfitDashboardHome(
+      employee.storeId,
+    );
+
     return toEmployeePayrollResponse(payroll);
   }
 
@@ -232,6 +239,12 @@ export class EmployeesPayrollService {
       });
       return nextPayroll;
     });
+
+    // 首页动态依赖工资单数据（工资单待确认）
+    await this.cacheInvalidatorService.invalidateProfitDashboardHome(
+      payroll.storeId,
+    );
+
     return toEmployeePayrollResponse(confirmed);
   }
 
@@ -254,6 +267,11 @@ export class EmployeesPayrollService {
       throw new ConflictException('已确认结算的工资记录不支持删除');
     }
     await this.prisma.employeePayroll.delete({ where: { id: payroll.id } });
+
+    // 首页动态依赖工资单数据（工资单待确认）
+    await this.cacheInvalidatorService.invalidateProfitDashboardHome(
+      payroll.storeId,
+    );
   }
 
   async updatePayroll(

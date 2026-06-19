@@ -5,6 +5,7 @@ import {
   roundMoneyValue,
   toDecimalNumber,
 } from '../../commerce/commerce.utils';
+import { toTimestamp } from './dashboard-home.activities.utils';
 import {
   DAY_MS,
   TODAY_BUCKET_LABELS,
@@ -46,7 +47,7 @@ function buildTodaySalesTrend(
   const forecast: Array<number | null> = TODAY_BUCKET_LABELS.map(() => null);
 
   for (const row of trendRows) {
-    const timestamp = row.bucketAt.getTime();
+    const timestamp = toTimestamp(row.bucketAt);
     if (timestamp < currentRange.start || timestamp > currentRange.end) {
       continue;
     }
@@ -173,7 +174,7 @@ function buildYearSalesTrend(
   const revenueMap = new Map<number, number>();
 
   for (const row of trendRows) {
-    const date = row.bucketAt;
+    const date = new Date(row.bucketAt);
     if (date.getFullYear() !== year) {
       continue;
     }
@@ -209,7 +210,7 @@ function buildDailyRevenueMap(
   const revenueMap = new Map<number, number>();
 
   for (const row of trendRows) {
-    const timestamp = row.bucketAt.getTime();
+    const timestamp = toTimestamp(row.bucketAt);
     if (timestamp < start || timestamp > end) {
       continue;
     }

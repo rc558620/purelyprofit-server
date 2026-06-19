@@ -82,6 +82,29 @@ export function buildDerivedOpenAccountWhere(params: {
   };
 }
 
+/**
+ * 构建即将到期账款的查询条件：到期日在 [now, now + withinDays) 之间，且尚未结清。
+ * 已逾期的不属于"即将到期"，已逾期的由 overdue 查询覆盖。
+ */
+export function buildUpcomingDueAccountWhere(params: {
+  storeId: number;
+  now: number;
+  withinDays: number;
+}): Prisma.FinanceAccountRecordWhereInput {
+  const dueBefore = new Date(params.now + params.withinDays * DAY_MS);
+
+  return {
+    storeId: params.storeId,
+    dueDate: {
+      gte: new Date(params.now),
+      lt: dueBefore,
+    },
+    remaining: { gt: ZERO_MONEY },
+  };
+}
+
+const DAY_MS = 86_400_000;
+
 const financeAccountRecordSelect = {
   id: true,
   type: true,

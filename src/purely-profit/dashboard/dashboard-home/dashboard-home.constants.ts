@@ -74,3 +74,30 @@ export const LEAVE_TYPE_LABELS: Record<EmployeeLeaveType, string> = {
   marriage: '婚假',
   other: '请假',
 };
+
+/** 账款即将到期提醒天数阈值（到期前 N 天内提醒） */
+export const UPCOMING_ACCOUNT_DUE_WITHIN_DAYS = 7;
+
+/** 高价值会员等级列表（匹配这些等级的会员被视为高价值） */
+export const VIP_MEMBER_LEVELS = ['annual', 'quarterly', 'monthly'] as const;
+
+/** 高价值会员久未到店阈值（天） */
+export const VIP_INACTIVE_THRESHOLD_DAYS = 30;
+
+/** 营收连续下滑检测天数 */
+export const REVENUE_DECLINE_CONSECUTIVE_DAYS = 3;
+
+/** 即将开始预约提醒：未来 N 小时内的预约 */
+export const UPCOMING_RESERVATION_WITHIN_HOURS = 2;
+
+/** 今日充值动态最多展示条数 */
+export const MAX_TODAY_RECHARGE_COUNT = 5;
+
+/** 待确认工资单最多展示条数 */
+export const MAX_DRAFT_PAYROLL_COUNT = 5;
+
+/** 高价值会员久未到店最多展示条数 */
+export const MAX_INACTIVE_VIP_COUNT = 5;
+
+/** 工资单草稿查询：只查近 N 个月内的 */
+export const DRAFT_PAYROLL_MAX_MONTHS_AGO = 3;

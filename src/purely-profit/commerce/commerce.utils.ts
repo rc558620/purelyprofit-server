@@ -6,6 +6,17 @@ export type DecimalLike = {
   toString(): string;
 };
 
+/**
+ * 空间预付抵扣商品的 productName。
+ * 在数据库 sale_order_items 中，预付抵扣行的 productId 为 null，
+ * 只能通过 productName 识别。
+ *
+ * 在非财务模块（profit-detail、business-analysis、dashboard-home、sales-record、report-center）
+ * 中应排除此 productName 的行，只算实际消费。
+ * 财务模块（finance-overview）保留完整流水口径，不排除。
+ */
+export const PREPAID_DEDUCTION_PRODUCT_NAME = '预付抵扣';
+
 export interface ResolvedPagination {
   page: number;
   skip: number;

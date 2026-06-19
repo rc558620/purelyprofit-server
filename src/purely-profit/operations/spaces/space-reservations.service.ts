@@ -11,6 +11,7 @@ import {
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import {
   CreateSpaceReservationDto,
   ListSpaceReservationsQueryDto,
@@ -23,7 +24,6 @@ import {
   ensureReservationEndAfterStart,
   ensureReservationGuestCount,
   ensureReservationTimeWindow,
-  findReservationTimeConflict,
   normalizeReservationPayload,
   toSpaceReservationResponse,
 } from './space-reservations.shared';
@@ -38,6 +38,7 @@ export class SpaceReservationsService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly stateService: SpaceReservationsStateService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async listSpaceReservations(
@@ -222,6 +223,11 @@ export class SpaceReservationsService {
       return created;
     });
 
+    // 首页动态依赖预约数据（预约/包间即将开始）
+    await this.cacheInvalidatorService.invalidateProfitDashboardHome(
+      reservation.storeId,
+    );
+
     return this.toSpaceReservationResponse(reservation);
   }
 
@@ -359,6 +365,11 @@ export class SpaceReservationsService {
       return nextReservation;
     });
 
+    // 首页动态依赖预约数据（预约/包间即将开始）
+    await this.cacheInvalidatorService.invalidateProfitDashboardHome(
+      reservation.storeId,
+    );
+
     return this.toSpaceReservationResponse(updated);
   }
 
@@ -434,6 +445,11 @@ export class SpaceReservationsService {
       );
       return nextReservation;
     });
+
+    // 首页动态依赖预约数据（预约/包间即将开始）
+    await this.cacheInvalidatorService.invalidateProfitDashboardHome(
+      reservation.storeId,
+    );
 
     return this.toSpaceReservationResponse(updated);
   }

@@ -372,15 +372,7 @@ describe('ProfitDetailService', () => {
         totalProfit: 8,
         profitRate: 100,
       },
-      {
-        id: 'space:大厅A01预付抵扣',
-        name: '大厅A01预付抵扣',
-        category: '场地费',
-        quantity: 1,
-        totalRevenue: -5,
-        totalProfit: -5,
-        profitRate: 100,
-      },
+      // 预付抵扣行已排除，不再出现在利润明细中
     ]);
   });
 

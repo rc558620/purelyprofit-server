@@ -42,7 +42,11 @@ export class CacheInvalidatorService {
   }
 
   async invalidateMembersDerived(storeId: number): Promise<void> {
-    await this.membershipInvalidator.invalidateMembersDerived(storeId);
+    await Promise.all([
+      this.membershipInvalidator.invalidateMembersDerived(storeId),
+      // 首页动态依赖会员数据（今日新增会员、今日新增充值、高价值会员久未到店）
+      this.profitReadInvalidator.invalidateProfitDashboardHome(storeId),
+    ]);
   }
 
   async invalidateWithdrawalsDerived(storeId: number): Promise<void> {

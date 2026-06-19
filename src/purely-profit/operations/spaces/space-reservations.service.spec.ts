@@ -7,6 +7,7 @@ import {
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceReservationsService } from './space-reservations.service';
 
@@ -21,6 +22,7 @@ describe('SpaceReservationsService', () => {
     },
     spaceReservation: {
       create: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -32,6 +34,7 @@ describe('SpaceReservationsService', () => {
       findUnique: jest.fn(),
     },
     spaceReservation: {
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
     },
@@ -48,6 +51,10 @@ describe('SpaceReservationsService', () => {
     resolveReservationBackStatus: jest.fn(),
     syncNonOccupiedSpaceStatus: jest.fn(),
     cancelMatchedReservationAfterCheckout: jest.fn(),
+  };
+
+  const cacheInvalidatorService = {
+    invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -93,6 +100,10 @@ describe('SpaceReservationsService', () => {
           provide: SpaceReservationsStateService,
           useValue: stateService,
         },
+        {
+          provide: CacheInvalidatorService,
+          useValue: cacheInvalidatorService,
+        },
       ],
     }).compile();
 
@@ -116,6 +127,7 @@ describe('SpaceReservationsService', () => {
         status: PrismaSpaceReservationStatus.pending,
       },
       orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      take: 200,
     });
   });
 
@@ -132,6 +144,7 @@ describe('SpaceReservationsService', () => {
         status: PrismaSpaceReservationStatus.cancelled,
       },
       orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      take: 200,
     });
   });
 
@@ -167,6 +180,7 @@ describe('SpaceReservationsService', () => {
         status: PrismaSpaceReservationStatus.pending,
       },
       orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      take: 200,
     });
   });
 
@@ -177,27 +191,27 @@ describe('SpaceReservationsService', () => {
       storeId: 18,
       capacity: 4,
     });
-    prismaService.spaceReservation.findMany.mockResolvedValue([]);
+    // 事务外第一次冲突检测：无冲突
+    prismaService.spaceReservation.findFirst.mockResolvedValue(null);
     transaction.space.findUnique.mockResolvedValue({
       id: 11,
       storeId: 18,
       capacity: 4,
     });
-    transaction.spaceReservation.findMany.mockResolvedValue([
-      {
-        id: 31,
-        spaceId: 11,
-        guestName: '李四',
-        phone: '13800138001',
-        reservedAt: new Date(now + 45 * 60 * 1000),
-        reservedEndAt: new Date(now + 105 * 60 * 1000),
-        guestCount: 2,
-        note: null,
-        status: PrismaSpaceReservationStatus.pending,
-        createdAt: new Date(now),
-        updatedAt: new Date(now),
-      },
-    ]);
+    // 事务内第二次冲突检测：发现冲突
+    transaction.spaceReservation.findFirst.mockResolvedValue({
+      id: 31,
+      spaceId: 11,
+      guestName: '李四',
+      phone: '13800138001',
+      reservedAt: new Date(now + 45 * 60 * 1000),
+      reservedEndAt: new Date(now + 105 * 60 * 1000),
+      guestCount: 2,
+      note: null,
+      status: PrismaSpaceReservationStatus.pending,
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    });
 
     await expect(
       service.createSpaceReservation(user, 11, {
@@ -216,8 +230,7 @@ describe('SpaceReservationsService', () => {
   it('createSpaceReservation 允许在已过时预约的时间段内创建新预约（BUG-4 修复）', async () => {
     // 场景：现在 08:01，旧预约 A (08:00-09:00) 已过时，新增预约 B (08:30-09:30) 应该成功
     const now = Date.now();
-    const reservedAtA = now - 1 * 60 * 1000; // 08:00
-    const reservedEndAtA = now + 59 * 60 * 1000; // 09:00
+    // 旧预约 A 时间：08:00 ~ 09:00（now - 1min ~ now + 59min）
     const reservedAtB = now + 29 * 60 * 1000; // 08:30
     const reservedEndAtB = now + 89 * 60 * 1000; // 09:30
 
@@ -226,7 +239,7 @@ describe('SpaceReservationsService', () => {
       storeId: 18,
       capacity: 4,
     });
-    prismaService.spaceReservation.findMany.mockResolvedValue([]);
+    prismaService.spaceReservation.findFirst.mockResolvedValue(null);
     transaction.space.findUnique.mockResolvedValue({
       id: 11,
       storeId: 18,
@@ -273,6 +286,7 @@ describe('SpaceReservationsService', () => {
         capacity: 4,
       },
     });
+    prismaService.spaceReservation.findFirst.mockResolvedValue(null);
     prismaService.spaceReservation.findMany.mockResolvedValue([]);
     transaction.space.findUnique.mockResolvedValue({
       id: 11,
@@ -283,6 +297,7 @@ describe('SpaceReservationsService', () => {
       spaceId: 11,
       status: PrismaSpaceReservationStatus.fulfilled,
     });
+    // 预约已处理，不会进入冲突检测，findFirst 不会被调用
 
     await expect(
       service.updateSpaceReservation(user, 21, {
@@ -309,6 +324,7 @@ describe('SpaceReservationsService', () => {
         capacity: 4,
       },
     });
+    prismaService.spaceReservation.findFirst.mockResolvedValue(null);
     prismaService.spaceReservation.findMany.mockResolvedValue([]);
     transaction.space.findUnique.mockResolvedValue({
       id: 11,
@@ -319,21 +335,20 @@ describe('SpaceReservationsService', () => {
       spaceId: 11,
       status: PrismaSpaceReservationStatus.pending,
     });
-    transaction.spaceReservation.findMany.mockResolvedValue([
-      {
-        id: 32,
-        spaceId: 11,
-        guestName: '李四',
-        phone: '13800138001',
-        reservedAt: new Date(now + 45 * 60 * 1000),
-        reservedEndAt: new Date(now + 105 * 60 * 1000),
-        guestCount: 2,
-        note: null,
-        status: PrismaSpaceReservationStatus.pending,
-        createdAt: new Date(now),
-        updatedAt: new Date(now),
-      },
-    ]);
+    // findReservationConflict 使用 findFirst 查询冲突
+    transaction.spaceReservation.findFirst.mockResolvedValue({
+      id: 32,
+      spaceId: 11,
+      guestName: '李四',
+      phone: '13800138001',
+      reservedAt: new Date(now + 45 * 60 * 1000),
+      reservedEndAt: new Date(now + 105 * 60 * 1000),
+      guestCount: 2,
+      note: null,
+      status: PrismaSpaceReservationStatus.pending,
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    });
 
     await expect(
       service.updateSpaceReservation(user, 21, {

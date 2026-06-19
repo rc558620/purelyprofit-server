@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { PREPAID_DEDUCTION_PRODUCT_NAME } from '../../commerce/commerce.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -101,15 +102,26 @@ export class SalesRecordReportService {
       range: { start: range.start, end: range.end },
     });
 
+    // 从 items 重新聚合 totalQuantity，排除预付抵扣行
     const totalQuantity = orders.reduce(
-      (sum, order) => sum + order.totalQuantity,
+      (sum, order) =>
+        sum +
+        order.items
+          .filter((item) => item.productName !== PREPAID_DEDUCTION_PRODUCT_NAME)
+          .reduce((acc, item) => acc + item.quantity, 0),
       0,
     );
+    // 从 items 重新聚合 totalRevenue，排除预付抵扣行
     const totalRevenue = orders
-      .reduce(
-        (acc, order) => acc.add(new Decimal(order.totalRevenue)),
-        new Decimal(0),
-      )
+      .reduce((acc, order) => {
+        const orderRevenue = order.items
+          .filter((item) => item.productName !== PREPAID_DEDUCTION_PRODUCT_NAME)
+          .reduce(
+            (sum, item) => sum + Number(item.salePrice) * item.quantity,
+            0,
+          );
+        return acc.add(new Decimal(orderRevenue));
+      }, new Decimal(0))
       .toDecimalPlaces(2)
       .toNumber();
     const dailySales = aggregateReportRows(orders);

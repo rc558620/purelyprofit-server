@@ -11,9 +11,7 @@ describe('SalesRecordStatsService', () => {
   let service: SalesRecordStatsService;
 
   const prismaService = {
-    saleOrder: {
-      aggregate: jest.fn(),
-    },
+    $queryRaw: jest.fn(),
   };
 
   const redisService = {
@@ -90,21 +88,21 @@ describe('SalesRecordStatsService', () => {
 
   it('getStats 返回当前统计与较上期变化', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.saleOrder.aggregate
-      .mockResolvedValueOnce({
-        _count: { id: 4 },
-        _sum: {
-          totalRevenue: new Prisma.Decimal('200'),
-          totalProfit: new Prisma.Decimal('55'),
+    prismaService.$queryRaw
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('200'),
+          profit: new Prisma.Decimal('55'),
+          order_count: BigInt(4),
         },
-      })
-      .mockResolvedValueOnce({
-        _count: { id: 2 },
-        _sum: {
-          totalRevenue: new Prisma.Decimal('160'),
-          totalProfit: new Prisma.Decimal('44'),
+      ])
+      .mockResolvedValueOnce([
+        {
+          revenue: new Prisma.Decimal('160'),
+          profit: new Prisma.Decimal('44'),
+          order_count: BigInt(2),
         },
-      });
+      ]);
 
     await expect(
       service.getStats(user, {
@@ -132,6 +130,6 @@ describe('SalesRecordStatsService', () => {
       avgOrderValue: 0,
       compareLastPeriod: null,
     });
-    expect(prismaService.saleOrder.aggregate).not.toHaveBeenCalled();
+    expect(prismaService.$queryRaw).not.toHaveBeenCalled();
   });
 });

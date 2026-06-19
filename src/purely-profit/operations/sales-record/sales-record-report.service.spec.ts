@@ -402,7 +402,7 @@ describe('SalesRecordReportService', () => {
         orderNo: '#20260514-006',
         totalRevenue: new Prisma.Decimal('-5.00'),
         totalProfit: new Prisma.Decimal('-5.00'),
-        totalQuantity: 1,
+        totalQuantity: 0,
         paymentMethod: 'wechat',
         calcMode: 'business',
         note: null,
@@ -439,10 +439,10 @@ describe('SalesRecordReportService', () => {
       }),
     ).resolves.toEqual({
       summary: {
-        totalQuantity: 4,
-        totalRevenue: 37,
-        orderCount: 4,
-        avgOrderValue: 9.25,
+        totalQuantity: 3,
+        totalRevenue: 42,
+        orderCount: 3,
+        avgOrderValue: 14,
       },
       dailySales: [
         {
@@ -451,13 +451,6 @@ describe('SalesRecordReportService', () => {
           productName: '大厅A02台位费（固定）',
           quantity: 1,
           revenue: 8,
-        },
-        {
-          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A01预付抵扣`,
-          dateLabel: '05/14',
-          productName: '大厅A01预付抵扣',
-          quantity: 1,
-          revenue: -5,
         },
         {
           id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A01台位费（固定）`,

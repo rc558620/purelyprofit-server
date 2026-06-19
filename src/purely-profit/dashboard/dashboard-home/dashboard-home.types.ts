@@ -80,6 +80,8 @@ export const DASHBOARD_HOME_ACTIVITY_ICON_VALUES = [
   'marketing',
   'withdrawal',
   'employee',
+  'member',
+  'space',
 ] as const;
 
 export type DashboardHomeActivityIconValue =
@@ -216,12 +218,92 @@ export interface DashboardHomeStatsData {
   compareCosts: AggregatedCostsResult;
 }
 
+export const DASHBOARD_HOME_UPCOMING_ACCOUNT_SELECT =
+  Prisma.validator<Prisma.FinanceAccountRecordSelect>()({
+    id: true,
+    counterpart: true,
+    remaining: true,
+    dueDate: true,
+    updatedAt: true,
+  });
+
+export type UpcomingAccountRow = Prisma.FinanceAccountRecordGetPayload<{
+  select: typeof DASHBOARD_HOME_UPCOMING_ACCOUNT_SELECT;
+}>;
+
+export const DASHBOARD_HOME_TODAY_NEW_MEMBER_COUNT_SELECT =
+  Prisma.validator<Prisma.MemberSelect>()({
+    _count: true,
+  });
+
+export const DASHBOARD_HOME_TODAY_RECHARGE_SELECT =
+  Prisma.validator<Prisma.MemberRechargeLogSelect>()({
+    id: true,
+    amount: true,
+    createdAt: true,
+  });
+
+export type TodayRechargeRow = Prisma.MemberRechargeLogGetPayload<{
+  select: typeof DASHBOARD_HOME_TODAY_RECHARGE_SELECT;
+}>;
+
+export const DASHBOARD_HOME_UPCOMING_RESERVATION_SELECT =
+  Prisma.validator<Prisma.SpaceReservationSelect>()({
+    id: true,
+    spaceId: true,
+    guestName: true,
+    reservedAt: true,
+    createdAt: true,
+  });
+
+export type UpcomingReservationRow = Prisma.SpaceReservationGetPayload<{
+  select: typeof DASHBOARD_HOME_UPCOMING_RESERVATION_SELECT;
+}>;
+
+export const DASHBOARD_HOME_DRAFT_PAYROLL_SELECT =
+  Prisma.validator<Prisma.EmployeePayrollSelect>()({
+    id: true,
+    employeeName: true,
+    month: true,
+    actualSalary: true,
+    updatedAt: true,
+  });
+
+export type DraftPayrollRow = Prisma.EmployeePayrollGetPayload<{
+  select: typeof DASHBOARD_HOME_DRAFT_PAYROLL_SELECT;
+}>;
+
+export const DASHBOARD_HOME_INACTIVE_VIP_SELECT =
+  Prisma.validator<Prisma.MemberSelect>()({
+    id: true,
+    name: true,
+    level: true,
+    lastConsumeAt: true,
+    updatedAt: true,
+  });
+
+export type InactiveVipRow = Prisma.MemberGetPayload<{
+  select: typeof DASHBOARD_HOME_INACTIVE_VIP_SELECT;
+}>;
+
+export interface DailyRevenueRow {
+  bucketAt: Date;
+  revenue: Prisma.Decimal;
+}
+
 export interface DashboardHomeActivitiesData {
   lowStockProducts: ProductAlertRow[];
   overdueAccounts: OverdueAccountRow[];
   activePromotions: ActivePromotionRow[];
   pendingWithdrawals: PendingWithdrawalRow[];
   upcomingLeaves: UpcomingLeaveRow[];
+  todayNewMemberCount: number;
+  todayRecharges: TodayRechargeRow[];
+  upcomingReservations: UpcomingReservationRow[];
+  upcomingAccounts: UpcomingAccountRow[];
+  draftPayrolls: DraftPayrollRow[];
+  inactiveVips: InactiveVipRow[];
+  dailyRevenueRows: DailyRevenueRow[];
 }
 
 export interface ActivityDraft {
@@ -247,6 +329,13 @@ export interface BuildDashboardHomeActivitiesParams {
   activePromotions: ActivePromotionRow[];
   pendingWithdrawals: PendingWithdrawalRow[];
   upcomingLeave?: UpcomingLeaveRow;
+  todayNewMemberCount: number;
+  todayRecharges: TodayRechargeRow[];
+  upcomingReservations: UpcomingReservationRow[];
+  upcomingAccounts: UpcomingAccountRow[];
+  draftPayrolls: DraftPayrollRow[];
+  inactiveVips: InactiveVipRow[];
+  dailyRevenueRows: DailyRevenueRow[];
 }
 
 export type DashboardHomeLeaveType = EmployeeLeaveType;
