@@ -2,7 +2,7 @@
 schema_version: 1
 locale: zh-CN
 branch: main
-exported_at: "2026-06-16T13:23:53Z"
+exported_at: "2026-06-19T14:09:09Z"
 modules:
     "":
         dir_name: 纯利商业操作系统核心
@@ -22,8 +22,8 @@ modules:
         depends_on: []
         related_to: []
     auth:
-        dir_name: 认证与授权管理
-        title: 认证与授权管理
+        dir_name: 认证与会话管理
+        title: 认证与会话管理
         scope:
             - src/purely-profit/auth/
         source_files: []
@@ -40,8 +40,8 @@ modules:
         depends_on: []
         related_to: []
     data_layer:
-        dir_name: 数据访问层与领域模型定义
-        title: 数据访问层与领域模型定义
+        dir_name: Prisma 数据访问层与领域模型管理
+        title: Prisma 数据访问层与领域模型管理
         scope:
             - src/prisma/
             - prisma/
@@ -50,8 +50,8 @@ modules:
         depends_on: []
         related_to: []
     observability:
-        dir_name: 运行时可观测性与指标汇总
-        title: 运行时可观测性与指标汇总
+        dir_name: 运行时可观测性与指标摘要
+        title: 运行时可观测性与指标摘要
         scope:
             - src/observability/
         source_files: []
@@ -65,21 +65,21 @@ modules:
             - src/purely-club/
         source_files: []
         children:
+            - purely_club/member
             - purely_club/records
             - purely_club/products
+            - purely_club/orders
+            - purely_club/promotions
+            - purely_club/home
             - purely_club/stores
             - purely_club/payments
             - purely_club/auth
             - purely_club/recharge
-            - purely_club/home
-            - purely_club/orders
-            - purely_club/member
-            - purely_club/promotions
         depends_on: []
         related_to: []
     purely_club/auth:
-        dir_name: Purely Club 认证与微信登录
-        title: Purely Club 认证与微信登录
+        dir_name: Purely Club 认证与微信登录模块
+        title: Purely Club 认证与微信登录模块
         scope:
             - src/purely-club/auth/
         source_files: []
@@ -87,8 +87,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/home:
-        dir_name: 俱乐部首页数据聚合
-        title: 俱乐部首页数据聚合
+        dir_name: Purely Club 首页聚合服务
+        title: Purely Club 首页聚合服务
         scope:
             - src/purely-club/home/
         source_files: []
@@ -105,8 +105,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/orders:
-        dir_name: 俱乐部服务订单与支付管理
-        title: 俱乐部服务订单与支付管理
+        dir_name: Purely Club 服务订单管理
+        title: Purely Club 服务订单管理
         scope:
             - src/purely-club/orders/
         source_files: []
@@ -114,8 +114,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/payments:
-        dir_name: 俱乐部微信支付集成与回调处理
-        title: 俱乐部微信支付集成与回调处理
+        dir_name: 微信支付集成与回调处理
+        title: 微信支付集成与回调处理
         scope:
             - src/purely-club/payments/
         source_files: []
@@ -132,8 +132,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/promotions:
-        dir_name: 俱乐部门店优惠活动展示
-        title: 俱乐部门店优惠活动展示
+        dir_name: 俱乐部营销活动展示
+        title: 俱乐部营销活动展示
         scope:
             - src/purely-club/promotions/
         source_files: []
@@ -141,8 +141,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/recharge:
-        dir_name: Purely Club 会员充值管理
-        title: Purely Club 会员充值管理
+        dir_name: 会员充值管理
+        title: 会员充值管理
         scope:
             - src/purely-club/recharge/
         source_files: []
@@ -150,8 +150,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/records:
-        dir_name: 门店会员流水查询与展示
-        title: 门店会员流水查询与展示
+        dir_name: 俱乐部会员流水查询与展示
+        title: 俱乐部会员流水查询与展示
         scope:
             - src/purely-club/records/
         source_files: []
@@ -168,25 +168,20 @@ modules:
         depends_on: []
         related_to: []
     purely_profit:
-        dir_name: Purely Profit 门店业务编排核心
-        title: Purely Profit 门店业务编排核心
+        dir_name: Purely Profit 门店经营与权限治理核心
+        title: Purely Profit 门店经营与权限治理核心
         scope:
             - src/purely-profit/
         source_files: []
         children:
-            - purely_profit/dashboard
-            - purely_profit/goods
-            - purely_profit/auth
-            - purely_profit/commerce
-            - purely_profit/stores
             - purely_profit/finance
+            - purely_profit/client_errors
+            - purely_profit/auth
             - purely_profit/marketing
-            - purely_profit/member
-            - purely_profit/staff
-            - purely_profit/subscriptions
-            - purely_profit/operations
+            - purely_profit/goods
             - purely_profit/access_control
-            - purely_profit/notifications
+            - purely_profit/commerce
+            - purely_profit/dashboard
         depends_on: []
         related_to: []
     purely_profit/access_control:
@@ -199,98 +194,19 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/auth:
-        dir_name: Purely Profit 认证与会话编排中心
-        title: Purely Profit 认证与会话编排中心
+        dir_name: 认证与授权管理
+        title: 认证与授权管理
         scope:
             - src/purely-profit/auth/
         source_files: []
-        children:
-            - purely_profit/auth/controller_decorators
-            - purely_profit/auth/profile
-            - purely_profit/auth/password_management
-            - purely_profit/auth/account_membership
-            - purely_profit/auth/authentication_session
-        depends_on: []
-        related_to: []
-    purely_profit/auth/account_membership:
-        dir_name: 账户会员与身份上下文管理
-        title: 账户会员与身份上下文管理
-        scope:
-            - src/purely-profit/auth/auth-account.service.ts
-            - src/purely-profit/auth/auth-account-membership.service.ts
-            - src/purely-profit/auth/auth-account-membership.service.spec.ts
-            - src/purely-profit/auth/auth-account-lookup.service.ts
-            - src/purely-profit/auth/auth-account.types.ts
-            - src/purely-profit/auth/dto/register.dto.ts
-            - src/purely-profit/auth/dto/send-register-code.dto.ts
-            - src/purely-profit/auth/dto/send-register-code-response.dto.ts
-            - src/purely-profit/auth/dto/login.dto.ts
-            - src/purely-profit/auth/dto/login-by-code.dto.ts
-            - src/purely-profit/auth/dto/send-login-code-response.dto.ts
-            - src/purely-profit/auth/dto/auth-token-response.dto.ts
-            - src/purely-profit/auth/dto/capability-response.dto.ts
-        source_files: []
         children: []
         depends_on: []
         related_to: []
-    purely_profit/auth/authentication_session:
-        dir_name: 认证与会话管理
-        title: 认证与会话管理
+    purely_profit/client_errors:
+        dir_name: 客户端错误日志上报与结构化
+        title: 客户端错误日志上报与结构化
         scope:
-            - src/purely-profit/auth/guards/
-            - src/purely-profit/auth/strategies/
-            - src/purely-profit/auth/auth-authentication.service.ts
-            - src/purely-profit/auth/auth-session.service.ts
-            - src/purely-profit/auth/auth-code.service.ts
-            - src/purely-profit/auth/auth-sms.service.ts
-            - src/purely-profit/auth/auth.constants.ts
-            - src/purely-profit/auth/auth.utils.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/auth/controller_decorators:
-        dir_name: 认证控制器与请求上下文装饰器
-        title: 认证控制器与请求上下文装饰器
-        scope:
-            - src/purely-profit/auth/auth.controller.ts
-            - src/purely-profit/auth/auth.controller.spec.ts
-            - src/purely-profit/auth/auth.service.ts
-            - src/purely-profit/auth/auth.service.spec.ts
-            - src/purely-profit/auth/auth.module.ts
-            - src/purely-profit/auth/current-user.decorator.ts
-            - src/purely-profit/auth/request-audit-context.decorator.ts
-            - src/purely-profit/auth/request-id.decorator.ts
-            - src/purely-profit/auth/user-with-request-id.decorator.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/auth/password_management:
-        dir_name: 用户密码与账户安全管理
-        title: 用户密码与账户安全管理
-        scope:
-            - src/purely-profit/auth/auth-password.service.ts
-            - src/purely-profit/auth/auth-password.types.ts
-            - src/purely-profit/auth/dto/change-password.dto.ts
-            - src/purely-profit/auth/dto/forgot-password.dto.ts
-            - src/purely-profit/auth/dto/forgot-password-response.dto.ts
-            - src/purely-profit/auth/dto/reset-password.dto.ts
-            - src/purely-profit/auth/dto/password-operation-response.dto.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/auth/profile:
-        dir_name: 用户档案与实名认证管理
-        title: 用户档案与实名认证管理
-        scope:
-            - src/purely-profit/auth/auth-profile.service.ts
-            - src/purely-profit/auth/auth-profile.types.ts
-            - src/purely-profit/auth/auth-profile.service.spec.ts
-            - src/purely-profit/auth/dto/profile-response.dto.ts
-            - src/purely-profit/auth/dto/update-avatar.dto.ts
-            - src/purely-profit/auth/dto/verify-real-name.dto.ts
+            - src/purely-profit/client-errors/
         source_files: []
         children: []
         depends_on: []
@@ -305,20 +221,20 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/dashboard:
-        dir_name: 门店经营数据仪表盘
-        title: 门店经营数据仪表盘
+        dir_name: 门店经营数据可视化聚合层
+        title: 门店经营数据可视化聚合层
         scope:
             - src/purely-profit/dashboard/
         source_files: []
         children:
-            - purely_profit/dashboard/business_analysis
             - purely_profit/dashboard/profit_detail
+            - purely_profit/dashboard/business_analysis
             - purely_profit/dashboard/dashboard_home
         depends_on: []
         related_to: []
     purely_profit/dashboard/business_analysis:
-        dir_name: 经营分析与数据可视化
-        title: 经营分析与数据可视化
+        dir_name: 经营分析大屏数据服务
+        title: 经营分析大屏数据服务
         scope:
             - src/purely-profit/dashboard/business-analysis/
         source_files: []
@@ -326,8 +242,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/dashboard/dashboard_home:
-        dir_name: 经营概览仪表盘
-        title: 经营概览仪表盘
+        dir_name: 首页经营概览与动态聚合
+        title: 首页经营概览与动态聚合
         scope:
             - src/purely-profit/dashboard/dashboard-home/
         source_files: []
@@ -335,8 +251,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/dashboard/profit_detail:
-        dir_name: 利润详情与报表中心
-        title: 利润详情与报表中心
+        dir_name: 利润详情与报表分析
+        title: 利润详情与报表分析
         scope:
             - src/purely-profit/dashboard/profit-detail/
         source_files: []
@@ -346,46 +262,6 @@ modules:
     purely_profit/finance:
         dir_name: 财务核心业务模块
         title: 财务核心业务模块
-        scope:
-            - src/purely-profit/finance/
-        source_files: []
-        children:
-            - purely_profit/finance/overview
-            - purely_profit/finance/cash_flow
-            - purely_profit/finance/reconciliation
-            - purely_profit/finance/account
-        depends_on: []
-        related_to: []
-    purely_profit/finance/account:
-        dir_name: 财务账款管理
-        title: 财务账款管理
-        scope:
-            - src/purely-profit/finance/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/finance/cash_flow:
-        dir_name: 现金流水管理
-        title: 现金流水管理
-        scope:
-            - src/purely-profit/finance/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/finance/overview:
-        dir_name: 财务总览与报表服务
-        title: 财务总览与报表服务
-        scope:
-            - src/purely-profit/finance/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/finance/reconciliation:
-        dir_name: 财务对账管理
-        title: 财务对账管理
         scope:
             - src/purely-profit/finance/
         source_files: []
@@ -432,476 +308,29 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/marketing:
-        dir_name: 营销业务聚合模块
-        title: 营销业务聚合模块
+        dir_name: 营销与客户关系管理
+        title: 营销与客户关系管理
         scope:
             - src/purely-profit/marketing/
-        source_files: []
-        children:
-            - purely_profit/marketing/overview
-            - purely_profit/marketing/customers
-            - purely_profit/marketing/consumptions_recharges_points
-            - purely_profit/marketing/products
-            - purely_profit/marketing/shared_core
-            - purely_profit/marketing/promotions
-        depends_on: []
-        related_to: []
-    purely_profit/marketing/consumptions_recharges_points:
-        dir_name: 营销消费充值与积分记录管理
-        title: 营销消费充值与积分记录管理
-        scope:
-            - src/purely-profit/marketing/marketing-consumptions.service.ts
-            - src/purely-profit/marketing/marketing-recharges.service.ts
-            - src/purely-profit/marketing/marketing-points-records.service.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/marketing/customers:
-        dir_name: 营销顾客管理
-        title: 营销顾客管理
-        scope:
-            - src/purely-profit/marketing/marketing-customers.controller.ts
-            - src/purely-profit/marketing/marketing-customers.facade.service.ts
-            - src/purely-profit/marketing/marketing-customers.service.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/marketing/overview:
-        dir_name: 营销概览与会员配置管理
-        title: 营销概览与会员配置管理
-        scope:
-            - src/purely-profit/marketing/marketing-overview.controller.ts
-            - src/purely-profit/marketing/marketing-overview.facade.service.ts
-            - src/purely-profit/marketing/marketing-overview.service.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/marketing/products:
-        dir_name: 营销产品与分类管理
-        title: 营销产品与分类管理
-        scope:
-            - src/purely-profit/marketing/marketing-products.controller.ts
-            - src/purely-profit/marketing/marketing-products.facade.service.ts
-            - src/purely-profit/marketing/marketing-products.service.ts
-            - src/purely-profit/marketing/marketing-product-categories.controller.ts
-            - src/purely-profit/marketing/marketing-product-categories.service.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/marketing/promotions:
-        dir_name: 营销活动管理
-        title: 营销活动管理
-        scope:
-            - src/purely-profit/marketing/marketing-promotions.controller.ts
-            - src/purely-profit/marketing/marketing-promotions.facade.service.ts
-            - src/purely-profit/marketing/marketing-promotions.service.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/marketing/shared_core:
-        dir_name: 营销业务核心模块
-        title: 营销业务核心模块
-        scope:
-            - src/purely-profit/marketing/dto/
-            - src/purely-profit/marketing/marketing-access.service.ts
-            - src/purely-profit/marketing/marketing-facade.service.ts
-            - src/purely-profit/marketing/marketing-shared.service.ts
-            - src/purely-profit/marketing/marketing.controller.ts
-            - src/purely-profit/marketing/marketing.domain.ts
-            - src/purely-profit/marketing/marketing.mapper.ts
-            - src/purely-profit/marketing/marketing.module.ts
-            - src/purely-profit/marketing/marketing.query.ts
-            - src/purely-profit/marketing/marketing.service.ts
-            - src/purely-profit/marketing/marketing.types.ts
-            - src/purely-profit/marketing/marketing.utils.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/member:
-        dir_name: 会员与合伙人业务域
-        title: 会员与合伙人业务域
-        scope:
-            - src/purely-profit/member/
-        source_files: []
-        children:
-            - purely_profit/member/platform_membership
-            - purely_profit/member/withdrawals
-            - purely_profit/member/members
-        depends_on: []
-        related_to: []
-    purely_profit/member/members:
-        dir_name: 会员管理与资产服务
-        title: 会员管理与资产服务
-        scope:
-            - src/purely-profit/member/members/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/member/platform_membership:
-        dir_name: 平台会员与合伙人管理中心
-        title: 平台会员与合伙人管理中心
-        scope:
-            - src/purely-profit/member/platform-membership/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/member/withdrawals:
-        dir_name: 合伙人提现管理
-        title: 合伙人提现管理
-        scope:
-            - src/purely-profit/member/withdrawals/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/notifications:
-        dir_name: 门店通知中心
-        title: 门店通知中心
-        scope:
-            - src/purely-profit/notifications/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations:
-        dir_name: 门店运营业务核心模块
-        title: 门店运营业务核心模块
-        scope:
-            - src/purely-profit/operations/
-        source_files: []
-        children:
-            - purely_profit/operations/purchases
-            - purely_profit/operations/suppliers
-            - purely_profit/operations/spaces
-            - purely_profit/operations/handover
-            - purely_profit/operations/sales_record
-            - purely_profit/operations/costs
-        depends_on: []
-        related_to: []
-    purely_profit/operations/costs:
-        dir_name: 成本记录管理与报表分析
-        title: 成本记录管理与报表分析
-        scope:
-            - src/purely-profit/operations/costs/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/handover:
-        dir_name: 门店交班与班次结算核心模块
-        title: 门店交班与班次结算核心模块
-        scope:
-            - src/purely-profit/operations/handover/
-        source_files: []
-        children:
-            - purely_profit/operations/handover/page_shift
-            - purely_profit/operations/handover/additional_items
-            - purely_profit/operations/handover/core
-            - purely_profit/operations/handover/records
-        depends_on: []
-        related_to: []
-    purely_profit/operations/handover/additional_items:
-        dir_name: 交班附加项管理
-        title: 交班附加项管理
-        scope:
-            - src/purely-profit/operations/handover/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/handover/core:
-        dir_name: 门店交班与班次结算管理
-        title: 门店交班与班次结算管理
-        scope:
-            - src/purely-profit/operations/handover/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/handover/page_shift:
-        dir_name: 门店交班与班次管理
-        title: 门店交班与班次管理
-        scope:
-            - src/purely-profit/operations/handover/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/handover/records:
-        dir_name: 门店交班与班次结算管理_2
-        title: 门店交班与班次结算管理
-        scope:
-            - src/purely-profit/operations/handover/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/purchases:
-        dir_name: 进货单管理模块
-        title: 进货单管理模块
-        scope:
-            - src/purely-profit/operations/purchases/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/sales_record:
-        dir_name: 销售记录业务模块
-        title: 销售记录业务模块
-        scope:
-            - src/purely-profit/operations/sales-record/
-        source_files: []
-        children:
-            - purely_profit/operations/sales_record/sales_record_read
-            - purely_profit/operations/sales_record/sales_record_reporting
-            - purely_profit/operations/sales_record/sales_record_write
-            - purely_profit/operations/sales_record/sales_record_core
-        depends_on: []
-        related_to: []
-    purely_profit/operations/sales_record/sales_record_core:
-        dir_name: 销售记录核心业务模块
-        title: 销售记录核心业务模块
-        scope:
-            - src/purely-profit/operations/sales-record/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/sales_record/sales_record_read:
-        dir_name: 销售记录查询与统计
-        title: 销售记录查询与统计
-        scope:
-            - src/purely-profit/operations/sales-record/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/sales_record/sales_record_reporting:
-        dir_name: 销售记录与报表管理
-        title: 销售记录与报表管理
-        scope:
-            - src/purely-profit/operations/sales-record/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/sales_record/sales_record_write:
-        dir_name: 销售记录写操作与创建流程
-        title: 销售记录写操作与创建流程
-        scope:
-            - src/purely-profit/operations/sales-record/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/spaces:
-        dir_name: 空间运营核心模块
-        title: 空间运营核心模块
-        scope:
-            - src/purely-profit/operations/spaces/
-        source_files: []
-        children:
-            - purely_profit/operations/spaces/reservations
-            - purely_profit/operations/spaces/types
-            - purely_profit/operations/spaces/space_management
-            - purely_profit/operations/spaces/zones
-            - purely_profit/operations/spaces/sessions
-        depends_on: []
-        related_to: []
-    purely_profit/operations/spaces/reservations:
-        dir_name: 空间预约管理
-        title: 空间预约管理
-        scope:
-            - src/purely-profit/operations/spaces/space-reservations.controller.ts
-            - src/purely-profit/operations/spaces/space-reservations.service.ts
-            - src/purely-profit/operations/spaces/space-reservations-state.service.ts
-            - src/purely-profit/operations/spaces/space-reservations.shared.ts
-            - src/purely-profit/operations/spaces/space-reservations.types.ts
-            - src/purely-profit/operations/spaces/dto/space-reservation.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-reservation.query.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-reservation.request.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-reservation.response.dto.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/spaces/sessions:
-        dir_name: 空间会话全生命周期管理
-        title: 空间会话全生命周期管理
-        scope:
-            - src/purely-profit/operations/spaces/space-sessions.controller.ts
-            - src/purely-profit/operations/spaces/space-sessions.service.ts
-            - src/purely-profit/operations/spaces/space-sessions.mapper.ts
-            - src/purely-profit/operations/spaces/space-sessions.query.ts
-            - src/purely-profit/operations/spaces/space-sessions.query-builder.ts
-            - src/purely-profit/operations/spaces/space-sessions.types.ts
-            - src/purely-profit/operations/spaces/space-session-open.service.ts
-            - src/purely-profit/operations/spaces/space-session-renew.service.ts
-            - src/purely-profit/operations/spaces/space-session-transfer.service.ts
-            - src/purely-profit/operations/spaces/space-session-checkout.service.ts
-            - src/purely-profit/operations/spaces/space-session-settlement.service.ts
-            - src/purely-profit/operations/spaces/space-session-auto-checkout.service.ts
-            - src/purely-profit/operations/spaces/space-session-read.service.ts
-            - src/purely-profit/operations/spaces/space-session-write.service.ts
-            - src/purely-profit/operations/spaces/space-session-read-state.service.ts
-            - src/purely-profit/operations/spaces/space-session-checkout-lock.service.ts
-            - src/purely-profit/operations/spaces/space-auto-checkout-scheduler.service.ts
-            - src/purely-profit/operations/spaces/space-dashboard.service.ts
-            - src/purely-profit/operations/spaces/space-dashboard-summary.service.ts
-            - src/purely-profit/operations/spaces/space-session-open-validation.shared.ts
-            - src/purely-profit/operations/spaces/space-session-payload.shared.ts
-            - src/purely-profit/operations/spaces/space-session-checkout-payload.shared.ts
-            - src/purely-profit/operations/spaces/space-session-items.shared.ts
-            - src/purely-profit/operations/spaces/space-session-settlement.shared.ts
-            - src/purely-profit/operations/spaces/dto/space-session.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session.query.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session.request.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session.response.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session-shared.response.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session-open.request.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session-renew.request.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session-renew.response.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session-transfer.request.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session-transfer.response.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session-checkout.request.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session-checkout.response.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session-items.request.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session-list.query.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session-list.response.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-session.constants.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/spaces/space_management:
-        dir_name: 空间管理与看板服务
-        title: 空间管理与看板服务
-        scope:
-            - src/purely-profit/operations/spaces/spaces.controller.ts
-            - src/purely-profit/operations/spaces/spaces.service.ts
-            - src/purely-profit/operations/spaces/spaces-read.service.ts
-            - src/purely-profit/operations/spaces/spaces-write.service.ts
-            - src/purely-profit/operations/spaces/spaces.mapper.ts
-            - src/purely-profit/operations/spaces/spaces.query.ts
-            - src/purely-profit/operations/spaces/spaces.types.ts
-            - src/purely-profit/operations/spaces/spaces.constants.ts
-            - src/purely-profit/operations/spaces/spaces-ref-resolver.service.ts
-            - src/purely-profit/operations/spaces/spaces.module.ts
-            - src/purely-profit/operations/spaces/dto/space.dto.ts
-            - src/purely-profit/operations/spaces/dto/space.query.dto.ts
-            - src/purely-profit/operations/spaces/dto/space.request.dto.ts
-            - src/purely-profit/operations/spaces/dto/space.response.dto.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/spaces/types:
-        dir_name: 空间类型管理
-        title: 空间类型管理
-        scope:
-            - src/purely-profit/operations/spaces/space-types.controller.ts
-            - src/purely-profit/operations/spaces/space-types.service.ts
-            - src/purely-profit/operations/spaces/dto/space-type.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-type.query.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-type.request.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-type.response.dto.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/spaces/zones:
-        dir_name: 空间区域管理
-        title: 空间区域管理
-        scope:
-            - src/purely-profit/operations/spaces/space-zones.controller.ts
-            - src/purely-profit/operations/spaces/space-zones.service.ts
-            - src/purely-profit/operations/spaces/dto/space-zone.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-zone.query.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-zone.request.dto.ts
-            - src/purely-profit/operations/spaces/dto/space-zone.response.dto.ts
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/operations/suppliers:
-        dir_name: 供应商管理模块
-        title: 供应商管理模块
-        scope:
-            - src/purely-profit/operations/suppliers/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/staff:
-        dir_name: 门店员工与席位管理
-        title: 门店员工与席位管理
-        scope:
-            - src/purely-profit/staff/
-        source_files: []
-        children:
-            - purely_profit/staff/seats
-            - purely_profit/staff/employees
-        depends_on: []
-        related_to: []
-    purely_profit/staff/employees:
-        dir_name: 员工全生命周期与薪酬排班管理
-        title: 员工全生命周期与薪酬排班管理
-        scope:
-            - src/purely-profit/staff/employees/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/staff/seats:
-        dir_name: 员工席位与权限管理
-        title: 员工席位与权限管理
-        scope:
-            - src/purely-profit/staff/seats/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/stores:
-        dir_name: 门店管理与微信支付配置
-        title: 门店管理与微信支付配置
-        scope:
-            - src/purely-profit/stores/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/subscriptions:
-        dir_name: 门店订阅与席位管理
-        title: 门店订阅与席位管理
-        scope:
-            - src/purely-profit/subscriptions/
         source_files: []
         children: []
         depends_on: []
         related_to: []
     purely_pulse:
-        dir_name: Pulse 商家经营与增长中心
-        title: Pulse 商家经营与增长中心
+        dir_name: Pulse 商家经营与开发者观察平台
+        title: Pulse 商家经营与开发者观察平台
         scope:
             - src/purely-pulse/
         source_files: []
         children:
-            - purely_pulse/growth
-            - purely_pulse/dev_mode
+            - purely_pulse/membership_settings
             - purely_pulse/membership
+            - purely_pulse/dashboard
             - purely_pulse/store_context
+            - purely_pulse/dev_mode
             - purely_pulse/onboarding
             - purely_pulse/session
-            - purely_pulse/dashboard
-            - purely_pulse/membership_settings
+            - purely_pulse/growth
         depends_on: []
         related_to: []
     purely_pulse/dashboard:
@@ -912,7 +341,10 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: purely_profit/dashboard
+            - path: purely_pulse/session
+            - path: purely_pulse/growth
     purely_pulse/dev_mode:
         dir_name: 开发者模式数据模拟服务
         title: 开发者模式数据模拟服务
@@ -921,7 +353,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: purely_pulse/session
     purely_pulse/growth:
         dir_name: Pulse 增长与合伙人管理中心
         title: Pulse 增长与合伙人管理中心
@@ -930,7 +363,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: purely_pulse/dashboard
     purely_pulse/membership:
         dir_name: Pulse 会员管理与订阅中心
         title: Pulse 会员管理与订阅中心
@@ -939,7 +373,9 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: purely_pulse/store_context
+            - path: purely_profit/member
     purely_pulse/membership_settings:
         dir_name: Pulse 会员套餐配置管理
         title: Pulse 会员套餐配置管理
@@ -948,7 +384,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: purely_profit/marketing/overview
     purely_pulse/onboarding:
         dir_name: 商家入驻状态管理
         title: 商家入驻状态管理
@@ -957,7 +394,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: purely_pulse/store_context
     purely_pulse/session:
         dir_name: Pulse 会话与首屏上下文管理
         title: Pulse 会话与首屏上下文管理
@@ -966,7 +404,9 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: purely_pulse/dashboard
+            - path: purely_pulse/dev_mode
     purely_pulse/store_context:
         dir_name: Pulse 门店上下文管理
         title: Pulse 门店上下文管理
@@ -981,4 +421,6 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: purely_pulse/membership
+            - path: purely_pulse/onboarding

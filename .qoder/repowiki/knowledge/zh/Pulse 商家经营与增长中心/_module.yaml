@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: purely_pulse
-title: Pulse 商家经营与增长中心
-scope:
-    - src/purely-pulse/
-source_files: []
-depends_on: []
-related_to: []

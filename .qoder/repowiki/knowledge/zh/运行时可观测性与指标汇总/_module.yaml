@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: observability
-title: 运行时可观测性与指标汇总
-scope:
-    - src/observability/
-source_files: []
-depends_on: []
-related_to: []

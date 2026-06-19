@@ -2,520 +2,465 @@
 
 <cite>
 **本文档引用的文件**
+- [.github/workflows/ci.yml](file://.github/workflows/ci.yml)
+- [.github/workflows/deploy-production.yml](file://.github/workflows/deploy-production.yml)
 - [package.json](file://package.json)
-- [README.md](file://README.md)
-- [jest-e2e.json](file://test/jest-e2e.json)
-- [app.e2e-spec.ts](file://test/app.e2e-spec.ts)
-- [finance.e2e-spec.ts](file://test/finance.e2e-spec.ts)
-- [partner-phase3.e2e-spec.ts](file://test/partner-phase3.e2e-spec.ts)
-- [configuration.ts](file://src/config/configuration.ts)
-- [prisma.module.ts](file://src/prisma/prisma.module.ts)
-- [prisma.service.ts](file://src/prisma/prisma.service.ts)
-- [cache-prewarm.service.ts](file://src/redis/cache-prewarm.service.ts)
-- [runtime-metrics.summary-context-severity.ts](file://src/observability/runtime-metrics.summary-context-severity.ts)
+- [scripts/release-execute.sh](file://scripts/release-execute.sh)
+- [scripts/test-smoke-release-regression.mjs](file://scripts/test-smoke-release-regression.mjs)
+- [scripts/seed-owner.mjs](file://scripts/seed-owner.mjs)
+- [verify-api-live.sh](file://verify-api-live.sh)
+- [prisma.config.ts](file://prisma.config.ts)
+- [eslint.config.mjs](file://eslint.config.mjs)
+- [tsconfig.json](file://tsconfig.json)
 </cite>
 
 ## 目录
-1. [简介](#简介)
-2. [项目结构](#项目结构)
-3. [核心组件](#核心组件)
-4. [架构概览](#架构概览)
-5. [详细组件分析](#详细组件分析)
-6. [依赖关系分析](#依赖关系分析)
-7. [性能考虑](#性能考虑)
-8. [故障排除指南](#故障排除指南)
-9. [结论](#结论)
-10. [附录](#附录)
+1. [项目概述](#项目概述)
+2. [CI/CD 架构总览](#cicd-架构总览)
+3. [质量门禁流水线](#质量门禁流水线)
+4. [数据库门禁流水线](#数据库门禁流水线)
+5. [发布回归测试](#发布回归测试)
+6. [生产环境部署流水线](#生产环境部署流水线)
+7. [发布执行脚本详解](#发布执行脚本详解)
+8. [冒烟测试体系](#冒烟测试体系)
+9. [环境变量管理](#环境变量管理)
+10. [性能与可靠性考虑](#性能与可靠性考虑)
+11. [故障排除指南](#故障排除指南)
+12. [总结](#总结)
 
-## 简介
+## 项目概述
 
-本文件为 purelyprofit-server 项目提供完整的 CI/CD 流水线配置文档。该系统基于 NestJS 框架构建，采用 TypeScript 开发，集成了 Prisma ORM 和 Redis 缓存。流水线设计涵盖代码质量检查、自动化测试、构建打包、部署发布等环节，并提供 GitHub Actions 配置示例。
+这是一个基于 NestJS 的企业级 Node.js 应用程序，采用现代化的 CI/CD 实践。项目包含三个主要业务模块：purely-profit（商业分析）、purely-club（会员管理）和 purely-pulse（开发者工具），以及完整的数据库迁移和缓存预热机制。
 
-## 项目结构
-
-purelyprofit-server 是一个现代化的企业级 Node.js 应用程序，具有以下关键特征：
+## CI/CD 架构总览
 
 ```mermaid
 graph TB
-subgraph "应用层"
-Controllers[控制器层]
-Services[服务层]
-Modules[模块层]
+subgraph "Git 事件触发"
+PR[Pull Request]
+PUSH[Push 到 main]
+DISPATCH[Workflow Dispatch]
 end
-subgraph "数据访问层"
-Prisma[Prisma ORM]
-Database[(PostgreSQL)]
+subgraph "CI 流水线"
+QUALITY[质量门禁]
+DB[数据库门禁]
+REGRESSION[发布回归测试]
 end
-subgraph "缓存层"
-Redis[Redis 缓存]
+subgraph "发布执行"
+PRECHECK[发布前检查]
+BUILD[构建产物]
+MIGRATE[数据库迁移]
+RESTART[服务重启]
+SMOKE[冒烟测试]
 end
-subgraph "监控层"
-Observability[可观测性]
-Metrics[指标收集]
+subgraph "生产环境"
+SERVER[应用服务器]
+DB[(PostgreSQL)]
+CACHE[(Redis)]
 end
-Controllers --> Services
-Services --> Prisma
-Prisma --> Database
-Services --> Redis
-Services --> Observability
-Observability --> Metrics
+PR --> QUALITY
+PUSH --> QUALITY
+DISPATCH --> QUALITY
+QUALITY --> DB
+DB --> REGRESSION
+REGRESSION --> PRECHECK
+PRECHECK --> BUILD
+BUILD --> MIGRATE
+MIGRATE --> RESTART
+RESTART --> SMOKE
+SMOKE --> SERVER
+SERVER --> DB
+SERVER --> CACHE
 ```
 
 **图表来源**
-- [configuration.ts:99-138](file://src/config/configuration.ts#L99-L138)
-- [prisma.module.ts](file://src/prisma/prisma.module.ts)
-- [cache-prewarm.service.ts](file://src/redis/cache-prewarm.service.ts)
+- [.github/workflows/ci.yml:1-138](file://.github/workflows/ci.yml#L1-L138)
+- [.github/workflows/deploy-production.yml:1-173](file://.github/workflows/deploy-production.yml#L1-L173)
 
-**章节来源**
-- [package.json:1-105](file://package.json#L1-L105)
-- [README.md:24-71](file://README.md#L24-L71)
+## 质量门禁流水线
 
-## 核心组件
+### 流水线配置概览
 
-### 构建系统配置
-
-项目使用 NestJS CLI 进行构建管理，支持多种构建模式：
-
-| 构建模式 | 命令 | 用途 | 输出 |
-|---------|------|------|------|
-| 开发模式 | `pnpm run start:dev` | 本地开发调试 | 热重载服务器 |
-| 生产模式 | `pnpm run start:prod` | 生产环境运行 | 预编译 JavaScript |
-| 构建模式 | `pnpm run build` | 标准构建 | dist 目录 |
-
-### 测试框架配置
-
-项目采用 Jest 作为测试框架，支持单元测试和端到端测试：
-
-```mermaid
-graph LR
-subgraph "测试类型"
-UnitTests[单元测试]
-E2ETests[端到端测试]
-Coverage[覆盖率报告]
-end
-subgraph "测试配置"
-JestConfig[Jest 配置]
-E2EConfig[E2E 配置]
-TestFiles[测试文件]
-end
-JestConfig --> UnitTests
-E2EConfig --> E2ETests
-TestFiles --> UnitTests
-TestFiles --> E2ETests
-UnitTests --> Coverage
-```
-
-**图表来源**
-- [package.json:87-103](file://package.json#L87-L103)
-- [jest-e2e.json](file://test/jest-e2e.json)
-
-**章节来源**
-- [package.json:8-30](file://package.json#L8-L30)
-- [package.json:87-103](file://package.json#L87-L103)
-
-## 架构概览
-
-### CI/CD 流水线架构
+质量门禁流水线负责执行代码质量检查、单元测试和端到端测试，确保代码变更符合质量标准。
 
 ```mermaid
 sequenceDiagram
-participant Dev as 开发者
-participant Repo as 代码仓库
-participant CI as CI 服务器
-participant Test as 测试环境
-participant Prod as 生产环境
-Dev->>Repo : 推送代码
-Repo->>CI : 触发流水线
-CI->>CI : 代码质量检查
-CI->>CI : 单元测试
-CI->>CI : 端到端测试
-CI->>Test : 部署到测试环境
-Test->>Test : 功能验证
-Test->>Prod : 部署到生产环境
-Prod->>Dev : 发布完成通知
+participant GitHub as GitHub Actions
+participant Node as Node.js 环境
+participant ESLint as ESLint
+participant Jest as Jest 测试
+participant Build as 构建检查
+GitHub->>Node : 初始化运行环境
+Node->>Node : pnpm install --frozen-lockfile
+Node->>ESLint : 运行代码规范检查
+ESLint-->>Node : 代码规范结果
+Node->>Jest : 运行单元测试
+Jest-->>Node : 单元测试结果
+Node->>Jest : 运行端到端测试
+Jest-->>Node : 端到端测试结果
+Node->>Build : 运行构建检查
+Build-->>GitHub : 构建结果
 ```
 
-### 分支策略
+**图表来源**
+- [.github/workflows/ci.yml:19-54](file://.github/workflows/ci.yml#L19-L54)
 
-```mermaid
-graph TB
-subgraph "分支模型"
-Main[main 主分支]
-Develop[develop 开发分支]
-Feature[feature/* 功能分支]
-Hotfix[hotfix/* 修复分支]
-Release[release/* 发布分支]
-end
-subgraph "工作流程"
-Commit[代码提交]
-Review[代码审查]
-Merge[合并请求]
-Deploy[自动部署]
-end
-Commit --> Feature
-Feature --> Review
-Review --> Merge
-Merge --> Develop
-Develop --> Release
-Release --> Deploy
-Deploy --> Main
-```
+### 关键特性
 
-## 详细组件分析
+- **多语言支持**: 支持 TypeScript 和 JavaScript 源码
+- **缓存优化**: 使用 pnpm 包管理器缓存
+- **时间限制**: 每个作业最多 30 分钟执行时间
+- **并发控制**: 同一工作流内支持取消进行中的作业
 
-### 代码质量检查
+**章节来源**
+- [.github/workflows/ci.yml:19-54](file://.github/workflows/ci.yml#L19-L54)
 
-#### ESLint 配置
+## 数据库门禁流水线
 
-项目使用 ESLint 进行代码质量检查，支持 TypeScript 文件的静态分析：
+### 流水线架构
+
+数据库门禁流水线专门用于验证数据库迁移和模式变更的安全性。
 
 ```mermaid
 flowchart TD
-Start([开始构建]) --> InstallDeps[安装依赖]
-InstallDeps --> Lint[ESLint 代码检查]
-Lint --> LintPass{检查通过?}
-LintPass --> |否| Fail[构建失败]
-LintPass --> |是| NextStep[继续下一步]
-NextStep --> End([构建完成])
-Fail --> End
+Start([开始数据库门禁]) --> Setup[设置 PostgreSQL 服务]
+Setup --> Install[安装依赖]
+Install --> ShadowDB[创建影子数据库]
+ShadowDB --> PrismaCheck[Prisma 配置检查]
+PrismaCheck --> MigrationStatus[检查迁移状态]
+MigrationStatus --> DriftCheck[检查模式漂移]
+DriftCheck --> Success[数据库门禁通过]
+DriftCheck --> Fail[数据库门禁失败]
+Setup --> Postgres[PostgreSQL 16 服务]
+Postgres --> Config[配置连接参数]
+Config --> ShadowDB
 ```
 
 **图表来源**
-- [package.json:22-24](file://package.json#L22-L24)
+- [.github/workflows/ci.yml:84-138](file://.github/workflows/ci.yml#L84-L138)
 
-#### 自定义规则检查
+### 数据库配置
 
-项目包含自定义规则检查脚本，用于确保代码风格一致性：
+- **主数据库**: `purelyprofit_ci`
+- **影子数据库**: `purelyprofit_ci_shadow`
+- **健康检查**: 使用 `pg_isready` 进行连接验证
+- **超时配置**: 5 秒连接超时，最多重试 5 次
 
 **章节来源**
-- [package.json:22-24](file://package.json#L22-L24)
+- [.github/workflows/ci.yml:84-138](file://.github/workflows/ci.yml#L84-L138)
 
-### 自动化测试
+## 发布回归测试
 
-#### 单元测试配置
+### 回归测试机制
+
+发布回归测试确保发布脚本的完整性和正确性，防止发布流程中的潜在问题。
 
 ```mermaid
-graph TD
-subgraph "单元测试流程"
-JestStart[Jest 启动]
-LoadConfig[加载配置]
-ScanTests[扫描测试文件]
-ExecuteTests[执行测试]
-CollectCoverage[收集覆盖率]
-GenerateReport[生成报告]
-end
-JestStart --> LoadConfig
-LoadConfig --> ScanTests
-ScanTests --> ExecuteTests
-ExecuteTests --> CollectCoverage
-CollectCoverage --> GenerateReport
+sequenceDiagram
+participant Test as 回归测试
+participant Scripts as 脚本文件
+participant Package as package.json
+participant Commands as 命令验证
+Test->>Package : 检查脚本定义
+Package-->>Test : 返回脚本配置
+Test->>Scripts : 验证脚本语法
+Scripts-->>Test : 返回语法检查结果
+Test->>Commands : 执行 dry-run 测试
+Commands-->>Test : 返回执行输出
+Test->>Test : 验证输出包含预期步骤
+Test-->>Test : 生成通过报告
 ```
 
 **图表来源**
-- [package.json:87-103](file://package.json#L87-L103)
+- [scripts/test-smoke-release-regression.mjs:38-116](file://scripts/test-smoke-release-regression.mjs#L38-L116)
 
-#### 端到端测试
+### 测试覆盖范围
 
-项目支持三种类型的端到端测试场景：
-
-| 测试类型 | 文件名 | 描述 | 覆盖范围 |
-|---------|--------|------|----------|
-| 应用测试 | app.e2e-spec.ts | 基础功能测试 | 核心业务逻辑 |
-| 财务测试 | finance.e2e-spec.ts | 财务模块测试 | 会计和财务功能 |
-| 合作伙伴测试 | partner-phase3.e2e-spec.ts | 合作伙伴功能测试 | 商户管理功能 |
+- **脚本完整性**: 验证所有相关脚本的存在和功能
+- **语法检查**: 确保所有脚本语法正确
+- **命令链路**: 验证发布流程中的命令执行顺序
+- **Dry-run 模式**: 确认预演模式下的行为正确
 
 **章节来源**
-- [app.e2e-spec.ts](file://test/app.e2e-spec.ts)
-- [finance.e2e-spec.ts](file://test/finance.e2e-spec.ts)
-- [partner-phase3.e2e-spec.ts](file://test/partner-phase3.e2e-spec.ts)
+- [scripts/test-smoke-release-regression.mjs:1-116](file://scripts/test-smoke-release-regression.mjs#L1-L116)
 
-### 构建和打包
+## 生产环境部署流水线
 
-#### Prisma 集成
+### 部署流水线设计
 
-项目使用 Prisma 作为 ORM 工具，支持数据库迁移和查询：
-
-```mermaid
-classDiagram
-class PrismaService {
-+client PrismaClient
-+$on(event, callback) void
-+$connect() Promise
-+$disconnect() Promise
-+$transaction() Promise
-}
-class PrismaModule {
-+providers Provider[]
-+controllers Controller[]
-+imports ModuleRef[]
-}
-class Configuration {
-+database DatabaseConfig
-+redis RedisConfig
-+jwt JwtConfig
-}
-PrismaModule --> PrismaService : "提供"
-PrismaService --> Configuration : "使用"
-```
-
-**图表来源**
-- [prisma.service.ts](file://src/prisma/prisma.service.ts)
-- [prisma.module.ts](file://src/prisma/prisma.module.ts)
-- [configuration.ts:99-138](file://src/config/configuration.ts#L99-L138)
-
-#### 缓存预热机制
-
-系统实现智能缓存预热，提升启动性能：
-
-**章节来源**
-- [prisma.service.ts](file://src/prisma/prisma.service.ts)
-- [cache-prewarm.service.ts](file://src/redis/cache-prewarm.service.ts)
-
-### 部署发布
-
-#### 环境配置
-
-系统支持多环境配置，关键配置项包括：
-
-| 配置类别 | 关键参数 | 默认值 | 用途 |
-|---------|----------|--------|------|
-| 数据库 | DATABASE_URL | 本地连接 | 数据持久化 |
-| Redis | REDIS_HOST, REDIS_PORT | localhost:6379 | 缓存存储 |
-| JWT | JWT_SECRET, JWT_EXPIRES_IN | secret, 7d | 认证令牌 |
-| 应用设置 | APP_CACHE_PREWARM_* | 性能优化 | 缓存预热 |
-
-**章节来源**
-- [configuration.ts:99-138](file://src/config/configuration.ts#L99-L138)
-
-## 依赖关系分析
-
-### 外部依赖
-
-```mermaid
-graph TB
-subgraph "核心框架"
-NestJS[@nestjs/*]
-Fastify[Fastify]
-Passport[Passport]
-end
-subgraph "数据库相关"
-Prisma[@prisma/*]
-PG[pg]
-IORedis[ioredis]
-end
-subgraph "工具库"
-Bcrypt[bcryptjs]
-ClassTransformer[class-transformer]
-ClassValidator[class-validator]
-end
-subgraph "开发工具"
-Jest[jest]
-ESLint[eslint]
-Prettier[prettier]
-end
-NestJS --> Prisma
-NestJS --> IORedis
-Prisma --> PG
-NestJS --> Passport
-```
-
-**图表来源**
-- [package.json:31-58](file://package.json#L31-L58)
-- [package.json:59-86](file://package.json#L59-L86)
-
-### 内部模块依赖
-
-```mermaid
-graph TD
-subgraph "应用模块"
-AppModule[AppModule]
-AuthModule[AuthModule]
-FinanceModule[FinanceModule]
-GoodsModule[GoodsModule]
-MarketingModule[MarketingModule]
-MemberModule[MemberModule]
-end
-subgraph "基础设施"
-PrismaModule[PrismaModule]
-RedisModule[RedisModule]
-ConfigModule[ConfigModule]
-end
-AppModule --> AuthModule
-AppModule --> FinanceModule
-AppModule --> GoodsModule
-AppModule --> MarketingModule
-AppModule --> MemberModule
-AppModule --> PrismaModule
-AppModule --> RedisModule
-AppModule --> ConfigModule
-```
-
-**图表来源**
-- [prisma.module.ts](file://src/prisma/prisma.module.ts)
-
-**章节来源**
-- [package.json:31-86](file://package.json#L31-L86)
-
-## 性能考虑
-
-### 缓存策略
-
-系统实现多层次缓存策略以优化性能：
+生产环境部署流水线提供了灵活的部署选项和安全保护机制。
 
 ```mermaid
 flowchart TD
-Request[请求到达] --> CheckRedis{Redis 缓存命中?}
-CheckRedis --> |是| ReturnCache[返回缓存数据]
-CheckRedis --> |否| CheckPrisma{Prisma 缓存命中?}
-CheckPrisma --> |是| ReturnPrisma[返回 Prisma 缓存]
-CheckPrisma --> |否| QueryDB[查询数据库]
-QueryDB --> CacheData[缓存数据]
-CacheData --> ReturnData[返回响应]
-ReturnCache --> End([结束])
-ReturnPrisma --> End
-ReturnData --> End
+Trigger[部署触发] --> BranchCheck{分支检查}
+BranchCheck --> |main 分支| EnvSetup[环境变量设置]
+BranchCheck --> |其他分支| Cancel[取消部署]
+EnvSetup --> Prerequisites[前置条件检查]
+Prerequisites --> Strategy{重启策略选择}
+Strategy --> |自定义命令| CustomCmd[执行自定义重启命令]
+Strategy --> |PM2| PM2[PM2 重启]
+Strategy --> |SystemD| SystemD[SystemD 重启]
+Strategy --> |LaunchD| LaunchD[LaunchD 重启]
+CustomCmd --> Backup[备份检查]
+PM2 --> Backup
+SystemD --> Backup
+LaunchD --> Backup
+Backup --> Migration[数据库迁移]
+Migration --> Smoke[冒烟测试]
+Smoke --> Complete[部署完成]
 ```
 
-### 监控指标
+**图表来源**
+- [.github/workflows/deploy-production.yml:39-173](file://.github/workflows/deploy-production.yml#L39-L173)
 
-系统内置可观测性组件，支持运行时性能监控：
+### 部署配置选项
+
+| 配置项 | 默认值 | 描述 |
+|--------|--------|------|
+| `dry_run` | `true` | 是否启用预演模式 |
+| `skip_smoke` | `false` | 是否跳过冒烟测试 |
+| `skip_db_precheck` | `false` | 是否跳过数据库预检 |
+| `skip_build` | `false` | 是否跳过构建步骤 |
+| `skip_migrate_deploy` | `false` | 是否跳过数据库迁移 |
 
 **章节来源**
-- [runtime-metrics.summary-context-severity.ts:47-93](file://src/observability/runtime-metrics.summary-context-severity.ts#L47-L93)
+- [.github/workflows/deploy-production.yml:1-173](file://.github/workflows/deploy-production.yml#L1-L173)
+
+## 发布执行脚本详解
+
+### 发布流程架构
+
+发布执行脚本实现了完整的发布生命周期管理。
+
+```mermaid
+stateDiagram-v2
+[*] --> 加载环境变量
+加载环境变量 --> 校验发布环境
+校验发布环境 --> 发布前备份
+发布前备份 --> 发布前预检查
+发布前预检查 --> 构建产物
+构建产物 --> 执行数据库迁移
+执行数据库迁移 --> 准备冒烟数据
+准备冒烟数据 --> 重启服务
+重启服务 --> 执行上线后冒烟检查
+执行上线后冒烟检查 --> [*]
+校验发布环境 --> [*] : 校验失败
+发布前预检查 --> [*] : 预检失败
+重启服务 --> [*] : 重启失败
+```
+
+**图表来源**
+- [scripts/release-execute.sh:36-543](file://scripts/release-execute.sh#L36-L543)
+
+### 关键功能模块
+
+#### 环境变量验证
+- **生产环境强制检查**: 确保生产环境配置正确
+- **敏感信息验证**: 检查数据库连接、Redis 配置等
+- **微信支付配置**: 验证支付相关的证书和密钥
+
+#### 备份策略
+- **默认备份**: 使用 `pg_dump` 进行数据库备份
+- **自定义备份**: 支持用户提供的备份命令
+- **保留策略**: 支持配置备份文件保留天数
+
+#### 重启机制
+- **多平台支持**: 支持 PM2、SystemD、LaunchD
+- **自定义命令**: 允许执行用户自定义的重启命令
+- **健康检查**: 验证服务重启后的状态
+
+**章节来源**
+- [scripts/release-execute.sh:158-362](file://scripts/release-execute.sh#L158-L362)
+
+## 冒烟测试体系
+
+### 冒烟测试架构
+
+冒烟测试体系确保发布后的系统功能正常运行。
+
+```mermaid
+sequenceDiagram
+participant Live as 冒烟测试
+participant Prepare as 数据准备
+participant Token as Token 生成
+participant API as API 接口
+Live->>Prepare : 准备测试数据
+Prepare-->>Live : 返回测试元数据
+Live->>Token : 生成访问令牌
+Token-->>Live : 返回认证信息
+Live->>API : 测试根路由
+API-->>Live : 返回 200 OK
+Live->>API : 测试健康检查
+API-->>Live : 返回健康状态
+Live->>API : 测试业务接口
+API-->>Live : 返回业务数据
+Live->>Live : 统计测试结果
+```
+
+**图表来源**
+- [verify-api-live.sh:270-357](file://verify-api-live.sh#L270-L357)
+
+### 测试覆盖范围
+
+#### 基础功能测试
+- **根路由测试**: 验证应用基本可达性
+- **健康检查**: 确认数据库和 Redis 连接状态
+- **指标接口**: 验证监控数据收集
+
+#### 业务功能测试
+- **纯利报表**: 测试商业分析核心功能
+- **会员资料**: 验证会员管理系统
+- **门店切换**: 测试多门店切换功能
+- **首屏上下文**: 验证应用启动流程
+
+#### 自动化能力
+- **数据准备**: 自动创建测试账户和门店
+- **Token 获取**: 动态生成访问令牌
+- **路径解析**: 自动计算测试接口路径
+
+**章节来源**
+- [verify-api-live.sh:1-357](file://verify-api-live.sh#L1-L357)
+
+### 测试数据准备
+
+测试数据准备脚本实现了幂等的数据创建机制。
+
+```mermaid
+flowchart TD
+Start([开始数据准备]) --> LoadEnv[加载环境变量]
+LoadEnv --> CreateUser[创建用户]
+CreateUser --> CreateClubUser[创建会员用户]
+CreateClubUser --> CreateStore[创建门店]
+CreateStore --> CreateSubscription[创建订阅]
+CreateSubscription --> CreateStaff[创建员工关系]
+CreateStaff --> CreateAccess[创建访问权限]
+CreateAccess --> Output[输出测试元数据]
+Output --> End([完成])
+CreateUser --> CreateUser
+CreateClubUser --> CreateClubUser
+CreateStore --> CreateStore
+```
+
+**图表来源**
+- [scripts/seed-owner.mjs:545-591](file://scripts/seed-owner.mjs#L545-L591)
+
+**章节来源**
+- [scripts/seed-owner.mjs:1-591](file://scripts/seed-owner.mjs#L1-L591)
+
+## 环境变量管理
+
+### 环境变量配置
+
+项目使用多种环境变量来控制不同环境的行为：
+
+```mermaid
+graph LR
+subgraph "基础配置"
+NODE_ENV[NODE_ENV]
+PORT[PORT]
+TZ[TZ]
+end
+subgraph "数据库配置"
+DB_URL[DATABASE_URL]
+SHADOW_DB[SHADOW_DATABASE_URL]
+DB_POOL[DATABASE_POOL_*]
+end
+subgraph "缓存配置"
+REDIS_HOST[REDIS_HOST]
+REDIS_PORT[REDIS_PORT]
+REDIS_PASSWORD[REDIS_PASSWORD]
+REDIS_DB[REDIS_DB]
+end
+subgraph "认证配置"
+JWT_SECRET[JWT_SECRET]
+JWT_EXPIRES_IN[JWT_EXPIRES_IN]
+end
+subgraph "微信支付"
+WECHAT_APP[WECHAT_APP_*]
+WECHAT_PAY[WECHAT_PAY_*]
+end
+subgraph "发布配置"
+RELEASE[RELEASE_*]
+SMOKE[SMOKE_*]
+end
+```
+
+**图表来源**
+- [.github/workflows/deploy-production.yml:48-92](file://.github/workflows/deploy-production.yml#L48-L92)
+
+### 配置优先级
+
+1. **GitHub Secrets**: 生产环境敏感配置
+2. **GitHub Variables**: 通用环境变量
+3. **本地 .env 文件**: 开发环境配置
+4. **默认值**: 脚本内置默认配置
+
+**章节来源**
+- [.github/workflows/deploy-production.yml:48-92](file://.github/workflows/deploy-production.yml#L48-L92)
+
+## 性能与可靠性考虑
+
+### 性能优化策略
+
+- **缓存利用**: 使用 pnpm 缓存减少依赖安装时间
+- **并发执行**: CI 任务并行处理提高整体效率
+- **资源隔离**: 使用独立的影子数据库避免测试干扰
+- **超时控制**: 合理的超时设置防止长时间阻塞
+
+### 可靠性保障
+
+- **多重验证**: 多层检查确保发布质量
+- **回滚机制**: 备份策略支持快速回滚
+- **监控集成**: 健康检查和指标收集
+- **错误处理**: 完善的错误捕获和报告机制
 
 ## 故障排除指南
 
 ### 常见问题诊断
 
-#### 数据库连接问题
+#### CI 流水线失败
+1. **依赖安装失败**: 检查 `pnpm-lock.yaml` 文件完整性
+2. **代码规范错误**: 运行本地 `pnpm run lint` 检查
+3. **测试用例失败**: 查看具体测试错误日志
+4. **构建失败**: 检查 TypeScript 编译错误
 
-```mermaid
-flowchart TD
-DBError[数据库错误] --> CheckEnv{检查环境变量}
-CheckEnv --> EnvOK{DATABASE_URL 正确?}
-EnvOK --> |否| FixEnv[修正数据库连接]
-EnvOK --> |是| CheckMigrate{检查数据库迁移}
-CheckMigrate --> MigrateOK{迁移状态正常?}
-MigrateOK --> |否| RunMigrate[执行数据库迁移]
-MigrateOK --> |是| CheckPool{检查连接池}
-CheckPool --> PoolOK{连接池配置正确?}
-PoolOK --> |否| FixPool[调整连接池参数]
-PoolOK --> |是| Success[问题解决]
-```
+#### 数据库门禁失败
+1. **连接超时**: 检查 PostgreSQL 服务状态
+2. **迁移冲突**: 运行 `prisma migrate dev` 解决
+3. **权限问题**: 验证数据库用户权限
+4. **影子数据库**: 确认影子数据库创建成功
 
-#### 缓存预热失败
+#### 发布失败
+1. **环境变量**: 检查生产环境配置
+2. **备份失败**: 验证数据库连接和权限
+3. **重启失败**: 检查服务管理器配置
+4. **冒烟测试**: 查看具体接口错误
 
-**章节来源**
-- [cache-prewarm.service.ts](file://src/redis/cache-prewarm.service.ts)
+### 调试建议
 
-### 测试失败排查
+- 使用 `RELEASE_DRY_RUN=true` 预演发布流程
+- 启用详细日志输出进行问题定位
+- 分步骤执行关键命令进行隔离排查
+- 检查网络连接和防火墙配置
 
-#### 单元测试失败
+## 总结
 
-1. **检查测试依赖**：确认所有模拟对象正确配置
-2. **验证异步操作**：确保测试中正确处理 Promise
-3. **检查数据库状态**：验证测试前后的数据一致性
+该项目的 CI/CD 流水线设计体现了现代软件交付的最佳实践：
 
-#### 端到端测试失败
+### 核心优势
 
-1. **验证 API 端点**：检查控制器方法的正确性
-2. **检查数据库状态**：确认测试数据的完整性
-3. **验证认证流程**：确保 JWT 令牌的有效性
+1. **多层次质量保证**: 从代码规范到数据库验证的完整检查链
+2. **自动化发布流程**: 从预检到部署的全自动化管理
+3. **完善的测试体系**: 包含单元测试、端到端测试和冒烟测试
+4. **灵活的部署选项**: 支持多种部署平台和服务管理器
+5. **强大的监控能力**: 全面的健康检查和指标收集
 
-## 结论
+### 技术特色
 
-purelyprofit-server 的 CI/CD 流水线设计遵循现代 DevOps 最佳实践，提供了完整的自动化流程。通过合理的分支策略、严格的代码质量检查、全面的测试覆盖以及智能的部署机制，确保了系统的稳定性和可靠性。
+- **现代化工具链**: 使用 pnpm、ESLint、Jest 等先进工具
+- **类型安全保障**: TypeScript 提供编译时类型检查
+- **数据库治理**: Prisma ORM 提供类型安全的数据库操作
+- **缓存优化**: Redis 缓存提升系统性能
+- **微服务架构**: 清晰的模块划分便于维护和扩展
 
-建议在实际实施中根据具体需求调整以下方面：
-- 添加 Docker 容器化支持
-- 实现蓝绿部署或滚动更新
-- 集成 APM 监控工具
-- 建立自动化回滚机制
-
-## 附录
-
-### GitHub Actions 配置示例
-
-```yaml
-name: CI/CD Pipeline
-
-on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x]
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: 使用 Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'pnpm'
-    
-    - name: 安装依赖
-      run: pnpm install
-    
-    - name: 代码质量检查
-      run: pnpm run lint
-    
-    - name: 自定义规则检查
-      run: pnpm run rules:check
-    
-    - name: 单元测试
-      run: pnpm run test
-    
-    - name: 端到端测试
-      run: pnpm run test:e2e
-    
-    - name: 生成覆盖率报告
-      run: pnpm run test:cov
-    
-    - name: 构建项目
-      run: pnpm run build
-    
-    - name: 部署到测试环境
-      if: github.ref == 'refs/heads/develop'
-      run: |
-        echo "部署到测试环境"
-        # 添加测试环境部署命令
-    
-    - name: 部署到生产环境
-      if: github.ref == 'refs/heads/main'
-      run: |
-        echo "部署到生产环境"
-        # 添加生产环境部署命令
-```
-
-### 版本标签管理
-
-建议采用语义化版本控制：
-- **主版本号**：不兼容的 API 变更
-- **次版本号**：向后兼容的功能新增
-- **修订号**：向后兼容的问题修复
-
-标签命名规范：`v1.2.3`
-
-### 回滚机制
-
-```mermaid
-stateDiagram-v2
-[*] --> 正常运行
-正常运行 --> 部署中 : 新版本发布
-部署中 --> 部署成功 : 部署完成
-部署中 --> 回滚中 : 部署失败
-部署成功 --> 监控中 : 运行监控
-监控中 --> 正常运行 : 健康检查通过
-监控中 --> 回滚中 : 健康检查失败
-回滚中 --> 正常运行 : 回滚完成
-回滚中 --> [*] : 手动干预
-```
+这套 CI/CD 配置为项目的持续集成和持续部署提供了坚实的技术基础，确保了代码质量和发布可靠性。
