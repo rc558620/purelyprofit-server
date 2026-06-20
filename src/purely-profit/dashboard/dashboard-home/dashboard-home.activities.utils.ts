@@ -2,6 +2,7 @@ import {
   addMoneyValues,
   calcPercentChange,
   formatMonthDayLabel,
+  getDayStartTimestamp,
   roundMoneyValue,
   subtractMoneyValues,
   toDecimalNumber,
@@ -144,6 +145,7 @@ export function buildDashboardHomeActivities(
 
   // ---- 以下为新增 8 类动态 ----
 
+  appendRecentOrderDrafts(drafts, params, now);
   appendTodayNewMemberDraft(drafts, params, now);
   appendTodayRechargeDraft(drafts, params, now);
   appendUpcomingReservationDraft(drafts, params, now);
@@ -191,7 +193,7 @@ function appendTodayRechargeDraft(
   }
 
   const totalAmount = params.todayRecharges.reduce(
-    (sum, item) => sum + item.amount,
+    (sum, item) => addMoneyValues(sum, toDecimalNumber(item.amount)),
     0,
   );
   const latestRecharge = params.todayRecharges[0];
@@ -311,8 +313,11 @@ function appendInactiveVipDraft(
   }
 
   const latestInactive = params.inactiveVips[0];
+  const lastConsumeTs = latestInactive.lastConsumeAt
+    ? toTimestamp(latestInactive.lastConsumeAt)
+    : now - VIP_INACTIVE_THRESHOLD_DAYS * 86_400_000;
   const inactiveDays = Math.floor(
-    (now - toTimestamp(latestInactive.lastConsumeAt!)) / 86_400_000,
+    (now - lastConsumeTs) / 86_400_000,
   );
 
   drafts.push({
@@ -366,34 +371,35 @@ function detectRevenueDecline(
     return { isDeclining: false, consecutiveDays: 0, totalDeclineAmount: 0 };
   }
 
-  const dayStartTs = (ts: number) => ts - (ts % 86_400_000);
-
-  const todayDayStart = dayStartTs(now);
+  const DAY_MS = 86_400_000;
+  const todayDayStart = getDayStartTimestamp(now);
   const revenueByDay = new Map<number, number>();
 
   for (const row of dailyRevenueRows) {
-    const dayTs = dayStartTs(toTimestamp(row.bucketAt));
+    const dayTs = getDayStartTimestamp(toTimestamp(row.bucketAt));
     const revenue = Number(row.revenue);
     revenueByDay.set(dayTs, (revenueByDay.get(dayTs) ?? 0) + revenue);
+  }
+
+  // 按时间升序排列（从远到近），逐日比较：今日 < 昨日 即为下滑
+  const sortedDays: Array<{ dayTs: number; revenue: number }> = [];
+  for (let i = REVENUE_DECLINE_CONSECUTIVE_DAYS; i >= 0; i--) {
+    const dayTs = todayDayStart - i * DAY_MS;
+    const revenue = revenueByDay.get(dayTs);
+    if (revenue !== undefined) {
+      sortedDays.push({ dayTs, revenue });
+    }
+  }
+
+  if (sortedDays.length < 2) {
+    return { isDeclining: false, consecutiveDays: 0, totalDeclineAmount: 0 };
   }
 
   let consecutiveDays = 0;
   let totalDeclineAmount = 0;
   let prevRevenue: number | null = null;
 
-  for (let i = 0; i <= REVENUE_DECLINE_CONSECUTIVE_DAYS; i++) {
-    const dayTs = todayDayStart - i * 86_400_000;
-    const revenue = revenueByDay.get(dayTs);
-
-    if (revenue === undefined) {
-      if (prevRevenue !== null && prevRevenue > 0) {
-        consecutiveDays++;
-        totalDeclineAmount += prevRevenue;
-      }
-      prevRevenue = 0;
-      continue;
-    }
-
+  for (const { revenue } of sortedDays) {
     if (prevRevenue !== null && revenue < prevRevenue) {
       consecutiveDays++;
       totalDeclineAmount += prevRevenue - revenue;
@@ -413,6 +419,39 @@ function detectRevenueDecline(
     consecutiveDays,
     totalDeclineAmount: roundMoneyValue(totalDeclineAmount),
   };
+}
+
+/** 最近订单动态 */
+function appendRecentOrderDrafts(
+  drafts: ActivityDraft[],
+  params: BuildDashboardHomeActivitiesParams,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _now: number,
+): void {
+  if (!params.recentOrders || params.recentOrders.length === 0) {
+    return;
+  }
+
+  for (const order of params.recentOrders) {
+    const orderDate = new Date(order.date);
+    const hours = String(orderDate.getHours()).padStart(2, '0');
+    const minutes = String(orderDate.getMinutes()).padStart(2, '0');
+    const revenue = Number(order.totalRevenue ?? 0);
+    const valueText = `+¥${formatMoneyText(revenue)}`;
+
+    drafts.push({
+      id: `sales-order-${order.id}`,
+      type: 'success',
+      icon: 'sales',
+      title: '订单完成',
+      time: `${hours}:${minutes} · 销售记录`,
+      value: valueText,
+      bizType: 'sales_order',
+      bizId: String(order.id),
+      actionUrl: '/sales-record',
+      createdAt: toTimestamp(order.createdAt),
+    });
+  }
 }
 
 function formatMoneyText(value: number): string {
@@ -451,5 +490,10 @@ function formatRelativeTime(timestamp: number, now: number): string {
     return `${Math.max(1, Math.floor(diff / hour))}小时前`;
   }
 
-  return 'today';
+  const days = Math.max(1, Math.floor(diff / (24 * hour)));
+  if (days < 30) {
+    return `${days}天前`;
+  }
+
+  return formatMonthDayLabel(timestamp);
 }

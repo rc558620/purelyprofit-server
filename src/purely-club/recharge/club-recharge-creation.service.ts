@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
 import { buildOrderNo } from '../orders/club-order-drafts.utils';
@@ -31,6 +32,7 @@ export class ClubRechargeCreationService {
     private readonly clubRechargePackagesService: ClubRechargePackagesService,
     private readonly clubOrderDraftsService: ClubOrderDraftsService,
     private readonly clubWechatJsapiService: ClubWechatJsapiService,
+    private readonly configService: ConfigService,
   ) {}
 
   async createOrder(
@@ -53,18 +55,19 @@ export class ClubRechargeCreationService {
     const now = Date.now();
     const orderNo = buildOrderNo('recharge', now);
 
-    // 若前端传入 openid，则调用微信 JSAPI 真实下单；否则走开发态 mock
-    const paymentParams = dto.openid
-      ? await this.clubWechatJsapiService.createJsapiPaymentParams({
-          storeId: currentContext.store.id,
-          orderNo,
-          description: '会员充值',
-          amountFen: selection.rechargeAmountFen,
-          openid: dto.openid,
-        })
-      : undefined;
+    // 若前端未传 openid，需确认开发态兜底已启用才允许创建草稿
+    if (!dto.openid) {
+      const manualConfirmEnabled =
+        this.configService.get<boolean>('club.manualConfirmPaidEnabled') ??
+        false;
+      if (!manualConfirmEnabled) {
+        throw new BadRequestException('请先完成微信授权后再充值');
+      }
+    }
 
-    const draft = await this.clubOrderDraftsService.createDraft<
+    // 先创建草稿（含 mock 支付参数），再调用微信下单
+    // 这样微信下单失败时可以删除草稿回滚，避免产生无法支付的孤立草稿
+    let draft = await this.clubOrderDraftsService.createDraft<
       ClubRechargeOrderMetadata,
       'recharge'
     >({
@@ -77,8 +80,29 @@ export class ClubRechargeCreationService {
       amountFen: selection.rechargeAmountFen,
       metadata: selection,
       orderNo,
-      paymentParams,
     });
+
+    // 微信 JSAPI 下单：成功后更新草稿中的支付参数
+    if (dto.openid) {
+      try {
+        const paymentParams =
+          await this.clubWechatJsapiService.createJsapiPaymentParams({
+            storeId: currentContext.store.id,
+            orderNo,
+            description: '会员充值',
+            amountFen: selection.rechargeAmountFen,
+            openid: dto.openid,
+          });
+        draft = await this.clubOrderDraftsService.updateDraftPaymentParams(
+          draft,
+          paymentParams,
+        );
+      } catch (error) {
+        // 微信下单失败，清理已创建的草稿避免产生死单
+        await this.clubOrderDraftsService.deleteDraft(draft.id);
+        throw error;
+      }
+    }
 
     return toClubRechargeOrderResponse(
       this.clubOrderDraftsService.toOrderStatusResponse(draft),

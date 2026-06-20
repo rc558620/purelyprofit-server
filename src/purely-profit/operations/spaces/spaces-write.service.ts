@@ -157,6 +157,10 @@ export class SpacesWriteService {
       throw new ConflictException('空间使用中，无法删除');
     }
 
+    if (space.status === PrismaSpaceStatus.cleaning) {
+      throw new ConflictException('空间待清洁，无法删除');
+    }
+
     if (space._count.reservations > 0) {
       throw new ConflictException('该空间存在待处理预约，请先取消预约后再删除');
     }

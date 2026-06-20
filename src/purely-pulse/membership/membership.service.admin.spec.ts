@@ -718,7 +718,7 @@ describe('PulseMembershipService admin', () => {
         rechargeHistory: [],
         membershipExpiry: null,
       } as never);
-    context.prismaService.store.findUnique.mockResolvedValue({ id: 18 });
+    context.prismaService.store.findUnique.mockResolvedValue({ id: 18, ownerId: 301, staffs: [] });
     context.prismaService.storePartner.findFirst.mockResolvedValue(null);
 
     const result = await context.service.setAdminMemberMembership(
@@ -848,7 +848,7 @@ describe('PulseMembershipService admin', () => {
         rechargeHistory: [],
         membershipExpiry: expectedExpiry.getTime(),
       } as never);
-    context.prismaService.store.findUnique.mockResolvedValue({ id: 18 });
+    context.prismaService.store.findUnique.mockResolvedValue({ id: 18, ownerId: 301, staffs: [] });
     context.prismaService.storePartner.findFirst.mockResolvedValue(null);
     context.platformMembershipService.getPlanConfig.mockResolvedValue({
       id: 'lifetime',

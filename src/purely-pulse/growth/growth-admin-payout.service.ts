@@ -47,31 +47,33 @@ export class PulseGrowthAdminPayoutService {
       throw new ConflictException('当前打款申请状态不可执行确认打款');
     }
 
-    const now = new Date();
-    const updateResult = await this.prisma.partnerWithdrawal.updateMany({
-      where: {
-        id: payoutId,
-        storeId: record.storeId,
-        status: {
-          in: [
-            PartnerWithdrawalStatus.pending,
-            PartnerWithdrawalStatus.approved,
-          ],
+    await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const updateResult = await tx.partnerWithdrawal.updateMany({
+        where: {
+          id: payoutId,
+          storeId: record.storeId,
+          status: {
+            in: [
+              PartnerWithdrawalStatus.pending,
+              PartnerWithdrawalStatus.approved,
+            ],
+          },
         },
-      },
-      data: {
-        status: PartnerWithdrawalStatus.paid,
-        reviewedAt: now,
-        paidAt: now,
-        rejectReason: null,
-      },
+        data: {
+          status: PartnerWithdrawalStatus.paid,
+          reviewedAt: now,
+          paidAt: now,
+          rejectReason: null,
+        },
+      });
+
+      if (updateResult.count !== 1) {
+        throw new ConflictException('打款申请状态已变化，请刷新后重试');
+      }
     });
 
-    if (updateResult.count !== 1) {
-      throw new ConflictException('打款申请状态已变化，请刷新后重试');
-    }
-
-    await this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries();
+    await this.invalidatePayoutDerivedCaches(record.storeId);
 
     return { success: true };
   }
@@ -157,8 +159,21 @@ export class PulseGrowthAdminPayoutService {
       });
     });
 
-    await this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries();
+    await this.invalidatePayoutDerivedCaches(record.storeId);
 
     return { success: true };
+  }
+
+  private async invalidatePayoutDerivedCaches(storeId: number): Promise<void> {
+    await Promise.all([
+      this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries(),
+      this.cacheInvalidatorService.invalidatePulseGrowthEarnings(storeId),
+      this.cacheInvalidatorService.invalidatePulseDashboardHome(),
+      this.cacheInvalidatorService.invalidatePulseDashboardRevenueDetail(),
+      this.cacheInvalidatorService.invalidatePulseDashboardOverview(storeId),
+      this.cacheInvalidatorService.invalidatePulseSessionNotification(storeId),
+      this.cacheInvalidatorService.invalidatePulseSessionBootstrap(storeId),
+      this.cacheInvalidatorService.invalidatePulseOnboardingStatus(storeId),
+    ]);
   }
 }

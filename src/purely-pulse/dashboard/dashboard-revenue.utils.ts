@@ -1,5 +1,6 @@
 import {
   REVENUE_FALLBACK_LABEL,
+  REVENUE_LIFETIME_LABEL,
   REVENUE_MONTHLY_LABEL,
   REVENUE_QUARTERLY_LABEL,
   REVENUE_TYPE_LABELS,
@@ -26,6 +27,9 @@ export function mapRevenuePlanLabel(
   if (planId === 'yearly' || planId === 'annual') {
     return REVENUE_YEARLY_LABEL;
   }
+  if (planId === 'lifetime') {
+    return REVENUE_LIFETIME_LABEL;
+  }
   if (planName?.includes('月')) {
     return REVENUE_MONTHLY_LABEL;
   }
@@ -34,6 +38,9 @@ export function mapRevenuePlanLabel(
   }
   if (planName?.includes('年')) {
     return REVENUE_YEARLY_LABEL;
+  }
+  if (planName?.includes('永久') || planName?.includes('终身')) {
+    return REVENUE_LIFETIME_LABEL;
   }
 
   return REVENUE_FALLBACK_LABEL;
@@ -78,23 +85,30 @@ export function buildRevenueTrend(
   displayPeriod: PulseHomeRevenuePeriodValue,
   amountMapper: (amount: number) => number = (amount) => amount,
 ): { dates: string[]; values: number[] } {
-  const bucketMap = new Map<string, number>();
+  // 使用 label → { total, firstDate } 的聚合结构，
+  // firstDate 保留原始 Date 用于排序，避免跨年时纯字符串比较错误
+  const bucketMap = new Map<string, { total: number; firstDate: Date }>();
 
   for (const order of orders) {
     const key =
       displayPeriod === 'today'
         ? `${String(order.createdAt.getHours()).padStart(2, '0')}:00`
         : formatDateLabel(order.createdAt);
-    bucketMap.set(key, (bucketMap.get(key) ?? 0) + order.amount);
+    const existing = bucketMap.get(key);
+    if (existing) {
+      existing.total += order.amount;
+    } else {
+      bucketMap.set(key, { total: order.amount, firstDate: order.createdAt });
+    }
   }
 
-  const sortedEntries = Array.from(bucketMap.entries()).sort((left, right) =>
-    compareRevenueTrendLabel(left[0], right[0]),
+  const sortedEntries = Array.from(bucketMap.entries()).sort(
+    (left, right) => left[1].firstDate.getTime() - right[1].firstDate.getTime(),
   );
 
   return {
     dates: sortedEntries.map(([date]) => date),
-    values: sortedEntries.map(([, amount]) => amountMapper(amount)),
+    values: sortedEntries.map(([, { total }]) => amountMapper(total)),
   };
 }
 
@@ -142,15 +156,4 @@ function mapRevenueTypeDistributionByCountMap(
         ? Math.round(((countMap.get(label) ?? 0) / totalCount) * 100)
         : 0,
   }));
-}
-
-function compareRevenueTrendLabel(left: string, right: string): number {
-  const leftParts = left.split(/[:/]/).map((item) => Number(item));
-  const rightParts = right.split(/[:/]/).map((item) => Number(item));
-  const [leftMajor, leftMinor] = leftParts;
-  const [rightMajor, rightMinor] = rightParts;
-
-  return leftMajor === rightMajor
-    ? leftMinor - rightMinor
-    : leftMajor - rightMajor;
 }

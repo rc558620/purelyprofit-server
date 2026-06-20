@@ -164,12 +164,14 @@ describe('CachePrewarmCycleService', () => {
     context.redisService.scanKeysByPattern
       .mockResolvedValueOnce(['profit:dashboard:home:store:18:period:today'])
       .mockResolvedValueOnce([
-        'profit:business-analysis:store:18:period:month:start:na:end:na',
+        'profit:business-analysis:store:18:period:month:start:na:end:na:export:0',
       ])
       .mockResolvedValueOnce(['profit:marketing:overview:store:18'])
       .mockResolvedValueOnce(['profit:members:meta:store:18'])
       .mockResolvedValueOnce(['profit:members:overview:store:18'])
-      .mockResolvedValueOnce(['profit:finance:overview:store:18:period:month']);
+      .mockResolvedValueOnce([
+        'profit:finance:overview:store:18:period:month:scope:owner',
+      ]);
 
     const runPromise = runDefaultCycle(context.service);
     await jest.runAllTimersAsync();
@@ -189,7 +191,7 @@ describe('CachePrewarmCycleService', () => {
     });
     expect(
       context.financeOverviewService.warmOverviewCache,
-    ).toHaveBeenCalledWith(18, 'month');
+    ).toHaveBeenCalledWith(18, 'month', 'owner');
     expect(
       context.marketingOverviewService.warmOverviewCache,
     ).toHaveBeenCalledWith(18);
@@ -210,7 +212,7 @@ describe('CachePrewarmCycleService', () => {
       expect.objectContaining({
         category: 'businessAnalysis',
         cacheKey:
-          'profit:business-analysis:store:18:period:month:start:na:end:na',
+          'profit:business-analysis:store:18:period:month:start:na:end:na:export:0',
         durationMs: 20,
       }),
       expect.objectContaining({
@@ -225,7 +227,7 @@ describe('CachePrewarmCycleService', () => {
       }),
       expect.objectContaining({
         category: 'financeOverview',
-        cacheKey: 'profit:finance:overview:store:18:period:month',
+        cacheKey: 'profit:finance:overview:store:18:period:month:scope:owner',
         durationMs: 10,
       }),
     ]);
@@ -237,12 +239,14 @@ describe('CachePrewarmCycleService', () => {
     context.redisService.scanKeysByPattern
       .mockResolvedValueOnce(['profit:dashboard:home:store:18:period:today'])
       .mockResolvedValueOnce([
-        'profit:business-analysis:store:18:period:invalid:start:na:end:na',
+        'profit:business-analysis:store:18:period:invalid:start:na:end:na:export:0',
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(['profit:finance:overview:store:18:period:month']);
+      .mockResolvedValueOnce([
+        'profit:finance:overview:store:18:period:month:scope:owner',
+      ]);
     context.dashboardHomeService.warmOverviewCache.mockRejectedValueOnce(
       new Error('boom'),
     );
@@ -294,7 +298,9 @@ describe('CachePrewarmCycleService', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(['profit:finance:overview:store:18:period:month']);
+      .mockResolvedValueOnce([
+        'profit:finance:overview:store:18:period:month:scope:owner',
+      ]);
     context.dashboardHomeService.warmOverviewCache.mockRejectedValueOnce(
       new Error('boom'),
     );
@@ -327,7 +333,7 @@ describe('CachePrewarmCycleService', () => {
     context.redisService.scanKeysByPattern
       .mockResolvedValueOnce(['profit:dashboard:home:store:18:period:today'])
       .mockResolvedValueOnce([
-        'profit:business-analysis:store:18:period:month:start:na:end:na',
+        'profit:business-analysis:store:18:period:month:start:na:end:na:export:0',
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
@@ -338,7 +344,9 @@ describe('CachePrewarmCycleService', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(['profit:finance:overview:store:18:period:month']);
+      .mockResolvedValueOnce([
+        'profit:finance:overview:store:18:period:month:scope:owner',
+      ]);
     context.dashboardHomeService.warmOverviewCache
       .mockRejectedValueOnce(new Error('boom'))
       .mockRejectedValueOnce(new Error('boom'));

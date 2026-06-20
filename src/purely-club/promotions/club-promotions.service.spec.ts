@@ -121,7 +121,7 @@ describe('ClubPromotionsService', () => {
         expect.objectContaining({
           id: '8',
           type: 'first_order_discount',
-          benefitText: '',
+          benefitText: '首单 8 折',
           statusText: '进行中',
           timeRangeText: '06.01-07.01',
           priority: 100,
@@ -133,13 +133,12 @@ describe('ClubPromotionsService', () => {
           params: {
             discountRate: 80,
             audience: 'first_order',
-            bannerImage: 'https://cdn.example.com/club/first-order.png',
           },
         }),
         expect.objectContaining({
           id: '6',
           type: 'recharge_gift',
-          benefitText: '',
+          benefitText: '充值多送',
           statusText: '进行中',
           timeRangeText: '06.01-07.01',
           priority: 90,
@@ -153,15 +152,12 @@ describe('ClubPromotionsService', () => {
               { rechargeAmount: 10000, giftAmount: 1000 },
               { rechargeAmount: 30000, giftAmount: 5000 },
             ],
-            banner: {
-              image: 'https://cdn.example.com/club/recharge.png',
-            },
           },
         }),
         expect.objectContaining({
           id: '7',
           type: 'reduce',
-          benefitText: '',
+          benefitText: '满减活动',
           statusText: '进行中',
           timeRangeText: '06.01-07.01',
           priority: 80,
@@ -188,10 +184,10 @@ describe('ClubPromotionsService', () => {
           id: '4',
           type: 'free',
           name: '免费体验',
-          benefitText: '',
+          benefitText: '免费体验',
           priority: 60,
           sort: 50,
-          actionText: '去体验',
+          actionText: '了解详情',
           actionType: 'view_products',
           actionTarget: 'club_products',
           params: {},
@@ -200,7 +196,7 @@ describe('ClubPromotionsService', () => {
           id: '3',
           type: 'points_2x',
           name: '双倍积分',
-          benefitText: '',
+          benefitText: '双倍积分',
           priority: 50,
           sort: 60,
           actionText: '去消费',
@@ -230,6 +226,7 @@ describe('ClubPromotionsService', () => {
         createdAt: true,
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 20,
     });
   });
 });

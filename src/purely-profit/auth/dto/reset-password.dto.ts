@@ -1,5 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsString, Matches, MinLength } from 'class-validator';
 
 export class ResetPasswordDto {
   @ApiProperty({ example: '13800138000', description: '手机号' })
@@ -17,8 +17,7 @@ export class ResetPasswordDto {
   @MinLength(6, { message: '新密码至少 6 位' })
   password: string;
 
-  @ApiPropertyOptional({ example: 'newPassword123', description: '确认新密码' })
-  @IsOptional()
+  @ApiProperty({ example: 'newPassword123', description: '确认新密码' })
   @IsString({ message: '确认新密码必须是字符串' })
-  confirmPassword?: string;
+  confirmPassword: string;
 }

@@ -201,7 +201,7 @@ function mapBeanLog(
 ): PulseEarningsLogsResponseDto['items'][number] {
   return {
     id: `bean-${log.id}`,
-    userId: `store-owner-${log.id}`,
+    userId: 'store-owner',
     userName: ownerName ?? '目标商家',
     userPhone: '',
     amount: log.changeAmount,

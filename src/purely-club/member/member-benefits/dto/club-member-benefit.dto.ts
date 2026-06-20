@@ -69,7 +69,7 @@ export class ClubMemberBenefitsDto {
   items: ClubMemberBenefitLevelDto[];
 
   @ApiPropertyOptional({
-    example: 'silver',
+    example: 'gold',
     enum: CLUB_MEMBER_HELD_LEVEL_VALUES,
     nullable: true,
     description: '当前已持有等级；与 currentLevel 不一致时用于提示历史持有等级',

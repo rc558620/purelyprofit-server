@@ -33,7 +33,7 @@ export class ClubRecordsController {
   @ApiOperation({
     summary: '获取 purely-club 当前门店统一流水列表',
     description:
-      '聚合当前登录 purely-club 用户在当前门店下的充值、赠送、消费、退款流水，返回 records 页面展示所需结构。',
+      '聚合当前登录 purely-club 用户在当前门店下的充值、赠送、消费、退款流水，返回 records 页面展示所需结构。支持按类型筛选和游标分页。',
   })
   @ApiOkResponse({ type: ClubRecordsResponseDto })
   list(

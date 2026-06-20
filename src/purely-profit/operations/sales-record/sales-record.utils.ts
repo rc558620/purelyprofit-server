@@ -23,9 +23,9 @@ export interface SalesPeriodRange {
 
 export function buildCurrentRange(
   query: SalesRecordQueryInput,
+  now = Date.now(),
 ): SalesPeriodRange {
   const period = query.period ?? 'today';
-  const now = Date.now();
 
   switch (period) {
     case 'today':
@@ -34,7 +34,7 @@ export function buildCurrentRange(
         end: now,
       };
     case 'week': {
-      const start = new Date();
+      const start = new Date(now);
       const day = start.getDay();
       const diff = day === 0 ? -6 : 1 - day;
       start.setDate(start.getDate() + diff);
@@ -45,7 +45,7 @@ export function buildCurrentRange(
       };
     }
     case 'month': {
-      const current = new Date();
+      const current = new Date(now);
       return {
         start: new Date(
           current.getFullYear(),
@@ -60,7 +60,7 @@ export function buildCurrentRange(
       };
     }
     case 'quarter': {
-      const current = new Date();
+      const current = new Date(now);
       const quarterStartMonth = Math.floor(current.getMonth() / 3) * 3;
       return {
         start: new Date(
@@ -135,6 +135,39 @@ export function buildPreviousRange(
     return undefined;
   }
 
+  if (period === 'today') {
+    // 今日对比昨日整天
+    const yesterdayStart = new Date(currentRange.start);
+    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+    const yesterdayEnd = getEndOfDay(yesterdayStart.getTime());
+    return {
+      start: yesterdayStart.getTime(),
+      end: yesterdayEnd.getTime(),
+    };
+  }
+
+  if (period === 'week') {
+    // 本周对比上周整周
+    const weekStart = new Date(currentRange.start);
+    const prevWeekStart = new Date(weekStart);
+    prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+    const prevWeekEnd = getEndOfDay(
+      new Date(
+        prevWeekStart.getFullYear(),
+        prevWeekStart.getMonth(),
+        prevWeekStart.getDate() + 6,
+        0,
+        0,
+        0,
+        0,
+      ).getTime(),
+    );
+    return {
+      start: prevWeekStart.getTime(),
+      end: prevWeekEnd.getTime(),
+    };
+  }
+
   if (period === 'month') {
     const currentStart = new Date(currentRange.start);
     const previousStart = new Date(
@@ -146,12 +179,56 @@ export function buildPreviousRange(
       0,
       0,
     );
+    // 上月最后一整天的末尾
+    const previousEnd = getEndOfDay(
+      new Date(
+        currentStart.getFullYear(),
+        currentStart.getMonth(),
+        0,
+        0,
+        0,
+        0,
+        0,
+      ).getTime(),
+    );
     return {
       start: previousStart.getTime(),
-      end: currentRange.start - 1,
+      end: previousEnd.getTime(),
     };
   }
 
+  if (period === 'quarter') {
+    const currentStart = new Date(currentRange.start);
+    const currentQuarterStartMonth = currentStart.getMonth();
+    const prevQuarterStartMonth = currentQuarterStartMonth - 3;
+    const previousStart = new Date(
+      currentStart.getFullYear(),
+      prevQuarterStartMonth,
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
+    // 上季度最后一整天的末尾 = 当季度第一天往前 1 毫秒对应的整天末尾
+    const previousEnd = getEndOfDay(
+      new Date(
+        currentStart.getFullYear(),
+        currentQuarterStartMonth,
+        0,
+        0,
+        0,
+        0,
+        0,
+      ).getTime(),
+    );
+    return {
+      start: previousStart.getTime(),
+      end: previousEnd.getTime(),
+    };
+  }
+
+  // 兜底：等长时长前推
   const duration = currentRange.end - currentRange.start;
   return {
     start: currentRange.start - duration - 1,

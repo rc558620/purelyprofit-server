@@ -78,6 +78,21 @@ export class ListInventoryProductsQueryDto {
   @IsOptional()
   @IsIn(INVENTORY_STOCK_SORT_VALUES, { message: '排序方式不合法' })
   sortBy?: (typeof INVENTORY_STOCK_SORT_VALUES)[number];
+
+  /* BUG-7: 添加分页参数，不传时默认返回全量（保持向后兼容） */
+  @ApiPropertyOptional({ example: 1, description: '页码，不传则返回全量' })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '页码必须是整数' })
+  @Min(1, { message: '页码必须大于等于 1' })
+  page?: number;
+
+  @ApiPropertyOptional({ example: 20, description: '每页数量，不传则返回全量' })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '每页数量必须是整数' })
+  @Min(1, { message: '每页数量必须大于等于 1' })
+  pageSize?: number;
 }
 
 export class InventoryProductResponseDto {
@@ -305,6 +320,16 @@ export class InventoryReportResponseDto {
   @ValidateNested({ each: true })
   @Type(() => InventoryProductResponseDto)
   products: InventoryProductResponseDto[];
+}
+
+/* BUG-6: getStats 的 storeId 改用 DTO 校验，替代 Controller 层的 ParseIntPipe */
+export class InventoryStatsQueryDto {
+  @ApiPropertyOptional({ example: 1, description: '门店 ID' })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '门店 ID 必须是整数' })
+  @Min(1, { message: '门店 ID 必须大于等于 1' })
+  storeId?: number;
 }
 
 export class ProductThresholdResponseDto {

@@ -42,7 +42,7 @@ model User {
   /// 微信登录时拉取的昵称
   wechatNickname   String?  @map("wechat_nickname")
   /// 微信授权手机号（open-type=getPhoneNumber 解密，用于与手机号账号互通）
-  wechatPhone      String?  @map("wechat_phone")
+  wechatPhone      String?  @unique @map("wechat_phone")
   store            Store?
   staffMembership  Staff?
   createdAt        DateTime @default(now()) @map("created_at")
@@ -146,7 +146,7 @@ model Staff {
   store                Store                         @relation(fields: [storeId], references: [id], onDelete: Cascade)
   userId               Int?                          @unique @map("user_id")
   user                 User?                         @relation(fields: [userId], references: [id], onDelete: SetNull)
-  email                String                        @unique
+  email                String
   name                 String
   phone                String?
   role                 StaffRole                     @default(STAFF)
@@ -170,6 +170,7 @@ model Staff {
   createdAt            DateTime                      @default(now()) @map("created_at")
   updatedAt            DateTime                      @updatedAt @map("updated_at")
 
+  @@unique([storeId, email])
   @@index([storeId])
   @@index([storeId, updatedAt])
   @@index([storeId, status, isSeatActive, isActive])

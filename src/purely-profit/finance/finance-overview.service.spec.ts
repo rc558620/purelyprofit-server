@@ -375,7 +375,7 @@ describe('FinanceOverviewService', () => {
       cashFlowRows: [
         {
           id: '1',
-          dateLabel: '2025-5-14',
+          dateLabel: '2025-05-14',
           title: '午市营业额',
           direction: 'income',
           categoryLabel: '销售收入',
@@ -384,7 +384,7 @@ describe('FinanceOverviewService', () => {
         },
         {
           id: '2',
-          dateLabel: '2025-5-13',
+          dateLabel: '2025-05-13',
           title: '采购牛奶',
           direction: 'expense',
           categoryLabel: '采购进货',
@@ -402,7 +402,7 @@ describe('FinanceOverviewService', () => {
           remaining: 300,
           statusLabel: '部分收付',
           statusKey: 'partial',
-          dateLabel: '2025-5-12',
+          dateLabel: '2025-05-12',
         },
         {
           id: '9',
@@ -413,7 +413,7 @@ describe('FinanceOverviewService', () => {
           remaining: 200,
           statusLabel: '部分收付',
           statusKey: 'partial',
-          dateLabel: '2025-5-10',
+          dateLabel: '2025-05-10',
         },
       ],
     });

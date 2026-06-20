@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../purely-profit/auth/strategies/jwt.strategy';
+import { PulseDevModeAccessService } from './dev-mode/pulse-dev-mode-access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import type {
@@ -94,7 +95,7 @@ export class PulseStoreContextService {
   }
 
   private isDeveloper(user: AuthenticatedUser): boolean {
-    return user.isPulseDeveloper === true || user.pulseMode === 'developer';
+    return PulseDevModeAccessService.isDeveloper(user);
   }
 
   private async findAccessibleStoreById(

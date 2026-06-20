@@ -67,12 +67,7 @@ export function buildCurrentRange(
       };
     }
     case 'custom_month': {
-      const customDate =
-        query.customDate ??
-        query.startTime ??
-        query.rangeStartDate ??
-        query.rangeEndDate ??
-        query.endTime;
+      const customDate = query.customDate ?? query.startTime;
 
       if (customDate === undefined) {
         throw new BadRequestException(

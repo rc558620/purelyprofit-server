@@ -79,6 +79,7 @@ export class SalesRecordProductsService {
       name: product.name,
       category: product.category,
       code: product.code,
+      // 注意：price 在前端语义代表"单件利润"，对应数据库 product.profit
       price: toDecimalNumber(product.profit),
       salePrice: toDecimalNumber(product.price),
       quantity: 0,

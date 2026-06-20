@@ -29,6 +29,7 @@ import {
   InventoryAdjustmentResponseDto,
   InventoryProductResponseDto,
   InventoryReportResponseDto,
+  InventoryStatsQueryDto,
   InventoryStatsResponseDto,
   ListInventoryAdjustmentsQueryDto,
   ListInventoryProductsQueryDto,
@@ -78,6 +79,11 @@ export class InventoryController {
     return this.inventoryService.listAdjustments(user, query);
   }
 
+  /*
+   * BUG-5 注释澄清：@RequirePermissions 列出两个权限是 OR 语义（Guard 用 hasAnyPermission），
+   * 与 service 层 resolveAdjustPermission 的动态判断配合——
+   * Guard 先确保用户至少有其中一个权限，service 再根据 adjustType/mode 决定具体需要哪个。
+   */
   @Post('adjustments')
   @RequirePermissions('inventory:update', 'operation-entry:create')
   @ApiOperation({ summary: '新增库存调整记录' })
@@ -107,9 +113,9 @@ export class InventoryController {
   @ApiOkResponse({ type: InventoryStatsResponseDto })
   getStats(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('storeId', new ParseIntPipe({ optional: true })) storeId?: number,
+    @Query() query: InventoryStatsQueryDto,
   ): Promise<InventoryStatsResponseDto> {
-    return this.inventoryService.getStats(user, storeId);
+    return this.inventoryService.getStats(user, query.storeId);
   }
 
   @Get('report')

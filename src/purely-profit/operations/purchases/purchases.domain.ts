@@ -71,7 +71,7 @@ export function assertPurchaseSupplierInput(
   supplierId: number | undefined,
   supplierName: string | null,
 ): void {
-  if (!supplierId && !supplierName) {
+  if (supplierId === undefined && !supplierName) {
     throw new BadRequestException('请选择供应商或填写供应商名称');
   }
 }
@@ -147,8 +147,8 @@ function preparePurchaseItem(
   if (item.productId !== undefined && !product) {
     throw new NotFoundException('存在无效商品');
   }
-  if (!Number.isFinite(item.unitPrice) || item.unitPrice < 0) {
-    throw new BadRequestException('进货单价不能为负数');
+  if (!Number.isFinite(item.unitPrice) || item.unitPrice <= 0) {
+    throw new BadRequestException('进货单价必须大于 0');
   }
 
   const productName = toOptionalText(item.productName) ?? product?.name;

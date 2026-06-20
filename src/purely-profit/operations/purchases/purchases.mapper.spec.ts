@@ -57,10 +57,10 @@ describe('purchases.mapper', () => {
 
   it('buildEmptyPurchaseStatsResponse 会返回默认统计值', () => {
     expect(buildEmptyPurchaseStatsResponse()).toEqual({
-      totalThisMonth: 0,
-      countThisMonth: 0,
+      totalAmount: 0,
+      orderCount: 0,
       supplierCount: 0,
-      compareLastMonth: null,
+      compareLastPeriod: null,
     });
   });
 
@@ -74,10 +74,10 @@ describe('purchases.mapper', () => {
         hasPreviousRange: true,
       }),
     ).toEqual({
-      totalThisMonth: 200,
-      countThisMonth: 4,
+      totalAmount: 200,
+      orderCount: 4,
       supplierCount: 3,
-      compareLastMonth: 25,
+      compareLastPeriod: 25,
     });
   });
 

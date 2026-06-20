@@ -21,5 +21,11 @@ export function resolvePlanSnapshot(
     };
   }
 
-  return SUBSCRIPTION_PLAN_CATALOG[planCode];
+  const preset = SUBSCRIPTION_PLAN_CATALOG[planCode];
+
+  if (!preset) {
+    throw new BadRequestException(`未找到套餐编码 ${planCode} 对应的预设配置`);
+  }
+
+  return preset;
 }

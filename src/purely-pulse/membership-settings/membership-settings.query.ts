@@ -44,12 +44,18 @@ export async function upsertMembershipPlanSettingRecord(
     create: {
       ...params.createData,
       price: params.patch.price,
+      ...(params.patch.planName !== undefined
+        ? { planName: params.patch.planName }
+        : {}),
       ...(params.patch.validDays !== undefined
         ? { validDays: params.patch.validDays }
         : {}),
     },
     update: {
       price: params.patch.price,
+      ...(params.patch.planName !== undefined
+        ? { planName: params.patch.planName }
+        : {}),
       ...(params.patch.validDays !== undefined
         ? { validDays: params.patch.validDays }
         : {}),

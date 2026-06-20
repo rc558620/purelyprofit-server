@@ -23,7 +23,12 @@ export interface ClubServiceOrderMetadata {
   /** 会员基准价（原价 × 等级折扣率，单位：分） */
   memberBaselineFen: number;
   promotionId: number | null;
-  promotionType: 'first_order_discount' | 'discount' | 'reduce' | null;
+  promotionType:
+    | 'first_order_discount'
+    | 'discount'
+    | 'discount_day'
+    | 'reduce'
+    | null;
   discountRate: number | null;
   /** 总优惠金额 = 原价 - 最终价（不含积分抵扣，单位：分） */
   discountAmountFen: number;

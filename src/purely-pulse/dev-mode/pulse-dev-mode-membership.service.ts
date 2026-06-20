@@ -9,7 +9,11 @@ import type {
   PlatformMembershipPromoCenterResponseDto,
   PlatformMembershipPartnerProfileResponseDto,
 } from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
-import { DEV_EXPIRES_AT, DEV_REMAINING_DAYS } from './pulse-dev-mode.constants';
+import {
+  DEV_EXPIRES_AT,
+  DEV_PLAN_ID,
+  getDevRemainingDays,
+} from './pulse-dev-mode.constants';
 
 @Injectable()
 export class PulseDevModeMembershipService {
@@ -28,7 +32,7 @@ export class PulseDevModeMembershipService {
   ): PlatformMembershipCenterResponseDto {
     return {
       memberInfo: this.buildDeveloperMemberInfo(user),
-      remainingDays: DEV_REMAINING_DAYS,
+      remainingDays: getDevRemainingDays(),
       stats: {
         partnerCount: 0,
         totalPromos: 0,
@@ -126,7 +130,7 @@ export class PulseDevModeMembershipService {
   private buildDeveloperMemberInfo(user: AuthenticatedUser) {
     return {
       isActive: true,
-      planId: 'yearly' as const,
+      planId: DEV_PLAN_ID,
       expiredAt: DEV_EXPIRES_AT.getTime(),
       inviteCode: `DEV${user.id}`,
       totalPoints: 0,

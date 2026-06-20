@@ -5,6 +5,10 @@ export function assertClubPaymentAmountMatches(
   expectedAmountFen: number,
   callbackAmountFen: number,
 ): void {
+  if (expectedAmountFen <= 0 || callbackAmountFen <= 0) {
+    throw new BadRequestException('订单金额或回调金额异常（不能为 0 或负数）');
+  }
+
   if (expectedAmountFen !== callbackAmountFen) {
     throw new BadRequestException('回调金额与订单金额不一致');
   }

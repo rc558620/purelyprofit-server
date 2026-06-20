@@ -80,12 +80,18 @@ describe('StaffAccessService', () => {
       id: 11,
       storeId: 18,
       role: StaffRole.MANAGER,
+      isSeatActive: true,
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(18);
 
     await expect(
       service.findManageableStaffOrThrow(user, 11, 'staff:update'),
-    ).resolves.toEqual({ id: 11, storeId: 18, role: StaffRole.MANAGER });
+    ).resolves.toEqual({
+      id: 11,
+      storeId: 18,
+      role: StaffRole.MANAGER,
+      isSeatActive: true,
+    });
   });
 
   it('findManageableStaffOrThrow 在员工不存在时抛出异常', async () => {
@@ -101,6 +107,7 @@ describe('StaffAccessService', () => {
       id: 11,
       storeId: 18,
       role: StaffRole.OWNER,
+      isSeatActive: true,
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(18);
 

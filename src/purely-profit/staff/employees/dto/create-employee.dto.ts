@@ -61,13 +61,14 @@ export class CreateEmployeeDto {
   @IsString({ message: '头像地址必须是字符串' })
   avatar?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: '110101199001011234',
     description: '身份证号',
   })
+  @IsOptional()
   @IsString({ message: '身份证号必须是字符串' })
   @Matches(/^\d{17}[\dXx]$/, { message: '身份证号格式不正确（18位）' })
-  idCard: string;
+  idCard?: string;
 
   @ApiPropertyOptional({
     enum: EmployeeGender,

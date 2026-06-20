@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { FinanceReconciliationStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -30,7 +34,6 @@ import {
   createReconciliationRecordEntity,
   deleteReconciliationRecordEntity,
   findReconciliationRecord,
-  findReconciliationRecordId,
   queryReconciliationRecordPage,
   queryReconciliationRecords,
   updateReconciliationConfirmation,
@@ -169,6 +172,13 @@ export class FinanceReconciliationService {
       throw new NotFoundException('对账单不存在');
     }
 
+    if (
+      record.status === FinanceReconciliationStatus.confirmed ||
+      record.status === FinanceReconciliationStatus.adjusted
+    ) {
+      throw new ConflictException('已确认或已调整的对账单不能再次确认');
+    }
+
     const adjustNote = trimOptionalString(dto.adjustNote);
     const updatedRecord = await updateReconciliationConfirmation(this.prisma, {
       recordId,
@@ -189,12 +199,18 @@ export class FinanceReconciliationService {
   ): Promise<void> {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const record = await findReconciliationRecordId(this.prisma, {
+    const record = await findReconciliationRecord(this.prisma, {
       storeId,
       recordId,
     });
     if (!record) {
       throw new NotFoundException('对账单不存在');
+    }
+    if (
+      record.status === FinanceReconciliationStatus.confirmed ||
+      record.status === FinanceReconciliationStatus.adjusted
+    ) {
+      throw new ConflictException('已确认或已调整的对账单不能删除');
     }
     await deleteReconciliationRecordEntity(this.prisma, recordId);
     await this.cacheInvalidatorService.invalidateFinanceDerived(storeId);

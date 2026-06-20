@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   forwardRef,
   Inject,
@@ -60,7 +61,7 @@ export class MarketingCustomersService {
 
   async listCustomers(
     user: AuthenticatedUser,
-    query: ListCustomersQueryDto & { storeId?: number },
+    query: ListCustomersQueryDto,
   ): Promise<MarketingCustomersResponseDto> {
     const resolvedStoreId =
       await this.marketingSharedService.resolveMembershipManagedStoreId(
@@ -271,6 +272,12 @@ export class MarketingCustomersService {
       customer.storeId,
       'marketing:manage',
     );
+
+    if (customer.balance > 0 || customer.points > 0) {
+      throw new BadRequestException(
+        '该顾客仍有余额或积分，无法删除；请先完成退款或清零操作',
+      );
+    }
 
     await this.prisma.marketingCustomer.delete({ where: { id: customerId } });
     await this.invalidateOverviewCache(customer.storeId);

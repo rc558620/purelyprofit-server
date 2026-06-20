@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { RedisService } from '../../redis/redis.service';
-import { NOTIFICATIONS_READ_KEY_PREFIX } from './notifications.constants';
+import {
+  NOTIFICATIONS_READ_KEY_PREFIX,
+  NOTIFICATIONS_READ_TTL_SECONDS,
+} from './notifications.constants';
 import type {
   NotificationDraft,
   NotificationReadMap,
@@ -22,20 +25,33 @@ export class NotificationsReadStateService {
     storeId: number,
     items: NotificationDraft[],
   ): Promise<NotificationReadMap> {
-    const entries = await Promise.all(
-      items.map(async (item) => {
-        const rawReadAt = await this.redisService.get(
-          this.buildNotificationReadKey(storeId, item.id),
-        );
-        const parsedReadAt = rawReadAt
-          ? Number.parseInt(rawReadAt, 10)
-          : Number.NaN;
-        return [
-          item.id,
-          Number.isNaN(parsedReadAt) ? undefined : parsedReadAt,
-        ] as const;
-      }),
+    if (items.length === 0) {
+      return new Map();
+    }
+
+    const keys = items.map((item) =>
+      this.buildNotificationReadKey(storeId, item.id),
     );
+
+    // 使用 Pipeline 批量读取，避免逐条网络请求
+    const client = this.redisService.getClient();
+    const pipeline = client.pipeline();
+    for (const key of keys) {
+      pipeline.get(key);
+    }
+    const results = await pipeline.exec();
+
+    const entries: Array<readonly [string, number | undefined]> = [];
+    for (let index = 0; index < items.length; index++) {
+      const rawReadAt = results?.[index]?.[1] as string | null;
+      const parsedReadAt = rawReadAt
+        ? Number.parseInt(rawReadAt, 10)
+        : Number.NaN;
+      entries.push([
+        items[index].id,
+        Number.isNaN(parsedReadAt) ? undefined : parsedReadAt,
+      ]);
+    }
 
     return new Map(entries);
   }
@@ -52,6 +68,7 @@ export class NotificationsReadStateService {
     await this.redisService.set(
       this.buildNotificationReadKey(storeId, notificationId),
       String(readAt),
+      NOTIFICATIONS_READ_TTL_SECONDS,
     );
     return readAt;
   }
@@ -62,14 +79,14 @@ export class NotificationsReadStateService {
   ): Promise<number> {
     const readAt = Date.now();
 
-    await Promise.all(
-      notificationIds.map((notificationId) =>
-        this.redisService.set(
-          this.buildNotificationReadKey(storeId, notificationId),
-          String(readAt),
-        ),
-      ),
-    );
+    // 使用 Pipeline 批量写入，并统一设置 TTL
+    const client = this.redisService.getClient();
+    const pipeline = client.pipeline();
+    for (const notificationId of notificationIds) {
+      const key = this.buildNotificationReadKey(storeId, notificationId);
+      pipeline.set(key, String(readAt), 'EX', NOTIFICATIONS_READ_TTL_SECONDS);
+    }
+    await pipeline.exec();
 
     return readAt;
   }

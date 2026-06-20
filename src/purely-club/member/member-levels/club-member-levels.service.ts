@@ -30,7 +30,6 @@ const CLUB_MEMBER_HELD_LEVEL_LABEL_MAP: Record<
   string
 > = {
   regular: '普通会员',
-  silver: '白银会员',
   gold: '黄金会员',
   platinum: '铂金会员',
   diamond: '钻石会员',

@@ -77,6 +77,7 @@ const MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'cost:view',
   'operation-entry:view',
   'operation-entry:create',
+  'operation-entry:delete',
   'sales:view',
   'sales:create',
   'sales:delete',
@@ -93,6 +94,7 @@ const MANAGER_SUB_ACCOUNT_PERMISSIONS = [
 
 const FINANCE_SUB_ACCOUNT_PERMISSIONS = [
   'finance:view',
+  'finance:manage',
   'finance:export',
   'report:view',
   'goods:view',
@@ -162,9 +164,7 @@ export class AccessControlService {
     }
 
     const effectivePermissions =
-      currentMembership.permissions.length > 0
-        ? currentMembership.permissions
-        : this.getEffectivePermissions(currentMembership);
+      this.getEffectivePermissions(currentMembership);
 
     return this.hasPermission(effectivePermissions, requiredPermission)
       ? currentMembership.storeId
@@ -207,7 +207,7 @@ export class AccessControlService {
       subAccountRole: subAccount?.role ?? null,
       subAccountStatus: subAccount?.status ?? null,
       subAccountAssigned: subAccount?.isAssigned ?? false,
-      canAccessHome: subAccount?.canAccessHome ?? true,
+      canAccessHome: subAccount ? (subAccount.canAccessHome ?? false) : true,
       canUseHandover: subAccount?.canUseHandover ?? false,
     };
 
@@ -232,7 +232,7 @@ export class AccessControlService {
     const basePermissions =
       SUB_ACCOUNT_ROLE_PERMISSIONS[membership.subAccountRole] ?? [];
     if (membership.canUseHandover) {
-      return [...basePermissions];
+      return basePermissions as string[];
     }
 
     return basePermissions.filter(

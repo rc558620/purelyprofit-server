@@ -78,6 +78,7 @@ describe('AccessControlService', () => {
       'cost:view',
       'operation-entry:view',
       'operation-entry:create',
+      'operation-entry:delete',
       'sales:view',
       'sales:create',
       'sales:delete',
@@ -106,6 +107,7 @@ describe('AccessControlService', () => {
 
     expect(permissions).toEqual([
       'finance:view',
+      'finance:manage',
       'finance:export',
       'report:view',
       'goods:view',
@@ -175,6 +177,76 @@ describe('AccessControlService', () => {
         'marketing:view',
       ),
     ).toBeNull();
+  });
+
+  it('canAccessHome=false 时 resolveCurrentStoreIdByPermission 应回收权限并返回 null', () => {
+    const membership = buildSubAccountMembership(StoreSubAccountRole.finance, {
+      canAccessHome: false,
+    });
+
+    expect(
+      service.resolveCurrentStoreIdByPermission(
+        { currentMembership: membership },
+        'finance:view',
+      ),
+    ).toBeNull();
+  });
+
+  it('canAccessHome=false 且 permissions 非空时 resolveCurrentStoreIdByPermission 仍应回收权限', () => {
+    const membership = buildSubAccountMembership(StoreSubAccountRole.cashier, {
+      canAccessHome: false,
+      permissions: ['space:view', 'goods:view'],
+    });
+
+    expect(
+      service.resolveCurrentStoreIdByPermission(
+        { currentMembership: membership },
+        'space:view',
+      ),
+    ).toBeNull();
+    expect(
+      service.resolveCurrentStoreIdByPermission(
+        { currentMembership: membership },
+        'goods:view',
+      ),
+    ).toBeNull();
+  });
+
+  it('buildMembershipContext 子账号 canAccessHome 为 null 时应默认 false', () => {
+    const result = service.buildMembershipContext(
+      {
+        id: 1,
+        storeId: 10,
+        role: StaffRole.STAFF,
+        permissions: [],
+        isActive: true,
+        linkedEmployeeId: null,
+      },
+      {
+        id: 5,
+        employeeId: null,
+        role: StoreSubAccountRole.cashier,
+        status: StoreSubAccountStatus.active,
+        isAssigned: true,
+        canAccessHome: null as unknown as boolean,
+        canUseHandover: true,
+      },
+    );
+
+    expect(result.canAccessHome).toBe(false);
+    expect(result.permissions).toEqual([]);
+  });
+
+  it('buildMembershipContext 主账号 canAccessHome 应为 true', () => {
+    const result = service.buildMembershipContext({
+      id: 1,
+      storeId: 10,
+      role: StaffRole.OWNER,
+      permissions: ['*'],
+      isActive: true,
+    });
+
+    expect(result.canAccessHome).toBe(true);
   });
 
   it('resolveCurrentStaffIdForStore 应返回当前 membership 的 staffId', () => {

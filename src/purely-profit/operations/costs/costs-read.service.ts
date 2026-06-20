@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { toDecimalNumber } from '../../commerce/commerce.utils';
+import {
+  subtractMoneyValues,
+  toDecimalNumber,
+} from '../../commerce/commerce.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
@@ -181,13 +184,12 @@ export class CostsReadService {
         currentRange,
         callerIsSubAccount,
       );
-    const clampedPreviousRange = previousRange
-      ? await this.platformMembershipAccessService.clampHistoryRange(
-          storeId,
-          previousRange,
-          callerIsSubAccount,
-        )
-      : null;
+    const clampedPreviousRange =
+      await this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        previousRange,
+        callerIsSubAccount,
+      );
     const categoryFilter = query.categoryFilter ?? 'all';
 
     if (clampedCurrentRange.empty) {
@@ -201,7 +203,7 @@ export class CostsReadService {
         start: clampedCurrentRange.start,
         end: clampedCurrentRange.end,
       },
-      clampedPreviousRange && !clampedPreviousRange.empty
+      !clampedPreviousRange.empty
         ? {
             start: clampedPreviousRange.start,
             end: clampedPreviousRange.end,
@@ -219,7 +221,7 @@ export class CostsReadService {
       summary: {
         total,
         fixed,
-        variable: Number((total - fixed).toFixed(2)),
+        variable: subtractMoneyValues(total, fixed),
         recordCount: costRows.length,
         compareLastPeriod: calculateCostCompareLastPeriod(
           total,

@@ -29,14 +29,14 @@ export class ClubRechargePaymentService {
         configService: this.configService,
         loadDraftForManualConfirm: (
           currentContext: ClubCurrentContext,
-          orderId: string,
+          orderNo: string,
         ) =>
           this.clubRechargeQueryService.getRechargeDraft(
             currentContext,
-            orderId,
+            orderNo,
           ),
-        loadDraftByOrderId: (orderId: string) =>
-          this.clubRechargeQueryService.getRechargeDraftByOrderId(orderId),
+        loadDraftByOrderNo: (orderNo: string) =>
+          this.clubRechargeQueryService.getRechargeDraftByOrderNo(orderNo),
         resolveDraftAmountFen: (draft) => draft.amountFen,
         completePaidDraft: (draft, paymentMeta) =>
           this.clubRechargeSettlementService.completePaidDraft(
@@ -48,20 +48,20 @@ export class ClubRechargePaymentService {
 
   confirmOrderPaid(
     currentContext: ClubCurrentContext,
-    orderId: string,
+    orderNo: string,
   ): Promise<ClubRechargeOrderResponseDto> {
     return this.paymentConfirmationOrchestrator.confirmOrderPaid(
       currentContext,
-      orderId,
+      orderNo,
     );
   }
 
   confirmOrderPaidByCallback(
-    orderId: string,
+    orderNo: string,
     params: ClubPaymentCallbackSettlementParams,
   ): Promise<ClubRechargeOrderResponseDto> {
     return this.paymentConfirmationOrchestrator.confirmOrderPaidByCallback(
-      orderId,
+      orderNo,
       params,
     );
   }

@@ -1,10 +1,11 @@
-import { ConflictException, Injectable } from '@nestjs/common';
-import { Prisma, PrismaClient, SubscriptionPlanCode } from '@prisma/client';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { Prisma, PrismaClient, StoreSubscriptionStatus, SubscriptionPlanCode } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StoreSubscriptionResponseDto } from './dto/store-subscription-response.dto';
 import { UpdateStoreSubscriptionDto } from './dto/update-store-subscription.dto';
 import {
+  findStoreSubscriptionRecord,
   updateStoreSeatCapacity,
   upsertStoreSubscriptionRecord,
 } from './subscriptions.query';
@@ -56,6 +57,17 @@ export class SubscriptionsService {
     await this.subscriptionsAccessService.ensureStoreOwner(user, storeId);
 
     return this.prisma.$transaction(async (tx) => {
+      const currentSubscription = await findStoreSubscriptionRecord(tx, storeId);
+
+      if (!currentSubscription) {
+        throw new BadRequestException('门店订阅记录不存在，请先初始化');
+      }
+
+      this.validateSubscriptionTransition(
+        currentSubscription.status,
+        dto.planCode,
+      );
+
       const nextPlan = resolvePlanSnapshot(dto.planCode, dto.maxAccountSeats);
       const seatSummary = await this.subscriptionsProfileService.getSeatSummary(
         storeId,
@@ -75,6 +87,7 @@ export class SubscriptionsService {
         planCode: dto.planCode,
         planSnapshot: nextPlan,
         expiresAt,
+        targetStatus: StoreSubscriptionStatus.ACTIVE,
       });
 
       await updateStoreSeatCapacity(tx, {
@@ -87,6 +100,21 @@ export class SubscriptionsService {
         tx,
       );
     });
+  }
+
+  /** 校验订阅状态流转合法性 */
+  private validateSubscriptionTransition(
+    currentStatus: StoreSubscriptionStatus,
+    _targetPlanCode: SubscriptionPlanCode,
+  ): void {
+    if (currentStatus === StoreSubscriptionStatus.CANCELLED) {
+      throw new BadRequestException(
+        '订阅已取消，无法直接变更套餐，请联系客服重新开通',
+      );
+    }
+
+    // EXPIRED 状态允许续费/升级（变更套餐即视为重新激活）
+    // ACTIVE 状态允许升降级
   }
 
   getSeatSummary(

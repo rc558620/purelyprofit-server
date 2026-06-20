@@ -32,18 +32,23 @@ export class PulseMembershipSettingsProfileService {
       MembershipPlanSettingRecord
     >(existingSettings.map((setting) => [setting.planId, setting]));
 
-    if (existingByPlanId.size === MEMBERSHIP_SETTING_PLAN_ORDER.length) {
-      return MEMBERSHIP_SETTING_PLAN_ORDER.map((planId) => {
-        const setting = existingByPlanId.get(planId);
-        if (!setting) {
-          throw new Error(`Missing membership setting for ${planId}`);
-        }
-        return setting;
-      });
+    // 检查每个期望的 planId 是否都存在，而非仅判断数量
+    // （避免 DB 有 4 条记录但 planId 不覆盖全部的情况）
+    const missingPlanIds = MEMBERSHIP_SETTING_PLAN_ORDER.filter(
+      (planId) => !existingByPlanId.has(planId),
+    );
+
+    if (missingPlanIds.length === 0) {
+      // 按 MEMBERSHIP_SETTING_PLAN_ORDER 定义的顺序排列返回，
+      // 不依赖 DB 查询结果的插入序
+      return MEMBERSHIP_SETTING_PLAN_ORDER.map(
+        (planId) => existingByPlanId.get(planId)!,
+      );
     }
 
-    return Promise.all(
-      MEMBERSHIP_SETTING_PLAN_ORDER.map((planId) =>
+    // 仅对缺失的 planId 执行 upsert 补齐，不覆盖已有记录的用户修改值
+    await Promise.all(
+      missingPlanIds.map((planId) =>
         upsertMembershipPlanSettingRecord(this.prisma, {
           planId,
           createData: this.buildCreatePayload(planId),
@@ -57,6 +62,17 @@ export class PulseMembershipSettingsProfileService {
           },
         }),
       ),
+    );
+
+    // 重新查询以获取完整且排序正确的列表
+    const allSettings = await listMembershipPlanSettingRecords(this.prisma);
+    const allByPlanId = new Map<
+      MembershipSettingPlanId,
+      MembershipPlanSettingRecord
+    >(allSettings.map((setting) => [setting.planId, setting]));
+
+    return MEMBERSHIP_SETTING_PLAN_ORDER.map(
+      (planId) => allByPlanId.get(planId)!,
     );
   }
 

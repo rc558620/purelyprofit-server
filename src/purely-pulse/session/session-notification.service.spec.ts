@@ -61,6 +61,9 @@ describe('SessionNotificationService', () => {
       expiresAt: new Date('2026-05-25T00:00:00.000Z'),
     });
 
+    const todayStart = new Date('2026-05-21T12:00:00.000Z');
+    todayStart.setHours(0, 0, 0, 0);
+
     await expect(service.countUnreadNotifications(18)).resolves.toBe(9);
     expect(prismaService.$queryRaw).toHaveBeenCalled();
     expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
@@ -78,7 +81,7 @@ describe('SessionNotificationService', () => {
       where: {
         storeId: 18,
         startDate: {
-          gte: new Date('2026-05-21T12:00:00.000Z'),
+          gte: todayStart,
           lte: new Date('2026-05-28T15:59:59.999Z'),
         },
       },

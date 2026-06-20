@@ -33,7 +33,7 @@ export class StoresWechatPayService {
     const record = await this.findWechatPayConfigByStoreId(store.id);
 
     if (!record) {
-      throw new NotFoundException('门店不存在');
+      throw new NotFoundException('门店微信收款配置未找到');
     }
 
     return this.toWechatPayConfigResponse(record);
@@ -78,7 +78,8 @@ export class StoresWechatPayService {
   }
 
   /**
-   * 供内部模块（如 purely-club 下单）读取门店微信收款配置，不含敏感字段脱敏处理
+   * 供内部模块（如 purely-club 下单）读取门店微信收款配置。
+   * ⚠️ 含敏感字段（apiV3Key），仅供内部模块使用，不得暴露给前端。
    */
   async getWechatPayConfigForStore(storeId: number): Promise<{
     mchId: string | null;
@@ -240,7 +241,9 @@ export class StoresWechatPayService {
       message.includes('unknown column') ||
       message.includes('no such column') ||
       message.includes('unknown field') ||
-      message.includes('column')
+      message.includes('invalid column') ||
+      message.includes('column not found') ||
+      message.includes('column does not exist')
     );
   }
 

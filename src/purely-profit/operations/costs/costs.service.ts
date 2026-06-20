@@ -58,6 +58,18 @@ export class CostsService {
     return this.costsWriteService.deleteRecord(user, recordId);
   }
 
+  deletePurchaseCostRecord(
+    transaction: Prisma.TransactionClient,
+    storeId: number,
+    purchaseOrderId: number,
+  ): Promise<void> {
+    return this.costsWriteService.deletePurchaseCostRecord(
+      transaction,
+      storeId,
+      purchaseOrderId,
+    );
+  }
+
   syncPurchaseCost(
     transaction: Prisma.TransactionClient,
     input: SyncPurchaseCostInput,

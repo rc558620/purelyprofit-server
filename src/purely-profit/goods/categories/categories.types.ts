@@ -38,3 +38,8 @@ export interface CategoryRenameProductsInput {
   categoryId: number;
   name: string;
 }
+
+export interface CategoryClearProductsInput {
+  storeId: number;
+  categoryId: number;
+}

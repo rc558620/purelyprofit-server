@@ -1,8 +1,10 @@
 import type { Employee, Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
 
+type PrismaClientOrTransaction = PrismaService | Prisma.TransactionClient;
+
 export async function queryLatestEmployeeProfileEmpNo(
-  prisma: PrismaService,
+  prisma: PrismaClientOrTransaction,
   storeId: number,
 ): Promise<string | null> {
   const latestEmployee = await prisma.employee.findFirst({
@@ -15,14 +17,14 @@ export async function queryLatestEmployeeProfileEmpNo(
 }
 
 export function createEmployeeProfile(
-  prisma: PrismaService,
+  prisma: PrismaClientOrTransaction,
   data: Prisma.EmployeeUncheckedCreateInput,
 ): Promise<Employee> {
   return prisma.employee.create({ data });
 }
 
 export function updateEmployeeProfile(
-  prisma: PrismaService,
+  prisma: PrismaClientOrTransaction,
   employeeId: number,
   data: Prisma.EmployeeUncheckedUpdateInput,
 ): Promise<Employee> {

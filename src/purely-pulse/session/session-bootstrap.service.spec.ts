@@ -17,6 +17,9 @@ describe('SessionBootstrapService', () => {
     storeMembershipProfile: {
       findUnique: jest.fn(),
     },
+    storeMembershipOrder: {
+      findFirst: jest.fn(),
+    },
   };
 
   const pulseStoreContextService = {
@@ -145,7 +148,9 @@ describe('SessionBootstrapService', () => {
     prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
       currentPlanId: 'quarterly',
       expiresAt: new Date('2026-05-25T00:00:00.000Z'),
-      orders: [{ planName: '季度会员' }],
+    });
+    prismaService.storeMembershipOrder.findFirst.mockResolvedValue({
+      planName: '季度会员',
     });
     sessionNotificationService.countUnreadNotifications.mockResolvedValue(9);
 
@@ -184,13 +189,16 @@ describe('SessionBootstrapService', () => {
       select: {
         currentPlanId: true,
         expiresAt: true,
-        orders: {
-          where: { status: 'paid' },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: 1,
-          select: { planName: true },
-        },
       },
+    });
+    expect(prismaService.storeMembershipOrder.findFirst).toHaveBeenCalledWith({
+      where: {
+        storeId: 18,
+        status: 'paid',
+        planId: 'quarterly',
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { planName: true },
     });
     expect(
       sessionNotificationService.countUnreadNotifications,

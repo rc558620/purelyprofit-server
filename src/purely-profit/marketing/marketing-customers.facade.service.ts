@@ -31,7 +31,7 @@ export class MarketingCustomersFacadeService {
 
   listCustomers(
     user: AuthenticatedUser,
-    query: ListCustomersQueryDto & { storeId?: number },
+    query: ListCustomersQueryDto,
   ): Promise<MarketingCustomersResponseDto> {
     return this.marketingCustomersService.listCustomers(user, query);
   }

@@ -1,4 +1,7 @@
-import { buildPulseDashboardOverviewPattern } from '../purely-pulse/pulse.cache-keys';
+import {
+  buildPulseDashboardOverviewPattern,
+  buildPulseDashboardStoresPattern,
+} from '../purely-pulse/pulse.cache-keys';
 import type { CacheInvalidatorProvider } from './cache-invalidator.registry';
 import type {
   PulseCacheInvalidatorInput,
@@ -10,8 +13,13 @@ export const pulseDashboardOverviewCacheInvalidatorProvider: CacheInvalidatorPro
   Pick<PulseCacheInvalidatorRegistry, 'invalidatePulseDashboardOverview'>
 > = (input: PulseCacheInvalidatorInput) => ({
   invalidatePulseDashboardOverview: async (storeId: number): Promise<void> => {
-    await input.redisService.delByPattern(
-      buildPulseDashboardOverviewPattern(storeId),
-    );
+    await Promise.all([
+      input.redisService.delByPattern(
+        buildPulseDashboardOverviewPattern(storeId),
+      ),
+      input.redisService.delByPattern(
+        buildPulseDashboardStoresPattern(storeId),
+      ),
+    ]);
   },
 });

@@ -15,7 +15,7 @@ import {
   resolveRegionCity,
 } from './growth-admin.shared';
 
-type AdminPayoutStatus = 'pending' | 'paid' | 'rejected';
+type AdminPayoutStatus = 'pending' | 'approved' | 'paid' | 'rejected';
 
 type AdminPartnerApplicationItem = {
   id: string;
@@ -40,7 +40,6 @@ type AdminPayoutItem = {
   status: AdminPayoutStatus;
   appliedAt: string;
   paidAt: string | null;
-  txnNo: string | null;
   rejectReason: string | null;
 };
 
@@ -207,7 +206,6 @@ function mapAdminPayoutItem(withdrawal: AdminPayoutRecord): AdminPayoutItem {
     status: normalizeAdminPayoutStatus(withdrawal.status),
     appliedAt: formatDateTime(withdrawal.appliedAt),
     paidAt: withdrawal.paidAt ? formatDateTime(withdrawal.paidAt) : null,
-    txnNo: null,
     rejectReason: withdrawal.rejectReason,
   };
 }
@@ -216,6 +214,8 @@ function normalizeAdminPayoutStatus(
   status: PartnerWithdrawalStatus,
 ): AdminPayoutItem['status'] {
   switch (status) {
+    case PartnerWithdrawalStatus.approved:
+      return 'approved';
     case PartnerWithdrawalStatus.paid:
       return 'paid';
     case PartnerWithdrawalStatus.rejected:

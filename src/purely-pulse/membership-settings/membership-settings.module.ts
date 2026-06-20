@@ -13,5 +13,6 @@ import { PulseMembershipSettingsService } from './membership-settings.service';
     PulseMembershipSettingsAccessService,
     PulseMembershipSettingsProfileService,
   ],
+  exports: [PulseMembershipSettingsProfileService],
 })
 export class PulseMembershipSettingsModule {}

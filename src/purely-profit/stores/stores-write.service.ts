@@ -1,15 +1,20 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { StaffRole, StaffStatus } from '@prisma/client';
+import { StaffRole, StaffStatus, SubscriptionPlanCode } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { resolvePlanSnapshot } from '../subscriptions/subscriptions.utils';
 import { CreateStoreDto } from './dto/create-store.dto';
 import type { StoreResponseDto } from './dto/store-response.dto';
+import type { StoreProfileMetadata } from './dto/store-response.dto';
+import { UpdateStoreDto } from './dto/update-store.dto';
 import { StoresProfileService } from './stores-profile.service';
 import { StoresReadService } from './stores-read.service';
 import {
   buildStoreProfileMetadata,
+  buildStoreProfileMetadataUpdate,
   extractStoreCreatePayload,
+  extractStoreUpdatePayload,
 } from './stores.utils';
 
 @Injectable()
@@ -28,13 +33,14 @@ export class StoresWriteService {
     await this.ensureUserCanOnlyBindSingleStore(user);
 
     const payload = extractStoreCreatePayload(dto);
+    const defaultPlan = resolvePlanSnapshot(SubscriptionPlanCode.STARTER);
     const store = await this.prisma.$transaction(async (tx) => {
       const createdStore = await tx.store.create({
         data: {
           name: payload.storeName,
           address: payload.address,
           ownerId: user.id,
-          maxAccountSeats: 1,
+          maxAccountSeats: defaultPlan.maxAccountSeats,
         },
         select: {
           id: true,
@@ -77,34 +83,55 @@ export class StoresWriteService {
 
   async updateCurrent(
     user: AuthenticatedUser,
-    dto: CreateStoreDto,
+    dto: UpdateStoreDto,
   ): Promise<StoreResponseDto> {
     const existingStore =
       await this.storesReadService.getBoundStoreRecordOrThrow(user);
 
-    const payload = extractStoreCreatePayload(dto);
-    const updatedStore = await this.prisma.store.update({
-      where: { id: existingStore.id },
-      data: {
-        name: payload.storeName,
-        address: payload.address,
-      },
-      select: {
-        id: true,
-        name: true,
-        address: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    const updatePayload = extractStoreUpdatePayload(dto);
 
-    const metadata = buildStoreProfileMetadata(payload);
+    // 仅更新 DTO 中实际传入的数据库字段
+    const storeUpdateData: Record<string, unknown> = {};
+    if (updatePayload.storeName !== undefined) {
+      storeUpdateData.name = updatePayload.storeName;
+    }
+    if (updatePayload.address !== undefined) {
+      storeUpdateData.address = updatePayload.address;
+    }
+
+    const updatedStore =
+      Object.keys(storeUpdateData).length > 0
+        ? await this.prisma.store.update({
+            where: { id: existingStore.id },
+            data: storeUpdateData,
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : existingStore;
+
+    // 增量合并 metadata：读取现有值，用 DTO 传入的字段覆盖
+    const currentMetadata =
+      await this.storesProfileService.readStoreProfileMetadata(
+        existingStore.id,
+      );
+    const mergedMetadata = buildStoreProfileMetadataUpdate(
+      currentMetadata,
+      updatePayload,
+    );
     await this.storesProfileService.persistStoreProfileMetadata(
       updatedStore.id,
-      metadata,
+      mergedMetadata,
     );
 
-    return this.storesProfileService.buildStoreResponse(updatedStore, metadata);
+    return this.storesProfileService.buildStoreResponse(
+      updatedStore,
+      mergedMetadata,
+    );
   }
 
   private async ensureUserCanOnlyBindSingleStore(

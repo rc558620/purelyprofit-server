@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 import {
   CLUB_RECORD_FILTER_VALUES,
   CLUB_RECORD_TYPE_VALUES,
@@ -23,6 +31,34 @@ export class ListClubMemberTransactionsQueryDto {
     message: '会员交易筛选类型不合法',
   })
   type?: ClubMemberTransactionFilterValue;
+
+  @ApiPropertyOptional({
+    example: 50,
+    description: '每页返回条数，默认 50，最大 200',
+  })
+  @IsOptional()
+  @IsInt({ message: 'limit 必须是整数' })
+  @Min(1, { message: 'limit 最小为 1' })
+  @Max(200, { message: 'limit 最大为 200' })
+  limit?: number;
+
+  @ApiPropertyOptional({
+    example: '2024-11-20T10:30:00.000Z',
+    description:
+      '分页游标：上一页最后一条交易的 createdAt（ISO 字符串），用于加载更早的记录',
+  })
+  @IsOptional()
+  @IsString({ message: 'cursorCreatedAt 必须是字符串' })
+  cursorCreatedAt?: string;
+
+  @ApiPropertyOptional({
+    example: 'consume-31',
+    description:
+      '分页游标：上一页最后一条交易的 ID，与 cursorCreatedAt 配合使用',
+  })
+  @IsOptional()
+  @IsString({ message: 'cursorId 必须是字符串' })
+  cursorId?: string;
 }
 
 export class ClubMemberTransactionDto {
@@ -81,4 +117,24 @@ export class ClubMemberTransactionsResponseDto {
     description: '当前会员统一交易流水列表',
   })
   items: ClubMemberTransactionDto[];
+
+  @ApiProperty({
+    example: 128,
+    description: '符合条件的交易流水总条数',
+  })
+  total: number;
+
+  @ApiPropertyOptional({
+    example: '2024-11-18T14:20:00.000Z',
+    description: '下一页游标的 createdAt 值；为 null 表示已到最后一页',
+    nullable: true,
+  })
+  nextCursorCreatedAt: string | null;
+
+  @ApiPropertyOptional({
+    example: 'consume-31',
+    description: '下一页游标的 ID 值；为 null 表示已到最后一页',
+    nullable: true,
+  })
+  nextCursorId: string | null;
 }

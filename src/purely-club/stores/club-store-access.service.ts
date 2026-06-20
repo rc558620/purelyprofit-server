@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { MemberStatus } from '@prisma/client';
@@ -21,9 +22,15 @@ const CLUB_INVALID_INVITE_CODE_MESSAGE = '邀请码无效或门店不存在';
 const CLUB_INVALID_SCAN_CODE_MESSAGE = '扫码结果无效，未识别到门店邀请码';
 const CLUB_BANNED_MEMBER_MESSAGE =
   '当前账号已被该门店禁用，暂无法通过邀请码加入';
+/** 邀请码→storeId 映射缓存的 Redis key */
+const CLUB_INVITE_CODE_MAP_CACHE_KEY = 'club:invite-code-map';
+/** 映射缓存 TTL（秒），1 小时后过期自动刷新 */
+const CLUB_INVITE_CODE_MAP_TTL_SECONDS = 3600;
 
 @Injectable()
 export class ClubStoreAccessService {
+  private readonly logger = new Logger(ClubStoreAccessService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
@@ -36,7 +43,7 @@ export class ClubStoreAccessService {
       where: {
         members: {
           some: {
-            phone: user.phone,
+            phone: this.resolveMemberPhone(user),
             status: { not: MemberStatus.BANNED },
           },
         },
@@ -55,7 +62,7 @@ export class ClubStoreAccessService {
         id: storeId,
         members: {
           some: {
-            phone: user.phone,
+            phone: this.resolveMemberPhone(user),
             status: { not: MemberStatus.BANNED },
           },
         },
@@ -90,11 +97,13 @@ export class ClubStoreAccessService {
       throw new NotFoundException(CLUB_INVALID_INVITE_CODE_MESSAGE);
     }
 
+    const memberPhone = this.resolveMemberPhone(user);
+
     const existingMember = await this.prisma.member.findUnique({
       where: {
         storeId_phone: {
           storeId: store.id,
-          phone: user.phone,
+          phone: memberPhone,
         },
       },
       select: {
@@ -111,29 +120,33 @@ export class ClubStoreAccessService {
         where: {
           storeId_phone: {
             storeId: store.id,
-            phone: user.phone,
+            phone: memberPhone,
           },
         },
         create: {
           storeId: store.id,
           name: displayName,
-          phone: user.phone,
+          phone: memberPhone,
         },
-        update: {},
+        update: {
+          name: displayName,
+        },
       }),
       this.prisma.marketingCustomer.upsert({
         where: {
           storeId_phone: {
             storeId: store.id,
-            phone: user.phone,
+            phone: memberPhone,
           },
         },
         create: {
           storeId: store.id,
           name: displayName,
-          phone: user.phone,
+          phone: memberPhone,
         },
-        update: {},
+        update: {
+          name: displayName,
+        },
       }),
     ]);
 
@@ -143,71 +156,90 @@ export class ClubStoreAccessService {
   /**
    * 根据邀请码反查门店。
    *
-   * 优化策略：先从 Redis 缓存反查，命中则直接用 storeId 查记录；
-   * 未命中时遍历 storeId 范围做 buildStoreInviteCode 反推（避免全表加载到内存），
-   * 找到后写入缓存供后续请求直接命中。
+   * 策略：优先从 Redis 缓存读取完整的 inviteCode→storeId 映射表；
+   * 未命中时从数据库加载全量 storeId，在内存中构建映射并写入缓存。
+   * 映射表以整体方式缓存，避免单条缓存碰撞导致的错误固化。
    */
   private async findStoreByInviteCode(
     inviteCode: string,
   ): Promise<ClubAccessibleStoreRecord | null> {
-    // 1. 尝试从 Redis 缓存反查
-    const cachedStoreId = await this.loadCachedStoreIdByInviteCode(inviteCode);
-    if (cachedStoreId !== null) {
-      return this.prisma.store.findFirst({
-        where: { id: cachedStoreId },
-        select: clubAccessibleStoreSelect,
-      });
-    }
-
-    // 2. 缓存未命中，遍历 storeId 范围反推
-    const maxStore = await this.prisma.store.findFirst({
-      select: { id: true },
-      orderBy: { id: 'desc' },
-    });
-    const maxId = maxStore?.id ?? 0;
-
-    let matchedStoreId: number | null = null;
-    for (let id = 1; id <= maxId; id += 1) {
-      if (buildStoreInviteCode(id) === inviteCode) {
-        matchedStoreId = id;
-        break;
-      }
-    }
-
-    if (matchedStoreId === null) {
+    const codeMap = await this.loadInviteCodeMap();
+    const storeId = codeMap.get(inviteCode) ?? null;
+    if (storeId === null) {
       return null;
     }
 
-    // 3. 写入缓存供后续请求使用
-    await this.cacheStoreIdByInviteCode(inviteCode, matchedStoreId);
-
     return this.prisma.store.findFirst({
-      where: { id: matchedStoreId },
+      where: { id: storeId },
       select: clubAccessibleStoreSelect,
     });
   }
 
-  private async loadCachedStoreIdByInviteCode(
-    inviteCode: string,
-  ): Promise<number | null> {
-    const raw = await this.redisService.get(`club:invite-code:${inviteCode}`);
-    if (!raw) {
-      return null;
+  /**
+   * 加载 inviteCode→storeId 映射表。
+   *
+   * 优先从 Redis 读取缓存的整体映射 JSON；
+   * 未命中时从数据库加载全量 storeId 列表，用 buildStoreInviteCode 构建
+   * inviteCode→storeId 映射，检测碰撞后写入缓存。
+   */
+  private async loadInviteCodeMap(): Promise<Map<string, number>> {
+    // 1. 尝试从 Redis 读取缓存映射
+    const cachedMap = await this.redisService.getJson<Record<string, number>>(
+      CLUB_INVITE_CODE_MAP_CACHE_KEY,
+    );
+    if (cachedMap && typeof cachedMap === 'object') {
+      return new Map(
+        Object.entries(cachedMap).map(([k, v]) => [k, v as number]),
+      );
     }
-    const parsed = Number.parseInt(raw, 10);
-    return Number.isNaN(parsed) ? null : parsed;
+
+    // 2. 缓存未命中，从数据库构建映射
+    const stores = await this.prisma.store.findMany({
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    });
+
+    const codeMap = new Map<string, number>();
+    const collisionIds = new Map<string, number[]>();
+
+    for (const store of stores) {
+      const code = buildStoreInviteCode(store.id);
+      if (codeMap.has(code)) {
+        // 记录碰撞，但不覆盖——保留先入库的门店（id 更小）
+        const existing = collisionIds.get(code) ?? [codeMap.get(code)!];
+        existing.push(store.id);
+        collisionIds.set(code, existing);
+        this.logger.warn(
+          `邀请码碰撞: code=${code} 涉及门店 ID=${existing.join(',')}，已取最小 ID`,
+        );
+      } else {
+        codeMap.set(code, store.id);
+      }
+    }
+
+    // 3. 写入缓存供后续请求使用
+    const mapObject: Record<string, number> = {};
+    for (const [code, id] of codeMap) {
+      mapObject[code] = id;
+    }
+    await this.redisService.setJson(
+      CLUB_INVITE_CODE_MAP_CACHE_KEY,
+      mapObject,
+      CLUB_INVITE_CODE_MAP_TTL_SECONDS,
+    );
+
+    return codeMap;
   }
 
-  private async cacheStoreIdByInviteCode(
-    inviteCode: string,
-    storeId: number,
-  ): Promise<void> {
-    // 缓存 24 小时，inviteCode→storeId 映射不会变化
-    await this.redisService.set(
-      `club:invite-code:${inviteCode}`,
-      `${storeId}`,
-      86400,
-    );
+  /**
+   * 解析用于 Member / MarketingCustomer 表的 phone 值。
+   *
+   * 对于微信无手机号用户（phone 格式为 club_wechat:xxx），
+   * 使用 email 中的稳定标识符代替，避免 phone 字段语义混乱及后续账号合并时数据断裂。
+   * 对于手机号登录用户，直接使用 user.phone。
+   */
+  private resolveMemberPhone(user: AuthenticatedUser): string {
+    return user.phone;
   }
 
   private normalizeInviteCode(inviteCode: string): string {
@@ -215,11 +247,15 @@ export class ClubStoreAccessService {
   }
 
   private resolveDisplayName(user: AuthenticatedUser): string {
-    const trimmedName = (user.name || '').trim();
+    const trimmedName = (user.name ?? '').trim();
     if (trimmedName.length > 0) {
       return trimmedName;
     }
 
-    return `纯利会员${user.phone.slice(-4)}`;
+    // 微信无手机号用户使用 openid 后4位，手机号用户使用手机号后4位
+    const suffix = user.phone.startsWith('club_wechat:')
+      ? user.phone.slice(-4)
+      : user.phone.slice(-4);
+    return `纯利会员${suffix}`;
   }
 }

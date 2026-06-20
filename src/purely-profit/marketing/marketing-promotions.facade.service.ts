@@ -19,7 +19,7 @@ export class MarketingPromotionsFacadeService {
 
   listPromotions(
     user: AuthenticatedUser,
-    query: ListPromotionsQueryDto & { storeId?: number },
+    query: ListPromotionsQueryDto,
   ): Promise<MarketingPromotionsResponseDto> {
     return this.marketingPromotionsService.listPromotions(user, query);
   }

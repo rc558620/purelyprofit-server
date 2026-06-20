@@ -10,11 +10,15 @@ import {
 export class ClubProductQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  listActiveByStore(storeId: number): Promise<ClubProductRecord[]> {
+  listActiveByStore(
+    storeId: number,
+    categoryId?: number,
+  ): Promise<ClubProductRecord[]> {
     return this.prisma.marketingProduct.findMany({
       where: {
         storeId,
         isActive: true,
+        ...(categoryId ? { categoryId } : {}),
       },
       select: clubProductSelect,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -35,6 +39,7 @@ export class ClubProductQueryService {
     });
   }
 
+  /** 临时占位：当前热销定义取最新创建的前 N 个商品，后续应改为按实际销量排序 */
   resolveHotProductIds(products: ClubProductRecord[]): Set<number> {
     return new Set(
       products.slice(0, CLUB_HOT_PRODUCT_COUNT).map((product) => product.id),

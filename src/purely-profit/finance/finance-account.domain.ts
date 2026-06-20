@@ -179,7 +179,9 @@ export function buildAccountsStats(
   let totalPayable = 0;
   let overdueCount = 0;
 
-  for (const record of records.map((item) => withDerivedAccountFields(item))) {
+  const derivedRecords = records.map((item) => withDerivedAccountFields(item));
+
+  for (const record of derivedRecords) {
     if (record.status !== FinanceAccountStatus.settled) {
       const remaining = toMoneyNumber(record.remaining);
       if (record.type === 'receivable') {
@@ -198,7 +200,7 @@ export function buildAccountsStats(
     totalPayable,
     netReceivable: roundMoneyValue(totalReceivable - totalPayable),
     overdueCount,
-    newThisMonth: records.filter(
+    newThisMonth: derivedRecords.filter(
       (record) => record.createdAt.getTime() >= monthStart.getTime(),
     ).length,
   };

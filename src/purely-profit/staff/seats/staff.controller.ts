@@ -74,7 +74,6 @@ export class StaffController {
   }
 
   @Post('activate')
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: '员工激活账号席位' })
   @ApiCreatedResponse({
     description: '员工账号激活成功并返回席位占用概览',

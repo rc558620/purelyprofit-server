@@ -31,6 +31,7 @@ export class SessionNotificationService {
     storeId: number,
   ): Promise<number> {
     const now = Date.now();
+    const todayStart = getDayStart(now);
     const upcomingWindowEnd = getDayEnd(now + DAY_MS * 7);
 
     const [
@@ -55,7 +56,7 @@ export class SessionNotificationService {
         where: {
           storeId,
           startDate: {
-            gte: new Date(now),
+            gte: new Date(todayStart),
             lte: new Date(upcomingWindowEnd),
           },
         },
@@ -113,5 +114,11 @@ function shouldAlertSubscription(
 function getDayEnd(timestamp: number): number {
   const date = new Date(timestamp);
   date.setHours(23, 59, 59, 999);
+  return date.getTime();
+}
+
+function getDayStart(timestamp: number): number {
+  const date = new Date(timestamp);
+  date.setHours(0, 0, 0, 0);
   return date.getTime();
 }

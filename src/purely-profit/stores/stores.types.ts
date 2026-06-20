@@ -8,6 +8,7 @@ export interface RawCreateStorePayload {
   storeLogo?: unknown;
   latitude?: unknown;
   longitude?: unknown;
+  regionLabels?: unknown;
 }
 
 export interface StoreCreatePayload {
@@ -18,4 +19,5 @@ export interface StoreCreatePayload {
   storeLogo?: string;
   latitude?: number;
   longitude?: number;
+  regionLabels?: string[];
 }

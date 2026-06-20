@@ -52,7 +52,8 @@ export class FinanceOverviewService {
     const callerIsSubAccount =
       user.currentMembership?.subjectType === 'sub_account';
     const period = query.period ?? 'month';
-    const cacheKey = buildFinanceOverviewCacheKey(storeId, period);
+    const scope = callerIsSubAccount ? 'sub_account' : 'owner';
+    const cacheKey = buildFinanceOverviewCacheKey(storeId, period, scope);
 
     return this.redisService.getOrLoadRefreshableJson({
       cacheKey,
@@ -60,16 +61,19 @@ export class FinanceOverviewService {
       ttlSeconds: FINANCE_OVERVIEW_CACHE_TTL_SECONDS,
       refreshAfterMs: FINANCE_OVERVIEW_REFRESH_AFTER_MS,
       loadValue: () => this.buildOverview(storeId, period, callerIsSubAccount),
-      refreshValue: () => this.buildOverview(storeId, period, false),
+      refreshValue: () =>
+        this.buildOverview(storeId, period, callerIsSubAccount),
     });
   }
 
   async warmOverviewCache(
     storeId: number,
     period: NonNullable<FinanceOverviewQueryDto['period']> | 'month',
+    scope: 'owner' | 'sub_account' = 'owner',
   ): Promise<FinanceOverviewResponseDto> {
-    const cacheKey = buildFinanceOverviewCacheKey(storeId, period);
-    const data = await this.buildOverview(storeId, period, false);
+    const cacheKey = buildFinanceOverviewCacheKey(storeId, period, scope);
+    const callerIsSubAccount = scope === 'sub_account';
+    const data = await this.buildOverview(storeId, period, callerIsSubAccount);
     await this.redisService.writeRefreshableJson(
       cacheKey,
       data,

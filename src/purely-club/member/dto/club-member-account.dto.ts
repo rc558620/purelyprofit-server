@@ -9,7 +9,6 @@ import {
   IsString,
   MaxLength,
   MinLength,
-  ValidateIf,
 } from 'class-validator';
 
 export const CLUB_MEMBER_LEVEL_VALUES = [
@@ -20,7 +19,6 @@ export const CLUB_MEMBER_LEVEL_VALUES = [
 ] as const;
 export const CLUB_MEMBER_HELD_LEVEL_VALUES = [
   'regular',
-  'silver',
   'gold',
   'platinum',
   'diamond',
@@ -32,26 +30,6 @@ export type ClubMemberHeldLevelValue =
 
 function trimStringValue(value: unknown): unknown {
   return typeof value === 'string' ? value.trim() : value;
-}
-
-export class ChangeClubMemberPasswordDto {
-  @ApiProperty({ example: 'password123', description: '当前密码' })
-  @IsString({ message: '当前密码必须是字符串' })
-  @MinLength(6, { message: '当前密码至少 6 位' })
-  currentPassword: string;
-
-  @ApiProperty({ example: 'newPassword123', description: '新密码' })
-  @IsString({ message: '新密码必须是字符串' })
-  @MinLength(6, { message: '新密码至少 6 位' })
-  newPassword: string;
-
-  @ApiPropertyOptional({ example: 'newPassword123', description: '确认新密码' })
-  @ValidateIf(
-    (o: ChangeClubMemberPasswordDto) => o.confirmPassword !== undefined,
-  )
-  @IsString({ message: '确认新密码必须是字符串' })
-  @MinLength(6, { message: '确认新密码至少 6 位' })
-  confirmPassword?: string;
 }
 
 export class UpdateClubMemberAvatarDto {
@@ -130,25 +108,25 @@ export class ClubMemberAccountDto {
   @IsString({ message: '入会日期必须是字符串' })
   joinDate: string;
 
-  @ApiProperty({ example: 3200, description: '累计消费金额，单位元' })
+  @ApiProperty({ example: 3200, description: '累计充值金额，单位元' })
   @IsNumber(
     { maxDecimalPlaces: 2 },
-    { message: '累计消费金额必须是最多两位小数的数字' },
+    { message: '累计充值金额必须是最多两位小数的数字' },
   )
   totalConsume: number;
 
   @ApiPropertyOptional({
-    example: 'silver',
+    example: 'gold',
     enum: CLUB_MEMBER_HELD_LEVEL_VALUES,
     nullable: true,
-    description: '当前已持有等级；用于承接 regular/silver 等历史等级语义',
+    description: '当前已持有等级',
   })
   @IsOptional()
   @IsIn(CLUB_MEMBER_HELD_LEVEL_VALUES, { message: '已持有等级不合法' })
   heldLevel?: ClubMemberHeldLevelValue | null;
 
   @ApiPropertyOptional({
-    example: '白银会员',
+    example: '黄金会员',
     nullable: true,
     description: '当前已持有等级名称',
   })
@@ -187,7 +165,7 @@ export class ClubMemberLevelConfigDto {
   @IsString({ message: '等级背景色必须是字符串' })
   bgColor: string;
 
-  @ApiProperty({ example: 3000, description: '升级所需累计消费金额，单位元' })
+  @ApiProperty({ example: 3000, description: '升级所需累计充值金额，单位元' })
   @IsNumber(
     { maxDecimalPlaces: 2 },
     { message: '升级门槛必须是最多两位小数的数字' },
@@ -231,10 +209,10 @@ export class ClubMemberLevelStatusDto {
   )
   currentRequiredConsume: number;
 
-  @ApiProperty({ example: 3200, description: '累计消费金额，单位元' })
+  @ApiProperty({ example: 3200, description: '累计充值金额，单位元' })
   @IsNumber(
     { maxDecimalPlaces: 2 },
-    { message: '累计消费金额必须是最多两位小数的数字' },
+    { message: '累计充值金额必须是最多两位小数的数字' },
   )
   totalConsume: number;
 
@@ -291,7 +269,7 @@ export class ClubMemberLevelStatusDto {
   isTopLevel: boolean;
 
   @ApiPropertyOptional({
-    example: 'silver',
+    example: 'gold',
     enum: CLUB_MEMBER_HELD_LEVEL_VALUES,
     nullable: true,
     description: '当前已持有等级；与展示等级一致时可与 currentLevel 相同',

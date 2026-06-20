@@ -31,10 +31,11 @@ describe('ClubOrdersService', () => {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     marketingProduct: {
       findFirst: jest.fn(),
-      updateMany: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     marketingPromotion: {
       findFirst: jest.fn(),
@@ -830,8 +831,12 @@ describe('ClubOrdersService', () => {
         promotionId: null,
       },
     });
-    expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
-      where: { id: 36 },
+    // BUG-1 修复后使用 updateMany + balance>=amountFen 条件防止并发扣减为负
+    expect(prismaService.marketingCustomer.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 36,
+        balance: { gte: 49900 },
+      },
       data: {
         balance: { decrement: 49900 },
         totalSpent: { increment: 49900 },
@@ -840,10 +845,12 @@ describe('ClubOrdersService', () => {
         tier: 'silver',
       },
     });
+    // BUG-2 修复后使用 stock > 0 条件防止并发库存为负
     expect(prismaService.marketingProduct.updateMany).toHaveBeenCalledWith({
       where: {
         id: 18,
         storeId: 11,
+        stock: { gt: 0 },
       },
       data: {
         stock: { decrement: 1 },
@@ -955,8 +962,12 @@ describe('ClubOrdersService', () => {
         amount: 49900,
       }),
     });
-    expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
-      where: { id: 66 },
+    // BUG-1 修复后使用 updateMany + balance>=amountFen 条件防止并发扣减为负
+    expect(prismaService.marketingCustomer.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 66,
+        balance: { gte: 49900 },
+      },
       data: expect.objectContaining({
         balance: { decrement: 49900 },
         totalSpent: { increment: 49900 },

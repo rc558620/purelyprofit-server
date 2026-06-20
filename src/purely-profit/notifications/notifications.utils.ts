@@ -3,27 +3,27 @@ import {
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
 } from './notifications.constants';
+import {
+  getDayEndTimestamp,
+  resolvePagination,
+} from '../commerce/commerce.utils';
+
+/** 获取某天 23:59:59.999 的时间戳 */
+export function getDayEnd(timestamp: number): number {
+  return getDayEndTimestamp(timestamp);
+}
 
 export function normalizePage(page: number | undefined): number {
-  if (!page || page < 1) {
-    return DEFAULT_PAGE;
-  }
-
-  return page;
+  return resolvePagination(page, undefined, DEFAULT_PAGE, MAX_PAGE_SIZE).page;
 }
 
 export function normalizePageSize(pageSize: number | undefined): number {
-  if (!pageSize || pageSize < 1) {
-    return DEFAULT_PAGE_SIZE;
-  }
-
-  return Math.min(pageSize, MAX_PAGE_SIZE);
-}
-
-export function getDayEnd(timestamp: number): number {
-  const date = new Date(timestamp);
-  date.setHours(23, 59, 59, 999);
-  return date.getTime();
+  return resolvePagination(
+    undefined,
+    pageSize,
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+  ).take;
 }
 
 export function formatMonthDay(timestamp: number): string {

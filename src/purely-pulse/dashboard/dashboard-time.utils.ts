@@ -19,8 +19,9 @@ export interface TimeRange {
 
 export function buildCurrentRange(
   period: PulseDashboardPeriodValue,
+  nowMs?: number,
 ): TimeRange {
-  const now = Date.now();
+  const now = nowMs ?? Date.now();
   const currentDayStart = getStartOfDay(now);
 
   // Dashboard overview / stores share the same period semantics.
@@ -52,8 +53,7 @@ export function buildCompareRange(
         end: current.end - DAY_MS * 7,
       };
     case DASHBOARD_PERIOD_MONTH: {
-      const compareStart = new Date(current.start);
-      compareStart.setMonth(compareStart.getMonth() - 1);
+      const compareStart = safeSubtractMonth(new Date(current.start));
       return {
         start: compareStart.getTime(),
         end: compareStart.getTime() + currentDuration,
@@ -68,6 +68,22 @@ export function buildCompareRange(
       };
     }
   }
+}
+
+/**
+ * 安全地向前偏移一个月，避免 setMonth 在月末溢出到下月的问题。
+ * 例如 3月31日 → 2月28日（而非 3月3日）。
+ */
+function safeSubtractMonth(date: Date): Date {
+  const result = new Date(date);
+  const targetMonth = result.getMonth() - 1;
+  result.setMonth(targetMonth);
+  // 如果 setMonth 导致月份回绕（如 3月31日 → 3月3日），
+  // 则将日期回退到目标月的最后一天
+  if (result.getMonth() !== ((targetMonth % 12) + 12) % 12) {
+    result.setDate(0);
+  }
+  return result;
 }
 
 export function buildHomeRevenueRange(
@@ -110,13 +126,43 @@ export function buildHomeRevenueRange(
   };
 }
 
+/**
+ * 构建与当前区间连续的上一段等长时间窗口，用于环比计算。
+ * 对于 season 周期，取上一个自然季度而非简单等长偏移，
+ * 避免跨季度边界时对比区间偏移到非整季区间。
+ */
 export function buildPreviousSequentialRange(
   currentRange: TimeRange,
+  period?: PulseHomeRevenuePeriodValue,
 ): TimeRange {
+  if (period === HOME_REVENUE_PERIOD_SEASON) {
+    return buildPreviousSeasonRange(currentRange);
+  }
+
   const rangeMs = currentRange.end - currentRange.start + 1;
   return {
     start: currentRange.start - rangeMs,
     end: currentRange.start - 1,
+  };
+}
+
+/**
+ * 构建上一个自然季度的对比区间。
+ * 以当前季度的起始月为基准，往前推一个季度（3 个月），
+ * 确保对比区间始终对齐自然季度边界。
+ */
+function buildPreviousSeasonRange(currentRange: TimeRange): TimeRange {
+  const currentStart = new Date(currentRange.start);
+  const prevQuarterStart = new Date(currentStart);
+  prevQuarterStart.setMonth(prevQuarterStart.getMonth() - 3);
+  prevQuarterStart.setHours(0, 0, 0, 0);
+
+  // 上个季度的结束时间是当前季度的开始时刻 -1 毫秒
+  const prevQuarterEnd = currentRange.start - 1;
+
+  return {
+    start: prevQuarterStart.getTime(),
+    end: prevQuarterEnd,
   };
 }
 

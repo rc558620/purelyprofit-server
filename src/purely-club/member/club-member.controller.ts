@@ -2,10 +2,7 @@ import {
   Body,
   Controller,
   Get,
-  HttpCode,
-  HttpStatus,
   Patch,
-  Post,
   Query,
   UseGuards,
   UseInterceptors,
@@ -19,13 +16,11 @@ import {
 import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { PasswordOperationResponseDto } from '../../purely-profit/auth/dto/password-operation-response.dto';
 import { ClubCurrentContextInterceptor } from '../stores/club-current-context.interceptor';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { CurrentClubContext } from '../stores/current-club-context.decorator';
 import { ClubMemberService } from './club-member.service';
 import {
-  ChangeClubMemberPasswordDto,
   ClubMemberAccountDto,
   ClubMemberLevelConfigDto,
   ClubMemberLevelStatusDto,
@@ -46,24 +41,6 @@ import {
 @Controller('club/member')
 export class ClubMemberController {
   constructor(private readonly clubMemberService: ClubMemberService) {}
-
-  @Post('change-password')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: '修改当前 purely-club 账号密码',
-    description:
-      '仅允许当前登录 purely-club 用户修改自己的登录密码。修改成功后会刷新 token，并使旧登录态失效。',
-  })
-  @ApiOkResponse({
-    description: '修改 purely-club 密码成功并返回新的 JWT token',
-    type: PasswordOperationResponseDto,
-  })
-  changePassword(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: ChangeClubMemberPasswordDto,
-  ): Promise<PasswordOperationResponseDto> {
-    return this.clubMemberService.changePassword(user, dto);
-  }
 
   @Patch('profile/avatar')
   @ApiOperation({

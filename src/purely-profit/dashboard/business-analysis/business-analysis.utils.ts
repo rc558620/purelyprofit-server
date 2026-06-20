@@ -32,7 +32,7 @@ export function resolveCurrentRange(
     };
   }
 
-  if (query.period === 'custom_month' || query.period === 'custom_range') {
+  if (query.period === 'custom_range') {
     throw new BadRequestException('自定义周期必须传开始和结束时间');
   }
 
@@ -50,18 +50,21 @@ export function resolveAnalysisQueryRange(
   currentRange: BusinessAnalysisAccessibleRange,
   previousRange: BusinessAnalysisAccessibleRange,
 ): BusinessAnalysisRange {
-  return {
-    start: previousRange.empty
-      ? currentRange.start
-      : Math.min(currentRange.start, previousRange.start),
-    end: currentRange.end,
-  };
+  const start = previousRange.empty
+    ? currentRange.start
+    : Math.min(currentRange.start, previousRange.start);
+  const end = previousRange.empty
+    ? currentRange.end
+    : Math.max(currentRange.end, previousRange.end);
+  return { start, end };
 }
 
 function resolvePresetRange(
-  period: Exclude<BusinessAnalysisPeriod, 'custom_month' | 'custom_range'>,
+  period: Exclude<BusinessAnalysisPeriod, 'custom_range'>,
   now: number,
 ): BusinessAnalysisRange {
+  // 预设周期的 end 取 now（截至目前），而非当天/周/月/季/年末，
+  // 保证返回的是实时数据快照。前端如需全天数据应使用 custom_range + endTime 传当天末毫秒。
   switch (period) {
     case 'today':
       return { start: getDayStartTimestamp(now), end: now };

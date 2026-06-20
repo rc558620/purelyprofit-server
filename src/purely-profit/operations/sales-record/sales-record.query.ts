@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import Decimal from 'decimal.js';
 import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { SaleOrderWithItems } from './sales-record.domain';
@@ -40,12 +41,16 @@ export async function aggregateOrderStats(
     WHERE so.store_id = ${storeId}
       AND so.date >= ${new Date(range.start)}
       AND so.date <= ${new Date(range.end)}
-      AND soi.product_name != '预付抵扣'
+      AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
   `;
 
   return {
-    totalRevenue: Number(result[0]?.revenue ?? 0),
-    totalProfit: Number(result[0]?.profit ?? 0),
+    totalRevenue: new Decimal(Number(result[0]?.revenue ?? 0))
+      .toDecimalPlaces(2)
+      .toNumber(),
+    totalProfit: new Decimal(Number(result[0]?.profit ?? 0))
+      .toDecimalPlaces(2)
+      .toNumber(),
     orderCount: Number(result[0]?.order_count ?? 0),
   };
 }
@@ -128,6 +133,8 @@ export async function generateOrderNo(
 ): Promise<string> {
   const dayStart = getStartOfDay(date.getTime());
   const dayEnd = getEndOfDay(date.getTime());
+  // pg_advisory_xact_lock 在事务提交/回滚后自动释放，确保同日同店订单号串行生成。
+  // 注意：若外层事务持续时间很长（如空间结账），其他并发创建请求会被阻塞直到事务结束。
   await client.$executeRaw`
     SELECT pg_advisory_xact_lock(
       ${storeId},

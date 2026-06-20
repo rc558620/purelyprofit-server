@@ -291,6 +291,18 @@ export interface DailyRevenueRow {
   revenue: Prisma.Decimal;
 }
 
+export const DASHBOARD_HOME_RECENT_ORDER_SELECT =
+  Prisma.validator<Prisma.SaleOrderSelect>()({
+    id: true,
+    totalRevenue: true,
+    date: true,
+  createdAt: true,
+  });
+
+export type RecentOrderRow = Prisma.SaleOrderGetPayload<{
+  select: typeof DASHBOARD_HOME_RECENT_ORDER_SELECT;
+}>;
+
 export interface DashboardHomeActivitiesData {
   lowStockProducts: ProductAlertRow[];
   overdueAccounts: OverdueAccountRow[];
@@ -304,6 +316,7 @@ export interface DashboardHomeActivitiesData {
   draftPayrolls: DraftPayrollRow[];
   inactiveVips: InactiveVipRow[];
   dailyRevenueRows: DailyRevenueRow[];
+  recentOrders: RecentOrderRow[];
 }
 
 export interface ActivityDraft {
@@ -336,6 +349,7 @@ export interface BuildDashboardHomeActivitiesParams {
   draftPayrolls: DraftPayrollRow[];
   inactiveVips: InactiveVipRow[];
   dailyRevenueRows: DailyRevenueRow[];
+  recentOrders: RecentOrderRow[];
 }
 
 export type DashboardHomeLeaveType = EmployeeLeaveType;

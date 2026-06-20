@@ -15,13 +15,9 @@ export class StoresReadService {
     private readonly storesProfileService: StoresProfileService,
   ) {}
 
-  async getStore(user: AuthenticatedUser): Promise<StoreResponseDto> {
+  async getCurrent(user: AuthenticatedUser): Promise<StoreResponseDto> {
     const store = await this.getBoundStoreRecordOrThrow(user);
     return this.storesProfileService.mapStoreResponse(store);
-  }
-
-  getCurrent(user: AuthenticatedUser): Promise<StoreResponseDto> {
-    return this.getStore(user);
   }
 
   async getBoundStoreRecordOrThrow(

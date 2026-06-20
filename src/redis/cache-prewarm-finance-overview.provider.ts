@@ -22,6 +22,7 @@ export const financeOverviewCachePrewarmProvider: CachePrewarmFinanceCategoryCon
           input.financeOverviewService.warmOverviewCache(
             parsed.storeId,
             parsed.period,
+            parsed.scope,
           ),
         options,
       ),

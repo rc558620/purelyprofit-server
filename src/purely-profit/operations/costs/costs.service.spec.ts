@@ -115,6 +115,9 @@ describe('CostsService', () => {
       syncPurchaseResult,
     );
     facadeMocks.costsWriteService.syncPayrollCosts.mockResolvedValue(undefined);
+    facadeMocks.costsWriteService.deletePurchaseCostRecord.mockResolvedValue(
+      undefined,
+    );
 
     await expect(service.createRecord(user, createDto)).resolves.toBe(
       createResult,
@@ -125,6 +128,9 @@ describe('CostsService', () => {
     ).resolves.toBe(syncPurchaseResult);
     await expect(
       service.syncPayrollCosts({} as never, syncPayrollInput),
+    ).resolves.toBeUndefined();
+    await expect(
+      service.deletePurchaseCostRecord({} as never, 18, 11),
     ).resolves.toBeUndefined();
 
     expect(facadeMocks.costsWriteService.createRecord).toHaveBeenCalledWith(
@@ -143,6 +149,9 @@ describe('CostsService', () => {
       {} as never,
       syncPayrollInput,
     );
+    expect(
+      facadeMocks.costsWriteService.deletePurchaseCostRecord,
+    ).toHaveBeenCalledWith({} as never, 18, 11);
   });
 
   it('模块依赖正确注入 read/write service token', () => {

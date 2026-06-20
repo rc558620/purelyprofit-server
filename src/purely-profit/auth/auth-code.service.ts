@@ -141,7 +141,7 @@ export class AuthCodeService {
     phone: string,
   ): Promise<SendLoginCodeResponseDto> {
     const expiresInSeconds = this.getRegisterCodeTtlSeconds();
-    await this.ensureSmsSendCooldown('login', 'purely_club', phone);
+    await this.ensureSmsSendCooldown('login_or_register', 'purely_club', phone);
 
     const code = generateNumericCode();
     const codeKey = buildRegisterCodeKey('purely_club', phone);
@@ -257,7 +257,7 @@ export class AuthCodeService {
   }
 
   private async ensureSmsSendCooldown(
-    scene: 'register' | 'login' | 'password-reset',
+    scene: 'register' | 'login' | 'password-reset' | 'login_or_register',
     productScope: AuthProductScope,
     phone: string,
   ): Promise<void> {

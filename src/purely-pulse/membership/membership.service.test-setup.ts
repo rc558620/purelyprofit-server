@@ -87,8 +87,12 @@ export interface PulseMembershipRedisServiceMock {
 export interface PulseMembershipCacheInvalidatorServiceMock {
   invalidatePulseDashboardHome: jest.Mock;
   invalidatePulseDashboardOverview: jest.Mock;
+  invalidatePulseDashboardRevenueDetail: jest.Mock;
+  invalidatePulseGrowthEarnings: jest.Mock;
+  invalidatePulseGrowthAdminQueries: jest.Mock;
   invalidatePulseSessionNotification: jest.Mock;
   invalidatePulseSessionBootstrap: jest.Mock;
+  invalidatePulseOnboardingStatus: jest.Mock;
 }
 
 export interface PulseMembershipServiceTestingContext {
@@ -189,8 +193,12 @@ function createCacheInvalidatorServiceMock(): PulseMembershipCacheInvalidatorSer
   return {
     invalidatePulseDashboardHome: jest.fn(),
     invalidatePulseDashboardOverview: jest.fn(),
+    invalidatePulseDashboardRevenueDetail: jest.fn(),
+    invalidatePulseGrowthEarnings: jest.fn(),
+    invalidatePulseGrowthAdminQueries: jest.fn(),
     invalidatePulseSessionNotification: jest.fn(),
     invalidatePulseSessionBootstrap: jest.fn(),
+    invalidatePulseOnboardingStatus: jest.fn(),
   };
 }
 

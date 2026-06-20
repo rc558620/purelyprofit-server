@@ -12,7 +12,7 @@ import type {
 interface ClubPromotionRecord {
   id: number;
   name: string;
-  type: 'first_order_discount' | 'discount' | 'reduce';
+  type: 'first_order_discount' | 'discount' | 'discount_day' | 'reduce';
   params: unknown;
 }
 
@@ -92,20 +92,37 @@ export class ClubProductPromotionService {
         return;
       }
 
-      const reduceConfig = this.resolveReduceConfig(promotion.params);
-      if (!reduceConfig) {
+      if (promotion.type === 'discount_day') {
+        const discountRate = this.resolvePromotionDiscountRate(
+          promotion.params,
+        );
+        if (discountRate === null) {
+          return;
+        }
+        discountPromotions.push({
+          id: promotion.id,
+          discountRate,
+          tag: this.buildDiscountDayTag(discountRate, promotion.name),
+        });
         return;
       }
-      reducePromotions.push({
-        id: promotion.id,
-        thresholdFen: reduceConfig.thresholdFen,
-        reduceAmountFen: reduceConfig.reduceAmountFen,
-        tag: this.buildReduceTag(
-          reduceConfig.thresholdFen,
-          reduceConfig.reduceAmountFen,
-          promotion.name,
-        ),
-      });
+
+      if (promotion.type === 'reduce') {
+        const reduceConfig = this.resolveReduceConfig(promotion.params);
+        if (!reduceConfig) {
+          return;
+        }
+        reducePromotions.push({
+          id: promotion.id,
+          thresholdFen: reduceConfig.thresholdFen,
+          reduceAmountFen: reduceConfig.reduceAmountFen,
+          tag: this.buildReduceTag(
+            reduceConfig.thresholdFen,
+            reduceConfig.reduceAmountFen,
+            promotion.name,
+          ),
+        });
+      }
     });
 
     return {
@@ -146,7 +163,7 @@ export class ClubProductPromotionService {
         storeId,
         enabled: true,
         type: {
-          in: ['first_order_discount', 'discount', 'reduce'],
+          in: ['first_order_discount', 'discount', 'discount_day', 'reduce'],
         },
         startAt: { lte: now },
         endAt: { gte: now },
@@ -248,6 +265,18 @@ export class ClubProductPromotionService {
     }
 
     return `${this.toDiscountText(discountRate)} 优惠`;
+  }
+
+  private buildDiscountDayTag(
+    discountRate: number,
+    fallbackName: string,
+  ): string {
+    const normalizedName = fallbackName.trim();
+    if (normalizedName) {
+      return normalizedName;
+    }
+
+    return `折扣日 ${this.toDiscountText(discountRate)}`;
   }
 
   private buildReduceTag(

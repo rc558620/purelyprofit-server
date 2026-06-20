@@ -18,18 +18,9 @@ import {
   MARKETING_PRODUCT_SORT_VALUES,
   type MarketingProductSortValue,
 } from '../marketing.utils';
+import { MarketingPageQueryDto } from './marketing-pagination-query.dto';
 
-export class ListMarketingProductsQueryDto {
-  @ApiPropertyOptional({
-    example: 1,
-    description: '门店 ID（不传则按当前可管理门店）',
-  })
-  @IsOptional()
-  @Transform(transformOptionalInt)
-  @IsInt({ message: '门店 ID 必须是整数' })
-  @Min(1, { message: '门店 ID 必须大于等于 1' })
-  storeId?: number;
-
+export class ListMarketingProductsQueryDto extends MarketingPageQueryDto {
   @ApiPropertyOptional({ example: 1, description: '分类 ID（不传则查全部）' })
   @IsOptional()
   @Transform(transformOptionalInt)

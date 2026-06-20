@@ -43,8 +43,9 @@ import {
   buildPulseDashboardHomePattern,
   buildPulseDashboardOverviewPattern,
   buildPulseDashboardRevenueDetailPattern,
+  buildPulseDashboardStoresPattern,
   buildPulseGrowthAdminPattern,
-  buildPulseGrowthEarningsPattern,
+  buildPulseGrowthEarningsPatterns,
   buildPulseOnboardingStatusPatternByStore,
   buildPulseOnboardingStatusPatternByUser,
   buildPulseSessionBootstrapPatternByStore,
@@ -66,8 +67,8 @@ type ProviderCase = {
 
 function createRedisServiceMock(): RedisServiceMock {
   return {
-    del: jest.fn(() => Promise.resolve()),
-    delByPattern: jest.fn(() => Promise.resolve()),
+    del: jest.fn((_key: string) => Promise.resolve()),
+    delByPattern: jest.fn((_pattern: string) => Promise.resolve()),
   };
 }
 
@@ -194,7 +195,10 @@ const providerCases: readonly ProviderCase[] = [
       pulseDashboardOverviewCacheInvalidatorProvider({
         redisService,
       }).invalidatePulseDashboardOverview(18),
-    expectedDelByPatternCalls: [buildPulseDashboardOverviewPattern(18)],
+    expectedDelByPatternCalls: [
+      buildPulseDashboardOverviewPattern(18),
+      buildPulseDashboardStoresPattern(18),
+    ],
   },
   {
     description: 'pulseGrowthAdmin provider 会清理 pulse 管理查询缓存',
@@ -210,7 +214,7 @@ const providerCases: readonly ProviderCase[] = [
       pulseGrowthEarningsCacheInvalidatorProvider({
         redisService,
       }).invalidatePulseGrowthEarnings(18),
-    expectedDelByPatternCalls: [buildPulseGrowthEarningsPattern(18)],
+    expectedDelByPatternCalls: [...buildPulseGrowthEarningsPatterns(18)],
   },
   {
     description: 'pulseSessionNotification provider 会清理 pulse 通知缓存',

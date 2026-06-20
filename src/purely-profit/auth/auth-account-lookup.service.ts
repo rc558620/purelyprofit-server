@@ -3,6 +3,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
   AccountIdentifiers,
@@ -38,7 +39,7 @@ export class AuthAccountLookupService {
     }
 
     return this.findProfitUserByLoginEmails(
-      buildAccountLoginEmails('purely_profit', account),
+      buildAccountLoginEmails(productScope, account),
     );
   }
 
@@ -93,6 +94,28 @@ export class AuthAccountLookupService {
     }
 
     if (productScope === 'purely_club') {
+      // 优先通过 email 精确查找手机号注册的 club 账号，
+      // 再回退到 wechatPhone 查找微信授权手机号绑定的账号。
+      // 原因：email 有唯一约束，wechatPhone 没有，
+      // 优先 email 查找可避免 wechatPhone 数据异常时匹配到错误用户。
+      const candidateEmails = buildPhoneLoginEmails(productScope, phone);
+      const emailMatchedUser = await this.prisma.user.findFirst({
+        where: { email: { in: candidateEmails } },
+        select: {
+          id: true,
+          email: true,
+          password: true,
+        },
+      });
+
+      if (emailMatchedUser) {
+        return {
+          ...emailMatchedUser,
+          phone,
+          accountScope: 'purely_club',
+        };
+      }
+
       const wechatBoundUser = await this.prisma.user.findFirst({
         where: { wechatPhone: phone },
         select: {
@@ -109,6 +132,8 @@ export class AuthAccountLookupService {
           accountScope: 'purely_club',
         };
       }
+
+      return null;
     }
 
     const candidateEmails = buildPhoneLoginEmails(productScope, phone);
@@ -195,6 +220,23 @@ export class AuthAccountLookupService {
         ...(params.unionid != null && { wechatUnionid: params.unionid }),
       },
     });
+  }
+
+  /**
+   * 通过 wechatPhone 查找用户（用于安全检查：写入前判断手机号是否已被其他用户绑定）
+   */
+  async findUserByWechatPhone(
+    phone: string,
+  ): Promise<{ id: number; email: string } | null> {
+    const user = await this.prisma.user.findFirst({
+      where: { wechatPhone: phone },
+      select: {
+        id: true,
+        email: true,
+      },
+    });
+
+    return user;
   }
 
   /**
@@ -295,13 +337,25 @@ export class AuthAccountLookupService {
       throw new ConflictException('该身份证号码已完成实名认证');
     }
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        realName,
-        idNumber,
-      },
-    });
+    try {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          realName,
+          idNumber,
+        },
+      });
+    } catch (error: unknown) {
+      // 并发场景下，两个请求同时通过 findFirst 检查后竞争 update，
+      // 第二个请求会触发唯一约束 P2002 错误，需要友好转换
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('该身份证号码已完成实名认证');
+      }
+      throw error;
+    }
   }
 
   async syncStaffMemberships(

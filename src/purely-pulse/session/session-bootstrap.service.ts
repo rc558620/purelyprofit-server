@@ -99,12 +99,6 @@ export class SessionBootstrapService {
       select: {
         currentPlanId: true,
         expiresAt: true,
-        orders: {
-          where: { status: 'paid' },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: 1,
-          select: { planName: true },
-        },
       },
     });
 
@@ -112,9 +106,25 @@ export class SessionBootstrapService {
       return null;
     }
 
+    // 根据 currentPlanId 查找对应套餐的最近一笔已支付订单，确保 planName 与 currentPlanId 一致
+    let planName: string | null = null;
+    if (profile.currentPlanId) {
+      const matchingOrder =
+        await this.prisma.storeMembershipOrder.findFirst({
+          where: {
+            storeId,
+            status: 'paid',
+            planId: profile.currentPlanId,
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: { planName: true },
+        });
+      planName = matchingOrder?.planName ?? null;
+    }
+
     return {
       currentPlanId: profile.currentPlanId ?? null,
-      planName: profile.orders[0]?.planName ?? null,
+      planName,
       expiresAt: profile.expiresAt,
     };
   }

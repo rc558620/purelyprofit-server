@@ -94,6 +94,10 @@ export class ClubRechargePackagesService {
 
     if (gradients) {
       return gradients
+        .filter(
+          (item): item is Record<string, unknown> =>
+            item !== null && typeof item === 'object' && !Array.isArray(item),
+        )
         .map((item) => this.normalizePromotionGradient(item))
         .filter((item): item is ClubRechargePromotionParams => item !== null);
     }
@@ -172,34 +176,25 @@ export class ClubRechargePackagesService {
   private markRecommendedPackage(
     packages: ClubRechargePackageDto[],
   ): ClubRechargePackageDto[] {
-    const recommendedId = packages.reduce<string | null>(
-      (bestId, currentPackage) => {
-        if (!bestId) {
-          return currentPackage.id;
-        }
+    let bestId: string | null = null;
+    let bestBonusAmount = -1;
+    let bestAmount = -1;
 
-        const bestPackage = packages.find((item) => item.id === bestId);
-        if (!bestPackage) {
-          return currentPackage.id;
-        }
-
-        if (currentPackage.bonusAmount > bestPackage.bonusAmount) {
-          return currentPackage.id;
-        }
-        if (
-          currentPackage.bonusAmount === bestPackage.bonusAmount &&
-          currentPackage.amount > bestPackage.amount
-        ) {
-          return currentPackage.id;
-        }
-        return bestId;
-      },
-      null,
-    );
+    for (const currentPackage of packages) {
+      if (
+        currentPackage.bonusAmount > bestBonusAmount ||
+        (currentPackage.bonusAmount === bestBonusAmount &&
+          currentPackage.amount > bestAmount)
+      ) {
+        bestId = currentPackage.id;
+        bestBonusAmount = currentPackage.bonusAmount;
+        bestAmount = currentPackage.amount;
+      }
+    }
 
     return packages.map((item) => ({
       ...item,
-      recommended: item.id === recommendedId,
+      recommended: item.id === bestId,
     }));
   }
 

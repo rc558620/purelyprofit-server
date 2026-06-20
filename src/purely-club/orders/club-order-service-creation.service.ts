@@ -5,13 +5,14 @@ import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from './club-order-drafts.service';
 import { buildOrderNo } from './club-order-drafts.utils';
+import type { ClubPointsRedeemConfig } from './club-order-drafts.utils';
+import { resolvePointsRedeemConfig } from './club-order-drafts.utils';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
 import type {
   ClubServiceOrderResponseDto,
   CreateClubServiceOrderDto,
 } from './dto/club-order.dto';
-import { DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS } from '../../purely-profit/marketing/marketing.utils';
 
 @Injectable()
 export class ClubOrderServiceCreationService {
@@ -42,9 +43,10 @@ export class ClubOrderServiceCreationService {
 
     // ── 积分抵扣计算 ──────────────────────────────────────────────────────────
     // 根据会员等级配置中的积分规则进行计算
+    // 复用 context.customer.id 查询积分，避免重复通过 storeId+phone 查询 marketingCustomer
     const { pointsDeductFen, pointsUsed } = await this.calcPointsDeduction(
       currentContext.store.id,
-      currentContext.user.phone,
+      context.customer.id,
       pricing.amountFen,
       dto.usePoints === true,
     );
@@ -95,7 +97,7 @@ export class ClubOrderServiceCreationService {
    */
   private async calcPointsDeduction(
     storeId: number,
-    phone: string,
+    customerId: number,
     priceAfterDiscountFen: number,
     usePoints: boolean,
   ): Promise<{ pointsDeductFen: number; pointsUsed: number }> {
@@ -111,8 +113,9 @@ export class ClubOrderServiceCreationService {
       return { pointsDeductFen: 0, pointsUsed: 0 };
     }
 
+    // 通过 customerId 直接查询积分，避免重复通过 storeId+phone 查询
     const customer = await this.prisma.marketingCustomer.findUnique({
-      where: { storeId_phone: { storeId, phone } },
+      where: { id: customerId },
       select: { points: true },
     });
 
@@ -142,46 +145,17 @@ export class ClubOrderServiceCreationService {
   }
 
   /**
-   * 获取积分规则配置
+   * 获取积分抵扣配置
    * 从 marketingMemberLevelSetting 中读取，若未配置则使用默认值
    */
-  private async getPointsRatioConfig(storeId: number): Promise<{
-    redeemRatioPoints: number;
-    maxRedeemRatio: number;
-    enabled: boolean;
-  }> {
+  private async getPointsRatioConfig(
+    storeId: number,
+  ): Promise<ClubPointsRedeemConfig> {
     const settings = await this.prisma.marketingMemberLevelSetting.findUnique({
       where: { storeId },
       select: { pointsRatio: true },
     });
 
-    // 若未配置，使用默认值
-    if (
-      !settings?.pointsRatio ||
-      typeof settings.pointsRatio !== 'object' ||
-      Array.isArray(settings.pointsRatio)
-    ) {
-      return DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio;
-    }
-
-    const pointsRatioData = settings.pointsRatio as Record<string, unknown>;
-    return {
-      redeemRatioPoints:
-        typeof pointsRatioData.redeemRatioPoints === 'number' &&
-        pointsRatioData.redeemRatioPoints > 0
-          ? pointsRatioData.redeemRatioPoints
-          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio
-              .redeemRatioPoints,
-      maxRedeemRatio:
-        typeof pointsRatioData.maxRedeemRatio === 'number' &&
-        pointsRatioData.maxRedeemRatio >= 0 &&
-        pointsRatioData.maxRedeemRatio <= 1
-          ? pointsRatioData.maxRedeemRatio
-          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.maxRedeemRatio,
-      enabled:
-        typeof pointsRatioData.enabled === 'boolean'
-          ? pointsRatioData.enabled
-          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.enabled,
-    };
+    return resolvePointsRedeemConfig(settings?.pointsRatio);
   }
 }

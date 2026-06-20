@@ -59,7 +59,7 @@ export class PulseGrowthAdminPartnerApplicationService {
       );
     }
 
-    await this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries();
+    await this.invalidatePartnerApplicationDerivedCaches(application.storeId);
 
     return { success: true };
   }
@@ -90,8 +90,21 @@ export class PulseGrowthAdminPartnerApplicationService {
       { reason: dto.reason },
     );
 
-    await this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries();
+    await this.invalidatePartnerApplicationDerivedCaches(application.storeId);
 
     return { success: true };
+  }
+
+  private async invalidatePartnerApplicationDerivedCaches(storeId: number): Promise<void> {
+    await Promise.all([
+      this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries(),
+      this.cacheInvalidatorService.invalidatePulseGrowthEarnings(storeId),
+      this.cacheInvalidatorService.invalidatePulseDashboardHome(),
+      this.cacheInvalidatorService.invalidatePulseDashboardRevenueDetail(),
+      this.cacheInvalidatorService.invalidatePulseDashboardOverview(storeId),
+      this.cacheInvalidatorService.invalidatePulseSessionNotification(storeId),
+      this.cacheInvalidatorService.invalidatePulseSessionBootstrap(storeId),
+      this.cacheInvalidatorService.invalidatePulseOnboardingStatus(storeId),
+    ]);
   }
 }

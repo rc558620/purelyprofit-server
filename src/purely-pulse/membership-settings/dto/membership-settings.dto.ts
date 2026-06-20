@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, Min } from 'class-validator';
+import { IsInt, IsOptional, Min } from 'class-validator';
 
 export const MEMBERSHIP_SETTING_PLAN_IDS = [
   'monthly',
@@ -33,11 +33,13 @@ export class UpdateLifetimeMembershipSettingDto extends UpdateMembershipPriceDto
   @ApiProperty({
     example: 730,
     description: '永久会员有效期天数，单位天',
+    required: false,
   })
+  @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '永久会员有效期必须是整数' })
   @Min(1, { message: '永久会员有效期必须大于 0' })
-  validDays: number;
+  validDays?: number;
 }
 
 export class MembershipPlanSettingItemDto {
@@ -45,7 +47,6 @@ export class MembershipPlanSettingItemDto {
     enum: MEMBERSHIP_SETTING_PLAN_IDS,
     description: '套餐标识',
   })
-  @IsIn(MEMBERSHIP_SETTING_PLAN_IDS, { message: '套餐标识不合法' })
   planId: MembershipSettingPlanId;
 
   @ApiProperty({

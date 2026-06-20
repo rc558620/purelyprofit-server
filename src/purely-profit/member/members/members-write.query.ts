@@ -1,5 +1,4 @@
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../../prisma/prisma.service';
 import { type MemberRecord } from './members.mapper';
 import { MEMBER_RETURNING_SQL, requireMemberRow } from './members-query.shared';
 import type {
@@ -119,10 +118,10 @@ export async function updateMemberRecord(
 }
 
 export async function deleteMemberRecord(
-  prisma: PrismaService,
+  client: Prisma.TransactionClient,
   memberId: number,
 ): Promise<void> {
-  await prisma.$executeRaw`
+  await client.$executeRaw`
     DELETE FROM members
     WHERE id = ${memberId}
   `;

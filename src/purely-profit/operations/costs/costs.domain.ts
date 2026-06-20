@@ -149,9 +149,13 @@ export function buildCostReportRange(
     }
     case 'year': {
       const year = query.year ?? current.getFullYear();
+      const yearEnd =
+        year === current.getFullYear()
+          ? now
+          : new Date(year, 11, 31, 23, 59, 59, 999).getTime();
       return {
         start: new Date(year, 0, 1, 0, 0, 0, 0).getTime(),
-        end: new Date(year, 11, 31, 23, 59, 59, 999).getTime(),
+        end: yearEnd,
         period,
       };
     }
@@ -190,7 +194,7 @@ export function buildCostReportRange(
 export function buildPreviousCostReportRange(
   period: CostReportQueryInput['period'],
   currentRange: CostReportRange,
-): CostReportRange | null {
+): CostReportRange {
   const resolvedPeriod = period ?? 'month';
 
   switch (resolvedPeriod) {

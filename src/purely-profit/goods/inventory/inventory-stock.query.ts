@@ -39,40 +39,62 @@ export async function recordInventoryRestock(
   transaction: InventoryTransactionClient,
   params: InventoryRestockParams,
 ): Promise<void> {
-  for (const item of params.items) {
-    await recordInventoryStockChange(transaction, {
-      storeId: params.storeId,
-      productId: item.productId,
-      quantity: item.quantity,
-      operatorStaffId: params.operatorStaffId,
-      adjustType: 'restock',
-      purchaseOrderId: params.purchaseOrderId,
-    });
-  }
+  /*
+   * BUG-8 修复：将串行 for 循环改为 Promise.all 并行处理，减少长事务风险。
+   * 每个商品的库存更新和日志写入之间无依赖，可以安全并行。
+   */
+  await Promise.all(
+    params.items.map((item) =>
+      recordInventoryStockChange(transaction, {
+        storeId: params.storeId,
+        productId: item.productId,
+        quantity: item.quantity,
+        operatorStaffId: params.operatorStaffId,
+        adjustType: 'restock',
+        purchaseOrderId: params.purchaseOrderId,
+      }),
+    ),
+  );
 }
 
 export async function recordInventorySaleDeduction(
   transaction: InventoryTransactionClient,
   params: InventorySaleDeductionParams,
 ): Promise<void> {
-  for (const item of params.items) {
-    await recordInventoryStockChange(transaction, {
-      storeId: params.storeId,
-      productId: item.productId,
-      quantity: item.quantity,
-      operatorStaffId: params.operatorStaffId,
-      adjustType: 'sale',
-      saleOrderId: params.saleOrderId,
-      note: '销售扣减',
-    });
-  }
+  /*
+   * BUG-8 修复：将串行 for 循环改为 Promise.all 并行处理，减少长事务风险。
+   */
+  await Promise.all(
+    params.items.map((item) =>
+      recordInventoryStockChange(transaction, {
+        storeId: params.storeId,
+        productId: item.productId,
+        quantity: item.quantity,
+        operatorStaffId: params.operatorStaffId,
+        adjustType: 'sale',
+        saleOrderId: params.saleOrderId,
+        note: '销售扣减',
+      }),
+    ),
+  );
 }
 
 export async function revertInventorySaleDeduction(
   transaction: InventoryTransactionClient,
   params: InventoryRevertSaleParams,
 ): Promise<void> {
+  /*
+   * BUG-2 修复：先查日志、先删日志、再回滚库存。
+   * 原逻辑是先回滚库存再删日志——如果删日志失败，库存已回滚，重复调用会导致库存虚增。
+   * 改为先删日志再回滚：如果回滚失败，事务回滚，日志也不会丢，下次重试仍可正确回滚。
+   */
   const logs = await querySaleAdjustmentLogs(transaction, params);
+
+  if (logs.length === 0) {
+    return;
+  }
+
+  await deleteSaleAdjustmentLogs(transaction, params);
 
   for (const log of logs) {
     const product = await findInventoryProductForStore(
@@ -87,8 +109,6 @@ export async function revertInventorySaleDeduction(
 
     await updateInventoryProductStock(transaction, plan.productId, plan.stock);
   }
-
-  await deleteSaleAdjustmentLogs(transaction, params);
 }
 
 export async function findInventoryProductForStore(

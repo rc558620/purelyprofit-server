@@ -6,11 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildDerivedFinanceAccountStatusWhere } from '../finance/finance-account.query';
 import { toDecimalNumber } from '../commerce/commerce.utils';
-import {
-  DAY_MS,
-  LOW_STOCK_SOURCE_LIMIT,
-  SOURCE_LIMIT,
-} from './notifications.constants';
+import { DAY_MS, SOURCE_LIMIT } from './notifications.constants';
 import type {
   ActivePromotionRow,
   NotificationDraft,
@@ -36,7 +32,7 @@ export class NotificationsBuildService {
     const upcomingWindowEnd = getDayEnd(now + DAY_MS * 7);
 
     const [
-      productRows,
+      lowStockProducts,
       overdueAccounts,
       subscription,
       activePromotions,
@@ -50,21 +46,16 @@ export class NotificationsBuildService {
       PendingWithdrawalRow[],
       UpcomingLeaveRow[],
     ] = await Promise.all([
-      this.prisma.product.findMany({
-        where: {
-          storeId,
-          isActive: true,
-        },
-        select: {
-          id: true,
-          name: true,
-          stock: true,
-          alertThreshold: true,
-          updatedAt: true,
-        },
-        orderBy: [{ stock: 'asc' }, { updatedAt: 'desc' }],
-        take: LOW_STOCK_SOURCE_LIMIT,
-      }),
+      // 在数据库层完成 stock <= alertThreshold 过滤，避免查出大量不需要的数据
+      this.prisma.$queryRaw<Array<ProductAlertRow>>`
+        SELECT id, name, stock, alert_threshold, updated_at
+        FROM products
+        WHERE store_id = ${storeId}
+          AND is_active = true
+          AND stock <= alert_threshold
+        ORDER BY stock ASC, updated_at DESC
+        LIMIT ${SOURCE_LIMIT}
+      `,
       this.prisma.financeAccountRecord.findMany({
         where: buildDerivedFinanceAccountStatusWhere({
           storeId,
@@ -141,10 +132,6 @@ export class NotificationsBuildService {
       }),
     ]);
 
-    const lowStockProducts = productRows
-      .filter((product) => product.stock <= product.alertThreshold)
-      .slice(0, SOURCE_LIMIT);
-
     const drafts: NotificationDraft[] = [];
 
     for (const product of lowStockProducts) {
@@ -152,11 +139,11 @@ export class NotificationsBuildService {
         id: `inventory:product:${product.id}`,
         type: 'inventory',
         title: `${product.name} 库存不足`,
-        content: `当前库存 ${product.stock}，已低于预警阈值 ${product.alertThreshold}，请及时补货。`,
+        content: `当前库存 ${product.stock}，已低于预警阈值 ${product.alert_threshold}，请及时补货。`,
         bizType: 'inventory',
         bizId: String(product.id),
         actionUrl: '/stocktaking',
-        createdAt: product.updatedAt.getTime(),
+        createdAt: product.updated_at.getTime(),
       });
     }
 

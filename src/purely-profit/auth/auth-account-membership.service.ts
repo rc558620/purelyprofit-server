@@ -32,6 +32,12 @@ export class AuthAccountMembershipService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
+  /**
+   * 检查用户是否被全面封禁。
+   *
+   * 封禁是按门店维度的：只有当用户关联的所有门店都被封禁时，才拒绝登录。
+   * 若用户还有至少一个未被封禁的门店，则允许登录。
+   */
   async ensureUserNotBanned(userId: number): Promise<void> {
     const relatedStoreIds = await this.findUserRelatedStoreIds(userId);
     if (relatedStoreIds.length === 0) {
@@ -43,9 +49,11 @@ export class AuthAccountMembershipService {
         this.redisService.get(buildPulseAdminMemberBanReasonKey(storeId)),
       ),
     );
-    const hasBannedStore = banReasons.some((reason) => Boolean(reason?.trim()));
+    const allStoresBanned = banReasons.every((reason) =>
+      Boolean(reason?.trim()),
+    );
 
-    if (hasBannedStore) {
+    if (allStoresBanned) {
       throw new UnauthorizedException('账号已被封禁');
     }
   }

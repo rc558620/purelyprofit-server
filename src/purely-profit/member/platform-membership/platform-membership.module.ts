@@ -37,6 +37,7 @@ import { StoreSubAccountSlotService } from './store-sub-account-slot.service';
     PlatformMembershipService,
     PlatformMembershipAccessService,
     StoreSubAccountService,
+    StoreSubAccountLoginService,
   ],
 })
 export class PlatformMembershipModule {}

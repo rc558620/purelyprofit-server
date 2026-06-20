@@ -88,6 +88,13 @@ describe('purchases.domain', () => {
     );
   });
 
+  it('assertPurchaseSupplierInput 在 supplierId=0 时不误判为缺失', () => {
+    // supplierId=0 虽然不合法（DTO 层 @Min(1) 会拦截），但 domain 层不应误判
+    expect(() =>
+      assertPurchaseSupplierInput(0 as unknown as undefined, null),
+    ).not.toThrow();
+  });
+
   it('extractUniqueProductIds 会提取唯一商品 ID 并忽略无码商品', () => {
     expect(
       extractUniqueProductIds([
@@ -96,6 +103,16 @@ describe('purchases.domain', () => {
         { productId: 202, quantity: 3, unitPrice: 9 },
       ]),
     ).toEqual([201, 202]);
+  });
+
+  it('extractUniqueProductIds 多条无码商品不触发重复检测', () => {
+    // 多条无码商品的 productId 都是 undefined，应被过滤掉，不触发重复检测
+    expect(
+      extractUniqueProductIds([
+        { quantity: 1, unitPrice: 8, productName: '散装辣条' },
+        { quantity: 2, unitPrice: 10, productName: '散装饼干' },
+      ]),
+    ).toEqual([]);
   });
 
   it('extractUniqueProductIds 在商品重复时抛出异常', () => {
@@ -146,6 +163,24 @@ describe('purchases.domain', () => {
         amount: 72,
       },
     ]);
+  });
+
+  it('preparePurchaseItems 在 unitPrice 为 0 时拒绝', () => {
+    expect(() =>
+      preparePurchaseItems(
+        [{ quantity: 2, unitPrice: 0, productName: '散装辣条' }],
+        new Map(),
+      ),
+    ).toThrow(BadRequestException);
+  });
+
+  it('preparePurchaseItems 在 unitPrice 为负数时拒绝', () => {
+    expect(() =>
+      preparePurchaseItems(
+        [{ quantity: 2, unitPrice: -1, productName: '散装辣条' }],
+        new Map(),
+      ),
+    ).toThrow(BadRequestException);
   });
 
   it('preparePurchaseItems 支持无码商品并要求商品名称', () => {

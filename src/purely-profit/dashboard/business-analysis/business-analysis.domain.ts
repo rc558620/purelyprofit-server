@@ -1,7 +1,6 @@
 import {
   addMoneyValues,
   getDayStartTimestamp,
-  multiplyMoneyValue,
   toDecimalNumber,
   toOptionalMediaText,
 } from '../../commerce/commerce.utils';
@@ -13,10 +12,8 @@ import type {
   BusinessAnalysisDailyCostRow,
   BusinessAnalysisDailyRevenueRow,
   BusinessAnalysisRankRow,
-  CostRecordCostRow,
   CostAggregationResult,
   CostBucketKey,
-  SaleOrderItemRow,
   SalesAggregationResult,
 } from './business-analysis.types';
 
@@ -113,136 +110,18 @@ export function buildCostAggregation(input: {
   return result;
 }
 
-export function aggregateSales(
-  rows: SaleOrderItemRow[],
-  start: number,
-  end: number,
-): SalesAggregationResult {
-  let revenue = 0;
-  let orderCount = 0;
-  const dailyRevenueMap = new Map<number, number>();
-  const categoryMap = new Map<string, AggregatedCategory>();
-  const rankMap = new Map<string, AggregatedRankProduct>();
-
-  for (const row of rows) {
-    const orderTimestamp = row.order.date.getTime();
-    if (orderTimestamp < start || orderTimestamp > end) {
-      continue;
-    }
-
-    const itemRevenue = multiplyMoneyValue(
-      toDecimalNumber(row.salePrice),
-      row.quantity,
-    );
-    const itemProfit = multiplyMoneyValue(
-      toDecimalNumber(row.profit),
-      row.quantity,
-    );
-    revenue = addMoneyValues(revenue, itemRevenue);
-    orderCount += 1;
-
-    const dayStart = getDayStartTimestamp(orderTimestamp);
-    dailyRevenueMap.set(
-      dayStart,
-      addMoneyValues(dailyRevenueMap.get(dayStart) ?? 0, itemRevenue),
-    );
-
-    const currentCategory = categoryMap.get(row.categoryName);
-    if (currentCategory) {
-      currentCategory.revenue = addMoneyValues(
-        currentCategory.revenue,
-        itemRevenue,
-      );
-      currentCategory.profit = addMoneyValues(
-        currentCategory.profit,
-        itemProfit,
-      );
-      currentCategory.quantity += row.quantity;
-    } else {
-      categoryMap.set(row.categoryName, {
-        revenue: itemRevenue,
-        profit: itemProfit,
-        quantity: row.quantity,
-      });
-    }
-
-    const rankKey =
-      row.productId !== null
-        ? String(row.productId)
-        : `snapshot:${row.productName}`;
-    const currentProduct = rankMap.get(rankKey);
-    if (currentProduct) {
-      currentProduct.totalRevenue = addMoneyValues(
-        currentProduct.totalRevenue,
-        itemRevenue,
-      );
-      currentProduct.totalProfit = addMoneyValues(
-        currentProduct.totalProfit,
-        itemProfit,
-      );
-      currentProduct.quantity += row.quantity;
-      if (!currentProduct.image && row.image) {
-        currentProduct.image = row.image;
-      }
-    } else {
-      const image = toOptionalMediaText(row.image);
-      rankMap.set(rankKey, {
-        id: rankKey,
-        name: row.productName,
-        category: row.categoryName,
-        totalRevenue: itemRevenue,
-        totalProfit: itemProfit,
-        quantity: row.quantity,
-        ...(image ? { image } : {}),
-      });
-    }
-  }
-
-  return {
-    revenue,
-    orderCount,
-    dailyRevenueMap,
-    categoryMap,
-    rankMap,
-  };
-}
-
-export function aggregateCosts(
-  rows: CostRecordCostRow[],
-  start: number,
-  end: number,
-): CostAggregationResult {
-  let totalCost = 0;
-  const dailyCostMap = new Map<number, number>();
-  const costBucketMap = new Map<CostBucketKey, number>();
-
-  for (const row of rows) {
-    const timestamp = row.date.getTime();
-    if (timestamp < start || timestamp > end) {
-      continue;
-    }
-
-    const bucket = mapCostBucket(row.category);
-    const amount = toDecimalNumber(row.amount);
-    totalCost = addMoneyValues(totalCost, amount);
-
-    const dayStart = getDayStartTimestamp(timestamp);
-    dailyCostMap.set(
-      dayStart,
-      addMoneyValues(dailyCostMap.get(dayStart) ?? 0, amount),
-    );
-    costBucketMap.set(
-      bucket,
-      addMoneyValues(costBucketMap.get(bucket) ?? 0, amount),
-    );
-  }
-
-  return {
-    totalCost,
-    dailyCostMap,
-    costBucketMap,
-  };
-}
+const KNOWN_COST_CATEGORIES = new Set([
+  'purchase',
+  'salary',
+  'insurance',
+  'provident_fund',
+  'rent',
+  'utilities',
+  'marketing',
+  'equipment',
+  'packaging',
+  'other',
+]);
 
 export function mapCostBucket(category: string): CostBucketKey {
   switch (category) {
@@ -261,7 +140,14 @@ export function mapCostBucket(category: string): CostBucketKey {
     case 'equipment':
     case 'packaging':
     case 'other':
+      return 'other';
     default:
+      // 未知成本类型静默归入 other，但打印告警日志便于排查新增类型
+      if (!KNOWN_COST_CATEGORIES.has(category)) {
+        console.warn(
+          `[business-analysis] 未知成本类型 "${category}"，已归入「其他」，请确认是否需要新增分类`,
+        );
+      }
       return 'other';
   }
 }

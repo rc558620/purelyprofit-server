@@ -124,6 +124,17 @@ export class EmployeesShiftDefinitionService {
       existing.storeId,
       'staff:update',
     );
+
+    // #9 修复：删除班次定义前检查是否有排班引用
+    const refCount = await this.prisma.employeeShift.count({
+      where: { shiftDefinitionId: existing.id },
+    });
+    if (refCount > 0) {
+      throw new ConflictException(
+        `当前班次定义仍有 ${refCount} 条排班记录引用，无法删除`,
+      );
+    }
+
     await this.prisma.employeeShiftDefinition.delete({
       where: { id: existing.id },
     });
@@ -165,8 +176,8 @@ export class EmployeesShiftDefinitionService {
       defaultEndTime,
       '默认下班时间格式不正确，请使用 HH:mm',
     );
-    if (startMinutes >= endMinutes) {
-      throw new BadRequestException('班次开始时间必须早于结束时间');
+    if (startMinutes === endMinutes) {
+      throw new BadRequestException('班次开始时间和结束时间不能相同');
     }
 
     return {

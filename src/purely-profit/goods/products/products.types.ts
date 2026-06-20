@@ -50,9 +50,9 @@ export interface ProductCreateInput {
   category: string;
   code: string;
   name: string;
-  price: number;
-  profit: number;
-  costPrice: number | null;
+  price: number | string;
+  profit: number | string;
+  costPrice: number | string | null;
   unit: string;
   stock: number;
   alertThreshold: number;
@@ -65,9 +65,9 @@ export interface ProductUpdateInput {
   category?: string;
   categoryId?: number | null;
   code?: string;
-  price?: number;
-  profit?: number;
-  costPrice?: number;
+  price?: number | string;
+  profit?: number | string;
+  costPrice?: number | string | null;
   unit?: string;
   stock?: number;
   alertThreshold?: number;

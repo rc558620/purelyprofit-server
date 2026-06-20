@@ -1,4 +1,5 @@
-import type { InventoryAdjustType, Prisma } from '@prisma/client';
+import type { InventoryAdjustType } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import type {
   InventoryStockAlertLevelValue,
   InventoryStockSortValue,
@@ -11,6 +12,8 @@ export interface InventoryProductListQueryInput {
   alertOnly?: boolean;
   alertLevel?: InventoryStockAlertLevelValue;
   sortBy?: InventoryStockSortValue;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface InventoryReportQueryInput extends InventoryProductListQueryInput {
@@ -45,9 +48,9 @@ export interface InventoryProductRecord {
   name: string;
   category: string;
   code: string;
-  price: { toString(): string } | number;
-  profit: { toString(): string } | number;
-  costPrice: { toString(): string } | number | null;
+  price: Prisma.Decimal;
+  profit: Prisma.Decimal;
+  costPrice: Prisma.Decimal | null;
   unit: string;
   stock: number;
   alertThreshold: number;
@@ -59,7 +62,7 @@ export interface InventoryProductRecord {
 export interface InventoryStatsRow {
   stock: number;
   alertThreshold: number;
-  costPrice: { toString(): string } | number | null;
+  costPrice: Prisma.Decimal | null;
 }
 
 export interface InventoryAdjustmentRecord {
@@ -78,6 +81,7 @@ export interface InventoryAdjustmentRecord {
 export interface InventoryProductStoreRecord {
   id: number;
   storeId: number;
+  isActive: boolean;
 }
 
 export interface InventoryThresholdUpdateRecord {

@@ -70,7 +70,9 @@ export class ClubProductViewService {
       ),
       memberPrice: this.convertFenToYuan(pricing.memberPriceFen),
       finalPrice: this.convertFenToYuan(pricing.finalPriceFen),
-      memberDiscountRate: pricingContext.memberDiscountRate,
+      ...(pricingContext.memberDiscountRate !== null
+        ? { memberDiscountRate: pricingContext.memberDiscountRate }
+        : {}),
       levelOverridden: pricing.levelOverridden,
       ...(pricing.bestDiscount &&
       pricing.bestDiscount.promotionId !== 'member_level'
@@ -91,7 +93,7 @@ export class ClubProductViewService {
       tags,
       isHot,
       isActive: product.isActive,
-      ...(stock >= 0 ? { stock } : {}),
+      stock,
       ...(product.durationMinutes
         ? { durationMinutes: product.durationMinutes }
         : {}),
@@ -164,6 +166,8 @@ export class ClubProductViewService {
     const afterDiscountFen = chosenDiscount?.amountFen ?? baselineAmountFen;
 
     // 3. 满减叠加：所有满足门槛的满减活动均可叠加
+    //    满减门槛基于折扣后价格（afterDiscountFen）判断，
+    //    避免原价满足门槛但实际支付价不满足时仍叠加满减
     let totalReduceFen = 0;
     const reduceApplied: Array<{
       promotion: ClubProductReducePromotion;
@@ -171,7 +175,7 @@ export class ClubProductViewService {
     }> = [];
 
     pricingContext.reducePromotions.forEach((promotion) => {
-      if (amountFen >= promotion.thresholdFen) {
+      if (afterDiscountFen >= promotion.thresholdFen) {
         totalReduceFen += promotion.reduceAmountFen;
         reduceApplied.push({
           promotion,
@@ -186,17 +190,21 @@ export class ClubProductViewService {
     // 5. 构建已应用活动列表（包含会员等级折扣）
     const appliedPromotions: ClubAppliedPromotion[] = [];
 
-    // 5a. 会员等级折扣（始终展示，被覆盖时划线）
+    // 5a. 会员等级折扣（有实际节省时展示，被覆盖时划线）
+    //     折扣率接近 1 时（如 0.99），分单位精度下节省为 0，
+    //     前端显示"9.9折会员价，节省 ¥0"体验差，因此过滤
     if (hasLevelDiscount) {
       const levelSavingFen = Math.max(amountFen - baselineAmountFen, 0);
-      appliedPromotions.push({
-        id: 'member_level',
-        type: 'member_level',
-        tag: this.buildLevelDiscountTag(pricingContext.memberDiscountRate),
-        discountRate: this.toRate100(pricingContext.memberDiscountRate),
-        savingAmount: this.convertFenToYuan(levelSavingFen),
-        overridden: levelOverridden,
-      });
+      if (levelSavingFen > 0) {
+        appliedPromotions.push({
+          id: 'member_level',
+          type: 'member_level',
+          tag: this.buildLevelDiscountTag(pricingContext.memberDiscountRate),
+          discountRate: this.toRate100(pricingContext.memberDiscountRate),
+          savingAmount: this.convertFenToYuan(levelSavingFen),
+          overridden: levelOverridden,
+        });
+      }
     }
 
     // 5b. 折扣活动（胜出的活动折扣 / 首单优惠）
@@ -317,7 +325,7 @@ export class ClubProductViewService {
   }
 
   private getProductStock(product: ClubProductRecord): number {
-    return typeof product.stock === 'number' ? product.stock : -1;
+    return product.stock;
   }
 
   private applyMemberDiscount(

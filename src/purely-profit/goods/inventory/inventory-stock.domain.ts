@@ -19,7 +19,14 @@ export function resolveAdjustedStock(
     return params.targetStock;
   }
 
-  return Math.max(0, params.currentStock + (params.delta ?? 0));
+  const result = params.currentStock + (params.delta ?? 0);
+
+  /* BUG-3: delta 模式下结果为负数时拒绝，而非静默截断到 0 */
+  if (result < 0) {
+    throw new BadRequestException('库存调整后不能为负数');
+  }
+
+  return result;
 }
 
 export function buildInventoryManualAdjustmentPlan(params: {
@@ -87,6 +94,11 @@ export function buildInventoryRevertStockPlan(params: {
 }): InventoryRevertStockPlan {
   const product = ensureInventoryProductExists(params.product);
 
+  /*
+   * BUG-2 修复：回滚库存 = 当前库存 - 日志 delta。
+   * 销售 delta 为负数（如 -4），回滚后 stock - (-4) = stock + 4，方向正确。
+   * 如果 delta 为正数（异常数据），stock - delta 会让库存减少，相当于撤销补货，语义也正确。
+   */
   return {
     productId: product.id,
     stock: product.stock - params.delta,

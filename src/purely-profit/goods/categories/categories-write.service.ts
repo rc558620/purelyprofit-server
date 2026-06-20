@@ -5,10 +5,11 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { toOptionalText } from '../../commerce/commerce.utils';
+import { toNullableText } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { buildCategoryResponse } from './categories.mapper';
 import {
+  clearCategoryProducts,
   createCategoryRecord,
   deleteCategoryRecord,
   findCategoryById,
@@ -17,6 +18,7 @@ import {
   updateCategoryRecord,
 } from './categories.query';
 import type {
+  CategoryClearProductsInput,
   CategoryCreateInput,
   CategoryDuplicateQueryInput,
   CategoryRecord,
@@ -46,13 +48,12 @@ export class CategoriesWriteService {
       'goods:create',
       '无权操作该门店商品分类',
     );
-    const name = dto.name.trim();
 
-    await this.ensureUniqueName(storeId, name);
+    await this.ensureUniqueName(storeId, dto.name);
 
     const category = await createCategoryRecord(
       this.prisma,
-      this.toCreateInput(storeId, name, dto),
+      this.toCreateInput(storeId, dto),
     );
 
     return buildCategoryResponse(category);
@@ -72,23 +73,29 @@ export class CategoriesWriteService {
       '无权操作该门店商品分类',
     );
 
-    const nextName = dto.name?.trim();
-    if (nextName && nextName !== category.name) {
+    const nextName = dto.name;
+    const shouldRename = nextName && nextName !== category.name;
+
+    if (shouldRename) {
       await this.ensureUniqueName(category.storeId, nextName, category.id);
     }
 
-    const updated = await updateCategoryRecord(
-      this.prisma,
-      category.id,
-      this.toUpdateInput(dto, nextName),
-    );
-
-    if (nextName && nextName !== category.name) {
-      await renameCategoryProducts(
-        this.prisma,
-        this.toRenameProductsInput(category, nextName),
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await updateCategoryRecord(
+        tx,
+        category.id,
+        this.toUpdateInput(dto, nextName),
       );
-    }
+
+      if (shouldRename) {
+        await renameCategoryProducts(
+          tx,
+          this.toRenameProductsInput(category, nextName),
+        );
+      }
+
+      return result;
+    });
 
     return buildCategoryResponse(updated);
   }
@@ -103,7 +110,13 @@ export class CategoriesWriteService {
       '无权删除该门店商品分类',
     );
 
-    await deleteCategoryRecord(this.prisma, category.id);
+    await this.prisma.$transaction(async (tx) => {
+      await clearCategoryProducts(
+        tx,
+        this.toClearProductsInput(category),
+      );
+      await deleteCategoryRecord(tx, category.id);
+    });
   }
 
   private async getCategoryOrThrow(categoryId: number) {
@@ -133,13 +146,12 @@ export class CategoriesWriteService {
 
   private toCreateInput(
     storeId: number,
-    name: string,
     dto: CreateCategoryDto,
   ): CategoryCreateInput {
     return {
       storeId,
-      name,
-      icon: toOptionalText(dto.icon) ?? null,
+      name: dto.name,
+      icon: toNullableText(dto.icon) ?? null,
     };
   }
 
@@ -150,7 +162,7 @@ export class CategoriesWriteService {
     return {
       ...(nextName ? { name: nextName } : {}),
       ...(dto.icon !== undefined
-        ? { icon: toOptionalText(dto.icon) ?? null }
+        ? { icon: toNullableText(dto.icon) ?? null }
         : {}),
     };
   }
@@ -175,6 +187,15 @@ export class CategoriesWriteService {
       storeId: category.storeId,
       categoryId: category.id,
       name,
+    };
+  }
+
+  private toClearProductsInput(
+    category: CategoryRecord,
+  ): CategoryClearProductsInput {
+    return {
+      storeId: category.storeId,
+      categoryId: category.id,
     };
   }
 }

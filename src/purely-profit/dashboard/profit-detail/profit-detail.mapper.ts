@@ -31,7 +31,9 @@ export function buildEmptySummary(): ProfitSummaryDto {
     totalCost: 0,
     netProfit: 0,
     profitRate: 0,
-    compareLastPeriod: null,
+    revenueCompareLastPeriod: null,
+    profitCompareLastPeriod: null,
+    costCompareLastPeriod: null,
     orderCount: 0,
   };
 }
@@ -56,7 +58,9 @@ export function buildSummary(
   revenue: number,
   previousRevenue: number,
   totalCost: number,
+  previousTotalCost: number,
   netProfit: number,
+  previousNetProfit: number,
   orderCount: number,
 ): ProfitSummaryDto {
   return {
@@ -64,7 +68,9 @@ export function buildSummary(
     totalCost,
     netProfit,
     profitRate: calcPercentOfTotal(netProfit, revenue),
-    compareLastPeriod: calcPercentChange(revenue, previousRevenue),
+    revenueCompareLastPeriod: calcPercentChange(revenue, previousRevenue),
+    profitCompareLastPeriod: calcPercentChange(netProfit, previousNetProfit),
+    costCompareLastPeriod: calcPercentChange(totalCost, previousTotalCost),
     orderCount,
   };
 }
@@ -148,7 +154,9 @@ export function buildProfitDetailResponse(
       snapshot.currentSales.revenue,
       snapshot.previousSales.revenue,
       snapshot.currentCosts.totalCost,
+      snapshot.previousCosts.totalCost,
       snapshot.netProfit,
+      snapshot.previousNetProfit,
       snapshot.currentSales.orderCount,
     ),
     dailyProfits: buildDailyProfits(
@@ -172,7 +180,9 @@ export function buildProfitReportResponse(
       snapshot.currentSales.revenue,
       snapshot.previousSales.revenue,
       snapshot.currentCosts.totalCost,
+      snapshot.previousCosts.totalCost,
       snapshot.netProfit,
+      snapshot.previousNetProfit,
       snapshot.currentSales.orderCount,
     ),
     products: buildReportProducts(snapshot.currentSales.rankMap),

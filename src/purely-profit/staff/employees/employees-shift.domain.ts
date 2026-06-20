@@ -102,8 +102,10 @@ export function assertShiftBusinessRules(
   const startMinutes = parseTimeToMinutes(startTime, '上班时间格式不正确');
   const endMinutes = parseTimeToMinutes(endTime, '下班时间格式不正确');
 
-  if (startMinutes >= endMinutes) {
-    throw new BadRequestException('排班上班时间必须早于下班时间');
+  // #11 修复：允许跨日排班（如 22:00-06:00），只检查时间格式有效即可
+  // 同日排班要求 start < end，跨日排班 start >= end 是合法的
+  if (startMinutes === endMinutes) {
+    throw new BadRequestException('排班上班时间和下班时间不能相同');
   }
 }
 
@@ -122,7 +124,18 @@ export function isTimeRangeOverlapping(
   compareStartMinutes: number,
   compareEndMinutes: number,
 ): boolean {
-  return startMinutes < compareEndMinutes && compareStartMinutes < endMinutes;
+  // #11 修复：支持跨日排班（如 22:00-06:00）
+  // 如果 end <= start，表示跨日，将 end 加 24h 来处理
+  const effectiveEnd =
+    endMinutes <= startMinutes ? endMinutes + 1440 : endMinutes;
+  const effectiveCompareEnd =
+    compareEndMinutes <= compareStartMinutes
+      ? compareEndMinutes + 1440
+      : compareEndMinutes;
+
+  return (
+    startMinutes < effectiveCompareEnd && compareStartMinutes < effectiveEnd
+  );
 }
 
 export function resolveShiftTypeFromDefinition(input: {

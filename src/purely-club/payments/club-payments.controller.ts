@@ -31,6 +31,7 @@ export class ClubPaymentsController {
     @Headers('wechatpay-timestamp') timestamp: string | undefined,
     @Headers('wechatpay-nonce') nonce: string | undefined,
     @Headers('wechatpay-signature') signature: string | undefined,
+    @Headers('wechatpay-serial') serial: string | undefined,
   ): Promise<ClubWechatPaymentCallbackAckDto> {
     // rawBody 用于签名校验（签名消息串包含原始请求体）
     // NestJS Fastify 适配器在 rawBody 可用时使用原始字节；否则回落到序列化 payload
@@ -42,7 +43,7 @@ export class ClubPaymentsController {
 
     return this.clubPaymentsService.handleWechatCallback(
       payload,
-      { timestamp, nonce, signature },
+      { timestamp, nonce, signature, serial },
       rawBody,
     );
   }

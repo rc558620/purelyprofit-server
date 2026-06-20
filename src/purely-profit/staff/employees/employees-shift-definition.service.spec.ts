@@ -22,6 +22,9 @@ describe('EmployeesShiftDefinitionService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    employeeShift: {
+      count: jest.fn(),
+    },
   };
 
   const employeesAccessService = {
@@ -196,7 +199,7 @@ describe('EmployeesShiftDefinitionService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('开始时间 >= 结束时间返回 400', async () => {
+    it('开始时间与结束时间相同时返回 400', async () => {
       employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
 
       await expect(
@@ -207,15 +210,33 @@ describe('EmployeesShiftDefinitionService', () => {
           defaultEndTime: '14:00',
         }),
       ).rejects.toThrow(BadRequestException);
+    });
 
-      await expect(
-        service.createShiftDefinition(user, {
-          storeId: 2,
-          name: '早班',
-          defaultStartTime: '15:00',
-          defaultEndTime: '14:00',
-        }),
-      ).rejects.toThrow(BadRequestException);
+    it('跨日排班（如 22:00-06:00）允许创建', async () => {
+      employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
+      prismaService.employeeShiftDefinition.findFirst.mockResolvedValue(null);
+
+      const createdAt = new Date('2026-06-01T10:00:00.000Z');
+      const updatedAt = new Date('2026-06-01T10:00:00.000Z');
+
+      prismaService.employeeShiftDefinition.create.mockResolvedValue({
+        id: 3,
+        storeId: 2,
+        name: '夜班',
+        defaultStartTime: '22:00',
+        defaultEndTime: '06:00',
+        createdAt,
+        updatedAt,
+      });
+
+      const result = await service.createShiftDefinition(user, {
+        storeId: 2,
+        name: '夜班',
+        defaultStartTime: '22:00',
+        defaultEndTime: '06:00',
+      });
+
+      expect(result.name).toBe('夜班');
     });
   });
 
@@ -286,6 +307,8 @@ describe('EmployeesShiftDefinitionService', () => {
       employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
         undefined,
       );
+      // #9 修复：删除前检查排班引用，无引用时允许删除
+      prismaService.employeeShift.count.mockResolvedValue(0);
       prismaService.employeeShiftDefinition.delete.mockResolvedValue({});
 
       await service.removeShiftDefinition(user, 1);
@@ -305,8 +328,8 @@ describe('EmployeesShiftDefinitionService', () => {
       );
     });
 
-    it('删除已被历史排班引用的定义后，历史排班仍可查询', async () => {
-      // 删除操作本身会成功，因为 schema 中设置了 onDelete: SetNull
+    it('删除已被历史排班引用的定义时返回 409', async () => {
+      // #9 修复：有排班引用时不允许删除
       prismaService.employeeShiftDefinition.findUnique.mockResolvedValue({
         id: 1,
         storeId: 2,
@@ -319,11 +342,14 @@ describe('EmployeesShiftDefinitionService', () => {
       employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
         undefined,
       );
-      prismaService.employeeShiftDefinition.delete.mockResolvedValue({});
+      prismaService.employeeShift.count.mockResolvedValue(3);
 
-      await service.removeShiftDefinition(user, 1);
-
-      expect(prismaService.employeeShiftDefinition.delete).toHaveBeenCalled();
+      await expect(service.removeShiftDefinition(user, 1)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(
+        prismaService.employeeShiftDefinition.delete,
+      ).not.toHaveBeenCalled();
     });
   });
 

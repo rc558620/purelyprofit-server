@@ -164,7 +164,9 @@ export async function findProductCodeConflict(
     where: {
       storeId: params.storeId,
       code: params.code,
-      ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
+      ...(params.excludeId !== undefined
+        ? { id: { not: params.excludeId } }
+        : {}),
     },
     select: {
       id: true,
@@ -198,7 +200,19 @@ export async function deleteProductRecord(
   prisma: PrismaService,
   productId: number,
 ): Promise<void> {
-  await prisma.product.delete({
-    where: { id: productId },
-  });
+  try {
+    await prisma.product.delete({
+      where: { id: productId },
+    });
+  } catch (error: unknown) {
+    // P2025: 记录不存在（并发删除场景），静默处理
+    if (
+      error instanceof Error &&
+      'code' in error &&
+      (error as { code: string }).code === 'P2025'
+    ) {
+      return;
+    }
+    throw error;
+  }
 }

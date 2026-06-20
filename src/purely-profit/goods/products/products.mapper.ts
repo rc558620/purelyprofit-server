@@ -13,6 +13,7 @@ export function buildProductResponse(
 
   return {
     id: String(product.id),
+    storeId: product.storeId,
     name: product.name,
     category: product.category,
     code: product.code,

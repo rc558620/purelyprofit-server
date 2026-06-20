@@ -7,6 +7,7 @@ export class CachePrewarmService implements OnModuleInit, OnModuleDestroy {
   private intervalTimer: NodeJS.Timeout | null = null;
   private initialDelayTimer: NodeJS.Timeout | null = null;
   private isRunning = false;
+  private runningCycle: Promise<void> | null = null;
   private cycleCount = 0;
   private readonly enabled: boolean;
   private readonly intervalMs: number;
@@ -71,6 +72,12 @@ export class CachePrewarmService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async waitForRunningCycle(): Promise<void> {
+    if (this.runningCycle) {
+      await this.runningCycle;
+    }
+  }
+
   private async runCycle(): Promise<void> {
     if (this.isRunning) {
       return;
@@ -80,7 +87,7 @@ export class CachePrewarmService implements OnModuleInit, OnModuleDestroy {
     this.cycleCount += 1;
 
     try {
-      await this.cycleService.runCycle({
+      const cyclePromise = this.cycleService.runCycle({
         cycleId: this.cycleCount,
         batchSize: this.batchSize,
         concurrency: this.concurrency,
@@ -88,8 +95,11 @@ export class CachePrewarmService implements OnModuleInit, OnModuleDestroy {
         logSampleEvery: this.logSampleEvery,
         slowCycleThresholdMs: this.slowCycleThresholdMs,
       });
+      this.runningCycle = cyclePromise;
+      await cyclePromise;
     } finally {
       this.isRunning = false;
+      this.runningCycle = null;
     }
   }
 }

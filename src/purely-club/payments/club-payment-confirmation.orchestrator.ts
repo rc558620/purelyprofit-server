@@ -12,9 +12,9 @@ interface ClubPaymentConfirmationOrchestratorParams<
   configService: ConfigService;
   loadDraftForManualConfirm: (
     input: TConfirmInput,
-    orderId: string,
+    orderNo: string,
   ) => Promise<TDraft>;
-  loadDraftByOrderId: (orderId: string) => Promise<TDraft>;
+  loadDraftByOrderNo: (orderNo: string) => Promise<TDraft>;
   resolveDraftAmountFen: (draft: TDraft) => number;
   completePaidDraft: (
     draft: TDraft,
@@ -37,20 +37,20 @@ export class ClubPaymentConfirmationOrchestrator<
 
   async confirmOrderPaid(
     input: TConfirmInput,
-    orderId: string,
+    orderNo: string,
   ): Promise<TResult> {
     this.ensureManualConfirmPaidEnabled();
-    const draft = await this.params.loadDraftForManualConfirm(input, orderId);
+    const draft = await this.params.loadDraftForManualConfirm(input, orderNo);
     return this.params.completePaidDraft(draft, {
       paymentConfirmationSource: 'manual_confirm_paid',
     });
   }
 
   async confirmOrderPaidByCallback(
-    orderId: string,
+    orderNo: string,
     params: ClubPaymentCallbackSettlementParams,
   ): Promise<TResult> {
-    const draft = await this.params.loadDraftByOrderId(orderId);
+    const draft = await this.params.loadDraftByOrderNo(orderNo);
 
     assertClubPaymentAmountMatches(
       this.params.resolveDraftAmountFen(draft),

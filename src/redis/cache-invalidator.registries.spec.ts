@@ -25,8 +25,8 @@ type RedisServiceMock = {
 
 function createRedisServiceMock(): RedisServiceMock {
   return {
-    del: jest.fn(() => Promise.resolve()),
-    delByPattern: jest.fn(() => Promise.resolve()),
+    del: jest.fn((_key: string) => Promise.resolve()),
+    delByPattern: jest.fn((_pattern: string) => Promise.resolve()),
   };
 }
 

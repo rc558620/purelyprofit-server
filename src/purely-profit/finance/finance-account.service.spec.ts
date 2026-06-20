@@ -52,6 +52,7 @@ describe('FinanceAccountService', () => {
 
   it('listAccounts 会通过 refreshable cache 包裹列表读取', async () => {
     prismaService.financeAccountRecord.findMany.mockResolvedValue([]);
+    prismaService.financeAccountRecord.count.mockResolvedValue(0);
 
     await expect(
       service.listAccounts(user, {
@@ -80,6 +81,7 @@ describe('FinanceAccountService', () => {
   });
 
   it('listAccounts 会按派生后的 overdue 状态筛选并排序', async () => {
+    prismaService.financeAccountRecord.count.mockResolvedValue(2);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
       {
         id: 32,
@@ -110,21 +112,6 @@ describe('FinanceAccountService', () => {
         note: null,
         createdAt: new Date('2026-05-01T12:00:00.000Z'),
         updatedAt: new Date('2026-05-13T11:00:00.000Z'),
-      },
-      {
-        id: 30,
-        type: 'receivable',
-        category: 'sales_credit',
-        counterpart: '未逾期客户',
-        amount: new Prisma.Decimal('300.00'),
-        paidAmount: new Prisma.Decimal('0.00'),
-        remaining: new Prisma.Decimal('300.00'),
-        status: FinanceAccountStatus.pending,
-        dueDate: new Date('2026-05-20T00:00:00.000Z'),
-        date: new Date('2026-05-14T00:00:00.000Z'),
-        note: null,
-        createdAt: new Date('2026-05-14T12:00:00.000Z'),
-        updatedAt: new Date('2026-05-14T10:00:00.000Z'),
       },
     ]);
 
@@ -164,6 +151,7 @@ describe('FinanceAccountService', () => {
   });
 
   it('listAccounts 会把 pending 状态下推成未逾期且未收付完的查询条件', async () => {
+    prismaService.financeAccountRecord.count.mockResolvedValue(1);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
       {
         id: 40,
@@ -219,6 +207,7 @@ describe('FinanceAccountService', () => {
   });
 
   it('listAccounts 会把 partial 状态下推成已部分收付且未结清的查询条件', async () => {
+    prismaService.financeAccountRecord.count.mockResolvedValue(1);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
       {
         id: 41,
@@ -270,6 +259,7 @@ describe('FinanceAccountService', () => {
   });
 
   it('listAccounts 会把 settled 状态下推成剩余金额不大于 0 的查询条件', async () => {
+    prismaService.financeAccountRecord.count.mockResolvedValue(1);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
       {
         id: 42,

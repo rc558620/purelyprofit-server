@@ -22,6 +22,7 @@ import { SubAccountBlockGuard } from '../access-control/guards/sub-account-block
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CreateStoreDto } from './dto/create-store.dto';
+import { UpdateStoreDto } from './dto/update-store.dto';
 import { StoreResponseDto } from './dto/store-response.dto';
 import {
   UpdateWechatPayConfigDto,
@@ -42,6 +43,7 @@ export class StoresController {
   ) {}
 
   @Post()
+  @RequirePermissions('store:update')
   @ApiOperation({ summary: '创建门店' })
   @ApiCreatedResponse({
     description: '创建成功并返回前端对齐后的门店信息',
@@ -52,17 +54,6 @@ export class StoresController {
     @Body() dto: CreateStoreDto,
   ): Promise<StoreResponseDto> {
     return this.storesService.create(user, dto);
-  }
-
-  @Get()
-  @RequirePermissions('store:view')
-  @ApiOperation({ summary: '获取当前账号绑定门店' })
-  @ApiOkResponse({
-    description: '返回当前账号唯一绑定的门店信息',
-    type: StoreResponseDto,
-  })
-  getStore(@CurrentUser() user: AuthenticatedUser): Promise<StoreResponseDto> {
-    return this.storesService.getStore(user);
   }
 
   @Get('current')
@@ -87,7 +78,7 @@ export class StoresController {
   })
   updateCurrent(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: CreateStoreDto,
+    @Body() dto: UpdateStoreDto,
   ): Promise<StoreResponseDto> {
     return this.storesService.updateCurrent(user, dto);
   }

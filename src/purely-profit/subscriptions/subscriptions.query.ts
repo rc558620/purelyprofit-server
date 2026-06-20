@@ -49,22 +49,26 @@ export async function upsertStoreSubscriptionRecord(
     planCode: SubscriptionPlanCode;
     planSnapshot: PlanSnapshot;
     expiresAt: Date | null;
+    /** 订阅目标状态，默认 ACTIVE；续费/重新激活时由调用方显式传入 */
+    targetStatus?: StoreSubscriptionStatus;
   },
 ): Promise<void> {
+  const status = params.targetStatus ?? StoreSubscriptionStatus.ACTIVE;
+
   await transaction.storeSubscription.upsert({
     where: { storeId: params.storeId },
     create: {
       storeId: params.storeId,
       planCode: params.planCode,
       planName: params.planSnapshot.planName,
-      status: StoreSubscriptionStatus.ACTIVE,
+      status,
       maxAccountSeats: params.planSnapshot.maxAccountSeats,
       expiresAt: params.expiresAt,
     },
     update: {
       planCode: params.planCode,
       planName: params.planSnapshot.planName,
-      status: StoreSubscriptionStatus.ACTIVE,
+      status,
       maxAccountSeats: params.planSnapshot.maxAccountSeats,
       expiresAt: params.expiresAt,
     },

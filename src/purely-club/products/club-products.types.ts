@@ -1,5 +1,8 @@
+/** 热销商品数量（临时占位：当前取最新创建的前 N 个，后续应改为按实际销量排序） */
 export const CLUB_HOT_PRODUCT_COUNT = 3;
 export const CLUB_FEATURED_PRODUCT_LIMIT = 6;
+/** 列表接口默认返回上限，防止全量加载 */
+export const CLUB_PRODUCT_DEFAULT_LIST_LIMIT = 50;
 export const CLUB_PRODUCT_NOT_FOUND_MESSAGE = '当前门店下找不到该服务商品';
 
 export const clubProductSelect = {
@@ -33,7 +36,7 @@ export interface ClubProductRecord {
   image: string | null;
   descriptionTitle: string | null;
   description: string | null;
-  stock?: number | null;
+  stock: number;
   durationMinutes: number | null;
   personCount: number | null;
   isActive: boolean;

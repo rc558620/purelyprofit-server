@@ -101,3 +101,12 @@ export const MAX_INACTIVE_VIP_COUNT = 5;
 
 /** 工资单草稿查询：只查近 N 个月内的 */
 export const DRAFT_PAYROLL_MAX_MONTHS_AGO = 3;
+
+/** 最近订单动态：优先查最近 2 小时内的订单 */
+export const RECENT_ORDER_WINDOW_HOURS = 2;
+
+/** 最近订单动态：2 小时内订单不足时，补今日内最近订单 */
+export const RECENT_ORDER_MIN_COUNT = 4;
+
+/** 最近订单动态：最多返回条数（2 小时内查 + 今日补单上限） */
+export const MAX_RECENT_ORDER_COUNT = 6;

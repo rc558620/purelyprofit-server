@@ -170,7 +170,7 @@ export class SalesOrdersCompatController {
   }
 
   @Delete(':id')
-  @RequirePermissions('sales:delete')
+  @RequirePermissions('operation-entry:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除销售记录（purelyProfit 前端兼容）' })
   @ApiNoContentResponse()

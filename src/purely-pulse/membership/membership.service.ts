@@ -20,6 +20,8 @@ import type {
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
 import type {
   PulseAdminEmployeeCandidateDto,
+  PulseAdminMemberClubStatsDto,
+  PulseAdminMemberSalesStatsDto,
   PulseAdminMembersResponseDto,
   PulseMemberDetailDto,
 } from './dto/pulse-membership-admin-members.response.dto';
@@ -150,6 +152,20 @@ export class PulseMembershipService {
     memberId: number,
   ): Promise<PulseAdminEmployeeCandidateDto[]> {
     return this.adminService.listAdminMemberEmployeeCandidates(user, memberId);
+  }
+
+  getAdminMemberClubStats(
+    user: AuthenticatedUser,
+    memberId: number,
+  ): Promise<PulseAdminMemberClubStatsDto> {
+    return this.adminService.getAdminMemberClubStats(user, memberId);
+  }
+
+  getAdminMemberSalesStats(
+    user: AuthenticatedUser,
+    memberId: number,
+  ): Promise<PulseAdminMemberSalesStatsDto> {
+    return this.adminService.getAdminMemberSalesStats(user, memberId);
   }
 
   adjustAdminMemberPoints(

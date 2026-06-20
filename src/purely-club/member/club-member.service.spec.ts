@@ -35,7 +35,6 @@ describe('ClubMemberService', () => {
   };
 
   const authService = {
-    changePassword: jest.fn(),
     updateAvatar: jest.fn(),
     updateNickname: jest.fn(),
     getProfile: jest.fn(),
@@ -103,29 +102,6 @@ describe('ClubMemberService', () => {
     }).compile();
 
     service = module.get<ClubMemberService>(ClubMemberService);
-  });
-
-  it('changePassword 复用统一鉴权链路修改 purely-club 密码', async () => {
-    authService.changePassword.mockResolvedValue({
-      message: '密码修改成功，旧登录态已失效',
-      access_token: 'club-next-token',
-    });
-
-    await expect(
-      service.changePassword(user, {
-        currentPassword: 'oldPassword123',
-        newPassword: 'newPassword123',
-        confirmPassword: 'newPassword123',
-      }),
-    ).resolves.toEqual({
-      message: '密码修改成功，旧登录态已失效',
-      access_token: 'club-next-token',
-    });
-    expect(authService.changePassword).toHaveBeenCalledWith(user, {
-      currentPassword: 'oldPassword123',
-      newPassword: 'newPassword123',
-      confirmPassword: 'newPassword123',
-    });
   });
 
   it('updateAvatar 返回 purely-club 当前用户最新头像资料', async () => {
@@ -227,13 +203,12 @@ describe('ClubMemberService', () => {
         balance: 35000,
         points: 1280,
         tier: 'gold',
-        totalSpent: 320000,
         createdAt: new Date('2024-05-28T00:00:00.000Z'),
       }),
     );
     // 从 marketingRecharge 聚合：充值 320000 分 = ¥3200
     prismaService.marketingRecharge.aggregate.mockResolvedValue({
-      _sum: { amount: 320000, giftAmount: 0 },
+      _sum: { amount: 320000 },
     });
 
     await expect(service.getAccount(currentContext)).resolves.toEqual({
@@ -275,13 +250,12 @@ describe('ClubMemberService', () => {
         balance: true,
         points: true,
         tier: true,
-        totalSpent: true,
         createdAt: true,
       },
     });
     expect(prismaService.marketingRecharge.aggregate).toHaveBeenCalledWith({
       where: { customerId: 36, type: 'recharge' },
-      _sum: { amount: true, giftAmount: true },
+      _sum: { amount: true },
     });
   });
 
@@ -328,12 +302,11 @@ describe('ClubMemberService', () => {
         balance: 26800,
         points: 920,
         tier: 'gold',
-        totalSpent: 126000,
         createdAt: new Date('2024-08-01T00:00:00.000Z'),
       }),
     );
     prismaService.marketingRecharge.aggregate.mockResolvedValue({
-      _sum: { amount: 126000, giftAmount: 0 },
+      _sum: { amount: 126000 },
     });
 
     await expect(
@@ -372,13 +345,12 @@ describe('ClubMemberService', () => {
         balance: true,
         points: true,
         tier: true,
-        totalSpent: true,
         createdAt: true,
       },
     });
   });
 
-  it('getAccount 保留 regular 与 silver 的历史等级语义', async () => {
+  it('getAccount 将已废弃的 silver 等级回落为 regular', async () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 38,
@@ -393,13 +365,12 @@ describe('ClubMemberService', () => {
         balance: 12800,
         points: 320,
         tier: 'silver',
-        totalSpent: 68000,
         createdAt: new Date('2024-07-01T00:00:00.000Z'),
       }),
     );
     // 充值流水聚合：68000 分 = ¥680
     prismaService.marketingRecharge.aggregate.mockResolvedValue({
-      _sum: { amount: 68000, giftAmount: 0 },
+      _sum: { amount: 68000 },
     });
 
     await expect(service.getAccount(currentContext)).resolves.toEqual({
@@ -411,8 +382,8 @@ describe('ClubMemberService', () => {
       memberCode: 'PC20240701038',
       joinDate: '2024-07-01',
       totalConsume: 680,
-      heldLevel: 'silver',
-      heldLevelLabel: '白银会员',
+      heldLevel: 'regular',
+      heldLevelLabel: '普通会员',
       heldLevelVisible: false,
     });
   });
@@ -432,13 +403,12 @@ describe('ClubMemberService', () => {
         balance: 35000,
         points: 1280,
         tier: 'gold',
-        totalSpent: 320000,
         createdAt: new Date('2024-05-28T00:00:00.000Z'),
       }),
     );
     // 充值流水聚合：320000 分 = ¥3200
     prismaService.marketingRecharge.aggregate.mockResolvedValue({
-      _sum: { amount: 320000, giftAmount: 0 },
+      _sum: { amount: 320000 },
     });
 
     await expect(service.getLevelStatus(currentContext)).resolves.toEqual({
@@ -458,7 +428,7 @@ describe('ClubMemberService', () => {
     });
   });
 
-  it('getLevelStatus 对 regular 与 silver 兼容等级保留历史持有信息', async () => {
+  it('getLevelStatus 将已废弃的 silver 等级回落为 regular', async () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 38,
@@ -473,13 +443,12 @@ describe('ClubMemberService', () => {
         balance: 12800,
         points: 320,
         tier: 'silver',
-        totalSpent: 68000,
         createdAt: new Date('2024-07-01T00:00:00.000Z'),
       }),
     );
     // 充值流水聚合：68000 分 = ¥680
     prismaService.marketingRecharge.aggregate.mockResolvedValue({
-      _sum: { amount: 68000, giftAmount: 0 },
+      _sum: { amount: 68000 },
     });
 
     await expect(service.getLevelStatus(currentContext)).resolves.toEqual({
@@ -493,8 +462,8 @@ describe('ClubMemberService', () => {
       amountToNextLevel: 4320,
       progressPct: 13.6,
       isTopLevel: false,
-      heldLevel: 'silver',
-      heldLevelLabel: '白银会员',
+      heldLevel: 'regular',
+      heldLevelLabel: '普通会员',
       heldLevelVisible: false,
     });
   });
@@ -514,13 +483,12 @@ describe('ClubMemberService', () => {
         balance: 88000,
         points: 2880,
         tier: 'diamond',
-        totalSpent: 1200000,
         createdAt: new Date('2024-05-28T00:00:00.000Z'),
       }),
     );
     // 充值流水聚合：1200000 分 = ¥12000
     prismaService.marketingRecharge.aggregate.mockResolvedValue({
-      _sum: { amount: 1200000, giftAmount: 0 },
+      _sum: { amount: 1200000 },
     });
 
     await expect(service.getLevelStatus(currentContext)).resolves.toEqual({
@@ -646,13 +614,12 @@ describe('ClubMemberService', () => {
         balance: 35000,
         points: 1280,
         tier: 'gold',
-        totalSpent: 320000,
         createdAt: new Date('2024-05-28T00:00:00.000Z'),
       }),
     );
     // 充值流水聚合：320000 分 = ¥3200（gold 默认等级 totalConsume>=0 即解锁）
     prismaService.marketingRecharge.aggregate.mockResolvedValue({
-      _sum: { amount: 320000, giftAmount: 0 },
+      _sum: { amount: 320000 },
     });
 
     await expect(service.getBenefits(currentContext)).resolves.toEqual(
@@ -862,7 +829,8 @@ describe('ClubMemberService', () => {
     await expect(service.getAccount(currentContext)).rejects.toBeInstanceOf(
       NotFoundException,
     );
-    expect(prismaService.marketingCustomer.findUnique).not.toHaveBeenCalled();
+    // marketingCustomer 查询与 member 查询在 Promise.all 中并行执行，
+    // 因此即使 member 为 null，marketingCustomer.findUnique 仍会被调用
   });
 });
 
@@ -900,7 +868,6 @@ function createMarketingCustomer(
     balance: number;
     points: number;
     tier: string;
-    totalSpent: number;
     createdAt: Date;
   }>,
 ): {
@@ -908,7 +875,6 @@ function createMarketingCustomer(
   balance: number;
   points: number;
   tier: string;
-  totalSpent: number;
   createdAt: Date;
 } {
   return {
@@ -916,7 +882,6 @@ function createMarketingCustomer(
     balance: 0,
     points: 0,
     tier: 'regular',
-    totalSpent: 0,
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     ...overrides,
   };

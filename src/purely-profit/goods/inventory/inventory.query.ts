@@ -15,6 +15,9 @@ export async function queryInventoryProducts(
   storeId: number,
   query: InventoryProductListQueryInput,
 ): Promise<InventoryProductRecord[]> {
+  /* BUG-7: 将 alertLevel 过滤下推到数据库层，减少内存过滤 */
+  const alertWhere = buildAlertWhereCondition(query.alertLevel);
+
   return prisma.product.findMany({
     where: {
       storeId,
@@ -38,6 +41,7 @@ export async function queryInventoryProducts(
             ],
           }
         : {}),
+      ...alertWhere,
     },
     select: {
       id: true,
@@ -55,6 +59,26 @@ export async function queryInventoryProducts(
       updatedAt: true,
     },
   });
+}
+
+/**
+ * BUG-7: 根据 alertLevel 和 alertOnly 参数构建 Prisma where 条件，
+ * 将预警级别过滤下推到数据库层，避免全量加载到内存后再过滤。
+ *
+ * 注意：Prisma 不支持 stock <= alertThreshold 这种跨字段比较，
+ * 所以 warning 级别无法在数据库层完整过滤，仍需 domain 层 matchesInventoryFilters 补充。
+ * danger 级别（stock <= 0）可以精确过滤。
+ */
+function buildAlertWhereCondition(
+  alertLevel?: InventoryProductListQueryInput['alertLevel'],
+  // alertOnly 涉及 stock <= alertThreshold 的跨字段比较，Prisma 无法表达，由 domain 层过滤
+): Prisma.ProductWhereInput {
+  if (alertLevel === 'danger') {
+    return { stock: { lte: 0 } };
+  }
+
+  /* warning 和 alertOnly 涉及 stock <= alertThreshold 的跨字段比较，Prisma 无法表达，留空由 domain 层过滤 */
+  return {};
 }
 
 export async function queryInventoryAdjustmentPage(
@@ -117,6 +141,7 @@ export async function findInventoryProductStore(
     select: {
       id: true,
       storeId: true,
+      isActive: true,
     },
   });
 }

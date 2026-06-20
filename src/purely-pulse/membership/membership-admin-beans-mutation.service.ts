@@ -71,7 +71,7 @@ export class PulseMembershipAdminBeansMutationService {
       });
     });
 
-    await this.mutationStateService.invalidatePulseDashboardHome();
+    await this.mutationStateService.invalidateAdminMemberDerived(memberId);
   }
 
   private resolveAdjustmentDelta(

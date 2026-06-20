@@ -3,6 +3,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type {
   CreateSupplierDto,
   ListSuppliersQueryDto,
+  PaginatedSuppliersResponseDto,
   SupplierResponseDto,
   UpdateSupplierDto,
 } from './dto/supplier.dto';
@@ -19,7 +20,7 @@ export class SuppliersService {
   list(
     user: AuthenticatedUser,
     query: ListSuppliersQueryDto,
-  ): Promise<SupplierResponseDto[]> {
+  ): Promise<PaginatedSuppliersResponseDto> {
     return this.suppliersReadService.list(user, query);
   }
 

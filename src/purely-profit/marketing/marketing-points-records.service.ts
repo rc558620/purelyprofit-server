@@ -26,7 +26,7 @@ export class MarketingPointsRecordsService {
 
   async listPointsRecords(
     user: AuthenticatedUser,
-    query: ListPointsRecordsQueryDto & { storeId?: number },
+    query: ListPointsRecordsQueryDto,
   ): Promise<MarketingPointsRecordsResponseDto> {
     const resolvedStoreId =
       await this.marketingSharedService.resolveMembershipManagedStoreId(

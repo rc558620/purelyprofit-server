@@ -36,8 +36,20 @@ export async function countPurchaseOrders(
 export async function countPurchaseSuppliers(
   prisma: PrismaService,
   storeId: number,
+  where?: Prisma.PurchaseOrderWhereInput,
 ): Promise<number> {
-  return prisma.supplier.count({ where: { storeId } });
+  if (!where) {
+    return prisma.supplier.count({ where: { storeId } });
+  }
+
+  const result = await prisma.purchaseOrder.findMany({
+    where,
+    select: { supplierId: true },
+    distinct: ['supplierId'],
+  });
+  // supplierId 为 null 表示手输供应商名，不计入供应商数
+  const validSupplierIds = result.filter((r) => r.supplierId !== null);
+  return validSupplierIds.length;
 }
 
 export async function aggregatePurchaseOrders(
@@ -160,7 +172,7 @@ export async function findPurchaseOrderAccessRecord(
 }
 
 export async function deletePurchaseOrderEntity(
-  prisma: PrismaService,
+  prisma: PrismaService | Prisma.TransactionClient,
   purchaseId: number,
 ): Promise<void> {
   await prisma.purchaseOrder.delete({

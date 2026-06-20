@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CommerceModule } from '../commerce/commerce.module';
+import { RedisModule } from '../../redis/redis.module';
 import { NotificationsBuildService } from './notifications-build.service';
 import { NotificationsContextService } from './notifications-context.service';
 import { NotificationsController } from './notifications.controller';
@@ -7,7 +8,7 @@ import { NotificationsReadStateService } from './notifications-read-state.servic
 import { NotificationsService } from './notifications.service';
 
 @Module({
-  imports: [CommerceModule],
+  imports: [CommerceModule, RedisModule],
   controllers: [NotificationsController],
   providers: [
     NotificationsBuildService,

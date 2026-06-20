@@ -30,9 +30,9 @@ export class ClubOrderServiceQueryService {
     );
   }
 
-  getServiceDraftByOrderId(
-    orderId: string,
+  getServiceDraftByOrderNo(
+    orderNo: string,
   ): Promise<ClubOrderDraftPayload<ClubServiceOrderMetadata, 'service'>> {
-    return this.clubOrderDraftsService.getDraftByOrderId(orderId, 'service');
+    return this.clubOrderDraftsService.getDraftByOrderId(orderNo, 'service');
   }
 }

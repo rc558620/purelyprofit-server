@@ -27,6 +27,7 @@ import {
   PlatformMembershipPromoCenterResponseDto,
   PurchasePlatformMembershipOrderResponseDto,
 } from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
+import { PlatformMembershipProfileResponseDto } from '../../purely-profit/member/platform-membership/dto/platform-membership-shared.response.dto';
 import { PulseMembershipOrderPreviewDto } from './dto/pulse-membership-orders.request.dto';
 import {
   PulseMembershipOrderDetailResponseDto,
@@ -65,6 +66,19 @@ export class PulseMembershipController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<PlatformMembershipCenterResponseDto> {
     return this.pulseMembershipService.getCenter(user);
+  }
+
+  @Get('profile')
+  @ApiOperation({ summary: '获取目标商家订阅档案兼容数据' })
+  @ApiOkResponse({
+    description:
+      '当前返回目标商家订阅档案的旧字段结构兼容数据，默认按开发者查看目标商家订阅状态理解。',
+    type: PlatformMembershipProfileResponseDto,
+  })
+  getProfile(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<PlatformMembershipProfileResponseDto> {
+    return this.pulseMembershipService.getProfile(user);
   }
 
   @Post('orders/preview')

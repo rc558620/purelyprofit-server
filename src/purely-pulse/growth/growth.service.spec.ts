@@ -78,13 +78,6 @@ describe('PulseGrowthService', () => {
           provide: PulseGrowthEarningsService,
           useValue: earningsService,
         },
-        {
-          provide: RedisService,
-          useValue: {
-            getJson: jest.fn(),
-            setJson: jest.fn(),
-          },
-        },
       ],
     }).compile();
 
@@ -657,7 +650,6 @@ describe('PulseGrowthAdminQueryService', () => {
           status: 'pending',
           appliedAt: '2026-05-15 18:00',
           paidAt: null,
-          txnNo: null,
           rejectReason: null,
         },
       ],

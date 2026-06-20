@@ -97,7 +97,9 @@ describe('ProfitDetailService', () => {
         quantity: 2,
         image: 'https://example.com/coke.png',
         order: {
+          id: 1,
           date: new Date(2026, 4, 12, 10, 0, 0, 0),
+          spaceSession: null,
         },
       },
       {
@@ -109,7 +111,9 @@ describe('ProfitDetailService', () => {
         quantity: 1,
         image: null,
         order: {
+          id: 2,
           date: new Date(2026, 4, 13, 10, 0, 0, 0),
+          spaceSession: null,
         },
       },
       {
@@ -121,7 +125,9 @@ describe('ProfitDetailService', () => {
         quantity: 3,
         image: null,
         order: {
+          id: 3,
           date: new Date(2026, 4, 10, 10, 0, 0, 0),
+          spaceSession: null,
         },
       },
     ]);
@@ -155,8 +161,10 @@ describe('ProfitDetailService', () => {
         totalCost: 11,
         netProfit: 11,
         profitRate: 50,
-        compareLastPeriod: -8.33,
-        orderCount: 3,
+        revenueCompareLastPeriod: -8.33,
+        profitCompareLastPeriod: -45,
+        costCompareLastPeriod: 175,
+        orderCount: 2,
       },
       dailyProfits: [
         { dateLabel: '05/12', revenue: 13, cost: 8, profit: 5 },
@@ -206,7 +214,9 @@ describe('ProfitDetailService', () => {
         quantity: 2,
         image: 'https://example.com/coke.png',
         order: {
+          id: 4,
           date: new Date(2026, 4, 12, 10, 0, 0, 0),
+          spaceSession: null,
         },
       },
       {
@@ -218,7 +228,9 @@ describe('ProfitDetailService', () => {
         quantity: 1,
         image: null,
         order: {
+          id: 5,
           date: new Date(2026, 4, 13, 10, 0, 0, 0),
+          spaceSession: null,
         },
       },
       {
@@ -230,7 +242,9 @@ describe('ProfitDetailService', () => {
         quantity: 3,
         image: null,
         order: {
+          id: 6,
           date: new Date(2026, 4, 10, 10, 0, 0, 0),
+          spaceSession: null,
         },
       },
     ]);
@@ -264,8 +278,10 @@ describe('ProfitDetailService', () => {
         totalCost: 11,
         netProfit: 11,
         profitRate: 50,
-        compareLastPeriod: -8.33,
-        orderCount: 3,
+        revenueCompareLastPeriod: -8.33,
+        profitCompareLastPeriod: -45,
+        costCompareLastPeriod: 175,
+        orderCount: 2,
       },
       products: [
         {
@@ -302,6 +318,7 @@ describe('ProfitDetailService', () => {
         quantity: 1,
         image: null,
         order: {
+          id: 10,
           date: new Date(2026, 4, 12, 10, 0, 0, 0),
           spaceSession: {
             space: {
@@ -319,6 +336,7 @@ describe('ProfitDetailService', () => {
         quantity: 1,
         image: null,
         order: {
+          id: 11,
           date: new Date(2026, 4, 12, 11, 0, 0, 0),
           spaceSession: {
             space: {
@@ -336,6 +354,7 @@ describe('ProfitDetailService', () => {
         quantity: 1,
         image: null,
         order: {
+          id: 12,
           date: new Date(2026, 4, 12, 12, 0, 0, 0),
           spaceSession: {
             space: {
@@ -392,7 +411,9 @@ describe('ProfitDetailService', () => {
         totalCost: 0,
         netProfit: 0,
         profitRate: 0,
-        compareLastPeriod: null,
+        revenueCompareLastPeriod: null,
+        profitCompareLastPeriod: null,
+        costCompareLastPeriod: null,
         orderCount: 0,
       },
     });
@@ -435,7 +456,9 @@ describe('ProfitDetailService', () => {
         quantity: 1,
         image: null,
         order: {
+          id: 20,
           date: new Date(2026, 4, 14, 10, 0, 0, 0),
+          spaceSession: null,
         },
       },
     ]);

@@ -2,43 +2,21 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, Min } from 'class-validator';
 import { transformOptionalBoolean } from '../../stores/dto/store-response.dto';
+import {
+  FINANCE_REPORT_PERIOD_VALUES,
+  type FinanceReportPeriodValue,
+} from '../finance.types';
 
 export class FinanceReportQueryDto {
   @ApiPropertyOptional({
-    enum: [
-      'today',
-      'week',
-      'month',
-      'quarter',
-      'year',
-      'custom_month',
-      'custom_range',
-    ],
+    enum: FINANCE_REPORT_PERIOD_VALUES,
     description: '报表中心财务周期筛选',
   })
   @IsOptional()
-  @IsIn(
-    [
-      'today',
-      'week',
-      'month',
-      'quarter',
-      'year',
-      'custom_month',
-      'custom_range',
-    ],
-    {
-      message: '财务报表周期不合法',
-    },
-  )
-  period?:
-    | 'today'
-    | 'week'
-    | 'month'
-    | 'quarter'
-    | 'year'
-    | 'custom_month'
-    | 'custom_range';
+  @IsIn(FINANCE_REPORT_PERIOD_VALUES, {
+    message: '财务报表周期不合法',
+  })
+  period?: FinanceReportPeriodValue;
 
   @ApiPropertyOptional({
     example: 2026,

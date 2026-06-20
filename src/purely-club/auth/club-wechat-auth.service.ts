@@ -52,6 +52,11 @@ interface WechatGetPhoneNumberRawResponse {
 export class ClubWechatAuthService {
   private readonly logger = new Logger(ClubWechatAuthService.name);
 
+  /** session_key 缓存前缀，key 格式: club:wechat:session_key:{openid} */
+  private static readonly SESSION_KEY_CACHE_PREFIX = 'club:wechat:session_key:';
+  /** session_key 有效期与微信一致（默认 5 天），这里设 5 天 */
+  private static readonly SESSION_KEY_TTL_SECONDS = 5 * 24 * 60 * 60;
+
   constructor(
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
@@ -113,6 +118,13 @@ export class ClubWechatAuthService {
         '微信登录返回数据异常，请稍后重试',
       );
     }
+
+    // 缓存 session_key 到 Redis，供后续需要时读取
+    await this.redisService.set(
+      `${ClubWechatAuthService.SESSION_KEY_CACHE_PREFIX}${raw.openid}`,
+      raw.session_key,
+      ClubWechatAuthService.SESSION_KEY_TTL_SECONDS,
+    );
 
     return {
       openid: raw.openid,
@@ -188,7 +200,7 @@ export class ClubWechatAuthService {
     };
   }
 
-  private static readonly ACCESS_TOKEN_CACHE_KEY = 'club:wechat:access_token';
+  private static readonly ACCESS_TOKEN_CACHE_KEY_PREFIX = 'club:wechat:access_token:';
   /** access_token 有效期 7200s，提前 5 分钟刷新以避免边界问题 */
   private static readonly ACCESS_TOKEN_CACHE_TTL_SECONDS = 7200 - 300;
 
@@ -200,9 +212,8 @@ export class ClubWechatAuthService {
    */
   private async getAccessToken(appId: string): Promise<string> {
     // 1. 尝试从 Redis 缓存获取
-    const cached = await this.redisService.get(
-      ClubWechatAuthService.ACCESS_TOKEN_CACHE_KEY,
-    );
+    const cacheKey = ClubWechatAuthService.buildAccessTokenCacheKey(appId);
+    const cached = await this.redisService.get(cacheKey);
     if (cached) {
       return cached;
     }
@@ -240,12 +251,16 @@ export class ClubWechatAuthService {
 
     // 3. 写入 Redis 缓存
     await this.redisService.set(
-      ClubWechatAuthService.ACCESS_TOKEN_CACHE_KEY,
+      ClubWechatAuthService.buildAccessTokenCacheKey(appId),
       result.access_token,
       ClubWechatAuthService.ACCESS_TOKEN_CACHE_TTL_SECONDS,
     );
 
     return result.access_token;
+  }
+
+  private static buildAccessTokenCacheKey(appId: string): string {
+    return `${ClubWechatAuthService.ACCESS_TOKEN_CACHE_KEY_PREFIX}${appId}`;
   }
 
   private getRequiredConfig(key: string): string {

@@ -1,7 +1,6 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiExcludeController,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -22,7 +21,7 @@ import {
   PulseDashboardOverviewResponseDto,
   PulseDashboardStoresResponseDto,
 } from './dto/pulse-dashboard-overview.response.dto';
-import type { PulseRevenueDetailResponseDto } from './dto/pulse-dashboard-revenue-detail.response.dto';
+import { PulseRevenueDetailResponseDto } from './dto/pulse-dashboard-revenue-detail.response.dto';
 import { PulseDashboardService } from './dashboard.service';
 
 @ApiTags('Pulse / Dashboard')
@@ -90,14 +89,22 @@ export class PulseDashboardController {
   }
 }
 
-@ApiExcludeController()
+@ApiTags('Pulse / Dashboard')
 @ApiBearerAuth()
 @UseGuards(PulseJwtAuthGuard)
-@Controller('revenue-detail')
+@Controller('pulse/dashboard/revenue-detail')
 export class RevenueDetailController {
   constructor(private readonly pulseDashboardService: PulseDashboardService) {}
 
   @Get()
+  @ApiOperation({
+    summary: '获取 Pulse 平台充值收入明细',
+  })
+  @ApiOkResponse({
+    description:
+      '返回 Pulse 平台充值收入明细数据，包含趋势图、汇总、类型分布和充值记录列表',
+    type: PulseRevenueDetailResponseDto,
+  })
   getRevenueDetail(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetPulseRevenueDetailQueryDto,

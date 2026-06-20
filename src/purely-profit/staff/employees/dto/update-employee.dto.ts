@@ -95,12 +95,4 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsString({ message: '备注必须是字符串' })
   note?: string;
-
-  @ApiPropertyOptional({
-    example: 1742601600000,
-    description: '兼容前端编辑模型透传的离职时间，实际离职请走专用接口',
-  })
-  @IsOptional()
-  @IsInt({ message: '离职日期必须是整数时间戳' })
-  resignDate?: number;
 }

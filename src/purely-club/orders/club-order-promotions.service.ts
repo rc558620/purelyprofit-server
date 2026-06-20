@@ -7,6 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 export type ClubServicePromotionType =
   | 'first_order_discount'
   | 'discount'
+  | 'discount_day'
   | 'reduce';
 
 interface ClubPromotionRecord {
@@ -101,6 +102,7 @@ export class ClubOrderPromotionsService {
     const afterDiscountFen = chosenDiscount?.amountFen ?? baselineAmountFen;
 
     // 3. 满减叠加：所有满足门槛的满减活动均可叠加
+    //    满减门槛基于原价（amountFen）判断，与产品列表展示逻辑一致
     let totalReduceFen = 0;
     for (const promotion of promotions) {
       if (promotion.type !== 'reduce') continue;
@@ -155,7 +157,7 @@ export class ClubOrderPromotionsService {
         storeId,
         enabled: true,
         type: {
-          in: ['first_order_discount', 'discount', 'reduce'],
+          in: ['first_order_discount', 'discount', 'discount_day', 'reduce'],
         },
         startAt: { lte: now },
         endAt: { gte: now },
@@ -178,6 +180,8 @@ export class ClubOrderPromotionsService {
     switch (promotion.type) {
       case 'discount':
         return this.buildDiscountCandidate(promotion, originalAmountFen);
+      case 'discount_day':
+        return this.buildDiscountDayCandidate(promotion, originalAmountFen);
       case 'first_order_discount':
         return consumptionCount > 0
           ? null
@@ -210,6 +214,34 @@ export class ClubOrderPromotionsService {
       promotionType: 'discount',
       discountRate,
       promotionTag: this.buildDiscountTag(discountRate, promotion.name),
+      promotionDiscountAmountFen: Math.max(originalAmountFen - amountFen, 0),
+    };
+  }
+
+  /** 折扣日活动：与 discount 逻辑一致，params 中同样使用 discountRate */
+  private buildDiscountDayCandidate(
+    promotion: ClubPromotionRecord,
+    originalAmountFen: number,
+  ): ClubPricingCandidate | null {
+    const discountRate = this.resolvePromotionDiscountRate(promotion.params);
+    if (discountRate === null) {
+      return null;
+    }
+
+    const amountFen = this.applyPercentDiscount(
+      originalAmountFen,
+      discountRate,
+    );
+    if (amountFen >= originalAmountFen) {
+      return null;
+    }
+
+    return {
+      amountFen,
+      promotionId: promotion.id,
+      promotionType: 'discount_day',
+      discountRate,
+      promotionTag: this.buildDiscountDayTag(discountRate, promotion.name),
       promotionDiscountAmountFen: Math.max(originalAmountFen - amountFen, 0),
     };
   }
@@ -281,6 +313,12 @@ export class ClubOrderPromotionsService {
     return new Decimal(discountRate).toDecimalPlaces(1).toNumber();
   }
 
+  /**
+   * 解析满减活动参数
+   * 管理端存储约定：threshold 和 reduceAmount 单位均为"分"
+   * （与 MarketingPromotion.params 中 rechargeAmount: 10000 表示 ¥100 的约定一致）
+   * 若管理端误传"元"为单位的小数值，toPositiveInteger 会返回 null 从而跳过该活动
+   */
   private resolveReduceConfig(
     params: unknown,
   ): { thresholdFen: number; reduceAmountFen: number } | null {
@@ -356,6 +394,18 @@ export class ClubOrderPromotionsService {
     }
 
     return `${this.toDiscountText(discountRate)} 优惠`;
+  }
+
+  private buildDiscountDayTag(
+    discountRate: number,
+    fallbackName: string,
+  ): string {
+    const normalizedName = fallbackName.trim();
+    if (normalizedName) {
+      return normalizedName;
+    }
+
+    return `折扣日 ${this.toDiscountText(discountRate)}`;
   }
 
   private buildReduceTag(

@@ -107,6 +107,7 @@ export function createFinanceCashFlowPrismaMock() {
 export function createFinanceAccountPrismaMock() {
   const financeAccountRecord = {
     findMany: jest.fn(),
+    count: jest.fn(),
     create: jest.fn(),
     findFirst: jest.fn(),
     updateMany: jest.fn(),

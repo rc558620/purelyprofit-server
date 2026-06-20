@@ -8,6 +8,7 @@ type RedisOutcome = 'hit' | 'miss' | 'neutral';
 class ConcurrencyLimiter {
   private active = 0;
   private readonly queue: Array<() => void> = [];
+  private drainResolve: (() => void) | null = null;
 
   constructor(private readonly concurrency: number) {}
 
@@ -22,9 +23,14 @@ class ConcurrencyLimiter {
           reject(error instanceof Error ? error : new Error(String(error)));
         } finally {
           this.active -= 1;
-          const next = this.queue.shift();
-          if (next) {
-            next();
+          if (this.active === 0 && this.queue.length === 0) {
+            this.drainResolve?.();
+            this.drainResolve = null;
+          } else {
+            const next = this.queue.shift();
+            if (next) {
+              next();
+            }
           }
         }
       };
@@ -40,9 +46,13 @@ class ConcurrencyLimiter {
   }
 
   async drain(): Promise<void> {
-    while (this.active > 0 || this.queue.length > 0) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    if (this.active === 0 && this.queue.length === 0) {
+      return;
     }
+
+    await new Promise<void>((resolve) => {
+      this.drainResolve = resolve;
+    });
   }
 }
 
@@ -83,6 +93,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly slowRedisLogEnabled: boolean;
   private readonly slowRedisThresholdMs: number;
   private readonly backgroundRefreshTasks = new Map<string, Promise<void>>();
+  private readonly backgroundRefreshTimers = new Map<string, NodeJS.Timeout>();
   private readonly refreshQueue: ConcurrencyLimiter;
 
   constructor(private readonly configService: ConfigService) {
@@ -113,6 +124,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
+    for (const timer of this.backgroundRefreshTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.backgroundRefreshTimers.clear();
     await this.refreshQueue.drain();
     await this.client.quit();
   }
@@ -212,7 +227,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
         if (pendingOps >= pipelineBatchSize) {
           const results = await pipeline.exec();
-          totalDeleted += countPipelineDeleted(results);
+          if (results === null) {
+            console.warn(
+              `[redis] pipeline.exec() returned null during delByPattern pattern=${pattern} pendingOps=${pendingOps}`,
+            );
+          } else {
+            totalDeleted += countPipelineDeleted(results);
+          }
           pendingOps = 0;
         }
       }
@@ -220,7 +241,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
     if (pendingOps > 0) {
       const results = await pipeline.exec();
-      totalDeleted += countPipelineDeleted(results);
+      if (results === null) {
+        console.warn(
+          `[redis] pipeline.exec() returned null during delByPattern (final flush) pattern=${pattern} pendingOps=${pendingOps}`,
+        );
+      } else {
+        totalDeleted += countPipelineDeleted(results);
+      }
     }
 
     const durationMs = Date.now() - startedAt;
@@ -421,7 +448,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     refreshAt: number,
     handler: () => Promise<void>,
   ): void {
-    if (refreshAt > Date.now()) {
+    const delayMs = refreshAt - Date.now();
+    if (delayMs > 0) {
+      const timer = setTimeout(() => {
+        this.backgroundRefreshTimers.delete(taskKey);
+        this.runBackgroundRefresh(taskKey, handler);
+      }, delayMs);
+      timer.unref?.();
+      this.backgroundRefreshTimers.set(taskKey, timer);
       return;
     }
 

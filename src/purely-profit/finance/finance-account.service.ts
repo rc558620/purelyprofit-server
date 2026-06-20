@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { FinanceAccountStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
@@ -34,7 +35,6 @@ import {
   createAccountRecordEntity,
   deleteAccountRecordEntity,
   findAccountRecord,
-  findAccountRecordId,
   queryAccountRecords,
   queryAccountStatsRows,
   updateAccountRecordSettlement,
@@ -191,12 +191,23 @@ export class FinanceAccountService {
   ): Promise<void> {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const record = await findAccountRecordId(this.prisma, {
+    const record = await findAccountRecord(this.prisma, {
       storeId,
       recordId,
     });
     if (!record) {
       throw new NotFoundException('账款记录不存在');
+    }
+    const derived = deriveAccountFields(
+      toMoneyNumber(record.amount),
+      toMoneyNumber(record.paidAmount),
+      record.dueDate?.getTime() ?? undefined,
+    );
+    if (derived.status === FinanceAccountStatus.settled) {
+      throw new ConflictException('已结清的账款不能删除');
+    }
+    if (derived.status === FinanceAccountStatus.partial) {
+      throw new ConflictException('已部分收付的账款不能删除，请先完成收付');
     }
     await deleteAccountRecordEntity(this.prisma, recordId);
     await this.invalidateDashboardCaches(storeId);

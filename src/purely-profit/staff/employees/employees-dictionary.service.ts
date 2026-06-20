@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -34,6 +35,7 @@ export class EmployeesDictionaryService {
       query.storeId,
       'staff:view',
     );
+    // #21 修复：先查询是否已有默认部门，没有时才创建，避免每次都触发写操作
     await this.ensureDefaultDepartment(storeId);
     const rows = await this.prisma.employeeDepartment.findMany({
       where: { storeId },
@@ -132,6 +134,8 @@ export class EmployeesDictionaryService {
       query.storeId,
       'staff:view',
     );
+    // #22 修复：确保默认职位存在
+    await this.ensureDefaultPosition(storeId);
     const rows = await this.prisma.employeePosition.findMany({
       where: { storeId },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -229,7 +233,25 @@ export class EmployeesDictionaryService {
   }
 
   private async ensureDefaultDepartment(storeId: number): Promise<void> {
+    // #21 修复：先查询是否已有记录，避免不必要的写操作
+    const count = await this.prisma.employeeDepartment.count({
+      where: { storeId },
+    });
+    if (count > 0) {
+      return;
+    }
     await this.ensureDepartment(storeId, '综合部');
+  }
+
+  // #22 新增：确保默认职位存在
+  private async ensureDefaultPosition(storeId: number): Promise<void> {
+    const count = await this.prisma.employeePosition.count({
+      where: { storeId },
+    });
+    if (count > 0) {
+      return;
+    }
+    await this.ensurePosition(storeId, '默认职位');
   }
 
   private async ensureDictionaryNameAvailable(
@@ -277,9 +299,25 @@ export class EmployeesDictionaryService {
         return existing;
       }
 
-      return this.prisma.employeeDepartment.create({
-        data: { storeId, name: normalizedName },
-      });
+      // #20 修复：使用 upsert 模式避免并发创建同名记录时的唯一约束冲突
+      try {
+        return await this.prisma.employeeDepartment.create({
+          data: { storeId, name: normalizedName },
+        });
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          return await this.prisma.employeeDepartment.findFirstOrThrow({
+            where: {
+              storeId,
+              name: { equals: normalizedName, mode: 'insensitive' },
+            },
+          });
+        }
+        throw error;
+      }
     }
 
     const existing = await this.prisma.employeePosition.findFirst({
@@ -292,8 +330,24 @@ export class EmployeesDictionaryService {
       return existing;
     }
 
-    return this.prisma.employeePosition.create({
-      data: { storeId, name: normalizedName },
-    });
+    // #20 修复：使用 upsert 模式避免并发创建同名记录时的唯一约束冲突
+    try {
+      return await this.prisma.employeePosition.create({
+        data: { storeId, name: normalizedName },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        return await this.prisma.employeePosition.findFirstOrThrow({
+          where: {
+            storeId,
+            name: { equals: normalizedName, mode: 'insensitive' },
+          },
+        });
+      }
+      throw error;
+    }
   }
 }

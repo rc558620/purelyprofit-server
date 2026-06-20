@@ -1,35 +1,39 @@
 import { ConflictException } from '@nestjs/common';
 import {
+  createCategoryRecord,
+  findCategoryDuplicateByName,
+} from '../categories/categories.query';
+import {
   ensureProductCategory,
   ensureUniqueProductCode,
   resolveProductCode,
 } from './products.domain';
 
+jest.mock('../categories/categories.query', () => ({
+  createCategoryRecord: jest.fn(),
+  findCategoryDuplicateByName: jest.fn(),
+}));
+
 describe('products.domain', () => {
   function createPrismaMock() {
-    const productCategoryFindFirst = jest.fn();
-    const productCategoryCreate = jest.fn();
     const productFindFirst = jest.fn();
 
     return {
       prisma: {
-        productCategory: {
-          findFirst: productCategoryFindFirst,
-          create: productCategoryCreate,
-        },
         product: {
           findFirst: productFindFirst,
         },
       },
-      productCategoryFindFirst,
-      productCategoryCreate,
       productFindFirst,
     };
   }
 
   it('ensureProductCategory 会复用已有分类并忽略空白分类名', async () => {
-    const { prisma, productCategoryFindFirst } = createPrismaMock();
-    productCategoryFindFirst.mockResolvedValue({ id: 7 });
+    const { prisma } = createPrismaMock();
+    const mockedFindCategoryDuplicateByName = jest.mocked(
+      findCategoryDuplicateByName,
+    );
+    mockedFindCategoryDuplicateByName.mockResolvedValue({ id: 7 });
 
     await expect(
       ensureProductCategory(prisma as never, {
@@ -44,22 +48,27 @@ describe('products.domain', () => {
       }),
     ).resolves.toBeNull();
 
-    expect(productCategoryFindFirst).toHaveBeenCalledWith({
-      where: {
-        storeId: 18,
-        name: '饮品',
-      },
-      select: {
-        id: true,
-      },
+    expect(mockedFindCategoryDuplicateByName).toHaveBeenCalledWith(prisma, {
+      storeId: 18,
+      name: '饮品',
     });
   });
 
-  it('ensureProductCategory 会在分类不存在时创建分类', async () => {
-    const { prisma, productCategoryFindFirst, productCategoryCreate } =
-      createPrismaMock();
-    productCategoryFindFirst.mockResolvedValue(null);
-    productCategoryCreate.mockResolvedValue({ id: 8 });
+  it('ensureProductCategory 会在分类不存在时通过 categories query 创建分类', async () => {
+    const { prisma } = createPrismaMock();
+    const mockedFindCategoryDuplicateByName = jest.mocked(
+      findCategoryDuplicateByName,
+    );
+    const mockedCreateCategoryRecord = jest.mocked(createCategoryRecord);
+    mockedFindCategoryDuplicateByName.mockResolvedValue(null);
+    mockedCreateCategoryRecord.mockResolvedValue({
+      id: 8,
+      storeId: 18,
+      name: '小食',
+      icon: null,
+      createdAt: new Date('2026-05-23T10:00:00.000Z'),
+      updatedAt: new Date('2026-05-23T10:00:00.000Z'),
+    });
 
     await expect(
       ensureProductCategory(prisma as never, {
@@ -68,14 +77,10 @@ describe('products.domain', () => {
       }),
     ).resolves.toEqual({ id: 8 });
 
-    expect(productCategoryCreate).toHaveBeenCalledWith({
-      data: {
-        storeId: 18,
-        name: '小食',
-      },
-      select: {
-        id: true,
-      },
+    expect(mockedCreateCategoryRecord).toHaveBeenCalledWith(prisma, {
+      storeId: 18,
+      name: '小食',
+      icon: null,
     });
   });
 

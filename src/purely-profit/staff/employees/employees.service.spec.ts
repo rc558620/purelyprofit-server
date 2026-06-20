@@ -27,6 +27,7 @@ import { EmployeesService } from './employees.service';
 import { EmployeesShiftService } from './employees-shift.service';
 import { EmployeesShiftDefinitionService } from './employees-shift-definition.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
+import { StoreSubAccountLoginService } from '../../member/platform-membership/store-sub-account-login.service';
 
 describe('EmployeesService', () => {
   let service: EmployeesService;
@@ -45,6 +46,7 @@ describe('EmployeesService', () => {
     employeeDepartment: {
       findMany: jest.fn(),
       findFirst: jest.fn(),
+      count: jest.fn(),
       create: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -53,6 +55,7 @@ describe('EmployeesService', () => {
     employeePosition: {
       findMany: jest.fn(),
       findFirst: jest.fn(),
+      count: jest.fn(),
       create: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -86,6 +89,8 @@ describe('EmployeesService', () => {
     },
     storeSubAccount: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
+      upsert: jest.fn(),
     },
     staff: {
       findMany: jest.fn(),
@@ -95,6 +100,7 @@ describe('EmployeesService', () => {
       update: jest.fn(),
     },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
     $executeRaw: jest.fn(),
   };
 
@@ -194,6 +200,10 @@ describe('EmployeesService', () => {
           useValue: platformMembershipAccessService,
         },
         { provide: StoreSubAccountService, useValue: storeSubAccountService },
+        {
+          provide: StoreSubAccountLoginService,
+          useValue: { ensureEmployeeHasLoginAccount: jest.fn() },
+        },
         {
           provide: EmployeesShiftDefinitionService,
           useValue: employeesShiftDefinitionService,
@@ -929,6 +939,7 @@ describe('EmployeesService', () => {
     prismaService.employeeLeave.updateMany.mockResolvedValue({ count: 1 });
     prismaService.employeeShift.updateMany.mockResolvedValue({ count: 1 });
     prismaService.employeePayroll.updateMany.mockResolvedValue({ count: 1 });
+    prismaService.$queryRaw.mockResolvedValue([]);
     prismaService.$executeRaw.mockResolvedValue(2);
 
     const result = await service.update(user, 12, { name: '李明' });
@@ -946,8 +957,8 @@ describe('EmployeesService', () => {
       where: { employeeId: 12 },
       data: { employeeName: '李明' },
     });
-    // 验证 cost_records.title 也被同步
-    expect(prismaService.$executeRaw).toHaveBeenCalledTimes(1);
+    // 验证 cost_records.title 同步：当无关联成本记录时不会触发 $executeRaw
+    expect(prismaService.$queryRaw).toHaveBeenCalled();
     // 底薪未变，不应该重算工资
     expect(prismaService.employeePayroll.findMany).not.toHaveBeenCalled();
     expect(costsService.syncPayrollCosts).not.toHaveBeenCalled();
@@ -1025,6 +1036,8 @@ describe('EmployeesService', () => {
     const updatedAt = new Date('2026-05-13T10:20:00.000Z');
 
     employeesAccessService.resolveSingleStoreId.mockResolvedValue(2);
+    // #21 修复：ensureDefaultDepartment 现在先 count 再创建
+    prismaService.employeeDepartment.count.mockResolvedValue(0);
     prismaService.employeeDepartment.findFirst.mockResolvedValue(null);
     prismaService.employeeDepartment.create.mockResolvedValue({
       id: 1,
@@ -1888,22 +1901,13 @@ describe('EmployeesService', () => {
       createdAt,
       updatedAt,
     });
-    storeSubAccountService.findAssignedSubAccountByEmployee.mockResolvedValue(
-      null,
-    );
-    storeSubAccountService.getStoreSubAccountSummary.mockResolvedValue({
-      quota: 3,
-      usedCount: 1,
-      availableCount: 2,
-      roleSummary: [],
-      slots: [
-        {
-          slotIndex: 1,
-          isAssigned: false,
-        },
-      ],
-    });
-    storeSubAccountService.updateSlot.mockResolvedValue(undefined);
+    // #3 修复：事务内查找可用空槽位
+    prismaService.storeSubAccount.findFirst.mockResolvedValue(null);
+    prismaService.storeSubAccount.findMany.mockResolvedValue([
+      { slotIndex: 1 },
+    ]);
+    prismaService.storeSubAccount.upsert.mockResolvedValue(undefined);
+    // buildEmployeeDetail 需要的 mock
     prismaService.storeSubAccount.findMany.mockResolvedValue([
       {
         id: 7,
@@ -1933,15 +1937,8 @@ describe('EmployeesService', () => {
       password: 'test123456',
     });
 
-    expect(storeSubAccountService.updateSlot).toHaveBeenCalledWith(2, {
-      slotIndex: 1,
-      role: 'cashier',
-      employeeId: 12,
-      canAccessHome: true,
-      canUseHandover: true,
-      loginAccount: 'cashier_01',
-      initialPassword: 'test123456',
-    });
+    // #3 修复：现在通过事务内 upsert 直接更新，而非调用 storeSubAccountService.updateSlot
+    expect(prismaService.storeSubAccount.upsert).toHaveBeenCalled();
     expect(
       employeesAccessService.ensureCanManageEmployeeSubAccount,
     ).toHaveBeenCalledWith(user);

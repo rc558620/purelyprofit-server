@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
@@ -37,13 +38,16 @@ export class CreateCategoryDto {
   storeId?: number;
 
   @ApiProperty({ example: '饮品', description: '分类名称' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: '分类名称必须是字符串' })
+  @IsNotEmpty({ message: '分类名称不能为空' })
   @MinLength(1, { message: '分类名称不能为空' })
   @MaxLength(30, { message: '分类名称最长 30 个字符' })
   name: string;
 
-  @ApiPropertyOptional({ example: '🥤', description: '分类图标' })
+  @ApiPropertyOptional({ example: '🥤', description: '分类图标，空字符串表示不设置' })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: '分类图标必须是字符串' })
   @MaxLength(50, { message: '分类图标最长 50 个字符' })
   icon?: string;
@@ -52,7 +56,9 @@ export class CreateCategoryDto {
 export class UpdateCategoryDto {
   @ApiPropertyOptional({ example: '饮品', description: '分类名称' })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: '分类名称必须是字符串' })
+  @IsNotEmpty({ message: '分类名称不能为空' })
   @MinLength(1, { message: '分类名称不能为空' })
   @MaxLength(30, { message: '分类名称最长 30 个字符' })
   name?: string;
@@ -62,6 +68,7 @@ export class UpdateCategoryDto {
     description: '分类图标，空字符串表示清空',
   })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: '分类图标必须是字符串' })
   @MaxLength(50, { message: '分类图标最长 50 个字符' })
   icon?: string;

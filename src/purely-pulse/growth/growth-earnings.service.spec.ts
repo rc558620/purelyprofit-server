@@ -317,7 +317,7 @@ describe('PulseGrowthEarningsService', () => {
       items: [
         {
           id: 'bean-18',
-          userId: 'store-owner-18',
+          userId: 'store-owner',
           userName: '张三',
           userPhone: '',
           amount: 10,

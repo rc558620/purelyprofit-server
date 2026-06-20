@@ -9,6 +9,7 @@ import { AUTH_TOKEN_VERSION_KEY_PREFIX } from '../../purely-profit/auth/auth.con
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { PulseDevModeAccessService } from '../dev-mode/pulse-dev-mode-access.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import type { PulseTargetStoreSummary } from '../pulse-store-context.types';
 import { PULSE_MEMBERSHIP_BAN_REASON_KEY_PREFIX } from './membership.constants';
@@ -31,7 +32,7 @@ export class PulseMembershipAccessService {
   }
 
   isDeveloper(user: AuthenticatedUser): boolean {
-    return user.isPulseDeveloper === true || user.pulseMode === 'developer';
+    return PulseDevModeAccessService.isDeveloper(user);
   }
 
   resolveTargetStoreForMembership(
@@ -72,32 +73,43 @@ export class PulseMembershipAccessService {
     return resolvedStore.store ? [resolvedStore.store.id] : [];
   }
 
+  /**
+   * 检查当前用户是否有权限访问指定会员（门店）的管理数据。
+   *
+   * 在 Pulse 会员管理上下文中，"会员"即"门店"（store），storeId 就是 memberId。
+   * 开发者可访问除自身测试门店外的所有门店；普通用户只能访问自己绑定的门店。
+   */
   async canAccessAdminMember(
     user: AuthenticatedUser,
-    memberId: number,
+    storeId: number,
   ): Promise<boolean> {
     if (this.isDeveloper(user)) {
-      return !(await this.isExcludedAdminStore(memberId));
+      return !(await this.isExcludedAdminStore(storeId));
     }
 
-    if (user.currentMembership?.storeId === memberId) {
+    if (user.currentMembership?.storeId === storeId) {
       return true;
     }
 
     const resolvedStore =
       await this.pulseStoreContextService.resolveTargetStore(user);
-    return resolvedStore.store?.id === memberId;
+    return resolvedStore.store?.id === storeId;
   }
 
+  /**
+   * 断言当前用户有权限对指定会员（门店）执行管理修改操作。
+   *
+   * 仅开发者可执行修改操作；非开发者将收到 403 Forbidden。
+   */
   async assertAdminMemberMutationAccess(
     user: AuthenticatedUser,
-    memberId: number,
+    storeId: number,
   ): Promise<void> {
     if (!this.isDeveloper(user)) {
       throw new ForbiddenException('仅开发者可执行 Pulse 会员管理修改操作');
     }
 
-    const canAccess = await this.canAccessAdminMember(user, memberId);
+    const canAccess = await this.canAccessAdminMember(user, storeId);
     if (!canAccess) {
       throw new NotFoundException('会员不存在');
     }
@@ -187,11 +199,19 @@ export class PulseMembershipAccessService {
     );
   }
 
+  /**
+   * 将 Pulse 开发者身份映射为目标门店的 owner 作用域用户。
+   *
+   * ⚠️ 此方法仅用于 Pulse 管理端代目标门店执行操作（如审批合伙人申请）。
+   * 当用户无 currentMembership 时，以 owner 全权限身份代理，这是 Pulse 开发者
+   * 观察态的设计意图。非开发者用户调用此方法将在代理前被上游守卫拒绝。
+   */
   buildScopedUser(user: AuthenticatedUser, storeId: number): AuthenticatedUser {
     const membership = user.currentMembership ?? {
       staffId: 0,
       storeId,
       role: StaffRole.OWNER,
+      // Pulse 开发者代理目标门店操作时需要 owner 全权限
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',

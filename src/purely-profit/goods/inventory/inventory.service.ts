@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -46,6 +50,7 @@ import type {
   AdjustInventoryInput,
   InventoryAdjustmentsListQueryInput,
   InventoryProductListQueryInput,
+  InventoryProductRecord,
   InventoryReportQueryInput,
   InventoryRestockParams,
   InventoryRevertSaleParams,
@@ -78,12 +83,49 @@ export class InventoryService {
       return [];
     }
 
+    return this.listProductsByStoreId(storeId, query);
+  }
+
+  /**
+   * 已通过门店权限校验后的内部查询方法，供 getReport 等场景复用，
+   * 避免重复执行 resolveViewStoreId 带来的冗余校验和不一致风险。
+   */
+  private async listProductsByStoreId(
+    storeId: number,
+    query: InventoryProductListQueryInput,
+  ): Promise<InventoryProductResponseDto[]> {
     const products = await queryInventoryProducts(this.prisma, storeId, query);
 
-    return sortInventoryProducts(
+    const filteredAndSorted = sortInventoryProducts(
       products.filter((product) => matchesInventoryFilters(product, query)),
       query.sortBy,
-    ).map(buildInventoryProductResponse);
+    );
+
+    /* BUG-7: 支持分页——不传 page/pageSize 时返回全量（向后兼容） */
+    const paginated = this.applyProductPagination(filteredAndSorted, query);
+
+    return paginated.map(buildInventoryProductResponse);
+  }
+
+  /**
+   * BUG-7: 对已排序的商品列表应用分页截断。
+   * 当 page 和 pageSize 都传了时才截断，否则返回全量。
+   */
+  private applyProductPagination(
+    products: InventoryProductRecord[],
+    query: InventoryProductListQueryInput,
+  ): InventoryProductRecord[] {
+    if (
+      query.page === undefined ||
+      query.page === null ||
+      query.pageSize === undefined ||
+      query.pageSize === null
+    ) {
+      return products;
+    }
+
+    const skip = (query.page - 1) * query.pageSize;
+    return products.slice(skip, skip + query.pageSize);
   }
 
   async removeProduct(
@@ -118,8 +160,8 @@ export class InventoryService {
     }
 
     const [summary, products] = await Promise.all([
-      this.getStats(user, storeId),
-      this.listProducts(user, { ...query, storeId }),
+      this.getStatsByStoreId(storeId),
+      this.listProductsByStoreId(storeId, query),
     ]);
 
     return buildInventoryReportResponse(summary, products);
@@ -135,12 +177,9 @@ export class InventoryService {
       'inventory:view',
       '无权查看该门店库存记录',
     );
-    const { page, skip, take } = this.resolvePagination(
-      query.page,
-      query.pageSize,
-    );
 
     if (storeId === null) {
+      const { page, take } = this.resolvePagination(query.page, query.pageSize);
       return buildPaginatedInventoryAdjustmentsResponse({
         items: [],
         total: 0,
@@ -148,6 +187,11 @@ export class InventoryService {
         pageSize: take,
       });
     }
+
+    const { page, skip, take } = this.resolvePagination(
+      query.page,
+      query.pageSize,
+    );
 
     const result = await queryInventoryAdjustmentPage(this.prisma, {
       storeId,
@@ -181,6 +225,16 @@ export class InventoryService {
       );
     const mode = dto.mode ?? (dto.targetStock !== undefined ? 'set' : 'delta');
 
+    /* BUG-9: delta 和 targetStock 互斥校验 */
+    if (dto.delta !== undefined && dto.targetStock !== undefined) {
+      throw new BadRequestException('delta 和 targetStock 不能同时传入');
+    }
+
+    /* BUG-10: damage 类型强制要求备注 */
+    if (dto.adjustType === 'damage' && !dto.note?.trim()) {
+      throw new BadRequestException('报损类型必须填写备注说明');
+    }
+
     const adjustment = await this.prisma.$transaction((transaction) =>
       executeInventoryManualAdjustment(transaction, {
         storeId,
@@ -206,6 +260,11 @@ export class InventoryService {
 
     if (!product) {
       throw new NotFoundException('商品不存在');
+    }
+
+    /* BUG-4: 已下架商品不允许修改预警阈值 */
+    if (!product.isActive) {
+      throw new BadRequestException('已下架商品不允许修改预警阈值');
     }
 
     await this.commerceAccessService.ensureCanAccessStore(
@@ -239,10 +298,16 @@ export class InventoryService {
       return buildEmptyInventoryStatsResponse();
     }
 
-    const products = await queryInventoryStatsRows(
-      this.prisma,
-      resolvedStoreId,
-    );
+    return this.getStatsByStoreId(resolvedStoreId);
+  }
+
+  /**
+   * 已通过门店权限校验后的内部统计方法，供 getReport 等场景复用。
+   */
+  private async getStatsByStoreId(
+    storeId: number,
+  ): Promise<InventoryStatsResponseDto> {
+    const products = await queryInventoryStatsRows(this.prisma, storeId);
     return buildInventoryStats(products);
   }
 

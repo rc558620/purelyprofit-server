@@ -28,11 +28,27 @@ export class ProfitSummaryDto {
 
   @ApiPropertyOptional({
     example: 18.6,
-    description: '较上期变化百分比；无上期数据时为 null',
+    description: '收入较上期变化百分比；无上期数据时为 null',
   })
   @IsOptional()
-  @IsNumber({}, { message: '较上期变化必须是数字' })
-  compareLastPeriod: number | null;
+  @IsNumber({}, { message: '收入较上期变化必须是数字' })
+  revenueCompareLastPeriod: number | null;
+
+  @ApiPropertyOptional({
+    example: -5.2,
+    description: '净利润较上期变化百分比；无上期数据时为 null',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: '净利润较上期变化必须是数字' })
+  profitCompareLastPeriod: number | null;
+
+  @ApiPropertyOptional({
+    example: 12.3,
+    description: '成本较上期变化百分比；无上期数据时为 null',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: '成本较上期变化必须是数字' })
+  costCompareLastPeriod: number | null;
 
   @ApiProperty({ example: 56, description: '销量总数' })
   @IsInt({ message: '销量总数必须是整数' })

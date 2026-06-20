@@ -90,6 +90,12 @@ export class MarketingConsumptionsService {
     if (balancePaid > dto.amount) {
       throw new BadRequestException('余额支付金额不能超过消费金额');
     }
+    if (pointsDeducted > customer.points) {
+      throw new BadRequestException('积分抵扣金额不能超过顾客当前积分');
+    }
+    if (balancePaid + pointsDeducted > dto.amount) {
+      throw new BadRequestException('余额支付与积分抵扣之和不能超过消费金额');
+    }
 
     const [consumptionRecord] = await this.prisma.$transaction(async (tx) => {
       const consumption = await tx.marketingConsumption.create({

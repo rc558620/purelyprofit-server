@@ -30,6 +30,9 @@ export class PulseMembershipAdminPointsMutationService {
         where: { storeId: memberId },
         create: {
           storeId: memberId,
+          currentPlanId: null,
+          startsAt: null,
+          expiresAt: null,
           totalPoints: nextTotalPoints,
           availablePoints: nextAvailablePoints,
         },
@@ -51,7 +54,7 @@ export class PulseMembershipAdminPointsMutationService {
       });
     });
 
-    await this.mutationStateService.invalidatePulseDashboardHome();
+    await this.mutationStateService.invalidateAdminMemberDerived(memberId);
   }
 
   private resolveAdjustmentDelta(

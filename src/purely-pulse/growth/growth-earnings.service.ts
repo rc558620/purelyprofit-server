@@ -34,6 +34,8 @@ import {
 } from './growth-earnings.query';
 
 const PULSE_GROWTH_EARNINGS_CACHE_TTL_SECONDS = 20;
+/** 非分页兼容模式下的默认查询上限，防止全量加载 */
+const PULSE_EARNINGS_COMPAT_DEFAULT_LIMIT = 200;
 
 @Injectable()
 export class PulseGrowthEarningsService {
@@ -110,12 +112,17 @@ export class PulseGrowthEarningsService {
 
     const [overviewData, logs] = await Promise.all([
       queryEarningsOverviewData(this.prisma, storeId),
-      queryPartnerBeanLogs(this.prisma, { storeId, typeFilter }),
+      queryPartnerBeanLogs(this.prisma, {
+        storeId,
+        typeFilter,
+        limit: PULSE_EARNINGS_COMPAT_DEFAULT_LIMIT,
+      }),
     ]);
     const response = buildEarningsLogsResponse({
       partners: overviewData.partners,
       logs,
       ownerName,
+      limit: PULSE_EARNINGS_COMPAT_DEFAULT_LIMIT,
     });
     await this.redisService.setJson(
       cacheKey,

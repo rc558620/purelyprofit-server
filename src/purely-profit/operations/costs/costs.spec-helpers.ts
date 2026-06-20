@@ -133,6 +133,7 @@ export function createCostsFacadeServiceMocks() {
       deleteRecord: jest.fn(),
       syncPurchaseCost: jest.fn(),
       syncPayrollCosts: jest.fn(),
+      deletePurchaseCostRecord: jest.fn(),
     },
   };
 }

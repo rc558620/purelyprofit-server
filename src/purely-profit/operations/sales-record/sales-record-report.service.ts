@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import { PREPAID_DEDUCTION_PRODUCT_NAME } from '../../commerce/commerce.utils';
+import { isDeductionProductName } from '../../commerce/commerce.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -107,7 +107,7 @@ export class SalesRecordReportService {
       (sum, order) =>
         sum +
         order.items
-          .filter((item) => item.productName !== PREPAID_DEDUCTION_PRODUCT_NAME)
+          .filter((item) => !isDeductionProductName(item.productName))
           .reduce((acc, item) => acc + item.quantity, 0),
       0,
     );
@@ -115,7 +115,7 @@ export class SalesRecordReportService {
     const totalRevenue = orders
       .reduce((acc, order) => {
         const orderRevenue = order.items
-          .filter((item) => item.productName !== PREPAID_DEDUCTION_PRODUCT_NAME)
+          .filter((item) => !isDeductionProductName(item.productName))
           .reduce(
             (sum, item) => sum + Number(item.salePrice) * item.quantity,
             0,
@@ -125,7 +125,8 @@ export class SalesRecordReportService {
       .toDecimalPlaces(2)
       .toNumber();
     const dailySales = aggregateReportRows(orders);
-    const orderCount = dailySales.length;
+    // orderCount 应为原始订单笔数，而非按 (日期+商品) 聚合后的行数
+    const orderCount = orders.length;
 
     return {
       summary: {

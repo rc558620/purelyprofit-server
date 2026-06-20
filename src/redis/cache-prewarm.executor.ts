@@ -80,6 +80,10 @@ export async function prewarmCacheCategory<TParsed>(
     );
   }
 
+  // hitCount equals the number of scanned keys (cacheKeys.length).
+  // skippedCount represents keys that were scanned but not processed
+  // (refreshed/invalid/failed) — currently always 0 since every key is
+  // either parsed+refreshed, invalid, or failed.
   result.skippedCount = Math.max(
     0,
     result.hitCount -

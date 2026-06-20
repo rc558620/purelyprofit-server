@@ -65,6 +65,7 @@ export function buildDashboardHomeOverviewResponse(params: {
       draftPayrolls: activitiesData.draftPayrolls,
       inactiveVips: activitiesData.inactiveVips,
       dailyRevenueRows: activitiesData.dailyRevenueRows,
+      recentOrders: activitiesData.recentOrders,
     }),
     meta: buildDashboardHomeMeta(
       period,

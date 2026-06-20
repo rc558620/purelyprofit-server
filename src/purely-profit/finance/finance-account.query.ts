@@ -1,6 +1,7 @@
 import { FinanceAccountStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { filterAndSortAccounts } from './finance-account.domain';
+import { withDerivedAccountFields } from './finance-account.domain';
+import { DAY_MS } from './finance.constants';
 import { buildPaginationState } from './finance-pagination.utils';
 import type {
   FinanceAccountRecordWithAmount,
@@ -103,8 +104,6 @@ export function buildUpcomingDueAccountWhere(params: {
   };
 }
 
-const DAY_MS = 86_400_000;
-
 const financeAccountRecordSelect = {
   id: true,
   type: true,
@@ -186,10 +185,13 @@ export async function queryAccountRecords(
       take: pageState.pageSize,
     }),
   ]);
-  const filteredRecords = filterAndSortAccounts(records, query);
+
+  const derivedRecords = records.map((record) =>
+    withDerivedAccountFields(record),
+  );
 
   return {
-    items: filteredRecords,
+    items: derivedRecords,
     total,
   };
 }
@@ -202,7 +204,6 @@ export async function queryAccountStatsRows(
     where: { storeId },
     orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     select: financeAccountRecordSelect,
-    take: 500,
   });
 }
 

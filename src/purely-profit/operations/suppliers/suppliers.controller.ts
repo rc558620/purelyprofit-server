@@ -28,6 +28,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   CreateSupplierDto,
   ListSuppliersQueryDto,
+  PaginatedSuppliersResponseDto,
   SupplierResponseDto,
   UpdateSupplierDto,
 } from './dto/supplier.dto';
@@ -43,11 +44,11 @@ export class SuppliersController {
   @Get()
   @RequirePermissions('supplier:view')
   @ApiOperation({ summary: '获取供应商列表' })
-  @ApiOkResponse({ type: [SupplierResponseDto] })
+  @ApiOkResponse({ type: PaginatedSuppliersResponseDto })
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListSuppliersQueryDto,
-  ): Promise<SupplierResponseDto[]> {
+  ): Promise<PaginatedSuppliersResponseDto> {
     return this.suppliersService.list(user, query);
   }
 

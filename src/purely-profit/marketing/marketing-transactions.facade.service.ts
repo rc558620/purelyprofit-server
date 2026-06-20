@@ -26,7 +26,7 @@ export class MarketingTransactionsFacadeService {
 
   listRecharges(
     user: AuthenticatedUser,
-    query: ListRechargesQueryDto & { storeId?: number },
+    query: ListRechargesQueryDto,
   ): Promise<MarketingRechargesResponseDto> {
     return this.marketingRechargesService.listRecharges(user, query);
   }
@@ -41,7 +41,7 @@ export class MarketingTransactionsFacadeService {
 
   listPointsRecords(
     user: AuthenticatedUser,
-    query: ListPointsRecordsQueryDto & { storeId?: number },
+    query: ListPointsRecordsQueryDto,
   ): Promise<MarketingPointsRecordsResponseDto> {
     return this.marketingPointsRecordsService.listPointsRecords(user, query);
   }

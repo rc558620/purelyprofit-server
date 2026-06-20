@@ -30,11 +30,12 @@ export function isMembershipProfileActive(
   >,
   nowMs: number = Date.now(),
 ): boolean {
-  const expiredAt = resolveFrontendMembershipExpiry(profile)?.getTime() ?? null;
-
-  if (profile.currentPlanId === 'lifetime' && profile.expiresAt === null) {
+  // lifetime 计划永不过期，即使 expiresAt 因脏数据被写入也不应影响判定
+  if (profile.currentPlanId === 'lifetime') {
     return true;
   }
+
+  const expiredAt = resolveFrontendMembershipExpiry(profile)?.getTime() ?? null;
 
   return expiredAt !== null && expiredAt > nowMs;
 }

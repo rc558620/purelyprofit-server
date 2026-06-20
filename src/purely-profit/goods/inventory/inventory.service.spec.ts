@@ -332,14 +332,14 @@ describe('InventoryService', () => {
     prismaService.product.findFirst.mockResolvedValue({
       id: 101,
       name: '可口可乐 330ml',
-      stock: 3,
+      stock: 10,
     });
     prismaService.inventoryAdjustmentLog.create.mockResolvedValue({
       id: 31,
       productId: 101,
       productName: '可口可乐 330ml',
-      beforeStock: 3,
-      afterStock: 0,
+      beforeStock: 10,
+      afterStock: 7,
       delta: -3,
       adjustType: 'manual',
       note: '盘点修正',
@@ -351,7 +351,7 @@ describe('InventoryService', () => {
       service.adjust(user, {
         storeId: 18,
         productId: 101,
-        delta: -5,
+        delta: -3,
         adjustType: 'manual',
         note: '  盘点修正  ',
       }),
@@ -359,8 +359,8 @@ describe('InventoryService', () => {
       id: '31',
       productId: '101',
       productName: '可口可乐 330ml',
-      beforeStock: 3,
-      afterStock: 0,
+      beforeStock: 10,
+      afterStock: 7,
       delta: -3,
       adjustType: 'manual',
       note: '盘点修正',
@@ -393,8 +393,8 @@ describe('InventoryService', () => {
         productId: 101,
         operatorStaffId: 8,
         productName: '可口可乐 330ml',
-        beforeStock: 3,
-        afterStock: 0,
+        beforeStock: 10,
+        afterStock: 7,
         delta: -3,
         adjustType: 'manual',
         note: '盘点修正',
@@ -512,6 +512,7 @@ describe('InventoryService', () => {
     prismaService.product.findUnique.mockResolvedValue({
       id: 101,
       storeId: 18,
+      isActive: true,
     });
     prismaService.product.update.mockResolvedValue({
       id: 101,

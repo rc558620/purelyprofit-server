@@ -72,19 +72,36 @@ export class PlatformMembershipOrderService {
         );
 
         for (const allocation of allocations) {
-          const partnerUpdateResult = await tx.storePartner.updateMany({
-            where: {
-              id: allocation.partnerId,
-              storeId,
-              status: 'approved',
-              beanBalance: { gte: allocation.beans },
-            },
+          // 前置校验：确保 partner 属于当前门店且已审核通过
+          const partnerBefore = await tx.storePartner.findUnique({
+            where: { id: allocation.partnerId },
+            select: { storeId: true, status: true },
+          });
+
+          if (
+            !partnerBefore ||
+            partnerBefore.storeId !== storeId ||
+            partnerBefore.status !== 'approved'
+          ) {
+            throw new ConflictException('纯利豆余额不足，请刷新后重试');
+          }
+
+          // 原子 decrement：生成 SQL SET bean_balance = bean_balance - X，
+          // 即使并发事务同时执行也不会互相覆盖
+          await tx.storePartner.update({
+            where: { id: allocation.partnerId },
             data: {
               beanBalance: { decrement: allocation.beans },
             },
           });
 
-          if (partnerUpdateResult.count !== 1) {
+          // 扣减后立即读取余额，校验非负防止超扣
+          const partner = await tx.storePartner.findUnique({
+            where: { id: allocation.partnerId },
+            select: { beanBalance: true },
+          });
+
+          if (!partner || partner.beanBalance < 0) {
             throw new ConflictException('纯利豆余额不足，请刷新后重试');
           }
 

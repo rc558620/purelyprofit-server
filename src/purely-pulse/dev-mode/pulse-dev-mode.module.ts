@@ -15,6 +15,6 @@ import { PulseDevModeService } from './pulse-dev-mode.service';
     PulseDevModeGrowthService,
     PulseDevModeService,
   ],
-  exports: [PulseDevModeService],
+  exports: [PulseDevModeService, PulseDevModeAccessService],
 })
 export class PulseDevModeModule {}

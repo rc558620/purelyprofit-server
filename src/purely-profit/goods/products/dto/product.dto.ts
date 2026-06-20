@@ -177,7 +177,9 @@ export class UpdateProductDto {
 
   @ApiPropertyOptional({ example: 'COLA001', description: '商品编号' })
   @IsOptional()
+  @Transform(transformOptionalKeyword)
   @IsString({ message: '商品编号必须是字符串' })
+  @MinLength(1, { message: '商品编号不能为空' })
   @MaxLength(50, { message: '商品编号最长 50 个字符' })
   code?: string;
 
@@ -213,6 +215,7 @@ export class UpdateProductDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '库存必须是整数' })
+  @Min(0, { message: '库存不能为负数' })
   stock?: number;
 
   @ApiPropertyOptional({ example: 10, description: '库存预警阈值' })
@@ -249,6 +252,9 @@ export class UpdateProductDto {
 export class ProductResponseDto {
   @ApiProperty({ example: '1', description: '商品 ID' })
   id: string;
+
+  @ApiProperty({ example: 18, description: '所属门店 ID' })
+  storeId: number;
 
   @ApiProperty({ example: '可口可乐 330ml', description: '商品名称' })
   name: string;

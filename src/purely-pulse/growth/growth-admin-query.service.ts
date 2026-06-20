@@ -179,7 +179,11 @@ export class PulseGrowthAdminQueryService {
         >
       | Awaited<ReturnType<PulseGrowthAccessService['buildAdminPayoutWhere']>>,
   ): string {
-    return typeof where.storeId === 'number' ? `store:${where.storeId}` : 'all';
+    if (typeof where.storeId === 'number') {
+      return `store:${where.storeId}`;
+    }
+
+    return `all:${this.accessService.getDevEmailsFingerprint()}`;
   }
 
   private resolveAdminPartnerApplicationsCursorPagination(

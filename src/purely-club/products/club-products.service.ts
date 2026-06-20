@@ -10,6 +10,7 @@ import { ClubProductQueryService } from './club-product-query.service';
 import { ClubProductViewService } from './club-product-view.service';
 import {
   CLUB_FEATURED_PRODUCT_LIMIT,
+  CLUB_PRODUCT_DEFAULT_LIST_LIMIT,
   CLUB_PRODUCT_NOT_FOUND_MESSAGE,
 } from './club-products.types';
 
@@ -26,7 +27,10 @@ export class ClubProductsService {
     query: ListClubProductsQueryDto,
   ): Promise<ClubProductsResponseDto> {
     const [products, pricingContext] = await Promise.all([
-      this.clubProductQueryService.listActiveByStore(currentContext.store.id),
+      this.clubProductQueryService.listActiveByStore(
+        currentContext.store.id,
+        query.categoryId,
+      ),
       this.clubProductPromotionService.resolvePricingContext(
         currentContext.store.id,
         currentContext.user.phone,
@@ -56,19 +60,19 @@ export class ClubProductsService {
     currentContext: ClubCurrentContext,
     productId: number,
   ): Promise<ClubProductDto> {
-    const [product, pricingContext] = await Promise.all([
-      this.clubProductQueryService.getActiveDetailByStore(
-        currentContext.store.id,
-        productId,
-      ),
-      this.clubProductPromotionService.resolvePricingContext(
-        currentContext.store.id,
-        currentContext.user.phone,
-      ),
-    ]);
+    const product = await this.clubProductQueryService.getActiveDetailByStore(
+      currentContext.store.id,
+      productId,
+    );
     if (!product) {
       throw new NotFoundException(CLUB_PRODUCT_NOT_FOUND_MESSAGE);
     }
+
+    const pricingContext =
+      await this.clubProductPromotionService.resolvePricingContext(
+        currentContext.store.id,
+        currentContext.user.phone,
+      );
 
     return this.clubProductViewService.toClubProduct(
       product,
@@ -85,6 +89,8 @@ export class ClubProductsService {
       return limit;
     }
 
-    return featured ? CLUB_FEATURED_PRODUCT_LIMIT : Number.MAX_SAFE_INTEGER;
+    return featured
+      ? CLUB_FEATURED_PRODUCT_LIMIT
+      : CLUB_PRODUCT_DEFAULT_LIST_LIMIT;
   }
 }

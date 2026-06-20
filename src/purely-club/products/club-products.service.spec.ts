@@ -4,7 +4,10 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { ClubProductPromotionService } from './club-product-promotion.service';
 import { ClubProductQueryService } from './club-product-query.service';
 import { ClubProductViewService } from './club-product-view.service';
-import type { ClubProductRecord } from './club-products.types';
+import type {
+  ClubProductPricingContext,
+  ClubProductRecord,
+} from './club-products.types';
 import { ClubProductsService } from './club-products.service';
 
 describe('ClubProductsService', () => {
@@ -128,7 +131,10 @@ describe('ClubProductsService', () => {
         expect.objectContaining({ id: '29', isHot: true }),
       ],
     });
-    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(11);
+    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(
+      11,
+      undefined,
+    );
     expect(clubProductQueryService.resolveHotProductIds).toHaveBeenCalledWith(
       products,
     );
@@ -214,9 +220,11 @@ function createProduct(
     descriptionTitle: null,
     description: '深层清洁 + 补水保湿，恢复肌肤光泽活力',
     stock: 30,
+    isActive: true,
     durationMinutes: 60,
     personCount: 1,
     createdAt: new Date('2026-06-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-06-01T00:00:00.000Z'),
     category: { name: '面部护理' },
     ...overrides,
   };

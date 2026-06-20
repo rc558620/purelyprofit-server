@@ -10,6 +10,12 @@ import {
 
 const STORE_PROFILE_KEY_PREFIX = 'stores:profile:';
 
+/**
+ * 门店扩展字段不设 TTL——storeType / region / storeLogo / 经纬度是门店核心属性，
+ * 需要与门店同生命周期存续；数据源为 Redis 而非数据库，属于当前架构的已知约束。
+ * 若 Redis 被清空，门店扩展字段将丢失，需通过门店编辑接口重新写入。
+ */
+
 @Injectable()
 export class StoresProfileService {
   private readonly logger = new Logger(StoresProfileService.name);
@@ -43,19 +49,49 @@ export class StoresProfileService {
         JSON.parse(raw) as unknown,
       );
 
-      // Compare stringified result with raw to detect normalization changes
-      // Use a stable stringify to avoid key-order discrepancies
-      const normalizedRaw = JSON.stringify(metadata);
-      if (normalizedRaw !== raw) {
+      // 使用 key 排序后的序列化结果与 raw 比较，避免 key 顺序差异导致无意义的回写
+      const normalizedRaw = this.stableStringify(metadata);
+      const sortedRaw = this.stableStringify(JSON.parse(raw));
+      if (normalizedRaw !== sortedRaw) {
         await this.persistStoreProfileMetadata(storeId, metadata);
       }
 
       return metadata;
     } catch (error) {
-      this.logger.warn(
-        `读取门店扩展字段失败，storeId=${storeId}: ${this.getErrorMessage(error)}`,
+      this.logger.error(
+        `读取门店扩展字段失败，storeId=${storeId}，将返回空数据：${this.getErrorMessage(error)}`,
       );
       return normalizeStoreProfileMetadata(null);
+    }
+  }
+
+  /**
+   * 批量读取门店扩展字段，使用 mget 减少 Redis 往返次数（N+1 → 1）。
+   *
+   * 返回与 storeIds 入参等长的数组，未命中或解析失败的项返回空 metadata。
+   */
+  async batchReadStoreProfileMetadata(
+    storeIds: number[],
+  ): Promise<StoreProfileMetadata[]> {
+    if (storeIds.length === 0) {
+      return [];
+    }
+
+    try {
+      const keys = storeIds.map((id) => this.getStoreProfileKey(id));
+      const rawValues = await this.redisService.mgetJson<unknown>(keys);
+
+      return rawValues.map((raw) => {
+        if (raw === null) {
+          return normalizeStoreProfileMetadata(null);
+        }
+        return normalizeStoreProfileMetadata(raw);
+      });
+    } catch (error) {
+      this.logger.error(
+        `批量读取门店扩展字段失败，将返回空数据：${this.getErrorMessage(error)}`,
+      );
+      return storeIds.map(() => normalizeStoreProfileMetadata(null));
     }
   }
 
@@ -69,8 +105,8 @@ export class StoresProfileService {
         JSON.stringify(metadata),
       );
     } catch (error) {
-      this.logger.warn(
-        `保存门店扩展字段失败，storeId=${storeId}: ${this.getErrorMessage(error)}`,
+      this.logger.error(
+        `保存门店扩展字段失败，storeId=${storeId}，门店扩展数据可能丢失：${this.getErrorMessage(error)}`,
       );
     }
   }
@@ -81,5 +117,31 @@ export class StoresProfileService {
 
   private getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  /**
+   * 对 JSON 对象按 key 字母序排序后序列化，确保相同数据结构总是产生相同字符串，
+   * 避免 JSON.stringify 因 key 插入顺序不同而产生差异。
+   */
+  private stableStringify(value: unknown): string {
+    if (value === null || typeof value !== 'object') {
+      return JSON.stringify(value);
+    }
+
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.stableStringify(item)).join(',')}]`;
+    }
+
+    const obj = value as Record<string, unknown>;
+    const keys = Object.keys(obj).sort();
+    const pairs = keys.map((key) => {
+      const val = obj[key];
+      // 跳过 undefined 值（与 JSON.stringify 行为一致）
+      if (val === undefined) {
+        return null;
+      }
+      return `${JSON.stringify(key)}:${this.stableStringify(val)}`;
+    });
+    return `{${pairs.filter((p) => p !== null).join(',')}}`;
   }
 }

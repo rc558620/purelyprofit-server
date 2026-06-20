@@ -101,6 +101,20 @@ describe('CostsWriteService', () => {
     );
   });
 
+  it('deletePurchaseCostRecord 会按门店和进货单 ID 删除成本记录', async () => {
+    prismaService.costRecord.deleteMany.mockResolvedValue({ count: 1 });
+
+    await service.deletePurchaseCostRecord(prismaService as never, 18, 11);
+
+    expect(prismaService.costRecord.deleteMany).toHaveBeenCalledWith({
+      where: {
+        storeId: 18,
+        sourceType: 'purchase',
+        purchaseOrderId: 11,
+      },
+    });
+  });
+
   it('syncPurchaseCost 会按 purchaseOrderId 幂等 upsert', async () => {
     prismaService.costRecord.upsert.mockResolvedValue({ id: 99 });
 
@@ -144,6 +158,34 @@ describe('CostsWriteService', () => {
     });
 
     expect(prismaService.costRecord.upsert).toHaveBeenCalledTimes(1);
+    // socialInsurance=0 和 housingFund=undefined 各触发一次 deleteMany
     expect(prismaService.costRecord.deleteMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('syncPayrollCosts 在 actualSalary 为 0 时会删除薪资成本记录', async () => {
+    prismaService.costRecord.deleteMany.mockResolvedValue({ count: 0 });
+
+    await service.syncPayrollCosts(prismaService as never, {
+      storeId: 18,
+      payrollId: 6,
+      operatorStaffId: 8,
+      employeeName: '王五',
+      month: '2026-05',
+      actualSalary: 0,
+      socialInsurance: 0,
+      housingFund: undefined,
+      note: null,
+    });
+
+    // actualSalary=0, socialInsurance=0, housingFund=undefined 各触发一次 deleteMany
+    expect(prismaService.costRecord.deleteMany).toHaveBeenCalledTimes(3);
+    expect(prismaService.costRecord.deleteMany).toHaveBeenCalledWith({
+      where: {
+        storeId: 18,
+        payrollId: 6,
+        sourceType: 'payroll_salary',
+      },
+    });
+    expect(prismaService.costRecord.upsert).not.toHaveBeenCalled();
   });
 });

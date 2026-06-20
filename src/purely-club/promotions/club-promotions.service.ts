@@ -17,6 +17,9 @@ import {
   type ClubPromotionRecord,
 } from './club-promotions.types';
 
+/** 首页活动列表最大返回条数 */
+const CLUB_HOME_PROMOTION_LIMIT = 20;
+
 interface ClubPromotionPresentation {
   priority: number;
   sort: number;
@@ -42,8 +45,9 @@ export class ClubPromotionsService {
         endAt: { gte: now },
       },
       select: clubPromotionSelect,
+      // 数据库按创建时间倒序取候选集，内存中再按 sort/priority/startAt 精排
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 100,
+      take: CLUB_HOME_PROMOTION_LIMIT,
     });
 
     return {
@@ -73,18 +77,26 @@ export class ClubPromotionsService {
     promotion: ClubPromotionRecord,
     now: Date,
   ): ClubPromotionDto {
-    const normalizedName = promotion.name.trim();
-    const normalizedDescription = promotion.description.trim();
-    const params = normalizePromotionParams(promotion.params, promotion.type);
+    const normalizedName = promotion.name?.trim() ?? '';
+    const resolvedName =
+      normalizedName || this.buildFallbackName(promotion.type);
+    const normalizedDescription = promotion.description?.trim() ?? '';
+    const rawParams = normalizePromotionParams(
+      promotion.params,
+      promotion.type,
+    );
     const presentation = this.resolvePresentation(promotion.type);
-    const bannerImage = this.resolveBannerImage(params);
+    const bannerImage = this.resolveBannerImage(rawParams);
+
+    // 从 params 副本中移除展示层已提取的 bannerImage 相关字段，避免与顶层重复
+    const params = this.stripBannerFields(rawParams);
 
     return {
       id: String(promotion.id),
-      name: normalizedName || this.buildFallbackName(promotion.type),
+      name: resolvedName,
       type: promotion.type,
       description: normalizedDescription,
-      benefitText: normalizedDescription,
+      benefitText: normalizedDescription || resolvedName,
       params,
       startAt: promotion.startAt.getTime(),
       endAt: promotion.endAt.getTime(),
@@ -142,7 +154,7 @@ export class ClubPromotionsService {
         return {
           priority: 60,
           sort: 50,
-          actionText: '去体验',
+          actionText: '了解详情',
           actionType: 'view_products',
           actionTarget: 'club_products',
         };
@@ -212,6 +224,17 @@ export class ClubPromotionsService {
           typeof candidate === 'string' && candidate.trim().length > 0,
       )
       ?.trim();
+  }
+
+  /** 从 params 中移除已提取到顶层的 bannerImage 相关字段，返回裁剪后的副本 */
+  private stripBannerFields(
+    params: MarketingPromotionParamsValue,
+  ): MarketingPromotionParamsValue {
+    const cleaned = { ...params };
+    delete cleaned.bannerImage;
+    delete cleaned.image;
+    delete cleaned.banner;
+    return cleaned;
   }
 
   private readNestedString(value: unknown, key: string): string | undefined {

@@ -156,16 +156,34 @@ export class ProfitDetailService {
       clampedCurrentRange.start,
       clampedCurrentRange.end,
     );
+    const previousCosts = clampedPreviousRange.empty
+      ? {
+          totalCost: 0,
+          dailyCostMap: new Map<number, number>(),
+          categoryCostMap: new Map(),
+        }
+      : aggregateCosts(
+          costRows,
+          clampedPreviousRange.start,
+          clampedPreviousRange.end,
+        );
+    const netProfit = subtractMoneyValues(
+      currentSales.revenue,
+      currentCosts.totalCost,
+    );
+    const previousNetProfit = subtractMoneyValues(
+      previousSales.revenue,
+      previousCosts.totalCost,
+    );
 
     return {
       currentRange: clampedCurrentRange,
       currentSales,
       previousSales,
       currentCosts,
-      netProfit: subtractMoneyValues(
-        currentSales.revenue,
-        currentCosts.totalCost,
-      ),
+      previousCosts,
+      netProfit,
+      previousNetProfit,
     };
   }
 }

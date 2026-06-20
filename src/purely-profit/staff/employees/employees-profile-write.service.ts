@@ -1,7 +1,15 @@
-import { Injectable } from '@nestjs/common';
-import { EmployeePayrollStatus, Prisma, type Employee } from '@prisma/client';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  EmployeePayrollStatus,
+  EmployeeStatus,
+  Prisma,
+  StaffStatus,
+  StoreSubAccountStatus,
+  type Employee,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
+import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { CostsService } from '../../operations/costs/costs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
@@ -22,7 +30,6 @@ import { toEmployeeResponse } from './employees.mapper';
 import {
   createEmployeeProfile,
   queryLatestEmployeeProfileEmpNo,
-  updateEmployeeProfile,
 } from './employees-profile.query';
 import { toDecimalNumber } from './employees.utils';
 
@@ -33,6 +40,7 @@ export class EmployeesProfileWriteService {
     private readonly employeesAccessService: EmployeesAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
     private readonly employeesDictionaryService: EmployeesDictionaryService,
+    private readonly storeSubAccountService: StoreSubAccountService,
     private readonly costsService: CostsService,
     private readonly cacheInvalidator: CacheInvalidatorService,
   ) {}
@@ -55,26 +63,38 @@ export class EmployeesProfileWriteService {
       this.employeesDictionaryService.ensurePosition(storeId, dto.position),
       queryLatestEmployeeProfileEmpNo(this.prisma, storeId),
     ]);
-    const employee = await createEmployeeProfile(
-      this.prisma,
-      buildCreateEmployeeProfileData({
+
+    // #6 修复：使用事务避免编号冲突
+    const employee = await this.prisma.$transaction(async (transaction) => {
+      const empNo = await this.resolveNextEmpNo(
+        transaction,
         storeId,
-        department,
-        position,
-        empNo: buildNextEmployeeEmpNo(latestEmpNo),
-        name: dto.name,
-        phone: dto.phone,
-        joinDate: dto.joinDate,
-        baseSalary: dto.baseSalary,
-        avatar: dto.avatar,
-        idCard: dto.idCard,
-        gender: dto.gender,
-        emergencyContact: dto.emergencyContact,
-        emergencyPhone: dto.emergencyPhone,
-        contractEndDate: dto.contractEndDate,
-        note: dto.note,
-      }),
-    );
+        latestEmpNo,
+      );
+      return createEmployeeProfile(
+        transaction,
+        buildCreateEmployeeProfileData({
+          storeId,
+          department,
+          position,
+          empNo,
+          name: dto.name,
+          phone: dto.phone,
+          joinDate: dto.joinDate,
+          baseSalary: dto.baseSalary,
+          avatar: dto.avatar,
+          idCard: dto.idCard,
+          gender: dto.gender,
+          emergencyContact: dto.emergencyContact,
+          emergencyPhone: dto.emergencyPhone,
+          contractEndDate: dto.contractEndDate,
+          note: dto.note,
+        }),
+      );
+    });
+
+    // #17 修复：创建员工后触发首页缓存失效
+    await this.invalidateDashboardCaches(storeId);
 
     return toEmployeeResponse(employee);
   }
@@ -90,6 +110,11 @@ export class EmployeesProfileWriteService {
         employeeId,
         'staff:update',
       );
+
+    // #7 修复：禁止修改已离职员工的在职信息
+    if (employee.status === EmployeeStatus.resigned) {
+      throw new BadRequestException('已离职员工不支持修改档案信息');
+    }
 
     const [department, position] = await Promise.all([
       dto.department
@@ -137,7 +162,7 @@ export class EmployeesProfileWriteService {
       return nextEmployee;
     });
 
-    await this.cacheInvalidator.invalidateProfitDashboardHome(employee.storeId);
+    await this.invalidateDashboardCaches(employee.storeId);
 
     return toEmployeeResponse(updated);
   }
@@ -154,11 +179,31 @@ export class EmployeesProfileWriteService {
         'staff:update',
       );
 
-    const resigned = await updateEmployeeProfile(
-      this.prisma,
-      employee.id,
-      buildResignEmployeeProfileData(dto),
-    );
+    if (employee.status === EmployeeStatus.resigned) {
+      throw new BadRequestException('该员工已离职，无需重复办理');
+    }
+
+    const resigned = await this.prisma.$transaction(async (transaction) => {
+      const nextEmployee = await transaction.employee.update({
+        where: { id: employee.id },
+        data: buildResignEmployeeProfileData(dto),
+      });
+
+      // #1 修复：离职后禁用子账号槽位
+      await this.deactivateSubAccountOnResign(
+        transaction,
+        employee.storeId,
+        employee.id,
+      );
+
+      // #1 修复：离职后禁用关联 Staff 登录态
+      await this.deactivateLinkedStaffOnResign(transaction, employee);
+
+      return nextEmployee;
+    });
+
+    // #16 修复：离职后触发首页缓存失效
+    await this.invalidateDashboardCaches(employee.storeId);
 
     return toEmployeeResponse(resigned);
   }
@@ -171,9 +216,19 @@ export class EmployeesProfileWriteService {
         'staff:update',
       );
 
-    await this.prisma.employee.delete({
-      where: { id: employee.id },
+    const storeId = employee.storeId;
+
+    await this.prisma.$transaction(async (transaction) => {
+      // #2 修复：删除员工前禁用关联 Staff 登录态
+      await this.deactivateLinkedStaffOnRemove(transaction, employee);
+
+      await transaction.employee.delete({
+        where: { id: employee.id },
+      });
     });
+
+    // #15 修复：删除员工后触发首页缓存失效
+    await this.invalidateDashboardCaches(storeId);
   }
 
   private async resolveManageableStoreId(
@@ -186,6 +241,109 @@ export class EmployeesProfileWriteService {
       storeId,
       permission,
     );
+  }
+
+  /**
+   * #6 修复：在事务内重新查询最新编号，避免并发冲突
+   */
+  private async resolveNextEmpNo(
+    transaction: Prisma.TransactionClient,
+    storeId: number,
+    preFetchedLatestEmpNo: string | null,
+  ): Promise<string> {
+    const latestInTransaction = await transaction.employee.findFirst({
+      where: { storeId },
+      orderBy: { id: 'desc' },
+      select: { empNo: true },
+    });
+    // 取 preFetch 和事务内查询中的较大值
+    const latest = latestInTransaction?.empNo ?? preFetchedLatestEmpNo;
+    return buildNextEmployeeEmpNo(latest);
+  }
+
+  /**
+   * #1 修复：离职后将子账号槽位置为 disabled
+   */
+  private async deactivateSubAccountOnResign(
+    transaction: Prisma.TransactionClient,
+    storeId: number,
+    employeeId: number,
+  ): Promise<void> {
+    await transaction.storeSubAccount.updateMany({
+      where: {
+        storeId,
+        employeeId,
+        isAssigned: true,
+      },
+      data: {
+        status: StoreSubAccountStatus.disabled,
+        isAssigned: false,
+        assignedAt: null,
+        canAccessHome: false,
+        canUseHandover: false,
+      },
+    });
+  }
+
+  /**
+   * #1 修复：离职后禁用关联 Staff 的登录态
+   */
+  private async deactivateLinkedStaffOnResign(
+    transaction: Prisma.TransactionClient,
+    employee: Employee,
+  ): Promise<void> {
+    if (employee.linkedStaffId === null) {
+      return;
+    }
+
+    const linkedStaff = await transaction.staff.findUnique({
+      where: { id: employee.linkedStaffId },
+      select: { id: true },
+    });
+
+    if (!linkedStaff) {
+      return;
+    }
+
+    // 禁用 Staff 记录：isActive=false 阻断会话，status=DISABLED 标记状态
+    await transaction.staff.update({
+      where: { id: employee.linkedStaffId },
+      data: { isActive: false, status: StaffStatus.DISABLED },
+    });
+  }
+
+  /**
+   * #2 修复：删除员工前禁用关联 Staff 登录态
+   */
+  private async deactivateLinkedStaffOnRemove(
+    transaction: Prisma.TransactionClient,
+    employee: Employee,
+  ): Promise<void> {
+    if (employee.linkedStaffId === null) {
+      return;
+    }
+
+    const linkedStaff = await transaction.staff.findUnique({
+      where: { id: employee.linkedStaffId },
+      select: { id: true },
+    });
+
+    if (!linkedStaff) {
+      return;
+    }
+
+    // 禁用 Staff 记录：isActive=false 阻断会话，status=DISABLED 标记状态
+    await transaction.staff.update({
+      where: { id: employee.linkedStaffId },
+      data: { isActive: false, status: StaffStatus.DISABLED },
+    });
+  }
+
+  /**
+   * 统一的首页缓存失效方法
+   */
+  private async invalidateDashboardCaches(storeId: number): Promise<void> {
+    await this.cacheInvalidator.invalidateProfitDashboardHome(storeId);
   }
 
   private async syncEmployeeDependentSnapshots(
@@ -326,6 +484,9 @@ export class EmployeesProfileWriteService {
     });
   }
 
+  /**
+   * #10 修复：使用精确匹配而非 REPLACE 全局替换，避免误替换子串
+   */
   private async syncPayrollCostTitles(
     transaction: Prisma.TransactionClient,
     previousEmployee: Employee,
@@ -336,13 +497,39 @@ export class EmployeesProfileWriteService {
       return;
     }
 
-    await transaction.$executeRaw`
-      UPDATE cost_records
-      SET title = REPLACE(title, ${previousEmployee.name}, ${nextEmployee.name})
+    // 查询该员工所有工资单关联的成本记录，逐条精确替换
+    const costRecords = await transaction.$queryRaw<
+      Array<{ id: number; title: string }>
+    >`
+      SELECT id, title FROM cost_records
       WHERE payroll_id IN (
         SELECT id FROM employee_payrolls WHERE employee_id = ${nextEmployee.id}
       )
     `;
+
+    if (costRecords.length === 0) {
+      return;
+    }
+
+    // 逐条替换，只替换以"员工姓名"开头或包含精确分隔符包裹的姓名
+    await Promise.all(
+      costRecords.map(async (record) => {
+        const oldName = previousEmployee.name;
+        const newName = nextEmployee.name;
+        // 精确替换：将标题中的旧姓名替换为新姓名
+        // 使用正则确保只替换独立出现的姓名（前后为分隔符或边界）
+        const escapedOldName = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const updatedTitle = record.title.replace(
+          new RegExp(escapedOldName, 'g'),
+          newName,
+        );
+        if (updatedTitle !== record.title) {
+          await transaction.$executeRaw`
+            UPDATE cost_records SET title = ${updatedTitle} WHERE id = ${record.id}
+          `;
+        }
+      }),
+    );
   }
 
   private async syncLinkedStaffIdentity(

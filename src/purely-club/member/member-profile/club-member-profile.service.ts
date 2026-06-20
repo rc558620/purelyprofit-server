@@ -20,7 +20,6 @@ interface ClubMarketingCustomerRecord {
   balance: number;
   points: number;
   tier: string;
-  totalSpent: number;
   createdAt: Date;
 }
 
@@ -66,6 +65,10 @@ export class ClubMemberProfileService {
       return null;
     }
 
+    // 充值累计：通过 marketingRecharge 聚合计算该顾客在该门店的累计充值金额（分）
+    const totalRechargeFen =
+      await this.aggregateTotalRechargeAmount(marketingCustomer?.id ?? null);
+
     const joinDate = this.resolveJoinDate(
       member.createdAt,
       marketingCustomer?.createdAt,
@@ -79,9 +82,9 @@ export class ClubMemberProfileService {
       points: marketingCustomer?.points ?? member.points,
       memberCode: this.buildMemberCode(joinDate, member.id),
       joinDate,
-      totalConsume: this.resolveTotalConsume(
+      totalConsume: this.resolveTotalRecharge(
         member.totalConsumeAmount,
-        marketingCustomer?.totalSpent ?? null,
+        totalRechargeFen,
       ),
     };
   }
@@ -122,10 +125,28 @@ export class ClubMemberProfileService {
         balance: true,
         points: true,
         tier: true,
-        totalSpent: true,
         createdAt: true,
       },
     });
+  }
+
+  /**
+   * 聚合计算指定营销顾客的累计充值金额（分）。
+   * 仅统计 type='recharge' 的记录，即用户实际充值的本金部分。
+   */
+  private async aggregateTotalRechargeAmount(
+    customerId: number | null,
+  ): Promise<number | null> {
+    if (customerId === null) {
+      return null;
+    }
+
+    const result = await this.prisma.marketingRecharge.aggregate({
+      where: { customerId, type: 'recharge' },
+      _sum: { amount: true },
+    });
+
+    return result._sum.amount ?? 0;
   }
 
   private resolveLevel(
@@ -133,6 +154,7 @@ export class ClubMemberProfileService {
     marketingTier: string | undefined,
   ): ClubMemberHeldLevelValue {
     // 优先以 member.level 为准，该字段语义和 club 等级体系完全对齐
+    // silver 等级已废弃，member.level 为 silver 时回落到 regular
     switch (memberLevel) {
       case 'diamond':
         return 'diamond';
@@ -140,22 +162,19 @@ export class ClubMemberProfileService {
         return 'platinum';
       case 'gold':
         return 'gold';
-      case 'silver':
-        return 'silver';
       default:
         break;
     }
 
     // member.level 无有效等级（free / bronze / regular 等历史值）时，
-    // 用 marketingTier 补充白银/钻石历史持有信息。
+    // 用 marketingTier 补充钻石历史持有信息。
     // 注意：营销 tier 'gold' 不做映射——其门槛（¥2000）远低于 club 铂金门槛（¥5000），
     // 若直接映射会导致充值达到铂金门槛后 heldLevel 仍停留在 'gold'，
     // 与 currentLevel（由 totalConsume vs spendThreshold 计算得出的铂金）不一致。
+    // silver 等级已废弃，marketingTier 为 silver 时回落到 regular。
     switch (marketingTier) {
       case 'diamond':
         return 'diamond';
-      case 'silver':
-        return 'silver';
       default:
         break;
     }
@@ -177,18 +196,18 @@ export class ClubMemberProfileService {
   }
 
   /**
-   * 解析累计消费金额。
+   * 解析累计充值金额。
    *
-   * 优先使用 marketingCustomer.totalSpent（消费侧实时累计，包含服务购买+充值），
-   * 这才是真正的"累计消费"语义；
+   * 优先使用 marketingRecharge 聚合的充值累计（仅 type='recharge' 记录），
+   * 这才是真正的"累计充值"语义——会员等级仅通过充值升级；
    * 若无营销顾客档案则回落到 member.totalConsumeAmount（旧字段，可能不准）。
    */
-  private resolveTotalConsume(
+  private resolveTotalRecharge(
     memberTotalConsumeAmount: Decimal,
-    marketingTotalSpentFen: number | null,
+    totalRechargeFen: number | null,
   ): number {
-    if (typeof marketingTotalSpentFen === 'number') {
-      return this.convertFenToYuan(marketingTotalSpentFen);
+    if (typeof totalRechargeFen === 'number') {
+      return this.convertFenToYuan(totalRechargeFen);
     }
 
     return new Decimal(memberTotalConsumeAmount.toString())
@@ -205,10 +224,17 @@ export class ClubMemberProfileService {
     return `PC${compactDate}${String(memberId).padStart(3, '0')}`;
   }
 
+  /**
+   * 将 Date 格式化为 YYYY-MM-DD 字符串，固定使用 UTC+8（北京时间）。
+   * 避免服务器部署在 UTC 时区时导致入会日期偏移一天。
+   */
   private formatDateOnly(date: Date): string {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
+    // UTC+8 偏移量 8 小时 = 8 * 60 * 60 * 1000 = 28800000 毫秒
+    const utc8Ms = date.getTime() + 8 * 60 * 60 * 1000;
+    const utc8Date = new Date(utc8Ms);
+    const year = utc8Date.getUTCFullYear();
+    const month = String(utc8Date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(utc8Date.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
 }

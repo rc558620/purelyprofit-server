@@ -69,14 +69,43 @@ export class StaffProfileService {
       },
     });
 
-    if (existingStaff) {
-      throw new ConflictException('该门店下员工邮箱已存在');
-    }
-
     const linkedUser = await this.prisma.user.findUnique({
       where: { email: normalizedEmail },
       select: { id: true },
     });
+
+    if (existingStaff) {
+      /* ---- 活跃状态员工不允许重复邀请 ---- */
+      if (existingStaff.isActive) {
+        throw new ConflictException('该门店下员工邮箱已存在');
+      }
+
+      /* ---- 非活跃员工允许重新邀请，更新信息并重置状态 ---- */
+      const reInvitedStaff = await this.prisma.staff.update({
+        where: { id: existingStaff.id },
+        data: {
+          name: dto.name,
+          ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+          role: dto.role ?? StaffRole.STAFF,
+          permissions: dto.permissions ?? [],
+          status: StaffStatus.INVITED,
+          isSeatActive: false,
+          isActive: true,
+        },
+      });
+
+      const seatSummary = await this.getSeatSummary(dto.storeId);
+
+      return {
+        status: reInvitedStaff.status,
+        message: linkedUser
+          ? '员工已重新邀请，待激活后占用账号席位'
+          : '员工已重新邀请，待注册或激活后占用账号席位',
+        staff: reInvitedStaff,
+        seatSummary,
+      };
+    }
+
     const invitePhone = dto.phone;
 
     const staff = await this.prisma.staff.create({
@@ -125,6 +154,12 @@ export class StaffProfileService {
 
     if (!staff) {
       throw new NotFoundException('员工邀请记录不存在');
+    }
+
+    /* ---- 校验激活人身份：必须是被邀请邮箱的持有人 ---- */
+    const normalizedUserEmail = normalizeStaffEmail(user.email);
+    if (normalizedUserEmail !== normalizedEmail) {
+      throw new ForbiddenException('只有被邀请的邮箱持有人才能激活此员工席位');
     }
 
     const linkedUserId = staff.userId ?? user.id;
@@ -210,7 +245,18 @@ export class StaffProfileService {
         'staff:update',
       );
 
+    /* ---- 席位校验：启用员工且当前未占席位时，需检查余量 ---- */
+    if (dto.isActive === true && !existingStaff.isSeatActive) {
+      await this.ensureSeatAvailable(existingStaff.storeId);
+    }
+
     const updatePhone = dto.phone;
+
+    /* ---- isSeatActive 与 status 仅在禁用时自动释放，启用时不自动占用 ---- */
+    const seatActiveDelta = dto.isActive === false ? false : undefined;
+
+    const statusDelta =
+      dto.isActive === false ? StaffStatus.DISABLED : undefined;
 
     return this.prisma.staff.update({
       where: { id: existingStaff.id },
@@ -219,18 +265,8 @@ export class StaffProfileService {
         ...(updatePhone !== undefined ? { phone: updatePhone } : {}),
         role: dto.role,
         permissions: dto.permissions,
-        status:
-          dto.isActive === false
-            ? StaffStatus.DISABLED
-            : dto.isActive === true
-              ? StaffStatus.ACTIVE
-              : undefined,
-        isSeatActive:
-          dto.isActive === false
-            ? false
-            : dto.isActive === true
-              ? true
-              : undefined,
+        status: statusDelta,
+        isSeatActive: seatActiveDelta,
         isActive: dto.isActive,
       },
     });
@@ -244,8 +280,14 @@ export class StaffProfileService {
         'staff:delete',
       );
 
-    await this.prisma.staff.delete({
+    /* ---- 软删除：标记为不活跃并释放席位，保留历史关联数据 ---- */
+    await this.prisma.staff.update({
       where: { id: existingStaff.id },
+      data: {
+        isActive: false,
+        isSeatActive: false,
+        status: StaffStatus.DISABLED,
+      },
     });
   }
 

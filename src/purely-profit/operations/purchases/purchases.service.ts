@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -103,7 +107,7 @@ export class PurchasesService {
       query,
     );
     const [supplierCount, currentAgg, previousAgg] = await Promise.all([
-      countPurchaseSuppliers(this.prisma, storeId),
+      countPurchaseSuppliers(this.prisma, storeId, currentWhere),
       aggregatePurchaseOrders(this.prisma, currentWhere),
       aggregatePreviousPurchaseOrders(this.prisma, { storeId, previousRange }),
     ]);
@@ -159,6 +163,10 @@ export class PurchasesService {
     const totalAmount = sumPreparedPurchaseAmount(preparedItems);
     const purchaseDate = new Date(dto.date);
 
+    if (!Number.isFinite(purchaseDate.getTime())) {
+      throw new BadRequestException('进货日期不合法');
+    }
+
     const created = await this.prisma.$transaction(async (transaction) => {
       const order = await createPurchaseOrderEntity(transaction, {
         storeId,
@@ -206,12 +214,23 @@ export class PurchasesService {
       '无权删除该门店进货单',
     );
 
-    await deletePurchaseOrderEntity(this.prisma, purchase.id);
+    await this.prisma.$transaction(async (transaction) => {
+      await this.costsService.deletePurchaseCostRecord(
+        transaction,
+        purchase.storeId,
+        purchase.id,
+      );
+      await deletePurchaseOrderEntity(transaction, purchase.id);
+    });
+
     await this.invalidateDashboardCaches(purchase.storeId);
   }
 
   private async invalidateDashboardCaches(storeId: number): Promise<void> {
-    await this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId);
+    await Promise.all([
+      this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId),
+      this.cacheInvalidatorService.invalidatePulseDashboardOverview(storeId),
+    ]);
   }
 
   private resolvePagination(page?: number, pageSize?: number) {

@@ -25,8 +25,8 @@ export interface ProductAlertRow {
   id: number;
   name: string;
   stock: number;
-  alertThreshold: number;
-  updatedAt: Date;
+  alert_threshold: number;
+  updated_at: Date;
 }
 
 export interface DecimalLike {

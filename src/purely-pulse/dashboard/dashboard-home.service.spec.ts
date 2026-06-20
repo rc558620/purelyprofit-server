@@ -153,6 +153,7 @@ describe('PulseDashboardHomeService', () => {
       { label: '月卡会员', value: 67 },
       { label: '季度会员', value: 33 },
       { label: '年卡会员', value: 0 },
+      { label: '永久会员', value: 0 },
       { label: '其他充值', value: 0 },
     ]);
     expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(

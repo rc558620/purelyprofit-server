@@ -106,7 +106,7 @@ export class MarketingFacadeService {
 
   listCustomers(
     user: AuthenticatedUser,
-    query: ListCustomersQueryDto & { storeId?: number },
+    query: ListCustomersQueryDto,
   ): Promise<MarketingCustomersResponseDto> {
     return this.marketingCustomersFacadeService.listCustomers(user, query);
   }
@@ -151,7 +151,7 @@ export class MarketingFacadeService {
 
   listRecharges(
     user: AuthenticatedUser,
-    query: ListRechargesQueryDto & { storeId?: number },
+    query: ListRechargesQueryDto,
   ): Promise<MarketingRechargesResponseDto> {
     return this.marketingTransactionsFacadeService.listRecharges(user, query);
   }
@@ -182,7 +182,7 @@ export class MarketingFacadeService {
 
   listPointsRecords(
     user: AuthenticatedUser,
-    query: ListPointsRecordsQueryDto & { storeId?: number },
+    query: ListPointsRecordsQueryDto,
   ): Promise<MarketingPointsRecordsResponseDto> {
     return this.marketingTransactionsFacadeService.listPointsRecords(
       user,
@@ -228,7 +228,7 @@ export class MarketingFacadeService {
 
   listPromotions(
     user: AuthenticatedUser,
-    query: ListPromotionsQueryDto & { storeId?: number },
+    query: ListPromotionsQueryDto,
   ): Promise<MarketingPromotionsResponseDto> {
     return this.marketingPromotionsFacadeService.listPromotions(user, query);
   }

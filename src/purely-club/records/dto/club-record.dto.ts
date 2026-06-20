@@ -21,7 +21,7 @@ export class ListClubRecordsQueryDto {
     example: 'all',
     enum: CLUB_RECORD_FILTER_VALUES,
     description:
-      '流水筛选类型：all=全部 recharge=充值 bonus consume=消费 refund',
+      '流水筛选类型：all=全部 recharge=充值与赠送 consume=消费与退款',
   })
   @IsOptional()
   @IsIn(CLUB_RECORD_FILTER_VALUES, { message: '流水筛选类型不合法' })
@@ -36,6 +36,24 @@ export class ListClubRecordsQueryDto {
   @Min(1, { message: 'limit 最小为 1' })
   @Max(200, { message: 'limit 最大为 200' })
   limit?: number;
+
+  @ApiPropertyOptional({
+    example: '2024-11-20T10:30:00.000Z',
+    description:
+      '分页游标：上一页最后一条流水的 createdAt（ISO 字符串），用于加载更早的记录',
+  })
+  @IsOptional()
+  @IsString({ message: 'cursor 必须是字符串' })
+  cursorCreatedAt?: string;
+
+  @ApiPropertyOptional({
+    example: 'consume-31',
+    description:
+      '分页游标：上一页最后一条流水的 ID，与 cursorCreatedAt 配合使用',
+  })
+  @IsOptional()
+  @IsString({ message: 'cursorId 必须是字符串' })
+  cursorId?: string;
 }
 
 export class ClubRecordDto {
@@ -83,4 +101,21 @@ export class ClubRecordDto {
 export class ClubRecordsResponseDto {
   @ApiProperty({ type: [ClubRecordDto], description: '统一流水列表' })
   items: ClubRecordDto[];
+
+  @ApiProperty({ example: 128, description: '符合当前筛选条件的流水总条数' })
+  total: number;
+
+  @ApiPropertyOptional({
+    example: '2024-11-18T14:20:00.000Z',
+    description: '下一页游标的 createdAt 值；为 null 表示已到最后一页',
+    nullable: true,
+  })
+  nextCursorCreatedAt: string | null;
+
+  @ApiPropertyOptional({
+    example: 'consume-31',
+    description: '下一页游标的 ID 值；为 null 表示已到最后一页',
+    nullable: true,
+  })
+  nextCursorId: string | null;
 }

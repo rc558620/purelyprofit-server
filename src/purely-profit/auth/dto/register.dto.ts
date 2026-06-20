@@ -17,10 +17,9 @@ export class RegisterDto {
   @MinLength(6, { message: '密码至少 6 位' })
   password: string;
 
-  @ApiPropertyOptional({ example: 'password123', description: '确认密码' })
-  @IsOptional()
+  @ApiProperty({ example: 'password123', description: '确认密码' })
   @IsString({ message: '确认密码必须是字符串' })
-  confirmPassword?: string;
+  confirmPassword: string;
 
   @ApiPropertyOptional({ example: '老板', description: '用户名' })
   @IsOptional()

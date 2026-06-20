@@ -5,6 +5,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { buildCategoryResponse } from './categories.mapper';
 import {
+  clearCategoryProducts,
   createCategoryRecord,
   deleteCategoryRecord,
   findCategoryById,
@@ -16,6 +17,7 @@ import { CategoriesWriteService } from './categories-write.service';
 import type { CategoryRecord } from './categories.types';
 
 jest.mock('./categories.query', () => ({
+  clearCategoryProducts: jest.fn(),
   createCategoryRecord: jest.fn(),
   deleteCategoryRecord: jest.fn(),
   findCategoryById: jest.fn(),
@@ -31,13 +33,26 @@ jest.mock('./categories.mapper', () => ({
 describe('CategoriesWriteService', () => {
   let service: CategoriesWriteService;
 
-  const prismaService = {};
+  const transactionMock = {
+    productCategory: {
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+    product: {
+      updateMany: jest.fn(),
+    },
+  };
+
+  const prismaService = {
+    $transaction: jest.fn(),
+  };
 
   const commerceAccessService = {
     resolveSingleStoreId: jest.fn(),
     ensureCanAccessStore: jest.fn(),
   };
 
+  const mockedClearCategoryProducts = jest.mocked(clearCategoryProducts);
   const mockedCreateCategoryRecord = jest.mocked(createCategoryRecord);
   const mockedDeleteCategoryRecord = jest.mocked(deleteCategoryRecord);
   const mockedFindCategoryById = jest.mocked(findCategoryById);
@@ -116,7 +131,7 @@ describe('CategoriesWriteService', () => {
     mockedBuildCategoryResponse.mockReturnValue(response);
 
     await expect(
-      service.create(user, { storeId: 18, name: '  饮品  ', icon: '  🥤  ' }),
+      service.create(user, { storeId: 18, name: '饮品', icon: '🥤' }),
     ).resolves.toEqual(response);
 
     expect(mockedFindCategoryDuplicateByName).toHaveBeenCalledWith(
@@ -156,7 +171,7 @@ describe('CategoriesWriteService', () => {
     expect(commerceAccessService.ensureCanAccessStore).not.toHaveBeenCalled();
   });
 
-  it('update 会校验权限、更新记录并同步商品分类名称', async () => {
+  it('update 会校验权限、在事务中更新记录并同步商品分类名称', async () => {
     const category = createCategoryRecordFixture();
     const updated = createCategoryRecordFixture({
       name: '酒水',
@@ -173,11 +188,19 @@ describe('CategoriesWriteService', () => {
     mockedFindCategoryById.mockResolvedValue(category);
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
     mockedFindCategoryDuplicateByName.mockResolvedValue(null);
-    mockedUpdateCategoryRecord.mockResolvedValue(updated);
+
+    prismaService.$transaction.mockImplementation(
+      async (callback: (tx: unknown) => Promise<unknown>) => {
+        mockedUpdateCategoryRecord.mockResolvedValue(updated);
+        mockedRenameCategoryProducts.mockResolvedValue(undefined);
+        return callback(transactionMock);
+      },
+    );
+
     mockedBuildCategoryResponse.mockReturnValue(response);
 
     await expect(
-      service.update(user, 11, { name: '  酒水  ', icon: '' }),
+      service.update(user, 11, { name: '酒水', icon: '' }),
     ).resolves.toEqual(response);
 
     expect(commerceAccessService.ensureCanAccessStore).toHaveBeenCalledWith(
@@ -194,23 +217,71 @@ describe('CategoriesWriteService', () => {
         excludeId: 11,
       },
     );
-    expect(mockedUpdateCategoryRecord).toHaveBeenCalledWith(prismaService, 11, {
-      name: '酒水',
-      icon: null,
-    });
-    expect(mockedRenameCategoryProducts).toHaveBeenCalledWith(prismaService, {
-      storeId: 18,
-      categoryId: 11,
-      name: '酒水',
-    });
+    expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+    expect(mockedUpdateCategoryRecord).toHaveBeenCalledWith(
+      transactionMock,
+      11,
+      {
+        name: '酒水',
+        icon: null,
+      },
+    );
+    expect(mockedRenameCategoryProducts).toHaveBeenCalledWith(
+      transactionMock,
+      {
+        storeId: 18,
+        categoryId: 11,
+        name: '酒水',
+      },
+    );
   });
 
-  it('remove 会校验权限并删除分类记录', async () => {
+  it('update 在不修改名称时不触发重命名商品', async () => {
+    const category = createCategoryRecordFixture();
+    const updated = createCategoryRecordFixture({
+      icon: null,
+      updatedAt: new Date('2026-05-23T11:00:00.000Z'),
+    });
+    const response = {
+      id: '11',
+      name: '饮品',
+      createdAt: updated.createdAt.getTime(),
+      updatedAt: updated.updatedAt.getTime(),
+    };
+
+    mockedFindCategoryById.mockResolvedValue(category);
+    commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+
+    prismaService.$transaction.mockImplementation(
+      async (callback: (tx: unknown) => Promise<unknown>) => {
+        mockedUpdateCategoryRecord.mockResolvedValue(updated);
+        return callback(transactionMock);
+      },
+    );
+
+    mockedBuildCategoryResponse.mockReturnValue(response);
+
+    await expect(
+      service.update(user, 11, { icon: '' }),
+    ).resolves.toEqual(response);
+
+    expect(mockedFindCategoryDuplicateByName).not.toHaveBeenCalled();
+    expect(mockedRenameCategoryProducts).not.toHaveBeenCalled();
+  });
+
+  it('remove 会校验权限、在事务中先清空商品分类再删除分类记录', async () => {
     const category = createCategoryRecordFixture();
 
     mockedFindCategoryById.mockResolvedValue(category);
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
-    mockedDeleteCategoryRecord.mockResolvedValue(undefined);
+
+    prismaService.$transaction.mockImplementation(
+      async (callback: (tx: unknown) => Promise<unknown>) => {
+        mockedClearCategoryProducts.mockResolvedValue(undefined);
+        mockedDeleteCategoryRecord.mockResolvedValue(undefined);
+        return callback(transactionMock);
+      },
+    );
 
     await expect(service.remove(user, 11)).resolves.toBeUndefined();
 
@@ -220,6 +291,17 @@ describe('CategoriesWriteService', () => {
       'goods:delete',
       '无权删除该门店商品分类',
     );
-    expect(mockedDeleteCategoryRecord).toHaveBeenCalledWith(prismaService, 11);
+    expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+    expect(mockedClearCategoryProducts).toHaveBeenCalledWith(
+      transactionMock,
+      {
+        storeId: 18,
+        categoryId: 11,
+      },
+    );
+    expect(mockedDeleteCategoryRecord).toHaveBeenCalledWith(
+      transactionMock,
+      11,
+    );
   });
 });

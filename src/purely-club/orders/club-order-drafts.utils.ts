@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import Decimal from 'decimal.js';
+import { DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS } from '../../purely-profit/marketing/marketing.utils';
 import type {
   ClubOrderStatusResponseDto,
   ClubServiceOrderResponseDto,
@@ -114,6 +115,16 @@ export const createDraftPayload = <
   };
 };
 
+/**
+ * 合并支付确认来源（paymentConfirmationSource）
+ *
+ * 优先级规则：wechat_callback > manual_confirm_paid > null
+ * - 若任一方为 wechat_callback，结果一定是 wechat_callback（真实回调优先级最高）
+ * - 否则取 nextSource → currentSource 的瀑布式回退
+ *
+ * @param currentSource - 草稿当前存储的确认来源
+ * @param nextSource    - 本次观察到的确认来源（如回调、手动确认）
+ */
 const resolvePaymentConfirmationSource = (
   currentSource: ClubOrderPaymentConfirmationSourceValue | null | undefined,
   nextSource: ClubOrderPaymentConfirmationSourceValue | null | undefined,
@@ -134,11 +145,12 @@ export const buildPaidDraft = <
 ): ClubOrderDraftPayload<TMetadata, TOrderType> => ({
   ...draft,
   status: 'paid',
-  paidAtMs: options?.paidAtMs ?? draft.paidAtMs ?? Date.now(),
+  // 保留已有值，仅在原值为空时用新值补充，防止重复回调覆盖精确数据
+  paidAtMs: draft.paidAtMs ?? options?.paidAtMs ?? Date.now(),
   paymentTransactionId:
-    options?.paymentTransactionId ?? draft.paymentTransactionId,
+    draft.paymentTransactionId ?? options?.paymentTransactionId ?? null,
   callbackReceivedAtMs:
-    options?.callbackReceivedAtMs ?? draft.callbackReceivedAtMs,
+    draft.callbackReceivedAtMs ?? options?.callbackReceivedAtMs ?? null,
   paymentConfirmationSource: resolvePaymentConfirmationSource(
     draft.paymentConfirmationSource,
     options?.paymentConfirmationSource,
@@ -274,3 +286,87 @@ export const toServiceOrderResponse = (
 
 export const buildDraftKey = (orderId: string): string =>
   `${CLUB_ORDER_DRAFT_KEY_PREFIX}${orderId}`;
+
+// ─── 公共积分配置解析 ──────────────────────────────────────────────────
+
+/** 积分抵扣配置（创建订单时使用） */
+export interface ClubPointsRedeemConfig {
+  redeemRatioPoints: number;
+  maxRedeemRatio: number;
+  enabled: boolean;
+}
+
+/** 积分获得配置（结算时使用） */
+export interface ClubPointsEarnConfig {
+  earnRatioCents: number;
+  enabled: boolean;
+}
+
+/**
+ * 从 marketingMemberLevelSetting.pointsRatio JSON 中解析积分抵扣配置
+ * 统一提取到 utils，避免 creation / settlement 各自重复实现
+ */
+export function resolvePointsRedeemConfig(
+  pointsRatio: unknown,
+): ClubPointsRedeemConfig {
+  const fallback = DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio;
+
+  if (
+    !pointsRatio ||
+    typeof pointsRatio !== 'object' ||
+    Array.isArray(pointsRatio)
+  ) {
+    return {
+      redeemRatioPoints: fallback.redeemRatioPoints,
+      maxRedeemRatio: fallback.maxRedeemRatio,
+      enabled: fallback.enabled,
+    };
+  }
+
+  const data = pointsRatio as Record<string, unknown>;
+  return {
+    redeemRatioPoints:
+      typeof data.redeemRatioPoints === 'number' && data.redeemRatioPoints > 0
+        ? data.redeemRatioPoints
+        : fallback.redeemRatioPoints,
+    maxRedeemRatio:
+      typeof data.maxRedeemRatio === 'number' &&
+      data.maxRedeemRatio >= 0 &&
+      data.maxRedeemRatio <= 1
+        ? data.maxRedeemRatio
+        : fallback.maxRedeemRatio,
+    enabled:
+      typeof data.enabled === 'boolean' ? data.enabled : fallback.enabled,
+  };
+}
+
+/**
+ * 从 marketingMemberLevelSetting.pointsRatio JSON 中解析积分获得配置
+ * 统一提取到 utils，避免 creation / settlement 各自重复实现
+ */
+export function resolvePointsEarnConfig(
+  pointsRatio: unknown,
+): ClubPointsEarnConfig {
+  const fallback = DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio;
+
+  if (
+    !pointsRatio ||
+    typeof pointsRatio !== 'object' ||
+    Array.isArray(pointsRatio)
+  ) {
+    return {
+      earnRatioCents: fallback.earnRatioCents,
+      enabled: fallback.enabled,
+    };
+  }
+
+  const data = pointsRatio as Record<string, unknown>;
+  return {
+    earnRatioCents:
+      typeof data.earnRatioCents === 'number' && data.earnRatioCents > 0
+        ? data.earnRatioCents
+        : fallback.earnRatioCents,
+    enabled:
+      typeof data.enabled === 'boolean' ? data.enabled : fallback.enabled,
+  };
+}

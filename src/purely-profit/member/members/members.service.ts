@@ -385,7 +385,21 @@ export class MembersService {
         'members:update',
       );
 
-    await deleteMemberRecord(this.prisma, existingMember.id);
+    await this.prisma.$transaction(async (tx) => {
+      await deleteMemberRecord(tx, existingMember.id);
+
+      // MarketingCustomer 通过 storeId + phone 关联而非外键，
+      // 删除 Member 时需同步清理，否则 Club 端仍能查到残留顾客档案
+      if (existingMember.phone) {
+        await tx.marketingCustomer.deleteMany({
+          where: {
+            storeId: existingMember.storeId,
+            phone: existingMember.phone,
+          },
+        });
+      }
+    });
+
     await this.invalidateMembersDerived(existingMember.storeId);
   }
 

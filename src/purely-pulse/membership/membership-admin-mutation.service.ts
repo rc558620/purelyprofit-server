@@ -111,7 +111,7 @@ export class PulseMembershipAdminMutationService {
       },
     });
 
-    await this.mutationStateService.invalidatePulseDashboardHome();
+    await this.mutationStateService.invalidateAdminMemberDerived(memberId);
 
     return this.memberReadService.buildAdminMemberDetail(memberId);
   }
@@ -132,7 +132,7 @@ export class PulseMembershipAdminMutationService {
     });
 
     await this.accessService.writeAdminMemberBanReason(memberId, reason);
-    await this.accessService.kickAllStoreUsers(memberId);
+    await this.mutationStateService.invalidateAdminMemberDerived(memberId);
 
     return this.memberReadService.buildAdminMemberDetail(memberId);
   }
@@ -151,6 +151,7 @@ export class PulseMembershipAdminMutationService {
     });
 
     await this.accessService.clearAdminMemberBanReason(memberId);
+    await this.mutationStateService.invalidateAdminMemberDerived(memberId);
 
     return this.memberReadService.buildAdminMemberDetail(memberId);
   }

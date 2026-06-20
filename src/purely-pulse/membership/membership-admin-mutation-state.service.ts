@@ -33,6 +33,9 @@ export class PulseMembershipAdminMutationStateService {
     await Promise.all([
       this.cacheInvalidatorService.invalidatePulseDashboardHome(),
       this.cacheInvalidatorService.invalidatePulseDashboardOverview(memberId),
+      this.cacheInvalidatorService.invalidatePulseDashboardRevenueDetail(),
+      this.cacheInvalidatorService.invalidatePulseGrowthEarnings(memberId),
+      this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries(),
       this.cacheInvalidatorService.invalidatePulseSessionNotification(memberId),
       this.cacheInvalidatorService.invalidatePulseSessionBootstrap(memberId),
       this.cacheInvalidatorService.invalidatePulseOnboardingStatus(memberId),

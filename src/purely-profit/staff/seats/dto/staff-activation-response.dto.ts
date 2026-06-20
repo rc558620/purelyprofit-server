@@ -1,16 +1,13 @@
+import { StaffStatus } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsString, ValidateNested } from 'class-validator';
+import { IsEnum, IsString, ValidateNested } from 'class-validator';
 import { StaffResponseDto } from './staff-response.dto';
 import { StoreSeatSummaryDto } from './store-seat-summary.dto';
 
-const STAFF_STATUS_VALUES = ['INVITED', 'ACTIVE', 'DISABLED'] as const;
-
-type StaffStatus = (typeof STAFF_STATUS_VALUES)[number];
-
 export class StaffActivationResponseDto {
-  @ApiProperty({ enum: STAFF_STATUS_VALUES, description: '员工激活后的状态' })
-  @IsIn(STAFF_STATUS_VALUES, { message: '员工激活后的状态不合法' })
+  @ApiProperty({ enum: StaffStatus, description: '员工激活后的状态' })
+  @IsEnum(StaffStatus, { message: '员工激活后的状态不合法' })
   status: StaffStatus;
 
   @ApiProperty({

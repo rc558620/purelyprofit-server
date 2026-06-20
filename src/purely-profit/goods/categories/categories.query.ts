@@ -1,6 +1,7 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type {
+  CategoryClearProductsInput,
   CategoryCreateInput,
   CategoryDuplicateQueryInput,
   CategoryIdRecord,
@@ -61,8 +62,13 @@ export async function findCategoryDuplicateByName(
   return prisma.productCategory.findFirst({
     where: {
       storeId: params.storeId,
-      name: params.name,
-      ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
+      name: {
+        equals: params.name,
+        mode: 'insensitive',
+      },
+      ...(params.excludeId !== undefined
+        ? { id: { not: params.excludeId } }
+        : {}),
     },
     select: CATEGORY_ID_SELECT,
   });
@@ -78,8 +84,10 @@ export async function createCategoryRecord(
   });
 }
 
+type PrismaClientOrTransaction = PrismaService | Prisma.TransactionClient;
+
 export async function updateCategoryRecord(
-  prisma: PrismaService,
+  prisma: PrismaClientOrTransaction,
   categoryId: number,
   data: CategoryUpdateInput,
 ): Promise<CategoryRecord> {
@@ -91,7 +99,7 @@ export async function updateCategoryRecord(
 }
 
 export async function renameCategoryProducts(
-  prisma: PrismaService,
+  prisma: PrismaClientOrTransaction,
   params: CategoryRenameProductsInput,
 ): Promise<void> {
   await prisma.product.updateMany({
@@ -105,8 +113,24 @@ export async function renameCategoryProducts(
   });
 }
 
+export async function clearCategoryProducts(
+  prisma: PrismaClientOrTransaction,
+  params: CategoryClearProductsInput,
+): Promise<void> {
+  await prisma.product.updateMany({
+    where: {
+      storeId: params.storeId,
+      categoryId: params.categoryId,
+    },
+    data: {
+      category: '',
+      categoryId: null,
+    },
+  });
+}
+
 export async function deleteCategoryRecord(
-  prisma: PrismaService,
+  prisma: PrismaClientOrTransaction,
   categoryId: number,
 ): Promise<void> {
   await prisma.productCategory.delete({

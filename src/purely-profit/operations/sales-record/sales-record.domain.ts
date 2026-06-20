@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import {
-  PREPAID_DEDUCTION_PRODUCT_NAME,
+  isDeductionProductName,
   toDecimalNumber,
   toOptionalText,
   toTimestampMs,
@@ -72,17 +72,21 @@ export function mapSalesRecordResponse(
   order: SaleOrderWithItems,
 ): SalesRecordResponseDto {
   const note = toOptionalText(order.note);
-  // 过滤掉预付抵扣行，销售记录只展示实际消费
+  // 过滤掉抵扣行（预付抵扣 + 续费抵扣），销售记录只展示实际消费
   const visibleItems = order.items.filter(
-    (item) => item.productName !== PREPAID_DEDUCTION_PRODUCT_NAME,
+    (item) => !isDeductionProductName(item.productName),
   );
-  // 重算不含预付抵扣的 totalRevenue 和 totalProfit
+  // 重算不含抵扣行的 totalRevenue、totalProfit 和 totalQuantity
   const totalRevenue = visibleItems.reduce(
     (sum, item) => sum + toDecimalNumber(item.salePrice) * item.quantity,
     0,
   );
   const totalProfit = visibleItems.reduce(
     (sum, item) => sum + toDecimalNumber(item.profit) * item.quantity,
+    0,
+  );
+  const totalQuantity = visibleItems.reduce(
+    (sum, item) => sum + item.quantity,
     0,
   );
 
@@ -92,7 +96,7 @@ export function mapSalesRecordResponse(
     items: visibleItems.map((item) => mapSalesRecordItemResponse(item)),
     totalRevenue: Math.round(totalRevenue * 100) / 100,
     totalProfit: Math.round(totalProfit * 100) / 100,
-    totalQuantity: order.totalQuantity,
+    totalQuantity,
     paymentMethod: order.paymentMethod,
     calcMode: order.calcMode,
     ...(note ? { note } : {}),
@@ -162,7 +166,13 @@ function buildReportRowId(
 }
 
 function getReportRowDayStart(rowId: string): number {
-  return Number(rowId.split('-', 1)[0] ?? 0);
+  // rowId 格式为 "${dayStart}-${...}"，dayStart 是毫秒时间戳（纯数字），
+  // 取第一个连字符之前的部分即可安全解析。
+  const separatorIndex = rowId.indexOf('-');
+  if (separatorIndex === -1) {
+    return 0;
+  }
+  return Number(rowId.slice(0, separatorIndex));
 }
 
 export function aggregateReportRows(
@@ -175,8 +185,8 @@ export function aggregateReportRows(
     const dateLabel = formatReportMonthDay(dayStart);
 
     for (const item of order.items) {
-      // 排除预付抵扣行，报表只展示实际消费
-      if (item.productName === PREPAID_DEDUCTION_PRODUCT_NAME) {
+      // 排除抵扣行（预付抵扣 + 续费抵扣），报表只展示实际消费
+      if (isDeductionProductName(item.productName)) {
         continue;
       }
 

@@ -164,14 +164,14 @@ describe('inventory-stock.query', () => {
     productFindFirst.mockResolvedValue({
       id: 101,
       name: '可口可乐 330ml',
-      stock: 3,
+      stock: 10,
     });
     logCreate.mockResolvedValue({
       id: 31,
       productId: 101,
       productName: '可口可乐 330ml',
-      beforeStock: 3,
-      afterStock: 0,
+      beforeStock: 10,
+      afterStock: 7,
       delta: -3,
       adjustType: 'manual',
       note: '盘点修正',
@@ -184,7 +184,7 @@ describe('inventory-stock.query', () => {
         storeId: 18,
         productId: 101,
         operatorStaffId: 8,
-        delta: -5,
+        delta: -3,
         mode: 'delta',
         adjustType: 'manual',
         note: '盘点修正',
@@ -193,8 +193,8 @@ describe('inventory-stock.query', () => {
       id: 31,
       productId: 101,
       productName: '可口可乐 330ml',
-      beforeStock: 3,
-      afterStock: 0,
+      beforeStock: 10,
+      afterStock: 7,
       delta: -3,
       adjustType: 'manual',
       note: '盘点修正',
@@ -204,7 +204,7 @@ describe('inventory-stock.query', () => {
 
     expect(productUpdate).toHaveBeenCalledWith({
       where: { id: 101 },
-      data: { stock: 0 },
+      data: { stock: 7 },
     });
   });
 

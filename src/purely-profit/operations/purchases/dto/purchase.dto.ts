@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -42,12 +43,13 @@ function transformOptionalPurchaseProductId({
     if (/^-?\d+$/.test(trimmedValue)) {
       return Number.parseInt(trimmedValue, 10);
     }
-    if (/[A-Za-z_-]/.test(trimmedValue)) {
-      return undefined;
-    }
+    // 非纯数字字符串（含小数点、字母、特殊字符等）均视为无效，返回 undefined
+    // 让后续 @IsInt() 校验给出准确的错误提示
+    return undefined;
   }
 
-  return Number.NaN;
+  // 其他类型均视为无效
+  return undefined;
 }
 
 export class PurchaseItemInputDto {
@@ -82,10 +84,10 @@ export class PurchaseItemInputDto {
   @Min(1, { message: '进货数量必须大于 0' })
   quantity: number;
 
-  @ApiProperty({ example: 60, description: '进货单价（元）' })
+  @ApiProperty({ example: 60, description: '进货单价（元），必须大于 0' })
   @Type(() => Number)
   @IsNumber({}, { message: '进货单价必须是数字' })
-  @Min(0, { message: '进货单价不能为负数' })
+  @Min(0.01, { message: '进货单价必须大于 0' })
   unitPrice: number;
 
   @ApiPropertyOptional({
@@ -139,11 +141,14 @@ export class CreatePurchaseDto {
 
   @ApiProperty({
     example: 1715558400000,
-    description: '进货日期时间戳（毫秒）',
+    description: '进货日期时间戳（毫秒），不能超过当前时间 1 年',
   })
   @Type(() => Number)
   @IsInt({ message: '进货日期必须是整数时间戳' })
   @Min(0, { message: '进货日期不合法' })
+  @Max(Date.now() + 365 * 24 * 60 * 60 * 1000, {
+    message: '进货日期不能超过当前时间 1 年',
+  })
   date: number;
 
   @ApiPropertyOptional({ example: '货款月结', description: '备注' })
@@ -311,17 +316,17 @@ export class PaginatedPurchasesResponseDto {
 
 export class PurchaseStatsResponseDto {
   @ApiProperty({ example: 5200, description: '当前筛选周期总进货金额' })
-  totalThisMonth: number;
+  totalAmount: number;
 
   @ApiProperty({ example: 12, description: '当前筛选周期进货笔数' })
-  countThisMonth: number;
+  orderCount: number;
 
-  @ApiProperty({ example: 8, description: '供应商总数' })
+  @ApiProperty({ example: 8, description: '当前筛选周期有进货记录的供应商数' })
   supplierCount: number;
 
   @ApiPropertyOptional({
     example: 12.5,
     description: '较上一周期变化百分比；无对比数据时为 null',
   })
-  compareLastMonth: number | null;
+  compareLastPeriod: number | null;
 }

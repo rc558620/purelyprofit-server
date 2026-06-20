@@ -57,10 +57,10 @@ export class ClubRechargeQueryService {
     );
   }
 
-  getRechargeDraftByOrderId(
-    orderId: string,
+  getRechargeDraftByOrderNo(
+    orderNo: string,
   ): Promise<ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'>> {
-    return this.clubOrderDraftsService.getDraftByOrderId(orderId, 'recharge');
+    return this.clubOrderDraftsService.getDraftByOrderId(orderNo, 'recharge');
   }
 
   toRechargeOrderResponse(

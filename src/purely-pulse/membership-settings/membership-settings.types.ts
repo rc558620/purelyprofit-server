@@ -19,5 +19,6 @@ export interface MembershipPlanSettingRecord {
 
 export interface MembershipPlanSettingPatch {
   price: number;
+  planName?: string;
   validDays?: number;
 }

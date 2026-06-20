@@ -295,7 +295,9 @@ describe('profit-detail.utils', () => {
       totalCost: 0,
       netProfit: 0,
       profitRate: 0,
-      compareLastPeriod: null,
+      revenueCompareLastPeriod: null,
+      profitCompareLastPeriod: null,
+      costCompareLastPeriod: null,
       orderCount: 0,
     });
     expect(buildEmptyProfitDetailResponse()).toEqual({
@@ -326,7 +328,7 @@ describe('profit-detail.utils', () => {
         profit: new Prisma.Decimal('2.50'),
         quantity: 2,
         image: null,
-        order: { date: new Date(2026, 4, 12, 10, 0, 0, 0) },
+        order: { id: 1, date: new Date(2026, 4, 12, 10, 0, 0, 0), spaceSession: null },
       },
       {
         productId: 1,
@@ -336,7 +338,7 @@ describe('profit-detail.utils', () => {
         profit: new Prisma.Decimal('2.50'),
         quantity: 1,
         image: 'https://example.com/coke.png',
-        order: { date: new Date(2026, 4, 12, 13, 0, 0, 0) },
+        order: { id: 2, date: new Date(2026, 4, 12, 13, 0, 0, 0), spaceSession: null },
       },
       {
         productId: null,
@@ -346,7 +348,7 @@ describe('profit-detail.utils', () => {
         profit: new Prisma.Decimal('3.00'),
         quantity: 1,
         image: null,
-        order: { date: new Date(2026, 4, 13, 10, 0, 0, 0) },
+        order: { id: 3, date: new Date(2026, 4, 13, 10, 0, 0, 0), spaceSession: null },
       },
       {
         productId: 3,
@@ -356,7 +358,17 @@ describe('profit-detail.utils', () => {
         profit: new Prisma.Decimal('2.00'),
         quantity: 1,
         image: null,
-        order: { date: new Date(2026, 4, 10, 10, 0, 0, 0) },
+        order: { id: 4, date: new Date(2026, 4, 10, 10, 0, 0, 0), spaceSession: null },
+      },
+      {
+        productId: null,
+        productName: '续费抵扣',
+        categoryName: '场地费',
+        salePrice: new Prisma.Decimal('-30.00'),
+        profit: new Prisma.Decimal('-30.00'),
+        quantity: 1,
+        image: null,
+        order: { id: 5, date: new Date(2026, 4, 12, 14, 0, 0, 0), spaceSession: null },
       },
     ];
 
@@ -367,7 +379,8 @@ describe('profit-detail.utils', () => {
     );
 
     expect(result.revenue).toBe(28.5);
-    expect(result.orderCount).toBe(4);
+    // orderCount 统计独立订单数（3 个订单，续费抵扣行被排除不计入）
+    expect(result.orderCount).toBe(3);
     expect(result.dailyRevenueMap).toEqual(
       new Map<number, number>([
         [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 19.5],
@@ -445,12 +458,15 @@ describe('profit-detail.utils', () => {
   });
 
   it('汇总与趋势 helper 会正确计算比例、变化率与每日利润', () => {
-    expect(buildSummary(22, 24, 11, 11, 3)).toEqual({
+    // buildSummary(current=22, previous=24, cost=11, previousCost=10, netProfit=11, previousNetProfit=14, orderCount=3)
+    expect(buildSummary(22, 24, 11, 10, 11, 14, 3)).toEqual({
       revenue: 22,
       totalCost: 11,
       netProfit: 11,
       profitRate: 50,
-      compareLastPeriod: -8.33,
+      revenueCompareLastPeriod: -8.33,
+      profitCompareLastPeriod: -21.43,
+      costCompareLastPeriod: 10,
       orderCount: 3,
     });
     expect(
@@ -610,7 +626,13 @@ describe('profit-detail.utils', () => {
           ['purchase', 3],
         ]),
       },
+      previousCosts: {
+        totalCost: 10,
+        dailyCostMap: new Map<number, number>(),
+        categoryCostMap: new Map<CostRecordRow['category'], number>(),
+      },
       netProfit: 11,
+      previousNetProfit: 14,
     };
 
     expect(buildProfitDetailResponse(snapshot)).toEqual({
@@ -619,7 +641,9 @@ describe('profit-detail.utils', () => {
         totalCost: 11,
         netProfit: 11,
         profitRate: 50,
-        compareLastPeriod: -8.33,
+        revenueCompareLastPeriod: -8.33,
+        profitCompareLastPeriod: -21.43,
+        costCompareLastPeriod: 10,
         orderCount: 3,
       },
       dailyProfits: [
@@ -651,7 +675,9 @@ describe('profit-detail.utils', () => {
         totalCost: 11,
         netProfit: 11,
         profitRate: 50,
-        compareLastPeriod: -8.33,
+        revenueCompareLastPeriod: -8.33,
+        profitCompareLastPeriod: -21.43,
+        costCompareLastPeriod: 10,
         orderCount: 3,
       },
       products: [

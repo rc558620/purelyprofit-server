@@ -17,6 +17,26 @@ export type DecimalLike = {
  */
 export const PREPAID_DEDUCTION_PRODUCT_NAME = '预付抵扣';
 
+/**
+ * 空间续费抵扣商品的 productName。
+ * 在数据库 sale_order_items 中，续费抵扣行的 productId 为 null，
+ * 只能通过 productName 识别。
+ *
+ * 与预付抵扣同理，非财务模块应排除此行，只算实际消费。
+ */
+export const RENEW_DEDUCTION_PRODUCT_NAME = '续费抵扣';
+
+/**
+ * 判断商品行是否为抵扣行（预付抵扣或续费抵扣），
+ * 非财务模块应排除这些行，只算实际消费。
+ */
+export function isDeductionProductName(productName: string): boolean {
+  return (
+    productName === PREPAID_DEDUCTION_PRODUCT_NAME ||
+    productName === RENEW_DEDUCTION_PRODUCT_NAME
+  );
+}
+
 export interface ResolvedPagination {
   page: number;
   skip: number;
@@ -256,6 +276,13 @@ export function getQuarterStartTimestamp(timestampMs: number): number {
   return new Date(date.getFullYear(), quarter * 3, 1).getTime();
 }
 
+/**
+ * 根据当期时间范围推算等长上期范围。
+ *
+ * 边界语义：当期 [start, end]，上期 [start - duration - 1, start - 1]。
+ * SQL 中当期用 `>= start AND <= end`，上期用 `>= prevStart AND <= prevEnd`，
+ * prevEnd = start - 1 保证与当期 start 无重叠、无间隙（毫秒精度）。
+ */
 export function buildPreviousRangeByDuration(
   start: number,
   end: number,

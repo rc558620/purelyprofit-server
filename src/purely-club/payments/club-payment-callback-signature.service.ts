@@ -16,7 +16,7 @@
  *
  * 如需完整 RSA 验签，可在 assertWechatCallbackSignature 中调用 verifyWithPublicKey。
  */
-import { createVerify, timingSafeEqual } from 'node:crypto';
+import { createVerify } from 'node:crypto';
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ClubWechatCallbackHeaders } from './club-payments.types';
@@ -46,9 +46,16 @@ export class ClubPaymentCallbackSignatureService {
     const timestamp = headers.timestamp?.trim();
     const nonce = headers.nonce?.trim();
     const signature = headers.signature?.trim();
+    const serial = headers.serial?.trim();
 
     if (!timestamp || !nonce || !signature) {
       throw new UnauthorizedException('缺少微信支付回调签名头');
+    }
+
+    if (!serial) {
+      this.logger.warn(
+        '微信支付回调缺少 Wechatpay-Serial 头，未来多证书场景可能导致验签失败',
+      );
     }
 
     // 时间戳时效性校验
@@ -118,21 +125,6 @@ export class ClubPaymentCallbackSignatureService {
       this.logger.error('微信平台公钥 RSA 验签异常，公钥格式可能有误', error);
       throw new UnauthorizedException('微信支付回调签名校验异常');
     }
-  }
-
-  /**
-   * 验证两个签名是否一致（防时序攻击）
-   * 仅当两串长度相同且内容完全一致时才通过
-   */
-  compareSignatures(expected: string, received: string): boolean {
-    const expectedBuf = Buffer.from(expected, 'utf8');
-    const receivedBuf = Buffer.from(received, 'utf8');
-
-    if (expectedBuf.length !== receivedBuf.length) {
-      return false;
-    }
-
-    return timingSafeEqual(expectedBuf, receivedBuf);
   }
 
   private parseCallbackTimestampMs(timestamp: string): number {

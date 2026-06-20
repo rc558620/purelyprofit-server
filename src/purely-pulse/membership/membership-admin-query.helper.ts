@@ -181,10 +181,19 @@ export function maskAdminMemberPhone(phone: string): string {
   return `${normalizedPhone.slice(0, 3)}****${normalizedPhone.slice(-4)}`;
 }
 
+/**
+ * 将数据库中的会员计划ID + 过期时间映射为 Pulse 管理端的会员等级。
+ *
+ * ⚠️ 历史数据约定：早期 lifetime 会员在数据库中存储为
+ * currentPlanId='yearly' + expiresAt=null。此函数通过此隐式约定
+ * 识别 lifetime 会员。新创建的 lifetime 会员已使用 currentPlanId='lifetime'，
+ * 不再依赖此约定。
+ */
 export function toPulseMemberLevel(
   planId: PulseAdminMembershipProfileRecord['currentPlanId'],
   expiresAt: Date | null,
 ): PulseAdminMemberLevel {
+  // 历史数据兼容：yearly + null expiresAt = lifetime
   if (planId === 'yearly' && expiresAt === null) {
     return 'lifetime';
   }

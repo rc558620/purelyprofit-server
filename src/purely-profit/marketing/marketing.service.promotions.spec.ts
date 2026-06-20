@@ -145,28 +145,30 @@ describe('MarketingService promotions', () => {
         endAt: new Date('2026-05-31T23:59:59.000Z').getTime(),
         enabled: true,
       }),
-    ).rejects.toThrow('当前门店已存在相同活动类型，请直接编辑现有活动');
+    ).rejects.toThrow('当前门店已存在相同类型的上架活动，请直接编辑现有活动');
     expect(
       context.prismaService.marketingPromotion.create,
     ).not.toHaveBeenCalled();
   });
 
   it('updatePromotion 不允许编辑到重复活动类型记录', async () => {
-    context.prismaService.marketingPromotion.findUnique.mockResolvedValue({
-      id: 9,
-      storeId: 18,
-      name: '首单 85 折',
-      type: 'first_order_discount',
-      description: '首单专享',
-      params: { discountRate: 85, audience: 'first_order' },
-      startAt: new Date('2026-05-01T00:00:00.000Z'),
-      endAt: new Date('2026-05-31T23:59:59.000Z'),
-      usageCount: 0,
-      totalDiscount: 0,
-      enabled: true,
-      createdAt: new Date('2026-04-25T00:00:00.000Z'),
-      updatedAt: new Date('2026-04-25T00:00:00.000Z'),
-    });
+    context.prismaService.$queryRaw.mockResolvedValue([
+      {
+        id: 9,
+        storeId: 18,
+        name: '首单 85 折',
+        type: 'first_order_discount',
+        description: '首单专享',
+        params: { discountRate: 85, audience: 'first_order' },
+        startAt: new Date('2026-05-01T00:00:00.000Z'),
+        endAt: new Date('2026-05-31T23:59:59.000Z'),
+        usageCount: 0,
+        totalDiscount: 0,
+        enabled: true,
+        createdAt: new Date('2026-04-25T00:00:00.000Z'),
+        updatedAt: new Date('2026-04-25T00:00:00.000Z'),
+      },
+    ]);
     context.accessService.ensureCanAccess.mockResolvedValue(undefined);
     context.prismaService.marketingPromotion.count.mockResolvedValue(1);
 
@@ -174,7 +176,7 @@ describe('MarketingService promotions', () => {
       context.service.updatePromotion(context.user, 9, {
         name: '首单 8 折',
       }),
-    ).rejects.toThrow('当前门店已存在相同活动类型，请直接编辑现有活动');
+    ).rejects.toThrow('当前门店已存在相同类型的上架活动，请直接编辑现有活动');
     expect(
       context.prismaService.marketingPromotion.update,
     ).not.toHaveBeenCalled();

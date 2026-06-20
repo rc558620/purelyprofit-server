@@ -1,7 +1,7 @@
 import {
-  PREPAID_DEDUCTION_PRODUCT_NAME,
   addMoneyValues,
   getDayStartTimestamp,
+  isDeductionProductName,
   multiplyMoneyValue,
   toDecimalNumber,
   toOptionalMediaText,
@@ -25,7 +25,7 @@ export function createEmptySalesAggregation(): SalesAggregationResult {
 }
 
 function shouldPrefixProfitSpaceName(productName: string): boolean {
-  return productName === '续费抵扣' || productName.startsWith('台位费（');
+  return productName.startsWith('台位费（');
 }
 
 function resolveProfitProductName(row: SaleOrderItemRow): string {
@@ -47,9 +47,11 @@ export function aggregateSales(
   const dailyRevenueMap = new Map<number, number>();
   const rankMap = new Map<string, AggregatedRankProduct>();
 
+  const seenOrderIds = new Set<number>();
+
   for (const row of rows) {
-    // 排除预付抵扣行，利润明细只算实际消费
-    if (row.productName === PREPAID_DEDUCTION_PRODUCT_NAME) {
+    // 排除抵扣行（预付抵扣 + 续费抵扣），利润明细只算实际消费
+    if (isDeductionProductName(row.productName)) {
       continue;
     }
 
@@ -63,7 +65,9 @@ export function aggregateSales(
     const itemRevenue = multiplyMoneyValue(price, row.quantity);
     const itemProfit = multiplyMoneyValue(profitPerUnit, row.quantity);
     revenue = addMoneyValues(revenue, itemRevenue);
-    orderCount += row.quantity;
+    // orderCount 统计独立订单数（去重），与其他模块口径一致
+    seenOrderIds.add(row.order.id);
+    orderCount = seenOrderIds.size;
 
     const dayStart = getDayStartTimestamp(timestamp);
     dailyRevenueMap.set(

@@ -91,11 +91,11 @@ export class NotificationsService {
       storeId,
       notificationId,
     );
+    // 写入后重新从 Redis 读取完整已读状态，避免手动覆盖导致竞态不一致
     const unreadMap = await this.notificationsReadStateService.getUnreadMap(
       storeId,
       items,
     );
-    unreadMap.set(notificationId, readAt);
     const unreadCount = this.notificationsReadStateService.countUnreadItems(
       items,
       unreadMap,

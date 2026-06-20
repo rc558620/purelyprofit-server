@@ -10,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
+import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubRechargeContextService } from './club-recharge-context.service';
 import { ClubRechargeCreationService } from './club-recharge-creation.service';
@@ -57,7 +58,14 @@ describe('ClubRechargeService', () => {
     getDraft: jest.fn(),
     getDraftByOrderId: jest.fn(),
     markPaid: jest.fn(),
+    deleteDraft: jest.fn(),
+    updateDraftPaymentParams: jest.fn(),
     toOrderStatusResponse: jest.fn(),
+  };
+
+  const clubPaymentLockService = {
+    acquireLock: jest.fn().mockResolvedValue('mock-lock-token'),
+    releaseLock: jest.fn().mockResolvedValue(undefined),
   };
 
   const cacheInvalidatorService = {
@@ -161,6 +169,7 @@ describe('ClubRechargeService', () => {
         { provide: ClubOrderDraftsService, useValue: clubOrderDraftsService },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
         { provide: ClubWechatJsapiService, useValue: clubWechatJsapiService },
+        { provide: ClubPaymentLockService, useValue: clubPaymentLockService },
       ],
     }).compile();
 
@@ -383,27 +392,28 @@ describe('ClubRechargeService', () => {
       }),
     ]);
     prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 66 });
-    clubWechatJsapiService.createJsapiPaymentParams.mockResolvedValue({
+    const wxPaymentParams = {
       timeStamp: '1773556800',
       nonceStr: 'wx-nonce',
       package: 'prepay_id=club_RCWX123',
       signType: 'RSA',
       paySign: 'WX-SIGN',
-    });
-    clubOrderDraftsService.createDraft.mockResolvedValue({
+    };
+    clubWechatJsapiService.createJsapiPaymentParams.mockResolvedValue(
+      wxPaymentParams,
+    );
+    const baseDraft = {
       ...createRechargeDraft(),
       id: 'RCWX123',
       orderNo: 'RCWX123',
       userId: 301,
       phone: 'club_wechat:oOPENID123',
       customerId: 66,
-      paymentParams: {
-        timeStamp: '1773556800',
-        nonceStr: 'wx-nonce',
-        package: 'prepay_id=club_RCWX123',
-        signType: 'RSA',
-        paySign: 'WX-SIGN',
-      },
+    };
+    clubOrderDraftsService.createDraft.mockResolvedValue(baseDraft);
+    clubOrderDraftsService.updateDraftPaymentParams.mockResolvedValue({
+      ...baseDraft,
+      paymentParams: wxPaymentParams,
     });
 
     await expect(
@@ -448,6 +458,9 @@ describe('ClubRechargeService', () => {
         amountFen: 50000,
       }),
     );
+    expect(
+      clubOrderDraftsService.updateDraftPaymentParams,
+    ).toHaveBeenCalledWith(baseDraft, wxPaymentParams);
   });
 
   it('createOrder 支持自定义充值金额', async () => {

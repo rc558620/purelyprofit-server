@@ -73,7 +73,6 @@ export class EmployeesPayrollService {
           : {}),
       },
       orderBy: [{ month: 'desc' }, { employeeName: 'asc' }, { id: 'asc' }],
-      take: 500,
     });
 
     return buildPayrollReport(rows);
@@ -87,6 +86,7 @@ export class EmployeesPayrollService {
       user,
       query.storeId,
       '无权查看该门店工资数据',
+      'finance:view',
     );
     const targetMonth = resolvePayrollMonthFilter(query.year, query.month);
     const rows = await this.prisma.employeePayroll.findMany({
@@ -104,7 +104,6 @@ export class EmployeesPayrollService {
           : {}),
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 200,
     });
     return rows.map(toEmployeePayrollResponse);
   }

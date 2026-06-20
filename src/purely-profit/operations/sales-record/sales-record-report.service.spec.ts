@@ -193,8 +193,8 @@ describe('SalesRecordReportService', () => {
       summary: {
         totalQuantity: 5,
         totalRevenue: 49.5,
-        orderCount: 3,
-        avgOrderValue: 16.5,
+        orderCount: 2,
+        avgOrderValue: 24.75,
       },
       dailySales: [
         {
@@ -296,8 +296,8 @@ describe('SalesRecordReportService', () => {
       summary: {
         totalQuantity: 3,
         totalRevenue: 19.5,
-        orderCount: 1,
-        avgOrderValue: 19.5,
+        orderCount: 2,
+        avgOrderValue: 9.75,
       },
       dailySales: [
         {

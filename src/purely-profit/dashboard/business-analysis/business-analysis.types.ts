@@ -6,7 +6,6 @@ export const BUSINESS_ANALYSIS_PERIOD_VALUES = [
   'month',
   'quarter',
   'year',
-  'custom_month',
   'custom_range',
 ] as const;
 
@@ -23,39 +22,6 @@ export const BUSINESS_ANALYSIS_COST_CATEGORY_META = {
 } as const;
 
 export type CostBucketKey = keyof typeof BUSINESS_ANALYSIS_COST_CATEGORY_META;
-
-export const BUSINESS_ANALYSIS_SALE_ORDER_ITEM_SELECT =
-  Prisma.validator<Prisma.SaleOrderItemSelect>()({
-    productId: true,
-    productName: true,
-    categoryName: true,
-    salePrice: true,
-    profit: true,
-    quantity: true,
-    image: true,
-    createdAt: true,
-    order: {
-      select: {
-        id: true,
-        date: true,
-      },
-    },
-  });
-
-export type SaleOrderItemRow = Prisma.SaleOrderItemGetPayload<{
-  select: typeof BUSINESS_ANALYSIS_SALE_ORDER_ITEM_SELECT;
-}>;
-
-export const BUSINESS_ANALYSIS_COST_RECORD_SELECT =
-  Prisma.validator<Prisma.CostRecordSelect>()({
-    category: true,
-    amount: true,
-    date: true,
-  });
-
-export type CostRecordCostRow = Prisma.CostRecordGetPayload<{
-  select: typeof BUSINESS_ANALYSIS_COST_RECORD_SELECT;
-}>;
 
 export interface BusinessAnalysisSalesSummaryRow {
   currentRevenue: Prisma.Decimal | null;

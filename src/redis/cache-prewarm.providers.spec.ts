@@ -157,7 +157,7 @@ describe('cache prewarm providers', () => {
     });
 
     const result = await provider.prewarm(
-      [buildFinanceOverviewCacheKey(18, 'month')],
+      [buildFinanceOverviewCacheKey(18, 'month', 'owner')],
       { concurrency: 1 },
     );
 
@@ -165,6 +165,7 @@ describe('cache prewarm providers', () => {
     expect(financeOverviewService.warmOverviewCache).toHaveBeenCalledWith(
       18,
       'month',
+      'owner',
     );
     expect(result.hitCount).toBe(1);
     expect(result.refreshedCount).toBe(1);

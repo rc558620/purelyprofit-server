@@ -32,6 +32,7 @@ describe('products.mapper', () => {
   it('buildProductResponse 会映射完整商品响应', () => {
     expect(buildProductResponse(createProductRecordFixture())).toEqual({
       id: '11',
+      storeId: 18,
       name: '可乐',
       category: '饮品',
       code: 'SKU-001',
@@ -60,6 +61,7 @@ describe('products.mapper', () => {
       ),
     ).toEqual({
       id: '11',
+      storeId: 18,
       name: '可乐',
       category: '饮品',
       code: 'SKU-001',

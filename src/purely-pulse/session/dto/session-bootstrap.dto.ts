@@ -81,7 +81,8 @@ export class PulseSessionMembershipDto {
 
   @ApiPropertyOptional({
     example: 30,
-    description: '目标商家订阅剩余天数（已到期或未开通时为 0）',
+    description:
+      '目标商家订阅剩余天数（已到期或未开通时为 0，永久会员为 -1）',
   })
   @IsOptional()
   @IsInt()

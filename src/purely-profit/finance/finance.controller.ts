@@ -124,7 +124,7 @@ export class FinanceController {
   }
 
   @Post('cash-flow/records')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @ApiOperation({ summary: '新增现金流水' })
   @ApiCreatedResponse({
     description: '创建成功并返回最新现金流水记录',
@@ -138,7 +138,7 @@ export class FinanceController {
   }
 
   @Delete('cash-flow/records/:id')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除现金流水' })
   @ApiNoContentResponse({ description: '删除成功' })
@@ -177,7 +177,7 @@ export class FinanceController {
   }
 
   @Post('accounts')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @ApiOperation({ summary: '新增账款' })
   @ApiCreatedResponse({
     description: '创建成功并返回最新账款记录',
@@ -191,7 +191,7 @@ export class FinanceController {
   }
 
   @Patch('accounts/:id/settle')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @ApiOperation({ summary: '登记账款收付' })
   @ApiOkResponse({
     description: '登记本次收付后返回最新账款记录',
@@ -206,7 +206,7 @@ export class FinanceController {
   }
 
   @Delete('accounts/:id')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除账款' })
   @ApiNoContentResponse({ description: '删除成功' })
@@ -245,7 +245,7 @@ export class FinanceController {
   }
 
   @Post('reconciliation')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @ApiOperation({ summary: '新建对账单' })
   @ApiCreatedResponse({
     description: '创建成功并返回完整对账单记录',
@@ -259,7 +259,7 @@ export class FinanceController {
   }
 
   @Patch('reconciliation/:id/confirm')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @ApiOperation({ summary: '确认或调整对账单' })
   @ApiOkResponse({
     description: '确认/调整成功并返回最新对账单记录',
@@ -274,7 +274,7 @@ export class FinanceController {
   }
 
   @Delete('reconciliation/:id')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除对账单' })
   @ApiNoContentResponse({ description: '删除成功' })

@@ -311,7 +311,7 @@ export function ensurePasswordConfirmation(
   confirmPassword: string | undefined,
   message: string,
 ): void {
-  if (confirmPassword !== undefined && password !== confirmPassword) {
+  if (confirmPassword === undefined || password !== confirmPassword) {
     throw new BadRequestException(message);
   }
 }
@@ -338,7 +338,7 @@ export function buildRegisterCodeKey(
 }
 
 export function buildSmsSendCooldownKey(
-  scene: 'register' | 'login' | 'password-reset',
+  scene: 'register' | 'login' | 'password-reset' | 'login_or_register',
   scope: AuthProductScope,
   phone: string,
 ): string {

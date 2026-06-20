@@ -4,7 +4,10 @@ import type { GetBusinessAnalysisQueryDto } from '../../purely-profit/dashboard/
 import type { BusinessAnalysisResponseDto } from '../../purely-profit/dashboard/business-analysis/dto/business-analysis-response.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
-import { buildPulseDashboardOverviewCacheKey } from '../pulse.cache-keys';
+import {
+  buildPulseDashboardOverviewCacheKey,
+  buildPulseDashboardStoresCacheKey,
+} from '../pulse.cache-keys';
 import { RedisService } from '../../redis/redis.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PulseStoreContextService } from '../pulse-store-context.service';
@@ -99,8 +102,24 @@ export class PulseDashboardOverviewService {
       queryDto.storeId,
       '当前未选中目标门店，暂无法查看门店排行',
     );
+    const cacheKey = buildPulseDashboardStoresCacheKey(targetStore.id, period);
+
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: PULSE_DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS,
+      refreshAfterMs: PULSE_DASHBOARD_OVERVIEW_REFRESH_AFTER_MS,
+      loadValue: () => this.buildStores(targetStore, period),
+    });
+  }
+
+  private async buildStores(
+    targetStore: PulseTargetStoreSummary,
+    period: PulseDashboardPeriodValue,
+  ): Promise<PulseDashboardStoresResponseDto> {
     const storeIds = [targetStore.id];
-    const currentRange = buildCurrentRange(period);
+    const nowMs = Date.now();
+    const currentRange = buildCurrentRange(period, nowMs);
 
     const storeRows: DashboardStoreSummaryRow[] =
       await this.prisma.store.findMany({
@@ -196,7 +215,8 @@ export class PulseDashboardOverviewService {
     period: PulseDashboardPeriodValue,
   ): Promise<PulseDashboardOverviewResponseDto> {
     const storeIds = [targetStore.id];
-    const currentRange = buildCurrentRange(period);
+    const nowMs = Date.now();
+    const currentRange = buildCurrentRange(period, nowMs);
     const compareRange = buildCompareRange(period, currentRange);
 
     const [currentAgg, compareAgg, costSum, compareCostSum] = await Promise.all(

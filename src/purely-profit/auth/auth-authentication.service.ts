@@ -215,11 +215,15 @@ export class AuthAuthenticationService {
         productScope: params.productScope,
       });
 
-      return this.authSessionService.signToken(newUser.id, {
-        phone: params.phone,
-        email: newUser.email,
-        accountScope: newUser.accountScope,
-      });
+      // 新注册用户也需走 completeLogin 以保持封禁检查一致性
+      return this.completeLogin(
+        {
+          ...newUser,
+          phone: params.phone,
+        },
+        params.productScope,
+        newUser.accountScope as AuthenticatedAccountScope,
+      );
     } catch (error) {
       // 并发首登下，两个请求可能同时通过验证码校验并竞争创建同一手机号账号。
       // 若一个请求已创建成功，这里应回退为“已存在账号直接登录”，避免把正常并发打成 500。
@@ -268,13 +272,12 @@ export class AuthAuthenticationService {
         unionid: params.unionid,
       });
 
-      // 若本次传入了手机号，顺便写入 wechat_phone（可能是首次绑定）
+      // 若本次传入了手机号，写入 wechat_phone 前，先检查该手机号是否已被其他用户绑定
       if (params.phone) {
-        await this.authAccountLookupService.updateWechatPhone(
-          existingUser.id,
-          params.phone,
-        );
+        await this.safeUpdateWechatPhone(existingUser.id, params.phone);
       }
+
+      await this.authAccountMembershipService.ensureUserNotBanned(existingUser.id);
 
       return this.authSessionService.signToken(existingUser.id, {
         phone: existingUser.phone,
@@ -292,13 +295,25 @@ export class AuthAuthenticationService {
 
       if (phoneUser) {
         // 手机号账号已存在：将 openid 绑定到该账号（账号合并）
-        await this.authAccountLookupService.bindWechatToUser(phoneUser.id, {
-          openid: params.openid,
-          unionid: params.unionid,
-          nickname: params.nickname,
-          avatar: params.avatar,
-          phone: params.phone,
-        });
+        // 使用 try/catch 处理 wechatOpenid 唯一约束冲突（P2002）
+        try {
+          await this.authAccountLookupService.bindWechatToUser(phoneUser.id, {
+            openid: params.openid,
+            unionid: params.unionid,
+            nickname: params.nickname,
+            avatar: params.avatar,
+            phone: params.phone,
+          });
+        } catch (error) {
+          if (this.isUniqueConstraintError(error)) {
+            throw new ConflictException(
+              '该微信已绑定其他账号，无法自动合并，请联系客服',
+            );
+          }
+          throw error;
+        }
+
+        await this.authAccountMembershipService.ensureUserNotBanned(phoneUser.id);
 
         return this.authSessionService.signToken(phoneUser.id, {
           phone: phoneUser.phone,
@@ -337,6 +352,7 @@ export class AuthAuthenticationService {
             params.openid,
           );
         if (resolvedUser) {
+          await this.authAccountMembershipService.ensureUserNotBanned(resolvedUser.id);
           return this.authSessionService.signToken(resolvedUser.id, {
             phone: resolvedUser.phone,
             email: resolvedUser.email,
@@ -425,7 +441,7 @@ export class AuthAuthenticationService {
   }
 
   private async completeLogin(
-    user: PhoneUserRecord,
+    user: { id: number; phone: string; email: string },
     productScope: AuthProductScope,
     accountScope: AuthenticatedAccountScope,
   ): Promise<AuthTokenResponseDto> {
@@ -435,6 +451,11 @@ export class AuthAuthenticationService {
         email: user.email,
         accountScope,
       });
+    }
+
+    // club 用户也需检查封禁状态：若关联的所有门店都被封禁则拒绝登录
+    if (productScope === 'purely_club') {
+      await this.authAccountMembershipService.ensureUserNotBanned(user.id);
     }
 
     return this.authSessionService.signToken(user.id, {
@@ -462,6 +483,26 @@ export class AuthAuthenticationService {
       user.phone,
       this.pulseDevAccountEmails,
     ).accountScope;
+  }
+
+  /**
+   * 安全更新 wechatPhone：写入前先检查该手机号是否已被其他用户绑定，
+   * 避免 A 用户的 wechatPhone 被覆盖为 B 用户手机号导致账号混淆。
+   */
+  private async safeUpdateWechatPhone(
+    userId: number,
+    phone: string,
+  ): Promise<void> {
+    const existingHolder =
+      await this.authAccountLookupService.findUserByWechatPhone(phone);
+
+    if (existingHolder && existingHolder.id !== userId) {
+      // 手机号已被其他用户绑定，不覆盖，仅记录警告
+      // 后续可通过人工客服或身份验证流程处理合并
+      return;
+    }
+
+    await this.authAccountLookupService.updateWechatPhone(userId, phone);
   }
 
   private isUniqueConstraintError(error: unknown): boolean {

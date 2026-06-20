@@ -47,6 +47,9 @@ export async function queryCostReportRows(
   previousTotal: Prisma.Decimal;
   payrollRows: CostReportPayrollRow[];
 }> {
+  const categoryWhere =
+    categoryFilter !== 'all' ? { category: categoryFilter } : {};
+
   const costRowsPromise: Promise<CostReportCostRow[]> =
     prisma.costRecord.findMany({
       where: {
@@ -55,6 +58,7 @@ export async function queryCostReportRows(
           gte: new Date(currentRange.start),
           lte: new Date(currentRange.end),
         },
+        ...categoryWhere,
       },
       select: {
         id: true,
@@ -78,6 +82,7 @@ export async function queryCostReportRows(
               gte: new Date(previousRange.start),
               lte: new Date(previousRange.end),
             },
+            ...categoryWhere,
           },
           _sum: {
             amount: true,

@@ -36,6 +36,16 @@ export class ListClubProductsQueryDto {
   featured?: boolean;
 
   @ApiPropertyOptional({
+    example: 3,
+    description: '按分类 ID 筛选；不传则返回全部分类',
+  })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: 'categoryId 必须是整数' })
+  @Min(1, { message: 'categoryId 必须大于等于 1' })
+  categoryId?: number;
+
+  @ApiPropertyOptional({
     example: 6,
     description: '返回条数上限；不传则按接口默认行为返回',
   })
@@ -191,18 +201,9 @@ export class ClubProductDto {
   @IsBoolean({ message: 'isActive 必须是布尔值' })
   isActive: boolean;
 
-  @ApiPropertyOptional({ example: 30, description: '剩余库存；未设置时不返回' })
-  @IsOptional()
+  @ApiProperty({ example: 30, description: '剩余库存' })
   @IsInt({ message: '库存必须是整数' })
-  stock?: number;
-
-  @ApiPropertyOptional({
-    example: '份',
-    description: '库存单位（如「份」「个」）',
-  })
-  @IsOptional()
-  @IsString({ message: '库存单位必须是字符串' })
-  unit?: string;
+  stock: number;
 
   @ApiPropertyOptional({ example: 60, description: '服务时长（分钟）' })
   @IsOptional()

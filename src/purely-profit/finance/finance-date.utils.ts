@@ -12,7 +12,10 @@ export function getDayEnd(timestamp: number): number {
 
 export function formatReportDateLabel(timestamp: number): string {
   const current = new Date(timestamp);
-  return `${current.getFullYear()}-${current.getMonth() + 1}-${current.getDate()}`;
+  const year = current.getFullYear();
+  const month = String(current.getMonth() + 1).padStart(2, '0');
+  const day = String(current.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function formatMonthDay(timestamp: number): string {

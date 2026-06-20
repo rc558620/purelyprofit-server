@@ -40,6 +40,7 @@ describe('PurchasesService', () => {
 
   const costsService = {
     syncPurchaseCost: jest.fn(),
+    deletePurchaseCostRecord: jest.fn(),
   };
 
   const configService = {
@@ -48,6 +49,7 @@ describe('PurchasesService', () => {
 
   const cacheInvalidatorService = {
     invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
+    invalidatePulseDashboardOverview: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -204,10 +206,10 @@ describe('PurchasesService', () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(null);
 
     await expect(service.getStats(user, { storeId: 18 })).resolves.toEqual({
-      totalThisMonth: 0,
-      countThisMonth: 0,
+      totalAmount: 0,
+      orderCount: 0,
       supplierCount: 0,
-      compareLastMonth: null,
+      compareLastPeriod: null,
     });
 
     expect(prismaService.supplier.count).not.toHaveBeenCalled();
@@ -216,7 +218,12 @@ describe('PurchasesService', () => {
 
   it('getStats 会按当前门店编排供应商数和聚合统计', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.supplier.count.mockResolvedValue(3);
+    // countPurchaseSuppliers 在有 where 参数时使用 findMany + distinct
+    prismaService.purchaseOrder.findMany.mockResolvedValue([
+      { supplierId: 1 },
+      { supplierId: 2 },
+      { supplierId: 3 },
+    ]);
     prismaService.purchaseOrder.aggregate
       .mockResolvedValueOnce({
         _count: { id: 4 },
@@ -233,10 +240,10 @@ describe('PurchasesService', () => {
         customDate: new Date('2026-05-14T10:00:00.000Z').getTime(),
       }),
     ).resolves.toEqual({
-      totalThisMonth: 200,
-      countThisMonth: 4,
+      totalAmount: 200,
+      orderCount: 4,
       supplierCount: 3,
-      compareLastMonth: 25,
+      compareLastPeriod: 25,
     });
 
     expect(commerceAccessService.resolveViewStoreId).toHaveBeenCalledWith(
@@ -245,7 +252,7 @@ describe('PurchasesService', () => {
       'purchase:view',
       '无权查看该门店进货统计',
     );
-    expect(prismaService.supplier.count).toHaveBeenCalledTimes(1);
+    expect(prismaService.purchaseOrder.findMany).toHaveBeenCalledTimes(1);
     expect(prismaService.purchaseOrder.aggregate).toHaveBeenCalledTimes(2);
   });
 
@@ -404,7 +411,7 @@ describe('PurchasesService', () => {
     expect(prismaService.purchaseOrder.delete).not.toHaveBeenCalled();
   });
 
-  it('remove 会先校验门店权限再删除进货单', async () => {
+  it('remove 会先校验门店权限，再在事务中删除成本记录和进货单', async () => {
     prismaService.purchaseOrder.findUnique.mockResolvedValue({
       id: 11,
       storeId: 18,
@@ -418,8 +425,21 @@ describe('PurchasesService', () => {
       'purchase:delete',
       '无权删除该门店进货单',
     );
+    expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
+    expect(costsService.deletePurchaseCostRecord).toHaveBeenCalledWith(
+      prismaService,
+      18,
+      11,
+    );
     expect(prismaService.purchaseOrder.delete).toHaveBeenCalledWith({
       where: { id: 11 },
     });
+    // 验证缓存失效范围包含 Pulse
+    expect(
+      cacheInvalidatorService.invalidateProfitDashboardHome,
+    ).toHaveBeenCalledWith(18);
+    expect(
+      cacheInvalidatorService.invalidatePulseDashboardOverview,
+    ).toHaveBeenCalledWith(18);
   });
 });

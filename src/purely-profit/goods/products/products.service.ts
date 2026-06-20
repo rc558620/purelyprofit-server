@@ -161,7 +161,9 @@ export class ProductsService {
     this.validateMoneyFields(
       dto.price ?? toDecimalNumber(product.price),
       dto.profit ?? toDecimalNumber(product.profit),
-      dto.costPrice ?? toDecimalNumber(product.costPrice),
+      dto.costPrice !== undefined
+        ? dto.costPrice
+        : toDecimalNumber(product.costPrice),
     );
 
     const nextCode = dto.code?.trim();
@@ -172,6 +174,8 @@ export class ProductsService {
         excludeId: product.id,
       });
     }
+    // DTO 传了 code 字段时，nextCode 有值则写入（含与当前值相同时，用于清理尾部空格等脏数据）
+    const resolvedCode = nextCode || undefined;
 
     const nextCategory = dto.category?.trim();
     const categoryRecord = nextCategory
@@ -181,15 +185,17 @@ export class ProductsService {
         })
       : undefined;
 
+    // 确保 category 与 categoryId 同步：仅当 ensureProductCategory 返回有效分类时才写入
+    // 如果 ensureProductCategory 返回 null（理论上对非空字符串不会发生），则跳过分类更新
+    const resolvedCategoryUpdate =
+      nextCategory && categoryRecord
+        ? { category: nextCategory, categoryId: categoryRecord.id }
+        : undefined;
+
     const updated = await updateProductRecord(
       this.prisma,
       product.id,
-      this.buildUpdateProductData(
-        dto,
-        nextCode,
-        nextCategory,
-        categoryRecord?.id,
-      ),
+      this.buildUpdateProductData(dto, resolvedCode, resolvedCategoryUpdate),
     );
 
     return buildProductResponse(updated);
@@ -236,9 +242,12 @@ export class ProductsService {
       category: dto.category.trim(),
       code,
       name: dto.name.trim(),
-      price: dto.price,
-      profit: dto.profit,
-      costPrice: dto.costPrice ?? null,
+      price: String(dto.price),
+      profit: String(dto.profit),
+      costPrice:
+        dto.costPrice !== undefined && dto.costPrice !== null
+          ? String(dto.costPrice)
+          : null,
       unit: dto.unit.trim(),
       stock: dto.stock ?? 0,
       alertThreshold: dto.alertThreshold ?? 10,
@@ -250,21 +259,22 @@ export class ProductsService {
   private buildUpdateProductData(
     dto: UpdateProductDto,
     nextCode?: string,
-    nextCategory?: string,
-    categoryId?: number,
+    categoryUpdate?: { category: string; categoryId: number },
   ): ProductUpdateInput {
     return {
       ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-      ...(nextCategory
+      ...(categoryUpdate
         ? {
-            category: nextCategory,
-            categoryId: categoryId ?? null,
+            category: categoryUpdate.category,
+            categoryId: categoryUpdate.categoryId,
           }
         : {}),
       ...(nextCode ? { code: nextCode } : {}),
-      ...(dto.price !== undefined ? { price: dto.price } : {}),
-      ...(dto.profit !== undefined ? { profit: dto.profit } : {}),
-      ...(dto.costPrice !== undefined ? { costPrice: dto.costPrice } : {}),
+      ...(dto.price !== undefined ? { price: String(dto.price) } : {}),
+      ...(dto.profit !== undefined ? { profit: String(dto.profit) } : {}),
+      ...(dto.costPrice !== undefined
+        ? { costPrice: dto.costPrice !== null ? String(dto.costPrice) : null }
+        : {}),
       ...(dto.unit !== undefined ? { unit: dto.unit.trim() } : {}),
       ...(dto.stock !== undefined ? { stock: dto.stock } : {}),
       ...(dto.alertThreshold !== undefined

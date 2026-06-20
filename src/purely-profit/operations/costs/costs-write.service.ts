@@ -107,6 +107,20 @@ export class CostsWriteService {
     ]);
   }
 
+  async deletePurchaseCostRecord(
+    transaction: Prisma.TransactionClient,
+    storeId: number,
+    purchaseOrderId: number,
+  ): Promise<void> {
+    await transaction.costRecord.deleteMany({
+      where: {
+        storeId,
+        sourceType: 'purchase',
+        purchaseOrderId,
+      },
+    });
+  }
+
   async syncPurchaseCost(
     transaction: Prisma.TransactionClient,
     input: SyncPurchaseCostInput,
@@ -145,18 +159,28 @@ export class CostsWriteService {
     transaction: Prisma.TransactionClient,
     input: SyncPayrollCostInput,
   ): Promise<void> {
-    await this.upsertPayrollCostRecord(transaction, {
-      storeId: input.storeId,
-      payrollId: input.payrollId,
-      operatorStaffId: input.operatorStaffId,
-      sourceType: 'payroll_salary',
-      title: `${input.employeeName}${input.month}工资`,
-      type: 'fixed',
-      category: 'salary',
-      amount: input.actualSalary,
-      note: input.note,
-      month: input.month,
-    });
+    if (!input.actualSalary || input.actualSalary <= 0) {
+      await transaction.costRecord.deleteMany({
+        where: {
+          storeId: input.storeId,
+          payrollId: input.payrollId,
+          sourceType: 'payroll_salary',
+        },
+      });
+    } else {
+      await this.upsertPayrollCostRecord(transaction, {
+        storeId: input.storeId,
+        payrollId: input.payrollId,
+        operatorStaffId: input.operatorStaffId,
+        sourceType: 'payroll_salary',
+        title: `${input.employeeName}${input.month}工资`,
+        type: 'fixed',
+        category: 'salary',
+        amount: input.actualSalary,
+        note: input.note,
+        month: input.month,
+      });
+    }
 
     await this.upsertPayrollComponentCostRecord(transaction, {
       storeId: input.storeId,

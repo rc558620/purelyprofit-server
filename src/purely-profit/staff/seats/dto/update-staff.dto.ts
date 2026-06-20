@@ -4,6 +4,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MinLength,
@@ -13,6 +14,7 @@ export class UpdateStaffDto {
   @ApiPropertyOptional({ example: '李四', description: '员工姓名' })
   @IsOptional()
   @IsString({ message: '员工姓名必须是字符串' })
+  @IsNotEmpty({ message: '员工姓名不能为空字符串' })
   @MinLength(2, { message: '员工姓名至少 2 位' })
   name?: string;
 

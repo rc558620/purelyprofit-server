@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma, StaffRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PulseDevModeAccessService } from '../dev-mode/pulse-dev-mode-access.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import type { PulseTargetStoreSummary } from '../pulse-store-context.types';
 
@@ -85,11 +86,19 @@ export class PulseGrowthAccessService {
     throw new NotFoundException(notFoundMessage);
   }
 
+  /**
+   * 将 Pulse 开发者身份映射为目标门店的 owner 作用域用户。
+   *
+   * ⚠️ 此方法仅用于 Pulse 管理端代目标门店执行操作（如审批合伙人申请）。
+   * 当用户无 currentMembership 时，以 owner 全权限身份代理，这是 Pulse 开发者
+   * 观察态的设计意图。非开发者用户调用此方法将在代理前被上游守卫拒绝。
+   */
   buildScopedUser(user: AuthenticatedUser, storeId: number): AuthenticatedUser {
     const membership = user.currentMembership ?? {
       staffId: 0,
       storeId,
       role: StaffRole.OWNER,
+      // Pulse 开发者代理目标门店操作时需要 owner 全权限
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
@@ -154,13 +163,23 @@ export class PulseGrowthAccessService {
   }
 
   private isDeveloper(user: AuthenticatedUser): boolean {
-    return user.isPulseDeveloper === true || user.pulseMode === 'developer';
+    return PulseDevModeAccessService.isDeveloper(user);
+  }
+
+  /** 返回 developer 排除邮箱的指纹，用于缓存 key 区分不同配置 */
+  getDevEmailsFingerprint(): string {
+    if (this.pulseDevAccountEmails.size === 0) {
+      return 'empty';
+    }
+
+    return `dev${this.pulseDevAccountEmails.size}`;
   }
 
   private buildAdminStoreExclusionWhere(): Prisma.StoreWhereInput {
     const excludedEmails = Array.from(this.pulseDevAccountEmails);
     if (excludedEmails.length === 0) {
-      return {};
+      // pulse.devAccountEmails 未配置时，developer 模式下不应返回任何商家数据
+      return { id: { lt: 0 } };
     }
 
     return {

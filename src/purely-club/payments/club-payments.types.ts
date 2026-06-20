@@ -7,6 +7,7 @@ export interface ClubWechatCallbackHeaders {
   timestamp: string | undefined;
   nonce: string | undefined;
   signature: string | undefined;
+  serial: string | undefined;
 }
 
 export interface ClubPaymentCallbackSettlementParams {

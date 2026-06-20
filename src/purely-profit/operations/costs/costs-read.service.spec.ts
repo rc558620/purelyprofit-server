@@ -267,8 +267,9 @@ describe('CostsReadService', () => {
     expect(prismaService.employeePayroll.findMany).not.toHaveBeenCalled();
   });
 
-  it('getReport 在 salary 分类下会合并工资草稿明细', async () => {
+  it('getReport 在 salary 分类下只统计工资分类数据并合并工资草稿明细', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    // Mock 返回多分类数据 —— 验证 categoryFilter='salary' 只查 salary 行
     prismaService.costRecord.findMany.mockResolvedValueOnce([
       {
         id: 3,
@@ -335,5 +336,94 @@ describe('CostsReadService', () => {
         },
       ],
     });
+
+    // 验证 findMany 查询条件包含 category 过滤
+    expect(prismaService.costRecord.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          category: 'salary',
+        }),
+      }),
+    );
+    // 验证 aggregate（上期对比）查询条件包含 category 过滤
+    expect(prismaService.costRecord.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          category: 'salary',
+        }),
+      }),
+    );
+  });
+
+  it('getReport 在 rent 分类下只统计租金分类数据', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.costRecord.findMany.mockResolvedValueOnce([
+      {
+        id: 1,
+        title: '房租',
+        type: 'fixed',
+        category: 'rent',
+        amount: new Prisma.Decimal('5000.00'),
+        note: '5 月房租',
+        date: new Date('2026-05-01T00:00:00.000Z'),
+        createdAt: new Date('2026-05-14T10:00:00.000Z'),
+      },
+    ]);
+    prismaService.costRecord.aggregate.mockResolvedValue({
+      _sum: { amount: new Prisma.Decimal('4500.00') },
+    });
+
+    await expect(
+      service.getReport(user, {
+        storeId: 18,
+        period: 'month',
+        categoryFilter: 'rent',
+      }),
+    ).resolves.toEqual({
+      summary: {
+        total: 5000,
+        fixed: 5000,
+        variable: 0,
+        recordCount: 1,
+        compareLastPeriod: 11.11,
+      },
+      categories: [
+        {
+          label: '租金',
+          amount: 5000,
+          percentage: 100,
+          color: '#6366f1',
+        },
+      ],
+      detailRows: [
+        {
+          id: '1',
+          title: '房租',
+          amount: 5000,
+          date: new Date('2026-05-01T00:00:00.000Z').getTime(),
+          dateLabel: '2026/05/01',
+          note: '5 月房租',
+        },
+      ],
+    });
+
+    // 验证 findMany 查询条件包含 category 过滤
+    expect(prismaService.costRecord.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          category: 'rent',
+        }),
+      }),
+    );
+    // 验证 aggregate（上期对比）查询条件包含 category 过滤
+    expect(prismaService.costRecord.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          category: 'rent',
+        }),
+      }),
+    );
+    // 非 salary 分类不应查 payroll 草稿
+    expect(prismaService.employeePayroll.findMany).not.toHaveBeenCalled();
   });
 });

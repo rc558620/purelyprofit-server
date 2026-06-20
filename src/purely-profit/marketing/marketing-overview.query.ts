@@ -43,7 +43,7 @@ export async function queryOverviewMonthlyTrend(
   const rows = await prisma.$queryRaw<MonthlyTrendRow[]>`
     SELECT
       EXTRACT(YEAR FROM created_at)::int AS "year",
-      (EXTRACT(MONTH FROM created_at) - 1)::int AS "month",
+      EXTRACT(MONTH FROM created_at)::int AS "month",
       ROUND(SUM(amount + gift_amount), 2) AS "total"
     FROM marketing_recharges
     WHERE store_id = ${storeId}

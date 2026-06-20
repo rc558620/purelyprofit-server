@@ -67,10 +67,11 @@ describe('ClubPaymentsService', () => {
       timestamp: String(Math.floor(Date.now() / 1000)),
       nonce: 'callback-nonce',
       signature: 'CALLBACK_SIGNATURE',
+      serial: 'CERT_SERIAL_001',
     };
 
     const decryptedTx = {
-      out_trade_no: 'RC123',
+      out_trade_no: 'RC202606101231000001A2B',
       transaction_id: 'wxTx123',
       trade_state: 'SUCCESS',
       mchid: 'mch123',
@@ -80,13 +81,13 @@ describe('ClubPaymentsService', () => {
       decryptedTx,
     );
     clubWechatCallbackDecryptorService.validateAndExtract.mockReturnValue({
-      orderNo: 'RC123',
+      orderNo: 'RC202606101231000001A2B',
       transactionId: 'wxTx123',
       amountFen: 50000,
       paidAt: '2026-06-10T12:31:00+08:00',
     });
     clubPaymentCallbackDispatchService.dispatchByOrderNo.mockResolvedValue({
-      orderNo: 'RC123',
+      orderNo: 'RC202606101231000001A2B',
       orderType: 'recharge',
       status: 'paid',
     });
@@ -95,7 +96,7 @@ describe('ClubPaymentsService', () => {
       service.handleWechatCallback(payload, headers, rawBody),
     ).resolves.toEqual({
       success: true,
-      orderNo: 'RC123',
+      orderNo: 'RC202606101231000001A2B',
       orderType: 'recharge',
       status: 'paid',
     });
@@ -109,7 +110,7 @@ describe('ClubPaymentsService', () => {
     expect(
       clubPaymentCallbackDispatchService.dispatchByOrderNo,
     ).toHaveBeenCalledWith(
-      'RC123',
+      'RC202606101231000001A2B',
       expect.objectContaining({ amountFen: 50000, transactionId: 'wxTx123' }),
     );
   });
@@ -120,6 +121,7 @@ describe('ClubPaymentsService', () => {
       timestamp: String(Math.floor(Date.now() / 1000)),
       nonce: 'callback-nonce',
       signature: 'BAD_SIGNATURE',
+      serial: 'CERT_SERIAL_001',
     };
     clubPaymentCallbackSignatureService.assertWechatCallbackSignature.mockImplementation(
       () => {
@@ -150,6 +152,7 @@ describe('ClubPaymentsService', () => {
       timestamp: String(Math.floor(Date.now() / 1000)),
       nonce: 'callback-nonce',
       signature: 'SIGNATURE',
+      serial: 'CERT_SERIAL_001',
     };
 
     await expect(

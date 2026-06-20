@@ -179,6 +179,7 @@ export class PulseDashboardHomeService {
       ),
     );
 
+    // TODO: 在线人数当前为模拟值，需接入真实 WebSocket 在线状态或实时连接统计
     const onlineCount = Math.round(paidMemberCount * ONLINE_COUNT_RATIO);
     const onlinePeak = Math.round(paidMemberCount * ONLINE_PEAK_RATIO);
     const onlineChangeRatio = ONLINE_CHANGE_RATIO;
@@ -264,7 +265,7 @@ export class PulseDashboardHomeService {
     revenueSummary: PulseDashboardRevenueSummaryDto;
   } {
     const currentRange = buildHomeRevenueRange(period, now);
-    const previousRange = buildPreviousSequentialRange(currentRange);
+    const previousRange = buildPreviousSequentialRange(currentRange, period);
     const periodOrders = orders.filter((order) =>
       isTimeInRange(order.createdAt, currentRange),
     );
@@ -292,7 +293,7 @@ export class PulseDashboardHomeService {
     previousRange: ReturnType<typeof buildPreviousSequentialRange>;
   } {
     const currentRange = buildHomeRevenueRange(period, now);
-    const previousRange = buildPreviousSequentialRange(currentRange);
+    const previousRange = buildPreviousSequentialRange(currentRange, period);
 
     return {
       currentRange,

@@ -285,11 +285,11 @@ function buildPromoSeriesLabel(
   granularity: 'day' | 'month' | 'year',
 ): string {
   if (granularity === 'year') {
-    return `${date.getFullYear()}年`;
+    return `${date.getFullYear()}`;
   }
 
   if (granularity === 'month') {
-    return `${date.getMonth() + 1}月`;
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
   }
 
   return `${date.getMonth() + 1}/${date.getDate()}`;
@@ -299,8 +299,15 @@ function parsePromoSeriesLabel(
   label: string,
   granularity: 'day' | 'month' | 'year',
 ): number {
-  if (granularity === 'year' || granularity === 'month') {
+  if (granularity === 'year') {
     return Number.parseInt(label, 10) || 0;
+  }
+
+  if (granularity === 'month') {
+    const [yearText, monthText] = label.split('-');
+    const year = Number.parseInt(yearText, 10) || 0;
+    const month = Number.parseInt(monthText, 10) || 0;
+    return year * 100 + month;
   }
 
   const [monthText, dayText] = label.split('/');

@@ -17,12 +17,15 @@ export function buildCustomerWhere(
     storeId: input.storeId,
   };
 
+  // ── 状态筛选（独立 OR，不与关键字 OR 合并）──────────────────────
   if (input.status === 'active') {
     where.lastVisitAt = { gte: cutoff30 };
   } else if (input.status === 'dormant') {
     where.lastVisitAt = { gte: cutoff90, lt: cutoff30 };
   } else if (input.status === 'lost') {
-    where.OR = [{ lastVisitAt: { lt: cutoff90 } }, { lastVisitAt: null }];
+    where.AND = [
+      { OR: [{ lastVisitAt: { lt: cutoff90 } }, { lastVisitAt: null }] },
+    ];
   }
 
   if (input.tier) {
@@ -33,12 +36,17 @@ export function buildCustomerWhere(
     ).tier = input.tier;
   }
 
+  // ── 关键字筛选（独立 OR，与状态 AND 并列）────────────────────────
   if (input.keyword) {
-    where.OR = [
-      ...(Array.isArray(where.OR) ? where.OR : []),
-      { name: { contains: input.keyword, mode: 'insensitive' } },
-      { phone: { contains: input.keyword } },
-    ];
+    const keywordClause: Prisma.MarketingCustomerWhereInput = {
+      OR: [
+        { name: { contains: input.keyword, mode: 'insensitive' } },
+        { phone: { contains: input.keyword } },
+      ],
+    };
+
+    const existingAnd = Array.isArray(where.AND) ? where.AND : [];
+    where.AND = [...existingAnd, keywordClause];
   }
 
   return where;

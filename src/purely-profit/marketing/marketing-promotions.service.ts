@@ -48,7 +48,7 @@ export class MarketingPromotionsService {
 
   async listPromotions(
     user: AuthenticatedUser,
-    query: ListPromotionsQueryDto & { storeId?: number },
+    query: ListPromotionsQueryDto,
   ): Promise<MarketingPromotionsResponseDto> {
     const resolvedStoreId =
       await this.marketingSharedService.resolveMembershipManagedStoreId(
@@ -179,11 +179,16 @@ export class MarketingPromotionsService {
     const newEndAt =
       dto.endAt !== undefined ? new Date(dto.endAt) : promotion.endAt;
     this.assertPromotionRange(newStartAt, newEndAt);
-    await this.ensurePromotionTypeUnique(
-      promotion.storeId,
-      promotion.type as MarketingPromotionTypeValue,
-      promotionId,
-    );
+
+    // 仅当启用上架时才检查同类型唯一性（避免已下架活动阻碍新建同类活动）
+    const willBeEnabled = dto.enabled ?? promotion.enabled;
+    if (willBeEnabled) {
+      await this.ensurePromotionTypeUnique(
+        promotion.storeId,
+        promotion.type as MarketingPromotionTypeValue,
+        promotionId,
+      );
+    }
 
     const updated = await this.prisma.marketingPromotion.update({
       where: { id: promotionId },
@@ -253,6 +258,7 @@ export class MarketingPromotionsService {
       where: {
         storeId,
         type,
+        enabled: true,
         ...(excludePromotionId !== undefined
           ? { id: { not: excludePromotionId } }
           : {}),
@@ -261,7 +267,7 @@ export class MarketingPromotionsService {
 
     if ((duplicatedCount ?? 0) > 0) {
       throw new ConflictException(
-        '当前门店已存在相同活动类型，请直接编辑现有活动',
+        '当前门店已存在相同类型的上架活动，请直接编辑现有活动',
       );
     }
   }

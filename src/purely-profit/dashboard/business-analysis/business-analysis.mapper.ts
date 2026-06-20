@@ -31,7 +31,7 @@ export function buildEmptyAnalysisResponse(): BusinessAnalysisResponseDto {
       netProfit: { current: 0, previous: 0, changeRate: null },
       revenue: { current: 0, previous: 0, changeRate: null },
       totalCost: { current: 0, previous: 0, changeRate: null },
-      profitRate: { current: 0, previous: 0, changeRate: 0 },
+      profitRate: { current: 0, previous: 0, changeRate: null },
       orderCount: 0,
     },
     dailyTrend: [],

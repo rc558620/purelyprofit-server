@@ -37,7 +37,12 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     cacheInvalidatorService: CacheInvalidatorService,
     paymentLockService: ClubPaymentLockService,
   ) {
-    super(prisma, clubOrderDraftsService, cacheInvalidatorService, paymentLockService);
+    super(
+      prisma,
+      clubOrderDraftsService,
+      cacheInvalidatorService,
+      paymentLockService,
+    );
   }
 
   protected assertDraftPayable(
@@ -92,12 +97,20 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     draft: ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'>,
     customerId: number,
   ): Promise<unknown> {
+    // 防御性校验：充值金额必须为正，赠送金额不可为负
+    if (draft.metadata.rechargeAmountFen <= 0) {
+      throw new BadRequestException('充值金额必须大于 0');
+    }
+    if (draft.metadata.bonusAmountFen < 0) {
+      throw new BadRequestException('赠送金额不可为负数');
+    }
+
     return tx.marketingRecharge.create({
       data: {
         storeId: draft.storeId,
         customerId,
         amount: draft.metadata.rechargeAmountFen,
-        giftAmount: draft.metadata.bonusAmountFen,
+        giftAmount: Math.max(0, draft.metadata.bonusAmountFen),
         type: 'recharge',
         promotionId: draft.metadata.promotionId,
         note: `club充值订单 ${draft.orderNo}`,

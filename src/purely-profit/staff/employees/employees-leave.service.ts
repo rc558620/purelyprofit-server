@@ -38,6 +38,7 @@ export class EmployeesLeaveService {
     const rows = await this.prisma.employeeLeave.findMany({
       where: { employeeId: employee.id },
       orderBy: [{ startDate: 'desc' }, { id: 'desc' }],
+      take: 200,
     });
     return rows.map(toEmployeeLeaveResponse);
   }

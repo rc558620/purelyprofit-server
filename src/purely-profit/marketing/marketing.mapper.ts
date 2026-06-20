@@ -326,7 +326,10 @@ export function buildOverviewMonthlyTrend(
     if (row.year !== year) {
       continue;
     }
-    monthly[row.month].amount = row.amount;
+    const monthIndex = row.month - 1;
+    if (monthIndex >= 0 && monthIndex < monthly.length) {
+      monthly[monthIndex].amount = row.amount;
+    }
   }
 
   return monthly;

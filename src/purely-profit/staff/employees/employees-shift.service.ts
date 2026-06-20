@@ -80,6 +80,7 @@ export class EmployeesShiftService {
       user,
       query.storeId,
       '无权查看该门店排班',
+      'report:view',
     );
     const dateRange = buildDateRange(query.year, query.month);
     const rows = await this.prisma.employeeShift.findMany({

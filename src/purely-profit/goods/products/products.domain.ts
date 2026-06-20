@@ -1,10 +1,10 @@
 import { ConflictException } from '@nestjs/common';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import {
-  createProductCategory,
-  findProductCategoryByName,
-  findProductCodeConflict,
-} from './products.query';
+  createCategoryRecord,
+  findCategoryDuplicateByName,
+} from '../categories/categories.query';
+import { findProductCodeConflict } from './products.query';
 import type { ProductCategoryRecord } from './products.types';
 
 const PRODUCT_CODE_GENERATE_ATTEMPTS = 5;
@@ -32,16 +32,37 @@ export async function ensureProductCategory(
     return null;
   }
 
-  const existing = await findProductCategoryByName(
-    prisma,
-    params.storeId,
+  const existing = await findCategoryDuplicateByName(prisma, {
+    storeId: params.storeId,
     name,
-  );
+  });
   if (existing) {
     return existing;
   }
 
-  return createProductCategory(prisma, params.storeId, name);
+  // 并发场景下先查后建可能触发 unique constraint，捕获后重新查询
+  try {
+    const created = await createCategoryRecord(prisma, {
+      storeId: params.storeId,
+      name,
+      icon: null,
+    });
+    return { id: created.id };
+  } catch (error: unknown) {
+    if (
+      error instanceof Error &&
+      'code' in error &&
+      (error as { code: string }).code === 'P2002'
+    ) {
+      // 并发创建导致唯一约束冲突，重新查询已存在的分类
+      const concurrent = await findCategoryDuplicateByName(prisma, {
+        storeId: params.storeId,
+        name,
+      });
+      return concurrent;
+    }
+    throw error;
+  }
 }
 
 export async function ensureUniqueProductCode(

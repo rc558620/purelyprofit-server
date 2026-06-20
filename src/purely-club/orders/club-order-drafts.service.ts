@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { RedisService } from '../../redis/redis.service';
 import type {
@@ -55,7 +59,7 @@ export class ClubOrderDraftsService {
       now: Date.now(),
     });
 
-    await this.persistDraft(draft);
+    await this.persistDraftIfAbsent(draft);
     return draft;
   }
 
@@ -119,6 +123,28 @@ export class ClubOrderDraftsService {
     return paidDraft;
   }
 
+  /**
+   * 删除指定订单草稿（用于外部调用失败时回滚清理）
+   */
+  async deleteDraft(orderId: string): Promise<void> {
+    await this.redisService.del(buildDraftKey(orderId));
+  }
+
+  /**
+   * 更新草稿的支付参数并持久化（用于先创建草稿、再调用微信下单后回写支付参数）
+   */
+  async updateDraftPaymentParams<
+    TMetadata extends object,
+    TOrderType extends ClubOrderTypeValue,
+  >(
+    draft: ClubOrderDraftPayload<TMetadata, TOrderType>,
+    paymentParams: import('./dto/club-order.dto').ClubWechatPaymentParamsDto,
+  ): Promise<ClubOrderDraftPayload<TMetadata, TOrderType>> {
+    const updated = { ...draft, paymentParams };
+    await this.persistDraft(updated);
+    return updated;
+  }
+
   toOrderStatusResponse<
     TMetadata extends object,
     TOrderType extends ClubOrderTypeValue,
@@ -143,5 +169,23 @@ export class ClubOrderDraftsService {
       draft,
       CLUB_ORDER_DRAFT_TTL_SECONDS,
     );
+  }
+
+  /**
+   * 仅当 key 不存在时写入草稿（SET NX），防止重复提交创建同一订单
+   * 若 key 已存在（重复提交），抛出 ConflictException
+   */
+  private async persistDraftIfAbsent<
+    TMetadata extends object,
+    TOrderType extends ClubOrderTypeValue,
+  >(draft: ClubOrderDraftPayload<TMetadata, TOrderType>): Promise<void> {
+    const created = await this.redisService.setIfAbsent(
+      buildDraftKey(draft.id),
+      JSON.stringify(draft),
+      CLUB_ORDER_DRAFT_TTL_SECONDS,
+    );
+    if (!created) {
+      throw new ConflictException('订单已存在，请勿重复提交');
+    }
   }
 }

@@ -18,14 +18,25 @@ describe('inventory-stock.domain', () => {
     stock: 10,
   };
 
-  it('resolveAdjustedStock 在 delta 模式下会将结果截断到 0', () => {
-    expect(
+  /* BUG-3 修复：delta 模式下结果为负数时抛异常，而非静默截断到 0 */
+  it('resolveAdjustedStock 在 delta 模式下结果为负数时抛出异常', () => {
+    expect(() =>
       resolveAdjustedStock({
         currentStock: 3,
         delta: -5,
         mode: 'delta',
       }),
-    ).toBe(0);
+    ).toThrow(BadRequestException);
+  });
+
+  it('resolveAdjustedStock 在 delta 模式下正常减少库存', () => {
+    expect(
+      resolveAdjustedStock({
+        currentStock: 10,
+        delta: -3,
+        mode: 'delta',
+      }),
+    ).toBe(7);
   });
 
   it('resolveAdjustedStock 在 set 模式缺少目标库存时抛出异常', () => {
@@ -37,12 +48,32 @@ describe('inventory-stock.domain', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('buildInventoryManualAdjustmentPlan 会生成盘点调整计划', () => {
+  /* BUG-3 修复：delta=-12 + stock=10 结果为负数，现在抛异常 */
+  it('buildInventoryManualAdjustmentPlan 在 delta 导致负库存时抛出异常', () => {
     const command: InventoryManualAdjustmentCommand = {
       storeId: 18,
       productId: 101,
       operatorStaffId: 8,
       delta: -12,
+      mode: 'delta',
+      adjustType: 'manual',
+      note: '盘点修正',
+    };
+
+    expect(() =>
+      buildInventoryManualAdjustmentPlan({
+        product,
+        command,
+      }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('buildInventoryManualAdjustmentPlan 会生成盘点调整计划', () => {
+    const command: InventoryManualAdjustmentCommand = {
+      storeId: 18,
+      productId: 101,
+      operatorStaffId: 8,
+      delta: -3,
       mode: 'delta',
       adjustType: 'manual',
       note: '盘点修正',
@@ -55,15 +86,15 @@ describe('inventory-stock.domain', () => {
       }),
     ).toEqual({
       productId: 101,
-      afterStock: 0,
+      afterStock: 7,
       log: {
         storeId: 18,
         productId: 101,
         operatorStaffId: 8,
         productName: '可口可乐 330ml',
         beforeStock: 10,
-        afterStock: 0,
-        delta: -10,
+        afterStock: 7,
+        delta: -3,
         adjustType: 'manual',
         note: '盘点修正',
       },

@@ -45,6 +45,17 @@ export function buildMembershipDto(
     };
   }
 
+  // lifetime 永久会员无论 expiresAt 取值如何均视为有效，避免 730 天后误判过期
+  if (profile.currentPlanId === 'lifetime') {
+    return {
+      isActive: true,
+      planId: profile.currentPlanId,
+      planName: profile.planName,
+      remainingDays: -1,
+      expiresAt: profile.expiresAt,
+    };
+  }
+
   const expiresAt = profile.expiresAt;
   const isActive = expiresAt ? expiresAt > new Date() : false;
 

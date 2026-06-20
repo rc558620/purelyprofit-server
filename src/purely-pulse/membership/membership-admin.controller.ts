@@ -40,6 +40,8 @@ import {
 } from './dto/pulse-membership-admin-members.request.dto';
 import {
   PulseAdminEmployeeCandidatesResponseDto,
+  PulseAdminMemberClubStatsDto,
+  PulseAdminMemberSalesStatsDto,
   PulseAdminMembersResponseDto,
   PulseMemberDetailDto,
 } from './dto/pulse-membership-admin-members.response.dto';
@@ -126,6 +128,34 @@ export class PulseMembershipAdminController {
     return this.pulseMembershipService
       .listAdminMemberEmployeeCandidates(user, memberId)
       .then((items) => ({ items }));
+  }
+
+  @Get('members/:id/club-stats')
+  @ApiOperation({ summary: '获取 Pulse 会员运营情况统计' })
+  @ApiOkResponse({
+    description:
+      '返回目标商家在 purelyClub C 端的会员运营统计，供 purelyPulse 会员详情页「会员运营情况」弹窗使用。',
+    type: PulseAdminMemberClubStatsDto,
+  })
+  getAdminMemberClubStats(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) memberId: number,
+  ): Promise<PulseAdminMemberClubStatsDto> {
+    return this.pulseMembershipService.getAdminMemberClubStats(user, memberId);
+  }
+
+  @Get('members/:id/sales-stats')
+  @ApiOperation({ summary: '获取 Pulse 会员营业详情统计' })
+  @ApiOkResponse({
+    description:
+      '返回目标商家的销售额与利润数据（今日/本周/本月/今年/去年），供 purelyPulse 会员详情页「营业详情」弹窗使用。',
+    type: PulseAdminMemberSalesStatsDto,
+  })
+  getAdminMemberSalesStats(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) memberId: number,
+  ): Promise<PulseAdminMemberSalesStatsDto> {
+    return this.pulseMembershipService.getAdminMemberSalesStats(user, memberId);
   }
 
   @Post('members/:id/points/adjust')

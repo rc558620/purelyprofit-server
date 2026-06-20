@@ -324,6 +324,39 @@ describe('AuthService', () => {
     expect(jwtService.signAsync).not.toHaveBeenCalled();
   });
 
+  it('部分门店被封禁时仍允许登录', async () => {
+    const hashedPassword = await bcrypt.hash('partial123', 4);
+    prismaService.staff.findFirst.mockResolvedValue({
+      user: {
+        id: 19,
+        email: 'phone_13900139000@purelyprofit.local',
+        password: hashedPassword,
+      },
+    });
+    prismaService.store.findMany.mockResolvedValue([
+      { id: 18 },
+      { id: 19 },
+    ]);
+    // redisService.get 可能被多处调用：
+    // - ensureUserNotBanned: 对门店 18/19 查 ban reason
+    // - signToken.getTokenVersion: 查 token version
+    // 门店 18 被封（返回 reason），门店 19 未被封（返回 null），token version 返回 '0'
+    redisService.get.mockImplementation((key: string) => {
+      if (key.includes(':member:18:ban-reason')) return Promise.resolve('违规操作');
+      if (key.includes(':member:19:ban-reason')) return Promise.resolve(null);
+      return Promise.resolve('0');
+    });
+    redisService.set.mockResolvedValue(undefined);
+    jwtService.signAsync.mockResolvedValue('partial-ban-token');
+
+    await expect(
+      service.login({
+        phone: '13900139000',
+        password: 'partial123',
+      }),
+    ).resolves.toEqual({ access_token: 'partial-ban-token' });
+  });
+
   it('修改密码后会刷新 token 并使旧 token 失效', async () => {
     const hashedPassword = await bcrypt.hash('oldPassword123', 4);
     prismaService.user.findUnique.mockResolvedValue({
@@ -350,6 +383,7 @@ describe('AuthService', () => {
       {
         currentPassword: 'oldPassword123',
         newPassword: 'newPassword123',
+        confirmPassword: 'newPassword123',
       },
     );
 
@@ -360,6 +394,7 @@ describe('AuthService', () => {
     expect(redisService.set).toHaveBeenCalledWith(
       `${AUTH_TOKEN_VERSION_KEY_PREFIX}1`,
       '1',
+      30 * 24 * 60 * 60,
     );
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 1,
@@ -498,7 +533,7 @@ describe('AuthService', () => {
     expect(result.expiresInSeconds).toBe(600);
     expect(result.code).toMatch(/^\d{6}$/);
     expect(redisService.setIfAbsent).toHaveBeenCalledWith(
-      'auth:sms-cooldown:login:purely_club:13800138000',
+      'auth:sms-cooldown:login_or_register:purely_club:13800138000',
       '1',
       60,
     );
@@ -839,6 +874,7 @@ describe('AuthService', () => {
         phone: '13800138000',
         code: '123456',
         password: 'newPassword123',
+        confirmPassword: 'newPassword123',
       }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
@@ -859,6 +895,7 @@ describe('AuthService', () => {
         phone: '13800138000',
         code: '123456',
         password: 'samePassword123',
+        confirmPassword: 'samePassword123',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prismaService.user.update).not.toHaveBeenCalled();

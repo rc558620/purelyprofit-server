@@ -23,8 +23,9 @@ function toCacheSegment(value: string | number | null | undefined): string {
 export function buildFinanceOverviewCacheKey(
   storeId: number,
   period: string,
+  scope: 'owner' | 'sub_account' = 'owner',
 ): string {
-  return `profit:finance:overview:store:${storeId}:period:${period}`;
+  return `profit:finance:overview:store:${storeId}:period:${period}:scope:${scope}`;
 }
 
 export function buildFinanceOverviewPattern(storeId: number): string {
@@ -32,7 +33,7 @@ export function buildFinanceOverviewPattern(storeId: number): string {
 }
 
 export function buildFinanceOverviewAllPattern(): string {
-  return 'profit:finance:overview:store:*:period:*';
+  return `profit:finance:overview:store:*:period:*`;
 }
 
 export function buildFinanceCashFlowListCacheKey(
@@ -136,15 +137,17 @@ export function buildFinanceReconciliationsPattern(storeId: number): string {
 export function parseFinanceOverviewCacheKey(cacheKey: string): {
   storeId: number;
   period: FinanceOverviewPeriodValue;
+  scope: 'owner' | 'sub_account';
 } | null {
-  const match = /^profit:finance:overview:store:(\d+):period:(.+)$/.exec(
-    cacheKey,
-  );
+  const match =
+    /^profit:finance:overview:store:(\d+):period:(.+):scope:(owner|sub_account)$/.exec(
+      cacheKey,
+    );
   if (!match) {
     return null;
   }
 
-  const [, rawStoreId, rawPeriod] = match;
+  const [, rawStoreId, rawPeriod, rawScope] = match;
   if (!isFinanceOverviewPeriodValue(rawPeriod)) {
     return null;
   }
@@ -152,5 +155,6 @@ export function parseFinanceOverviewCacheKey(cacheKey: string): {
   return {
     storeId: Number(rawStoreId),
     period: rawPeriod,
+    scope: rawScope as 'owner' | 'sub_account',
   };
 }

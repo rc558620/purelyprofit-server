@@ -10,10 +10,7 @@ import {
   REVENUE_DETAIL_RANGE_PERIOD,
   REVENUE_DETAIL_SINGLE_DAY_PERIOD,
 } from './dashboard.constants';
-import {
-  calculatePercentChange,
-  convertFenToYuan,
-} from './dashboard-math.utils';
+import { calculatePercentChange } from './dashboard-math.utils';
 import {
   buildRevenueTrend,
   buildRevenueTypeDistribution,
@@ -151,11 +148,7 @@ export class PulseDashboardRevenueDetailService {
     );
 
     return {
-      revenueTrend: buildRevenueTrend(
-        currentOrders,
-        displayPeriod,
-        convertFenToYuan,
-      ),
+      revenueTrend: buildRevenueTrend(currentOrders, displayPeriod),
       revenueSummary: {
         total: currentTotal,
         avg: Math.round(currentTotal / getInclusiveDayCount(currentRange)),
@@ -224,7 +217,7 @@ export class PulseDashboardRevenueDetailService {
     const currentRange = buildHomeRevenueRange(displayPeriod, now);
     return {
       currentRange,
-      previousRange: buildPreviousSequentialRange(currentRange),
+      previousRange: buildPreviousSequentialRange(currentRange, displayPeriod),
       displayPeriod,
     };
   }

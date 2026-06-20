@@ -4,10 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import {
-  calcCustomerTier,
-  DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS,
-} from '../../purely-profit/marketing/marketing.utils';
+import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ClubPaymentSettlementTemplate } from '../payments/club-payment-settlement.template';
@@ -17,6 +14,8 @@ import type {
   ClubOrderDraftPayload,
   ClubServiceOrderMetadata,
 } from './club-order-drafts.types';
+import type { ClubPointsEarnConfig } from './club-order-drafts.utils';
+import { resolvePointsEarnConfig } from './club-order-drafts.utils';
 import {
   CLUB_MEMBER_NOT_FOUND_MESSAGE,
   CLUB_PRODUCT_NOT_FOUND_MESSAGE,
@@ -61,12 +60,12 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<ClubServiceOrderMetadata, 'service'>,
   ): Promise<void> {
-    console.log(
-      `[persistPaidDraft] 开始结算订单: orderId=${draft.id}, orderNo=${draft.orderNo}, storeId=${draft.storeId}, customerId=${draft.customerId}`,
+    this.logger.log(
+      `开始结算订单: orderNo=${draft.orderNo}, storeId=${draft.storeId}, customerId=${draft.customerId}`,
     );
     const settlementContext = await this.loadSettlementContext(tx, draft);
-    console.log(
-      `[persistPaidDraft] 加载结算上下文: customerId=${settlementContext.customer.id}, currentTotalSpent=${settlementContext.customer.totalSpent}, currentBalance=${settlementContext.customer.balance}`,
+    this.logger.log(
+      `加载结算上下文: customerId=${settlementContext.customer.id}, currentTotalSpent=${settlementContext.customer.totalSpent}, currentBalance=${settlementContext.customer.balance}`,
     );
 
     // 余额扣减金额 = 订单最终金额（已扣除积分抵扣部分）
@@ -104,6 +103,7 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     if (draft.metadata.pointsUsed > 0) {
       await this.deductCustomerPoints(
         tx,
+        draft,
         settlementContext.customer.id,
         draft.metadata.pointsUsed,
       );
@@ -201,11 +201,16 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     balancePaidFen: number,
   ): Promise<void> {
     const newTotalSpent = currentTotalSpent + balancePaidFen;
-    console.log(
-      `[updateCustomerMetrics] 更新顾客指标: customerId=${customerId}, balancePaidFen=${balancePaidFen}, newTotalSpent=${newTotalSpent}`,
+    this.logger.log(
+      `更新顾客指标: customerId=${customerId}, balancePaidFen=${balancePaidFen}, newTotalSpent=${newTotalSpent}`,
     );
-    await tx.marketingCustomer.update({
-      where: { id: customerId },
+    // 使用 updateMany + where 条件保证余额不会并发扣减为负数
+    const result = await tx.marketingCustomer.updateMany({
+      where: {
+        id: customerId,
+        // 防止并发扣减后余额为负：只有当前余额 >= 扣减金额时才执行
+        balance: { gte: balancePaidFen },
+      },
       data: {
         balance: { decrement: balancePaidFen },
         totalSpent: { increment: balancePaidFen },
@@ -214,22 +219,32 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
         tier: calcCustomerTier(newTotalSpent) as never,
       },
     });
-    console.log(`[updateCustomerMetrics] 成功更新顾客指标`);
+    if (result.count === 0) {
+      throw new BadRequestException(
+        `余额不足或已被并发消费，当前余额无法支付 ¥${(balancePaidFen / 100).toFixed(2)}`,
+      );
+    }
+    this.logger.log(`成功更新顾客指标`);
   }
 
   private async decrementProductStock(
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<ClubServiceOrderMetadata, 'service'>,
   ): Promise<void> {
-    await tx.marketingProduct.updateMany({
+    // 使用 where 条件 stock > 0 防止并发下单导致库存为负
+    const result = await tx.marketingProduct.updateMany({
       where: {
         id: draft.metadata.productId,
         storeId: draft.storeId,
+        stock: { gt: 0 },
       },
       data: {
         stock: { decrement: 1 },
       },
     });
+    if (result.count === 0) {
+      throw new NotFoundException(CLUB_PRODUCT_NOT_FOUND_MESSAGE);
+    }
   }
 
   private async increasePromotionUsage(
@@ -254,6 +269,7 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
 
   private async deductCustomerPoints(
     tx: Prisma.TransactionClient,
+    draft: ClubOrderDraftPayload<ClubServiceOrderMetadata, 'service'>,
     customerId: number,
     pointsUsed: number,
   ): Promise<void> {
@@ -261,6 +277,17 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       where: { id: customerId },
       data: {
         points: { decrement: pointsUsed },
+      },
+    });
+
+    // 记录积分扣减流水，与 awardConsumptionPoints 中的 earn 流水保持一致
+    await tx.marketingPointsRecord.create({
+      data: {
+        storeId: draft.storeId,
+        customerId,
+        amount: -pointsUsed,
+        type: 'spend' as const,
+        description: `消费抵扣积分（${draft.metadata.productName}）`,
       },
     });
   }
@@ -284,27 +311,36 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
 
     // 若积分规则未启用，不增加积分
     if (!pointsRatioConfig.enabled) {
-      console.warn(
-        `[awardConsumptionPoints] 积分规则未启用，storeId=${draft.storeId}`,
-      );
+      this.logger.warn(`积分规则未启用，storeId=${draft.storeId}`);
       return;
     }
 
     // 按实际支付金额计算消费积分
     // earnRatioCents 单位是"分"，表示消费多少分获得 1 积分
     // 积分 = floor(实际支付金额（分）/ earnRatioCents)
-    const earnedPoints = Math.floor(
+    let earnedPoints = Math.floor(
       draft.amountFen / pointsRatioConfig.earnRatioCents,
     );
 
-    console.log(
-      `[awardConsumptionPoints] 计算积分: 实际支付=${draft.amountFen}分, earnRatioCents=${pointsRatioConfig.earnRatioCents}, 获得=${earnedPoints}积分`,
+    // 查询是否有生效的 points_2x（双倍积分）活动，若有则将积分翻倍
+    const pointsMultiplier = await this.resolvePointsMultiplier(
+      tx,
+      draft.storeId,
+    );
+    if (pointsMultiplier > 1 && earnedPoints > 0) {
+      const bonusPoints = earnedPoints * (pointsMultiplier - 1);
+      earnedPoints += bonusPoints;
+      this.logger.log(
+        `双倍积分活动生效: 基础积分=${earnedPoints - bonusPoints}, 加倍=${bonusPoints}, 合计=${earnedPoints}`,
+      );
+    }
+
+    this.logger.log(
+      `计算积分: 实际支付=${draft.amountFen}分, earnRatioCents=${pointsRatioConfig.earnRatioCents}, 获得=${earnedPoints}积分`,
     );
 
     if (earnedPoints <= 0) {
-      console.warn(
-        `[awardConsumptionPoints] 计算的积分 <= 0，不增加，customerId=${customerId}`,
-      );
+      this.logger.warn(`计算的积分 <= 0，不增加，customerId=${customerId}`);
       return;
     }
 
@@ -316,64 +352,59 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       },
     });
 
-    console.log(
-      `[awardConsumptionPoints] 成功增加积分 ${earnedPoints}，customerId=${customerId}`,
-    );
+    this.logger.log(`成功增加积分 ${earnedPoints}，customerId=${customerId}`);
 
-    // 记录积分增加流水
-    try {
-      await tx.marketingPointsRecord.create({
-        data: {
-          storeId: draft.storeId,
-          customerId,
-          amount: earnedPoints,
-          type: 'earn' as const,
-          description: '消费获得积分',
-        },
-      });
-    } catch (error) {
-      // 积分流水记录失败不应阻止订单落账
-      console.error('Failed to create points record:', error);
-    }
+    // 记录积分增加流水（与 deductCustomerPoints 中 spend 流水保持一致）
+    // 在同一事务内：若 create 失败则整体回滚，保证积分余额与流水记录一致
+    await tx.marketingPointsRecord.create({
+      data: {
+        storeId: draft.storeId,
+        customerId,
+        amount: earnedPoints,
+        type: 'earn' as const,
+        description:
+          pointsMultiplier > 1
+            ? '消费获得积分（含双倍积分加成）'
+            : '消费获得积分',
+      },
+    });
   }
 
   /**
-   * 获取积分规则配置
+   * 查询门店是否有生效的 points_2x 活动，返回积分倍数（2 或 1）
+   */
+  private async resolvePointsMultiplier(
+    tx: Prisma.TransactionClient,
+    storeId: number,
+  ): Promise<number> {
+    const now = new Date();
+    const activePoints2x = await tx.marketingPromotion.findFirst({
+      where: {
+        storeId,
+        type: 'points_2x',
+        enabled: true,
+        startAt: { lte: now },
+        endAt: { gte: now },
+      },
+      select: { id: true },
+    });
+
+    return activePoints2x ? 2 : 1;
+  }
+
+  /**
+   * 获取积分获得配置
    * 从 marketingMemberLevelSetting 中读取，若未配置则使用默认值
    */
   private async getPointsRatioConfig(
     tx: Prisma.TransactionClient,
     storeId: number,
-  ): Promise<{ earnRatioCents: number; enabled: boolean }> {
+  ): Promise<ClubPointsEarnConfig> {
     const settings = await tx.marketingMemberLevelSetting.findUnique({
       where: { storeId },
       select: { pointsRatio: true },
     });
 
-    // 若未配置，使用默认值
-    if (
-      !settings?.pointsRatio ||
-      typeof settings.pointsRatio !== 'object' ||
-      Array.isArray(settings.pointsRatio)
-    ) {
-      return {
-        earnRatioCents:
-          DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.earnRatioCents,
-        enabled: DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.enabled,
-      };
-    }
-
-    const pointsRatioData = settings.pointsRatio as Record<string, unknown>;
-    return {
-      earnRatioCents:
-        typeof pointsRatioData.earnRatioCents === 'number' &&
-        pointsRatioData.earnRatioCents > 0
-          ? pointsRatioData.earnRatioCents
-          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.earnRatioCents,
-      enabled:
-        typeof pointsRatioData.enabled === 'boolean'
-          ? pointsRatioData.enabled
-          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.enabled,
-    };
+    return resolvePointsEarnConfig(settings?.pointsRatio);
   }
 }

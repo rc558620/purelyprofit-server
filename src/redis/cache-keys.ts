@@ -50,6 +50,7 @@ type BusinessAnalysisCacheQuery = {
   period?: string | null;
   startTime?: number | null;
   endTime?: number | null;
+  export?: boolean | null;
 };
 
 type MembersListCacheQuery = {
@@ -144,6 +145,7 @@ export function buildBusinessAnalysisCacheKey(
     `period:${query.period}`,
     `start:${query.startTime ?? 'na'}`,
     `end:${query.endTime ?? 'na'}`,
+    `export:${query.export === true ? '1' : '0'}`,
   ].join(':');
 }
 
@@ -152,7 +154,7 @@ export function buildBusinessAnalysisPattern(storeId: number): string {
 }
 
 export function buildBusinessAnalysisAllPattern(): string {
-  return 'profit:business-analysis:store:*:period:*:start:*:end:*';
+  return 'profit:business-analysis:store:*:period:*:start:*:end:*:export:*';
 }
 
 export function buildMarketingOverviewCacheKey(storeId: number): string {
@@ -160,7 +162,7 @@ export function buildMarketingOverviewCacheKey(storeId: number): string {
 }
 
 export function buildMarketingOverviewPattern(storeId: number): string {
-  return `profit:marketing:overview:store:${storeId}`;
+  return `profit:marketing:overview:store:${storeId}:*`;
 }
 
 export function buildMarketingOverviewAllPattern(): string {
@@ -192,7 +194,7 @@ export function buildMembersMetaCacheKey(storeId: number): string {
 }
 
 export function buildMembersMetaPattern(storeId: number): string {
-  return `profit:members:meta:store:${storeId}`;
+  return `profit:members:meta:store:${storeId}:*`;
 }
 
 export function buildMembersMetaAllPattern(): string {
@@ -204,7 +206,7 @@ export function buildMembersOverviewCacheKey(storeId: number): string {
 }
 
 export function buildMembersOverviewPattern(storeId: number): string {
-  return `profit:members:overview:store:${storeId}`;
+  return `profit:members:overview:store:${storeId}:*`;
 }
 
 export function buildMembersOverviewAllPattern(): string {
@@ -265,7 +267,7 @@ export function buildPlatformMembershipPartnerProfileCacheKey(
 }
 
 export function buildPlatformMembershipDerivedPattern(storeId: number): string {
-  return `profit:platform-membership:*:store:${storeId}*`;
+  return `profit:platform-membership:*:store:${storeId}`;
 }
 
 export function buildSalesStatsCacheKey(
@@ -376,7 +378,7 @@ export function parseBusinessAnalysisCacheKey(cacheKey: string): {
   endTime?: number;
 } | null {
   const match =
-    /^profit:business-analysis:store:(\d+):period:([^:]+):start:([^:]+):end:([^:]+)$/.exec(
+    /^profit:business-analysis:store:(\d+):period:([^:]+):start:([^:]+):end:([^:]+):export:([01])$/.exec(
       cacheKey,
     );
   if (!match) {

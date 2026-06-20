@@ -1,6 +1,7 @@
 import {
   CATEGORY_ID_SELECT,
   CATEGORY_SELECT,
+  clearCategoryProducts,
   createCategoryRecord,
   deleteCategoryRecord,
   findCategoryById,
@@ -97,7 +98,7 @@ describe('categories.query', () => {
     });
   });
 
-  it('findCategoryDuplicateByName 会限制在门店维度并支持排除自身', async () => {
+  it('findCategoryDuplicateByName 会使用 insensitive 匹配并支持排除自身', async () => {
     const { prisma, productCategoryFindFirst } = createPrismaMock();
     productCategoryFindFirst.mockResolvedValue({ id: 99 });
 
@@ -112,7 +113,10 @@ describe('categories.query', () => {
     expect(productCategoryFindFirst).toHaveBeenCalledWith({
       where: {
         storeId: 18,
-        name: '饮品',
+        name: {
+          equals: '饮品',
+          mode: 'insensitive',
+        },
         id: {
           not: 11,
         },
@@ -165,11 +169,9 @@ describe('categories.query', () => {
     });
   });
 
-  it('renameCategoryProducts 和 deleteCategoryRecord 会转发写操作', async () => {
-    const { prisma, productUpdateMany, productCategoryDelete } =
-      createPrismaMock();
+  it('renameCategoryProducts 会同步商品分类名称', async () => {
+    const { prisma, productUpdateMany } = createPrismaMock();
     productUpdateMany.mockResolvedValue({ count: 3 });
-    productCategoryDelete.mockResolvedValue({ id: 11 });
 
     await expect(
       renameCategoryProducts(prisma as never, {
@@ -177,9 +179,6 @@ describe('categories.query', () => {
         categoryId: 11,
         name: '酒水',
       }),
-    ).resolves.toBeUndefined();
-    await expect(
-      deleteCategoryRecord(prisma as never, 11),
     ).resolves.toBeUndefined();
 
     expect(productUpdateMany).toHaveBeenCalledWith({
@@ -191,6 +190,39 @@ describe('categories.query', () => {
         category: '酒水',
       },
     });
+  });
+
+  it('clearCategoryProducts 会清空商品的 category 和 categoryId', async () => {
+    const { prisma, productUpdateMany } = createPrismaMock();
+    productUpdateMany.mockResolvedValue({ count: 5 });
+
+    await expect(
+      clearCategoryProducts(prisma as never, {
+        storeId: 18,
+        categoryId: 11,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(productUpdateMany).toHaveBeenCalledWith({
+      where: {
+        storeId: 18,
+        categoryId: 11,
+      },
+      data: {
+        category: '',
+        categoryId: null,
+      },
+    });
+  });
+
+  it('deleteCategoryRecord 会删除分类记录', async () => {
+    const { prisma, productCategoryDelete } = createPrismaMock();
+    productCategoryDelete.mockResolvedValue({ id: 11 });
+
+    await expect(
+      deleteCategoryRecord(prisma as never, 11),
+    ).resolves.toBeUndefined();
+
     expect(productCategoryDelete).toHaveBeenCalledWith({
       where: { id: 11 },
     });

@@ -301,9 +301,25 @@ export async function queryPromotionRowById(
   prisma: PrismaService,
   promotionId: number,
 ): Promise<MarketingPromotionRow | null> {
-  const promotion = await prisma.marketingPromotion.findUnique({
-    where: { id: promotionId },
-  });
+  const rows = await prisma.$queryRaw<MarketingPromotionRow[]>`
+    SELECT
+      id,
+      store_id AS "storeId",
+      name,
+      type::text AS "type",
+      description,
+      params,
+      start_at AS "startAt",
+      end_at AS "endAt",
+      usage_count AS "usageCount",
+      total_discount AS "totalDiscount",
+      enabled,
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
+    FROM marketing_promotions
+    WHERE id = ${promotionId}
+    LIMIT 1
+  `;
 
-  return promotion as MarketingPromotionRow | null;
+  return rows[0] ?? null;
 }

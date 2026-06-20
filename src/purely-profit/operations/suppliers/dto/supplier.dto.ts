@@ -9,11 +9,13 @@ import {
   MinLength,
 } from 'class-validator';
 import {
+  PaginationMetaDto,
+  PaginationQueryDto,
   transformOptionalInt,
   transformOptionalKeyword,
 } from '../../../stores/dto/store-response.dto';
 
-export class ListSuppliersQueryDto {
+export class ListSuppliersQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ example: 1, description: '门店 ID' })
   @IsOptional()
   @Transform(transformOptionalInt)
@@ -29,7 +31,10 @@ export class ListSuppliersQueryDto {
 }
 
 export class CreateSupplierDto {
-  @ApiPropertyOptional({ example: 1, description: '门店 ID，不传默认当前门店' })
+  @ApiPropertyOptional({
+    example: 1,
+    description: '门店 ID，不传时取用户当前默认门店',
+  })
   @IsOptional()
   @Transform(transformOptionalInt)
   @IsInt({ message: '门店 ID 必须是整数' })
@@ -136,4 +141,12 @@ export class SupplierResponseDto {
 
   @ApiProperty({ example: 1715603600000, description: '更新时间戳（毫秒）' })
   updatedAt: number;
+}
+
+export class PaginatedSuppliersResponseDto {
+  @ApiProperty({ type: [SupplierResponseDto], description: '供应商列表' })
+  items: SupplierResponseDto[];
+
+  @ApiProperty({ type: PaginationMetaDto, description: '分页信息' })
+  meta: PaginationMetaDto;
 }

@@ -46,8 +46,12 @@ interface WechatJsapiPrePayResponse {
 export class ClubWechatJsapiService {
   private readonly logger = new Logger(ClubWechatJsapiService.name);
 
-  /** 缓存已加载的私钥 PEM，避免每次请求重复读文件 */
+  /** 缓存已加载的私钥 PEM 及加载时间，避免每次请求重复读文件 */
   private cachedPrivateKeyPem: string | null | undefined = undefined;
+  private cachedPrivateKeyPemLoadedAt = 0;
+
+  /** 私钥缓存有效期：5 分钟，支持热更新场景 */
+  private static readonly PRIVATE_KEY_CACHE_TTL_MS = 5 * 60 * 1000;
 
   constructor(
     private readonly configService: ConfigService,
@@ -296,10 +300,18 @@ export class ClubWechatJsapiService {
    * 避免每次请求都重复读文件 I/O。
    */
   private loadPrivateKeyPem(): string | null {
-    // 已加载（含 null 的情况）则直接返回缓存
-    if (this.cachedPrivateKeyPem !== undefined) {
+    // 缓存未过期时直接返回
+    if (
+      this.cachedPrivateKeyPem !== undefined &&
+      Date.now() - this.cachedPrivateKeyPemLoadedAt <
+        ClubWechatJsapiService.PRIVATE_KEY_CACHE_TTL_MS
+    ) {
       return this.cachedPrivateKeyPem;
     }
+
+    // 缓存过期或首次加载，重新读取
+    this.cachedPrivateKeyPem = undefined;
+    this.cachedPrivateKeyPemLoadedAt = Date.now();
 
     // 优先：文件路径
     const keyPath = this.configService

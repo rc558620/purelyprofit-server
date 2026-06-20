@@ -106,17 +106,32 @@ describe('purchases.query', () => {
   });
 
   it('countPurchaseOrders 和 countPurchaseSuppliers 会转发统计查询', async () => {
-    const { prisma, purchaseOrderCount, supplierCount } = createPrismaMock();
+    const { prisma, purchaseOrderCount, supplierCount, purchaseOrderFindMany } =
+      createPrismaMock();
     purchaseOrderCount.mockResolvedValue(6);
     supplierCount.mockResolvedValue(3);
+    purchaseOrderFindMany.mockResolvedValue([
+      { supplierId: 1 },
+      { supplierId: 2 },
+    ]);
 
     await expect(
       countPurchaseOrders(prisma as never, { storeId: 18 }),
     ).resolves.toBe(6);
+    // 无 where 参数时回退到全量供应商计数
     await expect(countPurchaseSuppliers(prisma as never, 18)).resolves.toBe(3);
+    // 有 where 参数时按筛选周期统计有进货记录的供应商数
+    await expect(
+      countPurchaseSuppliers(prisma as never, 18, { storeId: 18 }),
+    ).resolves.toBe(2);
 
     expect(purchaseOrderCount).toHaveBeenCalledWith({ where: { storeId: 18 } });
     expect(supplierCount).toHaveBeenCalledWith({ where: { storeId: 18 } });
+    expect(purchaseOrderFindMany).toHaveBeenCalledWith({
+      where: { storeId: 18 },
+      select: { supplierId: true },
+      distinct: ['supplierId'],
+    });
   });
 
   it('aggregatePurchaseOrders 会按统一聚合结构查询', async () => {

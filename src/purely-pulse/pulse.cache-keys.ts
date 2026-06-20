@@ -62,9 +62,9 @@ export function buildPulseSessionBootstrapCacheKeyFromQuery(
 }
 
 export function buildPulseSessionBootstrapPatternByStore(
-  storeId: number,
+  _storeId: number,
 ): string {
-  return `pulse:session:bootstrap:user:*:mode:*:store:${storeId}`;
+  return 'pulse:session:bootstrap:user:*:mode:*:store:*';
 }
 
 export function buildPulseSessionBootstrapPatternByUser(
@@ -97,9 +97,9 @@ export function buildPulseOnboardingStatusCacheKeyFromQuery(
 }
 
 export function buildPulseOnboardingStatusPatternByStore(
-  storeId: number,
+  _storeId: number,
 ): string {
-  return `pulse:onboarding:status:user:*:mode:*:store:${storeId}`;
+  return 'pulse:onboarding:status:user:*:mode:*:store:*';
 }
 
 export function buildPulseOnboardingStatusPatternByUser(
@@ -151,6 +151,17 @@ export function buildPulseDashboardOverviewPattern(storeId: number): string {
   return `pulse:dashboard:overview:store:${storeId}:period:*`;
 }
 
+export function buildPulseDashboardStoresCacheKey(
+  storeId: number,
+  period: string,
+): string {
+  return `pulse:dashboard:stores:store:${storeId}:period:${period}`;
+}
+
+export function buildPulseDashboardStoresPattern(storeId: number): string {
+  return `pulse:dashboard:stores:store:${storeId}:period:*`;
+}
+
 export function buildPulseGrowthEarningsOverviewCacheKey(
   storeId: number,
 ): string {
@@ -164,8 +175,17 @@ export function buildPulseGrowthEarningsLogsCacheKey(
   return `pulse:growth:earnings:logs:store:${storeId}:type:${typeFilter}`;
 }
 
+export function buildPulseGrowthEarningsPatterns(
+  storeId: number,
+): readonly [string, string] {
+  return [
+    `pulse:growth:earnings:*:store:${storeId}`,
+    `pulse:growth:earnings:*:store:${storeId}:*`,
+  ] as const;
+}
+
 export function buildPulseGrowthEarningsPattern(storeId: number): string {
-  return `pulse:growth:earnings:*:store:${storeId}*`;
+  return `pulse:growth:earnings:*:store:${storeId}:*`;
 }
 
 export function buildPulseGrowthAdminPartnerApplicationsCacheKey(

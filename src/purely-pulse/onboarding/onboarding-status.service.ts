@@ -98,7 +98,7 @@ export class OnboardingStatusService {
   ): Promise<MembershipProfileRow | null> {
     const profile = await this.prisma.storeMembershipProfile.findUnique({
       where: { storeId },
-      select: { currentPlanId: true, expiresAt: true },
+      select: { currentPlanId: true, startsAt: true, expiresAt: true },
     });
 
     return profile ?? null;

@@ -19,7 +19,7 @@ export abstract class ClubPaymentSettlementTemplate<
   TOrderType extends ClubOrderTypeValue,
   TResult,
 > {
-  private readonly logger = new Logger(ClubPaymentSettlementTemplate.name);
+  protected readonly logger = new Logger(ClubPaymentSettlementTemplate.name);
 
   protected constructor(
     protected readonly prisma: PrismaService,
@@ -46,8 +46,8 @@ export abstract class ClubPaymentSettlementTemplate<
     }
 
     // 获取分布式锁，防止并发回调/重复 confirm 导致重复落账
-    const lockAcquired = await this.paymentLockService.acquireLock(draft.id);
-    if (!lockAcquired) {
+    const lockToken = await this.paymentLockService.acquireLock(draft.orderNo);
+    if (!lockToken) {
       this.logger.warn(
         `订单 ${draft.orderNo} 正在被并发处理，拒绝本次落账请求`,
       );
@@ -68,7 +68,7 @@ export abstract class ClubPaymentSettlementTemplate<
       );
       return this.toResponse(paidDraft);
     } finally {
-      await this.paymentLockService.releaseLock(draft.id);
+      await this.paymentLockService.releaseLock(draft.orderNo, lockToken);
     }
   }
 

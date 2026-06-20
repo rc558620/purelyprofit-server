@@ -47,21 +47,21 @@ describe('ClubPaymentCallbackDispatchService', () => {
 
   it('dispatchByOrderNo 在 RC 前缀时驱动充值支付服务', async () => {
     clubRechargePaymentService.confirmOrderPaidByCallback.mockResolvedValue({
-      orderNo: 'RC123',
+      orderNo: 'RC202606101231000001A2B',
       orderType: 'recharge',
       status: 'paid',
     });
 
     await expect(
-      service.dispatchByOrderNo('RC123', settlement),
+      service.dispatchByOrderNo('RC202606101231000001A2B', settlement),
     ).resolves.toEqual({
-      orderNo: 'RC123',
+      orderNo: 'RC202606101231000001A2B',
       orderType: 'recharge',
       status: 'paid',
     });
     expect(
       clubRechargePaymentService.confirmOrderPaidByCallback,
-    ).toHaveBeenCalledWith('RC123', settlement);
+    ).toHaveBeenCalledWith('RC202606101231000001A2B', settlement);
     expect(
       clubOrderServicePaymentService.confirmOrderPaidByCallback,
     ).not.toHaveBeenCalled();
@@ -70,27 +70,27 @@ describe('ClubPaymentCallbackDispatchService', () => {
   it('dispatchByOrderNo 在 SV 前缀时驱动服务支付服务', async () => {
     clubOrderServicePaymentService.confirmOrderPaidByCallback.mockResolvedValue(
       {
-        orderNo: 'SV123',
+        orderNo: 'SV202606101231000003C4D',
         orderType: 'service',
         status: 'paid',
       },
     );
 
     await expect(
-      service.dispatchByOrderNo('SV123', {
+      service.dispatchByOrderNo('SV202606101231000003C4D', {
         ...settlement,
         amountFen: 49900,
         transactionId: '4200001234202606109999999999',
       }),
     ).resolves.toEqual({
-      orderNo: 'SV123',
+      orderNo: 'SV202606101231000003C4D',
       orderType: 'service',
       status: 'paid',
     });
     expect(
       clubOrderServicePaymentService.confirmOrderPaidByCallback,
     ).toHaveBeenCalledWith(
-      'SV123',
+      'SV202606101231000003C4D',
       expect.objectContaining({ amountFen: 49900 }),
     );
     expect(

@@ -50,12 +50,14 @@ export const ONLINE_CHANGE_RATIO = 12.0;
 export const REVENUE_MONTHLY_LABEL = '月卡会员';
 export const REVENUE_QUARTERLY_LABEL = '季度会员';
 export const REVENUE_YEARLY_LABEL = '年卡会员';
+export const REVENUE_LIFETIME_LABEL = '永久会员';
 export const REVENUE_FALLBACK_LABEL = '其他充值';
 
 export const REVENUE_TYPE_LABELS = [
   REVENUE_MONTHLY_LABEL,
   REVENUE_QUARTERLY_LABEL,
   REVENUE_YEARLY_LABEL,
+  REVENUE_LIFETIME_LABEL,
   REVENUE_FALLBACK_LABEL,
 ] as const;
 

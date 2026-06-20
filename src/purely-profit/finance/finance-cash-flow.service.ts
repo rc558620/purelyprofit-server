@@ -126,6 +126,8 @@ export class FinanceCashFlowService {
       customRangeEndYear: query.customRangeEndYear,
       customRangeEndMonth: query.customRangeEndMonth,
       customRangeEndDay: query.customRangeEndDay,
+      page: query.page,
+      pageSize: query.pageSize,
     };
     const cacheKey = buildFinanceCashFlowStatsCacheKey(storeId, {
       ...cashFlowQuery,

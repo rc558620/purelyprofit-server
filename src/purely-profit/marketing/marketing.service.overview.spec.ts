@@ -50,9 +50,9 @@ describe('MarketingService overview', () => {
         { date: new Date('2026-05-15T00:00:00.000Z'), total: 8000 },
       ])
       .mockResolvedValueOnce([
-        { year: 2025, month: 2, total: 25000 },
-        { year: 2026, month: 1, total: 15000 },
-        { year: 2026, month: 4, total: 20000 },
+        { year: 2025, month: 3, total: 25000 },
+        { year: 2026, month: 2, total: 15000 },
+        { year: 2026, month: 5, total: 20000 },
       ]);
     context.prismaService.marketingRecharge.findMany.mockResolvedValue([
       {

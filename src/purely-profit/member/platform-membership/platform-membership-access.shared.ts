@@ -146,7 +146,13 @@ export function resolveMembershipLevel(
     return 'free';
   }
 
-  if (profile.currentPlanId === 'yearly' && profile.expiresAt === null) {
+  // 历史兼容：早年 lifetime 枚举还没加时用 yearly + null expiresAt 表示永久会员，
+  // 需同时满足 startsAt 存在才认定为 lifetime，防止数据异常被误判
+  if (
+    profile.currentPlanId === 'yearly' &&
+    profile.expiresAt === null &&
+    profile.startsAt !== null
+  ) {
     return 'lifetime';
   }
 

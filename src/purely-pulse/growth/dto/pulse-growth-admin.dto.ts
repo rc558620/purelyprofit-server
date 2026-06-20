@@ -133,14 +133,6 @@ export class PulsePayoutApplicationItemDto {
   paidAt: string | null;
 
   @ApiPropertyOptional({
-    example: 'TXN20260428001',
-    description: '打款流水号，已打款时存在',
-  })
-  @IsOptional()
-  @IsString()
-  txnNo: string | null;
-
-  @ApiPropertyOptional({
     example: '银行卡账号信息有误，请重新提交',
     description: '拒绝原因，已拒绝时存在',
   })
@@ -179,17 +171,7 @@ export class PulseAdminPayoutsResponseDto {
   nextCursor: string | null;
 }
 
-export class PulseAdminApprovePayoutDto {
-  @ApiPropertyOptional({
-    example: 'TXN20260428001',
-    description: '打款流水号（可选，已有第三方流水号时传入）',
-  })
-  @IsOptional()
-  @Transform(({ value }) => trimString(value))
-  @IsString({ message: '流水号必须是字符串' })
-  @MaxLength(64, { message: '流水号最多 64 位' })
-  txnNo?: string;
-}
+export class PulseAdminApprovePayoutDto {}
 
 export class PulseAdminRejectPayoutDto {
   @ApiProperty({

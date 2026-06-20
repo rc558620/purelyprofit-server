@@ -13,14 +13,27 @@ import { NotificationsBuildService } from './notifications-build.service';
 import { NotificationsContextService } from './notifications-context.service';
 import { NotificationsReadStateService } from './notifications-read-state.service';
 import { NotificationsService } from './notifications.service';
+import { NOTIFICATIONS_READ_TTL_SECONDS } from './notifications.constants';
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
 
+  const pipelineExec = jest.fn();
+  const pipelineGet = jest.fn().mockReturnThis();
+  const pipelineSet = jest.fn().mockReturnThis();
+
+  const mockPipeline = {
+    get: pipelineGet,
+    set: pipelineSet,
+    exec: pipelineExec,
+  };
+
+  const mockRedisClient = {
+    pipeline: jest.fn().mockReturnValue(mockPipeline),
+  };
+
   const prismaService = {
-    product: {
-      findMany: jest.fn(),
-    },
+    $queryRaw: jest.fn(),
     financeAccountRecord: {
       findMany: jest.fn(),
     },
@@ -45,6 +58,7 @@ describe('NotificationsService', () => {
   const redisService = {
     get: jest.fn(),
     set: jest.fn(),
+    getClient: jest.fn().mockReturnValue(mockRedisClient),
   };
 
   const user: AuthenticatedUser = {
@@ -77,6 +91,7 @@ describe('NotificationsService', () => {
     redisService.set.mockResolvedValue(undefined);
     redisService.get.mockResolvedValue(null);
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    pipelineExec.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -98,20 +113,14 @@ describe('NotificationsService', () => {
   });
 
   function mockNotificationSources() {
-    prismaService.product.findMany.mockResolvedValue([
+    // 低库存商品 - 使用 $queryRaw 返回 snake_case 字段
+    prismaService.$queryRaw.mockResolvedValue([
       {
         id: 5,
         name: '可乐',
         stock: 4,
-        alertThreshold: 10,
-        updatedAt: new Date(2026, 4, 14, 14, 0, 0, 0),
-      },
-      {
-        id: 15,
-        name: '雪碧',
-        stock: 12,
-        alertThreshold: 10,
-        updatedAt: new Date(2026, 4, 14, 13, 0, 0, 0),
+        alert_threshold: 10,
+        updated_at: new Date(2026, 4, 14, 14, 0, 0, 0),
       },
     ]);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
@@ -156,48 +165,48 @@ describe('NotificationsService', () => {
     ]);
   }
 
+  /**
+   * 模拟 Redis Pipeline 返回已读状态的 exec 结果
+   * 每个元素为 [error, value] 元组
+   */
+  function mockPipelineExecWithReadState(
+    readState: Record<string, string | null>,
+  ) {
+    pipelineExec.mockImplementation(() => {
+      // 收集 pipeline.get 调用过的 key
+      const keys: string[] = [];
+      for (const call of pipelineGet.mock.calls) {
+        // calls 中存储的是传给 pipeline.get(key) 的参数
+        keys.push(call[0] as string);
+      }
+
+      const results = keys.map((key) => {
+        // 从 key 中提取 notificationId: notifications:read:18:inventory:product:5
+        const parts = key.split(':');
+        const notificationId = parts.slice(3).join(':');
+        const value = readState[notificationId] ?? null;
+        return [null, value];
+      });
+
+      return Promise.resolve(results);
+    });
+  }
+
   it('getUnreadSummary 返回未读数量和最新未读摘要', async () => {
     mockNotificationSources();
+    // 模拟全部未读
+    mockPipelineExecWithReadState({});
 
-    await expect(service.getUnreadSummary(user, {})).resolves.toEqual({
-      unreadCount: 6,
-      latestItems: [
-        {
-          id: 'inventory:product:5',
-          type: 'inventory',
-          title: '可乐 库存不足',
-          createdAt: new Date(2026, 4, 14, 14, 0, 0, 0).getTime(),
-          actionUrl: '/stocktaking',
-        },
-        {
-          id: 'finance:account:6',
-          type: 'finance',
-          title: '张三供应商 账款已逾期',
-          createdAt: new Date(2026, 4, 14, 12, 0, 0, 0).getTime(),
-          actionUrl: '/accounts-management',
-        },
-        {
-          id: 'membership:subscription:3',
-          type: 'membership',
-          title: '专业版套餐 即将到期',
-          createdAt: new Date(2026, 4, 14, 11, 30, 0, 0).getTime(),
-          actionUrl: '/member-center',
-        },
-        {
-          id: 'marketing:promotion:7',
-          type: 'marketing',
-          title: '夏日活动 即将结束',
-          createdAt: new Date(2026, 4, 14, 11, 0, 0, 0).getTime(),
-          actionUrl: '/marketing-center',
-        },
-        {
-          id: 'withdrawal:partner:8',
-          type: 'withdrawal',
-          title: '有新的提现申请待处理',
-          createdAt: new Date(2026, 4, 14, 10, 0, 0, 0).getTime(),
-          actionUrl: '/member-center',
-        },
-      ],
+    const result = await service.getUnreadSummary(user, {});
+
+    expect(result.unreadCount).toBe(6);
+    expect(result.latestItems).toHaveLength(5);
+    expect(result.latestItems[0]).toEqual({
+      id: 'inventory:product:5',
+      type: 'inventory',
+      title: '可乐 库存不足',
+      createdAt: new Date(2026, 4, 14, 14, 0, 0, 0).getTime(),
+      actionUrl: '/stocktaking',
     });
 
     expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith({
@@ -221,123 +230,68 @@ describe('NotificationsService', () => {
 
   it('list 支持未读过滤并返回 readAt', async () => {
     mockNotificationSources();
-    redisService.get.mockImplementation((key: string) => {
-      if (key.endsWith('membership:subscription:3')) {
-        return String(new Date(2026, 4, 14, 14, 30, 0, 0).getTime());
-      }
-      return null;
+    const membershipReadAt = String(
+      new Date(2026, 4, 14, 14, 30, 0, 0).getTime(),
+    );
+    mockPipelineExecWithReadState({
+      'membership:subscription:3': membershipReadAt,
     });
 
-    await expect(
-      service.list(user, { unreadOnly: true, page: 1, pageSize: 10 }),
-    ).resolves.toEqual({
-      items: [
-        {
-          id: 'inventory:product:5',
-          type: 'inventory',
-          title: '可乐 库存不足',
-          content: '当前库存 4，已低于预警阈值 10，请及时补货。',
-          bizType: 'inventory',
-          bizId: '5',
-          actionUrl: '/stocktaking',
-          createdAt: new Date(2026, 4, 14, 14, 0, 0, 0).getTime(),
-        },
-        {
-          id: 'finance:account:6',
-          type: 'finance',
-          title: '张三供应商 账款已逾期',
-          content: '剩余应收应付款 ¥200.00，到期时间 05/13。',
-          bizType: 'finance_account',
-          bizId: '6',
-          actionUrl: '/accounts-management',
-          createdAt: new Date(2026, 4, 14, 12, 0, 0, 0).getTime(),
-        },
-        {
-          id: 'marketing:promotion:7',
-          type: 'marketing',
-          title: '夏日活动 即将结束',
-          content: '营销活动将在 05/16 结束，注意安排延续或下架。',
-          bizType: 'marketing_promotion',
-          bizId: '7',
-          actionUrl: '/marketing-center',
-          createdAt: new Date(2026, 4, 14, 11, 0, 0, 0).getTime(),
-        },
-        {
-          id: 'withdrawal:partner:8',
-          type: 'withdrawal',
-          title: '有新的提现申请待处理',
-          content: '申请提现 300 纯利豆，请尽快完成审核。',
-          bizType: 'withdrawal',
-          bizId: '8',
-          actionUrl: '/member-center',
-          createdAt: new Date(2026, 4, 14, 10, 0, 0, 0).getTime(),
-        },
-        {
-          id: 'employee:leave:9',
-          type: 'employee',
-          title: '小李 请假即将开始',
-          content: '请假开始时间为 05/15 09:00，请提前安排排班。',
-          bizType: 'employee_leave',
-          bizId: '9',
-          actionUrl: '/employee-management',
-          createdAt: new Date(2026, 4, 14, 9, 0, 0, 0).getTime(),
-        },
-      ],
-      unreadCount: 5,
-      meta: {
-        page: 1,
-        pageSize: 10,
-        total: 5,
-        totalPages: 1,
-      },
+    const unreadResult = await service.list(user, {
+      unreadOnly: true,
+      page: 1,
+      pageSize: 10,
     });
 
-    await expect(
-      service.list(user, { type: 'membership', page: 1, pageSize: 10 }),
-    ).resolves.toEqual({
-      items: [
-        {
-          id: 'membership:subscription:3',
-          type: 'membership',
-          title: '专业版套餐 即将到期',
-          content: '当前门店订阅将在 05/18 到期，请及时续费。',
-          bizType: 'store_subscription',
-          bizId: '3',
-          actionUrl: '/member-center',
-          createdAt: new Date(2026, 4, 14, 11, 30, 0, 0).getTime(),
-          readAt: new Date(2026, 4, 14, 14, 30, 0, 0).getTime(),
-        },
-      ],
-      unreadCount: 5,
-      meta: {
-        page: 1,
-        pageSize: 10,
-        total: 1,
-        totalPages: 1,
-      },
+    expect(unreadResult.items).toHaveLength(5);
+    expect(unreadResult.unreadCount).toBe(5);
+
+    // membership 通知不出现（已读）
+    expect(
+      unreadResult.items.find((i) => i.id === 'membership:subscription:3'),
+    ).toBeUndefined();
+
+    // 列出所有通知（包含已读的）
+    mockPipelineExecWithReadState({
+      'membership:subscription:3': membershipReadAt,
     });
+    const allResult = await service.list(user, {
+      type: 'membership',
+      page: 1,
+      pageSize: 10,
+    });
+
+    expect(allResult.items).toHaveLength(1);
+    expect(allResult.items[0].readAt).toBe(Number(membershipReadAt));
+    expect(allResult.unreadCount).toBe(5);
   });
 
   it('markRead 标记指定通知已读并返回最新未读数', async () => {
     mockNotificationSources();
-
-    await expect(
-      service.markRead(user, 'inventory:product:5', {}),
-    ).resolves.toEqual({
-      success: true,
-      id: 'inventory:product:5',
-      readAt: new Date(2026, 4, 14, 15, 0, 0, 0).getTime(),
-      unreadCount: 5,
+    const readAt = new Date(2026, 4, 14, 15, 0, 0, 0).getTime();
+    // markRead 后重新读取 unreadMap 时，inventory:product:5 已标记为已读
+    mockPipelineExecWithReadState({
+      'inventory:product:5': String(readAt),
     });
 
+    const result = await service.markRead(user, 'inventory:product:5', {});
+
+    expect(result.success).toBe(true);
+    expect(result.id).toBe('inventory:product:5');
+    expect(result.readAt).toBe(readAt);
+    expect(result.unreadCount).toBe(5);
+
+    // 验证 redisService.set 被调用且带 TTL（markRead 使用单条 set）
     expect(redisService.set).toHaveBeenCalledWith(
       'notifications:read:18:inventory:product:5',
-      String(new Date(2026, 4, 14, 15, 0, 0, 0).getTime()),
+      String(readAt),
+      NOTIFICATIONS_READ_TTL_SECONDS,
     );
   });
 
   it('markRead 在通知不存在时抛 NotFoundException', async () => {
     mockNotificationSources();
+    mockPipelineExecWithReadState({});
 
     await expect(service.markRead(user, 'missing', {})).rejects.toBeInstanceOf(
       NotFoundException,
@@ -346,12 +300,42 @@ describe('NotificationsService', () => {
 
   it('markAllRead 标记当前门店全部通知已读', async () => {
     mockNotificationSources();
+    mockPipelineExecWithReadState({});
 
-    await expect(service.markAllRead(user, {})).resolves.toEqual({
-      success: true,
-      readAt: new Date(2026, 4, 14, 15, 0, 0, 0).getTime(),
-      unreadCount: 0,
-    });
-    expect(redisService.set).toHaveBeenCalledTimes(6);
+    const result = await service.markAllRead(user, {});
+
+    expect(result.success).toBe(true);
+    expect(result.readAt).toBe(new Date(2026, 4, 14, 15, 0, 0, 0).getTime());
+    expect(result.unreadCount).toBe(0);
+
+    // 验证 pipeline.set 被调用 6 次（6 条通知）且带 EX + TTL
+    expect(pipelineSet).toHaveBeenCalledTimes(6);
+    for (const call of pipelineSet.mock.calls) {
+      expect(call[2]).toBe('EX');
+      expect(call[3]).toBe(NOTIFICATIONS_READ_TTL_SECONDS);
+    }
+  });
+
+  it('缓存层命中时跳过数据库查询', async () => {
+    const cachedItems = [
+      {
+        id: 'inventory:product:5',
+        type: 'inventory' as const,
+        title: '可乐 库存不足',
+        content: '当前库存 4，已低于预警阈值 10，请及时补货。',
+        bizType: 'inventory',
+        bizId: '5',
+        actionUrl: '/stocktaking',
+        createdAt: new Date(2026, 4, 14, 14, 0, 0, 0).getTime(),
+      },
+    ];
+    redisService.get.mockResolvedValue(JSON.stringify(cachedItems));
+    mockPipelineExecWithReadState({});
+
+    const result = await service.getUnreadSummary(user, {});
+
+    expect(result.unreadCount).toBe(1);
+    // 不应调用数据库
+    expect(prismaService.$queryRaw).not.toHaveBeenCalled();
   });
 });

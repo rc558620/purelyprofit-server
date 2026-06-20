@@ -9,7 +9,7 @@ import {
 import type { RedisService } from './redis.service';
 
 export type FinanceCacheInvalidatorInput = {
-  redisService: Pick<RedisService, 'delByPattern'>;
+  redisService: Pick<RedisService, 'del' | 'delByPattern'>;
 };
 
 export type FinanceCacheInvalidatorRegistry = {

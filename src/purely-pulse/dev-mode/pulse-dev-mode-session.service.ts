@@ -7,7 +7,8 @@ import type {
 import {
   DEV_EXPIRES_AT,
   DEV_MODE_NAME,
-  DEV_REMAINING_DAYS,
+  DEV_PLAN_ID,
+  getDevRemainingDays,
 } from './pulse-dev-mode.constants';
 
 @Injectable()
@@ -21,14 +22,14 @@ export class PulseDevModeSessionService {
       store: null,
       membership: {
         isActive: true,
-        planId: 'developer',
+        planId: DEV_PLAN_ID,
         planName: DEV_MODE_NAME,
-        remainingDays: DEV_REMAINING_DAYS,
+        remainingDays: getDevRemainingDays(),
         expiresAt: DEV_EXPIRES_AT,
       },
       unreadNotificationCount: 0,
       targetStoreSelected: false,
-      hasOnboarded: true,
+      hasOnboarded: false,
     };
   }
 

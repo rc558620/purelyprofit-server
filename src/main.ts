@@ -585,6 +585,7 @@ export async function bootstrap(): Promise<void> {
       keepAliveTimeout,
       requestTimeout,
     }),
+    { rawBody: true },
   );
 
   app.useGlobalPipes(
@@ -618,6 +619,11 @@ export async function bootstrap(): Promise<void> {
       'Authorization',
       'X-Request-Id',
       'X-Requested-With',
+      'Wechatpay-Timestamp',
+      'Wechatpay-Nonce',
+      'Wechatpay-Signature',
+      'Wechatpay-Serial',
+      'Wechatpay-Signature-Type',
     ],
     credentials: true,
   });

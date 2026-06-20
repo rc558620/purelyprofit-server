@@ -47,6 +47,7 @@ import { ClubPromotionsModule } from './purely-club/promotions/club-promotions.m
 import { ClubRechargeModule } from './purely-club/recharge/club-recharge.module';
 import { ClubRecordsModule } from './purely-club/records/club-records.module';
 import { ClubStoresModule } from './purely-club/stores/club-stores.module';
+import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.module';
 
 @Module({
   imports: [
@@ -99,6 +100,7 @@ import { ClubStoresModule } from './purely-club/stores/club-stores.module';
     ClubRechargeModule,
     ClubRecordsModule,
     ClubStoresModule,
+    PulseDevModeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

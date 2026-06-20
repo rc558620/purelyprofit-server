@@ -39,10 +39,10 @@ export function buildPaginatedPurchasesResponse(
 
 export function buildEmptyPurchaseStatsResponse(): PurchaseStatsResponseDto {
   return {
-    totalThisMonth: 0,
-    countThisMonth: 0,
+    totalAmount: 0,
+    orderCount: 0,
     supplierCount: 0,
-    compareLastMonth: null,
+    compareLastPeriod: null,
   };
 }
 
@@ -57,10 +57,10 @@ export function buildPurchaseStatsResponse(params: {
   const previousTotal = toDecimalNumber(params.previousTotalAmount);
 
   return {
-    totalThisMonth: currentTotal,
-    countThisMonth: params.currentCount,
+    totalAmount: currentTotal,
+    orderCount: params.currentCount,
     supplierCount: params.supplierCount,
-    compareLastMonth: calculatePurchaseCompareLastMonth(
+    compareLastPeriod: calculatePurchaseCompareLastMonth(
       currentTotal,
       previousTotal,
       params.hasPreviousRange,

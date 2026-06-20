@@ -37,7 +37,7 @@ export class MarketingRechargesService {
 
   async listRecharges(
     user: AuthenticatedUser,
-    query: ListRechargesQueryDto & { storeId?: number },
+    query: ListRechargesQueryDto,
   ): Promise<MarketingRechargesResponseDto> {
     const resolvedStoreId =
       await this.marketingSharedService.resolveMembershipManagedStoreId(
@@ -130,6 +130,17 @@ export class MarketingRechargesService {
     }
 
     const [rechargeRecord] = await this.prisma.$transaction(async (tx) => {
+      // 事务内重新读取最新余额，防止并发退款导致余额变负
+      if (rechargeType === 'refund') {
+        const freshCustomer = await tx.marketingCustomer.findUnique({
+          where: { id: dto.customerId },
+          select: { balance: true },
+        });
+        if (!freshCustomer || freshCustomer.balance < dto.amount) {
+          throw new BadRequestException('退款金额不能超过顾客当前余额');
+        }
+      }
+
       const recharge = await tx.marketingRecharge.create({
         data: {
           storeId,

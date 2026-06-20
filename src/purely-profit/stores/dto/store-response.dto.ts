@@ -20,6 +20,8 @@ export interface StoreProfileMetadata {
   storeLogo?: string;
   latitude?: number;
   longitude?: number;
+  /** 省市区名称数组，与 region 编码数组对应，供前端回显 */
+  regionLabels?: string[];
 }
 
 export interface StoreRecordSnapshot {
@@ -30,41 +32,8 @@ export interface StoreRecordSnapshot {
   updatedAt: Date;
 }
 
-function normalizeStoreLogo(value: unknown): string | undefined {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const normalizedValue = value.trim();
-  if (normalizedValue === '' || normalizedValue.startsWith('blob:')) {
-    return undefined;
-  }
-
-  return normalizedValue;
-}
-
-function normalizeCoordinate(
-  value: unknown,
-  min: number,
-  max: number,
-): number | undefined {
-  if (value === undefined || value === null || value === '') {
-    return undefined;
-  }
-
-  const parsedValue =
-    typeof value === 'number'
-      ? value
-      : typeof value === 'string'
-        ? Number.parseFloat(value)
-        : Number.NaN;
-
-  if (!Number.isFinite(parsedValue) || parsedValue < min || parsedValue > max) {
-    return undefined;
-  }
-
-  return parsedValue;
-}
+// 注意：normalizeStoreLogo / normalizeCoordinate 的唯一定义在 stores.utils.ts，
+// 此处不再重复定义，避免维护不一致（BUG-6 修复）。
 
 export function transformOptionalInt({
   value,
@@ -135,6 +104,7 @@ export function normalizeStoreProfileMetadata(
     storeLogo: unknown;
     latitude: unknown;
     longitude: unknown;
+    regionLabels: unknown;
   }>;
 
   const region = Array.isArray(candidate.region)
@@ -146,9 +116,36 @@ export function normalizeStoreProfileMetadata(
 
   const storeType =
     typeof candidate.storeType === 'string' ? candidate.storeType.trim() : '';
-  const storeLogo = normalizeStoreLogo(candidate.storeLogo);
-  const latitude = normalizeCoordinate(candidate.latitude, -90, 90);
-  const longitude = normalizeCoordinate(candidate.longitude, -180, 180);
+  const storeLogo =
+    typeof candidate.storeLogo === 'string' &&
+    candidate.storeLogo.trim() !== '' &&
+    !candidate.storeLogo.trim().startsWith('blob:')
+      ? candidate.storeLogo.trim()
+      : undefined;
+
+  const parseNum = (
+    v: unknown,
+    min: number,
+    max: number,
+  ): number | undefined => {
+    if (v === undefined || v === null || v === '') return undefined;
+    const n =
+      typeof v === 'number'
+        ? v
+        : typeof v === 'string'
+          ? Number.parseFloat(v)
+          : Number.NaN;
+    return Number.isFinite(n) && n >= min && n <= max ? n : undefined;
+  };
+
+  const latitude = parseNum(candidate.latitude, -90, 90);
+  const longitude = parseNum(candidate.longitude, -180, 180);
+
+  const regionLabels = Array.isArray(candidate.regionLabels)
+    ? candidate.regionLabels.filter(
+        (item): item is string => typeof item === 'string',
+      )
+    : undefined;
 
   return {
     storeType,
@@ -156,6 +153,7 @@ export function normalizeStoreProfileMetadata(
     ...(storeLogo ? { storeLogo } : {}),
     ...(latitude !== undefined ? { latitude } : {}),
     ...(longitude !== undefined ? { longitude } : {}),
+    ...(regionLabels && regionLabels.length > 0 ? { regionLabels } : {}),
   };
 }
 
@@ -173,6 +171,9 @@ export function buildStoreResponseDto(
     ...(metadata.latitude !== undefined ? { latitude: metadata.latitude } : {}),
     ...(metadata.longitude !== undefined
       ? { longitude: metadata.longitude }
+      : {}),
+    ...(metadata.regionLabels && metadata.regionLabels.length > 0
+      ? { regionLabels: metadata.regionLabels }
       : {}),
     createdAt: store.createdAt,
     updatedAt: store.updatedAt,
@@ -281,4 +282,13 @@ export class StoreResponseDto {
   })
   @IsDate({ message: '更新时间必须是日期' })
   updatedAt: Date;
+
+  @ApiPropertyOptional({
+    example: ['北京市', '北京市', '朝阳区'],
+    description: '省市区名称数组，与 region 编码数组对应，供前端回显',
+  })
+  @IsOptional()
+  @IsArray({ message: '省市区名称数组必须是数组' })
+  @IsString({ each: true, message: '省市区名称项必须是字符串' })
+  regionLabels?: string[];
 }

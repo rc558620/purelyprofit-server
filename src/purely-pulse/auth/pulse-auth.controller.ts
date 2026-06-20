@@ -14,7 +14,7 @@ export class PulseAuthController {
   @ApiOperation({
     summary: 'purely-pulse 开发者登录',
     description:
-      '仅接受开发者账号登录 purely-pulse。purely-profit 注册账号、purely-club 注册账号以及其他非开发者账号都会被拒绝。',
+      '支持手机号或账号别名登录。仅开发者账号可登录 purely-pulse，非开发者账号（purely-profit 普通商家、purely-club 注册账号等）会被拒绝。',
   })
   @ApiOkResponse({
     description: 'purely-pulse 开发者登录成功，返回 JWT token',

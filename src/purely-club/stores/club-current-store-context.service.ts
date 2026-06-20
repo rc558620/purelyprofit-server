@@ -15,6 +15,8 @@ import type {
 const CLUB_SELECTED_STORE_KEY_PREFIX = 'club:selected-store:';
 const CLUB_STORE_NOT_FOUND_MESSAGE = '当前账号暂无可访问门店';
 const CLUB_STORE_FORBIDDEN_MESSAGE = '无权访问该门店，或门店不存在';
+/** 选中门店缓存的 TTL（秒），30 天后自然过期避免内存泄漏 */
+const CLUB_SELECTED_STORE_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 @Injectable()
 export class ClubCurrentStoreContextService {
@@ -102,7 +104,11 @@ export class ClubCurrentStoreContextService {
     const rawStoreId = await this.redisService.get(
       this.buildSelectedStoreKey(userId),
     );
-    const parsedStoreId = Number.parseInt(rawStoreId ?? '', 10);
+    if (!rawStoreId || rawStoreId.trim().length === 0) {
+      return null;
+    }
+
+    const parsedStoreId = Number.parseInt(rawStoreId, 10);
     return Number.isNaN(parsedStoreId) ? null : parsedStoreId;
   }
 
@@ -113,6 +119,7 @@ export class ClubCurrentStoreContextService {
     await this.redisService.set(
       this.buildSelectedStoreKey(userId),
       `${storeId}`,
+      CLUB_SELECTED_STORE_TTL_SECONDS,
     );
   }
 

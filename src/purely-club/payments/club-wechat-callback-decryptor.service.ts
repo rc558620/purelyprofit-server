@@ -67,15 +67,17 @@ export class ClubWechatCallbackDecryptorService {
 
     let decrypted: WechatDecryptedTransaction | null = null;
 
+    // 始终尝试所有密钥（不 break），减少时序侧信道风险
     for (const apiV3Key of apiV3Keys) {
-      decrypted = this.tryDecrypt(
+      const candidate = this.tryDecrypt(
         resource.ciphertext,
         resource.nonce,
         resource.associated_data ?? '',
         apiV3Key,
       );
-      if (decrypted !== null) {
-        break;
+      // 仅保留首次成功解密的结果
+      if (candidate !== null && decrypted === null) {
+        decrypted = candidate;
       }
     }
 

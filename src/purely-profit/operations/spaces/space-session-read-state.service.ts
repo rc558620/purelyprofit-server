@@ -52,10 +52,12 @@ export class SpaceSessionReadStateService {
       return;
     }
 
-    await Promise.all(
-      inconsistentSpaceIds.map((spaceId) =>
-        this.reservationsStateService.repairInconsistentOccupiedSpace(spaceId),
-      ),
-    );
+    // 串行修复：每个修复内部启动独立事务并使用 FOR UPDATE 锁定空间行，
+    // 并行执行可能导致多个事务同时争抢同一行的行锁从而引发死锁。
+    for (const spaceId of inconsistentSpaceIds) {
+      await this.reservationsStateService.repairInconsistentOccupiedSpace(
+        spaceId,
+      );
+    }
   }
 }

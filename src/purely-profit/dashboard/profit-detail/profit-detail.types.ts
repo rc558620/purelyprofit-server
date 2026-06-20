@@ -61,6 +61,7 @@ export const PROFIT_DETAIL_SALE_ORDER_ITEM_SELECT =
     image: true,
     order: {
       select: {
+        id: true,
         date: true,
         spaceSession: {
           select: {
@@ -120,7 +121,9 @@ export interface ProfitMetricsSnapshot {
   currentSales: SalesAggregationResult;
   previousSales: SalesAggregationResult;
   currentCosts: CostAggregationResult;
+  previousCosts: CostAggregationResult;
   netProfit: number;
+  previousNetProfit: number;
 }
 
 export interface ProfitClampedRanges {

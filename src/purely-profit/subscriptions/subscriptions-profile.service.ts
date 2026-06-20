@@ -39,10 +39,10 @@ export class SubscriptionsProfileService {
     storeId: number,
     prismaExecutor: Prisma.TransactionClient | PrismaClient = this.prisma,
   ): Promise<StoreSubscriptionResponseDto> {
-    const subscription = await findStoreSubscriptionRecord(
-      prismaExecutor,
-      storeId,
-    );
+    const [subscription, seatSummary] = await Promise.all([
+      findStoreSubscriptionRecord(prismaExecutor, storeId),
+      this.getSeatSummary(storeId, prismaExecutor),
+    ]);
 
     if (!subscription) {
       throw new NotFoundException('门店订阅不存在');
@@ -54,10 +54,11 @@ export class SubscriptionsProfileService {
       planCode: subscription.planCode,
       planName: subscription.planName,
       status: subscription.status,
-      maxAccountSeats: subscription.maxAccountSeats,
+      /** 席位上限以 Store.maxAccountSeats 为事实来源，避免双写不一致 */
+      maxAccountSeats: seatSummary.maxAccountSeats,
       startsAt: subscription.startsAt,
       expiresAt: subscription.expiresAt,
-      seatSummary: await this.getSeatSummary(storeId, prismaExecutor),
+      seatSummary,
     };
   }
 }

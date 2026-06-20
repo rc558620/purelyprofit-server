@@ -29,24 +29,6 @@ import {
 const BUSINESS_ANALYSIS_CACHE_TTL_SECONDS = 120;
 const BUSINESS_ANALYSIS_REFRESH_AFTER_MS = 30_000;
 
-function normalizeBusinessAnalysisQuery(
-  query: GetBusinessAnalysisQueryDto,
-): GetBusinessAnalysisQueryDto {
-  const rawPeriod = (query as { period?: string }).period;
-  if (
-    rawPeriod !== 'all' ||
-    query.startTime === undefined ||
-    query.endTime === undefined
-  ) {
-    return query;
-  }
-
-  return {
-    ...query,
-    period: 'custom_range',
-  };
-}
-
 @Injectable()
 export class BusinessAnalysisService {
   constructor(
@@ -77,25 +59,28 @@ export class BusinessAnalysisService {
     query: GetBusinessAnalysisQueryDto,
     callerIsSubAccount = false,
   ): Promise<BusinessAnalysisResponseDto> {
-    const normalizedQuery = normalizeBusinessAnalysisQuery(query);
-
-    if (normalizedQuery.export) {
+    if (query.export) {
       await this.platformMembershipAccessService.ensureReportExportEnabled(
         storeId,
         callerIsSubAccount,
       );
-      return this.buildAnalysis(storeId, normalizedQuery, callerIsSubAccount);
+      return this.buildAnalysis(storeId, query, callerIsSubAccount);
     }
 
-    const cacheKey = buildBusinessAnalysisCacheKey(storeId, normalizedQuery);
+    // 子账号不受历史窗口裁剪，缓存中老板裁剪后的数据对子账号不正确，
+    // 因此子账号直接查库以保证数据完整性；老板走缓存加速。
+    if (callerIsSubAccount) {
+      return this.buildAnalysis(storeId, query, true);
+    }
+
+    const cacheKey = buildBusinessAnalysisCacheKey(storeId, query);
     return this.redisService.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: BUSINESS_ANALYSIS_CACHE_TTL_SECONDS,
       refreshAfterMs: BUSINESS_ANALYSIS_REFRESH_AFTER_MS,
-      loadValue: () =>
-        this.buildAnalysis(storeId, normalizedQuery, callerIsSubAccount),
-      refreshValue: () => this.buildAnalysis(storeId, normalizedQuery, false),
+      loadValue: () => this.buildAnalysis(storeId, query, false),
+      refreshValue: () => this.buildAnalysis(storeId, query, false),
     });
   }
 
@@ -106,11 +91,12 @@ export class BusinessAnalysisService {
       'period' | 'startTime' | 'endTime'
     >,
   ): Promise<BusinessAnalysisResponseDto> {
-    const normalizedQuery = normalizeBusinessAnalysisQuery(
+    const cacheKey = buildBusinessAnalysisCacheKey(storeId, query);
+    const data = await this.buildAnalysis(
+      storeId,
       query as GetBusinessAnalysisQueryDto,
+      false,
     );
-    const cacheKey = buildBusinessAnalysisCacheKey(storeId, normalizedQuery);
-    const data = await this.buildAnalysis(storeId, normalizedQuery, false);
     await this.redisService.writeRefreshableJson(
       cacheKey,
       data,

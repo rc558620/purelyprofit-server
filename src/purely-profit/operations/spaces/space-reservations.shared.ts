@@ -136,7 +136,12 @@ export const findNearestReservationMatch = (
   candidates: SpaceReservationRecord[],
   sessionStartTime: Date,
 ): SpaceReservationRecord | null => {
-  const nearest = candidates.sort(
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  // 使用展开运算符避免原地排序修改传入数组
+  const nearest = [...candidates].sort(
     (left, right) =>
       Math.abs(left.reservedAt.getTime() - sessionStartTime.getTime()) -
       Math.abs(right.reservedAt.getTime() - sessionStartTime.getTime()),

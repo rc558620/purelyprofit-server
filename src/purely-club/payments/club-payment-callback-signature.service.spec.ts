@@ -44,6 +44,7 @@ describe('ClubPaymentCallbackSignatureService', () => {
       timestamp,
       nonce: 'callback-nonce',
       signature: 'ANY_SIGNATURE', // 无平台公钥时不做 RSA 验签
+      serial: 'CERT_SERIAL_001',
     };
 
     // 未配置平台公钥 → 跳过 RSA 验签，仅检查时间戳，应不抛出异常
@@ -61,6 +62,7 @@ describe('ClubPaymentCallbackSignatureService', () => {
         timestamp: String(Math.floor(Date.now() / 1000)),
         nonce: 'callback-nonce',
         signature: 'IGNORED',
+        serial: 'CERT_SERIAL_001',
       }),
     ).toThrow(UnauthorizedException);
   });
@@ -74,6 +76,7 @@ describe('ClubPaymentCallbackSignatureService', () => {
         timestamp: expiredTimestamp,
         nonce: 'callback-nonce',
         signature: 'IGNORED',
+        serial: 'CERT_SERIAL_001',
       }),
     ).toThrow(UnauthorizedException);
   });
@@ -86,6 +89,7 @@ describe('ClubPaymentCallbackSignatureService', () => {
         timestamp: undefined,
         nonce: 'callback-nonce',
         signature: 'SIGNATURE',
+        serial: 'CERT_SERIAL_001',
       }),
     ).toThrow(UnauthorizedException);
 
@@ -94,6 +98,7 @@ describe('ClubPaymentCallbackSignatureService', () => {
         timestamp: String(Math.floor(Date.now() / 1000)),
         nonce: undefined,
         signature: 'SIGNATURE',
+        serial: 'CERT_SERIAL_001',
       }),
     ).toThrow(UnauthorizedException);
 
@@ -102,19 +107,23 @@ describe('ClubPaymentCallbackSignatureService', () => {
         timestamp: String(Math.floor(Date.now() / 1000)),
         nonce: 'callback-nonce',
         signature: undefined,
+        serial: 'CERT_SERIAL_001',
       }),
     ).toThrow(UnauthorizedException);
   });
 
-  it('compareSignatures 在内容相同时返回 true', () => {
-    expect(service.compareSignatures('ABCDEF', 'ABCDEF')).toBe(true);
-  });
+  it('assertWechatCallbackSignature 在缺少 serial 头时发出警告但不阻断', () => {
+    const rawBody = '{}';
+    const timestamp = String(Math.floor(Date.now() / 1000));
 
-  it('compareSignatures 在内容不同时返回 false', () => {
-    expect(service.compareSignatures('ABCDEF', 'ABCDE_')).toBe(false);
-  });
-
-  it('compareSignatures 在长度不同时返回 false', () => {
-    expect(service.compareSignatures('ABC', 'ABCDEF')).toBe(false);
+    // serial 为 undefined 时应仅 warn，不抛出异常
+    expect(() =>
+      service.assertWechatCallbackSignature(rawBody, {
+        timestamp,
+        nonce: 'callback-nonce',
+        signature: 'ANY_SIGNATURE',
+        serial: undefined,
+      }),
+    ).not.toThrow();
   });
 });

@@ -83,12 +83,17 @@ export class StaffAccessService {
     user: AuthenticatedUser,
     staffId: number,
     requiredPermission: 'staff:update' | 'staff:delete',
-  ): Promise<{ id: number; storeId: number; role: StaffRole }> {
+  ): Promise<{
+    id: number;
+    storeId: number;
+    role: StaffRole;
+    isSeatActive: boolean;
+  }> {
     const staff = await this.prisma.staff.findFirst({
       where: {
         id: staffId,
       },
-      select: { id: true, storeId: true, role: true },
+      select: { id: true, storeId: true, role: true, isSeatActive: true },
     });
 
     if (!staff) {

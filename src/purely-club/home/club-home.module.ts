@@ -1,5 +1,4 @@
-import { forwardRef, Module } from '@nestjs/common';
-import { AuthModule } from '../../purely-profit/auth/auth.module';
+import { Module } from '@nestjs/common';
 import { ClubMemberModule } from '../member/club-member.module';
 import { ClubProductsModule } from '../products/club-products.module';
 import { ClubPromotionsModule } from '../promotions/club-promotions.module';
@@ -9,7 +8,6 @@ import { ClubHomeService } from './club-home.service';
 
 @Module({
   imports: [
-    forwardRef(() => AuthModule),
     ClubStoresModule,
     ClubMemberModule,
     ClubPromotionsModule,

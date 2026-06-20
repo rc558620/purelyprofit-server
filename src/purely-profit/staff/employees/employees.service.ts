@@ -1,6 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+
 import { toStoreSubAccountRole } from '../../access-control/access-control.constants';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { StoreSubAccountLoginService } from '../../member/platform-membership/store-sub-account-login.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import {
   CreateEmployeeDictionaryDto,
@@ -56,6 +59,7 @@ import { EmployeesShiftDefinitionService } from './employees-shift-definition.se
 @Injectable()
 export class EmployeesService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly employeesDictionaryService: EmployeesDictionaryService,
     private readonly employeesProfileReadService: EmployeesProfileReadService,
     private readonly employeesProfileWriteService: EmployeesProfileWriteService,
@@ -65,6 +69,7 @@ export class EmployeesService {
     private readonly employeesShiftDefinitionService: EmployeesShiftDefinitionService,
     private readonly employeesAccessService: EmployeesAccessService,
     private readonly storeSubAccountService: StoreSubAccountService,
+    private readonly storeSubAccountLoginService: StoreSubAccountLoginService,
   ) {}
 
   // dictionary
@@ -194,33 +199,84 @@ export class EmployeesService {
         employeeId,
         'staff:update',
       );
-    const existingSubAccount =
-      await this.storeSubAccountService.findAssignedSubAccountByEmployee(
+
+    // #3 修复：将查找可用槽位和更新槽位放入事务，避免并发竞态
+    await this.prisma.$transaction(async (tx) => {
+      const existingSubAccount = await tx.storeSubAccount.findFirst({
+        where: {
+          storeId: employee.storeId,
+          employeeId: employee.id,
+          isAssigned: true,
+        },
+        select: { slotIndex: true },
+      });
+
+      let availableSlotIndex: number | undefined;
+
+      if (existingSubAccount) {
+        availableSlotIndex = existingSubAccount.slotIndex;
+      } else {
+        const emptySlots = await tx.storeSubAccount.findMany({
+          where: {
+            storeId: employee.storeId,
+            isAssigned: false,
+            status: 'active',
+          },
+          select: { slotIndex: true },
+          orderBy: { slotIndex: 'asc' },
+          take: 1,
+        });
+        availableSlotIndex = emptySlots[0]?.slotIndex;
+      }
+
+      if (availableSlotIndex === undefined) {
+        throw new BadRequestException(
+          '当前门店暂无可分配的子账号槽位，请先提升子账号额度',
+        );
+      }
+
+      // 在事务内直接更新子账号记录
+      await tx.storeSubAccount.upsert({
+        where: {
+          storeId_slotIndex: {
+            storeId: employee.storeId,
+            slotIndex: availableSlotIndex,
+          },
+        },
+        create: {
+          storeId: employee.storeId,
+          slotIndex: availableSlotIndex,
+          role: toStoreSubAccountRole(dto.role),
+          status: 'active',
+          employeeId: employee.id,
+          isAssigned: true,
+          assignedAt: new Date(),
+          canAccessHome: true,
+          canUseHandover: dto.role !== 'finance',
+        },
+        update: {
+          role: toStoreSubAccountRole(dto.role),
+          status: 'active',
+          employeeId: employee.id,
+          isAssigned: true,
+          assignedAt: new Date(),
+          canAccessHome: true,
+          canUseHandover: dto.role !== 'finance',
+        },
+      });
+    });
+
+    // 事务外处理登录账号创建/更新（User/Staff 操作，非强一致可容忍）
+    if (dto.loginAccount?.trim() || dto.password?.trim()) {
+      await this.storeSubAccountLoginService.ensureEmployeeHasLoginAccount(
         employee.storeId,
         employee.id,
-      );
-    const summary = await this.storeSubAccountService.getStoreSubAccountSummary(
-      employee.storeId,
-    );
-    const availableSlot = existingSubAccount
-      ? existingSubAccount.slotIndex
-      : summary.slots.find((slot) => !slot.isAssigned)?.slotIndex;
-
-    if (!availableSlot) {
-      throw new BadRequestException(
-        '当前门店暂无可分配的子账号槽位，请先提升子账号额度',
+        {
+          loginAccount: dto.loginAccount?.trim() || undefined,
+          password: dto.password?.trim() || undefined,
+        },
       );
     }
-
-    await this.storeSubAccountService.updateSlot(employee.storeId, {
-      slotIndex: availableSlot,
-      role: toStoreSubAccountRole(dto.role),
-      employeeId: employee.id,
-      canAccessHome: true,
-      canUseHandover: dto.role !== 'finance',
-      loginAccount: dto.loginAccount?.trim() || undefined,
-      initialPassword: dto.password?.trim() || undefined,
-    });
 
     return this.employeesProfileReadService.buildEmployeeDetail(
       user,

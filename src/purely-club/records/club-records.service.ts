@@ -25,22 +25,61 @@ export class ClubRecordsService {
       );
 
     if (!customer) {
-      return { items: [] };
+      return {
+        items: [],
+        total: 0,
+        nextCursorCreatedAt: null,
+        nextCursorId: null,
+      };
     }
+
+    // 构建分页游标
+    const cursor = this.buildCursor(query);
 
     const entries = await this.clubRecordQueryService.listLedgerEntries(
       currentContext.store.id,
       customer.id,
       query.limit,
+      cursor,
     );
 
+    const filterType = query.type ?? 'all';
+    const items = this.clubRecordViewService.buildRecordItems({
+      entries: entries.items,
+      filterType,
+      customer,
+      storeName: currentContext.store.name,
+    });
+
+    // BUG-2 修复：total 应为筛选后的条目数，而非数据库原始总数
+    const total = items.length;
+
+    // 计算下一页游标：如果当前页返回了记录，取最后一条作为游标
+    const lastItem = items.length > 0 ? items[items.length - 1] : null;
+    const nextCursorCreatedAt = lastItem?.createdAt ?? null;
+    const nextCursorId = lastItem?.id ?? null;
+
     return {
-      items: this.clubRecordViewService.buildRecordItems({
-        entries,
-        filterType: query.type ?? 'all',
-        customer,
-        storeName: currentContext.store.name,
-      }),
+      items,
+      total,
+      nextCursorCreatedAt,
+      nextCursorId,
     };
+  }
+
+  /**
+   * 从查询参数中构建分页游标。
+   * cursorCreatedAt 和 cursorId 必须同时提供才有效。
+   */
+  private buildCursor(
+    query: ListClubRecordsQueryDto,
+  ): { createdAt: Date; id: string } | undefined {
+    if (query.cursorCreatedAt && query.cursorId) {
+      return {
+        createdAt: new Date(query.cursorCreatedAt),
+        id: query.cursorId,
+      };
+    }
+    return undefined;
   }
 }

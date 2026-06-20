@@ -21,9 +21,10 @@ export class ClubStoreSummaryDto {
   @IsString({ message: '门店名称必须是字符串' })
   name: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: '北京市朝阳区望京 SOHO T3 B1',
-    description: '门店地址',
+    nullable: true,
+    description: '门店地址；未配置时返回空字符串',
   })
   @IsString({ message: '门店地址必须是字符串' })
   address: string;

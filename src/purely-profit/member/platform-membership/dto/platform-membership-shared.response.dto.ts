@@ -155,12 +155,12 @@ export class PlatformMembershipInfoDto {
   isActive: boolean;
 
   @ApiPropertyOptional({
-    enum: PLATFORM_MEMBERSHIP_PLAN_IDS,
-    description: '当前生效套餐标识，无生效套餐时为空',
+    enum: [...PLATFORM_MEMBERSHIP_PLAN_IDS, 'developer'],
+    description: '当前生效套餐标识，开发者模式返回 developer，无生效套餐时为空',
   })
   @IsOptional()
   @IsString({ message: '当前套餐标识必须是字符串' })
-  planId: (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number] | null;
+  planId: (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number] | 'developer' | null;
 
   @ApiPropertyOptional({
     example: 'ages会员',
