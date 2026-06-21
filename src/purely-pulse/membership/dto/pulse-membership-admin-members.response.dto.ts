@@ -50,6 +50,14 @@ export class PulseMemberListItemDto {
   @IsInt()
   avatarColorIdx: number;
 
+  @ApiPropertyOptional({
+    example: 'https://cdn.example.com/avatar/user.png',
+    description: '用户头像 URL，未设置时为空串（对齐前端 MemberListItem.avatarUrl）',
+  })
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
+
   @ApiProperty({
     enum: PULSE_MEMBER_STATUS_VALUES,
     example: 'active',
@@ -102,6 +110,15 @@ export class PulseMemberListItemDto {
   @ApiProperty({ example: true, description: '是否已启用子账号能力' })
   @IsBoolean()
   subAccountCapabilityEnabled: boolean;
+
+  @ApiPropertyOptional({
+    example: 1747209600000,
+    description:
+      '会员到期时间戳（ms），永久会员为 null（对齐前端 MemberListItem.membershipExpiry）',
+  })
+  @IsOptional()
+  @IsInt()
+  membershipExpiry?: number | null;
 }
 
 /**
@@ -134,6 +151,14 @@ export class PulseMemberDetailDto {
   })
   @IsInt()
   avatarColorIdx: number;
+
+  @ApiPropertyOptional({
+    example: 'https://cdn.example.com/avatar/user.png',
+    description: '用户头像 URL，未设置时为空串（对齐前端 MemberDetail.avatarUrl）',
+  })
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
 
   @ApiProperty({
     enum: PULSE_MEMBER_STATUS_VALUES,

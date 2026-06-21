@@ -29,6 +29,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import {
+  AdjustCustomerPointsDto,
   CreateCustomerDto,
   ListCustomerPointsRecordsQueryDto,
   ListCustomerRechargesQueryDto,
@@ -149,5 +150,18 @@ export class MarketingCustomersController {
       page,
       pageSize,
     });
+  }
+
+  @Patch(':id/points')
+  @RequirePermissions('marketing:manage')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '调整顾客积分（影响 purelyClub C端用户）' })
+  @ApiOkResponse({ type: MarketingCustomerDto })
+  adjustCustomerPoints(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AdjustCustomerPointsDto,
+  ): Promise<MarketingCustomerDto> {
+    return this.marketingService.adjustCustomerPoints(user, id, dto);
   }
 }

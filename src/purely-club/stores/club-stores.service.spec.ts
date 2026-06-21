@@ -50,6 +50,7 @@ describe('ClubStoresService', () => {
     name: '俱乐部用户',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     accountScope: 'purely_club',
     currentMembership: null,
   };
@@ -61,6 +62,7 @@ describe('ClubStoresService', () => {
     name: '微信昵称',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     accountScope: 'purely_club',
     currentMembership: null,
   };
@@ -73,9 +75,10 @@ describe('ClubStoresService', () => {
     longitude: 116.307503,
   };
 
-  /** 期望的门店摘要结构（不含 isOpen，当前阶段不返回该字段） */
+  /** 期望的门店摘要结构 */
   const expectedStoreSummary = {
     address: '北京市朝阳区望京 SOHO T3 B1',
+    isOpen: true,
     coverImage: 'https://cdn.example.com/store-cover.png',
     latitude: 39.984104,
     longitude: 116.307503,

@@ -79,6 +79,7 @@ describe('ClubRechargeService', () => {
     name: '俱乐部用户',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     accountScope: 'purely_club',
     currentMembership: null,
   };
@@ -90,6 +91,7 @@ describe('ClubRechargeService', () => {
     name: '微信昵称',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     accountScope: 'purely_club',
     currentMembership: null,
   };

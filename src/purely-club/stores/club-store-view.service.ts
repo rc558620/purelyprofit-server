@@ -43,8 +43,9 @@ export class ClubStoreViewService {
       id: store.id,
       name: store.name,
       address: store.address ?? '',
-      // TODO: 等门店数据模型增加 businessHours 字段后，基于当前时间与营业时段动态计算 isOpen
-      // 当前阶段未配置营业时间，不返回 isOpen 和 businessHours 字段，前端按默认营业中处理
+      // 当前阶段未配置营业时间，默认返回 isOpen: true
+      // TODO: 等门店数据模型增加 businessHours 字段后，基于当前时间与营业时段动态计算
+      isOpen: true,
       ...(metadata.storeLogo ? { coverImage: metadata.storeLogo } : {}),
       ...(metadata.latitude !== undefined
         ? { latitude: metadata.latitude }

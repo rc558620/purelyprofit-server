@@ -19,6 +19,7 @@ describe('CommerceAccessService', () => {
     name: '老板',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     currentMembership: null,
   };
 

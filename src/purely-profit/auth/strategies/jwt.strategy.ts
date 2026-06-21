@@ -18,6 +18,7 @@ export interface AuthenticatedUser {
   name: string | null;
   createdAt: Date;
   updatedAt: Date;
+  lastActiveAt: Date | null;
   accountScope?: AuthenticatedAccountScope;
   currentMembership:
     | import('../../access-control/access-control.service').AuthenticatedMembership
@@ -65,6 +66,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         name: true,
         createdAt: true,
         updatedAt: true,
+        lastActiveAt: true,
       },
     });
 
@@ -92,6 +94,25 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         user.email,
       );
 
+    // 异步更新 lastActiveAt，不阻塞鉴权流程
+    // 使用 5 分钟节流避免每次请求都写库
+    // 当触发更新时，返回值使用本次 now，确保下游拿到的 lastActiveAt 语义为"本次活跃时间"
+    const now = new Date();
+    const throttleMs = 5 * 60 * 1000;
+    const shouldUpdateLastActiveAt =
+      !user.lastActiveAt ||
+      now.getTime() - user.lastActiveAt.getTime() > throttleMs;
+    if (shouldUpdateLastActiveAt) {
+      this.prisma.user
+        .update({
+          where: { id: user.id },
+          data: { lastActiveAt: now },
+        })
+        .catch(() => {
+          // 非关键路径，静默忽略更新失败
+        });
+    }
+
     return {
       id: user.id,
       email: user.email,
@@ -99,6 +120,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       name: user.name,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      lastActiveAt: shouldUpdateLastActiveAt ? now : user.lastActiveAt,
       accountScope: payload.accountScope ?? identity.accountScope,
       currentMembership,
       pulseMode: identity.pulseMode,

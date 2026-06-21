@@ -26,6 +26,7 @@ describe('OnboardingService', () => {
     name: '开发者',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     pulseMode: 'developer',
     isPulseDeveloper: true,
     currentMembership: null,
@@ -38,6 +39,7 @@ describe('OnboardingService', () => {
     name: '老板',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     pulseMode: 'normal',
     isPulseDeveloper: false,
     currentMembership: {
@@ -163,6 +165,7 @@ describe('OnboardingStatusService', () => {
     name: '开发者',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     pulseMode: 'normal',
     isPulseDeveloper: true,
     currentMembership: null,

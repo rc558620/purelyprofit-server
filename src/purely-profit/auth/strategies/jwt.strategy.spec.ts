@@ -5,6 +5,7 @@ describe('JwtStrategy', () => {
   const prisma = {
     user: {
       findUnique: jest.fn(),
+      update: jest.fn().mockResolvedValue({}),
     },
   };
   const authAccountMembershipService = {
@@ -56,6 +57,7 @@ describe('JwtStrategy', () => {
       name: '测试用户',
       createdAt: new Date(),
       updatedAt: new Date(),
+      lastActiveAt: null,
     });
     authSessionService.getTokenVersion.mockResolvedValue(2);
 
@@ -77,6 +79,7 @@ describe('JwtStrategy', () => {
       name: '开发者',
       createdAt: new Date(),
       updatedAt: new Date(),
+      lastActiveAt: null,
     });
 
     const result = await strategy.validate({
@@ -101,6 +104,7 @@ describe('JwtStrategy', () => {
       name: '管理员',
       createdAt: new Date(),
       updatedAt: new Date(),
+      lastActiveAt: null,
     });
 
     const result = await strategy.validate({
@@ -125,6 +129,7 @@ describe('JwtStrategy', () => {
       name: '测试用户',
       createdAt: new Date(),
       updatedAt: new Date(),
+      lastActiveAt: null,
     });
     authAccountMembershipService.ensureUserNotBanned.mockRejectedValue(
       new UnauthorizedException('账号已被封禁'),
@@ -148,6 +153,7 @@ describe('JwtStrategy', () => {
       name: '测试用户',
       createdAt: new Date(),
       updatedAt: new Date(),
+      lastActiveAt: null,
     });
     authSessionService.getTokenVersion.mockResolvedValue(2);
 
@@ -185,6 +191,7 @@ describe('JwtStrategy', () => {
       name: '老板',
       createdAt: new Date(),
       updatedAt: new Date(),
+      lastActiveAt: null,
     });
     authAccountMembershipService.resolveAuthenticatedMembership.mockRejectedValue(
       new UnauthorizedException(
@@ -199,5 +206,55 @@ describe('JwtStrategy', () => {
         sessionVersion: 0,
       }),
     ).rejects.toThrow('登录态能力上下文未就绪，请联系管理员完成系统升级后重试');
+  });
+
+  it('lastActiveAt 为 null 时异步更新', async () => {
+    const strategy = createStrategy();
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 1,
+      email: 'user@example.com',
+      name: '测试用户',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastActiveAt: null,
+    });
+    prisma.user.update = jest.fn().mockResolvedValue({});
+
+    const result = await strategy.validate({
+      sub: 1,
+      phone: '13800138000',
+      sessionVersion: 0,
+    });
+
+    expect(result.lastActiveAt).toBeInstanceOf(Date);
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { lastActiveAt: expect.any(Date) },
+    });
+  });
+
+  it('lastActiveAt 在 5 分钟内时不更新（节流）', async () => {
+    const strategy = createStrategy();
+    const recentTime = new Date();
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 1,
+      email: 'user@example.com',
+      name: '测试用户',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastActiveAt: recentTime,
+    });
+    prisma.user.update = jest.fn().mockResolvedValue({});
+
+    const result = await strategy.validate({
+      sub: 1,
+      phone: '13800138000',
+      sessionVersion: 0,
+    });
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(result.lastActiveAt).toBe(recentTime);
   });
 });

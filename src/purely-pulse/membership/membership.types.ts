@@ -44,6 +44,8 @@ export interface PulseAdminStoreIdentityRecord {
     email: string;
     name: string | null;
     realName: string | null;
+    avatar: string | null;
+    lastActiveAt: Date | null;
   };
 }
 

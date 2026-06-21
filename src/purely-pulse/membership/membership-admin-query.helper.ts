@@ -111,6 +111,11 @@ export function buildAdminMemberListStoreWhere(
     filters.push(statusWhere);
   }
 
+  const expiryWhere = buildAdminMemberExpiryStoreWhere(query);
+  if (expiryWhere) {
+    filters.push(expiryWhere);
+  }
+
   const keywordWhere = buildAdminMemberKeywordStoreWhere(query);
   if (keywordWhere) {
     filters.push(keywordWhere);
@@ -122,7 +127,7 @@ export function buildAdminMemberListStoreWhere(
 export function matchesAdminMemberFilters(
   member: Pick<
     PulseMemberListItemDto,
-    'name' | 'phone' | 'status' | 'level' | 'isPartner'
+    'name' | 'phone' | 'status' | 'level' | 'isPartner' | 'membershipExpiry'
   >,
   query: GetPulseAdminMembersQueryDto,
 ): boolean {
@@ -142,6 +147,12 @@ export function matchesAdminMemberFilters(
     return false;
   }
 
+  if (query.expiry && query.expiry !== 'all') {
+    if (!shouldIncludeByExpiry(member.membershipExpiry, query.expiry)) {
+      return false;
+    }
+  }
+
   const keyword = query.keyword?.trim().toLowerCase();
   if (!keyword) {
     return true;
@@ -151,6 +162,43 @@ export function matchesAdminMemberFilters(
     member.name.toLowerCase().includes(keyword) ||
     member.phone.toLowerCase().includes(keyword)
   );
+}
+
+function shouldIncludeByExpiry(
+  membershipExpiry: number | null | undefined,
+  expiry: string,
+): boolean {
+  if (!membershipExpiry || membershipExpiry === null) {
+    return false;
+  }
+
+  const now = Date.now();
+  const dayMs = 86_400_000;
+  let days = 0;
+
+  switch (expiry) {
+    case '1m':
+      days = 30;
+      break;
+    case '3m':
+      days = 90;
+      break;
+    case '6m':
+      days = 180;
+      break;
+    case '1y':
+      days = 365;
+      break;
+    case '2y':
+      days = 730;
+      break;
+    default:
+      return false;
+  }
+
+  // 精准过滤：到期时间 > 当前时间 且 <= 阈值时间
+  const thresholdTime = now + days * dayMs;
+  return membershipExpiry > now && membershipExpiry <= thresholdTime;
 }
 
 export function resolveAdminMemberDisplayName(
@@ -316,6 +364,55 @@ function buildAdminMemberStatusStoreWhere(
     default:
       return null;
   }
+}
+
+function buildAdminMemberExpiryStoreWhere(
+  query: GetPulseAdminMembersQueryDto,
+): Prisma.StoreWhereInput | null {
+  if (!query.expiry || query.expiry === 'all') {
+    return null;
+  }
+
+  const now = new Date();
+  const dayMs = 86_400_000;
+  let days = 0;
+
+  switch (query.expiry) {
+    case '1m':
+      days = 30;
+      break;
+    case '3m':
+      days = 90;
+      break;
+    case '6m':
+      days = 180;
+      break;
+    case '1y':
+      days = 365;
+      break;
+    case '2y':
+      days = 730;
+      break;
+    default:
+      return null;
+  }
+
+  const thresholdDate = new Date(now.getTime() + days * dayMs);
+
+  return {
+    membershipProfile: {
+      is: {
+        AND: [
+          // 会员到期时间在当前时间和阈值时间之间
+          { expiresAt: { gt: now } },
+          { expiresAt: { lte: thresholdDate } },
+          // 排除 free（无计划）和 lifetime 会员，其余计划类型均参与到期筛选
+          { currentPlanId: { not: null } },
+          { currentPlanId: { not: 'lifetime' } },
+        ],
+      },
+    },
+  };
 }
 
 function buildAdminMemberKeywordStoreWhere(

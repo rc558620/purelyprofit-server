@@ -16,6 +16,38 @@ import type {
   PulseAdminStoreRecord,
   PulseAdminSubAccountDetail,
 } from './membership.types';
+
+/**
+ * 判断会员订阅是否仍处于有效状态。
+ *
+ * 统一判定逻辑（对齐 isActiveMembership / buildMembershipDto）：
+ * - lifetime 计划永不过期
+ * - 历史兼容：yearly + null expiresAt → 视为 lifetime
+ * - 其他计划正常检查 expiresAt 是否晚于当前时间
+ * - 无 profile 或 currentPlanId 为空 → inactive
+ */
+function isPulseMemberActive(
+  profile: PulseAdminMembershipProfileRecord | null,
+): boolean {
+  if (!profile?.currentPlanId) {
+    return false;
+  }
+
+  if (profile.currentPlanId === 'lifetime') {
+    return true;
+  }
+
+  // 历史兼容：yearly + null expiresAt → 视为 lifetime
+  if (profile.currentPlanId === 'yearly' && profile.expiresAt === null) {
+    return true;
+  }
+
+  if (!profile.expiresAt) {
+    return false;
+  }
+
+  return profile.expiresAt > new Date();
+}
 import {
   maskAdminMemberPhone,
   resolveAdminMemberDisplayName,
@@ -128,9 +160,9 @@ export function buildPulseAdminMemberListItem(
   const { store, profile, orderSummary, partner, banReason } = input;
   const ownerName = resolveAdminMemberDisplayName(store);
   const phone = resolveAdminMemberPhone(store);
-  const membershipExpiry = profile?.expiresAt?.getTime() ?? null;
   const isBanned = Boolean(banReason);
-  const isActive = membershipExpiry !== null && membershipExpiry > Date.now();
+  const isActive = isPulseMemberActive(profile);
+  const membershipExpiry = profile?.expiresAt?.getTime() ?? null;
 
   return {
     id: String(store.id),
@@ -138,6 +170,7 @@ export function buildPulseAdminMemberListItem(
     phone,
     avatarChar: ownerName.slice(0, 1) || '会',
     avatarColorIdx: store.id % 6,
+    avatarUrl: store.owner.avatar ?? '',
     status: isBanned ? 'banned' : isActive ? 'active' : 'inactive',
     level: toPulseMemberLevel(
       profile?.currentPlanId ?? null,
@@ -149,14 +182,15 @@ export function buildPulseAdminMemberListItem(
     totalRecharged: orderSummary?.totalRecharged ?? 0,
     registeredAt: store.createdAt.getTime(),
     lastActiveAt:
+      store.owner.lastActiveAt?.getTime() ??
       orderSummary?.lastPaidAt ??
-      profile?.expiresAt?.getTime() ??
       store.updatedAt.getTime(),
     subAccountEligible:
       (profile?.currentPlanId ?? null) === 'yearly' ||
       (profile?.currentPlanId ?? null) === 'lifetime',
     subAccountQuota: profile?.subAccountQuota ?? 0,
     subAccountCapabilityEnabled: (profile?.subAccountQuota ?? 0) > 0,
+    membershipExpiry,
   } satisfies PulseMemberListItemDto;
 }
 
@@ -178,11 +212,11 @@ export function buildPulseAdminMemberDetail(
   const level = toPulseMemberLevel(currentPlanId, profile?.expiresAt ?? null);
   const membershipExpiry = profile?.expiresAt?.getTime() ?? null;
   const isBanned = Boolean(banReason);
-  const isActive = membershipExpiry !== null && membershipExpiry > Date.now();
+  const isActive = isPulseMemberActive(profile);
   const registeredAt = store.createdAt.getTime();
   const lastActiveAt =
+    store.owner.lastActiveAt?.getTime() ??
     paidOrders[0]?.createdAt.getTime() ??
-    profile?.expiresAt?.getTime() ??
     store.updatedAt.getTime();
   const totalRecharged = paidOrders.reduce(
     (sum, order) => sum + order.amount,
@@ -195,6 +229,7 @@ export function buildPulseAdminMemberDetail(
     phone,
     avatarChar: ownerName.slice(0, 1) || '会',
     avatarColorIdx: store.id % 6,
+    avatarUrl: store.owner.avatar ?? '',
     status: isBanned ? 'banned' : isActive ? 'active' : 'inactive',
     level,
     registeredAt,

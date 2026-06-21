@@ -221,6 +221,7 @@ function createAuthenticatedUser(): AuthenticatedUser {
     name: '开发者',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     pulseMode: 'normal',
     isPulseDeveloper: true,
     currentMembership: null,

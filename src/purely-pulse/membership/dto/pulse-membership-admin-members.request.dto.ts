@@ -355,6 +355,20 @@ export type PulseMemberFilterLevelValue =
   (typeof PULSE_MEMBER_FILTER_LEVEL_VALUES)[number];
 
 /**
+ * 会员到期时间筛选（对齐前端 MemberFilterExpiry）
+ */
+export const PULSE_MEMBER_FILTER_EXPIRY_VALUES = [
+  'all',
+  '1m',
+  '3m',
+  '6m',
+  '1y',
+  '2y',
+] as const;
+export type PulseMemberFilterExpiryValue =
+  (typeof PULSE_MEMBER_FILTER_EXPIRY_VALUES)[number];
+
+/**
  * GET /pulse/membership/admin/members
  * 管理员获取会员列表 — 查询参数
  */
@@ -374,6 +388,14 @@ export class GetPulseAdminMembersQueryDto {
   @IsOptional()
   @IsIn(PULSE_MEMBER_FILTER_LEVEL_VALUES, { message: '会员等级筛选不合法' })
   level?: PulseMemberFilterLevelValue;
+
+  @ApiPropertyOptional({
+    enum: PULSE_MEMBER_FILTER_EXPIRY_VALUES,
+    description: '会员到期时间筛选（相对当前时间），不传返回全部',
+  })
+  @IsOptional()
+  @IsIn(PULSE_MEMBER_FILTER_EXPIRY_VALUES, { message: '会员到期时间筛选不合法' })
+  expiry?: PulseMemberFilterExpiryValue;
 
   @ApiPropertyOptional({
     example: true,

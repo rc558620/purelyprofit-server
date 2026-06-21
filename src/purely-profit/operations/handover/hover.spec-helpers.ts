@@ -76,6 +76,7 @@ export const createOwnerUser = (): AuthenticatedUser => ({
   name: '老板',
   createdAt: new Date('2026-05-12T00:00:00.000Z'),
   updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+  lastActiveAt: null,
   currentMembership: {
     storeId: 100,
     subjectType: 'owner',
@@ -100,6 +101,7 @@ export const createSubAccountUser = (): AuthenticatedUser => ({
   name: '员工A',
   createdAt: new Date('2026-05-12T00:00:00.000Z'),
   updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+  lastActiveAt: null,
   currentMembership: {
     storeId: 100,
     subjectType: 'sub_account',
@@ -192,6 +194,7 @@ export const createManagerUser = (): AuthenticatedUser => ({
   name: '经理',
   createdAt: new Date('2026-05-12T00:00:00.000Z'),
   updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+  lastActiveAt: null,
   currentMembership: {
     storeId: 100,
     subjectType: 'staff',

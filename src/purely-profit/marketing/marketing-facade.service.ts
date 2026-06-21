@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import type {
+  AdjustCustomerPointsDto,
   CreateConsumptionDto,
   CreateCustomerDto,
   CreatePromotionDto,
@@ -146,6 +147,18 @@ export class MarketingFacadeService {
     return this.marketingCustomersFacadeService.deleteCustomer(
       user,
       customerId,
+    );
+  }
+
+  adjustCustomerPoints(
+    user: AuthenticatedUser,
+    customerId: number,
+    dto: AdjustCustomerPointsDto,
+  ): Promise<MarketingCustomerDto> {
+    return this.marketingCustomersFacadeService.adjustCustomerPoints(
+      user,
+      customerId,
+      dto,
     );
   }
 

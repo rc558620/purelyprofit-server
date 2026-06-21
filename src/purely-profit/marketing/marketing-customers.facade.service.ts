@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import type {
+  AdjustCustomerPointsDto,
   CreateCustomerDto,
   ListCustomerPointsRecordsQueryDto,
   ListCustomerRechargesQueryDto,
@@ -61,6 +62,18 @@ export class MarketingCustomersFacadeService {
 
   deleteCustomer(user: AuthenticatedUser, customerId: number): Promise<void> {
     return this.marketingCustomersService.deleteCustomer(user, customerId);
+  }
+
+  adjustCustomerPoints(
+    user: AuthenticatedUser,
+    customerId: number,
+    dto: AdjustCustomerPointsDto,
+  ): Promise<MarketingCustomerDto> {
+    return this.marketingCustomersService.adjustCustomerPoints(
+      user,
+      customerId,
+      dto,
+    );
   }
 
   listCustomerRecharges(

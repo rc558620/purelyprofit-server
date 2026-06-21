@@ -23,6 +23,7 @@ describe('ClubRecordsService', () => {
     name: '俱乐部用户',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     accountScope: 'purely_club',
     currentMembership: null,
   };

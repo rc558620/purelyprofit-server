@@ -45,13 +45,12 @@ export class ClubStoreSummaryDto {
   @IsString({ message: '门店营业时间必须是字符串' })
   businessHours?: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: true,
-    description: '门店营业状态；当前阶段未配置时不返回',
+    description: '门店营业状态；当前阶段默认返回 true（营业中），后续接入营业时间后动态计算',
   })
-  @IsOptional()
   @IsBoolean({ message: '门店营业状态必须是布尔值' })
-  isOpen?: boolean;
+  isOpen: boolean;
 
   @ApiPropertyOptional({
     example: 39.984104,

@@ -51,6 +51,7 @@ describe('StaffService', () => {
     name: '老板',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     currentMembership: null,
   };
 
@@ -62,6 +63,7 @@ describe('StaffService', () => {
     name: '员工',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     currentMembership: null,
   };
 
@@ -141,6 +143,7 @@ describe('StaffService', () => {
       isActive: true,
       createdAt: new Date('2026-05-13T10:00:00.000Z'),
       updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      lastActiveAt: null,
     });
     subscriptionsService.getSeatSummary.mockResolvedValue({
       maxAccountSeats: 5,

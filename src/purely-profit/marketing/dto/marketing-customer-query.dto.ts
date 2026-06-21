@@ -1,11 +1,13 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   MaxLength,
   MinLength,
+  NotEquals,
 } from 'class-validator';
 import { transformOptionalKeyword } from '../../stores/dto/store-response.dto';
 import {
@@ -113,5 +115,24 @@ export class UpdateCustomerDto {
   @IsOptional()
   @IsString({ message: '备注必须是字符串' })
   @MaxLength(500, { message: '备注最长 500 个字符' })
+  remark?: string;
+}
+
+export class AdjustCustomerPointsDto {
+  @ApiProperty({
+    example: 100,
+    description: '积分变动量（正数=增加，负数=扣除，不能为0）',
+  })
+  @IsInt({ message: '积分变动量必须是整数' })
+  @NotEquals(0, { message: '积分变动量不能为0' })
+  delta: number;
+
+  @ApiPropertyOptional({
+    example: '活动奖励积分',
+    description: '调整原因（可选）',
+  })
+  @IsOptional()
+  @IsString({ message: '原因必须是字符串' })
+  @MaxLength(500, { message: '原因最长 500 个字符' })
   remark?: string;
 }

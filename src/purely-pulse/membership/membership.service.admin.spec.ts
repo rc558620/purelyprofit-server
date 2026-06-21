@@ -54,6 +54,7 @@ describe('PulseMembershipAdminController membership', () => {
     name: '开发者',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     pulseMode: 'normal',
     isPulseDeveloper: true,
     currentMembership: null,
@@ -110,6 +111,7 @@ describe('PulseMembershipAdminController sub-account quota', () => {
     name: '开发者',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     pulseMode: 'normal',
     isPulseDeveloper: true,
     currentMembership: null,
@@ -172,6 +174,8 @@ describe('PulseMembershipService admin', () => {
             email: 'phone_13619654020@purelyprofit.local',
             name: null,
             realName: '张三',
+            avatar: null,
+            lastActiveAt: null,
           },
         },
       },
@@ -190,6 +194,7 @@ describe('PulseMembershipService admin', () => {
             email: 'phone_13619654020@purelyprofit.local',
             name: null,
             realName: '张三',
+            lastActiveAt: null,
           },
         },
       },
@@ -279,6 +284,8 @@ describe('PulseMembershipService admin', () => {
             email: 'phone_13619654020@purelyprofit.local',
             name: null,
             realName: '张三',
+            avatar: null,
+            lastActiveAt: null,
           },
         },
       },
@@ -298,6 +305,7 @@ describe('PulseMembershipService admin', () => {
             email: 'phone_13619654020@purelyprofit.local',
             name: null,
             realName: '张三',
+            lastActiveAt: null,
           },
         },
       },
@@ -395,6 +403,8 @@ describe('PulseMembershipService admin', () => {
           email: 'phone_13619654020@purelyprofit.local',
           name: null,
           realName: '张三',
+          avatar: null,
+          lastActiveAt: null,
         },
       },
     ]);
@@ -449,6 +459,8 @@ describe('PulseMembershipService admin', () => {
             email: true,
             name: true,
             realName: true,
+            avatar: true,
+            lastActiveAt: true,
           },
         },
       },
@@ -490,6 +502,8 @@ describe('PulseMembershipService admin', () => {
           email: 'phone_13619654020@purelyprofit.local',
           name: null,
           realName: '张三',
+          avatar: null,
+          lastActiveAt: null,
         },
       },
     ]);
@@ -591,9 +605,11 @@ describe('PulseMembershipService admin', () => {
         updatedAt: true,
         owner: {
           select: {
+            avatar: true,
             email: true,
             name: true,
             realName: true,
+            lastActiveAt: true,
           },
         },
       },
@@ -627,6 +643,8 @@ describe('PulseMembershipService admin', () => {
           email: 'phone_13619654020@purelyprofit.local',
           name: null,
           realName: '张三',
+          avatar: null,
+          lastActiveAt: null,
         },
       },
     ]);
@@ -718,7 +736,11 @@ describe('PulseMembershipService admin', () => {
         rechargeHistory: [],
         membershipExpiry: null,
       } as never);
-    context.prismaService.store.findUnique.mockResolvedValue({ id: 18, ownerId: 301, staffs: [] });
+    context.prismaService.store.findUnique.mockResolvedValue({
+      id: 18,
+      ownerId: 301,
+      staffs: [],
+    });
     context.prismaService.storePartner.findFirst.mockResolvedValue(null);
 
     const result = await context.service.setAdminMemberMembership(
@@ -834,6 +856,7 @@ describe('PulseMembershipService admin', () => {
         phone: '13619654020',
         avatarChar: '张',
         avatarColorIdx: 0,
+        avatarUrl: '',
         status: 'active',
         level: 'lifetime',
         registeredAt: fixedNow.getTime(),
@@ -848,7 +871,11 @@ describe('PulseMembershipService admin', () => {
         rechargeHistory: [],
         membershipExpiry: expectedExpiry.getTime(),
       } as never);
-    context.prismaService.store.findUnique.mockResolvedValue({ id: 18, ownerId: 301, staffs: [] });
+    context.prismaService.store.findUnique.mockResolvedValue({
+      id: 18,
+      ownerId: 301,
+      staffs: [],
+    });
     context.prismaService.storePartner.findFirst.mockResolvedValue(null);
     context.platformMembershipService.getPlanConfig.mockResolvedValue({
       id: 'lifetime',
@@ -910,6 +937,8 @@ describe('PulseMembershipService admin', () => {
         email: 'phone_13619654020@purelyprofit.local',
         name: null,
         realName: '张三',
+        avatar: null,
+        lastActiveAt: null,
       },
     });
     context.prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
@@ -988,6 +1017,7 @@ describe('PulseMembershipService admin', () => {
         phone: '13619654020',
         avatarChar: '张',
         avatarColorIdx: 0,
+        avatarUrl: '',
         status: 'banned',
         level: 'annual',
         registeredAt: new Date('2026-05-01T00:00:00.000Z').getTime(),

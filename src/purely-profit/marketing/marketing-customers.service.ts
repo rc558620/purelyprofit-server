@@ -19,6 +19,7 @@ import {
 } from '../../redis/cache-keys';
 import { toNullableMediaText } from '../commerce/commerce.utils';
 import type {
+  AdjustCustomerPointsDto,
   CreateCustomerDto,
   ListCustomersQueryDto,
   UpdateCustomerDto,
@@ -336,5 +337,138 @@ export class MarketingCustomersService {
     if (existing && existing.id !== excludeCustomerId) {
       throw new ConflictException('该手机号的顾客已存在');
     }
+  }
+
+  async adjustCustomerPoints(
+    user: AuthenticatedUser,
+    customerId: number,
+    dto: AdjustCustomerPointsDto,
+  ): Promise<MarketingCustomerDto> {
+    const customer =
+      await this.marketingSharedService.findCustomerOrThrow(customerId);
+    await this.marketingSharedService.ensureMarketingStoreAccess(
+      user,
+      customer.storeId,
+      'marketing:manage',
+    );
+
+    // 事务前快速校验（提前拦截明显不合理的请求，避免无效事务开销）
+    if (dto.delta < 0 && Math.abs(dto.delta) > customer.points) {
+      throw new BadRequestException(
+        `扣除积分不能超过当前余额（${customer.points}）`,
+      );
+    }
+
+    // 如果有关联手机号，提前查询会员并做快速校验
+    let memberId: number | null = null;
+    if (customer.phone) {
+      const member = await this.prisma.member.findFirst({
+        where: {
+          storeId: customer.storeId,
+          phone: customer.phone,
+        },
+        select: { id: true, points: true },
+      });
+
+      if (member) {
+        memberId = member.id;
+        if (dto.delta < 0 && Math.abs(dto.delta) > member.points) {
+          throw new BadRequestException(
+            `关联会员积分不足，无法扣除（${member.points}）`,
+          );
+        }
+      }
+    }
+
+    const absDelta = Math.abs(dto.delta);
+    const isDeduct = dto.delta < 0;
+
+    // 使用事务确保所有操作原子性
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // 1. 更新营销顾客积分（扣除时使用条件更新防止并发扣成负数）
+      let marketingUpdated;
+      if (isDeduct) {
+        const result = await tx.marketingCustomer.updateMany({
+          where: { id: customerId, points: { gte: absDelta } },
+          data: { points: { decrement: absDelta } },
+        });
+        if (result.count === 0) {
+          throw new BadRequestException('积分余额不足，扣除失败；请刷新后重试');
+        }
+        marketingUpdated = await tx.marketingCustomer.findUniqueOrThrow({
+          where: { id: customerId },
+        });
+      } else {
+        marketingUpdated = await tx.marketingCustomer.update({
+          where: { id: customerId },
+          data: { points: { increment: dto.delta } },
+        });
+      }
+
+      // 2. 创建营销积分流水记录
+      await tx.marketingPointsRecord.create({
+        data: {
+          storeId: customer.storeId,
+          customerId,
+          amount: dto.delta,
+          type: dto.delta > 0 ? 'gift' : 'spend',
+          description:
+            dto.remark || (dto.delta > 0 ? '后台调整积分' : '后台扣除积分'),
+        },
+      });
+
+      // 3. 如果顾客有关联会员，同步更新会员积分
+      if (customer.phone && memberId !== null) {
+        const member = await tx.member.findFirstOrThrow({
+          where: { id: memberId },
+        });
+
+        const memberBeforePoints = member.points;
+
+        if (isDeduct) {
+          // 扣除时使用条件更新防止并发扣成负数
+          const memberResult = await tx.member.updateMany({
+            where: { id: member.id, points: { gte: absDelta } },
+            data: { points: { decrement: absDelta } },
+          });
+          if (memberResult.count === 0) {
+            throw new BadRequestException(
+              '关联会员积分余额不足，扣除失败；请刷新后重试',
+            );
+          }
+        } else {
+          await tx.member.update({
+            where: { id: member.id },
+            data: {
+              points: { increment: dto.delta },
+              totalPointsEarned: { increment: dto.delta },
+            },
+          });
+        }
+
+        const memberAfterPoints = memberBeforePoints + dto.delta;
+
+        // 创建会员积分流水记录
+        await tx.memberPointsLog.create({
+          data: {
+            memberId: member.id,
+            storeId: customer.storeId,
+            changeType: dto.delta > 0 ? 'INCREASE' : 'DECREASE',
+            source: 'admin_adjust',
+            changeAmount: absDelta,
+            beforePoints: memberBeforePoints,
+            afterPoints: memberAfterPoints,
+            reason: '后台管理员调整',
+            remark: dto.remark || null,
+          },
+        });
+      }
+
+      return marketingUpdated;
+    });
+
+    await this.invalidateOverviewCache(customer.storeId);
+
+    return mapCustomerRow(updated);
   }
 }

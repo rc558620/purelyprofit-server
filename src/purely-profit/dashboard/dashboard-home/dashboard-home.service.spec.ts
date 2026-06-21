@@ -73,6 +73,7 @@ describe('DashboardHomeService', () => {
     name: '老板',
     createdAt: new Date(2026, 4, 12, 0, 0, 0, 0),
     updatedAt: new Date(2026, 4, 13, 0, 0, 0, 0),
+    lastActiveAt: null,
     currentMembership: {
       staffId: 8,
       storeId: 18,

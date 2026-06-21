@@ -377,6 +377,7 @@ describe('AuthService', () => {
         name: '测试用户',
         createdAt: new Date(),
         updatedAt: new Date(),
+        lastActiveAt: null,
         accountScope: 'purely_profit',
         currentMembership: null,
       },
@@ -911,6 +912,7 @@ describe('AuthService', () => {
       idNumber: null,
       createdAt: new Date('2026-05-12T10:00:00.000Z'),
       updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      lastActiveAt: null,
     });
     prismaService.$queryRaw = jest.fn().mockResolvedValue([]);
 
@@ -921,6 +923,7 @@ describe('AuthService', () => {
       name: '微信用户',
       createdAt: new Date('2026-05-12T10:00:00.000Z'),
       updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      lastActiveAt: null,
       accountScope: 'purely_club',
       currentMembership: null,
     });
@@ -938,6 +941,7 @@ describe('AuthService', () => {
       idNumber: '110101199001011234',
       createdAt: new Date('2026-05-12T10:00:00.000Z'),
       updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      lastActiveAt: null,
     });
     prismaService.$queryRaw = jest.fn().mockResolvedValue([]);
 
@@ -948,6 +952,7 @@ describe('AuthService', () => {
       name: '测试用户',
       createdAt: new Date('2026-05-12T10:00:00.000Z'),
       updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      lastActiveAt: null,
       accountScope: 'purely_profit',
       currentMembership: null,
     });
@@ -970,6 +975,7 @@ describe('AuthService', () => {
       idNumber: null,
       createdAt: new Date('2026-05-12T10:00:00.000Z'),
       updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      lastActiveAt: null,
     });
     prismaService.$queryRaw = jest.fn().mockResolvedValueOnce([
       {
@@ -987,6 +993,7 @@ describe('AuthService', () => {
       name: '房东莎莎的',
       createdAt: new Date('2026-05-12T10:00:00.000Z'),
       updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      lastActiveAt: null,
       accountScope: 'purely_profit',
       currentMembership: {
         staffId: 55,
@@ -1031,6 +1038,7 @@ describe('AuthService', () => {
         name: '房东莎莎的',
         createdAt: new Date('2026-05-12T10:00:00.000Z'),
         updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+        lastActiveAt: null,
         currentMembership: {
           staffId: 55,
           storeId: 48,
@@ -1075,6 +1083,7 @@ describe('AuthService', () => {
       idNumber: null,
       createdAt: new Date('2026-05-12T10:00:00.000Z'),
       updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      lastActiveAt: null,
     });
     prismaService.$queryRaw = jest.fn().mockResolvedValue([]);
 
@@ -1086,6 +1095,7 @@ describe('AuthService', () => {
         name: '测试用户',
         createdAt: new Date('2026-05-12T10:00:00.000Z'),
         updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+        lastActiveAt: null,
         currentMembership: null,
       },
       '新昵称',
@@ -1109,6 +1119,7 @@ describe('AuthService', () => {
       idNumber: null,
       createdAt: new Date('2026-05-12T10:00:00.000Z'),
       updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+      lastActiveAt: null,
     });
     prismaService.$queryRaw = jest.fn().mockResolvedValue([]);
 
@@ -1120,6 +1131,7 @@ describe('AuthService', () => {
         name: '测试用户',
         createdAt: new Date('2026-05-12T10:00:00.000Z'),
         updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+        lastActiveAt: null,
         currentMembership: null,
       },
       {
@@ -1147,6 +1159,7 @@ describe('AuthService', () => {
           name: '测试用户',
           createdAt: new Date('2026-05-12T10:00:00.000Z'),
           updatedAt: new Date('2026-05-13T10:00:00.000Z'),
+          lastActiveAt: null,
           currentMembership: null,
         },
         {

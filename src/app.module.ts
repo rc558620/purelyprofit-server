@@ -46,6 +46,7 @@ import { ClubProductsModule } from './purely-club/products/club-products.module'
 import { ClubPromotionsModule } from './purely-club/promotions/club-promotions.module';
 import { ClubRechargeModule } from './purely-club/recharge/club-recharge.module';
 import { ClubRecordsModule } from './purely-club/records/club-records.module';
+import { ClubPointsModule } from './purely-club/points/club-points.module';
 import { ClubStoresModule } from './purely-club/stores/club-stores.module';
 import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.module';
 
@@ -99,6 +100,7 @@ import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.modul
     ClubPromotionsModule,
     ClubRechargeModule,
     ClubRecordsModule,
+    ClubPointsModule,
     ClubStoresModule,
     PulseDevModeModule,
   ],

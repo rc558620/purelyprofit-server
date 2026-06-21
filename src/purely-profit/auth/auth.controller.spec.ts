@@ -29,6 +29,7 @@ describe('AuthController', () => {
     name: '老板',
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    lastActiveAt: null,
     accountScope: 'purely_profit',
     currentMembership: {
       staffId: 8,
@@ -96,6 +97,7 @@ describe('AuthController', () => {
         verified: false,
         createdAt: new Date('2026-05-12T00:00:00.000Z'),
         updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+        lastActiveAt: null,
       },
       store: null,
       currentMembership: {
@@ -131,6 +133,7 @@ describe('AuthController', () => {
         verified: false,
         createdAt: new Date('2026-05-12T00:00:00.000Z'),
         updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+        lastActiveAt: null,
       },
       store: null,
       currentMembership: {

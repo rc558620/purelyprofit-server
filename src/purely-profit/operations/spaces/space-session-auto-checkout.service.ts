@@ -350,5 +350,6 @@ const createAutoCheckoutSystemUser = (): AuthenticatedUser => ({
   name: '系统自动结账',
   createdAt: new Date(),
   updatedAt: new Date(),
+  lastActiveAt: null,
   currentMembership: null,
 });

@@ -429,6 +429,7 @@ const userRecords: Record<
     name: string;
     createdAt: Date;
     updatedAt: Date;
+    lastActiveAt: Date | null;
   }
 > = {
   101: {
@@ -437,6 +438,7 @@ const userRecords: Record<
     name: '老老板',
     createdAt: new Date('2026-05-01T00:00:00.000Z'),
     updatedAt: new Date('2026-05-02T00:00:00.000Z'),
+    lastActiveAt: null,
   },
   102: {
     id: 102,
@@ -444,6 +446,7 @@ const userRecords: Record<
     name: '老老板有旧 membership',
     createdAt: new Date('2026-05-01T00:00:00.000Z'),
     updatedAt: new Date('2026-05-02T00:00:00.000Z'),
+    lastActiveAt: null,
   },
   103: {
     id: 103,
@@ -451,6 +454,7 @@ const userRecords: Record<
     name: '老老板异店 membership',
     createdAt: new Date('2026-05-01T00:00:00.000Z'),
     updatedAt: new Date('2026-05-02T00:00:00.000Z'),
+    lastActiveAt: null,
   },
 };
 
