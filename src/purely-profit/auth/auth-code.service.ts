@@ -3,6 +3,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -196,18 +197,19 @@ export class AuthCodeService {
     productScope: AuthProductScope,
   ): Promise<ForgotPasswordResponseDto> {
     const expiresInSeconds = this.getPasswordResetCodeTtlSeconds();
-    const response: ForgotPasswordResponseDto = {
-      message: '如手机号已注册，重置验证码短信已发送，请注意查收',
-      expiresInSeconds,
-    };
     const user = await this.authAccountLookupService.findUserByPhone(
       phone,
       productScope,
     );
 
     if (!user) {
-      return response;
+      throw new NotFoundException('手机号未注册，请先注册');
     }
+
+    const response: ForgotPasswordResponseDto = {
+      message: '重置验证码短信已发送，请注意查收',
+      expiresInSeconds,
+    };
 
     await this.ensureSmsSendCooldown('password-reset', productScope, phone);
 

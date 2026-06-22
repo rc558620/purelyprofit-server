@@ -462,9 +462,7 @@ describe('AuthService', () => {
       phone: '13800138000',
     });
 
-    expect(result.message).toBe(
-      '如手机号已注册，重置验证码短信已发送，请注意查收',
-    );
+    expect(result.message).toBe('重置验证码短信已发送，请注意查收');
     expect(result.expiresInSeconds).toBe(600);
     expect(result.resetCode).toMatch(/^\d{6}$/);
     expect(redisService.setIfAbsent).toHaveBeenCalledWith(
@@ -482,6 +480,20 @@ describe('AuthService', () => {
       code: result.resetCode,
       expiresInSeconds: 600,
     });
+  });
+
+  it('找回密码在手机号未注册时返回 404', async () => {
+    prismaService.staff.findFirst.mockResolvedValue(null);
+    prismaService.user.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.forgotPassword({
+        phone: '13800138000',
+      }),
+    ).rejects.toThrow(new NotFoundException('手机号未注册，请先注册'));
+    expect(redisService.setIfAbsent).not.toHaveBeenCalled();
+    expect(redisService.set).not.toHaveBeenCalled();
+    expect(authSmsService.sendPasswordResetCode).not.toHaveBeenCalled();
   });
 
   it('找回密码短信发送在冷却期内会拒绝再次发送', async () => {

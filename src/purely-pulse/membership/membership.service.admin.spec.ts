@@ -194,6 +194,7 @@ describe('PulseMembershipService admin', () => {
             email: 'phone_13619654020@purelyprofit.local',
             name: null,
             realName: '张三',
+            avatar: null,
             lastActiveAt: null,
           },
         },
@@ -232,6 +233,7 @@ describe('PulseMembershipService admin', () => {
             contactPhone: true,
             owner: {
               select: {
+                avatar: true,
                 email: true,
                 name: true,
                 realName: true,
@@ -305,6 +307,7 @@ describe('PulseMembershipService admin', () => {
             email: 'phone_13619654020@purelyprofit.local',
             name: null,
             realName: '张三',
+            avatar: null,
             lastActiveAt: null,
           },
         },
@@ -336,6 +339,7 @@ describe('PulseMembershipService admin', () => {
             contactPhone: true,
             owner: {
               select: {
+                avatar: true,
                 email: true,
                 name: true,
                 realName: true,

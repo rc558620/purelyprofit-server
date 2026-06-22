@@ -41,6 +41,15 @@ const withdrawalPartnerSelect = {
   totalEarnedBeans: true,
   totalWithdrawnBeans: true,
   joinedAt: true,
+  store: {
+    select: {
+      owner: {
+        select: {
+          avatar: true,
+        },
+      },
+    },
+  },
 } satisfies Prisma.StorePartnerSelect;
 
 type PrismaExecutor = PrismaService | Prisma.TransactionClient;

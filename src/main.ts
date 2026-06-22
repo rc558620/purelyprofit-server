@@ -1,4 +1,5 @@
 import * as childProcess from 'node:child_process';
+import cluster from 'node:cluster';
 import { existsSync } from 'node:fs';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -679,6 +680,9 @@ export async function bootstrap(): Promise<void> {
     portAutoShiftMaxOffset,
   );
 
+  // cluster-main.ts 中 worker 进程由 cluster.fork() 创建，可通过 cluster.isPrimary 区分
+  const isWorker = !cluster.isPrimary;
+
   if (listeningPort !== preferredPort) {
     console.warn(
       `[bootstrap] 默认端口 ${preferredPort} 已被占用，服务改为监听 ${listeningPort}`,
@@ -686,6 +690,13 @@ export async function bootstrap(): Promise<void> {
   }
 
   console.log(`Server running on http://localhost:${listeningPort}`);
+  if (isWorker) {
+    console.log(`[cluster] worker pid=${process.pid} ready`);
+  } else if (isProduction) {
+    console.warn(
+      `[bootstrap] ⚠️ 生产环境建议使用 start:cluster 启动（当前为单进程模式），以充分利用多核 CPU。`,
+    );
+  }
   if (swaggerEnabled) {
     console.log(`Swagger docs at http://localhost:${listeningPort}/api-docs`);
   }

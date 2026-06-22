@@ -9,9 +9,11 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -30,7 +32,10 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SendRegisterCodeDto } from './dto/send-register-code.dto';
 import { SendRegisterCodeResponseDto } from './dto/send-register-code-response.dto';
 import { UpdateAvatarDto } from './dto/update-avatar.dto';
+import { UpdateNicknameDto } from './dto/update-nickname.dto';
 import { VerifyRealNameDto } from './dto/verify-real-name.dto';
+import { CreateStoreDto } from '../stores/dto/create-store.dto';
+import { StoreResponseDto } from '../stores/dto/store-response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
 
@@ -41,6 +46,7 @@ export class AuthController {
 
   @Post('register/send-code')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 3 } })
   @ApiOperation({
     summary: '发送 purely-profit 注册短信验证码',
     description:
@@ -58,6 +64,7 @@ export class AuthController {
   }
 
   @Post('register')
+  @Throttle({ default: { ttl: 60, limit: 5 } })
   @ApiOperation({
     summary: 'purely-profit 注册',
     description:
@@ -71,8 +78,28 @@ export class AuthController {
     return this.authService.register(dto);
   }
 
+  @Post('register/store')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: '注册闭环——创建门店',
+    description:
+      '注册完成后第二步创建门店。路径挂载在 /auth/register/store 以对齐前端注册流程。',
+  })
+  @ApiCreatedResponse({
+    description: '创建门店成功，返回门店信息',
+    type: StoreResponseDto,
+  })
+  registerStore(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateStoreDto,
+  ): Promise<StoreResponseDto> {
+    return this.authService.registerStore(user, dto);
+  }
+
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 10 } })
   @ApiOperation({
     summary: 'purely-profit 登录',
     description:
@@ -88,6 +115,7 @@ export class AuthController {
 
   @Post('change-password')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 5 } })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: '修改当前账号密码' })
@@ -104,15 +132,19 @@ export class AuthController {
 
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 5 } })
   @ApiOperation({
     summary: '发送 purely-profit 找回密码短信验证码',
     description:
-      '仅面向 purely-profit 账号找回密码。即使手机号不存在也返回统一文案，不暴露注册状态。同一手机号 60 秒内不可重复发送。',
+      '仅面向 purely-profit 账号找回密码。会先校验手机号是否已注册；未注册时返回 404，已注册时发送验证码。同一手机号 60 秒内不可重复发送。',
   })
   @ApiOkResponse({
     description:
-      '如手机号存在则发送 purely-profit 找回密码验证码短信，统一返回通用文案；同一手机号 60 秒内不可重复发送',
+      '已注册手机号返回发送成功 message 并发送验证码；同一手机号 60 秒内不可重复发送',
     type: ForgotPasswordResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: '手机号未注册，请先注册',
   })
   forgotPassword(
     @Body() dto: ForgotPasswordDto,
@@ -122,6 +154,7 @@ export class AuthController {
 
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 5 } })
   @ApiOperation({
     summary: '通过短信验证码重置 purely-profit 密码',
     description:
@@ -190,6 +223,21 @@ export class AuthController {
     @Body() dto: UpdateAvatarDto,
   ): Promise<ProfileResponseDto> {
     return this.authService.updateAvatar(user, dto);
+  }
+
+  @Patch('profile/name')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '更新当前用户昵称' })
+  @ApiOkResponse({
+    description: '更新昵称成功并返回最新资料',
+    type: ProfileResponseDto,
+  })
+  updateNickname(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateNicknameDto,
+  ): Promise<ProfileResponseDto> {
+    return this.authService.updateNickname(user, dto.name);
   }
 
   @Post('real-name/verify')

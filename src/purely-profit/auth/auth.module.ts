@@ -17,6 +17,7 @@ import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.serv
 import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthSmsService } from './auth-sms.service';
+import { AuthRegisterStoreService } from './auth-register-store.service';
 import {
   ClubJwtAuthGuard,
   JwtAuthGuard,
@@ -55,6 +56,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthProfileService,
     AuthSessionService,
     AuthSmsService,
+    AuthRegisterStoreService,
     JwtStrategy,
     JwtAuthGuard,
     ClubJwtAuthGuard,

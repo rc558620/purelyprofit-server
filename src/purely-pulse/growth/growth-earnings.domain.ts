@@ -141,6 +141,7 @@ function mapWithdrawalAccountPartner(
     id: String(partner.id),
     name: partner.name ?? '',
     phone: partner.phone ?? '',
+    avatarUrl: partner.store?.owner?.avatar ?? undefined,
     ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
     beanBalance: partner.beanBalance,
     totalEarnedBeans: partner.totalEarnedBeans,

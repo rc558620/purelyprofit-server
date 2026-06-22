@@ -22,6 +22,7 @@ type ApprovedPartnerLike = Pick<
   | 'totalWithdrawnBeans'
 > & {
   status: string;
+  store?: { owner: { avatar: string | null } } | null;
 };
 
 const STORE_INVITE_CODE_ALPHABET = '0123456789';
@@ -78,6 +79,7 @@ export function buildApprovedPartnerResponse(
     id: String(partner.id),
     name: partner.name ?? '',
     phone: partner.phone ?? '',
+    avatarUrl: partner.store?.owner?.avatar ?? undefined,
     ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
     beanBalance: partner.beanBalance,
     totalEarnedBeans: partner.totalEarnedBeans,

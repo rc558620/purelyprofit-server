@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiCreatedResponse,
   ApiOkResponse,
@@ -19,6 +20,7 @@ export class ClubAuthController {
 
   @Post('login/send-code')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 3 } })
   @ApiOperation({
     summary: '发送 purely-club 登录验证码',
     description:
@@ -39,6 +41,7 @@ export class ClubAuthController {
 
   @Post('login/code')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 10 } })
   @ApiOperation({
     summary: '手机号验证码登录（登录即注册）',
     description:
@@ -55,6 +58,7 @@ export class ClubAuthController {
   }
 
   @Post('login/wechat')
+  @Throttle({ default: { ttl: 60, limit: 10 } })
   @ApiOperation({
     summary: '微信小程序登录（登录即注册）',
     description:

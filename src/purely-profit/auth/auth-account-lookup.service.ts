@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import type {
   AccountIdentifiers,
   AuthProductScope,
@@ -16,13 +17,17 @@ import {
   buildAccountLoginEmails,
   buildClubWechatMemberPhone,
   buildPhoneLoginEmails,
+  buildUserCacheKey,
   resolveLoginEmail,
   resolveLoginPhone,
 } from './auth.utils';
 
 @Injectable()
 export class AuthAccountLookupService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
+  ) {}
 
   async findUserByLoginAccount(
     account: string,
@@ -220,6 +225,7 @@ export class AuthAccountLookupService {
         ...(params.unionid != null && { wechatUnionid: params.unionid }),
       },
     });
+    await this.invalidateUserCache(userId);
   }
 
   /**
@@ -250,6 +256,7 @@ export class AuthAccountLookupService {
       where: { id: userId },
       data: { wechatPhone: phone },
     });
+    await this.invalidateUserCache(userId);
   }
 
   /**
@@ -278,6 +285,7 @@ export class AuthAccountLookupService {
         ...(params.phone != null && { wechatPhone: params.phone }),
       },
     });
+    await this.invalidateUserCache(userId);
   }
 
   async findProfileUserOrThrow(userId: number): Promise<ProfileUserRecord> {
@@ -309,6 +317,7 @@ export class AuthAccountLookupService {
         avatar,
       },
     });
+    await this.invalidateUserCache(userId);
   }
 
   async updateName(userId: number, name: string): Promise<void> {
@@ -318,6 +327,7 @@ export class AuthAccountLookupService {
         name,
       },
     });
+    await this.invalidateUserCache(userId);
   }
 
   async verifyRealName(
@@ -345,6 +355,7 @@ export class AuthAccountLookupService {
           idNumber,
         },
       });
+      await this.invalidateUserCache(userId);
     } catch (error: unknown) {
       // 并发场景下，两个请求同时通过 findFirst 检查后竞争 update，
       // 第二个请求会触发唯一约束 P2002 错误，需要友好转换
@@ -435,6 +446,18 @@ export class AuthAccountLookupService {
       phone: relatedStaff.phone,
       accountScope: 'purely_profit',
     };
+  }
+
+  /**
+   * 失效 JWT validate 链路中的 user 缓存，确保下次鉴权时读取最新数据。
+   * 调用场景：用户资料变更（昵称、头像、实名认证、微信绑定等）。
+   */
+  private async invalidateUserCache(userId: number): Promise<void> {
+    try {
+      await this.redisService.del(buildUserCacheKey(userId));
+    } catch {
+      // 缓存失效失败不影响主流程，TTL 自然过期即可兜底
+    }
   }
 
   private async findDeveloperUserByPhone(

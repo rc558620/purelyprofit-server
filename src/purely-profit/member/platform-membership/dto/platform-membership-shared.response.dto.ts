@@ -205,6 +205,14 @@ export class PlatformMembershipApprovedPartnerDto {
   phone: string;
 
   @ApiPropertyOptional({
+    example: 'https://cdn.example.com/avatar.jpg',
+    description: '合伙人头像 URL，未设置时为空串',
+  })
+  @IsOptional()
+  @IsString({ message: '头像 URL 必须是字符串' })
+  avatarUrl?: string;
+
+  @ApiPropertyOptional({
     example: 1747123200000,
     description: '成为合伙人的时间戳（ms）',
   })

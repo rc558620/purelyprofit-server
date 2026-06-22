@@ -87,6 +87,14 @@ export class PulsePayoutApplicationItemDto {
   @IsString()
   partnerCity: string;
 
+  @ApiPropertyOptional({
+    example: 'https://cdn.example.com/avatar.jpg',
+    description: '合伙人头像 URL，未设置时为空',
+  })
+  @IsOptional()
+  @IsString()
+  partnerAvatarUrl?: string;
+
   @ApiProperty({ example: 2000, description: '申请提现金额（分）' })
   @IsInt()
   amount: number;
@@ -279,6 +287,14 @@ export class PulseAdminPartnerApplicationItemDto {
   })
   @IsString()
   avatar: string;
+
+  @ApiPropertyOptional({
+    example: 'https://cdn.example.com/avatar.jpg',
+    description: '申请人头像 URL，未设置时为空',
+  })
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
 
   @ApiProperty({
     enum: PULSE_PARTNER_APPLICATION_STATUS_VALUES,

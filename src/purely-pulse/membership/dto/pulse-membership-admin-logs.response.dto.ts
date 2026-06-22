@@ -38,6 +38,14 @@ export class PulseAdminMemberPointsLogDto {
   @IsString()
   userPhone: string;
 
+  @ApiPropertyOptional({
+    example: 'https://cdn.example.com/avatar.jpg',
+    description: '会员头像 URL，未设置时为空串',
+  })
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
+
   @ApiProperty({ example: 300, description: '积分变动值' })
   @IsInt()
   amount: number;
@@ -110,6 +118,14 @@ export class PulseAdminMemberBeanLogDto {
   @ApiProperty({ example: '138****9021', description: '会员手机号' })
   @IsString()
   userPhone: string;
+
+  @ApiPropertyOptional({
+    example: 'https://cdn.example.com/avatar.jpg',
+    description: '会员头像 URL，未设置时为空串',
+  })
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
 
   @ApiProperty({ example: 22, description: '纯利豆变动值' })
   @IsInt()

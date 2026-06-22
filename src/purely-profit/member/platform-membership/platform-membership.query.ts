@@ -61,6 +61,15 @@ const storePartnerSelect = {
   joinedAt: true,
   reviewedAt: true,
   createdAt: true,
+  store: {
+    select: {
+      owner: {
+        select: {
+          avatar: true,
+        },
+      },
+    },
+  },
 } as const;
 
 export async function findStorePartners(

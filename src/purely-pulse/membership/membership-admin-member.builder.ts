@@ -60,6 +60,13 @@ type PulseAdminLogStoreRecord = Pick<
   'name' | 'contactPhone' | 'owner'
 >;
 
+type PulseAdminLogOwnerRecord = {
+  email: string | null;
+  name: string | null;
+  realName: string | null;
+  avatar: string | null;
+};
+
 type PulseAdminPointsLogRecord = {
   id: number;
   storeId: number;
@@ -68,7 +75,7 @@ type PulseAdminPointsLogRecord = {
   description: string;
   expireAt: Date | null;
   createdAt: Date;
-  store: PulseAdminLogStoreRecord;
+  store: PulseAdminLogStoreRecord & { owner: PulseAdminLogOwnerRecord };
 };
 
 type PulseAdminBeanLogRecord = {
@@ -80,7 +87,7 @@ type PulseAdminBeanLogRecord = {
   relatedPromoRecordId: number | null;
   relatedUser: string | null;
   createdAt: Date;
-  store: PulseAdminLogStoreRecord;
+  store: PulseAdminLogStoreRecord & { owner: PulseAdminLogOwnerRecord };
 };
 
 interface BuildPulseAdminMemberListItemInput {
@@ -112,6 +119,7 @@ export function buildPulseAdminPointsLogItem(
     userId: String(log.storeId),
     userName,
     userPhone,
+    avatarUrl: log.store.owner.avatar ?? undefined,
     amount: log.changeAmount,
     type:
       log.source === 'expire'
@@ -137,6 +145,7 @@ export function buildPulseAdminBeanLogItem(
     userId: String(log.storeId),
     userName,
     userPhone,
+    avatarUrl: log.store.owner.avatar ?? undefined,
     amount: log.changeAmount,
     type:
       log.source === 'withdrawal'

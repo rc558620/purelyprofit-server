@@ -113,6 +113,11 @@ export default () => ({
       process.env.APP_CLIENT_ERROR_DETAILS_MAX_LENGTH ?? '2000',
       10,
     ),
+    throttleTtlSeconds: parseInt(
+      process.env.APP_THROTTLE_TTL_SECONDS ?? '60',
+      10,
+    ),
+    throttleLimit: parseInt(process.env.APP_THROTTLE_LIMIT ?? '100', 10),
   },
 
   database: {

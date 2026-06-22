@@ -3,8 +3,8 @@ import { IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class ForgotPasswordResponseDto {
   @ApiProperty({
-    example: '如手机号已注册，重置验证码短信已发送，请注意查收',
-    description: '操作结果说明',
+    example: '重置验证码短信已发送，请注意查收',
+    description: '操作结果说明；未注册时返回对应提示',
   })
   @IsString({ message: '操作结果说明必须是字符串' })
   message: string;

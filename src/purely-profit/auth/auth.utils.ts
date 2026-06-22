@@ -8,6 +8,9 @@ import {
   AUTH_REGISTER_CODE_KEY_PREFIX,
   AUTH_SMS_SEND_COOLDOWN_KEY_PREFIX,
   AUTH_TOKEN_VERSION_KEY_PREFIX,
+  AUTH_USER_CACHE_KEY_PREFIX,
+  AUTH_MEMBERSHIP_ROWS_CACHE_KEY_PREFIX,
+  AUTH_USER_RELATED_STORE_IDS_CACHE_KEY_PREFIX,
   PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX,
   STORE_PROFILE_KEY_PREFIX,
 } from './auth.constants';
@@ -355,4 +358,30 @@ export function buildStoreProfileKey(storeId: number): string {
 
 export function buildPulseAdminMemberBanReasonKey(storeId: number): string {
   return `${PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX}${storeId}:ban-reason`;
+}
+
+/**
+ * 构建 JWT validate 链路中 user 信息的缓存 key
+ */
+export function buildUserCacheKey(userId: number): string {
+  return `${AUTH_USER_CACHE_KEY_PREFIX}${userId}`;
+}
+
+/**
+ * 构建 JWT validate 链路中 membership rows 的缓存 key。
+ * 包含 userId/email/phone 以确保查询条件的唯一性。
+ */
+export function buildMembershipRowsCacheKey(
+  userId: number,
+  email: string,
+  phone: string,
+): string {
+  return `${AUTH_MEMBERSHIP_ROWS_CACHE_KEY_PREFIX}${userId}:${normalizeLoginEmail(email)}:${phone}`;
+}
+
+/**
+ * 构建 JWT validate 链路中用户关联门店 ID 的缓存 key
+ */
+export function buildUserRelatedStoreIdsCacheKey(userId: number): string {
+  return `${AUTH_USER_RELATED_STORE_IDS_CACHE_KEY_PREFIX}${userId}`;
 }

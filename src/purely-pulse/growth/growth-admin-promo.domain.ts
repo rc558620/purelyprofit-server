@@ -20,6 +20,7 @@ export interface PulseAdminPromoDetailResponse {
     revenue: number;
     growth: number;
     avatar: string;
+    avatarUrl?: string;
     rank: number;
     joinDate: string;
     phone: string;
@@ -158,6 +159,7 @@ function mapAdminPromoPartner(
     revenue,
     growth: 0,
     avatar: partnerName.slice(0, 1) || '合',
+    avatarUrl: partner.store.owner.avatar ?? undefined,
     rank: 0,
     joinDate: formatDateTime(partner.joinedAt ?? new Date(0)),
     phone: partner.phone?.trim() || '--',

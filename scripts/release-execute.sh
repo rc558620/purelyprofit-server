@@ -203,6 +203,11 @@ validate_release_environment() {
     errors+=("CLUB_MANUAL_CONFIRM_PAID_ENABLED 生产环境必须为 false")
   fi
 
+  # 提醒集群模式启动：生产环境推荐使用 start:cluster
+  if [ "${CLUSTER_WORKERS:-0}" = "0" ]; then
+    echo "[WARN] 生产环境建议设置 CLUSTER_WORKERS > 0 并使用 start:cluster 启动，以充分利用多核 CPU 提升并发容量"
+  fi
+
   if is_placeholder_value "${WECHAT_APP_ID:-}"; then
     errors+=("WECHAT_APP_ID 未配置或仍在使用示例值")
   fi

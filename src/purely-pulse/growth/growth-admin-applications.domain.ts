@@ -25,6 +25,7 @@ type AdminPartnerApplicationItem = {
   appliedAt: string;
   reason: string;
   avatar: string;
+  avatarUrl?: string;
   status: 'pending' | 'approved' | 'rejected';
 };
 
@@ -33,6 +34,7 @@ type AdminPayoutItem = {
   partnerName: string;
   partnerPhone: string;
   partnerCity: string;
+  partnerAvatarUrl?: string;
   amount: number;
   accountType: AdminPayoutRecord['accountType'];
   accountNo: string;
@@ -176,6 +178,7 @@ function mapAdminPartnerApplication(
     appliedAt: formatDateTime(application.createdAt),
     reason: application.applyReason?.trim() || '暂无申请理由',
     avatar: application.name.trim().slice(0, 1) || '合',
+    avatarUrl: application.store?.owner?.avatar ?? undefined,
     status: normalizePartnerApplicationStatus(application.status),
   };
 }
@@ -199,6 +202,7 @@ function mapAdminPayoutItem(withdrawal: AdminPayoutRecord): AdminPayoutItem {
     partnerName: withdrawal.partner.name?.trim() || '未命名合伙人',
     partnerPhone: maskPhone(withdrawal.partner.phone ?? ''),
     partnerCity: resolveRegionCity(withdrawal.partner.region),
+    partnerAvatarUrl: withdrawal.partner.store?.owner?.avatar ?? undefined,
     amount: withdrawal.rmbAmount,
     accountType: withdrawal.accountType,
     accountNo: withdrawal.accountNo,

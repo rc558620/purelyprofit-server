@@ -19,6 +19,9 @@ import { UpdateAvatarDto } from './dto/update-avatar.dto';
 import { VerifyRealNameDto } from './dto/verify-real-name.dto';
 import type { ChangePasswordAuthParams } from './auth-password.types';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
+import { AuthRegisterStoreService } from './auth-register-store.service';
+import { CreateStoreDto } from '../stores/dto/create-store.dto';
+import type { StoreResponseDto } from '../stores/dto/store-response.dto';
 
 @Injectable()
 export class AuthService {
@@ -27,6 +30,7 @@ export class AuthService {
     private readonly authProductAuthService: AuthProductAuthService,
     private readonly authProfileService: AuthProfileService,
     private readonly authCapabilityService: AuthCapabilityService,
+    private readonly authRegisterStoreService: AuthRegisterStoreService,
   ) {}
 
   async sendRegisterCode(
@@ -100,6 +104,13 @@ export class AuthService {
 
   async getProfile(user: AuthenticatedUser): Promise<ProfileResponseDto> {
     return this.authProfileService.getProfile(user);
+  }
+
+  async registerStore(
+    user: AuthenticatedUser,
+    dto: CreateStoreDto,
+  ): Promise<StoreResponseDto> {
+    return this.authRegisterStoreService.create(user, dto);
   }
 
   async getCapability(

@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AccessControlModule } from './purely-profit/access-control/access-control.module';
@@ -57,6 +59,18 @@ import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.modul
       load: [configuration],
       envFilePath: '.env',
     }),
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: configService.get<number>('app.throttleTtlSeconds') ?? 60,
+            limit: configService.get<number>('app.throttleLimit') ?? 100,
+          },
+        ],
+      }),
+    }),
     PrismaModule,
     RedisModule,
     AccessControlModule,
@@ -105,6 +119,13 @@ import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.modul
     PulseDevModeModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    /**
+     * 全局限流守卫：默认同一 IP 60 秒内最多 100 次请求。
+     * auth 相关接口在各自 controller 中通过 @Throttle 覆盖为更严格的配置。
+     */
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

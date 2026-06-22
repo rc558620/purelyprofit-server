@@ -30,6 +30,11 @@ export interface EarningsApprovedPartnerRecord {
   paymentAccountType: 'wechat' | 'alipay' | 'bank' | null;
   paymentAccountNo: string | null;
   paymentAccountName: string | null;
+  store?: {
+    owner: {
+      avatar: string | null;
+    };
+  } | null;
 }
 
 export interface EarningsOverviewPromoRecord {
@@ -68,6 +73,15 @@ const EARNINGS_PARTNER_SELECT = {
   paymentAccountType: true,
   paymentAccountNo: true,
   paymentAccountName: true,
+  store: {
+    select: {
+      owner: {
+        select: {
+          avatar: true,
+        },
+      },
+    },
+  },
 } satisfies Prisma.StorePartnerSelect;
 
 const EARNINGS_OVERVIEW_PROMO_SELECT = {

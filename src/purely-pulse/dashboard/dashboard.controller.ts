@@ -92,7 +92,7 @@ export class PulseDashboardController {
 @ApiTags('Pulse / Dashboard')
 @ApiBearerAuth()
 @UseGuards(PulseJwtAuthGuard)
-@Controller('pulse/dashboard/revenue-detail')
+@Controller(['pulse/dashboard/revenue-detail', 'revenue-detail'])
 export class RevenueDetailController {
   constructor(private readonly pulseDashboardService: PulseDashboardService) {}
 

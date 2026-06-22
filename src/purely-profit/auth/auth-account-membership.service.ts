@@ -18,9 +18,16 @@ import type { AuthMembershipContextRow } from './auth-account.types';
 import type { ProfileMembershipRecord } from './auth-profile.types';
 import type { AuthenticatedUser, JwtPayload } from './strategies/jwt.strategy';
 import {
+  buildMembershipRowsCacheKey,
   buildPulseAdminMemberBanReasonKey,
   buildStoreProfileKey,
+  buildUserRelatedStoreIdsCacheKey,
 } from './auth.utils';
+import {
+  AUTH_MEMBERSHIP_ROWS_CACHE_KEY_PREFIX,
+  AUTH_MEMBERSHIP_ROWS_CACHE_TTL_SECONDS,
+  AUTH_USER_RELATED_STORE_IDS_CACHE_TTL_SECONDS,
+} from './auth.constants';
 
 @Injectable()
 export class AuthAccountMembershipService {
@@ -44,10 +51,12 @@ export class AuthAccountMembershipService {
       return;
     }
 
-    const banReasons = await Promise.all(
-      relatedStoreIds.map((storeId) =>
-        this.redisService.get(buildPulseAdminMemberBanReasonKey(storeId)),
-      ),
+    // 批量 MGET 检查封禁状态，替代逐个 GET
+    const banReasonKeys = relatedStoreIds.map((storeId) =>
+      buildPulseAdminMemberBanReasonKey(storeId),
+    );
+    const banReasons = await this.redisService.mgetJson<string | null>(
+      banReasonKeys,
     );
     const allStoresBanned = banReasons.every((reason) =>
       Boolean(reason?.trim()),
@@ -183,9 +192,42 @@ export class AuthAccountMembershipService {
         },
       });
     });
+    await this.invalidateMembershipRowsCacheByUserId(userId);
   }
 
   private async findMembershipRows(
+    payload: JwtPayload,
+    userEmail: string,
+  ): Promise<AuthMembershipContextRow[]> {
+    const cacheKey = buildMembershipRowsCacheKey(
+      payload.sub,
+      userEmail,
+      payload.phone,
+    );
+
+    try {
+      const cached =
+        await this.redisService.getJson<AuthMembershipContextRow[]>(cacheKey);
+      if (cached) {
+        return cached;
+      }
+    } catch {
+      // 缓存读取失败，回退到数据库查询
+    }
+
+    const rows = await this.queryMembershipRowsFromDb(payload, userEmail);
+
+    // 异步回填缓存，TTL 2 分钟
+    this.redisService
+      .setJson(cacheKey, rows, AUTH_MEMBERSHIP_ROWS_CACHE_TTL_SECONDS)
+      .catch(() => {
+        // 缓存写入失败不影响鉴权
+      });
+
+    return rows;
+  }
+
+  private async queryMembershipRowsFromDb(
     payload: JwtPayload,
     userEmail: string,
   ): Promise<AuthMembershipContextRow[]> {
@@ -385,6 +427,17 @@ export class AuthAccountMembershipService {
   }
 
   private async findUserRelatedStoreIds(userId: number): Promise<number[]> {
+    const cacheKey = buildUserRelatedStoreIdsCacheKey(userId);
+
+    try {
+      const cached = await this.redisService.getJson<number[]>(cacheKey);
+      if (cached) {
+        return cached;
+      }
+    } catch {
+      // 缓存读取失败，回退到数据库查询
+    }
+
     const stores = await this.prisma.store.findMany({
       where: {
         OR: [
@@ -407,7 +460,20 @@ export class AuthAccountMembershipService {
       },
     });
 
-    return stores.map((store) => store.id);
+    const storeIds = stores.map((store) => store.id);
+
+    // 异步回填缓存
+    this.redisService
+      .setJson(
+        cacheKey,
+        storeIds,
+        AUTH_USER_RELATED_STORE_IDS_CACHE_TTL_SECONDS,
+      )
+      .catch(() => {
+        // 缓存写入失败不影响鉴权
+      });
+
+    return storeIds;
   }
 
   private async resolveActivatableStaffIds(
@@ -445,5 +511,21 @@ export class AuthAccountMembershipService {
     }
 
     return [firstInvitedStaff.id];
+  }
+
+  /**
+   * 按 userId 失效 membership rows 缓存。
+   * 由于缓存 key 包含 email 和 phone，需使用 pattern 匹配删除。
+   */
+  private async invalidateMembershipRowsCacheByUserId(
+    userId: number,
+  ): Promise<void> {
+    try {
+      await this.redisService.delByPattern(
+        `${AUTH_MEMBERSHIP_ROWS_CACHE_KEY_PREFIX}${userId}:*`,
+      );
+    } catch {
+      // 缓存失效失败不影响主流程，TTL 自然过期即可兜底
+    }
   }
 }

@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthTokenResponseDto } from '../../purely-profit/auth/dto/auth-token-response.dto';
 import { LoginDto } from '../../purely-profit/auth/dto/login.dto';
@@ -11,6 +12,7 @@ export class PulseAuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 10 } })
   @ApiOperation({
     summary: 'purely-pulse 开发者登录',
     description:

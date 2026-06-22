@@ -14,6 +14,11 @@ export interface AdminPartnerApplicationRecord {
   applyReason: string | null;
   createdAt: Date;
   status: string;
+  store?: {
+    owner: {
+      avatar: string | null;
+    };
+  } | null;
 }
 
 export interface AdminPartnerApplicationAccessRecord {
@@ -53,6 +58,11 @@ export interface AdminPayoutRecord {
     name: string | null;
     phone: string | null;
     region: string[];
+    store?: {
+      owner: {
+        avatar: string | null;
+      };
+    } | null;
   };
 }
 
@@ -92,6 +102,7 @@ export interface AdminPromoPartnerRecord {
     name: string;
     owner: {
       name: string | null;
+      avatar: string | null;
     };
     membershipPromoRecords: Array<{
       chargedAmount: number | null;
@@ -113,6 +124,7 @@ const ADMIN_PROMO_PARTNER_SELECT = {
       owner: {
         select: {
           name: true,
+          avatar: true,
         },
       },
       membershipPromoRecords: {
@@ -136,6 +148,15 @@ const ADMIN_PARTNER_APPLICATION_SELECT = {
   applyReason: true,
   createdAt: true,
   status: true,
+  store: {
+    select: {
+      owner: {
+        select: {
+          avatar: true,
+        },
+      },
+    },
+  },
 } satisfies Prisma.StorePartnerApplicationSelect;
 
 const ADMIN_PAYOUT_SELECT = {
@@ -153,6 +174,15 @@ const ADMIN_PAYOUT_SELECT = {
       name: true,
       phone: true,
       region: true,
+      store: {
+        select: {
+          owner: {
+            select: {
+              avatar: true,
+            },
+          },
+        },
+      },
     },
   },
 } satisfies Prisma.PartnerWithdrawalSelect;
