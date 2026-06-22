@@ -65,6 +65,9 @@ import { JwtStrategy } from './strategies/jwt.strategy';
   exports: [
     AuthService,
     AuthProductAuthService,
+    AuthAccountLookupService,
+    AuthCodeService,
+    AuthSessionService,
     JwtAuthGuard,
     ClubJwtAuthGuard,
     PulseJwtAuthGuard,

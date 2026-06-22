@@ -2,7 +2,7 @@
 schema_version: 1
 locale: zh-CN
 branch: main
-exported_at: "2026-06-19T14:09:09Z"
+exported_at: "2026-06-22T14:19:39Z"
 modules:
     "":
         dir_name: 纯利商业操作系统核心
@@ -22,8 +22,8 @@ modules:
         depends_on: []
         related_to: []
     auth:
-        dir_name: 认证与会话管理
-        title: 认证与会话管理
+        dir_name: 认证与授权管理
+        title: 认证与授权管理
         scope:
             - src/purely-profit/auth/
         source_files: []
@@ -50,14 +50,16 @@ modules:
         depends_on: []
         related_to: []
     observability:
-        dir_name: 运行时可观测性与指标摘要
-        title: 运行时可观测性与指标摘要
+        dir_name: 运行时可观测性与健康度摘要
+        title: 运行时可观测性与健康度摘要
         scope:
             - src/observability/
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: cache_layer
+            - path: purely_profit/client_errors
     purely_club:
         dir_name: Purely Club 业务中台
         title: Purely Club 业务中台
@@ -65,21 +67,23 @@ modules:
             - src/purely-club/
         source_files: []
         children:
-            - purely_club/member
+            - purely_club/points
             - purely_club/records
-            - purely_club/products
-            - purely_club/orders
-            - purely_club/promotions
-            - purely_club/home
-            - purely_club/stores
-            - purely_club/payments
+            - purely_club/member
             - purely_club/auth
+            - purely_club/stores
+            - purely_club/orders
+            - purely_club/payments
+            - purely_club/products
+            - purely_club/promotions
             - purely_club/recharge
+            - purely_club/home
         depends_on: []
-        related_to: []
+        related_to:
+            - path: purely_profit
     purely_club/auth:
-        dir_name: Purely Club 认证与微信登录模块
-        title: Purely Club 认证与微信登录模块
+        dir_name: Purely Club 认证与微信登录
+        title: Purely Club 认证与微信登录
         scope:
             - src/purely-club/auth/
         source_files: []
@@ -96,8 +100,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/member:
-        dir_name: Purely Club 会员账户与权益管理
-        title: Purely Club 会员账户与权益管理
+        dir_name: 会员账户与权益管理
+        title: 会员账户与权益管理
         scope:
             - src/purely-club/member/
         source_files: []
@@ -105,8 +109,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/orders:
-        dir_name: Purely Club 服务订单管理
-        title: Purely Club 服务订单管理
+        dir_name: 俱乐部服务订单与支付管理
+        title: 俱乐部服务订单与支付管理
         scope:
             - src/purely-club/orders/
         source_files: []
@@ -114,10 +118,19 @@ modules:
         depends_on: []
         related_to: []
     purely_club/payments:
-        dir_name: 微信支付集成与回调处理
-        title: 微信支付集成与回调处理
+        dir_name: 微信支付回调处理与结算服务
+        title: 微信支付回调处理与结算服务
         scope:
             - src/purely-club/payments/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    purely_club/points:
+        dir_name: 俱乐部门店积分查询服务
+        title: 俱乐部门店积分查询服务
+        scope:
+            - src/purely-club/points/
         source_files: []
         children: []
         depends_on: []
@@ -132,8 +145,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/promotions:
-        dir_name: 俱乐部营销活动展示
-        title: 俱乐部营销活动展示
+        dir_name: 俱乐部促销活动管理
+        title: 俱乐部促销活动管理
         scope:
             - src/purely-club/promotions/
         source_files: []
@@ -141,8 +154,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/recharge:
-        dir_name: 会员充值管理
-        title: 会员充值管理
+        dir_name: Purely Club 会员充值业务模块
+        title: Purely Club 会员充值业务模块
         scope:
             - src/purely-club/recharge/
         source_files: []
@@ -150,8 +163,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/records:
-        dir_name: 俱乐部会员流水查询与展示
-        title: 俱乐部会员流水查询与展示
+        dir_name: 俱乐部门店流水查询与展示
+        title: 俱乐部门店流水查询与展示
         scope:
             - src/purely-club/records/
         source_files: []
@@ -168,22 +181,19 @@ modules:
         depends_on: []
         related_to: []
     purely_profit:
-        dir_name: Purely Profit 门店经营与权限治理核心
-        title: Purely Profit 门店经营与权限治理核心
+        dir_name: 门店SaaS业务核心编排层
+        title: 门店SaaS业务核心编排层
         scope:
             - src/purely-profit/
         source_files: []
         children:
-            - purely_profit/finance
             - purely_profit/client_errors
-            - purely_profit/auth
-            - purely_profit/marketing
-            - purely_profit/goods
             - purely_profit/access_control
+            - purely_profit/auth
             - purely_profit/commerce
-            - purely_profit/dashboard
         depends_on: []
-        related_to: []
+        related_to:
+            - path: purely_club
     purely_profit/access_control:
         dir_name: 访问控制与权限管理
         title: 访问控制与权限管理
@@ -220,117 +230,21 @@ modules:
         children: []
         depends_on: []
         related_to: []
-    purely_profit/dashboard:
-        dir_name: 门店经营数据可视化聚合层
-        title: 门店经营数据可视化聚合层
-        scope:
-            - src/purely-profit/dashboard/
-        source_files: []
-        children:
-            - purely_profit/dashboard/profit_detail
-            - purely_profit/dashboard/business_analysis
-            - purely_profit/dashboard/dashboard_home
-        depends_on: []
-        related_to: []
-    purely_profit/dashboard/business_analysis:
-        dir_name: 经营分析大屏数据服务
-        title: 经营分析大屏数据服务
-        scope:
-            - src/purely-profit/dashboard/business-analysis/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/dashboard/dashboard_home:
-        dir_name: 首页经营概览与动态聚合
-        title: 首页经营概览与动态聚合
-        scope:
-            - src/purely-profit/dashboard/dashboard-home/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/dashboard/profit_detail:
-        dir_name: 利润详情与报表分析
-        title: 利润详情与报表分析
-        scope:
-            - src/purely-profit/dashboard/profit-detail/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/finance:
-        dir_name: 财务核心业务模块
-        title: 财务核心业务模块
-        scope:
-            - src/purely-profit/finance/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/goods:
-        dir_name: 商品中心模块
-        title: 商品中心模块
-        scope:
-            - src/purely-profit/goods/
-        source_files: []
-        children:
-            - purely_profit/goods/categories
-            - purely_profit/goods/products
-            - purely_profit/goods/inventory
-        depends_on: []
-        related_to: []
-    purely_profit/goods/categories:
-        dir_name: 商品分类管理
-        title: 商品分类管理
-        scope:
-            - src/purely-profit/goods/categories/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/goods/inventory:
-        dir_name: 库存管理与盘点模块
-        title: 库存管理与盘点模块
-        scope:
-            - src/purely-profit/goods/inventory/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/goods/products:
-        dir_name: 商品管理模块
-        title: 商品管理模块
-        scope:
-            - src/purely-profit/goods/products/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    purely_profit/marketing:
-        dir_name: 营销与客户关系管理
-        title: 营销与客户关系管理
-        scope:
-            - src/purely-profit/marketing/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
     purely_pulse:
-        dir_name: Pulse 商家经营与开发者观察平台
-        title: Pulse 商家经营与开发者观察平台
+        dir_name: Pulse 商家经营与增长中心
+        title: Pulse 商家经营与增长中心
         scope:
             - src/purely-pulse/
         source_files: []
         children:
-            - purely_pulse/membership_settings
-            - purely_pulse/membership
-            - purely_pulse/dashboard
-            - purely_pulse/store_context
-            - purely_pulse/dev_mode
             - purely_pulse/onboarding
-            - purely_pulse/session
+            - purely_pulse/dashboard
             - purely_pulse/growth
+            - purely_pulse/dev_mode
+            - purely_pulse/membership
+            - purely_pulse/session
+            - purely_pulse/membership_settings
+            - purely_pulse/store_context
         depends_on: []
         related_to: []
     purely_pulse/dashboard:
@@ -342,9 +256,11 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: purely_profit/dashboard
             - path: purely_pulse/session
-            - path: purely_pulse/growth
+            - path: purely_profit/dashboard/business_analysis
+            - path: purely_pulse/membership
+            - path: purely_pulse/onboarding
+            - path: purely_pulse/dev_mode
     purely_pulse/dev_mode:
         dir_name: 开发者模式数据模拟服务
         title: 开发者模式数据模拟服务
@@ -355,6 +271,8 @@ modules:
         depends_on: []
         related_to:
             - path: purely_pulse/session
+            - path: purely_pulse/growth
+            - path: purely_pulse/dashboard
     purely_pulse/growth:
         dir_name: Pulse 增长与合伙人管理中心
         title: Pulse 增长与合伙人管理中心
@@ -364,7 +282,10 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: purely_pulse/dashboard
+            - path: purely_profit/member/platform_membership
+            - path: purely_profit/member/withdrawals
+            - path: purely_pulse/dev_mode
+            - path: purely_pulse/membership
     purely_pulse/membership:
         dir_name: Pulse 会员管理与订阅中心
         title: Pulse 会员管理与订阅中心
@@ -374,8 +295,11 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: purely_pulse/store_context
-            - path: purely_profit/member
+            - path: purely_pulse/membership_settings
+            - path: purely_profit/member/members
+            - path: purely_pulse/dashboard
+            - path: purely_pulse/growth
+            - path: purely_pulse/onboarding
     purely_pulse/membership_settings:
         dir_name: Pulse 会员套餐配置管理
         title: Pulse 会员套餐配置管理
@@ -385,7 +309,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: purely_profit/marketing/overview
+            - path: purely_pulse/membership
     purely_pulse/onboarding:
         dir_name: 商家入驻状态管理
         title: 商家入驻状态管理
@@ -396,6 +320,8 @@ modules:
         depends_on: []
         related_to:
             - path: purely_pulse/store_context
+            - path: purely_pulse/dashboard
+            - path: purely_pulse/membership
     purely_pulse/session:
         dir_name: Pulse 会话与首屏上下文管理
         title: Pulse 会话与首屏上下文管理
@@ -407,6 +333,7 @@ modules:
         related_to:
             - path: purely_pulse/dashboard
             - path: purely_pulse/dev_mode
+            - path: purely_club/home
     purely_pulse/store_context:
         dir_name: Pulse 门店上下文管理
         title: Pulse 门店上下文管理
@@ -422,5 +349,5 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: purely_pulse/membership
             - path: purely_pulse/onboarding
+            - path: purely_club/stores
