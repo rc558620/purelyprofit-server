@@ -106,6 +106,7 @@ describe('EmployeesService', () => {
 
   const employeesAccessService = {
     resolveViewStoreId: jest.fn(),
+    getManageableStoreId: jest.fn(),
     ensureCanManageEmployees: jest.fn(),
     findManageableEmployeeOrThrow: jest.fn(),
     resolveSingleStoreId: jest.fn(),
@@ -1458,7 +1459,7 @@ describe('EmployeesService', () => {
     const createdAt = new Date('2026-05-13T08:00:00.000Z');
     const updatedAt = new Date('2026-05-13T09:00:00.000Z');
 
-    employeesAccessService.resolveViewStoreId.mockResolvedValue(2);
+    employeesAccessService.getManageableStoreId.mockReturnValue(2);
     prismaService.employeePayroll.findMany.mockResolvedValue([
       {
         id: 21,
@@ -1523,6 +1524,24 @@ describe('EmployeesService', () => {
         updatedAt: updatedAt.getTime(),
       },
     ]);
+  });
+
+  it('listPayrolls 在无 finance:view 权限时返回空数组而非 403', async () => {
+    employeesAccessService.getManageableStoreId.mockReturnValue(null);
+
+    const result = await service.listPayrolls(user, { storeId: 2 });
+
+    expect(result).toEqual([]);
+    expect(prismaService.employeePayroll.findMany).not.toHaveBeenCalled();
+  });
+
+  it('listPayrolls 在 storeId 与可管理门店不匹配时返回空数组', async () => {
+    employeesAccessService.getManageableStoreId.mockReturnValue(2);
+
+    const result = await service.listPayrolls(user, { storeId: 99 });
+
+    expect(result).toEqual([]);
+    expect(prismaService.employeePayroll.findMany).not.toHaveBeenCalled();
   });
 
   it('savePayroll 在存在其他扣款但缺少说明时抛出异常', async () => {

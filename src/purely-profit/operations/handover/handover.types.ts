@@ -1,4 +1,4 @@
-import { EmployeeShiftType, Prisma, SalesPaymentMethod } from '@prisma/client';
+import { EmployeeShiftType, Prisma, SalesPaymentMethod, StaffRole, StoreSubAccountRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { HandoverShiftInfoDto } from './dto/handover-page.dto';
 
@@ -89,6 +89,13 @@ export type OrderItemRow = {
     id: number;
     date: Date;
     paymentMethod: SalesPaymentMethod;
+    operatorStaff: {
+      name: string;
+      role: StaffRole;
+      employeeProfile: {
+        subAccounts: { role: StoreSubAccountRole }[];
+      } | null;
+    } | null;
     spaceSession: {
       prepaidPaymentMethod: SalesPaymentMethod | null;
       renewRecords: Prisma.JsonValue;
@@ -104,6 +111,13 @@ export type RefundOrderRow = {
   date: Date;
   paymentMethod: SalesPaymentMethod;
   totalRevenue: Prisma.Decimal;
+  operatorStaff: {
+    name: string;
+    role: StaffRole;
+    employeeProfile: {
+      subAccounts: { role: StoreSubAccountRole }[];
+    } | null;
+  } | null;
   spaceSession: {
     space: {
       name: string;

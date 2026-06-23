@@ -1,4 +1,4 @@
-import { EmployeeShiftType, Prisma, SalesPaymentMethod } from '@prisma/client';
+import { EmployeeShiftType, Prisma, SalesPaymentMethod, StaffRole } from '@prisma/client';
 import type { HandoverAdditionalItemDto } from './dto/handover-additional-items.dto';
 import {
   HandoverRecordDisplayStatusDto,
@@ -24,6 +24,9 @@ import type {
   RefundOrderRow,
 } from './handover.types';
 import { mulMoney, toDisplayName, toMoneyNumber } from './handover.utils';
+
+const FALLBACK_ORDER_OPERATOR_NAME = '当前操作员';
+const AUTO_SETTLEMENT_OPERATOR_NAME = '空间自动结账';
 
 const SALES_PAYMENT_METHOD_VALUES = new Set(Object.values(SalesPaymentMethod));
 
@@ -91,6 +94,26 @@ export const resolveOrderItemPaymentMethod = (
     : fallbackPaymentMethod;
 };
 
+/**
+ * 解析操作员的真实角色：
+ * 优先使用 Staff.role（OWNER 直接可信），
+ * 否则检查关联的 StoreSubAccount.role（manager → MANAGER）。
+ */
+const resolveOperatorRole = (
+  staff: {
+    role: StaffRole;
+    employeeProfile: {
+      subAccounts: { role: string }[];
+    } | null;
+  } | null,
+): StaffRole | null => {
+  if (!staff) return null;
+  if (staff.role === StaffRole.OWNER) return StaffRole.OWNER;
+  const subAccountRole = staff.employeeProfile?.subAccounts[0]?.role;
+  if (subAccountRole === 'manager') return StaffRole.MANAGER;
+  return staff.role;
+};
+
 export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
   const totalRevenue = mulMoney(toMoneyNumber(item.salePrice), item.quantity);
   const paymentMethod = resolveOrderItemPaymentMethod(item);
@@ -101,6 +124,10 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
     totalRevenue,
     paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
     paymentColor: PAYMENT_METHOD_CONFIG[paymentMethod].color,
+    operatorName:
+      toDisplayName(item.order.operatorStaff?.name) ??
+      FALLBACK_ORDER_OPERATOR_NAME,
+    operatorRole: resolveOperatorRole(item.order.operatorStaff),
     date: item.order.date.getTime(),
     currentStock: item.product?.stock ?? null,
     stockUnit: item.product?.unit ?? null,
@@ -116,6 +143,9 @@ export const mapRefundOrderItem = (
   totalRevenue: toMoneyNumber(order.totalRevenue),
   paymentLabel: `${PAYMENT_METHOD_CONFIG[order.paymentMethod].label}退款`,
   paymentColor: PAYMENT_METHOD_CONFIG[order.paymentMethod].color,
+  operatorName:
+    toDisplayName(order.operatorStaff?.name) ?? AUTO_SETTLEMENT_OPERATOR_NAME,
+  operatorRole: resolveOperatorRole(order.operatorStaff),
   date: order.date.getTime(),
   currentStock: null,
   stockUnit: null,

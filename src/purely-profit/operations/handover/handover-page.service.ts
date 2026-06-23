@@ -166,22 +166,19 @@ export class HandoverPageService {
     startAt: Date,
     endAt: Date,
   ): Promise<HandoverPageMetrics> {
-    const { membership, displayOperatorStaffId } = shiftContext;
+    const { membership } = shiftContext;
     const shiftRange = { startAt, endAt };
     const orderWhere = buildSaleOrderWhere(
       membership.storeId,
       shiftRange,
-      displayOperatorStaffId,
     );
     const additionalOrderWhere = buildNonSpaceSessionOrderWhere(
       membership.storeId,
       shiftRange,
-      displayOperatorStaffId,
     );
     const cashFlowWhere = buildCashFlowWhere(
       membership.storeId,
       shiftRange,
-      displayOperatorStaffId,
     );
     const refundWhere = buildSpaceRefundOrderWhere(
       membership.storeId,
@@ -201,12 +198,10 @@ export class HandoverPageService {
       this.loadPaymentOrderItems(
         membership.storeId,
         shiftRange,
-        displayOperatorStaffId,
       ),
       this.loadRecentOrderItems(
         membership.storeId,
         shiftRange,
-        displayOperatorStaffId,
       ),
       this.loadRefundOrders(refundWhere),
       this.prisma.saleOrder.count({ where: orderWhere }),
@@ -238,7 +233,6 @@ export class HandoverPageService {
   private async loadPaymentOrderItems(
     storeId: number,
     shiftRange: { startAt: Date; endAt: Date },
-    operatorStaffId: number | null,
   ): Promise<OrderItemRow[]> {
     return this.prisma.saleOrderItem.findMany({
       where: {
@@ -246,7 +240,6 @@ export class HandoverPageService {
         order: buildSaleOrderItemOrderWhere(
           storeId,
           shiftRange,
-          operatorStaffId,
         ),
       },
       select: SALE_ORDER_ITEM_SELECT,
@@ -256,7 +249,6 @@ export class HandoverPageService {
   private async loadRecentOrderItems(
     storeId: number,
     shiftRange: { startAt: Date; endAt: Date },
-    operatorStaffId: number | null,
   ): Promise<OrderItemRow[]> {
     return this.prisma.saleOrderItem.findMany({
       where: {
@@ -264,7 +256,6 @@ export class HandoverPageService {
         order: buildSaleOrderItemOrderWhere(
           storeId,
           shiftRange,
-          operatorStaffId,
         ),
       },
       select: SALE_ORDER_ITEM_SELECT,
@@ -283,6 +274,20 @@ export class HandoverPageService {
         date: true,
         paymentMethod: true,
         totalRevenue: true,
+        operatorStaff: {
+          select: {
+            name: true,
+            role: true,
+            employeeProfile: {
+              select: {
+                subAccounts: {
+                  select: { role: true },
+                  take: 1,
+                },
+              },
+            },
+          },
+        },
         spaceSession: {
           select: {
             space: {

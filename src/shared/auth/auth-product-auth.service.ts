@@ -44,6 +44,8 @@ export interface AuthResetPasswordPayload extends AuthLoginByCodePayload {
 
 export interface AuthTokenResult {
   access_token: string;
+  /** 签发 token 对应的用户 ID（可选，部分场景如 club 微信登录需要向上层传递） */
+  userId?: number;
 }
 
 export interface SendRegisterCodeResult {
@@ -217,6 +219,7 @@ export class AuthProductAuthService {
       productScope,
     };
 
+    // signToken 已在 AuthTokenResponseDto 中包含 userId，直接透传
     return this.authAuthenticationService.wechatLogin(params);
   }
 }

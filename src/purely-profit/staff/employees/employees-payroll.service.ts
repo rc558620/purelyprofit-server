@@ -82,12 +82,18 @@ export class EmployeesPayrollService {
     user: AuthenticatedUser,
     query: ListEmployeePayrollsQueryDto,
   ): Promise<EmployeePayrollResponseDto[]> {
-    const storeId = await this.employeesAccessService.resolveViewStoreId(
-      user,
-      query.storeId,
-      '无权查看该门店工资数据',
-      'finance:view',
-    );
+    const manageableStoreId =
+      this.employeesAccessService.getManageableStoreId(user, 'finance:view');
+
+    if (manageableStoreId === null) {
+      return [];
+    }
+
+    if (query.storeId !== undefined && manageableStoreId !== query.storeId) {
+      return [];
+    }
+
+    const storeId = query.storeId ?? manageableStoreId;
     const targetMonth = resolvePayrollMonthFilter(query.year, query.month);
     const rows = await this.prisma.employeePayroll.findMany({
       where: {

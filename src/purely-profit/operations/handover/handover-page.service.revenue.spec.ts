@@ -21,7 +21,6 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         storeId: 100,
         date: expect.any(Object),
         spaceSession: { is: null },
-        operatorStaffId: 2,
       }),
       _sum: { totalRevenue: true },
     });
@@ -91,26 +90,16 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
             lte: expectedShiftEndAt,
           },
           spaceSession: { is: null },
-          operatorStaffId: 2,
         }),
       }),
     );
     expect(prismaService.saleOrder.count).toHaveBeenCalledWith({
       where: {
-        OR: [
-          expect.objectContaining({
-            storeId: 100,
-            operatorStaffId: 2,
-            date: {
-              gte: expectedShiftRange.startAt,
-              lte: expectedShiftEndAt,
-            },
-          }),
-          expect.objectContaining({
-            storeId: 100,
-            spaceSession: { isNot: null },
-          }),
-        ],
+        storeId: 100,
+        date: {
+          gte: expectedShiftRange.startAt,
+          lte: expectedShiftEndAt,
+        },
       },
     });
   });
@@ -132,7 +121,10 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     prismaService.saleOrder.count.mockResolvedValue(1);
     prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: new Prisma.Decimal('88.60'), itemsCost: new Prisma.Decimal('0') },
+      _sum: {
+        timeCost: new Prisma.Decimal('88.60'),
+        itemsCost: new Prisma.Decimal('0'),
+      },
     });
     prismaService.spaceSession.findMany.mockResolvedValue([]);
 
@@ -165,20 +157,11 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     expect(prismaService.saleOrder.count).toHaveBeenCalledWith({
       where: {
-        OR: [
-          expect.objectContaining({
-            storeId: 100,
-            operatorStaffId: 2,
-            date: {
-              gte: expectedShiftRange.startAt,
-              lte: expectedShiftEndAt,
-            },
-          }),
-          expect.objectContaining({
-            storeId: 100,
-            spaceSession: { isNot: null },
-          }),
-        ],
+        storeId: 100,
+        date: {
+          gte: expectedShiftRange.startAt,
+          lte: expectedShiftEndAt,
+        },
       },
     });
   });
@@ -276,7 +259,6 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
             lte: new Date(2026, 5, 5, 20, 0, 0),
           },
           spaceSession: { is: null },
-          operatorStaffId: 30,
         }),
       }),
     );
@@ -399,7 +381,6 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
             lte: new Date(2026, 5, 5, 17, 14, 30),
           },
           spaceSession: { is: null },
-          operatorStaffId: 30,
         }),
       }),
     );
@@ -417,6 +398,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 201,
           date: new Date('2026-06-04T04:00:00.000Z'),
           paymentMethod: SalesPaymentMethod.cash,
+          operatorStaff: null,
           spaceSession: null,
         },
       },
@@ -430,6 +412,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 202,
           date: new Date('2026-06-04T04:05:00.000Z'),
           paymentMethod: SalesPaymentMethod.wechat,
+          operatorStaff: null,
           spaceSession: null,
         },
       },
@@ -443,6 +426,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 203,
           date: new Date('2026-06-04T04:10:00.000Z'),
           paymentMethod: SalesPaymentMethod.alipay,
+          operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.card,
             renewRecords: [],
@@ -463,9 +447,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         where: expect.objectContaining({
           storeId: 100,
           order: expect.objectContaining({
-            OR: expect.arrayContaining([
-              expect.objectContaining({ operatorStaffId: 2 }),
-            ]),
+            storeId: 100,
+            date: expect.any(Object),
           }),
         }),
       }),
@@ -501,6 +484,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 88,
           date: new Date('2026-06-04T04:21:00.000Z'),
           paymentMethod: SalesPaymentMethod.alipay,
+          operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,
             renewRecords: [],
@@ -517,6 +501,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         date: new Date('2026-06-04T04:21:00.000Z'),
         paymentMethod: SalesPaymentMethod.alipay,
         totalRevenue: new Prisma.Decimal('-547.60'),
+        operatorStaff: null,
         spaceSession: {
           space: {
             name: '很多事',
@@ -550,16 +535,20 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       totalRevenue: -547.6,
       paymentLabel: '支付宝退款',
       paymentColor: '#1677ff',
+      operatorName: '空间自动结账',
       currentStock: null,
       stockUnit: null,
     });
+
     expect(result.orderItems[1]).toMatchObject({
       id: '3',
       productName: '大厅A02台位费（1分钟）',
       totalRevenue: 11.1,
       paymentLabel: '支付宝',
       paymentColor: '#1677ff',
+      operatorName: '当前操作员',
     });
+
     expect(result.paymentItems).toEqual([
       expect.objectContaining({
         method: SalesPaymentMethod.alipay,
@@ -586,6 +575,20 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         date: true,
         paymentMethod: true,
         totalRevenue: true,
+        operatorStaff: {
+          select: {
+            name: true,
+            role: true,
+            employeeProfile: {
+              select: {
+                subAccounts: {
+                  select: { role: true },
+                  take: 1,
+                },
+              },
+            },
+          },
+        },
         spaceSession: {
           select: {
             space: {
@@ -628,6 +631,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         date: new Date('2026-06-02T18:55:00.000Z'),
         paymentMethod: SalesPaymentMethod.wechat,
         totalRevenue: new Prisma.Decimal('-88.80'),
+        operatorStaff: null,
         spaceSession: {
           space: {
             name: 'A01',
@@ -664,6 +668,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       productName: 'A01',
       totalRevenue: -88.8,
       paymentLabel: '微信退款',
+      operatorName: '空间自动结账',
     });
   });
 
@@ -679,6 +684,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 101,
           date: new Date('2026-06-02T10:06:00.000Z'),
           paymentMethod: SalesPaymentMethod.alipay,
+          operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,
             renewRecords: [],
@@ -700,7 +706,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       totalRevenue: -666,
       paymentLabel: '微信',
       paymentColor: '#22c55e',
+      operatorName: '当前操作员',
     });
+
     expect(result.paymentItems).toEqual([
       expect.objectContaining({
         method: SalesPaymentMethod.wechat,
@@ -722,6 +730,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 102,
           date: new Date('2026-06-02T10:06:00.000Z'),
           paymentMethod: SalesPaymentMethod.alipay,
+          operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,
             renewRecords: [],
@@ -742,6 +751,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       totalRevenue: 9.25,
       paymentLabel: '支付宝',
       paymentColor: '#1677ff',
+      operatorName: '当前操作员',
     });
   });
 });

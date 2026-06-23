@@ -1,10 +1,9 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.service';
 import { AuthCodeService } from '../../purely-profit/auth/auth-code.service';
 import { AuthAccountLookupService } from '../../purely-profit/auth/auth-account-lookup.service';
@@ -22,10 +21,11 @@ const CLUB_WECHAT_PHONE_PREFIX = 'club_wechat:';
 
 @Injectable()
 export class ClubAuthService {
+  private readonly logger = new Logger(ClubAuthService.name);
+
   constructor(
     private readonly authProductAuthService: AuthProductAuthService,
     private readonly clubWechatAuthService: ClubWechatAuthService,
-    private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
     private readonly authCodeService: AuthCodeService,
     private readonly authAccountLookupService: AuthAccountLookupService,
@@ -86,7 +86,9 @@ export class ClubAuthService {
     );
 
     // 登录完成后检查用户是否需要绑定手机号
-    const needPhoneBind = await this.checkNeedPhoneBind(result.access_token);
+    const needPhoneBind = result.userId
+      ? await this.checkNeedPhoneBind(result.userId)
+      : undefined;
 
     return {
       ...result,
@@ -98,9 +100,14 @@ export class ClubAuthService {
    * 绑定手机号（微信登录后补绑手机号）
    *
    * 需要 JWT 鉴权。验证短信验证码后：
-   * - 若手机号已有账号 → 将当前微信 openid 合并到手机号账号
+   * - 若手机号已有账号 → 将当前微信 openid 合并到手机号账号：
+   *   1. 迁移源用户（微信账号）的 Member 记录到目标用户（手机号账号）
+   *   2. 迁移源用户的 Store ownership 到目标用户
+   *   3. 将 openid 绑定到目标用户，清除源用户 openid
    * - 若手机号无账号 → 给当前用户写入 wechatPhone
-   * 绑定成功后签发新 token
+   *
+   * 合并操作包裹在数据库事务中，确保原子性。
+   * 绑定成功后签发新 token，同时失效涉及的两端旧登录态。
    */
   async bindPhone(
     userId: number,
@@ -138,24 +145,13 @@ export class ClubAuthService {
       );
 
     if (existingPhoneUser && existingPhoneUser.id !== userId) {
-      // 手机号已有其他账号：将 openid 合并到手机号账号
-      await this.authAccountLookupService.bindWechatToUser(
+      // 手机号已有其他账号：事务性合并
+      return this.mergeWechatUserToPhoneUser(
+        userId,
         existingPhoneUser.id,
-        {
-          openid: currentUser.wechatOpenid!,
-          unionid: currentUser.wechatUnionid ?? undefined,
-          nickname: currentUser.wechatNickname ?? undefined,
-          avatar: currentUser.wechatAvatar ?? undefined,
-          phone: dto.phone,
-        },
+        dto.phone,
+        currentUser,
       );
-
-      // 签发新 token（以手机号账号身份登录）
-      return this.authSessionService.signToken(existingPhoneUser.id, {
-        phone: dto.phone,
-        email: existingPhoneUser.email,
-        accountScope: 'purely_club',
-      });
     }
 
     // 4. 手机号无其他账号：直接绑定到当前用户
@@ -173,20 +169,155 @@ export class ClubAuthService {
   }
 
   /**
-   * 解码 JWT 并查询用户，判断是否需要绑定手机号
-   * 若 JWT 无效或查询失败则返回 undefined（不阻断主流程）
+   * 事务性合并：将微信用户的 openid、Member 记录和 Store ownership 迁移到手机号账号
+   *
+   * 合并步骤（全部在同一个数据库事务中）：
+   * 1. 迁移源用户（微信账号）在各门店的 Member 记录到目标用户（手机号账号）
+   *    - 同一门店下目标用户已有 Member → 保留目标用户的 Member，删除源用户的
+   *    - 同一门店下目标用户无 Member → 将源用户 Member 的 phone 更新为目标用户的手机号
+   * 2. 迁移源用户的 Store ownership（ownerId）到目标用户
+   * 3. 将 openid 从源用户移到目标用户，清除源用户的微信相关字段
+   *
+   * 事务失败时整体回滚，不会出现中间状态。
+   */
+  private async mergeWechatUserToPhoneUser(
+    sourceUserId: number,
+    targetUserId: number,
+    phone: string,
+    sourceUser: {
+      wechatOpenid: string | null;
+      wechatUnionid: string | null;
+      wechatNickname: string | null;
+      wechatAvatar: string | null;
+    },
+  ): Promise<AuthTokenResponseDto> {
+    if (!sourceUser.wechatOpenid) {
+      throw new ConflictException(
+        '当前微信账号缺少 openid，无法完成合并，请联系客服',
+      );
+    }
+
+    const sourceWechatPhone = `${CLUB_WECHAT_PHONE_PREFIX}${sourceUser.wechatOpenid}`;
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        // 1. 迁移 Member 记录
+        // 查找源用户在各门店的 Member 记录（phone 为 club_wechat:openid 格式）
+        const sourceMembers = await tx.member.findMany({
+          where: { phone: sourceWechatPhone },
+          select: { id: true, storeId: true },
+        });
+
+        for (const sourceMember of sourceMembers) {
+          // 检查目标用户在同一门店是否已有 Member 记录
+          const targetMember = await tx.member.findUnique({
+            where: { storeId_phone: { storeId: sourceMember.storeId, phone } },
+            select: { id: true },
+          });
+
+          if (targetMember) {
+            // 目标用户已有 Member：保留目标的，删除源的
+            // 源 Member 的积分/余额/消费记录等关联数据通过 onDelete: Cascade 自动清理
+            await tx.member.delete({ where: { id: sourceMember.id } });
+            this.logger.log(
+              `bindPhone 合并 Member：门店 ${sourceMember.storeId} 目标用户已有 Member ${targetMember.id}，删除源 Member ${sourceMember.id}`,
+            );
+          } else {
+            // 目标用户无 Member：将源 Member 的 phone 更新为目标手机号
+            await tx.member.update({
+              where: { id: sourceMember.id },
+              data: { phone },
+            });
+            this.logger.log(
+              `bindPhone 合并 Member：门店 ${sourceMember.storeId} 将源 Member ${sourceMember.id} 的 phone 从 ${sourceWechatPhone} 更新为 ${phone}`,
+            );
+          }
+        }
+
+        // 2. 迁移 Store ownership（源用户拥有的门店转移到目标用户）
+        const ownedStores = await tx.store.findMany({
+          where: { ownerId: sourceUserId },
+          select: { id: true },
+        });
+
+        if (ownedStores.length > 0) {
+          await tx.store.updateMany({
+            where: { ownerId: sourceUserId },
+            data: { ownerId: targetUserId },
+          });
+          this.logger.log(
+            `bindPhone 合并 Store ownership：将 ${ownedStores.length} 个门店从用户 ${sourceUserId} 转移到用户 ${targetUserId}`,
+          );
+        }
+
+        // 3. 将 openid 绑定到目标用户
+        await tx.user.update({
+          where: { id: targetUserId },
+          data: {
+            wechatOpenid: sourceUser.wechatOpenid,
+            ...(sourceUser.wechatUnionid != null && {
+              wechatUnionid: sourceUser.wechatUnionid,
+            }),
+            ...(sourceUser.wechatNickname != null && {
+              wechatNickname: sourceUser.wechatNickname,
+            }),
+            ...(sourceUser.wechatAvatar != null && {
+              wechatAvatar: sourceUser.wechatAvatar,
+            }),
+          },
+        });
+
+        // 4. 清除源用户的微信相关字段，使其成为无效账号
+        await tx.user.update({
+          where: { id: sourceUserId },
+          data: {
+            wechatOpenid: null,
+            wechatUnionid: null,
+            wechatNickname: null,
+            wechatAvatar: null,
+            wechatPhone: null,
+          },
+        });
+      });
+    } catch (error) {
+      this.logger.error(
+        `bindPhone 合并事务失败：sourceUserId=${sourceUserId}, targetUserId=${targetUserId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new ConflictException(
+        '账号合并失败，请重试或联系客服',
+      );
+    }
+
+    // 失效两端的旧登录态，确保合并后旧 token 立即无效
+    await Promise.all([
+      this.authSessionService.bumpTokenVersion(sourceUserId),
+      this.authSessionService.bumpTokenVersion(targetUserId),
+    ]);
+
+    // 签发新 token（以手机号账号身份登录）
+    const targetUser = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { email: true },
+    });
+
+    return this.authSessionService.signToken(targetUserId, {
+      phone,
+      email: targetUser?.email ?? '',
+      accountScope: 'purely_club',
+    });
+  }
+
+  /**
+   * 查询用户是否需要绑定手机号
+   * 若查询失败则返回 undefined（不阻断主流程）
    */
   private async checkNeedPhoneBind(
-    accessToken: string,
+    userId: number,
   ): Promise<boolean | undefined> {
     try {
-      const decoded = this.jwtService.decode(accessToken) as {
-        sub?: number;
-      } | null;
-      if (!decoded?.sub) return undefined;
-
       const user = await this.prisma.user.findUnique({
-        where: { id: decoded.sub },
+        where: { id: userId },
         select: { wechatPhone: true },
       });
       if (!user) return undefined;

@@ -496,8 +496,7 @@ describe('SalesRecordWriteService', () => {
     jest.useRealTimers();
   });
 
-  it('create 在 additional 入口下主账号应归属到待交班班次员工', async () => {
-    jest.useFakeTimers().setSystemTime(new Date(2026, 5, 4, 10, 30, 0));
+  it('create 主账号操作时应使用自身 staffId 作为操作员', async () => {
     const preparedItems = [
       {
         productId: 201,
@@ -512,19 +511,6 @@ describe('SalesRecordWriteService', () => {
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
-      {
-        employeeId: 6,
-        employeeName: '早班员工',
-        shiftType: 'morning',
-        date: new Date('2026-06-04T00:00:00.000Z'),
-        startTime: '09:00',
-        endTime: '18:00',
-      },
-    );
-    prismaService.employee.findUnique.mockResolvedValue({
-      linkedStaffId: 21,
-    });
     salesRecordItemPreparationService.prepareItems.mockResolvedValue(
       preparedItems,
     );
@@ -561,15 +547,12 @@ describe('SalesRecordWriteService', () => {
 
     expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
       expect.objectContaining({
-        operatorStaffId: 21,
+        operatorStaffId: 8,
       }),
     );
-
-    jest.useRealTimers();
   });
 
-  it('create 在 additional 入口下店长子账号也应归属到待交班班次员工', async () => {
-    jest.useFakeTimers().setSystemTime(new Date(2026, 5, 4, 10, 30, 0));
+  it('create 店长子账号操作时应使用自身 staffId 作为操作员', async () => {
     const preparedItems = [
       {
         productId: 201,
@@ -584,19 +567,6 @@ describe('SalesRecordWriteService', () => {
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(18);
-    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
-      {
-        employeeId: 6,
-        employeeName: '早班员工',
-        shiftType: 'morning',
-        date: new Date('2026-06-04T00:00:00.000Z'),
-        startTime: '09:00',
-        endTime: '18:00',
-      },
-    );
-    prismaService.employee.findUnique.mockResolvedValue({
-      linkedStaffId: 21,
-    });
     salesRecordItemPreparationService.prepareItems.mockResolvedValue(
       preparedItems,
     );
@@ -633,14 +603,12 @@ describe('SalesRecordWriteService', () => {
 
     expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
       expect.objectContaining({
-        operatorStaffId: 21,
+        operatorStaffId: 18,
       }),
     );
-
-    jest.useRealTimers();
   });
 
-  it('create 在班次归属查询异常时应回退到当前操作人', async () => {
+  it('create 主账号操作时不应受班次归属异常影响', async () => {
     const preparedItems = [
       {
         productId: 201,
@@ -656,9 +624,6 @@ describe('SalesRecordWriteService', () => {
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockRejectedValueOnce(
-      new Error('shift lookup timeout'),
-    );
     salesRecordItemPreparationService.prepareItems.mockResolvedValue(
       preparedItems,
     );
@@ -697,13 +662,9 @@ describe('SalesRecordWriteService', () => {
         operatorStaffId: 8,
       }),
     );
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('resolveOperatorStaffId fallback storeId=18'),
-    );
   });
 
-  it('create 在逾期未交班且当天无下一班时仍应归属到当前交班班次员工', async () => {
-    jest.useFakeTimers().setSystemTime(new Date(2026, 5, 4, 20, 30, 0));
+  it('create 主账号操作时应始终使用自身 staffId 不受班次状态影响', async () => {
     const preparedItems = [
       {
         productId: 201,
@@ -718,19 +679,6 @@ describe('SalesRecordWriteService', () => {
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
-      {
-        employeeId: 6,
-        employeeName: '早班员工',
-        shiftType: 'morning',
-        date: new Date('2026-06-04T00:00:00.000Z'),
-        startTime: '09:00',
-        endTime: '18:00',
-      },
-    );
-    prismaService.employee.findUnique.mockResolvedValue({
-      linkedStaffId: 21,
-    });
     salesRecordItemPreparationService.prepareItems.mockResolvedValue(
       preparedItems,
     );
@@ -768,15 +716,12 @@ describe('SalesRecordWriteService', () => {
     expect(prismaService.employeeShift.findMany).not.toHaveBeenCalled();
     expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
       expect.objectContaining({
-        operatorStaffId: 21,
+        operatorStaffId: 8,
       }),
     );
-
-    jest.useRealTimers();
   });
 
-  it('create 在 additional 入口下应按订单时间匹配历史班次员工', async () => {
-    jest.useFakeTimers().setSystemTime(new Date(2026, 5, 5, 0, 30, 0));
+  it('create 主账号操作时应使用自身 staffId 不按订单时间匹配班次员工', async () => {
     const orderDate = new Date(2026, 5, 4, 17, 30, 0);
     const preparedItems = [
       {
@@ -792,20 +737,6 @@ describe('SalesRecordWriteService', () => {
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-    handoverPageShiftRecordService.findStartedUnhandedShiftRecord.mockResolvedValue(
-      null,
-    );
-    handoverPageShiftRecordService.findCurrentShiftRecord.mockResolvedValue({
-      employeeId: 7,
-      employeeName: '晚班员工',
-      shiftType: 'night',
-      date: new Date(2026, 5, 4, 0, 0, 0),
-      startTime: '17:00',
-      endTime: '23:00',
-    });
-    prismaService.employee.findUnique.mockResolvedValue({
-      linkedStaffId: 26,
-    });
     salesRecordItemPreparationService.prepareItems.mockResolvedValue(
       preparedItems,
     );
@@ -843,18 +774,16 @@ describe('SalesRecordWriteService', () => {
 
     expect(
       handoverPageShiftRecordService.findStartedUnhandedShiftRecord,
-    ).toHaveBeenCalledWith(18, orderDate);
+    ).not.toHaveBeenCalled();
     expect(
       handoverPageShiftRecordService.findCurrentShiftRecord,
-    ).toHaveBeenCalledWith(18, null, orderDate);
+    ).not.toHaveBeenCalled();
     expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
       expect.objectContaining({
-        operatorStaffId: 26,
+        operatorStaffId: 8,
         orderDate,
       }),
     );
-
-    jest.useRealTimers();
   });
 
   it('create 在汇总金额与后端明细不一致时抛出异常并阻止创建流程', async () => {

@@ -101,8 +101,8 @@ export class AuthAccountLookupService {
     if (productScope === 'purely_club') {
       // 优先通过 email 精确查找手机号注册的 club 账号，
       // 再回退到 wechatPhone 查找微信授权手机号绑定的账号。
-      // 原因：email 有唯一约束，wechatPhone 没有，
-      // 优先 email 查找可避免 wechatPhone 数据异常时匹配到错误用户。
+      // 原因：email 与 wechatPhone 均有唯一约束，但 email 查找更精确，
+      // 可避免 wechatPhone 数据异常时匹配到错误用户。
       const candidateEmails = buildPhoneLoginEmails(productScope, phone);
       const emailMatchedUser = await this.prisma.user.findFirst({
         where: { email: { in: candidateEmails } },
@@ -328,6 +328,27 @@ export class AuthAccountLookupService {
       },
     });
     await this.invalidateUserCache(userId);
+
+    // 同步更新关联的 Staff 记录名称，
+    // 确保交班页面等通过 Staff.name 展示操作员名称时能显示最新昵称。
+    const updatedStaffs = await this.prisma.staff.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    if (updatedStaffs.length > 0) {
+      const staffIds = updatedStaffs.map((s) => s.id);
+      await this.prisma.staff.updateMany({
+        where: { id: { in: staffIds } },
+        data: { name },
+      });
+
+      // 同步更新关联的 Employee 记录名称，
+      // 确保交班页面通过 EmployeeShift.employeeName 展示时也能显示最新昵称。
+      await this.prisma.employee.updateMany({
+        where: { linkedStaffId: { in: staffIds } },
+        data: { name },
+      });
+    }
   }
 
   async verifyRealName(

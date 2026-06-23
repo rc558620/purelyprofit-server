@@ -53,7 +53,6 @@ export class EmployeesPayrollsController {
   }
 
   @Get('payrolls')
-  @RequirePermissions('staff:view')
   @ApiOperation({ summary: '获取工资列表' })
   @ApiOkResponse({ type: [EmployeePayrollResponseDto] })
   listPayrolls(

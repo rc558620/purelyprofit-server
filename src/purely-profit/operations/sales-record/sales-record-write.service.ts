@@ -186,27 +186,11 @@ export class SalesRecordWriteService {
       }
     }
 
-    if (!this.shouldAssignToCurrentShiftOperator(user, storeId, options)) {
-      return currentOperatorStaffId;
-    }
-
-    try {
-      const pendingHandoverOperatorStaffId =
-        await this.findPendingHandoverOperatorStaffId(storeId, orderDate);
-      if (pendingHandoverOperatorStaffId !== null) {
-        return pendingHandoverOperatorStaffId;
-      }
-
-      return (
-        (await this.findCurrentShiftOperatorStaffId(storeId, orderDate)) ??
-        currentOperatorStaffId
-      );
-    } catch (error) {
-      this.logger.warn(
-        `resolveOperatorStaffId fallback storeId=${storeId} orderDate=${orderDate.toISOString()} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
-      );
-      return currentOperatorStaffId;
-    }
+    // 有 membership 的用户（主账号/店长/收银员）始终使用自身 staffId，
+    // 确保本班销售记录中操作员显示为实际操作账号。
+    // 交班页面已不再按 operatorStaffId 过滤，而是按班次时间范围查询所有销售，
+    // 因此无需将主账号/店长的销售重定向到班次收银员。
+    return currentOperatorStaffId;
   }
 
   private async findPendingHandoverOperatorStaffId(
@@ -230,27 +214,6 @@ export class SalesRecordWriteService {
     });
 
     return employee?.linkedStaffId ?? null;
-  }
-
-  private shouldAssignToCurrentShiftOperator(
-    user: AuthenticatedUser,
-    storeId: number,
-    options: CreateSalesRecordOptions,
-  ): boolean {
-    const membership = user.currentMembership;
-    if (
-      !options.assignToCurrentShiftOperator ||
-      !membership?.isActive ||
-      membership.storeId !== storeId
-    ) {
-      return false;
-    }
-
-    return (
-      membership.subjectType === 'owner' ||
-      (membership.subjectType === 'sub_account' &&
-        membership.subAccountRole === 'manager')
-    );
   }
 
   private async findCurrentShiftOperatorStaffId(

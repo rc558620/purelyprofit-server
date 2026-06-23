@@ -64,9 +64,8 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
         where: expect.objectContaining({
           storeId: 100,
           order: expect.objectContaining({
-            OR: expect.arrayContaining([
-              expect.objectContaining({ operatorStaffId: 101 }),
-            ]),
+            storeId: 100,
+            date: expect.any(Object),
           }),
         }),
       }),
@@ -337,22 +336,18 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           order: expect.objectContaining({
-            OR: expect.arrayContaining([
-              expect.objectContaining({
-                date: expect.objectContaining({
-                  gte: expect.any(Date),
-                  lte: expect.any(Date),
-                }),
-                operatorStaffId: 102,
-              }),
-            ]),
+            storeId: 100,
+            date: expect.objectContaining({
+              gte: expect.any(Date),
+              lte: expect.any(Date),
+            }),
           }),
         }),
       }),
     );
     const firstOrderQuery =
       prismaService.saleOrderItem.findMany.mock.calls[0][0];
-    const firstOrderBranch = firstOrderQuery.where.order.OR[0];
+    const firstOrderBranch = firstOrderQuery.where.order;
     expect(firstOrderBranch.date.gte.getFullYear()).toBe(2026);
     expect(firstOrderBranch.date.gte.getMonth()).toBe(5);
     expect(firstOrderBranch.date.gte.getDate()).toBe(4);
@@ -407,9 +402,8 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           order: expect.objectContaining({
-            OR: expect.arrayContaining([
-              expect.objectContaining({ operatorStaffId: 2 }),
-            ]),
+            storeId: 100,
+            date: expect.any(Object),
           }),
         }),
       }),

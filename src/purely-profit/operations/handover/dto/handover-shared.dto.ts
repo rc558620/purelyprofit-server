@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { SalesPaymentMethod } from '@prisma/client';
+import { IsOptional, IsString } from 'class-validator';
+import { SalesPaymentMethod, StaffRole } from '@prisma/client';
 
 export const HandoverModeDto = {
   SELF_MAIN_ACCOUNT: 'self_main_account',
@@ -94,6 +95,20 @@ export class HandoverOrderItemDto {
 
   @ApiProperty({ example: '#22c55e', description: '支付方式颜色' })
   paymentColor: string;
+
+  @IsString()
+  @ApiProperty({ example: '收银员2', description: '本笔销售操作员姓名' })
+  operatorName: string;
+
+  @IsOptional()
+  @ApiProperty({
+    enum: StaffRole,
+    example: 'OWNER',
+    description: '操作员角色（OWNER=老板/MANAGER=店长/STAFF=收银员）',
+    required: false,
+    nullable: true,
+  })
+  operatorRole?: StaffRole | null;
 
   @ApiProperty({ example: 1748765400000, description: '订单时间戳(ms)' })
   date: number;

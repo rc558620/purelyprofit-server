@@ -8,6 +8,12 @@ export class AuthTokenResponseDto {
   access_token: string;
 
   @ApiPropertyOptional({
+    example: 1,
+    description: '签发 token 对应的用户 ID',
+  })
+  userId?: number;
+
+  @ApiPropertyOptional({
     example: true,
     description:
       '是否需要绑定手机号。' +

@@ -33,6 +33,7 @@ export class AuthSessionService {
 
     return {
       access_token: await this.jwtService.signAsync(payload),
+      userId,
     };
   }
 

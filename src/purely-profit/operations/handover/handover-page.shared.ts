@@ -51,6 +51,20 @@ export const SALE_ORDER_ITEM_SELECT = {
       id: true,
       date: true,
       paymentMethod: true,
+      operatorStaff: {
+        select: {
+          name: true,
+          role: true,
+          employeeProfile: {
+            select: {
+              subAccounts: {
+                select: { role: true },
+                take: 1,
+              },
+            },
+          },
+        },
+      },
       spaceSession: {
         select: {
           prepaidPaymentMethod: true,
@@ -144,116 +158,73 @@ export const buildPageShiftInfo = (params: {
 
 /**
  * 构建 SaleOrder 查询条件：
- * 1. 常规销售单按 operatorStaffId 过滤（收银员只看自己的单）
- * 2. OR 空间会话关联的销售单不按 operatorStaffId 过滤
- *    （自动结账由系统用户创建，历史数据 operatorStaffId 可能为 null，
- *    但空间会话本身属于门店且时间在班次范围内，应该对该班次可见）
+ * 按门店和时间范围过滤，不按 operatorStaffId 过滤。
+ * 这样任何账号（主账号/店长/收银员）在班次期间创建的销售都能显示在
+ * 对应班次的交班页面上，操作员名称由 saleOrder.operatorStaff 关联展示。
  */
 export const buildSaleOrderWhere = (
   storeId: number,
   shiftRange: ShiftRangeLike,
-  operatorStaffId: number | null,
 ): Prisma.SaleOrderWhereInput => {
   const dateFilter: Prisma.DateTimeFilter = {
     gte: shiftRange.startAt,
     lte: shiftRange.endAt,
   };
 
-  if (!operatorStaffId) {
-    return { storeId, date: dateFilter };
-  }
-
-  return {
-    OR: [
-      { storeId, date: dateFilter, operatorStaffId },
-      { storeId, date: dateFilter, spaceSession: { isNot: null } },
-    ],
-  };
+  return { storeId, date: dateFilter };
 };
 
 /**
  * 构建 additionalRevenue 统计的 SaleOrder 查询条件：
- * 仅统计常规销售单（spaceSession IS NULL），按 operatorStaffId 过滤。
+ * 仅统计常规销售单（spaceSession IS NULL），按门店和时间范围过滤。
  * 空间会话结账订单的收入统一由 spaceRevenue 统计，不在此处重复计算。
  */
 export const buildNonSpaceSessionOrderWhere = (
   storeId: number,
   shiftRange: ShiftRangeLike,
-  operatorStaffId: number | null,
 ): Prisma.SaleOrderWhereInput => {
   const dateFilter: Prisma.DateTimeFilter = {
     gte: shiftRange.startAt,
     lte: shiftRange.endAt,
   };
 
-  const operatorCondition = operatorStaffId ? { operatorStaffId } : {};
-
   return {
     storeId,
     date: dateFilter,
     spaceSession: { is: null },
-    ...operatorCondition,
   };
 };
 
 /**
  * 构建 SaleOrderItem 查询条件：
- * 1. 常规销售单按 operatorStaffId 过滤（收银员只看自己的单）
- * 2. OR 空间会话关联的销售单不按 operatorStaffId 过滤
- *    （自动结账由系统用户创建，历史数据 operatorStaffId 可能为 null，
- *    但空间会话本身属于门店且时间在班次范围内，应该对该班次可见）
+ * 按门店和时间范围过滤，不按 operatorStaffId 过滤。
  */
 export const buildSaleOrderItemOrderWhere = (
   storeId: number,
   shiftRange: ShiftRangeLike,
-  operatorStaffId: number | null,
 ): Prisma.SaleOrderItemWhereInput['order'] => {
   const dateFilter: Prisma.DateTimeFilter = {
     gte: shiftRange.startAt,
     lte: shiftRange.endAt,
   };
 
-  if (!operatorStaffId) {
-    return { storeId, date: dateFilter };
-  }
-
-  return {
-    OR: [
-      { storeId, date: dateFilter, operatorStaffId },
-      { storeId, date: dateFilter, spaceSession: { isNot: null } },
-    ],
-  };
+  return { storeId, date: dateFilter };
 };
 
 /**
  * 构建现金流水查询条件：
- * 1. 常规流水按 operatorStaffId 过滤
- * 2. OR 关联销售单的流水（空间会话自动结账）不按 operatorStaffId 过滤
+ * 按门店和时间范围过滤，不按 operatorStaffId 过滤。
  */
 export const buildCashFlowWhere = (
   storeId: number,
   shiftRange: ShiftRangeLike,
-  operatorStaffId: number | null,
 ): Prisma.FinanceCashFlowRecordWhereInput => {
   const dateFilter: Prisma.DateTimeFilter = {
     gte: shiftRange.startAt,
     lte: shiftRange.endAt,
   };
 
-  if (!operatorStaffId) {
-    return { storeId, date: dateFilter };
-  }
-
-  return {
-    OR: [
-      { storeId, date: dateFilter, operatorStaffId },
-      {
-        storeId,
-        date: dateFilter,
-        saleOrder: { spaceSession: { isNot: null } },
-      },
-    ],
-  };
+  return { storeId, date: dateFilter };
 };
 
 export const buildSpaceRefundOrderWhere = (
@@ -314,6 +285,7 @@ export const buildGuestPayableItems = (
       totalRevenue: payableAmount,
       paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
       paymentColor: SPACE_GUEST_PAYABLE_COLOR,
+      operatorName: '空间自动结账',
       date,
       currentStock: null,
       stockUnit: null,

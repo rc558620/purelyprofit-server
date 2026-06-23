@@ -100,6 +100,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
             id: 8,
             date: new Date('2026-06-04T11:00:00.000Z'),
             paymentMethod: 'wechat',
+            operatorStaff: null,
             spaceSession: null,
           },
         },
@@ -151,19 +152,17 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           id: '21',
           productName: '台位费（1分钟）',
           totalRevenue: 555,
+          operatorName: '当前操作员',
         }),
       ]);
       expect(prismaService.saleOrder.count).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
-            OR: [
-              expect.objectContaining({
-                operatorStaffId: 2,
-              }),
-              expect.objectContaining({
-                spaceSession: { isNot: null },
-              }),
-            ],
+            storeId: 100,
+            date: {
+              gte: new Date('2026-06-04T09:00:00.000Z'),
+              lte: new Date('2026-06-04T15:00:00.000Z'),
+            },
           },
         }),
       );
@@ -213,6 +212,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
             id: 18,
             date: new Date('2026-06-04T20:10:00.000Z'),
             paymentMethod: 'cash',
+            operatorStaff: null,
             spaceSession: null,
           },
         },
@@ -236,18 +236,11 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       expect(prismaService.saleOrder.count).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
-            OR: [
-              expect.objectContaining({
-                operatorStaffId: 101,
-                date: {
-                  gte: new Date(2026, 5, 4, 9, 0, 0),
-                  lte: overdueHandoverAt,
-                },
-              }),
-              expect.objectContaining({
-                spaceSession: { isNot: null },
-              }),
-            ],
+            storeId: 100,
+            date: {
+              gte: new Date(2026, 5, 4, 9, 0, 0),
+              lte: overdueHandoverAt,
+            },
           },
         }),
       );
@@ -291,6 +284,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           date: new Date('2026-06-04T18:55:00.000Z'),
           paymentMethod: 'wechat',
           totalRevenue: new Prisma.Decimal('-45.50'),
+          operatorStaff: null,
           spaceSession: {
             space: {
               name: 'A01',
@@ -326,6 +320,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         productName: 'A01',
         totalRevenue: -45.5,
         paymentLabel: '微信退款',
+        operatorName: '空间自动结账',
       });
       expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -391,6 +386,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
             id: 28,
             date: new Date(2026, 5, 5, 16, 55, 0),
             paymentMethod: 'wechat',
+            operatorStaff: null,
             spaceSession: null,
           },
         },
@@ -418,18 +414,11 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       expect(prismaService.saleOrder.count).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
-            OR: [
-              expect.objectContaining({
-                operatorStaffId: 2,
-                date: {
-                  gte: new Date(2026, 5, 5, 16, 1, 0),
-                  lte: new Date(2026, 5, 5, 17, 5, 0),
-                },
-              }),
-              expect.objectContaining({
-                spaceSession: { isNot: null },
-              }),
-            ],
+            storeId: 100,
+            date: {
+              gte: new Date(2026, 5, 5, 16, 1, 0),
+              lte: new Date(2026, 5, 5, 17, 5, 0),
+            },
           },
         }),
       );

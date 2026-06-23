@@ -40,7 +40,6 @@ export class HandoverRecordsRevenueService {
     const additionalOrderWhere = buildNonSpaceSessionOrderWhere(
       storeId,
       shiftRange,
-      operatorStaffId,
     );
     const refundWhere = buildSpaceRefundOrderWhere(storeId, shiftRange);
     const [spaceRevenue, additionalRevenue, refundRevenue] = await Promise.all([
@@ -78,17 +77,14 @@ export class HandoverRecordsRevenueService {
     const orderWhere = buildSaleOrderWhere(
       storeId,
       shiftRange,
-      operatorStaffId,
     );
     const additionalOrderWhere = buildNonSpaceSessionOrderWhere(
       storeId,
       shiftRange,
-      operatorStaffId,
     );
     const cashFlowWhere = buildCashFlowWhere(
       storeId,
       shiftRange,
-      operatorStaffId,
     );
     const refundWhere = buildSpaceRefundOrderWhere(storeId, shiftRange);
 
@@ -126,6 +122,20 @@ export class HandoverRecordsRevenueService {
           date: true,
           paymentMethod: true,
           totalRevenue: true,
+          operatorStaff: {
+            select: {
+              name: true,
+              role: true,
+              employeeProfile: {
+                select: {
+                  subAccounts: {
+                    select: { role: true },
+                    take: 1,
+                  },
+                },
+              },
+            },
+          },
           spaceSession: {
             select: {
               space: {

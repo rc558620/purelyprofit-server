@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -39,6 +40,7 @@ import type {
 
 @Injectable()
 export class AuthAuthenticationService {
+  private readonly logger = new Logger(AuthAuthenticationService.name);
   private readonly pulseDevAccountEmails: Set<string>;
 
   constructor(
@@ -497,8 +499,11 @@ export class AuthAuthenticationService {
       await this.authAccountLookupService.findUserByWechatPhone(phone);
 
     if (existingHolder && existingHolder.id !== userId) {
-      // 手机号已被其他用户绑定，不覆盖，仅记录警告
-      // 后续可通过人工客服或身份验证流程处理合并
+      // 手机号已被其他用户绑定，不覆盖，记录警告供后续人工客服或身份验证流程处理
+      this.logger.warn(
+        `wechatPhone 冲突：用户 ${userId} 尝试绑定手机号 ${phone}` +
+          `，但该手机号已被用户 ${existingHolder.id}（email=${existingHolder.email}）绑定，已跳过`,
+      );
       return;
     }
 

@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNumber, IsString } from 'class-validator';
 
 export class AuthTokenResponseDto {
   @ApiProperty({
@@ -8,4 +8,11 @@ export class AuthTokenResponseDto {
   })
   @IsString({ message: '访问令牌必须是字符串' })
   access_token: string;
+
+  @ApiPropertyOptional({
+    example: 1,
+    description: '签发 token 对应的用户 ID',
+  })
+  @IsNumber({}, { message: '用户 ID 必须是数字' })
+  userId?: number;
 }

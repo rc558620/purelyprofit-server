@@ -259,7 +259,10 @@ export const setupHandoverPageSpec = (): {
     prismaService.saleOrder.findMany.mockResolvedValue([]);
     prismaService.saleOrder.count.mockResolvedValue(3);
     prismaService.spaceSession.aggregate.mockResolvedValue({
-      _sum: { timeCost: new Prisma.Decimal('9.25'), itemsCost: new Prisma.Decimal('0') },
+      _sum: {
+        timeCost: new Prisma.Decimal('9.25'),
+        itemsCost: new Prisma.Decimal('0'),
+      },
     });
     prismaService.spaceSession.findMany.mockResolvedValue([]);
     prismaService.financeCashFlowRecord.aggregate
