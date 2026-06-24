@@ -125,6 +125,7 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
     paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
     paymentColor: PAYMENT_METHOD_CONFIG[paymentMethod].color,
     operatorName:
+      toDisplayName(item.order.operatorNameSnapshot) ??
       toDisplayName(item.order.operatorStaff?.name) ??
       FALLBACK_ORDER_OPERATOR_NAME,
     operatorRole: resolveOperatorRole(item.order.operatorStaff),
@@ -144,6 +145,7 @@ export const mapRefundOrderItem = (
   paymentLabel: `${PAYMENT_METHOD_CONFIG[order.paymentMethod].label}退款`,
   paymentColor: PAYMENT_METHOD_CONFIG[order.paymentMethod].color,
   operatorName:
+    toDisplayName(order.operatorNameSnapshot) ??
     toDisplayName(order.operatorStaff?.name) ?? AUTO_SETTLEMENT_OPERATOR_NAME,
   operatorRole: resolveOperatorRole(order.operatorStaff),
   date: order.date.getTime(),

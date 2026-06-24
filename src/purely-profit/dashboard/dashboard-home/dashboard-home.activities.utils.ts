@@ -433,10 +433,14 @@ function appendRecentOrderDrafts(
   }
 
   for (const order of params.recentOrders) {
+    const revenue = Number(order.totalRevenue ?? 0);
+    if (revenue <= 0) {
+      continue;
+    }
+
     const orderDate = new Date(order.date);
     const hours = String(orderDate.getHours()).padStart(2, '0');
     const minutes = String(orderDate.getMinutes()).padStart(2, '0');
-    const revenue = Number(order.totalRevenue ?? 0);
     const valueText = `+¥${formatMoneyText(revenue)}`;
 
     drafts.push({

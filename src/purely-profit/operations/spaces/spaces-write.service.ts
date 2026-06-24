@@ -182,8 +182,6 @@ export class SpacesWriteService {
     user: AuthenticatedUser,
     spaceId: number,
   ): Promise<SpaceResponseDto> {
-    // 空间配置写操作仅允许主账号，子账号均被拒绝（同 createSpace）。
-    this.ensurePrimaryAccountOnly(user);
     const space = await this.requireUpdatableSpace(user, spaceId);
 
     return this.updateSpaceStatusWithResolver(
@@ -204,8 +202,6 @@ export class SpacesWriteService {
     spaceId: number,
     dto: UpdateSpaceStatusDto,
   ): Promise<SpaceResponseDto> {
-    // 空间配置写操作仅允许主账号，子账号均被拒绝（同 createSpace）。
-    this.ensurePrimaryAccountOnly(user);
     const space = await this.requireUpdatableSpace(user, spaceId);
 
     this.ensureManualStatusChangeAllowed(space.status, dto.status);

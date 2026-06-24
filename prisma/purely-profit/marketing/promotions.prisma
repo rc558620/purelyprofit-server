@@ -44,7 +44,7 @@ model MarketingPromotion {
 }
 
 model MarketingMemberLevelSetting {
-  id         Int      @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   storeId     Int      @unique @map("store_id")
   store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   levels      Json     @default("[]")

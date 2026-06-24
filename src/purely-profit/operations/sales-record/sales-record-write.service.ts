@@ -81,9 +81,14 @@ export class SalesRecordWriteService {
 
     assertSalesTotalsMatch(dto, totalRevenue, totalProfit, totalQuantity);
 
+    const operatorNameSnapshot = await this.resolveOperatorNameSnapshot(
+      operatorStaffId,
+    );
+
     const response = await this.salesRecordCreateFlowService.createRecord({
       storeId,
       operatorStaffId,
+      operatorNameSnapshot,
       dto,
       preparedItems,
       totalRevenue,
@@ -191,6 +196,17 @@ export class SalesRecordWriteService {
     // 交班页面已不再按 operatorStaffId 过滤，而是按班次时间范围查询所有销售，
     // 因此无需将主账号/店长的销售重定向到班次收银员。
     return currentOperatorStaffId;
+  }
+
+  private async resolveOperatorNameSnapshot(
+    operatorStaffId: number | null,
+  ): Promise<string | null> {
+    if (operatorStaffId === null) return null;
+    const staff = await this.prisma.staff.findUnique({
+      where: { id: operatorStaffId },
+      select: { name: true },
+    });
+    return staff?.name ?? null;
   }
 
   private async findPendingHandoverOperatorStaffId(

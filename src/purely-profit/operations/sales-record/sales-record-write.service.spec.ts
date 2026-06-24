@@ -26,6 +26,9 @@ describe('SalesRecordWriteService', () => {
     saleOrder: {
       findUnique: jest.fn(),
     },
+    staff: {
+      findUnique: jest.fn(),
+    },
     employee: {
       findUnique: jest.fn(),
     },
@@ -130,6 +133,7 @@ describe('SalesRecordWriteService', () => {
       null,
     );
     prismaService.employee.findUnique.mockResolvedValue(null);
+    prismaService.staff.findUnique.mockResolvedValue({ name: 'mock-operator' });
     prismaService.employeeShift.findMany.mockResolvedValue([]);
     prismaService.$transaction.mockImplementation(
       async (

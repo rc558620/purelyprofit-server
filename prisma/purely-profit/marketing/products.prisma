@@ -18,23 +18,23 @@ model MarketingProductCategory {
 /// 营销商品
 
 model MarketingProduct {
-  id              Int                      @id @default(autoincrement())
-  storeId         Int                      @map("store_id")
-  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  categoryId      Int                      @map("category_id")
-  category        MarketingProductCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  name              String
-  price             Int
-  originalPrice     Int?                     @map("original_price")
-  image             String?
-  descriptionTitle  String?                  @map("description_title")
-  description       String?
-  stock             Int                      @default(0)
-  durationMinutes Int?                     @map("duration_minutes")
-  personCount     Int?                     @map("person_count")
-  isActive        Boolean                  @default(true) @map("is_active")
-  createdAt       DateTime                 @default(now()) @map("created_at")
-  updatedAt       DateTime                 @updatedAt @map("updated_at")
+  id               Int                      @id @default(autoincrement())
+  storeId          Int                      @map("store_id")
+  store            Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  categoryId       Int                      @map("category_id")
+  category         MarketingProductCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name             String
+  price            Int
+  originalPrice    Int?                     @map("original_price")
+  image            String?
+  descriptionTitle String?                  @map("description_title")
+  description      String?
+  stock            Int                      @default(0)
+  durationMinutes  Int?                     @map("duration_minutes")
+  personCount      Int?                     @map("person_count")
+  isActive         Boolean                  @default(true) @map("is_active")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
 
   @@index([storeId, createdAt])
   @@index([storeId, categoryId, createdAt])

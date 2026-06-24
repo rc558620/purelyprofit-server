@@ -42,12 +42,26 @@ export class ListCustomersQueryDto extends MarketingPageQueryDto {
   @IsIn(MARKETING_CUSTOMER_TIER_VALUES, { message: '无效的会员等级' })
   tier?: MarketingCustomerTierValue;
 
-  @ApiPropertyOptional({ example: '张三', description: '姓名 / 手机号关键字' })
+  @ApiPropertyOptional({ example: '张三', description: '姓名 / 手机号关键字（兼容旧字段）' })
   @IsOptional()
   @Transform(transformOptionalKeyword)
   @IsString({ message: '关键字必须是字符串' })
   @MaxLength(50, { message: '关键字最长 50 个字符' })
   keyword?: string;
+
+  @ApiPropertyOptional({ example: '张三', description: '姓名精确关键字（独立搜索框）' })
+  @IsOptional()
+  @Transform(transformOptionalKeyword)
+  @IsString({ message: '姓名关键字必须是字符串' })
+  @MaxLength(50, { message: '姓名关键字最长 50 个字符' })
+  name?: string;
+
+  @ApiPropertyOptional({ example: '138', description: '手机号关键字（独立搜索框）' })
+  @IsOptional()
+  @Transform(transformOptionalKeyword)
+  @IsString({ message: '手机号关键字必须是字符串' })
+  @MaxLength(20, { message: '手机号关键字最长 20 个字符' })
+  phone?: string;
 }
 
 export class CreateCustomerDto {

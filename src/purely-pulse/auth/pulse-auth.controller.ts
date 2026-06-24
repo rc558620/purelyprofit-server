@@ -1,14 +1,34 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { AuthRsaService } from '../../purely-profit/auth/auth-rsa.service';
 import { AuthTokenResponseDto } from '../../purely-profit/auth/dto/auth-token-response.dto';
 import { LoginDto } from '../../purely-profit/auth/dto/login.dto';
+import { PublicKeyResponseDto } from '../../purely-profit/auth/dto/public-key-response.dto';
 import { PulseAuthService } from './pulse-auth.service';
 
 @ApiTags('Pulse / Auth')
 @Controller('pulse/auth')
 export class PulseAuthController {
-  constructor(private readonly pulseAuthService: PulseAuthService) {}
+  constructor(
+    private readonly pulseAuthService: PulseAuthService,
+    private readonly authRsaService: AuthRsaService,
+  ) {}
+
+  @Get('public-key')
+  @ApiOperation({
+    summary: '获取 purely-pulse RSA 公钥',
+    description:
+      '返回 PEM 格式 RSA 公钥，前端用于加密密码等敏感字段。' +
+      '密钥对在服务端进程重启后自动轮换，前端应在每次提交前重新获取。',
+  })
+  @ApiOkResponse({
+    description: 'RSA 公钥',
+    type: PublicKeyResponseDto,
+  })
+  getPublicKey(): PublicKeyResponseDto {
+    return { publicKey: this.authRsaService.getPublicKey() };
+  }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -23,6 +43,10 @@ export class PulseAuthController {
     type: AuthTokenResponseDto,
   })
   login(@Body() dto: LoginDto): Promise<AuthTokenResponseDto> {
-    return this.pulseAuthService.login(dto);
+    const decryptedDto = {
+      ...dto,
+      password: this.authRsaService.tryDecryptPassword(dto.password),
+    };
+    return this.pulseAuthService.login(decryptedDto);
   }
 }

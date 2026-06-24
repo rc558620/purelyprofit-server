@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, StaffRole } from '@prisma/client';
 import Decimal from 'decimal.js';
 import {
   isDeductionProductName,
@@ -40,8 +40,36 @@ export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
         };
       };
     };
+    operatorStaff: {
+      select: {
+        role: true;
+        employeeProfile: {
+          select: {
+            subAccounts: {
+              select: { role: true };
+              take: 1;
+            };
+          };
+        };
+      };
+    };
   };
 }>;
+
+/**
+ * 解析操作员的真实角色（与交班管理保持一致的逻辑）：
+ * 优先使用 Staff.role（OWNER 直接可信），
+ * 否则检查关联的 StoreSubAccount.role（manager → MANAGER）。
+ */
+function resolveOperatorRole(
+  staff: SaleOrderWithItems['operatorStaff'],
+): StaffRole | null {
+  if (!staff) return null;
+  if (staff.role === StaffRole.OWNER) return StaffRole.OWNER;
+  const subAccountRole = staff.employeeProfile?.subAccounts[0]?.role;
+  if (subAccountRole === 'manager') return StaffRole.MANAGER;
+  return staff.role;
+}
 
 // ---------------------------------------------------------------------------
 // 校验断言
@@ -90,6 +118,9 @@ export function mapSalesRecordResponse(
     0,
   );
 
+  const operatorName = toOptionalText(order.operatorNameSnapshot) ?? null;
+  const operatorRole = resolveOperatorRole(order.operatorStaff);
+
   return {
     id: String(order.id),
     orderNo: order.orderNo,
@@ -100,6 +131,8 @@ export function mapSalesRecordResponse(
     paymentMethod: order.paymentMethod,
     calcMode: order.calcMode,
     ...(note ? { note } : {}),
+    ...(operatorName ? { operatorName } : {}),
+    ...(operatorRole ? { operatorRole } : {}),
     date: toTimestampMs(order.date),
     createdAt: toTimestampMs(order.createdAt),
   };

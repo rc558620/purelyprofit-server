@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, StaffRole } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -85,6 +85,19 @@ export async function querySaleOrders(
           space: {
             select: {
               name: true,
+            },
+          },
+        },
+      },
+      operatorStaff: {
+        select: {
+          role: true,
+          employeeProfile: {
+            select: {
+              subAccounts: {
+                select: { role: true },
+                take: 1,
+              },
             },
           },
         },

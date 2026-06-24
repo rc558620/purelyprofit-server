@@ -51,6 +51,7 @@ export const SALE_ORDER_ITEM_SELECT = {
       id: true,
       date: true,
       paymentMethod: true,
+      operatorNameSnapshot: true,
       operatorStaff: {
         select: {
           name: true,

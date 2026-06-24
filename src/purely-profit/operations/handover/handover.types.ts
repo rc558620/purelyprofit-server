@@ -89,6 +89,7 @@ export type OrderItemRow = {
     id: number;
     date: Date;
     paymentMethod: SalesPaymentMethod;
+    operatorNameSnapshot: string | null;
     operatorStaff: {
       name: string;
       role: StaffRole;
@@ -111,6 +112,7 @@ export type RefundOrderRow = {
   date: Date;
   paymentMethod: SalesPaymentMethod;
   totalRevenue: Prisma.Decimal;
+  operatorNameSnapshot: string | null;
   operatorStaff: {
     name: string;
     role: StaffRole;

@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
+import { StaffRole } from '@prisma/client';
 import {
   ArrayMinSize,
   IsArray,
@@ -309,6 +310,17 @@ export class SalesRecordResponseDto {
 
   @ApiPropertyOptional({ example: '晚高峰补录', description: '备注' })
   note?: string;
+
+  @ApiPropertyOptional({ example: '张三', description: '操作员姓名快照；主账号或无员工档案时为 null' })
+  operatorName?: string | null;
+
+  @ApiPropertyOptional({
+    enum: StaffRole,
+    example: 'OWNER',
+    description: '操作员角色（OWNER=老板/MANAGER=店长/STAFF=收银员）；主账号或无员工档案时为 null',
+    nullable: true,
+  })
+  operatorRole?: StaffRole | null;
 
   @ApiProperty({ example: 1715695200000, description: '销售时间戳（毫秒）' })
   date: number;

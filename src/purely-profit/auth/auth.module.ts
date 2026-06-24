@@ -18,6 +18,7 @@ import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthSmsService } from './auth-sms.service';
 import { AuthRegisterStoreService } from './auth-register-store.service';
+import { AuthRsaService } from './auth-rsa.service';
 import {
   ClubJwtAuthGuard,
   JwtAuthGuard,
@@ -57,6 +58,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthSessionService,
     AuthSmsService,
     AuthRegisterStoreService,
+    AuthRsaService,
     JwtStrategy,
     JwtAuthGuard,
     ClubJwtAuthGuard,
@@ -72,6 +74,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     ClubJwtAuthGuard,
     PulseJwtAuthGuard,
     JwtModule,
+    AuthRsaService,
   ],
 })
 export class AuthModule {}

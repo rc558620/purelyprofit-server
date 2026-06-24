@@ -274,6 +274,7 @@ export class HandoverPageService {
         date: true,
         paymentMethod: true,
         totalRevenue: true,
+        operatorNameSnapshot: true,
         operatorStaff: {
           select: {
             name: true,

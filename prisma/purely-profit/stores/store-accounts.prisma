@@ -26,98 +26,98 @@ enum StoreSubscriptionStatus {
 }
 
 model User {
-  id               Int      @id @default(autoincrement())
-  email            String   @unique
-  password         String
-  name             String?
-  avatar           String?
-  realName         String?  @map("real_name")
-  idNumber         String?  @unique @map("id_number")
+  id              Int       @id @default(autoincrement())
+  email           String    @unique
+  password        String
+  name            String?
+  avatar          String?
+  realName        String?   @map("real_name")
+  idNumber        String?   @unique @map("id_number")
   /// purely-club 微信小程序 openid（每个 appid 下唯一）
-  wechatOpenid     String?  @unique @map("wechat_openid")
+  wechatOpenid    String?   @unique @map("wechat_openid")
   /// 微信 unionid（同一主体下跨应用唯一，部分场景才返回）
-  wechatUnionid    String?  @map("wechat_unionid")
+  wechatUnionid   String?   @map("wechat_unionid")
   /// 微信登录时拉取的头像 URL
-  wechatAvatar     String?  @map("wechat_avatar")
+  wechatAvatar    String?   @map("wechat_avatar")
   /// 微信登录时拉取的昵称
-  wechatNickname   String?  @map("wechat_nickname")
+  wechatNickname  String?   @map("wechat_nickname")
   /// 微信授权手机号（open-type=getPhoneNumber 解密，用于与手机号账号互通）
-  wechatPhone      String?  @unique @map("wechat_phone")
+  wechatPhone     String?   @unique @map("wechat_phone")
   /// 最近活跃时间，每次 JWT 鉴权成功时异步更新
-  lastActiveAt     DateTime? @map("last_active_at")
-  store            Store?
-  staffMembership  Staff?
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  lastActiveAt    DateTime? @map("last_active_at")
+  store           Store?
+  staffMembership Staff?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@map("users")
 }
 
 model Store {
-  id                         Int                           @id @default(autoincrement())
-  name                       String
-  contactName                String?                       @map("contact_name")
-  contactPhone               String?                       @map("contact_phone")
-  address                    String?
-  ownerId                    Int                           @unique @map("owner_id")
-  owner                      User                          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  maxAccountSeats            Int                           @default(1) @map("max_account_seats")
-  subscription               StoreSubscription?
-  partners                   StorePartner[]
-  membershipProfile          StoreMembershipProfile?
-  membershipOrders           StoreMembershipOrder[]
-  membershipPointsLogs       StoreMembershipPointsLog[]
-  membershipPromoRecords     StoreMembershipPromoRecord[]
-  partnerApplications        StorePartnerApplication[]
-  partnerBeanLogs            StorePartnerBeanLog[]
-  staffs                     Staff[]
-  members                    Member[]
-  memberPointsLogs           MemberPointsLog[]
-  memberBeanLogs             MemberBeanLog[]
-  memberRechargeLogs         MemberRechargeLog[]
-  partnerWithdrawals         PartnerWithdrawal[]
-  financeCashFlows           FinanceCashFlowRecord[]
-  financeAccounts            FinanceAccountRecord[]
-  financeReconciles          FinanceReconciliationRecord[]
-  productCategories          ProductCategory[]
-  products                   Product[]
-  suppliers                  Supplier[]
-  purchaseOrders             PurchaseOrder[]
-  purchaseOrderItems         PurchaseOrderItem[]
-  inventoryAdjustments       InventoryAdjustmentLog[]
-  salesOrders                SaleOrder[]
-  salesOrderItems            SaleOrderItem[]
-  employeeDepartments        EmployeeDepartment[]
-  employeePositions          EmployeePosition[]
-  employees                  Employee[]
-  employeeLeaves             EmployeeLeave[]
-  employeeShiftDefinitions   EmployeeShiftDefinition[]
-  employeeShifts             EmployeeShift[]
-  employeePayrolls           EmployeePayroll[]
-  costRecords                CostRecord[]
-  marketingCustomers         MarketingCustomer[]
-  marketingRecharges         MarketingRecharge[]
-  marketingConsumptions      MarketingConsumption[]
-  marketingPointsRecords     MarketingPointsRecord[]
-  marketingPromotions        MarketingPromotion[]
+  id                          Int                           @id @default(autoincrement())
+  name                        String
+  contactName                 String?                       @map("contact_name")
+  contactPhone                String?                       @map("contact_phone")
+  address                     String?
+  ownerId                     Int                           @unique @map("owner_id")
+  owner                       User                          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  maxAccountSeats             Int                           @default(1) @map("max_account_seats")
+  subscription                StoreSubscription?
+  partners                    StorePartner[]
+  membershipProfile           StoreMembershipProfile?
+  membershipOrders            StoreMembershipOrder[]
+  membershipPointsLogs        StoreMembershipPointsLog[]
+  membershipPromoRecords      StoreMembershipPromoRecord[]
+  partnerApplications         StorePartnerApplication[]
+  partnerBeanLogs             StorePartnerBeanLog[]
+  staffs                      Staff[]
+  members                     Member[]
+  memberPointsLogs            MemberPointsLog[]
+  memberBeanLogs              MemberBeanLog[]
+  memberRechargeLogs          MemberRechargeLog[]
+  partnerWithdrawals          PartnerWithdrawal[]
+  financeCashFlows            FinanceCashFlowRecord[]
+  financeAccounts             FinanceAccountRecord[]
+  financeReconciles           FinanceReconciliationRecord[]
+  productCategories           ProductCategory[]
+  products                    Product[]
+  suppliers                   Supplier[]
+  purchaseOrders              PurchaseOrder[]
+  purchaseOrderItems          PurchaseOrderItem[]
+  inventoryAdjustments        InventoryAdjustmentLog[]
+  salesOrders                 SaleOrder[]
+  salesOrderItems             SaleOrderItem[]
+  employeeDepartments         EmployeeDepartment[]
+  employeePositions           EmployeePosition[]
+  employees                   Employee[]
+  employeeLeaves              EmployeeLeave[]
+  employeeShiftDefinitions    EmployeeShiftDefinition[]
+  employeeShifts              EmployeeShift[]
+  employeePayrolls            EmployeePayroll[]
+  costRecords                 CostRecord[]
+  marketingCustomers          MarketingCustomer[]
+  marketingRecharges          MarketingRecharge[]
+  marketingConsumptions       MarketingConsumption[]
+  marketingPointsRecords      MarketingPointsRecord[]
+  marketingPromotions         MarketingPromotion[]
   marketingMemberLevelSetting MarketingMemberLevelSetting?
-  marketingProductCategories MarketingProductCategory[]
-  marketingProducts          MarketingProduct[]
-  subAccounts                StoreSubAccount[]
-  subAccountQuotaAudits      StoreSubAccountQuotaAudit[]
-  handoverRecords            StoreHandoverRecord[]
-  handoverAdditionalItems    StoreHandoverAdditionalItem[]
-  spaceTypes                 SpaceType[]
-  spaceZones                 SpaceZone[]
-  spaces                     Space[]
-  spaceReservations          SpaceReservation[]
-  spaceSessions              SpaceSession[]
-  wechatMchId                String?                       @map("wechat_mch_id")
-  wechatMchName              String?                       @map("wechat_mch_name")
-  wechatApiV3Key             String?                       @map("wechat_api_v3_key")
-  wechatConfiguredAt         DateTime?                     @map("wechat_configured_at")
-  createdAt                  DateTime                      @default(now()) @map("created_at")
-  updatedAt                  DateTime                      @updatedAt @map("updated_at")
+  marketingProductCategories  MarketingProductCategory[]
+  marketingProducts           MarketingProduct[]
+  subAccounts                 StoreSubAccount[]
+  subAccountQuotaAudits       StoreSubAccountQuotaAudit[]
+  handoverRecords             StoreHandoverRecord[]
+  handoverAdditionalItems     StoreHandoverAdditionalItem[]
+  spaceTypes                  SpaceType[]
+  spaceZones                  SpaceZone[]
+  spaces                      Space[]
+  spaceReservations           SpaceReservation[]
+  spaceSessions               SpaceSession[]
+  wechatMchId                 String?                       @map("wechat_mch_id")
+  wechatMchName               String?                       @map("wechat_mch_name")
+  wechatApiV3Key              String?                       @map("wechat_api_v3_key")
+  wechatConfiguredAt          DateTime?                     @map("wechat_configured_at")
+  createdAt                   DateTime                      @default(now()) @map("created_at")
+  updatedAt                   DateTime                      @updatedAt @map("updated_at")
 
   @@index([ownerId, updatedAt])
   @@index([name])

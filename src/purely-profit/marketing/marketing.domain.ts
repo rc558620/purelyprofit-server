@@ -36,7 +36,7 @@ export function buildCustomerWhere(
     ).tier = input.tier;
   }
 
-  // ── 关键字筛选（独立 OR，与状态 AND 并列）────────────────────────
+  // ── 关键字筛选（兼容旧版 keyword，与独立 name/phone 并列 AND）────────
   if (input.keyword) {
     const keywordClause: Prisma.MarketingCustomerWhereInput = {
       OR: [
@@ -44,9 +44,26 @@ export function buildCustomerWhere(
         { phone: { contains: input.keyword } },
       ],
     };
-
     const existingAnd = Array.isArray(where.AND) ? where.AND : [];
     where.AND = [...existingAnd, keywordClause];
+  }
+
+  // ── 独立姓名关键字（与 phone AND 并列）────────────────────────────
+  if (input.name) {
+    const nameClause: Prisma.MarketingCustomerWhereInput = {
+      name: { contains: input.name, mode: 'insensitive' },
+    };
+    const existingAnd = Array.isArray(where.AND) ? where.AND : [];
+    where.AND = [...existingAnd, nameClause];
+  }
+
+  // ── 独立手机号关键字（与 name AND 并列）────────────────────────────
+  if (input.phone) {
+    const phoneClause: Prisma.MarketingCustomerWhereInput = {
+      phone: { contains: input.phone },
+    };
+    const existingAnd = Array.isArray(where.AND) ? where.AND : [];
+    where.AND = [...existingAnd, phoneClause];
   }
 
   return where;

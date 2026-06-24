@@ -418,6 +418,8 @@ export function buildMarketingCustomersListCacheKey(
   keyword: string,
   page: number,
   pageSize: number,
+  name: string = '',
+  phone: string = '',
 ): string {
   return [
     'profit:marketing:customers:list',
@@ -425,6 +427,8 @@ export function buildMarketingCustomersListCacheKey(
     `status:${status}`,
     `tier:${tier}`,
     `keyword:${encodeURIComponent(keyword || 'na')}`,
+    `name:${encodeURIComponent(name || 'na')}`,
+    `phone:${encodeURIComponent(phone || 'na')}`,
     `page:${page}`,
     `pageSize:${pageSize}`,
   ].join(':');

@@ -122,6 +122,7 @@ export class HandoverRecordsRevenueService {
           date: true,
           paymentMethod: true,
           totalRevenue: true,
+          operatorNameSnapshot: true,
           operatorStaff: {
             select: {
               name: true,

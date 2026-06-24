@@ -26,6 +26,7 @@ export class SalesRecordCreateFlowService {
   async createRecord(params: {
     storeId: number;
     operatorStaffId: number | null;
+    operatorNameSnapshot?: string | null;
     dto: CreateSalesRecordDto;
     preparedItems: PreparedSalesItem[];
     totalRevenue: number;
@@ -47,6 +48,7 @@ export class SalesRecordCreateFlowService {
         data: {
           storeId: params.storeId,
           operatorStaffId: params.operatorStaffId,
+          operatorNameSnapshot: params.operatorNameSnapshot ?? null,
           orderNo,
           totalRevenue: new Prisma.Decimal(params.totalRevenue),
           totalProfit: new Prisma.Decimal(params.totalProfit),

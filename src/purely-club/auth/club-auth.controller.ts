@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
@@ -18,6 +19,8 @@ import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard
 import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubAuthService } from './club-auth.service';
+import { AuthRsaService } from '../../purely-profit/auth/auth-rsa.service';
+import { PublicKeyResponseDto } from '../../purely-profit/auth/dto/public-key-response.dto';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { BindPhoneDto } from './dto/bind-phone.dto';
 import { LoginByCodeDto } from './dto/login-by-code.dto';
@@ -28,7 +31,25 @@ import { WechatLoginDto } from './dto/wechat-login.dto';
 @ApiTags('Club / Auth')
 @Controller('club/auth')
 export class ClubAuthController {
-  constructor(private readonly clubAuthService: ClubAuthService) {}
+  constructor(
+    private readonly clubAuthService: ClubAuthService,
+    private readonly authRsaService: AuthRsaService,
+  ) {}
+
+  @Get('public-key')
+  @ApiOperation({
+    summary: '获取 purely-club RSA 公钥',
+    description:
+      '返回 PEM 格式 RSA 公钥，前端用于加密敏感字段。' +
+      '密钥对在服务端进程重启后自动轮换，前端应在每次提交前重新获取。',
+  })
+  @ApiOkResponse({
+    description: 'RSA 公钥',
+    type: PublicKeyResponseDto,
+  })
+  getPublicKey(): PublicKeyResponseDto {
+    return { publicKey: this.authRsaService.getPublicKey() };
+  }
 
   @Post('login/send-code')
   @HttpCode(HttpStatus.OK)

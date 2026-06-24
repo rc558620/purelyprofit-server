@@ -18,6 +18,7 @@ model SaleOrder {
   store           Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   operatorStaffId Int?                     @map("operator_staff_id")
   operatorStaff   Staff?                   @relation("SaleOrderOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
+  operatorNameSnapshot String?              @map("operator_name_snapshot") @db.VarChar(100)
   orderNo         String                   @map("order_no")
   totalRevenue    Decimal                  @map("total_revenue") @db.Decimal(12, 2)
   totalProfit     Decimal                  @map("total_profit") @db.Decimal(12, 2)

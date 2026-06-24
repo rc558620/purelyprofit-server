@@ -171,6 +171,18 @@ export default () => ({
       process.env.AUTH_SMS_SEND_COOLDOWN_SECONDS ?? '60',
       10,
     ),
+    /**
+     * RSA 公钥（PEM 格式），用于登录加密。
+     * 不配置时自动生成（进程重启后轮换）。
+     * 对应环境变量：AUTH_RSA_PUBLIC_KEY
+     */
+    rsaPublicKey: process.env.AUTH_RSA_PUBLIC_KEY ?? '',
+    /**
+     * RSA 私钥（PEM 格式），用于解密前端加密的密码字段。
+     * 不配置时自动生成（进程重启后轮换）。
+     * 对应环境变量：AUTH_RSA_PRIVATE_KEY
+     */
+    rsaPrivateKey: process.env.AUTH_RSA_PRIVATE_KEY ?? '',
   },
 
   pulse: {

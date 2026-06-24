@@ -83,6 +83,8 @@ export class MarketingCustomersService {
     const statusFilter = query.status ?? 'all';
     const tierFilter = query.tier ?? 'all';
     const keywordFilter = query.keyword ?? '';
+    const nameFilter = query.name ?? '';
+    const phoneFilter = query.phone ?? '';
     const cacheKey = buildMarketingCustomersListCacheKey(
       resolvedStoreId,
       statusFilter,
@@ -90,6 +92,8 @@ export class MarketingCustomersService {
       keywordFilter,
       page,
       take,
+      nameFilter,
+      phoneFilter,
     );
 
     return this.redisService.getOrLoadRefreshableJson({
@@ -103,6 +107,8 @@ export class MarketingCustomersService {
           statusFilter,
           tierFilter,
           keywordFilter,
+          nameFilter,
+          phoneFilter,
           skip,
           take,
           page,
@@ -115,6 +121,8 @@ export class MarketingCustomersService {
     statusFilter: string,
     tierFilter: string,
     keywordFilter: string,
+    nameFilter: string,
+    phoneFilter: string,
     skip: number,
     take: number,
     page: number,
@@ -130,6 +138,8 @@ export class MarketingCustomersService {
           ? (tierFilter as 'regular' | 'silver' | 'gold' | 'diamond')
           : undefined,
       keyword: keywordFilter || undefined,
+      name: nameFilter || undefined,
+      phone: phoneFilter || undefined,
     });
 
     const [rows, total] = await Promise.all([

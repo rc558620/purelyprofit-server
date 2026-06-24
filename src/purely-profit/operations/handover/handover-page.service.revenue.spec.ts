@@ -398,6 +398,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 201,
           date: new Date('2026-06-04T04:00:00.000Z'),
           paymentMethod: SalesPaymentMethod.cash,
+          operatorNameSnapshot: null,
           operatorStaff: null,
           spaceSession: null,
         },
@@ -412,6 +413,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 202,
           date: new Date('2026-06-04T04:05:00.000Z'),
           paymentMethod: SalesPaymentMethod.wechat,
+          operatorNameSnapshot: null,
           operatorStaff: null,
           spaceSession: null,
         },
@@ -426,6 +428,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 203,
           date: new Date('2026-06-04T04:10:00.000Z'),
           paymentMethod: SalesPaymentMethod.alipay,
+          operatorNameSnapshot: null,
           operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.card,
@@ -484,6 +487,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 88,
           date: new Date('2026-06-04T04:21:00.000Z'),
           paymentMethod: SalesPaymentMethod.alipay,
+          operatorNameSnapshot: null,
           operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,
@@ -501,6 +505,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         date: new Date('2026-06-04T04:21:00.000Z'),
         paymentMethod: SalesPaymentMethod.alipay,
         totalRevenue: new Prisma.Decimal('-547.60'),
+        operatorNameSnapshot: null,
         operatorStaff: null,
         spaceSession: {
           space: {
@@ -575,6 +580,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         date: true,
         paymentMethod: true,
         totalRevenue: true,
+        operatorNameSnapshot: true,
         operatorStaff: {
           select: {
             name: true,
@@ -631,6 +637,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         date: new Date('2026-06-02T18:55:00.000Z'),
         paymentMethod: SalesPaymentMethod.wechat,
         totalRevenue: new Prisma.Decimal('-88.80'),
+        operatorNameSnapshot: null,
         operatorStaff: null,
         spaceSession: {
           space: {
@@ -684,6 +691,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 101,
           date: new Date('2026-06-02T10:06:00.000Z'),
           paymentMethod: SalesPaymentMethod.alipay,
+          operatorNameSnapshot: null,
           operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,
@@ -730,6 +738,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           id: 102,
           date: new Date('2026-06-02T10:06:00.000Z'),
           paymentMethod: SalesPaymentMethod.alipay,
+          operatorNameSnapshot: null,
           operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,

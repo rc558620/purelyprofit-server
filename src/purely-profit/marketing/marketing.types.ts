@@ -124,7 +124,12 @@ export interface MarketingCustomerListQueryInput {
   storeId: number;
   status?: MarketingCustomerStatus;
   tier?: MarketingCustomerTierValue;
+  /** 兼容旧版：同时匹配姓名和手机号 */
   keyword?: string;
+  /** 独立姓名搜索框关键字 */
+  name?: string;
+  /** 独立手机号搜索框关键字 */
+  phone?: string;
   page?: number;
   pageSize?: number;
 }

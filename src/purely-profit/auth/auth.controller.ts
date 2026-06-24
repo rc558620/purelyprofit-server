@@ -19,6 +19,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
+import { AuthRsaService } from './auth-rsa.service';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -34,6 +35,7 @@ import { SendRegisterCodeResponseDto } from './dto/send-register-code-response.d
 import { UpdateAvatarDto } from './dto/update-avatar.dto';
 import { UpdateNicknameDto } from './dto/update-nickname.dto';
 import { VerifyRealNameDto } from './dto/verify-real-name.dto';
+import { PublicKeyResponseDto } from './dto/public-key-response.dto';
 import { CreateStoreDto } from '../stores/dto/create-store.dto';
 import { StoreResponseDto } from '../stores/dto/store-response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -42,7 +44,25 @@ import type { AuthenticatedUser } from './strategies/jwt.strategy';
 @ApiTags('Profit / Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly authRsaService: AuthRsaService,
+  ) {}
+
+  @Get('public-key')
+  @ApiOperation({
+    summary: '获取 RSA 公钥',
+    description:
+      '返回 PEM 格式 RSA 公钥，前端用于加密密码等敏感字段。' +
+      '密钥对在服务端进程重启后自动轮换，前端应在每次提交前重新获取。',
+  })
+  @ApiOkResponse({
+    description: 'RSA 公钥',
+    type: PublicKeyResponseDto,
+  })
+  getPublicKey(): PublicKeyResponseDto {
+    return { publicKey: this.authRsaService.getPublicKey() };
+  }
 
   @Post('register/send-code')
   @HttpCode(HttpStatus.OK)
@@ -75,7 +95,14 @@ export class AuthController {
     type: AuthTokenResponseDto,
   })
   register(@Body() dto: RegisterDto): Promise<AuthTokenResponseDto> {
-    return this.authService.register(dto);
+    const decryptedDto = {
+      ...dto,
+      password: this.authRsaService.tryDecryptPassword(dto.password),
+      ...(dto.confirmPassword
+        ? { confirmPassword: this.authRsaService.tryDecryptPassword(dto.confirmPassword) }
+        : {}),
+    };
+    return this.authService.register(decryptedDto);
   }
 
   @Post('register/store')
@@ -110,7 +137,11 @@ export class AuthController {
     type: AuthTokenResponseDto,
   })
   login(@Body() dto: LoginDto): Promise<AuthTokenResponseDto> {
-    return this.authService.login(dto);
+    const decryptedDto = {
+      ...dto,
+      password: this.authRsaService.tryDecryptPassword(dto.password),
+    };
+    return this.authService.login(decryptedDto);
   }
 
   @Post('change-password')
@@ -127,7 +158,13 @@ export class AuthController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ChangePasswordDto,
   ): Promise<PasswordOperationResponseDto> {
-    return this.authService.changePassword(user, dto);
+    const decryptedDto = {
+      ...dto,
+      currentPassword: this.authRsaService.tryDecryptPassword(dto.currentPassword),
+      newPassword: this.authRsaService.tryDecryptPassword(dto.newPassword),
+      confirmPassword: this.authRsaService.tryDecryptPassword(dto.confirmPassword),
+    };
+    return this.authService.changePassword(user, decryptedDto);
   }
 
   @Post('forgot-password')
@@ -167,7 +204,12 @@ export class AuthController {
   resetPassword(
     @Body() dto: ResetPasswordDto,
   ): Promise<PasswordOperationResponseDto> {
-    return this.authService.resetPassword(dto);
+    const decryptedDto = {
+      ...dto,
+      password: this.authRsaService.tryDecryptPassword(dto.password),
+      confirmPassword: this.authRsaService.tryDecryptPassword(dto.confirmPassword),
+    };
+    return this.authService.resetPassword(decryptedDto);
   }
 
   @Get('me')
