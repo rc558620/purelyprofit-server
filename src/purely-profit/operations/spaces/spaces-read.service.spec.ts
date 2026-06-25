@@ -319,7 +319,7 @@ describe('SpaceSessionReadStateService', () => {
       findMany: jest.fn(),
     },
     spaceSession: {
-      findFirst: jest.fn(),
+      findMany: jest.fn(),
     },
   };
 
@@ -351,9 +351,10 @@ describe('SpaceSessionReadStateService', () => {
 
   it('syncOccupiedSpaceStates 仅修复无 active session 的 occupied 空间', async () => {
     prismaService.space.findMany.mockResolvedValueOnce([{ id: 7 }, { id: 8 }]);
-    prismaService.spaceSession.findFirst
-      .mockResolvedValueOnce({ id: 101 })
-      .mockResolvedValueOnce(null);
+    // 只有 spaceId=7 有 active session，spaceId=8 没有
+    prismaService.spaceSession.findMany.mockResolvedValueOnce([
+      { spaceId: 7 },
+    ]);
 
     await service.syncOccupiedSpaceStates(18);
 
@@ -361,13 +362,9 @@ describe('SpaceSessionReadStateService', () => {
       where: { storeId: 18, status: 'occupied' },
       select: { id: true },
     });
-    expect(prismaService.spaceSession.findFirst).toHaveBeenNthCalledWith(1, {
-      where: { spaceId: 7, status: 'active' },
-      select: { id: true },
-    });
-    expect(prismaService.spaceSession.findFirst).toHaveBeenNthCalledWith(2, {
-      where: { spaceId: 8, status: 'active' },
-      select: { id: true },
+    expect(prismaService.spaceSession.findMany).toHaveBeenCalledWith({
+      where: { spaceId: { in: [7, 8] }, status: 'active' },
+      select: { spaceId: true },
     });
     expect(
       reservationsStateService.repairInconsistentOccupiedSpace,

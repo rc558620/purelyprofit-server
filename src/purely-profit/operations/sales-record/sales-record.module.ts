@@ -3,7 +3,7 @@ import { CommerceModule } from '../../commerce/commerce.module';
 import { InventoryModule } from '../../goods/inventory/inventory.module';
 import { PlatformMembershipModule } from '../../member/platform-membership/platform-membership.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
-import { HandoverModule } from '../handover/handover.module';
+import { HandoverShiftModule } from '../handover/handover-shift.module';
 import {
   SalesOrdersCompatController,
   SalesRecordController,
@@ -24,7 +24,7 @@ import { SalesRecordWriteService } from './sales-record-write.service';
     CommerceModule,
     InventoryModule,
     PlatformMembershipModule,
-    HandoverModule,
+    HandoverShiftModule,
   ],
   controllers: [SalesRecordController, SalesOrdersCompatController],
   providers: [

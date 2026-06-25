@@ -37,12 +37,12 @@ describe('cache prewarm config', () => {
       category: 'dashboardHome' as const,
       scanPattern: () => `dashboard:${input.storeId}`,
       prewarm: jest.fn(() => createEmptyPrewarmResult()),
-    }));
+    })) as never;
     const secondProvider = jest.fn((input: { storeId: number }) => ({
       category: 'businessAnalysis' as const,
       scanPattern: () => `analysis:${input.storeId}`,
       prewarm: jest.fn(() => createEmptyPrewarmResult()),
-    }));
+    })) as never;
 
     const configs = buildCachePrewarmCategoryConfigs(
       [firstProvider, secondProvider],
@@ -60,20 +60,20 @@ describe('cache prewarm config', () => {
   it('createCachePrewarmCategoryConfigs 会按域顺序组装所有 prewarm 配置', () => {
     const configs = createCachePrewarmCategoryConfigs({
       dashboardHomeService: {
-        warmOverviewCache: jest.fn(() => Promise.resolve()),
+        warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
       },
       businessAnalysisService: {
-        warmAnalysisCache: jest.fn(() => Promise.resolve()),
+        warmAnalysisCache: jest.fn(() => Promise.resolve()) as never,
       },
       financeOverviewService: {
-        warmOverviewCache: jest.fn(() => Promise.resolve()),
+        warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
       },
       marketingOverviewService: {
-        warmOverviewCache: jest.fn(() => Promise.resolve()),
+        warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
       },
       membersService: {
-        warmMetaCache: jest.fn(() => Promise.resolve()),
-        warmOverviewCache: jest.fn(() => Promise.resolve()),
+        warmMetaCache: jest.fn(() => Promise.resolve()) as never,
+        warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
       },
     });
 

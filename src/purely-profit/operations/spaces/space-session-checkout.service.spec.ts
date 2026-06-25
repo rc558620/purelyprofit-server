@@ -8,6 +8,7 @@ import { SalesRecordService } from '../sales-record/sales-record.service';
 import { SpaceSessionCheckoutLockService } from './space-session-checkout-lock.service';
 import { SpaceSessionCheckoutService } from './space-session-checkout.service';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { SpaceReservationsStateService } from './space-reservations-state.service';
 import {
   createSalesOrderResponse,
   createSpaceCheckoutAt,
@@ -48,6 +49,8 @@ describe('SpaceSessionCheckoutService', () => {
   };
   const redisService = {
     getClient: jest.fn(() => redisClient),
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(async () => {
@@ -77,6 +80,15 @@ describe('SpaceSessionCheckoutService', () => {
           useValue: cacheInvalidatorService,
         },
         { provide: RedisService, useValue: redisService },
+        {
+          provide: SpaceReservationsStateService,
+          useValue: {
+            ensureReservationCanBeFulfilled: jest.fn(),
+            findNextReservationToActivate: jest.fn().mockResolvedValue(null),
+            cancelMatchedReservationAfterCheckout: jest.fn().mockResolvedValue(null),
+            resolveReservationBackStatus: jest.fn().mockResolvedValue('idle'),
+          },
+        },
       ],
     }).compile();
 

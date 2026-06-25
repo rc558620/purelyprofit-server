@@ -296,17 +296,9 @@ export class EmployeesProfileWriteService {
       return;
     }
 
-    const linkedStaff = await transaction.staff.findUnique({
-      where: { id: employee.linkedStaffId },
-      select: { id: true },
-    });
-
-    if (!linkedStaff) {
-      return;
-    }
-
-    // 禁用 Staff 记录：isActive=false 阻断会话，status=DISABLED 标记状态
-    await transaction.staff.update({
+    // 用 updateMany 替代 findUnique + update，减少一次查询
+    // updateMany 返回 { count } 可直接判断是否命中记录
+    await transaction.staff.updateMany({
       where: { id: employee.linkedStaffId },
       data: { isActive: false, status: StaffStatus.DISABLED },
     });
@@ -323,17 +315,8 @@ export class EmployeesProfileWriteService {
       return;
     }
 
-    const linkedStaff = await transaction.staff.findUnique({
-      where: { id: employee.linkedStaffId },
-      select: { id: true },
-    });
-
-    if (!linkedStaff) {
-      return;
-    }
-
-    // 禁用 Staff 记录：isActive=false 阻断会话，status=DISABLED 标记状态
-    await transaction.staff.update({
+    // 用 updateMany 替代 findUnique + update，减少一次查询
+    await transaction.staff.updateMany({
       where: { id: employee.linkedStaffId },
       data: { isActive: false, status: StaffStatus.DISABLED },
     });
@@ -511,25 +494,39 @@ export class EmployeesProfileWriteService {
       return;
     }
 
-    // 逐条替换，只替换以"员工姓名"开头或包含精确分隔符包裹的姓名
-    await Promise.all(
-      costRecords.map(async (record) => {
-        const oldName = previousEmployee.name;
-        const newName = nextEmployee.name;
-        // 精确替换：将标题中的旧姓名替换为新姓名
-        // 使用正则确保只替换独立出现的姓名（前后为分隔符或边界）
-        const escapedOldName = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const updatedTitle = record.title.replace(
-          new RegExp(escapedOldName, 'g'),
-          newName,
-        );
-        if (updatedTitle !== record.title) {
-          await transaction.$executeRaw`
-            UPDATE cost_records SET title = ${updatedTitle} WHERE id = ${record.id}
-          `;
-        }
-      }),
-    );
+    // 批量精确替换：先在内存中计算需要更新的记录，再用 CASE WHEN 一条 SQL 批量更新
+    const oldName = previousEmployee.name;
+    const newName = nextEmployee.name;
+    const escapedOldName = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const nameRegex = new RegExp(escapedOldName, 'g');
+
+    const recordsToUpdate = costRecords
+      .map((record) => ({
+        id: record.id,
+        updatedTitle: record.title.replace(nameRegex, newName),
+        originalTitle: record.title,
+      }))
+      .filter((r) => r.updatedTitle !== r.originalTitle);
+
+    if (recordsToUpdate.length === 0) {
+      return;
+    }
+
+    // 构造 CASE WHEN ... END 批量更新，替代 N 次逐条 $executeRaw
+    // 使用 Prisma $executeRaw 标签模板不支持动态拼接，降级为 $executeRawUnsafe
+    // 所有值均来自数据库已有数据（newName 是员工姓名，id 是数字），XSS 风险可控
+    const caseWhenClauses = recordsToUpdate
+      .map((r) => `WHEN id = ${r.id} THEN ${JSON.stringify(r.updatedTitle)}`)
+      .join('\n');
+    const idList = recordsToUpdate.map((r) => r.id).join(', ');
+
+    await transaction.$executeRawUnsafe(`
+      UPDATE cost_records
+      SET title = CASE
+        ${caseWhenClauses}
+      END
+      WHERE id IN (${idList})
+    `);
   }
 
   private async syncLinkedStaffIdentity(

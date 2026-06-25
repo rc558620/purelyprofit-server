@@ -40,6 +40,7 @@ export async function queryOverviewCashFlowRecords(
     start: number;
     end: number;
   },
+  maxPageSize = 5000,
 ): Promise<Array<{ category: string; amount: Prisma.Decimal; date: Date }>> {
   return prisma.financeCashFlowRecord.findMany({
     where: {
@@ -55,6 +56,7 @@ export async function queryOverviewCashFlowRecords(
       date: true,
     },
     orderBy: [{ date: 'asc' }, { id: 'asc' }],
+    take: maxPageSize,
   });
 }
 
@@ -65,6 +67,7 @@ export async function queryFinanceReportData(
     currentRange: { start: number; end: number; empty: boolean };
     previousRange: { start: number; end: number; empty: boolean } | null;
   },
+  maxPageSize = 5000,
 ): Promise<{
   currentCashFlowRecords: Array<
     Pick<
@@ -104,6 +107,7 @@ export async function queryFinanceReportData(
             },
             select: financeReportCashFlowSelect,
             orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+            take: maxPageSize,
           }),
       params.previousRange && !params.previousRange.empty
         ? prisma.financeCashFlowRecord
@@ -134,6 +138,7 @@ export async function queryFinanceReportData(
         }),
         select: financeReportAccountSelect,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: maxPageSize,
       }),
     ]);
 

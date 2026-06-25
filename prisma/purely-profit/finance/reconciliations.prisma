@@ -28,7 +28,7 @@ enum FinancePaymentChannel {
 model FinanceReconciliationRecord {
   id              Int                         @id @default(autoincrement())
   storeId         Int                         @map("store_id")
-  store           Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store                       @relation(fields: [storeId], references: [id], onDelete: Restrict)
   operatorStaffId Int?                        @map("operator_staff_id")
   operatorStaff   Staff?                      @relation("FinanceReconciliationOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
   title           String

@@ -71,13 +71,16 @@ export class PlatformMembershipOrderService {
           payment.actualBeansUsed,
         );
 
-        for (const allocation of allocations) {
-          // 前置校验：确保 partner 属于当前门店且已审核通过
-          const partnerBefore = await tx.storePartner.findUnique({
-            where: { id: allocation.partnerId },
-            select: { storeId: true, status: true },
-          });
+        // 前置批量校验：一次性查出所有涉及的 partner，校验归属和状态
+        const allocationIds = allocations.map((a) => a.partnerId);
+        const partnersBefore = await tx.storePartner.findMany({
+          where: { id: { in: allocationIds } },
+          select: { id: true, storeId: true, status: true },
+        });
+        const partnerBeforeMap = new Map(partnersBefore.map((p) => [p.id, p]));
 
+        for (const allocation of allocations) {
+          const partnerBefore = partnerBeforeMap.get(allocation.partnerId);
           if (
             !partnerBefore ||
             partnerBefore.storeId !== storeId ||
@@ -85,37 +88,41 @@ export class PlatformMembershipOrderService {
           ) {
             throw new ConflictException('纯利豆余额不足，请刷新后重试');
           }
+        }
 
-          // 原子 decrement：生成 SQL SET bean_balance = bean_balance - X，
-          // 即使并发事务同时执行也不会互相覆盖
+        // 逐条原子 decrement（保证并发安全），但省去前置和后置的 N 次 findUnique
+        // 仍需逐条执行：每个 allocation.beans 不同，无法用 updateMany 统一 decrement
+        for (const allocation of allocations) {
           await tx.storePartner.update({
             where: { id: allocation.partnerId },
             data: {
               beanBalance: { decrement: allocation.beans },
             },
           });
+        }
 
-          // 扣减后立即读取余额，校验非负防止超扣
-          const partner = await tx.storePartner.findUnique({
-            where: { id: allocation.partnerId },
-            select: { beanBalance: true },
-          });
-
-          if (!partner || partner.beanBalance < 0) {
+        // 扣减后批量读取余额，一次性校验非负防止超扣
+        const partnersAfter = await tx.storePartner.findMany({
+          where: { id: { in: allocationIds } },
+          select: { id: true, beanBalance: true },
+        });
+        for (const partner of partnersAfter) {
+          if (partner.beanBalance < 0) {
             throw new ConflictException('纯利豆余额不足，请刷新后重试');
           }
-
-          await tx.storePartnerBeanLog.create({
-            data: {
-              storeId,
-              partnerId: allocation.partnerId,
-              source: 'deduct_payment',
-              changeAmount: -allocation.beans,
-              description: `纯利豆抵扣 · 订阅${plan.name}`,
-              relatedPlanType: plan.id,
-            },
-          });
         }
+
+        // 批量写入纯利豆日志，替代逐条 create
+        await tx.storePartnerBeanLog.createMany({
+          data: allocations.map((allocation) => ({
+            storeId,
+            partnerId: allocation.partnerId,
+            source: 'deduct_payment',
+            changeAmount: -allocation.beans,
+            description: `纯利豆抵扣 · 订阅${plan.name}`,
+            relatedPlanType: plan.id,
+          })),
+        });
       }
 
       const bonusPoints = PURCHASE_BONUS_POINTS[plan.id] ?? 0;

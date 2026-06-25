@@ -82,8 +82,10 @@ export class EmployeesPayrollService {
     user: AuthenticatedUser,
     query: ListEmployeePayrollsQueryDto,
   ): Promise<EmployeePayrollResponseDto[]> {
-    const manageableStoreId =
-      this.employeesAccessService.getManageableStoreId(user, 'finance:view');
+    const manageableStoreId = this.employeesAccessService.getManageableStoreId(
+      user,
+      'finance:view',
+    );
 
     if (manageableStoreId === null) {
       return [];

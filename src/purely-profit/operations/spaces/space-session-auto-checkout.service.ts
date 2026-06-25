@@ -4,14 +4,13 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import {
   SpaceBillingMode as PrismaSpaceBillingMode,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { RedisService } from '../../../redis/redis.service';
+import { RedisLockService } from '../../../redis/redis-lock.service';
 import {
   parseSpaceSessionItems,
   parseSpaceSessionRenewRecords,
@@ -19,6 +18,7 @@ import {
 import { buildSpaceSessionSettlement } from './space-session-settlement.shared';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
 
+/** 自动结账分布式锁 TTL（秒）：处理单门店所有超时会话的最长耗时 */
 const AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS = 30;
 
 @Injectable()
@@ -27,7 +27,7 @@ export class SpaceSessionAutoCheckoutService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly redisLockService: RedisLockService,
     private readonly settlementService: SpaceSessionSettlementService,
   ) {}
 
@@ -79,24 +79,29 @@ export class SpaceSessionAutoCheckoutService {
     trigger = 'space:auto-checkout',
     requestId?: string,
   ): Promise<number> {
-    let lock: { key: string; token: string } | null = null;
+    // 分布式锁：防止多 worker 并发对同一门店执行自动结账
+    const lock = await this.redisLockService.acquireLock(
+      `space:auto-checkout:store:${storeId}`,
+      {
+        ttlSeconds: AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS,
+      },
+    );
+
+    if (!lock) {
+      this.logger.warn(
+        `[space-auto-checkout] skipped_concurrent ${this.buildAutoCheckoutLogContext(
+          {
+            trigger,
+            storeId,
+            userId: user.id,
+            requestId,
+          },
+        )}`,
+      );
+      return 0;
+    }
 
     try {
-      lock = await this.acquireAutoCheckoutStoreLock(storeId);
-      if (!lock) {
-        this.logger.warn(
-          `[space-auto-checkout] skipped_concurrent ${this.buildAutoCheckoutLogContext(
-            {
-              trigger,
-              storeId,
-              userId: user.id,
-              requestId,
-            },
-          )}`,
-        );
-        return 0;
-      }
-
       const sessions = await this.prisma.spaceSession.findMany({
         where: {
           storeId,
@@ -217,23 +222,7 @@ export class SpaceSessionAutoCheckoutService {
       );
       return 0;
     } finally {
-      if (lock) {
-        try {
-          await this.releaseAutoCheckoutStoreLock(lock);
-        } catch (error) {
-          this.logger.warn(
-            `[space-auto-checkout] release_lock_failed ${this.buildAutoCheckoutLogContext(
-              {
-                trigger,
-                storeId,
-                userId: user.id,
-                requestId,
-                reason: error instanceof Error ? error.name : 'UnknownError',
-              },
-            )}`,
-          );
-        }
-      }
+      await this.redisLockService.releaseLock(lock);
     }
   }
 
@@ -263,40 +252,6 @@ export class SpaceSessionAutoCheckoutService {
     ];
 
     return segments.join(' ');
-  }
-
-  private async acquireAutoCheckoutStoreLock(
-    storeId: number,
-  ): Promise<{ key: string; token: string } | null> {
-    const token = randomUUID();
-    const lockKey = `space:auto-checkout:store:${storeId}`;
-    const result = await this.redisService
-      .getClient()
-      .set(lockKey, token, 'EX', AUTO_CHECKOUT_STORE_LOCK_TTL_SECONDS, 'NX');
-
-    return result === 'OK'
-      ? {
-          key: lockKey,
-          token,
-        }
-      : null;
-  }
-
-  private async releaseAutoCheckoutStoreLock(lock: {
-    key: string;
-    token: string;
-  }): Promise<void> {
-    await this.redisService.getClient().eval(
-      `
-        if redis.call('GET', KEYS[1]) == ARGV[1] then
-          return redis.call('DEL', KEYS[1])
-        end
-        return 0
-      `,
-      1,
-      lock.key,
-      lock.token,
-    );
   }
 
   private async findStoresWithPendingAutoCheckoutSessions(): Promise<number[]> {

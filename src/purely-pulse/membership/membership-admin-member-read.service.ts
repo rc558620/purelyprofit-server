@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
 import type {
@@ -53,6 +53,10 @@ type PulseAdminMemberDetailSnapshot = {
 
 @Injectable()
 export class PulseMembershipAdminMemberReadService {
+  private readonly logger = new Logger(
+    PulseMembershipAdminMemberReadService.name,
+  );
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly accessService: PulseMembershipAccessService,
@@ -133,7 +137,7 @@ export class PulseMembershipAdminMemberReadService {
         throw error;
       }
 
-      console.warn(
+      this.logger.warn(
         '[pulse-membership-admin] store_membership_profiles.sub_account_quota schema not ready, fallback to legacy profile query',
       );
 
@@ -341,7 +345,7 @@ export class PulseMembershipAdminMemberReadService {
         throw error;
       }
 
-      console.warn(
+      this.logger.warn(
         '[pulse-membership-admin] store_membership_profiles.sub_account_quota schema not ready, fallback to legacy profile list query',
       );
 

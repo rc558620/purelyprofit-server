@@ -99,7 +99,11 @@ export class AuthController {
       ...dto,
       password: this.authRsaService.tryDecryptPassword(dto.password),
       ...(dto.confirmPassword
-        ? { confirmPassword: this.authRsaService.tryDecryptPassword(dto.confirmPassword) }
+        ? {
+            confirmPassword: this.authRsaService.tryDecryptPassword(
+              dto.confirmPassword,
+            ),
+          }
         : {}),
     };
     return this.authService.register(decryptedDto);
@@ -160,9 +164,13 @@ export class AuthController {
   ): Promise<PasswordOperationResponseDto> {
     const decryptedDto = {
       ...dto,
-      currentPassword: this.authRsaService.tryDecryptPassword(dto.currentPassword),
+      currentPassword: this.authRsaService.tryDecryptPassword(
+        dto.currentPassword,
+      ),
       newPassword: this.authRsaService.tryDecryptPassword(dto.newPassword),
-      confirmPassword: this.authRsaService.tryDecryptPassword(dto.confirmPassword),
+      confirmPassword: this.authRsaService.tryDecryptPassword(
+        dto.confirmPassword,
+      ),
     };
     return this.authService.changePassword(user, decryptedDto);
   }
@@ -207,7 +215,9 @@ export class AuthController {
     const decryptedDto = {
       ...dto,
       password: this.authRsaService.tryDecryptPassword(dto.password),
-      confirmPassword: this.authRsaService.tryDecryptPassword(dto.confirmPassword),
+      confirmPassword: this.authRsaService.tryDecryptPassword(
+        dto.confirmPassword,
+      ),
     };
     return this.authService.resetPassword(decryptedDto);
   }

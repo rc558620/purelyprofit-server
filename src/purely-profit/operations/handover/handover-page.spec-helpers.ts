@@ -33,6 +33,7 @@ export const EMPLOYEE_DETAIL_SELECT = {
 } as const;
 
 export const MORNING_SHIFT_CASHIER_1 = createShiftRecord({
+  id: 10001,
   employeeId: 10,
   employeeName: '收银员1',
   startTime: '08:00',
@@ -40,11 +41,13 @@ export const MORNING_SHIFT_CASHIER_1 = createShiftRecord({
 });
 
 export const MORNING_SHIFT_EMPLOYEE_A = createShiftRecord({
+  id: 10002,
   startTime: '09:00',
   endTime: '14:00',
 });
 
 export const LATE_SHIFT_CASHIER_2 = createShiftRecord({
+  id: 10003,
   employeeId: 30,
   employeeName: '收银员2',
   shiftType: EmployeeShiftType.late,
@@ -53,6 +56,7 @@ export const LATE_SHIFT_CASHIER_2 = createShiftRecord({
 });
 
 export const LATE_SHIFT_EMPLOYEE_A = createShiftRecord({
+  id: 10004,
   shiftType: EmployeeShiftType.late,
   startTime: '17:00',
   endTime: '23:00',
@@ -73,6 +77,22 @@ type HandoverRecordCountMockOptions = {
   handoverAt?: (startAt: Date) => number;
   createdAt?: (fromEmployeeId: number | undefined) => number;
   fallback?: number;
+  /**
+   * 直接指定通过 shiftId 精确标记已交班的记录（employeeShiftIdSnapshot 精确匹配）。
+   * 会同时 mock storeHandoverRecord.findMany 返回对应的记录，
+   * 使 loadHandedOverShiftIds 能正确识别已交班 shift。
+   */
+  handedOverByShiftIds?: number[];
+  /**
+   * 通过 employeeId + 时间段（近似）范围标记已交班，
+   * 会生成 employeeShiftIdSnapshot = null 的 byRange 记录供批量查询使用。
+   * 格式：[{ employeeId, handoverAtMs }]
+   */
+  handedOverByEmployeeRange?: Array<{
+    employeeId: number;
+    handoverAtMs: number;
+    createdAtMs?: number;
+  }>;
 };
 
 type ShiftListWhere = {
@@ -198,6 +218,39 @@ export const setupHandoverPageSpec = (): {
         return Promise.resolve(options.fallback ?? 0);
       },
     );
+
+    // 同步 mock findMany，供 loadHandedOverShiftIds 使用
+    const findManyRecords: Array<{
+      employeeShiftIdSnapshot: number | null;
+      fromEmployeeId: number | null;
+      handoverAt: Date | null;
+      createdAt: Date;
+    }> = [];
+    if (options.handedOverByShiftIds) {
+      for (const shiftId of options.handedOverByShiftIds) {
+        findManyRecords.push({
+          employeeShiftIdSnapshot: shiftId,
+          fromEmployeeId: null,
+          handoverAt: null,
+          createdAt: new Date(0),
+        });
+      }
+    }
+    if (options.handedOverByEmployeeRange) {
+      for (const entry of options.handedOverByEmployeeRange) {
+        findManyRecords.push({
+          employeeShiftIdSnapshot: null,
+          fromEmployeeId: entry.employeeId,
+          handoverAt: new Date(entry.handoverAtMs),
+          createdAt: new Date(entry.createdAtMs ?? 0),
+        });
+      }
+    }
+    if (findManyRecords.length > 0) {
+      prismaService.storeHandoverRecord.findMany.mockResolvedValue(
+        findManyRecords as never,
+      );
+    }
   };
 
   beforeEach(async () => {
@@ -276,6 +329,7 @@ export const setupHandoverPageSpec = (): {
     );
     prismaService.storeHandoverRecord.count.mockResolvedValue(0);
     prismaService.storeHandoverRecord.findFirst.mockResolvedValue(null);
+    prismaService.storeHandoverRecord.findMany.mockResolvedValue([]);
   });
 
   afterEach(() => {

@@ -1,7 +1,6 @@
-import { forwardRef, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { AuthModule } from '../../purely-profit/auth/auth.module';
 import { PrismaModule } from '../../prisma/prisma.module';
-import { RedisModule } from '../../redis/redis.module';
 import { ClubMemberModule } from '../member/club-member.module';
 import { ClubStoresModule } from '../stores/club-stores.module';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
@@ -18,9 +17,8 @@ import { ClubOrdersService } from './club-orders.service';
 
 @Module({
   imports: [
-    forwardRef(() => AuthModule),
+    AuthModule,
     PrismaModule,
-    RedisModule,
     ClubStoresModule,
     ClubMemberModule,
     ClubWechatPayModule,

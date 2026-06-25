@@ -81,9 +81,8 @@ export class SalesRecordWriteService {
 
     assertSalesTotalsMatch(dto, totalRevenue, totalProfit, totalQuantity);
 
-    const operatorNameSnapshot = await this.resolveOperatorNameSnapshot(
-      operatorStaffId,
-    );
+    const operatorNameSnapshot =
+      await this.resolveOperatorNameSnapshot(operatorStaffId);
 
     const response = await this.salesRecordCreateFlowService.createRecord({
       storeId,

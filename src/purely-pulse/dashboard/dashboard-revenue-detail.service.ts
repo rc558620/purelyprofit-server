@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
@@ -44,6 +44,8 @@ const PULSE_DASHBOARD_REVENUE_DETAIL_REFRESH_AFTER_MS = 8_000;
 
 @Injectable()
 export class PulseDashboardRevenueDetailService {
+  private readonly logger = new Logger(PulseDashboardRevenueDetailService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
@@ -241,23 +243,31 @@ export class PulseDashboardRevenueDetailService {
   private async readRevenueRegionCodeMap(
     storeIds: number[],
   ): Promise<Map<number, string[]>> {
-    const entries = await Promise.all(
-      storeIds.map(async (storeId) => {
-        try {
-          const raw = await this.redisService.get(`stores:profile:${storeId}`);
-          if (!raw) {
-            return [storeId, [] as string[]] as const;
-          }
+    if (storeIds.length === 0) {
+      return new Map();
+    }
 
-          const parsed = JSON.parse(raw) as { region?: unknown };
-          return [storeId, normalizeRegionValues(parsed.region)] as const;
-        } catch {
-          return [storeId, [] as string[]] as const;
-        }
-      }),
+    // 使用 mgetJson 一次批量获取所有门店缓存，替代 N 次 GET
+    const keys = storeIds.map((id) => `stores:profile:${id}`);
+    const rawValues = await this.redisService.mgetJson<{ region?: unknown }>(
+      keys,
     );
 
-    return new Map(entries);
+    const result = new Map<number, string[]>();
+    for (let i = 0; i < storeIds.length; i++) {
+      const storeId = storeIds[i];
+      const parsed = rawValues[i];
+      try {
+        result.set(storeId, parsed ? normalizeRegionValues(parsed.region) : []);
+      } catch (error: unknown) {
+        this.logger.warn(
+          `[DashboardRevenueDetailService] 解析门店 ${storeId} 区域缓存失败: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        result.set(storeId, []);
+      }
+    }
+
+    return result;
   }
 
   private buildRevenueRegionText(

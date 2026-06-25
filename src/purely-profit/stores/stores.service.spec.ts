@@ -35,6 +35,10 @@ describe('StoresService', () => {
   const redisService = {
     get: jest.fn(),
     set: jest.fn(),
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+    mgetJson: jest.fn().mockResolvedValue([]),
+    delByPattern: jest.fn().mockResolvedValue(1),
   };
 
   const user: AuthenticatedUser = {
@@ -190,6 +194,7 @@ describe('StoresService', () => {
         latitude: 39.984104,
         longitude: 116.307503,
       }),
+      604800,
     );
     expect(result).toEqual({
       id: 9,
@@ -322,6 +327,7 @@ describe('StoresService', () => {
         storeType: '零售',
         region: ['北京市', '北京市', '朝阳区'],
       }),
+      604800,
     );
   });
 });

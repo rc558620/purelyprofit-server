@@ -13,6 +13,7 @@ import {
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisLockService } from '../../../redis/redis-lock.service';
 import type {
   OpenSpaceSessionDto,
   SpaceSessionResponseDto,
@@ -23,12 +24,20 @@ import { ensureOpenSessionPayload } from './space-session-open-validation.shared
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import type { SpaceBillingModeValue } from './spaces.constants';
 
+/** 开台分布式锁超时（秒）：事务最长耗时预估 + 冗余 */
+const OPEN_SESSION_LOCK_TTL_SECONDS = 15;
+/** 开台分布式锁重试次数：高并发时短暂等待后重试 */
+const OPEN_SESSION_LOCK_RETRY_TIMES = 3;
+/** 开台分布式锁重试间隔（毫秒） */
+const OPEN_SESSION_LOCK_RETRY_DELAY_MS = 60;
+
 @Injectable()
 export class SpaceSessionOpenService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly reservationsStateService: SpaceReservationsStateService,
+    private readonly redisLockService: RedisLockService,
   ) {}
 
   async openSession(
@@ -111,6 +120,36 @@ export class SpaceSessionOpenService {
       );
     }
 
+    // 分布式锁：防止多 worker 并发对同一空间重复开台
+    // 注意：FOR UPDATE 行锁保留，作为数据库层的最终保底
+    const lock = await this.redisLockService.acquireLock(
+      `space:session:open:${space.id}`,
+      {
+        ttlSeconds: OPEN_SESSION_LOCK_TTL_SECONDS,
+        retryTimes: OPEN_SESSION_LOCK_RETRY_TIMES,
+        retryDelayMs: OPEN_SESSION_LOCK_RETRY_DELAY_MS,
+      },
+    );
+
+    if (!lock) {
+      throw new ConflictException('当前空间正在处理其他操作，请稍后重试');
+    }
+
+    try {
+      return await this.openSessionUnderLock(space, payload);
+    } finally {
+      await this.redisLockService.releaseLock(lock);
+    }
+  }
+
+  private async openSessionUnderLock(
+    space: {
+      id: number;
+      storeId: number;
+      capacity: number | null;
+    },
+    payload: ReturnType<typeof normalizeOpenSessionPayload>,
+  ): Promise<SpaceSessionResponseDto> {
     const session = await this.prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`
         SELECT id

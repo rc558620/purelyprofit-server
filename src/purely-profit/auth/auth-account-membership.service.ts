@@ -138,7 +138,10 @@ export class AuthAccountMembershipService {
       }
 
       return normalizeStoreProfileMetadata(JSON.parse(raw));
-    } catch {
+    } catch (error: unknown) {
+      this.logger.warn(
+        `读取门店 ${storeId} 档案缓存失败，回退到默认值: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return normalizeStoreProfileMetadata(null);
     }
   }
@@ -211,8 +214,11 @@ export class AuthAccountMembershipService {
       if (cached) {
         return cached;
       }
-    } catch {
+    } catch (error: unknown) {
       // 缓存读取失败，回退到数据库查询
+      this.logger.warn(
+        `读取会员行缓存失败，回退到数据库查询: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     const rows = await this.queryMembershipRowsFromDb(payload, userEmail);
@@ -220,8 +226,11 @@ export class AuthAccountMembershipService {
     // 异步回填缓存，TTL 2 分钟
     this.redisService
       .setJson(cacheKey, rows, AUTH_MEMBERSHIP_ROWS_CACHE_TTL_SECONDS)
-      .catch(() => {
+      .catch((error: unknown) => {
         // 缓存写入失败不影响鉴权
+        this.logger.warn(
+          `回填会员行缓存失败: ${error instanceof Error ? error.message : String(error)}`,
+        );
       });
 
     return rows;
@@ -434,8 +443,11 @@ export class AuthAccountMembershipService {
       if (cached) {
         return cached;
       }
-    } catch {
+    } catch (error: unknown) {
       // 缓存读取失败，回退到数据库查询
+      this.logger.warn(
+        `读取用户关联门店缓存失败，回退到数据库查询: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     const stores = await this.prisma.store.findMany({
@@ -469,8 +481,11 @@ export class AuthAccountMembershipService {
         storeIds,
         AUTH_USER_RELATED_STORE_IDS_CACHE_TTL_SECONDS,
       )
-      .catch(() => {
+      .catch((error: unknown) => {
         // 缓存写入失败不影响鉴权
+        this.logger.warn(
+          `回填用户关联门店缓存失败: ${error instanceof Error ? error.message : String(error)}`,
+        );
       });
 
     return storeIds;
@@ -524,8 +539,11 @@ export class AuthAccountMembershipService {
       await this.redisService.delByPattern(
         `${AUTH_MEMBERSHIP_ROWS_CACHE_KEY_PREFIX}${userId}:*`,
       );
-    } catch {
+    } catch (error: unknown) {
       // 缓存失效失败不影响主流程，TTL 自然过期即可兜底
+      this.logger.warn(
+        `失效用户 ${userId} 会员行缓存失败，TTL 自然过期兜底: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 }

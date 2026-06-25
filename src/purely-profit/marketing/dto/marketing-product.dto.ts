@@ -334,4 +334,13 @@ export class MarketingProductDto {
 export class MarketingProductsResponseDto {
   @ApiProperty({ type: [MarketingProductDto] })
   items: MarketingProductDto[];
+
+  @ApiProperty({ example: 1, description: '总数' })
+  total: number;
+
+  @ApiProperty({ example: 1, description: '当前页码' })
+  page: number;
+
+  @ApiProperty({ example: 20, description: '每页数量' })
+  pageSize: number;
 }

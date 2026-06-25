@@ -14,7 +14,7 @@ enum MarketingPromotionType {
 model MarketingPromotion {
   id            Int                    @id @default(autoincrement())
   storeId       Int                    @map("store_id")
-  store         Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store         Store                  @relation(fields: [storeId], references: [id], onDelete: Restrict)
   /// 活动名称
   name          String
   /// 活动类型
@@ -46,7 +46,7 @@ model MarketingPromotion {
 model MarketingMemberLevelSetting {
   id          Int      @id @default(autoincrement())
   storeId     Int      @unique @map("store_id")
-  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   levels      Json     @default("[]")
   pointsRatio Json     @default("{}") @map("points_ratio")
   createdAt   DateTime @default(now()) @map("created_at")

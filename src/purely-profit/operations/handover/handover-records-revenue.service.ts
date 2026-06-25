@@ -74,18 +74,12 @@ export class HandoverRecordsRevenueService {
       'revenueSummary' | 'paymentItems' | 'orderItems'
     >
   > {
-    const orderWhere = buildSaleOrderWhere(
-      storeId,
-      shiftRange,
-    );
+    const orderWhere = buildSaleOrderWhere(storeId, shiftRange);
     const additionalOrderWhere = buildNonSpaceSessionOrderWhere(
       storeId,
       shiftRange,
     );
-    const cashFlowWhere = buildCashFlowWhere(
-      storeId,
-      shiftRange,
-    );
+    const cashFlowWhere = buildCashFlowWhere(storeId, shiftRange);
     const refundWhere = buildSpaceRefundOrderWhere(storeId, shiftRange);
 
     const [

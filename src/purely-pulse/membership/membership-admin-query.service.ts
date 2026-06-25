@@ -14,6 +14,7 @@ import type {
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
 import type {
   PulseAdminEmployeeCandidateDto,
+  PulseAdminMemberClubLevelBreakdownDto,
   PulseAdminMemberClubStatsDto,
   PulseAdminMemberSalesPeriodSummaryDto,
   PulseAdminMemberSalesStatsDto,
@@ -244,17 +245,25 @@ export class PulseMembershipAdminQueryService {
     const pendingBalanceFen = customerStats._sum.balance ?? 0;
 
     // 等级映射：regular→free / silver→gold / gold→platinum / diamond→diamond
-    const tierToClubLevel: Record<string, string> = {
+    const tierToClubLevel = {
       regular: 'free',
       silver: 'gold',
       gold: 'platinum',
       diamond: 'diamond',
+    } as const;
+    const levelBreakdown: PulseAdminMemberClubLevelBreakdownDto = {
+      free: 0,
+      gold: 0,
+      platinum: 0,
+      diamond: 0,
     };
-    const levelBreakdown = { free: 0, gold: 0, platinum: 0, diamond: 0 };
     for (const row of tierBreakdown) {
-      const clubLevel = tierToClubLevel[row.tier];
+      const clubLevel =
+        tierToClubLevel[row.tier as keyof typeof tierToClubLevel];
       if (clubLevel) {
-        levelBreakdown[clubLevel] = row._count.id;
+        levelBreakdown[
+          clubLevel as keyof PulseAdminMemberClubLevelBreakdownDto
+        ] = row._count.id;
       }
     }
 
@@ -291,8 +300,7 @@ export class PulseMembershipAdminQueryService {
 
     // 自然年起始
     const yearStart = new Date(
-      Date.UTC(shanghaiNow.getUTCFullYear(), 0, 1, 0, 0, 0, 0) -
-        shanghaiOffset,
+      Date.UTC(shanghaiNow.getUTCFullYear(), 0, 1, 0, 0, 0, 0) - shanghaiOffset,
     );
 
     // 本季起始（按自然季度：Q1=01-03, Q2=04-06, Q3=07-09, Q4=10-12）
@@ -325,15 +333,23 @@ export class PulseMembershipAdminQueryService {
 
     // 本季结束时刻（下一季起始）
     const nextQuarterIndex = quarterIndex + 1;
-    const nextQuarterStart = nextQuarterIndex < 4
-      ? new Date(
-          Date.UTC(shanghaiNow.getUTCFullYear(), nextQuarterIndex * 3, 1, 0, 0, 0, 0) -
-            shanghaiOffset,
-        )
-      : new Date(
-          Date.UTC(shanghaiNow.getUTCFullYear() + 1, 0, 1, 0, 0, 0, 0) -
-            shanghaiOffset,
-        );
+    const nextQuarterStart =
+      nextQuarterIndex < 4
+        ? new Date(
+            Date.UTC(
+              shanghaiNow.getUTCFullYear(),
+              nextQuarterIndex * 3,
+              1,
+              0,
+              0,
+              0,
+              0,
+            ) - shanghaiOffset,
+          )
+        : new Date(
+            Date.UTC(shanghaiNow.getUTCFullYear() + 1, 0, 1, 0, 0, 0, 0) -
+              shanghaiOffset,
+          );
 
     // 今年结束时刻（明年1月1日）
     const nextYearStart = new Date(
@@ -349,34 +365,55 @@ export class PulseMembershipAdminQueryService {
       type: 'recharge' as const,
     };
 
-    const [totalRecharge, todayRecharge, monthRecharge, quarterRecharge, yearRecharge, lastYearRecharge] =
-      await Promise.all([
-        this.prisma.marketingRecharge.aggregate({
-          where: rechargeBaseWhere,
-          _sum: { amount: true },
-          _count: { id: true },
-        }),
-        this.prisma.marketingRecharge.aggregate({
-          where: { ...rechargeBaseWhere, createdAt: { gte: todayStart, lt: todayEnd } },
-          _sum: { amount: true },
-        }),
-        this.prisma.marketingRecharge.aggregate({
-          where: { ...rechargeBaseWhere, createdAt: { gte: monthStart, lt: nextMonthStart } },
-          _sum: { amount: true },
-        }),
-        this.prisma.marketingRecharge.aggregate({
-          where: { ...rechargeBaseWhere, createdAt: { gte: quarterStart, lt: nextQuarterStart } },
-          _sum: { amount: true },
-        }),
-        this.prisma.marketingRecharge.aggregate({
-          where: { ...rechargeBaseWhere, createdAt: { gte: yearStart, lt: nextYearStart } },
-          _sum: { amount: true },
-        }),
-        this.prisma.marketingRecharge.aggregate({
-          where: { ...rechargeBaseWhere, createdAt: { gte: lastYearStart, lt: lastYearEnd } },
-          _sum: { amount: true },
-        }),
-      ]);
+    const [
+      totalRecharge,
+      todayRecharge,
+      monthRecharge,
+      quarterRecharge,
+      yearRecharge,
+      lastYearRecharge,
+    ] = await Promise.all([
+      this.prisma.marketingRecharge.aggregate({
+        where: rechargeBaseWhere,
+        _sum: { amount: true },
+        _count: { id: true },
+      }),
+      this.prisma.marketingRecharge.aggregate({
+        where: {
+          ...rechargeBaseWhere,
+          createdAt: { gte: todayStart, lt: todayEnd },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.marketingRecharge.aggregate({
+        where: {
+          ...rechargeBaseWhere,
+          createdAt: { gte: monthStart, lt: nextMonthStart },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.marketingRecharge.aggregate({
+        where: {
+          ...rechargeBaseWhere,
+          createdAt: { gte: quarterStart, lt: nextQuarterStart },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.marketingRecharge.aggregate({
+        where: {
+          ...rechargeBaseWhere,
+          createdAt: { gte: yearStart, lt: nextYearStart },
+        },
+        _sum: { amount: true },
+      }),
+      this.prisma.marketingRecharge.aggregate({
+        where: {
+          ...rechargeBaseWhere,
+          createdAt: { gte: lastYearStart, lt: lastYearEnd },
+        },
+        _sum: { amount: true },
+      }),
+    ]);
 
     const totalRechargeFen = totalRecharge._sum.amount ?? 0;
     const rechargeCount = totalRecharge._count.id;
@@ -463,7 +500,10 @@ export class PulseMembershipAdminQueryService {
         shanghaiNow.getUTCFullYear(),
         shanghaiNow.getUTCMonth(),
         shanghaiNow.getUTCDate(),
-        0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
       ) - shanghaiOffset,
     );
 
@@ -472,7 +512,10 @@ export class PulseMembershipAdminQueryService {
         shanghaiNow.getUTCFullYear(),
         shanghaiNow.getUTCMonth(),
         shanghaiNow.getUTCDate() - shanghaiNow.getUTCDay(),
-        0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
       ) - shanghaiOffset,
     );
 
@@ -480,7 +523,11 @@ export class PulseMembershipAdminQueryService {
       Date.UTC(
         shanghaiNow.getUTCFullYear(),
         shanghaiNow.getUTCMonth(),
-        1, 0, 0, 0, 0,
+        1,
+        0,
+        0,
+        0,
+        0,
       ) - shanghaiOffset,
     );
 
@@ -489,7 +536,8 @@ export class PulseMembershipAdminQueryService {
     );
 
     const lastYearStart = new Date(
-      Date.UTC(shanghaiNow.getUTCFullYear() - 1, 0, 1, 0, 0, 0, 0) - shanghaiOffset,
+      Date.UTC(shanghaiNow.getUTCFullYear() - 1, 0, 1, 0, 0, 0, 0) -
+        shanghaiOffset,
     );
     const lastYearEnd = new Date(
       Date.UTC(shanghaiNow.getUTCFullYear(), 0, 1, 0, 0, 0, 0) - shanghaiOffset,
@@ -502,47 +550,71 @@ export class PulseMembershipAdminQueryService {
       Date.UTC(
         shanghaiNow.getUTCFullYear(),
         shanghaiNow.getUTCMonth() - 1,
-        1, 0, 0, 0, 0,
+        1,
+        0,
+        0,
+        0,
+        0,
       ) - shanghaiOffset,
     );
     const prevYearStart = new Date(
-      Date.UTC(shanghaiNow.getUTCFullYear() - 1, 0, 1, 0, 0, 0, 0) - shanghaiOffset,
+      Date.UTC(shanghaiNow.getUTCFullYear() - 1, 0, 1, 0, 0, 0, 0) -
+        shanghaiOffset,
     );
     const prevYearEnd = yearStart;
 
-    const shanghaiNowMs = shanghaiNow.getTime();
     const shanghaiOffsetMs = shanghaiOffset;
 
     const [today, week, month, year, lastYear] = await Promise.all([
       this.buildSalesPeriodSummary(
-        storeId, 'today',
-        todayStart, now,
-        prevTodayStart, todayStart,
-        'hour', shanghaiOffsetMs,
+        storeId,
+        'today',
+        todayStart,
+        now,
+        prevTodayStart,
+        todayStart,
+        'hour',
+        shanghaiOffsetMs,
       ),
       this.buildSalesPeriodSummary(
-        storeId, 'week',
-        weekStart, now,
-        prevWeekStart, weekStart,
-        'day', shanghaiOffsetMs,
+        storeId,
+        'week',
+        weekStart,
+        now,
+        prevWeekStart,
+        weekStart,
+        'day',
+        shanghaiOffsetMs,
       ),
       this.buildSalesPeriodSummary(
-        storeId, 'month',
-        monthStart, now,
-        prevMonthStart, monthStart,
-        'day', shanghaiOffsetMs,
+        storeId,
+        'month',
+        monthStart,
+        now,
+        prevMonthStart,
+        monthStart,
+        'day',
+        shanghaiOffsetMs,
       ),
       this.buildSalesPeriodSummary(
-        storeId, 'year',
-        yearStart, now,
-        prevYearStart, prevYearEnd,
-        'month', shanghaiOffsetMs,
+        storeId,
+        'year',
+        yearStart,
+        now,
+        prevYearStart,
+        prevYearEnd,
+        'month',
+        shanghaiOffsetMs,
       ),
       this.buildSalesPeriodSummary(
-        storeId, 'lastYear',
-        lastYearStart, lastYearEnd,
-        null, null,
-        'month', shanghaiOffsetMs,
+        storeId,
+        'lastYear',
+        lastYearStart,
+        lastYearEnd,
+        null,
+        null,
+        'month',
+        shanghaiOffsetMs,
       ),
     ]);
 
@@ -561,12 +633,22 @@ export class PulseMembershipAdminQueryService {
     shanghaiOffsetMs: number,
   ): Promise<PulseAdminMemberSalesPeriodSummaryDto> {
     const shanghaiOffsetSeconds = shanghaiOffsetMs / 1000;
-    const granularityMap = { hour: 'hour', day: 'day', month: 'month' } as const;
+    const granularityMap = {
+      hour: 'hour',
+      day: 'day',
+      month: 'month',
+    } as const;
     const granularityText = granularityMap[bucketGranularity];
 
     // 使用 Prisma.sql 安全地构建 date_trunc 的 text 参数，避免字符串拼接
     const [currentRows, previousRows] = await Promise.all([
-      this.prisma.$queryRaw<Array<{ bucket: Date; sales: Prisma.Decimal | null; profit: Prisma.Decimal | null }>>`
+      this.prisma.$queryRaw<
+        Array<{
+          bucket: Date;
+          sales: Prisma.Decimal | null;
+          profit: Prisma.Decimal | null;
+        }>
+      >`
         SELECT
           date_trunc(${granularityText}::text,
             so.date + (${shanghaiOffsetSeconds} * interval '1 second')
@@ -581,7 +663,12 @@ export class PulseMembershipAdminQueryService {
         ORDER BY 1 ASC
       `,
       previousStart && previousEnd
-        ? this.prisma.$queryRaw<Array<{ sales: Prisma.Decimal | null; profit: Prisma.Decimal | null }>>`
+        ? this.prisma.$queryRaw<
+            Array<{
+              sales: Prisma.Decimal | null;
+              profit: Prisma.Decimal | null;
+            }>
+          >`
             SELECT
               COALESCE(SUM(so.total_revenue), 0) AS sales,
               COALESCE(SUM(so.total_profit), 0) AS profit
@@ -605,15 +692,27 @@ export class PulseMembershipAdminQueryService {
     const prevSales = Number(previousRows[0]?.sales ?? 0);
     const prevProfit = Number(previousRows[0]?.profit ?? 0);
 
-    const salesGrowthPct = prevSales > 0
-      ? Number((((totalSalesFen / 100 - prevSales) / prevSales) * 100).toFixed(2))
-      : null;
-    const profitGrowthPct = prevProfit > 0
-      ? Number((((totalProfitFen / 100 - prevProfit) / prevProfit) * 100).toFixed(2))
-      : null;
+    const salesGrowthPct =
+      prevSales > 0
+        ? Number(
+            (((totalSalesFen / 100 - prevSales) / prevSales) * 100).toFixed(2),
+          )
+        : null;
+    const profitGrowthPct =
+      prevProfit > 0
+        ? Number(
+            (((totalProfitFen / 100 - prevProfit) / prevProfit) * 100).toFixed(
+              2,
+            ),
+          )
+        : null;
 
     const dataPoints = currentRows.map((row) => ({
-      label: this.formatBucketLabel(row.bucket, bucketGranularity, shanghaiOffsetMs),
+      label: this.formatBucketLabel(
+        row.bucket,
+        bucketGranularity,
+        shanghaiOffsetMs,
+      ),
       salesFen: Math.round(Number(row.sales ?? 0) * 100),
       profitFen: Math.round(Number(row.profit ?? 0) * 100),
     }));

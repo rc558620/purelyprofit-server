@@ -255,7 +255,7 @@ describe('SalesRecordCreateFlowService', () => {
       orderDate,
       options: {
         skipInventoryValidationAndDeduction: true,
-        transactionClient,
+        transactionClient: transactionClient as never,
       },
     });
 

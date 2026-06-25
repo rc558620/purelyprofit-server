@@ -1,5 +1,10 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { StaffRole, StaffStatus, StoreSubscriptionStatus, SubscriptionPlanCode } from '@prisma/client';
+import {
+  StaffRole,
+  StaffStatus,
+  StoreSubscriptionStatus,
+  SubscriptionPlanCode,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
@@ -15,6 +20,9 @@ import {
 } from '../stores/stores.utils';
 
 const STORE_PROFILE_KEY_PREFIX = 'stores:profile:';
+
+/** 门店扩展字段缓存 TTL：7 天，与门店同生命周期量级 */
+const STORE_PROFILE_CACHE_TTL_SECONDS = 7 * 24 * 3600;
 
 /** STARTER 套餐快照（与 subscriptions.constants 保持一致） */
 const STARTER_PLAN_SNAPSHOT = { planName: '基础版', maxAccountSeats: 1 };
@@ -136,6 +144,7 @@ export class AuthRegisterStoreService {
     await this.redisService.set(
       `${STORE_PROFILE_KEY_PREFIX}${storeId}`,
       JSON.stringify(metadata),
+      STORE_PROFILE_CACHE_TTL_SECONDS,
     );
   }
 }

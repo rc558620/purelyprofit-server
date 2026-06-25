@@ -8,6 +8,10 @@ describe('JwtStrategy', () => {
       update: jest.fn().mockResolvedValue({}),
     },
   };
+  const redisService = {
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+  };
   const authAccountMembershipService = {
     ensureUserNotBanned: jest.fn(),
     resolveAuthenticatedMembership: jest.fn(),
@@ -33,6 +37,7 @@ describe('JwtStrategy', () => {
     new JwtStrategy(
       configService as never,
       prisma as never,
+      redisService as never,
       authAccountMembershipService as never,
       authSessionService as never,
     );

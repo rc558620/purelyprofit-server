@@ -52,7 +52,8 @@ export class PulseMemberListItemDto {
 
   @ApiPropertyOptional({
     example: 'https://cdn.example.com/avatar/user.png',
-    description: '用户头像 URL，未设置时为空串（对齐前端 MemberListItem.avatarUrl）',
+    description:
+      '用户头像 URL，未设置时为空串（对齐前端 MemberListItem.avatarUrl）',
   })
   @IsOptional()
   @IsString()
@@ -154,7 +155,8 @@ export class PulseMemberDetailDto {
 
   @ApiPropertyOptional({
     example: 'https://cdn.example.com/avatar/user.png',
-    description: '用户头像 URL，未设置时为空串（对齐前端 MemberDetail.avatarUrl）',
+    description:
+      '用户头像 URL，未设置时为空串（对齐前端 MemberDetail.avatarUrl）',
   })
   @IsOptional()
   @IsString()
@@ -478,17 +480,28 @@ export class PulseAdminMemberSalesPeriodSummaryDto {
   @IsInt()
   totalProfitFen: number;
 
-  @ApiPropertyOptional({ example: 12.5, description: '销售额环比增幅（百分比）', nullable: true })
+  @ApiPropertyOptional({
+    example: 12.5,
+    description: '销售额环比增幅（百分比）',
+    nullable: true,
+  })
   @IsOptional()
   @IsNumber()
   salesGrowthPct: number | null;
 
-  @ApiPropertyOptional({ example: 8.3, description: '利润环比增幅（百分比）', nullable: true })
+  @ApiPropertyOptional({
+    example: 8.3,
+    description: '利润环比增幅（百分比）',
+    nullable: true,
+  })
   @IsOptional()
   @IsNumber()
   profitGrowthPct: number | null;
 
-  @ApiProperty({ type: [PulseAdminMemberSalesDataPointDto], description: '各时间点明细' })
+  @ApiProperty({
+    type: [PulseAdminMemberSalesDataPointDto],
+    description: '各时间点明细',
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PulseAdminMemberSalesDataPointDto)

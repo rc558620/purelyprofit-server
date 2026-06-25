@@ -132,6 +132,11 @@ export default () => ({
       process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS ?? '5000',
       10,
     ),
+    /** 单条 SQL 语句超时（毫秒），防止单条慢查询无限占用连接池连接 */
+    statementTimeoutMs: parseInt(
+      process.env.DATABASE_STATEMENT_TIMEOUT_MS ?? '10000',
+      10,
+    ),
   },
 
   redis: {

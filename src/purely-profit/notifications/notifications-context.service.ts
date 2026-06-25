@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../commerce/commerce-access.service';
 import { RedisService } from '../../redis/redis.service';
@@ -15,6 +15,8 @@ import type {
 
 @Injectable()
 export class NotificationsContextService {
+  private readonly logger = new Logger(NotificationsContextService.name);
+
   constructor(
     private readonly commerceAccessService: CommerceAccessService,
     private readonly notificationsBuildService: NotificationsBuildService,
@@ -53,8 +55,11 @@ export class NotificationsContextService {
     if (cached) {
       try {
         return JSON.parse(cached) as NotificationDraft[];
-      } catch {
+      } catch (error: unknown) {
         // 缓存内容异常，回退到查库
+        this.logger.warn(
+          `[NotificationsContextService] 解析门店 ${storeId} 通知缓存失败: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
 

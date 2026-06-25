@@ -52,6 +52,8 @@ export const setupHandoverRecordsSpec = (): {
   beforeEach(async () => {
     jest.resetAllMocks();
     prismaService.employee.findUnique.mockResolvedValue({ linkedStaffId: 1 });
+    prismaService.employee.findMany.mockResolvedValue([]);
+    prismaService.employeeShift.findMany.mockResolvedValue([]);
     prismaService.saleOrderItem.findMany.mockResolvedValue([]);
     prismaService.saleOrder.findMany.mockResolvedValue([]);
     prismaService.saleOrder.count.mockResolvedValue(0);

@@ -394,7 +394,9 @@ export class GetPulseAdminMembersQueryDto {
     description: '会员到期时间筛选（相对当前时间），不传返回全部',
   })
   @IsOptional()
-  @IsIn(PULSE_MEMBER_FILTER_EXPIRY_VALUES, { message: '会员到期时间筛选不合法' })
+  @IsIn(PULSE_MEMBER_FILTER_EXPIRY_VALUES, {
+    message: '会员到期时间筛选不合法',
+  })
   expiry?: PulseMemberFilterExpiryValue;
 
   @ApiPropertyOptional({

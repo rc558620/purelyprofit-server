@@ -168,18 +168,12 @@ export class HandoverPageService {
   ): Promise<HandoverPageMetrics> {
     const { membership } = shiftContext;
     const shiftRange = { startAt, endAt };
-    const orderWhere = buildSaleOrderWhere(
-      membership.storeId,
-      shiftRange,
-    );
+    const orderWhere = buildSaleOrderWhere(membership.storeId, shiftRange);
     const additionalOrderWhere = buildNonSpaceSessionOrderWhere(
       membership.storeId,
       shiftRange,
     );
-    const cashFlowWhere = buildCashFlowWhere(
-      membership.storeId,
-      shiftRange,
-    );
+    const cashFlowWhere = buildCashFlowWhere(membership.storeId, shiftRange);
     const refundWhere = buildSpaceRefundOrderWhere(
       membership.storeId,
       shiftRange,
@@ -195,14 +189,8 @@ export class HandoverPageService {
       pettyCash,
       settledSpaceSessions,
     ] = await Promise.all([
-      this.loadPaymentOrderItems(
-        membership.storeId,
-        shiftRange,
-      ),
-      this.loadRecentOrderItems(
-        membership.storeId,
-        shiftRange,
-      ),
+      this.loadPaymentOrderItems(membership.storeId, shiftRange),
+      this.loadRecentOrderItems(membership.storeId, shiftRange),
       this.loadRefundOrders(refundWhere),
       this.prisma.saleOrder.count({ where: orderWhere }),
       this.loadSpaceRevenue(membership.storeId, startAt, endAt),
@@ -237,10 +225,7 @@ export class HandoverPageService {
     return this.prisma.saleOrderItem.findMany({
       where: {
         storeId,
-        order: buildSaleOrderItemOrderWhere(
-          storeId,
-          shiftRange,
-        ),
+        order: buildSaleOrderItemOrderWhere(storeId, shiftRange),
       },
       select: SALE_ORDER_ITEM_SELECT,
     });
@@ -253,10 +238,7 @@ export class HandoverPageService {
     return this.prisma.saleOrderItem.findMany({
       where: {
         storeId,
-        order: buildSaleOrderItemOrderWhere(
-          storeId,
-          shiftRange,
-        ),
+        order: buildSaleOrderItemOrderWhere(storeId, shiftRange),
       },
       select: SALE_ORDER_ITEM_SELECT,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

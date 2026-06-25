@@ -16,23 +16,23 @@ import { buildFinanceOverviewCacheKey } from '../purely-profit/finance/finance.c
 describe('cache prewarm providers', () => {
   const createProfitReadInput = () => ({
     dashboardHomeService: {
-      warmOverviewCache: jest.fn(() => Promise.resolve()),
+      warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
     },
     businessAnalysisService: {
-      warmAnalysisCache: jest.fn(() => Promise.resolve()),
+      warmAnalysisCache: jest.fn(() => Promise.resolve()) as never,
     },
     marketingOverviewService: {
-      warmOverviewCache: jest.fn(() => Promise.resolve()),
+      warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
     },
     membersService: {
-      warmMetaCache: jest.fn(() => Promise.resolve()),
-      warmOverviewCache: jest.fn(() => Promise.resolve()),
+      warmMetaCache: jest.fn(() => Promise.resolve()) as never,
+      warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
     },
   });
 
   it('profitDashboardHome provider 会直接预热首页缓存', async () => {
     const dashboardHomeService = {
-      warmOverviewCache: jest.fn(() => Promise.resolve()),
+      warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
     };
     const provider = profitDashboardHomeCachePrewarmProvider({
       ...createProfitReadInput(),
@@ -56,7 +56,7 @@ describe('cache prewarm providers', () => {
 
   it('businessAnalysis provider 会直接预热经营分析缓存', async () => {
     const businessAnalysisService = {
-      warmAnalysisCache: jest.fn(() => Promise.resolve()),
+      warmAnalysisCache: jest.fn(() => Promise.resolve()) as never,
     };
     const provider = businessAnalysisCachePrewarmProvider({
       ...createProfitReadInput(),
@@ -87,7 +87,7 @@ describe('cache prewarm providers', () => {
 
   it('marketingOverview provider 会直接预热营销概览缓存', async () => {
     const marketingOverviewService = {
-      warmOverviewCache: jest.fn(() => Promise.resolve()),
+      warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
     };
     const provider = marketingOverviewCachePrewarmProvider({
       ...createProfitReadInput(),
@@ -108,8 +108,8 @@ describe('cache prewarm providers', () => {
 
   it('membersMeta provider 会直接预热会员筛选缓存', async () => {
     const membersService = {
-      warmMetaCache: jest.fn(() => Promise.resolve()),
-      warmOverviewCache: jest.fn(() => Promise.resolve()),
+      warmMetaCache: jest.fn(() => Promise.resolve()) as never,
+      warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
     };
     const provider = membersMetaCachePrewarmProvider({
       ...createProfitReadInput(),
@@ -129,8 +129,8 @@ describe('cache prewarm providers', () => {
 
   it('membersOverview provider 会直接预热会员概览缓存', async () => {
     const membersService = {
-      warmMetaCache: jest.fn(() => Promise.resolve()),
-      warmOverviewCache: jest.fn(() => Promise.resolve()),
+      warmMetaCache: jest.fn(() => Promise.resolve()) as never,
+      warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
     };
     const provider = membersOverviewCachePrewarmProvider({
       ...createProfitReadInput(),
@@ -150,7 +150,7 @@ describe('cache prewarm providers', () => {
 
   it('financeOverview provider 会直接预热财务概览缓存', async () => {
     const financeOverviewService = {
-      warmOverviewCache: jest.fn(() => Promise.resolve()),
+      warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
     };
     const provider = financeOverviewCachePrewarmProvider({
       financeOverviewService,

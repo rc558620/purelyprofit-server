@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../../purely-club/member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -285,6 +286,12 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
       {
         provide: ClubMemberLevelsService,
         useValue: clubMemberLevelsService,
+      },
+      {
+        provide: ConfigService,
+        useValue: {
+          get: (key: string, defaultValue?: any) => defaultValue ?? 100,
+        },
       },
     ],
   }).compile();

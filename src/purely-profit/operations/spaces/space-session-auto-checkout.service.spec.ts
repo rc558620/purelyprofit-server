@@ -2,6 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
+import { RedisLockService } from '../../../redis/redis-lock.service';
 import {
   createSpaceSessionRecord,
   createSpaceTestUser,
@@ -31,14 +32,27 @@ describe('SpaceSessionAutoCheckoutService', () => {
   };
   const redisService = {
     getClient: jest.fn(() => redisClient),
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+    // setIfAbsent 由真实 RedisLockService 调用，这里委托给 redisClient.set
+    setIfAbsent: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     prismaService.spaceSession.findMany.mockResolvedValue([]);
     settlementService.settleSession.mockResolvedValue(undefined);
+    // redisClient.set 被 RedisService.setIfAbsent 内部调用（'EX', ttl, 'NX'）
     redisClient.set.mockResolvedValue('OK');
+    // redisClient.eval 被 RedisLockService.releaseLock 内部调用
     redisClient.eval.mockResolvedValue(1);
+    // setIfAbsent 委托给 redisClient.set，'OK' → true，null → false
+    redisService.setIfAbsent.mockImplementation(
+      async (key: string, value: string, ttlSeconds: number) => {
+        const result = await redisClient.set(key, value, 'EX', ttlSeconds, 'NX');
+        return result === 'OK';
+      },
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -49,6 +63,10 @@ describe('SpaceSessionAutoCheckoutService', () => {
           provide: SpaceSessionSettlementService,
           useValue: settlementService,
         },
+        // 使用真实 RedisLockService，注入 mock redisService
+        // 这样 acquireLock → redisService.setIfAbsent → redisClient.set
+        // releaseLock → redisService.getClient().eval → redisClient.eval
+        RedisLockService,
       ],
     }).compile();
 
@@ -82,7 +100,7 @@ describe('SpaceSessionAutoCheckoutService', () => {
     );
 
     expect(redisClient.set).toHaveBeenCalledWith(
-      'space:auto-checkout:store:18',
+      'distributed-lock:space:auto-checkout:store:18',
       expect.any(String),
       'EX',
       30,
@@ -109,7 +127,7 @@ describe('SpaceSessionAutoCheckoutService', () => {
     expect(redisClient.eval).toHaveBeenCalledWith(
       expect.stringContaining("redis.call('GET', KEYS[1]) == ARGV[1]"),
       1,
-      'space:auto-checkout:store:18',
+      'distributed-lock:space:auto-checkout:store:18',
       expect.any(String),
     );
     expect(result).toBe(1);
@@ -153,7 +171,7 @@ describe('SpaceSessionAutoCheckoutService', () => {
     expect(redisClient.eval).toHaveBeenCalledWith(
       expect.any(String),
       1,
-      'space:auto-checkout:store:18',
+      'distributed-lock:space:auto-checkout:store:18',
       expect.any(String),
     );
   });
@@ -190,7 +208,7 @@ describe('SpaceSessionAutoCheckoutService', () => {
     expect(redisClient.eval).toHaveBeenCalledWith(
       expect.any(String),
       1,
-      'space:auto-checkout:store:18',
+      'distributed-lock:space:auto-checkout:store:18',
       expect.any(String),
     );
     expect(logger.error).toHaveBeenCalledWith(
@@ -219,11 +237,14 @@ describe('SpaceSessionAutoCheckoutService', () => {
       'req-release-fail',
     );
 
+    // 锁释放失败由 RedisLockService 内部处理（error 级别日志），不应向外抛出
     expect(result).toBe(0);
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining(
-        '[space-auto-checkout] release_lock_failed trigger=scheduler:auto-checkout storeId=18 requestId=req-release-fail userId=1 reason=Error',
-      ),
+    // eval 被调用说明尝试释放锁了
+    expect(redisClient.eval).toHaveBeenCalledWith(
+      expect.any(String),
+      1,
+      'distributed-lock:space:auto-checkout:store:18',
+      expect.any(String),
     );
   });
 

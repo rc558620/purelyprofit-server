@@ -3,7 +3,7 @@
 model ProductCategory {
   id        Int       @id @default(autoincrement())
   storeId   Int       @map("store_id")
-  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store     Store     @relation(fields: [storeId], references: [id], onDelete: Restrict)
   name      String
   icon      String?
   products  Product[]
@@ -18,7 +18,7 @@ model ProductCategory {
 model Product {
   id             Int                      @id @default(autoincrement())
   storeId        Int                      @map("store_id")
-  store          Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store          Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   categoryId     Int?                     @map("category_id")
   categoryRecord ProductCategory?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   category       String

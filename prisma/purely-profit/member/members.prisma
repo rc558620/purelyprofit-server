@@ -40,7 +40,7 @@ enum MemberRechargeChannel {
 model Member {
   id                 Int                 @id @default(autoincrement())
   storeId            Int                 @map("store_id")
-  store              Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store              Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
   name               String
   phone              String?
   gender             MemberGender        @default(UNKNOWN)
@@ -66,6 +66,8 @@ model Member {
   memberRechargeLogs MemberRechargeLog[]
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt          DateTime?           @map("deleted_at")
 
   @@unique([storeId, phone])
   @@index([storeId, updatedAt])
@@ -81,7 +83,7 @@ model MemberPointsLog {
   memberId        Int                    @map("member_id")
   member          Member                 @relation(fields: [memberId], references: [id], onDelete: Cascade)
   storeId         Int                    @map("store_id")
-  store           Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store                  @relation(fields: [storeId], references: [id], onDelete: Restrict)
   operatorStaffId Int?                   @map("operator_staff_id")
   operatorStaff   Staff?                 @relation("MemberPointsLogsOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
   changeType      MemberPointsChangeType @map("change_type")
@@ -106,7 +108,7 @@ model MemberBeanLog {
   memberId        Int              @map("member_id")
   member          Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
   storeId         Int              @map("store_id")
-  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
   operatorStaffId Int?             @map("operator_staff_id")
   operatorStaff   Staff?           @relation("MemberBeanLogsOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
   source          MemberBeanSource
@@ -130,7 +132,7 @@ model MemberRechargeLog {
   memberId        Int                   @map("member_id")
   member          Member                @relation(fields: [memberId], references: [id], onDelete: Cascade)
   storeId         Int                   @map("store_id")
-  store           Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store                 @relation(fields: [storeId], references: [id], onDelete: Restrict)
   operatorStaffId Int?                  @map("operator_staff_id")
   operatorStaff   Staff?                @relation("MemberRechargeLogsOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
   planName        String                @map("plan_name")

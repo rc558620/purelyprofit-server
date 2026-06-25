@@ -3,7 +3,7 @@
 model Supplier {
   id        Int             @id @default(autoincrement())
   storeId   Int             @map("store_id")
-  store     Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store     Store           @relation(fields: [storeId], references: [id], onDelete: Restrict)
   name      String
   contact   String?
   phone     String?
@@ -21,7 +21,7 @@ model Supplier {
 model PurchaseOrder {
   id              Int                      @id @default(autoincrement())
   storeId         Int                      @map("store_id")
-  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   supplierId      Int?                     @map("supplier_id")
   supplier        Supplier?                @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   operatorStaffId Int?                     @map("operator_staff_id")
@@ -47,7 +47,7 @@ model PurchaseOrderItem {
   orderId     Int           @map("order_id")
   order       PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   storeId     Int           @map("store_id")
-  store       Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store       Store         @relation(fields: [storeId], references: [id], onDelete: Restrict)
   productId   Int?          @map("product_id")
   product     Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
   productName String        @map("product_name")

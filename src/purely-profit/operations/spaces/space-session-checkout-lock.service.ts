@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { RedisService } from '../../../redis/redis.service';
 import type {
@@ -11,6 +11,8 @@ const DEFAULT_SPACE_SESSION_CHECKOUT_LOCK_TTL_SECONDS = 5 * 60;
 
 @Injectable()
 export class SpaceSessionCheckoutLockService {
+  private readonly logger = new Logger(SpaceSessionCheckoutLockService.name);
+
   constructor(private readonly redisService: RedisService) {}
 
   async createLock(params: {
@@ -61,7 +63,10 @@ export class SpaceSessionCheckoutLockService {
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
-    } catch {
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[SpaceSessionCheckoutLockService] 解析锁单数据失败 lockId=${params.lockId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
       throw new BadRequestException('锁单数据异常，请重新预览后再结账');
     }
 

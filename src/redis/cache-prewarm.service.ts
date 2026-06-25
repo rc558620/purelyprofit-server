@@ -1,105 +1,37 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { CachePrewarmCycleService } from './cache-prewarm-cycle.service';
+import { Injectable, Logger } from '@nestjs/common';
 
+/**
+ * 缓存预热服务（遗留兼容层）
+ *
+ * ⚠️ 调度职责已迁移到 BullMQ（QueueModule > CachePrewarmProcessor）
+ *
+ * 该类保留为空壳，仅便于：
+ * 1. 渐进式迁移期间模块注册无需改动
+ * 2. 保留 RedisModule exports 稳定
+ * 3. 保留 `waitForRunningCycle()` 供测试套件使用（当前为空实现）
+ *
+ * 实际调度逻辑：
+ * - `src/queue/cache-prewarm.processor.ts`：BullMQ worker 处理器
+ * - `src/queue/queue-scheduler.service.ts`：repeatable job 注册
+ */
 @Injectable()
-export class CachePrewarmService implements OnModuleInit, OnModuleDestroy {
-  private intervalTimer: NodeJS.Timeout | null = null;
-  private initialDelayTimer: NodeJS.Timeout | null = null;
-  private isRunning = false;
-  private runningCycle: Promise<void> | null = null;
-  private cycleCount = 0;
-  private readonly enabled: boolean;
-  private readonly intervalMs: number;
-  private readonly initialDelayMs: number;
-  private readonly batchSize: number;
-  private readonly concurrency: number;
-  private readonly logEnabled: boolean;
-  private readonly logSampleEvery: number;
-  private readonly slowCycleThresholdMs: number;
-
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly cycleService: CachePrewarmCycleService,
-  ) {
-    this.enabled =
-      this.configService.get<boolean>('app.cachePrewarmEnabled') ?? true;
-    this.intervalMs =
-      this.configService.get<number>('app.cachePrewarmIntervalMs') ?? 15_000;
-    this.initialDelayMs =
-      this.configService.get<number>('app.cachePrewarmInitialDelayMs') ?? 5_000;
-    this.batchSize =
-      this.configService.get<number>('app.cachePrewarmBatchSize') ?? 30;
-    this.concurrency = Math.max(
-      1,
-      this.configService.get<number>('app.cachePrewarmConcurrency') ?? 4,
-    );
-    this.logEnabled =
-      this.configService.get<boolean>('app.cachePrewarmLogEnabled') ?? true;
-    this.logSampleEvery = Math.max(
-      1,
-      this.configService.get<number>('app.cachePrewarmLogSampleEvery') ?? 20,
-    );
-    this.slowCycleThresholdMs =
-      this.configService.get<number>('app.cachePrewarmSlowCycleThresholdMs') ??
-      1_500;
-  }
+export class CachePrewarmService {
+  private readonly logger = new Logger(CachePrewarmService.name);
 
   onModuleInit(): void {
-    if (!this.enabled) {
-      return;
-    }
-
-    this.initialDelayTimer = setTimeout(() => {
-      void this.runCycle();
-      this.intervalTimer = setInterval(() => {
-        void this.runCycle();
-      }, this.intervalMs);
-      this.intervalTimer.unref?.();
-    }, this.initialDelayMs);
-    this.initialDelayTimer.unref?.();
+    this.logger.log(
+      '[cache-prewarm] scheduling delegated to BullMQ (QueueModule)',
+    );
   }
 
-  onModuleDestroy(): void {
-    if (this.initialDelayTimer) {
-      clearTimeout(this.initialDelayTimer);
-      this.initialDelayTimer = null;
-    }
-
-    if (this.intervalTimer) {
-      clearInterval(this.intervalTimer);
-      this.intervalTimer = null;
-    }
-  }
-
+  /**
+   * 等待当前正在运行的预热周期完成
+   *
+   * 注意：当前为空实现，因为调度已由 BullMQ 接管。
+   * 保留该方法以兼容测试套件可能的调用。
+   */
   async waitForRunningCycle(): Promise<void> {
-    if (this.runningCycle) {
-      await this.runningCycle;
-    }
-  }
-
-  private async runCycle(): Promise<void> {
-    if (this.isRunning) {
-      return;
-    }
-
-    this.isRunning = true;
-    this.cycleCount += 1;
-
-    try {
-      const cyclePromise = this.cycleService.runCycle({
-        cycleId: this.cycleCount,
-        batchSize: this.batchSize,
-        concurrency: this.concurrency,
-        logEnabled: this.logEnabled,
-        logSampleEvery: this.logSampleEvery,
-        slowCycleThresholdMs: this.slowCycleThresholdMs,
-      });
-      this.runningCycle = cyclePromise;
-      await cyclePromise;
-    } finally {
-      this.isRunning = false;
-      this.runningCycle = null;
-    }
+    // BullMQ 调度模式下，此方法无实际等待行为
+    return Promise.resolve();
   }
 }

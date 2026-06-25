@@ -164,25 +164,35 @@ export class StoreSubAccountSlotService {
       existingSlots.map((slot) => slot.slotIndex),
     );
 
+    // 收集需要更新（已有 slot）和需要创建（新 slot）的索引列表
+    const slotIndexesToUpdate: number[] = [];
+    const slotIndexesToCreate: number[] = [];
     for (let slotIndex = 1; slotIndex <= quota; slotIndex += 1) {
       if (existingSlotIndexes.has(slotIndex)) {
-        await tx.storeSubAccount.update({
-          where: {
-            storeId_slotIndex: {
-              storeId,
-              slotIndex,
-            },
-          },
-          data: {
-            status: StoreSubAccountStatus.active,
-            canAccessHome: true,
-          },
-        });
-        continue;
+        slotIndexesToUpdate.push(slotIndex);
+      } else {
+        slotIndexesToCreate.push(slotIndex);
       }
+    }
 
-      await tx.storeSubAccount.create({
+    // 批量激活已有 slot（updateMany by storeId + slotIndex IN），替代逐条 update
+    if (slotIndexesToUpdate.length > 0) {
+      await tx.storeSubAccount.updateMany({
+        where: {
+          storeId,
+          slotIndex: { in: slotIndexesToUpdate },
+        },
         data: {
+          status: StoreSubAccountStatus.active,
+          canAccessHome: true,
+        },
+      });
+    }
+
+    // 批量创建缺失 slot（createMany），替代逐条 create
+    if (slotIndexesToCreate.length > 0) {
+      await tx.storeSubAccount.createMany({
+        data: slotIndexesToCreate.map((slotIndex) => ({
           storeId,
           slotIndex,
           role: StoreSubAccountRole.cashier,
@@ -190,7 +200,7 @@ export class StoreSubAccountSlotService {
           isAssigned: false,
           canAccessHome: true,
           canUseHandover: true,
-        },
+        })),
       });
     }
 

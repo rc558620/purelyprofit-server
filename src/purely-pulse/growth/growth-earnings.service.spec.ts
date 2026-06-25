@@ -150,7 +150,7 @@ describe('PulseGrowthEarningsService', () => {
       promoRecords: [],
       pendingWithdrawals: 0,
     };
-    const logs = [];
+    const logs: Array<Record<string, unknown>> = [];
     const mapped = {
       approvedPartner: null,
       approvedPartners: [],
@@ -190,7 +190,7 @@ describe('PulseGrowthEarningsService', () => {
       promoRecords: [],
       pendingWithdrawals: 0,
     };
-    const logs = [];
+    const logs: Array<Record<string, unknown>> = [];
     const mapped = {
       approvedPartner: null,
       approvedPartners: [],

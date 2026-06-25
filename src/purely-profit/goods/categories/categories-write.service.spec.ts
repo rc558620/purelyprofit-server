@@ -227,14 +227,11 @@ describe('CategoriesWriteService', () => {
         icon: null,
       },
     );
-    expect(mockedRenameCategoryProducts).toHaveBeenCalledWith(
-      transactionMock,
-      {
-        storeId: 18,
-        categoryId: 11,
-        name: '酒水',
-      },
-    );
+    expect(mockedRenameCategoryProducts).toHaveBeenCalledWith(transactionMock, {
+      storeId: 18,
+      categoryId: 11,
+      name: '酒水',
+    });
   });
 
   it('update 在不修改名称时不触发重命名商品', async () => {
@@ -262,9 +259,9 @@ describe('CategoriesWriteService', () => {
 
     mockedBuildCategoryResponse.mockReturnValue(response);
 
-    await expect(
-      service.update(user, 11, { icon: '' }),
-    ).resolves.toEqual(response);
+    await expect(service.update(user, 11, { icon: '' })).resolves.toEqual(
+      response,
+    );
 
     expect(mockedFindCategoryDuplicateByName).not.toHaveBeenCalled();
     expect(mockedRenameCategoryProducts).not.toHaveBeenCalled();
@@ -293,13 +290,10 @@ describe('CategoriesWriteService', () => {
       '无权删除该门店商品分类',
     );
     expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
-    expect(mockedClearCategoryProducts).toHaveBeenCalledWith(
-      transactionMock,
-      {
-        storeId: 18,
-        categoryId: 11,
-      },
-    );
+    expect(mockedClearCategoryProducts).toHaveBeenCalledWith(transactionMock, {
+      storeId: 18,
+      categoryId: 11,
+    });
     expect(mockedDeleteCategoryRecord).toHaveBeenCalledWith(
       transactionMock,
       11,

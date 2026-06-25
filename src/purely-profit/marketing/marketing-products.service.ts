@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   toNullableMediaText,
@@ -39,6 +40,7 @@ export class MarketingProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly marketingSharedService: MarketingSharedService,
+    private readonly configService: ConfigService,
   ) {}
 
   async listProducts(
@@ -51,20 +53,39 @@ export class MarketingProductsService {
         query.storeId,
       );
     if (!resolvedStoreId) {
-      return { items: [] };
+      return { items: [], total: 0, page: 1, pageSize: 0 };
     }
 
-    const rows = await this.prisma.marketingProduct.findMany({
-      where: buildMarketingProductWhere({
-        storeId: resolvedStoreId,
-        categoryId: query.categoryId,
+    const maxPageSize = this.configService.get<number>('app.maxPageSize', 100);
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? maxPageSize;
+    const take = Math.min(pageSize, maxPageSize);
+    const skip = (page - 1) * take;
+
+    const [rows, total] = await Promise.all([
+      this.prisma.marketingProduct.findMany({
+        where: buildMarketingProductWhere({
+          storeId: resolvedStoreId,
+          categoryId: query.categoryId,
+        }),
+        include: MARKETING_PRODUCT_ROW_INCLUDE,
+        orderBy: resolveMarketingProductOrderBy(query.sortBy),
+        take,
+        skip,
       }),
-      include: MARKETING_PRODUCT_ROW_INCLUDE,
-      orderBy: resolveMarketingProductOrderBy(query.sortBy),
-    });
+      this.prisma.marketingProduct.count({
+        where: buildMarketingProductWhere({
+          storeId: resolvedStoreId,
+          categoryId: query.categoryId,
+        }),
+      }),
+    ]);
 
     return {
       items: rows.map((row) => mapProductRow(this.toProductRow(row))),
+      total,
+      page,
+      pageSize: take,
     };
   }
 

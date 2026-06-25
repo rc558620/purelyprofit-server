@@ -118,6 +118,8 @@ model Store {
   wechatConfiguredAt          DateTime?                     @map("wechat_configured_at")
   createdAt                   DateTime                      @default(now()) @map("created_at")
   updatedAt                   DateTime                      @updatedAt @map("updated_at")
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt                   DateTime?                     @map("deleted_at")
 
   @@index([ownerId, updatedAt])
   @@index([name])
@@ -128,7 +130,7 @@ model Store {
 model StoreSubscription {
   id              Int                     @id @default(autoincrement())
   storeId         Int                     @unique @map("store_id")
-  store           Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store                   @relation(fields: [storeId], references: [id], onDelete: Restrict)
   planCode        SubscriptionPlanCode    @map("plan_code")
   planName        String                  @map("plan_name")
   status          StoreSubscriptionStatus @default(ACTIVE)
@@ -145,7 +147,7 @@ model StoreSubscription {
 model Staff {
   id                   Int                           @id @default(autoincrement())
   storeId              Int                           @map("store_id")
-  store                Store                         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store                Store                         @relation(fields: [storeId], references: [id], onDelete: Restrict)
   userId               Int?                          @unique @map("user_id")
   user                 User?                         @relation(fields: [userId], references: [id], onDelete: SetNull)
   email                String

@@ -15,7 +15,7 @@ enum SalesCalcMode {
 model SaleOrder {
   id              Int                      @id @default(autoincrement())
   storeId         Int                      @map("store_id")
-  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   operatorStaffId Int?                     @map("operator_staff_id")
   operatorStaff   Staff?                   @relation("SaleOrderOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
   operatorNameSnapshot String?              @map("operator_name_snapshot") @db.VarChar(100)
@@ -45,7 +45,7 @@ model SaleOrderItem {
   orderId      Int       @map("order_id")
   order        SaleOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   storeId      Int       @map("store_id")
-  store        Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store        Store     @relation(fields: [storeId], references: [id], onDelete: Restrict)
   productId    Int?      @map("product_id")
   product      Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
   productName  String    @map("product_name")

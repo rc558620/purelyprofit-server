@@ -29,7 +29,7 @@ enum CostSourceType {
 model CostRecord {
   id              Int              @id @default(autoincrement())
   storeId         Int              @map("store_id")
-  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
   operatorStaffId Int?             @map("operator_staff_id")
   operatorStaff   Staff?           @relation("CostRecordOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
   purchaseOrderId Int?             @map("purchase_order_id")

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -25,6 +26,7 @@ import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.serv
 import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthSmsService } from './auth-sms.service';
+import { AuthRegisterStoreService } from './auth-register-store.service';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 
 describe('AuthService', () => {
@@ -66,6 +68,10 @@ describe('AuthService', () => {
     set: jest.fn(),
     setIfAbsent: jest.fn(),
     del: jest.fn(),
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+    mgetJson: jest.fn().mockResolvedValue([]),
+    delByPattern: jest.fn().mockResolvedValue(1),
   };
   const configService = {
     get: jest.fn(),
@@ -122,6 +128,7 @@ describe('AuthService', () => {
         AuthProfileService,
         AuthSessionService,
         AuthCapabilityService,
+        AuthRegisterStoreService,
         SubjectCapabilityService,
         { provide: PrismaService, useValue: prismaService },
         { provide: JwtService, useValue: jwtService },
@@ -183,7 +190,7 @@ describe('AuthService', () => {
         },
       },
     });
-    expect(result).toEqual({ access_token: 'admin-token' });
+    expect(result).toEqual({ access_token: 'admin-token', userId: 1 });
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 1,
       phone: '13619654020',
@@ -233,7 +240,7 @@ describe('AuthService', () => {
         },
       },
     });
-    expect(result).toEqual({ access_token: 'sub-account-token' });
+    expect(result).toEqual({ access_token: 'sub-account-token', userId: 59 });
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 59,
       phone: '13145645646',
@@ -265,7 +272,7 @@ describe('AuthService', () => {
           requireDeveloper: true,
         },
       ),
-    ).resolves.toEqual({ access_token: 'pulse-dev-token' });
+    ).resolves.toEqual({ access_token: 'pulse-dev-token', userId: 66 });
 
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 66,
@@ -333,19 +340,12 @@ describe('AuthService', () => {
         password: hashedPassword,
       },
     });
-    prismaService.store.findMany.mockResolvedValue([
-      { id: 18 },
-      { id: 19 },
-    ]);
-    // redisService.get 可能被多处调用：
-    // - ensureUserNotBanned: 对门店 18/19 查 ban reason
-    // - signToken.getTokenVersion: 查 token version
-    // 门店 18 被封（返回 reason），门店 19 未被封（返回 null），token version 返回 '0'
-    redisService.get.mockImplementation((key: string) => {
-      if (key.includes(':member:18:ban-reason')) return Promise.resolve('违规操作');
-      if (key.includes(':member:19:ban-reason')) return Promise.resolve(null);
-      return Promise.resolve('0');
-    });
+    prismaService.store.findMany.mockResolvedValue([{ id: 18 }, { id: 19 }]);
+    // ensureUserNotBanned 使用 mgetJson 批量查询封禁状态
+    // 门店 18 被封（返回 reason），门店 19 未被封（返回 null）
+    redisService.mgetJson.mockResolvedValue(['违规操作', null]);
+    // signToken.getTokenVersion 使用 get 查 token version
+    redisService.get.mockResolvedValue('0');
     redisService.set.mockResolvedValue(undefined);
     jwtService.signAsync.mockResolvedValue('partial-ban-token');
 
@@ -354,7 +354,7 @@ describe('AuthService', () => {
         phone: '13900139000',
         password: 'partial123',
       }),
-    ).resolves.toEqual({ access_token: 'partial-ban-token' });
+    ).resolves.toEqual({ access_token: 'partial-ban-token', userId: 19 });
   });
 
   it('修改密码后会刷新 token 并使旧 token 失效', async () => {
@@ -668,7 +668,7 @@ describe('AuthService', () => {
         },
         'purely_club',
       ),
-    ).resolves.toEqual({ access_token: 'club-code-token' });
+    ).resolves.toEqual({ access_token: 'club-code-token', userId: 7 });
 
     expect(redisService.del).toHaveBeenCalledWith(
       'auth:register:purely_club:13800138000',
@@ -713,7 +713,7 @@ describe('AuthService', () => {
         },
         'purely_club',
       ),
-    ).resolves.toEqual({ access_token: 'club-auto-register-token' });
+    ).resolves.toEqual({ access_token: 'club-auto-register-token', userId: 77 });
 
     expect(prismaService.user.create).toHaveBeenCalledWith({
       data: {
@@ -753,7 +753,7 @@ describe('AuthService', () => {
         },
         'purely_club',
       ),
-    ).resolves.toEqual({ access_token: 'club-wechat-token' });
+    ).resolves.toEqual({ access_token: 'club-wechat-token', userId: 88 });
 
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 88,
@@ -793,7 +793,7 @@ describe('AuthService', () => {
         },
         'purely_club',
       ),
-    ).resolves.toEqual({ access_token: 'club-phone-reuse-token' });
+    ).resolves.toEqual({ access_token: 'club-phone-reuse-token', userId: 88 });
 
     expect(prismaService.user.create).not.toHaveBeenCalled();
     expect(jwtService.signAsync).toHaveBeenCalledWith({
@@ -833,7 +833,7 @@ describe('AuthService', () => {
         },
         'purely_club',
       ),
-    ).resolves.toEqual({ access_token: 'club-wechat-merge-token' });
+    ).resolves.toEqual({ access_token: 'club-wechat-merge-token', userId: 66 });
 
     expect(prismaService.user.update).toHaveBeenCalledWith({
       where: { id: 66 },

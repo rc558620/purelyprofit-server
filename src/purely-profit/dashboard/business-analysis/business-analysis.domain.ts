@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import {
   addMoneyValues,
   getDayStartTimestamp,
@@ -16,6 +17,8 @@ import type {
   CostBucketKey,
   SalesAggregationResult,
 } from './business-analysis.types';
+
+const logger = new Logger('BusinessAnalysisDomain');
 
 export function createEmptySalesAggregation(): SalesAggregationResult {
   return {
@@ -144,7 +147,7 @@ export function mapCostBucket(category: string): CostBucketKey {
     default:
       // 未知成本类型静默归入 other，但打印告警日志便于排查新增类型
       if (!KNOWN_COST_CATEGORIES.has(category)) {
-        console.warn(
+        logger.warn(
           `[business-analysis] 未知成本类型 "${category}"，已归入「其他」，请确认是否需要新增分类`,
         );
       }

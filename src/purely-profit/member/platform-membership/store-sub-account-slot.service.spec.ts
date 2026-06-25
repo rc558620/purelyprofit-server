@@ -100,6 +100,7 @@ describe('StoreSubAccountSlotService', () => {
             ]),
           update: jest.fn().mockResolvedValue(undefined),
           create: jest.fn().mockResolvedValue(undefined),
+          createMany: jest.fn().mockResolvedValue(undefined),
           updateMany: jest.fn().mockResolvedValue(undefined),
         },
         storeSubAccountQuotaAudit: {
@@ -142,29 +143,29 @@ describe('StoreSubAccountSlotService', () => {
           subAccountQuota: 2,
         },
       });
-      expect(tx.storeSubAccount.update).toHaveBeenCalledWith({
+      expect(tx.storeSubAccount.updateMany).toHaveBeenCalledWith({
         where: {
-          storeId_slotIndex: {
-            storeId: 1,
-            slotIndex: 1,
-          },
+          storeId: 1,
+          slotIndex: { in: [1] },
         },
         data: {
           status: StoreSubAccountStatus.active,
           canAccessHome: true,
         },
       });
-      expect(tx.storeSubAccount.create).toHaveBeenCalledTimes(1);
-      expect(tx.storeSubAccount.create).toHaveBeenCalledWith({
-        data: {
-          storeId: 1,
-          slotIndex: 2,
-          role: StoreSubAccountRole.cashier,
-          status: StoreSubAccountStatus.active,
-          isAssigned: false,
-          canAccessHome: true,
-          canUseHandover: true,
-        },
+      expect(tx.storeSubAccount.createMany).toHaveBeenCalledTimes(1);
+      expect(tx.storeSubAccount.createMany).toHaveBeenCalledWith({
+        data: [
+          {
+            storeId: 1,
+            slotIndex: 2,
+            role: StoreSubAccountRole.cashier,
+            status: StoreSubAccountStatus.active,
+            isAssigned: false,
+            canAccessHome: true,
+            canUseHandover: true,
+          },
+        ],
       });
       expect(tx.storeSubAccount.updateMany).toHaveBeenCalledWith({
         where: {

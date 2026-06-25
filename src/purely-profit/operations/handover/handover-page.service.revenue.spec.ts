@@ -208,12 +208,23 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     prismaService.storeHandoverRecord.count.mockImplementation(({ where }) => {
       const snapshotCondition = Array.isArray(where?.OR)
-        ? where.OR.find((item) => item?.employeeShiftIdSnapshot)
+        ? where.OR.find(
+            (item: Record<string, unknown>) => item?.employeeShiftIdSnapshot,
+          )
         : null;
       return Promise.resolve(
         snapshotCondition?.employeeShiftIdSnapshot === 701 ? 1 : 0,
       );
     });
+    // loadHandedOverShiftIds 使用 findMany 批量加载已交班记录
+    prismaService.storeHandoverRecord.findMany.mockResolvedValue([
+      {
+        employeeShiftIdSnapshot: 701,
+        fromEmployeeId: 20,
+        handoverAt: null,
+        createdAt: new Date(0),
+      },
+    ] as never);
     mockEmptySaleOrderItems();
     prismaService.employee.findUnique.mockResolvedValueOnce(
       ctx.createEmployeeProfile({
@@ -307,12 +318,23 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     prismaService.storeHandoverRecord.count.mockImplementation(({ where }) => {
       const snapshotCondition = Array.isArray(where?.OR)
-        ? where.OR.find((item) => item?.employeeShiftIdSnapshot)
+        ? where.OR.find(
+            (item: Record<string, unknown>) => item?.employeeShiftIdSnapshot,
+          )
         : null;
       return Promise.resolve(
         snapshotCondition?.employeeShiftIdSnapshot === 711 ? 1 : 0,
       );
     });
+    // loadHandedOverShiftIds 使用 findMany 批量加载已交班记录
+    prismaService.storeHandoverRecord.findMany.mockResolvedValue([
+      {
+        employeeShiftIdSnapshot: 711,
+        fromEmployeeId: 20,
+        handoverAt: null,
+        createdAt: new Date(0),
+      },
+    ] as never);
     prismaService.storeHandoverRecord.findFirst.mockResolvedValue({
       handoverAt: new Date(2026, 5, 5, 17, 14, 0),
     });

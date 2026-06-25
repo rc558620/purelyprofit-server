@@ -1,7 +1,6 @@
-import { forwardRef, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { AuthModule } from '../../purely-profit/auth/auth.module';
 import { StoresModule } from '../../purely-profit/stores/stores.module';
-import { RedisModule } from '../../redis/redis.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubCurrentContextInterceptor } from './club-current-context.interceptor';
 import { ClubCurrentStoreContextService } from './club-current-store-context.service';
@@ -11,12 +10,7 @@ import { ClubStoresController } from './club-stores.controller';
 import { ClubStoresService } from './club-stores.service';
 
 @Module({
-  imports: [
-    forwardRef(() => AuthModule),
-    PrismaModule,
-    RedisModule,
-    StoresModule,
-  ],
+  imports: [AuthModule, PrismaModule, StoresModule],
   controllers: [ClubStoresController],
   providers: [
     ClubStoreAccessService,

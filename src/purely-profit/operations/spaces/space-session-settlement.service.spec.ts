@@ -14,6 +14,7 @@ import {
   expectedSalesRecordCreateOptions,
 } from './space-session.spec-helpers';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { SpaceReservationsStateService } from './space-reservations-state.service';
 
 describe('SpaceSessionSettlementService', () => {
   let service: SpaceSessionSettlementService;
@@ -34,6 +35,14 @@ describe('SpaceSessionSettlementService', () => {
   };
   const redisService = {
     getClient: jest.fn(() => redisClient),
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+  };
+  const reservationsStateService = {
+    ensureReservationCanBeFulfilled: jest.fn(),
+    findNextReservationToActivate: jest.fn().mockResolvedValue(null),
+    cancelMatchedReservationAfterCheckout: jest.fn().mockResolvedValue(null),
+    resolveReservationBackStatus: jest.fn().mockResolvedValue('idle'),
   };
 
   beforeEach(async () => {
@@ -57,6 +66,10 @@ describe('SpaceSessionSettlementService', () => {
           useValue: cacheInvalidatorService,
         },
         { provide: RedisService, useValue: redisService },
+        {
+          provide: SpaceReservationsStateService,
+          useValue: reservationsStateService,
+        },
       ],
     }).compile();
 
@@ -288,45 +301,23 @@ describe('SpaceSessionSettlementService', () => {
       id: 7,
       status: PrismaSpaceStatus.cleaning,
     });
-    transactionClient.spaceReservation.findMany.mockResolvedValue([
-      {
-        id: 31,
-        reservedAt: new Date('2026-06-04T09:05:00.000Z'),
-      },
-      {
-        id: 32,
-        reservedAt: new Date('2026-06-04T09:10:00.000Z'),
-      },
-    ]);
-    transactionClient.spaceReservation.updateMany
-      .mockResolvedValueOnce({ count: 0 })
-      .mockResolvedValueOnce({ count: 1 });
-    transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
+    // 取消预约的逻辑已移至 SpaceReservationsStateService.cancelMatchedReservationAfterCheckout
+    // mock 该方法返回 32 表示成功取消了预约ID为32的记录
+    reservationsStateService.cancelMatchedReservationAfterCheckout.mockResolvedValueOnce(
+      32,
+    );
 
     const result = await service.settleSession(user, params);
 
     expect(
-      transactionClient.spaceReservation.updateMany,
-    ).toHaveBeenNthCalledWith(1, {
-      where: {
-        id: 31,
-        status: 'pending',
-      },
-      data: {
-        status: 'cancelled',
-      },
-    });
-    expect(
-      transactionClient.spaceReservation.updateMany,
-    ).toHaveBeenNthCalledWith(2, {
-      where: {
-        id: 32,
-        status: 'pending',
-      },
-      data: {
-        status: 'cancelled',
-      },
-    });
+      reservationsStateService.cancelMatchedReservationAfterCheckout,
+    ).toHaveBeenCalledWith(
+      transactionClient,
+      expect.objectContaining({
+        reservationId: null,
+        spaceId: params.session.spaceId,
+      }),
+    );
     expect(result.cancelledReservationId).toBe(32);
   });
 });

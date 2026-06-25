@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { recordCachePrewarmCycle } from '../observability';
 import { BusinessAnalysisService } from '../purely-profit/dashboard/business-analysis/business-analysis.service';
 import { DashboardHomeService } from '../purely-profit/dashboard/dashboard-home/dashboard-home.service';
@@ -33,6 +33,8 @@ export type CachePrewarmCycleRunInput = {
 
 @Injectable()
 export class CachePrewarmCycleService {
+  private readonly logger = new Logger(CachePrewarmCycleService.name);
+
   constructor(
     private readonly redisService: RedisService,
     private readonly dashboardHomeService: DashboardHomeService,
@@ -66,7 +68,7 @@ export class CachePrewarmCycleService {
     } catch (error: unknown) {
       const durationMs = Date.now() - startedAt;
       recordCachePrewarmCycle(buildFailedCachePrewarmCycleMetrics(durationMs));
-      console.error('[cache-prewarm] cycle failed', error);
+      this.logger.error('[cache-prewarm] cycle failed', error);
     }
   }
 
@@ -128,6 +130,6 @@ export class CachePrewarmCycleService {
       return;
     }
 
-    console.info(buildCachePrewarmCycleSummaryLog(input.cycleId, metrics));
+    this.logger.log(buildCachePrewarmCycleSummaryLog(input.cycleId, metrics));
   }
 }

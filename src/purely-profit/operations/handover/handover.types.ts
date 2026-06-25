@@ -1,4 +1,10 @@
-import { EmployeeShiftType, Prisma, SalesPaymentMethod, StaffRole, StoreSubAccountRole } from '@prisma/client';
+import {
+  EmployeeShiftType,
+  Prisma,
+  SalesPaymentMethod,
+  StaffRole,
+  StoreSubAccountRole,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { HandoverShiftInfoDto } from './dto/handover-page.dto';
 

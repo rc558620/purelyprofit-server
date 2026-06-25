@@ -1,4 +1,4 @@
-import { forwardRef, Global, Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { BusinessAnalysisModule } from '../purely-profit/dashboard/business-analysis/business-analysis.module';
 import { DashboardHomeModule } from '../purely-profit/dashboard/dashboard-home/dashboard-home.module';
 import { FinanceModule } from '../purely-profit/finance/finance.module';
@@ -11,19 +11,21 @@ import { CacheInvalidatorPulseService } from './cache-invalidator-pulse.service'
 import { CacheInvalidatorService } from './cache-invalidator.service';
 import { CachePrewarmCycleService } from './cache-prewarm-cycle.service';
 import { CachePrewarmService } from './cache-prewarm.service';
+import { RedisLockService } from './redis-lock.service';
 import { RedisService } from './redis.service';
 
 @Global()
 @Module({
   imports: [
-    forwardRef(() => DashboardHomeModule),
-    forwardRef(() => BusinessAnalysisModule),
-    forwardRef(() => FinanceModule),
-    forwardRef(() => MarketingModule),
-    forwardRef(() => MembersModule),
+    DashboardHomeModule,
+    BusinessAnalysisModule,
+    FinanceModule,
+    MarketingModule,
+    MembersModule,
   ],
   providers: [
     RedisService,
+    RedisLockService,
     CacheInvalidatorFinanceService,
     CacheInvalidatorPulseService,
     CacheInvalidatorMembershipService,
@@ -34,6 +36,7 @@ import { RedisService } from './redis.service';
   ],
   exports: [
     RedisService,
+    RedisLockService,
     CacheInvalidatorFinanceService,
     CacheInvalidatorPulseService,
     CacheInvalidatorMembershipService,

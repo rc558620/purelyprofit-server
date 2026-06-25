@@ -208,6 +208,7 @@ function tryParseScanCodeUrl(scanCode: string): URL | null {
   try {
     return new URL(scanCode);
   } catch {
+    // 非合法 URL，返回 null
     return null;
   }
 }

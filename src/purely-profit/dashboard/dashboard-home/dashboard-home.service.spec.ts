@@ -1135,39 +1135,38 @@ describe('DashboardHomeService', () => {
     prismaService.spaceReservation.findMany.mockResolvedValue([]);
     prismaService.employeePayroll.findMany.mockResolvedValue([]);
     // 最近 2 小时内有 5 笔订单（当前时间 15:00）
-    prismaService.saleOrder.findMany
-      .mockResolvedValueOnce([
-        {
-          id: 101,
-          totalRevenue: new Prisma.Decimal('158.00'),
-          date: new Date(2026, 4, 14, 14, 32, 0, 0),
-          createdAt: new Date(2026, 4, 14, 14, 32, 0, 0),
-        },
-        {
-          id: 102,
-          totalRevenue: new Prisma.Decimal('89.50'),
-          date: new Date(2026, 4, 14, 13, 15, 0, 0),
-          createdAt: new Date(2026, 4, 14, 13, 15, 0, 0),
-        },
-        {
-          id: 103,
-          totalRevenue: new Prisma.Decimal('220.00'),
-          date: new Date(2026, 4, 14, 13, 0, 0, 0),
-          createdAt: new Date(2026, 4, 14, 13, 0, 0, 0),
-        },
-        {
-          id: 104,
-          totalRevenue: new Prisma.Decimal('45.00'),
-          date: new Date(2026, 4, 14, 12, 30, 0, 0),
-          createdAt: new Date(2026, 4, 14, 12, 30, 0, 0),
-        },
-        {
-          id: 105,
-          totalRevenue: new Prisma.Decimal('312.80'),
-          date: new Date(2026, 4, 14, 12, 0, 0, 0),
-          createdAt: new Date(2026, 4, 14, 12, 0, 0, 0),
-        },
-      ]);
+    prismaService.saleOrder.findMany.mockResolvedValueOnce([
+      {
+        id: 101,
+        totalRevenue: new Prisma.Decimal('158.00'),
+        date: new Date(2026, 4, 14, 14, 32, 0, 0),
+        createdAt: new Date(2026, 4, 14, 14, 32, 0, 0),
+      },
+      {
+        id: 102,
+        totalRevenue: new Prisma.Decimal('89.50'),
+        date: new Date(2026, 4, 14, 13, 15, 0, 0),
+        createdAt: new Date(2026, 4, 14, 13, 15, 0, 0),
+      },
+      {
+        id: 103,
+        totalRevenue: new Prisma.Decimal('220.00'),
+        date: new Date(2026, 4, 14, 13, 0, 0, 0),
+        createdAt: new Date(2026, 4, 14, 13, 0, 0, 0),
+      },
+      {
+        id: 104,
+        totalRevenue: new Prisma.Decimal('45.00'),
+        date: new Date(2026, 4, 14, 12, 30, 0, 0),
+        createdAt: new Date(2026, 4, 14, 12, 30, 0, 0),
+      },
+      {
+        id: 105,
+        totalRevenue: new Prisma.Decimal('312.80'),
+        date: new Date(2026, 4, 14, 12, 0, 0, 0),
+        createdAt: new Date(2026, 4, 14, 12, 0, 0, 0),
+      },
+    ]);
 
     const result = await service.getOverview(user, { period: 'today' });
 
@@ -1282,9 +1281,7 @@ describe('DashboardHomeService', () => {
     // 合并后按 createdAt 倒序
     const createdAtValues = orderActivities.map((a) => a.createdAt);
     for (let i = 1; i < createdAtValues.length; i++) {
-      expect(createdAtValues[i - 1]).toBeGreaterThanOrEqual(
-        createdAtValues[i],
-      );
+      expect(createdAtValues[i - 1]).toBeGreaterThanOrEqual(createdAtValues[i]);
     }
   });
 
@@ -1509,7 +1506,7 @@ describe('DashboardHomeService', () => {
     expect(result.activities.length).toBeLessThanOrEqual(8);
   });
 
-  it('订单金额为 0 或 null 时安全兜底', async () => {
+  it('订单金额为 0 或 null 时不生成订单动态', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     prismaService.store.findUnique.mockResolvedValue({
       name: '纯利宝测试门店',
@@ -1549,11 +1546,12 @@ describe('DashboardHomeService', () => {
 
     const result = await service.getOverview(user, { period: 'today' });
 
+    // 0 金额订单不应生成动态
     const orderActivity = result.activities.find(
       (a) => a.id === 'sales-order-501',
     );
-    expect(orderActivity).toBeDefined();
-    expect(orderActivity!.value).toBe('+¥0');
+    expect(orderActivity).toBeUndefined();
+    // 不应抛错
+    expect(result.activities).toBeDefined();
   });
-
 });

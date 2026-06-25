@@ -18,6 +18,7 @@ interface ListenAddressInUseError extends Error {
 }
 
 interface SwaggerOperationLike {
+  summary?: string;
   tags?: string[];
 }
 
@@ -27,6 +28,7 @@ interface SwaggerTagLike {
 }
 
 interface SwaggerPathItemLike {
+  get?: SwaggerOperationLike;
   post?: SwaggerOperationLike;
 }
 

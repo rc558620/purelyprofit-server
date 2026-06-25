@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisLockService } from '../../../redis/redis-lock.service';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceSessionOpenService } from './space-session-open.service';
 
@@ -47,6 +48,11 @@ describe('SpaceSessionOpenService', () => {
     resolveReservationBackStatus: jest.fn(),
   };
 
+  const redisLockService = {
+    acquireLock: jest.fn(),
+    releaseLock: jest.fn(),
+  };
+
   const user: AuthenticatedUser = {
     id: 1,
     email: 'boss@example.com',
@@ -88,6 +94,14 @@ describe('SpaceSessionOpenService', () => {
       Promise.resolve(callback(transaction)),
     );
 
+    // Mock RedisLockService: 默认成功获取分布式锁
+    redisLockService.acquireLock.mockResolvedValue({
+      resource: 'space:session:open:7',
+      token: 'test-token',
+      key: 'distributed-lock:space:session:open:7',
+    });
+    redisLockService.releaseLock.mockResolvedValue(undefined);
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SpaceSessionOpenService,
@@ -96,6 +110,10 @@ describe('SpaceSessionOpenService', () => {
         {
           provide: SpaceReservationsStateService,
           useValue: reservationsStateService,
+        },
+        {
+          provide: RedisLockService,
+          useValue: redisLockService,
         },
       ],
     }).compile();
@@ -369,7 +387,13 @@ describe('SpaceSessionOpenService', () => {
       }),
     ).rejects.toThrow('空间当前使用中，无法重复开台');
 
-    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
+    // 分布式锁应被获取并在抛出异常后正确释放
+    expect(redisLockService.acquireLock).toHaveBeenCalledTimes(1);
+    expect(redisLockService.acquireLock).toHaveBeenCalledWith(
+      'space:session:open:7',
+      expect.objectContaining({ ttlSeconds: expect.any(Number) }),
+    );
+    expect(redisLockService.releaseLock).toHaveBeenCalledTimes(1);
     expect(transaction.spaceSession.create).not.toHaveBeenCalled();
   });
 

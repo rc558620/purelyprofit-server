@@ -1,8 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  forwardRef,
-  Inject,
   Injectable,
 } from '@nestjs/common';
 import type { ClubMemberLevelValue } from '../../purely-club/member/dto/club-member-account.dto';
@@ -52,7 +50,6 @@ const MARKETING_CUSTOMERS_LIST_REFRESH_AFTER_MS = 20_000;
 export class MarketingCustomersService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(forwardRef(() => RedisService))
     private readonly redisService: RedisService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly marketingSharedService: MarketingSharedService,

@@ -51,6 +51,7 @@ import { ClubRecordsModule } from './purely-club/records/club-records.module';
 import { ClubPointsModule } from './purely-club/points/club-points.module';
 import { ClubStoresModule } from './purely-club/stores/club-stores.module';
 import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.module';
+import { QueueModule } from './queue/queue.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.modul
     }),
     PrismaModule,
     RedisModule,
+    QueueModule,
     AccessControlModule,
     AuthModule,
     EmployeesModule,

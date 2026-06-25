@@ -30,7 +30,7 @@ enum PartnerWithdrawalStatus {
 model StorePartner {
   id                  Int                    @id @default(autoincrement())
   storeId             Int                    @map("store_id")
-  store               Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store               Store                  @relation(fields: [storeId], references: [id], onDelete: Restrict)
   status              PartnerAccountStatus   @default(pending)
   name                String?
   phone               String?
@@ -59,7 +59,7 @@ model StorePartner {
 model StorePartnerApplication {
   id                 Int                           @id @default(autoincrement())
   storeId            Int                           @map("store_id")
-  store              Store                         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store              Store                         @relation(fields: [storeId], references: [id], onDelete: Restrict)
   status             PartnerAccountStatus          @default(pending)
   name               String
   phone              String
@@ -95,7 +95,7 @@ model StorePartnerApplicationNote {
 model StorePartnerBeanLog {
   id                   Int                  @id @default(autoincrement())
   storeId              Int                  @map("store_id")
-  store                Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store                Store                @relation(fields: [storeId], references: [id], onDelete: Restrict)
   partnerId            Int                  @map("partner_id")
   partner              StorePartner         @relation(fields: [partnerId], references: [id], onDelete: Cascade)
   source               MemberBeanSource
@@ -115,7 +115,7 @@ model StorePartnerBeanLog {
 model PartnerWithdrawal {
   id              Int                     @id @default(autoincrement())
   storeId         Int                     @map("store_id")
-  store           Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store                   @relation(fields: [storeId], references: [id], onDelete: Restrict)
   partnerId       Int                     @map("partner_id")
   partner         StorePartner            @relation(fields: [partnerId], references: [id], onDelete: Cascade)
   operatorStaffId Int?                    @map("operator_staff_id")

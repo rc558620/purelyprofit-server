@@ -14,6 +14,11 @@ import { PulseStoreContextService } from '../pulse-store-context.service';
 import type { PulseTargetStoreSummary } from '../pulse-store-context.types';
 import { PULSE_MEMBERSHIP_BAN_REASON_KEY_PREFIX } from './membership.constants';
 
+/** token-version key 的 TTL（秒），7 天后自动清理 */
+const TOKEN_VERSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+/** 封禁原因 key 的 TTL（秒），30 天后自动清理（封禁信息已在数据库持久化） */
+const BAN_REASON_TTL_SECONDS = 30 * 24 * 60 * 60;
+
 @Injectable()
 export class PulseMembershipAccessService {
   private readonly pulseDevAccountEmails: Set<string>;
@@ -164,6 +169,7 @@ export class PulseMembershipAccessService {
     await this.redisService.set(
       this.getAdminMemberBanReasonKey(storeId),
       reason,
+      BAN_REASON_TTL_SECONDS,
     );
   }
 
@@ -194,9 +200,7 @@ export class PulseMembershipAccessService {
       }
     }
 
-    await Promise.all(
-      Array.from(userIds).map((userId) => this.bumpTokenVersion(userId)),
-    );
+    await this.bumpTokenVersionBatch(Array.from(userIds));
   }
 
   /**
@@ -259,7 +263,35 @@ export class PulseMembershipAccessService {
     const rawVersion = await this.redisService.get(key);
     const current = Number.parseInt(rawVersion ?? '0', 10);
     const next = Number.isNaN(current) ? 1 : current + 1;
-    await this.redisService.set(key, String(next));
+    await this.redisService.set(key, String(next), TOKEN_VERSION_TTL_SECONDS);
+  }
+
+  /**
+   * 批量 bump token version，用 Redis Pipeline 替代 N 次独立 GET+SET。
+   * 先 MGET 批量读取所有当前版本，计算 next 后用 Pipeline 批量 SET。
+   */
+  private async bumpTokenVersionBatch(userIds: number[]): Promise<void> {
+    if (userIds.length === 0) {
+      return;
+    }
+
+    const keys = userIds.map((id) => `${AUTH_TOKEN_VERSION_KEY_PREFIX}${id}`);
+
+    // 一次 MGET 读取所有当前版本
+    const rawVersions = await this.redisService.mgetJson<string>(keys);
+
+    // 用 Pipeline 批量 SET 新版本
+    const client = this.redisService.getClient();
+    const pipeline = client.pipeline();
+    for (let i = 0; i < userIds.length; i++) {
+      const rawVersion = rawVersions[i];
+      // mgetJson 会尝试 JSON.parse，纯数字字符串 parse 后还是 string
+      const rawStr = rawVersion !== null ? String(rawVersion) : null;
+      const current = Number.parseInt(rawStr ?? '0', 10);
+      const next = Number.isNaN(current) ? 1 : current + 1;
+      pipeline.set(keys[i], String(next), 'EX', TOKEN_VERSION_TTL_SECONDS);
+    }
+    await pipeline.exec();
   }
 
   private getAdminMemberBanReasonKey(storeId: number): string {

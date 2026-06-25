@@ -1,4 +1,4 @@
-import { Inject, Injectable, forwardRef } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { STORE_SUB_ACCOUNT_ROLE_LABELS } from '../access-control/access-control.constants';
 import { AccessControlService } from '../access-control/access-control.service';
 import {
@@ -26,7 +26,6 @@ export class AuthProfileService {
     private readonly authAccountLookupService: AuthAccountLookupService,
     private readonly authAccountMembershipService: AuthAccountMembershipService,
     private readonly accessControlService: AccessControlService,
-    @Inject(forwardRef(() => CacheInvalidatorService))
     private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 

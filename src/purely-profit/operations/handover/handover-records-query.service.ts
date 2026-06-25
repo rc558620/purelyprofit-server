@@ -89,11 +89,11 @@ export class HandoverRecordsQueryService {
       this.prisma.storeHandoverRecord.count({ where }),
     ]);
 
-    const items = await Promise.all(
-      records.map((record) =>
-        this.handoverRecordsDetailService.buildRecordSummary(storeId, record),
-      ),
-    );
+    const items =
+      await this.handoverRecordsDetailService.buildRecordSummaryBatch(
+        storeId,
+        records,
+      );
 
     return {
       items,

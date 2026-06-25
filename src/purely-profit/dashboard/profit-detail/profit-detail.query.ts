@@ -49,16 +49,19 @@ export async function fetchProfitRows(
   storeId: number,
   currentRange: ProfitAccessibleRange,
   previousRange: ProfitAccessibleRange,
+  maxPageSize = 5000,
 ): Promise<{ saleRows: SaleOrderItemRow[]; costRows: CostRecordRow[] }> {
   const queryRange = resolveProfitQueryRange(currentRange, previousRange);
   const [saleRows, costRows] = await Promise.all([
     prisma.saleOrderItem.findMany({
       ...buildSaleOrderItemQuery(storeId, queryRange),
       select: PROFIT_DETAIL_SALE_ORDER_ITEM_SELECT,
+      take: maxPageSize,
     }),
     prisma.costRecord.findMany({
       ...buildCostRecordQuery(storeId, queryRange),
       select: PROFIT_DETAIL_COST_RECORD_SELECT,
+      take: maxPageSize,
     }),
   ]);
 

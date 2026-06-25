@@ -282,12 +282,148 @@ export class HandoverPageShiftRecordService {
       return [];
     }
 
-    return Promise.all(
-      allShifts.map(async (shift) => ({
-        shift,
-        handedOver: await this.isShiftHandedOver(storeId, shift),
-      })),
+    // 批量查询已完成交班记录，避免逐个 shift 触发 N 次 count 查询
+    const handedOverShiftIds = await this.loadHandedOverShiftIds(
+      storeId,
+      allShifts,
     );
+
+    return allShifts.map((shift) => ({
+      shift,
+      handedOver: this.isShiftHandedOverFromSet(shift, handedOverShiftIds),
+    }));
+  }
+
+  /**
+   * 一次性加载所有已交班的 shift 标识集合，供内存匹配。
+   *
+   * 匹配规则与 isShiftHandedOver 保持一致：
+   * - 优先：employeeShiftIdSnapshot 精确匹配 shift.id
+   * - 兜底：employeeShiftIdSnapshot IS NULL + handoverAt 在 shift 时间段内
+   */
+  private async loadHandedOverShiftIds(
+    storeId: number,
+    shifts: ShiftRecordRow[],
+  ): Promise<{
+    byShiftId: Set<number>;
+    byRange: Array<{
+      employeeId: number;
+      startAt: Date;
+      endAt: Date;
+      createdAt: Date | null;
+    }>;
+  }> {
+    const shiftIds = shifts.map((s) => s.id).filter((id): id is number => !!id);
+
+    // 计算所有 shift 时间段的整体范围，用于缩小查询范围
+    const allRanges = shifts.map((s) =>
+      buildShiftDateRange(s.startTime, s.endTime, s.date),
+    );
+    const earliestStart = allRanges.reduce(
+      (min, r) => (r.startAt < min ? r.startAt : min),
+      allRanges[0]?.startAt ?? new Date(0),
+    );
+    const latestEnd = allRanges.reduce(
+      (max, r) => (r.endAt > max ? r.endAt : max),
+      allRanges[0]?.endAt ?? new Date(),
+    );
+
+    const handoverRecords = await this.prisma.storeHandoverRecord.findMany({
+      where: {
+        storeId,
+        status: HandoverStatus.completed,
+        OR: [
+          // 精确匹配：有 shift id 快照
+          ...(shiftIds.length > 0
+            ? [
+                {
+                  employeeShiftIdSnapshot: { in: shiftIds },
+                },
+              ]
+            : []),
+          // 兜底匹配：无 shift id 快照，handoverAt 在时间窗口内
+          {
+            employeeShiftIdSnapshot: null,
+            handoverAt: { gte: earliestStart, lte: latestEnd },
+          },
+        ],
+      },
+      select: {
+        employeeShiftIdSnapshot: true,
+        fromEmployeeId: true,
+        handoverAt: true,
+        createdAt: true,
+      },
+    });
+
+    const byShiftId = new Set<number>();
+    const byRange: Array<{
+      employeeId: number;
+      startAt: Date;
+      endAt: Date;
+      createdAt: Date | null;
+    }> = [];
+
+    for (const record of handoverRecords) {
+      if (record.employeeShiftIdSnapshot !== null) {
+        byShiftId.add(record.employeeShiftIdSnapshot);
+      } else if (record.fromEmployeeId !== null && record.handoverAt !== null) {
+        // 兜底记录：记录 handoverAt 所在的 1ms 点作为范围（实际在 isShiftHandedOverFromSet 里按 shift 范围匹配）
+        byRange.push({
+          employeeId: record.fromEmployeeId,
+          startAt: record.handoverAt,
+          endAt: record.handoverAt,
+          createdAt: record.createdAt,
+        });
+      }
+    }
+
+    return { byShiftId, byRange };
+  }
+
+  private isShiftHandedOverFromSet(
+    shift: ShiftRecordRow,
+    handedOverShiftIds: {
+      byShiftId: Set<number>;
+      byRange: Array<{
+        employeeId: number;
+        startAt: Date;
+        endAt: Date;
+        createdAt: Date | null;
+      }>;
+    },
+  ): boolean {
+    if (!shift.employeeId) {
+      return false;
+    }
+
+    // 精确匹配 shift id 快照
+    if (shift.id && handedOverShiftIds.byShiftId.has(shift.id)) {
+      return true;
+    }
+
+    // 兜底：检查是否有 handoverAt 落在该 shift 时间段内的记录
+    const shiftRange = buildShiftDateRange(
+      shift.startTime,
+      shift.endTime,
+      shift.date,
+    );
+    return handedOverShiftIds.byRange.some((record) => {
+      if (record.employeeId !== shift.employeeId) {
+        return false;
+      }
+      if (
+        shift.createdAt &&
+        record.createdAt &&
+        record.createdAt < shift.createdAt
+      ) {
+        return false;
+      }
+      return (
+        record.startAt >= shiftRange.startAt &&
+        record.startAt <= shiftRange.endAt
+      );
+    });
   }
 
   private async loadShifts(

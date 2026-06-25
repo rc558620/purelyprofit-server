@@ -316,9 +316,7 @@ function appendInactiveVipDraft(
   const lastConsumeTs = latestInactive.lastConsumeAt
     ? toTimestamp(latestInactive.lastConsumeAt)
     : now - VIP_INACTIVE_THRESHOLD_DAYS * 86_400_000;
-  const inactiveDays = Math.floor(
-    (now - lastConsumeTs) / 86_400_000,
-  );
+  const inactiveDays = Math.floor((now - lastConsumeTs) / 86_400_000);
 
   drafts.push({
     id: 'member-inactive-vip',

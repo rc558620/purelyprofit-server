@@ -10,6 +10,9 @@ import {
 
 const STORE_PROFILE_KEY_PREFIX = 'stores:profile:';
 
+/** 门店扩展字段缓存 TTL：7 天，与门店同生命周期量级 */
+const STORE_PROFILE_CACHE_TTL_SECONDS = 7 * 24 * 3600;
+
 /**
  * 门店扩展字段不设 TTL——storeType / region / storeLogo / 经纬度是门店核心属性，
  * 需要与门店同生命周期存续；数据源为 Redis 而非数据库，属于当前架构的已知约束。
@@ -103,6 +106,7 @@ export class StoresProfileService {
       await this.redisService.set(
         this.getStoreProfileKey(storeId),
         JSON.stringify(metadata),
+        STORE_PROFILE_CACHE_TTL_SECONDS,
       );
     } catch (error) {
       this.logger.error(

@@ -66,8 +66,9 @@ export class ClubMemberProfileService {
     }
 
     // 充值累计：通过 marketingRecharge 聚合计算该顾客在该门店的累计充值金额（分）
-    const totalRechargeFen =
-      await this.aggregateTotalRechargeAmount(marketingCustomer?.id ?? null);
+    const totalRechargeFen = await this.aggregateTotalRechargeAmount(
+      marketingCustomer?.id ?? null,
+    );
 
     const joinDate = this.resolveJoinDate(
       member.createdAt,

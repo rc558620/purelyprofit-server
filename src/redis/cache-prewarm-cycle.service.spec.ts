@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   getRuntimeMetricsSnapshot,
@@ -126,12 +127,15 @@ async function runDefaultCycle(
 }
 
 describe('CachePrewarmCycleService', () => {
+  let logSpy: jest.SpyInstance;
+  let warnSpy: jest.SpyInstance;
+
   beforeEach(() => {
     resetRuntimeMetrics();
     jest.useFakeTimers();
     jest.clearAllMocks();
-    jest.spyOn(console, 'info').mockImplementation(() => undefined);
-    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
@@ -253,12 +257,13 @@ describe('CachePrewarmCycleService', () => {
 
     await runDefaultCycle(context.service);
 
-    expect(console.info).toHaveBeenCalledWith(
+    // NestJS Logger.log 被 spy，直接验证消息内容
+    expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining(
         'failedKeyCountByCategory=dashboardHome:1,businessAnalysis:0,financeOverview:0,marketingOverview:0,membersMeta:0,membersOverview:0',
       ),
     );
-    expect(console.warn).toHaveBeenCalledWith(
+    expect(warnSpy).toHaveBeenCalledWith(
       '[cache-prewarm] refresh failed',
       expect.objectContaining({
         category: 'dashboardHome',

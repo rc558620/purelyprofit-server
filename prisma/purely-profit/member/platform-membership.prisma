@@ -42,7 +42,7 @@ model MembershipPlanSetting {
 model StoreMembershipProfile {
   id              Int                        @id @default(autoincrement())
   storeId         Int                        @unique @map("store_id")
-  store           Store                      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store                      @relation(fields: [storeId], references: [id], onDelete: Restrict)
   currentPlanId   MembershipPlanCycle?       @map("current_plan_id")
   startsAt        DateTime?                  @map("starts_at")
   expiresAt       DateTime?                  @map("expires_at")
@@ -61,7 +61,7 @@ model StoreMembershipProfile {
 model StoreMembershipOrder {
   id             Int                      @id @default(autoincrement())
   storeId        Int                      @map("store_id")
-  store          Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store          Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   profileId      Int                      @map("profile_id")
   profile        StoreMembershipProfile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
   planId         MembershipPlanCycle      @map("plan_id")
@@ -88,7 +88,7 @@ model StoreMembershipOrder {
 model StoreMembershipPointsLog {
   id           Int                    @id @default(autoincrement())
   storeId      Int                    @map("store_id")
-  store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store        Store                  @relation(fields: [storeId], references: [id], onDelete: Restrict)
   profileId    Int                    @map("profile_id")
   profile      StoreMembershipProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   source       MemberPointsSource
@@ -106,7 +106,7 @@ model StoreMembershipPointsLog {
 model StoreMembershipPromoRecord {
   id            Int                  @id @default(autoincrement())
   storeId       Int                  @map("store_id")
-  store         Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store         Store                @relation(fields: [storeId], references: [id], onDelete: Restrict)
   inviteeName   String               @map("invitee_name")
   inviteePhone  String               @map("invitee_phone")
   registeredAt  DateTime             @map("registered_at")

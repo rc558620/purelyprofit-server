@@ -26,7 +26,7 @@ enum HandoverStatus {
 model StoreSubAccountQuotaAudit {
   id             Int      @id @default(autoincrement())
   storeId        Int      @map("store_id")
-  store          Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store          Store    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   oldQuota       Int      @map("old_quota")
   newQuota       Int      @map("new_quota")
   operatorUserId Int?     @map("operator_user_id")
@@ -40,7 +40,7 @@ model StoreSubAccountQuotaAudit {
 model StoreSubAccount {
   id             Int                   @id @default(autoincrement())
   storeId        Int                   @map("store_id")
-  store          Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store          Store                 @relation(fields: [storeId], references: [id], onDelete: Restrict)
   employeeId     Int?                  @unique @map("employee_id")
   employee       Employee?             @relation("EmployeeSubAccounts", fields: [employeeId], references: [id], onDelete: SetNull)
   slotIndex      Int                   @map("slot_index")
@@ -64,7 +64,7 @@ model StoreSubAccount {
 model StoreHandoverRecord {
   id                       Int                            @id @default(autoincrement())
   storeId                  Int                            @map("store_id")
-  store                    Store                          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store                    Store                          @relation(fields: [storeId], references: [id], onDelete: Restrict)
   fromEmployeeId           Int?                           @map("from_employee_id")
   fromEmployee             Employee?                      @relation("HandoverFromEmployee", fields: [fromEmployeeId], references: [id], onDelete: SetNull)
   toEmployeeId             Int?                           @map("to_employee_id")
@@ -99,7 +99,7 @@ model StoreHandoverRecord {
 model StoreHandoverAdditionalItem {
   id        Int                            @id @default(autoincrement())
   storeId   Int                            @map("store_id")
-  store     Store                          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store     Store                          @relation(fields: [storeId], references: [id], onDelete: Restrict)
   name      String
   values    StoreHandoverAdditionalValue[]
   createdAt DateTime                       @default(now()) @map("created_at")

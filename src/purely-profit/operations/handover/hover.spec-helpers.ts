@@ -10,6 +10,7 @@ export const createHandoverPrismaMock = () => {
     $executeRaw: jest.fn(),
     employee: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
     },
     employeeShift: {
       findUnique: jest.fn(),

@@ -45,7 +45,10 @@ export class CreateCategoryDto {
   @MaxLength(30, { message: '分类名称最长 30 个字符' })
   name: string;
 
-  @ApiPropertyOptional({ example: '🥤', description: '分类图标，空字符串表示不设置' })
+  @ApiPropertyOptional({
+    example: '🥤',
+    description: '分类图标，空字符串表示不设置',
+  })
   @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: '分类图标必须是字符串' })

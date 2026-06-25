@@ -42,6 +42,7 @@ export async function queryCostReportRows(
   currentRange: { start: number; end: number },
   previousRange: { start: number; end: number } | null,
   categoryFilter: CostReportCategoryFilterValue,
+  maxPageSize = 5000,
 ): Promise<{
   costRows: CostReportCostRow[];
   previousTotal: Prisma.Decimal;
@@ -71,6 +72,7 @@ export async function queryCostReportRows(
         createdAt: true,
       },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      take: maxPageSize,
     });
 
   const previousTotalPromise: Promise<Prisma.Decimal> = previousRange
@@ -110,6 +112,7 @@ export async function queryCostReportRows(
             note: true,
           },
           orderBy: [{ month: 'desc' }, { id: 'desc' }],
+          take: maxPageSize,
         })
       : Promise.resolve([]);
 

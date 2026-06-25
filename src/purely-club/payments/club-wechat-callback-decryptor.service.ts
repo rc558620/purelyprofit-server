@@ -142,8 +142,11 @@ export class ClubWechatCallbackDecryptorService {
       ]).toString('utf8');
 
       return JSON.parse(plaintext) as WechatDecryptedTransaction;
-    } catch {
+    } catch (error: unknown) {
       // 密钥不对或 GCM 认证失败，返回 null
+      this.logger.warn(
+        `微信回调 AES-GCM 解密失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return null;
     }
   }

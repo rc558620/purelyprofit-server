@@ -21,6 +21,10 @@ describe('AuthAccountMembershipService', () => {
 
   const redisService = {
     get: jest.fn(),
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+    mgetJson: jest.fn().mockResolvedValue([]),
+    delByPattern: jest.fn().mockResolvedValue(undefined),
   };
 
   const accessControlService = {

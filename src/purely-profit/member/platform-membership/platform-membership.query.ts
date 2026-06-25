@@ -280,31 +280,39 @@ export async function loadMembershipPlanSettings(
   }
 
   const now = new Date();
-  for (const planId of missingPlanIds) {
-    const defaultSetting = DEFAULT_MEMBERSHIP_PLAN_SETTINGS[planId];
-    const created = await prismaExecutor.membershipPlanSetting.upsert({
-      where: { planId },
-      create: {
-        planId: defaultSetting.planId,
-        planName: defaultSetting.planName,
-        price: defaultSetting.price,
-        originalPrice: defaultSetting.originalPrice,
-        durationMonths: defaultSetting.durationMonths,
-        validDays: defaultSetting.validDays,
-      },
-      update: {},
-      select: {
-        planId: true,
-        planName: true,
-        price: true,
-        originalPrice: true,
-        durationMonths: true,
-        validDays: true,
-        updatedAt: true,
-      },
-    });
+  // 并行 upsert 所有缺失的套餐设置，替代逐条串行执行（通常仅首次调用时触发）
+  const createdEntries = await Promise.all(
+    missingPlanIds.map(async (planId) => {
+      const defaultSetting = DEFAULT_MEMBERSHIP_PLAN_SETTINGS[planId];
+      const created = await prismaExecutor.membershipPlanSetting.upsert({
+        where: { planId },
+        create: {
+          planId: defaultSetting.planId,
+          planName: defaultSetting.planName,
+          price: defaultSetting.price,
+          originalPrice: defaultSetting.originalPrice,
+          durationMonths: defaultSetting.durationMonths,
+          validDays: defaultSetting.validDays,
+        },
+        update: {},
+        select: {
+          planId: true,
+          planName: true,
+          price: true,
+          originalPrice: true,
+          durationMonths: true,
+          validDays: true,
+          updatedAt: true,
+        },
+      });
+      return created;
+    }),
+  );
+
+  for (const created of createdEntries) {
+    const planId = created.planId as MembershipPlanSettingIdValue;
     byPlanId[planId] = {
-      planId: created.planId as MembershipPlanSettingIdValue,
+      planId,
       planName: created.planName,
       price: created.price,
       originalPrice: created.originalPrice,

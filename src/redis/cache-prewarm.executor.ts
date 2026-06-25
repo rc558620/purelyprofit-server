@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type {
   CachePrewarmCategory,
   CachePrewarmCategoryResult,
@@ -10,6 +11,8 @@ import {
   buildEmptyCachePrewarmCategoryResult,
   selectTopSlowCachePrewarmSamples,
 } from './cache-prewarm.utils';
+
+const logger = new Logger('CachePrewarmExecutor');
 
 export async function prewarmCacheCategory<TParsed>(
   category: CachePrewarmCategory,
@@ -74,7 +77,7 @@ export async function prewarmCacheCategory<TParsed>(
           });
           durations.push(durationMs);
           slowKeySamples.push(failedSample);
-          console.warn('[cache-prewarm] refresh failed', failedLogPayload);
+          logger.warn('[cache-prewarm] refresh failed', failedLogPayload);
         }
       }),
     );

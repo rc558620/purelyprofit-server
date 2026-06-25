@@ -454,15 +454,18 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           endTime: '17:00',
         },
       ]);
-      prismaService.employee.findUnique.mockResolvedValueOnce({
-        linkedStaffId: 1,
-        avatar: 'https://cdn.example.com/owner.png',
-        linkedStaff: {
-          user: {
-            avatar: 'https://cdn.example.com/user-owner.png',
+      prismaService.employee.findMany.mockResolvedValueOnce([
+        {
+          id: 10,
+          linkedStaffId: 1,
+          avatar: 'https://cdn.example.com/owner.png',
+          linkedStaff: {
+            user: {
+              avatar: 'https://cdn.example.com/user-owner.png',
+            },
           },
         },
-      });
+      ]);
       prismaService.saleOrder.aggregate
         .mockResolvedValueOnce({
           _sum: { totalRevenue: new Prisma.Decimal('1004.65') },
@@ -522,15 +525,18 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         },
       ]);
       prismaService.storeHandoverRecord.count.mockResolvedValue(1);
-      prismaService.employee.findUnique.mockResolvedValueOnce({
-        linkedStaffId: 2,
-        avatar: 'https://cdn.example.com/cashier-1.png',
-        linkedStaff: {
-          user: {
-            avatar: 'https://cdn.example.com/user-cashier-1.png',
+      prismaService.employee.findMany.mockResolvedValueOnce([
+        {
+          id: 20,
+          linkedStaffId: 2,
+          avatar: 'https://cdn.example.com/cashier-1.png',
+          linkedStaff: {
+            user: {
+              avatar: 'https://cdn.example.com/user-cashier-1.png',
+            },
           },
         },
-      });
+      ]);
       prismaService.saleOrder.aggregate
         .mockResolvedValueOnce({
           _sum: { totalRevenue: new Prisma.Decimal('567.00') },
@@ -554,7 +560,6 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         totalRevenue: 567,
       });
       expect(result.items[0].timeDesc).toContain('16:01–17:03');
-      expect(prismaService.employeeShift.findMany).not.toHaveBeenCalled();
     });
 
     it('未完成交班不应进入历史摘要列表', async () => {

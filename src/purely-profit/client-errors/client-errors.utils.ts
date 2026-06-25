@@ -83,6 +83,7 @@ export const serializeDetails = (
   try {
     return truncateText(JSON.stringify(details), detailsMaxLength);
   } catch {
+    // 包含循环引用或不可序列化值，返回占位标记
     return '[unserializable-details]';
   }
 };

@@ -406,7 +406,7 @@ describe('PulseGrowthAdminQueryService', () => {
 
   it('listAdminPartnerApplications 将 tab 过滤和 cursor 下推到查询层', async () => {
     const where = { storeId: 18 };
-    const applications = [];
+    const applications: Array<Record<string, unknown>> = [];
     const stats = {
       pendingCount: 5,
       approvedCount: 3,
@@ -477,7 +477,7 @@ describe('PulseGrowthAdminQueryService', () => {
 
   it('listAdminPayouts 将 tab 过滤和 cursor 下推到查询层', async () => {
     const where = { storeId: 18 };
-    const withdrawals = [];
+    const withdrawals: Array<Record<string, unknown>> = [];
     const stats = {
       pendingCount: 3,
       pendingTotal: 4300,

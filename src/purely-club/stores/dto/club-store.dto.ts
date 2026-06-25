@@ -47,7 +47,8 @@ export class ClubStoreSummaryDto {
 
   @ApiProperty({
     example: true,
-    description: '门店营业状态；当前阶段默认返回 true（营业中），后续接入营业时间后动态计算',
+    description:
+      '门店营业状态；当前阶段默认返回 true（营业中），后续接入营业时间后动态计算',
   })
   @IsBoolean({ message: '门店营业状态必须是布尔值' })
   isOpen: boolean;

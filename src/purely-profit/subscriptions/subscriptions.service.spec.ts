@@ -110,9 +110,16 @@ describe('SubscriptionsService', () => {
 
   describe('getStoreSubscription', () => {
     it('有权限时返回订阅概览', async () => {
-      accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(10);
-      prismaService.store.findUnique.mockResolvedValue({ id: 10, maxAccountSeats: 1 });
-      prismaService.storeSubscription.findUnique.mockResolvedValue(mockSubscriptionRecord);
+      accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(
+        10,
+      );
+      prismaService.store.findUnique.mockResolvedValue({
+        id: 10,
+        maxAccountSeats: 1,
+      });
+      prismaService.storeSubscription.findUnique.mockResolvedValue(
+        mockSubscriptionRecord,
+      );
       prismaService.staff.count.mockResolvedValue(0);
 
       const result = await service.getStoreSubscription(user, 10);
@@ -123,7 +130,9 @@ describe('SubscriptionsService', () => {
     });
 
     it('无权限时抛出 ForbiddenException', async () => {
-      accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(null);
+      accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(
+        null,
+      );
 
       await expect(service.getStoreSubscription(user, 10)).rejects.toThrow(
         ForbiddenException,
@@ -140,7 +149,10 @@ describe('SubscriptionsService', () => {
       prismaService.storeSubscription.findUnique
         .mockResolvedValueOnce(mockSubscriptionRecord)
         .mockResolvedValueOnce(mockGrowthSubscriptionRecord);
-      prismaService.store.findUnique.mockResolvedValue({ id: 10, maxAccountSeats: 2 });
+      prismaService.store.findUnique.mockResolvedValue({
+        id: 10,
+        maxAccountSeats: 2,
+      });
       prismaService.staff.count.mockResolvedValue(1);
       prismaService.storeSubscription.upsert.mockResolvedValue({});
       prismaService.store.update.mockResolvedValue({});
@@ -175,7 +187,10 @@ describe('SubscriptionsService', () => {
           status: StoreSubscriptionStatus.EXPIRED,
         })
         .mockResolvedValueOnce(mockGrowthSubscriptionRecord);
-      prismaService.store.findUnique.mockResolvedValue({ id: 10, maxAccountSeats: 2 });
+      prismaService.store.findUnique.mockResolvedValue({
+        id: 10,
+        maxAccountSeats: 2,
+      });
       prismaService.staff.count.mockResolvedValue(0);
       prismaService.storeSubscription.upsert.mockResolvedValue({});
       prismaService.store.update.mockResolvedValue({});
@@ -194,7 +209,10 @@ describe('SubscriptionsService', () => {
         planCode: SubscriptionPlanCode.GROWTH,
         maxAccountSeats: 2,
       });
-      prismaService.store.findUnique.mockResolvedValue({ id: 10, maxAccountSeats: 2 });
+      prismaService.store.findUnique.mockResolvedValue({
+        id: 10,
+        maxAccountSeats: 2,
+      });
       prismaService.staff.count.mockResolvedValue(2);
 
       await expect(
@@ -223,11 +241,9 @@ describe('SubscriptionsService', () => {
       prismaService.storeSubscription.upsert.mockResolvedValue({});
       prismaService.store.update.mockResolvedValue({});
 
-      const tx = prismaService as unknown as import('@prisma/client').PrismaClient;
-      await service.initializeStoreSubscription(
-        tx as never,
-        10,
-      );
+      const tx =
+        prismaService as unknown as import('@prisma/client').PrismaClient;
+      await service.initializeStoreSubscription(tx as never, 10);
 
       expect(prismaService.storeSubscription.upsert).toHaveBeenCalledWith(
         expect.objectContaining({

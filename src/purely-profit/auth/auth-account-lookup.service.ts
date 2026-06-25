@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -24,6 +25,8 @@ import {
 
 @Injectable()
 export class AuthAccountLookupService {
+  private readonly logger = new Logger(AuthAccountLookupService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
@@ -476,8 +479,11 @@ export class AuthAccountLookupService {
   private async invalidateUserCache(userId: number): Promise<void> {
     try {
       await this.redisService.del(buildUserCacheKey(userId));
-    } catch {
+    } catch (error: unknown) {
       // 缓存失效失败不影响主流程，TTL 自然过期即可兜底
+      this.logger.warn(
+        `[AuthAccountLookupService] 失效用户 ${userId} 缓存失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 

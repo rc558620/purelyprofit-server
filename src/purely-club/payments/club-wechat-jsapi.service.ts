@@ -19,7 +19,7 @@
  *   3. 以上均未配置 → 开发态降级：用 HMAC-SHA256 生成 paySign（微信会拒绝，仅本地联调用）
  */
 import { createPrivateKey, createSign, randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import {
   BadRequestException,
   Injectable,
@@ -80,7 +80,7 @@ export class ClubWechatJsapiService {
     // 证书序列号：每个商户申请 API 证书时会分配，需配置到环境变量
     const serialNo = this.getRequiredConfig('wechat.mchSerialNo');
 
-    const privateKeyPem = this.loadPrivateKeyPem();
+    const privateKeyPem = await this.loadPrivateKeyPem();
 
     const prepayId = await this.requestPrepayId({
       appId,
@@ -299,7 +299,7 @@ export class ClubWechatJsapiService {
    * 结果仅在服务实例生命周期内缓存一次（`cachedPrivateKeyPem`），
    * 避免每次请求都重复读文件 I/O。
    */
-  private loadPrivateKeyPem(): string | null {
+  private async loadPrivateKeyPem(): Promise<string | null> {
     // 缓存未过期时直接返回
     if (
       this.cachedPrivateKeyPem !== undefined &&
@@ -319,7 +319,7 @@ export class ClubWechatJsapiService {
       ?.trim();
     if (keyPath) {
       try {
-        const pem = readFileSync(keyPath, 'utf8');
+        const pem = await readFile(keyPath, 'utf8');
         this.cachedPrivateKeyPem = pem;
         this.logger.log('微信支付 RSA 私钥已从文件路径加载');
         return pem;

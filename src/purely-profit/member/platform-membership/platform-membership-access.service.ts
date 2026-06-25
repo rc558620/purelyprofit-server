@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import {
@@ -64,6 +65,8 @@ type EnsureFeatureEnabledParams = {
 
 @Injectable()
 export class PlatformMembershipAccessService {
+  private readonly logger = new Logger(PlatformMembershipAccessService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async ensureProductQuotaAvailable(storeId: number): Promise<void> {
@@ -292,7 +295,9 @@ export class PlatformMembershipAccessService {
         throw error;
       }
 
-      console.warn(MEMBERSHIP_ACCESS_MESSAGES.membershipContextNotReadyWarning);
+      this.logger.warn(
+        MEMBERSHIP_ACCESS_MESSAGES.membershipContextNotReadyWarning,
+      );
       throw new UnauthorizedException(
         MEMBERSHIP_ACCESS_MESSAGES.membershipContextNotReady,
       );

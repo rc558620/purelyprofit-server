@@ -95,7 +95,9 @@ export class PulseGrowthAdminPartnerApplicationService {
     return { success: true };
   }
 
-  private async invalidatePartnerApplicationDerivedCaches(storeId: number): Promise<void> {
+  private async invalidatePartnerApplicationDerivedCaches(
+    storeId: number,
+  ): Promise<void> {
     await Promise.all([
       this.cacheInvalidatorService.invalidatePulseGrowthAdminQueries(),
       this.cacheInvalidatorService.invalidatePulseGrowthEarnings(storeId),

@@ -1,4 +1,9 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { recordRedisOperation } from '../observability';
@@ -89,6 +94,7 @@ export interface RefreshableCacheLoadOptions<T> {
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(RedisService.name);
   private client!: Redis;
   private readonly slowRedisLogEnabled: boolean;
   private readonly slowRedisThresholdMs: number;
@@ -120,6 +126,30 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         this.configService.get<number>('redis.maxRetriesPerRequest') ?? 3,
       enableReadyCheck: true,
       lazyConnect: false,
+      // 启用离线队列：Redis 断连期间命令排队，重连后自动发送，避免立即报超时
+      enableOfflineQueue: true,
+      // 自动重连策略：指数退避，最大 5 秒间隔
+      // 返回 null 则放弃重连（不应在此场景使用）
+      retryStrategy(times: number) {
+        const delay = Math.min(times * 200, 5_000);
+        return delay;
+      },
+    });
+
+    this.client.on('error', (error: Error) => {
+      this.logger.error(`[redis] connection error: ${error.message}`, error.stack);
+    });
+
+    this.client.on('close', () => {
+      this.logger.warn('[redis] connection closed, will attempt reconnect via retryStrategy');
+    });
+
+    this.client.on('reconnecting', () => {
+      this.logger.log('[redis] reconnecting...');
+    });
+
+    this.client.on('ready', () => {
+      this.logger.log('[redis] connection ready');
     });
   }
 
@@ -228,7 +258,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         if (pendingOps >= pipelineBatchSize) {
           const results = await pipeline.exec();
           if (results === null) {
-            console.warn(
+            this.logger.warn(
               `[redis] pipeline.exec() returned null during delByPattern pattern=${pattern} pendingOps=${pendingOps}`,
             );
           } else {
@@ -242,7 +272,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     if (pendingOps > 0) {
       const results = await pipeline.exec();
       if (results === null) {
-        console.warn(
+        this.logger.warn(
           `[redis] pipeline.exec() returned null during delByPattern (final flush) pattern=${pattern} pendingOps=${pendingOps}`,
         );
       } else {
@@ -259,7 +289,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (this.slowRedisLogEnabled && durationMs >= this.slowRedisThresholdMs) {
-      console.warn(
+      this.logger.warn(
         `[slow-redis] UNLINK ${durationMs}ms pattern=${pattern} deleted=${totalDeleted}`,
       );
     }
@@ -471,7 +501,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       try {
         await handler();
       } catch (error: unknown) {
-        console.error(`[cache-refresh] ${taskKey} failed`, error);
+        this.logger.error(`[cache-refresh] ${taskKey} failed`, error);
       } finally {
         this.backgroundRefreshTasks.delete(taskKey);
       }
@@ -498,7 +528,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (this.slowRedisLogEnabled && durationMs >= this.slowRedisThresholdMs) {
-      console.warn(
+      this.logger.warn(
         `[slow-redis] ${command} ${durationMs}ms outcome=${outcome}`,
       );
     }

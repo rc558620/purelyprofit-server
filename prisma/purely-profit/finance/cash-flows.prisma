@@ -32,7 +32,7 @@ enum FinanceCashFlowPayment {
 model FinanceCashFlowRecord {
   id              Int                      @id @default(autoincrement())
   storeId         Int                      @map("store_id")
-  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   saleOrderId     Int?                     @unique @map("sale_order_id")
   saleOrder       SaleOrder?               @relation(fields: [saleOrderId], references: [id], onDelete: SetNull)
   operatorStaffId Int?                     @map("operator_staff_id")

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import {
@@ -43,6 +44,7 @@ export class CostsReadService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
+    private readonly configService: ConfigService,
   ) {}
 
   async listRecords(
@@ -72,9 +74,11 @@ export class CostsReadService {
       return [];
     }
 
+    const maxPageSize = this.configService.get<number>('app.maxPageSize', 100);
     const records = await this.prisma.costRecord.findMany({
       where,
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+      take: maxPageSize,
     });
 
     return records.map(buildCostRecordResponse);

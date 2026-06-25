@@ -31,7 +31,7 @@ enum MarketingPointsChangeType {
 model MarketingCustomer {
   id            Int                     @id @default(autoincrement())
   storeId       Int                     @map("store_id")
-  store         Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store         Store                   @relation(fields: [storeId], references: [id], onDelete: Restrict)
   /// 昵称
   name          String
   /// 手机号（明文存储，展示层脱敏）
@@ -70,7 +70,7 @@ model MarketingCustomer {
 model MarketingRecharge {
   id          Int                   @id @default(autoincrement())
   storeId     Int                   @map("store_id")
-  store       Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store       Store                 @relation(fields: [storeId], references: [id], onDelete: Restrict)
   customerId  Int                   @map("customer_id")
   customer    MarketingCustomer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
   /// 充值金额（分）
@@ -97,7 +97,7 @@ model MarketingRecharge {
 model MarketingConsumption {
   id             Int                 @id @default(autoincrement())
   storeId        Int                 @map("store_id")
-  store          Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store          Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
   customerId     Int                 @map("customer_id")
   customer       MarketingCustomer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
   /// 消费金额（分）
@@ -125,7 +125,7 @@ model MarketingConsumption {
 model MarketingPointsRecord {
   id          Int                       @id @default(autoincrement())
   storeId     Int                       @map("store_id")
-  store       Store                     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store       Store                     @relation(fields: [storeId], references: [id], onDelete: Restrict)
   customerId  Int                       @map("customer_id")
   customer    MarketingCustomer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
   /// 积分变动值：正数=获得，负数=消耗

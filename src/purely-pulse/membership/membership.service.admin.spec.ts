@@ -1041,9 +1041,16 @@ describe('PulseMembershipService admin', () => {
       ownerId: 301,
       staffs: [{ userId: 302 }],
     });
-    context.redisService.get
-      .mockResolvedValueOnce('0')
-      .mockResolvedValueOnce('1');
+    // bumpTokenVersionBatch 使用 mgetJson 批量读取 token version
+    context.redisService.mgetJson.mockResolvedValue(['0', '1']);
+    // bumpTokenVersionBatch 使用 pipeline 批量设置 token version
+    const mockPipeline = {
+      set: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue(undefined),
+    };
+    context.redisService.getClient.mockReturnValue({
+      pipeline: () => mockPipeline,
+    });
     context.redisService.set.mockResolvedValue(undefined);
 
     await context.service.banAdminMember(context.user, 18, {
@@ -1053,14 +1060,20 @@ describe('PulseMembershipService admin', () => {
     expect(context.redisService.set).toHaveBeenCalledWith(
       'pulse:membership:admin:member:18:ban-reason',
       '违规操作',
+      30 * 24 * 60 * 60,
     );
-    expect(context.redisService.set).toHaveBeenCalledWith(
+    // 验证 pipeline.set 被调用两次（userId 301 和 302）
+    expect(mockPipeline.set).toHaveBeenCalledWith(
       'auth:token-version:301',
       '1',
+      'EX',
+      7 * 24 * 60 * 60,
     );
-    expect(context.redisService.set).toHaveBeenCalledWith(
+    expect(mockPipeline.set).toHaveBeenCalledWith(
       'auth:token-version:302',
       '2',
+      'EX',
+      7 * 24 * 60 * 60,
     );
   });
 

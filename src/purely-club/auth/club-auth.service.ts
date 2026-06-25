@@ -208,29 +208,49 @@ export class ClubAuthService {
           select: { id: true, storeId: true },
         });
 
-        for (const sourceMember of sourceMembers) {
-          // 检查目标用户在同一门店是否已有 Member 记录
-          const targetMember = await tx.member.findUnique({
-            where: { storeId_phone: { storeId: sourceMember.storeId, phone } },
-            select: { id: true },
+        if (sourceMembers.length > 0) {
+          // 批量查询目标用户在这些门店是否已有 Member 记录，避免逐个 findUnique
+          const storeIds = sourceMembers.map((m) => m.storeId);
+          const targetMembers = await tx.member.findMany({
+            where: { storeId: { in: storeIds }, phone },
+            select: { id: true, storeId: true },
           });
+          const targetMemberByStoreId = new Map(
+            targetMembers.map((m) => [m.storeId, m]),
+          );
 
-          if (targetMember) {
-            // 目标用户已有 Member：保留目标的，删除源的
-            // 源 Member 的积分/余额/消费记录等关联数据通过 onDelete: Cascade 自动清理
-            await tx.member.delete({ where: { id: sourceMember.id } });
-            this.logger.log(
-              `bindPhone 合并 Member：门店 ${sourceMember.storeId} 目标用户已有 Member ${targetMember.id}，删除源 Member ${sourceMember.id}`,
+          // 按是否已有目标 member 分组处理
+          const sourceMemberIdsToDelete: number[] = [];
+          const sourceMemberIdsToUpdate: number[] = [];
+
+          for (const sourceMember of sourceMembers) {
+            const targetMember = targetMemberByStoreId.get(
+              sourceMember.storeId,
             );
-          } else {
-            // 目标用户无 Member：将源 Member 的 phone 更新为目标手机号
-            await tx.member.update({
-              where: { id: sourceMember.id },
+            if (targetMember) {
+              sourceMemberIdsToDelete.push(sourceMember.id);
+              this.logger.log(
+                `bindPhone 合并 Member：门店 ${sourceMember.storeId} 目标用户已有 Member ${targetMember.id}，删除源 Member ${sourceMember.id}`,
+              );
+            } else {
+              sourceMemberIdsToUpdate.push(sourceMember.id);
+              this.logger.log(
+                `bindPhone 合并 Member：门店 ${sourceMember.storeId} 将源 Member ${sourceMember.id} 的 phone 从 ${sourceWechatPhone} 更新为 ${phone}`,
+              );
+            }
+          }
+
+          // 批量删除 + 批量更新，替代逐条操作
+          if (sourceMemberIdsToDelete.length > 0) {
+            await tx.member.deleteMany({
+              where: { id: { in: sourceMemberIdsToDelete } },
+            });
+          }
+          if (sourceMemberIdsToUpdate.length > 0) {
+            await tx.member.updateMany({
+              where: { id: { in: sourceMemberIdsToUpdate } },
               data: { phone },
             });
-            this.logger.log(
-              `bindPhone 合并 Member：门店 ${sourceMember.storeId} 将源 Member ${sourceMember.id} 的 phone 从 ${sourceWechatPhone} 更新为 ${phone}`,
-            );
           }
         }
 
@@ -284,9 +304,7 @@ export class ClubAuthService {
         `bindPhone 合并事务失败：sourceUserId=${sourceUserId}, targetUserId=${targetUserId}`,
         error instanceof Error ? error.stack : String(error),
       );
-      throw new ConflictException(
-        '账号合并失败，请重试或联系客服',
-      );
+      throw new ConflictException('账号合并失败，请重试或联系客服');
     }
 
     // 失效两端的旧登录态，确保合并后旧 token 立即无效
@@ -324,7 +342,10 @@ export class ClubAuthService {
 
       // wechatPhone 为空说明尚未绑定真实手机号
       return !user.wechatPhone?.trim();
-    } catch {
+    } catch (error: unknown) {
+      this.logger.warn(
+        `检查用户 ${userId} 手机绑定状态失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return undefined;
     }
   }

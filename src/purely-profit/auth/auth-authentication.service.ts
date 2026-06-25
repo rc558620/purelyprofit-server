@@ -279,7 +279,9 @@ export class AuthAuthenticationService {
         await this.safeUpdateWechatPhone(existingUser.id, params.phone);
       }
 
-      await this.authAccountMembershipService.ensureUserNotBanned(existingUser.id);
+      await this.authAccountMembershipService.ensureUserNotBanned(
+        existingUser.id,
+      );
 
       return this.authSessionService.signToken(existingUser.id, {
         phone: existingUser.phone,
@@ -315,7 +317,9 @@ export class AuthAuthenticationService {
           throw error;
         }
 
-        await this.authAccountMembershipService.ensureUserNotBanned(phoneUser.id);
+        await this.authAccountMembershipService.ensureUserNotBanned(
+          phoneUser.id,
+        );
 
         return this.authSessionService.signToken(phoneUser.id, {
           phone: phoneUser.phone,
@@ -354,7 +358,9 @@ export class AuthAuthenticationService {
             params.openid,
           );
         if (resolvedUser) {
-          await this.authAccountMembershipService.ensureUserNotBanned(resolvedUser.id);
+          await this.authAccountMembershipService.ensureUserNotBanned(
+            resolvedUser.id,
+          );
           return this.authSessionService.signToken(resolvedUser.id, {
             phone: resolvedUser.phone,
             email: resolvedUser.email,

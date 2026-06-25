@@ -135,6 +135,7 @@ describe('ProductsService', () => {
 
     return {
       id: String(record.id),
+      storeId: record.storeId,
       name: record.name,
       category: record.category,
       code: record.code,

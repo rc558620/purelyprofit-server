@@ -111,10 +111,7 @@ export class CategoriesWriteService {
     );
 
     await this.prisma.$transaction(async (tx) => {
-      await clearCategoryProducts(
-        tx,
-        this.toClearProductsInput(category),
-      );
+      await clearCategoryProducts(tx, this.toClearProductsInput(category));
       await deleteCategoryRecord(tx, category.id);
     });
   }

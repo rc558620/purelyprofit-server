@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlatformMembershipAccessService } from './platform-membership-access.service';
@@ -10,6 +10,8 @@ import type {
 
 @Injectable()
 export class StoreSubAccountReadService {
+  private readonly logger = new Logger(StoreSubAccountReadService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly membershipAccessService: PlatformMembershipAccessService,
@@ -76,7 +78,7 @@ export class StoreSubAccountReadService {
         throw error;
       }
 
-      console.warn(
+      this.logger.warn(
         '[store-sub-account] store_sub_accounts schema not ready, deny request to avoid stale sub-account summary fallback',
       );
       throw new UnauthorizedException(

@@ -10,7 +10,7 @@ enum InventoryAdjustType {
 model InventoryAdjustmentLog {
   id              Int                 @id @default(autoincrement())
   storeId         Int                 @map("store_id")
-  store           Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store           Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
   productId       Int                 @map("product_id")
   product         Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
   purchaseOrderId Int?                @map("purchase_order_id")

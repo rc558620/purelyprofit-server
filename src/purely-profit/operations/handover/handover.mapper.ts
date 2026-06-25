@@ -1,4 +1,9 @@
-import { EmployeeShiftType, Prisma, SalesPaymentMethod, StaffRole } from '@prisma/client';
+import {
+  EmployeeShiftType,
+  Prisma,
+  SalesPaymentMethod,
+  StaffRole,
+} from '@prisma/client';
 import type { HandoverAdditionalItemDto } from './dto/handover-additional-items.dto';
 import {
   HandoverRecordDisplayStatusDto,
@@ -146,7 +151,8 @@ export const mapRefundOrderItem = (
   paymentColor: PAYMENT_METHOD_CONFIG[order.paymentMethod].color,
   operatorName:
     toDisplayName(order.operatorNameSnapshot) ??
-    toDisplayName(order.operatorStaff?.name) ?? AUTO_SETTLEMENT_OPERATOR_NAME,
+    toDisplayName(order.operatorStaff?.name) ??
+    AUTO_SETTLEMENT_OPERATOR_NAME,
   operatorRole: resolveOperatorRole(order.operatorStaff),
   date: order.date.getTime(),
   currentStock: null,

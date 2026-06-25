@@ -4,7 +4,10 @@ import { IsInt, IsOptional, Min } from 'class-validator';
 import { transformOptionalInt } from '../../stores/dto/store-response.dto';
 
 export class MarketingPageQueryDto {
-  @ApiPropertyOptional({ example: 1, description: '门店 ID（不传则按当前可管理门店）' })
+  @ApiPropertyOptional({
+    example: 1,
+    description: '门店 ID（不传则按当前可管理门店）',
+  })
   @IsOptional()
   @Transform(transformOptionalInt)
   @IsInt({ message: '门店 ID 必须是整数' })

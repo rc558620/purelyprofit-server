@@ -302,7 +302,7 @@ describe('SalesRecordWriteService', () => {
         },
         {
           skipAccessCheck: true,
-          transactionClient,
+          transactionClient: transactionClient as never,
         },
       ),
     ).resolves.toEqual(response);
@@ -312,7 +312,7 @@ describe('SalesRecordWriteService', () => {
         storeId: 18,
         options: expect.objectContaining({
           skipAccessCheck: true,
-          transactionClient,
+          transactionClient: transactionClient as never,
         }),
       }),
     );

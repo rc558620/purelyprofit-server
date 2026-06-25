@@ -200,7 +200,8 @@ export class ClubWechatAuthService {
     };
   }
 
-  private static readonly ACCESS_TOKEN_CACHE_KEY_PREFIX = 'club:wechat:access_token:';
+  private static readonly ACCESS_TOKEN_CACHE_KEY_PREFIX =
+    'club:wechat:access_token:';
   /** access_token 有效期 7200s，提前 5 分钟刷新以避免边界问题 */
   private static readonly ACCESS_TOKEN_CACHE_TTL_SECONDS = 7200 - 300;
 

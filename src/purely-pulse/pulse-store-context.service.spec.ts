@@ -107,6 +107,7 @@ describe('PulseStoreContextService', () => {
     expect(redisService.set).toHaveBeenCalledWith(
       'pulse:selected-store:101',
       '66',
+      86400,
     );
   });
 
@@ -233,6 +234,7 @@ describe('PulseStoreContextService', () => {
     expect(redisService.set).toHaveBeenCalledWith(
       'pulse:selected-store:101',
       '88',
+      86400,
     );
   });
 

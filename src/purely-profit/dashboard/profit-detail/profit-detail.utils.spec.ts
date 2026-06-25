@@ -279,6 +279,7 @@ describe('profit-detail.utils', () => {
         end: currentRange.end,
       }),
       select: PROFIT_DETAIL_SALE_ORDER_ITEM_SELECT,
+      take: 5000,
     });
     expect(costFindMany).toHaveBeenCalledWith({
       ...buildCostRecordQuery(18, {
@@ -286,6 +287,7 @@ describe('profit-detail.utils', () => {
         end: currentRange.end,
       }),
       select: PROFIT_DETAIL_COST_RECORD_SELECT,
+      take: 5000,
     });
   });
 
@@ -328,7 +330,11 @@ describe('profit-detail.utils', () => {
         profit: new Prisma.Decimal('2.50'),
         quantity: 2,
         image: null,
-        order: { id: 1, date: new Date(2026, 4, 12, 10, 0, 0, 0), spaceSession: null },
+        order: {
+          id: 1,
+          date: new Date(2026, 4, 12, 10, 0, 0, 0),
+          spaceSession: null,
+        },
       },
       {
         productId: 1,
@@ -338,7 +344,11 @@ describe('profit-detail.utils', () => {
         profit: new Prisma.Decimal('2.50'),
         quantity: 1,
         image: 'https://example.com/coke.png',
-        order: { id: 2, date: new Date(2026, 4, 12, 13, 0, 0, 0), spaceSession: null },
+        order: {
+          id: 2,
+          date: new Date(2026, 4, 12, 13, 0, 0, 0),
+          spaceSession: null,
+        },
       },
       {
         productId: null,
@@ -348,7 +358,11 @@ describe('profit-detail.utils', () => {
         profit: new Prisma.Decimal('3.00'),
         quantity: 1,
         image: null,
-        order: { id: 3, date: new Date(2026, 4, 13, 10, 0, 0, 0), spaceSession: null },
+        order: {
+          id: 3,
+          date: new Date(2026, 4, 13, 10, 0, 0, 0),
+          spaceSession: null,
+        },
       },
       {
         productId: 3,
@@ -358,7 +372,11 @@ describe('profit-detail.utils', () => {
         profit: new Prisma.Decimal('2.00'),
         quantity: 1,
         image: null,
-        order: { id: 4, date: new Date(2026, 4, 10, 10, 0, 0, 0), spaceSession: null },
+        order: {
+          id: 4,
+          date: new Date(2026, 4, 10, 10, 0, 0, 0),
+          spaceSession: null,
+        },
       },
       {
         productId: null,
@@ -368,7 +386,11 @@ describe('profit-detail.utils', () => {
         profit: new Prisma.Decimal('-30.00'),
         quantity: 1,
         image: null,
-        order: { id: 5, date: new Date(2026, 4, 12, 14, 0, 0, 0), spaceSession: null },
+        order: {
+          id: 5,
+          date: new Date(2026, 4, 12, 14, 0, 0, 0),
+          spaceSession: null,
+        },
       },
     ];
 

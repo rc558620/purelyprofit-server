@@ -1,4 +1,5 @@
-import type { Provider } from '@nestjs/common';
+import { Provider } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
@@ -96,6 +97,12 @@ export function createCostsReadProviders(
     {
       provide: PlatformMembershipAccessService,
       useValue: platformMembershipAccessService,
+    },
+    {
+      provide: ConfigService,
+      useValue: {
+        get: (key: string, defaultValue?: any) => defaultValue ?? 100,
+      },
     },
   ];
 }

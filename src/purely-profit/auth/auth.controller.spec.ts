@@ -3,6 +3,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { AuthRsaService } from './auth-rsa.service';
 
 const ALLOW_GUARD = { canActivate: jest.fn(() => true) };
 
@@ -20,6 +21,11 @@ describe('AuthController', () => {
     getCapability: jest.fn(),
     updateAvatar: jest.fn(),
     verifyRealName: jest.fn(),
+    createStore: jest.fn(),
+  };
+
+  const authRsaService = {
+    getPublicKeyPem: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -52,7 +58,10 @@ describe('AuthController', () => {
     jest.clearAllMocks();
     const moduleBuilder = Test.createTestingModule({
       controllers: [AuthController],
-      providers: [{ provide: AuthService, useValue: authService }],
+      providers: [
+        { provide: AuthService, useValue: authService },
+        { provide: AuthRsaService, useValue: authRsaService },
+      ],
     });
     moduleBuilder.overrideGuard(JwtAuthGuard).useValue(ALLOW_GUARD);
     const module: TestingModule = await moduleBuilder.compile();

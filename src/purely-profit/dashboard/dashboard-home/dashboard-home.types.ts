@@ -296,7 +296,7 @@ export const DASHBOARD_HOME_RECENT_ORDER_SELECT =
     id: true,
     totalRevenue: true,
     date: true,
-  createdAt: true,
+    createdAt: true,
   });
 
 export type RecentOrderRow = Prisma.SaleOrderGetPayload<{

@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  forwardRef,
-  Inject,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -66,7 +60,6 @@ export class MarketingOverviewService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(forwardRef(() => RedisService))
     private readonly redisService: RedisService,
     private readonly marketingSharedService: MarketingSharedService,
   ) {}

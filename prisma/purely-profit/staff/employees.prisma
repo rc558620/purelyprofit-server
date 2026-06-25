@@ -36,7 +36,7 @@ enum EmployeePayrollStatus {
 model EmployeeDepartment {
   id        Int        @id @default(autoincrement())
   storeId   Int        @map("store_id")
-  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Restrict)
   name      String
   employees Employee[]
   createdAt DateTime   @default(now()) @map("created_at")
@@ -50,7 +50,7 @@ model EmployeeDepartment {
 model EmployeePosition {
   id        Int        @id @default(autoincrement())
   storeId   Int        @map("store_id")
-  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Restrict)
   name      String
   employees Employee[]
   createdAt DateTime   @default(now()) @map("created_at")
@@ -64,7 +64,7 @@ model EmployeePosition {
 model Employee {
   id               Int                   @id @default(autoincrement())
   storeId          Int                   @map("store_id")
-  store            Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store            Store                 @relation(fields: [storeId], references: [id], onDelete: Restrict)
   linkedStaffId    Int?                  @unique @map("linked_staff_id")
   linkedStaff      Staff?                @relation("StaffEmployeeProfile", fields: [linkedStaffId], references: [id], onDelete: SetNull)
   departmentId     Int?                  @map("department_id")
@@ -108,7 +108,7 @@ model Employee {
 model EmployeeShiftDefinition {
   id               Int             @id @default(autoincrement())
   storeId          Int             @map("store_id")
-  store            Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store            Store           @relation(fields: [storeId], references: [id], onDelete: Restrict)
   name             String
   defaultStartTime String          @map("default_start_time")
   defaultEndTime   String          @map("default_end_time")
@@ -124,7 +124,7 @@ model EmployeeShiftDefinition {
 model EmployeeLeave {
   id           Int               @id @default(autoincrement())
   storeId      Int               @map("store_id")
-  store        Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store        Store             @relation(fields: [storeId], references: [id], onDelete: Restrict)
   employeeId   Int               @map("employee_id")
   employee     Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   employeeName String            @map("employee_name")
@@ -145,7 +145,7 @@ model EmployeeLeave {
 model EmployeeShift {
   id                Int                      @id @default(autoincrement())
   storeId           Int                      @map("store_id")
-  store             Store                    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store             Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   employeeId        Int                      @map("employee_id")
   employee          Employee                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   employeeName      String                   @map("employee_name")
@@ -168,7 +168,7 @@ model EmployeeShift {
 model EmployeePayroll {
   id                 Int                   @id @default(autoincrement())
   storeId            Int                   @map("store_id")
-  store              Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store              Store                 @relation(fields: [storeId], references: [id], onDelete: Restrict)
   employeeId         Int                   @map("employee_id")
   employee           Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   employeeName       String                @map("employee_name")

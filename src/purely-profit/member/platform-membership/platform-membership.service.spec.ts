@@ -39,6 +39,7 @@ describe('PlatformMembershipService', () => {
     },
     storePartnerBeanLog: {
       create: jest.fn(),
+      createMany: jest.fn(),
       findMany: jest.fn(),
     },
     storeMembershipProfile: {
@@ -71,6 +72,10 @@ describe('PlatformMembershipService', () => {
 
   const redisService = {
     getOrLoadRefreshableJson: jest.fn(),
+    getJson: jest.fn(),
+    setJson: jest.fn(),
+    mgetJson: jest.fn(),
+    delByPattern: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -1641,6 +1646,30 @@ describe('PlatformMembershipService', () => {
   });
 
   it('purchaseOrder 使用积分和纯利豆后创建 paid 订单并更新会员状态', async () => {
+    const partnerWithBeans = {
+      id: 11,
+      storeId: 18,
+      status: 'approved',
+      name: '王建国',
+      phone: '13800138000',
+      idCard: '44030119900101123X',
+      region: [],
+      intention: 'resource',
+      applyReason: null,
+      paymentAccountType: 'wechat',
+      paymentAccountNo: 'wx_test',
+      paymentAccountName: '王建国',
+      beanBalance: 20,
+      totalEarnedBeans: 20,
+      totalWithdrawnBeans: 0,
+      joinedAt: new Date('2026-05-01T00:00:00.000Z'),
+      reviewedAt: new Date('2026-05-01T00:00:00.000Z'),
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+    };
+    const partnerAfterDeduct = {
+      ...partnerWithBeans,
+      beanBalance: 0,
+    };
     prismaService.store.findFirst.mockResolvedValue({ id: 18 });
     prismaService.storeMembershipProfile.upsert.mockResolvedValue({
       id: 3,
@@ -1651,46 +1680,17 @@ describe('PlatformMembershipService', () => {
       totalPoints: 2000,
       availablePoints: 2000,
     });
-    prismaService.storePartner.findUnique
-      .mockResolvedValueOnce({
-        id: 11,
-        status: 'approved',
-        name: '王建国',
-        phone: '13800138000',
-        idCard: '44030119900101123X',
-        region: [],
-        intention: 'resource',
-        applyReason: null,
-        paymentAccountType: 'wechat',
-        paymentAccountNo: 'wx_test',
-        paymentAccountName: '王建国',
-        beanBalance: 20,
-        totalEarnedBeans: 20,
-        totalWithdrawnBeans: 0,
-        joinedAt: new Date('2026-05-01T00:00:00.000Z'),
-        reviewedAt: new Date('2026-05-01T00:00:00.000Z'),
-        createdAt: new Date('2026-05-01T00:00:00.000Z'),
-      })
-      .mockResolvedValueOnce({
-        id: 11,
-        status: 'approved',
-        name: '王建国',
-        phone: '13800138000',
-        idCard: '44030119900101123X',
-        region: [],
-        intention: 'resource',
-        applyReason: null,
-        paymentAccountType: 'wechat',
-        paymentAccountNo: 'wx_test',
-        paymentAccountName: '王建国',
-        beanBalance: 0,
-        totalEarnedBeans: 20,
-        totalWithdrawnBeans: 0,
-        joinedAt: new Date('2026-05-01T00:00:00.000Z'),
-        reviewedAt: new Date('2026-05-01T00:00:00.000Z'),
-        createdAt: new Date('2026-05-01T00:00:00.000Z'),
-      });
-    prismaService.storePartner.updateMany.mockResolvedValue({ count: 1 });
+    // findMany is called 4 times in the transaction:
+    // 1. findStorePartners (initial) → beanBalance: 20
+    // 2. pre-deduct validation → storeId + status only
+    // 3. post-deduct validation → beanBalance: 0 (non-negative check)
+    // 4. findStorePartners (final) → beanBalance: 0 (for response)
+    prismaService.storePartner.findMany
+      .mockResolvedValueOnce([partnerWithBeans])
+      .mockResolvedValueOnce([{ id: 11, storeId: 18, status: 'approved' }])
+      .mockResolvedValueOnce([{ id: 11, beanBalance: 0 }])
+      .mockResolvedValueOnce([partnerAfterDeduct]);
+    prismaService.storePartner.findUnique.mockResolvedValue(partnerAfterDeduct);
     prismaService.storeMembershipProfile.update.mockResolvedValue({
       id: 3,
       storeId: 18,
@@ -1738,13 +1738,8 @@ describe('PlatformMembershipService', () => {
       useBeans: 20,
     });
 
-    expect(prismaService.storePartner.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: 11,
-        storeId: 18,
-        status: 'approved',
-        beanBalance: { gte: 20 },
-      },
+    expect(prismaService.storePartner.update).toHaveBeenCalledWith({
+      where: { id: 11 },
       data: {
         beanBalance: { decrement: 20 },
       },
@@ -1752,15 +1747,17 @@ describe('PlatformMembershipService', () => {
     expect(
       cacheInvalidatorService.invalidateMembershipDerived,
     ).toHaveBeenCalled();
-    expect(prismaService.storePartnerBeanLog.create).toHaveBeenCalledWith({
-      data: {
-        storeId: 18,
-        partnerId: 11,
-        source: 'deduct_payment',
-        changeAmount: -20,
-        description: '纯利豆抵扣 · 订阅季度会员',
-        relatedPlanType: 'quarterly',
-      },
+    expect(prismaService.storePartnerBeanLog.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          storeId: 18,
+          partnerId: 11,
+          source: 'deduct_payment',
+          changeAmount: -20,
+          description: '纯利豆抵扣 · 订阅季度会员',
+          relatedPlanType: 'quarterly',
+        },
+      ],
     });
     expect(
       prismaService.storeMembershipPointsLog.create,
@@ -1925,42 +1922,31 @@ describe('PlatformMembershipService', () => {
   });
 
   it('purchaseOrder 同级续费时保留原会员类型并叠加时长', async () => {
-    prismaService.store.findFirst.mockResolvedValue({ id: 18 });
-    prismaService.storeMembershipProfile.upsert.mockResolvedValue({
-      id: 3,
-      storeId: 18,
-      currentPlanId: 'monthly',
-      startsAt: new Date('2026-05-01T00:00:00.000Z'),
-      expiresAt: new Date('2026-06-20T00:00:00.000Z'),
-      totalPoints: 0,
-      availablePoints: 0,
-    });
-    prismaService.storePartner.findUnique.mockResolvedValue(null);
-    prismaService.storeMembershipProfile.update.mockResolvedValue({
-      id: 3,
-      storeId: 18,
-      currentPlanId: 'monthly',
-      startsAt: new Date('2026-05-01T00:00:00.000Z'),
-      expiresAt: new Date('2026-07-20T00:00:00.000Z'),
-      totalPoints: 0,
-      availablePoints: 0,
-    });
-    prismaService.storeMembershipOrder.create.mockResolvedValue({
-      id: 32,
-      planId: 'monthly',
-      planName: '月度会员',
-      amount: 3800,
-      pointsDeducted: 0,
-      pointsUsed: 0,
-      beanDeducted: 0,
-      beansUsed: 0,
-      status: 'paid',
-      paymentChannel: 'wechat',
-      paymentOrderId: 'WX18123457',
-      createdAt: new Date('2026-05-18T00:00:00.000Z'),
-    });
-    prismaService.storeMembershipOrder.findMany.mockResolvedValue([
-      {
+    // 冻结时间到 2026-06-10，确保当前 expiresAt(2026-06-20) 仍在有效期内
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T00:00:00.000Z'));
+
+    try {
+      prismaService.store.findFirst.mockResolvedValue({ id: 18 });
+      prismaService.storeMembershipProfile.upsert.mockResolvedValue({
+        id: 3,
+        storeId: 18,
+        currentPlanId: 'monthly',
+        startsAt: new Date('2026-05-01T00:00:00.000Z'),
+        expiresAt: new Date('2026-06-20T00:00:00.000Z'),
+        totalPoints: 0,
+        availablePoints: 0,
+      });
+      prismaService.storePartner.findUnique.mockResolvedValue(null);
+      prismaService.storeMembershipProfile.update.mockResolvedValue({
+        id: 3,
+        storeId: 18,
+        currentPlanId: 'monthly',
+        startsAt: new Date('2026-05-01T00:00:00.000Z'),
+        expiresAt: new Date('2026-07-20T00:00:00.000Z'),
+        totalPoints: 0,
+        availablePoints: 0,
+      });
+      prismaService.storeMembershipOrder.create.mockResolvedValue({
         id: 32,
         planId: 'monthly',
         planName: '月度会员',
@@ -1973,25 +1959,43 @@ describe('PlatformMembershipService', () => {
         paymentChannel: 'wechat',
         paymentOrderId: 'WX18123457',
         createdAt: new Date('2026-05-18T00:00:00.000Z'),
-      },
-    ]);
+      });
+      prismaService.storeMembershipOrder.findMany.mockResolvedValue([
+        {
+          id: 32,
+          planId: 'monthly',
+          planName: '月度会员',
+          amount: 3800,
+          pointsDeducted: 0,
+          pointsUsed: 0,
+          beanDeducted: 0,
+          beansUsed: 0,
+          status: 'paid',
+          paymentChannel: 'wechat',
+          paymentOrderId: 'WX18123457',
+          createdAt: new Date('2026-05-18T00:00:00.000Z'),
+        },
+      ]);
 
-    const result = await service.purchaseOrder(user, {
-      planId: 'monthly',
-    });
+      const result = await service.purchaseOrder(user, {
+        planId: 'monthly',
+      });
 
-    expect(prismaService.storeMembershipProfile.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          currentPlanId: 'monthly',
-          expiresAt: new Date('2026-07-20T00:00:00.000Z'),
+      expect(prismaService.storeMembershipProfile.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            currentPlanId: 'monthly',
+            expiresAt: new Date('2026-07-20T00:00:00.000Z'),
+          }),
         }),
-      }),
-    );
-    expect(result.profile.memberInfo.planId).toBe('monthly');
-    expect(result.profile.memberInfo.expiredAt).toBe(
-      new Date('2026-07-20T00:00:00.000Z').getTime(),
-    );
+      );
+      expect(result.profile.memberInfo.planId).toBe('monthly');
+      expect(result.profile.memberInfo.expiredAt).toBe(
+        new Date('2026-07-20T00:00:00.000Z').getTime(),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('purchaseOrder 购买低等级套餐时不覆盖当前高等级会员', async () => {

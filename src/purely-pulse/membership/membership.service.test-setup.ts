@@ -82,6 +82,11 @@ export interface PulseMembershipRedisServiceMock {
   set: jest.Mock;
   del: jest.Mock;
   getClient: jest.Mock;
+  getJson: jest.Mock;
+  setJson: jest.Mock;
+  mgetJson: jest.Mock;
+  delByPattern: jest.Mock;
+  setIfAbsent: jest.Mock;
 }
 
 export interface PulseMembershipCacheInvalidatorServiceMock {
@@ -177,8 +182,14 @@ function createPulseStoreContextServiceMock(): PulseMembershipStoreContextServic
 }
 
 function createRedisServiceMock(): PulseMembershipRedisServiceMock {
+  const pipeline = {
+    set: jest.fn().mockReturnThis(),
+    exec: jest.fn().mockResolvedValue([]),
+  };
   const client = {
     mget: jest.fn(),
+    set: jest.fn().mockResolvedValue('OK'),
+    pipeline: jest.fn(() => pipeline),
   };
 
   return {
@@ -186,6 +197,11 @@ function createRedisServiceMock(): PulseMembershipRedisServiceMock {
     set: jest.fn(),
     del: jest.fn(),
     getClient: jest.fn(() => client),
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
+    mgetJson: jest.fn().mockResolvedValue([]),
+    delByPattern: jest.fn().mockResolvedValue(1),
+    setIfAbsent: jest.fn().mockResolvedValue(true),
   };
 }
 

@@ -24,24 +24,24 @@ describe('resolvePlanSnapshot', () => {
   });
 
   it('CUSTOM 套餐未传席位数时抛出 BadRequestException', () => {
-    expect(() =>
-      resolvePlanSnapshot(SubscriptionPlanCode.CUSTOM),
-    ).toThrow(BadRequestException);
-    expect(() =>
-      resolvePlanSnapshot(SubscriptionPlanCode.CUSTOM),
-    ).toThrow('自定义套餐必须提供大于等于 1 的席位数');
+    expect(() => resolvePlanSnapshot(SubscriptionPlanCode.CUSTOM)).toThrow(
+      BadRequestException,
+    );
+    expect(() => resolvePlanSnapshot(SubscriptionPlanCode.CUSTOM)).toThrow(
+      '自定义套餐必须提供大于等于 1 的席位数',
+    );
   });
 
   it('CUSTOM 套餐传入席位数 0 时抛出 BadRequestException', () => {
-    expect(() =>
-      resolvePlanSnapshot(SubscriptionPlanCode.CUSTOM, 0),
-    ).toThrow(BadRequestException);
+    expect(() => resolvePlanSnapshot(SubscriptionPlanCode.CUSTOM, 0)).toThrow(
+      BadRequestException,
+    );
   });
 
   it('CUSTOM 套餐传入负数席位数时抛出 BadRequestException', () => {
-    expect(() =>
-      resolvePlanSnapshot(SubscriptionPlanCode.CUSTOM, -1),
-    ).toThrow(BadRequestException);
+    expect(() => resolvePlanSnapshot(SubscriptionPlanCode.CUSTOM, -1)).toThrow(
+      BadRequestException,
+    );
   });
 
   it('CUSTOM 套餐传入席位数 1 时返回合法快照', () => {

@@ -18,6 +18,9 @@ import {
   mapPulseStoreSummary,
 } from './pulse-store-context.utils';
 
+/** Pulse 用户选中门店缓存 TTL：24 小时 */
+const PULSE_SELECTED_STORE_TTL_SECONDS = 24 * 3600;
+
 @Injectable()
 export class PulseStoreContextService {
   constructor(
@@ -139,6 +142,7 @@ export class PulseStoreContextService {
     await this.redisService.set(
       buildPulseSelectedStoreKey(userId),
       String(storeId),
+      PULSE_SELECTED_STORE_TTL_SECONDS,
     );
   }
 

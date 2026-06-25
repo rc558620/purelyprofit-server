@@ -113,8 +113,11 @@ export class AuthRsaService {
 
     try {
       return this.decrypt(value);
-    } catch {
+    } catch (error: unknown) {
       // 解密失败时返回原始值，由后续业务校验处理
+      this.logger.warn(
+        `RSA 解密密码失败，回退到原始值: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return value;
     }
   }

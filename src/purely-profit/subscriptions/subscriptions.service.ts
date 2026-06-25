@@ -1,5 +1,14 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
-import { Prisma, PrismaClient, StoreSubscriptionStatus, SubscriptionPlanCode } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
+import {
+  Prisma,
+  PrismaClient,
+  StoreSubscriptionStatus,
+  SubscriptionPlanCode,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StoreSubscriptionResponseDto } from './dto/store-subscription-response.dto';
@@ -57,7 +66,10 @@ export class SubscriptionsService {
     await this.subscriptionsAccessService.ensureStoreOwner(user, storeId);
 
     return this.prisma.$transaction(async (tx) => {
-      const currentSubscription = await findStoreSubscriptionRecord(tx, storeId);
+      const currentSubscription = await findStoreSubscriptionRecord(
+        tx,
+        storeId,
+      );
 
       if (!currentSubscription) {
         throw new BadRequestException('门店订阅记录不存在，请先初始化');

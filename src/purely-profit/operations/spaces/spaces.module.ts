@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { CommerceModule } from '../../commerce/commerce.module';
 import { PlatformMembershipModule } from '../../member/platform-membership/platform-membership.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
@@ -37,7 +37,7 @@ import { SpacesWriteService } from './spaces-write.service';
     PrismaModule,
     CommerceModule,
     PlatformMembershipModule,
-    forwardRef(() => SalesRecordModule),
+    SalesRecordModule,
     RedisModule,
   ],
   controllers: [

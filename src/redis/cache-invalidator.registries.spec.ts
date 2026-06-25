@@ -20,13 +20,13 @@ import {
 
 type RedisServiceMock = {
   del: jest.Mock<Promise<void>, [string]>;
-  delByPattern: jest.Mock<Promise<void>, [string]>;
+  delByPattern: jest.Mock<Promise<number>, [string]>;
 };
 
 function createRedisServiceMock(): RedisServiceMock {
   return {
     del: jest.fn((_key: string) => Promise.resolve()),
-    delByPattern: jest.fn((_pattern: string) => Promise.resolve()),
+    delByPattern: jest.fn((_pattern: string) => Promise.resolve(1)),
   };
 }
 

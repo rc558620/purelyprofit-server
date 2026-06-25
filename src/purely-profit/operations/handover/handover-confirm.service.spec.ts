@@ -5,6 +5,7 @@ import {
 } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisLockService } from '../../../redis/redis-lock.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { HandoverAdditionalItemsService } from './handover-additional-items.service';
 import { HandoverConfirmShiftService } from './handover-confirm-shift.service';
@@ -28,11 +29,23 @@ describe('HandoverConfirmService', () => {
     ensureShiftNotHandedOver: jest.fn(),
     resolveReceiverCandidate: jest.fn(),
   };
+  const redisLockService = {
+    acquireLock: jest.fn(),
+    releaseLock: jest.fn(),
+  };
 
   const subAccountUser = createSubAccountUser();
 
   beforeEach(async () => {
     jest.clearAllMocks();
+
+    // Mock RedisLockService: 默认成功获取锁
+    redisLockService.acquireLock.mockResolvedValue({
+      resource: 'handover:confirm:store:100:scope:201',
+      token: 'test-token',
+      key: 'distributed-lock:handover:confirm:store:100:scope:201',
+    });
+    redisLockService.releaseLock.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -49,6 +62,10 @@ describe('HandoverConfirmService', () => {
         {
           provide: HandoverConfirmShiftService,
           useValue: handoverConfirmShiftService,
+        },
+        {
+          provide: RedisLockService,
+          useValue: redisLockService,
         },
       ],
     }).compile();
@@ -118,7 +135,13 @@ describe('HandoverConfirmService', () => {
 
       expect(result.status).toBe('completed');
       expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
-      expect(prismaService.$executeRaw).toHaveBeenCalledTimes(1);
+      // 分布式锁替换了 pg_advisory_xact_lock：验证 Redis 锁被正确获取和释放
+      expect(redisLockService.acquireLock).toHaveBeenCalledTimes(1);
+      expect(redisLockService.acquireLock).toHaveBeenCalledWith(
+        expect.stringMatching(/^handover:confirm:store:100:scope:/),
+        { ttlSeconds: 20 },
+      );
+      expect(redisLockService.releaseLock).toHaveBeenCalledTimes(1);
       expect(
         handoverConfirmShiftService.ensureShiftNotHandedOver,
       ).toHaveBeenCalledWith(
@@ -209,7 +232,9 @@ describe('HandoverConfirmService', () => {
           }),
         }),
       );
-      expect(prismaService.$executeRaw).toHaveBeenCalledTimes(1);
+      // 分布式锁替换了 pg_advisory_xact_lock：验证 Redis 锁被正确获取
+      expect(redisLockService.acquireLock).toHaveBeenCalledTimes(1);
+      expect(redisLockService.releaseLock).toHaveBeenCalledTimes(1);
     });
 
     it('同一班次重复交班时应抛出异常', async () => {
@@ -228,7 +253,9 @@ describe('HandoverConfirmService', () => {
         }),
       ).rejects.toThrow('当前班次已完成交班，暂不允许重复操作');
       expect(prismaService.storeHandoverRecord.create).not.toHaveBeenCalled();
-      expect(prismaService.$executeRaw).toHaveBeenCalledTimes(1);
+      // 锁在事务之外获取，即使事务内抛错，锁也应被获取和释放
+      expect(redisLockService.acquireLock).toHaveBeenCalledTimes(1);
+      expect(redisLockService.releaseLock).toHaveBeenCalledTimes(1);
     });
 
     it('自定义班次会优先按 shiftReferenceAt 与 operatorName 锁定并写入快照', async () => {

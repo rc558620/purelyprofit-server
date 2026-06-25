@@ -1,4 +1,4 @@
-import { forwardRef, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { AuthModule } from '../../purely-profit/auth/auth.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubMemberModule } from '../member/club-member.module';
@@ -10,12 +10,7 @@ import { ClubProductsController } from './club-products.controller';
 import { ClubProductsService } from './club-products.service';
 
 @Module({
-  imports: [
-    forwardRef(() => AuthModule),
-    PrismaModule,
-    ClubStoresModule,
-    ClubMemberModule,
-  ],
+  imports: [AuthModule, PrismaModule, ClubStoresModule, ClubMemberModule],
   controllers: [ClubProductsController],
   providers: [
     ClubProductPromotionService,
