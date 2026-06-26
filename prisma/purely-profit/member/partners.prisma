@@ -48,6 +48,9 @@ model StorePartner {
   reviewedAt          DateTime?              @map("reviewed_at")
   withdrawals         PartnerWithdrawal[]
   beanLogs            StorePartnerBeanLog[]
+  promoRecords        StoreMembershipPromoRecord[] // Step 3: 0.9 新增反向关系
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt           DateTime?              @map("deleted_at")
   createdAt           DateTime               @default(now()) @map("created_at")
   updatedAt           DateTime               @updatedAt @map("updated_at")
 
@@ -97,7 +100,8 @@ model StorePartnerBeanLog {
   storeId              Int                  @map("store_id")
   store                Store                @relation(fields: [storeId], references: [id], onDelete: Restrict)
   partnerId            Int                  @map("partner_id")
-  partner              StorePartner         @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  /// 合伙人被软删除后保留豆流水，onDelete: Restrict 防止意外硬删合伙人
+  partner              StorePartner         @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   source               MemberBeanSource
   changeAmount         Int                  @map("change_amount")
   description          String
@@ -117,7 +121,8 @@ model PartnerWithdrawal {
   storeId         Int                     @map("store_id")
   store           Store                   @relation(fields: [storeId], references: [id], onDelete: Restrict)
   partnerId       Int                     @map("partner_id")
-  partner         StorePartner            @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  /// 合伙人被软删除后保留提现记录，onDelete: Restrict 防止意外硬删合伙人
+  partner         StorePartner            @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   operatorStaffId Int?                    @map("operator_staff_id")
   operatorStaff   Staff?                  @relation("PartnerWithdrawalsOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
   beanAmount      Int                     @map("bean_amount")

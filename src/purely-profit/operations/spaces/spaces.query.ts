@@ -2,6 +2,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import {
   Prisma,
   SpaceReservationStatus as PrismaSpaceReservationStatus,
+  SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { ListSpacesQueryDto } from './dto/space.dto';
@@ -31,9 +32,10 @@ export function buildListSpacesWhere(
   storeId: number,
   query: ListSpacesQueryDto,
 ): Prisma.SpaceWhereInput {
+  // Note: query.status is now a runtime-derived value; Space table no longer has status field.
+  // Status filtering is done in-memory after deriving status from sessions/reservations.
   return {
     storeId,
-    ...(query.status ? { status: query.status } : {}),
     ...(query.type
       ? {
           type: {
@@ -155,13 +157,18 @@ export async function findSpaceRemovalCandidateOrThrow(
     select: {
       id: true,
       storeId: true,
-      status: true,
       sortOrder: true,
       _count: {
         select: {
           reservations: {
             where: {
               status: PrismaSpaceReservationStatus.pending,
+            },
+          },
+          // activeSessions: count of active sessions to determine if space is occupied
+          sessions: {
+            where: {
+              status: PrismaSpaceSessionStatus.active,
             },
           },
         },

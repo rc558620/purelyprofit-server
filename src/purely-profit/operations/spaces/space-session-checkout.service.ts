@@ -17,8 +17,8 @@ import type {
   CheckoutSpaceSessionResponseDto,
 } from './dto/space-session.dto';
 import {
-  parseSpaceSessionItems,
-  parseSpaceSessionRenewRecords,
+  mapRenewRecordRows,
+  mapSessionItemRows,
   toSpaceSessionResponse,
 } from './space-sessions.mapper';
 import {
@@ -30,6 +30,7 @@ import {
   normalizeCheckoutPreviewPayload,
 } from './space-session-checkout-payload.shared';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { SpaceReservationsStateService } from './space-reservations-state.service';
 import type { SpaceSessionRecord } from './space-sessions.types';
 import type { SpaceStatusValue } from './spaces.constants';
 
@@ -42,6 +43,7 @@ export class SpaceSessionCheckoutService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly checkoutLockService: SpaceSessionCheckoutLockService,
     private readonly settlementService: SpaceSessionSettlementService,
+    private readonly reservationsStateService: SpaceReservationsStateService,
   ) {}
 
   async previewSpaceSessionCheckout(
@@ -64,12 +66,12 @@ export class SpaceSessionCheckoutService {
 
     const lockedAt = Date.now();
     const payload = normalizeCheckoutPreviewPayload(dto);
-    const renewRecords = parseSpaceSessionRenewRecords(session.renewRecords);
+    const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
     const settlement = buildSpaceSessionSettlement({
       session,
       checkoutAt: lockedAt,
       payload,
-      items: parseSpaceSessionItems(session.items),
+      items: mapSessionItemRows(session.sessionItems),
       renewRecords,
     });
 
@@ -135,8 +137,8 @@ export class SpaceSessionCheckoutService {
     const timeFeeMode = lockPayload?.timeFeeMode ?? payload.timeFeeMode;
     const countdownFeeMode =
       lockPayload?.countdownFeeMode ?? payload.countdownFeeMode;
-    const items = parseSpaceSessionItems(session.items);
-    const renewRecords = parseSpaceSessionRenewRecords(session.renewRecords);
+    const items = mapSessionItemRows(session.sessionItems);
+    const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
     const settlement = buildSpaceSessionSettlement({
       session,
       checkoutAt,
@@ -158,9 +160,17 @@ export class SpaceSessionCheckoutService {
       await this.checkoutLockService.deleteLock(payload.lockId);
     }
 
+    // 运行态推导结算后的空间状态：根据 enableDirtyRoom 和是否有 pending 预约
+    const spaceStatus =
+      await this.reservationsStateService.resolveReservationBackStatus(
+        this.prisma,
+        session.spaceId,
+        session.space.enableDirtyRoom,
+      );
+
     return {
       session: toSpaceSessionResponse(updated.session),
-      spaceStatus: this.toSpaceStatusValue(updated.spaceStatus),
+      spaceStatus: this.toSpaceStatusValue(spaceStatus),
       ...(updated.cancelledReservationId !== null
         ? { cancelledReservationId: String(updated.cancelledReservationId) }
         : {}),
@@ -194,6 +204,12 @@ export class SpaceSessionCheckoutService {
               },
             },
           },
+        },
+        sessionItems: {
+          orderBy: { sortOrder: 'asc' },
+        },
+        sessionRenewRecords: {
+          orderBy: { id: 'asc' },
         },
       },
     });

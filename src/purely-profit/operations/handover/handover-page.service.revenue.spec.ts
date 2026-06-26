@@ -454,7 +454,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.card,
-            renewRecords: [],
+            sessionRenewRecords: [],
             space: {
               name: '大厅A01',
             },
@@ -513,7 +513,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,
-            renewRecords: [],
+            sessionRenewRecords: [],
             space: {
               name: '大厅A02',
             },
@@ -717,7 +717,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,
-            renewRecords: [],
+            sessionRenewRecords: [],
             space: {
               name: '大厅A03',
             },
@@ -764,7 +764,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           operatorStaff: null,
           spaceSession: {
             prepaidPaymentMethod: SalesPaymentMethod.wechat,
-            renewRecords: [],
+            sessionRenewRecords: [],
             space: {
               name: '大厅A04',
             },

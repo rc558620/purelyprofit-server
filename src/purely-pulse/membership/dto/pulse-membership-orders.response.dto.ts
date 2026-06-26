@@ -112,17 +112,9 @@ export class PulseMembershipOrderDetailResponseDto {
   @IsInt()
   amount: number;
 
-  @ApiProperty({ example: 1500, description: '积分抵扣金额，单位分' })
-  @IsInt()
-  pointsDeducted: number;
-
   @ApiProperty({ example: 1500, description: '实际使用积分数量' })
   @IsInt()
   pointsUsed: number;
-
-  @ApiProperty({ example: 2000, description: '纯利豆抵扣金额，单位分' })
-  @IsInt()
-  beanDeducted: number;
 
   @ApiProperty({ example: 20, description: '实际使用纯利豆数量' })
   @IsInt()

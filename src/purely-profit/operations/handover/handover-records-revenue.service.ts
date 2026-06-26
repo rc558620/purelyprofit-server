@@ -35,7 +35,7 @@ export class HandoverRecordsRevenueService {
   async countRecordRevenue(
     storeId: number,
     shiftRange: ShiftDateRange,
-    operatorStaffId: number | null,
+    _operatorStaffId: number | null,
   ): Promise<number> {
     const additionalOrderWhere = buildNonSpaceSessionOrderWhere(
       storeId,
@@ -67,7 +67,7 @@ export class HandoverRecordsRevenueService {
   async buildRecordRevenueDetail(
     storeId: number,
     shiftRange: ShiftDateRange,
-    operatorStaffId: number | null,
+    _operatorStaffId: number | null,
   ): Promise<
     Pick<
       HandoverRecordListItemDto,

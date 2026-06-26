@@ -1,9 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  SpaceReservationStatus as PrismaSpaceReservationStatus,
-  SpaceStatus as PrismaSpaceStatus,
-} from '@prisma/client';
+import { SpaceReservationStatus as PrismaSpaceReservationStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -68,7 +65,7 @@ describe('SpaceReservationsService', () => {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'OWNER',
+      role: 'owner',
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
@@ -497,66 +494,8 @@ describe('SpaceReservationsStateService', () => {
     );
   });
 
-  it('syncNonOccupiedSpaceStatus 会先锁空间再按预约回退状态更新', async () => {
-    transaction.space.findUnique.mockResolvedValue({
-      id: 11,
-      status: PrismaSpaceStatus.idle,
-    });
-    transaction.spaceReservation.findFirst.mockResolvedValue({ id: 21 });
-    transaction.space.update.mockResolvedValue(undefined);
-
-    await service.syncNonOccupiedSpaceStatus(transaction as never, 11);
-
-    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(transaction.space.update).toHaveBeenCalledWith({
-      where: { id: 11 },
-      data: { status: PrismaSpaceStatus.reserved },
-    });
-  });
-
-  it('syncNonOccupiedSpaceStatus 在空间已 occupied 时不回写状态', async () => {
-    transaction.space.findUnique.mockResolvedValue({
-      id: 11,
-      status: PrismaSpaceStatus.occupied,
-    });
-
-    await service.syncNonOccupiedSpaceStatus(transaction as never, 11);
-
-    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(transaction.spaceReservation.findFirst).not.toHaveBeenCalled();
-    expect(transaction.space.update).not.toHaveBeenCalled();
-  });
-
-  it('repairInconsistentOccupiedSpace 若锁内发现 active session 已恢复则不再修复', async () => {
-    transaction.space.findUnique.mockResolvedValue({
-      id: 11,
-      status: PrismaSpaceStatus.occupied,
-    });
-    transaction.spaceSession.findFirst.mockResolvedValue({ id: 99 });
-
-    await service.repairInconsistentOccupiedSpace(11);
-
-    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(transaction.space.update).not.toHaveBeenCalled();
-  });
-
-  it('repairInconsistentOccupiedSpace 仅在锁内确认无 active session 时回退状态', async () => {
-    transaction.space.findUnique.mockResolvedValue({
-      id: 11,
-      status: PrismaSpaceStatus.occupied,
-    });
-    transaction.spaceSession.findFirst.mockResolvedValue(null);
-    transaction.spaceReservation.findFirst.mockResolvedValue({ id: 21 });
-    transaction.space.update.mockResolvedValue(undefined);
-
-    await service.repairInconsistentOccupiedSpace(11);
-
-    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(transaction.space.update).toHaveBeenCalledWith({
-      where: { id: 11 },
-      data: { status: PrismaSpaceStatus.reserved },
-    });
-  });
+  // syncNonOccupiedSpaceStatus 和 repairInconsistentOccupiedSpace 已废弃为 no-op
+  // Space.status 字段已移除，状态从运行态推导，无需同步和修复
 
   it('ensureReservationCanBeFulfilled 在预约非 pending 时抛出冲突', async () => {
     prismaService.spaceReservation.findUnique.mockResolvedValue({
@@ -576,7 +515,7 @@ describe('SpaceReservationsStateService', () => {
 
     await expect(
       service.resolveReservationBackStatus(transaction as never, 11),
-    ).resolves.toBe(PrismaSpaceStatus.reserved);
+    ).resolves.toBe('reserved');
   });
 
   it('resolveReservationBackStatus 在不存在今日 pending 预约时返回 idle', async () => {
@@ -584,18 +523,8 @@ describe('SpaceReservationsStateService', () => {
 
     await expect(
       service.resolveReservationBackStatus(transaction as never, 11),
-    ).resolves.toBe(PrismaSpaceStatus.idle);
+    ).resolves.toBe('idle');
   });
 
-  it('repairInconsistentOccupiedSpace 在锁内状态已非 occupied 时直接返回', async () => {
-    transaction.space.findUnique.mockResolvedValue({
-      id: 11,
-      status: PrismaSpaceStatus.idle,
-    });
-
-    await service.repairInconsistentOccupiedSpace(11);
-
-    expect(transaction.spaceSession.findFirst).not.toHaveBeenCalled();
-    expect(transaction.space.update).not.toHaveBeenCalled();
-  });
+  // repairInconsistentOccupiedSpace 已废弃为 no-op
 });

@@ -9,9 +9,6 @@ const CLUB_MEMBER_ACCOUNT_NOT_FOUND_MESSAGE = '当前门店暂无会员账户信
 
 interface ClubMemberAccountRecord {
   id: number;
-  level: string;
-  points: number;
-  totalConsumeAmount: Decimal;
   createdAt: Date;
 }
 
@@ -78,15 +75,15 @@ export class ClubMemberProfileService {
     return {
       memberId: member.id,
       storeId,
+      // 余额：来自 MarketingCustomer.balance（事实源）
       balance: this.convertFenToYuan(marketingCustomer?.balance ?? 0),
-      level: this.resolveLevel(member.level, marketingCustomer?.tier),
-      points: marketingCustomer?.points ?? member.points,
+      // 等级：来自 MarketingCustomer.tier（事实源，Member.level 废弃）
+      level: this.resolveLevel(marketingCustomer?.tier),
+      // 积分：来自 MarketingCustomer.points（事实源，Member.points 废弃）
+      points: marketingCustomer?.points ?? 0,
       memberCode: this.buildMemberCode(joinDate, member.id),
       joinDate,
-      totalConsume: this.resolveTotalRecharge(
-        member.totalConsumeAmount,
-        totalRechargeFen,
-      ),
+      totalConsume: this.resolveTotalRecharge(totalRechargeFen),
     };
   }
 
@@ -98,13 +95,11 @@ export class ClubMemberProfileService {
       where: {
         storeId,
         phone,
-        status: { not: MemberStatus.BANNED },
+        status: { not: MemberStatus.banned },
+        deletedAt: null,
       },
       select: {
         id: true,
-        level: true,
-        points: true,
-        totalConsumeAmount: true,
         createdAt: true,
       },
     });
@@ -114,12 +109,11 @@ export class ClubMemberProfileService {
     storeId: number,
     phone: string,
   ): Promise<ClubMarketingCustomerRecord | null> {
-    return this.prisma.marketingCustomer.findUnique({
+    return this.prisma.marketingCustomer.findFirst({
       where: {
-        storeId_phone: {
-          storeId,
-          phone,
-        },
+        storeId,
+        phone,
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -151,12 +145,11 @@ export class ClubMemberProfileService {
   }
 
   private resolveLevel(
-    memberLevel: string,
     marketingTier: string | undefined,
   ): ClubMemberHeldLevelValue {
-    // 优先以 member.level 为准，该字段语义和 club 等级体系完全对齐
-    // silver 等级已废弃，member.level 为 silver 时回落到 regular
-    switch (memberLevel) {
+    // 等级来自 MarketingCustomer.tier（唯一事实源）
+    // Member.level 已废弃，不再读取
+    switch (marketingTier) {
       case 'diamond':
         return 'diamond';
       case 'platinum':
@@ -164,24 +157,9 @@ export class ClubMemberProfileService {
       case 'gold':
         return 'gold';
       default:
-        break;
+        // regular / undefined → regular
+        return 'regular';
     }
-
-    // member.level 无有效等级（free / bronze / regular 等历史值）时，
-    // 用 marketingTier 补充钻石历史持有信息。
-    // 注意：营销 tier 'gold' 不做映射——其门槛（¥2000）远低于 club 铂金门槛（¥5000），
-    // 若直接映射会导致充值达到铂金门槛后 heldLevel 仍停留在 'gold'，
-    // 与 currentLevel（由 totalConsume vs spendThreshold 计算得出的铂金）不一致。
-    // silver 等级已废弃，marketingTier 为 silver 时回落到 regular。
-    switch (marketingTier) {
-      case 'diamond':
-        return 'diamond';
-      default:
-        break;
-    }
-
-    // 最终回落到普通会员（无等级折扣）
-    return 'regular';
   }
 
   private resolveJoinDate(
@@ -197,23 +175,17 @@ export class ClubMemberProfileService {
   }
 
   /**
-   * 解析累计充值金额。
+   * 解析累计充值金额（元）。
    *
-   * 优先使用 marketingRecharge 聚合的充值累计（仅 type='recharge' 记录），
-   * 这才是真正的"累计充值"语义——会员等级仅通过充值升级；
-   * 若无营销顾客档案则回落到 member.totalConsumeAmount（旧字段，可能不准）。
+   * 使用 marketingRecharge 聚合的充值累计（仅 type='recharge' 记录）；
+   * 若无营销顾客档案，返回 0（Member.totalConsumeAmount 已废弃）。
    */
-  private resolveTotalRecharge(
-    memberTotalConsumeAmount: Decimal,
-    totalRechargeFen: number | null,
-  ): number {
+  private resolveTotalRecharge(totalRechargeFen: number | null): number {
     if (typeof totalRechargeFen === 'number') {
       return this.convertFenToYuan(totalRechargeFen);
     }
 
-    return new Decimal(memberTotalConsumeAmount.toString())
-      .toDecimalPlaces(2)
-      .toNumber();
+    return 0;
   }
 
   private convertFenToYuan(amountFen: number): number {

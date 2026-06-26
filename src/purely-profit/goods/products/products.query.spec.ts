@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import {
   createProductCategory,
   createProductRecord,
@@ -64,9 +63,9 @@ describe('products.query', () => {
       name: '可乐',
       category: '饮品',
       code: 'SKU-001',
-      price: new Prisma.Decimal('500'),
-      profit: new Prisma.Decimal('200'),
-      costPrice: new Prisma.Decimal('300'),
+      price: 500,
+      profit: 200,
+      costPrice: 300,
       unit: '瓶',
       stock: 10,
       alertThreshold: 3,
@@ -280,8 +279,7 @@ describe('products.query', () => {
   });
 
   it('create/update/delete 会复用统一数据写入结构', async () => {
-    const { prisma, productCreate, productUpdate, productDelete } =
-      createPrismaMock();
+    const { prisma, productCreate, productUpdate } = createPrismaMock();
     const row = createProductRecordFixture();
     productCreate.mockResolvedValue(row);
     productUpdate.mockResolvedValue({ ...row, name: '雪碧' });
@@ -373,8 +371,9 @@ describe('products.query', () => {
         updatedAt: true,
       },
     });
-    expect(productDelete).toHaveBeenCalledWith({
+    expect(productUpdate).toHaveBeenCalledWith({
       where: { id: 11 },
+      data: { deletedAt: expect.any(Date) },
     });
   });
 });

@@ -7,6 +7,7 @@ import { StoresReadService } from './stores-read.service';
 import { StoresService } from './stores.service';
 import { StoresWechatPayService } from './stores-wechat-pay.service';
 import { StoresWriteService } from './stores-write.service';
+import { WechatPayEncryptionService } from './wechat-pay-encryption.service';
 
 @Module({
   imports: [AuthModule, SubscriptionsModule],
@@ -17,6 +18,7 @@ import { StoresWriteService } from './stores-write.service';
     StoresReadService,
     StoresWriteService,
     StoresWechatPayService,
+    WechatPayEncryptionService,
   ],
   exports: [StoresProfileService, StoresWechatPayService],
 })

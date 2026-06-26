@@ -13,5 +13,5 @@ export interface StoreSeatSummary {
 
 export type PresetSubscriptionPlanCode = Exclude<
   SubscriptionPlanCode,
-  'CUSTOM'
+  'custom'
 >;

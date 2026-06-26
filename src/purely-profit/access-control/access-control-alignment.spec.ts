@@ -48,7 +48,7 @@ const buildSubAccountMembership = (
 ): AuthenticatedMembership => ({
   staffId: 8,
   storeId: 18,
-  role: StaffRole.STAFF,
+  role: StaffRole.staff,
   permissions: [],
   isActive: true,
   subjectType: 'sub_account',

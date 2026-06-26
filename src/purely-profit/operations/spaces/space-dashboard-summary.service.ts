@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import {
-  Prisma,
   SpaceBillingMode as PrismaSpaceBillingMode,
   SpaceReservationStatus as PrismaSpaceReservationStatus,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
@@ -12,8 +11,8 @@ import type {
   SpaceDashboardActiveSessionSummaryDto,
   SpaceDashboardReservationSummaryDto,
 } from './dto/space.dto';
-import { parseSpaceSessionRenewRecords } from './space-sessions.mapper';
-import type { SpaceSessionRenewRecord } from './space-sessions.types';
+import { mapRenewRecordRows } from './space-sessions.mapper';
+import type { SpaceSessionRenewRecordRow } from './space-sessions.types';
 
 export interface DashboardSpaceSummaryBundle {
   activeSessionSummaryBySpaceId: Map<
@@ -56,7 +55,9 @@ export class SpaceDashboardSummaryService {
           hourlyRate: true,
           countdownMinutes: true,
           itemsCost: true,
-          renewRecords: true,
+          sessionRenewRecords: {
+            orderBy: { id: 'asc' },
+          },
           autoCheckout: true,
           prepaidPaymentMethod: true,
           prepaidGrouponCode: true,
@@ -203,18 +204,17 @@ export class SpaceDashboardSummaryService {
     guestCount: number | null;
     billingMode: PrismaSpaceBillingMode;
     startTime: Date;
-    hourlyRate: Prisma.Decimal | null;
+    hourlyRate: number | null;
     countdownMinutes: number | null;
-    itemsCost: Prisma.Decimal;
-    renewRecords: Prisma.JsonValue;
+    itemsCost: number;
+    sessionRenewRecords: SpaceSessionRenewRecordRow[];
     autoCheckout: boolean | null;
     prepaidPaymentMethod: SalesPaymentMethodValue | null;
     prepaidGrouponCode: string | null;
     prepaidNote: string | null;
-    prepaidAmount: Prisma.Decimal | null;
+    prepaidAmount: number | null;
   }): SpaceDashboardActiveSessionSummaryDto {
-    const renewRecords: SpaceSessionRenewRecord[] =
-      parseSpaceSessionRenewRecords(session.renewRecords);
+    const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
 
     return {
       sessionId: String(session.id),
@@ -226,12 +226,12 @@ export class SpaceDashboardSummaryService {
       billingMode: session.billingMode,
       startTime: toTimestampMs(session.startTime),
       ...(session.hourlyRate !== null
-        ? { hourlyRate: Number(session.hourlyRate) }
+        ? { hourlyRate: session.hourlyRate }
         : {}),
       ...(session.countdownMinutes !== null
         ? { countdownMinutes: session.countdownMinutes }
         : {}),
-      itemsCost: Number(session.itemsCost),
+      itemsCost: session.itemsCost,
       renewCount: renewRecords.length,
       ...(session.autoCheckout !== null
         ? { autoCheckout: session.autoCheckout }
@@ -244,7 +244,7 @@ export class SpaceDashboardSummaryService {
         : {}),
       ...(session.prepaidNote ? { prepaidNote: session.prepaidNote } : {}),
       ...(session.prepaidAmount !== null
-        ? { prepaidAmount: Number(session.prepaidAmount) }
+        ? { prepaidAmount: session.prepaidAmount }
         : {}),
     };
   }

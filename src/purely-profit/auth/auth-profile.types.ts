@@ -1,7 +1,7 @@
 import type { IdentityType } from '../access-control/access-control.service';
 import type { StoreSubAccountRole } from '@prisma/client';
 
-export type MembershipRole = 'OWNER' | 'MANAGER' | 'STAFF';
+export type MembershipRole = 'owner' | 'manager' | 'staff';
 
 export interface ProfileUserRecord {
   id: number;

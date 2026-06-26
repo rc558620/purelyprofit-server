@@ -63,7 +63,7 @@ describe('PurchasesService', () => {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'OWNER',
+      role: 'owner',
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
@@ -228,10 +228,10 @@ describe('PurchasesService', () => {
     prismaService.purchaseOrder.aggregate
       .mockResolvedValueOnce({
         _count: { id: 4 },
-        _sum: { totalAmount: new Prisma.Decimal('200') },
+        _sum: { totalAmount: 20000 },
       })
       .mockResolvedValueOnce({
-        _sum: { totalAmount: new Prisma.Decimal('160') },
+        _sum: { totalAmount: 16000 },
       });
 
     await expect(

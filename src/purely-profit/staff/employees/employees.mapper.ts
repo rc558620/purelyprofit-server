@@ -25,6 +25,7 @@ import {
   toOptionalTimestampMs,
   toTimestampMs,
 } from './employees.utils';
+import { formatPayrollMonth } from './employees-payroll.domain';
 import { toOptionalMediaText } from '../../commerce/commerce.utils';
 
 export interface EmployeeResponseViewOptions {
@@ -164,22 +165,23 @@ export function toEmployeePayrollResponse(
     id: String(payroll.id),
     employeeId: String(payroll.employeeId),
     employeeName: payroll.employeeName,
-    month: payroll.month,
-    baseSalary: toDecimalNumber(payroll.baseSalary),
-    leaveDeduction: toDecimalNumber(payroll.leaveDeduction),
-    otherDeduction: toDecimalNumber(payroll.otherDeduction),
+    month: formatPayrollMonth(payroll.month),
+    // 数据库存储的是 cents，需要转换为 yuan
+    baseSalary: centsToYuan(payroll.baseSalary),
+    leaveDeduction: centsToYuan(payroll.leaveDeduction),
+    otherDeduction: centsToYuan(payroll.otherDeduction),
     ...(payroll.otherDeductionNote
       ? { otherDeductionNote: payroll.otherDeductionNote }
       : {}),
-    bonus: toDecimalNumber(payroll.bonus),
-    actualSalary: toDecimalNumber(payroll.actualSalary),
-    ...(payroll.socialInsurance !== null
-      ? { socialInsurance: toDecimalNumber(payroll.socialInsurance) }
-      : {}),
-    ...(payroll.housingFund !== null
-      ? { housingFund: toDecimalNumber(payroll.housingFund) }
-      : {}),
-    totalLaborCost: toDecimalNumber(payroll.totalLaborCost),
+    bonus: centsToYuan(payroll.bonus),
+    actualSalary: centsToYuan(payroll.actualSalary),
+...(payroll.socialInsurance > 0
+? { socialInsurance: centsToYuan(payroll.socialInsurance) }
+: {}),
+...(payroll.housingFund > 0
+? { housingFund: centsToYuan(payroll.housingFund) }
+: {}),
+    totalLaborCost: centsToYuan(payroll.totalLaborCost),
     status: payroll.status,
     ...(toOptionalTimestampMs(payroll.confirmedAt)
       ? { confirmedAt: toOptionalTimestampMs(payroll.confirmedAt) }
@@ -188,4 +190,11 @@ export function toEmployeePayrollResponse(
     createdAt: toTimestampMs(payroll.createdAt),
     updatedAt: toTimestampMs(payroll.updatedAt),
   };
+}
+
+/**
+ * 将分转换为元
+ */
+function centsToYuan(cents: number | { toString(): string }): number {
+  return Math.round(Number(cents.toString())) / 100;
 }

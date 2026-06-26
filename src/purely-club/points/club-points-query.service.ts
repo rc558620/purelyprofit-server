@@ -51,9 +51,11 @@ export class ClubPointsQueryService {
     storeId: number,
     phone: string,
   ): Promise<ClubPointsCustomerRecord | null> {
-    const exact = await this.prisma.marketingCustomer.findUnique({
+    const exact = await this.prisma.marketingCustomer.findFirst({
       where: {
-        storeId_phone: { storeId, phone },
+        storeId,
+        phone,
+        deletedAt: null,
       },
       select: { id: true, points: true },
     });

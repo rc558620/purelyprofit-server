@@ -50,8 +50,8 @@ export class SalesRecordCreateFlowService {
           operatorStaffId: params.operatorStaffId,
           operatorNameSnapshot: params.operatorNameSnapshot ?? null,
           orderNo,
-          totalRevenue: new Prisma.Decimal(params.totalRevenue),
-          totalProfit: new Prisma.Decimal(params.totalProfit),
+          totalRevenue: params.totalRevenue,
+          totalProfit: params.totalProfit,
           totalQuantity: params.totalQuantity,
           paymentMethod: params.dto.paymentMethod,
           calcMode: params.dto.calcMode,
@@ -63,8 +63,8 @@ export class SalesRecordCreateFlowService {
               productId: item.productId,
               productName: item.productName,
               categoryName: item.categoryName,
-              salePrice: new Prisma.Decimal(item.salePrice),
-              profit: new Prisma.Decimal(item.profit),
+              salePrice: item.salePrice,
+              profit: item.profit,
               quantity: item.quantity,
               image: item.image ?? null,
             })),
@@ -99,20 +99,24 @@ export class SalesRecordCreateFlowService {
         });
       }
 
-      await transaction.financeCashFlowRecord.create({
-        data: {
-          storeId: params.storeId,
-          saleOrderId: createdOrder.id,
-          operatorStaffId: params.operatorStaffId,
-          direction: 'income',
-          category: 'sales',
-          title: `${createdOrder.orderNo} 销售收入`,
-          amount: new Prisma.Decimal(params.totalRevenue),
-          payment: params.dto.paymentMethod,
-          note: params.note,
-          date: params.orderDate,
-        },
-      });
+      // 空间结账含抵扣项时 totalRevenue 可能为零或负数，
+      // 此时不产生正向现金流记录（实际收款已在预付/续费时记录）。
+      if (params.totalRevenue > 0) {
+        await transaction.financeCashFlowRecord.create({
+          data: {
+            storeId: params.storeId,
+            saleOrderId: createdOrder.id,
+            operatorStaffId: params.operatorStaffId,
+            direction: 'income',
+            category: 'sales',
+            title: `${createdOrder.orderNo} 销售收入`,
+            amount: params.totalRevenue,
+            payment: params.dto.paymentMethod,
+            note: params.note,
+            date: params.orderDate,
+          },
+        });
+      }
 
       return createdOrder as SaleOrderWithItems;
     };

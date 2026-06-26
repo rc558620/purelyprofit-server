@@ -198,9 +198,7 @@ export class PlatformMembershipOrderService {
           planId: plan.id,
           planName: plan.name,
           originalAmount: plan.price,
-          pointsDeducted: payment.pointsDeductAmount,
           pointsUsed: payment.actualPointsUsed,
-          beanDeducted: payment.beanDeductAmount,
           beansUsed: payment.actualBeansUsed,
           amount: payment.finalAmount,
           status: 'paid',
@@ -213,9 +211,7 @@ export class PlatformMembershipOrderService {
           planId: true,
           planName: true,
           amount: true,
-          pointsDeducted: true,
           pointsUsed: true,
-          beanDeducted: true,
           beansUsed: true,
           status: true,
           paymentChannel: true,
@@ -224,28 +220,37 @@ export class PlatformMembershipOrderService {
         },
       });
 
-      const latestPartners = await findStorePartners(tx, storeId);
-      const allOrders = await tx.storeMembershipOrder.findMany({
-        where: { storeId },
-        select: {
-          id: true,
-          planId: true,
-          planName: true,
-          amount: true,
-          pointsDeducted: true,
-          pointsUsed: true,
-          beanDeducted: true,
-          beansUsed: true,
-          status: true,
-          paymentChannel: true,
-          paymentOrderId: true,
-          createdAt: true,
-        },
-      });
+      const [latestPartners, allOrders, inviteCodeRecord] = await Promise.all([
+        findStorePartners(tx, storeId),
+        tx.storeMembershipOrder.findMany({
+          where: { storeId },
+          select: {
+            id: true,
+            planId: true,
+            planName: true,
+            amount: true,
+            pointsUsed: true,
+            beansUsed: true,
+            status: true,
+            paymentChannel: true,
+            paymentOrderId: true,
+            createdAt: true,
+          },
+        }),
+        tx.storeInviteCode.findFirst({
+          where: { storeId, isActive: true },
+          select: { code: true },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
 
       return {
         order: mapOrder(order),
-        profile: buildProfileResponse(updatedProfile, latestPartners),
+        profile: buildProfileResponse(
+          updatedProfile,
+          latestPartners,
+          inviteCodeRecord?.code ?? null,
+        ),
         overview: buildOrdersOverview(allOrders),
       };
     });

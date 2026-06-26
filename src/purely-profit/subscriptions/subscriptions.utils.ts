@@ -10,7 +10,7 @@ export function resolvePlanSnapshot(
   planCode: SubscriptionPlanCode,
   customSeatCount?: number,
 ): PlanSnapshot {
-  if (planCode === SubscriptionPlanCode.CUSTOM) {
+  if (planCode === SubscriptionPlanCode.custom) {
     if (!customSeatCount || customSeatCount < 1) {
       throw new BadRequestException('自定义套餐必须提供大于等于 1 的席位数');
     }

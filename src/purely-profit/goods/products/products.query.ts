@@ -201,8 +201,10 @@ export async function deleteProductRecord(
   productId: number,
 ): Promise<void> {
   try {
-    await prisma.product.delete({
+    // 软删除：更新 deletedAt 字段而非物理删除
+    await prisma.product.update({
       where: { id: productId },
+      data: { deletedAt: new Date() },
     });
   } catch (error: unknown) {
     // P2025: 记录不存在（并发删除场景），静默处理

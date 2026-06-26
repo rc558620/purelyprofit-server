@@ -25,13 +25,16 @@ import {
   buildResignEmployeeProfileData,
   buildUpdateEmployeeProfileData,
 } from './employees-profile.domain';
-import { buildPayrollDerivedAmounts } from './employees-payroll.domain';
+import {
+  buildPayrollDerivedAmounts,
+  formatPayrollMonth,
+} from './employees-payroll.domain';
 import { toEmployeeResponse } from './employees.mapper';
 import {
   createEmployeeProfile,
   queryLatestEmployeeProfileEmpNo,
 } from './employees-profile.query';
-import { toDecimalNumber } from './employees.utils';
+import { centsToYuan } from '../../commerce/commerce.utils';
 
 @Injectable()
 export class EmployeesProfileWriteService {
@@ -222,8 +225,10 @@ export class EmployeesProfileWriteService {
       // #2 修复：删除员工前禁用关联 Staff 登录态
       await this.deactivateLinkedStaffOnRemove(transaction, employee);
 
-      await transaction.employee.delete({
+      // 软删除：更新 deletedAt 字段而非物理删除
+      await transaction.employee.update({
         where: { id: employee.id },
+        data: { deletedAt: new Date() },
       });
     });
 
@@ -300,7 +305,7 @@ export class EmployeesProfileWriteService {
     // updateMany 返回 { count } 可直接判断是否命中记录
     await transaction.staff.updateMany({
       where: { id: employee.linkedStaffId },
-      data: { isActive: false, status: StaffStatus.DISABLED },
+      data: { isActive: false, status: StaffStatus.disabled },
     });
   }
 
@@ -318,7 +323,7 @@ export class EmployeesProfileWriteService {
     // 用 updateMany 替代 findUnique + update，减少一次查询
     await transaction.staff.updateMany({
       where: { id: employee.linkedStaffId },
-      data: { isActive: false, status: StaffStatus.DISABLED },
+      data: { isActive: false, status: StaffStatus.disabled },
     });
   }
 
@@ -401,18 +406,18 @@ export class EmployeesProfileWriteService {
     await Promise.all(
       payrolls.map(async (payroll) => {
         const derivedAmounts = buildPayrollDerivedAmounts({
-          baseSalary: toDecimalNumber(nextEmployee.baseSalary),
-          leaveDeduction: toDecimalNumber(payroll.leaveDeduction),
-          otherDeduction: toDecimalNumber(payroll.otherDeduction),
+          baseSalary: centsToYuan(nextEmployee.baseSalary),
+          leaveDeduction: centsToYuan(payroll.leaveDeduction),
+          otherDeduction: centsToYuan(payroll.otherDeduction),
           otherDeductionNote: payroll.otherDeductionNote,
-          bonus: toDecimalNumber(payroll.bonus),
+          bonus: centsToYuan(payroll.bonus),
           socialInsurance:
-            payroll.socialInsurance !== null
-              ? toDecimalNumber(payroll.socialInsurance)
+            payroll.socialInsurance > 0
+              ? centsToYuan(payroll.socialInsurance)
               : undefined,
           housingFund:
-            payroll.housingFund !== null
-              ? toDecimalNumber(payroll.housingFund)
+            payroll.housingFund > 0
+              ? centsToYuan(payroll.housingFund)
               : undefined,
         });
 
@@ -420,8 +425,8 @@ export class EmployeesProfileWriteService {
           where: { id: payroll.id },
           data: {
             baseSalary: nextEmployee.baseSalary,
-            actualSalary: new Prisma.Decimal(derivedAmounts.actualSalary),
-            totalLaborCost: new Prisma.Decimal(derivedAmounts.totalLaborCost),
+            actualSalary: Math.round(derivedAmounts.actualSalary * 100),
+            totalLaborCost: Math.round(derivedAmounts.totalLaborCost * 100),
           },
         });
 
@@ -434,15 +439,15 @@ export class EmployeesProfileWriteService {
           payrollId: payroll.id,
           operatorStaffId,
           employeeName: nextEmployee.name,
-          month: payroll.month,
+          month: formatPayrollMonth(payroll.month),
           actualSalary: derivedAmounts.actualSalary,
           socialInsurance:
-            payroll.socialInsurance !== null
-              ? toDecimalNumber(payroll.socialInsurance)
+            payroll.socialInsurance > 0
+              ? centsToYuan(payroll.socialInsurance)
               : undefined,
           housingFund:
-            payroll.housingFund !== null
-              ? toDecimalNumber(payroll.housingFund)
+            payroll.housingFund > 0
+              ? centsToYuan(payroll.housingFund)
               : undefined,
           note: payroll.note,
         });

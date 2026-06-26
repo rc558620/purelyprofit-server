@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { Prisma, SpaceStatus as PrismaSpaceStatus } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -14,6 +14,7 @@ describe('SpaceSessionTransferService', () => {
     spaceSession: {
       findUnique: jest.fn(),
       update: jest.fn(),
+      findFirst: jest.fn(),
     },
     space: {
       findUnique: jest.fn(),
@@ -24,6 +25,7 @@ describe('SpaceSessionTransferService', () => {
   const prismaService = {
     spaceSession: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     space: {
       findUnique: jest.fn(),
@@ -50,7 +52,7 @@ describe('SpaceSessionTransferService', () => {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'OWNER',
+      role: 'owner',
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
@@ -68,8 +70,10 @@ describe('SpaceSessionTransferService', () => {
     jest.clearAllMocks();
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
     reservationsStateService.resolveReservationBackStatus.mockResolvedValue(
-      PrismaSpaceStatus.reserved,
+      'reserved',
     );
+    // transferSession 需要检查目标空间是否有活跃会话
+    prismaService.spaceSession.findFirst.mockResolvedValue(null);
     prismaService.$transaction.mockImplementation((callback) =>
       Promise.resolve(callback(transaction)),
     );
@@ -177,9 +181,9 @@ describe('SpaceSessionTransferService', () => {
       prepaidNote: null,
       prepaidAmount: null,
       prepaidVoucherFaceAmount: null,
-      items: [],
+      sessionItems: [],
       itemsCost: new Prisma.Decimal(0),
-      renewRecords: [],
+      sessionRenewRecords: [],
       status: 'active',
       saleOrderId: null,
       createdAt: now,
@@ -199,7 +203,7 @@ describe('SpaceSessionTransferService', () => {
     expect(transaction.$queryRaw).toHaveBeenCalledTimes(3);
     expect(
       reservationsStateService.resolveReservationBackStatus,
-    ).toHaveBeenCalledWith(transaction, 7);
+    ).toHaveBeenCalledWith(transaction, 7, false);
     expect(result.sourceSpaceStatus).toBe('reserved');
     expect(result.targetSpaceStatus).toBe('occupied');
   });

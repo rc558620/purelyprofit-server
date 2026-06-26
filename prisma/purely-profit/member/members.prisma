@@ -1,20 +1,20 @@
 // 会员档案与会员积分流水模型
 
 enum MemberGender {
-  UNKNOWN
-  MALE
-  FEMALE
+  unknown
+  male
+  female
 }
 
 enum MemberStatus {
-  ACTIVE
-  INACTIVE
-  BANNED
+  active
+  inactive
+  banned
 }
 
 enum MemberPointsChangeType {
-  INCREASE
-  DECREASE
+  increase
+  decrease
 }
 
 enum MemberPointsSource {
@@ -41,26 +41,32 @@ model Member {
   id                 Int                 @id @default(autoincrement())
   storeId            Int                 @map("store_id")
   store              Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  /// 显式外键关联到 MarketingCustomer（可为 null，兼容历史数据）
+  customerId         Int?                @unique @map("customer_id")
+  customer           MarketingCustomer?  @relation("MemberCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  /// 会员姓名
   name               String
+  /// 手机号（可为 null）
   phone              String?
-  gender             MemberGender        @default(UNKNOWN)
-  level              String              @default("free")
+  /// 性别
+  gender             MemberGender        @default(unknown)
+  /// 标签数组
   tags               String[]            @default([])
+  /// 备注
   note               String?
+  /// 生日
   birthday           DateTime?
-  lastConsumeAt      DateTime?           @map("last_consume_at")
-  totalConsumeAmount Decimal             @default(0) @map("total_consume_amount") @db.Decimal(12, 2)
-  totalConsumeCount  Int                 @default(0) @map("total_consume_count")
-  points             Int                 @default(0)
-  totalPointsEarned  Int                 @default(0) @map("total_points_earned")
-  beanBalance        Int                 @default(0) @map("bean_balance")
+  /// 业务标识：是否合伙人
   isPartner          Boolean             @default(false) @map("is_partner")
+  /// 业务标识：合伙人等级
   partnerLevel       String?             @map("partner_level")
-  totalRecharged     Int                 @default(0) @map("total_recharged")
-  rechargeCount      Int                 @default(0) @map("recharge_count")
-  invitedCount       Int                 @default(0) @map("invited_count")
+  /// 业务标识：封禁原因
   bannedReason       String?             @map("banned_reason")
-  status             MemberStatus        @default(ACTIVE)
+  /// 会员状态（ACTIVE=正常 INACTIVE=停用 BANNED=封禁）
+  status             MemberStatus        @default(active)
+  /// 纯利豆余额（独立于营销积分，有独立的 MemberBeanLog 流水，保留在 Member）
+  beanBalance        Int                 @default(0) @map("bean_balance")
+  /// 关联流水表
   memberPointsLogs   MemberPointsLog[]
   memberBeanLogs     MemberBeanLog[]
   memberRechargeLogs MemberRechargeLog[]
@@ -69,19 +75,23 @@ model Member {
   /// 软删除标记：非 null 表示已删除，值是删除时间
   deletedAt          DateTime?           @map("deleted_at")
 
-  @@unique([storeId, phone])
+  // phone 的唯一约束通过 Partial Index（原生 SQL）实现，
+  // 仅对 deletedAt IS NULL 的行生效，允许软删除后重新注册同一手机号。
+  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL
+  @@index([storeId, phone])
   @@index([storeId, updatedAt])
   @@index([storeId, status, updatedAt])
-  @@index([storeId, level, updatedAt])
   @@index([storeId, isPartner, updatedAt])
   @@index([phone])
+  @@index([customerId]) // 外键索引
   @@map("members")
 }
 
 model MemberPointsLog {
   id              Int                    @id @default(autoincrement())
   memberId        Int                    @map("member_id")
-  member          Member                 @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  /// 会员被软删除后保留积分流水，onDelete: Restrict 防止意外硬删会员
+  member          Member                 @relation(fields: [memberId], references: [id], onDelete: Restrict)
   storeId         Int                    @map("store_id")
   store           Store                  @relation(fields: [storeId], references: [id], onDelete: Restrict)
   operatorStaffId Int?                   @map("operator_staff_id")
@@ -106,7 +116,8 @@ model MemberPointsLog {
 model MemberBeanLog {
   id              Int              @id @default(autoincrement())
   memberId        Int              @map("member_id")
-  member          Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  /// 会员被软删除后保留豆流水，onDelete: Restrict 防止意外硬删会员
+  member          Member           @relation(fields: [memberId], references: [id], onDelete: Restrict)
   storeId         Int              @map("store_id")
   store           Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
   operatorStaffId Int?             @map("operator_staff_id")
@@ -130,7 +141,8 @@ model MemberBeanLog {
 model MemberRechargeLog {
   id              Int                   @id @default(autoincrement())
   memberId        Int                   @map("member_id")
-  member          Member                @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  /// 会员被软删除后保留充值流水，onDelete: Restrict 防止意外硬删会员
+  member          Member                @relation(fields: [memberId], references: [id], onDelete: Restrict)
   storeId         Int                   @map("store_id")
   store           Store                 @relation(fields: [storeId], references: [id], onDelete: Restrict)
   operatorStaffId Int?                  @map("operator_staff_id")

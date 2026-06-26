@@ -3,10 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  SpaceSessionStatus as PrismaSpaceSessionStatus,
-  SpaceStatus as PrismaSpaceStatus,
-} from '@prisma/client';
+import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -49,6 +46,12 @@ export class SpaceSessionTransferService {
             },
           },
         },
+        sessionItems: {
+          orderBy: { sortOrder: 'asc' },
+        },
+        sessionRenewRecords: {
+          orderBy: { id: 'asc' },
+        },
       },
     });
 
@@ -71,13 +74,21 @@ export class SpaceSessionTransferService {
       throw new ConflictException('目标空间不能与当前空间相同');
     }
 
+    // Space.status 已移除，改为检查是否有活跃会话
+    const targetSpaceActiveSession = await this.prisma.spaceSession.findFirst({
+      where: {
+        spaceId: dto.targetSpaceId,
+        status: PrismaSpaceSessionStatus.active,
+      },
+      select: { id: true },
+    });
+
     const targetSpace = await this.prisma.space.findUnique({
       where: { id: dto.targetSpaceId },
       select: {
         id: true,
         storeId: true,
         name: true,
-        status: true,
         typeId: true,
         enableDirtyRoom: true,
         autoCheckout: true,
@@ -92,7 +103,7 @@ export class SpaceSessionTransferService {
       throw new ConflictException('目标空间不属于当前门店，无法换房');
     }
 
-    if (targetSpace.status !== PrismaSpaceStatus.idle) {
+    if (targetSpaceActiveSession) {
       throw new ConflictException('目标空间当前不可换入');
     }
 
@@ -169,6 +180,12 @@ export class SpaceSessionTransferService {
               },
             },
           },
+          sessionItems: {
+            orderBy: { sortOrder: 'asc' },
+          },
+          sessionRenewRecords: {
+            orderBy: { id: 'asc' },
+          },
         },
       });
 
@@ -184,7 +201,6 @@ export class SpaceSessionTransferService {
         select: {
           id: true,
           storeId: true,
-          status: true,
           typeId: true,
           enableDirtyRoom: true,
           autoCheckout: true,
@@ -197,9 +213,20 @@ export class SpaceSessionTransferService {
       if (latestTargetSpace.storeId !== latestSession.storeId) {
         throw new ConflictException('目标空间不属于当前门店，无法换房');
       }
-      if (latestTargetSpace.status !== PrismaSpaceStatus.idle) {
+
+      // Space.status 已移除，改为检查是否有活跃会话
+      const latestTargetActiveSession =
+        await transaction.spaceSession.findFirst({
+          where: {
+            spaceId: dto.targetSpaceId,
+            status: PrismaSpaceSessionStatus.active,
+          },
+          select: { id: true },
+        });
+      if (latestTargetActiveSession) {
         throw new ConflictException('目标空间当前不可换入');
       }
+
       if (latestTargetSpace.typeId !== latestSession.space.type.id) {
         throw new ConflictException('只能换到同类型空间');
       }
@@ -224,12 +251,13 @@ export class SpaceSessionTransferService {
         );
       }
 
-      const sourceSpaceStatus = latestSession.space.enableDirtyRoom
-        ? PrismaSpaceStatus.cleaning
-        : await this.reservationsStateService.resolveReservationBackStatus(
-            transaction,
-            latestSession.spaceId,
-          );
+      // 运行态推导源空间状态
+      const sourceSpaceStatus =
+        await this.reservationsStateService.resolveReservationBackStatus(
+          transaction,
+          latestSession.spaceId,
+          latestSession.space.enableDirtyRoom,
+        );
 
       const updatedSession = await transaction.spaceSession.update({
         where: { id: latestSession.id },
@@ -248,21 +276,17 @@ export class SpaceSessionTransferService {
               },
             },
           },
+          sessionItems: {
+            orderBy: { sortOrder: 'asc' },
+          },
+          sessionRenewRecords: {
+            orderBy: { id: 'asc' },
+          },
         },
       });
 
-      await transaction.space.update({
-        where: { id: latestSession.spaceId },
-        data: {
-          status: sourceSpaceStatus,
-        },
-      });
-      await transaction.space.update({
-        where: { id: latestTargetSpace.id },
-        data: {
-          status: PrismaSpaceStatus.occupied,
-        },
-      });
+      // Space.status 已移除，不再更新空间状态字段
+      // 目标空间状态会自动变为 occupied（因为有活跃会话）
 
       return {
         updatedSession,
@@ -274,11 +298,11 @@ export class SpaceSessionTransferService {
       ok: true,
       session: toSpaceSessionResponse(result.updatedSession),
       sourceSpaceStatus: this.toSpaceStatusValue(result.sourceSpaceStatus),
-      targetSpaceStatus: this.toSpaceStatusValue(PrismaSpaceStatus.occupied),
+      targetSpaceStatus: this.toSpaceStatusValue('occupied'),
     };
   }
 
-  private toSpaceStatusValue(status: PrismaSpaceStatus): SpaceStatusValue {
-    return status;
+  private toSpaceStatusValue(status: string): SpaceStatusValue {
+    return status as SpaceStatusValue;
   }
 }

@@ -7,10 +7,15 @@ model ProductCategory {
   name      String
   icon      String?
   products  Product[]
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  @@unique([storeId, name])
+  // name 的唯一约束通过 Partial Index（原生 SQL）实现，
+  // 仅对 deletedAt IS NULL 的行生效，允许软删除后重新创建同名分类。
+  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL
+  @@index([storeId, name])
   @@index([storeId, updatedAt])
   @@map("product_categories")
 }
@@ -24,9 +29,9 @@ model Product {
   category       String
   code           String
   name           String
-  price          Decimal                  @db.Decimal(12, 2)
-  profit         Decimal                  @db.Decimal(12, 2)
-  costPrice      Decimal?                 @map("cost_price") @db.Decimal(12, 2)
+  price          Int                      // 售价（分）
+  profit         Int                      // 利润（分）
+  costPrice      Int?                     @map("cost_price") // 成本价（分）
   unit           String
   stock          Int                      @default(0)
   alertThreshold Int                      @default(10) @map("alert_threshold")
@@ -36,10 +41,15 @@ model Product {
   purchaseItems  PurchaseOrderItem[]
   inventoryLogs  InventoryAdjustmentLog[]
   salesItems     SaleOrderItem[]
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt      DateTime?                @map("deleted_at")
   createdAt      DateTime                 @default(now()) @map("created_at")
   updatedAt      DateTime                 @updatedAt @map("updated_at")
 
-  @@unique([storeId, code])
+  // code 的唯一约束通过 Partial Index（原生 SQL）实现，
+  // 仅对 deletedAt IS NULL 的行生效，允许软删除后重新创建同编码商品。
+  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL
+  @@index([storeId, code])
   @@index([storeId, category, updatedAt])
   @@index([storeId, isActive, updatedAt])
   @@index([categoryId, updatedAt])

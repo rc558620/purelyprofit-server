@@ -7,6 +7,8 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { AuthAccountMembershipService } from './auth-account-membership.service';
+import { AuthSessionService } from './auth-session.service';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
 import { CreateStoreDto } from '../stores/dto/create-store.dto';
 import {
@@ -18,6 +20,7 @@ import {
   buildStoreProfileMetadata,
   extractStoreCreatePayload,
 } from '../stores/stores.utils';
+import { StoreInviteCodeService } from '../stores/store-invite-code.service';
 
 const STORE_PROFILE_KEY_PREFIX = 'stores:profile:';
 
@@ -25,7 +28,14 @@ const STORE_PROFILE_KEY_PREFIX = 'stores:profile:';
 const STORE_PROFILE_CACHE_TTL_SECONDS = 7 * 24 * 3600;
 
 /** STARTER 套餐快照（与 subscriptions.constants 保持一致） */
-const STARTER_PLAN_SNAPSHOT = { planName: '基础版', maxAccountSeats: 1 };
+const STARTER_PLAN_SNAPSHOT = { planName: '基础版' };
+
+const STARTER_SEAT_QUOTA = 1;
+
+export class RegisterStoreResponseDto {
+  store!: StoreResponseDto;
+  access_token!: string;
+}
 
 /**
  * 注册闭环门店创建服务。
@@ -38,12 +48,15 @@ export class AuthRegisterStoreService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly inviteCodeService: StoreInviteCodeService,
+    private readonly authAccountMembershipService: AuthAccountMembershipService,
+    private readonly authSessionService: AuthSessionService,
   ) {}
 
   async create(
     user: AuthenticatedUser,
     dto: CreateStoreDto,
-  ): Promise<StoreResponseDto> {
+  ): Promise<RegisterStoreResponseDto> {
     await this.ensureUserCanOnlyBindSingleStore(user);
 
     const payload = extractStoreCreatePayload(dto);
@@ -53,7 +66,6 @@ export class AuthRegisterStoreService {
           name: payload.storeName,
           address: payload.address,
           ownerId: user.id,
-          maxAccountSeats: STARTER_PLAN_SNAPSHOT.maxAccountSeats,
         },
         select: {
           id: true,
@@ -69,18 +81,30 @@ export class AuthRegisterStoreService {
         where: { storeId: createdStore.id },
         create: {
           storeId: createdStore.id,
-          planCode: SubscriptionPlanCode.STARTER,
+          planCode: SubscriptionPlanCode.starter,
           planName: STARTER_PLAN_SNAPSHOT.planName,
-          status: StoreSubscriptionStatus.ACTIVE,
-          maxAccountSeats: STARTER_PLAN_SNAPSHOT.maxAccountSeats,
+          status: StoreSubscriptionStatus.active,
           expiresAt: null,
         },
         update: {
-          planCode: SubscriptionPlanCode.STARTER,
+          planCode: SubscriptionPlanCode.starter,
           planName: STARTER_PLAN_SNAPSHOT.planName,
-          status: StoreSubscriptionStatus.ACTIVE,
-          maxAccountSeats: STARTER_PLAN_SNAPSHOT.maxAccountSeats,
+          status: StoreSubscriptionStatus.active,
           expiresAt: null,
+        },
+      });
+
+      // 初始化 StoreMembershipProfile.subAccountQuota（席位上限事实源，spec 0.6）
+      await tx.storeMembershipProfile.upsert({
+        where: { storeId: createdStore.id },
+        create: {
+          storeId: createdStore.id,
+          subAccountQuota: STARTER_SEAT_QUOTA,
+          totalPoints: 0,
+          availablePoints: 0,
+        },
+        update: {
+          subAccountQuota: STARTER_SEAT_QUOTA,
         },
       });
 
@@ -91,9 +115,9 @@ export class AuthRegisterStoreService {
           userId: user.id,
           email: user.email,
           name: user.name ?? '老板',
-          role: StaffRole.OWNER,
+          role: StaffRole.owner,
           permissions: ['*'],
-          status: StaffStatus.ACTIVE,
+          status: StaffStatus.active,
           isSeatActive: true,
         },
       });
@@ -101,10 +125,30 @@ export class AuthRegisterStoreService {
       return createdStore;
     });
 
+    // 为新门店生成初始邀请码（异步，不阻塞注册响应）
+    void this.inviteCodeService.generateForStore(store.id).catch(() => {
+      // 邀请码生成失败不影响注册主流程，可由管理员后续触发重新生成
+    });
+
     const metadata = buildStoreProfileMetadata(payload);
     await this.persistStoreProfileMetadata(store.id, metadata);
 
-    return buildStoreResponseDto(store, metadata);
+    // 失效 membership 缓存，确保后续请求能读到新创建的 staff 记录
+    await this.authAccountMembershipService.invalidateMembershipCachesByUserId(
+      user.id,
+    );
+
+    // 重新签发 JWT token，使前端无需额外请求即可获得带 currentMembership 的新 token
+    const token = await this.authSessionService.signToken(user.id, {
+      phone: user.phone,
+      email: user.email,
+      accountScope: user.accountScope ?? 'purely_profit',
+    });
+
+    return {
+      store: buildStoreResponseDto(store, metadata),
+      access_token: token.access_token,
+    };
   }
 
   private async ensureUserCanOnlyBindSingleStore(
@@ -118,7 +162,7 @@ export class AuthRegisterStoreService {
             staffs: {
               some: {
                 isActive: true,
-                status: StaffStatus.ACTIVE,
+                status: StaffStatus.active,
                 OR: [
                   { userId: user.id },
                   { email: user.email },

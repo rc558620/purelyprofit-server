@@ -247,9 +247,13 @@ export function buildPromotionDetailCompatResponse(params: {
   promoRecords: StoreMembershipPromoRecord[];
   filteredRecords: StoreMembershipPromoRecord[];
   filters: PromoDetailCompatFilters;
+  inviteCode?: string | null;
 }): PromotionDetailCompatResponse {
   const items = params.filteredRecords.map((record) => mapPromoRecord(record));
-  const memberInfo = buildMembershipInfo(params.profile);
+  const memberInfo = buildMembershipInfo(
+    params.profile,
+    params.inviteCode ?? null,
+  );
 
   return {
     inviteCode: memberInfo.inviteCode,

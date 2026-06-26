@@ -448,48 +448,42 @@ function resolveMemberDisplayName(user) {
 
 async function ensureClubStoreAccess(user, store) {
   const displayName = resolveMemberDisplayName(user);
-  const [member, marketingCustomer] = await prisma.$transaction([
-    prisma.member.upsert({
-      where: {
-        storeId_phone: {
-          storeId: store.id,
-          phone: PHONE,
-        },
-      },
-      create: {
-        storeId: store.id,
-        name: displayName,
-        phone: PHONE,
-      },
-      update: {
-        name: displayName,
-        status: 'ACTIVE',
-      },
-      select: {
-        id: true,
-        status: true,
-      },
-    }),
-    prisma.marketingCustomer.upsert({
-      where: {
-        storeId_phone: {
-          storeId: store.id,
-          phone: PHONE,
-        },
-      },
-      create: {
-        storeId: store.id,
-        name: displayName,
-        phone: PHONE,
-      },
-      update: {
-        name: displayName,
-      },
-      select: {
-        id: true,
-      },
-    }),
-  ]);
+
+  // storeId_phone 已改为 partial unique index（仅对 deleted_at IS NULL 生效），
+  // Prisma client 不再暴露该复合约束名，改用 findFirst + create/update 实现 upsert 语义
+  const [member, marketingCustomer] = await prisma.$transaction(async (tx) => {
+    const existingMember = await tx.member.findFirst({
+      where: { storeId: store.id, phone: PHONE, deletedAt: null },
+      select: { id: true, status: true },
+    });
+    const memberResult = existingMember
+      ? await tx.member.update({
+          where: { id: existingMember.id },
+          data: { name: displayName, status: 'ACTIVE' },
+          select: { id: true, status: true },
+        })
+      : await tx.member.create({
+          data: { storeId: store.id, name: displayName, phone: PHONE },
+          select: { id: true, status: true },
+        });
+
+    const existingCustomer = await tx.marketingCustomer.findFirst({
+      where: { storeId: store.id, phone: PHONE, deletedAt: null },
+      select: { id: true },
+    });
+    const customerResult = existingCustomer
+      ? await tx.marketingCustomer.update({
+          where: { id: existingCustomer.id },
+          data: { name: displayName },
+          select: { id: true },
+        })
+      : await tx.marketingCustomer.create({
+          data: { storeId: store.id, name: displayName, phone: PHONE },
+          select: { id: true },
+        });
+
+    return [memberResult, customerResult];
+  });
 
   console.log(
     `♻️ 已同步 purely-club 门店访问 member=${member.id} marketingCustomer=${marketingCustomer.id}`,

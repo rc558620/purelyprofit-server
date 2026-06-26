@@ -10,17 +10,14 @@ import {
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { centsToYuan, yuanToCents } from '../../commerce/commerce.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
   RenewSpaceSessionDto,
   RenewSpaceSessionResponseDto,
 } from './dto/space-session.dto';
-import {
-  parseSpaceSessionRenewRecords,
-  toSpaceSessionRenewRecordsJson,
-  toSpaceSessionResponse,
-} from './space-sessions.mapper';
+import { toSpaceSessionResponse } from './space-sessions.mapper';
 import { normalizeRenewPayload } from './space-session-payload.shared';
 import type { SpaceSessionRenewRecord } from './space-sessions.types';
 
@@ -81,6 +78,12 @@ export class SpaceSessionRenewService {
               },
             },
           },
+          sessionItems: {
+            orderBy: { sortOrder: 'asc' },
+          },
+          sessionRenewRecords: {
+            orderBy: { id: 'asc' },
+          },
         },
       });
 
@@ -96,20 +99,22 @@ export class SpaceSessionRenewService {
         throw new ConflictException('仅倒计时会话支持续费');
       }
 
-      const hourlyRate = latestSession.hourlyRate
-        ? Number(latestSession.hourlyRate)
+      // hourlyRate 在 DB 中是分，需转为元以便与前端传入的 payload.amount（元）运算
+      const hourlyRateYuan = latestSession.hourlyRate
+        ? centsToYuan(Number(latestSession.hourlyRate))
         : 0;
-      if (hourlyRate <= 0) {
+      if (hourlyRateYuan <= 0) {
         throw new BadRequestException('当前会话缺少有效台位费，无法续费');
       }
 
-      const addedMinutes = Math.floor((payload.amount / hourlyRate) * 60);
+      const addedMinutes = Math.floor((payload.amount / hourlyRateYuan) * 60);
       if (addedMinutes <= 0) {
         throw new BadRequestException('续费金额不足以换算有效时长');
       }
 
+      const recordId = generateSpaceSessionRenewRecordId();
       const renewRecord: SpaceSessionRenewRecord = {
-        id: generateSpaceSessionRenewRecordId(),
+        id: recordId,
         amount: payload.amount,
         addedMinutes,
         paymentMethod: payload.paymentMethod,
@@ -120,17 +125,28 @@ export class SpaceSessionRenewService {
         ...(payload.note ? { note: payload.note } : {}),
         renewedAt: Date.now(),
       };
-      const renewRecords = [
-        ...parseSpaceSessionRenewRecords(latestSession.renewRecords),
-        renewRecord,
-      ];
+
+      // Step 8.1: 写入独立表而非 JSON
+      // payload.amount 是元，DB 存储为分
+      await transaction.spaceSessionRenewRecord.create({
+        data: {
+          sessionId: latestSession.id,
+          recordId,
+          amount: yuanToCents(payload.amount),
+          addedMinutes,
+          paymentMethod: payload.paymentMethod,
+          grouponCode: payload.grouponCode ?? null,
+          grouponPlatform: payload.grouponPlatform ?? null,
+          note: payload.note ?? null,
+          renewedAt: renewRecord.renewedAt,
+        },
+      });
 
       const updated = await transaction.spaceSession.update({
         where: { id: latestSession.id },
         data: {
           countdownMinutes:
             (latestSession.countdownMinutes ?? 0) + addedMinutes,
-          renewRecords: toSpaceSessionRenewRecordsJson(renewRecords),
         },
         include: {
           space: {
@@ -143,6 +159,12 @@ export class SpaceSessionRenewService {
                 },
               },
             },
+          },
+          sessionItems: {
+            orderBy: { sortOrder: 'asc' },
+          },
+          sessionRenewRecords: {
+            orderBy: { id: 'asc' },
           },
         },
       });

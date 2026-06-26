@@ -21,7 +21,6 @@ export interface QueryEmployeesPageResult {
 export interface QueryEmployeesOverviewParams {
   storeId: number;
   monthStart: Date;
-  currentMonth: string;
 }
 
 export interface EmployeeOverviewMetricRow {
@@ -83,7 +82,7 @@ export async function queryEmployeesOverviewMetrics(
     prisma.employeePayroll.count({
       where: {
         storeId: params.storeId,
-        month: params.currentMonth,
+        month: params.monthStart,
         status: EmployeePayrollStatus.draft,
       },
     }),

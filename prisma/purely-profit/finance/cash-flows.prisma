@@ -40,7 +40,7 @@ model FinanceCashFlowRecord {
   direction       FinanceCashFlowDirection
   category        FinanceCashFlowCategory
   title           String
-  amount          Decimal                  @db.Decimal(12, 2)
+  amount          Int                      // 金额（分）
   payment         FinanceCashFlowPayment
   note            String?
   date            DateTime

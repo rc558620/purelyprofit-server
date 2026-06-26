@@ -17,7 +17,7 @@ export class ClubRecordQueryService {
 
   /**
    * 按门店 ID + 手机号查询顾客储值余额档案。
-   * 优先使用 storeId_phone 唯一索引精确查找；
+   * 优先按 storeId + phone 精确查找未删除顾客；
    * 若 phone 在 marketingCustomer 表中为 null（历史脏数据），
    * 回退到 findFirst 模糊匹配。
    */
@@ -25,12 +25,11 @@ export class ClubRecordQueryService {
     storeId: number,
     phone: string,
   ): Promise<ClubLedgerCustomerRecord | null> {
-    const exact = await this.prisma.marketingCustomer.findUnique({
+    const exact = await this.prisma.marketingCustomer.findFirst({
       where: {
-        storeId_phone: {
-          storeId,
-          phone,
-        },
+        storeId,
+        phone,
+        deletedAt: null,
       },
       select: {
         id: true,

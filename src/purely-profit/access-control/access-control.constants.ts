@@ -105,8 +105,8 @@ export const STORE_SUB_ACCOUNT_ROLE_LABELS: Record<
 };
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, readonly string[]> = {
-  [StaffRole.OWNER]: [PERMISSION_WILDCARD],
-  [StaffRole.MANAGER]: [
+  [StaffRole.owner]: [PERMISSION_WILDCARD],
+  [StaffRole.manager]: [
     'store:view',
     'store:update',
     'subscription:view',
@@ -151,7 +151,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, readonly string[]> = {
     'handover:create',
     'handover:update',
   ],
-  [StaffRole.STAFF]: [
+  [StaffRole.staff]: [
     'store:view',
     'subscription:view',
     'members:view',

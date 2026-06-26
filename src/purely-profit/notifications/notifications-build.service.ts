@@ -165,7 +165,7 @@ export class NotificationsBuildService {
 
     if (
       subscription?.expiresAt &&
-      subscription.status === StoreSubscriptionStatus.ACTIVE &&
+      subscription.status === StoreSubscriptionStatus.active &&
       subscription.expiresAt.getTime() >= now &&
       subscription.expiresAt.getTime() <= upcomingWindowEnd &&
       subscription.planName.trim() !== ''

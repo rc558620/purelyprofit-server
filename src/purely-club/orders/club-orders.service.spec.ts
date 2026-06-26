@@ -244,7 +244,7 @@ describe('ClubOrdersService', () => {
   });
 
   it('createServiceOrder 创建服务购买订单草稿并返回支付参数', async () => {
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     prismaService.marketingProduct.findFirst.mockResolvedValue({
       id: 18,
       name: '黄金焕肤疗程',
@@ -319,7 +319,7 @@ describe('ClubOrdersService', () => {
       benefits: ['8折会员专属价'],
     });
 
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     prismaService.marketingProduct.findFirst.mockResolvedValue({
       id: 18,
       name: '黄金焕肤疗程',
@@ -363,7 +363,7 @@ describe('ClubOrdersService', () => {
   });
 
   it('createServiceOrder 对微信登录用户使用稳定标识查顾客并走 JSAPI 下单', async () => {
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({
       id: 66,
       points: 300,
     });
@@ -411,12 +411,11 @@ describe('ClubOrdersService', () => {
         productName: '黄金焕肤疗程',
       }),
     );
-    expect(prismaService.marketingCustomer.findUnique).toHaveBeenCalledWith({
+    expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: {
-        storeId_phone: {
-          storeId: 11,
-          phone: 'club_wechat:oOPENID123',
-        },
+        storeId: 11,
+        phone: 'club_wechat:oOPENID123',
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -442,7 +441,7 @@ describe('ClubOrdersService', () => {
   });
 
   it('createServiceOrder 命中首单优惠时按折后价创建订单草稿', async () => {
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     prismaService.marketingProduct.findFirst.mockResolvedValue({
       id: 18,
       name: '黄金焕肤疗程',
@@ -542,7 +541,7 @@ describe('ClubOrdersService', () => {
     ]);
     prismaService.marketingConsumption.count.mockResolvedValue(1);
 
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     prismaService.marketingProduct.findFirst.mockResolvedValue({
       id: 18,
       name: '黄金焕肤疗程',
@@ -622,7 +621,7 @@ describe('ClubOrdersService', () => {
     ]);
     prismaService.marketingConsumption.count.mockResolvedValue(1);
 
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     prismaService.marketingProduct.findFirst.mockResolvedValue({
       id: 18,
       name: '黄金焕肤疗程',
@@ -697,7 +696,7 @@ describe('ClubOrdersService', () => {
     ]);
     prismaService.marketingConsumption.count.mockResolvedValue(1);
 
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     prismaService.marketingProduct.findFirst.mockResolvedValue({
       id: 18,
       name: '黄金焕肤疗程',
@@ -758,7 +757,7 @@ describe('ClubOrdersService', () => {
   });
 
   it('createServiceOrder 在商品不存在或库存不足时抛出 NotFoundException', async () => {
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     prismaService.marketingProduct.findFirst.mockResolvedValue({
       id: 18,
       name: '黄金焕肤疗程',
@@ -844,7 +843,7 @@ describe('ClubOrdersService', () => {
         totalSpent: { increment: 49900 },
         visitCount: { increment: 1 },
         lastVisitAt: expect.any(Date),
-        tier: 'silver',
+        tier: 'regular',
       },
     });
     // BUG-2 修复后使用 stock > 0 条件防止并发库存为负

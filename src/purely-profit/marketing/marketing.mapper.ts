@@ -36,6 +36,7 @@ import {
   type MarketingPromotionTypeValue,
   type MarketingRechargeTypeValue,
 } from './marketing.utils';
+import { safeParsePromotionParams } from './schemas/promotion-params.schema';
 
 const OVERVIEW_MONTH_LABELS = Array.from(
   { length: 12 },
@@ -214,6 +215,21 @@ export function normalizePromotionParams(
   value: unknown,
   type?: string,
 ): MarketingPromotionParamsValue {
+  // 1. 先用 Zod safeParse 做结构校验（宽松模式，校验失败不抛错）
+  if (type) {
+    const zodResult = safeParsePromotionParams(type, value);
+    if (zodResult) {
+      // Zod 校验通过，仍需走 recharge_gift 旧格式归一化
+      if (type === 'recharge_gift') {
+        return normalizeRechargeGiftParams(
+          zodResult as MarketingPromotionParamsValue,
+        );
+      }
+      return zodResult as MarketingPromotionParamsValue;
+    }
+  }
+
+  // 2. Zod 校验失败或 type 未知，回退到手写归一化
   const normalizedValue = normalizePromotionParamValue(value);
   if (
     !normalizedValue ||

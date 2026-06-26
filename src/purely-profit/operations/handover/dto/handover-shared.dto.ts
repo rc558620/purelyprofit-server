@@ -103,8 +103,8 @@ export class HandoverOrderItemDto {
   @IsOptional()
   @ApiProperty({
     enum: StaffRole,
-    example: 'OWNER',
-    description: '操作员角色（OWNER=老板/MANAGER=店长/STAFF=收银员）',
+    example: 'owner',
+    description: '操作员角色（owner=老板/manager=店长/staff=收银员）',
     required: false,
     nullable: true,
   })

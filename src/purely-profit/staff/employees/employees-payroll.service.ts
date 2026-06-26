@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { EmployeePayrollStatus, Prisma } from '@prisma/client';
+import { EmployeePayrollStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CostsService } from '../../operations/costs/costs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -27,7 +27,6 @@ import { toEmployeePayrollResponse } from './employees.mapper';
 import {
   buildDateRange,
   normalizeMonthValue,
-  toDecimalNumber,
   toNullableText,
 } from './employees.utils';
 
@@ -59,8 +58,8 @@ export class EmployeesPayrollService {
         ...(dateRange
           ? {
               month: {
-                gte: formatPayrollMonth(dateRange.gte),
-                lte: formatPayrollMonth(new Date(dateRange.lt.getTime() - 1)),
+                gte: dateRange.gte,
+                lt: dateRange.lt,
               },
             }
           : {}),
@@ -75,6 +74,7 @@ export class EmployeesPayrollService {
       orderBy: [{ month: 'desc' }, { employeeName: 'asc' }, { id: 'asc' }],
     });
 
+    // socialInsurance/housingFund 已改为 Int（分），直接传入 buildPayrollReport 内部调用 centsToYuan 转换
     return buildPayrollReport(rows);
   }
 
@@ -126,8 +126,10 @@ export class EmployeesPayrollService {
         dto.employeeId,
         'finance:view',
       );
-    const month = normalizeMonthValue(dto.month);
-    assertPayrollMonthFormat(month);
+    // 先对字符串 trim 并校验 YYYY-MM 格式，再转为 Date（DateTime 类型，与 month 字段匹配）
+    const rawMonth = dto.month.trim();
+    assertPayrollMonthFormat(rawMonth);
+    const month = normalizeMonthValue(rawMonth);
     const derivedAmounts = buildPayrollDerivedAmounts({
       baseSalary: dto.baseSalary,
       leaveDeduction: dto.leaveDeduction,
@@ -180,11 +182,11 @@ export class EmployeesPayrollService {
           socialInsurance:
             dto.socialInsurance !== undefined
               ? this.toDecimal(dto.socialInsurance)
-              : null,
+              : 0,
           housingFund:
             dto.housingFund !== undefined
               ? this.toDecimal(dto.housingFund)
-              : null,
+              : 0,
           totalLaborCost: this.toDecimal(derivedAmounts.totalLaborCost),
           status: EmployeePayrollStatus.draft,
           confirmedAt: null,
@@ -232,15 +234,16 @@ export class EmployeesPayrollService {
         payrollId: nextPayroll.id,
         operatorStaffId: user.currentMembership?.staffId ?? null,
         employeeName: nextPayroll.employeeName,
-        month: nextPayroll.month,
-        actualSalary: toDecimalNumber(nextPayroll.actualSalary),
+        month: formatPayrollMonth(nextPayroll.month),
+        // actualSalary/socialInsurance/housingFund 已改为 Int（分），需转换为元传给 syncPayrollCosts
+        actualSalary: centsToYuan(nextPayroll.actualSalary),
         socialInsurance:
-          nextPayroll.socialInsurance !== null
-            ? toDecimalNumber(nextPayroll.socialInsurance)
+          nextPayroll.socialInsurance > 0
+            ? centsToYuan(nextPayroll.socialInsurance)
             : undefined,
         housingFund:
-          nextPayroll.housingFund !== null
-            ? toDecimalNumber(nextPayroll.housingFund)
+          nextPayroll.housingFund > 0
+            ? centsToYuan(nextPayroll.housingFund)
             : undefined,
         note: nextPayroll.note,
       });
@@ -301,36 +304,33 @@ export class EmployeesPayrollService {
       throw new ConflictException('已确认结算的工资记录不能编辑');
     }
 
+    // 数据库字段已改为 Int（分），回退值需用 centsToYuan 转为元
     const nextBaseSalary =
       dto.baseSalary !== undefined
         ? dto.baseSalary
-        : toDecimalNumber(payroll.baseSalary);
+        : centsToYuan(payroll.baseSalary);
     const nextLeaveDeduction =
       dto.leaveDeduction !== undefined
         ? dto.leaveDeduction
-        : toDecimalNumber(payroll.leaveDeduction);
+        : centsToYuan(payroll.leaveDeduction);
     const nextOtherDeduction =
       dto.otherDeduction !== undefined
         ? dto.otherDeduction
-        : toDecimalNumber(payroll.otherDeduction);
+        : centsToYuan(payroll.otherDeduction);
     const nextOtherDeductionNote =
       dto.otherDeductionNote !== undefined
         ? dto.otherDeductionNote
         : (payroll.otherDeductionNote ?? undefined);
     const nextBonus =
-      dto.bonus !== undefined ? dto.bonus : toDecimalNumber(payroll.bonus);
+      dto.bonus !== undefined ? dto.bonus : centsToYuan(payroll.bonus);
     const nextSocialInsurance =
       dto.socialInsurance !== undefined
         ? dto.socialInsurance
-        : payroll.socialInsurance !== null
-          ? toDecimalNumber(payroll.socialInsurance)
-          : undefined;
+        : centsToYuan(payroll.socialInsurance);
     const nextHousingFund =
       dto.housingFund !== undefined
         ? dto.housingFund
-        : payroll.housingFund !== null
-          ? toDecimalNumber(payroll.housingFund)
-          : undefined;
+        : centsToYuan(payroll.housingFund);
 
     const derivedAmounts = buildPayrollDerivedAmounts({
       baseSalary: nextBaseSalary,
@@ -366,13 +366,13 @@ export class EmployeesPayrollService {
                 socialInsurance:
                   dto.socialInsurance > 0
                     ? this.toDecimal(dto.socialInsurance)
-                    : null,
+                    : 0,
               }
             : {}),
           ...(dto.housingFund !== undefined
             ? {
                 housingFund:
-                  dto.housingFund > 0 ? this.toDecimal(dto.housingFund) : null,
+                  dto.housingFund > 0 ? this.toDecimal(dto.housingFund) : 0,
               }
             : {}),
           ...(dto.note !== undefined ? { note: toNullableText(dto.note) } : {}),
@@ -385,7 +385,14 @@ export class EmployeesPayrollService {
     return toEmployeePayrollResponse(updated);
   }
 
-  private toDecimal(value: number): Prisma.Decimal {
-    return new Prisma.Decimal(value);
+  private toDecimal(value: number): number {
+    return Math.round(value * 100);
   }
+}
+
+/**
+ * 将分转换为元
+ */
+function centsToYuan(cents: number): number {
+  return Math.round(cents) / 100;
 }

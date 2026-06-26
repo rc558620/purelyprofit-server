@@ -158,7 +158,7 @@ export class AuthAccountMembershipService {
             { email: identifiers.email },
             { phone: identifiers.phone },
           ],
-          status: StaffStatus.INVITED,
+          status: StaffStatus.invited,
           isActive: true,
         },
         select: {
@@ -189,13 +189,13 @@ export class AuthAccountMembershipService {
         },
         data: {
           userId,
-          status: StaffStatus.ACTIVE,
+          status: StaffStatus.active,
           isSeatActive: true,
           isActive: true,
         },
       });
     });
-    await this.invalidateMembershipRowsCacheByUserId(userId);
+    await this.invalidateMembershipCachesByUserId(userId);
   }
 
   private async findMembershipRows(
@@ -259,7 +259,7 @@ export class AuthAccountMembershipService {
         LEFT JOIN employees emp ON emp.linked_staff_id = st.id
         LEFT JOIN store_sub_accounts sa ON sa.employee_id = emp.id
         WHERE st.is_active = true
-          AND st.status = ${StaffStatus.ACTIVE}
+          AND st.status = ${StaffStatus.active}
           AND (
             st.user_id = ${payload.sub}
             OR st.email = ${userEmail}
@@ -268,8 +268,8 @@ export class AuthAccountMembershipService {
         ORDER BY
           CASE
             WHEN sa.id IS NOT NULL THEN 0
-            WHEN st.role = 'OWNER' THEN 1
-            WHEN st.role = 'MANAGER' THEN 2
+WHEN st.role = 'owner' THEN 1
+          WHEN st.role = 'manager' THEN 2
             ELSE 3
           END,
           st.id ASC
@@ -379,9 +379,9 @@ export class AuthAccountMembershipService {
           email: ownerStore.owner.email,
           phone: payload.phone,
           name: nextName,
-          role: StaffRole.OWNER,
+          role: StaffRole.owner,
           permissions: ['*'],
-          status: StaffStatus.ACTIVE,
+          status: StaffStatus.active,
           isSeatActive: true,
           isActive: true,
         },
@@ -399,9 +399,9 @@ export class AuthAccountMembershipService {
         email: ownerStore.owner.email,
         phone: payload.phone,
         name: nextName,
-        role: StaffRole.OWNER,
+        role: StaffRole.owner,
         permissions: ['*'],
-        status: StaffStatus.ACTIVE,
+        status: StaffStatus.active,
         isSeatActive: true,
         isActive: true,
       },
@@ -500,32 +500,55 @@ export class AuthAccountMembershipService {
       return [];
     }
 
+    const storeId = firstInvitedStaff.storeId;
+
+    // 读取门店是否存在
     const store = await tx.store.findUnique({
-      where: { id: firstInvitedStaff.storeId },
-      select: {
-        id: true,
-        maxAccountSeats: true,
-      },
+      where: { id: storeId },
+      select: { id: true },
     });
 
     if (!store) {
       return [];
     }
 
+    // 席位上限事实源：StoreMembershipProfile.subAccountQuota（spec 0.6）
+    const profile = await tx.storeMembershipProfile.findUnique({
+      where: { storeId },
+      select: { subAccountQuota: true },
+    });
+    const maxAccountSeats = profile?.subAccountQuota ?? 1;
+
     const activeSeatCount = await tx.staff.count({
       where: {
-        storeId: store.id,
-        status: StaffStatus.ACTIVE,
+        storeId,
+        status: StaffStatus.active,
         isSeatActive: true,
         isActive: true,
       },
     });
 
-    if (activeSeatCount >= store.maxAccountSeats) {
+    if (activeSeatCount >= maxAccountSeats) {
       return [];
     }
 
     return [firstInvitedStaff.id];
+  }
+
+  /**
+   * 按 userId 失效 membership rows 缓存与用户关联门店缓存。
+   *
+   * 调用场景：
+   * - 被邀请员工激活后（activateInvitedStaffMemberships）
+   * - 注册闭环创建门店后（AuthRegisterStoreService.create）
+   *
+   * 由于 membership rows 缓存 key 包含 email 和 phone，需使用 pattern 匹配删除。
+   */
+  async invalidateMembershipCachesByUserId(userId: number): Promise<void> {
+    await Promise.all([
+      this.invalidateMembershipRowsCacheByUserId(userId),
+      this.invalidateUserRelatedStoreIdsCacheByUserId(userId),
+    ]);
   }
 
   /**
@@ -543,6 +566,19 @@ export class AuthAccountMembershipService {
       // 缓存失效失败不影响主流程，TTL 自然过期即可兜底
       this.logger.warn(
         `失效用户 ${userId} 会员行缓存失败，TTL 自然过期兜底: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async invalidateUserRelatedStoreIdsCacheByUserId(
+    userId: number,
+  ): Promise<void> {
+    try {
+      const cacheKey = buildUserRelatedStoreIdsCacheKey(userId);
+      await this.redisService.del(cacheKey);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `失效用户 ${userId} 关联门店缓存失败: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }

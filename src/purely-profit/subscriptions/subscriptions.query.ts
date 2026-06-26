@@ -9,14 +9,30 @@ import type { PlanSnapshot } from './subscriptions.types';
 
 export type SubscriptionQueryExecutor = Prisma.TransactionClient | PrismaClient;
 
+/**
+ * 读取门店席位上限。
+ * ✅ 事实源：StoreMembershipProfile.subAccountQuota（spec 0.6）
+ */
 export async function findStoreSeatCapacityRecord(
   prisma: SubscriptionQueryExecutor,
   storeId: number,
-): Promise<{ id: number; maxAccountSeats: number } | null> {
-  return prisma.store.findUnique({
+): Promise<{ id: number; seatQuota: number } | null> {
+  const store = await prisma.store.findUnique({
     where: { id: storeId },
-    select: { id: true, maxAccountSeats: true },
+    select: { id: true },
   });
+  if (!store) return null;
+
+  const profile = await prisma.storeMembershipProfile.findUnique({
+    where: { storeId },
+    select: { subAccountQuota: true },
+  });
+
+  // subAccountQuota 默认值：若 profile 未创建（新门店尚未初始化），回退到 1（STARTER 默认值）
+  return {
+    id: store.id,
+    seatQuota: profile?.subAccountQuota ?? 1,
+  };
 }
 
 export async function countActiveStoreSeats(
@@ -27,7 +43,7 @@ export async function countActiveStoreSeats(
     where: {
       storeId,
       isSeatActive: true,
-      status: StaffStatus.ACTIVE,
+      status: StaffStatus.active,
       isActive: true,
     },
   });
@@ -53,7 +69,7 @@ export async function upsertStoreSubscriptionRecord(
     targetStatus?: StoreSubscriptionStatus;
   },
 ): Promise<void> {
-  const status = params.targetStatus ?? StoreSubscriptionStatus.ACTIVE;
+  const status = params.targetStatus ?? StoreSubscriptionStatus.active;
 
   await transaction.storeSubscription.upsert({
     where: { storeId: params.storeId },
@@ -62,25 +78,35 @@ export async function upsertStoreSubscriptionRecord(
       planCode: params.planCode,
       planName: params.planSnapshot.planName,
       status,
-      maxAccountSeats: params.planSnapshot.maxAccountSeats,
       expiresAt: params.expiresAt,
     },
     update: {
       planCode: params.planCode,
       planName: params.planSnapshot.planName,
       status,
-      maxAccountSeats: params.planSnapshot.maxAccountSeats,
       expiresAt: params.expiresAt,
     },
   });
 }
 
+/**
+ * 同步门店席位上限到 StoreMembershipProfile.subAccountQuota。
+ * ✅ 事实源：StoreMembershipProfile.subAccountQuota（spec 0.6）
+ */
 export async function updateStoreSeatCapacity(
   transaction: Prisma.TransactionClient,
-  params: { storeId: number; maxAccountSeats: number },
+  params: { storeId: number; seatQuota: number },
 ): Promise<void> {
-  await transaction.store.update({
-    where: { id: params.storeId },
-    data: { maxAccountSeats: params.maxAccountSeats },
+  await transaction.storeMembershipProfile.upsert({
+    where: { storeId: params.storeId },
+    create: {
+      storeId: params.storeId,
+      subAccountQuota: params.seatQuota,
+      totalPoints: 0,
+      availablePoints: 0,
+    },
+    update: {
+      subAccountQuota: params.seatQuota,
+    },
   });
 }

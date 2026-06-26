@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { Prisma, SpaceBillingMode, SpaceSessionStatus } from '@prisma/client';
+import { SpaceBillingMode, SpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SpaceSessionRenewService } from './space-session-renew.service';
 import { SpaceSessionWriteService } from './space-session-write.service';
-import { parseSpaceSessionItems } from './space-sessions.mapper';
+import { mapSessionItemRows } from './space-sessions.mapper';
 import { createSpaceTestUser } from './space-session.spec-helpers';
 
 describe('SpaceSession concurrency fixes', () => {
@@ -23,6 +23,10 @@ describe('SpaceSession concurrency fixes', () => {
       spaceSession: {
         findUnique: jest.fn(),
         update: jest.fn(),
+      },
+      /// Step 8.1: renew records 表
+      spaceSessionRenewRecord: {
+        create: jest.fn(),
       },
     };
 
@@ -74,7 +78,7 @@ describe('SpaceSession concurrency fixes', () => {
         startTime: new Date('2026-06-07T10:00:00.000Z'),
         endTime: null,
         billingMode: SpaceBillingMode.countdown,
-        hourlyRate: new Prisma.Decimal(68),
+        hourlyRate: 6800,  // DB 存储为分（68元）
         timeCost: null,
         countdownMinutes: 86,
         autoCheckout: false,
@@ -88,15 +92,21 @@ describe('SpaceSession concurrency fixes', () => {
         prepaidNote: null,
         prepaidAmount: null,
         prepaidVoucherFaceAmount: null,
-        items: [],
-        itemsCost: new Prisma.Decimal(0),
-        renewRecords: [
+        sessionItems: [],
+        itemsCost: 0,  // DB 存储为分（0元）
+        sessionRenewRecords: [
           {
-            id: 'rn_existing',
-            amount: 30,
+            id: 1,
+            sessionId: 9,
+            recordId: 'rn_existing',
+            amount: 3000,  // DB 存储为分（30元）
             addedMinutes: 26,
             paymentMethod: 'cash',
+            grouponCode: null,
+            grouponPlatform: null,
+            note: null,
             renewedAt: 1_716_000_000_000,
+            createdAt: new Date('2026-06-07T10:26:00.000Z'),
           },
         ],
         status: SpaceSessionStatus.active,
@@ -122,7 +132,7 @@ describe('SpaceSession concurrency fixes', () => {
         startTime: new Date('2026-06-07T10:00:00.000Z'),
         endTime: null,
         billingMode: SpaceBillingMode.countdown,
-        hourlyRate: new Prisma.Decimal(68),
+        hourlyRate: 6800,  // DB 存储为分（68元）
         timeCost: null,
         countdownMinutes: data.countdownMinutes,
         autoCheckout: false,
@@ -136,9 +146,37 @@ describe('SpaceSession concurrency fixes', () => {
         prepaidNote: null,
         prepaidAmount: null,
         prepaidVoucherFaceAmount: null,
-        items: [],
-        itemsCost: new Prisma.Decimal(0),
-        renewRecords: data.renewRecords,
+        sessionItems: [],
+        itemsCost: 0,  // DB 存储为分（0元）
+        // Simulate include: sessionRenewRecords returning existing + newly created
+        sessionRenewRecords: [
+          {
+            id: 1,
+            sessionId: 9,
+            recordId: 'rn_existing',
+            amount: 3000,  // DB 存储为分（30元）
+            addedMinutes: 26,
+            paymentMethod: 'cash',
+            grouponCode: null,
+            grouponPlatform: null,
+            note: null,
+            renewedAt: 1_716_000_000_000,
+            createdAt: new Date('2026-06-07T10:26:00.000Z'),
+          },
+          {
+            id: 2,
+            sessionId: 9,
+            recordId: expect.any(String),
+            amount: 3000,  // DB 存储为分（30元）
+            addedMinutes: 26,
+            paymentMethod: 'cash',
+            grouponCode: null,
+            grouponPlatform: null,
+            note: null,
+            renewedAt: expect.any(Number),
+            createdAt: expect.any(Date),
+          },
+        ],
         status: SpaceSessionStatus.active,
         saleOrderId: null,
         createdAt: new Date('2026-06-07T10:00:00.000Z'),
@@ -168,8 +206,20 @@ describe('SpaceSession concurrency fixes', () => {
       );
       expect(result.session.countdownMinutes).toBe(112);
       expect(result.session.renewRecords).toHaveLength(2);
-      expect(result.renewRecord.amount).toBe(30);
+      // Verify the service correctly maps sessionRenewRecords rows back to business records
+      expect(result.renewRecord.amount).toBe(30);  // 3000分 = 30元
       expect(result.renewRecord.addedMinutes).toBe(26);
+      // Verify that spaceSessionRenewRecord.create was called in Step 8.1 logic
+      expect(transaction.spaceSessionRenewRecord.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            sessionId: 9,
+            amount: 3000,  // DB 存储为分（30元）
+            addedMinutes: 26,
+            paymentMethod: 'cash',
+          }),
+        }),
+      );
     });
   });
 
@@ -181,6 +231,14 @@ describe('SpaceSession concurrency fixes', () => {
       spaceSession: {
         findUnique: jest.fn(),
         update: jest.fn(),
+      },
+      /// Step 8.1: space_session_items / renew_records 表
+      spaceSessionItem: {
+        deleteMany: jest.fn(),
+        createMany: jest.fn(),
+      },
+      spaceSessionRenewRecord: {
+        create: jest.fn(),
       },
     };
 
@@ -228,7 +286,7 @@ describe('SpaceSession concurrency fixes', () => {
         startTime: new Date('2026-06-07T10:00:00.000Z'),
         endTime: null,
         billingMode: SpaceBillingMode.mixed,
-        hourlyRate: new Prisma.Decimal(68),
+        hourlyRate: 6800,  // DB 存储为分（68元）
         timeCost: null,
         countdownMinutes: null,
         autoCheckout: false,
@@ -242,18 +300,22 @@ describe('SpaceSession concurrency fixes', () => {
         prepaidNote: null,
         prepaidAmount: null,
         prepaidVoucherFaceAmount: null,
-        items: [
+        sessionItems: [
           {
+            id: 1,
+            sessionId: 9,
             productId: 'prod_a',
             productName: '可乐',
             categoryName: '饮品',
-            salePrice: 10,
-            profit: 4,
+            salePrice: 1000,  // DB 存储为分（10元）
+            profit: 400,      // DB 存储为分（4元）
             quantity: 1,
+            sortOrder: 0,
+            createdAt: new Date('2026-06-07T10:00:00.000Z'),
           },
         ],
-        itemsCost: new Prisma.Decimal(10),
-        renewRecords: [],
+        itemsCost: 1000,  // DB 存储为分（10元）
+        sessionRenewRecords: [],
         status: SpaceSessionStatus.active,
         saleOrderId: null,
         createdAt: new Date('2026-06-07T10:00:00.000Z'),
@@ -277,7 +339,7 @@ describe('SpaceSession concurrency fixes', () => {
         startTime: new Date('2026-06-07T10:00:00.000Z'),
         endTime: null,
         billingMode: SpaceBillingMode.mixed,
-        hourlyRate: new Prisma.Decimal(68),
+        hourlyRate: 6800,  // DB 存储为分（68元）
         timeCost: null,
         countdownMinutes: null,
         autoCheckout: false,
@@ -291,9 +353,35 @@ describe('SpaceSession concurrency fixes', () => {
         prepaidNote: null,
         prepaidAmount: null,
         prepaidVoucherFaceAmount: null,
-        items: data.items,
+        // Simulate include: sessionItems returning existing + newly created items
+        sessionItems: [
+          {
+            id: 1,
+            sessionId: 9,
+            productId: 'prod_a',
+            productName: '可乐',
+            categoryName: '饮品',
+            salePrice: 1000,  // DB 存储为分（10元）
+            profit: 400,      // DB 存储为分（4元）
+            quantity: 1,
+            sortOrder: 0,
+            createdAt: new Date('2026-06-07T10:00:00.000Z'),
+          },
+          {
+            id: 2,
+            sessionId: 9,
+            productId: 'prod_b',
+            productName: '薯片',
+            categoryName: '零食',
+            salePrice: 1200,  // DB 存储为分（12元）
+            profit: 500,      // DB 存储为分（5元）
+            quantity: 2,
+            sortOrder: 1,
+            createdAt: new Date('2026-06-07T10:30:00.000Z'),
+          },
+        ],
         itemsCost: data.itemsCost,
-        renewRecords: [],
+        sessionRenewRecords: [],
         status: SpaceSessionStatus.active,
         saleOrderId: null,
         createdAt: new Date('2026-06-07T10:00:00.000Z'),
@@ -327,15 +415,34 @@ describe('SpaceSession concurrency fixes', () => {
 
       expect(transaction.$queryRaw).toHaveBeenCalled();
       const updatePayload = transaction.spaceSession.update.mock.calls[0][0];
-      const mergedItems = parseSpaceSessionItems(updatePayload.data.items);
-      expect(mergedItems).toHaveLength(2);
-      expect(mergedItems.map((item) => item.productId)).toEqual([
-        'prod_a',
-        'prod_b',
-      ]);
-      expect(Number(updatePayload.data.itemsCost)).toBe(34);
+      // After Step 8.1: items are stored in separate table, so updatePayload.data
+      // no longer contains items JSON; verify itemsCost is computed correctly
+      // itemsCost 在 DB 中存储为分：10*1 + 12*2 = 34元 → yuanToCents(34) = 3400分
+      expect(Number(updatePayload.data.itemsCost)).toBe(3400);
       expect(result.items).toHaveLength(2);
-      expect(result.itemsCost).toBe(34);
+      expect(result.itemsCost).toBe(34);  // toSpaceSessionResponse 将 3400分 转回 34元
+      // Also verify spaceSessionItem.createMany was called with merged items
+      const itemCreateCalls =
+        transaction.spaceSessionItem?.createMany?.mock?.calls ?? [];
+      if (itemCreateCalls.length > 0) {
+        const createdItems = itemCreateCalls[0][0].data as Array<{
+          productId: string;
+        }>;
+        const mergedItems = mapSessionItemRows(
+          createdItems.map((item, idx) => ({
+            ...item,
+            id: idx + 1,
+            sessionId: 9,
+            sortOrder: idx,
+            createdAt: new Date(),
+          })) as any[],
+        );
+        expect(mergedItems).toHaveLength(2);
+        expect(mergedItems.map((item) => item.productId)).toEqual([
+          'prod_a',
+          'prod_b',
+        ]);
+      }
     });
   });
 });

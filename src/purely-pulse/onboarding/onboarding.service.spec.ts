@@ -45,7 +45,7 @@ describe('OnboardingService', () => {
     currentMembership: {
       storeId: 18,
       subjectType: 'owner',
-      role: 'OWNER',
+      role: 'owner',
       staffId: 88,
       linkedEmployeeId: null,
       subAccountId: null,

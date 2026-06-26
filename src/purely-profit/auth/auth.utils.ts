@@ -341,7 +341,12 @@ export function buildRegisterCodeKey(
 }
 
 export function buildSmsSendCooldownKey(
-  scene: 'register' | 'login' | 'password-reset' | 'login_or_register',
+  scene:
+    | 'register'
+    | 'login'
+    | 'password-reset'
+    | 'login_or_register'
+    | 'bind_phone',
   scope: AuthProductScope,
   phone: string,
 ): string {

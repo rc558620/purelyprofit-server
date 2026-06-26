@@ -65,9 +65,9 @@ function resolveOperatorRole(
   staff: SaleOrderWithItems['operatorStaff'],
 ): StaffRole | null {
   if (!staff) return null;
-  if (staff.role === StaffRole.OWNER) return StaffRole.OWNER;
+  if (staff.role === StaffRole.owner) return StaffRole.owner;
   const subAccountRole = staff.employeeProfile?.subAccounts[0]?.role;
-  if (subAccountRole === 'manager') return StaffRole.MANAGER;
+  if (subAccountRole === 'manager') return StaffRole.manager;
   return staff.role;
 }
 

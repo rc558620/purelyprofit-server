@@ -144,6 +144,10 @@ export class UpdateSpaceDto {
   sortOrder?: number;
 }
 
+/**
+ * @deprecated Space.status 已从 schema 移除，运行态由 session/reservation 推导。
+ * 此 DTO 已废弃，对应接口 PATCH /spaces/:id/status 已返回 410 Gone。
+ */
 export class UpdateSpaceStatusDto {
   @ApiProperty({
     example: 'reserved',

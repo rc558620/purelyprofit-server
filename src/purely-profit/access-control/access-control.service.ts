@@ -190,7 +190,7 @@ export class AccessControlService {
   ): AuthenticatedMembership {
     const subjectType: IdentityType = subAccount
       ? 'sub_account'
-      : staff.role === StaffRole.OWNER
+      : staff.role === StaffRole.owner
         ? 'owner'
         : 'staff';
 

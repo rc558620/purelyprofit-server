@@ -132,7 +132,7 @@ export class MarketingCustomersService {
           : undefined,
       tier:
         tierFilter !== 'all'
-          ? (tierFilter as 'regular' | 'silver' | 'gold' | 'diamond')
+          ? (tierFilter as 'regular' | 'gold' | 'diamond')
           : undefined,
       keyword: keywordFilter || undefined,
       name: nameFilter || undefined,
@@ -287,7 +287,11 @@ export class MarketingCustomersService {
       );
     }
 
-    await this.prisma.marketingCustomer.delete({ where: { id: customerId } });
+    // 软删除：更新 deletedAt 字段而非物理删除
+    await this.prisma.marketingCustomer.update({
+      where: { id: customerId },
+      data: { deletedAt: new Date() },
+    });
     await this.invalidateOverviewCache(customer.storeId);
   }
 
@@ -337,8 +341,12 @@ export class MarketingCustomersService {
       return;
     }
 
-    const existing = await this.prisma.marketingCustomer.findUnique({
-      where: { storeId_phone: { storeId, phone: normalizedPhone } },
+    const existing = await this.prisma.marketingCustomer.findFirst({
+      where: {
+        storeId,
+        phone: normalizedPhone,
+        deletedAt: null,
+      },
       select: { id: true },
     });
     if (existing && existing.id !== excludeCustomerId) {
@@ -366,33 +374,13 @@ export class MarketingCustomersService {
       );
     }
 
-    // 如果有关联手机号，提前查询会员并做快速校验
-    let memberId: number | null = null;
-    if (customer.phone) {
-      const member = await this.prisma.member.findFirst({
-        where: {
-          storeId: customer.storeId,
-          phone: customer.phone,
-        },
-        select: { id: true, points: true },
-      });
-
-      if (member) {
-        memberId = member.id;
-        if (dto.delta < 0 && Math.abs(dto.delta) > member.points) {
-          throw new BadRequestException(
-            `关联会员积分不足，无法扣除（${member.points}）`,
-          );
-        }
-      }
-    }
-
     const absDelta = Math.abs(dto.delta);
     const isDeduct = dto.delta < 0;
 
     // 使用事务确保所有操作原子性
     const updated = await this.prisma.$transaction(async (tx) => {
-      // 1. 更新营销顾客积分（扣除时使用条件更新防止并发扣成负数）
+      // 1. 更新营销顾客积分（MarketingCustomer 是积分事实源）
+      //    扣除时使用条件更新防止并发扣成负数
       let marketingUpdated;
       if (isDeduct) {
         const result = await tx.marketingCustomer.updateMany({
@@ -424,47 +412,19 @@ export class MarketingCustomersService {
         },
       });
 
-      // 3. 如果顾客有关联会员，同步更新会员积分
-      if (customer.phone && memberId !== null) {
-        const member = await tx.member.findFirstOrThrow({
-          where: { id: memberId },
-        });
-
-        const memberBeforePoints = member.points;
-
-        if (isDeduct) {
-          // 扣除时使用条件更新防止并发扣成负数
-          const memberResult = await tx.member.updateMany({
-            where: { id: member.id, points: { gte: absDelta } },
-            data: { points: { decrement: absDelta } },
-          });
-          if (memberResult.count === 0) {
-            throw new BadRequestException(
-              '关联会员积分余额不足，扣除失败；请刷新后重试',
-            );
-          }
-        } else {
-          await tx.member.update({
-            where: { id: member.id },
-            data: {
-              points: { increment: dto.delta },
-              totalPointsEarned: { increment: dto.delta },
-            },
-          });
-        }
-
-        const memberAfterPoints = memberBeforePoints + dto.delta;
-
-        // 创建会员积分流水记录
+      // 3. 若有关联 Member，同步写 MemberPointsLog 流水（审计留档）
+      //    注意：不再写 Member.points（废弃字段，MarketingCustomer 是唯一事实源）
+      if (customer.memberId !== null) {
+        const beforePoints = marketingUpdated.points - dto.delta;
         await tx.memberPointsLog.create({
           data: {
-            memberId: member.id,
+            memberId: customer.memberId,
             storeId: customer.storeId,
-            changeType: dto.delta > 0 ? 'INCREASE' : 'DECREASE',
+            changeType: dto.delta > 0 ? 'increase' : 'decrease',
             source: 'admin_adjust',
             changeAmount: absDelta,
-            beforePoints: memberBeforePoints,
-            afterPoints: memberAfterPoints,
+            beforePoints,
+            afterPoints: marketingUpdated.points,
             reason: '后台管理员调整',
             remark: dto.remark || null,
           },

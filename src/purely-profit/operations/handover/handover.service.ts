@@ -194,7 +194,7 @@ export class HandoverService {
   ): Promise<void> {
     const membership = ensureMembershipContext(user);
     const isManager =
-      membership.role === StaffRole.MANAGER ||
+      membership.role === StaffRole.manager ||
       membership.subAccountRole === StoreSubAccountRole.manager;
 
     if (membership.subjectType === 'owner' || isManager) {

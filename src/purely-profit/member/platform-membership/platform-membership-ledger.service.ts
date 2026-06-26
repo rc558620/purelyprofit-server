@@ -30,29 +30,38 @@ export class PlatformMembershipLedgerService {
   async listPointsLogsByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipPointsLogsResponseDto> {
-    const [profile, logs, paidOrders, plans] = await Promise.all([
-      ensureMembershipProfile(this.prisma, storeId),
-      this.prisma.storeMembershipPointsLog.findMany({
-        where: { storeId },
-        select: {
-          id: true,
-          source: true,
-          changeAmount: true,
-          description: true,
-          expireAt: true,
-          createdAt: true,
-        },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      }),
-      findPaidStoreMembershipOrders(this.prisma, storeId),
-      loadPlanCatalog(this.prisma),
-    ]);
+    const [profile, logs, paidOrders, plans, inviteCodeRecord] =
+      await Promise.all([
+        ensureMembershipProfile(this.prisma, storeId),
+        this.prisma.storeMembershipPointsLog.findMany({
+          where: { storeId },
+          select: {
+            id: true,
+            source: true,
+            changeAmount: true,
+            description: true,
+            expireAt: true,
+            createdAt: true,
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        }),
+        findPaidStoreMembershipOrders(this.prisma, storeId),
+        loadPlanCatalog(this.prisma),
+        this.prisma.storeInviteCode.findFirst({
+          where: { storeId, isActive: true },
+          select: { code: true },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,
       plans,
     });
-    const memberInfo = buildMembershipInfo(effectiveProfile);
+    const memberInfo = buildMembershipInfo(
+      effectiveProfile,
+      inviteCodeRecord?.code ?? null,
+    );
 
     return {
       memberInfo,

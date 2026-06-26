@@ -81,6 +81,12 @@ export interface MarketingPrismaServiceMock {
   store: {
     findUnique: jest.Mock;
   };
+  storeWechatPayConfig: {
+    findUnique: jest.Mock;
+  };
+  storeInviteCode: {
+    findFirst: jest.Mock;
+  };
   $queryRaw: jest.Mock;
   $transaction: jest.Mock;
 }
@@ -168,6 +174,12 @@ function createPrismaServiceMock(): MarketingPrismaServiceMock {
     store: {
       findUnique: jest.fn(),
     },
+    storeWechatPayConfig: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
+    storeInviteCode: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
     $queryRaw: jest.fn(),
     $transaction: jest.fn(),
   };
@@ -228,7 +240,7 @@ function createAuthenticatedUser(): AuthenticatedUser {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'OWNER',
+      role: 'owner',
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',

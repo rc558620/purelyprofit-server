@@ -77,7 +77,7 @@ model Employee {
   position         String
   department       String
   joinDate         DateTime              @map("join_date")
-  baseSalary       Decimal               @map("base_salary") @db.Decimal(12, 2)
+  baseSalary       Int                   @map("base_salary") // 基本工资（分）
   avatar           String?
   idCard           String?               @map("id_card")
   gender           EmployeeGender        @default(unset)
@@ -94,14 +94,21 @@ model Employee {
   leaveRecords     EmployeeLeave[]
   shiftRecords     EmployeeShift[]
   payrollRecords   EmployeePayroll[]
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt        DateTime?             @map("deleted_at")
   createdAt        DateTime              @default(now()) @map("created_at")
   updatedAt        DateTime              @updatedAt @map("updated_at")
 
-  @@unique([storeId, empNo])
+  // empNo 的唯一约束通过 Partial Index（原生 SQL）实现，
+  // 仅对 deletedAt IS NULL 的行生效，允许软删除后重新创建同工号员工。
+  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL
+  @@index([storeId, empNo])
   @@index([storeId, status, updatedAt])
   @@index([storeId, department, updatedAt])
   @@index([storeId, position, updatedAt])
   @@index([storeId, joinDate])
+  @@index([departmentId])
+  @@index([positionId])
   @@map("employees")
 }
 
@@ -126,14 +133,15 @@ model EmployeeLeave {
   storeId      Int               @map("store_id")
   store        Store             @relation(fields: [storeId], references: [id], onDelete: Restrict)
   employeeId   Int               @map("employee_id")
-  employee     Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  /// 员工被软删除后保留请假记录，onDelete: Restrict 防止意外硬删员工
+  employee     Employee          @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   employeeName String            @map("employee_name")
   type         EmployeeLeaveType
   startDate    DateTime          @map("start_date")
   endDate      DateTime          @map("end_date")
-  days         Decimal           @db.Decimal(6, 2)
+  days         Decimal           @db.Decimal(6, 2) // 请假天数（保留小数）
   deductSalary Boolean           @map("deduct_salary")
-  deductAmount Decimal           @map("deduct_amount") @db.Decimal(12, 2)
+  deductAmount Int               @map("deduct_amount") // 扣除金额（分）
   note         String?
   createdAt    DateTime          @default(now()) @map("created_at")
 
@@ -147,7 +155,8 @@ model EmployeeShift {
   storeId           Int                      @map("store_id")
   store             Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   employeeId        Int                      @map("employee_id")
-  employee          Employee                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  /// 员工被软删除后保留排班记录，onDelete: Restrict 防止意外硬删员工
+  employee          Employee                 @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   employeeName      String                   @map("employee_name")
   shiftType         EmployeeShiftType?       @map("shift_type")
   shiftDefinitionId Int?                     @map("shift_definition_id")
@@ -170,18 +179,19 @@ model EmployeePayroll {
   storeId            Int                   @map("store_id")
   store              Store                 @relation(fields: [storeId], references: [id], onDelete: Restrict)
   employeeId         Int                   @map("employee_id")
-  employee           Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  /// 员工被软删除后保留工资记录，onDelete: Restrict 防止意外硬删员工
+  employee           Employee              @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   employeeName       String                @map("employee_name")
-  month              String
-  baseSalary         Decimal               @map("base_salary") @db.Decimal(12, 2)
-  leaveDeduction     Decimal               @map("leave_deduction") @db.Decimal(12, 2)
-  otherDeduction     Decimal               @map("other_deduction") @db.Decimal(12, 2)
+  month              DateTime              // 月份（月初零点，如 2026-01-01T00:00:00Z）
+  baseSalary         Int                   @map("base_salary")        // 基本工资（分）
+  leaveDeduction     Int                   @map("leave_deduction")    // 请假扣除（分）
+  otherDeduction     Int                   @map("other_deduction")    // 其他扣除（分）
   otherDeductionNote String?               @map("other_deduction_note")
-  bonus              Decimal               @db.Decimal(12, 2)
-  actualSalary       Decimal               @map("actual_salary") @db.Decimal(12, 2)
-  socialInsurance    Decimal?              @map("social_insurance") @db.Decimal(12, 2)
-  housingFund        Decimal?              @map("housing_fund") @db.Decimal(12, 2)
-  totalLaborCost     Decimal               @map("total_labor_cost") @db.Decimal(12, 2)
+  bonus              Int                                              // 奖金（分）
+  actualSalary       Int                   @map("actual_salary")      // 实发工资（分）
+  socialInsurance    Int                   @default(0) @map("social_insurance")   // 社保企业部分（分）
+  housingFund        Int                   @default(0) @map("housing_fund")      // 公积金企业部分（分）
+  totalLaborCost     Int                   @map("total_labor_cost")   // 总人力成本（分）
   status             EmployeePayrollStatus @default(draft)
   confirmedAt        DateTime?             @map("confirmed_at")
   note               String?

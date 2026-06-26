@@ -177,6 +177,18 @@ export class AuthProductAuthService {
   }
 
   /**
+   * purely-club 专用：发送绑定手机号验证码
+   * 无论手机号是否已注册都发送，不暴露注册状态
+   */
+  async sendBindPhoneCode(
+    payload: AuthPhonePayload,
+  ): Promise<SendLoginCodeResult> {
+    return this.authCodeService.sendBindPhoneCode(
+      normalizePhone(payload.phone),
+    );
+  }
+
+  /**
    * 手机号验证码登录即注册（purely-club 专用）
    * 验证码有效 → 已有账号则登录，无账号则自动创建
    */

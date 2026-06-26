@@ -21,7 +21,7 @@ describe('AccessControlService', () => {
   ): AuthenticatedMembership => ({
     staffId: 8,
     storeId: 18,
-    role: StaffRole.STAFF,
+    role: StaffRole.staff,
     permissions: [],
     isActive: true,
     subjectType: 'sub_account',
@@ -217,7 +217,7 @@ describe('AccessControlService', () => {
       {
         id: 1,
         storeId: 10,
-        role: StaffRole.STAFF,
+        role: StaffRole.staff,
         permissions: [],
         isActive: true,
         linkedEmployeeId: null,
@@ -241,7 +241,7 @@ describe('AccessControlService', () => {
     const result = service.buildMembershipContext({
       id: 1,
       storeId: 10,
-      role: StaffRole.OWNER,
+      role: StaffRole.owner,
       permissions: ['*'],
       isActive: true,
     });

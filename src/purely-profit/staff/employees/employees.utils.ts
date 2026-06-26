@@ -115,6 +115,12 @@ export function getStartOfCurrentMonth(now = new Date()): Date {
   return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
 }
 
-export function normalizeMonthValue(month: string): string {
-  return month.trim();
+/**
+ * 将 YYYY-MM 格式字符串转为 UTC 月初 Date（与 EmployeePayroll.month DateTime 字段匹配）。
+ * 调用方应先通过 assertPayrollMonthFormat 校验格式合法性。
+ */
+export function normalizeMonthValue(month: string): Date {
+  const trimmed = month.trim();
+  const [year, mon] = trimmed.split('-').map(Number);
+  return new Date(Date.UTC(year, mon - 1, 1, 0, 0, 0, 0));
 }

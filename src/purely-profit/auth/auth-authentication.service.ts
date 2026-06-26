@@ -12,7 +12,6 @@ import type {
   AccountIdentifiers,
   AuthenticatedAccountScope,
   AuthProductScope,
-  PhoneUserRecord,
 } from './auth-account.types';
 import {
   buildClubWechatMemberPhone,

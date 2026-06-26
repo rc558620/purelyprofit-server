@@ -1,5 +1,4 @@
 import { ConflictException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import type {
   FinanceCashFlowRecordResponseDto,
   FinanceCashFlowStatsDto,
@@ -56,7 +55,7 @@ export function mapCashFlowRecord(record: {
   direction: string;
   category: string;
   title: string;
-  amount: Prisma.Decimal;
+  amount: number; // Step 3: Int（分）
   payment: string;
   note: string | null;
   date: Date;
@@ -107,7 +106,7 @@ export function buildFinanceReportCashFlowRows(
     title: string;
     direction: string;
     category: string;
-    amount: Prisma.Decimal;
+    amount: number; // Step 3: Int（分）
     payment: string;
   }>,
 ): FinanceReportCashFlowRowDto[] {

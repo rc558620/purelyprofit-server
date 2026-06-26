@@ -1,4 +1,3 @@
-import type { Prisma } from '@prisma/client';
 import type { ProductSortValue } from '../../commerce/commerce.utils';
 
 export interface ProductListQueryInput {
@@ -26,9 +25,9 @@ export interface ProductRecord {
   name: string;
   category: string;
   code: string;
-  price: Prisma.Decimal | number;
-  profit: Prisma.Decimal | number;
-  costPrice: Prisma.Decimal | number | null;
+  price: number;
+  profit: number;
+  costPrice: number | null;
   unit: string;
   stock: number;
   alertThreshold: number;
@@ -50,9 +49,9 @@ export interface ProductCreateInput {
   category: string;
   code: string;
   name: string;
-  price: number | string;
-  profit: number | string;
-  costPrice: number | string | null;
+  price: number;
+  profit: number;
+  costPrice: number | null;
   unit: string;
   stock: number;
   alertThreshold: number;
@@ -65,9 +64,9 @@ export interface ProductUpdateInput {
   category?: string;
   categoryId?: number | null;
   code?: string;
-  price?: number | string;
-  profit?: number | string;
-  costPrice?: number | string | null;
+  price?: number;
+  profit?: number;
+  costPrice?: number | null;
   unit?: string;
   stock?: number;
   alertThreshold?: number;

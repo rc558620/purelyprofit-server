@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -64,7 +63,7 @@ describe('SpaceSessionOpenService', () => {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'OWNER',
+      role: 'owner',
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
@@ -121,20 +120,18 @@ describe('SpaceSessionOpenService', () => {
     service = module.get<SpaceSessionOpenService>(SpaceSessionOpenService);
   });
 
-  it('occupied 但无 active session 时委托预约状态服务修复空间状态', async () => {
+  it('无 active session 时允许直接开台（状态由运行态推导）', async () => {
+    // Space.status 已移除，空间状态由运行态推导
+    // 只要没有 active session 就允许开台，不再需要修复不一致状态
     const now = new Date('2026-06-07T10:00:00.000Z');
     prismaService.space.findUnique.mockResolvedValue({
       id: 7,
       storeId: 18,
       capacity: 4,
-      status: 'occupied',
+      // status 字段已移除
       type: { name: '台球桌' },
     });
     prismaService.spaceSession.findFirst.mockResolvedValue(null);
-    transaction.space.findUnique.mockResolvedValue({
-      id: 7,
-      status: 'occupied',
-    });
     transaction.spaceSession.findFirst.mockResolvedValue(null);
     transaction.spaceSession.create.mockResolvedValue({
       id: 9,
@@ -147,7 +144,7 @@ describe('SpaceSessionOpenService', () => {
       startTime: now,
       endTime: null,
       billingMode: 'timed',
-      hourlyRate: new Prisma.Decimal(68),
+      hourlyRate: 6800,  // DB 存储为分（68元）
       timeCost: null,
       countdownMinutes: null,
       autoCheckout: null,
@@ -161,9 +158,9 @@ describe('SpaceSessionOpenService', () => {
       prepaidNote: null,
       prepaidAmount: null,
       prepaidVoucherFaceAmount: null,
-      items: [],
-      itemsCost: new Prisma.Decimal(0),
-      renewRecords: [],
+      sessionItems: [],
+      itemsCost: 0,  // DB 存储为分（0元）
+      sessionRenewRecords: [],
       status: 'active',
       saleOrderId: null,
       createdAt: now,
@@ -174,19 +171,17 @@ describe('SpaceSessionOpenService', () => {
         type: { name: '台球桌' },
       },
     });
-    transaction.space.update.mockResolvedValue(undefined);
 
-    await service.openSession(user, 7, {
+    const result = await service.openSession(user, 7, {
       billingMode: 'timed',
       hourlyRate: 68,
     });
 
-    expect(
-      reservationsStateService.repairInconsistentOccupiedSpace,
-    ).toHaveBeenCalledWith(7);
+    // 验证成功创建会话，不再调用 resolveReservationBackStatus
+    expect(result.id).toBe('9');
     expect(
       reservationsStateService.resolveReservationBackStatus,
-    ).toHaveBeenCalledWith(transaction, 7);
+    ).not.toHaveBeenCalled();
   });
 
   it('带 reservationId 开台时委托预约状态服务做履约校验', async () => {
@@ -221,7 +216,7 @@ describe('SpaceSessionOpenService', () => {
       startTime: now,
       endTime: null,
       billingMode: 'timed',
-      hourlyRate: new Prisma.Decimal(68),
+      hourlyRate: 6800,  // DB 存储为分（68元）
       timeCost: null,
       countdownMinutes: null,
       autoCheckout: null,
@@ -235,9 +230,9 @@ describe('SpaceSessionOpenService', () => {
       prepaidNote: null,
       prepaidAmount: null,
       prepaidVoucherFaceAmount: null,
-      items: [],
-      itemsCost: new Prisma.Decimal(0),
-      renewRecords: [],
+      sessionItems: [],
+      itemsCost: 0,  // DB 存储为分（0元）
+      sessionRenewRecords: [],
       status: 'active',
       saleOrderId: null,
       createdAt: now,
@@ -298,7 +293,7 @@ describe('SpaceSessionOpenService', () => {
       startTime: now,
       endTime: null,
       billingMode: 'countdown',
-      hourlyRate: new Prisma.Decimal(68),
+      hourlyRate: 6800,  // DB 存储为分（68元）
       timeCost: null,
       countdownMinutes: 60,
       autoCheckout: false,
@@ -310,11 +305,11 @@ describe('SpaceSessionOpenService', () => {
       prepaidVoucherCode: 'MT100',
       prepaidVoucherPlatform: '美团',
       prepaidNote: '提前到店',
-      prepaidAmount: new Prisma.Decimal(168),
-      prepaidVoucherFaceAmount: new Prisma.Decimal(168),
-      items: [],
-      itemsCost: new Prisma.Decimal(0),
-      renewRecords: [],
+      prepaidAmount: 16800,  // DB 存储为分（168元）
+      prepaidVoucherFaceAmount: 16800,  // DB 存储为分（168元）
+      sessionItems: [],
+      itemsCost: 0,  // DB 存储为分（0元）
+      sessionRenewRecords: [],
       status: 'active',
       saleOrderId: null,
       createdAt: now,
@@ -359,8 +354,8 @@ describe('SpaceSessionOpenService', () => {
           prepaidVoucherCode: 'MT100',
           prepaidVoucherPlatform: '美团',
           prepaidNote: '提前到店',
-          prepaidAmount: new Prisma.Decimal(168),
-          prepaidVoucherFaceAmount: new Prisma.Decimal(168),
+          prepaidAmount: 16800,  // yuanToCents(168) = 16800分
+          prepaidVoucherFaceAmount: 16800,  // yuanToCents(168) = 16800分
         }),
       }),
     );

@@ -1,0 +1,16 @@
+// 微信支付配置表（Step 3: 0.5 敏感配置独立化）
+
+model StoreWechatPayConfig {
+  id              Int      @id @default(autoincrement())
+  storeId         Int      @unique @map("store_id")
+  store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  mchId           String   @map("mch_id")       // 商户号
+  mchName         String   @map("mch_name")     // 商户名称
+  apiV3KeyEnc     String   @map("api_v3_key_enc") @db.Text // 加密后的 API v3 密钥（AES-256-GCM）
+  configuredAt    DateTime @map("configured_at") // 配置时间
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([mchId])
+  @@map("store_wechat_pay_configs")
+}

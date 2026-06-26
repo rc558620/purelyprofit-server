@@ -15,7 +15,6 @@ import {
 import type {
   MemberLevelMetaRow,
   MemberMutationInput,
-  MemberRechargeHistoryInput,
   MemberStatusMetaRow,
   PreparedMemberCreateInput,
   PreparedMemberUpdateInput,
@@ -23,12 +22,6 @@ import type {
 
 function toNullableDate(value?: string): Date | null {
   return value ? new Date(value) : null;
-}
-
-function sumRechargeAmounts(
-  rechargeHistory: MemberRechargeHistoryInput[],
-): number {
-  return rechargeHistory.reduce((sum, record) => sum + record.amount, 0);
 }
 
 function trimOptionalString(value?: string): string | undefined {
@@ -41,7 +34,7 @@ function resolveNextBannedReason(
   nextStatus: MemberStatusDb,
   requestedBannedReason: string | undefined,
 ): string | null {
-  if (nextStatus !== 'BANNED') {
+  if (nextStatus !== 'banned') {
     return null;
   }
 
@@ -49,7 +42,7 @@ function resolveNextBannedReason(
     return normalizeOptionalText(requestedBannedReason) ?? null;
   }
 
-  return previousStatus === 'BANNED' ? (previousBannedReason ?? null) : null;
+  return previousStatus === 'banned' ? (previousBannedReason ?? null) : null;
 }
 
 export function prepareMemberCreateInput(
@@ -58,23 +51,15 @@ export function prepareMemberCreateInput(
   input: MemberMutationInput,
 ): PreparedMemberCreateInput {
   const normalizedPhone = normalizePhone(input.phone);
-  const level = input.level ?? 'free';
-  const points = input.availablePoints ?? 0;
-  const totalPointsEarnedInput = input.totalPointsEarned ?? points;
-  const totalPointsEarned = Math.max(totalPointsEarnedInput, points, 0);
   const beanBalance = input.beanBalance ?? 0;
   const isPartner = input.isPartner ?? false;
   const partnerLevel = isPartner
     ? (trimOptionalString(input.partnerLevel) ?? null)
     : null;
   const rechargeHistory = input.rechargeHistory ?? [];
-  const totalRecharged =
-    input.totalRecharged ?? sumRechargeAmounts(rechargeHistory);
-  const rechargeCount = input.rechargeCount ?? rechargeHistory.length;
-  const invitedCount = input.invitedCount ?? 0;
-  const status = toDbMemberStatus(input.status) ?? 'ACTIVE';
+  const status = toDbMemberStatus(input.status) ?? 'active';
   const note =
-    status === 'BANNED' && input.bannedReason === undefined
+    status === 'banned' && input.bannedReason === undefined
       ? null
       : (normalizeOptionalText(input.remark) ?? null);
   const normalizedBanReason = normalizeOptionalText(
@@ -85,20 +70,13 @@ export function prepareMemberCreateInput(
     storeId,
     name: name.trim(),
     phone: normalizedPhone ?? null,
-    gender: input.gender ?? 'UNKNOWN',
-    level,
+    gender: input.gender ?? 'unknown',
     note,
     birthday: toNullableDate(input.birthday),
-    lastConsumeAt: toNullableDate(input.lastActiveAt),
-    points,
-    totalPointsEarned,
     beanBalance,
     isPartner,
     partnerLevel,
-    totalRecharged,
-    rechargeCount,
-    invitedCount,
-    bannedReason: status === 'BANNED' ? (normalizedBanReason ?? null) : null,
+    bannedReason: status === 'banned' ? (normalizedBanReason ?? null) : null,
     status,
     rechargeHistory,
   };
@@ -113,27 +91,11 @@ export function prepareMemberUpdateInput(
     ? (toDbMemberStatus(input.status) ?? existingMember.status)
     : existingMember.status;
   const rechargeHistory = input.rechargeHistory;
-  const nextPoints = input.availablePoints ?? existingMember.points;
-  const requestedTotalPointsEarned =
-    input.totalPointsEarned ?? existingMember.totalPointsEarned;
-  const nextTotalPointsEarned = Math.max(
-    requestedTotalPointsEarned,
-    nextPoints,
-    0,
-  );
-  const nextTotalRecharged =
-    input.totalRecharged ??
-    (rechargeHistory
-      ? sumRechargeAmounts(rechargeHistory)
-      : existingMember.totalRecharged);
-  const nextRechargeCount =
-    input.rechargeCount ??
-    (rechargeHistory ? rechargeHistory.length : existingMember.rechargeCount);
   const nextBannedReason = resolveNextBannedReason(
     existingMember.status,
     existingMember.bannedReason,
     nextStatus,
-    input.bannedReason ?? (nextStatus === 'BANNED' ? input.remark : undefined),
+    input.bannedReason ?? (nextStatus === 'banned' ? input.remark : undefined),
   );
   const assignments: PreparedMemberUpdateInput['assignments'] = [];
 
@@ -146,12 +108,9 @@ export function prepareMemberUpdateInput(
   if (input.gender !== undefined) {
     assignments.push({ field: 'gender', value: input.gender });
   }
-  if (input.level !== undefined) {
-    assignments.push({ field: 'level', value: input.level ?? 'free' });
-  }
   if (
     input.remark !== undefined &&
-    !(nextStatus === 'BANNED' && input.bannedReason === undefined)
+    !(nextStatus === 'banned' && input.bannedReason === undefined)
   ) {
     assignments.push({
       field: 'note',
@@ -162,22 +121,6 @@ export function prepareMemberUpdateInput(
     assignments.push({
       field: 'birthday',
       value: toNullableDate(input.birthday),
-    });
-  }
-  if (input.lastActiveAt !== undefined) {
-    assignments.push({
-      field: 'lastConsumeAt',
-      value: toNullableDate(input.lastActiveAt),
-    });
-  }
-  if (
-    input.availablePoints !== undefined ||
-    input.totalPointsEarned !== undefined
-  ) {
-    assignments.push({ field: 'points', value: nextPoints });
-    assignments.push({
-      field: 'totalPointsEarned',
-      value: nextTotalPointsEarned,
     });
   }
   if (input.beanBalance !== undefined) {
@@ -194,15 +137,6 @@ export function prepareMemberUpdateInput(
       field: 'partnerLevel',
       value: trimOptionalString(input.partnerLevel) ?? null,
     });
-  }
-  if (input.totalRecharged !== undefined || rechargeHistory !== undefined) {
-    assignments.push({ field: 'totalRecharged', value: nextTotalRecharged });
-  }
-  if (input.rechargeCount !== undefined || rechargeHistory !== undefined) {
-    assignments.push({ field: 'rechargeCount', value: nextRechargeCount });
-  }
-  if (input.invitedCount !== undefined) {
-    assignments.push({ field: 'invitedCount', value: input.invitedCount });
   }
   if (input.status !== undefined) {
     assignments.push({ field: 'status', value: nextStatus });

@@ -178,9 +178,14 @@ export class PlatformMembershipInfoDto {
   @IsInt({ message: '到期时间必须是整数' })
   expiredAt: number | null;
 
-  @ApiProperty({ example: 'ABCD23', description: '邀请码（推广码）' })
+  @ApiProperty({
+    example: 'ABCD23',
+    description: '邀请码（推广码）；门店尚未创建邀请码时为 null',
+    nullable: true,
+  })
+  @IsOptional()
   @IsString({ message: '邀请码必须是字符串' })
-  inviteCode: string;
+  inviteCode: string | null;
 
   @ApiProperty({ example: 1880, description: '累计积分' })
   @IsInt({ message: '累计积分必须是整数' })

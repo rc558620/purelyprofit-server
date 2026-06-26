@@ -1,6 +1,6 @@
 import {
   buildPaginationMeta,
-  toDecimalNumber,
+  centsToYuan,
   toTimestampMs,
 } from '../../commerce/commerce.utils';
 import type {
@@ -49,12 +49,12 @@ export function buildEmptyPurchaseStatsResponse(): PurchaseStatsResponseDto {
 export function buildPurchaseStatsResponse(params: {
   supplierCount: number;
   currentCount: number;
-  currentTotalAmount: { toString(): string } | null;
-  previousTotalAmount: { toString(): string } | null;
+  currentTotalAmount: number | null;
+  previousTotalAmount: number | null;
   hasPreviousRange: boolean;
 }): PurchaseStatsResponseDto {
-  const currentTotal = toDecimalNumber(params.currentTotalAmount);
-  const previousTotal = toDecimalNumber(params.previousTotalAmount);
+  const currentTotal = centsToYuan(params.currentTotalAmount ?? 0);
+  const previousTotal = centsToYuan(params.previousTotalAmount ?? 0);
 
   return {
     totalAmount: currentTotal,
@@ -76,7 +76,7 @@ export function mapPurchaseResponse(
     ...(order.supplierId ? { supplierId: String(order.supplierId) } : {}),
     ...(order.supplierName ? { supplierName: order.supplierName } : {}),
     items: order.items.map((item) => mapPurchaseItemResponse(item)),
-    totalAmount: toDecimalNumber(order.totalAmount),
+    totalAmount: centsToYuan(order.totalAmount),
     date: toTimestampMs(order.date),
     ...(order.note ? { note: order.note } : {}),
     createdAt: toTimestampMs(order.createdAt),
@@ -92,7 +92,7 @@ function mapPurchaseItemResponse(
     productName: item.productName,
     ...(item.unit ? { unit: item.unit } : {}),
     quantity: item.quantity,
-    unitPrice: toDecimalNumber(item.unitPrice),
-    amount: toDecimalNumber(item.amount),
+    unitPrice: centsToYuan(item.unitPrice),
+    amount: centsToYuan(item.amount),
   };
 }

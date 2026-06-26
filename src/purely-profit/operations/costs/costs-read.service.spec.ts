@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { Prisma } from '@prisma/client';
 import { CostsReadService } from './costs-read.service';
 import {
   createCostsCommerceAccessServiceMock,
@@ -61,7 +60,7 @@ describe('CostsReadService', () => {
         type: 'fixed',
         category: 'rent',
         sourceType: 'manual',
-        amount: new Prisma.Decimal('5000.00'),
+        amount: 5000,
         note: '5 月房租',
         date: new Date('2026-05-01T00:00:00.000Z'),
         createdAt: new Date('2026-05-14T10:00:00.000Z'),
@@ -90,20 +89,20 @@ describe('CostsReadService', () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('5300') },
+        _sum: { amount: 5300 },
         _count: { _all: 2 },
       })
       .mockResolvedValueOnce({
-        _sum: { amount: new Prisma.Decimal('4240') },
+        _sum: { amount: 4240 },
       });
     prismaService.costRecord.groupBy.mockResolvedValue([
       {
         type: 'fixed',
-        _sum: { amount: new Prisma.Decimal('5000') },
+        _sum: { amount: 5000 },
       },
       {
         type: 'variable',
-        _sum: { amount: new Prisma.Decimal('300') },
+        _sum: { amount: 300 },
       },
     ]);
 
@@ -121,13 +120,13 @@ describe('CostsReadService', () => {
   it('getStats 在自定义日期模式下不返回上期对比', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     prismaService.costRecord.aggregate.mockResolvedValue({
-      _sum: { amount: new Prisma.Decimal('1888') },
+      _sum: { amount: 1888 },
       _count: { _all: 1 },
     });
     prismaService.costRecord.groupBy.mockResolvedValue([
       {
         type: 'fixed',
-        _sum: { amount: new Prisma.Decimal('1888') },
+        _sum: { amount: 1888 },
       },
     ]);
 
@@ -181,7 +180,7 @@ describe('CostsReadService', () => {
         type: 'fixed',
         category: 'salary',
         sourceType: 'payroll_salary',
-        amount: new Prisma.Decimal('5000.00'),
+        amount: 5000,
         note: '含加班',
         date: new Date('2026-05-01T00:00:00.000Z'),
         createdAt: new Date('2026-05-14T12:00:00.000Z'),
@@ -214,7 +213,7 @@ describe('CostsReadService', () => {
         title: '房租',
         type: 'fixed',
         category: 'rent',
-        amount: new Prisma.Decimal('5000.00'),
+        amount: 5000,
         note: '5 月房租',
         date: new Date('2026-05-01T00:00:00.000Z'),
         createdAt: new Date('2026-05-14T10:00:00.000Z'),
@@ -224,14 +223,14 @@ describe('CostsReadService', () => {
         title: '营销物料',
         type: 'variable',
         category: 'marketing',
-        amount: new Prisma.Decimal('300.00'),
+        amount: 300,
         note: null,
         date: new Date('2026-05-14T00:00:00.000Z'),
         createdAt: new Date('2026-05-14T10:05:00.000Z'),
       },
     ]);
     prismaService.costRecord.aggregate.mockResolvedValue({
-      _sum: { amount: new Prisma.Decimal('4240.00') },
+      _sum: { amount: 4240 },
     });
 
     await expect(
@@ -276,21 +275,21 @@ describe('CostsReadService', () => {
         title: '王五2026-05工资',
         type: 'fixed',
         category: 'salary',
-        amount: new Prisma.Decimal('5000.00'),
+        amount: 5000,
         note: '含加班',
         date: new Date('2026-05-01T00:00:00.000Z'),
         createdAt: new Date('2026-05-14T12:00:00.000Z'),
       },
     ]);
     prismaService.costRecord.aggregate.mockResolvedValue({
-      _sum: { amount: new Prisma.Decimal('4000.00') },
+      _sum: { amount: 4000 },
     });
     prismaService.employeePayroll.findMany.mockResolvedValue([
       {
         id: 8,
         employeeName: '赵六',
-        month: '2026-05',
-        actualSalary: new Prisma.Decimal('4200.00'),
+        month: new Date('2026-05-01T00:00:00.000Z'),
+        actualSalary: 4200,
         note: '待确认',
       },
     ]);
@@ -330,7 +329,7 @@ describe('CostsReadService', () => {
           id: '8',
           title: '[草稿] 赵六 2026-05 工资',
           amount: 4200,
-          date: new Date(2026, 4, 1, 0, 0, 0, 0).getTime(),
+          date: new Date('2026-05-01T00:00:00.000Z').getTime(),
           dateLabel: '2026-05',
           note: '待确认',
         },
@@ -363,14 +362,14 @@ describe('CostsReadService', () => {
         title: '房租',
         type: 'fixed',
         category: 'rent',
-        amount: new Prisma.Decimal('5000.00'),
+        amount: 5000,
         note: '5 月房租',
         date: new Date('2026-05-01T00:00:00.000Z'),
         createdAt: new Date('2026-05-14T10:00:00.000Z'),
       },
     ]);
     prismaService.costRecord.aggregate.mockResolvedValue({
-      _sum: { amount: new Prisma.Decimal('4500.00') },
+      _sum: { amount: 4500 },
     });
 
     await expect(

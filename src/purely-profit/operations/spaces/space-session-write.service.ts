@@ -3,19 +3,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  Prisma,
-  SpaceSessionStatus as PrismaSpaceSessionStatus,
-} from '@prisma/client';
+import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { yuanToCents } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
   AddSpaceSessionItemsDto,
   SpaceSessionResponseDto,
 } from './dto/space-session.dto';
 import {
-  parseSpaceSessionItems,
-  toSpaceSessionItemsJson,
+  mapSessionItemRows,
   toSpaceSessionResponse,
 } from './space-sessions.mapper';
 import { normalizeSessionItemsPayload } from './space-session-payload.shared';
@@ -81,6 +78,12 @@ export class SpaceSessionWriteService {
               },
             },
           },
+          sessionItems: {
+            orderBy: { sortOrder: 'asc' },
+          },
+          sessionRenewRecords: {
+            orderBy: { id: 'asc' },
+          },
         },
       });
 
@@ -92,16 +95,35 @@ export class SpaceSessionWriteService {
         throw new ConflictException('当前会话已结账，无法继续点单');
       }
 
-      const mergedItems = mergeSessionItems(
-        parseSpaceSessionItems(latestSession.items),
-        appendedItems,
-      );
+      // Step 8.1: 从子表行映射为业务记录再合并
+      const currentItems = mapSessionItemRows(latestSession.sessionItems);
+      const mergedItems = mergeSessionItems(currentItems, appendedItems);
+      const nextItemsCost = sumLineTotal(mergedItems);
+
+      // Step 8.1: 删除旧的 items，重新创建
+      await transaction.spaceSessionItem.deleteMany({
+        where: { sessionId: latestSession.id },
+      });
+
+      await transaction.spaceSessionItem.createMany({
+        data: mergedItems.map((item, index) => ({
+          sessionId: latestSession.id,
+          productId: item.productId,
+          productName: item.productName,
+          categoryName: item.categoryName,
+          // mergedItems 中的 salePrice/profit 是元，DB 存储为分
+          salePrice: yuanToCents(item.salePrice),
+          profit: yuanToCents(item.profit),
+          quantity: item.quantity,
+          sortOrder: index,
+        })),
+      });
 
       return transaction.spaceSession.update({
         where: { id: latestSession.id },
         data: {
-          items: toSpaceSessionItemsJson(mergedItems),
-          itemsCost: new Prisma.Decimal(sumLineTotal(mergedItems)),
+          // nextItemsCost 是元，DB 存储为分
+          itemsCost: yuanToCents(nextItemsCost),
         },
         include: {
           space: {
@@ -114,6 +136,12 @@ export class SpaceSessionWriteService {
                 },
               },
             },
+          },
+          sessionItems: {
+            orderBy: { sortOrder: 'asc' },
+          },
+          sessionRenewRecords: {
+            orderBy: { id: 'asc' },
           },
         },
       });

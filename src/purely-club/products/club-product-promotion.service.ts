@@ -3,6 +3,11 @@ import Decimal from 'decimal.js';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  discountParamsSchema,
+  firstOrderDiscountParamsSchema,
+  reduceParamsSchema,
+} from '../../purely-profit/marketing/schemas/promotion-params.schema';
 import type {
   ClubProductDiscountPromotion,
   ClubProductPricingContext,
@@ -28,12 +33,11 @@ export class ClubProductPromotionService {
     storeId: number,
     phone: string,
   ): Promise<ClubProductPricingContext> {
-    const customer = await this.prisma.marketingCustomer.findUnique({
+    const customer = await this.prisma.marketingCustomer.findFirst({
       where: {
-        storeId_phone: {
-          storeId,
-          phone,
-        },
+        storeId,
+        phone,
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -179,15 +183,31 @@ export class ClubProductPromotionService {
   }
 
   private resolvePromotionDiscountRate(params: unknown): number | null {
+    // 优先使用 Zod schema 校验 discount/discount_day/first_order_discount 的 params
+    const zodResult =
+      discountParamsSchema.safeParse(params) ??
+      firstOrderDiscountParamsSchema.safeParse(params);
+    if (zodResult.success) {
+      const data = zodResult.data;
+      let discountRate: number | null = null;
+
+      if (typeof data.discountRate === 'number') {
+        discountRate = data.discountRate;
+      } else if (typeof data.rate === 'number') {
+        discountRate = data.rate * 100;
+      }
+
+      if (discountRate !== null) {
+        return new Decimal(discountRate).toDecimalPlaces(1).toNumber();
+      }
+    }
+
+    // Zod 校验失败，回退到手写解析（兼容旧数据）
     if (!params || typeof params !== 'object' || Array.isArray(params)) {
       return null;
     }
 
     const candidate = params as Record<string, unknown>;
-
-    // 兼容两种存储格式：
-    // 1. discountRate: 80 —— 0-100 整数，直接表示“打几折’的十倍值
-    // 2. rate: 0.8 —— 0-1 小数，表示“付原价的百分比”
     const rawDiscountRate = candidate.discountRate;
     const rawRate = candidate.rate;
 
@@ -202,7 +222,6 @@ export class ClubProductPromotionService {
 
     if (discountRate === null && rawRate !== null && rawRate !== undefined) {
       const parsed = Number(rawRate);
-      // rate 在 0-1 范围（如 0.8 表示 8折），转换为 0-100 范围
       if (Number.isFinite(parsed) && parsed > 0 && parsed < 1) {
         discountRate = parsed * 100;
       }
@@ -218,6 +237,22 @@ export class ClubProductPromotionService {
   private resolveReduceConfig(
     params: unknown,
   ): { thresholdFen: number; reduceAmountFen: number } | null {
+    // 优先使用 Zod schema 校验 reduce 的 params
+    const zodResult = reduceParamsSchema.safeParse(params);
+    if (zodResult.success) {
+      const data = zodResult.data;
+      if (
+        typeof data.threshold === 'number' &&
+        typeof data.reduceAmount === 'number'
+      ) {
+        return {
+          thresholdFen: Math.round(data.threshold),
+          reduceAmountFen: Math.round(data.reduceAmount),
+        };
+      }
+    }
+
+    // Zod 校验失败，回退到手写解析
     if (!params || typeof params !== 'object' || Array.isArray(params)) {
       return null;
     }

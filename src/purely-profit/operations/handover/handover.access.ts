@@ -29,7 +29,7 @@ export const isCashierMembership = (membership: MembershipContext): boolean =>
   membership.subAccountRole === StoreSubAccountRole.cashier;
 
 export const isManagerMembership = (membership: MembershipContext): boolean =>
-  membership.role === StaffRole.MANAGER ||
+  membership.role === StaffRole.manager ||
   membership.subAccountRole === StoreSubAccountRole.manager;
 
 export const resolveHandoverOperationAccess = (params: {

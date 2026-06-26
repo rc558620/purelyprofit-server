@@ -3,6 +3,11 @@ import Decimal from 'decimal.js';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  discountParamsSchema,
+  firstOrderDiscountParamsSchema,
+  reduceParamsSchema,
+} from '../../purely-profit/marketing/schemas/promotion-params.schema';
 
 export type ClubServicePromotionType =
   | 'first_order_discount'
@@ -278,15 +283,32 @@ export class ClubOrderPromotionsService {
   }
 
   private resolvePromotionDiscountRate(params: unknown): number | null {
+    // 优先使用 Zod schema 校验
+    const zodResult =
+      discountParamsSchema.safeParse(params) ??
+      firstOrderDiscountParamsSchema.safeParse(params);
+    if (zodResult.success) {
+      const data = zodResult.data;
+      let discountRate: number | null = null;
+
+      if (typeof data.discountRate === 'number') {
+        discountRate = data.discountRate;
+      } else if (typeof data.rate === 'number') {
+        discountRate = data.rate * 100;
+      }
+
+      if (discountRate !== null) {
+        return new Decimal(discountRate).toDecimalPlaces(1).toNumber();
+      }
+    }
+
+    // Zod 校验失败，回退到手写解析
     if (!params || typeof params !== 'object' || Array.isArray(params)) {
       return null;
     }
 
     const candidate = params as Record<string, unknown>;
 
-    // 兼容两种存储格式：
-    // 1. discountRate: 80 —— 0-100 整数
-    // 2. rate: 0.8 —— 0-1 小数
     const rawDiscountRate = candidate.discountRate;
     const rawRate = candidate.rate;
 
@@ -315,13 +337,26 @@ export class ClubOrderPromotionsService {
 
   /**
    * 解析满减活动参数
-   * 管理端存储约定：threshold 和 reduceAmount 单位均为"分"
-   * （与 MarketingPromotion.params 中 rechargeAmount: 10000 表示 ¥100 的约定一致）
-   * 若管理端误传"元"为单位的小数值，toPositiveInteger 会返回 null 从而跳过该活动
+   * 优先使用 Zod schema 校验，失败回退到手写解析
    */
   private resolveReduceConfig(
     params: unknown,
   ): { thresholdFen: number; reduceAmountFen: number } | null {
+    const zodResult = reduceParamsSchema.safeParse(params);
+    if (zodResult.success) {
+      const data = zodResult.data;
+      if (
+        typeof data.threshold === 'number' &&
+        typeof data.reduceAmount === 'number'
+      ) {
+        return {
+          thresholdFen: Math.round(data.threshold),
+          reduceAmountFen: Math.round(data.reduceAmount),
+        };
+      }
+    }
+
+    // Zod 校验失败，回退到手写解析
     if (!params || typeof params !== 'object' || Array.isArray(params)) {
       return null;
     }

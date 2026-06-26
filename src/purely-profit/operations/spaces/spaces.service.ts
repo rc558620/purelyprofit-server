@@ -51,11 +51,15 @@ export class SpacesService {
     return this.spacesWriteService.markSpaceReady(user, spaceId);
   }
 
+  /**
+   * @deprecated Space.status 已从 schema 移除，此方法已废弃。
+   * 调用将抛出 GoneException，如需重置空间状态请使用 markSpaceReady。
+   */
   updateSpaceStatus(
     user: AuthenticatedUser,
     spaceId: number,
     dto: UpdateSpaceStatusDto,
-  ): Promise<SpaceResponseDto> {
+  ): Promise<never> {
     return this.spacesWriteService.updateSpaceStatus(user, spaceId, dto);
   }
 }

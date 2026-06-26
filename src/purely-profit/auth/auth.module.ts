@@ -18,6 +18,7 @@ import { AuthSessionService } from './auth-session.service';
 import { AuthSmsService } from './auth-sms.service';
 import { AuthRegisterStoreService } from './auth-register-store.service';
 import { AuthRsaService } from './auth-rsa.service';
+import { StoreInviteCodeService } from '../stores/store-invite-code.service';
 import {
   ClubJwtAuthGuard,
   JwtAuthGuard,
@@ -57,6 +58,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthSmsService,
     AuthRegisterStoreService,
     AuthRsaService,
+    StoreInviteCodeService,
     JwtStrategy,
     JwtAuthGuard,
     ClubJwtAuthGuard,

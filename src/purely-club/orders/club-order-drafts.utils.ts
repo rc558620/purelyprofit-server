@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS } from '../../purely-profit/marketing/marketing.utils';
+import { safeParsePointsRatio } from '../../purely-profit/marketing/schemas/member-level-settings.schema';
 import type {
   ClubOrderStatusResponseDto,
   ClubServiceOrderResponseDto,
@@ -310,33 +311,20 @@ export function resolvePointsRedeemConfig(
   pointsRatio: unknown,
 ): ClubPointsRedeemConfig {
   const fallback = DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio;
+  const parsed = safeParsePointsRatio(pointsRatio);
 
-  if (
-    !pointsRatio ||
-    typeof pointsRatio !== 'object' ||
-    Array.isArray(pointsRatio)
-  ) {
+  if (parsed) {
     return {
-      redeemRatioPoints: fallback.redeemRatioPoints,
-      maxRedeemRatio: fallback.maxRedeemRatio,
-      enabled: fallback.enabled,
+      redeemRatioPoints: parsed.redeemRatioPoints,
+      maxRedeemRatio: parsed.maxRedeemRatio,
+      enabled: parsed.enabled,
     };
   }
 
-  const data = pointsRatio as Record<string, unknown>;
   return {
-    redeemRatioPoints:
-      typeof data.redeemRatioPoints === 'number' && data.redeemRatioPoints > 0
-        ? data.redeemRatioPoints
-        : fallback.redeemRatioPoints,
-    maxRedeemRatio:
-      typeof data.maxRedeemRatio === 'number' &&
-      data.maxRedeemRatio >= 0 &&
-      data.maxRedeemRatio <= 1
-        ? data.maxRedeemRatio
-        : fallback.maxRedeemRatio,
-    enabled:
-      typeof data.enabled === 'boolean' ? data.enabled : fallback.enabled,
+    redeemRatioPoints: fallback.redeemRatioPoints,
+    maxRedeemRatio: fallback.maxRedeemRatio,
+    enabled: fallback.enabled,
   };
 }
 
@@ -348,25 +336,17 @@ export function resolvePointsEarnConfig(
   pointsRatio: unknown,
 ): ClubPointsEarnConfig {
   const fallback = DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio;
+  const parsed = safeParsePointsRatio(pointsRatio);
 
-  if (
-    !pointsRatio ||
-    typeof pointsRatio !== 'object' ||
-    Array.isArray(pointsRatio)
-  ) {
+  if (parsed) {
     return {
-      earnRatioCents: fallback.earnRatioCents,
-      enabled: fallback.enabled,
+      earnRatioCents: parsed.earnRatioCents,
+      enabled: parsed.enabled,
     };
   }
 
-  const data = pointsRatio as Record<string, unknown>;
   return {
-    earnRatioCents:
-      typeof data.earnRatioCents === 'number' && data.earnRatioCents > 0
-        ? data.earnRatioCents
-        : fallback.earnRatioCents,
-    enabled:
-      typeof data.enabled === 'boolean' ? data.enabled : fallback.enabled,
+    earnRatioCents: fallback.earnRatioCents,
+    enabled: fallback.enabled,
   };
 }

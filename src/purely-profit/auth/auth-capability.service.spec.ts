@@ -26,7 +26,7 @@ describe('AuthCapabilityService', () => {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'STAFF',
+      role: 'staff',
       permissions: ['operation-entry:view'],
       isActive: true,
       subjectType: 'sub_account',

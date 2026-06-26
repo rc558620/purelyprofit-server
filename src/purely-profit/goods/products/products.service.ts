@@ -242,11 +242,11 @@ export class ProductsService {
       category: dto.category.trim(),
       code,
       name: dto.name.trim(),
-      price: String(dto.price),
-      profit: String(dto.profit),
+      price: Number(dto.price),
+      profit: Number(dto.profit),
       costPrice:
         dto.costPrice !== undefined && dto.costPrice !== null
-          ? String(dto.costPrice)
+          ? Number(dto.costPrice)
           : null,
       unit: dto.unit.trim(),
       stock: dto.stock ?? 0,
@@ -270,10 +270,10 @@ export class ProductsService {
           }
         : {}),
       ...(nextCode ? { code: nextCode } : {}),
-      ...(dto.price !== undefined ? { price: String(dto.price) } : {}),
-      ...(dto.profit !== undefined ? { profit: String(dto.profit) } : {}),
+      ...(dto.price !== undefined ? { price: Number(dto.price) } : {}),
+      ...(dto.profit !== undefined ? { profit: Number(dto.profit) } : {}),
       ...(dto.costPrice !== undefined
-        ? { costPrice: dto.costPrice !== null ? String(dto.costPrice) : null }
+        ? { costPrice: dto.costPrice !== null ? Number(dto.costPrice) : null }
         : {}),
       ...(dto.unit !== undefined ? { unit: dto.unit.trim() } : {}),
       ...(dto.stock !== undefined ? { stock: dto.stock } : {}),

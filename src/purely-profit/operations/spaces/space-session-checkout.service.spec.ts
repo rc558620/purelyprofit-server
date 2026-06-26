@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { Prisma, SpaceStatus } from '@prisma/client';
+
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
@@ -85,7 +85,9 @@ describe('SpaceSessionCheckoutService', () => {
           useValue: {
             ensureReservationCanBeFulfilled: jest.fn(),
             findNextReservationToActivate: jest.fn().mockResolvedValue(null),
-            cancelMatchedReservationAfterCheckout: jest.fn().mockResolvedValue(null),
+            cancelMatchedReservationAfterCheckout: jest
+              .fn()
+              .mockResolvedValue(null),
             resolveReservationBackStatus: jest.fn().mockResolvedValue('idle'),
           },
         },
@@ -104,11 +106,11 @@ describe('SpaceSessionCheckoutService', () => {
     const session = {
       ...baseSession,
       billingMode: 'countdown' as const,
-      hourlyRate: new Prisma.Decimal(777),
+      hourlyRate: 77700,  // DB 存储为分（777元）
       countdownMinutes: 60,
       autoCheckout: false,
       prepaidPaymentMethod: 'cash' as const,
-      prepaidAmount: new Prisma.Decimal(999),
+      prepaidAmount: 99900,  // DB 存储为分（999元）
     };
 
     prismaService.spaceSession.findUnique.mockResolvedValue(session);
@@ -129,11 +131,11 @@ describe('SpaceSessionCheckoutService', () => {
       lockedAt: checkoutAt,
       expiresAt: checkoutAt + 5 * 60 * 1000,
       preview: {
-        timeCost: 777,
-        itemsCost: 20,
+        timeCost: 777,    // 77700分 = 777元
+        itemsCost: 20,    // 2000分 = 20元
         renewDeduction: 0,
-        prepaidDeduction: 999,
-        totalAmount: -202,
+        prepaidDeduction: 999,  // 99900分 = 999元
+        totalAmount: -202,      // 777 + 20 - 999 = -202元
         timeFeeMode: 'unit_price',
         countdownFeeMode: 'fixed',
       },
@@ -150,11 +152,11 @@ describe('SpaceSessionCheckoutService', () => {
       ...baseSession,
       startTime: new Date(2026, 5, 4, 9, 20, 0),
       billingMode: 'timed' as const,
-      hourlyRate: new Prisma.Decimal(777),
-      items: [],
-      itemsCost: new Prisma.Decimal(0),
+      hourlyRate: 77700,  // DB 存储为分（777元）
+      sessionItems: [],
+      itemsCost: 0,        // DB 存储为分（0元）
       prepaidPaymentMethod: 'card' as const,
-      prepaidAmount: new Prisma.Decimal(1500),
+      prepaidAmount: 150000,  // DB 存储为分（1500元）
     };
 
     prismaService.spaceSession.findUnique.mockResolvedValue(session);
@@ -181,19 +183,19 @@ describe('SpaceSessionCheckoutService', () => {
 
     expect(timedResult.preview).toMatchObject({
       durationMinutes: 70,
-      timeCost: 906.51,
+      timeCost: 906.51,  // 70/60*777*100 因浮点精度 Math.ceil(90650.00...01) = 90651 / 100 = 906.51
       itemsCost: 0,
-      prepaidDeduction: 1500,
-      totalAmount: -593.49,
+      prepaidDeduction: 1500,  // 150000分 = 1500元
+      totalAmount: -593.49,    // 906.51 + 0 - 1500 = -593.49
       timeFeeMode: 'timed',
       countdownFeeMode: 'timed',
     });
     expect(unitPriceResult.preview).toMatchObject({
       durationMinutes: 70,
-      timeCost: 777,
+      timeCost: 777,      // 77700分 = 777元
       itemsCost: 0,
-      prepaidDeduction: 1500,
-      totalAmount: -723,
+      prepaidDeduction: 1500,  // 150000分 = 1500元
+      totalAmount: -723,       // 777 + 0 - 1500 = -723元
       timeFeeMode: 'unit_price',
       countdownFeeMode: 'fixed',
     });
@@ -234,7 +236,7 @@ describe('SpaceSessionCheckoutService', () => {
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
     transactionClient.space.update.mockResolvedValue({
       id: 7,
-      status: SpaceStatus.cleaning,
+      // status 字段已移除
     });
     transactionClient.spaceReservation.findMany.mockResolvedValue([]);
     transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
@@ -286,7 +288,7 @@ describe('SpaceSessionCheckoutService', () => {
         orderId: '12',
         status: 'settled',
       },
-      spaceStatus: 'cleaning',
+      spaceStatus: 'idle',
       salesOrder: createdOrder,
     });
   });
@@ -299,11 +301,11 @@ describe('SpaceSessionCheckoutService', () => {
     const session = {
       ...baseSession,
       billingMode: 'countdown' as const,
-      hourlyRate: new Prisma.Decimal(60),
+      hourlyRate: 6000,  // DB 存储为分（60元）
       countdownMinutes: 60,
       autoCheckout: false,
       prepaidPaymentMethod: 'cash' as const,
-      prepaidAmount: new Prisma.Decimal(30),
+      prepaidAmount: 3000,  // DB 存储为分（30元）
       space: {
         ...baseSession.space,
         enableDirtyRoom: true,
@@ -312,11 +314,11 @@ describe('SpaceSessionCheckoutService', () => {
     const updatedSession = {
       ...baseUpdatedSession,
       billingMode: 'countdown' as const,
-      hourlyRate: new Prisma.Decimal(60),
+      hourlyRate: 6000,  // DB 存储为分（60元）
       countdownMinutes: 60,
       autoCheckout: false,
       prepaidPaymentMethod: 'cash' as const,
-      prepaidAmount: new Prisma.Decimal(30),
+      prepaidAmount: 3000,  // DB 存储为分（30元）
       space: {
         ...baseUpdatedSession.space,
         enableDirtyRoom: true,
@@ -352,7 +354,7 @@ describe('SpaceSessionCheckoutService', () => {
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
     transactionClient.space.update.mockResolvedValue({
       id: 7,
-      status: SpaceStatus.cleaning,
+      // status 字段已移除
     });
     transactionClient.spaceReservation.findMany.mockResolvedValue([]);
     transactionClient.spaceReservation.findFirst.mockResolvedValue(null);

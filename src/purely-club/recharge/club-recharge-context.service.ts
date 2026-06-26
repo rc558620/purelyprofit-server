@@ -14,12 +14,11 @@ export class ClubRechargeContextService {
     storeId: number,
     phone: string,
   ): Promise<ClubRechargeCustomerSnapshot> {
-    const customer = await this.prisma.marketingCustomer.findUnique({
+    const customer = await this.prisma.marketingCustomer.findFirst({
       where: {
-        storeId_phone: {
-          storeId,
-          phone,
-        },
+        storeId,
+        phone,
+        deletedAt: null,
       },
       select: {
         id: true,

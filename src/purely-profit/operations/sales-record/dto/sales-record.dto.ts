@@ -319,9 +319,9 @@ export class SalesRecordResponseDto {
 
   @ApiPropertyOptional({
     enum: StaffRole,
-    example: 'OWNER',
+    example: 'owner',
     description:
-      '操作员角色（OWNER=老板/MANAGER=店长/STAFF=收银员）；主账号或无员工档案时为 null',
+      '操作员角色（owner=老板/manager=店长/staff=收银员）；主账号或无员工档案时为 null',
     nullable: true,
   })
   operatorRole?: StaffRole | null;

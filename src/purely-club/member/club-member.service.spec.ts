@@ -1,6 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import Decimal from 'decimal.js';
 import { AuthService } from '../../purely-profit/auth/auth.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -20,7 +19,7 @@ describe('ClubMemberService', () => {
       findFirst: jest.fn(),
     },
     marketingCustomer: {
-      findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     marketingRecharge: {
       aggregate: jest.fn(),
@@ -195,13 +194,10 @@ describe('ClubMemberService', () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 28,
-        level: 'free',
-        points: 260,
-        totalConsumeAmount: new Decimal('3200.50'),
         createdAt: new Date('2024-06-01T00:00:00.000Z'),
       }),
     );
-    prismaService.marketingCustomer.findUnique.mockResolvedValue(
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(
       createMarketingCustomer({
         id: 36,
         balance: 35000,
@@ -224,30 +220,27 @@ describe('ClubMemberService', () => {
       memberCode: 'PC20240528028',
       joinDate: '2024-05-28',
       totalConsume: 3200,
-      heldLevel: 'regular',
-      heldLevelLabel: '普通会员',
-      heldLevelVisible: false,
+      heldLevel: 'gold',
+      heldLevelLabel: '黄金会员',
+      heldLevelVisible: true,
     });
     expect(prismaService.member.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
         phone: '13800138000',
-        status: { not: 'BANNED' },
+        status: { not: 'banned' },
+        deletedAt: null,
       },
       select: {
         id: true,
-        level: true,
-        points: true,
-        totalConsumeAmount: true,
         createdAt: true,
       },
     });
-    expect(prismaService.marketingCustomer.findUnique).toHaveBeenCalledWith({
+    expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: {
-        storeId_phone: {
-          storeId: 11,
-          phone: '13800138000',
-        },
+        storeId: 11,
+        phone: '13800138000',
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -263,30 +256,27 @@ describe('ClubMemberService', () => {
     });
   });
 
-  it('getAccount 在没有营销顾客档案时回落到 Member 基础字段', async () => {
+  it('getAccount 在没有营销顾客档案时余额积分消费均为零', async () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 8,
-        level: 'platinum',
-        points: 680,
-        totalConsumeAmount: new Decimal('1888.60'),
         createdAt: new Date('2024-06-01T00:00:00.000Z'),
       }),
     );
-    prismaService.marketingCustomer.findUnique.mockResolvedValue(null);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
 
     await expect(service.getAccount(currentContext)).resolves.toEqual({
       id: '8',
       storeId: '11',
       balance: 0,
-      level: 'gold',
-      points: 680,
+      level: 'regular',
+      points: 0,
       memberCode: 'PC20240601008',
       joinDate: '2024-06-01',
-      totalConsume: 1888.6,
-      heldLevel: 'platinum',
-      heldLevelLabel: '铂金会员',
-      heldLevelVisible: true,
+      totalConsume: 0,
+      heldLevel: 'regular',
+      heldLevelLabel: '普通会员',
+      heldLevelVisible: false,
     });
   });
 
@@ -294,13 +284,10 @@ describe('ClubMemberService', () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 58,
-        level: 'gold',
-        points: 420,
-        totalConsumeAmount: new Decimal('1260.00'),
         createdAt: new Date('2024-08-01T00:00:00.000Z'),
       }),
     );
-    prismaService.marketingCustomer.findUnique.mockResolvedValue(
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(
       createMarketingCustomer({
         id: 66,
         balance: 26800,
@@ -327,22 +314,19 @@ describe('ClubMemberService', () => {
       where: {
         storeId: 11,
         phone: 'club_wechat:oOPENID123',
-        status: { not: 'BANNED' },
+        status: { not: 'banned' },
+        deletedAt: null,
       },
       select: {
         id: true,
-        level: true,
-        points: true,
-        totalConsumeAmount: true,
         createdAt: true,
       },
     });
-    expect(prismaService.marketingCustomer.findUnique).toHaveBeenCalledWith({
+    expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: {
-        storeId_phone: {
-          storeId: 11,
-          phone: 'club_wechat:oOPENID123',
-        },
+        storeId: 11,
+        phone: 'club_wechat:oOPENID123',
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -354,21 +338,18 @@ describe('ClubMemberService', () => {
     });
   });
 
-  it('getAccount 将已废弃的 silver 等级回落为 regular', async () => {
+  it('getAccount 将 regular 等级正确映射（有充值记录时升级为 gold）', async () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 38,
-        level: 'free',
-        points: 120,
-        totalConsumeAmount: new Decimal('680.00'),
         createdAt: new Date('2024-07-01T00:00:00.000Z'),
       }),
     );
-    prismaService.marketingCustomer.findUnique.mockResolvedValue(
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(
       createMarketingCustomer({
         balance: 12800,
         points: 320,
-        tier: 'silver',
+        tier: 'regular',
         createdAt: new Date('2024-07-01T00:00:00.000Z'),
       }),
     );
@@ -396,13 +377,10 @@ describe('ClubMemberService', () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 28,
-        level: 'gold',
-        points: 260,
-        totalConsumeAmount: new Decimal('3200.50'),
         createdAt: new Date('2024-06-01T00:00:00.000Z'),
       }),
     );
-    prismaService.marketingCustomer.findUnique.mockResolvedValue(
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(
       createMarketingCustomer({
         balance: 35000,
         points: 1280,
@@ -432,21 +410,18 @@ describe('ClubMemberService', () => {
     });
   });
 
-  it('getLevelStatus 将已废弃的 silver 等级回落为 regular', async () => {
+  it('getLevelStatus 将 regular 等级正确映射（有充值记录时升级为 gold）', async () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 38,
-        level: 'free',
-        points: 120,
-        totalConsumeAmount: new Decimal('680.00'),
         createdAt: new Date('2024-07-01T00:00:00.000Z'),
       }),
     );
-    prismaService.marketingCustomer.findUnique.mockResolvedValue(
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(
       createMarketingCustomer({
         balance: 12800,
         points: 320,
-        tier: 'silver',
+        tier: 'regular',
         createdAt: new Date('2024-07-01T00:00:00.000Z'),
       }),
     );
@@ -476,13 +451,10 @@ describe('ClubMemberService', () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 88,
-        level: 'diamond',
-        points: 2880,
-        totalConsumeAmount: new Decimal('10088.88'),
         createdAt: new Date('2024-06-01T00:00:00.000Z'),
       }),
     );
-    prismaService.marketingCustomer.findUnique.mockResolvedValue(
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(
       createMarketingCustomer({
         balance: 88000,
         points: 2880,
@@ -516,13 +488,10 @@ describe('ClubMemberService', () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 8,
-        level: 'platinum',
-        points: 680,
-        totalConsumeAmount: new Decimal('1888.60'),
         createdAt: new Date('2024-06-01T00:00:00.000Z'),
       }),
     );
-    prismaService.marketingCustomer.findUnique.mockResolvedValue(null);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
     prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue({
       levels: [
         {
@@ -556,18 +525,18 @@ describe('ClubMemberService', () => {
     });
 
     await expect(service.getLevelStatus(currentContext)).resolves.toEqual({
-      currentLevel: 'gold',
-      currentLevelLabel: '黄金会员',
+      currentLevel: 'regular',
+      currentLevelLabel: '普通会员',
       currentRequiredConsume: 0,
-      totalConsume: 1888.6,
-      nextLevel: 'diamond',
-      nextLevelLabel: '钻石会员',
-      nextRequiredConsume: 10000,
-      amountToNextLevel: 8111.4,
-      progressPct: 18.89,
-      isTopLevel: false,
-      heldLevel: 'platinum',
-      heldLevelLabel: '铂金会员',
+      totalConsume: 0,
+      nextLevel: null,
+      nextLevelLabel: null,
+      nextRequiredConsume: null,
+      amountToNextLevel: 0,
+      progressPct: 100,
+      isTopLevel: true,
+      heldLevel: 'regular',
+      heldLevelLabel: '普通会员',
       heldLevelVisible: false,
     });
   });
@@ -594,7 +563,7 @@ describe('ClubMemberService', () => {
       }),
     ]);
     expect(prismaService.member.findFirst).not.toHaveBeenCalled();
-    expect(prismaService.marketingCustomer.findUnique).not.toHaveBeenCalled();
+    expect(prismaService.marketingCustomer.findFirst).not.toHaveBeenCalled();
     expect(
       prismaService.marketingMemberLevelSetting.findUnique,
     ).toHaveBeenCalledWith({
@@ -607,13 +576,10 @@ describe('ClubMemberService', () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 28,
-        level: 'free',
-        points: 260,
-        totalConsumeAmount: new Decimal('3200.50'),
         createdAt: new Date('2024-06-01T00:00:00.000Z'),
       }),
     );
-    prismaService.marketingCustomer.findUnique.mockResolvedValue(
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(
       createMarketingCustomer({
         balance: 35000,
         points: 1280,
@@ -630,9 +596,9 @@ describe('ClubMemberService', () => {
       expect.objectContaining({
         currentLevel: 'gold',
         currentLevelLabel: '黄金会员',
-        heldLevel: 'regular',
-        heldLevelLabel: '普通会员',
-        heldLevelVisible: false,
+        heldLevel: 'gold',
+        heldLevelLabel: '黄金会员',
+        heldLevelVisible: true,
         items: expect.arrayContaining([
           expect.objectContaining({ level: 'gold', unlocked: true }),
           expect.objectContaining({ level: 'platinum', unlocked: false }),
@@ -642,17 +608,27 @@ describe('ClubMemberService', () => {
     );
   });
 
-  it('getBenefits 区分可展示等级与历史持有等级', async () => {
+  it('getBenefits 当 platinum 被禁用且顾客 tier 为 platinum 时，展示等级不包含 platinum', async () => {
     prismaService.member.findFirst.mockResolvedValue(
       createMember({
         id: 8,
-        level: 'platinum',
-        points: 680,
-        totalConsumeAmount: new Decimal('1888.60'),
         createdAt: new Date('2024-06-01T00:00:00.000Z'),
       }),
     );
-    prismaService.marketingCustomer.findUnique.mockResolvedValue(null);
+    // 顾客 tier=platinum，但充値仅 1888，未达到 platinum 门槛 5000
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(
+      createMarketingCustomer({
+        id: 8,
+        balance: 18886,
+        points: 680,
+        tier: 'platinum',
+        createdAt: new Date('2024-06-01T00:00:00.000Z'),
+      }),
+    );
+    // 充值流水 188600 分 = ¥1886（不足 platinum 门槛）
+    prismaService.marketingRecharge.aggregate.mockResolvedValue({
+      _sum: { amount: 188600 },
+    });
     prismaService.marketingMemberLevelSetting.findUnique.mockResolvedValue({
       levels: [
         {
@@ -687,11 +663,14 @@ describe('ClubMemberService', () => {
 
     await expect(service.getBenefits(currentContext)).resolves.toEqual(
       expect.objectContaining({
+        // totalConsume=1886 >= gold(0) → currentLevel='gold'
         currentLevel: 'gold',
         currentLevelLabel: '黄金会员',
+        // snapshot.level = 'platinum'（来自 tier），但 platinum 在配置中已禁用
         heldLevel: 'platinum',
         heldLevelLabel: '铂金会员',
         heldLevelVisible: false,
+        // visibleConfigs = [gold, diamond]，currentLevel='gold'
         items: [
           expect.objectContaining({ level: 'gold', unlocked: true }),
           expect.objectContaining({ level: 'diamond', unlocked: false }),
@@ -841,26 +820,14 @@ describe('ClubMemberService', () => {
 function createMember(
   overrides?: Partial<{
     id: number;
-    storeId: number;
-    level: string;
-    points: number;
-    totalConsumeAmount: Decimal;
     createdAt: Date;
   }>,
 ): {
   id: number;
-  storeId: number;
-  level: string;
-  points: number;
-  totalConsumeAmount: Decimal;
   createdAt: Date;
 } {
   return {
     id: 1,
-    storeId: 11,
-    level: 'free',
-    points: 0,
-    totalConsumeAmount: new Decimal('0'),
     createdAt: new Date('2026-05-12T00:00:00.000Z'),
     ...overrides,
   };

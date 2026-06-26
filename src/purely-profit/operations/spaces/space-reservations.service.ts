@@ -6,7 +6,6 @@ import {
 import {
   Prisma,
   SpaceReservationStatus as PrismaSpaceReservationStatus,
-  SpaceStatus as PrismaSpaceStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -469,8 +468,13 @@ export class SpaceReservationsService {
   async resolveReservationBackStatus(
     transaction: Prisma.TransactionClient,
     spaceId: number,
-  ): Promise<PrismaSpaceStatus> {
-    return this.stateService.resolveReservationBackStatus(transaction, spaceId);
+    enableDirtyRoom?: boolean,
+  ): Promise<string> {
+    return this.stateService.resolveReservationBackStatus(
+      transaction,
+      spaceId,
+      enableDirtyRoom,
+    );
   }
 
   async syncNonOccupiedSpaceStatus(

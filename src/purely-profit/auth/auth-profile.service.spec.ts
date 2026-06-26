@@ -40,7 +40,7 @@ describe('AuthProfileService', () => {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'STAFF',
+      role: 'staff',
       permissions: ['marketing:view'],
       isActive: true,
       subjectType: 'sub_account',
@@ -70,7 +70,7 @@ describe('AuthProfileService', () => {
     authAccountMembershipService.findCurrentMembership.mockResolvedValue({
       staffId: 8,
       storeId: 18,
-      role: 'STAFF',
+      role: 'staff',
       permissions: ['marketing:view'],
       isActive: true,
       identityType: 'sub_account',
@@ -146,7 +146,7 @@ describe('AuthProfileService', () => {
         staffId: 8,
         linkedEmployeeId: 12,
         storeId: 18,
-        role: 'STAFF',
+        role: 'staff',
         permissions: ['marketing:view'],
         isActive: true,
         subAccountId: 3,
@@ -217,13 +217,13 @@ describe('AuthProfileService', () => {
         subAccountRole: 'manager',
         staffId: 8,
         storeId: 18,
-        role: 'STAFF',
+        role: 'staff',
         permissions: ['staff:view'],
         isActive: true,
       },
     });
     expect(accessControlService.getEffectivePermissions).toHaveBeenCalledWith({
-      role: 'STAFF',
+      role: 'staff',
       permissions: ['marketing:view'],
     });
   });

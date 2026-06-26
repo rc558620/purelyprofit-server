@@ -122,6 +122,27 @@ export function toDecimalNumber(value?: DecimalLike | number | null): number {
   return Number(value.toString());
 }
 
+/**
+ * 将数据库存储的分（Int）转换为展示用的元（number，保留两位小数）。
+ */
+export function centsToYuan(cents: number): number {
+  return new Decimal(cents)
+    .div(100)
+    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+    .toNumber();
+}
+
+/**
+ * 将元（number，支持两位小数）转换为数据库存储的分（Int）。
+ * 与 centsToYuan 互为逆操作。
+ */
+export function yuanToCents(yuan: number): number {
+  return new Decimal(yuan)
+    .mul(100)
+    .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+    .toNumber();
+}
+
 export function toTimestampMs(value: Date): number {
   return value.getTime();
 }

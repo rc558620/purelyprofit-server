@@ -7,10 +7,7 @@ import {
   buildMarketingOverviewCacheKey,
 } from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
-import {
-  buildStoreInviteCode,
-  buildStoreInviteQrCodeImageUrl,
-} from '../member/platform-membership/membership-profile.mapper';
+import { buildInviteCodeQrCodeImageUrl } from '../member/platform-membership/membership-profile.mapper';
 import type {
   UpdateMarketingMemberLevelDto,
   UpdateMarketingPointsRatioDto,
@@ -38,6 +35,10 @@ import {
   type MarketingMemberLevelSettingsValue,
   type MarketingPointsRatioConfigValue,
 } from './marketing.utils';
+import {
+  safeParseLevels,
+  safeParsePointsRatio,
+} from './schemas/member-level-settings.schema';
 
 const MARKETING_OVERVIEW_CACHE_TTL_SECONDS = 120;
 const MARKETING_OVERVIEW_REFRESH_AFTER_MS = 30_000;
@@ -48,11 +49,14 @@ type MarketingMemberLevelSettingRecord = {
 };
 
 type MarketingOverviewWechatPayRecord = {
-  wechatMchId: string | null;
-  wechatMchName: string | null;
-  wechatApiV3Key: string | null;
-  wechatConfiguredAt: Date | null;
+  mchId: string | null;
+  mchName: string | null;
+  configuredAt: Date | null;
 };
+
+type StoreActiveInviteCodeRecord = {
+  code: string;
+} | null;
 
 @Injectable()
 export class MarketingOverviewService {
@@ -239,6 +243,7 @@ export class MarketingOverviewService {
       dailyTotals,
       monthlyTotals,
       storeRecord,
+      activeInviteCodeRecord,
     ] = await Promise.all([
       this.prisma.marketingCustomer.count({
         where: { storeId, visitCount: { gt: 0 } },
@@ -276,6 +281,7 @@ export class MarketingOverviewService {
       queryOverviewDailyTrend(this.prisma, storeId),
       queryOverviewMonthlyTrend(this.prisma, storeId, previousYearStart),
       this.findStoreWechatPayConfig(storeId),
+      this.findStoreActiveInviteCode(storeId),
     ]);
 
     const totalRecharge =
@@ -288,10 +294,10 @@ export class MarketingOverviewService {
       (thisMonthRechargeAgg._sum.amount ?? 0) +
       (thisMonthRechargeAgg._sum.giftAmount ?? 0);
     const currentYear = now.getFullYear();
-    const inviteCode = buildStoreInviteCode(storeId);
+    const inviteCode = activeInviteCodeRecord?.code ?? null;
 
     const wechatConfigured = !!(
-      storeRecord?.wechatMchId && storeRecord?.wechatApiV3Key
+      storeRecord?.mchId && storeRecord?.configuredAt
     );
 
     return {
@@ -302,7 +308,9 @@ export class MarketingOverviewService {
       rechargeCount,
       activeMemberCount,
       inviteCode,
-      inviteCodeQrCodeImageUrl: buildStoreInviteQrCodeImageUrl(storeId),
+      inviteCodeQrCodeImageUrl: inviteCode
+        ? buildInviteCodeQrCodeImageUrl(inviteCode)
+        : null,
       last30Days: buildOverviewLast30Days(dailyTotals),
       currentYear,
       thisYearMonthlyTrend: buildOverviewMonthlyTrend(
@@ -315,78 +323,40 @@ export class MarketingOverviewService {
       ),
       wechatPayConfig: {
         configured: wechatConfigured,
-        ...(storeRecord?.wechatMchId ? { mchId: storeRecord.wechatMchId } : {}),
-        ...(storeRecord?.wechatMchName
-          ? { mchName: storeRecord.wechatMchName }
-          : {}),
-        ...(storeRecord?.wechatConfiguredAt
-          ? { configuredAt: storeRecord.wechatConfiguredAt.toISOString() }
+        ...(storeRecord?.mchId ? { mchId: storeRecord.mchId } : {}),
+        ...(storeRecord?.mchName ? { mchName: storeRecord.mchName } : {}),
+        ...(storeRecord?.configuredAt
+          ? { configuredAt: storeRecord.configuredAt.toISOString() }
           : {}),
       },
     };
   }
 
+  private async findStoreActiveInviteCode(
+    storeId: number,
+  ): Promise<StoreActiveInviteCodeRecord> {
+    return this.prisma.storeInviteCode.findFirst({
+      where: { storeId, isActive: true },
+      select: { code: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * 从 StoreWechatPayConfig 表读取微信收款配置（Step 7: 0.5 敏感配置独立化）
+   * 不再读取 Store 表的 @deprecated 字段，也不暴露 apiV3Key
+   */
   private async findStoreWechatPayConfig(
     storeId: number,
   ): Promise<MarketingOverviewWechatPayRecord | null> {
-    try {
-      return await this.prisma.store.findUnique({
-        where: { id: storeId },
-        select: {
-          wechatMchId: true,
-          wechatMchName: true,
-          wechatApiV3Key: true,
-          wechatConfiguredAt: true,
-        },
-      });
-    } catch (error: unknown) {
-      if (!this.isMissingWechatPaySchemaError(error)) {
-        throw error;
-      }
-
-      this.logger.warn(
-        `读取营销概览门店 ${storeId} 的微信收款配置时检测到字段尚未迁移，按未配置降级返回；如需启用微信收款，请先执行 migration 20260613120000_add_store_wechat_pay_config`,
-      );
-      return this.buildEmptyWechatPayConfigRecord();
-    }
-  }
-
-  private buildEmptyWechatPayConfigRecord(): MarketingOverviewWechatPayRecord {
-    return {
-      wechatMchId: null,
-      wechatMchName: null,
-      wechatApiV3Key: null,
-      wechatConfiguredAt: null,
-    };
-  }
-
-  private isMissingWechatPaySchemaError(error: unknown): boolean {
-    const message =
-      error instanceof Error
-        ? error.message.toLowerCase()
-        : String(error).toLowerCase();
-
-    if (
-      !message.includes('wechat_mch_id') &&
-      !message.includes('wechat_mch_name') &&
-      !message.includes('wechat_api_v3_key') &&
-      !message.includes('wechat_configured_at') &&
-      !message.includes('wechatmchid') &&
-      !message.includes('wechatmchname') &&
-      !message.includes('wechatapiv3key')
-    ) {
-      return false;
-    }
-
-    return (
-      message.includes('p2022') ||
-      message.includes('does not exist') ||
-      message.includes("doesn't exist") ||
-      message.includes('unknown column') ||
-      message.includes('no such column') ||
-      message.includes('unknown field') ||
-      message.includes('column')
-    );
+    return await this.prisma.storeWechatPayConfig.findUnique({
+      where: { storeId },
+      select: {
+        mchId: true,
+        mchName: true,
+        configuredAt: true,
+      },
+    });
   }
 
   private async resolveManageStoreId(
@@ -448,21 +418,22 @@ export class MarketingOverviewService {
       return { ...fallback };
     }
 
-    const rawLevels = Array.isArray(settings.levels) ? settings.levels : [];
+    // 使用 Zod schema 解析 levels
+    const parsedLevels = safeParseLevels(settings.levels);
+
+    // 将 Zod 解析结果与默认值按 id 合并（保持默认值兜底）
     return {
       levels: fallback.levels.map((defaultLevel) => {
-        const found = rawLevels.find(
-          (item) =>
-            !!item &&
-            typeof item === 'object' &&
-            !Array.isArray(item) &&
-            (item as Record<string, unknown>).id === defaultLevel.id,
+        const matched = parsedLevels.find(
+          (item) => item.id === defaultLevel.id,
         );
-        const matched =
-          found != null && typeof found === 'object' && !Array.isArray(found)
-            ? (found as Record<string, unknown>)
-            : undefined;
-        return this.normalizeMemberLevel(matched, defaultLevel);
+        return matched
+          ? {
+              ...defaultLevel,
+              ...matched,
+              id: defaultLevel.id,
+            }
+          : { ...defaultLevel };
       }),
       pointsRatio: this.normalizePointsRatio(
         settings.pointsRatio,
@@ -501,6 +472,19 @@ export class MarketingOverviewService {
     raw: Prisma.JsonValue,
     fallback: MarketingPointsRatioConfigValue,
   ): MarketingPointsRatioDto {
+    // 优先使用 Zod schema 解析
+    const parsed = safeParsePointsRatio(raw);
+    if (parsed) {
+      return {
+        earnRatioCents: parsed.earnRatioCents,
+        redeemRatioPoints: parsed.redeemRatioPoints,
+        maxRedeemRatio: parsed.maxRedeemRatio,
+        enabled: parsed.enabled,
+        updatedAt: parsed.updatedAt,
+      };
+    }
+
+    // Zod 解析失败，回退到手写归一化
     const normalized =
       raw && typeof raw === 'object' && !Array.isArray(raw)
         ? raw

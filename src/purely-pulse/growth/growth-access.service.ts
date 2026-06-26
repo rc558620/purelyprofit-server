@@ -97,7 +97,7 @@ export class PulseGrowthAccessService {
     const membership = user.currentMembership ?? {
       staffId: 0,
       storeId,
-      role: StaffRole.OWNER,
+      role: StaffRole.owner,
       // Pulse 开发者代理目标门店操作时需要 owner 全权限
       permissions: ['*'],
       isActive: true,

@@ -1,11 +1,10 @@
 // 空间与预约会话模型
 
-enum SpaceStatus {
-  idle
-  occupied
-  reserved
-  cleaning
-}
+/// SpaceStatus 枚举已废弃（Step 3: 0.7 方案 A）
+/// 运行态状态推导规则：
+///   - 存在 SpaceSession(spaceId, status=active) → occupied
+///   - 存在 SpaceReservation(spaceId, status=pending) → reserved
+///   - 其他情况 → idle
 
 enum SpaceReservationStatus {
   pending
@@ -65,15 +64,19 @@ model Space {
   capacity        Int?
   enableDirtyRoom Boolean            @default(false) @map("enable_dirty_room")
   autoCheckout    Boolean            @default(false) @map("auto_checkout")
-  status          SpaceStatus        @default(idle)
   reservations    SpaceReservation[]
   sessions        SpaceSession[]
   sortOrder       Int                @default(1) @map("sort_order")
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt       DateTime?          @map("deleted_at")
   createdAt       DateTime           @default(now()) @map("created_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")
 
-  @@unique([storeId, name])
-  @@index([storeId, status, sortOrder])
+  // name 的唯一约束通过 Partial Index（原生 SQL）实现，
+  // 仅对 deletedAt IS NULL 的行生效，允许软删除后重新创建同名空间。
+  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL
+  @@index([storeId, name])
+  @@index([storeId, sortOrder])
   @@index([storeId, typeId, sortOrder])
   @@index([storeId, zoneId, sortOrder])
   @@map("spaces")
@@ -84,7 +87,8 @@ model SpaceReservation {
   storeId       Int                    @map("store_id")
   store         Store                  @relation(fields: [storeId], references: [id], onDelete: Restrict)
   spaceId       Int                    @map("space_id")
-  space         Space                  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  /// 空间被软删除后保留预约记录，onDelete: Restrict 防止意外硬删空间
+  space         Space                  @relation(fields: [spaceId], references: [id], onDelete: Restrict)
   guestName     String                 @map("guest_name")
   phone         String?
   reservedAt    DateTime               @map("reserved_at")
@@ -107,7 +111,8 @@ model SpaceSession {
   storeId                      Int                 @map("store_id")
   store                        Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
   spaceId                      Int                 @map("space_id")
-  space                        Space               @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  /// 空间会话是审计数据，onDelete: Restrict 防止意外硬删空间
+  space                        Space               @relation(fields: [spaceId], references: [id], onDelete: Restrict)
   reservationId                Int?                @unique @map("reservation_id")
   reservation                  SpaceReservation?   @relation(fields: [reservationId], references: [id], onDelete: SetNull)
   saleOrderId                  Int?                @unique @map("sale_order_id")
@@ -118,8 +123,8 @@ model SpaceSession {
   startTime                    DateTime            @map("start_time")
   endTime                      DateTime?           @map("end_time")
   billingMode                  SpaceBillingMode    @map("billing_mode")
-  hourlyRate                   Decimal?            @map("hourly_rate") @db.Decimal(12, 2)
-  timeCost                     Decimal?            @map("time_cost") @db.Decimal(12, 2)
+  hourlyRate                   Int?                @map("hourly_rate")             // 每小时费率（分）
+  timeCost                     Int?                @map("time_cost")               // 计时费用（分）
   countdownMinutes             Int?                @map("countdown_minutes")
   autoCheckout                 Boolean?            @map("auto_checkout")
   prepaidPaymentMethod         SalesPaymentMethod? @map("prepaid_payment_method")
@@ -130,11 +135,15 @@ model SpaceSession {
   prepaidVoucherCode           String?             @map("prepaid_voucher_code")
   prepaidVoucherPlatform       String?             @map("prepaid_voucher_platform")
   prepaidNote                  String?             @map("prepaid_note")
-  prepaidAmount                Decimal?            @map("prepaid_amount") @db.Decimal(12, 2)
-  prepaidVoucherFaceAmount     Decimal?            @map("prepaid_voucher_face_amount") @db.Decimal(12, 2)
-  items                        Json                @default("[]")
-  itemsCost                    Decimal             @default(0) @map("items_cost") @db.Decimal(12, 2)
-  renewRecords                 Json                @default("[]") @map("renew_records")
+  prepaidAmount                Int?                @map("prepaid_amount")             // 预付金额（分）
+  prepaidVoucherFaceAmount     Int?                @map("prepaid_voucher_face_amount") // 券面额（分）
+  /// Step 8.1: items JSON 已拆分为独立表 space_session_items
+  /// 旧字段 items (Json) 已在迁移中删除，通过 sessionItems 关系访问
+  sessionItems                 SpaceSessionItem[]
+  itemsCost                    Int                 @default(0) @map("items_cost")    // 商品费用合计（分）
+  /// Step 8.1: renewRecords JSON 已拆分为独立表 space_session_renew_records
+  /// 旧字段 renewRecords (Json) 已在迁移中删除，通过 sessionRenewRecords 关系访问
+  sessionRenewRecords          SpaceSessionRenewRecord[]
   status                       SpaceSessionStatus  @default(active)
   createdAt                    DateTime            @default(now()) @map("created_at")
   updatedAt                    DateTime            @updatedAt @map("updated_at")
@@ -142,5 +151,62 @@ model SpaceSession {
   @@index([spaceId, status, startTime])
   @@index([storeId, status, startTime])
   @@index([storeId, endTime])
+  @@index([status, startTime])
   @@map("space_sessions")
+}
+
+/// Step 8.1: SpaceSession.items JSON 拆出的独立表
+/// 交易明细应可被 SQL 查询、聚合、审计
+model SpaceSessionItem {
+  id           Int      @id @default(autoincrement())
+  sessionId    Int      @map("session_id")
+  session      SpaceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// 商品 ID（系统内置: SYS_TIME_BILLING, SYS_RENEW_DEDUCTION, SYS_PREPAID_DEDUCTION）
+  productId    String   @map("product_id")
+  /// 商品名称
+  productName  String   @map("product_name")
+  /// 商品分类
+  categoryName String   @map("category_name")
+  /// 销售单价（分）
+  salePrice    Int      @map("sale_price")
+  /// 单件利润（分）
+  profit       Int
+  /// 数量
+  quantity     Int
+  /// 排序序号（保证明细在会话中的顺序）
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([sessionId, sortOrder])
+  @@index([productId])
+  @@map("space_session_items")
+}
+
+/// Step 8.1: SpaceSession.renewRecords JSON 拆出的独立表
+/// 续费记录应可被 SQL 查询、聚合、审计
+model SpaceSessionRenewRecord {
+  id             Int                 @id @default(autoincrement())
+  sessionId      Int                 @map("session_id")
+  session        SpaceSession        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// 续费记录业务 ID（格式: rn_{uuid}）
+  recordId       String              @unique @map("record_id")
+  /// 续费金额（分）
+  amount         Int
+  /// 换算追加分钟数
+  addedMinutes   Int                 @map("added_minutes")
+  /// 支付方式
+  paymentMethod  SalesPaymentMethod  @map("payment_method")
+  /// 团购券码
+  grouponCode    String?             @map("groupon_code")
+  /// 团购平台
+  grouponPlatform String?            @map("groupon_platform")
+  /// 备注
+  note           String?
+  /// 续费时间（毫秒时间戳）
+  renewedAt      Int                 @map("renewed_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  @@index([sessionId])
+  @@index([paymentMethod])
+  @@map("space_session_renew_records")
 }

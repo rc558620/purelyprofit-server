@@ -33,21 +33,25 @@ model CostRecord {
   operatorStaffId Int?             @map("operator_staff_id")
   operatorStaff   Staff?           @relation("CostRecordOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
   purchaseOrderId Int?             @map("purchase_order_id")
-  purchaseOrder   PurchaseOrder?   @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  purchaseOrder   PurchaseOrder?   @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
   payrollId       Int?             @map("payroll_id")
-  payroll         EmployeePayroll? @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  payroll         EmployeePayroll? @relation(fields: [payrollId], references: [id], onDelete: SetNull)
   sourceType      CostSourceType   @map("source_type")
   title           String
   type            CostType
   category        CostCategory
-  amount          Decimal          @db.Decimal(12, 2)
+  amount          Int              // 金额（分）
   note            String?
   date            DateTime
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
 
-  @@unique([storeId, sourceType, purchaseOrderId])
-  @@unique([storeId, sourceType, payrollId])
+  // storeId + sourceType + purchaseOrderId 的唯一约束通过 Partial Index（原生 SQL）实现，
+  // 仅对 purchaseOrderId IS NOT NULL 的行生效，允许 SetNull 后重新 upsert。
+  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE purchase_order_id IS NOT NULL
+  // storeId + sourceType + payrollId 的唯一约束通过 Partial Index（原生 SQL）实现，
+  // 仅对 payrollId IS NOT NULL 的行生效，允许 SetNull 后重新 upsert。
+  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE payroll_id IS NOT NULL
   @@index([storeId, date(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
   @@index([storeId, type, date(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
   @@index([storeId, category, date])

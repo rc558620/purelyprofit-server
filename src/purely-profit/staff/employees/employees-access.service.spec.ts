@@ -53,7 +53,7 @@ describe('EmployeesAccessService', () => {
       currentMembership: {
         staffId: 55,
         storeId: 48,
-        role: StaffRole.STAFF,
+        role: StaffRole.staff,
         permissions: ['staff:view'],
         isActive: true,
         subjectType: 'sub_account',

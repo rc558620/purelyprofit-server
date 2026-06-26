@@ -9,6 +9,8 @@ import type {
 export interface MarketingCustomerRow {
   id: number;
   storeId: number;
+  /** 关联的 Member.id（可为 null，兼容历史数据） */
+  memberId: number | null;
   name: string;
   phone: string | null;
   avatar: string | null;

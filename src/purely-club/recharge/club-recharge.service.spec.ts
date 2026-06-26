@@ -292,7 +292,7 @@ describe('ClubRechargeService', () => {
         params: { rechargeAmount: 50000, giftRatio: 0.2 },
       }),
     ]);
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     clubOrderDraftsService.createDraft.mockResolvedValue(createRechargeDraft());
 
     await expect(
@@ -339,7 +339,7 @@ describe('ClubRechargeService', () => {
         },
       }),
     ]);
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     clubOrderDraftsService.createDraft.mockResolvedValue({
       ...createRechargeDraft(),
       id: 'RC125',
@@ -393,7 +393,7 @@ describe('ClubRechargeService', () => {
         params: { rechargeAmount: 50000, giftRatio: 0.2 },
       }),
     ]);
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 66 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 66 });
     const wxPaymentParams = {
       timeStamp: '1773556800',
       nonceStr: 'wx-nonce',
@@ -432,12 +432,11 @@ describe('ClubRechargeService', () => {
         packageId: '18',
       }),
     );
-    expect(prismaService.marketingCustomer.findUnique).toHaveBeenCalledWith({
+    expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: {
-        storeId_phone: {
-          storeId: 11,
-          phone: 'club_wechat:oOPENID123',
-        },
+        storeId: 11,
+        phone: 'club_wechat:oOPENID123',
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -467,7 +466,7 @@ describe('ClubRechargeService', () => {
 
   it('createOrder 支持自定义充值金额', async () => {
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
     clubOrderDraftsService.createDraft.mockResolvedValue({
       ...createRechargeDraft(),
       id: 'RC124',
@@ -503,7 +502,7 @@ describe('ClubRechargeService', () => {
 
   it('createOrder 在 packageId 和 customAmount 同时传入时抛出 BadRequestException', async () => {
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
 
     await expect(
       service.createOrder(currentContext, {
@@ -516,7 +515,7 @@ describe('ClubRechargeService', () => {
 
   it('createOrder 在套餐不存在时抛出 NotFoundException', async () => {
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
-    prismaService.marketingCustomer.findUnique.mockResolvedValue({ id: 36 });
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
 
     await expect(
       service.createOrder(currentContext, { storeId: 11, packageId: '404' }),
@@ -576,15 +575,15 @@ describe('ClubRechargeService', () => {
         note: 'club充值订单 RC123',
       },
     });
-    // 充值落账：余额 + 充值总额，同步 totalSpent 驱动等级升级
+    // 充值落账：余额 + 充值总额，同步 totalSpent
     // rechargeAmountFen(50000) + bonusAmountFen(10000) = 60000 分
-    // 原 totalSpent=0，新 totalSpent=60000 >= silver 门槛(50000) → tier='silver'
+    // 原 totalSpent=0，新 totalSpent=60000 < gold 门槛(200000) → tier='regular'
     expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
       where: { id: 36 },
       data: {
         balance: { increment: 60000 },
         totalSpent: { increment: 60000 },
-        tier: 'silver',
+        tier: 'regular',
       },
     });
     expect(prismaService.marketingPromotion.updateMany).toHaveBeenCalledWith({

@@ -2,7 +2,6 @@ import {
   type CostCategory,
   type CostSourceType,
   type CostType,
-  type Prisma,
 } from '@prisma/client';
 import {
   PURCHASE_PERIOD_VALUES,
@@ -86,7 +85,7 @@ export interface CostReportRange {
 }
 
 export interface CostAmountRow {
-  amount: Prisma.Decimal;
+  amount: number;
 }
 
 export interface CostRecordResponseSource extends CostAmountRow {
@@ -113,8 +112,8 @@ export interface CostReportCostRow extends CostAmountRow {
 export interface CostReportPayrollRow {
   id: number;
   employeeName: string;
-  month: string;
-  actualSalary: Prisma.Decimal;
+  month: Date;
+  actualSalary: number;
   note: string | null;
 }
 

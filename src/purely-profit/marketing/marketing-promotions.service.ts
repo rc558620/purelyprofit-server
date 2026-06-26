@@ -30,6 +30,7 @@ import {
   resolveMarketingPagination,
   type MarketingPromotionTypeValue,
 } from './marketing.utils';
+import { validatePromotionParams } from './schemas/promotion-params.schema';
 
 const MARKETING_PROMOTIONS_LIST_CACHE_TTL_SECONDS = 60;
 const MARKETING_PROMOTIONS_LIST_REFRESH_AFTER_MS = 20_000;
@@ -139,7 +140,11 @@ export class MarketingPromotionsService {
     this.assertPromotionRange(new Date(dto.startAt), new Date(dto.endAt));
     await this.ensurePromotionTypeUnique(storeId, dto.type);
 
-    const normalizedParams = normalizePromotionParams(dto.params, dto.type);
+    const validatedParams = validatePromotionParams(dto.type, dto.params);
+    const normalizedParams = normalizePromotionParams(
+      validatedParams,
+      dto.type,
+    );
     const created = await this.prisma.marketingPromotion.create({
       data: {
         storeId,
@@ -196,10 +201,16 @@ export class MarketingPromotionsService {
           : {}),
         ...(dto.params !== undefined
           ? {
-              params: normalizePromotionParams(
-                dto.params,
-                promotion.type,
-              ) as Prisma.InputJsonValue,
+              params: (() => {
+                const validated = validatePromotionParams(
+                  promotion.type,
+                  dto.params,
+                );
+                return normalizePromotionParams(
+                  validated,
+                  promotion.type,
+                ) as Prisma.InputJsonValue;
+              })(),
             }
           : {}),
         ...(dto.startAt !== undefined ? { startAt: newStartAt } : {}),

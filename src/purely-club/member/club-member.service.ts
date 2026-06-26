@@ -4,6 +4,7 @@ import type { ProfileUserDto } from '../../purely-profit/auth/dto/profile-respon
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS } from '../../purely-profit/marketing/marketing.utils';
+import { safeParsePointsRatio } from '../../purely-profit/marketing/schemas/member-level-settings.schema';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import {
   type ClubMemberAccountDto,
@@ -93,34 +94,16 @@ export class ClubMemberService {
       select: { pointsRatio: true },
     });
 
-    // 若未配置，使用默认值
-    if (
-      !settings?.pointsRatio ||
-      typeof settings.pointsRatio !== 'object' ||
-      Array.isArray(settings.pointsRatio)
-    ) {
-      return DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio;
+    const parsed = safeParsePointsRatio(settings?.pointsRatio);
+    if (parsed) {
+      return {
+        redeemRatioPoints: parsed.redeemRatioPoints,
+        maxRedeemRatio: parsed.maxRedeemRatio,
+        enabled: parsed.enabled,
+      };
     }
 
-    const pointsRatioData = settings.pointsRatio as Record<string, unknown>;
-    return {
-      redeemRatioPoints:
-        typeof pointsRatioData.redeemRatioPoints === 'number' &&
-        pointsRatioData.redeemRatioPoints > 0
-          ? pointsRatioData.redeemRatioPoints
-          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio
-              .redeemRatioPoints,
-      maxRedeemRatio:
-        typeof pointsRatioData.maxRedeemRatio === 'number' &&
-        pointsRatioData.maxRedeemRatio >= 0 &&
-        pointsRatioData.maxRedeemRatio <= 1
-          ? pointsRatioData.maxRedeemRatio
-          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.maxRedeemRatio,
-      enabled:
-        typeof pointsRatioData.enabled === 'boolean'
-          ? pointsRatioData.enabled
-          : DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio.enabled,
-    };
+    return DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio;
   }
 
   async getBenefits(

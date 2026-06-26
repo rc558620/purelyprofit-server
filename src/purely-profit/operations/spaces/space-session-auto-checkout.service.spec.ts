@@ -49,7 +49,13 @@ describe('SpaceSessionAutoCheckoutService', () => {
     // setIfAbsent 委托给 redisClient.set，'OK' → true，null → false
     redisService.setIfAbsent.mockImplementation(
       async (key: string, value: string, ttlSeconds: number) => {
-        const result = await redisClient.set(key, value, 'EX', ttlSeconds, 'NX');
+        const result = await redisClient.set(
+          key,
+          value,
+          'EX',
+          ttlSeconds,
+          'NX',
+        );
         return result === 'OK';
       },
     );
@@ -88,8 +94,8 @@ describe('SpaceSessionAutoCheckoutService', () => {
         countdownMinutes: 60,
         autoCheckout: true,
         prepaidPaymentMethod: 'cash',
-        items: [],
-        renewRecords: [],
+        sessionItems: [],
+        sessionRenewRecords: [],
       },
     ]);
 
@@ -188,8 +194,8 @@ describe('SpaceSessionAutoCheckoutService', () => {
         countdownMinutes: 60,
         autoCheckout: true,
         prepaidPaymentMethod: 'cash',
-        items: [],
-        renewRecords: [],
+        sessionItems: [],
+        sessionRenewRecords: [],
       },
     ]);
     settlementService.settleSession.mockRejectedValueOnce(
@@ -260,8 +266,8 @@ describe('SpaceSessionAutoCheckoutService', () => {
         countdownMinutes: 60,
         autoCheckout: true,
         prepaidPaymentMethod: 'cash',
-        items: [],
-        renewRecords: [],
+        sessionItems: [],
+        sessionRenewRecords: [],
       },
     ]);
     settlementService.settleSession.mockRejectedValueOnce(

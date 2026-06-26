@@ -12,7 +12,7 @@ model InventoryAdjustmentLog {
   storeId         Int                 @map("store_id")
   store           Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
   productId       Int                 @map("product_id")
-  product         Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product         Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
   purchaseOrderId Int?                @map("purchase_order_id")
   purchaseOrder   PurchaseOrder?      @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
   saleOrderId     Int?                @map("sale_order_id")

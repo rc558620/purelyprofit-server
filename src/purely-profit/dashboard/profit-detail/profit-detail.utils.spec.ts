@@ -1,5 +1,4 @@
 import { BadRequestException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import type { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -326,8 +325,8 @@ describe('profit-detail.utils', () => {
         productId: 1,
         productName: '可口可乐 330ml',
         categoryName: '饮品',
-        salePrice: new Prisma.Decimal('6.50'),
-        profit: new Prisma.Decimal('2.50'),
+        salePrice: 650,
+        profit: 250,
         quantity: 2,
         image: null,
         order: {
@@ -340,8 +339,8 @@ describe('profit-detail.utils', () => {
         productId: 1,
         productName: '可口可乐 330ml',
         categoryName: '饮品',
-        salePrice: new Prisma.Decimal('6.50'),
-        profit: new Prisma.Decimal('2.50'),
+        salePrice: 650,
+        profit: 250,
         quantity: 1,
         image: 'https://example.com/coke.png',
         order: {
@@ -354,8 +353,8 @@ describe('profit-detail.utils', () => {
         productId: null,
         productName: '快照商品',
         categoryName: '零食',
-        salePrice: new Prisma.Decimal('9.00'),
-        profit: new Prisma.Decimal('3.00'),
+        salePrice: 900,
+        profit: 300,
         quantity: 1,
         image: null,
         order: {
@@ -368,8 +367,8 @@ describe('profit-detail.utils', () => {
         productId: 3,
         productName: '区间外商品',
         categoryName: '饮品',
-        salePrice: new Prisma.Decimal('8.00'),
-        profit: new Prisma.Decimal('2.00'),
+        salePrice: 800,
+        profit: 200,
         quantity: 1,
         image: null,
         order: {
@@ -382,8 +381,8 @@ describe('profit-detail.utils', () => {
         productId: null,
         productName: '续费抵扣',
         categoryName: '场地费',
-        salePrice: new Prisma.Decimal('-30.00'),
-        profit: new Prisma.Decimal('-30.00'),
+        salePrice: -3000,
+        profit: -3000,
         quantity: 1,
         image: null,
         order: {
@@ -400,13 +399,13 @@ describe('profit-detail.utils', () => {
       new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
     );
 
-    expect(result.revenue).toBe(28.5);
+    expect(result.revenue).toBe(2850);
     // orderCount 统计独立订单数（3 个订单，续费抵扣行被排除不计入）
     expect(result.orderCount).toBe(3);
     expect(result.dailyRevenueMap).toEqual(
       new Map<number, number>([
-        [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 19.5],
-        [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 9],
+        [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 1950],
+        [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 900],
       ]),
     );
     expect(Array.from(result.rankMap.values())).toEqual([
@@ -414,22 +413,22 @@ describe('profit-detail.utils', () => {
         id: '1',
         name: '可口可乐 330ml',
         category: '饮品',
-        price: 6.5,
-        profitPerUnit: 2.5,
+        price: 650,
+        profitPerUnit: 250,
         quantity: 3,
-        totalProfit: 7.5,
-        totalRevenue: 19.5,
+        totalProfit: 750,
+        totalRevenue: 1950,
         image: 'https://example.com/coke.png',
       },
       {
         id: 'snapshot:快照商品',
         name: '快照商品',
         category: '零食',
-        price: 9,
-        profitPerUnit: 3,
+        price: 900,
+        profitPerUnit: 300,
         quantity: 1,
-        totalProfit: 3,
-        totalRevenue: 9,
+        totalProfit: 300,
+        totalRevenue: 900,
       },
     ]);
   });
@@ -438,22 +437,22 @@ describe('profit-detail.utils', () => {
     const rows: CostRecordRow[] = [
       {
         category: 'rent',
-        amount: new Prisma.Decimal('8.00'),
+        amount: 800,
         date: new Date(2026, 4, 12, 9, 0, 0, 0),
       },
       {
         category: 'purchase',
-        amount: new Prisma.Decimal('3.00'),
+        amount: 300,
         date: new Date(2026, 4, 13, 9, 0, 0, 0),
       },
       {
         category: 'rent',
-        amount: new Prisma.Decimal('1.50'),
+        amount: 150,
         date: new Date(2026, 4, 13, 11, 0, 0, 0),
       },
       {
         category: 'marketing',
-        amount: new Prisma.Decimal('4.00'),
+        amount: 400,
         date: new Date(2026, 4, 10, 9, 0, 0, 0),
       },
     ];
@@ -464,17 +463,17 @@ describe('profit-detail.utils', () => {
       new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
     );
 
-    expect(result.totalCost).toBe(12.5);
+    expect(result.totalCost).toBe(1250);
     expect(result.dailyCostMap).toEqual(
       new Map<number, number>([
-        [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 8],
-        [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 4.5],
+        [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 800],
+        [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 450],
       ]),
     );
     expect(result.categoryCostMap).toEqual(
       new Map<CostRecordRow['category'], number>([
-        ['rent', 9.5],
-        ['purchase', 3],
+        ['rent', 950],
+        ['purchase', 300],
       ]),
     );
   });

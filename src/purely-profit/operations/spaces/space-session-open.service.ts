@@ -4,13 +4,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  Prisma,
   SpaceBillingMode as PrismaSpaceBillingMode,
   SpaceReservationStatus as PrismaSpaceReservationStatus,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
-  SpaceStatus as PrismaSpaceStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { yuanToCents } from '../../commerce/commerce.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
@@ -67,46 +66,17 @@ export class SpaceSessionOpenService {
       '无权在该门店空间开台',
     );
 
-    if (space.status === PrismaSpaceStatus.occupied) {
-      // 检查是否存在真正的 active session；如无，则说明空间状态不一致（可能因为交班/排班删除等）
-      // 这种情况下应该允许继续开台，但先自动修复空间状态
-      const occupiedSession = await this.prisma.spaceSession.findFirst({
-        where: {
-          spaceId: space.id,
-          status: PrismaSpaceSessionStatus.active,
-        },
-        select: { id: true },
-      });
+    // Space.status 已移除，改为运行态推导：查询是否存在 active session
+    const existingActiveSession = await this.prisma.spaceSession.findFirst({
+      where: {
+        spaceId: space.id,
+        status: PrismaSpaceSessionStatus.active,
+      },
+      select: { id: true },
+    });
 
-      if (!occupiedSession) {
-        // 空间状态异常：标记为 occupied 但不存在 active session
-        // 自动修复为正确状态后，继续处理开台逻辑
-        await this.reservationsStateService.repairInconsistentOccupiedSpace(
-          space.id,
-        );
-        // 继续执行后续开台逻辑，不抛异常
-      } else {
-        // 空间确实在使用中，拒绝重复开台
-        throw new ConflictException('空间当前使用中，无法重复开台');
-      }
-    }
-
-    if (space.status === PrismaSpaceStatus.cleaning) {
-      throw new ConflictException('空间待清洁，暂时无法开台');
-    }
-
-    if (space.status === PrismaSpaceStatus.reserved) {
-      const pendingReservation = await this.prisma.spaceReservation.findFirst({
-        where: {
-          spaceId: space.id,
-          status: PrismaSpaceReservationStatus.pending,
-        },
-        select: { id: true },
-      });
-
-      if (!pendingReservation) {
-        throw new ConflictException('空间预约状态异常，请刷新后重试');
-      }
+    if (existingActiveSession) {
+      throw new ConflictException('空间当前使用中，无法重复开台');
     }
 
     const payload = normalizeOpenSessionPayload(dto);
@@ -158,18 +128,7 @@ export class SpaceSessionOpenService {
         FOR UPDATE
       `;
 
-      const latestSpace = await transaction.space.findUnique({
-        where: { id: space.id },
-        select: {
-          id: true,
-          status: true,
-        },
-      });
-
-      if (!latestSpace) {
-        throw new NotFoundException('空间不存在');
-      }
-
+      // Space.status 已移除，改为检查是否有 active session（双重检查）
       const activeSession = await transaction.spaceSession.findFirst({
         where: {
           spaceId: space.id,
@@ -182,41 +141,6 @@ export class SpaceSessionOpenService {
 
       if (activeSession) {
         throw new ConflictException('空间当前使用中，无法重复开台');
-      }
-
-      let effectiveSpaceStatus = latestSpace.status;
-      if (effectiveSpaceStatus === PrismaSpaceStatus.occupied) {
-        effectiveSpaceStatus =
-          await this.reservationsStateService.resolveReservationBackStatus(
-            transaction,
-            space.id,
-          );
-
-        await transaction.space.update({
-          where: { id: space.id },
-          data: {
-            status: effectiveSpaceStatus,
-          },
-        });
-      }
-
-      if (effectiveSpaceStatus === PrismaSpaceStatus.cleaning) {
-        throw new ConflictException('空间待清洁，暂时无法开台');
-      }
-
-      if (effectiveSpaceStatus === PrismaSpaceStatus.reserved) {
-        const latestPendingReservation =
-          await transaction.spaceReservation.findFirst({
-            where: {
-              spaceId: space.id,
-              status: PrismaSpaceReservationStatus.pending,
-            },
-            select: { id: true },
-          });
-
-        if (!latestPendingReservation) {
-          throw new ConflictException('空间预约状态异常，请刷新后重试');
-        }
       }
 
       if (payload.reservationId !== undefined) {
@@ -272,9 +196,7 @@ export class SpaceSessionOpenService {
           startTime: new Date(),
           billingMode: this.toPrismaSpaceBillingMode(payload.billingMode),
           hourlyRate:
-            payload.hourlyRate !== undefined
-              ? new Prisma.Decimal(payload.hourlyRate)
-              : null,
+            payload.hourlyRate !== undefined ? yuanToCents(payload.hourlyRate) : null,
           countdownMinutes: payload.countdownMinutes ?? null,
           autoCheckout: payload.autoCheckout ?? null,
           prepaidPaymentMethod: payload.prepaidPaymentMethod ?? null,
@@ -287,16 +209,13 @@ export class SpaceSessionOpenService {
           prepaidVoucherPlatform: payload.prepaidVoucherPlatform ?? null,
           prepaidNote: payload.prepaidNote ?? null,
           prepaidAmount:
-            payload.prepaidAmount !== undefined
-              ? new Prisma.Decimal(payload.prepaidAmount)
-              : null,
+            payload.prepaidAmount !== undefined ? yuanToCents(payload.prepaidAmount) : null,
           prepaidVoucherFaceAmount:
             payload.prepaidVoucherFaceAmount !== undefined
-              ? new Prisma.Decimal(payload.prepaidVoucherFaceAmount)
+              ? yuanToCents(payload.prepaidVoucherFaceAmount)
               : null,
-          items: [],
-          itemsCost: new Prisma.Decimal(0),
-          renewRecords: [],
+          /// Step 8.1: items/renewRecords 已拆为独立表，开台时为空
+          itemsCost: 0,
           status: PrismaSpaceSessionStatus.active,
         },
         include: {
@@ -311,13 +230,16 @@ export class SpaceSessionOpenService {
               },
             },
           },
+          sessionItems: {
+            orderBy: { sortOrder: 'asc' },
+          },
+          sessionRenewRecords: {
+            orderBy: { id: 'asc' },
+          },
         },
       });
 
-      await transaction.space.update({
-        where: { id: space.id },
-        data: { status: PrismaSpaceStatus.occupied },
-      });
+      // Space.status 已移除，不再更新空间状态字段
 
       return created;
     });

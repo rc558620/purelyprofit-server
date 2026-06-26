@@ -69,7 +69,11 @@ export const SALE_ORDER_ITEM_SELECT = {
       spaceSession: {
         select: {
           prepaidPaymentMethod: true,
-          renewRecords: true,
+          sessionRenewRecords: {
+            select: {
+              paymentMethod: true,
+            },
+          },
           space: {
             select: {
               name: true,
@@ -250,9 +254,9 @@ export const buildSpaceRefundOrderWhere = (
 export const buildGuestPayableItems = (
   settledSessions: Array<{
     id: number;
-    timeCost: Prisma.Decimal | null;
-    itemsCost: Prisma.Decimal;
-    prepaidAmount: Prisma.Decimal | null;
+    timeCost: number | null;
+    itemsCost: number;
+    prepaidAmount: number | null;
     endTime: Date | null;
     space: { name: string };
     saleOrder: {

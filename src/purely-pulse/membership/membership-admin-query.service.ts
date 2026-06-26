@@ -244,10 +244,9 @@ export class PulseMembershipAdminQueryService {
     const totalMemberCount = customerStats._count.id;
     const pendingBalanceFen = customerStats._sum.balance ?? 0;
 
-    // 等级映射：regular→free / silver→gold / gold→platinum / diamond→diamond
+    // 等级映射：regular→free / gold→platinum / diamond→diamond
     const tierToClubLevel = {
       regular: 'free',
-      silver: 'gold',
       gold: 'platinum',
       diamond: 'diamond',
     } as const;

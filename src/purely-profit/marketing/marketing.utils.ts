@@ -8,7 +8,6 @@
 /** 顾客会员等级（与前端 CustomerTier 完全一致）*/
 export const MARKETING_CUSTOMER_TIER_VALUES = [
   'regular',
-  'silver',
   'gold',
   'diamond',
 ] as const;
@@ -236,21 +235,19 @@ export function buildMarketingPaginationMeta(
 /** 各等级最低累计消费金额门槛（分） */
 const TIER_THRESHOLDS: Record<MarketingCustomerTierValue, number> = {
   regular: 0,
-  silver: 50000,
   gold: 200000,
   diamond: 1000000,
 };
 
 /**
  * 根据累计消费金额（分）计算顾客等级
- * 对齐前端 calcCustomerTier：diamond >= 1000000 > gold >= 200000 > silver >= 50000
+ * 对齐前端 calcCustomerTier：diamond >= 1000000 > gold >= 200000
  */
 export function calcCustomerTier(
   totalSpent: number,
 ): MarketingCustomerTierValue {
   if (totalSpent >= TIER_THRESHOLDS.diamond) return 'diamond';
   if (totalSpent >= TIER_THRESHOLDS.gold) return 'gold';
-  if (totalSpent >= TIER_THRESHOLDS.silver) return 'silver';
   return 'regular';
 }
 

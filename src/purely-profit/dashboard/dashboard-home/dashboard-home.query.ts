@@ -25,12 +25,10 @@ import {
   UPCOMING_ACCOUNT_DUE_WITHIN_DAYS,
   UPCOMING_RESERVATION_WITHIN_HOURS,
   VIP_INACTIVE_THRESHOLD_DAYS,
-  VIP_MEMBER_LEVELS,
 } from './dashboard-home.constants';
 import {
   DASHBOARD_HOME_ACTIVE_PROMOTION_SELECT,
   DASHBOARD_HOME_DRAFT_PAYROLL_SELECT,
-  DASHBOARD_HOME_INACTIVE_VIP_SELECT,
   DASHBOARD_HOME_OVERDUE_ACCOUNT_SELECT,
   DASHBOARD_HOME_PENDING_WITHDRAWAL_SELECT,
   DASHBOARD_HOME_PRODUCT_ALERT_SELECT,
@@ -45,6 +43,7 @@ import {
   type DashboardHomePeriodValue,
   type DashboardHomeStatsData,
   type DashboardHomeTrendRevenueRow,
+  type InactiveVipRow,
   type LoadDashboardHomeActivitiesDataParams,
   type LoadDashboardHomeStatsDataParams,
   type LoadDashboardHomeTrendDataParams,
@@ -326,17 +325,7 @@ export async function loadDashboardHomeActivitiesData(
       orderBy: [{ month: 'desc' }, { updatedAt: 'desc' }],
       take: MAX_DRAFT_PAYROLL_COUNT,
     }),
-    prisma.member.findMany({
-      where: {
-        storeId,
-        level: { in: [...VIP_MEMBER_LEVELS] },
-        lastConsumeAt: { lt: vipInactiveThreshold },
-        status: 'ACTIVE',
-      },
-      select: DASHBOARD_HOME_INACTIVE_VIP_SELECT,
-      orderBy: [{ lastConsumeAt: 'asc' }, { updatedAt: 'desc' }],
-      take: MAX_INACTIVE_VIP_COUNT,
-    }),
+    loadInactiveVips(prisma, storeId, vipInactiveThreshold),
     loadRecentDailyRevenue(prisma, storeId, revenueLookbackStart, now),
     loadRecentOrders(prisma, storeId, todayStart, now),
   ]);
@@ -400,17 +389,18 @@ async function loadRecentDailyRevenue(
 }
 
 /**
- * 生成近 DRAFT_PAYROLL_MAX_MONTHS_AGO 个月的月份过滤下界，格式 YYYY-MM。
+ * 生成近 DRAFT_PAYROLL_MAX_MONTHS_AGO 个月的月份过滤下界（月初零点 UTC）。
  * 用于只查近期未确认的工资单，避免把历史遗留草稿也拉出来。
+ *
+ * EmployeePayroll.month 已改为 DateTime 类型（存储每月 1 日的时间戳），
+ * 因此这里返回 Date 而非 string，确保 Prisma where 条件类型匹配。
  */
-function buildRecentPayrollMonthFilter(): string {
+function buildRecentPayrollMonthFilter(): Date {
   const now = new Date();
-  const target = new Date(
-    now.getFullYear(),
-    now.getMonth() - DRAFT_PAYROLL_MAX_MONTHS_AGO,
-    1,
-  );
-  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}`;
+  const year = now.getFullYear();
+  const month = now.getMonth() - DRAFT_PAYROLL_MAX_MONTHS_AGO;
+  // 用 UTC 月初零点，与 employees-payroll.service.ts 中 normalizeMonthValue 保持一致
+  return new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
 }
 
 /**
@@ -471,4 +461,47 @@ async function loadRecentOrders(
   });
 
   return merged;
+}
+
+/**
+ * 查询高价值会员久未到店列表（用于首页 dashboard 动态）
+ *
+ * level 和 lastConsumeAt 已从 Member 表删除，改从 MarketingCustomer 读取：
+ * - level：由 mc.tier 映射（diamond→annual, gold→quarterly）
+ * - lastConsumeAt：来自 mc.last_visit_at
+ *
+ * 高价值会员等级对应 MarketingCustomer.tier：
+ * - annual → diamond
+ * - quarterly → gold
+ */
+async function loadInactiveVips(
+  prisma: PrismaService,
+  storeId: number,
+  vipInactiveThreshold: Date,
+): Promise<InactiveVipRow[]> {
+  return prisma.$queryRaw<InactiveVipRow[]>`
+    SELECT
+      m.id,
+      m.name,
+      CASE mc.tier::text
+        WHEN 'diamond' THEN 'annual'
+        WHEN 'gold'    THEN 'quarterly'
+        ELSE NULL
+      END AS "level",
+      mc.last_visit_at AS "lastConsumeAt",
+      m.updated_at AS "updatedAt"
+    FROM members m
+    JOIN marketing_customers mc ON mc.id = m.customer_id
+      AND mc.deleted_at IS NULL
+    WHERE m.store_id = ${storeId}
+      AND m.status = 'active'::"MemberStatus"
+      AND m.deleted_at IS NULL
+      AND mc.tier IN ('diamond', 'gold')
+      AND (
+        mc.last_visit_at IS NULL
+        OR mc.last_visit_at < ${vipInactiveThreshold}
+      )
+    ORDER BY mc.last_visit_at ASC NULLS FIRST, m.updated_at DESC
+    LIMIT ${MAX_INACTIVE_VIP_COUNT}
+  `;
 }

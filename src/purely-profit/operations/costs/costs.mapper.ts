@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { toDecimalNumber, toTimestampMs } from '../../commerce/commerce.utils';
+import { toTimestampMs } from '../../commerce/commerce.utils';
 import {
   COST_CATEGORY_META,
   type CostRecordResponseSource,
@@ -7,7 +7,6 @@ import {
   type CostReportPayrollRow,
   type CostReportCategoryFilterValue,
 } from './costs.types';
-import { getPayrollCostDate } from './costs.domain';
 import type {
   CostRecordResponseDto,
   CostReportCategoryRowDto,
@@ -22,7 +21,7 @@ export function buildCostRecordResponse(
     title: record.title,
     type: record.type,
     category: record.category,
-    amount: toDecimalNumber(record.amount),
+    amount: record.amount,
     date: toTimestampMs(record.date),
     ...(record.note ? { note: record.note } : {}),
     sourceType: record.sourceType,
@@ -39,20 +38,20 @@ export function buildCostReportCategories(
     return [];
   }
 
-  const totals = new Map<CostReportCostRow['category'], Decimal>();
+  const totals = new Map<CostReportCostRow['category'], number>();
   for (const row of rows) {
-    totals.set(
-      row.category,
-      (totals.get(row.category) ?? new Decimal(0)).plus(row.amount.toString()),
-    );
+    totals.set(row.category, (totals.get(row.category) ?? 0) + row.amount);
   }
 
   return Array.from(totals.entries())
     .map(([category, amount]) => ({
       label: COST_CATEGORY_META[category].label,
-      amount: Number(amount.toFixed(2)),
+      amount,
       percentage: Number(
-        amount.div(total).mul(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
+        new Decimal(amount)
+          .div(total)
+          .mul(100)
+          .toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
       ),
       color: COST_CATEGORY_META[category].color,
     }))
@@ -73,7 +72,7 @@ export function buildCostReportDetailRows(
     .map((row) => ({
       id: String(row.id),
       title: row.title,
-      amount: toDecimalNumber(row.amount),
+      amount: row.amount,
       date: toTimestampMs(row.date),
       dateLabel: formatCostReportDate(row.date),
       ...(row.note ? { note: row.note } : {}),
@@ -81,14 +80,17 @@ export function buildCostReportDetailRows(
 
   if (categoryFilter === 'salary') {
     rows.push(
-      ...payrollRows.map((row) => ({
-        id: String(row.id),
-        title: `[草稿] ${row.employeeName} ${row.month} 工资`,
-        amount: toDecimalNumber(row.actualSalary),
-        date: getPayrollCostDate(row.month).getTime(),
-        dateLabel: row.month,
-        ...(row.note ? { note: row.note } : {}),
-      })),
+      ...payrollRows.map((row) => {
+        const monthLabel = formatPayrollMonth(row.month);
+        return {
+          id: String(row.id),
+          title: `[草稿] ${row.employeeName} ${monthLabel} 工资`,
+          amount: row.actualSalary,
+          date: row.month.getTime(),
+          dateLabel: monthLabel,
+          ...(row.note ? { note: row.note } : {}),
+        };
+      }),
     );
   }
 
@@ -99,4 +101,8 @@ function formatCostReportDate(date: Date): string {
   return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(
     date.getDate(),
   ).padStart(2, '0')}`;
+}
+
+function formatPayrollMonth(month: Date): string {
+  return `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
 }

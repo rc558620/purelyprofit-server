@@ -1,20 +1,21 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import type { UpdateWechatPayConfigDto } from './dto/wechat-pay-config.dto';
 import type { WechatPayConfigResponseDto } from './dto/wechat-pay-config.dto';
 import { StoresReadService } from './stores-read.service';
+import { WechatPayEncryptionService } from './wechat-pay-encryption.service';
 
 type WechatPayConfigRecord = {
-  wechatMchId: string | null;
-  wechatMchName: string | null;
-  wechatApiV3Key: string | null;
-  wechatConfiguredAt: Date | null;
+  mchId: string;
+  mchName: string;
+  apiV3KeyEnc: string;
+  configuredAt: Date;
 };
 
 @Injectable()
@@ -24,6 +25,7 @@ export class StoresWechatPayService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storesReadService: StoresReadService,
+    private readonly encryptionService: WechatPayEncryptionService,
   ) {}
 
   async getWechatPayConfig(
@@ -43,38 +45,74 @@ export class StoresWechatPayService {
     user: AuthenticatedUser,
     dto: UpdateWechatPayConfigDto,
   ): Promise<WechatPayConfigResponseDto> {
+    if (!this.encryptionService.isAvailable) {
+      throw new BadRequestException(
+        '微信支付加密服务未配置（WECHAT_PAY_KEY_ENCRYPTION_SECRET），无法保存收款配置',
+      );
+    }
+
     const store = await this.storesReadService.getBoundStoreRecordOrThrow(user);
 
     const hasNewConfig = dto.mchId !== undefined || dto.apiV3Key !== undefined;
     const configuredAt = hasNewConfig ? new Date() : undefined;
 
-    try {
-      const updated = await this.prisma.store.update({
-        where: { id: store.id },
+    // 查找现有配置
+    const existing = await this.findWechatPayConfigByStoreId(store.id);
+
+    if (!existing) {
+      // 新建配置，要求 mchId 和 apiV3Key 都提供
+      if (!dto.mchId || !dto.apiV3Key || !dto.mchName) {
+        throw new NotFoundException(
+          '门店微信收款配置不存在，初次配置需提供 mchId、mchName 和 apiV3Key',
+        );
+      }
+
+      const apiV3KeyEnc = this.encryptionService.encrypt(dto.apiV3Key);
+      const created = await this.prisma.storeWechatPayConfig.create({
         data: {
-          ...(dto.mchId !== undefined ? { wechatMchId: dto.mchId } : {}),
-          ...(dto.mchName !== undefined ? { wechatMchName: dto.mchName } : {}),
-          ...(dto.apiV3Key !== undefined
-            ? { wechatApiV3Key: dto.apiV3Key }
-            : {}),
-          ...(configuredAt ? { wechatConfiguredAt: configuredAt } : {}),
+          storeId: store.id,
+          mchId: dto.mchId,
+          mchName: dto.mchName,
+          apiV3KeyEnc,
+          configuredAt: configuredAt!,
         },
         select: {
-          wechatMchId: true,
-          wechatMchName: true,
-          wechatApiV3Key: true,
-          wechatConfiguredAt: true,
+          mchId: true,
+          mchName: true,
+          apiV3KeyEnc: true,
+          configuredAt: true,
         },
       });
-
-      return this.toWechatPayConfigResponse(updated);
-    } catch (error: unknown) {
-      this.rethrowIfWechatPaySchemaMissing(
-        error,
-        `更新门店 ${store.id} 的微信收款配置`,
-      );
-      throw error;
+      return this.toWechatPayConfigResponse(created);
     }
+
+    // 更新现有配置
+    const updateData: {
+      mchId?: string;
+      mchName?: string;
+      apiV3KeyEnc?: string;
+      configuredAt?: Date;
+    } = {};
+
+    if (dto.mchId !== undefined) updateData.mchId = dto.mchId;
+    if (dto.mchName !== undefined) updateData.mchName = dto.mchName;
+    if (dto.apiV3Key !== undefined) {
+      updateData.apiV3KeyEnc = this.encryptionService.encrypt(dto.apiV3Key);
+    }
+    if (configuredAt) updateData.configuredAt = configuredAt;
+
+    const updated = await this.prisma.storeWechatPayConfig.update({
+      where: { storeId: store.id },
+      data: updateData,
+      select: {
+        mchId: true,
+        mchName: true,
+        apiV3KeyEnc: true,
+        configuredAt: true,
+      },
+    });
+
+    return this.toWechatPayConfigResponse(updated);
   }
 
   /**
@@ -88,7 +126,16 @@ export class StoresWechatPayService {
     configuredAt: Date | null;
   }> {
     const record = await this.findWechatPayConfigByStoreId(storeId);
-    return this.toWechatPayConfigPayload(record);
+    if (!record) {
+      return { mchId: null, mchName: null, apiV3Key: null, configuredAt: null };
+    }
+
+    return {
+      mchId: record.mchId,
+      mchName: record.mchName,
+      apiV3Key: this.safeDecrypt(record.apiV3KeyEnc, storeId),
+      configuredAt: record.configuredAt,
+    };
   }
 
   /**
@@ -98,24 +145,14 @@ export class StoresWechatPayService {
    * 若同一 mchId 被多个门店使用（不推荐），取最新配置的一条。
    */
   async getApiV3KeyByMchId(mchId: string): Promise<string | null> {
-    try {
-      const record = await this.prisma.store.findFirst({
-        where: { wechatMchId: mchId },
-        select: { wechatApiV3Key: true },
-        orderBy: { wechatConfiguredAt: 'desc' },
-      });
+    const record = await this.prisma.storeWechatPayConfig.findFirst({
+      where: { mchId },
+      select: { apiV3KeyEnc: true, storeId: true },
+      orderBy: { configuredAt: 'desc' },
+    });
 
-      return record?.wechatApiV3Key ?? null;
-    } catch (error: unknown) {
-      if (!this.isMissingWechatPaySchemaError(error)) {
-        throw error;
-      }
-
-      this.logMissingWechatPaySchema(
-        `按商户号 ${mchId} 反查 APIv3Key 时检测到微信收款字段尚未迁移，返回空配置`,
-      );
-      return null;
-    }
+    if (!record) return null;
+    return this.safeDecrypt(record.apiV3KeyEnc, record.storeId);
   }
 
   /**
@@ -123,147 +160,66 @@ export class StoresWechatPayService {
    * 用于回调解密时逐个尝试，不需要提前知道本次回调属于哪个商户。
    */
   async listAllApiV3Keys(): Promise<string[]> {
-    try {
-      const records = await this.prisma.store.findMany({
-        where: {
-          wechatApiV3Key: { not: null },
-          wechatMchId: { not: null },
-        },
-        select: { wechatApiV3Key: true },
-        orderBy: { wechatConfiguredAt: 'desc' },
-      });
+    const records = await this.prisma.storeWechatPayConfig.findMany({
+      select: { apiV3KeyEnc: true, storeId: true },
+      orderBy: { configuredAt: 'desc' },
+    });
 
-      const seen = new Set<string>();
-      const keys: string[] = [];
-      for (const record of records) {
-        if (record.wechatApiV3Key && !seen.has(record.wechatApiV3Key)) {
-          seen.add(record.wechatApiV3Key);
-          keys.push(record.wechatApiV3Key);
-        }
+    const seen = new Set<string>();
+    const keys: string[] = [];
+    for (const record of records) {
+      const plainKey = this.safeDecrypt(record.apiV3KeyEnc, record.storeId);
+      if (plainKey && !seen.has(plainKey)) {
+        seen.add(plainKey);
+        keys.push(plainKey);
       }
-      return keys;
-    } catch (error: unknown) {
-      if (!this.isMissingWechatPaySchemaError(error)) {
-        throw error;
-      }
-
-      this.logMissingWechatPaySchema(
-        '枚举门店 APIv3Key 时检测到微信收款字段尚未迁移，返回空列表',
-      );
-      return [];
     }
+    return keys;
   }
 
   private async findWechatPayConfigByStoreId(
     storeId: number,
   ): Promise<WechatPayConfigRecord | null> {
+    return this.prisma.storeWechatPayConfig.findUnique({
+      where: { storeId },
+      select: {
+        mchId: true,
+        mchName: true,
+        apiV3KeyEnc: true,
+        configuredAt: true,
+      },
+    });
+  }
+
+  /**
+   * 安全解密 apiV3KeyEnc：若解密失败（历史明文数据迁移期间），直接返回原始值。
+   * 历史明文存储的情况下，原始值不包含 ':' 分隔符，
+   * WechatPayEncryptionService.decrypt 会抛出 "Invalid encrypted format" 错误。
+   */
+  private safeDecrypt(apiV3KeyEnc: string, storeId: number): string | null {
+    if (!apiV3KeyEnc) return null;
     try {
-      return await this.prisma.store.findUnique({
-        where: { id: storeId },
-        select: {
-          wechatMchId: true,
-          wechatMchName: true,
-          wechatApiV3Key: true,
-          wechatConfiguredAt: true,
-        },
-      });
-    } catch (error: unknown) {
-      if (!this.isMissingWechatPaySchemaError(error)) {
-        throw error;
-      }
-
-      this.logMissingWechatPaySchema(
-        `读取门店 ${storeId} 的微信收款配置时检测到微信收款字段尚未迁移，按未配置降级返回`,
+      return this.encryptionService.decrypt(apiV3KeyEnc);
+    } catch {
+      // 兼容迁移期间明文存储的历史数据
+      this.logger.warn(
+        `门店 ${storeId} 的 apiV3KeyEnc 解密失败，可能是历史明文数据，直接返回原始值`,
       );
-      return this.buildEmptyWechatPayConfigRecord();
+      return apiV3KeyEnc;
     }
-  }
-
-  private toWechatPayConfigPayload(record: WechatPayConfigRecord | null): {
-    mchId: string | null;
-    mchName: string | null;
-    apiV3Key: string | null;
-    configuredAt: Date | null;
-  } {
-    return {
-      mchId: record?.wechatMchId ?? null,
-      mchName: record?.wechatMchName ?? null,
-      apiV3Key: record?.wechatApiV3Key ?? null,
-      configuredAt: record?.wechatConfiguredAt ?? null,
-    };
-  }
-
-  private buildEmptyWechatPayConfigRecord(): WechatPayConfigRecord {
-    return {
-      wechatMchId: null,
-      wechatMchName: null,
-      wechatApiV3Key: null,
-      wechatConfiguredAt: null,
-    };
-  }
-
-  private rethrowIfWechatPaySchemaMissing(
-    error: unknown,
-    action: string,
-  ): asserts error is never {
-    if (!this.isMissingWechatPaySchemaError(error)) {
-      return;
-    }
-
-    this.logMissingWechatPaySchema(`${action}时检测到微信收款字段尚未迁移`);
-    throw new ServiceUnavailableException(
-      '当前环境尚未完成门店微信收款配置字段迁移，请先执行数据库迁移后再试',
-    );
-  }
-
-  private isMissingWechatPaySchemaError(error: unknown): boolean {
-    const message =
-      error instanceof Error
-        ? error.message.toLowerCase()
-        : String(error).toLowerCase();
-
-    if (
-      !message.includes('wechat_mch_id') &&
-      !message.includes('wechat_mch_name') &&
-      !message.includes('wechat_api_v3_key') &&
-      !message.includes('wechat_configured_at') &&
-      !message.includes('wechatmchid') &&
-      !message.includes('wechatmchname') &&
-      !message.includes('wechatapiv3key')
-    ) {
-      return false;
-    }
-
-    return (
-      message.includes('p2022') ||
-      message.includes('does not exist') ||
-      message.includes("doesn't exist") ||
-      message.includes('unknown column') ||
-      message.includes('no such column') ||
-      message.includes('unknown field') ||
-      message.includes('invalid column') ||
-      message.includes('column not found') ||
-      message.includes('column does not exist')
-    );
-  }
-
-  private logMissingWechatPaySchema(message: string): void {
-    this.logger.warn(
-      `${message}；如需启用微信收款，请先执行 migration 20260613120000_add_store_wechat_pay_config`,
-    );
   }
 
   private toWechatPayConfigResponse(
     record: WechatPayConfigRecord,
   ): WechatPayConfigResponseDto {
-    const configured = !!(record.wechatMchId && record.wechatApiV3Key);
+    const configured = !!(record.mchId && record.apiV3KeyEnc);
 
     return {
       configured,
-      ...(record.wechatMchId ? { mchId: record.wechatMchId } : {}),
-      ...(record.wechatMchName ? { mchName: record.wechatMchName } : {}),
-      ...(record.wechatConfiguredAt
-        ? { configuredAt: record.wechatConfiguredAt.toISOString() }
+      ...(record.mchId ? { mchId: record.mchId } : {}),
+      ...(record.mchName ? { mchName: record.mchName } : {}),
+      ...(record.configuredAt
+        ? { configuredAt: record.configuredAt.toISOString() }
         : {}),
     };
   }

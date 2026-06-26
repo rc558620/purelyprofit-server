@@ -21,7 +21,7 @@ export function createCostsSpecUser(): AuthenticatedUser {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'OWNER',
+      role: 'owner',
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
@@ -44,6 +44,8 @@ export function createCostsPrismaMock() {
       groupBy: jest.fn(),
       create: jest.fn(),
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
       delete: jest.fn(),
       upsert: jest.fn(),
       deleteMany: jest.fn(),

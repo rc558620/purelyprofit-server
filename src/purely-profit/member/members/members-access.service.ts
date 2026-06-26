@@ -16,28 +16,35 @@ export type MembersPermission =
 
 const MEMBER_SELECT_SQL = Prisma.sql`
   SELECT
-    id,
-    store_id AS "storeId",
-    name,
-    phone,
-    gender,
-    level,
-    note,
-    birthday,
-    last_consume_at AS "lastConsumeAt",
-    points,
-    total_points_earned AS "totalPointsEarned",
-    bean_balance AS "beanBalance",
-    is_partner AS "isPartner",
-    partner_level AS "partnerLevel",
-    total_recharged AS "totalRecharged",
-    recharge_count AS "rechargeCount",
-    invited_count AS "invitedCount",
-    banned_reason AS "bannedReason",
-    status,
-    created_at AS "createdAt",
-    updated_at AS "updatedAt"
-  FROM members
+    m.id,
+    m.store_id AS "storeId",
+    m.customer_id AS "customerId",
+    m.name,
+    m.phone,
+    m.gender,
+    m.note,
+    m.birthday,
+    m.bean_balance AS "beanBalance",
+    m.is_partner AS "isPartner",
+    m.partner_level AS "partnerLevel",
+    m.banned_reason AS "bannedReason",
+    m.status,
+    m.created_at AS "createdAt",
+    m.updated_at AS "updatedAt",
+    CASE WHEN mc.id IS NOT NULL THEN
+      jsonb_build_object(
+        'id', mc.id,
+        'tier', mc.tier::text,
+        'points', mc.points,
+        'totalSpent', mc.total_spent,
+        'visitCount', mc.visit_count,
+        'lastVisitAt', mc.last_visit_at,
+        'balance', mc.balance
+      )
+    ELSE NULL END AS "customer"
+  FROM members m
+  LEFT JOIN marketing_customers mc ON mc.id = m.customer_id
+    AND mc.deleted_at IS NULL
 `;
 
 @Injectable()
@@ -105,7 +112,7 @@ export class MembersAccessService {
   ): Promise<MemberRecord> {
     const rows = await this.prisma.$queryRaw<MemberRecord[]>`
       ${MEMBER_SELECT_SQL}
-      WHERE id = ${memberId}
+      WHERE m.id = ${memberId}
       LIMIT 1
     `;
     const member = rows[0];

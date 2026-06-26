@@ -3,7 +3,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
@@ -74,9 +73,9 @@ export class EmployeesLeaveService {
         type: dto.type,
         startDate: new Date(dto.startDate),
         endDate: new Date(dto.endDate),
-        days: this.toDecimal(dto.days),
+        days: dto.days,
         deductSalary: dto.deductSalary,
-        deductAmount: this.toDecimal(dto.deductAmount),
+        deductAmount: this.toCents(dto.deductAmount),
         note: toNullableText(dto.note),
       },
     });
@@ -127,12 +126,12 @@ export class EmployeesLeaveService {
         ...(dto.endDate !== undefined
           ? { endDate: new Date(dto.endDate) }
           : {}),
-        ...(dto.days !== undefined ? { days: this.toDecimal(dto.days) } : {}),
+        ...(dto.days !== undefined ? { days: dto.days } : {}),
         ...(dto.deductSalary !== undefined
           ? { deductSalary: dto.deductSalary }
           : {}),
         ...(dto.deductAmount !== undefined
-          ? { deductAmount: this.toDecimal(dto.deductAmount) }
+          ? { deductAmount: this.toCents(dto.deductAmount) }
           : {}),
         ...(dto.note !== undefined ? { note: toNullableText(dto.note) } : {}),
       },
@@ -184,7 +183,11 @@ export class EmployeesLeaveService {
     }
   }
 
-  private toDecimal(value: number): Prisma.Decimal {
-    return new Prisma.Decimal(value);
+  /**
+   * 将元转换为分（cents）
+   * API 入参是元，数据库存储是分
+   */
+  private toCents(value: number): number {
+    return Math.round(value * 100);
   }
 }

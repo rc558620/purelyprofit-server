@@ -273,18 +273,19 @@ export type DraftPayrollRow = Prisma.EmployeePayrollGetPayload<{
   select: typeof DASHBOARD_HOME_DRAFT_PAYROLL_SELECT;
 }>;
 
-export const DASHBOARD_HOME_INACTIVE_VIP_SELECT =
-  Prisma.validator<Prisma.MemberSelect>()({
-    id: true,
-    name: true,
-    level: true,
-    lastConsumeAt: true,
-    updatedAt: true,
-  });
-
-export type InactiveVipRow = Prisma.MemberGetPayload<{
-  select: typeof DASHBOARD_HOME_INACTIVE_VIP_SELECT;
-}>;
+/**
+ * 高价值会员久未到店行（使用原生 SQL 从 marketing_customers JOIN 获取运行态字段）
+ * level 和 lastConsumeAt 已从 Member 表删除，改从 MarketingCustomer 读取
+ */
+export interface InactiveVipRow {
+  id: number;
+  name: string;
+  /** 前端会员等级（来自 MarketingCustomer.tier 映射：diamond→annual, gold→quarterly） */
+  level: string | null;
+  /** 最后到店时间（来自 MarketingCustomer.last_visit_at） */
+  lastConsumeAt: Date | null;
+  updatedAt: Date;
+}
 
 export interface DailyRevenueRow {
   bucketAt: Date;

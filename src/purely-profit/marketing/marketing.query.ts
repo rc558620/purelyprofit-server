@@ -18,6 +18,7 @@ export async function queryCustomerRowById(
     SELECT
       id,
       store_id AS "storeId",
+      member_id AS "memberId",
       name,
       phone,
       avatar,

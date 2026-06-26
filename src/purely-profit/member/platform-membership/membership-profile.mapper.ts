@@ -25,7 +25,6 @@ type ApprovedPartnerLike = Pick<
   store?: { owner: { avatar: string | null } } | null;
 };
 
-const STORE_INVITE_CODE_ALPHABET = '0123456789';
 const STORE_INVITE_QR_CODE_BASE_URL =
   'https://api.qrserver.com/v1/create-qr-code/';
 const STORE_INVITE_QR_CODE_SIZE = 240;
@@ -34,16 +33,16 @@ const STORE_SCAN_CODE_INVITE_CODE_QUERY_KEYS = [
   'code',
   'invite_code',
 ];
-const STORE_SCAN_CODE_STORE_ID_QUERY_KEYS = ['storeId', 'store_id'];
 
 export function buildProfileResponse(
   profile: StoreMembershipProfileRecord,
   partners: StorePartnerRecord[],
+  inviteCode: string | null = null,
 ): PlatformMembershipProfileResponseDto {
   const primaryPartner = partners[0] ?? null;
 
   return {
-    memberInfo: buildMembershipInfo(profile),
+    memberInfo: buildMembershipInfo(profile, inviteCode),
     approvedPartner: buildApprovedPartnerResponse(primaryPartner),
     approvedPartners: buildApprovedPartnersResponse(partners),
   };
@@ -51,6 +50,7 @@ export function buildProfileResponse(
 
 export function buildMembershipInfo(
   profile: StoreMembershipProfileRecord,
+  inviteCode: string | null = null,
 ): PlatformMembershipProfileResponseDto['memberInfo'] {
   const expiredAt = resolveFrontendMembershipExpiry(profile)?.getTime() ?? null;
   const isLegacyLifetimeMembership =
@@ -62,7 +62,7 @@ export function buildMembershipInfo(
     planId: isActive ? profile.currentPlanId : null,
     ...(isLegacyLifetimeMembership ? { displayPlanName: 'ages会员' } : {}),
     expiredAt,
-    inviteCode: buildStoreInviteCode(profile.storeId),
+    inviteCode,
     totalPoints: profile.totalPoints,
     availablePoints: profile.availablePoints,
   };
@@ -79,7 +79,9 @@ export function buildApprovedPartnerResponse(
     id: String(partner.id),
     name: partner.name ?? '',
     phone: partner.phone ?? '',
-    avatarUrl: partner.store?.owner?.avatar ?? undefined,
+    ...(partner.store?.owner?.avatar
+      ? { avatarUrl: partner.store.owner.avatar }
+      : {}),
     ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
     beanBalance: partner.beanBalance,
     totalEarnedBeans: partner.totalEarnedBeans,
@@ -101,23 +103,6 @@ export function buildApprovedPartnersResponse(
       totalEarnedBeans: partner.totalEarnedBeans,
       totalWithdrawnBeans: partner.totalWithdrawnBeans,
     }));
-}
-
-export function buildStoreInviteCode(storeId: number): string {
-  let seed = storeId * 1103515245 + 12345;
-  let inviteCode = '';
-
-  for (let index = 0; index < 6; index += 1) {
-    seed = (seed * 1103515245 + 12345) >>> 0;
-    inviteCode +=
-      STORE_INVITE_CODE_ALPHABET[seed % STORE_INVITE_CODE_ALPHABET.length];
-  }
-
-  return inviteCode;
-}
-
-export function buildStoreInviteQrCodeImageUrl(storeId: number): string {
-  return buildInviteCodeQrCodeImageUrl(buildStoreInviteCode(storeId));
 }
 
 export function buildInviteCodeQrCodeImageUrl(inviteCode: string): string {
@@ -158,24 +143,12 @@ export function resolveInviteCodeFromClubStoreScanCode(
     }
   }
 
-  for (const queryKey of STORE_SCAN_CODE_STORE_ID_QUERY_KEYS) {
-    const storeId = normalizeStoreIdCandidate(
-      parsedUrl.searchParams.get(queryKey),
-    );
-    if (storeId !== null) {
-      return buildStoreInviteCode(storeId);
-    }
-  }
+  // storeId 参数不再支持直接转换为邀请码（已改为持久化邀请码表，不可本地计算）
 
   const lastPathSegment = parsedUrl.pathname.split('/').filter(Boolean).at(-1);
   const inviteCodeFromPath = normalizeInviteCodeCandidate(lastPathSegment);
   if (inviteCodeFromPath) {
     return inviteCodeFromPath;
-  }
-
-  const storeIdFromPath = normalizeStoreIdCandidate(lastPathSegment);
-  if (storeIdFromPath !== null) {
-    return buildStoreInviteCode(storeIdFromPath);
   }
 
   return null;
@@ -190,18 +163,6 @@ function normalizeInviteCodeCandidate(
   }
 
   return /^[A-Z0-9]{6,32}$/.test(normalizedValue) ? normalizedValue : null;
-}
-
-function normalizeStoreIdCandidate(
-  value: string | null | undefined,
-): number | null {
-  const normalizedValue = value?.trim();
-  if (!normalizedValue || !/^\d+$/.test(normalizedValue)) {
-    return null;
-  }
-
-  const storeId = Number.parseInt(normalizedValue, 10);
-  return Number.isSafeInteger(storeId) && storeId > 0 ? storeId : null;
 }
 
 function tryParseScanCodeUrl(scanCode: string): URL | null {

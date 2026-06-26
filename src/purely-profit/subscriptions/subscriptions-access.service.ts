@@ -10,7 +10,7 @@ export class SubscriptionsAccessService {
     private readonly accessControlService: AccessControlService,
   ) {}
 
-  async ensureStoreAccessible(
+  ensureStoreAccessible(
     user: AuthenticatedUser,
     storeId: number,
   ): Promise<void> {
@@ -23,6 +23,8 @@ export class SubscriptionsAccessService {
     if (accessibleStoreId !== storeId) {
       throw new ForbiddenException('无权查看该门店套餐信息');
     }
+
+    return Promise.resolve();
   }
 
   async ensureStoreOwner(

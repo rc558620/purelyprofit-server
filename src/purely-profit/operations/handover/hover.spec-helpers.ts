@@ -81,7 +81,7 @@ export const createOwnerUser = (): AuthenticatedUser => ({
   currentMembership: {
     storeId: 100,
     subjectType: 'owner',
-    role: 'OWNER',
+    role: 'owner',
     staffId: 1,
     linkedEmployeeId: 10,
     subAccountId: null,
@@ -106,7 +106,7 @@ export const createSubAccountUser = (): AuthenticatedUser => ({
   currentMembership: {
     storeId: 100,
     subjectType: 'sub_account',
-    role: 'STAFF',
+    role: 'staff',
     staffId: 2,
     linkedEmployeeId: 20,
     subAccountId: 5,
@@ -199,7 +199,7 @@ export const createManagerUser = (): AuthenticatedUser => ({
   currentMembership: {
     storeId: 100,
     subjectType: 'staff',
-    role: 'MANAGER',
+    role: 'manager',
     staffId: 3,
     linkedEmployeeId: 30,
     subAccountId: null,

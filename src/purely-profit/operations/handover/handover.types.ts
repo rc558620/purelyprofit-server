@@ -88,7 +88,7 @@ export type AdditionalItemRow = {
 export type OrderItemRow = {
   id: number;
   productName: string;
-  salePrice: Prisma.Decimal;
+  salePrice: number;
   quantity: number;
   product: { stock: number; unit: string } | null;
   order: {
@@ -105,7 +105,8 @@ export type OrderItemRow = {
     } | null;
     spaceSession: {
       prepaidPaymentMethod: SalesPaymentMethod | null;
-      renewRecords: Prisma.JsonValue;
+      /// Step 8.1: renewRecords 已拆为独立表
+      sessionRenewRecords: Array<{ paymentMethod: string }>;
       space: {
         name: string;
       } | null;
@@ -117,7 +118,7 @@ export type RefundOrderRow = {
   id: number;
   date: Date;
   paymentMethod: SalesPaymentMethod;
-  totalRevenue: Prisma.Decimal;
+  totalRevenue: number;
   operatorNameSnapshot: string | null;
   operatorStaff: {
     name: string;

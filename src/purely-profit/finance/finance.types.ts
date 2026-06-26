@@ -245,7 +245,7 @@ export interface FinanceCashFlowRecordWithAmount {
   direction: string;
   category: string;
   title: string;
-  amount: Prisma.Decimal;
+  amount: number; // Step 3: 改为 Int（分）
   payment: string;
   note: string | null;
   date: Date;
@@ -254,7 +254,7 @@ export interface FinanceCashFlowRecordWithAmount {
 
 export interface FinanceCashFlowStatsRow {
   direction: string;
-  amount: Prisma.Decimal;
+  amount: number; // Step 3: 改为 Int（分）
 }
 
 export interface FinanceAccountRecordWithAmount {
@@ -262,9 +262,9 @@ export interface FinanceAccountRecordWithAmount {
   type: string;
   category: string;
   counterpart: string;
-  amount: Prisma.Decimal;
-  paidAmount: Prisma.Decimal;
-  remaining: Prisma.Decimal;
+  amount: number; // Step 3: 改为 Int（分）
+  paidAmount: number; // Step 3: 改为 Int（分）
+  remaining: number; // Step 3: 改为 Int（分）
   status: FinanceAccountStatus;
   dueDate: Date | null;
   date: Date;

@@ -51,7 +51,8 @@ export const POINTS_MEMBER_ASSET_CONFIG: MemberAssetServiceConfig<
   mapLog: toMemberPointsLogResponse,
   assetLabel: '积分',
   insufficientMessage: '会员当前积分不足，无法扣减',
-  getCurrentValue: (member: MemberRecord) => member.points,
+  // 积分现在从 MarketingCustomer（事实源）读取
+  getCurrentValue: (member: MemberRecord) => member.customer?.points ?? 0,
   buildApplyInput: ({
     member,
     operatorStaffId,
@@ -91,6 +92,7 @@ export const BEANS_MEMBER_ASSET_CONFIG: MemberAssetServiceConfig<
   mapLog: toMemberBeansLogResponse,
   assetLabel: '纯利豆',
   insufficientMessage: '会员当前纯利豆不足，无法扣减',
+  // 纯利豆仍保留在 Member（独立于营销积分）
   getCurrentValue: (member: MemberRecord) => member.beanBalance,
   buildApplyInput: ({
     member,

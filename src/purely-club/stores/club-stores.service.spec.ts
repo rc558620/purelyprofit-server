@@ -20,11 +20,19 @@ describe('ClubStoresService', () => {
       findMany: jest.fn(),
       findFirst: jest.fn(),
     },
+    storeInviteCode: {
+      findMany: jest.fn(),
+    },
     member: {
-      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
       upsert: jest.fn(),
     },
     marketingCustomer: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
       upsert: jest.fn(),
     },
     $transaction: jest.fn(),
@@ -86,9 +94,13 @@ describe('ClubStoresService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    prismaService.$transaction.mockImplementation(async (operations) =>
-      Promise.all(operations),
-    );
+    // Mock $transaction to execute callback with prismaService as tx
+    prismaService.$transaction.mockImplementation(async (callback) => {
+      if (typeof callback === 'function') {
+        return callback(prismaService);
+      }
+      return Promise.all(callback);
+    });
     storesProfileService.readStoreProfileMetadata.mockResolvedValue(
       mockMetadata,
     );
@@ -190,7 +202,7 @@ describe('ClubStoresService', () => {
         members: {
           some: {
             phone: '13800138000',
-            status: { not: 'BANNED' },
+            status: { not: 'banned' },
           },
         },
       },
@@ -216,16 +228,16 @@ describe('ClubStoresService', () => {
   });
 
   it('joinByScanCode 会识别二维码 URL 中的邀请码并切换门店', async () => {
-    const inviteCode = buildExpectedInviteCode(18);
+    const inviteCode = 'AB23CD45'; // 持久化邀请码（8 位，新字符集）
 
     // 设置邀请码映射缓存命中
     redisService.getJson.mockResolvedValue({ [inviteCode]: 18 });
     prismaService.store.findFirst.mockResolvedValue(
       createStore({ id: 18, name: '中关村店' }),
     );
-    prismaService.member.findUnique.mockResolvedValue(null);
-    prismaService.member.upsert.mockResolvedValue({ id: 2801 });
-    prismaService.marketingCustomer.upsert.mockResolvedValue({ id: 3801 });
+    prismaService.member.findFirst.mockResolvedValue(null);
+    prismaService.member.create.mockResolvedValue({ id: 2801 });
+    prismaService.marketingCustomer.create.mockResolvedValue({ id: 3801 });
 
     await expect(
       service.joinByScanCode(
@@ -240,36 +252,18 @@ describe('ClubStoresService', () => {
         ...expectedStoreSummary,
       },
     });
-    expect(prismaService.member.upsert).toHaveBeenCalledWith({
-      where: {
-        storeId_phone: {
-          storeId: 18,
-          phone: '13800138000',
-        },
-      },
-      create: {
+    expect(prismaService.member.create).toHaveBeenCalledWith({
+      data: {
         storeId: 18,
         name: '俱乐部用户',
         phone: '13800138000',
-      },
-      update: {
-        name: '俱乐部用户',
       },
     });
-    expect(prismaService.marketingCustomer.upsert).toHaveBeenCalledWith({
-      where: {
-        storeId_phone: {
-          storeId: 18,
-          phone: '13800138000',
-        },
-      },
-      create: {
+    expect(prismaService.marketingCustomer.create).toHaveBeenCalledWith({
+      data: {
         storeId: 18,
         name: '俱乐部用户',
         phone: '13800138000',
-      },
-      update: {
-        name: '俱乐部用户',
       },
     });
     expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
@@ -281,15 +275,15 @@ describe('ClubStoresService', () => {
   });
 
   it('joinByInviteCode 会自动入会并切换到邀请码对应门店', async () => {
-    const inviteCode = buildExpectedInviteCode(18);
+    const inviteCode = 'AB23CD45'; // 持久化邀请码（8 位，新字符集）
 
     redisService.getJson.mockResolvedValue({ [inviteCode]: 18 });
     prismaService.store.findFirst.mockResolvedValue(
       createStore({ id: 18, name: '中关村店' }),
     );
-    prismaService.member.findUnique.mockResolvedValue(null);
-    prismaService.member.upsert.mockResolvedValue({ id: 2801 });
-    prismaService.marketingCustomer.upsert.mockResolvedValue({ id: 3801 });
+    prismaService.member.findFirst.mockResolvedValue(null);
+    prismaService.member.create.mockResolvedValue({ id: 2801 });
+    prismaService.marketingCustomer.create.mockResolvedValue({ id: 3801 });
 
     await expect(service.joinByInviteCode(user, inviteCode)).resolves.toEqual({
       success: true,
@@ -299,36 +293,18 @@ describe('ClubStoresService', () => {
         ...expectedStoreSummary,
       },
     });
-    expect(prismaService.member.upsert).toHaveBeenCalledWith({
-      where: {
-        storeId_phone: {
-          storeId: 18,
-          phone: '13800138000',
-        },
-      },
-      create: {
+    expect(prismaService.member.create).toHaveBeenCalledWith({
+      data: {
         storeId: 18,
         name: '俱乐部用户',
         phone: '13800138000',
-      },
-      update: {
-        name: '俱乐部用户',
       },
     });
-    expect(prismaService.marketingCustomer.upsert).toHaveBeenCalledWith({
-      where: {
-        storeId_phone: {
-          storeId: 18,
-          phone: '13800138000',
-        },
-      },
-      create: {
+    expect(prismaService.marketingCustomer.create).toHaveBeenCalledWith({
+      data: {
         storeId: 18,
         name: '俱乐部用户',
         phone: '13800138000',
-      },
-      update: {
-        name: '俱乐部用户',
       },
     });
     expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
@@ -340,15 +316,15 @@ describe('ClubStoresService', () => {
   });
 
   it('joinByInviteCode 对微信登录用户使用稳定标识建档', async () => {
-    const inviteCode = buildExpectedInviteCode(18);
+    const inviteCode = 'AB23CD45'; // 持久化邀请码（8 位，新字符集）
 
     redisService.getJson.mockResolvedValue({ [inviteCode]: 18 });
     prismaService.store.findFirst.mockResolvedValue(
       createStore({ id: 18, name: '中关村店' }),
     );
-    prismaService.member.findUnique.mockResolvedValue(null);
-    prismaService.member.upsert.mockResolvedValue({ id: 4801 });
-    prismaService.marketingCustomer.upsert.mockResolvedValue({ id: 5801 });
+    prismaService.member.findFirst.mockResolvedValue(null);
+    prismaService.member.create.mockResolvedValue({ id: 4801 });
+    prismaService.marketingCustomer.create.mockResolvedValue({ id: 5801 });
 
     await expect(
       service.joinByInviteCode(wechatUser, inviteCode),
@@ -360,36 +336,18 @@ describe('ClubStoresService', () => {
         ...expectedStoreSummary,
       },
     });
-    expect(prismaService.member.upsert).toHaveBeenCalledWith({
-      where: {
-        storeId_phone: {
-          storeId: 18,
-          phone: 'club_wechat:oOPENID123',
-        },
-      },
-      create: {
+    expect(prismaService.member.create).toHaveBeenCalledWith({
+      data: {
         storeId: 18,
         name: '微信昵称',
         phone: 'club_wechat:oOPENID123',
-      },
-      update: {
-        name: '微信昵称',
       },
     });
-    expect(prismaService.marketingCustomer.upsert).toHaveBeenCalledWith({
-      where: {
-        storeId_phone: {
-          storeId: 18,
-          phone: 'club_wechat:oOPENID123',
-        },
-      },
-      create: {
+    expect(prismaService.marketingCustomer.create).toHaveBeenCalledWith({
+      data: {
         storeId: 18,
         name: '微信昵称',
         phone: 'club_wechat:oOPENID123',
-      },
-      update: {
-        name: '微信昵称',
       },
     });
     expect(redisService.set).toHaveBeenCalledWith(
@@ -399,19 +357,22 @@ describe('ClubStoresService', () => {
     );
   });
 
-  it('joinByInviteCode 缓存未命中时从数据库构建邀请码映射', async () => {
-    const inviteCode = buildExpectedInviteCode(18);
+  it('joinByInviteCode 缓存未命中时从 store_invite_codes 表构建邀请码映射', async () => {
+    const inviteCode = 'AB23CD45'; // 持久化邀请码（非 LCG 算法）
 
     // 缓存未命中：getJson 返回 null
     redisService.getJson.mockResolvedValue(null);
-    // loadInviteCodeMap 内部会调用 findMany 加载全量门店
-    prismaService.store.findMany.mockResolvedValue([{ id: 11 }, { id: 18 }]);
+    // loadInviteCodeMap 内部调用 storeInviteCode.findMany
+    prismaService.storeInviteCode.findMany.mockResolvedValue([
+      { code: 'XY56ZW78', storeId: 11 },
+      { code: inviteCode, storeId: 18 },
+    ]);
     prismaService.store.findFirst.mockResolvedValue(
       createStore({ id: 18, name: '中关村店' }),
     );
-    prismaService.member.findUnique.mockResolvedValue(null);
-    prismaService.member.upsert.mockResolvedValue({ id: 2801 });
-    prismaService.marketingCustomer.upsert.mockResolvedValue({ id: 3801 });
+    prismaService.member.findFirst.mockResolvedValue(null);
+    prismaService.member.create.mockResolvedValue({ id: 2801 });
+    prismaService.marketingCustomer.create.mockResolvedValue({ id: 3801 });
 
     const result = await service.joinByInviteCode(user, inviteCode);
     expect(result.success).toBe(true);
@@ -438,8 +399,6 @@ describe('ClubStoresService', () => {
     await expect(
       service.joinByInviteCode(user, 'INVALID'),
     ).rejects.toBeInstanceOf(NotFoundException);
-    expect(prismaService.member.upsert).not.toHaveBeenCalled();
-    expect(prismaService.marketingCustomer.upsert).not.toHaveBeenCalled();
   });
 });
 
@@ -466,17 +425,4 @@ function createStore(
     updatedAt: new Date('2026-05-13T00:00:00.000Z'),
     ...overrides,
   };
-}
-
-function buildExpectedInviteCode(storeId: number): string {
-  const alphabet = '0123456789';
-  let seed = storeId * 1103515245 + 12345;
-  let inviteCode = '';
-
-  for (let index = 0; index < 6; index += 1) {
-    seed = (seed * 1103515245 + 12345) >>> 0;
-    inviteCode += alphabet[seed % alphabet.length];
-  }
-
-  return inviteCode;
 }

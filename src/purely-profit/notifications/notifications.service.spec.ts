@@ -72,7 +72,7 @@ describe('NotificationsService', () => {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'OWNER',
+      role: 'owner',
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
@@ -137,7 +137,7 @@ describe('NotificationsService', () => {
     prismaService.storeSubscription.findUnique.mockResolvedValue({
       id: 3,
       planName: '专业版套餐',
-      status: StoreSubscriptionStatus.ACTIVE,
+      status: StoreSubscriptionStatus.active,
       expiresAt: new Date(2026, 4, 18, 23, 59, 59, 999),
       updatedAt: new Date(2026, 4, 14, 11, 30, 0, 0),
     });
@@ -214,8 +214,8 @@ describe('NotificationsService', () => {
       where: expect.objectContaining({
         storeId: 18,
         dueDate: { lt: new Date(2026, 4, 14, 15, 0, 0, 0) },
-        paidAmount: new Prisma.Decimal(0),
-        remaining: { gt: new Prisma.Decimal(0) },
+        paidAmount: 0,
+        remaining: { gt: 0 },
       }),
       select: {
         id: true,

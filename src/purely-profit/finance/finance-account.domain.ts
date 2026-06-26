@@ -18,7 +18,6 @@ import {
   addMoneyValues,
   roundMoneyValue,
   toMoneyNumber,
-  toPrismaDecimal,
 } from './finance-money.utils';
 import {
   buildPaginationState,
@@ -87,7 +86,7 @@ export function withDerivedAccountFields(
 
   return {
     ...record,
-    remaining: toPrismaDecimal(derived.remaining),
+    remaining: derived.remaining, // Step 3: 直接使用 number
     status: derived.status,
   };
 }

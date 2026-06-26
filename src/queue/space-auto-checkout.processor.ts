@@ -27,7 +27,8 @@ export class SpaceAutoCheckoutProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<void, number, string>): Promise<number> {
+  async process(_job: Job<void, number, string>): Promise<number> {
+    void _job; // BullMQ Processor 接口要求，当前不需要读取 job 数据
     const startedAt = Date.now();
 
     try {

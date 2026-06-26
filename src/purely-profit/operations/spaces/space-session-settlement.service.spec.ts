@@ -1,6 +1,5 @@
 import { ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { SpaceStatus as PrismaSpaceStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RedisService } from '../../../redis/redis.service';
@@ -100,10 +99,6 @@ describe('SpaceSessionSettlementService', () => {
       enableDirtyRoom: true,
     });
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
-    transactionClient.space.update.mockResolvedValue({
-      id: 7,
-      status: PrismaSpaceStatus.cleaning,
-    });
     transactionClient.spaceReservation.findMany.mockResolvedValue([]);
     transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
 
@@ -150,7 +145,6 @@ describe('SpaceSessionSettlementService', () => {
     expect(result).toMatchObject({
       salesOrder: createdOrder,
       cancelledReservationId: null,
-      spaceStatus: PrismaSpaceStatus.cleaning,
     });
   });
 
@@ -178,20 +172,11 @@ describe('SpaceSessionSettlementService', () => {
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
     transactionClient.spaceReservation.findMany.mockResolvedValue([]);
     transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
-    transactionClient.space.update.mockResolvedValue({
-      id: 7,
-      status: PrismaSpaceStatus.idle,
-    });
 
     const result = await service.settleSession(user, params);
 
-    expect(transactionClient.space.update).toHaveBeenCalledWith({
-      where: { id: 7 },
-      data: {
-        status: PrismaSpaceStatus.idle,
-      },
-    });
-    expect(result.spaceStatus).toBe(PrismaSpaceStatus.idle);
+    // Space.status 已移除，不再更新空间状态
+    expect(result.cancelledReservationId).toBeNull();
   });
 
   it('结账销售单可写入预付抵扣负项', async () => {
@@ -232,10 +217,6 @@ describe('SpaceSessionSettlementService', () => {
       enableDirtyRoom: true,
     });
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
-    transactionClient.space.update.mockResolvedValue({
-      id: 7,
-      status: PrismaSpaceStatus.cleaning,
-    });
     transactionClient.spaceReservation.findMany.mockResolvedValue([]);
     transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
 
@@ -297,10 +278,6 @@ describe('SpaceSessionSettlementService', () => {
       enableDirtyRoom: true,
     });
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
-    transactionClient.space.update.mockResolvedValue({
-      id: 7,
-      status: PrismaSpaceStatus.cleaning,
-    });
     // 取消预约的逻辑已移至 SpaceReservationsStateService.cancelMatchedReservationAfterCheckout
     // mock 该方法返回 32 表示成功取消了预约ID为32的记录
     reservationsStateService.cancelMatchedReservationAfterCheckout.mockResolvedValueOnce(

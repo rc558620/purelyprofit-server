@@ -56,7 +56,7 @@ export class StoresReadService {
             staffs: {
               some: {
                 isActive: true,
-                status: StaffStatus.ACTIVE,
+                status: StaffStatus.active,
                 OR: [
                   { userId: user.id },
                   { email: user.email },

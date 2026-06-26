@@ -12,7 +12,7 @@ export class BindPhoneDto {
 
   @ApiProperty({
     example: '123456',
-    description: '短信验证码（来自 POST /club/auth/login/send-code）',
+    description: '短信验证码（来自 POST /club/auth/bind-phone/send-code）',
   })
   @IsString({ message: '验证码必须是字符串' })
   @Length(4, 6, { message: '验证码长度为 4-6 位' })

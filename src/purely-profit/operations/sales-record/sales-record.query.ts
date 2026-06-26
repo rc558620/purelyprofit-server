@@ -1,4 +1,4 @@
-import { Prisma, StaffRole } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';

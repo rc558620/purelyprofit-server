@@ -12,7 +12,6 @@ import type {
 } from './dto/member-points.dto';
 import type { MemberRecord } from './members.mapper';
 import type {
-  MemberLevelValue,
   MemberRechargeChannelValue,
   MemberStatusValue,
 } from './members.utils';
@@ -168,6 +167,7 @@ export interface MemberSnapshotRow {
   id: number;
   name: string;
   phone: string | null;
+  /** 营销积分（从 marketing_customers.points LEFT JOIN 取得，无关联时为 0） */
   points: number;
   beanBalance: number;
   isPartner: boolean;
@@ -192,19 +192,12 @@ export interface MemberMutationInput {
   name?: string;
   phone?: string;
   gender?: MemberGender;
-  level?: MemberLevelValue;
   status?: MemberStatusValue;
   remark?: string;
   birthday?: string;
-  lastActiveAt?: string;
-  availablePoints?: number;
-  totalPointsEarned?: number;
   beanBalance?: number;
   isPartner?: boolean;
   partnerLevel?: string;
-  totalRecharged?: number;
-  rechargeCount?: number;
-  invitedCount?: number;
   rechargeHistory?: MemberRechargeHistoryInput[];
   bannedReason?: string;
 }
@@ -214,18 +207,11 @@ export interface PreparedMemberCreateInput {
   name: string;
   phone: string | null;
   gender: MemberGender;
-  level: MemberLevelValue;
   note: string | null;
   birthday: Date | null;
-  lastConsumeAt: Date | null;
-  points: number;
-  totalPointsEarned: number;
   beanBalance: number;
   isPartner: boolean;
   partnerLevel: string | null;
-  totalRecharged: number;
-  rechargeCount: number;
-  invitedCount: number;
   bannedReason: string | null;
   status: MemberStatusDb;
   rechargeHistory: MemberRechargeHistoryInput[];
@@ -235,18 +221,11 @@ export type MemberUpdateAssignment =
   | { field: 'name'; value: string }
   | { field: 'phone'; value: string | null }
   | { field: 'gender'; value: MemberGender }
-  | { field: 'level'; value: MemberLevelValue }
   | { field: 'note'; value: string | null }
   | { field: 'birthday'; value: Date | null }
-  | { field: 'lastConsumeAt'; value: Date | null }
-  | { field: 'points'; value: number }
-  | { field: 'totalPointsEarned'; value: number }
   | { field: 'beanBalance'; value: number }
   | { field: 'isPartner'; value: boolean }
   | { field: 'partnerLevel'; value: string | null }
-  | { field: 'totalRecharged'; value: number }
-  | { field: 'rechargeCount'; value: number }
-  | { field: 'invitedCount'; value: number }
   | { field: 'status'; value: MemberStatusDb }
   | { field: 'bannedReason'; value: string | null };
 

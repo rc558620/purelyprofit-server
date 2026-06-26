@@ -78,7 +78,7 @@ describe('purchases.query', () => {
         supplierId: 6,
         supplierName: '可口可乐供应商',
         operatorStaffId: 8,
-        totalAmount: new Prisma.Decimal('72'),
+        totalAmount: 7200,
         date: new Date('2026-05-14T10:00:00.000Z'),
         note: '门店周补货',
         createdAt,
@@ -138,14 +138,14 @@ describe('purchases.query', () => {
     const { prisma, purchaseOrderAggregate } = createPrismaMock();
     purchaseOrderAggregate.mockResolvedValue({
       _count: { id: 4 },
-      _sum: { totalAmount: new Prisma.Decimal('200') },
+      _sum: { totalAmount: 20000 },
     });
 
     await expect(
       aggregatePurchaseOrders(prisma as never, { storeId: 18 }),
     ).resolves.toEqual({
       _count: { id: 4 },
-      _sum: { totalAmount: new Prisma.Decimal('200') },
+      _sum: { totalAmount: 20000 },
     });
 
     expect(purchaseOrderAggregate).toHaveBeenCalledWith({
@@ -174,7 +174,7 @@ describe('purchases.query', () => {
       lte: new Date(1715558399999),
     };
     purchaseOrderAggregate.mockResolvedValue({
-      _sum: { totalAmount: new Prisma.Decimal('160') },
+      _sum: { totalAmount: 16000 },
     });
 
     await expect(
@@ -183,7 +183,7 @@ describe('purchases.query', () => {
         previousRange,
       }),
     ).resolves.toEqual({
-      _sum: { totalAmount: new Prisma.Decimal('160') },
+      _sum: { totalAmount: 16000 },
     });
 
     expect(purchaseOrderAggregate).toHaveBeenCalledWith({
@@ -263,7 +263,7 @@ describe('purchases.query', () => {
       supplierId: 6,
       supplierName: '可口可乐供应商',
       operatorStaffId: 8,
-      totalAmount: new Prisma.Decimal('72'),
+      totalAmount: 7200,
       date: new Date('2026-05-14T10:00:00.000Z'),
       note: '门店周补货',
       createdAt,

@@ -125,15 +125,31 @@ export class CostsWriteService {
     transaction: Prisma.TransactionClient,
     input: SyncPurchaseCostInput,
   ): Promise<CostRecord> {
-    return transaction.costRecord.upsert({
+    // @@unique 已改为 Partial Unique Index（原生 SQL），Prisma 不识别，
+    // 需要先 findFirst 再 update/create 实现 upsert 语义
+    const existing = await transaction.costRecord.findFirst({
       where: {
-        storeId_sourceType_purchaseOrderId: {
-          storeId: input.storeId,
-          sourceType: 'purchase',
-          purchaseOrderId: input.purchaseOrderId,
-        },
+        storeId: input.storeId,
+        sourceType: 'purchase',
+        purchaseOrderId: input.purchaseOrderId,
       },
-      create: {
+    });
+
+    if (existing) {
+      return transaction.costRecord.update({
+        where: { id: existing.id },
+        data: {
+          operatorStaffId: input.operatorStaffId,
+          title: input.title,
+          amount: toCostDecimal(input.amount),
+          note: toOptionalText(input.note) ?? null,
+          date: input.date,
+        },
+      });
+    }
+
+    return transaction.costRecord.create({
+      data: {
         storeId: input.storeId,
         operatorStaffId: input.operatorStaffId,
         purchaseOrderId: input.purchaseOrderId,
@@ -141,13 +157,6 @@ export class CostsWriteService {
         title: input.title,
         type: 'variable',
         category: 'purchase',
-        amount: toCostDecimal(input.amount),
-        note: toOptionalText(input.note) ?? null,
-        date: input.date,
-      },
-      update: {
-        operatorStaffId: input.operatorStaffId,
-        title: input.title,
         amount: toCostDecimal(input.amount),
         note: toOptionalText(input.note) ?? null,
         date: input.date,
@@ -233,32 +242,41 @@ export class CostsWriteService {
     });
   }
 
-  private upsertPayrollCostRecord(
+  private async upsertPayrollCostRecord(
     transaction: Prisma.TransactionClient,
     input: PayrollCostUpsertInput,
   ): Promise<CostRecord> {
-    return transaction.costRecord.upsert({
+    // @@unique 已改为 Partial Unique Index（原生 SQL），Prisma 不识别，
+    // 需要先 findFirst 再 update/create 实现 upsert 语义
+    const existing = await transaction.costRecord.findFirst({
       where: {
-        storeId_sourceType_payrollId: {
-          storeId: input.storeId,
-          sourceType: input.sourceType,
-          payrollId: input.payrollId,
-        },
+        storeId: input.storeId,
+        sourceType: input.sourceType,
+        payrollId: input.payrollId,
       },
-      create: {
+    });
+
+    if (existing) {
+      return transaction.costRecord.update({
+        where: { id: existing.id },
+        data: {
+          operatorStaffId: input.operatorStaffId,
+          title: input.title,
+          type: input.type,
+          category: input.category,
+          amount: toCostDecimal(input.amount),
+          note: toOptionalText(input.note) ?? null,
+          date: getPayrollCostDate(input.month),
+        },
+      });
+    }
+
+    return transaction.costRecord.create({
+      data: {
         storeId: input.storeId,
         operatorStaffId: input.operatorStaffId,
         payrollId: input.payrollId,
         sourceType: input.sourceType,
-        title: input.title,
-        type: input.type,
-        category: input.category,
-        amount: toCostDecimal(input.amount),
-        note: toOptionalText(input.note) ?? null,
-        date: getPayrollCostDate(input.month),
-      },
-      update: {
-        operatorStaffId: input.operatorStaffId,
         title: input.title,
         type: input.type,
         category: input.category,

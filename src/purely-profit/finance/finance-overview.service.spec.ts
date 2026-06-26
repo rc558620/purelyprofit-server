@@ -451,8 +451,8 @@ describe('FinanceOverviewService', () => {
           OR: [
             {
               storeId: 18,
-              paidAmount: new Prisma.Decimal(0),
-              remaining: { gt: new Prisma.Decimal(0) },
+              paidAmount: 0,
+              remaining: { gt: 0 },
               OR: [
                 { dueDate: null },
                 { dueDate: { gte: new Date(2025, 11, 31, 23, 59, 59, 999) } },
@@ -460,14 +460,14 @@ describe('FinanceOverviewService', () => {
             },
             {
               storeId: 18,
-              paidAmount: { gt: new Prisma.Decimal(0) },
-              remaining: { gt: new Prisma.Decimal(0) },
+              paidAmount: { gt: 0 },
+              remaining: { gt: 0 },
             },
             {
               storeId: 18,
               dueDate: { lt: new Date(2025, 11, 31, 23, 59, 59, 999) },
-              paidAmount: new Prisma.Decimal(0),
-              remaining: { gt: new Prisma.Decimal(0) },
+              paidAmount: 0,
+              remaining: { gt: 0 },
             },
           ],
         },

@@ -184,7 +184,7 @@ describe('SalesRecordCreateFlowService', () => {
           saleOrderId: 11,
           direction: 'income',
           category: 'sales',
-          amount: new Prisma.Decimal('49'),
+          amount: 49,
           payment: 'cash',
         }),
       },

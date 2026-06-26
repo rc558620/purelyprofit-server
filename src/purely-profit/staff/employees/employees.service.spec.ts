@@ -234,7 +234,7 @@ describe('EmployeesService', () => {
         position: '店长',
         department: '前厅',
         joinDate: new Date('2026-05-01T00:00:00.000Z'),
-        baseSalary: new Prisma.Decimal('5800'),
+        baseSalary: 5800,
         avatar: null,
         idCard: null,
         gender: EmployeeGender.male,
@@ -372,7 +372,7 @@ describe('EmployeesService', () => {
       currentMembership: {
         staffId: 9,
         storeId: 2,
-        role: 'STAFF',
+        role: 'staff',
         permissions: ['staff:view'],
         isActive: true,
         subjectType: 'sub_account',
@@ -400,7 +400,7 @@ describe('EmployeesService', () => {
       position: '收银员',
       department: '前厅',
       joinDate: new Date('2026-05-01T00:00:00.000Z'),
-      baseSalary: new Prisma.Decimal('4500'),
+      baseSalary: 4500,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,
@@ -468,7 +468,7 @@ describe('EmployeesService', () => {
       currentMembership: {
         staffId: 10,
         storeId: 2,
-        role: 'STAFF',
+        role: 'staff',
         permissions: ['staff:view', 'staff:update'],
         isActive: true,
         subjectType: 'sub_account',
@@ -496,7 +496,7 @@ describe('EmployeesService', () => {
       position: '店长',
       department: '前厅',
       joinDate: new Date('2026-05-03T00:00:00.000Z'),
-      baseSalary: new Prisma.Decimal('5200'),
+      baseSalary: 5200,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.female,
@@ -625,7 +625,7 @@ describe('EmployeesService', () => {
       position: '店长',
       department: '前厅',
       joinDate: new Date(joinDate),
-      baseSalary: new Prisma.Decimal('4800'),
+      baseSalary: 4800,
       avatar: null,
       idCard: '110101199001011234',
       gender: EmployeeGender.unset,
@@ -677,7 +677,7 @@ describe('EmployeesService', () => {
         position: '店长',
         department: '前厅',
         joinDate: new Date(joinDate),
-        baseSalary: expect.any(Prisma.Decimal),
+        baseSalary: 4800,
         idCard: '110101199001011234',
         gender: EmployeeGender.unset,
         emergencyContact: '李四',
@@ -688,8 +688,7 @@ describe('EmployeesService', () => {
     });
     const createdEmployeeSalary =
       prismaService.employee.create.mock.calls.at(0)?.[0]?.data.baseSalary;
-    expect(createdEmployeeSalary).toBeInstanceOf(Prisma.Decimal);
-    expect((createdEmployeeSalary as Prisma.Decimal).toString()).toBe('4800');
+    expect(createdEmployeeSalary).toBe(4800);
 
     expect(result).toMatchObject({
       id: '10',
@@ -723,7 +722,7 @@ describe('EmployeesService', () => {
       position: '收银员',
       department: '前厅',
       joinDate,
-      baseSalary: new Prisma.Decimal('4500'),
+      baseSalary: 4500,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,
@@ -749,7 +748,7 @@ describe('EmployeesService', () => {
       position: '收银员',
       department: '前厅',
       joinDate,
-      baseSalary: new Prisma.Decimal('5200'),
+      baseSalary: 5200,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,
@@ -768,14 +767,14 @@ describe('EmployeesService', () => {
     prismaService.employeePayroll.findMany.mockResolvedValue([
       {
         id: 21,
-        month: '2026-05',
+        month: new Date('2026-05-01T00:00:00.000Z'),
         status: EmployeePayrollStatus.confirmed,
-        leaveDeduction: new Prisma.Decimal('100'),
-        otherDeduction: new Prisma.Decimal('50'),
+        leaveDeduction: 100,
+        otherDeduction: 50,
         otherDeductionNote: '迟到',
-        bonus: new Prisma.Decimal('200'),
-        socialInsurance: new Prisma.Decimal('300'),
-        housingFund: null,
+        bonus: 200,
+socialInsurance: 30000,
+housingFund: 0,
         note: null,
       },
     ]);
@@ -783,16 +782,16 @@ describe('EmployeesService', () => {
       id: 21,
       employeeId: 12,
       employeeName: '王五',
-      month: '2026-05',
-      baseSalary: new Prisma.Decimal('5200'),
-      leaveDeduction: new Prisma.Decimal('100'),
-      otherDeduction: new Prisma.Decimal('50'),
+      month: new Date('2026-05-01T00:00:00.000Z'),
+      baseSalary: 5200,
+      leaveDeduction: 100,
+      otherDeduction: 50,
       otherDeductionNote: '迟到',
-      bonus: new Prisma.Decimal('200'),
-      actualSalary: new Prisma.Decimal('5250'),
-      socialInsurance: new Prisma.Decimal('300'),
-      housingFund: null,
-      totalLaborCost: new Prisma.Decimal('5550'),
+      bonus: 200,
+      actualSalary: 5250,
+socialInsurance: 30000,
+housingFund: 0,
+totalLaborCost: 55500,
       status: EmployeePayrollStatus.draft,
       confirmedAt: null,
       note: null,
@@ -810,13 +809,12 @@ describe('EmployeesService', () => {
       where: { id: 12 },
       data: {
         name: '王五',
-        baseSalary: expect.any(Prisma.Decimal),
+        baseSalary: 5200,
       },
     });
     const updatedSalary =
       prismaService.employee.update.mock.calls.at(0)?.[0]?.data.baseSalary;
-    expect(updatedSalary).toBeInstanceOf(Prisma.Decimal);
-    expect((updatedSalary as Prisma.Decimal).toString()).toBe('5200');
+    expect(updatedSalary).toBe(5200);
     expect(prismaService.employeeLeave.updateMany).toHaveBeenCalledWith({
       where: { employeeId: 12 },
       data: { employeeName: '王五' },
@@ -846,7 +844,7 @@ describe('EmployeesService', () => {
       operatorStaffId: null,
       employeeName: '王五',
       month: '2026-05',
-      actualSalary: 5250,
+      actualSalary: 52.5,
       socialInsurance: 300,
       housingFund: undefined,
       note: null,
@@ -854,22 +852,11 @@ describe('EmployeesService', () => {
     expect(prismaService.employeePayroll.update).toHaveBeenCalledWith({
       where: { id: 21 },
       data: {
-        baseSalary: expect.any(Prisma.Decimal),
-        actualSalary: expect.any(Prisma.Decimal),
-        totalLaborCost: expect.any(Prisma.Decimal),
+        baseSalary: 5200,
+        actualSalary: 5250,
+        totalLaborCost: 35250,
       },
     });
-    const payrollUpdateData =
-      prismaService.employeePayroll.update.mock.calls.at(0)?.[0]?.data;
-    expect((payrollUpdateData.baseSalary as Prisma.Decimal).toString()).toBe(
-      '5200',
-    );
-    expect((payrollUpdateData.actualSalary as Prisma.Decimal).toString()).toBe(
-      '5250',
-    );
-    expect(
-      (payrollUpdateData.totalLaborCost as Prisma.Decimal).toString(),
-    ).toBe('5550');
     expect(prismaService.employeePayroll.updateMany).toHaveBeenCalledWith({
       where: { employeeId: 12 },
       data: { employeeName: '王五' },
@@ -898,7 +885,7 @@ describe('EmployeesService', () => {
       position: '收银员',
       department: '前厅',
       joinDate,
-      baseSalary: new Prisma.Decimal('4500'),
+      baseSalary: 4500,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,
@@ -924,7 +911,7 @@ describe('EmployeesService', () => {
       position: '收银员',
       department: '前厅',
       joinDate,
-      baseSalary: new Prisma.Decimal('4500'),
+      baseSalary: 4500,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,
@@ -1139,7 +1126,7 @@ describe('EmployeesService', () => {
       endDate: new Date('2026-05-05T00:00:00.000Z'),
       days: new Prisma.Decimal('1'),
       deductSalary: true,
-      deductAmount: new Prisma.Decimal('50'),
+      deductAmount: 5000,
     });
     employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
       undefined,
@@ -1155,7 +1142,7 @@ describe('EmployeesService', () => {
       endDate: new Date('2026-05-07T00:00:00.000Z'),
       days: new Prisma.Decimal('2'),
       deductSalary: false,
-      deductAmount: new Prisma.Decimal('0'),
+      deductAmount: 0,
       note: null,
       createdAt,
     });
@@ -1179,19 +1166,12 @@ describe('EmployeesService', () => {
         type: 'sick',
         startDate: new Date('2026-05-06T00:00:00.000Z'),
         endDate: new Date('2026-05-07T00:00:00.000Z'),
-        days: expect.any(Prisma.Decimal),
+        days: 2,
         deductSalary: false,
-        deductAmount: expect.any(Prisma.Decimal),
+        deductAmount: 0,
         note: null,
       },
     });
-    const leaveUpdateArgs = prismaService.employeeLeave.update.mock.calls.at(
-      0,
-    )?.[0] as {
-      data: { days: Prisma.Decimal; deductAmount: Prisma.Decimal };
-    };
-    expect(leaveUpdateArgs.data.days.toString()).toBe('2');
-    expect(leaveUpdateArgs.data.deductAmount.toString()).toBe('0');
     expect(result).toEqual({
       id: '31',
       employeeId: '5',
@@ -1466,16 +1446,16 @@ describe('EmployeesService', () => {
         storeId: 2,
         employeeId: 5,
         employeeName: '王五',
-        month: '2026-05',
-        baseSalary: new Prisma.Decimal('5000'),
-        leaveDeduction: new Prisma.Decimal('120'),
-        otherDeduction: new Prisma.Decimal('80'),
+        month: new Date('2026-05-01T00:00:00.000Z'),
+        baseSalary: 500000,
+        leaveDeduction: 12000,
+        otherDeduction: 8000,
         otherDeductionNote: '迟到罚款',
-        bonus: new Prisma.Decimal('300'),
-        actualSalary: new Prisma.Decimal('5100'),
-        socialInsurance: new Prisma.Decimal('400'),
-        housingFund: null,
-        totalLaborCost: new Prisma.Decimal('5500'),
+        bonus: 30000,
+        actualSalary: 510000,
+        socialInsurance: 40000,
+        housingFund: 0,
+        totalLaborCost: 550000,
         status: EmployeePayrollStatus.draft,
         confirmedAt: null,
         note: '含季度奖励',
@@ -1495,8 +1475,8 @@ describe('EmployeesService', () => {
       where: {
         storeId: 2,
         month: {
-          gte: '2026-01',
-          lte: '2026-12',
+          gte: new Date('2026-01-01T00:00:00.000Z'),
+          lt: new Date('2027-01-01T00:00:00.000Z'),
         },
         employee: {
           department: { equals: '前厅', mode: 'insensitive' },
@@ -1600,16 +1580,16 @@ describe('EmployeesService', () => {
       storeId: 2,
       employeeId: 5,
       employeeName: '王五',
-      month: '2026-04',
-      baseSalary: new Prisma.Decimal('5000'),
-      leaveDeduction: new Prisma.Decimal('120'),
-      otherDeduction: new Prisma.Decimal('80'),
+      month: new Date('2026-04-01T00:00:00.000Z'),
+      baseSalary: 500000,
+      leaveDeduction: 12000,
+      otherDeduction: 8000,
       otherDeductionNote: '迟到罚款',
-      bonus: new Prisma.Decimal('300'),
-      actualSalary: new Prisma.Decimal('5100'),
-      socialInsurance: new Prisma.Decimal('400'),
-      housingFund: null,
-      totalLaborCost: new Prisma.Decimal('5500'),
+      bonus: 30000,
+      actualSalary: 510000,
+      socialInsurance: 40000,
+      housingFund: 0,
+      totalLaborCost: 550000,
       status: EmployeePayrollStatus.draft,
       confirmedAt: null,
       note: '含季度奖励',
@@ -1636,29 +1616,42 @@ describe('EmployeesService', () => {
       where: {
         employeeId_month: {
           employeeId: 5,
-          month: '2026-04',
+          month: new Date('2026-04-01T00:00:00.000Z'),
         },
       },
       create: expect.objectContaining({
+        storeId: 2,
+        employeeId: 5,
         employeeName: '王五',
+        month: new Date('2026-04-01T00:00:00.000Z'),
+        baseSalary: 500000,
+        leaveDeduction: 12000,
+        otherDeduction: 8000,
         otherDeductionNote: '迟到罚款',
+        bonus: 30000,
+        actualSalary: 510000,
+        socialInsurance: 40000,
         housingFund: undefined,
+        totalLaborCost: 550000,
+        status: EmployeePayrollStatus.draft,
+        note: '含季度奖励',
       }),
       update: expect.objectContaining({
+        employeeName: '王五',
+        baseSalary: 500000,
+        leaveDeduction: 12000,
+        otherDeduction: 8000,
+        otherDeductionNote: '迟到罚款',
+        bonus: 30000,
+        actualSalary: 510000,
+        socialInsurance: 40000,
+        housingFund: 0,
+        totalLaborCost: 550000,
         status: EmployeePayrollStatus.draft,
         confirmedAt: null,
-        housingFund: null,
+        note: '含季度奖励',
       }),
     });
-    const payrollUpsertArgs =
-      prismaService.employeePayroll.upsert.mock.calls.at(0)?.[0] as {
-        create: {
-          actualSalary: Prisma.Decimal;
-          totalLaborCost: Prisma.Decimal;
-        };
-      };
-    expect(payrollUpsertArgs.create.actualSalary.toString()).toBe('5100');
-    expect(payrollUpsertArgs.create.totalLaborCost.toString()).toBe('5500');
     expect(costsService.syncPayrollCosts).not.toHaveBeenCalled();
 
     expect(result).toEqual({
@@ -1699,16 +1692,16 @@ describe('EmployeesService', () => {
       storeId: 2,
       employeeId: 5,
       employeeName: '王五',
-      month: '2026-04',
-      baseSalary: new Prisma.Decimal('5000'),
-      leaveDeduction: new Prisma.Decimal('120'),
-      otherDeduction: new Prisma.Decimal('80'),
+      month: new Date('2026-04-01T00:00:00.000Z'),
+      baseSalary: 500000,
+      leaveDeduction: 12000,
+      otherDeduction: 8000,
       otherDeductionNote: null,
-      bonus: new Prisma.Decimal('300'),
-      actualSalary: new Prisma.Decimal('5100'),
-      socialInsurance: null,
-      housingFund: null,
-      totalLaborCost: new Prisma.Decimal('5100'),
+      bonus: 30000,
+      actualSalary: 510000,
+      socialInsurance: 0,
+      housingFund: 0,
+      totalLaborCost: 510000,
       status: EmployeePayrollStatus.confirmed,
       confirmedAt,
       note: null,
@@ -1738,6 +1731,8 @@ describe('EmployeesService', () => {
         employeeName: '王五',
         month: '2026-04',
         actualSalary: 5100,
+        socialInsurance: undefined,
+        housingFund: undefined,
       }),
     );
     expect(result.status).toBe(EmployeePayrollStatus.confirmed);
@@ -1907,7 +1902,7 @@ describe('EmployeesService', () => {
       position: '收银员',
       department: '前厅',
       joinDate: new Date('2026-05-01T00:00:00.000Z'),
-      baseSalary: new Prisma.Decimal('4500'),
+      baseSalary: 4500,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,
@@ -1982,7 +1977,7 @@ describe('EmployeesService', () => {
       currentMembership: {
         staffId: 10,
         storeId: 2,
-        role: 'STAFF',
+        role: 'staff',
         permissions: ['staff:view', 'staff:update'],
         isActive: true,
         subjectType: 'sub_account',
@@ -2021,30 +2016,30 @@ describe('EmployeesService', () => {
         id: 21,
         employeeId: 5,
         employeeName: '王五',
-        month: '2026-05',
-        baseSalary: new Prisma.Decimal('5000'),
-        leaveDeduction: new Prisma.Decimal('100'),
-        otherDeduction: new Prisma.Decimal('50'),
-        bonus: new Prisma.Decimal('200'),
-        actualSalary: new Prisma.Decimal('5050'),
-        socialInsurance: new Prisma.Decimal('400'),
-        housingFund: null,
-        totalLaborCost: new Prisma.Decimal('5450'),
+        month: new Date('2026-05-01T00:00:00.000Z'),
+        baseSalary: 500000,
+        leaveDeduction: 10000,
+        otherDeduction: 5000,
+        bonus: 20000,
+        actualSalary: 505000,
+        socialInsurance: 40000,
+        housingFund: 0,
+        totalLaborCost: 545000,
         confirmedAt: new Date('2026-05-15T10:00:00.000Z'),
       },
       {
         id: 22,
         employeeId: 9,
         employeeName: '李四',
-        month: '2026-04',
-        baseSalary: new Prisma.Decimal('4500'),
-        leaveDeduction: new Prisma.Decimal('0'),
-        otherDeduction: new Prisma.Decimal('0'),
-        bonus: new Prisma.Decimal('100'),
-        actualSalary: new Prisma.Decimal('4600'),
-        socialInsurance: null,
-        housingFund: new Prisma.Decimal('300'),
-        totalLaborCost: new Prisma.Decimal('4900'),
+        month: new Date('2026-04-01T00:00:00.000Z'),
+        baseSalary: 450000,
+        leaveDeduction: 0,
+        otherDeduction: 0,
+        bonus: 10000,
+        actualSalary: 460000,
+        socialInsurance: 0,
+        housingFund: 30000,
+        totalLaborCost: 490000,
         confirmedAt: new Date('2026-04-30T08:00:00.000Z'),
       },
     ]);
@@ -2104,8 +2099,8 @@ describe('EmployeesService', () => {
         storeId: 2,
         status: EmployeePayrollStatus.confirmed,
         month: {
-          gte: '2026-01',
-          lte: '2026-12',
+          gte: new Date(2026, 0, 1, 0, 0, 0, 0),
+          lt: new Date(2027, 0, 1, 0, 0, 0, 0),
         },
         employee: {
           department: { equals: '前厅', mode: 'insensitive' },

@@ -38,13 +38,13 @@ model FinanceReconciliationRecord {
   counterpart     String?
   periodStart     DateTime                    @map("period_start")
   periodEnd       DateTime                    @map("period_end")
-  bookIncome      Decimal                     @map("book_income") @db.Decimal(12, 2)
-  bookExpense     Decimal                     @map("book_expense") @db.Decimal(12, 2)
-  bookNet         Decimal                     @map("book_net") @db.Decimal(12, 2)
-  actualIncome    Decimal                     @map("actual_income") @db.Decimal(12, 2)
-  actualExpense   Decimal                     @map("actual_expense") @db.Decimal(12, 2)
-  actualNet       Decimal                     @map("actual_net") @db.Decimal(12, 2)
-  diffAmount      Decimal                     @map("diff_amount") @db.Decimal(12, 2)
+  bookIncome      Int                         @map("book_income")   // 账面收入（分）
+  bookExpense     Int                         @map("book_expense")  // 账面支出（分）
+  bookNet         Int                         @map("book_net")      // 账面净额（分）
+  actualIncome    Int                         @map("actual_income") // 实际收入（分）
+  actualExpense   Int                         @map("actual_expense")// 实际支出（分）
+  actualNet       Int                         @map("actual_net")    // 实际净额（分）
+  diffAmount      Int                         @map("diff_amount")   // 差异金额（分）
   adjustNote      String?                     @map("adjust_note")
   operator        String?
   note            String?
@@ -64,9 +64,9 @@ model FinanceReconciliationItem {
   reconciliationId Int                         @map("reconciliation_id")
   reconciliation   FinanceReconciliationRecord @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
   description      String
-  bookAmount       Decimal                     @map("book_amount") @db.Decimal(12, 2)
-  actualAmount     Decimal                     @map("actual_amount") @db.Decimal(12, 2)
-  difference       Decimal                     @db.Decimal(12, 2)
+  bookAmount       Int                         @map("book_amount")   // 账面金额（分）
+  actualAmount     Int                         @map("actual_amount") // 实际金额（分）
+  difference       Int                                               // 差异金额（分）
   note             String?
   createdAt        DateTime                    @default(now()) @map("created_at")
 

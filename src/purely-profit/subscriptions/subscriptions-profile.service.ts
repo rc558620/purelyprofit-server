@@ -29,9 +29,9 @@ export class SubscriptionsProfileService {
     );
 
     return {
-      maxAccountSeats: store.maxAccountSeats,
+      maxAccountSeats: store.seatQuota,
       activeSeatCount,
-      availableSeatCount: Math.max(store.maxAccountSeats - activeSeatCount, 0),
+      availableSeatCount: Math.max(store.seatQuota - activeSeatCount, 0),
     };
   }
 
@@ -54,7 +54,7 @@ export class SubscriptionsProfileService {
       planCode: subscription.planCode,
       planName: subscription.planName,
       status: subscription.status,
-      /** 席位上限以 Store.maxAccountSeats 为事实来源，避免双写不一致 */
+      /** 席位上限以 StoreMembershipProfile.subAccountQuota 为事实来源 */
       maxAccountSeats: seatSummary.maxAccountSeats,
       startsAt: subscription.startsAt,
       expiresAt: subscription.expiresAt,

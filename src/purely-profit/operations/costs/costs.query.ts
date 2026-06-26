@@ -1,7 +1,7 @@
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { buildCostRange, toPayrollMonth } from './costs.domain';
+import { buildCostRange, getPayrollCostDate, toPayrollMonth } from './costs.domain';
 import type {
   CostFilterRange,
   CostQueryInput,
@@ -45,7 +45,7 @@ export async function queryCostReportRows(
   maxPageSize = 5000,
 ): Promise<{
   costRows: CostReportCostRow[];
-  previousTotal: Prisma.Decimal;
+  previousTotal: number;
   payrollRows: CostReportPayrollRow[];
 }> {
   const categoryWhere =
@@ -75,7 +75,7 @@ export async function queryCostReportRows(
       take: maxPageSize,
     });
 
-  const previousTotalPromise: Promise<Prisma.Decimal> = previousRange
+  const previousTotalPromise: Promise<number> = previousRange
     ? prisma.costRecord
         .aggregate({
           where: {
@@ -90,8 +90,8 @@ export async function queryCostReportRows(
             amount: true,
           },
         })
-        .then((result) => result._sum.amount ?? new Prisma.Decimal(0))
-    : Promise.resolve(new Prisma.Decimal(0));
+        .then((result) => result._sum.amount ?? 0)
+    : Promise.resolve(0);
 
   const payrollRowsPromise: Promise<CostReportPayrollRow[]> =
     categoryFilter === 'salary'
@@ -100,8 +100,8 @@ export async function queryCostReportRows(
             storeId,
             status: 'draft',
             month: {
-              gte: toPayrollMonth(currentRange.start),
-              lte: toPayrollMonth(currentRange.end),
+              gte: getPayrollCostDate(toPayrollMonth(currentRange.start)),
+              lte: getPayrollCostDate(toPayrollMonth(currentRange.end)),
             },
           },
           select: {

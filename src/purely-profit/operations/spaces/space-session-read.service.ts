@@ -135,6 +135,8 @@ export class SpaceSessionReadService {
             },
           },
         },
+        sessionItems: true,
+        sessionRenewRecords: true,
       },
       orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
     });
@@ -191,6 +193,8 @@ export class SpaceSessionReadService {
               },
             },
           },
+          sessionItems: true,
+          sessionRenewRecords: true,
         },
         orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
         skip,
@@ -227,6 +231,8 @@ export class SpaceSessionReadService {
             },
           },
         },
+        sessionItems: true,
+        sessionRenewRecords: true,
       },
     });
 
@@ -264,6 +270,8 @@ export class SpaceSessionReadService {
             },
           },
         },
+        sessionItems: true,
+        sessionRenewRecords: true,
       },
       orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
       take: 200,

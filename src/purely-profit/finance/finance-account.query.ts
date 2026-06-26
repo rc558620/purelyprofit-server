@@ -14,7 +14,7 @@ export type DerivedFinanceAccountStatusFilter = Exclude<
   'all'
 >;
 
-const ZERO_MONEY = new Prisma.Decimal(0);
+const ZERO_MONEY = 0; // Step 3: Int（分）
 
 export function buildDerivedClosedAccountWhere(params: {
   storeId: number;
@@ -248,9 +248,9 @@ export async function updateAccountRecordSettlement(
   params: {
     storeId: number;
     recordId: number;
-    expectedPaidAmount: Prisma.Decimal;
-    paidAmount: Prisma.Decimal;
-    remaining: Prisma.Decimal;
+    expectedPaidAmount: number; // Step 3: Int（分）
+    paidAmount: number; // Step 3: Int（分）
+    remaining: number; // Step 3: Int（分）
     status: FinanceAccountStatus;
   },
 ): Promise<FinanceAccountRecordWithAmount | null> {

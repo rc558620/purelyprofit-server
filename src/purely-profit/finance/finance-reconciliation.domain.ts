@@ -12,7 +12,6 @@ import {
   isZeroValue,
   roundMoneyValue,
   toMoneyNumber,
-  toPrismaDecimal,
 } from './finance-money.utils';
 import { trimOptionalString } from './finance-string.utils';
 
@@ -88,9 +87,9 @@ export function buildReconciliationItemCreateInput(
   const actualAmount = roundMoneyValue(item.actualAmount);
   return {
     description: item.description.trim(),
-    bookAmount: toPrismaDecimal(bookAmount),
-    actualAmount: toPrismaDecimal(actualAmount),
-    difference: toPrismaDecimal(roundMoneyValue(actualAmount - bookAmount)),
+    bookAmount, // Step 3: 直接使用 number（分）
+    actualAmount, // Step 3: 直接使用 number（分）
+    difference: roundMoneyValue(actualAmount - bookAmount), // Step 3: 直接使用 number（分）
     note: trimOptionalString(item.note),
   };
 }

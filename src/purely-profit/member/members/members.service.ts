@@ -84,19 +84,12 @@ export class MembersService {
     const prepared = prepareMemberCreateInput(dto.storeId, dto.name, {
       phone: dto.phone,
       gender: dto.gender,
-      level: dto.level,
       status: dto.status,
       remark: dto.remark,
       birthday: dto.birthday,
-      lastActiveAt: dto.lastActiveAt,
-      availablePoints: dto.availablePoints,
-      totalPointsEarned: dto.totalPointsEarned,
       beanBalance: dto.beanBalance,
       isPartner: dto.isPartner,
       partnerLevel: dto.partnerLevel,
-      totalRecharged: dto.totalRecharged,
-      rechargeCount: dto.rechargeCount,
-      invitedCount: dto.invitedCount,
       rechargeHistory: dto.rechargeHistory,
       bannedReason: dto.bannedReason,
     });
@@ -313,19 +306,12 @@ export class MembersService {
       name: dto.name,
       phone: dto.phone,
       gender: dto.gender,
-      level: dto.level,
       status: dto.status,
       remark: dto.remark,
       birthday: dto.birthday,
-      lastActiveAt: dto.lastActiveAt,
-      availablePoints: dto.availablePoints,
-      totalPointsEarned: dto.totalPointsEarned,
       beanBalance: dto.beanBalance,
       isPartner: dto.isPartner,
       partnerLevel: dto.partnerLevel,
-      totalRecharged: dto.totalRecharged,
-      rechargeCount: dto.rechargeCount,
-      invitedCount: dto.invitedCount,
       rechargeHistory: dto.rechargeHistory,
       bannedReason: dto.bannedReason,
     });
@@ -388,14 +374,22 @@ export class MembersService {
     await this.prisma.$transaction(async (tx) => {
       await deleteMemberRecord(tx, existingMember.id);
 
-      // MarketingCustomer 通过 storeId + phone 关联而非外键，
-      // 删除 Member 时需同步清理，否则 Club 端仍能查到残留顾客档案
-      if (existingMember.phone) {
-        await tx.marketingCustomer.deleteMany({
+      // 软删除关联的 MarketingCustomer 档案：
+      // 通过 customerId 外键（Step 2 新增）或 storeId + phone 兜底
+      const now = new Date();
+      if (existingMember.customerId) {
+        await tx.marketingCustomer.update({
+          where: { id: existingMember.customerId },
+          data: { deletedAt: now },
+        });
+      } else if (existingMember.phone) {
+        await tx.marketingCustomer.updateMany({
           where: {
             storeId: existingMember.storeId,
             phone: existingMember.phone,
+            deletedAt: null,
           },
+          data: { deletedAt: now },
         });
       }
     });

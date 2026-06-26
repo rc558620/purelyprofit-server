@@ -32,7 +32,6 @@ import {
 } from './employees.query';
 import {
   buildPaginationMeta,
-  getCurrentMonthString,
   getStartOfCurrentMonth,
   resolvePagination,
 } from './employees.utils';
@@ -101,7 +100,6 @@ export class EmployeesProfileReadService {
     const metrics = await queryEmployeesOverviewMetrics(this.prisma, {
       storeId,
       monthStart: getStartOfCurrentMonth(),
-      currentMonth: getCurrentMonthString(),
     });
 
     return buildEmployeesOverviewResponse(metrics);

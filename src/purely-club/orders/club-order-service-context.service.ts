@@ -101,12 +101,11 @@ export class ClubOrderServiceContextService {
     storeId: number,
     phone: string,
   ): Promise<ClubOrderCustomerSummary | null> {
-    return this.prisma.marketingCustomer.findUnique({
+    return this.prisma.marketingCustomer.findFirst({
       where: {
-        storeId_phone: {
-          storeId,
-          phone,
-        },
+        storeId,
+        phone,
+        deletedAt: null,
       },
       select: {
         id: true,

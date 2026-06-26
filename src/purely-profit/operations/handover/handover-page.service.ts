@@ -35,13 +35,13 @@ import {
   type RefundOrderRow,
   type ResolvedHandoverPageShiftContext,
 } from './handover.shared';
-import type { Prisma, SalesPaymentMethod } from '@prisma/client';
+import type { SalesPaymentMethod } from '@prisma/client';
 
 type SettledSpaceSessionRow = {
   id: number;
-  timeCost: Prisma.Decimal | null;
-  itemsCost: Prisma.Decimal;
-  prepaidAmount: Prisma.Decimal | null;
+  timeCost: number | null;
+  itemsCost: number;
+  prepaidAmount: number | null;
   endTime: Date | null;
   space: { name: string };
   saleOrder: {

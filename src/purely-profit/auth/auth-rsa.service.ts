@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { generateKeyPairSync, constants, privateDecrypt } from 'node:crypto';
 
@@ -114,11 +114,13 @@ export class AuthRsaService {
     try {
       return this.decrypt(value);
     } catch (error: unknown) {
-      // 解密失败时返回原始值，由后续业务校验处理
+      // 输入被判定为 RSA 密文但解密失败（密钥对已轮换等），
+      // 此时不应静默回退到原始密文值，否则两个 RSA 密文会在
+      // 密码一致性校验中被直接比较，因填充随机性不同而误报"密码不一致"。
       this.logger.warn(
-        `RSA 解密密码失败，回退到原始值: ${error instanceof Error ? error.message : String(error)}`,
+        `RSA 解密密码失败: ${error instanceof Error ? error.message : String(error)}`,
       );
-      return value;
+      throw new BadRequestException('密码解密失败，请刷新页面重新获取公钥后重试');
     }
   }
 }

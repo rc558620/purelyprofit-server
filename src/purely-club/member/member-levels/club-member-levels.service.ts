@@ -5,6 +5,7 @@ import {
   cloneDefaultMarketingMemberLevelSettings,
   type MarketingMemberLevelConfigValue,
 } from '../../../purely-profit/marketing/marketing.utils';
+import { safeParseLevels } from '../../../purely-profit/marketing/schemas/member-level-settings.schema';
 import type {
   ClubMemberHeldLevelValue,
   ClubMemberLevelConfigDto,
@@ -193,6 +194,26 @@ export class ClubMemberLevelsService {
     settings: ClubMemberLevelSettingRecord | null,
     fallbackLevels: MarketingMemberLevelConfigValue[],
   ): MarketingMemberLevelConfigValue[] {
+    // 优先使用 Zod schema 解析
+    if (settings?.levels) {
+      const parsedLevels = safeParseLevels(settings.levels);
+      if (parsedLevels.length > 0) {
+        return fallbackLevels.map((fallbackLevel) => {
+          const matched = parsedLevels.find(
+            (item) => item.id === fallbackLevel.id,
+          );
+          return matched
+            ? {
+                ...fallbackLevel,
+                ...matched,
+                id: fallbackLevel.id,
+              }
+            : { ...fallbackLevel };
+        });
+      }
+    }
+
+    // Zod 解析失败，回退到手写归一化
     const rawLevels = Array.isArray(settings?.levels) ? settings.levels : [];
 
     return fallbackLevels.map((fallbackLevel) => {

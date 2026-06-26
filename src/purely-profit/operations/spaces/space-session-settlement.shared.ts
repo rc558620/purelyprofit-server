@@ -1,4 +1,5 @@
 import { SpaceBillingMode as PrismaSpaceBillingMode } from '@prisma/client';
+import { centsToYuan } from '../../commerce/commerce.utils';
 import { sumLineTotal } from './space-session-items.shared';
 import type {
   CheckoutPreviewFeeMode,
@@ -17,6 +18,7 @@ export const buildSpaceSessionSettlement = (params: {
   renewRecords: SpaceSessionRenewRecord[];
 }): SpaceSessionSettlement => {
   const { session, checkoutAt, payload, items, renewRecords } = params;
+  // items 中的 salePrice/profit 已经由 mapSessionItemRows 转为元
   const orderItems = items.map((item) => ({ ...item }));
   const itemsCost = sumLineTotal(items);
   const durationMinutes = calcDurationMinutes(
@@ -37,11 +39,12 @@ export const buildSpaceSessionSettlement = (params: {
     session.billingMode !== PrismaSpaceBillingMode.items &&
     session.hourlyRate !== null
   ) {
-    const hourlyRate = Number(session.hourlyRate);
+    // session.hourlyRate 是 DB 中的分（Int），需转为元
+    const hourlyRateYuan = centsToYuan(Number(session.hourlyRate));
     const useUnitPrice = timeFeeMode === 'unit_price';
     timeCost = useUnitPrice
-      ? hourlyRate
-      : calcTimeCost(session.startTime.getTime(), checkoutAt, hourlyRate);
+      ? hourlyRateYuan
+      : calcTimeCost(session.startTime.getTime(), checkoutAt, hourlyRateYuan);
     orderItems.unshift({
       productId: 'SYS_TIME_BILLING',
       productName: useUnitPrice
@@ -54,6 +57,7 @@ export const buildSpaceSessionSettlement = (params: {
     });
   }
 
+  // renewRecords.amount 已由 mapRenewRecordRows 转为元
   const renewDeduction = Number(
     renewRecords.reduce((sum, record) => sum + record.amount, 0).toFixed(2),
   );
@@ -176,8 +180,9 @@ const resolveSpaceSessionPrepaidDeduction = (
     return 0;
   }
 
-  const prepaidAmount = Number(session.prepaidAmount);
-  return prepaidAmount > 0 ? prepaidAmount : 0;
+  // session.prepaidAmount 是 DB 中的分（Int），需转为元
+  const prepaidAmountYuan = centsToYuan(Number(session.prepaidAmount));
+  return prepaidAmountYuan > 0 ? prepaidAmountYuan : 0;
 };
 
 const isSpaceSessionDeductionItem = (productId: string): boolean =>

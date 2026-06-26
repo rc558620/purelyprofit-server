@@ -19,24 +19,34 @@ function buildListWhereClause(
   onlyPartners: boolean | undefined,
 ): Prisma.Sql {
   const filters: Prisma.Sql[] = [buildStoreIdWhereClause(storeId)];
+  filters.push(Prisma.sql`m.deleted_at IS NULL`);
 
   if (status) {
-    filters.push(Prisma.sql`status = ${status}::"MemberStatus"`);
+    filters.push(Prisma.sql`m.status = ${status}::"MemberStatus"`);
   }
 
   if (level) {
-    filters.push(Prisma.sql`LOWER(level) = LOWER(${level})`);
+    // level 已从 members 表删除，改为从 MarketingCustomer.tier 过滤
+    // 映射规则：free→regular, monthly→regular, quarterly→gold, annual→diamond
+    const tierMap: Record<string, string> = {
+      free: 'regular',
+      monthly: 'regular',
+      quarterly: 'gold',
+      annual: 'diamond',
+    };
+    const tier = tierMap[level.toLowerCase()] ?? level.toLowerCase();
+    filters.push(Prisma.sql`LOWER(mc.tier::text) = ${tier}`);
   }
 
   if (onlyPartners) {
-    filters.push(Prisma.sql`is_partner = true`);
+    filters.push(Prisma.sql`m.is_partner = true`);
   }
 
   if (keyword) {
     filters.push(
       Prisma.sql`(
-        name ILIKE ${`%${keyword}%`}
-        OR phone LIKE ${`%${keyword}%`}
+        m.name ILIKE ${`%${keyword}%`}
+        OR m.phone LIKE ${`%${keyword}%`}
       )`,
     );
   }
@@ -50,16 +60,17 @@ function buildSnapshotWhereClause(
   onlyPartners: boolean | undefined,
 ): Prisma.Sql {
   const filters: Prisma.Sql[] = [buildStoreIdWhereClause(storeId)];
+  filters.push(Prisma.sql`m.deleted_at IS NULL`);
 
   if (onlyPartners) {
-    filters.push(Prisma.sql`is_partner = true`);
+    filters.push(Prisma.sql`m.is_partner = true`);
   }
 
   if (keyword) {
     filters.push(
       Prisma.sql`(
-        name ILIKE ${`%${keyword}%`}
-        OR phone LIKE ${`%${keyword}%`}
+        m.name ILIKE ${`%${keyword}%`}
+        OR m.phone LIKE ${`%${keyword}%`}
       )`,
     );
   }
@@ -90,39 +101,47 @@ export async function queryMembersPage(
     params.keyword,
     params.onlyPartners,
   );
+
   const rows = await prisma.$queryRaw<MemberRecordWithTotal[]>`
     SELECT
-      id,
-      store_id AS "storeId",
-      name,
-      phone,
-      gender,
-      level,
-      note,
-      birthday,
-      last_consume_at AS "lastConsumeAt",
-      points,
-      total_points_earned AS "totalPointsEarned",
-      bean_balance AS "beanBalance",
-      is_partner AS "isPartner",
-      partner_level AS "partnerLevel",
-      total_recharged AS "totalRecharged",
-      recharge_count AS "rechargeCount",
-      invited_count AS "invitedCount",
-      banned_reason AS "bannedReason",
-      status,
-      created_at AS "createdAt",
-      updated_at AS "updatedAt",
-      COUNT(*) OVER()::int AS _total
-    FROM members
+      m.id,
+      m.store_id AS "storeId",
+      m.customer_id AS "customerId",
+      m.name,
+      m.phone,
+      m.gender,
+      m.note,
+      m.birthday,
+      m.bean_balance AS "beanBalance",
+      m.is_partner AS "isPartner",
+      m.partner_level AS "partnerLevel",
+      m.banned_reason AS "bannedReason",
+      m.status,
+      m.created_at AS "createdAt",
+      m.updated_at AS "updatedAt",
+      CASE WHEN mc.id IS NOT NULL THEN
+        jsonb_build_object(
+          'id', mc.id,
+          'tier', mc.tier::text,
+          'points', mc.points,
+          'totalSpent', mc.total_spent,
+          'visitCount', mc.visit_count,
+          'lastVisitAt', mc.last_visit_at,
+          'balance', mc.balance
+        )
+      ELSE NULL END AS "customer",
+      COUNT(*) OVER()::int AS "_total"
+    FROM members m
+    LEFT JOIN marketing_customers mc ON mc.id = m.customer_id
+      AND mc.deleted_at IS NULL
     WHERE ${whereClause}
-    ORDER BY updated_at DESC, id DESC
+    ORDER BY m.updated_at DESC, m.id DESC
     OFFSET ${params.skip}
     LIMIT ${params.take}
   `;
 
   const total = rows[0]?._total ?? 0;
-  const items: MemberRecord[] = rows;
+  const items: MemberRecord[] = rows.map(({ _total: _t, ...row }) => row);
 
   return { items, total };
 }
@@ -134,19 +153,30 @@ export async function queryMembersMeta(
   levelRows: MemberLevelMetaRow[];
   statusRows: MemberStatusMetaRow[];
 }> {
-  const whereClause = buildStoreIdWhereClause(storeId);
+  // level 字段已删除，改为从 MarketingCustomer.tier 聚合
+  // tier → MemberLevel 映射：regular→free, gold→quarterly, diamond→annual
   const [levelRows, statusRows] = await Promise.all([
     prisma.$queryRaw<MemberLevelMetaRow[]>`
-      SELECT level AS value, COUNT(*)::int AS count
-      FROM members
-      WHERE ${whereClause}
-      GROUP BY level
+      SELECT
+        CASE mc.tier::text
+          WHEN 'diamond' THEN 'annual'
+          WHEN 'gold' THEN 'quarterly'
+          ELSE 'free'
+        END AS value,
+        COUNT(*)::int AS count
+      FROM members m
+      LEFT JOIN marketing_customers mc ON mc.id = m.customer_id
+        AND mc.deleted_at IS NULL
+      WHERE m.store_id = ${storeId}
+        AND m.deleted_at IS NULL
+      GROUP BY 1
       ORDER BY count DESC, value ASC
     `,
     prisma.$queryRaw<MemberStatusMetaRow[]>`
       SELECT status AS value, COUNT(*)::int AS count
       FROM members
-      WHERE ${whereClause}
+      WHERE store_id = ${storeId}
+        AND deleted_at IS NULL
       GROUP BY status
     `,
   ]);
@@ -161,15 +191,15 @@ export async function queryMembersOverview(
   prisma: PrismaService,
   storeId: number,
 ): Promise<MemberOverviewRow | null> {
-  const whereClause = buildStoreIdWhereClause(storeId);
   const rows = await prisma.$queryRaw<MemberOverviewRow[]>`
     SELECT
       COUNT(*)::int AS "totalCount",
-      COUNT(*) FILTER (WHERE status = 'ACTIVE')::int AS "activeCount",
+      COUNT(*) FILTER (WHERE status = 'active')::int AS "activeCount",
       COUNT(*) FILTER (WHERE is_partner = true)::int AS "partnerCount",
-      COUNT(*) FILTER (WHERE status = 'BANNED')::int AS "bannedCount"
+      COUNT(*) FILTER (WHERE status = 'banned')::int AS "bannedCount"
     FROM members
-    WHERE ${whereClause}
+    WHERE store_id = ${storeId}
+      AND deleted_at IS NULL
   `;
 
   return rows[0] ?? null;
@@ -187,15 +217,17 @@ export async function queryMemberSnapshots(
 
   return prisma.$queryRaw<MemberSnapshotRow[]>`
     SELECT
-      id,
-      name,
-      phone,
-      points,
-      bean_balance AS "beanBalance",
-      is_partner AS "isPartner"
-    FROM members
+      m.id,
+      m.name,
+      m.phone,
+      COALESCE(mc.points, 0)::int AS points,
+      m.bean_balance AS "beanBalance",
+      m.is_partner AS "isPartner"
+    FROM members m
+    LEFT JOIN marketing_customers mc ON mc.id = m.customer_id
+      AND mc.deleted_at IS NULL
     WHERE ${whereClause}
-    ORDER BY is_partner DESC, updated_at DESC, id DESC
+    ORDER BY m.is_partner DESC, m.updated_at DESC, m.id DESC
   `;
 }
 

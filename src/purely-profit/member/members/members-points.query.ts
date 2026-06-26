@@ -6,7 +6,10 @@ import type {
   MemberBeanLogRecord,
   MemberPointsLogRecord,
 } from './members-points.mapper';
-import { MEMBER_RETURNING_SQL, requireMemberRow } from './members-query.shared';
+import {
+  MEMBER_SELECT_BY_ID_SQL,
+  requireMemberRow,
+} from './members-query.shared';
 import {
   createMemberAssetLogsQueryConfig,
   queryConfiguredMemberAssetLogs,
@@ -52,7 +55,7 @@ const POINTS_MEMBER_ASSET_QUERY_CONFIG: MemberAssetQueryConfig<
       m.phone AS "memberPhone",
       CASE
         WHEN l.source = 'expire'::"MemberPointsSource" THEN -l.change_amount
-        WHEN l.change_type = 'INCREASE' THEN l.change_amount
+        WHEN l.change_type = 'increase' THEN l.change_amount
         ELSE -l.change_amount
       END AS amount,
       l.source::text AS source,
@@ -69,11 +72,11 @@ const POINTS_MEMBER_ASSET_QUERY_CONFIG: MemberAssetQueryConfig<
         switch (type) {
           case 'earn':
             return [
-              Prisma.sql`l.source <> 'expire'::"MemberPointsSource" AND l.change_type = 'INCREASE'`,
+              Prisma.sql`l.source <> 'expire'::"MemberPointsSource" AND l.change_type = 'increase'`,
             ];
           case 'spend':
             return [
-              Prisma.sql`l.source <> 'expire'::"MemberPointsSource" AND l.change_type = 'DECREASE'`,
+              Prisma.sql`l.source <> 'expire'::"MemberPointsSource" AND l.change_type = 'decrease'`,
             ];
           case 'expire':
             return [Prisma.sql`l.source = 'expire'::"MemberPointsSource"`];
@@ -199,15 +202,21 @@ export async function applyMemberPointsAdjustment(
   client: Prisma.TransactionClient,
   params: ApplyMemberPointsAdjustmentInput,
 ): Promise<{ member: MemberRecord; log: MemberPointsLogRecord }> {
-  const memberRows = await client.$queryRaw<MemberRecord[]>`
-    UPDATE members
-    SET
-      points = ${params.afterPoints},
-      total_points_earned = total_points_earned + ${params.delta > 0 ? params.delta : 0},
-      updated_at = NOW()
-    WHERE id = ${params.member.id}
-    ${MEMBER_RETURNING_SQL}
-  `;
+  // 积分事实源已切换为 MarketingCustomer；若会员有关联 customerId，则更新 marketing_customers.points
+  if (params.member.customerId !== null) {
+    await client.$executeRaw`
+      UPDATE marketing_customers
+      SET points = ${params.afterPoints},
+          updated_at = NOW()
+      WHERE id = ${params.member.customerId}
+    `;
+  } else {
+    // 无关联 MarketingCustomer 时，不做积分更新（孤立 Member 场景，数据一致性由上层保证）
+    throw new ConflictException(
+      '该会员尚未关联营销顾客档案，无法调整积分；请先在门店关联顾客档案',
+    );
+  }
+
   const logRows = await client.$queryRaw<MemberPointsLogRecord[]>`
     INSERT INTO member_points_logs (
       member_id,
@@ -224,7 +233,7 @@ export async function applyMemberPointsAdjustment(
       ${params.member.id},
       ${params.member.storeId},
       ${params.operatorStaffId},
-      ${params.delta > 0 ? 'INCREASE' : 'DECREASE'}::"MemberPointsChangeType",
+      ${params.delta > 0 ? 'increase' : 'decrease'}::"MemberPointsChangeType",
       'admin_adjust'::"MemberPointsSource",
       ${Math.abs(params.delta)},
       ${params.beforePoints},
@@ -242,6 +251,11 @@ export async function applyMemberPointsAdjustment(
       created_at AS "createdAt",
       expires_at AS "expireAt"
   `;
+
+  // 重查完整记录（含 LEFT JOIN marketing_customers，拿到最新 points）
+  const memberRows = await client.$queryRaw<MemberRecord[]>(
+    MEMBER_SELECT_BY_ID_SQL(params.member.id),
+  );
 
   return {
     member: requireMemberRow(memberRows[0]),
@@ -275,14 +289,18 @@ export async function applyMemberBeansAdjustment(
   client: Prisma.TransactionClient,
   params: ApplyMemberBeansAdjustmentInput,
 ): Promise<{ member: MemberRecord; log: MemberBeanLogRecord }> {
-  const memberRows = await client.$queryRaw<MemberRecord[]>`
+  // 纯利豆仍保留在 Member 表（独立于营销积分）
+  await client.$executeRaw`
     UPDATE members
     SET
       bean_balance = ${params.afterBalance},
       updated_at = NOW()
     WHERE id = ${params.member.id}
-    ${MEMBER_RETURNING_SQL}
   `;
+  // 重查完整记录（含 LEFT JOIN marketing_customers）
+  const memberRows = await client.$queryRaw<MemberRecord[]>(
+    MEMBER_SELECT_BY_ID_SQL(params.member.id),
+  );
   const logRows = await client.$queryRaw<MemberBeanLogRecord[]>`
     INSERT INTO member_bean_logs (
       member_id,

@@ -41,7 +41,8 @@ export async function queryOverviewCashFlowRecords(
     end: number;
   },
   maxPageSize = 5000,
-): Promise<Array<{ category: string; amount: Prisma.Decimal; date: Date }>> {
+): Promise<Array<{ category: string; amount: number; date: Date }>> {
+  // Step 3: Int（分）
   return prisma.financeCashFlowRecord.findMany({
     where: {
       storeId: params.storeId,
@@ -125,7 +126,7 @@ export async function queryFinanceReportData(
             .then((rows) =>
               rows.map((row) => ({
                 direction: row.direction,
-                amount: row._sum.amount ?? new Prisma.Decimal(0),
+                amount: row._sum.amount ?? 0, // Step 3: Int（分）
               })),
             )
         : Promise.resolve<
@@ -151,7 +152,7 @@ export async function queryFinanceReportData(
 
 interface OverviewCategoryTotalRow {
   category: string;
-  total: Prisma.Decimal;
+  total: bigint | number; // $queryRaw 返回 SUM 为 bigint（PostgreSQL）
 }
 
 export async function queryOverviewCategoryTotals(
@@ -214,8 +215,8 @@ export async function queryOverviewCategoryTotals(
 
 interface OverviewDailyTrendRow {
   day: Date;
-  income_total: Prisma.Decimal;
-  expense_total: Prisma.Decimal;
+  income_total: bigint | number | null; // $queryRaw 返回 SUM 为 bigint（PostgreSQL）
+  expense_total: bigint | number | null;
 }
 
 export async function queryOverviewDailyTrend(

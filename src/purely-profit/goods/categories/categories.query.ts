@@ -133,7 +133,9 @@ export async function deleteCategoryRecord(
   prisma: PrismaClientOrTransaction,
   categoryId: number,
 ): Promise<void> {
-  await prisma.productCategory.delete({
+  // 软删除：更新 deletedAt 字段而非物理删除
+  await prisma.productCategory.update({
     where: { id: categoryId },
+    data: { deletedAt: new Date() },
   });
 }

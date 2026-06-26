@@ -41,6 +41,15 @@ export class ClubAuthService {
   }
 
   /**
+   * 发送绑定手机号验证码
+   * 无论手机号是否已注册都发送，不暴露注册状态
+   * 需要 JWT 鉴权，仅允许已登录用户调用
+   */
+  sendBindPhoneCode(dto: SendRegisterCodeDto): Promise<SendLoginCodeResponseDto> {
+    return this.authProductAuthService.sendBindPhoneCode(dto);
+  }
+
+  /**
    * 手机号验证码登录即注册
    * 账号不存在时自动创建，省去单独注册步骤
    */
@@ -270,7 +279,20 @@ export class ClubAuthService {
           );
         }
 
-        // 3. 将 openid 绑定到目标用户
+        // 3. 先清除源用户的微信相关字段（必须在绑定到目标用户之前执行），
+        //    否则 wechat_openid 的唯一约束会导致写入目标用户时冲突
+        await tx.user.update({
+          where: { id: sourceUserId },
+          data: {
+            wechatOpenid: null,
+            wechatUnionid: null,
+            wechatNickname: null,
+            wechatAvatar: null,
+            wechatPhone: null,
+          },
+        });
+
+        // 4. 将 openid 绑定到目标用户，同时写入 wechatPhone
         await tx.user.update({
           where: { id: targetUserId },
           data: {
@@ -284,18 +306,7 @@ export class ClubAuthService {
             ...(sourceUser.wechatAvatar != null && {
               wechatAvatar: sourceUser.wechatAvatar,
             }),
-          },
-        });
-
-        // 4. 清除源用户的微信相关字段，使其成为无效账号
-        await tx.user.update({
-          where: { id: sourceUserId },
-          data: {
-            wechatOpenid: null,
-            wechatUnionid: null,
-            wechatNickname: null,
-            wechatAvatar: null,
-            wechatPhone: null,
+            wechatPhone: phone,
           },
         });
       });

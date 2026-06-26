@@ -37,7 +37,7 @@ import { UpdateNicknameDto } from './dto/update-nickname.dto';
 import { VerifyRealNameDto } from './dto/verify-real-name.dto';
 import { PublicKeyResponseDto } from './dto/public-key-response.dto';
 import { CreateStoreDto } from '../stores/dto/create-store.dto';
-import { StoreResponseDto } from '../stores/dto/store-response.dto';
+import { RegisterStoreResponseDto } from './auth-register-store.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
 
@@ -115,16 +115,17 @@ export class AuthController {
   @ApiOperation({
     summary: '注册闭环——创建门店',
     description:
-      '注册完成后第二步创建门店。路径挂载在 /auth/register/store 以对齐前端注册流程。',
+      '注册完成后第二步创建门店。路径挂载在 /auth/register/store 以对齐前端注册流程。' +
+      '创建成功后返回门店信息与新的 JWT token，前端应立即用新 token 替换旧 token 以获得门店权限。',
   })
   @ApiCreatedResponse({
-    description: '创建门店成功，返回门店信息',
-    type: StoreResponseDto,
+    description: '创建门店成功，返回门店信息与新 JWT token',
+    type: RegisterStoreResponseDto,
   })
   registerStore(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateStoreDto,
-  ): Promise<StoreResponseDto> {
+  ): Promise<RegisterStoreResponseDto> {
     return this.authService.registerStore(user, dto);
   }
 

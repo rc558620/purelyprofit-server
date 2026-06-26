@@ -86,9 +86,9 @@ export class StaffProfileService {
         data: {
           name: dto.name,
           ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
-          role: dto.role ?? StaffRole.STAFF,
+          role: dto.role ?? StaffRole.staff,
           permissions: dto.permissions ?? [],
-          status: StaffStatus.INVITED,
+          status: StaffStatus.invited,
           isSeatActive: false,
           isActive: true,
         },
@@ -115,9 +115,9 @@ export class StaffProfileService {
         email: normalizedEmail,
         name: dto.name,
         ...(invitePhone !== undefined ? { phone: invitePhone } : {}),
-        role: dto.role ?? StaffRole.STAFF,
+        role: dto.role ?? StaffRole.staff,
         permissions: dto.permissions ?? [],
-        status: StaffStatus.INVITED,
+        status: StaffStatus.invited,
         isSeatActive: false,
         isActive: true,
       },
@@ -167,7 +167,7 @@ export class StaffProfileService {
       throw new ForbiddenException('该账号无权激活此员工席位');
     }
 
-    if (staff.status === StaffStatus.DISABLED) {
+    if (staff.status === StaffStatus.disabled) {
       throw new ForbiddenException('当前员工已被禁用，无法激活');
     }
 
@@ -179,7 +179,7 @@ export class StaffProfileService {
       where: { id: staff.id },
       data: {
         userId: user.id,
-        status: StaffStatus.ACTIVE,
+        status: StaffStatus.active,
         isSeatActive: true,
         isActive: true,
       },
@@ -256,7 +256,7 @@ export class StaffProfileService {
     const seatActiveDelta = dto.isActive === false ? false : undefined;
 
     const statusDelta =
-      dto.isActive === false ? StaffStatus.DISABLED : undefined;
+      dto.isActive === false ? StaffStatus.disabled : undefined;
 
     return this.prisma.staff.update({
       where: { id: existingStaff.id },
@@ -286,7 +286,7 @@ export class StaffProfileService {
       data: {
         isActive: false,
         isSeatActive: false,
-        status: StaffStatus.DISABLED,
+        status: StaffStatus.disabled,
       },
     });
   }

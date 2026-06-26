@@ -67,14 +67,12 @@ model StoreMembershipOrder {
   planId         MembershipPlanCycle      @map("plan_id")
   planName       String                   @map("plan_name")
   originalAmount Int                      @map("original_amount")
-  pointsDeducted Int                      @default(0) @map("points_deducted")
-  pointsUsed     Int                      @default(0) @map("points_used")
-  beanDeducted   Int                      @default(0) @map("bean_deducted")
-  beansUsed      Int                      @default(0) @map("beans_used")
-  amount         Int
-  status         MembershipOrderStatus    @default(paid)
+  pointsUsed     Int                      @default(0) @map("points_used") // 实际使用的积分数量
+  beansUsed      Int                      @default(0) @map("beans_used")  // 实际使用的豆数量
+  amount         Int                                                       // 最终支付金额（分）
+  status         MembershipOrderStatus    @default(pending)                // Step 3: 0.8 改为 pending
   paymentChannel MembershipPaymentChannel @default(wechat) @map("payment_channel")
-  paymentOrderId String?                  @map("payment_order_id")
+  paymentOrderId String?                  @unique @map("payment_order_id") // Step 3: 0.8 增加 unique 约束
   paidAt         DateTime?                @map("paid_at")
   createdAt      DateTime                 @default(now()) @map("created_at")
   updatedAt      DateTime                 @updatedAt @map("updated_at")
@@ -107,8 +105,10 @@ model StoreMembershipPromoRecord {
   id            Int                  @id @default(autoincrement())
   storeId       Int                  @map("store_id")
   store         Store                @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  inviteeName   String               @map("invitee_name")
-  inviteePhone  String               @map("invitee_phone")
+  partnerId     Int?                 @map("partner_id")                               // Step 3: 0.9 新增
+  partner       StorePartner?        @relation(fields: [partnerId], references: [id], onDelete: SetNull) // Step 3: 0.9 新增
+  inviteeName   String               @map("invitee_name")                             // 保留作为快照
+  inviteePhone  String               @map("invitee_phone")                            // 保留作为快照
   registeredAt  DateTime             @map("registered_at")
   hasCharged    Boolean              @default(false) @map("has_charged")
   chargedAmount Int?                 @map("charged_amount")
@@ -122,5 +122,6 @@ model StoreMembershipPromoRecord {
   @@index([storeId, registeredAt])
   @@index([storeId, hasCharged, registeredAt])
   @@index([chargedAt])
+  @@index([partnerId, registeredAt]) // Step 3: 0.9 新增
   @@map("store_membership_promo_records")
 }

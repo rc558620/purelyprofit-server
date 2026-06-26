@@ -1,9 +1,9 @@
 import {
   ConflictException,
   ForbiddenException,
+  GoneException,
   Injectable,
 } from '@nestjs/common';
-import { Prisma, SpaceStatus as PrismaSpaceStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
@@ -27,6 +27,7 @@ import {
   shiftSortOrdersForInsert,
   SPACE_WITH_RELATIONS_INCLUDE,
 } from './spaces.query';
+import type { SpaceStatusValue } from './spaces.constants';
 import type { ManagedSpaceRecord, SpaceRemovalCandidate } from './spaces.types';
 
 @Injectable()
@@ -84,14 +85,14 @@ export class SpacesWriteService {
           capacity: dto.capacity,
           enableDirtyRoom: dto.enableDirtyRoom,
           autoCheckout: dto.autoCheckout,
-          status: PrismaSpaceStatus.idle,
           sortOrder: targetSortOrder,
         },
         include: SPACE_WITH_RELATIONS_INCLUDE,
       });
     });
 
-    return toSpaceResponse(created);
+    // 新建空间始终为 idle（无 session，无 reservation）
+    return toSpaceResponse({ ...created, status: 'idle' });
   }
 
   async updateSpace(
@@ -145,7 +146,9 @@ export class SpacesWriteService {
       });
     });
 
-    return toSpaceResponse(updated);
+    // 编辑空间配置后重新推导运行态状态
+    const derivedStatus = await this.deriveSpaceStatus(updated.id);
+    return toSpaceResponse({ ...updated, status: derivedStatus });
   }
 
   async removeSpace(user: AuthenticatedUser, spaceId: number): Promise<void> {
@@ -153,12 +156,9 @@ export class SpacesWriteService {
     this.ensurePrimaryAccountOnly(user);
     const space = await this.requireRemovableSpace(user, spaceId);
 
-    if (space.status === PrismaSpaceStatus.occupied) {
+    // 有活跃会话（occupied），无法删除
+    if (space._count.sessions > 0) {
       throw new ConflictException('空间使用中，无法删除');
-    }
-
-    if (space.status === PrismaSpaceStatus.cleaning) {
-      throw new ConflictException('空间待清洁，无法删除');
     }
 
     if (space._count.reservations > 0) {
@@ -166,8 +166,10 @@ export class SpacesWriteService {
     }
 
     await this.prisma.$transaction(async (transaction) => {
-      await transaction.space.delete({
+      // 软删除：更新 deletedAt 字段而非物理删除
+      await transaction.space.update({
         where: { id: space.id },
+        data: { deletedAt: new Date() },
       });
 
       await closeSortOrderGapAfterRemove(
@@ -182,43 +184,37 @@ export class SpacesWriteService {
     user: AuthenticatedUser,
     spaceId: number,
   ): Promise<SpaceResponseDto> {
-    const space = await this.requireUpdatableSpace(user, spaceId);
+    await this.requireUpdatableSpace(user, spaceId);
 
-    return this.updateSpaceStatusWithResolver(
-      space.id,
-      async (transaction) =>
-        this.spaceReservationsService.resolveReservationBackStatus(
-          transaction,
-          space.id,
-        ),
-      {
-        rejectIfOccupied: true,
-      },
-    );
+    // 空间状态现由运行态推导（无 Space.status 字段），直接返回当前运行态
+    const derivedStatus = await this.deriveSpaceStatus(spaceId);
+    if (derivedStatus === 'occupied') {
+      throw new ConflictException(
+        '空间当前使用中，请先完成会话流程后再调整状态',
+      );
+    }
+
+    const space = await this.prisma.space.findUniqueOrThrow({
+      where: { id: spaceId },
+      include: SPACE_WITH_RELATIONS_INCLUDE,
+    });
+    return toSpaceResponse({ ...space, status: derivedStatus });
   }
 
+  /**
+   * @deprecated Space.status 已从 schema 移除，运行态由 session/reservation 推导。
+   * 此方法已废弃，调用将抛出 GoneException。
+   * 如需重置空间状态请使用 markSpaceReady。
+   */
   async updateSpaceStatus(
-    user: AuthenticatedUser,
-    spaceId: number,
-    dto: UpdateSpaceStatusDto,
-  ): Promise<SpaceResponseDto> {
-    const space = await this.requireUpdatableSpace(user, spaceId);
-
-    this.ensureManualStatusChangeAllowed(space.status, dto.status);
-
-    return this.updateSpaceStatusWithResolver(
-      space.id,
-      async (transaction) =>
-        dto.status === PrismaSpaceStatus.cleaning
-          ? PrismaSpaceStatus.cleaning
-          : this.spaceReservationsService.resolveReservationBackStatus(
-              transaction,
-              space.id,
-            ),
-      {
-        rejectIfOccupied: true,
-        targetStatus: dto.status,
-      },
+    _user: AuthenticatedUser,
+    _spaceId: number,
+    _dto: UpdateSpaceStatusDto,
+  ): Promise<never> {
+    // Space.status 字段已移除（方案 A），运行态由 session/reservation 推导
+    // 手动状态变更不再有任何效果，接口已废弃
+    throw new GoneException(
+      '此接口已废弃。Space.status 已移除，运行态由 session/reservation 推导。如需重置空间状态请使用 markSpaceReady。',
     );
   }
 
@@ -266,74 +262,27 @@ export class SpacesWriteService {
     return space;
   }
 
-  private ensureManualStatusChangeAllowed(
-    currentStatus: PrismaSpaceStatus,
-    targetStatus: PrismaSpaceStatus,
-  ): void {
-    if (targetStatus === PrismaSpaceStatus.occupied) {
-      throw new ConflictException('使用中状态仅可通过开台、换房等会话流程更新');
-    }
 
-    if (currentStatus === PrismaSpaceStatus.occupied) {
-      throw new ConflictException(
-        '空间当前使用中，请先完成会话流程后再调整状态',
-      );
-    }
-  }
+  /**
+   * 通过查询 SpaceSession 和 SpaceReservation 推导运行态状态
+   * - occupied: 存在活跃会话（status=active）
+   * - reserved: 存在待履约预约（status=pending）
+   * - idle: 其他情况
+   */
+  private async deriveSpaceStatus(spaceId: number): Promise<SpaceStatusValue> {
+    const [activeSession, pendingReservation] = await Promise.all([
+      this.prisma.spaceSession.findFirst({
+        where: { spaceId, status: 'active' },
+        select: { id: true },
+      }),
+      this.prisma.spaceReservation.findFirst({
+        where: { spaceId, status: 'pending' },
+        select: { id: true },
+      }),
+    ]);
 
-  private async updateSpaceStatusWithResolver(
-    spaceId: number,
-    resolveNextStatus: (
-      transaction: Prisma.TransactionClient,
-    ) => Promise<PrismaSpaceStatus>,
-    options?: {
-      targetStatus?: PrismaSpaceStatus;
-      rejectIfOccupied?: boolean;
-    },
-  ): Promise<SpaceResponseDto> {
-    const updated = await this.prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw`
-        SELECT id
-        FROM spaces
-        WHERE id = ${spaceId}
-        FOR UPDATE
-      `;
-
-      const latestSpace = await transaction.space.findUnique({
-        where: { id: spaceId },
-        select: {
-          id: true,
-          status: true,
-        },
-      });
-
-      if (!latestSpace) {
-        throw new ConflictException('空间不存在或已删除，请刷新后重试');
-      }
-
-      if (options?.targetStatus !== undefined) {
-        this.ensureManualStatusChangeAllowed(
-          latestSpace.status,
-          options.targetStatus,
-        );
-      } else if (
-        options?.rejectIfOccupied &&
-        latestSpace.status === PrismaSpaceStatus.occupied
-      ) {
-        throw new ConflictException(
-          '空间当前使用中，请先完成会话流程后再调整状态',
-        );
-      }
-
-      const nextStatus = await resolveNextStatus(transaction);
-
-      return transaction.space.update({
-        where: { id: spaceId },
-        data: { status: nextStatus },
-        include: SPACE_WITH_RELATIONS_INCLUDE,
-      });
-    });
-
-    return toSpaceResponse(updated);
+    if (activeSession) return 'occupied';
+    if (pendingReservation) return 'reserved';
+    return 'idle';
   }
 }

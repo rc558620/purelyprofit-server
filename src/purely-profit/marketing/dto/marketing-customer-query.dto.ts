@@ -34,7 +34,7 @@ export class ListCustomersQueryDto extends MarketingPageQueryDto {
   status?: MarketingCustomerStatus;
 
   @ApiPropertyOptional({
-    example: 'silver',
+    example: 'gold',
     enum: MARKETING_CUSTOMER_TIER_VALUES,
     description: '会员等级筛选',
   })

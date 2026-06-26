@@ -1,63 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import {
-  SpaceSessionStatus as PrismaSpaceSessionStatus,
-  SpaceStatus as PrismaSpaceStatus,
-} from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { SpaceReservationsStateService } from './space-reservations-state.service';
 
 @Injectable()
 export class SpaceSessionReadStateService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly reservationsStateService: SpaceReservationsStateService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async syncOccupiedSpaceStates(storeId: number): Promise<void> {
-    const occupiedSpaces = await this.prisma.space.findMany({
-      where: {
-        storeId,
-        status: PrismaSpaceStatus.occupied,
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    if (occupiedSpaces.length === 0) {
-      return;
-    }
-
-    const occupiedSpaceIds = occupiedSpaces.map((space) => space.id);
-
-    const activeSessions = await this.prisma.spaceSession.findMany({
-      where: {
-        spaceId: { in: occupiedSpaceIds },
-        status: PrismaSpaceSessionStatus.active,
-      },
-      select: {
-        spaceId: true,
-      },
-    });
-
-    const spacesWithActiveSession = new Set(
-      activeSessions.map((session) => session.spaceId),
-    );
-
-    const inconsistentSpaceIds = occupiedSpaceIds.filter(
-      (id) => !spacesWithActiveSession.has(id),
-    );
-
-    if (inconsistentSpaceIds.length === 0) {
-      return;
-    }
-
-    // 串行修复：每个修复内部启动独立事务并使用 FOR UPDATE 锁定空间行，
-    // 并行执行可能导致多个事务同时争抢同一行的行锁从而引发死锁。
-    for (const spaceId of inconsistentSpaceIds) {
-      await this.reservationsStateService.repairInconsistentOccupiedSpace(
-        spaceId,
-      );
-    }
+  /**
+   * Space.status 已移除，此方法已废弃。
+   * 原逻辑：查找所有 status=occupied 的空间，检查是否真的有 active session，修复不一致。
+   * 现状：空间状态由运行态推导，无需同步/修复。
+   * @deprecated
+   */
+  syncOccupiedSpaceStates(_storeId: number): Promise<void> {
+    return Promise.resolve();
   }
 }

@@ -2,9 +2,14 @@
 
 enum MarketingCustomerTier {
   regular
-  silver
   gold
   diamond
+}
+
+enum MarketingCustomerStatus {
+  active
+  inactive
+  banned
 }
 
 enum MarketingRechargeType {
@@ -29,39 +34,53 @@ enum MarketingPointsChangeType {
 }
 
 model MarketingCustomer {
-  id            Int                     @id @default(autoincrement())
-  storeId       Int                     @map("store_id")
-  store         Store                   @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  id                 Int                     @id @default(autoincrement())
+  storeId            Int                     @map("store_id")
+  store              Store                   @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  /// 显式外键关联到 Member（可为 null，兼容历史数据）
+  memberId           Int?                    @unique @map("member_id")
+  member             Member?                 @relation("MemberCustomer")
   /// 昵称
-  name          String
-  /// 手机号（明文存储，展示层脱敏）
-  phone         String?
+  name               String
+  /// 手机号（明文存储，展示层脱敏；仅用于真实手机号）
+  phone              String?
+  /// 外部身份标识（微信 openid / 其他第三方标识，可为 null）
+  externalIdentifier String?                 @map("external_identifier")
   /// 头像 URL（可选）
-  avatar        String?
+  avatar             String?
   /// 会员等级（根据 totalSpent 计算，实时同步）
-  tier          MarketingCustomerTier   @default(regular)
+  tier               MarketingCustomerTier   @default(regular)
+  /// 顾客状态（active=正常 inactive=停用 banned=封禁）
+  status             MarketingCustomerStatus @default(active)
   /// 储值余额（分）
-  balance       Int                     @default(0)
+  balance            Int                     @default(0)
   /// 积分余额
-  points        Int                     @default(0)
+  points             Int                     @default(0)
   /// 累计消费金额（分，流水口径）
-  totalSpent    Int                     @default(0) @map("total_spent")
+  totalSpent         Int                     @default(0) @map("total_spent")
   /// 累计消费次数
-  visitCount    Int                     @default(0) @map("visit_count")
+  visitCount         Int                     @default(0) @map("visit_count")
   /// 最后消费时间
-  lastVisitAt   DateTime?               @map("last_visit_at")
+  lastVisitAt        DateTime?               @map("last_visit_at")
   /// 备注
-  remark        String?
-  recharges     MarketingRecharge[]
-  consumptions  MarketingConsumption[]
-  pointsRecords MarketingPointsRecord[]
-  createdAt     DateTime                @default(now()) @map("created_at")
-  updatedAt     DateTime                @updatedAt @map("updated_at")
+  remark             String?
+  recharges          MarketingRecharge[]
+  consumptions       MarketingConsumption[]
+  pointsRecords      MarketingPointsRecord[]
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt          DateTime?               @map("deleted_at")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
 
-  @@unique([storeId, phone])
+  // phone 与 externalIdentifier 的唯一约束通过 Partial Index（原生 SQL）实现，
+  // 仅对 deletedAt IS NULL 的行生效，允许软删除后重新建档。
+  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL
+  @@index([storeId, phone])
+  @@index([storeId, externalIdentifier])
   @@index([storeId, updatedAt])
   @@index([storeId, tier, updatedAt])
   @@index([storeId, lastVisitAt])
+  @@index([memberId]) // 外键索引
   @@map("marketing_customers")
 }
 
@@ -72,7 +91,8 @@ model MarketingRecharge {
   storeId     Int                   @map("store_id")
   store       Store                 @relation(fields: [storeId], references: [id], onDelete: Restrict)
   customerId  Int                   @map("customer_id")
-  customer    MarketingCustomer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 顾客被软删除后保留充值记录，onDelete: Restrict 防止意外硬删顾客
+  customer    MarketingCustomer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
   /// 充值金额（分）
   amount      Int
   /// 赠送金额（分）
@@ -89,6 +109,7 @@ model MarketingRecharge {
   @@index([storeId, createdAt])
   @@index([customerId, createdAt])
   @@index([storeId, type, createdAt])
+  @@index([promotionId])
   @@map("marketing_recharges")
 }
 
@@ -99,7 +120,8 @@ model MarketingConsumption {
   storeId        Int                 @map("store_id")
   store          Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
   customerId     Int                 @map("customer_id")
-  customer       MarketingCustomer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 顾客被软删除后保留消费记录，onDelete: Restrict 防止意外硬删顾客
+  customer       MarketingCustomer   @relation(fields: [customerId], references: [id], onDelete: Restrict)
   /// 消费金额（分）
   amount         Int
   /// 余额支付金额（分）
@@ -117,6 +139,7 @@ model MarketingConsumption {
 
   @@index([storeId, createdAt])
   @@index([customerId, createdAt])
+  @@index([promotionId])
   @@map("marketing_consumptions")
 }
 
@@ -127,7 +150,8 @@ model MarketingPointsRecord {
   storeId     Int                       @map("store_id")
   store       Store                     @relation(fields: [storeId], references: [id], onDelete: Restrict)
   customerId  Int                       @map("customer_id")
-  customer    MarketingCustomer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 顾客被软删除后保留积分流水，onDelete: Restrict 防止意外硬删顾客
+  customer    MarketingCustomer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
   /// 积分变动值：正数=获得，负数=消耗
   amount      Int
   /// 积分变动类型

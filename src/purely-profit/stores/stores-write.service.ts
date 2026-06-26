@@ -1,12 +1,10 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { StaffRole, StaffStatus, SubscriptionPlanCode } from '@prisma/client';
+import { StaffRole, StaffStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
-import { resolvePlanSnapshot } from '../subscriptions/subscriptions.utils';
 import { CreateStoreDto } from './dto/create-store.dto';
 import type { StoreResponseDto } from './dto/store-response.dto';
-import type { StoreProfileMetadata } from './dto/store-response.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
 import { StoresProfileService } from './stores-profile.service';
 import { StoresReadService } from './stores-read.service';
@@ -33,14 +31,12 @@ export class StoresWriteService {
     await this.ensureUserCanOnlyBindSingleStore(user);
 
     const payload = extractStoreCreatePayload(dto);
-    const defaultPlan = resolvePlanSnapshot(SubscriptionPlanCode.STARTER);
     const store = await this.prisma.$transaction(async (tx) => {
       const createdStore = await tx.store.create({
         data: {
           name: payload.storeName,
           address: payload.address,
           ownerId: user.id,
-          maxAccountSeats: defaultPlan.maxAccountSeats,
         },
         select: {
           id: true,
@@ -62,9 +58,9 @@ export class StoresWriteService {
           userId: user.id,
           email: user.email,
           name: user.name ?? '老板',
-          role: StaffRole.OWNER,
+          role: StaffRole.owner,
           permissions: ['*'],
-          status: StaffStatus.ACTIVE,
+          status: StaffStatus.active,
           isSeatActive: true,
         },
       });

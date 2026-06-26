@@ -65,9 +65,9 @@ export class MarketingCustomerDto {
   avatar?: string;
 
   @ApiProperty({
-    example: 'silver',
+    example: 'gold',
     enum: MARKETING_CUSTOMER_TIER_VALUES,
-    description: '会员等级（regular < silver < gold < diamond）',
+    description: '会员等级（regular < gold < diamond）',
   })
   tier: MarketingCustomerTierValue;
 
@@ -482,17 +482,18 @@ export class MarketingOverviewDto {
   @ApiProperty({ example: 87 })
   activeMemberCount: number;
 
-  /** 门店邀请码，purely-club 可通过该邀请码加入门店 */
-  @ApiProperty({ example: 'ABCD23', description: '门店邀请码' })
-  inviteCode: string;
+  /** 门店邀请码，purely-club 可通过该邀请码加入门店；门店尚未创建邀请码时为 null */
+  @ApiProperty({ example: 'ABCD23', description: '门店邀请码', nullable: true })
+  inviteCode: string | null;
 
-  /** 门店邀请码二维码图片 URL，前端扫码页可直接展示 */
+  /** 门店邀请码二维码图片 URL，前端扫码页可直接展示；门店尚未创建邀请码时为 null */
   @ApiProperty({
     example:
       'https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&margin=0&data=ABCD23',
     description: '门店邀请码二维码图片地址',
+    nullable: true,
   })
-  inviteCodeQrCodeImageUrl: string;
+  inviteCodeQrCodeImageUrl: string | null;
 
   /** 近 30 天储值趋势 */
   @ApiProperty({ type: [MarketingOverviewTrendPointDto] })

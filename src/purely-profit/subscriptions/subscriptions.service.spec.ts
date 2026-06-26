@@ -23,10 +23,9 @@ describe('SubscriptionsService', () => {
   const mockSubscriptionRecord = {
     id: 1,
     storeId: 10,
-    planCode: SubscriptionPlanCode.STARTER,
+    planCode: SubscriptionPlanCode.starter,
     planName: '基础版',
-    status: StoreSubscriptionStatus.ACTIVE,
-    maxAccountSeats: 1,
+    status: StoreSubscriptionStatus.active,
     startsAt: new Date('2026-05-13T10:00:00.000Z'),
     expiresAt: null,
     createdAt: new Date('2026-05-13T10:00:00.000Z'),
@@ -35,9 +34,8 @@ describe('SubscriptionsService', () => {
 
   const mockGrowthSubscriptionRecord = {
     ...mockSubscriptionRecord,
-    planCode: SubscriptionPlanCode.GROWTH,
+    planCode: SubscriptionPlanCode.growth,
     planName: '成长版',
-    maxAccountSeats: 2,
   };
 
   const prismaService = {
@@ -45,6 +43,10 @@ describe('SubscriptionsService', () => {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+    },
+    storeMembershipProfile: {
+      findUnique: jest.fn(),
+      upsert: jest.fn(),
     },
     storeSubscription: {
       findUnique: jest.fn(),
@@ -71,7 +73,7 @@ describe('SubscriptionsService', () => {
     currentMembership: {
       storeId: 10,
       staffId: 100,
-      role: StaffRole.OWNER,
+      role: StaffRole.owner,
       isActive: true,
       permissions: ['*'],
       subjectType: 'owner' as const,
@@ -113,9 +115,9 @@ describe('SubscriptionsService', () => {
       accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(
         10,
       );
-      prismaService.store.findUnique.mockResolvedValue({
-        id: 10,
-        maxAccountSeats: 1,
+      prismaService.store.findUnique.mockResolvedValue({ id: 10 });
+      prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+        subAccountQuota: 1,
       });
       prismaService.storeSubscription.findUnique.mockResolvedValue(
         mockSubscriptionRecord,
@@ -124,7 +126,7 @@ describe('SubscriptionsService', () => {
 
       const result = await service.getStoreSubscription(user, 10);
 
-      expect(result.planCode).toBe(SubscriptionPlanCode.STARTER);
+      expect(result.planCode).toBe(SubscriptionPlanCode.starter);
       expect(result.storeId).toBe(10);
       expect(result.seatSummary.maxAccountSeats).toBe(1);
     });
@@ -149,19 +151,19 @@ describe('SubscriptionsService', () => {
       prismaService.storeSubscription.findUnique
         .mockResolvedValueOnce(mockSubscriptionRecord)
         .mockResolvedValueOnce(mockGrowthSubscriptionRecord);
-      prismaService.store.findUnique.mockResolvedValue({
-        id: 10,
-        maxAccountSeats: 2,
+      prismaService.store.findUnique.mockResolvedValue({ id: 10 });
+      prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+        subAccountQuota: 2,
       });
       prismaService.staff.count.mockResolvedValue(1);
       prismaService.storeSubscription.upsert.mockResolvedValue({});
-      prismaService.store.update.mockResolvedValue({});
+      prismaService.storeMembershipProfile.upsert.mockResolvedValue({});
 
       const result = await service.updateStoreSubscription(user, 10, {
-        planCode: SubscriptionPlanCode.GROWTH,
+        planCode: SubscriptionPlanCode.growth,
       });
 
-      expect(result.planCode).toBe(SubscriptionPlanCode.GROWTH);
+      expect(result.planCode).toBe(SubscriptionPlanCode.growth);
       expect(result.seatSummary.maxAccountSeats).toBe(2);
     });
 
@@ -169,12 +171,12 @@ describe('SubscriptionsService', () => {
       prismaService.store.findFirst.mockResolvedValue({ id: 10 });
       prismaService.storeSubscription.findUnique.mockResolvedValue({
         ...mockSubscriptionRecord,
-        status: StoreSubscriptionStatus.CANCELLED,
+        status: StoreSubscriptionStatus.cancelled,
       });
 
       await expect(
         service.updateStoreSubscription(user, 10, {
-          planCode: SubscriptionPlanCode.GROWTH,
+          planCode: SubscriptionPlanCode.growth,
         }),
       ).rejects.toThrow(BadRequestException);
     });
@@ -184,40 +186,39 @@ describe('SubscriptionsService', () => {
       prismaService.storeSubscription.findUnique
         .mockResolvedValueOnce({
           ...mockSubscriptionRecord,
-          status: StoreSubscriptionStatus.EXPIRED,
+          status: StoreSubscriptionStatus.expired,
         })
         .mockResolvedValueOnce(mockGrowthSubscriptionRecord);
-      prismaService.store.findUnique.mockResolvedValue({
-        id: 10,
-        maxAccountSeats: 2,
+      prismaService.store.findUnique.mockResolvedValue({ id: 10 });
+      prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+        subAccountQuota: 2,
       });
       prismaService.staff.count.mockResolvedValue(0);
       prismaService.storeSubscription.upsert.mockResolvedValue({});
-      prismaService.store.update.mockResolvedValue({});
+      prismaService.storeMembershipProfile.upsert.mockResolvedValue({});
 
       const result = await service.updateStoreSubscription(user, 10, {
-        planCode: SubscriptionPlanCode.GROWTH,
+        planCode: SubscriptionPlanCode.growth,
       });
 
-      expect(result.planCode).toBe(SubscriptionPlanCode.GROWTH);
+      expect(result.planCode).toBe(SubscriptionPlanCode.growth);
     });
 
     it('缩容到低于已激活席位数时抛出 ConflictException', async () => {
       prismaService.store.findFirst.mockResolvedValue({ id: 10 });
       prismaService.storeSubscription.findUnique.mockResolvedValue({
         ...mockSubscriptionRecord,
-        planCode: SubscriptionPlanCode.GROWTH,
-        maxAccountSeats: 2,
+        planCode: SubscriptionPlanCode.growth,
       });
-      prismaService.store.findUnique.mockResolvedValue({
-        id: 10,
-        maxAccountSeats: 2,
+      prismaService.store.findUnique.mockResolvedValue({ id: 10 });
+      prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+        subAccountQuota: 2,
       });
       prismaService.staff.count.mockResolvedValue(2);
 
       await expect(
         service.updateStoreSubscription(user, 10, {
-          planCode: SubscriptionPlanCode.STARTER,
+          planCode: SubscriptionPlanCode.starter,
         }),
       ).rejects.toThrow(ConflictException);
     });
@@ -228,7 +229,7 @@ describe('SubscriptionsService', () => {
 
       await expect(
         service.updateStoreSubscription(user, 10, {
-          planCode: SubscriptionPlanCode.GROWTH,
+          planCode: SubscriptionPlanCode.growth,
         }),
       ).rejects.toThrow(BadRequestException);
     });
@@ -237,9 +238,9 @@ describe('SubscriptionsService', () => {
   /* ───── initializeStoreSubscription ───── */
 
   describe('initializeStoreSubscription', () => {
-    it('创建 STARTER 套餐并同步门店席位数', async () => {
+    it('创建 STARTER 套餐并同步门店席位数到 StoreMembershipProfile', async () => {
       prismaService.storeSubscription.upsert.mockResolvedValue({});
-      prismaService.store.update.mockResolvedValue({});
+      prismaService.storeMembershipProfile.upsert.mockResolvedValue({});
 
       const tx =
         prismaService as unknown as import('@prisma/client').PrismaClient;
@@ -248,14 +249,15 @@ describe('SubscriptionsService', () => {
       expect(prismaService.storeSubscription.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           create: expect.objectContaining({
-            planCode: SubscriptionPlanCode.STARTER,
-            maxAccountSeats: 1,
+            planCode: SubscriptionPlanCode.starter,
           }),
         }),
       );
-      expect(prismaService.store.update).toHaveBeenCalledWith({
-        where: { id: 10 },
-        data: { maxAccountSeats: 1 },
+      // 席位上限事实源已改为 StoreMembershipProfile.subAccountQuota（spec 0.6）
+      expect(prismaService.storeMembershipProfile.upsert).toHaveBeenCalledWith({
+        where: { storeId: 10 },
+        create: expect.objectContaining({ subAccountQuota: 1 }),
+        update: { subAccountQuota: 1 },
       });
     });
   });
@@ -272,9 +274,10 @@ describe('SubscriptionsService', () => {
     });
 
     it('返回正确的席位概览', async () => {
-      prismaService.store.findUnique.mockResolvedValue({
-        id: 10,
-        maxAccountSeats: 3,
+      // 席位上限事实源：StoreMembershipProfile.subAccountQuota（spec 0.6）
+      prismaService.store.findUnique.mockResolvedValue({ id: 10 });
+      prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+        subAccountQuota: 3,
       });
       prismaService.staff.count.mockResolvedValue(2);
 
@@ -288,9 +291,9 @@ describe('SubscriptionsService', () => {
     });
 
     it('已激活席位数超过上限时可用席位为 0', async () => {
-      prismaService.store.findUnique.mockResolvedValue({
-        id: 10,
-        maxAccountSeats: 2,
+      prismaService.store.findUnique.mockResolvedValue({ id: 10 });
+      prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+        subAccountQuota: 2,
       });
       prismaService.staff.count.mockResolvedValue(3);
 

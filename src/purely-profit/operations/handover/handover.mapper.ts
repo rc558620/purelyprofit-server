@@ -1,6 +1,5 @@
 import {
   EmployeeShiftType,
-  Prisma,
   SalesPaymentMethod,
   StaffRole,
 } from '@prisma/client';
@@ -40,21 +39,11 @@ const isSalesPaymentMethod = (value: unknown): value is SalesPaymentMethod =>
   SALES_PAYMENT_METHOD_VALUES.has(value as SalesPaymentMethod);
 
 const parseRenewPaymentMethods = (
-  renewRecords: Prisma.JsonValue,
-): SalesPaymentMethod[] => {
-  if (!Array.isArray(renewRecords)) {
-    return [];
-  }
-
-  return renewRecords.flatMap((record) => {
-    if (!record || typeof record !== 'object' || Array.isArray(record)) {
-      return [];
-    }
-
-    const paymentMethod = (record as { paymentMethod?: unknown }).paymentMethod;
-    return isSalesPaymentMethod(paymentMethod) ? [paymentMethod] : [];
-  });
-};
+  sessionRenewRecords: Array<{ paymentMethod: string }>,
+): SalesPaymentMethod[] =>
+  sessionRenewRecords
+    .map((record) => record.paymentMethod)
+    .filter(isSalesPaymentMethod);
 
 const shouldPrefixSpaceName = (productName: string): boolean =>
   productName === SPACE_PREPAID_DEDUCTION_ITEM_NAME ||
@@ -91,7 +80,7 @@ export const resolveOrderItemPaymentMethod = (
   }
 
   const renewPaymentMethods = [
-    ...new Set(parseRenewPaymentMethods(spaceSession.renewRecords)),
+    ...new Set(parseRenewPaymentMethods(spaceSession.sessionRenewRecords)),
   ];
 
   return renewPaymentMethods.length === 1
@@ -113,9 +102,9 @@ const resolveOperatorRole = (
   } | null,
 ): StaffRole | null => {
   if (!staff) return null;
-  if (staff.role === StaffRole.OWNER) return StaffRole.OWNER;
+  if (staff.role === StaffRole.owner) return StaffRole.owner;
   const subAccountRole = staff.employeeProfile?.subAccounts[0]?.role;
-  if (subAccountRole === 'manager') return StaffRole.MANAGER;
+  if (subAccountRole === 'manager') return StaffRole.manager;
   return staff.role;
 };
 

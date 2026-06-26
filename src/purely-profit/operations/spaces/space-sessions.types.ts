@@ -1,8 +1,8 @@
 import {
-  Prisma,
   SpaceBillingMode as PrismaSpaceBillingMode,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
+
 import type {
   SpaceCountdownFeeModeValue,
   SpaceCustomerPaymentMethodValue,
@@ -16,6 +16,43 @@ import type {
 } from './spaces.constants';
 import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types';
 
+/**
+ * space_session_items 表行类型（Prisma include 返回）
+ */
+export interface SpaceSessionItemRow {
+  id: number;
+  sessionId: number;
+  productId: string;
+  productName: string;
+  categoryName: string;
+  salePrice: number;
+  profit: number;
+  quantity: number;
+  sortOrder: number;
+  createdAt: Date;
+}
+
+/**
+ * space_session_renew_records 表行类型（Prisma include 返回）
+ */
+export interface SpaceSessionRenewRecordRow {
+  id: number;
+  sessionId: number;
+  recordId: string;
+  amount: number;
+  addedMinutes: number;
+  paymentMethod: SalesPaymentMethodValue;
+  grouponCode: string | null;
+  grouponPlatform: string | null;
+  note: string | null;
+  renewedAt: number;
+  createdAt: Date;
+}
+
+/**
+ * 消费明细记录（业务视图）
+ * 从 space_session_items 表查询后映射，不含 DB 元数据
+ */
 export interface SpaceSessionItemRecord {
   productId: string;
   productName: string;
@@ -25,8 +62,13 @@ export interface SpaceSessionItemRecord {
   quantity: number;
 }
 
+/**
+ * 续费记录（业务视图）
+ * 从 space_session_renew_records 表查询后映射
+ * recordId 是业务 ID（rn_{uuid}），id 字段不暴露给前端
+ */
 export interface SpaceSessionRenewRecord {
-  id: string;
+  id: string; // 业务 ID (recordId)
   amount: number;
   addedMinutes: number;
   paymentMethod: SalesPaymentMethodValue;
@@ -54,8 +96,8 @@ export interface SpaceSessionRecord {
   startTime: Date;
   endTime: Date | null;
   billingMode: PrismaSpaceBillingMode;
-  hourlyRate: Prisma.Decimal | null;
-  timeCost: Prisma.Decimal | null;
+  hourlyRate: number | null;
+  timeCost: number | null;
   countdownMinutes: number | null;
   autoCheckout: boolean | null;
   prepaidPaymentMethod: SalesPaymentMethodValue | null;
@@ -66,11 +108,13 @@ export interface SpaceSessionRecord {
   prepaidVoucherCode: string | null;
   prepaidVoucherPlatform: string | null;
   prepaidNote: string | null;
-  prepaidAmount: Prisma.Decimal | null;
-  prepaidVoucherFaceAmount: Prisma.Decimal | null;
-  items: Prisma.JsonValue;
-  itemsCost: Prisma.Decimal;
-  renewRecords: Prisma.JsonValue;
+  prepaidAmount: number | null;
+  prepaidVoucherFaceAmount: number | null;
+  /// Step 8.1: items 已拆到 space_session_items 表，通过 include 查询
+  sessionItems: SpaceSessionItemRow[];
+  itemsCost: number;
+  /// Step 8.1: renewRecords 已拆到 space_session_renew_records 表，通过 include 查询
+  sessionRenewRecords: SpaceSessionRenewRecordRow[];
   status: PrismaSpaceSessionStatus;
   saleOrderId: number | null;
   createdAt: Date;

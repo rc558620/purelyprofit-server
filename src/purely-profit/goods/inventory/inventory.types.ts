@@ -1,5 +1,4 @@
 import type { InventoryAdjustType } from '@prisma/client';
-import type { Prisma } from '@prisma/client';
 import type {
   InventoryStockAlertLevelValue,
   InventoryStockSortValue,
@@ -48,9 +47,9 @@ export interface InventoryProductRecord {
   name: string;
   category: string;
   code: string;
-  price: Prisma.Decimal;
-  profit: Prisma.Decimal;
-  costPrice: Prisma.Decimal | null;
+  price: number;
+  profit: number;
+  costPrice: number | null;
   unit: string;
   stock: number;
   alertThreshold: number;
@@ -62,7 +61,7 @@ export interface InventoryProductRecord {
 export interface InventoryStatsRow {
   stock: number;
   alertThreshold: number;
-  costPrice: Prisma.Decimal | null;
+  costPrice: number | null;
 }
 
 export interface InventoryAdjustmentRecord {
@@ -183,5 +182,7 @@ export interface InventoryStockChangeCommand {
   purchaseOrderId?: number;
   saleOrderId?: number;
 }
+
+import type { Prisma } from '@prisma/client';
 
 export type InventoryTransactionClient = Prisma.TransactionClient;

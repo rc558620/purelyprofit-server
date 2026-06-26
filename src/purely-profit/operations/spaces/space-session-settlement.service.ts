@@ -8,9 +8,9 @@ import { randomUUID } from 'node:crypto';
 import {
   Prisma,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
-  SpaceStatus as PrismaSpaceStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { yuanToCents } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RedisService } from '../../../redis/redis.service';
@@ -20,10 +20,6 @@ import type {
 } from '../sales-record/dto/sales-record.dto';
 import { SalesRecordService } from '../sales-record/sales-record.service';
 import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types';
-import {
-  toSpaceSessionItemsJson,
-  toSpaceSessionRenewRecordsJson,
-} from './space-sessions.mapper';
 import type {
   SpaceSessionItemRecord,
   SpaceSessionRecord,
@@ -45,7 +41,6 @@ export interface SettleSpaceSessionParams {
 
 export interface SettleSpaceSessionResult {
   session: SpaceSessionRecord;
-  spaceStatus: PrismaSpaceStatus;
   cancelledReservationId: number | null;
   salesOrder: SalesRecordResponseDto;
 }
@@ -140,14 +135,34 @@ export class SpaceSessionSettlementService {
           totalQuantity: params.settlement.totalQuantity,
         });
 
+        // Step 8.1: 删除旧 items，重新写入结算时的 items
+        await transaction.spaceSessionItem.deleteMany({
+          where: { sessionId: params.session.id },
+        });
+        await transaction.spaceSessionItem.createMany({
+          data: params.settlement.orderItems.map((item, index) => ({
+            sessionId: params.session.id,
+            productId: item.productId,
+            productName: item.productName,
+            categoryName: item.categoryName,
+            // orderItems 中的 salePrice/profit 是元，DB 存储为分
+            salePrice: yuanToCents(item.salePrice),
+            profit: yuanToCents(item.profit),
+            quantity: item.quantity,
+            sortOrder: index,
+          })),
+        });
+
+        // Step 8.1: renewRecords 已经在 renew 时写入了独立表
+        // 结算时不需要重新写入 renewRecords
+
         const nextSession = await transaction.spaceSession.update({
           where: { id: params.session.id },
           data: {
             endTime: new Date(params.checkoutAt),
-            timeCost: new Prisma.Decimal(params.settlement.timeCost),
-            items: toSpaceSessionItemsJson(params.settlement.orderItems),
-            itemsCost: new Prisma.Decimal(params.settlement.itemsCost),
-            renewRecords: toSpaceSessionRenewRecordsJson(params.renewRecords),
+            // settlement 中的 timeCost/itemsCost 是元，DB 存储为分
+            timeCost: yuanToCents(params.settlement.timeCost),
+            itemsCost: yuanToCents(params.settlement.itemsCost),
             status: PrismaSpaceSessionStatus.settled,
             saleOrderId: Number(createdOrder.id),
           },
@@ -163,6 +178,12 @@ export class SpaceSessionSettlementService {
                 },
               },
             },
+            sessionItems: {
+              orderBy: { sortOrder: 'asc' },
+            },
+            sessionRenewRecords: {
+              orderBy: { id: 'asc' },
+            },
           },
         });
 
@@ -177,23 +198,11 @@ export class SpaceSessionSettlementService {
               spaceId: latestSession.spaceId,
             } satisfies SpaceReservationSessionSnapshot,
           );
-        const nextSpaceStatus = latestSpace.enableDirtyRoom
-          ? PrismaSpaceStatus.cleaning
-          : await this.reservationsStateService.resolveReservationBackStatus(
-              transaction,
-              params.session.spaceId,
-            );
 
-        await transaction.space.update({
-          where: { id: params.session.spaceId },
-          data: {
-            status: nextSpaceStatus,
-          },
-        });
+        // Space.status 已移除，不再更新空间状态字段
 
         return {
           session: nextSession,
-          spaceStatus: nextSpaceStatus,
           cancelledReservationId,
           salesOrder: createdOrder,
         };

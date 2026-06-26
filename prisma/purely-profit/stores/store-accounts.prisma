@@ -1,28 +1,28 @@
 // 门店、账号与基础身份模型
 
 enum StaffRole {
-  OWNER
-  MANAGER
-  STAFF
+  owner
+  manager
+  staff
 }
 
 enum StaffStatus {
-  INVITED
-  ACTIVE
-  DISABLED
+  invited
+  active
+  disabled
 }
 
 enum SubscriptionPlanCode {
-  STARTER
-  GROWTH
-  PRO
-  CUSTOM
+  starter
+  growth
+  pro
+  custom
 }
 
 enum StoreSubscriptionStatus {
-  ACTIVE
-  EXPIRED
-  CANCELLED
+  active
+  expired
+  cancelled
 }
 
 model User {
@@ -36,7 +36,7 @@ model User {
   /// purely-club 微信小程序 openid（每个 appid 下唯一）
   wechatOpenid    String?   @unique @map("wechat_openid")
   /// 微信 unionid（同一主体下跨应用唯一，部分场景才返回）
-  wechatUnionid   String?   @map("wechat_unionid")
+  wechatUnionid   String?   @unique @map("wechat_unionid")
   /// 微信登录时拉取的头像 URL
   wechatAvatar    String?   @map("wechat_avatar")
   /// 微信登录时拉取的昵称
@@ -61,7 +61,6 @@ model Store {
   address                     String?
   ownerId                     Int                           @unique @map("owner_id")
   owner                       User                          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  maxAccountSeats             Int                           @default(1) @map("max_account_seats")
   subscription                StoreSubscription?
   partners                    StorePartner[]
   membershipProfile           StoreMembershipProfile?
@@ -112,10 +111,8 @@ model Store {
   spaces                      Space[]
   spaceReservations           SpaceReservation[]
   spaceSessions               SpaceSession[]
-  wechatMchId                 String?                       @map("wechat_mch_id")
-  wechatMchName               String?                       @map("wechat_mch_name")
-  wechatApiV3Key              String?                       @map("wechat_api_v3_key")
-  wechatConfiguredAt          DateTime?                     @map("wechat_configured_at")
+  inviteCodes                 StoreInviteCode[]
+  wechatPayConfig             StoreWechatPayConfig?
   createdAt                   DateTime                      @default(now()) @map("created_at")
   updatedAt                   DateTime                      @updatedAt @map("updated_at")
   /// 软删除标记：非 null 表示已删除，值是删除时间
@@ -133,8 +130,7 @@ model StoreSubscription {
   store           Store                   @relation(fields: [storeId], references: [id], onDelete: Restrict)
   planCode        SubscriptionPlanCode    @map("plan_code")
   planName        String                  @map("plan_name")
-  status          StoreSubscriptionStatus @default(ACTIVE)
-  maxAccountSeats Int                     @map("max_account_seats")
+  status          StoreSubscriptionStatus @default(active)
   startsAt        DateTime                @default(now()) @map("starts_at")
   expiresAt       DateTime?               @map("expires_at")
   createdAt       DateTime                @default(now()) @map("created_at")
@@ -153,9 +149,9 @@ model Staff {
   email                String
   name                 String
   phone                String?
-  role                 StaffRole                     @default(STAFF)
+  role                 StaffRole                     @default(staff)
   permissions          String[]                      @default([])
-  status               StaffStatus                   @default(INVITED)
+  status               StaffStatus                   @default(invited)
   isSeatActive         Boolean                       @default(false) @map("is_seat_active")
   isActive             Boolean                       @default(true) @map("is_active")
   memberPointsLogs     MemberPointsLog[]             @relation("MemberPointsLogsOperator")

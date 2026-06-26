@@ -78,7 +78,7 @@ describe('MarketingAccessService', () => {
           currentMembership: {
             staffId: 9,
             storeId: 18,
-            role: 'STAFF',
+            role: 'staff',
             permissions: ['goods:view'],
             isActive: true,
             subjectType: 'staff',

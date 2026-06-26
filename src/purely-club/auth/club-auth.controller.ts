@@ -109,6 +109,30 @@ export class ClubAuthController {
     return this.clubAuthService.wechatLogin(dto);
   }
 
+  @Post('bind-phone/send-code')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ClubJwtAuthGuard)
+  @ApiBearerAuth()
+  @Throttle({ default: { ttl: 60, limit: 3 } })
+  @ApiOperation({
+    summary: '发送绑定手机号验证码',
+    description:
+      '微信登录成功后，若 needPhoneBind=true，前端跳转绑定页先调用此接口发送验证码。' +
+      '同一手机号 60 秒内不可重复发送。' +
+      '验证码有效期由 AUTH_REGISTER_CODE_TTL_SECONDS 控制（默认 600 秒）。' +
+      '后续通过 POST /club/auth/bind-phone 完成绑定。',
+  })
+  @ApiOkResponse({
+    description: '验证码发送成功；同一手机号 60 秒内不可重复发送',
+    type: SendLoginCodeResponseDto,
+  })
+  sendBindPhoneCode(
+    @CurrentUser() _user: AuthenticatedUser,
+    @Body() dto: SendRegisterCodeDto,
+  ): Promise<SendLoginCodeResponseDto> {
+    return this.clubAuthService.sendBindPhoneCode(dto);
+  }
+
   @Post('bind-phone')
   @HttpCode(HttpStatus.OK)
   @UseGuards(ClubJwtAuthGuard)
@@ -118,7 +142,7 @@ export class ClubAuthController {
     summary: '微信登录后绑定手机号',
     description:
       '微信登录成功后，若 needPhoneBind=true，前端跳转绑定页调用此接口。' +
-      '验证码来自 POST /club/auth/login/send-code。' +
+      '验证码来自 POST /club/auth/bind-phone/send-code。' +
       '若手机号已有账号，自动将微信 openid 合并到手机号账号；否则直接绑定到当前用户。' +
       '绑定成功后返回新 JWT token。',
   })

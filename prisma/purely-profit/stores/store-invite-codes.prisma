@@ -1,0 +1,15 @@
+// 邀请码持久化模型（Step 3: 0.4）
+
+model StoreInviteCode {
+  id        Int      @id @default(autoincrement())
+  storeId   Int      @map("store_id")
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  code      String   @unique // 邀请码（8 位字符，字符集: 0-9A-Z 去除 O/I/1）
+  isActive  Boolean  @default(true) @map("is_active") // 是否启用
+  usedCount Int      @default(0) @map("used_count") // 使用次数
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([storeId, isActive])
+  @@map("store_invite_codes")
+}

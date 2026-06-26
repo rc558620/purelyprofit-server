@@ -1,9 +1,4 @@
-import {
-  Prisma,
-  SpaceBillingMode,
-  SpaceSessionStatus,
-  SpaceStatus,
-} from '@prisma/client';
+import { SpaceBillingMode, SpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { SalesRecordResponseDto } from '../sales-record/dto/sales-record.dto';
 import type {
@@ -23,7 +18,7 @@ export const createSpaceTestUser = (): AuthenticatedUser => ({
   currentMembership: {
     staffId: 8,
     storeId: 18,
-    role: 'OWNER',
+    role: 'owner',
     permissions: ['*'],
     isActive: true,
     subjectType: 'owner',
@@ -69,18 +64,24 @@ export const createSpaceSessionRecord = (): SpaceSessionSettlementRecord =>
     prepaidNote: null,
     prepaidAmount: null,
     prepaidVoucherFaceAmount: null,
-    items: [
+    /// Step 8.1: items 已拆为独立表
+    sessionItems: [
       {
+        id: 1,
+        sessionId: 9,
         productId: '201',
         productName: '可乐',
         categoryName: '饮品',
-        salePrice: 20,
-        profit: 8,
+        salePrice: 2000, // DB 存储为分（20元）
+        profit: 800,     // DB 存储为分（8元）
         quantity: 1,
+        sortOrder: 0,
+        createdAt: new Date(2026, 5, 4, 9, 0, 0),
       },
     ],
-    itemsCost: new Prisma.Decimal(20),
-    renewRecords: [],
+    itemsCost: 2000, // DB 存储为分（20元）
+    /// Step 8.1: renewRecords 已拆为独立表
+    sessionRenewRecords: [],
     status: SpaceSessionStatus.active,
     saleOrderId: null,
     createdAt: new Date(2026, 5, 4, 9, 0, 0),
@@ -104,7 +105,7 @@ export const createSettleSpaceSessionParams = (): SettleSpaceSessionParams => ({
     durationMinutes: 90,
     durationLabel: '1小时30分钟',
     timeCost: 0,
-    itemsCost: 20,
+    itemsCost: 20,   // 业务层单位为元
     renewDeduction: 0,
     prepaidDeduction: 0,
     totalAmount: 20,
@@ -113,7 +114,7 @@ export const createSettleSpaceSessionParams = (): SettleSpaceSessionParams => ({
         productId: '201',
         productName: '可乐',
         categoryName: '饮品',
-        salePrice: 20,
+        salePrice: 20,  // 业务层单位为元
         profit: 8,
         quantity: 1,
       },
@@ -131,7 +132,7 @@ export const createUpdatedSpaceSession = () => {
   return {
     ...session,
     endTime: new Date(checkoutAt),
-    timeCost: new Prisma.Decimal(0),
+    timeCost: 0, // Int (cents)
     status: SpaceSessionStatus.settled,
     saleOrderId: 12,
   };
@@ -139,7 +140,6 @@ export const createUpdatedSpaceSession = () => {
 
 export const createSettleSpaceSessionResult = (): SettleSpaceSessionResult => ({
   session: createUpdatedSpaceSession(),
-  spaceStatus: SpaceStatus.cleaning,
   cancelledReservationId: null,
   salesOrder: createSalesOrderResponse(),
 });
@@ -156,6 +156,14 @@ export const createSpaceTransactionClient = () => ({
   spaceSession: {
     findUnique: jest.fn(),
     update: jest.fn(),
+  },
+  /// Step 8.1: 新增 spaceSessionItem 和 spaceSessionRenewRecord
+  spaceSessionItem: {
+    deleteMany: jest.fn(),
+    createMany: jest.fn(),
+  },
+  spaceSessionRenewRecord: {
+    create: jest.fn(),
   },
   space: {
     findUnique: jest.fn(),

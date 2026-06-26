@@ -7,9 +7,9 @@ export const SUBSCRIPTION_PLAN_CATALOG: Record<
   PresetSubscriptionPlanCode,
   PlanSnapshot
 > = {
-  STARTER: { planName: '基础版', maxAccountSeats: 1 },
-  GROWTH: { planName: '成长版', maxAccountSeats: 2 },
-  PRO: { planName: '专业版', maxAccountSeats: 3 },
+  starter: { planName: '基础版', maxAccountSeats: 1 },
+  growth: { planName: '成长版', maxAccountSeats: 2 },
+  pro: { planName: '专业版', maxAccountSeats: 3 },
 };
 
 export function buildCustomSubscriptionPlanName(

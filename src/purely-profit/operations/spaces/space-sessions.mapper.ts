@@ -1,5 +1,4 @@
-import { Prisma } from '@prisma/client';
-import { toTimestampMs } from '../../commerce/commerce.utils';
+import { centsToYuan, toTimestampMs } from '../../commerce/commerce.utils';
 import type {
   SpaceSessionItemResponseDto,
   SpaceSessionRenewRecordResponseDto,
@@ -7,97 +6,61 @@ import type {
 } from './dto/space-session.dto';
 import type {
   SpaceSessionItemRecord,
+  SpaceSessionItemRow,
   SpaceSessionRecord,
   SpaceSessionRenewRecord,
+  SpaceSessionRenewRecordRow,
 } from './space-sessions.types';
 import type {
   SpaceCustomerPaymentMethodValue,
   SpaceSettlementChannelValue,
 } from './dto/space-session.constants';
-import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types';
 
-export const parseSpaceSessionItems = (
-  value: Prisma.JsonValue,
-): SpaceSessionItemRecord[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
+/**
+ * Step 8.1: 从 space_session_items 行类型映射为业务记录
+ * 替代旧版 parseSpaceSessionItems(JSON)
+ */
+export const mapSessionItemRows = (
+  rows: SpaceSessionItemRow[] | undefined | null,
+): SpaceSessionItemRecord[] =>
+  (rows ?? [])
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((row) => ({
+      productId: row.productId,
+      productName: row.productName,
+      categoryName: row.categoryName,
+      // DB 存储为分（Int），转为元
+      salePrice: centsToYuan(row.salePrice),
+      profit: centsToYuan(row.profit),
+      quantity: row.quantity,
+    }));
 
-  return value.flatMap((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      return [];
-    }
-    const row = item as Record<string, unknown>;
-    if (
-      typeof row.productId !== 'string' ||
-      typeof row.productName !== 'string' ||
-      typeof row.categoryName !== 'string' ||
-      typeof row.salePrice !== 'number' ||
-      typeof row.profit !== 'number' ||
-      typeof row.quantity !== 'number'
-    ) {
-      return [];
-    }
-
-    return [
-      {
-        productId: row.productId,
-        productName: row.productName,
-        categoryName: row.categoryName,
-        salePrice: row.salePrice,
-        profit: row.profit,
-        quantity: row.quantity,
-      },
-    ];
-  });
-};
-
-export const parseSpaceSessionRenewRecords = (
-  value: Prisma.JsonValue,
-): SpaceSessionRenewRecord[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.flatMap((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      return [];
-    }
-    const row = item as Record<string, unknown>;
-    if (
-      typeof row.id !== 'string' ||
-      typeof row.amount !== 'number' ||
-      typeof row.addedMinutes !== 'number' ||
-      typeof row.paymentMethod !== 'string' ||
-      typeof row.renewedAt !== 'number'
-    ) {
-      return [];
-    }
-
-    return [
-      {
-        id: row.id,
-        amount: row.amount,
-        addedMinutes: row.addedMinutes,
-        paymentMethod: row.paymentMethod as SalesPaymentMethodValue,
-        ...(typeof row.grouponCode === 'string'
-          ? { grouponCode: row.grouponCode }
-          : {}),
-        ...(typeof row.grouponPlatform === 'string'
-          ? { grouponPlatform: row.grouponPlatform }
-          : {}),
-        ...(typeof row.note === 'string' ? { note: row.note } : {}),
-        renewedAt: row.renewedAt,
-      },
-    ];
-  });
-};
+/**
+ * Step 8.1: 从 space_session_renew_records 行类型映射为业务记录
+ * 替代旧版 parseSpaceSessionRenewRecords(JSON)
+ */
+export const mapRenewRecordRows = (
+  rows: SpaceSessionRenewRecordRow[] | undefined | null,
+): SpaceSessionRenewRecord[] =>
+  (rows ?? []).map((row) => ({
+    id: row.recordId, // 业务 ID 暴露给前端
+    // DB 存储为分（Int），转为元
+    amount: centsToYuan(row.amount),
+    addedMinutes: row.addedMinutes,
+    paymentMethod: row.paymentMethod,
+    ...(row.grouponCode !== null ? { grouponCode: row.grouponCode } : {}),
+    ...(row.grouponPlatform !== null
+      ? { grouponPlatform: row.grouponPlatform }
+      : {}),
+    ...(row.note !== null ? { note: row.note } : {}),
+    renewedAt: row.renewedAt,
+  }));
 
 export const toSpaceSessionResponse = (
   session: SpaceSessionRecord,
 ): SpaceSessionResponseDto => {
-  const items = parseSpaceSessionItems(session.items);
-  const renewRecords = parseSpaceSessionRenewRecords(session.renewRecords);
+  const items = mapSessionItemRows(session.sessionItems);
+  const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
 
   return {
     id: String(session.id),
@@ -111,10 +74,10 @@ export const toSpaceSessionResponse = (
     ...(session.endTime ? { endTime: toTimestampMs(session.endTime) } : {}),
     billingMode: session.billingMode,
     ...(session.hourlyRate !== null
-      ? { hourlyRate: Number(session.hourlyRate) }
+      ? { hourlyRate: centsToYuan(Number(session.hourlyRate)) }
       : {}),
     ...(session.timeCost !== null
-      ? { timeCost: Number(session.timeCost) }
+      ? { timeCost: centsToYuan(Number(session.timeCost)) }
       : {}),
     ...(session.countdownMinutes !== null
       ? { countdownMinutes: session.countdownMinutes }
@@ -151,13 +114,14 @@ export const toSpaceSessionResponse = (
       : {}),
     ...(session.prepaidNote ? { prepaidNote: session.prepaidNote } : {}),
     ...(session.prepaidAmount !== null
-      ? { prepaidAmount: Number(session.prepaidAmount) }
+      ? { prepaidAmount: centsToYuan(Number(session.prepaidAmount)) }
       : {}),
     ...(session.prepaidVoucherFaceAmount !== null
-      ? { prepaidVoucherFaceAmount: Number(session.prepaidVoucherFaceAmount) }
+      ? { prepaidVoucherFaceAmount: centsToYuan(Number(session.prepaidVoucherFaceAmount)) }
       : {}),
     items: items.map((item): SpaceSessionItemResponseDto => ({ ...item })),
-    itemsCost: Number(session.itemsCost),
+    // DB 存储为分（Int），转为元
+    itemsCost: centsToYuan(Number(session.itemsCost)),
     renewRecords: renewRecords.map(
       (record): SpaceSessionRenewRecordResponseDto => ({ ...record }),
     ),
@@ -168,13 +132,3 @@ export const toSpaceSessionResponse = (
     createdAt: toTimestampMs(session.createdAt),
   };
 };
-
-export const toSpaceSessionItemsJson = (
-  items: SpaceSessionItemRecord[],
-): Prisma.InputJsonValue =>
-  items.map((item) => ({ ...item })) as Prisma.InputJsonValue;
-
-export const toSpaceSessionRenewRecordsJson = (
-  records: SpaceSessionRenewRecord[],
-): Prisma.InputJsonValue =>
-  records.map((record) => ({ ...record })) as Prisma.InputJsonValue;

@@ -101,7 +101,7 @@ describe('StoresService', () => {
             staffs: {
               some: {
                 isActive: true,
-                status: StaffStatus.ACTIVE,
+                status: StaffStatus.active,
                 OR: [
                   { userId: user.id },
                   { email: user.email },
@@ -168,9 +168,9 @@ describe('StoresService', () => {
       userId: user.id,
       email: user.email,
       name: '老板',
-      role: StaffRole.OWNER,
+      role: StaffRole.owner,
       permissions: ['*'],
-      status: StaffStatus.ACTIVE,
+      status: StaffStatus.active,
       isSeatActive: true,
       isActive: true,
     });
@@ -230,9 +230,9 @@ describe('StoresService', () => {
       userId: user.id,
       email: user.email,
       name: '老板',
-      role: StaffRole.OWNER,
+      role: StaffRole.owner,
       permissions: ['*'],
-      status: StaffStatus.ACTIVE,
+      status: StaffStatus.active,
       isSeatActive: true,
       isActive: true,
     });
@@ -253,7 +253,6 @@ describe('StoresService', () => {
         name: '纯利优选示范店',
         address: '北京市朝阳区望京街道 1 号',
         ownerId: user.id,
-        maxAccountSeats: 1,
       },
       select: {
         id: true,
@@ -270,9 +269,9 @@ describe('StoresService', () => {
         userId: user.id,
         email: user.email,
         name: '老板',
-        role: StaffRole.OWNER,
+        role: StaffRole.owner,
         permissions: ['*'],
-        status: StaffStatus.ACTIVE,
+        status: StaffStatus.active,
         isSeatActive: true,
       },
     });

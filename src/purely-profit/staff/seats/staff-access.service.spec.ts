@@ -80,7 +80,7 @@ describe('StaffAccessService', () => {
     prismaService.staff.findFirst.mockResolvedValue({
       id: 11,
       storeId: 18,
-      role: StaffRole.MANAGER,
+      role: StaffRole.manager,
       isSeatActive: true,
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(18);
@@ -90,7 +90,7 @@ describe('StaffAccessService', () => {
     ).resolves.toEqual({
       id: 11,
       storeId: 18,
-      role: StaffRole.MANAGER,
+      role: StaffRole.manager,
       isSeatActive: true,
     });
   });
@@ -107,7 +107,7 @@ describe('StaffAccessService', () => {
     prismaService.staff.findFirst.mockResolvedValue({
       id: 11,
       storeId: 18,
-      role: StaffRole.OWNER,
+      role: StaffRole.owner,
       isSeatActive: true,
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(18);

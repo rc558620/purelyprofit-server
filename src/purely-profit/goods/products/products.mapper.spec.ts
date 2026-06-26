@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import { buildProductResponse } from './products.mapper';
 import type { ProductRecord } from './products.types';
 
@@ -14,9 +13,9 @@ describe('products.mapper', () => {
       name: '可乐',
       category: '饮品',
       code: 'SKU-001',
-      price: new Prisma.Decimal('500'),
-      profit: new Prisma.Decimal('200'),
-      costPrice: new Prisma.Decimal('300'),
+      price: 500,
+      profit: 200,
+      costPrice: 300,
       unit: '瓶',
       stock: 10,
       alertThreshold: 3,

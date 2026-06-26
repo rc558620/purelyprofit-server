@@ -136,9 +136,9 @@ describe('StaffService', () => {
       email: 'staff@example.com',
       name: '李四',
       phone: '13800138001',
-      role: StaffRole.STAFF,
+      role: StaffRole.staff,
       permissions: [],
-      status: StaffStatus.INVITED,
+      status: StaffStatus.invited,
       isSeatActive: false,
       isActive: true,
       createdAt: new Date('2026-05-13T10:00:00.000Z'),
@@ -168,9 +168,9 @@ describe('StaffService', () => {
         email: 'staff@example.com',
         name: '李四',
         phone: '13800138001',
-        role: StaffRole.STAFF,
+        role: StaffRole.staff,
         permissions: [],
-        status: StaffStatus.INVITED,
+        status: StaffStatus.invited,
         isSeatActive: false,
         isActive: true,
       },
@@ -188,7 +188,7 @@ describe('StaffService', () => {
         storeId: 8,
         email: 'staff@example.com',
         name: '旧名',
-        status: StaffStatus.DISABLED,
+        status: StaffStatus.disabled,
         isSeatActive: false,
         isActive: false, // 非活跃状态
       });
@@ -200,9 +200,9 @@ describe('StaffService', () => {
       email: 'staff@example.com',
       name: '新名',
       phone: '13800138002',
-      role: StaffRole.MANAGER,
+      role: StaffRole.manager,
       permissions: [],
-      status: StaffStatus.INVITED,
+      status: StaffStatus.invited,
       isSeatActive: false,
       isActive: true,
     });
@@ -218,7 +218,7 @@ describe('StaffService', () => {
       name: '新名',
       email: 'staff@example.com',
       phone: '13800138002',
-      role: StaffRole.MANAGER,
+      role: StaffRole.manager,
     });
 
     expect(prismaService.staff.update).toHaveBeenCalledWith({
@@ -226,8 +226,8 @@ describe('StaffService', () => {
       data: expect.objectContaining({
         name: '新名',
         phone: '13800138002',
-        role: StaffRole.MANAGER,
-        status: StaffStatus.INVITED,
+        role: StaffRole.manager,
+        status: StaffStatus.invited,
         isSeatActive: false,
         isActive: true,
       }),
@@ -291,7 +291,7 @@ describe('StaffService', () => {
         storeId: 8,
         email: 'staff@example.com',
         userId: null,
-        status: StaffStatus.INVITED,
+        status: StaffStatus.invited,
         isSeatActive: false,
       });
 
@@ -314,7 +314,7 @@ describe('StaffService', () => {
         storeId: 8,
         email: 'staff@example.com',
         userId: 5,
-        status: StaffStatus.INVITED,
+        status: StaffStatus.invited,
         isSeatActive: false,
       });
     subscriptionsService.getSeatSummary.mockResolvedValue({
@@ -328,9 +328,9 @@ describe('StaffService', () => {
       userId: 5,
       email: 'staff@example.com',
       name: '员工',
-      role: StaffRole.STAFF,
+      role: StaffRole.staff,
       permissions: [],
-      status: StaffStatus.ACTIVE,
+      status: StaffStatus.active,
       isSeatActive: true,
       isActive: true,
     });
@@ -349,7 +349,7 @@ describe('StaffService', () => {
     prismaService.staff.findFirst.mockResolvedValue({
       id: 5,
       storeId: 8,
-      role: StaffRole.OWNER,
+      role: StaffRole.owner,
       permissions: ['*'],
       isActive: true,
     });
@@ -402,7 +402,7 @@ describe('StaffService', () => {
     prismaService.staff.findFirst.mockResolvedValue({
       id: 20,
       storeId: 8,
-      role: StaffRole.STAFF,
+      role: StaffRole.staff,
       isSeatActive: false, // 当前未占席位
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
@@ -421,7 +421,7 @@ describe('StaffService', () => {
     prismaService.staff.findFirst.mockResolvedValue({
       id: 20,
       storeId: 8,
-      role: StaffRole.STAFF,
+      role: StaffRole.staff,
       isSeatActive: false,
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
@@ -435,9 +435,9 @@ describe('StaffService', () => {
       storeId: 8,
       email: 'staff@example.com',
       name: '员工',
-      role: StaffRole.STAFF,
+      role: StaffRole.staff,
       permissions: [],
-      status: StaffStatus.INVITED,
+      status: StaffStatus.invited,
       isSeatActive: false,
       isActive: true,
     });
@@ -461,7 +461,7 @@ describe('StaffService', () => {
     prismaService.staff.findFirst.mockResolvedValue({
       id: 20,
       storeId: 8,
-      role: StaffRole.STAFF,
+      role: StaffRole.staff,
       isSeatActive: true,
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
@@ -470,9 +470,9 @@ describe('StaffService', () => {
       storeId: 8,
       email: 'staff@example.com',
       name: '员工',
-      role: StaffRole.STAFF,
+      role: StaffRole.staff,
       permissions: [],
-      status: StaffStatus.DISABLED,
+      status: StaffStatus.disabled,
       isSeatActive: false,
       isActive: false,
     });
@@ -484,7 +484,7 @@ describe('StaffService', () => {
         data: expect.objectContaining({
           isActive: false,
           isSeatActive: false,
-          status: StaffStatus.DISABLED,
+          status: StaffStatus.disabled,
         }),
       }),
     );
@@ -497,7 +497,7 @@ describe('StaffService', () => {
     prismaService.staff.findFirst.mockResolvedValue({
       id: 20,
       storeId: 8,
-      role: StaffRole.STAFF,
+      role: StaffRole.staff,
       isSeatActive: true,
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
@@ -506,9 +506,9 @@ describe('StaffService', () => {
       storeId: 8,
       email: 'staff@example.com',
       name: '员工',
-      role: StaffRole.STAFF,
+      role: StaffRole.staff,
       permissions: [],
-      status: StaffStatus.DISABLED,
+      status: StaffStatus.disabled,
       isSeatActive: false,
       isActive: false,
     });
@@ -521,7 +521,7 @@ describe('StaffService', () => {
       data: {
         isActive: false,
         isSeatActive: false,
-        status: StaffStatus.DISABLED,
+        status: StaffStatus.disabled,
       },
     });
     expect(prismaService.staff.delete).not.toHaveBeenCalled();

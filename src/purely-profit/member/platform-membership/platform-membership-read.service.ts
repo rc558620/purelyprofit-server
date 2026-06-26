@@ -65,21 +65,37 @@ export class PlatformMembershipReadService {
   async getCenterByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipCenterResponseDto> {
-    const [profile, partners, paidOrders, promoRecords, applications, plans] =
-      await Promise.all([
-        ensureMembershipProfile(this.prisma, storeId),
-        findStorePartners(this.prisma, storeId),
-        findPaidStoreMembershipOrders(this.prisma, storeId),
-        findStoreMembershipPromoRecords(this.prisma, storeId),
-        findStorePartnerApplications(this.prisma, storeId),
-        loadPlanCatalog(this.prisma),
-      ]);
+    const [
+      profile,
+      partners,
+      paidOrders,
+      promoRecords,
+      applications,
+      plans,
+      inviteCodeRecord,
+    ] = await Promise.all([
+      ensureMembershipProfile(this.prisma, storeId),
+      findStorePartners(this.prisma, storeId),
+      findPaidStoreMembershipOrders(this.prisma, storeId),
+      findStoreMembershipPromoRecords(this.prisma, storeId),
+      findStorePartnerApplications(this.prisma, storeId),
+      loadPlanCatalog(this.prisma),
+      this.prisma.storeInviteCode.findFirst({
+        where: { storeId, isActive: true },
+        select: { code: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,
       plans,
     });
-    const profileResponse = buildProfileResponse(effectiveProfile, partners);
+    const profileResponse = buildProfileResponse(
+      effectiveProfile,
+      partners,
+      inviteCodeRecord?.code ?? null,
+    );
 
     return {
       memberInfo: profileResponse.memberInfo,
@@ -101,19 +117,29 @@ export class PlatformMembershipReadService {
   async getProfileByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipProfileResponseDto> {
-    const [profile, partners, paidOrders, plans] = await Promise.all([
-      ensureMembershipProfile(this.prisma, storeId),
-      findStorePartners(this.prisma, storeId),
-      findPaidStoreMembershipOrders(this.prisma, storeId),
-      loadPlanCatalog(this.prisma),
-    ]);
+    const [profile, partners, paidOrders, plans, inviteCodeRecord] =
+      await Promise.all([
+        ensureMembershipProfile(this.prisma, storeId),
+        findStorePartners(this.prisma, storeId),
+        findPaidStoreMembershipOrders(this.prisma, storeId),
+        loadPlanCatalog(this.prisma),
+        this.prisma.storeInviteCode.findFirst({
+          where: { storeId, isActive: true },
+          select: { code: true },
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,
       plans,
     });
 
-    return buildProfileResponse(effectiveProfile, partners);
+    return buildProfileResponse(
+      effectiveProfile,
+      partners,
+      inviteCodeRecord?.code ?? null,
+    );
   }
 
   async listOrdersByStoreId(
@@ -128,9 +154,7 @@ export class PlatformMembershipReadService {
         planId: true,
         planName: true,
         amount: true,
-        pointsDeducted: true,
         pointsUsed: true,
-        beanDeducted: true,
         beansUsed: true,
         status: true,
         paymentChannel: true,
@@ -149,21 +173,36 @@ export class PlatformMembershipReadService {
   async getPromoCenterByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
-    const [profile, partners, promoRecords, paidOrders, plans] =
-      await Promise.all([
-        ensureMembershipProfile(this.prisma, storeId),
-        findStorePartners(this.prisma, storeId),
-        findStoreMembershipPromoRecords(this.prisma, storeId),
-        findPaidStoreMembershipOrders(this.prisma, storeId),
-        loadPlanCatalog(this.prisma),
-      ]);
+    const [
+      profile,
+      partners,
+      promoRecords,
+      paidOrders,
+      plans,
+      inviteCodeRecord,
+    ] = await Promise.all([
+      ensureMembershipProfile(this.prisma, storeId),
+      findStorePartners(this.prisma, storeId),
+      findStoreMembershipPromoRecords(this.prisma, storeId),
+      findPaidStoreMembershipOrders(this.prisma, storeId),
+      loadPlanCatalog(this.prisma),
+      this.prisma.storeInviteCode.findFirst({
+        where: { storeId, isActive: true },
+        select: { code: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,
       plans,
     });
     const statsByPeriod = buildPromoStatsByPeriod(promoRecords);
-    const profileResponse = buildProfileResponse(effectiveProfile, partners);
+    const profileResponse = buildProfileResponse(
+      effectiveProfile,
+      partners,
+      inviteCodeRecord?.code ?? null,
+    );
     const primaryPartner = partners[0] ?? null;
 
     return {
@@ -181,14 +220,25 @@ export class PlatformMembershipReadService {
     storeId: number,
     rawQuery: Record<string, unknown>,
   ): Promise<PromotionDetailCompatResponse> {
-    const [profile, partners, promoRecords, paidOrders, plans] =
-      await Promise.all([
-        ensureMembershipProfile(this.prisma, storeId),
-        findStorePartners(this.prisma, storeId),
-        findStoreMembershipPromoRecords(this.prisma, storeId),
-        findPaidStoreMembershipOrders(this.prisma, storeId),
-        loadPlanCatalog(this.prisma),
-      ]);
+    const [
+      profile,
+      partners,
+      promoRecords,
+      paidOrders,
+      plans,
+      inviteCodeRecord,
+    ] = await Promise.all([
+      ensureMembershipProfile(this.prisma, storeId),
+      findStorePartners(this.prisma, storeId),
+      findStoreMembershipPromoRecords(this.prisma, storeId),
+      findPaidStoreMembershipOrders(this.prisma, storeId),
+      loadPlanCatalog(this.prisma),
+      this.prisma.storeInviteCode.findFirst({
+        where: { storeId, isActive: true },
+        select: { code: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
     const effectiveProfile = normalizeMembershipProfileFromPaidOrders({
       profile,
       paidOrders,
@@ -203,6 +253,7 @@ export class PlatformMembershipReadService {
       promoRecords,
       filteredRecords,
       filters,
+      inviteCode: inviteCodeRecord?.code ?? null,
     });
   }
 }

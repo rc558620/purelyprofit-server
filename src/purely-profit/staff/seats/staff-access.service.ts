@@ -102,7 +102,7 @@ export class StaffAccessService {
 
     await this.ensureCanManageStaff(user, staff.storeId, requiredPermission);
 
-    if (staff.role === StaffRole.OWNER) {
+    if (staff.role === StaffRole.owner) {
       throw new ForbiddenException('不能直接修改或删除老板身份');
     }
 

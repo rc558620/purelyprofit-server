@@ -1,6 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Prisma } from '@prisma/client';
 import { CostsWriteService } from './costs-write.service';
 import {
   createCostsCommerceAccessServiceMock,
@@ -38,7 +37,7 @@ describe('CostsWriteService', () => {
       type: 'variable',
       category: 'marketing',
       sourceType: 'manual',
-      amount: new Prisma.Decimal('88.50'),
+      amount: 88.5,
       note: null,
       date: new Date('2026-05-14T00:00:00.000Z'),
       createdAt: new Date('2026-05-14T10:00:00.000Z'),
@@ -115,8 +114,10 @@ describe('CostsWriteService', () => {
     });
   });
 
-  it('syncPurchaseCost 会按 purchaseOrderId 幂等 upsert', async () => {
-    prismaService.costRecord.upsert.mockResolvedValue({ id: 99 });
+  it('syncPurchaseCost 会按 purchaseOrderId 幂等 upsert（已有记录时 update）', async () => {
+    const existingRecord = { id: 99 };
+    prismaService.costRecord.findFirst.mockResolvedValue(existingRecord);
+    prismaService.costRecord.update.mockResolvedValue({ id: 99, amount: 120 });
 
     await service.syncPurchaseCost(prismaService as never, {
       storeId: 18,
@@ -128,21 +129,58 @@ describe('CostsWriteService', () => {
       date: new Date('2026-05-14T00:00:00.000Z'),
     });
 
-    expect(prismaService.costRecord.upsert).toHaveBeenCalledWith(
+    expect(prismaService.costRecord.findFirst).toHaveBeenCalledWith({
+      where: {
+        storeId: 18,
+        sourceType: 'purchase',
+        purchaseOrderId: 11,
+      },
+    });
+    expect(prismaService.costRecord.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: {
-          storeId_sourceType_purchaseOrderId: {
-            storeId: 18,
-            sourceType: 'purchase',
-            purchaseOrderId: 11,
-          },
-        },
+        where: { id: 99 },
       }),
     );
+    expect(prismaService.costRecord.create).not.toHaveBeenCalled();
+  });
+
+  it('syncPurchaseCost 在无已有记录时会 create', async () => {
+    prismaService.costRecord.findFirst.mockResolvedValue(null);
+    prismaService.costRecord.create.mockResolvedValue({ id: 100, amount: 120 });
+
+    await service.syncPurchaseCost(prismaService as never, {
+      storeId: 18,
+      operatorStaffId: 8,
+      purchaseOrderId: 11,
+      amount: 120,
+      title: '进货成本',
+      note: '周补货',
+      date: new Date('2026-05-14T00:00:00.000Z'),
+    });
+
+    expect(prismaService.costRecord.findFirst).toHaveBeenCalledWith({
+      where: {
+        storeId: 18,
+        sourceType: 'purchase',
+        purchaseOrderId: 11,
+      },
+    });
+    expect(prismaService.costRecord.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          storeId: 18,
+          purchaseOrderId: 11,
+          sourceType: 'purchase',
+        }),
+      }),
+    );
+    expect(prismaService.costRecord.update).not.toHaveBeenCalled();
   });
 
   it('syncPayrollCosts 在金额为 0 时会删除对应社保/公积金成本记录', async () => {
-    prismaService.costRecord.upsert.mockResolvedValue({ id: 101 });
+    // actualSalary > 0 → 会 upsert 薪资成本记录
+    prismaService.costRecord.findFirst.mockResolvedValue({ id: 101 });
+    prismaService.costRecord.update.mockResolvedValue({ id: 101 });
     prismaService.costRecord.deleteMany.mockResolvedValue({ count: 1 });
 
     await service.syncPayrollCosts(prismaService as never, {
@@ -157,7 +195,9 @@ describe('CostsWriteService', () => {
       note: '含加班',
     });
 
-    expect(prismaService.costRecord.upsert).toHaveBeenCalledTimes(1);
+    // 薪资记录用 findFirst+update
+    expect(prismaService.costRecord.findFirst).toHaveBeenCalled();
+    expect(prismaService.costRecord.update).toHaveBeenCalledTimes(1);
     // socialInsurance=0 和 housingFund=undefined 各触发一次 deleteMany
     expect(prismaService.costRecord.deleteMany).toHaveBeenCalledTimes(2);
   });
@@ -186,6 +226,7 @@ describe('CostsWriteService', () => {
         sourceType: 'payroll_salary',
       },
     });
-    expect(prismaService.costRecord.upsert).not.toHaveBeenCalled();
+    expect(prismaService.costRecord.findFirst).not.toHaveBeenCalled();
+    expect(prismaService.costRecord.update).not.toHaveBeenCalled();
   });
 });

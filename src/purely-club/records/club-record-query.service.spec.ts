@@ -35,7 +35,7 @@ describe('ClubRecordQueryService', () => {
 
   describe('findCustomerByStoreAndPhone', () => {
     it('按门店与手机号查询顾客余额档案', async () => {
-      prismaService.marketingCustomer.findUnique.mockResolvedValue({
+      prismaService.marketingCustomer.findFirst.mockResolvedValue({
         id: 98,
         balance: 35000,
       });
@@ -46,12 +46,11 @@ describe('ClubRecordQueryService', () => {
         id: 98,
         balance: 35000,
       });
-      expect(prismaService.marketingCustomer.findUnique).toHaveBeenCalledWith({
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
         where: {
-          storeId_phone: {
-            storeId: 11,
-            phone: '13800138000',
-          },
+          storeId: 11,
+          phone: '13800138000',
+          deletedAt: null,
         },
         select: {
           id: true,
@@ -61,11 +60,12 @@ describe('ClubRecordQueryService', () => {
     });
 
     it('精确查询无结果且回退到 findFirst 匹配 phone=null 的记录', async () => {
-      prismaService.marketingCustomer.findUnique.mockResolvedValue(null);
-      prismaService.marketingCustomer.findFirst.mockResolvedValue({
-        id: 99,
-        balance: 10000,
-      });
+      prismaService.marketingCustomer.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          id: 99,
+          balance: 10000,
+        });
 
       await expect(
         service.findCustomerByStoreAndPhone(11, 'club_wechat:oOPENID123'),
@@ -73,34 +73,60 @@ describe('ClubRecordQueryService', () => {
         id: 99,
         balance: 10000,
       });
-      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
-        where: {
-          storeId: 11,
-          phone: null,
+      // 第一次调用：精确匹配
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenNthCalledWith(
+        1,
+        {
+          where: {
+            storeId: 11,
+            phone: 'club_wechat:oOPENID123',
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            balance: true,
+          },
         },
-        select: {
-          id: true,
-          balance: true,
+      );
+      // 第二次调用：回退查询 phone=null
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenNthCalledWith(
+        2,
+        {
+          where: {
+            storeId: 11,
+            phone: null,
+          },
+          select: {
+            id: true,
+            balance: true,
+          },
         },
-      });
+      );
     });
 
     it('非微信登录用户精确查询无结果时不回退', async () => {
-      prismaService.marketingCustomer.findUnique.mockResolvedValue(null);
+      prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
 
       await expect(
         service.findCustomerByStoreAndPhone(11, '13800138000'),
       ).resolves.toBeNull();
-      expect(prismaService.marketingCustomer.findFirst).not.toHaveBeenCalled();
+      // 仅调用一次（精确查询），无回退
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(
+        1,
+      );
     });
 
     it('精确查询和回退查询都无结果时返回 null', async () => {
-      prismaService.marketingCustomer.findUnique.mockResolvedValue(null);
-      prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
+      prismaService.marketingCustomer.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
 
       await expect(
         service.findCustomerByStoreAndPhone(11, 'club_wechat:oOPENID123'),
       ).resolves.toBeNull();
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(
+        2,
+      );
     });
   });
 

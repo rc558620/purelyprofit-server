@@ -28,6 +28,7 @@ import { AuthSessionService } from './auth-session.service';
 import { AuthSmsService } from './auth-sms.service';
 import { AuthRegisterStoreService } from './auth-register-store.service';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
+import { StoreInviteCodeService } from '../stores/store-invite-code.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -87,6 +88,9 @@ describe('AuthService', () => {
   const cacheInvalidatorService = {
     invalidatePulseOnboardingStatusByUser: jest.fn(),
   };
+  const storeInviteCodeService = {
+    generateForStore: jest.fn().mockResolvedValue('ABCD1234'),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -143,6 +147,10 @@ describe('AuthService', () => {
         {
           provide: CacheInvalidatorService,
           useValue: cacheInvalidatorService,
+        },
+        {
+          provide: StoreInviteCodeService,
+          useValue: storeInviteCodeService,
         },
       ],
     }).compile();
@@ -713,7 +721,10 @@ describe('AuthService', () => {
         },
         'purely_club',
       ),
-    ).resolves.toEqual({ access_token: 'club-auto-register-token', userId: 77 });
+    ).resolves.toEqual({
+      access_token: 'club-auto-register-token',
+      userId: 77,
+    });
 
     expect(prismaService.user.create).toHaveBeenCalledWith({
       data: {
@@ -1010,7 +1021,7 @@ describe('AuthService', () => {
       currentMembership: {
         staffId: 55,
         storeId: 48,
-        role: 'STAFF',
+        role: 'staff',
         permissions: ['members:view', 'marketing:view'],
         isActive: true,
         subjectType: 'sub_account',
@@ -1054,7 +1065,7 @@ describe('AuthService', () => {
         currentMembership: {
           staffId: 55,
           storeId: 48,
-          role: 'STAFF',
+          role: 'staff',
           permissions: ['operation-entry:view', 'operation-entry:create'],
           isActive: true,
           subjectType: 'sub_account',

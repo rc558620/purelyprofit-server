@@ -1,10 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { toDecimalNumber, toNullableText } from './employees.utils';
-
-type DecimalLike = {
-  toString(): string;
-};
+import { toNullableText } from './employees.utils';
 
 export interface PayrollDraftInput {
   baseSalary: number;
@@ -24,15 +20,15 @@ export interface PayrollDerivedAmounts {
 export interface PayrollReportRowInput {
   id: number;
   employeeName: string;
-  month: string;
-  baseSalary: number | DecimalLike;
-  leaveDeduction: number | DecimalLike;
-  otherDeduction: number | DecimalLike;
-  bonus: number | DecimalLike;
-  actualSalary: number | DecimalLike;
-  socialInsurance: number | DecimalLike | null;
-  housingFund: number | DecimalLike | null;
-  totalLaborCost: number | DecimalLike;
+  month: Date;
+  baseSalary: number;
+  leaveDeduction: number;
+  otherDeduction: number;
+  bonus: number;
+  actualSalary: number;
+  socialInsurance: number;
+  housingFund: number;
+  totalLaborCost: number;
   confirmedAt: Date | null;
 }
 
@@ -62,19 +58,28 @@ export interface PayrollReportResult {
 export function resolvePayrollMonthFilter(
   year?: number,
   month?: number,
-): Prisma.StringFilter | string | undefined {
+): Prisma.DateTimeFilter | Date | undefined {
   if (!year) {
     return undefined;
   }
 
   if (!month || month === 0) {
+    // 过滤整年：从 year-01-01 到 year-12-31（下一年元旦前）
     return {
-      gte: `${year}-01`,
-      lte: `${year}-12`,
+      gte: new Date(`${year}-01-01T00:00:00.000Z`),
+      lt: new Date(`${year + 1}-01-01T00:00:00.000Z`),
     };
   }
 
-  return `${year}-${String(month).padStart(2, '0')}`;
+  // 过滤特定月份：从 year-month-01 到 year-month-01 下一月
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  return {
+    gte: new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00.000Z`),
+    lt: new Date(
+      `${nextYear}-${String(nextMonth).padStart(2, '0')}-01T00:00:00.000Z`,
+    ),
+  };
 }
 
 export function formatPayrollMonth(date: Date): string {
@@ -117,12 +122,13 @@ export function buildPayrollReport(
   rows: PayrollReportRowInput[],
 ): PayrollReportResult {
   const confirmedCount = rows.length;
+  // 数据库存储的是 cents，需要转换为 yuan
   const totalActualSalary = rows.reduce(
-    (sum, row) => sum + toDecimalNumber(row.actualSalary),
+    (sum, row) => sum + centsToYuan(row.actualSalary),
     0,
   );
   const totalLaborCost = rows.reduce(
-    (sum, row) => sum + toDecimalNumber(row.totalLaborCost),
+    (sum, row) => sum + centsToYuan(row.totalLaborCost),
     0,
   );
 
@@ -137,20 +143,27 @@ export function buildPayrollReport(
     rows: rows.map((row) => ({
       id: String(row.id),
       employeeName: row.employeeName,
-      month: row.month,
-      baseSalary: toDecimalNumber(row.baseSalary),
-      leaveDeduction: toDecimalNumber(row.leaveDeduction),
-      otherDeduction: toDecimalNumber(row.otherDeduction),
-      bonus: toDecimalNumber(row.bonus),
-      actualSalary: toDecimalNumber(row.actualSalary),
-      ...(row.socialInsurance !== null
-        ? { socialInsurance: toDecimalNumber(row.socialInsurance) }
+      month: formatPayrollMonth(row.month),
+      baseSalary: centsToYuan(row.baseSalary),
+      leaveDeduction: centsToYuan(row.leaveDeduction),
+      otherDeduction: centsToYuan(row.otherDeduction),
+      bonus: centsToYuan(row.bonus),
+      actualSalary: centsToYuan(row.actualSalary),
+      ...(row.socialInsurance > 0
+        ? { socialInsurance: centsToYuan(row.socialInsurance) }
         : {}),
-      ...(row.housingFund !== null
-        ? { housingFund: toDecimalNumber(row.housingFund) }
+      ...(row.housingFund > 0
+        ? { housingFund: centsToYuan(row.housingFund) }
         : {}),
-      totalLaborCost: toDecimalNumber(row.totalLaborCost),
+      totalLaborCost: centsToYuan(row.totalLaborCost),
       ...(row.confirmedAt ? { confirmedAt: row.confirmedAt.getTime() } : {}),
     })),
   };
+}
+
+/**
+ * 将分转换为元
+ */
+function centsToYuan(cents: number): number {
+  return Math.round(cents) / 100;
 }

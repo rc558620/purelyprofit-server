@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { SpaceStatus as PrismaSpaceStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -10,8 +9,7 @@ import {
   type SpaceStatsResponseDto,
   type SpacesDashboardResponseDto,
 } from './dto/space.dto';
-import { toSpaceResponse, type SpaceWithRelations } from './spaces.mapper';
-import { SPACE_WITH_RELATIONS_INCLUDE } from './spaces.query';
+import { toSpaceResponse } from './spaces.mapper';
 import {
   SpaceDashboardSummaryService,
   type DashboardSpaceSummaryBundle,
@@ -78,7 +76,7 @@ export class SpaceDashboardService {
   }
 
   private buildSpaceStats(
-    spaces: SpaceWithRelations[],
+    spaces: Awaited<ReturnType<typeof this.findSpacesByStore>>,
     sessionStats: {
       todaySettled: number;
       todayRevenue: number;
@@ -87,17 +85,30 @@ export class SpaceDashboardService {
     let idle = 0;
     let occupied = 0;
     let reserved = 0;
-    let cleaning = 0;
+    const cleaning = 0;
 
+    // Space.status 已移除，状态由运行态推导
+    // 使用 summaries 中的 activeSession 和 activeReservation 计算状态
     for (const space of spaces) {
-      if (space.status === PrismaSpaceStatus.idle) {
-        idle += 1;
-      } else if (space.status === PrismaSpaceStatus.occupied) {
+      const hasActiveSession = this.hasActiveSession(space);
+      const hasActiveReservation = this.hasActiveReservation(space);
+      const hasDirtyRoom = space.enableDirtyRoom;
+
+      if (hasActiveSession) {
         occupied += 1;
-      } else if (space.status === PrismaSpaceStatus.reserved) {
+      } else if (hasDirtyRoom) {
+        // 脏房模式：结账后需要清洁
+        // 由于没有存储状态，这里简化处理：有活跃预约则 reserved，否则 idle
+        // 实际的 cleaning 状态需要结合会话结算时间判断，这里暂不实现
+        if (hasActiveReservation) {
+          reserved += 1;
+        } else {
+          idle += 1;
+        }
+      } else if (hasActiveReservation) {
         reserved += 1;
-      } else if (space.status === PrismaSpaceStatus.cleaning) {
-        cleaning += 1;
+      } else {
+        idle += 1;
       }
     }
 
@@ -113,7 +124,7 @@ export class SpaceDashboardService {
   }
 
   private buildFilterOptions(
-    spaces: SpaceWithRelations[],
+    spaces: Awaited<ReturnType<typeof this.findSpacesByStore>>,
   ): SpaceDashboardFilterOptionsDto {
     const types = Array.from(
       new Set(spaces.map((space) => space.type.name)),
@@ -133,22 +144,85 @@ export class SpaceDashboardService {
     };
   }
 
-  private async findSpacesByStore(
-    storeId: number,
-  ): Promise<SpaceWithRelations[]> {
+  private async findSpacesByStore(storeId: number) {
+    const todayRange = this.getTodayRange();
+
+    // Space.status 已移除，需要关联查询 session 和 reservation
     return this.prisma.space.findMany({
       where: { storeId },
-      include: SPACE_WITH_RELATIONS_INCLUDE,
+      include: {
+        type: { select: { id: true, name: true } },
+        zone: { select: { id: true, name: true } },
+        _count: {
+          select: {
+            sessions: { where: { status: 'active' } },
+            reservations: {
+              where: {
+                status: 'pending',
+                reservedAt: { gte: todayRange.start, lte: todayRange.end },
+              },
+            },
+          },
+        },
+        sessions: {
+          where: { status: 'active' },
+          select: { id: true },
+        },
+        reservations: {
+          where: {
+            status: 'pending',
+            reservedAt: { gte: todayRange.start, lte: todayRange.end },
+          },
+          select: { id: true },
+        },
+      },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
   }
 
+  private hasActiveSession(space: { sessions: { id: number }[] }): boolean {
+    return space.sessions.length > 0;
+  }
+
+  private hasActiveReservation(space: {
+    reservations: { id: number }[];
+  }): boolean {
+    return space.reservations.length > 0;
+  }
+
+  private getTodayRange(): { start: Date; end: Date } {
+    const now = new Date();
+    const start = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      0,
+      0,
+      0,
+      0,
+    );
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+    return { start, end };
+  }
+
   private toSpaceDashboardItem(
-    space: SpaceWithRelations,
+    space: Awaited<ReturnType<typeof this.findSpacesByStore>>[number],
     summaries: DashboardSpaceSummaryBundle,
   ): SpaceDashboardSpaceItemDto {
+    // 运行态推导 status
+    const hasActiveSession = space.sessions.length > 0;
+    const hasActiveReservation = space.reservations.length > 0;
+    const status = hasActiveSession
+      ? 'occupied'
+      : hasActiveReservation
+        ? 'reserved'
+        : 'idle';
+
     return {
-      ...toSpaceResponse(space),
+      ...toSpaceResponse({
+        ...space,
+        status,
+      }),
       ...(summaries.activeSessionSummaryBySpaceId.has(space.id)
         ? {
             activeSessionSummary: summaries.activeSessionSummaryBySpaceId.get(

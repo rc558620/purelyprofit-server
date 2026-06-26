@@ -1,6 +1,6 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, GoneException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { SpaceStatus as PrismaSpaceStatus } from '@prisma/client';
+// SpaceStatus 已移除，状态由运行态推导
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
@@ -16,7 +16,7 @@ type SpaceRecord = {
   capacity: number | null;
   enableDirtyRoom: boolean;
   autoCheckout: boolean;
-  status: PrismaSpaceStatus;
+  // status 字段已从 Space 移除，运行态推导
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
@@ -33,10 +33,11 @@ type SpaceRecord = {
 type SpaceRemovalCandidate = {
   id: number;
   storeId: number;
-  status: PrismaSpaceStatus;
+  // status 字段已移除，运行态推导
   sortOrder: number;
   _count: {
     reservations: number;
+    sessions: number;
   };
 };
 
@@ -59,6 +60,13 @@ describe('SpacesWriteService', () => {
     space: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+    },
+    spaceSession: {
+      findFirst: jest.fn(),
+    },
+    spaceReservation: {
+      findFirst: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -92,7 +100,7 @@ describe('SpacesWriteService', () => {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'OWNER',
+      role: 'owner',
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
@@ -113,7 +121,7 @@ describe('SpacesWriteService', () => {
     capacity: 4,
     enableDirtyRoom: false,
     autoCheckout: false,
-    status: PrismaSpaceStatus.idle,
+    // status 字段已移除
     sortOrder: 2,
     createdAt: new Date('2026-05-18T10:00:00.000Z'),
     updatedAt: new Date('2026-05-18T10:10:00.000Z'),
@@ -133,10 +141,11 @@ describe('SpacesWriteService', () => {
   ): SpaceRemovalCandidate => ({
     id: 11,
     storeId: 18,
-    status: PrismaSpaceStatus.idle,
+    // status 字段已移除
     sortOrder: 2,
     _count: {
       reservations: 0,
+      sessions: 0,
     },
     ...overrides,
   });
@@ -153,11 +162,14 @@ describe('SpacesWriteService', () => {
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     spaceReservationsService.resolveReservationBackStatus.mockResolvedValue(
-      PrismaSpaceStatus.reserved,
+      'reserved',
     );
+    // deriveSpaceStatus 需要查询 activeSession 和 pendingReservation
+    prismaService.spaceSession.findFirst.mockResolvedValue(null);
+    prismaService.spaceReservation.findFirst.mockResolvedValue(null);
     prismaTransaction.space.findUnique.mockResolvedValue({
       id: 11,
-      status: PrismaSpaceStatus.idle,
+      // status 字段已移除
     });
     spacesRefResolverService.resolveCreateSpaceRefs.mockResolvedValue({
       typeId: 101,
@@ -272,7 +284,7 @@ describe('SpacesWriteService', () => {
           capacity: 6,
           enableDirtyRoom: true,
           autoCheckout: false,
-          status: PrismaSpaceStatus.idle,
+          // status 字段已移除
           sortOrder: 3,
         }),
       }),
@@ -365,7 +377,11 @@ describe('SpacesWriteService', () => {
   it('removeSpace 在空间使用中时抛出冲突异常', async () => {
     prismaService.space.findUnique.mockResolvedValueOnce(
       makeRemovalCandidate({
-        status: PrismaSpaceStatus.occupied,
+        // space.status 已移除，使用 _count.sessions 判断
+        _count: {
+          sessions: 1,
+          reservations: 0,
+        },
       }),
     );
 
@@ -380,6 +396,7 @@ describe('SpacesWriteService', () => {
       makeRemovalCandidate({
         _count: {
           reservations: 2,
+          sessions: 0,
         },
       }),
     );
@@ -390,129 +407,35 @@ describe('SpacesWriteService', () => {
     expect(prismaService.$transaction).not.toHaveBeenCalled();
   });
 
-  it('markSpaceReady 会根据预约回退状态更新空间状态', async () => {
+  it('markSpaceReady 会根据运行态推导返回空间状态', async () => {
+    // Space.status 已移除，状态由运行态推导
     prismaService.space.findUnique.mockResolvedValueOnce(
       makeSpace({
-        status: PrismaSpaceStatus.cleaning,
+        // status 字段已移除
       }),
     );
-    prismaTransaction.space.findUnique.mockResolvedValueOnce({
-      id: 11,
-      status: PrismaSpaceStatus.cleaning,
-    });
-    prismaTransaction.space.update.mockResolvedValueOnce(
-      makeSpace({
-        status: PrismaSpaceStatus.reserved,
-      }),
-    );
+    // deriveSpaceStatus 需要：无活跃会话，有待处理预约
+    prismaService.spaceSession.findFirst.mockResolvedValueOnce(null);
+    prismaService.spaceReservation.findFirst.mockResolvedValueOnce({ id: 21 });
+    // markSpaceReady 调用 findUniqueOrThrow 获取完整的 space 数据
+    prismaService.space.findUniqueOrThrow.mockResolvedValueOnce(makeSpace());
 
     const result = await service.markSpaceReady(user, 11);
 
-    expect(
-      spaceReservationsService.resolveReservationBackStatus,
-    ).toHaveBeenCalled();
-    expect(prismaTransaction.space.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 11 },
-        data: { status: PrismaSpaceStatus.reserved },
-      }),
-    );
-    expect(result.status).toBe('reserved');
-  });
-
-  it('updateSpaceStatus 禁止直接改为 occupied', async () => {
-    prismaService.space.findUnique.mockResolvedValueOnce(makeSpace());
-
-    await expect(
-      service.updateSpaceStatus(user, 11, {
-        status: 'occupied',
-      }),
-    ).rejects.toBeInstanceOf(ConflictException);
-
-    expect(prismaService.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('updateSpaceStatus 在改为 cleaning 时不会走预约状态回退', async () => {
-    prismaService.space.findUnique.mockResolvedValueOnce(makeSpace());
-    prismaTransaction.space.findUnique.mockResolvedValueOnce({
-      id: 11,
-      status: PrismaSpaceStatus.idle,
-    });
-    prismaTransaction.space.update.mockResolvedValueOnce(
-      makeSpace({
-        status: PrismaSpaceStatus.cleaning,
-      }),
-    );
-
-    const result = await service.updateSpaceStatus(user, 11, {
-      status: 'cleaning',
-    });
-
+    // Space.status 已移除，不再调用 resolveReservationBackStatus
+    // 状态直接由 deriveSpaceStatus 推导得出
     expect(
       spaceReservationsService.resolveReservationBackStatus,
     ).not.toHaveBeenCalled();
-    expect(prismaTransaction.space.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: { status: PrismaSpaceStatus.cleaning },
-      }),
-    );
-    expect(result.status).toBe('cleaning');
+    expect(result.status).toBe('reserved');
   });
 
-  it('updateSpaceStatus 在当前空间为 occupied 时抛出冲突异常', async () => {
-    prismaService.space.findUnique.mockResolvedValueOnce(
-      makeSpace({
-        status: PrismaSpaceStatus.occupied,
-      }),
-    );
-
-    await expect(
-      service.updateSpaceStatus(user, 11, {
-        status: 'reserved',
-      }),
-    ).rejects.toBeInstanceOf(ConflictException);
-
-    expect(prismaService.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('markSpaceReady 若锁内发现空间已被占用则阻止状态回写', async () => {
-    prismaService.space.findUnique.mockResolvedValueOnce(
-      makeSpace({
-        status: PrismaSpaceStatus.cleaning,
-      }),
-    );
-    prismaTransaction.space.findUnique.mockResolvedValueOnce({
-      id: 11,
-      status: PrismaSpaceStatus.occupied,
-    });
-
-    await expect(service.markSpaceReady(user, 11)).rejects.toBeInstanceOf(
-      ConflictException,
-    );
-
-    expect(prismaTransaction.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(prismaTransaction.space.update).not.toHaveBeenCalled();
-  });
-
-  it('updateSpaceStatus 若锁内发现空间已被占用则阻止状态回写', async () => {
-    prismaService.space.findUnique.mockResolvedValueOnce(
-      makeSpace({
-        status: PrismaSpaceStatus.idle,
-      }),
-    );
-    prismaTransaction.space.findUnique.mockResolvedValueOnce({
-      id: 11,
-      status: PrismaSpaceStatus.occupied,
-    });
-
+  it('updateSpaceStatus 已废弃，调用会抛出 GoneException', async () => {
     await expect(
       service.updateSpaceStatus(user, 11, {
         status: 'cleaning',
       }),
-    ).rejects.toBeInstanceOf(ConflictException);
-
-    expect(prismaTransaction.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(prismaTransaction.space.update).not.toHaveBeenCalled();
+    ).rejects.toBeInstanceOf(GoneException);
   });
 
   it('createSpace 在名称冲突时抛出冲突异常', async () => {

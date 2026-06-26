@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import {
   buildEmptyPaginatedPurchasesResponse,
   buildEmptyPurchaseStatsResponse,
@@ -20,7 +19,7 @@ describe('purchases.mapper', () => {
       supplierId: 6,
       supplierName: '可口可乐供应商',
       operatorStaffId: 8,
-      totalAmount: new Prisma.Decimal('72'),
+      totalAmount: 7200,
       date: new Date('2026-05-14T10:00:00.000Z'),
       note: '门店周补货',
       createdAt,
@@ -34,8 +33,8 @@ describe('purchases.mapper', () => {
           productName: '可口可乐 330ml 快照',
           unit: '箱',
           quantity: 6,
-          unitPrice: new Prisma.Decimal('12'),
-          amount: new Prisma.Decimal('72'),
+          unitPrice: 1200,
+          amount: 7200,
           createdAt,
         },
       ],
@@ -69,8 +68,8 @@ describe('purchases.mapper', () => {
       buildPurchaseStatsResponse({
         supplierCount: 3,
         currentCount: 4,
-        currentTotalAmount: new Prisma.Decimal('200'),
-        previousTotalAmount: new Prisma.Decimal('160'),
+        currentTotalAmount: 20000,
+        previousTotalAmount: 16000,
         hasPreviousRange: true,
       }),
     ).toEqual({
@@ -97,8 +96,8 @@ describe('purchases.mapper', () => {
               productName: '散装辣条',
               unit: null,
               quantity: 3,
-              unitPrice: new Prisma.Decimal('12'),
-              amount: new Prisma.Decimal('36'),
+              unitPrice: 1200,
+              amount: 3600,
               createdAt: new Date('2026-05-14T12:00:00.000Z'),
             },
           ],

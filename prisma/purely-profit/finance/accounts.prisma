@@ -30,9 +30,9 @@ model FinanceAccountRecord {
   type            FinanceAccountType
   category        FinanceAccountCategory
   counterpart     String
-  amount          Decimal                @db.Decimal(12, 2)
-  paidAmount      Decimal                @default(0) @map("paid_amount") @db.Decimal(12, 2)
-  remaining       Decimal                @default(0) @db.Decimal(12, 2)
+  amount          Int                    // 金额（分）
+  paidAmount      Int                    @default(0) @map("paid_amount") // 已付金额（分）
+  remaining       Int                    @default(0)                     // 剩余金额（分）
   status          FinanceAccountStatus   @default(pending)
   dueDate         DateTime?              @map("due_date")
   date            DateTime

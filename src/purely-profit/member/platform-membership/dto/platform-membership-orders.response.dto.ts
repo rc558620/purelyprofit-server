@@ -33,17 +33,9 @@ export class PlatformMembershipOrderResponseDto {
   @IsInt({ message: '实付金额必须是整数' })
   amount: number;
 
-  @ApiProperty({ example: 1500, description: '积分抵扣金额，单位分' })
-  @IsInt({ message: '积分抵扣金额必须是整数' })
-  pointsDeducted: number;
-
   @ApiProperty({ example: 1500, description: '实际使用积分数量' })
   @IsInt({ message: '使用积分数量必须是整数' })
   pointsUsed: number;
-
-  @ApiProperty({ example: 2000, description: '纯利豆抵扣金额，单位分' })
-  @IsInt({ message: '纯利豆抵扣金额必须是整数' })
-  beanDeducted: number;
 
   @ApiProperty({ example: 20, description: '实际使用纯利豆数量' })
   @IsInt({ message: '使用纯利豆数量必须是整数' })

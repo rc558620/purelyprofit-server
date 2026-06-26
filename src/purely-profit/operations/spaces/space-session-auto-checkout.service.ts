@@ -12,8 +12,8 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 import {
-  parseSpaceSessionItems,
-  parseSpaceSessionRenewRecords,
+  mapRenewRecordRows,
+  mapSessionItemRows,
 } from './space-sessions.mapper';
 import { buildSpaceSessionSettlement } from './space-session-settlement.shared';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
@@ -126,6 +126,12 @@ export class SpaceSessionAutoCheckoutService {
               },
             },
           },
+          sessionItems: {
+            orderBy: { sortOrder: 'asc' },
+          },
+          sessionRenewRecords: {
+            orderBy: { id: 'asc' },
+          },
         },
         orderBy: [{ startTime: 'asc' }, { id: 'asc' }],
       });
@@ -137,9 +143,7 @@ export class SpaceSessionAutoCheckoutService {
           continue;
         }
 
-        const renewRecords = parseSpaceSessionRenewRecords(
-          session.renewRecords,
-        );
+        const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
         const checkoutAt = resolveAutoCheckoutAt(session, renewRecords);
         if (checkoutAt === null || checkoutAt > now) {
           continue;
@@ -149,7 +153,7 @@ export class SpaceSessionAutoCheckoutService {
           session,
           checkoutAt,
           payload: {},
-          items: parseSpaceSessionItems(session.items),
+          items: mapSessionItemRows(session.sessionItems),
           renewRecords,
         });
 

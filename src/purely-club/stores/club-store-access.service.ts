@@ -7,10 +7,7 @@ import {
 } from '@nestjs/common';
 import { MemberStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import {
-  buildStoreInviteCode,
-  resolveInviteCodeFromClubStoreScanCode,
-} from '../../purely-profit/member/platform-membership/membership-profile.mapper';
+import { resolveInviteCodeFromClubStoreScanCode } from '../../purely-profit/member/platform-membership/membership-profile.mapper';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import {
@@ -44,7 +41,7 @@ export class ClubStoreAccessService {
         members: {
           some: {
             phone: this.resolveMemberPhone(user),
-            status: { not: MemberStatus.BANNED },
+            status: { not: MemberStatus.banned },
           },
         },
       },
@@ -63,7 +60,7 @@ export class ClubStoreAccessService {
         members: {
           some: {
             phone: this.resolveMemberPhone(user),
-            status: { not: MemberStatus.BANNED },
+            status: { not: MemberStatus.banned },
           },
         },
       },
@@ -99,56 +96,78 @@ export class ClubStoreAccessService {
 
     const memberPhone = this.resolveMemberPhone(user);
 
-    const existingMember = await this.prisma.member.findUnique({
+    const existingMember = await this.prisma.member.findFirst({
       where: {
-        storeId_phone: {
-          storeId: store.id,
-          phone: memberPhone,
-        },
+        storeId: store.id,
+        phone: memberPhone,
+        deletedAt: null,
       },
       select: {
         status: true,
       },
     });
-    if (existingMember?.status === MemberStatus.BANNED) {
+    if (existingMember?.status === MemberStatus.banned) {
       throw new ForbiddenException(CLUB_BANNED_MEMBER_MESSAGE);
     }
 
     const displayName = this.resolveDisplayName(user);
-    await this.prisma.$transaction([
-      this.prisma.member.upsert({
+    await this.prisma.$transaction(async (tx) => {
+      const existingMemberRecord = await tx.member.findFirst({
         where: {
-          storeId_phone: {
+          storeId: store.id,
+          phone: memberPhone,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (existingMemberRecord) {
+        await tx.member.update({
+          where: { id: existingMemberRecord.id },
+          data: {
+            name: displayName,
+          },
+        });
+      } else {
+        await tx.member.create({
+          data: {
             storeId: store.id,
+            name: displayName,
             phone: memberPhone,
           },
-        },
-        create: {
-          storeId: store.id,
-          name: displayName,
-          phone: memberPhone,
-        },
-        update: {
-          name: displayName,
-        },
-      }),
-      this.prisma.marketingCustomer.upsert({
+        });
+      }
+
+      const existingCustomerRecord = await tx.marketingCustomer.findFirst({
         where: {
-          storeId_phone: {
+          storeId: store.id,
+          phone: memberPhone,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (existingCustomerRecord) {
+        await tx.marketingCustomer.update({
+          where: { id: existingCustomerRecord.id },
+          data: {
+            name: displayName,
+          },
+        });
+      } else {
+        await tx.marketingCustomer.create({
+          data: {
             storeId: store.id,
+            name: displayName,
             phone: memberPhone,
           },
-        },
-        create: {
-          storeId: store.id,
-          name: displayName,
-          phone: memberPhone,
-        },
-        update: {
-          name: displayName,
-        },
-      }),
-    ]);
+        });
+      }
+    });
 
     return store;
   }
@@ -179,8 +198,8 @@ export class ClubStoreAccessService {
    * 加载 inviteCode→storeId 映射表。
    *
    * 优先从 Redis 读取缓存的整体映射 JSON；
-   * 未命中时从数据库加载全量 storeId 列表，用 buildStoreInviteCode 构建
-   * inviteCode→storeId 映射，检测碰撞后写入缓存。
+   * 未命中时从数据库的 store_invite_codes 表加载所有活跃邀请码，
+   * 构建 inviteCode→storeId 映射后写入缓存。
    */
   private async loadInviteCodeMap(): Promise<Map<string, number>> {
     // 1. 尝试从 Redis 读取缓存映射
@@ -193,27 +212,23 @@ export class ClubStoreAccessService {
       );
     }
 
-    // 2. 缓存未命中，从数据库构建映射
-    const stores = await this.prisma.store.findMany({
-      select: { id: true },
-      orderBy: { id: 'asc' },
+    // 2. 缓存未命中，从 store_invite_codes 表加载所有活跃邀请码
+    const inviteCodes = await this.prisma.storeInviteCode.findMany({
+      where: { isActive: true },
+      select: { code: true, storeId: true },
+      orderBy: { storeId: 'asc' },
     });
 
     const codeMap = new Map<string, number>();
-    const collisionIds = new Map<string, number[]>();
 
-    for (const store of stores) {
-      const code = buildStoreInviteCode(store.id);
-      if (codeMap.has(code)) {
-        // 记录碰撞，但不覆盖——保留先入库的门店（id 更小）
-        const existing = collisionIds.get(code) ?? [codeMap.get(code)!];
-        existing.push(store.id);
-        collisionIds.set(code, existing);
+    for (const record of inviteCodes) {
+      if (codeMap.has(record.code)) {
+        // 同一门店有多个活跃码时记录警告，保留第一条（storeId 较小的先入）
         this.logger.warn(
-          `邀请码碰撞: code=${code} 涉及门店 ID=${existing.join(',')}，已取最小 ID`,
+          `邀请码映射冲突: code=${record.code} 已映射到门店 ${codeMap.get(record.code)}，跳过门店 ${record.storeId}`,
         );
       } else {
-        codeMap.set(code, store.id);
+        codeMap.set(record.code, record.storeId);
       }
     }
 

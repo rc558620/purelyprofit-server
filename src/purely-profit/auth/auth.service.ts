@@ -19,9 +19,11 @@ import { UpdateAvatarDto } from './dto/update-avatar.dto';
 import { VerifyRealNameDto } from './dto/verify-real-name.dto';
 import type { ChangePasswordAuthParams } from './auth-password.types';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
-import { AuthRegisterStoreService } from './auth-register-store.service';
+import {
+  AuthRegisterStoreService,
+  type RegisterStoreResponseDto,
+} from './auth-register-store.service';
 import { CreateStoreDto } from '../stores/dto/create-store.dto';
-import type { StoreResponseDto } from '../stores/dto/store-response.dto';
 
 @Injectable()
 export class AuthService {
@@ -109,7 +111,7 @@ export class AuthService {
   async registerStore(
     user: AuthenticatedUser,
     dto: CreateStoreDto,
-  ): Promise<StoreResponseDto> {
+  ): Promise<RegisterStoreResponseDto> {
     return this.authRegisterStoreService.create(user, dto);
   }
 

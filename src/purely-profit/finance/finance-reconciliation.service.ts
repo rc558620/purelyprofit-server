@@ -40,7 +40,7 @@ import {
 } from './finance-reconciliation.query';
 import { buildPaginatedReconciliationsResponse } from './finance.mapper';
 import type { FinanceReconciliationsListQueryInput } from './finance.types';
-import { roundMoneyValue, toPrismaDecimal } from './finance-money.utils';
+import { roundMoneyValue } from './finance-money.utils';
 import { buildPaginationState } from './finance-pagination.utils';
 import { trimOptionalString } from './finance-string.utils';
 
@@ -137,13 +137,13 @@ export class FinanceReconciliationService {
       counterpart: trimOptionalString(dto.counterpart),
       periodStart: new Date(dto.periodStart),
       periodEnd: new Date(dto.periodEnd),
-      bookIncome: toPrismaDecimal(bookIncome),
-      bookExpense: toPrismaDecimal(bookExpense),
-      bookNet: toPrismaDecimal(bookNet),
-      actualIncome: toPrismaDecimal(actualIncome),
-      actualExpense: toPrismaDecimal(actualExpense),
-      actualNet: toPrismaDecimal(actualNet),
-      diffAmount: toPrismaDecimal(diffAmount),
+      bookIncome, // Step 3: 直接使用 number（分）
+      bookExpense, // Step 3: 直接使用 number（分）
+      bookNet, // Step 3: 直接使用 number（分）
+      actualIncome, // Step 3: 直接使用 number（分）
+      actualExpense, // Step 3: 直接使用 number（分）
+      actualNet, // Step 3: 直接使用 number（分）
+      diffAmount, // Step 3: 直接使用 number（分）
       operator: trimOptionalString(dto.operator),
       note: trimOptionalString(dto.note),
       date: new Date(dto.date),

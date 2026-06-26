@@ -77,7 +77,7 @@ describe('DashboardHomeService', () => {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'OWNER',
+      role: 'owner',
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
@@ -217,6 +217,7 @@ describe('DashboardHomeService', () => {
           revenue: new Prisma.Decimal('120.00'),
         },
       ])
+      .mockResolvedValueOnce([]) // inactiveVips
       // daily revenue rows for decline detection
       .mockResolvedValueOnce([
         {
@@ -295,6 +296,7 @@ describe('DashboardHomeService', () => {
           revenue: new Prisma.Decimal('120.00'),
         },
       ])
+      .mockResolvedValueOnce([]) // inactiveVips
       // daily revenue rows（无下滑）
       .mockResolvedValueOnce([
         {
@@ -431,6 +433,7 @@ describe('DashboardHomeService', () => {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({
@@ -464,7 +467,7 @@ describe('DashboardHomeService', () => {
       ...user,
       currentMembership: {
         ...user.currentMembership!,
-        role: 'STAFF',
+        role: 'staff',
         permissions: ['operation-entry:view'],
         subjectType: 'sub_account',
         linkedEmployeeId: 12,
@@ -582,6 +585,7 @@ describe('DashboardHomeService', () => {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({
@@ -642,6 +646,7 @@ describe('DashboardHomeService', () => {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({
@@ -698,6 +703,7 @@ describe('DashboardHomeService', () => {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({
@@ -758,6 +764,7 @@ describe('DashboardHomeService', () => {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({
@@ -822,6 +829,7 @@ describe('DashboardHomeService', () => {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({
@@ -879,6 +887,7 @@ describe('DashboardHomeService', () => {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       // daily revenue rows：连续 3 天下滑 500→400→300→200
       .mockResolvedValueOnce([
         {
@@ -943,6 +952,7 @@ describe('DashboardHomeService', () => {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       // daily revenue rows：连续增长 200→300→400→500
       .mockResolvedValueOnce([
         {
@@ -1006,6 +1016,7 @@ describe('DashboardHomeService', () => {
         },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       // 只有今天和昨天有数据，中间缺失的不应算作下滑
       .mockResolvedValueOnce([
         {
@@ -1061,6 +1072,16 @@ describe('DashboardHomeService', () => {
         },
       ])
       .mockResolvedValueOnce([])
+      // inactiveVips: lastConsumeAt 为 null 的高价值会员（level 来自 mc.tier 映射：diamond→annual）
+      .mockResolvedValueOnce([
+        {
+          id: 77,
+          name: '从未消费会员',
+          level: 'annual',
+          lastConsumeAt: null,
+          updatedAt: new Date(2026, 4, 14, 10, 0, 0, 0),
+        },
+      ])
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({
@@ -1077,16 +1098,7 @@ describe('DashboardHomeService', () => {
     prismaService.partnerWithdrawal.findMany.mockResolvedValue([]);
     prismaService.employeeLeave.findMany.mockResolvedValue([]);
     prismaService.member.count.mockResolvedValue(0);
-    // lastConsumeAt 为 null 的高价值会员
-    prismaService.member.findMany.mockResolvedValue([
-      {
-        id: 77,
-        name: '从未消费会员',
-        level: 'annual',
-        lastConsumeAt: null,
-        updatedAt: new Date(2026, 4, 14, 10, 0, 0, 0),
-      },
-    ]);
+    prismaService.member.findMany.mockResolvedValue([]);
     prismaService.memberRechargeLog.findMany.mockResolvedValue([]);
     prismaService.spaceReservation.findMany.mockResolvedValue([]);
     prismaService.employeePayroll.findMany.mockResolvedValue([]);
@@ -1118,6 +1130,7 @@ describe('DashboardHomeService', () => {
         { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
@@ -1212,6 +1225,7 @@ describe('DashboardHomeService', () => {
         { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
@@ -1298,6 +1312,7 @@ describe('DashboardHomeService', () => {
         { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
@@ -1343,6 +1358,7 @@ describe('DashboardHomeService', () => {
         { revenue: new Prisma.Decimal('50.00'), order_count: BigInt(1) },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
@@ -1406,6 +1422,7 @@ describe('DashboardHomeService', () => {
         { revenue: new Prisma.Decimal('50.00'), order_count: BigInt(1) },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })
@@ -1519,6 +1536,7 @@ describe('DashboardHomeService', () => {
         { revenue: new Prisma.Decimal('0.00'), order_count: BigInt(0) },
       ])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // inactiveVips
       .mockResolvedValueOnce([]);
     prismaService.costRecord.aggregate
       .mockResolvedValueOnce({ _sum: { amount: new Prisma.Decimal('0.00') } })

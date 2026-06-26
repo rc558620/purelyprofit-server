@@ -51,9 +51,9 @@ export type PurchaseCreateItemInput = CreatePurchaseDto['items'][number];
 
 export interface PurchaseStatsAggregate {
   _count: { id: number };
-  _sum: { totalAmount: Prisma.Decimal | null };
+  _sum: { totalAmount: number | null };
 }
 
 export interface PurchasePreviousAggregate {
-  _sum: { totalAmount: Prisma.Decimal | null };
+  _sum: { totalAmount: number | null };
 }

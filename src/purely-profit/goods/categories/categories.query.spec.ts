@@ -215,16 +215,17 @@ describe('categories.query', () => {
     });
   });
 
-  it('deleteCategoryRecord 会删除分类记录', async () => {
-    const { prisma, productCategoryDelete } = createPrismaMock();
-    productCategoryDelete.mockResolvedValue({ id: 11 });
+  it('deleteCategoryRecord 会软删除分类记录', async () => {
+    const { prisma, productCategoryUpdate } = createPrismaMock();
+    productCategoryUpdate.mockResolvedValue({ id: 11 });
 
     await expect(
       deleteCategoryRecord(prisma as never, 11),
     ).resolves.toBeUndefined();
 
-    expect(productCategoryDelete).toHaveBeenCalledWith({
+    expect(productCategoryUpdate).toHaveBeenCalledWith({
       where: { id: 11 },
+      data: { deletedAt: expect.any(Date) },
     });
   });
 });

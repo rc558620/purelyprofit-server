@@ -35,18 +35,18 @@ export class SubscriptionsService {
     tx: Prisma.TransactionClient,
     storeId: number,
   ): Promise<void> {
-    const defaultPlan = resolvePlanSnapshot(SubscriptionPlanCode.STARTER);
+    const defaultPlan = resolvePlanSnapshot(SubscriptionPlanCode.starter);
 
     await upsertStoreSubscriptionRecord(tx, {
       storeId,
-      planCode: SubscriptionPlanCode.STARTER,
+      planCode: SubscriptionPlanCode.starter,
       planSnapshot: defaultPlan,
       expiresAt: null,
     });
 
     await updateStoreSeatCapacity(tx, {
       storeId,
-      maxAccountSeats: defaultPlan.maxAccountSeats,
+      seatQuota: defaultPlan.maxAccountSeats,
     });
   }
 
@@ -99,12 +99,12 @@ export class SubscriptionsService {
         planCode: dto.planCode,
         planSnapshot: nextPlan,
         expiresAt,
-        targetStatus: StoreSubscriptionStatus.ACTIVE,
+        targetStatus: StoreSubscriptionStatus.active,
       });
 
       await updateStoreSeatCapacity(tx, {
         storeId,
-        maxAccountSeats: nextPlan.maxAccountSeats,
+        seatQuota: nextPlan.maxAccountSeats,
       });
 
       return this.subscriptionsProfileService.buildSubscriptionResponse(
@@ -119,7 +119,8 @@ export class SubscriptionsService {
     currentStatus: StoreSubscriptionStatus,
     _targetPlanCode: SubscriptionPlanCode,
   ): void {
-    if (currentStatus === StoreSubscriptionStatus.CANCELLED) {
+    void _targetPlanCode; // 预留参数，后续会用于校验目标套餐是否为当前套餐的合法变更目标
+    if (currentStatus === StoreSubscriptionStatus.cancelled) {
       throw new BadRequestException(
         '订阅已取消，无法直接变更套餐，请联系客服重新开通',
       );

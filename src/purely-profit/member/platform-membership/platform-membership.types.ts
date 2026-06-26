@@ -12,8 +12,8 @@ import type {
 export type PromoDetailCompatQueryMode = 'all' | 'day' | 'month' | 'year';
 
 export interface PromotionDetailCompatResponse {
-  inviteCode: string;
-  promoCode: string;
+  inviteCode: string | null;
+  promoCode: string | null;
   memberInfo: PlatformMembershipProfileResponseDto['memberInfo'];
   approvedPartner: PlatformMembershipProfileResponseDto['approvedPartner'];
   level: PlatformMembershipPartnerLevelDto;
@@ -94,9 +94,7 @@ export interface StoreMembershipOrderRecord {
   planId: PlatformMembershipPlanId;
   planName: string;
   amount: number;
-  pointsDeducted: number;
   pointsUsed: number;
-  beanDeducted: number;
   beansUsed: number;
   status: MembershipOrderStatusValue;
   paymentChannel: 'wechat';

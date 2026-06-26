@@ -18,8 +18,8 @@ interface CatalogProductRecord {
   name: string;
   category: string;
   code: string;
-  price: Prisma.Decimal;
-  profit: Prisma.Decimal;
+  price: number;
+  profit: number;
   stock: number;
   isActive: boolean;
   image: string | null;

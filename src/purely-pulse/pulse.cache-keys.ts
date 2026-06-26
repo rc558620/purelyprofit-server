@@ -64,6 +64,7 @@ export function buildPulseSessionBootstrapCacheKeyFromQuery(
 export function buildPulseSessionBootstrapPatternByStore(
   _storeId: number,
 ): string {
+  void _storeId; // 预留参数，后续可按门店精确清理缓存
   return 'pulse:session:bootstrap:user:*:mode:*:store:*';
 }
 
@@ -99,6 +100,7 @@ export function buildPulseOnboardingStatusCacheKeyFromQuery(
 export function buildPulseOnboardingStatusPatternByStore(
   _storeId: number,
 ): string {
+  void _storeId; // 预留参数，后续可按门店精确清理缓存
   return 'pulse:onboarding:status:user:*:mode:*:store:*';
 }
 

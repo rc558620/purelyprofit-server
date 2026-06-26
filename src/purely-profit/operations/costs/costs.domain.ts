@@ -1,5 +1,4 @@
 import { BadRequestException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import {
   buildPreviousPurchaseDateRange,
@@ -275,8 +274,8 @@ export function getPayrollCostDate(month: string): Date {
   return new Date(year, monthValue - 1, 1, 0, 0, 0, 0);
 }
 
-export function toCostDecimal(value: number): Prisma.Decimal {
-  return new Prisma.Decimal(new Decimal(value).toFixed(2));
+export function toCostDecimal(value: number): number {
+  return Math.round(Number(new Decimal(value).toFixed(2)) * 100);
 }
 
 function getDayStart(timestamp: number): number {

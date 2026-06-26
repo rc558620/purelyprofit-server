@@ -79,7 +79,7 @@ describe('SalesRecordWriteService', () => {
     currentMembership: {
       staffId: 8,
       storeId: 18,
-      role: 'OWNER',
+      role: 'owner',
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
@@ -101,7 +101,7 @@ describe('SalesRecordWriteService', () => {
     currentMembership: {
       staffId: 18,
       storeId: 18,
-      role: 'STAFF',
+      role: 'staff',
       permissions: ['operation-entry:create', 'sales:create'],
       isActive: true,
       subjectType: 'sub_account',

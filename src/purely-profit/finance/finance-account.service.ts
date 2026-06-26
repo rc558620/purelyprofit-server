@@ -41,11 +41,7 @@ import {
 } from './finance-account.query';
 import { buildPaginatedAccountsResponse } from './finance.mapper';
 import type { FinanceAccountsListQueryInput } from './finance.types';
-import {
-  roundMoneyValue,
-  toMoneyNumber,
-  toPrismaDecimal,
-} from './finance-money.utils';
+import { roundMoneyValue, toMoneyNumber } from './finance-money.utils';
 import { buildPaginationState } from './finance-pagination.utils';
 import { trimOptionalString } from './finance-string.utils';
 
@@ -127,9 +123,9 @@ export class FinanceAccountService {
       type: dto.type,
       category: dto.category,
       counterpart: dto.counterpart.trim(),
-      amount: toPrismaDecimal(amount),
-      paidAmount: toPrismaDecimal(paidAmount),
-      remaining: toPrismaDecimal(derived.remaining),
+      amount, // Step 3: 直接使用 number（分）
+      paidAmount, // Step 3: 直接使用 number（分）
+      remaining: derived.remaining, // Step 3: 直接使用 number（分）
       status: derived.status,
       dueDate,
       date: new Date(dto.date),
@@ -170,8 +166,8 @@ export class FinanceAccountService {
         storeId,
         recordId,
         expectedPaidAmount: record.paidAmount,
-        paidAmount: toPrismaDecimal(nextPaidAmount),
-        remaining: toPrismaDecimal(derived.remaining),
+        paidAmount: nextPaidAmount, // Step 3: 直接使用 number（分）
+        remaining: derived.remaining, // Step 3: 直接使用 number（分）
         status: derived.status,
       });
       if (!settledRecord) {

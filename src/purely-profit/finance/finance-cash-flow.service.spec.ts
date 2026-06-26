@@ -232,7 +232,7 @@ describe('FinanceCashFlowService', () => {
         direction: 'income',
         category: 'refund',
         title: '供应商返利',
-        amount: new Prisma.Decimal('88'),
+        amount: 88,
         payment: 'bank',
         note: '年度返利',
         date: new Date('2026-05-14T10:00:00.000Z'),

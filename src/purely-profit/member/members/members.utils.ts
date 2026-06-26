@@ -20,7 +20,7 @@ export type MemberLevelValue = (typeof MEMBER_LEVEL_VALUES)[number];
 export type MemberRechargeChannelValue =
   (typeof MEMBER_RECHARGE_CHANNEL_VALUES)[number];
 
-export type MemberStatusDb = 'ACTIVE' | 'INACTIVE' | 'BANNED';
+export type MemberStatusDb = 'active' | 'inactive' | 'banned';
 
 export function isMemberLevelValue(
   value: string | undefined,
@@ -41,11 +41,11 @@ export interface ResolvedPagination {
 
 export function toApiMemberStatus(status: MemberStatusDb): MemberStatusValue {
   switch (status) {
-    case 'ACTIVE':
+    case 'active':
       return 'active';
-    case 'INACTIVE':
+    case 'inactive':
       return 'inactive';
-    case 'BANNED':
+    case 'banned':
       return 'banned';
   }
 }
@@ -59,11 +59,11 @@ export function toDbMemberStatus(
 
   switch (status) {
     case 'active':
-      return 'ACTIVE';
+      return 'active';
     case 'inactive':
-      return 'INACTIVE';
+      return 'inactive';
     case 'banned':
-      return 'BANNED';
+      return 'banned';
   }
 }
 

@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { SessionNotificationService } from './session-notification.service';
@@ -70,8 +69,8 @@ describe('SessionNotificationService', () => {
       where: expect.objectContaining({
         storeId: 18,
         dueDate: { lt: new Date('2026-05-21T12:00:00.000Z') },
-        paidAmount: new Prisma.Decimal(0),
-        remaining: { gt: new Prisma.Decimal(0) },
+        paidAmount: 0,
+        remaining: { gt: 0 },
       }),
     });
     expect(prismaService.partnerWithdrawal.count).toHaveBeenCalledWith({
@@ -114,8 +113,8 @@ describe('SessionNotificationService', () => {
       where: expect.objectContaining({
         storeId: 20,
         dueDate: { lt: new Date('2026-05-21T12:00:00.000Z') },
-        paidAmount: new Prisma.Decimal(0),
-        remaining: { gt: new Prisma.Decimal(0) },
+        paidAmount: 0,
+        remaining: { gt: 0 },
       }),
     });
   });
@@ -148,8 +147,8 @@ describe('SessionNotificationService', () => {
       where: expect.objectContaining({
         storeId: 22,
         dueDate: { lt: new Date('2026-05-21T12:00:00.000Z') },
-        paidAmount: new Prisma.Decimal(0),
-        remaining: { gt: new Prisma.Decimal(0) },
+        paidAmount: 0,
+        remaining: { gt: 0 },
       }),
     });
   });
