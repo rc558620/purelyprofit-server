@@ -3,7 +3,8 @@
 /// SpaceStatus 枚举已废弃（Step 3: 0.7 方案 A）
 /// 运行态状态推导规则：
 ///   - 存在 SpaceSession(spaceId, status=active) → occupied
-///   - 存在 SpaceReservation(spaceId, status=pending) → reserved
+///   - 存在 SpaceReservation(spaceId, status=pending, 今日) → reserved
+///   - enableDirtyRoom=true 且最后一次 settled 会话结束时间 > cleanedAt → cleaning
 ///   - 其他情况 → idle
 
 enum SpaceReservationStatus {
@@ -64,6 +65,8 @@ model Space {
   capacity        Int?
   enableDirtyRoom Boolean            @default(false) @map("enable_dirty_room")
   autoCheckout    Boolean            @default(false) @map("auto_checkout")
+  /// 脏房清洁完成时间：markSpaceReady 时更新，用于运行态推导 cleaning 状态
+  cleanedAt       DateTime?          @map("cleaned_at")
   reservations    SpaceReservation[]
   sessions        SpaceSession[]
   sortOrder       Int                @default(1) @map("sort_order")
@@ -152,6 +155,8 @@ model SpaceSession {
   @@index([storeId, status, startTime])
   @@index([storeId, endTime])
   @@index([status, startTime])
+  /// 自动结账定时任务查询：WHERE status = 'active' AND auto_checkout = true AND billing_mode = 'countdown' AND end_time <= NOW()
+  @@index([status, autoCheckout, billingMode, endTime])
   @@map("space_sessions")
 }
 
@@ -200,10 +205,12 @@ model SpaceSessionRenewRecord {
   grouponCode    String?             @map("groupon_code")
   /// 团购平台
   grouponPlatform String?            @map("groupon_platform")
+  /// 券面金额（分）
+  voucherFaceAmount Int?             @map("voucher_face_amount")
   /// 备注
   note           String?
   /// 续费时间（毫秒时间戳）
-  renewedAt      Int                 @map("renewed_at")
+  renewedAt      BigInt              @map("renewed_at")
   createdAt      DateTime            @default(now()) @map("created_at")
 
   @@index([sessionId])

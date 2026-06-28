@@ -80,6 +80,8 @@ model StoreMembershipOrder {
   @@index([storeId, createdAt])
   @@index([profileId, createdAt])
   @@index([status, createdAt])
+  /// Pulse 后台按门店+状态筛选会员订单列表
+  @@index([storeId, status, createdAt])
   @@map("store_membership_orders")
 }
 

@@ -61,6 +61,8 @@ model Store {
   address                     String?
   ownerId                     Int                           @unique @map("owner_id")
   owner                       User                          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  /// 最大子账号席位数（门店级上限），与 StoreSubscription.maxAccountSeats 保持同步
+  maxAccountSeats             Int                           @default(1) @map("max_account_seats")
   subscription                StoreSubscription?
   partners                    StorePartner[]
   membershipProfile           StoreMembershipProfile?
@@ -131,6 +133,8 @@ model StoreSubscription {
   planCode        SubscriptionPlanCode    @map("plan_code")
   planName        String                  @map("plan_name")
   status          StoreSubscriptionStatus @default(active)
+  /// 当前套餐对应的最大子账号席位数
+  maxAccountSeats Int                     @map("max_account_seats")
   startsAt        DateTime                @default(now()) @map("starts_at")
   expiresAt       DateTime?               @map("expires_at")
   createdAt       DateTime                @default(now()) @map("created_at")

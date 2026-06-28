@@ -36,6 +36,7 @@ model SaleOrder {
 
   @@unique([storeId, orderNo])
   @@index([storeId, date])
+  @@index([storeId, createdAt])
   @@index([operatorStaffId, createdAt])
   @@map("sale_orders")
 }

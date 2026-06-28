@@ -139,6 +139,8 @@ model MarketingConsumption {
 
   @@index([storeId, createdAt])
   @@index([customerId, createdAt])
+  /// Club C 端按门店+顾客查询消费列表（首单判断 / 消费记录）
+  @@index([storeId, customerId, createdAt])
   @@index([promotionId])
   @@map("marketing_consumptions")
 }
