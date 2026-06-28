@@ -61,6 +61,9 @@ export class SpaceSessionRenewRecordResponseDto {
   @ApiPropertyOptional({ example: '美团', description: '团购平台' })
   grouponPlatform?: string;
 
+  @ApiPropertyOptional({ example: 100, description: '券面金额（元）' })
+  voucherFaceAmount?: number;
+
   @ApiPropertyOptional({ example: '补差价', description: '备注' })
   note?: string;
 

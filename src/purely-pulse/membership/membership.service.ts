@@ -207,6 +207,13 @@ export class PulseMembershipService {
     return this.adminService.unbanAdminMember(user, memberId);
   }
 
+  cancelAdminMember(
+    user: AuthenticatedUser,
+    memberId: number,
+  ): Promise<PulseMemberDetailDto> {
+    return this.adminService.cancelAdminMember(user, memberId);
+  }
+
   updateAdminMemberSubAccountQuota(
     user: AuthenticatedUser,
     memberId: number,

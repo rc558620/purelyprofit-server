@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import Decimal from 'decimal.js';
+import { Money } from '../../shared/money.utils';
 import type {
   ClubRecordDto,
   ClubRecordFilterValue,
@@ -67,10 +67,10 @@ export class ClubRecordViewService {
       const record: ClubRecordDto = {
         id: entry.id,
         type: entry.type,
-        amount: this.convertFenToYuan(entry.amountFen),
+        amount: Money.fromDbCents(entry.amountFen).toOutputYuan(),
         description: entry.description,
         createdAt: entry.createdAt.toISOString(),
-        balanceSnapshot: this.convertFenToYuan(balanceSnapshotFen),
+        balanceSnapshot: Money.fromDbCents(balanceSnapshotFen).toOutputYuan(),
         storeName,
       };
 
@@ -97,8 +97,4 @@ export class ClubRecordViewService {
     }
   }
 
-  private convertFenToYuan(amountFen: number): number {
-    // 使用 Decimal 保证精度：先 div(100) 再 toFixed(2) 避免浮点误差
-    return Number(new Decimal(amountFen).div(100).toFixed(2));
-  }
 }

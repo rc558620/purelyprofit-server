@@ -92,15 +92,15 @@ describe('SalesRecordStatsService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('200'),
-          profit: new Prisma.Decimal('55'),
+          revenue: new Prisma.Decimal('20000'),
+          profit: new Prisma.Decimal('5500'),
           order_count: BigInt(4),
         },
       ])
       .mockResolvedValueOnce([
         {
-          revenue: new Prisma.Decimal('160'),
-          profit: new Prisma.Decimal('44'),
+          revenue: new Prisma.Decimal('16000'),
+          profit: new Prisma.Decimal('4400'),
           order_count: BigInt(2),
         },
       ]);

@@ -34,7 +34,7 @@ export class PulseAdminMemberPointsLogDto {
   @IsString()
   userName: string;
 
-  @ApiProperty({ example: '138****9021', description: '会员手机号' })
+  @ApiProperty({ example: '13800138000', description: '会员手机号' })
   @IsString()
   userPhone: string;
 
@@ -115,7 +115,7 @@ export class PulseAdminMemberBeanLogDto {
   @IsString()
   userName: string;
 
-  @ApiProperty({ example: '138****9021', description: '会员手机号' })
+  @ApiProperty({ example: '13800138000', description: '会员手机号' })
   @IsString()
   userPhone: string;
 

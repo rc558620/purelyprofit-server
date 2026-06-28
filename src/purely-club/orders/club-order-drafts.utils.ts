@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import Decimal from 'decimal.js';
+import { Money } from '../../shared/money.utils';
 import { DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS } from '../../purely-profit/marketing/marketing.utils';
 import { safeParsePointsRatio } from '../../purely-profit/marketing/schemas/member-level-settings.schema';
 import type {
@@ -202,8 +203,6 @@ export const isSamePaidObservation = <
   before.paymentConfirmationSource === after.paymentConfirmationSource &&
   before.failureReason === after.failureReason;
 
-const convertFenToYuan = (amountFen: number): number =>
-  new Decimal(amountFen).div(100).toDecimalPlaces(2).toNumber();
 
 const toIsoTime = (value: number | null): string | null =>
   value ? new Date(value).toISOString() : null;
@@ -253,7 +252,7 @@ export const toOrderStatusResponse = <
   orderNo: draft.orderNo,
   orderType: draft.orderType,
   title: draft.title,
-  amount: convertFenToYuan(draft.amountFen),
+  amount: Money.fromDbCents(draft.amountFen).toOutputYuan(),
   paymentChannel: draft.paymentChannel,
   status: draft.status,
   createdAt: new Date(draft.createdAtMs).toISOString(),
@@ -271,8 +270,8 @@ export const toServiceOrderResponse = (
   ...toOrderStatusResponse(draft),
   productId: String(draft.metadata.productId),
   productName: draft.metadata.productName,
-  originalAmount: convertFenToYuan(draft.metadata.originalAmountFen),
-  discountAmount: convertFenToYuan(draft.metadata.discountAmountFen),
+  originalAmount: Money.fromDbCents(draft.metadata.originalAmountFen).toOutputYuan(),
+  discountAmount: Money.fromDbCents(draft.metadata.discountAmountFen).toOutputYuan(),
   promotionId: draft.metadata.promotionId
     ? String(draft.metadata.promotionId)
     : null,

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
+import { Money } from '../../shared/money.utils';
 import type {
   ClubProductDto,
   ClubServiceProductTypeValue,
@@ -65,11 +66,11 @@ export class ClubProductViewService {
         : {}),
       description: product.description?.trim() || '暂无服务说明',
       coverImage: product.image?.trim() || '',
-      originalPrice: this.convertFenToYuan(
+      originalPrice: Money.fromDbCents(
         product.originalPrice ?? product.price,
-      ),
-      memberPrice: this.convertFenToYuan(pricing.memberPriceFen),
-      finalPrice: this.convertFenToYuan(pricing.finalPriceFen),
+      ).toOutputYuan(),
+      memberPrice: Money.fromDbCents(pricing.memberPriceFen).toOutputYuan(),
+      finalPrice: Money.fromDbCents(pricing.finalPriceFen).toOutputYuan(),
       ...(pricingContext.memberDiscountRate !== null
         ? { memberDiscountRate: pricingContext.memberDiscountRate }
         : {}),
@@ -84,7 +85,7 @@ export class ClubProductViewService {
           }
         : {}),
       ...(pricing.totalReduceFen > 0
-        ? { reduceAmount: this.convertFenToYuan(pricing.totalReduceFen) }
+        ? { reduceAmount: Money.fromDbCents(pricing.totalReduceFen).toOutputYuan() }
         : {}),
       ...(pricing.appliedPromotions.length > 0
         ? { appliedPromotions: pricing.appliedPromotions }
@@ -201,7 +202,7 @@ export class ClubProductViewService {
           type: 'member_level',
           tag: this.buildLevelDiscountTag(pricingContext.memberDiscountRate),
           discountRate: this.toRate100(pricingContext.memberDiscountRate),
-          savingAmount: this.convertFenToYuan(levelSavingFen),
+          savingAmount: Money.fromDbCents(levelSavingFen).toOutputYuan(),
           overridden: levelOverridden,
         });
       }
@@ -215,9 +216,9 @@ export class ClubProductViewService {
         type: chosenDiscount.promotionType,
         tag: chosenDiscount.promotionTag,
         discountRate: chosenDiscount.discountRate,
-        savingAmount: this.convertFenToYuan(
+        savingAmount: Money.fromDbCents(
           Math.max(amountFen - chosenDiscount.amountFen, 0),
-        ),
+        ).toOutputYuan(),
       });
     }
 
@@ -227,7 +228,7 @@ export class ClubProductViewService {
         id: String(promotion.id),
         type: 'reduce',
         tag: promotion.tag,
-        savingAmount: this.convertFenToYuan(savingFen),
+        savingAmount: Money.fromDbCents(savingFen).toOutputYuan(),
       });
     });
 
@@ -351,10 +352,6 @@ export class ClubProductViewService {
       .div(100)
       .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
       .toNumber();
-  }
-
-  private convertFenToYuan(amountFen: number): number {
-    return new Decimal(amountFen).div(100).toDecimalPlaces(2).toNumber();
   }
 
   /** 等级折扣率 → 0-100 整数或一位小数（如 0.81 → 81，0.8 → 80） */

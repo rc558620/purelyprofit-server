@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { ServerResponse } from 'node:http';
 import { type CostRecord, type Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type {
@@ -45,6 +46,14 @@ export class CostsService {
     query: CostReportQueryDto,
   ): Promise<CostReportResponseDto> {
     return this.costsReadService.getReport(user, query);
+  }
+
+  streamReportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    query: CostReportQueryDto,
+  ): Promise<void> {
+    return this.costsReadService.streamReportCsv(reply, user, query);
   }
 
   createRecord(

@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { mapConcurrent } from '../../../shared/concurrency.utils';
 import {
   EmployeePayrollStatus,
   EmployeeStatus,
@@ -13,6 +14,7 @@ import { StoreSubAccountService } from '../../member/platform-membership/store-s
 import { CostsService } from '../../operations/costs/costs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { Money } from '../../../shared/money.utils';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EmployeeResponseDto } from './dto/employee-response.dto';
 import { ResignEmployeeDto } from './dto/resign-employee.dto';
@@ -34,7 +36,6 @@ import {
   createEmployeeProfile,
   queryLatestEmployeeProfileEmpNo,
 } from './employees-profile.query';
-import { centsToYuan } from '../../commerce/commerce.utils';
 
 @Injectable()
 export class EmployeesProfileWriteService {
@@ -403,21 +404,22 @@ export class EmployeesProfileWriteService {
       },
     });
 
-    await Promise.all(
-      payrolls.map(async (payroll) => {
+    await mapConcurrent(
+      payrolls,
+      async (payroll) => {
         const derivedAmounts = buildPayrollDerivedAmounts({
-          baseSalary: centsToYuan(nextEmployee.baseSalary),
-          leaveDeduction: centsToYuan(payroll.leaveDeduction),
-          otherDeduction: centsToYuan(payroll.otherDeduction),
+          baseSalary: Money.fromDbCents(nextEmployee.baseSalary),
+          leaveDeduction: Money.fromDbCents(payroll.leaveDeduction),
+          otherDeduction: Money.fromDbCents(payroll.otherDeduction),
           otherDeductionNote: payroll.otherDeductionNote,
-          bonus: centsToYuan(payroll.bonus),
+          bonus: Money.fromDbCents(payroll.bonus),
           socialInsurance:
             payroll.socialInsurance > 0
-              ? centsToYuan(payroll.socialInsurance)
+              ? Money.fromDbCents(payroll.socialInsurance)
               : undefined,
           housingFund:
             payroll.housingFund > 0
-              ? centsToYuan(payroll.housingFund)
+              ? Money.fromDbCents(payroll.housingFund)
               : undefined,
         });
 
@@ -425,8 +427,8 @@ export class EmployeesProfileWriteService {
           where: { id: payroll.id },
           data: {
             baseSalary: nextEmployee.baseSalary,
-            actualSalary: Math.round(derivedAmounts.actualSalary * 100),
-            totalLaborCost: Math.round(derivedAmounts.totalLaborCost * 100),
+            actualSalary: derivedAmounts.actualSalary.toDbCents(),
+            totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
           },
         });
 
@@ -440,18 +442,19 @@ export class EmployeesProfileWriteService {
           operatorStaffId,
           employeeName: nextEmployee.name,
           month: formatPayrollMonth(payroll.month),
-          actualSalary: derivedAmounts.actualSalary,
+          // syncPayrollCosts 接口需要元
+          actualSalary: derivedAmounts.actualSalary.toOutputYuan(),
           socialInsurance:
             payroll.socialInsurance > 0
-              ? centsToYuan(payroll.socialInsurance)
+              ? Money.fromDbCents(payroll.socialInsurance).toOutputYuan()
               : undefined,
           housingFund:
             payroll.housingFund > 0
-              ? centsToYuan(payroll.housingFund)
+              ? Money.fromDbCents(payroll.housingFund).toOutputYuan()
               : undefined,
           note: payroll.note,
         });
-      }),
+      },
     );
 
     await this.syncEmployeePayrollNames(transaction, nextEmployee, nameChanged);
@@ -517,21 +520,16 @@ export class EmployeesProfileWriteService {
       return;
     }
 
-    // 构造 CASE WHEN ... END 批量更新，替代 N 次逐条 $executeRaw
-    // 使用 Prisma $executeRaw 标签模板不支持动态拼接，降级为 $executeRawUnsafe
-    // 所有值均来自数据库已有数据（newName 是员工姓名，id 是数字），XSS 风险可控
-    const caseWhenClauses = recordsToUpdate
-      .map((r) => `WHEN id = ${r.id} THEN ${JSON.stringify(r.updatedTitle)}`)
-      .join('\n');
-    const idList = recordsToUpdate.map((r) => r.id).join(', ');
-
-    await transaction.$executeRawUnsafe(`
-      UPDATE cost_records
-      SET title = CASE
-        ${caseWhenClauses}
-      END
-      WHERE id IN (${idList})
-    `);
+    // 逐条更新：使用 Prisma 参数化查询避免 SQL 注入风险
+    // 记录数量通常很少（单员工关联的工资单成本记录），逐条更新性能可接受
+    await Promise.all(
+      recordsToUpdate.map((r) =>
+        transaction.costRecord.update({
+          where: { id: r.id },
+          data: { title: r.updatedTitle },
+        }),
+      ),
+    );
   }
 
   private async syncLinkedStaffIdentity(

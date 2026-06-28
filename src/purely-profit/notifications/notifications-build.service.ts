@@ -5,7 +5,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildDerivedFinanceAccountStatusWhere } from '../finance/finance-account.query';
-import { toDecimalNumber } from '../commerce/commerce.utils';
+import { Money } from '../../shared/money.utils';
 import { DAY_MS, SOURCE_LIMIT } from './notifications.constants';
 import type {
   ActivePromotionRow,
@@ -155,7 +155,7 @@ export class NotificationsBuildService {
         id: `finance:account:${account.id}`,
         type: 'finance',
         title: `${account.counterpart} 账款已逾期`,
-        content: `剩余应收应付款 ${formatMoney(toDecimalNumber(account.remaining))}，到期时间 ${dueDateText}。`,
+        content: `剩余应收应付款 ${formatMoney(Money.fromDbCents(Number(account.remaining)).toOutputYuan())}，到期时间 ${dueDateText}。`,
         bizType: 'finance_account',
         bizId: String(account.id),
         actionUrl: '/accounts-management',

@@ -1,7 +1,7 @@
 import {
   calcPercentChange,
-  subtractMoneyValues,
 } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type { DashboardHomeStatsDto } from './dto/dashboard-home-response.dto';
 import { PERIOD_META } from './dashboard-home.constants';
 import type {
@@ -18,14 +18,12 @@ export function buildDashboardHomeStats(
   compareCosts: AggregatedCostsResult,
 ): DashboardHomeStatsDto {
   const meta = PERIOD_META[period];
-  const currentProfit = subtractMoneyValues(
-    currentSales.revenue,
-    currentCosts.totalCost,
-  );
-  const compareProfit = subtractMoneyValues(
-    compareSales.revenue,
-    compareCosts.totalCost,
-  );
+  const currentProfit = Money.fromInputYuan(currentSales.revenue)
+    .subtract(Money.fromInputYuan(currentCosts.totalCost))
+    .toOutputYuan();
+  const compareProfit = Money.fromInputYuan(compareSales.revenue)
+    .subtract(Money.fromInputYuan(compareCosts.totalCost))
+    .toOutputYuan();
 
   return {
     profitLabel: meta.profitLabel,

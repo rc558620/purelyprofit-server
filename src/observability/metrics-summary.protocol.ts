@@ -45,9 +45,14 @@ export type SummaryCachePrewarmCategory =
   | 'dashboardHome'
   | 'businessAnalysis'
   | 'financeOverview'
+  | 'financeReport'
   | 'marketingOverview'
   | 'membersMeta'
-  | 'membersOverview';
+  | 'membersOverview'
+  | 'profitDetail'
+  | 'profitReport'
+  | 'costsStats'
+  | 'costsReport';
 
 export type SummaryActionPanel =
   | 'process.resource_overview'

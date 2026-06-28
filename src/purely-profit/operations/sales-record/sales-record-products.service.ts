@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { toDecimalNumber } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
   ListSalesProductsQueryDto,
@@ -79,9 +79,9 @@ export class SalesRecordProductsService {
       name: product.name,
       category: product.category,
       code: product.code,
-      // 注意：price 在前端语义代表"单件利润"，对应数据库 product.profit
-      price: toDecimalNumber(product.profit),
-      salePrice: toDecimalNumber(product.price),
+      // 注意：price 在前端语义代表“单件利润”，对应数据库 product.profit
+      price: Money.fromDbCents(product.profit).toOutputYuan(),
+      salePrice: Money.fromDbCents(product.price).toOutputYuan(),
       quantity: 0,
     }));
   }

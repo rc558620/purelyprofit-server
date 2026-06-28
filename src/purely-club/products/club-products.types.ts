@@ -3,7 +3,7 @@ export const CLUB_HOT_PRODUCT_COUNT = 3;
 export const CLUB_FEATURED_PRODUCT_LIMIT = 6;
 /** 列表接口默认返回上限，防止全量加载 */
 export const CLUB_PRODUCT_DEFAULT_LIST_LIMIT = 50;
-export const CLUB_PRODUCT_NOT_FOUND_MESSAGE = '当前门店下找不到该服务商品';
+export { CLUB_PRODUCT_NOT_FOUND_MESSAGE } from '../club-errors.constants';
 
 export const clubProductSelect = {
   id: true,

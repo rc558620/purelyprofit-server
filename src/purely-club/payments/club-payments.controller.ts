@@ -6,9 +6,9 @@ import {
   ClubWechatPaymentCallbackDto,
 } from './dto/club-wechat-callback.dto';
 
-/** Minimal interface for raw body access (compatible with both Express and Fastify adapters) */
+/** Minimal interface for raw body access (Fastify adapter with per-route rawBody) */
 interface RawBodyRequest {
-  rawBody?: Buffer | string;
+  rawBody?: string;
   body?: unknown;
 }
 
@@ -34,12 +34,8 @@ export class ClubPaymentsController {
     @Headers('wechatpay-serial') serial: string | undefined,
   ): Promise<ClubWechatPaymentCallbackAckDto> {
     // rawBody 用于签名校验（签名消息串包含原始请求体）
-    // NestJS Fastify 适配器在 rawBody 可用时使用原始字节；否则回落到序列化 payload
-    const rawBody = req.rawBody
-      ? Buffer.isBuffer(req.rawBody)
-        ? req.rawBody.toString('utf8')
-        : req.rawBody
-      : JSON.stringify(payload);
+    // 由 Fastify 自定义 content type parser 在微信回调路由上按需注入
+    const rawBody = req.rawBody ?? JSON.stringify(payload);
 
     return this.clubPaymentsService.handleWechatCallback(
       payload,

@@ -1,10 +1,8 @@
 import type { InventoryAdjustType } from '@prisma/client';
-import Decimal from 'decimal.js';
 import { PaginationMetaDto } from '../stores/dto/store-response.dto';
 
-export type DecimalLike = {
-  toString(): string;
-};
+// 从 shared 重新导出统一金额值对象与工具函数，保持现有导入路径向后兼容
+export { Money, calcPercentChange, calcPercentOfTotal } from '../../shared/money.utils';
 
 /**
  * 空间预付抵扣商品的 productName。
@@ -110,80 +108,8 @@ export const PRODUCT_SORT_VALUES = [
   'profit_desc',
 ] as const satisfies readonly ProductSortValue[];
 
-export function toDecimalNumber(value?: DecimalLike | number | null): number {
-  if (value === undefined || value === null) {
-    return 0;
-  }
-
-  if (typeof value === 'number') {
-    return value;
-  }
-
-  return Number(value.toString());
-}
-
-/**
- * 将数据库存储的分（Int）转换为展示用的元（number，保留两位小数）。
- */
-export function centsToYuan(cents: number): number {
-  return new Decimal(cents)
-    .div(100)
-    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-    .toNumber();
-}
-
-/**
- * 将元（number，支持两位小数）转换为数据库存储的分（Int）。
- * 与 centsToYuan 互为逆操作。
- */
-export function yuanToCents(yuan: number): number {
-  return new Decimal(yuan)
-    .mul(100)
-    .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-    .toNumber();
-}
-
 export function toTimestampMs(value: Date): number {
   return value.getTime();
-}
-
-export function roundMoneyValue(value: number): number {
-  return new Decimal(value)
-    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-    .toNumber();
-}
-
-export function addMoneyValues(left: number, right: number): number {
-  return roundMoneyValue(new Decimal(left).plus(right).toNumber());
-}
-
-export function subtractMoneyValues(left: number, right: number): number {
-  return roundMoneyValue(new Decimal(left).minus(right).toNumber());
-}
-
-export function multiplyMoneyValue(amount: number, multiplier: number): number {
-  return roundMoneyValue(new Decimal(amount).mul(multiplier).toNumber());
-}
-
-export function calcPercentChange(
-  current: number,
-  previous: number,
-): number | null {
-  if (previous === 0) {
-    return null;
-  }
-
-  return roundMoneyValue(
-    new Decimal(current).minus(previous).div(previous).mul(100).toNumber(),
-  );
-}
-
-export function calcPercentOfTotal(amount: number, total: number): number {
-  if (total === 0) {
-    return 0;
-  }
-
-  return roundMoneyValue(new Decimal(amount).div(total).mul(100).toNumber());
 }
 
 export function toOptionalTimestampMs(value?: Date | null): number | undefined {

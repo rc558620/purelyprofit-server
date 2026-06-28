@@ -205,7 +205,7 @@ describe('MarketingService promotions', () => {
         earnRatioCents: 100,
         redeemRatioPoints: 1,
         maxRedeemRatio: 0.5,
-        enabled: true,
+        enabled: false,
       }),
     );
     expect(result.pointsFeatureEnabled).toBe(false);

@@ -31,14 +31,7 @@ export function resolveRegionCity(region: string[]): string {
   return region[0] ?? '--';
 }
 
-export function maskPhone(phone: string): string {
-  const normalizedPhone = phone.replace(/\s+/g, '');
-  if (!/^1\d{10}$/.test(normalizedPhone)) {
-    return normalizedPhone || '--';
-  }
-
-  return `${normalizedPhone.slice(0, 3)}****${normalizedPhone.slice(-4)}`;
-}
+// maskPhone 已移除：purelyPulse 为商家管理后台，需完整展示用户手机号，不再脱敏。
 
 export function formatDateTime(date: Date): string {
   if (Number.isNaN(date.getTime()) || date.getTime() <= 0) {

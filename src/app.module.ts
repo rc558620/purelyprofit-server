@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
+import Redis from 'ioredis';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AccessControlModule } from './purely-profit/access-control/access-control.module';
@@ -52,6 +54,7 @@ import { ClubPointsModule } from './purely-club/points/club-points.module';
 import { ClubStoresModule } from './purely-club/stores/club-stores.module';
 import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.module';
 import { QueueModule } from './queue/queue.module';
+import { CacheControlInterceptor } from './shared/cache-control.interceptor';
 
 @Module({
   imports: [
@@ -62,15 +65,39 @@ import { QueueModule } from './queue/queue.module';
     }),
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        throttlers: [
-          {
-            name: 'default',
-            ttl: configService.get<number>('app.throttleTtlSeconds') ?? 60,
-            limit: configService.get<number>('app.throttleLimit') ?? 100,
+      useFactory: (configService: ConfigService) => {
+        const redisClient = new Redis({
+          host: configService.get<string>('redis.host'),
+          port: configService.get<number>('redis.port'),
+          password: configService.get<string>('redis.password') || undefined,
+          db: configService.get<number>('redis.db'),
+          connectTimeout:
+            configService.get<number>('redis.connectTimeoutMs') ?? 5_000,
+          maxRetriesPerRequest:
+            configService.get<number>('redis.maxRetriesPerRequest') ?? 3,
+          enableOfflineQueue: true,
+          retryStrategy(times: number) {
+            const delay = Math.min(times * 200, 5_000);
+            return delay;
           },
-        ],
-      }),
+        });
+
+        return {
+          throttlers: [
+            {
+              name: 'default',
+              ttl: configService.get<number>('app.throttleTtlSeconds') ?? 60,
+              limit: configService.get<number>('app.throttleLimit') ?? 100,
+            },
+          ],
+          /**
+           * 使用 Redis 存储：集群模式下所有 worker 共享同一限流计数器，
+           * 确保同一 IP 在整个集群中的请求频率受到正确限制。
+           * 默认内存存储下各 worker 独立计数，实际限流倍数 = worker 数 × limit。
+           */
+          storage: new ThrottlerStorageRedisService(redisClient),
+        };
+      },
     }),
     PrismaModule,
     RedisModule,
@@ -128,6 +155,12 @@ import { QueueModule } from './queue/queue.module';
      * auth 相关接口在各自 controller 中通过 @Throttle 覆盖为更严格的配置。
      */
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    /**
+     * 全局 Cache-Control 响应头拦截器。
+     * 仅对标注了 @CacheControl() 装饰器的接口添加 Cache-Control 头，
+     * 用于指导客户端缓存纯读接口的响应，减少不必要的回源请求。
+     */
+    { provide: APP_INTERCEPTOR, useClass: CacheControlInterceptor },
   ],
 })
 export class AppModule {}

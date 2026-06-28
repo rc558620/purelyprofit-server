@@ -7,6 +7,7 @@ import {
   getDayEndTimestamp,
   getDayStartTimestamp,
 } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   buildDerivedFinanceAccountStatusWhere,
@@ -141,18 +142,18 @@ export async function loadDashboardHomeStatsData(
   return {
     store,
     currentSales: {
-      revenue: Number(currentSalesAgg[0]?.revenue ?? 0),
+      revenue: Money.fromDbCents(Number(currentSalesAgg[0]?.revenue ?? 0)).toOutputYuan(),
       orderCount: Number(currentSalesAgg[0]?.order_count ?? 0),
     },
     compareSales: {
-      revenue: Number(compareSalesAgg[0]?.revenue ?? 0),
+      revenue: Money.fromDbCents(Number(compareSalesAgg[0]?.revenue ?? 0)).toOutputYuan(),
       orderCount: Number(compareSalesAgg[0]?.order_count ?? 0),
     },
     currentCosts: {
-      totalCost: Number(currentCostsAgg._sum.amount ?? 0),
+      totalCost: Money.fromDbCents(Number(currentCostsAgg._sum.amount ?? 0)).toOutputYuan(),
     },
     compareCosts: {
-      totalCost: Number(compareCostsAgg._sum.amount ?? 0),
+      totalCost: Money.fromDbCents(Number(compareCostsAgg._sum.amount ?? 0)).toOutputYuan(),
     },
   };
 }

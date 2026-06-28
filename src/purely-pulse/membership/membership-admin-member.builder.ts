@@ -49,11 +49,11 @@ function isPulseMemberActive(
   return profile.expiresAt > new Date();
 }
 import {
-  maskAdminMemberPhone,
   resolveAdminMemberDisplayName,
   resolveAdminMemberPhone,
   toPulseMemberLevel,
 } from './membership-admin-query.helper';
+import { Money } from '../../shared/money.utils';
 
 type PulseAdminLogStoreRecord = Pick<
   PulseAdminStoreIdentityRecord,
@@ -65,6 +65,7 @@ type PulseAdminLogOwnerRecord = {
   name: string | null;
   realName: string | null;
   avatar: string | null;
+  wechatPhone: string | null;
 };
 
 type PulseAdminPointsLogRecord = {
@@ -91,7 +92,7 @@ type PulseAdminBeanLogRecord = {
 };
 
 interface BuildPulseAdminMemberListItemInput {
-  store: PulseAdminStoreRecord;
+  store: PulseAdminStoreRecord & { deletedAt?: Date | null };
   profile: PulseAdminMembershipProfileRecord | null;
   orderSummary: PulseAdminMemberOrderSummary | undefined;
   partner: PulseAdminPartnerRecord | null;
@@ -99,7 +100,7 @@ interface BuildPulseAdminMemberListItemInput {
 }
 
 interface BuildPulseAdminMemberDetailInput {
-  store: PulseAdminStoreRecord;
+  store: PulseAdminStoreRecord & { deletedAt?: Date | null };
   profile: PulseAdminMembershipProfileRecord | null;
   paidOrders: PulseAdminMembershipOrderRecord[];
   partner: PulseAdminPartnerRecord | null;
@@ -112,7 +113,7 @@ export function buildPulseAdminPointsLogItem(
   log: PulseAdminPointsLogRecord,
 ): PulseAdminMemberPointsLogsResponseDto['items'][number] {
   const userName = resolveAdminMemberDisplayName(log.store);
-  const userPhone = maskAdminMemberPhone(resolveAdminMemberPhone(log.store));
+  const userPhone = resolveAdminMemberPhone(log.store);
 
   return {
     id: String(log.id),
@@ -138,7 +139,7 @@ export function buildPulseAdminBeanLogItem(
   log: PulseAdminBeanLogRecord,
 ): PulseAdminMemberBeanLogsResponseDto['items'][number] {
   const userName = resolveAdminMemberDisplayName(log.store);
-  const userPhone = maskAdminMemberPhone(resolveAdminMemberPhone(log.store));
+  const userPhone = resolveAdminMemberPhone(log.store);
 
   return {
     id: String(log.id),
@@ -169,6 +170,7 @@ export function buildPulseAdminMemberListItem(
   const { store, profile, orderSummary, partner, banReason } = input;
   const ownerName = resolveAdminMemberDisplayName(store);
   const phone = resolveAdminMemberPhone(store);
+  const isCancelled = Boolean(store.deletedAt);
   const isBanned = Boolean(banReason);
   const isActive = isPulseMemberActive(profile);
   const membershipExpiry = profile?.expiresAt?.getTime() ?? null;
@@ -180,7 +182,7 @@ export function buildPulseAdminMemberListItem(
     avatarChar: ownerName.slice(0, 1) || '会',
     avatarColorIdx: store.id % 6,
     avatarUrl: store.owner.avatar ?? '',
-    status: isBanned ? 'banned' : isActive ? 'active' : 'inactive',
+    status: isCancelled ? 'cancelled' : isBanned ? 'banned' : isActive ? 'active' : 'inactive',
     level: toPulseMemberLevel(
       profile?.currentPlanId ?? null,
       profile?.expiresAt ?? null,
@@ -220,6 +222,7 @@ export function buildPulseAdminMemberDetail(
   const currentPlanId = profile?.currentPlanId ?? null;
   const level = toPulseMemberLevel(currentPlanId, profile?.expiresAt ?? null);
   const membershipExpiry = profile?.expiresAt?.getTime() ?? null;
+  const isCancelled = Boolean(store.deletedAt);
   const isBanned = Boolean(banReason);
   const isActive = isPulseMemberActive(profile);
   const registeredAt = store.createdAt.getTime();
@@ -227,10 +230,9 @@ export function buildPulseAdminMemberDetail(
     store.owner.lastActiveAt?.getTime() ??
     paidOrders[0]?.createdAt.getTime() ??
     store.updatedAt.getTime();
-  const totalRecharged = paidOrders.reduce(
-    (sum, order) => sum + order.amount,
-    0,
-  );
+  const totalRecharged = Money.sum(
+    paidOrders.map((order) => Money.fromDbCents(order.amount)),
+  ).toOutputYuan();
 
   return {
     id: String(store.id),
@@ -239,7 +241,7 @@ export function buildPulseAdminMemberDetail(
     avatarChar: ownerName.slice(0, 1) || '会',
     avatarColorIdx: store.id % 6,
     avatarUrl: store.owner.avatar ?? '',
-    status: isBanned ? 'banned' : isActive ? 'active' : 'inactive',
+    status: isCancelled ? 'cancelled' : isBanned ? 'banned' : isActive ? 'active' : 'inactive',
     level,
     registeredAt,
     lastActiveAt,
@@ -253,7 +255,7 @@ export function buildPulseAdminMemberDetail(
     rechargeHistory: paidOrders.map((order) => ({
       id: String(order.id),
       planName: order.planName,
-      amount: order.amount,
+        amount: Money.fromDbCents(order.amount).toOutputYuan(),
       pointsAwarded: PURCHASE_BONUS_POINTS[order.planId] ?? 0,
       channel: 'wechat',
       createdAt: order.createdAt.getTime(),

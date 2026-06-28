@@ -9,6 +9,7 @@ import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCapabilityService } from './auth-capability.service';
 import { AuthCodeService } from './auth-code.service';
+import { CaptchaTokenService } from './captcha-token.service';
 import { AuthController } from './auth.controller';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthProfileService } from './auth-profile.service';
@@ -51,6 +52,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthAuthenticationService,
     AuthCapabilityService,
     AuthCodeService,
+    CaptchaTokenService,
     AuthPasswordService,
     AuthProductAuthService,
     AuthProfileService,
@@ -69,6 +71,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthProductAuthService,
     AuthAccountLookupService,
     AuthCodeService,
+    CaptchaTokenService,
     AuthSessionService,
     JwtAuthGuard,
     ClubJwtAuthGuard,

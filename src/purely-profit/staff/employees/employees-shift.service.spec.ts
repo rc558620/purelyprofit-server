@@ -16,6 +16,7 @@ describe('EmployeesShiftService', () => {
   const prismaService = {
     employeeShift: {
       findMany: jest.fn(),
+      count: jest.fn(),
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
@@ -324,7 +325,7 @@ describe('EmployeesShiftService', () => {
   });
 
   describe('listShifts', () => {
-    it('历史数据 shiftDefinitionId = null 时仍能正常返回 shiftName', async () => {
+    it('历史数据 shiftDefinitionId = null 时仍能正常返回 shiftName 与分页信息', async () => {
       employeesAccessService.resolveViewStoreId.mockResolvedValue(2);
       prismaService.employeeShift.findMany.mockResolvedValue([
         {
@@ -343,12 +344,27 @@ describe('EmployeesShiftService', () => {
           updatedAt,
         },
       ]);
+      prismaService.employeeShift.count.mockResolvedValue(1);
 
       const result = await service.listShifts(user, { storeId: 2 });
 
-      expect(result).toHaveLength(1);
-      expect(result[0].shiftDefinitionId).toBeUndefined();
-      expect(result[0].shiftName).toBe('早班');
+      expect(employeesAccessService.resolveViewStoreId).toHaveBeenCalledWith(
+        user,
+        2,
+        '无权查看该门店排班',
+        'staff:view',
+      );
+      expect(result.meta).toEqual({
+        page: 1,
+        pageSize: 50,
+        total: 1,
+        totalPages: 1,
+      });
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]).toMatchObject({
+        shiftName: '早班',
+      });
+      expect(result.items[0].shiftDefinitionId).toBeUndefined();
     });
   });
 

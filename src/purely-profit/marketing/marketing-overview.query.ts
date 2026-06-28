@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { toMoneyNumber } from '../finance/finance-money.utils';
+import { Money } from '../../shared/money.utils';
 
 interface DailyTrendRow {
   date: Date;
@@ -31,7 +31,7 @@ export async function queryOverviewDailyTrend(
 
   return rows.map((r) => ({
     date: r.date,
-    amount: toMoneyNumber(r.total),
+    amount: Money.fromDbCents(r.total).toOutputYuan(),
   }));
 }
 
@@ -56,6 +56,6 @@ export async function queryOverviewMonthlyTrend(
   return rows.map((r) => ({
     year: r.year,
     month: r.month,
-    amount: toMoneyNumber(r.total),
+    amount: Money.fromDbCents(r.total).toOutputYuan(),
   }));
 }

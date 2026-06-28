@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { ServerResponse } from 'node:http';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -17,6 +18,7 @@ import type {
   InventoryReportResponseDto,
   InventoryStatsResponseDto,
   PaginatedInventoryAdjustmentsResponseDto,
+  PaginatedInventoryProductsResponseDto,
   ProductThresholdResponseDto,
 } from './dto/inventory.dto';
 import {
@@ -31,6 +33,7 @@ import {
   buildInventoryProductResponse,
   buildInventoryReportResponse,
   buildPaginatedInventoryAdjustmentsResponse,
+  buildPaginatedInventoryProductsResponse,
   buildProductThresholdResponse,
 } from './inventory.mapper';
 import {
@@ -57,6 +60,9 @@ import type {
   InventorySaleDeductionParams,
   UpdateAlertThresholdInput,
 } from './inventory.types';
+import {
+safeStreamCsvExport,
+} from '../../../shared/stream-export.utils';
 
 @Injectable()
 export class InventoryService {
@@ -71,7 +77,7 @@ export class InventoryService {
   async listProducts(
     user: AuthenticatedUser,
     query: InventoryProductListQueryInput,
-  ): Promise<InventoryProductResponseDto[]> {
+  ): Promise<PaginatedInventoryProductsResponseDto> {
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
       query.storeId,
@@ -79,11 +85,18 @@ export class InventoryService {
       '无权查看该门店库存商品',
     );
 
+    const { page, take } = this.resolvePagination(query.page, query.pageSize);
+
     if (storeId === null) {
-      return [];
+      return buildPaginatedInventoryProductsResponse({
+        items: [],
+        total: 0,
+        page,
+        pageSize: take,
+      });
     }
 
-    return this.listProductsByStoreId(storeId, query);
+    return this.listProductsByStoreId(storeId, query, page, take);
   }
 
   /**
@@ -93,39 +106,24 @@ export class InventoryService {
   private async listProductsByStoreId(
     storeId: number,
     query: InventoryProductListQueryInput,
-  ): Promise<InventoryProductResponseDto[]> {
-    const products = await queryInventoryProducts(this.prisma, storeId, query);
+    page: number,
+    pageSize: number,
+  ): Promise<PaginatedInventoryProductsResponseDto> {
+    const result = await queryInventoryProducts(this.prisma, storeId, query);
 
     const filteredAndSorted = sortInventoryProducts(
-      products.filter((product) => matchesInventoryFilters(product, query)),
+      result.items.filter((product) => matchesInventoryFilters(product, query)),
       query.sortBy,
     );
 
-    /* BUG-7: 支持分页——不传 page/pageSize 时返回全量（向后兼容） */
-    const paginated = this.applyProductPagination(filteredAndSorted, query);
+    const paginated = filteredAndSorted.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
 
-    return paginated.map(buildInventoryProductResponse);
-  }
-
-  /**
-   * BUG-7: 对已排序的商品列表应用分页截断。
-   * 当 page 和 pageSize 都传了时才截断，否则返回全量。
-   */
-  private applyProductPagination(
-    products: InventoryProductRecord[],
-    query: InventoryProductListQueryInput,
-  ): InventoryProductRecord[] {
-    if (
-      query.page === undefined ||
-      query.page === null ||
-      query.pageSize === undefined ||
-      query.pageSize === null
-    ) {
-      return products;
-    }
-
-    const skip = (query.page - 1) * query.pageSize;
-    return products.slice(skip, skip + query.pageSize);
+    return buildPaginatedInventoryProductsResponse({
+      items: paginated,
+      total: filteredAndSorted.length,
+      page,
+      pageSize,
+    });
   }
 
   async removeProduct(
@@ -159,12 +157,35 @@ export class InventoryService {
       );
     }
 
-    const [summary, products] = await Promise.all([
+    const [summary, paginatedProducts] = await Promise.all([
       this.getStatsByStoreId(storeId),
-      this.listProductsByStoreId(storeId, query),
+      this.listProductsByStoreId(storeId, query, 1, Number.MAX_SAFE_INTEGER),
     ]);
 
-    return buildInventoryReportResponse(summary, products);
+    return buildInventoryReportResponse(summary, paginatedProducts.items);
+  }
+
+  /**
+   * 流式导出库存报表 CSV，O(1) 内存占用。
+   */
+  async streamReportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    query: InventoryReportQueryInput,
+  ): Promise<void> {
+    const report = await this.getReport(user, query);
+    safeStreamCsvExport(
+      reply,
+      'inventory-report.csv',
+      ['商品名称', '分类', '当前库存', '预警阈值', '库存状态'],
+      report.products.map((row) => [
+        row.name,
+        row.category,
+        row.stock,
+        row.alertThreshold,
+        row.alertLevel,
+      ]),
+    );
   }
 
   async listAdjustments(

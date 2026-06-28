@@ -14,11 +14,7 @@ import type {
   FinanceAccountsListQueryInput,
   FinanceDerivedAccountFields,
 } from './finance.types';
-import {
-  addMoneyValues,
-  roundMoneyValue,
-  toMoneyNumber,
-} from './finance-money.utils';
+import { Money } from '../../shared/money.utils';
 import {
   buildPaginationState,
   paginateArray,
@@ -56,28 +52,28 @@ function getAccountCategoryRule(
 }
 
 export function deriveAccountFields(
-  amount: number,
-  paidAmount: number,
+  amount: Money,
+  paidAmount: Money,
   dueDate?: number,
 ): FinanceDerivedAccountFields {
-  const remaining = roundMoneyValue(amount - paidAmount);
-  if (remaining <= 0) {
-    return { remaining, status: FinanceAccountStatus.settled };
+  const remaining = amount.subtract(paidAmount);
+  if (!remaining.isPositive()) {
+    return { remaining: remaining.toDbCents(), status: FinanceAccountStatus.settled };
   }
-  if (paidAmount > 0) {
-    return { remaining, status: FinanceAccountStatus.partial };
+  if (paidAmount.isPositive()) {
+    return { remaining: remaining.toDbCents(), status: FinanceAccountStatus.partial };
   }
   if (dueDate && dueDate < Date.now()) {
-    return { remaining, status: FinanceAccountStatus.overdue };
+    return { remaining: remaining.toDbCents(), status: FinanceAccountStatus.overdue };
   }
-  return { remaining, status: FinanceAccountStatus.pending };
+  return { remaining: remaining.toDbCents(), status: FinanceAccountStatus.pending };
 }
 
 export function withDerivedAccountFields(
   record: FinanceAccountRecordWithAmount,
 ): FinanceAccountRecordWithAmount {
-  const amount = toMoneyNumber(record.amount);
-  const paidAmount = toMoneyNumber(record.paidAmount);
+  const amount = Money.fromDbCents(record.amount);
+  const paidAmount = Money.fromDbCents(record.paidAmount);
   const derived = deriveAccountFields(
     amount,
     paidAmount,
@@ -86,7 +82,7 @@ export function withDerivedAccountFields(
 
   return {
     ...record,
-    remaining: derived.remaining, // Step 3: 直接使用 number
+    remaining: derived.remaining,
     status: derived.status,
   };
 }
@@ -143,8 +139,8 @@ export function paginateAccounts(
 export function mapAccountRecord(
   record: FinanceAccountRecordWithAmount,
 ): FinanceAccountRecordResponseDto {
-  const amount = toMoneyNumber(record.amount);
-  const paidAmount = toMoneyNumber(record.paidAmount);
+  const amount = Money.fromDbCents(record.amount);
+  const paidAmount = Money.fromDbCents(record.paidAmount);
   const derived = deriveAccountFields(
     amount,
     paidAmount,
@@ -156,9 +152,9 @@ export function mapAccountRecord(
     type: record.type as FinanceAccountRecordResponseDto['type'],
     category: record.category as FinanceAccountRecordResponseDto['category'],
     counterpart: record.counterpart,
-    amount,
-    paidAmount,
-    remaining: derived.remaining,
+    amount: amount.toOutputYuan(),
+    paidAmount: paidAmount.toOutputYuan(),
+    remaining: derived.remaining ? Money.fromDbCents(derived.remaining).toOutputYuan() : 0,
     status: derived.status,
     ...(record.dueDate ? { dueDate: record.dueDate.getTime() } : {}),
     date: record.date.getTime(),
@@ -174,19 +170,19 @@ export function buildAccountsStats(
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
-  let totalReceivable = 0;
-  let totalPayable = 0;
+  let totalReceivable = Money.zero();
+  let totalPayable = Money.zero();
   let overdueCount = 0;
 
   const derivedRecords = records.map((item) => withDerivedAccountFields(item));
 
   for (const record of derivedRecords) {
     if (record.status !== FinanceAccountStatus.settled) {
-      const remaining = toMoneyNumber(record.remaining);
+      const remaining = Money.fromDbCents(record.remaining);
       if (record.type === 'receivable') {
-        totalReceivable = addMoneyValues(totalReceivable, remaining);
+        totalReceivable = totalReceivable.add(remaining);
       } else {
-        totalPayable = addMoneyValues(totalPayable, remaining);
+        totalPayable = totalPayable.add(remaining);
       }
       if (record.status === FinanceAccountStatus.overdue) {
         overdueCount += 1;
@@ -195,9 +191,9 @@ export function buildAccountsStats(
   }
 
   return {
-    totalReceivable,
-    totalPayable,
-    netReceivable: roundMoneyValue(totalReceivable - totalPayable),
+    totalReceivable: totalReceivable.toOutputYuan(),
+    totalPayable: totalPayable.toOutputYuan(),
+    netReceivable: totalReceivable.subtract(totalPayable).toOutputYuan(),
     overdueCount,
     newThisMonth: derivedRecords.filter(
       (record) => record.createdAt.getTime() >= monthStart.getTime(),

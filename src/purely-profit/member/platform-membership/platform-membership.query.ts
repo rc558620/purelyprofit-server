@@ -1,4 +1,5 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { mapConcurrent } from '../../../shared/concurrency.utils';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type { PlatformMembershipPlanId } from './dto/platform-membership-query.dto';
 import {
@@ -279,8 +280,10 @@ export async function loadMembershipPlanSettings(
 
   const now = new Date();
   // 并行 upsert 所有缺失的套餐设置，替代逐条串行执行（通常仅首次调用时触发）
-  const createdEntries = await Promise.all(
-    missingPlanIds.map(async (planId) => {
+  // 使用并发控制避免打满数据库连接池（缺失项通常 ≤ 4 项）
+  const createdEntries = await mapConcurrent(
+    missingPlanIds,
+    async (planId) => {
       const defaultSetting = DEFAULT_MEMBERSHIP_PLAN_SETTINGS[planId];
       const created = await prismaExecutor.membershipPlanSetting.upsert({
         where: { planId },
@@ -304,7 +307,7 @@ export async function loadMembershipPlanSettings(
         },
       });
       return created;
-    }),
+    },
   );
 
   for (const created of createdEntries) {

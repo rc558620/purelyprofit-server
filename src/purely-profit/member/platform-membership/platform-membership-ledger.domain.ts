@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import Decimal from 'decimal.js';
+import { Money } from '../../../shared/money.utils';
 import type {
   PlatformMembershipBeanLogDto,
   PlatformMembershipBeanLogsResponseDto,
@@ -32,7 +33,7 @@ type ApprovedPartnerLike = Pick<
 export function buildOrdersOverview(
   orders: StoreMembershipOrderRecord[],
 ): PlatformMembershipOrdersOverviewDto {
-  const totalAmount = orders.reduce((sum, order) => sum + order.amount, 0);
+  const totalAmount = Money.fromDbCents(orders.reduce((sum, order) => sum + order.amount, 0)).toOutputYuan();
   return {
     orderCount: orders.length,
     totalAmount,
@@ -46,7 +47,7 @@ export function mapOrder(
     id: String(order.id),
     planId: order.planId,
     planName: order.planName,
-    amount: order.amount,
+    amount: Money.fromDbCents(order.amount).toOutputYuan(),
     pointsUsed: order.pointsUsed,
     beansUsed: order.beansUsed,
     status: order.status,
@@ -222,6 +223,7 @@ export function calcMemberPlanPayment(params: {
     beanDeductRate = BEAN_DEDUCT_RATE,
     beanDeductLimitRate = BEAN_DEDUCT_LIMIT,
   } = params;
+  // planPrice 来自 MembershipPlanConfig.price，单位分；计算链路以分为单位
   const planPriceDecimal = new Decimal(planPrice);
   const zero = new Decimal(0);
 

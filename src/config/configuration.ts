@@ -137,6 +137,24 @@ export default () => ({
       process.env.DATABASE_STATEMENT_TIMEOUT_MS ?? '10000',
       10,
     ),
+    /**
+     * PostgreSQL 侧 max_connections 配置值。
+     * 集群模式下 PrismaService 会据此自动调整每 worker 的 poolMax，
+     * 确保 workers × poolMax 不超过此值。
+     * 未配置时默认 100（即 PostgreSQL 默认值）。
+     */
+    pgMaxConnections: parseInt(
+      process.env.DATABASE_PG_MAX_CONNECTIONS ?? '100',
+      10,
+    ),
+  },
+
+  cluster: {
+    /**
+     * 集群 worker 进程数。未配置时默认跟随 CPU 核数。
+     * 生产环境建议显式配置（如 4），避免自动跟随核数导致连接池总量超出 PG 限制。
+     */
+    workers: parseInt(process.env.CLUSTER_WORKERS ?? '0', 10) || undefined,
   },
 
   redis: {
@@ -176,6 +194,18 @@ export default () => ({
       process.env.AUTH_SMS_SEND_COOLDOWN_SECONDS ?? '60',
       10,
     ),
+    /**
+     * Admin 登录账号别名，用于系统默认管理员快速登录。
+     * 生产环境务必通过环境变量覆盖，避免使用默认值。
+     * 对应环境变量：AUTH_ADMIN_LOGIN_ALIAS
+     */
+    adminLoginAlias: process.env.AUTH_ADMIN_LOGIN_ALIAS ?? 'admin',
+    /**
+     * Admin 登录手机号，用于关联系统默认管理员账号。
+     * 生产环境务必通过环境变量覆盖，避免使用默认值。
+     * 对应环境变量：AUTH_ADMIN_LOGIN_PHONE
+     */
+    adminLoginPhone: process.env.AUTH_ADMIN_LOGIN_PHONE ?? '13619654020',
     /**
      * RSA 公钥（PEM 格式），用于登录加密。
      * 不配置时自动生成（进程重启后轮换）。

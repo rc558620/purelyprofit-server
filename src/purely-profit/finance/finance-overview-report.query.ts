@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Money } from '../../shared/money.utils';
 import { buildDerivedOpenAccountWhere } from './finance-account.query';
 import type {
   FinanceAccountRecordWithAmount,
@@ -81,66 +82,72 @@ export async function queryFinanceReportData(
   >;
   accountRecords: FinanceAccountRecordWithAmount[];
 }> {
+  const currentCashFlowRecordsPromise = params.currentRange.empty
+    ? Promise.resolve<
+        Array<
+          Pick<
+            FinanceCashFlowRecordWithAmount,
+            | 'id'
+            | 'date'
+            | 'title'
+            | 'direction'
+            | 'category'
+            | 'amount'
+            | 'payment'
+          >
+        >
+      >([])
+    : prisma.financeCashFlowRecord.findMany({
+        where: {
+          storeId: params.storeId,
+          date: {
+            gte: new Date(params.currentRange.start),
+            lte: new Date(params.currentRange.end),
+          },
+        },
+        select: financeReportCashFlowSelect,
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+        take: maxPageSize,
+      });
+
+  const previousCashFlowRowsPromise = (async (): Promise<
+    Array<Pick<FinanceCashFlowStatsRow, 'direction' | 'amount'>>
+  > => {
+    if (!params.previousRange || params.previousRange.empty) {
+      return [];
+    }
+    const rows = await prisma.financeCashFlowRecord.groupBy({
+      by: ['direction'],
+      where: {
+        storeId: params.storeId,
+        date: {
+          gte: new Date(params.previousRange.start),
+          lte: new Date(params.previousRange.end),
+        },
+      },
+      _sum: { amount: true },
+    });
+    return rows.map((row) => ({
+      direction: row.direction,
+      amount: row._sum.amount ?? 0, // 数据库分，后续统一在 domain 层转元
+    }));
+  })();
+
+  const accountRecordsPromise = prisma.financeAccountRecord.findMany({
+    where: buildDerivedOpenAccountWhere({
+      storeId: params.storeId,
+      now: params.currentRange.end,
+    }),
+    select: financeReportAccountSelect,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: maxPageSize,
+  });
+
   const [currentCashFlowRecords, previousCashFlowRows, accountRecords] =
     await Promise.all([
-      params.currentRange.empty
-        ? Promise.resolve<
-            Array<
-              Pick<
-                FinanceCashFlowRecordWithAmount,
-                | 'id'
-                | 'date'
-                | 'title'
-                | 'direction'
-                | 'category'
-                | 'amount'
-                | 'payment'
-              >
-            >
-          >([])
-        : prisma.financeCashFlowRecord.findMany({
-            where: {
-              storeId: params.storeId,
-              date: {
-                gte: new Date(params.currentRange.start),
-                lte: new Date(params.currentRange.end),
-              },
-            },
-            select: financeReportCashFlowSelect,
-            orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-            take: maxPageSize,
-          }),
-      params.previousRange && !params.previousRange.empty
-        ? prisma.financeCashFlowRecord
-            .groupBy({
-              by: ['direction'],
-              where: {
-                storeId: params.storeId,
-                date: {
-                  gte: new Date(params.previousRange.start),
-                  lte: new Date(params.previousRange.end),
-                },
-              },
-              _sum: { amount: true },
-            })
-            .then((rows) =>
-              rows.map((row) => ({
-                direction: row.direction,
-                amount: row._sum.amount ?? 0, // Step 3: Int（分）
-              })),
-            )
-        : Promise.resolve<
-            Array<Pick<FinanceCashFlowStatsRow, 'direction' | 'amount'>>
-          >([]),
-      prisma.financeAccountRecord.findMany({
-        where: buildDerivedOpenAccountWhere({
-          storeId: params.storeId,
-          now: params.currentRange.end,
-        }),
-        select: financeReportAccountSelect,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: maxPageSize,
-      }),
+      currentCashFlowRecordsPromise,
+      previousCashFlowRowsPromise,
+      accountRecordsPromise,
     ]);
 
   return {
@@ -204,11 +211,11 @@ export async function queryOverviewCategoryTotals(
   return {
     current: rows.map((r) => ({
       category: r.category,
-      amount: Number(r.total),
+      amount: Money.fromDbCents(Number(r.total)).toDbCents(),
     })),
     previous: prevRows.map((r) => ({
       category: r.category,
-      amount: Number(r.total),
+      amount: Money.fromDbCents(Number(r.total)).toDbCents(),
     })),
   };
 }
@@ -242,7 +249,7 @@ export async function queryOverviewDailyTrend(
 
   return rows.map((r) => ({
     day: r.day.getTime(),
-    income: Number(r.income_total ?? 0),
-    expense: Number(r.expense_total ?? 0),
+    income: Money.fromDbCents(Number(r.income_total ?? 0)).toDbCents(),
+    expense: Money.fromDbCents(Number(r.expense_total ?? 0)).toDbCents(),
   }));
 }

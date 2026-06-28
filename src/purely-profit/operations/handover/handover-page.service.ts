@@ -27,15 +27,15 @@ import {
 } from './handover-page.shared';
 import {
   ORDER_ITEMS_LIMIT,
-  addMoney,
   buildShiftDateRange,
   extendShiftRangeToReference,
-  toMoneyNumber,
+  dbCentsToOutputYuan,
   type OrderItemRow,
   type RefundOrderRow,
   type ResolvedHandoverPageShiftContext,
 } from './handover.shared';
 import type { SalesPaymentMethod } from '@prisma/client';
+import { Money } from '../../../shared/money.utils';
 
 type SettledSpaceSessionRow = {
   id: number;
@@ -205,15 +205,12 @@ export class HandoverPageService {
       paymentOrderItems,
       orderItems,
       refundOrders,
-      additionalRevenueAmount: toMoneyNumber(
-        additionalRevenue._sum.totalRevenue,
-      ),
-      spaceRevenueAmount: addMoney(
-        toMoneyNumber(spaceRevenue._sum.timeCost),
-        toMoneyNumber(spaceRevenue._sum.itemsCost),
-      ),
-      refundAmount: Math.abs(toMoneyNumber(refundRevenue._sum.totalRevenue)),
-      pettyCashAmount: toMoneyNumber(pettyCash._sum.amount),
+      additionalRevenueAmount: dbCentsToOutputYuan(additionalRevenue._sum.totalRevenue),
+      spaceRevenueAmount: Money.fromDbCents(Number(spaceRevenue._sum.timeCost ?? 0))
+        .add(Money.fromDbCents(Number(spaceRevenue._sum.itemsCost ?? 0)))
+        .toOutputYuan(),
+      refundAmount: Math.abs(dbCentsToOutputYuan(refundRevenue._sum.totalRevenue)),
+      pettyCashAmount: dbCentsToOutputYuan(pettyCash._sum.amount),
       settledSpaceSessions,
     };
   }
@@ -376,10 +373,8 @@ export class HandoverPageService {
     // 营业收入 = additionalRevenue（仅非空间订单，不含负数）
     // 空间管理 = spaceRevenue（空间会话消费金额 = itemsCost + timeCost）
     // 本班营业额 = 营业收入 + 空间管理
-    const totalRevenue = addMoney(
-      metrics.additionalRevenueAmount,
-      metrics.spaceRevenueAmount,
-    );
+    const totalRevenue =
+      metrics.additionalRevenueAmount + metrics.spaceRevenueAmount;
 
     // 当所有班次已交接完成且无后续排班时，
     // 清空操作员名字并移除头像，前端回退到用户注册时的默认头像。

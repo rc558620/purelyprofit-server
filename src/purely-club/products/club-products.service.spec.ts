@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { Money } from '../../shared/money.utils';
 import { ClubProductPromotionService } from './club-product-promotion.service';
 import { ClubProductQueryService } from './club-product-query.service';
 import { ClubProductViewService } from './club-product-view.service';
@@ -73,9 +74,9 @@ describe('ClubProductsService', () => {
         name: product.name,
         description: product.description?.trim() || '暂无服务说明',
         coverImage: product.image?.trim() || '',
-        originalPrice: (product.originalPrice ?? product.price) / 100,
+        originalPrice: Money.fromDbCents(product.originalPrice ?? product.price).toOutputYuan(),
         // 简化：直接取原价，实际价格逻辑由 ClubProductViewService 单元测试覆盖
-        memberPrice: product.price / 100,
+        memberPrice: Money.fromDbCents(product.price).toOutputYuan(),
         type: 'product',
         tags: hotProductIds.has(product.id) ? ['热销'] : [],
         isHot: hotProductIds.has(product.id),

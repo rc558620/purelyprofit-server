@@ -1,5 +1,5 @@
-import Decimal from 'decimal.js';
 import { toTimestampMs } from '../../commerce/commerce.utils';
+import { Money, calcPercentOfTotal } from '../../../shared/money.utils';
 import {
   COST_CATEGORY_META,
   type CostRecordResponseSource,
@@ -21,7 +21,7 @@ export function buildCostRecordResponse(
     title: record.title,
     type: record.type,
     category: record.category,
-    amount: record.amount,
+    amount: Money.fromDbCents(record.amount).toOutputYuan(),
     date: toTimestampMs(record.date),
     ...(record.note ? { note: record.note } : {}),
     sourceType: record.sourceType,
@@ -40,19 +40,18 @@ export function buildCostReportCategories(
 
   const totals = new Map<CostReportCostRow['category'], number>();
   for (const row of rows) {
-    totals.set(row.category, (totals.get(row.category) ?? 0) + row.amount);
+    totals.set(
+      row.category,
+      (totals.get(row.category) ?? 0) +
+        Money.fromDbCents(row.amount).toOutputYuan(),
+    );
   }
 
   return Array.from(totals.entries())
     .map(([category, amount]) => ({
       label: COST_CATEGORY_META[category].label,
       amount,
-      percentage: Number(
-        new Decimal(amount)
-          .div(total)
-          .mul(100)
-          .toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
-      ),
+      percentage: calcPercentOfTotal(amount, total),
       color: COST_CATEGORY_META[category].color,
     }))
     .sort((left, right) => right.amount - left.amount);
@@ -72,7 +71,7 @@ export function buildCostReportDetailRows(
     .map((row) => ({
       id: String(row.id),
       title: row.title,
-      amount: row.amount,
+      amount: Money.fromDbCents(row.amount).toOutputYuan(),
       date: toTimestampMs(row.date),
       dateLabel: formatCostReportDate(row.date),
       ...(row.note ? { note: row.note } : {}),
@@ -85,7 +84,7 @@ export function buildCostReportDetailRows(
         return {
           id: String(row.id),
           title: `[草稿] ${row.employeeName} ${monthLabel} 工资`,
-          amount: row.actualSalary,
+          amount: Money.fromDbCents(row.actualSalary).toOutputYuan(),
           date: row.month.getTime(),
           dateLabel: monthLabel,
           ...(row.note ? { note: row.note } : {}),

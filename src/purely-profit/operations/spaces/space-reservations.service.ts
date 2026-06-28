@@ -218,7 +218,6 @@ export class SpaceReservationsService {
         },
       });
 
-      await this.syncNonOccupiedSpaceStatus(transaction, latestSpace.id);
       return created;
     });
 
@@ -357,10 +356,6 @@ export class SpaceReservationsService {
         },
       });
 
-      await this.syncNonOccupiedSpaceStatus(
-        transaction,
-        latestReservation.spaceId,
-      );
       return nextReservation;
     });
 
@@ -438,10 +433,6 @@ export class SpaceReservationsService {
         },
       });
 
-      await this.syncNonOccupiedSpaceStatus(
-        transaction,
-        latestReservation.spaceId,
-      );
       return nextReservation;
     });
 
@@ -475,13 +466,6 @@ export class SpaceReservationsService {
       spaceId,
       enableDirtyRoom,
     );
-  }
-
-  async syncNonOccupiedSpaceStatus(
-    transaction: Prisma.TransactionClient,
-    spaceId: number,
-  ): Promise<void> {
-    await this.stateService.syncNonOccupiedSpaceStatus(transaction, spaceId);
   }
 
   async cancelMatchedReservationAfterCheckout(

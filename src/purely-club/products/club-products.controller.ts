@@ -17,6 +17,7 @@ import { ClubJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard
 import { ClubCurrentContextInterceptor } from '../stores/club-current-context.interceptor';
 import { CurrentClubContext } from '../stores/current-club-context.decorator';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
+import { CacheControl } from '../../shared/cache-control.decorator';
 import { ClubProductsService } from './club-products.service';
 import {
   ClubProductDto,
@@ -32,6 +33,7 @@ import {
 export class ClubProductsController {
   constructor(private readonly clubProductsService: ClubProductsService) {}
 
+  @CacheControl({ maxAge: 30 })
   @Get()
   @ApiOperation({
     summary: '获取 purely-club 当前门店服务商品列表',

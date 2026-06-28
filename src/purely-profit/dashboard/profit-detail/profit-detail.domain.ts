@@ -1,12 +1,10 @@
 import {
-  addMoneyValues,
   getDayStartTimestamp,
   isDeductionProductName,
-  multiplyMoneyValue,
-  toDecimalNumber,
   toOptionalMediaText,
   toOptionalText,
 } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type {
   AggregatedRankProduct,
   CostAggregationResult,
@@ -17,9 +15,9 @@ import type {
 
 export function createEmptySalesAggregation(): SalesAggregationResult {
   return {
-    revenue: 0,
+    revenue: Money.zero(),
     orderCount: 0,
-    dailyRevenueMap: new Map<number, number>(),
+    dailyRevenueMap: new Map<number, Money>(),
     rankMap: new Map<string, AggregatedRankProduct>(),
   };
 }
@@ -42,9 +40,9 @@ export function aggregateSales(
   start: number,
   end: number,
 ): SalesAggregationResult {
-  let revenue = 0;
+  let revenue = Money.zero();
   let orderCount = 0;
-  const dailyRevenueMap = new Map<number, number>();
+  const dailyRevenueMap = new Map<number, Money>();
   const rankMap = new Map<string, AggregatedRankProduct>();
 
   const seenOrderIds = new Set<number>();
@@ -60,11 +58,11 @@ export function aggregateSales(
       continue;
     }
 
-    const price = toDecimalNumber(row.salePrice);
-    const profitPerUnit = toDecimalNumber(row.profit);
-    const itemRevenue = multiplyMoneyValue(price, row.quantity);
-    const itemProfit = multiplyMoneyValue(profitPerUnit, row.quantity);
-    revenue = addMoneyValues(revenue, itemRevenue);
+    const price = Money.fromDbCents(row.salePrice);
+    const profitPerUnit = Money.fromDbCents(row.profit);
+    const itemRevenue = price.multiply(row.quantity);
+    const itemProfit = profitPerUnit.multiply(row.quantity);
+    revenue = revenue.add(itemRevenue);
     // orderCount 统计独立订单数（去重），与其他模块口径一致
     seenOrderIds.add(row.order.id);
     orderCount = seenOrderIds.size;
@@ -72,7 +70,7 @@ export function aggregateSales(
     const dayStart = getDayStartTimestamp(timestamp);
     dailyRevenueMap.set(
       dayStart,
-      addMoneyValues(dailyRevenueMap.get(dayStart) ?? 0, itemRevenue),
+      (dailyRevenueMap.get(dayStart) ?? Money.zero()).add(itemRevenue),
     );
 
     mergeRankProduct(
@@ -98,9 +96,9 @@ export function aggregateCosts(
   start: number,
   end: number,
 ): CostAggregationResult {
-  let totalCost = 0;
-  const dailyCostMap = new Map<number, number>();
-  const categoryCostMap = new Map<CostRecordRow['category'], number>();
+  let totalCost = Money.zero();
+  const dailyCostMap = new Map<number, Money>();
+  const categoryCostMap = new Map<CostRecordRow['category'], Money>();
 
   for (const row of rows) {
     const timestamp = row.date.getTime();
@@ -108,17 +106,17 @@ export function aggregateCosts(
       continue;
     }
 
-    const amount = toDecimalNumber(row.amount);
-    totalCost = addMoneyValues(totalCost, amount);
+    const amount = Money.fromDbCents(row.amount);
+    totalCost = totalCost.add(amount);
 
     const dayStart = getDayStartTimestamp(timestamp);
     dailyCostMap.set(
       dayStart,
-      addMoneyValues(dailyCostMap.get(dayStart) ?? 0, amount),
+      (dailyCostMap.get(dayStart) ?? Money.zero()).add(amount),
     );
     categoryCostMap.set(
       row.category,
-      addMoneyValues(categoryCostMap.get(row.category) ?? 0, amount),
+      (categoryCostMap.get(row.category) ?? Money.zero()).add(amount),
     );
   }
 
@@ -132,10 +130,10 @@ export function aggregateCosts(
 function mergeRankProduct(
   rankMap: Map<string, AggregatedRankProduct>,
   row: SaleOrderItemRow,
-  price: number,
-  profitPerUnit: number,
-  itemRevenue: number,
-  itemProfit: number,
+  price: Money,
+  profitPerUnit: Money,
+  itemRevenue: Money,
+  itemProfit: Money,
 ): void {
   const displayName = resolveProfitProductName(row);
   const rankKey =
@@ -148,14 +146,8 @@ function mergeRankProduct(
 
   if (currentProduct) {
     currentProduct.quantity += row.quantity;
-    currentProduct.totalProfit = addMoneyValues(
-      currentProduct.totalProfit,
-      itemProfit,
-    );
-    currentProduct.totalRevenue = addMoneyValues(
-      currentProduct.totalRevenue,
-      itemRevenue,
-    );
+    currentProduct.totalProfit = currentProduct.totalProfit.add(itemProfit);
+    currentProduct.totalRevenue = currentProduct.totalRevenue.add(itemRevenue);
     if (!currentProduct.image && row.image) {
       currentProduct.image = row.image;
     }

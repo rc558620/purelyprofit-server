@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
+import { parseDiscountRate } from '../club-discount.utils';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -208,24 +209,7 @@ export class ClubProductPromotionService {
     }
 
     const candidate = params as Record<string, unknown>;
-    const rawDiscountRate = candidate.discountRate;
-    const rawRate = candidate.rate;
-
-    let discountRate: number | null = null;
-
-    if (rawDiscountRate !== null && rawDiscountRate !== undefined) {
-      const parsed = Number(rawDiscountRate);
-      if (Number.isFinite(parsed) && parsed > 0 && parsed < 100) {
-        discountRate = parsed;
-      }
-    }
-
-    if (discountRate === null && rawRate !== null && rawRate !== undefined) {
-      const parsed = Number(rawRate);
-      if (Number.isFinite(parsed) && parsed > 0 && parsed < 1) {
-        discountRate = parsed * 100;
-      }
-    }
+    const discountRate = parseDiscountRate(candidate);
 
     if (discountRate === null) {
       return null;

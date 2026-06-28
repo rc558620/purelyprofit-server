@@ -770,14 +770,14 @@ describe('PlatformMembershipService', () => {
     await expect(service.listOrders(user)).resolves.toEqual({
       overview: {
         orderCount: 2,
-        totalAmount: 13200,
+        totalAmount: 132,
       },
       items: [
         {
           id: '21',
           planId: 'quarterly',
           planName: '季度会员',
-          amount: 9900,
+          amount: 99,
           pointsUsed: 0,
           beansUsed: 0,
           status: 'paid',
@@ -788,7 +788,7 @@ describe('PlatformMembershipService', () => {
           id: '22',
           planId: 'monthly',
           planName: '月度会员',
-          amount: 3300,
+          amount: 33,
           pointsUsed: 500,
           beansUsed: 10,
           status: 'paid',
@@ -1772,7 +1772,7 @@ describe('PlatformMembershipService', () => {
         id: '31',
         planId: 'quarterly',
         planName: '季度会员',
-        amount: 5900,
+        amount: 59,
         pointsUsed: 2000,
         beansUsed: 20,
         status: 'paid',
@@ -1811,7 +1811,7 @@ describe('PlatformMembershipService', () => {
       },
       overview: {
         orderCount: 1,
-        totalAmount: 5900,
+        totalAmount: 59,
       },
     });
   });
@@ -1849,27 +1849,27 @@ describe('PlatformMembershipService', () => {
         planId: 'lifetime',
         planName: '永久会员',
         amount: 39800,
-      pointsUsed: 0,
-      beansUsed: 0,
-      status: 'paid',
-      paymentChannel: 'wechat',
-      paymentOrderId: 'WX18129999',
-      createdAt: fixedNow,
-    });
-      prismaService.storeMembershipOrder.findMany.mockResolvedValue([
-        {
-          id: 40,
-          planId: 'lifetime',
-          planName: '永久会员',
-          amount: 39800,
         pointsUsed: 0,
         beansUsed: 0,
         status: 'paid',
         paymentChannel: 'wechat',
         paymentOrderId: 'WX18129999',
         createdAt: fixedNow,
-      },
-    ]);
+      });
+      prismaService.storeMembershipOrder.findMany.mockResolvedValue([
+        {
+          id: 40,
+          planId: 'lifetime',
+          planName: '永久会员',
+          amount: 39800,
+          pointsUsed: 0,
+          beansUsed: 0,
+          status: 'paid',
+          paymentChannel: 'wechat',
+          paymentOrderId: 'WX18129999',
+          createdAt: fixedNow,
+        },
+      ]);
 
       const result = await service.purchaseOrder(user, {
         planId: 'lifetime',
@@ -1894,7 +1894,7 @@ describe('PlatformMembershipService', () => {
       expect(result.order).toMatchObject({
         planId: 'lifetime',
         planName: '永久会员',
-        amount: 39800,
+        amount: 398,
       });
     } finally {
       jest.useRealTimers();
@@ -1931,27 +1931,27 @@ describe('PlatformMembershipService', () => {
         planId: 'monthly',
         planName: '月度会员',
         amount: 3800,
-      pointsUsed: 0,
-      beansUsed: 0,
-      status: 'paid',
-      paymentChannel: 'wechat',
-      paymentOrderId: 'WX18123457',
-      createdAt: new Date('2026-05-18T00:00:00.000Z'),
-    });
-      prismaService.storeMembershipOrder.findMany.mockResolvedValue([
-        {
-          id: 32,
-          planId: 'monthly',
-          planName: '月度会员',
-          amount: 3800,
         pointsUsed: 0,
         beansUsed: 0,
         status: 'paid',
         paymentChannel: 'wechat',
         paymentOrderId: 'WX18123457',
         createdAt: new Date('2026-05-18T00:00:00.000Z'),
-      },
-    ]);
+      });
+      prismaService.storeMembershipOrder.findMany.mockResolvedValue([
+        {
+          id: 32,
+          planId: 'monthly',
+          planName: '月度会员',
+          amount: 3800,
+          pointsUsed: 0,
+          beansUsed: 0,
+          status: 'paid',
+          paymentChannel: 'wechat',
+          paymentOrderId: 'WX18123457',
+          createdAt: new Date('2026-05-18T00:00:00.000Z'),
+        },
+      ]);
 
       const result = await service.purchaseOrder(user, {
         planId: 'monthly',

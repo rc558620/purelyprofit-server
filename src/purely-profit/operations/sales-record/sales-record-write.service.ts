@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toOptionalText } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import { InventoryService } from '../../goods/inventory/inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
@@ -16,7 +17,6 @@ import {
   SalesRecordItemPreparationService,
   type CreateSalesRecordOptions,
 } from './sales-record-item-preparation.service';
-import { sumMoney } from './sales-record.utils';
 
 @Injectable()
 export class SalesRecordWriteService {
@@ -66,20 +66,20 @@ export class SalesRecordWriteService {
         dto,
         options,
       );
-    const totalRevenue = sumMoney(
-      preparedItems,
-      (item) => item.salePrice * item.quantity,
+    const totalRevenueMoney = Money.sum(
+      preparedItems.map((item) => item.salePrice.multiply(item.quantity)),
     );
-    const totalProfit = sumMoney(
-      preparedItems,
-      (item) => item.profit * item.quantity,
+    const totalProfitMoney = Money.sum(
+      preparedItems.map((item) => item.profit.multiply(item.quantity)),
     );
+    const totalRevenue = totalRevenueMoney.toOutputYuan();
+    const totalProfit = totalProfitMoney.toOutputYuan();
     const totalQuantity = preparedItems.reduce(
       (sum, item) => sum + (item.countsTowardTotalQuantity ? item.quantity : 0),
       0,
     );
 
-    assertSalesTotalsMatch(dto, totalRevenue, totalProfit, totalQuantity);
+    assertSalesTotalsMatch(dto, totalRevenueMoney, totalProfitMoney, totalQuantity);
 
     const operatorNameSnapshot =
       await this.resolveOperatorNameSnapshot(operatorStaffId);

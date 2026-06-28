@@ -10,8 +10,8 @@ import {
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import { yuanToCents } from '../../commerce/commerce.utils';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Money } from '../../../shared/money.utils';
+import { PrismaService, TX_TIMEOUT_LONG } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RedisService } from '../../../redis/redis.service';
 import type {
@@ -146,8 +146,8 @@ export class SpaceSessionSettlementService {
             productName: item.productName,
             categoryName: item.categoryName,
             // orderItems 中的 salePrice/profit 是元，DB 存储为分
-            salePrice: yuanToCents(item.salePrice),
-            profit: yuanToCents(item.profit),
+            salePrice: Money.fromInputYuan(item.salePrice).toDbCents(),
+            profit: Money.fromInputYuan(item.profit).toDbCents(),
             quantity: item.quantity,
             sortOrder: index,
           })),
@@ -161,8 +161,8 @@ export class SpaceSessionSettlementService {
           data: {
             endTime: new Date(params.checkoutAt),
             // settlement 中的 timeCost/itemsCost 是元，DB 存储为分
-            timeCost: yuanToCents(params.settlement.timeCost),
-            itemsCost: yuanToCents(params.settlement.itemsCost),
+            timeCost: Money.fromInputYuan(params.settlement.timeCost).toDbCents(),
+            itemsCost: Money.fromInputYuan(params.settlement.itemsCost).toDbCents(),
             status: PrismaSpaceSessionStatus.settled,
             saleOrderId: Number(createdOrder.id),
           },
@@ -202,11 +202,11 @@ export class SpaceSessionSettlementService {
         // Space.status 已移除，不再更新空间状态字段
 
         return {
-          session: nextSession,
+          session: nextSession as unknown as SpaceSessionRecord,
           cancelledReservationId,
           salesOrder: createdOrder,
         };
-      });
+      }, { timeout: TX_TIMEOUT_LONG });
 
       await this.cacheInvalidatorService.invalidateSalesDerived(
         params.session.storeId,

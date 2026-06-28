@@ -46,7 +46,6 @@ describe('SpaceReservationsService', () => {
   const stateService = {
     ensureReservationCanBeFulfilled: jest.fn(),
     resolveReservationBackStatus: jest.fn(),
-    syncNonOccupiedSpaceStatus: jest.fn(),
     cancelMatchedReservationAfterCheckout: jest.fn(),
   };
 
@@ -84,7 +83,6 @@ describe('SpaceReservationsService', () => {
 
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    stateService.syncNonOccupiedSpaceStatus.mockResolvedValue(undefined);
     prismaService.$transaction.mockImplementation((callback) =>
       Promise.resolve(callback(transaction)),
     );
@@ -397,10 +395,6 @@ describe('SpaceReservationsService', () => {
         status: PrismaSpaceReservationStatus.cancelled,
       },
     });
-    expect(stateService.syncNonOccupiedSpaceStatus).toHaveBeenCalledWith(
-      transaction,
-      11,
-    );
     expect(result.status).toBe('cancelled');
   });
 
@@ -423,7 +417,6 @@ describe('SpaceReservationsService', () => {
 
     expect(transaction.$queryRaw).toHaveBeenCalledTimes(2);
     expect(transaction.spaceReservation.update).not.toHaveBeenCalled();
-    expect(stateService.syncNonOccupiedSpaceStatus).not.toHaveBeenCalled();
   });
 
   it('toSpaceReservationResponse 会标记已过时预约', () => {

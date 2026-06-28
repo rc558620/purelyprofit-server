@@ -7,7 +7,6 @@ import {
   getMonthStartTimestamp,
   getQuarterStartTimestamp,
   getWeekStartTimestamp,
-  subtractMoneyValues,
 } from '../../commerce/commerce.utils';
 import { GetProfitDetailQueryDto } from './dto/profit-detail-query.dto';
 import type {
@@ -154,5 +153,5 @@ export async function buildClampedRanges(
 }
 
 export function subtractMoney(left: number, right: number): number {
-  return subtractMoneyValues(left, right);
+  return left - right;
 }

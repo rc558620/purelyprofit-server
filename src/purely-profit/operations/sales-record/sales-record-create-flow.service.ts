@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { Money } from '../../../shared/money.utils';
 import { InventoryService } from '../../goods/inventory/inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
@@ -50,8 +51,8 @@ export class SalesRecordCreateFlowService {
           operatorStaffId: params.operatorStaffId,
           operatorNameSnapshot: params.operatorNameSnapshot ?? null,
           orderNo,
-          totalRevenue: params.totalRevenue,
-          totalProfit: params.totalProfit,
+          totalRevenue: Money.fromInputYuan(params.totalRevenue).toDbCents(),
+          totalProfit: Money.fromInputYuan(params.totalProfit).toDbCents(),
           totalQuantity: params.totalQuantity,
           paymentMethod: params.dto.paymentMethod,
           calcMode: params.dto.calcMode,
@@ -63,16 +64,55 @@ export class SalesRecordCreateFlowService {
               productId: item.productId,
               productName: item.productName,
               categoryName: item.categoryName,
-              salePrice: item.salePrice,
-              profit: item.profit,
+              salePrice: item.salePrice.toDbCents(),
+              profit: item.profit.toDbCents(),
               quantity: item.quantity,
               image: item.image ?? null,
             })),
           },
         },
-        include: {
+        select: {
+          id: true,
+          orderNo: true,
+          note: true,
+          paymentMethod: true,
+          calcMode: true,
+          operatorNameSnapshot: true,
+          date: true,
+          createdAt: true,
           items: {
+            select: {
+              id: true,
+              productId: true,
+              productName: true,
+              categoryName: true,
+              salePrice: true,
+              profit: true,
+              quantity: true,
+            },
             orderBy: [{ id: 'asc' }],
+          },
+          spaceSession: {
+            select: {
+              space: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+          operatorStaff: {
+            select: {
+              role: true,
+              employeeProfile: {
+                select: {
+                  subAccounts: {
+                    select: { role: true },
+                    take: 1,
+                  },
+                },
+              },
+            },
           },
         },
       });
@@ -101,7 +141,7 @@ export class SalesRecordCreateFlowService {
 
       // 空间结账含抵扣项时 totalRevenue 可能为零或负数，
       // 此时不产生正向现金流记录（实际收款已在预付/续费时记录）。
-      if (params.totalRevenue > 0) {
+      if (Money.fromInputYuan(params.totalRevenue).toDbCents() > 0) {
         await transaction.financeCashFlowRecord.create({
           data: {
             storeId: params.storeId,
@@ -110,7 +150,7 @@ export class SalesRecordCreateFlowService {
             direction: 'income',
             category: 'sales',
             title: `${createdOrder.orderNo} 销售收入`,
-            amount: params.totalRevenue,
+            amount: Money.fromInputYuan(params.totalRevenue).toDbCents(),
             payment: params.dto.paymentMethod,
             note: params.note,
             date: params.orderDate,
@@ -118,7 +158,7 @@ export class SalesRecordCreateFlowService {
         });
       }
 
-      return createdOrder as SaleOrderWithItems;
+      return createdOrder;
     };
 
     const created = params.options?.transactionClient

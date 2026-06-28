@@ -1,4 +1,5 @@
 import { MemberGender } from '@prisma/client';
+import { Money } from '../../../shared/money.utils';
 import {
   MemberRechargeRecordDto,
   MemberResponseDto,
@@ -72,7 +73,7 @@ function toRechargeHistory(
   return records.map((record) => ({
     id: `rc-${record.id}`,
     planName: record.planName,
-    amount: record.amount,
+    amount: Money.fromDbCents(record.amount).toOutputYuan(),
     pointsAwarded: record.pointsAwarded,
     channel: record.channel,
     createdAt: toTimestampMs(record.createdAt),

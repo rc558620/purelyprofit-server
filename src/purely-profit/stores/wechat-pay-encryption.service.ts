@@ -16,7 +16,6 @@ export class WechatPayEncryptionService {
   private readonly logger = new Logger(WechatPayEncryptionService.name);
   private readonly algorithm = 'aes-256-gcm';
   private readonly ivLength = 12; // GCM 推荐 IV 长度
-  private readonly authTagLength = 16; // GCM 认证标签长度
   private readonly masterKey: Buffer | null;
 
   constructor(private readonly config: ConfigService) {

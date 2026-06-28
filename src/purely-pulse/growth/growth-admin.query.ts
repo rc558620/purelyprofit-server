@@ -3,14 +3,17 @@ import {
   Prisma,
   type PartnerWithdrawalStatus as PartnerWithdrawalStatusValue,
 } from '@prisma/client';
+import type { PlatformPartnerIntention } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 import type { PulsePayoutTabValue } from './dto/pulse-growth-admin.dto';
 import type { PrismaService } from '../../prisma/prisma.service';
+import { Money } from '../../shared/money.utils';
 
 export interface AdminPartnerApplicationRecord {
   id: number;
   name: string;
   phone: string;
   region: string[];
+  intention: PlatformPartnerIntention;
   applyReason: string | null;
   createdAt: Date;
   status: string;
@@ -145,6 +148,7 @@ const ADMIN_PARTNER_APPLICATION_SELECT = {
   name: true,
   phone: true,
   region: true,
+  intention: true,
   applyReason: true,
   createdAt: true,
   status: true,
@@ -335,10 +339,10 @@ export async function queryAdminPayoutStats(
         case PartnerWithdrawalStatus.pending:
         case PartnerWithdrawalStatus.approved:
           summary.pendingCount += record._count._all;
-          summary.pendingTotal += record._sum.rmbAmount ?? 0;
+          summary.pendingTotal += Money.fromDbCents(record._sum.rmbAmount ?? 0).toOutputYuan();
           break;
         case PartnerWithdrawalStatus.paid:
-          summary.paidTotal += record._sum.rmbAmount ?? 0;
+          summary.paidTotal += Money.fromDbCents(record._sum.rmbAmount ?? 0).toOutputYuan();
           break;
         default:
           break;

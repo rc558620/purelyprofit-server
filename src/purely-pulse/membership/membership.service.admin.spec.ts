@@ -237,6 +237,7 @@ describe('PulseMembershipService admin', () => {
                 email: true,
                 name: true,
                 realName: true,
+                wechatPhone: true,
               },
             },
           },
@@ -251,7 +252,8 @@ describe('PulseMembershipService admin', () => {
           id: '21',
           userId: '18',
           userName: '张三',
-          userPhone: '136****4020',
+          userPhone: '13619654020',
+          avatarUrl: undefined,
           amount: 100,
           type: 'earn',
           source: 'purchase_bonus',
@@ -343,6 +345,7 @@ describe('PulseMembershipService admin', () => {
                 email: true,
                 name: true,
                 realName: true,
+                wechatPhone: true,
               },
             },
           },
@@ -357,7 +360,8 @@ describe('PulseMembershipService admin', () => {
           id: '11',
           userId: '18',
           userName: '张三',
-          userPhone: '136****4020',
+          userPhone: '13619654020',
+          avatarUrl: undefined,
           amount: 10,
           type: 'earn',
           source: 'promo_reward',
@@ -439,6 +443,7 @@ describe('PulseMembershipService admin', () => {
               notIn: ['dev@example.com'],
             },
           },
+          deletedAt: null,
         },
       },
       select: {
@@ -450,7 +455,10 @@ describe('PulseMembershipService admin', () => {
     });
     expect(context.prismaService.store.findMany).toHaveBeenCalledWith({
       where: {
-        id: { in: [18] },
+        AND: [
+          { id: { in: [18] } },
+          { deletedAt: null },
+        ],
       },
       select: {
         id: true,
@@ -458,12 +466,14 @@ describe('PulseMembershipService admin', () => {
         contactPhone: true,
         createdAt: true,
         updatedAt: true,
+        deletedAt: true,
         owner: {
           select: {
             email: true,
             name: true,
             realName: true,
             avatar: true,
+            wechatPhone: true,
             lastActiveAt: true,
           },
         },
@@ -479,7 +489,7 @@ describe('PulseMembershipService admin', () => {
       status: 'active',
       level: 'quarterly',
       availablePoints: 2100,
-      totalRecharged: 9900,
+      totalRecharged: 99,
     });
   });
 
@@ -547,6 +557,7 @@ describe('PulseMembershipService admin', () => {
       where: {
         AND: [
           { id: { in: [18, 19] } },
+          { deletedAt: null },
           {
             partners: {
               some: {
@@ -607,12 +618,14 @@ describe('PulseMembershipService admin', () => {
         contactPhone: true,
         createdAt: true,
         updatedAt: true,
+        deletedAt: true,
         owner: {
           select: {
             avatar: true,
             email: true,
             name: true,
             realName: true,
+            wechatPhone: true,
             lastActiveAt: true,
           },
         },
@@ -986,7 +999,7 @@ describe('PulseMembershipService admin', () => {
       beanBalance: 12,
       invitedCount: 2,
       rechargeCount: 2,
-      totalRecharged: 46800,
+      totalRecharged: 468,
     });
     expect(result.rechargeHistory).toHaveLength(2);
   });

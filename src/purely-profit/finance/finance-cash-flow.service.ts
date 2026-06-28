@@ -39,7 +39,7 @@ import {
 } from './finance-cash-flow.query';
 import { buildPaginatedCashFlowRecordsResponse } from './finance.mapper';
 import type { FinanceCashFlowListQueryInput } from './finance.types';
-import { isZeroValue, roundMoneyValue } from './finance-money.utils';
+import { Money, calcPercentChangeWithFallback } from '../../shared/money.utils';
 import { buildPaginationState } from './finance-pagination.utils';
 import {
   getCashFlowFilterRange,
@@ -159,7 +159,7 @@ export class FinanceCashFlowService {
       direction: dto.direction,
       category: dto.category,
       title: dto.title.trim(),
-      amount: dto.amount, // Step 3: 直接使用 number（分）
+      amount: Money.fromInputYuan(dto.amount).toDbCents(),
       payment: dto.payment,
       note: trimOptionalString(dto.note),
       date: new Date(dto.date),
@@ -289,12 +289,11 @@ export class FinanceCashFlowService {
 
     return {
       ...baseStats,
-      compareLastPeriod: isZeroValue(previousStats.netFlow)
+      compareLastPeriod: previousStats.netFlow === 0
         ? null
-        : roundMoneyValue(
-            ((baseStats.netFlow - previousStats.netFlow) /
-              Math.abs(previousStats.netFlow)) *
-              100,
+        : calcPercentChangeWithFallback(
+            baseStats.netFlow,
+            previousStats.netFlow,
           ),
     };
   }

@@ -144,7 +144,7 @@ describe('SpaceSessionOpenService', () => {
       startTime: now,
       endTime: null,
       billingMode: 'timed',
-      hourlyRate: 6800,  // DB 存储为分（68元）
+      hourlyRate: 6800, // DB 存储为分（68元）
       timeCost: null,
       countdownMinutes: null,
       autoCheckout: null,
@@ -159,7 +159,7 @@ describe('SpaceSessionOpenService', () => {
       prepaidAmount: null,
       prepaidVoucherFaceAmount: null,
       sessionItems: [],
-      itemsCost: 0,  // DB 存储为分（0元）
+      itemsCost: 0, // DB 存储为分（0元）
       sessionRenewRecords: [],
       status: 'active',
       saleOrderId: null,
@@ -216,7 +216,7 @@ describe('SpaceSessionOpenService', () => {
       startTime: now,
       endTime: null,
       billingMode: 'timed',
-      hourlyRate: 6800,  // DB 存储为分（68元）
+      hourlyRate: 6800, // DB 存储为分（68元）
       timeCost: null,
       countdownMinutes: null,
       autoCheckout: null,
@@ -231,7 +231,7 @@ describe('SpaceSessionOpenService', () => {
       prepaidAmount: null,
       prepaidVoucherFaceAmount: null,
       sessionItems: [],
-      itemsCost: 0,  // DB 存储为分（0元）
+      itemsCost: 0, // DB 存储为分（0元）
       sessionRenewRecords: [],
       status: 'active',
       saleOrderId: null,
@@ -293,7 +293,7 @@ describe('SpaceSessionOpenService', () => {
       startTime: now,
       endTime: null,
       billingMode: 'countdown',
-      hourlyRate: 6800,  // DB 存储为分（68元）
+      hourlyRate: 6800, // DB 存储为分（68元）
       timeCost: null,
       countdownMinutes: 60,
       autoCheckout: false,
@@ -305,10 +305,10 @@ describe('SpaceSessionOpenService', () => {
       prepaidVoucherCode: 'MT100',
       prepaidVoucherPlatform: '美团',
       prepaidNote: '提前到店',
-      prepaidAmount: 16800,  // DB 存储为分（168元）
-      prepaidVoucherFaceAmount: 16800,  // DB 存储为分（168元）
+      prepaidAmount: 16800, // DB 存储为分（168元）
+      prepaidVoucherFaceAmount: 16800, // DB 存储为分（168元）
       sessionItems: [],
-      itemsCost: 0,  // DB 存储为分（0元）
+      itemsCost: 0, // DB 存储为分（0元）
       sessionRenewRecords: [],
       status: 'active',
       saleOrderId: null,
@@ -354,8 +354,8 @@ describe('SpaceSessionOpenService', () => {
           prepaidVoucherCode: 'MT100',
           prepaidVoucherPlatform: '美团',
           prepaidNote: '提前到店',
-          prepaidAmount: 16800,  // yuanToCents(168) = 16800分
-          prepaidVoucherFaceAmount: 16800,  // yuanToCents(168) = 16800分
+          prepaidAmount: 16800, // Money.fromInputYuan(168).toDbCents() = 16800分
+          prepaidVoucherFaceAmount: 16800, // Money.fromInputYuan(168).toDbCents() = 16800分
         }),
       }),
     );

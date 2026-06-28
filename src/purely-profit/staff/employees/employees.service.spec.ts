@@ -234,7 +234,7 @@ describe('EmployeesService', () => {
         position: '店长',
         department: '前厅',
         joinDate: new Date('2026-05-01T00:00:00.000Z'),
-        baseSalary: 5800,
+        baseSalary: 580000,
         avatar: null,
         idCard: null,
         gender: EmployeeGender.male,
@@ -400,7 +400,7 @@ describe('EmployeesService', () => {
       position: '收银员',
       department: '前厅',
       joinDate: new Date('2026-05-01T00:00:00.000Z'),
-      baseSalary: 4500,
+      baseSalary: 450000,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,
@@ -496,7 +496,7 @@ describe('EmployeesService', () => {
       position: '店长',
       department: '前厅',
       joinDate: new Date('2026-05-03T00:00:00.000Z'),
-      baseSalary: 5200,
+      baseSalary: 520000,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.female,
@@ -625,7 +625,7 @@ describe('EmployeesService', () => {
       position: '店长',
       department: '前厅',
       joinDate: new Date(joinDate),
-      baseSalary: 4800,
+      baseSalary: 480000,
       avatar: null,
       idCard: '110101199001011234',
       gender: EmployeeGender.unset,
@@ -677,7 +677,7 @@ describe('EmployeesService', () => {
         position: '店长',
         department: '前厅',
         joinDate: new Date(joinDate),
-        baseSalary: 4800,
+        baseSalary: 480000,
         idCard: '110101199001011234',
         gender: EmployeeGender.unset,
         emergencyContact: '李四',
@@ -688,7 +688,7 @@ describe('EmployeesService', () => {
     });
     const createdEmployeeSalary =
       prismaService.employee.create.mock.calls.at(0)?.[0]?.data.baseSalary;
-    expect(createdEmployeeSalary).toBe(4800);
+    expect(createdEmployeeSalary).toBe(480000);
 
     expect(result).toMatchObject({
       id: '10',
@@ -722,7 +722,7 @@ describe('EmployeesService', () => {
       position: '收银员',
       department: '前厅',
       joinDate,
-      baseSalary: 4500,
+      baseSalary: 450000,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,
@@ -748,7 +748,7 @@ describe('EmployeesService', () => {
       position: '收银员',
       department: '前厅',
       joinDate,
-      baseSalary: 5200,
+      baseSalary: 520000,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,
@@ -773,8 +773,8 @@ describe('EmployeesService', () => {
         otherDeduction: 50,
         otherDeductionNote: '迟到',
         bonus: 200,
-socialInsurance: 30000,
-housingFund: 0,
+        socialInsurance: 30000,
+        housingFund: 0,
         note: null,
       },
     ]);
@@ -789,9 +789,9 @@ housingFund: 0,
       otherDeductionNote: '迟到',
       bonus: 200,
       actualSalary: 5250,
-socialInsurance: 30000,
-housingFund: 0,
-totalLaborCost: 55500,
+      socialInsurance: 30000,
+      housingFund: 0,
+      totalLaborCost: 55500,
       status: EmployeePayrollStatus.draft,
       confirmedAt: null,
       note: null,
@@ -809,12 +809,12 @@ totalLaborCost: 55500,
       where: { id: 12 },
       data: {
         name: '王五',
-        baseSalary: 5200,
+        baseSalary: 520000,
       },
     });
     const updatedSalary =
       prismaService.employee.update.mock.calls.at(0)?.[0]?.data.baseSalary;
-    expect(updatedSalary).toBe(5200);
+    expect(updatedSalary).toBe(520000);
     expect(prismaService.employeeLeave.updateMany).toHaveBeenCalledWith({
       where: { employeeId: 12 },
       data: { employeeName: '王五' },
@@ -844,7 +844,7 @@ totalLaborCost: 55500,
       operatorStaffId: null,
       employeeName: '王五',
       month: '2026-05',
-      actualSalary: 52.5,
+      actualSalary: 5200.5,
       socialInsurance: 300,
       housingFund: undefined,
       note: null,
@@ -852,9 +852,9 @@ totalLaborCost: 55500,
     expect(prismaService.employeePayroll.update).toHaveBeenCalledWith({
       where: { id: 21 },
       data: {
-        baseSalary: 5200,
-        actualSalary: 5250,
-        totalLaborCost: 35250,
+        baseSalary: 520000,
+        actualSalary: 520050,
+        totalLaborCost: 550050,
       },
     });
     expect(prismaService.employeePayroll.updateMany).toHaveBeenCalledWith({
@@ -885,7 +885,7 @@ totalLaborCost: 55500,
       position: '收银员',
       department: '前厅',
       joinDate,
-      baseSalary: 4500,
+      baseSalary: 450000,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,
@@ -911,7 +911,7 @@ totalLaborCost: 55500,
       position: '收银员',
       department: '前厅',
       joinDate,
-      baseSalary: 4500,
+      baseSalary: 450000,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,
@@ -1463,6 +1463,7 @@ totalLaborCost: 55500,
         updatedAt,
       },
     ]);
+    prismaService.employeePayroll.count.mockResolvedValue(1);
 
     const result = await service.listPayrolls(user, {
       storeId: 2,
@@ -1483,27 +1484,37 @@ totalLaborCost: 55500,
         },
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: 0,
+      take: 50,
     });
-    expect(result).toEqual([
-      {
-        id: '21',
-        employeeId: '5',
-        employeeName: '王五',
-        month: '2026-05',
-        baseSalary: 5000,
-        leaveDeduction: 120,
-        otherDeduction: 80,
-        otherDeductionNote: '迟到罚款',
-        bonus: 300,
-        actualSalary: 5100,
-        socialInsurance: 400,
-        totalLaborCost: 5500,
-        status: EmployeePayrollStatus.draft,
-        note: '含季度奖励',
-        createdAt: createdAt.getTime(),
-        updatedAt: updatedAt.getTime(),
+    expect(result).toEqual({
+      items: [
+        {
+          id: '21',
+          employeeId: '5',
+          employeeName: '王五',
+          month: '2026-05',
+          baseSalary: 5000,
+          leaveDeduction: 120,
+          otherDeduction: 80,
+          otherDeductionNote: '迟到罚款',
+          bonus: 300,
+          actualSalary: 5100,
+          socialInsurance: 400,
+          totalLaborCost: 5500,
+          status: EmployeePayrollStatus.draft,
+          note: '含季度奖励',
+          createdAt: createdAt.getTime(),
+          updatedAt: updatedAt.getTime(),
+        },
+      ],
+      meta: {
+        page: 1,
+        pageSize: 50,
+        total: 1,
+        totalPages: 1,
       },
-    ]);
+    });
   });
 
   it('listPayrolls 在无 finance:view 权限时返回空数组而非 403', async () => {
@@ -1511,7 +1522,15 @@ totalLaborCost: 55500,
 
     const result = await service.listPayrolls(user, { storeId: 2 });
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({
+      items: [],
+      meta: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 1,
+      },
+    });
     expect(prismaService.employeePayroll.findMany).not.toHaveBeenCalled();
   });
 
@@ -1520,7 +1539,15 @@ totalLaborCost: 55500,
 
     const result = await service.listPayrolls(user, { storeId: 99 });
 
-    expect(result).toEqual([]);
+    expect(result).toEqual({
+      items: [],
+      meta: {
+        page: 1,
+        pageSize: 50,
+        total: 0,
+        totalPages: 1,
+      },
+    });
     expect(prismaService.employeePayroll.findMany).not.toHaveBeenCalled();
   });
 
@@ -1764,6 +1791,114 @@ totalLaborCost: 55500,
     expect(prismaService.employeePayroll.update).not.toHaveBeenCalled();
   });
 
+  it('updatePayroll 会按传入字段更新工资草稿并重新计算派生金额', async () => {
+    const createdAt = new Date('2026-05-13T08:00:00.000Z');
+    const updatedAt = new Date('2026-05-13T10:00:00.000Z');
+
+    prismaService.employeePayroll.findUnique.mockResolvedValue({
+      id: 1,
+      storeId: 2,
+      employeeId: 5,
+      employeeName: '王五',
+      month: new Date('2026-05-01T00:00:00.000Z'),
+      baseSalary: 400000,
+      leaveDeduction: 0,
+      otherDeduction: 0,
+      otherDeductionNote: null,
+      bonus: 0,
+      actualSalary: 400000,
+      socialInsurance: 0,
+      housingFund: 0,
+      totalLaborCost: 400000,
+      status: EmployeePayrollStatus.draft,
+      confirmedAt: null,
+      note: null,
+      createdAt,
+      updatedAt,
+    });
+    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(undefined);
+    prismaService.employeePayroll.update.mockResolvedValue({
+      id: 1,
+      storeId: 2,
+      employeeId: 5,
+      employeeName: '王五',
+      month: new Date('2026-05-01T00:00:00.000Z'),
+      baseSalary: 333200,
+      leaveDeduction: 3200,
+      otherDeduction: 4200,
+      otherDeductionNote: '76',
+      bonus: 5200,
+      actualSalary: 331000,
+      socialInsurance: 6200,
+      housingFund: 7200,
+      totalLaborCost: 344400,
+      status: EmployeePayrollStatus.draft,
+      confirmedAt: null,
+      note: '5675',
+      createdAt,
+      updatedAt,
+    });
+
+    const result = await service.updatePayroll(user, 1, {
+      baseSalary: 3332,
+      leaveDeduction: 32,
+      otherDeduction: 42,
+      otherDeductionNote: '76',
+      bonus: 52,
+      socialInsurance: 62,
+      housingFund: 72,
+      note: '5675',
+      actualSalary: 3310,
+      totalLaborCost: 3444,
+      status: EmployeePayrollStatus.draft,
+    });
+
+    expect(
+      employeesAccessService.ensureCanManageEmployees,
+    ).toHaveBeenCalledWith(user, 2, 'finance:view');
+
+    const updateArgs = prismaService.employeePayroll.update.mock.calls.at(
+      0,
+    )?.[0] as { where: { id: number }; data: Record<string, number | string | null> };
+    expect(updateArgs.where).toEqual({ id: 1 });
+    // 服务端重新计算实发工资 = 3332 - 32 - 42 + 52 = 3310 元 → 331000 分
+    expect(updateArgs.data.actualSalary).toBe(331000);
+    // 人力总成本 = 3310 + 62 + 72 = 3444 元 → 344400 分
+    expect(updateArgs.data.totalLaborCost).toBe(344400);
+    expect(updateArgs.data.baseSalary).toBe(333200);
+    expect(updateArgs.data.otherDeductionNote).toBe('76');
+
+    expect(result.actualSalary).toBe(3310);
+    expect(result.totalLaborCost).toBe(3444);
+    expect(result.status).toBe(EmployeePayrollStatus.draft);
+    expect(
+      cacheInvalidatorService.invalidateProfitDashboardHome,
+    ).toHaveBeenCalledWith(2);
+  });
+
+  it('updatePayroll 在记录已确认时阻止编辑', async () => {
+    prismaService.employeePayroll.findUnique.mockResolvedValue({
+      id: 1,
+      storeId: 2,
+      status: EmployeePayrollStatus.confirmed,
+    });
+    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(undefined);
+
+    await expect(
+      service.updatePayroll(user, 1, { baseSalary: 5000 }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prismaService.employeePayroll.update).not.toHaveBeenCalled();
+  });
+
+  it('updatePayroll 在记录不存在时抛出异常', async () => {
+    prismaService.employeePayroll.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.updatePayroll(user, 999, { baseSalary: 5000 }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prismaService.employeePayroll.update).not.toHaveBeenCalled();
+  });
+
   it('getShiftReport 会按前端报表结构聚合排班数据', async () => {
     employeesAccessService.resolveViewStoreId.mockResolvedValue(2);
     prismaService.employeeShift.findMany.mockResolvedValue([
@@ -1902,7 +2037,7 @@ totalLaborCost: 55500,
       position: '收银员',
       department: '前厅',
       joinDate: new Date('2026-05-01T00:00:00.000Z'),
-      baseSalary: 4500,
+      baseSalary: 450000,
       avatar: null,
       idCard: null,
       gender: EmployeeGender.male,

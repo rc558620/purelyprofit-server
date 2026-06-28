@@ -1,15 +1,21 @@
 import {
   buildBusinessAnalysisAllPattern,
+  buildCostsAllPattern,
   buildMarketingOverviewAllPattern,
   buildMembersMetaAllPattern,
   buildMembersOverviewAllPattern,
   buildProfitDashboardHomeAllPattern,
+  buildProfitDetailAllPattern,
+  buildProfitReportAllPattern,
 } from './cache-keys';
 import {
   buildCachePrewarmCategoryConfigs,
   createCachePrewarmCategoryConfigs,
 } from './cache-prewarm.config';
-import { buildFinanceOverviewAllPattern } from '../purely-profit/finance/finance.cache-keys';
+import {
+  buildFinanceOverviewAllPattern,
+  buildFinanceReportAllPattern,
+} from '../purely-profit/finance/finance.cache-keys';
 
 function createEmptyPrewarmResult() {
   return Promise.resolve({
@@ -67,6 +73,7 @@ describe('cache prewarm config', () => {
       },
       financeOverviewService: {
         warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
+        warmReportCache: jest.fn(() => Promise.resolve()) as never,
       },
       marketingOverviewService: {
         warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
@@ -74,6 +81,14 @@ describe('cache prewarm config', () => {
       membersService: {
         warmMetaCache: jest.fn(() => Promise.resolve()) as never,
         warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
+      },
+      profitDetailService: {
+        warmDetailCache: jest.fn(() => Promise.resolve()) as never,
+        warmReportCache: jest.fn(() => Promise.resolve()) as never,
+      },
+      costsReadService: {
+        warmStatsCache: jest.fn(() => Promise.resolve()) as never,
+        warmReportCache: jest.fn(() => Promise.resolve()) as never,
       },
     });
 
@@ -83,7 +98,12 @@ describe('cache prewarm config', () => {
       'marketingOverview',
       'membersMeta',
       'membersOverview',
+      'profitDetail',
+      'profitReport',
+      'costsStats',
+      'costsReport',
       'financeOverview',
+      'financeReport',
     ]);
     expect(configs.map((config) => config.scanPattern())).toEqual([
       buildProfitDashboardHomeAllPattern(),
@@ -91,7 +111,12 @@ describe('cache prewarm config', () => {
       buildMarketingOverviewAllPattern(),
       buildMembersMetaAllPattern(),
       buildMembersOverviewAllPattern(),
+      buildProfitDetailAllPattern(),
+      buildProfitReportAllPattern(),
+      buildCostsAllPattern(),
+      buildCostsAllPattern(),
       buildFinanceOverviewAllPattern(),
+      buildFinanceReportAllPattern(),
     ]);
   });
 });

@@ -1,5 +1,5 @@
 import { SpaceBillingMode as PrismaSpaceBillingMode } from '@prisma/client';
-import { centsToYuan } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import { sumLineTotal } from './space-session-items.shared';
 import type {
   CheckoutPreviewFeeMode,
@@ -40,7 +40,7 @@ export const buildSpaceSessionSettlement = (params: {
     session.hourlyRate !== null
   ) {
     // session.hourlyRate 是 DB 中的分（Int），需转为元
-    const hourlyRateYuan = centsToYuan(Number(session.hourlyRate));
+    const hourlyRateYuan = Money.fromDbCents(Number(session.hourlyRate)).toOutputYuan();
     const useUnitPrice = timeFeeMode === 'unit_price';
     timeCost = useUnitPrice
       ? hourlyRateYuan
@@ -181,7 +181,7 @@ const resolveSpaceSessionPrepaidDeduction = (
   }
 
   // session.prepaidAmount 是 DB 中的分（Int），需转为元
-  const prepaidAmountYuan = centsToYuan(Number(session.prepaidAmount));
+  const prepaidAmountYuan = Money.fromDbCents(Number(session.prepaidAmount)).toOutputYuan();
   return prepaidAmountYuan > 0 ? prepaidAmountYuan : 0;
 };
 

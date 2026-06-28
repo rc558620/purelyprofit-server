@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import Decimal from 'decimal.js';
+import { Money } from '../../shared/money.utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
   ClubConsumptionLedgerRow,
@@ -262,11 +262,6 @@ export class ClubRecordQueryService {
   }
 
   private formatYuan(amountFen: number): string {
-    return this.convertFenToYuan(amountFen).toFixed(2).replace(/\.00$/, '');
-  }
-
-  private convertFenToYuan(amountFen: number): number {
-    // 使用 Decimal 保证精度，toFixed(2) 后转 number 避免浮点误差
-    return Number(new Decimal(amountFen).div(100).toFixed(2));
+    return Money.fromDbCents(amountFen).toFixedOutputYuan().replace(/\.00$/, '');
   }
 }

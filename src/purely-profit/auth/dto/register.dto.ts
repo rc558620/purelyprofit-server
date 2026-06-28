@@ -12,9 +12,9 @@ export class RegisterDto {
   @Matches(/^\d{6}$/, { message: '验证码必须为 6 位数字' })
   code: string;
 
-  @ApiProperty({ example: 'password123', description: '登录密码' })
+  @ApiProperty({ example: 'password123', description: '登录密码（明文或 RSA 加密密文）' })
   @IsString({ message: '密码必须是字符串' })
-  @MinLength(6, { message: '密码至少 6 位' })
+  @MinLength(1, { message: '密码不能为空' })
   password: string;
 
   @ApiProperty({ example: 'password123', description: '确认密码' })

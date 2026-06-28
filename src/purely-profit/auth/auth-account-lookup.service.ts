@@ -7,13 +7,13 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { ConfigService } from '@nestjs/config';
 import type {
   AccountIdentifiers,
   AuthProductScope,
   PhoneUserRecord,
 } from './auth-account.types';
 import type { ProfileUserRecord } from './auth-profile.types';
-import { ADMIN_LOGIN_PHONE } from './auth.constants';
 import {
   buildAccountLoginEmails,
   buildClubWechatMemberPhone,
@@ -26,22 +26,28 @@ import {
 @Injectable()
 export class AuthAccountLookupService {
   private readonly logger = new Logger(AuthAccountLookupService.name);
+  private readonly adminLoginAlias: string;
+  private readonly adminLoginPhone: string;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.adminLoginAlias = configService.get<string>('auth.adminLoginAlias') ?? 'admin';
+    this.adminLoginPhone = configService.get<string>('auth.adminLoginPhone') ?? '13619654020';
+  }
 
   async findUserByLoginAccount(
     account: string,
     productScope: AuthProductScope,
   ): Promise<PhoneUserRecord | null> {
-    const loginPhone = resolveLoginPhone(account);
+    const loginPhone = resolveLoginPhone(account, this.adminLoginAlias, this.adminLoginPhone);
     if (loginPhone) {
       return this.findUserByPhone(loginPhone, productScope);
     }
 
-    const loginEmail = resolveLoginEmail(productScope, account);
+    const loginEmail = resolveLoginEmail(productScope, account, this.adminLoginAlias);
     if (!loginEmail) {
       return null;
     }
@@ -66,7 +72,7 @@ export class AuthAccountLookupService {
     phone: string,
     productScope: AuthProductScope,
   ): Promise<PhoneUserRecord | null> {
-    if (phone === ADMIN_LOGIN_PHONE) {
+    if (phone === this.adminLoginPhone) {
       const developer = await this.findDeveloperUserByPhone(phone);
       if (developer) {
         return developer;

@@ -73,7 +73,7 @@ export const createSpaceSessionRecord = (): SpaceSessionSettlementRecord =>
         productName: '可乐',
         categoryName: '饮品',
         salePrice: 2000, // DB 存储为分（20元）
-        profit: 800,     // DB 存储为分（8元）
+        profit: 800, // DB 存储为分（8元）
         quantity: 1,
         sortOrder: 0,
         createdAt: new Date(2026, 5, 4, 9, 0, 0),
@@ -105,7 +105,7 @@ export const createSettleSpaceSessionParams = (): SettleSpaceSessionParams => ({
     durationMinutes: 90,
     durationLabel: '1小时30分钟',
     timeCost: 0,
-    itemsCost: 20,   // 业务层单位为元
+    itemsCost: 20, // 业务层单位为元
     renewDeduction: 0,
     prepaidDeduction: 0,
     totalAmount: 20,
@@ -114,7 +114,7 @@ export const createSettleSpaceSessionParams = (): SettleSpaceSessionParams => ({
         productId: '201',
         productName: '可乐',
         categoryName: '饮品',
-        salePrice: 20,  // 业务层单位为元
+        salePrice: 20, // 业务层单位为元
         profit: 8,
         quantity: 1,
       },

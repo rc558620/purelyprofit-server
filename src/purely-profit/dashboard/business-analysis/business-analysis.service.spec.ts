@@ -99,33 +99,33 @@ describe('BusinessAnalysisService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          currentRevenue: new Prisma.Decimal('22.00'),
+          currentRevenue: new Prisma.Decimal('2200'),
           currentOrderCount: 2,
-          previousRevenue: new Prisma.Decimal('8.00'),
+          previousRevenue: new Prisma.Decimal('800'),
           previousOrderCount: 1,
         },
       ])
       .mockResolvedValueOnce([
         {
           bucketAt: new Date('2026-05-12T00:00:00.000Z'),
-          revenue: new Prisma.Decimal('13.00'),
+          revenue: new Prisma.Decimal('1300'),
         },
         {
           bucketAt: new Date('2026-05-13T00:00:00.000Z'),
-          revenue: new Prisma.Decimal('9.00'),
+          revenue: new Prisma.Decimal('900'),
         },
       ])
       .mockResolvedValueOnce([
         {
           categoryName: '饮品',
-          revenue: new Prisma.Decimal('13.00'),
-          profit: new Prisma.Decimal('5.00'),
+          revenue: new Prisma.Decimal('1300'),
+          profit: new Prisma.Decimal('500'),
           quantity: 2,
         },
         {
           categoryName: '零食',
-          revenue: new Prisma.Decimal('9.00'),
-          profit: new Prisma.Decimal('3.00'),
+          revenue: new Prisma.Decimal('900'),
+          profit: new Prisma.Decimal('300'),
           quantity: 1,
         },
       ])
@@ -134,8 +134,8 @@ describe('BusinessAnalysisService', () => {
           productId: 1,
           productName: '可口可乐 330ml',
           categoryName: '饮品',
-          totalRevenue: new Prisma.Decimal('13.00'),
-          totalProfit: new Prisma.Decimal('5.00'),
+          totalRevenue: new Prisma.Decimal('1300'),
+          totalProfit: new Prisma.Decimal('500'),
           quantity: 2,
           image: 'https://example.com/coke.png',
         },
@@ -143,36 +143,36 @@ describe('BusinessAnalysisService', () => {
           productId: 2,
           productName: '奥利奥',
           categoryName: '零食',
-          totalRevenue: new Prisma.Decimal('9.00'),
-          totalProfit: new Prisma.Decimal('3.00'),
+          totalRevenue: new Prisma.Decimal('900'),
+          totalProfit: new Prisma.Decimal('300'),
           quantity: 1,
           image: null,
         },
       ])
       .mockResolvedValueOnce([
         {
-          currentTotalCost: new Prisma.Decimal('11.00'),
-          previousTotalCost: new Prisma.Decimal('4.00'),
+          currentTotalCost: new Prisma.Decimal('1100'),
+          previousTotalCost: new Prisma.Decimal('400'),
         },
       ])
       .mockResolvedValueOnce([
         {
           bucketAt: new Date('2026-05-12T00:00:00.000Z'),
-          amount: new Prisma.Decimal('8.00'),
+          amount: new Prisma.Decimal('800'),
         },
         {
           bucketAt: new Date('2026-05-13T00:00:00.000Z'),
-          amount: new Prisma.Decimal('3.00'),
+          amount: new Prisma.Decimal('300'),
         },
       ])
       .mockResolvedValueOnce([
         {
           category: 'purchase',
-          amount: new Prisma.Decimal('8.00'),
+          amount: new Prisma.Decimal('800'),
         },
         {
           category: 'utilities',
-          amount: new Prisma.Decimal('3.00'),
+          amount: new Prisma.Decimal('300'),
         },
       ]);
 
@@ -312,7 +312,7 @@ describe('BusinessAnalysisService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          currentRevenue: new Prisma.Decimal('100.00'),
+          currentRevenue: new Prisma.Decimal('10000'),
           currentOrderCount: 1,
           previousRevenue: new Prisma.Decimal('0'),
           previousOrderCount: 0,
@@ -321,14 +321,14 @@ describe('BusinessAnalysisService', () => {
       .mockResolvedValueOnce([
         {
           bucketAt: new Date('2026-06-08T00:00:00.000Z'),
-          revenue: new Prisma.Decimal('100.00'),
+          revenue: new Prisma.Decimal('10000'),
         },
       ])
       .mockResolvedValueOnce([
         {
           categoryName: '饮品',
-          revenue: new Prisma.Decimal('100.00'),
-          profit: new Prisma.Decimal('80.00'),
+          revenue: new Prisma.Decimal('10000'),
+          profit: new Prisma.Decimal('8000'),
           quantity: 1,
         },
       ])
@@ -337,28 +337,28 @@ describe('BusinessAnalysisService', () => {
           productId: 11,
           productName: '六月商品',
           categoryName: '饮品',
-          totalRevenue: new Prisma.Decimal('100.00'),
-          totalProfit: new Prisma.Decimal('80.00'),
+          totalRevenue: new Prisma.Decimal('10000'),
+          totalProfit: new Prisma.Decimal('8000'),
           quantity: 1,
           image: null,
         },
       ])
       .mockResolvedValueOnce([
         {
-          currentTotalCost: new Prisma.Decimal('20.00'),
+          currentTotalCost: new Prisma.Decimal('2000'),
           previousTotalCost: new Prisma.Decimal('0'),
         },
       ])
       .mockResolvedValueOnce([
         {
           bucketAt: new Date('2026-06-08T00:00:00.000Z'),
-          amount: new Prisma.Decimal('20.00'),
+          amount: new Prisma.Decimal('2000'),
         },
       ])
       .mockResolvedValueOnce([
         {
           category: 'purchase',
-          amount: new Prisma.Decimal('20.00'),
+          amount: new Prisma.Decimal('2000'),
         },
       ]);
 
@@ -389,7 +389,7 @@ describe('BusinessAnalysisService', () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         {
-          currentRevenue: new Prisma.Decimal('28293.34'),
+          currentRevenue: new Prisma.Decimal('2829334'),
           currentOrderCount: 1,
           previousRevenue: new Prisma.Decimal('0'),
           previousOrderCount: 0,
@@ -398,14 +398,14 @@ describe('BusinessAnalysisService', () => {
       .mockResolvedValueOnce([
         {
           bucketAt: new Date(2026, 4, 27, 0, 0, 0, 0),
-          revenue: new Prisma.Decimal('28293.34'),
+          revenue: new Prisma.Decimal('2829334'),
         },
       ])
       .mockResolvedValueOnce([
         {
           categoryName: '饮品',
-          revenue: new Prisma.Decimal('28293.34'),
-          profit: new Prisma.Decimal('28293.34'),
+          revenue: new Prisma.Decimal('2829334'),
+          profit: new Prisma.Decimal('2829334'),
           quantity: 2,
         },
       ])
@@ -414,28 +414,28 @@ describe('BusinessAnalysisService', () => {
           productId: 11,
           productName: '今日商品',
           categoryName: '饮品',
-          totalRevenue: new Prisma.Decimal('28293.34'),
-          totalProfit: new Prisma.Decimal('28293.34'),
+          totalRevenue: new Prisma.Decimal('2829334'),
+          totalProfit: new Prisma.Decimal('2829334'),
           quantity: 2,
           image: null,
         },
       ])
       .mockResolvedValueOnce([
         {
-          currentTotalCost: new Prisma.Decimal('500.00'),
+          currentTotalCost: new Prisma.Decimal('50000'),
           previousTotalCost: new Prisma.Decimal('0'),
         },
       ])
       .mockResolvedValueOnce([
         {
           bucketAt: new Date(2026, 4, 27, 0, 0, 0, 0),
-          amount: new Prisma.Decimal('500.00'),
+          amount: new Prisma.Decimal('50000'),
         },
       ])
       .mockResolvedValueOnce([
         {
           category: 'purchase',
-          amount: new Prisma.Decimal('500.00'),
+          amount: new Prisma.Decimal('50000'),
         },
       ]);
 

@@ -28,6 +28,14 @@ describe('cache prewarm providers', () => {
       warmMetaCache: jest.fn(() => Promise.resolve()) as never,
       warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
     },
+    profitDetailService: {
+      warmDetailCache: jest.fn(() => Promise.resolve()) as never,
+      warmReportCache: jest.fn(() => Promise.resolve()) as never,
+    },
+    costsReadService: {
+      warmStatsCache: jest.fn(() => Promise.resolve()) as never,
+      warmReportCache: jest.fn(() => Promise.resolve()) as never,
+    },
   });
 
   it('profitDashboardHome provider 会直接预热首页缓存', async () => {
@@ -151,6 +159,7 @@ describe('cache prewarm providers', () => {
   it('financeOverview provider 会直接预热财务概览缓存', async () => {
     const financeOverviewService = {
       warmOverviewCache: jest.fn(() => Promise.resolve()) as never,
+      warmReportCache: jest.fn(() => Promise.resolve()) as never,
     };
     const provider = financeOverviewCachePrewarmProvider({
       financeOverviewService,

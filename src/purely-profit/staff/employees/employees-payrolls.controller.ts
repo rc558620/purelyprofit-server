@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -24,11 +25,13 @@ import { RequirePermissions } from '../../access-control/decorators/require-perm
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   EmployeePayrollReportResponseDto,
   EmployeePayrollResponseDto,
   ListEmployeePayrollsQueryDto,
+  PaginatedEmployeePayrollsResponseDto,
   SaveEmployeePayrollDto,
   UpdateEmployeePayrollDto,
 } from './dto/employee-payroll.dto';
@@ -45,20 +48,25 @@ export class EmployeesPayrollsController {
   @RequirePermissions('report:view')
   @ApiOperation({ summary: '获取工资报表数据' })
   @ApiOkResponse({ type: EmployeePayrollReportResponseDto })
-  getPayrollReport(
+  async getPayrollReport(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListEmployeePayrollsQueryDto,
-  ): Promise<EmployeePayrollReportResponseDto> {
+    @Res({ passthrough: true }) reply: { raw: ServerResponse },
+  ): Promise<EmployeePayrollReportResponseDto | typeof reply> {
+    if (query.format === 'csv') {
+      await this.employeesService.streamPayrollReportCsv(reply.raw, user, query);
+      return reply;
+    }
     return this.employeesService.getPayrollReport(user, query);
   }
 
   @Get('payrolls')
   @ApiOperation({ summary: '获取工资列表' })
-  @ApiOkResponse({ type: [EmployeePayrollResponseDto] })
+  @ApiOkResponse({ type: PaginatedEmployeePayrollsResponseDto })
   listPayrolls(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListEmployeePayrollsQueryDto,
-  ): Promise<EmployeePayrollResponseDto[]> {
+  ): Promise<PaginatedEmployeePayrollsResponseDto> {
     return this.employeesService.listPayrolls(user, query);
   }
 

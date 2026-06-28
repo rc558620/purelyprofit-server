@@ -1,7 +1,11 @@
 import type { Prisma } from '@prisma/client';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { buildCostRange, getPayrollCostDate, toPayrollMonth } from './costs.domain';
+import {
+  buildCostRange,
+  getPayrollCostDate,
+  toPayrollMonth,
+} from './costs.domain';
 import type {
   CostFilterRange,
   CostQueryInput,

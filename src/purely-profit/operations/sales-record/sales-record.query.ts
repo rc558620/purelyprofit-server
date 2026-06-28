@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
-import Decimal from 'decimal.js';
 import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { SaleOrderWithItems } from './sales-record.domain';
 import { buildOrderNo, type SalesPeriodRange } from './sales-record.utils';
@@ -45,12 +45,8 @@ export async function aggregateOrderStats(
   `;
 
   return {
-    totalRevenue: new Decimal(Number(result[0]?.revenue ?? 0))
-      .toDecimalPlaces(2)
-      .toNumber(),
-    totalProfit: new Decimal(Number(result[0]?.profit ?? 0))
-      .toDecimalPlaces(2)
-      .toNumber(),
+    totalRevenue: Money.fromDbCents(result[0]?.revenue ?? 0).toOutputYuan(),
+    totalProfit: Money.fromDbCents(result[0]?.profit ?? 0).toOutputYuan(),
     orderCount: Number(result[0]?.order_count ?? 0),
   };
 }
@@ -76,8 +72,25 @@ export async function querySaleOrders(
         lte: new Date(params.range.end),
       },
     },
-    include: {
+    select: {
+      id: true,
+      orderNo: true,
+      note: true,
+      paymentMethod: true,
+      calcMode: true,
+      operatorNameSnapshot: true,
+      date: true,
+      createdAt: true,
       items: {
+        select: {
+          id: true,
+          productId: true,
+          productName: true,
+          categoryName: true,
+          salePrice: true,
+          profit: true,
+          quantity: true,
+        },
         orderBy: [{ id: 'asc' }],
       },
       spaceSession: {

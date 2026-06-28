@@ -1,5 +1,5 @@
 import { CurrentUser } from '../../auth/current-user.decorator';
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -9,6 +9,7 @@ import {
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { GetProfitDetailQueryDto } from './dto/profit-detail-query.dto';
 import {
@@ -31,10 +32,15 @@ export class ProfitDetailController {
     description: '返回报表中心利润 Tab 所需的概况与商品排行数据',
     type: ProfitReportResponseDto,
   })
-  getReport(
+  async getReport(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: GetProfitDetailQueryDto,
-  ): Promise<ProfitReportResponseDto> {
+    @Res({ passthrough: true }) reply: { raw: ServerResponse },
+  ): Promise<ProfitReportResponseDto | typeof reply> {
+    if (query.format === 'csv') {
+      await this.profitDetailService.streamReportCsv(reply.raw, user, query);
+      return reply;
+    }
     return this.profitDetailService.getReport(user, query);
   }
 

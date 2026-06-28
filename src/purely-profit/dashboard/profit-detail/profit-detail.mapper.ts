@@ -3,7 +3,6 @@ import {
   calcPercentOfTotal,
   formatMonthDayLabel,
   getDayStartTimestamp,
-  subtractMoneyValues,
 } from '../../commerce/commerce.utils';
 import type {
   CostBreakdownItemDto,
@@ -77,22 +76,22 @@ export function buildSummary(
 
 export function buildDailyProfits(
   currentRange: ProfitDateRange,
-  dailyRevenueMap: Map<number, number>,
-  dailyCostMap: Map<number, number>,
+  dailyRevenueMap: Map<number, import('../../../shared/money.utils').Money>,
+  dailyCostMap: Map<number, import('../../../shared/money.utils').Money>,
 ): DailyProfitDto[] {
   const days = getChartDays(currentRange);
   const endDayStart = getDayStartTimestamp(currentRange.end);
 
   return Array.from({ length: days }, (_, index) => {
     const dayStart = endDayStart - (days - 1 - index) * DAY_MS;
-    const revenue = dailyRevenueMap.get(dayStart) ?? 0;
-    const cost = dailyCostMap.get(dayStart) ?? 0;
+    const revenue = dailyRevenueMap.get(dayStart)?.toOutputYuan() ?? 0;
+    const cost = dailyCostMap.get(dayStart)?.toOutputYuan() ?? 0;
 
     return {
       dateLabel: formatMonthDayLabel(dayStart),
       revenue,
       cost,
-      profit: subtractMoneyValues(revenue, cost),
+      profit: revenue - cost,
     };
   });
 }
@@ -106,9 +105,12 @@ export function buildReportProducts(
       name: item.name,
       category: item.category,
       quantity: item.quantity,
-      totalRevenue: item.totalRevenue,
-      totalProfit: item.totalProfit,
-      profitRate: calcPercentOfTotal(item.totalProfit, item.totalRevenue),
+      totalRevenue: item.totalRevenue.toOutputYuan(),
+      totalProfit: item.totalProfit.toOutputYuan(),
+      profitRate: calcPercentOfTotal(
+        item.totalProfit.toOutputYuan(),
+        item.totalRevenue.toOutputYuan(),
+      ),
     }))
     .sort((left, right) => right.totalProfit - left.totalProfit);
 }
@@ -121,12 +123,15 @@ export function buildProductRanking(
       id: item.id,
       name: item.name,
       category: item.category,
-      price: item.price,
-      profitPerUnit: item.profitPerUnit,
+      price: item.price.toOutputYuan(),
+      profitPerUnit: item.profitPerUnit.toOutputYuan(),
       quantity: item.quantity,
-      totalProfit: item.totalProfit,
-      totalRevenue: item.totalRevenue,
-      profitRate: calcPercentOfTotal(item.totalProfit, item.totalRevenue),
+      totalProfit: item.totalProfit.toOutputYuan(),
+      totalRevenue: item.totalRevenue.toOutputYuan(),
+      profitRate: calcPercentOfTotal(
+        item.totalProfit.toOutputYuan(),
+        item.totalRevenue.toOutputYuan(),
+      ),
       ...(item.image ? { image: item.image } : {}),
     }))
     .sort((left, right) => right.totalProfit - left.totalProfit);
@@ -134,14 +139,15 @@ export function buildProductRanking(
 
 export function buildCostBreakdown(
   categoryCostMap: CostAggregationResult['categoryCostMap'],
-  totalCost: number,
+  totalCost: import('../../../shared/money.utils').Money,
 ): CostBreakdownItemDto[] {
+  const totalCostYuan = totalCost.toOutputYuan();
   return Array.from(categoryCostMap.entries())
     .map(([category, amount]) => ({
       label: PROFIT_DETAIL_COST_META[category].label,
-      amount,
+      amount: amount.toOutputYuan(),
       color: PROFIT_DETAIL_COST_META[category].color,
-      percentage: calcPercentOfTotal(amount, totalCost),
+      percentage: calcPercentOfTotal(amount.toOutputYuan(), totalCostYuan),
     }))
     .sort((left, right) => right.amount - left.amount);
 }
@@ -149,14 +155,21 @@ export function buildCostBreakdown(
 export function buildProfitDetailResponse(
   snapshot: ProfitMetricsSnapshot,
 ): ProfitDetailResponseDto {
+  const revenueYuan = snapshot.currentSales.revenue.toOutputYuan();
+  const previousRevenueYuan = snapshot.previousSales.revenue.toOutputYuan();
+  const totalCostYuan = snapshot.currentCosts.totalCost.toOutputYuan();
+  const previousTotalCostYuan = snapshot.previousCosts.totalCost.toOutputYuan();
+  const netProfitYuan = snapshot.netProfit.toOutputYuan();
+  const previousNetProfitYuan = snapshot.previousNetProfit.toOutputYuan();
+
   return {
     summary: buildSummary(
-      snapshot.currentSales.revenue,
-      snapshot.previousSales.revenue,
-      snapshot.currentCosts.totalCost,
-      snapshot.previousCosts.totalCost,
-      snapshot.netProfit,
-      snapshot.previousNetProfit,
+      revenueYuan,
+      previousRevenueYuan,
+      totalCostYuan,
+      previousTotalCostYuan,
+      netProfitYuan,
+      previousNetProfitYuan,
       snapshot.currentSales.orderCount,
     ),
     dailyProfits: buildDailyProfits(
@@ -175,14 +188,21 @@ export function buildProfitDetailResponse(
 export function buildProfitReportResponse(
   snapshot: ProfitMetricsSnapshot,
 ): ProfitReportResponseDto {
+  const revenueYuan = snapshot.currentSales.revenue.toOutputYuan();
+  const previousRevenueYuan = snapshot.previousSales.revenue.toOutputYuan();
+  const totalCostYuan = snapshot.currentCosts.totalCost.toOutputYuan();
+  const previousTotalCostYuan = snapshot.previousCosts.totalCost.toOutputYuan();
+  const netProfitYuan = snapshot.netProfit.toOutputYuan();
+  const previousNetProfitYuan = snapshot.previousNetProfit.toOutputYuan();
+
   return {
     summary: buildSummary(
-      snapshot.currentSales.revenue,
-      snapshot.previousSales.revenue,
-      snapshot.currentCosts.totalCost,
-      snapshot.previousCosts.totalCost,
-      snapshot.netProfit,
-      snapshot.previousNetProfit,
+      revenueYuan,
+      previousRevenueYuan,
+      totalCostYuan,
+      previousTotalCostYuan,
+      netProfitYuan,
+      previousNetProfitYuan,
       snapshot.currentSales.orderCount,
     ),
     products: buildReportProducts(snapshot.currentSales.rankMap),

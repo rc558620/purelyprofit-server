@@ -1,7 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { Money } from '../../../shared/money.utils';
 import { SalesRecordItemPreparationService } from './sales-record-item-preparation.service';
 
 describe('SalesRecordItemPreparationService', () => {
@@ -35,8 +35,8 @@ describe('SalesRecordItemPreparationService', () => {
         name: '可口可乐 330ml',
         category: '饮品',
         code: 'COLA001',
-        price: new Prisma.Decimal('15.50'),
-        profit: new Prisma.Decimal('4.00'),
+        price: 1550,  // 15.50 元 = 1550 分
+        profit: 400,  // 4.00 元 = 400 分
         stock: 20,
         isActive: true,
         image: 'https://example.com/coke.png',
@@ -66,8 +66,8 @@ describe('SalesRecordItemPreparationService', () => {
         productId: 201,
         productName: '可口可乐 330ml',
         categoryName: '饮品',
-        salePrice: 15.5,
-        profit: 4,
+        salePrice: Money.fromDbCents(1550),
+        profit: Money.fromDbCents(400),
         quantity: 2,
         countsTowardTotalQuantity: true,
         image: 'https://example.com/coke.png',
@@ -82,8 +82,8 @@ describe('SalesRecordItemPreparationService', () => {
         name: '面条',
         category: '主食',
         code: 'NOODLE001',
-        price: new Prisma.Decimal('20.00'),
-        profit: new Prisma.Decimal('8.00'),
+        price: 2000,  // 20.00 元 = 2000 分
+        profit: 800,  // 8.00 元 = 800 分
         stock: 0,
         isActive: true,
         image: null,
@@ -117,8 +117,8 @@ describe('SalesRecordItemPreparationService', () => {
         productId: 201,
         productName: '面条',
         categoryName: '主食',
-        salePrice: 20,
-        profit: 8,
+        salePrice: Money.fromDbCents(2000),
+        profit: Money.fromDbCents(800),
         quantity: 1,
         countsTowardTotalQuantity: true,
       },
@@ -151,8 +151,8 @@ describe('SalesRecordItemPreparationService', () => {
         productId: null,
         productName: '续费抵扣',
         categoryName: '场地费',
-        salePrice: -30,
-        profit: -30,
+        salePrice: Money.fromInputYuan(-30),
+        profit: Money.fromInputYuan(-30),
         quantity: 1,
         countsTowardTotalQuantity: false,
       },
@@ -215,8 +215,8 @@ describe('SalesRecordItemPreparationService', () => {
           name: '可口可乐 330ml',
           category: '饮品',
           code: 'COLA001',
-          price: new Prisma.Decimal('15.50'),
-          profit: new Prisma.Decimal('4.00'),
+          price: 1550,  // 15.50 元 = 1550 分
+          profit: 400,  // 4.00 元 = 400 分
           stock: 20,
           isActive: false,
           image: null,
@@ -228,8 +228,8 @@ describe('SalesRecordItemPreparationService', () => {
           name: '雪碧',
           category: '饮品',
           code: 'SPRITE001',
-          price: new Prisma.Decimal('12.00'),
-          profit: new Prisma.Decimal('3.00'),
+          price: 1200,  // 12.00 元 = 1200 分
+          profit: 300,  // 3.00 元 = 300 分
           stock: 1,
           isActive: true,
           image: null,
@@ -284,8 +284,8 @@ describe('SalesRecordItemPreparationService', () => {
         name: '可口可乐 330ml',
         category: '饮品',
         code: 'COLA001',
-        price: new Prisma.Decimal('15.50'),
-        profit: new Prisma.Decimal('4.00'),
+        price: 1550,  // 15.50 元 = 1550 分
+        profit: 400,  // 4.00 元 = 400 分
         stock: 20,
         isActive: true,
         image: null,
@@ -319,8 +319,8 @@ describe('SalesRecordItemPreparationService', () => {
         productId: 201,
         productName: '可口可乐 330ml',
         categoryName: '饮品',
-        salePrice: 10,
-        profit: 2,
+        salePrice: Money.fromInputYuan(10),
+        profit: Money.fromInputYuan(2),
         quantity: 2,
         countsTowardTotalQuantity: true,
       },

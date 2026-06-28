@@ -119,10 +119,10 @@ describe('FinanceCashFlowService', () => {
       }),
     ).resolves.toEqual({
       totalIncome: 0,
-      totalExpense: 100,
-      netFlow: -100,
+      totalExpense: 1,
+      netFlow: -1,
       recordCount: 1,
-      compareLastPeriod: -400,
+      compareLastPeriod: 400,
     });
     expect(
       prismaService.financeCashFlowRecord.findMany,
@@ -159,9 +159,9 @@ describe('FinanceCashFlowService', () => {
     await expect(
       service.getCashFlowStats(user, { period: 'month' }),
     ).resolves.toEqual({
-      totalIncome: 100,
+      totalIncome: 1,
       totalExpense: 0,
-      netFlow: 100,
+      netFlow: 1,
       recordCount: 1,
       compareLastPeriod: null,
     });
@@ -218,7 +218,7 @@ describe('FinanceCashFlowService', () => {
       direction: 'income',
       category: 'refund',
       title: '供应商返利',
-      amount: 88,
+      amount: 0.88,
       payment: 'bank',
       note: '年度返利',
       date: new Date('2026-05-14T10:00:00.000Z').getTime(),
@@ -232,7 +232,7 @@ describe('FinanceCashFlowService', () => {
         direction: 'income',
         category: 'refund',
         title: '供应商返利',
-        amount: 88,
+        amount: 8800,
         payment: 'bank',
         note: '年度返利',
         date: new Date('2026-05-14T10:00:00.000Z'),

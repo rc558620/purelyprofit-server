@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import {
   CreateFinanceAccountDto,
@@ -59,6 +60,14 @@ export class FinanceService {
     query: FinanceReportQueryDto,
   ): Promise<FinanceReportResponseDto> {
     return this.financeOverviewService.getReport(user, query);
+  }
+
+  streamReportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    query: FinanceReportQueryDto,
+  ): Promise<void> {
+    return this.financeOverviewService.streamReportCsv(reply, user, query);
   }
 
   listCashFlowRecords(

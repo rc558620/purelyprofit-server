@@ -20,10 +20,12 @@ import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubAuthService } from './club-auth.service';
 import { AuthRsaService } from '../../purely-profit/auth/auth-rsa.service';
+import { CaptchaTokenService } from '../../purely-profit/auth/captcha-token.service';
 import { PublicKeyResponseDto } from '../../purely-profit/auth/dto/public-key-response.dto';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { BindPhoneDto } from './dto/bind-phone.dto';
 import { LoginByCodeDto } from './dto/login-by-code.dto';
+import { RegisterCaptchaTokenDto } from './dto/register-captcha-token.dto';
 import { SendLoginCodeResponseDto } from './dto/send-login-code-response.dto';
 import { SendRegisterCodeDto } from './dto/send-register-code.dto';
 import { WechatLoginDto } from './dto/wechat-login.dto';
@@ -34,7 +36,33 @@ export class ClubAuthController {
   constructor(
     private readonly clubAuthService: ClubAuthService,
     private readonly authRsaService: AuthRsaService,
+    private readonly captchaTokenService: CaptchaTokenService,
   ) {}
+
+  /**
+   * 注册拼图验证令牌
+   *
+   * 前端完成拼图人机校验后，调用此接口将 captchaToken 注册到 Redis。
+   * 后续发送短信验证码时，后端校验 token 有效且未过期才允许发送。
+   * token 有效期 5 分钟，一次性消费。
+   */
+  @Post('captcha/register')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 30 } })
+  @ApiOperation({
+    summary: '注册拼图验证令牌',
+    description:
+      '前端完成拼图验证后调用此接口注册 captchaToken 到服务端。' +
+      '后续发送短信验证码时需携带该 token，后端校验通过后才允许发送。' +
+      'token 有效期 5 分钟，一次性消费。',
+  })
+  registerCaptchaToken(
+    @Body() dto: RegisterCaptchaTokenDto,
+  ): Promise<{ success: boolean }> {
+    return this.captchaTokenService.issue(dto.captchaToken).then(() => ({
+      success: true,
+    }));
+  }
 
   @Get('public-key')
   @ApiOperation({
@@ -60,7 +88,8 @@ export class ClubAuthController {
       '无论手机号是否已注册均发送验证码。' +
       '同一手机号 60 秒内不可重复发送。' +
       '验证码有效期由 AUTH_REGISTER_CODE_TTL_SECONDS 控制（默认 600 秒）。' +
-      '后续通过 POST /club/auth/login/code 完成登录或自动注册。',
+      '后续通过 POST /club/auth/login/code 完成登录或自动注册。' +
+      '需先完成前端拼图验证，携带 captchaToken 才能发送短信。',
   })
   @ApiOkResponse({
     description: '验证码发送成功；同一手机号 60 秒内不可重复发送',
@@ -120,7 +149,8 @@ export class ClubAuthController {
       '微信登录成功后，若 needPhoneBind=true，前端跳转绑定页先调用此接口发送验证码。' +
       '同一手机号 60 秒内不可重复发送。' +
       '验证码有效期由 AUTH_REGISTER_CODE_TTL_SECONDS 控制（默认 600 秒）。' +
-      '后续通过 POST /club/auth/bind-phone 完成绑定。',
+      '后续通过 POST /club/auth/bind-phone 完成绑定。' +
+      '需先完成前端拼图验证，携带 captchaToken 才能发送短信。',
   })
   @ApiOkResponse({
     description: '验证码发送成功；同一手机号 60 秒内不可重复发送',

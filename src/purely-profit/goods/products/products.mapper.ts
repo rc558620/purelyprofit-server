@@ -1,8 +1,8 @@
 import {
-  toDecimalNumber,
   toOptionalMediaText,
   toTimestampMs,
 } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type { ProductResponseDto } from './dto/product.dto';
 import type { ProductRecord } from './products.types';
 
@@ -17,10 +17,10 @@ export function buildProductResponse(
     name: product.name,
     category: product.category,
     code: product.code,
-    price: toDecimalNumber(product.price),
-    profit: toDecimalNumber(product.profit),
+    price: Money.fromDbCents(product.price).toOutputYuan(),
+    profit: Money.fromDbCents(product.profit).toOutputYuan(),
     ...(product.costPrice !== null
-      ? { costPrice: toDecimalNumber(product.costPrice) }
+      ? { costPrice: Money.fromDbCents(product.costPrice).toOutputYuan() }
       : {}),
     unit: product.unit,
     stock: product.stock,

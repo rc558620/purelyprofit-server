@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
-import Decimal from 'decimal.js';
 import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type { SalesRecordPeriodValue } from './sales-record.types';
 
 export interface SalesRecordQueryInput {
@@ -252,32 +252,51 @@ export function buildOrderNo(date: Date, seq: number): string {
 // 金额工具
 // ---------------------------------------------------------------------------
 
-export function normalizeMoney(value: number, errorMessage: string): number {
+/**
+ * 校验前端入站的正数金额，返回 Money 对象。
+ * 适用于 salePrice、profit 等必须 >= 0 的金额。
+ */
+export function normalizeMoney(value: number, errorMessage: string): Money {
   if (!Number.isFinite(value) || value < 0) {
     throw new BadRequestException(errorMessage);
   }
-  return new Decimal(value).toDecimalPlaces(2).toNumber();
+  return Money.fromInputYuan(value);
 }
 
+/**
+ * 校验前端入站的可为负数的金额，返回 Money 对象。
+ * 适用于抵扣项的 salePrice、profit 等允许负数的金额。
+ */
 export function normalizeSignedMoney(
   value: number,
   errorMessage: string,
-): number {
+): Money {
   if (!Number.isFinite(value)) {
     throw new BadRequestException(errorMessage);
   }
-  return new Decimal(value).toDecimalPlaces(2).toNumber();
+  return Money.fromInputYuan(value);
 }
 
-export function isSameMoney(left: number, right: number): boolean {
-  return new Decimal(left).sub(right).abs().lt(0.01);
+/**
+ * 汇总金额列表，返回元精度的输出值。
+ * getter 返回的是元精度金额（前端入站或中间计算结果）。
+ */
+export function sumMoneyToYuan<T>(
+  items: T[],
+  getter: (item: T) => Money,
+): number {
+  return Money.sum(items.map(getter)).toOutputYuan();
 }
 
-export function sumMoney<T>(items: T[], getter: (item: T) => number): number {
-  return items
-    .reduce((acc, item) => acc.add(getter(item)), new Decimal(0))
-    .toDecimalPlaces(2)
-    .toNumber();
+/**
+ * 汇总金额列表，返回分精度的数据库值。
+ * getter 返回的是元精度金额（前端入站或中间计算结果）。
+ */
+export function sumMoneyToDbCents<T>(
+  items: T[],
+  getter: (item: T) => Money,
+): number {
+  return Money.sum(items.map(getter)).toDbCents();
 }
 
 // ---------------------------------------------------------------------------

@@ -37,7 +37,10 @@ export class ClubAuthService {
    * 无论手机号是否已注册都发送，不暴露注册状态
    */
   sendLoginCode(dto: SendRegisterCodeDto): Promise<SendLoginCodeResponseDto> {
-    return this.authProductAuthService.sendClubLoginOrRegisterCode(dto);
+    return this.authProductAuthService.sendClubLoginOrRegisterCode({
+      phone: dto.phone,
+      captchaToken: dto.captchaToken,
+    });
   }
 
   /**
@@ -45,8 +48,13 @@ export class ClubAuthService {
    * 无论手机号是否已注册都发送，不暴露注册状态
    * 需要 JWT 鉴权，仅允许已登录用户调用
    */
-  sendBindPhoneCode(dto: SendRegisterCodeDto): Promise<SendLoginCodeResponseDto> {
-    return this.authProductAuthService.sendBindPhoneCode(dto);
+  sendBindPhoneCode(
+    dto: SendRegisterCodeDto,
+  ): Promise<SendLoginCodeResponseDto> {
+    return this.authProductAuthService.sendBindPhoneCode({
+      phone: dto.phone,
+      captchaToken: dto.captchaToken,
+    });
   }
 
   /**

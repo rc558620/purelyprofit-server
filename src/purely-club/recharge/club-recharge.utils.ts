@@ -1,18 +1,6 @@
-import Decimal from 'decimal.js';
-
-/**
- * 分转元
- */
-export function convertFenToYuan(amountFen: number): number {
-  return new Decimal(amountFen).div(100).toDecimalPlaces(2).toNumber();
-}
-
-/**
- * 元转分
- */
-export function convertYuanToFen(amountYuan: number): number {
-  return new Decimal(amountYuan).mul(100).toDecimalPlaces(0).toNumber();
-}
+// 从 shared 重新导出 Money 类，保持现有导入路径向后兼容
+// 注意：convertFenToYuan / convertYuanToFen 已废弃，请使用 Money 类
+export { Money } from '../../shared/money.utils';
 
 /**
  * 转换为正整数

@@ -11,6 +11,10 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from '../../../../shared/password-policy.utils';
 
 export const EMPLOYEE_SUB_ACCOUNT_ROLE_VALUES = STORE_SUB_ACCOUNT_ROLE_CODES;
 
@@ -45,6 +49,7 @@ export class UpdateEmployeeSubAccountDto {
   })
   @IsOptional()
   @IsString({ message: '登录密码必须是字符串' })
-  @MinLength(6, { message: '登录密码至少 6 位' })
+  @MinLength(PASSWORD_MIN_LENGTH, { message: `登录密码至少 ${PASSWORD_MIN_LENGTH} 位` })
+  @MaxLength(PASSWORD_MAX_LENGTH, { message: `登录密码最多 ${PASSWORD_MAX_LENGTH} 位` })
   password?: string;
 }

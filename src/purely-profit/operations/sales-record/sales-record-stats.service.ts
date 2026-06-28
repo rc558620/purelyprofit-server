@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { Money, calcPercentChangeWithFallback } from '../../../shared/money.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -126,20 +127,17 @@ export class SalesRecordStatsService {
       orderCount: currentStats.orderCount,
       avgOrderValue:
         currentStats.orderCount > 0
-          ? Number(
-              (currentStats.totalRevenue / currentStats.orderCount).toFixed(2),
-            )
+          ? Money.fromInputYuan(currentStats.totalRevenue)
+              .divide(currentStats.orderCount)
+              .toOutputYuan()
           : 0,
       compareLastPeriod:
         clampedPreviousRange &&
         !clampedPreviousRange.empty &&
         previousStats.totalRevenue > 0
-          ? Number(
-              (
-                ((currentStats.totalRevenue - previousStats.totalRevenue) /
-                  previousStats.totalRevenue) *
-                100
-              ).toFixed(2),
+          ? calcPercentChangeWithFallback(
+              currentStats.totalRevenue,
+              previousStats.totalRevenue,
             )
           : null,
     };

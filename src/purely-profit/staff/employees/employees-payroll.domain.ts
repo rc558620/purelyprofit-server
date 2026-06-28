@@ -1,20 +1,21 @@
 import { BadRequestException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import { Money } from '../../../shared/money.utils';
 import { toNullableText } from './employees.utils';
 
 export interface PayrollDraftInput {
-  baseSalary: number;
-  leaveDeduction: number;
-  otherDeduction: number;
+  baseSalary: Money;
+  leaveDeduction: Money;
+  otherDeduction: Money;
   otherDeductionNote?: string | null;
-  bonus: number;
-  socialInsurance?: number;
-  housingFund?: number;
+  bonus: Money;
+  socialInsurance?: Money;
+  housingFund?: Money;
 }
 
 export interface PayrollDerivedAmounts {
-  actualSalary: number;
-  totalLaborCost: number;
+  actualSalary: Money;
+  totalLaborCost: Money;
 }
 
 export interface PayrollReportRowInput {
@@ -31,6 +32,8 @@ export interface PayrollReportRowInput {
   totalLaborCost: number;
   confirmedAt: Date | null;
 }
+
+// 数据库读出的 payroll 行，金额字段为分
 
 export interface PayrollReportResult {
   summary: {
@@ -96,25 +99,25 @@ export function buildPayrollDerivedAmounts(
   input: PayrollDraftInput,
 ): PayrollDerivedAmounts {
   if (
-    input.otherDeduction > 0 &&
+    input.otherDeduction.isPositive() &&
     !toNullableText(input.otherDeductionNote ?? '')
   ) {
     throw new BadRequestException('存在其他扣款时必须填写扣款说明');
   }
 
-  const actualSalary =
-    input.baseSalary -
-    input.leaveDeduction -
-    input.otherDeduction +
-    input.bonus;
-  if (actualSalary < 0) {
+  const actualSalary = input.baseSalary
+    .subtract(input.leaveDeduction)
+    .subtract(input.otherDeduction)
+    .add(input.bonus);
+  if (actualSalary.isNegative()) {
     throw new BadRequestException('实发工资不能小于 0，请检查扣款与奖金');
   }
 
   return {
     actualSalary,
-    totalLaborCost:
-      actualSalary + (input.socialInsurance ?? 0) + (input.housingFund ?? 0),
+    totalLaborCost: actualSalary
+      .add(input.socialInsurance ?? Money.zero())
+      .add(input.housingFund ?? Money.zero()),
   };
 }
 
@@ -122,15 +125,13 @@ export function buildPayrollReport(
   rows: PayrollReportRowInput[],
 ): PayrollReportResult {
   const confirmedCount = rows.length;
-  // 数据库存储的是 cents，需要转换为 yuan
-  const totalActualSalary = rows.reduce(
-    (sum, row) => sum + centsToYuan(row.actualSalary),
-    0,
-  );
-  const totalLaborCost = rows.reduce(
-    (sum, row) => sum + centsToYuan(row.totalLaborCost),
-    0,
-  );
+  // 数据库存储的是 cents，用 Money.fromDbCents 读取后聚合
+  const totalActualSalary = Money.sum(
+    rows.map((row) => Money.fromDbCents(row.actualSalary)),
+  ).toOutputYuan();
+  const totalLaborCost = Money.sum(
+    rows.map((row) => Money.fromDbCents(row.totalLaborCost)),
+  ).toOutputYuan();
 
   return {
     summary: {
@@ -144,26 +145,19 @@ export function buildPayrollReport(
       id: String(row.id),
       employeeName: row.employeeName,
       month: formatPayrollMonth(row.month),
-      baseSalary: centsToYuan(row.baseSalary),
-      leaveDeduction: centsToYuan(row.leaveDeduction),
-      otherDeduction: centsToYuan(row.otherDeduction),
-      bonus: centsToYuan(row.bonus),
-      actualSalary: centsToYuan(row.actualSalary),
+      baseSalary: Money.fromDbCents(row.baseSalary).toOutputYuan(),
+      leaveDeduction: Money.fromDbCents(row.leaveDeduction).toOutputYuan(),
+      otherDeduction: Money.fromDbCents(row.otherDeduction).toOutputYuan(),
+      bonus: Money.fromDbCents(row.bonus).toOutputYuan(),
+      actualSalary: Money.fromDbCents(row.actualSalary).toOutputYuan(),
       ...(row.socialInsurance > 0
-        ? { socialInsurance: centsToYuan(row.socialInsurance) }
+        ? { socialInsurance: Money.fromDbCents(row.socialInsurance).toOutputYuan() }
         : {}),
       ...(row.housingFund > 0
-        ? { housingFund: centsToYuan(row.housingFund) }
+        ? { housingFund: Money.fromDbCents(row.housingFund).toOutputYuan() }
         : {}),
-      totalLaborCost: centsToYuan(row.totalLaborCost),
+      totalLaborCost: Money.fromDbCents(row.totalLaborCost).toOutputYuan(),
       ...(row.confirmedAt ? { confirmedAt: row.confirmedAt.getTime() } : {}),
     })),
   };
-}
-
-/**
- * 将分转换为元
- */
-function centsToYuan(cents: number): number {
-  return Math.round(cents) / 100;
 }

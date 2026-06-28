@@ -5,10 +5,9 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { toDecimalNumber } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type { CreateSalesRecordDto } from './dto/sales-record.dto';
 import {
-  normalizeMoney,
   normalizeSignedMoney,
   parseNumericProductId,
 } from './sales-record.utils';
@@ -29,8 +28,8 @@ export interface PreparedSalesItem {
   productId: number | null;
   productName: string;
   categoryName: string;
-  salePrice: number;
-  profit: number;
+  salePrice: Money;
+  profit: Money;
   quantity: number;
   countsTowardTotalQuantity: boolean;
   image?: string;
@@ -119,16 +118,10 @@ export class SalesRecordItemPreparationService {
 
         const salePrice = options.preserveCallerPrices
           ? normalizeSignedMoney(item.salePrice, '销售单价格式不正确')
-          : normalizeMoney(
-              toDecimalNumber(matchedProduct.price),
-              '销售单价不能小于 0',
-            );
+          : Money.fromDbCents(matchedProduct.price);
         const profit = options.preserveCallerPrices
           ? normalizeSignedMoney(item.profit, '单件利润格式不正确')
-          : normalizeMoney(
-              toDecimalNumber(matchedProduct.profit),
-              '单件利润不能小于 0',
-            );
+          : Money.fromDbCents(matchedProduct.profit);
 
         return {
           productId: matchedProduct.id,
@@ -157,8 +150,8 @@ export class SalesRecordItemPreparationService {
         throw new BadRequestException(`第 ${index + 1} 条商品分类不能为空`);
       }
 
-      const isNegativeSalePrice = salePrice < 0;
-      const isNegativeProfit = profit < 0;
+      const isNegativeSalePrice = salePrice.isNegative();
+      const isNegativeProfit = profit.isNegative();
       if (isNegativeSalePrice !== isNegativeProfit) {
         throw new BadRequestException(
           `第 ${index + 1} 条抵扣项销售额和利润必须同号`,
@@ -172,7 +165,7 @@ export class SalesRecordItemPreparationService {
         salePrice,
         profit,
         quantity,
-        countsTowardTotalQuantity: salePrice >= 0 && profit >= 0,
+        countsTowardTotalQuantity: !salePrice.isNegative() && !profit.isNegative(),
       };
     });
   }

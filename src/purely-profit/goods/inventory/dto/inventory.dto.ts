@@ -62,6 +62,14 @@ export class ListInventoryProductsQueryDto {
   export?: boolean;
 
   @ApiPropertyOptional({
+    enum: ['json', 'csv'],
+    description: '导出格式，默认 json；csv 时服务端直接流式返回 CSV 文件',
+  })
+  @IsOptional()
+  @IsIn(['json', 'csv'], { message: 'format 只支持 json 或 csv' })
+  format?: 'json' | 'csv';
+
+  @ApiPropertyOptional({
     example: 'warning',
     enum: INVENTORY_STOCK_ALERT_LEVEL_VALUES,
     description: '库存预警级别筛选',
@@ -144,6 +152,17 @@ export class InventoryProductResponseDto {
 
   @ApiProperty({ example: 1715603600000, description: '更新时间戳（毫秒）' })
   updatedAt: number;
+}
+
+export class PaginatedInventoryProductsResponseDto {
+  @ApiProperty({
+    type: [InventoryProductResponseDto],
+    description: '库存商品列表',
+  })
+  items: InventoryProductResponseDto[];
+
+  @ApiProperty({ type: PaginationMetaDto, description: '分页信息' })
+  meta: PaginationMetaDto;
 }
 
 export class AdjustInventoryDto {

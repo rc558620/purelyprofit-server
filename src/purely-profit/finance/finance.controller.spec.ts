@@ -110,7 +110,7 @@ describe('FinanceController', () => {
     };
     financeService.getReport.mockResolvedValue(response);
 
-    await expect(controller.getReport(user, query)).resolves.toEqual(response);
+    await expect(controller.getReport(user, query, { raw: {} as any })).resolves.toEqual(response);
     expect(financeService.getReport).toHaveBeenCalledWith(user, query);
   });
 

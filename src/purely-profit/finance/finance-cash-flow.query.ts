@@ -7,6 +7,18 @@ import type {
   FinanceCashFlowStatsRow,
 } from './finance.types';
 
+const CASH_FLOW_RECORD_PAGE_SELECT = {
+  id: true,
+  direction: true,
+  category: true,
+  title: true,
+  amount: true,
+  payment: true,
+  note: true,
+  date: true,
+  createdAt: true,
+} satisfies Prisma.FinanceCashFlowRecordSelect;
+
 export async function queryCashFlowRecordPage(
   prisma: PrismaService,
   params: {
@@ -19,6 +31,7 @@ export async function queryCashFlowRecordPage(
     prisma.financeCashFlowRecord.count({ where: params.where }),
     prisma.financeCashFlowRecord.findMany({
       where: params.where,
+      select: CASH_FLOW_RECORD_PAGE_SELECT,
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       skip: (params.page - 1) * params.pageSize,
       take: params.pageSize,

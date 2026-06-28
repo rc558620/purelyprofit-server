@@ -136,6 +136,11 @@ export interface InventoryAdjustmentPageResult {
   total: number;
 }
 
+export interface InventoryProductPageResult {
+  items: InventoryProductRecord[];
+  total: number;
+}
+
 export interface InventoryAdjustmentLogCreateInput {
   storeId: number;
   productId: number;

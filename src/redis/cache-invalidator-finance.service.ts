@@ -30,4 +30,8 @@ export class CacheInvalidatorFinanceService {
   async invalidateFinanceReconciliations(storeId: number): Promise<void> {
     await this.registry.invalidateFinanceReconciliations(storeId);
   }
+
+  async invalidateFinanceReport(storeId: number): Promise<void> {
+    await this.registry.invalidateFinanceReport(storeId);
+  }
 }

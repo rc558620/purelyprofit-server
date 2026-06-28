@@ -1,6 +1,7 @@
 import { financeAccountsCacheInvalidatorProvider } from './cache-invalidator-finance-accounts.provider';
 import { financeCashFlowCacheInvalidatorProvider } from './cache-invalidator-finance-cash-flow.provider';
 import { financeOverviewCacheInvalidatorProvider } from './cache-invalidator-finance-overview.provider';
+import { financeReportCacheInvalidatorProvider } from './cache-invalidator-finance-report.provider';
 import { financeReconciliationsCacheInvalidatorProvider } from './cache-invalidator-finance-reconciliations.provider';
 import {
   buildCacheInvalidatorRegistry,
@@ -17,6 +18,7 @@ export type FinanceCacheInvalidatorRegistry = {
   invalidateFinanceCashFlow: (storeId: number) => Promise<void>;
   invalidateFinanceAccounts: (storeId: number) => Promise<void>;
   invalidateFinanceReconciliations: (storeId: number) => Promise<void>;
+  invalidateFinanceReport: (storeId: number) => Promise<void>;
 };
 
 const financeCacheInvalidatorProviders: readonly CacheInvalidatorProvider<
@@ -27,6 +29,7 @@ const financeCacheInvalidatorProviders: readonly CacheInvalidatorProvider<
   financeCashFlowCacheInvalidatorProvider,
   financeAccountsCacheInvalidatorProvider,
   financeReconciliationsCacheInvalidatorProvider,
+  financeReportCacheInvalidatorProvider,
 ];
 
 export function createFinanceCacheInvalidatorRegistry(

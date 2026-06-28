@@ -8,7 +8,9 @@ export type SpaceWithRelations = {
   capacity: number | null;
   enableDirtyRoom: boolean;
   autoCheckout: boolean;
-  /** 运行态推导状态：占用中/预约中/空闲，由查询层聚合后注入 */
+  /** 脏房清洁完成时间：markSpaceReady 时更新，用于运行态推导 cleaning 状态 */
+  cleanedAt: Date | null;
+  /** 运行态推导状态：占用中/预约中/清洁中/空闲，由查询层聚合后注入 */
   status: SpaceStatusValue;
   sortOrder: number;
   createdAt: Date;

@@ -1,12 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import { randomInt } from 'crypto';
 import {
-  ADMIN_LOGIN_ALIAS,
-  ADMIN_LOGIN_PHONE,
   AUTH_PASSWORD_RESET_CODE_KEY_PREFIX,
   AUTH_PASSWORD_RESET_CODE_LENGTH,
   AUTH_REGISTER_CODE_KEY_PREFIX,
   AUTH_SMS_SEND_COOLDOWN_KEY_PREFIX,
+  AUTH_CODE_ATTEMPTS_KEY_PREFIX,
   AUTH_TOKEN_VERSION_KEY_PREFIX,
   AUTH_USER_CACHE_KEY_PREFIX,
   AUTH_MEMBERSHIP_ROWS_CACHE_KEY_PREFIX,
@@ -100,7 +99,11 @@ export function buildAccountLoginEmails(
   return emails;
 }
 
-export function resolveLoginPhone(account: string): string | null {
+export function resolveLoginPhone(
+  account: string,
+  adminLoginAlias: string = 'admin',
+  adminLoginPhone: string = '13619654020',
+): string | null {
   const normalizedAccount = account.trim();
   const matchedPhone = extractPhoneFromLoginAccount(normalizedAccount);
 
@@ -108,22 +111,23 @@ export function resolveLoginPhone(account: string): string | null {
     return matchedPhone;
   }
 
-  if (normalizedAccount.toLowerCase() !== ADMIN_LOGIN_ALIAS) {
+  if (normalizedAccount.toLowerCase() !== adminLoginAlias) {
     return null;
   }
 
-  return ADMIN_LOGIN_PHONE;
+  return adminLoginPhone;
 }
 
 export function resolveLoginEmail(
   scope: AuthProductScope,
   account: string,
+  adminLoginAlias: string = 'admin',
 ): string | null {
   const normalizedAccount = account.trim();
   if (
     !normalizedAccount ||
     !isCustomLoginAccount(normalizedAccount) ||
-    normalizedAccount.toLowerCase() === ADMIN_LOGIN_ALIAS
+    normalizedAccount.toLowerCase() === adminLoginAlias
   ) {
     return null;
   }
@@ -143,12 +147,18 @@ export function isCustomLoginAccount(account: string): boolean {
   return /^[a-zA-Z0-9_]{6,32}$/.test(account.trim());
 }
 
-export function isReservedLoginAccount(account: string): boolean {
-  return normalizeLoginAccount(account) === ADMIN_LOGIN_ALIAS;
+export function isReservedLoginAccount(
+  account: string,
+  adminLoginAlias: string = 'admin',
+): boolean {
+  return normalizeLoginAccount(account) === adminLoginAlias;
 }
 
-export function isValidSubAccountLoginAccount(account: string): boolean {
-  return isCustomLoginAccount(account) && !isReservedLoginAccount(account);
+export function isValidSubAccountLoginAccount(
+  account: string,
+  adminLoginAlias: string = 'admin',
+): boolean {
+  return isCustomLoginAccount(account) && !isReservedLoginAccount(account, adminLoginAlias);
 }
 
 export function resolveSubAccountLoginEmail(
@@ -235,10 +245,11 @@ export function isPulseDeveloperAccount(
   email: string,
   phone: string,
   pulseDevAccountEmails: Set<string>,
+  adminLoginPhone: string = '13619654020',
 ): boolean {
   return (
     pulseDevAccountEmails.has(normalizeLoginEmail(email)) ||
-    phone === ADMIN_LOGIN_PHONE
+    phone === adminLoginPhone
   );
 }
 
@@ -246,11 +257,13 @@ export function resolveAuthIdentity(
   email: string,
   phone: string,
   pulseDevAccountEmails: Set<string>,
+  adminLoginPhone: string = '13619654020',
 ): AuthResolvedIdentity {
   const isPulseDeveloper = isPulseDeveloperAccount(
     email,
     phone,
     pulseDevAccountEmails,
+    adminLoginPhone,
   );
 
   return {
@@ -351,6 +364,17 @@ export function buildSmsSendCooldownKey(
   phone: string,
 ): string {
   return `${AUTH_SMS_SEND_COOLDOWN_KEY_PREFIX}${scene}:${scope}:${phone}`;
+}
+
+/**
+ * 构建验证码校验尝试次数的缓存 key
+ */
+export function buildCodeAttemptsKey(
+  codeType: 'register' | 'password-reset',
+  scope: AuthProductScope,
+  phone: string,
+): string {
+  return `${AUTH_CODE_ATTEMPTS_KEY_PREFIX}${codeType}:${scope}:${phone}`;
 }
 
 export function buildTokenVersionKey(userId: number): string {

@@ -1,12 +1,9 @@
 import {
-  addMoneyValues,
   calcPercentChange,
   formatMonthDayLabel,
   getDayStartTimestamp,
-  roundMoneyValue,
-  subtractMoneyValues,
-  toDecimalNumber,
 } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import {
   LEAVE_TYPE_LABELS,
   MAX_HOME_ACTIVITY_COUNT,
@@ -26,10 +23,9 @@ export function buildDashboardHomeActivities(
   const drafts: ActivityDraft[] = [];
   const periodMeta = PERIOD_META[params.period];
   const now = Date.now();
-  const salesDiff = subtractMoneyValues(
-    params.currentSales.revenue,
-    params.compareSales.revenue,
-  );
+  const salesDiff = Money.fromInputYuan(params.currentSales.revenue)
+    .subtract(Money.fromInputYuan(params.compareSales.revenue))
+    .toOutputYuan();
   const salesChange = calcPercentChange(
     params.currentSales.revenue,
     params.compareSales.revenue,
@@ -72,10 +68,10 @@ export function buildDashboardHomeActivities(
   }
 
   if (params.overdueAccounts.length > 0) {
-    const totalRemaining = params.overdueAccounts.reduce(
-      (sum, item) => addMoneyValues(sum, toDecimalNumber(item.remaining)),
-      0,
-    );
+    // remaining 数据库存储的是分（Int），需先转为元
+    const totalRemaining = Money.sum(
+      params.overdueAccounts.map((item) => Money.fromDbCents(Number(item.remaining))),
+    ).toOutputYuan();
     const latestOverdue = params.overdueAccounts[0];
     drafts.push({
       id: 'finance-overdue',
@@ -135,7 +131,7 @@ export function buildDashboardHomeActivities(
       icon: 'employee',
       title: `${leave.employeeName}${LEAVE_TYPE_LABELS[leave.type]}即将开始`,
       time: `${formatRelativeTime(toTimestamp(leave.createdAt), now)} · 员工管理`,
-      tag: `${formatMoneyText(toDecimalNumber(leave.days))}天`,
+      tag: `${formatMoneyText(Number(leave.days))}天`,
       bizType: 'employee_leave',
       bizId: String(leave.id),
       actionUrl: '/employee-management',
@@ -192,10 +188,9 @@ function appendTodayRechargeDraft(
     return;
   }
 
-  const totalAmount = params.todayRecharges.reduce(
-    (sum, item) => addMoneyValues(sum, toDecimalNumber(item.amount)),
-    0,
-  );
+    const totalAmount = Money.sum(
+      params.todayRecharges.map((item) => Money.fromDbCents(item.amount)),
+    ).toOutputYuan();
   const latestRecharge = params.todayRecharges[0];
 
   drafts.push({
@@ -252,11 +247,11 @@ function appendUpcomingAccountDraft(
     return;
   }
 
-  const totalRemaining = params.upcomingAccounts.reduce(
-    (sum, item) => addMoneyValues(sum, toDecimalNumber(item.remaining)),
-    0,
-  );
-  const earliest = params.upcomingAccounts[0];
+  // remaining 数据库存储的是分（Int），需先转为元
+  const totalRemaining = Money.sum(
+      params.upcomingAccounts.map((item) => Money.fromDbCents(Number(item.remaining))),
+    ).toOutputYuan();
+    const earliest = params.upcomingAccounts[0];
 
   drafts.push({
     id: 'finance-upcoming-due',
@@ -283,10 +278,9 @@ function appendDraftPayrollDraft(
   }
 
   const latestDraft = params.draftPayrolls[0];
-  const totalSalary = params.draftPayrolls.reduce(
-    (sum, item) => addMoneyValues(sum, toDecimalNumber(item.actualSalary)),
-    0,
-  );
+  const totalSalary = Money.sum(
+    params.draftPayrolls.map((item) => Money.fromDbCents(item.actualSalary)),
+  ).toOutputYuan();
 
   drafts.push({
     id: 'employee-payroll-draft',
@@ -375,7 +369,7 @@ function detectRevenueDecline(
 
   for (const row of dailyRevenueRows) {
     const dayTs = getDayStartTimestamp(toTimestamp(row.bucketAt));
-    const revenue = Number(row.revenue);
+    const revenue = Money.fromDbCents(Number(row.revenue)).toOutputYuan();
     revenueByDay.set(dayTs, (revenueByDay.get(dayTs) ?? 0) + revenue);
   }
 
@@ -415,7 +409,7 @@ function detectRevenueDecline(
   return {
     isDeclining: consecutiveDays >= REVENUE_DECLINE_CONSECUTIVE_DAYS,
     consecutiveDays,
-    totalDeclineAmount: roundMoneyValue(totalDeclineAmount),
+    totalDeclineAmount: Money.fromInputYuan(totalDeclineAmount).toOutputYuan(),
   };
 }
 
@@ -423,7 +417,7 @@ function detectRevenueDecline(
 function appendRecentOrderDrafts(
   drafts: ActivityDraft[],
   params: BuildDashboardHomeActivitiesParams,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   _now: number,
 ): void {
   if (!params.recentOrders || params.recentOrders.length === 0) {
@@ -431,7 +425,8 @@ function appendRecentOrderDrafts(
   }
 
   for (const order of params.recentOrders) {
-    const revenue = Number(order.totalRevenue ?? 0);
+    // totalRevenue 数据库存储的是分（Int），需先转为元
+    const revenue = Money.fromDbCents(Number(order.totalRevenue ?? 0)).toOutputYuan();
     if (revenue <= 0) {
       continue;
     }
@@ -457,7 +452,8 @@ function appendRecentOrderDrafts(
 }
 
 function formatMoneyText(value: number): string {
-  return roundMoneyValue(value)
+  return Money.fromInputYuan(value)
+    .toOutputYuan()
     .toFixed(2)
     .replace(/\.00$/, '')
     .replace(/(\.\d)0$/, '$1');

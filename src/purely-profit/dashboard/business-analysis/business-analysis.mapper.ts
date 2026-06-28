@@ -3,8 +3,8 @@ import {
   calcPercentOfTotal,
   formatMonthDayLabel,
   getDayStartTimestamp,
-  subtractMoneyValues,
 } from '../../commerce/commerce.utils';
+import type { Money } from '../../../shared/money.utils';
 import type {
   BusinessAnalysisCategoryShareDto,
   BusinessAnalysisCompareDataDto,
@@ -44,21 +44,19 @@ export function buildEmptyAnalysisResponse(): BusinessAnalysisResponseDto {
 export function buildBusinessAnalysisResponse(
   snapshot: BusinessAnalysisMetricsSnapshot,
 ): BusinessAnalysisResponseDto {
-  const currentProfit = subtractMoneyValues(
-    snapshot.currentSales.revenue,
+  const currentProfit = snapshot.currentSales.revenue.subtract(
     snapshot.currentCosts.totalCost,
   );
-  const previousProfit = subtractMoneyValues(
-    snapshot.previousSales.revenue,
+  const previousProfit = snapshot.previousSales.revenue.subtract(
     snapshot.previousCosts.totalCost,
   );
   const currentProfitRate = calcPercentOfTotal(
-    currentProfit,
-    snapshot.currentSales.revenue,
+    currentProfit.toOutputYuan(),
+    snapshot.currentSales.revenue.toOutputYuan(),
   );
   const previousProfitRate = calcPercentOfTotal(
-    previousProfit,
-    snapshot.previousSales.revenue,
+    previousProfit.toOutputYuan(),
+    snapshot.previousSales.revenue.toOutputYuan(),
   );
 
   return {
@@ -75,7 +73,7 @@ export function buildBusinessAnalysisResponse(
       profitRate: {
         current: currentProfitRate,
         previous: previousProfitRate,
-        changeRate: subtractMoneyValues(currentProfitRate, previousProfitRate),
+        changeRate: currentProfitRate - previousProfitRate,
       },
       orderCount: snapshot.currentSales.orderCount,
     },
@@ -100,8 +98,8 @@ export function buildBusinessAnalysisResponse(
 function buildDailyTrend(
   start: number,
   end: number,
-  dailyRevenueMap: Map<number, number>,
-  dailyCostMap: Map<number, number>,
+  dailyRevenueMap: Map<number, Money>,
+  dailyCostMap: Map<number, Money>,
 ): BusinessAnalysisDailyTrendDto[] {
   const startDay = getDayStartTimestamp(start);
   const endDay = getDayStartTimestamp(end);
@@ -117,13 +115,13 @@ function buildDailyTrend(
     currentDate.setDate(startDate.getDate() + offset);
     currentDate.setHours(0, 0, 0, 0);
     const currentDay = currentDate.getTime();
-    const revenue = dailyRevenueMap.get(currentDay) ?? 0;
-    const cost = dailyCostMap.get(currentDay) ?? 0;
+    const revenue = dailyRevenueMap.get(currentDay)?.toOutputYuan() ?? 0;
+    const cost = dailyCostMap.get(currentDay)?.toOutputYuan() ?? 0;
     items.push({
       dateLabel: formatMonthDayLabel(currentDay),
       revenue,
       cost,
-      profit: subtractMoneyValues(revenue, cost),
+      profit: revenue - cost,
     });
   }
 
@@ -132,29 +130,37 @@ function buildDailyTrend(
 
 function buildCategoryShares(
   categoryMap: Map<string, AggregatedCategory>,
-  totalRevenue: number,
+  totalRevenue: Money,
 ): BusinessAnalysisCategoryShareDto[] {
+  const totalRevenueYuan = totalRevenue.toOutputYuan();
   return Array.from(categoryMap.entries())
     .map(([name, value]) => ({
       name,
-      revenue: value.revenue,
-      profit: value.profit,
-      profitRate: calcPercentOfTotal(value.profit, value.revenue),
+      revenue: value.revenue.toOutputYuan(),
+      profit: value.profit.toOutputYuan(),
+      profitRate: calcPercentOfTotal(
+        value.profit.toOutputYuan(),
+        value.revenue.toOutputYuan(),
+      ),
       quantity: value.quantity,
-      revenueShare: calcPercentOfTotal(value.revenue, totalRevenue),
+      revenueShare: calcPercentOfTotal(
+        value.revenue.toOutputYuan(),
+        totalRevenueYuan,
+      ),
     }))
     .sort((left, right) => right.revenue - left.revenue);
 }
 
 function buildCostRateItems(
-  bucketMap: Map<CostBucketKey, number>,
-  totalCost: number,
+  bucketMap: Map<CostBucketKey, Money>,
+  totalCost: Money,
 ): BusinessAnalysisCostRateItemDto[] {
+  const totalCostYuan = totalCost.toOutputYuan();
   return Array.from(bucketMap.entries())
     .map(([bucket, amount]) => ({
       label: BUSINESS_ANALYSIS_COST_CATEGORY_META[bucket].label,
-      amount,
-      percentage: calcPercentOfTotal(amount, totalCost),
+      amount: amount.toOutputYuan(),
+      percentage: calcPercentOfTotal(amount.toOutputYuan(), totalCostYuan),
       color: BUSINESS_ANALYSIS_COST_CATEGORY_META[bucket].color,
     }))
     .sort((left, right) => right.amount - left.amount);
@@ -168,9 +174,12 @@ function buildRankProducts(
       id: item.id,
       name: item.name,
       category: item.category,
-      profitRate: calcPercentOfTotal(item.totalProfit, item.totalRevenue),
-      totalProfit: item.totalProfit,
-      totalRevenue: item.totalRevenue,
+      profitRate: calcPercentOfTotal(
+        item.totalProfit.toOutputYuan(),
+        item.totalRevenue.toOutputYuan(),
+      ),
+      totalProfit: item.totalProfit.toOutputYuan(),
+      totalRevenue: item.totalRevenue.toOutputYuan(),
       quantity: item.quantity,
       ...(item.image ? { image: item.image } : {}),
     }))
@@ -178,12 +187,14 @@ function buildRankProducts(
 }
 
 function buildCompare(
-  current: number,
-  previous: number,
+  current: Money,
+  previous: Money,
 ): BusinessAnalysisCompareDataDto {
+  const currentYuan = current.toOutputYuan();
+  const previousYuan = previous.toOutputYuan();
   return {
-    current,
-    previous,
-    changeRate: calcPercentChange(current, previous),
+    current: currentYuan,
+    previous: previousYuan,
+    changeRate: calcPercentChange(currentYuan, previousYuan),
   };
 }

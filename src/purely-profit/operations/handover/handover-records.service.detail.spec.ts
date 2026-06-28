@@ -136,14 +136,14 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         }),
       ]);
       expect(result.revenueSummary).toMatchObject({
-        totalRevenue: 555,
-        additionalRevenue: 555,
+        totalRevenue: 5.55,
+        additionalRevenue: 5.55,
         orderCount: 1,
       });
       expect(result.paymentItems).toEqual([
         expect.objectContaining({
           method: 'wechat',
-          amount: 555,
+          amount: 5.55,
           ratio: 1,
         }),
       ]);
@@ -151,7 +151,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         expect.objectContaining({
           id: '21',
           productName: '台位费（1分钟）',
-          totalRevenue: 555,
+          totalRevenue: 5.55,
           operatorName: '当前操作员',
         }),
       ]);
@@ -229,8 +229,8 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       const result = await ctx.service.getHandoverRecord(ownerUser, 3);
 
       expect(result.revenueSummary).toMatchObject({
-        totalRevenue: 88,
-        additionalRevenue: 88,
+        totalRevenue: 0.88,
+        additionalRevenue: 0.88,
         orderCount: 1,
       });
       expect(prismaService.saleOrder.count).toHaveBeenCalledWith(
@@ -311,14 +311,14 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       expect(result.revenueSummary).toMatchObject({
         additionalRevenue: 0,
         spaceRevenue: 0,
-        refundAmount: 45.5,
+        refundAmount: 0.45,
         totalRevenue: 0,
         orderCount: 0,
       });
       expect(result.orderItems?.[0]).toMatchObject({
         id: 'refund-order-58',
         productName: 'A01',
-        totalRevenue: -45.5,
+        totalRevenue: -0.45,
         paymentLabel: '微信退款',
         operatorName: '空间自动结账',
       });
@@ -406,8 +406,8 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         new Date(2026, 5, 5, 16, 1, 0).getTime(),
       );
       expect(result.revenueSummary).toMatchObject({
-        totalRevenue: 567,
-        additionalRevenue: 567,
+        totalRevenue: 5.67,
+        additionalRevenue: 5.67,
         orderCount: 1,
       });
       expect(prismaService.employeeShift.findMany).not.toHaveBeenCalled();
@@ -488,7 +488,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         avatar: 'https://cdn.example.com/owner.png',
         shiftType: EmployeeShiftType.morning,
         shiftLabel: '早班',
-        totalRevenue: 1004.65,
+        totalRevenue: 10.05,
         displayStatus: 'done',
       });
       expect(result.items[0].timeDesc).toContain('09:00–17:00');
@@ -557,7 +557,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         shiftLabel: '新早班',
         startTime: '16:01',
         endTime: '17:03',
-        totalRevenue: 567,
+        totalRevenue: 5.67,
       });
       expect(result.items[0].timeDesc).toContain('16:01–17:03');
     });

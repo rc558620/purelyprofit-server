@@ -100,6 +100,21 @@ export class MarketingPromotionsService {
     const [rows, total] = await Promise.all([
       this.prisma.marketingPromotion.findMany({
         where,
+        select: {
+          id: true,
+          storeId: true,
+          name: true,
+          type: true,
+          description: true,
+          params: true,
+          startAt: true,
+          endAt: true,
+          usageCount: true,
+          totalDiscount: true,
+          enabled: true,
+          createdAt: true,
+          updatedAt: true,
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take,

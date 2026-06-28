@@ -133,7 +133,7 @@ export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettin
       earnRatioCents: 100,
       redeemRatioPoints: 1,
       maxRedeemRatio: 0.5,
-      enabled: true,
+      enabled: false,
       updatedAt: 0,
     },
   };

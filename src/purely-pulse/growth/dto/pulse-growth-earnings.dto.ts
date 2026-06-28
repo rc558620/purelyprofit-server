@@ -125,11 +125,11 @@ export class PulseEarningsLogItemDto {
   @IsString()
   userId: string;
 
-  @ApiProperty({ example: '陈建国', description: '用户姓名（脱敏）' })
+  @ApiProperty({ example: '陈建国', description: '用户姓名' })
   @IsString()
   userName: string;
 
-  @ApiProperty({ example: '139****5566', description: '用户手机号（脱敏）' })
+  @ApiProperty({ example: '13900139000', description: '用户手机号' })
   @IsString()
   userPhone: string;
 

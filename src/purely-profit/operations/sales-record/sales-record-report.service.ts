@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import Decimal from 'decimal.js';
+import type { ServerResponse } from 'node:http';
+import { Money } from '../../../shared/money.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { isDeductionProductName } from '../../commerce/commerce.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -20,6 +21,9 @@ import {
   buildEmptySalesReport,
   buildSalesCurrentRange,
 } from './sales-record-read.utils';
+import {
+safeStreamCsvExport,
+} from '../../../shared/stream-export.utils';
 
 const SALES_REPORT_CACHE_TTL_SECONDS = 60;
 const SALES_REPORT_REFRESH_AFTER_MS = 15_000;
@@ -112,18 +116,13 @@ export class SalesRecordReportService {
       0,
     );
     // 从 items 重新聚合 totalRevenue，排除预付抵扣行
-    const totalRevenue = orders
-      .reduce((acc, order) => {
-        const orderRevenue = order.items
+    const totalRevenue = Money.sum(
+      orders.flatMap((order) =>
+        order.items
           .filter((item) => !isDeductionProductName(item.productName))
-          .reduce(
-            (sum, item) => sum + Number(item.salePrice) * item.quantity,
-            0,
-          );
-        return acc.add(new Decimal(orderRevenue));
-      }, new Decimal(0))
-      .toDecimalPlaces(2)
-      .toNumber();
+          .map((item) => Money.fromDbCents(item.salePrice).multiply(item.quantity)),
+      ),
+    ).toOutputYuan();
     const dailySales = aggregateReportRows(orders);
     // orderCount 应为原始订单笔数，而非按 (日期+商品) 聚合后的行数
     const orderCount = orders.length;
@@ -135,13 +134,35 @@ export class SalesRecordReportService {
         orderCount,
         avgOrderValue:
           orderCount > 0
-            ? new Decimal(totalRevenue)
-                .div(orderCount)
-                .toDecimalPlaces(2)
-                .toNumber()
+            ? Money.fromInputYuan(totalRevenue)
+                .divide(orderCount)
+                .toOutputYuan()
             : 0,
       },
       dailySales,
     };
+  }
+
+  /**
+   * 流式导出销售报表 CSV，O(1) 内存占用。
+   * 先写表头，再逐行写 dailySales 数据。
+   */
+  async streamReportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    query: SalesReportQueryDto,
+  ): Promise<void> {
+    const report = await this.getReport(user, query);
+    safeStreamCsvExport(
+      reply,
+      'sales-report.csv',
+      ['日期', '商品名称', '销售数量', '销售收入'],
+      report.dailySales.map((row) => [
+        row.dateLabel,
+        row.productName,
+        row.quantity,
+        row.revenue,
+      ]),
+    );
   }
 }

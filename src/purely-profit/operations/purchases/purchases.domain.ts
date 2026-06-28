@@ -9,6 +9,7 @@ import {
   buildPurchaseDateRange,
   toOptionalText,
 } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type {
   PreparedPurchaseItem,
   PurchaseCreateItemInput,
@@ -116,7 +117,8 @@ export function preparePurchaseItems(
 export function sumPreparedPurchaseAmount(
   items: PreparedPurchaseItem[],
 ): number {
-  return Number(items.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
+  // items.amount 已经是分（Int），直接整数求和
+  return items.reduce((sum, item) => sum + item.amount, 0);
 }
 
 export function buildPurchaseCostTitle(supplierName?: string | null): string {
@@ -156,12 +158,17 @@ function preparePurchaseItem(
     throw new BadRequestException('无码商品必须填写商品名称');
   }
 
+  const unitPriceCents = Money.fromInputYuan(item.unitPrice).toDbCents();
+  const amountCents = Money.fromInputYuan(item.unitPrice)
+    .multiply(item.quantity)
+    .toDbCents();
+
   return {
     productId: product?.id ?? null,
     productName,
     unit: toOptionalText(item.unit) ?? product?.unit ?? null,
     quantity: item.quantity,
-    unitPrice: item.unitPrice,
-    amount: Number((item.quantity * item.unitPrice).toFixed(2)),
+    unitPrice: unitPriceCents,
+    amount: amountCents,
   };
 }

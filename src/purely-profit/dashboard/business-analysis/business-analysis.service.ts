@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
@@ -10,6 +11,9 @@ import {
 import { RedisService } from '../../../redis/redis.service';
 import { GetBusinessAnalysisQueryDto } from './dto/business-analysis-query.dto';
 import type { BusinessAnalysisResponseDto } from './dto/business-analysis-response.dto';
+import {
+  safeStreamCsvExport,
+} from '../../../shared/stream-export.utils';
 import {
   buildCostAggregation,
   buildSalesAggregation,
@@ -170,5 +174,30 @@ export class BusinessAnalysisService {
       currentCosts,
       previousCosts,
     });
+  }
+
+  /**
+   * 流式导出经营分析 CSV，O(1) 内存占用。
+   * 导出商品利润排行数据。
+   */
+  async streamReportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    query: GetBusinessAnalysisQueryDto,
+  ): Promise<void> {
+    const report = await this.getAnalysis(user, query);
+    safeStreamCsvExport(
+      reply,
+      'business-analysis.csv',
+      ['商品名称', '分类', '利润率(%)', '总利润', '总收入', '销量'],
+      report.rankProducts.map((row) => [
+        row.name,
+        row.category,
+        row.profitRate,
+        row.totalProfit,
+        row.totalRevenue,
+        row.quantity,
+      ]),
+    );
   }
 }

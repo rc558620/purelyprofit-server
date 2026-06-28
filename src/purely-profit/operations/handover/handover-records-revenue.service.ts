@@ -6,12 +6,11 @@ import {
   SpaceSessionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { Money } from '../../../shared/money.utils';
 import type { HandoverRecordListItemDto } from './dto/handover-records.dto';
 import {
   ORDER_ITEMS_LIMIT,
-  addMoney,
-  subMoney,
-  toMoneyNumber,
+  dbCentsToOutputYuan,
   type ShiftDateRange,
 } from './handover.shared';
 import {
@@ -49,19 +48,17 @@ export class HandoverRecordsRevenueService {
     ]);
 
     const revenueAmounts = buildRevenueAmounts(
-      addMoney(
-        toMoneyNumber(spaceRevenue._sum.timeCost),
-        toMoneyNumber(spaceRevenue._sum.itemsCost),
-      ),
+      Money.fromDbCents(Number(spaceRevenue._sum.timeCost ?? 0))
+        .add(Money.fromDbCents(Number(spaceRevenue._sum.itemsCost ?? 0)))
+        .toOutputYuan(),
       additionalRevenue._sum.totalRevenue,
       refundRevenue._sum.totalRevenue,
     );
 
     // additionalRevenue 已包含空间会话结账订单，不再叠加 spaceRevenue。
-    return subMoney(
-      revenueAmounts.additionalRevenueAmount,
-      revenueAmounts.refundAmount,
-    );
+    return Money.fromInputYuan(revenueAmounts.additionalRevenueAmount)
+      .subtract(Money.fromInputYuan(revenueAmounts.refundAmount))
+      .toOutputYuan();
   }
 
   async buildRecordRevenueDetail(
@@ -163,10 +160,9 @@ export class HandoverRecordsRevenueService {
     const paymentItems = mapPaymentItems(paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);
     const revenueAmounts = buildRevenueAmounts(
-      addMoney(
-        toMoneyNumber(spaceRevenue._sum.timeCost),
-        toMoneyNumber(spaceRevenue._sum.itemsCost),
-      ),
+      Money.fromDbCents(Number(spaceRevenue._sum.timeCost ?? 0))
+        .add(Money.fromDbCents(Number(spaceRevenue._sum.itemsCost ?? 0)))
+        .toOutputYuan(),
       additionalRevenue._sum.totalRevenue,
       refundRevenue._sum.totalRevenue,
     );
@@ -175,7 +171,7 @@ export class HandoverRecordsRevenueService {
       revenueSummary: buildRecordRevenueSummary(
         revenueAmounts,
         orderCount,
-        toMoneyNumber(pettyCash._sum.amount),
+        dbCentsToOutputYuan(pettyCash._sum.amount),
       ),
       paymentItems: attachPaymentRatios(paymentItems, totalReceivedAmount),
       orderItems: mergeDisplayedOrderItems(

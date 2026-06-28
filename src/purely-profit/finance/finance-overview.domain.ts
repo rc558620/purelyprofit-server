@@ -12,20 +12,14 @@ import {
 } from './finance.constants';
 import { FINANCE_OVERVIEW_DISPLAY_DAYS } from './finance.types';
 import { formatMonthDay, getDayStart } from './finance-date.utils';
-import {
-  addMoneyValues,
-  calcPercent,
-  isZeroValue,
-  roundMoneyValue,
-  subtractMoneyValues,
-} from './finance-money.utils';
+import { Money, calcPercentChangeWithFallback, calcPercentOfTotal } from '../../shared/money.utils';
 
-export function makeOverviewTotals(): FinancePeriodTotals {
+export function makeOverviewTotals(): Record<FinanceCashFlowOverviewBucket, Money> {
   return {
-    sales: 0,
-    additional: 0,
-    cost: 0,
-    purchase: 0,
+    sales: Money.zero(),
+    additional: Money.zero(),
+    cost: Money.zero(),
+    purchase: Money.zero(),
   };
 }
 
@@ -60,8 +54,8 @@ export function buildFinanceOverviewResponse(params: {
   currentRange: { start: number; end: number };
   currentTotals: FinancePeriodTotals;
   previousTotals: FinancePeriodTotals;
-  incomeMap: Map<number, number>;
-  expenseMap: Map<number, number>;
+  incomeMap: Map<number, Money>;
+  expenseMap: Map<number, Money>;
 }): FinanceOverviewResponseDto {
   const heroSummary = buildOverviewHeroSummary(
     params.currentTotals,
@@ -87,27 +81,15 @@ export function buildFinanceOverviewResponse(params: {
 }
 
 export function buildOverviewHeroSummary(
-  currentTotals: FinancePeriodTotals,
-  previousTotals: FinancePeriodTotals,
+  currentTotals: Record<FinanceCashFlowOverviewBucket, Money>,
+  previousTotals: Record<FinanceCashFlowOverviewBucket, Money>,
 ): FinanceOverviewResponseDto['heroSummary'] {
-  const currentIncome = addMoneyValues(
-    currentTotals.sales,
-    currentTotals.additional,
-  );
-  const currentExpense = addMoneyValues(
-    currentTotals.cost,
-    currentTotals.purchase,
-  );
-  const currentNet = subtractMoneyValues(currentIncome, currentExpense);
-  const previousIncome = addMoneyValues(
-    previousTotals.sales,
-    previousTotals.additional,
-  );
-  const previousExpense = addMoneyValues(
-    previousTotals.cost,
-    previousTotals.purchase,
-  );
-  const previousNet = subtractMoneyValues(previousIncome, previousExpense);
+  const currentIncome = currentTotals.sales.add(currentTotals.additional);
+  const currentExpense = currentTotals.cost.add(currentTotals.purchase);
+  const currentNet = currentIncome.subtract(currentExpense);
+  const previousIncome = previousTotals.sales.add(previousTotals.additional);
+  const previousExpense = previousTotals.cost.add(previousTotals.purchase);
+  const previousNet = previousIncome.subtract(previousExpense);
   const currentProfitRate = calcProfitRate(currentNet, currentIncome);
   const previousProfitRate = calcProfitRate(previousNet, previousIncome);
 
@@ -118,7 +100,7 @@ export function buildOverviewHeroSummary(
     profitRate: {
       current: currentProfitRate,
       previous: previousProfitRate,
-      changeRate: roundMoneyValue(currentProfitRate - previousProfitRate),
+      changeRate: currentProfitRate - previousProfitRate,
     },
     incomeExpenseRatio: calcIncomeExpenseRatio(currentIncome, currentExpense),
   };
@@ -128,8 +110,8 @@ export function buildOverviewDailyTrend(
   period: FinanceOverviewPeriodValue,
   start: number,
   end: number,
-  incomeMap: Map<number, number>,
-  expenseMap: Map<number, number>,
+  incomeMap: Map<number, Money>,
+  expenseMap: Map<number, Money>,
 ): FinanceOverviewResponseDto['dailyTrend'] {
   const availableDays =
     Math.floor((getDayStart(end) - getDayStart(start)) / 86_400_000) + 1;
@@ -141,13 +123,13 @@ export function buildOverviewDailyTrend(
 
   for (let index = days - 1; index >= 0; index -= 1) {
     const dayStart = getDayStart(end - index * 86_400_000);
-    const income = incomeMap.get(dayStart) ?? 0;
-    const expense = expenseMap.get(dayStart) ?? 0;
+    const income = incomeMap.get(dayStart) ?? Money.zero();
+    const expense = expenseMap.get(dayStart) ?? Money.zero();
     items.push({
       dateLabel: formatMonthDay(dayStart),
-      income,
-      expense,
-      net: subtractMoneyValues(income, expense),
+      income: income.toOutputYuan(),
+      expense: expense.toOutputYuan(),
+      net: income.subtract(expense).toOutputYuan(),
     });
   }
 
@@ -155,7 +137,7 @@ export function buildOverviewDailyTrend(
 }
 
 export function buildOverviewSourceGroups(
-  totals: FinancePeriodTotals,
+  totals: Record<FinanceCashFlowOverviewBucket, Money>,
 ): Pick<FinanceOverviewResponseDto, 'incomeGroup' | 'expenseGroup'> {
   const items = (
     Object.keys(OVERVIEW_SOURCE_CONFIG) as FinanceCashFlowOverviewBucket[]
@@ -169,14 +151,8 @@ export function buildOverviewSourceGroups(
   }));
   const incomeItems = items.filter((item) => item.direction === 'income');
   const expenseItems = items.filter((item) => item.direction === 'expense');
-  const incomeTotal = incomeItems.reduce(
-    (sum, item) => addMoneyValues(sum, item.amount),
-    0,
-  );
-  const expenseTotal = expenseItems.reduce(
-    (sum, item) => addMoneyValues(sum, item.amount),
-    0,
-  );
+  const incomeTotal = Money.sum(incomeItems.map((item) => item.amount));
+  const expenseTotal = Money.sum(expenseItems.map((item) => item.amount));
 
   return {
     incomeGroup: buildOverviewSourceGroup('income', incomeTotal, incomeItems),
@@ -190,11 +166,11 @@ export function buildOverviewSourceGroups(
 
 function buildOverviewSourceGroup(
   direction: 'income' | 'expense',
-  total: number,
+  total: Money,
   sourceItems: Array<{
     type: FinanceCashFlowOverviewBucket;
     label: string;
-    amount: number;
+    amount: Money;
     direction: 'income' | 'expense';
     color: string;
     icon: string;
@@ -202,39 +178,40 @@ function buildOverviewSourceGroup(
 ): FinanceSourceGroupDto {
   return {
     direction,
-    total,
+    total: total.toOutputYuan(),
     items: sourceItems.map((item) => ({
       ...item,
-      percent: calcPercent(item.amount, total),
+      amount: item.amount.toOutputYuan(),
+      percent: calcPercentOfTotal(item.amount.toDbCents(), total.toDbCents()),
     })),
   };
 }
 
-function buildCompare(current: number, previous: number): FinanceCompareDto {
+function buildCompare(current: Money, previous: Money): FinanceCompareDto {
   return {
-    current,
-    previous,
-    changeRate: isZeroValue(previous)
+    current: current.toOutputYuan(),
+    previous: previous.toOutputYuan(),
+    changeRate: previous.isZero()
       ? null
-      : roundMoneyValue(((current - previous) / previous) * 100),
+      : calcPercentChangeWithFallback(current.toOutputYuan(), previous.toOutputYuan()),
   };
 }
 
-function calcProfitRate(net: number, income: number): number {
-  if (isZeroValue(income)) {
+function calcProfitRate(net: Money, income: Money): number {
+  if (income.isZero()) {
     return 0;
   }
 
-  return roundMoneyValue((net / income) * 100);
+  return calcPercentOfTotal(net.toDbCents(), income.toDbCents());
 }
 
 function calcIncomeExpenseRatio(
-  income: number,
-  expense: number,
+  income: Money,
+  expense: Money,
 ): number | null {
-  if (isZeroValue(expense)) {
+  if (expense.isZero()) {
     return null;
   }
 
-  return roundMoneyValue(income / expense);
+  return Math.round((income.toDbCents() / expense.toDbCents()) * 100) / 100;
 }

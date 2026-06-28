@@ -9,9 +9,9 @@ import {
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import { yuanToCents } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 import type {
   OpenSpaceSessionDto,
@@ -196,7 +196,9 @@ export class SpaceSessionOpenService {
           startTime: new Date(),
           billingMode: this.toPrismaSpaceBillingMode(payload.billingMode),
           hourlyRate:
-            payload.hourlyRate !== undefined ? yuanToCents(payload.hourlyRate) : null,
+            payload.hourlyRate !== undefined
+              ? Money.fromInputYuan(payload.hourlyRate).toDbCents()
+              : null,
           countdownMinutes: payload.countdownMinutes ?? null,
           autoCheckout: payload.autoCheckout ?? null,
           prepaidPaymentMethod: payload.prepaidPaymentMethod ?? null,
@@ -209,10 +211,12 @@ export class SpaceSessionOpenService {
           prepaidVoucherPlatform: payload.prepaidVoucherPlatform ?? null,
           prepaidNote: payload.prepaidNote ?? null,
           prepaidAmount:
-            payload.prepaidAmount !== undefined ? yuanToCents(payload.prepaidAmount) : null,
+            payload.prepaidAmount !== undefined
+              ? Money.fromInputYuan(payload.prepaidAmount).toDbCents()
+              : null,
           prepaidVoucherFaceAmount:
             payload.prepaidVoucherFaceAmount !== undefined
-              ? yuanToCents(payload.prepaidVoucherFaceAmount)
+              ? Money.fromInputYuan(payload.prepaidVoucherFaceAmount).toDbCents()
               : null,
           /// Step 8.1: items/renewRecords 已拆为独立表，开台时为空
           itemsCost: 0,
@@ -242,7 +246,7 @@ export class SpaceSessionOpenService {
       // Space.status 已移除，不再更新空间状态字段
 
       return created;
-    });
+    }, { timeout: TX_TIMEOUT_MEDIUM });
 
     return toSpaceSessionResponse(session);
   }

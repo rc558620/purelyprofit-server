@@ -32,7 +32,7 @@ export class PulseMemberListItemDto {
   @IsString()
   name: string;
 
-  @ApiProperty({ example: '138****9021', description: '会员手机号（脱敏）' })
+  @ApiProperty({ example: '13800138000', description: '会员手机号' })
   @IsString()
   phone: string;
 
@@ -135,7 +135,7 @@ export class PulseMemberDetailDto {
   @IsString()
   name: string;
 
-  @ApiProperty({ example: '138****9021', description: '会员手机号（脱敏）' })
+  @ApiProperty({ example: '13800138000', description: '会员手机号' })
   @IsString()
   phone: string;
 

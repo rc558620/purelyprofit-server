@@ -58,8 +58,8 @@ export class PulseMembershipPromoRecordDto {
   inviteeName: string;
 
   @ApiProperty({
-    example: '159****4321',
-    description: '被推广用户手机号（脱敏）',
+    example: '15900004321',
+    description: '被推广用户手机号',
   })
   @IsString()
   inviteePhone: string;

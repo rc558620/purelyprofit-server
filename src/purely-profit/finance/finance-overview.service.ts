@@ -1,14 +1,25 @@
 import { Injectable } from '@nestjs/common';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { buildCacheRefreshTaskKey } from '../../redis/keys';
-import { buildFinanceOverviewCacheKey } from './finance.cache-keys';
+import {
+  buildCacheRefreshTaskKey,
+  buildFinanceReportCacheKey,
+} from '../../redis/keys';
+import {
+  buildFinanceOverviewCacheKey,
+  buildFinanceReportPattern,
+} from './finance.cache-keys';
 import { RedisService } from '../../redis/redis.service';
 import type { FinanceOverviewQueryDto } from './dto/finance-overview.query.dto';
 import type { FinanceReportQueryDto } from './dto/finance-report.query.dto';
 import type { FinanceOverviewResponseDto } from './dto/finance-overview.response.dto';
 import type { FinanceReportResponseDto } from './dto/finance-report.response.dto';
+import {
+safeStreamCsvExport,
+} from '../../shared/stream-export.utils';
+import { Money } from '../../shared/money.utils';
 import { buildFinanceReportResponse } from './finance-account-report.domain';
 import {
   buildEmptyOverviewResponse,
@@ -33,6 +44,8 @@ import {
 
 const FINANCE_OVERVIEW_CACHE_TTL_SECONDS = 120;
 const FINANCE_OVERVIEW_REFRESH_AFTER_MS = 30_000;
+const FINANCE_REPORT_CACHE_TTL_SECONDS = 120;
+const FINANCE_REPORT_REFRESH_AFTER_MS = 30_000;
 
 @Injectable()
 export class FinanceOverviewService {
@@ -106,6 +119,55 @@ export class FinanceOverviewService {
       );
     }
 
+    // 导出模式或子账号直接查库，不走缓存
+    if (reportQuery.export || callerIsSubAccount) {
+      return this.buildReport(storeId, reportQuery, callerIsSubAccount);
+    }
+
+    const scope = callerIsSubAccount ? 'sub_account' : 'owner';
+    const cacheKey = buildFinanceReportCacheKey(storeId, {
+      ...reportQuery,
+      scope,
+    });
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: FINANCE_REPORT_CACHE_TTL_SECONDS,
+      refreshAfterMs: FINANCE_REPORT_REFRESH_AFTER_MS,
+      loadValue: () => this.buildReport(storeId, reportQuery, false),
+      refreshValue: () => this.buildReport(storeId, reportQuery, false),
+    });
+  }
+
+  /**
+   * 预热财务报表缓存（供 CachePrewarmCycleService 调用）
+   */
+  async warmReportCache(
+    storeId: number,
+    query: Pick<
+      FinanceReportQueryDto,
+      'period' | 'year' | 'customDate' | 'rangeStartDate' | 'rangeEndDate'
+    >,
+    scope: 'owner' | 'sub_account' = 'owner',
+  ): Promise<FinanceReportResponseDto> {
+    const cacheKey = buildFinanceReportCacheKey(storeId, { ...query, scope });
+    const callerIsSubAccount = scope === 'sub_account';
+    const reportQuery: FinanceReportQueryInput = { ...query, export: false };
+    const data = await this.buildReport(storeId, reportQuery, callerIsSubAccount);
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      FINANCE_REPORT_CACHE_TTL_SECONDS,
+      FINANCE_REPORT_REFRESH_AFTER_MS,
+    );
+    return data;
+  }
+
+  private async buildReport(
+    storeId: number,
+    reportQuery: FinanceReportQueryInput,
+    callerIsSubAccount: boolean,
+  ): Promise<FinanceReportResponseDto> {
     const range = getFinanceReportRange(reportQuery);
     const previousRange = getPreviousFinanceReportRange(reportQuery, range);
     const [clampedCurrentRange, clampedPreviousRange] = await Promise.all([
@@ -130,6 +192,30 @@ export class FinanceOverviewService {
     });
 
     return buildFinanceReportResponse(reportData);
+  }
+
+  /**
+   * 流式导出财务报表 CSV，O(1) 内存占用。
+   */
+  async streamReportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    query: FinanceReportQueryDto,
+  ): Promise<void> {
+    const report = await this.getReport(user, query);
+    safeStreamCsvExport(
+      reply,
+      'finance-report.csv',
+      ['日期', '标题', '收支方向', '分类', '金额', '支付方式'],
+      report.cashFlowRows.map((row) => [
+        row.dateLabel,
+        row.title,
+        row.direction,
+        row.categoryLabel,
+        row.amount,
+        row.paymentLabel,
+      ]),
+    );
   }
 
   private async buildOverview(
@@ -186,28 +272,30 @@ export class FinanceOverviewService {
     for (const row of categoryTotals.current) {
       const bucket = getCashFlowOverviewBucket(row.category);
       if (bucket !== null) {
-        currentTotals[bucket] += row.amount;
+        currentTotals[bucket] = currentTotals[bucket].add(Money.fromDbCents(row.amount));
       }
     }
 
     for (const row of categoryTotals.previous) {
       const bucket = getCashFlowOverviewBucket(row.category);
       if (bucket !== null) {
-        previousTotals[bucket] += row.amount;
+        previousTotals[bucket] = previousTotals[bucket].add(Money.fromDbCents(row.amount));
       }
     }
 
     // Build daily maps from aggregated trend
-    const incomeMap = new Map<number, number>();
-    const expenseMap = new Map<number, number>();
+    const incomeMap = new Map<number, Money>();
+    const expenseMap = new Map<number, Money>();
 
     for (const row of dailyTrend) {
       const dayStart = getDayStart(row.day);
-      if (row.income > 0) {
-        incomeMap.set(dayStart, row.income);
+      const income = Money.fromDbCents(row.income);
+      const expense = Money.fromDbCents(row.expense);
+      if (income.isPositive()) {
+        incomeMap.set(dayStart, income);
       }
-      if (row.expense > 0) {
-        expenseMap.set(dayStart, row.expense);
+      if (expense.isPositive()) {
+        expenseMap.set(dayStart, expense);
       }
     }
 

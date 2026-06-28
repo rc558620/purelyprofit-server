@@ -44,8 +44,9 @@ export interface SpaceSessionRenewRecordRow {
   paymentMethod: SalesPaymentMethodValue;
   grouponCode: string | null;
   grouponPlatform: string | null;
+  voucherFaceAmount?: number | null;
   note: string | null;
-  renewedAt: number;
+  renewedAt: bigint | number;
   createdAt: Date;
 }
 
@@ -74,6 +75,7 @@ export interface SpaceSessionRenewRecord {
   paymentMethod: SalesPaymentMethodValue;
   grouponCode?: string;
   grouponPlatform?: string;
+  voucherFaceAmount?: number;
   note?: string;
   renewedAt: number;
 }
@@ -191,6 +193,7 @@ export interface NormalizedRenewPayload {
   paymentMethod: SalesPaymentMethodValue;
   grouponCode?: string;
   grouponPlatform?: string;
+  voucherFaceAmount?: number;
   note?: string;
 }
 

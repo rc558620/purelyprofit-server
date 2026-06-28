@@ -1,6 +1,6 @@
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ClubOrderDraftsService } from '../orders/club-order-drafts.service';
 import type {
@@ -57,7 +57,7 @@ export abstract class ClubPaymentSettlementTemplate<
     try {
       await this.prisma.$transaction(async (tx) => {
         await this.persistPaidDraft(tx, draft);
-      });
+      }, { timeout: TX_TIMEOUT_MEDIUM });
       await this.cacheInvalidatorService.invalidateMarketingOverview(
         draft.storeId,
       );

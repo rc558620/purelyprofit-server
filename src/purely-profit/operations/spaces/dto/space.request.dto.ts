@@ -12,10 +12,6 @@ import {
   MinLength,
 } from 'class-validator';
 import { transformOptionalInt } from '../../../stores/dto/store-response.dto';
-import {
-  SPACE_STATUS_VALUES,
-  type SpaceStatusValue,
-} from '../spaces.constants';
 
 function transformOptionalNullableInt({
   value,
@@ -142,18 +138,4 @@ export class UpdateSpaceDto {
   @IsInt({ message: '显示顺序必须是整数' })
   @Min(1, { message: '显示顺序必须大于等于 1' })
   sortOrder?: number;
-}
-
-/**
- * @deprecated Space.status 已从 schema 移除，运行态由 session/reservation 推导。
- * 此 DTO 已废弃，对应接口 PATCH /spaces/:id/status 已返回 410 Gone。
- */
-export class UpdateSpaceStatusDto {
-  @ApiProperty({
-    example: 'reserved',
-    description: '空间状态',
-    enum: SPACE_STATUS_VALUES,
-  })
-  @IsIn(SPACE_STATUS_VALUES, { message: '空间状态不合法' })
-  status: SpaceStatusValue;
 }

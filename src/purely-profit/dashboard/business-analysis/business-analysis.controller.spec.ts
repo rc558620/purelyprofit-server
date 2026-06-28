@@ -81,7 +81,7 @@ describe('BusinessAnalysisController', () => {
     };
     businessAnalysisService.getAnalysis.mockResolvedValue(response);
 
-    await expect(controller.getAnalysis(user, query)).resolves.toEqual(
+    await expect(controller.getAnalysis(user, query, { raw: {} as any })).resolves.toEqual(
       response,
     );
     expect(businessAnalysisService.getAnalysis).toHaveBeenCalledWith(

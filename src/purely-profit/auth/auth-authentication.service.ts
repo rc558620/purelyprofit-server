@@ -18,12 +18,19 @@ import {
   ensurePasswordConfirmation,
   resolveAuthIdentity,
 } from './auth.utils';
+import { validatePasswordLength } from '../../shared/password-policy.utils';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthAccountMembershipService } from './auth-account-membership.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthCodeService } from './auth-code.service';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthSessionService } from './auth-session.service';
+import { RedisService } from '../../redis/redis.service';
+import {
+  AUTH_LOGIN_FAIL_MAX_ATTEMPTS,
+  AUTH_LOGIN_FAIL_LOCK_TTL_SECONDS,
+  AUTH_LOGIN_FAIL_KEY_PREFIX,
+} from './auth.constants';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { PasswordOperationResponseDto } from './dto/password-operation-response.dto';
 import type {
@@ -41,6 +48,7 @@ import type {
 export class AuthAuthenticationService {
   private readonly logger = new Logger(AuthAuthenticationService.name);
   private readonly pulseDevAccountEmails: Set<string>;
+  private readonly adminLoginPhone: string;
 
   constructor(
     private readonly authAccountLookupService: AuthAccountLookupService,
@@ -49,6 +57,7 @@ export class AuthAuthenticationService {
     private readonly authCodeService: AuthCodeService,
     private readonly authPasswordService: AuthPasswordService,
     private readonly authSessionService: AuthSessionService,
+    private readonly redisService: RedisService,
     configService: ConfigService,
   ) {
     this.pulseDevAccountEmails = new Set(
@@ -56,9 +65,11 @@ export class AuthAuthenticationService {
         (email) => email.trim().toLowerCase(),
       ),
     );
+    this.adminLoginPhone = configService.get<string>('auth.adminLoginPhone') ?? '13619654020';
   }
 
   async register(params: RegisterAuthParams): Promise<AuthTokenResponseDto> {
+    validatePasswordLength(params.password, '密码');
     ensurePasswordConfirmation(
       params.password,
       params.confirmPassword,
@@ -110,6 +121,9 @@ export class AuthAuthenticationService {
       throw new BadRequestException('登录账号不能为空');
     }
 
+    // 检查账号是否因多次登录失败被锁定
+    await this.ensureLoginNotLocked(params.loginAccount, params.productScope);
+
     const user = await this.authAccountLookupService.findUserByLoginAccount(
       params.loginAccount,
       params.productScope,
@@ -122,8 +136,13 @@ export class AuthAuthenticationService {
         user.password,
       ))
     ) {
+      // 登录失败：递增失败计数
+      await this.recordLoginFailure(params.loginAccount, params.productScope);
       throw new UnauthorizedException('账号或密码错误');
     }
+
+    // 登录成功：清除失败计数
+    await this.clearLoginFailures(params.loginAccount, params.productScope);
 
     const resolvedAccountScope = this.resolveAccountScopeForLogin(user);
 
@@ -374,6 +393,7 @@ export class AuthAuthenticationService {
   async changePassword(
     params: ChangePasswordAuthParams,
   ): Promise<PasswordOperationResponseDto> {
+    validatePasswordLength(params.newPassword, '新密码');
     ensurePasswordConfirmation(
       params.newPassword,
       params.confirmPassword,
@@ -401,6 +421,7 @@ export class AuthAuthenticationService {
   async resetPassword(
     params: ResetPasswordAuthParams,
   ): Promise<PasswordOperationResponseDto> {
+    validatePasswordLength(params.password, '新密码');
     ensurePasswordConfirmation(
       params.password,
       params.confirmPassword,
@@ -489,6 +510,7 @@ export class AuthAuthenticationService {
       user.email,
       user.phone,
       this.pulseDevAccountEmails,
+      this.adminLoginPhone,
     ).accountScope;
   }
 
@@ -520,5 +542,63 @@ export class AuthAuthenticationService {
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === 'P2002'
     );
+  }
+
+  // ── 登录失败锁定机制 ──────────────────────────────────────
+
+  private buildLoginFailKey(loginAccount: string, productScope: AuthProductScope): string {
+    return `${AUTH_LOGIN_FAIL_KEY_PREFIX}${productScope}:${loginAccount.toLowerCase()}`;
+  }
+
+  /**
+   * 检查账号是否因多次登录失败被临时锁定
+   */
+  private async ensureLoginNotLocked(
+    loginAccount: string,
+    productScope: AuthProductScope,
+  ): Promise<void> {
+    const key = this.buildLoginFailKey(loginAccount, productScope);
+    const rawCount = await this.redisService.get(key);
+    const failCount = Number.parseInt(rawCount ?? '0', 10);
+
+    if (failCount >= AUTH_LOGIN_FAIL_MAX_ATTEMPTS) {
+      throw new UnauthorizedException(
+        '登录失败次数过多，账号已被临时锁定，请 15 分钟后再试',
+      );
+    }
+  }
+
+  /**
+   * 记录一次登录失败，使用 Redis INCR 原子递增
+   */
+  private async recordLoginFailure(
+    loginAccount: string,
+    productScope: AuthProductScope,
+  ): Promise<void> {
+    const key = this.buildLoginFailKey(loginAccount, productScope);
+    const newCount = await this.redisService.incr(
+      key,
+      AUTH_LOGIN_FAIL_LOCK_TTL_SECONDS,
+    );
+
+    // 如果刚好达到阈值，设置锁定时长（重新设置 TTL 为锁定时长）
+    if (newCount >= AUTH_LOGIN_FAIL_MAX_ATTEMPTS) {
+      await this.redisService.set(
+        key,
+        String(newCount),
+        AUTH_LOGIN_FAIL_LOCK_TTL_SECONDS,
+      );
+    }
+  }
+
+  /**
+   * 登录成功后清除失败计数
+   */
+  private async clearLoginFailures(
+    loginAccount: string,
+    productScope: AuthProductScope,
+  ): Promise<void> {
+    const key = this.buildLoginFailKey(loginAccount, productScope);
+    await this.redisService.del(key);
   }
 }

@@ -21,8 +21,8 @@ export class LoginDto {
   @IsOptional()
   account?: string;
 
-  @ApiProperty({ example: 'password123', description: '密码' })
+  @ApiProperty({ example: 'password123', description: '密码（明文或 RSA 加密密文）' })
   @IsString({ message: '密码必须是字符串' })
-  @MinLength(6, { message: '密码至少 6 位' })
+  @MinLength(1, { message: '密码不能为空' })
   password: string;
 }

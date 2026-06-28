@@ -37,6 +37,13 @@ export class MarketingProductCategoriesService {
 
     const rows = await this.prisma.marketingProductCategory.findMany({
       where: { storeId: resolvedStoreId },
+      select: {
+        id: true,
+        name: true,
+        icon: true,
+        createdAt: true,
+        updatedAt: true,
+      },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });
 

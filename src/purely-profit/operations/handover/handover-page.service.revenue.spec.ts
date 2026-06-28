@@ -50,7 +50,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       // 检测 additionalRevenue 查询（仅非空间会话订单）
       if (where?.spaceSession?.is === null) {
         return Promise.resolve({
-          _sum: { totalRevenue: new Prisma.Decimal('66.80') },
+          _sum: { totalRevenue: new Prisma.Decimal('6680') },
         });
       }
 
@@ -122,7 +122,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     prismaService.saleOrder.count.mockResolvedValue(1);
     prismaService.spaceSession.aggregate.mockResolvedValue({
       _sum: {
-        timeCost: new Prisma.Decimal('88.60'),
+        timeCost: new Prisma.Decimal('8860'),
         itemsCost: new Prisma.Decimal('0'),
       },
     });
@@ -413,7 +413,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       {
         id: 1,
         productName: '米线',
-        salePrice: new Prisma.Decimal('300.00'),
+        salePrice: new Prisma.Decimal('30000'),
         quantity: 1,
         product: null,
         order: {
@@ -428,7 +428,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       {
         id: 2,
         productName: '果茶',
-        salePrice: new Prisma.Decimal('100.00'),
+        salePrice: new Prisma.Decimal('10000'),
         quantity: 1,
         product: null,
         order: {
@@ -443,7 +443,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       {
         id: 3,
         productName: '预付抵扣',
-        salePrice: new Prisma.Decimal('-20.00'),
+        salePrice: new Prisma.Decimal('-2000'),
         quantity: 1,
         product: null,
         order: {
@@ -502,7 +502,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       {
         id: 3,
         productName: '台位费（1分钟）',
-        salePrice: new Prisma.Decimal('11.10'),
+        salePrice: new Prisma.Decimal('1110'),
         quantity: 1,
         product: null,
         order: {
@@ -526,7 +526,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         id: 88,
         date: new Date('2026-06-04T04:21:00.000Z'),
         paymentMethod: SalesPaymentMethod.alipay,
-        totalRevenue: new Prisma.Decimal('-547.60'),
+        totalRevenue: new Prisma.Decimal('-54760'),
         operatorNameSnapshot: null,
         operatorStaff: null,
         spaceSession: {
@@ -539,10 +539,10 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     prismaService.saleOrder.aggregate
       .mockResolvedValueOnce({
         // additionalRevenue 仅统计非空间订单，退款订单有 spaceSession 不包含在内
-        _sum: { totalRevenue: new Prisma.Decimal('978.75') },
+        _sum: { totalRevenue: new Prisma.Decimal('97875') },
       })
       .mockResolvedValueOnce({
-        _sum: { totalRevenue: new Prisma.Decimal('-547.60') },
+        _sum: { totalRevenue: new Prisma.Decimal('-54760') },
       });
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {
@@ -658,7 +658,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         id: 99,
         date: new Date('2026-06-02T18:55:00.000Z'),
         paymentMethod: SalesPaymentMethod.wechat,
-        totalRevenue: new Prisma.Decimal('-88.80'),
+        totalRevenue: new Prisma.Decimal('-8880'),
         operatorNameSnapshot: null,
         operatorStaff: null,
         spaceSession: {
@@ -679,7 +679,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         _sum: { totalRevenue: null },
       })
       .mockResolvedValueOnce({
-        _sum: { totalRevenue: new Prisma.Decimal('-88.80') },
+        _sum: { totalRevenue: new Prisma.Decimal('-8880') },
       });
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {
@@ -706,7 +706,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       {
         id: 1,
         productName: '预付抵扣',
-        salePrice: new Prisma.Decimal('-666.00'),
+        salePrice: new Prisma.Decimal('-66600'),
         quantity: 1,
         product: null,
         order: {
@@ -753,7 +753,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       {
         id: 2,
         productName: '台位费（1分钟）',
-        salePrice: new Prisma.Decimal('9.25'),
+        salePrice: new Prisma.Decimal('925'),
         quantity: 1,
         product: null,
         order: {

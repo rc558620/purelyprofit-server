@@ -52,6 +52,12 @@ function normalizeForJson(value: unknown): unknown {
     return value.map(normalizeForJson);
   }
 
+  // Date 对象必须在通用 object 分支之前处理：
+  // Object.entries(new Date()) 返回 []，会把 Date 序列化为空对象 {}，导致反序列化后 NaN
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
   if (typeof value === 'object') {
     const result: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
@@ -245,6 +251,22 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       }
 
       await this.client.set(key, value);
+    });
+  }
+
+  /**
+   * 原子递增 key 对应的值，key 不存在时从 0 开始递增（结果为 1）。
+   * 可选地在递增后设置过期时间（仅首次创建 key 时生效，避免覆盖已有 TTL）。
+   * 返回递增后的值。
+   */
+  async incr(key: string, ttlSecondsOnCreate?: number): Promise<number> {
+    return this.observeRedisCommand('INCR', async () => {
+      const result = await this.client.incr(key);
+      // 仅在 key 首次创建时（result === 1）设置 TTL
+      if (result === 1 && ttlSecondsOnCreate) {
+        await this.client.expire(key, ttlSecondsOnCreate);
+      }
+      return result;
     });
   }
 

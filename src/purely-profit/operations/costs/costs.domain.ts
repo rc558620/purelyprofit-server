@@ -1,9 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
-import Decimal from 'decimal.js';
 import {
   buildPreviousPurchaseDateRange,
   buildPurchaseDateRange,
 } from '../../commerce/commerce.utils';
+import {
+  Money,
+  calcPercentChangeWithFallback,
+} from '../../../shared/money.utils';
 import type {
   CostAmountRow,
   CostFilterRange,
@@ -35,31 +38,16 @@ export function buildEmptyCostReportResponse(): CostReportResponseDto {
 }
 
 export function sumCostAmounts(records: CostAmountRow[]): number {
-  return Number(
-    records
-      .reduce(
-        (total, record) => total.plus(record.amount.toString()),
-        new Decimal(0),
-      )
-      .toFixed(2),
-  );
+  // 数据库存的是分，先求和再转元
+  return Money.sum(records.map((record) => Money.fromDbCents(record.amount)))
+    .toOutputYuan();
 }
 
 export function calculateCostCompareLastPeriod(
   currentTotal: number,
   previousTotal: number,
 ): number | null {
-  if (previousTotal <= 0) {
-    return null;
-  }
-
-  return Number(
-    new Decimal(currentTotal)
-      .minus(previousTotal)
-      .div(previousTotal)
-      .mul(100)
-      .toFixed(2),
-  );
+  return calcPercentChangeWithFallback(currentTotal, previousTotal, { precision: 2 });
 }
 
 export function buildCostRange(
@@ -274,8 +262,12 @@ export function getPayrollCostDate(month: string): Date {
   return new Date(year, monthValue - 1, 1, 0, 0, 0, 0);
 }
 
-export function toCostDecimal(value: number): number {
-  return Math.round(Number(new Decimal(value).toFixed(2)) * 100);
+/**
+ * 将前端输入的元金额转为数据库分整数。
+ * 仅用于成本写入场景（createRecord、syncPurchaseCost、syncPayrollCosts）。
+ */
+export function toCostDbCents(yuanValue: number): number {
+  return Money.fromInputYuan(yuanValue).toDbCents();
 }
 
 function getDayStart(timestamp: number): number {

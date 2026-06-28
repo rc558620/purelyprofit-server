@@ -9,12 +9,12 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import {
   buildPaginationMeta,
   resolvePagination,
-  toDecimalNumber,
   toNullableMediaText,
   toOptionalText,
 } from '../../commerce/commerce.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { Money } from '../../../shared/money.utils';
 import type {
   CreateProductDto,
   ListProductsQueryDto,
@@ -120,7 +120,13 @@ export class ProductsService {
     await this.platformMembershipAccessService.ensureProductQuotaAvailable(
       storeId,
     );
-    this.validateMoneyFields(dto.price, dto.profit, dto.costPrice);
+    this.validateMoneyFields(
+      Money.fromInputYuan(dto.price),
+      Money.fromInputYuan(dto.profit),
+      dto.costPrice !== undefined && dto.costPrice !== null
+        ? Money.fromInputYuan(dto.costPrice)
+        : null,
+    );
 
     const categoryName = dto.category.trim();
     const category = await ensureProductCategory(this.prisma, {
@@ -159,11 +165,19 @@ export class ProductsService {
     );
 
     this.validateMoneyFields(
-      dto.price ?? toDecimalNumber(product.price),
-      dto.profit ?? toDecimalNumber(product.profit),
+      dto.price !== undefined
+        ? Money.fromInputYuan(dto.price)
+        : Money.fromDbCents(product.price),
+      dto.profit !== undefined
+        ? Money.fromInputYuan(dto.profit)
+        : Money.fromDbCents(product.profit),
       dto.costPrice !== undefined
-        ? dto.costPrice
-        : toDecimalNumber(product.costPrice),
+        ? dto.costPrice !== null
+          ? Money.fromInputYuan(dto.costPrice)
+          : null
+        : product.costPrice !== null
+          ? Money.fromDbCents(product.costPrice)
+          : null,
     );
 
     const nextCode = dto.code?.trim();
@@ -242,11 +256,11 @@ export class ProductsService {
       category: dto.category.trim(),
       code,
       name: dto.name.trim(),
-      price: Number(dto.price),
-      profit: Number(dto.profit),
+      price: Money.fromInputYuan(dto.price).toDbCents(),
+      profit: Money.fromInputYuan(dto.profit).toDbCents(),
       costPrice:
         dto.costPrice !== undefined && dto.costPrice !== null
-          ? Number(dto.costPrice)
+          ? Money.fromInputYuan(dto.costPrice).toDbCents()
           : null,
       unit: dto.unit.trim(),
       stock: dto.stock ?? 0,
@@ -270,10 +284,19 @@ export class ProductsService {
           }
         : {}),
       ...(nextCode ? { code: nextCode } : {}),
-      ...(dto.price !== undefined ? { price: Number(dto.price) } : {}),
-      ...(dto.profit !== undefined ? { profit: Number(dto.profit) } : {}),
+      ...(dto.price !== undefined
+        ? { price: Money.fromInputYuan(dto.price).toDbCents() }
+        : {}),
+      ...(dto.profit !== undefined
+        ? { profit: Money.fromInputYuan(dto.profit).toDbCents() }
+        : {}),
       ...(dto.costPrice !== undefined
-        ? { costPrice: dto.costPrice !== null ? Number(dto.costPrice) : null }
+        ? {
+            costPrice:
+              dto.costPrice !== null
+                ? Money.fromInputYuan(dto.costPrice).toDbCents()
+                : null,
+          }
         : {}),
       ...(dto.unit !== undefined ? { unit: dto.unit.trim() } : {}),
       ...(dto.stock !== undefined ? { stock: dto.stock } : {}),
@@ -291,19 +314,19 @@ export class ProductsService {
   }
 
   private validateMoneyFields(
-    price: number,
-    profit: number,
-    costPrice?: number | null,
+    price: Money,
+    profit: Money,
+    costPrice?: Money | null,
   ): void {
-    if (!Number.isFinite(price) || price <= 0) {
+    if (!price.isPositive()) {
       throw new BadRequestException('售价必须大于 0');
     }
 
-    if (!Number.isFinite(profit) || profit <= 0) {
+    if (!profit.isPositive()) {
       throw new BadRequestException('每单利润必须大于 0');
     }
 
-    if (costPrice !== undefined && costPrice !== null && costPrice < 0) {
+    if (costPrice !== undefined && costPrice !== null && costPrice.isNegative()) {
       throw new BadRequestException('成本价不能为负数');
     }
   }

@@ -246,9 +246,9 @@ describe('FinanceReconciliationService', () => {
     ).resolves.toMatchObject({
       id: '21',
       status: 'discrepancy',
-      bookNet: 4000,
-      actualNet: 3700,
-      diffAmount: -300,
+      bookNet: 40,
+      actualNet: 37,
+      diffAmount: -3,
       operator: '财务张姐',
       note: '节假日汇总',
     });

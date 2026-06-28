@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../redis/redis.service';
 import { ProfitDetailService } from './profit-detail.service';
 
 describe('ProfitDetailService', () => {
@@ -26,6 +27,12 @@ describe('ProfitDetailService', () => {
   const platformMembershipAccessService = {
     clampHistoryRange: jest.fn(),
     ensureReportExportEnabled: jest.fn(),
+  };
+
+  const redisService = {
+    getOrLoadRefreshableJson: jest.fn((_options: any) => _options.loadValue()),
+    writeRefreshableJson: jest.fn(),
+    delByPattern: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -71,6 +78,7 @@ describe('ProfitDetailService', () => {
       providers: [
         ProfitDetailService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         {
           provide: PlatformMembershipAccessService,
@@ -93,8 +101,8 @@ describe('ProfitDetailService', () => {
         productId: 1,
         productName: '可口可乐 330ml',
         categoryName: '饮品',
-        salePrice: new Prisma.Decimal('6.50'),
-        profit: new Prisma.Decimal('2.50'),
+        salePrice: new Prisma.Decimal('650'),
+        profit: new Prisma.Decimal('250'),
         quantity: 2,
         image: 'https://example.com/coke.png',
         order: {
@@ -107,8 +115,8 @@ describe('ProfitDetailService', () => {
         productId: 2,
         productName: '奥利奥',
         categoryName: '零食',
-        salePrice: new Prisma.Decimal('9.00'),
-        profit: new Prisma.Decimal('3.00'),
+        salePrice: new Prisma.Decimal('900'),
+        profit: new Prisma.Decimal('300'),
         quantity: 1,
         image: null,
         order: {
@@ -121,8 +129,8 @@ describe('ProfitDetailService', () => {
         productId: 3,
         productName: '上期商品',
         categoryName: '饮品',
-        salePrice: new Prisma.Decimal('8.00'),
-        profit: new Prisma.Decimal('2.00'),
+        salePrice: new Prisma.Decimal('800'),
+        profit: new Prisma.Decimal('200'),
         quantity: 3,
         image: null,
         order: {
@@ -135,17 +143,17 @@ describe('ProfitDetailService', () => {
     prismaService.costRecord.findMany.mockResolvedValue([
       {
         category: 'rent',
-        amount: new Prisma.Decimal('8.00'),
+        amount: new Prisma.Decimal('800'),
         date: new Date(2026, 4, 12, 9, 0, 0, 0),
       },
       {
         category: 'purchase',
-        amount: new Prisma.Decimal('3.00'),
+        amount: new Prisma.Decimal('300'),
         date: new Date(2026, 4, 13, 9, 0, 0, 0),
       },
       {
         category: 'marketing',
-        amount: new Prisma.Decimal('4.00'),
+        amount: new Prisma.Decimal('400'),
         date: new Date(2026, 4, 10, 9, 0, 0, 0),
       },
     ]);
@@ -210,8 +218,8 @@ describe('ProfitDetailService', () => {
         productId: 1,
         productName: '可口可乐 330ml',
         categoryName: '饮品',
-        salePrice: new Prisma.Decimal('6.50'),
-        profit: new Prisma.Decimal('2.50'),
+        salePrice: new Prisma.Decimal('650'),
+        profit: new Prisma.Decimal('250'),
         quantity: 2,
         image: 'https://example.com/coke.png',
         order: {
@@ -224,8 +232,8 @@ describe('ProfitDetailService', () => {
         productId: 2,
         productName: '奥利奥',
         categoryName: '零食',
-        salePrice: new Prisma.Decimal('9.00'),
-        profit: new Prisma.Decimal('3.00'),
+        salePrice: new Prisma.Decimal('900'),
+        profit: new Prisma.Decimal('300'),
         quantity: 1,
         image: null,
         order: {
@@ -238,8 +246,8 @@ describe('ProfitDetailService', () => {
         productId: 3,
         productName: '上期商品',
         categoryName: '饮品',
-        salePrice: new Prisma.Decimal('8.00'),
-        profit: new Prisma.Decimal('2.00'),
+        salePrice: new Prisma.Decimal('800'),
+        profit: new Prisma.Decimal('200'),
         quantity: 3,
         image: null,
         order: {
@@ -252,17 +260,17 @@ describe('ProfitDetailService', () => {
     prismaService.costRecord.findMany.mockResolvedValue([
       {
         category: 'rent',
-        amount: new Prisma.Decimal('8.00'),
+        amount: new Prisma.Decimal('800'),
         date: new Date(2026, 4, 12, 9, 0, 0, 0),
       },
       {
         category: 'purchase',
-        amount: new Prisma.Decimal('3.00'),
+        amount: new Prisma.Decimal('300'),
         date: new Date(2026, 4, 13, 9, 0, 0, 0),
       },
       {
         category: 'marketing',
-        amount: new Prisma.Decimal('4.00'),
+        amount: new Prisma.Decimal('400'),
         date: new Date(2026, 4, 10, 9, 0, 0, 0),
       },
     ]);
@@ -314,8 +322,8 @@ describe('ProfitDetailService', () => {
         productId: null,
         productName: '台位费（固定）',
         categoryName: '场地费',
-        salePrice: new Prisma.Decimal('10.00'),
-        profit: new Prisma.Decimal('10.00'),
+        salePrice: new Prisma.Decimal('1000'),
+        profit: new Prisma.Decimal('1000'),
         quantity: 1,
         image: null,
         order: {
@@ -332,8 +340,8 @@ describe('ProfitDetailService', () => {
         productId: null,
         productName: '台位费（固定）',
         categoryName: '场地费',
-        salePrice: new Prisma.Decimal('8.00'),
-        profit: new Prisma.Decimal('8.00'),
+        salePrice: new Prisma.Decimal('800'),
+        profit: new Prisma.Decimal('800'),
         quantity: 1,
         image: null,
         order: {
@@ -350,8 +358,8 @@ describe('ProfitDetailService', () => {
         productId: null,
         productName: '预付抵扣',
         categoryName: '场地费',
-        salePrice: new Prisma.Decimal('-5.00'),
-        profit: new Prisma.Decimal('-5.00'),
+        salePrice: new Prisma.Decimal('-500'),
+        profit: new Prisma.Decimal('-500'),
         quantity: 1,
         image: null,
         order: {
@@ -452,8 +460,8 @@ describe('ProfitDetailService', () => {
         productId: 1,
         productName: '可口可乐 330ml',
         categoryName: '饮品',
-        salePrice: new Prisma.Decimal('6.50'),
-        profit: new Prisma.Decimal('2.50'),
+        salePrice: new Prisma.Decimal('650'),
+        profit: new Prisma.Decimal('250'),
         quantity: 1,
         image: null,
         order: {

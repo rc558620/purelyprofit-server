@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { MemberStatus } from '@prisma/client';
-import Decimal from 'decimal.js';
+import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { ClubCurrentContext } from '../../stores/club-stores.types';
 import type { ClubMemberHeldLevelValue } from '../dto/club-member-account.dto';
@@ -76,7 +76,7 @@ export class ClubMemberProfileService {
       memberId: member.id,
       storeId,
       // 余额：来自 MarketingCustomer.balance（事实源）
-      balance: this.convertFenToYuan(marketingCustomer?.balance ?? 0),
+      balance: Money.fromDbCents(marketingCustomer?.balance ?? 0).toOutputYuan(),
       // 等级：来自 MarketingCustomer.tier（事实源，Member.level 废弃）
       level: this.resolveLevel(marketingCustomer?.tier),
       // 积分：来自 MarketingCustomer.points（事实源，Member.points 废弃）
@@ -182,14 +182,10 @@ export class ClubMemberProfileService {
    */
   private resolveTotalRecharge(totalRechargeFen: number | null): number {
     if (typeof totalRechargeFen === 'number') {
-      return this.convertFenToYuan(totalRechargeFen);
+      return Money.fromDbCents(totalRechargeFen).toOutputYuan();
     }
 
     return 0;
-  }
-
-  private convertFenToYuan(amountFen: number): number {
-    return new Decimal(amountFen).div(100).toDecimalPlaces(2).toNumber();
   }
 
   private buildMemberCode(joinDate: string, memberId: number): string {

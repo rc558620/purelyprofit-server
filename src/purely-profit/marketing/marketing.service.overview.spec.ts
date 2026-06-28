@@ -89,10 +89,10 @@ describe('MarketingService overview', () => {
     const result = await context.service.getOverview(context.user, 18);
 
     expect(result).toEqual({
-      totalBalance: 88000,
-      totalRecharge: 110000,
-      todayRecharge: 23000,
-      thisMonthRecharge: 55000,
+      totalBalance: 880,
+      totalRecharge: 1100,
+      todayRecharge: 230,
+      thisMonthRecharge: 550,
       rechargeCount: 7,
       activeMemberCount: 6,
       inviteCode: 'AB23CD45',
@@ -102,10 +102,10 @@ describe('MarketingService overview', () => {
       currentYear: 2026,
       thisYearMonthlyTrend: [
         { label: '1月', amount: null },
-        { label: '2月', amount: 15000 },
+        { label: '2月', amount: 150 },
         { label: '3月', amount: null },
         { label: '4月', amount: null },
-        { label: '5月', amount: 20000 },
+        { label: '5月', amount: 200 },
         { label: '6月', amount: null },
         { label: '7月', amount: null },
         { label: '8月', amount: null },
@@ -117,7 +117,7 @@ describe('MarketingService overview', () => {
       lastYearMonthlyTrend: [
         { label: '1月', amount: null },
         { label: '2月', amount: null },
-        { label: '3月', amount: 25000 },
+        { label: '3月', amount: 250 },
         { label: '4月', amount: null },
         { label: '5月', amount: null },
         { label: '6月', amount: null },
@@ -143,11 +143,11 @@ describe('MarketingService overview', () => {
     expect(result.last30Days).toHaveLength(30);
     expect(result.last30Days[result.last30Days.length - 2]).toEqual({
       date: '5/14',
-      amount: 12000,
+      amount: 120,
     });
     expect(result.last30Days[result.last30Days.length - 1]).toEqual({
       date: '5/15',
-      amount: 8000,
+      amount: 80,
     });
   });
 

@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, GoneException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 // SpaceStatus 已移除，状态由运行态推导
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -16,6 +16,7 @@ type SpaceRecord = {
   capacity: number | null;
   enableDirtyRoom: boolean;
   autoCheckout: boolean;
+  cleanedAt: Date | null;
   // status 字段已从 Space 移除，运行态推导
   sortOrder: number;
   createdAt: Date;
@@ -61,6 +62,7 @@ describe('SpacesWriteService', () => {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn(),
+      update: jest.fn(),
     },
     spaceSession: {
       findFirst: jest.fn(),
@@ -121,6 +123,7 @@ describe('SpacesWriteService', () => {
     capacity: 4,
     enableDirtyRoom: false,
     autoCheckout: false,
+    cleanedAt: null,
     // status 字段已移除
     sortOrder: 2,
     createdAt: new Date('2026-05-18T10:00:00.000Z'),
@@ -167,6 +170,11 @@ describe('SpacesWriteService', () => {
     // deriveSpaceStatus 需要查询 activeSession 和 pendingReservation
     prismaService.spaceSession.findFirst.mockResolvedValue(null);
     prismaService.spaceReservation.findFirst.mockResolvedValue(null);
+    // deriveSpaceStatus 查询 space 获取 enableDirtyRoom/cleanedAt
+    prismaService.space.findUnique.mockResolvedValue({
+      enableDirtyRoom: false,
+      cleanedAt: null,
+    });
     prismaTransaction.space.findUnique.mockResolvedValue({
       id: 11,
       // status 字段已移除
@@ -407,35 +415,39 @@ describe('SpacesWriteService', () => {
     expect(prismaService.$transaction).not.toHaveBeenCalled();
   });
 
-  it('markSpaceReady 会根据运行态推导返回空间状态', async () => {
-    // Space.status 已移除，状态由运行态推导
-    prismaService.space.findUnique.mockResolvedValueOnce(
-      makeSpace({
-        // status 字段已移除
-      }),
-    );
-    // deriveSpaceStatus 需要：无活跃会话，有待处理预约
-    prismaService.spaceSession.findFirst.mockResolvedValueOnce(null);
-    prismaService.spaceReservation.findFirst.mockResolvedValueOnce({ id: 21 });
+  it('markSpaceReady 会设置 cleanedAt 并根据运行态推导返回空间状态', async () => {
+    // requireUpdatableSpace 调用 findUnique
+    prismaService.space.findUnique.mockResolvedValueOnce(makeSpace());
+    // markSpaceReady 调用 space.update 设置 cleanedAt
+    prismaService.space.update.mockResolvedValueOnce({});
+    // deriveSpaceStatus：无活跃会话，有待处理预约 → reserved
+    prismaService.spaceSession.findFirst.mockResolvedValueOnce(null); // active session
+    prismaService.spaceReservation.findFirst.mockResolvedValueOnce({ id: 21 }); // pending reservation
+    // deriveSpaceStatus 查询 space 获取 enableDirtyRoom/cleanedAt
+    prismaService.space.findUnique.mockResolvedValueOnce({
+      enableDirtyRoom: false,
+      cleanedAt: null,
+    });
     // markSpaceReady 调用 findUniqueOrThrow 获取完整的 space 数据
     prismaService.space.findUniqueOrThrow.mockResolvedValueOnce(makeSpace());
 
     const result = await service.markSpaceReady(user, 11);
 
+    // 验证 cleanedAt 被更新
+    expect(prismaService.space.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 11 },
+        data: expect.objectContaining({
+          cleanedAt: expect.any(Date),
+        }),
+      }),
+    );
     // Space.status 已移除，不再调用 resolveReservationBackStatus
     // 状态直接由 deriveSpaceStatus 推导得出
     expect(
       spaceReservationsService.resolveReservationBackStatus,
     ).not.toHaveBeenCalled();
     expect(result.status).toBe('reserved');
-  });
-
-  it('updateSpaceStatus 已废弃，调用会抛出 GoneException', async () => {
-    await expect(
-      service.updateSpaceStatus(user, 11, {
-        status: 'cleaning',
-      }),
-    ).rejects.toBeInstanceOf(GoneException);
   });
 
   it('createSpace 在名称冲突时抛出冲突异常', async () => {

@@ -1,14 +1,24 @@
 import { Injectable } from '@nestjs/common';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { subtractMoneyValues } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
+import {
+  buildCacheRefreshTaskKey,
+  buildProfitDetailCacheKey,
+  buildProfitReportCacheKey,
+} from '../../../redis/keys';
+import { RedisService } from '../../../redis/redis.service';
+import { Money } from '../../../shared/money.utils';
 import { GetProfitDetailQueryDto } from './dto/profit-detail-query.dto';
 import type {
   ProfitDetailResponseDto,
   ProfitReportResponseDto,
 } from './dto/profit-detail-response.dto';
+import {
+  safeStreamCsvExport,
+} from '../../../shared/stream-export.utils';
 import type {
   ProfitDetailQueryInput,
   ProfitMetricsSnapshot,
@@ -32,10 +42,14 @@ import {
   buildQueryInput,
 } from './profit-detail.utils';
 
+const PROFIT_DETAIL_CACHE_TTL_SECONDS = 120;
+const PROFIT_DETAIL_REFRESH_AFTER_MS = 30_000;
+
 @Injectable()
 export class ProfitDetailService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
@@ -52,17 +66,38 @@ export class ProfitDetailService {
     );
     const callerIsSubAccount =
       user.currentMembership?.subjectType === 'sub_account';
-    const snapshot = await this.buildProfitSnapshot(
-      storeId,
-      query,
-      callerIsSubAccount,
-    );
 
-    if (!snapshot) {
-      return buildEmptyProfitDetailResponse();
+    // 导出模式或子账号直接查库，不走缓存
+    if (queryDto.export || callerIsSubAccount) {
+      const snapshot = await this.buildProfitSnapshot(
+        storeId,
+        query,
+        callerIsSubAccount,
+      );
+      return snapshot
+        ? buildProfitDetailResponse(snapshot)
+        : buildEmptyProfitDetailResponse();
     }
 
-    return buildProfitDetailResponse(snapshot);
+    const cacheKey = buildProfitDetailCacheKey(storeId, query);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: PROFIT_DETAIL_CACHE_TTL_SECONDS,
+      refreshAfterMs: PROFIT_DETAIL_REFRESH_AFTER_MS,
+      loadValue: async () => {
+        const snapshot = await this.buildProfitSnapshot(storeId, query, false);
+        return snapshot
+          ? buildProfitDetailResponse(snapshot)
+          : buildEmptyProfitDetailResponse();
+      },
+      refreshValue: async () => {
+        const snapshot = await this.buildProfitSnapshot(storeId, query, false);
+        return snapshot
+          ? buildProfitDetailResponse(snapshot)
+          : buildEmptyProfitDetailResponse();
+      },
+    });
   }
 
   async getReport(
@@ -85,17 +120,115 @@ export class ProfitDetailService {
       );
     }
 
-    const snapshot = await this.buildProfitSnapshot(
-      storeId,
-      query,
-      callerIsSubAccount,
-    );
-
-    if (!snapshot) {
-      return buildEmptyProfitReportResponse();
+    // 导出模式或子账号直接查库，不走缓存
+    if (queryDto.export || callerIsSubAccount) {
+      const snapshot = await this.buildProfitSnapshot(
+        storeId,
+        query,
+        callerIsSubAccount,
+      );
+      return snapshot
+        ? buildProfitReportResponse(snapshot)
+        : buildEmptyProfitReportResponse();
     }
 
-    return buildProfitReportResponse(snapshot);
+    const scope = callerIsSubAccount ? 'sub_account' : 'owner';
+    const cacheKey = buildProfitReportCacheKey(storeId, {
+      ...query,
+      scope,
+    });
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: PROFIT_DETAIL_CACHE_TTL_SECONDS,
+      refreshAfterMs: PROFIT_DETAIL_REFRESH_AFTER_MS,
+      loadValue: async () => {
+        const snapshot = await this.buildProfitSnapshot(storeId, query, false);
+        return snapshot
+          ? buildProfitReportResponse(snapshot)
+          : buildEmptyProfitReportResponse();
+      },
+      refreshValue: async () => {
+        const snapshot = await this.buildProfitSnapshot(storeId, query, false);
+        return snapshot
+          ? buildProfitReportResponse(snapshot)
+          : buildEmptyProfitReportResponse();
+      },
+    });
+  }
+
+  /**
+   * 预热利润详情缓存（供 CachePrewarmCycleService 调用）
+   */
+  async warmDetailCache(
+    storeId: number,
+    query: Pick<
+      GetProfitDetailQueryDto,
+      'period' | 'year' | 'customDate' | 'rangeStartDate' | 'rangeEndDate' | 'startTime' | 'endTime'
+    >,
+  ): Promise<ProfitDetailResponseDto> {
+    const cacheKey = buildProfitDetailCacheKey(storeId, query);
+    const fullQuery = buildQueryInput(query as GetProfitDetailQueryDto);
+    const snapshot = await this.buildProfitSnapshot(storeId, fullQuery, false);
+    const data = snapshot
+      ? buildProfitDetailResponse(snapshot)
+      : buildEmptyProfitDetailResponse();
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      PROFIT_DETAIL_CACHE_TTL_SECONDS,
+      PROFIT_DETAIL_REFRESH_AFTER_MS,
+    );
+    return data;
+  }
+
+  /**
+   * 预热利润报表缓存（供 CachePrewarmCycleService 调用）
+   */
+  async warmReportCache(
+    storeId: number,
+    query: Pick<
+      GetProfitDetailQueryDto,
+      'period' | 'year' | 'customDate' | 'rangeStartDate' | 'rangeEndDate' | 'startTime' | 'endTime'
+    >,
+  ): Promise<ProfitReportResponseDto> {
+    const cacheKey = buildProfitReportCacheKey(storeId, query);
+    const fullQuery = buildQueryInput(query as GetProfitDetailQueryDto);
+    const snapshot = await this.buildProfitSnapshot(storeId, fullQuery, false);
+    const data = snapshot
+      ? buildProfitReportResponse(snapshot)
+      : buildEmptyProfitReportResponse();
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      PROFIT_DETAIL_CACHE_TTL_SECONDS,
+      PROFIT_DETAIL_REFRESH_AFTER_MS,
+    );
+    return data;
+  }
+
+  /**
+   * 流式导出利润报表 CSV，O(1) 内存占用。
+   */
+  async streamReportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    queryDto: GetProfitDetailQueryDto,
+  ): Promise<void> {
+    const report = await this.getReport(user, queryDto);
+    safeStreamCsvExport(
+      reply,
+      'profit-report.csv',
+      ['商品名称', '分类', '销售数量', '总收入', '总利润', '利润率(%)'],
+      report.products.map((row) => [
+        row.name,
+        row.category,
+        row.quantity,
+        row.totalRevenue,
+        row.totalProfit,
+        row.profitRate,
+      ]),
+    );
   }
 
   private resolveStoreId(
@@ -158,8 +291,8 @@ export class ProfitDetailService {
     );
     const previousCosts = clampedPreviousRange.empty
       ? {
-          totalCost: 0,
-          dailyCostMap: new Map<number, number>(),
+          totalCost: Money.zero(),
+          dailyCostMap: new Map<number, Money>(),
           categoryCostMap: new Map(),
         }
       : aggregateCosts(
@@ -167,12 +300,8 @@ export class ProfitDetailService {
           clampedPreviousRange.start,
           clampedPreviousRange.end,
         );
-    const netProfit = subtractMoneyValues(
-      currentSales.revenue,
-      currentCosts.totalCost,
-    );
-    const previousNetProfit = subtractMoneyValues(
-      previousSales.revenue,
+    const netProfit = currentSales.revenue.subtract(currentCosts.totalCost);
+    const previousNetProfit = previousSales.revenue.subtract(
       previousCosts.totalCost,
     );
 

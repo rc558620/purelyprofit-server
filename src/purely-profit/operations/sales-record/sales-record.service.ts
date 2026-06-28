@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type {
   CreateSalesRecordDto,
@@ -56,6 +57,14 @@ export class SalesRecordService {
     query: SalesReportQueryDto,
   ): Promise<SalesReportResponseDto> {
     return this.salesRecordReadService.getReport(user, query);
+  }
+
+  streamReportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    query: SalesReportQueryDto,
+  ): Promise<void> {
+    return this.salesRecordReadService.streamReportCsv(reply, user, query);
   }
 
   create(

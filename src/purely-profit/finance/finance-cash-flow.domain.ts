@@ -11,11 +11,7 @@ import {
 } from './finance.constants';
 import type { FinanceCashFlowStatsRow } from './finance.types';
 import { formatReportDateLabel } from './finance-date.utils';
-import {
-  addMoneyValues,
-  roundMoneyValue,
-  toMoneyNumber,
-} from './finance-money.utils';
+import { Money } from '../../shared/money.utils';
 
 export function assertCashFlowCategoryCanCreateManually(
   category: string,
@@ -55,7 +51,7 @@ export function mapCashFlowRecord(record: {
   direction: string;
   category: string;
   title: string;
-  amount: number; // Step 3: Int（分）
+  amount: number; // 数据库分
   payment: string;
   note: string | null;
   date: Date;
@@ -67,7 +63,7 @@ export function mapCashFlowRecord(record: {
       record.direction as FinanceCashFlowRecordResponseDto['direction'],
     category: record.category as FinanceCashFlowRecordResponseDto['category'],
     title: record.title,
-    amount: toMoneyNumber(record.amount),
+    amount: Money.fromDbCents(record.amount).toOutputYuan(),
     payment: record.payment as FinanceCashFlowRecordResponseDto['payment'],
     ...(record.note ? { note: record.note } : {}),
     date: record.date.getTime(),
@@ -78,22 +74,22 @@ export function mapCashFlowRecord(record: {
 export function buildCashFlowBaseStats(
   records: FinanceCashFlowStatsRow[],
 ): FinanceCashFlowStatsDto {
-  let totalIncome = 0;
-  let totalExpense = 0;
+  let totalIncome = Money.zero();
+  let totalExpense = Money.zero();
 
   for (const record of records) {
-    const amount = toMoneyNumber(record.amount);
+    const amount = Money.fromDbCents(record.amount);
     if (record.direction === 'income') {
-      totalIncome = addMoneyValues(totalIncome, amount);
+      totalIncome = totalIncome.add(amount);
     } else {
-      totalExpense = addMoneyValues(totalExpense, amount);
+      totalExpense = totalExpense.add(amount);
     }
   }
 
   return {
-    totalIncome,
-    totalExpense,
-    netFlow: roundMoneyValue(totalIncome - totalExpense),
+    totalIncome: totalIncome.toOutputYuan(),
+    totalExpense: totalExpense.toOutputYuan(),
+    netFlow: totalIncome.subtract(totalExpense).toOutputYuan(),
     recordCount: records.length,
     compareLastPeriod: null,
   };
@@ -106,7 +102,7 @@ export function buildFinanceReportCashFlowRows(
     title: string;
     direction: string;
     category: string;
-    amount: number; // Step 3: Int（分）
+    amount: number; // 数据库分
     payment: string;
   }>,
 ): FinanceReportCashFlowRowDto[] {
@@ -117,7 +113,7 @@ export function buildFinanceReportCashFlowRows(
     direction: record.direction,
     categoryLabel:
       getCashFlowCategoryRule(record.category)?.label ?? record.category,
-    amount: toMoneyNumber(record.amount),
+    amount: Money.fromDbCents(record.amount).toOutputYuan(),
     paymentLabel:
       FINANCE_REPORT_PAYMENT_LABELS[record.payment] ?? record.payment,
   }));

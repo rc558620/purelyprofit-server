@@ -4,6 +4,7 @@ import {
   SalesPaymentMethod,
   SpaceSessionStatus,
 } from '@prisma/client';
+import { Money } from '../../../shared/money.utils';
 import type { HandoverShiftInfoDto } from './dto/handover-page.dto';
 import type {
   HandoverOrderItemDto,
@@ -17,11 +18,7 @@ import {
   SPACE_GUEST_PAYABLE_ITEM_NAME,
   SPACE_PREPAID_DEDUCTION_ITEM_NAME,
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
-  addMoney,
   buildShiftDateRange,
-  divMoney,
-  mulMoney,
-  subMoney,
   type DisplayOperatorInfo,
   type OrderItemRow,
   type RefundOrderRow,
@@ -31,7 +28,7 @@ import {
   resolveOrderItemPaymentMethod,
   resolveShiftLabel,
   toDisplayName,
-  toMoneyNumber,
+  dbCentsToOutputYuan,
 } from './handover.shared';
 import type { HandoverRecordListItemDto } from './dto/handover-records.dto';
 
@@ -268,15 +265,17 @@ export const buildGuestPayableItems = (
   const items: HandoverOrderItemDto[] = [];
 
   for (const session of settledSessions) {
-    const consumption = addMoney(
-      toMoneyNumber(session.timeCost),
-      toMoneyNumber(session.itemsCost),
-    );
-    const prepaid = toMoneyNumber(session.prepaidAmount);
-    if (consumption <= prepaid) continue;
+    const consumptionCents =
+      Money.fromDbCents(Number(session.timeCost ?? 0))
+        .add(Money.fromDbCents(Number(session.itemsCost)))
+        .toDbCents();
+    const prepaidCents = Number(session.prepaidAmount ?? 0);
+    if (consumptionCents <= prepaidCents) continue;
 
-    const payableAmount = subMoney(consumption, prepaid);
-    if (payableAmount <= 0) continue;
+    const payableAmountCents = Money.fromDbCents(consumptionCents)
+      .subtract(Money.fromDbCents(prepaidCents))
+      .toDbCents();
+    if (payableAmountCents <= 0) continue;
 
     const paymentMethod =
       session.saleOrder?.paymentMethod ?? SalesPaymentMethod.wechat;
@@ -287,7 +286,7 @@ export const buildGuestPayableItems = (
       id: `guest-payable-${session.id}`,
       productName: `${spaceName}${SPACE_GUEST_PAYABLE_ITEM_NAME}`,
       quantity: 1,
-      totalRevenue: payableAmount,
+      totalRevenue: Money.fromDbCents(payableAmountCents).toOutputYuan(),
       paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
       paymentColor: SPACE_GUEST_PAYABLE_COLOR,
       operatorName: '空间自动结账',
@@ -333,28 +332,30 @@ export const mapPaymentItems = (
   const paymentAmountMap = new Map<SalesPaymentMethod, number>();
 
   for (const item of items) {
-    const rawAmount = mulMoney(toMoneyNumber(item.salePrice), item.quantity);
-    const amount =
-      rawAmount > 0 ||
+    const rawAmountCents = Money.fromDbCents(Number(item.salePrice)).multiply(item.quantity).toDbCents();
+    const amountCents =
+      rawAmountCents > 0 ||
       item.productName === SPACE_PREPAID_DEDUCTION_ITEM_NAME ||
       item.productName === SPACE_RENEW_DEDUCTION_ITEM_NAME
-        ? Math.abs(rawAmount)
+        ? Math.abs(rawAmountCents)
         : 0;
-    if (amount <= 0) {
+    if (amountCents <= 0) {
       continue;
     }
 
     const paymentMethod = resolveOrderItemPaymentMethod(item);
     paymentAmountMap.set(
       paymentMethod,
-      addMoney(paymentAmountMap.get(paymentMethod) ?? 0, amount),
+      Money.fromDbCents(paymentAmountMap.get(paymentMethod) ?? 0)
+        .add(Money.fromDbCents(amountCents))
+        .toDbCents(),
     );
   }
 
-  return Array.from(paymentAmountMap.entries()).map(([method, amount]) => ({
+  return Array.from(paymentAmountMap.entries()).map(([method, amountCents]) => ({
     method,
     label: PAYMENT_METHOD_CONFIG[method].label,
-    amount,
+    amount: Money.fromDbCents(amountCents).toOutputYuan(),
     ratio: 0,
     color: PAYMENT_METHOD_CONFIG[method].color,
   }));
@@ -362,15 +363,17 @@ export const mapPaymentItems = (
 
 export const attachPaymentRatios = (
   items: HandoverPaymentItemDto[],
-  totalRevenue: number,
+  totalRevenueYuan: number,
 ): HandoverPaymentItemDto[] =>
   items.map((item) => ({
     ...item,
-    ratio: totalRevenue > 0 ? divMoney(item.amount, totalRevenue) : 0,
+    ratio: totalRevenueYuan > 0
+      ? Math.round((item.amount / totalRevenueYuan) * 100) / 100
+      : 0,
   }));
 
 export const sumPaymentAmounts = (items: HandoverPaymentItemDto[]): number =>
-  items.reduce((acc, item) => addMoney(acc, item.amount), 0);
+  items.reduce((acc, item) => acc + item.amount, 0);
 
 export const buildRevenueAmounts = (
   spaceRevenue: Prisma.Decimal | number | string | null | undefined,
@@ -381,9 +384,9 @@ export const buildRevenueAmounts = (
   spaceRevenueAmount: number;
   refundAmount: number;
 } => ({
-  additionalRevenueAmount: toMoneyNumber(additionalRevenue),
-  spaceRevenueAmount: toMoneyNumber(spaceRevenue),
-  refundAmount: Math.abs(toMoneyNumber(refundRevenue)),
+  additionalRevenueAmount: dbCentsToOutputYuan(additionalRevenue),
+  spaceRevenueAmount: dbCentsToOutputYuan(spaceRevenue),
+  refundAmount: Math.abs(dbCentsToOutputYuan(refundRevenue)),
 });
 
 export const buildRecordRevenueSummary = (
@@ -398,10 +401,7 @@ export const buildRecordRevenueSummary = (
     additionalRevenue: revenueAmounts.additionalRevenueAmount,
     spaceRevenue: revenueAmounts.spaceRevenueAmount,
     refundAmount: revenueAmounts.refundAmount,
-    totalRevenue: addMoney(
-      revenueAmounts.additionalRevenueAmount,
-      revenueAmounts.spaceRevenueAmount,
-    ),
+    totalRevenue: revenueAmounts.additionalRevenueAmount + revenueAmounts.spaceRevenueAmount,
     orderCount,
     pettyCache: pettyCashAmount,
   };

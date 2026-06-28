@@ -43,8 +43,10 @@ describe('cache invalidator registries', () => {
 
     expect(Object.keys(registry).sort()).toEqual([
       'invalidateBusinessAnalysis',
+      'invalidateCostsCaches',
       'invalidateMarketingOverview',
       'invalidateProfitDashboardHome',
+      'invalidateProfitDetail',
       'invalidateSalesReadCaches',
     ]);
 
@@ -89,6 +91,7 @@ describe('cache invalidator registries', () => {
       'invalidateFinanceCashFlow',
       'invalidateFinanceOverview',
       'invalidateFinanceReconciliations',
+      'invalidateFinanceReport',
     ]);
 
     await registry.invalidateFinanceOverview(18);

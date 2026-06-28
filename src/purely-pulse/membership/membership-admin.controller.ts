@@ -249,6 +249,21 @@ export class PulseMembershipAdminController {
     return this.pulseMembershipService.unbanAdminMember(user, memberId);
   }
 
+  @Post('members/:id/cancel')
+  @ApiOperation({ summary: 'Pulse 会员管理注销账号' })
+  @ApiCreatedResponse({
+    description: '注销成功后返回最新会员详情（status 为 cancelled）',
+    type: PulseMemberDetailDto,
+  })
+  cancelAdminMember(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') rawMemberId: string,
+    @Body() dto: PulseAdminMemberStatusDto,
+  ): Promise<PulseMemberDetailDto> {
+    const memberId = this.resolveAdminMemberId(rawMemberId, dto);
+    return this.pulseMembershipService.cancelAdminMember(user, memberId);
+  }
+
   @Post('members/:id/sub-accounts/quota')
   @ApiOperation({ summary: 'Pulse 会员管理设置子账号额度' })
   @ApiCreatedResponse({

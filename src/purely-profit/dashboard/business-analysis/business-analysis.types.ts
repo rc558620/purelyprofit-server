@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import type { Money } from '../../../shared/money.utils';
 
 export const BUSINESS_ANALYSIS_PERIOD_VALUES = [
   'today',
@@ -68,8 +69,8 @@ export interface BusinessAnalysisCostBucketRow {
 }
 
 export interface AggregatedCategory {
-  revenue: number;
-  profit: number;
+  revenue: Money;
+  profit: Money;
   quantity: number;
 }
 
@@ -77,24 +78,24 @@ export interface AggregatedRankProduct {
   id: string;
   name: string;
   category: string;
-  totalProfit: number;
-  totalRevenue: number;
+  totalProfit: Money;
+  totalRevenue: Money;
   quantity: number;
   image?: string;
 }
 
 export interface SalesAggregationResult {
-  revenue: number;
+  revenue: Money;
   orderCount: number;
-  dailyRevenueMap: Map<number, number>;
+  dailyRevenueMap: Map<number, Money>;
   categoryMap: Map<string, AggregatedCategory>;
   rankMap: Map<string, AggregatedRankProduct>;
 }
 
 export interface CostAggregationResult {
-  totalCost: number;
-  dailyCostMap: Map<number, number>;
-  costBucketMap: Map<CostBucketKey, number>;
+  totalCost: Money;
+  dailyCostMap: Map<number, Money>;
+  costBucketMap: Map<CostBucketKey, Money>;
 }
 
 export interface BusinessAnalysisRange {

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import { yuanToCents } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
   AddSpaceSessionItemsDto,
@@ -112,8 +112,8 @@ export class SpaceSessionWriteService {
           productName: item.productName,
           categoryName: item.categoryName,
           // mergedItems 中的 salePrice/profit 是元，DB 存储为分
-          salePrice: yuanToCents(item.salePrice),
-          profit: yuanToCents(item.profit),
+          salePrice: Money.fromInputYuan(item.salePrice).toDbCents(),
+          profit: Money.fromInputYuan(item.profit).toDbCents(),
           quantity: item.quantity,
           sortOrder: index,
         })),
@@ -123,7 +123,7 @@ export class SpaceSessionWriteService {
         where: { id: latestSession.id },
         data: {
           // nextItemsCost 是元，DB 存储为分
-          itemsCost: yuanToCents(nextItemsCost),
+          itemsCost: Money.fromInputYuan(nextItemsCost).toDbCents(),
         },
         include: {
           space: {

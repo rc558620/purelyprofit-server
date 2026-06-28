@@ -11,13 +11,21 @@ import {
   SPACE_WITH_RELATIONS_INCLUDE,
 } from './spaces.query';
 
-/** 通过 _count 子查询推导空间运行态状态 */
-function deriveStatusFromCounts(counts: {
+/** 通过 _count 子查询 + 最近 settled 会话推导空间运行态状态 */
+function deriveStatusFromCounts(params: {
   activeSessions: number;
   pendingReservations: number;
+  enableDirtyRoom: boolean;
+  lastSettledEndTime: Date | null;
+  cleanedAt: Date | null;
 }): SpaceStatusValue {
-  if (counts.activeSessions > 0) return 'occupied';
-  if (counts.pendingReservations > 0) return 'reserved';
+  if (params.activeSessions > 0) return 'occupied';
+  if (params.pendingReservations > 0) return 'reserved';
+  // 脏房模式：结账后无活跃会话，且尚未标记清洁完成 → cleaning
+  if (params.enableDirtyRoom && params.lastSettledEndTime !== null) {
+    const cleanedMs = params.cleanedAt?.getTime() ?? 0;
+    if (params.lastSettledEndTime.getTime() > cleanedMs) return 'cleaning';
+  }
   return 'idle';
 }
 
@@ -55,6 +63,12 @@ export class SpacesReadService {
             reservations: { where: { status: SpaceReservationStatus.pending } },
           },
         },
+        sessions: {
+          where: { status: SpaceSessionStatus.settled },
+          select: { endTime: true },
+          orderBy: { endTime: 'desc' },
+          take: 1,
+        },
       },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
@@ -63,6 +77,9 @@ export class SpacesReadService {
       const status = deriveStatusFromCounts({
         activeSessions: space._count.sessions,
         pendingReservations: space._count.reservations,
+        enableDirtyRoom: space.enableDirtyRoom,
+        lastSettledEndTime: space.sessions[0]?.endTime ?? null,
+        cleanedAt: space.cleanedAt,
       });
       return toSpaceResponse({ ...space, status });
     });

@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import Decimal from 'decimal.js';
+import { Money } from '../../../shared/money.utils';
 import type { ShiftDateRange } from './handover.types';
 
 export const startOfDay = (date: Date): Date =>
@@ -60,42 +60,23 @@ export const toDisplayName = (
   return normalized || null;
 };
 
-export const roundMoney = (value: number): number =>
-  new Decimal(value).toDecimalPlaces(2).toNumber();
-
 export const timeStringToMinutes = (timeStr: string): number => {
   const [hours, minutes] = timeStr.split(':').map((v) => parseInt(v, 10));
   return hours * 60 + (minutes || 0);
 };
 
-export const toMoneyNumber = (
+/** Prisma Decimal / DB 分金额 → 前端元金额（数字） */
+export const dbCentsToOutputYuan = (
   value: Prisma.Decimal | number | string | null | undefined,
 ): number => {
   if (value === null || value === undefined) {
     return 0;
   }
-  const d = new Decimal(value);
-  if (!d.isFinite()) {
-    return 0;
-  }
-  return d.toDecimalPlaces(2).toNumber();
+  const numValue = typeof value === 'number' ? value : Number(value);
+  // Prisma 聚合结果可能产生非整数分，先四舍五入到整数再转换
+  const centsValue = Math.round(numValue);
+  return Money.fromDbCents(centsValue).toOutputYuan();
 };
-
-/** Decimal 安全的金额乘法 */
-export const mulMoney = (a: number, b: number): number =>
-  new Decimal(a).mul(b).toDecimalPlaces(2).toNumber();
-
-/** Decimal 安全的金额加法 */
-export const addMoney = (a: number, b: number): number =>
-  new Decimal(a).add(b).toDecimalPlaces(2).toNumber();
-
-/** Decimal 安全的金额减法 */
-export const subMoney = (a: number, b: number): number =>
-  new Decimal(a).sub(b).toDecimalPlaces(2).toNumber();
-
-/** Decimal 安全的金额除法（保留 2 位小数） */
-export const divMoney = (a: number, b: number): number =>
-  b === 0 ? 0 : new Decimal(a).div(b).toDecimalPlaces(2).toNumber();
 
 export const buildCurrentDayRange = (): Prisma.DateTimeFilter =>
   buildDayRange(new Date());

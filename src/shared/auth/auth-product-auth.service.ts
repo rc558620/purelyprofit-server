@@ -169,10 +169,11 @@ export class AuthProductAuthService {
    * 无论手机号是否已注册都发送，不暴露注册状态
    */
   async sendClubLoginOrRegisterCode(
-    payload: AuthPhonePayload,
+    payload: AuthPhonePayload & { captchaToken?: string },
   ): Promise<SendLoginCodeResult> {
     return this.authCodeService.sendClubLoginOrRegisterCode(
       normalizePhone(payload.phone),
+      payload.captchaToken,
     );
   }
 
@@ -181,10 +182,11 @@ export class AuthProductAuthService {
    * 无论手机号是否已注册都发送，不暴露注册状态
    */
   async sendBindPhoneCode(
-    payload: AuthPhonePayload,
+    payload: AuthPhonePayload & { captchaToken?: string },
   ): Promise<SendLoginCodeResult> {
     return this.authCodeService.sendBindPhoneCode(
       normalizePhone(payload.phone),
+      payload.captchaToken,
     );
   }
 

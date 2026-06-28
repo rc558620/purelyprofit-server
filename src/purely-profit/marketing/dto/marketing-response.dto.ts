@@ -458,20 +458,20 @@ export class MarketingWechatPayConfigDto {
 }
 
 export class MarketingOverviewDto {
-  /** 储值总额（分）= 全部未消费余额之和 */
-  @ApiProperty({ example: 5000000, description: '储值余额总计，单位：分' })
+  /** 储值总额（元）= 全部未消费余额之和 */
+  @ApiProperty({ example: 50000, description: '储值余额总计，单位：元' })
   totalBalance: number;
 
-  /** 累计储值金额（分）= 全部充值记录到账金额汇总 */
-  @ApiProperty({ example: 1680000, description: '累计储值金额，单位：分' })
+  /** 累计储值金额（元）= 全部充值记录到账金额汇总 */
+  @ApiProperty({ example: 16800, description: '累计储值金额，单位：元' })
   totalRecharge: number;
 
-  /** 今日储值金额（分） */
-  @ApiProperty({ example: 32000, description: '今日储值金额，单位：分' })
+  /** 今日储值金额（元） */
+  @ApiProperty({ example: 320, description: '今日储值金额，单位：元' })
   todayRecharge: number;
 
-  /** 本月储值金额（分） */
-  @ApiProperty({ example: 120000, description: '本月储值金额，单位：分' })
+  /** 本月储值金额（元） */
+  @ApiProperty({ example: 1200, description: '本月储值金额，单位：元' })
   thisMonthRecharge: number;
 
   /** 储值记录总数 */

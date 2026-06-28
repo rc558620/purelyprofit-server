@@ -63,33 +63,6 @@ export class SpaceReservationsStateService {
     }
   }
 
-  /**
-   * Space.status 已移除（方案 A），状态由运行态推导，此方法已废弃。
-   * 保留空实现以维持接口兼容，后续可删除。
-   * @deprecated
-   */
-  syncNonOccupiedSpaceStatus(
-    _transaction: Prisma.TransactionClient,
-    _spaceId: number,
-  ): Promise<void> {
-    // Space.status 已移除，状态从 session/reservation 运行态推导，无需同步
-    return Promise.resolve();
-  }
-
-  /**
-   * Space.status 已移除（方案 A），不再需要修复不一致。
-   * 保留空实现以维持接口兼容，后续可删除。
-   * @deprecated
-   */
-  repairInconsistentOccupiedSpace(_spaceId: number): Promise<void> {
-    // Space.status 已移除，状态从 session/reservation 推导，无需修复不一致
-    // 如需检查，可通过 SpaceSession(status=active) 判断当前是否使用中
-    return Promise.resolve();
-  }
-
-  /**
-   * 检查指定空间当前是否有活跃会话（occupied）
-   */
   async hasActiveSession(
     transaction: Prisma.TransactionClient,
     spaceId: number,

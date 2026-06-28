@@ -13,6 +13,7 @@ import {
   UNKNOWN_REGION_LABEL,
 } from './dashboard.constants';
 import { calculatePercentChange } from './dashboard-math.utils';
+import { Money } from '../../shared/money.utils';
 import {
   buildRevenueTrend,
   buildRevenueTypeDistributionFromPlanCounts,
@@ -147,7 +148,7 @@ export class PulseDashboardHomeService {
     ] = dashboardData;
 
     const totalOrders = promoRecordSummary._count._all;
-    const totalRevenue = promoRecordSummary._sum.chargedAmount ?? 0;
+    const totalRevenue = Money.fromDbCents(promoRecordSummary._sum.chargedAmount ?? 0).toOutputYuan();
     const activeRate =
       totalPartners > 0
         ? Math.round((activePartnerCount / totalPartners) * 100)
@@ -161,7 +162,7 @@ export class PulseDashboardHomeService {
         name: partner.name,
         city: regionValues[1] ?? regionValues[0] ?? UNKNOWN_REGION_LABEL,
         orders: partner.orders,
-        revenue: partner.revenue,
+        revenue: Money.fromDbCents(partner.revenue).toOutputYuan(),
       };
     });
 
@@ -212,6 +213,15 @@ export class PulseDashboardHomeService {
     };
   }
 
+  /**
+   * 查询合伙人推广排行 TOP5。
+   *
+   * 执行计划说明：
+   * - CTE latest_partners: DISTINCT ON (store_id) 走 (store_id, reviewed_at) 索引
+   * - 主查询 JOIN store_membership_promo_records 走 (store_id, has_charged) 索引
+   * - 结果集小（LIMIT 5），聚合在 CTE 过滤后执行，性能可接受
+   * - region ILIKE 条件无法走索引，但仅过滤少量 CTE 行，影响可忽略
+   */
   private async queryPartnerTop(
     region: string | undefined,
   ): Promise<DashboardPartnerTopRow[]> {
@@ -272,10 +282,14 @@ export class PulseDashboardHomeService {
     const previousTotal = orders
       .filter((order) => isTimeInRange(order.createdAt, previousRange))
       .reduce((sum, order) => sum + order.amount, 0);
-    const total = periodOrders.reduce((sum, order) => sum + order.amount, 0);
+    const total = Money.sum(periodOrders.map((order) => Money.fromDbCents(order.amount))).toOutputYuan();
 
     return {
-      revenueTrend: buildRevenueTrend(periodOrders, period),
+      revenueTrend: buildRevenueTrend(
+        periodOrders,
+        period,
+        (amountFen) => Money.fromDbCents(amountFen).toOutputYuan(),
+      ),
       revenueSummary: {
         total,
         avg: Math.round(total / getInclusiveDayCount(currentRange)),

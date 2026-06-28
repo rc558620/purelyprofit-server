@@ -183,9 +183,14 @@ function buildCachePrewarmFailedReasonTopNByCategory(
     'dashboardHome',
     'businessAnalysis',
     'financeOverview',
+    'financeReport',
     'marketingOverview',
     'membersMeta',
     'membersOverview',
+    'profitDetail',
+    'profitReport',
+    'costsStats',
+    'costsReport',
   ];
 
   return categories
@@ -217,9 +222,14 @@ function buildCachePrewarmLastFailedAtByCategory(
     dashboardHome: null,
     businessAnalysis: null,
     financeOverview: null,
+    financeReport: null,
     marketingOverview: null,
     membersMeta: null,
     membersOverview: null,
+    profitDetail: null,
+    profitReport: null,
+    costsStats: null,
+    costsReport: null,
   };
 
   for (const cycle of recentCycles) {
@@ -246,9 +256,14 @@ function buildCachePrewarmLastFailedKeyByCategory(
     dashboardHome: null,
     businessAnalysis: null,
     financeOverview: null,
+    financeReport: null,
     marketingOverview: null,
     membersMeta: null,
     membersOverview: null,
+    profitDetail: null,
+    profitReport: null,
+    costsStats: null,
+    costsReport: null,
   };
 
   for (const cycle of recentCycles) {
@@ -271,9 +286,14 @@ function buildCachePrewarmLastFailedSampleByCategory(
     dashboardHome: null,
     businessAnalysis: null,
     financeOverview: null,
+    financeReport: null,
     marketingOverview: null,
     membersMeta: null,
     membersOverview: null,
+    profitDetail: null,
+    profitReport: null,
+    costsStats: null,
+    costsReport: null,
   };
 
   for (const cycle of recentCycles) {
@@ -300,7 +320,7 @@ function buildCachePrewarmLastFailedSampleByCategory(
   return result;
 }
 
-function buildCachePrewarmMetricsSnapshot() {
+function buildCachePrewarmMetricsSnapshot(): MetricsSnapshot['cachePrewarm'] {
   const recentCycles = runtimeMetricsState.cachePrewarm.recentCycles;
 
   return {

@@ -604,12 +604,12 @@ describe('DashboardHomeService', () => {
     prismaService.memberRechargeLog.findMany.mockResolvedValue([
       {
         id: 20,
-        amount: 300,
+        amount: 30000,
         createdAt: new Date(2026, 4, 14, 14, 30, 0, 0),
       },
       {
         id: 21,
-        amount: 200,
+        amount: 20000,
         createdAt: new Date(2026, 4, 14, 13, 0, 0, 0),
       },
     ]);
@@ -663,7 +663,7 @@ describe('DashboardHomeService', () => {
         {
           id: 30,
           counterpart: '王五供应商',
-          remaining: new Prisma.Decimal('1500.00'),
+          remaining: 150000,
           dueDate: new Date(2026, 4, 18, 0, 0, 0, 0),
           updatedAt: new Date(2026, 4, 14, 10, 0, 0, 0),
         },
@@ -728,7 +728,7 @@ describe('DashboardHomeService', () => {
         id: 40,
         employeeName: '赵六',
         month: '2026-05',
-        actualSalary: new Prisma.Decimal('6000.00'),
+        actualSalary: 600000,
         updatedAt: new Date(2026, 4, 14, 8, 0, 0, 0),
       },
     ]);
@@ -1151,31 +1151,31 @@ describe('DashboardHomeService', () => {
     prismaService.saleOrder.findMany.mockResolvedValueOnce([
       {
         id: 101,
-        totalRevenue: new Prisma.Decimal('158.00'),
+        totalRevenue: 15800,
         date: new Date(2026, 4, 14, 14, 32, 0, 0),
         createdAt: new Date(2026, 4, 14, 14, 32, 0, 0),
       },
       {
         id: 102,
-        totalRevenue: new Prisma.Decimal('89.50'),
+        totalRevenue: 8950,
         date: new Date(2026, 4, 14, 13, 15, 0, 0),
         createdAt: new Date(2026, 4, 14, 13, 15, 0, 0),
       },
       {
         id: 103,
-        totalRevenue: new Prisma.Decimal('220.00'),
+        totalRevenue: 22000,
         date: new Date(2026, 4, 14, 13, 0, 0, 0),
         createdAt: new Date(2026, 4, 14, 13, 0, 0, 0),
       },
       {
         id: 104,
-        totalRevenue: new Prisma.Decimal('45.00'),
+        totalRevenue: 4500,
         date: new Date(2026, 4, 14, 12, 30, 0, 0),
         createdAt: new Date(2026, 4, 14, 12, 30, 0, 0),
       },
       {
         id: 105,
-        totalRevenue: new Prisma.Decimal('312.80'),
+        totalRevenue: 31280,
         date: new Date(2026, 4, 14, 12, 0, 0, 0),
         createdAt: new Date(2026, 4, 14, 12, 0, 0, 0),
       },

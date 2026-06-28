@@ -14,7 +14,8 @@ import { generateKeyPairSync, constants, privateDecrypt } from 'node:crypto';
  * - 密钥对仅在进程内存中持有，不落盘、不入库
  * - 进程重启后密钥对自动轮换，旧密钥加密的密文自动失效
  * - 前端每次提交前应重新获取公钥，避免使用过期公钥
- * - RSA_PKCS1_PADDING 与前端 jsencrypt 库的 PKCS1 v1.5 填充方式对齐
+ * - RSA_PKCS1_OAEP_PADDING 与前端 jsencrypt 库的 encryptOAEP 方法对齐，
+ *   保留 PKCS1 v1.5 回退兼容旧客户端
  */
 @Injectable()
 export class AuthRsaService {
@@ -59,8 +60,8 @@ export class AuthRsaService {
   /**
    * 使用私钥解密 RSA 加密的密文
    *
-   * 前端使用 jsencrypt 库以 PKCS1 v1.5 填充方式加密，
-   * 后端使用对应的 RSA_PKCS1_PADDING 解密。
+   * 优先使用 RSA-OAEP 填充方式解密（比 PKCS1 v1.5 更安全，防范 Bleichenbacher 攻击）；
+   * 若 OAEP 解密失败，回退到 PKCS1 v1.5 解密（兼容尚未升级的旧客户端）。
    *
    * @param encrypted Base64 编码的 RSA 密文
    * @returns 解密后的明文字符串
@@ -71,8 +72,41 @@ export class AuthRsaService {
       throw new Error('RSA 解密失败：密文为空');
     }
 
+    const buffer = Buffer.from(encrypted, 'base64');
+
+    // 优先尝试 OAEP SHA-256 解密
+    // JSEncrypt 3.x 的 encryptOAEP 使用 SHA-256 作为 OAEP 哈希函数
     try {
-      const buffer = Buffer.from(encrypted, 'base64');
+      const decrypted = privateDecrypt(
+        {
+          key: this.privateKey,
+          padding: constants.RSA_PKCS1_OAEP_PADDING,
+          oaepHash: 'sha256',
+        },
+        buffer,
+      );
+      return decrypted.toString('utf8');
+    } catch {
+      // OAEP SHA-256 解密失败，继续尝试其他方式
+    }
+
+    // 回退到 OAEP SHA-1（兼容使用 SHA-1 加密的客户端）
+    try {
+      const decrypted = privateDecrypt(
+        {
+          key: this.privateKey,
+          padding: constants.RSA_PKCS1_OAEP_PADDING,
+          oaepHash: 'sha1',
+        },
+        buffer,
+      );
+      return decrypted.toString('utf8');
+    } catch {
+      // OAEP SHA-1 也失败，继续回退
+    }
+
+    // 最后回退到 PKCS1 v1.5 解密（兼容尚未升级到 OAEP 的旧客户端）
+    try {
       const decrypted = privateDecrypt(
         {
           key: this.privateKey,
@@ -80,10 +114,13 @@ export class AuthRsaService {
         },
         buffer,
       );
+      this.logger.warn(
+        'RSA 解密回退到 PKCS1 v1.5，建议前端升级到 OAEP 填充模式',
+      );
       return decrypted.toString('utf8');
     } catch (error) {
       this.logger.warn(
-        `RSA 解密失败：${error instanceof Error ? error.message : String(error)}`,
+        `RSA 解密失败（OAEP SHA-256、OAEP SHA-1 和 PKCS1 v1.5 均无法解密）：${error instanceof Error ? error.message : String(error)}`,
       );
       throw new Error('RSA 解密失败，请重新获取公钥后重试');
     }
@@ -120,7 +157,9 @@ export class AuthRsaService {
       this.logger.warn(
         `RSA 解密密码失败: ${error instanceof Error ? error.message : String(error)}`,
       );
-      throw new BadRequestException('密码解密失败，请刷新页面重新获取公钥后重试');
+      throw new BadRequestException(
+        '密码解密失败，请刷新页面重新获取公钥后重试',
+      );
     }
   }
 }

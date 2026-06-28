@@ -37,7 +37,7 @@ describe('CostsWriteService', () => {
       type: 'variable',
       category: 'marketing',
       sourceType: 'manual',
-      amount: 88.5,
+      amount: 8850, // 88.5 元 = 8850 分
       note: null,
       date: new Date('2026-05-14T00:00:00.000Z'),
       createdAt: new Date('2026-05-14T10:00:00.000Z'),

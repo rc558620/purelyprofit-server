@@ -206,6 +206,14 @@ export class SalesReportQueryDto extends ListSalesRecordsQueryDto {
   @Transform(transformOptionalBoolean)
   @IsBoolean({ message: '导出标记必须是布尔值' })
   export?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ['json', 'csv'],
+    description: '导出格式，默认 json；csv 时服务端直接流式返回 CSV 文件',
+  })
+  @IsOptional()
+  @IsIn(['json', 'csv'], { message: 'format 只支持 json 或 csv' })
+  format?: 'json' | 'csv';
 }
 
 export class ListSalesProductsQueryDto {

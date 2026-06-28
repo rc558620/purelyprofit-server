@@ -8,5 +8,6 @@ import { ProfitDetailService } from './profit-detail.service';
   imports: [CommerceModule, PlatformMembershipModule],
   controllers: [ProfitDetailController],
   providers: [ProfitDetailService],
+  exports: [ProfitDetailService],
 })
 export class ProfitDetailModule {}

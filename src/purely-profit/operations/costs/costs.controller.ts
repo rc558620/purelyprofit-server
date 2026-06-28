@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -23,6 +24,7 @@ import {
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CostsService } from './costs.service';
 import {
@@ -70,10 +72,15 @@ export class CostsController {
   @RequirePermissions('report:view')
   @ApiOperation({ summary: '获取报表中心成本报表数据' })
   @ApiOkResponse({ type: CostReportResponseDto })
-  getReport(
+  async getReport(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: CostReportQueryDto,
-  ): Promise<CostReportResponseDto> {
+    @Res({ passthrough: true }) reply: { raw: ServerResponse },
+  ): Promise<CostReportResponseDto | typeof reply> {
+    if (query.format === 'csv') {
+      await this.costsService.streamReportCsv(reply.raw, user, query);
+      return reply;
+    }
     return this.costsService.getReport(user, query);
   }
 

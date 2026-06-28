@@ -1,7 +1,11 @@
 import * as childProcess from 'node:child_process';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { bootstrap, filterSwaggerDocumentForEnvironment } from './main';
+import {
+  bootstrap,
+  filterSwaggerDocumentForEnvironment,
+  createRequestIdGenerator,
+} from './main';
 
 jest.mock('@nestjs/core', () => ({
   NestFactory: {
@@ -27,9 +31,11 @@ describe('main bootstrap', () => {
     getHttpAdapter: jest.fn(() => ({
       getInstance: () => ({
         addHook: jest.fn(),
+        addContentTypeParser: jest.fn(),
       }),
     })),
     listen: jest.fn().mockResolvedValue(undefined),
+    enableShutdownHooks: jest.fn(),
   };
 
   beforeEach(() => {
@@ -141,15 +147,46 @@ describe('main bootstrap', () => {
     await bootstrap();
 
     expect(createMock).toHaveBeenCalledTimes(1);
-    const adapterOptions = createMock.mock.calls[0]?.[1] as unknown as {
+    const adapterArg = createMock.mock.calls[0]?.[1] as unknown as {
       instance?: { initialConfig?: Record<string, unknown> };
     };
-    expect(adapterOptions.instance?.initialConfig).toMatchObject({
+    // initialConfig 中持久化的参数
+    expect(adapterArg.instance?.initialConfig).toMatchObject({
       bodyLimit: 1024,
       keepAliveTimeout: 70000,
       requestTimeout: 12000,
+      connectionTimeout: 5_000,
+      routerOptions: {
+        ignoreTrailingSlash: true,
+      },
     });
+    // trustProxy 和 genReqId 被 Fastify 内部消费，不暴露在 initialConfig 中，
+    // 通过检查 requestIdHeader=false 确认 genReqId 已注册（Fastify 在自定义 genReqId 时关闭默认 header 读取）
+    expect(adapterArg.instance?.initialConfig?.requestIdHeader).toBe(false);
+    expect(app.enableShutdownHooks).toHaveBeenCalled();
     expect(app.listen).toHaveBeenCalledWith(3000, '0.0.0.0');
+  });
+
+  it('createRequestIdGenerator 优先使用 X-Request-Id 头，否则生成 UUID', () => {
+    const genReqId = createRequestIdGenerator();
+
+    // 有 X-Request-Id 头时返回该值
+    expect(
+      genReqId({ headers: { 'x-request-id': 'my-trace-id' } } as never),
+    ).toBe('my-trace-id');
+
+    // X-Request-Id 为数组时取第一个
+    expect(
+      genReqId({
+        headers: { 'x-request-id': ['trace-a', 'trace-b'] },
+      } as never),
+    ).toBe('trace-a');
+
+    // 无 X-Request-Id 时生成 UUID 格式
+    const generated = genReqId({ headers: {} } as never);
+    expect(generated).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
   });
 
   it('filterSwaggerDocumentForEnvironment 在关闭手动 confirm-paid 时隐藏 club 兜底接口', () => {

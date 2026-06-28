@@ -1,4 +1,7 @@
 import type {
+  CachePrewarmCycleMetrics,
+} from '../redis/cache-prewarm.types';
+import type {
   CachePrewarmDurationDistribution,
   CachePrewarmSlowKeySample,
 } from './runtime-metrics.state';
@@ -209,209 +212,59 @@ export function recordRedisOperation(input: {
   runtimeMetricsState.redis.commands.set(command, commandMetric);
 }
 
-export function recordCachePrewarmCycle(input: {
-  durationMs: number;
-  hitCount: number;
-  refreshedCount: number;
-  skippedCount: number;
-  invalidCount: number;
-  failedCount: number;
-  dashboardHitCount: number;
-  businessAnalysisHitCount: number;
-  financeOverviewHitCount: number;
-  marketingOverviewHitCount: number;
-  membersMetaHitCount: number;
-  membersOverviewHitCount: number;
-  failedKeyCountByCategory: {
-    dashboardHome: number;
-    businessAnalysis: number;
-    financeOverview: number;
-    marketingOverview: number;
-    membersMeta: number;
-    membersOverview: number;
-  };
-  slowestFailedReason: string | null;
-  durationDistribution: {
-    dashboardHome: CachePrewarmDurationDistribution;
-    businessAnalysis: CachePrewarmDurationDistribution;
-    financeOverview: CachePrewarmDurationDistribution;
-    marketingOverview: CachePrewarmDurationDistribution;
-    membersMeta: CachePrewarmDurationDistribution;
-    membersOverview: CachePrewarmDurationDistribution;
-  };
-  slowKeySamples: CachePrewarmSlowKeySample[];
-}): void {
+export function recordCachePrewarmCycle(metrics: CachePrewarmCycleMetrics): void {
   const nowIso = new Date().toISOString();
   runtimeMetricsState.cachePrewarm.totalCycles += 1;
-  runtimeMetricsState.cachePrewarm.totalDurationMs += input.durationMs;
+  runtimeMetricsState.cachePrewarm.totalDurationMs += metrics.durationMs;
   runtimeMetricsState.cachePrewarm.maxDurationMs = Math.max(
     runtimeMetricsState.cachePrewarm.maxDurationMs,
-    input.durationMs,
+    metrics.durationMs,
   );
-  runtimeMetricsState.cachePrewarm.hitCount += input.hitCount;
-  runtimeMetricsState.cachePrewarm.refreshedCount += input.refreshedCount;
-  runtimeMetricsState.cachePrewarm.skippedCount += input.skippedCount;
-  runtimeMetricsState.cachePrewarm.invalidCount += input.invalidCount;
-  runtimeMetricsState.cachePrewarm.failedCount += input.failedCount;
-  runtimeMetricsState.cachePrewarm.lastDurationMs = input.durationMs;
+  runtimeMetricsState.cachePrewarm.hitCount += metrics.hitCount;
+  runtimeMetricsState.cachePrewarm.refreshedCount += metrics.refreshedCount;
+  runtimeMetricsState.cachePrewarm.skippedCount += metrics.skippedCount;
+  runtimeMetricsState.cachePrewarm.invalidCount += metrics.invalidCount;
+  runtimeMetricsState.cachePrewarm.failedCount += metrics.failedCount;
+  runtimeMetricsState.cachePrewarm.lastDurationMs = metrics.durationMs;
   runtimeMetricsState.cachePrewarm.lastSeenAt = nowIso;
+
+  const roundDist = (d: CachePrewarmDurationDistribution) => ({
+    sampleCount: d.sampleCount,
+    totalDurationMs: roundMetric(d.totalDurationMs),
+    avgDurationMs: roundMetric(d.avgDurationMs),
+    minDurationMs: roundMetric(d.minDurationMs),
+    maxDurationMs: roundMetric(d.maxDurationMs),
+    p50DurationMs: roundMetric(d.p50DurationMs),
+    p95DurationMs: roundMetric(d.p95DurationMs),
+  });
 
   pushCappedItem(runtimeMetricsState.cachePrewarm.recentCycles, {
     cycleId: runtimeMetricsState.cachePrewarm.totalCycles,
-    durationMs: roundMetric(input.durationMs),
-    hitCount: input.hitCount,
-    refreshedCount: input.refreshedCount,
-    skippedCount: input.skippedCount,
-    invalidCount: input.invalidCount,
-    failedCount: input.failedCount,
-    dashboardHitCount: input.dashboardHitCount,
-    businessAnalysisHitCount: input.businessAnalysisHitCount,
-    financeOverviewHitCount: input.financeOverviewHitCount,
-    marketingOverviewHitCount: input.marketingOverviewHitCount,
-    membersMetaHitCount: input.membersMetaHitCount,
-    membersOverviewHitCount: input.membersOverviewHitCount,
-    failedKeyCountByCategory: {
-      dashboardHome: input.failedKeyCountByCategory.dashboardHome,
-      businessAnalysis: input.failedKeyCountByCategory.businessAnalysis,
-      financeOverview: input.failedKeyCountByCategory.financeOverview,
-      marketingOverview: input.failedKeyCountByCategory.marketingOverview,
-      membersMeta: input.failedKeyCountByCategory.membersMeta,
-      membersOverview: input.failedKeyCountByCategory.membersOverview,
-    },
-    slowestFailedReason: input.slowestFailedReason,
-    durationDistribution: {
-      dashboardHome: {
-        sampleCount: input.durationDistribution.dashboardHome.sampleCount,
-        totalDurationMs: roundMetric(
-          input.durationDistribution.dashboardHome.totalDurationMs,
-        ),
-        avgDurationMs: roundMetric(
-          input.durationDistribution.dashboardHome.avgDurationMs,
-        ),
-        minDurationMs: roundMetric(
-          input.durationDistribution.dashboardHome.minDurationMs,
-        ),
-        maxDurationMs: roundMetric(
-          input.durationDistribution.dashboardHome.maxDurationMs,
-        ),
-        p50DurationMs: roundMetric(
-          input.durationDistribution.dashboardHome.p50DurationMs,
-        ),
-        p95DurationMs: roundMetric(
-          input.durationDistribution.dashboardHome.p95DurationMs,
-        ),
-      },
-      businessAnalysis: {
-        sampleCount: input.durationDistribution.businessAnalysis.sampleCount,
-        totalDurationMs: roundMetric(
-          input.durationDistribution.businessAnalysis.totalDurationMs,
-        ),
-        avgDurationMs: roundMetric(
-          input.durationDistribution.businessAnalysis.avgDurationMs,
-        ),
-        minDurationMs: roundMetric(
-          input.durationDistribution.businessAnalysis.minDurationMs,
-        ),
-        maxDurationMs: roundMetric(
-          input.durationDistribution.businessAnalysis.maxDurationMs,
-        ),
-        p50DurationMs: roundMetric(
-          input.durationDistribution.businessAnalysis.p50DurationMs,
-        ),
-        p95DurationMs: roundMetric(
-          input.durationDistribution.businessAnalysis.p95DurationMs,
-        ),
-      },
-      financeOverview: {
-        sampleCount: input.durationDistribution.financeOverview.sampleCount,
-        totalDurationMs: roundMetric(
-          input.durationDistribution.financeOverview.totalDurationMs,
-        ),
-        avgDurationMs: roundMetric(
-          input.durationDistribution.financeOverview.avgDurationMs,
-        ),
-        minDurationMs: roundMetric(
-          input.durationDistribution.financeOverview.minDurationMs,
-        ),
-        maxDurationMs: roundMetric(
-          input.durationDistribution.financeOverview.maxDurationMs,
-        ),
-        p50DurationMs: roundMetric(
-          input.durationDistribution.financeOverview.p50DurationMs,
-        ),
-        p95DurationMs: roundMetric(
-          input.durationDistribution.financeOverview.p95DurationMs,
-        ),
-      },
-      marketingOverview: {
-        sampleCount: input.durationDistribution.marketingOverview.sampleCount,
-        totalDurationMs: roundMetric(
-          input.durationDistribution.marketingOverview.totalDurationMs,
-        ),
-        avgDurationMs: roundMetric(
-          input.durationDistribution.marketingOverview.avgDurationMs,
-        ),
-        minDurationMs: roundMetric(
-          input.durationDistribution.marketingOverview.minDurationMs,
-        ),
-        maxDurationMs: roundMetric(
-          input.durationDistribution.marketingOverview.maxDurationMs,
-        ),
-        p50DurationMs: roundMetric(
-          input.durationDistribution.marketingOverview.p50DurationMs,
-        ),
-        p95DurationMs: roundMetric(
-          input.durationDistribution.marketingOverview.p95DurationMs,
-        ),
-      },
-      membersMeta: {
-        sampleCount: input.durationDistribution.membersMeta.sampleCount,
-        totalDurationMs: roundMetric(
-          input.durationDistribution.membersMeta.totalDurationMs,
-        ),
-        avgDurationMs: roundMetric(
-          input.durationDistribution.membersMeta.avgDurationMs,
-        ),
-        minDurationMs: roundMetric(
-          input.durationDistribution.membersMeta.minDurationMs,
-        ),
-        maxDurationMs: roundMetric(
-          input.durationDistribution.membersMeta.maxDurationMs,
-        ),
-        p50DurationMs: roundMetric(
-          input.durationDistribution.membersMeta.p50DurationMs,
-        ),
-        p95DurationMs: roundMetric(
-          input.durationDistribution.membersMeta.p95DurationMs,
-        ),
-      },
-      membersOverview: {
-        sampleCount: input.durationDistribution.membersOverview.sampleCount,
-        totalDurationMs: roundMetric(
-          input.durationDistribution.membersOverview.totalDurationMs,
-        ),
-        avgDurationMs: roundMetric(
-          input.durationDistribution.membersOverview.avgDurationMs,
-        ),
-        minDurationMs: roundMetric(
-          input.durationDistribution.membersOverview.minDurationMs,
-        ),
-        maxDurationMs: roundMetric(
-          input.durationDistribution.membersOverview.maxDurationMs,
-        ),
-        p50DurationMs: roundMetric(
-          input.durationDistribution.membersOverview.p50DurationMs,
-        ),
-        p95DurationMs: roundMetric(
-          input.durationDistribution.membersOverview.p95DurationMs,
-        ),
-      },
-    },
-    slowKeySamples: input.slowKeySamples.map((sample) => ({
+    durationMs: roundMetric(metrics.durationMs),
+    hitCount: metrics.hitCount,
+    refreshedCount: metrics.refreshedCount,
+    skippedCount: metrics.skippedCount,
+    invalidCount: metrics.invalidCount,
+    failedCount: metrics.failedCount,
+    dashboardHitCount: metrics.dashboardHitCount,
+    businessAnalysisHitCount: metrics.businessAnalysisHitCount,
+    financeOverviewHitCount: metrics.financeOverviewHitCount,
+    financeReportHitCount: metrics.financeReportHitCount,
+    marketingOverviewHitCount: metrics.marketingOverviewHitCount,
+    membersMetaHitCount: metrics.membersMetaHitCount,
+    membersOverviewHitCount: metrics.membersOverviewHitCount,
+    profitDetailHitCount: metrics.profitDetailHitCount,
+    profitReportHitCount: metrics.profitReportHitCount,
+    costsStatsHitCount: metrics.costsStatsHitCount,
+    costsReportHitCount: metrics.costsReportHitCount,
+    failedKeyCountByCategory: { ...metrics.failedKeyCountByCategory },
+    slowestFailedReason: metrics.slowestFailedReason,
+    durationDistribution: Object.fromEntries(
+      Object.entries(metrics.durationDistribution).map(([k, v]) => [k, roundDist(v)]),
+    ),
+    slowKeySamples: metrics.slowKeySamples.map((sample) => ({
       ...sample,
       durationMs: roundMetric(sample.durationMs),
-      errorTag: sample.errorTag,
-      failedReason: sample.failedReason,
     })),
     capturedAt: nowIso,
   });

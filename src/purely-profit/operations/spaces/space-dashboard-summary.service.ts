@@ -4,7 +4,7 @@ import {
   SpaceReservationStatus as PrismaSpaceReservationStatus,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
-import { toTimestampMs } from '../../commerce/commerce.utils';
+import { Money, toTimestampMs } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types';
 import type {
@@ -192,7 +192,7 @@ export class SpaceDashboardSummaryService {
 
     return {
       todaySettled,
-      todayRevenue: Number(revenueAgg._sum.totalRevenue ?? 0),
+      todayRevenue: Money.fromDbCents(Number(revenueAgg._sum.totalRevenue ?? 0)).toOutputYuan(),
     };
   }
 
@@ -226,12 +226,12 @@ export class SpaceDashboardSummaryService {
       billingMode: session.billingMode,
       startTime: toTimestampMs(session.startTime),
       ...(session.hourlyRate !== null
-        ? { hourlyRate: session.hourlyRate }
+        ? { hourlyRate: Money.fromDbCents(session.hourlyRate).toOutputYuan() }
         : {}),
       ...(session.countdownMinutes !== null
         ? { countdownMinutes: session.countdownMinutes }
         : {}),
-      itemsCost: session.itemsCost,
+      itemsCost: Money.fromDbCents(session.itemsCost).toOutputYuan(),
       renewCount: renewRecords.length,
       ...(session.autoCheckout !== null
         ? { autoCheckout: session.autoCheckout }
@@ -244,7 +244,7 @@ export class SpaceDashboardSummaryService {
         : {}),
       ...(session.prepaidNote ? { prepaidNote: session.prepaidNote } : {}),
       ...(session.prepaidAmount !== null
-        ? { prepaidAmount: session.prepaidAmount }
+        ? { prepaidAmount: Money.fromDbCents(session.prepaidAmount).toOutputYuan() }
         : {}),
     };
   }

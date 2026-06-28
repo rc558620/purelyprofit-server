@@ -12,9 +12,9 @@ export class ResetPasswordDto {
   @Matches(/^\d{6}$/, { message: '验证码必须为 6 位数字' })
   code: string;
 
-  @ApiProperty({ example: 'newPassword123', description: '新密码' })
+  @ApiProperty({ example: 'newPassword123', description: '新密码（明文或 RSA 加密密文）' })
   @IsString({ message: '新密码必须是字符串' })
-  @MinLength(6, { message: '新密码至少 6 位' })
+  @MinLength(1, { message: '新密码不能为空' })
   password: string;
 
   @ApiProperty({ example: 'newPassword123', description: '确认新密码' })

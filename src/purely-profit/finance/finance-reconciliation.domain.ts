@@ -7,12 +7,7 @@ import type {
   FinanceReconciliationItemInput,
   FinanceReconciliationRecordWithItems,
 } from './finance.types';
-import {
-  addMoneyValues,
-  isZeroValue,
-  roundMoneyValue,
-  toMoneyNumber,
-} from './finance-money.utils';
+import { Money } from '../../shared/money.utils';
 import { trimOptionalString } from './finance-string.utils';
 
 export function buildReconciliationStats(
@@ -25,7 +20,7 @@ export function buildReconciliationStats(
   let discrepancyCount = 0;
   let adjustedCount = 0;
   let draftCount = 0;
-  let totalDiffAmount = 0;
+  let totalDiffAmount = Money.zero();
 
   for (const record of records) {
     switch (record.status) {
@@ -42,9 +37,8 @@ export function buildReconciliationStats(
         draftCount += 1;
         break;
     }
-    totalDiffAmount = addMoneyValues(
-      totalDiffAmount,
-      Math.abs(toMoneyNumber(record.diffAmount)),
+    totalDiffAmount = totalDiffAmount.add(
+      Money.fromDbCents(record.diffAmount).abs(),
     );
   }
 
@@ -54,7 +48,7 @@ export function buildReconciliationStats(
     discrepancyCount,
     adjustedCount,
     draftCount,
-    totalDiffAmount,
+    totalDiffAmount: totalDiffAmount.toOutputYuan(),
     newThisMonth: records.filter(
       (record) => record.createdAt.getTime() >= monthStart.getTime(),
     ).length,
@@ -63,19 +57,19 @@ export function buildReconciliationStats(
 
 export function normalizeCreateReconciliationStatus(
   requestedStatus: string | undefined,
-  actualIncome: number,
-  actualExpense: number,
-  diffAmount: number,
+  actualIncome: Money,
+  actualExpense: Money,
+  diffAmount: Money,
 ): FinanceReconciliationStatus {
   if (
     requestedStatus === 'draft' &&
-    actualIncome === 0 &&
-    actualExpense === 0
+    actualIncome.isZero() &&
+    actualExpense.isZero()
   ) {
     return FinanceReconciliationStatus.draft;
   }
 
-  return isZeroValue(diffAmount)
+  return diffAmount.isZero()
     ? FinanceReconciliationStatus.confirmed
     : FinanceReconciliationStatus.discrepancy;
 }
@@ -83,13 +77,15 @@ export function normalizeCreateReconciliationStatus(
 export function buildReconciliationItemCreateInput(
   item: FinanceReconciliationItemInput,
 ): Prisma.FinanceReconciliationItemCreateWithoutReconciliationInput {
-  const bookAmount = roundMoneyValue(item.bookAmount);
-  const actualAmount = roundMoneyValue(item.actualAmount);
+  const bookAmount = Money.fromInputYuan(item.bookAmount).toDbCents();
+  const actualAmount = Money.fromInputYuan(item.actualAmount).toDbCents();
   return {
     description: item.description.trim(),
-    bookAmount, // Step 3: 直接使用 number（分）
-    actualAmount, // Step 3: 直接使用 number（分）
-    difference: roundMoneyValue(actualAmount - bookAmount), // Step 3: 直接使用 number（分）
+    bookAmount,
+    actualAmount,
+    difference: Money.fromInputYuan(item.actualAmount)
+      .subtract(Money.fromInputYuan(item.bookAmount))
+      .toDbCents(),
     note: trimOptionalString(item.note),
   };
 }
@@ -106,19 +102,19 @@ export function mapReconciliationRecord(
     ...(record.counterpart ? { counterpart: record.counterpart } : {}),
     periodStart: record.periodStart.getTime(),
     periodEnd: record.periodEnd.getTime(),
-    bookIncome: toMoneyNumber(record.bookIncome),
-    bookExpense: toMoneyNumber(record.bookExpense),
-    bookNet: toMoneyNumber(record.bookNet),
-    actualIncome: toMoneyNumber(record.actualIncome),
-    actualExpense: toMoneyNumber(record.actualExpense),
-    actualNet: toMoneyNumber(record.actualNet),
-    diffAmount: toMoneyNumber(record.diffAmount),
+    bookIncome: Money.fromDbCents(record.bookIncome).toOutputYuan(),
+    bookExpense: Money.fromDbCents(record.bookExpense).toOutputYuan(),
+    bookNet: Money.fromDbCents(record.bookNet).toOutputYuan(),
+    actualIncome: Money.fromDbCents(record.actualIncome).toOutputYuan(),
+    actualExpense: Money.fromDbCents(record.actualExpense).toOutputYuan(),
+    actualNet: Money.fromDbCents(record.actualNet).toOutputYuan(),
+    diffAmount: Money.fromDbCents(record.diffAmount).toOutputYuan(),
     items: record.items.map((item) => ({
       id: String(item.id),
       description: item.description,
-      bookAmount: toMoneyNumber(item.bookAmount),
-      actualAmount: toMoneyNumber(item.actualAmount),
-      difference: toMoneyNumber(item.difference),
+      bookAmount: Money.fromDbCents(item.bookAmount).toOutputYuan(),
+      actualAmount: Money.fromDbCents(item.actualAmount).toOutputYuan(),
+      difference: Money.fromDbCents(item.difference).toOutputYuan(),
       ...(item.note ? { note: item.note } : {}),
     })),
     ...(record.adjustNote ? { adjustNote: record.adjustNote } : {}),

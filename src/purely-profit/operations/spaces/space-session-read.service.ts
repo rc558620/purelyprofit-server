@@ -58,11 +58,6 @@ export class SpaceSessionReadService {
       includeActive: true,
     };
 
-    // 在默认查询 active 会话时，同步修复 occupied 空间的不一致状态
-    if (normalizedQuery.status === PrismaSpaceSessionStatus.active) {
-      await this.readStateService.syncOccupiedSpaceStates(storeId);
-    }
-
     return this.listStoreSpaceSessionsByQuery(storeId, normalizedQuery);
   }
 
@@ -135,8 +130,36 @@ export class SpaceSessionReadService {
             },
           },
         },
-        sessionItems: true,
-        sessionRenewRecords: true,
+        sessionItems: {
+          select: {
+            id: true,
+            sessionId: true,
+            productId: true,
+            productName: true,
+            categoryName: true,
+            salePrice: true,
+            profit: true,
+            quantity: true,
+            sortOrder: true,
+            createdAt: true,
+          },
+        },
+        sessionRenewRecords: {
+          select: {
+            id: true,
+            sessionId: true,
+            recordId: true,
+            amount: true,
+            addedMinutes: true,
+            paymentMethod: true,
+            grouponCode: true,
+            grouponPlatform: true,
+            voucherFaceAmount: true,
+            note: true,
+            renewedAt: true,
+            createdAt: true,
+          },
+        },
       },
       orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
     });
@@ -193,8 +216,36 @@ export class SpaceSessionReadService {
               },
             },
           },
-          sessionItems: true,
-          sessionRenewRecords: true,
+          sessionItems: {
+            select: {
+              id: true,
+              sessionId: true,
+              productId: true,
+              productName: true,
+              categoryName: true,
+              salePrice: true,
+              profit: true,
+              quantity: true,
+              sortOrder: true,
+              createdAt: true,
+            },
+          },
+          sessionRenewRecords: {
+            select: {
+              id: true,
+              sessionId: true,
+              recordId: true,
+              amount: true,
+              addedMinutes: true,
+              paymentMethod: true,
+              grouponCode: true,
+              grouponPlatform: true,
+              voucherFaceAmount: true,
+              note: true,
+              renewedAt: true,
+              createdAt: true,
+            },
+          },
         },
         orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
         skip,
@@ -231,8 +282,36 @@ export class SpaceSessionReadService {
             },
           },
         },
-        sessionItems: true,
-        sessionRenewRecords: true,
+        sessionItems: {
+          select: {
+            id: true,
+            sessionId: true,
+            productId: true,
+            productName: true,
+            categoryName: true,
+            salePrice: true,
+            profit: true,
+            quantity: true,
+            sortOrder: true,
+            createdAt: true,
+          },
+        },
+        sessionRenewRecords: {
+          select: {
+            id: true,
+            sessionId: true,
+            recordId: true,
+            amount: true,
+            addedMinutes: true,
+            paymentMethod: true,
+            grouponCode: true,
+            grouponPlatform: true,
+            voucherFaceAmount: true,
+            note: true,
+            renewedAt: true,
+            createdAt: true,
+          },
+        },
       },
     });
 
@@ -270,8 +349,36 @@ export class SpaceSessionReadService {
             },
           },
         },
-        sessionItems: true,
-        sessionRenewRecords: true,
+        sessionItems: {
+          select: {
+            id: true,
+            sessionId: true,
+            productId: true,
+            productName: true,
+            categoryName: true,
+            salePrice: true,
+            profit: true,
+            quantity: true,
+            sortOrder: true,
+            createdAt: true,
+          },
+        },
+        sessionRenewRecords: {
+          select: {
+            id: true,
+            sessionId: true,
+            recordId: true,
+            amount: true,
+            addedMinutes: true,
+            paymentMethod: true,
+            grouponCode: true,
+            grouponPlatform: true,
+            voucherFaceAmount: true,
+            note: true,
+            renewedAt: true,
+            createdAt: true,
+          },
+        },
       },
       orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
       take: 200,

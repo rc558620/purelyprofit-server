@@ -9,6 +9,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { EmployeeDateFilterQueryDto } from './employee-response.dto';
+import { PaginationMetaDto } from '../../../stores/dto/store-response.dto';
 
 export class ListEmployeeShiftsQueryDto extends EmployeeDateFilterQueryDto {}
 
@@ -239,4 +240,17 @@ export class EmployeeShiftResponseDto {
   @ApiProperty({ example: 1741323600000, description: '创建时间戳（毫秒）' })
   @IsInt({ message: '创建时间必须是整数时间戳' })
   createdAt: number;
+}
+
+export class PaginatedEmployeeShiftsResponseDto {
+  @ApiProperty({ type: [EmployeeShiftResponseDto], description: '排班列表' })
+  @IsArray({ message: '排班列表必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => EmployeeShiftResponseDto)
+  items: EmployeeShiftResponseDto[];
+
+  @ApiProperty({ type: PaginationMetaDto, description: '分页元信息' })
+  @ValidateNested()
+  @Type(() => PaginationMetaDto)
+  meta: PaginationMetaDto;
 }

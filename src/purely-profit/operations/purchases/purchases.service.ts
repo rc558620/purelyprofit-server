@@ -10,6 +10,7 @@ import { resolvePagination } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { CostsService } from '../costs/costs.service';
+import { Money } from '../../../shared/money.utils';
 import type {
   CreatePurchaseDto,
   PaginatedPurchasesResponseDto,
@@ -183,7 +184,8 @@ export class PurchasesService {
         storeId,
         operatorStaffId,
         purchaseOrderId: order.id,
-        amount: totalAmount,
+        // totalAmount 是分，syncPurchaseCost 期望元（内部会调用 toCostDbCents 转分）
+        amount: Money.fromDbCents(totalAmount).toOutputYuan(),
         title: buildPurchaseCostTitle(supplier?.name),
         note,
         date: purchaseDate,

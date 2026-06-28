@@ -14,7 +14,10 @@ export class CacheInvalidatorService {
   ) {}
 
   async invalidateProfitDashboardHome(storeId: number): Promise<void> {
-    await this.profitReadInvalidator.invalidateProfitDashboardHome(storeId);
+    await Promise.all([
+      this.profitReadInvalidator.invalidateProfitDashboardHome(storeId),
+      this.profitReadInvalidator.invalidateProfitDetail(storeId),
+    ]);
   }
 
   async invalidateBusinessAnalysis(storeId: number): Promise<void> {
@@ -106,6 +109,7 @@ export class CacheInvalidatorService {
   async invalidateDashboardAndPulseSession(storeId: number): Promise<void> {
     await Promise.all([
       this.profitReadInvalidator.invalidateProfitDashboardHome(storeId),
+      this.profitReadInvalidator.invalidateProfitDetail(storeId),
       this.pulseInvalidator.invalidateDashboardAndPulseSession(storeId),
     ]);
   }
@@ -117,6 +121,7 @@ export class CacheInvalidatorService {
       this.financeInvalidator.invalidateFinanceCashFlow(storeId),
       this.financeInvalidator.invalidateFinanceAccounts(storeId),
       this.financeInvalidator.invalidateFinanceReconciliations(storeId),
+      this.financeInvalidator.invalidateFinanceReport(storeId),
     ]);
   }
 
@@ -126,6 +131,8 @@ export class CacheInvalidatorService {
       this.profitReadInvalidator.invalidateBusinessAnalysis(storeId),
       this.financeInvalidator.invalidateFinanceOverview(storeId),
       this.profitReadInvalidator.invalidateSalesReadCaches(storeId),
+      this.profitReadInvalidator.invalidateProfitDetail(storeId),
+      this.profitReadInvalidator.invalidateCostsCaches(storeId),
       this.pulseInvalidator.invalidatePulseDashboardOverview(storeId),
       this.pulseInvalidator.invalidatePulseSessionNotification(storeId),
       this.pulseInvalidator.invalidatePulseSessionBootstrap(storeId),

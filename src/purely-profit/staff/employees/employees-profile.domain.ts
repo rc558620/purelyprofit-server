@@ -1,4 +1,5 @@
 import { EmployeeGender, EmployeeStatus, type Prisma } from '@prisma/client';
+import { Money } from '../../../shared/money.utils';
 import { toNullableText } from './employees.utils';
 
 export interface EmployeeProfileDictionaryRecord {
@@ -64,7 +65,7 @@ export function buildCreateEmployeeProfileData(
     position: input.position.name,
     department: input.department.name,
     joinDate: new Date(input.joinDate),
-    baseSalary: input.baseSalary,
+    baseSalary: Money.fromInputYuan(input.baseSalary).toDbCents(),
     avatar: toNullableText(input.avatar),
     idCard: toNullableText(input.idCard),
     gender: input.gender ?? EmployeeGender.unset,
@@ -99,7 +100,7 @@ export function buildUpdateEmployeeProfileData(
     ...(input.joinDate !== undefined
       ? { joinDate: new Date(input.joinDate) }
       : {}),
-    ...(input.baseSalary !== undefined ? { baseSalary: input.baseSalary } : {}),
+    ...(input.baseSalary !== undefined ? { baseSalary: Money.fromInputYuan(input.baseSalary).toDbCents() } : {}),
     ...(input.avatar !== undefined
       ? { avatar: toNullableText(input.avatar) }
       : {}),

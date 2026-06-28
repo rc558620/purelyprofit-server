@@ -82,6 +82,14 @@ export class SessionNotificationService {
     );
   }
 
+  /**
+   * 统计低库存商品数量。
+   *
+   * 执行计划说明：
+   * - WHERE store_id = $1 AND is_active = true AND stock <= alert_threshold
+   * - 预期走 (store_id, is_active) 复合索引 + 过滤 stock 条件
+   * - 若 alert_threshold 选择性差，可考虑 (store_id, is_active, stock) 复合索引
+   */
   private async countLowStockProducts(storeId: number): Promise<number> {
     const result = await this.prisma.$queryRaw<
       Array<{ count: bigint | number }>

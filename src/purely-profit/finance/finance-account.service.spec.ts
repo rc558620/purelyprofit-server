@@ -82,15 +82,16 @@ describe('FinanceAccountService', () => {
 
   it('listAccounts 会按派生后的 overdue 状态筛选并排序', async () => {
     prismaService.financeAccountRecord.count.mockResolvedValue(2);
+    // mock 数据为分单位：500 分 = 5 元，200 分 = 2 元
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
       {
         id: 32,
         type: 'receivable',
         category: 'sales_credit',
         counterpart: '新近逾期客户',
-        amount: 500,
+        amount: 50000,
         paidAmount: 0,
-        remaining: 500,
+        remaining: 50000,
         status: FinanceAccountStatus.pending,
         dueDate: new Date('2026-05-10T00:00:00.000Z'),
         date: new Date('2026-05-09T00:00:00.000Z'),
@@ -103,9 +104,9 @@ describe('FinanceAccountService', () => {
         type: 'receivable',
         category: 'sales_credit',
         counterpart: '旧逾期客户',
-        amount: 200,
+        amount: 20000,
         paidAmount: 0,
-        remaining: 200,
+        remaining: 20000,
         status: FinanceAccountStatus.pending,
         dueDate: new Date('2026-05-01T00:00:00.000Z'),
         date: new Date('2026-05-01T00:00:00.000Z'),
@@ -152,15 +153,16 @@ describe('FinanceAccountService', () => {
 
   it('listAccounts 会把 pending 状态下推成未逾期且未收付完的查询条件', async () => {
     prismaService.financeAccountRecord.count.mockResolvedValue(1);
+    // 60000 分 = 600 元
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
       {
         id: 40,
         type: 'receivable',
         category: 'sales_credit',
         counterpart: '待收客户',
-        amount: 600,
+        amount: 60000,
         paidAmount: 0,
-        remaining: 600,
+        remaining: 60000,
         status: FinanceAccountStatus.pending,
         dueDate: new Date('2026-05-16T00:00:00.000Z'),
         date: new Date('2026-05-14T00:00:00.000Z'),
@@ -208,15 +210,16 @@ describe('FinanceAccountService', () => {
 
   it('listAccounts 会把 partial 状态下推成已部分收付且未结清的查询条件', async () => {
     prismaService.financeAccountRecord.count.mockResolvedValue(1);
+    // 100000 分 = 1000 元，20000 分 = 200 元，80000 分 = 800 元
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
       {
         id: 41,
         type: 'payable',
         category: 'supplier_debt',
         counterpart: '供应商甲',
-        amount: 1000,
-        paidAmount: 200,
-        remaining: 800,
+        amount: 100000,
+        paidAmount: 20000,
+        remaining: 80000,
         status: FinanceAccountStatus.partial,
         dueDate: null,
         date: new Date('2026-05-10T00:00:00.000Z'),
@@ -260,14 +263,15 @@ describe('FinanceAccountService', () => {
 
   it('listAccounts 会把 settled 状态下推成剩余金额不大于 0 的查询条件', async () => {
     prismaService.financeAccountRecord.count.mockResolvedValue(1);
+    // 20000 分 = 200 元
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
       {
         id: 42,
         type: 'receivable',
         category: 'other',
         counterpart: '已结清客户',
-        amount: 200,
-        paidAmount: 200,
+        amount: 20000,
+        paidAmount: 20000,
         remaining: 0,
         status: FinanceAccountStatus.settled,
         dueDate: null,
@@ -310,14 +314,16 @@ describe('FinanceAccountService', () => {
   });
 
   it('createAccount 会按前端规则派生 overdue 状态和 remaining', async () => {
+    // DTO 入站 amount: 50 元 → 数据库存 5000 分
+    // create mock 返回数据库记录，金额单位为分
     prismaService.financeAccountRecord.create.mockResolvedValue({
       id: 11,
       type: 'receivable',
       category: 'sales_credit',
       counterpart: '张三水果店',
-      amount: 5000,
+      amount: 500000,
       paidAmount: 0,
-      remaining: 5000,
+      remaining: 500000,
       status: FinanceAccountStatus.overdue,
       dueDate: new Date('2026-05-01T00:00:00.000Z'),
       date: new Date('2026-05-01T00:00:00.000Z'),
@@ -381,14 +387,15 @@ describe('FinanceAccountService', () => {
   });
 
   it('createAccount 允许 advance_paid 按应收口径录入', async () => {
+    // DTO 入站 amount: 8 元 → 数据库存 800 分
     prismaService.financeAccountRecord.create.mockResolvedValue({
       id: 12,
       type: 'receivable',
       category: 'advance_paid',
       counterpart: '品牌方预付款',
-      amount: 800,
+      amount: 80000,
       paidAmount: 0,
-      remaining: 800,
+      remaining: 80000,
       status: FinanceAccountStatus.pending,
       dueDate: null,
       date: new Date('2026-05-14T00:00:00.000Z'),
@@ -419,14 +426,15 @@ describe('FinanceAccountService', () => {
   });
 
   it('settleAccount 在超出剩余金额时抛错', async () => {
+    // 数据库存分：amount=100000 分=1000 元，paidAmount=60000 分=600 元，remaining=40000 分=400 元
     prismaService.financeAccountRecord.findFirst.mockResolvedValue({
       id: 12,
       type: 'payable',
       category: 'supplier_debt',
       counterpart: '批发行',
-      amount: 1000,
-      paidAmount: 600,
-      remaining: 400,
+      amount: 100000,
+      paidAmount: 60000,
+      remaining: 40000,
       status: FinanceAccountStatus.partial,
       dueDate: null,
       date: new Date('2026-05-10T00:00:00.000Z'),
@@ -435,20 +443,22 @@ describe('FinanceAccountService', () => {
       updatedAt: new Date('2026-05-11T00:00:00.000Z'),
     });
 
+    // payAmount: 500 元 > remaining: 400 元
     await expect(
       service.settleAccount(user, 12, { payAmount: 500 }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('settleAccount 会通过条件更新拦截并发覆盖', async () => {
+    // 数据库存分：amount=100000 分=1000 元，paidAmount=20000 分=200 元，remaining=80000 分=800 元
     prismaService.financeAccountRecord.findFirst.mockResolvedValue({
       id: 14,
       type: 'receivable',
       category: 'sales_credit',
       counterpart: '并发客户',
-      amount: 1000,
-      paidAmount: 200,
-      remaining: 800,
+      amount: 100000,
+      paidAmount: 20000,
+      remaining: 80000,
       status: FinanceAccountStatus.partial,
       dueDate: null,
       date: new Date('2026-05-10T00:00:00.000Z'),
@@ -460,6 +470,7 @@ describe('FinanceAccountService', () => {
       count: 0,
     });
 
+    // payAmount: 100 元 → 10000 分
     await expect(
       service.settleAccount(user, 14, { payAmount: 100 }),
     ).rejects.toThrow('账款记录已被其他操作更新，请刷新后重试');
@@ -467,25 +478,26 @@ describe('FinanceAccountService', () => {
       where: {
         id: 14,
         storeId: 18,
-        paidAmount: 200,
+        paidAmount: 20000,
       },
       data: {
-        paidAmount: 300,
-        remaining: 700,
+        paidAmount: 30000,
+        remaining: 70000,
         status: FinanceAccountStatus.partial,
       },
     });
   });
 
   it('createAccount 成功后会失效财务派生缓存', async () => {
+    // DTO 入站 amount: 1 元 → 数据库存 100 分
     prismaService.financeAccountRecord.create.mockResolvedValue({
       id: 13,
       type: 'receivable',
       category: 'sales_credit',
       counterpart: '测试客户',
-      amount: 100,
+      amount: 10000,
       paidAmount: 0,
-      remaining: 100,
+      remaining: 10000,
       status: FinanceAccountStatus.pending,
       dueDate: null,
       date: new Date('2026-05-14T00:00:00.000Z'),
@@ -509,15 +521,16 @@ describe('FinanceAccountService', () => {
   });
 
   it('settleAccount 成功时通过事务更新并返回最新记录', async () => {
+    // 数据库存分：amount=100000 分=1000 元，paidAmount=20000 分=200 元，remaining=80000 分=800 元
     prismaService.financeAccountRecord.findFirst
       .mockResolvedValueOnce({
         id: 15,
         type: 'payable',
         category: 'supplier_debt',
         counterpart: '供应商A',
-        amount: new Prisma.Decimal('1000.00'),
-        paidAmount: new Prisma.Decimal('200.00'),
-        remaining: new Prisma.Decimal('800.00'),
+        amount: 100000,
+        paidAmount: 20000,
+        remaining: 80000,
         status: FinanceAccountStatus.partial,
         dueDate: null,
         date: new Date('2026-05-10T00:00:00.000Z'),
@@ -530,9 +543,9 @@ describe('FinanceAccountService', () => {
         type: 'payable',
         category: 'supplier_debt',
         counterpart: '供应商A',
-        amount: new Prisma.Decimal('1000.00'),
-        paidAmount: new Prisma.Decimal('500.00'),
-        remaining: new Prisma.Decimal('500.00'),
+        amount: 100000,
+        paidAmount: 50000,
+        remaining: 50000,
         status: FinanceAccountStatus.partial,
         dueDate: null,
         date: new Date('2026-05-10T00:00:00.000Z'),
@@ -544,6 +557,7 @@ describe('FinanceAccountService', () => {
       count: 1,
     });
 
+    // payAmount: 300 元 → 30000 分；paidAmount: 20000 + 30000 = 50000 分 = 500 元
     await expect(
       service.settleAccount(user, 15, { payAmount: 300 }),
     ).resolves.toMatchObject({

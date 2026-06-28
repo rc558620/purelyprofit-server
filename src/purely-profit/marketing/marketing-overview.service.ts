@@ -8,6 +8,7 @@ import {
 } from '../../redis/keys';
 import { RedisService } from '../../redis/redis.service';
 import { buildInviteCodeQrCodeImageUrl } from '../member/platform-membership/membership-profile.mapper';
+import { Money } from '../../shared/money.utils';
 import type {
   UpdateMarketingMemberLevelDto,
   UpdateMarketingPointsRatioDto,
@@ -285,14 +286,17 @@ export class MarketingOverviewService {
     ]);
 
     const totalRecharge =
-      (totalRechargeAgg._sum.amount ?? 0) +
-      (totalRechargeAgg._sum.giftAmount ?? 0);
+      Money.fromDbCents(totalRechargeAgg._sum.amount ?? 0)
+        .add(Money.fromDbCents(totalRechargeAgg._sum.giftAmount ?? 0))
+        .toOutputYuan();
     const todayRecharge =
-      (todayRechargeAgg._sum.amount ?? 0) +
-      (todayRechargeAgg._sum.giftAmount ?? 0);
+      Money.fromDbCents(todayRechargeAgg._sum.amount ?? 0)
+        .add(Money.fromDbCents(todayRechargeAgg._sum.giftAmount ?? 0))
+        .toOutputYuan();
     const thisMonthRecharge =
-      (thisMonthRechargeAgg._sum.amount ?? 0) +
-      (thisMonthRechargeAgg._sum.giftAmount ?? 0);
+      Money.fromDbCents(thisMonthRechargeAgg._sum.amount ?? 0)
+        .add(Money.fromDbCents(thisMonthRechargeAgg._sum.giftAmount ?? 0))
+        .toOutputYuan();
     const currentYear = now.getFullYear();
     const inviteCode = activeInviteCodeRecord?.code ?? null;
 
@@ -301,7 +305,7 @@ export class MarketingOverviewService {
     );
 
     return {
-      totalBalance: balanceSum._sum.balance ?? 0,
+      totalBalance: Money.fromDbCents(balanceSum._sum.balance ?? 0).toOutputYuan(),
       totalRecharge,
       todayRecharge,
       thisMonthRecharge,

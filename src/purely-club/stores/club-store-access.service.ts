@@ -23,6 +23,10 @@ const CLUB_BANNED_MEMBER_MESSAGE =
 const CLUB_INVITE_CODE_MAP_CACHE_KEY = 'club:invite-code-map';
 /** 映射缓存 TTL（秒），1 小时后过期自动刷新 */
 const CLUB_INVITE_CODE_MAP_TTL_SECONDS = 3600;
+/** 用户可访问门店列表缓存的 Redis key 前缀 */
+const CLUB_ACCESSIBLE_STORES_CACHE_KEY_PREFIX = 'club:accessible-stores:';
+/** 用户可访问门店列表缓存 TTL（秒），60 秒后过期 */
+const CLUB_ACCESSIBLE_STORES_CACHE_TTL_SECONDS = 60;
 
 @Injectable()
 export class ClubStoreAccessService {
@@ -36,7 +40,14 @@ export class ClubStoreAccessService {
   async findAccessibleStores(
     user: AuthenticatedUser,
   ): Promise<ClubAccessibleStoreRecord[]> {
-    return this.prisma.store.findMany({
+    const cacheKey = `${CLUB_ACCESSIBLE_STORES_CACHE_KEY_PREFIX}${user.id}`;
+    const cached =
+      await this.redisService.getJson<ClubAccessibleStoreRecord[]>(cacheKey);
+    if (cached && Array.isArray(cached)) {
+      return cached;
+    }
+
+    const stores = await this.prisma.store.findMany({
       where: {
         members: {
           some: {
@@ -48,6 +59,13 @@ export class ClubStoreAccessService {
       select: clubAccessibleStoreSelect,
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });
+
+    await this.redisService.setJson(
+      cacheKey,
+      stores,
+      CLUB_ACCESSIBLE_STORES_CACHE_TTL_SECONDS,
+    );
+    return stores;
   }
 
   async findAccessibleStoreById(
@@ -169,11 +187,14 @@ export class ClubStoreAccessService {
       }
     });
 
+    // 加入门店后清除该用户的可访问门店缓存，确保下次请求拉取最新数据
+    await this.invalidateAccessibleStoresCache(user.id);
+
     return store;
   }
 
   /**
-   * 根据邀请码反查门店。
+   * 根据 inviteCode 查找门店。
    *
    * 策略：优先从 Redis 缓存读取完整的 inviteCode→storeId 映射表；
    * 未命中时从数据库加载全量 storeId，在内存中构建映射并写入缓存。
@@ -244,6 +265,16 @@ export class ClubStoreAccessService {
     );
 
     return codeMap;
+  }
+
+  /**
+   * 清除用户可访问门店列表的 Redis 缓存。
+   * 在门店成员关系变更时调用（如加入门店），确保下次请求获取最新数据。
+   */
+  private async invalidateAccessibleStoresCache(userId: number): Promise<void> {
+    await this.redisService.del(
+      `${CLUB_ACCESSIBLE_STORES_CACHE_KEY_PREFIX}${userId}`,
+    );
   }
 
   /**

@@ -9,7 +9,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toOptionalText } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
-import { getPayrollCostDate, toCostDecimal } from './costs.domain';
+import { getPayrollCostDate, toCostDbCents } from './costs.domain';
 import { buildCostRecordResponse } from './costs.mapper';
 import type {
   PayrollComponentCostUpsertInput,
@@ -60,7 +60,7 @@ export class CostsWriteService {
         title,
         type: dto.type,
         category: dto.category,
-        amount: toCostDecimal(dto.amount),
+        amount: toCostDbCents(dto.amount),
         note: toOptionalText(dto.note) ?? null,
         date: new Date(dto.date),
       },
@@ -141,7 +141,7 @@ export class CostsWriteService {
         data: {
           operatorStaffId: input.operatorStaffId,
           title: input.title,
-          amount: toCostDecimal(input.amount),
+          amount: toCostDbCents(input.amount),
           note: toOptionalText(input.note) ?? null,
           date: input.date,
         },
@@ -157,7 +157,7 @@ export class CostsWriteService {
         title: input.title,
         type: 'variable',
         category: 'purchase',
-        amount: toCostDecimal(input.amount),
+        amount: toCostDbCents(input.amount),
         note: toOptionalText(input.note) ?? null,
         date: input.date,
       },
@@ -264,7 +264,7 @@ export class CostsWriteService {
           title: input.title,
           type: input.type,
           category: input.category,
-          amount: toCostDecimal(input.amount),
+          amount: toCostDbCents(input.amount),
           note: toOptionalText(input.note) ?? null,
           date: getPayrollCostDate(input.month),
         },
@@ -280,7 +280,7 @@ export class CostsWriteService {
         title: input.title,
         type: input.type,
         category: input.category,
-        amount: toCostDecimal(input.amount),
+        amount: toCostDbCents(input.amount),
         note: toOptionalText(input.note) ?? null,
         date: getPayrollCostDate(input.month),
       },

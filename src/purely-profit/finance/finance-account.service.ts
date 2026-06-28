@@ -41,7 +41,7 @@ import {
 } from './finance-account.query';
 import { buildPaginatedAccountsResponse } from './finance.mapper';
 import type { FinanceAccountsListQueryInput } from './finance.types';
-import { roundMoneyValue, toMoneyNumber } from './finance-money.utils';
+import { Money } from '../../shared/money.utils';
 import { buildPaginationState } from './finance-pagination.utils';
 import { trimOptionalString } from './finance-string.utils';
 
@@ -106,13 +106,13 @@ export class FinanceAccountService {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const operatorStaffId = user.currentMembership?.staffId ?? null;
-    const amount = roundMoneyValue(dto.amount);
-    const paidAmount = roundMoneyValue(dto.paidAmount);
+    const amount = Money.fromInputYuan(dto.amount);
+    const paidAmount = Money.fromInputYuan(dto.paidAmount);
 
     assertAccountCategoryCanCreateManually(dto.category);
     assertAccountTypeMatchesCategory(dto.type, dto.category);
 
-    if (paidAmount > amount) {
+    if (paidAmount.greaterThan(amount)) {
       throw new ConflictException('已收付金额不能大于总金额');
     }
     const dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
@@ -123,9 +123,9 @@ export class FinanceAccountService {
       type: dto.type,
       category: dto.category,
       counterpart: dto.counterpart.trim(),
-      amount, // Step 3: 直接使用 number（分）
-      paidAmount, // Step 3: 直接使用 number（分）
-      remaining: derived.remaining, // Step 3: 直接使用 number（分）
+      amount: amount.toDbCents(),
+      paidAmount: paidAmount.toDbCents(),
+      remaining: derived.remaining,
       status: derived.status,
       dueDate,
       date: new Date(dto.date),
@@ -150,11 +150,11 @@ export class FinanceAccountService {
         throw new NotFoundException('账款记录不存在');
       }
 
-      const currentPaidAmount = toMoneyNumber(record.paidAmount);
-      const amount = toMoneyNumber(record.amount);
-      const payAmount = roundMoneyValue(dto.payAmount);
-      const nextPaidAmount = roundMoneyValue(currentPaidAmount + payAmount);
-      if (nextPaidAmount > amount) {
+      const currentPaidAmount = Money.fromDbCents(record.paidAmount);
+      const amount = Money.fromDbCents(record.amount);
+      const payAmount = Money.fromInputYuan(dto.payAmount);
+      const nextPaidAmount = currentPaidAmount.add(payAmount);
+      if (nextPaidAmount.greaterThan(amount)) {
         throw new ConflictException('本次收付金额超过剩余金额');
       }
       const derived = deriveAccountFields(
@@ -166,8 +166,8 @@ export class FinanceAccountService {
         storeId,
         recordId,
         expectedPaidAmount: record.paidAmount,
-        paidAmount: nextPaidAmount, // Step 3: 直接使用 number（分）
-        remaining: derived.remaining, // Step 3: 直接使用 number（分）
+        paidAmount: nextPaidAmount.toDbCents(),
+        remaining: derived.remaining,
         status: derived.status,
       });
       if (!settledRecord) {
@@ -195,8 +195,8 @@ export class FinanceAccountService {
       throw new NotFoundException('账款记录不存在');
     }
     const derived = deriveAccountFields(
-      toMoneyNumber(record.amount),
-      toMoneyNumber(record.paidAmount),
+      Money.fromDbCents(record.amount),
+      Money.fromDbCents(record.paidAmount),
       record.dueDate?.getTime() ?? undefined,
     );
     if (derived.status === FinanceAccountStatus.settled) {

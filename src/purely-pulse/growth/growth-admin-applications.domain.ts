@@ -3,6 +3,7 @@ import type {
   PulseAdminPartnerApplicationsResponseDto,
   PulseAdminPayoutsResponseDto,
 } from './dto/pulse-growth-admin.dto';
+import type { PlatformPartnerIntention } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 import type {
   AdminPartnerApplicationRecord,
   AdminPartnerApplicationStats,
@@ -11,7 +12,6 @@ import type {
 } from './growth-admin.query';
 import {
   formatDateTime,
-  maskPhone,
   resolveRegionCity,
 } from './growth-admin.shared';
 
@@ -27,6 +27,7 @@ type AdminPartnerApplicationItem = {
   avatar: string;
   avatarUrl?: string;
   status: 'pending' | 'approved' | 'rejected';
+  intention: PlatformPartnerIntention;
 };
 
 type AdminPayoutItem = {
@@ -173,13 +174,14 @@ function mapAdminPartnerApplication(
   return {
     id: String(application.id),
     name: application.name,
-    phone: maskPhone(application.phone),
+    phone: application.phone,
     city: resolveRegionCity(application.region),
     appliedAt: formatDateTime(application.createdAt),
     reason: application.applyReason?.trim() || '暂无申请理由',
     avatar: application.name.trim().slice(0, 1) || '合',
     avatarUrl: application.store?.owner?.avatar ?? undefined,
     status: normalizePartnerApplicationStatus(application.status),
+    intention: application.intention,
   };
 }
 
@@ -200,7 +202,7 @@ function mapAdminPayoutItem(withdrawal: AdminPayoutRecord): AdminPayoutItem {
   return {
     id: String(withdrawal.id),
     partnerName: withdrawal.partner.name?.trim() || '未命名合伙人',
-    partnerPhone: maskPhone(withdrawal.partner.phone ?? ''),
+    partnerPhone: withdrawal.partner.phone ?? '',
     partnerCity: resolveRegionCity(withdrawal.partner.region),
     partnerAvatarUrl: withdrawal.partner.store?.owner?.avatar ?? undefined,
     amount: withdrawal.rmbAmount,

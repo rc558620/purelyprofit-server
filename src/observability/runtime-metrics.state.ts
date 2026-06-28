@@ -79,26 +79,17 @@ export type CachePrewarmCycleMetric = {
   dashboardHitCount: number;
   businessAnalysisHitCount: number;
   financeOverviewHitCount: number;
+  financeReportHitCount: number;
   marketingOverviewHitCount: number;
   membersMetaHitCount: number;
   membersOverviewHitCount: number;
-  failedKeyCountByCategory: {
-    dashboardHome: number;
-    businessAnalysis: number;
-    financeOverview: number;
-    marketingOverview: number;
-    membersMeta: number;
-    membersOverview: number;
-  };
+  profitDetailHitCount: number;
+  profitReportHitCount: number;
+  costsStatsHitCount: number;
+  costsReportHitCount: number;
+  failedKeyCountByCategory: Record<string, number>;
   slowestFailedReason: string | null;
-  durationDistribution: {
-    dashboardHome: CachePrewarmDurationDistribution;
-    businessAnalysis: CachePrewarmDurationDistribution;
-    financeOverview: CachePrewarmDurationDistribution;
-    marketingOverview: CachePrewarmDurationDistribution;
-    membersMeta: CachePrewarmDurationDistribution;
-    membersOverview: CachePrewarmDurationDistribution;
-  };
+  durationDistribution: Record<string, CachePrewarmDurationDistribution>;
   slowKeySamples: CachePrewarmSlowKeySample[];
   capturedAt: string;
 };
@@ -115,23 +106,9 @@ export type CachePrewarmFailedReasonByCategoryMetric = {
   topReasons: CachePrewarmFailedReasonMetric[];
 };
 
-export type CachePrewarmLastFailedAtByCategoryMetric = {
-  dashboardHome: string | null;
-  businessAnalysis: string | null;
-  financeOverview: string | null;
-  marketingOverview: string | null;
-  membersMeta: string | null;
-  membersOverview: string | null;
-};
+export type CachePrewarmLastFailedAtByCategoryMetric = Record<SummaryCachePrewarmCategory, string | null>;
 
-export type CachePrewarmLastFailedKeyByCategoryMetric = {
-  dashboardHome: string | null;
-  businessAnalysis: string | null;
-  financeOverview: string | null;
-  marketingOverview: string | null;
-  membersMeta: string | null;
-  membersOverview: string | null;
-};
+export type CachePrewarmLastFailedKeyByCategoryMetric = Record<SummaryCachePrewarmCategory, string | null>;
 
 export type CachePrewarmLastFailedSample = {
   capturedAt: string;
@@ -141,14 +118,7 @@ export type CachePrewarmLastFailedSample = {
   failedReason: string;
 };
 
-export type CachePrewarmLastFailedSampleByCategoryMetric = {
-  dashboardHome: CachePrewarmLastFailedSample | null;
-  businessAnalysis: CachePrewarmLastFailedSample | null;
-  financeOverview: CachePrewarmLastFailedSample | null;
-  marketingOverview: CachePrewarmLastFailedSample | null;
-  membersMeta: CachePrewarmLastFailedSample | null;
-  membersOverview: CachePrewarmLastFailedSample | null;
-};
+export type CachePrewarmLastFailedSampleByCategoryMetric = Record<SummaryCachePrewarmCategory, CachePrewarmLastFailedSample | null>;
 
 export type CachePrewarmMetric = {
   totalCycles: number;

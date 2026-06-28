@@ -9,12 +9,7 @@ import {
   FINANCE_REPORT_ACCOUNT_TYPE_LABELS,
 } from './finance.constants';
 import { formatReportDateLabel } from './finance-date.utils';
-import {
-  addMoneyValues,
-  isZeroValue,
-  roundMoneyValue,
-  toMoneyNumber,
-} from './finance-money.utils';
+import { Money, calcPercentChangeWithFallback } from '../../shared/money.utils';
 import type {
   FinanceAccountRecordWithAmount,
   FinanceCashFlowRecordWithAmount,
@@ -53,28 +48,28 @@ export function buildFinanceReportSummary(
   >,
   accountRecords: FinanceAccountRecordWithAmount[],
 ): FinanceReportResponseDto['summary'] {
-  let totalIncome = 0;
-  let totalExpense = 0;
-  let previousIncome = 0;
-  let previousExpense = 0;
-  let receivableTotal = 0;
-  let payableTotal = 0;
+  let totalIncome = Money.zero();
+  let totalExpense = Money.zero();
+  let previousIncome = Money.zero();
+  let previousExpense = Money.zero();
+  let receivableTotal = Money.zero();
+  let payableTotal = Money.zero();
 
   for (const record of currentCashFlowRecords) {
-    const amount = toMoneyNumber(record.amount);
+    const amount = Money.fromDbCents(record.amount);
     if (record.direction === 'income') {
-      totalIncome = addMoneyValues(totalIncome, amount);
+      totalIncome = totalIncome.add(amount);
     } else {
-      totalExpense = addMoneyValues(totalExpense, amount);
+      totalExpense = totalExpense.add(amount);
     }
   }
 
   for (const record of previousCashFlowRecords) {
-    const amount = toMoneyNumber(record.amount);
+    const amount = Money.fromDbCents(record.amount);
     if (record.direction === 'income') {
-      previousIncome = addMoneyValues(previousIncome, amount);
+      previousIncome = previousIncome.add(amount);
     } else {
-      previousExpense = addMoneyValues(previousExpense, amount);
+      previousExpense = previousExpense.add(amount);
     }
   }
 
@@ -84,30 +79,29 @@ export function buildFinanceReportSummary(
     if (record.status === FinanceAccountStatus.settled) {
       continue;
     }
-    const remaining = toMoneyNumber(record.remaining);
+    const remaining = Money.fromDbCents(record.remaining);
     if (record.type === 'receivable') {
-      receivableTotal = addMoneyValues(receivableTotal, remaining);
+      receivableTotal = receivableTotal.add(remaining);
     } else {
-      payableTotal = addMoneyValues(payableTotal, remaining);
+      payableTotal = payableTotal.add(remaining);
     }
   }
 
-  const netCashFlow = roundMoneyValue(totalIncome - totalExpense);
-  const previousNetCashFlow = roundMoneyValue(previousIncome - previousExpense);
+  const netCashFlow = totalIncome.subtract(totalExpense);
+  const previousNetCashFlow = previousIncome.subtract(previousExpense);
 
   return {
-    totalIncome,
-    totalExpense,
-    netCashFlow,
+    totalIncome: totalIncome.toOutputYuan(),
+    totalExpense: totalExpense.toOutputYuan(),
+    netCashFlow: netCashFlow.toOutputYuan(),
     recordCount: currentCashFlowRecords.length,
-    receivableTotal,
-    payableTotal,
-    compareLastPeriod: isZeroValue(previousNetCashFlow)
+    receivableTotal: receivableTotal.toOutputYuan(),
+    payableTotal: payableTotal.toOutputYuan(),
+    compareLastPeriod: previousNetCashFlow.isZero()
       ? null
-      : roundMoneyValue(
-          ((netCashFlow - previousNetCashFlow) /
-            Math.abs(previousNetCashFlow)) *
-            100,
+      : calcPercentChangeWithFallback(
+          netCashFlow.toOutputYuan(),
+          previousNetCashFlow.toOutputYuan(),
         ),
   };
 }
@@ -128,8 +122,8 @@ export function buildFinanceReportAccountRows(
       type: record.type,
       typeLabel: FINANCE_REPORT_ACCOUNT_TYPE_LABELS[record.type] ?? record.type,
       counterpart: record.counterpart,
-      amount: toMoneyNumber(record.amount),
-      remaining: toMoneyNumber(record.remaining),
+      amount: Money.fromDbCents(record.amount).toOutputYuan(),
+      remaining: Money.fromDbCents(record.remaining).toOutputYuan(),
       statusLabel:
         FINANCE_REPORT_ACCOUNT_STATUS_LABELS[record.status] ?? record.status,
       statusKey: record.status,

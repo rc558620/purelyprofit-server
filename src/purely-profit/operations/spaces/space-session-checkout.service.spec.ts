@@ -106,11 +106,11 @@ describe('SpaceSessionCheckoutService', () => {
     const session = {
       ...baseSession,
       billingMode: 'countdown' as const,
-      hourlyRate: 77700,  // DB 存储为分（777元）
+      hourlyRate: 77700, // DB 存储为分（777元）
       countdownMinutes: 60,
       autoCheckout: false,
       prepaidPaymentMethod: 'cash' as const,
-      prepaidAmount: 99900,  // DB 存储为分（999元）
+      prepaidAmount: 99900, // DB 存储为分（999元）
     };
 
     prismaService.spaceSession.findUnique.mockResolvedValue(session);
@@ -131,11 +131,11 @@ describe('SpaceSessionCheckoutService', () => {
       lockedAt: checkoutAt,
       expiresAt: checkoutAt + 5 * 60 * 1000,
       preview: {
-        timeCost: 777,    // 77700分 = 777元
-        itemsCost: 20,    // 2000分 = 20元
+        timeCost: 777, // 77700分 = 777元
+        itemsCost: 20, // 2000分 = 20元
         renewDeduction: 0,
-        prepaidDeduction: 999,  // 99900分 = 999元
-        totalAmount: -202,      // 777 + 20 - 999 = -202元
+        prepaidDeduction: 999, // 99900分 = 999元
+        totalAmount: -202, // 777 + 20 - 999 = -202元
         timeFeeMode: 'unit_price',
         countdownFeeMode: 'fixed',
       },
@@ -152,11 +152,11 @@ describe('SpaceSessionCheckoutService', () => {
       ...baseSession,
       startTime: new Date(2026, 5, 4, 9, 20, 0),
       billingMode: 'timed' as const,
-      hourlyRate: 77700,  // DB 存储为分（777元）
+      hourlyRate: 77700, // DB 存储为分（777元）
       sessionItems: [],
-      itemsCost: 0,        // DB 存储为分（0元）
+      itemsCost: 0, // DB 存储为分（0元）
       prepaidPaymentMethod: 'card' as const,
-      prepaidAmount: 150000,  // DB 存储为分（1500元）
+      prepaidAmount: 150000, // DB 存储为分（1500元）
     };
 
     prismaService.spaceSession.findUnique.mockResolvedValue(session);
@@ -183,19 +183,19 @@ describe('SpaceSessionCheckoutService', () => {
 
     expect(timedResult.preview).toMatchObject({
       durationMinutes: 70,
-      timeCost: 906.51,  // 70/60*777*100 因浮点精度 Math.ceil(90650.00...01) = 90651 / 100 = 906.51
+      timeCost: 906.51, // 70/60*777*100 因浮点精度 Math.ceil(90650.00...01) = 90651 / 100 = 906.51
       itemsCost: 0,
-      prepaidDeduction: 1500,  // 150000分 = 1500元
-      totalAmount: -593.49,    // 906.51 + 0 - 1500 = -593.49
+      prepaidDeduction: 1500, // 150000分 = 1500元
+      totalAmount: -593.49, // 906.51 + 0 - 1500 = -593.49
       timeFeeMode: 'timed',
       countdownFeeMode: 'timed',
     });
     expect(unitPriceResult.preview).toMatchObject({
       durationMinutes: 70,
-      timeCost: 777,      // 77700分 = 777元
+      timeCost: 777, // 77700分 = 777元
       itemsCost: 0,
-      prepaidDeduction: 1500,  // 150000分 = 1500元
-      totalAmount: -723,       // 777 + 0 - 1500 = -723元
+      prepaidDeduction: 1500, // 150000分 = 1500元
+      totalAmount: -723, // 777 + 0 - 1500 = -723元
       timeFeeMode: 'unit_price',
       countdownFeeMode: 'fixed',
     });
@@ -301,11 +301,11 @@ describe('SpaceSessionCheckoutService', () => {
     const session = {
       ...baseSession,
       billingMode: 'countdown' as const,
-      hourlyRate: 6000,  // DB 存储为分（60元）
+      hourlyRate: 6000, // DB 存储为分（60元）
       countdownMinutes: 60,
       autoCheckout: false,
       prepaidPaymentMethod: 'cash' as const,
-      prepaidAmount: 3000,  // DB 存储为分（30元）
+      prepaidAmount: 3000, // DB 存储为分（30元）
       space: {
         ...baseSession.space,
         enableDirtyRoom: true,
@@ -314,11 +314,11 @@ describe('SpaceSessionCheckoutService', () => {
     const updatedSession = {
       ...baseUpdatedSession,
       billingMode: 'countdown' as const,
-      hourlyRate: 6000,  // DB 存储为分（60元）
+      hourlyRate: 6000, // DB 存储为分（60元）
       countdownMinutes: 60,
       autoCheckout: false,
       prepaidPaymentMethod: 'cash' as const,
-      prepaidAmount: 3000,  // DB 存储为分（30元）
+      prepaidAmount: 3000, // DB 存储为分（30元）
       space: {
         ...baseUpdatedSession.space,
         enableDirtyRoom: true,

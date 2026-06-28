@@ -1,15 +1,16 @@
 import {
   buildPaginationMeta,
-  toDecimalNumber,
   toOptionalMediaText,
   toTimestampMs,
 } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type {
   InventoryAdjustmentResponseDto,
   InventoryProductResponseDto,
   InventoryReportResponseDto,
   InventoryStatsResponseDto,
   PaginatedInventoryAdjustmentsResponseDto,
+  PaginatedInventoryProductsResponseDto,
   ProductThresholdResponseDto,
 } from './dto/inventory.dto';
 import {
@@ -32,10 +33,10 @@ export function buildInventoryProductResponse(
     name: product.name,
     category: product.category,
     code: product.code,
-    price: toDecimalNumber(product.price),
-    profit: toDecimalNumber(product.profit),
+    price: Money.fromDbCents(product.price).toOutputYuan(),
+    profit: Money.fromDbCents(product.profit).toOutputYuan(),
     ...(product.costPrice !== null
-      ? { costPrice: toDecimalNumber(product.costPrice) }
+      ? { costPrice: Money.fromDbCents(product.costPrice).toOutputYuan() }
       : {}),
     unit: product.unit,
     stock: product.stock,
@@ -93,6 +94,18 @@ export function buildInventoryReportResponse(
   return {
     summary,
     products,
+  };
+}
+
+export function buildPaginatedInventoryProductsResponse(params: {
+  items: InventoryProductRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+}): PaginatedInventoryProductsResponseDto {
+  return {
+    items: params.items.map(buildInventoryProductResponse),
+    meta: buildPaginationMeta(params.total, params.page, params.pageSize),
   };
 }
 

@@ -1,18 +1,16 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma, StaffRole } from '@prisma/client';
-import Decimal from 'decimal.js';
 import {
   isDeductionProductName,
-  toDecimalNumber,
   toOptionalText,
   toTimestampMs,
 } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type {
   SalesDailyRowDto,
   SalesRecordItemResponseDto,
   SalesRecordResponseDto,
 } from './dto/sales-record.dto';
-import { isSameMoney } from './sales-record.utils';
 
 // ---------------------------------------------------------------------------
 // 内部类型
@@ -27,8 +25,25 @@ export interface SalesReportAggregationRow {
 }
 
 export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
-  include: {
+  select: {
+    id: true;
+    orderNo: true;
+    note: true;
+    paymentMethod: true;
+    calcMode: true;
+    operatorNameSnapshot: true;
+    date: true;
+    createdAt: true;
     items: {
+      select: {
+        id: true;
+        productId: true;
+        productName: true;
+        categoryName: true;
+        salePrice: true;
+        profit: true;
+        quantity: true;
+      };
       orderBy: [{ id: 'asc' }];
     };
     spaceSession: {
@@ -77,14 +92,16 @@ function resolveOperatorRole(
 
 export function assertSalesTotalsMatch(
   dto: { totalRevenue: number; totalProfit: number; totalQuantity: number },
-  totalRevenue: number,
-  totalProfit: number,
+  totalRevenue: Money,
+  totalProfit: Money,
   totalQuantity: number,
 ): void {
-  if (!isSameMoney(dto.totalRevenue, totalRevenue)) {
+  const dtoRevenue = Money.fromInputYuan(dto.totalRevenue);
+  const dtoProfit = Money.fromInputYuan(dto.totalProfit);
+  if (!dtoRevenue.equals(totalRevenue)) {
     throw new BadRequestException('总营业额与明细汇总不一致');
   }
-  if (!isSameMoney(dto.totalProfit, totalProfit)) {
+  if (!dtoProfit.equals(totalProfit)) {
     throw new BadRequestException('总利润与明细汇总不一致');
   }
   if (dto.totalQuantity !== totalQuantity) {
@@ -105,14 +122,14 @@ export function mapSalesRecordResponse(
     (item) => !isDeductionProductName(item.productName),
   );
   // 重算不含抵扣行的 totalRevenue、totalProfit 和 totalQuantity
-  const totalRevenue = visibleItems.reduce(
-    (sum, item) => sum + toDecimalNumber(item.salePrice) * item.quantity,
-    0,
-  );
-  const totalProfit = visibleItems.reduce(
-    (sum, item) => sum + toDecimalNumber(item.profit) * item.quantity,
-    0,
-  );
+  let totalRevenue = Money.zero();
+  let totalProfit = Money.zero();
+  for (const item of visibleItems) {
+    const price = Money.fromDbCents(item.salePrice).multiply(item.quantity);
+    const profitPerUnit = Money.fromDbCents(item.profit).multiply(item.quantity);
+    totalRevenue = totalRevenue.add(price);
+    totalProfit = totalProfit.add(profitPerUnit);
+  }
   const totalQuantity = visibleItems.reduce(
     (sum, item) => sum + item.quantity,
     0,
@@ -125,8 +142,8 @@ export function mapSalesRecordResponse(
     id: String(order.id),
     orderNo: order.orderNo,
     items: visibleItems.map((item) => mapSalesRecordItemResponse(item)),
-    totalRevenue: Math.round(totalRevenue * 100) / 100,
-    totalProfit: Math.round(totalProfit * 100) / 100,
+    totalRevenue: totalRevenue.toOutputYuan(),
+    totalProfit: totalProfit.toOutputYuan(),
     totalQuantity,
     paymentMethod: order.paymentMethod,
     calcMode: order.calcMode,
@@ -146,8 +163,8 @@ export function mapSalesRecordItemResponse(
       item.productId !== null ? String(item.productId) : `manual_${item.id}`,
     productName: item.productName,
     categoryName: item.categoryName,
-    salePrice: toDecimalNumber(item.salePrice),
-    profit: toDecimalNumber(item.profit),
+    salePrice: Money.fromDbCents(item.salePrice).toOutputYuan(),
+    profit: Money.fromDbCents(item.profit).toOutputYuan(),
     quantity: item.quantity,
   };
 }
@@ -225,17 +242,15 @@ export function aggregateReportRows(
 
       const productName = resolveReportProductName(order, item);
       const rowId = buildReportRowId(dayStart, order, item);
-      const revenue = new Decimal(toDecimalNumber(item.salePrice))
-        .mul(item.quantity)
-        .toDecimalPlaces(2)
-        .toNumber();
+      const revenue = Money.fromDbCents(item.salePrice)
+        .multiply(item.quantity)
+        .toOutputYuan();
       const existing = rows.get(rowId);
       if (existing) {
         existing.quantity += item.quantity;
-        existing.revenue = new Decimal(existing.revenue)
-          .add(revenue)
-          .toDecimalPlaces(2)
-          .toNumber();
+        existing.revenue = Money.fromInputYuan(existing.revenue)
+          .add(Money.fromInputYuan(revenue))
+          .toOutputYuan();
         continue;
       }
       rows.set(rowId, {

@@ -3,6 +3,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -12,10 +13,13 @@ import {
   DEFAULT_PASSWORD_RESET_CODE_TTL_SECONDS,
   DEFAULT_REGISTER_CODE_TTL_SECONDS,
   DEFAULT_SMS_SEND_COOLDOWN_SECONDS,
+  AUTH_CODE_MAX_ATTEMPTS,
+  AUTH_CODE_ATTEMPTS_LOCK_TTL_SECONDS,
 } from './auth.constants';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthSmsService } from './auth-sms.service';
 import type { AuthProductScope } from './auth-account.types';
+import { CaptchaTokenService } from './captcha-token.service';
 import { ForgotPasswordResponseDto } from './dto/forgot-password-response.dto';
 import { SendLoginCodeResponseDto } from './dto/send-login-code-response.dto';
 import { SendRegisterCodeResponseDto } from './dto/send-register-code-response.dto';
@@ -23,16 +27,20 @@ import {
   buildPasswordResetCodeKey,
   buildRegisterCodeKey,
   buildSmsSendCooldownKey,
+  buildCodeAttemptsKey,
   generateNumericCode,
 } from './auth.utils';
 
 @Injectable()
 export class AuthCodeService {
+  private readonly logger = new Logger(AuthCodeService.name);
+
   constructor(
     private readonly redisService: RedisService,
     private readonly configService: ConfigService,
     private readonly authSmsService: AuthSmsService,
     private readonly authAccountLookupService: AuthAccountLookupService,
+    private readonly captchaTokenService: CaptchaTokenService,
   ) {}
 
   async sendRegisterCode(
@@ -137,10 +145,17 @@ export class AuthCodeService {
    *  - 无论手机号是否已注册，都发送验证码
    *  - 发送成功统一返回通用文案，不暴露注册状态
    *  - 后续由 loginByCodeOrRegister 决定是登录还是自动注册
+   *
+   * @param phone 手机号
+   * @param captchaToken 前端拼图验证令牌（校验通过后才允许发送短信）
    */
   async sendClubLoginOrRegisterCode(
     phone: string,
+    captchaToken?: string,
   ): Promise<SendLoginCodeResponseDto> {
+    // 校验并消费拼图验证令牌
+    await this.captchaTokenService.validateAndConsume(captchaToken);
+
     const expiresInSeconds = this.getRegisterCodeTtlSeconds();
     await this.ensureSmsSendCooldown('login_or_register', 'purely_club', phone);
 
@@ -177,10 +192,17 @@ export class AuthCodeService {
    *
    * 与 sendClubLoginOrRegisterCode 类似，无论手机号是否已注册都发送验证码。
    * 后续由 bindPhone 验证码校验（ensureRegisterCodeValid）完成绑定。
+   *
+   * @param phone 手机号
+   * @param captchaToken 前端拼图验证令牌（校验通过后才允许发送短信）
    */
   async sendBindPhoneCode(
     phone: string,
+    captchaToken?: string,
   ): Promise<SendLoginCodeResponseDto> {
+    // 校验并消费拼图验证令牌
+    await this.captchaTokenService.validateAndConsume(captchaToken);
+
     const expiresInSeconds = this.getRegisterCodeTtlSeconds();
     await this.ensureSmsSendCooldown('bind_phone', 'purely_club', phone);
 
@@ -217,12 +239,20 @@ export class AuthCodeService {
     code: string,
     productScope: AuthProductScope,
   ): Promise<void> {
+    // 先检查尝试次数是否已超限
+    await this.ensureCodeAttemptsNotExceeded('register', productScope, phone);
+
     const cachedCode = await this.redisService.get(
       buildRegisterCodeKey(productScope, phone),
     );
     if (!cachedCode || cachedCode !== code) {
+      // 验证失败，递增尝试次数
+      await this.incrementCodeAttempts('register', productScope, phone);
       throw new UnauthorizedException('验证码无效或已过期');
     }
+
+    // 验证成功，清除尝试次数计数
+    await this.clearCodeAttempts('register', productScope, phone);
   }
 
   async clearRegisterCode(
@@ -283,12 +313,24 @@ export class AuthCodeService {
     code: string,
     productScope: AuthProductScope,
   ): Promise<void> {
+    // 先检查尝试次数是否已超限
+    await this.ensureCodeAttemptsNotExceeded(
+      'password-reset',
+      productScope,
+      phone,
+    );
+
     const cachedCode = await this.redisService.get(
       buildPasswordResetCodeKey(productScope, phone),
     );
     if (!cachedCode || cachedCode !== code) {
+      // 验证失败，递增尝试次数
+      await this.incrementCodeAttempts('password-reset', productScope, phone);
       throw new UnauthorizedException('验证码无效或已过期');
     }
+
+    // 验证成功，清除尝试次数计数
+    await this.clearCodeAttempts('password-reset', productScope, phone);
   }
 
   async clearPasswordResetCode(
@@ -350,5 +392,57 @@ export class AuthCodeService {
 
   private isNonProductionEnv(): boolean {
     return this.configService.get<string>('nodeEnv') !== 'production';
+  }
+
+  /**
+   * 检查验证码校验尝试次数是否已超限
+   * 超限后使验证码失效并抛出异常，防止暴力破解
+   */
+  private async ensureCodeAttemptsNotExceeded(
+    codeType: 'register' | 'password-reset',
+    productScope: AuthProductScope,
+    phone: string,
+  ): Promise<void> {
+    const attemptsKey = buildCodeAttemptsKey(codeType, productScope, phone);
+    const rawAttempts = await this.redisService.get(attemptsKey);
+    const attempts = Number.parseInt(rawAttempts ?? '0', 10);
+
+    if (attempts >= AUTH_CODE_MAX_ATTEMPTS) {
+      // 超限：同时清除验证码，使其彻底失效
+      if (codeType === 'register') {
+        await this.clearRegisterCode(phone, productScope);
+      } else {
+        await this.clearPasswordResetCode(phone, productScope);
+      }
+      throw new UnauthorizedException(`验证码错误次数过多，请重新获取验证码`);
+    }
+  }
+
+  /**
+   * 原子递增验证码校验尝试次数
+   * 首次失败时自动设置 TTL，后续失败仅递增
+   */
+  private async incrementCodeAttempts(
+    codeType: 'register' | 'password-reset',
+    productScope: AuthProductScope,
+    phone: string,
+  ): Promise<void> {
+    const attemptsKey = buildCodeAttemptsKey(codeType, productScope, phone);
+    await this.redisService.incr(
+      attemptsKey,
+      AUTH_CODE_ATTEMPTS_LOCK_TTL_SECONDS,
+    );
+  }
+
+  /**
+   * 清除验证码校验尝试次数计数（验证成功时调用）
+   */
+  private async clearCodeAttempts(
+    codeType: 'register' | 'password-reset',
+    productScope: AuthProductScope,
+    phone: string,
+  ): Promise<void> {
+    const attemptsKey = buildCodeAttemptsKey(codeType, productScope, phone);
+    await this.redisService.del(attemptsKey);
   }
 }

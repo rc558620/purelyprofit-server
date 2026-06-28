@@ -1,4 +1,5 @@
 import { Prisma, type CostCategory } from '@prisma/client';
+import type { Money } from '../../../shared/money.utils';
 
 export const PROFIT_DETAIL_PERIOD_VALUES = [
   'today',
@@ -95,25 +96,25 @@ export interface AggregatedRankProduct {
   id: string;
   name: string;
   category: string;
-  price: number;
-  profitPerUnit: number;
+  price: Money;
+  profitPerUnit: Money;
   quantity: number;
-  totalProfit: number;
-  totalRevenue: number;
+  totalProfit: Money;
+  totalRevenue: Money;
   image?: string;
 }
 
 export interface SalesAggregationResult {
-  revenue: number;
+  revenue: Money;
   orderCount: number;
-  dailyRevenueMap: Map<number, number>;
+  dailyRevenueMap: Map<number, Money>;
   rankMap: Map<string, AggregatedRankProduct>;
 }
 
 export interface CostAggregationResult {
-  totalCost: number;
-  dailyCostMap: Map<number, number>;
-  categoryCostMap: Map<CostCategory, number>;
+  totalCost: Money;
+  dailyCostMap: Map<number, Money>;
+  categoryCostMap: Map<CostCategory, Money>;
 }
 
 export interface ProfitMetricsSnapshot {
@@ -122,8 +123,8 @@ export interface ProfitMetricsSnapshot {
   previousSales: SalesAggregationResult;
   currentCosts: CostAggregationResult;
   previousCosts: CostAggregationResult;
-  netProfit: number;
-  previousNetProfit: number;
+  netProfit: Money;
+  previousNetProfit: Money;
 }
 
 export interface ProfitClampedRanges {

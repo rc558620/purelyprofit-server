@@ -156,6 +156,41 @@ export class PulseMembershipAdminMutationService {
     return this.memberReadService.buildAdminMemberDetail(memberId);
   }
 
+  async cancelAdminMember(
+    user: AuthenticatedUser,
+    memberId: number,
+  ): Promise<PulseMemberDetailDto> {
+    await this.assertAdminMemberMutationAccess(user, memberId);
+
+    const now = new Date();
+
+    this.logger.warn(
+      JSON.stringify({
+        event: 'pulse_admin_member_cancel',
+        memberId,
+        operatorUserId: user.id,
+        operatorEmail: user.email,
+        cancelledAt: now.toISOString(),
+      }),
+    );
+
+    // 软删除：设置 deletedAt 以标记注销状态
+    await this.prisma.store.update({
+      where: { id: memberId },
+      data: {
+        deletedAt: now,
+        updatedAt: now,
+      },
+    });
+
+    // 清除封禁原因（注销后封禁信息不再有意义）
+    await this.accessService.clearAdminMemberBanReason(memberId);
+    // 踢出所有用户 token 并失效相关缓存
+    await this.mutationStateService.invalidateAdminMemberDerived(memberId);
+
+    return this.memberReadService.buildAdminMemberDetail(memberId);
+  }
+
   async updateAdminMemberSubAccountQuota(
     user: AuthenticatedUser,
     memberId: number,

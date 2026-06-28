@@ -6,6 +6,7 @@ import {
 import type { Prisma } from '@prisma/client';
 import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Money } from '../../shared/money.utils';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ClubPaymentSettlementTemplate } from '../payments/club-payment-settlement.template';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
@@ -75,7 +76,7 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     // 校验余额是否充足
     if (settlementContext.customer.balance < balancePaidFen) {
       throw new BadRequestException(
-        `余额不足，当前余额 ¥${(settlementContext.customer.balance / 100).toFixed(2)}，需支付 ¥${(balancePaidFen / 100).toFixed(2)}`,
+        `余额不足，当前余额 ¥${Money.fromDbCents(settlementContext.customer.balance).toFixedOutputYuan()}，需支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
       );
     }
 
@@ -221,7 +222,7 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     });
     if (result.count === 0) {
       throw new BadRequestException(
-        `余额不足或已被并发消费，当前余额无法支付 ¥${(balancePaidFen / 100).toFixed(2)}`,
+        `余额不足或已被并发消费，当前余额无法支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
       );
     }
     this.logger.log(`成功更新顾客指标`);

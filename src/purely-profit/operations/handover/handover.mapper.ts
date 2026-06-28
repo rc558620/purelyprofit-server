@@ -27,7 +27,8 @@ import type {
   OrderItemRow,
   RefundOrderRow,
 } from './handover.types';
-import { mulMoney, toDisplayName, toMoneyNumber } from './handover.utils';
+import { Money } from '../../../shared/money.utils';
+import { toDisplayName, dbCentsToOutputYuan } from './handover.utils';
 
 const FALLBACK_ORDER_OPERATOR_NAME = '当前操作员';
 const AUTO_SETTLEMENT_OPERATOR_NAME = '空间自动结账';
@@ -109,7 +110,7 @@ const resolveOperatorRole = (
 };
 
 export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
-  const totalRevenue = mulMoney(toMoneyNumber(item.salePrice), item.quantity);
+  const totalRevenue = Money.fromDbCents(Number(item.salePrice)).multiply(item.quantity).toOutputYuan();
   const paymentMethod = resolveOrderItemPaymentMethod(item);
   return {
     id: String(item.id),
@@ -135,7 +136,7 @@ export const mapRefundOrderItem = (
   id: `refund-order-${order.id}`,
   productName: order.spaceSession?.space.name ?? SPACE_REFUND_ITEM_NAME,
   quantity: 1,
-  totalRevenue: toMoneyNumber(order.totalRevenue),
+    totalRevenue: dbCentsToOutputYuan(order.totalRevenue),
   paymentLabel: `${PAYMENT_METHOD_CONFIG[order.paymentMethod].label}退款`,
   paymentColor: PAYMENT_METHOD_CONFIG[order.paymentMethod].color,
   operatorName:

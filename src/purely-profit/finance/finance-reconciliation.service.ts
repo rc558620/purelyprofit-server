@@ -40,7 +40,7 @@ import {
 } from './finance-reconciliation.query';
 import { buildPaginatedReconciliationsResponse } from './finance.mapper';
 import type { FinanceReconciliationsListQueryInput } from './finance.types';
-import { roundMoneyValue } from './finance-money.utils';
+import { Money } from '../../shared/money.utils';
 import { buildPaginationState } from './finance-pagination.utils';
 import { trimOptionalString } from './finance-string.utils';
 
@@ -110,13 +110,13 @@ export class FinanceReconciliationService {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const operatorStaffId = user.currentMembership?.staffId ?? null;
-    const bookIncome = roundMoneyValue(dto.bookIncome);
-    const bookExpense = roundMoneyValue(dto.bookExpense);
-    const actualIncome = roundMoneyValue(dto.actualIncome);
-    const actualExpense = roundMoneyValue(dto.actualExpense);
-    const bookNet = roundMoneyValue(bookIncome - bookExpense);
-    const actualNet = roundMoneyValue(actualIncome - actualExpense);
-    const diffAmount = roundMoneyValue(actualNet - bookNet);
+    const bookIncome = Money.fromInputYuan(dto.bookIncome);
+    const bookExpense = Money.fromInputYuan(dto.bookExpense);
+    const actualIncome = Money.fromInputYuan(dto.actualIncome);
+    const actualExpense = Money.fromInputYuan(dto.actualExpense);
+    const bookNet = bookIncome.subtract(bookExpense);
+    const actualNet = actualIncome.subtract(actualExpense);
+    const diffAmount = actualNet.subtract(bookNet);
     const status = normalizeCreateReconciliationStatus(
       dto.status,
       actualIncome,
@@ -137,13 +137,13 @@ export class FinanceReconciliationService {
       counterpart: trimOptionalString(dto.counterpart),
       periodStart: new Date(dto.periodStart),
       periodEnd: new Date(dto.periodEnd),
-      bookIncome, // Step 3: 直接使用 number（分）
-      bookExpense, // Step 3: 直接使用 number（分）
-      bookNet, // Step 3: 直接使用 number（分）
-      actualIncome, // Step 3: 直接使用 number（分）
-      actualExpense, // Step 3: 直接使用 number（分）
-      actualNet, // Step 3: 直接使用 number（分）
-      diffAmount, // Step 3: 直接使用 number（分）
+      bookIncome: bookIncome.toDbCents(),
+      bookExpense: bookExpense.toDbCents(),
+      bookNet: bookNet.toDbCents(),
+      actualIncome: actualIncome.toDbCents(),
+      actualExpense: actualExpense.toDbCents(),
+      actualNet: actualNet.toDbCents(),
+      diffAmount: diffAmount.toDbCents(),
       operator: trimOptionalString(dto.operator),
       note: trimOptionalString(dto.note),
       date: new Date(dto.date),

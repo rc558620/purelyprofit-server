@@ -6,7 +6,6 @@ import {
   Body,
   Controller,
   Delete,
-  GoneException,
   Get,
   HttpCode,
   HttpStatus,
@@ -35,7 +34,6 @@ import {
   SpaceResponseDto,
   SpacesDashboardResponseDto,
   UpdateSpaceDto,
-  UpdateSpaceStatusDto,
 } from './dto/space.dto';
 import { SpaceDashboardService } from './space-dashboard.service';
 import { SpacesService } from './spaces.service';
@@ -108,29 +106,6 @@ export class SpacesController {
     @Param('id', ParseIntPipe) spaceId: number,
   ): Promise<SpaceResponseDto> {
     return this.spacesService.markSpaceReady(ctx.user, spaceId);
-  }
-
-  /**
-   * @deprecated Space.status 已从 schema 移除，运行态由 session/reservation 推导。
-   * 此接口已废弃，调用将返回 410 Gone。
-   * 如需重置空间状态，请使用 PATCH :id/mark-ready。
-   */
-  @Patch(':id/status')
-  @RequirePermissions('space:update')
-  @ApiOperation({
-    summary: '[已废弃] 更新空间状态',
-    description:
-      'Space.status 已从 schema 移除，运行态由 session/reservation 推导。此接口已废弃，调用将返回 410 Gone。如需重置空间状态请使用 PATCH :id/mark-ready。',
-    deprecated: true,
-  })
-  updateStatus(
-    @UserWithRequestId() _ctx: UserWithRequestIdValue,
-    @Param('id', ParseIntPipe) _spaceId: number,
-    @Body() _dto: UpdateSpaceStatusDto,
-  ): Promise<never> {
-    throw new GoneException(
-      '此接口已废弃。Space.status 已移除，运行态由 session/reservation 推导。如需重置空间状态请使用 PATCH /spaces/:id/mark-ready。',
-    );
   }
 
   @Delete(':id')

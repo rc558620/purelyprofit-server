@@ -40,6 +40,13 @@ export class RenewSpaceSessionDto {
   @MaxLength(50, { message: '团购平台最长 50 个字符' })
   grouponPlatform?: string;
 
+  @ApiPropertyOptional({ example: 100, description: '券面金额（元）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: '券面金额必须是数字' })
+  @Min(0.01, { message: '券面金额必须大于 0' })
+  voucherFaceAmount?: number;
+
   @ApiPropertyOptional({ example: '补差价', description: '备注' })
   @IsOptional()
   @IsString({ message: '备注必须是字符串' })

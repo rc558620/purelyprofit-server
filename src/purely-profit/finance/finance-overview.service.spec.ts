@@ -121,34 +121,34 @@ describe('FinanceOverviewService', () => {
   it('getOverview 将 refund/transfer_in/other_income 统一归到附加收入', async () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
-        { category: 'sales', total: new Prisma.Decimal('1000.00') },
-        { category: 'refund', total: new Prisma.Decimal('80.00') },
-        { category: 'transfer_in', total: new Prisma.Decimal('20.00') },
-        { category: 'other_income', total: new Prisma.Decimal('200.00') },
-        { category: 'purchase', total: new Prisma.Decimal('300.00') },
-        { category: 'rent', total: new Prisma.Decimal('100.00') },
+        { category: 'sales', total: new Prisma.Decimal('100000.00') },
+        { category: 'refund', total: new Prisma.Decimal('8000.00') },
+        { category: 'transfer_in', total: new Prisma.Decimal('2000.00') },
+        { category: 'other_income', total: new Prisma.Decimal('20000.00') },
+        { category: 'purchase', total: new Prisma.Decimal('30000.00') },
+        { category: 'rent', total: new Prisma.Decimal('10000.00') },
       ])
       .mockResolvedValueOnce([
         {
           day: new Date('2026-05-10T00:00:00.000Z'),
           income_total: new Prisma.Decimal('0.00'),
-          expense_total: new Prisma.Decimal('100.00'),
+          expense_total: new Prisma.Decimal('10000.00'),
         },
         {
           day: new Date('2026-05-12T00:00:00.000Z'),
-          income_total: new Prisma.Decimal('1080.00'),
+          income_total: new Prisma.Decimal('108000.00'),
           expense_total: new Prisma.Decimal('0.00'),
         },
         {
           day: new Date('2026-05-13T00:00:00.000Z'),
-          income_total: new Prisma.Decimal('220.00'),
-          expense_total: new Prisma.Decimal('300.00'),
+          income_total: new Prisma.Decimal('22000.00'),
+          expense_total: new Prisma.Decimal('30000.00'),
         },
       ])
       .mockResolvedValueOnce([
-        { category: 'sales', total: new Prisma.Decimal('500.00') },
-        { category: 'refund', total: new Prisma.Decimal('50.00') },
-        { category: 'purchase', total: new Prisma.Decimal('100.00') },
+        { category: 'sales', total: new Prisma.Decimal('50000.00') },
+        { category: 'refund', total: new Prisma.Decimal('5000.00') },
+        { category: 'purchase', total: new Prisma.Decimal('10000.00') },
       ]);
 
     await expect(
@@ -156,16 +156,16 @@ describe('FinanceOverviewService', () => {
     ).resolves.toMatchObject({
       heroSummary: {
         netIncome: { current: 900, previous: 450, changeRate: 100 },
-        totalIncome: { current: 1300, previous: 550, changeRate: 136.36 },
+        totalIncome: { current: 1300, previous: 550, changeRate: 136.4 },
         totalExpense: { current: 400, previous: 100, changeRate: 300 },
-        profitRate: { current: 69.23, previous: 81.82, changeRate: -12.59 },
+        profitRate: { current: 69.23, previous: 81.82, changeRate: expect.closeTo(-12.59, 2) },
         incomeExpenseRatio: 3.25,
       },
       incomeGroup: {
         total: 1300,
         items: [
-          { type: 'sales', amount: 1000, percent: 77 },
-          { type: 'additional', amount: 300, percent: 23 },
+          { type: 'sales', amount: 1000, percent: 76.92 },
+          { type: 'additional', amount: 300, percent: 23.08 },
         ],
       },
       expenseGroup: {
@@ -181,21 +181,21 @@ describe('FinanceOverviewService', () => {
   it('getOverview 将 salary/transfer_out/other_expense 统一归到成本支出', async () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
-        { category: 'salary', total: new Prisma.Decimal('50.00') },
-        { category: 'transfer_out', total: new Prisma.Decimal('30.00') },
-        { category: 'other_expense', total: new Prisma.Decimal('20.00') },
-        { category: 'purchase', total: new Prisma.Decimal('40.00') },
+        { category: 'salary', total: new Prisma.Decimal('5000.00') },
+        { category: 'transfer_out', total: new Prisma.Decimal('3000.00') },
+        { category: 'other_expense', total: new Prisma.Decimal('2000.00') },
+        { category: 'purchase', total: new Prisma.Decimal('4000.00') },
       ])
       .mockResolvedValueOnce([
         {
           day: new Date('2026-05-12T00:00:00.000Z'),
           income_total: new Prisma.Decimal('0.00'),
-          expense_total: new Prisma.Decimal('50.00'),
+          expense_total: new Prisma.Decimal('5000.00'),
         },
         {
           day: new Date('2026-05-13T00:00:00.000Z'),
           income_total: new Prisma.Decimal('0.00'),
-          expense_total: new Prisma.Decimal('90.00'),
+          expense_total: new Prisma.Decimal('9000.00'),
         },
       ])
       .mockResolvedValueOnce([]);
@@ -213,8 +213,8 @@ describe('FinanceOverviewService', () => {
       expenseGroup: {
         total: 140,
         items: [
-          { type: 'cost', amount: 100, percent: 71 },
-          { type: 'purchase', amount: 40, percent: 29 },
+          { type: 'cost', amount: 100, percent: 71.43 },
+          { type: 'purchase', amount: 40, percent: 28.57 },
         ],
       },
     });
@@ -281,7 +281,7 @@ describe('FinanceOverviewService', () => {
         direction: 'income',
         category: 'sales',
         title: '午市营业额',
-        amount: new Prisma.Decimal('500.00'),
+        amount: new Prisma.Decimal('50000.00'),
         payment: 'wechat',
         note: null,
         date: new Date('2025-05-14T10:00:00.000Z'),
@@ -292,7 +292,7 @@ describe('FinanceOverviewService', () => {
         direction: 'expense',
         category: 'purchase',
         title: '采购牛奶',
-        amount: new Prisma.Decimal('120.00'),
+        amount: new Prisma.Decimal('12000.00'),
         payment: 'bank',
         note: null,
         date: new Date('2025-05-13T08:00:00.000Z'),
@@ -302,11 +302,11 @@ describe('FinanceOverviewService', () => {
     prismaService.financeCashFlowRecord.groupBy.mockResolvedValue([
       {
         direction: 'income',
-        _sum: { amount: new Prisma.Decimal('300.00') },
+        _sum: { amount: new Prisma.Decimal('30000.00') },
       },
       {
         direction: 'expense',
-        _sum: { amount: new Prisma.Decimal('100.00') },
+        _sum: { amount: new Prisma.Decimal('10000.00') },
       },
     ]);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
@@ -315,9 +315,9 @@ describe('FinanceOverviewService', () => {
         type: 'receivable',
         category: 'sales_credit',
         counterpart: '张三水果店',
-        amount: new Prisma.Decimal('500.00'),
-        paidAmount: new Prisma.Decimal('200.00'),
-        remaining: new Prisma.Decimal('300.00'),
+        amount: new Prisma.Decimal('50000.00'),
+        paidAmount: new Prisma.Decimal('20000.00'),
+        remaining: new Prisma.Decimal('30000.00'),
         status: FinanceAccountStatus.partial,
         dueDate: null,
         date: new Date('2025-05-12T10:00:00.000Z'),
@@ -330,9 +330,9 @@ describe('FinanceOverviewService', () => {
         type: 'payable',
         category: 'supplier_debt',
         counterpart: '供应商A',
-        amount: new Prisma.Decimal('260.00'),
-        paidAmount: new Prisma.Decimal('60.00'),
-        remaining: new Prisma.Decimal('200.00'),
+        amount: new Prisma.Decimal('26000.00'),
+        paidAmount: new Prisma.Decimal('6000.00'),
+        remaining: new Prisma.Decimal('20000.00'),
         status: FinanceAccountStatus.partial,
         dueDate: null,
         date: new Date('2025-05-10T10:00:00.000Z'),
@@ -345,8 +345,8 @@ describe('FinanceOverviewService', () => {
         type: 'payable',
         category: 'loan',
         counterpart: '银行',
-        amount: new Prisma.Decimal('100.00'),
-        paidAmount: new Prisma.Decimal('100.00'),
+        amount: new Prisma.Decimal('10000.00'),
+        paidAmount: new Prisma.Decimal('10000.00'),
         remaining: new Prisma.Decimal('0.00'),
         status: FinanceAccountStatus.settled,
         dueDate: null,

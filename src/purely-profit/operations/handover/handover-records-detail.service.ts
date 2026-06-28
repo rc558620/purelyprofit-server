@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { mapConcurrent } from '../../../shared/concurrency.utils';
 import type {
   HandoverRecordListItemDto,
   HandoverRecordSummaryDto,
@@ -77,9 +78,10 @@ export class HandoverRecordsDetailService {
         records,
       );
 
-    // 营收计算仍需并行（各 record 的 shiftRange 不同）
-    return Promise.all(
-      records.map(async (record, i) => {
+    // 营收计算仍需并行（各 record 的 shiftRange 不同），但控制并发防止打满连接池
+    return mapConcurrent(
+      records,
+      async (record, i) => {
         const context = contexts[i];
         const totalRevenue =
           await this.handoverRecordsRevenueService.countRecordRevenue(
@@ -105,7 +107,7 @@ export class HandoverRecordsDetailService {
           createdAt: record.createdAt,
           shiftDate: context.shiftRecord?.date,
         });
-      }),
+      },
     );
   }
 

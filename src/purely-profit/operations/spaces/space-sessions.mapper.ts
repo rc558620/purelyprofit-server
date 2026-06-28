@@ -1,4 +1,4 @@
-import { centsToYuan, toTimestampMs } from '../../commerce/commerce.utils';
+import { Money, toTimestampMs } from '../../commerce/commerce.utils';
 import type {
   SpaceSessionItemResponseDto,
   SpaceSessionRenewRecordResponseDto,
@@ -30,8 +30,8 @@ export const mapSessionItemRows = (
       productName: row.productName,
       categoryName: row.categoryName,
       // DB 存储为分（Int），转为元
-      salePrice: centsToYuan(row.salePrice),
-      profit: centsToYuan(row.profit),
+      salePrice: Money.fromDbCents(row.salePrice).toOutputYuan(),
+      profit: Money.fromDbCents(row.profit).toOutputYuan(),
       quantity: row.quantity,
     }));
 
@@ -45,15 +45,18 @@ export const mapRenewRecordRows = (
   (rows ?? []).map((row) => ({
     id: row.recordId, // 业务 ID 暴露给前端
     // DB 存储为分（Int），转为元
-    amount: centsToYuan(row.amount),
+    amount: Money.fromDbCents(row.amount).toOutputYuan(),
     addedMinutes: row.addedMinutes,
     paymentMethod: row.paymentMethod,
     ...(row.grouponCode !== null ? { grouponCode: row.grouponCode } : {}),
     ...(row.grouponPlatform !== null
       ? { grouponPlatform: row.grouponPlatform }
       : {}),
+    ...(row.voucherFaceAmount != null
+      ? { voucherFaceAmount: Money.fromDbCents(row.voucherFaceAmount).toOutputYuan() }
+      : {}),
     ...(row.note !== null ? { note: row.note } : {}),
-    renewedAt: row.renewedAt,
+    renewedAt: typeof row.renewedAt === 'bigint' ? Number(row.renewedAt) : row.renewedAt,
   }));
 
 export const toSpaceSessionResponse = (
@@ -74,10 +77,10 @@ export const toSpaceSessionResponse = (
     ...(session.endTime ? { endTime: toTimestampMs(session.endTime) } : {}),
     billingMode: session.billingMode,
     ...(session.hourlyRate !== null
-      ? { hourlyRate: centsToYuan(Number(session.hourlyRate)) }
+      ? { hourlyRate: Money.fromDbCents(Number(session.hourlyRate)).toOutputYuan() }
       : {}),
     ...(session.timeCost !== null
-      ? { timeCost: centsToYuan(Number(session.timeCost)) }
+      ? { timeCost: Money.fromDbCents(Number(session.timeCost)).toOutputYuan() }
       : {}),
     ...(session.countdownMinutes !== null
       ? { countdownMinutes: session.countdownMinutes }
@@ -114,14 +117,18 @@ export const toSpaceSessionResponse = (
       : {}),
     ...(session.prepaidNote ? { prepaidNote: session.prepaidNote } : {}),
     ...(session.prepaidAmount !== null
-      ? { prepaidAmount: centsToYuan(Number(session.prepaidAmount)) }
+      ? { prepaidAmount: Money.fromDbCents(Number(session.prepaidAmount)).toOutputYuan() }
       : {}),
     ...(session.prepaidVoucherFaceAmount !== null
-      ? { prepaidVoucherFaceAmount: centsToYuan(Number(session.prepaidVoucherFaceAmount)) }
+      ? {
+          prepaidVoucherFaceAmount: Money.fromDbCents(
+            Number(session.prepaidVoucherFaceAmount),
+          ).toOutputYuan(),
+        }
       : {}),
     items: items.map((item): SpaceSessionItemResponseDto => ({ ...item })),
     // DB 存储为分（Int），转为元
-    itemsCost: centsToYuan(Number(session.itemsCost)),
+    itemsCost: Money.fromDbCents(Number(session.itemsCost)).toOutputYuan(),
     renewRecords: renewRecords.map(
       (record): SpaceSessionRenewRecordResponseDto => ({ ...record }),
     ),

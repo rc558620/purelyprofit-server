@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Money } from '../../shared/money.utils';
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
 import type {
   PulseMemberDetailDto,
@@ -85,12 +86,14 @@ export class PulseMembershipAdminMemberReadService {
         contactPhone: true,
         createdAt: true,
         updatedAt: true,
+        deletedAt: true,
         owner: {
           select: {
             email: true,
             name: true,
             realName: true,
             avatar: true,
+            wechatPhone: true,
             lastActiveAt: true,
           },
         },
@@ -174,12 +177,14 @@ export class PulseMembershipAdminMemberReadService {
             contactPhone: true,
             createdAt: true,
             updatedAt: true,
+            deletedAt: true,
             owner: {
               select: {
                 email: true,
                 name: true,
                 realName: true,
                 avatar: true,
+                wechatPhone: true,
                 lastActiveAt: true,
               },
             },
@@ -299,7 +304,7 @@ export class PulseMembershipAdminMemberReadService {
         summary.storeId,
         {
           rechargeCount: summary._count._all,
-          totalRecharged: summary._sum.amount ?? 0,
+          totalRecharged: Money.fromDbCents(summary._sum.amount ?? 0).toOutputYuan(),
           lastPaidAt: summary._max.createdAt?.getTime() ?? null,
         },
       ]),

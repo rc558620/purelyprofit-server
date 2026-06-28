@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { EmployeeDateFilterQueryDto } from './employee-response.dto';
+import { PaginationMetaDto } from '../../../stores/dto/store-response.dto';
 
 export class ListEmployeePayrollsQueryDto extends EmployeeDateFilterQueryDto {
   @ApiPropertyOptional({
@@ -316,4 +317,17 @@ export class EmployeePayrollResponseDto {
   @ApiProperty({ example: 1741410000000, description: '更新时间戳（毫秒）' })
   @IsInt({ message: '更新时间必须是整数时间戳' })
   updatedAt: number;
+}
+
+export class PaginatedEmployeePayrollsResponseDto {
+  @ApiProperty({ type: [EmployeePayrollResponseDto], description: '工资列表' })
+  @IsArray({ message: '工资列表必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => EmployeePayrollResponseDto)
+  items: EmployeePayrollResponseDto[];
+
+  @ApiProperty({ type: PaginationMetaDto, description: '分页元信息' })
+  @ValidateNested()
+  @Type(() => PaginationMetaDto)
+  meta: PaginationMetaDto;
 }

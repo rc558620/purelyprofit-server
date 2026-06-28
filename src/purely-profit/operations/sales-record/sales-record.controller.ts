@@ -10,6 +10,7 @@ import {
   ParseIntPipe,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -23,6 +24,7 @@ import {
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   CreateSalesRecordDto,
@@ -82,10 +84,15 @@ export class SalesRecordController {
   @RequirePermissions('report:view')
   @ApiOperation({ summary: '获取报表中心销售报表数据' })
   @ApiOkResponse({ type: SalesReportResponseDto })
-  getReport(
+  async getReport(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: SalesReportQueryDto,
-  ): Promise<SalesReportResponseDto> {
+    @Res({ passthrough: true }) reply: { raw: ServerResponse },
+  ): Promise<SalesReportResponseDto | typeof reply> {
+    if (query.format === 'csv') {
+      await this.salesRecordService.streamReportCsv(reply.raw, user, query);
+      return reply;
+    }
     return this.salesRecordService.getReport(user, query);
   }
 
@@ -148,10 +155,15 @@ export class SalesOrdersCompatController {
     summary: '获取报表中心销售报表数据（purelyProfit 前端兼容）',
   })
   @ApiOkResponse({ type: SalesReportResponseDto })
-  getReport(
+  async getReport(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: SalesReportQueryDto,
-  ): Promise<SalesReportResponseDto> {
+    @Res({ passthrough: true }) reply: { raw: ServerResponse },
+  ): Promise<SalesReportResponseDto | typeof reply> {
+    if (query.format === 'csv') {
+      await this.salesRecordService.streamReportCsv(reply.raw, user, query);
+      return reply;
+    }
     return this.salesRecordService.getReport(user, query);
   }
 

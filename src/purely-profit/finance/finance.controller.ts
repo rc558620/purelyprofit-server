@@ -11,6 +11,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -24,6 +25,7 @@ import {
 import { RequirePermissions } from '../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import {
   CreateFinanceAccountDto,
@@ -88,10 +90,15 @@ export class FinanceController {
     description: '返回报表中心财务 Tab 所需的概况、流水行和账款行',
     type: FinanceReportResponseDto,
   })
-  getReport(
+  async getReport(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: FinanceReportQueryDto,
-  ): Promise<FinanceReportResponseDto> {
+    @Res({ passthrough: true }) reply: { raw: ServerResponse },
+  ): Promise<FinanceReportResponseDto | typeof reply> {
+    if (query.format === 'csv') {
+      await this.financeService.streamReportCsv(reply.raw, user, query);
+      return reply;
+    }
     return this.financeService.getReport(user, query);
   }
 

@@ -89,7 +89,11 @@ export function buildAdminMemberListStoreWhere(
   storeIds: number[],
   query: GetPulseAdminMembersQueryDto,
 ): Prisma.StoreWhereInput {
-  const filters: Prisma.StoreWhereInput[] = [{ id: { in: storeIds } }];
+  // 始终过滤已注销（deletedAt 非 null）的门店，确保其不出现在会员列表中。
+  const filters: Prisma.StoreWhereInput[] = [
+    { id: { in: storeIds } },
+    { deletedAt: null },
+  ];
 
   if (query.partner === true) {
     filters.push({
@@ -210,24 +214,25 @@ export function resolveAdminMemberDisplayName(
 export function resolveAdminMemberPhone(
   store: Pick<PulseAdminStoreIdentityRecord, 'contactPhone' | 'owner'>,
 ): string {
+  // 1. 门店联系电话（用户手动填写的联系方式）
   const contactPhone = store.contactPhone?.trim();
   if (contactPhone) {
     return contactPhone;
   }
 
+  // 2. 微信授权手机号（微信登录时自动获取的真实手机号）
+  const wechatPhone = store.owner.wechatPhone?.trim();
+  if (wechatPhone) {
+    return wechatPhone;
+  }
+
+  // 3. 从 email 中提取手机号（占位邮箱格式：{profit|club}_phone_XXXXXXXXXXX@purelyprofit.local）
   const ownerEmail = store.owner.email.trim().toLowerCase();
-  const matchedPhone = /^phone_(\d{11})@purelyprofit\.local$/.exec(ownerEmail);
+  const matchedPhone = /(?:profit_|club_)?phone_(\d{11})@purelyprofit\.local$/.exec(ownerEmail);
   return matchedPhone?.[1] ?? '';
 }
 
-export function maskAdminMemberPhone(phone: string): string {
-  const normalizedPhone = phone.replace(/\s+/g, '');
-  if (!/^1\d{10}$/.test(normalizedPhone)) {
-    return normalizedPhone || '--';
-  }
-
-  return `${normalizedPhone.slice(0, 3)}****${normalizedPhone.slice(-4)}`;
-}
+// maskAdminMemberPhone 已移除：purelyPulse 为商家管理后台，需完整展示用户手机号，不再脱敏。
 
 /**
  * 将数据库中的会员计划ID + 过期时间映射为 Pulse 管理端的会员等级。

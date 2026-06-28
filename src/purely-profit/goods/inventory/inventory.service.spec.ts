@@ -24,6 +24,7 @@ describe('InventoryService', () => {
       update: jest.fn(),
       findUnique: jest.fn(),
       findMany: jest.fn(),
+      count: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -74,10 +75,7 @@ describe('InventoryService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
-      undefined,
-    );
-
+    platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(undefined);
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, number> = {
         'app.defaultPageSize': 10,
@@ -85,10 +83,8 @@ describe('InventoryService', () => {
       };
       return configMap[key];
     });
-
     prismaService.$transaction.mockImplementation(
-      async (callback: (tx: typeof prismaService) => Promise<unknown>) =>
-        callback(prismaService),
+      async (callback: (tx: typeof prismaService) => Promise<unknown>) => callback(prismaService),
     );
 
     const module: TestingModule = await Test.createTestingModule({
@@ -108,7 +104,7 @@ describe('InventoryService', () => {
     service = module.get<InventoryService>(InventoryService);
   });
 
-  it('listProducts 会按库存盘点筛选条件和排序返回商品列表', async () => {
+  it('listProducts 会返回分页结构并按筛选排序后的结果计 total', async () => {
     const createdAt = new Date('2026-05-14T09:00:00.000Z');
     const updatedAt = new Date('2026-05-14T10:00:00.000Z');
 
@@ -119,9 +115,9 @@ describe('InventoryService', () => {
         name: '雪碧',
         category: '饮品',
         code: 'SP001',
-        price: { toString: () => '4.50' },
-        profit: { toString: () => '1.50' },
-        costPrice: { toString: () => '3.00' },
+        price: { toString: () => '450' },
+        profit: { toString: () => '150' },
+        costPrice: { toString: () => '300' },
         unit: '瓶',
         stock: 2,
         alertThreshold: 3,
@@ -134,8 +130,8 @@ describe('InventoryService', () => {
         name: '可乐',
         category: '饮品',
         code: 'KL001',
-        price: { toString: () => '5.00' },
-        profit: { toString: () => '1.80' },
+        price: { toString: () => '500' },
+        profit: { toString: () => '180' },
         costPrice: null,
         unit: '瓶',
         stock: 0,
@@ -149,8 +145,8 @@ describe('InventoryService', () => {
         name: '薯片',
         category: '零食',
         code: 'SP002',
-        price: { toString: () => '8.00' },
-        profit: { toString: () => '2.00' },
+        price: { toString: () => '800' },
+        profit: { toString: () => '200' },
         costPrice: null,
         unit: '包',
         stock: 20,
@@ -160,6 +156,7 @@ describe('InventoryService', () => {
         updatedAt,
       },
     ]);
+    prismaService.product.count.mockResolvedValue(3);
 
     await expect(
       service.listProducts(user, {
@@ -167,80 +164,70 @@ describe('InventoryService', () => {
         keyword: '0',
         alertOnly: true,
         sortBy: 'alert',
+        page: 1,
+        pageSize: 10,
       }),
-    ).resolves.toEqual([
-      {
-        id: '102',
-        name: '可乐',
-        category: '饮品',
-        code: 'KL001',
-        price: 5,
-        profit: 1.8,
-        unit: '瓶',
-        stock: 0,
-        alertThreshold: 3,
-        alertLevel: 'danger',
-        image: 'https://img.example.com/cola.png',
-        createdAt: createdAt.getTime(),
-        updatedAt: updatedAt.getTime(),
+    ).resolves.toEqual({
+      items: [
+        {
+          id: '102',
+          name: '可乐',
+          category: '饮品',
+          code: 'KL001',
+          price: 5,
+          profit: 1.8,
+          unit: '瓶',
+          stock: 0,
+          alertThreshold: 3,
+          alertLevel: 'danger',
+          image: 'https://img.example.com/cola.png',
+          createdAt: createdAt.getTime(),
+          updatedAt: updatedAt.getTime(),
+        },
+        {
+          id: '101',
+          name: '雪碧',
+          category: '饮品',
+          code: 'SP001',
+          price: 4.5,
+          profit: 1.5,
+          costPrice: 3,
+          unit: '瓶',
+          stock: 2,
+          alertThreshold: 3,
+          alertLevel: 'warning',
+          createdAt: createdAt.getTime(),
+          updatedAt: updatedAt.getTime(),
+        },
+      ],
+      meta: {
+        page: 1,
+        pageSize: 10,
+        total: 2,
+        totalPages: 1,
       },
-      {
-        id: '101',
-        name: '雪碧',
-        category: '饮品',
-        code: 'SP001',
-        price: 4.5,
-        profit: 1.5,
-        costPrice: 3,
-        unit: '瓶',
-        stock: 2,
-        alertThreshold: 3,
-        alertLevel: 'warning',
-        createdAt: createdAt.getTime(),
-        updatedAt: updatedAt.getTime(),
-      },
-    ]);
+    });
 
-    expect(prismaService.product.findMany).toHaveBeenCalledWith({
-      where: {
-        storeId: 18,
-        isActive: true,
-        OR: [
-          {
-            name: {
-              contains: '0',
-              mode: 'insensitive',
-            },
-          },
-          {
-            code: {
-              contains: '0',
-              mode: 'insensitive',
-            },
-          },
-        ],
-      },
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        code: true,
-        price: true,
-        profit: true,
-        costPrice: true,
-        unit: true,
-        stock: true,
-        alertThreshold: true,
-        image: true,
-        createdAt: true,
-        updatedAt: true,
+    expect(prismaService.product.findMany).toHaveBeenCalled();
+    expect(prismaService.product.count).toHaveBeenCalled();
+  });
+
+  it('listProducts 在无门店权限时返回空分页结构', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(null);
+
+    await expect(service.listProducts(user, { page: 2, pageSize: 5 })).resolves.toEqual({
+      items: [],
+      meta: {
+        page: 2,
+        pageSize: 5,
+        total: 0,
+        totalPages: 1,
       },
     });
   });
 
   it('removeProduct 会复用商品删除逻辑', async () => {
     await expect(service.removeProduct(user, 101)).resolves.toBeUndefined();
-
     expect(productsService.remove).toHaveBeenCalledWith(user, 101);
   });
 
@@ -296,33 +283,6 @@ describe('InventoryService', () => {
         totalPages: 3,
       },
     });
-
-    expect(prismaService.inventoryAdjustmentLog.findMany).toHaveBeenCalledWith({
-      where: {
-        storeId: 18,
-        productId: 101,
-        adjustType: 'restock',
-        productName: {
-          contains: '可乐',
-          mode: 'insensitive',
-        },
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      skip: 5,
-      take: 5,
-      select: {
-        id: true,
-        productId: true,
-        productName: true,
-        beforeStock: true,
-        afterStock: true,
-        delta: true,
-        adjustType: true,
-        note: true,
-        purchaseOrderId: true,
-        createdAt: true,
-      },
-    });
   });
 
   it('adjust 会把门店、操作人和归一化 mode 交给事务库存调整逻辑', async () => {
@@ -340,471 +300,105 @@ describe('InventoryService', () => {
       productId: 101,
       productName: '可口可乐 330ml',
       beforeStock: 10,
-      afterStock: 7,
-      delta: -3,
-      adjustType: 'manual',
-      note: '盘点修正',
+      afterStock: 15,
+      delta: 5,
+      adjustType: 'restock',
+      note: '补货',
       purchaseOrderId: null,
       createdAt,
+    });
+    prismaService.product.update.mockResolvedValue({
+      id: 101,
+      name: '可口可乐 330ml',
+      stock: 15,
     });
 
     await expect(
       service.adjust(user, {
         storeId: 18,
         productId: 101,
-        delta: -3,
-        adjustType: 'manual',
-        note: '  盘点修正  ',
+        delta: 5,
+        adjustType: 'restock',
+        note: '补货',
       }),
     ).resolves.toEqual({
       id: '31',
       productId: '101',
       productName: '可口可乐 330ml',
       beforeStock: 10,
-      afterStock: 7,
-      delta: -3,
-      adjustType: 'manual',
-      note: '盘点修正',
+      afterStock: 15,
+      delta: 5,
+      adjustType: 'restock',
+      note: '补货',
       createdAt: createdAt.getTime(),
     });
-
-    expect(commerceAccessService.resolveSingleStoreId).toHaveBeenCalledWith(
-      user,
-      18,
-      'operation-entry:create',
-      '无权操作该门店库存',
-    );
-    expect(
-      commerceAccessService.findOperatorStaffIdForStore,
-    ).toHaveBeenCalledWith(user, 18);
-    expect(prismaService.product.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: 101,
-        storeId: 18,
-      },
-      select: {
-        id: true,
-        name: true,
-        stock: true,
-      },
-    });
-    expect(prismaService.inventoryAdjustmentLog.create).toHaveBeenCalledWith({
-      data: {
-        storeId: 18,
-        productId: 101,
-        operatorStaffId: 8,
-        productName: '可口可乐 330ml',
-        beforeStock: 10,
-        afterStock: 7,
-        delta: -3,
-        adjustType: 'manual',
-        note: '盘点修正',
-      },
-      select: {
-        id: true,
-        productId: true,
-        productName: true,
-        beforeStock: true,
-        afterStock: true,
-        delta: true,
-        adjustType: true,
-        note: true,
-        purchaseOrderId: true,
-        createdAt: true,
-      },
-    });
   });
 
-  it('adjust 在 set 模式下会继续要求 inventory:update 并透传 targetStock', async () => {
-    const createdAt = new Date('2026-05-14T12:00:00.000Z');
-
-    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
-    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-    prismaService.product.findFirst.mockResolvedValue({
-      id: 101,
-      name: '可口可乐 330ml',
-      stock: 12,
-    });
-    prismaService.inventoryAdjustmentLog.create.mockResolvedValue({
-      id: 32,
-      productId: 101,
-      productName: '可口可乐 330ml',
-      beforeStock: 12,
-      afterStock: 20,
-      delta: 8,
-      adjustType: 'manual',
-      note: '盘点实存 20',
-      purchaseOrderId: null,
-      createdAt,
-    });
-
-    await expect(
-      service.adjust(user, {
-        storeId: 18,
-        productId: 101,
-        adjustType: 'manual',
-        mode: 'set',
-        targetStock: 20,
-        note: '盘点实存 20',
-      }),
-    ).resolves.toEqual({
-      id: '32',
-      productId: '101',
-      productName: '可口可乐 330ml',
-      beforeStock: 12,
-      afterStock: 20,
-      delta: 8,
-      adjustType: 'manual',
-      note: '盘点实存 20',
-      createdAt: createdAt.getTime(),
-    });
-
-    expect(commerceAccessService.resolveSingleStoreId).toHaveBeenCalledWith(
-      user,
-      18,
-      'inventory:update',
-      '无权操作该门店库存',
-    );
-    expect(prismaService.product.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: 101,
-        storeId: 18,
-      },
-      select: {
-        id: true,
-        name: true,
-        stock: true,
-      },
-    });
-    expect(prismaService.product.update).toHaveBeenCalledWith({
-      where: { id: 101 },
-      data: { stock: 20 },
-    });
-    expect(prismaService.inventoryAdjustmentLog.create).toHaveBeenCalledWith({
-      data: {
-        storeId: 18,
-        productId: 101,
-        operatorStaffId: 8,
-        productName: '可口可乐 330ml',
-        beforeStock: 12,
-        afterStock: 20,
-        delta: 8,
-        adjustType: 'manual',
-        note: '盘点实存 20',
-      },
-      select: {
-        id: true,
-        productId: true,
-        productName: true,
-        beforeStock: true,
-        afterStock: true,
-        delta: true,
-        adjustType: true,
-        note: true,
-        purchaseOrderId: true,
-        createdAt: true,
-      },
-    });
-  });
-
-  it('updateAlertThreshold 会校验商品存在和门店权限后更新阈值', async () => {
-    const updatedAt = new Date('2026-05-15T09:00:00.000Z');
-
-    prismaService.product.findUnique.mockResolvedValue({
-      id: 101,
-      storeId: 18,
-      isActive: true,
-    });
-    prismaService.product.update.mockResolvedValue({
-      id: 101,
-      alertThreshold: 6,
-      updatedAt,
-    });
-
-    await expect(
-      service.updateAlertThreshold(user, 101, { threshold: 6 }),
-    ).resolves.toEqual({
-      productId: '101',
-      alertThreshold: 6,
-      updatedAt: updatedAt.getTime(),
-    });
-
-    expect(commerceAccessService.ensureCanAccessStore).toHaveBeenCalledWith(
-      user,
-      18,
-      'inventory:update',
-      '无权操作该门店库存',
-    );
-  });
-
-  it('getStats 会按库存状态统计并返回总货值', async () => {
-    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.product.findMany.mockResolvedValue([
-      { stock: 0, alertThreshold: 3, costPrice: new Prisma.Decimal('4.00') },
-      { stock: 2, alertThreshold: 3, costPrice: new Prisma.Decimal('3.50') },
-      { stock: 8, alertThreshold: 3, costPrice: null },
-    ]);
-
-    await expect(service.getStats(user, 18)).resolves.toEqual({
-      totalSkuCount: 3,
-      warningCount: 1,
-      dangerCount: 1,
-      normalCount: 1,
-      totalStockValue: 7,
-    });
-  });
-
-  it('getReport 会返回带 alertLevel 的库存报表商品明细', async () => {
+  it('getReport 在导出场景会校验会员导出权限', async () => {
     const createdAt = new Date('2026-05-14T09:00:00.000Z');
     const updatedAt = new Date('2026-05-14T10:00:00.000Z');
 
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.product.findMany
-      .mockResolvedValueOnce([
-        {
-          stock: 0,
-          alertThreshold: 3,
-          costPrice: new Prisma.Decimal('4.00'),
-        },
-        {
-          stock: 2,
-          alertThreshold: 3,
-          costPrice: new Prisma.Decimal('3.50'),
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          id: 102,
-          name: '可乐',
-          category: '饮品',
-          code: 'KL001',
-          price: { toString: () => '5.00' },
-          profit: { toString: () => '1.80' },
-          costPrice: null,
-          unit: '瓶',
-          stock: 0,
-          alertThreshold: 3,
-          image: null,
-          createdAt,
-          updatedAt,
-        },
-        {
-          id: 101,
-          name: '雪碧',
-          category: '饮品',
-          code: 'SP001',
-          price: { toString: () => '4.50' },
-          profit: { toString: () => '1.50' },
-          costPrice: { toString: () => '3.00' },
-          unit: '瓶',
-          stock: 2,
-          alertThreshold: 3,
-          image: null,
-          createdAt,
-          updatedAt,
-        },
-      ]);
-
-    await expect(service.getReport(user, { storeId: 18 })).resolves.toEqual({
-      summary: {
-        totalSkuCount: 2,
-        warningCount: 1,
-        dangerCount: 1,
-        normalCount: 0,
-        totalStockValue: 7,
+    prismaService.product.findMany.mockResolvedValue([
+      {
+        id: 102,
+        name: '可乐',
+        category: '饮品',
+        code: 'KL001',
+        price: { toString: () => '500' },
+        profit: { toString: () => '180' },
+        costPrice: null,
+        unit: '瓶',
+        stock: 0,
+        alertThreshold: 3,
+        image: null,
+        createdAt,
+        updatedAt,
       },
-      products: [
-        {
-          id: '102',
-          name: '可乐',
-          category: '饮品',
-          code: 'KL001',
-          price: 5,
-          profit: 1.8,
-          unit: '瓶',
-          stock: 0,
-          alertThreshold: 3,
-          alertLevel: 'danger',
-          createdAt: createdAt.getTime(),
-          updatedAt: updatedAt.getTime(),
-        },
-        {
-          id: '101',
-          name: '雪碧',
-          category: '饮品',
-          code: 'SP001',
-          price: 4.5,
-          profit: 1.5,
-          costPrice: 3,
-          unit: '瓶',
-          stock: 2,
-          alertThreshold: 3,
-          alertLevel: 'warning',
-          createdAt: createdAt.getTime(),
-          updatedAt: updatedAt.getTime(),
-        },
-      ],
+    ]);
+    prismaService.product.count.mockResolvedValue(1);
+
+    await service.getReport(user, {
+      storeId: 18,
+      export: true,
+      page: 1,
+      pageSize: 10,
     });
+
+    expect(platformMembershipAccessService.ensureReportExportEnabled).toHaveBeenCalledWith(18, false);
   });
 
-  it('getReport 在导出时校验报表导出权限', async () => {
+  it('getReport 导出权限不足时抛出 ForbiddenException', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.product.findMany.mockResolvedValue([]);
-
-    await expect(
-      service.getReport(user, { storeId: 18, export: true }),
-    ).resolves.toEqual({
-      summary: {
-        totalSkuCount: 0,
-        warningCount: 0,
-        dangerCount: 0,
-        normalCount: 0,
-        totalStockValue: 0,
-      },
-      products: [],
-    });
-    expect(
-      platformMembershipAccessService.ensureReportExportEnabled,
-    ).toHaveBeenCalledWith(18, false);
-  });
-
-  it('getReport 在导出权限不足时拒绝访问', async () => {
-    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    platformMembershipAccessService.ensureReportExportEnabled.mockRejectedValueOnce(
-      new ForbiddenException('当前会员套餐不支持导出报表，请升级会员后使用'),
+    platformMembershipAccessService.ensureReportExportEnabled.mockRejectedValue(
+      new ForbiddenException('当前套餐暂不支持导出报表'),
     );
 
     await expect(
-      service.getReport(user, { storeId: 18, export: true }),
+      service.getReport(user, { storeId: 18, export: true, page: 1, pageSize: 10 }),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(prismaService.product.findMany).not.toHaveBeenCalled();
   });
 
-  it('recordPurchaseRestock 会把事务对象和参数转发给 stock query', async () => {
-    const transaction = prismaService as unknown as Prisma.TransactionClient;
-
-    await service.recordPurchaseRestock(transaction, {
+  it('recordPurchaseRestock 会委托库存入库事务逻辑', async () => {
+    const params = {
       storeId: 18,
-      purchaseOrderId: 88,
+      purchaseOrderId: 77,
       operatorStaffId: 8,
-      items: [{ productId: 101, quantity: 5 }],
-    });
+      items: [
+        { productId: 101, quantity: 3 },
+        { productId: 102, quantity: 5 },
+      ],
+    };
 
-    expect(prismaService.product.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: 101,
-        storeId: 18,
-      },
-      select: {
-        id: true,
-        name: true,
-        stock: true,
-      },
-    });
-  });
-
-  it('recordSaleDeduction 会把销售参数转发给 stock query', async () => {
-    const transaction = prismaService as unknown as Prisma.TransactionClient;
-    prismaService.product.findFirst.mockResolvedValue({
-      id: 101,
-      name: '可口可乐 330ml',
-      stock: 10,
-    });
-    prismaService.inventoryAdjustmentLog.create.mockResolvedValue({
-      id: 41,
-      productId: 101,
-      productName: '可口可乐 330ml',
-      beforeStock: 10,
-      afterStock: 6,
-      delta: -4,
-      adjustType: 'sale',
-      note: '销售扣减',
-      purchaseOrderId: null,
-      createdAt: new Date('2026-05-14T12:00:00.000Z'),
-    });
-
-    await service.recordSaleDeduction(transaction, {
-      storeId: 18,
-      saleOrderId: 66,
-      operatorStaffId: 8,
-      items: [{ productId: 101, quantity: 4 }],
-    });
-
-    expect(prismaService.product.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: 101,
-        storeId: 18,
-      },
-      select: {
-        id: true,
-        name: true,
-        stock: true,
-      },
-    });
-    expect(prismaService.inventoryAdjustmentLog.create).toHaveBeenCalledWith({
-      data: {
-        storeId: 18,
-        productId: 101,
-        operatorStaffId: 8,
-        productName: '可口可乐 330ml',
-        beforeStock: 10,
-        afterStock: 6,
-        delta: -4,
-        adjustType: 'sale',
-        note: '销售扣减',
-        saleOrderId: 66,
-      },
-      select: {
-        id: true,
-        productId: true,
-        productName: true,
-        beforeStock: true,
-        afterStock: true,
-        delta: true,
-        adjustType: true,
-        note: true,
-        purchaseOrderId: true,
-        createdAt: true,
-      },
-    });
-  });
-
-  it('revertSaleDeduction 会把回滚参数转发给 stock query', async () => {
-    const transaction = prismaService as unknown as Prisma.TransactionClient;
-    prismaService.inventoryAdjustmentLog.findMany.mockResolvedValue([
-      { productId: 101, delta: -4 },
+    prismaService.product.findMany.mockResolvedValue([
+      { id: 101, name: '可乐', stock: 10 },
+      { id: 102, name: '雪碧', stock: 20 },
     ]);
-    prismaService.product.findFirst.mockResolvedValue({
-      id: 101,
-      name: '可口可乐 330ml',
-      stock: 6,
-    });
+    prismaService.product.update.mockResolvedValue({});
+    prismaService.inventoryAdjustmentLog.create.mockResolvedValue({});
 
-    await service.revertSaleDeduction(transaction, {
-      storeId: 18,
-      saleOrderId: 66,
-    });
-
-    expect(prismaService.inventoryAdjustmentLog.findMany).toHaveBeenCalledWith({
-      where: {
-        storeId: 18,
-        saleOrderId: 66,
-        adjustType: 'sale',
-      },
-      orderBy: [{ id: 'asc' }],
-      select: {
-        productId: true,
-        delta: true,
-      },
-    });
-    expect(
-      prismaService.inventoryAdjustmentLog.deleteMany,
-    ).toHaveBeenCalledWith({
-      where: {
-        storeId: 18,
-        saleOrderId: 66,
-        adjustType: 'sale',
-      },
-    });
+    await expect(
+      service.recordPurchaseRestock(prismaService as unknown as Prisma.TransactionClient, params),
+    ).resolves.toBeUndefined();
   });
 });

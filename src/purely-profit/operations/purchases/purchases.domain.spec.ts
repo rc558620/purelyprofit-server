@@ -148,7 +148,7 @@ describe('purchases.domain', () => {
             productName: '可口可乐 330ml 快照',
             unit: '箱',
             quantity: 6,
-            unitPrice: 12,
+            unitPrice: 12, // 元
           },
         ],
         productMap,
@@ -159,8 +159,8 @@ describe('purchases.domain', () => {
         productName: '可口可乐 330ml 快照',
         unit: '箱',
         quantity: 6,
-        unitPrice: 12,
-        amount: 72,
+        unitPrice: 1200, // 分
+        amount: 7200,   // 分
       },
     ]);
   });
@@ -190,7 +190,7 @@ describe('purchases.domain', () => {
           {
             productName: '  散装辣条  ',
             quantity: 3,
-            unitPrice: 12,
+            unitPrice: 12, // 元
           },
         ],
         new Map(),
@@ -201,8 +201,8 @@ describe('purchases.domain', () => {
         productName: '散装辣条',
         unit: null,
         quantity: 3,
-        unitPrice: 12,
-        amount: 36,
+        unitPrice: 1200, // 分
+        amount: 3600,   // 分
       },
     ]);
 
@@ -219,7 +219,7 @@ describe('purchases.domain', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('sumPreparedPurchaseAmount 会汇总金额并保留两位小数', () => {
+  it('sumPreparedPurchaseAmount 会汇总分单位金额（整数求和）', () => {
     expect(
       sumPreparedPurchaseAmount([
         {
@@ -227,19 +227,19 @@ describe('purchases.domain', () => {
           productName: '可口可乐 330ml',
           unit: '瓶',
           quantity: 3,
-          unitPrice: 3.335,
-          amount: 10.01,
+          unitPrice: 334, // 分
+          amount: 1001,  // 分
         },
         {
           productId: null,
           productName: '散装辣条',
           unit: null,
           quantity: 1,
-          unitPrice: 2.335,
-          amount: 2.34,
+          unitPrice: 234, // 分
+          amount: 234,   // 分
         },
       ]),
-    ).toBe(12.35);
+    ).toBe(1235);
   });
 
   it('buildPurchaseCostTitle 和 calculatePurchaseCompareLastMonth 会返回预期结果', () => {

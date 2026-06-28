@@ -16,7 +16,6 @@ describe('SpacesService', () => {
     updateSpace: jest.fn(),
     removeSpace: jest.fn(),
     markSpaceReady: jest.fn(),
-    updateSpaceStatus: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -86,7 +85,6 @@ describe('SpacesService', () => {
       sortOrder: 1,
     };
     const updateDto = { name: 'A台-V2' };
-    const statusDto = { status: 'cleaning' as const };
     const response = {
       id: '1',
       name: 'A台',
@@ -102,7 +100,6 @@ describe('SpacesService', () => {
     spacesWriteService.updateSpace.mockResolvedValue(response);
     spacesWriteService.removeSpace.mockResolvedValue(undefined);
     spacesWriteService.markSpaceReady.mockResolvedValue(response);
-    spacesWriteService.updateSpaceStatus.mockResolvedValue(response);
 
     await expect(service.createSpace(user, createDto)).resolves.toBe(response);
     await expect(service.updateSpace(user, 1, updateDto)).resolves.toBe(
@@ -110,9 +107,6 @@ describe('SpacesService', () => {
     );
     await expect(service.removeSpace(user, 1)).resolves.toBeUndefined();
     await expect(service.markSpaceReady(user, 1)).resolves.toBe(response);
-    await expect(service.updateSpaceStatus(user, 1, statusDto)).resolves.toBe(
-      response,
-    );
 
     expect(spacesWriteService.createSpace).toHaveBeenCalledWith(
       user,
@@ -125,10 +119,5 @@ describe('SpacesService', () => {
     );
     expect(spacesWriteService.removeSpace).toHaveBeenCalledWith(user, 1);
     expect(spacesWriteService.markSpaceReady).toHaveBeenCalledWith(user, 1);
-    expect(spacesWriteService.updateSpaceStatus).toHaveBeenCalledWith(
-      user,
-      1,
-      statusDto,
-    );
   });
 });

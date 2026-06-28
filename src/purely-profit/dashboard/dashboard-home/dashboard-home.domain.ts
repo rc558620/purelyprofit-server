@@ -1,4 +1,4 @@
-import { addMoneyValues, toDecimalNumber } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type {
   AggregatedCostsResult,
   AggregatedSalesResult,
@@ -52,10 +52,9 @@ export function filterCostRecordsByRange(
 }
 
 export function sumSaleOrderRevenue(saleOrders: SaleOrderRow[]): number {
-  return saleOrders.reduce(
-    (sum, row) => addMoneyValues(sum, toDecimalNumber(row.totalRevenue)),
-    0,
-  );
+  return Money.sum(
+    saleOrders.map((row) => Money.fromDbCents(row.totalRevenue)),
+  ).toOutputYuan();
 }
 
 export function countSaleOrders(saleOrders: SaleOrderRow[]): number {
@@ -63,10 +62,9 @@ export function countSaleOrders(saleOrders: SaleOrderRow[]): number {
 }
 
 export function sumCostRecordAmount(costRecords: CostRecordRow[]): number {
-  return costRecords.reduce(
-    (sum, row) => addMoneyValues(sum, toDecimalNumber(row.amount)),
-    0,
-  );
+  return Money.sum(
+    costRecords.map((row) => Money.fromDbCents(row.amount)),
+  ).toOutputYuan();
 }
 
 export function isTimestampInRange(

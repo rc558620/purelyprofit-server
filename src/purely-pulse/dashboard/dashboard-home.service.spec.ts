@@ -147,8 +147,8 @@ describe('PulseDashboardHomeService', () => {
     expect(prismaService.storeMembershipOrder.groupBy).toHaveBeenCalled();
     expect(prismaService.$queryRaw).toHaveBeenCalled();
     expect(result.partnerTop).toEqual([
-      { name: '张三', city: '深圳市', orders: 2, revenue: 5000 },
-      { name: '李四', city: '北京市', orders: 1, revenue: 1000 },
+      { name: '张三', city: '深圳市', orders: 2, revenue: 50 },
+      { name: '李四', city: '北京市', orders: 1, revenue: 10 },
     ]);
     expect(result.revenueTypeBreakdown).toEqual([
       { label: '月卡会员', value: 67 },

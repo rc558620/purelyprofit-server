@@ -2,9 +2,14 @@ export const CACHE_PREWARM_CATEGORIES = [
   'dashboardHome',
   'businessAnalysis',
   'financeOverview',
+  'financeReport',
   'marketingOverview',
   'membersMeta',
   'membersOverview',
+  'profitDetail',
+  'profitReport',
+  'costsStats',
+  'costsReport',
 ] as const;
 
 export type CachePrewarmCategory = (typeof CACHE_PREWARM_CATEGORIES)[number];
@@ -73,9 +78,14 @@ export type CachePrewarmCycleMetrics = {
   dashboardHitCount: number;
   businessAnalysisHitCount: number;
   financeOverviewHitCount: number;
+  financeReportHitCount: number;
   marketingOverviewHitCount: number;
   membersMetaHitCount: number;
   membersOverviewHitCount: number;
+  profitDetailHitCount: number;
+  profitReportHitCount: number;
+  costsStatsHitCount: number;
+  costsReportHitCount: number;
   failedKeyCountByCategory: CachePrewarmCategoryCountMap;
   slowestFailedReason: string | null;
   durationDistribution: CachePrewarmDurationDistributionMap;

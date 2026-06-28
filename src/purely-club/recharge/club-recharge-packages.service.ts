@@ -8,7 +8,7 @@ import {
   DEFAULT_CLUB_RECHARGE_PACKAGES,
 } from './club-recharge.types';
 import {
-  convertFenToYuan,
+  Money,
   toNonNegativeInteger,
   toNonNegativeNumber,
   toPositiveInteger,
@@ -70,8 +70,8 @@ export class ClubRechargePackagesService {
 
     return paramsList.map((params, index) => ({
       id: this.buildPackageId(promotion.id, index, paramsList.length),
-      amount: convertFenToYuan(params.rechargeAmountFen),
-      bonusAmount: convertFenToYuan(params.giftAmountFen),
+      amount: Money.fromDbCents(params.rechargeAmountFen).toOutputYuan(),
+      bonusAmount: Money.fromDbCents(params.giftAmountFen).toOutputYuan(),
       ...(tag ? { tag } : {}),
       recommended: false,
     }));

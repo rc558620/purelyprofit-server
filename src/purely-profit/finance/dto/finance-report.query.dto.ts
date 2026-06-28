@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { transformOptionalBoolean } from '../../stores/dto/store-response.dto';
 import {
   FINANCE_REPORT_PERIOD_VALUES,
@@ -66,4 +66,12 @@ export class FinanceReportQueryDto {
   @Transform(transformOptionalBoolean)
   @IsBoolean({ message: '导出标记必须是布尔值' })
   export?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ['json', 'csv'],
+    description: '导出格式，默认 json；csv 时服务端直接流式返回 CSV 文件',
+  })
+  @IsOptional()
+  @IsIn(['json', 'csv'], { message: 'format 只支持 json 或 csv' })
+  format?: 'json' | 'csv';
 }

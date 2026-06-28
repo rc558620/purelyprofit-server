@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Money } from '../../shared/money.utils';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
@@ -160,7 +161,7 @@ describe('ClubOrdersService', () => {
         orderNo: draft.orderNo,
         orderType: 'service',
         title: draft.title,
-        amount: draft.amountFen / 100,
+        amount: Money.fromDbCents(draft.amountFen).toOutputYuan(),
         paymentChannel: 'wechat',
         status: draft.status,
         createdAt: '2026-06-10T12:30:00.000Z',
@@ -179,8 +180,8 @@ describe('ClubOrdersService', () => {
               : '待支付，等待微信支付结果',
         productId: String(draft.metadata.productId),
         productName: draft.metadata.productName,
-        originalAmount: draft.metadata.originalAmountFen / 100,
-        discountAmount: draft.metadata.discountAmountFen / 100,
+        originalAmount: Money.fromDbCents(draft.metadata.originalAmountFen).toOutputYuan(),
+        discountAmount: Money.fromDbCents(draft.metadata.discountAmountFen).toOutputYuan(),
         promotionId: draft.metadata.promotionId
           ? String(draft.metadata.promotionId)
           : null,

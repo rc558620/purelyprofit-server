@@ -84,12 +84,14 @@ export class AuthRegisterStoreService {
           planCode: SubscriptionPlanCode.starter,
           planName: STARTER_PLAN_SNAPSHOT.planName,
           status: StoreSubscriptionStatus.active,
+          maxAccountSeats: STARTER_SEAT_QUOTA,
           expiresAt: null,
         },
         update: {
           planCode: SubscriptionPlanCode.starter,
           planName: STARTER_PLAN_SNAPSHOT.planName,
           status: StoreSubscriptionStatus.active,
+          maxAccountSeats: STARTER_SEAT_QUOTA,
           expiresAt: null,
         },
       });

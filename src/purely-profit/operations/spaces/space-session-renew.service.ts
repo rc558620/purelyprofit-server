@@ -10,9 +10,9 @@ import {
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import { centsToYuan, yuanToCents } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../../prisma/prisma.service';
 import type {
   RenewSpaceSessionDto,
   RenewSpaceSessionResponseDto,
@@ -101,7 +101,7 @@ export class SpaceSessionRenewService {
 
       // hourlyRate 在 DB 中是分，需转为元以便与前端传入的 payload.amount（元）运算
       const hourlyRateYuan = latestSession.hourlyRate
-        ? centsToYuan(Number(latestSession.hourlyRate))
+        ? Money.fromDbCents(Number(latestSession.hourlyRate)).toOutputYuan()
         : 0;
       if (hourlyRateYuan <= 0) {
         throw new BadRequestException('当前会话缺少有效台位费，无法续费');
@@ -122,6 +122,9 @@ export class SpaceSessionRenewService {
         ...(payload.grouponPlatform
           ? { grouponPlatform: payload.grouponPlatform }
           : {}),
+        ...(payload.voucherFaceAmount !== undefined
+          ? { voucherFaceAmount: payload.voucherFaceAmount }
+          : {}),
         ...(payload.note ? { note: payload.note } : {}),
         renewedAt: Date.now(),
       };
@@ -132,11 +135,15 @@ export class SpaceSessionRenewService {
         data: {
           sessionId: latestSession.id,
           recordId,
-          amount: yuanToCents(payload.amount),
+          amount: Money.fromInputYuan(payload.amount).toDbCents(),
           addedMinutes,
           paymentMethod: payload.paymentMethod,
           grouponCode: payload.grouponCode ?? null,
           grouponPlatform: payload.grouponPlatform ?? null,
+          voucherFaceAmount:
+            payload.voucherFaceAmount !== undefined
+              ? Money.fromInputYuan(payload.voucherFaceAmount).toDbCents()
+              : null,
           note: payload.note ?? null,
           renewedAt: renewRecord.renewedAt,
         },
@@ -173,7 +180,7 @@ export class SpaceSessionRenewService {
         renewRecord,
         updated,
       };
-    });
+    }, { timeout: TX_TIMEOUT_MEDIUM });
 
     return {
       renewRecord: { ...result.renewRecord },

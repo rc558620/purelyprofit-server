@@ -10,7 +10,6 @@
  *   SMOKE_STORE_ADDRESS
  *   SMOKE_STORE_CONTACT_NAME
  *   SMOKE_STORE_CONTACT_PHONE
- *   SMOKE_STORE_MAX_ACCOUNT_SEATS
  */
 
 import { readFileSync } from 'node:fs';
@@ -38,12 +37,8 @@ const STORE_NAME = process.env.SMOKE_STORE_NAME?.trim() || '测试门店';
 const STORE_ADDRESS = process.env.SMOKE_STORE_ADDRESS?.trim() || '测试地址';
 const STORE_CONTACT_NAME = process.env.SMOKE_STORE_CONTACT_NAME?.trim() || NAME;
 const STORE_CONTACT_PHONE = process.env.SMOKE_STORE_CONTACT_PHONE?.trim() || PHONE;
-const STORE_MAX_ACCOUNT_SEATS = parsePositiveInt(
-  process.env.SMOKE_STORE_MAX_ACCOUNT_SEATS,
-  1,
-);
 const LOCAL_LOGIN_DOMAIN = 'purelyprofit.local';
-const DEFAULT_SUBSCRIPTION_PLAN_CODE = 'STARTER';
+const DEFAULT_SUBSCRIPTION_PLAN_CODE = 'starter';
 const DEFAULT_SUBSCRIPTION_PLAN_NAME = '入门版';
 
 const pool = new Pool({ connectionString: databaseUrl });
@@ -139,7 +134,6 @@ async function findExistingUser() {
           address: true,
           contactName: true,
           contactPhone: true,
-          maxAccountSeats: true,
         },
       },
       staffMembership: {
@@ -186,7 +180,6 @@ async function ensureUser() {
             address: true,
             contactName: true,
             contactPhone: true,
-            maxAccountSeats: true,
           },
         },
         staffMembership: {
@@ -229,7 +222,6 @@ async function ensureUser() {
           address: true,
           contactName: true,
           contactPhone: true,
-          maxAccountSeats: true,
         },
       },
       staffMembership: {
@@ -315,7 +307,6 @@ async function ensureStore(user) {
         address: STORE_ADDRESS,
         contactName: STORE_CONTACT_NAME,
         contactPhone: STORE_CONTACT_PHONE,
-        maxAccountSeats: STORE_MAX_ACCOUNT_SEATS,
       },
       select: {
         id: true,
@@ -324,7 +315,6 @@ async function ensureStore(user) {
         address: true,
         contactName: true,
         contactPhone: true,
-        maxAccountSeats: true,
       },
     });
     console.log(`♻️ 已同步 smoke 门店 id=${updatedStore.id} name=${updatedStore.name}`);
@@ -341,7 +331,6 @@ async function ensureStore(user) {
         address: true,
         contactName: true,
         contactPhone: true,
-        maxAccountSeats: true,
       },
     });
     if (boundStore) {
@@ -359,7 +348,6 @@ async function ensureStore(user) {
       contactName: STORE_CONTACT_NAME,
       contactPhone: STORE_CONTACT_PHONE,
       ownerId: user.id,
-      maxAccountSeats: STORE_MAX_ACCOUNT_SEATS,
     },
     select: {
       id: true,
@@ -368,7 +356,6 @@ async function ensureStore(user) {
       address: true,
       contactName: true,
       contactPhone: true,
-      maxAccountSeats: true,
     },
   });
   console.log(`✅ smoke 门店已创建 id=${createdStore.id} name=${createdStore.name}`);
@@ -381,7 +368,6 @@ async function ensureSubscription(user, store) {
     select: {
       id: true,
       status: true,
-      maxAccountSeats: true,
       planCode: true,
       planName: true,
     },
@@ -391,8 +377,7 @@ async function ensureSubscription(user, store) {
     const updatedSubscription = await prisma.storeSubscription.update({
       where: { storeId: store.id },
       data: {
-        status: 'ACTIVE',
-        maxAccountSeats: STORE_MAX_ACCOUNT_SEATS,
+        status: 'active',
         planCode: existingSubscription.planCode || DEFAULT_SUBSCRIPTION_PLAN_CODE,
         planName: existingSubscription.planName || DEFAULT_SUBSCRIPTION_PLAN_NAME,
         expiresAt: null,
@@ -400,7 +385,6 @@ async function ensureSubscription(user, store) {
       select: {
         id: true,
         status: true,
-        maxAccountSeats: true,
       },
     });
     console.log(
@@ -416,19 +400,17 @@ async function ensureSubscription(user, store) {
     return null;
   }
 
-  const createdSubscription = await prisma.storeSubscription.create({
-    data: {
-      storeId: store.id,
-      planCode: DEFAULT_SUBSCRIPTION_PLAN_CODE,
-      planName: DEFAULT_SUBSCRIPTION_PLAN_NAME,
-      status: 'ACTIVE',
-      maxAccountSeats: STORE_MAX_ACCOUNT_SEATS,
-      expiresAt: null,
-    },
+  // 数据库存在 NOT NULL 列 max_account_seats 但 Prisma schema 未声明，
+  // 必须用 raw SQL 插入以提供该列的值
+  await prisma.$executeRaw`
+    INSERT INTO store_subscriptions (store_id, plan_code, plan_name, status, max_account_seats, starts_at, created_at, updated_at)
+    VALUES (${store.id}, ${DEFAULT_SUBSCRIPTION_PLAN_CODE}, ${DEFAULT_SUBSCRIPTION_PLAN_NAME}, 'active', 5, NOW(), NOW(), NOW())
+  `;
+  const createdSubscription = await prisma.storeSubscription.findUnique({
+    where: { storeId: store.id },
     select: {
       id: true,
       status: true,
-      maxAccountSeats: true,
     },
   });
   console.log(
@@ -459,7 +441,7 @@ async function ensureClubStoreAccess(user, store) {
     const memberResult = existingMember
       ? await tx.member.update({
           where: { id: existingMember.id },
-          data: { name: displayName, status: 'ACTIVE' },
+          data: { name: displayName, status: 'active' },
           select: { id: true, status: true },
         })
       : await tx.member.create({
@@ -497,9 +479,9 @@ async function ensureStaffMembership(user, store) {
     email: user.email,
     name: NAME,
     phone: PHONE,
-    role: 'OWNER',
+    role: 'owner',
     permissions: ['*'],
-    status: 'ACTIVE',
+    status: 'active',
     isSeatActive: true,
     isActive: true,
   };
@@ -540,16 +522,6 @@ async function main() {
   const profitUser = await ensureUser();
   const clubUser = await ensureClubUser();
   const store = await ensureStore(profitUser);
-
-  if (
-    store.ownerId === profitUser.id &&
-    store.maxAccountSeats !== STORE_MAX_ACCOUNT_SEATS
-  ) {
-    await prisma.store.update({
-      where: { id: store.id },
-      data: { maxAccountSeats: STORE_MAX_ACCOUNT_SEATS },
-    });
-  }
 
   await ensureSubscription(profitUser, store);
   await ensureStaffMembership(profitUser, store);

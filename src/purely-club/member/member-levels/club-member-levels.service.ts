@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
+import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   cloneDefaultMarketingMemberLevelSettings,
@@ -276,7 +277,7 @@ export class ClubMemberLevelsService {
     levelSetting: MarketingMemberLevelConfigValue,
   ): ClubMemberLevelConfigDto {
     const meta = CLUB_MEMBER_LEVEL_META[levelSetting.id];
-    const requiredConsume = this.convertFenToYuan(levelSetting.spendThreshold);
+    const requiredConsume = Money.fromDbCents(levelSetting.spendThreshold).toOutputYuan();
     const isRegisterLevel = levelSetting.id === 'gold';
     const benefits = new Set<string>([
       this.formatDiscountLabel(levelSetting.discountRate),
@@ -372,10 +373,6 @@ export class ClubMemberLevelsService {
           .toDecimalPlaces(2),
       ),
     ).toNumber();
-  }
-
-  private convertFenToYuan(amountFen: number): number {
-    return new Decimal(amountFen).div(100).toDecimalPlaces(2).toNumber();
   }
 
   private normalizeRate(rate: number): number {

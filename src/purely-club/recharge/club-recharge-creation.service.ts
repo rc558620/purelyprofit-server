@@ -22,7 +22,7 @@ import {
   CLUB_CUSTOM_AMOUNT_MIN,
   CLUB_RECHARGE_PACKAGE_NOT_FOUND_MESSAGE,
 } from './club-recharge.constants';
-import { convertYuanToFen } from './club-recharge.utils';
+import { Money } from './club-recharge.utils';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 
 @Injectable()
@@ -141,8 +141,8 @@ export class ClubRechargeCreationService {
     return {
       packageId: matchedPackage.id,
       promotionId: this.resolvePromotionIdFromPackageId(matchedPackage.id),
-      rechargeAmountFen: convertYuanToFen(matchedPackage.amount),
-      bonusAmountFen: convertYuanToFen(matchedPackage.bonusAmount),
+      rechargeAmountFen: Money.fromInputYuan(matchedPackage.amount).toDbCents(),
+      bonusAmountFen: Money.fromInputYuan(matchedPackage.bonusAmount).toDbCents(),
       customAmountFen: null,
     };
   }
@@ -162,9 +162,9 @@ export class ClubRechargeCreationService {
     return {
       packageId: null,
       promotionId: null,
-      rechargeAmountFen: convertYuanToFen(customAmount),
+      rechargeAmountFen: Money.fromInputYuan(customAmount).toDbCents(),
       bonusAmountFen: 0,
-      customAmountFen: convertYuanToFen(customAmount),
+      customAmountFen: Money.fromInputYuan(customAmount).toDbCents(),
     };
   }
 

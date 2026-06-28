@@ -1,10 +1,9 @@
 import { Logger } from '@nestjs/common';
 import {
-  addMoneyValues,
   getDayStartTimestamp,
-  toDecimalNumber,
   toOptionalMediaText,
 } from '../../commerce/commerce.utils';
+import { Money, type MoneyDbCentsInput } from '../../../shared/money.utils';
 import type {
   AggregatedCategory,
   AggregatedRankProduct,
@@ -20,11 +19,21 @@ import type {
 
 const logger = new Logger('BusinessAnalysisDomain');
 
+/**
+ * 安全地将数据库分值转为 Money，null/undefined 视为 0。
+ */
+function safeDbCents(value: MoneyDbCentsInput | null | undefined): Money {
+  if (value === null || value === undefined) {
+    return Money.zero();
+  }
+  return Money.fromDbCents(value);
+}
+
 export function createEmptySalesAggregation(): SalesAggregationResult {
   return {
-    revenue: 0,
+    revenue: Money.zero(),
     orderCount: 0,
-    dailyRevenueMap: new Map<number, number>(),
+    dailyRevenueMap: new Map<number, Money>(),
     categoryMap: new Map<string, AggregatedCategory>(),
     rankMap: new Map<string, AggregatedRankProduct>(),
   };
@@ -32,9 +41,9 @@ export function createEmptySalesAggregation(): SalesAggregationResult {
 
 export function createEmptyCostAggregation(): CostAggregationResult {
   return {
-    totalCost: 0,
-    dailyCostMap: new Map<number, number>(),
-    costBucketMap: new Map<CostBucketKey, number>(),
+    totalCost: Money.zero(),
+    dailyCostMap: new Map<number, Money>(),
+    costBucketMap: new Map<CostBucketKey, Money>(),
   };
 }
 
@@ -46,20 +55,20 @@ export function buildSalesAggregation(input: {
   rankRows?: BusinessAnalysisRankRow[];
 }): SalesAggregationResult {
   const result = createEmptySalesAggregation();
-  result.revenue = input.revenue;
+  result.revenue = Money.fromDbCents(input.revenue);
   result.orderCount = input.orderCount;
 
   for (const row of input.dailyRows ?? []) {
     result.dailyRevenueMap.set(
       getDayStartTimestamp(row.bucketAt.getTime()),
-      toDecimalNumber(row.revenue),
+      safeDbCents(row.revenue),
     );
   }
 
   for (const row of input.categoryRows ?? []) {
     result.categoryMap.set(row.categoryName, {
-      revenue: toDecimalNumber(row.revenue),
-      profit: toDecimalNumber(row.profit),
+      revenue: safeDbCents(row.revenue),
+      profit: safeDbCents(row.profit),
       quantity: row.quantity,
     });
   }
@@ -74,8 +83,8 @@ export function buildSalesAggregation(input: {
       id: rankKey,
       name: row.productName,
       category: row.categoryName,
-      totalRevenue: toDecimalNumber(row.totalRevenue),
-      totalProfit: toDecimalNumber(row.totalProfit),
+      totalRevenue: safeDbCents(row.totalRevenue),
+      totalProfit: safeDbCents(row.totalProfit),
       quantity: row.quantity,
       ...(image ? { image } : {}),
     });
@@ -90,12 +99,12 @@ export function buildCostAggregation(input: {
   bucketRows?: BusinessAnalysisCostBucketRow[];
 }): CostAggregationResult {
   const result = createEmptyCostAggregation();
-  result.totalCost = input.totalCost;
+  result.totalCost = Money.fromDbCents(input.totalCost);
 
   for (const row of input.dailyRows ?? []) {
     result.dailyCostMap.set(
       getDayStartTimestamp(row.bucketAt.getTime()),
-      toDecimalNumber(row.amount),
+      safeDbCents(row.amount),
     );
   }
 
@@ -103,9 +112,8 @@ export function buildCostAggregation(input: {
     const bucket = mapCostBucket(row.category);
     result.costBucketMap.set(
       bucket,
-      addMoneyValues(
-        result.costBucketMap.get(bucket) ?? 0,
-        toDecimalNumber(row.amount),
+      (result.costBucketMap.get(bucket) ?? Money.zero()).add(
+        safeDbCents(row.amount),
       ),
     );
   }

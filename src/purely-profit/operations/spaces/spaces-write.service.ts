@@ -1,7 +1,6 @@
 import {
   ConflictException,
   ForbiddenException,
-  GoneException,
   Injectable,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -12,7 +11,6 @@ import type {
   CreateSpaceDto,
   SpaceResponseDto,
   UpdateSpaceDto,
-  UpdateSpaceStatusDto,
 } from './dto/space.dto';
 import { SpaceReservationsService } from './space-reservations.service';
 import { SpacesRefResolverService } from './spaces-ref-resolver.service';
@@ -186,6 +184,12 @@ export class SpacesWriteService {
   ): Promise<SpaceResponseDto> {
     await this.requireUpdatableSpace(user, spaceId);
 
+    // 标记清洁完成：更新 cleanedAt 时间戳，后续运行态推导将不再返回 cleaning
+    await this.prisma.space.update({
+      where: { id: spaceId },
+      data: { cleanedAt: new Date() },
+    });
+
     // 空间状态现由运行态推导（无 Space.status 字段），直接返回当前运行态
     const derivedStatus = await this.deriveSpaceStatus(spaceId);
     if (derivedStatus === 'occupied') {
@@ -199,23 +203,6 @@ export class SpacesWriteService {
       include: SPACE_WITH_RELATIONS_INCLUDE,
     });
     return toSpaceResponse({ ...space, status: derivedStatus });
-  }
-
-  /**
-   * @deprecated Space.status 已从 schema 移除，运行态由 session/reservation 推导。
-   * 此方法已废弃，调用将抛出 GoneException。
-   * 如需重置空间状态请使用 markSpaceReady。
-   */
-  async updateSpaceStatus(
-    _user: AuthenticatedUser,
-    _spaceId: number,
-    _dto: UpdateSpaceStatusDto,
-  ): Promise<never> {
-    // Space.status 字段已移除（方案 A），运行态由 session/reservation 推导
-    // 手动状态变更不再有任何效果，接口已废弃
-    throw new GoneException(
-      '此接口已废弃。Space.status 已移除，运行态由 session/reservation 推导。如需重置空间状态请使用 markSpaceReady。',
-    );
   }
 
   /**
@@ -262,15 +249,15 @@ export class SpacesWriteService {
     return space;
   }
 
-
   /**
    * 通过查询 SpaceSession 和 SpaceReservation 推导运行态状态
    * - occupied: 存在活跃会话（status=active）
    * - reserved: 存在待履约预约（status=pending）
+   * - cleaning: enableDirtyRoom=true 且最后 settled 会话 endTime > cleanedAt
    * - idle: 其他情况
    */
   private async deriveSpaceStatus(spaceId: number): Promise<SpaceStatusValue> {
-    const [activeSession, pendingReservation] = await Promise.all([
+    const [activeSession, pendingReservation, space] = await Promise.all([
       this.prisma.spaceSession.findFirst({
         where: { spaceId, status: 'active' },
         select: { id: true },
@@ -279,10 +266,28 @@ export class SpacesWriteService {
         where: { spaceId, status: 'pending' },
         select: { id: true },
       }),
+      this.prisma.space.findUnique({
+        where: { id: spaceId },
+        select: { enableDirtyRoom: true, cleanedAt: true },
+      }),
     ]);
 
     if (activeSession) return 'occupied';
     if (pendingReservation) return 'reserved';
+
+    // 脏房模式：结账后无活跃会话，且尚未标记清洁完成 → cleaning
+    if (space?.enableDirtyRoom) {
+      const lastSettled = await this.prisma.spaceSession.findFirst({
+        where: { spaceId, status: 'settled', endTime: { not: null } },
+        select: { endTime: true },
+        orderBy: { endTime: 'desc' },
+      });
+      if (lastSettled?.endTime) {
+        const cleanedMs = space.cleanedAt?.getTime() ?? 0;
+        if (lastSettled.endTime.getTime() > cleanedMs) return 'cleaning';
+      }
+    }
+
     return 'idle';
   }
 }

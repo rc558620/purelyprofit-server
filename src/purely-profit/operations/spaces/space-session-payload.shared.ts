@@ -110,6 +110,9 @@ export const normalizeRenewPayload = (
     paymentMethod: dto.paymentMethod,
     ...(grouponCode ? { grouponCode } : {}),
     ...(grouponPlatform ? { grouponPlatform } : {}),
+    ...(dto.voucherFaceAmount !== undefined
+      ? { voucherFaceAmount: dto.voucherFaceAmount }
+      : {}),
     ...(note ? { note } : {}),
   };
 };

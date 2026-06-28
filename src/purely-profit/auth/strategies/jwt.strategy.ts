@@ -64,6 +64,7 @@ interface ResolvedUserRecord {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   private readonly pulseDevAccountEmails: Set<string>;
+  private readonly adminLoginPhone: string;
 
   constructor(
     configService: ConfigService,
@@ -83,6 +84,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         (email) => email.trim().toLowerCase(),
       ),
     );
+    this.adminLoginPhone = configService.get<string>('auth.adminLoginPhone') ?? '13619654020';
   }
 
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
@@ -105,6 +107,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       user.email,
       payload.phone,
       this.pulseDevAccountEmails,
+      this.adminLoginPhone,
     );
     const currentMembership =
       await this.authAccountMembershipService.resolveAuthenticatedMembership(

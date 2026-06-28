@@ -83,6 +83,7 @@ export class PulseMembershipAdminQueryService {
                     name: true,
                     realName: true,
                     avatar: true,
+                    wechatPhone: true,
                   },
                 },
               },
@@ -144,6 +145,7 @@ export class PulseMembershipAdminQueryService {
                     name: true,
                     realName: true,
                     avatar: true,
+                    wechatPhone: true,
                   },
                 },
               },
@@ -640,6 +642,11 @@ export class PulseMembershipAdminQueryService {
     const granularityText = granularityMap[bucketGranularity];
 
     // 使用 Prisma.sql 安全地构建 date_trunc 的 text 参数，避免字符串拼接
+    //
+    // 执行计划说明：
+    // - date_trunc 按时间分桶聚合，WHERE store_id + created_at 范围过滤
+    // - 预期走 (store_id, created_at) 索引做范围扫描
+    // - date_trunc 本身需排序，若数据量大考虑预聚合表
     const [currentRows, previousRows] = await Promise.all([
       this.prisma.$queryRaw<
         Array<{
@@ -680,11 +687,11 @@ export class PulseMembershipAdminQueryService {
     ]);
 
     const totalSalesFen = currentRows.reduce(
-      (sum, r) => sum + Math.round(Number(r.sales ?? 0) * 100),
+      (sum, r) => sum + Math.round(Number(r.sales ?? 0)),
       0,
     );
     const totalProfitFen = currentRows.reduce(
-      (sum, r) => sum + Math.round(Number(r.profit ?? 0) * 100),
+      (sum, r) => sum + Math.round(Number(r.profit ?? 0)),
       0,
     );
 
@@ -694,13 +701,13 @@ export class PulseMembershipAdminQueryService {
     const salesGrowthPct =
       prevSales > 0
         ? Number(
-            (((totalSalesFen / 100 - prevSales) / prevSales) * 100).toFixed(2),
+            (((totalSalesFen - prevSales) / prevSales) * 100).toFixed(2),
           )
         : null;
     const profitGrowthPct =
       prevProfit > 0
         ? Number(
-            (((totalProfitFen / 100 - prevProfit) / prevProfit) * 100).toFixed(
+            (((totalProfitFen - prevProfit) / prevProfit) * 100).toFixed(
               2,
             ),
           )
@@ -712,8 +719,8 @@ export class PulseMembershipAdminQueryService {
         bucketGranularity,
         shanghaiOffsetMs,
       ),
-      salesFen: Math.round(Number(row.sales ?? 0) * 100),
-      profitFen: Math.round(Number(row.profit ?? 0) * 100),
+      salesFen: Math.round(Number(row.sales ?? 0)),
+      profitFen: Math.round(Number(row.profit ?? 0)),
     }));
 
     return {

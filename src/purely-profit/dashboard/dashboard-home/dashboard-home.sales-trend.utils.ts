@@ -1,10 +1,8 @@
 import {
-  addMoneyValues,
   formatMonthDayLabel,
   getDayStartTimestamp,
-  roundMoneyValue,
-  toDecimalNumber,
 } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import { toTimestamp } from './dashboard-home.activities.utils';
 import {
   DAY_MS,
@@ -53,10 +51,10 @@ function buildTodaySalesTrend(
     }
 
     const bucketIndex = getTodayBucketIndex(timestamp);
-    actual[bucketIndex] = addMoneyValues(
-      actual[bucketIndex] ?? 0,
-      toDecimalNumber(row.revenue),
-    );
+    const revenueCents = row.revenue ?? 0;
+    actual[bucketIndex] = Money.fromInputYuan(actual[bucketIndex] ?? 0)
+      .add(Money.fromDbCents(revenueCents))
+      .toOutputYuan();
   }
 
   const now = currentRange.end;
@@ -82,7 +80,7 @@ function buildTodaySalesTrend(
       realizedValues.reduce((sum, value) => sum + value, 0) /
       realizedValues.length;
     if (average > 0) {
-      forecast[firstFutureBucketIndex] = roundMoneyValue(average);
+      forecast[firstFutureBucketIndex] = Money.fromInputYuan(average).toOutputYuan();
     }
   }
 
@@ -180,12 +178,12 @@ function buildYearSalesTrend(
     }
 
     const monthIndex = date.getMonth();
+    const revenueCents = row.revenue ?? 0;
     revenueMap.set(
       monthIndex,
-      addMoneyValues(
-        revenueMap.get(monthIndex) ?? 0,
-        toDecimalNumber(row.revenue),
-      ),
+      Money.fromInputYuan(revenueMap.get(monthIndex) ?? 0)
+        .add(Money.fromDbCents(revenueCents))
+        .toOutputYuan(),
     );
   }
 
@@ -216,12 +214,12 @@ function buildDailyRevenueMap(
     }
 
     const dayStart = getDayStartTimestamp(timestamp);
+    const revenueCents = row.revenue ?? 0;
     revenueMap.set(
       dayStart,
-      addMoneyValues(
-        revenueMap.get(dayStart) ?? 0,
-        toDecimalNumber(row.revenue),
-      ),
+      Money.fromInputYuan(revenueMap.get(dayStart) ?? 0)
+        .add(Money.fromDbCents(revenueCents))
+        .toOutputYuan(),
     );
   }
 

@@ -1,13 +1,18 @@
 import { Injectable } from '@nestjs/common';
+import type { ServerResponse } from 'node:http';
 import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import {
-  subtractMoneyValues,
-  toDecimalNumber,
-} from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  buildCacheRefreshTaskKey,
+  buildCostsRecordsCacheKey,
+  buildCostsReportCacheKey,
+  buildCostsStatsCacheKey,
+} from '../../../redis/keys';
+import { RedisService } from '../../../redis/redis.service';
 import type {
   CostRecordStatsQueryDto,
   CostReportQueryDto,
@@ -37,11 +42,22 @@ import {
   buildHistoryAwareCostRecordWhere,
   queryCostReportRows,
 } from './costs.query';
+import {
+safeStreamCsvExport,
+} from '../../../shared/stream-export.utils';
+
+const COSTS_STATS_CACHE_TTL_SECONDS = 60;
+const COSTS_STATS_REFRESH_AFTER_MS = 15_000;
+const COSTS_REPORT_CACHE_TTL_SECONDS = 120;
+const COSTS_REPORT_REFRESH_AFTER_MS = 30_000;
+const COSTS_RECORDS_CACHE_TTL_SECONDS = 30;
+const COSTS_RECORDS_REFRESH_AFTER_MS = 10_000;
 
 @Injectable()
 export class CostsReadService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
     private readonly configService: ConfigService,
@@ -64,6 +80,28 @@ export class CostsReadService {
 
     const callerIsSubAccount =
       user.currentMembership?.subjectType === 'sub_account';
+
+    // 子账号直接查库，不走缓存
+    if (callerIsSubAccount) {
+      return this.buildRecordsList(storeId, query, callerIsSubAccount);
+    }
+
+    const cacheKey = buildCostsRecordsCacheKey(storeId, query);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: COSTS_RECORDS_CACHE_TTL_SECONDS,
+      refreshAfterMs: COSTS_RECORDS_REFRESH_AFTER_MS,
+      loadValue: () => this.buildRecordsList(storeId, query, false),
+      refreshValue: () => this.buildRecordsList(storeId, query, false),
+    });
+  }
+
+  private async buildRecordsList(
+    storeId: number,
+    query: ListCostRecordsQueryDto,
+    callerIsSubAccount: boolean,
+  ): Promise<CostRecordResponseDto[]> {
     const where = await buildHistoryAwareCostRecordWhere(
       this.platformMembershipAccessService,
       storeId,
@@ -101,6 +139,28 @@ export class CostsReadService {
 
     const callerIsSubAccount =
       user.currentMembership?.subjectType === 'sub_account';
+
+    // 子账号直接查库，不走缓存
+    if (callerIsSubAccount) {
+      return this.buildStats(storeId, query, callerIsSubAccount);
+    }
+
+    const cacheKey = buildCostsStatsCacheKey(storeId, query);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: COSTS_STATS_CACHE_TTL_SECONDS,
+      refreshAfterMs: COSTS_STATS_REFRESH_AFTER_MS,
+      loadValue: () => this.buildStats(storeId, query, false),
+      refreshValue: () => this.buildStats(storeId, query, false),
+    });
+  }
+
+  private async buildStats(
+    storeId: number,
+    query: CostRecordStatsQueryDto,
+    callerIsSubAccount: boolean,
+  ): Promise<CostStatsResponseDto> {
     const currentWhere = await buildHistoryAwareCostRecordWhere(
       this.platformMembershipAccessService,
       storeId,
@@ -122,15 +182,17 @@ export class CostsReadService {
       _sum: { amount: true },
     });
 
-    const total = toDecimalNumber(currentAggregate._sum.amount ?? 0);
-    const fixed = toDecimalNumber(
+    const total = Money.fromDbCents(
+      currentAggregate._sum.amount ?? 0,
+    ).toOutputYuan();
+    const fixed = Money.fromDbCents(
       currentTypeRows.find((record) => record.type === 'fixed')?._sum.amount ??
         0,
-    );
-    const variable = toDecimalNumber(
+    ).toOutputYuan();
+    const variable = Money.fromDbCents(
       currentTypeRows.find((record) => record.type === 'variable')?._sum
         .amount ?? 0,
-    );
+    ).toOutputYuan();
     const compareLastPeriod = await this.calculatePreviousPeriodChange(
       storeId,
       query,
@@ -171,6 +233,69 @@ export class CostsReadService {
       );
     }
 
+    // 导出模式或子账号直接查库，不走缓存
+    if (query.export || callerIsSubAccount) {
+      return this.buildReport(storeId, query, callerIsSubAccount);
+    }
+
+    const cacheKey = buildCostsReportCacheKey(storeId, query);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: COSTS_REPORT_CACHE_TTL_SECONDS,
+      refreshAfterMs: COSTS_REPORT_REFRESH_AFTER_MS,
+      loadValue: () => this.buildReport(storeId, query, false),
+      refreshValue: () => this.buildReport(storeId, query, false),
+    });
+  }
+
+  /**
+   * 预热成本统计缓存（供 CachePrewarmCycleService 调用）
+   */
+  async warmStatsCache(
+    storeId: number,
+    query: Pick<
+      CostRecordStatsQueryDto,
+      'period' | 'typeFilter' | 'customDate' | 'rangeStartDate' | 'rangeEndDate'
+    >,
+  ): Promise<CostStatsResponseDto> {
+    const cacheKey = buildCostsStatsCacheKey(storeId, query);
+    const data = await this.buildStats(storeId, query, false);
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      COSTS_STATS_CACHE_TTL_SECONDS,
+      COSTS_STATS_REFRESH_AFTER_MS,
+    );
+    return data;
+  }
+
+  /**
+   * 预热成本报表缓存（供 CachePrewarmCycleService 调用）
+   */
+  async warmReportCache(
+    storeId: number,
+    query: Pick<
+      CostReportQueryDto,
+      'period' | 'year' | 'customDate' | 'rangeStartDate' | 'rangeEndDate' | 'categoryFilter'
+    >,
+  ): Promise<CostReportResponseDto> {
+    const cacheKey = buildCostsReportCacheKey(storeId, query);
+    const data = await this.buildReport(storeId, query, false);
+    await this.redisService.writeRefreshableJson(
+      cacheKey,
+      data,
+      COSTS_REPORT_CACHE_TTL_SECONDS,
+      COSTS_REPORT_REFRESH_AFTER_MS,
+    );
+    return data;
+  }
+
+  private async buildReport(
+    storeId: number,
+    query: CostReportQueryDto,
+    callerIsSubAccount: boolean,
+  ): Promise<CostReportResponseDto> {
     const currentRange = buildCostReportRange({
       period: query.period,
       year: query.year,
@@ -225,11 +350,13 @@ export class CostsReadService {
       summary: {
         total,
         fixed,
-        variable: subtractMoneyValues(total, fixed),
+        variable: Money.fromInputYuan(total)
+          .subtract(Money.fromInputYuan(fixed))
+          .toOutputYuan(),
         recordCount: costRows.length,
         compareLastPeriod: calculateCostCompareLastPeriod(
           total,
-          toDecimalNumber(previousTotal),
+          Money.fromDbCents(previousTotal).toOutputYuan(),
         ),
       },
       categories: buildCostReportCategories(costRows, total),
@@ -239,6 +366,28 @@ export class CostsReadService {
         categoryFilter,
       ),
     };
+  }
+
+  /**
+   * 流式导出成本报表 CSV，O(1) 内存占用。
+   */
+  async streamReportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    query: CostReportQueryDto,
+  ): Promise<void> {
+    const report = await this.getReport(user, query);
+    safeStreamCsvExport(
+      reply,
+      'cost-report.csv',
+      ['标题', '金额', '发生日期', '备注'],
+      report.detailRows.map((row) => [
+        row.title,
+        row.amount,
+        row.dateLabel,
+        row.note ?? '',
+      ]),
+    );
   }
 
   private async calculatePreviousPeriodChange(
@@ -286,7 +435,7 @@ export class CostsReadService {
 
     return calculateCostCompareLastPeriod(
       total,
-      toDecimalNumber(previousAggregate._sum.amount ?? 0),
+      Money.fromDbCents(previousAggregate._sum.amount ?? 0).toOutputYuan(),
     );
   }
 }

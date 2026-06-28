@@ -2,9 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { recordCachePrewarmCycle } from '../observability';
 import { BusinessAnalysisService } from '../purely-profit/dashboard/business-analysis/business-analysis.service';
 import { DashboardHomeService } from '../purely-profit/dashboard/dashboard-home/dashboard-home.service';
+import { ProfitDetailService } from '../purely-profit/dashboard/profit-detail/profit-detail.service';
 import { FinanceOverviewService } from '../purely-profit/finance/finance-overview.service';
 import { MarketingOverviewService } from '../purely-profit/marketing/marketing-overview.service';
 import { MembersService } from '../purely-profit/member/members/members.service';
+import { CostsReadService } from '../purely-profit/operations/costs/costs-read.service';
 import type {
   CachePrewarmCategoryConfig,
   CachePrewarmCategoryResultsMap,
@@ -42,6 +44,8 @@ export class CachePrewarmCycleService {
     private readonly financeOverviewService: FinanceOverviewService,
     private readonly marketingOverviewService: MarketingOverviewService,
     private readonly membersService: MembersService,
+    private readonly profitDetailService: ProfitDetailService,
+    private readonly costsReadService: CostsReadService,
   ) {}
 
   async runCycle(input: CachePrewarmCycleRunInput): Promise<void> {
@@ -79,6 +83,8 @@ export class CachePrewarmCycleService {
       financeOverviewService: this.financeOverviewService,
       marketingOverviewService: this.marketingOverviewService,
       membersService: this.membersService,
+      profitDetailService: this.profitDetailService,
+      costsReadService: this.costsReadService,
     });
   }
 

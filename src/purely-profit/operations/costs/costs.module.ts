@@ -10,6 +10,6 @@ import { CostsWriteService } from './costs-write.service';
   imports: [CommerceModule, PlatformMembershipModule],
   controllers: [CostsController],
   providers: [CostsReadService, CostsWriteService, CostsService],
-  exports: [CostsService],
+  exports: [CostsService, CostsReadService],
 })
 export class CostsModule {}

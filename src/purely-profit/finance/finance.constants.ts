@@ -1,4 +1,5 @@
 import { FinanceAccountStatus } from '@prisma/client';
+import { Money } from '../../shared/money.utils';
 import type {
   FinanceAccountCategoryValue,
   FinanceAccountTypeValue,
@@ -43,7 +44,7 @@ export const OVERVIEW_SOURCE_CONFIG = {
 } as const;
 
 export type FinanceCashFlowOverviewBucket = keyof typeof OVERVIEW_SOURCE_CONFIG;
-export type FinancePeriodTotals = Record<FinanceCashFlowOverviewBucket, number>;
+export type FinancePeriodTotals = Record<FinanceCashFlowOverviewBucket, Money>;
 
 export type FinanceCashFlowCategoryRule = {
   label: string;

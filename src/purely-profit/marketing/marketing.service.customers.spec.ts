@@ -150,8 +150,8 @@ describe('MarketingService customers', () => {
       id: '100',
       customerId: '9',
       customerName: '张三',
-      amount: 10000,
-      giftAmount: 2000,
+      amount: 100,
+      giftAmount: 20,
       type: 'recharge',
       promotionId: undefined,
       createdAt: new Date('2026-05-15T09:00:00.000Z').getTime(),
@@ -160,11 +160,12 @@ describe('MarketingService customers', () => {
     expect(result.recentConsumptions[0]).toEqual({
       id: '200',
       customerId: '9',
-      amount: 3800,
-      balancePaid: 3800,
+      amount: 38,
+      balancePaid: 38,
       pointsDeducted: 0,
       payType: 'balance',
       itemsSummary: '拿铁 × 2',
+      promotionId: undefined,
       createdAt: new Date('2026-05-15T10:00:00.000Z').getTime(),
     });
   });

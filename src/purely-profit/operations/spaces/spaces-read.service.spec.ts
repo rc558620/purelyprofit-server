@@ -16,6 +16,7 @@ type SpaceRecord = {
   capacity: number | null;
   enableDirtyRoom: boolean;
   autoCheckout: boolean;
+  cleanedAt: Date | null;
   // status 字段已从 Space 移除，运行态推导
   sortOrder: number;
   createdAt: Date;
@@ -24,6 +25,7 @@ type SpaceRecord = {
     sessions: number;
     reservations: number;
   };
+  sessions: { endTime: Date | null }[];
   type: {
     id: number;
     name: string;
@@ -79,6 +81,7 @@ describe('SpacesReadService', () => {
     capacity: 4,
     enableDirtyRoom: false,
     autoCheckout: false,
+    cleanedAt: null,
     // status 字段已移除
     sortOrder: 2,
     createdAt: new Date('2026-05-18T10:00:00.000Z'),
@@ -87,6 +90,7 @@ describe('SpacesReadService', () => {
       sessions: 0,
       reservations: 0,
     },
+    sessions: [],
     type: {
       id: 101,
       name: '台球台',
@@ -160,6 +164,12 @@ describe('SpacesReadService', () => {
             reservations: { where: { status: SpaceReservationStatus.pending } },
           },
         },
+        sessions: {
+          where: { status: SpaceSessionStatus.settled },
+          select: { endTime: true },
+          orderBy: { endTime: 'desc' },
+          take: 1,
+        },
       },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
     });
@@ -211,9 +221,7 @@ describe('SpaceSessionReadService 状态修复', () => {
     ensureCanAccessStore: jest.fn(),
   };
 
-  const readStateService = {
-    syncOccupiedSpaceStates: jest.fn(),
-  };
+  const readStateService = {};
 
   const user: AuthenticatedUser = {
     id: 1,
@@ -244,7 +252,6 @@ describe('SpaceSessionReadService 状态修复', () => {
     jest.clearAllMocks();
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
-    readStateService.syncOccupiedSpaceStates.mockResolvedValue(undefined);
     prismaService.spaceSession.count.mockResolvedValue(0);
 
     const module: TestingModule = await Test.createTestingModule({
@@ -263,21 +270,12 @@ describe('SpaceSessionReadService 状态修复', () => {
     service = module.get<SpaceSessionReadService>(SpaceSessionReadService);
   });
 
-  it('listStoreSpaceSessions 在查询 active 会话时，应委托 readStateService 同步修复状态', async () => {
+  it('listStoreSpaceSessions 默认查询返回会话列表', async () => {
     prismaService.spaceSession.findMany.mockResolvedValueOnce([]);
 
     const result = await service.listStoreSpaceSessions(user, {});
 
-    expect(readStateService.syncOccupiedSpaceStates).toHaveBeenCalledWith(18);
     expect(result).toEqual([]);
-  });
-
-  it('listStoreSpaceSessions 如果 occupied 空间有 active session，委托 readStateService 即可', async () => {
-    prismaService.spaceSession.findMany.mockResolvedValueOnce([]);
-
-    await service.listStoreSpaceSessions(user, {});
-
-    expect(readStateService.syncOccupiedSpaceStates).toHaveBeenCalledWith(18);
   });
 
   it('getSpaceSessionDetail 直接返回当前会话详情', async () => {

@@ -11,6 +11,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -23,6 +24,7 @@ import {
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import type { ServerResponse } from 'node:http';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   AdjustInventoryDto,
@@ -34,6 +36,7 @@ import {
   ListInventoryAdjustmentsQueryDto,
   ListInventoryProductsQueryDto,
   PaginatedInventoryAdjustmentsResponseDto,
+  PaginatedInventoryProductsResponseDto,
   ProductThresholdResponseDto,
   UpdateAlertThresholdDto,
 } from './dto/inventory.dto';
@@ -49,11 +52,11 @@ export class InventoryController {
   @Get('products')
   @RequirePermissions('inventory:view')
   @ApiOperation({ summary: '获取库存盘点商品列表' })
-  @ApiOkResponse({ type: [InventoryProductResponseDto] })
+  @ApiOkResponse({ type: PaginatedInventoryProductsResponseDto })
   listProducts(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListInventoryProductsQueryDto,
-  ): Promise<InventoryProductResponseDto[]> {
+  ): Promise<PaginatedInventoryProductsResponseDto> {
     return this.inventoryService.listProducts(user, query);
   }
 
@@ -122,10 +125,15 @@ export class InventoryController {
   @RequirePermissions('report:view')
   @ApiOperation({ summary: '获取报表中心库存报表数据' })
   @ApiOkResponse({ type: InventoryReportResponseDto })
-  getReport(
+  async getReport(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListInventoryProductsQueryDto,
-  ): Promise<InventoryReportResponseDto> {
+    @Res({ passthrough: true }) reply: { raw: ServerResponse },
+  ): Promise<InventoryReportResponseDto | typeof reply> {
+    if (query.format === 'csv') {
+      await this.inventoryService.streamReportCsv(reply.raw, user, query);
+      return reply;
+    }
     return this.inventoryService.getReport(user, query);
   }
 }

@@ -67,8 +67,8 @@ describe('SalesRecordProductsService', () => {
         name: '可口可乐 330ml',
         category: '饮品',
         code: 'COLA001',
-        price: new Prisma.Decimal('15.50'),
-        profit: new Prisma.Decimal('4.00'),
+        price: new Prisma.Decimal('1550'),
+        profit: new Prisma.Decimal('400'),
       },
     ]);
 

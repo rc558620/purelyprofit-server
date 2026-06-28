@@ -56,7 +56,11 @@ export class PulseMembershipAccessService {
       const profiles = await this.prisma.storeMembershipProfile.findMany({
         where: {
           // 免费会员 currentPlanId 为 null，但仍应保留在会员管理列表中。
-          store: this.buildAdminStoreExclusionWhere(),
+          // 已注销（deletedAt 非 null）的门店从列表中剔除。
+          store: {
+            ...this.buildAdminStoreExclusionWhere(),
+            deletedAt: null,
+          },
         },
         select: {
           storeId: true,

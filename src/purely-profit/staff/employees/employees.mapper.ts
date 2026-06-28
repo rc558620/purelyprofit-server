@@ -19,14 +19,19 @@ import {
 } from './dto/employee-response.dto';
 import { EmployeeShiftResponseDto } from './dto/employee-shift.dto';
 import { EmployeeShiftDefinitionResponseDto } from './dto/employee-shift-definition.dto';
+import { Money } from '../../../shared/money.utils';
 import {
-  toDecimalNumber,
+  toOptionalMediaText,
   toOptionalText,
   toOptionalTimestampMs,
   toTimestampMs,
-} from './employees.utils';
+} from '../../commerce/commerce.utils';
 import { formatPayrollMonth } from './employees-payroll.domain';
-import { toOptionalMediaText } from '../../commerce/commerce.utils';
+import {
+  buildPaginationMeta,
+  normalizeMonthValue,
+  toDecimalNumber,
+} from './employees.utils';
 
 export interface EmployeeResponseViewOptions {
   canViewSubAccountModule?: boolean;
@@ -49,7 +54,7 @@ export function toEmployeeResponse(
     position: employee.position,
     department: employee.department,
     joinDate: toTimestampMs(employee.joinDate),
-    baseSalary: toDecimalNumber(employee.baseSalary),
+    baseSalary: Money.fromDbCents(employee.baseSalary).toOutputYuan(),
     ...(toOptionalMediaText(employee.avatar)
       ? { avatar: toOptionalMediaText(employee.avatar) }
       : {}),
@@ -133,7 +138,7 @@ export function toEmployeeLeaveResponse(
     endDate: toTimestampMs(leave.endDate),
     days: toDecimalNumber(leave.days),
     deductSalary: leave.deductSalary,
-    deductAmount: toDecimalNumber(leave.deductAmount),
+    deductAmount: Money.fromDbCents(leave.deductAmount).toOutputYuan(),
     ...(toOptionalText(leave.note) ? { note: leave.note ?? undefined } : {}),
     createdAt: toTimestampMs(leave.createdAt),
   };
@@ -166,22 +171,22 @@ export function toEmployeePayrollResponse(
     employeeId: String(payroll.employeeId),
     employeeName: payroll.employeeName,
     month: formatPayrollMonth(payroll.month),
-    // 数据库存储的是 cents，需要转换为 yuan
-    baseSalary: centsToYuan(payroll.baseSalary),
-    leaveDeduction: centsToYuan(payroll.leaveDeduction),
-    otherDeduction: centsToYuan(payroll.otherDeduction),
+    // 数据库存储分，用 Money.fromDbCents 读出后 toOutputYuan 返回
+    baseSalary: Money.fromDbCents(payroll.baseSalary).toOutputYuan(),
+    leaveDeduction: Money.fromDbCents(payroll.leaveDeduction).toOutputYuan(),
+    otherDeduction: Money.fromDbCents(payroll.otherDeduction).toOutputYuan(),
     ...(payroll.otherDeductionNote
       ? { otherDeductionNote: payroll.otherDeductionNote }
       : {}),
-    bonus: centsToYuan(payroll.bonus),
-    actualSalary: centsToYuan(payroll.actualSalary),
-...(payroll.socialInsurance > 0
-? { socialInsurance: centsToYuan(payroll.socialInsurance) }
-: {}),
-...(payroll.housingFund > 0
-? { housingFund: centsToYuan(payroll.housingFund) }
-: {}),
-    totalLaborCost: centsToYuan(payroll.totalLaborCost),
+    bonus: Money.fromDbCents(payroll.bonus).toOutputYuan(),
+    actualSalary: Money.fromDbCents(payroll.actualSalary).toOutputYuan(),
+    ...(payroll.socialInsurance > 0
+      ? { socialInsurance: Money.fromDbCents(payroll.socialInsurance).toOutputYuan() }
+      : {}),
+    ...(payroll.housingFund > 0
+      ? { housingFund: Money.fromDbCents(payroll.housingFund).toOutputYuan() }
+      : {}),
+    totalLaborCost: Money.fromDbCents(payroll.totalLaborCost).toOutputYuan(),
     status: payroll.status,
     ...(toOptionalTimestampMs(payroll.confirmedAt)
       ? { confirmedAt: toOptionalTimestampMs(payroll.confirmedAt) }
@@ -190,11 +195,4 @@ export function toEmployeePayrollResponse(
     createdAt: toTimestampMs(payroll.createdAt),
     updatedAt: toTimestampMs(payroll.updatedAt),
   };
-}
-
-/**
- * 将分转换为元
- */
-function centsToYuan(cents: number | { toString(): string }): number {
-  return Math.round(Number(cents.toString())) / 100;
 }

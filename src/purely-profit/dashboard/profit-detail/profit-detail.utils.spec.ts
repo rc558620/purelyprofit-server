@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import type { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import type { PrismaService } from '../../../prisma/prisma.service';
+import { Money } from '../../../shared/money.utils';
 import {
   aggregateCosts,
   aggregateSales,
@@ -311,12 +312,11 @@ describe('profit-detail.utils', () => {
       summary: buildEmptySummary(),
       products: [],
     });
-    expect(createEmptySalesAggregation()).toEqual({
-      revenue: 0,
-      orderCount: 0,
-      dailyRevenueMap: new Map<number, number>(),
-      rankMap: new Map<string, AggregatedRankProduct>(),
-    });
+    const emptyAgg = createEmptySalesAggregation();
+    expect(emptyAgg.revenue.equals(Money.zero())).toBe(true);
+    expect(emptyAgg.orderCount).toBe(0);
+    expect(emptyAgg.dailyRevenueMap).toEqual(new Map<number, Money>());
+    expect(emptyAgg.rankMap).toEqual(new Map<string, AggregatedRankProduct>());
   });
 
   it('aggregateSales 会过滤区间外数据并合并商品统计', () => {
@@ -399,36 +399,47 @@ describe('profit-detail.utils', () => {
       new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
     );
 
-    expect(result.revenue).toBe(2850);
+    expect(result.revenue.toOutputYuan()).toBe(28.5);
     // orderCount 统计独立订单数（3 个订单，续费抵扣行被排除不计入）
     expect(result.orderCount).toBe(3);
-    expect(result.dailyRevenueMap).toEqual(
-      new Map<number, number>([
-        [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 1950],
-        [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 900],
-      ]),
-    );
-    expect(Array.from(result.rankMap.values())).toEqual([
+    expect(
+      Array.from(result.dailyRevenueMap.entries()).map(
+        ([k, v]) => [k, v.toOutputYuan()] as [number, number],
+      ),
+    ).toEqual([
+      [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 19.5],
+      [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 9],
+    ]);
+    const rankValues = Array.from(result.rankMap.values());
+    expect(
+      rankValues.map((item) => ({
+        ...item,
+        price: item.price.toOutputYuan(),
+        profitPerUnit: item.profitPerUnit.toOutputYuan(),
+        totalProfit: item.totalProfit.toOutputYuan(),
+        totalRevenue: item.totalRevenue.toOutputYuan(),
+      })),
+    ).toEqual([
       {
         id: '1',
         name: '可口可乐 330ml',
         category: '饮品',
-        price: 650,
-        profitPerUnit: 250,
+        price: 6.5,
+        profitPerUnit: 2.5,
         quantity: 3,
-        totalProfit: 750,
-        totalRevenue: 1950,
+        totalProfit: 7.5,
+        totalRevenue: 19.5,
         image: 'https://example.com/coke.png',
       },
       {
         id: 'snapshot:快照商品',
         name: '快照商品',
         category: '零食',
-        price: 900,
-        profitPerUnit: 300,
+        price: 9,
+        profitPerUnit: 3,
         quantity: 1,
-        totalProfit: 300,
-        totalRevenue: 900,
+        totalProfit: 3,
+        totalRevenue: 9,
       },
     ]);
   });
@@ -463,19 +474,23 @@ describe('profit-detail.utils', () => {
       new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
     );
 
-    expect(result.totalCost).toBe(1250);
-    expect(result.dailyCostMap).toEqual(
-      new Map<number, number>([
-        [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 800],
-        [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 450],
-      ]),
-    );
-    expect(result.categoryCostMap).toEqual(
-      new Map<CostRecordRow['category'], number>([
-        ['rent', 950],
-        ['purchase', 300],
-      ]),
-    );
+    expect(result.totalCost.toOutputYuan()).toBe(12.5);
+    expect(
+      Array.from(result.dailyCostMap.entries()).map(
+        ([k, v]) => [k, v.toOutputYuan()] as [number, number],
+      ),
+    ).toEqual([
+      [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 8],
+      [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 4.5],
+    ]);
+    expect(
+      Array.from(result.categoryCostMap.entries()).map(
+        ([k, v]) => [k, v.toOutputYuan()] as [string, number],
+      ),
+    ).toEqual([
+      ['rent', 9.5],
+      ['purchase', 3],
+    ]);
   });
 
   it('汇总与趋势 helper 会正确计算比例、变化率与每日利润', () => {
@@ -496,13 +511,13 @@ describe('profit-detail.utils', () => {
           start: new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
           end: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
         },
-        new Map<number, number>([
-          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 13],
-          [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 9],
+        new Map<number, Money>([
+          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), Money.fromDbCents(1300)],
+          [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(900)],
         ]),
-        new Map<number, number>([
-          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 8],
-          [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 3],
+        new Map<number, Money>([
+          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), Money.fromDbCents(800)],
+          [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(300)],
         ]),
       ),
     ).toEqual([
@@ -520,11 +535,11 @@ describe('profit-detail.utils', () => {
           id: '1',
           name: '可口可乐 330ml',
           category: '饮品',
-          price: 6.5,
-          profitPerUnit: 2.5,
+          price: Money.fromDbCents(650),
+          profitPerUnit: Money.fromDbCents(250),
           quantity: 2,
-          totalProfit: 5,
-          totalRevenue: 13,
+          totalProfit: Money.fromDbCents(500),
+          totalRevenue: Money.fromDbCents(1300),
           image: 'https://example.com/coke.png',
         },
       ],
@@ -534,17 +549,17 @@ describe('profit-detail.utils', () => {
           id: '2',
           name: '奥利奥',
           category: '零食',
-          price: 9,
-          profitPerUnit: 3,
+          price: Money.fromDbCents(900),
+          profitPerUnit: Money.fromDbCents(300),
           quantity: 1,
-          totalProfit: 3,
-          totalRevenue: 9,
+          totalProfit: Money.fromDbCents(300),
+          totalRevenue: Money.fromDbCents(900),
         },
       ],
     ]);
-    const categoryCostMap = new Map<CostRecordRow['category'], number>([
-      ['purchase', 3],
-      ['rent', 8],
+    const categoryCostMap = new Map<CostRecordRow['category'], Money>([
+      ['purchase', Money.fromDbCents(300)],
+      ['rent', Money.fromDbCents(800)],
     ]);
 
     expect(buildReportProducts(rankMap)).toEqual([
@@ -592,7 +607,7 @@ describe('profit-detail.utils', () => {
         profitRate: 33.33,
       },
     ]);
-    expect(buildCostBreakdown(categoryCostMap, 11)).toEqual([
+    expect(buildCostBreakdown(categoryCostMap, Money.fromDbCents(1100))).toEqual([
       { label: '租金', amount: 8, color: '#6366f1', percentage: 72.73 },
       { label: '进货', amount: 3, color: '#84cc16', percentage: 27.27 },
     ]);
@@ -607,11 +622,11 @@ describe('profit-detail.utils', () => {
         empty: false,
       },
       currentSales: {
-        revenue: 22,
+        revenue: Money.fromDbCents(2200),
         orderCount: 3,
-        dailyRevenueMap: new Map<number, number>([
-          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 13],
-          [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 9],
+        dailyRevenueMap: new Map<number, Money>([
+          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), Money.fromDbCents(1300)],
+          [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(900)],
         ]),
         rankMap: new Map<string, AggregatedRankProduct>([
           [
@@ -620,40 +635,40 @@ describe('profit-detail.utils', () => {
               id: '1',
               name: '可口可乐 330ml',
               category: '饮品',
-              price: 6.5,
-              profitPerUnit: 2.5,
+              price: Money.fromDbCents(650),
+              profitPerUnit: Money.fromDbCents(250),
               quantity: 2,
-              totalProfit: 5,
-              totalRevenue: 13,
+              totalProfit: Money.fromDbCents(500),
+              totalRevenue: Money.fromDbCents(1300),
               image: 'https://example.com/coke.png',
             },
           ],
         ]),
       },
       previousSales: {
-        revenue: 24,
+        revenue: Money.fromDbCents(2400),
         orderCount: 3,
-        dailyRevenueMap: new Map<number, number>(),
+        dailyRevenueMap: new Map<number, Money>(),
         rankMap: new Map<string, AggregatedRankProduct>(),
       },
       currentCosts: {
-        totalCost: 11,
-        dailyCostMap: new Map<number, number>([
-          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), 8],
-          [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), 3],
+        totalCost: Money.fromDbCents(1100),
+        dailyCostMap: new Map<number, Money>([
+          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), Money.fromDbCents(800)],
+          [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(300)],
         ]),
-        categoryCostMap: new Map<CostRecordRow['category'], number>([
-          ['rent', 8],
-          ['purchase', 3],
+        categoryCostMap: new Map<CostRecordRow['category'], Money>([
+          ['rent', Money.fromDbCents(800)],
+          ['purchase', Money.fromDbCents(300)],
         ]),
       },
       previousCosts: {
-        totalCost: 10,
-        dailyCostMap: new Map<number, number>(),
-        categoryCostMap: new Map<CostRecordRow['category'], number>(),
+        totalCost: Money.fromDbCents(1000),
+        dailyCostMap: new Map<number, Money>(),
+        categoryCostMap: new Map<CostRecordRow['category'], Money>(),
       },
-      netProfit: 11,
-      previousNetProfit: 14,
+      netProfit: Money.fromDbCents(1100),
+      previousNetProfit: Money.fromDbCents(1400),
     };
 
     expect(buildProfitDetailResponse(snapshot)).toEqual({

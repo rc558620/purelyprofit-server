@@ -10,6 +10,7 @@ import {
   EmployeeShiftReportResponseDto,
   EmployeeShiftResponseDto,
   ListEmployeeShiftsQueryDto,
+  PaginatedEmployeeShiftsResponseDto,
   UpdateEmployeeShiftDto,
 } from './dto/employee-shift.dto';
 import {
@@ -21,7 +22,12 @@ import {
 } from './employees-shift.domain';
 import { EmployeesAccessService } from './employees-access.service';
 import { toEmployeeShiftResponse } from './employees.mapper';
-import { buildDateRange, toNullableText } from './employees.utils';
+import {
+  buildDateRange,
+  buildPaginationMeta,
+  resolvePagination,
+  toNullableText,
+} from './employees.utils';
 import { EmployeesShiftDefinitionService } from './employees-shift-definition.service';
 
 @Injectable()
@@ -51,7 +57,7 @@ export class EmployeesShiftService {
         ...(query.department
           ? {
               employee: {
-                department: { equals: query.department, mode: 'insensitive' },
+                department: { equals: query.department, mode: 'insensitive' as const },
               },
             }
           : {}),
@@ -75,30 +81,41 @@ export class EmployeesShiftService {
   async listShifts(
     user: AuthenticatedUser,
     query: ListEmployeeShiftsQueryDto,
-  ): Promise<EmployeeShiftResponseDto[]> {
+  ): Promise<PaginatedEmployeeShiftsResponseDto> {
     const storeId = await this.employeesAccessService.resolveViewStoreId(
       user,
       query.storeId,
       '无权查看该门店排班',
-      'report:view',
+      'staff:view',
     );
     const dateRange = buildDateRange(query.year, query.month);
-    const rows = await this.prisma.employeeShift.findMany({
-      where: {
-        storeId,
-        ...(query.employeeId ? { employeeId: query.employeeId } : {}),
-        ...(dateRange ? { date: dateRange } : {}),
-        ...(query.department
-          ? {
-              employee: {
-                department: { equals: query.department, mode: 'insensitive' },
-              },
-            }
-          : {}),
-      },
-      orderBy: [{ date: 'desc' }, { id: 'desc' }],
-    });
-    return rows.map(toEmployeeShiftResponse);
+    const { page, skip, take } = resolvePagination(query.page, query.pageSize, 50, 200);
+    const where = {
+      storeId,
+      ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+      ...(dateRange ? { date: dateRange } : {}),
+      ...(query.department
+        ? {
+            employee: {
+              department: { equals: query.department, mode: 'insensitive' as const },
+            },
+          }
+        : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.employeeShift.findMany({
+        where,
+        orderBy: [{ date: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      }),
+      this.prisma.employeeShift.count({ where }),
+    ]);
+
+    return {
+      items: rows.map(toEmployeeShiftResponse),
+      meta: buildPaginationMeta(total, page, take),
+    };
   }
 
   async createShift(

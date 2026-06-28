@@ -1,9 +1,11 @@
 import { Global, Module } from '@nestjs/common';
 import { BusinessAnalysisModule } from '../purely-profit/dashboard/business-analysis/business-analysis.module';
 import { DashboardHomeModule } from '../purely-profit/dashboard/dashboard-home/dashboard-home.module';
+import { ProfitDetailModule } from '../purely-profit/dashboard/profit-detail/profit-detail.module';
 import { FinanceModule } from '../purely-profit/finance/finance.module';
 import { MarketingModule } from '../purely-profit/marketing/marketing.module';
 import { MembersModule } from '../purely-profit/member/members/members.module';
+import { CostsModule } from '../purely-profit/operations/costs/costs.module';
 import { CacheInvalidatorFinanceService } from './cache-invalidator-finance.service';
 import { CacheInvalidatorMembershipService } from './cache-invalidator-membership.service';
 import { CacheInvalidatorProfitReadService } from './cache-invalidator-profit-read.service';
@@ -19,9 +21,11 @@ import { RedisService } from './redis.service';
   imports: [
     DashboardHomeModule,
     BusinessAnalysisModule,
+    ProfitDetailModule,
     FinanceModule,
     MarketingModule,
     MembersModule,
+    CostsModule,
   ],
   providers: [
     RedisService,

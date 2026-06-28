@@ -30,6 +30,7 @@ import {
   EmployeeShiftReportResponseDto,
   EmployeeShiftResponseDto,
   ListEmployeeShiftsQueryDto,
+  PaginatedEmployeeShiftsResponseDto,
   UpdateEmployeeShiftDto,
 } from './dto/employee-shift.dto';
 import { EmployeesService } from './employees.service';
@@ -55,11 +56,11 @@ export class EmployeesShiftsController {
   @Get('shifts')
   @RequirePermissions('staff:view')
   @ApiOperation({ summary: '获取排班列表' })
-  @ApiOkResponse({ type: [EmployeeShiftResponseDto] })
+  @ApiOkResponse({ type: PaginatedEmployeeShiftsResponseDto })
   listShifts(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListEmployeeShiftsQueryDto,
-  ): Promise<EmployeeShiftResponseDto[]> {
+  ): Promise<PaginatedEmployeeShiftsResponseDto> {
     return this.employeesService.listShifts(user, query);
   }
 

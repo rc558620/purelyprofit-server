@@ -17,6 +17,8 @@ import type {
   PartnerWithdrawalStatusValue,
   WithdrawalAccountTypeValue,
 } from '../../../purely-profit/member/withdrawals/dto/apply-withdrawal.dto';
+import { PLATFORM_PARTNER_INTENTIONS } from '../../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
+import type { PlatformPartnerIntention } from '../../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 
 function trimString(value: unknown): unknown {
   return typeof value === 'string' ? value.trim() : value;
@@ -79,7 +81,7 @@ export class PulsePayoutApplicationItemDto {
   @IsString()
   partnerName: string;
 
-  @ApiProperty({ example: '138****8821', description: '合伙人手机号（脱敏）' })
+  @ApiProperty({ example: '13800138000', description: '合伙人手机号' })
   @IsString()
   partnerPhone: string;
 
@@ -258,7 +260,7 @@ export class PulseAdminPartnerApplicationItemDto {
   @IsString()
   name: string;
 
-  @ApiProperty({ example: '138****9021', description: '申请人手机号（脱敏）' })
+  @ApiProperty({ example: '13800138000', description: '申请人手机号' })
   @IsString()
   phone: string;
 
@@ -295,6 +297,14 @@ export class PulseAdminPartnerApplicationItemDto {
   @IsOptional()
   @IsString()
   avatarUrl?: string;
+
+  @ApiProperty({
+    enum: PLATFORM_PARTNER_INTENTIONS,
+    example: 'agent',
+    description: '合作意向：agent=代理推广 / invest=投资入股 / resource=资源合作 / other=其他合作',
+  })
+  @IsIn(PLATFORM_PARTNER_INTENTIONS)
+  intention: PlatformPartnerIntention;
 
   @ApiProperty({
     enum: PULSE_PARTNER_APPLICATION_STATUS_VALUES,

@@ -5,6 +5,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { RedisService } from '../../../redis/redis.service';
 import { CostsReadService } from './costs-read.service';
 import { CostsService } from './costs.service';
 import { CostsWriteService } from './costs-write.service';
@@ -95,6 +96,11 @@ export function createCostsReadProviders(
   return [
     CostsReadService,
     { provide: PrismaService, useValue: prismaService },
+    { provide: RedisService, useValue: {
+      getOrLoadRefreshableJson: jest.fn((_options: any) => _options.loadValue()),
+      writeRefreshableJson: jest.fn(),
+      delByPattern: jest.fn(),
+    } },
     { provide: CommerceAccessService, useValue: commerceAccessService },
     {
       provide: PlatformMembershipAccessService,

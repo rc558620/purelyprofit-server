@@ -134,6 +134,14 @@ export function buildFinanceReconciliationsPattern(storeId: number): string {
   return `profit:finance:reconciliations:*:store:${storeId}*`;
 }
 
+export function buildFinanceReportPattern(storeId: number): string {
+  return `profit:finance:report:store:${storeId}:*`;
+}
+
+export function buildFinanceReportAllPattern(): string {
+  return 'profit:finance:report:store:*';
+}
+
 export function parseFinanceOverviewCacheKey(cacheKey: string): {
   storeId: number;
   period: FinanceOverviewPeriodValue;

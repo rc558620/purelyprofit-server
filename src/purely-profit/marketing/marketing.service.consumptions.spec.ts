@@ -84,11 +84,12 @@ describe('MarketingService consumptions', () => {
     expect(result).toEqual({
       id: '401',
       customerId: '9',
-      amount: 15800,
-      balancePaid: 10000,
-      pointsDeducted: 500,
+      amount: 158,
+      balancePaid: 100,
+      pointsDeducted: 5,
       payType: 'balance',
       itemsSummary: '商务套餐 × 2',
+      promotionId: undefined,
       createdAt: new Date('2026-05-15T11:00:00.000Z').getTime(),
     });
   });

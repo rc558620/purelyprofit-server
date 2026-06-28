@@ -7,6 +7,7 @@ import {
 import { StaffRole, StaffStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ConfigService } from '@nestjs/config';
 import {
   buildAccountIdentifiers,
   buildLoginEmailFromAccount,
@@ -20,7 +21,10 @@ interface EnsureEmployeeSubAccountLoginInput {
 
 @Injectable()
 export class StoreSubAccountLoginService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   /**
    * 确保员工有对应的登录账号（User + Staff）
@@ -68,7 +72,7 @@ export class StoreSubAccountLoginService {
     if (
       normalizedLoginAccount !== undefined &&
       normalizedLoginAccount.length > 0 &&
-      !isValidSubAccountLoginAccount(normalizedLoginAccount)
+      !isValidSubAccountLoginAccount(normalizedLoginAccount, this.configService.get<string>('auth.adminLoginAlias') ?? 'admin')
     ) {
       throw new BadRequestException(
         '登录账号仅支持 6~32 位字母、数字或下划线，且不可使用保留账号',

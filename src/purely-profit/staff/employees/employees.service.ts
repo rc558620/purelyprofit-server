@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import type { ServerResponse } from 'node:http';
 
 import { toStoreSubAccountRole } from '../../access-control/access-control.constants';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -21,6 +22,7 @@ import {
   EmployeePayrollReportResponseDto,
   EmployeePayrollResponseDto,
   ListEmployeePayrollsQueryDto,
+  PaginatedEmployeePayrollsResponseDto,
   SaveEmployeePayrollDto,
   UpdateEmployeePayrollDto,
 } from './dto/employee-payroll.dto';
@@ -37,6 +39,7 @@ import {
   EmployeeShiftReportResponseDto,
   EmployeeShiftResponseDto,
   ListEmployeeShiftsQueryDto,
+  PaginatedEmployeeShiftsResponseDto,
   UpdateEmployeeShiftDto,
 } from './dto/employee-shift.dto';
 import {
@@ -367,7 +370,7 @@ export class EmployeesService {
   listShifts(
     user: AuthenticatedUser,
     query: ListEmployeeShiftsQueryDto,
-  ): Promise<EmployeeShiftResponseDto[]> {
+  ): Promise<PaginatedEmployeeShiftsResponseDto> {
     return this.employeesShiftService.listShifts(user, query);
   }
 
@@ -398,10 +401,18 @@ export class EmployeesService {
     return this.employeesPayrollService.getPayrollReport(user, query);
   }
 
+  streamPayrollReportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    query: ListEmployeePayrollsQueryDto,
+  ): Promise<void> {
+    return this.employeesPayrollService.streamPayrollReportCsv(reply, user, query);
+  }
+
   listPayrolls(
     user: AuthenticatedUser,
     query: ListEmployeePayrollsQueryDto,
-  ): Promise<EmployeePayrollResponseDto[]> {
+  ): Promise<PaginatedEmployeePayrollsResponseDto> {
     return this.employeesPayrollService.listPayrolls(user, query);
   }
 

@@ -10,6 +10,7 @@ import {
   type SpacesDashboardResponseDto,
 } from './dto/space.dto';
 import { toSpaceResponse } from './spaces.mapper';
+import type { SpaceStatusValue } from './spaces.constants';
 import {
   SpaceDashboardSummaryService,
   type DashboardSpaceSummaryBundle,
@@ -40,17 +41,19 @@ export class SpaceDashboardService {
       return this.buildEmptyDashboard();
     }
 
-    const [spaces, sessionStats, dashboardSummaries] = await Promise.all([
-      this.findSpacesByStore(storeId),
-      this.summaryService.buildTodaySettledSessionStats(storeId),
-      this.summaryService.buildDashboardSpaceSummaryBundle(storeId),
-    ]);
+    const [spaces, sessionStats, dashboardSummaries, lastSettledMap] =
+      await Promise.all([
+        this.findSpacesByStore(storeId),
+        this.summaryService.buildTodaySettledSessionStats(storeId),
+        this.summaryService.buildDashboardSpaceSummaryBundle(storeId),
+        this.buildLastSettledEndTimeMap(storeId),
+      ]);
 
     return {
-      stats: this.buildSpaceStats(spaces, sessionStats),
+      stats: this.buildSpaceStats(spaces, sessionStats, lastSettledMap),
       filterOptions: this.buildFilterOptions(spaces),
       spaces: spaces.map((space) =>
-        this.toSpaceDashboardItem(space, dashboardSummaries),
+        this.toSpaceDashboardItem(space, dashboardSummaries, lastSettledMap),
       ),
     };
   }
@@ -81,34 +84,27 @@ export class SpaceDashboardService {
       todaySettled: number;
       todayRevenue: number;
     },
+    lastSettledMap: Map<number, Date>,
   ): SpaceStatsResponseDto {
     let idle = 0;
     let occupied = 0;
     let reserved = 0;
-    const cleaning = 0;
+    let cleaning = 0;
 
-    // Space.status 已移除，状态由运行态推导
-    // 使用 summaries 中的 activeSession 和 activeReservation 计算状态
     for (const space of spaces) {
-      const hasActiveSession = this.hasActiveSession(space);
-      const hasActiveReservation = this.hasActiveReservation(space);
-      const hasDirtyRoom = space.enableDirtyRoom;
-
-      if (hasActiveSession) {
-        occupied += 1;
-      } else if (hasDirtyRoom) {
-        // 脏房模式：结账后需要清洁
-        // 由于没有存储状态，这里简化处理：有活跃预约则 reserved，否则 idle
-        // 实际的 cleaning 状态需要结合会话结算时间判断，这里暂不实现
-        if (hasActiveReservation) {
+      const status = this.deriveSpaceStatus(space, lastSettledMap);
+      switch (status) {
+        case 'occupied':
+          occupied += 1;
+          break;
+        case 'reserved':
           reserved += 1;
-        } else {
+          break;
+        case 'cleaning':
+          cleaning += 1;
+          break;
+        default:
           idle += 1;
-        }
-      } else if (hasActiveReservation) {
-        reserved += 1;
-      } else {
-        idle += 1;
       }
     }
 
@@ -180,14 +176,53 @@ export class SpaceDashboardService {
     });
   }
 
-  private hasActiveSession(space: { sessions: { id: number }[] }): boolean {
-    return space.sessions.length > 0;
+  /**
+   * 查询每个空间最近一次 settled 会话的 endTime，用于脏房 cleaning 状态推导。
+   *
+   * 使用 DISTINCT ON 让 PostgreSQL 在数据库层面完成"每个 space 取最新一条"，
+   * 避免加载全量 settled sessions 再在内存中过滤。
+   *
+   * 执行计划：DISTINCT ON + ORDER BY 可利用 (spaceId, endTime) 复合索引，
+   * 实际仅需索引扫描，无需排序全表。若 storeId 下 settled sessions 较多，
+   * 性能提升显著。
+   */
+  private async buildLastSettledEndTimeMap(
+    storeId: number,
+  ): Promise<Map<number, Date>> {
+    type LastSettledRow = { spaceId: number; endTime: Date };
+    const rows = await this.prisma.$queryRaw<LastSettledRow[]>`
+      SELECT DISTINCT ON ("spaceId") "spaceId", "endTime"
+      FROM "SpaceSession"
+      WHERE "storeId" = ${storeId}
+        AND status = 'settled'
+        AND "endTime" IS NOT NULL
+      ORDER BY "spaceId", "endTime" DESC
+    `;
+
+    const map = new Map<number, Date>();
+    for (const row of rows) {
+      map.set(row.spaceId, row.endTime);
+    }
+    return map;
   }
 
-  private hasActiveReservation(space: {
-    reservations: { id: number }[];
-  }): boolean {
-    return space.reservations.length > 0;
+  private deriveSpaceStatus(
+    space: Awaited<ReturnType<typeof this.findSpacesByStore>>[number],
+    lastSettledMap: Map<number, Date>,
+  ): SpaceStatusValue {
+    if (space.sessions.length > 0) return 'occupied';
+    if (space.reservations.length > 0) return 'reserved';
+
+    // 脏房模式：结账后无活跃会话，且尚未标记清洁完成 → cleaning
+    if (space.enableDirtyRoom) {
+      const lastSettledEndTime = lastSettledMap.get(space.id) ?? null;
+      if (lastSettledEndTime !== null) {
+        const cleanedMs = space.cleanedAt?.getTime() ?? 0;
+        if (lastSettledEndTime.getTime() > cleanedMs) return 'cleaning';
+      }
+    }
+
+    return 'idle';
   }
 
   private getTodayRange(): { start: Date; end: Date } {
@@ -208,15 +243,9 @@ export class SpaceDashboardService {
   private toSpaceDashboardItem(
     space: Awaited<ReturnType<typeof this.findSpacesByStore>>[number],
     summaries: DashboardSpaceSummaryBundle,
+    lastSettledMap: Map<number, Date>,
   ): SpaceDashboardSpaceItemDto {
-    // 运行态推导 status
-    const hasActiveSession = space.sessions.length > 0;
-    const hasActiveReservation = space.reservations.length > 0;
-    const status = hasActiveSession
-      ? 'occupied'
-      : hasActiveReservation
-        ? 'reserved'
-        : 'idle';
+    const status = this.deriveSpaceStatus(space, lastSettledMap);
 
     return {
       ...toSpaceResponse({

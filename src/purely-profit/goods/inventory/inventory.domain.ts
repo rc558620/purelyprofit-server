@@ -1,4 +1,4 @@
-import { toDecimalNumber } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type { InventoryStatsResponseDto } from './dto/inventory.dto';
 import type {
   InventoryProductListQueryInput,
@@ -103,7 +103,7 @@ export function buildInventoryStats(
 
     totalStockValue +=
       product.stock *
-      (product.costPrice === null ? 0 : toDecimalNumber(product.costPrice));
+      (product.costPrice === null ? 0 : Money.fromDbCents(product.costPrice).toOutputYuan());
   }
 
   return {

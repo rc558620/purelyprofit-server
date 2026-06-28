@@ -6,6 +6,7 @@ import {
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { Money } from '../../../shared/money.utils';
 import {
   CreateEmployeeLeaveDto,
   EmployeeLeaveResponseDto,
@@ -75,7 +76,7 @@ export class EmployeesLeaveService {
         endDate: new Date(dto.endDate),
         days: dto.days,
         deductSalary: dto.deductSalary,
-        deductAmount: this.toCents(dto.deductAmount),
+        deductAmount: Money.fromInputYuan(dto.deductAmount).toDbCents(),
         note: toNullableText(dto.note),
       },
     });
@@ -107,7 +108,7 @@ export class EmployeesLeaveService {
       endDate: nextLeaveEndDate,
       days: dto.days ?? toDecimalNumber(leave.days),
       deductSalary: dto.deductSalary ?? leave.deductSalary,
-      deductAmount: dto.deductAmount ?? toDecimalNumber(leave.deductAmount),
+      deductAmount: dto.deductAmount ?? Money.fromDbCents(leave.deductAmount).toOutputYuan(),
     });
     await this.ensureLeaveDateRangeAvailable(
       leave.employeeId,
@@ -131,7 +132,7 @@ export class EmployeesLeaveService {
           ? { deductSalary: dto.deductSalary }
           : {}),
         ...(dto.deductAmount !== undefined
-          ? { deductAmount: this.toCents(dto.deductAmount) }
+          ? { deductAmount: Money.fromInputYuan(dto.deductAmount).toDbCents() }
           : {}),
         ...(dto.note !== undefined ? { note: toNullableText(dto.note) } : {}),
       },
@@ -183,11 +184,4 @@ export class EmployeesLeaveService {
     }
   }
 
-  /**
-   * 将元转换为分（cents）
-   * API 入参是元，数据库存储是分
-   */
-  private toCents(value: number): number {
-    return Math.round(value * 100);
-  }
 }

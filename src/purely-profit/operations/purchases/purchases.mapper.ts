@@ -1,8 +1,8 @@
 import {
   buildPaginationMeta,
-  centsToYuan,
   toTimestampMs,
 } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type {
   PaginatedPurchasesResponseDto,
   PurchaseItemResponseDto,
@@ -53,8 +53,8 @@ export function buildPurchaseStatsResponse(params: {
   previousTotalAmount: number | null;
   hasPreviousRange: boolean;
 }): PurchaseStatsResponseDto {
-  const currentTotal = centsToYuan(params.currentTotalAmount ?? 0);
-  const previousTotal = centsToYuan(params.previousTotalAmount ?? 0);
+  const currentTotal = Money.fromDbCents(params.currentTotalAmount ?? 0).toOutputYuan();
+  const previousTotal = Money.fromDbCents(params.previousTotalAmount ?? 0).toOutputYuan();
 
   return {
     totalAmount: currentTotal,
@@ -76,7 +76,7 @@ export function mapPurchaseResponse(
     ...(order.supplierId ? { supplierId: String(order.supplierId) } : {}),
     ...(order.supplierName ? { supplierName: order.supplierName } : {}),
     items: order.items.map((item) => mapPurchaseItemResponse(item)),
-    totalAmount: centsToYuan(order.totalAmount),
+    totalAmount: Money.fromDbCents(order.totalAmount).toOutputYuan(),
     date: toTimestampMs(order.date),
     ...(order.note ? { note: order.note } : {}),
     createdAt: toTimestampMs(order.createdAt),
@@ -92,7 +92,7 @@ function mapPurchaseItemResponse(
     productName: item.productName,
     ...(item.unit ? { unit: item.unit } : {}),
     quantity: item.quantity,
-    unitPrice: centsToYuan(item.unitPrice),
-    amount: centsToYuan(item.amount),
+    unitPrice: Money.fromDbCents(item.unitPrice).toOutputYuan(),
+    amount: Money.fromDbCents(item.amount).toOutputYuan(),
   };
 }

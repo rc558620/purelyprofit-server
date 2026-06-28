@@ -4,6 +4,7 @@ import type {
   InventoryAdjustmentPageResult,
   InventoryAdjustmentsListQueryInput,
   InventoryProductListQueryInput,
+  InventoryProductPageResult,
   InventoryProductRecord,
   InventoryProductStoreRecord,
   InventoryStatsRow,
@@ -14,51 +15,57 @@ export async function queryInventoryProducts(
   prisma: PrismaService,
   storeId: number,
   query: InventoryProductListQueryInput,
-): Promise<InventoryProductRecord[]> {
+): Promise<InventoryProductPageResult> {
   /* BUG-7: 将 alertLevel 过滤下推到数据库层，减少内存过滤 */
   const alertWhere = buildAlertWhereCondition(query.alertLevel);
+  const where: Prisma.ProductWhereInput = {
+    storeId,
+    isActive: true,
+    ...(query.category ? { category: query.category } : {}),
+    ...(query.keyword
+      ? {
+          OR: [
+            {
+              name: {
+                contains: query.keyword,
+                mode: 'insensitive' as const,
+              },
+            },
+            {
+              code: {
+                contains: query.keyword,
+                mode: 'insensitive' as const,
+              },
+            },
+          ],
+        }
+      : {}),
+    ...alertWhere,
+  };
 
-  return prisma.product.findMany({
-    where: {
-      storeId,
-      isActive: true,
-      ...(query.category ? { category: query.category } : {}),
-      ...(query.keyword
-        ? {
-            OR: [
-              {
-                name: {
-                  contains: query.keyword,
-                  mode: 'insensitive' as const,
-                },
-              },
-              {
-                code: {
-                  contains: query.keyword,
-                  mode: 'insensitive' as const,
-                },
-              },
-            ],
-          }
-        : {}),
-      ...alertWhere,
-    },
-    select: {
-      id: true,
-      name: true,
-      category: true,
-      code: true,
-      price: true,
-      profit: true,
-      costPrice: true,
-      unit: true,
-      stock: true,
-      alertThreshold: true,
-      image: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  const [items, total] = await Promise.all([
+    prisma.product.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        code: true,
+        price: true,
+        profit: true,
+        costPrice: true,
+        unit: true,
+        stock: true,
+        alertThreshold: true,
+        image: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }),
+    prisma.product.count({ where }),
+  ]);
+
+  return { items, total };
 }
 
 /**

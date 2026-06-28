@@ -280,7 +280,7 @@ export class EmployeesOverviewResponseDto {
   resignedThisMonth: number;
 }
 
-export class EmployeeDateFilterQueryDto {
+export class EmployeeDateFilterQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ example: 1, description: '按门店 ID 筛选' })
   @IsOptional()
   @Transform(transformOptionalInt)
@@ -325,4 +325,12 @@ export class EmployeeDateFilterQueryDto {
   @Transform(transformOptionalBoolean)
   @IsBoolean({ message: '导出标记必须是布尔值' })
   export?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ['json', 'csv'],
+    description: '导出格式，默认 json；csv 时服务端直接流式返回 CSV 文件',
+  })
+  @IsOptional()
+  @IsIn(['json', 'csv'], { message: 'format 只支持 json 或 csv' })
+  format?: 'json' | 'csv';
 }

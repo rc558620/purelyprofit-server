@@ -20,6 +20,7 @@ import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCapabilityService } from './auth-capability.service';
 import { AuthCodeService } from './auth-code.service';
+import { CaptchaTokenService } from './captcha-token.service';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthProfileService } from './auth-profile.service';
 import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.service';
@@ -69,6 +70,7 @@ describe('AuthService', () => {
     set: jest.fn(),
     setIfAbsent: jest.fn(),
     del: jest.fn(),
+    incr: jest.fn().mockResolvedValue(1),
     getJson: jest.fn().mockResolvedValue(null),
     setJson: jest.fn().mockResolvedValue(undefined),
     mgetJson: jest.fn().mockResolvedValue([]),
@@ -99,6 +101,8 @@ describe('AuthService', () => {
         'auth.passwordResetCodeTtlSeconds': 600,
         'auth.registerCodeTtlSeconds': 600,
         'auth.smsSendCooldownSeconds': 60,
+        'auth.adminLoginAlias': 'admin',
+        'auth.adminLoginPhone': '13619654020',
         'pulse.devAccountEmails': ['dev@example.com'],
         nodeEnv: 'development',
       };
@@ -127,6 +131,7 @@ describe('AuthService', () => {
         AuthAccountMembershipService,
         AuthAuthenticationService,
         AuthCodeService,
+        CaptchaTokenService,
         AuthPasswordService,
         AuthProductAuthService,
         AuthProfileService,
@@ -544,10 +549,13 @@ describe('AuthService', () => {
 
   it('purely-club 登录即注册验证码发送会写入冷却键并缓存验证码', async () => {
     redisService.set.mockResolvedValue(undefined);
+    // captchaToken 存在于 Redis 中，模拟已注册的令牌
+    redisService.get.mockResolvedValueOnce('1');
     authSmsService.sendLoginCode.mockResolvedValue(undefined);
 
     const result = await authProductAuthService.sendClubLoginOrRegisterCode({
       phone: '13800138000',
+      captchaToken: 'puzzle_1719500000000_1',
     });
 
     expect(result.message).toBe('验证码已发送，请注意查收');
@@ -572,10 +580,13 @@ describe('AuthService', () => {
 
   it('purely-club 登录即注册验证码发送在冷却期内会拒绝再次发送', async () => {
     redisService.setIfAbsent.mockResolvedValue(false);
+    // captchaToken 存在于 Redis 中，模拟已注册的令牌
+    redisService.get.mockResolvedValueOnce('1');
 
     await expect(
       authProductAuthService.sendClubLoginOrRegisterCode({
         phone: '13800138000',
+        captchaToken: 'puzzle_1719500000000_2',
       }),
     ).rejects.toThrow('短信发送过于频繁，请 60 秒后再试');
     expect(redisService.set).not.toHaveBeenCalled();
@@ -664,7 +675,7 @@ describe('AuthService', () => {
       email: 'club_phone_13800138000@purelyprofit.local',
       password: 'hashed-password',
     });
-    redisService.get.mockResolvedValueOnce('123456').mockResolvedValueOnce('0');
+    redisService.get.mockResolvedValueOnce('0').mockResolvedValueOnce('123456');
     redisService.del.mockResolvedValue(undefined);
     jwtService.signAsync.mockResolvedValue('club-code-token');
 
@@ -709,7 +720,7 @@ describe('AuthService', () => {
       id: 77,
       email: 'club_phone_13800138000@purelyprofit.local',
     });
-    redisService.get.mockResolvedValueOnce('123456').mockResolvedValueOnce('0');
+    redisService.get.mockResolvedValueOnce('0').mockResolvedValueOnce('123456');
     redisService.del.mockResolvedValue(undefined);
     jwtService.signAsync.mockResolvedValue('club-auto-register-token');
 
@@ -792,7 +803,7 @@ describe('AuthService', () => {
         email: 'club_wechat_oOPENID123@purelyprofit.local',
         password: 'hashed-password',
       });
-    redisService.get.mockResolvedValueOnce('123456').mockResolvedValueOnce('0');
+    redisService.get.mockResolvedValueOnce('0').mockResolvedValueOnce('123456');
     redisService.del.mockResolvedValue(undefined);
     jwtService.signAsync.mockResolvedValue('club-phone-reuse-token');
 
@@ -905,7 +916,11 @@ describe('AuthService', () => {
 
   it('新密码不能与旧密码相同', async () => {
     const hashedPassword = await bcrypt.hash('samePassword123', 4);
-    redisService.get.mockResolvedValue('123456');
+    // 区分验证码 key 和尝试次数 key 的 mock 返回值
+    redisService.get.mockImplementation((key: string) => {
+      if (key.includes('code-attempts')) return Promise.resolve('0');
+      return Promise.resolve('123456');
+    });
     prismaService.staff.findFirst.mockResolvedValue({
       user: {
         id: 1,

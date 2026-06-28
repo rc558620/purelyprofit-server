@@ -199,6 +199,10 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
       data: { points: { increment: earnedPoints } },
     });
 
+    // 写入积分记录。
+    // 执行计划说明：
+    // - INSERT 单行，无复杂查询，性能无风险
+    // - marketing_points_records 无唯一约束冲突风险（每次 INSERT 新行）
     await tx.$executeRaw`
       INSERT INTO marketing_points_records (
         store_id,

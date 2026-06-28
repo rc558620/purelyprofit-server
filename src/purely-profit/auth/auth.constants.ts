@@ -2,6 +2,19 @@ export const AUTH_TOKEN_VERSION_KEY_PREFIX = 'auth:token-version:';
 export const AUTH_PASSWORD_RESET_CODE_KEY_PREFIX = 'auth:password-reset:';
 export const AUTH_REGISTER_CODE_KEY_PREFIX = 'auth:register:';
 export const AUTH_SMS_SEND_COOLDOWN_KEY_PREFIX = 'auth:sms-cooldown:';
+/** 验证码校验尝试次数 key 前缀 */
+export const AUTH_CODE_ATTEMPTS_KEY_PREFIX = 'auth:code-attempts:';
+/** 验证码最大尝试次数，超过后验证码自动失效 */
+export const AUTH_CODE_MAX_ATTEMPTS = 5;
+/** 验证码尝试次数锁定 TTL（秒），与验证码 TTL 对齐 */
+export const AUTH_CODE_ATTEMPTS_LOCK_TTL_SECONDS = 600;
+
+/** 登录失败计数 key 前缀 */
+export const AUTH_LOGIN_FAIL_KEY_PREFIX = 'auth:login-fail:';
+/** 登录最大连续失败次数，超过后临时锁定账号 */
+export const AUTH_LOGIN_FAIL_MAX_ATTEMPTS = 10;
+/** 登录失败锁定时长（秒） */
+export const AUTH_LOGIN_FAIL_LOCK_TTL_SECONDS = 900;
 export const AUTH_PASSWORD_RESET_CODE_LENGTH = 6;
 export const DEFAULT_PASSWORD_RESET_CODE_TTL_SECONDS = 600;
 export const DEFAULT_REGISTER_CODE_TTL_SECONDS = 600;

@@ -3,15 +3,19 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { ServerResponse } from 'node:http';
 import { EmployeePayrollStatus } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CostsService } from '../../operations/costs/costs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { Money } from '../../../shared/money.utils';
 import {
   EmployeePayrollReportResponseDto,
   EmployeePayrollResponseDto,
   ListEmployeePayrollsQueryDto,
+  PaginatedEmployeePayrollsResponseDto,
   SaveEmployeePayrollDto,
   UpdateEmployeePayrollDto,
 } from './dto/employee-payroll.dto';
@@ -26,9 +30,14 @@ import { EmployeesAccessService } from './employees-access.service';
 import { toEmployeePayrollResponse } from './employees.mapper';
 import {
   buildDateRange,
+  buildPaginationMeta,
   normalizeMonthValue,
+  resolvePagination,
   toNullableText,
 } from './employees.utils';
+import {
+safeStreamCsvExport,
+} from '../../../shared/stream-export.utils';
 
 @Injectable()
 export class EmployeesPayrollService {
@@ -66,7 +75,7 @@ export class EmployeesPayrollService {
         ...(query.department
           ? {
               employee: {
-                department: { equals: query.department, mode: 'insensitive' },
+                department: { equals: query.department, mode: 'insensitive' as const },
               },
             }
           : {}),
@@ -74,46 +83,91 @@ export class EmployeesPayrollService {
       orderBy: [{ month: 'desc' }, { employeeName: 'asc' }, { id: 'asc' }],
     });
 
-    // socialInsurance/housingFund 已改为 Int（分），直接传入 buildPayrollReport 内部调用 centsToYuan 转换
+    // socialInsurance/housingFund 已改为 Int（分），直接传入 buildPayrollReport 内部调用 Money.fromDbCents().toOutputYuan() 转换
     return buildPayrollReport(rows);
+  }
+
+  /**
+   * 流式导出工资报表 CSV，O(1) 内存占用。
+   */
+  async streamPayrollReportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    query: ListEmployeePayrollsQueryDto,
+  ): Promise<void> {
+    const report = await this.getPayrollReport(user, query);
+    safeStreamCsvExport(
+      reply,
+      'payroll-report.csv',
+      ['员工姓名', '结算月份', '底薪', '请假扣款', '其他扣款', '奖金', '实发工资', '社保', '公积金', '总人力成本'],
+      report.rows.map((row) => [
+        row.employeeName,
+        row.month,
+        row.baseSalary,
+        row.leaveDeduction,
+        row.otherDeduction,
+        row.bonus,
+        row.actualSalary,
+        row.socialInsurance ?? '',
+        row.housingFund ?? '',
+        row.totalLaborCost,
+      ]),
+    );
   }
 
   async listPayrolls(
     user: AuthenticatedUser,
     query: ListEmployeePayrollsQueryDto,
-  ): Promise<EmployeePayrollResponseDto[]> {
+  ): Promise<PaginatedEmployeePayrollsResponseDto> {
     const manageableStoreId = this.employeesAccessService.getManageableStoreId(
       user,
       'finance:view',
     );
 
+    const { page, skip, take } = resolvePagination(query.page, query.pageSize, 50, 200);
+
     if (manageableStoreId === null) {
-      return [];
+      return {
+        items: [],
+        meta: buildPaginationMeta(0, page, take),
+      };
     }
 
     if (query.storeId !== undefined && manageableStoreId !== query.storeId) {
-      return [];
+      return {
+        items: [],
+        meta: buildPaginationMeta(0, page, take),
+      };
     }
 
     const storeId = query.storeId ?? manageableStoreId;
     const targetMonth = resolvePayrollMonthFilter(query.year, query.month);
-    const rows = await this.prisma.employeePayroll.findMany({
-      where: {
-        storeId,
-        ...(query.employeeId ? { employeeId: query.employeeId } : {}),
-        ...(query.status ? { status: query.status } : {}),
-        ...(targetMonth ? { month: targetMonth } : {}),
-        ...(query.department
-          ? {
-              employee: {
-                department: { equals: query.department, mode: 'insensitive' },
-              },
-            }
-          : {}),
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    });
-    return rows.map(toEmployeePayrollResponse);
+    const where: Prisma.EmployeePayrollWhereInput = {
+      storeId,
+      ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(targetMonth ? { month: targetMonth } : {}),
+      ...(query.department
+        ? {
+            employee: {
+              department: { equals: query.department, mode: 'insensitive' as const },
+            },
+          }
+        : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.employeePayroll.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      }),
+      this.prisma.employeePayroll.count({ where }),
+    ]);
+    return {
+      items: rows.map(toEmployeePayrollResponse),
+      meta: buildPaginationMeta(total, page, take),
+    };
   }
 
   async savePayroll(
@@ -131,13 +185,13 @@ export class EmployeesPayrollService {
     assertPayrollMonthFormat(rawMonth);
     const month = normalizeMonthValue(rawMonth);
     const derivedAmounts = buildPayrollDerivedAmounts({
-      baseSalary: dto.baseSalary,
-      leaveDeduction: dto.leaveDeduction,
-      otherDeduction: dto.otherDeduction,
+      baseSalary: Money.fromInputYuan(dto.baseSalary),
+      leaveDeduction: Money.fromInputYuan(dto.leaveDeduction),
+      otherDeduction: Money.fromInputYuan(dto.otherDeduction),
       otherDeductionNote: dto.otherDeductionNote,
-      bonus: dto.bonus,
-      socialInsurance: dto.socialInsurance,
-      housingFund: dto.housingFund,
+      bonus: Money.fromInputYuan(dto.bonus),
+      socialInsurance: dto.socialInsurance !== undefined ? Money.fromInputYuan(dto.socialInsurance) : undefined,
+      housingFund: dto.housingFund !== undefined ? Money.fromInputYuan(dto.housingFund) : undefined,
     });
 
     const payroll = await this.prisma.$transaction(async (transaction) => {
@@ -153,41 +207,39 @@ export class EmployeesPayrollService {
           employeeId: employee.id,
           employeeName: employee.name,
           month,
-          baseSalary: this.toDecimal(dto.baseSalary),
-          leaveDeduction: this.toDecimal(dto.leaveDeduction),
-          otherDeduction: this.toDecimal(dto.otherDeduction),
+          baseSalary: Money.fromInputYuan(dto.baseSalary).toDbCents(),
+          leaveDeduction: Money.fromInputYuan(dto.leaveDeduction).toDbCents(),
+          otherDeduction: Money.fromInputYuan(dto.otherDeduction).toDbCents(),
           otherDeductionNote: toNullableText(dto.otherDeductionNote),
-          bonus: this.toDecimal(dto.bonus),
-          actualSalary: this.toDecimal(derivedAmounts.actualSalary),
+          bonus: Money.fromInputYuan(dto.bonus).toDbCents(),
+          actualSalary: derivedAmounts.actualSalary.toDbCents(),
           socialInsurance:
             dto.socialInsurance !== undefined
-              ? this.toDecimal(dto.socialInsurance)
+              ? Money.fromInputYuan(dto.socialInsurance).toDbCents()
               : undefined,
           housingFund:
             dto.housingFund !== undefined
-              ? this.toDecimal(dto.housingFund)
+              ? Money.fromInputYuan(dto.housingFund).toDbCents()
               : undefined,
-          totalLaborCost: this.toDecimal(derivedAmounts.totalLaborCost),
+          totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
           status: EmployeePayrollStatus.draft,
           note: toNullableText(dto.note),
         },
         update: {
           employeeName: employee.name,
-          baseSalary: this.toDecimal(dto.baseSalary),
-          leaveDeduction: this.toDecimal(dto.leaveDeduction),
-          otherDeduction: this.toDecimal(dto.otherDeduction),
+          baseSalary: Money.fromInputYuan(dto.baseSalary).toDbCents(),
+          leaveDeduction: Money.fromInputYuan(dto.leaveDeduction).toDbCents(),
+          otherDeduction: Money.fromInputYuan(dto.otherDeduction).toDbCents(),
           otherDeductionNote: toNullableText(dto.otherDeductionNote),
-          bonus: this.toDecimal(dto.bonus),
-          actualSalary: this.toDecimal(derivedAmounts.actualSalary),
+          bonus: Money.fromInputYuan(dto.bonus).toDbCents(),
+          actualSalary: derivedAmounts.actualSalary.toDbCents(),
           socialInsurance:
             dto.socialInsurance !== undefined
-              ? this.toDecimal(dto.socialInsurance)
+              ? Money.fromInputYuan(dto.socialInsurance).toDbCents()
               : 0,
           housingFund:
-            dto.housingFund !== undefined
-              ? this.toDecimal(dto.housingFund)
-              : 0,
-          totalLaborCost: this.toDecimal(derivedAmounts.totalLaborCost),
+            dto.housingFund !== undefined ? Money.fromInputYuan(dto.housingFund).toDbCents() : 0,
+          totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
           status: EmployeePayrollStatus.draft,
           confirmedAt: null,
           note: toNullableText(dto.note),
@@ -235,15 +287,15 @@ export class EmployeesPayrollService {
         operatorStaffId: user.currentMembership?.staffId ?? null,
         employeeName: nextPayroll.employeeName,
         month: formatPayrollMonth(nextPayroll.month),
-        // actualSalary/socialInsurance/housingFund 已改为 Int（分），需转换为元传给 syncPayrollCosts
-        actualSalary: centsToYuan(nextPayroll.actualSalary),
+        // 数据库存分，syncPayrollCosts 接口需要元
+        actualSalary: Money.fromDbCents(nextPayroll.actualSalary).toOutputYuan(),
         socialInsurance:
           nextPayroll.socialInsurance > 0
-            ? centsToYuan(nextPayroll.socialInsurance)
+            ? Money.fromDbCents(nextPayroll.socialInsurance).toOutputYuan()
             : undefined,
         housingFund:
           nextPayroll.housingFund > 0
-            ? centsToYuan(nextPayroll.housingFund)
+            ? Money.fromDbCents(nextPayroll.housingFund).toOutputYuan()
             : undefined,
         note: nextPayroll.note,
       });
@@ -304,33 +356,33 @@ export class EmployeesPayrollService {
       throw new ConflictException('已确认结算的工资记录不能编辑');
     }
 
-    // 数据库字段已改为 Int（分），回退值需用 centsToYuan 转为元
+    // 数据库字段存分，回退值需转为元后统一用 Money
     const nextBaseSalary =
       dto.baseSalary !== undefined
-        ? dto.baseSalary
-        : centsToYuan(payroll.baseSalary);
+        ? Money.fromInputYuan(dto.baseSalary)
+        : Money.fromDbCents(payroll.baseSalary);
     const nextLeaveDeduction =
       dto.leaveDeduction !== undefined
-        ? dto.leaveDeduction
-        : centsToYuan(payroll.leaveDeduction);
+        ? Money.fromInputYuan(dto.leaveDeduction)
+        : Money.fromDbCents(payroll.leaveDeduction);
     const nextOtherDeduction =
       dto.otherDeduction !== undefined
-        ? dto.otherDeduction
-        : centsToYuan(payroll.otherDeduction);
+        ? Money.fromInputYuan(dto.otherDeduction)
+        : Money.fromDbCents(payroll.otherDeduction);
     const nextOtherDeductionNote =
       dto.otherDeductionNote !== undefined
         ? dto.otherDeductionNote
         : (payroll.otherDeductionNote ?? undefined);
     const nextBonus =
-      dto.bonus !== undefined ? dto.bonus : centsToYuan(payroll.bonus);
+      dto.bonus !== undefined ? Money.fromInputYuan(dto.bonus) : Money.fromDbCents(payroll.bonus);
     const nextSocialInsurance =
       dto.socialInsurance !== undefined
-        ? dto.socialInsurance
-        : centsToYuan(payroll.socialInsurance);
+        ? Money.fromInputYuan(dto.socialInsurance)
+        : Money.fromDbCents(payroll.socialInsurance);
     const nextHousingFund =
       dto.housingFund !== undefined
-        ? dto.housingFund
-        : centsToYuan(payroll.housingFund);
+        ? Money.fromInputYuan(dto.housingFund)
+        : Money.fromDbCents(payroll.housingFund);
 
     const derivedAmounts = buildPayrollDerivedAmounts({
       baseSalary: nextBaseSalary,
@@ -347,52 +399,46 @@ export class EmployeesPayrollService {
         where: { id: payroll.id },
         data: {
           ...(dto.baseSalary !== undefined
-            ? { baseSalary: this.toDecimal(dto.baseSalary) }
+            ? { baseSalary: Money.fromInputYuan(dto.baseSalary).toDbCents() }
             : {}),
           ...(dto.leaveDeduction !== undefined
-            ? { leaveDeduction: this.toDecimal(dto.leaveDeduction) }
+            ? { leaveDeduction: Money.fromInputYuan(dto.leaveDeduction).toDbCents() }
             : {}),
           ...(dto.otherDeduction !== undefined
-            ? { otherDeduction: this.toDecimal(dto.otherDeduction) }
+            ? { otherDeduction: Money.fromInputYuan(dto.otherDeduction).toDbCents() }
             : {}),
           ...(dto.otherDeductionNote !== undefined
             ? { otherDeductionNote: toNullableText(dto.otherDeductionNote) }
             : {}),
           ...(dto.bonus !== undefined
-            ? { bonus: this.toDecimal(dto.bonus) }
+            ? { bonus: Money.fromInputYuan(dto.bonus).toDbCents() }
             : {}),
           ...(dto.socialInsurance !== undefined
             ? {
                 socialInsurance:
                   dto.socialInsurance > 0
-                    ? this.toDecimal(dto.socialInsurance)
+                    ? Money.fromInputYuan(dto.socialInsurance).toDbCents()
                     : 0,
               }
             : {}),
           ...(dto.housingFund !== undefined
             ? {
                 housingFund:
-                  dto.housingFund > 0 ? this.toDecimal(dto.housingFund) : 0,
+                  dto.housingFund > 0 ? Money.fromInputYuan(dto.housingFund).toDbCents() : 0,
               }
             : {}),
           ...(dto.note !== undefined ? { note: toNullableText(dto.note) } : {}),
-          actualSalary: this.toDecimal(derivedAmounts.actualSalary),
-          totalLaborCost: this.toDecimal(derivedAmounts.totalLaborCost),
+          actualSalary: derivedAmounts.actualSalary.toDbCents(),
+          totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
         },
       });
     });
 
+    // 首页动态依赖工资单数据（工资单待确认）
+    await this.cacheInvalidatorService.invalidateProfitDashboardHome(
+      payroll.storeId,
+    );
+
     return toEmployeePayrollResponse(updated);
   }
-
-  private toDecimal(value: number): number {
-    return Math.round(value * 100);
-  }
-}
-
-/**
- * 将分转换为元
- */
-function centsToYuan(cents: number): number {
-  return Math.round(cents) / 100;
 }

@@ -4,7 +4,7 @@ import { PLATFORM_MEMBERSHIP_PLAN_IDS } from '../../purely-profit/member/platfor
 export type PulseMembershipPlanId =
   (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number];
 
-export type PulseMemberStatusValue = 'active' | 'inactive' | 'banned';
+export type PulseMemberStatusValue = 'active' | 'inactive' | 'banned' | 'cancelled';
 
 export type PulseMemberLevelValue =
   | 'free'
@@ -45,6 +45,7 @@ export interface PulseAdminStoreIdentityRecord {
     name: string | null;
     realName: string | null;
     avatar: string | null;
+    wechatPhone: string | null;
     lastActiveAt: Date | null;
   };
 }
@@ -53,6 +54,7 @@ export interface PulseAdminStoreRecord extends PulseAdminStoreIdentityRecord {
   id: number;
   createdAt: Date;
   updatedAt: Date;
+  deletedAt?: Date | null;
 }
 
 export interface PulseAdminPartnerRecord {
@@ -122,8 +124,8 @@ export interface PulseAdminStatusMutationInput {
   userId?: string;
   memberId?: string;
   id?: string;
-  status?: 'active' | 'inactive' | 'banned';
-  memberStatus?: 'active' | 'inactive' | 'banned';
+  status?: PulseMemberStatusValue;
+  memberStatus?: PulseMemberStatusValue;
   reason?: string;
   remark?: string;
 }
