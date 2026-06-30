@@ -74,6 +74,7 @@ describe('MarketingService customers', () => {
           customerName: '张三',
           amount: 10000,
           giftAmount: 2000,
+          totalAmount: 12000,
           type: 'recharge',
           promotionId: null,
           promotionName: null,
@@ -98,7 +99,7 @@ describe('MarketingService customers', () => {
         },
       ]);
     context.prismaService.marketingRecharge.aggregate.mockResolvedValue({
-      _sum: { amount: 30000, giftAmount: 5000 },
+      _sum: { totalAmount: 35000 },
     });
     context.clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue(
       {
@@ -126,7 +127,7 @@ describe('MarketingService customers', () => {
 
     const result = await context.service.getCustomer(context.user, 9);
 
-    expect(result.totalRecharge).toBe(35000);
+    expect(result.totalRecharge).toBe(350);
     expect(result.recentRecharges).toHaveLength(1);
     expect(result.recentConsumptions).toHaveLength(1);
     expect(result.phone).toBe('138****8000');
@@ -152,6 +153,7 @@ describe('MarketingService customers', () => {
       customerName: '张三',
       amount: 100,
       giftAmount: 20,
+      totalAmount: 120,
       type: 'recharge',
       promotionId: undefined,
       createdAt: new Date('2026-05-15T09:00:00.000Z').getTime(),

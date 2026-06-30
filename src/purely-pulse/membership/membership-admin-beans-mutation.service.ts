@@ -30,7 +30,7 @@ export class PulseMembershipAdminBeansMutationService {
       );
       const now = new Date();
       const existingPartner = await tx.storePartner.findFirst({
-        where: { storeId: memberId, status: 'approved' },
+        where: { storeId: memberId, deletedAt: null, status: 'approved' },
         select: { id: true, status: true },
         orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
       });

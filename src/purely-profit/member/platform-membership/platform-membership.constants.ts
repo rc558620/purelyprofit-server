@@ -4,6 +4,7 @@ import type {
   MembershipPlanRuleConfig,
   MembershipPlanSettingIdValue,
   MembershipPlanSettingRecord,
+  PartnerLevelValue,
 } from './platform-membership.types';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -11,6 +12,31 @@ export const POINTS_RATE = 100;
 export const POINTS_DEDUCT_LIMIT = 0.3;
 export const BEAN_DEDUCT_RATE = 100;
 export const BEAN_DEDUCT_LIMIT = 0.5;
+
+/** 合伙人推广奖励纯利豆数量（按等级 x 套餐） */
+export const PROMO_BEAN_REWARDS_BY_LEVEL: Record<
+  PartnerLevelValue,
+  Record<PlatformMembershipPlanId, number>
+> = {
+  star: {
+    monthly: 8,
+    quarterly: 22,
+    yearly: 92,
+    lifetime: 0,
+  },
+  elite: {
+    monthly: 9,
+    quarterly: 24,
+    yearly: 102,
+    lifetime: 0,
+  },
+  legend: {
+    monthly: 10,
+    quarterly: 28,
+    yearly: 116,
+    lifetime: 0,
+  },
+};
 
 export const PURCHASE_BONUS_POINTS: Record<PlatformMembershipPlanId, number> = {
   monthly: 0,

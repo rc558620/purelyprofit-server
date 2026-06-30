@@ -25,6 +25,17 @@ export function formatMonthDay(timestamp: number): string {
   return `${month}/${day}`;
 }
 
+/** 格式化为 "1月" 样式，用于年度月聚合趋势图 */
+export function formatMonthLabel(month1Based: number): string {
+  return `${month1Based}月`;
+}
+
+/** 获取时间戳所在月的 1 号零点 */
+export function getMonthStart(timestamp: number): number {
+  const current = new Date(timestamp);
+  return new Date(current.getFullYear(), current.getMonth(), 1).getTime();
+}
+
 export function getWeekStart(current: Date): number {
   const day = current.getDay();
   const diff = day === 0 ? -6 : 1 - day;

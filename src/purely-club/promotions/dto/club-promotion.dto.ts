@@ -38,6 +38,14 @@ export class ClubPromotionDto {
   @IsString({ message: '活动利益点文案必须是字符串' })
   benefitText: string;
 
+  @ApiPropertyOptional({
+    example: '8',
+    description: '折扣折合文案（如 "7.5" 表示 7.5 折）；非折扣类活动为空',
+  })
+  @IsOptional()
+  @IsString({ message: '折扣折合文案必须是字符串' })
+  discountFoldText?: string;
+
   @ApiProperty({
     example: { discountRate: 80, audience: 'first_order' },
     description: '活动参数，按活动类型返回原始结构',

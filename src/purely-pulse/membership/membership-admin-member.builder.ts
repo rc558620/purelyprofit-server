@@ -72,6 +72,7 @@ type PulseAdminPointsLogRecord = {
   id: number;
   storeId: number;
   source: 'purchase_bonus' | 'deduct_payment' | 'admin_adjust' | 'expire';
+  changeType: 'increase' | 'decrease';
   changeAmount: number;
   description: string;
   expireAt: Date | null;
@@ -115,17 +116,20 @@ export function buildPulseAdminPointsLogItem(
   const userName = resolveAdminMemberDisplayName(log.store);
   const userPhone = resolveAdminMemberPhone(log.store);
 
+  const signedAmount =
+    log.changeType === 'decrease' ? -log.changeAmount : log.changeAmount;
+
   return {
     id: String(log.id),
     userId: String(log.storeId),
     userName,
     userPhone,
     avatarUrl: log.store.owner.avatar ?? undefined,
-    amount: log.changeAmount,
+    amount: signedAmount,
     type:
       log.source === 'expire'
         ? 'expire'
-        : log.changeAmount > 0
+        : log.changeType === 'increase'
           ? 'earn'
           : 'spend',
     source: log.source,
@@ -232,7 +236,7 @@ export function buildPulseAdminMemberDetail(
     store.updatedAt.getTime();
   const totalRecharged = Money.sum(
     paidOrders.map((order) => Money.fromDbCents(order.amount)),
-  ).toOutputYuan();
+  ).toDbCents();
 
   return {
     id: String(store.id),
@@ -255,7 +259,7 @@ export function buildPulseAdminMemberDetail(
     rechargeHistory: paidOrders.map((order) => ({
       id: String(order.id),
       planName: order.planName,
-        amount: Money.fromDbCents(order.amount).toOutputYuan(),
+        amount: Money.fromDbCents(order.amount).toDbCents(),
       pointsAwarded: PURCHASE_BONUS_POINTS[order.planId] ?? 0,
       channel: 'wechat',
       createdAt: order.createdAt.getTime(),

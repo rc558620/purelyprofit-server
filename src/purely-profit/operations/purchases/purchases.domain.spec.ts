@@ -7,12 +7,13 @@ import {
   assertPurchaseSupplierInput,
   buildPurchaseCostTitle,
   buildPurchaseListWhere,
-  calculatePurchaseCompareLastMonth,
+  calculatePurchaseCompareLastPeriod,
   createPurchaseProductMap,
   extractUniqueProductIds,
   normalizePurchaseNote,
   normalizePurchaseSupplierName,
   preparePurchaseItems,
+  previewPurchaseAmounts,
   resolvePurchaseStatsRanges,
   sumPreparedPurchaseAmount,
 } from './purchases.domain';
@@ -242,13 +243,13 @@ describe('purchases.domain', () => {
     ).toBe(1235);
   });
 
-  it('buildPurchaseCostTitle 和 calculatePurchaseCompareLastMonth 会返回预期结果', () => {
+  it('buildPurchaseCostTitle 和 calculatePurchaseCompareLastPeriod 会返回预期结果', () => {
     expect(buildPurchaseCostTitle('可口可乐供应商')).toBe(
       '可口可乐供应商进货成本',
     );
     expect(buildPurchaseCostTitle(null)).toBe('进货成本');
-    expect(calculatePurchaseCompareLastMonth(200, 160, true)).toBe(25);
-    expect(calculatePurchaseCompareLastMonth(200, 0, true)).toBeNull();
-    expect(calculatePurchaseCompareLastMonth(200, 160, false)).toBeNull();
+    expect(calculatePurchaseCompareLastPeriod(200, 160, true)).toBe(25);
+    expect(calculatePurchaseCompareLastPeriod(200, 0, true)).toBeNull();
+    expect(calculatePurchaseCompareLastPeriod(200, 160, false)).toBeNull();
   });
 });

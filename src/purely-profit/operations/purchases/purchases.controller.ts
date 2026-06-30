@@ -28,6 +28,8 @@ import {
   CreatePurchaseDto,
   ListPurchasesQueryDto,
   PaginatedPurchasesResponseDto,
+  PreviewPurchaseDto,
+  PurchasePreviewResponseDto,
   PurchaseResponseDto,
   PurchaseStatsQueryDto,
   PurchaseStatsResponseDto,
@@ -61,6 +63,17 @@ export class PurchasesController {
     @Query() query: PurchaseStatsQueryDto,
   ): Promise<PurchaseStatsResponseDto> {
     return this.purchasesService.getStats(user, query);
+  }
+
+  @Post('preview')
+  @RequirePermissions('purchase:create')
+  @ApiOperation({ summary: '预览进货金额（服务端计算小计与合计）' })
+  @ApiOkResponse({ type: PurchasePreviewResponseDto })
+  preview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: PreviewPurchaseDto,
+  ): Promise<PurchasePreviewResponseDto> {
+    return this.purchasesService.preview(user, dto);
   }
 
   @Post()

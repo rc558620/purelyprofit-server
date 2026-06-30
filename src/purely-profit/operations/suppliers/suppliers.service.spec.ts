@@ -157,7 +157,7 @@ describe('SuppliersService', () => {
           OR: [
             { name: { contains: '可乐', mode: 'insensitive' } },
             { contact: { contains: '可乐', mode: 'insensitive' } },
-            { phone: { contains: '可乐' } },
+            { phone: { startsWith: '可乐' } },
           ],
         },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],

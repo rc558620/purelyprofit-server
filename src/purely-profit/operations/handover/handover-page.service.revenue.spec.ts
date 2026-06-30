@@ -482,17 +482,17 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       expect.objectContaining({
         method: SalesPaymentMethod.cash,
         amount: 300,
-        ratio: 0.71,
+        ratio: 71,
       }),
       expect.objectContaining({
         method: SalesPaymentMethod.wechat,
         amount: 100,
-        ratio: 0.24,
+        ratio: 24,
       }),
       expect.objectContaining({
         method: SalesPaymentMethod.card,
         amount: 20,
-        ratio: 0.05,
+        ratio: 5,
       }),
     ]);
   });
@@ -580,7 +580,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       expect.objectContaining({
         method: SalesPaymentMethod.alipay,
         amount: 11.1,
-        ratio: 1,
+        ratio: 100,
       }),
     ]);
     expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith({
@@ -743,7 +743,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       expect.objectContaining({
         method: SalesPaymentMethod.wechat,
         amount: 666,
-        ratio: 1,
+        ratio: 100,
       }),
     ]);
   });

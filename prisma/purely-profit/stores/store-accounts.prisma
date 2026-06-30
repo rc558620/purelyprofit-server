@@ -175,7 +175,6 @@ model Staff {
   updatedAt            DateTime                      @updatedAt @map("updated_at")
 
   @@unique([storeId, email])
-  @@index([storeId])
   @@index([storeId, updatedAt])
   @@index([storeId, status, isSeatActive, isActive])
   @@index([storeId, status, role, updatedAt])

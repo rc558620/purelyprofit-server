@@ -1,12 +1,15 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
+import { Money } from '../../../shared/money.utils';
 import {
   createCategoryRecord,
   findCategoryDuplicateByName,
 } from '../categories/categories.query';
 import {
+  deriveProductProfit,
   ensureProductCategory,
   ensureUniqueProductCode,
   resolveProductCode,
+  validateDerivedProfit,
 } from './products.domain';
 
 jest.mock('../categories/categories.query', () => ({
@@ -99,6 +102,7 @@ describe('products.domain', () => {
     expect(productFindFirst).toHaveBeenCalledWith({
       where: {
         storeId: 18,
+        deletedAt: null,
         code: 'SKU-001',
         id: { not: 11 },
       },
@@ -143,5 +147,60 @@ describe('products.domain', () => {
         generateCode: jest.fn().mockReturnValue('PRD-1'),
       }),
     ).rejects.toThrow(new ConflictException('商品编号生成失败，请重试'));
+  });
+
+  describe('deriveProductProfit', () => {
+    it('无成本价时利润等于售价', () => {
+      const price = Money.fromInputYuan(10);
+      expect(deriveProductProfit(price, null).toOutputYuan()).toBe(10);
+      expect(deriveProductProfit(price, undefined).toOutputYuan()).toBe(10);
+    });
+
+    it('有成本价时利润 = 售价 − 成本价', () => {
+      const price = Money.fromInputYuan(10);
+      const costPrice = Money.fromInputYuan(6);
+      expect(deriveProductProfit(price, costPrice).toOutputYuan()).toBe(4);
+    });
+
+    it('成本价等于售价时利润为 0', () => {
+      const price = Money.fromInputYuan(8);
+      const costPrice = Money.fromInputYuan(8);
+      expect(deriveProductProfit(price, costPrice).toOutputYuan()).toBe(0);
+    });
+
+    it('成本价大于售价时利润为负数', () => {
+      const price = Money.fromInputYuan(5);
+      const costPrice = Money.fromInputYuan(10);
+      const profit = deriveProductProfit(price, costPrice);
+      expect(profit.toOutputYuan()).toBe(-5);
+      expect(profit.isNegative()).toBe(true);
+    });
+
+    it('小数精度场景下利润推导正确', () => {
+      const price = Money.fromInputYuan(9.99);
+      const costPrice = Money.fromInputYuan(3.5);
+      expect(deriveProductProfit(price, costPrice).toOutputYuan()).toBe(6.49);
+    });
+  });
+
+  describe('validateDerivedProfit', () => {
+    it('利润为正时不抛错', () => {
+      const profit = Money.fromInputYuan(2.5);
+      expect(() => validateDerivedProfit(profit)).not.toThrow();
+    });
+
+    it('利润为零时抛错', () => {
+      const profit = Money.zero();
+      expect(() => validateDerivedProfit(profit)).toThrow(
+        new BadRequestException('每单利润必须大于 0（成本价不能大于等于售价）'),
+      );
+    });
+
+    it('利润为负时抛错', () => {
+      const profit = Money.fromInputYuan(5).subtract(Money.fromInputYuan(10));
+      expect(() => validateDerivedProfit(profit)).toThrow(
+        new BadRequestException('每单利润必须大于 0（成本价不能大于等于售价）'),
+      );
+    });
   });
 });

@@ -234,7 +234,7 @@ export class PulseMembershipAdminMemberReadService {
     storeId: number,
   ): Promise<PulseAdminPartnerRecord | null> {
     return this.prisma.storePartner.findFirst({
-      where: { storeId, status: 'approved' },
+      where: { storeId, deletedAt: null, status: 'approved' },
       select: {
         id: true,
         beanBalance: true,
@@ -265,6 +265,7 @@ export class PulseMembershipAdminMemberReadService {
         this.prisma.storePartner.findMany({
           where: {
             storeId: { in: storeIds },
+            deletedAt: null,
             status: 'approved',
           },
           select: {
@@ -304,7 +305,7 @@ export class PulseMembershipAdminMemberReadService {
         summary.storeId,
         {
           rechargeCount: summary._count._all,
-          totalRecharged: Money.fromDbCents(summary._sum.amount ?? 0).toOutputYuan(),
+          totalRecharged: Money.fromDbCents(summary._sum.amount ?? 0).toDbCents(),
           lastPaidAt: summary._max.createdAt?.getTime() ?? null,
         },
       ]),

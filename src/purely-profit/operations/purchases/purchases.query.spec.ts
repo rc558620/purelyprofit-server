@@ -244,6 +244,7 @@ describe('purchases.query', () => {
     expect(productFindMany).toHaveBeenCalledWith({
       where: {
         storeId: 18,
+        deletedAt: null,
         id: { in: [201] },
       },
       select: {

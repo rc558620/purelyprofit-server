@@ -16,6 +16,7 @@ import type {
   ApplyPlatformPartnerDto,
   CreatePlatformPartnerFollowUpNoteDto,
   PlatformMembershipPlanId,
+  PreviewPlatformMembershipOrderDto,
   PurchasePlatformMembershipOrderDto,
   RejectPlatformPartnerApplicationDto,
 } from './dto/platform-membership-query.dto';
@@ -29,6 +30,7 @@ import type {
   PlatformMembershipPointsLogsResponseDto,
   PlatformMembershipProfileResponseDto,
   PlatformMembershipPromoCenterResponseDto,
+  PreviewPlatformMembershipOrderResponseDto,
   PurchasePlatformMembershipOrderResponseDto,
 } from './dto/platform-membership-response.dto';
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
@@ -114,6 +116,19 @@ export class PlatformMembershipService {
     return this.loadCachedLedger(
       buildPlatformMembershipOrdersCacheKey(storeId),
       () => this.platformMembershipReadService.listOrdersByStoreId(storeId),
+    );
+  }
+
+  async previewOrder(
+    user: AuthenticatedUser,
+    dto: PreviewPlatformMembershipOrderDto,
+  ): Promise<PreviewPlatformMembershipOrderResponseDto> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
+    const storeId = this.getCurrentStoreIdOrThrow(user);
+    return this.platformMembershipOrderService.previewOrder(
+      user.id,
+      storeId,
+      dto,
     );
   }
 

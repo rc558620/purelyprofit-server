@@ -155,7 +155,7 @@ export class NotificationsBuildService {
         id: `finance:account:${account.id}`,
         type: 'finance',
         title: `${account.counterpart} 账款已逾期`,
-        content: `剩余应收应付款 ${formatMoney(Money.fromDbCents(Number(account.remaining)).toOutputYuan())}，到期时间 ${dueDateText}。`,
+        content: `剩余应收应付款 ${formatMoney(Money.fromDbCents(account.remaining).toOutputYuan())}，到期时间 ${dueDateText}。`,
         bizType: 'finance_account',
         bizId: String(account.id),
         actionUrl: '/accounts-management',

@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -25,6 +26,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   ApplyPlatformPartnerDto,
   CreatePlatformPartnerFollowUpNoteDto,
+  PreviewPlatformMembershipOrderDto,
   PurchasePlatformMembershipOrderDto,
   RejectPlatformPartnerApplicationDto,
 } from './dto/platform-membership-query.dto';
@@ -38,6 +40,7 @@ import {
   PlatformMembershipPointsLogsResponseDto,
   PlatformMembershipProfileResponseDto,
   PlatformMembershipPromoCenterResponseDto,
+  PreviewPlatformMembershipOrderResponseDto,
   PurchasePlatformMembershipOrderResponseDto,
 } from './dto/platform-membership-response.dto';
 import { PlatformMembershipService } from './platform-membership.service';
@@ -95,6 +98,19 @@ export class PlatformMembershipController {
   })
   listPlanRules(): PlatformMembershipPlanRulesResponseDto {
     return this.platformMembershipService.listPlanRules();
+  }
+
+  @Get('orders/preview')
+  @ApiOperation({ summary: '预览订单支付金额（不创建订单）' })
+  @ApiOkResponse({
+    description: '返回积分/纯利豆抵扣计算结果，前端仅做展示',
+    type: PreviewPlatformMembershipOrderResponseDto,
+  })
+  previewOrder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() dto: PreviewPlatformMembershipOrderDto,
+  ): Promise<PreviewPlatformMembershipOrderResponseDto> {
+    return this.platformMembershipService.previewOrder(user, dto);
   }
 
   @Get('orders')

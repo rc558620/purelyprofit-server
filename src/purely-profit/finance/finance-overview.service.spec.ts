@@ -448,28 +448,14 @@ describe('FinanceOverviewService', () => {
     expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          OR: [
-            {
-              storeId: 18,
-              paidAmount: 0,
-              remaining: { gt: 0 },
-              OR: [
-                { dueDate: null },
-                { dueDate: { gte: new Date(2025, 11, 31, 23, 59, 59, 999) } },
-              ],
-            },
-            {
-              storeId: 18,
-              paidAmount: { gt: 0 },
-              remaining: { gt: 0 },
-            },
-            {
-              storeId: 18,
-              dueDate: { lt: new Date(2025, 11, 31, 23, 59, 59, 999) },
-              paidAmount: 0,
-              remaining: { gt: 0 },
-            },
-          ],
+          storeId: 18,
+          status: {
+            in: [
+              FinanceAccountStatus.pending,
+              FinanceAccountStatus.partial,
+              FinanceAccountStatus.overdue,
+            ],
+          },
         },
       }),
     );

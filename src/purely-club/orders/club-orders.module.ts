@@ -13,6 +13,7 @@ import { ClubOrderServiceQueryService } from './club-order-service-query.service
 import { ClubOrderSettlementService } from './club-order-settlement.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubOrdersController } from './club-orders.controller';
+import { ClubOrderPreviewService } from './club-order-preview.service';
 import { ClubOrdersService } from './club-orders.service';
 
 @Module({
@@ -33,6 +34,7 @@ import { ClubOrdersService } from './club-orders.service';
     ClubOrderServicePaymentService,
     ClubOrderSettlementService,
     ClubPaymentLockService,
+    ClubOrderPreviewService,
     ClubOrdersService,
   ],
   exports: [

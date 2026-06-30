@@ -10,6 +10,7 @@ describe('ClubRecordsService', () => {
   const clubRecordQueryService = {
     findCustomerByStoreAndPhone: jest.fn(),
     listLedgerEntries: jest.fn(),
+    calculateSummary: jest.fn(),
   };
 
   const clubRecordViewService = {
@@ -83,6 +84,10 @@ describe('ClubRecordsService', () => {
       items: entries,
       total: 1,
     });
+    clubRecordQueryService.calculateSummary.mockResolvedValue({
+      totalRechargeAmount: 580,
+      totalConsumeAmount: 0,
+    });
     clubRecordViewService.buildRecordItems.mockReturnValue(items);
 
     await expect(service.list(currentContext, {})).resolves.toEqual({
@@ -90,6 +95,10 @@ describe('ClubRecordsService', () => {
       total: 1, // 筛选后条目数 = items.length
       nextCursorCreatedAt: '2024-11-20T10:30:00.000Z',
       nextCursorId: 'recharge-18',
+      summary: {
+        totalRechargeAmount: 580,
+        totalConsumeAmount: 0,
+      },
     });
     expect(
       clubRecordQueryService.findCustomerByStoreAndPhone,
@@ -117,6 +126,10 @@ describe('ClubRecordsService', () => {
       items: [],
       total: 0,
     });
+    clubRecordQueryService.calculateSummary.mockResolvedValue({
+      totalRechargeAmount: 580,
+      totalConsumeAmount: 199,
+    });
     clubRecordViewService.buildRecordItems.mockReturnValue([]);
 
     await expect(
@@ -130,6 +143,10 @@ describe('ClubRecordsService', () => {
       total: 0,
       nextCursorCreatedAt: null,
       nextCursorId: null,
+      summary: {
+        totalRechargeAmount: 580,
+        totalConsumeAmount: 199,
+      },
     });
     expect(clubRecordViewService.buildRecordItems).toHaveBeenCalledWith(
       expect.objectContaining({ filterType: 'recharge' }),
@@ -153,6 +170,10 @@ describe('ClubRecordsService', () => {
       total: 0,
       nextCursorCreatedAt: null,
       nextCursorId: null,
+      summary: {
+        totalRechargeAmount: 0,
+        totalConsumeAmount: 0,
+      },
     });
     expect(clubRecordQueryService.listLedgerEntries).not.toHaveBeenCalled();
     expect(clubRecordViewService.buildRecordItems).not.toHaveBeenCalled();
@@ -198,6 +219,10 @@ describe('ClubRecordsService', () => {
     clubRecordQueryService.listLedgerEntries.mockResolvedValue({
       items: entries,
       total: 4, // 数据库原始总数
+    });
+    clubRecordQueryService.calculateSummary.mockResolvedValue({
+      totalRechargeAmount: 500,
+      totalConsumeAmount: 199,
     });
     clubRecordViewService.buildRecordItems.mockReturnValue(filteredItems);
 

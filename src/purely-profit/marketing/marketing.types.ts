@@ -32,6 +32,8 @@ export interface MarketingRechargeRow {
   customerName: string;
   amount: number;
   giftAmount: number;
+  /** 到账总额（分）= amount + giftAmount */
+  totalAmount: number;
   type: string;
   promotionId: number | null;
   promotionName: string | null;

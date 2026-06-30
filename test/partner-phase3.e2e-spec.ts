@@ -429,6 +429,7 @@ describe('Partner Phase 3 controllers (e2e)', () => {
         approvedPartners: [],
         beanBalance: 0,
         totalWithdrawnBeans: 0,
+        pendingBeans: 0,
         pendingCount: 1,
       },
     });

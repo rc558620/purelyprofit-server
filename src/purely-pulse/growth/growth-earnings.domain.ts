@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js';
 import type {
   PulseEarningsLogsResponseDto,
   PulseEarningsOverviewResponseDto,
@@ -49,6 +50,14 @@ export function buildEarningsOverviewResponse(
     beanBalance: isPartner ? beanSummary.beanBalance : 0,
     totalEarnedBeans: isPartner ? beanSummary.totalEarnedBeans : 0,
     totalWithdrawnBeans: isPartner ? beanSummary.totalWithdrawnBeans : 0,
+    pendingBeans: isPartner
+      ? Decimal.max(
+          0,
+          new Decimal(beanSummary.totalEarnedBeans)
+            .minus(beanSummary.totalWithdrawnBeans)
+            .minus(beanSummary.beanBalance),
+        ).toNumber()
+      : 0,
     totalPromos: data.promoRecords.length,
     chargedPromos,
     isPartner,

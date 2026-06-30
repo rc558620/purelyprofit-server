@@ -3,6 +3,7 @@ import {
   FinanceCashFlowCategory,
   FinanceCashFlowDirection,
   FinanceCashFlowPayment,
+  Prisma,
   SpaceSessionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -41,24 +42,20 @@ export class HandoverRecordsRevenueService {
       shiftRange,
     );
     const refundWhere = buildSpaceRefundOrderWhere(storeId, shiftRange);
-    const [spaceRevenue, additionalRevenue, refundRevenue] = await Promise.all([
-      this.loadSpaceRevenue(storeId, shiftRange),
+    const [additionalRevenue, refundRevenue] = await Promise.all([
       this.loadAdditionalRevenue(additionalOrderWhere),
       this.loadRefundRevenue(refundWhere),
     ]);
 
-    const revenueAmounts = buildRevenueAmounts(
-      Money.fromDbCents(Number(spaceRevenue._sum.timeCost ?? 0))
-        .add(Money.fromDbCents(Number(spaceRevenue._sum.itemsCost ?? 0)))
-        .toOutputYuan(),
-      additionalRevenue._sum.totalRevenue,
-      refundRevenue._sum.totalRevenue,
+    const additionalRevenueAmount = Money.fromDbCents(
+      additionalRevenue._sum.totalRevenue ?? 0,
     );
+    const refundAmount = Money.fromDbCents(
+      refundRevenue._sum.totalRevenue ?? 0,
+    ).abs();
 
     // additionalRevenue 已包含空间会话结账订单，不再叠加 spaceRevenue。
-    return Money.fromInputYuan(revenueAmounts.additionalRevenueAmount)
-      .subtract(Money.fromInputYuan(revenueAmounts.refundAmount))
-      .toOutputYuan();
+    return additionalRevenueAmount.subtract(refundAmount).toOutputYuan();
   }
 
   async buildRecordRevenueDetail(
@@ -160,9 +157,10 @@ export class HandoverRecordsRevenueService {
     const paymentItems = mapPaymentItems(paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);
     const revenueAmounts = buildRevenueAmounts(
-      Money.fromDbCents(Number(spaceRevenue._sum.timeCost ?? 0))
-        .add(Money.fromDbCents(Number(spaceRevenue._sum.itemsCost ?? 0)))
-        .toOutputYuan(),
+      // spaceRevenue 的 timeCost + itemsCost 传原始分值，buildRevenueAmounts 内部会统一转元
+      new Prisma.Decimal(spaceRevenue._sum.timeCost ?? 0).plus(
+        spaceRevenue._sum.itemsCost ?? 0,
+      ),
       additionalRevenue._sum.totalRevenue,
       refundRevenue._sum.totalRevenue,
     );

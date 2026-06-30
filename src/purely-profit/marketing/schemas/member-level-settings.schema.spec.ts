@@ -17,6 +17,20 @@ describe('memberLevelConfigSchema', () => {
       id: 'gold',
       name: '黄金会员',
       discountRate: 0.9,
+      discountRatePct: 90,
+      spendThreshold: 0,
+      description: '注册即享 9 折优惠',
+      enabled: true,
+      updatedAt: 0,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts valid level config without optional discountRatePct', () => {
+    const result = memberLevelConfigSchema.safeParse({
+      id: 'gold',
+      name: '黄金会员',
+      discountRate: 0.9,
       spendThreshold: 0,
       description: '注册即享 9 折优惠',
       enabled: true,
@@ -30,6 +44,20 @@ describe('memberLevelConfigSchema', () => {
       id: 'invalid',
       name: '无效等级',
       discountRate: 0.9,
+      spendThreshold: 0,
+      description: '',
+      enabled: true,
+      updatedAt: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects discountRatePct out of range', () => {
+    const result = memberLevelConfigSchema.safeParse({
+      id: 'gold',
+      name: '黄金会员',
+      discountRate: 0.9,
+      discountRatePct: 150,
       spendThreshold: 0,
       description: '',
       enabled: true,
@@ -90,6 +118,19 @@ describe('pointsRatioConfigSchema', () => {
   it('accepts valid points ratio config', () => {
     const result = pointsRatioConfigSchema.safeParse({
       earnRatioCents: 100,
+      earnRatioYuan: 100,
+      redeemRatioPoints: 1,
+      maxRedeemRatio: 0.5,
+      maxRedeemPct: 50,
+      enabled: true,
+      updatedAt: 0,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts valid points ratio config without optional fields', () => {
+    const result = pointsRatioConfigSchema.safeParse({
+      earnRatioCents: 100,
       redeemRatioPoints: 1,
       maxRedeemRatio: 0.5,
       enabled: true,
@@ -103,6 +144,18 @@ describe('pointsRatioConfigSchema', () => {
       earnRatioCents: 0,
       redeemRatioPoints: 1,
       maxRedeemRatio: 0.5,
+      enabled: true,
+      updatedAt: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects maxRedeemPct out of range', () => {
+    const result = pointsRatioConfigSchema.safeParse({
+      earnRatioCents: 100,
+      redeemRatioPoints: 1,
+      maxRedeemRatio: 0.5,
+      maxRedeemPct: 150,
       enabled: true,
       updatedAt: 0,
     });
@@ -129,6 +182,8 @@ describe('pointsRatioSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.earnRatioCents).toBe(100);
+      expect(result.data.earnRatioYuan).toBe(100);
+      expect(result.data.maxRedeemPct).toBe(50);
     }
   });
 });
@@ -161,12 +216,16 @@ describe('safeParsePointsRatio', () => {
   it('returns parsed pointsRatio for valid input', () => {
     const result = safeParsePointsRatio({
       earnRatioCents: 200,
+      earnRatioYuan: 200,
       redeemRatioPoints: 100,
       maxRedeemRatio: 0.3,
+      maxRedeemPct: 30,
       enabled: false,
       updatedAt: 12345,
     });
     expect(result.earnRatioCents).toBe(200);
+    expect(result.earnRatioYuan).toBe(200);
+    expect(result.maxRedeemPct).toBe(30);
     expect(result.enabled).toBe(false);
   });
 
@@ -195,6 +254,8 @@ describe('safeParseMemberLevelSettings', () => {
     });
     expect(result.levels).toHaveLength(3);
     expect(result.pointsRatio.earnRatioCents).toBe(100);
+    expect(result.pointsRatio.earnRatioYuan).toBe(100);
+    expect(result.pointsRatio.maxRedeemPct).toBe(50);
   });
 
   it('returns default for null input', () => {

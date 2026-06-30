@@ -59,7 +59,7 @@ export class SuppliersReadService {
                   mode: 'insensitive' as const,
                 },
               },
-              { phone: { contains: query.keyword } },
+              { phone: { startsWith: query.keyword } },
             ],
           }
         : {}),

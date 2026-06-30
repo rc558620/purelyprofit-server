@@ -35,6 +35,7 @@ function buildProductListWhere(
 ): Prisma.ProductWhereInput {
   return {
     storeId,
+    deletedAt: null,
     ...(query.category ? { category: query.category } : {}),
     ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
     ...(query.keyword
@@ -129,6 +130,7 @@ export async function findProductCategoryByName(
     where: {
       storeId,
       name,
+      deletedAt: null,
     },
     select: {
       id: true,
@@ -164,6 +166,7 @@ export async function findProductCodeConflict(
     where: {
       storeId: params.storeId,
       code: params.code,
+      deletedAt: null,
       ...(params.excludeId !== undefined
         ? { id: { not: params.excludeId } }
         : {}),

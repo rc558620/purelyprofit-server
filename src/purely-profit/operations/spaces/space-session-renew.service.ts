@@ -101,7 +101,7 @@ export class SpaceSessionRenewService {
 
       // hourlyRate 在 DB 中是分，需转为元以便与前端传入的 payload.amount（元）运算
       const hourlyRateYuan = latestSession.hourlyRate
-        ? Money.fromDbCents(Number(latestSession.hourlyRate)).toOutputYuan()
+        ? Money.fromDbCents(latestSession.hourlyRate).toOutputYuan()
         : 0;
       if (hourlyRateYuan <= 0) {
         throw new BadRequestException('当前会话缺少有效台位费，无法续费');

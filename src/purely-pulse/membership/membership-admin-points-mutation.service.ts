@@ -48,7 +48,8 @@ export class PulseMembershipAdminPointsMutationService {
           storeId: memberId,
           profileId: profile.id,
           source: 'admin_adjust',
-          changeAmount: delta,
+          changeType: delta >= 0 ? 'increase' : 'decrease',
+          changeAmount: Math.abs(delta),
           description: dto.reason.trim(),
         },
       });

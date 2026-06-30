@@ -176,6 +176,13 @@ export class ClubProductDto {
   @IsArray({ message: 'appliedPromotions 必须是数组' })
   appliedPromotions?: ClubAppliedPromotion[];
 
+  @ApiPropertyOptional({
+    example: 89,
+    description: '总节省金额（元）= 原价 - 最终价（不含积分抵扣）；无优惠时不返回',
+  })
+  @IsOptional()
+  totalSavingAmount?: number;
+
   @ApiProperty({
     example: 'package',
     enum: CLUB_SERVICE_PRODUCT_TYPE_VALUES,

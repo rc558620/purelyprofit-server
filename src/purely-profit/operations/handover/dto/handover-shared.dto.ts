@@ -70,7 +70,7 @@ export class HandoverPaymentItemDto {
   @ApiProperty({ example: 668, description: '收款金额' })
   amount: number;
 
-  @ApiProperty({ example: 0.48, description: '金额占比' })
+  @ApiProperty({ example: 55, description: '金额占比（0-100 整数百分比，由 calcRatioPercent precision=0 统一计算）' })
   ratio: number;
 
   @ApiProperty({ example: '#22c55e', description: '展示颜色' })

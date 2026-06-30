@@ -4,6 +4,7 @@ import {
   formatMonthDayLabel,
   getDayStartTimestamp,
 } from '../../commerce/commerce.utils';
+import { Money } from '../../../shared/money.utils';
 import type {
   CostBreakdownItemDto,
   DailyProfitDto,
@@ -74,24 +75,68 @@ export function buildSummary(
   };
 }
 
+/** 按天粒度产出趋势点，profit 由 Money.subtract() 计算 */
 export function buildDailyProfits(
   currentRange: ProfitDateRange,
-  dailyRevenueMap: Map<number, import('../../../shared/money.utils').Money>,
-  dailyCostMap: Map<number, import('../../../shared/money.utils').Money>,
+  dailyRevenueMap: Map<number, Money>,
+  dailyCostMap: Map<number, Money>,
 ): DailyProfitDto[] {
   const days = getChartDays(currentRange);
   const endDayStart = getDayStartTimestamp(currentRange.end);
 
   return Array.from({ length: days }, (_, index) => {
     const dayStart = endDayStart - (days - 1 - index) * DAY_MS;
-    const revenue = dailyRevenueMap.get(dayStart)?.toOutputYuan() ?? 0;
-    const cost = dailyCostMap.get(dayStart)?.toOutputYuan() ?? 0;
+    const revenueMoney = dailyRevenueMap.get(dayStart) ?? Money.zero();
+    const costMoney = dailyCostMap.get(dayStart) ?? Money.zero();
+    const profitMoney = revenueMoney.subtract(costMoney);
 
     return {
       dateLabel: formatMonthDayLabel(dayStart),
-      revenue,
-      cost,
-      profit: revenue - cost,
+      revenue: revenueMoney.toOutputYuan(),
+      cost: costMoney.toOutputYuan(),
+      profit: profitMoney.toOutputYuan(),
+    };
+  });
+}
+
+const MONTH_LABELS = Array.from({ length: 12 }, (_, index) => `${index + 1}月`);
+
+/** 按月粒度产出趋势点，profit 由 Money.subtract() 计算；year 周期专用 */
+export function buildMonthlyProfits(
+  currentRange: ProfitDateRange,
+  dailyRevenueMap: Map<number, Money>,
+  dailyCostMap: Map<number, Money>,
+): DailyProfitDto[] {
+  const rangeStartYear = new Date(currentRange.start).getFullYear();
+  const monthlyRevenueMap = new Map<number, Money>();
+  const monthlyCostMap = new Map<number, Money>();
+
+  for (const [dayStart, revenue] of dailyRevenueMap.entries()) {
+    const monthIndex = new Date(dayStart).getMonth();
+    monthlyRevenueMap.set(
+      monthIndex,
+      (monthlyRevenueMap.get(monthIndex) ?? Money.zero()).add(revenue),
+    );
+  }
+
+  for (const [dayStart, cost] of dailyCostMap.entries()) {
+    const monthIndex = new Date(dayStart).getMonth();
+    monthlyCostMap.set(
+      monthIndex,
+      (monthlyCostMap.get(monthIndex) ?? Money.zero()).add(cost),
+    );
+  }
+
+  return MONTH_LABELS.map((label, monthIndex) => {
+    const revenueMoney = monthlyRevenueMap.get(monthIndex) ?? Money.zero();
+    const costMoney = monthlyCostMap.get(monthIndex) ?? Money.zero();
+    const profitMoney = revenueMoney.subtract(costMoney);
+
+    return {
+      dateLabel: label,
+      revenue: revenueMoney.toOutputYuan(),
+      cost: costMoney.toOutputYuan(),
+      profit: profitMoney.toOutputYuan(),
     };
   });
 }
@@ -154,6 +199,7 @@ export function buildCostBreakdown(
 
 export function buildProfitDetailResponse(
   snapshot: ProfitMetricsSnapshot,
+  period?: string,
 ): ProfitDetailResponseDto {
   const revenueYuan = snapshot.currentSales.revenue.toOutputYuan();
   const previousRevenueYuan = snapshot.previousSales.revenue.toOutputYuan();
@@ -161,6 +207,19 @@ export function buildProfitDetailResponse(
   const previousTotalCostYuan = snapshot.previousCosts.totalCost.toOutputYuan();
   const netProfitYuan = snapshot.netProfit.toOutputYuan();
   const previousNetProfitYuan = snapshot.previousNetProfit.toOutputYuan();
+
+  const isYearPeriod = period === 'year';
+  const trendProfits = isYearPeriod
+    ? buildMonthlyProfits(
+        snapshot.currentRange,
+        snapshot.currentSales.dailyRevenueMap,
+        snapshot.currentCosts.dailyCostMap,
+      )
+    : buildDailyProfits(
+        snapshot.currentRange,
+        snapshot.currentSales.dailyRevenueMap,
+        snapshot.currentCosts.dailyCostMap,
+      );
 
   return {
     summary: buildSummary(
@@ -172,11 +231,7 @@ export function buildProfitDetailResponse(
       previousNetProfitYuan,
       snapshot.currentSales.orderCount,
     ),
-    dailyProfits: buildDailyProfits(
-      snapshot.currentRange,
-      snapshot.currentSales.dailyRevenueMap,
-      snapshot.currentCosts.dailyCostMap,
-    ),
+    dailyProfits: trendProfits,
     productRanking: buildProductRanking(snapshot.currentSales.rankMap),
     costBreakdown: buildCostBreakdown(
       snapshot.currentCosts.categoryCostMap,

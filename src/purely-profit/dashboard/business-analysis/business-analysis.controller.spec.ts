@@ -66,6 +66,7 @@ describe('BusinessAnalysisController', () => {
         revenue: { current: 500, previous: 400, changeRate: 25 },
         totalCost: { current: 400, previous: 320, changeRate: 25 },
         profitRate: { current: 20, previous: 20, changeRate: 0 },
+        costRate: { current: 80, previous: 80, changeRate: 0 },
         orderCount: 3,
       },
       dailyTrend: [],

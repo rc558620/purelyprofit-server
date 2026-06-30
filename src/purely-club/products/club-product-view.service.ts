@@ -90,6 +90,14 @@ export class ClubProductViewService {
       ...(pricing.appliedPromotions.length > 0
         ? { appliedPromotions: pricing.appliedPromotions }
         : {}),
+      // 总节省金额：原价 - 最终价（不含积分抵扣），有节省时才返回
+      ...(pricing.finalPriceFen < (product.originalPrice ?? product.price)
+        ? {
+            totalSavingAmount: Money.fromDbCents(
+              (product.originalPrice ?? product.price) - pricing.finalPriceFen,
+            ).toOutputYuan(),
+          }
+        : {}),
       type: this.resolveProductType(product),
       tags,
       isHot,

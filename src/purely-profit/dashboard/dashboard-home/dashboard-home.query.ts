@@ -150,10 +150,10 @@ export async function loadDashboardHomeStatsData(
       orderCount: Number(compareSalesAgg[0]?.order_count ?? 0),
     },
     currentCosts: {
-      totalCost: Money.fromDbCents(Number(currentCostsAgg._sum.amount ?? 0)).toOutputYuan(),
+      totalCost: Money.fromDbCents(currentCostsAgg._sum.amount ?? 0).toOutputYuan(),
     },
     compareCosts: {
-      totalCost: Money.fromDbCents(Number(compareCostsAgg._sum.amount ?? 0)).toOutputYuan(),
+      totalCost: Money.fromDbCents(compareCostsAgg._sum.amount ?? 0).toOutputYuan(),
     },
   };
 }
@@ -217,6 +217,7 @@ export async function loadDashboardHomeActivitiesData(
     prisma.product.findMany({
       where: {
         storeId,
+        deletedAt: null,
         isActive: true,
         alertThreshold: { gt: 0 },
       },

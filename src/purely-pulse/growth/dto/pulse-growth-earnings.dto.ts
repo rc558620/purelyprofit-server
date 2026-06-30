@@ -43,6 +43,10 @@ export class PulseEarningsOverviewResponseDto {
   @IsInt()
   totalWithdrawnBeans: number;
 
+  @ApiProperty({ example: 300, description: '待结算纯利豆（钳制 ≥ 0）' })
+  @IsInt()
+  pendingBeans: number;
+
   @ApiProperty({ example: 15, description: '推广总人数（累计注册人数）' })
   @IsInt()
   totalPromos: number;

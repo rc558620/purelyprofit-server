@@ -70,7 +70,7 @@ export function buildDashboardHomeActivities(
   if (params.overdueAccounts.length > 0) {
     // remaining 数据库存储的是分（Int），需先转为元
     const totalRemaining = Money.sum(
-      params.overdueAccounts.map((item) => Money.fromDbCents(Number(item.remaining))),
+      params.overdueAccounts.map((item) => Money.fromDbCents(item.remaining)),
     ).toOutputYuan();
     const latestOverdue = params.overdueAccounts[0];
     drafts.push({
@@ -248,8 +248,8 @@ function appendUpcomingAccountDraft(
   }
 
   // remaining 数据库存储的是分（Int），需先转为元
-  const totalRemaining = Money.sum(
-      params.upcomingAccounts.map((item) => Money.fromDbCents(Number(item.remaining))),
+    const totalRemaining = Money.sum(
+      params.upcomingAccounts.map((item) => Money.fromDbCents(item.remaining)),
     ).toOutputYuan();
     const earliest = params.upcomingAccounts[0];
 
@@ -369,7 +369,7 @@ function detectRevenueDecline(
 
   for (const row of dailyRevenueRows) {
     const dayTs = getDayStartTimestamp(toTimestamp(row.bucketAt));
-    const revenue = Money.fromDbCents(Number(row.revenue)).toOutputYuan();
+    const revenue = Money.fromDbCents(row.revenue).toOutputYuan();
     revenueByDay.set(dayTs, (revenueByDay.get(dayTs) ?? 0) + revenue);
   }
 
@@ -426,7 +426,7 @@ function appendRecentOrderDrafts(
 
   for (const order of params.recentOrders) {
     // totalRevenue 数据库存储的是分（Int），需先转为元
-    const revenue = Money.fromDbCents(Number(order.totalRevenue ?? 0)).toOutputYuan();
+    const revenue = Money.fromDbCents(order.totalRevenue ?? 0).toOutputYuan();
     if (revenue <= 0) {
       continue;
     }

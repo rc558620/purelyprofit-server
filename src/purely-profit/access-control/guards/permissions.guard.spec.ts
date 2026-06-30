@@ -89,7 +89,7 @@ describe('PermissionsGuard', () => {
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(prismaService.store.findFirst).toHaveBeenCalledWith({
-      where: { ownerId: 9 },
+      where: { ownerId: 9, deletedAt: null },
       select: { id: true },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });

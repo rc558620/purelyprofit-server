@@ -86,7 +86,7 @@ describe('ClubMemberService', () => {
     );
     // 默认 aggregate 返回 0，避免未显式 mock 的测试报错
     prismaService.marketingRecharge.aggregate.mockResolvedValue({
-      _sum: { amount: null, giftAmount: null },
+      _sum: { amount: null },
     });
     const module: TestingModule = await Test.createTestingModule({
       providers: [

@@ -2,6 +2,7 @@ import {
   buildCostsRecordsPattern,
   buildCostsStatsPattern,
   buildCostsReportPattern,
+  buildCostsDashboardPattern,
 } from './cache-keys';
 import type { CacheInvalidatorProvider } from './cache-invalidator.registry';
 import type {
@@ -18,6 +19,7 @@ export const costsCacheInvalidatorProvider: CacheInvalidatorProvider<
       input.redisService.delByPattern(buildCostsStatsPattern(storeId)),
       input.redisService.delByPattern(buildCostsReportPattern(storeId)),
       input.redisService.delByPattern(buildCostsRecordsPattern(storeId)),
+      input.redisService.delByPattern(buildCostsDashboardPattern(storeId)),
     ]);
   },
 });

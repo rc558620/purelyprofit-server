@@ -93,8 +93,21 @@ export class PrismaService
       configService.get<number>('database.poolIdleTimeoutMs') ?? 30_000;
     const poolConnectionTimeoutMs =
       configService.get<number>('database.poolConnectionTimeoutMs') ?? 5_000;
+    const statementTimeoutMs =
+      configService.get<number>('database.statementTimeoutMs') ?? 10_000;
+
+    // 通过连接串 options 参数注入 statement_timeout，确保连接池中每个新连接
+    // 都自动获得 timeout 保护，而非依赖单次 SET 命令（仅对当前连接生效）。
+    const poolUrl = new URL(connectionString!);
+    const existingOptions = poolUrl.searchParams.get('options') ?? '';
+    const timeoutOption = `-c statement_timeout=${statementTimeoutMs}`;
+    poolUrl.searchParams.set(
+      'options',
+      existingOptions ? `${existingOptions} ${timeoutOption}` : timeoutOption,
+    );
+
     const pool = new Pool({
-      connectionString,
+      connectionString: poolUrl.toString(),
       max: effectivePoolMax,
       min: configuredPoolMin,
       idleTimeoutMillis: poolIdleTimeoutMs,
@@ -106,7 +119,11 @@ export class PrismaService
     const slowQueryThresholdMs =
       configService.get<number>('app.slowQueryThresholdMs') ?? 80;
     const sqlMetricsEnabled =
-      configService.get<boolean>('app.sqlMetricsEnabled') ?? true;
+      configService.get<boolean>('app.sqlMetricsEnabled') ?? false;
+    const sqlMetricsSampleRate =
+      Math.max(1, configService.get<number>('app.sqlMetricsSampleRate') ?? 1);
+    // 仅当 sqlMetricsEnabled 或 slowQueryLogEnabled 任一开启时，才注册 Prisma query 事件监听
+    // 生产环境建议关闭 sqlMetricsEnabled，只保留 slowQueryLogEnabled
     const queryListenerEnabled = sqlMetricsEnabled || slowQueryLogEnabled;
 
     super({
@@ -119,19 +136,24 @@ export class PrismaService
     this.cpuCount = cpuCount;
     this.pgMaxConnections =
       configService.get<number>('database.pgMaxConnections') ?? 100;
-    this.statementTimeoutMs =
-      configService.get<number>('database.statementTimeoutMs') ?? 10_000;
+    this.statementTimeoutMs = statementTimeoutMs;
 
     if (queryListenerEnabled) {
+      let queryCounter = 0;
       this.$on('query', (event: Prisma.QueryEvent) => {
+        // SQL metrics 采样：仅当 sqlMetricsEnabled 且采样率匹配时记录
         if (sqlMetricsEnabled) {
-          recordSqlQuery({
-            query: event.query,
-            durationMs: event.duration,
-            slowThresholdMs: slowQueryThresholdMs,
-          });
+          queryCounter += 1;
+          if (queryCounter % sqlMetricsSampleRate === 0) {
+            recordSqlQuery({
+              query: event.query,
+              durationMs: event.duration,
+              slowThresholdMs: slowQueryThresholdMs,
+            });
+          }
         }
 
+        // slow query log 不受采样影响，始终全量记录
         if (slowQueryLogEnabled && event.duration >= slowQueryThresholdMs) {
           const compactQuery = event.query
             .replace(/\s+/g, ' ')
@@ -148,7 +170,6 @@ export class PrismaService
   async onModuleInit() {
     this.warnIfPoolExceedsPostgresLimit();
     await this.$connect();
-    await this.applyStatementTimeout();
   }
 
   async onModuleDestroy() {
@@ -186,24 +207,15 @@ export class PrismaService
   }
 
   /**
-   * 在每个连接上设置 statement_timeout，防止单条慢查询无限占用连接池连接。
+   * statement_timeout 已通过连接串 options 参数注入，每个新连接自动生效。
+   * 不再需要 applyStatementTimeout()，因为 SET statement_timeout 仅对当前
+   * session/连接生效，无法覆盖连接池后续新建连接。
    *
-   * 默认 10 秒，可通过 DATABASE_STATEMENT_TIMEOUT_MS 环境变量调整。
-   * pg.Pool 在首次查询时才真正建立连接，此处的 $executeRaw 会触发连接初始化；
-   * pg 驱动会在连接池的每个新连接上执行此 SET 命令。
+   * 旧实现的问题：$executeRaw`SET statement_timeout = ...` 只影响执行时
+   * 拿到的那条连接，连接池扩容/回收重建后的新连接不会有此设置。
+   * 新实现：通过 URL options=-c statement_timeout=N 让 PostgreSQL 在建连时
+   * 就设置好，保证所有连接都有超时保护。
    */
-  private async applyStatementTimeout(): Promise<void> {
-    try {
-      await this
-        .$executeRaw`SET statement_timeout = ${this.statementTimeoutMs}`;
-    } catch (error: unknown) {
-      // 连接级 SET 在 pool 模式下仅在当前连接生效；
-      // 如果失败（如测试环境 mock），不阻塞启动。
-      PrismaService.logger.warn(
-        `设置 statement_timeout 失败: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
 }
 
 /**

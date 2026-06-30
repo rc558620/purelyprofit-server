@@ -34,7 +34,7 @@ export function buildStaffListWhere(
             {
               email: { contains: keyword, mode: Prisma.QueryMode.insensitive },
             },
-            { phone: { contains: keyword } },
+            { phone: { startsWith: keyword } },
           ],
         }
       : {}),

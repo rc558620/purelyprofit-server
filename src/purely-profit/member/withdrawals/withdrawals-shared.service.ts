@@ -109,6 +109,7 @@ export class WithdrawalsSharedService {
   ): Promise<WithdrawalPartnerSnapshot> {
     const where: Prisma.StorePartnerWhereInput = {
       storeId,
+      deletedAt: null,
       status: 'approved',
     };
 
@@ -144,7 +145,7 @@ export class WithdrawalsSharedService {
   ): Promise<WithdrawalOverviewResponseDto> {
     const [partners, pendingCount] = await Promise.all([
       prismaExecutor.storePartner.findMany({
-        where: { storeId, status: 'approved' },
+        where: { storeId, deletedAt: null, status: 'approved' },
         select: withdrawalPartnerSelect,
         orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
       }),
@@ -215,6 +216,7 @@ export class WithdrawalsSharedService {
       approvedPartners: buildApprovedPartnersResponse(partners),
       beanBalance: overview.beanBalance,
       totalWithdrawnBeans: overview.totalWithdrawnBeans,
+      pendingBeans: overview.pendingBeans,
       pendingCount,
     };
   }

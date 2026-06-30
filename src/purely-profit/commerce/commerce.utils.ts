@@ -2,7 +2,7 @@ import type { InventoryAdjustType } from '@prisma/client';
 import { PaginationMetaDto } from '../stores/dto/store-response.dto';
 
 // 从 shared 重新导出统一金额值对象与工具函数，保持现有导入路径向后兼容
-export { Money, calcPercentChange, calcPercentOfTotal } from '../../shared/money.utils';
+export { Money, calcPercentChange, calcPercentOfTotal, calcPercentPointDiff } from '../../shared/money.utils';
 
 /**
  * 空间预付抵扣商品的 productName。

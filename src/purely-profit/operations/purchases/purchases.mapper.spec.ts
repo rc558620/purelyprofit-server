@@ -3,6 +3,7 @@ import {
   buildEmptyPurchaseStatsResponse,
   buildPaginatedPurchasesResponse,
   buildPurchaseStatsResponse,
+  mapPreviewPurchaseResponse,
   mapPurchaseResponse,
 } from './purchases.mapper';
 import type { PurchaseOrderWithItems } from './purchases.types';
@@ -121,36 +122,47 @@ describe('purchases.mapper', () => {
     });
   });
 
-  it('buildPaginatedPurchasesResponse 会映射列表和分页信息', () => {
-    expect(buildPaginatedPurchasesResponse([createOrder()], 2, 1, 3)).toEqual({
+  it('mapPreviewPurchaseResponse 会映射预览明细与合计金额', () => {
+    expect(
+      mapPreviewPurchaseResponse({
+        items: [
+          {
+            productId: 201,
+            productName: '可口可乐 330ml',
+            unit: '箱',
+            quantity: 6,
+            unitPrice: 1200,
+            amount: 7200,
+          },
+          {
+            productId: null,
+            productName: '散装辣条',
+            unit: null,
+            quantity: 3,
+            unitPrice: 1200,
+            amount: 3600,
+          },
+        ],
+        totalAmount: 10800,
+      }),
+    ).toEqual({
       items: [
         {
-          id: '11',
-          supplierId: '6',
-          supplierName: '可口可乐供应商',
-          items: [
-            {
-              id: '101',
-              productId: '201',
-              productName: '可口可乐 330ml 快照',
-              unit: '箱',
-              quantity: 6,
-              unitPrice: 12,
-              amount: 72,
-            },
-          ],
-          totalAmount: 72,
-          date: new Date('2026-05-14T10:00:00.000Z').getTime(),
-          note: '门店周补货',
-          createdAt: new Date('2026-05-14T12:00:00.000Z').getTime(),
+          productId: '201',
+          productName: '可口可乐 330ml',
+          unit: '箱',
+          quantity: 6,
+          unitPrice: 12,
+          amount: 72,
+        },
+        {
+          productName: '散装辣条',
+          quantity: 3,
+          unitPrice: 12,
+          amount: 36,
         },
       ],
-      meta: {
-        page: 2,
-        pageSize: 1,
-        total: 3,
-        totalPages: 3,
-      },
+      totalAmount: 108,
     });
   });
 });

@@ -70,6 +70,7 @@ export class PulseDevModeDashboardService {
         revenue: { current: 0, previous: 0, changeRate: null },
         totalCost: { current: 0, previous: 0, changeRate: null },
         profitRate: { current: 0, previous: 0, changeRate: null },
+        costRate: { current: 0, previous: 0, changeRate: null },
         orderCount: 0,
       },
       dailyTrend: [],

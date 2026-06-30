@@ -13,9 +13,9 @@ import {
   UpdateEmployeeLeaveDto,
 } from './dto/employee-leave.dto';
 import { EmployeesAccessService } from './employees-access.service';
-import { assertLeaveBusinessRules } from './employees-leave.domain';
+import { assertLeaveBusinessRules, calculateLeaveDays } from './employees-leave.domain';
 import { toEmployeeLeaveResponse } from './employees.mapper';
-import { toDecimalNumber, toNullableText } from './employees.utils';
+import { toNullableText } from './employees.utils';
 
 @Injectable()
 export class EmployeesLeaveService {
@@ -54,10 +54,11 @@ export class EmployeesLeaveService {
         employeeId,
         'staff:update',
       );
+    const derivedDays = calculateLeaveDays(dto.startDate, dto.endDate);
     assertLeaveBusinessRules({
       startDate: dto.startDate,
       endDate: dto.endDate,
-      days: dto.days,
+      days: derivedDays,
       deductSalary: dto.deductSalary,
       deductAmount: dto.deductAmount,
     });
@@ -74,7 +75,7 @@ export class EmployeesLeaveService {
         type: dto.type,
         startDate: new Date(dto.startDate),
         endDate: new Date(dto.endDate),
-        days: dto.days,
+        days: derivedDays,
         deductSalary: dto.deductSalary,
         deductAmount: Money.fromInputYuan(dto.deductAmount).toDbCents(),
         note: toNullableText(dto.note),
@@ -103,10 +104,11 @@ export class EmployeesLeaveService {
 
     const nextLeaveStartDate = dto.startDate ?? leave.startDate.getTime();
     const nextLeaveEndDate = dto.endDate ?? leave.endDate.getTime();
+    const derivedDays = calculateLeaveDays(nextLeaveStartDate, nextLeaveEndDate);
     assertLeaveBusinessRules({
       startDate: nextLeaveStartDate,
       endDate: nextLeaveEndDate,
-      days: dto.days ?? toDecimalNumber(leave.days),
+      days: derivedDays,
       deductSalary: dto.deductSalary ?? leave.deductSalary,
       deductAmount: dto.deductAmount ?? Money.fromDbCents(leave.deductAmount).toOutputYuan(),
     });
@@ -127,7 +129,7 @@ export class EmployeesLeaveService {
         ...(dto.endDate !== undefined
           ? { endDate: new Date(dto.endDate) }
           : {}),
-        ...(dto.days !== undefined ? { days: dto.days } : {}),
+        days: derivedDays,
         ...(dto.deductSalary !== undefined
           ? { deductSalary: dto.deductSalary }
           : {}),

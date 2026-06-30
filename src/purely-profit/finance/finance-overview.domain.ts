@@ -11,8 +11,8 @@ import {
   type FinancePeriodTotals,
 } from './finance.constants';
 import { FINANCE_OVERVIEW_DISPLAY_DAYS } from './finance.types';
-import { formatMonthDay, getDayStart } from './finance-date.utils';
-import { Money, calcPercentChangeWithFallback, calcPercentOfTotal } from '../../shared/money.utils';
+import { formatMonthDay, formatMonthLabel, getDayStart, getMonthStart } from './finance-date.utils';
+import { Money, calcPercentChangeWithFallback, calcPercentOfTotal, calcPercentPointDiff, calcMoneyRatio } from '../../shared/money.utils';
 
 export function makeOverviewTotals(): Record<FinanceCashFlowOverviewBucket, Money> {
   return {
@@ -32,6 +32,7 @@ export function buildEmptyOverviewResponse(): FinanceOverviewResponseDto {
   return {
     heroSummary: buildOverviewHeroSummary(currentTotals, previousTotals),
     dailyTrend: [],
+    trendGranularity: 'daily',
     incomeGroup,
     expenseGroup,
   };
@@ -61,20 +62,19 @@ export function buildFinanceOverviewResponse(params: {
     params.currentTotals,
     params.previousTotals,
   );
-  const dailyTrend = buildOverviewDailyTrend(
-    params.period,
-    params.currentRange.start,
-    params.currentRange.end,
-    params.incomeMap,
-    params.expenseMap,
-  );
+  const isYearPeriod = params.period === 'year';
+  const trendGranularity = isYearPeriod ? 'monthly' as const : 'daily' as const;
+  const trendSeries = isYearPeriod
+    ? buildOverviewMonthlyTrend(params.currentRange.start, params.currentRange.end, params.incomeMap, params.expenseMap)
+    : buildOverviewDailyTrend(params.period, params.currentRange.start, params.currentRange.end, params.incomeMap, params.expenseMap);
   const { incomeGroup, expenseGroup } = buildOverviewSourceGroups(
     params.currentTotals,
   );
 
   return {
     heroSummary,
-    dailyTrend,
+    dailyTrend: trendSeries,
+    trendGranularity,
     incomeGroup,
     expenseGroup,
   };
@@ -100,10 +100,44 @@ export function buildOverviewHeroSummary(
     profitRate: {
       current: currentProfitRate,
       previous: previousProfitRate,
-      changeRate: currentProfitRate - previousProfitRate,
+      // 利润率本身已是百分比，changeRate 是百分点差值（如 30% → 20% = -10pp）
+      changeRate: calcPercentPointDiff(currentProfitRate, previousProfitRate),
     },
     incomeExpenseRatio: calcIncomeExpenseRatio(currentIncome, currentExpense),
   };
+}
+
+/** year 周期按月聚合趋势，金额统一在 Money（分）层运算，避免前端浮点累加 */
+export function buildOverviewMonthlyTrend(
+  start: number,
+  end: number,
+  incomeMap: Map<number, Money>,
+  expenseMap: Map<number, Money>,
+): FinanceOverviewResponseDto['dailyTrend'] {
+  const startDate = new Date(getMonthStart(start));
+  const endDate = new Date(getMonthStart(end));
+  const startMonth = startDate.getMonth(); // 0-based
+  const startYear = startDate.getFullYear();
+  const endMonth = endDate.getMonth();
+  const endYear = endDate.getFullYear();
+  const totalMonths = (endYear - startYear) * 12 + (endMonth - startMonth) + 1;
+  const months = Math.max(1, Math.min(12, totalMonths));
+  const items: FinanceOverviewResponseDto['dailyTrend'] = [];
+
+  for (let index = months - 1; index >= 0; index -= 1) {
+    const monthDate = new Date(endYear, endMonth - index, 1);
+    const monthStart = monthDate.getTime();
+    const income = incomeMap.get(monthStart) ?? Money.zero();
+    const expense = expenseMap.get(monthStart) ?? Money.zero();
+    items.push({
+      dateLabel: formatMonthLabel(monthDate.getMonth() + 1),
+      income: income.toOutputYuan(),
+      expense: expense.toOutputYuan(),
+      net: income.subtract(expense).toOutputYuan(),
+    });
+  }
+
+  return items;
 }
 
 export function buildOverviewDailyTrend(
@@ -213,5 +247,5 @@ function calcIncomeExpenseRatio(
     return null;
   }
 
-  return Math.round((income.toDbCents() / expense.toDbCents()) * 100) / 100;
+  return calcMoneyRatio(income, expense);
 }

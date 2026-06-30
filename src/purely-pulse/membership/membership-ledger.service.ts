@@ -1,3 +1,4 @@
+import Decimal from 'decimal.js';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type {
@@ -84,6 +85,7 @@ export class PulseMembershipLedgerService {
         select: {
           id: true,
           source: true,
+          changeType: true,
           changeAmount: true,
           description: true,
           expireAt: true,
@@ -119,12 +121,13 @@ export class PulseMembershipLedgerService {
       overview: {
         availablePoints,
         totalEarned: logs.reduce(
-          (sum, log) => (log.changeAmount > 0 ? sum + log.changeAmount : sum),
+          (sum, log) =>
+            log.changeType === 'increase' ? sum + log.changeAmount : sum,
           0,
         ),
         totalSpent: logs.reduce(
           (sum, log) =>
-            log.changeAmount < 0 ? sum + Math.abs(log.changeAmount) : sum,
+            log.changeType === 'decrease' ? sum + log.changeAmount : sum,
           0,
         ),
       },
@@ -138,13 +141,16 @@ export class PulseMembershipLedgerService {
     const type: PlatformMembershipPointsLogsResponseDto['items'][number]['type'] =
       log.source === 'expire'
         ? 'expire'
-        : log.changeAmount > 0
+        : log.changeType === 'increase'
           ? 'earn'
           : 'spend';
 
+    const signedAmount =
+      log.changeType === 'decrease' ? -log.changeAmount : log.changeAmount;
+
     return {
       id: `pts-${log.id}`,
-      amount: log.changeAmount,
+      amount: signedAmount,
       type,
       source: log.source,
       description: log.description,
@@ -160,6 +166,7 @@ export class PulseMembershipLedgerService {
     ] = await Promise.all([
       this.prisma.storePartner.findMany({
         where: {
+          deletedAt: null,
           status: 'approved',
           store: this.accessService.buildAdminStoreExclusionWhere(),
         },
@@ -204,7 +211,15 @@ export class PulseMembershipLedgerService {
     return {
       approvedPartner: null,
       approvedPartners: [],
-      overview,
+      overview: {
+        ...overview,
+        pendingBeans: Decimal.max(
+          0,
+          new Decimal(overview.totalEarnedBeans)
+            .minus(overview.totalWithdrawnBeans)
+            .minus(overview.beanBalance),
+        ).toNumber(),
+      },
       items: logs.map((log) => this.mapDeveloperBeanLog(log)),
     };
   }

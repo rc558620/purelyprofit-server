@@ -46,7 +46,7 @@ describe('MarketingService promotions', () => {
       status: 'active',
       enabled: true,
       params: {
-        gradients: [{ rechargeAmount: 10000, giftRatio: 0.2 }],
+        gradients: [{ rechargeAmount: 100, giftRatio: 0.2 }],
       },
     });
   });
@@ -84,8 +84,8 @@ describe('MarketingService promotions', () => {
 
     expect(result.items[0].params).toEqual({
       gradients: [
-        { rechargeAmount: 10000, giftAmount: 1000 },
-        { rechargeAmount: 30000, giftAmount: 5000 },
+        { rechargeAmount: 100, giftAmount: 10 },
+        { rechargeAmount: 300, giftAmount: 50 },
       ],
     });
   });
@@ -195,16 +195,16 @@ describe('MarketingService promotions', () => {
       expect.objectContaining({
         id: 'gold',
         spendThreshold: 0,
-        discountRate: 0.9,
+        discountRatePct: 90,
       }),
-      expect.objectContaining({ id: 'platinum', spendThreshold: 500000 }),
-      expect.objectContaining({ id: 'diamond', spendThreshold: 1000000 }),
+      expect.objectContaining({ id: 'platinum', spendThreshold: 5000 }),
+      expect.objectContaining({ id: 'diamond', spendThreshold: 10000 }),
     ]);
     expect(result.pointsRatio).toEqual(
       expect.objectContaining({
-        earnRatioCents: 100,
+        earnRatioYuan: 100,
         redeemRatioPoints: 1,
-        maxRedeemRatio: 0.5,
+        maxRedeemPct: 50,
         enabled: false,
       }),
     );
@@ -246,6 +246,7 @@ describe('MarketingService promotions', () => {
             id: 'gold',
             name: '黄金会员',
             discountRate: 0.95,
+            discountRatePct: 95,
             spendThreshold: 3000,
             description: '历史配置',
             enabled: true,
@@ -254,8 +255,10 @@ describe('MarketingService promotions', () => {
         ],
         pointsRatio: {
           earnRatioCents: 200,
+          earnRatioYuan: 200,
           redeemRatioPoints: 100,
           maxRedeemRatio: 0.3,
+          maxRedeemPct: 30,
           enabled: true,
           updatedAt: 2,
         },
@@ -269,7 +272,7 @@ describe('MarketingService promotions', () => {
       context.user,
       'gold',
       {
-        discountRate: 0.88,
+        discountRatePct: 88,
         spendThreshold: 999999,
         description: '注册即享 88 折',
         enabled: false,
@@ -279,7 +282,7 @@ describe('MarketingService promotions', () => {
     expect(result).toEqual(
       expect.objectContaining({
         id: 'gold',
-        discountRate: 0.88,
+        discountRatePct: 88,
         spendThreshold: 0,
         description: '注册即享 88 折',
         enabled: false,
@@ -292,15 +295,15 @@ describe('MarketingService promotions', () => {
       create: expect.objectContaining({
         storeId: 18,
         levels: expect.arrayContaining([
-          expect.objectContaining({ id: 'gold', spendThreshold: 0 }),
-          expect.objectContaining({ id: 'platinum', spendThreshold: 500000 }),
-          expect.objectContaining({ id: 'diamond', spendThreshold: 1000000 }),
+          expect.objectContaining({ id: 'gold', spendThreshold: 0, discountRate: 0.88, discountRatePct: 88 }),
+          expect.objectContaining({ id: 'platinum', spendThreshold: 5000 }),
+          expect.objectContaining({ id: 'diamond', spendThreshold: 10000 }),
         ]),
-        pointsRatio: expect.objectContaining({ earnRatioCents: 200 }),
+        pointsRatio: expect.objectContaining({ earnRatioCents: 200, earnRatioYuan: 200 }),
       }),
       update: expect.objectContaining({
         levels: expect.arrayContaining([
-          expect.objectContaining({ id: 'gold', spendThreshold: 0 }),
+          expect.objectContaining({ id: 'gold', spendThreshold: 0, discountRate: 0.88, discountRatePct: 88 }),
         ]),
       }),
     });
@@ -317,17 +320,17 @@ describe('MarketingService promotions', () => {
     );
 
     const result = await context.service.updatePointsRatio(context.user, {
-      earnRatioCents: 300,
+      earnRatioYuan: 300,
       redeemRatioPoints: 200,
-      maxRedeemRatio: 0.4,
+      maxRedeemPct: 40,
       enabled: false,
     });
 
     expect(result).toEqual(
       expect.objectContaining({
-        earnRatioCents: 300,
+        earnRatioYuan: 300,
         redeemRatioPoints: 200,
-        maxRedeemRatio: 0.4,
+        maxRedeemPct: 40,
         enabled: false,
       }),
     );
@@ -344,16 +347,20 @@ describe('MarketingService promotions', () => {
         ]),
         pointsRatio: expect.objectContaining({
           earnRatioCents: 300,
+          earnRatioYuan: 300,
           redeemRatioPoints: 200,
           maxRedeemRatio: 0.4,
+          maxRedeemPct: 40,
           enabled: false,
         }),
       }),
       update: expect.objectContaining({
         pointsRatio: expect.objectContaining({
           earnRatioCents: 300,
+          earnRatioYuan: 300,
           redeemRatioPoints: 200,
           maxRedeemRatio: 0.4,
+          maxRedeemPct: 40,
           enabled: false,
         }),
       }),

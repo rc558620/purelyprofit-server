@@ -213,9 +213,7 @@ describe('NotificationsService', () => {
     expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith({
       where: expect.objectContaining({
         storeId: 18,
-        dueDate: { lt: new Date(2026, 4, 14, 15, 0, 0, 0) },
-        paidAmount: 0,
-        remaining: { gt: 0 },
+        status: FinanceAccountStatus.overdue,
       }),
       select: {
         id: true,

@@ -125,6 +125,7 @@ describe('WithdrawalsService apply', () => {
         ],
         beanBalance: 700,
         totalWithdrawnBeans: 1300,
+        pendingBeans: 0,
         pendingCount: 3,
       },
     });

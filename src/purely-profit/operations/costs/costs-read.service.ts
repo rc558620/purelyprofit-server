@@ -3,7 +3,7 @@ import type { ServerResponse } from 'node:http';
 import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { Money } from '../../../shared/money.utils';
+import { Money, calcPercentOfTotal } from '../../../shared/money.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -11,6 +11,7 @@ import {
   buildCostsRecordsCacheKey,
   buildCostsReportCacheKey,
   buildCostsStatsCacheKey,
+  buildCostsDashboardCacheKey,
 } from '../../../redis/keys';
 import { RedisService } from '../../../redis/redis.service';
 import type {
@@ -19,11 +20,13 @@ import type {
   ListCostRecordsQueryDto,
 } from './dto/costs-query.dto';
 import type {
+  CostDashboardResponseDto,
   CostRecordResponseDto,
   CostReportResponseDto,
   CostStatsResponseDto,
 } from './dto/costs-response.dto';
 import {
+  buildEmptyCostDashboardResponse,
   buildEmptyCostReportResponse,
   buildEmptyCostStatsResponse,
   buildCostReportRange,
@@ -31,17 +34,18 @@ import {
   buildPreviousCostReportRange,
   calculateCostCompareLastPeriod,
   shouldComparePreviousCostPeriod,
-  sumCostAmounts,
 } from './costs.domain';
 import {
   buildCostRecordResponse,
   buildCostReportCategories,
   buildCostReportDetailRows,
+  buildCostDashboardTrend,
 } from './costs.mapper';
 import {
   buildHistoryAwareCostRecordWhere,
   queryCostReportRows,
 } from './costs.query';
+import { COST_CATEGORY_META } from './costs.types';
 import {
 safeStreamCsvExport,
 } from '../../../shared/stream-export.utils';
@@ -52,6 +56,8 @@ const COSTS_REPORT_CACHE_TTL_SECONDS = 120;
 const COSTS_REPORT_REFRESH_AFTER_MS = 30_000;
 const COSTS_RECORDS_CACHE_TTL_SECONDS = 30;
 const COSTS_RECORDS_REFRESH_AFTER_MS = 10_000;
+const COSTS_DASHBOARD_CACHE_TTL_SECONDS = 60;
+const COSTS_DASHBOARD_REFRESH_AFTER_MS = 15_000;
 
 @Injectable()
 export class CostsReadService {
@@ -183,15 +189,15 @@ export class CostsReadService {
     });
 
     const total = Money.fromDbCents(
-      currentAggregate._sum.amount ?? 0,
+      Number(currentAggregate._sum.amount ?? 0),
     ).toOutputYuan();
     const fixed = Money.fromDbCents(
-      currentTypeRows.find((record) => record.type === 'fixed')?._sum.amount ??
-        0,
+      Number(currentTypeRows.find((record) => record.type === 'fixed')?._sum.amount ??
+        0),
     ).toOutputYuan();
     const variable = Money.fromDbCents(
-      currentTypeRows.find((record) => record.type === 'variable')?._sum
-        .amount ?? 0,
+      Number(currentTypeRows.find((record) => record.type === 'variable')?._sum
+        .amount ?? 0),
     ).toOutputYuan();
     const compareLastPeriod = await this.calculatePreviousPeriodChange(
       storeId,
@@ -341,18 +347,25 @@ export class CostsReadService {
       categoryFilter,
     );
 
-    const total = sumCostAmounts(costRows);
-    const fixed = sumCostAmounts(
-      costRows.filter((record) => record.type === 'fixed'),
+    // 全部在分维度聚合，再统一转元
+    const allMoney = Money.sum(costRows.map((record) => Money.fromDbCents(record.amount)));
+    const fixedMoney = Money.sum(
+      costRows
+        .filter((record) => record.type === 'fixed')
+        .map((record) => Money.fromDbCents(record.amount)),
     );
+    const variableMoney = allMoney.subtract(fixedMoney);
+
+    const total = allMoney.toOutputYuan();
+    const fixed = fixedMoney.toOutputYuan();
+    const variable = variableMoney.toOutputYuan();
 
     return {
       summary: {
         total,
         fixed,
-        variable: Money.fromInputYuan(total)
-          .subtract(Money.fromInputYuan(fixed))
-          .toOutputYuan(),
+        variable,
+        fixedPercentage: calcPercentOfTotal(fixed, total),
         recordCount: costRows.length,
         compareLastPeriod: calculateCostCompareLastPeriod(
           total,
@@ -388,6 +401,135 @@ export class CostsReadService {
         row.note ?? '',
       ]),
     );
+  }
+
+  async getDashboard(
+    user: AuthenticatedUser,
+    query: CostRecordStatsQueryDto,
+  ): Promise<CostDashboardResponseDto> {
+    const storeId = await this.commerceAccessService.resolveViewStoreId(
+      user,
+      undefined,
+      'cost:view',
+      '无权查看成本数据',
+    );
+
+    if (storeId === null) {
+      return buildEmptyCostDashboardResponse();
+    }
+
+    const callerIsSubAccount =
+      user.currentMembership?.subjectType === 'sub_account';
+
+    // 子账号直接查库，不走缓存
+    if (callerIsSubAccount) {
+      return this.buildDashboard(storeId, query, callerIsSubAccount);
+    }
+
+    const cacheKey = buildCostsDashboardCacheKey(storeId, query);
+    return this.redisService.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: COSTS_DASHBOARD_CACHE_TTL_SECONDS,
+      refreshAfterMs: COSTS_DASHBOARD_REFRESH_AFTER_MS,
+      loadValue: () => this.buildDashboard(storeId, query, false),
+      refreshValue: () => this.buildDashboard(storeId, query, false),
+    });
+  }
+
+  private async buildDashboard(
+    storeId: number,
+    query: CostRecordStatsQueryDto,
+    callerIsSubAccount: boolean,
+  ): Promise<CostDashboardResponseDto> {
+    const currentWhere = await buildHistoryAwareCostRecordWhere(
+      this.platformMembershipAccessService,
+      storeId,
+      query,
+      callerIsSubAccount,
+    );
+    if (currentWhere === null) {
+      return buildEmptyCostDashboardResponse();
+    }
+
+    // summary：复用 stats 逻辑，Prisma 聚合
+    const currentAggregate = await this.prisma.costRecord.aggregate({
+      where: currentWhere,
+      _sum: { amount: true },
+      _count: { _all: true },
+    });
+    const currentTypeRows = await this.prisma.costRecord.groupBy({
+      by: ['type'],
+      where: currentWhere,
+      _sum: { amount: true },
+    });
+
+    const totalMoney = Money.fromDbCents(
+      Number(currentAggregate._sum.amount ?? 0),
+    );
+    const fixedMoney = Money.fromDbCents(
+      Number(currentTypeRows.find((record) => record.type === 'fixed')?._sum.amount ?? 0),
+    );
+    const variableMoney = totalMoney.subtract(fixedMoney);
+
+    const total = totalMoney.toOutputYuan();
+    const fixed = fixedMoney.toOutputYuan();
+    const variable = variableMoney.toOutputYuan();
+
+    const compareLastPeriod = await this.calculatePreviousPeriodChange(
+      storeId,
+      query,
+      total,
+      callerIsSubAccount,
+    );
+
+    // categories：按分类聚合
+    const categoryRows = await this.prisma.costRecord.groupBy({
+      by: ['category'],
+      where: currentWhere,
+      _sum: { amount: true },
+    });
+
+    const categories = categoryRows
+      .map((row) => {
+        const categoryAmount = Money.fromDbCents(Number(row._sum.amount ?? 0)).toOutputYuan();
+        return {
+          category: row.category,
+          label: COST_CATEGORY_META[row.category]?.label ?? row.category,
+          amount: categoryAmount,
+          percentage: calcPercentOfTotal(categoryAmount, total),
+          color: COST_CATEGORY_META[row.category]?.color ?? '#94a3b8',
+        };
+      })
+      .sort((left, right) => right.amount - left.amount);
+
+    // trend：近 7 日数据，在分维度聚合后转元
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    const trendRows = await this.prisma.costRecord.findMany({
+      where: {
+        ...currentWhere,
+        date: { gte: sevenDaysAgo },
+      },
+      select: { type: true, category: true, amount: true, date: true },
+      orderBy: [{ date: 'desc' }],
+    });
+
+    const trend = buildCostDashboardTrend(trendRows);
+
+    return {
+      summary: {
+        total,
+        fixed,
+        variable,
+        compareLastPeriod,
+        recordCount: currentAggregate._count._all,
+      },
+      categories,
+      trend,
+    };
   }
 
   private async calculatePreviousPeriodChange(

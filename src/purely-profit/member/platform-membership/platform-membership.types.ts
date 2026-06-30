@@ -105,6 +105,7 @@ export interface StoreMembershipOrderRecord {
 export interface StoreMembershipPointsLogRecord {
   id: number;
   source: PointsSourceValue;
+  changeType: 'increase' | 'decrease';
   changeAmount: number;
   description: string;
   expireAt: Date | null;

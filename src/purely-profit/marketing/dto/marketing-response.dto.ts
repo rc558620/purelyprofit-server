@@ -1,7 +1,8 @@
 // ─── 营销中心 Response DTOs ─────────────────────────────────────────────
 //
 // 约定：
-//  - 金额字段单位：分（number，整数）
+//  - 金额字段单位：元（number，由 Money 类在 mapper 层完成 分→元 转换）
+//    ⚠️ 极少数历史字段仍以「分」为单位，已在 ApiProperty.description 中显式标注
 //  - 时间戳字段单位：毫秒（number）
 //  - 手机号在响应中脱敏（maskPhone），原始号码不出现在 API 响应
 
@@ -71,16 +72,16 @@ export class MarketingCustomerDto {
   })
   tier: MarketingCustomerTierValue;
 
-  /** 储值余额（分） */
-  @ApiProperty({ example: 50000, description: '储值余额，单位：分' })
+  /** 储值余额（元） */
+  @ApiProperty({ example: 500, description: '储值余额，单位：元' })
   balance: number;
 
   /** 积分余额 */
   @ApiProperty({ example: 320 })
   points: number;
 
-  /** 累计消费金额（分） */
-  @ApiProperty({ example: 158000, description: '累计消费金额，单位：分' })
+  /** 累计消费金额（元） */
+  @ApiProperty({ example: 1580, description: '累计消费金额，单位：元' })
   totalSpent: number;
 
   /** 消费次数 */
@@ -122,8 +123,8 @@ export class MarketingCustomerDetailDto extends MarketingCustomerDto {
   })
   clubLevelLabel?: string;
 
-  /** 累计充值金额（分）= amount + giftAmount 汇总 */
-  @ApiProperty({ example: 268000, description: '累计充值金额，单位：分' })
+  /** 累计充值金额（元）= totalAmount 汇总 */
+  @ApiProperty({ example: 2680, description: '累计充值金额，单位：元' })
   totalRecharge: number;
 
   /** 最近 5 条储值记录，用于顾客详情页概览 */
@@ -158,13 +159,17 @@ export class MarketingRechargeDto {
   })
   customerName?: string;
 
-  /** 充值金额（分） */
-  @ApiProperty({ example: 10000, description: '充值金额，单位：分' })
+  /** 充值金额（元） */
+  @ApiProperty({ example: 100, description: '充值金额，单位：元' })
   amount: number;
 
-  /** 赠送金额（分） */
-  @ApiProperty({ example: 1000, description: '赠送金额，单位：分' })
+  /** 赠送金额（元） */
+  @ApiProperty({ example: 10, description: '赠送金额，单位：元' })
   giftAmount: number;
+
+  /** 到账总额（元）= amount + giftAmount，由后端计算 */
+  @ApiProperty({ example: 110, description: '到账总额，单位：元' })
+  totalAmount: number;
 
   @ApiProperty({
     example: 'recharge',
@@ -200,16 +205,16 @@ export class MarketingConsumptionDto {
   @ApiProperty({ example: '1' })
   customerId: string;
 
-  /** 消费金额（分） */
-  @ApiProperty({ example: 5800, description: '消费金额，单位：分' })
+  /** 消费金额（元） */
+  @ApiProperty({ example: 58, description: '消费金额，单位：元' })
   amount: number;
 
-  /** 余额支付金额（分） */
-  @ApiProperty({ example: 2000, description: '余额支付金额，单位：分' })
+  /** 余额支付金额（元） */
+  @ApiProperty({ example: 20, description: '余额支付金额，单位：元' })
   balancePaid: number;
 
-  /** 积分抵扣金额（分） */
-  @ApiProperty({ example: 0, description: '积分抵扣金额，单位：分' })
+  /** 积分抵扣金额（元） */
+  @ApiProperty({ example: 0, description: '积分抵扣金额，单位：元' })
   pointsDeducted: number;
 
   @ApiProperty({
@@ -283,12 +288,12 @@ export class MarketingMemberLevelDto {
   @ApiProperty({ example: '黄金会员' })
   name: string;
 
-  @ApiProperty({ example: 0.9, description: '等级折扣率，0~1 之间' })
-  discountRate: number;
+  @ApiProperty({ example: 90, description: '等级折扣率百分比，1~99，如 90 表示 9 折' })
+  discountRatePct: number;
 
   @ApiProperty({
-    example: 500000,
-    description: '升级所需累计消费金额，单位：分',
+    example: 5000,
+    description: '升级所需累计消费金额，单位：元',
   })
   spendThreshold: number;
 
@@ -305,24 +310,28 @@ export class MarketingMemberLevelDto {
 export class MarketingPointsRatioDto implements MarketingPointsRatioConfigValue {
   @ApiProperty({
     example: 200,
-    description: '每消费多少元得 1 积分；如 200 表示消费 200 元得 1 积分',
+    description: '每消费多少元得 1 积分，单位：元；如 200 表示消费 200 元得 1 积分',
   })
-  earnRatioCents: number;
+  earnRatioYuan: number;
 
   @ApiProperty({ example: 100, description: '多少积分抵扣 1 元' })
   redeemRatioPoints: number;
 
   @ApiProperty({
-    example: 0.5,
-    description: '单次消费最大积分抵扣比例，0~1 之间',
+    example: 50,
+    description: '单次消费最大积分抵扣百分比，1~100，如 50 表示最多抵扣 50%',
   })
-  maxRedeemRatio: number;
+  maxRedeemPct: number;
 
   @ApiProperty({ example: true })
   enabled: boolean;
 
   @ApiProperty({ example: 1715000000000 })
   updatedAt: number;
+
+  // ─── 内部存储字段（不暴露给前端，仅用于向后兼容 DB 读写） ───
+  earnRatioCents: number;
+  maxRedeemRatio: number;
 }
 
 export class MarketingMemberLevelSettingsDto {
@@ -370,6 +379,14 @@ export class MarketingPromotionDto {
   })
   params: MarketingPromotionParamsValue;
 
+  /** 后端预计算的展示文案，前端应优先消费此字段而非从 params 推导 */
+  @ApiPropertyOptional({
+    example: '满 ¥50 减 ¥8',
+    description:
+      '活动参数展示文案（由后端统一计算，如 "打 8 折"、"满 ¥50 减 ¥8"、"充 ¥100 赠 ¥10 起"、"免单"、"首单 7.5 折"、"充 ¥100 赠 10 积分"）',
+  })
+  displayText?: string;
+
   /** 开始时间（毫秒时间戳） */
   @ApiProperty({ example: 1715000000000 })
   startAt: number;
@@ -382,8 +399,8 @@ export class MarketingPromotionDto {
   @ApiProperty({ example: 42 })
   usageCount: number;
 
-  /** 核销总优惠金额（分） */
-  @ApiProperty({ example: 84000, description: '核销优惠总额，单位：分' })
+  /** 核销总优惠金额（元） */
+  @ApiProperty({ example: 840, description: '核销优惠总额，单位：元' })
   totalDiscount: number;
 
   @ApiProperty({ example: true })
@@ -415,7 +432,7 @@ export class MarketingOverviewTrendPointDto {
   @ApiProperty({ example: '5/1' })
   date: string;
 
-  @ApiProperty({ example: 12800, description: '当天储值金额，单位：分' })
+  @ApiProperty({ example: 128, description: '当天储值金额，单位：元' })
   amount: number;
 }
 
@@ -424,9 +441,9 @@ export class MarketingOverviewMonthlyTrendPointDto {
   label: string;
 
   @ApiPropertyOptional({
-    example: 128000,
+    example: 1280,
     nullable: true,
-    description: '当月储值金额，单位：分；无数据时为 null',
+    description: '当月储值金额，单位：元；无数据时为 null',
   })
   amount: number | null;
 }

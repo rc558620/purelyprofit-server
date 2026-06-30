@@ -230,16 +230,22 @@ export class ClubMemberLevelsService {
           ? (found as Record<string, unknown>)
           : undefined;
 
+      const discountRate =
+        typeof matched?.discountRate === 'number'
+          ? matched.discountRate
+          : fallbackLevel.discountRate;
+
       return {
         id: fallbackLevel.id,
         name:
           typeof matched?.name === 'string' && matched.name.trim().length > 0
             ? matched.name.trim()
             : fallbackLevel.name,
-        discountRate:
-          typeof matched?.discountRate === 'number'
-            ? matched.discountRate
-            : fallbackLevel.discountRate,
+        discountRate,
+        discountRatePct:
+          typeof matched?.discountRatePct === 'number'
+            ? matched.discountRatePct
+            : Math.round(discountRate * 100),
         spendThreshold:
           typeof matched?.spendThreshold === 'number'
             ? Math.max(0, Math.round(matched.spendThreshold))
@@ -279,6 +285,10 @@ export class ClubMemberLevelsService {
     const meta = CLUB_MEMBER_LEVEL_META[levelSetting.id];
     const requiredConsume = Money.fromDbCents(levelSetting.spendThreshold).toOutputYuan();
     const isRegisterLevel = levelSetting.id === 'gold';
+    const discountText = this.formatDiscountShortText(levelSetting.discountRate);
+    const upgradeHintText = isRegisterLevel
+      ? '充值即享'
+      : `累计充值 ≥ ¥${this.formatAmount(requiredConsume)}`;
     const benefits = new Set<string>([
       this.formatDiscountLabel(levelSetting.discountRate),
       // 注册即享等级展示 description；有充值门槛的等级改用动态充值门槛文案
@@ -297,6 +307,8 @@ export class ClubMemberLevelsService {
       bgColor: meta.bgColor,
       requiredConsume,
       discountRate: this.normalizeRate(levelSetting.discountRate),
+      discountText,
+      upgradeHintText,
       benefits: Array.from(benefits).filter((benefit) => benefit.length > 0),
     };
   }
@@ -333,6 +345,8 @@ export class ClubMemberLevelsService {
       bgColor: meta.bgColor,
       requiredConsume: 0,
       discountRate: 1,
+      discountText: '--',
+      upgradeHintText: '充值即享',
       benefits: ['充值即可升级享会员折扣'],
     };
   }
@@ -385,6 +399,14 @@ export class ClubMemberLevelsService {
       ? discount.toFixed(0)
       : discount.toFixed(1);
     return `${normalized}折会员专属价`;
+  }
+
+  private formatDiscountShortText(discountRate: number): string {
+    const discount = new Decimal(discountRate).mul(10).toDecimalPlaces(1);
+    const normalized = discount.isInteger()
+      ? discount.toFixed(0)
+      : discount.toFixed(1);
+    return `${normalized}折`;
   }
 
   private formatAmount(amount: number): string {

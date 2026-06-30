@@ -77,27 +77,35 @@ describe('firstOrderDiscountParamsSchema', () => {
 describe('reduceParamsSchema', () => {
   it('accepts valid reduce params', () => {
     const result = reduceParamsSchema.safeParse({
-      threshold: 10000,
-      reduceAmount: 2000,
+      threshold: 100,
+      reduceAmount: 20,
     });
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.threshold).toBe(10000);
-      expect(result.data.reduceAmount).toBe(2000);
+      expect(result.data.threshold).toBe(100);
+      expect(result.data.reduceAmount).toBe(20);
     }
+  });
+
+  it('accepts decimal yuan values', () => {
+    const result = reduceParamsSchema.safeParse({
+      threshold: 50.5,
+      reduceAmount: 8.8,
+    });
+    expect(result.success).toBe(true);
   });
 
   it('rejects zero threshold', () => {
     const result = reduceParamsSchema.safeParse({
       threshold: 0,
-      reduceAmount: 2000,
+      reduceAmount: 20,
     });
     expect(result.success).toBe(false);
   });
 
   it('rejects missing reduceAmount', () => {
     const result = reduceParamsSchema.safeParse({
-      threshold: 10000,
+      threshold: 100,
     });
     expect(result.success).toBe(false);
   });
@@ -109,8 +117,8 @@ describe('rechargeGiftParamsSchema', () => {
   it('accepts valid gradients', () => {
     const result = rechargeGiftParamsSchema.safeParse({
       gradients: [
-        { rechargeAmount: 10000, giftAmount: 1000 },
-        { rechargeAmount: 30000, giftAmount: 5000 },
+        { rechargeAmount: 100, giftAmount: 10 },
+        { rechargeAmount: 300, giftAmount: 50 },
       ],
     });
     expect(result.success).toBe(true);
@@ -128,7 +136,14 @@ describe('rechargeGiftParamsSchema', () => {
 
   it('accepts gradients with giftRatio', () => {
     const result = rechargeGiftParamsSchema.safeParse({
-      gradients: [{ rechargeAmount: 10000, giftRatio: 0.1 }],
+      gradients: [{ rechargeAmount: 100, giftRatio: 0.1 }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts decimal yuan values for rechargeAmount', () => {
+    const result = rechargeGiftParamsSchema.safeParse({
+      gradients: [{ rechargeAmount: 99.5, giftAmount: 10.5 }],
     });
     expect(result.success).toBe(true);
   });
@@ -187,7 +202,7 @@ describe('promotionParamsSchema', () => {
   it('validates reduce type', () => {
     const result = promotionParamsSchema.safeParse({
       type: 'reduce',
-      params: { threshold: 10000, reduceAmount: 2000 },
+      params: { threshold: 100, reduceAmount: 20 },
     });
     expect(result.success).toBe(true);
   });
@@ -196,7 +211,7 @@ describe('promotionParamsSchema', () => {
     const result = promotionParamsSchema.safeParse({
       type: 'recharge_gift',
       params: {
-        gradients: [{ rechargeAmount: 10000, giftAmount: 1000 }],
+        gradients: [{ rechargeAmount: 100, giftAmount: 10 }],
       },
     });
     expect(result.success).toBe(true);
@@ -235,11 +250,11 @@ describe('validatePromotionParams', () => {
 
   it('validates reduce params', () => {
     const result = validatePromotionParams('reduce', {
-      threshold: 10000,
-      reduceAmount: 2000,
+      threshold: 100,
+      reduceAmount: 20,
     });
-    expect(result.threshold).toBe(10000);
-    expect(result.reduceAmount).toBe(2000);
+    expect(result.threshold).toBe(100);
+    expect(result.reduceAmount).toBe(20);
   });
 });
 

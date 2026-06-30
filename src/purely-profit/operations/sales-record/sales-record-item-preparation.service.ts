@@ -68,6 +68,7 @@ export class SalesRecordItemPreparationService {
       ? await this.prisma.product.findMany({
           where: {
             storeId,
+            deletedAt: null,
             id: { in: numericProductIds },
           },
           select: {

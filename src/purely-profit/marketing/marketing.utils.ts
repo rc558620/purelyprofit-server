@@ -3,6 +3,8 @@
 // 这里存放的是不含装饰器的共享类型和工具函数，供 service / mapper 直接 import，
 // 避免把 dto class 当作 service 内部共享类型中心（参见后端踩坑记录 坑9）。
 
+import { Money } from '../../shared/money.utils';
+
 // ─── 前端对齐的枚举值常量 ─────────────────────────────────────────────
 
 /** 顾客会员等级（与前端 CustomerTier 完全一致）*/
@@ -78,7 +80,11 @@ export type MarketingMemberLevelIdValue =
 export interface MarketingMemberLevelConfigValue {
   id: MarketingMemberLevelIdValue;
   name: string;
+  /** 内部折扣率 0~1（如 0.9 = 9 折），仅用于存储与内部计算 */
   discountRate: number;
+  /** 折扣率百分比 1~99（如 90 = 9 折），API 响应/入参使用 */
+  discountRatePct: number;
+  /** 升级消费门槛，单位：元 */
   spendThreshold: number;
   description: string;
   enabled: boolean;
@@ -86,9 +92,15 @@ export interface MarketingMemberLevelConfigValue {
 }
 
 export interface MarketingPointsRatioConfigValue {
+  /** 内部存储名，单位实际为元（如 100 = 消费 100 元得 1 积分）；仅用于存储 */
   earnRatioCents: number;
+  /** API 响应/入参字段：每消费多少元得 1 积分 */
+  earnRatioYuan: number;
   redeemRatioPoints: number;
+  /** 内部抵扣比例 0~1（如 0.5 = 50%），仅用于存储与内部计算 */
   maxRedeemRatio: number;
+  /** API 响应/入参字段：最大抵扣百分比 1~100（如 50 = 50%） */
+  maxRedeemPct: number;
   enabled: boolean;
   updatedAt: number;
 }
@@ -105,6 +117,7 @@ export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettin
         id: 'gold',
         name: '黄金会员',
         discountRate: 0.9,
+        discountRatePct: 90,
         spendThreshold: 0,
         description: '注册即享 9 折优惠',
         enabled: true,
@@ -114,7 +127,8 @@ export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettin
         id: 'platinum',
         name: '铂金会员',
         discountRate: 0.9,
-        spendThreshold: 500000,
+        discountRatePct: 90,
+        spendThreshold: 5000, // 单位：元（与 API 响应单位一致）
         description: '累计充值 ≥ ¥5,000 升级',
         enabled: true,
         updatedAt: 0,
@@ -123,7 +137,8 @@ export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettin
         id: 'diamond',
         name: '钻石会员',
         discountRate: 0.8,
-        spendThreshold: 1000000,
+        discountRatePct: 80,
+        spendThreshold: 10000, // 单位：元（与 API 响应单位一致）
         description: '累计充值 ≥ ¥10,000 升级',
         enabled: true,
         updatedAt: 0,
@@ -131,8 +146,10 @@ export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettin
     ],
     pointsRatio: {
       earnRatioCents: 100,
+      earnRatioYuan: 100,
       redeemRatioPoints: 1,
       maxRedeemRatio: 0.5,
+      maxRedeemPct: 50,
       enabled: false,
       updatedAt: 0,
     },
@@ -300,10 +317,14 @@ export function maskPhone(phone: string | null): string {
   return trimmed;
 }
 
-// ─── 充值金额合计（前端 amount + giftAmount）──────────────────────────
+// ─── 充值金额合计 ──────────────────────────────────────────────────────
+// 注意：totalAmount 已在数据库 marketing_recharges.total_amount 列存储，
+// 新代码应直接读取 totalAmount 字段，不再手动 amount + giftAmount。
+// 此函数仅作兜底兼容，待确认无调用方后可移除。
 
+/** @deprecated 新代码应直接读取 totalAmount 字段，不再手动计算 */
 export function calcRechargeTotal(amount: number, giftAmount: number): number {
-  return amount + giftAmount;
+  return Money.fromDbCents(amount).add(Money.fromDbCents(giftAmount)).toDbCents();
 }
 
 // ─── service 层内部 query 类型（不直接依赖 DTO class）────────────────

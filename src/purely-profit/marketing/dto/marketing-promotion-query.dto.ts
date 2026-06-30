@@ -62,12 +62,12 @@ export class CreatePromotionDto {
   @ApiPropertyOptional({
     example: {
       gradients: [
-        { rechargeAmount: 10000, giftAmount: 1000 },
-        { rechargeAmount: 30000, giftAmount: 5000 },
+        { rechargeAmount: 100, giftAmount: 10 },
+        { rechargeAmount: 300, giftAmount: 50 },
       ],
     },
     description:
-      '优惠参数 JSON（按 type 不同格式各异；储值赠送支持 gradients 多档配置）',
+      '优惠参数 JSON（按 type 不同格式各异；金额字段单位=元，后端 mapper 层统一转分存储）；储值赠送支持 gradients 多档配置',
   })
   @IsOptional()
   params?: Record<string, unknown>;
@@ -142,19 +142,19 @@ export class UpdatePromotionDto {
 
 export class UpdateMarketingMemberLevelDto {
   @ApiPropertyOptional({
-    example: 0.9,
-    description: '等级折扣率，0~1 之间，如 0.9 表示 9 折',
+    example: 90,
+    description: '等级折扣率百分比，1~99，如 90 表示 9 折',
   })
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'discountRate 必须是数字' })
-  @Min(0.01, { message: 'discountRate 必须大于等于 0.01' })
-  @Max(0.99, { message: 'discountRate 必须小于等于 0.99' })
-  discountRate?: number;
+  @IsNumber({}, { message: 'discountRatePct 必须是数字' })
+  @Min(1, { message: 'discountRatePct 必须大于等于 1' })
+  @Max(99, { message: 'discountRatePct 必须小于等于 99' })
+  discountRatePct?: number;
 
   @ApiPropertyOptional({
-    example: 500000,
-    description: '升级所需累计消费金额，单位：分',
+    example: 5000,
+    description: '升级所需累计消费金额，单位：元',
   })
   @IsOptional()
   @Type(() => Number)
@@ -184,9 +184,9 @@ export class UpdateMarketingPointsRatioDto {
   })
   @IsOptional()
   @Type(() => Number)
-  @IsInt({ message: 'earnRatioCents 必须是整数' })
-  @Min(1, { message: 'earnRatioCents 必须大于 0' })
-  earnRatioCents?: number;
+  @IsInt({ message: 'earnRatioYuan 必须是整数' })
+  @Min(1, { message: 'earnRatioYuan 必须大于 0' })
+  earnRatioYuan?: number;
 
   @ApiPropertyOptional({
     example: 100,
@@ -199,15 +199,15 @@ export class UpdateMarketingPointsRatioDto {
   redeemRatioPoints?: number;
 
   @ApiPropertyOptional({
-    example: 0.5,
-    description: '单次消费最大积分抵扣比例，0~1 之间',
+    example: 50,
+    description: '单次消费最大积分抵扣百分比，1~100，如 50 表示最多抵扣 50%',
   })
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({}, { message: 'maxRedeemRatio 必须是数字' })
-  @Min(0.01, { message: 'maxRedeemRatio 必须大于等于 0.01' })
-  @Max(1, { message: 'maxRedeemRatio 必须小于等于 1' })
-  maxRedeemRatio?: number;
+  @IsNumber({}, { message: 'maxRedeemPct 必须是数字' })
+  @Min(1, { message: 'maxRedeemPct 必须大于等于 1' })
+  @Max(100, { message: 'maxRedeemPct 必须小于等于 100' })
+  maxRedeemPct?: number;
 
   @ApiPropertyOptional({ example: true, description: '是否启用积分规则' })
   @IsOptional()

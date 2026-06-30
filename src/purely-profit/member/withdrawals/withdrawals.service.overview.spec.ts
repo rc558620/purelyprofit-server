@@ -21,6 +21,7 @@ describe('WithdrawalsService overview and list', () => {
       approvedPartners: [],
       beanBalance: 0,
       totalWithdrawnBeans: 0,
+      pendingBeans: 0,
       pendingCount: 2,
     });
   });
@@ -53,6 +54,7 @@ describe('WithdrawalsService overview and list', () => {
       ],
       beanBalance: 1200,
       totalWithdrawnBeans: 800,
+      pendingBeans: 0,
       pendingCount: 1,
     });
   });

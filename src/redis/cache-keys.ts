@@ -693,3 +693,22 @@ export function buildCostsRecordsPattern(storeId: number): string {
 export function buildCostsAllPattern(): string {
   return 'profit:costs:*:store:*';
 }
+
+export function buildCostsDashboardCacheKey(
+  storeId: number,
+  query: CostsStatsCacheQuery,
+): string {
+  return [
+    'profit:costs:dashboard',
+    `store:${storeId}`,
+    `period:${toCacheSegment(query.period)}`,
+    `typeFilter:${toCacheSegment(query.typeFilter)}`,
+    `customDate:${toCacheSegment(query.customDate)}`,
+    `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
+    `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
+  ].join(':');
+}
+
+export function buildCostsDashboardPattern(storeId: number): string {
+  return `profit:costs:dashboard:store:${storeId}:*`;
+}

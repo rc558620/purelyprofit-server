@@ -227,20 +227,42 @@ export async function fetchBusinessAnalysisMetrics(
   ]);
 
   return {
-    salesSummaryRow: salesSummaryRows[0] ?? {
-      currentRevenue: new Prisma.Decimal(0),
-      currentOrderCount: 0,
-      previousRevenue: new Prisma.Decimal(0),
-      previousOrderCount: 0,
+    salesSummaryRow: {
+      currentRevenue: Number(salesSummaryRows[0]?.currentRevenue ?? 0),
+      currentOrderCount: salesSummaryRows[0]?.currentOrderCount ?? 0,
+      previousRevenue: Number(salesSummaryRows[0]?.previousRevenue ?? 0),
+      previousOrderCount: salesSummaryRows[0]?.previousOrderCount ?? 0,
     },
-    salesDailyRows,
-    salesCategoryRows,
-    salesRankRows,
-    costSummaryRow: costSummaryRows[0] ?? {
-      currentTotalCost: new Prisma.Decimal(0),
-      previousTotalCost: new Prisma.Decimal(0),
+    salesDailyRows: salesDailyRows.map((r) => ({
+      bucketAt: r.bucketAt,
+      revenue: Number(r.revenue ?? 0),
+    })),
+    salesCategoryRows: salesCategoryRows.map((r) => ({
+      categoryName: r.categoryName,
+      revenue: Number(r.revenue ?? 0),
+      profit: Number(r.profit ?? 0),
+      quantity: r.quantity,
+    })),
+    salesRankRows: salesRankRows.map((r) => ({
+      productId: r.productId,
+      productName: r.productName,
+      categoryName: r.categoryName,
+      totalRevenue: Number(r.totalRevenue ?? 0),
+      totalProfit: Number(r.totalProfit ?? 0),
+      quantity: r.quantity,
+      image: r.image,
+    })),
+    costSummaryRow: {
+      currentTotalCost: Number(costSummaryRows[0]?.currentTotalCost ?? 0),
+      previousTotalCost: Number(costSummaryRows[0]?.previousTotalCost ?? 0),
     },
-    costDailyRows,
-    costBucketRows,
+    costDailyRows: costDailyRows.map((r) => ({
+      bucketAt: r.bucketAt,
+      amount: Number(r.amount ?? 0),
+    })),
+    costBucketRows: costBucketRows.map((r) => ({
+      category: r.category,
+      amount: Number(r.amount ?? 0),
+    })),
   };
 }

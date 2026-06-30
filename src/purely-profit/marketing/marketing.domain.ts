@@ -41,7 +41,7 @@ export function buildCustomerWhere(
     const keywordClause: Prisma.MarketingCustomerWhereInput = {
       OR: [
         { name: { contains: input.keyword, mode: 'insensitive' } },
-        { phone: { contains: input.keyword } },
+        { phone: { startsWith: input.keyword } },
       ],
     };
     const existingAnd = Array.isArray(where.AND) ? where.AND : [];
@@ -60,7 +60,7 @@ export function buildCustomerWhere(
   // ── 独立手机号关键字（与 name AND 并列）────────────────────────────
   if (input.phone) {
     const phoneClause: Prisma.MarketingCustomerWhereInput = {
-      phone: { contains: input.phone },
+      phone: { startsWith: input.phone },
     };
     const existingAnd = Array.isArray(where.AND) ? where.AND : [];
     where.AND = [...existingAnd, phoneClause];

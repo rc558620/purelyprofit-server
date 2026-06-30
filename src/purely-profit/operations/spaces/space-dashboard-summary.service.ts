@@ -192,7 +192,7 @@ export class SpaceDashboardSummaryService {
 
     return {
       todaySettled,
-      todayRevenue: Money.fromDbCents(Number(revenueAgg._sum.totalRevenue ?? 0)).toOutputYuan(),
+      todayRevenue: Money.fromDbCents(revenueAgg._sum.totalRevenue ?? 0).toOutputYuan(),
     };
   }
 

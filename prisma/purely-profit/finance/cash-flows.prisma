@@ -47,7 +47,7 @@ model FinanceCashFlowRecord {
   createdAt       DateTime                 @default(now()) @map("created_at")
   updatedAt       DateTime                 @updatedAt @map("updated_at")
 
-  @@index([storeId, date])
+  @@index([storeId, date(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
   @@index([storeId, direction, date])
   @@index([storeId, category, date])
   @@index([operatorStaffId, createdAt])

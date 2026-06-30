@@ -139,6 +139,7 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
         where: {
           id: draft.customerId ?? undefined,
           storeId: draft.storeId,
+          deletedAt: null,
         },
         select: {
           id: true,

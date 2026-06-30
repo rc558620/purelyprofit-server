@@ -110,7 +110,7 @@ const resolveOperatorRole = (
 };
 
 export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
-  const totalRevenue = Money.fromDbCents(Number(item.salePrice)).multiply(item.quantity).toOutputYuan();
+  const totalRevenue = Money.fromDbCents(item.salePrice).multiply(item.quantity).toOutputYuan();
   const paymentMethod = resolveOrderItemPaymentMethod(item);
   return {
     id: String(item.id),

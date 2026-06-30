@@ -334,6 +334,7 @@ describe('SpacesWriteService', () => {
     expect(prismaService.space.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 18,
+        deletedAt: null,
         name: 'A台-V2',
         id: { not: 11 },
       },

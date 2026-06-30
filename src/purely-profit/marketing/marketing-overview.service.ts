@@ -102,13 +102,15 @@ export class MarketingOverviewService {
         storeId,
       );
     if (!resolvedStoreId) {
+      const defaults = cloneDefaultMarketingMemberLevelSettings();
       return {
-        ...cloneDefaultMarketingMemberLevelSettings(),
+        levels: defaults.levels.map((l) => this.toMemberLevelDto(l)),
+        pointsRatio: this.toPointsRatioDto(defaults.pointsRatio),
         pointsFeatureEnabled: false,
       };
     }
 
-    const [settings, pointsFeatureEnabled] = await Promise.all([
+    const [rawSettings, pointsFeatureEnabled] = await Promise.all([
       this.prisma.marketingMemberLevelSetting.findUnique({
         where: { storeId: resolvedStoreId },
         select: {
@@ -119,8 +121,11 @@ export class MarketingOverviewService {
       this.resolvePointsFeatureEnabled(resolvedStoreId),
     ]);
 
+    const settings = this.normalizeMemberLevelSettings(rawSettings);
+
     return {
-      ...this.normalizeMemberLevelSettings(settings),
+      levels: settings.levels.map((l) => this.toMemberLevelDto(l)),
+      pointsRatio: this.toPointsRatioDto(settings.pointsRatio),
       pointsFeatureEnabled,
     };
   }
@@ -147,11 +152,17 @@ export class MarketingOverviewService {
         return level;
       }
 
+      // 后端做 pct→rate 归一化，前端不参与换算
+      const discountRate =
+        dto.discountRatePct !== undefined
+          ? Math.round(dto.discountRatePct) / 100
+          : level.discountRate;
+      const discountRatePct = Math.round(discountRate * 100);
+
       return {
         ...level,
-        ...(dto.discountRate !== undefined
-          ? { discountRate: dto.discountRate }
-          : {}),
+        discountRate,
+        discountRatePct,
         ...(dto.spendThreshold !== undefined && level.id !== 'gold'
           ? { spendThreshold: dto.spendThreshold }
           : {}),
@@ -171,10 +182,12 @@ export class MarketingOverviewService {
 
     await this.upsertMemberLevelSettings(resolvedStoreId, nextSettings);
 
-    return (
+    const updated =
       nextSettings.levels.find((level) => level.id === levelId) ??
-      nextSettings.levels[0]
-    );
+      nextSettings.levels[0];
+
+    // 响应只暴露前端友好字段
+    return this.toMemberLevelDto(updated);
   }
 
   async updatePointsRatio(
@@ -192,19 +205,30 @@ export class MarketingOverviewService {
     });
     const settings = this.normalizeMemberLevelSettings(existing);
 
+    // 后端做 pct→rate、yuan→cents 归一化，前端不参与换算
+    const earnRatioYuan =
+      dto.earnRatioYuan !== undefined
+        ? dto.earnRatioYuan
+        : settings.pointsRatio.earnRatioYuan;
+    const earnRatioCents = earnRatioYuan; // 存储字段：值与 earnRatioYuan 相同（单位均为元）
+
+    const maxRedeemPct =
+      dto.maxRedeemPct !== undefined
+        ? Math.round(dto.maxRedeemPct)
+        : settings.pointsRatio.maxRedeemPct;
+    const maxRedeemRatio = maxRedeemPct / 100;
+
     const nextSettings = {
       ...settings,
       pointsRatio: {
         ...settings.pointsRatio,
-        ...(dto.earnRatioCents !== undefined
-          ? { earnRatioCents: dto.earnRatioCents }
-          : {}),
+        earnRatioCents,
+        earnRatioYuan,
         ...(dto.redeemRatioPoints !== undefined
           ? { redeemRatioPoints: dto.redeemRatioPoints }
           : {}),
-        ...(dto.maxRedeemRatio !== undefined
-          ? { maxRedeemRatio: dto.maxRedeemRatio }
-          : {}),
+        maxRedeemRatio,
+        maxRedeemPct,
         ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
         updatedAt: Date.now(),
       } satisfies MarketingPointsRatioConfigValue,
@@ -212,7 +236,7 @@ export class MarketingOverviewService {
 
     await this.upsertMemberLevelSettings(resolvedStoreId, nextSettings);
 
-    return nextSettings.pointsRatio;
+    return this.toPointsRatioDto(nextSettings.pointsRatio);
   }
 
   async warmOverviewCache(storeId: number): Promise<MarketingOverviewDto> {
@@ -247,10 +271,10 @@ export class MarketingOverviewService {
       activeInviteCodeRecord,
     ] = await Promise.all([
       this.prisma.marketingCustomer.count({
-        where: { storeId, visitCount: { gt: 0 } },
+        where: { storeId, deletedAt: null, visitCount: { gt: 0 } },
       }),
       this.prisma.marketingCustomer.aggregate({
-        where: { storeId },
+        where: { storeId, deletedAt: null },
         _sum: { balance: true },
       }),
       this.prisma.marketingRecharge.aggregate({
@@ -258,7 +282,7 @@ export class MarketingOverviewService {
           storeId,
           type: { in: ['recharge', 'gift'] },
         },
-        _sum: { amount: true, giftAmount: true },
+        _sum: { totalAmount: true },
       }),
       this.prisma.marketingRecharge.aggregate({
         where: {
@@ -266,7 +290,7 @@ export class MarketingOverviewService {
           createdAt: { gte: todayStart },
           type: { in: ['recharge', 'gift'] },
         },
-        _sum: { amount: true, giftAmount: true },
+        _sum: { totalAmount: true },
       }),
       this.prisma.marketingRecharge.aggregate({
         where: {
@@ -274,7 +298,7 @@ export class MarketingOverviewService {
           createdAt: { gte: monthStart },
           type: { in: ['recharge', 'gift'] },
         },
-        _sum: { amount: true, giftAmount: true },
+        _sum: { totalAmount: true },
       }),
       this.prisma.marketingRecharge.count({
         where: { storeId },
@@ -286,16 +310,13 @@ export class MarketingOverviewService {
     ]);
 
     const totalRecharge =
-      Money.fromDbCents(totalRechargeAgg._sum.amount ?? 0)
-        .add(Money.fromDbCents(totalRechargeAgg._sum.giftAmount ?? 0))
+      Money.fromDbCents(totalRechargeAgg._sum.totalAmount ?? 0)
         .toOutputYuan();
     const todayRecharge =
-      Money.fromDbCents(todayRechargeAgg._sum.amount ?? 0)
-        .add(Money.fromDbCents(todayRechargeAgg._sum.giftAmount ?? 0))
+      Money.fromDbCents(todayRechargeAgg._sum.totalAmount ?? 0)
         .toOutputYuan();
     const thisMonthRecharge =
-      Money.fromDbCents(thisMonthRechargeAgg._sum.amount ?? 0)
-        .add(Money.fromDbCents(thisMonthRechargeAgg._sum.giftAmount ?? 0))
+      Money.fromDbCents(thisMonthRechargeAgg._sum.totalAmount ?? 0)
         .toOutputYuan();
     const currentYear = now.getFullYear();
     const inviteCode = activeInviteCodeRecord?.code ?? null;
@@ -416,7 +437,7 @@ export class MarketingOverviewService {
 
   private normalizeMemberLevelSettings(
     settings: MarketingMemberLevelSettingRecord | null,
-  ): Omit<MarketingMemberLevelSettingsDto, 'pointsFeatureEnabled'> {
+  ): MarketingMemberLevelSettingsValue {
     const fallback = getReadOnlyDefaultMarketingMemberLevelSettings();
     if (!settings) {
       return { ...fallback };
@@ -436,6 +457,10 @@ export class MarketingOverviewService {
               ...defaultLevel,
               ...matched,
               id: defaultLevel.id,
+              // 兼容旧数据：若 DB 无 discountRatePct，则从 discountRate 推导
+              discountRatePct:
+                matched.discountRatePct ??
+                Math.round((matched.discountRate ?? defaultLevel.discountRate) * 100),
             }
           : { ...defaultLevel };
       }),
@@ -450,13 +475,20 @@ export class MarketingOverviewService {
     raw: Record<string, unknown> | undefined,
     fallback: MarketingMemberLevelConfigValue,
   ): MarketingMemberLevelConfigValue {
+    const discountRate =
+      typeof raw?.discountRate === 'number'
+        ? raw.discountRate
+        : fallback.discountRate;
+    const discountRatePct =
+      typeof raw?.discountRatePct === 'number'
+        ? raw.discountRatePct
+        : Math.round(discountRate * 100);
+
     return {
       id: fallback.id,
       name: typeof raw?.name === 'string' ? raw.name : fallback.name,
-      discountRate:
-        typeof raw?.discountRate === 'number'
-          ? raw.discountRate
-          : fallback.discountRate,
+      discountRate,
+      discountRatePct,
       spendThreshold:
         typeof raw?.spendThreshold === 'number'
           ? Math.max(0, Math.round(raw.spendThreshold))
@@ -475,14 +507,16 @@ export class MarketingOverviewService {
   private normalizePointsRatio(
     raw: Prisma.JsonValue,
     fallback: MarketingPointsRatioConfigValue,
-  ): MarketingPointsRatioDto {
+  ): MarketingPointsRatioConfigValue {
     // 优先使用 Zod schema 解析
     const parsed = safeParsePointsRatio(raw);
     if (parsed) {
       return {
         earnRatioCents: parsed.earnRatioCents,
+        earnRatioYuan: parsed.earnRatioYuan ?? parsed.earnRatioCents,
         redeemRatioPoints: parsed.redeemRatioPoints,
         maxRedeemRatio: parsed.maxRedeemRatio,
+        maxRedeemPct: parsed.maxRedeemPct ?? Math.round(parsed.maxRedeemRatio * 100),
         enabled: parsed.enabled,
         updatedAt: parsed.updatedAt,
       };
@@ -494,19 +528,24 @@ export class MarketingOverviewService {
         ? raw
         : ({} as Record<string, unknown>);
 
+    const earnRatioCents =
+      typeof normalized.earnRatioCents === 'number'
+        ? Math.max(1, Math.round(normalized.earnRatioCents))
+        : fallback.earnRatioCents;
+    const maxRedeemRatio =
+      typeof normalized.maxRedeemRatio === 'number'
+        ? normalized.maxRedeemRatio
+        : fallback.maxRedeemRatio;
+
     return {
-      earnRatioCents:
-        typeof normalized.earnRatioCents === 'number'
-          ? Math.max(1, Math.round(normalized.earnRatioCents))
-          : fallback.earnRatioCents,
+      earnRatioCents,
+      earnRatioYuan: earnRatioCents, // 单位一致，均为元
       redeemRatioPoints:
         typeof normalized.redeemRatioPoints === 'number'
           ? Math.max(1, Math.round(normalized.redeemRatioPoints))
           : fallback.redeemRatioPoints,
-      maxRedeemRatio:
-        typeof normalized.maxRedeemRatio === 'number'
-          ? normalized.maxRedeemRatio
-          : fallback.maxRedeemRatio,
+      maxRedeemRatio,
+      maxRedeemPct: Math.round(maxRedeemRatio * 100),
       enabled:
         typeof normalized.enabled === 'boolean'
           ? normalized.enabled
@@ -515,6 +554,37 @@ export class MarketingOverviewService {
         typeof normalized.updatedAt === 'number'
           ? normalized.updatedAt
           : fallback.updatedAt,
+    };
+  }
+
+  /** 将内部 level 值转为前端友好 DTO */
+  private toMemberLevelDto(
+    level: MarketingMemberLevelConfigValue,
+  ): MarketingMemberLevelDto {
+    return {
+      id: level.id,
+      name: level.name,
+      discountRatePct: level.discountRatePct,
+      spendThreshold: level.spendThreshold,
+      description: level.description,
+      enabled: level.enabled,
+      updatedAt: level.updatedAt,
+    };
+  }
+
+  /** 将内部 pointsRatio 值转为前端友好 DTO */
+  private toPointsRatioDto(
+    ratio: MarketingPointsRatioConfigValue,
+  ): MarketingPointsRatioDto {
+    return {
+      earnRatioYuan: ratio.earnRatioYuan,
+      redeemRatioPoints: ratio.redeemRatioPoints,
+      maxRedeemPct: ratio.maxRedeemPct,
+      enabled: ratio.enabled,
+      updatedAt: ratio.updatedAt,
+      // 内部存储字段保留，用于 DB 读写兼容
+      earnRatioCents: ratio.earnRatioCents,
+      maxRedeemRatio: ratio.maxRedeemRatio,
     };
   }
 

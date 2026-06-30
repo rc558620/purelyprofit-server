@@ -32,9 +32,10 @@ import {
   queryFinanceReportData,
   queryOverviewCategoryTotals,
   queryOverviewDailyTrend as queryFinanceDailyTrend,
+  queryOverviewMonthlyTrend as queryFinanceMonthlyTrend,
 } from './finance-overview-report.query';
 import type { FinanceReportQueryInput } from './finance.types';
-import { getDayStart } from './finance-date.utils';
+import { getDayStart, getMonthStart } from './finance-date.utils';
 import {
   getFinanceReportRange,
   getOverviewCurrentRange,
@@ -248,7 +249,10 @@ export class FinanceOverviewService {
       return buildEmptyOverviewResponse();
     }
 
-    const [categoryTotals, dailyTrend] = await Promise.all([
+    // year 周期走月聚合查询，其余走日聚合查询，避免前端对浮点金额做 += 累加
+    const isYearPeriod = period === 'year';
+
+    const [categoryTotals, trendData] = await Promise.all([
       queryOverviewCategoryTotals(this.prisma, {
         storeId,
         currentStart: clampedCurrentRange.start,
@@ -258,11 +262,17 @@ export class FinanceOverviewService {
           : clampedPreviousRange.start,
         prevEnd: clampedPreviousRange.empty ? null : clampedPreviousRange.end,
       }),
-      queryFinanceDailyTrend(this.prisma, {
-        storeId,
-        start: clampedCurrentRange.start,
-        end: clampedCurrentRange.end,
-      }),
+      isYearPeriod
+        ? queryFinanceMonthlyTrend(this.prisma, {
+            storeId,
+            start: clampedCurrentRange.start,
+            end: clampedCurrentRange.end,
+          })
+        : queryFinanceDailyTrend(this.prisma, {
+            storeId,
+            start: clampedCurrentRange.start,
+            end: clampedCurrentRange.end,
+          }),
     ]);
 
     // Build period totals from category aggregates
@@ -283,19 +293,21 @@ export class FinanceOverviewService {
       }
     }
 
-    // Build daily maps from aggregated trend
+    // Build trend maps from aggregated data (日聚合用天零点作 key，月聚合用月1号零点作 key)
     const incomeMap = new Map<number, Money>();
     const expenseMap = new Map<number, Money>();
 
-    for (const row of dailyTrend) {
-      const dayStart = getDayStart(row.day);
+    for (const row of trendData) {
+      const periodStart = isYearPeriod
+        ? getMonthStart((row as { month: number }).month)
+        : getDayStart((row as { day: number }).day);
       const income = Money.fromDbCents(row.income);
       const expense = Money.fromDbCents(row.expense);
       if (income.isPositive()) {
-        incomeMap.set(dayStart, income);
+        incomeMap.set(periodStart, income);
       }
       if (expense.isPositive()) {
-        expenseMap.set(dayStart, expense);
+        expenseMap.set(periodStart, expense);
       }
     }
 

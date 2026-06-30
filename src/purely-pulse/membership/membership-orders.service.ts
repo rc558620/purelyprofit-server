@@ -123,7 +123,7 @@ export class PulseMembershipOrdersService {
         select: { availablePoints: true },
       }),
       this.prisma.storePartner.findFirst({
-        where: { storeId: store.id, status: 'approved' },
+        where: { storeId: store.id, deletedAt: null, status: 'approved' },
         select: { beanBalance: true },
       }),
     ]);

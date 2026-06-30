@@ -4,7 +4,7 @@ import {
   SalesPaymentMethod,
   SpaceSessionStatus,
 } from '@prisma/client';
-import { Money } from '../../../shared/money.utils';
+import { Money, calcRatioPercent } from '../../../shared/money.utils';
 import type { HandoverShiftInfoDto } from './dto/handover-page.dto';
 import type {
   HandoverOrderItemDto,
@@ -266,8 +266,8 @@ export const buildGuestPayableItems = (
 
   for (const session of settledSessions) {
     const consumptionCents =
-      Money.fromDbCents(Number(session.timeCost ?? 0))
-        .add(Money.fromDbCents(Number(session.itemsCost)))
+Money.fromDbCents(session.timeCost ?? 0)
+.add(Money.fromDbCents(session.itemsCost))
         .toDbCents();
     const prepaidCents = Number(session.prepaidAmount ?? 0);
     if (consumptionCents <= prepaidCents) continue;
@@ -332,7 +332,7 @@ export const mapPaymentItems = (
   const paymentAmountMap = new Map<SalesPaymentMethod, number>();
 
   for (const item of items) {
-    const rawAmountCents = Money.fromDbCents(Number(item.salePrice)).multiply(item.quantity).toDbCents();
+    const rawAmountCents = Money.fromDbCents(item.salePrice).multiply(item.quantity).toDbCents();
     const amountCents =
       rawAmountCents > 0 ||
       item.productName === SPACE_PREPAID_DEDUCTION_ITEM_NAME ||
@@ -361,24 +361,27 @@ export const mapPaymentItems = (
   }));
 };
 
+/**
+ * 为每个收款项附加占比（ratio），消费统一封装的 calcRatioPercent。
+ * ratio 语义：0-100 整数百分比，前端直接展示，无需任何转换。
+ * totalYuan 应为收款金额合计（元），而非营业额。
+ */
 export const attachPaymentRatios = (
   items: HandoverPaymentItemDto[],
-  totalRevenueYuan: number,
+  totalYuan: number,
 ): HandoverPaymentItemDto[] =>
   items.map((item) => ({
     ...item,
-    ratio: totalRevenueYuan > 0
-      ? Math.round((item.amount / totalRevenueYuan) * 100) / 100
-      : 0,
+    ratio: calcRatioPercent(item.amount, totalYuan, 0),
   }));
 
 export const sumPaymentAmounts = (items: HandoverPaymentItemDto[]): number =>
-  items.reduce((acc, item) => acc + item.amount, 0);
+  Money.sum(items.map((item) => Money.fromInputYuan(item.amount))).toOutputYuan();
 
 export const buildRevenueAmounts = (
-  spaceRevenue: Prisma.Decimal | number | string | null | undefined,
-  additionalRevenue: Prisma.Decimal | number | string | null | undefined,
-  refundRevenue: Prisma.Decimal | number | string | null | undefined,
+  spaceRevenue: Prisma.Decimal | number | null | undefined,
+  additionalRevenue: Prisma.Decimal | number | null | undefined,
+  refundRevenue: Prisma.Decimal | number | null | undefined,
 ): {
   additionalRevenueAmount: number;
   spaceRevenueAmount: number;
@@ -401,7 +404,9 @@ export const buildRecordRevenueSummary = (
     additionalRevenue: revenueAmounts.additionalRevenueAmount,
     spaceRevenue: revenueAmounts.spaceRevenueAmount,
     refundAmount: revenueAmounts.refundAmount,
-    totalRevenue: revenueAmounts.additionalRevenueAmount + revenueAmounts.spaceRevenueAmount,
+    totalRevenue: Money.fromInputYuan(revenueAmounts.additionalRevenueAmount)
+      .add(Money.fromInputYuan(revenueAmounts.spaceRevenueAmount))
+      .toOutputYuan(),
     orderCount,
     pettyCache: pettyCashAmount,
   };

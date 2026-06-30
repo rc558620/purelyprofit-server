@@ -1,3 +1,4 @@
+import { PROMO_BEAN_REWARDS_BY_LEVEL } from './platform-membership.constants';
 import type {
   PlatformMembershipCenterResponseDto,
   PlatformMembershipPartnerLevelDto,
@@ -120,6 +121,7 @@ export function buildPartnerLevel(
       partnerLevel: null,
       monthChargedCount,
       monthCountToNextLevel: null,
+      currentLevelRewards: PROMO_BEAN_REWARDS_BY_LEVEL.star,
     };
   }
 
@@ -134,6 +136,7 @@ export function buildPartnerLevel(
         : partnerLevel === 'elite'
           ? Math.max(0, 30 - monthChargedCount)
           : Math.max(0, 10 - monthChargedCount),
+    currentLevelRewards: PROMO_BEAN_REWARDS_BY_LEVEL[partnerLevel],
   };
 }
 

@@ -78,7 +78,7 @@ export async function findStorePartners(
   storeId: number,
 ): Promise<StorePartnerRecord[]> {
   return prismaExecutor.storePartner.findMany({
-    where: { storeId, status: 'approved' },
+    where: { storeId, deletedAt: null, status: 'approved' },
     select: storePartnerSelect,
     orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
   });
@@ -92,6 +92,7 @@ export async function findStorePartnerByApplicant(
   return prismaExecutor.storePartner.findFirst({
     where: {
       storeId,
+      deletedAt: null,
       OR: [{ idCard: applicant.idCard }, { phone: applicant.phone }],
     },
     select: storePartnerSelect,

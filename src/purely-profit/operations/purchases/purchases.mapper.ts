@@ -2,14 +2,16 @@ import {
   buildPaginationMeta,
   toTimestampMs,
 } from '../../commerce/commerce.utils';
-import { Money } from '../../../shared/money.utils';
+import { Money, type MoneyDbCentsInput } from '../../../shared/money.utils';
 import type {
   PaginatedPurchasesResponseDto,
   PurchaseItemResponseDto,
+  PurchasePreviewItemResponseDto,
+  PurchasePreviewResponseDto,
   PurchaseResponseDto,
   PurchaseStatsResponseDto,
 } from './dto/purchase.dto';
-import { calculatePurchaseCompareLastMonth } from './purchases.domain';
+import { calculatePurchaseCompareLastPeriod } from './purchases.domain';
 import type {
   PurchaseOrderItemWithAmounts,
   PurchaseOrderWithItems,
@@ -49,8 +51,8 @@ export function buildEmptyPurchaseStatsResponse(): PurchaseStatsResponseDto {
 export function buildPurchaseStatsResponse(params: {
   supplierCount: number;
   currentCount: number;
-  currentTotalAmount: number | null;
-  previousTotalAmount: number | null;
+  currentTotalAmount: MoneyDbCentsInput | null;
+  previousTotalAmount: MoneyDbCentsInput | null;
   hasPreviousRange: boolean;
 }): PurchaseStatsResponseDto {
   const currentTotal = Money.fromDbCents(params.currentTotalAmount ?? 0).toOutputYuan();
@@ -60,7 +62,7 @@ export function buildPurchaseStatsResponse(params: {
     totalAmount: currentTotal,
     orderCount: params.currentCount,
     supplierCount: params.supplierCount,
-    compareLastPeriod: calculatePurchaseCompareLastMonth(
+    compareLastPeriod: calculatePurchaseCompareLastPeriod(
       currentTotal,
       previousTotal,
       params.hasPreviousRange,
@@ -94,5 +96,31 @@ function mapPurchaseItemResponse(
     quantity: item.quantity,
     unitPrice: Money.fromDbCents(item.unitPrice).toOutputYuan(),
     amount: Money.fromDbCents(item.amount).toOutputYuan(),
+  };
+}
+
+export function mapPreviewPurchaseResponse(params: {
+  items: Array<{
+    productId: number | null;
+    productName: string;
+    unit: string | null;
+    quantity: number;
+    unitPrice: number;
+    amount: number;
+  }>;
+  totalAmount: number;
+}): PurchasePreviewResponseDto {
+  return {
+    items: params.items.map(
+      (item): PurchasePreviewItemResponseDto => ({
+        ...(item.productId ? { productId: String(item.productId) } : {}),
+        productName: item.productName,
+        ...(item.unit ? { unit: item.unit } : {}),
+        quantity: item.quantity,
+        unitPrice: Money.fromDbCents(item.unitPrice).toOutputYuan(),
+        amount: Money.fromDbCents(item.amount).toOutputYuan(),
+      }),
+    ),
+    totalAmount: Money.fromDbCents(params.totalAmount).toOutputYuan(),
   };
 }

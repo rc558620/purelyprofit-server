@@ -39,8 +39,8 @@ export const buildSpaceSessionSettlement = (params: {
     session.billingMode !== PrismaSpaceBillingMode.items &&
     session.hourlyRate !== null
   ) {
-    // session.hourlyRate 是 DB 中的分（Int），需转为元
-    const hourlyRateYuan = Money.fromDbCents(Number(session.hourlyRate)).toOutputYuan();
+  // session.hourlyRate 是 DB 中的分（Int），需转为元
+  const hourlyRateYuan = Money.fromDbCents(session.hourlyRate).toOutputYuan();
     const useUnitPrice = timeFeeMode === 'unit_price';
     timeCost = useUnitPrice
       ? hourlyRateYuan
@@ -181,7 +181,7 @@ const resolveSpaceSessionPrepaidDeduction = (
   }
 
   // session.prepaidAmount 是 DB 中的分（Int），需转为元
-  const prepaidAmountYuan = Money.fromDbCents(Number(session.prepaidAmount)).toOutputYuan();
+  const prepaidAmountYuan = Money.fromDbCents(session.prepaidAmount).toOutputYuan();
   return prepaidAmountYuan > 0 ? prepaidAmountYuan : 0;
 };
 

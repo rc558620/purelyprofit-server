@@ -85,7 +85,7 @@ export class PermissionsGuard implements CanActivate {
     }
 
     const store = await this.prisma.store.findFirst({
-      where: { ownerId: userId },
+      where: { ownerId: userId, deletedAt: null },
       select: { id: true },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });

@@ -55,23 +55,53 @@ export function buildReconciliationStats(
   };
 }
 
-export function normalizeCreateReconciliationStatus(
-  requestedStatus: string | undefined,
-  actualIncome: Money,
-  actualExpense: Money,
-  diffAmount: Money,
-): FinanceReconciliationStatus {
-  if (
-    requestedStatus === 'draft' &&
-    actualIncome.isZero() &&
-    actualExpense.isZero()
-  ) {
-    return FinanceReconciliationStatus.draft;
+/**
+ * 统一派生对账单金额与状态：后端是唯一真相源，前端不再传 status。
+ *
+ * 规则：
+ * - actualIncome / actualExpense 均为 null → draft
+ * - 任一实际金额有值 → 进入核算，空的一侧按 0 算
+ * - diffAmount === 0 → confirmed
+ * - diffAmount !== 0 → discrepancy
+ */
+export function deriveReconciliationAmountsAndStatus(
+  bookIncome: Money,
+  bookExpense: Money,
+  actualIncome: Money | null,
+  actualExpense: Money | null,
+): {
+  bookNet: Money;
+  actualNet: Money;
+  diffAmount: Money;
+  status: FinanceReconciliationStatus;
+} {
+  const bookNet = bookIncome.subtract(bookExpense);
+
+  // 两个实际金额都未录入 → 草稿
+  const isDraft = actualIncome === null && actualExpense === null;
+  if (isDraft) {
+    return {
+      bookNet,
+      actualNet: Money.zero(),
+      diffAmount: bookNet.negate(),
+      status: FinanceReconciliationStatus.draft,
+    };
   }
 
-  return diffAmount.isZero()
-    ? FinanceReconciliationStatus.confirmed
-    : FinanceReconciliationStatus.discrepancy;
+  // 至少录入了一侧，空的一侧按 0
+  const resolvedActualIncome = actualIncome ?? Money.zero();
+  const resolvedActualExpense = actualExpense ?? Money.zero();
+  const actualNet = resolvedActualIncome.subtract(resolvedActualExpense);
+  const diffAmount = actualNet.subtract(bookNet);
+
+  return {
+    bookNet,
+    actualNet,
+    diffAmount,
+    status: diffAmount.isZero()
+      ? FinanceReconciliationStatus.confirmed
+      : FinanceReconciliationStatus.discrepancy,
+  };
 }
 
 export function buildReconciliationItemCreateInput(

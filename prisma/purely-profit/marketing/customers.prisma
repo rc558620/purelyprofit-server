@@ -77,10 +77,10 @@ model MarketingCustomer {
   // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL
   @@index([storeId, phone])
   @@index([storeId, externalIdentifier])
-  @@index([storeId, updatedAt])
+  @@index([storeId, updatedAt(sort: Desc), id(sort: Desc)])
   @@index([storeId, tier, updatedAt])
   @@index([storeId, lastVisitAt])
-  @@index([memberId]) // 外键索引
+  // memberId 外键索引：由 @@unique([memberId]) 隐式创建，无需重复声明
   @@map("marketing_customers")
 }
 
@@ -97,6 +97,8 @@ model MarketingRecharge {
   amount      Int
   /// 赠送金额（分）
   giftAmount  Int                   @default(0) @map("gift_amount")
+  /// 到账总额（分）= amount + giftAmount，写入时由后端计算
+  totalAmount Int                   @default(0) @map("total_amount")
   /// 类型：recharge=储值 gift=赠送 refund=退款
   type        MarketingRechargeType @default(recharge)
   /// 关联活动 ID（字符串，对应 MarketingPromotion.id）

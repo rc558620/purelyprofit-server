@@ -45,8 +45,8 @@ export async function aggregateOrderStats(
   `;
 
   return {
-    totalRevenue: Money.fromDbCents(result[0]?.revenue ?? 0).toOutputYuan(),
-    totalProfit: Money.fromDbCents(result[0]?.profit ?? 0).toOutputYuan(),
+    totalRevenue: Money.fromDbCents(Number(result[0]?.revenue ?? 0)).toOutputYuan(),
+    totalProfit: Money.fromDbCents(Number(result[0]?.profit ?? 0)).toOutputYuan(),
     orderCount: Number(result[0]?.order_count ?? 0),
   };
 }

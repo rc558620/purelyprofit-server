@@ -20,7 +20,7 @@ export async function queryOverviewDailyTrend(
   const rows = await prisma.$queryRaw<DailyTrendRow[]>`
     SELECT
       DATE_TRUNC('day', created_at)::date AS "date",
-      ROUND(SUM(amount + gift_amount), 2) AS "total"
+      ROUND(SUM(total_amount), 2) AS "total"
     FROM marketing_recharges
     WHERE store_id = ${storeId}
       AND type IN ('recharge', 'gift')
@@ -31,7 +31,7 @@ export async function queryOverviewDailyTrend(
 
   return rows.map((r) => ({
     date: r.date,
-    amount: Money.fromDbCents(r.total).toOutputYuan(),
+    amount: Money.fromDbCents(r.total ?? 0).toOutputYuan(),
   }));
 }
 
@@ -44,7 +44,7 @@ export async function queryOverviewMonthlyTrend(
     SELECT
       EXTRACT(YEAR FROM created_at)::int AS "year",
       EXTRACT(MONTH FROM created_at)::int AS "month",
-      ROUND(SUM(amount + gift_amount), 2) AS "total"
+      ROUND(SUM(total_amount), 2) AS "total"
     FROM marketing_recharges
     WHERE store_id = ${storeId}
       AND created_at >= ${previousYearStart}
@@ -56,6 +56,6 @@ export async function queryOverviewMonthlyTrend(
   return rows.map((r) => ({
     year: r.year,
     month: r.month,
-    amount: Money.fromDbCents(r.total).toOutputYuan(),
+    amount: Money.fromDbCents(r.total ?? 0).toOutputYuan(),
   }));
 }

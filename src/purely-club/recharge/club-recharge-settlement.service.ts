@@ -22,6 +22,7 @@ import {
   CLUB_RECHARGE_CONFIRM_NOT_ALLOWED_MESSAGE,
 } from './club-recharge.constants';
 import Decimal from 'decimal.js';
+import { Money } from '../../shared/money.utils';
 
 @Injectable()
 export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate<
@@ -81,6 +82,7 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
       where: {
         id: draft.customerId ?? undefined,
         storeId: draft.storeId,
+        deletedAt: null,
       },
       select: { id: true, totalSpent: true },
     });
@@ -111,6 +113,9 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
         customerId,
         amount: draft.metadata.rechargeAmountFen,
         giftAmount: Math.max(0, draft.metadata.bonusAmountFen),
+        totalAmount: Money.fromDbCents(draft.metadata.rechargeAmountFen)
+          .add(Money.fromDbCents(Math.max(0, draft.metadata.bonusAmountFen)))
+          .toDbCents(),
         type: 'recharge',
         promotionId: draft.metadata.promotionId,
         note: `club充值订单 ${draft.orderNo}`,

@@ -38,6 +38,7 @@ export class PlatformMembershipLedgerService {
           select: {
             id: true,
             source: true,
+            changeType: true,
             changeAmount: true,
             description: true,
             expireAt: true,

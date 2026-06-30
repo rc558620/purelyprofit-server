@@ -150,8 +150,8 @@ describe('ClubPromotionsService', () => {
           actionTarget: 'club_recharge_packages',
           params: {
             gradients: [
-              { rechargeAmount: 10000, giftAmount: 1000 },
-              { rechargeAmount: 30000, giftAmount: 5000 },
+              { rechargeAmount: 100, giftAmount: 10 },
+              { rechargeAmount: 300, giftAmount: 50 },
             ],
           },
         }),
@@ -166,7 +166,7 @@ describe('ClubPromotionsService', () => {
           actionText: '去使用',
           actionType: 'view_products',
           actionTarget: 'club_products',
-          params: { threshold: 10000, reduceAmount: 2000 },
+          params: { threshold: 100, reduceAmount: 20 },
         }),
         expect.objectContaining({
           id: '5',

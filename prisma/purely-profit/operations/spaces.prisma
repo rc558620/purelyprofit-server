@@ -104,8 +104,7 @@ model SpaceReservation {
   updatedAt     DateTime               @updatedAt @map("updated_at")
 
   @@index([spaceId, status, reservedAt])
-  @@index([storeId, status, reservedAt])
-  @@index([storeId, createdAt])
+  @@index([storeId, status, reservedAt, createdAt, id])
   @@map("space_reservations")
 }
 
@@ -152,8 +151,9 @@ model SpaceSession {
   updatedAt                    DateTime            @updatedAt @map("updated_at")
 
   @@index([spaceId, status, startTime])
-  @@index([storeId, status, startTime])
-  @@index([storeId, endTime])
+  @@index([storeId, status, startTime(sort: Desc), id(sort: Desc)])
+  @@index([storeId, status, endTime(sort: Desc), id(sort: Desc)])
+  @@index([storeId, guestPhone])
   @@index([status, startTime])
   /// 自动结账定时任务查询：WHERE status = 'active' AND auto_checkout = true AND billing_mode = 'countdown' AND end_time <= NOW()
   @@index([status, autoCheckout, billingMode, endTime])

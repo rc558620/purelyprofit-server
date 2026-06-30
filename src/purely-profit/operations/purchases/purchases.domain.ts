@@ -9,7 +9,10 @@ import {
   buildPurchaseDateRange,
   toOptionalText,
 } from '../../commerce/commerce.utils';
-import { Money } from '../../../shared/money.utils';
+import {
+  Money,
+  calcPercentChangeWithFallback,
+} from '../../../shared/money.utils';
 import type {
   PreparedPurchaseItem,
   PurchaseCreateItemInput,
@@ -117,26 +120,37 @@ export function preparePurchaseItems(
 export function sumPreparedPurchaseAmount(
   items: PreparedPurchaseItem[],
 ): number {
-  // items.amount 已经是分（Int），直接整数求和
-  return items.reduce((sum, item) => sum + item.amount, 0);
+  // items.amount 已经是分（Int），统一走 Money.sum 语义
+  return Money.sum(items.map((item) => Money.fromDbCents(item.amount)))
+    .toDbCents();
+}
+
+export function previewPurchaseAmounts(
+  items: PurchaseCreateItemInput[],
+  productMap: Map<number, PurchaseProductRecord>,
+): { items: PreparedPurchaseItem[]; totalAmount: number } {
+  const preparedItems = preparePurchaseItems(items, productMap);
+  const totalAmount = sumPreparedPurchaseAmount(preparedItems);
+  return { items: preparedItems, totalAmount };
 }
 
 export function buildPurchaseCostTitle(supplierName?: string | null): string {
   return supplierName ? `${supplierName}进货成本` : '进货成本';
 }
 
-export function calculatePurchaseCompareLastMonth(
+export function calculatePurchaseCompareLastPeriod(
   currentTotal: number,
   previousTotal: number,
   hasPreviousRange: boolean,
 ): number | null {
-  if (!hasPreviousRange || previousTotal <= 0) {
+  if (!hasPreviousRange) {
     return null;
   }
 
-  return Number(
-    (((currentTotal - previousTotal) / previousTotal) * 100).toFixed(2),
-  );
+  return calcPercentChangeWithFallback(currentTotal, previousTotal, {
+    fallback: null,
+    precision: 1,
+  });
 }
 
 function preparePurchaseItem(

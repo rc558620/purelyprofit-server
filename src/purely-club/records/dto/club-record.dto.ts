@@ -98,6 +98,20 @@ export class ClubRecordDto {
   storeName?: string;
 }
 
+export class ClubRecordSummaryDto {
+  @ApiProperty({
+    example: 1580,
+    description: '充值总额（含赠送），单位元',
+  })
+  totalRechargeAmount: number;
+
+  @ApiProperty({
+    example: 930,
+    description: '消费总额，单位元',
+  })
+  totalConsumeAmount: number;
+}
+
 export class ClubRecordsResponseDto {
   @ApiProperty({ type: [ClubRecordDto], description: '统一流水列表' })
   items: ClubRecordDto[];
@@ -118,4 +132,10 @@ export class ClubRecordsResponseDto {
     nullable: true,
   })
   nextCursorId: string | null;
+
+  @ApiProperty({
+    description: '流水汇总统计',
+    type: ClubRecordSummaryDto,
+  })
+  summary: ClubRecordSummaryDto;
 }

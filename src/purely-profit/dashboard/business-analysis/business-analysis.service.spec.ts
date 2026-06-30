@@ -188,6 +188,7 @@ describe('BusinessAnalysisService', () => {
         revenue: { current: 22, previous: 8, changeRate: 175 },
         totalCost: { current: 11, previous: 4, changeRate: 175 },
         profitRate: { current: 50, previous: 50, changeRate: 0 },
+        costRate: { current: 50, previous: 50, changeRate: 0 },
         orderCount: 2,
       },
       dailyTrend: [
@@ -446,6 +447,7 @@ describe('BusinessAnalysisService', () => {
     });
 
     expect(response.heroSummary.totalCost.current).toBe(500);
+    expect(response.heroSummary.costRate.current).toBe(1.77);
     expect(response.dailyTrend).toEqual([
       { dateLabel: '05/27', revenue: 28293.34, cost: 500, profit: 27793.34 },
     ]);

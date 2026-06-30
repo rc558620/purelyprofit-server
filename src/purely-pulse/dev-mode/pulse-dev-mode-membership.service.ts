@@ -76,8 +76,9 @@ export class PulseDevModeMembershipService {
       overview: {
         beanBalance: 0,
         totalEarnedBeans: 0,
-        totalWithdrawnBeans: 0,
-      },
+  totalWithdrawnBeans: 0,
+  pendingBeans: 0,
+},
       items: [],
     };
   }
@@ -100,6 +101,7 @@ export class PulseDevModeMembershipService {
         partnerLevel: null,
         monthChargedCount: 0,
         monthCountToNextLevel: null,
+        currentLevelRewards: { monthly: 0, quarterly: 0, yearly: 0 },
       },
       stats: emptyStats,
       statsByPeriod: {
@@ -123,6 +125,7 @@ export class PulseDevModeMembershipService {
         partnerLevel: null,
         monthChargedCount: 0,
         monthCountToNextLevel: null,
+        currentLevelRewards: { monthly: 0, quarterly: 0, yearly: 0 },
       },
     };
   }

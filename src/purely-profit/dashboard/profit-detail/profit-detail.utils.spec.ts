@@ -13,6 +13,7 @@ import {
   buildEmptyProfitDetailResponse,
   buildEmptyProfitReportResponse,
   buildEmptySummary,
+  buildMonthlyProfits,
   buildProductRanking,
   buildProfitDetailResponse,
   buildProfitReportResponse,
@@ -39,7 +40,6 @@ import {
   buildPreviousRange,
   buildQueryInput,
   resolveProfitQueryRange,
-  subtractMoney,
 } from './profit-detail.utils';
 
 describe('profit-detail.utils', () => {
@@ -524,7 +524,46 @@ describe('profit-detail.utils', () => {
       { dateLabel: '05/12', revenue: 13, cost: 8, profit: 5 },
       { dateLabel: '05/13', revenue: 9, cost: 3, profit: 6 },
     ]);
-    expect(subtractMoney(12.55, 1.23)).toBe(11.32);
+  });
+
+  it('buildMonthlyProfits 会按月聚合全年趋势，profit 由 Money.subtract() 计算', () => {
+    const may1 = new Date(2025, 0, 15, 10, 0, 0, 0).getTime();
+    const may2 = new Date(2025, 1, 20, 10, 0, 0, 0).getTime();
+    const may3 = new Date(2025, 0, 25, 10, 0, 0, 0).getTime();
+    const may4 = new Date(2025, 5, 10, 10, 0, 0, 0).getTime();
+    const dailyRevenueMap = new Map<number, Money>([
+      [may1, Money.fromDbCents(2000)],
+      [may3, Money.fromDbCents(3000)],
+      [may2, Money.fromDbCents(5000)],
+      [may4, Money.fromDbCents(4000)],
+    ]);
+    const dailyCostMap = new Map<number, Money>([
+      [may1, Money.fromDbCents(800)],
+      [may3, Money.fromDbCents(1200)],
+      [may2, Money.fromDbCents(2000)],
+      [may4, Money.fromDbCents(600)],
+    ]);
+    const result = buildMonthlyProfits(
+      {
+        start: new Date(2025, 0, 1, 0, 0, 0, 0).getTime(),
+        end: new Date(2025, 11, 31, 23, 59, 59, 999).getTime(),
+      },
+      dailyRevenueMap,
+      dailyCostMap,
+    );
+    expect(result).toHaveLength(12);
+    // 1月: revenue 50, cost 20, profit 30
+    expect(result[0]).toEqual({ dateLabel: '1月', revenue: 50, cost: 20, profit: 30 });
+    // 2月: revenue 50, cost 20, profit 30
+    expect(result[1]).toEqual({ dateLabel: '2月', revenue: 50, cost: 20, profit: 30 });
+    // 3-5月: 无数据
+    expect(result[2]).toEqual({ dateLabel: '3月', revenue: 0, cost: 0, profit: 0 });
+    expect(result[3]).toEqual({ dateLabel: '4月', revenue: 0, cost: 0, profit: 0 });
+    expect(result[4]).toEqual({ dateLabel: '5月', revenue: 0, cost: 0, profit: 0 });
+    // 6月: revenue 40, cost 6, profit 34
+    expect(result[5]).toEqual({ dateLabel: '6月', revenue: 40, cost: 6, profit: 34 });
+    // 7-12月: 无数据
+    expect(result[6]).toEqual({ dateLabel: '7月', revenue: 0, cost: 0, profit: 0 });
   });
 
   it('排行与成本分解 helper 会按利润和金额倒序输出', () => {

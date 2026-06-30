@@ -13,11 +13,12 @@ import {
   allocateBeansAcrossPartners,
   buildOrdersOverview,
   calcMemberPlanPayment,
+  calcPreviewResult,
   generateWechatOrderId,
   mapOrder,
 } from './platform-membership-ledger.domain';
-import { PurchasePlatformMembershipOrderDto } from './dto/platform-membership-query.dto';
-import { PurchasePlatformMembershipOrderResponseDto } from './dto/platform-membership-response.dto';
+import { PreviewPlatformMembershipOrderDto, PurchasePlatformMembershipOrderDto } from './dto/platform-membership-query.dto';
+import { PreviewPlatformMembershipOrderResponseDto, PurchasePlatformMembershipOrderResponseDto } from './dto/platform-membership-response.dto';
 import {
   ensureMembershipProfile,
   ensurePlatformMembershipStoreOwner,
@@ -31,6 +32,46 @@ export class PlatformMembershipOrderService {
     private readonly prisma: PrismaService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
+
+  async previewOrder(
+    userId: number,
+    storeId: number,
+    dto: PreviewPlatformMembershipOrderDto,
+  ): Promise<PreviewPlatformMembershipOrderResponseDto> {
+    await ensurePlatformMembershipStoreOwner(this.prisma, userId, storeId);
+
+    const requestedPoints = dto.usePoints ?? 0;
+    const requestedBeans = dto.useBeans ?? 0;
+
+    const plan = await requirePlan(this.prisma, dto.planId);
+    const profile = await ensureMembershipProfile(this.prisma, storeId);
+    const partners = await findStorePartners(this.prisma, storeId);
+    const availableBeans = partners.reduce(
+      (sum, partner) => sum + partner.beanBalance,
+      0,
+    );
+
+    const preview = calcPreviewResult({
+      planPrice: plan.price,
+      requestedPoints,
+      availablePoints: profile.availablePoints,
+      requestedBeans,
+      availableBeans,
+    });
+
+    return {
+      planPrice: plan.price,
+      beanDeductAmount: preview.beanDeductAmount,
+      actualBeansUsed: preview.actualBeansUsed,
+      pointsDeductAmount: preview.pointsDeductAmount,
+      actualPointsUsed: preview.actualPointsUsed,
+      finalAmount: preview.finalAmount,
+      maxBeanDeductAmount: preview.maxBeanDeductAmount,
+      maxPointsDeductAmount: preview.maxPointsDeductAmount,
+      canUsePoints: preview.canUsePoints,
+      canUseBeans: preview.canUseBeans,
+    };
+  }
 
   async purchaseOrder(
     userId: number,
@@ -174,7 +215,8 @@ export class PlatformMembershipOrderService {
             storeId,
             profileId: profile.id,
             source: 'deduct_payment',
-            changeAmount: -payment.actualPointsUsed,
+            changeType: 'decrease',
+            changeAmount: payment.actualPointsUsed,
             description: `订阅${plan.name}抵扣`,
           },
         });
@@ -186,6 +228,7 @@ export class PlatformMembershipOrderService {
             storeId,
             profileId: profile.id,
             source: 'purchase_bonus',
+            changeType: 'increase',
             changeAmount: bonusPoints,
             description: `购买${plan.name}赠积分`,
           },
@@ -198,7 +241,7 @@ export class PlatformMembershipOrderService {
           profileId: profile.id,
           planId: plan.id,
           planName: plan.name,
-          originalAmount: Money.fromInputYuan(plan.price).toDbCents(),
+          originalAmount: Money.fromDbCents(plan.price).toDbCents(),
           pointsUsed: payment.actualPointsUsed,
           beansUsed: payment.actualBeansUsed,
           amount: payment.finalAmount,

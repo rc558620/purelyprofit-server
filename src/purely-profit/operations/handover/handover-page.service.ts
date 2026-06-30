@@ -206,8 +206,8 @@ export class HandoverPageService {
       orderItems,
       refundOrders,
       additionalRevenueAmount: dbCentsToOutputYuan(additionalRevenue._sum.totalRevenue),
-      spaceRevenueAmount: Money.fromDbCents(Number(spaceRevenue._sum.timeCost ?? 0))
-        .add(Money.fromDbCents(Number(spaceRevenue._sum.itemsCost ?? 0)))
+      spaceRevenueAmount: Money.fromDbCents(spaceRevenue._sum.timeCost ?? 0)
+        .add(Money.fromDbCents(spaceRevenue._sum.itemsCost ?? 0))
         .toOutputYuan(),
       refundAmount: Math.abs(dbCentsToOutputYuan(refundRevenue._sum.totalRevenue)),
       pettyCashAmount: dbCentsToOutputYuan(pettyCash._sum.amount),
@@ -373,8 +373,9 @@ export class HandoverPageService {
     // 营业收入 = additionalRevenue（仅非空间订单，不含负数）
     // 空间管理 = spaceRevenue（空间会话消费金额 = itemsCost + timeCost）
     // 本班营业额 = 营业收入 + 空间管理
-    const totalRevenue =
-      metrics.additionalRevenueAmount + metrics.spaceRevenueAmount;
+    const totalRevenue = Money.fromInputYuan(metrics.additionalRevenueAmount)
+      .add(Money.fromInputYuan(metrics.spaceRevenueAmount))
+      .toOutputYuan();
 
     // 当所有班次已交接完成且无后续排班时，
     // 清空操作员名字并移除头像，前端回退到用户注册时的默认头像。

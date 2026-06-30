@@ -66,6 +66,7 @@ describe('inventory-stock.query', () => {
       where: {
         id: 101,
         storeId: 18,
+        deletedAt: null,
       },
       select: {
         id: true,

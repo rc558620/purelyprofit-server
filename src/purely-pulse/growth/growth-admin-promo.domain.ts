@@ -1,5 +1,6 @@
 import type { AdminPromoPartnerRecord } from './growth-admin.query';
 import { formatDateTime, parseDateOnly } from './growth-admin.shared';
+import { Money } from '../../shared/money.utils';
 
 export interface PulseAdminPromoDetailResponse {
   regions: Array<{
@@ -144,10 +145,9 @@ function mapAdminPromoPartner(
   const province = partner.region[0] ?? '';
   const city = (partner.region[1] ?? province) || '未知';
   const district = partner.region[2] ?? undefined;
-  const revenue = metrics.reduce(
-    (sum, record) => sum + record.chargedAmount,
-    0,
-  );
+  const revenue = Money.sum(
+    metrics.map((record) => Money.fromDbCents(record.chargedAmount)),
+  ).toDbCents();
 
   return {
     id: String(partner.storeId),
@@ -178,7 +178,9 @@ function buildPromoRegions(
     if (existing) {
       existing.partnerCount += 1;
       existing.totalOrders += partner.orders;
-      existing.totalRevenue += partner.revenue;
+      existing.totalRevenue = Money.fromDbCents(existing.totalRevenue)
+        .add(Money.fromDbCents(partner.revenue))
+        .toDbCents();
       existing.growth = Math.max(existing.growth, partner.growth);
       return;
     }
@@ -188,7 +190,7 @@ function buildPromoRegions(
       city: undefined,
       partnerCount: 1,
       totalOrders: partner.orders,
-      totalRevenue: partner.revenue,
+      totalRevenue: Money.fromDbCents(partner.revenue).toDbCents(),
       growth: partner.growth,
     });
   });
@@ -264,14 +266,16 @@ function buildPromoSeries(
     const current = bucketMap.get(label);
     if (current) {
       current.orders += 1;
-      current.revenue += metric.chargedAmount;
+      current.revenue = Money.fromDbCents(current.revenue)
+        .add(Money.fromDbCents(metric.chargedAmount))
+        .toDbCents();
       return;
     }
 
     bucketMap.set(label, {
       label,
       orders: 1,
-      revenue: metric.chargedAmount,
+      revenue: Money.fromDbCents(metric.chargedAmount).toDbCents(),
     });
   });
 

@@ -40,9 +40,9 @@ describe('MarketingService overview', () => {
       _sum: { balance: 88000 },
     });
     context.prismaService.marketingRecharge.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: 100000, giftAmount: 10000 } })
-      .mockResolvedValueOnce({ _sum: { amount: 20000, giftAmount: 3000 } })
-      .mockResolvedValueOnce({ _sum: { amount: 50000, giftAmount: 5000 } });
+      .mockResolvedValueOnce({ _sum: { totalAmount: 110000 } })
+      .mockResolvedValueOnce({ _sum: { totalAmount: 23000 } })
+      .mockResolvedValueOnce({ _sum: { totalAmount: 55000 } });
     context.prismaService.marketingRecharge.count.mockResolvedValue(7);
     context.prismaService.$queryRaw
       .mockResolvedValueOnce([
@@ -161,9 +161,9 @@ describe('MarketingService overview', () => {
       _sum: { balance: 0 },
     });
     context.prismaService.marketingRecharge.aggregate
-      .mockResolvedValueOnce({ _sum: { amount: 0, giftAmount: 0 } })
-      .mockResolvedValueOnce({ _sum: { amount: 0, giftAmount: 0 } })
-      .mockResolvedValueOnce({ _sum: { amount: 0, giftAmount: 0 } });
+      .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
+      .mockResolvedValueOnce({ _sum: { totalAmount: 0 } })
+      .mockResolvedValueOnce({ _sum: { totalAmount: 0 } });
     context.prismaService.marketingRecharge.count.mockResolvedValue(0);
     context.prismaService.$queryRaw
       .mockResolvedValueOnce([])

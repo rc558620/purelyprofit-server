@@ -151,7 +151,3 @@ export async function buildClampedRanges(
     previousRange: clampedPreviousRange,
   };
 }
-
-export function subtractMoney(left: number, right: number): number {
-  return left - right;
-}

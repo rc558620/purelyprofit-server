@@ -258,7 +258,7 @@ export class EmployeesProfileWriteService {
     preFetchedLatestEmpNo: string | null,
   ): Promise<string> {
     const latestInTransaction = await transaction.employee.findFirst({
-      where: { storeId },
+      where: { storeId, deletedAt: null },
       orderBy: { id: 'desc' },
       select: { empNo: true },
     });

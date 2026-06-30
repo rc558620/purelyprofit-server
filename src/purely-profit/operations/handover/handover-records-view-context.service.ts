@@ -184,7 +184,7 @@ export class HandoverRecordsViewContextService {
       // 4. 员工 profile（linkedStaffId + avatar）
       employeeIdSet.size > 0
         ? this.prisma.employee.findMany({
-            where: { id: { in: Array.from(employeeIdSet) } },
+            where: { id: { in: Array.from(employeeIdSet) }, deletedAt: null },
             select: {
               id: true,
               linkedStaffId: true,

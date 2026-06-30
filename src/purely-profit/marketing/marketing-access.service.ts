@@ -46,7 +46,7 @@ export class MarketingAccessService {
 
   private async findLegacyOwnerStoreId(userId: number): Promise<number | null> {
     const store = await this.prisma.store.findFirst({
-      where: { ownerId: userId },
+      where: { ownerId: userId, deletedAt: null },
       select: { id: true },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });

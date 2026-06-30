@@ -13,6 +13,7 @@ import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { ClubOrderDraftsService } from './club-order-drafts.service';
+import { ClubOrderPreviewService } from './club-order-preview.service';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
 import { ClubOrderServiceCreationService } from './club-order-service-creation.service';
@@ -73,6 +74,10 @@ describe('ClubOrdersService', () => {
       };
       return configMap[key];
     }),
+  };
+
+  const clubOrderPreviewService = {
+    previewServiceOrder: jest.fn(),
   };
 
   const clubOrderDraftsService = {
@@ -228,6 +233,7 @@ describe('ClubOrdersService', () => {
         ClubOrderSettlementService,
         ClubOrdersService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: ClubOrderPreviewService, useValue: clubOrderPreviewService },
         { provide: ConfigService, useValue: configService },
         { provide: ClubOrderDraftsService, useValue: clubOrderDraftsService },
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },

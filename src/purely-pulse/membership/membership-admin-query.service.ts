@@ -69,6 +69,7 @@ export class PulseMembershipAdminQueryService {
             id: true,
             storeId: true,
             source: true,
+            changeType: true,
             changeAmount: true,
             description: true,
             expireAt: true,
@@ -244,7 +245,8 @@ export class PulseMembershipAdminQueryService {
     ]);
 
     const totalMemberCount = customerStats._count.id;
-    const pendingBalanceFen = customerStats._sum.balance ?? 0;
+    // _sum.balance 返回 Prisma.Decimal | null，需显式转为 number
+    const pendingBalanceFen = Number(customerStats._sum.balance ?? 0);
 
     // 等级映射：regular→free / gold→platinum / diamond→diamond
     const tierToClubLevel = {
@@ -416,13 +418,14 @@ export class PulseMembershipAdminQueryService {
       }),
     ]);
 
-    const totalRechargeFen = totalRecharge._sum.amount ?? 0;
+    // _sum.amount 返回 Prisma.Decimal | null，需显式转为 number
+    const totalRechargeFen = Number(totalRecharge._sum.amount ?? 0);
     const rechargeCount = totalRecharge._count.id;
-    const todayRechargeFen = todayRecharge._sum.amount ?? 0;
-    const monthRechargeFen = monthRecharge._sum.amount ?? 0;
-    const quarterRechargeFen = quarterRecharge._sum.amount ?? 0;
-    const yearRechargeFen = yearRecharge._sum.amount ?? 0;
-    const lastYearRechargeFen = lastYearRecharge._sum.amount ?? 0;
+    const todayRechargeFen = Number(todayRecharge._sum.amount ?? 0);
+    const monthRechargeFen = Number(monthRecharge._sum.amount ?? 0);
+    const quarterRechargeFen = Number(quarterRecharge._sum.amount ?? 0);
+    const yearRechargeFen = Number(yearRecharge._sum.amount ?? 0);
+    const lastYearRechargeFen = Number(lastYearRecharge._sum.amount ?? 0);
 
     return {
       pendingBalanceFen,

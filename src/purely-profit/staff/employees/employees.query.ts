@@ -24,7 +24,7 @@ export interface QueryEmployeesOverviewParams {
 }
 
 export interface EmployeeOverviewMetricRow {
-  days: Prisma.Decimal;
+  days: number;
 }
 
 export interface QueryEmployeesOverviewResult {
@@ -67,10 +67,10 @@ export async function queryEmployeesOverviewMetrics(
     resignedThisMonth,
   ] = await Promise.all([
     prisma.employee.count({
-      where: { storeId: params.storeId, status: EmployeeStatus.active },
+      where: { storeId: params.storeId, deletedAt: null, status: EmployeeStatus.active },
     }),
     prisma.employee.count({
-      where: { storeId: params.storeId, status: EmployeeStatus.resigned },
+      where: { storeId: params.storeId, deletedAt: null, status: EmployeeStatus.resigned },
     }),
     prisma.employeeLeave.findMany({
       where: {
@@ -89,6 +89,7 @@ export async function queryEmployeesOverviewMetrics(
     prisma.employee.count({
       where: {
         storeId: params.storeId,
+        deletedAt: null,
         status: EmployeeStatus.resigned,
         resignDate: { gte: params.monthStart },
       },
@@ -98,7 +99,7 @@ export async function queryEmployeesOverviewMetrics(
   return {
     activeCount,
     resignedCount,
-    leaveRows,
+    leaveRows: leaveRows.map((r) => ({ days: Number(r.days) })),
     pendingPayrollCount,
     resignedThisMonth,
   };

@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, ValidateNested } from 'class-validator';
+import { IsArray, IsIn, ValidateNested } from 'class-validator';
 import {
   FinanceDailyTrendDto,
   FinanceHeroSummaryDto,
@@ -13,11 +13,18 @@ export class FinanceOverviewResponseDto {
   @Type(() => FinanceHeroSummaryDto)
   heroSummary: FinanceHeroSummaryDto;
 
-  @ApiProperty({ type: [FinanceDailyTrendDto], description: '每日趋势' })
-  @IsArray({ message: '每日趋势必须是数组' })
+  @ApiProperty({ type: [FinanceDailyTrendDto], description: '收支趋势（日聚合或月聚合）' })
+  @IsArray({ message: '收支趋势必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => FinanceDailyTrendDto)
   dailyTrend: FinanceDailyTrendDto[];
+
+  @ApiProperty({
+    enum: ['daily', 'monthly'],
+    description: '趋势聚合粒度：daily=按天，monthly=按月（year 周期）',
+  })
+  @IsIn(['daily', 'monthly'], { message: '趋势聚合粒度不合法' })
+  trendGranularity: 'daily' | 'monthly';
 
   @ApiProperty({ type: FinanceSourceGroupDto, description: '收入构成' })
   @ValidateNested()

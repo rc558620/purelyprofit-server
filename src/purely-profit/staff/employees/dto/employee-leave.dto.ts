@@ -39,9 +39,13 @@ export class CreateEmployeeLeaveDto {
   @IsInt({ message: '结束时间必须是整数时间戳' })
   endDate: number;
 
-  @ApiProperty({ example: 1.5, description: '请假天数' })
+  @ApiPropertyOptional({
+    example: 1.5,
+    description: '兼容前端本地模型透传的请假天数，服务端会根据起止时间重新计算',
+  })
+  @IsOptional()
   @Min(0, { message: '请假天数不能为负数' })
-  days: number;
+  days?: number;
 
   @ApiProperty({ example: true, description: '是否扣薪' })
   @IsBoolean({ message: '是否扣薪必须是布尔值' })
@@ -79,7 +83,10 @@ export class UpdateEmployeeLeaveDto {
   @IsInt({ message: '结束时间必须是整数时间戳' })
   endDate?: number;
 
-  @ApiPropertyOptional({ example: 1.5, description: '请假天数' })
+  @ApiPropertyOptional({
+    example: 1.5,
+    description: '兼容前端本地模型透传的请假天数，服务端会根据起止时间重新计算',
+  })
   @IsOptional()
   @Min(0, { message: '请假天数不能为负数' })
   days?: number;

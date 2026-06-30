@@ -73,10 +73,10 @@ export const firstOrderDiscountParamsSchema = z
 
 export const reduceParamsSchema = z
   .object({
-    /** 满减门槛（分） */
-    threshold: z.number().int().positive(),
-    /** 满减金额（分） */
-    reduceAmount: z.number().int().positive(),
+    /** 满减门槛（前端入参=元，后端内部存储=分；mapper 层统一转换） */
+    threshold: z.number().positive(),
+    /** 满减金额（前端入参=元，后端内部存储=分；mapper 层统一转换） */
+    reduceAmount: z.number().positive(),
   })
   .merge(bannerFieldsSchema)
   .passthrough();
@@ -84,10 +84,10 @@ export const reduceParamsSchema = z
 // ─── recharge_gift ────────────────────────────────────────────────
 
 const rechargeGiftGradientSchema = z.object({
-  /** 充值金额（分） */
-  rechargeAmount: z.number().int().positive(),
-  /** 赠送金额（分） */
-  giftAmount: z.number().int().nonnegative().optional(),
+  /** 充值金额（前端入参=元，后端内部存储=分；mapper 层统一转换） */
+  rechargeAmount: z.number().positive(),
+  /** 赠送金额（前端入参=元，后端内部存储=分；mapper 层统一转换） */
+  giftAmount: z.number().nonnegative().optional(),
   /** 赠送比例（0-1） */
   giftRatio: z.number().min(0).max(1).optional(),
 });

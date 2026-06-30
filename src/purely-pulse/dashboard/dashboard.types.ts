@@ -1,4 +1,3 @@
-import type { Prisma } from '@prisma/client';
 import type { SaleAggRow } from './dashboard-aggregator.service';
 
 export interface DashboardStoreSummaryRow {
@@ -47,7 +46,7 @@ export interface DashboardRevenueTypeCountRow {
 }
 
 export interface DashboardTrendSaleRow {
-  totalRevenue: Prisma.Decimal | number | string;
+  totalRevenue: number;
   date: Date;
 }
 

@@ -134,7 +134,7 @@ export class ClubOrderPromotionsService {
     };
   }
 
-  private async resolveMemberDiscountRate(
+  async resolveMemberDiscountRate(
     storeId: number,
     phone: string,
   ): Promise<number | null> {

@@ -74,8 +74,8 @@ export class DashboardAggregatorService {
 
     return rows.reduce<Record<number, SaleAggRow>>((result, row) => {
       result[row.storeId] = {
-        totalRevenue: Money.fromDbCents(row._sum.totalRevenue ?? 0).toOutputYuan(),
-        totalProfit: Money.fromDbCents(row._sum.totalProfit ?? 0).toOutputYuan(),
+      totalRevenue: Money.fromDbCents(row._sum.totalRevenue ?? 0).toOutputYuan(),
+      totalProfit: Money.fromDbCents(row._sum.totalProfit ?? 0).toOutputYuan(),
         orderCount: row._count.id,
       };
       return result;

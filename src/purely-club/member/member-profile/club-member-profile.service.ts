@@ -141,7 +141,8 @@ export class ClubMemberProfileService {
       _sum: { amount: true },
     });
 
-    return result._sum.amount ?? 0;
+    // _sum.amount 返回 Prisma.Decimal | null，需显式转为 number
+    return Number(result._sum.amount ?? 0);
   }
 
   private resolveLevel(

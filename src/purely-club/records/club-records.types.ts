@@ -9,6 +9,7 @@ export interface ClubRechargeLedgerRow {
   id: number;
   amount: number;
   giftAmount: number;
+  totalAmount: number;
   type: 'recharge' | 'gift' | 'refund';
   note: string | null;
   createdAt: Date;

@@ -236,6 +236,7 @@ export class StoreSubAccountSlotService {
       where: {
         id: employeeId,
         storeId,
+        deletedAt: null,
         status: EmployeeStatus.active,
       },
       select: { id: true },

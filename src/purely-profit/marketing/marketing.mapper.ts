@@ -39,6 +39,108 @@ import {
 } from './marketing.utils';
 import { safeParsePromotionParams } from './schemas/promotion-params.schema';
 
+// ─── 活动展示文案计算 ─────────────────────────────────────────────
+
+/**
+ * 根据活动类型和参数计算展示文案。
+ * 此函数是后端 source of truth，前端应优先消费 displayText 而非自行推导。
+ *
+ * @param type 活动类型
+ * @param params 已归一化的活动参数
+ * @returns 展示文案字符串，未知类型返回空字符串
+ */
+export function buildPromotionDisplayText(
+  type: string,
+  params: MarketingPromotionParamsValue,
+): string {
+  if (type === 'discount' || type === 'discount_day') {
+    const discountRate =
+      typeof params.discountRate === 'number'
+        ? params.discountRate
+        : typeof params.rate === 'number'
+          ? Math.round(params.rate * 100)
+          : undefined;
+    if (discountRate === undefined) return '';
+    const fold = discountRate / 10;
+    return `打 ${Number.isInteger(fold) ? fold : fold.toFixed(1)} 折`;
+  }
+
+  if (type === 'reduce') {
+    const threshold =
+      typeof params.threshold === 'number' ? params.threshold : undefined;
+    const reduceAmount =
+      typeof params.reduceAmount === 'number'
+        ? params.reduceAmount
+        : undefined;
+    if (threshold === undefined || reduceAmount === undefined) return '';
+    return `满 ¥${threshold} 减 ¥${reduceAmount}`;
+  }
+
+  if (type === 'recharge_gift') {
+    const gradients = Array.isArray(params.gradients)
+      ? params.gradients
+      : undefined;
+    const firstGradient = gradients?.[0];
+    if (!firstGradient || typeof firstGradient !== 'object') {
+      return '多档储值赠送';
+    }
+    const gradient = firstGradient as Record<string, unknown>;
+    const rechargeAmount =
+      typeof gradient.rechargeAmount === 'number'
+        ? gradient.rechargeAmount
+        : undefined;
+    if (rechargeAmount === undefined) return '多档储值赠送';
+
+    // giftAmount 优先，fallback 到 giftRatio 推导
+    // 所有金额运算走 Money 体系，禁止裸 number 乘法
+    let giftAmountYuan: number;
+    if (typeof gradient.giftAmount === 'number' && gradient.giftAmount > 0) {
+      giftAmountYuan = gradient.giftAmount as number;
+    } else if (typeof gradient.giftRatio === 'number' && gradient.giftRatio > 0) {
+      giftAmountYuan = Money.fromInputYuan(rechargeAmount)
+        .multiply(gradient.giftRatio as number)
+        .toOutputYuan();
+    } else {
+      giftAmountYuan = 0;
+    }
+
+    const baseText = `充 ¥${rechargeAmount} 赠 ¥${giftAmountYuan}`;
+    return gradients!.length > 1 ? `${baseText} 起` : baseText;
+  }
+
+  if (type === 'free') return '免单';
+
+  if (type === 'first_order_discount') {
+    const discountRate =
+      typeof params.discountRate === 'number'
+        ? params.discountRate
+        : typeof params.rate === 'number'
+          ? Math.round(params.rate * 100)
+          : undefined;
+    if (discountRate === undefined) return '';
+    const fold = discountRate / 10;
+    return `首单 ${Number.isInteger(fold) ? fold : fold.toFixed(1)} 折`;
+  }
+
+  if (type === 'points_recharge') {
+    const rechargeRatioPercent =
+      typeof params.rechargeRatioPercent === 'number'
+        ? params.rechargeRatioPercent
+        : typeof params.pointsPerYuan === 'number'
+          ? (params.pointsPerYuan as number)
+          : undefined;
+    if (rechargeRatioPercent === undefined) return '';
+    const pts = Number.isInteger(rechargeRatioPercent)
+      ? rechargeRatioPercent
+      : Number(rechargeRatioPercent.toFixed(2));
+    return `充 ¥100 赠 ${pts} 积分`;
+  }
+
+  if (type === 'points_2x') return '双倍积分';
+
+  return '';
+}
+
 const OVERVIEW_MONTH_LABELS = Array.from(
   { length: 12 },
   (_, index) => `${index + 1}月`,
@@ -73,6 +175,7 @@ export function mapRechargeRow(
     customerName: row.customerName,
     amount: Money.fromDbCents(row.amount).toOutputYuan(),
     giftAmount: Money.fromDbCents(row.giftAmount).toOutputYuan(),
+    totalAmount: Money.fromDbCents(row.totalAmount).toOutputYuan(),
     type: row.type as MarketingRechargeTypeValue,
     promotionId: row.promotionId ? String(row.promotionId) : undefined,
     note: row.note ?? undefined,
@@ -249,15 +352,121 @@ export function normalizePromotionParams(
   return objectValue;
 }
 
+// ─── 活动参数写入/输出映射（元⇄分）─────────────────────────────────────
+
+/** 金额字段名称集合（按活动类型）——写入时需要元→分 */
+const YUAN_TO_CENTS_FIELDS = new Set([
+  'threshold',
+  'reduceAmount',
+  'rechargeAmount',
+  'giftAmount',
+]);
+
+/**
+ * 写入映射：前端入参（元）→ DB 存储（分）
+ * 只对已知金额字段做 * 100 转换，其余字段原样透传。
+ */
+function mapParamValueForWrite(
+  value: unknown,
+): unknown {
+  if (typeof value === 'number' || typeof value === 'string') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(mapParamValueForWrite);
+  }
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (YUAN_TO_CENTS_FIELDS.has(key) && typeof val === 'number') {
+        result[key] = Money.fromInputYuan(val).toDbCents();
+      } else {
+        result[key] = mapParamValueForWrite(val);
+      }
+    }
+    return result;
+  }
+  return value;
+}
+
+export function mapPromotionParamsForWrite(
+  params: MarketingPromotionParamsValue,
+  type: string,
+): MarketingPromotionParamsValue {
+  // discount / first_order_discount / points_recharge / free / points_2x 不涉及元→分
+  if (
+    type === 'discount' ||
+    type === 'discount_day' ||
+    type === 'first_order_discount' ||
+    type === 'points_recharge' ||
+    type === 'free' ||
+    type === 'points_2x'
+  ) {
+    return params;
+  }
+  // reduce / recharge_gift 需要金额字段元→分
+  return mapParamValueForWrite(params) as MarketingPromotionParamsValue;
+}
+
+/**
+ * 输出映射：DB 存储（分）→ 前端输出（元）
+ * 只对已知金额字段做 / 100 转换，其余字段原样透传。
+ */
+function mapParamValueForOutput(
+  value: unknown,
+): unknown {
+  if (typeof value === 'number' || typeof value === 'string') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(mapParamValueForOutput);
+  }
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (YUAN_TO_CENTS_FIELDS.has(key) && typeof val === 'number') {
+        result[key] = Money.fromDbCents(val).toOutputYuan();
+      } else {
+        result[key] = mapParamValueForOutput(val);
+      }
+    }
+    return result;
+  }
+  return value;
+}
+
+export function mapPromotionParamsForOutput(
+  params: MarketingPromotionParamsValue,
+  type: string,
+): MarketingPromotionParamsValue {
+  // discount / first_order_discount / points_recharge / free / points_2x 不涉及分→元
+  if (
+    type === 'discount' ||
+    type === 'discount_day' ||
+    type === 'first_order_discount' ||
+    type === 'points_recharge' ||
+    type === 'free' ||
+    type === 'points_2x'
+  ) {
+    return params;
+  }
+  // reduce / recharge_gift 需要金额字段分→元
+  return mapParamValueForOutput(params) as MarketingPromotionParamsValue;
+}
+
 export function mapPromotionRow(
   row: MarketingPromotionRow,
 ): MarketingPromotionDto {
+  const params = normalizePromotionParams(row.params, row.type);
+  // DB 存储（分）→ 前端输出（元）
+  const outputParams = mapPromotionParamsForOutput(params, row.type);
   return {
     id: String(row.id),
     name: row.name,
     type: row.type as MarketingPromotionTypeValue,
     description: row.description,
-    params: normalizePromotionParams(row.params, row.type),
+    params: outputParams,
+    displayText: buildPromotionDisplayText(row.type, outputParams) || undefined,
     startAt: row.startAt.getTime(),
     endAt: row.endAt.getTime(),
     usageCount: row.usageCount,

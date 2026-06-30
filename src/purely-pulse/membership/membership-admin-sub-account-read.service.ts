@@ -58,6 +58,7 @@ export class PulseMembershipAdminSubAccountReadService {
       this.prisma.employee.findMany({
         where: {
           storeId,
+          deletedAt: null,
           status: 'active',
         },
         select: {

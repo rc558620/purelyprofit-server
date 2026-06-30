@@ -36,6 +36,7 @@ describe('PulseMembershipService ledger', () => {
       {
         id: 21,
         source: 'purchase_bonus',
+        changeType: 'increase',
         changeAmount: 100,
         description: '购买会员赠送积分',
         expireAt: new Date('2027-01-01T00:00:00.000Z'),
@@ -44,7 +45,8 @@ describe('PulseMembershipService ledger', () => {
       {
         id: 22,
         source: 'expire',
-        changeAmount: -30,
+        changeType: 'decrease',
+        changeAmount: 30,
         description: '积分过期扣减',
         expireAt: null,
         createdAt: new Date('2026-05-20T10:00:00.000Z'),
@@ -91,6 +93,7 @@ describe('PulseMembershipService ledger', () => {
       select: {
         id: true,
         source: true,
+        changeType: true,
         changeAmount: true,
         description: true,
         expireAt: true,
@@ -182,6 +185,7 @@ describe('PulseMembershipService ledger', () => {
     ).toHaveBeenCalledWith(context.user);
     expect(context.prismaService.storePartner.findMany).toHaveBeenCalledWith({
       where: {
+        deletedAt: null,
         status: 'approved',
         store: {
           owner: {
@@ -228,6 +232,7 @@ describe('PulseMembershipService ledger', () => {
         beanBalance: 20,
         totalEarnedBeans: 50,
         totalWithdrawnBeans: 8,
+        pendingBeans: 22,
       },
       items: [
         {

@@ -67,6 +67,7 @@ describe('PlatformMembershipAccessService', () => {
     expect(prismaService.employee.count).toHaveBeenCalledWith({
       where: {
         storeId: 18,
+        deletedAt: null,
         status: EmployeeStatus.active,
       },
     });

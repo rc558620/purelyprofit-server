@@ -75,7 +75,7 @@ export class PlatformMembershipAccessService {
       getLimit: (snapshot) => snapshot.productLimit,
       getCurrentCount: () =>
         this.prisma.product.count({
-          where: { storeId },
+          where: { storeId, deletedAt: null },
         }),
       buildErrorMessage: buildProductQuotaExceededMessage,
     });
@@ -89,6 +89,7 @@ export class PlatformMembershipAccessService {
         this.prisma.employee.count({
           where: {
             storeId,
+            deletedAt: null,
             status: EmployeeStatus.active,
           },
         }),
@@ -102,7 +103,7 @@ export class PlatformMembershipAccessService {
       getLimit: (snapshot) => snapshot.spaceLimit,
       getCurrentCount: () =>
         this.prisma.space.count({
-          where: { storeId },
+          where: { storeId, deletedAt: null },
         }),
       buildErrorMessage: buildSpaceQuotaExceededMessage,
     });

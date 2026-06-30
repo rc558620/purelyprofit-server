@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { ClubPointsFilterValue } from './dto/club-points-record.dto';
+import type {
+  ClubPointsFilterValue,
+  ClubPointsSummaryDto,
+} from './dto/club-points-record.dto';
 
 /** 积分记录查询结果行（对齐 MarketingPointsRecord 表字段） */
 export interface ClubPointsRecordRow {
@@ -72,10 +75,47 @@ export class ClubPointsQueryService {
     }
 
     return this.prisma.marketingCustomer.findFirst({
-      where: { storeId, phone: null },
+      where: { storeId, phone: null, deletedAt: null },
       select: { id: true, points: true },
       orderBy: { id: 'asc' },
     });
+  }
+
+  /**
+   * 计算指定客户在指定门店的积分汇总：累计获得积分、累计消耗积分。
+   * 使用数据库 SUM 聚合，保证精度且不需要前端遍历。
+   */
+  async calculateSummary(
+    storeId: number,
+    customerId: number,
+  ): Promise<ClubPointsSummaryDto> {
+    const [earnedResult, redeemedResult] = await Promise.all([
+      this.prisma.marketingPointsRecord.aggregate({
+        where: {
+          storeId,
+          customerId,
+          amount: { gt: 0 },
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+      this.prisma.marketingPointsRecord.aggregate({
+        where: {
+          storeId,
+          customerId,
+          amount: { lt: 0 },
+        },
+        _sum: {
+          amount: true,
+        },
+      }),
+    ]);
+
+    const totalEarned = earnedResult._sum.amount ?? 0;
+    const totalRedeemed = Math.abs(redeemedResult._sum.amount ?? 0);
+
+    return { totalEarned, totalRedeemed };
   }
 
   /**

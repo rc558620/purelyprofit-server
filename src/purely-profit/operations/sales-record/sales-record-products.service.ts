@@ -36,6 +36,7 @@ export class SalesRecordProductsService {
     const products = await this.prisma.product.findMany({
       where: {
         storeId,
+        deletedAt: null,
         isActive: true,
         ...(category ? { category } : {}),
         ...(keyword

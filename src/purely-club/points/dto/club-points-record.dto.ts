@@ -66,6 +66,20 @@ export class ClubPointsRecordDto {
   storeName?: string;
 }
 
+export class ClubPointsSummaryDto {
+  @ApiProperty({
+    example: 580,
+    description: '累计获得积分（所有 amount > 0 的记录之和）',
+  })
+  totalEarned: number;
+
+  @ApiProperty({
+    example: 120,
+    description: '累计消耗积分（所有 amount < 0 的记录绝对值之和）',
+  })
+  totalRedeemed: number;
+}
+
 export class ClubPointsRecordsResponseDto {
   @ApiProperty({
     type: [ClubPointsRecordDto],
@@ -75,4 +89,10 @@ export class ClubPointsRecordsResponseDto {
 
   @ApiProperty({ example: 42, description: '符合当前筛选条件的记录总条数' })
   total: number;
+
+  @ApiProperty({
+    description: '积分汇总统计',
+    type: ClubPointsSummaryDto,
+  })
+  summary: ClubPointsSummaryDto;
 }

@@ -570,6 +570,7 @@ describe('ClubRechargeService', () => {
         customerId: 36,
         amount: 50000,
         giftAmount: 10000,
+        totalAmount: 60000,
         type: 'recharge',
         promotionId: 18,
         note: 'club充值订单 RC123',

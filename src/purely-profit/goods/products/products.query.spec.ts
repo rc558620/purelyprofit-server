@@ -115,6 +115,7 @@ describe('products.query', () => {
     expect(productFindMany).toHaveBeenCalledWith({
       where: {
         storeId: 18,
+        deletedAt: null,
         category: '饮品',
         isActive: true,
         OR: [
@@ -157,6 +158,7 @@ describe('products.query', () => {
     expect(productCount).toHaveBeenCalledWith({
       where: {
         storeId: 18,
+        deletedAt: null,
         category: '饮品',
         isActive: true,
         OR: [
@@ -251,6 +253,7 @@ describe('products.query', () => {
     expect(productCategoryFindFirst).toHaveBeenCalledWith({
       where: {
         storeId: 18,
+        deletedAt: null,
         name: '饮品',
       },
       select: {
@@ -269,6 +272,7 @@ describe('products.query', () => {
     expect(productFindFirst).toHaveBeenCalledWith({
       where: {
         storeId: 18,
+        deletedAt: null,
         code: 'SKU-001',
         id: { not: 11 },
       },

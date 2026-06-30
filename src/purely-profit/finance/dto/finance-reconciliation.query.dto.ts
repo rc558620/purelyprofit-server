@@ -89,13 +89,6 @@ export class CreateFinanceReconciliationDto {
   @IsIn(FINANCE_RECONCILIATION_TYPE_VALUES, { message: '对账类型不合法' })
   type: FinanceReconciliationTypeValue;
 
-  @ApiProperty({
-    enum: FINANCE_RECONCILIATION_STATUS_VALUES,
-    description: '前端计算得到的状态，后端会按实际金额重新校正',
-  })
-  @IsIn(FINANCE_RECONCILIATION_STATUS_VALUES, { message: '对账状态不合法' })
-  status: FinanceReconciliationStatusValue;
-
   @ApiPropertyOptional({
     enum: FINANCE_PAYMENT_CHANNEL_VALUES,
     description: '收款渠道，仅 payment 类型有效',
@@ -132,17 +125,25 @@ export class CreateFinanceReconciliationDto {
   @Min(0, { message: '账面支出不能小于 0' })
   bookExpense: number;
 
-  @ApiProperty({ example: 11800, description: '实际收入，单位元' })
+  @ApiPropertyOptional({
+    example: 11800,
+    description: '实际收入，单位元；null 或不传表示未录入（草稿）',
+  })
+  @IsOptional()
   @Type(() => Number)
   @IsNumber({}, { message: '实际收入必须是数字' })
   @Min(0, { message: '实际收入不能小于 0' })
-  actualIncome: number;
+  actualIncome?: number | null;
 
-  @ApiProperty({ example: 8100, description: '实际支出，单位元' })
+  @ApiPropertyOptional({
+    example: 8100,
+    description: '实际支出，单位元；null 或不传表示未录入（草稿）',
+  })
+  @IsOptional()
   @Type(() => Number)
   @IsNumber({}, { message: '实际支出必须是数字' })
   @Min(0, { message: '实际支出不能小于 0' })
-  actualExpense: number;
+  actualExpense?: number | null;
 
   @ApiPropertyOptional({
     type: [FinanceReconciliationItemInputDto],

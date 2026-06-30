@@ -145,7 +145,7 @@ export class SpaceDashboardService {
 
     // Space.status 已移除，需要关联查询 session 和 reservation
     return this.prisma.space.findMany({
-      where: { storeId },
+      where: { storeId, deletedAt: null },
       include: {
         type: { select: { id: true, name: true } },
         zone: { select: { id: true, name: true } },

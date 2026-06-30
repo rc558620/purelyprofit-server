@@ -92,6 +92,7 @@ model StoreMembershipPointsLog {
   profileId    Int                    @map("profile_id")
   profile      StoreMembershipProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   source       MemberPointsSource
+  changeType   MemberPointsChangeType @map("change_type")
   changeAmount Int                    @map("change_amount")
   description  String
   expireAt     DateTime?              @map("expire_at")
@@ -121,7 +122,7 @@ model StoreMembershipPromoRecord {
   createdAt     DateTime             @default(now()) @map("created_at")
   updatedAt     DateTime             @updatedAt @map("updated_at")
 
-  @@index([storeId, registeredAt])
+  // storeId+registeredAt 被 storeId+hasCharged+registeredAt 前缀覆盖，无需单独声明
   @@index([storeId, hasCharged, registeredAt])
   @@index([chargedAt])
   @@index([partnerId, registeredAt]) // Step 3: 0.9 新增

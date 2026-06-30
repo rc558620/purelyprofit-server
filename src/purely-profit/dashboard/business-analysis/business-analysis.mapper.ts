@@ -1,10 +1,11 @@
 import {
   calcPercentChange,
   calcPercentOfTotal,
+  calcPercentPointDiff,
   formatMonthDayLabel,
   getDayStartTimestamp,
+  Money,
 } from '../../commerce/commerce.utils';
-import type { Money } from '../../../shared/money.utils';
 import type {
   BusinessAnalysisCategoryShareDto,
   BusinessAnalysisCompareDataDto,
@@ -31,7 +32,8 @@ export function buildEmptyAnalysisResponse(): BusinessAnalysisResponseDto {
       netProfit: { current: 0, previous: 0, changeRate: null },
       revenue: { current: 0, previous: 0, changeRate: null },
       totalCost: { current: 0, previous: 0, changeRate: null },
-      profitRate: { current: 0, previous: 0, changeRate: null },
+      profitRate: { current: 0, previous: 0, changeRate: 0 },
+      costRate: { current: 0, previous: 0, changeRate: 0 },
       orderCount: 0,
     },
     dailyTrend: [],
@@ -58,6 +60,14 @@ export function buildBusinessAnalysisResponse(
     previousProfit.toOutputYuan(),
     snapshot.previousSales.revenue.toOutputYuan(),
   );
+  const currentCostRate = calcPercentOfTotal(
+    snapshot.currentCosts.totalCost.toOutputYuan(),
+    snapshot.currentSales.revenue.toOutputYuan(),
+  );
+  const previousCostRate = calcPercentOfTotal(
+    snapshot.previousCosts.totalCost.toOutputYuan(),
+    snapshot.previousSales.revenue.toOutputYuan(),
+  );
 
   return {
     heroSummary: {
@@ -73,7 +83,12 @@ export function buildBusinessAnalysisResponse(
       profitRate: {
         current: currentProfitRate,
         previous: previousProfitRate,
-        changeRate: currentProfitRate - previousProfitRate,
+        changeRate: calcPercentPointDiff(currentProfitRate, previousProfitRate),
+      },
+      costRate: {
+        current: currentCostRate,
+        previous: previousCostRate,
+        changeRate: calcPercentPointDiff(currentCostRate, previousCostRate),
       },
       orderCount: snapshot.currentSales.orderCount,
     },
@@ -115,13 +130,13 @@ function buildDailyTrend(
     currentDate.setDate(startDate.getDate() + offset);
     currentDate.setHours(0, 0, 0, 0);
     const currentDay = currentDate.getTime();
-    const revenue = dailyRevenueMap.get(currentDay)?.toOutputYuan() ?? 0;
-    const cost = dailyCostMap.get(currentDay)?.toOutputYuan() ?? 0;
+    const revenueMoney = dailyRevenueMap.get(currentDay) ?? Money.zero();
+    const costMoney = dailyCostMap.get(currentDay) ?? Money.zero();
     items.push({
       dateLabel: formatMonthDayLabel(currentDay),
-      revenue,
-      cost,
-      profit: revenue - cost,
+      revenue: revenueMoney.toOutputYuan(),
+      cost: costMoney.toOutputYuan(),
+      profit: revenueMoney.subtract(costMoney).toOutputYuan(),
     });
   }
 

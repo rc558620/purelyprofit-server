@@ -40,7 +40,11 @@ export class ClubPointsService {
       );
 
     if (!customer) {
-      return { items: [], total: 0 };
+      return {
+        items: [],
+        total: 0,
+        summary: { totalEarned: 0, totalRedeemed: 0 },
+      };
     }
 
     // 筛选条件下推到 DB 层，确保 total 与 items 语义一致
@@ -52,9 +56,15 @@ export class ClubPointsService {
         filterType,
       );
 
-    const items = this.buildItems(rows, customer, currentContext.store.name);
+    const [items, summary] = await Promise.all([
+      Promise.resolve(this.buildItems(rows, customer, currentContext.store.name)),
+      this.clubPointsQueryService.calculateSummary(
+        currentContext.store.id,
+        customer.id,
+      ),
+    ]);
 
-    return { items, total };
+    return { items, total, summary };
   }
 
   /**

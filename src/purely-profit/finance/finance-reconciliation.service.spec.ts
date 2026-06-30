@@ -199,7 +199,7 @@ describe('FinanceReconciliationService', () => {
     );
   });
 
-  it('createReconciliation 会按前端逻辑计算净额、差异和状态', async () => {
+  it('createReconciliation 会按后端统一金额规则派生净额、差异和状态', async () => {
     prismaService.financeReconciliationRecord.create.mockResolvedValue({
       id: 21,
       storeId: 18,
@@ -211,13 +211,13 @@ describe('FinanceReconciliationService', () => {
       counterpart: null,
       periodStart: new Date('2026-05-01T00:00:00.000Z'),
       periodEnd: new Date('2026-05-31T23:59:59.999Z'),
-      bookIncome: new Prisma.Decimal('12000.00'),
-      bookExpense: new Prisma.Decimal('8000.00'),
-      bookNet: new Prisma.Decimal('4000.00'),
-      actualIncome: new Prisma.Decimal('11800.00'),
-      actualExpense: new Prisma.Decimal('8100.00'),
-      actualNet: new Prisma.Decimal('3700.00'),
-      diffAmount: new Prisma.Decimal('-300.00'),
+      bookIncome: 1200000,
+      bookExpense: 800000,
+      bookNet: 400000,
+      actualIncome: 1180000,
+      actualExpense: 810000,
+      actualNet: 370000,
+      diffAmount: -30000,
       adjustNote: null,
       operator: '财务张姐',
       note: '节假日汇总',
@@ -231,7 +231,6 @@ describe('FinanceReconciliationService', () => {
       service.createReconciliation(user, {
         title: '5月月度对账',
         type: 'monthly',
-        status: 'discrepancy',
         periodStart: new Date('2026-05-01T00:00:00.000Z').getTime(),
         periodEnd: new Date('2026-05-31T23:59:59.999Z').getTime(),
         bookIncome: 12000,
@@ -246,15 +245,106 @@ describe('FinanceReconciliationService', () => {
     ).resolves.toMatchObject({
       id: '21',
       status: 'discrepancy',
-      bookNet: 40,
-      actualNet: 37,
-      diffAmount: -3,
       operator: '财务张姐',
       note: '节假日汇总',
     });
     expect(
       cacheInvalidatorService.invalidateFinanceDerived,
     ).toHaveBeenCalledWith(18);
+  });
+
+  it('createReconciliation 实际金额未录入时状态为 draft', async () => {
+    prismaService.financeReconciliationRecord.create.mockResolvedValue({
+      id: 22,
+      storeId: 18,
+      operatorStaffId: 8,
+      title: '6月日结对账',
+      type: 'daily',
+      status: FinanceReconciliationStatus.draft,
+      channel: null,
+      counterpart: null,
+      periodStart: new Date('2026-06-01T00:00:00.000Z'),
+      periodEnd: new Date('2026-06-01T23:59:59.999Z'),
+      bookIncome: 500000,
+      bookExpense: 300000,
+      bookNet: 200000,
+      actualIncome: 0,
+      actualExpense: 0,
+      actualNet: 0,
+      diffAmount: -200000,
+      adjustNote: null,
+      operator: null,
+      note: null,
+      date: new Date('2026-06-01T00:00:00.000Z'),
+      createdAt: new Date('2026-06-01T12:00:00.000Z'),
+      updatedAt: new Date('2026-06-01T12:00:00.000Z'),
+      items: [],
+    });
+
+    await expect(
+      service.createReconciliation(user, {
+        title: '6月日结对账',
+        type: 'daily',
+        periodStart: new Date('2026-06-01T00:00:00.000Z').getTime(),
+        periodEnd: new Date('2026-06-01T23:59:59.999Z').getTime(),
+        bookIncome: 5000,
+        bookExpense: 3000,
+        actualIncome: null,
+        actualExpense: null,
+        items: [],
+        date: new Date('2026-06-01T00:00:00.000Z').getTime(),
+      }),
+    ).resolves.toMatchObject({
+      id: '22',
+      status: 'draft',
+    });
+  });
+
+  it('createReconciliation 实际金额录入且差异为 0 时状态为 confirmed', async () => {
+    prismaService.financeReconciliationRecord.create.mockResolvedValue({
+      id: 23,
+      storeId: 18,
+      operatorStaffId: 8,
+      title: '7月周结对账',
+      type: 'weekly',
+      status: FinanceReconciliationStatus.confirmed,
+      channel: null,
+      counterpart: null,
+      periodStart: new Date('2026-07-06T00:00:00.000Z'),
+      periodEnd: new Date('2026-07-12T23:59:59.999Z'),
+      bookIncome: 1000000,
+      bookExpense: 600000,
+      bookNet: 400000,
+      actualIncome: 1000000,
+      actualExpense: 600000,
+      actualNet: 400000,
+      diffAmount: 0,
+      adjustNote: null,
+      operator: null,
+      note: null,
+      date: new Date('2026-07-06T00:00:00.000Z'),
+      createdAt: new Date('2026-07-06T12:00:00.000Z'),
+      updatedAt: new Date('2026-07-06T12:00:00.000Z'),
+      items: [],
+    });
+
+    await expect(
+      service.createReconciliation(user, {
+        title: '7月周结对账',
+        type: 'weekly',
+        periodStart: new Date('2026-07-06T00:00:00.000Z').getTime(),
+        periodEnd: new Date('2026-07-12T23:59:59.999Z').getTime(),
+        bookIncome: 10000,
+        bookExpense: 6000,
+        actualIncome: 10000,
+        actualExpense: 6000,
+        items: [],
+        date: new Date('2026-07-06T00:00:00.000Z').getTime(),
+      }),
+    ).resolves.toMatchObject({
+      id: '23',
+      status: 'confirmed',
+    });
   });
 
   it('confirmReconciliation 带调整说明时标记为 adjusted', async () => {

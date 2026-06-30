@@ -324,7 +324,7 @@ WHEN st.role = 'owner' THEN 1
     userEmail: string,
   ): Promise<boolean> {
     const ownerStore = await this.prisma.store.findFirst({
-      where: { ownerId: payload.sub },
+      where: { ownerId: payload.sub, deletedAt: null },
       select: {
         id: true,
         owner: {
@@ -452,6 +452,7 @@ WHEN st.role = 'owner' THEN 1
 
     const stores = await this.prisma.store.findMany({
       where: {
+        deletedAt: null,
         OR: [
           { ownerId: userId },
           {

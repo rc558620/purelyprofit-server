@@ -210,6 +210,7 @@ export async function queryAdminPromoPartners(
 ): Promise<AdminPromoPartnerRecord[]> {
   return prisma.storePartner.findMany({
     where: {
+      deletedAt: null,
       status: 'approved',
       store: storeWhere,
     },
@@ -333,29 +334,31 @@ export async function queryAdminPayoutStats(
     _sum: { rmbAmount: true },
   });
 
-  return grouped.reduce<AdminPayoutStats>(
-    (summary, record) => {
-      switch (record.status) {
-        case PartnerWithdrawalStatus.pending:
-        case PartnerWithdrawalStatus.approved:
-          summary.pendingCount += record._count._all;
-          summary.pendingTotal += Money.fromDbCents(record._sum.rmbAmount ?? 0).toOutputYuan();
-          break;
-        case PartnerWithdrawalStatus.paid:
-          summary.paidTotal += Money.fromDbCents(record._sum.rmbAmount ?? 0).toOutputYuan();
-          break;
-        default:
-          break;
-      }
+  let pendingAmounts: Money[] = [];
+  let paidAmounts: Money[] = [];
+  let pendingCount = 0;
 
-      return summary;
-    },
-    {
-      pendingCount: 0,
-      pendingTotal: 0,
-      paidTotal: 0,
-    },
-  );
+  for (const record of grouped) {
+    const amount = Money.fromDbCents(record._sum.rmbAmount ?? 0);
+    switch (record.status) {
+      case PartnerWithdrawalStatus.pending:
+      case PartnerWithdrawalStatus.approved:
+        pendingCount += record._count._all;
+        pendingAmounts = pendingAmounts.concat(amount);
+        break;
+      case PartnerWithdrawalStatus.paid:
+        paidAmounts = paidAmounts.concat(amount);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return {
+    pendingCount,
+    pendingTotal: Money.sum(pendingAmounts).toDbCents(),
+    paidTotal: Money.sum(paidAmounts).toDbCents(),
+  };
 }
 
 function buildAdminPayoutListWhere(

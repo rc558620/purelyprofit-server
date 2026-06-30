@@ -26,6 +26,7 @@ export class StaffAccessService {
         ? this.prisma.store.findFirst({
             where: {
               ownerId: userId,
+              deletedAt: null,
               id: { not: storeId },
             },
             select: { id: true },

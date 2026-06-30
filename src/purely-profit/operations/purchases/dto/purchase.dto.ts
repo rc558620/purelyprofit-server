@@ -89,16 +89,15 @@ export class PurchaseItemInputDto {
   @IsNumber({}, { message: '进货单价必须是数字' })
   @Min(0.01, { message: '进货单价必须大于 0' })
   unitPrice: number;
+}
 
-  @ApiPropertyOptional({
-    example: 300,
-    description: '前端计算的小计金额（元），后端会重新校验并以服务端计算为准',
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber({}, { message: '小计金额必须是数字' })
-  @Min(0, { message: '小计金额不能为负数' })
-  amount?: number;
+export class PreviewPurchaseDto {
+  @ApiProperty({ type: [PurchaseItemInputDto], description: '进货明细（仅需商品信息，服务端计算金额）' })
+  @IsArray({ message: '进货明细必须是数组' })
+  @ArrayMinSize(1, { message: '请至少填写一条商品明细' })
+  @ValidateNested({ each: true })
+  @Type(() => PurchaseItemInputDto)
+  items: PurchaseItemInputDto[];
 }
 
 export class CreatePurchaseDto {
@@ -128,16 +127,6 @@ export class CreatePurchaseDto {
   @ValidateNested({ each: true })
   @Type(() => PurchaseItemInputDto)
   items: PurchaseItemInputDto[];
-
-  @ApiPropertyOptional({
-    example: 520,
-    description: '前端计算的总金额（元），后端会重新校验并以服务端计算为准',
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber({}, { message: '总金额必须是数字' })
-  @Min(0, { message: '总金额不能为负数' })
-  totalAmount?: number;
 
   @ApiProperty({
     example: 1715558400000,
@@ -312,6 +301,34 @@ export class PaginatedPurchasesResponseDto {
 
   @ApiProperty({ type: PaginationMetaDto, description: '分页信息' })
   meta: PaginationMetaDto;
+}
+
+export class PurchasePreviewItemResponseDto {
+  @ApiPropertyOptional({ example: '1', description: '商品 ID，无码商品不返回' })
+  productId?: string;
+
+  @ApiProperty({ example: '可口可乐 330ml', description: '商品名称' })
+  productName: string;
+
+  @ApiPropertyOptional({ example: '箱', description: '单位' })
+  unit?: string;
+
+  @ApiProperty({ example: 5, description: '进货数量' })
+  quantity: number;
+
+  @ApiProperty({ example: 60, description: '进货单价（元）' })
+  unitPrice: number;
+
+  @ApiProperty({ example: 300, description: '小计金额（元），由服务端统一计算' })
+  amount: number;
+}
+
+export class PurchasePreviewResponseDto {
+  @ApiProperty({ type: [PurchasePreviewItemResponseDto], description: '进货明细（含服务端计算的小计金额）' })
+  items: PurchasePreviewItemResponseDto[];
+
+  @ApiProperty({ example: 520, description: '总金额（元），由服务端统一计算' })
+  totalAmount: number;
 }
 
 export class PurchaseStatsResponseDto {

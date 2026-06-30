@@ -110,6 +110,7 @@ export async function queryPurchaseProducts(
   return prisma.product.findMany({
     where: {
       storeId: params.storeId,
+      deletedAt: null,
       id: { in: params.productIds },
     },
     select: {

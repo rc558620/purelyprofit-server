@@ -158,6 +158,7 @@ export class AuthRegisterStoreService {
   ): Promise<void> {
     const store = await this.prisma.store.findFirst({
       where: {
+        deletedAt: null,
         OR: [
           { ownerId: user.id },
           {

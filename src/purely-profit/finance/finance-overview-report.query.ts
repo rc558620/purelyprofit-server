@@ -129,7 +129,7 @@ export async function queryFinanceReportData(
     });
     return rows.map((row) => ({
       direction: row.direction,
-      amount: row._sum.amount ?? 0, // 数据库分，后续统一在 domain 层转元
+      amount: Number(row._sum.amount ?? 0), // 数据库分，后续统一在 domain 层转元
     }));
   })();
 
@@ -183,10 +183,11 @@ export async function queryOverviewCategoryTotals(
     ? new Date(params.prevEnd!)
     : new Date(params.currentStart);
 
+  // 金额在数据库中存为分（Int），SQL 直接 SUM 整数，避免 ROUND 引入浮点误差
   const rows = await prisma.$queryRaw<OverviewCategoryTotalRow[]>`
     SELECT
       category,
-      ROUND(SUM(amount), 2) AS "total"
+      SUM(amount) AS "total"
     FROM finance_cash_flow_records
     WHERE store_id = ${params.storeId}
       AND date >= ${new Date(params.currentStart)}
@@ -199,7 +200,7 @@ export async function queryOverviewCategoryTotals(
     prevRows = await prisma.$queryRaw<OverviewCategoryTotalRow[]>`
       SELECT
         category,
-        ROUND(SUM(amount), 2) AS "total"
+        SUM(amount) AS "total"
       FROM finance_cash_flow_records
       WHERE store_id = ${params.storeId}
         AND date >= ${prevStart}
@@ -234,11 +235,12 @@ export async function queryOverviewDailyTrend(
     end: number;
   },
 ): Promise<Array<{ day: number; income: number; expense: number }>> {
+  // 金额在数据库中存为分（Int），SQL 直接 SUM 整数，避免 ROUND 引入浮点误差
   const rows = await prisma.$queryRaw<OverviewDailyTrendRow[]>`
     SELECT
       DATE_TRUNC('day', date)::date AS "day",
-      ROUND(SUM(amount) FILTER (WHERE direction = 'income'), 2) AS "income_total",
-      ROUND(SUM(amount) FILTER (WHERE direction = 'expense'), 2) AS "expense_total"
+      SUM(amount) FILTER (WHERE direction = 'income') AS "income_total",
+      SUM(amount) FILTER (WHERE direction = 'expense') AS "expense_total"
     FROM finance_cash_flow_records
     WHERE store_id = ${params.storeId}
       AND date >= ${new Date(params.start)}
@@ -249,6 +251,44 @@ export async function queryOverviewDailyTrend(
 
   return rows.map((r) => ({
     day: r.day.getTime(),
+    income: Money.fromDbCents(Number(r.income_total ?? 0)).toDbCents(),
+    expense: Money.fromDbCents(Number(r.expense_total ?? 0)).toDbCents(),
+  }));
+}
+
+// ─── 年度月聚合趋势查询 ───────────────────────────────────────────
+
+interface OverviewMonthlyTrendRow {
+  month: Date;
+  income_total: bigint | number | null;
+  expense_total: bigint | number | null;
+}
+
+/** 按月聚合趋势数据，用于 year 周期，避免前端对浮点金额做 += 累加 */
+export async function queryOverviewMonthlyTrend(
+  prisma: PrismaService,
+  params: {
+    storeId: number;
+    start: number;
+    end: number;
+  },
+): Promise<Array<{ month: number; income: number; expense: number }>> {
+  // 金额在数据库中存为分（Int），SQL 直接 SUM 整数，避免 ROUND 引入浮点误差
+  const rows = await prisma.$queryRaw<OverviewMonthlyTrendRow[]>`
+    SELECT
+      DATE_TRUNC('month', date)::date AS "month",
+      SUM(amount) FILTER (WHERE direction = 'income') AS "income_total",
+      SUM(amount) FILTER (WHERE direction = 'expense') AS "expense_total"
+    FROM finance_cash_flow_records
+    WHERE store_id = ${params.storeId}
+      AND date >= ${new Date(params.start)}
+      AND date <= ${new Date(params.end)}
+    GROUP BY DATE_TRUNC('month', date)
+    ORDER BY "month" ASC
+  `;
+
+  return rows.map((r) => ({
+    month: r.month.getTime(),
     income: Money.fromDbCents(Number(r.income_total ?? 0)).toDbCents(),
     expense: Money.fromDbCents(Number(r.expense_total ?? 0)).toDbCents(),
   }));

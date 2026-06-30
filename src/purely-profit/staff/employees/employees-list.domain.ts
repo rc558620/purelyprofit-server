@@ -33,6 +33,7 @@ export function buildEmployeeListWhere(
 ): Prisma.EmployeeWhereInput {
   return {
     storeId,
+    deletedAt: null,
     ...(query.status ? { status: query.status } : {}),
     ...(query.department
       ? { department: { equals: query.department, mode: 'insensitive' } }
@@ -42,7 +43,7 @@ export function buildEmployeeListWhere(
           OR: [
             { name: { contains: query.keyword, mode: 'insensitive' } },
             { empNo: { contains: query.keyword, mode: 'insensitive' } },
-            { phone: { contains: query.keyword } },
+            { phone: { startsWith: query.keyword } },
             { position: { contains: query.keyword, mode: 'insensitive' } },
             { department: { contains: query.keyword, mode: 'insensitive' } },
           ],

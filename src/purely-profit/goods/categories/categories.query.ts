@@ -31,6 +31,7 @@ export async function listCategoryRecords(
   return prisma.productCategory.findMany({
     where: {
       storeId: params.storeId,
+      deletedAt: null,
       ...(params.keyword
         ? {
             name: {
@@ -62,6 +63,7 @@ export async function findCategoryDuplicateByName(
   return prisma.productCategory.findFirst({
     where: {
       storeId: params.storeId,
+      deletedAt: null,
       name: {
         equals: params.name,
         mode: 'insensitive',

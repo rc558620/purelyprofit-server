@@ -22,6 +22,7 @@ import {
   queryRechargeRowById,
 } from './marketing.query';
 import { MarketingSharedService } from './marketing-shared.service';
+import { Money } from '../../shared/money.utils';
 import {
   buildMarketingPaginationMeta,
   resolveMarketingPagination,
@@ -122,10 +123,13 @@ export class MarketingRechargesService {
     }
 
     const rechargeType = dto.type ?? 'recharge';
-    const giftAmount = dto.giftAmount ?? 0;
-    const totalIn = dto.amount + giftAmount;
 
-    if (rechargeType === 'refund' && customer.balance < dto.amount) {
+    // ── 金额全链路走 Money：入站分→Money 对象→计算→入库分 ──
+    const rechargeMoney = Money.fromDbCents(dto.amount);
+    const giftMoney = Money.fromDbCents(dto.giftAmount ?? 0);
+    const totalMoney = rechargeMoney.add(giftMoney);
+
+    if (rechargeType === 'refund' && Money.fromDbCents(customer.balance).lessThan(rechargeMoney)) {
       throw new BadRequestException('退款金额不能超过顾客当前余额');
     }
 
@@ -136,7 +140,7 @@ export class MarketingRechargesService {
           where: { id: dto.customerId },
           select: { balance: true },
         });
-        if (!freshCustomer || freshCustomer.balance < dto.amount) {
+        if (!freshCustomer || Money.fromDbCents(freshCustomer.balance).lessThan(rechargeMoney)) {
           throw new BadRequestException('退款金额不能超过顾客当前余额');
         }
       }
@@ -145,15 +149,18 @@ export class MarketingRechargesService {
         data: {
           storeId,
           customerId: dto.customerId,
-          amount: dto.amount,
-          giftAmount,
+          amount: rechargeMoney.toDbCents(),
+          giftAmount: giftMoney.toDbCents(),
+          totalAmount: totalMoney.toDbCents(),
           type: rechargeType as never,
           promotionId: dto.promotionId ?? null,
           note: dto.note?.trim() || null,
         },
       });
 
-      const balanceDelta = rechargeType === 'refund' ? -dto.amount : totalIn;
+      const balanceDelta = rechargeType === 'refund'
+        ? rechargeMoney.negate().toDbCents()
+        : totalMoney.toDbCents();
 
       await tx.marketingCustomer.update({
         where: { id: dto.customerId },

@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { Money } from '../../shared/money.utils';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type {
+  ClubRecordSummaryDto,
   ClubRecordsResponseDto,
   ListClubRecordsQueryDto,
 } from './dto/club-record.dto';
@@ -30,6 +32,7 @@ export class ClubRecordsService {
         total: 0,
         nextCursorCreatedAt: null,
         nextCursorId: null,
+        summary: { totalRechargeAmount: 0, totalConsumeAmount: 0 },
       };
     }
 
@@ -59,11 +62,18 @@ export class ClubRecordsService {
     const nextCursorCreatedAt = lastItem?.createdAt ?? null;
     const nextCursorId = lastItem?.id ?? null;
 
+    // 计算汇总：基于数据库聚合而非前端遍历，保证精度
+    const summary = await this.clubRecordQueryService.calculateSummary(
+      currentContext.store.id,
+      customer.id,
+    );
+
     return {
       items,
       total,
       nextCursorCreatedAt,
       nextCursorId,
+      summary,
     };
   }
 

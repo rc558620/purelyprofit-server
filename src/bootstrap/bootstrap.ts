@@ -19,56 +19,36 @@ import { createRequestIdGenerator } from './request-id.utils';
 import { filterSwaggerDocumentForEnvironment } from './swagger.utils';
 
 /**
- * BigInt 安全的 JSON 序列化。
+ * 轻量的 BigInt/Decimal 安全 JSON 序列化。
  *
- * Prisma 的 count/sum 聚合查询和 bigint 类型字段会返回 BigInt，
- * 原生 JSON.stringify 遇到 BigInt 会抛出 TypeError。
- * 此函数在序列化前递归将 BigInt 转为 Number（安全整数范围内）或 String，
- * 并将 Prisma.Decimal（duck-typing：有 toNumber 且非 Date/Array）转为 Number。
+ * 使用 JSON.stringify replacer 而非递归遍历整个对象树：
+ * - 只有实际遇到 BigInt 时才转换，其余值走原生序列化路径
+ * - Prisma.Decimal（duck-typing：有 toNumber 且非 Date/Array）→ Number
+ * - 不再在序列化前做 normalizeForSerialization 深遍历
+ *
+ * 此函数作为全局 replySerializer 的兜底，正常情况下数据层已经
+ * 将 BigInt/Decimal 显式转为 number/string，replacer 不会被触发。
  */
-function bigIntSafeStringify(value: unknown): string {
-  return JSON.stringify(normalizeForSerialization(value));
-}
-
-function normalizeForSerialization(value: unknown): unknown {
-  if (value === null || value === undefined) {
-    return value;
-  }
-
-  if (typeof value === 'bigint') {
-    return Number.isSafeInteger(Number(value)) ? Number(value) : String(value);
-  }
-
-  if (
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    !(value instanceof Date) &&
-    typeof (value as Record<string, unknown>).toNumber === 'function'
-  ) {
-    try {
-      return (value as { toNumber: () => number }).toNumber();
-    } catch {
-      return (value as { toString: () => string }).toString();
+function safeJsonStringify(value: unknown): string {
+  return JSON.stringify(value, (_key: string, v: unknown) => {
+    if (typeof v === 'bigint') {
+      return Number.isSafeInteger(Number(v)) ? Number(v) : String(v);
     }
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(normalizeForSerialization);
-  }
-
-  if (value instanceof Date) {
-    return value;
-  }
-
-  if (typeof value === 'object') {
-    const result: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      result[k] = normalizeForSerialization(v);
+    if (
+      typeof v === 'object' &&
+      v !== null &&
+      !Array.isArray(v) &&
+      !(v instanceof Date) &&
+      typeof (v as Record<string, unknown>).toNumber === 'function'
+    ) {
+      try {
+        return (v as { toNumber: () => number }).toNumber();
+      } catch {
+        return (v as { toString: () => string }).toString();
+      }
     }
-    return result;
-  }
-
-  return value;
+    return v;
+  });
 }
 
 function resolveCorsOrigin(corsOrigin: string): true | string[] {
@@ -242,17 +222,22 @@ export async function bootstrap(): Promise<void> {
   // 仅对微信支付回调路由注入 rawBody（签名校验需要原始请求体）
   setupRawBodyForWechatCallback(app);
 
-  // 注册 BigInt 安全的响应序列化器。
-  // Fastify 默认使用 fast-json-stringify，遇到 BigInt 会抛出 TypeError。
-  // 通过 setReplySerializer 在序列化层面统一处理 BigInt → Number/String，
-  // 防止 Prisma 聚合查询（count/sum）返回的 BigInt 导致 500 错误。
+  // 注册 BigInt/Decimal 安全的响应序列化器作为兜底。
+  //
+  // 正常情况下，数据层已将 BigInt/Decimal 显式转为 number/string，
+  // replacer 不会被触发。此序列化器仅防止遗漏的 BigInt/Decimal
+  // 导致 JSON.stringify 抛出 TypeError（Fastify 默认的 fast-json-stringify
+  // 和原生 JSON.stringify 都无法处理 BigInt）。
+  //
+  // 使用 replacer 而非 normalizeForSerialization 深遍历，
+  // 避免每个响应都递归遍历整个对象树带来的性能开销。
   const fastifyInstance = app.getHttpAdapter().getInstance();
   if (typeof fastifyInstance.setReplySerializer === 'function') {
     fastifyInstance.setReplySerializer((payload: unknown) => {
       if (typeof payload === 'string') {
         return payload;
       }
-      return bigIntSafeStringify(payload);
+      return safeJsonStringify(payload);
     });
   }
 

@@ -23,6 +23,8 @@ model MarketingPromotion {
   description   String                 @default("")
   /// 优惠参数（JSON，按 type 存不同结构）
   params        Json                   @default("{}")
+  /// 后端预计算的展示文案（如 "打 8 折"、"满 ¥50 减 ¥8"、"充 ¥100 赠 ¥10 起"）
+  displayText   String?                @map("display_text")
   /// 开始时间
   startAt       DateTime               @map("start_at")
   /// 结束时间

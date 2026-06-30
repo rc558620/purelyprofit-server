@@ -23,9 +23,11 @@ import type {
   UpdateProductDto,
 } from './dto/product.dto';
 import {
+  deriveProductProfit,
   ensureProductCategory,
   ensureUniqueProductCode,
   resolveProductCode,
+  validateDerivedProfit,
 } from './products.domain';
 import { buildProductResponse } from './products.mapper';
 import {
@@ -120,13 +122,17 @@ export class ProductsService {
     await this.platformMembershipAccessService.ensureProductQuotaAvailable(
       storeId,
     );
-    this.validateMoneyFields(
-      Money.fromInputYuan(dto.price),
-      Money.fromInputYuan(dto.profit),
+
+    // 服务端重算利润：不再信任 dto.profit，由 price 与 costPrice 推导
+    const priceMoney = Money.fromInputYuan(dto.price);
+    const costPriceMoney =
       dto.costPrice !== undefined && dto.costPrice !== null
         ? Money.fromInputYuan(dto.costPrice)
-        : null,
-    );
+        : null;
+    const profitMoney = deriveProductProfit(priceMoney, costPriceMoney);
+
+    this.validateMoneyFields(priceMoney, costPriceMoney);
+    validateDerivedProfit(profitMoney);
 
     const categoryName = dto.category.trim();
     const category = await ensureProductCategory(this.prisma, {
@@ -140,7 +146,7 @@ export class ProductsService {
 
     const product = await createProductRecord(
       this.prisma,
-      this.buildCreateProductData(dto, storeId, category?.id ?? null, code),
+      this.buildCreateProductData(dto, storeId, category?.id ?? null, code, profitMoney),
     );
 
     return buildProductResponse(product);
@@ -164,21 +170,23 @@ export class ProductsService {
       '无权操作该门店商品',
     );
 
-    this.validateMoneyFields(
+    // 服务端重算利润：合并 dto 与现有记录，推导最终 profit
+    const nextPrice =
       dto.price !== undefined
         ? Money.fromInputYuan(dto.price)
-        : Money.fromDbCents(product.price),
-      dto.profit !== undefined
-        ? Money.fromInputYuan(dto.profit)
-        : Money.fromDbCents(product.profit),
+        : Money.fromDbCents(product.price);
+    const nextCostPrice =
       dto.costPrice !== undefined
         ? dto.costPrice !== null
           ? Money.fromInputYuan(dto.costPrice)
           : null
         : product.costPrice !== null
           ? Money.fromDbCents(product.costPrice)
-          : null,
-    );
+          : null;
+    const nextProfit = deriveProductProfit(nextPrice, nextCostPrice);
+
+    this.validateMoneyFields(nextPrice, nextCostPrice);
+    validateDerivedProfit(nextProfit);
 
     const nextCode = dto.code?.trim();
     if (nextCode && nextCode !== product.code) {
@@ -209,7 +217,7 @@ export class ProductsService {
     const updated = await updateProductRecord(
       this.prisma,
       product.id,
-      this.buildUpdateProductData(dto, resolvedCode, resolvedCategoryUpdate),
+      this.buildUpdateProductData(dto, resolvedCode, resolvedCategoryUpdate, nextProfit),
     );
 
     return buildProductResponse(updated);
@@ -249,6 +257,7 @@ export class ProductsService {
     storeId: number,
     categoryId: number | null,
     code: string,
+    profitMoney: Money,
   ): ProductCreateInput {
     return {
       storeId,
@@ -257,7 +266,7 @@ export class ProductsService {
       code,
       name: dto.name.trim(),
       price: Money.fromInputYuan(dto.price).toDbCents(),
-      profit: Money.fromInputYuan(dto.profit).toDbCents(),
+      profit: profitMoney.toDbCents(), // 服务端重算，忽略 dto.profit
       costPrice:
         dto.costPrice !== undefined && dto.costPrice !== null
           ? Money.fromInputYuan(dto.costPrice).toDbCents()
@@ -274,6 +283,7 @@ export class ProductsService {
     dto: UpdateProductDto,
     nextCode?: string,
     categoryUpdate?: { category: string; categoryId: number },
+    nextProfit?: Money,
   ): ProductUpdateInput {
     return {
       ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
@@ -287,8 +297,9 @@ export class ProductsService {
       ...(dto.price !== undefined
         ? { price: Money.fromInputYuan(dto.price).toDbCents() }
         : {}),
-      ...(dto.profit !== undefined
-        ? { profit: Money.fromInputYuan(dto.profit).toDbCents() }
+      // profit 由服务端重算，忽略 dto.profit
+      ...(nextProfit !== undefined
+        ? { profit: nextProfit.toDbCents() }
         : {}),
       ...(dto.costPrice !== undefined
         ? {
@@ -315,15 +326,10 @@ export class ProductsService {
 
   private validateMoneyFields(
     price: Money,
-    profit: Money,
     costPrice?: Money | null,
   ): void {
     if (!price.isPositive()) {
       throw new BadRequestException('售价必须大于 0');
-    }
-
-    if (!profit.isPositive()) {
-      throw new BadRequestException('每单利润必须大于 0');
     }
 
     if (costPrice !== undefined && costPrice !== null && costPrice.isNegative()) {

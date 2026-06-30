@@ -11,9 +11,11 @@ import { PlatformMembershipAccessService } from '../../member/platform-membershi
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { ProductResponseDto } from './dto/product.dto';
 import {
+  deriveProductProfit,
   ensureProductCategory,
   ensureUniqueProductCode,
   resolveProductCode,
+  validateDerivedProfit,
 } from './products.domain';
 import { buildProductResponse } from './products.mapper';
 import {
@@ -27,11 +29,18 @@ import {
 import { ProductsService } from './products.service';
 import type { ProductRecord } from './products.types';
 
-jest.mock('./products.domain', () => ({
-  ensureProductCategory: jest.fn(),
-  ensureUniqueProductCode: jest.fn(),
-  resolveProductCode: jest.fn(),
-}));
+jest.mock('./products.domain', () => {
+  const actual = jest.requireActual('./products.domain');
+  return {
+    ensureProductCategory: jest.fn(),
+    ensureUniqueProductCode: jest.fn(),
+    resolveProductCode: jest.fn(),
+    // deriveProductProfit 和 validateDerivedProfit 使用真实实现，
+    // 以便测试 service 层的利润重算逻辑
+    deriveProductProfit: actual.deriveProductProfit,
+    validateDerivedProfit: actual.validateDerivedProfit,
+  };
+});
 
 jest.mock('./products.query', () => ({
   createProductRecord: jest.fn(),
@@ -65,9 +74,11 @@ describe('ProductsService', () => {
     ensureProductQuotaAvailable: jest.fn(),
   };
 
+  const mockedDeriveProductProfit = jest.mocked(deriveProductProfit);
   const mockedEnsureProductCategory = jest.mocked(ensureProductCategory);
   const mockedEnsureUniqueProductCode = jest.mocked(ensureUniqueProductCode);
   const mockedResolveProductCode = jest.mocked(resolveProductCode);
+  const mockedValidateDerivedProfit = jest.mocked(validateDerivedProfit);
   const mockedBuildProductResponse = jest.mocked(buildProductResponse);
   const mockedCreateProductRecord = jest.mocked(createProductRecord);
   const mockedDeleteProductRecord = jest.mocked(deleteProductRecord);
@@ -471,6 +482,7 @@ describe('ProductsService', () => {
       storeId,
       code: 'SKU-001',
     });
+    // profit = price(5) - costPrice(3) = 2 → 服务端重算，忽略 dto.profit
     expect(mockedCreateProductRecord).toHaveBeenCalledWith(prismaService, {
       storeId,
       categoryId,
@@ -489,6 +501,87 @@ describe('ProductsService', () => {
     expect(mockedBuildProductResponse).toHaveBeenCalledWith(created);
   });
 
+  it('create 时前端传入假 profit 会被服务端重算覆盖', async () => {
+    const created = createProductRecordFixture();
+    const response = createProductResponseFixture({ record: created });
+    setupCreateMocks({ created, response });
+
+    // 前端传入 profit=9999（篡改值），但 price=5, costPrice=3
+    await service.create(user, {
+      storeId: 18,
+      category: '饮品',
+      name: '可乐',
+      price: 5,
+      profit: 9999,
+      costPrice: 3,
+      unit: '瓶',
+    });
+
+    // 入库的 profit 应是 5-3=2（200分），而非 9999
+    expect(mockedCreateProductRecord).toHaveBeenCalledWith(
+      prismaService,
+      expect.objectContaining({ profit: 200 }),
+    );
+  });
+
+  it('create 时不传 profit 也能正常创建', async () => {
+    const created = createProductRecordFixture();
+    const response = createProductResponseFixture({ record: created });
+    setupCreateMocks({ created, response });
+
+    await service.create(user, {
+      storeId: 18,
+      category: '饮品',
+      name: '可乐',
+      price: 5,
+      costPrice: 3,
+      unit: '瓶',
+    });
+
+    // profit 由服务端重算：5 - 3 = 2
+    expect(mockedCreateProductRecord).toHaveBeenCalledWith(
+      prismaService,
+      expect.objectContaining({ profit: 200 }),
+    );
+  });
+
+  it('create 时不传 costPrice 则 profit 等于 price', async () => {
+    const created = createProductRecordFixture({ costPrice: null });
+    const response = createProductResponseFixture({ record: created });
+    setupCreateMocks({ created, response });
+
+    await service.create(user, {
+      storeId: 18,
+      category: '饮品',
+      name: '可乐',
+      price: 6.5,
+      unit: '瓶',
+    });
+
+    // 无成本价时 profit = price = 6.5
+    expect(mockedCreateProductRecord).toHaveBeenCalledWith(
+      prismaService,
+      expect.objectContaining({ profit: 650, costPrice: null }),
+    );
+  });
+
+  it('create 时 costPrice 大于 price 会被 validateDerivedProfit 拦截', async () => {
+    setupCreateMocks();
+
+    await expect(
+      service.create(user, {
+        storeId: 18,
+        category: '饮品',
+        name: '可乐',
+        price: 3,
+        costPrice: 5,
+        unit: '瓶',
+      }),
+    ).rejects.toThrow('每单利润必须大于 0');
+
+    expect(mockedCreateProductRecord).not.toHaveBeenCalled();
+  });
+
   it('create 的领域前置校验失败时不会继续调用 query', async () => {
     setupCreateMocks({
       quotaError: new ForbiddenException(
@@ -503,7 +596,6 @@ describe('ProductsService', () => {
         code: 'SKU-001',
         name: '可乐',
         price: 5,
-        profit: 2,
         costPrice: 3,
         unit: '瓶',
       }),
@@ -564,8 +656,78 @@ describe('ProductsService', () => {
       code: nextCode,
       image: null,
       description: null,
+      // profit 由服务端重算：price(500分) - costPrice(300分) = 200分
+      profit: 200,
     });
     expect(mockedBuildProductResponse).toHaveBeenCalledWith(updated);
+  });
+
+  it('update 只改 price 时 profit 联动重算', async () => {
+    const current = createProductRecordFixture({ price: 500, costPrice: 300, profit: 200 });
+    setupUpdateMocks({ current });
+
+    await service.update(user, 11, { price: 8 });
+
+    // profit = 8 - 3 = 5 → 500分
+    expect(mockedUpdateProductRecord).toHaveBeenCalledWith(
+      prismaService,
+      11,
+      expect.objectContaining({ price: 800, profit: 500 }),
+    );
+  });
+
+  it('update 只改 costPrice 时 profit 联动重算', async () => {
+    const current = createProductRecordFixture({ price: 500, costPrice: 300, profit: 200 });
+    setupUpdateMocks({ current });
+
+    await service.update(user, 11, { costPrice: 2 });
+
+    // profit = 5 - 2 = 3 → 300分
+    expect(mockedUpdateProductRecord).toHaveBeenCalledWith(
+      prismaService,
+      11,
+      expect.objectContaining({ costPrice: 200, profit: 300 }),
+    );
+  });
+
+  it('update 同时改 price 与 costPrice 时 profit 正确重算', async () => {
+    const current = createProductRecordFixture({ price: 500, costPrice: 300, profit: 200 });
+    setupUpdateMocks({ current });
+
+    await service.update(user, 11, { price: 10, costPrice: 6 });
+
+    // profit = 10 - 6 = 4 → 400分
+    expect(mockedUpdateProductRecord).toHaveBeenCalledWith(
+      prismaService,
+      11,
+      expect.objectContaining({ price: 1000, costPrice: 600, profit: 400 }),
+    );
+  });
+
+  it('update 只传 profit（不改 price/costPrice）时 profit 不生效，仍按重算值写入', async () => {
+    const current = createProductRecordFixture({ price: 500, costPrice: 300, profit: 200 });
+    setupUpdateMocks({ current });
+
+    // 前端试图单独修改 profit=9999，但后端忽略
+    await service.update(user, 11, { profit: 9999 });
+
+    // profit 仍 = price(500) - costPrice(300) = 200分
+    expect(mockedUpdateProductRecord).toHaveBeenCalledWith(
+      prismaService,
+      11,
+      expect.objectContaining({ profit: 200 }),
+    );
+  });
+
+  it('update 时 costPrice 改为大于 price 会被 validateDerivedProfit 拦截', async () => {
+    const current = createProductRecordFixture({ price: 500, costPrice: 300, profit: 200 });
+    setupUpdateMocks({ current });
+
+    await expect(
+      service.update(user, 11, { costPrice: 6 }),
+    ).rejects.toThrow('每单利润必须大于 0');
+
+    expect(mockedUpdateProductRecord).not.toHaveBeenCalled();
   });
 
   it('remove 会只编排访问校验和删除动作', async () => {
@@ -603,7 +765,6 @@ describe('ProductsService', () => {
         category: '饮品',
         name: '可乐',
         price: 0,
-        profit: 2,
         unit: '瓶',
       }),
     ).rejects.toThrow(new BadRequestException('售价必须大于 0'));

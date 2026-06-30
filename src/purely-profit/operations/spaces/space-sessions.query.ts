@@ -11,6 +11,9 @@ export const toSpaceSessionListQuery = (
   status: query.status,
   includeActive: query.includeActive,
   keyword: query.keyword,
+  guestName: query.guestName,
+  guestPhone: query.guestPhone,
+  spaceName: query.spaceName,
   rangeStartDate: query.rangeStartDate,
   rangeEndDate: query.rangeEndDate,
 });

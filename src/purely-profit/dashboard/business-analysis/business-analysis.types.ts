@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import type { Money } from '../../../shared/money.utils';
 
 export const BUSINESS_ANALYSIS_PERIOD_VALUES = [
@@ -25,21 +24,21 @@ export const BUSINESS_ANALYSIS_COST_CATEGORY_META = {
 export type CostBucketKey = keyof typeof BUSINESS_ANALYSIS_COST_CATEGORY_META;
 
 export interface BusinessAnalysisSalesSummaryRow {
-  currentRevenue: Prisma.Decimal | null;
+  currentRevenue: number;
   currentOrderCount: number;
-  previousRevenue: Prisma.Decimal | null;
+  previousRevenue: number;
   previousOrderCount: number;
 }
 
 export interface BusinessAnalysisDailyRevenueRow {
   bucketAt: Date;
-  revenue: Prisma.Decimal | null;
+  revenue: number;
 }
 
 export interface BusinessAnalysisCategoryRow {
   categoryName: string;
-  revenue: Prisma.Decimal | null;
-  profit: Prisma.Decimal | null;
+  revenue: number;
+  profit: number;
   quantity: number;
 }
 
@@ -47,25 +46,25 @@ export interface BusinessAnalysisRankRow {
   productId: number | null;
   productName: string;
   categoryName: string;
-  totalRevenue: Prisma.Decimal | null;
-  totalProfit: Prisma.Decimal | null;
+  totalRevenue: number;
+  totalProfit: number;
   quantity: number;
   image: string | null;
 }
 
 export interface BusinessAnalysisCostSummaryRow {
-  currentTotalCost: Prisma.Decimal | null;
-  previousTotalCost: Prisma.Decimal | null;
+  currentTotalCost: number;
+  previousTotalCost: number;
 }
 
 export interface BusinessAnalysisDailyCostRow {
   bucketAt: Date;
-  amount: Prisma.Decimal | null;
+  amount: number;
 }
 
 export interface BusinessAnalysisCostBucketRow {
   category: string;
-  amount: Prisma.Decimal | null;
+  amount: number;
 }
 
 export interface AggregatedCategory {

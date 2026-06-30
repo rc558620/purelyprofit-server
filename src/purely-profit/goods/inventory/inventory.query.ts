@@ -20,6 +20,7 @@ export async function queryInventoryProducts(
   const alertWhere = buildAlertWhereCondition(query.alertLevel);
   const where: Prisma.ProductWhereInput = {
     storeId,
+    deletedAt: null,
     isActive: true,
     ...(query.category ? { category: query.category } : {}),
     ...(query.keyword
@@ -178,6 +179,7 @@ export async function queryInventoryStatsRows(
   return prisma.product.findMany({
     where: {
       storeId,
+      deletedAt: null,
       isActive: true,
     },
     select: {

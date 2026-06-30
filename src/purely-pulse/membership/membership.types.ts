@@ -76,6 +76,7 @@ export interface PulseDeveloperPointsProfileRecord {
 export interface PulseDeveloperPointsLogRecord {
   id: number;
   source: 'purchase_bonus' | 'deduct_payment' | 'admin_adjust' | 'expire';
+  changeType: 'increase' | 'decrease';
   changeAmount: number;
   description: string;
   expireAt: Date | null;

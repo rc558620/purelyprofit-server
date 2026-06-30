@@ -36,6 +36,7 @@ export function buildListSpacesWhere(
   // Status filtering is done in-memory after deriving status from sessions/reservations.
   return {
     storeId,
+    deletedAt: null,
     ...(query.type
       ? {
           type: {
@@ -85,7 +86,7 @@ export async function reorderSpaceSortOrder(
   nextSortOrder: number,
 ): Promise<number> {
   const total = await transaction.space.count({
-    where: { storeId },
+    where: { storeId, deletedAt: null },
   });
   const targetSortOrder = normalizeTargetSortOrder(nextSortOrder, total);
 
@@ -195,6 +196,7 @@ export async function ensureSpaceNameUnique(
     where: {
       storeId: params.storeId,
       name: params.name,
+      deletedAt: null,
       ...(params.excludeSpaceId !== undefined
         ? { id: { not: params.excludeSpaceId } }
         : {}),

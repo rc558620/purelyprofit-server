@@ -58,7 +58,7 @@ export default () => ({
       10,
     ),
     sqlMetricsEnabled:
-      (process.env.APP_SQL_METRICS_ENABLED ?? 'true') === 'true',
+      (process.env.APP_SQL_METRICS_ENABLED ?? 'false') === 'true',
     defaultPageSize: parseInt(process.env.APP_DEFAULT_PAGE_SIZE ?? '20', 10),
     maxPageSize: parseInt(process.env.APP_MAX_PAGE_SIZE ?? '100', 10),
     cachePrewarmEnabled:
@@ -118,6 +118,11 @@ export default () => ({
       10,
     ),
     throttleLimit: parseInt(process.env.APP_THROTTLE_LIMIT ?? '100', 10),
+    /** SQL metrics 采样率：1 = 全量记录，10 = 每 10 条采样 1 条 */
+    sqlMetricsSampleRate: parseInt(
+      process.env.APP_SQL_METRICS_SAMPLE_RATE ?? '1',
+      10,
+    ),
   },
 
   database: {

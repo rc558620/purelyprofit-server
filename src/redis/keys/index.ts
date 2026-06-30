@@ -62,6 +62,8 @@ export {
   buildCostsReportAllPattern,
   buildCostsRecordsCacheKey,
   buildCostsRecordsPattern,
+  buildCostsDashboardCacheKey,
+  buildCostsDashboardPattern,
   buildCostsAllPattern,
   parseProfitDashboardHomeCacheKey,
   parseMarketingOverviewCacheKey,

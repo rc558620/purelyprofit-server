@@ -102,6 +102,10 @@ export class CostReportSummaryDto {
   @IsNumber({}, { message: '变动支出必须是数字' })
   variable: number;
 
+  @ApiProperty({ example: 40.31, description: '固定支出占总支出百分比' })
+  @IsNumber({}, { message: '固定占比必须是数字' })
+  fixedPercentage: number;
+
   @ApiProperty({ example: 16, description: '当前筛选周期记录条数' })
   @IsInt({ message: '记录条数必须是整数' })
   recordCount: number;
@@ -209,4 +213,51 @@ export class CostStatsResponseDto {
   @ApiProperty({ example: 16, description: '当前筛选周期记录条数' })
   @IsInt({ message: '记录条数必须是整数' })
   recordCount: number;
+}
+
+export class CostDashboardTrendDayDto {
+  @ApiProperty({ example: 1747180800000, description: '日期起始时间戳（毫秒）' })
+  @IsInt({ message: '日期时间戳必须是整数' })
+  date: number;
+
+  @ApiProperty({ example: '05/14', description: '日期展示标签' })
+  @IsString({ message: '日期标签必须是字符串' })
+  label: string;
+
+  @ApiProperty({ example: 5200, description: '当日固定支出' })
+  @IsNumber({}, { message: '固定支出必须是数字' })
+  fixed: number;
+
+  @ApiProperty({ example: 7680, description: '当日变动支出' })
+  @IsNumber({}, { message: '变动支出必须是数字' })
+  variable: number;
+
+  @ApiProperty({ example: 12880, description: '当日总支出' })
+  @IsNumber({}, { message: '总支出必须是数字' })
+  total: number;
+}
+
+export class CostDashboardResponseDto {
+  @ApiProperty({ type: CostStatsResponseDto, description: '成本汇总统计' })
+  @ValidateNested()
+  @Type(() => CostStatsResponseDto)
+  summary: CostStatsResponseDto;
+
+  @ApiProperty({
+    type: [CostReportCategoryRowDto],
+    description: '成本分类汇总（用于环形图）',
+  })
+  @IsArray({ message: '成本分类汇总必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => CostReportCategoryRowDto)
+  categories: CostReportCategoryRowDto[];
+
+  @ApiProperty({
+    type: [CostDashboardTrendDayDto],
+    description: '近 7 日趋势数据（用于堆叠柱状图）',
+  })
+  @IsArray({ message: '趋势数据必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => CostDashboardTrendDayDto)
+  trend: CostDashboardTrendDayDto[];
 }

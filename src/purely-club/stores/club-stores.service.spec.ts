@@ -199,6 +199,7 @@ describe('ClubStoresService', () => {
     expect(prismaService.store.findFirst).toHaveBeenCalledWith({
       where: {
         id: 18,
+        deletedAt: null,
         members: {
           some: {
             phone: '13800138000',

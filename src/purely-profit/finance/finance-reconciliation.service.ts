@@ -26,8 +26,8 @@ import type {
 import {
   buildReconciliationItemCreateInput,
   buildReconciliationStats,
+  deriveReconciliationAmountsAndStatus,
   mapReconciliationRecord,
-  normalizeCreateReconciliationStatus,
 } from './finance-reconciliation.domain';
 import { FinanceAccessService } from './finance-access.service';
 import {
@@ -112,17 +112,20 @@ export class FinanceReconciliationService {
     const operatorStaffId = user.currentMembership?.staffId ?? null;
     const bookIncome = Money.fromInputYuan(dto.bookIncome);
     const bookExpense = Money.fromInputYuan(dto.bookExpense);
-    const actualIncome = Money.fromInputYuan(dto.actualIncome);
-    const actualExpense = Money.fromInputYuan(dto.actualExpense);
-    const bookNet = bookIncome.subtract(bookExpense);
-    const actualNet = actualIncome.subtract(actualExpense);
-    const diffAmount = actualNet.subtract(bookNet);
-    const status = normalizeCreateReconciliationStatus(
-      dto.status,
-      actualIncome,
-      actualExpense,
-      diffAmount,
-    );
+    const actualIncome =
+      dto.actualIncome != null ? Money.fromInputYuan(dto.actualIncome) : null;
+    const actualExpense =
+      dto.actualExpense != null ? Money.fromInputYuan(dto.actualExpense) : null;
+
+    // 统一派生：后端是唯一真相源，前端不再传 status
+    const { bookNet, actualNet, diffAmount, status } =
+      deriveReconciliationAmountsAndStatus(
+        bookIncome,
+        bookExpense,
+        actualIncome,
+        actualExpense,
+      );
+
     const items = (dto.items ?? []).map((item) =>
       buildReconciliationItemCreateInput(item),
     );
@@ -140,8 +143,8 @@ export class FinanceReconciliationService {
       bookIncome: bookIncome.toDbCents(),
       bookExpense: bookExpense.toDbCents(),
       bookNet: bookNet.toDbCents(),
-      actualIncome: actualIncome.toDbCents(),
-      actualExpense: actualExpense.toDbCents(),
+      actualIncome: (actualIncome ?? Money.zero()).toDbCents(),
+      actualExpense: (actualExpense ?? Money.zero()).toDbCents(),
       actualNet: actualNet.toDbCents(),
       diffAmount: diffAmount.toDbCents(),
       operator: trimOptionalString(dto.operator),

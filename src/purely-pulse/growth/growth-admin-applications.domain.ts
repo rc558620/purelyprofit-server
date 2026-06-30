@@ -14,6 +14,7 @@ import {
   formatDateTime,
   resolveRegionCity,
 } from './growth-admin.shared';
+import { Money } from '../../shared/money.utils';
 
 type AdminPayoutStatus = 'pending' | 'approved' | 'paid' | 'rejected';
 
@@ -205,7 +206,7 @@ function mapAdminPayoutItem(withdrawal: AdminPayoutRecord): AdminPayoutItem {
     partnerPhone: withdrawal.partner.phone ?? '',
     partnerCity: resolveRegionCity(withdrawal.partner.region),
     partnerAvatarUrl: withdrawal.partner.store?.owner?.avatar ?? undefined,
-    amount: withdrawal.rmbAmount,
+    amount: Money.fromDbCents(withdrawal.rmbAmount).toDbCents(),
     accountType: withdrawal.accountType,
     accountNo: withdrawal.accountNo,
     accountName: withdrawal.accountName,

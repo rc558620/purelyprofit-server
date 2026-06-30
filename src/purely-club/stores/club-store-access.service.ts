@@ -49,6 +49,7 @@ export class ClubStoreAccessService {
 
     const stores = await this.prisma.store.findMany({
       where: {
+        deletedAt: null,
         members: {
           some: {
             phone: this.resolveMemberPhone(user),
@@ -75,6 +76,7 @@ export class ClubStoreAccessService {
     return this.prisma.store.findFirst({
       where: {
         id: storeId,
+        deletedAt: null,
         members: {
           some: {
             phone: this.resolveMemberPhone(user),
@@ -210,7 +212,7 @@ export class ClubStoreAccessService {
     }
 
     return this.prisma.store.findFirst({
-      where: { id: storeId },
+      where: { id: storeId, deletedAt: null },
       select: clubAccessibleStoreSelect,
     });
   }

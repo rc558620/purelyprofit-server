@@ -112,11 +112,15 @@ export class CreateProductDto {
   @Min(0.01, { message: '售价必须大于 0' })
   price: number;
 
-  @ApiProperty({ example: 2.5, description: '单件利润（元）' })
+  @ApiPropertyOptional({
+    example: 2.5,
+    description: '单件利润（元）；前端预览/兼容字段，服务端按售价与成本价重算，不直接采用',
+  })
+  @IsOptional()
   @Type(() => Number)
   @IsNumber({}, { message: '单件利润必须是数字' })
-  @Min(0.01, { message: '单件利润必须大于 0' })
-  profit: number;
+  @Min(0, { message: '单件利润不能为负数' })
+  profit?: number;
 
   @ApiPropertyOptional({ example: 4, description: '成本价（元）' })
   @IsOptional()
@@ -190,11 +194,14 @@ export class UpdateProductDto {
   @Min(0.01, { message: '售价必须大于 0' })
   price?: number;
 
-  @ApiPropertyOptional({ example: 2.5, description: '单件利润（元）' })
+  @ApiPropertyOptional({
+    example: 2.5,
+    description: '单件利润（元）；前端预览/兼容字段，服务端按售价与成本价重算，不直接采用',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsNumber({}, { message: '单件利润必须是数字' })
-  @Min(0.01, { message: '单件利润必须大于 0' })
+  @Min(0, { message: '单件利润不能为负数' })
   profit?: number;
 
   @ApiPropertyOptional({ example: 4, description: '成本价（元）' })

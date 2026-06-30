@@ -163,6 +163,7 @@ describe('PulseMembershipService admin', () => {
         id: 21,
         storeId: 18,
         source: 'purchase_bonus',
+        changeType: 'increase',
         changeAmount: 100,
         description: '购买会员赠送积分',
         expireAt: new Date('2027-01-01T00:00:00.000Z'),
@@ -183,7 +184,8 @@ describe('PulseMembershipService admin', () => {
         id: 20,
         storeId: 18,
         source: 'expire',
-        changeAmount: -30,
+        changeType: 'decrease',
+        changeAmount: 30,
         description: '积分过期扣减',
         expireAt: null,
         createdAt: new Date('2026-05-20T10:00:00.000Z'),
@@ -223,6 +225,7 @@ describe('PulseMembershipService admin', () => {
         id: true,
         storeId: true,
         source: true,
+        changeType: true,
         changeAmount: true,
         description: true,
         expireAt: true,
@@ -489,7 +492,7 @@ describe('PulseMembershipService admin', () => {
       status: 'active',
       level: 'quarterly',
       availablePoints: 2100,
-      totalRecharged: 99,
+      totalRecharged: 9900,
     });
   });
 
@@ -999,7 +1002,7 @@ describe('PulseMembershipService admin', () => {
       beanBalance: 12,
       invitedCount: 2,
       rechargeCount: 2,
-      totalRecharged: 468,
+      totalRecharged: 46800,
     });
     expect(result.rechargeHistory).toHaveLength(2);
   });

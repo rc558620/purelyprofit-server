@@ -44,6 +44,13 @@ export class BusinessAnalysisHeroSummaryDto {
   @Type(() => BusinessAnalysisCompareDataDto)
   profitRate: BusinessAnalysisCompareDataDto;
 
+  @ApiProperty({
+    type: BusinessAnalysisCompareDataDto,
+    description: '成本率对比',
+  })
+  @Type(() => BusinessAnalysisCompareDataDto)
+  costRate: BusinessAnalysisCompareDataDto;
+
   @ApiProperty({ example: 32, description: '当前周期订单数' })
   orderCount: number;
 }

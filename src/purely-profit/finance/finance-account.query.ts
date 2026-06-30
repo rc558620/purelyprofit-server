@@ -1,5 +1,5 @@
 import { FinanceAccountStatus, Prisma } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaService } from '../../prisma/prisma.service';
 import { withDerivedAccountFields } from './finance-account.domain';
 import { DAY_MS } from './finance.constants';
 import { buildPaginationState } from './finance-pagination.utils';
@@ -15,6 +15,50 @@ export type DerivedFinanceAccountStatusFilter = Exclude<
 >;
 
 const ZERO_MONEY = 0; // Step 3: Int（分）
+
+/**
+ * 刷新逾期状态：将数据库中 status=pending 且 dueDate < now 的记录更新为 overdue。
+ * 由于 overdue 是时间依赖的派生状态，数据库 status 可能在时间流逝后与事实不一致，
+ * 需要在查询前同步刷新，确保后续 WHERE status = 'overdue' 能命中所有逾期记录。
+ *
+ * 该函数设计为幂等：仅更新 status=pending 且已过 dueDate 的记录，
+ * 不影响 status=partial/overdue/settled 的记录。
+ */
+async function refreshOverdueStatuses(
+  prisma: PrismaService,
+  storeId: number,
+): Promise<void> {
+  const now = new Date();
+  await prisma.financeAccountRecord.updateMany({
+    where: {
+      storeId,
+      status: FinanceAccountStatus.pending,
+      dueDate: { lt: now, not: null },
+      remaining: { gt: ZERO_MONEY },
+    },
+    data: {
+      status: FinanceAccountStatus.overdue,
+    },
+  });
+}
+
+/**
+ * 基于数据库 status 字段构建 where 条件（走索引）。
+ *
+ * 状态口径说明：
+ * - pending / partial / settled / overdue 均在写入时落库为事实字段
+ * - overdue 需在查询前通过 refreshOverdueStatuses 刷新，因为它是时间依赖的派生状态
+ * - 展示层仍通过 withDerivedAccountFields 兜底，防止数据库 status 与事实短暂不一致
+ */
+function buildFinanceAccountStatusWhere(
+  storeId: number,
+  statusFilter: Exclude<FinanceAccountStatusFilterValue, 'all'>,
+): Prisma.FinanceAccountRecordWhereInput {
+  return {
+    storeId,
+    status: statusFilter,
+  };
+}
 
 export function buildDerivedClosedAccountWhere(params: {
   storeId: number;
@@ -32,29 +76,13 @@ export function buildDerivedFinanceAccountStatusWhere(params: {
 }): Prisma.FinanceAccountRecordWhereInput {
   switch (params.status) {
     case 'pending':
-      return {
-        storeId: params.storeId,
-        paidAmount: ZERO_MONEY,
-        remaining: { gt: ZERO_MONEY },
-        OR: [{ dueDate: null }, { dueDate: { gte: new Date(params.now) } }],
-      };
+      return buildFinanceAccountStatusWhere(params.storeId, 'pending');
     case 'partial':
-      return {
-        storeId: params.storeId,
-        paidAmount: { gt: ZERO_MONEY },
-        remaining: { gt: ZERO_MONEY },
-      };
+      return buildFinanceAccountStatusWhere(params.storeId, 'partial');
     case 'settled':
-      return buildDerivedClosedAccountWhere({
-        storeId: params.storeId,
-      });
+      return buildFinanceAccountStatusWhere(params.storeId, 'settled');
     case 'overdue':
-      return {
-        storeId: params.storeId,
-        dueDate: { lt: new Date(params.now) },
-        paidAmount: ZERO_MONEY,
-        remaining: { gt: ZERO_MONEY },
-      };
+      return buildFinanceAccountStatusWhere(params.storeId, 'overdue');
   }
 }
 
@@ -63,23 +91,14 @@ export function buildDerivedOpenAccountWhere(params: {
   now: number;
 }): Prisma.FinanceAccountRecordWhereInput {
   return {
-    OR: [
-      buildDerivedFinanceAccountStatusWhere({
-        storeId: params.storeId,
-        status: 'pending',
-        now: params.now,
-      }),
-      buildDerivedFinanceAccountStatusWhere({
-        storeId: params.storeId,
-        status: 'partial',
-        now: params.now,
-      }),
-      buildDerivedFinanceAccountStatusWhere({
-        storeId: params.storeId,
-        status: 'overdue',
-        now: params.now,
-      }),
-    ],
+    storeId: params.storeId,
+    status: {
+      in: [
+        FinanceAccountStatus.pending,
+        FinanceAccountStatus.partial,
+        FinanceAccountStatus.overdue,
+      ],
+    },
   };
 }
 
@@ -132,15 +151,7 @@ function buildFinanceAccountWhere(
 
   if (query.statusFilter && query.statusFilter !== 'all') {
     conditions.push(
-      query.statusFilter === 'settled'
-        ? buildDerivedClosedAccountWhere({
-            storeId,
-          })
-        : buildDerivedFinanceAccountStatusWhere({
-            storeId,
-            status: query.statusFilter,
-            now: Date.now(),
-          }),
+      buildFinanceAccountStatusWhere(storeId, query.statusFilter),
     );
   }
 
@@ -172,6 +183,9 @@ export async function queryAccountRecords(
   storeId: number,
   query: FinanceAccountsListQueryInput,
 ): Promise<{ items: FinanceAccountRecordWithAmount[]; total: number }> {
+  // 查询前刷新逾期状态，确保数据库 status 与事实一致
+  await refreshOverdueStatuses(prisma, storeId);
+
   const where = buildFinanceAccountWhere(storeId, query);
   const pageState = buildPaginationState(query.page, query.pageSize);
 
@@ -186,6 +200,7 @@ export async function queryAccountRecords(
     }),
   ]);
 
+  // 展示层仍通过 withDerivedAccountFields 兜底，确保 remaining 和 status 与事实一致
   const derivedRecords = records.map((record) =>
     withDerivedAccountFields(record),
   );
@@ -200,6 +215,9 @@ export async function queryAccountStatsRows(
   prisma: PrismaService,
   storeId: number,
 ): Promise<FinanceAccountRecordWithAmount[]> {
+  // 统计前也刷新逾期状态
+  await refreshOverdueStatuses(prisma, storeId);
+
   return prisma.financeAccountRecord.findMany({
     where: { storeId },
     orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],

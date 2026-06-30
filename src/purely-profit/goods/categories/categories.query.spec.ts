@@ -75,6 +75,7 @@ describe('categories.query', () => {
     expect(productCategoryFindMany).toHaveBeenCalledWith({
       where: {
         storeId: 18,
+        deletedAt: null,
         name: {
           contains: '饮',
           mode: 'insensitive',
@@ -113,6 +114,7 @@ describe('categories.query', () => {
     expect(productCategoryFindFirst).toHaveBeenCalledWith({
       where: {
         storeId: 18,
+        deletedAt: null,
         name: {
           equals: '饮品',
           mode: 'insensitive',

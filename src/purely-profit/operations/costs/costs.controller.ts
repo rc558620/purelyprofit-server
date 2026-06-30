@@ -34,6 +34,7 @@ import {
   ListCostRecordsQueryDto,
 } from './dto/costs-query.dto';
 import {
+  CostDashboardResponseDto,
   CostRecordResponseDto,
   CostReportResponseDto,
   CostStatsResponseDto,
@@ -66,6 +67,17 @@ export class CostsController {
     @Query() query: CostRecordStatsQueryDto,
   ): Promise<CostStatsResponseDto> {
     return this.costsService.getStats(user, query);
+  }
+
+  @Get('dashboard')
+  @RequirePermissions('cost:view')
+  @ApiOperation({ summary: '获取成本页仪表盘数据（汇总+分类+趋势）' })
+  @ApiOkResponse({ type: CostDashboardResponseDto })
+  getDashboard(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: CostRecordStatsQueryDto,
+  ): Promise<CostDashboardResponseDto> {
+    return this.costsService.getDashboard(user, query);
   }
 
   @Get('report')

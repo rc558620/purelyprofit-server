@@ -65,7 +65,7 @@ export class SpacesWriteService {
 
     const created = await this.prisma.$transaction(async (transaction) => {
       const existingCount = await transaction.space.count({
-        where: { storeId },
+        where: { storeId, deletedAt: null },
       });
       const targetSortOrder = normalizeTargetSortOrder(
         dto.sortOrder,

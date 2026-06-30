@@ -409,12 +409,12 @@ describe('ProfitDetailService', () => {
     prismaService.saleOrderItem.findMany.mockResolvedValue([]);
     prismaService.costRecord.findMany.mockResolvedValue([]);
 
-    await expect(
-      service.getProfitDetail(user, {
-        period: 'year',
-        year: 2025,
-      }),
-    ).resolves.toMatchObject({
+    const yearResult = await service.getProfitDetail(user, {
+      period: 'year',
+      year: 2025,
+    });
+
+    expect(yearResult).toMatchObject({
       summary: {
         revenue: 0,
         totalCost: 0,
@@ -426,6 +426,10 @@ describe('ProfitDetailService', () => {
         orderCount: 0,
       },
     });
+    // year 周期走月聚合，固定返回 12 个趋势点
+    expect(yearResult.dailyProfits).toHaveLength(12);
+    expect(yearResult.dailyProfits[0].dateLabel).toBe('1月');
+    expect(yearResult.dailyProfits[11].dateLabel).toBe('12月');
 
     expect(prismaService.saleOrderItem.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

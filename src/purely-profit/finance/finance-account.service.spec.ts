@@ -141,9 +141,7 @@ describe('FinanceAccountService', () => {
             { storeId: 18 },
             {
               storeId: 18,
-              dueDate: { lt: new Date('2026-05-14T12:00:00.000Z') },
-              paidAmount: 0,
-              remaining: { gt: 0 },
+              status: FinanceAccountStatus.overdue,
             },
           ],
         },
@@ -195,12 +193,7 @@ describe('FinanceAccountService', () => {
             { storeId: 18 },
             {
               storeId: 18,
-              paidAmount: 0,
-              remaining: { gt: 0 },
-              OR: [
-                { dueDate: null },
-                { dueDate: { gte: new Date('2026-05-14T12:00:00.000Z') } },
-              ],
+              status: FinanceAccountStatus.pending,
             },
           ],
         },
@@ -252,8 +245,7 @@ describe('FinanceAccountService', () => {
             { storeId: 18 },
             {
               storeId: 18,
-              paidAmount: { gt: 0 },
-              remaining: { gt: 0 },
+              status: FinanceAccountStatus.partial,
             },
           ],
         },
@@ -305,7 +297,7 @@ describe('FinanceAccountService', () => {
             { storeId: 18 },
             {
               storeId: 18,
-              remaining: { lte: 0 },
+              status: FinanceAccountStatus.settled,
             },
           ],
         },

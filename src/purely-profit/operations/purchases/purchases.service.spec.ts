@@ -309,10 +309,8 @@ describe('PurchasesService', () => {
           unit: '箱',
           quantity: 6,
           unitPrice: 12,
-          amount: 72,
         },
       ],
-      totalAmount: 72,
       date: date.getTime(),
       note: '  门店周补货  ',
     });
@@ -383,10 +381,8 @@ describe('PurchasesService', () => {
           productName: '  散装辣条  ',
           quantity: 3,
           unitPrice: 12,
-          amount: 36,
         },
       ],
-      totalAmount: 36,
       date: new Date('2026-05-15T10:00:00.000Z').getTime(),
     });
 

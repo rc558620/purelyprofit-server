@@ -137,6 +137,20 @@ export class PlatformMembershipPartnerApplicationDto {
   totalWithdrawnBeans: number;
 }
 
+export class PlatformMembershipPartnerLevelRewardDto {
+  @ApiProperty({ example: 8, description: '推广月度会员奖励纯利豆' })
+  @IsInt({ message: '月度会员奖励纯利豆必须是整数' })
+  monthly: number;
+
+  @ApiProperty({ example: 22, description: '推广季度会员奖励纯利豆' })
+  @IsInt({ message: '季度会员奖励纯利豆必须是整数' })
+  quarterly: number;
+
+  @ApiProperty({ example: 92, description: '推广年度会员奖励纯利豆' })
+  @IsInt({ message: '年度会员奖励纯利豆必须是整数' })
+  yearly: number;
+}
+
 export class PlatformMembershipPartnerLevelDto {
   @ApiPropertyOptional({
     enum: PLATFORM_PARTNER_LEVEL_VALUES,
@@ -158,6 +172,13 @@ export class PlatformMembershipPartnerLevelDto {
   @IsOptional()
   @IsInt({ message: '升级剩余人数必须是整数' })
   monthCountToNextLevel: number | null;
+  @ApiProperty({
+    type: PlatformMembershipPartnerLevelRewardDto,
+    description: '当前等级的推广奖励纯利豆配置',
+  })
+  @ValidateNested()
+  @Type(() => PlatformMembershipPartnerLevelRewardDto)
+  currentLevelRewards: PlatformMembershipPartnerLevelRewardDto;
 }
 
 export class PlatformMembershipPartnerProfileResponseDto {

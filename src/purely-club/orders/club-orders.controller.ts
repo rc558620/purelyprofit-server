@@ -21,8 +21,10 @@ import { CurrentClubContext } from '../stores/current-club-context.decorator';
 import { ClubOrdersService } from './club-orders.service';
 import {
   ClubOrderStatusResponseDto,
+  ClubServiceOrderPreviewResponseDto,
   ClubServiceOrderResponseDto,
   CreateClubServiceOrderDto,
+  PreviewClubServiceOrderDto,
 } from './dto/club-order.dto';
 
 @ApiTags('Club / Orders')
@@ -32,6 +34,20 @@ import {
 @Controller('club/orders')
 export class ClubOrdersController {
   constructor(private readonly clubOrdersService: ClubOrdersService) {}
+
+  @Post('service/preview')
+  @ApiOperation({
+    summary: '预计算 purely-club 服务订单价格',
+    description:
+      '基于当前用户的会员等级、活动优惠和积分，预计算指定服务商品的完整价格拆解，不创建订单。前端 serviceDetail 页面可直接使用此结果展示价格。',
+  })
+  @ApiOkResponse({ type: ClubServiceOrderPreviewResponseDto })
+  previewServiceOrder(
+    @CurrentClubContext() currentContext: ClubCurrentContext,
+    @Body() dto: PreviewClubServiceOrderDto,
+  ): Promise<ClubServiceOrderPreviewResponseDto> {
+    return this.clubOrdersService.previewServiceOrder(currentContext, dto);
+  }
 
   @Post('service')
   @ApiOperation({

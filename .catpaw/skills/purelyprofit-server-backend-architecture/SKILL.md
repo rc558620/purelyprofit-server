@@ -24,6 +24,7 @@ description: purelyprofit-server 是 purelyProfit 业务主仓的后端接口仓
 - 先判断当前需求属于老板端、平台端还是个人端，再决定模块归属与接口语义
 - 优先关注 DTO 校验、鉴权、数据库读写、缓存协作、响应字段
 - 涉及字段、状态、筛选项、展示结构、业务流程时，先对齐前端页面、请求层、types、表单与交互
+- 做新模块、做大改、第一次落表、明显会影响列表查询或聚合链路时，先做数据库设计检查：实体边界、字段语义、软删除、唯一约束/外键、筛选/排序/分页索引、审计字段、历史数据兼容与迁移成本都要先想清楚，不要等后期优化或重构时再补
 - 新需求优先落到现有业务模块，不要写成一次性脚本或临时逻辑
 - 输出与实现都保持“后端接口开发”语境，避免误偏到前端实现
 - 如果字段含义、业务语义或交互意图不明确，先确认再继续
@@ -121,6 +122,50 @@ description: purelyprofit-server 是 purelyProfit 业务主仓的后端接口仓
 - `src/shared/*`：跨域共享的金额、并发、密码策略、缓存控制等纯工具与装饰器
 - `src/observability/*`：运行态指标、摘要卡片、缓存预热观测上下文
 - `src/purely-profit/*`：老板端/商家端业务
+
+### 金额计算全局约束
+
+金额链路统一以 `src/shared/money.utils.ts` 为唯一事实来源，所有业务金额都必须走后端封装方法，禁止在 service / query / mapper / domain / dto 适配链路中直接用裸 `number` 做金额换算、四舍五入、乘除、求和。
+
+硬性规则：
+
+- 前端请求传入的“元”金额，只能用 `Money.fromInputYuan()` 转成后端金额值对象
+- 数据库字段、Prisma 聚合、SQL `SUM` / `AVG` / `COALESCE` 返回的“分”金额，只能用 `Money.fromDbCents()` 进入业务链路
+- 金额累加统一用 `Money.add()` / `Money.sum()`，禁止直接写 `amountA + amountB`
+- 金额扣减统一用 `Money.subtract()`，禁止直接写 `amountA - amountB`
+- 金额乘法、折扣、比例换算统一用 `Money.multiply()`
+- 金额均摊、反推单价等除法统一用 `Money.divide()`
+- 数据库写入金额字段时，只能在落库边界调用 `money.toDbCents()`
+- 返回接口响应、页面展示、日志展示金额时，只能在出站边界调用 `money.toOutputYuan()` 或 `money.toFixedOutputYuan()`
+- 禁止把数据库里的“分”直接当“元”返回，也禁止把前端传入的“元”直接当“分”入库
+- 百分比、占比、环比等非金额结果统一复用 `calcPercentChange()`、`calcPercentOfTotal()`、`calcRatioPercent()`、`calcPercentChangeWithFallback()`，不要手写浮点公式
+
+推荐心智模型：
+
+- 入站：`number(yuan)` -> `Money.fromInputYuan()`
+- 域内：全程传递 `Money`
+- 聚合：`Money.add()` / `Money.sum()` / `Money.multiply()` / `Money.divide()`
+- 落库：`money.toDbCents()`
+- 出站：`money.toOutputYuan()`
+
+典型场景：
+
+- 充值、退款、续费、收银、交班、提现、分账、优惠抵扣、储值赠送金额，都必须先转成 `Money` 再计算
+- SQL 聚合总额、报表统计、dashboard 卡片、财务 overview、营销 overview、空间结算金额，都必须在读取后立刻包成 `Money`
+- 业务比较大小时优先用 `money.greaterThan()`、`money.lessThan()`、`money.compare()`，不要直接比较原始 number
+- 需要判断正负、绝对值、取反时复用 `isPositive()` / `isNegative()` / `abs()` / `negate()`
+
+反例：
+
+- `const total = price * count - discount`
+- `const amount = Number(row.total_amount ?? 0) / 100`
+- `return { amount: cents / 100 }`
+
+正例：
+
+- `const total = Money.fromDbCents(priceCents).multiply(count).subtract(Money.fromDbCents(discountCents))`
+- `const amount = Money.fromDbCents(row.total_amount ?? 0)`
+- `return { amount: amount.toOutputYuan() }`
 - `src/purely-pulse/*`：开发者/平台观察端业务
 - `src/purely-club/*`：个人端/消费者端业务；即使当前模块还在持续扩展，也要先按个人端语义理解目录归属
 - `prisma/schema.prisma`：数据库模型事实来源
@@ -259,6 +304,7 @@ src/purely-pulse/<domain>/
 - `purely-pulse/membership` 新增开发者管理能力时，优先判断属于 read、query、mutation state 还是某个具体 mutation service
 - 周期性后台任务不要再直接用 `setInterval` 挂在业务 service；优先放 `src/queue/*`，用 BullMQ processor + scheduler 承接
 - `operations/spaces` 这类复杂域继续沿用 `spaces-write`、`space-dashboard`、`space-reservations`、`space-session-*` 这类协作拆分
+- 数据库设计不要只围绕当前创建接口思考；第一次设计表结构时就要按未来列表、筛选、排序、聚合、导出、权限隔离、软删除、缓存失效与报表统计的压力反推字段与索引
 
 ### Controller 与 DTO
 

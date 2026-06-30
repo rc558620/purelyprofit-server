@@ -43,6 +43,10 @@ export class WithdrawalOverviewResponseDto {
   @IsInt({ message: '累计提现纯利豆数量必须是整数' })
   totalWithdrawnBeans: number;
 
+  @ApiProperty({ example: 86, description: '待结算纯利豆（钳制 ≥ 0）' })
+  @IsInt({ message: '待结算纯利豆必须是整数' })
+  pendingBeans: number;
+
   @ApiProperty({ example: 2, description: '处理中申请数，含审核中和待打款' })
   @IsInt({ message: '处理中申请数必须是整数' })
   pendingCount: number;

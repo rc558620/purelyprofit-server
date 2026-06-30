@@ -123,7 +123,7 @@ export class PulseDashboardOverviewService {
 
     const storeRows: DashboardStoreSummaryRow[] =
       await this.prisma.store.findMany({
-        where: { id: { in: storeIds } },
+        where: { id: { in: storeIds }, deletedAt: null },
         select: { id: true, name: true, address: true },
       });
 

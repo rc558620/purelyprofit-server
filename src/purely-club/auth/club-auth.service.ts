@@ -273,7 +273,7 @@ export class ClubAuthService {
 
         // 2. 迁移 Store ownership（源用户拥有的门店转移到目标用户）
         const ownedStores = await tx.store.findMany({
-          where: { ownerId: sourceUserId },
+          where: { ownerId: sourceUserId, deletedAt: null },
           select: { id: true },
         });
 

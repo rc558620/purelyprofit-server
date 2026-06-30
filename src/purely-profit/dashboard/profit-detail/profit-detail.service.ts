@@ -75,7 +75,7 @@ export class ProfitDetailService {
         callerIsSubAccount,
       );
       return snapshot
-        ? buildProfitDetailResponse(snapshot)
+        ? buildProfitDetailResponse(snapshot, query.period)
         : buildEmptyProfitDetailResponse();
     }
 
@@ -88,13 +88,13 @@ export class ProfitDetailService {
       loadValue: async () => {
         const snapshot = await this.buildProfitSnapshot(storeId, query, false);
         return snapshot
-          ? buildProfitDetailResponse(snapshot)
+          ? buildProfitDetailResponse(snapshot, query.period)
           : buildEmptyProfitDetailResponse();
       },
       refreshValue: async () => {
         const snapshot = await this.buildProfitSnapshot(storeId, query, false);
         return snapshot
-          ? buildProfitDetailResponse(snapshot)
+          ? buildProfitDetailResponse(snapshot, query.period)
           : buildEmptyProfitDetailResponse();
       },
     });
@@ -171,7 +171,7 @@ export class ProfitDetailService {
     const fullQuery = buildQueryInput(query as GetProfitDetailQueryDto);
     const snapshot = await this.buildProfitSnapshot(storeId, fullQuery, false);
     const data = snapshot
-      ? buildProfitDetailResponse(snapshot)
+      ? buildProfitDetailResponse(snapshot, fullQuery.period)
       : buildEmptyProfitDetailResponse();
     await this.redisService.writeRefreshableJson(
       cacheKey,

@@ -48,12 +48,41 @@ export class ListSpaceSessionsQueryDto extends PaginationQueryDto {
 
   @ApiPropertyOptional({
     example: '张先生',
-    description: '按顾客姓名或手机号搜索',
+    description:
+      '按顾客姓名或手机号搜索（向后兼容，优先使用 guestName / guestPhone / spaceName）',
   })
   @IsOptional()
   @Transform(transformOptionalKeyword)
   @IsString({ message: '搜索关键词必须是字符串' })
   keyword?: string;
+
+  @ApiPropertyOptional({
+    example: '张先生',
+    description: '按顾客姓名模糊搜索（独立字段，优先于 keyword）',
+  })
+  @IsOptional()
+  @Transform(transformOptionalKeyword)
+  @IsString({ message: '顾客姓名搜索必须是字符串' })
+  guestName?: string;
+
+  @ApiPropertyOptional({
+    example: '138',
+    description: '按顾客手机号前缀搜索（独立字段，优先于 keyword）',
+  })
+  @IsOptional()
+  @Transform(transformOptionalKeyword)
+  @IsString({ message: '顾客手机号搜索必须是字符串' })
+  guestPhone?: string;
+
+  @ApiPropertyOptional({
+    example: '包厢',
+    description:
+      '按空间名称模糊搜索（独立字段，优先于 keyword，仅门店维度查询有效）',
+  })
+  @IsOptional()
+  @Transform(transformOptionalKeyword)
+  @IsString({ message: '空间名称搜索必须是字符串' })
+  spaceName?: string;
 
   @ApiPropertyOptional({
     example: 1715600000000,

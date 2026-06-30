@@ -68,9 +68,7 @@ describe('SessionNotificationService', () => {
     expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
         storeId: 18,
-        dueDate: { lt: new Date('2026-05-21T12:00:00.000Z') },
-        paidAmount: 0,
-        remaining: { gt: 0 },
+        status: 'overdue',
       }),
     });
     expect(prismaService.partnerWithdrawal.count).toHaveBeenCalledWith({
@@ -112,9 +110,7 @@ describe('SessionNotificationService', () => {
     expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
         storeId: 20,
-        dueDate: { lt: new Date('2026-05-21T12:00:00.000Z') },
-        paidAmount: 0,
-        remaining: { gt: 0 },
+        status: 'overdue',
       }),
     });
   });
@@ -146,9 +142,7 @@ describe('SessionNotificationService', () => {
     expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
         storeId: 22,
-        dueDate: { lt: new Date('2026-05-21T12:00:00.000Z') },
-        paidAmount: 0,
-        remaining: { gt: 0 },
+        status: 'overdue',
       }),
     });
   });

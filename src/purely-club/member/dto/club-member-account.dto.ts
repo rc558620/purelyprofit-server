@@ -180,6 +180,20 @@ export class ClubMemberLevelConfigDto {
   discountRate: number;
 
   @ApiProperty({
+    example: '9折',
+    description: '折扣展示文案；前端直接渲染，禁止再做 discountRate 推导',
+  })
+  @IsString({ message: '折扣展示文案必须是字符串' })
+  discountText: string;
+
+  @ApiProperty({
+    example: '再充值 ¥500 升级',
+    description: '升级提示文案；前端直接渲染，禁止再做 requiredConsume - totalConsume 计算',
+  })
+  @IsString({ message: '升级提示文案必须是字符串' })
+  upgradeHintText: string;
+
+  @ApiProperty({
     example: ['9 折会员专属价', '专属客服顾问'],
     description: '会员权益列表',
     type: [String],

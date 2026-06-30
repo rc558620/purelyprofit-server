@@ -16,6 +16,7 @@ import {
   buildMarketingCustomersListPattern,
 } from '../../redis/cache-keys';
 import { toNullableMediaText } from '../commerce/commerce.utils';
+import { Money } from '../../shared/money.utils';
 import type {
   AdjustCustomerPointsDto,
   CreateCustomerDto,
@@ -189,7 +190,7 @@ export class MarketingCustomersService {
         queryCustomerRecentConsumptions(this.prisma, customerId, 5),
         this.prisma.marketingRecharge.aggregate({
           where: { customerId },
-          _sum: { amount: true, giftAmount: true },
+          _sum: { totalAmount: true },
         }),
         this.resolveClubLevel(customer.storeId, customer.phone),
       ]);
@@ -197,9 +198,9 @@ export class MarketingCustomersService {
     return {
       ...mapCustomerRow(customer),
       ...clubLevel,
+      // _sum.totalAmount 返回 Prisma.Decimal | null，统一通过 Money 转为元（与其他金额字段一致）
       totalRecharge:
-        (rechargeSummary._sum.amount ?? 0) +
-        (rechargeSummary._sum.giftAmount ?? 0),
+        Money.fromDbCents(rechargeSummary._sum.totalAmount ?? 0).toOutputYuan(),
       recentRecharges: recentRecharges.map(mapRechargeRow),
       recentConsumptions: recentConsumptions.map(mapConsumptionRow),
     };
@@ -281,7 +282,7 @@ export class MarketingCustomersService {
       'marketing:manage',
     );
 
-    if (customer.balance > 0 || customer.points > 0) {
+    if (Money.fromDbCents(customer.balance).isPositive() || customer.points > 0) {
       throw new BadRequestException(
         '该顾客仍有余额或积分，无法删除；请先完成退款或清零操作',
       );

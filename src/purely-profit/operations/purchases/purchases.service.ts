@@ -14,6 +14,8 @@ import { Money } from '../../../shared/money.utils';
 import type {
   CreatePurchaseDto,
   PaginatedPurchasesResponseDto,
+  PreviewPurchaseDto,
+  PurchasePreviewResponseDto,
   PurchaseResponseDto,
   PurchaseStatsResponseDto,
 } from './dto/purchase.dto';
@@ -26,6 +28,7 @@ import {
   normalizePurchaseNote,
   normalizePurchaseSupplierName,
   preparePurchaseItems,
+  previewPurchaseAmounts,
   resolvePurchaseStatsRanges,
   sumPreparedPurchaseAmount,
 } from './purchases.domain';
@@ -34,6 +37,7 @@ import {
   buildEmptyPurchaseStatsResponse,
   buildPaginatedPurchasesResponse,
   buildPurchaseStatsResponse,
+  mapPreviewPurchaseResponse,
   mapPurchaseResponse,
 } from './purchases.mapper';
 import {
@@ -120,6 +124,27 @@ export class PurchasesService {
       previousTotalAmount: previousAgg._sum.totalAmount,
       hasPreviousRange: previousRange !== undefined,
     });
+  }
+
+  async preview(
+    user: AuthenticatedUser,
+    dto: PreviewPurchaseDto,
+  ): Promise<PurchasePreviewResponseDto> {
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      undefined,
+      'purchase:create',
+      '无权操作该门店进货单',
+    );
+
+    const productIds = extractUniqueProductIds(dto.items);
+    const productMap = createPurchaseProductMap(
+      await queryPurchaseProducts(this.prisma, { storeId, productIds }),
+      productIds,
+    );
+    const previewResult = previewPurchaseAmounts(dto.items, productMap);
+
+    return mapPreviewPurchaseResponse(previewResult);
   }
 
   async create(

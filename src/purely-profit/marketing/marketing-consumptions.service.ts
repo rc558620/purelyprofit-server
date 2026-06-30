@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Money } from '../../shared/money.utils';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import type { CreateConsumptionDto } from './dto/marketing-query.dto';
 import type {
@@ -84,16 +85,16 @@ export class MarketingConsumptionsService {
     const pointsDeducted = dto.pointsDeducted ?? 0;
     const payType = dto.payType ?? 'cash';
 
-    if (balancePaid > customer.balance) {
+    if (Money.fromDbCents(balancePaid).greaterThan(Money.fromDbCents(customer.balance))) {
       throw new BadRequestException('余额支付金额不能超过顾客当前余额');
     }
-    if (balancePaid > dto.amount) {
+    if (Money.fromDbCents(balancePaid).greaterThan(Money.fromDbCents(dto.amount))) {
       throw new BadRequestException('余额支付金额不能超过消费金额');
     }
     if (pointsDeducted > customer.points) {
       throw new BadRequestException('积分抵扣金额不能超过顾客当前积分');
     }
-    if (balancePaid + pointsDeducted > dto.amount) {
+    if (Money.fromDbCents(balancePaid).add(Money.fromDbCents(pointsDeducted)).greaterThan(Money.fromDbCents(dto.amount))) {
       throw new BadRequestException('余额支付与积分抵扣之和不能超过消费金额');
     }
 
@@ -111,7 +112,7 @@ export class MarketingConsumptionsService {
         },
       });
 
-      const newTotalSpent = customer.totalSpent + dto.amount;
+      const newTotalSpent = Money.fromDbCents(customer.totalSpent).add(Money.fromDbCents(dto.amount)).toDbCents();
       const newTier = calcCustomerTier(newTotalSpent) as never;
 
       await tx.marketingCustomer.update({

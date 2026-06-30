@@ -98,6 +98,7 @@ export class SessionNotificationService {
       FROM products
       WHERE store_id = ${storeId}
         AND is_active = true
+        AND deleted_at IS NULL
         AND stock <= alert_threshold
     `;
 

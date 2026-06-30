@@ -23,7 +23,11 @@ import type {
   MarketingPromotionsResponseDto,
 } from './dto/marketing-response.dto';
 import { buildPromotionWhere } from './marketing.domain';
-import { mapPromotionRow, normalizePromotionParams } from './marketing.mapper';
+import {
+  mapPromotionParamsForWrite,
+  mapPromotionRow,
+  normalizePromotionParams,
+} from './marketing.mapper';
 import { MarketingSharedService } from './marketing-shared.service';
 import {
   buildMarketingPaginationMeta,
@@ -160,13 +164,15 @@ export class MarketingPromotionsService {
       validatedParams,
       dto.type,
     );
+    // 前端入参（元）→ DB 存储（分）
+    const writeParams = mapPromotionParamsForWrite(normalizedParams, dto.type);
     const created = await this.prisma.marketingPromotion.create({
       data: {
         storeId,
         name: dto.name.trim(),
         type: dto.type as never,
         description: dto.description?.trim() ?? '',
-        params: normalizedParams as Prisma.InputJsonValue,
+        params: writeParams as Prisma.InputJsonValue,
         startAt: new Date(dto.startAt),
         endAt: new Date(dto.endAt),
         enabled: dto.enabled ?? true,
@@ -221,8 +227,13 @@ export class MarketingPromotionsService {
                   promotion.type,
                   dto.params,
                 );
-                return normalizePromotionParams(
+                const normalized = normalizePromotionParams(
                   validated,
+                  promotion.type,
+                );
+                // 前端入参（元）→ DB 存储（分）
+                return mapPromotionParamsForWrite(
+                  normalized,
                   promotion.type,
                 ) as Prisma.InputJsonValue;
               })(),

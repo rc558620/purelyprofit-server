@@ -128,7 +128,14 @@ export interface SpaceSessionListQuery {
   pageSize?: number;
   status?: SpaceSessionStatusValue;
   includeActive?: boolean;
+  /** 向后兼容：联合搜索（有独立字段时忽略） */
   keyword?: string;
+  /** 独立姓名搜索（contains 模糊匹配） */
+  guestName?: string;
+  /** 独立手机号搜索（startsWith 前缀匹配） */
+  guestPhone?: string;
+  /** 独立空间名称搜索（contains 模糊匹配，仅门店维度） */
+  spaceName?: string;
   rangeStartDate?: number;
   rangeEndDate?: number;
 }

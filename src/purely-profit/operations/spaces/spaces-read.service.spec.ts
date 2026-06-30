@@ -144,6 +144,7 @@ describe('SpacesReadService', () => {
     expect(prismaService.space.findMany).toHaveBeenCalledWith({
       where: {
         storeId: 18,
+        deletedAt: null,
         // status: 'idle', // 已移除
         type: {
           is: {

@@ -76,10 +76,11 @@ export class PulseDashboardHomeService {
 
     const dashboardData = await Promise.all([
       this.prisma.storePartner.count({
-        where: { status: 'approved' },
+        where: { deletedAt: null, status: 'approved' },
       }),
       this.prisma.storePartner.count({
         where: {
+          deletedAt: null,
           status: 'approved',
           store: {
             membershipPromoRecords: {
@@ -93,6 +94,7 @@ export class PulseDashboardHomeService {
       }),
       this.prisma.storePartner.count({
         where: {
+          deletedAt: null,
           status: 'approved',
           joinedAt: {
             gte: new Date(now.getFullYear(), now.getMonth(), 1),
@@ -243,6 +245,7 @@ export class PulseDashboardHomeService {
           sp.region
         FROM store_partners sp
         WHERE sp.status = 'approved'::"PartnerAccountStatus"
+          AND sp.deleted_at IS NULL
         ORDER BY
           sp.store_id,
           sp.reviewed_at DESC NULLS LAST,

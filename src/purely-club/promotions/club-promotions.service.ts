@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import Decimal from 'decimal.js';
+import { Money } from '../../shared/money.utils';
 import { normalizePromotionParams } from '../../purely-profit/marketing/marketing.mapper';
 import {
   MARKETING_PROMOTION_TYPE_VALUES,
+  type MarketingPromotionParamValue,
   type MarketingPromotionParamsValue,
   type MarketingPromotionTypeValue,
 } from '../../purely-profit/marketing/marketing.utils';
@@ -90,6 +93,8 @@ export class ClubPromotionsService {
 
     // 从 params 副本中移除展示层已提取的 bannerImage 相关字段，避免与顶层重复
     const params = this.stripBannerFields(rawParams);
+    // 将 params 中的金额字段从分转为元，前端不再需要做 /100
+    const paramsInYuan = this.convertParamsFenToYuan(params, promotion.type);
 
     return {
       id: String(promotion.id),
@@ -97,7 +102,8 @@ export class ClubPromotionsService {
       type: promotion.type,
       description: normalizedDescription,
       benefitText: normalizedDescription || resolvedName,
-      params,
+      ...this.resolveDiscountFoldText(rawParams, promotion.type),
+      params: paramsInYuan,
       startAt: promotion.startAt.getTime(),
       endAt: promotion.endAt.getTime(),
       statusText: this.buildStatusText(promotion.endAt, now),
@@ -237,6 +243,62 @@ export class ClubPromotionsService {
     return cleaned;
   }
 
+  /**
+   * 将活动 params 中的金额字段从分转为元。
+   * 根据活动类型识别需要转换的字段，使用 Money.fromDbCents().toOutputYuan() 保证精度。
+   */
+  private convertParamsFenToYuan(
+    params: MarketingPromotionParamsValue,
+    type: MarketingPromotionTypeValue,
+  ): MarketingPromotionParamsValue {
+    const result = { ...params };
+
+    switch (type) {
+      case 'reduce':
+        if (typeof result.threshold === 'number') {
+          result.threshold = Money.fromDbCents(result.threshold).toOutputYuan();
+        }
+        if (typeof result.reduceAmount === 'number') {
+          result.reduceAmount = Money.fromDbCents(result.reduceAmount).toOutputYuan();
+        }
+        break;
+
+      case 'recharge_gift':
+        if (Array.isArray(result.gradients)) {
+          result.gradients = result.gradients.map(
+            (gradient: MarketingPromotionParamsValue) => {
+              if (!gradient || typeof gradient !== 'object' || Array.isArray(gradient)) {
+                return gradient;
+              }
+              const g = { ...(gradient as Record<string, MarketingPromotionParamValue>) };
+              if (typeof g.rechargeAmount === 'number') {
+                g.rechargeAmount = Money.fromDbCents(g.rechargeAmount).toOutputYuan();
+              }
+              if (typeof g.giftAmount === 'number') {
+                g.giftAmount = Money.fromDbCents(g.giftAmount).toOutputYuan();
+              }
+              return g;
+            },
+          );
+        }
+        break;
+
+      case 'points_recharge':
+        // points_recharge 的 rechargeAmount 可能也是分
+        if (typeof result.rechargeAmount === 'number') {
+          result.rechargeAmount = Money.fromDbCents(result.rechargeAmount).toOutputYuan();
+        }
+        break;
+
+      default:
+        // discount / first_order_discount / discount_day / free / points_2x
+        // 这些类型的 params 中没有金额字段，不需要转换
+        break;
+    }
+
+    return result;
+  }
+
   private readNestedString(value: unknown, key: string): string | undefined {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return undefined;
@@ -267,5 +329,37 @@ export class ClubPromotionsService {
       default:
         return '限时优惠';
     }
+  }
+
+  private resolveDiscountFoldText(
+    params: MarketingPromotionParamsValue,
+    type: MarketingPromotionTypeValue,
+  ): { discountFoldText?: string } {
+    const discountTypes: MarketingPromotionTypeValue[] = [
+      'discount',
+      'first_order_discount',
+      'discount_day',
+    ];
+    if (!discountTypes.includes(type)) {
+      return {};
+    }
+
+    const rawRate =
+      typeof params.discountRate === 'number'
+        ? params.discountRate
+        : typeof params.rate === 'number'
+          ? params.rate * 100
+          : undefined;
+
+    if (rawRate === undefined || rawRate <= 0 || rawRate > 100) {
+      return {};
+    }
+
+    const foldValue = new Decimal(rawRate).div(10).toDecimalPlaces(1);
+    const normalized = foldValue.isInteger()
+      ? foldValue.toFixed(0)
+      : foldValue.toFixed(1);
+
+    return { discountFoldText: normalized };
   }
 }

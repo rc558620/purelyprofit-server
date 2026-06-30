@@ -8,7 +8,7 @@ export async function queryLatestEmployeeProfileEmpNo(
   storeId: number,
 ): Promise<string | null> {
   const latestEmployee = await prisma.employee.findFirst({
-    where: { storeId },
+    where: { storeId, deletedAt: null },
     orderBy: { id: 'desc' },
     select: { empNo: true },
   });

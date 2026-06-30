@@ -35,7 +35,7 @@ model SaleOrder {
   updatedAt            DateTime                 @updatedAt @map("updated_at")
 
   @@unique([storeId, orderNo])
-  @@index([storeId, date])
+  @@index([storeId, date(sort: Desc), id(sort: Desc)])
   @@index([storeId, createdAt])
   @@index([operatorStaffId, createdAt])
   @@map("sale_orders")

@@ -89,6 +89,16 @@ export class Money {
     return new Money(assertDbCents(cents));
   }
 
+  /** 返回两个 Money 中较大者 */
+  static max(a: Money, b: Money): Money {
+    return a.dbCentsValue >= b.dbCentsValue ? a : b;
+  }
+
+  /** 返回两个 Money 中较小者 */
+  static min(a: Money, b: Money): Money {
+    return a.dbCentsValue <= b.dbCentsValue ? a : b;
+  }
+
   static sum(values: Iterable<Money>): Money {
     let totalCents = 0;
 
@@ -105,6 +115,11 @@ export class Money {
 
   subtract(other: Money): Money {
     return new Money(this.dbCentsValue - other.dbCentsValue);
+  }
+
+  /** 减法后下限为零，避免出现负金额 */
+  subtractClampedToZero(other: Money): Money {
+    return new Money(Math.max(0, this.dbCentsValue - other.dbCentsValue));
   }
 
   multiply(multiplier: number): Money {
@@ -236,6 +251,21 @@ export function calcRatioPercent(
   );
 }
 
+/**
+ * 计算两个百分率之间的百分点差值（如利润率从 30% 变为 40%，差值为 10）。
+ * 适用于 profitRate、costRate 等本身已是百分比的表达式的变化量。
+ * 不适用于金额环比变化率（金额环比应使用 calcPercentChange）。
+ */
+export function calcPercentPointDiff(
+  currentPercent: number,
+  previousPercent: number,
+): number {
+  return roundDecimalToNumber(
+    new Decimal(currentPercent).minus(previousPercent),
+    2,
+  );
+}
+
 export function calcPercentChangeWithFallback(
   current: number,
   previous: number,
@@ -256,5 +286,24 @@ export function calcPercentChangeWithFallback(
   return roundDecimalToNumber(
     new Decimal(current - previous).div(base).mul(100),
     precision,
+  );
+}
+
+/**
+ * 计算两个 Money 的比值（收入/支出 = 1.23x），保留两位小数。
+ * 适用于收支比等"金额 A / 金额 B"场景，分母为 0 时返回 null。
+ * 所有金额运算统一走 Money（分），最终结果统一 Decimal 四舍五入。
+ */
+export function calcMoneyRatio(
+  numerator: Money,
+  denominator: Money,
+): number | null {
+  if (denominator.isZero()) {
+    return null;
+  }
+
+  return roundDecimalToNumber(
+    new Decimal(numerator.toDbCents()).div(denominator.toDbCents()),
+    2,
   );
 }

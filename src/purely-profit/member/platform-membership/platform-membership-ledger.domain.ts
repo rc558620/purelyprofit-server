@@ -63,12 +63,13 @@ export function buildPointsOverview(
   logs: StoreMembershipPointsLogRecord[],
 ): PlatformMembershipPointsLogsResponseDto['overview'] {
   const totalEarned = logs.reduce(
-    (sum, log) => (log.changeAmount > 0 ? sum + log.changeAmount : sum),
+    (sum, log) =>
+      log.changeType === 'increase' ? sum + log.changeAmount : sum,
     0,
   );
   const totalSpent = logs.reduce(
     (sum, log) =>
-      log.changeAmount < 0 ? sum + Math.abs(log.changeAmount) : sum,
+      log.changeType === 'decrease' ? sum + log.changeAmount : sum,
     0,
   );
 
@@ -82,9 +83,11 @@ export function buildPointsOverview(
 export function mapPointsLog(
   log: StoreMembershipPointsLogRecord,
 ): PlatformMembershipPointsLogDto {
+  const signedAmount =
+    log.changeType === 'decrease' ? -log.changeAmount : log.changeAmount;
   return {
     id: `pts-${log.id}`,
-    amount: log.changeAmount,
+    amount: signedAmount,
     type: resolvePointsType(log),
     source: log.source,
     description: log.description,
@@ -100,12 +103,12 @@ export function buildBeanOverview(
     (partner) => partner.status === 'approved',
   );
 
-  return approvedPartners.reduce(
-    (summary, partner) => ({
-      beanBalance: summary.beanBalance + partner.beanBalance,
-      totalEarnedBeans: summary.totalEarnedBeans + partner.totalEarnedBeans,
+  const summary = approvedPartners.reduce(
+    (acc, partner) => ({
+      beanBalance: acc.beanBalance + partner.beanBalance,
+      totalEarnedBeans: acc.totalEarnedBeans + partner.totalEarnedBeans,
       totalWithdrawnBeans:
-        summary.totalWithdrawnBeans + partner.totalWithdrawnBeans,
+        acc.totalWithdrawnBeans + partner.totalWithdrawnBeans,
     }),
     {
       beanBalance: 0,
@@ -113,6 +116,18 @@ export function buildBeanOverview(
       totalWithdrawnBeans: 0,
     },
   );
+
+  const pendingBeans = Decimal.max(
+    0,
+    new Decimal(summary.totalEarnedBeans)
+      .minus(summary.totalWithdrawnBeans)
+      .minus(summary.beanBalance),
+  ).toNumber();
+
+  return {
+    ...summary,
+    pendingBeans,
+  };
 }
 
 export function mapBeanLog(
@@ -140,7 +155,7 @@ export function resolvePointsType(
     return 'expire';
   }
 
-  return log.changeAmount >= 0 ? 'earn' : 'spend';
+  return log.changeType === 'increase' ? 'earn' : 'spend';
 }
 
 export function resolveBeanType(log: StorePartnerBeanLogRecord): BeanTypeValue {
@@ -199,6 +214,53 @@ export function allocateBeansAcrossPartners(
   }
 
   return allocations;
+}
+
+export function calcPreviewResult(
+  params: Parameters<typeof calcMemberPlanPayment>[0],
+): {
+  beanDeductAmount: number;
+  actualBeansUsed: number;
+  priceAfterBeans: number;
+  pointsDeductAmount: number;
+  actualPointsUsed: number;
+  finalAmount: number;
+  maxBeanDeductAmount: number;
+  maxPointsDeductAmount: number;
+  canUsePoints: boolean;
+  canUseBeans: boolean;
+} {
+  const {
+    planPrice,
+    availablePoints,
+    availableBeans,
+    pointsRate = POINTS_RATE,
+    pointsDeductLimitRate = POINTS_DEDUCT_LIMIT,
+    beanDeductRate = BEAN_DEDUCT_RATE,
+    beanDeductLimitRate = BEAN_DEDUCT_LIMIT,
+  } = params;
+
+  const planPriceDecimal = new Decimal(planPrice);
+  const zero = new Decimal(0);
+
+  const maxBeanDeductAmount = planPriceDecimal.mul(beanDeductLimitRate).floor();
+  const canUseBeans = availableBeans >= 1;
+  const maxPointsDeductOnFullPrice = planPriceDecimal.mul(pointsDeductLimitRate).floor();
+  const canUsePoints = availablePoints >= pointsRate;
+
+  // 复用 calcMemberPlanPayment 得到实际抵扣明细
+  const payment = calcMemberPlanPayment(params);
+
+  return {
+    ...payment,
+    maxBeanDeductAmount: maxBeanDeductAmount.toNumber(),
+    maxPointsDeductAmount: Decimal.min(
+      maxPointsDeductOnFullPrice,
+      new Decimal(availablePoints).div(pointsRate).floor().mul(100),
+    ).toNumber(),
+    canUsePoints,
+    canUseBeans,
+  };
 }
 
 export function calcMemberPlanPayment(params: {

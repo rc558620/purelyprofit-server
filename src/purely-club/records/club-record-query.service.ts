@@ -7,6 +7,7 @@ import type {
   ClubLedgerEntry,
   ClubRechargeLedgerRow,
 } from './club-records.types';
+import type { ClubRecordSummaryDto } from './dto/club-record.dto';
 
 /** 每页查询时从数据库多取的冗余条数，用于合并排序后仍能填满 limit */
 const QUERY_OVERFETCH = 2;
@@ -44,6 +45,46 @@ export class ClubRecordQueryService {
     // 回退：phone 字段为 null 的历史数据无法通过唯一索引匹配，
     // 使用 findFirst + userId 关联查找
     return this.findCustomerByStoreAndUserIdFallback(storeId, phone);
+  }
+
+  /**
+   * 计算指定客户在指定门店的流水汇总：充值总额（含赠送）、消费总额。
+   * 使用数据库 SUM 聚合，保证精度且不需要前端遍历。
+   */
+  async calculateSummary(
+    storeId: number,
+    customerId: number,
+  ): Promise<ClubRecordSummaryDto> {
+    const [rechargeSum, consumptionSum] = await Promise.all([
+      this.prisma.marketingRecharge.aggregate({
+        where: {
+          storeId,
+          customerId,
+          type: { in: ['recharge', 'gift'] },
+        },
+        _sum: {
+          totalAmount: true,
+        },
+      }),
+      this.prisma.marketingConsumption.aggregate({
+        where: {
+          storeId,
+          customerId,
+        },
+        _sum: {
+          balancePaid: true,
+        },
+      }),
+    ]);
+
+    return {
+      totalRechargeAmount: Money.fromDbCents(
+        rechargeSum._sum.totalAmount ?? 0,
+      ).toOutputYuan(),
+      totalConsumeAmount: Money.fromDbCents(
+        consumptionSum._sum.balancePaid ?? 0,
+      ).toOutputYuan(),
+    };
   }
 
   /**
@@ -87,6 +128,7 @@ export class ClubRecordQueryService {
             id: true,
             amount: true,
             giftAmount: true,
+            totalAmount: true,
             type: true,
             note: true,
             createdAt: true,
@@ -169,6 +211,7 @@ export class ClubRecordQueryService {
     return this.prisma.marketingCustomer.findFirst({
       where: {
         storeId,
+        deletedAt: null,
         // phone 为 null 的记录：这些是早期微信登录但未绑定手机号的客户
         phone: null,
       },
@@ -186,7 +229,7 @@ export class ClubRecordQueryService {
           id: `recharge-${row.id}`,
           type: 'recharge',
           amountFen: row.amount,
-          balanceEffectFen: row.amount + row.giftAmount,
+          balanceEffectFen: row.totalAmount,
           description: this.buildRechargeDescription(
             row.amount,
             row.giftAmount,
@@ -222,7 +265,7 @@ export class ClubRecordQueryService {
           type: 'refund',
           amountFen: -row.amount,
           // 退款时扣减的余额 = 本金 + 赠送部分（若退款时赠送金额也被收回）
-          balanceEffectFen: -(row.amount + row.giftAmount),
+          balanceEffectFen: -row.totalAmount,
           description:
             row.note?.trim() || `退款 ¥${this.formatYuan(row.amount)}`,
           createdAt: row.createdAt,

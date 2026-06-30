@@ -43,6 +43,7 @@ describe('ClubProductViewService', () => {
       durationMinutes: 100,
       personCount: 2,
       validityDesc: '单次服务约 100 分钟 · 适用 2 人',
+      totalSavingAmount: 189,
       createdAt: new Date('2026-06-01T00:00:00.000Z').getTime(),
       updatedAt: new Date('2026-06-01T00:00:00.000Z').getTime(),
     });
@@ -124,6 +125,7 @@ describe('ClubProductViewService', () => {
       durationMinutes: 100,
       personCount: 2,
       validityDesc: '单次服务约 100 分钟 · 适用 2 人',
+      totalSavingAmount: 313.75,
       createdAt: new Date('2026-06-01T00:00:00.000Z').getTime(),
       updatedAt: new Date('2026-06-01T00:00:00.000Z').getTime(),
     });

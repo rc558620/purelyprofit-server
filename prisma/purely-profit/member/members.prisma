@@ -83,7 +83,7 @@ model Member {
   @@index([storeId, status, updatedAt])
   @@index([storeId, isPartner, updatedAt])
   @@index([phone])
-  @@index([customerId]) // 外键索引
+  // customerId 外键索引：由 @@unique([customerId]) 隐式创建，无需重复声明
   @@map("members")
 }
 

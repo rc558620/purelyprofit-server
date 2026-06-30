@@ -21,7 +21,10 @@ export const memberLevelConfigSchema = z.object({
     ],
   ),
   name: z.string().min(1),
+  /** 内部折扣率 0~1 */
   discountRate: z.number().min(0.01).max(0.99),
+  /** 折扣率百分比 1~99 */
+  discountRatePct: z.number().int().min(1).max(99).optional(),
   spendThreshold: z.number().int().min(0),
   description: z.string(),
   enabled: z.boolean(),
@@ -37,8 +40,10 @@ export const memberLevelsSchema = z
 
 export const pointsRatioConfigSchema = z.object({
   earnRatioCents: z.number().int().min(1),
+  earnRatioYuan: z.number().int().min(1).optional(),
   redeemRatioPoints: z.number().int().min(1),
   maxRedeemRatio: z.number().min(0.01).max(1),
+  maxRedeemPct: z.number().int().min(1).max(100).optional(),
   enabled: z.boolean(),
   updatedAt: z.number().int().min(0),
 });

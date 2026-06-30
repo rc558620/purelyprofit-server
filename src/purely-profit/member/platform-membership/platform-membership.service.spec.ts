@@ -813,6 +813,7 @@ describe('PlatformMembershipService', () => {
       {
         id: 1,
         source: 'purchase_bonus',
+        changeType: 'increase',
         changeAmount: 1500,
         description: '购买年度会员赠积分',
         expireAt: null,
@@ -821,7 +822,8 @@ describe('PlatformMembershipService', () => {
       {
         id: 2,
         source: 'deduct_payment',
-        changeAmount: -200,
+        changeType: 'decrease',
+        changeAmount: 200,
         description: '订阅季度会员抵扣',
         expireAt: null,
         createdAt: new Date('2026-05-12T00:00:00.000Z'),
@@ -1752,7 +1754,8 @@ describe('PlatformMembershipService', () => {
         storeId: 18,
         profileId: 3,
         source: 'deduct_payment',
-        changeAmount: -2000,
+        changeType: 'decrease',
+        changeAmount: 2000,
         description: '订阅季度会员抵扣',
       },
     });
@@ -1763,6 +1766,7 @@ describe('PlatformMembershipService', () => {
         storeId: 18,
         profileId: 3,
         source: 'purchase_bonus',
+        changeType: 'increase',
         changeAmount: 300,
         description: '购买季度会员赠积分',
       },

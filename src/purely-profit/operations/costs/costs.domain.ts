@@ -15,7 +15,9 @@ import type {
   CostReportRange,
 } from './costs.types';
 import type {
+  CostDashboardResponseDto,
   CostReportResponseDto,
+  CostReportSummaryDto,
   CostStatsResponseDto,
 } from './dto/costs-response.dto';
 
@@ -29,11 +31,30 @@ export function buildEmptyCostStatsResponse(): CostStatsResponseDto {
   };
 }
 
+export function buildEmptyCostReportSummary(): CostReportSummaryDto {
+  return {
+    total: 0,
+    fixed: 0,
+    variable: 0,
+    fixedPercentage: 0,
+    compareLastPeriod: null,
+    recordCount: 0,
+  };
+}
+
 export function buildEmptyCostReportResponse(): CostReportResponseDto {
+  return {
+    summary: buildEmptyCostReportSummary(),
+    categories: [],
+    detailRows: [],
+  };
+}
+
+export function buildEmptyCostDashboardResponse(): CostDashboardResponseDto {
   return {
     summary: buildEmptyCostStatsResponse(),
     categories: [],
-    detailRows: [],
+    trend: [],
   };
 }
 

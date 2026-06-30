@@ -290,12 +290,13 @@ describe('EmployeesService', () => {
     expect(prismaService.employee.findMany).toHaveBeenCalledWith({
       where: {
         storeId: 2,
+        deletedAt: null,
         status: EmployeeStatus.active,
         department: { equals: '前厅', mode: 'insensitive' },
         OR: [
           { name: { contains: '张', mode: 'insensitive' } },
           { empNo: { contains: '张', mode: 'insensitive' } },
-          { phone: { contains: '张' } },
+          { phone: { startsWith: '张' } },
           { position: { contains: '张', mode: 'insensitive' } },
           { department: { contains: '张', mode: 'insensitive' } },
         ],
@@ -357,7 +358,7 @@ describe('EmployeesService', () => {
     });
 
     expect(prismaService.employee.findMany).toHaveBeenCalledWith({
-      where: { storeId: 2 },
+      where: { storeId: 2, deletedAt: null },
       orderBy: [{ status: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }],
       skip: 0,
       take: 10,
@@ -1140,7 +1141,7 @@ describe('EmployeesService', () => {
       type: 'sick',
       startDate: new Date('2026-05-06T00:00:00.000Z'),
       endDate: new Date('2026-05-07T00:00:00.000Z'),
-      days: new Prisma.Decimal('2'),
+      days: new Prisma.Decimal('3'),
       deductSalary: false,
       deductAmount: 0,
       note: null,
@@ -1151,7 +1152,6 @@ describe('EmployeesService', () => {
       type: 'sick',
       startDate: new Date('2026-05-06T00:00:00.000Z').getTime(),
       endDate: new Date('2026-05-07T00:00:00.000Z').getTime(),
-      days: 2,
       deductSalary: false,
       deductAmount: 0,
       note: '   ',
@@ -1166,7 +1166,7 @@ describe('EmployeesService', () => {
         type: 'sick',
         startDate: new Date('2026-05-06T00:00:00.000Z'),
         endDate: new Date('2026-05-07T00:00:00.000Z'),
-        days: 2,
+        days: 3,
         deductSalary: false,
         deductAmount: 0,
         note: null,
@@ -1179,7 +1179,7 @@ describe('EmployeesService', () => {
       type: 'sick',
       startDate: new Date('2026-05-06T00:00:00.000Z').getTime(),
       endDate: new Date('2026-05-07T00:00:00.000Z').getTime(),
-      days: 2,
+      days: 3,
       deductSalary: false,
       deductAmount: 0,
       createdAt: createdAt.getTime(),
@@ -1267,14 +1267,13 @@ describe('EmployeesService', () => {
     prismaService.employeeLeave.findFirst.mockResolvedValue({ id: 99 });
 
     await expect(
-      service.createLeave(user, 5, {
-        type: 'sick',
-        startDate: new Date('2026-05-08T00:00:00.000Z').getTime(),
-        endDate: new Date('2026-05-09T00:00:00.000Z').getTime(),
-        days: 2,
-        deductSalary: true,
-        deductAmount: 50,
-      }),
+service.createLeave(user, 5, {
+      type: 'sick',
+      startDate: new Date('2026-05-08T00:00:00.000Z').getTime(),
+      endDate: new Date('2026-05-09T00:00:00.000Z').getTime(),
+      deductSalary: true,
+      deductAmount: 50,
+    }),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(prismaService.employeeLeave.create).not.toHaveBeenCalled();
   });
@@ -1287,14 +1286,13 @@ describe('EmployeesService', () => {
     });
 
     await expect(
-      service.createLeave(user, 5, {
-        type: 'sick',
-        startDate: new Date('2026-05-08T00:00:00.000Z').getTime(),
-        endDate: new Date('2026-05-07T00:00:00.000Z').getTime(),
-        days: 1,
-        deductSalary: false,
-        deductAmount: 0,
-      }),
+service.createLeave(user, 5, {
+      type: 'sick',
+      startDate: new Date('2026-05-08T00:00:00.000Z').getTime(),
+      endDate: new Date('2026-05-07T00:00:00.000Z').getTime(),
+      deductSalary: false,
+      deductAmount: 0,
+    }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prismaService.employeeLeave.create).not.toHaveBeenCalled();
   });

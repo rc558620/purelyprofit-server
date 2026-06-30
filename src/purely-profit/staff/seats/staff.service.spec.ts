@@ -272,6 +272,7 @@ describe('StaffService', () => {
     expect(prismaService.store.findFirst).toHaveBeenCalledWith({
       where: {
         ownerId: user.id,
+        deletedAt: null,
         id: { not: 8 },
       },
       select: { id: true },

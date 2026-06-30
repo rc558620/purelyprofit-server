@@ -11,6 +11,7 @@ import type {
   CostRecordResponseDto,
   CostReportCategoryRowDto,
   CostReportDetailRowDto,
+  CostDashboardTrendDayDto,
 } from './dto/costs-response.dto';
 
 export function buildCostRecordResponse(
@@ -38,22 +39,26 @@ export function buildCostReportCategories(
     return [];
   }
 
-  const totals = new Map<CostReportCostRow['category'], number>();
+  // 在分维度聚合，再统一转元，避免浮点精度损失
+  const centsByCategory = new Map<CostReportCostRow['category'], Money>();
   for (const row of rows) {
-    totals.set(
+    const existing = centsByCategory.get(row.category) ?? Money.zero();
+    centsByCategory.set(
       row.category,
-      (totals.get(row.category) ?? 0) +
-        Money.fromDbCents(row.amount).toOutputYuan(),
+      existing.add(Money.fromDbCents(row.amount)),
     );
   }
 
-  return Array.from(totals.entries())
-    .map(([category, amount]) => ({
-      label: COST_CATEGORY_META[category].label,
-      amount,
-      percentage: calcPercentOfTotal(amount, total),
-      color: COST_CATEGORY_META[category].color,
-    }))
+  return Array.from(centsByCategory.entries())
+    .map(([category, money]) => {
+      const amount = money.toOutputYuan();
+      return {
+        label: COST_CATEGORY_META[category].label,
+        amount,
+        percentage: calcPercentOfTotal(amount, total),
+        color: COST_CATEGORY_META[category].color,
+      };
+    })
     .sort((left, right) => right.amount - left.amount);
 }
 
@@ -104,4 +109,47 @@ function formatCostReportDate(date: Date): string {
 
 function formatPayrollMonth(month: Date): string {
   return `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * 构建近 7 日成本趋势数据（后端聚合，全部分维度计算后再转元）。
+ * rows 已按当前筛选条件过滤且已夹持历史窗口。
+ */
+export function buildCostDashboardTrend(
+  rows: Array<Pick<CostReportCostRow, 'type' | 'category' | 'amount' | 'date'>>,
+): CostDashboardTrendDayDto[] {
+  const now = new Date();
+
+  // 生成近 7 天的日期区间
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(now);
+    d.setDate(now.getDate() - (6 - i));
+    d.setHours(0, 0, 0, 0);
+    const start = d.getTime();
+    const end = start + 86_400_000;
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return { label: `${mm}/${dd}`, start, end, fixedCents: Money.zero(), variableCents: Money.zero() };
+  });
+
+  // 在分维度按天、按类型累加
+  for (const row of rows) {
+    const rowTimestamp = row.date.getTime();
+    const day = days.find((d) => rowTimestamp >= d.start && rowTimestamp < d.end);
+    if (day == null) continue;
+    const rowMoney = Money.fromDbCents(row.amount);
+    if (row.type === 'fixed') {
+      day.fixedCents = day.fixedCents.add(rowMoney);
+    } else {
+      day.variableCents = day.variableCents.add(rowMoney);
+    }
+  }
+
+  return days.map((day) => ({
+    date: day.start,
+    label: day.label,
+    fixed: day.fixedCents.toOutputYuan(),
+    variable: day.variableCents.toOutputYuan(),
+    total: day.fixedCents.add(day.variableCents).toOutputYuan(),
+  }));
 }

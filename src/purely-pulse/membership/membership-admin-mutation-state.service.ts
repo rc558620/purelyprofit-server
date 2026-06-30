@@ -54,7 +54,7 @@ export class PulseMembershipAdminMutationStateService {
       }),
       this.memberReadService.findMembershipProfileByStoreId(storeId),
       this.prisma.storePartner.findFirst({
-        where: { storeId, status: 'approved' },
+        where: { storeId, deletedAt: null, status: 'approved' },
         select: {
           id: true,
           status: true,

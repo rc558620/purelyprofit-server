@@ -144,7 +144,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         expect.objectContaining({
           method: 'wechat',
           amount: 5.55,
-          ratio: 1,
+          ratio: 100,
         }),
       ]);
       expect(result.orderItems).toEqual([

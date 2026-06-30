@@ -78,6 +78,37 @@ export class PurchasePlatformMembershipOrderDto {
   useBeans?: number;
 }
 
+export class PreviewPlatformMembershipOrderDto {
+  @ApiProperty({
+    enum: PLATFORM_MEMBERSHIP_PLAN_IDS,
+    description: '会员套餐周期，和前端 PlanCycle 保持一致',
+  })
+  @IsEnum(PLATFORM_MEMBERSHIP_PLAN_IDS, {
+    message: '套餐周期不合法',
+  })
+  planId: PlatformMembershipPlanId;
+
+  @ApiPropertyOptional({
+    example: 1200,
+    description: '本次希望使用的积分数量，按前端传递的积分数处理',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '积分数量必须是整数' })
+  @Min(0, { message: '积分数量不能小于 0' })
+  usePoints?: number;
+
+  @ApiPropertyOptional({
+    example: 10,
+    description: '本次希望使用的纯利豆数量，1 豆 = 1 元',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '纯利豆数量必须是整数' })
+  @Min(0, { message: '纯利豆数量不能小于 0' })
+  useBeans?: number;
+}
+
 export class ApplyPlatformPartnerDto {
   @ApiProperty({ example: '张三', description: '申请人姓名' })
   @Transform(({ value }) => transformTrimmedString(value))

@@ -120,6 +120,7 @@ export async function findInventoryProductForStore(
     where: {
       id: productId,
       storeId,
+      deletedAt: null,
     },
     select: {
       id: true,

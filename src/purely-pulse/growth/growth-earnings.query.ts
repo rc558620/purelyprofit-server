@@ -104,7 +104,7 @@ export async function queryEarningsOverviewData(
 ): Promise<EarningsOverviewQueryResult> {
   const [partners, promoRecords, pendingWithdrawals] = await Promise.all([
     prisma.storePartner.findMany({
-      where: { storeId, status: 'approved' },
+      where: { storeId, deletedAt: null, status: 'approved' },
       select: EARNINGS_PARTNER_SELECT,
       orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
     }) as Promise<EarningsApprovedPartnerRecord[]>,
