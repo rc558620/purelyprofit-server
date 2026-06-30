@@ -36,6 +36,9 @@ export class SpaceSessionItemResponseDto {
 
   @ApiProperty({ example: 1, description: '数量' })
   quantity: number;
+
+  @ApiProperty({ example: 68, description: '行合计金额 = salePrice × quantity（元）' })
+  lineTotal: number;
 }
 
 export class SpaceSessionRenewRecordResponseDto {

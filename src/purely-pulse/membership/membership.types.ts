@@ -84,6 +84,7 @@ export interface PulseDeveloperPointsLogRecord {
 }
 
 export interface PulseDeveloperBeanPartnerRecord {
+  status: 'pending' | 'reviewing' | 'approved' | 'rejected';
   beanBalance: number;
   totalEarnedBeans: number;
   totalWithdrawnBeans: number;
@@ -186,15 +187,6 @@ export interface PulseAdminMemberOrderSummary {
   rechargeCount: number;
   totalRecharged: number;
   lastPaidAt: number | null;
-}
-
-export interface PaymentPreviewResult {
-  beanDeductAmount: number;
-  actualBeansUsed: number;
-  priceAfterBeans: number;
-  pointsDeductAmount: number;
-  actualPointsUsed: number;
-  finalAmount: number;
 }
 
 export interface PulseMembershipAdjustmentInput {

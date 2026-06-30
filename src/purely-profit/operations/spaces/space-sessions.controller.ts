@@ -30,8 +30,11 @@ import {
   CheckoutSpaceSessionPreviewResponseDto,
   CheckoutSpaceSessionResponseDto,
   ListSpaceSessionsQueryDto,
+  LivePreviewResponseDto,
   OpenSpaceSessionDto,
   PaginatedSpaceSessionsResponseDto,
+  RenewPreviewRequestDto,
+  RenewPreviewResponseDto,
   RenewSpaceSessionDto,
   RenewSpaceSessionResponseDto,
   SpaceSessionResponseDto,
@@ -211,6 +214,38 @@ export class SpaceSessionsController {
       ctx.user,
       sessionId,
       dto,
+    );
+  }
+
+  @Get('space-sessions/:id/live-preview')
+  @RequirePermissions('space:view')
+  @ApiOperation({ summary: '获取活跃会话的实时金额预览' })
+  @ApiOkResponse({ type: LivePreviewResponseDto })
+  getLivePreview(
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
+    @Param('id', ParseIntPipe) sessionId: number,
+  ): Promise<LivePreviewResponseDto> {
+    return this.spaceSessionsService.getLivePreview(
+      ctx.user,
+      sessionId,
+      ctx.requestId,
+    );
+  }
+
+  @Post('space-sessions/:id/renew-preview')
+  @RequirePermissions('space:view')
+  @ApiOperation({ summary: '获取续费金额换算预览（金额→分钟数）' })
+  @ApiOkResponse({ type: RenewPreviewResponseDto })
+  getRenewPreview(
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
+    @Param('id', ParseIntPipe) sessionId: number,
+    @Body() dto: RenewPreviewRequestDto,
+  ): Promise<RenewPreviewResponseDto> {
+    return this.spaceSessionsService.getRenewPreview(
+      ctx.user,
+      sessionId,
+      dto.amount,
+      ctx.requestId,
     );
   }
 

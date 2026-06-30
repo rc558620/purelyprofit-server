@@ -82,6 +82,22 @@ export class PulseMembershipOrderPreviewResponseDto {
   })
   @IsInt()
   availableBeans: number;
+
+  @ApiProperty({ example: 4950, description: '纯利豆最大可抵扣金额，单位分' })
+  @IsInt()
+  maxBeanDeductAmount: number;
+
+  @ApiProperty({ example: 2370, description: '积分最大可抵扣金额，单位分' })
+  @IsInt()
+  maxPointsDeductAmount: number;
+
+  @ApiProperty({ example: true, description: '当前是否有足够积分可用' })
+  @IsBoolean()
+  canUsePoints: boolean;
+
+  @ApiProperty({ example: true, description: '当前是否有足够纯利豆可用' })
+  @IsBoolean()
+  canUseBeans: boolean;
 }
 
 /**

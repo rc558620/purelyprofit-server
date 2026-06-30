@@ -25,6 +25,13 @@ export class PlatformMembershipPointsOverviewDto {
   @ApiProperty({ example: 520, description: '累计使用/扣减积分' })
   @IsInt({ message: '累计使用积分必须是整数' })
   totalSpent: number;
+
+  @ApiProperty({ example: 1200, description: '当前可用积分可抵扣的金额，单位分（后端权威计算）' })
+  @IsInt({ message: '可抵扣金额必须是整数' })
+  deductibleAmount: number;
+
+  @ApiProperty({ example: true, description: '当前是否有足够积分可用于抵扣（后端权威判断）' })
+  canUsePoints: boolean;
 }
 
 export class PlatformMembershipPointsLogDto {

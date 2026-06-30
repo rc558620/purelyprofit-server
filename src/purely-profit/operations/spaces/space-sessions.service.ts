@@ -18,8 +18,10 @@ import type {
   SpaceSessionResponseDto,
   TransferSpaceSessionResponseDto,
 } from './dto/space-session.dto';
+import type { LivePreviewResult, RenewPreviewResult } from './space-session-preview.service';
 import { SpaceSessionCheckoutService } from './space-session-checkout.service';
 import { SpaceSessionOpenService } from './space-session-open.service';
+import { SpaceSessionPreviewService } from './space-session-preview.service';
 import { SpaceSessionReadService } from './space-session-read.service';
 import { SpaceSessionRenewService } from './space-session-renew.service';
 import { SpaceSessionTransferService } from './space-session-transfer.service';
@@ -32,6 +34,7 @@ export class SpaceSessionsService {
     private readonly readService: SpaceSessionReadService,
     private readonly checkoutService: SpaceSessionCheckoutService,
     private readonly openService: SpaceSessionOpenService,
+    private readonly previewService: SpaceSessionPreviewService,
     private readonly renewService: SpaceSessionRenewService,
     private readonly transferService: SpaceSessionTransferService,
     private readonly writeService: SpaceSessionWriteService,
@@ -105,6 +108,10 @@ export class SpaceSessionsService {
         this.commerceAccessService.ensureCanAccessStore.bind(
           this.commerceAccessService,
         ),
+      findOperatorStaffIdForStore:
+        this.commerceAccessService.findOperatorStaffIdForStore.bind(
+          this.commerceAccessService,
+        ),
     });
   }
 
@@ -134,6 +141,23 @@ export class SpaceSessionsService {
       sessionId,
       dto,
     );
+  }
+
+  async getLivePreview(
+    user: AuthenticatedUser,
+    sessionId: number,
+    requestId?: string,
+  ): Promise<LivePreviewResult> {
+    return this.previewService.getLivePreview(user, sessionId, requestId);
+  }
+
+  async getRenewPreview(
+    user: AuthenticatedUser,
+    sessionId: number,
+    amount: number,
+    requestId?: string,
+  ): Promise<RenewPreviewResult> {
+    return this.previewService.getRenewPreview(user, sessionId, amount, requestId);
   }
 
   async checkoutSpaceSession(

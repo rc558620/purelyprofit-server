@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
@@ -222,9 +222,6 @@ describe('SalesRecordWriteService', () => {
             quantity: 1,
           },
         ],
-        totalRevenue: 49,
-        totalProfit: 13,
-        totalQuantity: 3,
         paymentMethod: 'cash',
         calcMode: 'business',
         note: '补录',
@@ -248,9 +245,6 @@ describe('SalesRecordWriteService', () => {
       expect.objectContaining({
         storeId: 18,
         operatorStaffId: 8,
-        totalRevenue: 49,
-        totalProfit: 13,
-        totalQuantity: 3,
         note: '补录',
       }),
     );
@@ -295,9 +289,6 @@ describe('SalesRecordWriteService', () => {
               quantity: 1,
             },
           ],
-          totalRevenue: 15.5,
-          totalProfit: 4,
-          totalQuantity: 1,
           paymentMethod: 'cash',
           calcMode: 'business',
         },
@@ -358,9 +349,6 @@ describe('SalesRecordWriteService', () => {
               quantity: 1,
             },
           ],
-          totalRevenue: 15.5,
-          totalProfit: 4,
-          totalQuantity: 1,
           paymentMethod: 'cash',
           calcMode: 'business',
         },
@@ -411,9 +399,6 @@ describe('SalesRecordWriteService', () => {
               quantity: 1,
             },
           ],
-          totalRevenue: 666,
-          totalProfit: 666,
-          totalQuantity: 1,
           paymentMethod: 'wechat',
           calcMode: 'business',
         },
@@ -482,9 +467,6 @@ describe('SalesRecordWriteService', () => {
               quantity: 1,
             },
           ],
-          totalRevenue: 100,
-          totalProfit: 100,
-          totalQuantity: 1,
           paymentMethod: 'wechat',
           calcMode: 'business',
         },
@@ -538,9 +520,6 @@ describe('SalesRecordWriteService', () => {
             quantity: 1,
           },
         ],
-        totalRevenue: 15.5,
-        totalProfit: 4,
-        totalQuantity: 1,
         paymentMethod: 'cash',
         calcMode: 'business',
       },
@@ -594,9 +573,6 @@ describe('SalesRecordWriteService', () => {
             quantity: 1,
           },
         ],
-        totalRevenue: 15.5,
-        totalProfit: 4,
-        totalQuantity: 1,
         paymentMethod: 'cash',
         calcMode: 'business',
       },
@@ -649,9 +625,6 @@ describe('SalesRecordWriteService', () => {
               quantity: 1,
             },
           ],
-          totalRevenue: 15.5,
-          totalProfit: 4,
-          totalQuantity: 1,
           paymentMethod: 'cash',
           calcMode: 'business',
         },
@@ -706,9 +679,6 @@ describe('SalesRecordWriteService', () => {
             quantity: 1,
           },
         ],
-        totalRevenue: 15.5,
-        totalProfit: 4,
-        totalQuantity: 1,
         paymentMethod: 'cash',
         calcMode: 'business',
       },
@@ -764,9 +734,6 @@ describe('SalesRecordWriteService', () => {
             quantity: 1,
           },
         ],
-        totalRevenue: 15.5,
-        totalProfit: 4,
-        totalQuantity: 1,
         paymentMethod: 'cash',
         calcMode: 'business',
         date: orderDate.getTime(),
@@ -789,45 +756,6 @@ describe('SalesRecordWriteService', () => {
         orderDate,
       }),
     );
-  });
-
-  it('create 在汇总金额与后端明细不一致时抛出异常并阻止创建流程', async () => {
-    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
-    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
-    salesRecordItemPreparationService.prepareItems.mockResolvedValue([
-      {
-        productId: 201,
-        productName: '可口可乐 330ml',
-        categoryName: '饮品',
-        salePrice: Money.fromInputYuan(15.5),
-        profit: Money.fromInputYuan(4),
-        quantity: 1,
-        countsTowardTotalQuantity: true,
-      },
-    ]);
-
-    await expect(
-      service.create(user, {
-        storeId: 18,
-        items: [
-          {
-            productId: '201',
-            productName: '可口可乐 330ml',
-            categoryName: '饮品',
-            salePrice: 10,
-            profit: 2,
-            quantity: 1,
-          },
-        ],
-        totalRevenue: 10,
-        totalProfit: 2,
-        totalQuantity: 1,
-        paymentMethod: 'cash',
-        calcMode: 'business',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-
-    expect(salesRecordCreateFlowService.createRecord).not.toHaveBeenCalled();
   });
 
   it('remove 会回滚库存和财务流水后删除记录', async () => {

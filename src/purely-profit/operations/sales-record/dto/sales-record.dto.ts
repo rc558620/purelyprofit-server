@@ -85,25 +85,6 @@ export class CreateSalesRecordDto {
   @Type(() => SalesRecordItemInputDto)
   items: SalesRecordItemInputDto[];
 
-  @ApiProperty({ example: 88.5, description: '总营业额（前端汇总值）' })
-  @Type(() => Number)
-  @IsNumber({}, { message: '总营业额必须是数字' })
-  totalRevenue: number;
-
-  @ApiProperty({ example: 23.6, description: '总利润（前端汇总值）' })
-  @Type(() => Number)
-  @IsNumber({}, { message: '总利润必须是数字' })
-  totalProfit: number;
-
-  @ApiProperty({
-    example: 8,
-    description: '总销售件数（前端汇总值，不含抵扣项）',
-  })
-  @Type(() => Number)
-  @IsInt({ message: '总销售件数必须是整数' })
-  @Min(1, { message: '总销售件数必须大于 0' })
-  totalQuantity: number;
-
   @ApiProperty({
     example: 'cash',
     enum: SALES_PAYMENT_METHOD_VALUES,
@@ -281,6 +262,53 @@ export class SalesRecordItemResponseDto {
 
   @ApiProperty({ example: 2, description: '销售数量' })
   quantity: number;
+
+  @ApiProperty({ example: 13, description: '商品小计 = salePrice × quantity（元）' })
+  subtotal: number;
+}
+
+// ---------------------------------------------------------------------------
+// 销售订单预览（不落库，仅返回后端计算金额供前端展示）
+// ---------------------------------------------------------------------------
+
+export class PreviewSalesRecordItemDto {
+  @ApiProperty({ example: '1', description: '商品 ID' })
+  productId: string;
+
+  @ApiProperty({ example: '可口可乐 330ml', description: '商品名称' })
+  productName: string;
+
+  @ApiProperty({ example: '饮品', description: '商品分类' })
+  categoryName: string;
+
+  @ApiProperty({ example: 6.5, description: '销售单价（元）' })
+  salePrice: number;
+
+  @ApiProperty({ example: 2.5, description: '单件利润（元）' })
+  profit: number;
+
+  @ApiProperty({ example: 2, description: '销售数量' })
+  quantity: number;
+
+  @ApiProperty({ example: 13.0, description: '营业额小计（salePrice × quantity，由后端计算）' })
+  revenueSubtotal: number;
+
+  @ApiProperty({ example: 5.0, description: '利润小计（profit × quantity，由后端计算）' })
+  profitSubtotal: number;
+}
+
+export class PreviewSalesRecordResponseDto {
+  @ApiProperty({ type: [PreviewSalesRecordItemDto], description: '商品明细（含后端计算小计）' })
+  items: PreviewSalesRecordItemDto[];
+
+  @ApiProperty({ example: 88.5, description: '总营业额（元，由后端根据明细重算）' })
+  totalRevenue: number;
+
+  @ApiProperty({ example: 23.6, description: '总利润（元，由后端根据明细重算）' })
+  totalProfit: number;
+
+  @ApiProperty({ example: 8, description: '总销售件数（由后端根据明细重算）' })
+  totalQuantity: number;
 }
 
 export class SalesRecordResponseDto {

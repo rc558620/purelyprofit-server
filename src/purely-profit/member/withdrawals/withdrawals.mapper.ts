@@ -1,5 +1,6 @@
 import { Prisma, type PartnerWithdrawal } from '@prisma/client';
 import type { WithdrawalRecordResponseDto } from './dto/withdrawal-response.dto';
+import { calcWithdrawalAmounts } from './withdrawals-shared.service';
 
 export const withdrawalRecordSelect = {
   id: true,
@@ -37,10 +38,14 @@ export function mapWithdrawalRecord(
     | 'rejectReason'
   >,
 ): WithdrawalRecordResponseDto {
+  // 金额换算走统一入口，确保 netRmbAmount 始终由 calcWithdrawalAmounts 产出
+  const amounts = calcWithdrawalAmounts(record.beanAmount);
+
   const response: WithdrawalRecordResponseDto = {
     id: String(record.id),
-    beanAmount: record.beanAmount,
-    rmbAmount: record.rmbAmount,
+    beanAmount: amounts.beanAmount,
+    rmbAmount: amounts.rmbAmount,
+    netRmbAmount: amounts.netRmbAmount,
     accountType: record.accountType,
     accountNo: record.accountNo,
     accountName: record.accountName,

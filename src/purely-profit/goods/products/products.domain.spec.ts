@@ -6,6 +6,7 @@ import {
 } from '../categories/categories.query';
 import {
   deriveProductProfit,
+  deriveProductProfitRate,
   ensureProductCategory,
   ensureUniqueProductCode,
   resolveProductCode,
@@ -201,6 +202,41 @@ describe('products.domain', () => {
       expect(() => validateDerivedProfit(profit)).toThrow(
         new BadRequestException('每单利润必须大于 0（成本价不能大于等于售价）'),
       );
+    });
+  });
+
+  describe('deriveProductProfitRate', () => {
+    it('正常计算利润率', () => {
+      // profit=200分, price=500分 → 200/500*100 = 40.0%
+      const price = Money.fromDbCents(500);
+      const profit = Money.fromDbCents(200);
+      expect(deriveProductProfitRate(price, profit)).toBe(40.0);
+    });
+
+    it('利润率保留一位小数', () => {
+      // profit=300分, price=800分 → 300/800*100 = 37.5%
+      const price = Money.fromDbCents(800);
+      const profit = Money.fromDbCents(300);
+      expect(deriveProductProfitRate(price, profit)).toBe(37.5);
+    });
+
+    it('无成本价时利润率 = 100%', () => {
+      // costPrice=null → profit=price → profitRate = 100%
+      const price = Money.fromInputYuan(10);
+      const profit = deriveProductProfit(price, null);
+      expect(deriveProductProfitRate(price, profit)).toBe(100.0);
+    });
+
+    it('售价 ≤ 0 时返回 0', () => {
+      const price = Money.zero();
+      const profit = Money.fromDbCents(100);
+      expect(deriveProductProfitRate(price, profit)).toBe(0);
+    });
+
+    it('利润为 0 时利润率为 0%', () => {
+      const price = Money.fromInputYuan(10);
+      const profit = Money.zero();
+      expect(deriveProductProfitRate(price, profit)).toBe(0);
     });
   });
 });

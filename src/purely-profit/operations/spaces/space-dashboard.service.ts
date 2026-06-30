@@ -191,12 +191,12 @@ export class SpaceDashboardService {
   ): Promise<Map<number, Date>> {
     type LastSettledRow = { spaceId: number; endTime: Date };
     const rows = await this.prisma.$queryRaw<LastSettledRow[]>`
-      SELECT DISTINCT ON ("spaceId") "spaceId", "endTime"
-      FROM "SpaceSession"
-      WHERE "storeId" = ${storeId}
+      SELECT DISTINCT ON ("space_id") "space_id" AS "spaceId", "end_time" AS "endTime"
+      FROM "space_sessions"
+      WHERE "store_id" = ${storeId}
         AND status = 'settled'
-        AND "endTime" IS NOT NULL
-      ORDER BY "spaceId", "endTime" DESC
+        AND "end_time" IS NOT NULL
+      ORDER BY "space_id", "end_time" DESC
     `;
 
     const map = new Map<number, Date>();

@@ -10,13 +10,14 @@ import type {
   CreateSalesRecordDto,
   SalesRecordResponseDto,
 } from './dto/sales-record.dto';
-import { assertSalesTotalsMatch } from './sales-record.domain';
+
 import { HandoverPageShiftRecordService } from '../handover/handover-page-shift-record.service';
 import { SalesRecordCreateFlowService } from './sales-record-create-flow.service';
 import {
   SalesRecordItemPreparationService,
   type CreateSalesRecordOptions,
 } from './sales-record-item-preparation.service';
+import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
 
 @Injectable()
 export class SalesRecordWriteService {
@@ -66,20 +67,14 @@ export class SalesRecordWriteService {
         dto,
         options,
       );
-    const totalRevenueMoney = Money.sum(
-      preparedItems.map((item) => item.salePrice.multiply(item.quantity)),
-    );
-    const totalProfitMoney = Money.sum(
-      preparedItems.map((item) => item.profit.multiply(item.quantity)),
-    );
-    const totalRevenue = totalRevenueMoney.toOutputYuan();
-    const totalProfit = totalProfitMoney.toOutputYuan();
-    const totalQuantity = preparedItems.reduce(
-      (sum, item) => sum + (item.countsTowardTotalQuantity ? item.quantity : 0),
-      0,
-    );
 
-    assertSalesTotalsMatch(dto, totalRevenueMoney, totalProfitMoney, totalQuantity);
+    // 使用统一金额聚合域计算权威金额（确保与 preview 计算一致）
+    const amountsSnapshot = SalesRecordAmountsDomain.aggregateFromPreparedItems(
+      preparedItems,
+    );
+    const totalRevenue = amountsSnapshot.totalRevenue;
+    const totalProfit = amountsSnapshot.totalProfit;
+    const totalQuantity = amountsSnapshot.totalQuantity;
 
     const operatorNameSnapshot =
       await this.resolveOperatorNameSnapshot(operatorStaffId);

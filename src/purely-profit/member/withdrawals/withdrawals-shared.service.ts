@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PartnerWithdrawalStatus, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   PARTNER_WITHDRAWAL_MAX_BEANS,
@@ -26,6 +27,30 @@ import {
   withdrawalRecordSelect,
   type WithdrawalRecordSnapshot,
 } from './withdrawals.mapper';
+
+/** 提现金额计算结果——全模块唯一计算源 */
+export interface WithdrawalAmounts {
+  /** 提现豆数 */
+  beanAmount: number;
+  /** 对应人民币金额（分）——由 Money.fromBeanAmount 统一换算 */
+  rmbAmount: number;
+  /** 实际到账人民币金额（分）——当前与 rmbAmount 相同，未来可扣除手续费 */
+  netRmbAmount: number;
+}
+
+/**
+ * 提现金额统一计算入口。
+ * 全模块的金额换算（preview / apply / record 映射）必须且只能调用此函数，
+ * 禁止在 controller / service / mapper 中手写 ×100 或使用裸 number 做金额推导。
+ */
+export function calcWithdrawalAmounts(beanAmount: number): WithdrawalAmounts {
+  const rmbMoney = Money.fromBeanAmount(beanAmount);
+  const rmbAmount = rmbMoney.toDbCents();
+  // 当前无手续费，实到 = 应到；未来若引入手续费/个税，在此处统一扣算
+  const netRmbAmount = rmbAmount;
+
+  return { beanAmount, rmbAmount, netRmbAmount };
+}
 
 const PROCESSING_WITHDRAWAL_STATUSES: PartnerWithdrawalStatus[] = [
   PartnerWithdrawalStatus.pending,

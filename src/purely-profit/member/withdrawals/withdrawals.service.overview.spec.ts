@@ -73,6 +73,7 @@ describe('WithdrawalsService overview and list', () => {
         id: '15',
         beanAmount: 500,
         rmbAmount: 50000,
+        netRmbAmount: 50000,
         accountType: 'alipay',
         accountNo: '13800138000',
         accountName: '张三',

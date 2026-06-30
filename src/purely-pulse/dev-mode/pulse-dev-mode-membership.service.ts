@@ -9,6 +9,7 @@ import type {
   PlatformMembershipPromoCenterResponseDto,
   PlatformMembershipPartnerProfileResponseDto,
 } from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
+import { POINTS_RATE } from '../../purely-profit/member/platform-membership/platform-membership.constants';
 import {
   DEV_EXPIRES_AT,
   DEV_PLAN_ID,
@@ -64,6 +65,8 @@ export class PulseDevModeMembershipService {
         availablePoints: 0,
         totalEarned: 0,
         totalSpent: 0,
+        deductibleAmount: 0,
+        canUsePoints: false,
       },
       items: [],
     };

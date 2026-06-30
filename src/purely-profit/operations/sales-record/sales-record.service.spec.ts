@@ -9,6 +9,7 @@ import type {
   SalesStatsQueryDto,
 } from './dto/sales-record.dto';
 import type { CreateSalesRecordOptions } from './sales-record-item-preparation.service';
+import { SalesRecordPreviewService } from './sales-record-preview.service';
 import { SalesRecordReadService } from './sales-record-read.service';
 import { SalesRecordService } from './sales-record.service';
 import { SalesRecordWriteService } from './sales-record-write.service';
@@ -27,6 +28,10 @@ describe('SalesRecordService', () => {
   const salesRecordWriteService = {
     create: jest.fn(),
     remove: jest.fn(),
+  };
+
+  const salesRecordPreviewService = {
+    preview: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -62,6 +67,7 @@ describe('SalesRecordService', () => {
         SalesRecordService,
         { provide: SalesRecordReadService, useValue: salesRecordReadService },
         { provide: SalesRecordWriteService, useValue: salesRecordWriteService },
+        { provide: SalesRecordPreviewService, useValue: salesRecordPreviewService },
       ],
     }).compile();
 
@@ -140,9 +146,6 @@ describe('SalesRecordService', () => {
     const dto = {
       storeId: 18,
       items: [],
-      totalRevenue: 0,
-      totalProfit: 0,
-      totalQuantity: 1,
       paymentMethod: 'cash',
       calcMode: 'business',
     } as unknown as CreateSalesRecordDto;

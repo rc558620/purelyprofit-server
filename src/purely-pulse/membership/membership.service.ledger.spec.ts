@@ -114,6 +114,8 @@ describe('PulseMembershipService ledger', () => {
         availablePoints: 90,
         totalEarned: 100,
         totalSpent: 30,
+        deductibleAmount: 0,
+        canUsePoints: false,
       },
       items: [
         {
@@ -145,11 +147,13 @@ describe('PulseMembershipService ledger', () => {
     });
     context.prismaService.storePartner.findMany.mockResolvedValue([
       {
+        status: 'approved',
         beanBalance: 12,
         totalEarnedBeans: 30,
         totalWithdrawnBeans: 5,
       },
       {
+        status: 'approved',
         beanBalance: 8,
         totalEarnedBeans: 20,
         totalWithdrawnBeans: 3,
@@ -196,6 +200,7 @@ describe('PulseMembershipService ledger', () => {
         },
       },
       select: {
+        status: true,
         beanBalance: true,
         totalEarnedBeans: true,
         totalWithdrawnBeans: true,

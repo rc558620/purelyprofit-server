@@ -3,6 +3,7 @@ import { SpaceBillingMode, SpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import * as inventoryStockQuery from '../../goods/inventory/inventory-stock.query';
 import { SpaceSessionRenewService } from './space-session-renew.service';
 import { SpaceSessionWriteService } from './space-session-write.service';
 import { mapSessionItemRows } from './space-sessions.mapper';
@@ -254,6 +255,7 @@ describe('SpaceSession concurrency fixes', () => {
 
     const deps = {
       ensureCanAccessStore: jest.fn(),
+      findOperatorStaffIdForStore: jest.fn(),
     };
 
     beforeEach(async () => {
@@ -262,6 +264,7 @@ describe('SpaceSession concurrency fixes', () => {
         Promise.resolve(callback(transaction)),
       );
       deps.ensureCanAccessStore.mockResolvedValue(undefined);
+      deps.findOperatorStaffIdForStore.mockResolvedValue(8);
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
@@ -446,6 +449,145 @@ describe('SpaceSession concurrency fixes', () => {
           'prod_b',
         ]);
       }
+    });
+
+    it('server 库存同步模式下应按 sale 类型扣减库存', async () => {
+      const applyInventoryDeductionsInTransactionSpy = jest
+        .spyOn(inventoryStockQuery, 'applyInventoryDeductionsInTransaction')
+        .mockResolvedValue(undefined);
+
+      prismaService.spaceSession.findUnique.mockResolvedValue({
+        id: 10,
+        storeId: 18,
+      });
+      transaction.spaceSession.findUnique.mockResolvedValue({
+        id: 10,
+        storeId: 18,
+        spaceId: 7,
+        reservationId: null,
+        guestName: '李四',
+        guestPhone: '13800138001',
+        guestCount: 2,
+        startTime: new Date('2026-06-07T10:00:00.000Z'),
+        endTime: null,
+        billingMode: SpaceBillingMode.mixed,
+        hourlyRate: 6800,
+        timeCost: null,
+        countdownMinutes: null,
+        autoCheckout: false,
+        prepaidPaymentMethod: null,
+        prepaidCustomerPaymentMethod: null,
+        prepaidSettlementChannel: null,
+        prepaidGrouponCode: null,
+        prepaidGrouponPlatform: null,
+        prepaidVoucherCode: null,
+        prepaidVoucherPlatform: null,
+        prepaidNote: null,
+        prepaidAmount: null,
+        prepaidVoucherFaceAmount: null,
+        sessionItems: [],
+        itemsCost: 0,
+        sessionRenewRecords: [],
+        status: SpaceSessionStatus.active,
+        saleOrderId: null,
+        createdAt: new Date('2026-06-07T10:00:00.000Z'),
+        updatedAt: new Date('2026-06-07T10:00:00.000Z'),
+        space: {
+          id: 7,
+          name: 'A01',
+          type: {
+            name: '台球桌',
+          },
+        },
+      });
+      transaction.spaceSession.update.mockImplementation(({ data }) => ({
+        id: 10,
+        storeId: 18,
+        spaceId: 7,
+        reservationId: null,
+        guestName: '李四',
+        guestPhone: '13800138001',
+        guestCount: 2,
+        startTime: new Date('2026-06-07T10:00:00.000Z'),
+        endTime: null,
+        billingMode: SpaceBillingMode.mixed,
+        hourlyRate: 6800,
+        timeCost: null,
+        countdownMinutes: null,
+        autoCheckout: false,
+        prepaidPaymentMethod: null,
+        prepaidCustomerPaymentMethod: null,
+        prepaidSettlementChannel: null,
+        prepaidGrouponCode: null,
+        prepaidGrouponPlatform: null,
+        prepaidVoucherCode: null,
+        prepaidVoucherPlatform: null,
+        prepaidNote: null,
+        prepaidAmount: null,
+        prepaidVoucherFaceAmount: null,
+        sessionItems: [
+          {
+            id: 3,
+            sessionId: 10,
+            productId: '5',
+            productName: '利润测试3',
+            categoryName: '房东说',
+            salePrice: 71200,
+            profit: 4600,
+            quantity: 1,
+            sortOrder: 0,
+            createdAt: new Date('2026-06-07T10:05:00.000Z'),
+          },
+        ],
+        itemsCost: data.itemsCost,
+        sessionRenewRecords: [],
+        status: SpaceSessionStatus.active,
+        saleOrderId: null,
+        createdAt: new Date('2026-06-07T10:00:00.000Z'),
+        updatedAt: new Date('2026-06-07T10:05:00.000Z'),
+        space: {
+          id: 7,
+          name: 'A01',
+          type: {
+            name: '台球桌',
+          },
+        },
+      }));
+
+      await service.addItemsToSession(
+        user,
+        10,
+        {
+          items: [
+            {
+              productId: '5',
+              productName: '利润测试3',
+              categoryName: '房东说',
+              salePrice: 712,
+              profit: 46,
+              quantity: 1,
+            },
+          ],
+          inventorySyncMode: 'server',
+        },
+        deps,
+      );
+
+      expect(deps.findOperatorStaffIdForStore).toHaveBeenCalledWith(user, 18);
+      expect(applyInventoryDeductionsInTransactionSpy).toHaveBeenCalledWith(
+        transaction,
+        [
+          {
+            productId: 5,
+            quantity: 1,
+            productName: '利润测试3',
+          },
+        ],
+        18,
+        8,
+        'sale',
+        '空间管理追加点单',
+      );
     });
   });
 });

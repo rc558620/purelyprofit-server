@@ -3,7 +3,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type {
   PlatformMembershipCenterResponseDto,
@@ -14,6 +13,7 @@ import type {
 } from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
 import type { PurchasePlatformMembershipOrderDto } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
 import { PLATFORM_MEMBERSHIP_PLAN_IDS } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
+import { calcPreviewResult } from '../../purely-profit/member/platform-membership/platform-membership.domain';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { PulseMembershipOrderPreviewDto } from './dto/pulse-membership-orders.request.dto';
@@ -23,14 +23,7 @@ import type {
   PulseMembershipOrderPreviewResponseDto,
 } from './dto/pulse-membership-orders.response.dto';
 import { PulseMembershipAccessService } from './membership-access.service';
-import {
-  BEAN_DEDUCT_LIMIT,
-  BEAN_DEDUCT_RATE,
-  POINTS_DEDUCT_LIMIT,
-  POINTS_RATE,
-  PURCHASE_BONUS_POINTS,
-} from './membership.constants';
-import type { PaymentPreviewResult } from './membership.types';
+import { PURCHASE_BONUS_POINTS } from './membership.constants';
 
 @Injectable()
 export class PulseMembershipOrdersService {
@@ -131,7 +124,7 @@ export class PulseMembershipOrdersService {
     const availablePoints = profile?.availablePoints ?? 0;
     const availableBeans = partner?.beanBalance ?? 0;
 
-    const preview = this.calcPaymentPreview({
+    const preview = calcPreviewResult({
       planPrice: plan.price,
       requestedPoints,
       availablePoints,
@@ -149,6 +142,10 @@ export class PulseMembershipOrdersService {
       pointsDeducted: preview.pointsDeductAmount,
       pointsUsed: preview.actualPointsUsed,
       finalAmount: preview.finalAmount,
+      maxBeanDeductAmount: preview.maxBeanDeductAmount,
+      maxPointsDeductAmount: preview.maxPointsDeductAmount,
+      canUsePoints: preview.canUsePoints,
+      canUseBeans: preview.canUseBeans,
       bonusPoints: PURCHASE_BONUS_POINTS[planId] ?? 0,
       availablePoints,
       availableBeans,
@@ -236,73 +233,4 @@ export class PulseMembershipOrdersService {
     };
   }
 
-  private calcPaymentPreview(params: {
-    planPrice: number;
-    requestedPoints: number;
-    availablePoints: number;
-    requestedBeans: number;
-    availableBeans: number;
-  }): PaymentPreviewResult {
-    const {
-      planPrice,
-      requestedPoints,
-      availablePoints,
-      requestedBeans,
-      availableBeans,
-    } = params;
-
-    const planPriceDecimal = new Decimal(planPrice);
-    const zero = new Decimal(0);
-
-    const maxBeanDeductAmount = planPriceDecimal.mul(BEAN_DEDUCT_LIMIT).floor();
-    const beanDeductAmount = Decimal.max(
-      zero,
-      Decimal.min(
-        new Decimal(requestedBeans).mul(BEAN_DEDUCT_RATE),
-        maxBeanDeductAmount,
-        new Decimal(availableBeans).mul(BEAN_DEDUCT_RATE),
-      ),
-    );
-    const actualBeansUsed = beanDeductAmount.div(BEAN_DEDUCT_RATE).floor();
-
-    const priceAfterBeans = Decimal.max(
-      zero,
-      planPriceDecimal.minus(beanDeductAmount),
-    );
-
-    const maxPointsDeductAmount = priceAfterBeans
-      .mul(POINTS_DEDUCT_LIMIT)
-      .floor();
-    const requestedPointsDeductAmount = new Decimal(requestedPoints)
-      .div(POINTS_RATE)
-      .floor()
-      .mul(100);
-    const availablePointsDeductAmount = new Decimal(availablePoints)
-      .div(POINTS_RATE)
-      .floor()
-      .mul(100);
-    const pointsDeductAmount = Decimal.max(
-      zero,
-      Decimal.min(
-        requestedPointsDeductAmount,
-        availablePointsDeductAmount,
-        maxPointsDeductAmount,
-      ),
-    );
-    const actualPointsUsed = pointsDeductAmount.div(100).mul(POINTS_RATE);
-
-    const finalAmount = Decimal.max(
-      zero,
-      priceAfterBeans.minus(pointsDeductAmount),
-    );
-
-    return {
-      beanDeductAmount: beanDeductAmount.toNumber(),
-      actualBeansUsed: actualBeansUsed.toNumber(),
-      priceAfterBeans: priceAfterBeans.toNumber(),
-      pointsDeductAmount: pointsDeductAmount.toNumber(),
-      actualPointsUsed: actualPointsUsed.toNumber(),
-      finalAmount: finalAmount.toNumber(),
-    };
-  }
 }

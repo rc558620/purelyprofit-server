@@ -3,8 +3,10 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsIn,
   IsInt,
   IsNumber,
+  IsOptional,
   IsString,
   MaxLength,
   Min,
@@ -55,4 +57,13 @@ export class AddSpaceSessionItemsDto {
   @ValidateNested({ each: true })
   @Type(() => SpaceSessionItemDto)
   items: SpaceSessionItemDto[];
+
+  @ApiProperty({
+    enum: ['client', 'server'],
+    default: 'client',
+    description: '库存同步模式：client=前端同步（旧模式），server=后端同步（新模式）',
+  })
+  @IsOptional()
+  @IsIn(['client', 'server'], { message: '库存同步模式只能是 client 或 server' })
+  inventorySyncMode?: 'client' | 'server';
 }

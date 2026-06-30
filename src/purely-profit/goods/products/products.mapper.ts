@@ -5,11 +5,14 @@ import {
 import { Money } from '../../../shared/money.utils';
 import type { ProductResponseDto } from './dto/product.dto';
 import type { ProductRecord } from './products.types';
+import { deriveProductProfitRate } from './products.domain';
 
 export function buildProductResponse(
   product: ProductRecord,
 ): ProductResponseDto {
   const image = toOptionalMediaText(product.image);
+  const priceMoney = Money.fromDbCents(product.price);
+  const profitMoney = Money.fromDbCents(product.profit);
 
   return {
     id: String(product.id),
@@ -17,8 +20,9 @@ export function buildProductResponse(
     name: product.name,
     category: product.category,
     code: product.code,
-    price: Money.fromDbCents(product.price).toOutputYuan(),
-    profit: Money.fromDbCents(product.profit).toOutputYuan(),
+    price: priceMoney.toOutputYuan(),
+    profit: profitMoney.toOutputYuan(),
+    profitRate: deriveProductProfitRate(priceMoney, profitMoney),
     ...(product.costPrice !== null
       ? { costPrice: Money.fromDbCents(product.costPrice).toOutputYuan() }
       : {}),

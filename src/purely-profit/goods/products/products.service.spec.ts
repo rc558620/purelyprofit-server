@@ -461,7 +461,6 @@ describe('ProductsService', () => {
         code: 'SKU-001',
         name: ' 可乐 ',
         price: 5,
-        profit: 2,
         costPrice: 3,
         unit: ' 瓶 ',
         stock: 10,
@@ -501,23 +500,22 @@ describe('ProductsService', () => {
     expect(mockedBuildProductResponse).toHaveBeenCalledWith(created);
   });
 
-  it('create 时前端传入假 profit 会被服务端重算覆盖', async () => {
+  it('create 时服务端按 price 与 costPrice 重算 profit，不受前端影响', async () => {
     const created = createProductRecordFixture();
     const response = createProductResponseFixture({ record: created });
     setupCreateMocks({ created, response });
 
-    // 前端传入 profit=9999（篡改值），但 price=5, costPrice=3
+    // 前端不传 profit，后端自动推导
     await service.create(user, {
       storeId: 18,
       category: '饮品',
       name: '可乐',
       price: 5,
-      profit: 9999,
       costPrice: 3,
       unit: '瓶',
     });
 
-    // 入库的 profit 应是 5-3=2（200分），而非 9999
+    // 入库的 profit 应是 5-3=2（200分）
     expect(mockedCreateProductRecord).toHaveBeenCalledWith(
       prismaService,
       expect.objectContaining({ profit: 200 }),
@@ -704,18 +702,18 @@ describe('ProductsService', () => {
     );
   });
 
-  it('update 只传 profit（不改 price/costPrice）时 profit 不生效，仍按重算值写入', async () => {
+  it('update 时 profit 由服务端按 price 与 costPrice 重算，客户端无法单独修改 profit', async () => {
     const current = createProductRecordFixture({ price: 500, costPrice: 300, profit: 200 });
     setupUpdateMocks({ current });
 
-    // 前端试图单独修改 profit=9999，但后端忽略
-    await service.update(user, 11, { profit: 9999 });
+    // 只改 price，profit 联动重算
+    await service.update(user, 11, { price: 8 });
 
-    // profit 仍 = price(500) - costPrice(300) = 200分
+    // profit 仍 = price(800分) - costPrice(300分) = 500分
     expect(mockedUpdateProductRecord).toHaveBeenCalledWith(
       prismaService,
       11,
-      expect.objectContaining({ profit: 200 }),
+      expect.objectContaining({ profit: 500 }),
     );
   });
 

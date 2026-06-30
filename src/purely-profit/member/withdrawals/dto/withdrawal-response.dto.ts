@@ -61,9 +61,13 @@ export class WithdrawalRecordResponseDto {
   @IsInt({ message: '提现纯利豆数量必须是整数' })
   beanAmount: number;
 
-  @ApiProperty({ example: 50000, description: '对应人民币金额，单位分' })
+  @ApiProperty({ example: 50000, description: '对应人民币金额，单位分（由后端 calcWithdrawalAmounts 统一计算）' })
   @IsInt({ message: '人民币金额必须是整数' })
   rmbAmount: number;
+
+  @ApiProperty({ example: 50000, description: '实际到账人民币金额，单位分（当前无手续费，与 rmbAmount 相同；未来可扣除手续费）' })
+  @IsInt({ message: '实际到账人民币金额必须是整数' })
+  netRmbAmount: number;
 
   @ApiProperty({
     enum: WITHDRAWAL_ACCOUNT_TYPE_VALUES,
@@ -133,3 +137,18 @@ export class ApplyWithdrawalResponseDto {
 }
 
 export class ReviewWithdrawalResponseDto extends ApplyWithdrawalResponseDto {}
+
+/** 提现预览响应 DTO——后端权威返回预计到账金额，前端仅做展示 */
+export class PreviewWithdrawalResponseDto {
+  @ApiProperty({ example: 500, description: '提现纯利豆数量' })
+  @IsInt({ message: '提现纯利豆数量必须是整数' })
+  beanAmount: number;
+
+  @ApiProperty({ example: 50000, description: '对应人民币金额，单位分（由 calcWithdrawalAmounts 统一计算）' })
+  @IsInt({ message: '人民币金额必须是整数' })
+  rmbAmount: number;
+
+  @ApiProperty({ example: 50000, description: '预计实际到账人民币金额，单位分（当前无手续费，与 rmbAmount 相同）' })
+  @IsInt({ message: '预计实际到账人民币金额必须是整数' })
+  netRmbAmount: number;
+}

@@ -770,14 +770,14 @@ describe('PlatformMembershipService', () => {
     await expect(service.listOrders(user)).resolves.toEqual({
       overview: {
         orderCount: 2,
-        totalAmount: 132,
+        totalAmount: 13200, // 后端统一返回分，前端统一消费分
       },
       items: [
         {
           id: '21',
           planId: 'quarterly',
           planName: '季度会员',
-          amount: 99,
+          amount: 9900, // 后端统一返回分，前端统一消费分
           pointsUsed: 0,
           beansUsed: 0,
           status: 'paid',
@@ -788,7 +788,7 @@ describe('PlatformMembershipService', () => {
           id: '22',
           planId: 'monthly',
           planName: '月度会员',
-          amount: 33,
+          amount: 3300, // 后端统一返回分，前端统一消费分
           pointsUsed: 500,
           beansUsed: 10,
           status: 'paid',
@@ -843,6 +843,8 @@ describe('PlatformMembershipService', () => {
         availablePoints: 1280,
         totalEarned: 1500,
         totalSpent: 200,
+        deductibleAmount: 1200, // 1280 积分 ÷ 100 = 12 元 = 1200 分
+        canUsePoints: true,
       },
       items: [
         {
@@ -1446,6 +1448,12 @@ describe('PlatformMembershipService', () => {
       partnerLevel: 'star',
       monthChargedCount: 0,
       monthCountToNextLevel: 10,
+      currentLevelRewards: {
+        monthly: 8,
+        quarterly: 22,
+        yearly: 92,
+        lifetime: 0,
+      },
     });
 
     jest.useRealTimers();
@@ -1776,7 +1784,7 @@ describe('PlatformMembershipService', () => {
         id: '31',
         planId: 'quarterly',
         planName: '季度会员',
-        amount: 59,
+        amount: 5900, // 后端统一返回分
         pointsUsed: 2000,
         beansUsed: 20,
         status: 'paid',
@@ -1815,7 +1823,7 @@ describe('PlatformMembershipService', () => {
       },
       overview: {
         orderCount: 1,
-        totalAmount: 59,
+        totalAmount: 5900, // 后端统一返回分
       },
     });
   });
@@ -1898,7 +1906,7 @@ describe('PlatformMembershipService', () => {
       expect(result.order).toMatchObject({
         planId: 'lifetime',
         planName: '永久会员',
-        amount: 398,
+        amount: 39800, // 后端统一返回分
       });
     } finally {
       jest.useRealTimers();

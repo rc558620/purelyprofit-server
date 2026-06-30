@@ -25,15 +25,21 @@ export const mapSessionItemRows = (
 ): SpaceSessionItemRecord[] =>
   (rows ?? [])
     .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((row) => ({
-      productId: row.productId,
-      productName: row.productName,
-      categoryName: row.categoryName,
-      // DB 存储为分（Int），转为元
-      salePrice: Money.fromDbCents(row.salePrice).toOutputYuan(),
-      profit: Money.fromDbCents(row.profit).toOutputYuan(),
-      quantity: row.quantity,
-    }));
+    .map((row) => {
+      const salePriceYuan = Money.fromDbCents(row.salePrice).toOutputYuan();
+      const quantity = row.quantity;
+      return {
+        productId: row.productId,
+        productName: row.productName,
+        categoryName: row.categoryName,
+        // DB 存储为分（Int），转为元
+        salePrice: salePriceYuan,
+        profit: Money.fromDbCents(row.profit).toOutputYuan(),
+        quantity,
+        // 行合计金额 = salePrice × quantity，全程 Money 运算
+        lineTotal: Money.fromDbCents(row.salePrice).multiply(quantity).toOutputYuan(),
+      };
+    });
 
 /**
  * Step 8.1: 从 space_session_renew_records 行类型映射为业务记录

@@ -1,5 +1,8 @@
-import Decimal from 'decimal.js';
 import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  buildBeanOverview,
+  buildPointsOverview,
+} from '../../purely-profit/member/platform-membership/platform-membership.domain';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type {
   PlatformMembershipBeanLogsResponseDto,
@@ -118,19 +121,7 @@ export class PulseMembershipLedgerService {
         totalPoints,
         availablePoints,
       },
-      overview: {
-        availablePoints,
-        totalEarned: logs.reduce(
-          (sum, log) =>
-            log.changeType === 'increase' ? sum + log.changeAmount : sum,
-          0,
-        ),
-        totalSpent: logs.reduce(
-          (sum, log) =>
-            log.changeType === 'decrease' ? sum + log.changeAmount : sum,
-          0,
-        ),
-      },
+      overview: buildPointsOverview(availablePoints, logs),
       items: logs.map((log) => this.mapDeveloperPointsLog(log)),
     };
   }
@@ -171,6 +162,7 @@ export class PulseMembershipLedgerService {
           store: this.accessService.buildAdminStoreExclusionWhere(),
         },
         select: {
+          status: true,
           beanBalance: true,
           totalEarnedBeans: true,
           totalWithdrawnBeans: true,
@@ -194,32 +186,12 @@ export class PulseMembershipLedgerService {
       }),
     ]);
 
-    const overview = partners.reduce(
-      (summary, partner) => ({
-        beanBalance: summary.beanBalance + partner.beanBalance,
-        totalEarnedBeans: summary.totalEarnedBeans + partner.totalEarnedBeans,
-        totalWithdrawnBeans:
-          summary.totalWithdrawnBeans + partner.totalWithdrawnBeans,
-      }),
-      {
-        beanBalance: 0,
-        totalEarnedBeans: 0,
-        totalWithdrawnBeans: 0,
-      },
-    );
+    const overview = buildBeanOverview(partners);
 
     return {
       approvedPartner: null,
       approvedPartners: [],
-      overview: {
-        ...overview,
-        pendingBeans: Decimal.max(
-          0,
-          new Decimal(overview.totalEarnedBeans)
-            .minus(overview.totalWithdrawnBeans)
-            .minus(overview.beanBalance),
-        ).toNumber(),
-      },
+      overview,
       items: logs.map((log) => this.mapDeveloperBeanLog(log)),
     };
   }

@@ -25,10 +25,12 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   ApplyWithdrawalDto,
   ListWithdrawalsQueryDto,
+  PreviewWithdrawalDto,
 } from './dto/apply-withdrawal.dto';
 import { RejectWithdrawalDto } from './dto/review-withdrawal.dto';
 import {
   ApplyWithdrawalResponseDto,
+  PreviewWithdrawalResponseDto,
   ReviewWithdrawalResponseDto,
   WithdrawalOverviewResponseDto,
   WithdrawalRecordResponseDto,
@@ -67,6 +69,20 @@ export class WithdrawalsController {
     @Query() query: ListWithdrawalsQueryDto,
   ): Promise<WithdrawalRecordResponseDto[]> {
     return this.withdrawalsService.list(user, query);
+  }
+
+  @Post('preview')
+  @RequirePermissions('partner:withdraw')
+  @ApiOperation({ summary: '预览提现金额（后端权威计算）' })
+  @ApiOkResponse({
+    description: '返回后端权威计算的提现金额预览，前端仅做展示',
+    type: PreviewWithdrawalResponseDto,
+  })
+  preview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: PreviewWithdrawalDto,
+  ): Promise<PreviewWithdrawalResponseDto> {
+    return this.withdrawalsService.preview(user, dto.beanAmount) as Promise<PreviewWithdrawalResponseDto>;
   }
 
   @Post('apply')
@@ -149,6 +165,15 @@ export class PartnerPayoutController {
     @Query() query: ListWithdrawalsQueryDto,
   ): Promise<WithdrawalRecordResponseDto[]> {
     return this.withdrawalsService.list(user, query);
+  }
+
+  @Post('preview')
+  @RequirePermissions('partner:withdraw')
+  preview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: PreviewWithdrawalDto,
+  ): Promise<PreviewWithdrawalResponseDto> {
+    return this.withdrawalsService.preview(user, dto.beanAmount) as Promise<PreviewWithdrawalResponseDto>;
   }
 
   @Post(['', 'apply'])

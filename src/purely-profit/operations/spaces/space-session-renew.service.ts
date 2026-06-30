@@ -99,15 +99,18 @@ export class SpaceSessionRenewService {
         throw new ConflictException('仅倒计时会话支持续费');
       }
 
-      // hourlyRate 在 DB 中是分，需转为元以便与前端传入的 payload.amount（元）运算
-      const hourlyRateYuan = latestSession.hourlyRate
-        ? Money.fromDbCents(latestSession.hourlyRate).toOutputYuan()
-        : 0;
-      if (hourlyRateYuan <= 0) {
+      // hourlyRate 在 DB 中是分，通过 Money 全程运算
+      if (!latestSession.hourlyRate) {
+        throw new BadRequestException('当前会话缺少有效台位费，无法续费');
+      }
+      const hourlyRateMoney = Money.fromDbCents(latestSession.hourlyRate);
+      if (hourlyRateMoney.isZero() || hourlyRateMoney.isNegative()) {
         throw new BadRequestException('当前会话缺少有效台位费，无法续费');
       }
 
-      const addedMinutes = Math.floor((payload.amount / hourlyRateYuan) * 60);
+      // 续费金额（元）→ Money → 换算分钟数（向下取整）
+      const amountMoney = Money.fromInputYuan(payload.amount);
+      const addedMinutes = amountMoney.calcWholeUnitsFloor(hourlyRateMoney, 60);
       if (addedMinutes <= 0) {
         throw new BadRequestException('续费金额不足以换算有效时长');
       }

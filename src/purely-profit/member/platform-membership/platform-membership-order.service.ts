@@ -1,7 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
-import { Money } from '../../../shared/money.utils';
+
 import { DAY_MS, PURCHASE_BONUS_POINTS } from './platform-membership.constants';
 import { resolveEffectivePlanId } from './membership-plan-resolver';
 import {
@@ -241,7 +241,7 @@ export class PlatformMembershipOrderService {
           profileId: profile.id,
           planId: plan.id,
           planName: plan.name,
-          originalAmount: Money.fromDbCents(plan.price).toDbCents(),
+          originalAmount: plan.price,
           pointsUsed: payment.actualPointsUsed,
           beansUsed: payment.actualBeansUsed,
           amount: payment.finalAmount,

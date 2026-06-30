@@ -117,6 +117,7 @@ export const createSettleSpaceSessionParams = (): SettleSpaceSessionParams => ({
         salePrice: 20, // 业务层单位为元
         profit: 8,
         quantity: 1,
+        lineTotal: 20, // salePrice × quantity
       },
     ],
     totalRevenue: 20,

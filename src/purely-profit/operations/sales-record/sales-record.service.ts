@@ -5,6 +5,7 @@ import type {
   CreateSalesRecordDto,
   ListSalesProductsQueryDto,
   ListSalesRecordsQueryDto,
+  PreviewSalesRecordResponseDto,
   SalesProductResponseDto,
   SalesRecordListResponseDto,
   SalesRecordResponseDto,
@@ -13,6 +14,7 @@ import type {
   SalesStatsQueryDto,
   SalesStatsResponseDto,
 } from './dto/sales-record.dto';
+import { SalesRecordPreviewService } from './sales-record-preview.service';
 import { SalesRecordReadService } from './sales-record-read.service';
 import type { CreateSalesRecordOptions } from './sales-record-item-preparation.service';
 import { SalesRecordWriteService } from './sales-record-write.service';
@@ -22,7 +24,12 @@ export class SalesRecordService {
   constructor(
     private readonly salesRecordReadService: SalesRecordReadService,
     private readonly salesRecordWriteService: SalesRecordWriteService,
+    private readonly salesRecordPreviewService: SalesRecordPreviewService,
   ) {}
+
+  preview(dto: CreateSalesRecordDto): PreviewSalesRecordResponseDto {
+    return this.salesRecordPreviewService.preview(dto);
+  }
 
   listProducts(
     user: AuthenticatedUser,

@@ -25,7 +25,10 @@ import {
   withdrawalRecordSelect,
   type WithdrawalRecordSnapshot,
 } from './withdrawals.mapper';
-import { WithdrawalsSharedService } from './withdrawals-shared.service';
+import {
+  WithdrawalsSharedService,
+  calcWithdrawalAmounts,
+} from './withdrawals-shared.service';
 
 type PrismaTransactionExecutor = Prisma.TransactionClient;
 
@@ -107,6 +110,27 @@ export class WithdrawalsService {
         return records.map((record) => mapWithdrawalRecord(record));
       },
     });
+  }
+
+  async preview(
+    user: AuthenticatedUser,
+    beanAmount: number,
+  ): Promise<{ beanAmount: number; rmbAmount: number; netRmbAmount: number }> {
+    const storeId =
+      this.withdrawalsSharedService.getCurrentStoreIdOrThrow(user);
+    this.withdrawalsSharedService.ensureWithdrawAmountWithinFrontEndRange(
+      beanAmount,
+    );
+
+    const partner =
+      await this.withdrawalsSharedService.findApprovedPartnerForApplyOrThrow(
+        storeId,
+      );
+    if (partner.beanBalance < beanAmount) {
+      throw new ConflictException('纯利豆余额不足');
+    }
+
+    return calcWithdrawalAmounts(beanAmount);
   }
 
   async apply(
@@ -291,7 +315,7 @@ export class WithdrawalsService {
         partnerId,
         operatorStaffId,
         beanAmount: dto.beanAmount,
-        rmbAmount: dto.beanAmount * 100,
+        rmbAmount: calcWithdrawalAmounts(dto.beanAmount).rmbAmount,
         accountType: dto.accountType,
         accountNo,
         accountName,

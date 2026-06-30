@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { Prisma, StaffRole } from '@prisma/client';
 import {
   isDeductionProductName,
@@ -11,6 +10,7 @@ import type {
   SalesRecordItemResponseDto,
   SalesRecordResponseDto,
 } from './dto/sales-record.dto';
+import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
 
 // ---------------------------------------------------------------------------
 // 内部类型
@@ -87,29 +87,6 @@ function resolveOperatorRole(
 }
 
 // ---------------------------------------------------------------------------
-// 校验断言
-// ---------------------------------------------------------------------------
-
-export function assertSalesTotalsMatch(
-  dto: { totalRevenue: number; totalProfit: number; totalQuantity: number },
-  totalRevenue: Money,
-  totalProfit: Money,
-  totalQuantity: number,
-): void {
-  const dtoRevenue = Money.fromInputYuan(dto.totalRevenue);
-  const dtoProfit = Money.fromInputYuan(dto.totalProfit);
-  if (!dtoRevenue.equals(totalRevenue)) {
-    throw new BadRequestException('总营业额与明细汇总不一致');
-  }
-  if (!dtoProfit.equals(totalProfit)) {
-    throw new BadRequestException('总利润与明细汇总不一致');
-  }
-  if (dto.totalQuantity !== totalQuantity) {
-    throw new BadRequestException('总销售件数与明细汇总不一致');
-  }
-}
-
-// ---------------------------------------------------------------------------
 // 响应映射
 // ---------------------------------------------------------------------------
 
@@ -121,19 +98,21 @@ export function mapSalesRecordResponse(
   const visibleItems = order.items.filter(
     (item) => !isDeductionProductName(item.productName),
   );
-  // 重算不含抵扣行的 totalRevenue、totalProfit 和 totalQuantity
-  let totalRevenue = Money.zero();
-  let totalProfit = Money.zero();
-  for (const item of visibleItems) {
-    const price = Money.fromDbCents(item.salePrice).multiply(item.quantity);
-    const profitPerUnit = Money.fromDbCents(item.profit).multiply(item.quantity);
-    totalRevenue = totalRevenue.add(price);
-    totalProfit = totalProfit.add(profitPerUnit);
-  }
-  const totalQuantity = visibleItems.reduce(
-    (sum, item) => sum + item.quantity,
-    0,
-  );
+
+  // 构建 PreparedSalesItem 结构用于统一金额聚合
+  const preparedItems = visibleItems.map((item) => ({
+    productId: item.productId,
+    productName: item.productName,
+    categoryName: item.categoryName,
+    salePrice: Money.fromDbCents(item.salePrice),
+    profit: Money.fromDbCents(item.profit),
+    quantity: item.quantity,
+    countsTowardTotalQuantity: true,
+    image: undefined as string | undefined,
+  }));
+
+  // 使用统一金额聚合域计算权威金额（与 preview/create 保持一致）
+  const amountsSnapshot = SalesRecordAmountsDomain.aggregateFromPreparedItems(preparedItems);
 
   const operatorName = toOptionalText(order.operatorNameSnapshot) ?? null;
   const operatorRole = resolveOperatorRole(order.operatorStaff);
@@ -141,10 +120,12 @@ export function mapSalesRecordResponse(
   return {
     id: String(order.id),
     orderNo: order.orderNo,
-    items: visibleItems.map((item) => mapSalesRecordItemResponse(item)),
-    totalRevenue: totalRevenue.toOutputYuan(),
-    totalProfit: totalProfit.toOutputYuan(),
-    totalQuantity,
+    items: visibleItems.map((item, index) =>
+      mapSalesRecordItemResponse(item, amountsSnapshot.items[index]),
+    ),
+    totalRevenue: amountsSnapshot.totalRevenue,
+    totalProfit: amountsSnapshot.totalProfit,
+    totalQuantity: amountsSnapshot.totalQuantity,
     paymentMethod: order.paymentMethod,
     calcMode: order.calcMode,
     ...(note ? { note } : {}),
@@ -157,6 +138,7 @@ export function mapSalesRecordResponse(
 
 export function mapSalesRecordItemResponse(
   item: SaleOrderWithItems['items'][number],
+  amountItem?: ReturnType<typeof SalesRecordAmountsDomain.aggregateFromPreparedItems>['items'][0],
 ): SalesRecordItemResponseDto {
   return {
     productId:
@@ -166,6 +148,8 @@ export function mapSalesRecordItemResponse(
     salePrice: Money.fromDbCents(item.salePrice).toOutputYuan(),
     profit: Money.fromDbCents(item.profit).toOutputYuan(),
     quantity: item.quantity,
+    // 从权威金额快照补齐 subtotal 字段
+    subtotal: amountItem?.subtotal ?? 0,
   };
 }
 

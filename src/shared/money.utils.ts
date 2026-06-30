@@ -82,11 +82,26 @@ export class Money {
   }
 
   /**
-   * 仅用于数据库字段、Prisma 聚合结果、SQL SUM 结果等“分”金额。
+   * 仅用于数据库字段、Prisma 聚合结果、SQL SUM 结果等"分"金额。
    * 若传入非整数分，直接报错，避免把元误当分静默吞掉。
    */
   static fromDbCents(cents: MoneyDbCentsInput): Money {
     return new Money(assertDbCents(cents));
+  }
+
+  /**
+   * 从纯利豆数量换算为 Money。
+   * 业务规则：1 豆 = 1 元 = 100 分。
+   * 全仓"豆→金额"换算只允许使用此方法，禁止在业务代码中手写 ×100。
+   */
+  static fromBeanAmount(beanAmount: MoneyDbCentsInput): Money {
+    const cents = parseDecimalLike(beanAmount, '纯利豆数量').mul(100);
+    return new Money(
+      toSafeInteger(
+        cents.toDecimalPlaces(0, Decimal.ROUND_HALF_UP),
+        '数据库分金额',
+      ),
+    );
   }
 
   /** 返回两个 Money 中较大者 */
@@ -149,6 +164,50 @@ export class Money {
         '数据库分金额',
       ),
     );
+  }
+
+  /**
+   * 乘法后向上取整到分。
+   * 适用于"计时费 = 分钟数 / 60 × 时薪"且金额向上取整到分的场景。
+   * 内部用 Decimal 运算，避免浮点误差；最终 ceil 到整数分。
+   */
+  multiplyCeilToCent(multiplier: number): Money {
+    const decimalMultiplier = parseFiniteNumber(multiplier, '金额乘数');
+
+    return new Money(
+      toSafeInteger(
+        new Decimal(this.dbCentsValue)
+          .mul(decimalMultiplier)
+          .toDecimalPlaces(0, Decimal.ROUND_CEIL),
+        '数据库分金额',
+      ),
+    );
+  }
+
+  /**
+   * 按金额和单价换算出可购买的完整单位数，向下取整。
+   * 适用于"续费分钟数 = 金额 / 时薪 × 60"且向下取整到分钟的场景。
+   * 返回整数，至少为 0。
+   */
+  calcWholeUnitsFloor(unitPrice: Money, unitSize: number): number {
+    if (unitPrice.isZero() || unitPrice.isNegative()) {
+      return 0;
+    }
+    if (unitSize <= 0) {
+      return 0;
+    }
+    if (this.isZero() || this.isNegative()) {
+      return 0;
+    }
+
+    const decimalUnitSize = parseFiniteNumber(unitSize, '单位大小');
+    const result = new Decimal(this.dbCentsValue)
+      .div(unitPrice.dbCentsValue)
+      .mul(decimalUnitSize)
+      .toDecimalPlaces(0, Decimal.ROUND_FLOOR);
+
+    const units = result.toNumber();
+    return Math.max(0, units);
   }
 
   abs(): Money {

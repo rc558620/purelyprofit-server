@@ -95,3 +95,19 @@ export class ListWithdrawalsQueryDto {
   @IsIn(PARTNER_WITHDRAWAL_STATUS_VALUES, { message: '提现状态不合法' })
   status?: PartnerWithdrawalStatusValue;
 }
+
+/** 提现预览请求 DTO——前端输入豆数，后端返回权威计算结果 */
+export class PreviewWithdrawalDto {
+  @ApiProperty({
+    example: 500,
+    description: '预览提现纯利豆数量',
+  })
+  @IsInt({ message: '提现数量必须是整数' })
+  @Min(PARTNER_WITHDRAWAL_MIN_BEANS, {
+    message: `最低提现 ${PARTNER_WITHDRAWAL_MIN_BEANS} 豆`,
+  })
+  @Max(PARTNER_WITHDRAWAL_MAX_BEANS, {
+    message: `单次最多提现 ${PARTNER_WITHDRAWAL_MAX_BEANS} 豆`,
+  })
+  beanAmount: number;
+}

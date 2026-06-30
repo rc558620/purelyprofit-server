@@ -16,7 +16,8 @@ import {
   toSpaceSessionResponse,
 } from './space-sessions.mapper';
 import { normalizeSessionItemsPayload } from './space-session-payload.shared';
-import { mergeSessionItems, sumLineTotal } from './space-session-items.shared';
+import { mergeSessionItems, sumLineTotalMoney } from './space-session-items.shared';
+import { applyInventoryDeductionsInTransaction } from '../../goods/inventory/inventory-stock.query';
 
 @Injectable()
 export class SpaceSessionWriteService {
@@ -33,6 +34,10 @@ export class SpaceSessionWriteService {
         permission: string,
         message: string,
       ) => Promise<void>;
+      findOperatorStaffIdForStore?: (
+        user: AuthenticatedUser,
+        storeId: number,
+      ) => Promise<number | null>;
     },
   ): Promise<SpaceSessionResponseDto> {
     const session = await this.prisma.spaceSession.findUnique({
@@ -55,6 +60,13 @@ export class SpaceSessionWriteService {
     );
 
     const appendedItems = normalizeSessionItemsPayload(dto.items);
+    const inventorySyncMode = dto.inventorySyncMode ?? 'client';
+    let operatorStaffId: number | null = null;
+
+    // 如果采用 server 模式，需要提前获取操作者信息
+    if (inventorySyncMode === 'server' && deps.findOperatorStaffIdForStore) {
+      operatorStaffId = await deps.findOperatorStaffIdForStore(user, session.storeId);
+    }
 
     const updated = await this.prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`
@@ -98,7 +110,7 @@ export class SpaceSessionWriteService {
       // Step 8.1: 从子表行映射为业务记录再合并
       const currentItems = mapSessionItemRows(latestSession.sessionItems);
       const mergedItems = mergeSessionItems(currentItems, appendedItems);
-      const nextItemsCost = sumLineTotal(mergedItems);
+      const nextItemsCostMoney = sumLineTotalMoney(mergedItems);
 
       // Step 8.1: 删除旧的 items，重新创建
       await transaction.spaceSessionItem.deleteMany({
@@ -119,11 +131,50 @@ export class SpaceSessionWriteService {
         })),
       });
 
+      // 如果采用 server 模式，在事务中扣减库存
+      if (inventorySyncMode === 'server') {
+        // 筛出需要扣库存的商品（跳过 manual_, SYS_, 空 productId）
+        const inventoryItems = appendedItems
+          .filter((item) => {
+            const productIdStr = String(item.productId).trim();
+            // 跳过空、手动商品、系统商品
+            if (!productIdStr || productIdStr.startsWith('manual_') || productIdStr.startsWith('SYS_')) {
+              return false;
+            }
+            // 尝试转换为 int
+            const parsed = parseInt(productIdStr, 10);
+            return !Number.isNaN(parsed) && parsed > 0;
+          })
+          .map((item) => ({
+            productId: parseInt(String(item.productId), 10),
+            quantity: Math.max(0, Math.floor(item.quantity)),
+            productName: item.productName,
+          }))
+          .filter((item) => item.quantity > 0);
+
+        // 如果有真实商品，执行库存扣减
+        if (inventoryItems.length > 0) {
+          try {
+            await applyInventoryDeductionsInTransaction(
+              transaction,
+              inventoryItems,
+              latestSession.storeId,
+              operatorStaffId,
+              'sale',
+              '空间管理追加点单',
+            );
+          } catch (error) {
+            // 库存不足或商品不存在时，抛出错误由事务回滚
+            throw error;
+          }
+        }
+      }
+
       return transaction.spaceSession.update({
         where: { id: latestSession.id },
         data: {
-          // nextItemsCost 是元，DB 存储为分
-          itemsCost: Money.fromInputYuan(nextItemsCost).toDbCents(),
+          // nextItemsCostMoney 是 Money 对象，直接转分
+          itemsCost: nextItemsCostMoney.toDbCents(),
         },
         include: {
           space: {

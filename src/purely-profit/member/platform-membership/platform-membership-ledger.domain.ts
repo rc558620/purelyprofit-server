@@ -33,7 +33,8 @@ type ApprovedPartnerLike = Pick<
 export function buildOrdersOverview(
   orders: StoreMembershipOrderRecord[],
 ): PlatformMembershipOrdersOverviewDto {
-  const totalAmount = Money.fromDbCents(orders.reduce((sum, order) => sum + order.amount, 0)).toOutputYuan();
+  // 汇总金额直接使用数据库分值，不再做分→元转换；前端统一消费分
+  const totalAmount = orders.reduce((sum, order) => sum + order.amount, 0);
   return {
     orderCount: orders.length,
     totalAmount,
@@ -47,7 +48,7 @@ export function mapOrder(
     id: String(order.id),
     planId: order.planId,
     planName: order.planName,
-    amount: Money.fromDbCents(order.amount).toOutputYuan(),
+    amount: order.amount,
     pointsUsed: order.pointsUsed,
     beansUsed: order.beansUsed,
     status: order.status,
@@ -61,6 +62,7 @@ export function mapOrder(
 export function buildPointsOverview(
   availablePoints: number,
   logs: StoreMembershipPointsLogRecord[],
+  pointsRate: number = POINTS_RATE,
 ): PlatformMembershipPointsLogsResponseDto['overview'] {
   const totalEarned = logs.reduce(
     (sum, log) =>
@@ -73,10 +75,19 @@ export function buildPointsOverview(
     0,
   );
 
+  // 可抵扣金额（分）：⌊积分 / 比率⌋ × 100（1积分=1分，100积分=1元=100分）
+  // 使用 Money 链路保证金额精度
+  const deductibleAmount = Money.fromDbCents(
+    new Decimal(availablePoints).div(pointsRate).floor().mul(100).toNumber(),
+  ).toDbCents();
+  const canUsePoints = availablePoints >= pointsRate;
+
   return {
     availablePoints,
     totalEarned,
     totalSpent,
+    deductibleAmount,
+    canUsePoints,
   };
 }
 
@@ -117,12 +128,11 @@ export function buildBeanOverview(
     },
   );
 
-  const pendingBeans = Decimal.max(
+  // 待结算纯利豆 = max(0, 总获得 - 总提现 - 当前余额)，防止因并发写入出现负数
+  const pendingBeans = Math.max(
     0,
-    new Decimal(summary.totalEarnedBeans)
-      .minus(summary.totalWithdrawnBeans)
-      .minus(summary.beanBalance),
-  ).toNumber();
+    summary.totalEarnedBeans - summary.totalWithdrawnBeans - summary.beanBalance,
+  );
 
   return {
     ...summary,
@@ -236,16 +246,15 @@ export function calcPreviewResult(
     availableBeans,
     pointsRate = POINTS_RATE,
     pointsDeductLimitRate = POINTS_DEDUCT_LIMIT,
-    beanDeductRate = BEAN_DEDUCT_RATE,
     beanDeductLimitRate = BEAN_DEDUCT_LIMIT,
   } = params;
 
-  const planPriceDecimal = new Decimal(planPrice);
-  const zero = new Decimal(0);
+  // 入口断言：planPrice 必须是整数分，全链路使用 Money 对象
+  const planPriceMoney = Money.fromDbCents(planPrice);
 
-  const maxBeanDeductAmount = planPriceDecimal.mul(beanDeductLimitRate).floor();
+  const maxBeanDeductAmount = planPriceMoney.multiply(beanDeductLimitRate);
   const canUseBeans = availableBeans >= 1;
-  const maxPointsDeductOnFullPrice = planPriceDecimal.mul(pointsDeductLimitRate).floor();
+  const maxPointsDeductOnFullPrice = planPriceMoney.multiply(pointsDeductLimitRate);
   const canUsePoints = availablePoints >= pointsRate;
 
   // 复用 calcMemberPlanPayment 得到实际抵扣明细
@@ -253,11 +262,13 @@ export function calcPreviewResult(
 
   return {
     ...payment,
-    maxBeanDeductAmount: maxBeanDeductAmount.toNumber(),
-    maxPointsDeductAmount: Decimal.min(
+    maxBeanDeductAmount: maxBeanDeductAmount.toDbCents(),
+    maxPointsDeductAmount: Money.min(
       maxPointsDeductOnFullPrice,
-      new Decimal(availablePoints).div(pointsRate).floor().mul(100),
-    ).toNumber(),
+      Money.fromDbCents(
+        new Decimal(availablePoints).div(pointsRate).floor().mul(100).toNumber(),
+      ),
+    ).toDbCents(),
     canUsePoints,
     canUseBeans,
   };
@@ -275,7 +286,6 @@ export function calcMemberPlanPayment(params: {
   beanDeductLimitRate?: number;
 }): PaymentCalculationResult {
   const {
-    planPrice,
     requestedPoints,
     availablePoints,
     requestedBeans,
@@ -285,56 +295,61 @@ export function calcMemberPlanPayment(params: {
     beanDeductRate = BEAN_DEDUCT_RATE,
     beanDeductLimitRate = BEAN_DEDUCT_LIMIT,
   } = params;
-  // planPrice 来自 MembershipPlanConfig.price，单位分；计算链路以分为单位
-  const planPriceDecimal = new Decimal(planPrice);
-  const zero = new Decimal(0);
 
-  const maxBeanDeductAmount = planPriceDecimal.mul(beanDeductLimitRate).floor();
-  const beanDeductAmount = Decimal.max(
-    zero,
-    Decimal.min(
-      new Decimal(requestedBeans).mul(beanDeductRate),
-      maxBeanDeductAmount,
-      new Decimal(availableBeans).mul(beanDeductRate),
-    ),
-  );
-  const actualBeansUsed = beanDeductAmount.div(beanDeductRate).floor();
+  // 入口断言：planPrice 必须是整数分，全链路使用 Money 对象
+  const planPriceMoney = Money.fromDbCents(params.planPrice);
 
-  const priceAfterBeans = Decimal.max(
-    zero,
-    planPriceDecimal.minus(beanDeductAmount),
+  // ── 纯利豆抵扣计算 ────────────────────────────────────────────
+  // 最大可抵扣金额 = 套餐原价 × 抵扣上限比例（向下取整到分）
+  const maxBeanDeductAmount = planPriceMoney.multiply(beanDeductLimitRate);
+  // 实际可抵扣 = min(请求数×兑换率, 最大抵扣额, 可用余额×兑换率)，下限为零
+  const requestedBeanDeduct = Money.fromDbCents(
+    new Decimal(requestedBeans).mul(beanDeductRate).toNumber(),
   );
-  const maxPointsDeductAmount = priceAfterBeans
-    .mul(pointsDeductLimitRate)
-    .floor();
-  const requestedPointsDeductAmount = new Decimal(requestedPoints)
-    .div(pointsRate)
+  const availableBeanDeduct = Money.fromDbCents(
+    new Decimal(availableBeans).mul(beanDeductRate).toNumber(),
+  );
+  const beanDeductAmount = Money.max(
+    Money.zero(),
+    Money.min(Money.min(requestedBeanDeduct, maxBeanDeductAmount), availableBeanDeduct),
+  );
+  // 实际消耗纯利豆 = 抵扣金额 ÷ 兑换率（向下取整）
+  const actualBeansUsed = new Decimal(beanDeductAmount.toDbCents())
+    .div(beanDeductRate)
     .floor()
-    .mul(100);
-  const availablePointsDeductAmount = new Decimal(availablePoints)
-    .div(pointsRate)
-    .floor()
-    .mul(100);
-  const pointsDeductAmount = Decimal.max(
-    zero,
-    Decimal.min(
-      requestedPointsDeductAmount,
-      availablePointsDeductAmount,
-      maxPointsDeductAmount,
-    ),
-  );
-  const actualPointsUsed = pointsDeductAmount.div(100).mul(pointsRate);
-  const finalAmount = Decimal.max(
-    zero,
-    priceAfterBeans.minus(pointsDeductAmount),
-  );
+    .toNumber();
 
+  // ── 积分抵扣计算 ──────────────────────────────────────────────
+  const priceAfterBeans = planPriceMoney.subtractClampedToZero(beanDeductAmount);
+  // 最大积分抵扣金额 = 豆后价格 × 积分抵扣上限比例（向下取整到分）
+  const maxPointsDeductAmount = priceAfterBeans.multiply(pointsDeductLimitRate);
+  // 请求的积分抵扣 = ⌊请求积分数 / 比率⌋ × 100（向下取整到元转分）
+  const requestedPointsDeduct = Money.fromDbCents(
+    new Decimal(requestedPoints).div(pointsRate).floor().mul(100).toNumber(),
+  );
+  // 可用积分抵扣 = ⌊可用积分数 / 比率⌋ × 100
+  const availablePointsDeduct = Money.fromDbCents(
+    new Decimal(availablePoints).div(pointsRate).floor().mul(100).toNumber(),
+  );
+  const pointsDeductAmount = Money.max(
+    Money.zero(),
+    Money.min(Money.min(requestedPointsDeduct, availablePointsDeduct), maxPointsDeductAmount),
+  );
+  // 实际消耗积分 = 抵扣金额(分) / 100 × 比率
+  const actualPointsUsed = new Decimal(pointsDeductAmount.toDbCents())
+    .div(100)
+    .mul(pointsRate)
+    .toNumber();
+  // 最终应付 = 豆后价格 - 积分抵扣额，下限为零
+  const finalAmount = priceAfterBeans.subtractClampedToZero(pointsDeductAmount);
+
+  // 出口断言：所有金额字段必须是整数分
   return {
-    beanDeductAmount: beanDeductAmount.toNumber(),
-    actualBeansUsed: actualBeansUsed.toNumber(),
-    priceAfterBeans: priceAfterBeans.toNumber(),
-    pointsDeductAmount: pointsDeductAmount.toNumber(),
-    actualPointsUsed: actualPointsUsed.toNumber(),
-    finalAmount: finalAmount.toNumber(),
+    beanDeductAmount: beanDeductAmount.toDbCents(),
+    actualBeansUsed,
+    priceAfterBeans: priceAfterBeans.toDbCents(),
+    pointsDeductAmount: pointsDeductAmount.toDbCents(),
+    actualPointsUsed,
+    finalAmount: finalAmount.toDbCents(),
   };
 }

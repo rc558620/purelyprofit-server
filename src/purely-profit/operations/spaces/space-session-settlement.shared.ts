@@ -1,6 +1,6 @@
 import { SpaceBillingMode as PrismaSpaceBillingMode } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
-import { sumLineTotal } from './space-session-items.shared';
+import { sumLineTotalMoney, sumLineProfitMoney } from './space-session-items.shared';
 import type {
   CheckoutPreviewFeeMode,
   SpaceSessionItemRecord,
@@ -20,7 +20,7 @@ export const buildSpaceSessionSettlement = (params: {
   const { session, checkoutAt, payload, items, renewRecords } = params;
   // items 中的 salePrice/profit 已经由 mapSessionItemRows 转为元
   const orderItems = items.map((item) => ({ ...item }));
-  const itemsCost = sumLineTotal(items);
+  const itemsCostMoney = sumLineTotalMoney(items);
   const durationMinutes = calcDurationMinutes(
     session.startTime.getTime(),
     checkoutAt,
@@ -33,54 +33,60 @@ export const buildSpaceSessionSettlement = (params: {
   );
   const timeFeeMode = resolvedFeeMode.timeFeeMode;
   const countdownFeeMode = resolvedFeeMode.countdownFeeMode;
-  let timeCost = 0;
+  let timeCostMoney = Money.zero();
 
   if (
     session.billingMode !== PrismaSpaceBillingMode.items &&
     session.hourlyRate !== null
   ) {
-  // session.hourlyRate 是 DB 中的分（Int），需转为元
-  const hourlyRateYuan = Money.fromDbCents(session.hourlyRate).toOutputYuan();
+    const hourlyRateMoney = Money.fromDbCents(session.hourlyRate);
     const useUnitPrice = timeFeeMode === 'unit_price';
-    timeCost = useUnitPrice
-      ? hourlyRateYuan
-      : calcTimeCost(session.startTime.getTime(), checkoutAt, hourlyRateYuan);
+    timeCostMoney = useUnitPrice
+      ? hourlyRateMoney
+      : calcTimeCostMoney(session.startTime.getTime(), checkoutAt, hourlyRateMoney);
+    const timeCostYuan = timeCostMoney.toOutputYuan();
     orderItems.unshift({
       productId: 'SYS_TIME_BILLING',
       productName: useUnitPrice
         ? '台位费（固定）'
         : `台位费（${durationLabel}）`,
       categoryName: '场地费',
-      salePrice: timeCost,
-      profit: timeCost,
+      salePrice: timeCostYuan,
+      profit: timeCostYuan,
       quantity: 1,
+      lineTotal: timeCostYuan,
     });
   }
 
   // renewRecords.amount 已由 mapRenewRecordRows 转为元
-  const renewDeduction = Number(
-    renewRecords.reduce((sum, record) => sum + record.amount, 0).toFixed(2),
+  const renewDeductionMoney = renewRecords.reduce(
+    (sum, record) => sum.add(Money.fromInputYuan(record.amount)),
+    Money.zero(),
   );
-  if (renewDeduction > 0) {
+  const renewDeductionYuan = renewDeductionMoney.toOutputYuan();
+  if (renewDeductionMoney.isPositive()) {
     orderItems.push({
       productId: 'SYS_RENEW_DEDUCTION',
       productName: '续费抵扣',
       categoryName: '场地费',
-      salePrice: -renewDeduction,
-      profit: -renewDeduction,
+      salePrice: -renewDeductionYuan,
+      profit: -renewDeductionYuan,
       quantity: 1,
+      lineTotal: -renewDeductionYuan,
     });
   }
 
-  const prepaidDeduction = resolveSpaceSessionPrepaidDeduction(session);
-  if (prepaidDeduction > 0) {
+  const prepaidDeductionMoney = resolveSpaceSessionPrepaidDeductionMoney(session);
+  const prepaidDeductionYuan = prepaidDeductionMoney.toOutputYuan();
+  if (prepaidDeductionMoney.isPositive()) {
     orderItems.push({
       productId: 'SYS_PREPAID_DEDUCTION',
       productName: '预付抵扣',
       categoryName: '场地费',
-      salePrice: -prepaidDeduction,
-      profit: -prepaidDeduction,
+      salePrice: -prepaidDeductionYuan,
+      profit: -prepaidDeductionYuan,
       quantity: 1,
+      lineTotal: -prepaidDeductionYuan,
     });
   }
 
@@ -92,11 +98,12 @@ export const buildSpaceSessionSettlement = (params: {
       salePrice: 0,
       profit: 0,
       quantity: 1,
+      lineTotal: 0,
     });
   }
 
-  const totalRevenue = sumLineTotal(orderItems);
-  const totalProfit = sumLineProfit(orderItems);
+  const totalRevenueMoney = sumLineTotalMoney(orderItems);
+  const totalProfitMoney = sumLineProfitMoney(orderItems);
   const totalQuantity = orderItems.reduce(
     (sum, item) =>
       sum + (isSpaceSessionDeductionItem(item.productId) ? 0 : item.quantity),
@@ -108,15 +115,128 @@ export const buildSpaceSessionSettlement = (params: {
     durationLabel,
     ...(timeFeeMode ? { timeFeeMode } : {}),
     ...(countdownFeeMode ? { countdownFeeMode } : {}),
-    timeCost,
-    itemsCost,
-    renewDeduction,
-    prepaidDeduction,
-    totalAmount: totalRevenue,
+    timeCost: timeCostMoney.toOutputYuan(),
+    itemsCost: itemsCostMoney.toOutputYuan(),
+    renewDeduction: renewDeductionYuan,
+    prepaidDeduction: prepaidDeductionYuan,
+    totalAmount: totalRevenueMoney.toOutputYuan(),
     orderItems,
-    totalRevenue,
-    totalProfit,
+    totalRevenue: totalRevenueMoney.toOutputYuan(),
+    totalProfit: totalProfitMoney.toOutputYuan(),
     totalQuantity,
+  };
+};
+
+/**
+ * 构建结账金额的 Money 版本，供 live-preview / renew-preview 等只读预览接口使用。
+ * 返回的金额字段全部是 Money 对象，调用方自行决定何时 toOutputYuan()。
+ */
+export const buildSpaceSessionSettlementMoney = (params: {
+  session: SpaceSessionSettlementRecord;
+  checkoutAt: number;
+  payload: CheckoutPreviewFeeMode;
+  items: SpaceSessionItemRecord[];
+  renewRecords: SpaceSessionRenewRecord[];
+}) => {
+  const { session, checkoutAt, payload, items, renewRecords } = params;
+  const orderItems = items.map((item) => ({ ...item }));
+  const itemsCostMoney = sumLineTotalMoney(items);
+  const durationMinutes = calcDurationMinutes(
+    session.startTime.getTime(),
+    checkoutAt,
+  );
+  const durationLabel = formatDurationLabel(durationMinutes);
+  const resolvedFeeMode = resolveSpaceSessionFeeMode(
+    session,
+    renewRecords,
+    payload,
+  );
+  const timeFeeMode = resolvedFeeMode.timeFeeMode;
+  const countdownFeeMode = resolvedFeeMode.countdownFeeMode;
+  let timeCostMoney = Money.zero();
+
+  if (
+    session.billingMode !== PrismaSpaceBillingMode.items &&
+    session.hourlyRate !== null
+  ) {
+    const hourlyRateMoney = Money.fromDbCents(session.hourlyRate);
+    const useUnitPrice = timeFeeMode === 'unit_price';
+    timeCostMoney = useUnitPrice
+      ? hourlyRateMoney
+      : calcTimeCostMoney(session.startTime.getTime(), checkoutAt, hourlyRateMoney);
+    const timeCostYuan = timeCostMoney.toOutputYuan();
+    orderItems.unshift({
+      productId: 'SYS_TIME_BILLING',
+      productName: useUnitPrice
+        ? '台位费（固定）'
+        : `台位费（${durationLabel}）`,
+      categoryName: '场地费',
+      salePrice: timeCostYuan,
+      profit: timeCostYuan,
+      quantity: 1,
+      lineTotal: timeCostYuan,
+    });
+  }
+
+  const renewDeductionMoney = renewRecords.reduce(
+    (sum, record) => sum.add(Money.fromInputYuan(record.amount)),
+    Money.zero(),
+  );
+  if (renewDeductionMoney.isPositive()) {
+    const renewDeductionYuan = renewDeductionMoney.toOutputYuan();
+    orderItems.push({
+      productId: 'SYS_RENEW_DEDUCTION',
+      productName: '续费抵扣',
+      categoryName: '场地费',
+      salePrice: -renewDeductionYuan,
+      profit: -renewDeductionYuan,
+      quantity: 1,
+      lineTotal: -renewDeductionYuan,
+    });
+  }
+
+  const prepaidDeductionMoney = resolveSpaceSessionPrepaidDeductionMoney(session);
+  if (prepaidDeductionMoney.isPositive()) {
+    const prepaidDeductionYuan = prepaidDeductionMoney.toOutputYuan();
+    orderItems.push({
+      productId: 'SYS_PREPAID_DEDUCTION',
+      productName: '预付抵扣',
+      categoryName: '场地费',
+      salePrice: -prepaidDeductionYuan,
+      profit: -prepaidDeductionYuan,
+      quantity: 1,
+      lineTotal: -prepaidDeductionYuan,
+    });
+  }
+
+  if (orderItems.length === 0) {
+    orderItems.push({
+      productId: 'SYS_EMPTY_SETTLEMENT',
+      productName: '场地结账',
+      categoryName: '场地费',
+      salePrice: 0,
+      profit: 0,
+      quantity: 1,
+      lineTotal: 0,
+    });
+  }
+
+  const totalRevenueMoney = sumLineTotalMoney(orderItems);
+  const totalProfitMoney = sumLineProfitMoney(orderItems);
+
+  return {
+    durationMinutes,
+    durationLabel,
+    timeFeeMode,
+    countdownFeeMode,
+    timeCostMoney,
+    itemsCostMoney,
+    renewDeductionMoney,
+    prepaidDeductionMoney,
+    totalAmountMoney: totalRevenueMoney,
+    totalRevenueMoney,
+    totalProfitMoney,
+    orderItems,
   };
 };
 
@@ -167,22 +287,18 @@ const resolveSpaceSessionFeeMode = (
   };
 };
 
-const resolveSpaceSessionPrepaidDeduction = (
+const resolveSpaceSessionPrepaidDeductionMoney = (
   session: Pick<SpaceSessionRecord, 'billingMode' | 'prepaidAmount'>,
-): number => {
-  // 只要会话存在开台已收款，就应进入当前预计/结账/换房的扣减口径。
-  // 纯 items 模式没有台位开台语义，继续保持不扣减以兼容旧数据。
-
+): Money => {
   if (
     session.billingMode === PrismaSpaceBillingMode.items ||
     session.prepaidAmount === null
   ) {
-    return 0;
+    return Money.zero();
   }
 
-  // session.prepaidAmount 是 DB 中的分（Int），需转为元
-  const prepaidAmountYuan = Money.fromDbCents(session.prepaidAmount).toOutputYuan();
-  return prepaidAmountYuan > 0 ? prepaidAmountYuan : 0;
+  const prepaidMoney = Money.fromDbCents(session.prepaidAmount);
+  return prepaidMoney.isPositive() ? prepaidMoney : Money.zero();
 };
 
 const isSpaceSessionDeductionItem = (productId: string): boolean =>
@@ -201,18 +317,18 @@ const formatDurationLabel = (durationMinutes: number): string => {
     : `${minutes}分钟`;
 };
 
-const calcTimeCost = (
+/**
+ * 计时费用计算（全程 Money 运算，金额向上取整到分）。
+ * 规则：不足 1 分钟按 1 分钟计，分钟数向上取整，
+ *       金额 = (分钟数 / 60) × 时薪，向上取整到分。
+ */
+const calcTimeCostMoney = (
   startTime: number,
   endTime: number,
-  hourlyRate: number,
-): number => {
+  hourlyRateMoney: Money,
+): Money => {
   const minutes = calcDurationMinutes(startTime, endTime);
-  return Math.ceil((minutes / 60) * hourlyRate * 100) / 100;
+  // minutes / 60 是乘数（如 90分钟 = 1.5 小时）
+  // 用 multiplyCeilToCent 保证结果向上取整到分
+  return hourlyRateMoney.multiplyCeilToCent(minutes / 60);
 };
-
-const sumLineProfit = (items: SpaceSessionItemRecord[]): number =>
-  Number(
-    items
-      .reduce((sum, item) => sum + item.profit * item.quantity, 0)
-      .toFixed(2),
-  );

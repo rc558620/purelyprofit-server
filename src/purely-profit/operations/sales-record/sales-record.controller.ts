@@ -30,6 +30,7 @@ import {
   CreateSalesRecordDto,
   ListSalesProductsQueryDto,
   ListSalesRecordsQueryDto,
+  PreviewSalesRecordResponseDto,
   SalesProductResponseDto,
   SalesRecordListResponseDto,
   SalesRecordResponseDto,
@@ -94,6 +95,17 @@ export class SalesRecordController {
       return reply;
     }
     return this.salesRecordService.getReport(user, query);
+  }
+
+  @Post('preview')
+  @RequirePermissions('sales:create')
+  @ApiOperation({ summary: '预览销售记录金额（不落库）' })
+  @ApiOkResponse({ type: PreviewSalesRecordResponseDto })
+  preview(
+    @CurrentUser() _user: AuthenticatedUser,
+    @Body() dto: CreateSalesRecordDto,
+  ): PreviewSalesRecordResponseDto {
+    return this.salesRecordService.preview(dto);
   }
 
   @Post()
@@ -165,6 +177,17 @@ export class SalesOrdersCompatController {
       return reply;
     }
     return this.salesRecordService.getReport(user, query);
+  }
+
+  @Post('preview')
+  @RequirePermissions('operation-entry:create')
+  @ApiOperation({ summary: '预览销售记录金额（不落库，purelyProfit 前端兼容）' })
+  @ApiOkResponse({ type: PreviewSalesRecordResponseDto })
+  preview(
+    @CurrentUser() _user: AuthenticatedUser,
+    @Body() dto: CreateSalesRecordDto,
+  ): PreviewSalesRecordResponseDto {
+    return this.salesRecordService.preview(dto);
   }
 
   @Post()

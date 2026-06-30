@@ -11,6 +11,7 @@ import {
 import { SalesRecordCreateFlowService } from './sales-record-create-flow.service';
 import { SalesRecordItemPreparationService } from './sales-record-item-preparation.service';
 import { SalesRecordListService } from './sales-record-list.service';
+import { SalesRecordPreviewService } from './sales-record-preview.service';
 import { SalesRecordProductsService } from './sales-record-products.service';
 import { SalesRecordReadService } from './sales-record-read.service';
 import { SalesRecordReportService } from './sales-record-report.service';
@@ -30,6 +31,7 @@ import { SalesRecordWriteService } from './sales-record-write.service';
   providers: [
     SalesRecordItemPreparationService,
     SalesRecordCreateFlowService,
+    SalesRecordPreviewService,
     SalesRecordProductsService,
     SalesRecordListService,
     SalesRecordStatsService,

@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
 import {
@@ -26,6 +27,27 @@ export function deriveProductProfit(
     return price;
   }
   return price.subtract(costPrice);
+}
+
+/**
+ * 根据售价与利润推导利润率（百分比数值，如 38.5 表示 38.5%）。
+ *
+ * 规则：
+ * - 售价 ≤ 0 时返回 0（理论上不会出现，因为售价校验已拦截）；
+ * - 利润率 = 利润 / 售价 × 100，保留一位小数。
+ */
+export function deriveProductProfitRate(
+  price: Money,
+  profit: Money,
+): number {
+  if (!price.isPositive()) {
+    return 0;
+  }
+  return new Decimal(profit.toDbCents())
+    .div(price.toDbCents())
+    .mul(100)
+    .toDecimalPlaces(1, Decimal.ROUND_HALF_UP)
+    .toNumber();
 }
 
 /**

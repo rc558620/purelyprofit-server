@@ -182,7 +182,7 @@ export interface InventoryStockChangeCommand {
   productId: number;
   quantity: number;
   operatorStaffId: number | null;
-  adjustType: 'restock' | 'sale';
+  adjustType: InventoryAdjustType;
   note?: string;
   purchaseOrderId?: number;
   saleOrderId?: number;

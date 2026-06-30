@@ -94,6 +94,7 @@ export const normalizeSessionItemsPayload = (
       salePrice: item.salePrice,
       profit: item.profit,
       quantity: item.quantity,
+      lineTotal: item.salePrice * item.quantity,
     };
   });
 };

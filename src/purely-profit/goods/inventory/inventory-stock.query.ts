@@ -10,6 +10,7 @@ import type {
   InventoryStockChangeCommand,
   InventoryTransactionClient,
 } from './inventory.types';
+import type { InventoryAdjustType } from '@prisma/client';
 import {
   buildInventoryManualAdjustmentPlan,
   buildInventoryRevertStockPlan,
@@ -226,4 +227,54 @@ async function recordInventoryStockChange(
     plan.afterStock,
   );
   await createInventoryAdjustmentLog(transaction, plan.log);
+}
+
+/**
+ * 服务内库存扣减：支持在现有事务中批量扣减库存并写入日志（供空间管理等业务复用）
+ * @param transaction 既有 Prisma 事务
+ * @param items 待扣减的商品列表
+ * @param storeId 门店 ID
+ * @param operatorStaffId 操作者员工 ID
+ * @param adjustType 调整类型
+ * @param note 备注
+ */
+export async function applyInventoryDeductionsInTransaction(
+  transaction: InventoryTransactionClient,
+  items: Array<{ productId: number; quantity: number; productName?: string }>,
+  storeId: number,
+  operatorStaffId: number | null,
+  adjustType: InventoryAdjustType,
+  note?: string,
+): Promise<void> {
+  await Promise.all(
+    items.map(async (item) => {
+      const product = await findInventoryProductForStore(
+        transaction,
+        storeId,
+        item.productId,
+      );
+      if (!product) {
+        throw new Error(`商品【${item.productName || item.productId}】不存在或无权访问`);
+      }
+
+      const plan = buildInventoryStockChangePlan({
+        product,
+        command: {
+          storeId,
+          productId: item.productId,
+          quantity: item.quantity,
+          operatorStaffId,
+          adjustType,
+          note,
+        },
+      });
+
+      await updateInventoryProductStock(
+        transaction,
+        plan.productId,
+        plan.afterStock,
+      );
+      await createInventoryAdjustmentLog(transaction, plan.log);
+    }),
+  );
 }

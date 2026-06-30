@@ -14,6 +14,7 @@ import { SpaceReservationsService } from './space-reservations.service';
 import { SpaceSessionCheckoutLockService } from './space-session-checkout-lock.service';
 import { SpaceSessionCheckoutService } from './space-session-checkout.service';
 import { SpaceSessionOpenService } from './space-session-open.service';
+import { SpaceSessionPreviewService } from './space-session-preview.service';
 import { SpaceSessionReadService } from './space-session-read.service';
 import { SpaceSessionReadStateService } from './space-session-read-state.service';
 import { SpaceSessionRenewService } from './space-session-renew.service';
@@ -60,6 +61,7 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceSessionCheckoutService,
     SpaceSessionAutoCheckoutService,
     SpaceSessionOpenService,
+    SpaceSessionPreviewService,
     SpaceSessionReadService,
     SpaceSessionReadStateService,
     SpaceSessionRenewService,

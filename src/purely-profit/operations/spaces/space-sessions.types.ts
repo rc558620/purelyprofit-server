@@ -61,6 +61,8 @@ export interface SpaceSessionItemRecord {
   salePrice: number;
   profit: number;
   quantity: number;
+  /** 行合计金额 = salePrice × quantity（元） */
+  lineTotal: number;
 }
 
 /**
