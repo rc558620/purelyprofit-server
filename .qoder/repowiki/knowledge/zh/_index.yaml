@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-06-30T15:38:49Z"
+exported_at: "2026-07-01T03:40:10Z"
 modules:
     "":
         dir_name: 纯利商业操作系统（NestJS 单体多产品）
@@ -270,8 +270,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit:
-        dir_name: Purely Profit 门店运营平台核心模块集合
-        title: Purely Profit 门店运营平台核心模块集合
+        dir_name: Purely Profit 门店 SaaS 后端单体应用
+        title: Purely Profit 门店 SaaS 后端单体应用
         scope:
             - src/purely-profit/
         source_files: []
@@ -329,8 +329,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/dashboard:
-        dir_name: 经营数据看板与利润分析
-        title: 经营数据看板与利润分析
+        dir_name: 经营分析仪表盘 API 模块
+        title: 经营分析仪表盘 API 模块
         scope:
             - src/purely-profit/dashboard/
         source_files: []
@@ -383,8 +383,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/operations:
-        dir_name: 纯利运营端业务模块集合
-        title: 纯利运营端业务模块集合
+        dir_name: 纯利运营端业务聚合模块（Operations）
+        title: 纯利运营端业务聚合模块（Operations）
         scope:
             - src/purely-profit/operations/
         source_files: []
@@ -415,8 +415,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/operations/purchases:
-        dir_name: 进货单管理模块
-        title: 进货单管理模块
+        dir_name: 进货单业务模块（Purchases）
+        title: 进货单业务模块（Purchases）
         scope:
             - src/purely-profit/operations/purchases/
         source_files: []
@@ -424,8 +424,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/operations/sales_record:
-        dir_name: 销售记录管理模块
-        title: 销售记录管理模块
+        dir_name: 销售记录（POS 收银）业务模块
+        title: 销售记录（POS 收银）业务模块
         scope:
             - src/purely-profit/operations/sales-record/
         source_files: []
@@ -433,8 +433,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/operations/spaces:
-        dir_name: 纯利运营端空间与会话域（Spaces & Sessions）
-        title: 纯利运营端空间与会话域（Spaces & Sessions）
+        dir_name: 纯利运营端空间管理模块（Spaces）
+        title: 纯利运营端空间管理模块（Spaces）
         scope:
             - src/purely-profit/operations/spaces/
         source_files: []

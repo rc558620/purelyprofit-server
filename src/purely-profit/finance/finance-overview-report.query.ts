@@ -236,17 +236,18 @@ export async function queryOverviewDailyTrend(
   },
 ): Promise<Array<{ day: number; income: number; expense: number }>> {
   // 金额在数据库中存为分（Int），SQL 直接 SUM 整数，避免 ROUND 引入浮点误差
+  // + interval '8 hours' 将 UTC 时间戳转为上海本地日再截断，与 JS getShanghaiDayStartMs 对齐
   const rows = await prisma.$queryRaw<OverviewDailyTrendRow[]>`
     SELECT
-      DATE_TRUNC('day', date)::date AS "day",
+      date_trunc('day', date + interval '8 hours') - interval '8 hours' AS "day",
       SUM(amount) FILTER (WHERE direction = 'income') AS "income_total",
       SUM(amount) FILTER (WHERE direction = 'expense') AS "expense_total"
     FROM finance_cash_flow_records
     WHERE store_id = ${params.storeId}
       AND date >= ${new Date(params.start)}
       AND date <= ${new Date(params.end)}
-    GROUP BY DATE_TRUNC('day', date)
-    ORDER BY "day" ASC
+    GROUP BY 1
+    ORDER BY 1 ASC
   `;
 
   return rows.map((r) => ({
@@ -274,17 +275,18 @@ export async function queryOverviewMonthlyTrend(
   },
 ): Promise<Array<{ month: number; income: number; expense: number }>> {
   // 金额在数据库中存为分（Int），SQL 直接 SUM 整数，避免 ROUND 引入浮点误差
+  // + interval '8 hours' 将 UTC 时间戳转为上海本地月再截断，与 JS getShanghaiMonthStartMs 对齐
   const rows = await prisma.$queryRaw<OverviewMonthlyTrendRow[]>`
     SELECT
-      DATE_TRUNC('month', date)::date AS "month",
+      date_trunc('month', date + interval '8 hours') - interval '8 hours' AS "month",
       SUM(amount) FILTER (WHERE direction = 'income') AS "income_total",
       SUM(amount) FILTER (WHERE direction = 'expense') AS "expense_total"
     FROM finance_cash_flow_records
     WHERE store_id = ${params.storeId}
       AND date >= ${new Date(params.start)}
       AND date <= ${new Date(params.end)}
-    GROUP BY DATE_TRUNC('month', date)
-    ORDER BY "month" ASC
+    GROUP BY 1
+    ORDER BY 1 ASC
   `;
 
   return rows.map((r) => ({

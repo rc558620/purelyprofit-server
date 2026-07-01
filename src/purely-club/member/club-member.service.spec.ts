@@ -553,7 +553,7 @@ describe('ClubMemberService', () => {
         level: 'platinum',
         label: '铂金会员',
         requiredConsume: 5000,
-        discountRate: 0.9,
+        discountRate: 0.85,
       }),
       expect.objectContaining({
         level: 'diamond',

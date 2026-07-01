@@ -1,6 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import { DAY_MS } from './finance.constants';
-import { getDayEnd, getDayStart, getWeekStart } from './finance-date.utils';
+import {
+  getDayEnd,
+  getDayStart,
+  getShanghaiDayStartMs,
+  getWeekStart,
+} from './finance-date.utils';
 import type {
   FinanceCashFlowFilterRange,
   FinanceCashFlowListQueryInput,
@@ -9,12 +14,35 @@ import type {
   FinanceReportRange,
 } from './finance.types';
 
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60_000;
+
+/** 从 UTC 毫秒时间戳提取上海本地日期分量（不依赖 Node.js 进程时区） */
+function shanghaiDateParts(timestampMs: number): {
+  year: number;
+  month: number; // 0-based
+  day: number;
+  weekDay: number; // 0=Sun … 6=Sat
+} {
+  const d = new Date(timestampMs + SHANGHAI_OFFSET_MS);
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth(),
+    day: d.getUTCDate(),
+    weekDay: d.getUTCDay(),
+  };
+}
+
+/** 上海本地年月日零点 → UTC 毫秒时间戳 */
+function shanghaiDateToUtcMs(year: number, month: number, day: number): number {
+  return Date.UTC(year, month, day) - SHANGHAI_OFFSET_MS;
+}
+
 export function getOverviewCurrentRange(period: FinanceOverviewPeriodValue): {
   start: number;
   end: number;
 } {
   const now = Date.now();
-  const todayStart = getDayStart(now);
+  const todayStart = getShanghaiDayStartMs(now);
   const end = todayStart + DAY_MS - 1;
 
   if (period === 'today') {
@@ -22,39 +50,31 @@ export function getOverviewCurrentRange(period: FinanceOverviewPeriodValue): {
   }
 
   if (period === 'week') {
-    const current = new Date(todayStart);
-    const weekDay = current.getDay() === 0 ? 6 : current.getDay() - 1;
-    return { start: todayStart - weekDay * DAY_MS, end };
+    const { weekDay } = shanghaiDateParts(todayStart);
+    const mondayOffset = weekDay === 0 ? 6 : weekDay - 1;
+    return { start: todayStart - mondayOffset * DAY_MS, end };
   }
 
+  const { year, month } = shanghaiDateParts(todayStart);
+
   if (period === 'month') {
-    const current = new Date(todayStart);
     return {
-      start: new Date(current.getFullYear(), current.getMonth(), 1).getTime(),
+      start: shanghaiDateToUtcMs(year, month, 1),
       end,
     };
   }
 
   if (period === 'quarter') {
-    const current = new Date(todayStart);
-    const quarter = Math.floor(current.getMonth() / 3);
+    const quarterMonth = Math.floor(month / 3) * 3;
     return {
-      start: new Date(current.getFullYear(), quarter * 3, 1).getTime(),
+      start: shanghaiDateToUtcMs(year, quarterMonth, 1),
       end,
     };
   }
 
-  if (period === 'year') {
-    const current = new Date(todayStart);
-    return {
-      start: new Date(current.getFullYear(), 0, 1).getTime(),
-      end,
-    };
-  }
-
-  const current = new Date(todayStart);
+  // year / fallback
   return {
-    start: new Date(current.getFullYear(), 0, 1).getTime(),
+    start: shanghaiDateToUtcMs(year, 0, 1),
     end,
   };
 }

@@ -2,7 +2,12 @@ import type { InventoryAdjustType } from '@prisma/client';
 import { PaginationMetaDto } from '../stores/dto/store-response.dto';
 
 // 从 shared 重新导出统一金额值对象与工具函数，保持现有导入路径向后兼容
-export { Money, calcPercentChange, calcPercentOfTotal, calcPercentPointDiff } from '../../shared/money.utils';
+export {
+  Money,
+  calcPercentChange,
+  calcPercentOfTotal,
+  calcPercentPointDiff,
+} from '../../shared/money.utils';
 
 /**
  * 空间预付抵扣商品的 productName。
@@ -45,6 +50,7 @@ export type PurchasePeriodValue =
   | 'week'
   | 'month'
   | 'quarter'
+  | 'year'
   | 'all'
   | 'custom_month'
   | 'custom_range';
@@ -53,6 +59,7 @@ export const PURCHASE_PERIOD_VALUES = [
   'week',
   'month',
   'quarter',
+  'year',
   'all',
   'custom_month',
   'custom_range',
@@ -282,6 +289,11 @@ export function buildPurchaseDateRange(
         lte: new Date(now),
       };
     }
+    case 'year':
+      return {
+        gte: new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0),
+        lte: new Date(now),
+      };
     case 'custom_month':
       return customDateMs === undefined
         ? undefined

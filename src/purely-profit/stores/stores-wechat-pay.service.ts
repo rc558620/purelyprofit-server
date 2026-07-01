@@ -35,7 +35,9 @@ export class StoresWechatPayService {
     const record = await this.findWechatPayConfigByStoreId(store.id);
 
     if (!record) {
-      throw new NotFoundException('门店微信收款配置未找到');
+      // 尚未配置过微信收款，返回空状态而非 404，
+      // 前端据此展示空表单，仅在显式查询已有配置时才视为异常。
+      return { configured: false };
     }
 
     return this.toWechatPayConfigResponse(record);

@@ -11,10 +11,24 @@ import {
   type FinancePeriodTotals,
 } from './finance.constants';
 import { FINANCE_OVERVIEW_DISPLAY_DAYS } from './finance.types';
-import { formatMonthDay, formatMonthLabel, getDayStart, getMonthStart } from './finance-date.utils';
-import { Money, calcPercentChangeWithFallback, calcPercentOfTotal, calcPercentPointDiff, calcMoneyRatio } from '../../shared/money.utils';
+import {
+  formatMonthDay,
+  formatMonthLabel,
+  getShanghaiDayStartMs,
+  getShanghaiMonthStartMs,
+} from './finance-date.utils';
+import {
+  Money,
+  calcPercentChangeWithFallback,
+  calcPercentOfTotal,
+  calcPercentPointDiff,
+  calcMoneyRatio,
+} from '../../shared/money.utils';
 
-export function makeOverviewTotals(): Record<FinanceCashFlowOverviewBucket, Money> {
+export function makeOverviewTotals(): Record<
+  FinanceCashFlowOverviewBucket,
+  Money
+> {
   return {
     sales: Money.zero(),
     additional: Money.zero(),
@@ -63,10 +77,23 @@ export function buildFinanceOverviewResponse(params: {
     params.previousTotals,
   );
   const isYearPeriod = params.period === 'year';
-  const trendGranularity = isYearPeriod ? 'monthly' as const : 'daily' as const;
+  const trendGranularity = isYearPeriod
+    ? ('monthly' as const)
+    : ('daily' as const);
   const trendSeries = isYearPeriod
-    ? buildOverviewMonthlyTrend(params.currentRange.start, params.currentRange.end, params.incomeMap, params.expenseMap)
-    : buildOverviewDailyTrend(params.period, params.currentRange.start, params.currentRange.end, params.incomeMap, params.expenseMap);
+    ? buildOverviewMonthlyTrend(
+        params.currentRange.start,
+        params.currentRange.end,
+        params.incomeMap,
+        params.expenseMap,
+      )
+    : buildOverviewDailyTrend(
+        params.period,
+        params.currentRange.start,
+        params.currentRange.end,
+        params.incomeMap,
+        params.expenseMap,
+      );
   const { incomeGroup, expenseGroup } = buildOverviewSourceGroups(
     params.currentTotals,
   );
@@ -114,23 +141,24 @@ export function buildOverviewMonthlyTrend(
   incomeMap: Map<number, Money>,
   expenseMap: Map<number, Money>,
 ): FinanceOverviewResponseDto['dailyTrend'] {
-  const startDate = new Date(getMonthStart(start));
-  const endDate = new Date(getMonthStart(end));
-  const startMonth = startDate.getMonth(); // 0-based
-  const startYear = startDate.getFullYear();
-  const endMonth = endDate.getMonth();
-  const endYear = endDate.getFullYear();
+  const startDate = new Date(getShanghaiMonthStartMs(start));
+  const endDate = new Date(getShanghaiMonthStartMs(end));
+  // 用 UTC 方法读取月/年，与 getShanghaiMonthStartMs 的上海时区语义一致
+  const startMonth = startDate.getUTCMonth(); // 0-based
+  const startYear = startDate.getUTCFullYear();
+  const endMonth = endDate.getUTCMonth();
+  const endYear = endDate.getUTCFullYear();
   const totalMonths = (endYear - startYear) * 12 + (endMonth - startMonth) + 1;
   const months = Math.max(1, Math.min(12, totalMonths));
   const items: FinanceOverviewResponseDto['dailyTrend'] = [];
 
   for (let index = months - 1; index >= 0; index -= 1) {
-    const monthDate = new Date(endYear, endMonth - index, 1);
-    const monthStart = monthDate.getTime();
+    const monthDate = new Date(Date.UTC(endYear, endMonth - index, 1));
+    const monthStart = getShanghaiMonthStartMs(monthDate.getTime());
     const income = incomeMap.get(monthStart) ?? Money.zero();
     const expense = expenseMap.get(monthStart) ?? Money.zero();
     items.push({
-      dateLabel: formatMonthLabel(monthDate.getMonth() + 1),
+      dateLabel: formatMonthLabel(monthDate.getUTCMonth() + 1),
       income: income.toOutputYuan(),
       expense: expense.toOutputYuan(),
       net: income.subtract(expense).toOutputYuan(),
@@ -148,7 +176,9 @@ export function buildOverviewDailyTrend(
   expenseMap: Map<number, Money>,
 ): FinanceOverviewResponseDto['dailyTrend'] {
   const availableDays =
-    Math.floor((getDayStart(end) - getDayStart(start)) / 86_400_000) + 1;
+    Math.floor(
+      (getShanghaiDayStartMs(end) - getShanghaiDayStartMs(start)) / 86_400_000,
+    ) + 1;
   const days = Math.max(
     1,
     Math.min(FINANCE_OVERVIEW_DISPLAY_DAYS[period], availableDays),
@@ -156,7 +186,7 @@ export function buildOverviewDailyTrend(
   const items: FinanceOverviewResponseDto['dailyTrend'] = [];
 
   for (let index = days - 1; index >= 0; index -= 1) {
-    const dayStart = getDayStart(end - index * 86_400_000);
+    const dayStart = getShanghaiDayStartMs(end - index * 86_400_000);
     const income = incomeMap.get(dayStart) ?? Money.zero();
     const expense = expenseMap.get(dayStart) ?? Money.zero();
     items.push({
@@ -227,7 +257,10 @@ function buildCompare(current: Money, previous: Money): FinanceCompareDto {
     previous: previous.toOutputYuan(),
     changeRate: previous.isZero()
       ? null
-      : calcPercentChangeWithFallback(current.toOutputYuan(), previous.toOutputYuan()),
+      : calcPercentChangeWithFallback(
+          current.toOutputYuan(),
+          previous.toOutputYuan(),
+        ),
   };
 }
 
@@ -239,10 +272,7 @@ function calcProfitRate(net: Money, income: Money): number {
   return calcPercentOfTotal(net.toDbCents(), income.toDbCents());
 }
 
-function calcIncomeExpenseRatio(
-  income: Money,
-  expense: Money,
-): number | null {
+function calcIncomeExpenseRatio(income: Money, expense: Money): number | null {
   if (expense.isZero()) {
     return null;
   }

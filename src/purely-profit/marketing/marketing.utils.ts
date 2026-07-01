@@ -126,8 +126,8 @@ export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettin
       {
         id: 'platinum',
         name: '铂金会员',
-        discountRate: 0.9,
-        discountRatePct: 90,
+        discountRate: 0.85,
+        discountRatePct: 85,
         spendThreshold: 5000, // 单位：元（与 API 响应单位一致）
         description: '累计充值 ≥ ¥5,000 升级',
         enabled: true,
@@ -324,7 +324,9 @@ export function maskPhone(phone: string | null): string {
 
 /** @deprecated 新代码应直接读取 totalAmount 字段，不再手动计算 */
 export function calcRechargeTotal(amount: number, giftAmount: number): number {
-  return Money.fromDbCents(amount).add(Money.fromDbCents(giftAmount)).toDbCents();
+  return Money.fromDbCents(amount)
+    .add(Money.fromDbCents(giftAmount))
+    .toDbCents();
 }
 
 // ─── service 层内部 query 类型（不直接依赖 DTO class）────────────────

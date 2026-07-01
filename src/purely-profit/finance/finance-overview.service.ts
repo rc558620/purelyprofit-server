@@ -16,9 +16,7 @@ import type { FinanceOverviewQueryDto } from './dto/finance-overview.query.dto';
 import type { FinanceReportQueryDto } from './dto/finance-report.query.dto';
 import type { FinanceOverviewResponseDto } from './dto/finance-overview.response.dto';
 import type { FinanceReportResponseDto } from './dto/finance-report.response.dto';
-import {
-safeStreamCsvExport,
-} from '../../shared/stream-export.utils';
+import { safeStreamCsvExport } from '../../shared/stream-export.utils';
 import { Money } from '../../shared/money.utils';
 import { buildFinanceReportResponse } from './finance-account-report.domain';
 import {
@@ -35,7 +33,10 @@ import {
   queryOverviewMonthlyTrend as queryFinanceMonthlyTrend,
 } from './finance-overview-report.query';
 import type { FinanceReportQueryInput } from './finance.types';
-import { getDayStart, getMonthStart } from './finance-date.utils';
+import {
+  getShanghaiDayStartMs,
+  getShanghaiMonthStartMs,
+} from './finance-date.utils';
 import {
   getFinanceReportRange,
   getOverviewCurrentRange,
@@ -154,7 +155,11 @@ export class FinanceOverviewService {
     const cacheKey = buildFinanceReportCacheKey(storeId, { ...query, scope });
     const callerIsSubAccount = scope === 'sub_account';
     const reportQuery: FinanceReportQueryInput = { ...query, export: false };
-    const data = await this.buildReport(storeId, reportQuery, callerIsSubAccount);
+    const data = await this.buildReport(
+      storeId,
+      reportQuery,
+      callerIsSubAccount,
+    );
     await this.redisService.writeRefreshableJson(
       cacheKey,
       data,
@@ -282,14 +287,18 @@ export class FinanceOverviewService {
     for (const row of categoryTotals.current) {
       const bucket = getCashFlowOverviewBucket(row.category);
       if (bucket !== null) {
-        currentTotals[bucket] = currentTotals[bucket].add(Money.fromDbCents(row.amount));
+        currentTotals[bucket] = currentTotals[bucket].add(
+          Money.fromDbCents(row.amount),
+        );
       }
     }
 
     for (const row of categoryTotals.previous) {
       const bucket = getCashFlowOverviewBucket(row.category);
       if (bucket !== null) {
-        previousTotals[bucket] = previousTotals[bucket].add(Money.fromDbCents(row.amount));
+        previousTotals[bucket] = previousTotals[bucket].add(
+          Money.fromDbCents(row.amount),
+        );
       }
     }
 
@@ -299,8 +308,8 @@ export class FinanceOverviewService {
 
     for (const row of trendData) {
       const periodStart = isYearPeriod
-        ? getMonthStart((row as { month: number }).month)
-        : getDayStart((row as { day: number }).day);
+        ? getShanghaiMonthStartMs((row as { month: number }).month)
+        : getShanghaiDayStartMs((row as { day: number }).day);
       const income = Money.fromDbCents(row.income);
       const expense = Money.fromDbCents(row.expense);
       if (income.isPositive()) {
