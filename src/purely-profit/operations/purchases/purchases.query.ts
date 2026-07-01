@@ -46,6 +46,7 @@ export async function countPurchaseSuppliers(
     where,
     select: { supplierId: true },
     distinct: ['supplierId'],
+    orderBy: { supplierId: 'asc' },
   });
   // supplierId 为 null 表示手输供应商名，不计入供应商数
   const validSupplierIds = result.filter((r) => r.supplierId !== null);

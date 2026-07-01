@@ -2,10 +2,12 @@ import {
   calcPercentChange,
   calcPercentOfTotal,
   calcPercentPointDiff,
-  formatMonthDayLabel,
-  getDayStartTimestamp,
   Money,
 } from '../../commerce/commerce.utils';
+import {
+  formatShanghaiDayLabel,
+  getShanghaiDayStartMs,
+} from './business-analysis.utils';
 import type {
   BusinessAnalysisCategoryShareDto,
   BusinessAnalysisCompareDataDto,
@@ -116,24 +118,20 @@ function buildDailyTrend(
   dailyRevenueMap: Map<number, Money>,
   dailyCostMap: Map<number, Money>,
 ): BusinessAnalysisDailyTrendDto[] {
-  const startDay = getDayStartTimestamp(start);
-  const endDay = getDayStartTimestamp(end);
+  const startDay = getShanghaiDayStartMs(start);
+  const endDay = getShanghaiDayStartMs(end);
   const days = Math.max(
     1,
     Math.min(MAX_TREND_DAYS, Math.floor((endDay - startDay) / DAY_MS) + 1),
   );
-  const startDate = new Date(startDay);
   const items: BusinessAnalysisDailyTrendDto[] = [];
 
   for (let offset = 0; offset < days; offset += 1) {
-    const currentDate = new Date(startDate);
-    currentDate.setDate(startDate.getDate() + offset);
-    currentDate.setHours(0, 0, 0, 0);
-    const currentDay = currentDate.getTime();
+    const currentDay = startDay + offset * DAY_MS;
     const revenueMoney = dailyRevenueMap.get(currentDay) ?? Money.zero();
     const costMoney = dailyCostMap.get(currentDay) ?? Money.zero();
     items.push({
-      dateLabel: formatMonthDayLabel(currentDay),
+      dateLabel: formatShanghaiDayLabel(currentDay),
       revenue: revenueMoney.toOutputYuan(),
       cost: costMoney.toOutputYuan(),
       profit: revenueMoney.subtract(costMoney).toOutputYuan(),

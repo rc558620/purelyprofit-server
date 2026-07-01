@@ -270,6 +270,7 @@ export class SpaceSessionAutoCheckoutService {
       },
       select: { storeId: true },
       distinct: ['storeId'],
+      orderBy: { storeId: 'asc' },
     });
 
     return sessions.map((session) => session.storeId);

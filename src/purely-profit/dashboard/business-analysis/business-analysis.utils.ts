@@ -1,7 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import {
   buildPreviousRangeByDuration,
-  getDayStartTimestamp,
   getMonthStartTimestamp,
   getQuarterStartTimestamp,
   getWeekStartTimestamp,
@@ -12,6 +11,30 @@ import type {
   BusinessAnalysisRange,
   BusinessAnalysisRangeQuery,
 } from './business-analysis.types';
+
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60_000;
+
+/**
+ * 计算任意时间戳所属的上海本地日零点（UTC 毫秒时间戳）。
+ * 与 SQL 中 `date_trunc('day', col + interval '8 hours') - interval '8 hours'` 等价，
+ * 不依赖 Node.js 进程本地时区，确保日趋势聚合与 SQL 桶对齐。
+ */
+export function getShanghaiDayStartMs(timestampMs: number): number {
+  const shanghaiLocalMs = timestampMs + SHANGHAI_OFFSET_MS;
+  const shanghaiDayMs = Math.floor(shanghaiLocalMs / 86_400_000) * 86_400_000;
+  return shanghaiDayMs - SHANGHAI_OFFSET_MS;
+}
+
+/**
+ * 将上海本地日零点 UTC 毫秒时间戳格式化为 `MM/DD` 标签。
+ * 使用 UTC 方法读取月/日，不依赖 Node.js 本地时区。
+ */
+export function formatShanghaiDayLabel(shanghaiDayStartMs: number): string {
+  const date = new Date(shanghaiDayStartMs + SHANGHAI_OFFSET_MS);
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${month}/${day}`;
+}
 
 export function resolveCurrentRange(
   query: BusinessAnalysisRangeQuery,
@@ -67,7 +90,7 @@ function resolvePresetRange(
   // 保证返回的是实时数据快照。前端如需全天数据应使用 custom_range + endTime 传当天末毫秒。
   switch (period) {
     case 'today':
-      return { start: getDayStartTimestamp(now), end: now };
+      return { start: getShanghaiDayStartMs(now), end: now };
     case 'week':
       return { start: getWeekStartTimestamp(now), end: now };
     case 'month':

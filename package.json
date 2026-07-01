@@ -54,7 +54,7 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/passport": "^11.0.5",
-    "@nestjs/platform-fastify": "^11.1.19",
+    "@nestjs/platform-fastify": "^11.1.27",
     "@nestjs/serve-static": "^5.0.5",
     "@nestjs/swagger": "^11.4.2",
     "@nestjs/throttler": "^6.5.0",

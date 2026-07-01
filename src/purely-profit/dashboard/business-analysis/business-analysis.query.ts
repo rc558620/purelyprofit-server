@@ -139,7 +139,7 @@ export async function fetchBusinessAnalysisMetrics(
     `,
     prisma.$queryRaw<BusinessAnalysisDailyRevenueRow[]>`
       SELECT
-        date_trunc('day', so.date) AS "bucketAt",
+        date_trunc('day', so.date + interval '8 hours') - interval '8 hours' AS "bucketAt",
         COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue
       FROM sale_order_items soi
       INNER JOIN sale_orders so ON so.id = soi.order_id
@@ -204,7 +204,7 @@ export async function fetchBusinessAnalysisMetrics(
     `,
     prisma.$queryRaw<BusinessAnalysisDailyCostRow[]>`
       SELECT
-        date_trunc('day', cr.date) AS "bucketAt",
+        date_trunc('day', cr.date + interval '8 hours') - interval '8 hours' AS "bucketAt",
         COALESCE(SUM(cr.amount), 0) AS amount
       FROM cost_records cr
       WHERE cr.store_id = ${storeId}

@@ -1,8 +1,5 @@
 import { Logger } from '@nestjs/common';
-import {
-  getDayStartTimestamp,
-  toOptionalMediaText,
-} from '../../commerce/commerce.utils';
+import { toOptionalMediaText } from '../../commerce/commerce.utils';
 import { Money, type MoneyDbCentsInput } from '../../../shared/money.utils';
 import type {
   AggregatedCategory,
@@ -16,6 +13,7 @@ import type {
   CostBucketKey,
   SalesAggregationResult,
 } from './business-analysis.types';
+import { getShanghaiDayStartMs } from './business-analysis.utils';
 
 const logger = new Logger('BusinessAnalysisDomain');
 
@@ -60,7 +58,7 @@ export function buildSalesAggregation(input: {
 
   for (const row of input.dailyRows ?? []) {
     result.dailyRevenueMap.set(
-      getDayStartTimestamp(row.bucketAt.getTime()),
+      getShanghaiDayStartMs(row.bucketAt.getTime()),
       safeDbCents(row.revenue),
     );
   }
@@ -103,7 +101,7 @@ export function buildCostAggregation(input: {
 
   for (const row of input.dailyRows ?? []) {
     result.dailyCostMap.set(
-      getDayStartTimestamp(row.bucketAt.getTime()),
+      getShanghaiDayStartMs(row.bucketAt.getTime()),
       safeDbCents(row.amount),
     );
   }

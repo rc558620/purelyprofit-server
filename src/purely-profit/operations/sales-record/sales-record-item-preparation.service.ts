@@ -6,6 +6,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
+import { deriveProductProfit } from '../../goods/products/products.domain';
 import type { CreateSalesRecordDto } from './dto/sales-record.dto';
 import {
   normalizeSignedMoney,
@@ -142,21 +143,17 @@ export class SalesRecordItemPreparationService {
         item.salePrice,
         '销售单价格式不正确',
       );
-      const profit = normalizeSignedMoney(item.profit, '单件利润格式不正确');
+
+      // ⚠️ 手动项利润由服务端从售价推导（无成本价时利润 = 售价），
+      //    前端传入的 profit 字段一律忽略，杜绝金额篡改风险。
+      //    与商品目录 deriveProductProfit(price, costPrice) 语义一致。
+      const profit = deriveProductProfit(salePrice, null);
 
       if (productName === '') {
         throw new BadRequestException(`第 ${index + 1} 条商品名称不能为空`);
       }
       if (categoryName === '') {
         throw new BadRequestException(`第 ${index + 1} 条商品分类不能为空`);
-      }
-
-      const isNegativeSalePrice = salePrice.isNegative();
-      const isNegativeProfit = profit.isNegative();
-      if (isNegativeSalePrice !== isNegativeProfit) {
-        throw new BadRequestException(
-          `第 ${index + 1} 条抵扣项销售额和利润必须同号`,
-        );
       }
 
       return {
@@ -166,7 +163,7 @@ export class SalesRecordItemPreparationService {
         salePrice,
         profit,
         quantity,
-        countsTowardTotalQuantity: !salePrice.isNegative() && !profit.isNegative(),
+        countsTowardTotalQuantity: !salePrice.isNegative(),
       };
     });
   }

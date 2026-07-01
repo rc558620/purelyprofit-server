@@ -131,6 +131,7 @@ describe('purchases.query', () => {
       where: { storeId: 18 },
       select: { supplierId: true },
       distinct: ['supplierId'],
+      orderBy: { supplierId: 'asc' },
     });
   });
 

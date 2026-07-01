@@ -150,7 +150,7 @@ describe('SalesRecordItemPreparationService', () => {
     ]);
   });
 
-  it('prepareItems 在抵扣项销售额和利润异号时抛出 BadRequestException', async () => {
+  it('prepareItems 抵扣项利润由后端从售价推导（忽略前端传入值）', async () => {
     prismaService.product.findMany.mockResolvedValue([]);
 
     await expect(
@@ -160,15 +160,25 @@ describe('SalesRecordItemPreparationService', () => {
             productId: 'SYS_RENEW_DEDUCTION',
             productName: '续费抵扣',
             categoryName: '场地费',
-            salePrice: -20,
-            profit: 20,
+            salePrice: -30,
+            profit: 999, // 前端传入任意值，后端都会忽略
             quantity: 1,
           },
         ],
         paymentMethod: 'cash',
         calcMode: 'business',
       }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).resolves.toEqual([
+      {
+        productId: null,
+        productName: '续费抵扣',
+        categoryName: '场地费',
+        salePrice: Money.fromInputYuan(-30),
+        profit: Money.fromInputYuan(-30), // 后端从售价推导
+        quantity: 1,
+        countsTowardTotalQuantity: false,
+      },
+    ]);
   });
 
   it('prepareItems 在商品不存在时抛出 NotFoundException', async () => {
