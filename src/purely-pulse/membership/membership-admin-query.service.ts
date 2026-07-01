@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { GetPulseAdminMemberLogsQueryDto } from './dto/pulse-membership-admin-logs.request.dto';
@@ -625,6 +626,16 @@ export class PulseMembershipAdminQueryService {
     return { today, week, month, year, lastYear };
   }
 
+  /** 将分（整数）格式化为元展示字符串，去除尾随零。 */
+  private static fenToDisplay(amountFen: number): string {
+    return new Decimal(amountFen)
+      .div(100)
+      .toDecimalPlaces(2)
+      .toString()
+      .replace(/\.00$/, '')
+      .replace(/(\.\d)0$/, '$1');
+  }
+
   /** 聚合单个周期的销售汇总 + 数据点。 */
   private async buildSalesPeriodSummary(
     storeId: number,
@@ -703,33 +714,39 @@ export class PulseMembershipAdminQueryService {
 
     const salesGrowthPct =
       prevSales > 0
-        ? Number(
-            (((totalSalesFen - prevSales) / prevSales) * 100).toFixed(2),
-          )
+        ? Number((((totalSalesFen - prevSales) / prevSales) * 100).toFixed(2))
         : null;
     const profitGrowthPct =
       prevProfit > 0
         ? Number(
-            (((totalProfitFen - prevProfit) / prevProfit) * 100).toFixed(
-              2,
-            ),
+            (((totalProfitFen - prevProfit) / prevProfit) * 100).toFixed(2),
           )
         : null;
 
-    const dataPoints = currentRows.map((row) => ({
-      label: this.formatBucketLabel(
-        row.bucket,
-        bucketGranularity,
-        shanghaiOffsetMs,
-      ),
-      salesFen: Math.round(Number(row.sales ?? 0)),
-      profitFen: Math.round(Number(row.profit ?? 0)),
-    }));
+    const dataPoints = currentRows.map((row) => {
+      const salesFen = Math.round(Number(row.sales ?? 0));
+      const profitFen = Math.round(Number(row.profit ?? 0));
+      return {
+        label: this.formatBucketLabel(
+          row.bucket,
+          bucketGranularity,
+          shanghaiOffsetMs,
+        ),
+        salesFen,
+        profitFen,
+        salesDisplay: PulseMembershipAdminQueryService.fenToDisplay(salesFen),
+        profitDisplay: PulseMembershipAdminQueryService.fenToDisplay(profitFen),
+      };
+    });
 
     return {
       period,
       totalSalesFen,
       totalProfitFen,
+      totalSalesDisplay:
+        PulseMembershipAdminQueryService.fenToDisplay(totalSalesFen),
+      totalProfitDisplay:
+        PulseMembershipAdminQueryService.fenToDisplay(totalProfitFen),
       salesGrowthPct,
       profitGrowthPct,
       dataPoints,

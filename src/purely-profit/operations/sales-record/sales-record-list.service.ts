@@ -2,18 +2,24 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { Money } from '../../../shared/money.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
   ListSalesRecordsQueryDto,
   SalesRecordListResponseDto,
+  SalesStatsResponseDto,
 } from './dto/sales-record.dto';
 import {
   buildPaginationMeta,
   resolvePagination,
 } from '../../commerce/commerce.utils';
 import { mapSalesRecordResponse } from './sales-record.domain';
-import { countSaleOrders, querySaleOrders } from './sales-record.query';
+import {
+  aggregateOrderStats,
+  countSaleOrders,
+  querySaleOrders,
+} from './sales-record.query';
 import {
   buildEmptySalesListResponse,
   buildSalesCurrentRange,
@@ -59,7 +65,7 @@ export class SalesRecordListService {
       return buildEmptySalesListResponse(page, take);
     }
 
-    const [orders, total] = await Promise.all([
+    const [orders, total, currentStats] = await Promise.all([
       querySaleOrders(this.prisma, {
         storeId,
         range: { start: range.start, end: range.end },
@@ -70,12 +76,30 @@ export class SalesRecordListService {
         storeId,
         range: { start: range.start, end: range.end },
       }),
+      aggregateOrderStats(this.prisma, storeId, {
+        start: range.start,
+        end: range.end,
+      }),
     ]);
     const items = orders.map((order) => mapSalesRecordResponse(order));
+
+    const summary: SalesStatsResponseDto = {
+      totalRevenue: currentStats.totalRevenue,
+      totalProfit: currentStats.totalProfit,
+      orderCount: currentStats.orderCount,
+      avgOrderValue:
+        currentStats.orderCount > 0
+          ? Money.fromInputYuan(currentStats.totalRevenue)
+              .divide(currentStats.orderCount)
+              .toOutputYuan()
+          : 0,
+      compareLastPeriod: null,
+    };
 
     return {
       items,
       meta: buildPaginationMeta(total, page, take),
+      summary,
     };
   }
 

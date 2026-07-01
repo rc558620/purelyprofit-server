@@ -77,6 +77,7 @@ export class PulseMembershipAdminMutationStateService {
         totalPoints: 0,
         availablePoints: 0,
         subAccountQuota: 0,
+        pulseSubAccountQuota: null,
       },
       partner: partner ?? {
         id: 0,

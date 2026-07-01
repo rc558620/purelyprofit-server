@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
 
 export const MEMBERSHIP_SETTING_PLAN_IDS = [
   'monthly',
@@ -14,13 +14,17 @@ export type MembershipSettingPlanId =
 
 export class UpdateMembershipPriceDto {
   @ApiProperty({
-    example: 3800,
-    description: '套餐价格，单位分',
+    example: '38',
+    description: '套餐价格展示值，单位元（字符串），后端负责 trim 与校验',
   })
-  @Type(() => Number)
-  @IsInt({ message: '套餐价格必须是整数' })
-  @Min(0, { message: '套餐价格不能小于 0' })
-  price: number;
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString({ message: '套餐价格必须是字符串' })
+  @Matches(/^\d+(\.\d{1,2})?$/, {
+    message: '套餐价格必须是正数，最多两位小数',
+  })
+  priceDisplay: string;
 }
 
 export class UpdateMonthlyMembershipSettingDto extends UpdateMembershipPriceDto {}
@@ -57,9 +61,15 @@ export class MembershipPlanSettingItemDto {
 
   @ApiProperty({
     example: 3800,
-    description: '套餐价格，单位分',
+    description: '套餐价格，单位分（内部字段，保留兼容）',
   })
   price: number;
+
+  @ApiProperty({
+    example: '38',
+    description: '套餐价格展示值，单位元（字符串），由后端从 price 自动换算',
+  })
+  priceDisplay: string;
 
   @ApiProperty({
     example: 30,

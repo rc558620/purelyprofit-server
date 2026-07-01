@@ -48,11 +48,12 @@ model StoreMembershipProfile {
   expiresAt       DateTime?                  @map("expires_at")
   totalPoints     Int                        @default(0) @map("total_points")
   availablePoints Int                        @default(0) @map("available_points")
-  subAccountQuota Int                        @default(0) @map("sub_account_quota")
-  orders          StoreMembershipOrder[]
-  pointsLogs      StoreMembershipPointsLog[]
-  createdAt       DateTime                   @default(now()) @map("created_at")
-  updatedAt       DateTime                   @updatedAt @map("updated_at")
+  subAccountQuota     Int                        @default(0) @map("sub_account_quota")
+  pulseSubAccountQuota Int?                      @map("pulse_sub_account_quota")
+  orders              StoreMembershipOrder[]
+  pointsLogs          StoreMembershipPointsLog[]
+  createdAt           DateTime                   @default(now()) @map("created_at")
+  updatedAt           DateTime                   @updatedAt @map("updated_at")
 
   @@index([expiresAt])
   @@map("store_membership_profiles")

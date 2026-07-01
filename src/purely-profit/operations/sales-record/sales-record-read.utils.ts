@@ -70,6 +70,7 @@ export function buildEmptySalesListResponse(
   return {
     items: [],
     meta: buildPaginationMeta(0, page, pageSize),
+    summary: buildEmptySalesStats(),
   };
 }
 

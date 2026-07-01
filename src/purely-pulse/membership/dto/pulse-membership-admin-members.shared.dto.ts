@@ -66,6 +66,13 @@ export class PulseRechargeRecordDto {
   amount: number;
 
   @ApiProperty({
+    example: '298',
+    description: '充值金额展示值（元，字符串），后端直接计算，前端仅展示',
+  })
+  @IsString()
+  amountDisplay: string;
+
+  @ApiProperty({
     example: 500,
     description: '积分奖励（对齐前端 RechargeRecord.pointsAwarded）',
   })

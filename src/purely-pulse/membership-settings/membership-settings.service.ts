@@ -11,6 +11,14 @@ import type {
 import { PulseMembershipSettingsAccessService } from './membership-settings-access.service';
 import { PulseMembershipSettingsProfileService } from './membership-settings-profile.service';
 
+const yuanDisplayToFen = (yuanDisplay: string): number => {
+  const parsed = Number.parseFloat(yuanDisplay);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+  return Math.round(parsed * 100);
+};
+
 @Injectable()
 export class PulseMembershipSettingsService {
   constructor(
@@ -36,7 +44,7 @@ export class PulseMembershipSettingsService {
   ): Promise<MembershipPlanSettingItemDto> {
     this.accessService.ensureDeveloperOrThrow(user);
     return this.profileService.updatePlanSetting('monthly', {
-      price: dto.price,
+      price: yuanDisplayToFen(dto.priceDisplay),
     });
   }
 
@@ -46,7 +54,7 @@ export class PulseMembershipSettingsService {
   ): Promise<MembershipPlanSettingItemDto> {
     this.accessService.ensureDeveloperOrThrow(user);
     return this.profileService.updatePlanSetting('quarterly', {
-      price: dto.price,
+      price: yuanDisplayToFen(dto.priceDisplay),
     });
   }
 
@@ -56,7 +64,7 @@ export class PulseMembershipSettingsService {
   ): Promise<MembershipPlanSettingItemDto> {
     this.accessService.ensureDeveloperOrThrow(user);
     return this.profileService.updatePlanSetting('yearly', {
-      price: dto.price,
+      price: yuanDisplayToFen(dto.priceDisplay),
     });
   }
 
@@ -66,7 +74,7 @@ export class PulseMembershipSettingsService {
   ): Promise<MembershipPlanSettingItemDto> {
     this.accessService.ensureDeveloperOrThrow(user);
     return this.profileService.updatePlanSetting('lifetime', {
-      price: dto.price,
+      price: yuanDisplayToFen(dto.priceDisplay),
       validDays: dto.validDays,
     });
   }

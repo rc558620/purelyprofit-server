@@ -99,6 +99,7 @@ export class PulseMembershipSettingsProfileService {
       planId: setting.planId,
       planName: setting.planName,
       price: setting.price,
+      priceDisplay: String(setting.price / 100),
       validDays: setting.validDays,
       updatedAt: setting.updatedAt.getTime(),
     };

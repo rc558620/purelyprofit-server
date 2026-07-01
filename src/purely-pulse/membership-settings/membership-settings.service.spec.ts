@@ -93,6 +93,7 @@ describe('PulseMembershipSettingsService', () => {
         planId: s.planId,
         planName: s.planName,
         price: s.price,
+        priceDisplay: String(s.price / 100),
         validDays: s.validDays,
         updatedAt: s.updatedAt.getTime(),
       })),
@@ -143,6 +144,7 @@ describe('PulseMembershipSettingsService', () => {
         planId: s.planId,
         planName: s.planName,
         price: s.price,
+        priceDisplay: String(s.price / 100),
         validDays: s.validDays,
         updatedAt: s.updatedAt.getTime(),
       })),
@@ -185,6 +187,7 @@ describe('PulseMembershipSettingsService', () => {
       planId: 'monthly',
       planName: '月度会员',
       price: 5800,
+      priceDisplay: '58',
       validDays: null,
       updatedAt: modifiedMonthly.updatedAt.getTime(),
     });
@@ -206,11 +209,12 @@ describe('PulseMembershipSettingsService', () => {
     });
 
     await expect(
-      service.updateMonthly(developerUser, { price: 4800 }),
+      service.updateMonthly(developerUser, { priceDisplay: '48' }),
     ).resolves.toEqual({
       planId: 'monthly',
       planName: '月度会员',
       price: 4800,
+      priceDisplay: '48',
       validDays: null,
       updatedAt: new Date('2026-05-22T08:00:00.000Z').getTime(),
     });
@@ -227,13 +231,14 @@ describe('PulseMembershipSettingsService', () => {
 
     await expect(
       service.updateLifetime(developerUser, {
-        price: 58800,
+        priceDisplay: '588',
         validDays: 7200,
       }),
     ).resolves.toEqual({
       planId: 'lifetime',
       planName: '永久会员',
       price: 58800,
+      priceDisplay: '588',
       validDays: 7200,
       updatedAt: new Date('2026-05-22T08:00:00.000Z').getTime(),
     });
@@ -250,12 +255,13 @@ describe('PulseMembershipSettingsService', () => {
 
     await expect(
       service.updateLifetime(developerUser, {
-        price: 49800,
+        priceDisplay: '498',
       }),
     ).resolves.toEqual({
       planId: 'lifetime',
       planName: '永久会员',
       price: 49800,
+      priceDisplay: '498',
       validDays: 730,
       updatedAt: new Date('2026-05-22T08:00:00.000Z').getTime(),
     });
@@ -277,7 +283,7 @@ describe('PulseMembershipSettingsService', () => {
 
   it('非开发者不可更新会员套餐配置', async () => {
     await expect(
-      service.updateMonthly(normalUser, { price: 4800 }),
+      service.updateMonthly(normalUser, { priceDisplay: '48' }),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(prismaService.membershipPlanSetting.upsert).not.toHaveBeenCalled();
   });

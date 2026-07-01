@@ -92,6 +92,13 @@ export class PulseMemberListItemDto {
   @IsInt()
   totalRecharged: number;
 
+  @ApiProperty({
+    example: '598',
+    description: '累计充值金额展示值（元，字符串），后端直接计算，前端仅展示',
+  })
+  @IsString()
+  totalRechargedDisplay: string;
+
   @ApiProperty({ example: 1747123200000, description: '注册时间戳（ms）' })
   @IsInt()
   registeredAt: number;
@@ -216,6 +223,13 @@ export class PulseMemberDetailDto {
   @ApiProperty({ example: 59800, description: '累计充值金额（分）' })
   @IsInt()
   totalRecharged: number;
+
+  @ApiProperty({
+    example: '598',
+    description: '累计充值金额展示值（元，字符串），后端直接计算，前端仅展示',
+  })
+  @IsString()
+  totalRechargedDisplay: string;
 
   @ApiProperty({
     example: 3,
@@ -464,6 +478,20 @@ export class PulseAdminMemberSalesDataPointDto {
   @ApiProperty({ example: 3200, description: '利润（分）' })
   @IsInt()
   profitFen: number;
+
+  @ApiProperty({
+    example: '128',
+    description: '销售额展示值（元，后端格式化）',
+  })
+  @IsString()
+  salesDisplay: string;
+
+  @ApiProperty({
+    example: '32',
+    description: '利润展示值（元，后端格式化）',
+  })
+  @IsString()
+  profitDisplay: string;
 }
 
 /** 单维度销售汇总。 */
@@ -479,6 +507,20 @@ export class PulseAdminMemberSalesPeriodSummaryDto {
   @ApiProperty({ example: 32200, description: '利润总额（分）' })
   @IsInt()
   totalProfitFen: number;
+
+  @ApiProperty({
+    example: '1288',
+    description: '销售总额展示值（元，后端格式化）',
+  })
+  @IsString()
+  totalSalesDisplay: string;
+
+  @ApiProperty({
+    example: '322',
+    description: '利润总额展示值（元，后端格式化）',
+  })
+  @IsString()
+  totalProfitDisplay: string;
 
   @ApiPropertyOptional({
     example: 12.5,

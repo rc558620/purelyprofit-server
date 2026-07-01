@@ -177,7 +177,10 @@ export class PlatformMembershipAccessService {
     storeId: number,
   ): Promise<SubAccountBenefitSnapshot> {
     const profile = await this.loadStoreMembershipProfile(storeId);
-    return buildSubAccountBenefitSnapshot(profile);
+    const pulseQuota = await this.safeLoadPulseSubAccountQuota(storeId);
+    return buildSubAccountBenefitSnapshot(
+      profile ? { ...profile, pulseSubAccountQuota: pulseQuota } : null,
+    );
   }
 
   async getSubAccountQuota(storeId: number): Promise<number> {
@@ -302,6 +305,27 @@ export class PlatformMembershipAccessService {
       throw new UnauthorizedException(
         MEMBERSHIP_ACCESS_MESSAGES.membershipContextNotReady,
       );
+    }
+  }
+
+  /**
+   * 安全读取 pulse_sub_account_quota，迁移未执行时优雅降级为 0。
+   * 该方法仅用于子账号功能路径，不影响认证/能力检查等关键链路。
+   */
+  private async safeLoadPulseSubAccountQuota(
+    storeId: number,
+  ): Promise<number | null> {
+    try {
+      const row = await this.prisma.storeMembershipProfile.findUnique({
+        where: { storeId },
+        select: { pulseSubAccountQuota: true },
+      });
+      return row?.pulseSubAccountQuota ?? null;
+    } catch (error: unknown) {
+      if (!isMissingSubAccountQuotaSchemaError(error)) {
+        throw error;
+      }
+      return null;
     }
   }
 }

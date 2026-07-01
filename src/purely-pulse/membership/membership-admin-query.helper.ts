@@ -12,7 +12,7 @@ import type {
 
 export type LegacyPulseAdminMembershipProfileRecord = Omit<
   PulseAdminMembershipProfileRecord,
-  'subAccountQuota'
+  'subAccountQuota' | 'pulseSubAccountQuota'
 >;
 
 export type PulseAdminMembershipProfileListRecord =

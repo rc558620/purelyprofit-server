@@ -20,6 +20,7 @@ describe('platform-membership-access.shared', () => {
           startsAt: new Date('2026-04-01T00:00:00.000Z'),
           expiresAt: new Date('2026-05-01T00:00:00.000Z'),
           subAccountQuota: 0,
+          pulseSubAccountQuota: null,
         },
         new Date('2026-05-23T12:00:00.000Z').getTime(),
       ),
@@ -34,6 +35,7 @@ describe('platform-membership-access.shared', () => {
           startsAt: new Date('2026-01-01T00:00:00.000Z'),
           expiresAt: null,
           subAccountQuota: 0,
+          pulseSubAccountQuota: null,
         },
         new Date('2026-05-23T12:00:00.000Z').getTime(),
       ),
@@ -47,6 +49,7 @@ describe('platform-membership-access.shared', () => {
         startsAt: new Date('2026-01-01T00:00:00.000Z'),
         expiresAt: new Date('2027-01-01T00:00:00.000Z'),
         subAccountQuota: 99,
+        pulseSubAccountQuota: 99,
       }),
     ).toEqual({
       level: 'yearly',
@@ -66,6 +69,7 @@ describe('platform-membership-access.shared', () => {
         startsAt: new Date('2026-05-01T00:00:00.000Z'),
         expiresAt: new Date('2026-06-01T00:00:00.000Z'),
         subAccountQuota: 5,
+        pulseSubAccountQuota: 5,
       }).subAccountEligible,
     ).toBe(false);
   });

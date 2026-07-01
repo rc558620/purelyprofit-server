@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-01T03:40:10Z"
+exported_at: "2026-07-01T10:54:14Z"
 modules:
     "":
         dir_name: 纯利商业操作系统（NestJS 单体多产品）
@@ -151,8 +151,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club:
-        dir_name: Purely Club 俱乐部业务聚合模块
-        title: Purely Club 俱乐部业务聚合模块
+        dir_name: Purely Club 门店会员业务聚合模块
+        title: Purely Club 门店会员业务聚合模块
         scope:
             - src/purely-club/
         source_files: []
@@ -189,8 +189,8 @@ modules:
         depends_on: []
         related_to: []
     purely_club/member:
-        dir_name: 会员账户与权益管理
-        title: 会员账户与权益管理
+        dir_name: 纯利俱乐部会员账户与等级权益
+        title: 纯利俱乐部会员账户与等级权益
         scope:
             - src/purely-club/member/
         source_files: []
@@ -270,8 +270,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit:
-        dir_name: Purely Profit 门店 SaaS 后端单体应用
-        title: Purely Profit 门店 SaaS 后端单体应用
+        dir_name: Purely Profit 管理端后端单体
+        title: Purely Profit 管理端后端单体
         scope:
             - src/purely-profit/
         source_files: []
@@ -320,8 +320,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/commerce:
-        dir_name: 商业访问控制与通用工具
-        title: 商业访问控制与通用工具
+        dir_name: 商业域通用访问控制与工具
+        title: 商业域通用访问控制与工具
         scope:
             - src/purely-profit/commerce/
         source_files: []
@@ -338,8 +338,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/finance:
-        dir_name: 财务核心业务模块
-        title: 财务核心业务模块
+        dir_name: 财务模块（现金流水、账款与对账）
+        title: 财务模块（现金流水、账款与对账）
         scope:
             - src/purely-profit/finance/
         source_files: []
@@ -356,8 +356,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/marketing:
-        dir_name: 营销与客户关系管理
-        title: 营销与客户关系管理
+        dir_name: 营销中心（会员_活动_产品_交易）
+        title: 营销中心（会员/活动/产品/交易）
         scope:
             - src/purely-profit/marketing/
         source_files: []
@@ -540,8 +540,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/stores:
-        dir_name: 门店管理与微信支付配置
-        title: 门店管理与微信支付配置
+        dir_name: 门店与微信收款配置管理
+        title: 门店与微信收款配置管理
         scope:
             - src/purely-profit/stores/
         source_files: []

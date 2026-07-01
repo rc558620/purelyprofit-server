@@ -27,6 +27,7 @@ export interface PulseAdminMembershipProfileRecord {
   totalPoints: number;
   availablePoints: number;
   subAccountQuota: number;
+  pulseSubAccountQuota: number | null;
 }
 
 export interface PulseAdminMembershipOrderRecord {

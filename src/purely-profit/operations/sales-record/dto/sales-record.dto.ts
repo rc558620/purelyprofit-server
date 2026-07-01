@@ -263,7 +263,10 @@ export class SalesRecordItemResponseDto {
   @ApiProperty({ example: 2, description: '销售数量' })
   quantity: number;
 
-  @ApiProperty({ example: 13, description: '商品小计 = salePrice × quantity（元）' })
+  @ApiProperty({
+    example: 13,
+    description: '商品小计 = salePrice × quantity（元）',
+  })
   subtotal: number;
 }
 
@@ -290,21 +293,36 @@ export class PreviewSalesRecordItemDto {
   @ApiProperty({ example: 2, description: '销售数量' })
   quantity: number;
 
-  @ApiProperty({ example: 13.0, description: '营业额小计（salePrice × quantity，由后端计算）' })
+  @ApiProperty({
+    example: 13.0,
+    description: '营业额小计（salePrice × quantity，由后端计算）',
+  })
   revenueSubtotal: number;
 
-  @ApiProperty({ example: 5.0, description: '利润小计（profit × quantity，由后端计算）' })
+  @ApiProperty({
+    example: 5.0,
+    description: '利润小计（profit × quantity，由后端计算）',
+  })
   profitSubtotal: number;
 }
 
 export class PreviewSalesRecordResponseDto {
-  @ApiProperty({ type: [PreviewSalesRecordItemDto], description: '商品明细（含后端计算小计）' })
+  @ApiProperty({
+    type: [PreviewSalesRecordItemDto],
+    description: '商品明细（含后端计算小计）',
+  })
   items: PreviewSalesRecordItemDto[];
 
-  @ApiProperty({ example: 88.5, description: '总营业额（元，由后端根据明细重算）' })
+  @ApiProperty({
+    example: 88.5,
+    description: '总营业额（元，由后端根据明细重算）',
+  })
   totalRevenue: number;
 
-  @ApiProperty({ example: 23.6, description: '总利润（元，由后端根据明细重算）' })
+  @ApiProperty({
+    example: 23.6,
+    description: '总利润（元，由后端根据明细重算）',
+  })
   totalProfit: number;
 
   @ApiProperty({ example: 8, description: '总销售件数（由后端根据明细重算）' })
@@ -437,4 +455,10 @@ export class SalesRecordListResponseDto {
     description: '分页信息',
   })
   meta: PaginationMetaDto;
+
+  @ApiPropertyOptional({
+    type: SalesStatsResponseDto,
+    description: '当前周期统计数据（总营业额/总利润/订单笔数/平均客单价）',
+  })
+  summary?: SalesStatsResponseDto;
 }

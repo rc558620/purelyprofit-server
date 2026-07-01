@@ -21,6 +21,7 @@ export type StoreMembershipProfileSnapshot = {
   startsAt: Date | null;
   expiresAt: Date | null;
   subAccountQuota: number;
+  pulseSubAccountQuota?: number | null;
 };
 
 export interface MembershipRuleSnapshot extends MembershipRuleConfig {
@@ -125,7 +126,7 @@ export function buildSubAccountBenefitSnapshot(
   profile: StoreMembershipProfileSnapshot | null,
 ): SubAccountBenefitSnapshot {
   const rule = buildMembershipRuleSnapshot(profile);
-  const rawQuota = profile?.subAccountQuota ?? 0;
+  const rawQuota = profile?.pulseSubAccountQuota ?? 0;
   const quota = normalizeSubAccountQuota(rawQuota, rule.subAccountEligible);
 
   return {

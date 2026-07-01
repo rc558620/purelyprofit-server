@@ -133,6 +133,7 @@ export class PulseMembershipAdminMemberReadService {
           totalPoints: true,
           availablePoints: true,
           subAccountQuota: true,
+          pulseSubAccountQuota: true,
         },
       });
     } catch (error: unknown) {
@@ -158,6 +159,7 @@ export class PulseMembershipAdminMemberReadService {
         ? {
             ...profile,
             subAccountQuota: 0,
+            pulseSubAccountQuota: null,
           }
         : null;
     }
@@ -344,6 +346,7 @@ export class PulseMembershipAdminMemberReadService {
           totalPoints: true,
           availablePoints: true,
           subAccountQuota: true,
+          pulseSubAccountQuota: true,
         },
       });
     } catch (error: unknown) {
@@ -372,6 +375,7 @@ export class PulseMembershipAdminMemberReadService {
             storeId: number;
           }),
           subAccountQuota: 0,
+          pulseSubAccountQuota: null,
         }),
       );
     }

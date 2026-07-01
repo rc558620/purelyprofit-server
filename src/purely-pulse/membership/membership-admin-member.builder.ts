@@ -195,6 +195,9 @@ export function buildPulseAdminMemberListItem(
     beanBalance: partner?.beanBalance ?? 0,
     isPartner: partner?.status === 'approved',
     totalRecharged: orderSummary?.totalRecharged ?? 0,
+    totalRechargedDisplay: Money.fromDbCents(orderSummary?.totalRecharged ?? 0)
+      .toFixedOutputYuan()
+      .replace(/\.00$/, ''),
     registeredAt: store.createdAt.getTime(),
     lastActiveAt:
       store.owner.lastActiveAt?.getTime() ??
@@ -203,8 +206,8 @@ export function buildPulseAdminMemberListItem(
     subAccountEligible:
       (profile?.currentPlanId ?? null) === 'yearly' ||
       (profile?.currentPlanId ?? null) === 'lifetime',
-    subAccountQuota: profile?.subAccountQuota ?? 0,
-    subAccountCapabilityEnabled: (profile?.subAccountQuota ?? 0) > 0,
+    subAccountQuota: profile?.pulseSubAccountQuota ?? 0,
+    subAccountCapabilityEnabled: (profile?.pulseSubAccountQuota ?? 0) > 0,
     membershipExpiry,
   } satisfies PulseMemberListItemDto;
 }
@@ -254,14 +257,20 @@ export function buildPulseAdminMemberDetail(
     beanBalance: partner?.beanBalance ?? 0,
     isPartner: partner?.status === 'approved',
     totalRecharged,
+    totalRechargedDisplay: Money.fromDbCents(totalRecharged)
+      .toFixedOutputYuan()
+      .replace(/\.00$/, ''),
     rechargeCount: paidOrders.length,
     invitedCount: promoCount,
     rechargeHistory: paidOrders.map((order) => ({
       id: String(order.id),
       planName: order.planName,
-        amount: Money.fromDbCents(order.amount).toDbCents(),
+      amount: Money.fromDbCents(order.amount).toDbCents(),
+      amountDisplay: Money.fromDbCents(order.amount)
+        .toFixedOutputYuan()
+        .replace(/\.00$/, ''),
       pointsAwarded: PURCHASE_BONUS_POINTS[order.planId] ?? 0,
-      channel: 'wechat',
+      channel: 'wechat' as const,
       createdAt: order.createdAt.getTime(),
     })),
     remark: banReason ?? `${store.name} 的平台会员档案`,

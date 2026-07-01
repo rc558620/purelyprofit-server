@@ -45,12 +45,12 @@ export class StoreSubAccountSlotService {
         where: { storeId },
         create: {
           storeId,
-          subAccountQuota: quota,
+          pulseSubAccountQuota: quota,
           totalPoints: 0,
           availablePoints: 0,
         },
         update: {
-          subAccountQuota: quota,
+          pulseSubAccountQuota: quota,
         },
       });
       await this.syncSlotsToQuota(tx, storeId, quota);
