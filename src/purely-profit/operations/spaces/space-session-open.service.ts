@@ -106,13 +106,14 @@ export class SpaceSessionOpenService {
     }
 
     try {
-      return await this.openSessionUnderLock(space, payload);
+      return await this.openSessionUnderLock(user, space, payload);
     } finally {
       await this.redisLockService.releaseLock(lock);
     }
   }
 
   private async openSessionUnderLock(
+    user: AuthenticatedUser,
     space: {
       id: number;
       storeId: number;
@@ -120,6 +121,21 @@ export class SpaceSessionOpenService {
     },
     payload: ReturnType<typeof normalizeOpenSessionPayload>,
   ): Promise<SpaceSessionResponseDto> {
+    // 在事务外解析开台操作员，避免在事务中额外查询
+    const openOperatorStaffId =
+      await this.commerceAccessService.findOperatorStaffIdForStore(
+        user,
+        space.storeId,
+      );
+    let openOperatorNameSnapshot: string | null = null;
+    if (openOperatorStaffId != null) {
+      const staff = await this.prisma.staff.findUnique({
+        where: { id: openOperatorStaffId },
+        select: { name: true },
+      });
+      openOperatorNameSnapshot = staff?.name ?? null;
+    }
+
     const session = await this.prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`
         SELECT id
@@ -220,6 +236,8 @@ export class SpaceSessionOpenService {
               : null,
           /// Step 8.1: items/renewRecords 已拆为独立表，开台时为空
           itemsCost: 0,
+          openOperatorStaffId,
+          openOperatorNameSnapshot,
           status: PrismaSpaceSessionStatus.active,
         },
         include: {

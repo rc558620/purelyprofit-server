@@ -34,7 +34,7 @@ export const SHIFT_TYPE_LABELS: Partial<Record<EmployeeShiftType, string>> = {
 export const HANDOVER_NOTE_MAX_LENGTH = 500;
 export const HANDOVER_ADDITIONAL_ITEM_NAME_MAX_LENGTH = 20;
 export const HANDOVER_ADDITIONAL_VALUE_MAX_LENGTH = 200;
-export const ORDER_ITEMS_LIMIT = 50;
+export const ORDER_ITEMS_LIMIT = 999;
 export const SPACE_PREPAID_DEDUCTION_ITEM_NAME = '预付款';
 /** 兼容历史数据中 productName = '预付抵扣' 的旧值 */
 export const SPACE_PREPAID_DEDUCTION_LEGACY_NAME = '预付抵扣';
@@ -49,3 +49,36 @@ export const isPrepaidDeductionItem = (productName: string): boolean =>
   productName === SPACE_PREPAID_DEDUCTION_LEGACY_NAME;
 export const CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE =
   '当前班次不属于该收银员，暂不允许操作';
+
+/** 交班销售记录时间分类：标识该行的时间语义 */
+export const HandoverTimeCategory = {
+  /** 开台：预付款 / 台位费 */
+  SESSION_START: 'session_start',
+  /** 续费：续费抵扣 */
+  SESSION_RENEW: 'session_renew',
+  /** 结账：客人应付 / 退款 */
+  SESSION_END: 'session_end',
+} as const;
+
+export type HandoverTimeCategory =
+  (typeof HandoverTimeCategory)[keyof typeof HandoverTimeCategory];
+
+/** 根据 productName + paymentLabel 判断时间分类 */
+export const resolveTimeCategory = (
+  productName: string,
+  paymentLabel: string,
+): HandoverTimeCategory | null => {
+  // 开台：预付款 / 台位费
+  if (isPrepaidDeductionItem(productName) || productName.includes('台位费')) {
+    return HandoverTimeCategory.SESSION_START;
+  }
+  // 续费：续费抵扣
+  if (productName === SPACE_RENEW_DEDUCTION_ITEM_NAME) {
+    return HandoverTimeCategory.SESSION_RENEW;
+  }
+  // 结账：客人应付 / 退款
+  if (productName.includes('客人应付') || paymentLabel.includes('退款')) {
+    return HandoverTimeCategory.SESSION_END;
+  }
+  return null;
+};

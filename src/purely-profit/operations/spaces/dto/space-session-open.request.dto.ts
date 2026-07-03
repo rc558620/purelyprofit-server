@@ -163,6 +163,7 @@ export class OpenSpaceSessionDto {
   @Type(() => Number)
   @IsNumber({}, { message: '预付金额必须是数字' })
   @Min(0.01, { message: '预付金额必须大于 0' })
+  @Max(100000, { message: '预付金额不能超过 ¥100,000' })
   prepaidAmount?: number;
 
   @ApiPropertyOptional({ example: 88, description: '预付券面金额（元）' })
@@ -170,5 +171,6 @@ export class OpenSpaceSessionDto {
   @Type(() => Number)
   @IsNumber({}, { message: '预付券面金额必须是数字' })
   @Min(0.01, { message: '预付券面金额必须大于 0' })
+  @Max(100000, { message: '预付券面金额不能超过 ¥100,000' })
   prepaidVoucherFaceAmount?: number;
 }

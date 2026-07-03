@@ -72,11 +72,28 @@ export const SALE_ORDER_ITEM_SELECT = {
           sessionRenewRecords: {
             select: {
               paymentMethod: true,
+              amount: true,
+              renewedAt: true,
             },
           },
           space: {
             select: {
               name: true,
+            },
+          },
+          openOperatorNameSnapshot: true,
+          openOperatorStaff: {
+            select: {
+              name: true,
+              role: true,
+              employeeProfile: {
+                select: {
+                  subAccounts: {
+                    select: { role: true },
+                    take: 1,
+                  },
+                },
+              },
             },
           },
         },
@@ -295,12 +312,15 @@ export const buildGuestPayableItems = (
       .add(Money.fromDbCents(session.itemsCost))
       .toDbCents();
     const prepaidCents = Number(session.prepaidAmount ?? 0);
-    if (consumptionCents <= prepaidCents) continue;
+    // 消费 < 预付款：退款场景（由 buildRefundItemsFromSessions 处理），跳过
+    // 消费 === 预付款：生成 ¥0.00 客人应付项，记录结账操作员/时间/支付方式
+    // 消费 > 预付款：正常客人应付
+    if (consumptionCents < prepaidCents) continue;
 
     const payableAmountCents = Money.fromDbCents(consumptionCents)
       .subtract(Money.fromDbCents(prepaidCents))
       .toDbCents();
-    if (payableAmountCents <= 0) continue;
+    if (payableAmountCents < 0) continue;
 
     const paymentMethod =
       session.saleOrder?.paymentMethod ?? SalesPaymentMethod.wechat;
@@ -326,6 +346,7 @@ export const buildGuestPayableItems = (
       date,
       currentStock: null,
       stockUnit: null,
+      timeCategory: 'session_end',
     });
   }
 
@@ -394,6 +415,7 @@ export const buildRefundItemsFromSessions = (
       date,
       currentStock: null,
       stockUnit: null,
+      timeCategory: 'session_end',
     });
   }
 
@@ -407,10 +429,80 @@ export const mergeDisplayedOrderItems = (
 ): HandoverOrderItemDto[] => {
   const guestPayableItems = buildGuestPayableItems(settledSpaceSessions);
   const refundItems = buildRefundItemsFromSessions(settledSpaceSessions);
+
+  // 续费抵扣项按支付方式拆分：若同一会话使用了多种支付方式续费，
+  // 拆为多行展示（如：微信 ¥100、支付宝 ¥50、刷卡 ¥70）。
+  const mappedOrderItems: HandoverOrderItemDto[] = [];
+  for (const item of orderItems) {
+    if (
+      item.productName === SPACE_RENEW_DEDUCTION_ITEM_NAME &&
+      item.order.spaceSession != null &&
+      item.order.spaceSession.sessionRenewRecords.length > 0
+    ) {
+      const amountByMethod = new Map<
+        string,
+        { amount: number; latestRenewedAt: number }
+      >();
+      for (const record of item.order.spaceSession.sessionRenewRecords) {
+        const method = record.paymentMethod;
+        const renewedAtMs = Number(record.renewedAt);
+        const existing = amountByMethod.get(method);
+        amountByMethod.set(method, {
+          amount: (existing?.amount ?? 0) + record.amount,
+          latestRenewedAt: Math.max(
+            existing?.latestRenewedAt ?? 0,
+            renewedAtMs,
+          ),
+        });
+      }
+
+      if (amountByMethod.size > 1) {
+        const spaceName =
+          toDisplayName(item.order.spaceSession.space?.name) ?? '';
+        const displayName = spaceName
+          ? `${spaceName} · ${SPACE_RENEW_DEDUCTION_ITEM_NAME}`
+          : item.productName;
+        const operatorName =
+          toDisplayName(item.order.operatorNameSnapshot) ??
+          toDisplayName(item.order.operatorStaff?.name) ??
+          '';
+        const date = item.order.date.getTime();
+
+        for (const [
+          method,
+          { amount: amountCents, latestRenewedAt },
+        ] of amountByMethod) {
+          const paymentMethod = method as keyof typeof PAYMENT_METHOD_CONFIG;
+          const config = PAYMENT_METHOD_CONFIG[paymentMethod];
+          if (!config) continue;
+
+          mappedOrderItems.push({
+            id: `renew-${item.id}-${method}`,
+            productName: displayName,
+            quantity: 1,
+            totalRevenue: Money.fromDbCents(
+              Math.abs(amountCents),
+            ).toOutputYuan(),
+            paymentLabel: config.label,
+            paymentColor: config.color,
+            operatorName,
+            operatorRole: resolveOperatorRole(item.order.operatorStaff ?? null),
+            date: latestRenewedAt || date,
+            currentStock: null,
+            stockUnit: null,
+            timeCategory: 'session_renew',
+          });
+        }
+        continue;
+      }
+    }
+    mappedOrderItems.push(mapOrderItem(item));
+  }
+
   const merged = [
     ...refundOrders.map((order) => mapRefundOrderItem(order)),
     ...refundItems,
-    ...orderItems.map((item) => mapOrderItem(item)),
+    ...mappedOrderItems,
     ...guestPayableItems,
   ];
 

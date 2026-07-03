@@ -106,9 +106,21 @@ export type OrderItemRow = {
     spaceSession: {
       prepaidPaymentMethod: SalesPaymentMethod | null;
       /// Step 8.1: renewRecords 已拆为独立表
-      sessionRenewRecords: Array<{ paymentMethod: string }>;
+      sessionRenewRecords: Array<{
+        paymentMethod: string;
+        amount: number;
+        renewedAt: bigint;
+      }>;
       space: {
         name: string;
+      } | null;
+      openOperatorNameSnapshot: string | null;
+      openOperatorStaff: {
+        name: string;
+        role: StaffRole;
+        employeeProfile: {
+          subAccounts: { role: StoreSubAccountRole }[];
+        } | null;
       } | null;
     } | null;
   };

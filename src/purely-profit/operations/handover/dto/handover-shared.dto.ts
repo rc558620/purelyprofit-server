@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { SalesPaymentMethod, StaffRole } from '@prisma/client';
+import type { HandoverTimeCategory } from '../handover.constants';
 
 export const HandoverModeDto = {
   SELF_MAIN_ACCOUNT: 'self_main_account',
@@ -70,7 +71,11 @@ export class HandoverPaymentItemDto {
   @ApiProperty({ example: 668, description: '收款金额' })
   amount: number;
 
-  @ApiProperty({ example: 55, description: '金额占比（0-100 整数百分比，由 calcRatioPercent precision=0 统一计算）' })
+  @ApiProperty({
+    example: 55,
+    description:
+      '金额占比（0-100 整数百分比，由 calcRatioPercent precision=0 统一计算）',
+  })
   ratio: number;
 
   @ApiProperty({ example: '#22c55e', description: '展示颜色' })
@@ -128,4 +133,16 @@ export class HandoverOrderItemDto {
     nullable: true,
   })
   stockUnit?: string | null;
+
+  @IsOptional()
+  @IsEnum(['session_start', 'session_end'])
+  @ApiProperty({
+    enum: ['session_start', 'session_end'],
+    example: 'session_start',
+    description:
+      '时间分类：session_start=开台（预付款/台位费），session_end=结账（客人应付/退款），null=普通项目',
+    required: false,
+    nullable: true,
+  })
+  timeCategory?: HandoverTimeCategory | null;
 }

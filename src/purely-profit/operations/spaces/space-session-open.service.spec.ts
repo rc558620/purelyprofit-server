@@ -34,11 +34,15 @@ describe('SpaceSessionOpenService', () => {
     spaceSession: {
       findFirst: jest.fn(),
     },
+    staff: {
+      findUnique: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
 
   const commerceAccessService = {
     ensureCanAccessStore: jest.fn(),
+    findOperatorStaffIdForStore: jest.fn(),
   };
 
   const reservationsStateService = {
@@ -80,6 +84,8 @@ describe('SpaceSessionOpenService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+    prismaService.staff.findUnique.mockResolvedValue({ name: '老板' });
     reservationsStateService.repairInconsistentOccupiedSpace.mockResolvedValue(
       undefined,
     );

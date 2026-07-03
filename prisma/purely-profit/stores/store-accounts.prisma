@@ -169,6 +169,7 @@ model Staff {
   purchaseOrders       PurchaseOrder[]               @relation("PurchaseOrderOperator")
   inventoryAdjustments InventoryAdjustmentLog[]      @relation("InventoryAdjustmentOperator")
   salesOrders          SaleOrder[]                   @relation("SaleOrderOperator")
+  openedSpaceSessions  SpaceSession[]                @relation("SpaceSessionOpenOperator")
   costRecords          CostRecord[]                  @relation("CostRecordOperator")
   employeeProfile      Employee?                     @relation("StaffEmployeeProfile")
   createdAt            DateTime                      @default(now()) @map("created_at")

@@ -21,6 +21,7 @@ import {
   isPrepaidDeductionItem,
   SPACE_REFUND_ITEM_NAME,
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
+  resolveTimeCategory,
 } from './handover.constants';
 import type {
   AdditionalItemRow,
@@ -31,7 +32,6 @@ import type {
 import { Money } from '../../../shared/money.utils';
 import { toDisplayName, dbCentsToOutputYuan } from './handover.utils';
 
-const FALLBACK_ORDER_OPERATOR_NAME = '当前操作员';
 const AUTO_SETTLEMENT_OPERATOR_NAME = '空间自动结账';
 
 const SALES_PAYMENT_METHOD_VALUES = new Set(Object.values(SalesPaymentMethod));
@@ -52,11 +52,19 @@ const shouldPrefixSpaceName = (productName: string): boolean =>
 
 const resolveOrderItemProductName = (item: OrderItemRow): string => {
   const spaceName = toDisplayName(item.order.spaceSession?.space?.name);
-  if (!spaceName || !shouldPrefixSpaceName(item.productName)) {
-    return item.productName;
+  if (!spaceName) return item.productName;
+
+  // 系统项（预付款/台位费）：直接拼接，如 "大包2预付款"
+  if (shouldPrefixSpaceName(item.productName)) {
+    return `${spaceName}${item.productName}`;
   }
 
-  return `${spaceName}${item.productName}`;
+  // 空间会话中的普通消费商品：加 " · " 分隔，如 "大包2 · 面包"
+  if (item.order.spaceSession != null) {
+    return `${spaceName} · ${item.productName}`;
+  }
+
+  return item.productName;
 };
 
 export const resolveOrderItemPaymentMethod = (
@@ -123,21 +131,41 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
     .multiply(item.quantity)
     .toOutputYuan();
   const paymentMethod = resolveOrderItemPaymentMethod(item);
+  const paymentLabel = PAYMENT_METHOD_CONFIG[paymentMethod].label;
+  const productName = resolveOrderItemProductName(item);
+  const timeCategory = resolveTimeCategory(item.productName, paymentLabel);
+
+  // 开台项（预付款/台位费）优先使用 SpaceSession 上的开台操作员；
+  // 结账项（客人应付/退款）和普通项使用 SaleOrder 上的操作员。
+  const session = item.order.spaceSession;
+  const isOpenItem = timeCategory === 'session_start' && session != null;
+  const operatorName = isOpenItem
+    ? (toDisplayName(session.openOperatorNameSnapshot) ??
+       toDisplayName(session.openOperatorStaff?.name) ??
+       toDisplayName(item.order.operatorNameSnapshot) ??
+       toDisplayName(item.order.operatorStaff?.name) ??
+       '')
+    : (toDisplayName(item.order.operatorNameSnapshot) ??
+       toDisplayName(item.order.operatorStaff?.name) ??
+       '');
+  const operatorRole = isOpenItem
+    ? (resolveOperatorRole(session.openOperatorStaff) ??
+       resolveOperatorRole(item.order.operatorStaff))
+    : resolveOperatorRole(item.order.operatorStaff);
+
   return {
     id: String(item.id),
-    productName: resolveOrderItemProductName(item),
+    productName,
     quantity: item.quantity,
     totalRevenue,
-    paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
+    paymentLabel,
     paymentColor: PAYMENT_METHOD_CONFIG[paymentMethod].color,
-    operatorName:
-      toDisplayName(item.order.operatorNameSnapshot) ??
-      toDisplayName(item.order.operatorStaff?.name) ??
-      FALLBACK_ORDER_OPERATOR_NAME,
-    operatorRole: resolveOperatorRole(item.order.operatorStaff),
+    operatorName,
+    operatorRole,
     date: item.order.date.getTime(),
     currentStock: item.product?.stock ?? null,
     stockUnit: item.product?.unit ?? null,
+    timeCategory,
   };
 };
 
@@ -158,6 +186,7 @@ export const mapRefundOrderItem = (
   date: order.date.getTime(),
   currentStock: null,
   stockUnit: null,
+  timeCategory: 'session_end',
 });
 
 export const mapAdditionalItem = (

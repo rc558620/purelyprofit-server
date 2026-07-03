@@ -119,6 +119,11 @@ model SpaceSession {
   reservation                  SpaceReservation?   @relation(fields: [reservationId], references: [id], onDelete: SetNull)
   saleOrderId                  Int?                @unique @map("sale_order_id")
   saleOrder                    SaleOrder?          @relation(fields: [saleOrderId], references: [id], onDelete: SetNull)
+  openOperatorStaffId          Int?                @map("open_operator_staff_id")
+  /// 开台操作员：FK 指向 Staff，onDelete: SetNull 防止删除员工时会话数据丢失
+  openOperatorStaff            Staff?              @relation("SpaceSessionOpenOperator", fields: [openOperatorStaffId], references: [id], onDelete: SetNull)
+  /// 开台操作员姓名快照（冗余字段，防止员工改名后历史记录变化）
+  openOperatorNameSnapshot     String?             @map("open_operator_name_snapshot")
   guestName                    String?             @map("guest_name")
   guestPhone                   String?             @map("guest_phone")
   guestCount                   Int?                @map("guest_count")
