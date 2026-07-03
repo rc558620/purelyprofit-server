@@ -17,10 +17,10 @@ import {
   SALE_ORDER_ITEM_SELECT,
   attachPaymentRatios,
   buildCashFlowWhere,
+  computeRefundAmountFromSessions,
   buildNonSpaceSessionOrderWhere,
   buildSaleOrderItemOrderWhere,
   buildSaleOrderWhere,
-  buildSpaceRefundOrderWhere,
   mapPaymentItems,
   mergeDisplayedOrderItems,
   sumPaymentAmounts,
@@ -31,7 +31,6 @@ import {
   extendShiftRangeToReference,
   dbCentsToOutputYuan,
   type OrderItemRow,
-  type RefundOrderRow,
   type ResolvedHandoverPageShiftContext,
 } from './handover.shared';
 import type { SalesPaymentMethod } from '@prisma/client';
@@ -47,6 +46,12 @@ type SettledSpaceSessionRow = {
   saleOrder: {
     paymentMethod: SalesPaymentMethod;
     date: Date;
+    operatorNameSnapshot: string | null;
+    operatorStaff: {
+      name: string;
+      role: import('@prisma/client').StaffRole;
+      employeeProfile: { subAccounts: { role: string }[] } | null;
+    } | null;
   } | null;
 };
 
@@ -54,7 +59,6 @@ type HandoverPageMetrics = {
   orderCount: number;
   paymentOrderItems: OrderItemRow[];
   orderItems: OrderItemRow[];
-  refundOrders: RefundOrderRow[];
   additionalRevenueAmount: number;
   spaceRevenueAmount: number;
   refundAmount: number;
@@ -66,7 +70,6 @@ const EMPTY_METRICS: HandoverPageMetrics = {
   orderCount: 0,
   paymentOrderItems: [],
   orderItems: [],
-  refundOrders: [],
   additionalRevenueAmount: 0,
   spaceRevenueAmount: 0,
   refundAmount: 0,
@@ -174,42 +177,38 @@ export class HandoverPageService {
       shiftRange,
     );
     const cashFlowWhere = buildCashFlowWhere(membership.storeId, shiftRange);
-    const refundWhere = buildSpaceRefundOrderWhere(
-      membership.storeId,
-      shiftRange,
-    );
     const [
       paymentOrderItems,
       orderItems,
-      refundOrders,
       orderCount,
       spaceRevenue,
       additionalRevenue,
-      refundRevenue,
       pettyCash,
       settledSpaceSessions,
     ] = await Promise.all([
       this.loadPaymentOrderItems(membership.storeId, shiftRange),
       this.loadRecentOrderItems(membership.storeId, shiftRange),
-      this.loadRefundOrders(refundWhere),
       this.prisma.saleOrder.count({ where: orderWhere }),
       this.loadSpaceRevenue(membership.storeId, startAt, endAt),
       this.loadAdditionalRevenue(additionalOrderWhere),
-      this.loadRefundRevenue(refundWhere),
       this.loadPettyCash(cashFlowWhere),
       this.loadSettledSpaceSessions(membership.storeId, startAt, endAt),
     ]);
+
+    // 退款金额直接从 SpaceSession 数据计算：预付 > 消费时的差额
+    const refundAmount = computeRefundAmountFromSessions(settledSpaceSessions);
 
     return {
       orderCount,
       paymentOrderItems,
       orderItems,
-      refundOrders,
-      additionalRevenueAmount: dbCentsToOutputYuan(additionalRevenue._sum.totalRevenue),
+      additionalRevenueAmount: dbCentsToOutputYuan(
+        additionalRevenue._sum.totalRevenue,
+      ),
       spaceRevenueAmount: Money.fromDbCents(spaceRevenue._sum.timeCost ?? 0)
         .add(Money.fromDbCents(spaceRevenue._sum.itemsCost ?? 0))
         .toOutputYuan(),
-      refundAmount: Math.abs(dbCentsToOutputYuan(refundRevenue._sum.totalRevenue)),
+      refundAmount,
       pettyCashAmount: dbCentsToOutputYuan(pettyCash._sum.amount),
       settledSpaceSessions,
     };
@@ -239,46 +238,6 @@ export class HandoverPageService {
       },
       select: SALE_ORDER_ITEM_SELECT,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: ORDER_ITEMS_LIMIT,
-    });
-  }
-
-  private async loadRefundOrders(
-    refundWhere: ReturnType<typeof buildSpaceRefundOrderWhere>,
-  ): Promise<RefundOrderRow[]> {
-    return this.prisma.saleOrder.findMany({
-      where: refundWhere,
-      select: {
-        id: true,
-        date: true,
-        paymentMethod: true,
-        totalRevenue: true,
-        operatorNameSnapshot: true,
-        operatorStaff: {
-          select: {
-            name: true,
-            role: true,
-            employeeProfile: {
-              select: {
-                subAccounts: {
-                  select: { role: true },
-                  take: 1,
-                },
-              },
-            },
-          },
-        },
-        spaceSession: {
-          select: {
-            space: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: [{ date: 'desc' }, { id: 'desc' }],
       take: ORDER_ITEMS_LIMIT,
     });
   }
@@ -326,6 +285,21 @@ export class HandoverPageService {
           select: {
             paymentMethod: true,
             date: true,
+            operatorNameSnapshot: true,
+            operatorStaff: {
+              select: {
+                name: true,
+                role: true,
+                employeeProfile: {
+                  select: {
+                    subAccounts: {
+                      select: { role: true },
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -337,15 +311,6 @@ export class HandoverPageService {
   ) {
     return this.prisma.saleOrder.aggregate({
       where: orderWhere,
-      _sum: { totalRevenue: true },
-    });
-  }
-
-  private async loadRefundRevenue(
-    refundWhere: ReturnType<typeof buildSpaceRefundOrderWhere>,
-  ) {
-    return this.prisma.saleOrder.aggregate({
-      where: refundWhere,
       _sum: { totalRevenue: true },
     });
   }
@@ -403,7 +368,9 @@ export class HandoverPageService {
       paymentItems: attachPaymentRatios(paymentItems, totalReceivedAmount),
       orderItems: mergeDisplayedOrderItems(
         metrics.orderItems,
-        metrics.refundOrders,
+        // 退款展示项统一由 buildRefundItemsFromSessions 从 SpaceSession 数据构建，
+        // 不再使用 SaleOrder 维度的 refundOrders，防止同一会话退款重复展示。
+        [],
         metrics.settledSpaceSessions,
       ),
       receiverName: shiftContext.receiverCandidate?.employeeName ?? '',

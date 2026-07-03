@@ -116,7 +116,7 @@ export async function loadDashboardHomeStatsData(
       WHERE so.store_id = ${storeId}
         AND so.date >= ${new Date(currentRange.start)}
         AND so.date <= ${new Date(currentRange.end)}
-        AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
+        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
     `,
     prisma.$queryRaw<[{ revenue: Prisma.Decimal | null; order_count: bigint }]>`
       SELECT
@@ -127,7 +127,7 @@ export async function loadDashboardHomeStatsData(
       WHERE so.store_id = ${storeId}
         AND so.date >= ${new Date(compareRange.start)}
         AND so.date <= ${new Date(compareRange.end)}
-        AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
+        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
     `,
     prisma.costRecord.aggregate({
       where: buildRangeWhere(storeId, currentRange),
@@ -174,7 +174,7 @@ export async function loadDashboardHomeTrendRows(
     WHERE so.store_id = ${params.storeId}
       AND so.date >= ${new Date(trendStart)}
       AND so.date <= ${new Date(params.currentRange.end)}
-      AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
+      AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
     GROUP BY 1
     ORDER BY 1 ASC
   `;
@@ -382,7 +382,7 @@ async function loadRecentDailyRevenue(
     WHERE so.store_id = ${storeId}
       AND so.date >= ${new Date(rangeStart)}
       AND so.date <= ${new Date(now)}
-      AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
+      AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
     GROUP BY 1
     ORDER BY 1 ASC
   `;

@@ -3,6 +3,7 @@ import {
   Prisma,
   SalesPaymentMethod,
   SpaceSessionStatus,
+  StaffRole,
 } from '@prisma/client';
 import { Money, calcRatioPercent } from '../../../shared/money.utils';
 import type { HandoverShiftInfoDto } from './dto/handover-page.dto';
@@ -17,6 +18,8 @@ import {
   SPACE_GUEST_PAYABLE_COLOR,
   SPACE_GUEST_PAYABLE_ITEM_NAME,
   SPACE_PREPAID_DEDUCTION_ITEM_NAME,
+  isPrepaidDeductionItem,
+  SPACE_REFUND_ITEM_NAME,
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
   buildShiftDateRange,
   type DisplayOperatorInfo,
@@ -248,6 +251,23 @@ export const buildSpaceRefundOrderWhere = (
   },
 });
 
+
+/** 解析操作员真实角色（与 handover.mapper.ts 逻辑一致） */
+const resolveOperatorRole = (
+  staff: {
+    role: StaffRole;
+    employeeProfile: {
+      subAccounts: { role: string }[];
+    } | null;
+  } | null,
+): StaffRole | null => {
+  if (!staff) return null;
+  if (staff.role === StaffRole.owner) return StaffRole.owner;
+  const subAccountRole = staff.employeeProfile?.subAccounts[0]?.role;
+  if (subAccountRole === 'manager') return StaffRole.manager;
+  return staff.role;
+};
+
 export const buildGuestPayableItems = (
   settledSessions: Array<{
     id: number;
@@ -259,16 +279,21 @@ export const buildGuestPayableItems = (
     saleOrder: {
       paymentMethod: SalesPaymentMethod;
       date: Date;
+      operatorNameSnapshot: string | null;
+      operatorStaff: {
+        name: string;
+        role: StaffRole;
+        employeeProfile: { subAccounts: { role: string }[] } | null;
+      } | null;
     } | null;
   }>,
 ): HandoverOrderItemDto[] => {
   const items: HandoverOrderItemDto[] = [];
 
   for (const session of settledSessions) {
-    const consumptionCents =
-Money.fromDbCents(session.timeCost ?? 0)
-.add(Money.fromDbCents(session.itemsCost))
-        .toDbCents();
+    const consumptionCents = Money.fromDbCents(session.timeCost ?? 0)
+      .add(Money.fromDbCents(session.itemsCost))
+      .toDbCents();
     const prepaidCents = Number(session.prepaidAmount ?? 0);
     if (consumptionCents <= prepaidCents) continue;
 
@@ -281,6 +306,13 @@ Money.fromDbCents(session.timeCost ?? 0)
       session.saleOrder?.paymentMethod ?? SalesPaymentMethod.wechat;
     const date = session.endTime?.getTime() ?? Date.now();
     const spaceName = session.space?.name ?? '';
+    const operatorName =
+      toDisplayName(session.saleOrder?.operatorNameSnapshot) ??
+      toDisplayName(session.saleOrder?.operatorStaff?.name) ??
+      '空间自动结账';
+    const operatorRole = resolveOperatorRole(
+      session.saleOrder?.operatorStaff ?? null,
+    );
 
     items.push({
       id: `guest-payable-${session.id}`,
@@ -289,7 +321,76 @@ Money.fromDbCents(session.timeCost ?? 0)
       totalRevenue: Money.fromDbCents(payableAmountCents).toOutputYuan(),
       paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
       paymentColor: SPACE_GUEST_PAYABLE_COLOR,
-      operatorName: '空间自动结账',
+      operatorName,
+      operatorRole,
+      date,
+      currentStock: null,
+      stockUnit: null,
+    });
+  }
+
+  return items;
+};
+
+/**
+ * 从已结账的空间会话中构建退款展示项。
+ * 退款条件：prepaidAmount > (timeCost + itemsCost)，即预付款超过实际消费。
+ * 退款金额 = -(prepaidAmount - consumption)，以负数表示退款。
+ * 支付标签格式："微信退款" / "支付宝退款"（与历史退款订单一致）。
+ */
+export const buildRefundItemsFromSessions = (
+  settledSessions: Array<{
+    id: number;
+    timeCost: number | null;
+    itemsCost: number;
+    prepaidAmount: number | null;
+    endTime: Date | null;
+    space: { name: string };
+    saleOrder: {
+      paymentMethod: SalesPaymentMethod;
+      date: Date;
+      operatorNameSnapshot: string | null;
+      operatorStaff: {
+        name: string;
+        role: StaffRole;
+        employeeProfile: { subAccounts: { role: string }[] } | null;
+      } | null;
+    } | null;
+  }>,
+): HandoverOrderItemDto[] => {
+  const items: HandoverOrderItemDto[] = [];
+
+  for (const session of settledSessions) {
+    const prepaidCents = Number(session.prepaidAmount ?? 0);
+    if (prepaidCents <= 0) continue;
+
+    const consumptionCents = Money.fromDbCents(session.timeCost ?? 0)
+      .add(Money.fromDbCents(session.itemsCost))
+      .toDbCents();
+    if (prepaidCents <= consumptionCents) continue;
+
+    const refundCents = prepaidCents - consumptionCents;
+    const paymentMethod =
+      session.saleOrder?.paymentMethod ?? SalesPaymentMethod.wechat;
+    const date = session.endTime?.getTime() ?? Date.now();
+    const spaceName = session.space?.name ?? SPACE_REFUND_ITEM_NAME;
+    const operatorName =
+      toDisplayName(session.saleOrder?.operatorNameSnapshot) ??
+      toDisplayName(session.saleOrder?.operatorStaff?.name) ??
+      '空间自动结账';
+    const operatorRole = resolveOperatorRole(
+      session.saleOrder?.operatorStaff ?? null,
+    );
+
+    items.push({
+      id: `refund-session-${session.id}`,
+      productName: spaceName,
+      quantity: 1,
+      totalRevenue: -Money.fromDbCents(refundCents).toOutputYuan(),
+      paymentLabel: `${PAYMENT_METHOD_CONFIG[paymentMethod].label}退款`,
+      paymentColor: PAYMENT_METHOD_CONFIG[paymentMethod].color,
+      operatorName,
+      operatorRole,
       date,
       currentStock: null,
       stockUnit: null,
@@ -305,8 +406,10 @@ export const mergeDisplayedOrderItems = (
   settledSpaceSessions: Parameters<typeof buildGuestPayableItems>[0] = [],
 ): HandoverOrderItemDto[] => {
   const guestPayableItems = buildGuestPayableItems(settledSpaceSessions);
+  const refundItems = buildRefundItemsFromSessions(settledSpaceSessions);
   const merged = [
     ...refundOrders.map((order) => mapRefundOrderItem(order)),
+    ...refundItems,
     ...orderItems.map((item) => mapOrderItem(item)),
     ...guestPayableItems,
   ];
@@ -316,8 +419,8 @@ export const mergeDisplayedOrderItems = (
       if (right.date !== left.date) {
         return right.date - left.date;
       }
-      const leftIsRefund = left.id.startsWith('refund-order-');
-      const rightIsRefund = right.id.startsWith('refund-order-');
+      const leftIsRefund = left.id.startsWith('refund-');
+      const rightIsRefund = right.id.startsWith('refund-');
       if (leftIsRefund !== rightIsRefund) {
         return rightIsRefund ? 1 : -1;
       }
@@ -332,10 +435,12 @@ export const mapPaymentItems = (
   const paymentAmountMap = new Map<SalesPaymentMethod, number>();
 
   for (const item of items) {
-    const rawAmountCents = Money.fromDbCents(item.salePrice).multiply(item.quantity).toDbCents();
+    const rawAmountCents = Money.fromDbCents(item.salePrice)
+      .multiply(item.quantity)
+      .toDbCents();
     const amountCents =
       rawAmountCents > 0 ||
-      item.productName === SPACE_PREPAID_DEDUCTION_ITEM_NAME ||
+      isPrepaidDeductionItem(item.productName) ||
       item.productName === SPACE_RENEW_DEDUCTION_ITEM_NAME
         ? Math.abs(rawAmountCents)
         : 0;
@@ -352,13 +457,15 @@ export const mapPaymentItems = (
     );
   }
 
-  return Array.from(paymentAmountMap.entries()).map(([method, amountCents]) => ({
-    method,
-    label: PAYMENT_METHOD_CONFIG[method].label,
-    amount: Money.fromDbCents(amountCents).toOutputYuan(),
-    ratio: 0,
-    color: PAYMENT_METHOD_CONFIG[method].color,
-  }));
+  return Array.from(paymentAmountMap.entries()).map(
+    ([method, amountCents]) => ({
+      method,
+      label: PAYMENT_METHOD_CONFIG[method].label,
+      amount: Money.fromDbCents(amountCents).toOutputYuan(),
+      ratio: 0,
+      color: PAYMENT_METHOD_CONFIG[method].color,
+    }),
+  );
 };
 
 /**
@@ -376,12 +483,45 @@ export const attachPaymentRatios = (
   }));
 
 export const sumPaymentAmounts = (items: HandoverPaymentItemDto[]): number =>
-  Money.sum(items.map((item) => Money.fromInputYuan(item.amount))).toOutputYuan();
+  Money.sum(
+    items.map((item) => Money.fromInputYuan(item.amount)),
+  ).toOutputYuan();
+
+/**
+ * 从已结账的空间会话中计算退款金额。
+ * 退款 = 预付款 > 实际消费时的差额（退给客人的金额）。
+ * 直接基于 SpaceSession 数据计算，不依赖 SaleOrder.totalRevenue 符号。
+ */
+export const computeRefundAmountFromSessions = (
+  sessions: Array<{
+    timeCost: number | null;
+    itemsCost: number;
+    prepaidAmount: number | null;
+  }>,
+): number => {
+  let totalRefundCents = 0;
+
+  for (const session of sessions) {
+    const prepaidCents = Number(session.prepaidAmount ?? 0);
+    if (prepaidCents <= 0) continue;
+
+    const consumptionCents = Money.fromDbCents(session.timeCost ?? 0)
+      .add(Money.fromDbCents(session.itemsCost))
+      .toDbCents();
+
+    const refundCents = prepaidCents - consumptionCents;
+    if (refundCents > 0) {
+      totalRefundCents += refundCents;
+    }
+  }
+
+  return Money.fromDbCents(totalRefundCents).toOutputYuan();
+};
 
 export const buildRevenueAmounts = (
   spaceRevenue: Prisma.Decimal | number | null | undefined,
   additionalRevenue: Prisma.Decimal | number | null | undefined,
-  refundRevenue: Prisma.Decimal | number | null | undefined,
+  refundAmount: number,
 ): {
   additionalRevenueAmount: number;
   spaceRevenueAmount: number;
@@ -389,7 +529,7 @@ export const buildRevenueAmounts = (
 } => ({
   additionalRevenueAmount: dbCentsToOutputYuan(additionalRevenue),
   spaceRevenueAmount: dbCentsToOutputYuan(spaceRevenue),
-  refundAmount: Math.abs(dbCentsToOutputYuan(refundRevenue)),
+  refundAmount,
 });
 
 export const buildRecordRevenueSummary = (

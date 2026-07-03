@@ -81,7 +81,7 @@ export const buildSpaceSessionSettlement = (params: {
   if (prepaidDeductionMoney.isPositive()) {
     orderItems.push({
       productId: 'SYS_PREPAID_DEDUCTION',
-      productName: '预付抵扣',
+      productName: '预付款',
       categoryName: '场地费',
       salePrice: -prepaidDeductionYuan,
       profit: -prepaidDeductionYuan,
@@ -200,7 +200,7 @@ export const buildSpaceSessionSettlementMoney = (params: {
     const prepaidDeductionYuan = prepaidDeductionMoney.toOutputYuan();
     orderItems.push({
       productId: 'SYS_PREPAID_DEDUCTION',
-      productName: '预付抵扣',
+      productName: '预付款',
       categoryName: '场地费',
       salePrice: -prepaidDeductionYuan,
       profit: -prepaidDeductionYuan,

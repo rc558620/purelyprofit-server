@@ -35,10 +35,17 @@ export const HANDOVER_NOTE_MAX_LENGTH = 500;
 export const HANDOVER_ADDITIONAL_ITEM_NAME_MAX_LENGTH = 20;
 export const HANDOVER_ADDITIONAL_VALUE_MAX_LENGTH = 200;
 export const ORDER_ITEMS_LIMIT = 50;
-export const SPACE_PREPAID_DEDUCTION_ITEM_NAME = '预付抵扣';
+export const SPACE_PREPAID_DEDUCTION_ITEM_NAME = '预付款';
+/** 兼容历史数据中 productName = '预付抵扣' 的旧值 */
+export const SPACE_PREPAID_DEDUCTION_LEGACY_NAME = '预付抵扣';
 export const SPACE_RENEW_DEDUCTION_ITEM_NAME = '续费抵扣';
 export const SPACE_REFUND_ITEM_NAME = '空间退款';
 export const SPACE_GUEST_PAYABLE_ITEM_NAME = '客人应付';
 export const SPACE_GUEST_PAYABLE_COLOR = '#f43f5e';
+
+/** 判断 productName 是否为预付款项（兼容新旧名称） */
+export const isPrepaidDeductionItem = (productName: string): boolean =>
+  productName === SPACE_PREPAID_DEDUCTION_ITEM_NAME ||
+  productName === SPACE_PREPAID_DEDUCTION_LEGACY_NAME;
 export const CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE =
   '当前班次不属于该收银员，暂不允许操作';

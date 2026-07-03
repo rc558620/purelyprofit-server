@@ -10,32 +10,34 @@ export {
 } from '../../shared/money.utils';
 
 /**
- * 空间预付抵扣商品的 productName。
- * 在数据库 sale_order_items 中，预付抵扣行的 productId 为 null，
+ * 空间预付款商品的 productName。
+ * 在数据库 sale_order_items 中，预付款行的 productId 为 null，
  * 只能通过 productName 识别。
  *
  * 在非财务模块（profit-detail、business-analysis、dashboard-home、sales-record、report-center）
  * 中应排除此 productName 的行，只算实际消费。
  * 财务模块（finance-overview）保留完整流水口径，不排除。
  */
-export const PREPAID_DEDUCTION_PRODUCT_NAME = '预付抵扣';
+export const PREPAID_DEDUCTION_PRODUCT_NAME = '预付款';
 
 /**
  * 空间续费抵扣商品的 productName。
  * 在数据库 sale_order_items 中，续费抵扣行的 productId 为 null，
  * 只能通过 productName 识别。
  *
- * 与预付抵扣同理，非财务模块应排除此行，只算实际消费。
+ * 与预付款同理，非财务模块应排除此行，只算实际消费。
  */
 export const RENEW_DEDUCTION_PRODUCT_NAME = '续费抵扣';
 
 /**
- * 判断商品行是否为抵扣行（预付抵扣或续费抵扣），
+ * 判断商品行是否为抵扣行（预付款或续费抵扣），
  * 非财务模块应排除这些行，只算实际消费。
+ * 兼容历史数据中 productName = '预付抵扣' 的旧值。
  */
 export function isDeductionProductName(productName: string): boolean {
   return (
     productName === PREPAID_DEDUCTION_PRODUCT_NAME ||
+    productName === '预付抵扣' || // 兼容历史数据
     productName === RENEW_DEDUCTION_PRODUCT_NAME
   );
 }

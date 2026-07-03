@@ -22,7 +22,7 @@ export async function aggregateOrderStats(
   storeId: number,
   range: SalesPeriodRange,
 ): Promise<SalesStatsAggregation> {
-  // 从 sale_order_items 聚合，排除预付抵扣行，只算实际消费
+  // 从 sale_order_items 聚合，排除预付款行，只算实际消费
   const result = await prisma.$queryRaw<
     [
       {
@@ -41,7 +41,7 @@ export async function aggregateOrderStats(
     WHERE so.store_id = ${storeId}
       AND so.date >= ${new Date(range.start)}
       AND so.date <= ${new Date(range.end)}
-      AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
+      AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
   `;
 
   return {

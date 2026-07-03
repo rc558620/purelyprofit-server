@@ -442,7 +442,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       },
       {
         id: 3,
-        productName: '预付抵扣',
+        productName: '预付款',
         salePrice: new Prisma.Decimal('-2000'),
         quantity: 1,
         product: null,
@@ -521,45 +521,42 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         },
       },
     ]);
-    prismaService.saleOrder.findMany.mockResolvedValue([
+    // 退款展示项现在从 SpaceSession 数据构建，saleOrder.findMany 不再返回退款订单
+    prismaService.saleOrder.findMany.mockResolvedValue([]);
+    // 退款金额现在从 SpaceSession 数据计算：prepaidAmount > consumption 时的差额
+    prismaService.spaceSession.findMany.mockResolvedValue([
       {
         id: 88,
-        date: new Date('2026-06-04T04:21:00.000Z'),
-        paymentMethod: SalesPaymentMethod.alipay,
-        totalRevenue: new Prisma.Decimal('-54760'),
-        operatorNameSnapshot: null,
-        operatorStaff: null,
-        spaceSession: {
-          space: {
-            name: '很多事',
-          },
+        timeCost: 925,
+        itemsCost: 0,
+        prepaidAmount: 54760,
+        endTime: new Date('2026-06-04T04:21:00.000Z'),
+        space: { name: '很多事' },
+        saleOrder: {
+          paymentMethod: 'alipay',
+          date: new Date('2026-06-04T04:21:00.000Z'),
+          operatorNameSnapshot: null,
+          operatorStaff: null,
         },
       },
     ]);
-    prismaService.saleOrder.aggregate
-      .mockResolvedValueOnce({
-        // additionalRevenue 仅统计非空间订单，退款订单有 spaceSession 不包含在内
-        _sum: { totalRevenue: new Prisma.Decimal('97875') },
-      })
-      .mockResolvedValueOnce({
-        _sum: { totalRevenue: new Prisma.Decimal('-54760') },
-      });
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {
       shiftType: EmployeeShiftType.morning,
     });
 
+    // refund = prepaid(547.60) - consumption(9.25) = 538.35
     expect(result.revenueSummary).toMatchObject({
       additionalRevenue: 978.75,
       spaceRevenue: 9.25,
-      refundAmount: 547.6,
+      refundAmount: 538.35,
       totalRevenue: 988,
     });
     expect(result.orderItems[0]).toMatchObject({
-      id: 'refund-order-88',
+      id: 'refund-session-88',
       productName: '很多事',
       quantity: 1,
-      totalRevenue: -547.6,
+      totalRevenue: -538.35, // prepaid(547.60) - consumption(9.25) = 538.35
       paymentLabel: '支付宝退款',
       paymentColor: '#1677ff',
       operatorName: '空间自动结账',
@@ -583,72 +580,6 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         ratio: 100,
       }),
     ]);
-    expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        storeId: 100,
-        totalRevenue: { lt: 0 },
-        spaceSession: {
-          is: expect.objectContaining({
-            status: 'settled',
-            endTime: expect.objectContaining({
-              gte: expect.any(Date),
-              lte: expect.any(Date),
-            }),
-          }),
-        },
-      }),
-      select: {
-        id: true,
-        date: true,
-        paymentMethod: true,
-        totalRevenue: true,
-        operatorNameSnapshot: true,
-        operatorStaff: {
-          select: {
-            name: true,
-            role: true,
-            employeeProfile: {
-              select: {
-                subAccounts: {
-                  select: { role: true },
-                  take: 1,
-                },
-              },
-            },
-          },
-        },
-        spaceSession: {
-          select: {
-            space: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: [{ date: 'desc' }, { id: 'desc' }],
-      take: 50,
-    });
-    expect(prismaService.saleOrder.aggregate).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        where: expect.objectContaining({
-          storeId: 100,
-          totalRevenue: { lt: 0 },
-          spaceSession: {
-            is: expect.objectContaining({
-              status: 'settled',
-              endTime: expect.objectContaining({
-                gte: expect.any(Date),
-                lte: expect.any(Date),
-              }),
-            }),
-          },
-        }),
-        _sum: { totalRevenue: true },
-      }),
-    );
   });
 
   it('自动结账退款即使归属到待交班员工也应展示在当前交班页', async () => {
@@ -672,15 +603,26 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     prismaService.spaceSession.aggregate.mockResolvedValue({
       _sum: { timeCost: null, itemsCost: null },
     });
-    prismaService.spaceSession.findMany.mockResolvedValue([]);
-    prismaService.saleOrder.aggregate
-      .mockResolvedValueOnce({
-        // additionalRevenue 仅统计非空间订单，退款订单有 spaceSession 不包含在内
-        _sum: { totalRevenue: null },
-      })
-      .mockResolvedValueOnce({
-        _sum: { totalRevenue: new Prisma.Decimal('-8880') },
-      });
+    // 退款金额现在从 SpaceSession 数据计算：prepaidAmount > consumption 时的差额
+    prismaService.spaceSession.findMany.mockResolvedValue([
+      {
+        id: 99,
+        timeCost: null,
+        itemsCost: 0,
+        prepaidAmount: 8880,
+        endTime: new Date('2026-06-02T18:55:00.000Z'),
+        space: { name: 'A01' },
+        saleOrder: {
+          paymentMethod: 'wechat',
+          date: new Date('2026-06-02T18:55:00.000Z'),
+          operatorNameSnapshot: null,
+          operatorStaff: null,
+        },
+      },
+    ]);
+    prismaService.saleOrder.aggregate.mockResolvedValueOnce({
+      _sum: { totalRevenue: null },
+    });
 
     const result = await ctx.service.getHandoverPage(subAccountUser, {
       shiftType: EmployeeShiftType.morning,
@@ -693,7 +635,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       totalRevenue: 0,
     });
     expect(result.orderItems[0]).toMatchObject({
-      id: 'refund-order-99',
+      id: 'refund-session-99',
       productName: 'A01',
       totalRevenue: -88.8,
       paymentLabel: '微信退款',
@@ -701,11 +643,11 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
   });
 
-  it('预付抵扣明细应展示开台时的支付方式', async () => {
+  it('预付款明细应展示开台时的支付方式', async () => {
     prismaService.saleOrderItem.findMany.mockResolvedValue([
       {
         id: 1,
-        productName: '预付抵扣',
+        productName: '预付款',
         salePrice: new Prisma.Decimal('-66600'),
         quantity: 1,
         product: null,
@@ -732,8 +674,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
 
     expect(result.orderItems).toHaveLength(1);
     expect(result.orderItems[0]).toMatchObject({
-      productName: '大厅A03预付抵扣',
-      totalRevenue: -666,
+      productName: '大厅A03预付款',
+      totalRevenue: 666, // 预付款 = 已收预付款，展示正数
       paymentLabel: '微信',
       paymentColor: '#22c55e',
       operatorName: '当前操作员',

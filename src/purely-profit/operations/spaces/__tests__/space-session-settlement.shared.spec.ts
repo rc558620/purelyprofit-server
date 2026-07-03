@@ -166,9 +166,9 @@ describe('buildSpaceSessionSettlement — 续费抵扣', () => {
   });
 });
 
-// ---------- 预付抵扣 ----------
+// ---------- 预付款 ----------
 
-describe('buildSpaceSessionSettlement — 预付抵扣', () => {
+describe('buildSpaceSessionSettlement — 预付款', () => {
   it('有预付金额时应抵扣', () => {
     const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
     const result = buildSpaceSessionSettlement({
@@ -206,7 +206,7 @@ describe('buildSpaceSessionSettlement — 预付抵扣', () => {
 // ---------- 混合消费 ----------
 
 describe('buildSpaceSessionSettlement — 混合消费', () => {
-  it('台位费 + 商品 + 续费抵扣 + 预付抵扣', () => {
+  it('台位费 + 商品 + 续费抵扣 + 预付款', () => {
     const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
     const items: SpaceSessionItemRecord[] = [
       { productId: 'P1', productName: '可乐', categoryName: '饮品', salePrice: 10, profit: 5, quantity: 2, lineTotal: 20 },

@@ -356,7 +356,7 @@ describe('ProfitDetailService', () => {
       },
       {
         productId: null,
-        productName: '预付抵扣',
+        productName: '预付款',
         categoryName: '场地费',
         salePrice: new Prisma.Decimal('-500'),
         profit: new Prisma.Decimal('-500'),
@@ -400,7 +400,7 @@ describe('ProfitDetailService', () => {
         totalProfit: 8,
         profitRate: 100,
       },
-      // 预付抵扣行已排除，不再出现在利润明细中
+      // 预付款行已排除，不再出现在利润明细中
     ]);
   });
 

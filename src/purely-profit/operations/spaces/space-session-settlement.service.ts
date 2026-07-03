@@ -10,6 +10,7 @@ import {
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { isDeductionProductName } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import { PrismaService, TX_TIMEOUT_LONG } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
@@ -146,8 +147,13 @@ export class SpaceSessionSettlementService {
             productName: item.productName,
             categoryName: item.categoryName,
             // orderItems 中的 salePrice/profit 是元，DB 存储为分
-            salePrice: Money.fromInputYuan(item.salePrice).toDbCents(),
-            profit: Money.fromInputYuan(item.profit).toDbCents(),
+            // 抵扣项在结算中为负数，DB 中存正数（代表已收到的预付款/续费金额）
+            salePrice: isDeductionProductName(item.productName)
+              ? Money.fromInputYuan(Math.abs(item.salePrice)).toDbCents()
+              : Money.fromInputYuan(item.salePrice).toDbCents(),
+            profit: isDeductionProductName(item.productName)
+              ? Money.fromInputYuan(Math.abs(item.profit)).toDbCents()
+              : Money.fromInputYuan(item.profit).toDbCents(),
             quantity: item.quantity,
             sortOrder: index,
           })),
@@ -240,12 +246,19 @@ export class SpaceSessionSettlementService {
   ): Promise<SalesRecordResponseDto> {
     const dto: CreateSalesRecordDto = {
       storeId: params.storeId,
+      // 抵扣项（预付款/续费抵扣）在结算计算中为负数（减少客人应付），
+      // 但在销售明细中应以正数存储——它们代表已收到的钱（预付款/续费金额），
+      // 而非折扣或退款。前端直接展示，严禁做任何金额计算。
       items: params.items.map((item) => ({
         productId: item.productId,
         productName: item.productName,
         categoryName: item.categoryName,
-        salePrice: item.salePrice,
-        profit: item.profit,
+        salePrice: isDeductionProductName(item.productName)
+          ? Math.abs(item.salePrice)
+          : item.salePrice,
+        profit: isDeductionProductName(item.productName)
+          ? Math.abs(item.profit)
+          : item.profit,
         quantity: item.quantity,
       })),
       paymentMethod: params.paymentMethod,
@@ -264,6 +277,11 @@ export class SpaceSessionSettlementService {
       // 会话中的商品价格可能与当前目录价格不一致（如开台后调价），应使用会话记录的价格。
       preserveCallerPrices: true,
       transactionClient: params.transaction,
+      // 抵扣项在 items 中以正数存储（代表已收到的预付款/续费），
+      // 但 SaleOrder.totalRevenue 必须反映实际结算金额（消费 - 抵扣，可能为负数），
+      // 因此使用结算层计算的权威值覆盖聚合结果。
+      totalRevenueOverride: params.totalRevenue,
+      totalProfitOverride: params.totalProfit,
     });
   }
 

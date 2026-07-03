@@ -115,14 +115,13 @@ describe('SpaceSessionSettlementService', () => {
       user,
       expect.objectContaining({
         storeId: 18,
-        totalRevenue: 20,
-        totalProfit: 8,
-        totalQuantity: 1,
         paymentMethod: 'cash',
         date: params.checkoutAt,
       }),
       expect.objectContaining({
         ...expectedSalesRecordCreateOptions,
+        totalRevenueOverride: 20,
+        totalProfitOverride: 8,
         transactionClient,
       }),
     );
@@ -179,14 +178,14 @@ describe('SpaceSessionSettlementService', () => {
     expect(result.cancelledReservationId).toBeNull();
   });
 
-  it('结账销售单可写入预付抵扣负项', async () => {
+  it('结账销售单预付款项以正数写入（代表已收预付款）', async () => {
     const user = createSpaceTestUser();
     const params = createSettleSpaceSessionParams();
     params.settlement.orderItems = [
       ...params.settlement.orderItems,
       {
         productId: 'SYS_PREPAID_DEDUCTION',
-        productName: '预付抵扣',
+        productName: '预付款',
         categoryName: '场地费',
         salePrice: -30,
         profit: -30,
@@ -222,21 +221,24 @@ describe('SpaceSessionSettlementService', () => {
 
     await service.settleSession(user, params);
 
+    // 预付款在结算计算中为负（减少应付），但存入销售明细时翻转为正数
+    // ——它代表已收到的预付款，前端直接展示，严禁做金额计算
+    // totalRevenue/totalProfit 通过 override 传入，确保 SaleOrder 存储正确的结算金额
     expect(salesRecordService.create).toHaveBeenCalledWith(
       user,
       expect.objectContaining({
         items: expect.arrayContaining([
           expect.objectContaining({
             productId: 'SYS_PREPAID_DEDUCTION',
-            salePrice: -30,
-            profit: -30,
+            salePrice: 30,
+            profit: 30,
           }),
         ]),
-        totalRevenue: -10,
-        totalProfit: -22,
       }),
       expect.objectContaining({
         ...expectedSalesRecordCreateOptions,
+        totalRevenueOverride: -10,
+        totalProfitOverride: -22,
         transactionClient,
       }),
     );

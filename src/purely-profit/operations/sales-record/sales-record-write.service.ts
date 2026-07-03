@@ -2,7 +2,6 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toOptionalText } from '../../commerce/commerce.utils';
-import { Money } from '../../../shared/money.utils';
 import { InventoryService } from '../../goods/inventory/inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
@@ -11,7 +10,6 @@ import type {
   SalesRecordResponseDto,
 } from './dto/sales-record.dto';
 
-import { HandoverPageShiftRecordService } from '../handover/handover-page-shift-record.service';
 import { SalesRecordCreateFlowService } from './sales-record-create-flow.service';
 import {
   SalesRecordItemPreparationService,
@@ -28,7 +26,6 @@ export class SalesRecordWriteService {
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly inventoryService: InventoryService,
-    private readonly handoverPageShiftRecordService: HandoverPageShiftRecordService,
     private readonly salesRecordItemPreparationService: SalesRecordItemPreparationService,
     private readonly salesRecordCreateFlowService: SalesRecordCreateFlowService,
   ) {}
@@ -69,11 +66,14 @@ export class SalesRecordWriteService {
       );
 
     // 使用统一金额聚合域计算权威金额（确保与 preview 计算一致）
-    const amountsSnapshot = SalesRecordAmountsDomain.aggregateFromPreparedItems(
-      preparedItems,
-    );
-    const totalRevenue = amountsSnapshot.totalRevenue;
-    const totalProfit = amountsSnapshot.totalProfit;
+    const amountsSnapshot =
+      SalesRecordAmountsDomain.aggregateFromPreparedItems(preparedItems);
+    // 空间结账场景：抵扣项在 items 中以正数存储，聚合会多算，
+    // 使用结算层传入的权威值覆盖 totalRevenue / totalProfit。
+    const totalRevenue =
+      options.totalRevenueOverride ?? amountsSnapshot.totalRevenue;
+    const totalProfit =
+      options.totalProfitOverride ?? amountsSnapshot.totalProfit;
     const totalQuantity = amountsSnapshot.totalQuantity;
 
     const operatorNameSnapshot =
@@ -151,8 +151,8 @@ export class SalesRecordWriteService {
   private async resolveOperatorStaffId(
     user: AuthenticatedUser,
     storeId: number,
-    options: CreateSalesRecordOptions,
-    orderDate: Date,
+    _options: CreateSalesRecordOptions,
+    _orderDate: Date,
   ): Promise<number | null> {
     const currentOperatorStaffId =
       await this.commerceAccessService.findOperatorStaffIdForStore(
@@ -160,35 +160,16 @@ export class SalesRecordWriteService {
         storeId,
       );
 
-    // 系统用户（如自动结账调度）没有 membership，无法通过常规路径
-    // 解析 operatorStaffId。为避免其创建的销售单在交班页面因
-    // operatorStaffId 为 null 而被过滤掉，此处回退到当前班次员工。
+    // 系统用户（如自动结账调度）没有 membership，operatorStaffId 应为 null，
+    // 使 SaleOrder.operatorNameSnapshot 也为 null，交班页兜底展示"空间自动结账"。
+    // 交班页已不再按 operatorStaffId 过滤销售记录（按门店 + 时间范围查询），
+    // 因此无需回退到班次员工。
     if (!user.currentMembership) {
-      try {
-        const pendingStaffId = await this.findPendingHandoverOperatorStaffId(
-          storeId,
-          orderDate,
-        );
-        if (pendingStaffId !== null) {
-          return pendingStaffId;
-        }
-
-        return (
-          (await this.findCurrentShiftOperatorStaffId(storeId, orderDate)) ??
-          currentOperatorStaffId
-        );
-      } catch (error) {
-        this.logger.warn(
-          `resolveOperatorStaffId system-user fallback storeId=${storeId} orderDate=${orderDate.toISOString()} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
-        );
-        return currentOperatorStaffId;
-      }
+      return null;
     }
 
     // 有 membership 的用户（主账号/店长/收银员）始终使用自身 staffId，
     // 确保本班销售记录中操作员显示为实际操作账号。
-    // 交班页面已不再按 operatorStaffId 过滤，而是按班次时间范围查询所有销售，
-    // 因此无需将主账号/店长的销售重定向到班次收银员。
     return currentOperatorStaffId;
   }
 
@@ -201,52 +182,5 @@ export class SalesRecordWriteService {
       select: { name: true },
     });
     return staff?.name ?? null;
-  }
-
-  private async findPendingHandoverOperatorStaffId(
-    storeId: number,
-    referenceDate: Date,
-  ): Promise<number | null> {
-    const pendingShift =
-      await this.handoverPageShiftRecordService.findStartedUnhandedShiftRecord(
-        storeId,
-        referenceDate,
-      );
-    if (!pendingShift?.employeeId) {
-      return null;
-    }
-
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: pendingShift.employeeId },
-      select: {
-        linkedStaffId: true,
-      },
-    });
-
-    return employee?.linkedStaffId ?? null;
-  }
-
-  private async findCurrentShiftOperatorStaffId(
-    storeId: number,
-    referenceDate: Date,
-  ): Promise<number | null> {
-    const currentShift =
-      await this.handoverPageShiftRecordService.findCurrentShiftRecord(
-        storeId,
-        null,
-        referenceDate,
-      );
-    if (!currentShift?.employeeId) {
-      return null;
-    }
-
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: currentShift.employeeId },
-      select: {
-        linkedStaffId: true,
-      },
-    });
-
-    return employee?.linkedStaffId ?? null;
   }
 }

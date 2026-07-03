@@ -71,7 +71,7 @@ describe('SalesRecordAmountsDomain', () => {
         },
         {
           productId: null,
-          productName: '预付抵扣',
+          productName: '预付款',
           categoryName: '抵扣',
           salePrice: Money.fromInputYuan(-10),
           profit: Money.fromInputYuan(-3),

@@ -310,7 +310,7 @@ describe('SalesRecordReportService', () => {
     });
   });
 
-  it('getReport 会为台位费和预付抵扣补充空间名称并按空间拆分聚合', async () => {
+  it('getReport 会为台位费和预付款补充空间名称并按空间拆分聚合', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     prismaService.saleOrder.findMany.mockResolvedValue([
       {
@@ -421,7 +421,7 @@ describe('SalesRecordReportService', () => {
             orderId: 33,
             storeId: 18,
             productId: null,
-            productName: '预付抵扣',
+            productName: '预付款',
             categoryName: '场地费',
             salePrice: new Prisma.Decimal('-500'),
             profit: new Prisma.Decimal('-500'),

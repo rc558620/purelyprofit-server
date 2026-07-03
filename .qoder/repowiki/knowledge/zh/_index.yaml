@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-01T10:54:14Z"
+exported_at: "2026-07-02T08:46:31Z"
 modules:
     "":
         dir_name: 纯利商业操作系统（NestJS 单体多产品）
@@ -81,8 +81,8 @@ modules:
         depends_on: []
         related_to: []
     data_layer:
-        dir_name: Prisma 数据层与数据库迁移
-        title: Prisma 数据层与数据库迁移
+        dir_name: 数据访问与持久化层
+        title: 数据访问与持久化层
         scope:
             - src/prisma/
             - prisma/
@@ -270,8 +270,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit:
-        dir_name: Purely Profit 管理端后端单体
-        title: Purely Profit 管理端后端单体
+        dir_name: Purely Profit 门店 SaaS 管理后端
+        title: Purely Profit 门店 SaaS 管理后端
         scope:
             - src/purely-profit/
         source_files: []
@@ -365,8 +365,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/member:
-        dir_name: 会员与合伙人权益管理
-        title: 会员与合伙人权益管理
+        dir_name: 会员体系与平台权益管理
+        title: 会员体系与平台权益管理
         scope:
             - src/purely-profit/member/
         source_files: []
@@ -383,8 +383,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/operations:
-        dir_name: 纯利运营端业务聚合模块（Operations）
-        title: 纯利运营端业务聚合模块（Operations）
+        dir_name: 纯利运营端业务聚合模块
+        title: 纯利运营端业务聚合模块
         scope:
             - src/purely-profit/operations/
         source_files: []
@@ -424,8 +424,8 @@ modules:
         depends_on: []
         related_to: []
     purely_profit/operations/sales_record:
-        dir_name: 销售记录（POS 收银）业务模块
-        title: 销售记录（POS 收银）业务模块
+        dir_name: 门店销售记录读写与报表服务
+        title: 门店销售记录读写与报表服务
         scope:
             - src/purely-profit/operations/sales-record/
         source_files: []
@@ -558,8 +558,8 @@ modules:
         depends_on: []
         related_to: []
     purely_pulse:
-        dir_name: Purely Pulse 业务聚合与上下文编排
-        title: Purely Pulse 业务聚合与上下文编排
+        dir_name: Purely Pulse 业务中台
+        title: Purely Pulse 业务中台
         scope:
             - src/purely-pulse/
         source_files: []
@@ -612,8 +612,8 @@ modules:
         depends_on: []
         related_to: []
     purely_pulse/membership:
-        dir_name: Pulse 会员与订阅管理
-        title: Pulse 会员与订阅管理
+        dir_name: Pulse 会员管理与订阅中心
+        title: Pulse 会员管理与订阅中心
         scope:
             - src/purely-pulse/membership/
         source_files: []

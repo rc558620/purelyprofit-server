@@ -94,7 +94,7 @@ export function mapSalesRecordResponse(
   order: SaleOrderWithItems,
 ): SalesRecordResponseDto {
   const note = toOptionalText(order.note);
-  // 过滤掉抵扣行（预付抵扣 + 续费抵扣），销售记录只展示实际消费
+  // 过滤掉抵扣行（预付款 + 续费抵扣），销售记录只展示实际消费
   const visibleItems = order.items.filter(
     (item) => !isDeductionProductName(item.productName),
   );
@@ -219,7 +219,7 @@ export function aggregateReportRows(
     const dateLabel = formatReportMonthDay(dayStart);
 
     for (const item of order.items) {
-      // 排除抵扣行（预付抵扣 + 续费抵扣），报表只展示实际消费
+      // 排除抵扣行（预付款 + 续费抵扣），报表只展示实际消费
       if (isDeductionProductName(item.productName)) {
         continue;
       }

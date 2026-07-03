@@ -46,6 +46,15 @@ export interface CreateSalesRecordOptions {
   transactionClient?: Prisma.TransactionClient;
   /** 保留调用方传入的单价/利润，不用商品目录当前价格覆盖（空间结账等场景） */
   preserveCallerPrices?: boolean;
+  /**
+   * 覆盖 SaleOrder.totalRevenue（元）。
+   * 空间结账等场景下，抵扣项（预付款/续费抵扣）在 SaleOrderItem 中以正数存储，
+   * 但 totalRevenue 必须反映实际结算金额（消费 - 抵扣，可能为负数），
+   * 因此需要使用结算层计算的权威值，而非从 items 重新聚合。
+   */
+  totalRevenueOverride?: number;
+  /** 覆盖 SaleOrder.totalProfit（元），与 totalRevenueOverride 同理。 */
+  totalProfitOverride?: number;
 }
 
 @Injectable()

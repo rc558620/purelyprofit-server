@@ -99,7 +99,7 @@ describe('SpaceSessionCheckoutService', () => {
     );
   });
 
-  it('countdown 固定台位费预览应直接返回预付抵扣后的金额', async () => {
+  it('countdown 固定台位费预览应直接返回预付款后的金额', async () => {
     const user = createSpaceTestUser();
     const checkoutAt = createSpaceCheckoutAt();
     const baseSession = createSpaceSessionRecord();
@@ -267,14 +267,13 @@ describe('SpaceSessionCheckoutService', () => {
             quantity: 1,
           },
         ],
-        totalRevenue: 20,
-        totalProfit: 8,
-        totalQuantity: 1,
         paymentMethod: 'cash',
         date: checkoutAt,
       }),
       expect.objectContaining({
         ...expectedSalesRecordCreateOptions,
+        totalRevenueOverride: 20,
+        totalProfitOverride: 8,
         transactionClient,
       }),
     );
@@ -373,18 +372,17 @@ describe('SpaceSessionCheckoutService', () => {
         items: expect.arrayContaining([
           expect.objectContaining({
             productId: 'SYS_PREPAID_DEDUCTION',
-            productName: '预付抵扣',
-            salePrice: -30,
-            profit: -30,
+            productName: '预付款',
+            salePrice: 30,
+            profit: 30,
             quantity: 1,
           }),
         ]),
-        totalRevenue: 80,
-        totalProfit: 68,
-        totalQuantity: 2,
       }),
       expect.objectContaining({
         ...expectedSalesRecordCreateOptions,
+        totalRevenueOverride: 80,
+        totalProfitOverride: 68,
         transactionClient,
       }),
     );

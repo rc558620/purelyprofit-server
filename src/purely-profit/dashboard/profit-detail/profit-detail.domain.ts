@@ -48,7 +48,7 @@ export function aggregateSales(
   const seenOrderIds = new Set<number>();
 
   for (const row of rows) {
-    // 排除抵扣行（预付抵扣 + 续费抵扣），利润明细只算实际消费
+    // 排除抵扣行（预付款 + 续费抵扣），利润明细只算实际消费
     if (isDeductionProductName(row.productName)) {
       continue;
     }

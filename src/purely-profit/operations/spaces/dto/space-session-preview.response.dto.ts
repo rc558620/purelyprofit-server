@@ -19,7 +19,7 @@ export class LivePreviewResponseDto {
   @ApiProperty({ example: 30, description: '续费抵扣（元）' })
   renewDeduction: number;
 
-  @ApiProperty({ example: 20, description: '预付抵扣（元）' })
+  @ApiProperty({ example: 20, description: '预付款（元）' })
   prepaidDeduction: number;
 
   @ApiProperty({ example: 84, description: '待付总金额（元）' })

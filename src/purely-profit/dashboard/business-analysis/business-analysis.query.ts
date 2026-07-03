@@ -36,7 +36,7 @@ function buildSalesPreviousRevenueSql(
         CASE
           WHEN so.date >= ${new Date(previousRange.start)}
             AND so.date <= ${new Date(previousRange.end)}
-            AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
+            AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
           THEN soi.sale_price * soi.quantity
           ELSE 0
         END
@@ -57,7 +57,7 @@ function buildSalesPreviousCountSql(
     COUNT(*) FILTER (
       WHERE so.date >= ${new Date(previousRange.start)}
         AND so.date <= ${new Date(previousRange.end)}
-        AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
+        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
     )::int
   `;
 }
@@ -135,7 +135,7 @@ export async function fetchBusinessAnalysisMetrics(
       WHERE soi.store_id = ${storeId}
         AND so.date >= ${new Date(queryRange.start)}
         AND so.date <= ${new Date(queryRange.end)}
-        AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
+        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
     `,
     prisma.$queryRaw<BusinessAnalysisDailyRevenueRow[]>`
       SELECT
@@ -146,7 +146,7 @@ export async function fetchBusinessAnalysisMetrics(
       WHERE soi.store_id = ${storeId}
         AND so.date >= ${new Date(currentRange.start)}
         AND so.date <= ${new Date(currentRange.end)}
-        AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
+        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
       GROUP BY 1
       ORDER BY 1 ASC
     `,
@@ -161,7 +161,7 @@ export async function fetchBusinessAnalysisMetrics(
       WHERE soi.store_id = ${storeId}
         AND so.date >= ${new Date(currentRange.start)}
         AND so.date <= ${new Date(currentRange.end)}
-        AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
+        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
       GROUP BY soi.category_name
       ORDER BY revenue DESC, soi.category_name ASC
     `,
@@ -179,7 +179,7 @@ export async function fetchBusinessAnalysisMetrics(
       WHERE soi.store_id = ${storeId}
         AND so.date >= ${new Date(currentRange.start)}
         AND so.date <= ${new Date(currentRange.end)}
-        AND soi.product_name NOT IN ('预付抵扣', '续费抵扣')
+        AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
       GROUP BY soi.product_id, soi.product_name, soi.category_name
       ORDER BY "totalProfit" DESC, "totalRevenue" DESC, soi.product_name ASC
     `,

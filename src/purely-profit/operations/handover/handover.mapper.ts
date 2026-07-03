@@ -18,6 +18,7 @@ import {
   PAYMENT_METHOD_CONFIG,
   SHIFT_TYPE_LABELS,
   SPACE_PREPAID_DEDUCTION_ITEM_NAME,
+  isPrepaidDeductionItem,
   SPACE_REFUND_ITEM_NAME,
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
 } from './handover.constants';
@@ -47,8 +48,7 @@ const parseRenewPaymentMethods = (
     .filter(isSalesPaymentMethod);
 
 const shouldPrefixSpaceName = (productName: string): boolean =>
-  productName === SPACE_PREPAID_DEDUCTION_ITEM_NAME ||
-  productName.startsWith('台位费（');
+  isPrepaidDeductionItem(productName) || productName.startsWith('台位费（');
 
 const resolveOrderItemProductName = (item: OrderItemRow): string => {
   const spaceName = toDisplayName(item.order.spaceSession?.space?.name);
@@ -70,7 +70,7 @@ export const resolveOrderItemPaymentMethod = (
   }
 
   if (
-    item.productName === SPACE_PREPAID_DEDUCTION_ITEM_NAME &&
+    isPrepaidDeductionItem(item.productName) &&
     spaceSession.prepaidPaymentMethod
   ) {
     return spaceSession.prepaidPaymentMethod;
@@ -110,7 +110,18 @@ const resolveOperatorRole = (
 };
 
 export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
-  const totalRevenue = Money.fromDbCents(item.salePrice).multiply(item.quantity).toOutputYuan();
+  // 抵扣项（预付款/续费抵扣）代表已收到的钱，展示时应为正数。
+  // 旧数据 DB 中可能存为负数（结算计算遗留），新数据已修正为正数。
+  // 此处统一取绝对值，确保前端直接展示，无需任何业务计算。
+  const isDeduction =
+    isPrepaidDeductionItem(item.productName) ||
+    item.productName === SPACE_RENEW_DEDUCTION_ITEM_NAME;
+  const salePriceCents = isDeduction
+    ? Math.abs(item.salePrice)
+    : item.salePrice;
+  const totalRevenue = Money.fromDbCents(salePriceCents)
+    .multiply(item.quantity)
+    .toOutputYuan();
   const paymentMethod = resolveOrderItemPaymentMethod(item);
   return {
     id: String(item.id),
@@ -136,7 +147,7 @@ export const mapRefundOrderItem = (
   id: `refund-order-${order.id}`,
   productName: order.spaceSession?.space.name ?? SPACE_REFUND_ITEM_NAME,
   quantity: 1,
-    totalRevenue: dbCentsToOutputYuan(order.totalRevenue),
+  totalRevenue: dbCentsToOutputYuan(order.totalRevenue),
   paymentLabel: `${PAYMENT_METHOD_CONFIG[order.paymentMethod].label}退款`,
   paymentColor: PAYMENT_METHOD_CONFIG[order.paymentMethod].color,
   operatorName:

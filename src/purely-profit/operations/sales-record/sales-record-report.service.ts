@@ -106,7 +106,7 @@ export class SalesRecordReportService {
       range: { start: range.start, end: range.end },
     });
 
-    // 从 items 重新聚合 totalQuantity，排除预付抵扣行
+    // 从 items 重新聚合 totalQuantity，排除预付款行
     const totalQuantity = orders.reduce(
       (sum, order) =>
         sum +
@@ -115,7 +115,7 @@ export class SalesRecordReportService {
           .reduce((acc, item) => acc + item.quantity, 0),
       0,
     );
-    // 从 items 重新聚合 totalRevenue，排除预付抵扣行
+    // 从 items 重新聚合 totalRevenue，排除预付款行
     const totalRevenue = Money.sum(
       orders.flatMap((order) =>
         order.items
