@@ -3,7 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { PulseGrowthAccessService } from './growth-access.service';
 import { PulseGrowthAdminPartnerApplicationService } from './growth-admin-partner-application.service';
 import { PulseGrowthAdminPayoutService } from './growth-admin-payout.service';
@@ -357,7 +357,7 @@ describe('PulseGrowthAdminQueryService', () => {
   let service: PulseGrowthAdminQueryService;
 
   const prismaService = {};
-  const redisService = {
+  const refreshableCache = {
     getOrLoadRefreshableJson: jest.fn(
       async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
         loadValue(),
@@ -385,7 +385,7 @@ describe('PulseGrowthAdminQueryService', () => {
   beforeEach(async () => {
     jest.restoreAllMocks();
     jest.clearAllMocks();
-    redisService.getOrLoadRefreshableJson.mockImplementation(
+    refreshableCache.getOrLoadRefreshableJson.mockImplementation(
       async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
         loadValue(),
     );
@@ -394,7 +394,7 @@ describe('PulseGrowthAdminQueryService', () => {
       providers: [
         PulseGrowthAdminQueryService,
         { provide: PrismaService, useValue: prismaService },
-        { provide: RedisService, useValue: redisService },
+        { provide: RefreshableCacheService, useValue: refreshableCache },
         { provide: PulseGrowthAccessService, useValue: accessService },
       ],
     }).compile();
@@ -454,7 +454,7 @@ describe('PulseGrowthAdminQueryService', () => {
       stats,
       limit: 30,
     });
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey:
           'pulse:growth:admin:partner-applications:mode:normal:scope:store%3A18:tab:pending:cursor:1747123200000_128:limit:30',
@@ -525,7 +525,7 @@ describe('PulseGrowthAdminQueryService', () => {
       stats,
       limit: 30,
     });
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey:
           'pulse:growth:admin:payouts:mode:normal:scope:store%3A18:tab:pending:cursor:1747123200000_128:limit:30',

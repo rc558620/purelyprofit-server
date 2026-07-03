@@ -3,7 +3,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import { buildPulseOnboardingStatusCacheKey } from '../pulse.cache-keys';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import type { OnboardingStatusResponseDto } from './dto/onboarding-status.dto';
 import type {
@@ -19,7 +19,7 @@ const PULSE_ONBOARDING_STATUS_REFRESH_AFTER_MS = 8_000;
 export class OnboardingStatusService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly pulseStoreContextService: PulseStoreContextService,
   ) {}
 
@@ -36,7 +36,7 @@ export class OnboardingStatusService {
       targetStore?.id ?? null,
     );
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PULSE_ONBOARDING_STATUS_CACHE_TTL_SECONDS,

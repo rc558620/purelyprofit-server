@@ -4,7 +4,10 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { HandoverMode, HandoverStatus, Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  PrismaService,
+  TX_TIMEOUT_MEDIUM,
+} from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { ConfirmHandoverRequestDto } from './dto/handover-page.dto';
@@ -95,52 +98,55 @@ export class HandoverConfirmService {
     }
 
     try {
-      const record = (await this.prisma.$transaction(async (tx) => {
-        await this.handoverConfirmShiftService.ensureShiftNotHandedOver(
-          tx,
-          membership.storeId,
-          sourceShiftRecord,
-          handoverAt,
-        );
-
-        return tx.storeHandoverRecord.create({
-          data: {
-            storeId: membership.storeId,
-            fromEmployeeId: sourceEmployeeId,
-            toEmployeeId: receiverCandidate?.employeeId ?? null,
-            fromSubAccountId:
-              sourceEmployeeId !== null &&
-              sourceEmployeeId === membership.linkedEmployeeId
-                ? membership.subAccountId
-                : null,
-            toSubAccountId: receiverCandidate?.subAccountId ?? null,
-            actorStaffId: membership.staffId,
-            employeeShiftIdSnapshot: sourceShiftRecord?.id ?? null,
-            fromEmployeeNameSnapshot:
-              toDisplayName(sourceShiftRecord?.employeeName) ?? null,
-            shiftTypeSnapshot: sourceShiftRecord?.shiftType ?? null,
-            shiftNameSnapshot:
-              toDisplayName(sourceShiftRecord?.shiftName) ?? null,
-            shiftStartTimeSnapshot: sourceShiftRecord?.startTime ?? null,
-            shiftEndTimeSnapshot: sourceShiftRecord?.endTime ?? null,
-            handoverMode,
-            status: HandoverStatus.completed,
+      const record = (await this.prisma.$transaction(
+        async (tx) => {
+          await this.handoverConfirmShiftService.ensureShiftNotHandedOver(
+            tx,
+            membership.storeId,
+            sourceShiftRecord,
             handoverAt,
-            note,
-            ...(validAdditionalItems.length > 0
-              ? {
-                  additionalValues: {
-                    create: validAdditionalItems.map((item) => ({
-                      itemId: item.id,
-                      value: item.value,
-                    })),
-                  },
-                }
-              : {}),
-          } as Prisma.StoreHandoverRecordUncheckedCreateInput,
-          include: HANDOVER_RECORD_INCLUDE,
-        });
-      })) as HandoverRecordRow;
+          );
+
+          return tx.storeHandoverRecord.create({
+            data: {
+              storeId: membership.storeId,
+              fromEmployeeId: sourceEmployeeId,
+              toEmployeeId: receiverCandidate?.employeeId ?? null,
+              fromSubAccountId:
+                sourceEmployeeId !== null &&
+                sourceEmployeeId === membership.linkedEmployeeId
+                  ? membership.subAccountId
+                  : null,
+              toSubAccountId: receiverCandidate?.subAccountId ?? null,
+              actorStaffId: membership.staffId,
+              employeeShiftIdSnapshot: sourceShiftRecord?.id ?? null,
+              fromEmployeeNameSnapshot:
+                toDisplayName(sourceShiftRecord?.employeeName) ?? null,
+              shiftTypeSnapshot: sourceShiftRecord?.shiftType ?? null,
+              shiftNameSnapshot:
+                toDisplayName(sourceShiftRecord?.shiftName) ?? null,
+              shiftStartTimeSnapshot: sourceShiftRecord?.startTime ?? null,
+              shiftEndTimeSnapshot: sourceShiftRecord?.endTime ?? null,
+              handoverMode,
+              status: HandoverStatus.completed,
+              handoverAt,
+              note,
+              ...(validAdditionalItems.length > 0
+                ? {
+                    additionalValues: {
+                      create: validAdditionalItems.map((item) => ({
+                        itemId: item.id,
+                        value: item.value,
+                      })),
+                    },
+                  }
+                : {}),
+            } as Prisma.StoreHandoverRecordUncheckedCreateInput,
+            include: HANDOVER_RECORD_INCLUDE,
+          });
+        },
+        { timeout: TX_TIMEOUT_MEDIUM },
+      )) as HandoverRecordRow;
 
       return mapRecordToDto(record);
     } finally {

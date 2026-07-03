@@ -3,7 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { FinanceAccountStatus, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CacheInvalidatorService } from '../../redis/invalidator';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { FinanceAccountService } from './finance-account.service';
 import {
   createFinanceAccountPrismaMock,
@@ -20,7 +20,7 @@ describe('FinanceAccountService', () => {
   let platformMembershipAccessService: ReturnType<
     typeof createPlatformMembershipAccessServiceMock
   >;
-  let redisService: Pick<RedisService, 'getOrLoadRefreshableJson'>;
+  let refreshableCache: Pick<RefreshableCacheService, 'getOrLoadRefreshableJson'>;
   let cacheInvalidatorService: Pick<
     CacheInvalidatorService,
     'invalidateFinanceDerived'
@@ -42,7 +42,7 @@ describe('FinanceAccountService', () => {
     }).compile();
 
     service = module.get<FinanceAccountService>(FinanceAccountService);
-    redisService = module.get(RedisService);
+    refreshableCache = module.get(RefreshableCacheService);
     cacheInvalidatorService = module.get(CacheInvalidatorService);
   });
 
@@ -71,7 +71,7 @@ describe('FinanceAccountService', () => {
         totalPages: 0,
       },
     });
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey:
           'profit:finance:accounts:list:store:18:type:receivable:status:pending:search:%E5%BC%A0%E4%B8%89:page:1:pageSize:10',

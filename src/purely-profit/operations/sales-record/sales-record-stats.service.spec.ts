@@ -4,7 +4,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { RedisService } from '../../../redis/redis.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { SalesRecordStatsService } from './sales-record-stats.service';
 
 describe('SalesRecordStatsService', () => {
@@ -14,7 +14,7 @@ describe('SalesRecordStatsService', () => {
     $queryRaw: jest.fn(),
   };
 
-  const redisService = {
+  const refreshableCache = {
     getOrLoadRefreshableJson: jest.fn(),
   };
 
@@ -62,7 +62,7 @@ describe('SalesRecordStatsService', () => {
         empty: false,
       }),
     );
-    redisService.getOrLoadRefreshableJson.mockImplementation(
+    refreshableCache.getOrLoadRefreshableJson.mockImplementation(
       async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
         loadValue(),
     );
@@ -71,7 +71,7 @@ describe('SalesRecordStatsService', () => {
       providers: [
         SalesRecordStatsService,
         { provide: PrismaService, useValue: prismaService },
-        { provide: RedisService, useValue: redisService },
+        { provide: RefreshableCacheService, useValue: refreshableCache },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         {
           provide: PlatformMembershipAccessService,

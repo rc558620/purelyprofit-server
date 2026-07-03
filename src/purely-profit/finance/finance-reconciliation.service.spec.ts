@@ -3,7 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { FinanceReconciliationStatus, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CacheInvalidatorService } from '../../redis/invalidator';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { FinanceReconciliationService } from './finance-reconciliation.service';
 import {
   createFinanceReconciliationPrismaMock,
@@ -20,7 +20,7 @@ describe('FinanceReconciliationService', () => {
   let platformMembershipAccessService: ReturnType<
     typeof createPlatformMembershipAccessServiceMock
   >;
-  let redisService: Pick<RedisService, 'getOrLoadRefreshableJson'>;
+  let refreshableCache: Pick<RefreshableCacheService, 'getOrLoadRefreshableJson'>;
   let cacheInvalidatorService: Pick<
     CacheInvalidatorService,
     'invalidateFinanceDerived'
@@ -44,7 +44,7 @@ describe('FinanceReconciliationService', () => {
     service = module.get<FinanceReconciliationService>(
       FinanceReconciliationService,
     );
-    redisService = module.get(RedisService);
+    refreshableCache = module.get(RefreshableCacheService);
     cacheInvalidatorService = module.get(CacheInvalidatorService);
   });
 
@@ -170,7 +170,7 @@ describe('FinanceReconciliationService', () => {
         ],
       },
     });
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey:
           'profit:finance:reconciliations:list:store:18:status:discrepancy:type:supplier:search:%E4%BE%9B%E5%BA%94%E5%95%86:page:2:pageSize:10',
@@ -191,7 +191,7 @@ describe('FinanceReconciliationService', () => {
       totalDiffAmount: 0,
       newThisMonth: 0,
     });
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey: 'profit:finance:reconciliations:stats:store:18',
         ttlSeconds: 60,

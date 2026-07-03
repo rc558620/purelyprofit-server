@@ -9,7 +9,7 @@ import {
   buildMembersOverviewCacheKey,
 } from '../../../redis/keys';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
-import { RedisService } from '../../../redis/redis.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import {
   MemberMetaQueryDto,
@@ -67,7 +67,7 @@ export class MembersService {
     private readonly prisma: PrismaService,
     private readonly membersAccessService: MembersAccessService,
     private readonly configService: ConfigService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
@@ -153,7 +153,7 @@ export class MembersService {
       pageSize: take,
     });
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: MEMBERS_LIST_CACHE_TTL_SECONDS,
@@ -195,7 +195,7 @@ export class MembersService {
     }
 
     const cacheKey = buildMembersMetaCacheKey(storeId);
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: MEMBERS_META_CACHE_TTL_SECONDS,
@@ -221,7 +221,7 @@ export class MembersService {
     }
 
     const cacheKey = buildMembersOverviewCacheKey(storeId);
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: MEMBERS_OVERVIEW_CACHE_TTL_SECONDS,
@@ -233,7 +233,7 @@ export class MembersService {
   async warmMetaCache(storeId: number): Promise<MembersMetaResponseDto> {
     const cacheKey = buildMembersMetaCacheKey(storeId);
     const data = await this.buildMetaPayload(storeId);
-    await this.redisService.writeRefreshableJson(
+    await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
       MEMBERS_META_CACHE_TTL_SECONDS,
@@ -247,7 +247,7 @@ export class MembersService {
   ): Promise<MembersOverviewResponseDto> {
     const cacheKey = buildMembersOverviewCacheKey(storeId);
     const data = await this.buildOverviewPayload(storeId);
-    await this.redisService.writeRefreshableJson(
+    await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
       MEMBERS_OVERVIEW_CACHE_TTL_SECONDS,

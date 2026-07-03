@@ -6,9 +6,10 @@ import {
 import type { ClubMemberLevelValue } from '../../purely-club/member/dto/club-member-account.dto';
 import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../../purely-club/member/member-profile/club-member-profile.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CacheInvalidatorService } from '../../redis/invalidator';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { RedisService } from '../../redis/redis.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import {
@@ -52,6 +53,7 @@ export class MarketingCustomersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly marketingSharedService: MarketingSharedService,
     private readonly clubMemberProfileService: ClubMemberProfileService,
@@ -94,7 +96,7 @@ export class MarketingCustomersService {
       phoneFilter,
     );
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: MARKETING_CUSTOMERS_LIST_CACHE_TTL_SECONDS,
@@ -199,8 +201,9 @@ export class MarketingCustomersService {
       ...mapCustomerRow(customer),
       ...clubLevel,
       // _sum.totalAmount 返回 Prisma.Decimal | null，统一通过 Money 转为元（与其他金额字段一致）
-      totalRecharge:
-        Money.fromDbCents(rechargeSummary._sum.totalAmount ?? 0).toOutputYuan(),
+      totalRecharge: Money.fromDbCents(
+        rechargeSummary._sum.totalAmount ?? 0,
+      ).toOutputYuan(),
       recentRecharges: recentRecharges.map(mapRechargeRow),
       recentConsumptions: recentConsumptions.map(mapConsumptionRow),
     };
@@ -282,7 +285,10 @@ export class MarketingCustomersService {
       'marketing:manage',
     );
 
-    if (Money.fromDbCents(customer.balance).isPositive() || customer.points > 0) {
+    if (
+      Money.fromDbCents(customer.balance).isPositive() ||
+      customer.points > 0
+    ) {
       throw new BadRequestException(
         '该顾客仍有余额或积分，无法删除；请先完成退款或清零操作',
       );
@@ -379,61 +385,66 @@ export class MarketingCustomersService {
     const isDeduct = dto.delta < 0;
 
     // 使用事务确保所有操作原子性
-    const updated = await this.prisma.$transaction(async (tx) => {
-      // 1. 更新营销顾客积分（MarketingCustomer 是积分事实源）
-      //    扣除时使用条件更新防止并发扣成负数
-      let marketingUpdated;
-      if (isDeduct) {
-        const result = await tx.marketingCustomer.updateMany({
-          where: { id: customerId, points: { gte: absDelta } },
-          data: { points: { decrement: absDelta } },
-        });
-        if (result.count === 0) {
-          throw new BadRequestException('积分余额不足，扣除失败；请刷新后重试');
+    const updated = await this.prisma.$transaction(
+      async (tx) => {
+        // 1. 更新营销顾客积分（MarketingCustomer 是积分事实源）
+        //    扣除时使用条件更新防止并发扣成负数
+        let marketingUpdated;
+        if (isDeduct) {
+          const result = await tx.marketingCustomer.updateMany({
+            where: { id: customerId, points: { gte: absDelta } },
+            data: { points: { decrement: absDelta } },
+          });
+          if (result.count === 0) {
+            throw new BadRequestException(
+              '积分余额不足，扣除失败；请刷新后重试',
+            );
+          }
+          marketingUpdated = await tx.marketingCustomer.findUniqueOrThrow({
+            where: { id: customerId },
+          });
+        } else {
+          marketingUpdated = await tx.marketingCustomer.update({
+            where: { id: customerId },
+            data: { points: { increment: dto.delta } },
+          });
         }
-        marketingUpdated = await tx.marketingCustomer.findUniqueOrThrow({
-          where: { id: customerId },
-        });
-      } else {
-        marketingUpdated = await tx.marketingCustomer.update({
-          where: { id: customerId },
-          data: { points: { increment: dto.delta } },
-        });
-      }
 
-      // 2. 创建营销积分流水记录
-      await tx.marketingPointsRecord.create({
-        data: {
-          storeId: customer.storeId,
-          customerId,
-          amount: dto.delta,
-          type: dto.delta > 0 ? 'gift' : 'spend',
-          description:
-            dto.remark || (dto.delta > 0 ? '后台调整积分' : '后台扣除积分'),
-        },
-      });
-
-      // 3. 若有关联 Member，同步写 MemberPointsLog 流水（审计留档）
-      //    注意：不再写 Member.points（废弃字段，MarketingCustomer 是唯一事实源）
-      if (customer.memberId !== null) {
-        const beforePoints = marketingUpdated.points - dto.delta;
-        await tx.memberPointsLog.create({
+        // 2. 创建营销积分流水记录
+        await tx.marketingPointsRecord.create({
           data: {
-            memberId: customer.memberId,
             storeId: customer.storeId,
-            changeType: dto.delta > 0 ? 'increase' : 'decrease',
-            source: 'admin_adjust',
-            changeAmount: absDelta,
-            beforePoints,
-            afterPoints: marketingUpdated.points,
-            reason: '后台管理员调整',
-            remark: dto.remark || null,
+            customerId,
+            amount: dto.delta,
+            type: dto.delta > 0 ? 'gift' : 'spend',
+            description:
+              dto.remark || (dto.delta > 0 ? '后台调整积分' : '后台扣除积分'),
           },
         });
-      }
 
-      return marketingUpdated;
-    });
+        // 3. 若有关联 Member，同步写 MemberPointsLog 流水（审计留档）
+        //    注意：不再写 Member.points（废弃字段，MarketingCustomer 是唯一事实源）
+        if (customer.memberId !== null) {
+          const beforePoints = marketingUpdated.points - dto.delta;
+          await tx.memberPointsLog.create({
+            data: {
+              memberId: customer.memberId,
+              storeId: customer.storeId,
+              changeType: dto.delta > 0 ? 'increase' : 'decrease',
+              source: 'admin_adjust',
+              changeAmount: absDelta,
+              beforePoints,
+              afterPoints: marketingUpdated.points,
+              reason: '后台管理员调整',
+              remark: dto.remark || null,
+            },
+          });
+        }
+
+        return marketingUpdated;
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
     await this.invalidateOverviewCache(customer.storeId);
 

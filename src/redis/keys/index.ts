@@ -5,31 +5,53 @@
  * 将 redis 通用键构建函数与领域键统一命名空间。
  */
 
-// Redis 通用键构建函数
+// 共享工具
+export { buildCacheRefreshTaskKey } from '../cache-keys.shared';
+
+// Redis 域级键 — Dashboard
 export {
-  buildCacheRefreshTaskKey,
-  buildPlatformMembershipDerivedPattern,
   buildProfitDashboardHomeCacheKey,
-  buildProfitDashboardHomePattern,
   buildProfitDashboardHomeStatsCacheKey,
   buildProfitDashboardHomeTrendCacheKey,
   buildProfitDashboardHomeActivitiesCacheKey,
+  buildProfitDashboardHomePattern,
   buildProfitDashboardHomeChunkPattern,
   buildProfitDashboardHomeAllPattern,
+  parseProfitDashboardHomeCacheKey,
+} from './dashboard.cache-keys';
+
+// Redis 域级键 — Business Analysis
+export {
   buildBusinessAnalysisCacheKey,
   buildBusinessAnalysisPattern,
   buildBusinessAnalysisAllPattern,
-  buildMarketingOverviewAllPattern,
+  parseBusinessAnalysisCacheKey,
+} from './business-analysis.cache-keys';
+
+// Redis 域级键 — Marketing
+export {
   buildMarketingOverviewCacheKey,
   buildMarketingOverviewPattern,
+  buildMarketingOverviewAllPattern,
+  parseMarketingOverviewCacheKey,
+  buildMarketingPromotionsListCacheKey,
+  buildMarketingPromotionsListPattern,
+  buildMarketingCustomersListCacheKey,
+  buildMarketingCustomersListPattern,
+} from './marketing.cache-keys';
+
+// Redis 域级键 — Members / Withdrawals / Platform Membership
+export {
   buildMembersListCacheKey,
   buildMembersListPattern,
-  buildMembersMetaAllPattern,
   buildMembersMetaCacheKey,
   buildMembersMetaPattern,
-  buildMembersOverviewAllPattern,
+  buildMembersMetaAllPattern,
+  parseMembersMetaCacheKey,
   buildMembersOverviewCacheKey,
   buildMembersOverviewPattern,
+  buildMembersOverviewAllPattern,
+  parseMembersOverviewCacheKey,
   buildWithdrawalsOverviewCacheKey,
   buildWithdrawalsListCacheKey,
   buildWithdrawalsListPattern,
@@ -40,10 +62,19 @@ export {
   buildPlatformMembershipBeanLogsCacheKey,
   buildPlatformMembershipPromoCenterCacheKey,
   buildPlatformMembershipPartnerProfileCacheKey,
+  buildPlatformMembershipDerivedPattern,
+} from './members.cache-keys';
+
+// Redis 域级键 — Sales
+export {
   buildSalesStatsCacheKey,
   buildSalesStatsPattern,
   buildSalesReportCacheKey,
   buildSalesReportPattern,
+} from './sales.cache-keys';
+
+// Redis 域级键 — Profit Detail / Report
+export {
   buildProfitDetailCacheKey,
   buildProfitDetailPattern,
   buildProfitDetailAllPattern,
@@ -52,9 +83,10 @@ export {
   buildProfitReportPattern,
   buildProfitReportAllPattern,
   parseProfitReportCacheKey,
-  buildFinanceReportCacheKey,
-  buildFinanceReportPattern,
-  buildFinanceReportAllPattern,
+} from './profit-detail.cache-keys';
+
+// Redis 域级键 — Costs
+export {
   buildCostsStatsCacheKey,
   buildCostsStatsPattern,
   buildCostsReportCacheKey,
@@ -62,15 +94,10 @@ export {
   buildCostsReportAllPattern,
   buildCostsRecordsCacheKey,
   buildCostsRecordsPattern,
+  buildCostsAllPattern,
   buildCostsDashboardCacheKey,
   buildCostsDashboardPattern,
-  buildCostsAllPattern,
-  parseProfitDashboardHomeCacheKey,
-  parseMarketingOverviewCacheKey,
-  parseMembersMetaCacheKey,
-  parseMembersOverviewCacheKey,
-  parseBusinessAnalysisCacheKey,
-} from '../cache-keys';
+} from './costs.cache-keys';
 
 // 领域键从各自域导出（保持语义）
 export {
@@ -86,6 +113,9 @@ export {
   buildFinanceReconciliationsListCacheKey,
   buildFinanceReconciliationsPattern,
   buildFinanceReconciliationsStatsCacheKey,
+  buildFinanceReportCacheKey,
+  buildFinanceReportPattern,
+  buildFinanceReportAllPattern,
   parseFinanceOverviewCacheKey,
 } from '../../purely-profit/finance/finance.cache-keys';
 

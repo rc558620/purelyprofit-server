@@ -20,7 +20,7 @@ import {
 } from './auth.utils';
 import { validatePasswordLength } from '../../shared/password-policy.utils';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
-import { AuthAccountMembershipService } from './auth-account-membership.service';
+import { AuthBanGuardService } from './auth-ban-guard.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthCodeService } from './auth-code.service';
 import { AuthPasswordService } from './auth-password.service';
@@ -52,7 +52,7 @@ export class AuthAuthenticationService {
 
   constructor(
     private readonly authAccountLookupService: AuthAccountLookupService,
-    private readonly authAccountMembershipService: AuthAccountMembershipService,
+    private readonly authBanGuardService: AuthBanGuardService,
     private readonly authAccountService: AuthAccountService,
     private readonly authCodeService: AuthCodeService,
     private readonly authPasswordService: AuthPasswordService,
@@ -65,7 +65,8 @@ export class AuthAuthenticationService {
         (email) => email.trim().toLowerCase(),
       ),
     );
-    this.adminLoginPhone = configService.get<string>('auth.adminLoginPhone') ?? '13619654020';
+    this.adminLoginPhone =
+      configService.get<string>('auth.adminLoginPhone') ?? '13619654020';
   }
 
   async register(params: RegisterAuthParams): Promise<AuthTokenResponseDto> {
@@ -297,9 +298,7 @@ export class AuthAuthenticationService {
         await this.safeUpdateWechatPhone(existingUser.id, params.phone);
       }
 
-      await this.authAccountMembershipService.ensureUserNotBanned(
-        existingUser.id,
-      );
+      await this.authBanGuardService.ensureUserNotBanned(existingUser.id);
 
       return this.authSessionService.signToken(existingUser.id, {
         phone: existingUser.phone,
@@ -335,9 +334,7 @@ export class AuthAuthenticationService {
           throw error;
         }
 
-        await this.authAccountMembershipService.ensureUserNotBanned(
-          phoneUser.id,
-        );
+        await this.authBanGuardService.ensureUserNotBanned(phoneUser.id);
 
         return this.authSessionService.signToken(phoneUser.id, {
           phone: phoneUser.phone,
@@ -376,9 +373,7 @@ export class AuthAuthenticationService {
             params.openid,
           );
         if (resolvedUser) {
-          await this.authAccountMembershipService.ensureUserNotBanned(
-            resolvedUser.id,
-          );
+          await this.authBanGuardService.ensureUserNotBanned(resolvedUser.id);
           return this.authSessionService.signToken(resolvedUser.id, {
             phone: resolvedUser.phone,
             email: resolvedUser.email,
@@ -483,7 +478,7 @@ export class AuthAuthenticationService {
 
     // club 用户也需检查封禁状态：若关联的所有门店都被封禁则拒绝登录
     if (productScope === 'purely_club') {
-      await this.authAccountMembershipService.ensureUserNotBanned(user.id);
+      await this.authBanGuardService.ensureUserNotBanned(user.id);
     }
 
     return this.authSessionService.signToken(user.id, {
@@ -498,7 +493,7 @@ export class AuthAuthenticationService {
     identifiers: AccountIdentifiers,
   ): Promise<void> {
     await this.authAccountService.syncStaffMemberships(userId, identifiers);
-    await this.authAccountMembershipService.ensureUserNotBanned(userId);
+    await this.authBanGuardService.ensureUserNotBanned(userId);
   }
 
   private resolveAccountScopeForLogin(user: {
@@ -546,7 +541,10 @@ export class AuthAuthenticationService {
 
   // ── 登录失败锁定机制 ──────────────────────────────────────
 
-  private buildLoginFailKey(loginAccount: string, productScope: AuthProductScope): string {
+  private buildLoginFailKey(
+    loginAccount: string,
+    productScope: AuthProductScope,
+  ): string {
     return `${AUTH_LOGIN_FAIL_KEY_PREFIX}${productScope}:${loginAccount.toLowerCase()}`;
   }
 

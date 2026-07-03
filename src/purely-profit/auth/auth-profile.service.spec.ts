@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { AccessControlService } from '../access-control/access-control.service';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
-import { AuthAccountMembershipService } from './auth-account-membership.service';
+import { AuthMembershipResolverService } from './auth-membership-resolver.service';
 import { AuthProfileService } from './auth-profile.service';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
 
@@ -16,7 +16,7 @@ describe('AuthProfileService', () => {
     verifyRealName: jest.fn(),
   };
 
-  const authAccountMembershipService = {
+  const authMembershipResolverService = {
     findCurrentMembership: jest.fn(),
     readStoreProfileMetadata: jest.fn(),
   };
@@ -67,7 +67,7 @@ describe('AuthProfileService', () => {
       updatedAt: new Date('2026-05-13T00:00:00.000Z'),
       lastActiveAt: null,
     });
-    authAccountMembershipService.findCurrentMembership.mockResolvedValue({
+    authMembershipResolverService.findCurrentMembership.mockResolvedValue({
       staffId: 8,
       storeId: 18,
       role: 'staff',
@@ -80,7 +80,7 @@ describe('AuthProfileService', () => {
       storeCreatedAt: new Date('2026-05-01T00:00:00.000Z'),
       storeUpdatedAt: new Date('2026-05-10T00:00:00.000Z'),
     });
-    authAccountMembershipService.readStoreProfileMetadata.mockResolvedValue({
+    authMembershipResolverService.readStoreProfileMetadata.mockResolvedValue({
       storeType: '零售',
       region: ['北京市', '北京市', '朝阳区'],
       storeLogo: 'https://img.test/store.png',
@@ -99,8 +99,8 @@ describe('AuthProfileService', () => {
           useValue: authAccountLookupService,
         },
         {
-          provide: AuthAccountMembershipService,
-          useValue: authAccountMembershipService,
+          provide: AuthMembershipResolverService,
+          useValue: authMembershipResolverService,
         },
         { provide: AccessControlService, useValue: accessControlService },
         {
@@ -160,10 +160,10 @@ describe('AuthProfileService', () => {
       authAccountLookupService.findProfileUserOrThrow,
     ).toHaveBeenCalledWith(1);
     expect(
-      authAccountMembershipService.findCurrentMembership,
+      authMembershipResolverService.findCurrentMembership,
     ).toHaveBeenCalledWith(user);
     expect(
-      authAccountMembershipService.readStoreProfileMetadata,
+      authMembershipResolverService.readStoreProfileMetadata,
     ).toHaveBeenCalledWith(18);
     expect(accessControlService.getEffectivePermissions).not.toHaveBeenCalled();
   });

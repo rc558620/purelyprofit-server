@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { StaffRole, StaffStatus } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -72,7 +72,10 @@ export class StoreSubAccountLoginService {
     if (
       normalizedLoginAccount !== undefined &&
       normalizedLoginAccount.length > 0 &&
-      !isValidSubAccountLoginAccount(normalizedLoginAccount, this.configService.get<string>('auth.adminLoginAlias') ?? 'admin')
+      !isValidSubAccountLoginAccount(
+        normalizedLoginAccount,
+        this.configService.get<string>('auth.adminLoginAlias') ?? 'admin',
+      )
     ) {
       throw new BadRequestException(
         '登录账号仅支持 6~32 位字母、数字或下划线，且不可使用保留账号',

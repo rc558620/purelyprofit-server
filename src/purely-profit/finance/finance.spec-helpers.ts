@@ -3,7 +3,7 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { FinanceAccessService } from './finance-access.service';
 import { FinanceAccountService } from './finance-account.service';
 import { FinanceCashFlowService } from './finance-cash-flow.service';
@@ -12,7 +12,7 @@ import { FinanceReconciliationService } from './finance-reconciliation.service';
 
 const FINANCE_SPEC_TIME = new Date('2026-05-14T12:00:00.000Z');
 
-function createRedisServiceMock() {
+function createRefreshableCacheServiceMock() {
   return {
     getOrLoadRefreshableJson: jest.fn(
       async (options: { loadValue: () => Promise<unknown> }) =>
@@ -154,7 +154,10 @@ export function createFinanceOverviewProviders(
       provide: PlatformMembershipAccessService,
       useValue: platformMembershipAccessService,
     },
-    { provide: RedisService, useValue: createRedisServiceMock() },
+    {
+      provide: RefreshableCacheService,
+      useValue: createRefreshableCacheServiceMock(),
+    },
   ];
 }
 
@@ -176,7 +179,10 @@ export function createFinanceCashFlowProviders(
       provide: CacheInvalidatorService,
       useValue: createCacheInvalidatorServiceMock(),
     },
-    { provide: RedisService, useValue: createRedisServiceMock() },
+    {
+      provide: RefreshableCacheService,
+      useValue: createRefreshableCacheServiceMock(),
+    },
   ];
 }
 
@@ -198,7 +204,10 @@ export function createFinanceAccountProviders(
       provide: CacheInvalidatorService,
       useValue: createCacheInvalidatorServiceMock(),
     },
-    { provide: RedisService, useValue: createRedisServiceMock() },
+    {
+      provide: RefreshableCacheService,
+      useValue: createRefreshableCacheServiceMock(),
+    },
   ];
 }
 
@@ -220,7 +229,10 @@ export function createFinanceReconciliationProviders(
       provide: CacheInvalidatorService,
       useValue: createCacheInvalidatorServiceMock(),
     },
-    { provide: RedisService, useValue: createRedisServiceMock() },
+    {
+      provide: RefreshableCacheService,
+      useValue: createRefreshableCacheServiceMock(),
+    },
   ];
 }
 

@@ -8,7 +8,7 @@ import {
   buildWithdrawalsOverviewCacheKey,
 } from '../../../redis/keys';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
-import { RedisService } from '../../../redis/redis.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import {
   type ApplyWithdrawalDto,
   type ListWithdrawalsQueryDto,
@@ -60,7 +60,7 @@ const WITHDRAWALS_LIST_REFRESH_AFTER_MS = 15_000;
 export class WithdrawalsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly withdrawalsSharedService: WithdrawalsSharedService,
   ) {}
@@ -72,7 +72,7 @@ export class WithdrawalsService {
       this.withdrawalsSharedService.getCurrentStoreIdOrThrow(user);
     const cacheKey = buildWithdrawalsOverviewCacheKey(storeId);
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: WITHDRAWALS_OVERVIEW_CACHE_TTL_SECONDS,
@@ -92,7 +92,7 @@ export class WithdrawalsService {
       status: query.status,
     });
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: WITHDRAWALS_LIST_CACHE_TTL_SECONDS,

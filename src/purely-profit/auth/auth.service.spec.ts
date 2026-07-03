@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
-import * as bcrypt from 'bcryptjs';
+import * as bcrypt from 'bcrypt';
 import { AccessControlService } from '../access-control/access-control.service';
 import { SubjectCapabilityService } from '../access-control/subject-capability.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -15,7 +15,9 @@ import { RedisService } from '../../redis/redis.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { AUTH_TOKEN_VERSION_KEY_PREFIX } from './auth.constants';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
-import { AuthAccountMembershipService } from './auth-account-membership.service';
+import { AuthBanGuardService } from './auth-ban-guard.service';
+import { AuthMembershipResolverService } from './auth-membership-resolver.service';
+import { AuthStaffActivationService } from './auth-staff-activation.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCapabilityService } from './auth-capability.service';
@@ -128,7 +130,9 @@ describe('AuthService', () => {
         AuthService,
         AuthAccountService,
         AuthAccountLookupService,
-        AuthAccountMembershipService,
+        AuthBanGuardService,
+        AuthMembershipResolverService,
+        AuthStaffActivationService,
         AuthAuthenticationService,
         AuthCodeService,
         CaptchaTokenService,

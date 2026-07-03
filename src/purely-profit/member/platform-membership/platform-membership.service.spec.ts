@@ -3,7 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
-import { RedisService } from '../../../redis/redis.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
 import { PlatformMembershipOrderService } from './platform-membership-order.service';
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
@@ -73,7 +73,7 @@ describe('PlatformMembershipService', () => {
     invalidateMembershipDerived: jest.fn(),
   };
 
-  const redisService = {
+  const refreshableCache = {
     getOrLoadRefreshableJson: jest.fn(),
     getJson: jest.fn(),
     setJson: jest.fn(),
@@ -218,7 +218,7 @@ describe('PlatformMembershipService', () => {
     });
     prismaService.storePartner.upsert.mockResolvedValue({ id: 11 });
     prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
-    redisService.getOrLoadRefreshableJson.mockImplementation(
+    refreshableCache.getOrLoadRefreshableJson.mockImplementation(
       async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
         loadValue(),
     );
@@ -277,7 +277,7 @@ describe('PlatformMembershipService', () => {
         PlatformMembershipPartnerService,
         PlatformMembershipOrderService,
         { provide: PrismaService, useValue: prismaService },
-        { provide: RedisService, useValue: redisService },
+        { provide: RefreshableCacheService, useValue: refreshableCache },
         {
           provide: CacheInvalidatorService,
           useValue: cacheInvalidatorService,

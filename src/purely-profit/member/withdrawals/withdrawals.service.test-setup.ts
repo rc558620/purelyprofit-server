@@ -3,7 +3,7 @@ import { PartnerWithdrawalStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
-import { RedisService } from '../../../redis/redis.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { WithdrawalsSharedService } from './withdrawals-shared.service';
 import { WithdrawalsService } from './withdrawals.service';
 
@@ -204,7 +204,7 @@ export async function createWithdrawalsServiceTestingContext(): Promise<Withdraw
     invalidateWithdrawalsDerived: jest.fn(),
     invalidatePulseGrowthEarnings: jest.fn(),
   };
-  const redisService = {
+  const refreshableCache = {
     getOrLoadRefreshableJson: jest
       .fn()
       .mockImplementation(
@@ -218,7 +218,7 @@ export async function createWithdrawalsServiceTestingContext(): Promise<Withdraw
       WithdrawalsService,
       WithdrawalsSharedService,
       { provide: PrismaService, useValue: prismaService },
-      { provide: RedisService, useValue: redisService },
+      { provide: RefreshableCacheService, useValue: refreshableCache },
       {
         provide: CacheInvalidatorService,
         useValue: cacheInvalidatorService,

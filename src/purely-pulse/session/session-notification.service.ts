@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { buildDerivedFinanceAccountStatusWhere } from '../../purely-profit/finance/finance-account.query';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import { buildPulseSessionNotificationCacheKey } from '../pulse.cache-keys';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 
 const DAY_MS = 86_400_000;
 const SESSION_NOTIFICATION_CACHE_TTL_SECONDS = 15;
@@ -13,12 +13,12 @@ const SESSION_NOTIFICATION_REFRESH_AFTER_MS = 5_000;
 export class SessionNotificationService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
   async countUnreadNotifications(storeId: number): Promise<number> {
     const cacheKey = buildPulseSessionNotificationCacheKey(storeId);
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: SESSION_NOTIFICATION_CACHE_TTL_SECONDS,

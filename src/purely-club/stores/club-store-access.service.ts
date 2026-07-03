@@ -8,7 +8,7 @@ import {
 import { MemberStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { resolveInviteCodeFromClubStoreScanCode } from '../../purely-profit/member/platform-membership/membership-profile.mapper';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import {
   clubAccessibleStoreSelect,
@@ -131,63 +131,66 @@ export class ClubStoreAccessService {
     }
 
     const displayName = this.resolveDisplayName(user);
-    await this.prisma.$transaction(async (tx) => {
-      const existingMemberRecord = await tx.member.findFirst({
-        where: {
-          storeId: store.id,
-          phone: memberPhone,
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      if (existingMemberRecord) {
-        await tx.member.update({
-          where: { id: existingMemberRecord.id },
-          data: {
-            name: displayName,
-          },
-        });
-      } else {
-        await tx.member.create({
-          data: {
+    await this.prisma.$transaction(
+      async (tx) => {
+        const existingMemberRecord = await tx.member.findFirst({
+          where: {
             storeId: store.id,
-            name: displayName,
             phone: memberPhone,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
           },
         });
-      }
 
-      const existingCustomerRecord = await tx.marketingCustomer.findFirst({
-        where: {
-          storeId: store.id,
-          phone: memberPhone,
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-        },
-      });
+        if (existingMemberRecord) {
+          await tx.member.update({
+            where: { id: existingMemberRecord.id },
+            data: {
+              name: displayName,
+            },
+          });
+        } else {
+          await tx.member.create({
+            data: {
+              storeId: store.id,
+              name: displayName,
+              phone: memberPhone,
+            },
+          });
+        }
 
-      if (existingCustomerRecord) {
-        await tx.marketingCustomer.update({
-          where: { id: existingCustomerRecord.id },
-          data: {
-            name: displayName,
-          },
-        });
-      } else {
-        await tx.marketingCustomer.create({
-          data: {
+        const existingCustomerRecord = await tx.marketingCustomer.findFirst({
+          where: {
             storeId: store.id,
-            name: displayName,
             phone: memberPhone,
+            deletedAt: null,
+          },
+          select: {
+            id: true,
           },
         });
-      }
-    });
+
+        if (existingCustomerRecord) {
+          await tx.marketingCustomer.update({
+            where: { id: existingCustomerRecord.id },
+            data: {
+              name: displayName,
+            },
+          });
+        } else {
+          await tx.marketingCustomer.create({
+            data: {
+              storeId: store.id,
+              name: displayName,
+              phone: memberPhone,
+            },
+          });
+        }
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
     // 加入门店后清除该用户的可访问门店缓存，确保下次请求拉取最新数据
     await this.invalidateAccessibleStoresCache(user.id);

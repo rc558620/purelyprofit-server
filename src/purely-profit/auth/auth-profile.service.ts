@@ -10,7 +10,7 @@ import {
   toOptionalMediaText,
 } from '../commerce/commerce.utils';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
-import { AuthAccountMembershipService } from './auth-account-membership.service';
+import { AuthMembershipResolverService } from './auth-membership-resolver.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ProfileResponseDto } from './dto/profile-response.dto';
 import type {
@@ -24,7 +24,7 @@ import { getDisplayPhone, isVerifiedUser, maskIdNumber } from './auth.utils';
 export class AuthProfileService {
   constructor(
     private readonly authAccountLookupService: AuthAccountLookupService,
-    private readonly authAccountMembershipService: AuthAccountMembershipService,
+    private readonly authMembershipResolverService: AuthMembershipResolverService,
     private readonly accessControlService: AccessControlService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
@@ -32,7 +32,7 @@ export class AuthProfileService {
   async getProfile(user: AuthenticatedUser): Promise<ProfileResponseDto> {
     const [profileUser, currentMembership] = await Promise.all([
       this.authAccountLookupService.findProfileUserOrThrow(user.id),
-      this.authAccountMembershipService.findCurrentMembership(user),
+      this.authMembershipResolverService.findCurrentMembership(user),
     ]);
 
     return this.buildProfileResponse(user, profileUser, currentMembership);
@@ -170,7 +170,7 @@ export class AuthProfileService {
         createdAt: currentMembership.storeCreatedAt,
         updatedAt: currentMembership.storeUpdatedAt,
       },
-      await this.authAccountMembershipService.readStoreProfileMetadata(
+      await this.authMembershipResolverService.readStoreProfileMetadata(
         currentMembership.storeId,
       ),
     );

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_SHORT } from '../../prisma/prisma.service';
 import type { PulseMembershipAdjustmentInput } from './membership.types';
 import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
 
@@ -25,35 +25,38 @@ export class PulseMembershipAdminPointsMutationService {
       throw new BadRequestException('当前积分不足，无法扣减');
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      const profile = await tx.storeMembershipProfile.upsert({
-        where: { storeId: memberId },
-        create: {
-          storeId: memberId,
-          currentPlanId: null,
-          startsAt: null,
-          expiresAt: null,
-          totalPoints: nextTotalPoints,
-          availablePoints: nextAvailablePoints,
-        },
-        update: {
-          totalPoints: nextTotalPoints,
-          availablePoints: nextAvailablePoints,
-        },
-        select: { id: true },
-      });
+    await this.prisma.$transaction(
+      async (tx) => {
+        const profile = await tx.storeMembershipProfile.upsert({
+          where: { storeId: memberId },
+          create: {
+            storeId: memberId,
+            currentPlanId: null,
+            startsAt: null,
+            expiresAt: null,
+            totalPoints: nextTotalPoints,
+            availablePoints: nextAvailablePoints,
+          },
+          update: {
+            totalPoints: nextTotalPoints,
+            availablePoints: nextAvailablePoints,
+          },
+          select: { id: true },
+        });
 
-      await tx.storeMembershipPointsLog.create({
-        data: {
-          storeId: memberId,
-          profileId: profile.id,
-          source: 'admin_adjust',
-          changeType: delta >= 0 ? 'increase' : 'decrease',
-          changeAmount: Math.abs(delta),
-          description: dto.reason.trim(),
-        },
-      });
-    });
+        await tx.storeMembershipPointsLog.create({
+          data: {
+            storeId: memberId,
+            profileId: profile.id,
+            source: 'admin_adjust',
+            changeType: delta >= 0 ? 'increase' : 'decrease',
+            changeAmount: Math.abs(delta),
+            description: dto.reason.trim(),
+          },
+        });
+      },
+      { timeout: TX_TIMEOUT_SHORT },
+    );
 
     await this.mutationStateService.invalidateAdminMemberDerived(memberId);
   }

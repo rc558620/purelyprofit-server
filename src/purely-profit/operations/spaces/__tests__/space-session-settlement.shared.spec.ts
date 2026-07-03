@@ -148,7 +148,7 @@ describe('buildSpaceSessionSettlement — items 模式', () => {
 // ---------- 续费抵扣 ----------
 
 describe('buildSpaceSessionSettlement — 续费抵扣', () => {
-  it('有续费记录时应抵扣', () => {
+  it('timed 模式有续费记录时应抵扣', () => {
     const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
     const renewRecords: SpaceSessionRenewRecord[] = [
       { id: 'rn_1', amount: 30, addedMinutes: 26, paymentMethod: 'cash' as const, renewedAt: Date.now() },
@@ -163,6 +163,27 @@ describe('buildSpaceSessionSettlement — 续费抵扣', () => {
     expect(result.timeCost).toBe(68);
     expect(result.renewDeduction).toBe(30);
     expect(result.totalAmount).toBe(38);
+  });
+
+  it('mixed 模式有续费记录时应抵扣', () => {
+    const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
+    const items: SpaceSessionItemRecord[] = [
+      { productId: 'P1', productName: '可乐', categoryName: '饮品', salePrice: 10, profit: 5, quantity: 2, lineTotal: 20 },
+    ];
+    const renewRecords: SpaceSessionRenewRecord[] = [
+      { id: 'rn_1', amount: 30, addedMinutes: 26, paymentMethod: 'cash' as const, renewedAt: Date.now() },
+    ];
+    const result = buildSpaceSessionSettlement({
+      session: makeSession({ billingMode: 'mixed' as const }),
+      checkoutAt,
+      payload: {},
+      items,
+      renewRecords,
+    });
+    expect(result.timeCost).toBe(68);
+    expect(result.itemsCost).toBe(20);
+    expect(result.renewDeduction).toBe(30);
+    expect(result.totalAmount).toBe(58); // 68 + 20 - 30 = 58
   });
 });
 
@@ -182,7 +203,7 @@ describe('buildSpaceSessionSettlement — 预付款', () => {
     expect(result.totalAmount).toBe(48);
   });
 
-  it('items 模式不应扣减预付', () => {
+  it('items 模式也应扣减预付', () => {
     const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
     const items: SpaceSessionItemRecord[] = [
       { productId: 'P1', productName: '可乐', categoryName: '饮品', salePrice: 10, profit: 5, quantity: 1, lineTotal: 10 },
@@ -198,8 +219,8 @@ describe('buildSpaceSessionSettlement — 预付款', () => {
       items,
       renewRecords: NO_RENEW,
     });
-    expect(result.prepaidDeduction).toBe(0);
-    expect(result.totalAmount).toBe(10);
+    expect(result.prepaidDeduction).toBe(20);
+    expect(result.totalAmount).toBe(-10); // 10 - 20 = -10
   });
 });
 

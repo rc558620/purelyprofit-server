@@ -12,8 +12,10 @@ describe('JwtStrategy', () => {
     getJson: jest.fn().mockResolvedValue(null),
     setJson: jest.fn().mockResolvedValue(undefined),
   };
-  const authAccountMembershipService = {
+  const authBanGuardService = {
     ensureUserNotBanned: jest.fn(),
+  };
+  const authMembershipResolverService = {
     resolveAuthenticatedMembership: jest.fn(),
   };
   const authSessionService = {
@@ -38,18 +40,17 @@ describe('JwtStrategy', () => {
       configService as never,
       prisma as never,
       redisService as never,
-      authAccountMembershipService as never,
+      authBanGuardService as never,
+      authMembershipResolverService as never,
       authSessionService as never,
     );
 
   beforeEach(() => {
     jest.clearAllMocks();
-    authAccountMembershipService.resolveAuthenticatedMembership.mockResolvedValue(
+    authMembershipResolverService.resolveAuthenticatedMembership.mockResolvedValue(
       null,
     );
-    authAccountMembershipService.ensureUserNotBanned.mockResolvedValue(
-      undefined,
-    );
+    authBanGuardService.ensureUserNotBanned.mockResolvedValue(undefined);
     authSessionService.getTokenVersion.mockResolvedValue(0);
   });
 
@@ -136,7 +137,7 @@ describe('JwtStrategy', () => {
       updatedAt: new Date(),
       lastActiveAt: null,
     });
-    authAccountMembershipService.ensureUserNotBanned.mockRejectedValue(
+    authBanGuardService.ensureUserNotBanned.mockRejectedValue(
       new UnauthorizedException('账号已被封禁'),
     );
 
@@ -176,7 +177,7 @@ describe('JwtStrategy', () => {
       accountScope: 'purely_profit',
     });
     expect(
-      authAccountMembershipService.resolveAuthenticatedMembership,
+      authMembershipResolverService.resolveAuthenticatedMembership,
     ).toHaveBeenCalledWith(
       {
         sub: 1,
@@ -198,7 +199,7 @@ describe('JwtStrategy', () => {
       updatedAt: new Date(),
       lastActiveAt: null,
     });
-    authAccountMembershipService.resolveAuthenticatedMembership.mockRejectedValue(
+    authMembershipResolverService.resolveAuthenticatedMembership.mockRejectedValue(
       new UnauthorizedException(
         '登录态能力上下文未就绪，请联系管理员完成系统升级后重试',
       ),

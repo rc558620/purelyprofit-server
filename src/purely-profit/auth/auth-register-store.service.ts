@@ -5,9 +5,9 @@ import {
   StoreSubscriptionStatus,
   SubscriptionPlanCode,
 } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
-import { AuthAccountMembershipService } from './auth-account-membership.service';
+import { AuthStaffActivationService } from './auth-staff-activation.service';
 import { AuthSessionService } from './auth-session.service';
 import type { AuthenticatedUser } from './strategies/jwt.strategy';
 import { CreateStoreDto } from '../stores/dto/create-store.dto';
@@ -49,7 +49,7 @@ export class AuthRegisterStoreService {
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
     private readonly inviteCodeService: StoreInviteCodeService,
-    private readonly authAccountMembershipService: AuthAccountMembershipService,
+    private readonly authStaffActivationService: AuthStaffActivationService,
     private readonly authSessionService: AuthSessionService,
   ) {}
 
@@ -60,72 +60,75 @@ export class AuthRegisterStoreService {
     await this.ensureUserCanOnlyBindSingleStore(user);
 
     const payload = extractStoreCreatePayload(dto);
-    const store = await this.prisma.$transaction(async (tx) => {
-      const createdStore = await tx.store.create({
-        data: {
-          name: payload.storeName,
-          address: payload.address,
-          ownerId: user.id,
-        },
-        select: {
-          id: true,
-          name: true,
-          address: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
+    const store = await this.prisma.$transaction(
+      async (tx) => {
+        const createdStore = await tx.store.create({
+          data: {
+            name: payload.storeName,
+            address: payload.address,
+            ownerId: user.id,
+          },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
 
-      // 初始化 STARTER 订阅记录
-      await tx.storeSubscription.upsert({
-        where: { storeId: createdStore.id },
-        create: {
-          storeId: createdStore.id,
-          planCode: SubscriptionPlanCode.starter,
-          planName: STARTER_PLAN_SNAPSHOT.planName,
-          status: StoreSubscriptionStatus.active,
-          maxAccountSeats: STARTER_SEAT_QUOTA,
-          expiresAt: null,
-        },
-        update: {
-          planCode: SubscriptionPlanCode.starter,
-          planName: STARTER_PLAN_SNAPSHOT.planName,
-          status: StoreSubscriptionStatus.active,
-          maxAccountSeats: STARTER_SEAT_QUOTA,
-          expiresAt: null,
-        },
-      });
+        // 初始化 STARTER 订阅记录
+        await tx.storeSubscription.upsert({
+          where: { storeId: createdStore.id },
+          create: {
+            storeId: createdStore.id,
+            planCode: SubscriptionPlanCode.starter,
+            planName: STARTER_PLAN_SNAPSHOT.planName,
+            status: StoreSubscriptionStatus.active,
+            maxAccountSeats: STARTER_SEAT_QUOTA,
+            expiresAt: null,
+          },
+          update: {
+            planCode: SubscriptionPlanCode.starter,
+            planName: STARTER_PLAN_SNAPSHOT.planName,
+            status: StoreSubscriptionStatus.active,
+            maxAccountSeats: STARTER_SEAT_QUOTA,
+            expiresAt: null,
+          },
+        });
 
-      // 初始化 StoreMembershipProfile.subAccountQuota（席位上限事实源，spec 0.6）
-      await tx.storeMembershipProfile.upsert({
-        where: { storeId: createdStore.id },
-        create: {
-          storeId: createdStore.id,
-          subAccountQuota: STARTER_SEAT_QUOTA,
-          totalPoints: 0,
-          availablePoints: 0,
-        },
-        update: {
-          subAccountQuota: STARTER_SEAT_QUOTA,
-        },
-      });
+        // 初始化 StoreMembershipProfile.subAccountQuota（席位上限事实源，spec 0.6）
+        await tx.storeMembershipProfile.upsert({
+          where: { storeId: createdStore.id },
+          create: {
+            storeId: createdStore.id,
+            subAccountQuota: STARTER_SEAT_QUOTA,
+            totalPoints: 0,
+            availablePoints: 0,
+          },
+          update: {
+            subAccountQuota: STARTER_SEAT_QUOTA,
+          },
+        });
 
-      // 创建 OWNER 员工记录
-      await tx.staff.create({
-        data: {
-          storeId: createdStore.id,
-          userId: user.id,
-          email: user.email,
-          name: user.name ?? '老板',
-          role: StaffRole.owner,
-          permissions: ['*'],
-          status: StaffStatus.active,
-          isSeatActive: true,
-        },
-      });
+        // 创建 OWNER 员工记录
+        await tx.staff.create({
+          data: {
+            storeId: createdStore.id,
+            userId: user.id,
+            email: user.email,
+            name: user.name ?? '老板',
+            role: StaffRole.owner,
+            permissions: ['*'],
+            status: StaffStatus.active,
+            isSeatActive: true,
+          },
+        });
 
-      return createdStore;
-    });
+        return createdStore;
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
     // 为新门店生成初始邀请码（异步，不阻塞注册响应）
     void this.inviteCodeService.generateForStore(store.id).catch(() => {
@@ -136,7 +139,7 @@ export class AuthRegisterStoreService {
     await this.persistStoreProfileMetadata(store.id, metadata);
 
     // 失效 membership 缓存，确保后续请求能读到新创建的 staff 记录
-    await this.authAccountMembershipService.invalidateMembershipCachesByUserId(
+    await this.authStaffActivationService.invalidateMembershipCachesByUserId(
       user.id,
     );
 

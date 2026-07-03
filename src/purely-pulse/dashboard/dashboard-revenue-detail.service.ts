@@ -3,6 +3,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import { buildPulseDashboardRevenueDetailCacheKey } from '../pulse.cache-keys';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { RedisService } from '../../redis/redis.service';
 import {
   DEFAULT_REVENUE_DETAIL_PERIOD,
@@ -49,6 +50,7 @@ export class PulseDashboardRevenueDetailService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
   async getRevenueDetail(
@@ -67,7 +69,7 @@ export class PulseDashboardRevenueDetailService {
       districtCode: queryDto.districtCode,
     });
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PULSE_DASHBOARD_REVENUE_DETAIL_CACHE_TTL_SECONDS,

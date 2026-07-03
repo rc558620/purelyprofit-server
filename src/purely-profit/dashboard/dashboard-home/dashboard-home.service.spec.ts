@@ -5,6 +5,7 @@ import { SubjectCapabilityService } from '../../access-control/subject-capabilit
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { RedisService } from '../../../redis/redis.service';
 import { DashboardHomeService } from './dashboard-home.service';
 
@@ -58,12 +59,15 @@ describe('DashboardHomeService', () => {
   };
 
   const redisService = {
+    setJson: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const refreshableCache = {
     getOrLoadRefreshableJson: jest.fn(
       async (options: { loadValue: () => Promise<unknown> }) =>
         options.loadValue(),
     ),
     writeRefreshableJson: jest.fn().mockResolvedValue(undefined),
-    setJson: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -242,7 +246,7 @@ describe('DashboardHomeService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 4, 14, 15, 0, 0, 0));
     jest.clearAllMocks();
-    redisService.getOrLoadRefreshableJson.mockImplementation(
+    refreshableCache.getOrLoadRefreshableJson.mockImplementation(
       async (options: { loadValue: () => Promise<unknown> }) =>
         options.loadValue(),
     );
@@ -252,6 +256,7 @@ describe('DashboardHomeService', () => {
         DashboardHomeService,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
+        { provide: RefreshableCacheService, useValue: refreshableCache },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         {
           provide: SubjectCapabilityService,
@@ -411,7 +416,7 @@ describe('DashboardHomeService', () => {
     expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledTimes(
       2,
     );
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledTimes(3);
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledTimes(3);
   });
 
   it('getOverview 不会把部分已收付的过期账款视为首页逾期提醒', async () => {
@@ -481,7 +486,7 @@ describe('DashboardHomeService', () => {
     };
 
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
-    redisService.getOrLoadRefreshableJson
+    refreshableCache.getOrLoadRefreshableJson
       .mockResolvedValueOnce({
         store: { name: '纯利宝测试门店' },
         currentSales: { revenue: 0, orderCount: 0 },

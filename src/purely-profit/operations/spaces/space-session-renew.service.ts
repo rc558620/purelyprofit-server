@@ -95,8 +95,9 @@ export class SpaceSessionRenewService {
         throw new ConflictException('当前会话已结账，无法继续续费');
       }
 
-      if (latestSession.billingMode !== PrismaSpaceBillingMode.countdown) {
-        throw new ConflictException('仅倒计时会话支持续费');
+      // 纯消费模式无 hourlyRate，续费语义不成立；timed / mixed / countdown 均可续费
+      if (latestSession.billingMode === PrismaSpaceBillingMode.items) {
+        throw new ConflictException('纯消费模式不支持续费');
       }
 
       // hourlyRate 在 DB 中是分，通过 Money 全程运算
@@ -152,12 +153,17 @@ export class SpaceSessionRenewService {
         },
       });
 
+      // 仅 countdown 模式需要累加倒计时分钟；timed / mixed 续费仅影响结账抵扣
+      const isCountdown =
+        latestSession.billingMode === PrismaSpaceBillingMode.countdown;
       const updated = await transaction.spaceSession.update({
         where: { id: latestSession.id },
-        data: {
-          countdownMinutes:
-            (latestSession.countdownMinutes ?? 0) + addedMinutes,
-        },
+        data: isCountdown
+          ? {
+              countdownMinutes:
+                (latestSession.countdownMinutes ?? 0) + addedMinutes,
+            }
+          : {},
         include: {
           space: {
             select: {

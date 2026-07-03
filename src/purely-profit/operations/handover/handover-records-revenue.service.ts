@@ -16,17 +16,19 @@ import {
 } from './handover.shared';
 import {
   SALE_ORDER_ITEM_SELECT,
-  attachPaymentRatios,
   buildCashFlowWhere,
-  computeRefundAmountFromSessions,
   buildNonSpaceSessionOrderWhere,
+  buildSaleOrderWhere,
+} from './handover-page-query.builders';
+import { mergeDisplayedOrderItems } from './handover-page-order-items';
+import {
+  attachPaymentRatios,
+  computeRefundAmountFromSessions,
   buildRecordRevenueSummary,
   buildRevenueAmounts,
-  buildSaleOrderWhere,
   mapPaymentItems,
-  mergeDisplayedOrderItems,
   sumPaymentAmounts,
-} from './handover-page.shared';
+} from './handover-page-payment';
 
 @Injectable()
 export class HandoverRecordsRevenueService {

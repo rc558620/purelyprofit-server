@@ -3,15 +3,27 @@ import {
   attachPaymentRatios,
   mapPaymentItems,
   sumPaymentAmounts,
-} from './handover-page.shared';
+} from './handover-page-payment';
 import type { HandoverPaymentItemDto } from './dto/handover-shared.dto';
 import type { OrderItemRow } from './handover.shared';
 
-describe('handover-page.shared', () => {
+describe('handover-page-payment', () => {
   describe('attachPaymentRatios', () => {
     const baseItems: HandoverPaymentItemDto[] = [
-      { method: SalesPaymentMethod.wechat, label: '微信', amount: 555, ratio: 0, color: '#22c55e' },
-      { method: SalesPaymentMethod.cash, label: '现金', amount: 445, ratio: 0, color: '#f59e0b' },
+      {
+        method: SalesPaymentMethod.wechat,
+        label: '微信',
+        amount: 555,
+        ratio: 0,
+        color: '#22c55e',
+      },
+      {
+        method: SalesPaymentMethod.cash,
+        label: '现金',
+        amount: 445,
+        ratio: 0,
+        color: '#f59e0b',
+      },
     ];
 
     it('应按金额占比计算 ratio（0-100 整数百分比，由 calcRatioPercent precision=0 统一计算）', () => {
@@ -52,7 +64,13 @@ describe('handover-page.shared', () => {
 
     it('单项支付时 ratio 应为 100', () => {
       const singleItem: HandoverPaymentItemDto[] = [
-        { method: SalesPaymentMethod.alipay, label: '支付宝', amount: 888, ratio: 0, color: '#1677ff' },
+        {
+          method: SalesPaymentMethod.alipay,
+          label: '支付宝',
+          amount: 888,
+          ratio: 0,
+          color: '#1677ff',
+        },
       ];
 
       const result = attachPaymentRatios(singleItem, 888);
@@ -62,9 +80,27 @@ describe('handover-page.shared', () => {
 
     it('3 项支付精度应为整数百分比', () => {
       const items: HandoverPaymentItemDto[] = [
-        { method: SalesPaymentMethod.wechat, label: '微信', amount: 333.33, ratio: 0, color: '#22c55e' },
-        { method: SalesPaymentMethod.alipay, label: '支付宝', amount: 333.33, ratio: 0, color: '#1677ff' },
-        { method: SalesPaymentMethod.cash, label: '现金', amount: 333.34, ratio: 0, color: '#f59e0b' },
+        {
+          method: SalesPaymentMethod.wechat,
+          label: '微信',
+          amount: 333.33,
+          ratio: 0,
+          color: '#22c55e',
+        },
+        {
+          method: SalesPaymentMethod.alipay,
+          label: '支付宝',
+          amount: 333.33,
+          ratio: 0,
+          color: '#1677ff',
+        },
+        {
+          method: SalesPaymentMethod.cash,
+          label: '现金',
+          amount: 333.34,
+          ratio: 0,
+          color: '#f59e0b',
+        },
       ];
       const total = 1000;
 
@@ -81,8 +117,20 @@ describe('handover-page.shared', () => {
   describe('sumPaymentAmounts', () => {
     it('应返回所有 item.amount 之和', () => {
       const items: HandoverPaymentItemDto[] = [
-        { method: SalesPaymentMethod.wechat, label: '微信', amount: 555, ratio: 0, color: '#22c55e' },
-        { method: SalesPaymentMethod.cash, label: '现金', amount: 445, ratio: 0, color: '#f59e0b' },
+        {
+          method: SalesPaymentMethod.wechat,
+          label: '微信',
+          amount: 555,
+          ratio: 0,
+          color: '#22c55e',
+        },
+        {
+          method: SalesPaymentMethod.cash,
+          label: '现金',
+          amount: 445,
+          ratio: 0,
+          color: '#f59e0b',
+        },
       ];
 
       expect(sumPaymentAmounts(items)).toBe(1000);

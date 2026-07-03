@@ -8,7 +8,7 @@ import {
   buildBusinessAnalysisCacheKey,
   buildCacheRefreshTaskKey,
 } from '../../../redis/keys';
-import { RedisService } from '../../../redis/redis.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { GetBusinessAnalysisQueryDto } from './dto/business-analysis-query.dto';
 import type { BusinessAnalysisResponseDto } from './dto/business-analysis-response.dto';
 import {
@@ -37,7 +37,7 @@ const BUSINESS_ANALYSIS_REFRESH_AFTER_MS = 30_000;
 export class BusinessAnalysisService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
@@ -78,7 +78,7 @@ export class BusinessAnalysisService {
     }
 
     const cacheKey = buildBusinessAnalysisCacheKey(storeId, query);
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: BUSINESS_ANALYSIS_CACHE_TTL_SECONDS,
@@ -101,7 +101,7 @@ export class BusinessAnalysisService {
       query as GetBusinessAnalysisQueryDto,
       false,
     );
-    await this.redisService.writeRefreshableJson(
+    await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
       BUSINESS_ANALYSIS_CACHE_TTL_SECONDS,

@@ -5,8 +5,12 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
-import { RedisService } from '../../../redis/redis.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { CostsReadService } from './costs-read.service';
+import { CostsReadRecordsService } from './costs-read-records.service';
+import { CostsReadStatsService } from './costs-read-stats.service';
+import { CostsReadReportService } from './costs-read-report.service';
+import { CostsReadDashboardService } from './costs-read-dashboard.service';
 import { CostsService } from './costs.service';
 import { CostsWriteService } from './costs-write.service';
 
@@ -95,12 +99,20 @@ export function createCostsReadProviders(
 ): Provider[] {
   return [
     CostsReadService,
+    CostsReadRecordsService,
+    CostsReadStatsService,
+    CostsReadReportService,
+    CostsReadDashboardService,
     { provide: PrismaService, useValue: prismaService },
-    { provide: RedisService, useValue: {
-      getOrLoadRefreshableJson: jest.fn((_options: any) => _options.loadValue()),
-      writeRefreshableJson: jest.fn(),
-      delByPattern: jest.fn(),
-    } },
+    {
+      provide: RefreshableCacheService,
+      useValue: {
+        getOrLoadRefreshableJson: jest.fn((_options: any) =>
+          _options.loadValue(),
+        ),
+        writeRefreshableJson: jest.fn(),
+      },
+    },
     { provide: CommerceAccessService, useValue: commerceAccessService },
     {
       provide: PlatformMembershipAccessService,

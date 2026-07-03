@@ -6,7 +6,10 @@ import {
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
-import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  PrismaService,
+  TX_TIMEOUT_SHORT,
+} from '../../../prisma/prisma.service';
 import type {
   CreateSpaceDto,
   SpaceResponseDto,
@@ -63,31 +66,34 @@ export class SpacesWriteService {
       dto,
     );
 
-    const created = await this.prisma.$transaction(async (transaction) => {
-      const existingCount = await transaction.space.count({
-        where: { storeId, deletedAt: null },
-      });
-      const targetSortOrder = normalizeTargetSortOrder(
-        dto.sortOrder,
-        existingCount + 1,
-      );
+    const created = await this.prisma.$transaction(
+      async (transaction) => {
+        const existingCount = await transaction.space.count({
+          where: { storeId, deletedAt: null },
+        });
+        const targetSortOrder = normalizeTargetSortOrder(
+          dto.sortOrder,
+          existingCount + 1,
+        );
 
-      await shiftSortOrdersForInsert(transaction, storeId, targetSortOrder);
+        await shiftSortOrdersForInsert(transaction, storeId, targetSortOrder);
 
-      return transaction.space.create({
-        data: {
-          storeId,
-          typeId: refs.typeId,
-          zoneId: refs.zoneId,
-          name,
-          capacity: dto.capacity,
-          enableDirtyRoom: dto.enableDirtyRoom,
-          autoCheckout: dto.autoCheckout,
-          sortOrder: targetSortOrder,
-        },
-        include: SPACE_WITH_RELATIONS_INCLUDE,
-      });
-    });
+        return transaction.space.create({
+          data: {
+            storeId,
+            typeId: refs.typeId,
+            zoneId: refs.zoneId,
+            name,
+            capacity: dto.capacity,
+            enableDirtyRoom: dto.enableDirtyRoom,
+            autoCheckout: dto.autoCheckout,
+            sortOrder: targetSortOrder,
+          },
+          include: SPACE_WITH_RELATIONS_INCLUDE,
+        });
+      },
+      { timeout: TX_TIMEOUT_SHORT },
+    );
 
     // 新建空间始终为 idle（无 session，无 reservation）
     return toSpaceResponse({ ...created, status: 'idle' });
@@ -116,33 +122,36 @@ export class SpacesWriteService {
       dto,
     );
 
-    const updated = await this.prisma.$transaction(async (transaction) => {
-      const targetSortOrder = await resolveManagedSpaceSortOrder(
-        transaction,
-        space,
-        dto.sortOrder,
-      );
+    const updated = await this.prisma.$transaction(
+      async (transaction) => {
+        const targetSortOrder = await resolveManagedSpaceSortOrder(
+          transaction,
+          space,
+          dto.sortOrder,
+        );
 
-      return transaction.space.update({
-        where: { id: space.id },
-        data: {
-          ...(nextName ? { name: nextName } : {}),
-          ...(refs.typeId !== undefined ? { typeId: refs.typeId } : {}),
-          ...(refs.zoneId !== undefined ? { zoneId: refs.zoneId } : {}),
-          ...(dto.capacity !== undefined ? { capacity: dto.capacity } : {}),
-          ...(dto.enableDirtyRoom !== undefined
-            ? { enableDirtyRoom: dto.enableDirtyRoom }
-            : {}),
-          ...(dto.autoCheckout !== undefined
-            ? { autoCheckout: dto.autoCheckout }
-            : {}),
-          ...(targetSortOrder !== undefined
-            ? { sortOrder: targetSortOrder }
-            : {}),
-        },
-        include: SPACE_WITH_RELATIONS_INCLUDE,
-      });
-    });
+        return transaction.space.update({
+          where: { id: space.id },
+          data: {
+            ...(nextName ? { name: nextName } : {}),
+            ...(refs.typeId !== undefined ? { typeId: refs.typeId } : {}),
+            ...(refs.zoneId !== undefined ? { zoneId: refs.zoneId } : {}),
+            ...(dto.capacity !== undefined ? { capacity: dto.capacity } : {}),
+            ...(dto.enableDirtyRoom !== undefined
+              ? { enableDirtyRoom: dto.enableDirtyRoom }
+              : {}),
+            ...(dto.autoCheckout !== undefined
+              ? { autoCheckout: dto.autoCheckout }
+              : {}),
+            ...(targetSortOrder !== undefined
+              ? { sortOrder: targetSortOrder }
+              : {}),
+          },
+          include: SPACE_WITH_RELATIONS_INCLUDE,
+        });
+      },
+      { timeout: TX_TIMEOUT_SHORT },
+    );
 
     // 编辑空间配置后重新推导运行态状态
     const derivedStatus = await this.deriveSpaceStatus(updated.id);
@@ -163,19 +172,22 @@ export class SpacesWriteService {
       throw new ConflictException('该空间存在待处理预约，请先取消预约后再删除');
     }
 
-    await this.prisma.$transaction(async (transaction) => {
-      // 软删除：更新 deletedAt 字段而非物理删除
-      await transaction.space.update({
-        where: { id: space.id },
-        data: { deletedAt: new Date() },
-      });
+    await this.prisma.$transaction(
+      async (transaction) => {
+        // 软删除：更新 deletedAt 字段而非物理删除
+        await transaction.space.update({
+          where: { id: space.id },
+          data: { deletedAt: new Date() },
+        });
 
-      await closeSortOrderGapAfterRemove(
-        transaction,
-        space.storeId,
-        space.sortOrder,
-      );
-    });
+        await closeSortOrderGapAfterRemove(
+          transaction,
+          space.storeId,
+          space.sortOrder,
+        );
+      },
+      { timeout: TX_TIMEOUT_SHORT },
+    );
   }
 
   async markSpaceReady(

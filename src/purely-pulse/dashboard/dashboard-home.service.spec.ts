@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { PulseDashboardHomeService } from './dashboard-home.service';
 
 describe('PulseDashboardHomeService', () => {
@@ -26,7 +26,7 @@ describe('PulseDashboardHomeService', () => {
     },
   };
 
-  const redisService = {
+  const refreshableCache = {
     getOrLoadRefreshableJson: jest.fn(),
   };
 
@@ -46,7 +46,7 @@ describe('PulseDashboardHomeService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-30T12:00:00.000Z'));
     jest.clearAllMocks();
-    redisService.getOrLoadRefreshableJson.mockImplementation(
+    refreshableCache.getOrLoadRefreshableJson.mockImplementation(
       async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
         loadValue(),
     );
@@ -55,7 +55,7 @@ describe('PulseDashboardHomeService', () => {
       providers: [
         PulseDashboardHomeService,
         { provide: PrismaService, useValue: prismaService },
-        { provide: RedisService, useValue: redisService },
+        { provide: RefreshableCacheService, useValue: refreshableCache },
       ],
     }).compile();
 
@@ -89,7 +89,7 @@ describe('PulseDashboardHomeService', () => {
       pendingApplicationCount: 0,
       generatedAt: Date.now(),
     };
-    redisService.getOrLoadRefreshableJson.mockResolvedValue(cached);
+    refreshableCache.getOrLoadRefreshableJson.mockResolvedValue(cached);
 
     await expect(service.getHome(user, {})).resolves.toEqual(cached);
     expect(prismaService.storePartner.count).not.toHaveBeenCalled();
@@ -157,7 +157,7 @@ describe('PulseDashboardHomeService', () => {
       { label: '永久会员', value: 0 },
       { label: '其他充值', value: 0 },
     ]);
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey: 'pulse:dashboard:home:period:month:region:all',
         ttlSeconds: 30,

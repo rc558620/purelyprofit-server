@@ -1,3 +1,5 @@
+import { toCacheSegment } from '../redis/cache-keys.shared';
+
 type PulseRevenueDetailCacheQuery = {
   period?: string;
   date?: string;
@@ -29,10 +31,6 @@ export type PulseGrowthAdminListCacheQuery = {
   cursor?: string;
   limit?: number;
 };
-
-function toCacheSegment(value: string | number | null | undefined): string {
-  return encodeURIComponent(String(value ?? 'na'));
-}
 
 export function buildPulseSessionNotificationCacheKey(storeId: number): string {
   return `pulse:session:notifications:store:${storeId}`;

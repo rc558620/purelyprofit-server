@@ -3,22 +3,14 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-03T03:21:53Z"
+exported_at: "2026-07-03T11:33:13Z"
 modules:
     "":
-        dir_name: 纯利商业操作系统（NestJS 单体多产品）
-        title: 纯利商业操作系统（NestJS 单体多产品）
+        dir_name: 纯利商业操作系统后端（NestJS 单体多产品）
+        title: 纯利商业操作系统后端（NestJS 单体多产品）
         scope: []
         source_files: []
-        children:
-            - access_control
-            - auth
-            - cache_layer
-            - data_layer
-            - observability
-            - purely_club
-            - purely_profit
-            - purely_pulse
+        children: []
         depends_on: []
         related_to: []
     access_control:

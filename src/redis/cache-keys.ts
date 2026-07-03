@@ -1,11 +1,95 @@
-import {
-  BUSINESS_ANALYSIS_PERIOD_VALUES,
-  type BusinessAnalysisPeriod,
-} from '../purely-profit/dashboard/business-analysis/business-analysis.types';
-import {
-  DASHBOARD_HOME_PERIOD_VALUES,
-  type DashboardHomePeriodValue,
-} from '../purely-profit/dashboard/dashboard-home/dashboard-home.types';
+/**
+ * 缓存键统一 re-export 桶
+ *
+ * 各业务域的缓存键已拆分到独立模块，本文件仅负责聚合导出，
+ * 保持对外消费方 import 路径不变（零破坏性）。
+ */
+
+export { buildCacheRefreshTaskKey } from './cache-keys.shared';
+
+export {
+  buildProfitDashboardHomeCacheKey,
+  buildProfitDashboardHomeStatsCacheKey,
+  buildProfitDashboardHomeTrendCacheKey,
+  buildProfitDashboardHomeActivitiesCacheKey,
+  buildProfitDashboardHomePattern,
+  buildProfitDashboardHomeChunkPattern,
+  buildProfitDashboardHomeAllPattern,
+  parseProfitDashboardHomeCacheKey,
+} from './keys/dashboard.cache-keys';
+
+export {
+  buildBusinessAnalysisCacheKey,
+  buildBusinessAnalysisPattern,
+  buildBusinessAnalysisAllPattern,
+  parseBusinessAnalysisCacheKey,
+} from './keys/business-analysis.cache-keys';
+
+export {
+  buildMarketingOverviewCacheKey,
+  buildMarketingOverviewPattern,
+  buildMarketingOverviewAllPattern,
+  parseMarketingOverviewCacheKey,
+  buildMarketingPromotionsListCacheKey,
+  buildMarketingPromotionsListPattern,
+  buildMarketingCustomersListCacheKey,
+  buildMarketingCustomersListPattern,
+} from './keys/marketing.cache-keys';
+
+export {
+  buildMembersListCacheKey,
+  buildMembersListPattern,
+  buildMembersMetaCacheKey,
+  buildMembersMetaPattern,
+  buildMembersMetaAllPattern,
+  parseMembersMetaCacheKey,
+  buildMembersOverviewCacheKey,
+  buildMembersOverviewPattern,
+  buildMembersOverviewAllPattern,
+  parseMembersOverviewCacheKey,
+  buildWithdrawalsOverviewCacheKey,
+  buildWithdrawalsListCacheKey,
+  buildWithdrawalsListPattern,
+  buildPlatformMembershipCenterCacheKey,
+  buildPlatformMembershipProfileCacheKey,
+  buildPlatformMembershipOrdersCacheKey,
+  buildPlatformMembershipPointsLogsCacheKey,
+  buildPlatformMembershipBeanLogsCacheKey,
+  buildPlatformMembershipPromoCenterCacheKey,
+  buildPlatformMembershipPartnerProfileCacheKey,
+  buildPlatformMembershipDerivedPattern,
+} from './keys/members.cache-keys';
+
+export {
+  buildSalesStatsCacheKey,
+  buildSalesStatsPattern,
+  buildSalesReportCacheKey,
+  buildSalesReportPattern,
+} from './keys/sales.cache-keys';
+
+export {
+  buildProfitDetailCacheKey,
+  buildProfitDetailPattern,
+  buildProfitDetailAllPattern,
+  parseProfitDetailCacheKey,
+  buildProfitReportCacheKey,
+  buildProfitReportPattern,
+  buildProfitReportAllPattern,
+  parseProfitReportCacheKey,
+} from './keys/profit-detail.cache-keys';
+
+export {
+  buildCostsStatsCacheKey,
+  buildCostsStatsPattern,
+  buildCostsReportCacheKey,
+  buildCostsReportPattern,
+  buildCostsReportAllPattern,
+  buildCostsRecordsCacheKey,
+  buildCostsRecordsPattern,
+  buildCostsAllPattern,
+  buildCostsDashboardCacheKey,
+  buildCostsDashboardPattern,
+} from './keys/costs.cache-keys';
 
 export {
   buildFinanceAccountsListCacheKey,
@@ -20,8 +104,12 @@ export {
   buildFinanceReconciliationsListCacheKey,
   buildFinanceReconciliationsPattern,
   buildFinanceReconciliationsStatsCacheKey,
+  buildFinanceReportCacheKey,
+  buildFinanceReportPattern,
+  buildFinanceReportAllPattern,
   parseFinanceOverviewCacheKey,
 } from '../purely-profit/finance/finance.cache-keys';
+
 export {
   buildPulseDashboardHomeCacheKey,
   buildPulseDashboardHomePattern,
@@ -45,670 +133,3 @@ export {
   buildPulseSessionBootstrapPatternByUser,
   buildPulseSessionNotificationCacheKey,
 } from '../purely-pulse/pulse.cache-keys';
-
-type BusinessAnalysisCacheQuery = {
-  period?: string | null;
-  startTime?: number | null;
-  endTime?: number | null;
-  export?: boolean | null;
-};
-
-type MembersListCacheQuery = {
-  status?: string;
-  level?: string;
-  keyword?: string;
-  partner?: boolean;
-  page: number;
-  pageSize: number;
-};
-
-type WithdrawalsListCacheQuery = {
-  status?: string;
-};
-
-type SalesDerivedCacheQuery = {
-  scope: 'owner' | 'sub_account';
-  period?: string;
-  year?: number;
-  customDate?: string;
-  rangeStartDate?: string;
-  rangeEndDate?: string;
-};
-
-type ProfitDetailCacheQuery = {
-  period?: string;
-  year?: number | null;
-  customDate?: number | null;
-  rangeStartDate?: number | null;
-  rangeEndDate?: number | null;
-  startTime?: number | null;
-  endTime?: number | null;
-  scope?: 'owner' | 'sub_account';
-};
-
-type FinanceReportCacheQuery = {
-  period?: string;
-  year?: number | null;
-  customDate?: number | null;
-  rangeStartDate?: number | null;
-  rangeEndDate?: number | null;
-  scope?: 'owner' | 'sub_account';
-};
-
-type CostsStatsCacheQuery = {
-  period?: string;
-  typeFilter?: string;
-  customDate?: number | null;
-  rangeStartDate?: number | null;
-  rangeEndDate?: number | null;
-};
-
-type CostsReportCacheQuery = {
-  period?: string;
-  year?: number | null;
-  customDate?: number | null;
-  rangeStartDate?: number | null;
-  rangeEndDate?: number | null;
-  categoryFilter?: string;
-};
-
-type CostsRecordsCacheQuery = {
-  period?: string;
-  typeFilter?: string;
-  customDate?: number | null;
-  rangeStartDate?: number | null;
-  rangeEndDate?: number | null;
-};
-
-function isDashboardHomePeriodValue(
-  value: string,
-): value is DashboardHomePeriodValue {
-  return (DASHBOARD_HOME_PERIOD_VALUES as readonly string[]).includes(value);
-}
-
-function isBusinessAnalysisPeriod(
-  value: string,
-): value is BusinessAnalysisPeriod {
-  return (BUSINESS_ANALYSIS_PERIOD_VALUES as readonly string[]).includes(value);
-}
-
-function toCacheSegment(value: string | number | null | undefined): string {
-  return encodeURIComponent(String(value ?? 'na'));
-}
-
-export function buildCacheRefreshTaskKey(cacheKey: string): string {
-  return `refresh:${cacheKey}`;
-}
-
-export function buildProfitDashboardHomeCacheKey(
-  storeId: number,
-  period: string,
-): string {
-  return `profit:dashboard:home:store:${storeId}:period:${period}`;
-}
-
-export function buildProfitDashboardHomeStatsCacheKey(
-  storeId: number,
-  period: string,
-): string {
-  return `profit:dashboard:home-chunk:stats:store:${storeId}:period:${period}`;
-}
-
-export function buildProfitDashboardHomeTrendCacheKey(
-  storeId: number,
-  period: string,
-): string {
-  return `profit:dashboard:home-chunk:trend:store:${storeId}:period:${period}`;
-}
-
-export function buildProfitDashboardHomeActivitiesCacheKey(
-  storeId: number,
-  period: string,
-): string {
-  return `profit:dashboard:home-chunk:activities:store:${storeId}:period:${period}`;
-}
-
-export function buildProfitDashboardHomePattern(storeId: number): string {
-  return `profit:dashboard:home:store:${storeId}:period:*`;
-}
-
-export function buildProfitDashboardHomeChunkPattern(storeId: number): string {
-  return `profit:dashboard:home-chunk:*:store:${storeId}:period:*`;
-}
-
-export function buildProfitDashboardHomeAllPattern(): string {
-  return 'profit:dashboard:home:store:*:period:*';
-}
-
-export function buildBusinessAnalysisCacheKey(
-  storeId: number,
-  query: BusinessAnalysisCacheQuery,
-): string {
-  return [
-    'profit:business-analysis',
-    `store:${storeId}`,
-    `period:${query.period}`,
-    `start:${query.startTime ?? 'na'}`,
-    `end:${query.endTime ?? 'na'}`,
-    `export:${query.export === true ? '1' : '0'}`,
-  ].join(':');
-}
-
-export function buildBusinessAnalysisPattern(storeId: number): string {
-  return `profit:business-analysis:store:${storeId}:*`;
-}
-
-export function buildBusinessAnalysisAllPattern(): string {
-  return 'profit:business-analysis:store:*:period:*:start:*:end:*:export:*';
-}
-
-export function buildMarketingOverviewCacheKey(storeId: number): string {
-  return `profit:marketing:overview:store:${storeId}`;
-}
-
-export function buildMarketingOverviewPattern(storeId: number): string {
-  return `profit:marketing:overview:store:${storeId}:*`;
-}
-
-export function buildMarketingOverviewAllPattern(): string {
-  return 'profit:marketing:overview:store:*';
-}
-
-export function buildMembersListCacheKey(
-  storeId: number,
-  query: MembersListCacheQuery,
-): string {
-  return [
-    'profit:members:list',
-    `store:${storeId}`,
-    `status:${query.status ?? 'all'}`,
-    `level:${query.level ?? 'all'}`,
-    `keyword:${encodeURIComponent(query.keyword ?? 'na')}`,
-    `partner:${query.partner === true ? 'true' : 'all'}`,
-    `page:${query.page}`,
-    `pageSize:${query.pageSize}`,
-  ].join(':');
-}
-
-export function buildMembersListPattern(storeId: number): string {
-  return `profit:members:list:store:${storeId}:*`;
-}
-
-export function buildMembersMetaCacheKey(storeId: number): string {
-  return `profit:members:meta:store:${storeId}`;
-}
-
-export function buildMembersMetaPattern(storeId: number): string {
-  return `profit:members:meta:store:${storeId}:*`;
-}
-
-export function buildMembersMetaAllPattern(): string {
-  return 'profit:members:meta:store:*';
-}
-
-export function buildMembersOverviewCacheKey(storeId: number): string {
-  return `profit:members:overview:store:${storeId}`;
-}
-
-export function buildMembersOverviewPattern(storeId: number): string {
-  return `profit:members:overview:store:${storeId}:*`;
-}
-
-export function buildMembersOverviewAllPattern(): string {
-  return 'profit:members:overview:store:*';
-}
-
-export function buildWithdrawalsOverviewCacheKey(storeId: number): string {
-  return `profit:withdrawals:overview:store:${storeId}`;
-}
-
-export function buildWithdrawalsListCacheKey(
-  storeId: number,
-  query: WithdrawalsListCacheQuery,
-): string {
-  return `profit:withdrawals:list:store:${storeId}:status:${query.status ?? 'all'}`;
-}
-
-export function buildWithdrawalsListPattern(storeId: number): string {
-  return `profit:withdrawals:list:store:${storeId}:status:*`;
-}
-
-export function buildPlatformMembershipCenterCacheKey(storeId: number): string {
-  return `profit:platform-membership:center:store:${storeId}`;
-}
-
-export function buildPlatformMembershipProfileCacheKey(
-  storeId: number,
-): string {
-  return `profit:platform-membership:profile:store:${storeId}`;
-}
-
-export function buildPlatformMembershipOrdersCacheKey(storeId: number): string {
-  return `profit:platform-membership:orders:store:${storeId}`;
-}
-
-export function buildPlatformMembershipPointsLogsCacheKey(
-  storeId: number,
-): string {
-  return `profit:platform-membership:points-logs:store:${storeId}`;
-}
-
-export function buildPlatformMembershipBeanLogsCacheKey(
-  storeId: number,
-): string {
-  return `profit:platform-membership:bean-logs:store:${storeId}`;
-}
-
-export function buildPlatformMembershipPromoCenterCacheKey(
-  storeId: number,
-): string {
-  return `profit:platform-membership:promo-center:store:${storeId}`;
-}
-
-export function buildPlatformMembershipPartnerProfileCacheKey(
-  storeId: number,
-): string {
-  return `profit:platform-membership:partner-profile:store:${storeId}`;
-}
-
-export function buildPlatformMembershipDerivedPattern(storeId: number): string {
-  return `profit:platform-membership:*:store:${storeId}`;
-}
-
-export function buildSalesStatsCacheKey(
-  storeId: number,
-  query: SalesDerivedCacheQuery,
-): string {
-  return [
-    'profit:sales:stats',
-    `store:${storeId}`,
-    `scope:${query.scope}`,
-    `period:${toCacheSegment(query.period)}`,
-    `year:${toCacheSegment(query.year)}`,
-    `customDate:${toCacheSegment(query.customDate)}`,
-    `start:${toCacheSegment(query.rangeStartDate)}`,
-    `end:${toCacheSegment(query.rangeEndDate)}`,
-  ].join(':');
-}
-
-export function buildSalesStatsPattern(storeId: number): string {
-  return `profit:sales:stats:store:${storeId}:*`;
-}
-
-export function buildSalesReportCacheKey(
-  storeId: number,
-  query: SalesDerivedCacheQuery,
-): string {
-  return [
-    'profit:sales:report',
-    `store:${storeId}`,
-    `scope:${query.scope}`,
-    `period:${toCacheSegment(query.period)}`,
-    `year:${toCacheSegment(query.year)}`,
-    `customDate:${toCacheSegment(query.customDate)}`,
-    `start:${toCacheSegment(query.rangeStartDate)}`,
-    `end:${toCacheSegment(query.rangeEndDate)}`,
-  ].join(':');
-}
-
-export function buildSalesReportPattern(storeId: number): string {
-  return `profit:sales:report:store:${storeId}:*`;
-}
-
-export function parseProfitDashboardHomeCacheKey(cacheKey: string): {
-  storeId: number;
-  period: DashboardHomePeriodValue;
-} | null {
-  const match = /^profit:dashboard:home:store:(\d+):period:(.+)$/.exec(
-    cacheKey,
-  );
-  if (!match) {
-    return null;
-  }
-
-  const [, rawStoreId, rawPeriod] = match;
-  if (!isDashboardHomePeriodValue(rawPeriod)) {
-    return null;
-  }
-
-  return {
-    storeId: Number(rawStoreId),
-    period: rawPeriod,
-  };
-}
-
-export function parseMarketingOverviewCacheKey(cacheKey: string): {
-  storeId: number;
-} | null {
-  const match = /^profit:marketing:overview:store:(\d+)$/.exec(cacheKey);
-  if (!match) {
-    return null;
-  }
-
-  return {
-    storeId: Number(match[1]),
-  };
-}
-
-export function parseMembersMetaCacheKey(cacheKey: string): {
-  storeId: number;
-} | null {
-  const match = /^profit:members:meta:store:(\d+)$/.exec(cacheKey);
-  if (!match) {
-    return null;
-  }
-
-  return {
-    storeId: Number(match[1]),
-  };
-}
-
-export function parseMembersOverviewCacheKey(cacheKey: string): {
-  storeId: number;
-} | null {
-  const match = /^profit:members:overview:store:(\d+)$/.exec(cacheKey);
-  if (!match) {
-    return null;
-  }
-
-  return {
-    storeId: Number(match[1]),
-  };
-}
-
-export function parseBusinessAnalysisCacheKey(cacheKey: string): {
-  storeId: number;
-  period: BusinessAnalysisPeriod;
-  startTime?: number;
-  endTime?: number;
-} | null {
-  const match =
-    /^profit:business-analysis:store:(\d+):period:([^:]+):start:([^:]+):end:([^:]+):export:([01])$/.exec(
-      cacheKey,
-    );
-  if (!match) {
-    return null;
-  }
-
-  const [, rawStoreId, rawPeriod, rawStartTime, rawEndTime] = match;
-  if (!isBusinessAnalysisPeriod(rawPeriod)) {
-    return null;
-  }
-
-  return {
-    storeId: Number(rawStoreId),
-    period: rawPeriod,
-    startTime: rawStartTime === 'na' ? undefined : Number(rawStartTime),
-    endTime: rawEndTime === 'na' ? undefined : Number(rawEndTime),
-  };
-}
-
-export function buildMarketingPromotionsListCacheKey(
-  storeId: number,
-  status: string,
-  page: number,
-  pageSize: number,
-): string {
-  return `profit:marketing:promotions:list:store:${storeId}:status:${status}:page:${page}:pageSize:${pageSize}`;
-}
-
-export function buildMarketingPromotionsListPattern(storeId: number): string {
-  return `profit:marketing:promotions:list:store:${storeId}:*`;
-}
-
-export function buildMarketingCustomersListCacheKey(
-  storeId: number,
-  status: string,
-  tier: string,
-  keyword: string,
-  page: number,
-  pageSize: number,
-  name: string = '',
-  phone: string = '',
-): string {
-  return [
-    'profit:marketing:customers:list',
-    `store:${storeId}`,
-    `status:${status}`,
-    `tier:${tier}`,
-    `keyword:${encodeURIComponent(keyword || 'na')}`,
-    `name:${encodeURIComponent(name || 'na')}`,
-    `phone:${encodeURIComponent(phone || 'na')}`,
-    `page:${page}`,
-    `pageSize:${pageSize}`,
-  ].join(':');
-}
-
-export function buildMarketingCustomersListPattern(storeId: number): string {
-  return `profit:marketing:customers:list:store:${storeId}:*`;
-}
-
-// ── Profit Detail 缓存键 ──
-
-export function buildProfitDetailCacheKey(
-  storeId: number,
-  query: ProfitDetailCacheQuery,
-): string {
-  return [
-    'profit:profit-detail',
-    `store:${storeId}`,
-    `scope:${query.scope ?? 'owner'}`,
-    `period:${toCacheSegment(query.period)}`,
-    `year:${toCacheSegment(query.year)}`,
-    `customDate:${toCacheSegment(query.customDate)}`,
-    `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
-    `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
-    `startTime:${toCacheSegment(query.startTime)}`,
-    `endTime:${toCacheSegment(query.endTime)}`,
-  ].join(':');
-}
-
-export function buildProfitDetailPattern(storeId: number): string {
-  return `profit:profit-detail:store:${storeId}:*`;
-}
-
-export function buildProfitDetailAllPattern(): string {
-  return 'profit:profit-detail:store:*';
-}
-
-// ── Profit Report 缓存键 ──
-
-export function buildProfitReportCacheKey(
-  storeId: number,
-  query: ProfitDetailCacheQuery,
-): string {
-  return [
-    'profit:profit-report',
-    `store:${storeId}`,
-    `scope:${query.scope ?? 'owner'}`,
-    `period:${toCacheSegment(query.period)}`,
-    `year:${toCacheSegment(query.year)}`,
-    `customDate:${toCacheSegment(query.customDate)}`,
-    `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
-    `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
-    `startTime:${toCacheSegment(query.startTime)}`,
-    `endTime:${toCacheSegment(query.endTime)}`,
-  ].join(':');
-}
-
-export function buildProfitReportPattern(storeId: number): string {
-  return `profit:profit-report:store:${storeId}:*`;
-}
-
-export function buildProfitReportAllPattern(): string {
-  return 'profit:profit-report:store:*';
-}
-
-function parseProfitCacheKeyInternal(
-  cacheKey: string,
-  prefix: 'profit:profit-detail' | 'profit:profit-report',
-): {
-  storeId: number;
-  period?: string;
-  year?: number;
-  customDate?: number;
-  rangeStartDate?: number;
-  rangeEndDate?: number;
-  startTime?: number;
-  endTime?: number;
-} | null {
-  const match =
-    new RegExp(`^${prefix}:store:(\\d+):scope:(owner|sub_account):period:([^:]+):year:([^:]+):customDate:([^:]+):rangeStart:([^:]+):rangeEnd:([^:]+):startTime:([^:]+):endTime:([^:]+)$`).exec(
-      cacheKey,
-    );
-  if (!match) {
-    return null;
-  }
-
-  const [, rawStoreId, , rawPeriod, rawYear, rawCustomDate, rawRangeStart, rawRangeEnd, rawStartTime, rawEndTime] = match;
-
-  return {
-    storeId: Number(rawStoreId),
-    period: rawPeriod === 'na' ? undefined : rawPeriod,
-    year: rawYear === 'na' ? undefined : Number(rawYear),
-    customDate: rawCustomDate === 'na' ? undefined : Number(rawCustomDate),
-    rangeStartDate: rawRangeStart === 'na' ? undefined : Number(rawRangeStart),
-    rangeEndDate: rawRangeEnd === 'na' ? undefined : Number(rawRangeEnd),
-    startTime: rawStartTime === 'na' ? undefined : Number(rawStartTime),
-    endTime: rawEndTime === 'na' ? undefined : Number(rawEndTime),
-  };
-}
-
-export function parseProfitDetailCacheKey(cacheKey: string): {
-  storeId: number;
-  period?: string;
-  year?: number;
-  customDate?: number;
-  rangeStartDate?: number;
-  rangeEndDate?: number;
-  startTime?: number;
-  endTime?: number;
-} | null {
-  return parseProfitCacheKeyInternal(cacheKey, 'profit:profit-detail');
-}
-
-export function parseProfitReportCacheKey(cacheKey: string): {
-  storeId: number;
-  period?: string;
-  year?: number;
-  customDate?: number;
-  rangeStartDate?: number;
-  rangeEndDate?: number;
-  startTime?: number;
-  endTime?: number;
-} | null {
-  return parseProfitCacheKeyInternal(cacheKey, 'profit:profit-report');
-}
-
-// ── Finance Report 缓存键 ──
-
-export function buildFinanceReportCacheKey(
-  storeId: number,
-  query: FinanceReportCacheQuery,
-): string {
-  return [
-    'profit:finance:report',
-    `store:${storeId}`,
-    `scope:${query.scope ?? 'owner'}`,
-    `period:${toCacheSegment(query.period)}`,
-    `year:${toCacheSegment(query.year)}`,
-    `customDate:${toCacheSegment(query.customDate)}`,
-    `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
-    `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
-  ].join(':');
-}
-
-export function buildFinanceReportPattern(storeId: number): string {
-  return `profit:finance:report:store:${storeId}:*`;
-}
-
-export function buildFinanceReportAllPattern(): string {
-  return 'profit:finance:report:store:*';
-}
-
-// ── Costs 缓存键 ──
-
-export function buildCostsStatsCacheKey(
-  storeId: number,
-  query: CostsStatsCacheQuery,
-): string {
-  return [
-    'profit:costs:stats',
-    `store:${storeId}`,
-    `period:${toCacheSegment(query.period)}`,
-    `typeFilter:${toCacheSegment(query.typeFilter)}`,
-    `customDate:${toCacheSegment(query.customDate)}`,
-    `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
-    `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
-  ].join(':');
-}
-
-export function buildCostsStatsPattern(storeId: number): string {
-  return `profit:costs:stats:store:${storeId}:*`;
-}
-
-export function buildCostsReportCacheKey(
-  storeId: number,
-  query: CostsReportCacheQuery,
-): string {
-  return [
-    'profit:costs:report',
-    `store:${storeId}`,
-    `period:${toCacheSegment(query.period)}`,
-    `year:${toCacheSegment(query.year)}`,
-    `customDate:${toCacheSegment(query.customDate)}`,
-    `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
-    `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
-    `category:${toCacheSegment(query.categoryFilter)}`,
-  ].join(':');
-}
-
-export function buildCostsReportPattern(storeId: number): string {
-  return `profit:costs:report:store:${storeId}:*`;
-}
-
-export function buildCostsReportAllPattern(): string {
-  return 'profit:costs:report:store:*';
-}
-
-export function buildCostsRecordsCacheKey(
-  storeId: number,
-  query: CostsRecordsCacheQuery,
-): string {
-  return [
-    'profit:costs:records',
-    `store:${storeId}`,
-    `period:${toCacheSegment(query.period)}`,
-    `typeFilter:${toCacheSegment(query.typeFilter)}`,
-    `customDate:${toCacheSegment(query.customDate)}`,
-    `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
-    `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
-  ].join(':');
-}
-
-export function buildCostsRecordsPattern(storeId: number): string {
-  return `profit:costs:records:store:${storeId}:*`;
-}
-
-export function buildCostsAllPattern(): string {
-  return 'profit:costs:*:store:*';
-}
-
-export function buildCostsDashboardCacheKey(
-  storeId: number,
-  query: CostsStatsCacheQuery,
-): string {
-  return [
-    'profit:costs:dashboard',
-    `store:${storeId}`,
-    `period:${toCacheSegment(query.period)}`,
-    `typeFilter:${toCacheSegment(query.typeFilter)}`,
-    `customDate:${toCacheSegment(query.customDate)}`,
-    `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
-    `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
-  ].join(':');
-}
-
-export function buildCostsDashboardPattern(storeId: number): string {
-  return `profit:costs:dashboard:store:${storeId}:*`;
-}

@@ -4,7 +4,9 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { PlatformMembershipAccessModule } from '../member/platform-membership/platform-membership-access.module';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
-import { AuthAccountMembershipService } from './auth-account-membership.service';
+import { AuthBanGuardService } from './auth-ban-guard.service';
+import { AuthMembershipResolverService } from './auth-membership-resolver.service';
+import { AuthStaffActivationService } from './auth-staff-activation.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCapabilityService } from './auth-capability.service';
@@ -48,7 +50,9 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthService,
     AuthAccountService,
     AuthAccountLookupService,
-    AuthAccountMembershipService,
+    AuthBanGuardService,
+    AuthMembershipResolverService,
+    AuthStaffActivationService,
     AuthAuthenticationService,
     AuthCapabilityService,
     AuthCodeService,

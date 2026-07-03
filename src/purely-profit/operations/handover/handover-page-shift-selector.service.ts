@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { EmployeeShiftType } from '@prisma/client';
 import { HandoverPageShiftRecordService } from './handover-page-shift-record.service';
+import { HandoverShiftHandoverStatusService } from './handover-shift-handover-status.service';
 import {
   isCashierMembership,
   type MembershipContext,
@@ -13,6 +14,7 @@ import {
 export class HandoverPageShiftSelectorService {
   constructor(
     private readonly handoverPageShiftRecordService: HandoverPageShiftRecordService,
+    private readonly handoverShiftHandoverStatusService: HandoverShiftHandoverStatusService,
   ) {}
 
   async resolveShiftSelection(params: {
@@ -66,7 +68,7 @@ export class HandoverPageShiftSelectorService {
       requestedShiftType,
     );
     const requestedShiftCompleted = requestedShiftType
-      ? await this.handoverPageShiftRecordService.isShiftHandedOver(
+      ? await this.handoverShiftHandoverStatusService.isShiftHandedOver(
           membership.storeId,
           requestedShiftRecord,
         )
@@ -203,7 +205,7 @@ export class HandoverPageShiftSelectorService {
     }
 
     const targetShiftCompleted =
-      await this.handoverPageShiftRecordService.isShiftHandedOver(
+      await this.handoverShiftHandoverStatusService.isShiftHandedOver(
         storeId,
         targetShiftRecord,
       );

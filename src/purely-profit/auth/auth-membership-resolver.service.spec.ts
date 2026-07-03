@@ -1,21 +1,17 @@
 import { StaffRole, StaffStatus } from '@prisma/client';
-import { AuthAccountMembershipService } from './auth-account-membership.service';
+import { AuthMembershipResolverService } from './auth-membership-resolver.service';
 import type { AuthenticatedMembership } from '../access-control/access-control.service';
 
-describe('AuthAccountMembershipService', () => {
+describe('AuthMembershipResolverService', () => {
   const prisma = {
     $queryRaw: jest.fn(),
     store: {
       findFirst: jest.fn(),
-      findMany: jest.fn(),
     },
     staff: {
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
-      count: jest.fn(),
-      findMany: jest.fn(),
-      updateMany: jest.fn(),
     },
   };
 
@@ -23,16 +19,14 @@ describe('AuthAccountMembershipService', () => {
     get: jest.fn(),
     getJson: jest.fn().mockResolvedValue(null),
     setJson: jest.fn().mockResolvedValue(undefined),
-    mgetJson: jest.fn().mockResolvedValue([]),
-    delByPattern: jest.fn().mockResolvedValue(undefined),
   };
 
   const accessControlService = {
     buildMembershipContext: jest.fn(),
   };
 
-  const createService = (): AuthAccountMembershipService =>
-    new AuthAccountMembershipService(
+  const createService = (): AuthMembershipResolverService =>
+    new AuthMembershipResolverService(
       prisma as never,
       redisService as never,
       accessControlService as never,
@@ -40,7 +34,6 @@ describe('AuthAccountMembershipService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    prisma.store.findMany.mockResolvedValue([]);
   });
 
   it('老店主仅存在 stores.ownerId 时会自动补齐 OWNER staff 并返回 membership', async () => {

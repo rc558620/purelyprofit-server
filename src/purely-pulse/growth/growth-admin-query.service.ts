@@ -6,7 +6,7 @@ import {
   buildPulseGrowthAdminPartnerApplicationsCacheKey,
   buildPulseGrowthAdminPayoutsCacheKey,
 } from '../pulse.cache-keys';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import {
   PULSE_ADMIN_PARTNER_APPLICATION_DEFAULT_LIMIT,
   PULSE_ADMIN_PAYOUT_DEFAULT_LIMIT,
@@ -40,7 +40,7 @@ const PULSE_GROWTH_ADMIN_REFRESH_AFTER_MS = 10_000;
 export class PulseGrowthAdminQueryService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly accessService: PulseGrowthAccessService,
   ) {}
 
@@ -72,7 +72,7 @@ export class PulseGrowthAdminQueryService {
       limit: cursorPagination.limit,
     });
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PULSE_GROWTH_ADMIN_CACHE_TTL_SECONDS,
@@ -106,7 +106,7 @@ export class PulseGrowthAdminQueryService {
       limit: cursorPagination.limit,
     });
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PULSE_GROWTH_ADMIN_CACHE_TTL_SECONDS,

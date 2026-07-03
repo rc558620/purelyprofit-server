@@ -1,3 +1,4 @@
+import { toCacheSegment } from '../../redis/cache-keys.shared';
 import {
   FINANCE_OVERVIEW_PERIOD_VALUES,
   type FinanceAccountsListQueryInput,
@@ -10,14 +11,19 @@ export type FinanceCashFlowCacheKeyQuery = FinanceCashFlowListQueryInput & {
   scope: 'owner' | 'sub_account';
 };
 
+type FinanceReportCacheQuery = {
+  period?: string;
+  year?: number | null;
+  customDate?: number | null;
+  rangeStartDate?: number | null;
+  rangeEndDate?: number | null;
+  scope?: 'owner' | 'sub_account';
+};
+
 function isFinanceOverviewPeriodValue(
   value: string,
 ): value is FinanceOverviewPeriodValue {
   return (FINANCE_OVERVIEW_PERIOD_VALUES as readonly string[]).includes(value);
-}
-
-function toCacheSegment(value: string | number | null | undefined): string {
-  return encodeURIComponent(String(value ?? 'na'));
 }
 
 export function buildFinanceOverviewCacheKey(
@@ -132,6 +138,22 @@ export function buildFinanceReconciliationsStatsCacheKey(
 
 export function buildFinanceReconciliationsPattern(storeId: number): string {
   return `profit:finance:reconciliations:*:store:${storeId}*`;
+}
+
+export function buildFinanceReportCacheKey(
+  storeId: number,
+  query: FinanceReportCacheQuery,
+): string {
+  return [
+    'profit:finance:report',
+    `store:${storeId}`,
+    `scope:${query.scope ?? 'owner'}`,
+    `period:${toCacheSegment(query.period)}`,
+    `year:${toCacheSegment(query.year)}`,
+    `customDate:${toCacheSegment(query.customDate)}`,
+    `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
+    `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
+  ].join(':');
 }
 
 export function buildFinanceReportPattern(storeId: number): string {

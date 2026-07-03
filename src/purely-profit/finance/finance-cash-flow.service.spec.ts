@@ -3,7 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CacheInvalidatorService } from '../../redis/invalidator';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { FinanceCashFlowService } from './finance-cash-flow.service';
 import {
   createFinanceCashFlowPrismaMock,
@@ -20,7 +20,7 @@ describe('FinanceCashFlowService', () => {
   let platformMembershipAccessService: ReturnType<
     typeof createPlatformMembershipAccessServiceMock
   >;
-  let redisService: Pick<RedisService, 'getOrLoadRefreshableJson'>;
+  let refreshableCache: Pick<RefreshableCacheService, 'getOrLoadRefreshableJson'>;
   let cacheInvalidatorService: Pick<
     CacheInvalidatorService,
     'invalidateFinanceDerived'
@@ -42,7 +42,7 @@ describe('FinanceCashFlowService', () => {
     }).compile();
 
     service = module.get<FinanceCashFlowService>(FinanceCashFlowService);
-    redisService = module.get(RedisService);
+    refreshableCache = module.get(RefreshableCacheService);
     cacheInvalidatorService = module.get(CacheInvalidatorService);
   });
 
@@ -74,7 +74,7 @@ describe('FinanceCashFlowService', () => {
     });
     expect(prismaService.financeCashFlowRecord.count).not.toHaveBeenCalled();
     expect(prismaService.financeCashFlowRecord.findMany).not.toHaveBeenCalled();
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey:
           'profit:finance:cash-flow:list:store:18:scope:owner:period:month:direction:all:customDayYear:na:customDayMonth:na:customDayDay:na:customRangeStartYear:na:customRangeStartMonth:na:customRangeStartDay:na:customRangeEndYear:na:customRangeEndMonth:na:customRangeEndDay:na:page:2:pageSize:5',
@@ -168,7 +168,7 @@ describe('FinanceCashFlowService', () => {
     expect(prismaService.financeCashFlowRecord.findMany).toHaveBeenCalledTimes(
       1,
     );
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey:
           'profit:finance:cash-flow:stats:store:18:scope:owner:period:month:direction:all:customDayYear:na:customDayMonth:na:customDayDay:na:customRangeStartYear:na:customRangeStartMonth:na:customRangeStartDay:na:customRangeEndYear:na:customRangeEndMonth:na:customRangeEndDay:na',

@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { BusinessAnalysisService } from '../../purely-profit/dashboard/business-analysis/business-analysis.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import { DashboardAggregatorService } from './dashboard-aggregator.service';
 import { DEFAULT_DASHBOARD_OVERVIEW_PERIOD } from './dashboard.constants';
@@ -20,7 +20,7 @@ describe('PulseDashboardOverviewService', () => {
     },
   };
 
-  const redisService = {
+  const refreshableCache = {
     getOrLoadRefreshableJson: jest.fn(),
   };
 
@@ -55,7 +55,7 @@ describe('PulseDashboardOverviewService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-30T12:00:00.000Z'));
     jest.clearAllMocks();
-    redisService.getOrLoadRefreshableJson.mockImplementation(
+    refreshableCache.getOrLoadRefreshableJson.mockImplementation(
       async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
         loadValue(),
     );
@@ -64,7 +64,7 @@ describe('PulseDashboardOverviewService', () => {
       providers: [
         PulseDashboardOverviewService,
         { provide: PrismaService, useValue: prismaService },
-        { provide: RedisService, useValue: redisService },
+        { provide: RefreshableCacheService, useValue: refreshableCache },
         {
           provide: DashboardAggregatorService,
           useValue: dashboardAggregatorService,
@@ -121,12 +121,12 @@ describe('PulseDashboardOverviewService', () => {
       ownerId: 301,
       ownerName: '张三',
     });
-    redisService.getOrLoadRefreshableJson.mockResolvedValue(cachedResponse);
+    refreshableCache.getOrLoadRefreshableJson.mockResolvedValue(cachedResponse);
 
     await expect(service.getOverview(user, {})).resolves.toEqual(
       cachedResponse,
     );
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey: 'pulse:dashboard:overview:store:18:period:today',
         ttlSeconds: 20,
@@ -184,7 +184,7 @@ describe('PulseDashboardOverviewService', () => {
       revenue: 1000,
       totalCost: 650,
     });
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey: 'pulse:dashboard:overview:store:18:period:today',
         ttlSeconds: 20,

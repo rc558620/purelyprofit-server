@@ -2,8 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { EmployeeShiftType } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { HandoverPageQueryDto } from './dto/handover-page.dto';
-import { buildPageShiftInfo } from './handover-page.shared';
+import { buildPageShiftInfo } from './handover-page-shift-info';
 import { HandoverPageShiftRecordService } from './handover-page-shift-record.service';
+import { HandoverShiftHandoverStatusService } from './handover-shift-handover-status.service';
 import { HandoverPageShiftSelectorService } from './handover-page-shift-selector.service';
 import { HandoverPageShiftViewService } from './handover-page-shift-view.service';
 import {
@@ -17,6 +18,7 @@ import {
 export class HandoverPageShiftService {
   constructor(
     private readonly handoverPageShiftRecordService: HandoverPageShiftRecordService,
+    private readonly handoverShiftHandoverStatusService: HandoverShiftHandoverStatusService,
     private readonly handoverPageShiftSelectorService: HandoverPageShiftSelectorService,
     private readonly handoverPageShiftViewService: HandoverPageShiftViewService,
   ) {}
@@ -41,7 +43,7 @@ export class HandoverPageShiftService {
     const shiftType =
       shiftRecord?.shiftType ?? query.shiftType ?? EmployeeShiftType.morning;
     const ownedShiftCompleted =
-      await this.handoverPageShiftRecordService.isShiftHandedOver(
+      await this.handoverShiftHandoverStatusService.isShiftHandedOver(
         membership.storeId,
         operationShiftRecord,
       );

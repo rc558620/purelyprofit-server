@@ -115,8 +115,20 @@ export class HandoverOrderItemDto {
   })
   operatorRole?: StaffRole | null;
 
-  @ApiProperty({ example: 1748765400000, description: '订单时间戳(ms)' })
+  @ApiProperty({
+    example: 1748765400000,
+    description: '排序时间戳(ms)，同批次项共享同一值以聚合展示',
+  })
   date: number;
+
+  @IsOptional()
+  @ApiProperty({
+    example: 1748761200000,
+    description:
+      '业务事件展示时间戳(ms)：开台=SpaceSession.startTime，续费=renewedAt，结账/普通=date。前端显示用此字段。',
+    required: false,
+  })
+  displayDate?: number;
 
   @ApiProperty({
     example: 18,

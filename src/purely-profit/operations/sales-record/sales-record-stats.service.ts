@@ -8,7 +8,7 @@ import {
   buildCacheRefreshTaskKey,
   buildSalesStatsCacheKey,
 } from '../../../redis/keys';
-import { RedisService } from '../../../redis/redis.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import type {
   SalesStatsQueryDto,
   SalesStatsResponseDto,
@@ -30,7 +30,7 @@ const SALES_STATS_REFRESH_AFTER_MS = 15_000;
 export class SalesRecordStatsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
@@ -68,7 +68,7 @@ export class SalesRecordStatsService {
           : undefined,
     });
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: SALES_STATS_CACHE_TTL_SECONDS,

@@ -4,7 +4,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import { buildPulseDashboardHomeCacheKey } from '../pulse.cache-keys';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import {
   DEFAULT_HOME_REVENUE_PERIOD,
   ONLINE_CHANGE_RATIO,
@@ -47,7 +47,7 @@ const PULSE_DASHBOARD_HOME_REFRESH_AFTER_MS = 10_000;
 export class PulseDashboardHomeService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
   async getHome(
@@ -58,7 +58,7 @@ export class PulseDashboardHomeService {
     const region = queryDto.region;
     const cacheKey = buildPulseDashboardHomeCacheKey(revenuePeriod, region);
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PULSE_DASHBOARD_HOME_CACHE_TTL_SECONDS,
@@ -150,7 +150,9 @@ export class PulseDashboardHomeService {
     ] = dashboardData;
 
     const totalOrders = promoRecordSummary._count._all;
-    const totalRevenue = Money.fromDbCents(promoRecordSummary._sum.chargedAmount ?? 0).toOutputYuan();
+    const totalRevenue = Money.fromDbCents(
+      promoRecordSummary._sum.chargedAmount ?? 0,
+    ).toOutputYuan();
     const activeRate =
       totalPartners > 0
         ? Math.round((activePartnerCount / totalPartners) * 100)
@@ -285,13 +287,13 @@ export class PulseDashboardHomeService {
     const previousTotal = orders
       .filter((order) => isTimeInRange(order.createdAt, previousRange))
       .reduce((sum, order) => sum + order.amount, 0);
-    const total = Money.sum(periodOrders.map((order) => Money.fromDbCents(order.amount))).toOutputYuan();
+    const total = Money.sum(
+      periodOrders.map((order) => Money.fromDbCents(order.amount)),
+    ).toOutputYuan();
 
     return {
-      revenueTrend: buildRevenueTrend(
-        periodOrders,
-        period,
-        (amountFen) => Money.fromDbCents(amountFen).toOutputYuan(),
+      revenueTrend: buildRevenueTrend(periodOrders, period, (amountFen) =>
+        Money.fromDbCents(amountFen).toOutputYuan(),
       ),
       revenueSummary: {
         total,

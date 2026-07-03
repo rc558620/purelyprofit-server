@@ -2,7 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import { SessionBootstrapService } from './session-bootstrap.service';
 import { SessionNotificationService } from './session-notification.service';
@@ -30,7 +30,7 @@ describe('SessionBootstrapService', () => {
     countUnreadNotifications: jest.fn(),
   };
 
-  const redisService = {
+  const refreshableCache = {
     getOrLoadRefreshableJson: jest.fn(),
   };
 
@@ -50,7 +50,7 @@ describe('SessionBootstrapService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-21T12:00:00.000Z'));
     jest.clearAllMocks();
-    redisService.getOrLoadRefreshableJson.mockImplementation(
+    refreshableCache.getOrLoadRefreshableJson.mockImplementation(
       async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
         loadValue(),
     );
@@ -59,7 +59,7 @@ describe('SessionBootstrapService', () => {
       providers: [
         SessionBootstrapService,
         { provide: PrismaService, useValue: prismaService },
-        { provide: RedisService, useValue: redisService },
+        { provide: RefreshableCacheService, useValue: refreshableCache },
         {
           provide: PulseStoreContextService,
           useValue: pulseStoreContextService,
@@ -115,7 +115,7 @@ describe('SessionBootstrapService', () => {
       },
       source: 'selected',
     });
-    redisService.getOrLoadRefreshableJson.mockResolvedValue(cachedResponse);
+    refreshableCache.getOrLoadRefreshableJson.mockResolvedValue(cachedResponse);
 
     await expect(service.bootstrap(user)).resolves.toEqual(cachedResponse);
     expect(prismaService.user.findUnique).not.toHaveBeenCalled();
@@ -246,7 +246,7 @@ describe('SessionBootstrapService', () => {
     expect(
       sessionNotificationService.countUnreadNotifications,
     ).not.toHaveBeenCalled();
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey: 'pulse:session:bootstrap:user:101:mode:normal:store:none',
         ttlSeconds: 15,

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { HandoverPageShiftRecordService } from './handover-page-shift-record.service';
+import { HandoverShiftHandoverStatusService } from './handover-shift-handover-status.service';
 
 /**
  * 轻量共享模块，仅提供 HandoverPageShiftRecordService。
@@ -14,7 +15,10 @@ import { HandoverPageShiftRecordService } from './handover-page-shift-record.ser
  *   HandoverModule    → HandoverShiftModule + SpacesModule（单向）
  */
 @Module({
-  providers: [HandoverPageShiftRecordService],
-  exports: [HandoverPageShiftRecordService],
+  providers: [
+    HandoverPageShiftRecordService,
+    HandoverShiftHandoverStatusService,
+  ],
+  exports: [HandoverPageShiftRecordService, HandoverShiftHandoverStatusService],
 })
 export class HandoverShiftModule {}

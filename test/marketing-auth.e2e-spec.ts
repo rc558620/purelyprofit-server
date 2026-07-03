@@ -7,7 +7,8 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AccessControlService } from '../src/purely-profit/access-control/access-control.service';
 import { PermissionsGuard } from '../src/purely-profit/access-control/guards/permissions.guard';
-import { AuthAccountMembershipService } from '../src/purely-profit/auth/auth-account-membership.service';
+import { AuthBanGuardService } from '../src/purely-profit/auth/auth-ban-guard.service';
+import { AuthMembershipResolverService } from '../src/purely-profit/auth/auth-membership-resolver.service';
 import { AuthSessionService } from '../src/purely-profit/auth/auth-session.service';
 import { JwtAuthGuard } from '../src/purely-profit/auth/guards/jwt-auth.guard';
 import { JwtStrategy } from '../src/purely-profit/auth/strategies/jwt.strategy';
@@ -48,8 +49,10 @@ describe('Marketing auth chain (e2e)', () => {
     },
   };
 
-  const authAccountMembershipService = {
+  const authBanGuardService = {
     ensureUserNotBanned: jest.fn(),
+  };
+  const authMembershipResolverService = {
     resolveAuthenticatedMembership: jest.fn(),
   };
 
@@ -149,8 +152,12 @@ describe('Marketing auth chain (e2e)', () => {
           useValue: prismaService,
         },
         {
-          provide: AuthAccountMembershipService,
-          useValue: authAccountMembershipService,
+          provide: AuthBanGuardService,
+          useValue: authBanGuardService,
+        },
+        {
+          provide: AuthMembershipResolverService,
+          useValue: authMembershipResolverService,
         },
         {
           provide: AuthSessionService,
@@ -190,9 +197,7 @@ describe('Marketing auth chain (e2e)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    authAccountMembershipService.ensureUserNotBanned.mockResolvedValue(
-      undefined,
-    );
+    authBanGuardService.ensureUserNotBanned.mockResolvedValue(undefined);
     authSessionService.getTokenVersion.mockResolvedValue(0);
     platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
       undefined,
@@ -230,7 +235,7 @@ describe('Marketing auth chain (e2e)', () => {
         return Promise.resolve(record ?? null);
       },
     );
-    authAccountMembershipService.resolveAuthenticatedMembership.mockImplementation(
+    authMembershipResolverService.resolveAuthenticatedMembership.mockImplementation(
       ({ sub }: { sub: number }) =>
         Promise.resolve(membershipRecords[sub] ?? null),
     );
@@ -261,7 +266,7 @@ describe('Marketing auth chain (e2e)', () => {
       });
 
     expect(
-      authAccountMembershipService.resolveAuthenticatedMembership,
+      authMembershipResolverService.resolveAuthenticatedMembership,
     ).toHaveBeenCalledWith(
       expect.objectContaining({ sub: 101 }),
       'legacy-owner@example.com',

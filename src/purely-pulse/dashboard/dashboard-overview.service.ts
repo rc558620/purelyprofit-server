@@ -8,7 +8,7 @@ import {
   buildPulseDashboardOverviewCacheKey,
   buildPulseDashboardStoresCacheKey,
 } from '../pulse.cache-keys';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import type { PulseTargetStoreSummary } from '../pulse-store-context.types';
@@ -62,7 +62,7 @@ const PULSE_DASHBOARD_OVERVIEW_REFRESH_AFTER_MS = 10_000;
 export class PulseDashboardOverviewService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly dashboardAggregatorService: DashboardAggregatorService,
     private readonly businessAnalysisService: BusinessAnalysisService,
     private readonly pulseStoreContextService: PulseStoreContextService,
@@ -83,7 +83,7 @@ export class PulseDashboardOverviewService {
       period,
     );
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PULSE_DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS,
@@ -104,7 +104,7 @@ export class PulseDashboardOverviewService {
     );
     const cacheKey = buildPulseDashboardStoresCacheKey(targetStore.id, period);
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PULSE_DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS,

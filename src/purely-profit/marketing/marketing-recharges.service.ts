@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import type {
   CreateRechargeDto,
@@ -129,53 +129,63 @@ export class MarketingRechargesService {
     const giftMoney = Money.fromDbCents(dto.giftAmount ?? 0);
     const totalMoney = rechargeMoney.add(giftMoney);
 
-    if (rechargeType === 'refund' && Money.fromDbCents(customer.balance).lessThan(rechargeMoney)) {
+    if (
+      rechargeType === 'refund' &&
+      Money.fromDbCents(customer.balance).lessThan(rechargeMoney)
+    ) {
       throw new BadRequestException('退款金额不能超过顾客当前余额');
     }
 
-    const [rechargeRecord] = await this.prisma.$transaction(async (tx) => {
-      // 事务内重新读取最新余额，防止并发退款导致余额变负
-      if (rechargeType === 'refund') {
-        const freshCustomer = await tx.marketingCustomer.findUnique({
-          where: { id: dto.customerId },
-          select: { balance: true },
-        });
-        if (!freshCustomer || Money.fromDbCents(freshCustomer.balance).lessThan(rechargeMoney)) {
-          throw new BadRequestException('退款金额不能超过顾客当前余额');
+    const [rechargeRecord] = await this.prisma.$transaction(
+      async (tx) => {
+        // 事务内重新读取最新余额，防止并发退款导致余额变负
+        if (rechargeType === 'refund') {
+          const freshCustomer = await tx.marketingCustomer.findUnique({
+            where: { id: dto.customerId },
+            select: { balance: true },
+          });
+          if (
+            !freshCustomer ||
+            Money.fromDbCents(freshCustomer.balance).lessThan(rechargeMoney)
+          ) {
+            throw new BadRequestException('退款金额不能超过顾客当前余额');
+          }
         }
-      }
 
-      const recharge = await tx.marketingRecharge.create({
-        data: {
-          storeId,
-          customerId: dto.customerId,
-          amount: rechargeMoney.toDbCents(),
-          giftAmount: giftMoney.toDbCents(),
-          totalAmount: totalMoney.toDbCents(),
-          type: rechargeType as never,
-          promotionId: dto.promotionId ?? null,
-          note: dto.note?.trim() || null,
-        },
-      });
-
-      const balanceDelta = rechargeType === 'refund'
-        ? rechargeMoney.negate().toDbCents()
-        : totalMoney.toDbCents();
-
-      await tx.marketingCustomer.update({
-        where: { id: dto.customerId },
-        data: { balance: { increment: balanceDelta } },
-      });
-
-      if (dto.promotionId) {
-        await tx.marketingPromotion.updateMany({
-          where: { id: dto.promotionId, storeId },
-          data: { usageCount: { increment: 1 } },
+        const recharge = await tx.marketingRecharge.create({
+          data: {
+            storeId,
+            customerId: dto.customerId,
+            amount: rechargeMoney.toDbCents(),
+            giftAmount: giftMoney.toDbCents(),
+            totalAmount: totalMoney.toDbCents(),
+            type: rechargeType as never,
+            promotionId: dto.promotionId ?? null,
+            note: dto.note?.trim() || null,
+          },
         });
-      }
 
-      return [recharge] as const;
-    });
+        const balanceDelta =
+          rechargeType === 'refund'
+            ? rechargeMoney.negate().toDbCents()
+            : totalMoney.toDbCents();
+
+        await tx.marketingCustomer.update({
+          where: { id: dto.customerId },
+          data: { balance: { increment: balanceDelta } },
+        });
+
+        if (dto.promotionId) {
+          await tx.marketingPromotion.updateMany({
+            where: { id: dto.promotionId, storeId },
+            data: { usageCount: { increment: 1 } },
+          });
+        }
+
+        return [recharge] as const;
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
     const row = await queryRechargeRowById(this.prisma, rechargeRecord.id);
     if (!row) {

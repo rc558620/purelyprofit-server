@@ -104,6 +104,7 @@ export type OrderItemRow = {
       } | null;
     } | null;
     spaceSession: {
+      startTime: Date;
       prepaidPaymentMethod: SalesPaymentMethod | null;
       /// Step 8.1: renewRecords 已拆为独立表
       sessionRenewRecords: Array<{

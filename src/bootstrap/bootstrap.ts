@@ -13,43 +13,13 @@ import etag from '@fastify/etag';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from '../app.module';
 import { setupHttpObservability } from './http-observability';
-import { listenWithPortFallback, terminateNodeProcessesInPortRange } from './port.utils';
+import {
+  listenWithPortFallback,
+  terminateNodeProcessesInPortRange,
+} from './port.utils';
 import { validateProductionConfiguration } from './production-config.utils';
 import { createRequestIdGenerator } from './request-id.utils';
 import { filterSwaggerDocumentForEnvironment } from './swagger.utils';
-
-/**
- * 轻量的 BigInt/Decimal 安全 JSON 序列化。
- *
- * 使用 JSON.stringify replacer 而非递归遍历整个对象树：
- * - 只有实际遇到 BigInt 时才转换，其余值走原生序列化路径
- * - Prisma.Decimal（duck-typing：有 toNumber 且非 Date/Array）→ Number
- * - 不再在序列化前做 normalizeForSerialization 深遍历
- *
- * 此函数作为全局 replySerializer 的兜底，正常情况下数据层已经
- * 将 BigInt/Decimal 显式转为 number/string，replacer 不会被触发。
- */
-function safeJsonStringify(value: unknown): string {
-  return JSON.stringify(value, (_key: string, v: unknown) => {
-    if (typeof v === 'bigint') {
-      return Number.isSafeInteger(Number(v)) ? Number(v) : String(v);
-    }
-    if (
-      typeof v === 'object' &&
-      v !== null &&
-      !Array.isArray(v) &&
-      !(v instanceof Date) &&
-      typeof (v as Record<string, unknown>).toNumber === 'function'
-    ) {
-      try {
-        return (v as { toNumber: () => number }).toNumber();
-      } catch {
-        return (v as { toString: () => string }).toString();
-      }
-    }
-    return v;
-  });
-}
 
 function resolveCorsOrigin(corsOrigin: string): true | string[] {
   if (corsOrigin === '*') {
@@ -91,7 +61,7 @@ function setupRawBodyForWechatCallback(app: NestFastifyApplication): void {
 
       // preParsing 在 content type parser 之前执行，此时数据尚未被解析。
       // 通过 PassThrough 流拦截原始数据，同时保存到 request.rawBody。
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Fastify onRoute preParsing 类型随版本变化，使用 any 兼容
+
       const rawBodyPreParsing = ((
         request: any,
         _reply: any,
@@ -116,15 +86,14 @@ function setupRawBodyForWechatCallback(app: NestFastifyApplication): void {
         done(null, passThrough);
       }) as never;
 
-      routeOptions.preParsing = [
-        ...preParsingHooks,
-        rawBodyPreParsing,
-      ];
+      routeOptions.preParsing = [...preParsingHooks, rawBodyPreParsing];
     }
   });
 }
 
-async function registerGlobalPlugins(app: NestFastifyApplication): Promise<void> {
+async function registerGlobalPlugins(
+  app: NestFastifyApplication,
+): Promise<void> {
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -157,7 +126,8 @@ function logBootstrapResult(options: {
   isProduction: boolean;
   swaggerEnabled: boolean;
 }): void {
-  const { listeningPort, preferredPort, isProduction, swaggerEnabled } = options;
+  const { listeningPort, preferredPort, isProduction, swaggerEnabled } =
+    options;
   const isWorker = !cluster.isPrimary;
 
   if (listeningPort !== preferredPort) {
@@ -222,25 +192,17 @@ export async function bootstrap(): Promise<void> {
   // 仅对微信支付回调路由注入 rawBody（签名校验需要原始请求体）
   setupRawBodyForWechatCallback(app);
 
-  // 注册 BigInt/Decimal 安全的响应序列化器作为兜底。
+  // 不再注册全局自定义 replySerializer。
   //
-  // 正常情况下，数据层已将 BigInt/Decimal 显式转为 number/string，
-  // replacer 不会被触发。此序列化器仅防止遗漏的 BigInt/Decimal
-  // 导致 JSON.stringify 抛出 TypeError（Fastify 默认的 fast-json-stringify
-  // 和原生 JSON.stringify 都无法处理 BigInt）。
+  // Fastify 默认的序列化路径（fast-json-stringify / JSON.stringify）
+  // 在不传入 replacer 函数时可获得 V8 原生优化。
   //
-  // 使用 replacer 而非 normalizeForSerialization 深遍历，
-  // 避免每个响应都递归遍历整个对象树带来的性能开销。
-  const fastifyInstance = app.getHttpAdapter().getInstance();
-  if (typeof fastifyInstance.setReplySerializer === 'function') {
-    fastifyInstance.setReplySerializer((payload: unknown) => {
-      if (typeof payload === 'string') {
-        return payload;
-      }
-      return safeJsonStringify(payload);
-    });
-  }
-
+  // 数据层已确保所有 BigInt/Decimal 在到达响应层前被显式转为
+  // number/string（参见 Money.fromDbCents().toOutputYuan() 等），
+  // 因此无需全局 replacer 兆底。
+  //
+  // 若后续新增接口遗漏了 Decimal 转换，将抛出 TypeError，
+  // 应在数据层而非序列化层修复。
   await registerGlobalPlugins(app);
 
   const configService = app.get(ConfigService);

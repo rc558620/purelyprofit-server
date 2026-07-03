@@ -1,0 +1,64 @@
+export function buildMarketingOverviewCacheKey(storeId: number): string {
+  return `profit:marketing:overview:store:${storeId}`;
+}
+
+export function buildMarketingOverviewPattern(storeId: number): string {
+  return `profit:marketing:overview:store:${storeId}:*`;
+}
+
+export function buildMarketingOverviewAllPattern(): string {
+  return 'profit:marketing:overview:store:*';
+}
+
+export function parseMarketingOverviewCacheKey(cacheKey: string): {
+  storeId: number;
+} | null {
+  const match = /^profit:marketing:overview:store:(\d+)$/.exec(cacheKey);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    storeId: Number(match[1]),
+  };
+}
+
+export function buildMarketingPromotionsListCacheKey(
+  storeId: number,
+  status: string,
+  page: number,
+  pageSize: number,
+): string {
+  return `profit:marketing:promotions:list:store:${storeId}:status:${status}:page:${page}:pageSize:${pageSize}`;
+}
+
+export function buildMarketingPromotionsListPattern(storeId: number): string {
+  return `profit:marketing:promotions:list:store:${storeId}:*`;
+}
+
+export function buildMarketingCustomersListCacheKey(
+  storeId: number,
+  status: string,
+  tier: string,
+  keyword: string,
+  page: number,
+  pageSize: number,
+  name: string = '',
+  phone: string = '',
+): string {
+  return [
+    'profit:marketing:customers:list',
+    `store:${storeId}`,
+    `status:${status}`,
+    `tier:${tier}`,
+    `keyword:${encodeURIComponent(keyword || 'na')}`,
+    `name:${encodeURIComponent(name || 'na')}`,
+    `phone:${encodeURIComponent(phone || 'na')}`,
+    `page:${page}`,
+    `pageSize:${pageSize}`,
+  ].join(':');
+}
+
+export function buildMarketingCustomersListPattern(storeId: number): string {
+  return `profit:marketing:customers:list:store:${storeId}:*`;
+}

@@ -141,17 +141,36 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
   const isOpenItem = timeCategory === 'session_start' && session != null;
   const operatorName = isOpenItem
     ? (toDisplayName(session.openOperatorNameSnapshot) ??
-       toDisplayName(session.openOperatorStaff?.name) ??
-       toDisplayName(item.order.operatorNameSnapshot) ??
-       toDisplayName(item.order.operatorStaff?.name) ??
-       '')
+      toDisplayName(session.openOperatorStaff?.name) ??
+      toDisplayName(item.order.operatorNameSnapshot) ??
+      toDisplayName(item.order.operatorStaff?.name) ??
+      '')
     : (toDisplayName(item.order.operatorNameSnapshot) ??
-       toDisplayName(item.order.operatorStaff?.name) ??
-       '');
+      toDisplayName(item.order.operatorStaff?.name) ??
+      '');
   const operatorRole = isOpenItem
     ? (resolveOperatorRole(session.openOperatorStaff) ??
-       resolveOperatorRole(item.order.operatorStaff))
+      resolveOperatorRole(item.order.operatorStaff))
     : resolveOperatorRole(item.order.operatorStaff);
+
+  // displayDate：业务语义时间，前端显示用
+  // session_start（开台）→ SpaceSession.startTime
+  // session_renew（续费）→ sessionRenewRecords 中最晚的 renewedAt
+  // 其他（结账/普通）→ SaleOrder.date
+  const displayDate = (() => {
+    if (timeCategory === 'session_start' && session?.startTime) {
+      return session.startTime.getTime();
+    }
+    if (
+      timeCategory === 'session_renew' &&
+      session?.sessionRenewRecords.length
+    ) {
+      return Math.max(
+        ...session.sessionRenewRecords.map((r) => Number(r.renewedAt)),
+      );
+    }
+    return item.order.date.getTime();
+  })();
 
   return {
     id: String(item.id),
@@ -162,7 +181,9 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
     paymentColor: PAYMENT_METHOD_CONFIG[paymentMethod].color,
     operatorName,
     operatorRole,
+    // date 始终用 SaleOrder.date，同结账批次项共享同一值，保证排序聚合
     date: item.order.date.getTime(),
+    displayDate,
     currentStock: item.product?.stock ?? null,
     stockUnit: item.product?.unit ?? null,
     timeCategory,
@@ -184,6 +205,7 @@ export const mapRefundOrderItem = (
     AUTO_SETTLEMENT_OPERATOR_NAME,
   operatorRole: resolveOperatorRole(order.operatorStaff),
   date: order.date.getTime(),
+  displayDate: order.date.getTime(),
   currentStock: null,
   stockUnit: null,
   timeCategory: 'session_end',

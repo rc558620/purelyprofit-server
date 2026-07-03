@@ -15,16 +15,18 @@ import type {
 import { HandoverPageShiftService } from './handover-page-shift.service';
 import {
   SALE_ORDER_ITEM_SELECT,
-  attachPaymentRatios,
   buildCashFlowWhere,
-  computeRefundAmountFromSessions,
   buildNonSpaceSessionOrderWhere,
   buildSaleOrderItemOrderWhere,
   buildSaleOrderWhere,
+} from './handover-page-query.builders';
+import { mergeDisplayedOrderItems } from './handover-page-order-items';
+import {
+  attachPaymentRatios,
+  computeRefundAmountFromSessions,
   mapPaymentItems,
-  mergeDisplayedOrderItems,
   sumPaymentAmounts,
-} from './handover-page.shared';
+} from './handover-page-payment';
 import {
   ORDER_ITEMS_LIMIT,
   buildShiftDateRange,

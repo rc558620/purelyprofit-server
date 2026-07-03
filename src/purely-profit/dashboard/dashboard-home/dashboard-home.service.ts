@@ -12,6 +12,7 @@ import {
   buildProfitDashboardHomeStatsCacheKey,
   buildProfitDashboardHomeTrendCacheKey,
 } from '../../../redis/keys';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { RedisService } from '../../../redis/redis.service';
 import type { GetDashboardHomeOverviewQueryDto } from './dto/dashboard-home-query.dto';
 import type {
@@ -52,6 +53,7 @@ export class DashboardHomeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly subjectCapabilityService: SubjectCapabilityService,
     private readonly storeSubAccountService: StoreSubAccountService,
@@ -140,7 +142,7 @@ export class DashboardHomeService {
     compareRange: TimeRange,
   ): Promise<DashboardHomeStatsData> {
     const cacheKey = buildProfitDashboardHomeStatsCacheKey(storeId, period);
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PROFIT_DASHBOARD_HOME_CACHE_TTL_SECONDS,
@@ -166,7 +168,7 @@ export class DashboardHomeService {
       currentRange,
       compareRange,
     });
-    await this.redisService.writeRefreshableJson(
+    await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
       PROFIT_DASHBOARD_HOME_CACHE_TTL_SECONDS,
@@ -181,7 +183,7 @@ export class DashboardHomeService {
     currentRange: TimeRange,
   ): Promise<DashboardHomeSalesTrendDto> {
     const cacheKey = buildProfitDashboardHomeTrendCacheKey(storeId, period);
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PROFIT_DASHBOARD_HOME_TREND_CACHE_TTL_SECONDS,
@@ -209,7 +211,7 @@ export class DashboardHomeService {
       currentRange,
     });
     const data = buildDashboardHomeSalesTrend(period, currentRange, trendRows);
-    await this.redisService.writeRefreshableJson(
+    await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
       PROFIT_DASHBOARD_HOME_TREND_CACHE_TTL_SECONDS,
@@ -227,7 +229,7 @@ export class DashboardHomeService {
       storeId,
       period,
     );
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PROFIT_DASHBOARD_HOME_ACTIVITIES_CACHE_TTL_SECONDS,
@@ -250,7 +252,7 @@ export class DashboardHomeService {
       storeId,
       now,
     });
-    await this.redisService.writeRefreshableJson(
+    await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
       PROFIT_DASHBOARD_HOME_ACTIVITIES_CACHE_TTL_SECONDS,

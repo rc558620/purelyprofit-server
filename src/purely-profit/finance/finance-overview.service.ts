@@ -11,7 +11,7 @@ import {
   buildFinanceOverviewCacheKey,
   buildFinanceReportPattern,
 } from './finance.cache-keys';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import type { FinanceOverviewQueryDto } from './dto/finance-overview.query.dto';
 import type { FinanceReportQueryDto } from './dto/finance-report.query.dto';
 import type { FinanceOverviewResponseDto } from './dto/finance-overview.response.dto';
@@ -53,7 +53,7 @@ const FINANCE_REPORT_REFRESH_AFTER_MS = 30_000;
 export class FinanceOverviewService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
     private readonly financeAccessService: FinanceAccessService,
   ) {}
@@ -70,7 +70,7 @@ export class FinanceOverviewService {
     const scope = callerIsSubAccount ? 'sub_account' : 'owner';
     const cacheKey = buildFinanceOverviewCacheKey(storeId, period, scope);
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: FINANCE_OVERVIEW_CACHE_TTL_SECONDS,
@@ -89,7 +89,7 @@ export class FinanceOverviewService {
     const cacheKey = buildFinanceOverviewCacheKey(storeId, period, scope);
     const callerIsSubAccount = scope === 'sub_account';
     const data = await this.buildOverview(storeId, period, callerIsSubAccount);
-    await this.redisService.writeRefreshableJson(
+    await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
       FINANCE_OVERVIEW_CACHE_TTL_SECONDS,
@@ -131,7 +131,7 @@ export class FinanceOverviewService {
       ...reportQuery,
       scope,
     });
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: FINANCE_REPORT_CACHE_TTL_SECONDS,
@@ -160,7 +160,7 @@ export class FinanceOverviewService {
       reportQuery,
       callerIsSubAccount,
     );
-    await this.redisService.writeRefreshableJson(
+    await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
       FINANCE_REPORT_CACHE_TTL_SECONDS,

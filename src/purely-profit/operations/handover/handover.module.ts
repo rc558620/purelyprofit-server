@@ -15,6 +15,8 @@ import { HandoverRecordsQueryService } from './handover-records-query.service';
 import { HandoverRecordsRevenueService } from './handover-records-revenue.service';
 import { HandoverRecordsService } from './handover-records.service';
 import { HandoverRecordsViewContextService } from './handover-records-view-context.service';
+import { HandoverRecordBatchPreloaderService } from './handover-record-batch-preloader.service';
+import { HandoverRecordOperatorProfileService } from './handover-record-operator-profile.service';
 import { HandoverService } from './handover.service';
 
 @Module({
@@ -33,6 +35,8 @@ import { HandoverService } from './handover.service';
     HandoverRecordsDetailService,
     HandoverRecordsRevenueService,
     HandoverRecordsViewContextService,
+    HandoverRecordBatchPreloaderService,
+    HandoverRecordOperatorProfileService,
     HandoverAdditionalItemsService,
   ],
   exports: [HandoverService, HandoverShiftModule],

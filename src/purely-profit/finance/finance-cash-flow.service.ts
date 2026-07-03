@@ -13,7 +13,7 @@ import {
   buildFinanceCashFlowStatsCacheKey,
 } from './finance.cache-keys';
 import { CacheInvalidatorService } from '../../redis/invalidator';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import {
   CreateFinanceCashFlowRecordDto,
   ListFinanceCashFlowRecordsQueryDto,
@@ -54,7 +54,7 @@ const FINANCE_CASH_FLOW_REFRESH_AFTER_MS = 15_000;
 export class FinanceCashFlowService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly financeAccessService: FinanceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
@@ -89,7 +89,7 @@ export class FinanceCashFlowService {
       scope,
     });
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: FINANCE_CASH_FLOW_CACHE_TTL_SECONDS,
@@ -130,7 +130,7 @@ export class FinanceCashFlowService {
       scope,
     });
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: FINANCE_CASH_FLOW_CACHE_TTL_SECONDS,

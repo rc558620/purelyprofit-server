@@ -10,7 +10,7 @@ import {
   SubscriptionPlanCode,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { StoreSubscriptionResponseDto } from './dto/store-subscription-response.dto';
 import { UpdateStoreSubscriptionDto } from './dto/update-store-subscription.dto';
 import {
@@ -65,53 +65,54 @@ export class SubscriptionsService {
   ): Promise<StoreSubscriptionResponseDto> {
     await this.subscriptionsAccessService.ensureStoreOwner(user, storeId);
 
-    return this.prisma.$transaction(async (tx) => {
-      const currentSubscription = await findStoreSubscriptionRecord(
-        tx,
-        storeId,
-      );
-
-      if (!currentSubscription) {
-        throw new BadRequestException('门店订阅记录不存在，请先初始化');
-      }
-
-      this.validateSubscriptionTransition(
-        currentSubscription.status,
-        dto.planCode,
-      );
-
-      const nextPlan = resolvePlanSnapshot(dto.planCode, dto.maxAccountSeats);
-      const seatSummary = await this.subscriptionsProfileService.getSeatSummary(
-        storeId,
-        tx,
-      );
-
-      if (nextPlan.maxAccountSeats < seatSummary.activeSeatCount) {
-        throw new ConflictException(
-          '当前已激活账号数超过目标套餐席位，无法直接缩容',
+    return this.prisma.$transaction(
+      async (tx) => {
+        const currentSubscription = await findStoreSubscriptionRecord(
+          tx,
+          storeId,
         );
-      }
 
-      const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
+        if (!currentSubscription) {
+          throw new BadRequestException('门店订阅记录不存在，请先初始化');
+        }
 
-      await upsertStoreSubscriptionRecord(tx, {
-        storeId,
-        planCode: dto.planCode,
-        planSnapshot: nextPlan,
-        expiresAt,
-        targetStatus: StoreSubscriptionStatus.active,
-      });
+        this.validateSubscriptionTransition(
+          currentSubscription.status,
+          dto.planCode,
+        );
 
-      await updateStoreSeatCapacity(tx, {
-        storeId,
-        seatQuota: nextPlan.maxAccountSeats,
-      });
+        const nextPlan = resolvePlanSnapshot(dto.planCode, dto.maxAccountSeats);
+        const seatSummary =
+          await this.subscriptionsProfileService.getSeatSummary(storeId, tx);
 
-      return this.subscriptionsProfileService.buildSubscriptionResponse(
-        storeId,
-        tx,
-      );
-    });
+        if (nextPlan.maxAccountSeats < seatSummary.activeSeatCount) {
+          throw new ConflictException(
+            '当前已激活账号数超过目标套餐席位，无法直接缩容',
+          );
+        }
+
+        const expiresAt = dto.expiresAt ? new Date(dto.expiresAt) : null;
+
+        await upsertStoreSubscriptionRecord(tx, {
+          storeId,
+          planCode: dto.planCode,
+          planSnapshot: nextPlan,
+          expiresAt,
+          targetStatus: StoreSubscriptionStatus.active,
+        });
+
+        await updateStoreSeatCapacity(tx, {
+          storeId,
+          seatQuota: nextPlan.maxAccountSeats,
+        });
+
+        return this.subscriptionsProfileService.buildSubscriptionResponse(
+          storeId,
+          tx,
+        );
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
   }
 
   /** 校验订阅状态流转合法性 */

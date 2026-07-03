@@ -5,7 +5,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { RedisService } from '../../../redis/redis.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { BusinessAnalysisService } from './business-analysis.service';
 
 describe('BusinessAnalysisService', () => {
@@ -15,7 +15,7 @@ describe('BusinessAnalysisService', () => {
     $queryRaw: jest.fn(),
   };
 
-  const redisService = {
+  const refreshableCache = {
     getOrLoadRefreshableJson: jest.fn(
       async (options: { loadValue: () => Promise<unknown> }) =>
         options.loadValue(),
@@ -60,7 +60,7 @@ describe('BusinessAnalysisService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-13T12:00:00.000Z'));
     jest.clearAllMocks();
-    redisService.getOrLoadRefreshableJson.mockImplementation(
+    refreshableCache.getOrLoadRefreshableJson.mockImplementation(
       async (options: { loadValue: () => Promise<unknown> }) =>
         options.loadValue(),
     );
@@ -78,7 +78,7 @@ describe('BusinessAnalysisService', () => {
       providers: [
         BusinessAnalysisService,
         { provide: PrismaService, useValue: prismaService },
-        { provide: RedisService, useValue: redisService },
+        { provide: RefreshableCacheService, useValue: refreshableCache },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         {
           provide: PlatformMembershipAccessService,

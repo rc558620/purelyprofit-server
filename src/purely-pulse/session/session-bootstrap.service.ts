@@ -3,7 +3,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import { buildPulseSessionBootstrapCacheKey } from '../pulse.cache-keys';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import type { PulseSessionBootstrapResponseDto } from './dto/session-bootstrap.dto';
 import { SessionNotificationService } from './session-notification.service';
@@ -21,7 +21,7 @@ const SESSION_BOOTSTRAP_REFRESH_AFTER_MS = 5_000;
 export class SessionBootstrapService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly pulseStoreContextService: PulseStoreContextService,
     private readonly sessionNotificationService: SessionNotificationService,
   ) {}
@@ -39,7 +39,7 @@ export class SessionBootstrapService {
       targetStore?.id ?? null,
     );
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: SESSION_BOOTSTRAP_CACHE_TTL_SECONDS,

@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { StaffRole, StaffStatus } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateStoreDto } from './dto/create-store.dto';
@@ -31,42 +31,45 @@ export class StoresWriteService {
     await this.ensureUserCanOnlyBindSingleStore(user);
 
     const payload = extractStoreCreatePayload(dto);
-    const store = await this.prisma.$transaction(async (tx) => {
-      const createdStore = await tx.store.create({
-        data: {
-          name: payload.storeName,
-          address: payload.address,
-          ownerId: user.id,
-        },
-        select: {
-          id: true,
-          name: true,
-          address: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
+    const store = await this.prisma.$transaction(
+      async (tx) => {
+        const createdStore = await tx.store.create({
+          data: {
+            name: payload.storeName,
+            address: payload.address,
+            ownerId: user.id,
+          },
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
 
-      await this.subscriptionsService.initializeStoreSubscription(
-        tx,
-        createdStore.id,
-      );
+        await this.subscriptionsService.initializeStoreSubscription(
+          tx,
+          createdStore.id,
+        );
 
-      await tx.staff.create({
-        data: {
-          storeId: createdStore.id,
-          userId: user.id,
-          email: user.email,
-          name: user.name ?? '老板',
-          role: StaffRole.owner,
-          permissions: ['*'],
-          status: StaffStatus.active,
-          isSeatActive: true,
-        },
-      });
+        await tx.staff.create({
+          data: {
+            storeId: createdStore.id,
+            userId: user.id,
+            email: user.email,
+            name: user.name ?? '老板',
+            role: StaffRole.owner,
+            permissions: ['*'],
+            status: StaffStatus.active,
+            isSeatActive: true,
+          },
+        });
 
-      return createdStore;
-    });
+        return createdStore;
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
     const metadata = buildStoreProfileMetadata(payload);
     await this.storesProfileService.persistStoreProfileMetadata(

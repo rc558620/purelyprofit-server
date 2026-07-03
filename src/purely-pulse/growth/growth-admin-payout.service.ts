@@ -5,7 +5,11 @@ import {
 } from '@nestjs/common';
 import { PartnerWithdrawalStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { PrismaService } from '../../prisma/prisma.service';
+import {
+  PrismaService,
+  TX_TIMEOUT_MEDIUM,
+  TX_TIMEOUT_SHORT,
+} from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import type {
   PulseAdminApprovePayoutDto,
@@ -47,31 +51,34 @@ export class PulseGrowthAdminPayoutService {
       throw new ConflictException('当前打款申请状态不可执行确认打款');
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const updateResult = await tx.partnerWithdrawal.updateMany({
-        where: {
-          id: payoutId,
-          storeId: record.storeId,
-          status: {
-            in: [
-              PartnerWithdrawalStatus.pending,
-              PartnerWithdrawalStatus.approved,
-            ],
+    await this.prisma.$transaction(
+      async (tx) => {
+        const now = new Date();
+        const updateResult = await tx.partnerWithdrawal.updateMany({
+          where: {
+            id: payoutId,
+            storeId: record.storeId,
+            status: {
+              in: [
+                PartnerWithdrawalStatus.pending,
+                PartnerWithdrawalStatus.approved,
+              ],
+            },
           },
-        },
-        data: {
-          status: PartnerWithdrawalStatus.paid,
-          reviewedAt: now,
-          paidAt: now,
-          rejectReason: null,
-        },
-      });
+          data: {
+            status: PartnerWithdrawalStatus.paid,
+            reviewedAt: now,
+            paidAt: now,
+            rejectReason: null,
+          },
+        });
 
-      if (updateResult.count !== 1) {
-        throw new ConflictException('打款申请状态已变化，请刷新后重试');
-      }
-    });
+        if (updateResult.count !== 1) {
+          throw new ConflictException('打款申请状态已变化，请刷新后重试');
+        }
+      },
+      { timeout: TX_TIMEOUT_SHORT },
+    );
 
     await this.invalidatePayoutDerivedCaches(record.storeId);
 
@@ -107,57 +114,60 @@ export class PulseGrowthAdminPayoutService {
       throw new ConflictException('拒绝原因不能为空');
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const updateResult = await tx.partnerWithdrawal.updateMany({
-        where: {
-          id: payoutId,
-          storeId: record.storeId,
-          status: {
-            in: [
-              PartnerWithdrawalStatus.pending,
-              PartnerWithdrawalStatus.approved,
-            ],
+    await this.prisma.$transaction(
+      async (tx) => {
+        const now = new Date();
+        const updateResult = await tx.partnerWithdrawal.updateMany({
+          where: {
+            id: payoutId,
+            storeId: record.storeId,
+            status: {
+              in: [
+                PartnerWithdrawalStatus.pending,
+                PartnerWithdrawalStatus.approved,
+              ],
+            },
           },
-        },
-        data: {
-          status: PartnerWithdrawalStatus.rejected,
-          reviewedAt: now,
-          paidAt: null,
-          rejectReason,
-        },
-      });
+          data: {
+            status: PartnerWithdrawalStatus.rejected,
+            reviewedAt: now,
+            paidAt: null,
+            rejectReason,
+          },
+        });
 
-      if (updateResult.count !== 1) {
-        throw new ConflictException('打款申请状态已变化，请刷新后重试');
-      }
+        if (updateResult.count !== 1) {
+          throw new ConflictException('打款申请状态已变化，请刷新后重试');
+        }
 
-      const partnerUpdateResult = await tx.storePartner.updateMany({
-        where: {
-          id: record.partnerId,
-          storeId: record.storeId,
-          totalWithdrawnBeans: { gte: record.beanAmount },
-        },
-        data: {
-          beanBalance: { increment: record.beanAmount },
-          totalWithdrawnBeans: { decrement: record.beanAmount },
-        },
-      });
+        const partnerUpdateResult = await tx.storePartner.updateMany({
+          where: {
+            id: record.partnerId,
+            storeId: record.storeId,
+            totalWithdrawnBeans: { gte: record.beanAmount },
+          },
+          data: {
+            beanBalance: { increment: record.beanAmount },
+            totalWithdrawnBeans: { decrement: record.beanAmount },
+          },
+        });
 
-      if (partnerUpdateResult.count !== 1) {
-        throw new ConflictException('合伙人余额更新失败，请稍后重试');
-      }
+        if (partnerUpdateResult.count !== 1) {
+          throw new ConflictException('合伙人余额更新失败，请稍后重试');
+        }
 
-      await tx.storePartnerBeanLog.create({
-        data: {
-          storeId: record.storeId,
-          partnerId: record.partnerId,
-          source: 'admin_adjust',
-          changeAmount: record.beanAmount,
-          description: `打款驳回退回 · ${record.beanAmount} 豆已退回`,
-        },
-      });
-    });
+        await tx.storePartnerBeanLog.create({
+          data: {
+            storeId: record.storeId,
+            partnerId: record.partnerId,
+            source: 'admin_adjust',
+            changeAmount: record.beanAmount,
+            description: `打款驳回退回 · ${record.beanAmount} 豆已退回`,
+          },
+        });
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
     await this.invalidatePayoutDerivedCaches(record.storeId);
 

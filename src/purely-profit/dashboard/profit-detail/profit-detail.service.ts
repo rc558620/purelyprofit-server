@@ -9,7 +9,7 @@ import {
   buildProfitDetailCacheKey,
   buildProfitReportCacheKey,
 } from '../../../redis/keys';
-import { RedisService } from '../../../redis/redis.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { Money } from '../../../shared/money.utils';
 import { GetProfitDetailQueryDto } from './dto/profit-detail-query.dto';
 import type {
@@ -49,7 +49,7 @@ const PROFIT_DETAIL_REFRESH_AFTER_MS = 30_000;
 export class ProfitDetailService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
@@ -80,7 +80,7 @@ export class ProfitDetailService {
     }
 
     const cacheKey = buildProfitDetailCacheKey(storeId, query);
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PROFIT_DETAIL_CACHE_TTL_SECONDS,
@@ -137,7 +137,7 @@ export class ProfitDetailService {
       ...query,
       scope,
     });
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PROFIT_DETAIL_CACHE_TTL_SECONDS,
@@ -173,7 +173,7 @@ export class ProfitDetailService {
     const data = snapshot
       ? buildProfitDetailResponse(snapshot, fullQuery.period)
       : buildEmptyProfitDetailResponse();
-    await this.redisService.writeRefreshableJson(
+    await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
       PROFIT_DETAIL_CACHE_TTL_SECONDS,
@@ -198,7 +198,7 @@ export class ProfitDetailService {
     const data = snapshot
       ? buildProfitReportResponse(snapshot)
       : buildEmptyProfitReportResponse();
-    await this.redisService.writeRefreshableJson(
+    await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
       PROFIT_DETAIL_CACHE_TTL_SECONDS,

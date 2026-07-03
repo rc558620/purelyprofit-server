@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { randomBytes } from 'node:crypto';
 
 /**
@@ -66,38 +66,41 @@ export class StoreInviteCodeService {
    * 重新生成门店邀请码（禁用旧码，生成新码）
    */
   async regenerateForStore(storeId: number): Promise<string> {
-    return this.prisma.$transaction(async (tx) => {
-      // 禁用所有旧码
-      await tx.storeInviteCode.updateMany({
-        where: { storeId },
-        data: { isActive: false },
-      });
+    return this.prisma.$transaction(
+      async (tx) => {
+        // 禁用所有旧码
+        await tx.storeInviteCode.updateMany({
+          where: { storeId },
+          data: { isActive: false },
+        });
 
-      // 生成新码
-      for (let attempt = 0; attempt < this.MAX_RETRY; attempt++) {
-        const code = this.generateCode();
-        try {
-          await tx.storeInviteCode.create({
-            data: { storeId, code },
-          });
-          return code;
-        } catch (error: unknown) {
-          if (
-            typeof error === 'object' &&
-            error !== null &&
-            'code' in error &&
-            error.code === 'P2002'
-          ) {
-            continue;
+        // 生成新码
+        for (let attempt = 0; attempt < this.MAX_RETRY; attempt++) {
+          const code = this.generateCode();
+          try {
+            await tx.storeInviteCode.create({
+              data: { storeId, code },
+            });
+            return code;
+          } catch (error: unknown) {
+            if (
+              typeof error === 'object' &&
+              error !== null &&
+              'code' in error &&
+              error.code === 'P2002'
+            ) {
+              continue;
+            }
+            throw error;
           }
-          throw error;
         }
-      }
 
-      throw new Error(
-        `Failed to regenerate invite code after ${this.MAX_RETRY} attempts`,
-      );
-    });
+        throw new Error(
+          `Failed to regenerate invite code after ${this.MAX_RETRY} attempts`,
+        );
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
   }
 
   /**

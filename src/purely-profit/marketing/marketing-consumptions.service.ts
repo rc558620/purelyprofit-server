@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import type { CreateConsumptionDto } from './dto/marketing-query.dto';
@@ -85,50 +85,63 @@ export class MarketingConsumptionsService {
     const pointsDeducted = dto.pointsDeducted ?? 0;
     const payType = dto.payType ?? 'cash';
 
-    if (Money.fromDbCents(balancePaid).greaterThan(Money.fromDbCents(customer.balance))) {
+    if (
+      Money.fromDbCents(balancePaid).greaterThan(
+        Money.fromDbCents(customer.balance),
+      )
+    ) {
       throw new BadRequestException('余额支付金额不能超过顾客当前余额');
     }
-    if (Money.fromDbCents(balancePaid).greaterThan(Money.fromDbCents(dto.amount))) {
+    if (
+      Money.fromDbCents(balancePaid).greaterThan(Money.fromDbCents(dto.amount))
+    ) {
       throw new BadRequestException('余额支付金额不能超过消费金额');
     }
     if (pointsDeducted > customer.points) {
       throw new BadRequestException('积分抵扣金额不能超过顾客当前积分');
     }
-    if (Money.fromDbCents(balancePaid).add(Money.fromDbCents(pointsDeducted)).greaterThan(Money.fromDbCents(dto.amount))) {
+    if (
+      Money.fromDbCents(balancePaid)
+        .add(Money.fromDbCents(pointsDeducted))
+        .greaterThan(Money.fromDbCents(dto.amount))
+    ) {
       throw new BadRequestException('余额支付与积分抵扣之和不能超过消费金额');
     }
 
-    const [consumptionRecord] = await this.prisma.$transaction(async (tx) => {
-      const consumption = await tx.marketingConsumption.create({
-        data: {
-          storeId,
-          customerId: dto.customerId,
-          amount: dto.amount,
-          balancePaid,
-          pointsDeducted,
-          payType: payType as never,
-          itemsSummary: dto.itemsSummary?.trim() || null,
-          promotionId: dto.promotionId ?? null,
-        },
-      });
+    const [consumptionRecord] = await this.prisma.$transaction(
+      async (tx) => {
+        const consumption = await tx.marketingConsumption.create({
+          data: {
+            storeId,
+            customerId: dto.customerId,
+            amount: dto.amount,
+            balancePaid,
+            pointsDeducted,
+            payType: payType as never,
+            itemsSummary: dto.itemsSummary?.trim() || null,
+            promotionId: dto.promotionId ?? null,
+          },
+        });
 
-      const newTotalSpent = Money.fromDbCents(customer.totalSpent).add(Money.fromDbCents(dto.amount)).toDbCents();
-      const newTier = calcCustomerTier(newTotalSpent) as never;
+        const newTotalSpent = Money.fromDbCents(customer.totalSpent)
+          .add(Money.fromDbCents(dto.amount))
+          .toDbCents();
+        const newTier = calcCustomerTier(newTotalSpent) as never;
 
-      await tx.marketingCustomer.update({
-        where: { id: dto.customerId },
-        data: {
-          balance: { decrement: balancePaid },
-          points: { decrement: pointsDeducted },
-          totalSpent: { increment: dto.amount },
-          visitCount: { increment: 1 },
-          lastVisitAt: new Date(),
-          tier: newTier,
-        },
-      });
+        await tx.marketingCustomer.update({
+          where: { id: dto.customerId },
+          data: {
+            balance: { decrement: balancePaid },
+            points: { decrement: pointsDeducted },
+            totalSpent: { increment: dto.amount },
+            visitCount: { increment: 1 },
+            lastVisitAt: new Date(),
+            tier: newTier,
+          },
+        });
 
-      if (pointsDeducted > 0) {
-        await tx.$executeRaw`
+        if (pointsDeducted > 0) {
+          await tx.$executeRaw`
           INSERT INTO marketing_points_records (
             store_id,
             customer_id,
@@ -144,19 +157,21 @@ export class MarketingConsumptionsService {
             ${buildPointsSpendDescription(dto.itemsSummary)}
           )
         `;
-      }
+        }
 
-      if (dto.promotionId) {
-        await tx.marketingPromotion.updateMany({
-          where: { id: dto.promotionId, storeId },
-          data: {
-            usageCount: { increment: 1 },
-          },
-        });
-      }
+        if (dto.promotionId) {
+          await tx.marketingPromotion.updateMany({
+            where: { id: dto.promotionId, storeId },
+            data: {
+              usageCount: { increment: 1 },
+            },
+          });
+        }
 
-      return [consumption] as const;
-    });
+        return [consumption] as const;
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
     const row = await queryConsumptionRowById(
       this.prisma,

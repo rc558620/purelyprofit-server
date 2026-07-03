@@ -7,149 +7,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { recordRedisOperation } from '../observability';
+import { countPipelineDeleted } from './concurrency-limiter.util';
+import { safeJsonStringify } from './redis-json.util';
 
 type RedisOutcome = 'hit' | 'miss' | 'neutral';
-
-/**
- * 安全的 JSON 序列化，处理 BigInt 和 Prisma.Decimal 类型：
- * - BigInt → Number（若在安全整数范围内）否则转字符串
- * - Prisma.Decimal（duck-typing：有 toNumber 且非 Date/Array）→ Number
- * - Date → 保持原生行为（ISO 字符串）
- *
- * 采用两阶段策略：先深度遍历将 BigInt / Decimal 转为原生类型，
- * 再用原生 JSON.stringify 序列化。这是因为 JSON.stringify 的 replacer
- * 在遇到有 toJSON() 的对象时会先调用 toJSON()，导致无法在 replacer
- * 中拦截 Prisma.Decimal 转为 number。
- */
-function safeJsonStringify(value: unknown): string {
-  return JSON.stringify(normalizeForJson(value));
-}
-
-function normalizeForJson(value: unknown): unknown {
-  if (value === null || value === undefined) {
-    return value;
-  }
-
-  if (typeof value === 'bigint') {
-    return Number.isSafeInteger(Number(value)) ? Number(value) : String(value);
-  }
-
-  if (
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    !(value instanceof Date) &&
-    typeof (value as Record<string, unknown>).toNumber === 'function'
-  ) {
-    // Prisma.Decimal 或类似 Decimal 类型 → number
-    try {
-      return (value as { toNumber: () => number }).toNumber();
-    } catch {
-      return (value as { toString: () => string }).toString();
-    }
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(normalizeForJson);
-  }
-
-  // Date 对象必须在通用 object 分支之前处理：
-  // Object.entries(new Date()) 返回 []，会把 Date 序列化为空对象 {}，导致反序列化后 NaN
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-
-  if (typeof value === 'object') {
-    const result: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      result[k] = normalizeForJson(v);
-    }
-    return result;
-  }
-
-  return value;
-}
-
-class ConcurrencyLimiter {
-  private active = 0;
-  private readonly queue: Array<() => void> = [];
-  private drainResolve: (() => void) | null = null;
-
-  constructor(private readonly concurrency: number) {}
-
-  run<T>(fn: () => Promise<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const execute = async (): Promise<void> => {
-        this.active += 1;
-        try {
-          const result = await fn();
-          resolve(result);
-        } catch (error) {
-          reject(error instanceof Error ? error : new Error(String(error)));
-        } finally {
-          this.active -= 1;
-          if (this.active === 0 && this.queue.length === 0) {
-            this.drainResolve?.();
-            this.drainResolve = null;
-          } else {
-            const next = this.queue.shift();
-            if (next) {
-              next();
-            }
-          }
-        }
-      };
-
-      if (this.active < this.concurrency) {
-        void execute();
-      } else {
-        this.queue.push(() => {
-          void execute();
-        });
-      }
-    });
-  }
-
-  async drain(): Promise<void> {
-    if (this.active === 0 && this.queue.length === 0) {
-      return;
-    }
-
-    await new Promise<void>((resolve) => {
-      this.drainResolve = resolve;
-    });
-  }
-}
-
-function countPipelineDeleted(
-  results: Array<[Error | null, unknown]> | null,
-): number {
-  if (!results) {
-    return 0;
-  }
-
-  let count = 0;
-  for (const [err, value] of results) {
-    if (!err && typeof value === 'number') {
-      count += value;
-    }
-  }
-  return count;
-}
-
-export interface RefreshableCachePayload<T> {
-  generatedAt: number;
-  refreshAt: number;
-  data: T;
-}
-
-export interface RefreshableCacheLoadOptions<T> {
-  cacheKey: string;
-  taskKey: string;
-  ttlSeconds: number;
-  refreshAfterMs: number;
-  loadValue: () => Promise<T>;
-  refreshValue?: () => Promise<T>;
-}
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
@@ -157,18 +18,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   private client!: Redis;
   private readonly slowRedisLogEnabled: boolean;
   private readonly slowRedisThresholdMs: number;
-  private readonly backgroundRefreshTasks = new Map<string, Promise<void>>();
-  private readonly backgroundRefreshTimers = new Map<string, NodeJS.Timeout>();
-  private readonly refreshQueue: ConcurrencyLimiter;
 
   constructor(private readonly configService: ConfigService) {
     this.slowRedisLogEnabled =
       this.configService.get<boolean>('app.slowRedisLogEnabled') ?? true;
     this.slowRedisThresholdMs =
       this.configService.get<number>('app.slowRedisThresholdMs') ?? 20;
-    const refreshConcurrency =
-      this.configService.get<number>('app.cacheRefreshConcurrency') ?? 8;
-    this.refreshQueue = new ConcurrencyLimiter(refreshConcurrency);
   }
 
   onModuleInit() {
@@ -218,11 +73,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    for (const timer of this.backgroundRefreshTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.backgroundRefreshTimers.clear();
-    await this.refreshQueue.drain();
     await this.client.quit();
   }
 
@@ -442,152 +292,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     if (pong !== 'PONG') {
       throw new Error(`unexpected redis ping response: ${String(pong)}`);
     }
-  }
-
-  async getOrLoadRefreshableJson<T>(
-    options: RefreshableCacheLoadOptions<T>,
-  ): Promise<T> {
-    const cachedValue = await this.getJson<unknown>(options.cacheKey);
-    const normalizedCached = this.normalizeRefreshableCachePayload<T>(
-      cachedValue,
-      options.refreshAfterMs,
-    );
-
-    if (normalizedCached !== null) {
-      if (normalizedCached.isLegacy) {
-        this.runBackgroundRefresh(options.taskKey, async () => {
-          await this.writeRefreshableJson(
-            options.cacheKey,
-            normalizedCached.payload.data,
-            options.ttlSeconds,
-            options.refreshAfterMs,
-          );
-        });
-      } else {
-        this.scheduleBackgroundRefresh(
-          options.taskKey,
-          normalizedCached.payload.refreshAt,
-          async () => {
-            const refreshedValue = await (
-              options.refreshValue ?? options.loadValue
-            )();
-            await this.writeRefreshableJson(
-              options.cacheKey,
-              refreshedValue,
-              options.ttlSeconds,
-              options.refreshAfterMs,
-            );
-          },
-        );
-      }
-      return normalizedCached.payload.data;
-    }
-
-    const loadedValue = await options.loadValue();
-    await this.writeRefreshableJson(
-      options.cacheKey,
-      loadedValue,
-      options.ttlSeconds,
-      options.refreshAfterMs,
-    );
-    return loadedValue;
-  }
-
-  async writeRefreshableJson<T>(
-    cacheKey: string,
-    data: T,
-    ttlSeconds: number,
-    refreshAfterMs: number,
-  ): Promise<RefreshableCachePayload<T>> {
-    const now = Date.now();
-    const payload: RefreshableCachePayload<T> = {
-      generatedAt: now,
-      refreshAt: now + Math.max(0, refreshAfterMs),
-      data,
-    };
-    await this.setJson(cacheKey, payload, ttlSeconds);
-    return payload;
-  }
-
-  private normalizeRefreshableCachePayload<T>(
-    cachedValue: unknown,
-    refreshAfterMs: number,
-  ): {
-    payload: RefreshableCachePayload<T>;
-    isLegacy: boolean;
-  } | null {
-    if (cachedValue === null) {
-      return null;
-    }
-
-    if (this.isRefreshableCachePayload<T>(cachedValue)) {
-      return {
-        payload: cachedValue,
-        isLegacy: false,
-      };
-    }
-
-    const now = Date.now();
-    return {
-      payload: {
-        generatedAt: now,
-        refreshAt: now + Math.max(0, refreshAfterMs),
-        data: cachedValue as T,
-      },
-      isLegacy: true,
-    };
-  }
-
-  private isRefreshableCachePayload<T>(
-    value: unknown,
-  ): value is RefreshableCachePayload<T> {
-    if (value === null || typeof value !== 'object') {
-      return false;
-    }
-
-    const payload = value as Record<string, unknown>;
-    return (
-      typeof payload.generatedAt === 'number' &&
-      typeof payload.refreshAt === 'number' &&
-      'data' in payload
-    );
-  }
-
-  scheduleBackgroundRefresh(
-    taskKey: string,
-    refreshAt: number,
-    handler: () => Promise<void>,
-  ): void {
-    const delayMs = refreshAt - Date.now();
-    if (delayMs > 0) {
-      const timer = setTimeout(() => {
-        this.backgroundRefreshTimers.delete(taskKey);
-        this.runBackgroundRefresh(taskKey, handler);
-      }, delayMs);
-      timer.unref?.();
-      this.backgroundRefreshTimers.set(taskKey, timer);
-      return;
-    }
-
-    this.runBackgroundRefresh(taskKey, handler);
-  }
-
-  runBackgroundRefresh(taskKey: string, handler: () => Promise<void>): void {
-    if (this.backgroundRefreshTasks.has(taskKey)) {
-      return;
-    }
-
-    const task = this.refreshQueue.run(async () => {
-      try {
-        await handler();
-      } catch (error: unknown) {
-        this.logger.error(`[cache-refresh] ${taskKey} failed`, error);
-      } finally {
-        this.backgroundRefreshTasks.delete(taskKey);
-      }
-    });
-
-    this.backgroundRefreshTasks.set(taskKey, task);
   }
 
   private async observeRedisCommand<T>(

@@ -11,7 +11,7 @@ import {
   buildPlatformMembershipProfileCacheKey,
   buildPlatformMembershipPromoCenterCacheKey,
 } from '../../../redis/keys';
-import { RedisService } from '../../../redis/redis.service';
+import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import type {
   ApplyPlatformPartnerDto,
   CreatePlatformPartnerFollowUpNoteDto,
@@ -54,7 +54,7 @@ export class PlatformMembershipService {
     private readonly platformMembershipLedgerService: PlatformMembershipLedgerService,
     private readonly platformMembershipPartnerService: PlatformMembershipPartnerService,
     private readonly platformMembershipOrderService: PlatformMembershipOrderService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
   async listPlans(): Promise<PlatformMembershipPlanResponseDto[]> {
@@ -307,7 +307,7 @@ export class PlatformMembershipService {
     cacheKey: string,
     loadValue: () => Promise<T>,
   ): Promise<T> {
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PLATFORM_MEMBERSHIP_READ_CACHE_TTL_SECONDS,
@@ -320,7 +320,7 @@ export class PlatformMembershipService {
     cacheKey: string,
     loadValue: () => Promise<T>,
   ): Promise<T> {
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: PLATFORM_MEMBERSHIP_LEDGER_CACHE_TTL_SECONDS,

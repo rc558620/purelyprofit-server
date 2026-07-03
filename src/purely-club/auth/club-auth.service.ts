@@ -8,7 +8,7 @@ import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.serv
 import { AuthCodeService } from '../../purely-profit/auth/auth-code.service';
 import { AuthAccountLookupService } from '../../purely-profit/auth/auth-account-lookup.service';
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_LONG } from '../../prisma/prisma.service';
 import { ClubWechatAuthService } from './club-wechat-auth.service';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { BindPhoneDto } from './dto/bind-phone.dto';
@@ -217,107 +217,110 @@ export class ClubAuthService {
     const sourceWechatPhone = `${CLUB_WECHAT_PHONE_PREFIX}${sourceUser.wechatOpenid}`;
 
     try {
-      await this.prisma.$transaction(async (tx) => {
-        // 1. 迁移 Member 记录
-        // 查找源用户在各门店的 Member 记录（phone 为 club_wechat:openid 格式）
-        const sourceMembers = await tx.member.findMany({
-          where: { phone: sourceWechatPhone },
-          select: { id: true, storeId: true },
-        });
-
-        if (sourceMembers.length > 0) {
-          // 批量查询目标用户在这些门店是否已有 Member 记录，避免逐个 findUnique
-          const storeIds = sourceMembers.map((m) => m.storeId);
-          const targetMembers = await tx.member.findMany({
-            where: { storeId: { in: storeIds }, phone },
+      await this.prisma.$transaction(
+        async (tx) => {
+          // 1. 迁移 Member 记录
+          // 查找源用户在各门店的 Member 记录（phone 为 club_wechat:openid 格式）
+          const sourceMembers = await tx.member.findMany({
+            where: { phone: sourceWechatPhone },
             select: { id: true, storeId: true },
           });
-          const targetMemberByStoreId = new Map(
-            targetMembers.map((m) => [m.storeId, m]),
-          );
 
-          // 按是否已有目标 member 分组处理
-          const sourceMemberIdsToDelete: number[] = [];
-          const sourceMemberIdsToUpdate: number[] = [];
-
-          for (const sourceMember of sourceMembers) {
-            const targetMember = targetMemberByStoreId.get(
-              sourceMember.storeId,
+          if (sourceMembers.length > 0) {
+            // 批量查询目标用户在这些门店是否已有 Member 记录，避免逐个 findUnique
+            const storeIds = sourceMembers.map((m) => m.storeId);
+            const targetMembers = await tx.member.findMany({
+              where: { storeId: { in: storeIds }, phone },
+              select: { id: true, storeId: true },
+            });
+            const targetMemberByStoreId = new Map(
+              targetMembers.map((m) => [m.storeId, m]),
             );
-            if (targetMember) {
-              sourceMemberIdsToDelete.push(sourceMember.id);
-              this.logger.log(
-                `bindPhone 合并 Member：门店 ${sourceMember.storeId} 目标用户已有 Member ${targetMember.id}，删除源 Member ${sourceMember.id}`,
+
+            // 按是否已有目标 member 分组处理
+            const sourceMemberIdsToDelete: number[] = [];
+            const sourceMemberIdsToUpdate: number[] = [];
+
+            for (const sourceMember of sourceMembers) {
+              const targetMember = targetMemberByStoreId.get(
+                sourceMember.storeId,
               );
-            } else {
-              sourceMemberIdsToUpdate.push(sourceMember.id);
-              this.logger.log(
-                `bindPhone 合并 Member：门店 ${sourceMember.storeId} 将源 Member ${sourceMember.id} 的 phone 从 ${sourceWechatPhone} 更新为 ${phone}`,
-              );
+              if (targetMember) {
+                sourceMemberIdsToDelete.push(sourceMember.id);
+                this.logger.log(
+                  `bindPhone 合并 Member：门店 ${sourceMember.storeId} 目标用户已有 Member ${targetMember.id}，删除源 Member ${sourceMember.id}`,
+                );
+              } else {
+                sourceMemberIdsToUpdate.push(sourceMember.id);
+                this.logger.log(
+                  `bindPhone 合并 Member：门店 ${sourceMember.storeId} 将源 Member ${sourceMember.id} 的 phone 从 ${sourceWechatPhone} 更新为 ${phone}`,
+                );
+              }
+            }
+
+            // 批量删除 + 批量更新，替代逐条操作
+            if (sourceMemberIdsToDelete.length > 0) {
+              await tx.member.deleteMany({
+                where: { id: { in: sourceMemberIdsToDelete } },
+              });
+            }
+            if (sourceMemberIdsToUpdate.length > 0) {
+              await tx.member.updateMany({
+                where: { id: { in: sourceMemberIdsToUpdate } },
+                data: { phone },
+              });
             }
           }
 
-          // 批量删除 + 批量更新，替代逐条操作
-          if (sourceMemberIdsToDelete.length > 0) {
-            await tx.member.deleteMany({
-              where: { id: { in: sourceMemberIdsToDelete } },
-            });
-          }
-          if (sourceMemberIdsToUpdate.length > 0) {
-            await tx.member.updateMany({
-              where: { id: { in: sourceMemberIdsToUpdate } },
-              data: { phone },
-            });
-          }
-        }
-
-        // 2. 迁移 Store ownership（源用户拥有的门店转移到目标用户）
-        const ownedStores = await tx.store.findMany({
-          where: { ownerId: sourceUserId, deletedAt: null },
-          select: { id: true },
-        });
-
-        if (ownedStores.length > 0) {
-          await tx.store.updateMany({
-            where: { ownerId: sourceUserId },
-            data: { ownerId: targetUserId },
+          // 2. 迁移 Store ownership（源用户拥有的门店转移到目标用户）
+          const ownedStores = await tx.store.findMany({
+            where: { ownerId: sourceUserId, deletedAt: null },
+            select: { id: true },
           });
-          this.logger.log(
-            `bindPhone 合并 Store ownership：将 ${ownedStores.length} 个门店从用户 ${sourceUserId} 转移到用户 ${targetUserId}`,
-          );
-        }
 
-        // 3. 先清除源用户的微信相关字段（必须在绑定到目标用户之前执行），
-        //    否则 wechat_openid 的唯一约束会导致写入目标用户时冲突
-        await tx.user.update({
-          where: { id: sourceUserId },
-          data: {
-            wechatOpenid: null,
-            wechatUnionid: null,
-            wechatNickname: null,
-            wechatAvatar: null,
-            wechatPhone: null,
-          },
-        });
+          if (ownedStores.length > 0) {
+            await tx.store.updateMany({
+              where: { ownerId: sourceUserId },
+              data: { ownerId: targetUserId },
+            });
+            this.logger.log(
+              `bindPhone 合并 Store ownership：将 ${ownedStores.length} 个门店从用户 ${sourceUserId} 转移到用户 ${targetUserId}`,
+            );
+          }
 
-        // 4. 将 openid 绑定到目标用户，同时写入 wechatPhone
-        await tx.user.update({
-          where: { id: targetUserId },
-          data: {
-            wechatOpenid: sourceUser.wechatOpenid,
-            ...(sourceUser.wechatUnionid != null && {
-              wechatUnionid: sourceUser.wechatUnionid,
-            }),
-            ...(sourceUser.wechatNickname != null && {
-              wechatNickname: sourceUser.wechatNickname,
-            }),
-            ...(sourceUser.wechatAvatar != null && {
-              wechatAvatar: sourceUser.wechatAvatar,
-            }),
-            wechatPhone: phone,
-          },
-        });
-      });
+          // 3. 先清除源用户的微信相关字段（必须在绑定到目标用户之前执行），
+          //    否则 wechat_openid 的唯一约束会导致写入目标用户时冲突
+          await tx.user.update({
+            where: { id: sourceUserId },
+            data: {
+              wechatOpenid: null,
+              wechatUnionid: null,
+              wechatNickname: null,
+              wechatAvatar: null,
+              wechatPhone: null,
+            },
+          });
+
+          // 4. 将 openid 绑定到目标用户，同时写入 wechatPhone
+          await tx.user.update({
+            where: { id: targetUserId },
+            data: {
+              wechatOpenid: sourceUser.wechatOpenid,
+              ...(sourceUser.wechatUnionid != null && {
+                wechatUnionid: sourceUser.wechatUnionid,
+              }),
+              ...(sourceUser.wechatNickname != null && {
+                wechatNickname: sourceUser.wechatNickname,
+              }),
+              ...(sourceUser.wechatAvatar != null && {
+                wechatAvatar: sourceUser.wechatAvatar,
+              }),
+              wechatPhone: phone,
+            },
+          });
+        },
+        { timeout: TX_TIMEOUT_LONG },
+      );
     } catch (error) {
       this.logger.error(
         `bindPhone 合并事务失败：sourceUserId=${sourceUserId}, targetUserId=${targetUserId}`,

@@ -6,7 +6,7 @@ import {
   buildCacheRefreshTaskKey,
   buildMarketingOverviewCacheKey,
 } from '../../redis/keys';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { buildInviteCodeQrCodeImageUrl } from '../member/platform-membership/membership-profile.mapper';
 import { Money } from '../../shared/money.utils';
 import type {
@@ -65,7 +65,7 @@ export class MarketingOverviewService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly marketingSharedService: MarketingSharedService,
   ) {}
 
@@ -83,7 +83,7 @@ export class MarketingOverviewService {
     }
 
     const cacheKey = buildMarketingOverviewCacheKey(resolvedStoreId);
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: MARKETING_OVERVIEW_CACHE_TTL_SECONDS,
@@ -242,7 +242,7 @@ export class MarketingOverviewService {
   async warmOverviewCache(storeId: number): Promise<MarketingOverviewDto> {
     const cacheKey = buildMarketingOverviewCacheKey(storeId);
     const data = await this.buildOverview(storeId);
-    await this.redisService.writeRefreshableJson(
+    await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
       MARKETING_OVERVIEW_CACHE_TTL_SECONDS,

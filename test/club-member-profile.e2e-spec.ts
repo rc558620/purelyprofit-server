@@ -5,7 +5,8 @@ import { PassportModule } from '@nestjs/passport';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AuthAccountMembershipService } from '../src/purely-profit/auth/auth-account-membership.service';
+import { AuthBanGuardService } from '../src/purely-profit/auth/auth-ban-guard.service';
+import { AuthMembershipResolverService } from '../src/purely-profit/auth/auth-membership-resolver.service';
 import { AuthSessionService } from '../src/purely-profit/auth/auth-session.service';
 import { ClubJwtAuthGuard } from '../src/purely-profit/auth/guards/jwt-auth.guard';
 import {
@@ -29,8 +30,10 @@ describe('Club member profile routes (e2e)', () => {
     },
   };
 
-  const authAccountMembershipService = {
+  const authBanGuardService = {
     ensureUserNotBanned: jest.fn(),
+  };
+  const authMembershipResolverService = {
     resolveAuthenticatedMembership: jest.fn(),
   };
 
@@ -78,8 +81,12 @@ describe('Club member profile routes (e2e)', () => {
           useValue: clubCurrentStoreContextService,
         },
         {
-          provide: AuthAccountMembershipService,
-          useValue: authAccountMembershipService,
+          provide: AuthBanGuardService,
+          useValue: authBanGuardService,
+        },
+        {
+          provide: AuthMembershipResolverService,
+          useValue: authMembershipResolverService,
         },
         {
           provide: AuthSessionService,
@@ -116,10 +123,8 @@ describe('Club member profile routes (e2e)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    authAccountMembershipService.ensureUserNotBanned.mockResolvedValue(
-      undefined,
-    );
-    authAccountMembershipService.resolveAuthenticatedMembership.mockResolvedValue(
+    authBanGuardService.ensureUserNotBanned.mockResolvedValue(undefined);
+    authMembershipResolverService.resolveAuthenticatedMembership.mockResolvedValue(
       null,
     );
     authSessionService.getTokenVersion.mockResolvedValue(0);

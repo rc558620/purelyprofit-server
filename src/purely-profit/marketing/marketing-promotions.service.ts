@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { RedisService } from '../../redis/redis.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import {
@@ -44,6 +45,7 @@ export class MarketingPromotionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly marketingSharedService: MarketingSharedService,
   ) {}
@@ -76,7 +78,7 @@ export class MarketingPromotionsService {
       take,
     );
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: MARKETING_PROMOTIONS_LIST_CACHE_TTL_SECONDS,

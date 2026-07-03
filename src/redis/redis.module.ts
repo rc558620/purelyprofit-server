@@ -13,6 +13,7 @@ import { CacheInvalidatorPulseService } from './cache-invalidator-pulse.service'
 import { CacheInvalidatorService } from './cache-invalidator.service';
 import { CachePrewarmCycleService } from './cache-prewarm-cycle.service';
 import { CachePrewarmService } from './cache-prewarm.service';
+import { RefreshableCacheService } from './refreshable-cache.service';
 import { RedisLockService } from './redis-lock.service';
 import { RedisService } from './redis.service';
 
@@ -29,6 +30,7 @@ import { RedisService } from './redis.service';
   ],
   providers: [
     RedisService,
+    RefreshableCacheService,
     RedisLockService,
     CacheInvalidatorFinanceService,
     CacheInvalidatorPulseService,
@@ -40,6 +42,7 @@ import { RedisService } from './redis.service';
   ],
   exports: [
     RedisService,
+    RefreshableCacheService,
     RedisLockService,
     CacheInvalidatorFinanceService,
     CacheInvalidatorPulseService,

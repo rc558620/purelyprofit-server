@@ -4,7 +4,8 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
-import { AuthAccountMembershipService } from '../auth-account-membership.service';
+import { AuthBanGuardService } from '../auth-ban-guard.service';
+import { AuthMembershipResolverService } from '../auth-membership-resolver.service';
 import { AuthSessionService } from '../auth-session.service';
 import { AUTH_USER_CACHE_TTL_SECONDS } from '../auth.constants';
 import type {
@@ -70,7 +71,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
-    private readonly authAccountMembershipService: AuthAccountMembershipService,
+    private readonly authBanGuardService: AuthBanGuardService,
+    private readonly authMembershipResolverService: AuthMembershipResolverService,
     private readonly authSessionService: AuthSessionService,
   ) {
     super({
@@ -84,7 +86,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         (email) => email.trim().toLowerCase(),
       ),
     );
-    this.adminLoginPhone = configService.get<string>('auth.adminLoginPhone') ?? '13619654020';
+    this.adminLoginPhone =
+      configService.get<string>('auth.adminLoginPhone') ?? '13619654020';
   }
 
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
@@ -101,7 +104,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('登录态已失效，请重新登录');
     }
 
-    await this.authAccountMembershipService.ensureUserNotBanned(payload.sub);
+    await this.authBanGuardService.ensureUserNotBanned(payload.sub);
 
     const identity = resolveAuthIdentity(
       user.email,
@@ -110,7 +113,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       this.adminLoginPhone,
     );
     const currentMembership =
-      await this.authAccountMembershipService.resolveAuthenticatedMembership(
+      await this.authMembershipResolverService.resolveAuthenticatedMembership(
         payload,
         user.email,
       );

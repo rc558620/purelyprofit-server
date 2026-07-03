@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { SessionNotificationService } from './session-notification.service';
 
 describe('SessionNotificationService', () => {
@@ -22,14 +22,14 @@ describe('SessionNotificationService', () => {
     },
   };
 
-  const redisService = {
+  const refreshableCache = {
     getOrLoadRefreshableJson: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-21T12:00:00.000Z'));
     jest.clearAllMocks();
-    redisService.getOrLoadRefreshableJson.mockImplementation(
+    refreshableCache.getOrLoadRefreshableJson.mockImplementation(
       async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
         loadValue(),
     );
@@ -38,7 +38,7 @@ describe('SessionNotificationService', () => {
       providers: [
         SessionNotificationService,
         { provide: PrismaService, useValue: prismaService },
-        { provide: RedisService, useValue: redisService },
+        { provide: RefreshableCacheService, useValue: refreshableCache },
       ],
     }).compile();
 
@@ -89,7 +89,7 @@ describe('SessionNotificationService', () => {
       where: { storeId: 18 },
       select: { expiresAt: true },
     });
-    expect(redisService.getOrLoadRefreshableJson).toHaveBeenCalledWith(
+    expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
         cacheKey: 'pulse:session:notifications:store:18',
         ttlSeconds: 15,

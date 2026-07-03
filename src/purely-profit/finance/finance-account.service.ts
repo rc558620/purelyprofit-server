@@ -5,14 +5,14 @@ import {
 } from '@nestjs/common';
 import { FinanceAccountStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService, TX_TIMEOUT_SHORT } from '../../prisma/prisma.service';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import {
   buildFinanceAccountsListCacheKey,
   buildFinanceAccountsStatsCacheKey,
 } from './finance.cache-keys';
 import { CacheInvalidatorService } from '../../redis/invalidator';
-import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import {
   CreateFinanceAccountDto,
   ListFinanceAccountsQueryDto,
@@ -52,7 +52,7 @@ const FINANCE_ACCOUNTS_REFRESH_AFTER_MS = 15_000;
 export class FinanceAccountService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService,
+    private readonly refreshableCache: RefreshableCacheService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly financeAccessService: FinanceAccessService,
   ) {}
@@ -72,7 +72,7 @@ export class FinanceAccountService {
     };
     const cacheKey = buildFinanceAccountsListCacheKey(storeId, accountQuery);
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: FINANCE_ACCOUNTS_CACHE_TTL_SECONDS,
@@ -89,7 +89,7 @@ export class FinanceAccountService {
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
     const cacheKey = buildFinanceAccountsStatsCacheKey(storeId);
 
-    return this.redisService.getOrLoadRefreshableJson({
+    return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: FINANCE_ACCOUNTS_CACHE_TTL_SECONDS,
@@ -144,37 +144,40 @@ export class FinanceAccountService {
   ): Promise<FinanceAccountRecordResponseDto> {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
-    const updatedRecord = await this.prisma.$transaction(async (tx) => {
-      const record = await findAccountRecord(tx, { storeId, recordId });
-      if (!record) {
-        throw new NotFoundException('账款记录不存在');
-      }
+    const updatedRecord = await this.prisma.$transaction(
+      async (tx) => {
+        const record = await findAccountRecord(tx, { storeId, recordId });
+        if (!record) {
+          throw new NotFoundException('账款记录不存在');
+        }
 
-      const currentPaidAmount = Money.fromDbCents(record.paidAmount);
-      const amount = Money.fromDbCents(record.amount);
-      const payAmount = Money.fromInputYuan(dto.payAmount);
-      const nextPaidAmount = currentPaidAmount.add(payAmount);
-      if (nextPaidAmount.greaterThan(amount)) {
-        throw new ConflictException('本次收付金额超过剩余金额');
-      }
-      const derived = deriveAccountFields(
-        amount,
-        nextPaidAmount,
-        record.dueDate?.getTime() ?? undefined,
-      );
-      const settledRecord = await updateAccountRecordSettlement(tx, {
-        storeId,
-        recordId,
-        expectedPaidAmount: record.paidAmount,
-        paidAmount: nextPaidAmount.toDbCents(),
-        remaining: derived.remaining,
-        status: derived.status,
-      });
-      if (!settledRecord) {
-        throw new ConflictException('账款记录已被其他操作更新，请刷新后重试');
-      }
-      return settledRecord;
-    });
+        const currentPaidAmount = Money.fromDbCents(record.paidAmount);
+        const amount = Money.fromDbCents(record.amount);
+        const payAmount = Money.fromInputYuan(dto.payAmount);
+        const nextPaidAmount = currentPaidAmount.add(payAmount);
+        if (nextPaidAmount.greaterThan(amount)) {
+          throw new ConflictException('本次收付金额超过剩余金额');
+        }
+        const derived = deriveAccountFields(
+          amount,
+          nextPaidAmount,
+          record.dueDate?.getTime() ?? undefined,
+        );
+        const settledRecord = await updateAccountRecordSettlement(tx, {
+          storeId,
+          recordId,
+          expectedPaidAmount: record.paidAmount,
+          paidAmount: nextPaidAmount.toDbCents(),
+          remaining: derived.remaining,
+          status: derived.status,
+        });
+        if (!settledRecord) {
+          throw new ConflictException('账款记录已被其他操作更新，请刷新后重试');
+        }
+        return settledRecord;
+      },
+      { timeout: TX_TIMEOUT_SHORT },
+    );
 
     await this.invalidateDashboardCaches(storeId);
 

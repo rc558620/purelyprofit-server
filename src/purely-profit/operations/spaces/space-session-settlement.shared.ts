@@ -288,12 +288,9 @@ const resolveSpaceSessionFeeMode = (
 };
 
 const resolveSpaceSessionPrepaidDeductionMoney = (
-  session: Pick<SpaceSessionRecord, 'billingMode' | 'prepaidAmount'>,
+  session: Pick<SpaceSessionRecord, 'prepaidAmount'>,
 ): Money => {
-  if (
-    session.billingMode === PrismaSpaceBillingMode.items ||
-    session.prepaidAmount === null
-  ) {
+  if (session.prepaidAmount === null) {
     return Money.zero();
   }
 
