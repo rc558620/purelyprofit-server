@@ -26,10 +26,12 @@ import { AuthCodeService } from './auth-code.service';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthSessionService } from './auth-session.service';
 import { RedisService } from '../../redis/redis.service';
+import { AuditLogService } from '../../shared/audit-log.service';
 import {
   AUTH_LOGIN_FAIL_MAX_ATTEMPTS,
   AUTH_LOGIN_FAIL_LOCK_TTL_SECONDS,
   AUTH_LOGIN_FAIL_KEY_PREFIX,
+  AUTH_LOGIN_FAIL_WARNING_THRESHOLD,
 } from './auth.constants';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { PasswordOperationResponseDto } from './dto/password-operation-response.dto';
@@ -58,6 +60,7 @@ export class AuthAuthenticationService {
     private readonly authPasswordService: AuthPasswordService,
     private readonly authSessionService: AuthSessionService,
     private readonly redisService: RedisService,
+    private readonly auditLogService: AuditLogService,
     configService: ConfigService,
   ) {
     this.pulseDevAccountEmails = new Set(
@@ -137,12 +140,28 @@ export class AuthAuthenticationService {
         user.password,
       ))
     ) {
-      // 登录失败：递增失败计数
-      await this.recordLoginFailure(params.loginAccount, params.productScope);
+      // 登录失败：递增失败计数并构建错误消息
+      const newCount = await this.recordLoginFailure(
+        params.loginAccount,
+        params.productScope,
+      );
+      const remaining = AUTH_LOGIN_FAIL_MAX_ATTEMPTS - newCount;
+
+      if (remaining <= 0) {
+        // 达到上限，账号已锁定
+        throw new UnauthorizedException(
+          '账号或密码错误，账号已被临时锁定，请 15 分钟后再试',
+        );
+      }
+      if (newCount >= AUTH_LOGIN_FAIL_WARNING_THRESHOLD) {
+        throw new UnauthorizedException(
+          `账号或密码错误，还剩 ${remaining} 次机会，再失败账号将被临时锁定`,
+        );
+      }
       throw new UnauthorizedException('账号或密码错误');
     }
 
-    // 登录成功：清除失败计数
+    // 登录成功：清除失败计数 + 审计日志
     await this.clearLoginFailures(params.loginAccount, params.productScope);
 
     const resolvedAccountScope = this.resolveAccountScopeForLogin(user);
@@ -401,10 +420,19 @@ export class AuthAuthenticationService {
     });
 
     await this.authSessionService.bumpTokenVersion(currentUser.id);
+    await this.authSessionService.invalidateAllRefreshTokens(currentUser.id);
     const token = await this.authSessionService.signToken(currentUser.id, {
       phone: params.phone,
       email: currentUser.email,
       accountScope: params.accountScope,
+    });
+
+    // 密码变更审计日志
+    this.auditLogService.record({
+      userId: currentUser.id,
+      action: 'password.change',
+      resourceType: 'user',
+      resourceId: String(currentUser.id),
     });
 
     return {
@@ -449,12 +477,21 @@ export class AuthAuthenticationService {
         params.productScope,
       ),
       this.authSessionService.bumpTokenVersion(user.id),
+      this.authSessionService.invalidateAllRefreshTokens(user.id),
     ]);
 
     const token = await this.authSessionService.signToken(user.id, {
       phone: params.phone,
       email: user.email,
       accountScope: user.accountScope,
+    });
+
+    // 密码重置审计日志
+    this.auditLogService.record({
+      userId: user.id,
+      action: 'password.reset',
+      resourceType: 'user',
+      resourceId: String(user.id),
     });
 
     return {
@@ -567,12 +604,13 @@ export class AuthAuthenticationService {
   }
 
   /**
-   * 记录一次登录失败，使用 Redis INCR 原子递增
+   * 记录一次登录失败，使用 Redis INCR 原子递增。
+   * @returns 递增后的失败计数
    */
   private async recordLoginFailure(
     loginAccount: string,
     productScope: AuthProductScope,
-  ): Promise<void> {
+  ): Promise<number> {
     const key = this.buildLoginFailKey(loginAccount, productScope);
     const newCount = await this.redisService.incr(
       key,
@@ -586,7 +624,19 @@ export class AuthAuthenticationService {
         String(newCount),
         AUTH_LOGIN_FAIL_LOCK_TTL_SECONDS,
       );
+      // 账号锁定审计日志
+      this.auditLogService.record({
+        action: 'login.fail.lock',
+        resourceType: 'user',
+        resourceId: loginAccount.toLowerCase(),
+        metadata: {
+          productScope,
+          failCount: newCount,
+        },
+      });
     }
+
+    return newCount;
   }
 
   /**

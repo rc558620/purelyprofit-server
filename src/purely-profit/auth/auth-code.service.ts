@@ -46,7 +46,11 @@ export class AuthCodeService {
   async sendRegisterCode(
     phone: string,
     productScope: AuthProductScope,
+    captchaToken?: string,
   ): Promise<SendRegisterCodeResponseDto> {
+    // 校验并消费拼图验证令牌
+    await this.captchaTokenService.validateAndConsume(captchaToken);
+
     const expiresInSeconds = this.getRegisterCodeTtlSeconds();
     const existingUser = await this.authAccountLookupService.findUserByPhone(
       phone,
@@ -265,7 +269,11 @@ export class AuthCodeService {
   async sendPasswordResetCode(
     phone: string,
     productScope: AuthProductScope,
+    captchaToken?: string,
   ): Promise<ForgotPasswordResponseDto> {
+    // 校验并消费拼图验证令牌
+    await this.captchaTokenService.validateAndConsume(captchaToken);
+
     const expiresInSeconds = this.getPasswordResetCodeTtlSeconds();
     const user = await this.authAccountLookupService.findUserByPhone(
       phone,

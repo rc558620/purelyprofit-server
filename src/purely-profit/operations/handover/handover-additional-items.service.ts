@@ -107,11 +107,9 @@ export class HandoverAdditionalItemsService {
 
     const normalizedItems = additionalItems.map((item) => ({
       id: item.id,
-      value: normalizeRequiredText(
-        item.value,
-        HANDOVER_ADDITIONAL_VALUE_MAX_LENGTH,
-        '附加项内容不能为空',
-      ),
+      value: (item.value ?? '')
+        .trim()
+        .slice(0, HANDOVER_ADDITIONAL_VALUE_MAX_LENGTH),
     }));
     const itemIds = Array.from(new Set(normalizedItems.map((item) => item.id)));
     if (itemIds.length !== normalizedItems.length) {

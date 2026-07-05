@@ -9,6 +9,7 @@ import Redis from 'ioredis';
 import { recordRedisOperation } from '../observability';
 import { countPipelineDeleted } from './concurrency-limiter.util';
 import { safeJsonStringify } from './redis-json.util';
+import { buildRedisConnectionOptions } from '../shared/redis-connection.utils';
 
 type RedisOutcome = 'hit' | 'miss' | 'neutral';
 
@@ -27,27 +28,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
+    const redisOptions = buildRedisConnectionOptions(this.configService);
+    const commandTimeout =
+      this.configService.get<number>('redis.commandTimeoutMs') ?? 3_000;
+
     this.client = new Redis({
-      host: this.configService.get<string>('redis.host'),
-      port: this.configService.get<number>('redis.port'),
-      password: this.configService.get<string>('redis.password') || undefined,
-      db: this.configService.get<number>('redis.db'),
-      connectTimeout:
-        this.configService.get<number>('redis.connectTimeoutMs') ?? 5_000,
-      commandTimeout:
-        this.configService.get<number>('redis.commandTimeoutMs') ?? 3_000,
-      maxRetriesPerRequest:
-        this.configService.get<number>('redis.maxRetriesPerRequest') ?? 3,
-      enableReadyCheck: true,
-      lazyConnect: false,
-      // 启用离线队列：Redis 断连期间命令排队，重连后自动发送，避免立即报超时
-      enableOfflineQueue: true,
-      // 自动重连策略：指数退避，最大 5 秒间隔
-      // 返回 null 则放弃重连（不应在此场景使用）
-      retryStrategy(times: number) {
-        const delay = Math.min(times * 200, 5_000);
-        return delay;
-      },
+      ...redisOptions,
+      commandTimeout,
     });
 
     this.client.on('error', (error: Error) => {

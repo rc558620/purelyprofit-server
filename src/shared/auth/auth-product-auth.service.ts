@@ -79,12 +79,13 @@ export class AuthProductAuthService {
   ) {}
 
   async sendRegisterCode(
-    payload: AuthPhonePayload,
+    payload: AuthPhonePayload & { captchaToken?: string },
     productScope: AuthProductScope,
   ): Promise<SendRegisterCodeResult> {
     return this.authCodeService.sendRegisterCode(
       normalizePhone(payload.phone),
       productScope,
+      payload.captchaToken,
     );
   }
 
@@ -140,12 +141,13 @@ export class AuthProductAuthService {
   }
 
   async forgotPassword(
-    payload: AuthPhonePayload,
+    payload: AuthPhonePayload & { captchaToken?: string },
     productScope: AuthProductScope,
   ): Promise<ForgotPasswordResult> {
     return this.authCodeService.sendPasswordResetCode(
       normalizePhone(payload.phone),
       productScope,
+      payload.captchaToken,
     );
   }
 

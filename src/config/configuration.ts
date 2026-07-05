@@ -179,6 +179,25 @@ export default () => ({
       process.env.REDIS_MAX_RETRIES_PER_REQUEST ?? '3',
       10,
     ),
+    /**
+     * 启用 Redis TLS 加密连接。
+     * 生产环境建议启用，尤其是 Redis 与服务器不在同一 VPC 时。
+     * 对应环境变量：REDIS_TLS_ENABLED
+     */
+    tlsEnabled: (process.env.REDIS_TLS_ENABLED ?? 'false') === 'true',
+    /**
+     * Redis TLS CA 证书路径（PEM 格式）。
+     * 未配置时使用系统默认 CA 证书库。
+     * 对应环境变量：REDIS_TLS_CA_CERT_PATH
+     */
+    tlsCaCertPath: process.env.REDIS_TLS_CA_CERT_PATH ?? '',
+    /**
+     * 跳过 Redis TLS 服务器证书验证（仅开发/测试环境使用）。
+     * 生产环境必须为 false。
+     * 对应环境变量：REDIS_TLS_REJECT_UNAUTHORIZED
+     */
+    tlsRejectUnauthorized:
+      (process.env.REDIS_TLS_REJECT_UNAUTHORIZED ?? 'true') === 'true',
   },
 
   jwt: {
@@ -197,6 +216,14 @@ export default () => ({
     ),
     smsSendCooldownSeconds: parseInt(
       process.env.AUTH_SMS_SEND_COOLDOWN_SECONDS ?? '60',
+      10,
+    ),
+    /**
+     * Refresh token 有效期（秒），默认 30 天。
+     * 对应环境变量：AUTH_REFRESH_TOKEN_TTL_SECONDS
+     */
+    refreshTokenTtlSeconds: parseInt(
+      process.env.AUTH_REFRESH_TOKEN_TTL_SECONDS ?? '2592000',
       10,
     ),
     /**

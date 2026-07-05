@@ -1,0 +1,29 @@
+// 安全审计日志模型
+//
+// 记录关键业务操作（密码变更、权限变更、支付回调、数据删除等），
+// 供安全审计与异常行为追溯使用。
+// 仅追加写入，不做更新/删除；保留期限由运维侧定期归档或清理。
+
+model AuditLog {
+  id           Int      @id @default(autoincrement())
+  /// 操作人用户 ID（系统行为如自动结账等为 null）
+  userId       Int?     @map("user_id")
+  /// 操作动作，如 password.change、login.fail.lock、payment.callback
+  action       String   @db.VarChar(100)
+  /// 资源类型，如 user、store、order、finance_account
+  resourceType String?  @map("resource_type") @db.VarChar(50)
+  /// 资源 ID（操作对象的标识）
+  resourceId   String?  @map("resource_id") @db.VarChar(50)
+  /// 请求 IP
+  ip           String?  @db.VarChar(45)
+  /// 请求 User-Agent
+  userAgent    String?  @map("user_agent") @db.VarChar(500)
+  /// 扩展元数据（JSON），如变更前后值、锁定原因等
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([resourceType, resourceId, createdAt])
+  @@map("audit_logs")
+}

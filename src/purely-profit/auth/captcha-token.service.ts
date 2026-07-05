@@ -15,7 +15,7 @@ const CAPTCHA_TOKEN_TTL_SECONDS = 300;
  * 前端 usePuzzleCaptcha 生成的 token 格式为 `puzzle_{timestamp}_{counter}`
  * 格式校验确保 token 不是随机字符串或注入攻击
  */
-const CAPTCHA_TOKEN_PATTERN = /^puzzle_\d+_\d+$/;
+const CAPTCHA_TOKEN_PATTERN = /^puzzle_\d+_[a-z0-9]+$/;
 
 @Injectable()
 export class CaptchaTokenService {

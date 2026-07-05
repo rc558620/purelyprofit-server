@@ -13,6 +13,7 @@ import etag from '@fastify/etag';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from '../app.module';
 import { setupHttpObservability } from './http-observability';
+import { AllExceptionsFilter } from './all-exceptions.filter';
 import {
   listenWithPortFallback,
   terminateNodeProcessesInPortRange,
@@ -23,6 +24,12 @@ import { filterSwaggerDocumentForEnvironment } from './swagger.utils';
 
 function resolveCorsOrigin(corsOrigin: string): true | string[] {
   if (corsOrigin === '*') {
+    // 安全约束：credentials: true 时不允许 origin 为 *（浏览器会拒绝）
+    // 此处返回 true 仅用于开发环境调试，生产环境配置校验会拦截此情况
+    console.warn(
+      '[bootstrap] \u26a0\ufe0f CORS origin 配置为 "*"，credentials 模式将被禁用。' +
+        '生产环境请配置具体域名白名单。',
+    );
     return true;
   }
 
@@ -205,6 +212,9 @@ export async function bootstrap(): Promise<void> {
   // 应在数据层而非序列化层修复。
   await registerGlobalPlugins(app);
 
+  // 全局异常过滤器：统一错误响应格式，生产环境隐藏内部堆栈信息
+  app.useGlobalFilters(new AllExceptionsFilter(isProduction));
+
   const configService = app.get(ConfigService);
   if (isProduction) {
     validateProductionConfiguration(configService);
@@ -221,8 +231,11 @@ export async function bootstrap(): Promise<void> {
   app.setGlobalPrefix('api');
 
   const corsOrigin = configService.get<string>('app.corsOrigin') ?? '*';
+  const resolvedOrigin = resolveCorsOrigin(corsOrigin);
+  // 安全约束：origin 为 * 时禁用 credentials（浏览器规范不允许此组合）
+  const allowCredentials = resolvedOrigin !== true;
   app.enableCors({
-    origin: resolveCorsOrigin(corsOrigin),
+    origin: resolvedOrigin,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
@@ -235,7 +248,7 @@ export async function bootstrap(): Promise<void> {
       'Wechatpay-Serial',
       'Wechatpay-Signature-Type',
     ],
-    credentials: true,
+    credentials: allowCredentials,
   });
 
   const slowRequestLogEnabled =

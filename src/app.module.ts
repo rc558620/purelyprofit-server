@@ -4,6 +4,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import Redis from 'ioredis';
+import { buildRedisConnectionOptions } from './shared/redis-connection.utils';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AccessControlModule } from './purely-profit/access-control/access-control.module';
@@ -55,6 +56,8 @@ import { ClubStoresModule } from './purely-club/stores/club-stores.module';
 import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.module';
 import { QueueModule } from './queue/queue.module';
 import { CacheControlInterceptor } from './shared/cache-control.interceptor';
+import { ResponseSanitizerInterceptor } from './shared/response-sanitizer.interceptor';
+import { AuditLogModule } from './shared/audit-log.module';
 
 @Module({
   imports: [
@@ -66,21 +69,8 @@ import { CacheControlInterceptor } from './shared/cache-control.interceptor';
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const redisClient = new Redis({
-          host: configService.get<string>('redis.host'),
-          port: configService.get<number>('redis.port'),
-          password: configService.get<string>('redis.password') || undefined,
-          db: configService.get<number>('redis.db'),
-          connectTimeout:
-            configService.get<number>('redis.connectTimeoutMs') ?? 5_000,
-          maxRetriesPerRequest:
-            configService.get<number>('redis.maxRetriesPerRequest') ?? 3,
-          enableOfflineQueue: true,
-          retryStrategy(times: number) {
-            const delay = Math.min(times * 200, 5_000);
-            return delay;
-          },
-        });
+        const redisOptions = buildRedisConnectionOptions(configService);
+        const redisClient = new Redis(redisOptions);
 
         return {
           throttlers: [
@@ -100,6 +90,7 @@ import { CacheControlInterceptor } from './shared/cache-control.interceptor';
       },
     }),
     PrismaModule,
+    AuditLogModule,
     RedisModule,
     QueueModule,
     AccessControlModule,
@@ -161,6 +152,7 @@ import { CacheControlInterceptor } from './shared/cache-control.interceptor';
      * 用于指导客户端缓存纯读接口的响应，减少不必要的回源请求。
      */
     { provide: APP_INTERCEPTOR, useClass: CacheControlInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: ResponseSanitizerInterceptor },
   ],
 })
 export class AppModule {}

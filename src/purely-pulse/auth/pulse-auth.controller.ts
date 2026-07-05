@@ -23,6 +23,7 @@ export class PulseAuthController {
   ) {}
 
   @Get('public-key')
+  @Throttle({ default: { ttl: 60, limit: 10 } })
   @ApiOperation({
     summary: '获取 purely-pulse RSA 公钥',
     description:

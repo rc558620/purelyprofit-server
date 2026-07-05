@@ -58,7 +58,13 @@ export function streamCsvRows(
   res: ServerResponse,
   headers: string[],
   rows: unknown[][],
+  prefixRows?: unknown[][],
 ): void {
+  if (prefixRows) {
+    for (const row of prefixRows) {
+      res.write(toCsvLine(row));
+    }
+  }
   res.write(toCsvLine(headers));
   for (const row of rows) {
     res.write(toCsvLine(row));
@@ -88,10 +94,11 @@ export function safeStreamCsvExport(
   filename: string,
   headers: string[],
   rows: unknown[][],
+  prefixRows?: unknown[][],
 ): void {
   try {
     setCsvDownloadHeaders(res, filename);
-    streamCsvRows(res, headers, rows);
+    streamCsvRows(res, headers, rows, prefixRows);
   } finally {
     res.end();
   }

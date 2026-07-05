@@ -12,7 +12,9 @@ export const AUTH_CODE_ATTEMPTS_LOCK_TTL_SECONDS = 600;
 /** 登录失败计数 key 前缀 */
 export const AUTH_LOGIN_FAIL_KEY_PREFIX = 'auth:login-fail:';
 /** 登录最大连续失败次数，超过后临时锁定账号 */
-export const AUTH_LOGIN_FAIL_MAX_ATTEMPTS = 10;
+export const AUTH_LOGIN_FAIL_MAX_ATTEMPTS = 5;
+/** 登录失败达到此次数时，错误消息中附带剩余尝试次数提醒 */
+export const AUTH_LOGIN_FAIL_WARNING_THRESHOLD = 2;
 /** 登录失败锁定时长（秒） */
 export const AUTH_LOGIN_FAIL_LOCK_TTL_SECONDS = 900;
 export const AUTH_PASSWORD_RESET_CODE_LENGTH = 6;

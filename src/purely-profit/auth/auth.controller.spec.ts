@@ -4,6 +4,8 @@ import type { AuthenticatedUser } from './strategies/jwt.strategy';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AuthRsaService } from './auth-rsa.service';
+import { CaptchaTokenService } from './captcha-token.service';
+import { AuthSessionService } from './auth-session.service';
 
 const ALLOW_GUARD = { canActivate: jest.fn(() => true) };
 
@@ -26,6 +28,19 @@ describe('AuthController', () => {
 
   const authRsaService = {
     getPublicKeyPem: jest.fn(),
+  };
+
+  const captchaTokenService = {
+    register: jest.fn(),
+    validateAndConsume: jest.fn(),
+  };
+
+  const authSessionService = {
+    signToken: jest.fn(),
+    refreshAccessToken: jest.fn(),
+    bumpTokenVersion: jest.fn(),
+    getTokenVersion: jest.fn(),
+    invalidateAllRefreshTokens: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -61,6 +76,8 @@ describe('AuthController', () => {
       providers: [
         { provide: AuthService, useValue: authService },
         { provide: AuthRsaService, useValue: authRsaService },
+        { provide: CaptchaTokenService, useValue: captchaTokenService },
+        { provide: AuthSessionService, useValue: authSessionService },
       ],
     });
     moduleBuilder.overrideGuard(JwtAuthGuard).useValue(ALLOW_GUARD);

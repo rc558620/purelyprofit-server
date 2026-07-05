@@ -3,7 +3,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsString, Matches } from 'class-validator';
 
 /** captchaToken 格式正则，与 CaptchaTokenService 中的正则保持一致 */
-const CAPTCHA_TOKEN_PATTERN = /^puzzle_\d+_\d+$/;
+const CAPTCHA_TOKEN_PATTERN = /^puzzle_\d+_[a-z0-9]+$/;
 
 export class RegisterCaptchaTokenDto {
   @ApiProperty({

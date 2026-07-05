@@ -24,6 +24,7 @@ describe('main bootstrap', () => {
 
   const app = {
     useGlobalPipes: jest.fn(),
+    useGlobalFilters: jest.fn(),
     setGlobalPrefix: jest.fn(),
     enableCors: jest.fn(),
     register: jest.fn().mockResolvedValue(undefined),
@@ -43,6 +44,7 @@ describe('main bootstrap', () => {
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     app.useGlobalPipes.mockClear();
+    app.useGlobalFilters.mockClear();
     app.setGlobalPrefix.mockClear();
     app.enableCors.mockClear();
     app.get.mockClear();

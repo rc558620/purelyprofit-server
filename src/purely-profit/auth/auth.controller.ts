@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Patch,
   Post,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -19,7 +20,10 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
+import { AuthSessionService } from './auth-session.service';
 import { AuthRsaService } from './auth-rsa.service';
+import { CaptchaTokenService } from './captcha-token.service';
+import { RegisterCaptchaTokenDto } from '../../purely-club/auth/dto/register-captcha-token.dto';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -32,6 +36,7 @@ import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SendRegisterCodeDto } from './dto/send-register-code.dto';
 import { SendRegisterCodeResponseDto } from './dto/send-register-code-response.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateAvatarDto } from './dto/update-avatar.dto';
 import { UpdateNicknameDto } from './dto/update-nickname.dto';
 import { VerifyRealNameDto } from './dto/verify-real-name.dto';
@@ -47,9 +52,12 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly authRsaService: AuthRsaService,
+    private readonly captchaTokenService: CaptchaTokenService,
+    private readonly authSessionService: AuthSessionService,
   ) {}
 
   @Get('public-key')
+  @Throttle({ default: { ttl: 60, limit: 10 } })
   @ApiOperation({
     summary: '获取 RSA 公钥',
     description:
@@ -62,6 +70,24 @@ export class AuthController {
   })
   getPublicKey(): PublicKeyResponseDto {
     return { publicKey: this.authRsaService.getPublicKey() };
+  }
+
+  @Post('captcha/register')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 30 } })
+  @ApiOperation({
+    summary: '注册拼图验证令牌',
+    description:
+      '前端完成拼图验证后调用此接口注册 captchaToken 到服务端。' +
+      '后续发送短信验证码时需携带该 token，后端校验通过后才允许发送。' +
+      'token 有效期 5 分钟，一次性消费。',
+  })
+  registerCaptchaToken(
+    @Body() dto: RegisterCaptchaTokenDto,
+  ): Promise<{ success: boolean }> {
+    return this.captchaTokenService.issue(dto.captchaToken).then(() => ({
+      success: true,
+    }));
   }
 
   @Post('register/send-code')
@@ -147,6 +173,29 @@ export class AuthController {
       password: this.authRsaService.tryDecryptPassword(dto.password),
     };
     return this.authService.login(decryptedDto);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 30 } })
+  @ApiOperation({
+    summary: '刷新访问令牌',
+    description:
+      '使用 refresh_token 获取新的 access_token + refresh_token。' +
+      '旧 refresh_token 立即失效（一次性轮换机制）。',
+  })
+  @ApiOkResponse({
+    description: '刷新成功，返回新的 token pair',
+    type: AuthTokenResponseDto,
+  })
+  async refresh(@Body() dto: RefreshTokenDto): Promise<AuthTokenResponseDto> {
+    const result = await this.authSessionService.refreshAccessToken(
+      dto.refresh_token,
+    );
+    if (!result) {
+      throw new UnauthorizedException('刷新令牌无效或已过期');
+    }
+    return result;
   }
 
   @Post('change-password')

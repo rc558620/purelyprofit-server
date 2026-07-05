@@ -43,6 +43,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Audit dependencies for vulnerabilities
+        run: pnpm audit --audit-level=high
+        continue-on-error: true
+
       - name: Run CI lint gate
         run: pnpm exec eslint "{src,apps,libs,test}/**/*.ts"
 

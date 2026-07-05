@@ -65,6 +65,7 @@ export class ClubAuthController {
   }
 
   @Get('public-key')
+  @Throttle({ default: { ttl: 60, limit: 10 } })
   @ApiOperation({
     summary: '获取 purely-club RSA 公钥',
     description:

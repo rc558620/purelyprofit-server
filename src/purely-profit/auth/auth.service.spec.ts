@@ -28,6 +28,7 @@ import { AuthProfileService } from './auth-profile.service';
 import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.service';
 import { AuthService } from './auth.service';
 import { AuthSessionService } from './auth-session.service';
+import { AuditLogService } from '../../shared/audit-log.service';
 import { AuthSmsService } from './auth-sms.service';
 import { AuthRegisterStoreService } from './auth-register-store.service';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
@@ -161,6 +162,10 @@ describe('AuthService', () => {
           provide: StoreInviteCodeService,
           useValue: storeInviteCodeService,
         },
+        {
+          provide: AuditLogService,
+          useValue: { record: jest.fn(), recordAwaitable: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -207,7 +212,9 @@ describe('AuthService', () => {
         },
       },
     });
-    expect(result).toEqual({ access_token: 'admin-token', userId: 1 });
+    expect(result).toEqual(
+      expect.objectContaining({ access_token: 'admin-token', userId: 1 }),
+    );
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 1,
       phone: '13619654020',
@@ -257,7 +264,12 @@ describe('AuthService', () => {
         },
       },
     });
-    expect(result).toEqual({ access_token: 'sub-account-token', userId: 59 });
+    expect(result).toEqual(
+      expect.objectContaining({
+        access_token: 'sub-account-token',
+        userId: 59,
+      }),
+    );
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 59,
       phone: '13145645646',
@@ -289,7 +301,9 @@ describe('AuthService', () => {
           requireDeveloper: true,
         },
       ),
-    ).resolves.toEqual({ access_token: 'pulse-dev-token', userId: 66 });
+    ).resolves.toEqual(
+      expect.objectContaining({ access_token: 'pulse-dev-token', userId: 66 }),
+    );
 
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 66,
@@ -371,7 +385,12 @@ describe('AuthService', () => {
         phone: '13900139000',
         password: 'partial123',
       }),
-    ).resolves.toEqual({ access_token: 'partial-ban-token', userId: 19 });
+    ).resolves.toEqual(
+      expect.objectContaining({
+        access_token: 'partial-ban-token',
+        userId: 19,
+      }),
+    );
   });
 
   it('修改密码后会刷新 token 并使旧 token 失效', async () => {
@@ -691,7 +710,9 @@ describe('AuthService', () => {
         },
         'purely_club',
       ),
-    ).resolves.toEqual({ access_token: 'club-code-token', userId: 7 });
+    ).resolves.toEqual(
+      expect.objectContaining({ access_token: 'club-code-token', userId: 7 }),
+    );
 
     expect(redisService.del).toHaveBeenCalledWith(
       'auth:register:purely_club:13800138000',
@@ -779,7 +800,12 @@ describe('AuthService', () => {
         },
         'purely_club',
       ),
-    ).resolves.toEqual({ access_token: 'club-wechat-token', userId: 88 });
+    ).resolves.toEqual(
+      expect.objectContaining({
+        access_token: 'club-wechat-token',
+        userId: 88,
+      }),
+    );
 
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 88,
@@ -819,7 +845,12 @@ describe('AuthService', () => {
         },
         'purely_club',
       ),
-    ).resolves.toEqual({ access_token: 'club-phone-reuse-token', userId: 88 });
+    ).resolves.toEqual(
+      expect.objectContaining({
+        access_token: 'club-phone-reuse-token',
+        userId: 88,
+      }),
+    );
 
     expect(prismaService.user.create).not.toHaveBeenCalled();
     expect(jwtService.signAsync).toHaveBeenCalledWith({
@@ -859,7 +890,12 @@ describe('AuthService', () => {
         },
         'purely_club',
       ),
-    ).resolves.toEqual({ access_token: 'club-wechat-merge-token', userId: 66 });
+    ).resolves.toEqual(
+      expect.objectContaining({
+        access_token: 'club-wechat-merge-token',
+        userId: 66,
+      }),
+    );
 
     expect(prismaService.user.update).toHaveBeenCalledWith({
       where: { id: 66 },

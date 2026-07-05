@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNumber, IsString } from 'class-validator';
+import { IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class AuthTokenResponseDto {
   @ApiProperty({
@@ -8,6 +8,22 @@ export class AuthTokenResponseDto {
   })
   @IsString({ message: '访问令牌必须是字符串' })
   access_token: string;
+
+  @ApiPropertyOptional({
+    example: 'rt_abc123def456...',
+    description: '刷新令牌（一次性使用，用于获取新的 access_token）',
+  })
+  @IsOptional()
+  @IsString({ message: '刷新令牌必须是字符串' })
+  refresh_token?: string;
+
+  @ApiPropertyOptional({
+    example: 7200,
+    description: 'access_token 有效期（秒）',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: '有效期必须是数字' })
+  expires_in?: number;
 
   @ApiPropertyOptional({
     example: 1,
