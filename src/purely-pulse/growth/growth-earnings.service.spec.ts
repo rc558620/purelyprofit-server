@@ -83,7 +83,7 @@ describe('PulseGrowthEarningsService', () => {
 
   it('getEarningsOverview 未命中缓存时会查询并回填缓存', async () => {
     const overviewData = {
-      partners: [],
+      partner: null,
       promoRecords: [],
       pendingWithdrawals: 1,
     };
@@ -148,7 +148,7 @@ describe('PulseGrowthEarningsService', () => {
 
   it('getEarningsLogs 未命中缓存时会查询并回填缓存', async () => {
     const overviewData = {
-      partners: [],
+      partner: null,
       promoRecords: [],
       pendingWithdrawals: 0,
     };
@@ -188,7 +188,7 @@ describe('PulseGrowthEarningsService', () => {
 
   it('getEarningsLogs cursor 模式下跳过缓存并按游标查询下一页', async () => {
     const overviewData = {
-      partners: [],
+      partner: null,
       promoRecords: [],
       pendingWithdrawals: 0,
     };
@@ -235,7 +235,7 @@ describe('PulseGrowthEarningsService', () => {
       limit: 30,
     });
     expect(domainSpy).toHaveBeenCalledWith({
-      partners: overviewData.partners,
+      partner: overviewData.partner,
       logs,
       ownerName: '张三',
       limit: 30,
@@ -257,21 +257,19 @@ describe('PulseGrowthEarningsService', () => {
 
   it('buildEarningsLogsResponse 在 cursor 模式下返回 nextCursor', () => {
     const result = growthEarningsDomain.buildEarningsLogsResponse({
-      partners: [
-        {
-          id: 7,
-          status: 'approved',
-          name: '张三',
-          phone: '13800138000',
-          beanBalance: 32,
-          totalEarnedBeans: 120,
-          totalWithdrawnBeans: 88,
-          joinedAt: new Date('2026-05-01T00:00:00.000Z'),
-          paymentAccountType: 'alipay',
-          paymentAccountNo: '13800138000',
-          paymentAccountName: '张三',
-        },
-      ],
+      partner: {
+        id: 7,
+        status: 'approved',
+        name: '张三',
+        phone: '13800138000',
+        beanBalance: 32,
+        totalEarnedBeans: 120,
+        totalWithdrawnBeans: 88,
+        joinedAt: new Date('2026-05-01T00:00:00.000Z'),
+        paymentAccountType: 'alipay',
+        paymentAccountNo: '13800138000',
+        paymentAccountName: '张三',
+      },
       logs: [
         {
           id: 18,

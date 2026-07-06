@@ -5,7 +5,6 @@ import {
   buildCacheRefreshTaskKey,
   buildPlatformMembershipBeanLogsCacheKey,
   buildPlatformMembershipCenterCacheKey,
-  buildPlatformMembershipOrdersCacheKey,
   buildPlatformMembershipPartnerProfileCacheKey,
   buildPlatformMembershipPointsLogsCacheKey,
   buildPlatformMembershipProfileCacheKey,
@@ -105,17 +104,26 @@ export class PlatformMembershipService {
 
   async listOrders(
     user: AuthenticatedUser,
+    page?: number,
+    pageSize?: number,
   ): Promise<PlatformMembershipOrdersResponseDto> {
     this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
-    return this.listOrdersByStoreId(this.getCurrentStoreIdOrThrow(user));
+    return this.listOrdersByStoreId(
+      this.getCurrentStoreIdOrThrow(user),
+      page,
+      pageSize,
+    );
   }
 
   async listOrdersByStoreId(
     storeId: number,
+    page?: number,
+    pageSize?: number,
   ): Promise<PlatformMembershipOrdersResponseDto> {
-    return this.loadCachedLedger(
-      buildPlatformMembershipOrdersCacheKey(storeId),
-      () => this.platformMembershipReadService.listOrdersByStoreId(storeId),
+    return this.platformMembershipReadService.listOrdersByStoreId(
+      storeId,
+      page,
+      pageSize,
     );
   }
 

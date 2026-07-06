@@ -108,34 +108,22 @@ export function mapPointsLog(
 }
 
 export function buildBeanOverview(
-  partners: ApprovedPartnerLike[],
+  partner: ApprovedPartnerLike | null,
 ): PlatformMembershipBeanLogsResponseDto['overview'] {
-  const approvedPartners = partners.filter(
-    (partner) => partner.status === 'approved',
-  );
-
-  const summary = approvedPartners.reduce(
-    (acc, partner) => ({
-      beanBalance: acc.beanBalance + partner.beanBalance,
-      totalEarnedBeans: acc.totalEarnedBeans + partner.totalEarnedBeans,
-      totalWithdrawnBeans:
-        acc.totalWithdrawnBeans + partner.totalWithdrawnBeans,
-    }),
-    {
-      beanBalance: 0,
-      totalEarnedBeans: 0,
-      totalWithdrawnBeans: 0,
-    },
-  );
+  const beanBalance = partner?.beanBalance ?? 0;
+  const totalEarnedBeans = partner?.totalEarnedBeans ?? 0;
+  const totalWithdrawnBeans = partner?.totalWithdrawnBeans ?? 0;
 
   // 待结算纯利豆 = max(0, 总获得 - 总提现 - 当前余额)，防止因并发写入出现负数
   const pendingBeans = Math.max(
     0,
-    summary.totalEarnedBeans - summary.totalWithdrawnBeans - summary.beanBalance,
+    totalEarnedBeans - totalWithdrawnBeans - beanBalance,
   );
 
   return {
-    ...summary,
+    beanBalance,
+    totalEarnedBeans,
+    totalWithdrawnBeans,
     pendingBeans,
   };
 }

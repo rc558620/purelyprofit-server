@@ -101,6 +101,10 @@ export class PulsePayoutApplicationItemDto {
   @IsInt()
   amount: number;
 
+  @ApiProperty({ example: '¥20.00', description: '申请提现金额展示值' })
+  @IsString()
+  amountDisplay: string;
+
   @ApiProperty({
     enum: WITHDRAWAL_ACCOUNT_TYPE_VALUES,
     example: 'alipay',
@@ -166,9 +170,17 @@ export class PulseAdminPayoutsResponseDto {
   @IsInt()
   pendingTotal: number;
 
+  @ApiProperty({ example: '¥43.00', description: '待打款总金额展示值' })
+  @IsString()
+  pendingTotalDisplay: string;
+
   @ApiProperty({ example: 2000, description: '已打款累计金额（分）' })
   @IsInt()
   paidTotal: number;
+
+  @ApiProperty({ example: '¥20.00', description: '已打款累计金额展示值' })
+  @IsString()
+  paidTotalDisplay: string;
 
   @ApiProperty({ example: false, description: '是否还有下一页' })
   hasMore: boolean;
@@ -269,6 +281,13 @@ export class PulseAdminPartnerApplicationItemDto {
   city: string;
 
   @ApiProperty({
+    example: '440301199001011234',
+    description: '申请人身份证号（完整展示，审核场景不脱敏）',
+  })
+  @IsString()
+  idCard: string;
+
+  @ApiProperty({
     example: '2026-04-19 14:32',
     description:
       '申请时间（格式 YYYY-MM-DD HH:mm，对齐前端 PartnerApplication.appliedAt）',
@@ -301,7 +320,8 @@ export class PulseAdminPartnerApplicationItemDto {
   @ApiProperty({
     enum: PLATFORM_PARTNER_INTENTIONS,
     example: 'agent',
-    description: '合作意向：agent=代理推广 / invest=投资入股 / resource=资源合作 / other=其他合作',
+    description:
+      '合作意向：agent=代理推广 / invest=投资入股 / resource=资源合作 / other=其他合作',
   })
   @IsIn(PLATFORM_PARTNER_INTENTIONS)
   intention: PlatformPartnerIntention;

@@ -46,6 +46,12 @@ model FinanceReconciliationRecord {
   actualNet       Int                         @map("actual_net")    // 实际净额（分）
   diffAmount      Int                         @map("diff_amount")   // 差异金额（分）
   adjustNote      String?                     @map("adjust_note")
+  settlementBatchNo String?                   @map("settlement_batch_no")
+  linkedOrderNos    String?                   @map("linked_order_nos")    // 逗号分隔的销售单号
+  linkedOrderCount  Int?                      @map("linked_order_count")
+  linkedReceivableAmount Int?                 @map("linked_receivable_amount") // 关联应收（分）
+  linkedSettledAmount    Int?                 @map("linked_settled_amount")    // 本次到账（分）
+  linkedFeeAmount        Int?                 @map("linked_fee_amount")        // 平台手续费（分）
   operator        String?
   note            String?
   date            DateTime

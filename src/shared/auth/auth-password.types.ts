@@ -28,6 +28,8 @@ export interface RegisterAuthParams {
   confirmPassword?: string;
   name?: string;
   productScope: AuthProductScope;
+  /** 推广码（选填），8位字母数字 */
+  promoCode?: string;
 }
 
 export interface LoginAuthParams {

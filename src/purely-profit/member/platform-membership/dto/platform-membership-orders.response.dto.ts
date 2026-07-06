@@ -7,6 +7,7 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
+import { PaginationMetaDto } from '../../../stores/dto/store-response.dto';
 import { PLATFORM_MEMBERSHIP_PLAN_IDS } from './platform-membership-query.dto';
 import {
   PLATFORM_MEMBERSHIP_ORDER_STATUS,
@@ -74,7 +75,7 @@ export class PlatformMembershipOrdersOverviewDto {
 export class PlatformMembershipOrdersResponseDto {
   @ApiProperty({
     type: PlatformMembershipOrdersOverviewDto,
-    description: '充值记录页汇总信息',
+    description: '充值记录页汇总信息（基于全量订单）',
   })
   @ValidateNested()
   @Type(() => PlatformMembershipOrdersOverviewDto)
@@ -82,12 +83,20 @@ export class PlatformMembershipOrdersResponseDto {
 
   @ApiProperty({
     type: [PlatformMembershipOrderResponseDto],
-    description: '充值记录列表，按创建时间倒序',
+    description: '充值记录列表，按创建时间倒序（当前页）',
   })
   @IsArray({ message: '充值记录列表必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => PlatformMembershipOrderResponseDto)
   items: PlatformMembershipOrderResponseDto[];
+
+  @ApiProperty({
+    type: PaginationMetaDto,
+    description: '分页元信息',
+  })
+  @ValidateNested()
+  @Type(() => PaginationMetaDto)
+  meta: PaginationMetaDto;
 }
 
 export class PreviewPlatformMembershipOrderResponseDto {

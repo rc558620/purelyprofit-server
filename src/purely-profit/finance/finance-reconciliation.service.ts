@@ -147,6 +147,26 @@ export class FinanceReconciliationService {
       actualExpense: (actualExpense ?? Money.zero()).toDbCents(),
       actualNet: actualNet.toDbCents(),
       diffAmount: diffAmount.toDbCents(),
+      settlementBatchNo: trimOptionalString(dto.settlementBatchNo),
+      linkedOrderNos: dto.linkedOrderNos?.length
+        ? dto.linkedOrderNos
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .join(',')
+        : null,
+      linkedOrderCount: dto.linkedOrderCount ?? null,
+      linkedReceivableAmount:
+        dto.linkedReceivableAmount != null
+          ? Money.fromInputYuan(dto.linkedReceivableAmount).toDbCents()
+          : null,
+      linkedSettledAmount:
+        dto.linkedSettledAmount != null
+          ? Money.fromInputYuan(dto.linkedSettledAmount).toDbCents()
+          : null,
+      linkedFeeAmount:
+        dto.linkedFeeAmount != null
+          ? Money.fromInputYuan(dto.linkedFeeAmount).toDbCents()
+          : null,
       operator: trimOptionalString(dto.operator),
       note: trimOptionalString(dto.note),
       date: new Date(dto.date),

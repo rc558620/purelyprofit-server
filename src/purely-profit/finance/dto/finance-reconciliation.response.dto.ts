@@ -132,6 +132,43 @@ export class FinanceReconciliationRecordResponseDto {
   @IsString({ message: '调整说明必须是字符串' })
   adjustNote?: string;
 
+  @ApiPropertyOptional({
+    example: 'MT20260518001',
+    description: '到账批次号，仅 payment 类型',
+  })
+  @IsOptional()
+  @IsString({ message: '到账批次号必须是字符串' })
+  settlementBatchNo?: string;
+
+  @ApiPropertyOptional({
+    example: ['SO-001', 'SO-002'],
+    description: '关联销售单号列表，仅 payment 类型',
+  })
+  @IsOptional()
+  @IsArray({ message: '关联销售单号必须是数组' })
+  @IsString({ each: true, message: '每个销售单号必须是字符串' })
+  linkedOrderNos?: string[];
+
+  @ApiPropertyOptional({ example: 2, description: '关联销售单数量' })
+  @IsOptional()
+  @IsInt({ message: '关联销售单数量必须是整数' })
+  linkedOrderCount?: number;
+
+  @ApiPropertyOptional({ example: 5000, description: '关联应收金额，单位元' })
+  @IsOptional()
+  @IsNumber({}, { message: '关联应收金额必须是数字' })
+  linkedReceivableAmount?: number;
+
+  @ApiPropertyOptional({ example: 4800, description: '本次到账金额，单位元' })
+  @IsOptional()
+  @IsNumber({}, { message: '本次到账金额必须是数字' })
+  linkedSettledAmount?: number;
+
+  @ApiPropertyOptional({ example: 200, description: '平台手续费，单位元' })
+  @IsOptional()
+  @IsNumber({}, { message: '平台手续费必须是数字' })
+  linkedFeeAmount?: number;
+
   @ApiPropertyOptional({ example: '财务张姐', description: '对账人' })
   @IsOptional()
   @IsString({ message: '对账人必须是字符串' })

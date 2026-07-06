@@ -7,6 +7,7 @@ enum FinanceCashFlowDirection {
 
 enum FinanceCashFlowCategory {
   sales
+  platform_settlement
   refund
   transfer_in
   other_income
@@ -16,6 +17,7 @@ enum FinanceCashFlowCategory {
   salary
   marketing
   tax
+  platform_fee
   transfer_out
   other_expense
 }
@@ -26,6 +28,9 @@ enum FinanceCashFlowPayment {
   alipay
   card
   bank
+  meituan
+  douyin
+  platform
   other
 }
 

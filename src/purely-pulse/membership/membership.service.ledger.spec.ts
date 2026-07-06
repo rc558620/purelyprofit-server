@@ -234,10 +234,10 @@ describe('PulseMembershipService ledger', () => {
       approvedPartner: null,
       approvedPartners: [],
       overview: {
-        beanBalance: 20,
-        totalEarnedBeans: 50,
-        totalWithdrawnBeans: 8,
-        pendingBeans: 22,
+        beanBalance: 12,
+        totalEarnedBeans: 30,
+        totalWithdrawnBeans: 5,
+        pendingBeans: 13,
       },
       items: [
         {

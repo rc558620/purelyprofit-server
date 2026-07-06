@@ -148,6 +148,41 @@ export function mapReconciliationRecord(
       ...(item.note ? { note: item.note } : {}),
     })),
     ...(record.adjustNote ? { adjustNote: record.adjustNote } : {}),
+    ...(record.settlementBatchNo
+      ? { settlementBatchNo: record.settlementBatchNo }
+      : {}),
+    ...(record.linkedOrderNos
+      ? {
+          linkedOrderNos: record.linkedOrderNos
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+        }
+      : {}),
+    ...(record.linkedOrderCount != null
+      ? { linkedOrderCount: record.linkedOrderCount }
+      : {}),
+    ...(record.linkedReceivableAmount != null
+      ? {
+          linkedReceivableAmount: Money.fromDbCents(
+            record.linkedReceivableAmount,
+          ).toOutputYuan(),
+        }
+      : {}),
+    ...(record.linkedSettledAmount != null
+      ? {
+          linkedSettledAmount: Money.fromDbCents(
+            record.linkedSettledAmount,
+          ).toOutputYuan(),
+        }
+      : {}),
+    ...(record.linkedFeeAmount != null
+      ? {
+          linkedFeeAmount: Money.fromDbCents(
+            record.linkedFeeAmount,
+          ).toOutputYuan(),
+        }
+      : {}),
     ...(record.operator ? { operator: record.operator } : {}),
     ...(record.note ? { note: record.note } : {}),
     date: record.date.getTime(),

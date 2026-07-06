@@ -22,10 +22,10 @@ export function findBlockingApplication(
 }
 
 export function hasApprovedPartnerForApplicant(
-  partners: StorePartnerRecord[],
+  partner: StorePartnerRecord | null,
   payload: PartnerSnapshotPayload,
 ): boolean {
-  return partners.some((partner) => isSameApplicant(partner, payload));
+  return partner !== null && isSameApplicant(partner, payload);
 }
 
 export function isSameApplicant(
@@ -34,13 +34,23 @@ export function isSameApplicant(
     | Pick<StorePartnerRecord, 'idCard' | 'phone'>,
   payload: Pick<PartnerSnapshotPayload, 'idCard' | 'phone'>,
 ): boolean {
-  const normalizedIdCard = applicant.idCard?.trim().toUpperCase();
+  const applicantIdCard = applicant.idCard?.trim().toUpperCase();
+  const payloadIdCard = payload.idCard?.trim().toUpperCase();
 
-  if (normalizedIdCard) {
-    return normalizedIdCard === payload.idCard;
+  // 双方都有身份证时，仅以身份证为准
+  if (applicantIdCard && payloadIdCard) {
+    return applicantIdCard === payloadIdCard;
   }
 
-  return applicant.phone?.trim() === payload.phone;
+  // 任一方无身份证时，回退到手机号
+  const applicantPhone = applicant.phone?.trim();
+  const payloadPhone = payload.phone?.trim();
+
+  if (applicantPhone && payloadPhone) {
+    return applicantPhone === payloadPhone;
+  }
+
+  return false;
 }
 
 export async function upsertApprovedPartnerSnapshot(params: {

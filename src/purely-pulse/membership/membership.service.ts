@@ -69,8 +69,10 @@ export class PulseMembershipService {
 
   listOrders(
     user: AuthenticatedUser,
+    page?: number,
+    pageSize?: number,
   ): Promise<PlatformMembershipOrdersResponseDto> {
-    return this.ordersService.listOrders(user);
+    return this.ordersService.listOrders(user, page, pageSize);
   }
 
   purchaseOrder(

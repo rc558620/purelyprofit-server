@@ -7,7 +7,6 @@ import type {
 import { normalizeMembershipProfileFromPaidOrders } from './membership-plan-resolver';
 import {
   buildApprovedPartnerResponse,
-  buildApprovedPartnersResponse,
   buildMembershipInfo,
 } from './membership-profile.mapper';
 import {
@@ -18,8 +17,8 @@ import {
 } from './platform-membership-ledger.domain';
 import {
   ensureMembershipProfile,
+  findCurrentStorePartner,
   findPaidStoreMembershipOrders,
-  findStorePartners,
   loadPlanCatalog,
 } from './platform-membership.query';
 
@@ -74,30 +73,28 @@ export class PlatformMembershipLedgerService {
   async listBeanLogsByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipBeanLogsResponseDto> {
-    const partners = await findStorePartners(this.prisma, storeId);
-    const logs =
-      partners.length > 0
-        ? await this.prisma.storePartnerBeanLog.findMany({
-            where: { storeId },
-            select: {
-              id: true,
-              source: true,
-              changeAmount: true,
-              description: true,
-              relatedPromoRecordId: true,
-              relatedUser: true,
-              relatedPlanType: true,
-              createdAt: true,
-            },
-            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          })
-        : [];
-    const primaryPartner = partners[0] ?? null;
+    const partner = await findCurrentStorePartner(this.prisma, storeId);
+    const logs = partner
+      ? await this.prisma.storePartnerBeanLog.findMany({
+          where: { storeId },
+          select: {
+            id: true,
+            source: true,
+            changeAmount: true,
+            description: true,
+            relatedPromoRecordId: true,
+            relatedUser: true,
+            relatedPlanType: true,
+            createdAt: true,
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        })
+      : [];
 
     return {
-      approvedPartner: buildApprovedPartnerResponse(primaryPartner),
-      approvedPartners: buildApprovedPartnersResponse(partners),
-      overview: buildBeanOverview(partners),
+      approvedPartner: buildApprovedPartnerResponse(partner),
+      approvedPartners: partner ? [buildApprovedPartnerResponse(partner)!] : [],
+      overview: buildBeanOverview(partner),
       items: logs.map((log) => mapBeanLog(log)),
     };
   }

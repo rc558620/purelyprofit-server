@@ -30,7 +30,7 @@ import {
 import {
   queryEarningsOverviewData,
   queryPartnerBeanLogs,
-  queryWithdrawalAccountPartners,
+  queryWithdrawalAccountPartner,
 } from './growth-earnings.query';
 
 const PULSE_GROWTH_EARNINGS_CACHE_TTL_SECONDS = 20;
@@ -91,7 +91,7 @@ export class PulseGrowthEarningsService {
     ]);
 
     return buildEarningsLogsResponse({
-      partners: overviewData.partners,
+      partner: overviewData.partner,
       logs,
       ownerName: store.ownerName,
       limit: cursorPagination.limit,
@@ -119,7 +119,7 @@ export class PulseGrowthEarningsService {
       }),
     ]);
     const response = buildEarningsLogsResponse({
-      partners: overviewData.partners,
+      partner: overviewData.partner,
       logs,
       ownerName,
       limit: PULSE_EARNINGS_COMPAT_DEFAULT_LIMIT,
@@ -165,12 +165,9 @@ export class PulseGrowthEarningsService {
     user: AuthenticatedUser,
   ): Promise<PulseWithdrawalAccountResponseDto> {
     const store = await this.accessService.resolveTargetStoreForGrowth(user);
-    const partners = await queryWithdrawalAccountPartners(
-      this.prisma,
-      store.id,
-    );
+    const partner = await queryWithdrawalAccountPartner(this.prisma, store.id);
 
-    return buildWithdrawalAccountResponse(partners);
+    return buildWithdrawalAccountResponse(partner);
   }
 
   async updateWithdrawalAccount(

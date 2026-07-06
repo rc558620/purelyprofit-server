@@ -186,7 +186,7 @@ export class PulseMembershipLedgerService {
       }),
     ]);
 
-    const overview = buildBeanOverview(partners);
+    const overview = buildBeanOverview(partners[0] ?? null);
 
     return {
       approvedPartner: null,

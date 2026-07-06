@@ -30,6 +30,7 @@ import {
   PurchasePlatformMembershipOrderDto,
   RejectPlatformPartnerApplicationDto,
 } from './dto/platform-membership-query.dto';
+import { PaginationQueryDto } from '../../stores/dto/store-response.dto';
 import {
   PlatformMembershipBeanLogsResponseDto,
   PlatformMembershipCenterResponseDto,
@@ -114,15 +115,20 @@ export class PlatformMembershipController {
   }
 
   @Get('orders')
-  @ApiOperation({ summary: '获取充值记录列表与汇总' })
+  @ApiOperation({ summary: '获取充值记录列表与汇总（分页）' })
   @ApiOkResponse({
-    description: '返回 memberOrders 页面所需的订单列表和汇总信息',
+    description: '返回 memberOrders 页面所需的订单列表、汇总信息和分页元数据',
     type: PlatformMembershipOrdersResponseDto,
   })
   listOrders(
     @CurrentUser() user: AuthenticatedUser,
+    @Query() query: PaginationQueryDto,
   ): Promise<PlatformMembershipOrdersResponseDto> {
-    return this.platformMembershipService.listOrders(user);
+    return this.platformMembershipService.listOrders(
+      user,
+      query.page,
+      query.pageSize,
+    );
   }
 
   @Post('orders')

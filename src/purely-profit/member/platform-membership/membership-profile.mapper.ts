@@ -1,7 +1,4 @@
-import type {
-  PlatformMembershipApprovedPartnerDto,
-  PlatformMembershipProfileResponseDto,
-} from './dto/platform-membership-response.dto';
+import type { PlatformMembershipProfileResponseDto } from './dto/platform-membership-response.dto';
 import {
   isMembershipProfileActive,
   resolveFrontendMembershipExpiry,
@@ -36,15 +33,15 @@ const STORE_SCAN_CODE_INVITE_CODE_QUERY_KEYS = [
 
 export function buildProfileResponse(
   profile: StoreMembershipProfileRecord,
-  partners: StorePartnerRecord[],
+  partner: StorePartnerRecord | null,
   inviteCode: string | null = null,
 ): PlatformMembershipProfileResponseDto {
-  const primaryPartner = partners[0] ?? null;
+  const approved = buildApprovedPartnerResponse(partner);
 
   return {
     memberInfo: buildMembershipInfo(profile, inviteCode),
-    approvedPartner: buildApprovedPartnerResponse(primaryPartner),
-    approvedPartners: buildApprovedPartnersResponse(partners),
+    approvedPartner: approved,
+    approvedPartners: approved ? [approved] : [],
   };
 }
 
@@ -87,22 +84,6 @@ export function buildApprovedPartnerResponse(
     totalEarnedBeans: partner.totalEarnedBeans,
     totalWithdrawnBeans: partner.totalWithdrawnBeans,
   };
-}
-
-export function buildApprovedPartnersResponse(
-  partners: ApprovedPartnerLike[],
-): PlatformMembershipApprovedPartnerDto[] {
-  return partners
-    .filter((partner) => partner.status === 'approved')
-    .map((partner) => ({
-      id: String(partner.id),
-      name: partner.name ?? '',
-      phone: partner.phone ?? '',
-      ...(partner.joinedAt ? { joinedAt: partner.joinedAt.getTime() } : {}),
-      beanBalance: partner.beanBalance,
-      totalEarnedBeans: partner.totalEarnedBeans,
-      totalWithdrawnBeans: partner.totalWithdrawnBeans,
-    }));
 }
 
 export function buildInviteCodeQrCodeImageUrl(inviteCode: string): string {

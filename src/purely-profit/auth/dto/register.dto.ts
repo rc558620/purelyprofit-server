@@ -12,7 +12,10 @@ export class RegisterDto {
   @Matches(/^\d{6}$/, { message: '验证码必须为 6 位数字' })
   code: string;
 
-  @ApiProperty({ example: 'password123', description: '登录密码（明文或 RSA 加密密文）' })
+  @ApiProperty({
+    example: 'password123',
+    description: '登录密码（明文或 RSA 加密密文）',
+  })
   @IsString({ message: '密码必须是字符串' })
   @MinLength(1, { message: '密码不能为空' })
   password: string;
@@ -25,4 +28,16 @@ export class RegisterDto {
   @IsOptional()
   @IsString({ message: '用户名必须是字符串' })
   name?: string;
+
+  @ApiPropertyOptional({
+    example: 'AB23CD45',
+    description:
+      '推广码（选填）。8 位字母数字，字符集: 23456789ABCDEFGHJKLMNPQRSTUVWXYZ（去除易混淆字符 0/O/I/1）',
+  })
+  @IsOptional()
+  @IsString({ message: '推广码必须是字符串' })
+  @Matches(/^[2-9A-HJ-NP-Z]{8}$/, {
+    message: '推广码格式不正确（8位字母数字）',
+  })
+  promoCode?: string;
 }

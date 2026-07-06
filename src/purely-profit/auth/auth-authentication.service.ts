@@ -33,6 +33,7 @@ import {
   AUTH_LOGIN_FAIL_KEY_PREFIX,
   AUTH_LOGIN_FAIL_WARNING_THRESHOLD,
 } from './auth.constants';
+import { PrismaService } from '../../prisma/prisma.service';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { PasswordOperationResponseDto } from './dto/password-operation-response.dto';
 import type {
@@ -61,6 +62,7 @@ export class AuthAuthenticationService {
     private readonly authSessionService: AuthSessionService,
     private readonly redisService: RedisService,
     private readonly auditLogService: AuditLogService,
+    private readonly prisma: PrismaService,
     configService: ConfigService,
   ) {
     this.pulseDevAccountEmails = new Set(
@@ -113,11 +115,75 @@ export class AuthAuthenticationService {
       });
     }
 
+    // 推广码关联：注册时携带推广码则创建推广记录（异步，不阻塞注册响应）
+    if (params.promoCode) {
+      void this.tryCreatePromoRecord({
+        promoCode: params.promoCode,
+        inviteePhone: params.phone,
+        inviteeName: params.name ?? '',
+      }).catch((err: unknown) => {
+        this.logger.warn(
+          `推广记录创建失败（不影响注册主流程）: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    }
+
     return this.authSessionService.signToken(user.id, {
       phone: params.phone,
       email: user.email,
       accountScope: user.accountScope,
     });
+  }
+
+  /**
+   * 注册时尝试创建推广记录。
+   * 根据推广码查找 StoreInviteCode → storeId → approvedPartner，
+   * 创建 StoreMembershipPromoRecord（hasCharged=false）。
+   * 失败时仅打印警告，不影响注册主流程。
+   */
+  private async tryCreatePromoRecord(input: {
+    promoCode: string;
+    inviteePhone: string;
+    inviteeName: string;
+  }): Promise<void> {
+    // 1. 查找推广码对应的门店
+    const inviteCode = await this.prisma.storeInviteCode.findFirst({
+      where: {
+        code: input.promoCode.toUpperCase(),
+        isActive: true,
+      },
+      select: { storeId: true },
+    });
+    if (!inviteCode) {
+      this.logger.debug(`推广码无效或已停用: ${input.promoCode}`);
+      return;
+    }
+
+    // 2. 查找该门店的已通过合伙人
+    const partner = await this.prisma.storePartner.findFirst({
+      where: {
+        storeId: inviteCode.storeId,
+        status: 'approved',
+      },
+      select: { id: true },
+      orderBy: { joinedAt: 'asc' },
+    });
+
+    // 3. 创建推广记录（partnerId 可为 null，后续合伙人审批后可补绑）
+    await this.prisma.storeMembershipPromoRecord.create({
+      data: {
+        storeId: inviteCode.storeId,
+        partnerId: partner?.id ?? null,
+        inviteeName: input.inviteeName || '新用户',
+        inviteePhone: input.inviteePhone,
+        registeredAt: new Date(),
+        hasCharged: false,
+      },
+    });
+
+    this.logger.log(
+      `推广记录已创建: storeId=${inviteCode.storeId}, inviteePhone=${input.inviteePhone}`,
+    );
   }
 
   async login(params: LoginAuthParams): Promise<AuthTokenResponseDto> {

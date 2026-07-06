@@ -4,10 +4,7 @@ import type {
   PlatformMembershipPartnerFollowUpNoteDto,
   PlatformMembershipPartnerProfileResponseDto,
 } from './dto/platform-membership-response.dto';
-import {
-  buildApprovedPartnerResponse,
-  buildApprovedPartnersResponse,
-} from './membership-profile.mapper';
+import { buildApprovedPartnerResponse } from './membership-profile.mapper';
 import { buildPartnerLevel } from './platform-membership-promo.domain';
 import type {
   PartnerSnapshotPayload,
@@ -19,33 +16,54 @@ import type {
 
 export function buildCurrentPartnerApplication(
   applications: StorePartnerApplicationRecord[],
-  partners: StorePartnerRecord[],
+  partner: StorePartnerRecord | null,
 ): PlatformMembershipPartnerApplicationDto | null {
   const latestApplication = applications[0];
   if (latestApplication) {
     return mapPartnerApplicationRecord(
       latestApplication,
-      findMatchedPartner(partners, latestApplication),
+      matchPartner(partner, latestApplication),
     );
   }
 
-  return mapLegacyPartnerApplication(partners[0] ?? null);
+  return mapLegacyPartnerApplication(partner);
+}
+
+/**
+ * 按申请人（idCard + phone 归一化）去重，保留每个申请人最新的一条记录。
+ * 输入列表已按 createdAt desc 排序，首次出现即为最新。
+ */
+function deduplicateApplications(
+  applications: StorePartnerApplicationRecord[],
+): StorePartnerApplicationRecord[] {
+  const seen = new Set<string>();
+  const result: StorePartnerApplicationRecord[] = [];
+
+  for (const app of applications) {
+    const key = `${app.idCard.trim().toUpperCase()}|${app.phone.trim()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(app);
+    }
+  }
+
+  return result;
 }
 
 export function buildPartnerApplications(
   applications: StorePartnerApplicationRecord[],
-  partners: StorePartnerRecord[],
+  partner: StorePartnerRecord | null,
 ): PlatformMembershipPartnerApplicationDto[] {
   if (applications.length > 0) {
-    return applications.map((application) =>
+    return deduplicateApplications(applications).map((application) =>
       mapPartnerApplicationRecord(
         application,
-        findMatchedPartner(partners, application),
+        matchPartner(partner, application),
       ),
     );
   }
 
-  const legacyApplication = mapLegacyPartnerApplication(partners[0] ?? null);
+  const legacyApplication = mapLegacyPartnerApplication(partner);
   return legacyApplication ? [legacyApplication] : [];
 }
 
@@ -135,45 +153,35 @@ export function buildPartnerApplicationPayload(
 }
 
 export function buildPartnerProfileResponse(params: {
-  partners: StorePartnerRecord[];
+  partner: StorePartnerRecord | null;
   promoRecords: StoreMembershipPromoRecord[];
   applications: StorePartnerApplicationRecord[];
 }): PlatformMembershipPartnerProfileResponseDto {
-  const primaryPartner = params.partners[0] ?? null;
+  const { partner } = params;
+  const approved = buildApprovedPartnerResponse(partner);
   const currentApplication = buildCurrentPartnerApplication(
     params.applications,
-    params.partners,
+    partner,
   );
 
   return {
-    isPartner: params.partners.length > 0,
+    isPartner: partner !== null,
     currentApplication,
-    applications: buildPartnerApplications(
-      params.applications,
-      params.partners,
-    ),
-    approvedPartner: buildApprovedPartnerResponse(primaryPartner),
-    approvedPartners: buildApprovedPartnersResponse(params.partners),
-    level: buildPartnerLevel(primaryPartner, params.promoRecords),
+    applications: buildPartnerApplications(params.applications, partner),
+    approvedPartner: approved,
+    approvedPartners: approved ? [approved] : [],
+    level: buildPartnerLevel(partner, params.promoRecords),
   };
 }
 
-function findMatchedPartner(
-  partners: StorePartnerRecord[],
+/** 单合伙人匹配：判断当前合伙人是否与申请人匹配 */
+function matchPartner(
+  partner: StorePartnerRecord | null,
   applicant: Pick<StorePartnerApplicationRecord, 'idCard' | 'phone'>,
 ): StorePartnerRecord | null {
+  if (!partner) return null;
   const normalizedIdCard = applicant.idCard.trim().toUpperCase();
-  const matchedByIdCard = partners.find(
-    (partner) => partner.idCard?.trim().toUpperCase() === normalizedIdCard,
-  );
-
-  if (matchedByIdCard) {
-    return matchedByIdCard;
-  }
-
-  return (
-    partners.find(
-      (partner) => partner.phone?.trim() === applicant.phone.trim(),
-    ) ?? null
-  );
+  if (partner.idCard?.trim().toUpperCase() === normalizedIdCard) return partner;
+  if (partner.phone?.trim() === applicant.phone.trim()) return partner;
+  return null;
 }

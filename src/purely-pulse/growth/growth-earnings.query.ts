@@ -42,7 +42,7 @@ export interface EarningsOverviewPromoRecord {
 }
 
 export interface EarningsOverviewQueryResult {
-  partners: EarningsApprovedPartnerRecord[];
+  partner: EarningsApprovedPartnerRecord | null;
   promoRecords: EarningsOverviewPromoRecord[];
   pendingWithdrawals: number;
 }
@@ -102,12 +102,12 @@ export async function queryEarningsOverviewData(
   prisma: PrismaService,
   storeId: number,
 ): Promise<EarningsOverviewQueryResult> {
-  const [partners, promoRecords, pendingWithdrawals] = await Promise.all([
-    prisma.storePartner.findMany({
+  const [partner, promoRecords, pendingWithdrawals] = await Promise.all([
+    prisma.storePartner.findFirst({
       where: { storeId, deletedAt: null, status: 'approved' },
       select: EARNINGS_PARTNER_SELECT,
       orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
-    }) as Promise<EarningsApprovedPartnerRecord[]>,
+    }) as Promise<EarningsApprovedPartnerRecord | null>,
     prisma.storeMembershipPromoRecord.findMany({
       where: { storeId },
       select: EARNINGS_OVERVIEW_PROMO_SELECT,
@@ -126,7 +126,7 @@ export async function queryEarningsOverviewData(
   ]);
 
   return {
-    partners,
+    partner,
     promoRecords,
     pendingWithdrawals,
   };
@@ -186,13 +186,13 @@ function buildPartnerBeanLogsTypeWhere(
   }
 }
 
-export async function queryWithdrawalAccountPartners(
+export async function queryWithdrawalAccountPartner(
   prisma: PrismaService,
   storeId: number,
-): Promise<WithdrawalAccountPartnerRecord[]> {
-  return prisma.storePartner.findMany({
+): Promise<WithdrawalAccountPartnerRecord | null> {
+  return prisma.storePartner.findFirst({
     where: { storeId, status: 'approved' },
     select: EARNINGS_PARTNER_SELECT,
     orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
-  }) as Promise<WithdrawalAccountPartnerRecord[]>;
+  }) as Promise<WithdrawalAccountPartnerRecord | null>;
 }

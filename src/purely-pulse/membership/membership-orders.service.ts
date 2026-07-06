@@ -59,6 +59,8 @@ export class PulseMembershipOrdersService {
 
   async listOrders(
     user: AuthenticatedUser,
+    page?: number,
+    pageSize?: number,
   ): Promise<PlatformMembershipOrdersResponseDto> {
     const store = await this.accessService.resolveTargetStoreForMembership(
       user,
@@ -66,7 +68,11 @@ export class PulseMembershipOrdersService {
         notFoundMessage: '当前未选中目标商家门店，暂无法查看订阅订单',
       },
     );
-    return this.platformMembershipService.listOrdersByStoreId(store.id);
+    return this.platformMembershipService.listOrdersByStoreId(
+      store.id,
+      page,
+      pageSize,
+    );
   }
 
   async purchaseOrder(
@@ -232,5 +238,4 @@ export class PulseMembershipOrdersService {
       paidAt: order.paidAt ? order.paidAt.getTime() : null,
     };
   }
-
 }

@@ -69,6 +69,12 @@ export const CASH_FLOW_CATEGORY_RULES = {
     overviewBucket: 'sales',
     manualCreateError: '销售收入流水需通过销售记录自动生成',
   },
+  platform_settlement: {
+    label: '平台到账',
+    direction: 'income',
+    allowManualCreate: true,
+    overviewBucket: 'additional',
+  },
   refund: {
     label: '退款回收',
     direction: 'income',
@@ -119,6 +125,12 @@ export const CASH_FLOW_CATEGORY_RULES = {
   },
   tax: {
     label: '税务缴纳',
+    direction: 'expense',
+    allowManualCreate: true,
+    overviewBucket: 'cost',
+  },
+  platform_fee: {
+    label: '平台手续费',
     direction: 'expense',
     allowManualCreate: true,
     overviewBucket: 'cost',
@@ -182,6 +194,9 @@ export const FINANCE_REPORT_PAYMENT_LABELS: Record<string, string> = {
   alipay: '支付宝',
   card: '刷卡',
   bank: '银行转账',
+  meituan: '美团',
+  douyin: '抖音',
+  platform: '平台结算',
   other: '其他',
 };
 

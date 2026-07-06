@@ -10,10 +10,7 @@ import type {
   AdminPayoutRecord,
   AdminPayoutStats,
 } from './growth-admin.query';
-import {
-  formatDateTime,
-  resolveRegionCity,
-} from './growth-admin.shared';
+import { formatDateTime, resolveRegionCity } from './growth-admin.shared';
 import { Money } from '../../shared/money.utils';
 
 type AdminPayoutStatus = 'pending' | 'approved' | 'paid' | 'rejected';
@@ -22,6 +19,7 @@ type AdminPartnerApplicationItem = {
   id: string;
   name: string;
   phone: string;
+  idCard: string;
   city: string;
   appliedAt: string;
   reason: string;
@@ -38,6 +36,7 @@ type AdminPayoutItem = {
   partnerCity: string;
   partnerAvatarUrl?: string;
   amount: number;
+  amountDisplay: string;
   accountType: AdminPayoutRecord['accountType'];
   accountNo: string;
   accountName: string;
@@ -125,7 +124,9 @@ export function buildAdminPayoutsResponse(input: {
     ),
     pendingCount: input.stats.pendingCount,
     pendingTotal: input.stats.pendingTotal,
+    pendingTotalDisplay: formatCentsToDisplayYuan(input.stats.pendingTotal),
     paidTotal: input.stats.paidTotal,
+    paidTotalDisplay: formatCentsToDisplayYuan(input.stats.paidTotal),
     hasMore,
     nextCursor: hasMore
       ? encodeAdminPayoutsCursor(visibleWithdrawals.at(-1) ?? null)
@@ -176,6 +177,7 @@ function mapAdminPartnerApplication(
     id: String(application.id),
     name: application.name,
     phone: application.phone,
+    idCard: application.idCard,
     city: resolveRegionCity(application.region),
     appliedAt: formatDateTime(application.createdAt),
     reason: application.applyReason?.trim() || '暂无申请理由',
@@ -199,14 +201,20 @@ function normalizePartnerApplicationStatus(
   }
 }
 
+function formatCentsToDisplayYuan(cents: number): string {
+  return Money.fromDbCents(cents).toFixedOutputYuan();
+}
+
 function mapAdminPayoutItem(withdrawal: AdminPayoutRecord): AdminPayoutItem {
+  const amount = Money.fromDbCents(withdrawal.rmbAmount).toDbCents();
   return {
     id: String(withdrawal.id),
     partnerName: withdrawal.partner.name?.trim() || '未命名合伙人',
     partnerPhone: withdrawal.partner.phone ?? '',
     partnerCity: resolveRegionCity(withdrawal.partner.region),
     partnerAvatarUrl: withdrawal.partner.store?.owner?.avatar ?? undefined,
-    amount: Money.fromDbCents(withdrawal.rmbAmount).toDbCents(),
+    amount,
+    amountDisplay: Money.fromDbCents(withdrawal.rmbAmount).toFixedOutputYuan(),
     accountType: withdrawal.accountType,
     accountNo: withdrawal.accountNo,
     accountName: withdrawal.accountName,

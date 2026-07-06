@@ -118,6 +118,7 @@ export class AuthRegisterStoreService {
             userId: user.id,
             email: user.email,
             name: user.name ?? '老板',
+            phone: user.phone,
             role: StaffRole.owner,
             permissions: ['*'],
             status: StaffStatus.active,

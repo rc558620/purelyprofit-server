@@ -13,7 +13,7 @@ describe('WithdrawalsService overview and list', () => {
   });
 
   it('getOverview 在当前门店没有合伙人档案时返回零值汇总', async () => {
-    context.prismaService.storePartner.findMany.mockResolvedValue([]);
+    context.prismaService.storePartner.findFirst.mockResolvedValue(null);
     context.prismaService.partnerWithdrawal.count.mockResolvedValue(2);
 
     await expect(context.service.getOverview(context.user)).resolves.toEqual({
@@ -28,7 +28,7 @@ describe('WithdrawalsService overview and list', () => {
 
   it('getOverview 返回审批通过合伙人的余额与处理中数量', async () => {
     const partner = createOverviewPartner();
-    context.prismaService.storePartner.findMany.mockResolvedValue([partner]);
+    context.prismaService.storePartner.findFirst.mockResolvedValue(partner);
     context.prismaService.partnerWithdrawal.count.mockResolvedValue(1);
 
     await expect(context.service.getOverview(context.user)).resolves.toEqual({

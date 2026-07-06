@@ -31,6 +31,7 @@ export type FinanceCashFlowDirectionValue =
 
 export const FINANCE_CASH_FLOW_CATEGORY_VALUES = [
   'sales',
+  'platform_settlement',
   'refund',
   'transfer_in',
   'other_income',
@@ -40,6 +41,7 @@ export const FINANCE_CASH_FLOW_CATEGORY_VALUES = [
   'salary',
   'marketing',
   'tax',
+  'platform_fee',
   'transfer_out',
   'other_expense',
 ] as const;
@@ -52,6 +54,9 @@ export const FINANCE_CASH_FLOW_PAYMENT_VALUES = [
   'alipay',
   'card',
   'bank',
+  'meituan',
+  'douyin',
+  'platform',
   'other',
 ] as const;
 export type FinanceCashFlowPaymentValue =

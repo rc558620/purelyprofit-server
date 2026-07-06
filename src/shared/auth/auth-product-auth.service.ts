@@ -25,6 +25,8 @@ export interface AuthRegisterPayload extends AuthPhonePayload {
   password: string;
   confirmPassword?: string;
   name?: string;
+  /** 推广码（选填） */
+  promoCode?: string;
 }
 
 export interface AuthLoginPayload {
@@ -110,6 +112,7 @@ export class AuthProductAuthService {
       confirmPassword: payload.confirmPassword,
       name: payload.name,
       productScope,
+      promoCode: payload.promoCode,
     };
 
     return this.authAuthenticationService.register(params);

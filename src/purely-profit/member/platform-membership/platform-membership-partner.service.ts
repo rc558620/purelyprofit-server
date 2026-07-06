@@ -15,8 +15,8 @@ import {
 import { buildPartnerProfileByStoreId } from './platform-membership-partner-profile.domain';
 import {
   ensurePlatformMembershipStoreOwner,
+  findCurrentStorePartner,
   findStorePartnerApplications,
-  findStorePartners,
   getScopedStorePartnerApplicationOrThrow,
 } from './platform-membership.query';
 
@@ -40,13 +40,13 @@ export class PlatformMembershipPartnerService {
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     await ensurePlatformMembershipStoreOwner(this.prisma, userId, storeId);
 
-    const [approvedPartners, applications] = await Promise.all([
-      findStorePartners(this.prisma, storeId),
+    const [partner, applications] = await Promise.all([
+      findCurrentStorePartner(this.prisma, storeId),
       findStorePartnerApplications(this.prisma, storeId),
     ]);
     const payload = buildPartnerApplicationPayload(dto);
 
-    if (hasApprovedPartnerForApplicant(approvedPartners, payload)) {
+    if (hasApprovedPartnerForApplicant(partner, payload)) {
       throw new ConflictException('该合伙人已通过审核，无需重复申请');
     }
 

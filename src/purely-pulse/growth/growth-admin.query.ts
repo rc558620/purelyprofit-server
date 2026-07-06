@@ -12,6 +12,7 @@ export interface AdminPartnerApplicationRecord {
   id: number;
   name: string;
   phone: string;
+  idCard: string;
   region: string[];
   intention: PlatformPartnerIntention;
   applyReason: string | null;
@@ -147,6 +148,7 @@ const ADMIN_PARTNER_APPLICATION_SELECT = {
   id: true,
   name: true,
   phone: true,
+  idCard: true,
   region: true,
   intention: true,
   applyReason: true,

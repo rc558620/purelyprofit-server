@@ -4,6 +4,9 @@
 **本文档引用的文件**
 - [src/redis/redis.module.ts](file://src/redis/redis.module.ts)
 - [src/redis/redis.service.ts](file://src/redis/redis.service.ts)
+- [src/shared/redis-connection.utils.ts](file://src/shared/redis-connection.utils.ts)
+- [src/config/configuration.ts](file://src/config/configuration.ts)
+- [src/app.module.ts](file://src/app.module.ts)
 - [src/redis/cache-keys.ts](file://src/redis/cache-keys.ts)
 - [src/redis/cache-prewarm.service.ts](file://src/redis/cache-prewarm.service.ts)
 - [src/redis/cache-prewarm.executor.ts](file://src/redis/cache-prewarm.executor.ts)
@@ -13,10 +16,15 @@
 - [src/redis/cache-prewarm.log.ts](file://src/redis/cache-prewarm.log.ts)
 - [src/redis/cache-prewarm.error.ts](file://src/redis/cache-prewarm.error.ts)
 - [src/redis/cache-invalidator.service.ts](file://src/redis/cache-invalidator.service.ts)
-- [src/config/configuration.ts](file://src/config/configuration.ts)
-- [src/app.module.ts](file://src/app.module.ts)
 - [src/observability/runtime-metrics.recorders.ts](file://src/observability/runtime-metrics.recorders.ts)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增共享 Redis 连接工具函数 `buildRedisConnectionOptions`，实现连接配置的集中管理
+- 添加完整的 TLS 加密连接支持，包括证书路径配置和证书验证选项
+- 通过环境变量配置 Redis TLS 连接参数，增强连接安全性
+- 统一 RedisService 和 ThrottlerModule 的 Redis 连接配置方式
 
 ## 目录
 1. [简介](#简介)
@@ -31,7 +39,7 @@
 
 ## 简介
 
-本项目采用 NestJS 框架实现了完整的 Redis 集成方案，包括连接池管理、缓存预热、键空间管理、连接状态监控等功能。该方案通过模块化设计实现了高性能的缓存服务，支持多种业务场景下的数据缓存需求。
+本项目采用 NestJS 框架实现了完整的 Redis 集成方案，包括连接池管理、缓存预热、键空间管理、连接状态监控等功能。该方案通过模块化设计实现了高性能的缓存服务，支持多种业务场景下的数据缓存需求。**最新更新**增强了连接安全性和可配置性，引入了共享连接工具函数和 TLS 加密连接支持。
 
 ## 项目结构
 
@@ -44,12 +52,14 @@ AppModule[AppModule]
 BusinessAnalysis[业务分析模块]
 DashboardHome[仪表板模块]
 Finance[财务模块]
+ThrottlerModule[限流模块]
 end
 subgraph "Redis 集成层"
 RedisModule[RedisModule]
 RedisService[RedisService]
 CacheInvalidator[CacheInvalidatorService]
 CachePrewarm[CachePrewarmService]
+SharedUtils[共享连接工具]
 end
 subgraph "工具层"
 CacheKeys[CacheKeys 工具]
@@ -62,11 +72,16 @@ end
 subgraph "配置层"
 ConfigService[ConfigService]
 Configuration[configuration.ts]
+TLSConfig[TLS 配置]
 end
 AppModule --> RedisModule
+AppModule --> ThrottlerModule
 RedisModule --> RedisService
 RedisModule --> CacheInvalidator
 RedisModule --> CachePrewarm
+RedisService --> SharedUtils
+ThrottlerModule --> SharedUtils
+SharedUtils --> TLSConfig
 CachePrewarm --> CacheExecutor
 CachePrewarm --> CacheConfig
 CachePrewarm --> CacheUtils
@@ -78,18 +93,23 @@ CacheExecutor --> CacheKeys
 ```
 
 **图表来源**
-- [src/app.module.ts:39-82](file://src/app.module.ts#L39-L82)
-- [src/redis/redis.module.ts:9-15](file://src/redis/redis.module.ts#L9-L15)
+- [src/app.module.ts:62-91](file://src/app.module.ts#L62-L91)
+- [src/redis/redis.module.ts:20-56](file://src/redis/redis.module.ts#L20-L56)
+- [src/shared/redis-connection.utils.ts:12-47](file://src/shared/redis-connection.utils.ts#L12-L47)
 
 **章节来源**
-- [src/app.module.ts:1-83](file://src/app.module.ts#L1-L83)
-- [src/redis/redis.module.ts:1-16](file://src/redis/redis.module.ts#L1-L16)
+- [src/app.module.ts:62-159](file://src/app.module.ts#L62-L159)
+- [src/redis/redis.module.ts:1-57](file://src/redis/redis.module.ts#L1-L57)
 
 ## 核心组件
 
 ### Redis 连接管理器
 
-RedisService 是整个 Redis 集成的核心组件，负责建立和维护 Redis 连接，提供统一的缓存操作接口。
+RedisService 是整个 Redis 集成的核心组件，负责建立和维护 Redis 连接，提供统一的缓存操作接口。**更新**现在使用共享的连接工具函数来构建连接选项，支持 TLS 加密连接。
+
+### 共享连接工具函数
+
+`buildRedisConnectionOptions` 是新增的共享工具函数，负责从配置服务构建 Redis 连接选项，支持 TLS 加密连接和证书配置。该函数同时服务于 RedisService 和 ThrottlerModule。
 
 ### 缓存预热服务
 
@@ -100,13 +120,14 @@ CachePrewarmService 实现了自动化的缓存预热机制，通过定时扫描
 CacheInvalidatorService 提供了细粒度的缓存失效控制，支持按业务模块和用户维度的缓存清理。
 
 **章节来源**
-- [src/redis/redis.service.ts:8-167](file://src/redis/redis.service.ts#L8-L167)
+- [src/redis/redis.service.ts:17-64](file://src/redis/redis.service.ts#L17-L64)
+- [src/shared/redis-connection.utils.ts:12-47](file://src/shared/redis-connection.utils.ts#L12-L47)
 - [src/redis/cache-prewarm.service.ts:20-165](file://src/redis/cache-prewarm.service.ts#L20-L165)
 - [src/redis/cache-invalidator.service.ts:15-90](file://src/redis/cache-invalidator.service.ts#L15-L90)
 
 ## 架构概览
 
-系统采用分层架构设计，实现了高内聚低耦合的模块组织：
+系统采用分层架构设计，实现了高内聚低耦合的模块组织：**更新**后的架构包含了共享连接工具层，统一管理所有 Redis 连接的配置和 TLS 支持。
 
 ```mermaid
 classDiagram
@@ -129,6 +150,13 @@ class RedisService {
 +getClient() : Redis
 +runBackgroundRefresh(taskKey : string, handler : () => Promise~void~~)
 -observeRedisCommand(command : string, execute : Function, resolveOutcome? : Function) : Promise~any~
+}
+class BuildRedisConnectionOptions {
+<<utility>>
++buildRedisConnectionOptions(configService : ConfigService) : RedisOptions
+-tlsEnabled : boolean
+-caCertPath : string
+-rejectUnauthorized : boolean
 }
 class CachePrewarmService {
 -intervalTimer : NodeJS.Timeout
@@ -168,23 +196,68 @@ class CacheKeys {
 +parseBusinessAnalysisCacheKey(cacheKey : string) : ParsedKey | null
 +parseFinanceOverviewCacheKey(cacheKey : string) : ParsedKey | null
 }
-RedisService --> CacheKeys : 使用
+RedisService --> BuildRedisConnectionOptions : 使用
+BuildRedisConnectionOptions --> CacheKeys : 配置
 CachePrewarmService --> RedisService : 依赖
 CacheInvalidatorService --> RedisService : 依赖
 CachePrewarmService --> CacheKeys : 使用
 ```
 
 **图表来源**
-- [src/redis/redis.service.ts:9-167](file://src/redis/redis.service.ts#L9-L167)
+- [src/redis/redis.service.ts:17-309](file://src/redis/redis.service.ts#L17-L309)
+- [src/shared/redis-connection.utils.ts:12-47](file://src/shared/redis-connection.utils.ts#L12-L47)
 - [src/redis/cache-prewarm.service.ts:21-165](file://src/redis/cache-prewarm.service.ts#L21-L165)
 - [src/redis/cache-invalidator.service.ts:16-90](file://src/redis/cache-invalidator.service.ts#L16-L90)
 - [src/redis/cache-keys.ts:42-226](file://src/redis/cache-keys.ts#L42-L226)
 
 ## 详细组件分析
 
+### Redis 连接配置重构与 TLS 支持
+
+**新增** 系统引入了共享的 Redis 连接工具函数 `buildRedisConnectionOptions`，实现了连接配置的集中管理和 TLS 加密连接支持。
+
+#### 连接配置重构流程
+
+```mermaid
+sequenceDiagram
+participant Module as RedisModule/AppModule
+participant Utils as buildRedisConnectionOptions
+participant Config as ConfigService
+participant TLS as TLS 配置
+participant Redis as Redis Client
+Module->>Utils : 调用构建连接选项
+Utils->>Config : 获取基础配置参数
+Config-->>Utils : 返回 host, port, password, db
+Utils->>TLS : 检查 TLS 配置
+TLS-->>Utils : 返回 TLS 设置
+Utils->>Utils : 构建完整连接选项
+Utils-->>Module : 返回 RedisOptions
+Module->>Redis : 创建 Redis 实例
+Redis-->>Module : 连接建立
+```
+
+**图表来源**
+- [src/shared/redis-connection.utils.ts:12-47](file://src/shared/redis-connection.utils.ts#L12-L47)
+- [src/redis/redis.service.ts:30-38](file://src/redis/redis.service.ts#L30-L38)
+- [src/app.module.ts:71-73](file://src/app.module.ts#L71-L73)
+
+#### TLS 加密连接配置
+
+系统支持完整的 TLS 加密连接配置，包括 CA 证书路径和证书验证选项：
+
+| 配置项 | 环境变量 | 默认值 | 说明 |
+|--------|----------|--------|------|
+| `tlsEnabled` | `REDIS_TLS_ENABLED` | `false` | 启用 TLS 加密连接 |
+| `tlsCaCertPath` | `REDIS_TLS_CA_CERT_PATH` | `''` | CA 证书文件路径（PEM 格式） |
+| `tlsRejectUnauthorized` | `REDIS_TLS_REJECT_UNAUTHORIZED` | `true` | 是否拒绝未授权的证书 |
+
+**章节来源**
+- [src/shared/redis-connection.utils.ts:33-44](file://src/shared/redis-connection.utils.ts#L33-L44)
+- [src/config/configuration.ts:182-201](file://src/config/configuration.ts#L182-L201)
+
 ### Redis 连接池配置与管理
 
-RedisService 实现了基于 ioredis 的连接池管理，提供了完整的生命周期管理：
+RedisService 实现了基于 ioredis 的连接池管理，提供了完整的生命周期管理。**更新**后使用共享工具函数构建连接选项，支持 TLS 加密连接。
 
 #### 连接初始化流程
 
@@ -192,11 +265,14 @@ RedisService 实现了基于 ioredis 的连接池管理，提供了完整的生�
 sequenceDiagram
 participant Module as RedisModule
 participant Service as RedisService
+participant Utils as buildRedisConnectionOptions
 participant Config as ConfigService
 participant Redis as Redis Client
 Module->>Service : 注入依赖
-Service->>Config : 获取配置参数
-Config-->>Service : 返回 host, port, password, db
+Service->>Utils : 获取连接选项
+Utils->>Config : 获取配置参数
+Config-->>Utils : 返回基础配置 + TLS 配置
+Utils-->>Service : 返回完整 RedisOptions
 Service->>Redis : 创建 Redis 实例
 Redis-->>Service : 连接建立
 Service-->>Module : 初始化完成
@@ -206,7 +282,7 @@ Redis-->>Service : 连接关闭
 ```
 
 **图表来源**
-- [src/redis/redis.service.ts:22-33](file://src/redis/redis.service.ts#L22-L33)
+- [src/redis/redis.service.ts:30-64](file://src/redis/redis.service.ts#L30-L64)
 - [src/redis/redis.module.ts:10-14](file://src/redis/redis.module.ts#L10-L14)
 
 #### 缓存操作监控机制
@@ -227,12 +303,12 @@ Return --> End([结束])
 ```
 
 **图表来源**
-- [src/redis/redis.service.ts:141-165](file://src/redis/redis.service.ts#L141-L165)
+- [src/redis/redis.service.ts:284-308](file://src/redis/redis.service.ts#L284-L308)
 - [src/observability/runtime-metrics.recorders.ts:154-210](file://src/observability/runtime-metrics.recorders.ts#L154-L210)
 
 **章节来源**
-- [src/redis/redis.service.ts:15-33](file://src/redis/redis.service.ts#L15-L33)
-- [src/redis/redis.service.ts:141-165](file://src/redis/redis.service.ts#L141-L165)
+- [src/redis/redis.service.ts:23-64](file://src/redis/redis.service.ts#L23-L64)
+- [src/redis/redis.service.ts:284-308](file://src/redis/redis.service.ts#L284-L308)
 
 ### 缓存预热系统
 
@@ -269,7 +345,7 @@ Service->>Service : 清理运行状态
 
 **章节来源**
 - [src/redis/cache-prewarm.service.ts:35-88](file://src/redis/cache-prewarm.service.ts#L35-L88)
-- [src/redis/cache-prewarm.config.ts:18-74](file://src/redis/cache-prewarm.config.ts#L18-L74)
+- [src/redis/cache-prewarm.config.ts:18-26](file://src/redis/cache-prewarm.config.ts#L18-L26)
 
 ### 缓存键管理
 
@@ -306,7 +382,7 @@ CacheInvalidatorService 提供了细粒度的缓存失效控制，支持多种�
 
 ## 依赖关系分析
 
-系统采用松耦合的设计，各组件间通过清晰的接口进行交互：
+系统采用松耦合的设计，各组件间通过清晰的接口进行交互：**更新**后的依赖关系包含了共享连接工具函数的统一管理。
 
 ```mermaid
 graph LR
@@ -322,18 +398,26 @@ CacheInvalidator[CacheInvalidatorService]
 CachePrewarm[CachePrewarmService]
 CacheExecutor[CacheExecutor]
 CacheConfig[CacheConfig]
+SharedUtils[共享连接工具]
 end
 subgraph "业务模块"
 DashboardHome[DashboardHomeModule]
 BusinessAnalysis[BusinessAnalysisModule]
 Finance[FinanceModule]
+ThrottlerModule[ThrottlerModule]
 end
 IoRedis --> RedisService
+IoRedis --> ThrottlerModule
 NestJS --> RedisModule
+NestJS --> ThrottlerModule
 ConfigModule --> RedisModule
+ConfigModule --> ThrottlerModule
 RedisModule --> RedisService
 RedisModule --> CacheInvalidator
 RedisModule --> CachePrewarm
+RedisService --> SharedUtils
+ThrottlerModule --> SharedUtils
+SharedUtils --> ConfigModule
 CachePrewarm --> CacheExecutor
 CachePrewarm --> CacheConfig
 CachePrewarm --> DashboardHome
@@ -342,12 +426,13 @@ CachePrewarm --> Finance
 ```
 
 **图表来源**
-- [src/redis/redis.module.ts:10-14](file://src/redis/redis.module.ts#L10-L14)
-- [src/redis/cache-prewarm.config.ts:18-22](file://src/redis/cache-prewarm.config.ts#L18-L22)
+- [src/redis/redis.module.ts:20-56](file://src/redis/redis.module.ts#L20-L56)
+- [src/app.module.ts:69-91](file://src/app.module.ts#L69-L91)
+- [src/shared/redis-connection.utils.ts:12-47](file://src/shared/redis-connection.utils.ts#L12-L47)
 
 **章节来源**
-- [src/redis/redis.module.ts:1-16](file://src/redis/redis.module.ts#L1-L16)
-- [src/app.module.ts:39-47](file://src/app.module.ts#L39-L47)
+- [src/redis/redis.module.ts:1-57](file://src/redis/redis.module.ts#L1-L57)
+- [src/app.module.ts:62-159](file://src/app.module.ts#L62-L159)
 
 ## 性能考虑
 
@@ -358,6 +443,15 @@ CachePrewarm --> Finance
 1. **单实例连接**: RedisService 使用单一 Redis 实例，避免多连接开销
 2. **慢查询监控**: 可配置的慢查询阈值，默认 20ms
 3. **连接生命周期管理**: 正确的连接建立和销毁时机
+4. **共享连接配置**: 通过工具函数统一管理连接配置，减少重复代码
+
+### TLS 连接优化
+
+**新增** TLS 连接支持带来的性能考虑：
+
+1. **证书加载优化**: CA 证书在连接时一次性加载，避免重复 I/O 操作
+2. **连接复用**: TLS 连接支持连接池复用，减少握手开销
+3. **超时配置**: 合理的连接超时和重试策略，提高连接稳定性
 
 ### 缓存预热优化
 
@@ -374,6 +468,36 @@ CachePrewarm --> Finance
 ## 故障排除指南
 
 ### 常见问题诊断
+
+#### TLS 连接问题排查
+
+**新增** TLS 连接相关的故障排除步骤：
+
+1. **检查 TLS 配置**
+   - 确认 `REDIS_TLS_ENABLED` 环境变量设置为 `true`
+   - 验证 CA 证书文件路径是否正确
+   - 检查证书文件格式是否为 PEM 格式
+
+2. **验证证书权限**
+   ```bash
+   # 检查证书文件是否存在
+   ls -la /path/to/ca-cert.pem
+   
+   # 检查文件权限
+   chmod 644 /path/to/ca-cert.pem
+   
+   # 验证证书格式
+   openssl x509 -in /path/to/ca-cert.pem -text -noout
+   ```
+
+3. **测试 TLS 连接**
+   ```bash
+   # 使用 redis-cli 测试 TLS 连接
+   redis-cli --tls -h HOST -p PORT -a PASSWORD --cacert /path/to/ca-cert.pem ping
+   
+   # 跳过证书验证测试（仅用于调试）
+   redis-cli --tls -h HOST -p PORT -a PASSWORD --insecure ping
+   ```
 
 #### 连接问题排查
 
@@ -408,16 +532,18 @@ CachePrewarm --> Finance
    - 检查并发度设置是否合理
 
 **章节来源**
-- [src/redis/redis.service.ts:158-162](file://src/redis/redis.service.ts#L158-L162)
+- [src/redis/redis.service.ts:40-59](file://src/redis/redis.service.ts#L40-L59)
 - [src/redis/cache-prewarm.log.ts:30-44](file://src/redis/cache-prewarm.log.ts#L30-L44)
 
 ## 结论
 
-本 Redis 集成方案通过模块化设计实现了高性能、可维护的缓存解决方案。系统具备以下优势：
+本 Redis 集成方案通过模块化设计实现了高性能、可维护的缓存解决方案。**最新更新**显著增强了连接安全性和可配置性，主要优势包括：
 
 1. **完整的功能覆盖**: 从连接管理到缓存预热，提供全栈缓存解决方案
-2. **灵活的配置管理**: 支持环境变量配置和运行时参数调整
-3. **完善的监控体系**: 提供详细的性能指标和故障诊断能力
-4. **良好的扩展性**: 模块化设计便于功能扩展和维护
+2. **增强的安全性**: 支持 TLS 加密连接，保护数据传输安全
+3. **灵活的配置管理**: 支持环境变量配置和运行时参数调整
+4. **完善的监控体系**: 提供详细的性能指标和故障诊断能力
+5. **良好的扩展性**: 模块化设计便于功能扩展和维护
+6. **统一的连接管理**: 通过共享工具函数统一管理所有 Redis 连接配置
 
-该方案适用于中大型企业级应用的缓存需求，能够有效提升系统的响应性能和用户体验。
+该方案适用于中大型企业级应用的缓存需求，能够有效提升系统的响应性能和用户体验，特别是在需要高安全性的生产环境中。

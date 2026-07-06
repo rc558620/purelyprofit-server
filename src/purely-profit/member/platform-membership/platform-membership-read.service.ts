@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { PlatformMembershipPlanId } from './dto/platform-membership-query.dto';
 import type {
   PlatformMembershipCenterResponseDto,
@@ -12,10 +13,7 @@ import { PLAN_RULES } from './platform-membership.constants';
 import { normalizeMembershipProfileFromPaidOrders } from './membership-plan-resolver';
 import { calcRemainingDays } from './membership-expiry.utils';
 import { buildProfileResponse } from './membership-profile.mapper';
-import {
-  buildOrdersOverview,
-  mapOrder,
-} from './platform-membership-ledger.domain';
+import { mapOrder } from './platform-membership-ledger.domain';
 import { buildCurrentPartnerApplication } from './platform-membership-partner.domain';
 import {
   buildCenterStats,
@@ -28,14 +26,18 @@ import {
 } from './platform-membership-promo.domain';
 import {
   ensureMembershipProfile,
+  findCurrentStorePartner,
   findPaidStoreMembershipOrders,
   findStoreMembershipPromoRecords,
   findStorePartnerApplications,
-  findStorePartners,
   loadPlanCatalog,
   requirePlan,
 } from './platform-membership.query';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  buildPaginationMeta,
+  resolvePagination,
+} from '../../commerce/commerce.utils';
 import type {
   MembershipPlanConfig,
   PromotionDetailCompatResponse,
@@ -43,7 +45,10 @@ import type {
 
 @Injectable()
 export class PlatformMembershipReadService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async listPlans(): Promise<PlatformMembershipPlanResponseDto[]> {
     const plans = await loadPlanCatalog(this.prisma);
@@ -67,7 +72,7 @@ export class PlatformMembershipReadService {
   ): Promise<PlatformMembershipCenterResponseDto> {
     const [
       profile,
-      partners,
+      partner,
       paidOrders,
       promoRecords,
       applications,
@@ -75,7 +80,7 @@ export class PlatformMembershipReadService {
       inviteCodeRecord,
     ] = await Promise.all([
       ensureMembershipProfile(this.prisma, storeId),
-      findStorePartners(this.prisma, storeId),
+      findCurrentStorePartner(this.prisma, storeId),
       findPaidStoreMembershipOrders(this.prisma, storeId),
       findStoreMembershipPromoRecords(this.prisma, storeId),
       findStorePartnerApplications(this.prisma, storeId),
@@ -93,7 +98,7 @@ export class PlatformMembershipReadService {
     });
     const profileResponse = buildProfileResponse(
       effectiveProfile,
-      partners,
+      partner,
       inviteCodeRecord?.code ?? null,
     );
 
@@ -107,7 +112,7 @@ export class PlatformMembershipReadService {
       paidOrderCount: paidOrders.length,
       myPartnerApplication: buildCurrentPartnerApplication(
         applications,
-        partners,
+        partner,
       ),
       approvedPartner: profileResponse.approvedPartner,
       approvedPartners: profileResponse.approvedPartners,
@@ -117,10 +122,10 @@ export class PlatformMembershipReadService {
   async getProfileByStoreId(
     storeId: number,
   ): Promise<PlatformMembershipProfileResponseDto> {
-    const [profile, partners, paidOrders, plans, inviteCodeRecord] =
+    const [profile, partner, paidOrders, plans, inviteCodeRecord] =
       await Promise.all([
         ensureMembershipProfile(this.prisma, storeId),
-        findStorePartners(this.prisma, storeId),
+        findCurrentStorePartner(this.prisma, storeId),
         findPaidStoreMembershipOrders(this.prisma, storeId),
         loadPlanCatalog(this.prisma),
         this.prisma.storeInviteCode.findFirst({
@@ -137,36 +142,62 @@ export class PlatformMembershipReadService {
 
     return buildProfileResponse(
       effectiveProfile,
-      partners,
+      partner,
       inviteCodeRecord?.code ?? null,
     );
   }
 
   async listOrdersByStoreId(
     storeId: number,
+    page?: number,
+    pageSize?: number,
   ): Promise<PlatformMembershipOrdersResponseDto> {
     await ensureMembershipProfile(this.prisma, storeId);
 
-    const orders = await this.prisma.storeMembershipOrder.findMany({
-      where: { storeId },
-      select: {
-        id: true,
-        planId: true,
-        planName: true,
-        amount: true,
-        pointsUsed: true,
-        beansUsed: true,
-        status: true,
-        paymentChannel: true,
-        paymentOrderId: true,
-        createdAt: true,
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    });
+    const defaultPageSize =
+      this.configService.get<number>('app.defaultPageSize') ?? 20;
+    const maxPageSize =
+      this.configService.get<number>('app.maxPageSize') ?? 100;
+    const {
+      page: resolvedPage,
+      skip,
+      take,
+    } = resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
+
+    const orderSelect = {
+      id: true,
+      planId: true,
+      planName: true,
+      amount: true,
+      pointsUsed: true,
+      beansUsed: true,
+      status: true,
+      paymentChannel: true,
+      paymentOrderId: true,
+      createdAt: true,
+    } as const;
+
+    const [total, orders, amountRows] = await Promise.all([
+      this.prisma.storeMembershipOrder.count({ where: { storeId } }),
+      this.prisma.storeMembershipOrder.findMany({
+        where: { storeId },
+        select: orderSelect,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      }),
+      this.prisma.storeMembershipOrder.findMany({
+        where: { storeId },
+        select: { amount: true },
+      }),
+    ]);
+
+    const totalAmount = amountRows.reduce((sum, r) => sum + r.amount, 0);
 
     return {
-      overview: buildOrdersOverview(orders),
+      overview: { orderCount: total, totalAmount },
       items: orders.map((order) => mapOrder(order)),
+      meta: buildPaginationMeta(total, resolvedPage, take),
     };
   }
 
@@ -175,14 +206,14 @@ export class PlatformMembershipReadService {
   ): Promise<PlatformMembershipPromoCenterResponseDto> {
     const [
       profile,
-      partners,
+      partner,
       promoRecords,
       paidOrders,
       plans,
       inviteCodeRecord,
     ] = await Promise.all([
       ensureMembershipProfile(this.prisma, storeId),
-      findStorePartners(this.prisma, storeId),
+      findCurrentStorePartner(this.prisma, storeId),
       findStoreMembershipPromoRecords(this.prisma, storeId),
       findPaidStoreMembershipOrders(this.prisma, storeId),
       loadPlanCatalog(this.prisma),
@@ -200,16 +231,15 @@ export class PlatformMembershipReadService {
     const statsByPeriod = buildPromoStatsByPeriod(promoRecords);
     const profileResponse = buildProfileResponse(
       effectiveProfile,
-      partners,
+      partner,
       inviteCodeRecord?.code ?? null,
     );
-    const primaryPartner = partners[0] ?? null;
 
     return {
       memberInfo: profileResponse.memberInfo,
       approvedPartner: profileResponse.approvedPartner,
       approvedPartners: profileResponse.approvedPartners,
-      level: buildPartnerLevel(primaryPartner, promoRecords),
+      level: buildPartnerLevel(partner, promoRecords),
       stats: statsByPeriod.all,
       statsByPeriod,
       items: promoRecords.map((record) => mapPromoRecord(record)),
@@ -222,14 +252,14 @@ export class PlatformMembershipReadService {
   ): Promise<PromotionDetailCompatResponse> {
     const [
       profile,
-      partners,
+      partner,
       promoRecords,
       paidOrders,
       plans,
       inviteCodeRecord,
     ] = await Promise.all([
       ensureMembershipProfile(this.prisma, storeId),
-      findStorePartners(this.prisma, storeId),
+      findCurrentStorePartner(this.prisma, storeId),
       findStoreMembershipPromoRecords(this.prisma, storeId),
       findPaidStoreMembershipOrders(this.prisma, storeId),
       loadPlanCatalog(this.prisma),
@@ -249,7 +279,7 @@ export class PlatformMembershipReadService {
 
     return buildPromotionDetailCompatResponse({
       profile: effectiveProfile,
-      partner: partners[0] ?? null,
+      partner,
       promoRecords,
       filteredRecords,
       filters,

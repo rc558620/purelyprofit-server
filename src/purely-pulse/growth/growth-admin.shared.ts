@@ -32,6 +32,7 @@ export function resolveRegionCity(region: string[]): string {
 }
 
 // maskPhone 已移除：purelyPulse 为商家管理后台，需完整展示用户手机号，不再脱敏。
+// maskIdCard 已移除：purelyPulse 合伙人审核页需查看完整身份证号，不再脱敏。
 
 export function formatDateTime(date: Date): string {
   if (Number.isNaN(date.getTime()) || date.getTime() <= 0) {

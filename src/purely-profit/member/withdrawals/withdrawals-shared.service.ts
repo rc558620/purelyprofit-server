@@ -17,11 +17,7 @@ import type {
   ReviewWithdrawalResponseDto,
   WithdrawalOverviewResponseDto,
 } from './dto/withdrawal-response.dto';
-import {
-  buildApprovedPartnerResponse,
-  buildApprovedPartnersResponse,
-  buildBeanOverview,
-} from '../platform-membership/platform-membership.domain';
+import { buildApprovedPartnerResponse } from '../platform-membership/platform-membership.domain';
 import {
   mapWithdrawalRecord,
   withdrawalRecordSelect,
@@ -168,8 +164,8 @@ export class WithdrawalsSharedService {
     prismaExecutor: PrismaExecutor,
     storeId: number,
   ): Promise<WithdrawalOverviewResponseDto> {
-    const [partners, pendingCount] = await Promise.all([
-      prismaExecutor.storePartner.findMany({
+    const [partner, pendingCount] = await Promise.all([
+      prismaExecutor.storePartner.findFirst({
         where: { storeId, deletedAt: null, status: 'approved' },
         select: withdrawalPartnerSelect,
         orderBy: [{ reviewedAt: 'desc' }, { joinedAt: 'desc' }, { id: 'desc' }],
@@ -182,7 +178,7 @@ export class WithdrawalsSharedService {
       }),
     ]);
 
-    return this.mapWithdrawalOverview(partners, pendingCount);
+    return this.mapWithdrawalOverview(partner, pendingCount);
   }
 
   async buildOperationResponse(
@@ -230,18 +226,23 @@ export class WithdrawalsSharedService {
   }
 
   private mapWithdrawalOverview(
-    partners: WithdrawalPartnerSnapshot[],
+    partner: WithdrawalPartnerSnapshot | null,
     pendingCount: number,
   ): WithdrawalOverviewResponseDto {
-    const primaryPartner = partners[0] ?? null;
-    const overview = buildBeanOverview(partners);
+    const beanBalance = partner?.beanBalance ?? 0;
+    const totalEarnedBeans = partner?.totalEarnedBeans ?? 0;
+    const totalWithdrawnBeans = partner?.totalWithdrawnBeans ?? 0;
+    const pendingBeans = Math.max(
+      0,
+      totalEarnedBeans - totalWithdrawnBeans - beanBalance,
+    );
 
     return {
-      approvedPartner: buildApprovedPartnerResponse(primaryPartner),
-      approvedPartners: buildApprovedPartnersResponse(partners),
-      beanBalance: overview.beanBalance,
-      totalWithdrawnBeans: overview.totalWithdrawnBeans,
-      pendingBeans: overview.pendingBeans,
+      approvedPartner: buildApprovedPartnerResponse(partner),
+      approvedPartners: partner ? [buildApprovedPartnerResponse(partner)!] : [],
+      beanBalance,
+      totalWithdrawnBeans,
+      pendingBeans,
       pendingCount,
     };
   }

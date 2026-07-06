@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -18,6 +19,7 @@ import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import { PulseJwtAuthGuard } from '../../purely-profit/auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PurchasePlatformMembershipOrderDto } from '../../purely-profit/member/platform-membership/dto/platform-membership-query.dto';
+import { PaginationQueryDto } from '../../purely-profit/stores/dto/store-response.dto';
 import {
   PlatformMembershipBeanLogsResponseDto,
   PlatformMembershipCenterResponseDto,
@@ -108,15 +110,20 @@ export class PulseMembershipController {
   }
 
   @Get('orders')
-  @ApiOperation({ summary: '获取目标商家订阅订单列表的兼容接口' })
+  @ApiOperation({ summary: '获取目标商家订阅订单列表的兼容接口（分页）' })
   @ApiOkResponse({
-    description: '返回订单列表和汇总信息',
+    description: '返回订单列表、汇总信息和分页元数据',
     type: PlatformMembershipOrdersResponseDto,
   })
   listOrders(
     @CurrentUser() user: AuthenticatedUser,
+    @Query() query: PaginationQueryDto,
   ): Promise<PlatformMembershipOrdersResponseDto> {
-    return this.pulseMembershipService.listOrders(user);
+    return this.pulseMembershipService.listOrders(
+      user,
+      query.page,
+      query.pageSize,
+    );
   }
 
   @Get('orders/:id')

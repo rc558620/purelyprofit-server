@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-04T01:54:41Z"
+exported_at: "2026-07-05T04:06:24Z"
 modules:
     "":
         dir_name: 纯利商业操作系统后端（NestJS 单体多产品）
@@ -35,9 +35,10 @@ modules:
         scope: []
         source_files:
             - src/config/configuration.ts
-            - src/bootstrap/bootstrap.ts
+            - src/app.module.ts
             - src/bootstrap/production-config.utils.ts
             - .env.example
+            - package.json
         children: []
         depends_on: []
         related_to: []
@@ -64,6 +65,8 @@ modules:
             - src/purely-profit/client-errors/client-errors.types.ts
             - src/purely-profit/client-errors/client-errors.utils.ts
             - src/purely-club/club-errors.constants.ts
+            - src/purely-profit/auth/auth-authentication.service.ts
+            - src/purely-profit/access-control/guards/permissions.guard.ts
         children: []
         depends_on: []
         related_to: []
@@ -84,7 +87,12 @@ modules:
             - src/purely-club/auth/club-wechat-auth.service.ts
             - src/purely-club/home/club-home.service.ts
             - src/purely-club/orders/club-order-settlement.service.ts
+            - src/purely-profit/client-errors/client-errors.service.ts
+            - src/redis/cache-prewarm-cycle.service.ts
+            - src/redis/redis.service.ts
+            - src/queue/space-auto-checkout.processor.ts
             - src/prisma/prisma.service.ts
+            - src/bootstrap/bootstrap.ts
         children: []
         depends_on: []
         related_to: []

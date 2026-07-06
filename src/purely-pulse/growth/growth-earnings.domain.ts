@@ -5,10 +5,7 @@ import type {
   PulseWithdrawalAccountPartnerDto,
   PulseWithdrawalAccountResponseDto,
 } from './dto/pulse-growth-earnings.dto';
-import {
-  buildApprovedPartnerResponse,
-  buildApprovedPartnersResponse,
-} from '../../purely-profit/member/platform-membership/platform-membership.domain';
+import { buildApprovedPartnerResponse } from '../../purely-profit/member/platform-membership/platform-membership.domain';
 import type {
   EarningsApprovedPartnerRecord,
   EarningsOverviewQueryResult,
@@ -21,41 +18,26 @@ type BeanTypeValue = 'earn' | 'spend' | 'withdraw';
 export function buildEarningsOverviewResponse(
   data: EarningsOverviewQueryResult,
 ): PulseEarningsOverviewResponseDto {
-  const primaryPartner = data.partners[0] ?? null;
-  const isPartner = primaryPartner?.status === 'approved';
+  const partner = data.partner;
+  const isPartner = partner?.status === 'approved';
   const chargedPromos = data.promoRecords.filter(
     (record) => record.hasCharged,
   ).length;
 
-  // 聚合所有正式合伙人的豆豆统计
-  const beanSummary = data.partners
-    .filter((p) => p.status === 'approved')
-    .reduce(
-      (sum, partner) => ({
-        beanBalance: sum.beanBalance + partner.beanBalance,
-        totalEarnedBeans: sum.totalEarnedBeans + partner.totalEarnedBeans,
-        totalWithdrawnBeans:
-          sum.totalWithdrawnBeans + partner.totalWithdrawnBeans,
-      }),
-      {
-        beanBalance: 0,
-        totalEarnedBeans: 0,
-        totalWithdrawnBeans: 0,
-      },
-    );
+  const approved = buildApprovedPartnerResponse(partner);
 
   return {
-    approvedPartner: buildApprovedPartnerResponse(primaryPartner),
-    approvedPartners: buildApprovedPartnersResponse(data.partners),
-    beanBalance: isPartner ? beanSummary.beanBalance : 0,
-    totalEarnedBeans: isPartner ? beanSummary.totalEarnedBeans : 0,
-    totalWithdrawnBeans: isPartner ? beanSummary.totalWithdrawnBeans : 0,
+    approvedPartner: approved,
+    approvedPartners: approved ? [approved] : [],
+    beanBalance: isPartner ? partner.beanBalance : 0,
+    totalEarnedBeans: isPartner ? partner.totalEarnedBeans : 0,
+    totalWithdrawnBeans: isPartner ? partner.totalWithdrawnBeans : 0,
     pendingBeans: isPartner
       ? Decimal.max(
           0,
-          new Decimal(beanSummary.totalEarnedBeans)
-            .minus(beanSummary.totalWithdrawnBeans)
-            .minus(beanSummary.beanBalance),
+          new Decimal(partner.totalEarnedBeans)
+            .minus(partner.totalWithdrawnBeans)
+            .minus(partner.beanBalance),
         ).toNumber()
       : 0,
     totalPromos: data.promoRecords.length,
@@ -66,13 +48,13 @@ export function buildEarningsOverviewResponse(
 }
 
 export function buildEarningsLogsResponse(input: {
-  partners: EarningsApprovedPartnerRecord[];
+  partner: EarningsApprovedPartnerRecord | null;
   logs: PartnerBeanLogRecord[];
   ownerName: string | null;
   limit?: number;
 }): PulseEarningsLogsResponseDto {
-  const primaryPartner = input.partners[0] ?? null;
-  if (!primaryPartner || primaryPartner.status !== 'approved') {
+  const partner = input.partner;
+  if (!partner || partner.status !== 'approved') {
     return {
       approvedPartner: null,
       approvedPartners: [],
@@ -85,17 +67,13 @@ export function buildEarningsLogsResponse(input: {
 
   const hasMore = input.limit !== undefined && input.logs.length > input.limit;
   const visibleLogs = hasMore ? input.logs.slice(0, input.limit) : input.logs;
-
-  // 聚合所有正式合伙人的豆豆余额
-  const beanBalance = input.partners
-    .filter((p) => p.status === 'approved')
-    .reduce((sum, partner) => sum + partner.beanBalance, 0);
+  const approved = buildApprovedPartnerResponse(partner);
 
   return {
-    approvedPartner: buildApprovedPartnerResponse(primaryPartner),
-    approvedPartners: buildApprovedPartnersResponse(input.partners),
+    approvedPartner: approved,
+    approvedPartners: approved ? [approved] : [],
     items: visibleLogs.map((log) => mapBeanLog(log, input.ownerName)),
-    beanBalance,
+    beanBalance: partner.beanBalance,
     hasMore,
     nextCursor: hasMore
       ? encodeEarningsLogsCursor(visibleLogs.at(-1) ?? null)
@@ -104,10 +82,9 @@ export function buildEarningsLogsResponse(input: {
 }
 
 export function buildWithdrawalAccountResponse(
-  partners: WithdrawalAccountPartnerRecord[],
+  partner: WithdrawalAccountPartnerRecord | null,
 ): PulseWithdrawalAccountResponseDto {
-  const primaryPartner = partners[0] ?? null;
-  const isPartner = primaryPartner?.status === 'approved';
+  const isPartner = partner?.status === 'approved';
 
   if (!isPartner) {
     return {
@@ -122,20 +99,17 @@ export function buildWithdrawalAccountResponse(
     };
   }
 
-  // 聚合所有正式合伙人的豆豆余额
-  const beanBalance = partners
-    .filter((p) => p.status === 'approved')
-    .reduce((sum, partner) => sum + partner.beanBalance, 0);
+  const approved = buildApprovedPartnerResponse(partner);
 
   return {
     isPartner: true,
-    selectedPartner: mapWithdrawalAccountPartner(primaryPartner),
-    approvedPartner: buildApprovedPartnerResponse(primaryPartner),
-    approvedPartners: buildApprovedPartnersResponse(partners),
-    accountType: primaryPartner.paymentAccountType ?? null,
-    accountNo: primaryPartner.paymentAccountNo ?? null,
-    accountName: primaryPartner.paymentAccountName ?? null,
-    beanBalance,
+    selectedPartner: mapWithdrawalAccountPartner(partner),
+    approvedPartner: approved,
+    approvedPartners: approved ? [approved] : [],
+    accountType: partner.paymentAccountType ?? null,
+    accountNo: partner.paymentAccountNo ?? null,
+    accountName: partner.paymentAccountName ?? null,
+    beanBalance: partner.beanBalance,
   };
 }
 

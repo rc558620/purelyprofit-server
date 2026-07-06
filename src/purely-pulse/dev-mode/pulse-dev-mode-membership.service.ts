@@ -53,6 +53,7 @@ export class PulseDevModeMembershipService {
         totalAmount: 0,
       },
       items: [],
+      meta: { page: 1, pageSize: 20, total: 0, totalPages: 1 },
     };
   }
 

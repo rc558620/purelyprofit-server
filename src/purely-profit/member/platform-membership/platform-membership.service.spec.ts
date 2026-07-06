@@ -1,5 +1,6 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
@@ -66,6 +67,10 @@ describe('PlatformMembershipService', () => {
       findFirst: jest.fn(),
     },
     $transaction: jest.fn(),
+  };
+
+  const configService = {
+    get: jest.fn(),
   };
 
   const cacheInvalidatorService = {
@@ -218,6 +223,14 @@ describe('PlatformMembershipService', () => {
     });
     prismaService.storePartner.upsert.mockResolvedValue({ id: 11 });
     prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
+    prismaService.storeMembershipOrder.count.mockResolvedValue(0);
+    configService.get.mockImplementation((key: string) => {
+      const configMap: Record<string, number> = {
+        'app.defaultPageSize': 20,
+        'app.maxPageSize': 100,
+      };
+      return configMap[key];
+    });
     refreshableCache.getOrLoadRefreshableJson.mockImplementation(
       async ({ loadValue }: { loadValue: () => Promise<unknown> }) =>
         loadValue(),
@@ -277,6 +290,7 @@ describe('PlatformMembershipService', () => {
         PlatformMembershipPartnerService,
         PlatformMembershipOrderService,
         { provide: PrismaService, useValue: prismaService },
+        { provide: ConfigService, useValue: configService },
         { provide: RefreshableCacheService, useValue: refreshableCache },
         {
           provide: CacheInvalidatorService,
@@ -740,32 +754,35 @@ describe('PlatformMembershipService', () => {
       totalPoints: 0,
       availablePoints: 0,
     });
-    prismaService.storeMembershipOrder.findMany.mockResolvedValue([
-      {
-        id: 21,
-        planId: 'quarterly',
-        planName: '季度会员',
-        amount: 9900,
-        pointsUsed: 0,
-        beansUsed: 0,
-        status: 'paid',
-        paymentChannel: 'wechat',
-        paymentOrderId: 'WX180001',
-        createdAt: new Date('2026-05-14T10:00:00.000Z'),
-      },
-      {
-        id: 22,
-        planId: 'monthly',
-        planName: '月度会员',
-        amount: 3300,
-        pointsUsed: 500,
-        beansUsed: 10,
-        status: 'paid',
-        paymentChannel: 'wechat',
-        paymentOrderId: 'WX180002',
-        createdAt: new Date('2026-05-13T10:00:00.000Z'),
-      },
-    ]);
+    prismaService.storeMembershipOrder.count.mockResolvedValue(2);
+    prismaService.storeMembershipOrder.findMany
+      .mockResolvedValueOnce([
+        {
+          id: 21,
+          planId: 'quarterly',
+          planName: '季度会员',
+          amount: 9900,
+          pointsUsed: 0,
+          beansUsed: 0,
+          status: 'paid',
+          paymentChannel: 'wechat',
+          paymentOrderId: 'WX180001',
+          createdAt: new Date('2026-05-14T10:00:00.000Z'),
+        },
+        {
+          id: 22,
+          planId: 'monthly',
+          planName: '月度会员',
+          amount: 3300,
+          pointsUsed: 500,
+          beansUsed: 10,
+          status: 'paid',
+          paymentChannel: 'wechat',
+          paymentOrderId: 'WX180002',
+          createdAt: new Date('2026-05-13T10:00:00.000Z'),
+        },
+      ])
+      .mockResolvedValueOnce([{ amount: 9900 }, { amount: 3300 }]);
 
     await expect(service.listOrders(user)).resolves.toEqual({
       overview: {
@@ -796,6 +813,12 @@ describe('PlatformMembershipService', () => {
           wxOrderId: 'WX180002',
         },
       ],
+      meta: {
+        page: 1,
+        pageSize: 20,
+        total: 2,
+        totalPages: 1,
+      },
     });
   });
 
@@ -1066,6 +1089,45 @@ describe('PlatformMembershipService', () => {
     expect(prismaService.storePartnerApplication.create).not.toHaveBeenCalled();
   });
 
+  it('applyPartner 手机号相同但身份证不同时允许申请', async () => {
+    prismaService.store.findFirst.mockResolvedValue({ id: 18 });
+    // 已有合伙人手机号相同，但身份证不同
+    prismaService.storePartner.findUnique.mockResolvedValue({
+      id: 13,
+      status: 'approved',
+      name: '另一个人',
+      phone: '13142342342',
+      idCard: '110101199001011234',
+      region: ['北京市', '北京市', '东城区'],
+      intention: 'agent',
+      applyReason: '其他原因',
+      paymentAccountType: 'alipay',
+      paymentAccountNo: 'other_account',
+      paymentAccountName: '另一个人',
+      beanBalance: 0,
+      totalEarnedBeans: 0,
+      totalWithdrawnBeans: 0,
+      joinedAt: new Date('2026-05-15T00:00:00.000Z'),
+      reviewedAt: new Date('2026-05-15T00:00:00.000Z'),
+      createdAt: new Date('2026-05-15T00:00:00.000Z'),
+    });
+    prismaService.storePartnerApplication.findMany.mockResolvedValue([]);
+
+    const result = await service.applyPartner(user, {
+      name: '发送东方说的是的',
+      phone: '13142342342',
+      idCard: '53250119940506125X',
+      region: ['110000', '110100', '110101'],
+      paymentMethod: 'alipay',
+      paymentAccount: '大撒',
+      intention: 'other',
+      applyReason: '大撒',
+    });
+
+    expect(prismaService.storePartnerApplication.create).toHaveBeenCalled();
+    expect(result.currentApplication).toBeDefined();
+  });
+
   it('markPartnerApplicationReviewing 将申请切换为审核中', async () => {
     prismaService.storePartnerApplication.findUnique.mockResolvedValue({
       id: 101,
@@ -1177,8 +1239,14 @@ describe('PlatformMembershipService', () => {
       count: 1,
     });
     prismaService.storePartner.findUnique.mockResolvedValue(null);
-    prismaService.storePartner.findMany.mockResolvedValue([
-      {
+    // findFirst is called 3 times:
+    // 1. findStorePartnerByApplicant by idCard (returns null)
+    // 2. findStorePartnerByApplicant by phone (returns null)
+    // 3. buildPartnerProfileByStoreId via findCurrentStorePartner (returns new partner)
+    prismaService.storePartner.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
         id: 12,
         status: 'approved',
         name: '张三',
@@ -1196,8 +1264,7 @@ describe('PlatformMembershipService', () => {
         joinedAt: approvedAt,
         reviewedAt: approvedAt,
         createdAt: new Date('2026-05-15T00:00:00.000Z'),
-      },
-    ]);
+      });
     prismaService.storePartnerApplication.findMany.mockResolvedValue([
       {
         id: 101,
@@ -1680,16 +1747,12 @@ describe('PlatformMembershipService', () => {
       totalPoints: 2000,
       availablePoints: 2000,
     });
-    // findMany is called 4 times in the transaction:
-    // 1. findStorePartners (initial) → beanBalance: 20
-    // 2. pre-deduct validation → storeId + status only
-    // 3. post-deduct validation → beanBalance: 0 (non-negative check)
-    // 4. findStorePartners (final) → beanBalance: 0 (for response)
-    prismaService.storePartner.findMany
-      .mockResolvedValueOnce([partnerWithBeans])
-      .mockResolvedValueOnce([{ id: 11, storeId: 18, status: 'approved' }])
-      .mockResolvedValueOnce([{ id: 11, beanBalance: 0 }])
-      .mockResolvedValueOnce([partnerAfterDeduct]);
+    // findFirst is called 2 times: findCurrentStorePartner (initial) + findCurrentStorePartner (final for response)
+    prismaService.storePartner.findFirst
+      .mockResolvedValueOnce(partnerWithBeans)
+      .mockResolvedValueOnce(partnerAfterDeduct);
+    // 单合伙人扣减：updateMany 返回 { count: 1 }
+    prismaService.storePartner.updateMany.mockResolvedValue({ count: 1 });
     prismaService.storePartner.findUnique.mockResolvedValue(partnerAfterDeduct);
     prismaService.storeMembershipProfile.update.mockResolvedValue({
       id: 3,
@@ -1734,8 +1797,13 @@ describe('PlatformMembershipService', () => {
       useBeans: 20,
     });
 
-    expect(prismaService.storePartner.update).toHaveBeenCalledWith({
-      where: { id: 11 },
+    expect(prismaService.storePartner.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 11,
+        storeId: 18,
+        status: 'approved',
+        beanBalance: { gte: 20 },
+      },
       data: {
         beanBalance: { decrement: 20 },
       },
@@ -1743,17 +1811,15 @@ describe('PlatformMembershipService', () => {
     expect(
       cacheInvalidatorService.invalidateMembershipDerived,
     ).toHaveBeenCalled();
-    expect(prismaService.storePartnerBeanLog.createMany).toHaveBeenCalledWith({
-      data: [
-        {
-          storeId: 18,
-          partnerId: 11,
-          source: 'deduct_payment',
-          changeAmount: -20,
-          description: '纯利豆抵扣 · 订阅季度会员',
-          relatedPlanType: 'quarterly',
-        },
-      ],
+    expect(prismaService.storePartnerBeanLog.create).toHaveBeenCalledWith({
+      data: {
+        storeId: 18,
+        partnerId: 11,
+        source: 'deduct_payment',
+        changeAmount: -20,
+        description: '纯利豆抵扣 · 订阅季度会员',
+        relatedPlanType: 'quarterly',
+      },
     });
     expect(
       prismaService.storeMembershipPointsLog.create,

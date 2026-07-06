@@ -12,20 +12,31 @@
 - [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
 - [auth-account.service.ts](file://src/purely-profit/auth/auth-account.service.ts)
 - [auth-account-lookup.service.ts](file://src/purely-profit/auth/auth-account-lookup.service.ts)
-- [auth-account-membership.service.ts](file://src/purely-profit/auth/auth-account-membership.service.ts)
 - [auth-capability.service.ts](file://src/purely-profit/auth/auth-capability.service.ts)
 - [auth-profile.service.ts](file://src/purely-profit/auth/auth-profile.service.ts)
+- [captcha-token.service.ts](file://src/purely-profit/auth/captcha-token.service.ts)
 - [auth.constants.ts](file://src/purely-profit/auth/auth.constants.ts)
 - [login.dto.ts](file://src/purely-profit/auth/dto/login.dto.ts)
 - [register.dto.ts](file://src/purely-profit/auth/dto/register.dto.ts)
 - [forgot-password.dto.ts](file://src/purely-profit/auth/dto/forgot-password.dto.ts)
 - [reset-password.dto.ts](file://src/purely-profit/auth/dto/reset-password.dto.ts)
 - [change-password.dto.ts](file://src/purely-profit/auth/dto/change-password.dto.ts)
+- [refresh-token.dto.ts](file://src/purely-profit/auth/dto/refresh-token.dto.ts)
+- [send-register-code.dto.ts](file://src/purely-profit/auth/dto/send-register-code.dto.ts)
+- [register-captcha-token.dto.ts](file://src/purely-club/auth/dto/register-captcha-token.dto.ts)
 - [auth-token-response.dto.ts](file://src/purely-profit/auth/dto/auth-token-response.dto.ts)
 - [configuration.ts](file://src/config/configuration.ts)
 - [app.module.ts](file://src/app.module.ts)
 - [auth.module.ts](file://src/purely-profit/auth/auth.module.ts)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增完整的JWT Refresh Token机制，包括SHA-256哈希存储、自动轮换和用户索引批量失效功能
+- 新增/refresh端点用于刷新访问令牌
+- 新增/captcha/register端点支持拼图验证令牌注册
+- 增强短信验证码发送的安全防护机制
+- 更新Token配置选项和过期时间设置
 
 ## 目录
 1. [简介](#简介)
@@ -40,6 +51,8 @@
 
 ## 简介
 本文件详细阐述了基于 NestJS 框架的 JWT 认证机制实现。内容涵盖 JWT Token 的生成、验证与刷新流程，JWT 策略的实现原理，认证守卫的工作机制，以及完整的登录、注册、密码重置等业务流程。文档还提供了 DTO 参数验证、Token 配置选项、过期时间设置的说明，并解释了与 Passport 框架的集成方式、错误处理策略和安全考虑。
+
+**更新** 新增了完整的Refresh Token机制，支持一次性使用、自动轮换和用户会话管理功能。
 
 ## 项目结构
 认证相关代码主要位于 `src/purely-profit/auth/` 目录下，采用按功能模块划分的方式组织：
@@ -99,15 +112,19 @@ CFG --> AM
 - 会话服务：维护用户会话状态与 Token 刷新
 - 密码服务：处理密码加密、验证与变更
 - 验证码服务：发送与校验短信/邮件验证码
+- 拼图验证服务：管理前端人机验证令牌
 - 账户服务：账户信息查询、权限能力计算等
 - DTO：统一输入参数校验与数据格式化
 - 常量：定义 Token 过期时间、密钥等配置项
+
+**更新** 新增了拼图验证服务和增强的会话管理服务，支持完整的Refresh Token生命周期管理。
 
 **章节来源**
 - [jwt-auth.guard.ts](file://src/purely-profit/auth/guards/jwt-auth.guard.ts)
 - [jwt.strategy.ts](file://src/purely-profit/auth/strategies/jwt.strategy.ts)
 - [auth.service.ts](file://src/purely-profit/auth/auth.service.ts)
 - [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
+- [captcha-token.service.ts](file://src/purely-profit/auth/captcha-token.service.ts)
 - [auth-password.service.ts](file://src/purely-profit/auth/auth-password.service.ts)
 - [auth-code.service.ts](file://src/purely-profit/auth/auth-code.service.ts)
 - [auth-account.service.ts](file://src/purely-profit/auth/auth-account.service.ts)
@@ -121,34 +138,32 @@ sequenceDiagram
 participant Client as "客户端"
 participant Ctrl as "认证控制器"
 participant AuthSvc as "认证服务"
+participant SessionSvc as "会话服务"
+participant CaptchaSvc as "拼图验证服务"
 participant PassStrat as "JWT 策略"
 participant Guard as "JWT 守卫"
-participant Session as "会话服务"
-participant Account as "账户服务"
 Client->>Ctrl : "POST 登录/注册/密码重置"
 Ctrl->>AuthSvc : "调用业务方法"
+AuthSvc->>SessionSvc : "创建/刷新 Token"
+SessionSvc-->>AuthSvc : "返回 Token 对"
 AuthSvc->>PassStrat : "生成/验证 Token"
 PassStrat-->>AuthSvc : "返回用户标识"
-AuthSvc->>Session : "创建/更新会话"
-Session-->>AuthSvc : "返回会话信息"
 AuthSvc-->>Ctrl : "返回响应 DTO"
 Ctrl-->>Client : "HTTP 响应"
 Note over Client,Guard : "受保护路由访问时"
 Client->>Guard : "携带 Authorization 头"
 Guard->>PassStrat : "验证 Token"
 PassStrat-->>Guard : "返回用户上下文"
-Guard->>Account : "加载用户权限"
-Account-->>Guard : "返回权限集合"
 Guard-->>Client : "允许或拒绝访问"
 ```
 
 **图表来源**
 - [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
 - [auth.service.ts](file://src/purely-profit/auth/auth.service.ts)
+- [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
+- [captcha-token.service.ts](file://src/purely-profit/auth/captcha-token.service.ts)
 - [jwt.strategy.ts](file://src/purely-profit/auth/strategies/jwt.strategy.ts)
 - [jwt-auth.guard.ts](file://src/purely-profit/auth/guards/jwt-auth.guard.ts)
-- [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
-- [auth-account.service.ts](file://src/purely-profit/auth/auth-account.service.ts)
 
 ## 详细组件分析
 
@@ -204,7 +219,7 @@ Allow --> End
 - [jwt-auth.guard.ts](file://src/purely-profit/auth/guards/jwt-auth.guard.ts)
 - [auth-account.service.ts](file://src/purely-profit/auth/auth-account.service.ts)
 
-### 登录认证流程
+### 完整登录认证流程
 登录流程涉及用户名/邮箱与密码验证、Token 生成与会话创建。具体步骤：
 - 接收登录请求，使用 DTO 校验参数
 - 调用认证服务进行凭据验证
@@ -217,23 +232,23 @@ sequenceDiagram
 participant Client as "客户端"
 participant Ctrl as "认证控制器"
 participant AuthSvc as "认证服务"
+participant SessionSvc as "会话服务"
 participant PassStrat as "JWT 策略"
-participant Session as "会话服务"
 Client->>Ctrl : "POST /auth/login"
 Ctrl->>AuthSvc : "验证凭据"
-AuthSvc->>PassStrat : "生成访问 Token"
-PassStrat-->>AuthSvc : "返回访问 Token"
-AuthSvc->>Session : "创建会话"
-Session-->>AuthSvc : "返回会话信息"
+AuthSvc->>SessionSvc : "签发 Token 对"
+SessionSvc->>PassStrat : "生成访问 Token"
+PassStrat-->>SessionSvc : "返回访问 Token"
+SessionSvc-->>AuthSvc : "返回 Token 对"
 AuthSvc-->>Ctrl : "返回 Token 响应"
-Ctrl-->>Client : "201/200 + Token"
+Ctrl-->>Client : "201/200 + Token 对"
 ```
 
 **图表来源**
 - [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
 - [auth.service.ts](file://src/purely-profit/auth/auth.service.ts)
-- [jwt.strategy.ts](file://src/purely-profit/auth/strategies/jwt.strategy.ts)
 - [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
+- [jwt.strategy.ts](file://src/purely-profit/auth/strategies/jwt.strategy.ts)
 
 **章节来源**
 - [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
@@ -243,6 +258,7 @@ Ctrl-->>Client : "201/200 + Token"
 ### 注册流程
 注册流程包含手机号/邮箱验证、验证码校验、密码加密与账户创建。关键步骤：
 - 接收注册请求，使用 DTO 校验参数
+- 可选：验证拼图验证令牌
 - 发送验证码并校验
 - 使用密码服务加密密码
 - 创建账户并初始化会话
@@ -252,10 +268,16 @@ Ctrl-->>Client : "201/200 + Token"
 sequenceDiagram
 participant Client as "客户端"
 participant Ctrl as "认证控制器"
+participant CaptchaSvc as "拼图验证服务"
 participant CodeSvc as "验证码服务"
 participant PasswdSvc as "密码服务"
 participant AccountSvc as "账户服务"
-Client->>Ctrl : "POST /auth/register"
+Client->>Ctrl : "POST /auth/captcha/register"
+Ctrl->>CaptchaSvc : "注册拼图令牌"
+CaptchaSvc-->>Ctrl : "注册成功"
+Client->>Ctrl : "POST /auth/register/send-code"
+Ctrl->>CaptchaSvc : "验证拼图令牌"
+CaptchaSvc-->>Ctrl : "验证通过"
 Ctrl->>CodeSvc : "发送/校验验证码"
 CodeSvc-->>Ctrl : "验证结果"
 Ctrl->>PasswdSvc : "加密密码"
@@ -267,12 +289,14 @@ Ctrl-->>Client : "201/200 + Token"
 
 **图表来源**
 - [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
+- [captcha-token.service.ts](file://src/purely-profit/auth/captcha-token.service.ts)
 - [auth-code.service.ts](file://src/purely-profit/auth/auth-code.service.ts)
 - [auth-password.service.ts](file://src/purely-profit/auth/auth-password.service.ts)
 - [auth-account.service.ts](file://src/purely-profit/auth/auth-account.service.ts)
 
 **章节来源**
 - [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
+- [captcha-token.service.ts](file://src/purely-profit/auth/captcha-token.service.ts)
 - [auth-code.service.ts](file://src/purely-profit/auth/auth-code.service.ts)
 - [auth-password.service.ts](file://src/purely-profit/auth/auth-password.service.ts)
 - [auth-account.service.ts](file://src/purely-profit/auth/auth-account.service.ts)
@@ -315,10 +339,75 @@ Ctrl-->>Client : "200 + 提示"
 - [auth-password.service.ts](file://src/purely-profit/auth/auth-password.service.ts)
 - [auth-account.service.ts](file://src/purely-profit/auth/auth-account.service.ts)
 
+### Refresh Token 机制
+**新增** 完整的 Refresh Token 机制实现了安全的一次性使用、自动轮换和用户会话管理功能：
+
+#### Refresh Token 特性
+- **SHA-256 哈希存储**：Refresh Token 在 Redis 中以 SHA-256 哈希形式存储，避免明文泄露
+- **一次性使用**：每次刷新后立即使旧 Token 失效，防止重放攻击
+- **自动轮换**：刷新成功后自动生成新的 Token 对
+- **用户索引管理**：维护 userId 到 Token 哈希的索引，支持批量失效
+- **可配置过期时间**：默认 30 天，可通过环境变量配置
+
+#### Refresh Token 工作流程
+```mermaid
+flowchart TD
+A["客户端持有 refresh_token"] --> B["调用 /auth/refresh 端点"]
+B --> C["计算 token SHA-256 哈希"]
+C --> D["Redis 查找 token hash"]
+D --> E{"token 存在?"}
+E --> |否| F["返回未授权错误"]
+E --> |是| G["删除旧 token (一次性消费)"]
+G --> H["生成新的 access_token + refresh_token"]
+H --> I["存储新 token 哈希到 Redis"]
+I --> J["返回新的 Token 对"]
+F --> K["结束"]
+J --> L["结束"]
+```
+
+**图表来源**
+- [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
+- [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
+
+#### Refresh Token API 端点
+- **POST /auth/refresh**：使用 refresh_token 获取新的 access_token + refresh_token
+- **输入参数**：包含 refresh_token 字段的 JSON 对象
+- **响应格式**：标准的 AuthTokenResponseDto，包含新的 Token 对
+
+#### 用户会话管理
+- **批量失效**：支持通过 userId 批量使所有 refresh token 失效
+- **版本控制**：维护 token version 用于检测会话变更
+- **内存优化**：通过索引键避免全量 SCAN 操作
+
+**章节来源**
+- [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
+- [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
+- [refresh-token.dto.ts](file://src/purely-profit/auth/dto/refresh-token.dto.ts)
+
+### 拼图验证令牌机制
+**新增** 拼图验证令牌机制为短信验证码发送提供了额外的安全防护：
+
+#### 拼图验证流程
+1. **前端完成拼图验证**：用户在前端界面完成人机验证
+2. **注册验证令牌**：前端调用 `/auth/captcha/register` 将令牌注册到服务端
+3. **发送验证码**：发送短信验证码时必须携带有效的拼图令牌
+4. **一次性消费**：令牌使用后立即失效，防止重复使用
+
+#### 安全措施
+- **格式验证**：严格验证令牌格式 `puzzle_{timestamp}_{counter}`
+- **有效期限制**：令牌有效期 5 分钟，超时自动失效
+- **防重放攻击**：令牌一次性使用，使用后从 Redis 中删除
+- **频率限制**：接口限流防止滥用
+
+**章节来源**
+- [captcha-token.service.ts](file://src/purely-profit/auth/captcha-token.service.ts)
+- [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
+- [register-captcha-token.dto.ts](file://src/purely-club/auth/dto/register-captcha-token.dto.ts)
+
 ### Token 配置与过期时间
 Token 的配置与过期时间由常量与全局配置共同决定：
-- 访问 Token 过期时间：用于短期访问
-- 刷新 Token 过期时间：用于长期保持登录状态
+- 访问 Token 过期时间：用于短期访问，默认 7 天
+- 刷新 Token 过期时间：用于长期保持登录状态，默认 30 天
 - 密钥与算法：用于签名与验证
 - 全局配置：从环境变量或配置文件读取
 
@@ -348,6 +437,8 @@ Generate --> Return(["返回 Token 配置"])
 - 忘记密码 DTO：验证邮箱/手机号
 - 重置密码 DTO：验证验证码与新密码
 - 修改密码 DTO：验证旧密码与新密码
+- 刷新 Token DTO：验证刷新令牌格式
+- 拼图令牌 DTO：验证拼图验证令牌格式
 - Token 响应 DTO：标准化返回 Token 与用户信息
 
 ```mermaid
@@ -374,6 +465,16 @@ class ChangePasswordDto {
 +string oldPassword
 +string newPassword
 }
+class RefreshTokenDto {
++string refresh_token
+}
+class RegisterCaptchaTokenDto {
++string captchaToken
+}
+class SendRegisterCodeDto {
++string phone
++string captchaToken
+}
 class AuthTokenResponseDto {
 +string accessToken
 +string refreshToken
@@ -383,6 +484,7 @@ LoginDto --> AuthTokenResponseDto : "登录成功返回"
 RegisterDto --> AuthTokenResponseDto : "注册成功返回"
 ResetPasswordDto --> AuthTokenResponseDto : "重置成功返回"
 ChangePasswordDto --> AuthTokenResponseDto : "修改成功返回"
+RefreshTokenDto --> AuthTokenResponseDto : "刷新成功返回"
 ```
 
 **图表来源**
@@ -391,6 +493,9 @@ ChangePasswordDto --> AuthTokenResponseDto : "修改成功返回"
 - [forgot-password.dto.ts](file://src/purely-profit/auth/dto/forgot-password.dto.ts)
 - [reset-password.dto.ts](file://src/purely-profit/auth/dto/reset-password.dto.ts)
 - [change-password.dto.ts](file://src/purely-profit/auth/dto/change-password.dto.ts)
+- [refresh-token.dto.ts](file://src/purely-profit/auth/dto/refresh-token.dto.ts)
+- [register-captcha-token.dto.ts](file://src/purely-club/auth/dto/register-captcha-token.dto.ts)
+- [send-register-code.dto.ts](file://src/purely-profit/auth/dto/send-register-code.dto.ts)
 - [auth-token-response.dto.ts](file://src/purely-profit/auth/dto/auth-token-response.dto.ts)
 
 **章节来源**
@@ -399,6 +504,9 @@ ChangePasswordDto --> AuthTokenResponseDto : "修改成功返回"
 - [forgot-password.dto.ts](file://src/purely-profit/auth/dto/forgot-password.dto.ts)
 - [reset-password.dto.ts](file://src/purely-profit/auth/dto/reset-password.dto.ts)
 - [change-password.dto.ts](file://src/purely-profit/auth/dto/change-password.dto.ts)
+- [refresh-token.dto.ts](file://src/purely-profit/auth/dto/refresh-token.dto.ts)
+- [register-captcha-token.dto.ts](file://src/purely-club/auth/dto/register-captcha-token.dto.ts)
+- [send-register-code.dto.ts](file://src/purely-profit/auth/dto/send-register-code.dto.ts)
 - [auth-token-response.dto.ts](file://src/purely-profit/auth/dto/auth-token-response.dto.ts)
 
 ### 与 Passport 框架的集成
@@ -443,6 +551,7 @@ Svc --> Code["验证码服务"]
 Svc --> Passwd["密码服务"]
 Svc --> Session["会话服务"]
 Svc --> Account["账户服务"]
+Svc --> Captcha["拼图验证服务"]
 Guard["JWT 守卫"] --> Strat
 Guard --> Account
 Strat --> Cfg["配置常量"]
@@ -451,22 +560,24 @@ Strat --> Cfg["配置常量"]
 **图表来源**
 - [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
 - [auth.service.ts](file://src/purely-profit/auth/auth.service.ts)
+- [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
+- [captcha-token.service.ts](file://src/purely-profit/auth/captcha-token.service.ts)
 - [jwt.strategy.ts](file://src/purely-profit/auth/strategies/jwt.strategy.ts)
 - [jwt-auth.guard.ts](file://src/purely-profit/auth/guards/jwt-auth.guard.ts)
 - [auth-code.service.ts](file://src/purely-profit/auth/auth-code.service.ts)
 - [auth-password.service.ts](file://src/purely-profit/auth/auth-password.service.ts)
-- [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
 - [auth-account.service.ts](file://src/purely-profit/auth/auth-account.service.ts)
 - [auth.constants.ts](file://src/purely-profit/auth/auth.constants.ts)
 
 **章节来源**
 - [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
 - [auth.service.ts](file://src/purely-profit/auth/auth.service.ts)
+- [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
+- [captcha-token.service.ts](file://src/purely-profit/auth/captcha-token.service.ts)
 - [jwt.strategy.ts](file://src/purely-profit/auth/strategies/jwt.strategy.ts)
 - [jwt-auth.guard.ts](file://src/purely-profit/auth/guards/jwt-auth.guard.ts)
 - [auth-code.service.ts](file://src/purely-profit/auth/auth-code.service.ts)
 - [auth-password.service.ts](file://src/purely-profit/auth/auth-password.service.ts)
-- [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
 - [auth-account.service.ts](file://src/purely-profit/auth/auth-account.service.ts)
 - [auth.constants.ts](file://src/purely-profit/auth/auth.constants.ts)
 
@@ -476,6 +587,8 @@ Strat --> Cfg["配置常量"]
 - 数据库索引：对账户标识与 Token 字段建立索引，提升查询性能
 - 异步处理：密码加密与验证码发送建议异步执行，避免阻塞请求
 - 超时策略：合理设置 Token 过期时间，平衡安全性与用户体验
+- **新增** Refresh Token 索引优化：通过用户索引键避免全量 SCAN，提升批量失效性能
+- **新增** 拼图令牌 TTL 管理：5 分钟短有效期减少 Redis 内存占用
 
 ## 故障排除指南
 常见问题与解决方案：
@@ -484,6 +597,8 @@ Strat --> Cfg["配置常量"]
 - 验证码失效：检查验证码有效期与发送频率限制
 - 密码重置失败：确认验证码正确且新密码符合强度要求
 - 会话异常：检查会话存储与刷新逻辑，确保 Token 刷新流程正常
+- **新增** Refresh Token 刷新失败：检查 Redis 连接状态，确认 token hash 是否存在
+- **新增** 拼图验证失败：验证前端生成的令牌格式，检查令牌是否已过期或被消费
 
 **章节来源**
 - [jwt-auth.guard.ts](file://src/purely-profit/auth/guards/jwt-auth.guard.ts)
@@ -491,6 +606,9 @@ Strat --> Cfg["配置常量"]
 - [auth-code.service.ts](file://src/purely-profit/auth/auth-code.service.ts)
 - [auth-password.service.ts](file://src/purely-profit/auth/auth-password.service.ts)
 - [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
+- [captcha-token.service.ts](file://src/purely-profit/auth/captcha-token.service.ts)
 
 ## 结论
-本认证机制通过策略与守卫实现了端到端的 JWT 认证，结合服务层的业务逻辑与 DTO 的参数验证，形成了安全、可扩展的认证体系。通过合理的 Token 配置与过期时间设置，以及完善的错误处理与安全考虑，系统能够在保证安全性的同时提供良好的用户体验。建议在生产环境中进一步完善缓存策略、并发控制与监控告警，以提升整体性能与稳定性。
+本认证机制通过策略与守卫实现了端到端的 JWT 认证，结合服务层的业务逻辑与 DTO 的参数验证，形成了安全、可扩展的认证体系。通过合理的 Token 配置与过期时间设置，以及完善的错误处理与安全考虑，系统能够在保证安全性的同时提供良好的用户体验。
+
+**更新** 新增的完整 Refresh Token 机制提供了更安全的会话管理方案，支持一次性使用、自动轮换和用户会话批量管理。拼图验证令牌的引入进一步增强了短信验证码发送的安全性，有效防止了自动化攻击。建议在生产环境中进一步完善缓存策略、并发控制与监控告警，以提升整体性能与稳定性。

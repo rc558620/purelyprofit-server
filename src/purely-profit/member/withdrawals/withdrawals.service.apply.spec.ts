@@ -66,12 +66,9 @@ describe('WithdrawalsService apply', () => {
       totalWithdrawnBeans: 1300,
     });
 
-    context.prismaService.storePartner.findFirst.mockResolvedValue(
-      applyPartner,
-    );
-    context.prismaService.storePartner.findMany.mockResolvedValue([
-      overviewPartner,
-    ]);
+    context.prismaService.storePartner.findFirst
+      .mockResolvedValueOnce(applyPartner)
+      .mockResolvedValueOnce(overviewPartner);
     context.prismaService.storePartner.updateMany.mockResolvedValue({
       count: 1,
     });
