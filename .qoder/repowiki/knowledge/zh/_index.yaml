@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-05T04:06:24Z"
+exported_at: "2026-07-06T16:34:36Z"
 modules:
     "":
-        dir_name: 纯利商业操作系统后端（NestJS 单体多产品）
-        title: 纯利商业操作系统后端（NestJS 单体多产品）
+        dir_name: PurelyProfit 单体后端（NestJS + Fastify 多产品聚合）
+        title: PurelyProfit 单体后端（NestJS + Fastify 多产品聚合）
         scope: []
         source_files: []
         children: []
@@ -21,10 +21,13 @@ modules:
             - package.json
             - nest-cli.json
             - tsconfig.build.json
+            - prisma.config.ts
             - .github/workflows/ci.yml
             - .github/workflows/deploy-production.yml
             - scripts/release-execute.sh
             - scripts/test-smoke-release-regression.mjs
+            - scripts/seed-owner.mjs
+            - scripts/generate-smoke-token.mjs
             - verify-api-live.sh
         children: []
         depends_on: []
@@ -87,12 +90,7 @@ modules:
             - src/purely-club/auth/club-wechat-auth.service.ts
             - src/purely-club/home/club-home.service.ts
             - src/purely-club/orders/club-order-settlement.service.ts
-            - src/purely-profit/client-errors/client-errors.service.ts
-            - src/redis/cache-prewarm-cycle.service.ts
-            - src/redis/redis.service.ts
-            - src/queue/space-auto-checkout.processor.ts
             - src/prisma/prisma.service.ts
-            - src/bootstrap/bootstrap.ts
         children: []
         depends_on: []
         related_to: []

@@ -58,7 +58,7 @@ const buildSubAccountMembership = (
   subAccountStatus: StoreSubAccountStatus.active,
   subAccountAssigned: true,
   canAccessHome: true,
-  canUseHandover: role !== StoreSubAccountRole.finance,
+  canUseHandover: true,
   ...overrides,
 });
 
@@ -133,6 +133,7 @@ describe('Sub-account alignment regression', () => {
       'business-analysis',
       'finance-center',
       'goods-management',
+      'handover-management',
       'staff-management',
     ]);
     expect(capability.allowedHomeModules).toContain('goods-management');
@@ -152,9 +153,11 @@ describe('Sub-account alignment regression', () => {
     expect(permissions).toContain('purchase:create');
     expect(permissions).toContain('sales:view');
     expect(permissions).toContain('staff:view');
+    expect(permissions).toContain('handover:view');
+    expect(permissions).toContain('handover:create');
+    expect(permissions).toContain('handover:update');
     expect(permissions).not.toContain('marketing:view');
     expect(permissions).not.toContain('space:view');
-    expect(permissions).not.toContain('handover:view');
     expect(permissions).not.toContain('operation-entry:view');
     expect(permissions).not.toContain('store:view');
   });

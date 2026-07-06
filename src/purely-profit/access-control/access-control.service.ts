@@ -110,6 +110,9 @@ const FINANCE_SUB_ACCOUNT_PERMISSIONS = [
   'cost:delete',
   'sales:view',
   'staff:view',
+  'handover:view',
+  'handover:create',
+  'handover:update',
 ] as const;
 
 const SUB_ACCOUNT_ROLE_PERMISSIONS: Record<
