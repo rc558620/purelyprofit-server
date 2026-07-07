@@ -15,11 +15,9 @@ import type {
 } from './auth-account.types';
 import type { ProfileUserRecord } from './auth-profile.types';
 import {
-  buildAccountLoginEmails,
   buildClubWechatMemberPhone,
   buildPhoneLoginEmails,
   buildUserCacheKey,
-  resolveLoginEmail,
   resolveLoginPhone,
 } from './auth.utils';
 
@@ -47,14 +45,12 @@ export class AuthAccountLookupService {
       return this.findUserByPhone(loginPhone, productScope);
     }
 
-    const loginEmail = resolveLoginEmail(productScope, account, this.adminLoginAlias);
-    if (!loginEmail) {
+    if (productScope !== 'purely_profit') {
       return null;
     }
 
-    return this.findProfitUserByLoginEmails(
-      buildAccountLoginEmails(productScope, account),
-    );
+    // 直接通过 loginAccount 字段查找，无需解析 email 格式
+    return this.findProfitUserByCustomAccount(account);
   }
 
   async findUserByEmail(
@@ -67,7 +63,6 @@ export class AuthAccountLookupService {
 
     return this.findProfitUserByLoginEmails([email]);
   }
-
   async findUserByPhone(
     phone: string,
     productScope: AuthProductScope,
@@ -412,6 +407,44 @@ export class AuthAccountLookupService {
         userId,
       },
     });
+  }
+
+  /**
+   * 通过 loginAccount 字段直接查找子账号登录用户
+   * 替代旧的 email 格式解析方式，更简洁且无格式歧义
+   */
+  private async findProfitUserByCustomAccount(
+    loginAccount: string,
+  ): Promise<PhoneUserRecord | null> {
+    const normalizedAccount = loginAccount.trim();
+
+    const staff = await this.prisma.staff.findFirst({
+      where: {
+        loginAccount: normalizedAccount,
+        isActive: true,
+        userId: { not: null },
+      },
+      select: {
+        phone: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            password: true,
+          },
+        },
+      },
+    });
+
+    if (staff?.user && staff.phone) {
+      return {
+        ...staff.user,
+        phone: staff.phone,
+        accountScope: 'purely_profit',
+      };
+    }
+
+    return null;
   }
 
   private async findProfitUserByLoginEmails(

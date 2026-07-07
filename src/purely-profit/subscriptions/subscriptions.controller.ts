@@ -14,6 +14,8 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { RequirePermissions } from '../access-control/decorators/require-permissions.decorator';
+import { PermissionsGuard } from '../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { StoreSubscriptionResponseDto } from './dto/store-subscription-response.dto';
@@ -22,12 +24,13 @@ import { SubscriptionsService } from './subscriptions.service';
 
 @ApiTags('Subscriptions')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('subscriptions')
 export class SubscriptionsController {
   constructor(private readonly subscriptionsService: SubscriptionsService) {}
 
   @Get('stores/:storeId')
+  @RequirePermissions('store:view')
   @ApiOperation({ summary: '获取门店当前套餐订阅与席位概览' })
   @ApiOkResponse({
     description: '返回门店当前套餐、状态与席位占用概览',
@@ -41,6 +44,7 @@ export class SubscriptionsController {
   }
 
   @Patch('stores/:storeId')
+  @RequirePermissions('store:update')
   @ApiOperation({ summary: '更新门店套餐并同步账号席位' })
   @ApiOkResponse({
     description: '更新成功并返回最新套餐与席位概览',

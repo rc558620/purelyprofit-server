@@ -5,6 +5,7 @@ import {
   type Prisma,
 } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
+import { calculateLeaveDays } from './employees-leave.domain';
 
 export interface QueryEmployeesPageParams {
   where: Prisma.EmployeeWhereInput;
@@ -59,6 +60,12 @@ export async function queryEmployeesOverviewMetrics(
   prisma: PrismaService,
   params: QueryEmployeesOverviewParams,
 ): Promise<QueryEmployeesOverviewResult> {
+  // 计算下月月初，用于筛选与本月有交集的请假记录
+  const ms = params.monthStart;
+  const nextMonthStart = new Date(
+    Date.UTC(ms.getUTCFullYear(), ms.getUTCMonth() + 1, 1, 0, 0, 0, 0),
+  );
+
   const [
     activeCount,
     resignedCount,
@@ -72,12 +79,14 @@ export async function queryEmployeesOverviewMetrics(
     prisma.employee.count({
       where: { storeId: params.storeId, deletedAt: null, status: EmployeeStatus.resigned },
     }),
+    // 筛选与本月有交集的请假（含跨月），并在应用层按本月实际天数重算
     prisma.employeeLeave.findMany({
       where: {
         storeId: params.storeId,
-        startDate: { gte: params.monthStart },
+        endDate: { gte: ms },
+        startDate: { lt: nextMonthStart },
       },
-      select: { days: true },
+      select: { days: true, startDate: true, endDate: true },
     }),
     prisma.employeePayroll.count({
       where: {
@@ -99,7 +108,18 @@ export async function queryEmployeesOverviewMetrics(
   return {
     activeCount,
     resignedCount,
-    leaveRows: leaveRows.map((r) => ({ days: Number(r.days) })),
+    leaveRows: leaveRows.map((r) => {
+      // 跨月请假：按落入本月内的实际天数计算
+      const effectiveStart = Math.max(
+        r.startDate.getTime(),
+        ms.getTime(),
+      );
+      const effectiveEnd = Math.min(
+        r.endDate.getTime(),
+        nextMonthStart.getTime(),
+      );
+      return { days: calculateLeaveDays(effectiveStart, effectiveEnd) };
+    }),
     pendingPayrollCount,
     resignedThisMonth,
   };

@@ -175,8 +175,8 @@ export class EmployeesLeaveService {
       where: {
         employeeId,
         ...(excludeId !== undefined ? { id: { not: excludeId } } : {}),
-        startDate: { lte: new Date(endDate) },
-        endDate: { gte: new Date(startDate) },
+        startDate: { lt: new Date(endDate) },
+        endDate: { gt: new Date(startDate) },
       },
       select: { id: true },
     });

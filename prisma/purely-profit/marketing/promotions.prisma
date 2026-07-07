@@ -42,6 +42,11 @@ model MarketingPromotion {
 
   @@index([storeId, enabled, startAt])
   @@index([storeId, createdAt])
+  // B4：单门店同类型仅允许一个上架活动
+  // 应用层 ensurePromotionTypeUnique 已覆盖；
+  // 如需 DB 级条件唯一索引，请通过 raw SQL 迁移添加：
+  // CREATE UNIQUE INDEX CONCURRENTLY "marketing_promotions_store_type_enabled_uniq"
+  //   ON marketing_promotions (store_id, type) WHERE enabled = true;
   @@map("marketing_promotions")
 }
 

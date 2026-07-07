@@ -4,6 +4,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -14,7 +15,6 @@ import {
 import { PaginationQueryDto } from '../../stores/dto/store-response.dto';
 import {
   FINANCE_PAYMENT_CHANNEL_VALUES,
-  FINANCE_RECONCILIATION_STATUS_VALUES,
   FINANCE_RECONCILIATION_STATUS_FILTER_VALUES,
   FINANCE_RECONCILIATION_TYPE_VALUES,
   FINANCE_RECONCILIATION_TYPE_FILTER_VALUES,
@@ -26,6 +26,7 @@ import {
 export class FinanceReconciliationItemInputDto {
   @ApiProperty({ example: '微信渠道差异', description: '差异项目描述' })
   @IsString({ message: '差异描述必须是字符串' })
+  @IsNotEmpty({ message: '差异描述不能为空' })
   description: string;
 
   @ApiProperty({ example: 100, description: '账面金额，单位元' })
@@ -79,6 +80,7 @@ export class ListFinanceReconciliationsQueryDto extends PaginationQueryDto {
 export class CreateFinanceReconciliationDto {
   @ApiProperty({ example: '5月月度对账', description: '对账标题' })
   @IsString({ message: '对账标题必须是字符串' })
+  @IsNotEmpty({ message: '对账标题不能为空' })
   @MaxLength(50, { message: '对账标题最多 50 个字符' })
   title: string;
 

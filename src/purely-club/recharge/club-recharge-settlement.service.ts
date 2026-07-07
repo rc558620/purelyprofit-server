@@ -14,7 +14,6 @@ import type {
 import type { ClubOrderStatusResponseDto } from '../orders/dto/club-order.dto';
 import { ClubPaymentSettlementTemplate } from '../payments/club-payment-settlement.template';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
-import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
 import type { ClubRechargeOrderResponseDto } from './dto/club-recharge.dto';
 import { toClubRechargeOrderResponse } from './club-recharge.mapper';
 import {
@@ -77,14 +76,14 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
   private async findCustomer(
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'>,
-  ): Promise<{ id: number; totalSpent: number }> {
+  ): Promise<{ id: number }> {
     const customer = await tx.marketingCustomer.findFirst({
       where: {
         id: draft.customerId ?? undefined,
         storeId: draft.storeId,
         deletedAt: null,
       },
-      select: { id: true, totalSpent: true },
+      select: { id: true },
     });
 
     if (!customer) {
@@ -124,24 +123,21 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
   }
 
   /**
-   * 充值落账后更新顾客储值余额、累计消费额与会员等级。
-   * 充值金额（含赠送）同步计入 totalSpent，以驱动会员等级升级。
+   * 充值落账后更新顾客储值余额。
+   * 注意：充值金额不计入 totalSpent（累计消费），tier 仅在消费时重算。
    */
   private updateCustomerAfterRecharge(
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'>,
-    customer: { id: number; totalSpent: number },
+    customer: { id: number },
   ): Promise<unknown> {
     const totalCreditFen =
       draft.metadata.rechargeAmountFen + draft.metadata.bonusAmountFen;
-    const newTotalSpent = customer.totalSpent + totalCreditFen;
 
     return tx.marketingCustomer.update({
       where: { id: customer.id },
       data: {
         balance: { increment: totalCreditFen },
-        totalSpent: { increment: totalCreditFen },
-        tier: calcCustomerTier(newTotalSpent) as never,
       },
     });
   }
@@ -241,6 +237,7 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
       },
       data: {
         usageCount: { increment: 1 },
+        totalDiscount: { increment: draft.metadata.bonusAmountFen },
       },
     });
   }

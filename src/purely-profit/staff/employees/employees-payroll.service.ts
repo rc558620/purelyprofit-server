@@ -178,7 +178,7 @@ export class EmployeesPayrollService {
       await this.employeesAccessService.findManageableEmployeeOrThrow(
         user,
         dto.employeeId,
-        'finance:view',
+        'finance:manage',
       );
     // 先对字符串 trim 并校验 YYYY-MM 格式，再转为 Date（DateTime 类型，与 month 字段匹配）
     const rawMonth = dto.month.trim();
@@ -195,6 +195,20 @@ export class EmployeesPayrollService {
     });
 
     const payroll = await this.prisma.$transaction(async (transaction) => {
+      // 先查询是否已存在，避免 upsert 静默回退已确认工资单
+      const existing = await transaction.employeePayroll.findUnique({
+        where: {
+          employeeId_month: {
+            employeeId: employee.id,
+            month,
+          },
+        },
+      });
+
+      if (existing?.status === EmployeePayrollStatus.confirmed) {
+        throw new ConflictException('该月份工资已确认结算，不能覆盖保存');
+      }
+
       return transaction.employeePayroll.upsert({
         where: {
           employeeId_month: {
@@ -233,12 +247,22 @@ export class EmployeesPayrollService {
           otherDeductionNote: toNullableText(dto.otherDeductionNote),
           bonus: Money.fromInputYuan(dto.bonus).toDbCents(),
           actualSalary: derivedAmounts.actualSalary.toDbCents(),
-          socialInsurance:
-            dto.socialInsurance !== undefined
-              ? Money.fromInputYuan(dto.socialInsurance).toDbCents()
-              : 0,
-          housingFund:
-            dto.housingFund !== undefined ? Money.fromInputYuan(dto.housingFund).toDbCents() : 0,
+          ...(dto.socialInsurance !== undefined
+            ? {
+                socialInsurance:
+                  dto.socialInsurance > 0
+                    ? Money.fromInputYuan(dto.socialInsurance).toDbCents()
+                    : 0,
+              }
+            : {}),
+          ...(dto.housingFund !== undefined
+            ? {
+                housingFund:
+                  dto.housingFund > 0
+                    ? Money.fromInputYuan(dto.housingFund).toDbCents()
+                    : 0,
+              }
+            : {}),
           totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
           status: EmployeePayrollStatus.draft,
           confirmedAt: null,
@@ -268,7 +292,7 @@ export class EmployeesPayrollService {
     await this.employeesAccessService.ensureCanManageEmployees(
       user,
       payroll.storeId,
-      'finance:view',
+      'finance:manage',
     );
     if (payroll.status === EmployeePayrollStatus.confirmed) {
       throw new ConflictException('该工资记录已确认，无需重复确认');
@@ -323,7 +347,7 @@ export class EmployeesPayrollService {
     await this.employeesAccessService.ensureCanManageEmployees(
       user,
       payroll.storeId,
-      'finance:view',
+      'finance:manage',
     );
     if (payroll.status === EmployeePayrollStatus.confirmed) {
       throw new ConflictException('已确认结算的工资记录不支持删除');
@@ -350,7 +374,7 @@ export class EmployeesPayrollService {
     await this.employeesAccessService.ensureCanManageEmployees(
       user,
       payroll.storeId,
-      'finance:view',
+      'finance:manage',
     );
     if (payroll.status === EmployeePayrollStatus.confirmed) {
       throw new ConflictException('已确认结算的工资记录不能编辑');

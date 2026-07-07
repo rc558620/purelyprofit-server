@@ -124,9 +124,12 @@ export class CreateRechargeDto {
   @Min(1, { message: '顾客 ID 必须大于等于 1' })
   customerId: number;
 
-  @ApiPropertyOptional({ example: 10000, description: '充值金额（分）' })
+  @ApiPropertyOptional({
+    example: 10000,
+    description: '充值金额（分），gift 类型允许 0',
+  })
   @IsInt({ message: '充值金额必须是整数' })
-  @Min(1, { message: '充值金额必须大于 0' })
+  @Min(0, { message: '充值金额不能为负' })
   amount: number;
 
   @ApiPropertyOptional({

@@ -193,7 +193,7 @@ export class EmployeesProfileWriteService {
         data: buildResignEmployeeProfileData(dto),
       });
 
-      // #1 修复：离职后禁用子账号槽位
+      // #1 修复：离职后释放子账号槽位，使其可被重新分配
       await this.deactivateSubAccountOnResign(
         transaction,
         employee.storeId,
@@ -223,6 +223,13 @@ export class EmployeesProfileWriteService {
     const storeId = employee.storeId;
 
     await this.prisma.$transaction(async (transaction) => {
+      // 删除员工前释放子账号槽位，使其可被重新分配
+      await this.deactivateSubAccountOnResign(
+        transaction,
+        employee.storeId,
+        employee.id,
+      );
+
       // #2 修复：删除员工前禁用关联 Staff 登录态
       await this.deactivateLinkedStaffOnRemove(transaction, employee);
 
@@ -268,7 +275,8 @@ export class EmployeesProfileWriteService {
   }
 
   /**
-   * #1 修复：离职后将子账号槽位置为 disabled
+   * #1 修复：离职后释放子账号槽位，使其可被重新分配
+   * 槽位是配额容器，员工离职仅解除绑定，槽位保持 active 以便复用
    */
   private async deactivateSubAccountOnResign(
     transaction: Prisma.TransactionClient,
@@ -282,11 +290,12 @@ export class EmployeesProfileWriteService {
         isAssigned: true,
       },
       data: {
-        status: StoreSubAccountStatus.disabled,
+        status: StoreSubAccountStatus.active,
         isAssigned: false,
+        employeeId: null,
         assignedAt: null,
-        canAccessHome: false,
-        canUseHandover: false,
+        canAccessHome: true,
+        canUseHandover: true,
       },
     });
   }

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { ConfigService } from '@nestjs/config';
+import { Money } from '../../shared/money.utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   toNullableMediaText,
@@ -22,6 +22,7 @@ import {
 import { mapProductRow } from './marketing.mapper';
 import { MarketingSharedService } from './marketing-shared.service';
 import type { MarketingProductRow } from './marketing.types';
+import { resolveMarketingPagination } from './marketing.utils';
 
 const MARKETING_PRODUCT_ROW_INCLUDE = {
   category: {
@@ -40,7 +41,6 @@ export class MarketingProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly marketingSharedService: MarketingSharedService,
-    private readonly configService: ConfigService,
   ) {}
 
   async listProducts(
@@ -53,20 +53,19 @@ export class MarketingProductsService {
         query.storeId,
       );
     if (!resolvedStoreId) {
-      return { items: [], total: 0, page: 1, pageSize: 0 };
+      return { items: [], total: 0, page: 1, pageSize: 20 };
     }
 
-    const maxPageSize = this.configService.get<number>('app.maxPageSize', 100);
-    const page = query.page ?? 1;
-    const pageSize = query.pageSize ?? maxPageSize;
-    const take = Math.min(pageSize, maxPageSize);
-    const skip = (page - 1) * take;
+    const { page, skip, take } = resolveMarketingPagination(
+      query.page,
+      query.pageSize,
+    );
 
     const [rows, total] = await Promise.all([
       this.prisma.marketingProduct.findMany({
         where: buildMarketingProductWhere({
           storeId: resolvedStoreId,
-          categoryId: query.categoryId,
+          categoryId: query.categoryId ?? undefined,
         }),
         include: MARKETING_PRODUCT_ROW_INCLUDE,
         orderBy: resolveMarketingProductOrderBy(query.sortBy),
@@ -76,7 +75,7 @@ export class MarketingProductsService {
       this.prisma.marketingProduct.count({
         where: buildMarketingProductWhere({
           storeId: resolvedStoreId,
-          categoryId: query.categoryId,
+          categoryId: query.categoryId ?? undefined,
         }),
       }),
     ]);
@@ -99,26 +98,35 @@ export class MarketingProductsService {
       storeId,
       'marketing:manage',
     );
-    await this.ensureCategoryBelongsToStore(storeId, dto.categoryId);
+    try {
+      const created = await this.prisma.marketingProduct.create({
+        data: {
+          storeId,
+          categoryId: dto.categoryId,
+          name: dto.name.trim(),
+          price: Money.fromInputYuan(dto.price).toDbCents(),
+          originalPrice:
+            dto.originalPrice != null
+              ? Money.fromInputYuan(dto.originalPrice).toDbCents()
+              : null,
+          image: toNullableMediaText(dto.image) ?? null,
+          descriptionTitle: toNullableText(dto.descriptionTitle) ?? null,
+          description: toNullableText(dto.description) ?? null,
+          stock: dto.stock ?? 0,
+          durationMinutes: dto.durationMinutes ?? null,
+          personCount: dto.personCount ?? null,
+        },
+        include: MARKETING_PRODUCT_ROW_INCLUDE,
+      });
 
-    const created = await this.prisma.marketingProduct.create({
-      data: {
-        storeId,
-        categoryId: dto.categoryId,
-        name: dto.name.trim(),
-        price: dto.price,
-        originalPrice: dto.originalPrice ?? null,
-        image: toNullableMediaText(dto.image) ?? null,
-        descriptionTitle: toNullableText(dto.descriptionTitle) ?? null,
-        description: toNullableText(dto.description) ?? null,
-        stock: dto.stock ?? 0,
-        durationMinutes: dto.durationMinutes ?? null,
-        personCount: dto.personCount ?? null,
-      },
-      include: MARKETING_PRODUCT_ROW_INCLUDE,
-    });
-
-    return mapProductRow(this.toProductRow(created));
+      return mapProductRow(this.toProductRow(created));
+    } catch (error: any) {
+      // B-9 fix: FK 违例时返回友好 400 而非 500
+      if (error?.code === 'P2003') {
+        throw new BadRequestException('产品分类不存在或不属于当前门店');
+      }
+      throw error;
+    }
   }
 
   async updateProduct(
@@ -134,36 +142,35 @@ export class MarketingProductsService {
       'marketing:manage',
     );
 
-    if (dto.categoryId !== undefined) {
+    if (dto.categoryId != null) {
       await this.ensureCategoryBelongsToStore(product.storeId, dto.categoryId);
     }
 
+    // 构建更新数据，分离 undefined（不更新）与 null（清空）
+    const data: Prisma.MarketingProductUncheckedUpdateInput = {};
+    if (dto.name !== undefined) data.name = dto.name.trim();
+    if (dto.categoryId != null) data.categoryId = dto.categoryId;
+    if (dto.price != null)
+      data.price = Money.fromInputYuan(dto.price).toDbCents();
+    if (dto.originalPrice !== undefined)
+      data.originalPrice =
+        dto.originalPrice != null
+          ? Money.fromInputYuan(dto.originalPrice).toDbCents()
+          : null;
+    if (dto.image !== undefined) data.image = toNullableMediaText(dto.image);
+    if (dto.descriptionTitle !== undefined)
+      data.descriptionTitle = toNullableText(dto.descriptionTitle);
+    if (dto.description !== undefined)
+      data.description = toNullableText(dto.description);
+    if (dto.stock != null) data.stock = dto.stock;
+    if (dto.durationMinutes !== undefined)
+      data.durationMinutes = dto.durationMinutes ?? null;
+    if (dto.personCount !== undefined)
+      data.personCount = dto.personCount ?? null;
+
     const updated = await this.prisma.marketingProduct.update({
       where: { id: productId },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.categoryId !== undefined ? { categoryId: dto.categoryId } : {}),
-        ...(dto.price !== undefined ? { price: dto.price } : {}),
-        ...(dto.originalPrice !== undefined
-          ? { originalPrice: dto.originalPrice ?? null }
-          : {}),
-        ...(dto.image !== undefined
-          ? { image: toNullableMediaText(dto.image) }
-          : {}),
-        ...(dto.descriptionTitle !== undefined
-          ? { descriptionTitle: toNullableText(dto.descriptionTitle) }
-          : {}),
-        ...(dto.description !== undefined
-          ? { description: toNullableText(dto.description) }
-          : {}),
-        ...(dto.stock !== undefined ? { stock: dto.stock } : {}),
-        ...(dto.durationMinutes !== undefined
-          ? { durationMinutes: dto.durationMinutes ?? null }
-          : {}),
-        ...(dto.personCount !== undefined
-          ? { personCount: dto.personCount ?? null }
-          : {}),
-      },
+      data,
       include: MARKETING_PRODUCT_ROW_INCLUDE,
     });
 
@@ -225,7 +232,7 @@ export class MarketingProductsService {
       id: row.id,
       storeId: row.storeId,
       categoryId: row.categoryId,
-      categoryName: row.category.name,
+      categoryName: row.category?.name ?? '',
       name: row.name,
       price: row.price,
       originalPrice: row.originalPrice,

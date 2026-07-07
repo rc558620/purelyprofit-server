@@ -86,7 +86,7 @@ export function resolvePayrollMonthFilter(
 }
 
 export function formatPayrollMonth(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 export function assertPayrollMonthFormat(month: string): void {
@@ -126,9 +126,9 @@ export function buildPayrollReport(
 ): PayrollReportResult {
   const confirmedCount = rows.length;
   // 数据库存储的是 cents，用 Money.fromDbCents 读取后聚合
-  const totalActualSalary = Money.sum(
+  const totalActualSalaryMoney = Money.sum(
     rows.map((row) => Money.fromDbCents(row.actualSalary)),
-  ).toOutputYuan();
+  );
   const totalLaborCost = Money.sum(
     rows.map((row) => Money.fromDbCents(row.totalLaborCost)),
   ).toOutputYuan();
@@ -136,10 +136,12 @@ export function buildPayrollReport(
   return {
     summary: {
       confirmedCount,
-      totalActualSalary,
+      totalActualSalary: totalActualSalaryMoney.toOutputYuan(),
       totalLaborCost,
       avgActualSalary:
-        confirmedCount === 0 ? 0 : totalActualSalary / confirmedCount,
+        confirmedCount === 0
+          ? 0
+          : totalActualSalaryMoney.divide(confirmedCount).toOutputYuan(),
     },
     rows: rows.map((row) => ({
       id: String(row.id),

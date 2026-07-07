@@ -28,8 +28,10 @@ export function buildMarketingPromotionsListCacheKey(
   status: string,
   page: number,
   pageSize: number,
+  enabled?: boolean,
 ): string {
-  return `profit:marketing:promotions:list:store:${storeId}:status:${status}:page:${page}:pageSize:${pageSize}`;
+  const enabledPart = enabled !== undefined ? `:enabled:${enabled}` : '';
+  return `profit:marketing:promotions:list:store:${storeId}:status:${status}:page:${page}:pageSize:${pageSize}${enabledPart}`;
 }
 
 export function buildMarketingPromotionsListPattern(storeId: number): string {

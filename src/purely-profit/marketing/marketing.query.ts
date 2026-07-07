@@ -33,6 +33,7 @@ export async function queryCustomerRowById(
       updated_at AS "updatedAt"
     FROM marketing_customers
     WHERE id = ${customerId}
+      AND deleted_at IS NULL
     LIMIT 1
   `;
 
@@ -120,7 +121,7 @@ export async function queryRechargePage(
       ${input.customerId ? Prisma.sql`AND r.customer_id = ${input.customerId}` : Prisma.empty}
       ${input.startMs ? Prisma.sql`AND r.created_at >= ${new Date(input.startMs)}` : Prisma.empty}
       ${input.endMs ? Prisma.sql`AND r.created_at <= ${new Date(input.endMs)}` : Prisma.empty}
-    ORDER BY r.created_at DESC
+    ORDER BY r.created_at DESC, r.id DESC
     LIMIT ${input.take} OFFSET ${input.skip}
   `;
 }
@@ -149,7 +150,7 @@ export async function queryCustomerRechargePage(
     JOIN marketing_customers c ON c.id = r.customer_id
     LEFT JOIN marketing_promotions p ON p.id = r.promotion_id
     WHERE r.customer_id = ${customerId}
-    ORDER BY r.created_at DESC
+    ORDER BY r.created_at DESC, r.id DESC
     LIMIT ${take} OFFSET ${skip}
   `;
 }
@@ -269,7 +270,7 @@ export async function queryCustomerConsumptionPage(
     JOIN marketing_customers c ON c.id = co.customer_id
     LEFT JOIN marketing_promotions p ON p.id = co.promotion_id
     WHERE co.customer_id = ${customerId}
-    ORDER BY co.created_at DESC
+    ORDER BY co.created_at DESC, co.id DESC
     LIMIT ${take} OFFSET ${skip}
   `;
 }

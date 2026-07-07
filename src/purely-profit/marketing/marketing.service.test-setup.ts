@@ -218,6 +218,7 @@ function createRedisServiceMock() {
     ),
     writeRefreshableJson: jest.fn().mockResolvedValue(undefined),
     delByPattern: jest.fn().mockResolvedValue(undefined),
+    setIfAbsent: jest.fn().mockResolvedValue(true),
   };
 }
 

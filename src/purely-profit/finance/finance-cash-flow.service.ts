@@ -182,7 +182,7 @@ export class FinanceCashFlowService {
       throw new ConflictException('销售收入流水需通过删除销售记录回滚');
     }
 
-    await deleteCashFlowRecordEntity(this.prisma, recordId);
+    await deleteCashFlowRecordEntity(this.prisma, storeId, recordId);
     await this.invalidateDerivedCaches(storeId);
   }
 
@@ -238,7 +238,6 @@ export class FinanceCashFlowService {
         range,
         callerIsSubAccount,
       );
-    const directionFilter = cashFlowQuery.directionFilter ?? 'all';
 
     if (clampedRange.empty) {
       return {
@@ -253,7 +252,6 @@ export class FinanceCashFlowService {
     const currentRecords = await queryCashFlowStatsRows(this.prisma, {
       storeId,
       range: clampedRange,
-      directionFilter: directionFilter === 'all' ? undefined : directionFilter,
     });
     const baseStats = buildCashFlowBaseStats(currentRecords);
     const previousRange = getPreviousCashFlowRange(range.period);
@@ -281,20 +279,20 @@ export class FinanceCashFlowService {
       queryCashFlowStatsRows(this.prisma, {
         storeId,
         range: clampedPreviousRange,
-        directionFilter:
-          directionFilter === 'all' ? undefined : directionFilter,
       }),
     ]);
     const previousStats = buildCashFlowBaseStats(previousRecords);
 
     return {
       ...baseStats,
-      compareLastPeriod: previousStats.netFlow === 0
-        ? null
-        : calcPercentChangeWithFallback(
-            baseStats.netFlow,
-            previousStats.netFlow,
-          ),
+      compareLastPeriod:
+        previousStats.netFlow === 0
+          ? null
+          : calcPercentChangeWithFallback(
+              baseStats.netFlow,
+              previousStats.netFlow,
+              { absoluteBase: true },
+            ),
     };
   }
 

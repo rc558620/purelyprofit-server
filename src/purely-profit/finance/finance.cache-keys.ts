@@ -102,6 +102,10 @@ export function buildFinanceAccountsListCacheKey(
     `type:${toCacheSegment(query.typeFilter ?? 'all')}`,
     `status:${toCacheSegment(query.statusFilter ?? 'all')}`,
     `search:${toCacheSegment(query.searchText)}`,
+    `datePeriod:${toCacheSegment(query.datePeriod ?? 'all')}`,
+    `cDay:${toCacheSegment(query.customDayYear)}-${toCacheSegment(query.customDayMonth)}-${toCacheSegment(query.customDayDay)}`,
+    `cRange:${toCacheSegment(query.customRangeStartYear)}-${toCacheSegment(query.customRangeStartMonth)}-${toCacheSegment(query.customRangeStartDay)}`,
+    `to:${toCacheSegment(query.customRangeEndYear)}-${toCacheSegment(query.customRangeEndMonth)}-${toCacheSegment(query.customRangeEndDay)}`,
     `page:${toCacheSegment(query.page)}`,
     `pageSize:${toCacheSegment(query.pageSize)}`,
   ].join(':');

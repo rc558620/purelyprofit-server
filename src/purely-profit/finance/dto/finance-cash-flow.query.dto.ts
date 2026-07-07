@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -132,6 +133,7 @@ export class CreateFinanceCashFlowRecordDto {
 
   @ApiProperty({ example: '午市营业额', description: '标题/摘要' })
   @IsString({ message: '流水标题必须是字符串' })
+  @IsNotEmpty({ message: '流水标题不能为空' })
   @MaxLength(40, { message: '流水标题最多 40 个字符' })
   title: string;
 

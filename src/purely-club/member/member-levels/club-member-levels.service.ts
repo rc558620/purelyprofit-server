@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
-import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   cloneDefaultMarketingMemberLevelSettings,
@@ -283,9 +282,11 @@ export class ClubMemberLevelsService {
     levelSetting: MarketingMemberLevelConfigValue,
   ): ClubMemberLevelConfigDto {
     const meta = CLUB_MEMBER_LEVEL_META[levelSetting.id];
-    const requiredConsume = Money.fromDbCents(levelSetting.spendThreshold).toOutputYuan();
+    const requiredConsume = levelSetting.spendThreshold;
     const isRegisterLevel = levelSetting.id === 'gold';
-    const discountText = this.formatDiscountShortText(levelSetting.discountRate);
+    const discountText = this.formatDiscountShortText(
+      levelSetting.discountRate,
+    );
     const upgradeHintText = isRegisterLevel
       ? '充值即享'
       : `累计充值 ≥ ¥${this.formatAmount(requiredConsume)}`;

@@ -101,6 +101,7 @@ export function createFinanceCashFlowPrismaMock() {
       create: jest.fn(),
       findFirst: jest.fn(),
       delete: jest.fn(),
+      deleteMany: jest.fn(),
     },
   };
 }
@@ -113,6 +114,7 @@ export function createFinanceAccountPrismaMock() {
     findFirst: jest.fn(),
     updateMany: jest.fn(),
     delete: jest.fn(),
+    deleteMany: jest.fn(),
   };
 
   return {

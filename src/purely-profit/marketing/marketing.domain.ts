@@ -15,17 +15,18 @@ export function buildCustomerWhere(
   const cutoff90 = new Date(now.getTime() - 90 * 86400_000);
   const where: Prisma.MarketingCustomerWhereInput = {
     storeId: input.storeId,
+    deletedAt: null,
   };
 
   // ── 状态筛选（独立 OR，不与关键字 OR 合并）──────────────────────
-  if (input.status === 'active') {
+  if (input.status === 'new') {
+    where.lastVisitAt = null;
+  } else if (input.status === 'active') {
     where.lastVisitAt = { gte: cutoff30 };
   } else if (input.status === 'dormant') {
     where.lastVisitAt = { gte: cutoff90, lt: cutoff30 };
   } else if (input.status === 'lost') {
-    where.AND = [
-      { OR: [{ lastVisitAt: { lt: cutoff90 } }, { lastVisitAt: null }] },
-    ];
+    where.lastVisitAt = { lt: cutoff90 };
   }
 
   if (input.tier) {
@@ -101,6 +102,10 @@ export function buildPromotionWhere(
     where.endAt = { gte: now };
   } else if (input.status === 'ended') {
     where.endAt = { lt: now };
+  }
+
+  if (input.enabled !== undefined) {
+    where.enabled = input.enabled;
   }
 
   return where;

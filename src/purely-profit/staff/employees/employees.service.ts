@@ -162,27 +162,42 @@ export class EmployeesService {
   }
 
   // profile write
-  create(
+  async create(
     user: AuthenticatedUser,
     dto: CreateEmployeeDto,
   ): Promise<EmployeeResponseDto> {
-    return this.employeesProfileWriteService.create(user, dto);
+    const created = await this.employeesProfileWriteService.create(user, dto);
+    return this.employeesProfileReadService.buildEmployeeDetail(
+      user,
+      Number(created.id),
+      'staff:view',
+    );
   }
 
-  update(
+  async update(
     user: AuthenticatedUser,
     employeeId: number,
     dto: UpdateEmployeeDto,
   ): Promise<EmployeeResponseDto> {
-    return this.employeesProfileWriteService.update(user, employeeId, dto);
+    await this.employeesProfileWriteService.update(user, employeeId, dto);
+    return this.employeesProfileReadService.buildEmployeeDetail(
+      user,
+      employeeId,
+      'staff:view',
+    );
   }
 
-  resign(
+  async resign(
     user: AuthenticatedUser,
     employeeId: number,
     dto: ResignEmployeeDto,
   ): Promise<EmployeeResponseDto> {
-    return this.employeesProfileWriteService.resign(user, employeeId, dto);
+    await this.employeesProfileWriteService.resign(user, employeeId, dto);
+    return this.employeesProfileReadService.buildEmployeeDetail(
+      user,
+      employeeId,
+      'staff:view',
+    );
   }
 
   remove(user: AuthenticatedUser, employeeId: number): Promise<void> {
@@ -203,7 +218,7 @@ export class EmployeesService {
         'staff:update',
       );
 
-    // #3 修复：将查找可用槽位和更新槽位放入事务，避免并发竞态
+    // #8 修复：将槽位分配与登录账号创建纳入同一事务，避免孤立子账号
     await this.prisma.$transaction(async (tx) => {
       const existingSubAccount = await tx.storeSubAccount.findFirst({
         where: {
@@ -238,7 +253,7 @@ export class EmployeesService {
         );
       }
 
-      // 在事务内直接更新子账号记录
+      // 在事务内更新子账号记录
       await tx.storeSubAccount.upsert({
         where: {
           storeId_slotIndex: {
@@ -267,19 +282,20 @@ export class EmployeesService {
           canUseHandover: dto.role !== 'finance',
         },
       });
-    });
 
-    // 事务外处理登录账号创建/更新（User/Staff 操作，非强一致可容忍）
-    if (dto.loginAccount?.trim() || dto.password?.trim()) {
-      await this.storeSubAccountLoginService.ensureEmployeeHasLoginAccount(
-        employee.storeId,
-        employee.id,
-        {
-          loginAccount: dto.loginAccount?.trim() || undefined,
-          password: dto.password?.trim() || undefined,
-        },
-      );
-    }
+      // 事务内创建/更新登录账号，失败时整个事务回滚
+      if (dto.loginAccount?.trim() || dto.password?.trim()) {
+        await this.storeSubAccountLoginService.ensureEmployeeHasLoginAccount(
+          employee.storeId,
+          employee.id,
+          {
+            loginAccount: dto.loginAccount?.trim() || undefined,
+            password: dto.password?.trim() || undefined,
+          },
+          tx,
+        );
+      }
+    });
 
     return this.employeesProfileReadService.buildEmployeeDetail(
       user,

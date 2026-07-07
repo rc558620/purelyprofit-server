@@ -67,6 +67,16 @@ export class FinanceAccountService {
       typeFilter: query.typeFilter,
       statusFilter: query.statusFilter,
       searchText: query.searchText,
+      datePeriod: query.datePeriod,
+      customDayYear: query.customDayYear,
+      customDayMonth: query.customDayMonth,
+      customDayDay: query.customDayDay,
+      customRangeStartYear: query.customRangeStartYear,
+      customRangeStartMonth: query.customRangeStartMonth,
+      customRangeStartDay: query.customRangeStartDay,
+      customRangeEndYear: query.customRangeEndYear,
+      customRangeEndMonth: query.customRangeEndMonth,
+      customRangeEndDay: query.customRangeEndDay,
       page: query.page,
       pageSize: query.pageSize,
     };
@@ -205,10 +215,7 @@ export class FinanceAccountService {
     if (derived.status === FinanceAccountStatus.settled) {
       throw new ConflictException('已结清的账款不能删除');
     }
-    if (derived.status === FinanceAccountStatus.partial) {
-      throw new ConflictException('已部分收付的账款不能删除，请先完成收付');
-    }
-    await deleteAccountRecordEntity(this.prisma, recordId);
+    await deleteAccountRecordEntity(this.prisma, storeId, recordId);
     await this.invalidateDashboardCaches(storeId);
   }
 

@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
@@ -36,6 +36,19 @@ export class ListPromotionsQueryDto extends MarketingPageQueryDto {
   @IsOptional()
   @IsIn(PROMOTION_STATUS_VALUES, { message: '无效的活动状态' })
   status?: MarketingPromotionStatus;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '是否上架（true=仅上架 false=仅下架 不传=全部）',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => {
+    if (value === 'true' || value === true || value === 1) return true;
+    if (value === 'false' || value === false || value === 0) return false;
+    return value;
+  })
+  @IsBoolean({ message: 'enabled 必须是布尔值' })
+  enabled?: boolean;
 }
 
 export class CreatePromotionDto {

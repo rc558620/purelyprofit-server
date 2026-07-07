@@ -20,7 +20,10 @@ describe('FinanceCashFlowService', () => {
   let platformMembershipAccessService: ReturnType<
     typeof createPlatformMembershipAccessServiceMock
   >;
-  let refreshableCache: Pick<RefreshableCacheService, 'getOrLoadRefreshableJson'>;
+  let refreshableCache: Pick<
+    RefreshableCacheService,
+    'getOrLoadRefreshableJson'
+  >;
   let cacheInvalidatorService: Pick<
     CacheInvalidatorService,
     'invalidateFinanceDerived'
@@ -83,33 +86,16 @@ describe('FinanceCashFlowService', () => {
     );
   });
 
-  it('getCashFlowStats 沿用前端 compareLastPeriod 计算逻辑', async () => {
+  it('getCashFlowStats 不受 directionFilter 影响，始终返回全量统计', async () => {
     prismaService.financeCashFlowRecord.findMany
       .mockResolvedValueOnce([
-        {
-          id: 1,
-          direction: 'expense',
-          category: 'purchase',
-          title: '进货',
-          amount: new Prisma.Decimal('100.00'),
-          payment: 'cash',
-          note: null,
-          date: new Date('2026-05-14T10:00:00.000Z'),
-          createdAt: new Date('2026-05-14T10:00:00.000Z'),
-        },
+        { direction: 'income', amount: new Prisma.Decimal('100.00') },
+        { direction: 'income', amount: new Prisma.Decimal('50.00') },
+        { direction: 'expense', amount: new Prisma.Decimal('30.00') },
       ])
       .mockResolvedValueOnce([
-        {
-          id: 3,
-          direction: 'expense',
-          category: 'rent',
-          title: '房租',
-          amount: new Prisma.Decimal('20.00'),
-          payment: 'bank',
-          note: null,
-          date: new Date('2026-04-12T10:00:00.000Z'),
-          createdAt: new Date('2026-04-12T10:00:00.000Z'),
-        },
+        { direction: 'income', amount: new Prisma.Decimal('80.00') },
+        { direction: 'expense', amount: new Prisma.Decimal('20.00') },
       ]);
 
     await expect(
@@ -118,19 +104,20 @@ describe('FinanceCashFlowService', () => {
         directionFilter: 'expense',
       }),
     ).resolves.toEqual({
-      totalIncome: 0,
-      totalExpense: 1,
-      netFlow: -1,
-      recordCount: 1,
-      compareLastPeriod: 400,
+      totalIncome: 1.5,
+      totalExpense: 0.3,
+      netFlow: 1.2,
+      recordCount: 3,
+      compareLastPeriod: 100,
     });
+    // 统计查询不应包含 direction 筛选
     expect(
       prismaService.financeCashFlowRecord.findMany,
     ).toHaveBeenNthCalledWith(
-      2,
+      1,
       expect.objectContaining({
-        where: expect.objectContaining({
-          direction: 'expense',
+        where: expect.not.objectContaining({
+          direction: expect.anything(),
         }),
       }),
     );
@@ -273,9 +260,11 @@ describe('FinanceCashFlowService', () => {
     await expect(
       service.deleteCashFlowRecord(user, 8),
     ).resolves.toBeUndefined();
-    expect(prismaService.financeCashFlowRecord.delete).toHaveBeenCalledWith({
-      where: { id: 8 },
-    });
+    expect(prismaService.financeCashFlowRecord.deleteMany).toHaveBeenCalledWith(
+      {
+        where: { id: 8, storeId: 18 },
+      },
+    );
     expect(
       cacheInvalidatorService.invalidateFinanceDerived,
     ).toHaveBeenCalledWith(18);

@@ -1,6 +1,6 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { FinanceAccountStatus, Prisma } from '@prisma/client';
+import { FinanceAccountStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
@@ -20,7 +20,10 @@ describe('FinanceAccountService', () => {
   let platformMembershipAccessService: ReturnType<
     typeof createPlatformMembershipAccessServiceMock
   >;
-  let refreshableCache: Pick<RefreshableCacheService, 'getOrLoadRefreshableJson'>;
+  let refreshableCache: Pick<
+    RefreshableCacheService,
+    'getOrLoadRefreshableJson'
+  >;
   let cacheInvalidatorService: Pick<
     CacheInvalidatorService,
     'invalidateFinanceDerived'
@@ -572,6 +575,84 @@ describe('FinanceAccountService', () => {
 
     await expect(service.getAccountsStats(outsider)).rejects.toBeInstanceOf(
       ForbiddenException,
+    );
+  });
+
+  it('createAccount 部分收付且已过期时派生为 overdue 而非 partial', async () => {
+    prismaService.financeAccountRecord.create.mockResolvedValue({
+      id: 50,
+      type: 'receivable',
+      category: 'sales_credit',
+      counterpart: '逾期客户',
+      amount: 100000,
+      paidAmount: 30000,
+      remaining: 70000,
+      status: FinanceAccountStatus.overdue,
+      dueDate: new Date('2026-05-01T00:00:00.000Z'),
+      date: new Date('2026-04-25T00:00:00.000Z'),
+      note: null,
+      createdAt: new Date('2026-05-14T12:00:00.000Z'),
+      updatedAt: new Date('2026-05-14T12:00:00.000Z'),
+    });
+
+    await expect(
+      service.createAccount(user, {
+        type: 'receivable',
+        category: 'sales_credit',
+        counterpart: '逾期客户',
+        amount: 1000,
+        paidAmount: 300,
+        dueDate: new Date('2026-05-01T00:00:00.000Z').getTime(),
+        date: new Date('2026-04-25T00:00:00.000Z').getTime(),
+      }),
+    ).resolves.toMatchObject({
+      status: 'overdue',
+      remaining: 700,
+    });
+  });
+
+  it('deleteAccount 允许删除已部分收付的账款', async () => {
+    prismaService.financeAccountRecord.findFirst.mockResolvedValue({
+      id: 60,
+      type: 'receivable',
+      category: 'sales_credit',
+      counterpart: '部分收付客户',
+      amount: 100000,
+      paidAmount: 30000,
+      remaining: 70000,
+      status: FinanceAccountStatus.partial,
+      dueDate: null,
+      date: new Date('2026-05-10T00:00:00.000Z'),
+      note: null,
+      createdAt: new Date('2026-05-10T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+    });
+
+    await expect(service.deleteAccount(user, 60)).resolves.toBeUndefined();
+    expect(prismaService.financeAccountRecord.deleteMany).toHaveBeenCalledWith({
+      where: { id: 60, storeId: 18 },
+    });
+  });
+
+  it('deleteAccount 禁止删除已结清的账款', async () => {
+    prismaService.financeAccountRecord.findFirst.mockResolvedValue({
+      id: 61,
+      type: 'receivable',
+      category: 'sales_credit',
+      counterpart: '已结清客户',
+      amount: 50000,
+      paidAmount: 50000,
+      remaining: 0,
+      status: FinanceAccountStatus.settled,
+      dueDate: null,
+      date: new Date('2026-05-08T00:00:00.000Z'),
+      note: null,
+      createdAt: new Date('2026-05-08T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-12T00:00:00.000Z'),
+    });
+
+    await expect(service.deleteAccount(user, 61)).rejects.toBeInstanceOf(
+      ConflictException,
     );
   });
 });

@@ -6,19 +6,13 @@ import type {
 } from './dto/finance-account.response.dto';
 import {
   ACCOUNT_CATEGORY_RULES,
-  ACCOUNT_STATUS_ORDER,
   type FinanceAccountCategoryRule,
 } from './finance.constants';
 import type {
   FinanceAccountRecordWithAmount,
-  FinanceAccountsListQueryInput,
   FinanceDerivedAccountFields,
 } from './finance.types';
 import { Money } from '../../shared/money.utils';
-import {
-  buildPaginationState,
-  paginateArray,
-} from './finance-pagination.utils';
 
 export function assertAccountCategoryCanCreateManually(category: string): void {
   const rule = getAccountCategoryRule(category);
@@ -58,15 +52,27 @@ export function deriveAccountFields(
 ): FinanceDerivedAccountFields {
   const remaining = amount.subtract(paidAmount);
   if (!remaining.isPositive()) {
-    return { remaining: remaining.toDbCents(), status: FinanceAccountStatus.settled };
+    return {
+      remaining: remaining.toDbCents(),
+      status: FinanceAccountStatus.settled,
+    };
+  }
+  if (dueDate != null && dueDate < Date.now()) {
+    return {
+      remaining: remaining.toDbCents(),
+      status: FinanceAccountStatus.overdue,
+    };
   }
   if (paidAmount.isPositive()) {
-    return { remaining: remaining.toDbCents(), status: FinanceAccountStatus.partial };
+    return {
+      remaining: remaining.toDbCents(),
+      status: FinanceAccountStatus.partial,
+    };
   }
-  if (dueDate && dueDate < Date.now()) {
-    return { remaining: remaining.toDbCents(), status: FinanceAccountStatus.overdue };
-  }
-  return { remaining: remaining.toDbCents(), status: FinanceAccountStatus.pending };
+  return {
+    remaining: remaining.toDbCents(),
+    status: FinanceAccountStatus.pending,
+  };
 }
 
 export function withDerivedAccountFields(
@@ -87,55 +93,6 @@ export function withDerivedAccountFields(
   };
 }
 
-export function filterAndSortAccounts(
-  records: FinanceAccountRecordWithAmount[],
-  query: FinanceAccountsListQueryInput,
-): FinanceAccountRecordWithAmount[] {
-  const typeFilter = query.typeFilter ?? 'all';
-  const statusFilter = query.statusFilter ?? 'all';
-  const searchText = (query.searchText ?? '').trim().toLowerCase();
-
-  return records
-    .map((record) => withDerivedAccountFields(record))
-    .filter((record) => {
-      if (typeFilter !== 'all' && record.type !== typeFilter) {
-        return false;
-      }
-      if (statusFilter !== 'all' && record.status !== statusFilter) {
-        return false;
-      }
-      if (searchText === '') {
-        return true;
-      }
-      const searchKey = `${record.counterpart} ${record.note ?? ''}`
-        .toLowerCase()
-        .trim();
-      return searchKey.includes(searchText);
-    })
-    .sort((left, right) => {
-      const statusDiff =
-        ACCOUNT_STATUS_ORDER[left.status] - ACCOUNT_STATUS_ORDER[right.status];
-      if (statusDiff !== 0) {
-        return statusDiff;
-      }
-      const updatedAtDiff =
-        right.updatedAt.getTime() - left.updatedAt.getTime();
-      if (updatedAtDiff !== 0) {
-        return updatedAtDiff;
-      }
-      return right.id - left.id;
-    });
-}
-
-export function paginateAccounts(
-  records: FinanceAccountRecordWithAmount[],
-  page?: number,
-  pageSize?: number,
-): FinanceAccountRecordWithAmount[] {
-  const pageState = buildPaginationState(page, pageSize);
-  return paginateArray(records, pageState);
-}
-
 export function mapAccountRecord(
   record: FinanceAccountRecordWithAmount,
 ): FinanceAccountRecordResponseDto {
@@ -154,7 +111,7 @@ export function mapAccountRecord(
     counterpart: record.counterpart,
     amount: amount.toOutputYuan(),
     paidAmount: paidAmount.toOutputYuan(),
-    remaining: derived.remaining ? Money.fromDbCents(derived.remaining).toOutputYuan() : 0,
+    remaining: Money.fromDbCents(derived.remaining).toOutputYuan(),
     status: derived.status,
     ...(record.dueDate ? { dueDate: record.dueDate.getTime() } : {}),
     date: record.date.getTime(),

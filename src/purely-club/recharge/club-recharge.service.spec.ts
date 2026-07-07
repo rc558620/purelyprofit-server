@@ -546,7 +546,6 @@ describe('ClubRechargeService', () => {
     clubOrderDraftsService.getDraft.mockResolvedValue(draft);
     prismaService.marketingCustomer.findFirst.mockResolvedValue({
       id: 36,
-      totalSpent: 0,
     });
     clubOrderDraftsService.markPaid.mockResolvedValue({
       ...draft,
@@ -576,15 +575,12 @@ describe('ClubRechargeService', () => {
         note: 'club充值订单 RC123',
       },
     });
-    // 充值落账：余额 + 充值总额，同步 totalSpent
+    // 充值落账：仅更新余额，不计入 totalSpent（累计消费）
     // rechargeAmountFen(50000) + bonusAmountFen(10000) = 60000 分
-    // 原 totalSpent=0，新 totalSpent=60000 < gold 门槛(200000) → tier='regular'
     expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
       where: { id: 36 },
       data: {
         balance: { increment: 60000 },
-        totalSpent: { increment: 60000 },
-        tier: 'regular',
       },
     });
     expect(prismaService.marketingPromotion.updateMany).toHaveBeenCalledWith({
@@ -604,7 +600,6 @@ describe('ClubRechargeService', () => {
     clubOrderDraftsService.getDraftByOrderId.mockResolvedValue(draft);
     prismaService.marketingCustomer.findFirst.mockResolvedValue({
       id: 36,
-      totalSpent: 0,
     });
     clubOrderDraftsService.markPaid.mockResolvedValue({
       ...draft,
@@ -646,7 +641,6 @@ describe('ClubRechargeService', () => {
     clubOrderDraftsService.getDraftByOrderId.mockResolvedValue(draft);
     prismaService.marketingCustomer.findFirst.mockResolvedValue({
       id: 66,
-      totalSpent: 10000,
     });
     clubOrderDraftsService.markPaid.mockResolvedValue({
       ...draft,
@@ -679,10 +673,9 @@ describe('ClubRechargeService', () => {
     });
     expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
       where: { id: 66 },
-      data: expect.objectContaining({
+      data: {
         balance: { increment: 60000 },
-        totalSpent: { increment: 60000 },
-      }),
+      },
     });
     expect(clubOrderDraftsService.markPaid).toHaveBeenCalledWith(draft, {
       paymentConfirmationSource: 'wechat_callback',

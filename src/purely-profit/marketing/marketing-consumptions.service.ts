@@ -24,6 +24,8 @@ import { MarketingSharedService } from './marketing-shared.service';
 import {
   buildMarketingPaginationMeta,
   calcCustomerTier,
+  cloneDefaultMarketingMemberLevelSettings,
+  extractTierThresholdsFromSettings,
   resolveMarketingPagination,
 } from './marketing.utils';
 
@@ -82,7 +84,7 @@ export class MarketingConsumptionsService {
     }
 
     const balancePaid = dto.balancePaid ?? 0;
-    const pointsDeducted = dto.pointsDeducted ?? 0;
+    const rawPointsDeducted = dto.pointsDeducted ?? 0;
     const payType = dto.payType ?? 'cash';
 
     if (
@@ -97,12 +99,24 @@ export class MarketingConsumptionsService {
     ) {
       throw new BadRequestException('余额支付金额不能超过消费金额');
     }
-    if (pointsDeducted > customer.points) {
-      throw new BadRequestException('积分抵扣金额不能超过顾客当前积分');
+
+    // ── B4+B5：读取会员设置，获取 tier 阈值与积分兑换比 ──
+    const { thresholds, redeemRatioPoints } =
+      await this.resolveTierThresholdsAndPointsRatio(storeId);
+
+    // B5：将「积分抵扣金额（分）」按 redeemRatioPoints 换算为实际扣减积分数
+    // redeemRatioPoints = 多少积分抵 1 元；pointsToDeduct = rawPointsDeducted × ratio / 100
+    const pointsToDeduct =
+      rawPointsDeducted > 0
+        ? Math.round((rawPointsDeducted * redeemRatioPoints) / 100)
+        : 0;
+
+    if (pointsToDeduct > customer.points) {
+      throw new BadRequestException('积分抵扣所需积分不能超过顾客当前积分余额');
     }
     if (
       Money.fromDbCents(balancePaid)
-        .add(Money.fromDbCents(pointsDeducted))
+        .add(Money.fromDbCents(rawPointsDeducted))
         .greaterThan(Money.fromDbCents(dto.amount))
     ) {
       throw new BadRequestException('余额支付与积分抵扣之和不能超过消费金额');
@@ -116,7 +130,7 @@ export class MarketingConsumptionsService {
             customerId: dto.customerId,
             amount: dto.amount,
             balancePaid,
-            pointsDeducted,
+            pointsDeducted: rawPointsDeducted,
             payType: payType as never,
             itemsSummary: dto.itemsSummary?.trim() || null,
             promotionId: dto.promotionId ?? null,
@@ -126,13 +140,15 @@ export class MarketingConsumptionsService {
         const newTotalSpent = Money.fromDbCents(customer.totalSpent)
           .add(Money.fromDbCents(dto.amount))
           .toDbCents();
-        const newTier = calcCustomerTier(newTotalSpent) as never;
+        // B4：使用可配置的 tier 阈值而非硬编码
+        const newTier = calcCustomerTier(newTotalSpent, thresholds) as never;
 
         await tx.marketingCustomer.update({
           where: { id: dto.customerId },
           data: {
             balance: { decrement: balancePaid },
-            points: { decrement: pointsDeducted },
+            // B5：按换算后的实际积分数扣减，而非直接用金额分值
+            points: { decrement: pointsToDeduct },
             totalSpent: { increment: dto.amount },
             visitCount: { increment: 1 },
             lastVisitAt: new Date(),
@@ -140,7 +156,7 @@ export class MarketingConsumptionsService {
           },
         });
 
-        if (pointsDeducted > 0) {
+        if (pointsToDeduct > 0) {
           await tx.$executeRaw`
           INSERT INTO marketing_points_records (
             store_id,
@@ -152,7 +168,7 @@ export class MarketingConsumptionsService {
           VALUES (
             ${storeId},
             ${dto.customerId},
-            ${-pointsDeducted},
+            ${-pointsToDeduct},
             ${'spend'}::"MarketingPointsChangeType",
             ${buildPointsSpendDescription(dto.itemsSummary)}
           )
@@ -188,5 +204,58 @@ export class MarketingConsumptionsService {
 
   private async invalidateOverviewCache(storeId: number): Promise<void> {
     await this.cacheInvalidatorService.invalidateMarketingOverview(storeId);
+  }
+
+  /**
+   * 从会员等级设置中解析 tier 阈值（分）与积分兑换比。
+   * - tier 阈值：用于 calcCustomerTier，取自 settings.platinum / diamond 的 spendThreshold（元→分）
+   * - redeemRatioPoints：多少积分抵扣 1 元，用于将「积分抵扣金额」换算为实际扣减积分数
+   */
+  private async resolveTierThresholdsAndPointsRatio(storeId: number): Promise<{
+    thresholds: { gold: number; diamond: number };
+    redeemRatioPoints: number;
+  }> {
+    const defaults = cloneDefaultMarketingMemberLevelSettings();
+    const record = await this.prisma.marketingMemberLevelSetting.findUnique({
+      where: { storeId },
+      select: { levels: true, pointsRatio: true },
+    });
+
+    // levels 解析：从 DB JSON 提取 spendThreshold
+    const rawLevels =
+      record?.levels &&
+      typeof record.levels === 'object' &&
+      Array.isArray((record.levels as Record<string, unknown>).levels)
+        ? ((record.levels as Record<string, unknown>).levels as Array<
+            Record<string, unknown>
+          >)
+        : null;
+    const levels = rawLevels
+      ? defaults.levels.map((def) => {
+          const match = rawLevels.find((l) => l.id === def.id);
+          return {
+            ...def,
+            ...(match && typeof match.spendThreshold === 'number'
+              ? { spendThreshold: match.spendThreshold as number }
+              : {}),
+          };
+        })
+      : defaults.levels;
+
+    // pointsRatio 解析：从 DB JSON 提取 redeemRatioPoints
+    const rawRatio =
+      record?.pointsRatio && typeof record.pointsRatio === 'object'
+        ? (record.pointsRatio as Record<string, unknown>)
+        : {};
+    const redeemRatioPoints =
+      typeof rawRatio.redeemRatioPoints === 'number' &&
+      (rawRatio.redeemRatioPoints as number) >= 1
+        ? (rawRatio.redeemRatioPoints as number)
+        : defaults.pointsRatio.redeemRatioPoints;
+
+    return {
+      thresholds: extractTierThresholdsFromSettings(levels),
+      redeemRatioPoints,
+    };
   }
 }

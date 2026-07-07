@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import type { PlatformMembershipProfileResponseDto } from './dto/platform-membership-response.dto';
 import {
   isMembershipProfileActive,
@@ -22,8 +23,6 @@ type ApprovedPartnerLike = Pick<
   store?: { owner: { avatar: string | null } } | null;
 };
 
-const STORE_INVITE_QR_CODE_BASE_URL =
-  'https://api.qrserver.com/v1/create-qr-code/';
 const STORE_INVITE_QR_CODE_SIZE = 240;
 const STORE_SCAN_CODE_INVITE_CODE_QUERY_KEYS = [
   'inviteCode',
@@ -86,15 +85,18 @@ export function buildApprovedPartnerResponse(
   };
 }
 
-export function buildInviteCodeQrCodeImageUrl(inviteCode: string): string {
-  const params = new URLSearchParams({
-    size: `${STORE_INVITE_QR_CODE_SIZE}x${STORE_INVITE_QR_CODE_SIZE}`,
-    format: 'png',
-    margin: '0',
-    data: inviteCode,
+/**
+ * 本地生成邀请码二维码，返回 data URL（base64 PNG）。
+ * 不再依赖外部服务，确保在内网/离线环境也能正常显示。
+ */
+export async function buildInviteCodeQrCodeImageUrl(
+  inviteCode: string,
+): Promise<string> {
+  return QRCode.toDataURL(inviteCode, {
+    width: STORE_INVITE_QR_CODE_SIZE,
+    margin: 0,
+    type: 'image/png',
   });
-
-  return `${STORE_INVITE_QR_CODE_BASE_URL}?${params.toString()}`;
 }
 
 export function resolveInviteCodeFromClubStoreScanCode(

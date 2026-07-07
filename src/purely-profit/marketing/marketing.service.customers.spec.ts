@@ -130,7 +130,7 @@ describe('MarketingService customers', () => {
     expect(result.totalRecharge).toBe(350);
     expect(result.recentRecharges).toHaveLength(1);
     expect(result.recentConsumptions).toHaveLength(1);
-    expect(result.phone).toBe('138****8000');
+    expect(result.phone).toBe('13800138000');
     expect(result.id).toBe('9');
     expect(result.registeredAt).toBe(
       new Date('2026-04-01T10:00:00.000Z').getTime(),

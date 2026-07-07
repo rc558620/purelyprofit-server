@@ -1,19 +1,70 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type { TransformFnParams } from 'class-transformer';
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
   MaxLength,
   Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import { transformOptionalInt } from '../../stores/dto/store-response.dto';
 
 const MARKETING_PRODUCT_IMAGE_MAX_LENGTH = 300000;
+
+/** 严格整数转换：仅接受干净整数串，拒绝浮点（B-4 fix） */
+function transformRequiredInt({ value }: TransformFnParams): number | string {
+  if (value === undefined || value === null || value === '') {
+    return '';
+  }
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^-?\d+$/.test(trimmed)) return Number(trimmed);
+    return value; // 非干净整数串，留给 @IsInt 报错
+  }
+  return String(value);
+}
+
+/** 可清空整数转换：null/'' → null（B-1 fix，清空语义） */
+function transformNullableInt({
+  value,
+}: TransformFnParams): number | null | string | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^-?\d+$/.test(trimmed)) return Number(trimmed);
+    return value;
+  }
+  return String(value);
+}
+
+/** 可空元金额转换：null/'' → null（清空语义），number 原样透传 */
+function transformNullableYuan({
+  value,
+}: TransformFnParams): number | null | string | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : value;
+  }
+  return String(value);
+}
+
+/** B-3 fix: 字符串 trim，让 MinLength/MaxLength 在 trim 后校验 */
+function trimString({ value }: TransformFnParams): string | undefined {
+  if (typeof value === 'string') return value.trim();
+  return value;
+}
 import {
   MARKETING_PRODUCT_SORT_VALUES,
   type MarketingProductSortValue,
@@ -23,10 +74,11 @@ import { MarketingPageQueryDto } from './marketing-pagination-query.dto';
 export class ListMarketingProductsQueryDto extends MarketingPageQueryDto {
   @ApiPropertyOptional({ example: 1, description: '分类 ID（不传则查全部）' })
   @IsOptional()
-  @Transform(transformOptionalInt)
+  @Transform(transformNullableInt)
+  @ValidateIf((o: ListMarketingProductsQueryDto) => o.categoryId != null)
   @IsInt({ message: '分类 ID 必须是整数' })
   @Min(1, { message: '分类 ID 必须大于等于 1' })
-  categoryId?: number;
+  categoryId?: number | null;
 
   @ApiPropertyOptional({
     example: 'createdAt',
@@ -42,6 +94,7 @@ export class ListMarketingProductsQueryDto extends MarketingPageQueryDto {
 export class CreateMarketingProductCategoryDto {
   @ApiProperty({ example: '推拿按摩', description: '分类名称' })
   @IsString({ message: '分类名称必须是字符串' })
+  @Transform(trimString)
   @MinLength(1, { message: '分类名称不能为空' })
   @MaxLength(20, { message: '分类名称最长 20 个字符' })
   name: string;
@@ -60,6 +113,7 @@ export class UpdateMarketingProductCategoryDto {
   @ApiPropertyOptional({ example: '推拿按摩', description: '分类名称' })
   @IsOptional()
   @IsString({ message: '分类名称必须是字符串' })
+  @Transform(trimString)
   @MinLength(1, { message: '分类名称不能为空' })
   @MaxLength(20, { message: '分类名称最长 20 个字符' })
   name?: string;
@@ -77,27 +131,38 @@ export class UpdateMarketingProductCategoryDto {
 export class CreateMarketingProductDto {
   @ApiProperty({ example: '推拿 3人套餐', description: '产品名称' })
   @IsString({ message: '产品名称必须是字符串' })
+  @Transform(trimString)
   @MinLength(1, { message: '产品名称不能为空' })
   @MaxLength(30, { message: '产品名称最长 30 个字符' })
   name: string;
 
   @ApiProperty({ example: 1, description: '分类 ID' })
-  @Transform(transformOptionalInt)
+  @Transform(transformRequiredInt)
   @IsInt({ message: '分类 ID 必须是整数' })
   @Min(1, { message: '分类 ID 必须大于等于 1' })
   categoryId: number;
 
-  @ApiProperty({ example: 29800, description: '售价，单位：分' })
-  @Transform(transformOptionalInt)
-  @IsInt({ message: '售价必须是整数' })
-  @Min(1, { message: '售价必须大于 0' })
+  @ApiProperty({
+    example: 298,
+    description: '售价，单位：元（后端自动转为分存储）',
+  })
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '售价必须是数字' },
+  )
+  @IsPositive({ message: '售价必须大于 0' })
   price: number;
 
-  @ApiPropertyOptional({ example: 39900, description: '划线价/原价，单位：分' })
+  @ApiPropertyOptional({
+    example: 399,
+    description: '划线价/原价，单位：元（后端自动转为分存储）',
+  })
   @IsOptional()
-  @Transform(transformOptionalInt)
-  @IsInt({ message: '划线价必须是整数' })
-  @Min(1, { message: '划线价必须大于 0' })
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '划线价必须是数字' },
+  )
+  @IsPositive({ message: '划线价必须大于 0' })
   originalPrice?: number;
 
   @ApiPropertyOptional({
@@ -131,57 +196,73 @@ export class CreateMarketingProductDto {
 
   @ApiPropertyOptional({ example: 20, description: '库存数量' })
   @IsOptional()
-  @Transform(transformOptionalInt)
+  @Transform(transformNullableInt)
+  @ValidateIf((o: CreateMarketingProductDto) => o.stock != null)
   @IsInt({ message: '库存必须是整数' })
   @Min(0, { message: '库存必须大于等于 0' })
-  stock?: number;
+  stock?: number | null;
 
   @ApiPropertyOptional({ example: 60, description: '服务时长（分钟）' })
   @IsOptional()
-  @Transform(transformOptionalInt)
+  @Transform(transformNullableInt)
+  @ValidateIf((o: CreateMarketingProductDto) => o.durationMinutes != null)
   @IsInt({ message: '服务时长必须是整数' })
   @Min(1, { message: '服务时长必须大于 0' })
-  durationMinutes?: number;
+  durationMinutes?: number | null;
 
   @ApiPropertyOptional({ example: 3, description: '适用人数' })
   @IsOptional()
-  @Transform(transformOptionalInt)
+  @Transform(transformNullableInt)
+  @ValidateIf((o: CreateMarketingProductDto) => o.personCount != null)
   @IsInt({ message: '适用人数必须是整数' })
   @Min(1, { message: '适用人数必须大于 0' })
-  personCount?: number;
+  personCount?: number | null;
 }
 
 export class UpdateMarketingProductDto {
   @ApiPropertyOptional({ example: '推拿 3人套餐', description: '产品名称' })
   @IsOptional()
   @IsString({ message: '产品名称必须是字符串' })
+  @Transform(trimString)
   @MinLength(1, { message: '产品名称不能为空' })
   @MaxLength(30, { message: '产品名称最长 30 个字符' })
   name?: string;
 
   @ApiPropertyOptional({ example: 1, description: '分类 ID' })
   @IsOptional()
-  @Transform(transformOptionalInt)
+  @Transform(transformNullableInt)
+  @ValidateIf((o: UpdateMarketingProductDto) => o.categoryId != null)
   @IsInt({ message: '分类 ID 必须是整数' })
   @Min(1, { message: '分类 ID 必须大于等于 1' })
-  categoryId?: number;
-
-  @ApiPropertyOptional({ example: 29800, description: '售价，单位：分' })
-  @IsOptional()
-  @Transform(transformOptionalInt)
-  @IsInt({ message: '售价必须是整数' })
-  @Min(1, { message: '售价必须大于 0' })
-  price?: number;
+  categoryId?: number | null;
 
   @ApiPropertyOptional({
-    example: 39900,
-    description: '划线价/原价，单位：分；空字符串表示清空',
+    example: 298,
+    description: '售价，单位：元（后端自动转为分存储）',
   })
   @IsOptional()
-  @Transform(transformOptionalInt)
-  @IsInt({ message: '划线价必须是整数' })
-  @Min(1, { message: '划线价必须大于 0' })
-  originalPrice?: number;
+  @Transform(transformNullableYuan)
+  @ValidateIf((o: UpdateMarketingProductDto) => o.price != null)
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '售价必须是数字' },
+  )
+  @IsPositive({ message: '售价必须大于 0' })
+  price?: number | null;
+
+  @ApiPropertyOptional({
+    example: 399,
+    description: '划线价/原价，单位：元；空字符串或 null 表示清空',
+  })
+  @IsOptional()
+  @Transform(transformNullableYuan)
+  @ValidateIf((o: UpdateMarketingProductDto) => o.originalPrice != null)
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '划线价必须是数字' },
+  )
+  @IsPositive({ message: '划线价必须大于 0' })
+  originalPrice?: number | null;
 
   @ApiPropertyOptional({
     example: 'https://cdn.example.com/products/product.jpg',
@@ -214,41 +295,32 @@ export class UpdateMarketingProductDto {
 
   @ApiPropertyOptional({ example: 20, description: '库存数量' })
   @IsOptional()
-  @Transform(transformOptionalInt)
+  @Transform(transformNullableInt)
+  @ValidateIf((o: UpdateMarketingProductDto) => o.stock != null)
   @IsInt({ message: '库存必须是整数' })
   @Min(0, { message: '库存必须大于等于 0' })
-  stock?: number;
+  stock?: number | null;
 
   @ApiPropertyOptional({
     example: 60,
-    description: '服务时长（分钟）；传 null 表示清空',
+    description: '服务时长（分钟）；空字符串或 null 表示清空',
     nullable: true,
   })
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value === null) return null;
-    if (value === '' || value === undefined) return undefined;
-    const n = parseInt(value, 10);
-    return Number.isNaN(n) ? undefined : n;
-  })
-  @ValidateIf((o: UpdateMarketingProductDto) => o.durationMinutes !== null)
+  @Transform(transformNullableInt)
+  @ValidateIf((o: UpdateMarketingProductDto) => o.durationMinutes != null)
   @IsInt({ message: '服务时长必须是整数' })
   @Min(1, { message: '服务时长必须大于 0' })
   durationMinutes?: number | null;
 
   @ApiPropertyOptional({
     example: 3,
-    description: '适用人数；传 null 表示清空',
+    description: '适用人数；空字符串或 null 表示清空',
     nullable: true,
   })
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value === null) return null;
-    if (value === '' || value === undefined) return undefined;
-    const n = parseInt(value, 10);
-    return Number.isNaN(n) ? undefined : n;
-  })
-  @ValidateIf((o: UpdateMarketingProductDto) => o.personCount !== null)
+  @Transform(transformNullableInt)
+  @ValidateIf((o: UpdateMarketingProductDto) => o.personCount != null)
   @IsInt({ message: '适用人数必须是整数' })
   @Min(1, { message: '适用人数必须大于 0' })
   personCount?: number | null;

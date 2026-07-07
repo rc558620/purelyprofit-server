@@ -125,7 +125,11 @@ export class MarketingOverviewService {
 
     return {
       levels: settings.levels.map((l) => this.toMemberLevelDto(l)),
-      pointsRatio: this.toPointsRatioDto(settings.pointsRatio),
+      pointsRatio: this.toPointsRatioDto({
+        ...settings.pointsRatio,
+        // 有活跃积分活动时，强制积分规则状态为启用，消除上下状态不一致
+        enabled: pointsFeatureEnabled || settings.pointsRatio.enabled,
+      }),
       pointsFeatureEnabled,
     };
   }
@@ -146,6 +150,15 @@ export class MarketingOverviewService {
     });
     const settings = this.normalizeMemberLevelSettings(existing);
     const now = Date.now();
+
+    // B7：非 gold 等级不允许 spendThreshold=0，门槛必须有意义
+    if (
+      dto.spendThreshold !== undefined &&
+      levelId !== 'gold' &&
+      dto.spendThreshold <= 0
+    ) {
+      throw new BadRequestException('升级消费门槛必须大于 0');
+    }
 
     const levels = settings.levels.map((level) => {
       if (level.id !== levelId) {
@@ -301,7 +314,7 @@ export class MarketingOverviewService {
         _sum: { totalAmount: true },
       }),
       this.prisma.marketingRecharge.count({
-        where: { storeId },
+        where: { storeId, type: { in: ['recharge', 'gift'] } },
       }),
       queryOverviewDailyTrend(this.prisma, storeId),
       queryOverviewMonthlyTrend(this.prisma, storeId, previousYearStart),
@@ -325,6 +338,11 @@ export class MarketingOverviewService {
       storeRecord?.mchId && storeRecord?.configuredAt
     );
 
+    // 本地生成二维码 data URL，不再依赖外部服务
+    const inviteCodeQrCodeImageUrl = inviteCode
+      ? await buildInviteCodeQrCodeImageUrl(inviteCode)
+      : null;
+
     return {
       totalBalance: Money.fromDbCents(balanceSum._sum.balance ?? 0).toOutputYuan(),
       totalRecharge,
@@ -333,9 +351,7 @@ export class MarketingOverviewService {
       rechargeCount,
       activeMemberCount,
       inviteCode,
-      inviteCodeQrCodeImageUrl: inviteCode
-        ? buildInviteCodeQrCodeImageUrl(inviteCode)
-        : null,
+      inviteCodeQrCodeImageUrl,
       last30Days: buildOverviewLast30Days(dailyTotals),
       currentYear,
       thisYearMonthlyTrend: buildOverviewMonthlyTrend(
@@ -582,9 +598,6 @@ export class MarketingOverviewService {
       maxRedeemPct: ratio.maxRedeemPct,
       enabled: ratio.enabled,
       updatedAt: ratio.updatedAt,
-      // 内部存储字段保留，用于 DB 读写兼容
-      earnRatioCents: ratio.earnRatioCents,
-      maxRedeemRatio: ratio.maxRedeemRatio,
     };
   }
 

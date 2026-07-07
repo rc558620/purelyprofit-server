@@ -100,8 +100,11 @@ export class MarketingPromotionsController {
   togglePromotion(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
-    @Body('enabled') enabled: boolean,
+    @Body('enabled') enabledRaw: unknown,
   ): Promise<MarketingPromotionDto> {
+    // B8：宽松化解析 enabled，支持 true/false/1/0/"1"/"0"/"true"/"false"
+    const enabled =
+      enabledRaw === true || enabledRaw === 'true' || enabledRaw === 1;
     return this.marketingService.togglePromotion(user, id, enabled);
   }
 

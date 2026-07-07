@@ -95,9 +95,10 @@ export async function findCashFlowRecordOwnership(
 
 export async function deleteCashFlowRecordEntity(
   prisma: PrismaService,
+  storeId: number,
   recordId: number,
 ): Promise<void> {
-  await prisma.financeCashFlowRecord.delete({
-    where: { id: recordId },
+  await prisma.financeCashFlowRecord.deleteMany({
+    where: { id: recordId, storeId },
   });
 }

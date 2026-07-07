@@ -243,16 +243,10 @@ describe('AuthService', () => {
 
     expect(prismaService.staff.findFirst).toHaveBeenCalledWith({
       where: {
-        email: {
-          in: [
-            'profit_account_aaaaaa3@purelyprofit.local',
-            'account_aaaaaa3@purelyprofit.local',
-          ],
-        },
+        loginAccount: 'aaaaaa3',
         isActive: true,
         userId: { not: null },
       },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       select: {
         phone: true,
         user: {

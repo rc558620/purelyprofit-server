@@ -102,7 +102,7 @@ export class MarketingSharedService {
       id: product.id,
       storeId: product.storeId,
       categoryId: product.categoryId,
-      categoryName: product.category.name,
+      categoryName: product.category?.name ?? '',
       name: product.name,
       price: product.price,
       originalPrice: product.originalPrice,

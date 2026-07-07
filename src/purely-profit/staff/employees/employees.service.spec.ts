@@ -267,6 +267,7 @@ describe('EmployeesService', () => {
         id: 18,
         phone: '13800138000',
         email: 'account_store_mgr01@purelyprofit.local',
+        loginAccount: 'store_mgr01',
         updatedAt,
         employeeProfile: { id: 12 },
         user: { password: 'hashed-password' },
@@ -436,6 +437,7 @@ describe('EmployeesService', () => {
         id: 18,
         phone: '13800138000',
         email: 'account_store_mgr01@purelyprofit.local',
+        loginAccount: 'store_mgr01',
         updatedAt,
         employeeProfile: { id: 12 },
         user: { password: 'hashed-password' },
@@ -614,7 +616,7 @@ describe('EmployeesService', () => {
       updatedAt,
     });
     prismaService.employee.findFirst.mockResolvedValue({ empNo: 'EMP009' });
-    prismaService.employee.create.mockResolvedValue({
+    const createdEmployee = {
       id: 10,
       storeId: 2,
       linkedStaffId: null,
@@ -639,7 +641,15 @@ describe('EmployeesService', () => {
       resignReason: null,
       createdAt,
       updatedAt,
-    });
+    };
+    prismaService.employee.create.mockResolvedValue(createdEmployee);
+
+    // buildEmployeeDetail 会重新查询员工详情
+    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue(
+      createdEmployee,
+    );
+    prismaService.storeSubAccount.findMany.mockResolvedValue([]);
+    prismaService.staff.findMany.mockResolvedValue([]);
 
     const result = await service.create(user, {
       storeId: 2,
@@ -711,7 +721,7 @@ describe('EmployeesService', () => {
     const createdAt = new Date('2026-05-13T10:00:00.000Z');
     const updatedAt = new Date('2026-05-13T11:00:00.000Z');
 
-    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+    const previousEmployee = {
       id: 12,
       storeId: 2,
       linkedStaffId: null,
@@ -736,7 +746,19 @@ describe('EmployeesService', () => {
       resignReason: null,
       createdAt,
       updatedAt: createdAt,
-    });
+    };
+    const updatedEmployee = {
+      ...previousEmployee,
+      name: '王五',
+      baseSalary: 520000,
+      updatedAt,
+    };
+    // 第一次调用给 write service，第二次给 buildEmployeeDetail
+    employeesAccessService.findManageableEmployeeOrThrow
+      .mockResolvedValueOnce(previousEmployee)
+      .mockResolvedValueOnce(updatedEmployee);
+    prismaService.storeSubAccount.findMany.mockResolvedValue([]);
+    prismaService.staff.findMany.mockResolvedValue([]);
     prismaService.employee.update.mockResolvedValue({
       id: 12,
       storeId: 2,
@@ -874,7 +896,7 @@ describe('EmployeesService', () => {
     const createdAt = new Date('2026-05-13T10:00:00.000Z');
     const updatedAt = new Date('2026-05-13T11:00:00.000Z');
 
-    employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+    const previousEmployee = {
       id: 12,
       storeId: 2,
       linkedStaffId: null,
@@ -899,7 +921,18 @@ describe('EmployeesService', () => {
       resignReason: null,
       createdAt,
       updatedAt: createdAt,
-    });
+    };
+    const updatedEmployee = {
+      ...previousEmployee,
+      name: '李明',
+      updatedAt,
+    };
+    // 第一次调用给 write service，第二次给 buildEmployeeDetail
+    employeesAccessService.findManageableEmployeeOrThrow
+      .mockResolvedValueOnce(previousEmployee)
+      .mockResolvedValueOnce(updatedEmployee);
+    prismaService.storeSubAccount.findMany.mockResolvedValue([]);
+    prismaService.staff.findMany.mockResolvedValue([]);
     prismaService.employee.update.mockResolvedValue({
       id: 12,
       storeId: 2,
@@ -1600,6 +1633,7 @@ service.createLeave(user, 5, {
       name: '王五',
       linkedStaffId: 12,
     });
+    prismaService.employeePayroll.findUnique.mockResolvedValue(null);
     prismaService.employeePayroll.upsert.mockResolvedValue({
       id: 21,
       storeId: 2,
@@ -1636,7 +1670,7 @@ service.createLeave(user, 5, {
 
     expect(
       employeesAccessService.findManageableEmployeeOrThrow,
-    ).toHaveBeenCalledWith(user, 5, 'finance:view');
+    ).toHaveBeenCalledWith(user, 5, 'finance:manage');
     expect(prismaService.employeePayroll.upsert).toHaveBeenCalledWith({
       where: {
         employeeId_month: {
@@ -1670,7 +1704,6 @@ service.createLeave(user, 5, {
         bonus: 30000,
         actualSalary: 510000,
         socialInsurance: 40000,
-        housingFund: 0,
         totalLaborCost: 550000,
         status: EmployeePayrollStatus.draft,
         confirmedAt: null,
@@ -1738,7 +1771,7 @@ service.createLeave(user, 5, {
 
     expect(
       employeesAccessService.ensureCanManageEmployees,
-    ).toHaveBeenCalledWith(user, 2, 'finance:view');
+    ).toHaveBeenCalledWith(user, 2, 'finance:manage');
     const payrollUpdateArgs =
       prismaService.employeePayroll.update.mock.calls.at(0)?.[0] as {
         where: { id: number };
@@ -1853,7 +1886,7 @@ service.createLeave(user, 5, {
 
     expect(
       employeesAccessService.ensureCanManageEmployees,
-    ).toHaveBeenCalledWith(user, 2, 'finance:view');
+    ).toHaveBeenCalledWith(user, 2, 'finance:manage');
 
     const updateArgs = prismaService.employeePayroll.update.mock.calls.at(
       0,
@@ -2000,8 +2033,8 @@ service.createLeave(user, 5, {
       where: {
         storeId: 2,
         date: {
-          gte: new Date(2026, 4, 1, 0, 0, 0, 0),
-          lt: new Date(2026, 5, 1, 0, 0, 0, 0),
+          gte: new Date(Date.UTC(2026, 4, 1, 0, 0, 0, 0)),
+          lt: new Date(Date.UTC(2026, 5, 1, 0, 0, 0, 0)),
         },
         employee: {
           department: { equals: '前厅', mode: 'insensitive' },
@@ -2073,6 +2106,7 @@ service.createLeave(user, 5, {
         id: 18,
         phone: '13800138000',
         email: 'account_cashier_01@purelyprofit.local',
+        loginAccount: 'cashier_01',
         updatedAt,
         employeeProfile: { id: 12 },
         user: { password: 'hashed-password' },

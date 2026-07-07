@@ -151,6 +151,8 @@ model Staff {
   userId               Int?                          @unique @map("user_id")
   user                 User?                         @relation(fields: [userId], references: [id], onDelete: SetNull)
   email                String
+  /// 自定义登录账号（如 000005），与 email 中编码的值保持一致，独立字段便于查询和唯一性校验
+  loginAccount         String?               @map("login_account")
   name                 String
   phone                String?
   role                 StaffRole                     @default(staff)
@@ -181,5 +183,6 @@ model Staff {
   @@index([storeId, status, role, updatedAt])
   @@index([userId, status, isActive])
   @@index([email, status, isActive])
+  @@index([loginAccount])
   @@map("staffs")
 }

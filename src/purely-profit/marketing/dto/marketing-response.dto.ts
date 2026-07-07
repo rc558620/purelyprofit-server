@@ -4,7 +4,7 @@
 //  - 金额字段单位：元（number，由 Money 类在 mapper 层完成 分→元 转换）
 //    ⚠️ 极少数历史字段仍以「分」为单位，已在 ApiProperty.description 中显式标注
 //  - 时间戳字段单位：毫秒（number）
-//  - 手机号在响应中脱敏（maskPhone），原始号码不出现在 API 响应
+// 手机号在响应中返回完整号码（商家需联系顾客）
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
@@ -24,7 +24,6 @@ import {
   type MarketingMemberLevelIdValue,
   type MarketingPayTypeValue,
   type MarketingPointsChangeTypeValue,
-  type MarketingPointsRatioConfigValue,
   type MarketingPromotionParamsValue,
   type MarketingPromotionStatus,
   type MarketingPromotionTypeValue,
@@ -58,8 +57,8 @@ export class MarketingCustomerDto {
   @ApiProperty({ example: '张三' })
   name: string;
 
-  /** 脱敏后手机号，如「138****0001」；无手机号时为空字符串 */
-  @ApiProperty({ example: '138****0001' })
+  /** 完整手机号（商家联系顾客用）；无手机号时为空字符串 */
+  @ApiProperty({ example: '13800000001' })
   phone: string;
 
   @ApiPropertyOptional({ example: 'https://cdn.example.com/avatar.jpg' })
@@ -99,7 +98,8 @@ export class MarketingCustomerDto {
   @ApiProperty({
     example: 'active',
     enum: MARKETING_CUSTOMER_STATUS_VALUES,
-    description: '顾客活跃状态（根据最后消费时间计算）',
+    description:
+      '顾客活跃状态（new=从未消费 active=30天内 dormant=31-90天 lost=91天+）',
   })
   status: MarketingCustomerStatus;
 
@@ -171,6 +171,25 @@ export class MarketingRechargeDto {
   @ApiProperty({ example: 110, description: '到账总额，单位：元' })
   totalAmount: number;
 
+  /**
+   * 带符号充值金额（元）：退款为负值，储值/赠送为正值。
+   * 前端可直接用于展示金额方向，无需按 type 手动取负。
+   */
+  @ApiProperty({
+    example: -100,
+    description: '带符号充值金额，退款为负，单位：元',
+  })
+  signedAmount: number;
+
+  /**
+   * 带符号到账总额（元）：退款为负值，储值/赠送为正值。
+   */
+  @ApiProperty({
+    example: -110,
+    description: '带符号到账总额，退款为负，单位：元',
+  })
+  signedTotalAmount: number;
+
   @ApiProperty({
     example: 'recharge',
     enum: MARKETING_RECHARGE_TYPE_VALUES,
@@ -179,6 +198,12 @@ export class MarketingRechargeDto {
 
   @ApiPropertyOptional({ example: '3' })
   promotionId?: string;
+
+  @ApiPropertyOptional({
+    example: '夏日储值赠送',
+    description: '关联活动名称（来自 marketing_promotions.name）',
+  })
+  promotionName?: string;
 
   @ApiPropertyOptional({ example: '半年卡储值' })
   note?: string;
@@ -228,6 +253,12 @@ export class MarketingConsumptionDto {
 
   @ApiPropertyOptional({ example: '3' })
   promotionId?: string;
+
+  @ApiPropertyOptional({
+    example: '夏日满减',
+    description: '关联活动名称（来自 marketing_promotions.name）',
+  })
+  promotionName?: string;
 
   /** 创建时间（毫秒时间戳） */
   @ApiProperty({ example: 1714700000000 })
@@ -307,7 +338,7 @@ export class MarketingMemberLevelDto {
   updatedAt: number;
 }
 
-export class MarketingPointsRatioDto implements MarketingPointsRatioConfigValue {
+export class MarketingPointsRatioDto {
   @ApiProperty({
     example: 200,
     description: '每消费多少元得 1 积分，单位：元；如 200 表示消费 200 元得 1 积分',
@@ -328,10 +359,6 @@ export class MarketingPointsRatioDto implements MarketingPointsRatioConfigValue 
 
   @ApiProperty({ example: 1715000000000 })
   updatedAt: number;
-
-  // ─── 内部存储字段（不暴露给前端，仅用于向后兼容 DB 读写） ───
-  earnRatioCents: number;
-  maxRedeemRatio: number;
 }
 
 export class MarketingMemberLevelSettingsDto {

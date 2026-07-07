@@ -83,11 +83,11 @@ export function getCurrentMonthString(now = new Date()): string {
 }
 
 export function getMonthStart(year: number, month: number): Date {
-  return new Date(year, month - 1, 1, 0, 0, 0, 0);
+  return new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
 }
 
 export function getMonthEndExclusive(year: number, month: number): Date {
-  return new Date(year, month, 1, 0, 0, 0, 0);
+  return new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
 }
 
 export function buildDateRange(
@@ -112,7 +112,7 @@ export function buildDateRange(
 }
 
 export function getStartOfCurrentMonth(now = new Date()): Date {
-  return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
 }
 
 /**

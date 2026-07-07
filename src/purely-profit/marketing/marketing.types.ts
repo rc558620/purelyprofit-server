@@ -165,6 +165,7 @@ export interface MarketingPointsRecordListQueryInput {
 export interface MarketingPromotionListQueryInput {
   storeId: number;
   status?: MarketingPromotionStatus;
+  enabled?: boolean;
   page?: number;
   pageSize?: number;
 }

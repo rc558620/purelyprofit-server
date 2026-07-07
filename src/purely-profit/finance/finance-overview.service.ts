@@ -231,6 +231,7 @@ export class FinanceOverviewService {
   ): Promise<FinanceOverviewResponseDto> {
     const currentRange = getOverviewCurrentRange(period);
     const previousRange = getOverviewPreviousRange(
+      period,
       currentRange.start,
       currentRange.end,
     );

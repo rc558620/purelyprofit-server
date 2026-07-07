@@ -3,7 +3,7 @@ import {
   ConflictException,
   Injectable,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { MarketingPromotionType, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
@@ -25,6 +25,8 @@ import type {
 } from './dto/marketing-response.dto';
 import { buildPromotionWhere } from './marketing.domain';
 import {
+  buildPromotionDisplayText,
+  mapPromotionParamsForOutput,
   mapPromotionParamsForWrite,
   mapPromotionRow,
   normalizePromotionParams,
@@ -71,11 +73,13 @@ export class MarketingPromotionsService {
       query.pageSize,
     );
     const statusFilter = query.status ?? 'all';
+    const enabledFilter = query.enabled;
     const cacheKey = buildMarketingPromotionsListCacheKey(
       resolvedStoreId,
       statusFilter,
       page,
       take,
+      enabledFilter,
     );
 
     return this.refreshableCache.getOrLoadRefreshableJson({
@@ -84,13 +88,21 @@ export class MarketingPromotionsService {
       ttlSeconds: MARKETING_PROMOTIONS_LIST_CACHE_TTL_SECONDS,
       refreshAfterMs: MARKETING_PROMOTIONS_LIST_REFRESH_AFTER_MS,
       loadValue: () =>
-        this.queryPromotions(resolvedStoreId, statusFilter, skip, take, page),
+        this.queryPromotions(
+          resolvedStoreId,
+          statusFilter,
+          enabledFilter,
+          skip,
+          take,
+          page,
+        ),
     });
   }
 
   private async queryPromotions(
     resolvedStoreId: number,
     statusFilter: string,
+    enabledFilter: boolean | undefined,
     skip: number,
     take: number,
     page: number,
@@ -101,6 +113,7 @@ export class MarketingPromotionsService {
         statusFilter !== 'all'
           ? (statusFilter as 'upcoming' | 'active' | 'ended')
           : undefined,
+      enabled: enabledFilter,
     });
 
     const [rows, total] = await Promise.all([
@@ -159,7 +172,10 @@ export class MarketingPromotionsService {
       'marketing:manage',
     );
     this.assertPromotionRange(new Date(dto.startAt), new Date(dto.endAt));
-    await this.ensurePromotionTypeUnique(storeId, dto.type);
+    const willBeEnabled = dto.enabled ?? true;
+    if (willBeEnabled) {
+      await this.ensurePromotionTypeUnique(storeId, dto.type);
+    }
 
     const validatedParams = validatePromotionParams(dto.type, dto.params);
     const normalizedParams = normalizePromotionParams(
@@ -168,13 +184,20 @@ export class MarketingPromotionsService {
     );
     // 前端入参（元）→ DB 存储（分）
     const writeParams = mapPromotionParamsForWrite(normalizedParams, dto.type);
+    const outputParams = mapPromotionParamsForOutput(
+      normalizedParams,
+      dto.type,
+    );
+    const displayText =
+      buildPromotionDisplayText(dto.type, outputParams) || null;
     const created = await this.prisma.marketingPromotion.create({
       data: {
         storeId,
         name: dto.name.trim(),
-        type: dto.type as never,
+        type: dto.type as unknown as MarketingPromotionType,
         description: dto.description?.trim() ?? '',
         params: writeParams as Prisma.InputJsonValue,
+        displayText,
         startAt: new Date(dto.startAt),
         endAt: new Date(dto.endAt),
         enabled: dto.enabled ?? true,
@@ -203,7 +226,13 @@ export class MarketingPromotionsService {
       dto.startAt !== undefined ? new Date(dto.startAt) : promotion.startAt;
     const newEndAt =
       dto.endAt !== undefined ? new Date(dto.endAt) : promotion.endAt;
-    this.assertPromotionRange(newStartAt, newEndAt);
+    // B9：仅当修改时间字段时才校验时间范围
+    // （允许已结束活动编辑 name/description/enabled 等无害字段）
+    const timeFieldChanged =
+      dto.startAt !== undefined || dto.endAt !== undefined;
+    if (timeFieldChanged) {
+      this.assertPromotionRange(newStartAt, newEndAt);
+    }
 
     // 仅当启用上架时才检查同类型唯一性（避免已下架活动阻碍新建同类活动）
     const willBeEnabled = dto.enabled ?? promotion.enabled;
@@ -238,6 +267,24 @@ export class MarketingPromotionsService {
                   normalized,
                   promotion.type,
                 ) as Prisma.InputJsonValue;
+              })(),
+              displayText: (() => {
+                const validated = validatePromotionParams(
+                  promotion.type,
+                  dto.params,
+                );
+                const normalized = normalizePromotionParams(
+                  validated,
+                  promotion.type,
+                );
+                const outputParams = mapPromotionParamsForOutput(
+                  normalized,
+                  promotion.type,
+                );
+                return (
+                  buildPromotionDisplayText(promotion.type, outputParams) ||
+                  null
+                );
               })(),
             }
           : {}),
@@ -311,6 +358,10 @@ export class MarketingPromotionsService {
   private assertPromotionRange(startAt: Date, endAt: Date): void {
     if (endAt <= startAt) {
       throw new BadRequestException('结束时间必须晚于开始时间');
+    }
+    // B10：禁止创建/编辑已结束的活动
+    if (endAt < new Date()) {
+      throw new BadRequestException('活动结束时间不能早于当前时间');
     }
   }
 }

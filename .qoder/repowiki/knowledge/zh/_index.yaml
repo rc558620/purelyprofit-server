@@ -3,7 +3,7 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-06T16:34:36Z"
+exported_at: "2026-07-07T04:08:17Z"
 modules:
     "":
         dir_name: PurelyProfit 单体后端（NestJS + Fastify 多产品聚合）
@@ -14,26 +14,23 @@ modules:
         depends_on: []
         related_to: []
     build_system:
-        dir_name: NestJS 单体构建与发布流水线_2
+        dir_name: NestJS 单体构建与发布流水线_3
         title: NestJS 单体构建与发布流水线
         scope: []
         source_files:
             - package.json
             - nest-cli.json
             - tsconfig.build.json
-            - prisma.config.ts
             - .github/workflows/ci.yml
             - .github/workflows/deploy-production.yml
             - scripts/release-execute.sh
             - scripts/test-smoke-release-regression.mjs
-            - scripts/seed-owner.mjs
-            - scripts/generate-smoke-token.mjs
             - verify-api-live.sh
         children: []
         depends_on: []
         related_to: []
     configuration_system:
-        dir_name: 基于环境变量与 NestJS Config 的运行时配置系统_2
+        dir_name: 基于环境变量与 NestJS Config 的运行时配置系统_3
         title: 基于环境变量与 NestJS Config 的运行时配置系统
         scope: []
         source_files:
@@ -46,7 +43,7 @@ modules:
         depends_on: []
         related_to: []
     dependency_management:
-        dir_name: pnpm 依赖管理与锁定策略_2
+        dir_name: pnpm 依赖管理与锁定策略_3
         title: pnpm 依赖管理与锁定策略
         scope: []
         source_files:
@@ -74,7 +71,7 @@ modules:
         depends_on: []
         related_to: []
     frontend_style:
-        dir_name: 后端 API 服务（无前端样式系统）_2
+        dir_name: 后端 API 服务（无前端样式系统）_3
         title: 后端 API 服务（无前端样式系统）
         scope: []
         source_files: []
@@ -82,7 +79,7 @@ modules:
         depends_on: []
         related_to: []
     logging_system:
-        dir_name: 基于 NestJS Logger 的轻量级日志输出体系_2
+        dir_name: 基于 NestJS Logger 的轻量级日志输出体系_3
         title: 基于 NestJS Logger 的轻量级日志输出体系
         scope: []
         source_files:

@@ -16,6 +16,7 @@ export type EmployeesPermission = Extract<
   | 'staff:update'
   | 'report:view'
   | 'finance:view'
+  | 'finance:manage'
 >;
 
 type EmployeesPermissionRequirement =
@@ -88,8 +89,8 @@ export class EmployeesAccessService {
     empNo: string;
     status: EmployeeStatus;
   }> {
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: employeeId },
+    const employee = await this.prisma.employee.findFirst({
+      where: { id: employeeId, deletedAt: null },
       select: {
         id: true,
         storeId: true,
@@ -111,8 +112,8 @@ export class EmployeesAccessService {
     employeeId: number,
     permission: EmployeesPermissionRequirement,
   ) {
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: employeeId },
+    const employee = await this.prisma.employee.findFirst({
+      where: { id: employeeId, deletedAt: null },
     });
 
     if (!employee) {

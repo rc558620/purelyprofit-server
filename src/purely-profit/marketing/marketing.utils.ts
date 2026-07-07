@@ -18,6 +18,7 @@ export type MarketingCustomerTierValue =
 
 /** 顾客状态（根据最后消费时间计算，不存库，与前端 CustomerStatus 完全一致）*/
 export const MARKETING_CUSTOMER_STATUS_VALUES = [
+  'new',
   'active',
   'dormant',
   'lost',
@@ -249,22 +250,42 @@ export function buildMarketingPaginationMeta(
 
 // ─── 顾客等级计算（和前端 calcCustomerTier 完全一致，分为单位）────────
 
-/** 各等级最低累计消费金额门槛（分） */
-const TIER_THRESHOLDS: Record<MarketingCustomerTierValue, number> = {
+/** 各等级最低累计消费金额门槛（分），仅作为无配置时的兆底值 */
+export const TIER_THRESHOLDS: Record<MarketingCustomerTierValue, number> = {
   regular: 0,
   gold: 200000,
   diamond: 1000000,
 };
 
 /**
- * 根据累计消费金额（分）计算顾客等级
- * 对齐前端 calcCustomerTier：diamond >= 1000000 > gold >= 200000
+ * 从存储的会员等级设置中提取 tier 阈值（分）。
+ * 将设置层的 gold/platinum/diamond 映射为顾客 tier 层的 regular/gold/diamond：
+ *  - gold tier 门槛 ← platinum.spendThreshold（第二级）
+ *  - diamond tier 门槛 ← diamond.spendThreshold（第三级）
+ */
+export function extractTierThresholdsFromSettings(
+  levels: ReadonlyArray<{ id: string; spendThreshold: number }>,
+): Pick<Record<MarketingCustomerTierValue, number>, 'gold' | 'diamond'> {
+  const platinum = levels.find((l) => l.id === 'platinum');
+  const diamond = levels.find((l) => l.id === 'diamond');
+  return {
+    gold: (platinum?.spendThreshold ?? TIER_THRESHOLDS.gold / 100) * 100,
+    diamond: (diamond?.spendThreshold ?? TIER_THRESHOLDS.diamond / 100) * 100,
+  };
+}
+
+/**
+ * 根据累计消费金额（分）计算顾客等级。
+ * 可传入自定义阈值（从会员等级设置中读取），未传时使用硬编码兆底值。
  */
 export function calcCustomerTier(
   totalSpent: number,
+  thresholds?: { gold?: number; diamond?: number },
 ): MarketingCustomerTierValue {
-  if (totalSpent >= TIER_THRESHOLDS.diamond) return 'diamond';
-  if (totalSpent >= TIER_THRESHOLDS.gold) return 'gold';
+  const goldThreshold = thresholds?.gold ?? TIER_THRESHOLDS.gold;
+  const diamondThreshold = thresholds?.diamond ?? TIER_THRESHOLDS.diamond;
+  if (totalSpent >= diamondThreshold) return 'diamond';
+  if (totalSpent >= goldThreshold) return 'gold';
   return 'regular';
 }
 
@@ -272,14 +293,15 @@ export function calcCustomerTier(
 
 /**
  * 根据最后消费时间计算顾客状态
+ * - 从未消费（null）：new
  * - 30 天内有消费：active
  * - 30~90 天：dormant
- * - 90 天以上或 null：lost
+ * - 90 天以上：lost
  */
 export function calcCustomerStatus(
   lastVisitAt: Date | null,
 ): MarketingCustomerStatus {
-  if (!lastVisitAt) return 'lost';
+  if (!lastVisitAt) return 'new';
   const daysSince =
     (Date.now() - lastVisitAt.getTime()) / (1000 * 60 * 60 * 24);
   if (daysSince <= 30) return 'active';
@@ -302,19 +324,36 @@ export function calcPromotionStatus(
   return 'active';
 }
 
-// ─── 手机号脱敏（保留前 3 位和后 4 位，中间用 **** 替代）──────────────
+// ─── 手机号归一化 & 脱敏 ──────────────────────────────────────────────
+
+/**
+ * 手机号归一化：去除国家码 +86、空格、连字符等非数字字符，
+ * 返回纯 11 位国内手机号；无法归一化时返回 null。
+ */
+export function normalizePhone(
+  phone: string | null | undefined,
+): string | null {
+  if (!phone) return null;
+  // 去除所有非数字字符
+  let digits = phone.replace(/\D/g, '');
+  // 去除中国国家码 86（如果以 86 开头且总长度 > 11）
+  if (digits.startsWith('86') && digits.length > 11) {
+    digits = digits.slice(2);
+  }
+  // 中国大陆手机号固定 11 位
+  if (digits.length !== 11) return null;
+  return digits;
+}
 
 /**
  * 手机号脱敏：138****0001
- * 仅对 11 位手机号处理，其他格式原样返回
+ * 先归一化，再保留前 3 位和后 4 位，中间用 **** 替代。
+ * 无法归一化的号码返回空字符串。
  */
 export function maskPhone(phone: string | null): string {
-  if (!phone) return '';
-  const trimmed = phone.trim();
-  if (trimmed.length === 11) {
-    return `${trimmed.slice(0, 3)}****${trimmed.slice(-4)}`;
-  }
-  return trimmed;
+  const normalized = normalizePhone(phone);
+  if (!normalized) return '';
+  return `${normalized.slice(0, 3)}****${normalized.slice(-4)}`;
 }
 
 // ─── 充值金额合计 ──────────────────────────────────────────────────────

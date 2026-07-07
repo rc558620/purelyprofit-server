@@ -4,6 +4,7 @@ import {
   getDayEnd,
   getDayStart,
   getShanghaiDayStartMs,
+  getShanghaiWeekStartMs,
   getWeekStart,
 } from './finance-date.utils';
 import type {
@@ -79,15 +80,57 @@ export function getOverviewCurrentRange(period: FinanceOverviewPeriodValue): {
   };
 }
 
+/**
+ * 概览「上一周期」范围，按日历周期与报表对齐（不再使用等长前置窗口）。
+ * today → 昨天；week → 上周一零点起 7 天；month → 上月 1 号到本周期 start-1；
+ * quarter → 上季度 1 号到本周期 start-1；year → 去年全年。
+ */
 export function getOverviewPreviousRange(
+  period: FinanceOverviewPeriodValue,
   start: number,
-  end: number,
+  _end: number,
 ): { prevStart: number; prevEnd: number } {
-  const duration = end - start;
-  return {
-    prevStart: start - duration - 1,
-    prevEnd: start - 1,
-  };
+  const { year, month } = shanghaiDateParts(start);
+
+  if (period === 'today') {
+    return {
+      prevStart: start - DAY_MS,
+      prevEnd: start - 1,
+    };
+  }
+
+  if (period === 'week') {
+    return {
+      prevStart: start - 7 * DAY_MS,
+      prevEnd: start - 1,
+    };
+  }
+
+  if (period === 'month') {
+    const prevMonthStart = shanghaiDateToUtcMs(
+      month === 0 ? year - 1 : year,
+      month === 0 ? 11 : month - 1,
+      1,
+    );
+    return { prevStart: prevMonthStart, prevEnd: start - 1 };
+  }
+
+  if (period === 'quarter') {
+    const quarterMonth = Math.floor(month / 3) * 3;
+    const prevQuarterMonth = quarterMonth === 0 ? 9 : quarterMonth - 3;
+    const prevQuarterYear = quarterMonth === 0 ? year - 1 : year;
+    const prevQuarterStart = shanghaiDateToUtcMs(
+      prevQuarterYear,
+      prevQuarterMonth,
+      1,
+    );
+    return { prevStart: prevQuarterStart, prevEnd: start - 1 };
+  }
+
+  // year
+  const prevYearStart = shanghaiDateToUtcMs(year - 1, 0, 1);
+  const prevYearEnd = shanghaiDateToUtcMs(year - 1, 11, 31) + DAY_MS - 1;
+  return { prevStart: prevYearStart, prevEnd: prevYearEnd };
 }
 
 export function getFinanceReportRange(
@@ -264,32 +307,47 @@ export function getPreviousFinanceReportRange(
   }
 }
 
+function assertCustomDateComplete(
+  label: string,
+  year?: number,
+  month?: number,
+  day?: number,
+): void {
+  if (year == null || month == null || day == null) {
+    throw new BadRequestException(`自定义${label}必须同时提供年、月、日`);
+  }
+}
+
 export function getCashFlowFilterRange(
   query: FinanceCashFlowListQueryInput,
 ): FinanceCashFlowFilterRange {
   const period = query.period ?? 'month';
-  const now = new Date();
-  const nowMs = now.getTime();
+  const now = Date.now();
 
   if (period === 'custom_range') {
-    const start = new Date(
-      query.customRangeStartYear ?? now.getFullYear(),
-      (query.customRangeStartMonth ?? now.getMonth() + 1) - 1,
-      query.customRangeStartDay ?? 1,
-      0,
-      0,
-      0,
-      0,
-    ).getTime();
-    const end = new Date(
-      query.customRangeEndYear ?? now.getFullYear(),
-      (query.customRangeEndMonth ?? now.getMonth() + 1) - 1,
-      query.customRangeEndDay ?? now.getDate(),
-      23,
-      59,
-      59,
-      999,
-    ).getTime();
+    assertCustomDateComplete(
+      '区间开始',
+      query.customRangeStartYear,
+      query.customRangeStartMonth,
+      query.customRangeStartDay,
+    );
+    assertCustomDateComplete(
+      '区间结束',
+      query.customRangeEndYear,
+      query.customRangeEndMonth,
+      query.customRangeEndDay,
+    );
+    const start = shanghaiDateToUtcMs(
+      query.customRangeStartYear!,
+      query.customRangeStartMonth! - 1,
+      query.customRangeStartDay!,
+    );
+    const end =
+      shanghaiDateToUtcMs(
+        query.customRangeEndYear!,
+        query.customRangeEndMonth! - 1,
+        query.customRangeEndDay! + 1,
+      ) - 1;
     return {
       start,
       end: Math.max(start, end),
@@ -298,47 +356,57 @@ export function getCashFlowFilterRange(
   }
 
   if (period === 'custom_day') {
-    const year = query.customDayYear ?? now.getFullYear();
-    const month = query.customDayMonth ?? now.getMonth() + 1;
-    const day = query.customDayDay ?? now.getDate();
+    assertCustomDateComplete(
+      '单日',
+      query.customDayYear,
+      query.customDayMonth,
+      query.customDayDay,
+    );
+    const start = shanghaiDateToUtcMs(
+      query.customDayYear!,
+      query.customDayMonth! - 1,
+      query.customDayDay!,
+    );
     return {
-      start: new Date(year, month - 1, day, 0, 0, 0, 0).getTime(),
-      end: new Date(year, month - 1, day, 23, 59, 59, 999).getTime(),
+      start,
+      end: start + DAY_MS - 1,
       period,
     };
   }
 
+  const todayStart = getShanghaiDayStartMs(now);
+
   if (period === 'today') {
-    return { start: getDayStart(nowMs), end: nowMs, period };
+    return { start: todayStart, end: now, period };
   }
 
   if (period === 'week') {
-    return { start: getWeekStart(now), end: nowMs, period };
+    return { start: getShanghaiWeekStartMs(now), end: now, period };
   }
+
+  const { year, month } = shanghaiDateParts(todayStart);
 
   if (period === 'month') {
     return {
-      start: new Date(now.getFullYear(), now.getMonth(), 1).getTime(),
-      end: nowMs,
+      start: shanghaiDateToUtcMs(year, month, 1),
+      end: now,
       period,
     };
   }
 
   if (period === 'quarter') {
+    const quarterMonth = Math.floor(month / 3) * 3;
     return {
-      start: new Date(
-        now.getFullYear(),
-        Math.floor(now.getMonth() / 3) * 3,
-        1,
-      ).getTime(),
-      end: nowMs,
+      start: shanghaiDateToUtcMs(year, quarterMonth, 1),
+      end: now,
       period,
     };
   }
 
+  // year / fallback
   return {
-    start: new Date(now.getFullYear(), 0, 1).getTime(),
-    end: nowMs,
+    start: shanghaiDateToUtcMs(year, 0, 1),
+    end: now,
     period,
   };
 }
@@ -346,74 +414,57 @@ export function getCashFlowFilterRange(
 export function getPreviousCashFlowRange(
   period: FinanceCashFlowFilterRange['period'],
 ): { start: number; end: number } | null {
-  const now = new Date();
+  const now = Date.now();
 
   if (period === 'custom_day' || period === 'custom_range') {
     return null;
   }
 
   if (period === 'today') {
-    const yesterday = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() - 1,
-    );
+    const todayStart = getShanghaiDayStartMs(now);
     return {
-      start: getDayStart(yesterday.getTime()),
-      end: new Date(
-        yesterday.getFullYear(),
-        yesterday.getMonth(),
-        yesterday.getDate(),
-        23,
-        59,
-        59,
-        999,
-      ).getTime(),
+      start: todayStart - DAY_MS,
+      end: todayStart - 1,
     };
   }
 
   if (period === 'week') {
-    const weekStart = getWeekStart(now);
+    const weekStart = getShanghaiWeekStartMs(now);
     return {
       start: weekStart - 7 * DAY_MS,
       end: weekStart - 1,
     };
   }
 
+  const todayStart = getShanghaiDayStartMs(now);
+  const { year, month } = shanghaiDateParts(todayStart);
+
   if (period === 'month') {
+    const currentMonthStart = shanghaiDateToUtcMs(year, month, 1);
+    const prevMonthStart = shanghaiDateToUtcMs(year, month - 1, 1);
     return {
-      start: new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime(),
-      end: new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        0,
-        23,
-        59,
-        59,
-        999,
-      ).getTime(),
+      start: prevMonthStart,
+      end: currentMonthStart - 1,
     };
   }
 
   if (period === 'quarter') {
-    const currentQuarterStart = new Date(
-      now.getFullYear(),
-      Math.floor(now.getMonth() / 3) * 3,
-      1,
-    ).getTime();
+    const quarterMonth = Math.floor(month / 3) * 3;
+    const currentQuarterStart = shanghaiDateToUtcMs(year, quarterMonth, 1);
+    const prevQuarterMonth = quarterMonth - 3;
+    const prevQuarterYear = prevQuarterMonth < 0 ? year - 1 : year;
+    const prevQuarterMonthNorm =
+      prevQuarterMonth < 0 ? prevQuarterMonth + 12 : prevQuarterMonth;
     return {
-      start: new Date(
-        now.getFullYear(),
-        (Math.floor(now.getMonth() / 3) - 1) * 3,
-        1,
-      ).getTime(),
+      start: shanghaiDateToUtcMs(prevQuarterYear, prevQuarterMonthNorm, 1),
       end: currentQuarterStart - 1,
     };
   }
 
-  const currentYearStart = new Date(now.getFullYear(), 0, 1).getTime();
+  // year
+  const currentYearStart = shanghaiDateToUtcMs(year, 0, 1);
   return {
-    start: new Date(now.getFullYear() - 1, 0, 1).getTime(),
+    start: shanghaiDateToUtcMs(year - 1, 0, 1),
     end: currentYearStart - 1,
   };
 }

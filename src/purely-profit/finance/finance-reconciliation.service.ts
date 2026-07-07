@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -65,7 +66,7 @@ export class FinanceReconciliationService {
     const reconciliationQuery: FinanceReconciliationsListQueryInput = {
       statusFilter: query.statusFilter,
       typeFilter: query.typeFilter,
-      searchText: query.searchText,
+      searchText: query.searchText?.trim() || undefined,
       page: query.page,
       pageSize: query.pageSize,
     };
@@ -109,6 +110,11 @@ export class FinanceReconciliationService {
   ): Promise<FinanceReconciliationRecordResponseDto> {
     const storeId =
       await this.financeAccessService.getFinanceStoreIdOrThrow(user);
+
+    if (dto.periodEnd < dto.periodStart) {
+      throw new BadRequestException('周期结束时间不能早于开始时间');
+    }
+
     const operatorStaffId = user.currentMembership?.staffId ?? null;
     const bookIncome = Money.fromInputYuan(dto.bookIncome);
     const bookExpense = Money.fromInputYuan(dto.bookExpense);
@@ -143,8 +149,8 @@ export class FinanceReconciliationService {
       bookIncome: bookIncome.toDbCents(),
       bookExpense: bookExpense.toDbCents(),
       bookNet: bookNet.toDbCents(),
-      actualIncome: (actualIncome ?? Money.zero()).toDbCents(),
-      actualExpense: (actualExpense ?? Money.zero()).toDbCents(),
+      actualIncome: actualIncome ? actualIncome.toDbCents() : null,
+      actualExpense: actualExpense ? actualExpense.toDbCents() : null,
       actualNet: actualNet.toDbCents(),
       diffAmount: diffAmount.toDbCents(),
       settlementBatchNo: trimOptionalString(dto.settlementBatchNo),
@@ -202,12 +208,24 @@ export class FinanceReconciliationService {
       throw new ConflictException('已确认或已调整的对账单不能再次确认');
     }
 
+    if (record.status === FinanceReconciliationStatus.draft) {
+      throw new ConflictException('草稿状态的对账单请先录入实际金额后再确认');
+    }
+
     const adjustNote = trimOptionalString(dto.adjustNote);
+    const hasDiff = record.diffAmount !== 0;
+
+    if (hasDiff && !adjustNote) {
+      throw new ConflictException('有差异的对账单须提供调整说明');
+    }
+
+    const newStatus = hasDiff
+      ? FinanceReconciliationStatus.adjusted
+      : FinanceReconciliationStatus.confirmed;
+
     const updatedRecord = await updateReconciliationConfirmation(this.prisma, {
       recordId,
-      status: adjustNote
-        ? FinanceReconciliationStatus.adjusted
-        : FinanceReconciliationStatus.confirmed,
+      status: newStatus,
       adjustNote,
     });
 

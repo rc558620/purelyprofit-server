@@ -29,7 +29,7 @@ import type {
 import {
   calcCustomerStatus,
   calcPromotionStatus,
-  maskPhone,
+  normalizePhone,
   type MarketingPayTypeValue,
   type MarketingPointsChangeTypeValue,
   type MarketingPromotionParamsValue,
@@ -152,7 +152,7 @@ export function mapCustomerRow(
   return {
     id: String(row.id),
     name: row.name,
-    phone: maskPhone(row.phone),
+    phone: normalizePhone(row.phone) ?? '',
     avatar: toOptionalMediaText(row.avatar) ?? undefined,
     tier: row.tier,
     balance: Money.fromDbCents(row.balance).toOutputYuan(),
@@ -169,15 +169,22 @@ export function mapCustomerRow(
 export function mapRechargeRow(
   row: MarketingRechargeRow,
 ): MarketingRechargeDto {
+  const amount = Money.fromDbCents(row.amount).toOutputYuan();
+  const giftAmount = Money.fromDbCents(row.giftAmount).toOutputYuan();
+  const totalAmount = Money.fromDbCents(row.totalAmount).toOutputYuan();
+  const isRefund = (row.type as string) === 'refund';
   return {
     id: String(row.id),
     customerId: String(row.customerId),
     customerName: row.customerName,
-    amount: Money.fromDbCents(row.amount).toOutputYuan(),
-    giftAmount: Money.fromDbCents(row.giftAmount).toOutputYuan(),
-    totalAmount: Money.fromDbCents(row.totalAmount).toOutputYuan(),
+    amount,
+    giftAmount,
+    totalAmount,
+    signedAmount: isRefund ? -amount : amount,
+    signedTotalAmount: isRefund ? -totalAmount : totalAmount,
     type: row.type as MarketingRechargeTypeValue,
     promotionId: row.promotionId ? String(row.promotionId) : undefined,
+    promotionName: row.promotionName ?? undefined,
     note: row.note ?? undefined,
     createdAt: row.createdAt.getTime(),
   };
@@ -195,6 +202,7 @@ export function mapConsumptionRow(
     payType: row.payType as MarketingPayTypeValue,
     itemsSummary: row.itemsSummary ?? undefined,
     promotionId: row.promotionId ? String(row.promotionId) : undefined,
+    promotionName: row.promotionName ?? undefined,
     createdAt: row.createdAt.getTime(),
   };
 }

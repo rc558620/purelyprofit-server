@@ -193,6 +193,7 @@ export class PaginationQueryDto {
   @Transform(transformOptionalInt)
   @IsInt({ message: '每页数量必须是整数' })
   @Min(1, { message: '每页数量必须大于等于 1' })
+  @Max(200, { message: '每页数量不能超过 200' })
   pageSize?: number;
 }
 

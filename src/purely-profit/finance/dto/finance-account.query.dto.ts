@@ -3,9 +3,11 @@ import { Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -44,6 +46,76 @@ export class ListFinanceAccountsQueryDto extends PaginationQueryDto {
   @IsString({ message: '搜索词必须是字符串' })
   @MaxLength(30, { message: '搜索词最多 30 个字符' })
   searchText?: string;
+
+  @ApiPropertyOptional({
+    enum: ['all', 'custom_day', 'custom_range'],
+    description: '日期范围筛选模式',
+  })
+  @IsOptional()
+  @IsIn(['all', 'custom_day', 'custom_range'], {
+    message: '日期筛选模式不合法',
+  })
+  datePeriod?: 'all' | 'custom_day' | 'custom_range';
+
+  @ApiPropertyOptional({ example: 2026, description: '自定义单天-年' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '自定义单天年份必须是整数' })
+  @Min(2000, { message: '年份不能小于 2000' })
+  @Max(2100, { message: '年份不能大于 2100' })
+  customDayYear?: number;
+
+  @ApiPropertyOptional({ example: 5, description: '自定义单天-月' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '自定义单天月份必须是整数' })
+  @Min(1)
+  @Max(12)
+  customDayMonth?: number;
+
+  @ApiPropertyOptional({ example: 18, description: '自定义单天-日' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '自定义单天日期必须是整数' })
+  @Min(1)
+  @Max(31)
+  customDayDay?: number;
+
+  @ApiPropertyOptional({ example: 2026, description: '自定义区间-起始年' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '起始年份必须是整数' })
+  customRangeStartYear?: number;
+
+  @ApiPropertyOptional({ example: 5, description: '自定义区间-起始月' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '起始月份必须是整数' })
+  customRangeStartMonth?: number;
+
+  @ApiPropertyOptional({ example: 1, description: '自定义区间-起始日' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '起始日期必须是整数' })
+  customRangeStartDay?: number;
+
+  @ApiPropertyOptional({ example: 2026, description: '自定义区间-结束年' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '结束年份必须是整数' })
+  customRangeEndYear?: number;
+
+  @ApiPropertyOptional({ example: 5, description: '自定义区间-结束月' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '结束月份必须是整数' })
+  customRangeEndMonth?: number;
+
+  @ApiPropertyOptional({ example: 31, description: '自定义区间-结束日' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: '结束日期必须是整数' })
+  customRangeEndDay?: number;
 }
 
 export class CreateFinanceAccountDto {
@@ -64,6 +136,7 @@ export class CreateFinanceAccountDto {
 
   @ApiProperty({ example: '张三水果店', description: '对方名称' })
   @IsString({ message: '对方名称必须是字符串' })
+  @IsNotEmpty({ message: '对方名称不能为空' })
   @MaxLength(30, { message: '对方名称最多 30 个字符' })
   counterpart: string;
 

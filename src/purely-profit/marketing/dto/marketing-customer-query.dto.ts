@@ -18,29 +18,35 @@ import {
 import { MarketingPageQueryDto } from './marketing-pagination-query.dto';
 
 const CUSTOMER_STATUS_VALUES = [
+  'new',
   'active',
   'dormant',
   'lost',
 ] as const satisfies readonly MarketingCustomerStatus[];
 
+/** 筛选允许值：含 'all' 哨兵表示不过滤 */
+const STATUS_FILTER_VALUES = [...CUSTOMER_STATUS_VALUES, 'all'] as const;
+const TIER_FILTER_VALUES = [...MARKETING_CUSTOMER_TIER_VALUES, 'all'] as const;
+
 export class ListCustomersQueryDto extends MarketingPageQueryDto {
   @ApiPropertyOptional({
     example: 'active',
-    enum: CUSTOMER_STATUS_VALUES,
-    description: '顾客活跃状态（active=30天内消费 dormant=31-90天 lost=91天+）',
+    enum: STATUS_FILTER_VALUES,
+    description:
+      '顾客活跃状态筛选（new=从未消费 active=30天内 dormant=31-90天 lost=91天+ all=不过滤）',
   })
   @IsOptional()
-  @IsIn(CUSTOMER_STATUS_VALUES, { message: '无效的顾客状态' })
-  status?: MarketingCustomerStatus;
+  @IsIn(STATUS_FILTER_VALUES, { message: '无效的顾客状态' })
+  status?: MarketingCustomerStatus | 'all';
 
   @ApiPropertyOptional({
     example: 'gold',
-    enum: MARKETING_CUSTOMER_TIER_VALUES,
-    description: '会员等级筛选',
+    enum: TIER_FILTER_VALUES,
+    description: '会员等级筛选（all=不过滤）',
   })
   @IsOptional()
-  @IsIn(MARKETING_CUSTOMER_TIER_VALUES, { message: '无效的会员等级' })
-  tier?: MarketingCustomerTierValue;
+  @IsIn(TIER_FILTER_VALUES, { message: '无效的会员等级' })
+  tier?: MarketingCustomerTierValue | 'all';
 
   @ApiPropertyOptional({
     example: '张三',

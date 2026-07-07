@@ -71,7 +71,7 @@ export class EmployeesPayrollsController {
   }
 
   @Post('payrolls')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @ApiOperation({ summary: '保存工资草稿' })
   @ApiCreatedResponse({ type: EmployeePayrollResponseDto })
   savePayroll(
@@ -82,7 +82,7 @@ export class EmployeesPayrollsController {
   }
 
   @Patch('payrolls/:id')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @ApiOperation({ summary: '编辑工资草稿' })
   @ApiOkResponse({ type: EmployeePayrollResponseDto })
   updatePayroll(
@@ -94,7 +94,7 @@ export class EmployeesPayrollsController {
   }
 
   @Post('payrolls/:id/confirm')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @ApiOperation({ summary: '确认工资结算' })
   @ApiCreatedResponse({ type: EmployeePayrollResponseDto })
   confirmPayroll(
@@ -105,7 +105,7 @@ export class EmployeesPayrollsController {
   }
 
   @Delete('payrolls/:id')
-  @RequirePermissions('finance:view')
+  @RequirePermissions('finance:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除工资记录' })
   @ApiNoContentResponse()

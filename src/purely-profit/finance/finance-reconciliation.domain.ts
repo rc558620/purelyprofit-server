@@ -37,9 +37,12 @@ export function buildReconciliationStats(
         draftCount += 1;
         break;
     }
-    totalDiffAmount = totalDiffAmount.add(
-      Money.fromDbCents(record.diffAmount).abs(),
-    );
+    // draft 的 diffAmount 是占位值（-bookNet），不计入真实差异总额
+    if (record.status !== 'draft') {
+      totalDiffAmount = totalDiffAmount.add(
+        Money.fromDbCents(record.diffAmount).abs(),
+      );
+    }
   }
 
   return {
@@ -135,8 +138,14 @@ export function mapReconciliationRecord(
     bookIncome: Money.fromDbCents(record.bookIncome).toOutputYuan(),
     bookExpense: Money.fromDbCents(record.bookExpense).toOutputYuan(),
     bookNet: Money.fromDbCents(record.bookNet).toOutputYuan(),
-    actualIncome: Money.fromDbCents(record.actualIncome).toOutputYuan(),
-    actualExpense: Money.fromDbCents(record.actualExpense).toOutputYuan(),
+    ...(record.actualIncome != null
+      ? { actualIncome: Money.fromDbCents(record.actualIncome).toOutputYuan() }
+      : {}),
+    ...(record.actualExpense != null
+      ? {
+          actualExpense: Money.fromDbCents(record.actualExpense).toOutputYuan(),
+        }
+      : {}),
     actualNet: Money.fromDbCents(record.actualNet).toOutputYuan(),
     diffAmount: Money.fromDbCents(record.diffAmount).toOutputYuan(),
     items: record.items.map((item) => ({

@@ -17,12 +17,12 @@ export type DerivedFinanceAccountStatusFilter = Exclude<
 const ZERO_MONEY = 0; // Step 3: Int（分）
 
 /**
- * 刷新逾期状态：将数据库中 status=pending 且 dueDate < now 的记录更新为 overdue。
+ * 刷新逾期状态：将数据库中 status=pending 或 partial 且 dueDate < now 的记录更新为 overdue。
  * 由于 overdue 是时间依赖的派生状态，数据库 status 可能在时间流逝后与事实不一致，
  * 需要在查询前同步刷新，确保后续 WHERE status = 'overdue' 能命中所有逾期记录。
  *
- * 该函数设计为幂等：仅更新 status=pending 且已过 dueDate 的记录，
- * 不影响 status=partial/overdue/settled 的记录。
+ * 该函数设计为幂等：仅更新 pending/partial 中已过 dueDate 且未结清的记录，
+ * 不影响 status=overdue/settled 的记录。
  */
 async function refreshOverdueStatuses(
   prisma: PrismaService,
@@ -32,7 +32,9 @@ async function refreshOverdueStatuses(
   await prisma.financeAccountRecord.updateMany({
     where: {
       storeId,
-      status: FinanceAccountStatus.pending,
+      status: {
+        in: [FinanceAccountStatus.pending, FinanceAccountStatus.partial],
+      },
       dueDate: { lt: now, not: null },
       remaining: { gt: ZERO_MONEY },
     },
@@ -139,6 +141,38 @@ const financeAccountRecordSelect = {
   updatedAt: true,
 } satisfies Prisma.FinanceAccountRecordSelect;
 
+/** 根据筛选参数计算日期范围，返回 null 表示不限时间 */
+function getDateRangeFromQuery(
+  query: FinanceAccountsListQueryInput,
+): { start: Date; end: Date } | null {
+  if (!query.datePeriod || query.datePeriod === 'all') {
+    return null;
+  }
+
+  if (query.datePeriod === 'custom_day') {
+    const y = query.customDayYear ?? 2000;
+    const m = (query.customDayMonth ?? 1) - 1;
+    const d = query.customDayDay ?? 1;
+    const start = new Date(y, m, d, 0, 0, 0, 0);
+    const end = new Date(y, m, d, 23, 59, 59, 999);
+    return { start, end };
+  }
+
+  if (query.datePeriod === 'custom_range') {
+    const sy = query.customRangeStartYear ?? 2000;
+    const sm = (query.customRangeStartMonth ?? 1) - 1;
+    const sd = query.customRangeStartDay ?? 1;
+    const ey = query.customRangeEndYear ?? 2100;
+    const em = (query.customRangeEndMonth ?? 12) - 1;
+    const ed = query.customRangeEndDay ?? 31;
+    const start = new Date(sy, sm, sd, 0, 0, 0, 0);
+    const end = new Date(ey, em, ed, 23, 59, 59, 999);
+    return { start, end: start > end ? start : end };
+  }
+
+  return null;
+}
+
 function buildFinanceAccountWhere(
   storeId: number,
   query: FinanceAccountsListQueryInput,
@@ -175,6 +209,13 @@ function buildFinanceAccountWhere(
     });
   }
 
+  const dateRange = getDateRangeFromQuery(query);
+  if (dateRange) {
+    conditions.push({
+      date: { gte: dateRange.start, lte: dateRange.end },
+    });
+  }
+
   return conditions.length === 1 ? conditions[0] : { AND: conditions };
 }
 
@@ -193,7 +234,7 @@ export async function queryAccountRecords(
     prisma.financeAccountRecord.count({ where }),
     prisma.financeAccountRecord.findMany({
       where,
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }, { id: 'desc' }],
       select: financeAccountRecordSelect,
       skip: (pageState.page - 1) * pageState.pageSize,
       take: pageState.pageSize,
@@ -300,9 +341,10 @@ export async function updateAccountRecordSettlement(
 
 export async function deleteAccountRecordEntity(
   prisma: PrismaService,
+  storeId: number,
   recordId: number,
 ): Promise<void> {
-  await prisma.financeAccountRecord.delete({
-    where: { id: recordId },
+  await prisma.financeAccountRecord.deleteMany({
+    where: { id: recordId, storeId },
   });
 }

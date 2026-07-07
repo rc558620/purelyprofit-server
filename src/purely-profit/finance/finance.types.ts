@@ -167,17 +167,6 @@ export type FinanceReconciliationTypeFilterValue =
 export const FINANCE_DEFAULT_PAGE = 1;
 export const FINANCE_DEFAULT_PAGE_SIZE = 20;
 
-export const FINANCE_OVERVIEW_DISPLAY_DAYS: Record<
-  FinanceOverviewPeriodValue,
-  number
-> = {
-  today: 1,
-  week: 7,
-  month: 30,
-  quarter: 90,
-  year: 365,
-};
-
 export interface PaginationState {
   page: number;
   pageSize: number;
@@ -214,6 +203,16 @@ export interface FinanceAccountsListQueryInput {
   typeFilter?: FinanceAccountTypeFilterValue;
   statusFilter?: FinanceAccountStatusFilterValue;
   searchText?: string;
+  datePeriod?: 'all' | 'custom_day' | 'custom_range';
+  customDayYear?: number;
+  customDayMonth?: number;
+  customDayDay?: number;
+  customRangeStartYear?: number;
+  customRangeStartMonth?: number;
+  customRangeStartDay?: number;
+  customRangeEndYear?: number;
+  customRangeEndMonth?: number;
+  customRangeEndDay?: number;
   page?: number;
   pageSize?: number;
 }

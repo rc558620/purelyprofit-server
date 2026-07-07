@@ -102,13 +102,21 @@ export class FinanceReconciliationRecordResponseDto {
   @IsNumber({}, { message: '账面净额必须是数字' })
   bookNet: number;
 
-  @ApiProperty({ example: 11800, description: '实际收入' })
+  @ApiPropertyOptional({
+    example: 11800,
+    description: '实际收入，未录入时省略',
+  })
+  @IsOptional()
   @IsNumber({}, { message: '实际收入必须是数字' })
-  actualIncome: number;
+  actualIncome?: number;
 
-  @ApiProperty({ example: 8100, description: '实际支出' })
+  @ApiPropertyOptional({
+    example: 8100,
+    description: '实际支出，未录入时省略',
+  })
+  @IsOptional()
   @IsNumber({}, { message: '实际支出必须是数字' })
-  actualExpense: number;
+  actualExpense?: number;
 
   @ApiProperty({ example: 3700, description: '实际净额' })
   @IsNumber({}, { message: '实际净额必须是数字' })

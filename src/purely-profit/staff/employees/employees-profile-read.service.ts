@@ -5,10 +5,6 @@ import {
   STORE_SUB_ACCOUNT_ROLE_LABELS,
   toStoreSubAccountRoleCode,
 } from '../../access-control/access-control.constants';
-import {
-  buildSubAccountLoginDisplay,
-  extractCustomLoginAccount,
-} from '../../auth/auth.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   EmployeeResponseDto,
@@ -179,6 +175,7 @@ export class EmployeesProfileReadService {
           id: true,
           phone: true,
           email: true,
+          loginAccount: true,
           updatedAt: true,
           employeeProfile: {
             select: {
@@ -239,13 +236,7 @@ export class EmployeesProfileReadService {
         }
 
         const linkedStaff = linkedStaffByEmployeeId.get(employee.id);
-        const loginAccountDisplay = buildSubAccountLoginDisplay(
-          employee.phone,
-          linkedStaff?.email ?? null,
-        );
-        const customLoginAccount = linkedStaff?.email
-          ? extractCustomLoginAccount(linkedStaff.email)
-          : null;
+        const customLoginAccount = linkedStaff?.loginAccount ?? null;
 
         return [
           [
@@ -261,8 +252,8 @@ export class EmployeesProfileReadService {
                     ? 'disabled'
                     : 'active',
               slotIndex: subAccount.slotIndex,
-              ...(customLoginAccount || loginAccountDisplay
-                ? { loginAccount: loginAccountDisplay }
+              ...(customLoginAccount
+                ? { loginAccount: `${employee.phone} / ${customLoginAccount}` }
                 : {}),
               canHandover: subAccount.canUseHandover,
               hasPassword: Boolean(linkedStaff?.user?.password),

@@ -73,10 +73,6 @@ export function buildLegacyProfitPhoneLoginEmail(phone: string): string {
   return `${LEGACY_PROFIT_PHONE_LOGIN_PREFIX}${phone}@${LOCAL_LOGIN_DOMAIN}`;
 }
 
-export function buildLegacyProfitAccountLoginEmail(account: string): string {
-  return `${LEGACY_PROFIT_ACCOUNT_LOGIN_PREFIX}${normalizeLoginAccount(account)}@${LOCAL_LOGIN_DOMAIN}`;
-}
-
 export function buildPhoneLoginEmails(
   scope: AuthProductScope,
   phone: string,
@@ -84,17 +80,6 @@ export function buildPhoneLoginEmails(
   const emails = [buildPhoneLoginEmail(scope, phone)];
   if (scope === 'purely_profit') {
     emails.push(buildLegacyProfitPhoneLoginEmail(phone));
-  }
-  return emails;
-}
-
-export function buildAccountLoginEmails(
-  scope: AuthProductScope,
-  account: string,
-): string[] {
-  const emails = [buildLoginEmailFromAccount(scope, account)];
-  if (scope === 'purely_profit') {
-    emails.push(buildLegacyProfitAccountLoginEmail(account));
   }
   return emails;
 }
@@ -116,27 +101,6 @@ export function resolveLoginPhone(
   }
 
   return adminLoginPhone;
-}
-
-export function resolveLoginEmail(
-  scope: AuthProductScope,
-  account: string,
-  adminLoginAlias: string = 'admin',
-): string | null {
-  const normalizedAccount = account.trim();
-  if (
-    !normalizedAccount ||
-    !isCustomLoginAccount(normalizedAccount) ||
-    normalizedAccount.toLowerCase() === adminLoginAlias
-  ) {
-    return null;
-  }
-
-  if (scope !== 'purely_profit') {
-    return null;
-  }
-
-  return buildLoginEmailFromAccount(scope, normalizedAccount);
 }
 
 export function extractPhoneFromLoginAccount(account: string): string | null {
@@ -171,31 +135,6 @@ export function resolveSubAccountLoginEmail(
   }
 
   return buildLoginEmailFromAccount('purely_profit', normalizedAccount);
-}
-
-export function extractCustomLoginAccount(email: string): string | null {
-  const normalizedEmail = email.trim().toLowerCase();
-  const customPrefixes = [
-    PRODUCT_ACCOUNT_LOGIN_PREFIX.purely_profit,
-    LEGACY_PROFIT_ACCOUNT_LOGIN_PREFIX,
-  ];
-  const suffix = `@${LOCAL_LOGIN_DOMAIN}`;
-
-  if (!normalizedEmail.endsWith(suffix)) {
-    return null;
-  }
-
-  const matchedPrefix = customPrefixes.find((prefix) =>
-    normalizedEmail.startsWith(prefix),
-  );
-  if (!matchedPrefix) {
-    return null;
-  }
-
-  return normalizedEmail.slice(
-    matchedPrefix.length,
-    normalizedEmail.length - suffix.length,
-  );
 }
 
 export function normalizeLoginEmail(email: string): string {
@@ -295,17 +234,6 @@ export function maskPhone(phone: string): string {
   }
 
   return `${phone.slice(0, 3)}****${phone.slice(-4)}`;
-}
-
-export function buildSubAccountLoginDisplay(
-  phone: string,
-  loginEmail?: string | null,
-): string {
-  const customAccount = loginEmail
-    ? extractCustomLoginAccount(loginEmail)
-    : null;
-
-  return customAccount ? `${phone} / ${customAccount}` : phone;
 }
 
 export function isVerifiedUser(

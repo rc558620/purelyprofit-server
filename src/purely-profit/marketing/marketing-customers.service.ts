@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import type { ClubMemberLevelValue } from '../../purely-club/member/dto/club-member-account.dto';
 import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/club-member-levels.service';
@@ -38,10 +40,12 @@ import { buildCustomerWhere } from './marketing.domain';
 import {
   queryCustomerRecentConsumptions,
   queryCustomerRecentRecharges,
+  queryCustomerRowById,
 } from './marketing.query';
 import { MarketingSharedService } from './marketing-shared.service';
 import {
   buildMarketingPaginationMeta,
+  normalizePhone,
   resolveMarketingPagination,
 } from './marketing.utils';
 
@@ -50,6 +54,8 @@ const MARKETING_CUSTOMERS_LIST_REFRESH_AFTER_MS = 20_000;
 
 @Injectable()
 export class MarketingCustomersService {
+  private readonly logger = new Logger(MarketingCustomersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
@@ -72,7 +78,11 @@ export class MarketingCustomersService {
     if (!resolvedStoreId) {
       return {
         items: [],
-        meta: buildMarketingPaginationMeta(0, 1, query.pageSize ?? 20),
+        meta: buildMarketingPaginationMeta(
+          0,
+          1,
+          resolveMarketingPagination(query.page, query.pageSize).take,
+        ),
       };
     }
 
@@ -178,21 +188,26 @@ export class MarketingCustomersService {
     user: AuthenticatedUser,
     customerId: number,
   ): Promise<MarketingCustomerDetailDto> {
-    const customer =
-      await this.marketingSharedService.findCustomerOrThrow(customerId);
-    await this.marketingSharedService.ensureMarketingStoreAccess(
-      user,
-      customer.storeId,
-      'marketing:view',
-    );
+    // B6: 先查询（不抛异常），再鉴权，最后统一返回 404，防止存在性探测
+    const customer = await queryCustomerRowById(this.prisma, customerId);
+    if (customer) {
+      await this.marketingSharedService.ensureMarketingStoreAccess(
+        user,
+        customer.storeId,
+        'marketing:view',
+      );
+    }
+    if (!customer) {
+      throw new NotFoundException('顾客不存在');
+    }
 
     const [recentRecharges, recentConsumptions, rechargeSummary, clubLevel] =
       await Promise.all([
         queryCustomerRecentRecharges(this.prisma, customerId, 5),
         queryCustomerRecentConsumptions(this.prisma, customerId, 5),
         this.prisma.marketingRecharge.aggregate({
-          where: { customerId },
-          _sum: { totalAmount: true },
+          where: { customerId, type: 'recharge' },
+          _sum: { amount: true },
         }),
         this.resolveClubLevel(customer.storeId, customer.phone),
       ]);
@@ -200,9 +215,9 @@ export class MarketingCustomersService {
     return {
       ...mapCustomerRow(customer),
       ...clubLevel,
-      // _sum.totalAmount 返回 Prisma.Decimal | null，统一通过 Money 转为元（与其他金额字段一致）
+      // 累计充值 = 实际充值金额（不含赠送）汇总
       totalRecharge: Money.fromDbCents(
-        rechargeSummary._sum.totalAmount ?? 0,
+        rechargeSummary._sum.amount ?? 0,
       ).toOutputYuan(),
       recentRecharges: recentRecharges.map(mapRechargeRow),
       recentConsumptions: recentConsumptions.map(mapConsumptionRow),
@@ -219,22 +234,34 @@ export class MarketingCustomersService {
       storeId,
       'marketing:manage',
     );
-    await this.ensureUniquePhone(storeId, dto.phone);
+    const normalizedPhone = normalizePhone(dto.phone);
+    await this.ensureUniquePhone(storeId, normalizedPhone);
 
-    const created = await this.prisma.marketingCustomer.create({
-      data: {
-        storeId,
-        name: dto.name.trim(),
-        phone: dto.phone?.trim() || null,
-        avatar: toNullableMediaText(dto.avatar),
-        remark: dto.remark?.trim() || null,
-        tier: 'regular',
-      },
-    });
+    try {
+      const created = await this.prisma.marketingCustomer.create({
+        data: {
+          storeId,
+          name: dto.name.trim(),
+          phone: normalizedPhone,
+          avatar: toNullableMediaText(dto.avatar),
+          remark: dto.remark?.trim() || null,
+          tier: 'regular',
+        },
+      });
 
-    await this.invalidateOverviewCache(storeId);
+      await this.invalidateOverviewCache(storeId);
 
-    return mapCustomerRow(created);
+      return mapCustomerRow(created);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2002'
+      ) {
+        throw new ConflictException('该手机号的顾客已存在');
+      }
+      throw error;
+    }
   }
 
   async updateCustomer(
@@ -250,27 +277,61 @@ export class MarketingCustomersService {
       'marketing:manage',
     );
 
-    if (dto.phone !== undefined && dto.phone !== customer.phone) {
-      await this.ensureUniquePhone(customer.storeId, dto.phone, customerId);
+    if (dto.phone !== undefined) {
+      const normalizedNewPhone = normalizePhone(dto.phone);
+      if (normalizedNewPhone !== normalizePhone(customer.phone)) {
+        await this.ensureUniquePhone(
+          customer.storeId,
+          normalizedNewPhone,
+          customerId,
+        );
+      }
     }
 
-    const updated = await this.prisma.marketingCustomer.update({
-      where: { id: customerId },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.phone !== undefined ? { phone: dto.phone.trim() || null } : {}),
-        ...(dto.avatar !== undefined
-          ? { avatar: toNullableMediaText(dto.avatar) }
-          : {}),
-        ...(dto.remark !== undefined
-          ? { remark: dto.remark.trim() || null }
-          : {}),
-      },
-    });
+    // B8: 手机号变更时，同步更新关联的 Member.phone
+    const phoneUpdate =
+      dto.phone !== undefined ? { phone: normalizePhone(dto.phone) } : {};
 
-    await this.invalidateOverviewCache(customer.storeId);
+    try {
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const result = await tx.marketingCustomer.update({
+          where: { id: customerId },
+          data: {
+            ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+            ...phoneUpdate,
+            ...(dto.avatar !== undefined
+              ? { avatar: toNullableMediaText(dto.avatar) }
+              : {}),
+            ...(dto.remark !== undefined
+              ? { remark: dto.remark.trim() || null }
+              : {}),
+          },
+        });
 
-    return mapCustomerRow(updated);
+        // B8: 若手机号变更且有关联 Member，同步更新 Member.phone
+        if (dto.phone !== undefined && customer.memberId !== null) {
+          await tx.member.update({
+            where: { id: customer.memberId },
+            data: { phone: normalizePhone(dto.phone) },
+          });
+        }
+
+        return result;
+      });
+
+      await this.invalidateOverviewCache(customer.storeId);
+
+      return mapCustomerRow(updated);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2002'
+      ) {
+        throw new ConflictException('该手机号的顾客已存在');
+      }
+      throw error;
+    }
   }
 
   async deleteCustomer(
@@ -315,32 +376,41 @@ export class MarketingCustomersService {
     storeId: number,
     phone: string | null,
   ): Promise<Pick<MarketingCustomerDetailDto, 'clubLevel' | 'clubLevelLabel'>> {
-    const normalizedPhone = phone?.trim();
+    // B2: 防御性标准化，确保跨服务手机号格式一致
+    const normalizedPhone = normalizePhone(phone);
     if (!normalizedPhone) {
       return {};
     }
 
-    const snapshot =
-      await this.clubMemberProfileService.getSnapshotByStoreAndPhone(
-        storeId,
-        normalizedPhone,
+    try {
+      const snapshot =
+        await this.clubMemberProfileService.getSnapshotByStoreAndPhone(
+          storeId,
+          normalizedPhone,
+        );
+      if (!snapshot) {
+        return {};
+      }
+
+      const currentLevelConfig =
+        await this.clubMemberLevelsService.resolveCurrentLevelConfig(snapshot);
+
+      return {
+        clubLevel: currentLevelConfig.level as ClubMemberLevelValue,
+        clubLevelLabel: currentLevelConfig.label,
+      };
+    } catch (err) {
+      // B3: clubLevel 是附加字段，解析失败不应阻断核心数据返回
+      this.logger.warn(
+        `resolveClubLevel failed for storeId=${storeId}, phone=${normalizedPhone.slice(0, 3)}****: ${err instanceof Error ? err.message : err}`,
       );
-    if (!snapshot) {
       return {};
     }
-
-    const currentLevelConfig =
-      await this.clubMemberLevelsService.resolveCurrentLevelConfig(snapshot);
-
-    return {
-      clubLevel: currentLevelConfig.level as ClubMemberLevelValue,
-      clubLevelLabel: currentLevelConfig.label,
-    };
   }
 
   private async ensureUniquePhone(
     storeId: number,
-    phone: string | undefined,
+    phone: string | null | undefined,
     excludeCustomerId?: number,
   ): Promise<void> {
     const normalizedPhone = phone?.trim();

@@ -10,7 +10,6 @@ import {
   type FinanceCashFlowOverviewBucket,
   type FinancePeriodTotals,
 } from './finance.constants';
-import { FINANCE_OVERVIEW_DISPLAY_DAYS } from './finance.types';
 import {
   formatMonthDay,
   formatMonthLabel,
@@ -24,6 +23,8 @@ import {
   calcPercentPointDiff,
   calcMoneyRatio,
 } from '../../shared/money.utils';
+
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60_000;
 
 export function makeOverviewTotals(): Record<
   FinanceCashFlowOverviewBucket,
@@ -141,13 +142,15 @@ export function buildOverviewMonthlyTrend(
   incomeMap: Map<number, Money>,
   expenseMap: Map<number, Money>,
 ): FinanceOverviewResponseDto['dailyTrend'] {
-  const startDate = new Date(getShanghaiMonthStartMs(start));
-  const endDate = new Date(getShanghaiMonthStartMs(end));
-  // 用 UTC 方法读取月/年，与 getShanghaiMonthStartMs 的上海时区语义一致
-  const startMonth = startDate.getUTCMonth(); // 0-based
-  const startYear = startDate.getUTCFullYear();
-  const endMonth = endDate.getUTCMonth();
-  const endYear = endDate.getUTCFullYear();
+  // start/end 已是上海时区 UTC 毫秒时间戳，直接加偏移读取上海年月分量
+  // 不可调用 getShanghaiMonthStartMs：该函数返回「上海月 1 号零点」对应的 UTC 戳，
+  // 再对其 .getUTCMonth() 会因 -8h 回退到上个月，导致整体前移一个月。
+  const startD = new Date(start + SHANGHAI_OFFSET_MS);
+  const endD = new Date(end + SHANGHAI_OFFSET_MS);
+  const startMonth = startD.getUTCMonth(); // 0-based
+  const startYear = startD.getUTCFullYear();
+  const endMonth = endD.getUTCMonth();
+  const endYear = endD.getUTCFullYear();
   const totalMonths = (endYear - startYear) * 12 + (endMonth - startMonth) + 1;
   const months = Math.max(1, Math.min(12, totalMonths));
   const items: FinanceOverviewResponseDto['dailyTrend'] = [];
@@ -179,10 +182,8 @@ export function buildOverviewDailyTrend(
     Math.floor(
       (getShanghaiDayStartMs(end) - getShanghaiDayStartMs(start)) / 86_400_000,
     ) + 1;
-  const days = Math.max(
-    1,
-    Math.min(FINANCE_OVERVIEW_DISPLAY_DAYS[period], availableDays),
-  );
+  // 趋势窗口与 heroSummary 汇总窗口对齐：从周期起点到当天，不再人为 cap
+  const days = Math.max(1, availableDays);
   const items: FinanceOverviewResponseDto['dailyTrend'] = [];
 
   for (let index = days - 1; index >= 0; index -= 1) {

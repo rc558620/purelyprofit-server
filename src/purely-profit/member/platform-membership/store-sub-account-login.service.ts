@@ -4,13 +4,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { StaffRole, StaffStatus } from '@prisma/client';
+import { Prisma, StaffRole, StaffStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import {
   buildAccountIdentifiers,
   buildLoginEmailFromAccount,
+  buildPhoneLoginEmail,
+  isMainlandMobilePhone,
   isValidSubAccountLoginAccount,
 } from '../../auth/auth.utils';
 
@@ -18,6 +20,8 @@ interface EnsureEmployeeSubAccountLoginInput {
   password?: string;
   loginAccount?: string;
 }
+
+type PrismaClientOrTransaction = PrismaService | Prisma.TransactionClient;
 
 @Injectable()
 export class StoreSubAccountLoginService {
@@ -34,8 +38,9 @@ export class StoreSubAccountLoginService {
     storeId: number,
     employeeId: number,
     input: EnsureEmployeeSubAccountLoginInput,
+    db: PrismaClientOrTransaction = this.prisma,
   ): Promise<void> {
-    const employee = await this.prisma.employee.findUnique({
+    const employee = await db.employee.findUnique({
       where: { id: employeeId },
       select: {
         id: true,
@@ -86,29 +91,44 @@ export class StoreSubAccountLoginService {
       ? buildLoginEmailFromAccount('purely_profit', normalizedLoginAccount)
       : null;
 
-    if (employee.linkedStaff) {
-      if (nextLoginEmail) {
-        await this.ensureLoginAccountAvailable(
-          employee.linkedStaff.id,
-          nextLoginEmail,
-        );
-      }
+    const nextStaffEmail =
+      nextLoginEmail ??
+      buildAccountIdentifiers('purely_profit', employee.phone).email;
 
+    // ── 全局唯一性预检：loginAccount 跨门店唯一 + 手机号不与已注册主账号冲突 ──
+    const excludeUserId = employee.linkedStaff?.userId ?? null;
+    const excludeStaffId = employee.linkedStaff?.id ?? null;
+    await this.checkEmailAndPhoneConflicts(
+      db,
+      nextStaffEmail,
+      employee.phone,
+      normalizedLoginAccount || null,
+      excludeStaffId,
+      excludeUserId,
+    );
+
+    if (employee.linkedStaff) {
       if (!employee.linkedStaff.userId) {
         if (!normalizedPassword) {
           throw new BadRequestException('首次设置子账号时必须填写登录密码');
         }
 
         const user = await this.createOrFindUser(
+          db,
           employee.phone,
           employee.name ?? `员工${employee.id}`,
           normalizedPassword,
         );
-        await this.prisma.staff.update({
+        await db.staff.update({
           where: { id: employee.linkedStaff.id },
           data: {
             userId: user.id,
-            ...(nextLoginEmail ? { email: nextLoginEmail } : {}),
+            ...(nextLoginEmail
+              ? {
+                  email: nextLoginEmail,
+                  loginAccount: normalizedLoginAccount || null,
+                }
+              : {}),
           },
         });
         return;
@@ -117,12 +137,16 @@ export class StoreSubAccountLoginService {
       if (nextLoginEmail && employee.linkedStaff.email !== nextLoginEmail) {
         await this.prisma.staff.update({
           where: { id: employee.linkedStaff.id },
-          data: { email: nextLoginEmail },
+          data: {
+            email: nextLoginEmail,
+            loginAccount: normalizedLoginAccount || null,
+          },
         });
       }
 
       if (normalizedPassword) {
         await this.updateUserPassword(
+          db,
           employee.linkedStaff.userId,
           normalizedPassword,
         );
@@ -135,73 +159,202 @@ export class StoreSubAccountLoginService {
     }
 
     const user = await this.createOrFindUser(
+      db,
       employee.phone,
       employee.name ?? `员工${employee.id}`,
       normalizedPassword,
     );
 
-    const nextStaffEmail =
-      nextLoginEmail ??
-      buildAccountIdentifiers('purely_profit', employee.phone).email;
-
-    const existingStaff = await this.prisma.staff.findFirst({
+    const existingStaff = await db.staff.findFirst({
       where: {
         phone: employee.phone,
         storeId,
+        isActive: true,
       },
       select: { id: true, userId: true },
     });
 
     if (existingStaff) {
-      await this.ensureLoginAccountAvailable(existingStaff.id, nextStaffEmail);
-      await this.prisma.staff.update({
+      await db.staff.update({
         where: { id: existingStaff.id },
         data: {
           ...(existingStaff.userId ? {} : { userId: user.id }),
           email: nextStaffEmail,
+          loginAccount: normalizedLoginAccount || null,
         },
       });
-      await this.prisma.employee.update({
+      // 先清除旧 Employee 对该 Staff 的关联（如已离职员工残留的 linkedStaffId）
+      await db.employee.updateMany({
+        where: { linkedStaffId: existingStaff.id },
+        data: { linkedStaffId: null },
+      });
+      await db.employee.update({
         where: { id: employeeId },
         data: { linkedStaffId: existingStaff.id },
       });
       return;
     }
 
-    const newStaff = await this.prisma.staff.create({
-      data: {
+    // 查找同门店中 email 相同但已禁用的 Staff（前员工离职后残留），复用而非新建
+    const disabledStaffWithEmail = await db.staff.findFirst({
+      where: {
         storeId,
-        userId: user.id,
         email: nextStaffEmail,
-        name: employee.name ?? `员工${employee.id}`,
-        phone: employee.phone,
-        role: StaffRole.staff,
-        permissions: [],
-        status: StaffStatus.active,
-        isSeatActive: true,
-        isActive: true,
+        isActive: false,
       },
+      select: { id: true, userId: true },
     });
-    await this.prisma.employee.update({
-      where: { id: employeeId },
-      data: { linkedStaffId: newStaff.id },
-    });
+
+    if (disabledStaffWithEmail) {
+      // 先清除旧 Employee 对该 Staff 的关联（如已离职员工残留的 linkedStaffId）
+      await db.employee.updateMany({
+        where: { linkedStaffId: disabledStaffWithEmail.id },
+        data: { linkedStaffId: null },
+      });
+
+      await db.staff.update({
+        where: { id: disabledStaffWithEmail.id },
+        data: {
+          userId: user.id,
+          name: employee.name ?? `员工${employee.id}`,
+          phone: employee.phone,
+          status: StaffStatus.active,
+          isSeatActive: true,
+          isActive: true,
+          loginAccount: normalizedLoginAccount || null,
+        },
+      });
+      await db.employee.update({
+        where: { id: employeeId },
+        data: { linkedStaffId: disabledStaffWithEmail.id },
+      });
+      return;
+    }
+
+    try {
+      const newStaff = await db.staff.create({
+        data: {
+          storeId,
+          userId: user.id,
+          email: nextStaffEmail,
+          loginAccount: normalizedLoginAccount || null,
+          name: employee.name ?? `员工${employee.id}`,
+          phone: employee.phone,
+          role: StaffRole.staff,
+          permissions: [],
+          status: StaffStatus.active,
+          isSeatActive: true,
+          isActive: true,
+        },
+      });
+      await db.employee.update({
+        where: { id: employeeId },
+        data: { linkedStaffId: newStaff.id },
+      });
+    } catch (error: unknown) {
+      // 并发竞争兜底：预检通过后另一个请求抢先写入同 email
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('该账号已被注册');
+      }
+      throw error;
+    }
   }
 
-  private async ensureLoginAccountAvailable(
-    currentStaffId: number,
-    loginEmail: string,
+  /**
+   * 全局唯一性预检：
+   * 1. loginAccount（email）跨所有门店的 active Staff 唯一
+   * 2. 手机号不与已注册的其他主账号冲突
+   */
+  private async checkEmailAndPhoneConflicts(
+    db: PrismaClientOrTransaction,
+    nextStaffEmail: string,
+    phone: string,
+    loginAccount: string | null,
+    excludeStaffId: number | null,
+    excludeUserId: number | null,
   ): Promise<void> {
-    const conflictStaff = await this.prisma.staff.findFirst({
-      where: {
-        email: loginEmail,
-        id: { not: currentStaffId },
-      },
+    // 1. loginAccount 全局唯一（跨所有门店、仅校验 active Staff）
+    //    excludeStaffId 排除当前员工自己的 Staff，避免不变更 email 时误报冲突
+    const emailWhere = excludeStaffId
+      ? { email: nextStaffEmail, isActive: true, id: { not: excludeStaffId } }
+      : { email: nextStaffEmail, isActive: true };
+
+    const emailConflict = await db.staff.findFirst({
+      where: emailWhere,
       select: { id: true },
     });
 
-    if (conflictStaff) {
-      throw new ConflictException('登录账号已被其他员工使用');
+    if (emailConflict) {
+      throw new ConflictException('该账号已被注册');
+    }
+
+    // 2. 手机号全局唯一（不与已注册的其他主账号冲突）
+    //    排除同手机号 Staff 关联的 User（createOrFindUser 会复用这些 User，不算冲突）
+    const phoneEmail = buildPhoneLoginEmail('purely_profit', phone);
+    const reusableUserIds = await db.staff.findMany({
+      where: {
+        phone,
+        userId: { not: null },
+      },
+      select: { userId: true },
+    });
+    const excludeUserIds = [
+      ...new Set(
+        [
+          ...(excludeUserId ? [excludeUserId] : []),
+          ...reusableUserIds.map((s) => s.userId!),
+        ].filter(Boolean),
+      ),
+    ];
+
+    const phoneWhere =
+      excludeUserIds.length > 0
+        ? { email: phoneEmail, id: { notIn: excludeUserIds } }
+        : { email: phoneEmail };
+
+    const phoneConflict = await db.user.findFirst({
+      where: phoneWhere,
+      select: { id: true },
+    });
+
+    if (phoneConflict) {
+      throw new ConflictException('该电话号码已被注册');
+    }
+
+    // 3. loginAccount 不得与任何已注册身份冲突
+    if (loginAccount) {
+      // 3a. 若是手机号格式，不得与已注册的主账号手机号冲突
+      if (isMainlandMobilePhone(loginAccount)) {
+        const loginAccountPhoneEmail = buildPhoneLoginEmail(
+          'purely_profit',
+          loginAccount,
+        );
+        const loginAccountPhoneConflict = await db.user.findFirst({
+          where: { email: loginAccountPhoneEmail },
+          select: { id: true },
+        });
+
+        if (loginAccountPhoneConflict) {
+          throw new ConflictException('该电话号码已被注册');
+        }
+      }
+
+      // 3b. 不得与任何活跃 Staff 的手机号相同（防止登录时走 phone 查找路径串号）
+      const staffPhoneConflict = await db.staff.findFirst({
+        where: {
+          phone: loginAccount,
+          isActive: true,
+          userId: { not: null },
+        },
+        select: { id: true },
+      });
+
+      if (staffPhoneConflict) {
+        throw new ConflictException('该账号已被注册');
+      }
     }
   }
 
@@ -209,13 +362,14 @@ export class StoreSubAccountLoginService {
    * 创建新 User 或查找已存在的 User（通过手机号别名邮箱）
    */
   private async createOrFindUser(
+    db: PrismaClientOrTransaction,
     phone: string,
     name: string,
     password: string,
   ): Promise<{ id: number }> {
     const aliasEmail = buildAccountIdentifiers('purely_profit', phone).email;
 
-    const existingStaffWithUser = await this.prisma.staff.findFirst({
+    const existingStaffWithUser = await db.staff.findFirst({
       where: {
         phone,
         userId: { not: null },
@@ -228,22 +382,22 @@ export class StoreSubAccountLoginService {
     });
 
     if (existingStaffWithUser?.user) {
-      await this.updateUserPassword(existingStaffWithUser.user.id, password);
+      await this.updateUserPassword(db, existingStaffWithUser.user.id, password);
       return existingStaffWithUser.user;
     }
 
-    const existingUser = await this.prisma.user.findUnique({
+    const existingUser = await db.user.findUnique({
       where: { email: aliasEmail },
       select: { id: true },
     });
 
     if (existingUser) {
-      await this.updateUserPassword(existingUser.id, password);
+      await this.updateUserPassword(db, existingUser.id, password);
       return existingUser;
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    return this.prisma.user.create({
+    return db.user.create({
       data: {
         email: aliasEmail,
         password: hashedPassword,
@@ -257,11 +411,12 @@ export class StoreSubAccountLoginService {
    * 更新用户密码
    */
   private async updateUserPassword(
+    db: PrismaClientOrTransaction,
     userId: number,
     password: string,
   ): Promise<void> {
     const hashedPassword = await bcrypt.hash(password, 10);
-    await this.prisma.user.update({
+    await db.user.update({
       where: { id: userId },
       data: { password: hashedPassword },
     });
