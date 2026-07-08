@@ -103,7 +103,7 @@ describe('MarketingService recharges', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('createRecharge 退款超过余额时抛 BadRequestException', async () => {
+  it('createRecharge 退款超过可退本金时抛 BadRequestException', async () => {
     context.platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
       undefined,
     );
@@ -125,6 +125,10 @@ describe('MarketingService recharges', () => {
         updatedAt: new Date('2026-05-14T10:00:00.000Z'),
       },
     ]);
+    // 预校验 aggregate：累计充值 2000 分（20 元），累计退款 0
+    context.prismaService.marketingRecharge.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: 2000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } });
 
     await expect(
       context.service.createRecharge(context.user, 18, {
@@ -165,21 +169,25 @@ describe('MarketingService recharges', () => {
       id: 101,
       storeId: 18,
       customerId: 9,
-      amount: 10000,    // 100 元 = 10000 分
+      amount: 10000, // 100 元 = 10000 分
       giftAmount: 2000, // 20 元 = 2000 分
       totalAmount: 12000, // Money.add → 120 元 = 12000 分
       type: 'recharge',
       promotionId: null,
       note: '测试储值',
     };
-    context.prismaService.$transaction.mockImplementation(async (fn: Function) => {
-      const txMock = {
-        marketingRecharge: { create: jest.fn().mockResolvedValue(createdRecharge) },
-        marketingCustomer: { update: jest.fn() },
-        marketingPromotion: { updateMany: jest.fn() },
-      };
-      return fn(txMock);
-    });
+    context.prismaService.$transaction.mockImplementation(
+      async (fn: Function) => {
+        const txMock = {
+          marketingRecharge: {
+            create: jest.fn().mockResolvedValue(createdRecharge),
+          },
+          marketingCustomer: { update: jest.fn() },
+          marketingPromotion: { updateMany: jest.fn() },
+        };
+        return fn(txMock);
+      },
+    );
     // queryRechargeRowById 返回
     context.prismaService.$queryRaw.mockResolvedValueOnce([
       {
@@ -198,7 +206,7 @@ describe('MarketingService recharges', () => {
 
     const result = await context.service.createRecharge(context.user, 18, {
       customerId: 9,
-      amount: 10000,    // 分（DTO 单位）
+      amount: 10000, // 分（DTO 单位）
       giftAmount: 2000, // 分
       note: '测试储值',
     });
@@ -232,12 +240,16 @@ describe('MarketingService recharges', () => {
         updatedAt: new Date('2026-05-14T10:00:00.000Z'),
       },
     ]);
+    // 预校验 aggregate：累计充值 50000（500 元），累计退款 0
+    context.prismaService.marketingRecharge.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: 50000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } });
 
     const createdRecharge = {
       id: 102,
       storeId: 18,
       customerId: 9,
-      amount: 3000,     // 30 元退款
+      amount: 3000, // 30 元退款
       giftAmount: 0,
       totalAmount: 3000,
       type: 'refund',
@@ -246,14 +258,25 @@ describe('MarketingService recharges', () => {
     };
     const txUpdateMock = jest.fn();
     const txFindUniqueMock = jest.fn().mockResolvedValue({ balance: 50000 });
-    context.prismaService.$transaction.mockImplementation(async (fn: Function) => {
-      const txMock = {
-        marketingRecharge: { create: jest.fn().mockResolvedValue(createdRecharge) },
-        marketingCustomer: { update: txUpdateMock, findUnique: txFindUniqueMock },
-        marketingPromotion: { updateMany: jest.fn() },
-      };
-      return fn(txMock);
-    });
+    context.prismaService.$transaction.mockImplementation(
+      async (fn: Function) => {
+        const txMock = {
+          marketingRecharge: {
+            create: jest.fn().mockResolvedValue(createdRecharge),
+            aggregate: jest
+              .fn()
+              .mockResolvedValueOnce({ _sum: { amount: 50000 } })
+              .mockResolvedValueOnce({ _sum: { amount: 0 } }),
+          },
+          marketingCustomer: {
+            update: txUpdateMock,
+            findUnique: txFindUniqueMock,
+          },
+          marketingPromotion: { updateMany: jest.fn() },
+        };
+        return fn(txMock);
+      },
+    );
     // queryRechargeRowById
     context.prismaService.$queryRaw.mockResolvedValueOnce([
       {
@@ -281,10 +304,104 @@ describe('MarketingService recharges', () => {
     expect(result.giftAmount).toBe(0);
     expect(result.totalAmount).toBe(30);
     expect(result.type).toBe('refund');
-    // 验证余额扣减方向：退款时 balanceDelta = -3000（-30 元）
+    // 验证余额扣减方向：退款时 balanceDelta = -3000（-30 元），无 clearRemainingGift
     expect(txUpdateMock).toHaveBeenCalledWith(
       expect.objectContaining({
         data: { balance: { increment: -3000 } },
+      }),
+    );
+  });
+
+  it('createRecharge 退款 + clearRemainingGift：balanceDelta 包含赠送金额', async () => {
+    context.platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
+      undefined,
+    );
+    // 场景：充值 400 元 + 赠送 33 元，余额 43300 分
+    context.prismaService.$queryRaw.mockResolvedValueOnce([
+      {
+        id: 9,
+        storeId: 18,
+        name: '张三',
+        phone: '13800138000',
+        avatar: null,
+        tier: 'gold',
+        balance: 43300, // 433 元余额（400 充值 + 33 赠送）
+        points: 300,
+        totalSpent: 52000,
+        visitCount: 6,
+        lastVisitAt: new Date('2026-05-14T10:00:00.000Z'),
+        remark: null,
+        createdAt: new Date('2026-04-01T10:00:00.000Z'),
+        updatedAt: new Date('2026-04-01T10:00:00.000Z'),
+      },
+    ]);
+    // 预校验 aggregate：累计充值 40000（400 元），累计退款 0
+    context.prismaService.marketingRecharge.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: 40000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } });
+
+    const createdRecharge = {
+      id: 103,
+      storeId: 18,
+      customerId: 9,
+      amount: 40000, // 400 元退款
+      giftAmount: 0,
+      totalAmount: 40000,
+      type: 'refund',
+      promotionId: null,
+      note: '全额退款',
+    };
+    const txUpdateMock = jest.fn();
+    const txFindUniqueMock = jest.fn().mockResolvedValue({ balance: 43300 });
+    context.prismaService.$transaction.mockImplementation(
+      async (fn: Function) => {
+        const txMock = {
+          marketingRecharge: {
+            create: jest.fn().mockResolvedValue(createdRecharge),
+            aggregate: jest
+              .fn()
+              .mockResolvedValueOnce({ _sum: { amount: 40000 } })
+              .mockResolvedValueOnce({ _sum: { amount: 0 } }),
+          },
+          marketingCustomer: {
+            update: txUpdateMock,
+            findUnique: txFindUniqueMock,
+          },
+          marketingPromotion: { updateMany: jest.fn() },
+        };
+        return fn(txMock);
+      },
+    );
+    // queryRechargeRowById
+    context.prismaService.$queryRaw.mockResolvedValueOnce([
+      {
+        id: 103,
+        customerId: 9,
+        customerName: '张三',
+        amount: 40000,
+        giftAmount: 0,
+        totalAmount: 40000,
+        type: 'refund',
+        promotionId: null,
+        note: '全额退款',
+        createdAt: new Date('2026-05-15T11:00:00.000Z'),
+      },
+    ]);
+
+    const result = await context.service.createRecharge(context.user, 18, {
+      customerId: 9,
+      amount: 40000,
+      type: 'refund',
+      note: '全额退款',
+      clearRemainingGift: true,
+    });
+
+    expect(result.amount).toBe(400);
+    expect(result.type).toBe('refund');
+    // 验证余额扣减：400 元退款 + 33 元赠送 = -43300 分（余额归零）
+    expect(txUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { balance: { increment: -43300 } },
       }),
     );
   });

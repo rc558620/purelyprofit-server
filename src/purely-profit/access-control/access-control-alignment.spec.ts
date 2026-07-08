@@ -15,7 +15,7 @@ import {
 import { SubjectCapabilityService } from './subject-capability.service';
 import { PermissionsGuard } from './guards/permissions.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { MarketingController } from '../marketing/marketing.controller';
+import { MarketingOverviewController } from '../marketing/marketing.controller';
 import { MarketingCustomersController } from '../marketing/marketing-customers.controller';
 import { MarketingProductCategoriesController } from '../marketing/marketing-product-categories.controller';
 import { MarketingProductsController } from '../marketing/marketing-products.controller';
@@ -205,15 +205,14 @@ describe('Sub-account alignment regression', () => {
 });
 
 describe('Permission metadata regression', () => {
-  it('MarketingController 应启用登录态与权限 guard', () => {
-    expect(Reflect.getMetadata(GUARDS_METADATA, MarketingController)).toEqual([
-      JwtAuthGuard,
-      PermissionsGuard,
-    ]);
+  it('MarketingOverviewController 应启用登录态与权限 guard', () => {
+    expect(
+      Reflect.getMetadata(GUARDS_METADATA, MarketingOverviewController),
+    ).toEqual([JwtAuthGuard, PermissionsGuard]);
   });
 
   it.each([
-    MarketingController,
+    MarketingOverviewController,
     MarketingCustomersController,
     MarketingPromotionsController,
     MarketingProductsController,

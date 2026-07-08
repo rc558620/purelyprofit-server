@@ -55,10 +55,8 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
 
   /** 服务启动后自动修复历史未充值推广记录（在 Redis 就绪后执行） */
   async onApplicationBootstrap(): Promise<void> {
-    this.logger.log('[promo-init] 开始执行推广记录修复与余额校正...');
     try {
       await this.backfillUnchargedPromoRecords();
-      this.logger.log('[promo-init] 推广记录修复与余额校正完成');
     } catch (err: unknown) {
       this.logger.warn(
         `[promo-init] 历史推广记录修复失败: ${
@@ -635,13 +633,9 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
       where: { source: 'promo_reward' },
     });
 
-    this.logger.log(
-      `[reconcile] 找到 ${partnersWithLogs.length} 个有推广豆日志的合伙人`,
-    );
-
     if (partnersWithLogs.length === 0) return;
 
-    let correctedCount = 0;
+    let _correctedCount = 0;
     const affectedStoreIds = new Set<number>();
 
     for (const entry of partnersWithLogs) {
@@ -676,7 +670,7 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
         partner.beanBalance !== correctBalance ||
         partner.totalEarnedBeans !== correctTotalEarned
       ) {
-        this.logger.log(
+        this.logger.debug(
           `[reconcile] 合伙人 #${entry.partnerId} 余额不一致: ` +
             `db_balance=${partner.beanBalance}→${correctBalance}, ` +
             `db_earned=${partner.totalEarnedBeans}→${correctTotalEarned}`,
@@ -690,20 +684,14 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
           },
         });
 
-        correctedCount++;
+        _correctedCount++;
       } else {
-        this.logger.log(
-          `[reconcile] 合伙人 #${entry.partnerId} 余额已正确: balance=${correctBalance}`,
-        );
+        // 余额正确，无需处理
       }
     }
 
     for (const storeId of affectedStoreIds) {
       await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
-    }
-
-    if (correctedCount > 0) {
-      this.logger.log(`[reconcile] 校正了 ${correctedCount} 个合伙人的豆余额`);
     }
   }
 

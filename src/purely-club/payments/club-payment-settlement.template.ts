@@ -55,9 +55,12 @@ export abstract class ClubPaymentSettlementTemplate<
     }
 
     try {
-      await this.prisma.$transaction(async (tx) => {
-        await this.persistPaidDraft(tx, draft);
-      }, { timeout: TX_TIMEOUT_MEDIUM });
+      await this.prisma.$transaction(
+        async (tx) => {
+          await this.persistPaidDraft(tx, draft);
+        },
+        { timeout: TX_TIMEOUT_MEDIUM },
+      );
       await this.cacheInvalidatorService.invalidateMarketingOverview(
         draft.storeId,
       );

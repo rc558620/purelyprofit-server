@@ -96,10 +96,28 @@ export class ClubMemberService {
 
     const parsed = safeParsePointsRatio(settings?.pointsRatio);
     if (parsed) {
+      let enabled = parsed.enabled;
+      if (!enabled) {
+        const now = new Date();
+        const promo = await this.prisma.marketingPromotion.findFirst({
+          where: {
+            storeId: currentContext.store.id,
+            type: 'points_recharge',
+            enabled: true,
+            startAt: { lte: now },
+            endAt: { gte: now },
+          },
+          select: { id: true },
+        });
+        if (promo) {
+          enabled = true;
+        }
+      }
+
       return {
         redeemRatioPoints: parsed.redeemRatioPoints,
         maxRedeemRatio: parsed.maxRedeemRatio,
-        enabled: parsed.enabled,
+        enabled,
       };
     }
 

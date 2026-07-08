@@ -120,7 +120,7 @@ export const DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS: MarketingMemberLevelSettin
         discountRate: 0.9,
         discountRatePct: 90,
         spendThreshold: 0,
-        description: '注册即享 9 折优惠',
+        description: '充值即享 9 折优惠',
         enabled: true,
         updatedAt: 0,
       },

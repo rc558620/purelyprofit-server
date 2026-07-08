@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -162,4 +163,11 @@ export class CreateRechargeDto {
   @IsString({ message: '备注必须是字符串' })
   @MaxLength(200, { message: '备注最长 200 个字符' })
   note?: string;
+
+  @ApiPropertyOptional({
+    description: '退款时是否清零剩余赠送金额（仅 type=refund 时生效）',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'clearRemainingGift 必须是布尔值' })
+  clearRemainingGift?: boolean;
 }

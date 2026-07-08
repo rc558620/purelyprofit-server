@@ -274,7 +274,7 @@ describe('MarketingService promotions', () => {
       {
         discountRatePct: 88,
         spendThreshold: 999999,
-        description: '注册即享 88 折',
+        description: '充值即享 88 折',
         enabled: false,
       },
     );
@@ -284,7 +284,7 @@ describe('MarketingService promotions', () => {
         id: 'gold',
         discountRatePct: 88,
         spendThreshold: 0,
-        description: '注册即享 88 折',
+        description: '充值即享 88 折',
         enabled: false,
       }),
     );

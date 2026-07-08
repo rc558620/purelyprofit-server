@@ -6,14 +6,13 @@ import { PlatformMembershipModule } from '../member/platform-membership/platform
 import { PrismaModule } from '../../prisma/prisma.module';
 import { MarketingAccessService } from './marketing-access.service';
 import {
-  MarketingController,
   MarketingCustomersController,
+  MarketingOverviewController,
   MarketingProductCategoriesController,
   MarketingProductsController,
   MarketingPromotionsController,
   MarketingTransactionsController,
 } from './marketing.controller';
-import { MarketingOverviewController } from './marketing-overview.controller';
 import { MarketingConsumptionsService } from './marketing-consumptions.service';
 import { MarketingCustomersService } from './marketing-customers.service';
 import { MarketingOverviewService } from './marketing-overview.service';
@@ -35,7 +34,6 @@ import { MarketingSharedService } from './marketing-shared.service';
 @Module({
   imports: [PrismaModule, AccessControlModule, PlatformMembershipModule],
   controllers: [
-    MarketingController,
     MarketingOverviewController,
     MarketingCustomersController,
     MarketingTransactionsController,

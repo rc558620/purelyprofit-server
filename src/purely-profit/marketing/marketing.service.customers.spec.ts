@@ -97,10 +97,21 @@ describe('MarketingService customers', () => {
           promotionName: null,
           createdAt: new Date('2026-05-15T10:00:00.000Z'),
         },
+      ])
+      // 4th call: queryCustomerGiftBalanceCents（时间线遍历）
+      .mockResolvedValueOnce([
+        {
+          amount: 10000,
+          giftAmount: 2000,
+          totalAmount: 12000,
+          type: 'recharge',
+        },
       ]);
-    context.prismaService.marketingRecharge.aggregate.mockResolvedValue({
-      _sum: { totalAmount: 35000 },
-    });
+    context.prismaService.marketingRecharge.aggregate
+      // 1. recharge aggregate: _sum.amount
+      .mockResolvedValueOnce({ _sum: { amount: 35000 } })
+      // 2. refund aggregate: _sum.amount
+      .mockResolvedValueOnce({ _sum: { amount: 0 } });
     context.clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue(
       {
         memberId: 201,
@@ -128,6 +139,10 @@ describe('MarketingService customers', () => {
     const result = await context.service.getCustomer(context.user, 9);
 
     expect(result.totalRecharge).toBe(350);
+    // refundableAmount = 累计充值本金(350) - 累计退款(0) = 350
+    expect(result.refundableAmount).toBe(350);
+    // giftBalance: trackedGift = 2000（无退款，直接累计）= ¥20
+    expect(result.giftBalance).toBe(20);
     expect(result.recentRecharges).toHaveLength(1);
     expect(result.recentConsumptions).toHaveLength(1);
     expect(result.phone).toBe('13800138000');

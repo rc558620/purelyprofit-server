@@ -38,8 +38,25 @@ export class ClubOrderServiceCreationService {
       context.customer.id,
       currentContext.user.phone,
       context.product.price,
+      { skipReduce: true },
     );
     const productName = context.product.name;
+    const quantity = dto.quantity ?? 1;
+
+    // ── 订单级金额计算 ──
+    const beforeReduceTotalFen = pricing.amountFenBeforeReduce * quantity;
+
+    // 满减：基于订单总额计算，单次生效，不叠加
+    const orderReduceFen =
+      await this.clubOrderPromotionsService.resolveOrderReduceFen(
+        context.store.id,
+        beforeReduceTotalFen,
+      );
+
+    const afterReduceTotalFen = Math.max(
+      beforeReduceTotalFen - orderReduceFen,
+      0,
+    );
 
     // ── 积分抵扣计算 ──────────────────────────────────────────────────────────
     // 根据会员等级配置中的积分规则进行计算
@@ -47,10 +64,10 @@ export class ClubOrderServiceCreationService {
     const { pointsDeductFen, pointsUsed } = await this.calcPointsDeduction(
       currentContext.store.id,
       context.customer.id,
-      pricing.amountFen,
+      afterReduceTotalFen,
       dto.usePoints === true,
     );
-    const finalAmountFen = Math.max(pricing.amountFen - pointsDeductFen, 0);
+    const finalAmountFen = Math.max(afterReduceTotalFen - pointsDeductFen, 0);
 
     // 预生成订单号保证 JSAPI out_trade_no 与 draft orderNo 一致
     const now = Date.now();
@@ -77,7 +94,11 @@ export class ClubOrderServiceCreationService {
       amountFen: finalAmountFen,
       metadata: this.clubOrderServiceContextService.buildDraftMetadata(
         context.product,
-        pricing,
+        {
+          ...pricing,
+          totalReduceFen: orderReduceFen,
+          discountAmountFen: pricing.discountAmountFen + orderReduceFen,
+        },
         pointsDeductFen,
         pointsUsed,
       ),
@@ -105,13 +126,8 @@ export class ClubOrderServiceCreationService {
       return { pointsDeductFen: 0, pointsUsed: 0 };
     }
 
-    // 获取积分规则配置
+    // 获取积分规则配置（仅取抵扣比例和兑换比率，不受 enabled 开关控制）
     const pointsRatio = await this.getPointsRatioConfig(storeId);
-
-    // 若积分规则未启用，不进行积分抵扣
-    if (!pointsRatio.enabled) {
-      return { pointsDeductFen: 0, pointsUsed: 0 };
-    }
 
     // 通过 customerId 直接查询积分，避免重复通过 storeId+phone 查询
     const customer = await this.prisma.marketingCustomer.findUnique({
@@ -146,7 +162,8 @@ export class ClubOrderServiceCreationService {
 
   /**
    * 获取积分抵扣配置
-   * 从 marketingMemberLevelSetting 中读取，若未配置则使用默认值
+   * 从 marketingMemberLevelSetting 中读取，若未配置则使用默认值。
+   * 若存在活跃的 points_recharge 活动，强制 enabled=true（与 Admin GET 保持一致）。
    */
   private async getPointsRatioConfig(
     storeId: number,
@@ -156,6 +173,25 @@ export class ClubOrderServiceCreationService {
       select: { pointsRatio: true },
     });
 
-    return resolvePointsRedeemConfig(settings?.pointsRatio);
+    const config = resolvePointsRedeemConfig(settings?.pointsRatio);
+
+    if (!config.enabled) {
+      const now = new Date();
+      const promo = await this.prisma.marketingPromotion.findFirst({
+        where: {
+          storeId,
+          type: 'points_recharge',
+          enabled: true,
+          startAt: { lte: now },
+          endAt: { gte: now },
+        },
+        select: { id: true },
+      });
+      if (promo) {
+        return { ...config, enabled: true };
+      }
+    }
+
+    return config;
   }
 }

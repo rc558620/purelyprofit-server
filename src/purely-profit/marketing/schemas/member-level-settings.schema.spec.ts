@@ -6,6 +6,8 @@ import {
   safeParseLevels,
   safeParsePointsRatio,
   safeParseMemberLevelSettings,
+  strictParseLevels,
+  strictParsePointsRatio,
 } from './member-level-settings.schema';
 import { DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS } from '../marketing.utils';
 
@@ -19,7 +21,7 @@ describe('memberLevelConfigSchema', () => {
       discountRate: 0.9,
       discountRatePct: 90,
       spendThreshold: 0,
-      description: '注册即享 9 折优惠',
+      description: '充值即享 9 折优惠',
       enabled: true,
       updatedAt: 0,
     });
@@ -32,7 +34,7 @@ describe('memberLevelConfigSchema', () => {
       name: '黄金会员',
       discountRate: 0.9,
       spendThreshold: 0,
-      description: '注册即享 9 折优惠',
+      description: '充值即享 9 折优惠',
       enabled: true,
       updatedAt: 0,
     });
@@ -208,6 +210,71 @@ describe('safeParseLevels', () => {
     const result = safeParseLevels(null);
     expect(result).toHaveLength(3);
   });
+
+  it('B-M1: 单条非法等级仅兑底该条，不影响其余合法等级', () => {
+    const raw = [
+      { ...DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels[0] }, // gold: valid
+      {
+        ...DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels[1],
+        discountRate: 1.5,
+      }, // platinum: invalid
+      { ...DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels[2] }, // diamond: valid
+    ];
+    const result = safeParseLevels(raw);
+    expect(result).toHaveLength(3);
+    // gold 保持原值
+    expect(result[0].id).toBe('gold');
+    expect(result[0].discountRate).toBe(0.9);
+    // platinum 兑底为默认值（非法字段被丢弃）
+    expect(result[1].id).toBe('platinum');
+    expect(result[1].discountRate).toBe(
+      DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels[1].discountRate,
+    );
+    // diamond 保持原值
+    expect(result[2].id).toBe('diamond');
+    expect(result[2].discountRate).toBe(0.8);
+  });
+
+  it('B-M1: 多条非法等级各自兑底为默认值', () => {
+    const raw = [
+      {
+        id: 'gold',
+        name: '',
+        discountRate: 0.9,
+        spendThreshold: 0,
+        description: '',
+        enabled: true,
+        updatedAt: 0,
+      }, // name='' invalid
+      {
+        id: 'platinum',
+        name: '铂金',
+        discountRate: 1.5,
+        spendThreshold: 5000,
+        description: '',
+        enabled: true,
+        updatedAt: 0,
+      }, // discountRate invalid
+      {
+        id: 'diamond',
+        name: '钻石',
+        discountRate: 0.8,
+        spendThreshold: 10000,
+        description: '',
+        enabled: true,
+        updatedAt: 0,
+      }, // valid
+    ];
+    const result = safeParseLevels(raw);
+    expect(result).toHaveLength(3);
+    expect(result[0]).toEqual(
+      DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels[0],
+    );
+    expect(result[1]).toEqual(
+      DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels[1],
+    );
+    expect(result[2].name).toBe('钻石');
+  });
 });
 
 // ─── safeParsePointsRatio ────────────────────────────────────────
@@ -269,5 +336,51 @@ describe('safeParseMemberLevelSettings', () => {
       pointsRatio: 'invalid',
     });
     expect(result.levels).toHaveLength(3);
+  });
+});
+
+// ─── strictParseLevels (B-M2) ──────────────────────────────────
+
+describe('strictParseLevels', () => {
+  it('accepts valid levels array', () => {
+    const result = strictParseLevels(
+      DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels,
+    );
+    expect(result).toHaveLength(3);
+  });
+
+  it('throws on invalid element', () => {
+    const raw = [
+      ...DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels.slice(0, 2),
+      {
+        ...DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels[2],
+        discountRate: 1.5,
+      },
+    ];
+    expect(() => strictParseLevels(raw)).toThrow();
+  });
+
+  it('throws on empty array', () => {
+    expect(() => strictParseLevels([])).toThrow();
+  });
+});
+
+// ─── strictParsePointsRatio (B-M2) ─────────────────────────────
+
+describe('strictParsePointsRatio', () => {
+  it('accepts valid pointsRatio', () => {
+    const result = strictParsePointsRatio(
+      DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio,
+    );
+    expect(result.earnRatioCents).toBe(100);
+  });
+
+  it('throws on invalid earnRatioCents', () => {
+    expect(() =>
+      strictParsePointsRatio({
+        ...DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio,
+        earnRatioCents: 0,
+      }),
+    ).toThrow();
   });
 });

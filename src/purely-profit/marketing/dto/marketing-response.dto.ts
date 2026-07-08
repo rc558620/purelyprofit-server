@@ -127,6 +127,28 @@ export class MarketingCustomerDetailDto extends MarketingCustomerDto {
   @ApiProperty({ example: 2680, description: '累计充值金额，单位：元' })
   totalRecharge: number;
 
+  /** 最大可退金额（元）= 累计充值本金 - 累计退款，由后端计算 */
+  @ApiProperty({
+    example: 400,
+    description: '最大可退金额（元），= 累计充值本金 - 累计退款',
+  })
+  refundableAmount: number;
+
+  /** 赠送金额余额（元）= balance - refundableAmount，由后端计算 */
+  @ApiProperty({
+    example: 33,
+    description: '赠送金额余额（元），= balance - refundableAmount',
+  })
+  giftBalance: number;
+
+  /** 积分抵扣总额（元）= 该顾客所有消费记录 points_deducted 汇总，由后端聚合 */
+  @ApiProperty({
+    example: 15,
+    description:
+      '积分抵扣总额（元），= SUM(marketing_consumptions.points_deducted)',
+  })
+  totalPointsDeducted: number;
+
   /** 最近 5 条储值记录，用于顾客详情页概览 */
   @ApiProperty({ type: () => [MarketingRechargeDto] })
   recentRecharges: MarketingRechargeDto[];
@@ -319,7 +341,10 @@ export class MarketingMemberLevelDto {
   @ApiProperty({ example: '黄金会员' })
   name: string;
 
-  @ApiProperty({ example: 90, description: '等级折扣率百分比，1~99，如 90 表示 9 折' })
+  @ApiProperty({
+    example: 90,
+    description: '等级折扣率百分比，1~99，如 90 表示 9 折',
+  })
   discountRatePct: number;
 
   @ApiProperty({
@@ -341,7 +366,8 @@ export class MarketingMemberLevelDto {
 export class MarketingPointsRatioDto {
   @ApiProperty({
     example: 200,
-    description: '每消费多少元得 1 积分，单位：元；如 200 表示消费 200 元得 1 积分',
+    description:
+      '每消费多少元得 1 积分，单位：元；如 200 表示消费 200 元得 1 积分',
   })
   earnRatioYuan: number;
 

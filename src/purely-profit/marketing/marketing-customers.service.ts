@@ -38,6 +38,7 @@ import {
 } from './marketing.mapper';
 import { buildCustomerWhere } from './marketing.domain';
 import {
+  queryCustomerGiftBalanceCents,
   queryCustomerRecentConsumptions,
   queryCustomerRecentRecharges,
   queryCustomerRowById,
@@ -178,6 +179,55 @@ export class MarketingCustomersService {
       this.prisma.marketingCustomer.count({ where }),
     ]);
 
+    // 对 avatar 为 null 的行，通过多种路径从 users 表 fallback 获取头像
+    const phones = rows
+      .filter((r) => !r.avatar && r.phone)
+      .map((r) => r.phone as string);
+
+    if (phones.length > 0) {
+      const emailVariants = phones.flatMap((p) => [
+        `club_phone_${p}@purelyprofit.local`,
+        `phone_${p}@purelyprofit.local`,
+      ]);
+
+      const usersWithAvatar = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { wechatPhone: { in: phones } },
+            { email: { in: emailVariants } },
+          ],
+        },
+        select: {
+          id: true,
+          wechatPhone: true,
+          email: true,
+          avatar: true,
+          wechatAvatar: true,
+        },
+      });
+
+      // 构建 phone/email -> avatar 映射
+      const avatarMap = new Map<string, string>();
+      for (const u of usersWithAvatar) {
+        const avatarUrl = u.avatar ?? u.wechatAvatar;
+        if (avatarUrl) {
+          if (u.wechatPhone) avatarMap.set(u.wechatPhone, avatarUrl);
+          if (u.email) avatarMap.set(u.email, avatarUrl);
+        }
+      }
+
+      for (const row of rows) {
+        if (row.avatar || !row.phone) continue;
+        const clubEmail = `club_phone_${row.phone}@purelyprofit.local`;
+        const legacyEmail = `phone_${row.phone}@purelyprofit.local`;
+        row.avatar =
+          avatarMap.get(row.phone) ??
+          avatarMap.get(clubEmail) ??
+          avatarMap.get(legacyEmail) ??
+          null;
+      }
+    }
+
     return {
       items: rows.map(mapCustomerRow),
       meta: buildMarketingPaginationMeta(total, page, take),
@@ -201,24 +251,58 @@ export class MarketingCustomersService {
       throw new NotFoundException('顾客不存在');
     }
 
-    const [recentRecharges, recentConsumptions, rechargeSummary, clubLevel] =
-      await Promise.all([
-        queryCustomerRecentRecharges(this.prisma, customerId, 5),
-        queryCustomerRecentConsumptions(this.prisma, customerId, 5),
-        this.prisma.marketingRecharge.aggregate({
-          where: { customerId, type: 'recharge' },
-          _sum: { amount: true },
-        }),
-        this.resolveClubLevel(customer.storeId, customer.phone),
-      ]);
+    const [
+      recentRecharges,
+      recentConsumptions,
+      rechargeSummary,
+      refundSummary,
+      consumptionPointsSummary,
+      clubLevel,
+    ] = await Promise.all([
+      queryCustomerRecentRecharges(this.prisma, customerId, 5),
+      queryCustomerRecentConsumptions(this.prisma, customerId, 5),
+      this.prisma.marketingRecharge.aggregate({
+        where: { customerId, type: 'recharge' },
+        _sum: { amount: true },
+      }),
+      this.prisma.marketingRecharge.aggregate({
+        where: { customerId, type: 'refund' },
+        _sum: { amount: true },
+      }),
+      this.prisma.marketingConsumption.aggregate({
+        where: { customerId },
+        _sum: { pointsDeducted: true },
+      }),
+      this.resolveClubLevel(customer.storeId, customer.phone),
+    ]);
+
+    // 累计充值本金（分）与累计退款本金（分）
+    const totalRechargeCents = rechargeSummary._sum.amount ?? 0;
+    const totalRefundCents = refundSummary._sum.amount ?? 0;
+    // 最大可退金额 = 累计充值本金 - 累计退款（确保 >= 0）
+    const refundableCents = Math.max(0, totalRechargeCents - totalRefundCents);
+    const refundableAmount = Money.fromDbCents(refundableCents).toOutputYuan();
+    // 赠送金额余额：基于时间线遍历，退款清零 + 充值重新累计
+    const giftBalanceCents = await queryCustomerGiftBalanceCents(
+      this.prisma,
+      customerId,
+    );
+    const giftBalance = Money.fromDbCents(giftBalanceCents).toOutputYuan();
+    // 积分抵扣总额（分）→ 元
+    const totalPointsDeductedCents =
+      consumptionPointsSummary._sum.pointsDeducted ?? 0;
+    const totalPointsDeducted = Money.fromDbCents(
+      totalPointsDeductedCents,
+    ).toOutputYuan();
 
     return {
       ...mapCustomerRow(customer),
       ...clubLevel,
       // 累计充值 = 实际充值金额（不含赠送）汇总
-      totalRecharge: Money.fromDbCents(
-        rechargeSummary._sum.amount ?? 0,
-      ).toOutputYuan(),
+      totalRecharge: Money.fromDbCents(totalRechargeCents).toOutputYuan(),
+      refundableAmount,
+      giftBalance,
+      totalPointsDeducted,
       recentRecharges: recentRecharges.map(mapRechargeRow),
       recentConsumptions: recentConsumptions.map(mapConsumptionRow),
     };

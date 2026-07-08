@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { Money } from '../../shared/money.utils';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -53,7 +53,12 @@ export class MarketingProductsService {
         query.storeId,
       );
     if (!resolvedStoreId) {
-      return { items: [], total: 0, page: 1, pageSize: 20 };
+      return {
+        items: [],
+        total: 0,
+        page: query.page ?? 1,
+        pageSize: query.pageSize ?? 20,
+      };
     }
 
     const { page, skip, take } = resolveMarketingPagination(
@@ -98,6 +103,13 @@ export class MarketingProductsService {
       storeId,
       'marketing:manage',
     );
+
+    // B-1 fix: 新增产品时必须校验分类归属当前门店
+    await this.ensureCategoryBelongsToStore(storeId, dto.categoryId);
+
+    // B-3 fix: 划线价不得低于售价
+    this.assertOriginalPriceNotLessThanPrice(dto.price, dto.originalPrice);
+
     try {
       const created = await this.prisma.marketingProduct.create({
         data: {
@@ -120,10 +132,15 @@ export class MarketingProductsService {
       });
 
       return mapProductRow(this.toProductRow(created));
-    } catch (error: any) {
-      // B-9 fix: FK 违例时返回友好 400 而非 500
-      if (error?.code === 'P2003') {
-        throw new BadRequestException('产品分类不存在或不属于当前门店');
+    } catch (error: unknown) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          // B-4 fix: 同门店同名产品唯一约束冲突
+          throw new BadRequestException('该门店下已存在同名产品');
+        }
+        if (error.code === 'P2003') {
+          throw new BadRequestException('产品分类不存在或不属于当前门店');
+        }
       }
       throw error;
     }
@@ -145,6 +162,22 @@ export class MarketingProductsService {
     if (dto.categoryId != null) {
       await this.ensureCategoryBelongsToStore(product.storeId, dto.categoryId);
     }
+
+    // B-3 fix: 合并已有值与本次更新值，校验划线价不得低于售价
+    const effectivePriceYuan =
+      dto.price != null
+        ? dto.price
+        : Money.fromDbCents(product.price).toOutputYuan();
+    const effectiveOriginalYuan =
+      dto.originalPrice !== undefined
+        ? dto.originalPrice
+        : product.originalPrice != null
+          ? Money.fromDbCents(product.originalPrice).toOutputYuan()
+          : null;
+    this.assertOriginalPriceNotLessThanPrice(
+      effectivePriceYuan,
+      effectiveOriginalYuan,
+    );
 
     // 构建更新数据，分离 undefined（不更新）与 null（清空）
     const data: Prisma.MarketingProductUncheckedUpdateInput = {};
@@ -189,7 +222,18 @@ export class MarketingProductsService {
       'marketing:manage',
     );
 
-    await this.prisma.marketingProduct.delete({ where: { id: productId } });
+    try {
+      await this.prisma.marketingProduct.delete({ where: { id: productId } });
+    } catch (error: unknown) {
+      // B-5 fix: 被外键引用时返回友好提示而非 500
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === 'P2014' || error.code === 'P2003')
+      ) {
+        throw new BadRequestException('该产品已被其他业务引用，无法删除');
+      }
+      throw error;
+    }
   }
 
   async toggleProduct(
@@ -212,6 +256,18 @@ export class MarketingProductsService {
     });
 
     return mapProductRow(this.toProductRow(updated));
+  }
+
+  private assertOriginalPriceNotLessThanPrice(
+    priceYuan: number,
+    originalPriceYuan: number | null | undefined,
+  ): void {
+    if (originalPriceYuan == null) return;
+    const priceCents = Money.fromInputYuan(priceYuan).toDbCents();
+    const originalCents = Money.fromInputYuan(originalPriceYuan).toDbCents();
+    if (originalCents < priceCents) {
+      throw new BadRequestException('划线价不能低于售价');
+    }
   }
 
   private async ensureCategoryBelongsToStore(

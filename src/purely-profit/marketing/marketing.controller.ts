@@ -1,5 +1,4 @@
 export { MarketingCustomersController } from './marketing-customers.controller';
-export { MarketingOverviewController as MarketingController } from './marketing-overview.controller';
 export { MarketingOverviewController } from './marketing-overview.controller';
 export { MarketingProductCategoriesController } from './marketing-product-categories.controller';
 export { MarketingProductsController } from './marketing-products.controller';

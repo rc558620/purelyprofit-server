@@ -66,14 +66,33 @@ export type MemberLevelSettings = z.infer<typeof memberLevelSettingsSchema>;
 // ─── 校验入口 ─────────────────────────────────────────────────────
 
 /**
- * 安全解析 levels JSON，校验失败返回默认值
+ * 安全解析 levels JSON。
+ * B-M1 修复：逐条容错 —— 仅丢弃/兜底单条非法等级，不影响其余合法等级。
+ * 仅当输入本身不是数组时，才整体回退为默认值。
  */
 export function safeParseLevels(raw: unknown): MemberLevelConfig[] {
-  const result = memberLevelsSchema.safeParse(raw);
-  if (!result.success) {
+  if (!Array.isArray(raw)) {
     return DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels;
   }
-  return result.data;
+
+  const defaults = DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.levels;
+  const parsedById = new Map<string, MemberLevelConfig>();
+
+  for (const item of raw) {
+    const result = memberLevelConfigSchema.safeParse(item);
+    if (
+      result.success &&
+      typeof (item as Record<string, unknown>)?.id === 'string'
+    ) {
+      parsedById.set(
+        (item as Record<string, unknown>).id as string,
+        result.data,
+      );
+    }
+    // 单条非法 → 跳过，后续按 id 用默认值兜底
+  }
+
+  return defaults.map((def) => parsedById.get(def.id) ?? def);
 }
 
 /**
@@ -100,4 +119,21 @@ export function safeParseMemberLevelSettings(
     levels: safeParseLevels(raw.levels),
     pointsRatio: safeParsePointsRatio(raw.pointsRatio),
   });
+}
+
+// ─── 写入校验（B-M2）────────────────────────────────────────────
+
+/**
+ * 严格校验 levels 数组，写入前调用。
+ * 任一元素非法即抛 ZodError，阻止脏数据落库。
+ */
+export function strictParseLevels(raw: unknown): MemberLevelConfig[] {
+  return memberLevelConfigSchema.array().min(1).parse(raw);
+}
+
+/**
+ * 严格校验 pointsRatio，写入前调用。
+ */
+export function strictParsePointsRatio(raw: unknown): PointsRatioConfig {
+  return pointsRatioConfigSchema.parse(raw);
 }

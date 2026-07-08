@@ -39,6 +39,8 @@ import {
 import {
   safeParseLevels,
   safeParsePointsRatio,
+  strictParseLevels,
+  strictParsePointsRatio,
 } from './schemas/member-level-settings.schema';
 
 const MARKETING_OVERVIEW_CACHE_TTL_SECONDS = 120;
@@ -188,6 +190,21 @@ export class MarketingOverviewService {
       } satisfies MarketingMemberLevelConfigValue;
     });
 
+    // B-M4：等级门槛单调递增校验（gold=0 ≤ platinum < diamond）
+    const platinumThreshold =
+      levels.find((l) => l.id === 'platinum')?.spendThreshold ?? 0;
+    const diamondThreshold =
+      levels.find((l) => l.id === 'diamond')?.spendThreshold ?? 0;
+    if (
+      platinumThreshold > 0 &&
+      diamondThreshold > 0 &&
+      platinumThreshold >= diamondThreshold
+    ) {
+      throw new BadRequestException(
+        `铂金门槛(${platinumThreshold})必须小于钻石门槛(${diamondThreshold})`,
+      );
+    }
+
     const nextSettings = {
       ...settings,
       levels,
@@ -218,6 +235,10 @@ export class MarketingOverviewService {
     });
     const settings = this.normalizeMemberLevelSettings(existing);
 
+    // B-M5：有活跃积分活动时，强制启用，保持 GET 与存储一致性
+    const pointsFeatureEnabled =
+      await this.resolvePointsFeatureEnabled(resolvedStoreId);
+
     // 后端做 pct→rate、yuan→cents 归一化，前端不参与换算
     const earnRatioYuan =
       dto.earnRatioYuan !== undefined
@@ -242,7 +263,12 @@ export class MarketingOverviewService {
           : {}),
         maxRedeemRatio,
         maxRedeemPct,
-        ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
+        // B-M5：有活跃活动时强制启用，保持 GET 与存储一致性
+        ...(dto.enabled !== undefined
+          ? { enabled: dto.enabled || pointsFeatureEnabled }
+          : pointsFeatureEnabled
+            ? { enabled: true }
+            : {}),
         updatedAt: Date.now(),
       } satisfies MarketingPointsRatioConfigValue,
     } satisfies MarketingMemberLevelSettingsValue;
@@ -322,15 +348,15 @@ export class MarketingOverviewService {
       this.findStoreActiveInviteCode(storeId),
     ]);
 
-    const totalRecharge =
-      Money.fromDbCents(totalRechargeAgg._sum.totalAmount ?? 0)
-        .toOutputYuan();
-    const todayRecharge =
-      Money.fromDbCents(todayRechargeAgg._sum.totalAmount ?? 0)
-        .toOutputYuan();
-    const thisMonthRecharge =
-      Money.fromDbCents(thisMonthRechargeAgg._sum.totalAmount ?? 0)
-        .toOutputYuan();
+    const totalRecharge = Money.fromDbCents(
+      totalRechargeAgg._sum.totalAmount ?? 0,
+    ).toOutputYuan();
+    const todayRecharge = Money.fromDbCents(
+      todayRechargeAgg._sum.totalAmount ?? 0,
+    ).toOutputYuan();
+    const thisMonthRecharge = Money.fromDbCents(
+      thisMonthRechargeAgg._sum.totalAmount ?? 0,
+    ).toOutputYuan();
     const currentYear = now.getFullYear();
     const inviteCode = activeInviteCodeRecord?.code ?? null;
 
@@ -344,7 +370,9 @@ export class MarketingOverviewService {
       : null;
 
     return {
-      totalBalance: Money.fromDbCents(balanceSum._sum.balance ?? 0).toOutputYuan(),
+      totalBalance: Money.fromDbCents(
+        balanceSum._sum.balance ?? 0,
+      ).toOutputYuan(),
       totalRecharge,
       todayRecharge,
       thisMonthRecharge,
@@ -476,7 +504,9 @@ export class MarketingOverviewService {
               // 兼容旧数据：若 DB 无 discountRatePct，则从 discountRate 推导
               discountRatePct:
                 matched.discountRatePct ??
-                Math.round((matched.discountRate ?? defaultLevel.discountRate) * 100),
+                Math.round(
+                  (matched.discountRate ?? defaultLevel.discountRate) * 100,
+                ),
             }
           : { ...defaultLevel };
       }),
@@ -532,7 +562,8 @@ export class MarketingOverviewService {
         earnRatioYuan: parsed.earnRatioYuan ?? parsed.earnRatioCents,
         redeemRatioPoints: parsed.redeemRatioPoints,
         maxRedeemRatio: parsed.maxRedeemRatio,
-        maxRedeemPct: parsed.maxRedeemPct ?? Math.round(parsed.maxRedeemRatio * 100),
+        maxRedeemPct:
+          parsed.maxRedeemPct ?? Math.round(parsed.maxRedeemRatio * 100),
         enabled: parsed.enabled,
         updatedAt: parsed.updatedAt,
       };
@@ -605,17 +636,28 @@ export class MarketingOverviewService {
     storeId: number,
     settings: MarketingMemberLevelSettingsValue,
   ): Promise<void> {
-    await this.prisma.marketingMemberLevelSetting.upsert({
-      where: { storeId },
-      create: {
-        storeId,
-        levels: settings.levels as unknown as Prisma.InputJsonValue,
-        pointsRatio: settings.pointsRatio as unknown as Prisma.InputJsonValue,
-      },
-      update: {
-        levels: settings.levels as unknown as Prisma.InputJsonValue,
-        pointsRatio: settings.pointsRatio as unknown as Prisma.InputJsonValue,
-      },
+    // B-M2：写回前严格 Zod 校验，阻止脏数据落库
+    strictParseLevels(settings.levels);
+    strictParsePointsRatio(settings.pointsRatio);
+
+    // B-M3：并发保护 —— 事务内加 PostgreSQL advisory lock 序列化同门店写操作
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        'SELECT pg_advisory_xact_lock(hashtext($1))',
+        `member_level_settings:${storeId}`,
+      );
+      await tx.marketingMemberLevelSetting.upsert({
+        where: { storeId },
+        create: {
+          storeId,
+          levels: settings.levels as unknown as Prisma.InputJsonValue,
+          pointsRatio: settings.pointsRatio as unknown as Prisma.InputJsonValue,
+        },
+        update: {
+          levels: settings.levels as unknown as Prisma.InputJsonValue,
+          pointsRatio: settings.pointsRatio as unknown as Prisma.InputJsonValue,
+        },
+      });
     });
   }
 }

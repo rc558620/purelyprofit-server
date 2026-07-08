@@ -10,30 +10,77 @@ import type {
   MarketingRechargeRow,
 } from './marketing.types';
 
+/**
+ * 基于时间线遍历计算顾客当前赠送金额余额（分）。
+ *
+ * 算法规则：
+ * - 充值/赠送：trackedGift += giftAmount
+ * - 退款：trackedGift = 0（任何退款均清零赠送，清零后新充值赠送重新累计）
+ *
+ * @param prisma  PrismaService 或事务客户端（Prisma.TransactionClient）
+ * @param customerId  顾客 ID
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function queryCustomerGiftBalanceCents(
+  prisma: any,
+  customerId: number,
+): Promise<number> {
+  const rows = await prisma.$queryRaw<
+    { amount: number; giftAmount: number; totalAmount: number; type: string }[]
+  >`
+    SELECT amount, gift_amount AS "giftAmount",
+           total_amount AS "totalAmount", type::text AS "type"
+    FROM marketing_recharges
+    WHERE customer_id = ${customerId}
+    ORDER BY created_at ASC, id ASC
+  `;
+
+  let trackedGift = 0;
+
+  for (const row of rows) {
+    const type = row.type as string;
+    if (type === 'recharge' || type === 'gift') {
+      trackedGift += row.giftAmount;
+    } else if (type === 'refund') {
+      // 任何退款均清零赠送金额，清零后新充值赠送重新累计
+      trackedGift = 0;
+    }
+  }
+
+  // 退款清零后，trackedGift 仅包含清零后新充值的赠送金额
+  // 不再扣减历史消费（消费发生在清零前，不应影响清零后的新赠送）
+  return trackedGift;
+}
+
 export async function queryCustomerRowById(
   prisma: PrismaService,
   customerId: number,
 ): Promise<MarketingCustomerRow | null> {
   const rows = await prisma.$queryRaw<MarketingCustomerRow[]>`
     SELECT
-      id,
-      store_id AS "storeId",
-      member_id AS "memberId",
-      name,
-      phone,
-      avatar,
-      tier::text AS "tier",
-      balance,
-      points,
-      total_spent AS "totalSpent",
-      visit_count AS "visitCount",
-      last_visit_at AS "lastVisitAt",
-      remark,
-      created_at AS "createdAt",
-      updated_at AS "updatedAt"
-    FROM marketing_customers
-    WHERE id = ${customerId}
-      AND deleted_at IS NULL
+      c.id,
+      c.store_id AS "storeId",
+      c.member_id AS "memberId",
+      c.name,
+      c.phone,
+      COALESCE(c.avatar, u.avatar, u.wechat_avatar) AS avatar,
+      c.tier::text AS "tier",
+      c.balance,
+      c.points,
+      c.total_spent AS "totalSpent",
+      c.visit_count AS "visitCount",
+      c.last_visit_at AS "lastVisitAt",
+      c.remark,
+      c.created_at AS "createdAt",
+      c.updated_at AS "updatedAt"
+    FROM marketing_customers c
+    LEFT JOIN users u ON (
+      u.wechat_phone = c.phone
+      OR u.email = 'club_phone_' || c.phone || '@purelyprofit.local'
+      OR u.email = 'phone_' || c.phone || '@purelyprofit.local'
+    )
+    WHERE c.id = ${customerId}
+      AND c.deleted_at IS NULL
     LIMIT 1
   `;
 

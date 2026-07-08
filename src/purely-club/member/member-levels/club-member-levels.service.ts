@@ -292,7 +292,7 @@ export class ClubMemberLevelsService {
       : `累计充值 ≥ ¥${this.formatAmount(requiredConsume)}`;
     const benefits = new Set<string>([
       this.formatDiscountLabel(levelSetting.discountRate),
-      // 注册即享等级展示 description；有充值门槛的等级改用动态充值门槛文案
+      // 充值即享等级展示 description；有充值门槛的等级改用动态充值门槛文案
       ...(isRegisterLevel ? [levelSetting.description.trim()] : []),
       ...meta.extraBenefits,
     ]);

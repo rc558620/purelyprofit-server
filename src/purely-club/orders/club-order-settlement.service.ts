@@ -318,10 +318,10 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     }
 
     // 按实际支付金额计算消费积分
-    // earnRatioCents 单位是"分"，表示消费多少分获得 1 积分
-    // 积分 = floor(实际支付金额（分）/ earnRatioCents)
+    // earnRatioCents 实际存储的是“元”单位（与 earnRatioYuan 相同），需乘 100 转为“分”
+    // 积分 = floor(实际支付金额（分）/ (earnRatioCents × 100))
     let earnedPoints = Math.floor(
-      draft.amountFen / pointsRatioConfig.earnRatioCents,
+      draft.amountFen / (pointsRatioConfig.earnRatioCents * 100),
     );
 
     // 查询是否有生效的 points_2x（双倍积分）活动，若有则将积分翻倍
@@ -396,7 +396,8 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
 
   /**
    * 获取积分获得配置
-   * 从 marketingMemberLevelSetting 中读取，若未配置则使用默认值
+   * 从 marketingMemberLevelSetting 中读取，若未配置则使用默认值。
+   * 若存在活跃的 points_recharge 活动，强制 enabled=true（与 Admin GET 保持一致）。
    */
   private async getPointsRatioConfig(
     tx: Prisma.TransactionClient,
@@ -407,6 +408,25 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       select: { pointsRatio: true },
     });
 
-    return resolvePointsEarnConfig(settings?.pointsRatio);
+    const config = resolvePointsEarnConfig(settings?.pointsRatio);
+
+    if (!config.enabled) {
+      const now = new Date();
+      const promo = await tx.marketingPromotion.findFirst({
+        where: {
+          storeId,
+          type: 'points_recharge',
+          enabled: true,
+          startAt: { lte: now },
+          endAt: { gte: now },
+        },
+        select: { id: true },
+      });
+      if (promo) {
+        return { ...config, enabled: true };
+      }
+    }
+
+    return config;
   }
 }
