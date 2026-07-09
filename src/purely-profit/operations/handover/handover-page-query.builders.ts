@@ -35,6 +35,7 @@ export const SALE_ORDER_ITEM_SELECT = {
         select: {
           startTime: true,
           prepaidPaymentMethod: true,
+          prepaidCustomerPaymentMethod: true,
           sessionRenewRecords: {
             select: {
               paymentMethod: true,

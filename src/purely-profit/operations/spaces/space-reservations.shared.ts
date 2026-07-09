@@ -53,6 +53,11 @@ export const normalizeReservationPayload = (
     );
   }
 
+  // B3 fix: 防御性校验 reservedEndAt 必须为有效数值，避免 new Date(undefined) = Invalid Date
+  if (!Number.isFinite(dto.reservedEndAt)) {
+    throw new BadRequestException('预约结束时间必须是有效的时间戳');
+  }
+
   const note = dto.note?.trim();
   return {
     guestName,
@@ -84,16 +89,16 @@ export const ensureReservationTimeWindow = (reservedAt: number): void => {
     throw new BadRequestException('预约时间不能早于当前时间');
   }
 
-  const current = new Date();
-  const maxTimestamp = new Date(
-    current.getFullYear(),
-    current.getMonth(),
-    current.getDate() + 2,
-    23,
+  const shanghaiNow = getShanghaiDateParts();
+  const maxTimestamp = Date.UTC(
+    shanghaiNow.year,
+    shanghaiNow.month - 1,
+    shanghaiNow.day + 2,
+    23 - SHANGHAI_OFFSET_HOURS,
     59,
     59,
     999,
-  ).getTime();
+  );
 
   if (reservedAt > maxTimestamp) {
     throw new BadRequestException('最多只能预约 2 天后的时间');
@@ -173,19 +178,60 @@ export const toSpaceReservationResponse = (
   };
 };
 
+/** 上海时区相对 UTC 的固定偏移（小时），中国无夏令时 */
+const SHANGHAI_OFFSET_HOURS = 8;
+
+/**
+ * 获取当前上海时区的日期部分（年/月/日）。
+ * 使用 Intl.DateTimeFormat 保证跨平台一致性。
+ */
+const getShanghaiDateParts = (): {
+  year: number;
+  month: number;
+  day: number;
+} => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+
+  const get = (type: string) =>
+    Number(parts.find((p) => p.type === type)!.value);
+
+  return { year: get('year'), month: get('month'), day: get('day') };
+};
+
+/**
+ * 获取上海时区“今天”的 [00:00:00.000, 23:59:59.999] 时间范围。
+ * 所有"今日"统计/状态判定必须使用此函数，禁止使用服务器本地时区。
+ */
 export const getTodayRange = (): { start: Date; end: Date } => {
-  const now = new Date();
+  const { year, month, day } = getShanghaiDateParts();
   const start = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    0,
-    0,
-    0,
-    0,
+    Date.UTC(year, month - 1, day, -SHANGHAI_OFFSET_HOURS),
   );
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+  return { start, end };
+};
 
+/**
+ * 获取上海时区“今天 ~ 今天+2天”的时间范围。
+ * 用于空间 reserved 状态判定，与预约创建窗口（ensureReservationTimeWindow）对齐。
+ */
+export const getReservationStatusRange = (): {
+  start: Date;
+  end: Date;
+} => {
+  const { year, month, day } = getShanghaiDateParts();
+  const start = new Date(
+    Date.UTC(year, month - 1, day, -SHANGHAI_OFFSET_HOURS),
+  );
+  // 今天 +2 天的 23:59:59.999（上海时间）
+  const end = new Date(
+    Date.UTC(year, month - 1, day + 2, 23 - SHANGHAI_OFFSET_HOURS, 59, 59, 999),
+  );
   return { start, end };
 };
 

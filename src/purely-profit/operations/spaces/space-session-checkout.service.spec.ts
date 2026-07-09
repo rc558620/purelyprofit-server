@@ -26,6 +26,7 @@ describe('SpaceSessionCheckoutService', () => {
   const prismaService = {
     spaceSession: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -113,7 +114,7 @@ describe('SpaceSessionCheckoutService', () => {
       prepaidAmount: 99900, // DB 存储为分（999元）
     };
 
-    prismaService.spaceSession.findUnique.mockResolvedValue(session);
+    prismaService.spaceSession.findFirst.mockResolvedValue(session);
     checkoutLockService.createLock.mockResolvedValue({
       lockId: 'lock_preview_1',
       expiresAt: checkoutAt + 5 * 60 * 1000,
@@ -159,7 +160,7 @@ describe('SpaceSessionCheckoutService', () => {
       prepaidAmount: 150000, // DB 存储为分（1500元）
     };
 
-    prismaService.spaceSession.findUnique.mockResolvedValue(session);
+    prismaService.spaceSession.findFirst.mockResolvedValue(session);
     checkoutLockService.createLock
       .mockResolvedValueOnce({
         lockId: 'lock_preview_timed',
@@ -210,7 +211,7 @@ describe('SpaceSessionCheckoutService', () => {
     const createdOrder = createSalesOrderResponse();
     const updatedSession = createUpdatedSpaceSession();
 
-    prismaService.spaceSession.findUnique.mockResolvedValue(session);
+    prismaService.spaceSession.findFirst.mockResolvedValue(session);
     checkoutLockService.requireValidLock.mockResolvedValue({
       sessionId: 9,
       lockId: 'lock_1',
@@ -325,7 +326,7 @@ describe('SpaceSessionCheckoutService', () => {
     };
     const createdOrder = createSalesOrderResponse();
 
-    prismaService.spaceSession.findUnique.mockResolvedValue(session);
+    prismaService.spaceSession.findFirst.mockResolvedValue(session);
     checkoutLockService.requireValidLock.mockResolvedValue({
       sessionId: 9,
       lockId: 'lock_2',

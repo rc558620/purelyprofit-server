@@ -28,6 +28,7 @@ describe('SpaceSessionTransferService', () => {
       findFirst: jest.fn(),
     },
     space: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
     },
     $transaction: jest.fn(),
@@ -115,7 +116,8 @@ describe('SpaceSessionTransferService', () => {
         },
       },
     });
-    prismaService.space.findUnique.mockResolvedValue({
+    // B1: transfer targetSpace 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValue({
       id: 11,
       storeId: 18,
       name: 'A02',
@@ -227,7 +229,8 @@ describe('SpaceSessionTransferService', () => {
         },
       },
     });
-    prismaService.space.findUnique.mockResolvedValue({
+    // B1: transfer targetSpace 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValue({
       id: 11,
       storeId: 18,
       name: 'A02',

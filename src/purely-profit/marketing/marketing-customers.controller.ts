@@ -31,6 +31,7 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import {
   AdjustCustomerPointsDto,
   CreateCustomerDto,
+  ListCustomerConsumptionsQueryDto,
   ListCustomerPointsRecordsQueryDto,
   ListCustomerRechargesQueryDto,
   ListCustomersQueryDto,
@@ -114,7 +115,7 @@ export class MarketingCustomersController {
 
   @Get(':id/recharges')
   @RequirePermissions('marketing:view')
-  @ApiOperation({ summary: '顾客储值记录列表' })
+  @ApiOperation({ summary: '顾客充值记录列表（仅充值/赠送，不含退款）' })
   @ApiOkResponse({ type: MarketingRechargesResponseDto })
   listCustomerRecharges(
     @CurrentUser() user: AuthenticatedUser,
@@ -122,6 +123,18 @@ export class MarketingCustomersController {
     @Query() query: ListCustomerRechargesQueryDto,
   ): Promise<MarketingRechargesResponseDto> {
     return this.marketingService.listCustomerRecharges(user, id, query);
+  }
+
+  @Get(':id/refunds')
+  @RequirePermissions('marketing:view')
+  @ApiOperation({ summary: '顾客退款记录列表' })
+  @ApiOkResponse({ type: MarketingRechargesResponseDto })
+  listCustomerRefunds(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: ListCustomerRechargesQueryDto,
+  ): Promise<MarketingRechargesResponseDto> {
+    return this.marketingService.listCustomerRefunds(user, id, query);
   }
 
   @Get(':id/points-records')
@@ -143,13 +156,9 @@ export class MarketingCustomersController {
   listConsumptions(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
-    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
-    @Query('pageSize', new ParseIntPipe({ optional: true })) pageSize?: number,
+    @Query() query: ListCustomerConsumptionsQueryDto,
   ): Promise<MarketingConsumptionsResponseDto> {
-    return this.marketingService.listConsumptions(user, id, {
-      page,
-      pageSize,
-    });
+    return this.marketingService.listConsumptions(user, id, query);
   }
 
   @Patch(':id/points')

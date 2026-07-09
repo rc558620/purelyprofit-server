@@ -55,6 +55,21 @@ export const MARKETING_POINTS_CHANGE_TYPE_VALUES = [
 export type MarketingPointsChangeTypeValue =
   (typeof MARKETING_POINTS_CHANGE_TYPE_VALUES)[number];
 
+// ─── 枚举运行时安全校验（F7）─────────────────────────────────────
+
+/**
+ * 将未知字符串安全地转换为已知枚举值，遇到脏数据时返回 fallback 而非静默透传。
+ */
+export function safeEnumCoerce<T extends string>(
+  value: string,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  return (allowed as readonly string[]).includes(value)
+    ? (value as T)
+    : fallback;
+}
+
 /** 活动类型（与前端 PromotionType 完全一致）*/
 export const MARKETING_PROMOTION_TYPE_VALUES = [
   'discount',

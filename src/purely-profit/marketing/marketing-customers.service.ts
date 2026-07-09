@@ -17,6 +17,8 @@ import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import {
   buildMarketingCustomersListCacheKey,
   buildMarketingCustomersListPattern,
+  buildMarketingCustomerDetailCacheKey,
+  buildMarketingCustomerDetailPattern,
 } from '../../redis/cache-keys';
 import { toNullableMediaText } from '../commerce/commerce.utils';
 import { Money } from '../../shared/money.utils';
@@ -52,6 +54,8 @@ import {
 
 const MARKETING_CUSTOMERS_LIST_CACHE_TTL_SECONDS = 60;
 const MARKETING_CUSTOMERS_LIST_REFRESH_AFTER_MS = 20_000;
+// F8: 顾客详情缓存 TTL（15 秒，短于列表 60s，避免过度延迟）
+const MARKETING_CUSTOMER_DETAIL_CACHE_TTL_SECONDS = 15;
 
 @Injectable()
 export class MarketingCustomersService {
@@ -206,13 +210,15 @@ export class MarketingCustomersService {
         },
       });
 
-      // 构建 phone/email -> avatar 映射
-      const avatarMap = new Map<string, string>();
+      // F6: 构建分层映射，确保头像解析优先级与详情页 SQL CASE ORDER BY 一致
+      // 优先级: wechat_phone(1) → club_phone email(2) → phone_ email(3)
+      const phoneAvatarMap = new Map<string, string>();
+      const emailAvatarMap = new Map<string, string>();
       for (const u of usersWithAvatar) {
         const avatarUrl = u.avatar ?? u.wechatAvatar;
         if (avatarUrl) {
-          if (u.wechatPhone) avatarMap.set(u.wechatPhone, avatarUrl);
-          if (u.email) avatarMap.set(u.email, avatarUrl);
+          if (u.wechatPhone) phoneAvatarMap.set(u.wechatPhone, avatarUrl);
+          if (u.email) emailAvatarMap.set(u.email, avatarUrl);
         }
       }
 
@@ -221,9 +227,9 @@ export class MarketingCustomersService {
         const clubEmail = `club_phone_${row.phone}@purelyprofit.local`;
         const legacyEmail = `phone_${row.phone}@purelyprofit.local`;
         row.avatar =
-          avatarMap.get(row.phone) ??
-          avatarMap.get(clubEmail) ??
-          avatarMap.get(legacyEmail) ??
+          phoneAvatarMap.get(row.phone) ??
+          emailAvatarMap.get(clubEmail) ??
+          emailAvatarMap.get(legacyEmail) ??
           null;
       }
     }
@@ -238,17 +244,35 @@ export class MarketingCustomersService {
     user: AuthenticatedUser,
     customerId: number,
   ): Promise<MarketingCustomerDetailDto> {
-    // B6: 先查询（不抛异常），再鉴权，最后统一返回 404，防止存在性探测
-    const customer = await queryCustomerRowById(this.prisma, customerId);
+    // B10: 先查询，再鉴权，统一返回 404，防止通过 403/404 区分存在性
+    let customer = await queryCustomerRowById(this.prisma, customerId);
     if (customer) {
-      await this.marketingSharedService.ensureMarketingStoreAccess(
-        user,
-        customer.storeId,
-        'marketing:view',
-      );
+      try {
+        await this.marketingSharedService.ensureMarketingStoreAccess(
+          user,
+          customer.storeId,
+          'marketing:view',
+        );
+      } catch {
+        // 无权限时抹掉 customer，统一返回 404，与不存在时一致，防止存在性探测
+        customer = null;
+      }
     }
     if (!customer) {
       throw new NotFoundException('顾客不存在');
+    }
+
+    // F8: 顾客详情短期缓存，避免高频重复聚合计算
+    const detailCacheKey = buildMarketingCustomerDetailCacheKey(
+      customer.storeId,
+      customerId,
+    );
+    const cached =
+      await this.redisService.getJson<MarketingCustomerDetailDto>(
+        detailCacheKey,
+      );
+    if (cached) {
+      return cached;
     }
 
     const [
@@ -279,14 +303,27 @@ export class MarketingCustomersService {
     // 累计充值本金（分）与累计退款本金（分）
     const totalRechargeCents = rechargeSummary._sum.amount ?? 0;
     const totalRefundCents = refundSummary._sum.amount ?? 0;
-    // 最大可退金额 = 累计充值本金 - 累计退款（确保 >= 0）
-    const refundableCents = Math.max(0, totalRechargeCents - totalRefundCents);
-    const refundableAmount = Money.fromDbCents(refundableCents).toOutputYuan();
     // 赠送金额余额：基于时间线遍历，退款清零 + 充值重新累计
     const giftBalanceCents = await queryCustomerGiftBalanceCents(
       this.prisma,
       customerId,
     );
+    // B2: 最大可退金额受当前实际余额约束
+    // = min(累计充值本金 − 累计退款, 当前余额 − 赠送余额)
+    const balanceCents = customer.balance;
+    const principalRefundableCents = Math.max(
+      0,
+      totalRechargeCents - totalRefundCents,
+    );
+    const balanceConstrainedCents = Math.max(
+      0,
+      balanceCents - giftBalanceCents,
+    );
+    const refundableCents = Math.min(
+      principalRefundableCents,
+      balanceConstrainedCents,
+    );
+    const refundableAmount = Money.fromDbCents(refundableCents).toOutputYuan();
     const giftBalance = Money.fromDbCents(giftBalanceCents).toOutputYuan();
     // 积分抵扣总额（分）→ 元
     const totalPointsDeductedCents =
@@ -295,10 +332,10 @@ export class MarketingCustomersService {
       totalPointsDeductedCents,
     ).toOutputYuan();
 
-    return {
+    const result = {
       ...mapCustomerRow(customer),
       ...clubLevel,
-      // 累计充值 = 实际充值金额（不含赠送）汇总
+      // 累计充值本金（仅 type=recharge，不含赠送）
       totalRecharge: Money.fromDbCents(totalRechargeCents).toOutputYuan(),
       refundableAmount,
       giftBalance,
@@ -306,6 +343,15 @@ export class MarketingCustomersService {
       recentRecharges: recentRecharges.map(mapRechargeRow),
       recentConsumptions: recentConsumptions.map(mapConsumptionRow),
     };
+
+    // F8: 写入短期缓存
+    await this.redisService.setJson(
+      detailCacheKey,
+      result,
+      MARKETING_CUSTOMER_DETAIL_CACHE_TTL_SECONDS,
+    );
+
+    return result;
   }
 
   async createCustomer(
@@ -318,7 +364,10 @@ export class MarketingCustomersService {
       storeId,
       'marketing:manage',
     );
-    const normalizedPhone = normalizePhone(dto.phone);
+
+    // D1: 区分「未填」(undefined/空串) 与「非法格式」，非法手机号应拒绝而非静默置 null
+    const normalizedPhone = this.validatePhoneOrThrow(dto.phone);
+
     await this.ensureUniquePhone(storeId, normalizedPhone);
 
     try {
@@ -362,7 +411,8 @@ export class MarketingCustomersService {
     );
 
     if (dto.phone !== undefined) {
-      const normalizedNewPhone = normalizePhone(dto.phone);
+      // D1: 区分「空串=主动清除」与「非法格式=拒绝」
+      const normalizedNewPhone = this.validatePhoneOrThrow(dto.phone);
       if (normalizedNewPhone !== normalizePhone(customer.phone)) {
         await this.ensureUniquePhone(
           customer.storeId,
@@ -374,7 +424,9 @@ export class MarketingCustomersService {
 
     // B8: 手机号变更时，同步更新关联的 Member.phone
     const phoneUpdate =
-      dto.phone !== undefined ? { phone: normalizePhone(dto.phone) } : {};
+      dto.phone !== undefined
+        ? { phone: this.validatePhoneOrThrow(dto.phone) }
+        : {};
 
     try {
       const updated = await this.prisma.$transaction(async (tx) => {
@@ -396,7 +448,7 @@ export class MarketingCustomersService {
         if (dto.phone !== undefined && customer.memberId !== null) {
           await tx.member.update({
             where: { id: customer.memberId },
-            data: { phone: normalizePhone(dto.phone) },
+            data: { phone: this.validatePhoneOrThrow(dto.phone) },
           });
         }
 
@@ -452,6 +504,10 @@ export class MarketingCustomersService {
       this.cacheInvalidatorService.invalidateMarketingOverview(storeId),
       this.redisService.delByPattern(
         buildMarketingCustomersListPattern(storeId),
+      ),
+      // F8: 同步失效顾客详情缓存
+      this.redisService.delByPattern(
+        buildMarketingCustomerDetailPattern(storeId),
       ),
     ]);
   }
@@ -515,6 +571,23 @@ export class MarketingCustomersService {
     }
   }
 
+  /**
+   * D1: 手机号校验——区分「未填/空串=清除」与「非法格式=400 拒绝」。
+   * - undefined / '' → 返回 null（表示清除）
+   * - 非空但 normalizePhone 返回 null → 抛 400
+   * - 合法手机号 → 返回归一化后的手机号
+   */
+  private validatePhoneOrThrow(phone: string | undefined): string | null {
+    if (phone === undefined || phone === '') {
+      return null;
+    }
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
+      throw new BadRequestException('手机号格式不正确，请输入 11 位国内手机号');
+    }
+    return normalized;
+  }
+
   async adjustCustomerPoints(
     user: AuthenticatedUser,
     customerId: number,
@@ -527,6 +600,13 @@ export class MarketingCustomersService {
       customer.storeId,
       'marketing:manage',
     );
+
+    // D2: 幂等保护，与 createRecharge 一致，5 秒内同参数请求视为重复提交
+    const idempotencyKey = `adjust-points:dedup:${customer.storeId}:${customerId}:${dto.delta}:${dto.remark?.trim() || ''}`;
+    const isNew = await this.redisService.setIfAbsent(idempotencyKey, '1', 5);
+    if (!isNew) {
+      throw new BadRequestException('请勿重复提交，请稍后再试');
+    }
 
     // 事务前快速校验（提前拦截明显不合理的请求，避免无效事务开销）
     if (dto.delta < 0 && Math.abs(dto.delta) > customer.points) {

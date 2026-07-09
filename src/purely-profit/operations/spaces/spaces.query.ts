@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { ListSpacesQueryDto } from './dto/space.dto';
 import type { ManagedSpaceRecord, SpaceRemovalCandidate } from './spaces.types';
+import { getReservationStatusRange } from './space-reservations.shared';
 
 export const SPACE_WITH_RELATIONS_INCLUDE = {
   type: {
@@ -137,8 +138,9 @@ export async function findManagedSpaceOrThrow(
   prisma: PrismaService,
   spaceId: number,
 ): Promise<ManagedSpaceRecord> {
-  const space = await prisma.space.findUnique({
-    where: { id: spaceId },
+  // B1 fix: 软删除空间应等价于"不存在"，与 listSpaces 的 deletedAt: null 口径一致
+  const space = await prisma.space.findFirst({
+    where: { id: spaceId, deletedAt: null },
     include: SPACE_WITH_RELATIONS_INCLUDE,
   });
 
@@ -153,8 +155,11 @@ export async function findSpaceRemovalCandidateOrThrow(
   prisma: PrismaService,
   spaceId: number,
 ): Promise<SpaceRemovalCandidate> {
-  const space = await prisma.space.findUnique({
-    where: { id: spaceId },
+  // B1 fix: 软删除空间不可再次操作，与 listSpaces 的 deletedAt: null 口径一致
+  // B-3 fix: 预约计数加 reservedAt 范围，与列表 reserved 状态推导口径统一
+  const statusRange = getReservationStatusRange();
+  const space = await prisma.space.findFirst({
+    where: { id: spaceId, deletedAt: null },
     select: {
       id: true,
       storeId: true,
@@ -164,6 +169,10 @@ export async function findSpaceRemovalCandidateOrThrow(
           reservations: {
             where: {
               status: PrismaSpaceReservationStatus.pending,
+              reservedAt: {
+                gte: statusRange.start,
+                lte: statusRange.end,
+              },
             },
           },
           // activeSessions: count of active sessions to determine if space is occupied
@@ -238,6 +247,13 @@ export async function closeSortOrderGapAfterRemove(
   storeId: number,
   removedSortOrder: number,
 ): Promise<void> {
+  // B-8 fix: FOR UPDATE 锁定待搬移行，消除并发删除导致 sortOrder 重复的窗口
+  await transaction.$queryRaw`
+    SELECT id FROM spaces
+    WHERE store_id = ${storeId} AND sort_order > ${removedSortOrder}
+    FOR UPDATE
+  `;
+
   await transaction.space.updateMany({
     where: {
       storeId,

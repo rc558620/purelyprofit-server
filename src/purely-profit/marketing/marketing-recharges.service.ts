@@ -7,6 +7,10 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
+import {
+  buildMarketingCustomersListPattern,
+  buildMarketingCustomerDetailPattern,
+} from '../../redis/cache-keys';
 import type {
   CreateRechargeDto,
   ListRechargesQueryDto,
@@ -21,6 +25,7 @@ import type { MarketingRechargeRow } from './marketing.types';
 import {
   queryCustomerGiftBalanceCents,
   queryCustomerRechargePage,
+  queryCustomerRefundPage,
   queryRechargePage,
   queryRechargeRowById,
 } from './marketing.query';
@@ -29,6 +34,9 @@ import { Money } from '../../shared/money.utils';
 import {
   buildMarketingPaginationMeta,
   resolveMarketingPagination,
+  safeEnumCoerce,
+  MARKETING_RECHARGE_TYPE_VALUES,
+  type MarketingRechargeTypeValue,
 } from './marketing.utils';
 
 @Injectable()
@@ -103,7 +111,45 @@ export class MarketingRechargesService {
     );
     const [rows, total] = await Promise.all([
       queryCustomerRechargePage(this.prisma, customerId, skip, take),
-      this.prisma.marketingRecharge.count({ where: { customerId } }),
+      this.prisma.marketingRecharge.count({
+        where: {
+          customerId,
+          type: { in: ['recharge', 'gift'] },
+        },
+      }),
+    ]);
+
+    return {
+      items: rows.map(mapRechargeRow),
+      meta: buildMarketingPaginationMeta(total, page, take),
+    };
+  }
+
+  async listCustomerRefunds(
+    user: AuthenticatedUser,
+    customerId: number,
+    query: { page?: number; pageSize?: number },
+  ): Promise<MarketingRechargesResponseDto> {
+    const customer =
+      await this.marketingSharedService.findCustomerOrThrow(customerId);
+    await this.marketingSharedService.ensureMarketingStoreAccess(
+      user,
+      customer.storeId,
+      'marketing:view',
+    );
+
+    const { page, skip, take } = resolveMarketingPagination(
+      query.page,
+      query.pageSize,
+    );
+    const [rows, total] = await Promise.all([
+      queryCustomerRefundPage(this.prisma, customerId, skip, take),
+      this.prisma.marketingRecharge.count({
+        where: {
+          customerId,
+          type: 'refund',
+        },
+      }),
     ]);
 
     // 为退款记录计算赠送清零金额
@@ -147,9 +193,10 @@ export class MarketingRechargesService {
       if (type === 'recharge' || type === 'gift') {
         trackedGift += row.giftAmount;
       } else if (type === 'refund') {
-        // 退款时的 trackedGift 就是被清零的赠送金额
-        giftClearedMap.set(row.id, trackedGift);
-        trackedGift = 0;
+        // BUG-1: 退款实际清零的赠送金额 = min(trackedGift, row.giftAmount)
+        const cleared = Math.min(trackedGift, row.giftAmount);
+        giftClearedMap.set(row.id, cleared);
+        trackedGift = Math.max(0, trackedGift - row.giftAmount);
       }
     }
 
@@ -157,11 +204,9 @@ export class MarketingRechargesService {
       const dto = mapRechargeRow(row);
       if ((row.type as string) === 'refund') {
         const giftCleared = giftClearedMap.get(row.id) ?? 0;
-        // 通过 note 字段传递赠送清零信息（前端解析）
-        if (giftCleared > 0 && !dto.note?.includes('赠送清零')) {
-          dto.note = dto.note
-            ? `${dto.note} | 赠送清零¥${Money.fromDbCents(giftCleared).toOutputYuan()}`
-            : `赠送清零¥${Money.fromDbCents(giftCleared).toOutputYuan()}`;
+        if (giftCleared > 0) {
+          // B5: 使用结构化字段返回赠送清零金额
+          dto.giftClearedAmount = Money.fromDbCents(giftCleared).toOutputYuan();
         }
       }
       return dto;
@@ -189,13 +234,14 @@ export class MarketingRechargesService {
     const rechargeType = dto.type ?? 'recharge';
 
     // ── 幂等保护：同一笔操作 5 秒内不可重复提交 ──
-    const idempotencyKey = `recharge:dedup:${storeId}:${dto.customerId}:${rechargeType}:${dto.amount}:${dto.giftAmount ?? 0}:${dto.note?.trim() || ''}`;
+    // F5: key 包含 clearRemainingGift，防止不同清零策略的请求被误判为重复
+    const idempotencyKey = `recharge:dedup:${storeId}:${dto.customerId}:${rechargeType}:${dto.amount}:${dto.giftAmount ?? 0}:${dto.clearRemainingGift ?? false}:${dto.note?.trim() || ''}`;
     const isNew = await this.redisService.setIfAbsent(idempotencyKey, '1', 5);
     if (!isNew) {
       throw new BadRequestException('请勿重复提交，请稍后再试');
     }
 
-    // ── 退款不允许携带赠送金额 ──
+    // ── 退款不允许携带赠送金额（前端传入的 giftAmount 必须为 0，服务端会内部计算清零额） ──
     if (rechargeType === 'refund' && (dto.giftAmount ?? 0) !== 0) {
       throw new BadRequestException('退款操作不允许携带赠送金额');
     }
@@ -215,7 +261,7 @@ export class MarketingRechargesService {
       throw new BadRequestException('赠送金额必须大于 0');
     }
 
-    // ── 退款预校验：退款金额不能超过可退本金（事务内会再次校验） ──
+    // ── 退款预校验：退款金额不能超过可退本金，且不能超过当前实际余额 ──
     if (rechargeType === 'refund') {
       const [rechargeAgg, refundAgg] = await Promise.all([
         this.prisma.marketingRecharge.aggregate({
@@ -234,8 +280,13 @@ export class MarketingRechargesService {
       if (Money.fromDbCents(refundableCents).lessThan(totalMoney)) {
         throw new BadRequestException('退款金额不能超过最大可退本金');
       }
+      // B1: 余额兗底校验——退款金额不得超过当前实际余额
+      if (Money.fromDbCents(customer.balance).lessThan(totalMoney)) {
+        throw new BadRequestException('退款金额不能超过顾客当前储值余额');
+      }
     }
 
+    let giftClearedAmountCents = 0;
     const [rechargeRecord] = await this.prisma.$transaction(
       async (tx) => {
         // 事务内重新校验退款金额，防止并发退款导致超额退款
@@ -277,8 +328,20 @@ export class MarketingRechargesService {
             ? -(totalMoney.toDbCents() + giftBalanceCents)
             : -totalMoney.toDbCents();
 
-          // 在 note 中追加赠送清零金额，供前端展示
+          // B1: 事务内余额兗底校验——实际扣减额不得超过当前余额
+          if (
+            Money.fromDbCents(freshCustomer.balance).lessThan(
+              Money.fromDbCents(Math.abs(actualBalanceDeltaCents)),
+            )
+          ) {
+            throw new BadRequestException(
+              '退款金额（含赠送清零）不能超过顾客当前储值余额',
+            );
+          }
+
+          // 在 note 中追加赠送清零金额（向后兼容），同时记录结构化字段
           if (clearGift && giftBalanceCents > 0) {
+            giftClearedAmountCents = giftBalanceCents;
             const giftClearedYuan =
               Money.fromDbCents(giftBalanceCents).toOutputYuan();
             noteForDb = `${noteForDb ?? ''} | 赠送清零¥${giftClearedYuan}`;
@@ -292,9 +355,18 @@ export class MarketingRechargesService {
             storeId,
             customerId: dto.customerId,
             amount: rechargeMoney.toDbCents(),
-            giftAmount: giftMoney.toDbCents(),
+            // BUG-1: 退款记录存储实际清零的赠送金额，供读取算法使用
+            giftAmount:
+              rechargeType === 'refund'
+                ? giftClearedAmountCents
+                : giftMoney.toDbCents(),
             totalAmount: totalMoney.toDbCents(),
-            type: rechargeType as never,
+            // F7: 运行时枚举校验，避免脏值进入数据库
+            type: safeEnumCoerce(
+              rechargeType,
+              MARKETING_RECHARGE_TYPE_VALUES,
+              'recharge' as MarketingRechargeTypeValue,
+            ),
             promotionId: dto.promotionId ?? null,
             note: noteForDb,
           },
@@ -335,10 +407,27 @@ export class MarketingRechargesService {
 
     await this.invalidateOverviewCache(storeId);
 
-    return mapRechargeRow(row);
+    const result = mapRechargeRow(row);
+    // B5: 返回结构化赠送清零金额（事务内计算）
+    if (giftClearedAmountCents > 0) {
+      result.giftClearedAmount = Money.fromDbCents(
+        giftClearedAmountCents,
+      ).toOutputYuan();
+    }
+    return result;
   }
 
   private async invalidateOverviewCache(storeId: number): Promise<void> {
-    await this.cacheInvalidatorService.invalidateMarketingOverview(storeId);
+    await Promise.all([
+      this.cacheInvalidatorService.invalidateMarketingOverview(storeId),
+      // BUG-2: 充值/退款后同步失效顾客列表缓存
+      this.redisService.delByPattern(
+        buildMarketingCustomersListPattern(storeId),
+      ),
+      // F8: 失效顾客详情缓存
+      this.redisService.delByPattern(
+        buildMarketingCustomerDetailPattern(storeId),
+      ),
+    ]);
   }
 }

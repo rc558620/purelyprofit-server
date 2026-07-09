@@ -5,16 +5,21 @@ import {
   PAYMENT_METHOD_CONFIG,
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
   isPrepaidDeductionItem,
+  isSessionStartItem,
   type OrderItemRow,
   resolveOrderItemPaymentMethod,
   dbCentsToOutputYuan,
+  GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD,
+  GROUPON_VOUCHER_DISPLAY,
 } from './handover.shared';
 import type { HandoverRecordListItemDto } from './dto/handover-records.dto';
+
+type PaymentBucketKey = SalesPaymentMethod | 'groupon_voucher';
 
 export const mapPaymentItems = (
   items: OrderItemRow[],
 ): HandoverPaymentItemDto[] => {
-  const paymentAmountMap = new Map<SalesPaymentMethod, number>();
+  const paymentAmountMap = new Map<PaymentBucketKey, number>();
 
   for (const item of items) {
     const rawAmountCents = Money.fromDbCents(item.salePrice)
@@ -30,24 +35,35 @@ export const mapPaymentItems = (
       continue;
     }
 
-    const paymentMethod = resolveOrderItemPaymentMethod(item);
+    // 开台项（预付款 / 台位费）+ 团购顾客支付方式 → 归入团购桶，否则按门店结算方式归类
+    const bucketKey: PaymentBucketKey =
+      isSessionStartItem(item.productName) &&
+      item.order.spaceSession?.prepaidCustomerPaymentMethod ===
+        GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD
+        ? 'groupon_voucher'
+        : resolveOrderItemPaymentMethod(item);
+
     paymentAmountMap.set(
-      paymentMethod,
-      Money.fromDbCents(paymentAmountMap.get(paymentMethod) ?? 0)
+      bucketKey,
+      Money.fromDbCents(paymentAmountMap.get(bucketKey) ?? 0)
         .add(Money.fromDbCents(amountCents))
         .toDbCents(),
     );
   }
 
-  return Array.from(paymentAmountMap.entries()).map(
-    ([method, amountCents]) => ({
+  return Array.from(paymentAmountMap.entries()).map(([method, amountCents]) => {
+    const isGroupon = method === 'groupon_voucher';
+    const config = isGroupon
+      ? GROUPON_VOUCHER_DISPLAY
+      : PAYMENT_METHOD_CONFIG[method as SalesPaymentMethod];
+    return {
       method,
-      label: PAYMENT_METHOD_CONFIG[method].label,
+      label: config.label,
       amount: Money.fromDbCents(amountCents).toOutputYuan(),
       ratio: 0,
-      color: PAYMENT_METHOD_CONFIG[method].color,
-    }),
-  );
+      color: config.color,
+    };
+  });
 };
 
 /**

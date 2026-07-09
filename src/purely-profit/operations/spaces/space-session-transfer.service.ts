@@ -83,8 +83,9 @@ export class SpaceSessionTransferService {
       select: { id: true },
     });
 
-    const targetSpace = await this.prisma.space.findUnique({
-      where: { id: dto.targetSpaceId },
+    // B1 fix: 软删除空间不可作为转台目标，与 listSpaces 的 deletedAt: null 口径一致
+    const targetSpace = await this.prisma.space.findFirst({
+      where: { id: dto.targetSpaceId, deletedAt: null },
       select: {
         id: true,
         storeId: true,
@@ -117,12 +118,15 @@ export class SpaceSessionTransferService {
       );
     }
 
+    // 空间级校验：两个空间的默认自动结账配置必须一致
     if (targetSpace.autoCheckout !== session.space.autoCheckout) {
       throw new ConflictException(
         '目标空间与当前空间的自动结账设置不一致，无法换房',
       );
     }
 
+    // 会话级校验：当前会话的实际 autoCheckout 值必须与目标空间配置一致，
+    // 防止会话级 autoCheckout 与空间级配置漂移导致换房后行为异常
     if (Boolean(session.autoCheckout) !== targetSpace.autoCheckout) {
       throw new ConflictException(
         '当前会话自动结账状态与目标空间设置不一致，无法换房',
@@ -238,11 +242,13 @@ export class SpaceSessionTransferService {
           '目标空间与当前空间的脏房模式不一致，无法换房',
         );
       }
+      // 空间级校验：两个空间的默认自动结账配置必须一致
       if (latestTargetSpace.autoCheckout !== latestSession.space.autoCheckout) {
         throw new ConflictException(
           '目标空间与当前空间的自动结账设置不一致，无法换房',
         );
       }
+      // 会话级校验：当前会话的实际 autoCheckout 值必须与目标空间配置一致
       if (
         Boolean(latestSession.autoCheckout) !== latestTargetSpace.autoCheckout
       ) {

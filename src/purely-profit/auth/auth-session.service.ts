@@ -30,6 +30,7 @@ interface RefreshTokenPayload {
   phone: string;
   email: string;
   accountScope?: string;
+  staffId?: number;
 }
 
 @Injectable()
@@ -61,6 +62,7 @@ export class AuthSessionService {
       phone: identifiers.phone,
       accountScope: identifiers.accountScope,
       sessionVersion: await this.getTokenVersion(userId),
+      ...(identifiers.staffId != null ? { staffId: identifiers.staffId } : {}),
     };
 
     const refreshToken = await this.generateRefreshToken({
@@ -68,6 +70,7 @@ export class AuthSessionService {
       phone: identifiers.phone,
       email: identifiers.email,
       accountScope: identifiers.accountScope,
+      ...(identifiers.staffId != null ? { staffId: identifiers.staffId } : {}),
     });
 
     return {
@@ -103,6 +106,7 @@ export class AuthSessionService {
       phone: stored.phone,
       email: stored.email,
       accountScope: stored.accountScope as AccountIdentifiers['accountScope'],
+      ...(stored.staffId != null ? { staffId: stored.staffId } : {}),
     });
   }
 

@@ -123,29 +123,43 @@ export class MarketingCustomerDetailDto extends MarketingCustomerDto {
   })
   clubLevelLabel?: string;
 
-  /** 累计充值金额（元）= totalAmount 汇总 */
-  @ApiProperty({ example: 2680, description: '累计充值金额，单位：元' })
+  /** 累计充值本金（元）= 仅 type='recharge' 的 amount 汇总，不含赠送 */
+  @ApiProperty({
+    example: 2680,
+    description:
+      '累计充值本金（元），仅统计 type=recharge 的本金充值，不含赠送（gift）',
+  })
   totalRecharge: number;
 
-  /** 最大可退金额（元）= 累计充值本金 - 累计退款，由后端计算 */
+  /**
+   * 最大可退金额（元）= min(累计充值本金 − 累计退款, 当前余额 − 赠送余额)，
+   * 受当前实际余额约束，由后端计算。
+   */
   @ApiProperty({
     example: 400,
-    description: '最大可退金额（元），= 累计充值本金 - 累计退款',
+    description:
+      '最大可退金额（元），= min(累计充值本金 − 累计退款, 当前余额 − 赠送余额)',
   })
   refundableAmount: number;
 
-  /** 赠送金额余额（元）= balance - refundableAmount，由后端计算 */
+  /**
+   * 赠送金额余额（元），基于时间线遍历计算：
+   * 充值/赠送时累加 giftAmount，退款时清零，清零后新充值赠送重新累计。
+   */
   @ApiProperty({
     example: 33,
-    description: '赠送金额余额（元），= balance - refundableAmount',
+    description: '赠送金额余额（元），基于时间线遍历（充值累加赠送、退款清零）',
   })
   giftBalance: number;
 
-  /** 积分抵扣总额（元）= 该顾客所有消费记录 points_deducted 汇总，由后端聚合 */
+  /**
+   * 积分抵扣金额（元）= 该顾客所有消费记录 points_deducted 汇总。
+   * ⚠️ 注意：此字段是以「元」为单位的抵扣金额，而非抵扣的积分个数。
+   */
   @ApiProperty({
     example: 15,
     description:
-      '积分抵扣总额（元），= SUM(marketing_consumptions.points_deducted)',
+      '积分抵扣金额（元），= SUM(marketing_consumptions.points_deducted)；注意是金额而非积分个数',
   })
   totalPointsDeducted: number;
 
@@ -230,6 +244,16 @@ export class MarketingRechargeDto {
   @ApiPropertyOptional({ example: '半年卡储值' })
   note?: string;
 
+  /**
+   * 赠送清零金额（元）：该笔退款时清零的赠送余额。
+   * 仅退款记录且 clearRemainingGift=true 时有值，其他情况不返回。
+   */
+  @ApiPropertyOptional({
+    example: 33,
+    description: '赠送清零金额（元），仅退款记录有值',
+  })
+  giftClearedAmount?: number;
+
   /** 创建时间（毫秒时间戳） */
   @ApiProperty({ example: 1714700000000 })
   createdAt: number;
@@ -260,9 +284,19 @@ export class MarketingConsumptionDto {
   @ApiProperty({ example: 20, description: '余额支付金额，单位：元' })
   balancePaid: number;
 
-  /** 积分抵扣金额（元） */
-  @ApiProperty({ example: 0, description: '积分抵扣金额，单位：元' })
+  /** 积分抵扣金额（元）；注意是金额（元），非抵扣积分个数 */
+  @ApiProperty({
+    example: 0,
+    description: '积分抵扣金额（元），非积分个数',
+  })
   pointsDeducted: number;
+
+  /** D4: 实际扣减积分个数（写入时由 ratio 折算固化，与 pointsDeducted 可独立核对） */
+  @ApiProperty({
+    example: 0,
+    description: '实际扣减积分个数，写入时由 redeemRatioPoints 折算固化',
+  })
+  actualPointsDeducted: number;
 
   @ApiProperty({
     example: 'cash',

@@ -32,6 +32,7 @@ model MarketingProduct {
   stock            Int                      @default(0)
   durationMinutes  Int?                     @map("duration_minutes")
   personCount      Int?                     @map("person_count")
+  unit             String?                  @map("unit")
   isActive         Boolean                  @default(true) @map("is_active")
   createdAt        DateTime                 @default(now()) @map("created_at")
   updatedAt        DateTime                 @updatedAt @map("updated_at")

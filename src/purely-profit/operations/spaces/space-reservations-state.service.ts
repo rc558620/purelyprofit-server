@@ -11,6 +11,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   findNearestReservationMatch,
+  getReservationStatusRange,
   getTodayRange,
 } from './space-reservations.shared';
 import type {
@@ -75,33 +76,38 @@ export class SpaceReservationsStateService {
   }
 
   /**
-   * 运行态推导空间状态：根据是否有活跃会话、待履约预约来决定状态
+   * 运行态推导空间状态：根据是否有活跃会话、待履约预约、脏房清洁状态来决定
    * Space.status 字段已从数据库移除，此方法用于替代数据库读取
+   *
+   * 优先级链（与 spaces-read / spaces-write.deriveSpaceStatus 保持一致）：
+   *   1. occupied — 存在活跃会话（status=active）
+   *   2. reserved — 存在待履约预约（priority 高于 cleaning）
+   *   3. cleaning — enableDirtyRoom=true 且 lastSettledEndTime > cleanedAt
+   *   4. idle     — 其他情况
    *
    * @param transaction - Prisma 事务客户端
    * @param spaceId - 空间 ID
-   * @param enableDirtyRoom - 是否启用脏房模式（可选，若提供且为 true，可返回 cleaning）
-   * @returns 推导出的空间状态值（idle/reserved/cleaning）
+   * @param enableDirtyRoom - 是否启用脏房模式
    */
   async resolveReservationBackStatus(
     transaction: Prisma.TransactionClient,
     spaceId: number,
     enableDirtyRoom?: boolean,
   ): Promise<SpaceStatusValue> {
-    // 如果启用脏房模式，返回 cleaning（由调用方决定）
-    if (enableDirtyRoom === true) {
-      return SpaceStatusValues.cleaning;
+    // 1. occupied 优先：存在活跃会话
+    if (await this.hasActiveSession(transaction, spaceId)) {
+      return SpaceStatusValues.occupied;
     }
 
-    // 检查是否存在今日待履约预约
-    const todayRange = getTodayRange();
+    // 2. reserved：检查是否存在待履约预约
+    const statusRange = getReservationStatusRange();
     const pendingReservation = await transaction.spaceReservation.findFirst({
       where: {
         spaceId,
         status: PrismaSpaceReservationStatus.pending,
         reservedAt: {
-          gte: todayRange.start,
-          lte: todayRange.end,
+          gte: statusRange.start,
+          lte: statusRange.end,
         },
       },
       select: { id: true },
@@ -111,6 +117,31 @@ export class SpaceReservationsStateService {
       return SpaceStatusValues.reserved;
     }
 
+    // 3. cleaning：脏房模式且最近结算会话 endTime > cleanedAt（尚未标记清洁完成）
+    if (enableDirtyRoom) {
+      const lastSettled = await transaction.spaceSession.findFirst({
+        where: {
+          spaceId,
+          status: PrismaSpaceSessionStatus.settled,
+          endTime: { not: null },
+        },
+        select: { endTime: true },
+        orderBy: { endTime: 'desc' },
+      });
+
+      if (lastSettled?.endTime) {
+        const space = await transaction.space.findUnique({
+          where: { id: spaceId },
+          select: { cleanedAt: true },
+        });
+        const cleanedMs = space?.cleanedAt?.getTime() ?? 0;
+        if (lastSettled.endTime.getTime() > cleanedMs) {
+          return SpaceStatusValues.cleaning;
+        }
+      }
+    }
+
+    // 4. idle：无活跃会话、无待履约预约、无需清洁
     return SpaceStatusValues.idle;
   }
 
@@ -148,6 +179,16 @@ export class SpaceReservationsStateService {
       session.startTime,
     );
     if (!nearest) {
+      return null;
+    }
+
+    // 防护：预约时间与开台时间差距过大（>2h）时，大概率不是同一笔消费的预约，
+    // 避免误取消该客人其他时段的不相关预约
+    const MAX_MATCH_DISTANCE_MS = 2 * 60 * 60 * 1000;
+    if (
+      Math.abs(nearest.reservedAt.getTime() - session.startTime.getTime()) >
+      MAX_MATCH_DISTANCE_MS
+    ) {
       return null;
     }
 

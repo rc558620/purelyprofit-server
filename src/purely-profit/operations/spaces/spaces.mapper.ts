@@ -41,5 +41,6 @@ export function toSpaceResponse(space: SpaceWithRelations): SpaceResponseDto {
     status: space.status,
     sortOrder: space.sortOrder,
     createdAt: toTimestampMs(space.createdAt),
+    updatedAt: toTimestampMs(space.updatedAt),
   };
 }

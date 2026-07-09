@@ -3,7 +3,7 @@ import {
   ConflictException,
   Injectable,
 } from '@nestjs/common';
-import { MarketingPromotionType, Prisma } from '@prisma/client';
+import { Prisma, type MarketingPromotionType } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
@@ -62,9 +62,10 @@ export class MarketingPromotionsService {
         query.storeId,
       );
     if (!resolvedStoreId) {
+      const { take } = resolveMarketingPagination(query.page, query.pageSize);
       return {
         items: [],
-        meta: buildMarketingPaginationMeta(0, 1, query.pageSize ?? 20),
+        meta: buildMarketingPaginationMeta(0, 1, take),
       };
     }
 
@@ -184,25 +185,40 @@ export class MarketingPromotionsService {
     );
     // 前端入参（元）→ DB 存储（分）
     const writeParams = mapPromotionParamsForWrite(normalizedParams, dto.type);
+    // displayText 基于四舍五入后的输出值计算，与读路径 mapPromotionRow 保持一致
     const outputParams = mapPromotionParamsForOutput(
       normalizedParams,
       dto.type,
     );
     const displayText =
       buildPromotionDisplayText(dto.type, outputParams) || null;
-    const created = await this.prisma.marketingPromotion.create({
-      data: {
-        storeId,
-        name: dto.name.trim(),
-        type: dto.type as unknown as MarketingPromotionType,
-        description: dto.description?.trim() ?? '',
-        params: writeParams as Prisma.InputJsonValue,
-        displayText,
-        startAt: new Date(dto.startAt),
-        endAt: new Date(dto.endAt),
-        enabled: dto.enabled ?? true,
-      },
-    });
+    let created;
+    try {
+      created = await this.prisma.marketingPromotion.create({
+        data: {
+          storeId,
+          name: dto.name.trim(),
+          type: dto.type as unknown as MarketingPromotionType,
+          description: dto.description?.trim() ?? '',
+          params: writeParams as Prisma.InputJsonValue,
+          displayText,
+          startAt: new Date(dto.startAt),
+          endAt: new Date(dto.endAt),
+          enabled: dto.enabled ?? true,
+        },
+      });
+    } catch (err) {
+      // 并发场景下应用层 count=0 通过，但 DB 唯一索引冲突 P2002
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          '当前门店已存在相同类型的上架活动，请直接编辑现有活动',
+        );
+      }
+      throw err;
+    }
 
     await this.invalidateDashboardCaches(storeId);
 
@@ -244,16 +260,22 @@ export class MarketingPromotionsService {
       );
     }
 
-    const updated = await this.prisma.marketingPromotion.update({
-      where: { id: promotionId },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.description !== undefined
-          ? { description: dto.description.trim() }
-          : {}),
-        ...(dto.params !== undefined
-          ? {
-              params: (() => {
+    // B1：与 togglePromotion 保持一致——显式上架已结束的活动时拦截
+    if (dto.enabled === true && newEndAt < new Date()) {
+      throw new BadRequestException('不能上架已结束的活动');
+    }
+
+    let updated;
+    try {
+      updated = await this.prisma.marketingPromotion.update({
+        where: { id: promotionId },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.description !== undefined
+            ? { description: dto.description.trim() }
+            : {}),
+          ...(dto.params !== undefined
+            ? (() => {
                 const validated = validatePromotionParams(
                   promotion.type,
                   dto.params,
@@ -262,37 +284,40 @@ export class MarketingPromotionsService {
                   validated,
                   promotion.type,
                 );
-                // 前端入参（元）→ DB 存储（分）
-                return mapPromotionParamsForWrite(
-                  normalized,
-                  promotion.type,
-                ) as Prisma.InputJsonValue;
-              })(),
-              displayText: (() => {
-                const validated = validatePromotionParams(
-                  promotion.type,
-                  dto.params,
-                );
-                const normalized = normalizePromotionParams(
-                  validated,
-                  promotion.type,
-                );
+                // displayText 基于四舍五入后的输出值计算，与读路径保持一致
                 const outputParams = mapPromotionParamsForOutput(
                   normalized,
                   promotion.type,
                 );
-                return (
-                  buildPromotionDisplayText(promotion.type, outputParams) ||
-                  null
-                );
-              })(),
-            }
-          : {}),
-        ...(dto.startAt !== undefined ? { startAt: newStartAt } : {}),
-        ...(dto.endAt !== undefined ? { endAt: newEndAt } : {}),
-        ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
-      },
-    });
+                return {
+                  // 前端入参（元）→ DB 存储（分）
+                  params: mapPromotionParamsForWrite(
+                    normalized,
+                    promotion.type,
+                  ) as Prisma.InputJsonValue,
+                  displayText:
+                    buildPromotionDisplayText(promotion.type, outputParams) ||
+                    null,
+                };
+              })()
+            : {}),
+          ...(dto.startAt !== undefined ? { startAt: newStartAt } : {}),
+          ...(dto.endAt !== undefined ? { endAt: newEndAt } : {}),
+          ...(dto.enabled !== undefined ? { enabled: dto.enabled } : {}),
+        },
+      });
+    } catch (err) {
+      // 并发场景下 update 切换 enabled=true 触发 P2002
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          '当前门店已存在相同类型的上架活动，请直接编辑现有活动',
+        );
+      }
+      throw err;
+    }
 
     await this.invalidateDashboardCaches(promotion.storeId);
 
@@ -320,6 +345,14 @@ export class MarketingPromotionsService {
     promotionId: number,
     enabled: boolean,
   ): Promise<MarketingPromotionDto> {
+    // B7：上架时校验活动是否已结束，防止启用过期活动
+    if (enabled) {
+      const promotion =
+        await this.marketingSharedService.findPromotionOrThrow(promotionId);
+      if (promotion.endAt < new Date()) {
+        throw new BadRequestException('不能上架已结束的活动');
+      }
+    }
     return this.updatePromotion(user, promotionId, { enabled });
   }
 

@@ -44,8 +44,9 @@ export class SpaceSessionOpenService {
     spaceId: number,
     dto: OpenSpaceSessionDto,
   ): Promise<SpaceSessionResponseDto> {
-    const space = await this.prisma.space.findUnique({
-      where: { id: spaceId },
+    // B1 fix: 软删除空间不可开台，与 listSpaces 的 deletedAt: null 口径一致
+    const space = await this.prisma.space.findFirst({
+      where: { id: spaceId, deletedAt: null },
       include: {
         type: {
           select: {

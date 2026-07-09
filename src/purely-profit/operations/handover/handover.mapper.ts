@@ -17,11 +17,13 @@ import type {
 import {
   PAYMENT_METHOD_CONFIG,
   SHIFT_TYPE_LABELS,
-  SPACE_PREPAID_DEDUCTION_ITEM_NAME,
   isPrepaidDeductionItem,
+  isSessionStartItem,
   SPACE_REFUND_ITEM_NAME,
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
   resolveTimeCategory,
+  GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD,
+  GROUPON_VOUCHER_DISPLAY,
 } from './handover.constants';
 import type {
   AdditionalItemRow,
@@ -98,6 +100,35 @@ export const resolveOrderItemPaymentMethod = (
 };
 
 /**
+ * 解析订单项的支付显示信息（label + color）。
+ * 核心规则：当开台项（预付款 / 台位费）的顾客支付方式为团购券时，
+ * 覆盖显示为「团购」，而不是门店侧的结算方式（如现金）。
+ */
+export const resolveOrderItemPaymentDisplay = (
+  item: OrderItemRow,
+): { paymentLabel: string; paymentColor: string } => {
+  const paymentMethod = resolveOrderItemPaymentMethod(item);
+  const spaceSession = item.order.spaceSession;
+
+  // 开台项（预付款 / 台位费）+ 顾客支付方式为团购 → 显示「团购」
+  if (
+    isSessionStartItem(item.productName) &&
+    spaceSession?.prepaidCustomerPaymentMethod ===
+      GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD
+  ) {
+    return {
+      paymentLabel: GROUPON_VOUCHER_DISPLAY.label,
+      paymentColor: GROUPON_VOUCHER_DISPLAY.color,
+    };
+  }
+
+  return {
+    paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
+    paymentColor: PAYMENT_METHOD_CONFIG[paymentMethod].color,
+  };
+};
+
+/**
  * 解析操作员的真实角色：
  * 优先使用 Staff.role（OWNER 直接可信），
  * 否则检查关联的 StoreSubAccount.role（manager → MANAGER）。
@@ -130,8 +161,7 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
   const totalRevenue = Money.fromDbCents(salePriceCents)
     .multiply(item.quantity)
     .toOutputYuan();
-  const paymentMethod = resolveOrderItemPaymentMethod(item);
-  const paymentLabel = PAYMENT_METHOD_CONFIG[paymentMethod].label;
+  const { paymentLabel, paymentColor } = resolveOrderItemPaymentDisplay(item);
   const productName = resolveOrderItemProductName(item);
   const timeCategory = resolveTimeCategory(item.productName, paymentLabel);
 
@@ -178,7 +208,7 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
     quantity: item.quantity,
     totalRevenue,
     paymentLabel,
-    paymentColor: PAYMENT_METHOD_CONFIG[paymentMethod].color,
+    paymentColor,
     operatorName,
     operatorRole,
     // date 始终用 SaleOrder.date，同结账批次项共享同一值，保证排序聚合

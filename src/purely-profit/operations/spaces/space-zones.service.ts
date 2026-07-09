@@ -164,6 +164,8 @@ export class SpaceZonesService {
         id: true,
         storeId: true,
         _count: {
+          // B-5 fix: 统计所有空间引用（含软删除），
+          // 避免物理删除区域时 SetNull 清空软删除空间的 zoneId 导致审计数据丢失
           select: { spaces: true },
         },
       },
@@ -181,7 +183,7 @@ export class SpaceZonesService {
     );
 
     if (item._count.spaces > 0) {
-      throw new ConflictException('该空间区域已被空间使用，无法删除');
+      throw new ConflictException('该空间区域仍被空间引用，无法删除');
     }
 
     await this.prisma.spaceZone.delete({

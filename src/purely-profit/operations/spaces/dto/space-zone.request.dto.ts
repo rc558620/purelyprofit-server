@@ -19,6 +19,9 @@ export class CreateSpaceZoneDto {
   storeId?: number;
 
   @ApiProperty({ example: '1楼', description: '空间区域名称' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString({ message: '空间区域名称必须是字符串' })
   @MinLength(1, { message: '空间区域名称不能为空' })
   @MaxLength(20, { message: '空间区域名称最长 20 个字符' })
@@ -27,6 +30,9 @@ export class CreateSpaceZoneDto {
 
 export class UpdateSpaceZoneDto {
   @ApiProperty({ example: '大厅', description: '空间区域名称' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString({ message: '空间区域名称必须是字符串' })
   @MinLength(1, { message: '空间区域名称不能为空' })
   @MaxLength(20, { message: '空间区域名称最长 20 个字符' })

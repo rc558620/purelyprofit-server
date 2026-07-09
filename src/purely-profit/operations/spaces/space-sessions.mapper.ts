@@ -37,7 +37,9 @@ export const mapSessionItemRows = (
         profit: Money.fromDbCents(row.profit).toOutputYuan(),
         quantity,
         // 行合计金额 = salePrice × quantity，全程 Money 运算
-        lineTotal: Money.fromDbCents(row.salePrice).multiply(quantity).toOutputYuan(),
+        lineTotal: Money.fromDbCents(row.salePrice)
+          .multiply(quantity)
+          .toOutputYuan(),
       };
     });
 
@@ -59,10 +61,14 @@ export const mapRenewRecordRows = (
       ? { grouponPlatform: row.grouponPlatform }
       : {}),
     ...(row.voucherFaceAmount != null
-      ? { voucherFaceAmount: Money.fromDbCents(row.voucherFaceAmount).toOutputYuan() }
+      ? {
+          voucherFaceAmount: Money.fromDbCents(
+            row.voucherFaceAmount,
+          ).toOutputYuan(),
+        }
       : {}),
     ...(row.note !== null ? { note: row.note } : {}),
-    renewedAt: typeof row.renewedAt === 'bigint' ? Number(row.renewedAt) : row.renewedAt,
+    renewedAt: Number(row.renewedAt),
   }));
 
 export const toSpaceSessionResponse = (
@@ -123,7 +129,11 @@ export const toSpaceSessionResponse = (
       : {}),
     ...(session.prepaidNote ? { prepaidNote: session.prepaidNote } : {}),
     ...(session.prepaidAmount !== null
-      ? { prepaidAmount: Money.fromDbCents(session.prepaidAmount).toOutputYuan() }
+      ? {
+          prepaidAmount: Money.fromDbCents(
+            session.prepaidAmount,
+          ).toOutputYuan(),
+        }
       : {}),
     ...(session.prepaidVoucherFaceAmount !== null
       ? {

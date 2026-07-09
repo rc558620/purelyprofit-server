@@ -22,20 +22,22 @@ import {
 import { MarketingPageQueryDto } from './marketing-pagination-query.dto';
 
 const PROMOTION_STATUS_VALUES = [
+  'all',
   'upcoming',
   'active',
   'ended',
-] as const satisfies readonly MarketingPromotionStatus[];
+] as const satisfies readonly ['all', ...MarketingPromotionStatus[]];
 
 export class ListPromotionsQueryDto extends MarketingPageQueryDto {
   @ApiPropertyOptional({
     example: 'active',
     enum: PROMOTION_STATUS_VALUES,
-    description: '活动状态（upcoming=未开始 active=进行中 ended=已结束）',
+    description:
+      '活动状态（all=全部 upcoming=未开始 active=进行中 ended=已结束）',
   })
   @IsOptional()
   @IsIn(PROMOTION_STATUS_VALUES, { message: '无效的活动状态' })
-  status?: MarketingPromotionStatus;
+  status?: MarketingPromotionStatus | 'all';
 
   @ApiPropertyOptional({
     example: true,
@@ -43,8 +45,10 @@ export class ListPromotionsQueryDto extends MarketingPageQueryDto {
   })
   @IsOptional()
   @Transform(({ value }: { value: unknown }) => {
-    if (value === 'true' || value === true || value === 1) return true;
-    if (value === 'false' || value === false || value === 0) return false;
+    if (value === 'true' || value === true || value === 1 || value === '1')
+      return true;
+    if (value === 'false' || value === false || value === 0 || value === '0')
+      return false;
     return value;
   })
   @IsBoolean({ message: 'enabled 必须是布尔值' })

@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { mapConcurrent } from '../../../shared/concurrency.utils';
 import {
   EmployeePayrollStatus,
@@ -27,6 +31,7 @@ import {
   buildResignEmployeeProfileData,
   buildUpdateEmployeeProfileData,
 } from './employees-profile.domain';
+import { buildPhoneLoginEmail } from '../../auth/auth.utils';
 import {
   buildPayrollDerivedAmounts,
   formatPayrollMonth,
@@ -287,7 +292,6 @@ export class EmployeesProfileWriteService {
       where: {
         storeId,
         employeeId,
-        isAssigned: true,
       },
       data: {
         status: StoreSubAccountStatus.active,
@@ -317,6 +321,12 @@ export class EmployeesProfileWriteService {
       where: { id: employee.linkedStaffId },
       data: { isActive: false, status: StaffStatus.disabled },
     });
+
+    // 解除 Employee → Staff 关联，防止全局 User 被跨员工/跨租户复用
+    await transaction.employee.updateMany({
+      where: { id: employee.id, linkedStaffId: employee.linkedStaffId },
+      data: { linkedStaffId: null },
+    });
   }
 
   /**
@@ -334,6 +344,12 @@ export class EmployeesProfileWriteService {
     await transaction.staff.updateMany({
       where: { id: employee.linkedStaffId },
       data: { isActive: false, status: StaffStatus.disabled },
+    });
+
+    // 解除 Employee → Staff 关联，防止全局 User 被跨员工/跨租户复用
+    await transaction.employee.updateMany({
+      where: { id: employee.id, linkedStaffId: employee.linkedStaffId },
+      data: { linkedStaffId: null },
     });
   }
 
@@ -551,6 +567,33 @@ export class EmployeesProfileWriteService {
       return;
     }
 
+    // ── BUG-1 修复：手机号变更前执行全局冲突校验 ──
+    // 与 store-sub-account-login checkEmailAndPhoneConflicts 保持一致，
+    // 防止 Staff.phone 写入跨租户号码导致 findUserByPhone 命中多 User 锁死登录
+    if (phoneChanged && employee.phone) {
+      const linkedStaff = await transaction.staff.findUnique({
+        where: { id: employee.linkedStaffId },
+        select: { userId: true },
+      });
+
+      const phoneEmail = buildPhoneLoginEmail('purely_profit', employee.phone);
+      const excludeUserIds = linkedStaff?.userId ? [linkedStaff.userId] : [];
+
+      const phoneWhere =
+        excludeUserIds.length > 0
+          ? { email: phoneEmail, id: { notIn: excludeUserIds } }
+          : { email: phoneEmail };
+
+      const phoneConflict = await transaction.user.findFirst({
+        where: phoneWhere,
+        select: { id: true },
+      });
+
+      if (phoneConflict) {
+        throw new ConflictException('该电话号码已被注册');
+      }
+    }
+
     const updatedStaff = await transaction.staff.update({
       where: { id: employee.linkedStaffId },
       data: {
@@ -560,13 +603,21 @@ export class EmployeesProfileWriteService {
       select: { userId: true },
     });
 
+    // ── BUG-2 修复：仅在 User.name 为空时回填，避免跨产品线昵称覆盖 ──
     if (!nameChanged || updatedStaff.userId === null) {
       return;
     }
 
-    await transaction.user.update({
+    const currentUser = await transaction.user.findUnique({
       where: { id: updatedStaff.userId },
-      data: { name: employee.name },
+      select: { name: true },
     });
+
+    if (!currentUser?.name) {
+      await transaction.user.update({
+        where: { id: updatedStaff.userId },
+        data: { name: employee.name },
+      });
+    }
   }
 }

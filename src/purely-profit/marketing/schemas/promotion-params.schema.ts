@@ -5,6 +5,7 @@
 // 写入时用 .parse() 严格校验；读取时用 .safeParse() + 默认值兜底。
 
 import { z } from 'zod';
+import { BadRequestException } from '@nestjs/common';
 
 // ─── 通用 banner 字段（所有 type 都可能携带） ───────────────────────
 
@@ -39,10 +40,12 @@ export const discountParamsSchema = z
     { message: 'discountRate 或 rate 至少提供一个', path: ['discountRate'] },
   )
   .transform((data) => {
-    if (data.discountRate === undefined && data.rate !== undefined) {
-      return { ...data, discountRate: Math.round(data.rate * 100) };
+    // 清理冗余 rate 字段，统一只保留 discountRate
+    const { rate, ...rest } = data;
+    if (data.discountRate === undefined && rate !== undefined) {
+      return { ...rest, discountRate: Math.round(rate * 100) };
     }
-    return data;
+    return rest;
   });
 
 // ─── first_order_discount ─────────────────────────────────────────
@@ -63,10 +66,12 @@ export const firstOrderDiscountParamsSchema = z
     { message: 'discountRate 或 rate 至少提供一个', path: ['discountRate'] },
   )
   .transform((data) => {
-    if (data.discountRate === undefined && data.rate !== undefined) {
-      return { ...data, discountRate: Math.round(data.rate * 100) };
+    // 清理冗余 rate 字段，统一只保留 discountRate
+    const { rate, ...rest } = data;
+    if (data.discountRate === undefined && rate !== undefined) {
+      return { ...rest, discountRate: Math.round(rate * 100) };
     }
-    return data;
+    return rest;
   });
 
 // ─── reduce ────────────────────────────────────────────────────────
@@ -95,12 +100,30 @@ const rechargeGiftGradientSchema = z.object({
 export const rechargeGiftParamsSchema = z
   .object({
     /** 多档梯度 */
-    gradients: z.array(rechargeGiftGradientSchema).min(1),
+    gradients: z.array(rechargeGiftGradientSchema).min(1).optional(),
     /** 兼容旧字段名 tiers */
     tiers: z.array(rechargeGiftGradientSchema).optional(),
   })
   .merge(bannerFieldsSchema)
-  .passthrough();
+  .passthrough()
+  .transform((data) => {
+    // 兼容旧客户端：仅传 tiers 时合并为 gradients
+    if (
+      (data.gradients === undefined || data.gradients.length === 0) &&
+      data.tiers &&
+      data.tiers.length > 0
+    ) {
+      const { tiers, ...rest } = data;
+      return { ...rest, gradients: tiers };
+    }
+    return data;
+  })
+  .refine(
+    (data) =>
+      (data.gradients !== undefined && data.gradients.length > 0) ||
+      (data.tiers !== undefined && data.tiers.length > 0),
+    { message: 'gradients 或 tiers 至少提供一个', path: ['gradients'] },
+  );
 
 // ─── points_recharge ──────────────────────────────────────────────
 
@@ -112,7 +135,24 @@ export const pointsRechargeParamsSchema = z
     pointsRatio: z.number().positive().optional(),
   })
   .merge(bannerFieldsSchema)
-  .passthrough();
+  .passthrough()
+  .refine(
+    (d) => d.rechargeRatioPercent !== undefined || d.pointsRatio !== undefined,
+    {
+      message: 'rechargeRatioPercent 或 pointsRatio 至少提供一个',
+      path: ['rechargeRatioPercent'],
+    },
+  )
+  .transform((data) => {
+    // B3：归一化旧字段 pointsRatio → canonical 字段 rechargeRatioPercent
+    if (
+      data.rechargeRatioPercent === undefined &&
+      data.pointsRatio !== undefined
+    ) {
+      return { ...data, rechargeRatioPercent: data.pointsRatio };
+    }
+    return data;
+  });
 
 // ─── free / points_2x ─────────────────────────────────────────────
 
@@ -166,7 +206,11 @@ export function validatePromotionParams(
     params: params ?? {},
   });
   if (!result.success) {
-    throw result.error;
+    // B2：将 ZodError 转为 BadRequestException (400)，避免被全局过滤器吞为 500
+    const messages = result.error.issues.map(
+      (i) => `${i.path.join('.')}: ${i.message}`,
+    );
+    throw new BadRequestException(messages.join('; '));
   }
   return result.data.params;
 }

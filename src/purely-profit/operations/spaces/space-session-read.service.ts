@@ -94,8 +94,9 @@ export class SpaceSessionReadService {
     requestId?: string,
   ): Promise<SpaceSessionResponseDto | null> {
     void requestId;
-    const space = await this.prisma.space.findUnique({
-      where: { id: spaceId },
+    // B1 fix: 软删除空间不可查看会话，与 listSpaces 的 deletedAt: null 口径一致
+    const space = await this.prisma.space.findFirst({
+      where: { id: spaceId, deletedAt: null },
       select: {
         id: true,
         storeId: true,
@@ -174,8 +175,9 @@ export class SpaceSessionReadService {
     requestId?: string,
   ): Promise<PaginatedSpaceSessionsResponseDto> {
     void requestId;
-    const space = await this.prisma.space.findUnique({
-      where: { id: spaceId },
+    // B1 fix: 软删除空间不可查看会话列表，与 listSpaces 的 deletedAt: null 口径一致
+    const space = await this.prisma.space.findFirst({
+      where: { id: spaceId, deletedAt: null },
       select: {
         id: true,
         storeId: true,

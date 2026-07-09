@@ -181,6 +181,7 @@ describe('AuthService', () => {
   it('仅允许 admin 别名映射到固定手机号登录', async () => {
     const hashedPassword = await bcrypt.hash('admin123', 4);
     prismaService.staff.findFirst.mockResolvedValue({
+      id: 1,
       user: {
         id: 1,
         email: 'phone_13800000000@purelyprofit.local',
@@ -203,6 +204,7 @@ describe('AuthService', () => {
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       select: {
+        id: true,
         user: {
           select: {
             id: true,
@@ -220,19 +222,24 @@ describe('AuthService', () => {
       phone: '13619654020',
       accountScope: 'developer',
       sessionVersion: 0,
+      staffId: 1,
     });
   });
 
   it('支持通过子账号别名登录', async () => {
     const hashedPassword = await bcrypt.hash('111111', 4);
-    prismaService.staff.findFirst.mockResolvedValue({
-      phone: '13145645646',
-      user: {
+    prismaService.staff.findMany.mockResolvedValue([
+      {
         id: 59,
-        email: 'phone_13145645646@purelyprofit.local',
-        password: hashedPassword,
+        userId: 59,
+        phone: '13145645646',
+        user: {
+          id: 59,
+          email: 'phone_13145645646@purelyprofit.local',
+          password: hashedPassword,
+        },
       },
-    });
+    ]);
     redisService.get.mockResolvedValue('0');
     jwtService.signAsync.mockResolvedValue('sub-account-token');
 
@@ -241,13 +248,16 @@ describe('AuthService', () => {
       password: '111111',
     });
 
-    expect(prismaService.staff.findFirst).toHaveBeenCalledWith({
+    expect(prismaService.staff.findMany).toHaveBeenCalledWith({
       where: {
         loginAccount: 'aaaaaa3',
         isActive: true,
         userId: { not: null },
       },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       select: {
+        id: true,
+        userId: true,
         phone: true,
         user: {
           select: {
@@ -257,6 +267,7 @@ describe('AuthService', () => {
           },
         },
       },
+      take: 2,
     });
     expect(result).toEqual(
       expect.objectContaining({
@@ -269,6 +280,7 @@ describe('AuthService', () => {
       phone: '13145645646',
       accountScope: 'purely_profit',
       sessionVersion: 0,
+      staffId: 59,
     });
   });
 

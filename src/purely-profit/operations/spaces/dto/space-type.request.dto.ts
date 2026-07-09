@@ -19,6 +19,9 @@ export class CreateSpaceTypeDto {
   storeId?: number;
 
   @ApiProperty({ example: '包间', description: '空间类型名称' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString({ message: '空间类型名称必须是字符串' })
   @MinLength(1, { message: '空间类型名称不能为空' })
   @MaxLength(20, { message: '空间类型名称最长 20 个字符' })
@@ -27,6 +30,9 @@ export class CreateSpaceTypeDto {
 
 export class UpdateSpaceTypeDto {
   @ApiProperty({ example: 'VIP 包间', description: '空间类型名称' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString({ message: '空间类型名称必须是字符串' })
   @MinLength(1, { message: '空间类型名称不能为空' })
   @MaxLength(20, { message: '空间类型名称最长 20 个字符' })

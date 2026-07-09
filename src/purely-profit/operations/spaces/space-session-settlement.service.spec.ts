@@ -190,6 +190,7 @@ describe('SpaceSessionSettlementService', () => {
         salePrice: -30,
         profit: -30,
         quantity: 1,
+        lineTotal: -30,
       },
     ];
     params.settlement.prepaidDeduction = 30;

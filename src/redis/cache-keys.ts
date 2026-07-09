@@ -34,6 +34,8 @@ export {
   buildMarketingPromotionsListPattern,
   buildMarketingCustomersListCacheKey,
   buildMarketingCustomersListPattern,
+  buildMarketingCustomerDetailCacheKey,
+  buildMarketingCustomerDetailPattern,
 } from './keys/marketing.cache-keys';
 
 export {

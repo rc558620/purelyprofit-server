@@ -23,6 +23,7 @@ import {
   ensureReservationEndAfterStart,
   ensureReservationGuestCount,
   ensureReservationTimeWindow,
+  getTodayRange,
   normalizeReservationPayload,
   toSpaceReservationResponse,
 } from './space-reservations.shared';
@@ -47,8 +48,9 @@ export class SpaceReservationsService {
     requestId?: string,
   ): Promise<SpaceReservationResponseDto[]> {
     void requestId;
-    const space = await this.prisma.space.findUnique({
-      where: { id: spaceId },
+    // B1 fix: 软删除空间不可查看预约，与 listSpaces 的 deletedAt: null 口径一致
+    const space = await this.prisma.space.findFirst({
+      where: { id: spaceId, deletedAt: null },
       select: {
         id: true,
         storeId: true,
@@ -126,8 +128,9 @@ export class SpaceReservationsService {
     spaceId: number,
     dto: CreateSpaceReservationDto,
   ): Promise<SpaceReservationResponseDto> {
-    const space = await this.prisma.space.findUnique({
-      where: { id: spaceId },
+    // B1 fix: 软删除空间不可创建预约，与 listSpaces 的 deletedAt: null 口径一致
+    const space = await this.prisma.space.findFirst({
+      where: { id: spaceId, deletedAt: null },
       select: {
         id: true,
         storeId: true,
@@ -493,7 +496,8 @@ export class SpaceReservationsService {
   ): Promise<SpaceReservationRecord | null> {
     // 业务规则：已过时的预约（reservedAt <= now）不再参与冲突占位
     // 允许用户在已过时预约的时间段内创建新预约
-    const now = new Date();
+    // B8 fix: 统一使用上海时区基准，与 ensureReservationTimeWindow / getReservationStatusRange 口径一致
+    const now = getTodayRange().start;
     const where: Prisma.SpaceReservationWhereInput = {
       spaceId,
       status: PrismaSpaceReservationStatus.pending,

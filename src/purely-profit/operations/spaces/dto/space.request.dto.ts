@@ -2,7 +2,6 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
-  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -47,12 +46,18 @@ export class CreateSpaceDto {
   storeId?: number;
 
   @ApiProperty({ example: 'A台', description: '空间名称' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString({ message: '空间名称必须是字符串' })
   @MinLength(1, { message: '空间名称不能为空' })
   @MaxLength(20, { message: '空间名称最长 20 个字符' })
   name: string;
 
   @ApiProperty({ example: '餐桌', description: '空间类型名称' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString({ message: '空间类型必须是字符串' })
   @MinLength(1, { message: '空间类型不能为空' })
   @MaxLength(20, { message: '空间类型最长 20 个字符' })
@@ -90,6 +95,9 @@ export class CreateSpaceDto {
 export class UpdateSpaceDto {
   @ApiPropertyOptional({ example: 'A台', description: '空间名称' })
   @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString({ message: '空间名称必须是字符串' })
   @MinLength(1, { message: '空间名称不能为空' })
   @MaxLength(20, { message: '空间名称最长 20 个字符' })
@@ -97,6 +105,9 @@ export class UpdateSpaceDto {
 
   @ApiPropertyOptional({ example: '餐桌', description: '空间类型名称' })
   @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString({ message: '空间类型必须是字符串' })
   @MinLength(1, { message: '空间类型不能为空' })
   @MaxLength(20, { message: '空间类型最长 20 个字符' })

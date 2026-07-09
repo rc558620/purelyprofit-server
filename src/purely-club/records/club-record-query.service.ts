@@ -122,6 +122,7 @@ export class ClubRecordQueryService {
           where: {
             storeId,
             customerId,
+            type: { not: 'refund' },
             ...cursorFilter,
           },
           select: {
@@ -153,7 +154,7 @@ export class ClubRecordQueryService {
           take: overfetchLimit,
         }),
         this.prisma.marketingRecharge.count({
-          where: { storeId, customerId },
+          where: { storeId, customerId, type: { not: 'refund' } },
         }),
         this.prisma.marketingConsumption.count({
           where: { storeId, customerId },

@@ -91,10 +91,12 @@ describe('EmployeesService', () => {
       findMany: jest.fn(),
       findFirst: jest.fn(),
       upsert: jest.fn(),
+      updateMany: jest.fn(),
     },
     staff: {
       findMany: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     user: {
       update: jest.fn(),
@@ -268,9 +270,9 @@ describe('EmployeesService', () => {
         phone: '13800138000',
         email: 'account_store_mgr01@purelyprofit.local',
         loginAccount: 'store_mgr01',
+        userId: 5,
         updatedAt,
         employeeProfile: { id: 12 },
-        user: { password: 'hashed-password' },
       },
     ]);
 
@@ -324,13 +326,14 @@ describe('EmployeesService', () => {
           status: EmployeeStatus.active,
           createdAt: createdAt.getTime(),
           updatedAt: updatedAt.getTime(),
+          canViewSubAccountModule: true,
           subAccount: {
             id: '7',
             role: 'cashier',
             roleLabel: '收银员',
             status: 'active',
             slotIndex: 2,
-            loginAccount: '13800138000 / store_mgr01',
+            loginAccount: 'store_mgr01',
             canHandover: true,
             hasPassword: true,
             createdAt: createdAt.getTime(),
@@ -438,9 +441,9 @@ describe('EmployeesService', () => {
         phone: '13800138000',
         email: 'account_store_mgr01@purelyprofit.local',
         loginAccount: 'store_mgr01',
+        userId: 5,
         updatedAt,
         employeeProfile: { id: 12 },
-        user: { password: 'hashed-password' },
       },
     ]);
 
@@ -2087,7 +2090,10 @@ service.createLeave(user, 5, {
     prismaService.storeSubAccount.findMany.mockResolvedValue([
       { slotIndex: 1 },
     ]);
-    prismaService.storeSubAccount.upsert.mockResolvedValue(undefined);
+    // 缺陷4修复：CAS 原子抢占空槽
+    prismaService.storeSubAccount.updateMany.mockResolvedValue({ count: 1 });
+    // 缺陷2修复：同步 Staff 角色与权限
+    prismaService.staff.updateMany.mockResolvedValue({ count: 1 });
     // buildEmployeeDetail 需要的 mock
     prismaService.storeSubAccount.findMany.mockResolvedValue([
       {
@@ -2107,9 +2113,9 @@ service.createLeave(user, 5, {
         phone: '13800138000',
         email: 'account_cashier_01@purelyprofit.local',
         loginAccount: 'cashier_01',
+        userId: 5,
         updatedAt,
         employeeProfile: { id: 12 },
-        user: { password: 'hashed-password' },
       },
     ]);
 
@@ -2119,8 +2125,34 @@ service.createLeave(user, 5, {
       password: 'test123456',
     });
 
-    // #3 修复：现在通过事务内 upsert 直接更新，而非调用 storeSubAccountService.updateSlot
-    expect(prismaService.storeSubAccount.upsert).toHaveBeenCalled();
+    // 缺陷4修复：现在通过 CAS updateMany 原子抢占空槽
+    expect(prismaService.storeSubAccount.updateMany).toHaveBeenCalledWith({
+      where: {
+        storeId: 2,
+        slotIndex: 1,
+        isAssigned: false,
+      },
+      data: {
+        role: 'cashier',
+        status: 'active',
+        employeeId: 12,
+        isAssigned: true,
+        assignedAt: expect.any(Date),
+        canAccessHome: true,
+        canUseHandover: true,
+      },
+    });
+    // 缺陷2修复：同步 Staff 角色与权限
+    // Bug 3 修复：移除冗余 storeId 过滤（employeeProfile 条件已唯一定位 Staff）
+    expect(prismaService.staff.updateMany).toHaveBeenCalledWith({
+      where: {
+        employeeProfile: { is: { id: 12 } },
+      },
+      data: {
+        role: 'staff',
+        permissions: expect.any(Array),
+      },
+    });
     expect(
       employeesAccessService.ensureCanManageEmployeeSubAccount,
     ).toHaveBeenCalledWith(user);
@@ -2130,7 +2162,7 @@ service.createLeave(user, 5, {
       roleLabel: '收银员',
       status: 'active',
       slotIndex: 1,
-      loginAccount: '13800138000 / cashier_01',
+      loginAccount: 'cashier_01',
       canHandover: true,
       hasPassword: true,
       createdAt: createdAt.getTime(),
@@ -2167,6 +2199,7 @@ service.createLeave(user, 5, {
       service.updateSubAccount(managerUser, 12, {
         role: 'cashier',
         loginAccount: 'cashier_01',
+        password: 'test123456',
       }),
     ).rejects.toThrow('子账号无权管理员工子账号');
 

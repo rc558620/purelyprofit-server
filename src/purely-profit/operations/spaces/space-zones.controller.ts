@@ -1,4 +1,7 @@
-import { CurrentUser } from '../../auth/current-user.decorator';
+import {
+  UserWithRequestId,
+  type UserWithRequestIdValue,
+} from '../../auth/user-with-request-id.decorator';
 import {
   Body,
   Controller,
@@ -24,7 +27,6 @@ import {
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   CreateSpaceZoneDto,
   ListSpaceZonesQueryDto,
@@ -45,10 +47,10 @@ export class SpaceZonesController {
   @ApiOperation({ summary: '获取空间区域列表' })
   @ApiOkResponse({ type: [SpaceZoneResponseDto] })
   list(
-    @CurrentUser() user: AuthenticatedUser,
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Query() query: ListSpaceZonesQueryDto,
   ): Promise<SpaceZoneResponseDto[]> {
-    return this.spaceZonesService.listSpaceZones(user, query);
+    return this.spaceZonesService.listSpaceZones(ctx.user, query);
   }
 
   @Post()
@@ -56,10 +58,10 @@ export class SpaceZonesController {
   @ApiOperation({ summary: '新增空间区域' })
   @ApiCreatedResponse({ type: SpaceZoneResponseDto })
   create(
-    @CurrentUser() user: AuthenticatedUser,
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Body() dto: CreateSpaceZoneDto,
   ): Promise<SpaceZoneResponseDto> {
-    return this.spaceZonesService.createSpaceZone(user, dto);
+    return this.spaceZonesService.createSpaceZone(ctx.user, dto);
   }
 
   @Patch(':id')
@@ -67,11 +69,11 @@ export class SpaceZonesController {
   @ApiOperation({ summary: '更新空间区域' })
   @ApiOkResponse({ type: SpaceZoneResponseDto })
   update(
-    @CurrentUser() user: AuthenticatedUser,
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) zoneId: number,
     @Body() dto: UpdateSpaceZoneDto,
   ): Promise<SpaceZoneResponseDto> {
-    return this.spaceZonesService.updateSpaceZone(user, zoneId, dto);
+    return this.spaceZonesService.updateSpaceZone(ctx.user, zoneId, dto);
   }
 
   @Delete(':id')
@@ -80,9 +82,9 @@ export class SpaceZonesController {
   @ApiOperation({ summary: '删除空间区域' })
   @ApiNoContentResponse()
   async remove(
-    @CurrentUser() user: AuthenticatedUser,
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) zoneId: number,
   ): Promise<void> {
-    await this.spaceZonesService.removeSpaceZone(user, zoneId);
+    await this.spaceZonesService.removeSpaceZone(ctx.user, zoneId);
   }
 }

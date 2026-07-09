@@ -99,13 +99,12 @@ export class EmployeeSubAccountResponseDto {
   @IsInt({ message: '账号槽位序号必须是整数' })
   slotIndex: number;
 
-  @ApiPropertyOptional({
-    example: '13800138000 / store_mgr01',
-    description: '登录账号展示文案，支持手机号或手机号 / 自定义账号',
+  @ApiProperty({
+    example: 'cashier01',
+    description: '登录账号：有自定义账号时展示自定义账号，否则展示员工手机号',
   })
-  @IsOptional()
   @IsString({ message: '登录账号展示文案必须是字符串' })
-  loginAccount?: string;
+  loginAccount: string;
 
   @ApiProperty({ example: true, description: '是否可参与交班' })
   @IsBoolean({ message: '交班权限标记必须是布尔值' })

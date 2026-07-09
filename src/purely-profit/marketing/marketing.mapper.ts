@@ -27,9 +27,15 @@ import type {
   MarketingRechargeRow,
 } from './marketing.types';
 import {
+  MARKETING_CUSTOMER_TIER_VALUES,
+  type MarketingCustomerTierValue,
   calcCustomerStatus,
   calcPromotionStatus,
   normalizePhone,
+  safeEnumCoerce,
+  MARKETING_PAY_TYPE_VALUES,
+  MARKETING_POINTS_CHANGE_TYPE_VALUES,
+  MARKETING_RECHARGE_TYPE_VALUES,
   type MarketingPayTypeValue,
   type MarketingPointsChangeTypeValue,
   type MarketingPromotionParamsValue,
@@ -69,9 +75,7 @@ export function buildPromotionDisplayText(
     const threshold =
       typeof params.threshold === 'number' ? params.threshold : undefined;
     const reduceAmount =
-      typeof params.reduceAmount === 'number'
-        ? params.reduceAmount
-        : undefined;
+      typeof params.reduceAmount === 'number' ? params.reduceAmount : undefined;
     if (threshold === undefined || reduceAmount === undefined) return '';
     return `满 ¥${threshold} 减 ¥${reduceAmount}`;
   }
@@ -96,7 +100,10 @@ export function buildPromotionDisplayText(
     let giftAmountYuan: number;
     if (typeof gradient.giftAmount === 'number' && gradient.giftAmount > 0) {
       giftAmountYuan = gradient.giftAmount as number;
-    } else if (typeof gradient.giftRatio === 'number' && gradient.giftRatio > 0) {
+    } else if (
+      typeof gradient.giftRatio === 'number' &&
+      gradient.giftRatio > 0
+    ) {
       giftAmountYuan = Money.fromInputYuan(rechargeAmount)
         .multiply(gradient.giftRatio as number)
         .toOutputYuan();
@@ -126,8 +133,8 @@ export function buildPromotionDisplayText(
     const rechargeRatioPercent =
       typeof params.rechargeRatioPercent === 'number'
         ? params.rechargeRatioPercent
-        : typeof params.pointsPerYuan === 'number'
-          ? (params.pointsPerYuan as number)
+        : typeof params.pointsRatio === 'number'
+          ? (params.pointsRatio as number)
           : undefined;
     if (rechargeRatioPercent === undefined) return '';
     const pts = Number.isInteger(rechargeRatioPercent)
@@ -154,7 +161,11 @@ export function mapCustomerRow(
     name: row.name,
     phone: normalizePhone(row.phone) ?? '',
     avatar: toOptionalMediaText(row.avatar) ?? undefined,
-    tier: row.tier,
+    tier: safeEnumCoerce(
+      row.tier as string,
+      MARKETING_CUSTOMER_TIER_VALUES,
+      'regular' as MarketingCustomerTierValue,
+    ),
     balance: Money.fromDbCents(row.balance).toOutputYuan(),
     points: row.points,
     totalSpent: Money.fromDbCents(row.totalSpent).toOutputYuan(),
@@ -182,7 +193,11 @@ export function mapRechargeRow(
     totalAmount,
     signedAmount: isRefund ? -amount : amount,
     signedTotalAmount: isRefund ? -totalAmount : totalAmount,
-    type: row.type as MarketingRechargeTypeValue,
+    type: safeEnumCoerce(
+      row.type as string,
+      MARKETING_RECHARGE_TYPE_VALUES,
+      'recharge' as MarketingRechargeTypeValue,
+    ),
     promotionId: row.promotionId ? String(row.promotionId) : undefined,
     promotionName: row.promotionName ?? undefined,
     note: row.note ?? undefined,
@@ -199,7 +214,12 @@ export function mapConsumptionRow(
     amount: Money.fromDbCents(row.amount).toOutputYuan(),
     balancePaid: Money.fromDbCents(row.balancePaid).toOutputYuan(),
     pointsDeducted: Money.fromDbCents(row.pointsDeducted).toOutputYuan(),
-    payType: row.payType as MarketingPayTypeValue,
+    actualPointsDeducted: row.actualPointsDeducted,
+    payType: safeEnumCoerce(
+      row.payType as string,
+      MARKETING_PAY_TYPE_VALUES,
+      'cash' as MarketingPayTypeValue,
+    ),
     itemsSummary: row.itemsSummary ?? undefined,
     promotionId: row.promotionId ? String(row.promotionId) : undefined,
     promotionName: row.promotionName ?? undefined,
@@ -214,7 +234,11 @@ export function mapPointsRecordRow(
     id: String(row.id),
     customerId: String(row.customerId),
     amount: row.amount,
-    type: row.type as MarketingPointsChangeTypeValue,
+    type: safeEnumCoerce(
+      row.type as string,
+      MARKETING_POINTS_CHANGE_TYPE_VALUES,
+      'earn' as MarketingPointsChangeTypeValue,
+    ),
     description: row.description,
     createdAt: row.createdAt.getTime(),
   };
@@ -374,9 +398,7 @@ const YUAN_TO_CENTS_FIELDS = new Set([
  * 写入映射：前端入参（元）→ DB 存储（分）
  * 只对已知金额字段做 * 100 转换，其余字段原样透传。
  */
-function mapParamValueForWrite(
-  value: unknown,
-): unknown {
+function mapParamValueForWrite(value: unknown): unknown {
   if (typeof value === 'number' || typeof value === 'string') {
     return value;
   }
@@ -420,9 +442,7 @@ export function mapPromotionParamsForWrite(
  * 输出映射：DB 存储（分）→ 前端输出（元）
  * 只对已知金额字段做 / 100 转换，其余字段原样透传。
  */
-function mapParamValueForOutput(
-  value: unknown,
-): unknown {
+function mapParamValueForOutput(value: unknown): unknown {
   if (typeof value === 'number' || typeof value === 'string') {
     return value;
   }
@@ -504,13 +524,17 @@ export function mapProductRow(row: MarketingProductRow): MarketingProductDto {
     categoryId: String(row.categoryId),
     categoryName: row.categoryName,
     price: Money.fromDbCents(row.price).toOutputYuan(),
-    originalPrice: row.originalPrice !== null && row.originalPrice !== undefined ? Money.fromDbCents(row.originalPrice).toOutputYuan() : undefined,
+    originalPrice:
+      row.originalPrice !== null && row.originalPrice !== undefined
+        ? Money.fromDbCents(row.originalPrice).toOutputYuan()
+        : undefined,
     image: toOptionalMediaText(row.image) ?? undefined,
     descriptionTitle: toOptionalText(row.descriptionTitle) ?? undefined,
     description: toOptionalText(row.description) ?? undefined,
     stock: row.stock,
     durationMinutes: row.durationMinutes ?? undefined,
     personCount: row.personCount ?? undefined,
+    unit: row.unit ?? undefined,
     isActive: row.isActive,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),

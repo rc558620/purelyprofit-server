@@ -4,7 +4,6 @@ import { SpaceSessionStatus, SpaceReservationStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { SPACE_WITH_RELATIONS_INCLUDE } from './spaces.query';
 import { SpaceSessionReadService } from './space-session-read.service';
 import { SpaceSessionReadStateService } from './space-session-read-state.service';
 import { SpacesReadService } from './spaces-read.service';
@@ -141,39 +140,42 @@ describe('SpacesReadService', () => {
     const result = await service.listSpaces(user, query);
 
     // status 字段已移除，不再在数据库查询中过滤，而是在内存中过滤
-    expect(prismaService.space.findMany).toHaveBeenCalledWith({
-      where: {
-        storeId: 18,
-        deletedAt: null,
-        // status: 'idle', // 已移除
-        type: {
-          is: {
-            name: '台球台',
+    // reservations 已加入今日区间过滤，与看板/reservationBackStatus 口径统一
+    expect(prismaService.space.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          storeId: 18,
+          deletedAt: null,
+          type: {
+            is: {
+              name: '台球台',
+            },
+          },
+          zone: {
+            is: {
+              name: '一楼',
+            },
           },
         },
-        zone: {
-          is: {
-            name: '一楼',
+        include: expect.objectContaining({
+          _count: {
+            select: {
+              sessions: { where: { status: SpaceSessionStatus.active } },
+              reservations: {
+                where: {
+                  status: SpaceReservationStatus.pending,
+                  reservedAt: {
+                    gte: expect.any(Date),
+                    lte: expect.any(Date),
+                  },
+                },
+              },
+            },
           },
-        },
-      },
-      include: {
-        ...SPACE_WITH_RELATIONS_INCLUDE,
-        _count: {
-          select: {
-            sessions: { where: { status: SpaceSessionStatus.active } },
-            reservations: { where: { status: SpaceReservationStatus.pending } },
-          },
-        },
-        sessions: {
-          where: { status: SpaceSessionStatus.settled },
-          select: { endTime: true },
-          orderBy: { endTime: 'desc' },
-          take: 1,
-        },
-      },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
-    });
+        }),
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      }),
+    );
     expect(result).toEqual([
       {
         id: '11',
@@ -186,6 +188,7 @@ describe('SpacesReadService', () => {
         status: 'idle',
         sortOrder: 2,
         createdAt: new Date('2026-05-18T10:00:00.000Z').getTime(),
+        updatedAt: new Date('2026-05-18T10:10:00.000Z').getTime(),
       },
       {
         id: '12',
@@ -197,6 +200,7 @@ describe('SpacesReadService', () => {
         status: 'idle',
         sortOrder: 3,
         createdAt: new Date('2026-05-18T10:00:00.000Z').getTime(),
+        updatedAt: new Date('2026-05-18T10:10:00.000Z').getTime(),
       },
     ]);
   });

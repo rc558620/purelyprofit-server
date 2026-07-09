@@ -1,4 +1,7 @@
-import { CurrentUser } from '../../auth/current-user.decorator';
+import {
+  UserWithRequestId,
+  type UserWithRequestIdValue,
+} from '../../auth/user-with-request-id.decorator';
 import {
   Body,
   Controller,
@@ -24,7 +27,6 @@ import {
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   CreateSpaceTypeDto,
   ListSpaceTypesQueryDto,
@@ -45,10 +47,10 @@ export class SpaceTypesController {
   @ApiOperation({ summary: '获取空间类型列表' })
   @ApiOkResponse({ type: [SpaceTypeResponseDto] })
   list(
-    @CurrentUser() user: AuthenticatedUser,
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Query() query: ListSpaceTypesQueryDto,
   ): Promise<SpaceTypeResponseDto[]> {
-    return this.spaceTypesService.listSpaceTypes(user, query);
+    return this.spaceTypesService.listSpaceTypes(ctx.user, query);
   }
 
   @Post()
@@ -56,10 +58,10 @@ export class SpaceTypesController {
   @ApiOperation({ summary: '新增空间类型' })
   @ApiCreatedResponse({ type: SpaceTypeResponseDto })
   create(
-    @CurrentUser() user: AuthenticatedUser,
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Body() dto: CreateSpaceTypeDto,
   ): Promise<SpaceTypeResponseDto> {
-    return this.spaceTypesService.createSpaceType(user, dto);
+    return this.spaceTypesService.createSpaceType(ctx.user, dto);
   }
 
   @Patch(':id')
@@ -67,11 +69,11 @@ export class SpaceTypesController {
   @ApiOperation({ summary: '更新空间类型' })
   @ApiOkResponse({ type: SpaceTypeResponseDto })
   update(
-    @CurrentUser() user: AuthenticatedUser,
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) typeId: number,
     @Body() dto: UpdateSpaceTypeDto,
   ): Promise<SpaceTypeResponseDto> {
-    return this.spaceTypesService.updateSpaceType(user, typeId, dto);
+    return this.spaceTypesService.updateSpaceType(ctx.user, typeId, dto);
   }
 
   @Delete(':id')
@@ -80,9 +82,9 @@ export class SpaceTypesController {
   @ApiOperation({ summary: '删除空间类型' })
   @ApiNoContentResponse()
   async remove(
-    @CurrentUser() user: AuthenticatedUser,
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
     @Param('id', ParseIntPipe) typeId: number,
   ): Promise<void> {
-    await this.spaceTypesService.removeSpaceType(user, typeId);
+    await this.spaceTypesService.removeSpaceType(ctx.user, typeId);
   }
 }

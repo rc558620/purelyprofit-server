@@ -143,6 +143,7 @@ export const createSettleSpaceSessionResult = (): SettleSpaceSessionResult => ({
   session: createUpdatedSpaceSession(),
   cancelledReservationId: null,
   salesOrder: createSalesOrderResponse(),
+  spaceStatus: 'idle',
 });
 
 export const expectedSalesRecordCreateOptions = {

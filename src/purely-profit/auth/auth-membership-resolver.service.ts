@@ -78,16 +78,57 @@ export class AuthMembershipResolverService {
     payload: JwtPayload,
     userEmail: string,
   ): Promise<AuthenticatedMembership | null> {
-    let [currentMembership] = await this.findMembershipRows(payload, userEmail);
+    let rows = await this.findMembershipRows(payload, userEmail);
 
-    if (!currentMembership) {
+    if (rows.length === 0) {
       const repaired = await this.repairLegacyOwnerMembership(
         payload,
         userEmail,
       );
       if (repaired) {
-        [currentMembership] = await this.findMembershipRows(payload, userEmail);
+        rows = await this.findMembershipRows(payload, userEmail);
       }
+    }
+
+    // 严格匹配策略：
+    // 1. 若 JWT 携带 staffId（新 token），优先精确匹配 staff.id
+    // 2. 否则按 userId 精确匹配（兼容旧 token）
+    // 3. 两者都无匹配则拒绝 OR 宽匹配回退，防止跨租户串号
+    let currentMembership: AuthMembershipContextRow | null = null;
+
+    if (payload.staffId != null) {
+      const staffMatched = rows.find((r) => r.id === payload.staffId);
+      if (staffMatched) {
+        currentMembership = staffMatched;
+      }
+    }
+
+    if (!currentMembership) {
+      const userIdMatched = rows.filter((r) => r.userId === payload.sub);
+      if (userIdMatched.length === 1) {
+        // 单条匹配：安全回退
+        currentMembership = userIdMatched[0];
+      } else if (userIdMatched.length > 1) {
+        // ── Bug 2 修复：旧 token 多门店回退守卫 ──
+        // 多门店多 Staff 时，旧 token（无 staffId）无法确定用户意图门店。
+        // 仅在存在唯一的「无子账号」行时允许回退，否则拒绝防止跨门店串号。
+        const nonSubAccountRows = userIdMatched.filter(
+          (r) => r.subAccountId == null,
+        );
+        if (nonSubAccountRows.length === 1) {
+          currentMembership = nonSubAccountRows[0];
+        } else {
+          this.logger.warn(
+            `membership for userId=${payload.sub} rejected: ${userIdMatched.length} userId-matched rows (${nonSubAccountRows.length} non-sub-account), ambiguous store context for legacy token, denying to prevent cross-store identity mix-up`,
+          );
+        }
+      }
+    }
+
+    if (!currentMembership && rows.length > 0) {
+      this.logger.warn(
+        `membership for userId=${payload.sub}${payload.staffId != null ? `, staffId=${payload.staffId}` : ''} rejected: ${rows.length} rows found via OR email/phone match but none with exact match, denying to prevent cross-tenant access`,
+      );
     }
 
     return this.buildAuthenticatedMembership(currentMembership);
@@ -151,13 +192,14 @@ export class AuthMembershipResolverService {
 
   private async queryMembershipRowsFromDb(
     payload: JwtPayload,
-    userEmail: string,
+    _userEmail: string,
   ): Promise<AuthMembershipContextRow[]> {
     try {
       return await this.prisma.$queryRaw<AuthMembershipContextRow[]>`
         SELECT
           st.id,
           st.store_id AS "storeId",
+          st.user_id AS "userId",
           st.role,
           st.permissions,
           st.is_active AS "isActive",
@@ -170,15 +212,16 @@ export class AuthMembershipResolverService {
           sa.can_use_handover AS "subAccountCanUseHandover"
         FROM staffs st
         LEFT JOIN employees emp ON emp.linked_staff_id = st.id
-        LEFT JOIN store_sub_accounts sa ON sa.employee_id = emp.id
+        LEFT JOIN store_sub_accounts sa
+          ON sa.employee_id = emp.id
+          AND sa.status = 'active'
+          AND sa.is_assigned = true
+          AND sa.can_access_home = true
         WHERE st.is_active = true
           AND st.status = ${StaffStatus.active}
-          AND (
-            st.user_id = ${payload.sub}
-            OR st.email = ${userEmail}
-            OR st.phone = ${payload.phone}
-          )
+          AND st.user_id = ${payload.sub}
         ORDER BY
+          CASE WHEN st.user_id = ${payload.sub} THEN 0 ELSE 1 END,
           CASE
             WHEN sa.id IS NOT NULL THEN 0
             WHEN st.role = 'owner' THEN 1

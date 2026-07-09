@@ -48,7 +48,10 @@ export interface MarketingConsumptionRow {
   customerName: string;
   amount: number;
   balancePaid: number;
+  /** 积分抵扣金额（分） */
   pointsDeducted: number;
+  /** 实际扣减积分个数（写入时由 ratio 折算固化） */
+  actualPointsDeducted: number;
   payType: string;
   itemsSummary: string | null;
   promotionId: number | null;
@@ -109,6 +112,7 @@ export interface MarketingProductRow {
   stock: number;
   durationMinutes: number | null;
   personCount: number | null;
+  unit: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;

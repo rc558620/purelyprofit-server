@@ -15,6 +15,7 @@ import {
   SpaceDashboardSummaryService,
   type DashboardSpaceSummaryBundle,
 } from './space-dashboard-summary.service';
+import { getReservationStatusRange } from './space-reservations.shared';
 
 @Injectable()
 export class SpaceDashboardService {
@@ -141,7 +142,7 @@ export class SpaceDashboardService {
   }
 
   private async findSpacesByStore(storeId: number) {
-    const todayRange = this.getTodayRange();
+    const statusRange = getReservationStatusRange();
 
     // Space.status 已移除，需要关联查询 session 和 reservation
     return this.prisma.space.findMany({
@@ -155,7 +156,7 @@ export class SpaceDashboardService {
             reservations: {
               where: {
                 status: 'pending',
-                reservedAt: { gte: todayRange.start, lte: todayRange.end },
+                reservedAt: { gte: statusRange.start, lte: statusRange.end },
               },
             },
           },
@@ -167,7 +168,7 @@ export class SpaceDashboardService {
         reservations: {
           where: {
             status: 'pending',
-            reservedAt: { gte: todayRange.start, lte: todayRange.end },
+            reservedAt: { gte: statusRange.start, lte: statusRange.end },
           },
           select: { id: true },
         },
@@ -223,21 +224,6 @@ export class SpaceDashboardService {
     }
 
     return 'idle';
-  }
-
-  private getTodayRange(): { start: Date; end: Date } {
-    const now = new Date();
-    const start = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      0,
-      0,
-      0,
-      0,
-    );
-    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
-    return { start, end };
   }
 
   private toSpaceDashboardItem(

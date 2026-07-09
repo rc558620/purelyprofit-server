@@ -132,7 +132,7 @@ describe('ClubRecordQueryService', () => {
   });
 
   describe('listLedgerEntries', () => {
-    it('聚合充值赠送消费退款流水并按时间倒序返回', async () => {
+    it('聚合充值赠送消费流水并按时间倒序返回（不含退款）', async () => {
       prismaService.marketingRecharge.findMany.mockResolvedValue([
         {
           id: 18,
@@ -152,15 +152,6 @@ describe('ClubRecordQueryService', () => {
           note: '黄金会员生日礼品券',
           createdAt: new Date('2024-10-01T00:00:00.000Z'),
         },
-        {
-          id: 15,
-          amount: 10000,
-          giftAmount: 0,
-          totalAmount: 10000,
-          type: 'refund',
-          note: '退款 ¥100',
-          createdAt: new Date('2024-09-18T09:00:00.000Z'),
-        },
       ]);
       prismaService.marketingConsumption.findMany.mockResolvedValue([
         {
@@ -172,7 +163,7 @@ describe('ClubRecordQueryService', () => {
         },
       ]);
 
-      prismaService.marketingRecharge.count.mockResolvedValue(3);
+      prismaService.marketingRecharge.count.mockResolvedValue(2);
       prismaService.marketingConsumption.count.mockResolvedValue(1);
 
       await expect(service.listLedgerEntries(11, 98)).resolves.toEqual({
@@ -202,16 +193,8 @@ describe('ClubRecordQueryService', () => {
             description: '黄金会员生日礼品券',
             createdAt: new Date('2024-10-01T00:00:00.000Z'),
           },
-          {
-            id: 'refund-15',
-            type: 'refund',
-            amountFen: -10000,
-            balanceEffectFen: -10000,
-            description: '退款 ¥100',
-            createdAt: new Date('2024-09-18T09:00:00.000Z'),
-          },
         ],
-        total: 4,
+        total: 3,
       });
     });
 

@@ -40,41 +40,16 @@ export const ensureOpenSessionPayload = (
     }
     assertMoneyPrecision(payload.hourlyRate, '台位费');
 
-    const prepaidVoucherCode =
-      payload.prepaidVoucherCode ?? payload.prepaidGrouponCode;
-    const prepaidVoucherPlatform =
-      payload.prepaidVoucherPlatform ?? payload.prepaidGrouponPlatform;
-    const prepaidVoucherFaceAmount =
-      payload.prepaidVoucherFaceAmount ?? payload.prepaidAmount;
-    const prepaidCustomerPaymentMethod =
-      payload.prepaidCustomerPaymentMethod ??
-      (prepaidVoucherCode || prepaidVoucherPlatform
-        ? 'groupon_voucher'
-        : payload.prepaidPaymentMethod);
-    const prepaidSettlementChannel =
-      payload.prepaidSettlementChannel ??
-      (prepaidCustomerPaymentMethod === 'groupon_voucher'
-        ? (() => {
-            const normalized = prepaidVoucherPlatform?.trim().toLowerCase();
-            if (!normalized) {
-              return 'other_platform' as const;
-            }
-            if (normalized.includes('美团')) {
-              return 'meituan_groupon' as const;
-            }
-            if (normalized.includes('抖音')) {
-              return 'douyin_groupon' as const;
-            }
-            return 'other_platform' as const;
-          })()
-        : 'direct_cashier');
+    // 派生字段已由 normalizeOpenSessionPayload 写入 payload，此处直接读取
     const hasPrepaid =
       payload.prepaidPaymentMethod !== undefined ||
       payload.prepaidAmount !== undefined ||
-      prepaidVoucherFaceAmount !== undefined ||
-      prepaidVoucherCode !== undefined ||
-      prepaidVoucherPlatform !== undefined ||
-      payload.prepaidNote !== undefined;
+      payload.prepaidVoucherFaceAmount !== undefined ||
+      payload.prepaidVoucherCode !== undefined ||
+      payload.prepaidVoucherPlatform !== undefined ||
+      payload.prepaidNote !== undefined ||
+      payload.prepaidGrouponCode !== undefined ||
+      payload.prepaidGrouponPlatform !== undefined;
 
     if (hasPrepaid) {
       if (
@@ -86,17 +61,23 @@ export const ensureOpenSessionPayload = (
       }
       assertMoneyPrecision(payload.prepaidAmount, '预付金额');
 
-      if (prepaidCustomerPaymentMethod === 'groupon_voucher') {
-        assertRequiredNonEmpty(prepaidVoucherCode, '预付券码');
-        assertRequiredNonEmpty(prepaidVoucherPlatform, '预付券所属平台');
-        assertRequiredNonEmpty(prepaidSettlementChannel, '预付结算渠道');
+      if (payload.prepaidCustomerPaymentMethod === 'groupon_voucher') {
+        assertRequiredNonEmpty(payload.prepaidVoucherCode, '预付券码');
+        assertRequiredNonEmpty(
+          payload.prepaidVoucherPlatform,
+          '预付券所属平台',
+        );
+        assertRequiredNonEmpty(
+          payload.prepaidSettlementChannel,
+          '预付结算渠道',
+        );
         if (
-          prepaidVoucherFaceAmount === undefined ||
-          prepaidVoucherFaceAmount <= 0
+          payload.prepaidVoucherFaceAmount === undefined ||
+          payload.prepaidVoucherFaceAmount <= 0
         ) {
           throw new BadRequestException('预付券面金额必须大于 0');
         }
-        assertMoneyPrecision(prepaidVoucherFaceAmount, '预付券面金额');
+        assertMoneyPrecision(payload.prepaidVoucherFaceAmount, '预付券面金额');
       }
     }
 

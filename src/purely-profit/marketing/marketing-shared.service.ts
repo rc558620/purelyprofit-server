@@ -112,6 +112,7 @@ export class MarketingSharedService {
       stock: product.stock,
       durationMinutes: product.durationMinutes,
       personCount: product.personCount,
+      unit: product.unit,
       isActive: product.isActive,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,

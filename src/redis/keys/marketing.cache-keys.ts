@@ -64,3 +64,15 @@ export function buildMarketingCustomersListCacheKey(
 export function buildMarketingCustomersListPattern(storeId: number): string {
   return `profit:marketing:customers:list:store:${storeId}:*`;
 }
+
+// F8: 顾客详情缓存 key
+export function buildMarketingCustomerDetailCacheKey(
+  storeId: number,
+  customerId: number,
+): string {
+  return `profit:marketing:customer:detail:store:${storeId}:id:${customerId}`;
+}
+
+export function buildMarketingCustomerDetailPattern(storeId: number): string {
+  return `profit:marketing:customer:detail:store:${storeId}:*`;
+}

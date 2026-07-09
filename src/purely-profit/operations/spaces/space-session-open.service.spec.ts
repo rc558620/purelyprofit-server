@@ -29,6 +29,7 @@ describe('SpaceSessionOpenService', () => {
 
   const prismaService = {
     space: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
     },
     spaceSession: {
@@ -130,7 +131,8 @@ describe('SpaceSessionOpenService', () => {
     // Space.status 已移除，空间状态由运行态推导
     // 只要没有 active session 就允许开台，不再需要修复不一致状态
     const now = new Date('2026-06-07T10:00:00.000Z');
-    prismaService.space.findUnique.mockResolvedValue({
+    // B1: openSession 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValue({
       id: 7,
       storeId: 18,
       capacity: 4,
@@ -192,7 +194,8 @@ describe('SpaceSessionOpenService', () => {
 
   it('带 reservationId 开台时委托预约状态服务做履约校验', async () => {
     const now = new Date('2026-06-07T10:00:00.000Z');
-    prismaService.space.findUnique.mockResolvedValue({
+    // B1: openSession 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValue({
       id: 7,
       storeId: 18,
       capacity: 4,
@@ -276,7 +279,8 @@ describe('SpaceSessionOpenService', () => {
 
   it('非自动结账倒计时开台也应保存预付款扩展字段', async () => {
     const now = new Date('2026-06-07T10:00:00.000Z');
-    prismaService.space.findUnique.mockResolvedValue({
+    // B1: openSession 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValue({
       id: 7,
       storeId: 18,
       capacity: 4,
@@ -368,7 +372,8 @@ describe('SpaceSessionOpenService', () => {
   });
 
   it('开台时若锁内发现目标空间已被占用应阻止继续开台', async () => {
-    prismaService.space.findUnique.mockResolvedValue({
+    // B1: openSession 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValue({
       id: 7,
       storeId: 18,
       capacity: 4,
@@ -399,7 +404,8 @@ describe('SpaceSessionOpenService', () => {
   });
 
   it('履约开台时若锁内发现预约已处理应阻止继续开台', async () => {
-    prismaService.space.findUnique.mockResolvedValue({
+    // B1: openSession 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValue({
       id: 7,
       storeId: 18,
       capacity: 4,

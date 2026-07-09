@@ -31,13 +31,19 @@ export class SpaceSessionItemDto {
 
   @ApiProperty({ example: 12, description: '销售单价（元）' })
   @Type(() => Number)
-  @IsNumber({}, { message: '销售单价必须是数字' })
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: '销售单价必须是数字且最多2位小数' },
+  )
   @Min(0, { message: '销售单价不能小于 0' })
   salePrice: number;
 
   @ApiProperty({ example: 6, description: '单件利润（元）' })
   @Type(() => Number)
-  @IsNumber({}, { message: '单件利润必须是数字' })
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: '单件利润必须是数字且最多2位小数' },
+  )
   profit: number;
 
   @ApiProperty({ example: 2, description: '数量' })
@@ -61,9 +67,12 @@ export class AddSpaceSessionItemsDto {
   @ApiProperty({
     enum: ['client', 'server'],
     default: 'client',
-    description: '库存同步模式：client=前端同步（旧模式），server=后端同步（新模式）',
+    description:
+      '库存同步模式：client=前端同步（旧模式）、server=后端同步（新模式）',
   })
   @IsOptional()
-  @IsIn(['client', 'server'], { message: '库存同步模式只能是 client 或 server' })
+  @IsIn(['client', 'server'], {
+    message: '库存同步模式只能是 client 或 server',
+  })
   inventorySyncMode?: 'client' | 'server';
 }

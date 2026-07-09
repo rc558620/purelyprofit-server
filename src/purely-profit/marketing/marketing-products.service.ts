@@ -127,6 +127,7 @@ export class MarketingProductsService {
           stock: dto.stock ?? 0,
           durationMinutes: dto.durationMinutes ?? null,
           personCount: dto.personCount ?? null,
+          unit: dto.unit ?? null,
         },
         include: MARKETING_PRODUCT_ROW_INCLUDE,
       });
@@ -200,6 +201,8 @@ export class MarketingProductsService {
       data.durationMinutes = dto.durationMinutes ?? null;
     if (dto.personCount !== undefined)
       data.personCount = dto.personCount ?? null;
+    if (dto.unit !== undefined)
+      data.unit = dto.unit || null;
 
     const updated = await this.prisma.marketingProduct.update({
       where: { id: productId },
@@ -298,6 +301,7 @@ export class MarketingProductsService {
       stock: row.stock,
       durationMinutes: row.durationMinutes,
       personCount: row.personCount,
+      unit: row.unit,
       isActive: row.isActive,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

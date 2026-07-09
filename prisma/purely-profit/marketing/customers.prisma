@@ -128,8 +128,10 @@ model MarketingConsumption {
   amount         Int
   /// 余额支付金额（分）
   balancePaid    Int                 @default(0) @map("balance_paid")
-  /// 积分抵扣金额（分）
+  /// 积分抵扣金额（分）——金额侧事实源，与 actualPointsDeducted 配合可核对 ratio
   pointsDeducted Int                 @default(0) @map("points_deducted")
+  /// 实际扣减积分个数——积分侧事实源，写入时由 redeemRatioPoints 折算固化
+  actualPointsDeducted Int           @default(0) @map("actual_points_deducted")
   /// 支付方式
   payType        MarketingPayType    @default(cash) @map("pay_type")
   /// 商品简述（如「拿铁 × 2」）

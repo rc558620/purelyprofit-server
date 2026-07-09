@@ -58,6 +58,7 @@ describe('AuthMembershipResolverService', () => {
       {
         id: 21,
         storeId: 9,
+        userId: 1,
         role: 'owner',
         permissions: ['*'],
         isActive: true,

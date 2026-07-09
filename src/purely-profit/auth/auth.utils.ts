@@ -108,7 +108,7 @@ export function extractPhoneFromLoginAccount(account: string): string | null {
 }
 
 export function isCustomLoginAccount(account: string): boolean {
-  return /^[a-zA-Z0-9_]{6,32}$/.test(account.trim());
+  return /^[a-zA-Z][a-zA-Z0-9_]{5,17}$/.test(account.trim());
 }
 
 export function isReservedLoginAccount(

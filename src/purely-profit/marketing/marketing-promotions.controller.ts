@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -103,8 +104,14 @@ export class MarketingPromotionsController {
     @Body('enabled') enabledRaw: unknown,
   ): Promise<MarketingPromotionDto> {
     // B8：宽松化解析 enabled，支持 true/false/1/0/"1"/"0"/"true"/"false"
-    const enabled =
-      enabledRaw === true || enabledRaw === 'true' || enabledRaw === 1;
+    const TRUTHY = new Set<unknown>([true, 'true', 1, '1']);
+    const FALSY = new Set<unknown>([false, 'false', 0, '0']);
+    if (!TRUTHY.has(enabledRaw) && !FALSY.has(enabledRaw)) {
+      throw new BadRequestException(
+        'enabled 为必填布尔值，支持 true/false/1/0/"1"/"0"/"true"/"false"',
+      );
+    }
+    const enabled = TRUTHY.has(enabledRaw);
     return this.marketingService.togglePromotion(user, id, enabled);
   }
 

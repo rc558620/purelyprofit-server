@@ -50,10 +50,20 @@ describe('SpacesWriteService', () => {
     space: {
       count: jest.fn(),
       create: jest.fn(),
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
       delete: jest.fn(),
+    },
+    spaceSession: {
+      count: jest.fn(),
+      findFirst: jest.fn(),
+    },
+    spaceReservation: {
+      count: jest.fn(),
+      findFirst: jest.fn(),
     },
   };
 
@@ -309,7 +319,8 @@ describe('SpacesWriteService', () => {
   });
 
   it('updateSpace 会校验重名、清空区域并重排顺序', async () => {
-    prismaService.space.findUnique.mockResolvedValueOnce(makeSpace());
+    // B1: findManagedSpaceOrThrow 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValueOnce(makeSpace());
     prismaService.space.findFirst.mockResolvedValueOnce(null);
     spacesRefResolverService.resolveUpdateSpaceRefs.mockResolvedValueOnce({
       zoneId: null,
@@ -384,7 +395,8 @@ describe('SpacesWriteService', () => {
   });
 
   it('removeSpace 在空间使用中时抛出冲突异常', async () => {
-    prismaService.space.findUnique.mockResolvedValueOnce(
+    // B1: findSpaceRemovalCandidateOrThrow 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValueOnce(
       makeRemovalCandidate({
         // space.status 已移除，使用 _count.sessions 判断
         _count: {
@@ -401,7 +413,8 @@ describe('SpacesWriteService', () => {
   });
 
   it('removeSpace 在存在待处理预约时抛出冲突异常', async () => {
-    prismaService.space.findUnique.mockResolvedValueOnce(
+    // B1: findSpaceRemovalCandidateOrThrow 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValueOnce(
       makeRemovalCandidate({
         _count: {
           reservations: 2,
@@ -417,25 +430,28 @@ describe('SpacesWriteService', () => {
   });
 
   it('markSpaceReady 会设置 cleanedAt 并根据运行态推导返回空间状态', async () => {
-    // requireUpdatableSpace 调用 findUnique
-    prismaService.space.findUnique.mockResolvedValueOnce(makeSpace());
-    // markSpaceReady 调用 space.update 设置 cleanedAt
-    prismaService.space.update.mockResolvedValueOnce({});
-    // deriveSpaceStatus：无活跃会话，有待处理预约 → reserved
-    prismaService.spaceSession.findFirst.mockResolvedValueOnce(null); // active session
-    prismaService.spaceReservation.findFirst.mockResolvedValueOnce({ id: 21 }); // pending reservation
-    // deriveSpaceStatus 查询 space 获取 enableDirtyRoom/cleanedAt
-    prismaService.space.findUnique.mockResolvedValueOnce({
-      enableDirtyRoom: false,
-      cleanedAt: null,
-    });
-    // markSpaceReady 调用 findUniqueOrThrow 获取完整的 space 数据
-    prismaService.space.findUniqueOrThrow.mockResolvedValueOnce(makeSpace());
+    // B-4 fix: markSpaceReady 现在在事务内执行，所有查询通过 transaction
+    // ① FOR UPDATE 锁行
+    prismaTransaction.$queryRaw.mockResolvedValueOnce([{ id: 11 }]);
+    // ② 事务内查找空间
+    prismaTransaction.space.findFirst.mockResolvedValueOnce(makeSpace());
+    // ③ 事务内查 activeSession（无活跃会话 → 校验通过）
+    prismaTransaction.spaceSession.findFirst.mockResolvedValueOnce(null);
+    // ④ 写入 cleanedAt
+    prismaTransaction.space.update.mockResolvedValueOnce({});
+    // ⑤ 事务内重新获取完整空间
+    prismaTransaction.space.findUniqueOrThrow.mockResolvedValueOnce(
+      makeSpace(),
+    );
+    // ⑥ 事务内查 pendingReservation（无匹配 → idle）
+    prismaTransaction.spaceReservation.findFirst.mockResolvedValueOnce(null);
 
     const result = await service.markSpaceReady(user, 11);
 
+    // 验证 FOR UPDATE 被调用
+    expect(prismaTransaction.$queryRaw).toHaveBeenCalled();
     // 验证 cleanedAt 被更新
-    expect(prismaService.space.update).toHaveBeenCalledWith(
+    expect(prismaTransaction.space.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 11 },
         data: expect.objectContaining({
@@ -444,11 +460,25 @@ describe('SpacesWriteService', () => {
       }),
     );
     // Space.status 已移除，不再调用 resolveReservationBackStatus
-    // 状态直接由 deriveSpaceStatus 推导得出
     expect(
       spaceReservationsService.resolveReservationBackStatus,
     ).not.toHaveBeenCalled();
-    expect(result.status).toBe('reserved');
+    // cleanedAt 已更新且无 pending 预约/活跃会话，状态为 idle
+    expect(result.status).toBe('idle');
+  });
+
+  it('markSpaceReady 在空间使用中时抛出冲突异常（事务内校验）', async () => {
+    // B-4 fix: markSpaceReady 事务内校验 occupied
+    prismaTransaction.$queryRaw.mockResolvedValueOnce([{ id: 11 }]);
+    prismaTransaction.space.findFirst.mockResolvedValueOnce(makeSpace());
+    // 事务内查 activeSession（有活跃会话 → occupied）
+    prismaTransaction.spaceSession.findFirst.mockResolvedValueOnce({ id: 999 });
+
+    await expect(service.markSpaceReady(user, 11)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    // cleanedAt 不应被写入
+    expect(prismaTransaction.space.update).not.toHaveBeenCalled();
   });
 
   it('createSpace 在名称冲突时抛出冲突异常', async () => {
@@ -471,7 +501,8 @@ describe('SpacesWriteService', () => {
   });
 
   it('updateSpace 在名称冲突时抛出冲突异常', async () => {
-    prismaService.space.findUnique.mockResolvedValueOnce(makeSpace());
+    // B1: findManagedSpaceOrThrow 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValueOnce(makeSpace());
     prismaService.space.findFirst.mockResolvedValueOnce({ id: 99 });
 
     await expect(
@@ -484,7 +515,8 @@ describe('SpacesWriteService', () => {
   });
 
   it('updateSpace 在 sortOrder 不变时不会触发重排', async () => {
-    prismaService.space.findUnique.mockResolvedValueOnce(makeSpace());
+    // B1: findManagedSpaceOrThrow 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValueOnce(makeSpace());
     prismaTransaction.space.update.mockResolvedValueOnce(makeSpace());
 
     const result = await service.updateSpace(user, 11, {

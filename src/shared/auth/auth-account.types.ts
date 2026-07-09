@@ -8,6 +8,8 @@ export interface AccountIdentifiers {
   phone: string;
   email: string;
   accountScope: AuthenticatedAccountScope;
+  /** 登录时命中的 Staff ID，用于 membership 精确解析（可选，仅 purely_profit 登录时携带） */
+  staffId?: number;
 }
 
 export interface PhoneUserRecord {
@@ -16,6 +18,8 @@ export interface PhoneUserRecord {
   password: string;
   phone: string;
   accountScope: AuthenticatedAccountScope;
+  /** 登录时命中的 Staff ID（可选，仅通过 Staff 查找时携带） */
+  staffId?: number;
 }
 
 export interface AuthResolvedIdentity {
@@ -27,6 +31,7 @@ export interface AuthResolvedIdentity {
 export interface AuthMembershipContextRow {
   id: number;
   storeId: number;
+  userId: number | null;
   role: import('@prisma/client').StaffRole;
   permissions: string[];
   isActive: boolean;

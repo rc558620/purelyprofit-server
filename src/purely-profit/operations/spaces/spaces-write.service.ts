@@ -2,7 +2,12 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
+import {
+  SpaceReservationStatus as PrismaSpaceReservationStatus,
+  SpaceSessionStatus as PrismaSpaceSessionStatus,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
@@ -30,6 +35,7 @@ import {
 } from './spaces.query';
 import type { SpaceStatusValue } from './spaces.constants';
 import type { ManagedSpaceRecord, SpaceRemovalCandidate } from './spaces.types';
+import { getReservationStatusRange } from './space-reservations.shared';
 
 @Injectable()
 export class SpacesWriteService {
@@ -95,8 +101,9 @@ export class SpacesWriteService {
       { timeout: TX_TIMEOUT_SHORT },
     );
 
-    // 新建空间始终为 idle（无 session，无 reservation）
-    return toSpaceResponse({ ...created, status: 'idle' });
+    // 创建后推导运行态状态（新建空间通常无会话/预约，但与 updateSpace 保持一致的推导路径）
+    const derivedStatus = await this.deriveSpaceStatus(created.id);
+    return toSpaceResponse({ ...created, status: derivedStatus });
   }
 
   async updateSpace(
@@ -174,6 +181,38 @@ export class SpacesWriteService {
 
     await this.prisma.$transaction(
       async (transaction) => {
+        // B2 fix: 事务内 FOR UPDATE 后重新校验，消除 TOCTOU 竞态窗口
+        await transaction.$queryRaw`
+          SELECT id
+          FROM spaces
+          WHERE id = ${space.id}
+          FOR UPDATE
+        `;
+
+        const activeSessions = await transaction.spaceSession.count({
+          where: { spaceId: space.id, status: PrismaSpaceSessionStatus.active },
+        });
+        if (activeSessions > 0) {
+          throw new ConflictException('空间使用中，无法删除');
+        }
+
+        const pendingReservations = await transaction.spaceReservation.count({
+          where: {
+            spaceId: space.id,
+            status: PrismaSpaceReservationStatus.pending,
+            // B-3 fix: 事务内重查与外层预检口径一致，加 reservedAt 范围
+            reservedAt: {
+              gte: getReservationStatusRange().start,
+              lte: getReservationStatusRange().end,
+            },
+          },
+        });
+        if (pendingReservations > 0) {
+          throw new ConflictException(
+            '该空间存在待处理预约，请先取消预约后再删除',
+          );
+        }
+
         // 软删除：更新 deletedAt 字段而非物理删除
         await transaction.space.update({
           where: { id: space.id },
@@ -194,27 +233,95 @@ export class SpacesWriteService {
     user: AuthenticatedUser,
     spaceId: number,
   ): Promise<SpaceResponseDto> {
-    await this.requireUpdatableSpace(user, spaceId);
+    // 空间状态重置属于配置写操作，仅允许主账号操作（与 create/update/delete 一致）
+    this.ensurePrimaryAccountOnly(user);
 
-    // 标记清洁完成：更新 cleanedAt 时间戳，后续运行态推导将不再返回 cleaning
-    await this.prisma.space.update({
-      where: { id: spaceId },
-      data: { cleanedAt: new Date() },
-    });
+    // B-4 fix: 校验与写入原子化——occupied 检查、cleanedAt 写入、状态重推导全部在同一事务内
+    const result = await this.prisma.$transaction(
+      async (transaction) => {
+        // FOR UPDATE 锁定空间行，消除并发窗口
+        await transaction.$queryRaw`
+          SELECT id
+          FROM spaces
+          WHERE id = ${spaceId}
+          FOR UPDATE
+        `;
 
-    // 空间状态现由运行态推导（无 Space.status 字段），直接返回当前运行态
-    const derivedStatus = await this.deriveSpaceStatus(spaceId);
-    if (derivedStatus === 'occupied') {
-      throw new ConflictException(
-        '空间当前使用中，请先完成会话流程后再调整状态',
-      );
-    }
+        const space = await transaction.space.findFirst({
+          where: { id: spaceId, deletedAt: null },
+          include: SPACE_WITH_RELATIONS_INCLUDE,
+        });
 
-    const space = await this.prisma.space.findUniqueOrThrow({
-      where: { id: spaceId },
-      include: SPACE_WITH_RELATIONS_INCLUDE,
-    });
-    return toSpaceResponse({ ...space, status: derivedStatus });
+        if (!space) {
+          throw new NotFoundException('空间不存在');
+        }
+
+        await this.commerceAccessService.ensureCanAccessStore(
+          user,
+          space.storeId,
+          'space:update',
+          '无权操作该门店空间',
+        );
+
+        // 事务内重查运行态：occupied 时不允许标记可用
+        const activeSession = await transaction.spaceSession.findFirst({
+          where: { spaceId, status: 'active' },
+          select: { id: true },
+        });
+        if (activeSession) {
+          throw new ConflictException(
+            '空间当前使用中，请先完成会话流程后再调整状态',
+          );
+        }
+
+        // 校验通过后，标记清洁完成
+        await transaction.space.update({
+          where: { id: spaceId },
+          data: { cleanedAt: new Date() },
+        });
+
+        // 事务内重新获取完整空间数据并推导状态
+        const updated = await transaction.space.findUniqueOrThrow({
+          where: { id: spaceId },
+          include: SPACE_WITH_RELATIONS_INCLUDE,
+        });
+
+        const [pendingReservation] = await Promise.all([
+          transaction.spaceReservation.findFirst({
+            where: {
+              spaceId,
+              status: 'pending',
+              reservedAt: {
+                gte: getReservationStatusRange().start,
+                lte: getReservationStatusRange().end,
+              },
+            },
+            select: { id: true },
+          }),
+        ]);
+
+        // active session 已在上面校验排除，此处只需判断 reserved / cleaning / idle
+        let status: SpaceStatusValue = 'idle';
+        if (pendingReservation) {
+          status = 'reserved';
+        } else if (updated.enableDirtyRoom) {
+          const lastSettled = await transaction.spaceSession.findFirst({
+            where: { spaceId, status: 'settled', endTime: { not: null } },
+            select: { endTime: true },
+            orderBy: { endTime: 'desc' },
+          });
+          if (lastSettled?.endTime) {
+            const cleanedMs = updated.cleanedAt?.getTime() ?? 0;
+            if (lastSettled.endTime.getTime() > cleanedMs) status = 'cleaning';
+          }
+        }
+
+        return toSpaceResponse({ ...updated, status });
+      },
+      { timeout: TX_TIMEOUT_SHORT },
+    );
+
+    return result;
   }
 
   /**
@@ -275,7 +382,14 @@ export class SpacesWriteService {
         select: { id: true },
       }),
       this.prisma.spaceReservation.findFirst({
-        where: { spaceId, status: 'pending' },
+        where: {
+          spaceId,
+          status: 'pending',
+          reservedAt: {
+            gte: getReservationStatusRange().start,
+            lte: getReservationStatusRange().end,
+          },
+        },
         select: { id: true },
       }),
       this.prisma.space.findUnique({

@@ -68,17 +68,28 @@ export class EmployeesProfileReadService {
       };
     }
 
-    const subAccountMap = await this.buildEmployeeSubAccountMap(
-      storeId,
-      result.items.map((employee) => ({
-        id: employee.id,
-        phone: employee.phone,
-      })),
-    );
+    const canViewSubAccountModule =
+      user.currentMembership?.subjectType !== 'sub_account';
+
+    const subAccountMap = canViewSubAccountModule
+      ? await this.buildEmployeeSubAccountMap(
+          storeId,
+          result.items.map((employee) => ({
+            id: employee.id,
+            phone: employee.phone,
+          })),
+        )
+      : new Map<number, EmployeeResponseDto['subAccount']>();
+
+    const viewOptions = { canViewSubAccountModule };
 
     return {
       items: result.items.map((employee) =>
-        toEmployeeResponse(employee, subAccountMap.get(employee.id)),
+        toEmployeeResponse(
+          employee,
+          subAccountMap.get(employee.id),
+          viewOptions,
+        ),
       ),
       meta: buildPaginationMeta(result.total, page, take),
     };
@@ -119,15 +130,16 @@ export class EmployeesProfileReadService {
         employeeId,
         permission,
       );
-    const subAccountMap = await this.buildEmployeeSubAccountMap(
-      employee.storeId,
-      [{ id: employee.id, phone: employee.phone }],
-    );
     const detailCapabilities =
       this.employeesAccessService.buildEmployeeDetailCapabilities(
         user,
         employee.storeId,
       );
+    const subAccountMap = detailCapabilities.canViewSubAccountModule
+      ? await this.buildEmployeeSubAccountMap(employee.storeId, [
+          { id: employee.id, phone: employee.phone },
+        ])
+      : new Map<number, EmployeeResponseDto['subAccount']>();
 
     return toEmployeeResponse(
       employee,
@@ -137,7 +149,7 @@ export class EmployeesProfileReadService {
   }
 
   private async buildEmployeeSubAccountMap(
-    storeId: number,
+    _storeId: number,
     employees: Array<{ id: number; phone: string }>,
   ): Promise<Map<number, EmployeeResponseDto['subAccount']>> {
     if (employees.length === 0) {
@@ -145,12 +157,14 @@ export class EmployeesProfileReadService {
     }
 
     const employeeIds = employees.map((employee) => employee.id);
-    const employeePhones = employees.map((employee) => employee.phone);
     const [subAccounts, linkedStaffs] = await Promise.all([
+      // ── Bug 3 修复：移除冗余 storeId 过滤 ──
+      // employeeId 为 @unique，按 employeeId 已可唯一定位子账号。
+      // 叠加 storeId 在账号全局化模型下会因 storeId 漂移导致数据缺失。
       this.prisma.storeSubAccount.findMany({
         where: {
-          storeId,
           employeeId: { in: employeeIds },
+          isAssigned: true,
         },
         select: {
           id: true,
@@ -163,28 +177,23 @@ export class EmployeesProfileReadService {
           updatedAt: true,
         },
       }),
+      // ── Bug 3 修复：移除冗余 storeId 过滤 ──
+      // Employee.linkedStaffId 为 @unique，每个 Employee 最多关联一条 Staff。
+      // 叠加 storeId 在员工跨门店调动时会导致 Staff 信息缺失。
       this.prisma.staff.findMany({
         where: {
-          storeId,
-          OR: [
-            { employeeProfile: { is: { id: { in: employeeIds } } } },
-            { phone: { in: employeePhones } },
-          ],
+          employeeProfile: { is: { id: { in: employeeIds } } },
         },
         select: {
           id: true,
           phone: true,
           email: true,
           loginAccount: true,
+          userId: true,
           updatedAt: true,
           employeeProfile: {
             select: {
               id: true,
-            },
-          },
-          user: {
-            select: {
-              password: true,
             },
           },
         },
@@ -216,18 +225,6 @@ export class EmployeesProfileReadService {
       }
     }
 
-    for (const employee of employees) {
-      if (linkedStaffByEmployeeId.has(employee.id)) {
-        continue;
-      }
-      const matchedStaff = linkedStaffs.find(
-        (linkedStaff) => linkedStaff.phone === employee.phone,
-      );
-      if (matchedStaff) {
-        linkedStaffByEmployeeId.set(employee.id, matchedStaff);
-      }
-    }
-
     return new Map(
       employees.flatMap((employee) => {
         const subAccount = subAccountByEmployeeId.get(employee.id);
@@ -237,6 +234,8 @@ export class EmployeesProfileReadService {
 
         const linkedStaff = linkedStaffByEmployeeId.get(employee.id);
         const customLoginAccount = linkedStaff?.loginAccount ?? null;
+        // 登录账号展示：有自定义账号时只展示自定义账号，否则展示手机号
+        const displayLoginAccount = customLoginAccount ?? employee.phone;
 
         return [
           [
@@ -245,18 +244,11 @@ export class EmployeesProfileReadService {
               id: String(subAccount.id),
               role: toStoreSubAccountRoleCode(subAccount.role),
               roleLabel: STORE_SUB_ACCOUNT_ROLE_LABELS[subAccount.role],
-              status:
-                subAccount.status === StoreSubAccountStatus.inactive
-                  ? 'inactive'
-                  : subAccount.status === StoreSubAccountStatus.disabled
-                    ? 'disabled'
-                    : 'active',
+              status: this.mapSubAccountStatus(subAccount.status),
               slotIndex: subAccount.slotIndex,
-              ...(customLoginAccount
-                ? { loginAccount: `${employee.phone} / ${customLoginAccount}` }
-                : {}),
+              loginAccount: displayLoginAccount,
               canHandover: subAccount.canUseHandover,
-              hasPassword: Boolean(linkedStaff?.user?.password),
+              hasPassword: linkedStaff?.userId != null,
               createdAt: subAccount.createdAt.getTime(),
               updatedAt: subAccount.updatedAt.getTime(),
             },
@@ -264,6 +256,23 @@ export class EmployeesProfileReadService {
         ];
       }),
     );
+  }
+
+  private mapSubAccountStatus(
+    status: StoreSubAccountStatus,
+  ): 'active' | 'inactive' | 'disabled' {
+    switch (status) {
+      case StoreSubAccountStatus.active:
+        return 'active';
+      case StoreSubAccountStatus.inactive:
+        return 'inactive';
+      case StoreSubAccountStatus.disabled:
+        return 'disabled';
+      default: {
+        const _exhaustive: never = status;
+        return _exhaustive;
+      }
+    }
   }
 
   private resolvePagination(page?: number, pageSize?: number) {

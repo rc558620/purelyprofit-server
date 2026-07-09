@@ -35,6 +35,8 @@ export interface JwtPayload {
   phone: string;
   accountScope?: AuthenticatedAccountScope;
   sessionVersion?: number;
+  /** 登录时命中的 Staff ID，用于 membership 精确解析（旧 token 可能无此字段） */
+  staffId?: number;
 }
 
 /**

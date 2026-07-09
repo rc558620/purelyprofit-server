@@ -40,6 +40,9 @@ export class SpaceResponseDto {
 
   @ApiProperty({ example: 1715600000000, description: '创建时间戳（毫秒）' })
   createdAt: number;
+
+  @ApiProperty({ example: 1715600000000, description: '更新时间戳（毫秒）' })
+  updatedAt: number;
 }
 
 export class SpaceDashboardActiveSessionSummaryDto {

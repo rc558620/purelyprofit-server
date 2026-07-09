@@ -30,6 +30,7 @@ import type {
 } from './space-sessions.types';
 import type { SpaceReservationSessionSnapshot } from './space-reservations.types';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
+import type { SpaceStatusValue } from './spaces.constants';
 
 export interface SettleSpaceSessionParams {
   session: SpaceSessionSettlementRecord;
@@ -44,6 +45,8 @@ export interface SettleSpaceSessionResult {
   session: SpaceSessionRecord;
   cancelledReservationId: number | null;
   salesOrder: SalesRecordResponseDto;
+  /** 事务内推导的结算后空间状态（BUG-8 修复：保证与写入一致） */
+  spaceStatus: SpaceStatusValue;
 }
 
 const SPACE_SESSION_SETTLEMENT_LOCK_TTL_SECONDS = 30;
@@ -205,12 +208,19 @@ export class SpaceSessionSettlementService {
             } satisfies SpaceReservationSessionSnapshot,
           );
 
-        // Space.status 已移除，不再更新空间状态字段
+        // BUG-8 修复：在事务内推导空间状态，保证与写入数据一致
+        const spaceStatus =
+          await this.reservationsStateService.resolveReservationBackStatus(
+            transaction,
+            params.session.spaceId,
+            latestSpace.enableDirtyRoom,
+          );
 
         return {
           session: nextSession as unknown as SpaceSessionRecord,
           cancelledReservationId,
           salesOrder: createdOrder,
+          spaceStatus: spaceStatus as SpaceStatusValue,
         };
       }, { timeout: TX_TIMEOUT_LONG });
 

@@ -13,6 +13,10 @@ import {
   MARKETING_PAY_TYPE_VALUES,
   type MarketingPayTypeValue,
 } from '../marketing.utils';
+import { MarketingPageQueryDto } from './marketing-pagination-query.dto';
+
+/** BUG-4: 顾客消费记录列表查询 DTO，与兄弟接口保持一致的校验规范 */
+export class ListCustomerConsumptionsQueryDto extends MarketingPageQueryDto {}
 
 export class CreateConsumptionDto {
   @ApiPropertyOptional({ example: 1, description: '顾客 ID' })

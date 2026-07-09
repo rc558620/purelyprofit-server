@@ -7,6 +7,11 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import { CacheInvalidatorService } from '../../redis/invalidator';
+import { RedisService } from '../../redis/redis.service';
+import {
+  buildMarketingCustomersListPattern,
+  buildMarketingCustomerDetailPattern,
+} from '../../redis/cache-keys';
 import type { CreateConsumptionDto } from './dto/marketing-query.dto';
 import type {
   MarketingConsumptionDto,
@@ -27,6 +32,9 @@ import {
   cloneDefaultMarketingMemberLevelSettings,
   extractTierThresholdsFromSettings,
   resolveMarketingPagination,
+  safeEnumCoerce,
+  MARKETING_PAY_TYPE_VALUES,
+  type MarketingPayTypeValue,
 } from './marketing.utils';
 
 @Injectable()
@@ -34,13 +42,14 @@ export class MarketingConsumptionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
+    private readonly redisService: RedisService,
     private readonly marketingSharedService: MarketingSharedService,
   ) {}
 
   async listConsumptions(
     user: AuthenticatedUser,
     customerId: number,
-    query: { page?: number; pageSize?: number; storeId?: number },
+    query: { page?: number; pageSize?: number },
   ): Promise<MarketingConsumptionsResponseDto> {
     const customer =
       await this.marketingSharedService.findCustomerOrThrow(customerId);
@@ -81,6 +90,13 @@ export class MarketingConsumptionsService {
     );
     if (customer.storeId !== storeId) {
       throw new BadRequestException('顾客不属于该门店');
+    }
+
+    // D2: 幂等保护，与 createRecharge 一致，5 秒内同参数请求视为重复提交
+    const idempotencyKey = `consumption:dedup:${storeId}:${dto.customerId}:${dto.amount}:${dto.balancePaid ?? 0}:${dto.pointsDeducted ?? 0}:${dto.payType ?? 'cash'}:${dto.itemsSummary?.trim() || ''}:${dto.promotionId ?? ''}`;
+    const isNew = await this.redisService.setIfAbsent(idempotencyKey, '1', 5);
+    if (!isNew) {
+      throw new BadRequestException('请勿重复提交，请稍后再试');
     }
 
     const balancePaid = dto.balancePaid ?? 0;
@@ -131,7 +147,14 @@ export class MarketingConsumptionsService {
             amount: dto.amount,
             balancePaid,
             pointsDeducted: rawPointsDeducted,
-            payType: payType as never,
+            // D4: 同时固化「实际扣减积分个数」，与 pointsDeducted（金额分）可独立核对
+            actualPointsDeducted: pointsToDeduct,
+            // F7: 运行时枚举校验，避免脏值进入数据库
+            payType: safeEnumCoerce(
+              payType,
+              MARKETING_PAY_TYPE_VALUES,
+              'cash' as MarketingPayTypeValue,
+            ),
             itemsSummary: dto.itemsSummary?.trim() || null,
             promotionId: dto.promotionId ?? null,
           },
@@ -143,18 +166,35 @@ export class MarketingConsumptionsService {
         // B4：使用可配置的 tier 阈值而非硬编码
         const newTier = calcCustomerTier(newTotalSpent, thresholds) as never;
 
-        await tx.marketingCustomer.update({
-          where: { id: dto.customerId },
-          data: {
-            balance: { decrement: balancePaid },
-            // B5：按换算后的实际积分数扣减，而非直接用金额分值
-            points: { decrement: pointsToDeduct },
-            totalSpent: { increment: dto.amount },
-            visitCount: { increment: 1 },
-            lastVisitAt: new Date(),
-            tier: newTier,
-          },
-        });
+        // BUG-3: 事务内下限守卫，防止并发扣成负数
+        try {
+          await tx.marketingCustomer.update({
+            where: {
+              id: dto.customerId,
+              balance: { gte: balancePaid },
+              points: { gte: pointsToDeduct },
+            },
+            data: {
+              balance: { decrement: balancePaid },
+              points: { decrement: pointsToDeduct },
+              totalSpent: { increment: dto.amount },
+              visitCount: { increment: 1 },
+              lastVisitAt: new Date(),
+              tier: newTier,
+            },
+          });
+        } catch (err: unknown) {
+          if (
+            err instanceof Error &&
+            'code' in err &&
+            (err as { code: string }).code === 'P2025'
+          ) {
+            throw new BadRequestException(
+              '余额或积分不足，消费失败；请刷新后重试',
+            );
+          }
+          throw err;
+        }
 
         if (pointsToDeduct > 0) {
           await tx.$executeRaw`
@@ -203,7 +243,17 @@ export class MarketingConsumptionsService {
   }
 
   private async invalidateOverviewCache(storeId: number): Promise<void> {
-    await this.cacheInvalidatorService.invalidateMarketingOverview(storeId);
+    await Promise.all([
+      this.cacheInvalidatorService.invalidateMarketingOverview(storeId),
+      // BUG-2: 消费后同步失效顾客列表缓存
+      this.redisService.delByPattern(
+        buildMarketingCustomersListPattern(storeId),
+      ),
+      // F8: 失效顾客详情缓存
+      this.redisService.delByPattern(
+        buildMarketingCustomerDetailPattern(storeId),
+      ),
+    ]);
   }
 
   /**

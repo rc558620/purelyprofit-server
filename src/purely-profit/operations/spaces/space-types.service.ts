@@ -2,8 +2,10 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toTimestampMs } from '../../commerce/commerce.utils';
@@ -24,6 +26,8 @@ interface SpaceTypeRecord {
 
 @Injectable()
 export class SpaceTypesService {
+  private readonly logger = new Logger(SpaceTypesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
@@ -160,7 +164,7 @@ export class SpaceTypesService {
         id: true,
         storeId: true,
         _count: {
-          select: { spaces: true },
+          select: { spaces: { where: { deletedAt: null } } },
         },
       },
     });
@@ -180,9 +184,25 @@ export class SpaceTypesService {
       throw new ConflictException('该空间类型已被空间使用，无法删除');
     }
 
-    await this.prisma.spaceType.delete({
-      where: { id: item.id },
-    });
+    try {
+      await this.prisma.spaceType.delete({
+        where: { id: item.id },
+      });
+    } catch (err) {
+      // B-2 fix: 捕获 FK 约束错误（软删除空间仍持有 typeId 引用时触发）
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2003'
+      ) {
+        this.logger.warn(
+          `空间类型 ${item.id} 删除失败：仍被空间引用（含已删除空间）`,
+        );
+        throw new ConflictException(
+          '该空间类型仍被空间引用（含已删除空间），无法删除',
+        );
+      }
+      throw err;
+    }
   }
 
   /**

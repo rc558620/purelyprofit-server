@@ -13,6 +13,7 @@ import type {
 } from './dto/space.dto';
 import { mapRenewRecordRows } from './space-sessions.mapper';
 import type { SpaceSessionRenewRecordRow } from './space-sessions.types';
+import { getTodayRange } from './space-reservations.shared';
 
 export interface DashboardSpaceSummaryBundle {
   activeSessionSummaryBySpaceId: Map<
@@ -192,7 +193,9 @@ export class SpaceDashboardSummaryService {
 
     return {
       todaySettled,
-      todayRevenue: Money.fromDbCents(revenueAgg._sum.totalRevenue ?? 0).toOutputYuan(),
+      todayRevenue: Money.fromDbCents(
+        revenueAgg._sum.totalRevenue ?? 0,
+      ).toOutputYuan(),
     };
   }
 
@@ -244,7 +247,11 @@ export class SpaceDashboardSummaryService {
         : {}),
       ...(session.prepaidNote ? { prepaidNote: session.prepaidNote } : {}),
       ...(session.prepaidAmount !== null
-        ? { prepaidAmount: Money.fromDbCents(session.prepaidAmount).toOutputYuan() }
+        ? {
+            prepaidAmount: Money.fromDbCents(
+              session.prepaidAmount,
+            ).toOutputYuan(),
+          }
         : {}),
     };
   }
@@ -275,19 +282,3 @@ export class SpaceDashboardSummaryService {
     };
   }
 }
-
-const getTodayRange = (): { start: Date; end: Date } => {
-  const now = new Date();
-  const start = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    0,
-    0,
-    0,
-    0,
-  );
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
-
-  return { start, end };
-};

@@ -11,18 +11,25 @@ import type {
 } from './marketing.types';
 
 /**
+ * 支持 $queryRaw 的 Prisma 客户端（兼容 PrismaService 与事务客户端）。
+ */
+type PrismaQueryRunner = PrismaService | Prisma.TransactionClient;
+
+/**
  * 基于时间线遍历计算顾客当前赠送金额余额（分）。
  *
  * 算法规则：
  * - 充值/赠送：trackedGift += giftAmount
- * - 退款：trackedGift = 0（任何退款均清零赠送，清零后新充值赠送重新累计）
+ * - 退款：trackedGift = max(0, trackedGift − row.giftAmount)
+ *   其中 row.giftAmount 为该笔退款实际清零的赠送金额（分）。
+ *   clearRemainingGift=false 的退款 giftAmount=0，不影响赠送余额；
+ *   clearRemainingGift=true 的退款 giftAmount>0，扣减对应赠送。
  *
  * @param prisma  PrismaService 或事务客户端（Prisma.TransactionClient）
  * @param customerId  顾客 ID
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function queryCustomerGiftBalanceCents(
-  prisma: any,
+  prisma: PrismaQueryRunner,
   customerId: number,
 ): Promise<number> {
   const rows = await prisma.$queryRaw<
@@ -42,13 +49,12 @@ export async function queryCustomerGiftBalanceCents(
     if (type === 'recharge' || type === 'gift') {
       trackedGift += row.giftAmount;
     } else if (type === 'refund') {
-      // 任何退款均清零赠送金额，清零后新充值赠送重新累计
-      trackedGift = 0;
+      // BUG-1: 按退款实际清零的赠送金额扣减，而非无条件清零
+      // giftAmount=0 表示 clearRemainingGift=false，不影响赠送余额
+      trackedGift = Math.max(0, trackedGift - row.giftAmount);
     }
   }
 
-  // 退款清零后，trackedGift 仅包含清零后新充值的赠送金额
-  // 不再扣减历史消费（消费发生在清零前，不应影响清零后的新赠送）
   return trackedGift;
 }
 
@@ -81,6 +87,12 @@ export async function queryCustomerRowById(
     )
     WHERE c.id = ${customerId}
       AND c.deleted_at IS NULL
+    ORDER BY
+      CASE
+        WHEN u.wechat_phone = c.phone THEN 1
+        WHEN u.email = 'club_phone_' || c.phone || '@purelyprofit.local' THEN 2
+        ELSE 3
+      END
     LIMIT 1
   `;
 
@@ -110,6 +122,7 @@ export async function queryCustomerRecentRecharges(
     JOIN marketing_customers c ON c.id = r.customer_id
     LEFT JOIN marketing_promotions p ON p.id = r.promotion_id
     WHERE r.customer_id = ${customerId}
+      AND r.type IN ('recharge', 'gift')
     ORDER BY r.created_at DESC
     LIMIT ${limit}
   `;
@@ -129,6 +142,7 @@ export async function queryCustomerRecentConsumptions(
       co.amount,
       co.balance_paid AS "balancePaid",
       co.points_deducted AS "pointsDeducted",
+      co.actual_points_deducted AS "actualPointsDeducted",
       co.pay_type::text AS "payType",
       co.items_summary AS "itemsSummary",
       co.promotion_id AS "promotionId",
@@ -197,6 +211,37 @@ export async function queryCustomerRechargePage(
     JOIN marketing_customers c ON c.id = r.customer_id
     LEFT JOIN marketing_promotions p ON p.id = r.promotion_id
     WHERE r.customer_id = ${customerId}
+      AND r.type IN ('recharge', 'gift')
+    ORDER BY r.created_at DESC, r.id DESC
+    LIMIT ${take} OFFSET ${skip}
+  `;
+}
+
+export async function queryCustomerRefundPage(
+  prisma: PrismaService,
+  customerId: number,
+  skip: number,
+  take: number,
+): Promise<MarketingRechargeRow[]> {
+  return prisma.$queryRaw<MarketingRechargeRow[]>`
+    SELECT
+      r.id,
+      r.store_id AS "storeId",
+      r.customer_id AS "customerId",
+      c.name AS "customerName",
+      r.amount,
+      r.gift_amount AS "giftAmount",
+      r.total_amount AS "totalAmount",
+      r.type::text AS "type",
+      r.promotion_id AS "promotionId",
+      p.name AS "promotionName",
+      r.note,
+      r.created_at AS "createdAt"
+    FROM marketing_recharges r
+    JOIN marketing_customers c ON c.id = r.customer_id
+    LEFT JOIN marketing_promotions p ON p.id = r.promotion_id
+    WHERE r.customer_id = ${customerId}
+      AND r.type = 'refund'
     ORDER BY r.created_at DESC, r.id DESC
     LIMIT ${take} OFFSET ${skip}
   `;
@@ -308,6 +353,7 @@ export async function queryCustomerConsumptionPage(
       co.amount,
       co.balance_paid AS "balancePaid",
       co.points_deducted AS "pointsDeducted",
+      co.actual_points_deducted AS "actualPointsDeducted",
       co.pay_type::text AS "payType",
       co.items_summary AS "itemsSummary",
       co.promotion_id AS "promotionId",
@@ -335,6 +381,7 @@ export async function queryConsumptionRowById(
       co.amount,
       co.balance_paid AS "balancePaid",
       co.points_deducted AS "pointsDeducted",
+      co.actual_points_deducted AS "actualPointsDeducted",
       co.pay_type::text AS "payType",
       co.items_summary AS "itemsSummary",
       co.promotion_id AS "promotionId",

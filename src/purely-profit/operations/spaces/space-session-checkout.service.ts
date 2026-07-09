@@ -30,7 +30,6 @@ import {
   normalizeCheckoutPreviewPayload,
 } from './space-session-checkout-payload.shared';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
-import { SpaceReservationsStateService } from './space-reservations-state.service';
 import type { SpaceSessionRecord } from './space-sessions.types';
 import type { SpaceStatusValue } from './spaces.constants';
 
@@ -43,7 +42,6 @@ export class SpaceSessionCheckoutService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly checkoutLockService: SpaceSessionCheckoutLockService,
     private readonly settlementService: SpaceSessionSettlementService,
-    private readonly reservationsStateService: SpaceReservationsStateService,
   ) {}
 
   async previewSpaceSessionCheckout(
@@ -129,6 +127,10 @@ export class SpaceSessionCheckoutService {
 
     const payload = normalizeCheckoutPayload(dto);
     const lockPayload = await this.resolveCheckoutLockPayload(session, payload);
+    // 设计意图：结账计费时间使用锁单时刻（lockedAt）而非真实结账时刻，
+    // 这是为了避免用户预览结账后因操作耗时（最长锁 TTL=5min）
+    // 导致自动增加台位费，与客人产生费用纠纷。
+    // 锁单冻结的是“费率 + 时长快照”，确保预览金额与实际结账金额一致。
     const checkoutAt = lockPayload?.lockedAt ?? payload.lockedAt ?? Date.now();
     if (checkoutAt < session.startTime.getTime()) {
       throw new BadRequestException('锁单时间不能早于开台时间');
@@ -160,17 +162,10 @@ export class SpaceSessionCheckoutService {
       await this.checkoutLockService.deleteLock(payload.lockId);
     }
 
-    // 运行态推导结算后的空间状态：根据 enableDirtyRoom 和是否有 pending 预约
-    const spaceStatus =
-      await this.reservationsStateService.resolveReservationBackStatus(
-        this.prisma,
-        session.spaceId,
-        session.space.enableDirtyRoom,
-      );
-
+    // BUG-8 修复：空间状态已由 settleSession 在事务内推导，保证与写入数据一致
     return {
       session: toSpaceSessionResponse(updated.session),
-      spaceStatus: this.toSpaceStatusValue(spaceStatus),
+      spaceStatus: this.toSpaceStatusValue(updated.spaceStatus),
       ...(updated.cancelledReservationId !== null
         ? { cancelledReservationId: String(updated.cancelledReservationId) }
         : {}),
@@ -190,8 +185,12 @@ export class SpaceSessionCheckoutService {
       };
     }
   > {
-    const session = await this.prisma.spaceSession.findUnique({
-      where: { id: sessionId },
+    // B1 fix: 结账查询与开台/换房/预约保持一致的 deletedAt: null 口径
+    const session = await this.prisma.spaceSession.findFirst({
+      where: {
+        id: sessionId,
+        space: { deletedAt: null },
+      },
       include: {
         space: {
           select: {

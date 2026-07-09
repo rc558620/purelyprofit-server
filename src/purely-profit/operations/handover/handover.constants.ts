@@ -22,6 +22,11 @@ export const PAYMENT_METHOD_CONFIG: Record<
   [SalesPaymentMethod.card]: { label: '刷卡', color: '#8b5cf6' },
 };
 
+/** 团购券顾客支付方式标识（SpaceCustomerPaymentMethodValue，不在 SalesPaymentMethod 枚举内） */
+export const GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD = 'groupon_voucher';
+/** 团购券显示配置：用于开台项顾客实际支付方式为团购时的 label/color 覆盖 */
+export const GROUPON_VOUCHER_DISPLAY = { label: '团购', color: '#b45309' };
+
 export const SHIFT_TYPE_LABELS: Partial<Record<EmployeeShiftType, string>> = {
   [EmployeeShiftType.morning]: '早班',
   [EmployeeShiftType.nine_to_six]: '行政班',
@@ -47,6 +52,10 @@ export const SPACE_GUEST_PAYABLE_COLOR = '#f43f5e';
 export const isPrepaidDeductionItem = (productName: string): boolean =>
   productName === SPACE_PREPAID_DEDUCTION_ITEM_NAME ||
   productName === SPACE_PREPAID_DEDUCTION_LEGACY_NAME;
+
+/** 判断 productName 是否为开台项（预付款 / 台位费），用于团购显示覆盖 */
+export const isSessionStartItem = (productName: string): boolean =>
+  isPrepaidDeductionItem(productName) || productName.includes('台位费');
 export const CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE =
   '当前班次不属于该收银员，暂不允许操作';
 

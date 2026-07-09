@@ -138,8 +138,23 @@ export class SpaceSessionAutoCheckoutService {
 
       let settledCount = 0;
       let failedCount = 0;
+      let skippedNoPaymentCount = 0;
       for (const session of sessions) {
         if (!session.prepaidPaymentMethod) {
+          // BUG-4 修复：无预付款方式的倒计时会话无法自动结账，
+          // 显式告警以避免空间被永久占用而运营无感知
+          skippedNoPaymentCount += 1;
+          this.logger.warn(
+            `[space-auto-checkout] skipped_no_prepayment ${this.buildAutoCheckoutLogContext(
+              {
+                trigger,
+                storeId,
+                sessionId: session.id,
+                reason: 'NoPrepaidPaymentMethod',
+                requestId,
+              },
+            )}`,
+          );
           continue;
         }
 
@@ -200,13 +215,14 @@ export class SpaceSessionAutoCheckoutService {
         }
       }
 
-      if (settledCount > 0 || failedCount > 0) {
+      if (settledCount > 0 || failedCount > 0 || skippedNoPaymentCount > 0) {
         this.logger.log(
           `[space-auto-checkout] completed ${this.buildAutoCheckoutLogContext({
             trigger,
             storeId,
             count: settledCount,
             failedCount,
+            skippedNoPaymentCount,
             requestId,
           })}`,
         );
@@ -238,6 +254,7 @@ export class SpaceSessionAutoCheckoutService {
     sessionId?: number;
     count?: number;
     failedCount?: number;
+    skippedNoPaymentCount?: number;
     reason?: string;
   }): string {
     const segments = [
@@ -251,6 +268,9 @@ export class SpaceSessionAutoCheckoutService {
       ...(params.count !== undefined ? [`count=${params.count}`] : []),
       ...(params.failedCount !== undefined
         ? [`failedCount=${params.failedCount}`]
+        : []),
+      ...(params.skippedNoPaymentCount !== undefined
+        ? [`skippedNoPaymentCount=${params.skippedNoPaymentCount}`]
         : []),
       ...(params.reason ? [`reason=${params.reason}`] : []),
     ];

@@ -10,6 +10,7 @@ import {
   buildListSpacesWhere,
   SPACE_WITH_RELATIONS_INCLUDE,
 } from './spaces.query';
+import { getReservationStatusRange } from './space-reservations.shared';
 
 /** 通过 _count 子查询 + 最近 settled 会话推导空间运行态状态 */
 function deriveStatusFromCounts(params: {
@@ -53,6 +54,8 @@ export class SpacesReadService {
       return [];
     }
 
+    const statusRange = getReservationStatusRange();
+
     const spaces = await this.prisma.space.findMany({
       where: buildListSpacesWhere(storeId, query),
       include: {
@@ -60,11 +63,20 @@ export class SpacesReadService {
         _count: {
           select: {
             sessions: { where: { status: SpaceSessionStatus.active } },
-            reservations: { where: { status: SpaceReservationStatus.pending } },
+            reservations: {
+              where: {
+                status: SpaceReservationStatus.pending,
+                reservedAt: {
+                  gte: statusRange.start,
+                  lte: statusRange.end,
+                },
+              },
+            },
           },
         },
         sessions: {
-          where: { status: SpaceSessionStatus.settled },
+          // B7 fix: 过滤 endTime 为 null 的脏数据，与写路径 deriveSpaceStatus / resolveReservationBackStatus 口径一致
+          where: { status: SpaceSessionStatus.settled, endTime: { not: null } },
           select: { endTime: true },
           orderBy: { endTime: 'desc' },
           take: 1,

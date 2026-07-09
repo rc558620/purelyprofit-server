@@ -567,7 +567,7 @@ export class AuthAuthenticationService {
   }
 
   private async completeLogin(
-    user: { id: number; phone: string; email: string },
+    user: { id: number; phone: string; email: string; staffId?: number },
     productScope: AuthProductScope,
     accountScope: AuthenticatedAccountScope,
   ): Promise<AuthTokenResponseDto> {
@@ -588,6 +588,7 @@ export class AuthAuthenticationService {
       phone: user.phone,
       email: user.email,
       accountScope,
+      ...(user.staffId != null ? { staffId: user.staffId } : {}),
     });
   }
 

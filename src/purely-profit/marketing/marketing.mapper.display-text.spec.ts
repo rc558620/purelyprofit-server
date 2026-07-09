@@ -6,21 +6,21 @@ describe('buildPromotionDisplayText', () => {
 
   describe('discount / discount_day', () => {
     it('discount: discountRate=80 → "打 8 折"', () => {
-      expect(
-        buildPromotionDisplayText('discount', { discountRate: 80 }),
-      ).toBe('打 8 折');
+      expect(buildPromotionDisplayText('discount', { discountRate: 80 })).toBe(
+        '打 8 折',
+      );
     });
 
     it('discount: discountRate=85 → "打 8.5 折"', () => {
-      expect(
-        buildPromotionDisplayText('discount', { discountRate: 85 }),
-      ).toBe('打 8.5 折');
+      expect(buildPromotionDisplayText('discount', { discountRate: 85 })).toBe(
+        '打 8.5 折',
+      );
     });
 
     it('discount: 旧格式 rate=0.8 → 兼容转换为 "打 8 折"', () => {
-      expect(
-        buildPromotionDisplayText('discount', { rate: 0.8 }),
-      ).toBe('打 8 折');
+      expect(buildPromotionDisplayText('discount', { rate: 0.8 })).toBe(
+        '打 8 折',
+      );
     });
 
     it('discount_day: discountRate=70 → "打 7 折"', () => {
@@ -56,15 +56,11 @@ describe('buildPromotionDisplayText', () => {
     });
 
     it('缺少 threshold 时返回空字符串', () => {
-      expect(
-        buildPromotionDisplayText('reduce', { reduceAmount: 8 }),
-      ).toBe('');
+      expect(buildPromotionDisplayText('reduce', { reduceAmount: 8 })).toBe('');
     });
 
     it('缺少 reduceAmount 时返回空字符串', () => {
-      expect(
-        buildPromotionDisplayText('reduce', { threshold: 50 }),
-      ).toBe('');
+      expect(buildPromotionDisplayText('reduce', { threshold: 50 })).toBe('');
     });
   });
 
@@ -113,9 +109,9 @@ describe('buildPromotionDisplayText', () => {
     });
 
     it('无 gradients → "多档储值赠送"', () => {
-      expect(
-        buildPromotionDisplayText('recharge_gift', {}),
-      ).toBe('多档储值赠送');
+      expect(buildPromotionDisplayText('recharge_gift', {})).toBe(
+        '多档储值赠送',
+      );
     });
   });
 
@@ -154,9 +150,7 @@ describe('buildPromotionDisplayText', () => {
     });
 
     it('缺少参数时返回空字符串', () => {
-      expect(
-        buildPromotionDisplayText('first_order_discount', {}),
-      ).toBe('');
+      expect(buildPromotionDisplayText('first_order_discount', {})).toBe('');
     });
   });
 
@@ -187,18 +181,16 @@ describe('buildPromotionDisplayText', () => {
       ).toBe('充 ¥100 赠 12.35 积分');
     });
 
-    it('旧字段 pointsPerYuan=5 → 兼容为 "充 ¥100 赠 5 积分"', () => {
+    it('旧字段 pointsRatio=5 → 兼容为 "充 ¥100 赠 5 积分"', () => {
       expect(
         buildPromotionDisplayText('points_recharge', {
-          pointsPerYuan: 5,
+          pointsRatio: 5,
         }),
       ).toBe('充 ¥100 赠 5 积分');
     });
 
     it('缺少参数时返回空字符串', () => {
-      expect(
-        buildPromotionDisplayText('points_recharge', {}),
-      ).toBe('');
+      expect(buildPromotionDisplayText('points_recharge', {})).toBe('');
     });
   });
 

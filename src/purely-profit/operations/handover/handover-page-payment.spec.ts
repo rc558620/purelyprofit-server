@@ -187,5 +187,111 @@ describe('handover-page-payment', () => {
     it('空数组应返回空结果', () => {
       expect(mapPaymentItems([])).toEqual([]);
     });
+
+    it('预付款顾客支付方式为团购券时应归入团购桶而非门店结算方式', () => {
+      const items: OrderItemRow[] = [
+        {
+          id: 1,
+          productName: '预付款',
+          salePrice: 5500, // 55.00 元
+          quantity: 1,
+          product: null,
+          order: {
+            id: 1,
+            date: new Date(),
+            paymentMethod: SalesPaymentMethod.cash, // 门店侧结算方式是现金
+            operatorNameSnapshot: null,
+            operatorStaff: null,
+            spaceSession: {
+              startTime: new Date(),
+              prepaidPaymentMethod: SalesPaymentMethod.cash,
+              prepaidCustomerPaymentMethod: 'groupon_voucher', // 顾客用团购券
+              sessionRenewRecords: [],
+              space: { name: 'A22' },
+              openOperatorNameSnapshot: null,
+              openOperatorStaff: null,
+            },
+          },
+        },
+      ];
+
+      const result = mapPaymentItems(items);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.method).toBe('groupon_voucher');
+      expect(result[0]!.label).toBe('团购');
+      expect(result[0]!.color).toBe('#b45309');
+      expect(result[0]!.amount).toBe(55);
+    });
+
+    it('预付款顾客支付方式非团购时应正常显示门店结算方式', () => {
+      const items: OrderItemRow[] = [
+        {
+          id: 2,
+          productName: '预付款',
+          salePrice: 8800, // 88.00 元
+          quantity: 1,
+          product: null,
+          order: {
+            id: 2,
+            date: new Date(),
+            paymentMethod: SalesPaymentMethod.wechat,
+            operatorNameSnapshot: null,
+            operatorStaff: null,
+            spaceSession: {
+              startTime: new Date(),
+              prepaidPaymentMethod: SalesPaymentMethod.wechat,
+              prepaidCustomerPaymentMethod: 'wechat', // 顾客用微信
+              sessionRenewRecords: [],
+              space: { name: 'A01' },
+              openOperatorNameSnapshot: null,
+              openOperatorStaff: null,
+            },
+          },
+        },
+      ];
+
+      const result = mapPaymentItems(items);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.method).toBe('wechat');
+      expect(result[0]!.label).toBe('微信');
+    });
+
+    it('台位费顾客支付方式为团购券时应归入团购桶', () => {
+      const items: OrderItemRow[] = [
+        {
+          id: 3,
+          productName: '台位费（固定）',
+          salePrice: 5500, // 55.00 元
+          quantity: 1,
+          product: null,
+          order: {
+            id: 3,
+            date: new Date(),
+            paymentMethod: SalesPaymentMethod.cash, // 门店侧结算方式是现金
+            operatorNameSnapshot: null,
+            operatorStaff: null,
+            spaceSession: {
+              startTime: new Date(),
+              prepaidPaymentMethod: SalesPaymentMethod.cash,
+              prepaidCustomerPaymentMethod: 'groupon_voucher', // 顾客用团购券开台
+              sessionRenewRecords: [],
+              space: { name: 'A22' },
+              openOperatorNameSnapshot: null,
+              openOperatorStaff: null,
+            },
+          },
+        },
+      ];
+
+      const result = mapPaymentItems(items);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.method).toBe('groupon_voucher');
+      expect(result[0]!.label).toBe('团购');
+      expect(result[0]!.color).toBe('#b45309');
+      expect(result[0]!.amount).toBe(55);
+    });
   });
 });

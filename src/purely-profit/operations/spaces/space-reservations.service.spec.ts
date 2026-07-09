@@ -28,6 +28,7 @@ describe('SpaceReservationsService', () => {
 
   const prismaService = {
     space: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
     },
     spaceReservation: {
@@ -156,7 +157,8 @@ describe('SpaceReservationsService', () => {
   });
 
   it('listSpaceReservations 在未传 status 时默认只返回某空间的 pending 预约', async () => {
-    prismaService.space.findUnique.mockResolvedValue({
+    // B1: listSpaceReservations 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValue({
       id: 11,
       storeId: 18,
     });
@@ -182,7 +184,8 @@ describe('SpaceReservationsService', () => {
 
   it('createSpaceReservation 会在锁内重算时间冲突后再创建', async () => {
     const now = Date.now();
-    prismaService.space.findUnique.mockResolvedValue({
+    // B1: createSpaceReservation 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValue({
       id: 11,
       storeId: 18,
       capacity: 4,
@@ -230,7 +233,8 @@ describe('SpaceReservationsService', () => {
     const reservedAtB = now + 29 * 60 * 1000; // 08:30
     const reservedEndAtB = now + 89 * 60 * 1000; // 09:30
 
-    prismaService.space.findUnique.mockResolvedValue({
+    // B1: createSpaceReservation 改用 findFirst
+    prismaService.space.findFirst.mockResolvedValue({
       id: 11,
       storeId: 18,
       capacity: 4,
@@ -504,6 +508,8 @@ describe('SpaceReservationsStateService', () => {
   });
 
   it('resolveReservationBackStatus 在存在今日 pending 预约时返回 reserved', async () => {
+    // 无活跃会话才会继续检查预约
+    transaction.spaceSession.findFirst.mockResolvedValue(null);
     transaction.spaceReservation.findFirst.mockResolvedValue({ id: 21 });
 
     await expect(
@@ -512,6 +518,8 @@ describe('SpaceReservationsStateService', () => {
   });
 
   it('resolveReservationBackStatus 在不存在今日 pending 预约时返回 idle', async () => {
+    // 无活跃会话才会继续检查预约
+    transaction.spaceSession.findFirst.mockResolvedValue(null);
     transaction.spaceReservation.findFirst.mockResolvedValue(null);
 
     await expect(

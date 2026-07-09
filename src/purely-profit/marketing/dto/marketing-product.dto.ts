@@ -217,6 +217,15 @@ export class CreateMarketingProductDto {
   @IsInt({ message: '适用人数必须是整数' })
   @Min(1, { message: '适用人数必须大于 0' })
   personCount?: number | null;
+
+  @ApiPropertyOptional({
+    example: '次',
+    description: '库存单位（如：次、节、份）',
+  })
+  @IsOptional()
+  @IsString({ message: '单位必须是字符串' })
+  @MaxLength(10, { message: '单位最长 10 个字符' })
+  unit?: string;
 }
 
 export class UpdateMarketingProductDto {
@@ -324,6 +333,15 @@ export class UpdateMarketingProductDto {
   @IsInt({ message: '适用人数必须是整数' })
   @Min(1, { message: '适用人数必须大于 0' })
   personCount?: number | null;
+
+  @ApiPropertyOptional({
+    example: '次',
+    description: '库存单位；空字符串表示清空',
+  })
+  @IsOptional()
+  @IsString({ message: '单位必须是字符串' })
+  @MaxLength(10, { message: '单位最长 10 个字符' })
+  unit?: string | null;
 }
 
 export class ToggleMarketingProductDto {
@@ -392,6 +410,9 @@ export class MarketingProductDto {
 
   @ApiPropertyOptional({ example: 3 })
   personCount?: number;
+
+  @ApiPropertyOptional({ example: '次', description: '库存单位' })
+  unit?: string;
 
   @ApiProperty({ example: true })
   isActive: boolean;

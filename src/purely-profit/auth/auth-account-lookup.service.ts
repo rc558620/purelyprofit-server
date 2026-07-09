@@ -75,7 +75,8 @@ export class AuthAccountLookupService {
     }
 
     if (productScope === 'purely_profit') {
-      const staff = await this.prisma.staff.findFirst({
+      // 先查全部同手机号候选，用于检测跨门店重复
+      const staffCandidates = await this.prisma.staff.findMany({
         where: {
           phone,
           isActive: true,
@@ -83,6 +84,8 @@ export class AuthAccountLookupService {
         },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         select: {
+          id: true,
+          userId: true,
           user: {
             select: {
               id: true,
@@ -93,11 +96,25 @@ export class AuthAccountLookupService {
         },
       });
 
+      if (staffCandidates.length > 1) {
+        const uniqueUserIds = new Set(staffCandidates.map((s) => s.userId));
+        if (uniqueUserIds.size > 1) {
+          this.logger.warn(
+            `[findUserByPhone] phone=${phone} matched ${staffCandidates.length} staff across ${uniqueUserIds.size} different users, denying login to prevent cross-tenant access`,
+          );
+          throw new ConflictException(
+            '该手机号关联了多个账号，请联系管理员处理后重试',
+          );
+        }
+      }
+
+      const staff = staffCandidates[0];
       if (staff?.user) {
         return {
           ...staff.user,
           phone,
           accountScope: 'purely_profit',
+          staffId: staff.id,
         };
       }
     }
@@ -427,9 +444,27 @@ export class AuthAccountLookupService {
     userId: number,
     identifiers: AccountIdentifiers,
   ): Promise<void> {
+    // 仅回填该用户拥有所有权或已存在身份的门店，防止跨门店错误回填
+    const legitimateStoreIds = await this.prisma.store
+      .findMany({
+        where: {
+          OR: [
+            { ownerId: userId, deletedAt: null },
+            { staffs: { some: { userId, isActive: true } } },
+          ],
+        },
+        select: { id: true },
+      })
+      .then((stores) => stores.map((s) => s.id));
+
+    if (legitimateStoreIds.length === 0) {
+      return;
+    }
+
     await this.prisma.staff.updateMany({
       where: {
         userId: null,
+        storeId: { in: legitimateStoreIds },
         OR: [{ email: identifiers.email }, { phone: identifiers.phone }],
       },
       data: {
@@ -447,13 +482,16 @@ export class AuthAccountLookupService {
   ): Promise<PhoneUserRecord | null> {
     const normalizedAccount = loginAccount.trim();
 
-    const staff = await this.prisma.staff.findFirst({
+    const staffCandidates = await this.prisma.staff.findMany({
       where: {
         loginAccount: normalizedAccount,
         isActive: true,
         userId: { not: null },
       },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       select: {
+        id: true,
+        userId: true,
         phone: true,
         user: {
           select: {
@@ -463,13 +501,28 @@ export class AuthAccountLookupService {
           },
         },
       },
+      take: 2,
     });
 
+    if (staffCandidates.length > 1) {
+      const uniqueUserIds = new Set(staffCandidates.map((s) => s.userId));
+      if (uniqueUserIds.size > 1) {
+        this.logger.warn(
+          `[findProfitUserByCustomAccount] loginAccount=${normalizedAccount} matched ${staffCandidates.length} staff across ${uniqueUserIds.size} different users, denying login`,
+        );
+        throw new ConflictException(
+          '该登录账号关联了多个账号，请联系管理员处理后重试',
+        );
+      }
+    }
+
+    const staff = staffCandidates[0];
     if (staff?.user && staff.phone) {
       return {
         ...staff.user,
         phone: staff.phone,
         accountScope: 'purely_profit',
+        staffId: staff.id,
       };
     }
 
@@ -479,7 +532,7 @@ export class AuthAccountLookupService {
   private async findProfitUserByLoginEmails(
     emails: string[],
   ): Promise<PhoneUserRecord | null> {
-    const staff = await this.prisma.staff.findFirst({
+    const staffCandidates = await this.prisma.staff.findMany({
       where: {
         email: { in: emails },
         isActive: true,
@@ -487,6 +540,8 @@ export class AuthAccountLookupService {
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       select: {
+        id: true,
+        userId: true,
         phone: true,
         user: {
           select: {
@@ -496,13 +551,28 @@ export class AuthAccountLookupService {
           },
         },
       },
+      take: 2,
     });
 
+    if (staffCandidates.length > 1) {
+      const uniqueUserIds = new Set(staffCandidates.map((s) => s.userId));
+      if (uniqueUserIds.size > 1) {
+        this.logger.warn(
+          `[findProfitUserByLoginEmails] emails=${emails.join(',')} matched ${staffCandidates.length} staff across ${uniqueUserIds.size} different users, denying login`,
+        );
+        throw new ConflictException(
+          '该登录邮箱关联了多个账号，请联系管理员处理后重试',
+        );
+      }
+    }
+
+    const staff = staffCandidates[0];
     if (staff?.user && staff.phone) {
       return {
         ...staff.user,
         phone: staff.phone,
         accountScope: 'purely_profit',
+        staffId: staff.id,
       };
     }
 
@@ -526,7 +596,7 @@ export class AuthAccountLookupService {
         phone: { not: null },
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      select: { phone: true },
+      select: { id: true, phone: true },
     });
 
     if (!relatedStaff?.phone) {
@@ -537,6 +607,7 @@ export class AuthAccountLookupService {
       ...user,
       phone: relatedStaff.phone,
       accountScope: 'purely_profit',
+      staffId: relatedStaff.id,
     };
   }
 
@@ -558,7 +629,7 @@ export class AuthAccountLookupService {
   private async findDeveloperUserByPhone(
     phone: string,
   ): Promise<PhoneUserRecord | null> {
-    const staff = await this.prisma.staff.findFirst({
+    const staffCandidates = await this.prisma.staff.findMany({
       where: {
         phone,
         isActive: true,
@@ -566,6 +637,8 @@ export class AuthAccountLookupService {
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       select: {
+        id: true,
+        userId: true,
         user: {
           select: {
             id: true,
@@ -576,6 +649,19 @@ export class AuthAccountLookupService {
       },
     });
 
+    if (staffCandidates.length > 1) {
+      const uniqueUserIds = new Set(staffCandidates.map((s) => s.userId));
+      if (uniqueUserIds.size > 1) {
+        this.logger.warn(
+          `[findDeveloperUserByPhone] phone=${phone} matched ${staffCandidates.length} staff across ${uniqueUserIds.size} different users, denying login to prevent cross-tenant access`,
+        );
+        throw new ConflictException(
+          '该手机号关联了多个账号，请联系管理员处理后重试',
+        );
+      }
+    }
+
+    const staff = staffCandidates[0];
     if (!staff?.user) {
       return null;
     }
@@ -584,6 +670,7 @@ export class AuthAccountLookupService {
       ...staff.user,
       phone,
       accountScope: 'developer',
+      staffId: staff.id,
     };
   }
 }

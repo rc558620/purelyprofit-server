@@ -36,6 +36,10 @@ export const normalizeCheckoutPayload = (
   const grouponPlatform = dto.grouponPlatform?.trim();
   const voucherCode = dto.voucherCode?.trim();
   const voucherPlatform = dto.voucherPlatform?.trim();
+  // 防御性检查：即使 DTO 层必填校验被绕过（如内部调用），也不会抛 TypeError
+  if (!dto.lockId) {
+    throw new BadRequestException('结账锁单不能为空');
+  }
   const lockId = dto.lockId.trim();
   const timeFeeMode = dto.timeFeeMode;
   const countdownFeeMode =

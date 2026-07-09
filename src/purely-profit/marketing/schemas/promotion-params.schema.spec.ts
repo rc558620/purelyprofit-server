@@ -166,9 +166,9 @@ describe('pointsRechargeParamsSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts empty object (passthrough)', () => {
+  it('rejects empty object (B4: at least one ratio required)', () => {
     const result = pointsRechargeParamsSchema.safeParse({});
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 });
 

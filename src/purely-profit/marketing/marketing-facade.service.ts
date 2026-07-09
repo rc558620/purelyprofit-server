@@ -181,6 +181,18 @@ export class MarketingFacadeService {
     );
   }
 
+  listCustomerRefunds(
+    user: AuthenticatedUser,
+    customerId: number,
+    query: { page?: number; pageSize?: number },
+  ): Promise<MarketingRechargesResponseDto> {
+    return this.marketingCustomersFacadeService.listCustomerRefunds(
+      user,
+      customerId,
+      query,
+    );
+  }
+
   createRecharge(
     user: AuthenticatedUser,
     storeId: number,
@@ -218,7 +230,7 @@ export class MarketingFacadeService {
   listConsumptions(
     user: AuthenticatedUser,
     customerId: number,
-    query: { page?: number; pageSize?: number; storeId?: number },
+    query: { page?: number; pageSize?: number },
   ): Promise<MarketingConsumptionsResponseDto> {
     return this.marketingCustomersFacadeService.listConsumptions(
       user,
