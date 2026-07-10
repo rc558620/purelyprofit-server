@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  Prisma,
   SpaceReservationStatus as PrismaSpaceReservationStatus,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
@@ -35,7 +36,10 @@ import {
 } from './spaces.query';
 import type { SpaceStatusValue } from './spaces.constants';
 import type { ManagedSpaceRecord, SpaceRemovalCandidate } from './spaces.types';
-import { getReservationStatusRange } from './space-reservations.shared';
+import {
+  deriveSpaceStatusFromCounts,
+  getReservationStatusRange,
+} from './space-reservations.shared';
 
 @Injectable()
 export class SpacesWriteService {
@@ -72,34 +76,55 @@ export class SpacesWriteService {
       dto,
     );
 
-    const created = await this.prisma.$transaction(
-      async (transaction) => {
-        const existingCount = await transaction.space.count({
-          where: { storeId, deletedAt: null },
-        });
-        const targetSortOrder = normalizeTargetSortOrder(
-          dto.sortOrder,
-          existingCount + 1,
-        );
+    let created;
+    try {
+      created = await this.prisma.$transaction(
+        async (transaction) => {
+          // SPACE-MGMT-003 fix: FOR UPDATE 锁定同门店空间行，防止并发创建产生重复 sortOrder
+          await transaction.$queryRaw`
+            SELECT id
+            FROM spaces
+            WHERE store_id = ${storeId} AND deleted_at IS NULL
+            FOR UPDATE
+          `;
 
-        await shiftSortOrdersForInsert(transaction, storeId, targetSortOrder);
+          const existingCount = await transaction.space.count({
+            where: { storeId, deletedAt: null },
+          });
+          const targetSortOrder = normalizeTargetSortOrder(
+            dto.sortOrder,
+            existingCount + 1,
+          );
 
-        return transaction.space.create({
-          data: {
-            storeId,
-            typeId: refs.typeId,
-            zoneId: refs.zoneId,
-            name,
-            capacity: dto.capacity,
-            enableDirtyRoom: dto.enableDirtyRoom,
-            autoCheckout: dto.autoCheckout,
-            sortOrder: targetSortOrder,
-          },
-          include: SPACE_WITH_RELATIONS_INCLUDE,
-        });
-      },
-      { timeout: TX_TIMEOUT_SHORT },
-    );
+          await shiftSortOrdersForInsert(transaction, storeId, targetSortOrder);
+
+          return transaction.space.create({
+            data: {
+              storeId,
+              typeId: refs.typeId,
+              zoneId: refs.zoneId,
+              name,
+              capacity: dto.capacity,
+              enableDirtyRoom: dto.enableDirtyRoom,
+              autoCheckout: dto.autoCheckout,
+              sortOrder: targetSortOrder,
+            },
+            include: SPACE_WITH_RELATIONS_INCLUDE,
+          });
+        },
+        { timeout: TX_TIMEOUT_SHORT },
+      );
+    } catch (err) {
+      // SPACE-MGMT-001 fix: 并发创建同名空间触发 partial unique index 冲突，
+      // 将 Prisma P2002 归一化为业务友好的 409 ConflictException
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException('空间名称已存在');
+      }
+      throw err;
+    }
 
     // 创建后推导运行态状态（新建空间通常无会话/预约，但与 updateSpace 保持一致的推导路径）
     const derivedStatus = await this.deriveSpaceStatus(created.id);
@@ -286,7 +311,7 @@ export class SpacesWriteService {
           include: SPACE_WITH_RELATIONS_INCLUDE,
         });
 
-        const [pendingReservation] = await Promise.all([
+        const [pendingReservation, lastSettled] = await Promise.all([
           transaction.spaceReservation.findFirst({
             where: {
               spaceId,
@@ -298,23 +323,23 @@ export class SpacesWriteService {
             },
             select: { id: true },
           }),
+          updated.enableDirtyRoom
+            ? transaction.spaceSession.findFirst({
+                where: { spaceId, status: 'settled', endTime: { not: null } },
+                select: { endTime: true },
+                orderBy: { endTime: 'desc' },
+              })
+            : Promise.resolve(null),
         ]);
 
-        // active session 已在上面校验排除，此处只需判断 reserved / cleaning / idle
-        let status: SpaceStatusValue = 'idle';
-        if (pendingReservation) {
-          status = 'reserved';
-        } else if (updated.enableDirtyRoom) {
-          const lastSettled = await transaction.spaceSession.findFirst({
-            where: { spaceId, status: 'settled', endTime: { not: null } },
-            select: { endTime: true },
-            orderBy: { endTime: 'desc' },
-          });
-          if (lastSettled?.endTime) {
-            const cleanedMs = updated.cleanedAt?.getTime() ?? 0;
-            if (lastSettled.endTime.getTime() > cleanedMs) status = 'cleaning';
-          }
-        }
+        // BUG-04 fix: 复用共享权威函数 deriveSpaceStatusFromCounts，消除内联副本漂移风险
+        const status = deriveSpaceStatusFromCounts({
+          activeSessions: 0, // 已在上方校验排除 occupied
+          pendingReservations: pendingReservation ? 1 : 0,
+          enableDirtyRoom: updated.enableDirtyRoom,
+          lastSettledEndTime: lastSettled?.endTime ?? null,
+          cleanedAt: updated.cleanedAt,
+        });
 
         return toSpaceResponse({ ...updated, status });
       },
@@ -369,51 +394,44 @@ export class SpacesWriteService {
   }
 
   /**
-   * 通过查询 SpaceSession 和 SpaceReservation 推导运行态状态
-   * - occupied: 存在活跃会话（status=active）
-   * - reserved: 存在待履约预约（status=pending）
-   * - cleaning: enableDirtyRoom=true 且最后 settled 会话 endTime > cleanedAt
-   * - idle: 其他情况
+   * BUG-04 fix: 复用共享权威函数 deriveSpaceStatusFromCounts 推导运行态状态，
+   * 消除写路径与读路径（列表/看板）之间的口径漂移风险。
+   * 优先级链：occupied > reserved > cleaning > idle
    */
   private async deriveSpaceStatus(spaceId: number): Promise<SpaceStatusValue> {
-    const [activeSession, pendingReservation, space] = await Promise.all([
-      this.prisma.spaceSession.findFirst({
-        where: { spaceId, status: 'active' },
-        select: { id: true },
-      }),
-      this.prisma.spaceReservation.findFirst({
-        where: {
-          spaceId,
-          status: 'pending',
-          reservedAt: {
-            gte: getReservationStatusRange().start,
-            lte: getReservationStatusRange().end,
+    const statusRange = getReservationStatusRange();
+    const [activeSessionCount, pendingReservationCount, space, lastSettled] =
+      await Promise.all([
+        this.prisma.spaceSession.count({
+          where: { spaceId, status: 'active' },
+        }),
+        this.prisma.spaceReservation.count({
+          where: {
+            spaceId,
+            status: 'pending',
+            reservedAt: {
+              gte: statusRange.start,
+              lte: statusRange.end,
+            },
           },
-        },
-        select: { id: true },
-      }),
-      this.prisma.space.findUnique({
-        where: { id: spaceId },
-        select: { enableDirtyRoom: true, cleanedAt: true },
-      }),
-    ]);
+        }),
+        this.prisma.space.findUnique({
+          where: { id: spaceId },
+          select: { enableDirtyRoom: true, cleanedAt: true },
+        }),
+        this.prisma.spaceSession.findFirst({
+          where: { spaceId, status: 'settled', endTime: { not: null } },
+          select: { endTime: true },
+          orderBy: { endTime: 'desc' },
+        }),
+      ]);
 
-    if (activeSession) return 'occupied';
-    if (pendingReservation) return 'reserved';
-
-    // 脏房模式：结账后无活跃会话，且尚未标记清洁完成 → cleaning
-    if (space?.enableDirtyRoom) {
-      const lastSettled = await this.prisma.spaceSession.findFirst({
-        where: { spaceId, status: 'settled', endTime: { not: null } },
-        select: { endTime: true },
-        orderBy: { endTime: 'desc' },
-      });
-      if (lastSettled?.endTime) {
-        const cleanedMs = space.cleanedAt?.getTime() ?? 0;
-        if (lastSettled.endTime.getTime() > cleanedMs) return 'cleaning';
-      }
-    }
-
-    return 'idle';
+    return deriveSpaceStatusFromCounts({
+      activeSessions: activeSessionCount,
+      pendingReservations: pendingReservationCount,
+      enableDirtyRoom: space?.enableDirtyRoom ?? false,
+      lastSettledEndTime: lastSettled?.endTime ?? null,
+      cleanedAt: space?.cleanedAt ?? null,
+    });
   }
 }

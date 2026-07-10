@@ -75,9 +75,11 @@ describe('SpacesWriteService', () => {
       update: jest.fn(),
     },
     spaceSession: {
+      count: jest.fn(),
       findFirst: jest.fn(),
     },
     spaceReservation: {
+      count: jest.fn(),
       findFirst: jest.fn(),
     },
     $transaction: jest.fn(),
@@ -177,8 +179,10 @@ describe('SpacesWriteService', () => {
     spaceReservationsService.resolveReservationBackStatus.mockResolvedValue(
       'reserved',
     );
-    // deriveSpaceStatus 需要查询 activeSession 和 pendingReservation
+    // deriveSpaceStatus 需要查询 activeSession/pendingReservation 计数和 lastSettled
+    prismaService.spaceSession.count.mockResolvedValue(0);
     prismaService.spaceSession.findFirst.mockResolvedValue(null);
+    prismaService.spaceReservation.count.mockResolvedValue(0);
     prismaService.spaceReservation.findFirst.mockResolvedValue(null);
     // deriveSpaceStatus 查询 space 获取 enableDirtyRoom/cleanedAt
     prismaService.space.findUnique.mockResolvedValue({

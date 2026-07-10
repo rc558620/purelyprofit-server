@@ -87,27 +87,45 @@ export const sumPaymentAmounts = (items: HandoverPaymentItemDto[]): number =>
 
 /**
  * 从已结账的空间会话中计算退款金额。
- * 退款 = 预付款 > 实际消费时的差额（退给客人的金额）。
+ * 退款 = (prepaidAmount + renewTotal) > consumption 时的差额（退给客人的金额）。
  * 直接基于 SpaceSession 数据计算，不依赖 SaleOrder.totalRevenue 符号。
+ *
+ * ─── ⚠️ DO NOT 简化为仅 prepaidAmount ─────────────────────────────
+ * 历史背景：BUG-1/5/7 修复前，续费会回写 session.prepaidAmount，
+ * 导致"开台预付"和"续费"两个资金池混淆，产生重复抵扣。
+ * 修复后 space-session-renew.service.ts 彻底移除了 prepaid* 回写，
+ * 因此 prepaidAmount **仅包含开台预付款，不含续费金额**。
+ * 退款必须从 sessionRenewRecords 独立累加续费，否则：
+ *   - 无预付+续费场景：退款 = 0（续费溢出完全丢失）
+ *   - 预付+续费混合：退款少算续费部分
+ * 不要试图去掉 sessionRenewRecords 参数或改回 prepaidAmount > 0 守卫。
  */
 export const computeRefundAmountFromSessions = (
   sessions: Array<{
     timeCost: number | null;
     itemsCost: number;
     prepaidAmount: number | null;
+    sessionRenewRecords: { amount: number }[];
   }>,
 ): number => {
   let totalRefundCents = 0;
 
   for (const session of sessions) {
     const prepaidCents = Number(session.prepaidAmount ?? 0);
-    if (prepaidCents <= 0) continue;
+    // ─── ⚠️ DO NOT 去掉续费累加 ───────────────────────────────
+    // prepaidAmount 仅含开台预付，不含续费（BUG-1/5/7 已移除续费回写）
+    const renewTotalCents = session.sessionRenewRecords.reduce(
+      (sum, r) => sum + Number(r.amount ?? 0),
+      0,
+    );
+    const totalPaidCents = prepaidCents + renewTotalCents;
+    if (totalPaidCents <= 0) continue;
 
     const consumptionCents = Money.fromDbCents(session.timeCost ?? 0)
       .add(Money.fromDbCents(session.itemsCost))
       .toDbCents();
 
-    const refundCents = prepaidCents - consumptionCents;
+    const refundCents = totalPaidCents - consumptionCents;
     if (refundCents > 0) {
       totalRefundCents += refundCents;
     }

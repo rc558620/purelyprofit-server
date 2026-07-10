@@ -36,6 +36,40 @@ export const SPACE_SETTLEMENT_STATUS_VALUES = [
 export type SpaceSettlementStatusValue =
   (typeof SPACE_SETTLEMENT_STATUS_VALUES)[number];
 
+/** 团购平台枚举值列表 */
+export const GROUPON_PLATFORM_VALUES = [
+  'meituan',
+  'douyin',
+  'kuaishou',
+  'xiaohongshu',
+  'dianping',
+  'eleme',
+  'pinduoduo',
+  'taobao',
+  'jd',
+  'wechat_store',
+  'other',
+] as const;
+export type GrouponPlatformValue = (typeof GROUPON_PLATFORM_VALUES)[number];
+
+/** 团购平台选项列表（含中文标签，供前端下拉框与展示使用） */
+export const GROUPON_PLATFORM_OPTIONS: Array<{
+  value: GrouponPlatformValue;
+  label: string;
+}> = [
+  { value: 'meituan', label: '美团' },
+  { value: 'douyin', label: '抖音' },
+  { value: 'kuaishou', label: '快手' },
+  { value: 'xiaohongshu', label: '小红书' },
+  { value: 'dianping', label: '大众点评' },
+  { value: 'eleme', label: '饿了么' },
+  { value: 'pinduoduo', label: '拼多多' },
+  { value: 'taobao', label: '淘宝' },
+  { value: 'jd', label: '京东' },
+  { value: 'wechat_store', label: '微信小商店' },
+  { value: 'other', label: '其他' },
+];
+
 export function transformOptionalBoolean({
   value,
 }: {

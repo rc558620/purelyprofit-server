@@ -96,6 +96,14 @@ export async function reorderSpaceSortOrder(
   }
 
   if (targetSortOrder < currentSortOrder) {
+    // BUG-02 fix: FOR UPDATE 锁定受影响范围内的行，消除并发重排导致 sortOrder 重复/间隙的窗口
+    await transaction.$queryRaw`
+      SELECT id FROM spaces
+      WHERE store_id = ${storeId} AND id != ${spaceId}
+        AND sort_order >= ${targetSortOrder} AND sort_order < ${currentSortOrder}
+      FOR UPDATE
+    `;
+
     await transaction.space.updateMany({
       where: {
         storeId,
@@ -114,6 +122,14 @@ export async function reorderSpaceSortOrder(
 
     return targetSortOrder;
   }
+
+  // BUG-02 fix: FOR UPDATE 锁定受影响范围内的行
+  await transaction.$queryRaw`
+    SELECT id FROM spaces
+    WHERE store_id = ${storeId} AND id != ${spaceId}
+      AND sort_order > ${currentSortOrder} AND sort_order <= ${targetSortOrder}
+    FOR UPDATE
+  `;
 
   await transaction.space.updateMany({
     where: {

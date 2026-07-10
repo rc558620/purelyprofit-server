@@ -45,8 +45,12 @@ export async function aggregateOrderStats(
   `;
 
   return {
-    totalRevenue: Money.fromDbCents(Number(result[0]?.revenue ?? 0)).toOutputYuan(),
-    totalProfit: Money.fromDbCents(Number(result[0]?.profit ?? 0)).toOutputYuan(),
+    totalRevenue: Money.fromDbCents(
+      Number(result[0]?.revenue ?? 0),
+    ).toOutputYuan(),
+    totalProfit: Money.fromDbCents(
+      Number(result[0]?.profit ?? 0),
+    ).toOutputYuan(),
     orderCount: Number(result[0]?.order_count ?? 0),
   };
 }
@@ -81,6 +85,18 @@ export async function querySaleOrders(
       operatorNameSnapshot: true,
       date: true,
       createdAt: true,
+      // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
+      customerPaymentMethod: true,
+      grouponCode: true,
+      grouponPlatform: true,
+      settlementChannel: true,
+      voucherCode: true,
+      voucherPlatform: true,
+      voucherFaceAmount: true,
+      grouponSettlementStatus: true,
+      grouponPlatformReceivable: true,
+      grouponPlatformSettledAmount: true,
+      grouponPlatformFee: true,
       items: {
         select: {
           id: true,

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -79,9 +80,22 @@ export class SpaceTypesService {
       throw new ConflictException('空间类型名称已存在');
     }
 
-    const item = await this.prisma.spaceType.create({
-      data: { storeId, name },
-    });
+    let item;
+    try {
+      item = await this.prisma.spaceType.create({
+        data: { storeId, name },
+      });
+    } catch (err) {
+      // BUG-01 fix: 并发创建同名类型触发 @@unique([storeId, name]) 约束，
+      // 将 Prisma P2002 归一化为业务友好的 409 ConflictException
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException('空间类型名称已存在');
+      }
+      throw err;
+    }
 
     return this.toSpaceTypeResponse(item);
   }
@@ -146,7 +160,10 @@ export class SpaceTypesService {
     });
 
     if (!type) {
-      throw new NotFoundException('空间类型不存在');
+      // BUG-06 fix: 引用字段不存在应返回 400（请求体参数无效），而非 404（资源不存在）
+      throw new BadRequestException(
+        `空间类型「${name}」不存在，请先通过 POST /space-types 创建`,
+      );
     }
 
     return type;

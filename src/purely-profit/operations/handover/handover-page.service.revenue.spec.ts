@@ -538,6 +538,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           operatorNameSnapshot: null,
           operatorStaff: null,
         },
+        sessionRenewRecords: [],
       },
     ]);
 
@@ -618,6 +619,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           operatorNameSnapshot: null,
           operatorStaff: null,
         },
+        sessionRenewRecords: [],
       },
     ]);
     prismaService.saleOrder.aggregate.mockResolvedValueOnce({

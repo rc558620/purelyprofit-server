@@ -298,6 +298,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
             operatorNameSnapshot: null,
             operatorStaff: null,
           },
+          sessionRenewRecords: [],
         },
       ]);
       prismaService.saleOrder.aggregate.mockResolvedValueOnce({

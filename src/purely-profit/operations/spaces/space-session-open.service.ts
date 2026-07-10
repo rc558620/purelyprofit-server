@@ -119,6 +119,7 @@ export class SpaceSessionOpenService {
       id: number;
       storeId: number;
       capacity: number | null;
+      autoCheckout: boolean;
     },
     payload: ReturnType<typeof normalizeOpenSessionPayload>,
   ): Promise<SpaceSessionResponseDto> {
@@ -217,7 +218,9 @@ export class SpaceSessionOpenService {
               ? Money.fromInputYuan(payload.hourlyRate).toDbCents()
               : null,
           countdownMinutes: payload.countdownMinutes ?? null,
-          autoCheckout: payload.autoCheckout ?? null,
+          // B4 fix: autoCheckout 未传时继承空间配置，避免运行态与会话级漂移，
+          // 同时保证换房强校验 Boolean(session.autoCheckout) !== targetSpace.autoCheckout 有意义。
+          autoCheckout: payload.autoCheckout ?? space.autoCheckout ?? null,
           prepaidPaymentMethod: payload.prepaidPaymentMethod ?? null,
           prepaidCustomerPaymentMethod:
             payload.prepaidCustomerPaymentMethod ?? null,

@@ -9,13 +9,18 @@ import {
   SpaceSessionStatus as PrismaSpaceSessionStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { Money } from '../../../shared/money.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 import {
   mapRenewRecordRows,
   mapSessionItemRows,
 } from './space-sessions.mapper';
-import { buildSpaceSessionSettlement } from './space-session-settlement.shared';
+import {
+  buildSpaceSessionSettlement,
+  resolveRenewRecordsGrouponFallback,
+} from './space-session-settlement.shared';
+import { resolveSettlementChannelFromPlatformForRenew } from './space-session-checkout-payload.shared';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
 
 /** 自动结账分布式锁 TTL（秒）：处理单门店所有超时会话的最长耗时 */
@@ -140,9 +145,15 @@ export class SpaceSessionAutoCheckoutService {
       let failedCount = 0;
       let skippedNoPaymentCount = 0;
       for (const session of sessions) {
-        if (!session.prepaidPaymentMethod) {
-          // BUG-4 修复：无预付款方式的倒计时会话无法自动结账，
-          // 显式告警以避免空间被永久占用而运营无感知
+        const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
+        // BUG-1/2 fix: hasPrepaid 同时考虑开台预付与续费记录，
+        // 不再依赖续费回写的 session.prepaid*（已在 renew.service 中移除）
+        const hasPrepaid =
+          !!session.prepaidPaymentMethod ||
+          !!session.prepaidCustomerPaymentMethod ||
+          session.prepaidVoucherFaceAmount !== null ||
+          renewRecords.length > 0;
+        if (!hasPrepaid) {
           skippedNoPaymentCount += 1;
           this.logger.warn(
             `[space-auto-checkout] skipped_no_prepayment ${this.buildAutoCheckoutLogContext(
@@ -158,7 +169,37 @@ export class SpaceSessionAutoCheckoutService {
           continue;
         }
 
-        const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
+        // BUG-2/5 fix + B9 fix: paymentMethod 优先取开台预付，回退到续费记录的真实支付方式
+        // B9: 不再仅匹配 groupon_voucher，而是取最新续费记录的真实 paymentMethod
+        const grouponRenewPaymentMethod = renewRecords.find(
+          (r) => r.paymentMethod === 'groupon_voucher',
+        )?.paymentMethod;
+        const latestRenewPaymentMethod =
+          renewRecords.length > 0
+            ? renewRecords[renewRecords.length - 1].paymentMethod
+            : undefined;
+        const resolvedPaymentMethod =
+          session.prepaidPaymentMethod ??
+          grouponRenewPaymentMethod ??
+          latestRenewPaymentMethod ??
+          'cash';
+        // BUG-2 fix: customerPaymentMethod / settlementChannel 同理回退到续费记录
+        const resolvedCustomerPaymentMethod =
+          session.prepaidCustomerPaymentMethod ??
+          grouponRenewPaymentMethod ??
+          undefined;
+
+        // Bug 8 fix: 从续费记录提取团购信息，作为 session.prepaid* 的回退默认值
+        const renewGrouponFallback =
+          resolveRenewRecordsGrouponFallback(renewRecords);
+
+        const resolvedSettlementChannel =
+          session.prepaidSettlementChannel ??
+          (grouponRenewPaymentMethod && renewGrouponFallback.grouponPlatform
+            ? resolveSettlementChannelFromPlatformForRenew(
+                renewGrouponFallback.grouponPlatform,
+              )
+            : undefined);
         const checkoutAt = resolveAutoCheckoutAt(session, renewRecords);
         if (checkoutAt === null || checkoutAt > now) {
           continue;
@@ -173,13 +214,65 @@ export class SpaceSessionAutoCheckoutService {
         });
 
         try {
+          // BUG-1/2 fix: 自动结账支付方式与元数据来自 session.prepaid*（开台预付）
+          // 或续费记录回退，不再依赖续费回写的 session.prepaid*
           await this.settlementService.settleSession(user, {
             session,
             checkoutAt,
-            paymentMethod: session.prepaidPaymentMethod,
+            paymentMethod: resolvedPaymentMethod,
             note: '倒计时到期自动结账',
             settlement,
             renewRecords,
+            ...(resolvedCustomerPaymentMethod
+              ? { customerPaymentMethod: resolvedCustomerPaymentMethod }
+              : {}),
+            ...(resolvedSettlementChannel
+              ? { settlementChannel: resolvedSettlementChannel }
+              : {}),
+            ...((session.prepaidGrouponCode ?? renewGrouponFallback.grouponCode)
+              ? {
+                  grouponCode:
+                    session.prepaidGrouponCode ??
+                    renewGrouponFallback.grouponCode!,
+                }
+              : {}),
+            ...((session.prepaidGrouponPlatform ??
+            renewGrouponFallback.grouponPlatform)
+              ? {
+                  grouponPlatform:
+                    session.prepaidGrouponPlatform ??
+                    renewGrouponFallback.grouponPlatform!,
+                }
+              : {}),
+            ...((session.prepaidVoucherCode ?? renewGrouponFallback.grouponCode)
+              ? {
+                  voucherCode:
+                    session.prepaidVoucherCode ??
+                    renewGrouponFallback.grouponCode!,
+                }
+              : {}),
+            ...((session.prepaidVoucherPlatform ??
+            renewGrouponFallback.grouponPlatform)
+              ? {
+                  voucherPlatform:
+                    session.prepaidVoucherPlatform ??
+                    renewGrouponFallback.grouponPlatform!,
+                }
+              : {}),
+            // BUG-3 fix: 续费回退来源的 voucherFaceAmount 不写入 session.prepaidVoucherFaceAmount，
+            // 防止续费券面污染预付池、保持「两池独立」不变量。
+            ...(session.prepaidVoucherFaceAmount !== null
+              ? {
+                  voucherFaceAmount: Money.fromDbCents(
+                    session.prepaidVoucherFaceAmount,
+                  ).toOutputYuan(),
+                }
+              : renewGrouponFallback.voucherFaceAmount !== undefined
+                ? {
+                    voucherFaceAmount: renewGrouponFallback.voucherFaceAmount,
+                    skipPrepaidVoucherPersistence: true,
+                  }
+                : {}),
           });
           settledCount += 1;
         } catch (error) {
@@ -285,7 +378,13 @@ export class SpaceSessionAutoCheckoutService {
         endTime: null,
         billingMode: PrismaSpaceBillingMode.countdown,
         autoCheckout: true,
-        prepaidPaymentMethod: { not: null },
+        // BUG-1/2 fix: 扩展门店预筛选，同时匹配开台预付与有续费记录的会话
+        OR: [
+          { prepaidPaymentMethod: { not: null } },
+          { prepaidCustomerPaymentMethod: { not: null } },
+          { prepaidVoucherFaceAmount: { not: null } },
+          { sessionRenewRecords: { some: {} } },
+        ],
         countdownMinutes: { not: null },
       },
       select: { storeId: true },
@@ -302,20 +401,21 @@ const resolveAutoCheckoutAt = (
     startTime: Date;
     countdownMinutes: number | null;
   },
-  renewRecords: Array<{
+  _renewRecords: Array<{
     addedMinutes: number;
   }>,
 ): number | null => {
+  // 契约断言：countdownMinutes 必须是累计值（由 renew.service 在续费时累加）。
+  // 如果此断言失败，说明续费实现已变更为"只写 renewRecords 不累加 countdownMinutes"，
+  // 需要修改此函数改为从 renewRecords 推导。
+  // _renewRecords 参数保留以支持未来从 renewRecords 推导的迁移路径。
   if (session.countdownMinutes === null || session.countdownMinutes <= 0) {
     return null;
   }
 
-  const totalMinutes = renewRecords.reduce(
-    (sum, record) => sum + record.addedMinutes,
-    session.countdownMinutes,
-  );
-
-  return session.startTime.getTime() + totalMinutes * 60 * 1000;
+  // B1 fix: countdownMinutes 已是累计值（续费时由 space-session-renew.service
+  // 直接累加），不应再叠加 renewRecords.addedMinutes，否则续费分钟被双重计算。
+  return session.startTime.getTime() + session.countdownMinutes * 60 * 1000;
 };
 
 /**

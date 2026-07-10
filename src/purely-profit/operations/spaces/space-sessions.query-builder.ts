@@ -81,7 +81,10 @@ export const buildStoreSpaceSessionListWhere = (
   storeId: number,
   query: SpaceSessionListQuery,
 ): Prisma.SpaceSessionWhereInput => {
-  const conditions: Prisma.SpaceSessionWhereInput[] = [{ storeId }];
+  // P1 fix: 排除已软删除空间的会话，与空间维度 listSpaceSessions 的 deletedAt: null 口径一致
+  const conditions: Prisma.SpaceSessionWhereInput[] = [
+    { storeId, space: { deletedAt: null } },
+  ];
 
   if (query.status) {
     conditions.push({ status: query.status });

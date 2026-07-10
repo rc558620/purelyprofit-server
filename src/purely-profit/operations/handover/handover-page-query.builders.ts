@@ -36,6 +36,8 @@ export const SALE_ORDER_ITEM_SELECT = {
           startTime: true,
           prepaidPaymentMethod: true,
           prepaidCustomerPaymentMethod: true,
+          prepaidGrouponPlatform: true,
+          prepaidGrouponCode: true,
           sessionRenewRecords: {
             select: {
               paymentMethod: true,

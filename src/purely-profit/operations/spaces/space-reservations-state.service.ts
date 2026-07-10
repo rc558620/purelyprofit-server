@@ -168,7 +168,8 @@ export class SpaceReservationsStateService {
         phone: guestPhone,
         reservedAt: {
           gte: todayRange.start,
-          lte: todayRange.end,
+          // ⑦ 修复：仅匹配开台时间之前的预约，排除客人当天稍后的不相关预约
+          lte: session.startTime,
         },
       },
       orderBy: [{ reservedAt: 'asc' }, { id: 'asc' }],

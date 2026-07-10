@@ -8,6 +8,8 @@ import {
   SPACE_GUEST_PAYABLE_ITEM_NAME,
   SPACE_REFUND_ITEM_NAME,
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
+  SPACE_RENEW_DISPLAY_NAME,
+  SPACE_REFUND_DISPLAY_SUFFIX,
   toDisplayName,
   type OrderItemRow,
   type RefundOrderRow,
@@ -21,6 +23,7 @@ export type SettledSpaceSessionRow = {
   timeCost: number | null;
   itemsCost: number;
   prepaidAmount: number | null;
+  prepaidGrouponCode: string | null;
   endTime: Date | null;
   space: { name: string };
   saleOrder: {
@@ -33,6 +36,21 @@ export type SettledSpaceSessionRow = {
       employeeProfile: { subAccounts: { role: string }[] } | null;
     } | null;
   } | null;
+  // ─── ⚠️ DO NOT REMOVE sessionRenewRecords ──────────────────────────────
+  // 历史背景：BUG-1/5/7 修复前，续费会回写 session.prepaidAmount，
+  // 导致"开台预付"和"续费"两个资金池混在一起，产生重复抵扣。
+  // 修复后 space-session-renew.service.ts 彻底移除了 prepaid* 回写，
+  // 因此 session.prepaidAmount **仅包含开台预付款，不含续费金额**。
+  // 退款 / 客人应付计算必须从 sessionRenewRecords 独立累加续费金额，
+  // 否则续费付款会被忽略，导致：
+  //   1. 续费溢出金额无法退还客户（资金损失）
+  //   2. 客人应付多算（多收客户钱）
+  // 简化方向：不要试图"用 prepaidAmount 代替"或"去掉 sessionRenewRecords"，
+  // 这会恢复 BUG-1/5/7 之前的错误行为。
+  sessionRenewRecords: {
+    amount: number;
+    paymentMethod: string;
+  }[];
 };
 
 /** 解析操作员真实角色（与 handover.mapper.ts 逻辑一致） */
@@ -61,13 +79,23 @@ export const buildGuestPayableItems = (
       .add(Money.fromDbCents(session.itemsCost))
       .toDbCents();
     const prepaidCents = Number(session.prepaidAmount ?? 0);
-    // 消费 < 预付款：退款场景（由 buildRefundItemsFromSessions 处理），跳过
-    // 消费 === 预付款：生成 ¥0.00 客人应付项，记录结账操作员/时间/支付方式
-    // 消费 > 预付款：正常客人应付
-    if (consumptionCents < prepaidCents) continue;
+    // ─── ⚠️ DO NOT 简化为仅 prepaidAmount ─────────────────────────────
+    // prepaidAmount 仅含开台预付款，不含续费（BUG-1/5/7 已移除续费回写）。
+    // 如果去掉 renewTotalCents，续费付款会被完全忽略：
+    //   - 无预付+续费场景：totalPaidCents = 0 → 客人应付 = 全部消费（多收）
+    //   - 预付+续费混合场景：客人应付只扣预付部分（多收）
+    const renewTotalCents = session.sessionRenewRecords.reduce(
+      (sum, r) => sum + Number(r.amount ?? 0),
+      0,
+    );
+    const totalPaidCents = prepaidCents + renewTotalCents;
+    // 总已付 < 消费：退款场景（由 buildRefundItemsFromSessions 处理），跳过
+    // 总已付 === 消费：生成 ¥0.00 客人应付项，记录结账操作员/时间/支付方式
+    // 总已付 > 消费：正常客人应付
+    if (consumptionCents < totalPaidCents) continue;
 
     const payableAmountCents = Money.fromDbCents(consumptionCents)
-      .subtract(Money.fromDbCents(prepaidCents))
+      .subtract(Money.fromDbCents(totalPaidCents))
       .toDbCents();
     if (payableAmountCents < 0) continue;
 
@@ -85,7 +113,7 @@ export const buildGuestPayableItems = (
 
     items.push({
       id: `guest-payable-${session.id}`,
-      productName: `${spaceName}${SPACE_GUEST_PAYABLE_ITEM_NAME}`,
+      productName: `${spaceName} · ${SPACE_GUEST_PAYABLE_ITEM_NAME}`,
       quantity: 1,
       totalRevenue: Money.fromDbCents(payableAmountCents).toOutputYuan(),
       paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
@@ -97,6 +125,7 @@ export const buildGuestPayableItems = (
       currentStock: null,
       stockUnit: null,
       timeCategory: 'session_end',
+      grouponCode: session.prepaidGrouponCode ?? null,
     });
   }
 
@@ -105,9 +134,16 @@ export const buildGuestPayableItems = (
 
 /**
  * 从已结账的空间会话中构建退款展示项。
- * 退款条件：prepaidAmount > (timeCost + itemsCost)，即预付款超过实际消费。
- * 退款金额 = -(prepaidAmount - consumption)，以负数表示退款。
+ * 退款条件：(prepaidAmount + renewTotal) > (timeCost + itemsCost)，
+ * 即已付总额（开台预付 + 续费）超过实际消费。
+ * 退款金额 = -(totalPaid - consumption)，以负数表示退款。
  * 支付标签格式："微信退款" / "支付宝退款"（与历史退款订单一致）。
+ *
+ * ─── ⚠️ DO NOT 简化为仅 prepaidAmount 判断 ─────────────────────
+ * prepaidAmount 仅含开台预付，不含续费（BUG-1/5/7 已移除续费回写）。
+ * 原逻辑 `if (prepaidCents <= 0) continue` 在无预付+有续费场景下
+ * 会直接跳过，导致续费溢出金额完全无法退款。
+ * 必须使用 totalPaidCents = prepaidCents + renewTotalCents 判断。
  */
 export const buildRefundItemsFromSessions = (
   settledSessions: SettledSpaceSessionRow[],
@@ -116,18 +152,39 @@ export const buildRefundItemsFromSessions = (
 
   for (const session of settledSessions) {
     const prepaidCents = Number(session.prepaidAmount ?? 0);
-    if (prepaidCents <= 0) continue;
+    // ─── ⚠️ DO NOT 去掉续费累加或改回 prepaidAmount > 0 守卫 ────────
+    // prepaidAmount 仅含开台预付款（BUG-1/5/7 已移除续费回写 prepaid*）。
+    // 如果只用 prepaidAmount 判断：
+    //   - 无预付+有续费场景：prepaidCents = 0 → continue → 退款完全丢失
+    //   - 预付+续费混合：refundCents 少算续费部分 → 退款不足
+    const renewTotalCents = session.sessionRenewRecords.reduce(
+      (sum, r) => sum + Number(r.amount ?? 0),
+      0,
+    );
+    const totalPaidCents = prepaidCents + renewTotalCents;
+    if (totalPaidCents <= 0) continue;
 
     const consumptionCents = Money.fromDbCents(session.timeCost ?? 0)
       .add(Money.fromDbCents(session.itemsCost))
       .toDbCents();
-    if (prepaidCents <= consumptionCents) continue;
+    if (totalPaidCents <= consumptionCents) continue;
 
-    const refundCents = prepaidCents - consumptionCents;
+    const refundCents = totalPaidCents - consumptionCents;
+    // 退款支付方式优先取 saleOrder（结账方式），回退到最新续费记录的支付方式
+    const latestRenewMethod =
+      session.sessionRenewRecords.length > 0
+        ? session.sessionRenewRecords[session.sessionRenewRecords.length - 1]
+            .paymentMethod
+        : undefined;
     const paymentMethod =
-      session.saleOrder?.paymentMethod ?? SalesPaymentMethod.wechat;
+      session.saleOrder?.paymentMethod ??
+      (latestRenewMethod as SalesPaymentMethod) ??
+      SalesPaymentMethod.wechat;
     const date = session.endTime?.getTime() ?? Date.now();
-    const spaceName = session.space?.name ?? SPACE_REFUND_ITEM_NAME;
+    // 退款行商品名追加 " · 退款"，无空间名时回退到「空间退款」
+    const refundProductName = session.space?.name
+      ? `${session.space.name} · ${SPACE_REFUND_DISPLAY_SUFFIX}`
+      : SPACE_REFUND_ITEM_NAME;
     const operatorName =
       toDisplayName(session.saleOrder?.operatorNameSnapshot) ??
       toDisplayName(session.saleOrder?.operatorStaff?.name) ??
@@ -138,7 +195,7 @@ export const buildRefundItemsFromSessions = (
 
     items.push({
       id: `refund-session-${session.id}`,
-      productName: spaceName,
+      productName: refundProductName,
       quantity: 1,
       totalRevenue: -Money.fromDbCents(refundCents).toOutputYuan(),
       paymentLabel: `${PAYMENT_METHOD_CONFIG[paymentMethod].label}退款`,
@@ -150,6 +207,7 @@ export const buildRefundItemsFromSessions = (
       currentStock: null,
       stockUnit: null,
       timeCategory: 'session_end',
+      grouponCode: session.prepaidGrouponCode ?? null,
     });
   }
 
@@ -194,7 +252,7 @@ export const mergeDisplayedOrderItems = (
         const spaceName =
           toDisplayName(item.order.spaceSession.space?.name) ?? '';
         const displayName = spaceName
-          ? `${spaceName} · ${SPACE_RENEW_DEDUCTION_ITEM_NAME}`
+          ? `${spaceName} · ${SPACE_RENEW_DISPLAY_NAME}`
           : item.productName;
         const operatorName =
           toDisplayName(item.order.operatorNameSnapshot) ??
@@ -226,6 +284,7 @@ export const mergeDisplayedOrderItems = (
             currentStock: null,
             stockUnit: null,
             timeCategory: 'session_renew',
+            grouponCode: item.order.spaceSession?.prepaidGrouponCode ?? null,
           });
         }
         continue;

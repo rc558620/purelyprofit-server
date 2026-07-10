@@ -1,6 +1,9 @@
 import { SpaceBillingMode as PrismaSpaceBillingMode } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
-import { sumLineTotalMoney, sumLineProfitMoney } from './space-session-items.shared';
+import {
+  sumLineTotalMoney,
+  sumLineProfitMoney,
+} from './space-session-items.shared';
 import type {
   CheckoutPreviewFeeMode,
   SpaceSessionItemRecord,
@@ -43,7 +46,11 @@ export const buildSpaceSessionSettlement = (params: {
     const useUnitPrice = timeFeeMode === 'unit_price';
     timeCostMoney = useUnitPrice
       ? hourlyRateMoney
-      : calcTimeCostMoney(session.startTime.getTime(), checkoutAt, hourlyRateMoney);
+      : calcTimeCostMoney(
+          session.startTime.getTime(),
+          checkoutAt,
+          hourlyRateMoney,
+        );
     const timeCostYuan = timeCostMoney.toOutputYuan();
     orderItems.unshift({
       productId: 'SYS_TIME_BILLING',
@@ -58,11 +65,16 @@ export const buildSpaceSessionSettlement = (params: {
     });
   }
 
-  // renewRecords.amount 已由 mapRenewRecordRows 转为元
-  const renewDeductionMoney = renewRecords.reduce(
-    (sum, record) => sum.add(Money.fromInputYuan(record.amount)),
-    Money.zero(),
-  );
+  // Bug 4 fix: 续费抵扣取 amount 与 voucherFaceAmount 的较大值
+  // 与 renew.service 中 addedMinutes 计算口径一致（“花 80 享 100”按 100 元抵扣）
+  const renewDeductionMoney = renewRecords.reduce((sum, record) => {
+    const amountMoney = Money.fromInputYuan(record.amount);
+    const effectiveMoney =
+      record.voucherFaceAmount !== undefined
+        ? Money.max(amountMoney, Money.fromInputYuan(record.voucherFaceAmount))
+        : amountMoney;
+    return sum.add(effectiveMoney);
+  }, Money.zero());
   const renewDeductionYuan = renewDeductionMoney.toOutputYuan();
   if (renewDeductionMoney.isPositive()) {
     orderItems.push({
@@ -76,7 +88,8 @@ export const buildSpaceSessionSettlement = (params: {
     });
   }
 
-  const prepaidDeductionMoney = resolveSpaceSessionPrepaidDeductionMoney(session);
+  const prepaidDeductionMoney =
+    resolveSpaceSessionPrepaidDeductionMoney(session);
   const prepaidDeductionYuan = prepaidDeductionMoney.toOutputYuan();
   if (prepaidDeductionMoney.isPositive()) {
     orderItems.push({
@@ -106,7 +119,7 @@ export const buildSpaceSessionSettlement = (params: {
   const totalProfitMoney = sumLineProfitMoney(orderItems);
   const totalQuantity = orderItems.reduce(
     (sum, item) =>
-      sum + (isSpaceSessionDeductionItem(item.productId) ? 0 : item.quantity),
+      sum + (isNonQuantitySystemItem(item.productId) ? 0 : item.quantity),
     0,
   );
 
@@ -163,7 +176,11 @@ export const buildSpaceSessionSettlementMoney = (params: {
     const useUnitPrice = timeFeeMode === 'unit_price';
     timeCostMoney = useUnitPrice
       ? hourlyRateMoney
-      : calcTimeCostMoney(session.startTime.getTime(), checkoutAt, hourlyRateMoney);
+      : calcTimeCostMoney(
+          session.startTime.getTime(),
+          checkoutAt,
+          hourlyRateMoney,
+        );
     const timeCostYuan = timeCostMoney.toOutputYuan();
     orderItems.unshift({
       productId: 'SYS_TIME_BILLING',
@@ -178,10 +195,15 @@ export const buildSpaceSessionSettlementMoney = (params: {
     });
   }
 
-  const renewDeductionMoney = renewRecords.reduce(
-    (sum, record) => sum.add(Money.fromInputYuan(record.amount)),
-    Money.zero(),
-  );
+  // Bug 4 fix: 与 buildSpaceSessionSettlement 保持一致
+  const renewDeductionMoney = renewRecords.reduce((sum, record) => {
+    const amountMoney = Money.fromInputYuan(record.amount);
+    const effectiveMoney =
+      record.voucherFaceAmount !== undefined
+        ? Money.max(amountMoney, Money.fromInputYuan(record.voucherFaceAmount))
+        : amountMoney;
+    return sum.add(effectiveMoney);
+  }, Money.zero());
   if (renewDeductionMoney.isPositive()) {
     const renewDeductionYuan = renewDeductionMoney.toOutputYuan();
     orderItems.push({
@@ -195,7 +217,8 @@ export const buildSpaceSessionSettlementMoney = (params: {
     });
   }
 
-  const prepaidDeductionMoney = resolveSpaceSessionPrepaidDeductionMoney(session);
+  const prepaidDeductionMoney =
+    resolveSpaceSessionPrepaidDeductionMoney(session);
   if (prepaidDeductionMoney.isPositive()) {
     const prepaidDeductionYuan = prepaidDeductionMoney.toOutputYuan();
     orderItems.push({
@@ -287,19 +310,79 @@ const resolveSpaceSessionFeeMode = (
   };
 };
 
+/**
+ * G1/G2 fix: 预付抵扣取 prepaidAmount 与 prepaidVoucherFaceAmount 的较大值。
+ * 与续费链路 renewDeduction 的 max(amount, voucherFaceAmount) 口径一致。
+ * 场景：开台预付团购“花 80 享 100”→ 按 100 元抵扣；
+ *       结账时团购券面金额同样纳入抵扣，避免“已计费但无人支付”的缺口。
+ */
 const resolveSpaceSessionPrepaidDeductionMoney = (
-  session: Pick<SpaceSessionRecord, 'prepaidAmount'>,
+  session: Pick<
+    SpaceSessionRecord,
+    'prepaidAmount' | 'prepaidVoucherFaceAmount'
+  >,
 ): Money => {
-  if (session.prepaidAmount === null) {
-    return Money.zero();
-  }
-
-  const prepaidMoney = Money.fromDbCents(session.prepaidAmount);
-  return prepaidMoney.isPositive() ? prepaidMoney : Money.zero();
+  const prepaidMoney =
+    session.prepaidAmount !== null
+      ? Money.fromDbCents(session.prepaidAmount)
+      : Money.zero();
+  const voucherMoney =
+    session.prepaidVoucherFaceAmount !== null
+      ? Money.fromDbCents(session.prepaidVoucherFaceAmount)
+      : Money.zero();
+  const effective = Money.max(prepaidMoney, voucherMoney);
+  return effective.isPositive() ? effective : Money.zero();
 };
 
 const isSpaceSessionDeductionItem = (productId: string): boolean =>
   productId === 'SYS_RENEW_DEDUCTION' || productId === 'SYS_PREPAID_DEDUCTION';
+
+/**
+ * B5 fix: 判断是否为不计入销售件数的系统虚拟行。
+ * 包含抵扣项（负值行）和台位费/空结算等系统占位行，
+ * 避免 totalQuantity 虚高污染销量统计。
+ */
+const isNonQuantitySystemItem = (productId: string): boolean =>
+  isSpaceSessionDeductionItem(productId) ||
+  productId === 'SYS_TIME_BILLING' ||
+  productId === 'SYS_EMPTY_SETTLEMENT';
+
+/**
+ * BUG-7 fix: 导出基于 productId 的抵扣项判定函数，
+ * 供 settlement.service 及下游统一使用，避免 productName 文案变更后判定静默失效。
+ */
+export const isSpaceSessionDeductionProductId = isSpaceSessionDeductionItem;
+
+/**
+ * Bug 1 & 8 fix + R2 fix + B4 fix: 从续费记录中提取最新的团购元数据，
+ * 作为结算时团购字段的回退默认值（checkout payload / session.prepaid* 优先）。
+ *
+ * B4 fix: 不再返回 customerPaymentMethod / settlementChannel，
+ * 避免在混合支付场景下篡改真实尾款支付方式。
+ * 支付方式应来自 session.prepaid* 或 checkout payload 的显式值。
+ */
+export const resolveRenewRecordsGrouponFallback = (
+  renewRecords: SpaceSessionRenewRecord[],
+): {
+  grouponCode?: string;
+  grouponPlatform?: string;
+  voucherFaceAmount?: number;
+} => {
+  // 从后往前找最后一条有团购信息的续费记录
+  for (let i = renewRecords.length - 1; i >= 0; i--) {
+    const record = renewRecords[i];
+    if (record.grouponCode && record.grouponPlatform) {
+      return {
+        grouponCode: record.grouponCode,
+        grouponPlatform: record.grouponPlatform,
+        ...(record.voucherFaceAmount !== undefined
+          ? { voucherFaceAmount: record.voucherFaceAmount }
+          : {}),
+      };
+    }
+  }
+  return {};
+};
 
 const calcDurationMinutes = (startTime: number, endTime: number): number => {
   const rawMinutes = (endTime - startTime) / (1000 * 60);

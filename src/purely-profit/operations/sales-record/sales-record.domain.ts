@@ -34,6 +34,18 @@ export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
     operatorNameSnapshot: true;
     date: true;
     createdAt: true;
+    // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
+    customerPaymentMethod: true;
+    grouponCode: true;
+    grouponPlatform: true;
+    settlementChannel: true;
+    voucherCode: true;
+    voucherPlatform: true;
+    voucherFaceAmount: true;
+    grouponSettlementStatus: true;
+    grouponPlatformReceivable: true;
+    grouponPlatformSettledAmount: true;
+    grouponPlatformFee: true;
     items: {
       select: {
         id: true;
@@ -86,6 +98,60 @@ function resolveOperatorRole(
   return staff.role;
 }
 
+/**
+ * 从 SaleOrder 提取团购元数据并转换为响应字段（分→元）。
+ * 仅在有任意团购字段非空时返回对应字段，否则返回空对象。
+ */
+function buildGrouponResponseFields(order: SaleOrderWithItems): Partial<{
+  customerPaymentMethod: string;
+  grouponCode: string;
+  grouponPlatform: string;
+  settlementChannel: string;
+  voucherCode: string;
+  voucherPlatform: string;
+  voucherFaceAmount: number;
+  settlementStatus: string;
+  platformReceivable: number;
+  platformSettledAmount: number;
+  platformFee: number;
+}> {
+  const result: Record<string, string | number> = {};
+  if (order.customerPaymentMethod) {
+    result.customerPaymentMethod = order.customerPaymentMethod;
+  }
+  if (order.grouponCode) result.grouponCode = order.grouponCode;
+  if (order.grouponPlatform) result.grouponPlatform = order.grouponPlatform;
+  if (order.settlementChannel) {
+    result.settlementChannel = order.settlementChannel;
+  }
+  if (order.voucherCode) result.voucherCode = order.voucherCode;
+  if (order.voucherPlatform) result.voucherPlatform = order.voucherPlatform;
+  if (order.voucherFaceAmount != null) {
+    result.voucherFaceAmount = Money.fromDbCents(
+      order.voucherFaceAmount,
+    ).toOutputYuan();
+  }
+  if (order.grouponSettlementStatus) {
+    result.settlementStatus = order.grouponSettlementStatus;
+  }
+  if (order.grouponPlatformReceivable != null) {
+    result.platformReceivable = Money.fromDbCents(
+      order.grouponPlatformReceivable,
+    ).toOutputYuan();
+  }
+  if (order.grouponPlatformSettledAmount != null) {
+    result.platformSettledAmount = Money.fromDbCents(
+      order.grouponPlatformSettledAmount,
+    ).toOutputYuan();
+  }
+  if (order.grouponPlatformFee != null) {
+    result.platformFee = Money.fromDbCents(
+      order.grouponPlatformFee,
+    ).toOutputYuan();
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // 响应映射
 // ---------------------------------------------------------------------------
@@ -112,10 +178,14 @@ export function mapSalesRecordResponse(
   }));
 
   // 使用统一金额聚合域计算权威金额（与 preview/create 保持一致）
-  const amountsSnapshot = SalesRecordAmountsDomain.aggregateFromPreparedItems(preparedItems);
+  const amountsSnapshot =
+    SalesRecordAmountsDomain.aggregateFromPreparedItems(preparedItems);
 
   const operatorName = toOptionalText(order.operatorNameSnapshot) ?? null;
   const operatorRole = resolveOperatorRole(order.operatorStaff);
+
+  // ─── 团购 / 券 / 平台结算元数据（从分转元，可选）────────────────────────
+  const grouponFields = buildGrouponResponseFields(order);
 
   return {
     id: String(order.id),
@@ -133,12 +203,15 @@ export function mapSalesRecordResponse(
     ...(operatorRole ? { operatorRole } : {}),
     date: toTimestampMs(order.date),
     createdAt: toTimestampMs(order.createdAt),
+    ...grouponFields,
   };
 }
 
 export function mapSalesRecordItemResponse(
   item: SaleOrderWithItems['items'][number],
-  amountItem?: ReturnType<typeof SalesRecordAmountsDomain.aggregateFromPreparedItems>['items'][0],
+  amountItem?: ReturnType<
+    typeof SalesRecordAmountsDomain.aggregateFromPreparedItems
+  >['items'][0],
 ): SalesRecordItemResponseDto {
   return {
     productId:

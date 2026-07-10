@@ -157,4 +157,13 @@ export class HandoverOrderItemDto {
     nullable: true,
   })
   timeCategory?: HandoverTimeCategory | null;
+
+  @IsOptional()
+  @ApiProperty({
+    example: 'DY202607100001',
+    description: '团购券码；未使用团购券时为 null，前端显示为“-”',
+    required: false,
+    nullable: true,
+  })
+  grouponCode?: string | null;
 }

@@ -41,6 +41,8 @@ const CSV_HEADERS = [
   '营业额(元)',
   '利润(元)',
   '支付方式',
+  '团购平台',
+  '券码',
   '操作员',
   '时间',
   '备注',
@@ -95,13 +97,23 @@ function buildCsvRowFromOrder(order: SaleOrderWithItems): string[] {
 
   const note = toOptionalText(order.note) ?? '-';
 
+  // 顾客使用团购券时，支付方式显示「团购券」，而非门店结算方式
+  const effectivePaymentMethod =
+    order.customerPaymentMethod === 'groupon_voucher'
+      ? 'groupon_voucher'
+      : order.paymentMethod;
+  const grouponPlatform = toOptionalText(order.grouponPlatform) ?? '-';
+  const voucherCode = toOptionalText(order.voucherCode) ?? '-';
+
   return [
     order.orderNo,
     itemNames,
     String(amounts.totalQuantity),
     String(amounts.totalRevenue),
     String(amounts.totalProfit),
-    resolvePaymentLabel(order.paymentMethod),
+    resolvePaymentLabel(effectivePaymentMethod),
+    grouponPlatform,
+    voucherCode,
     operatorName,
     formatCsvTimestamp(toTimestampMs(order.date)),
     note,

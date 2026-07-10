@@ -7,6 +7,7 @@ import {
 import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import { Money } from '../../../shared/money.utils';
 import { SpaceSessionCheckoutLockService } from './space-session-checkout-lock.service';
 import { SpaceSessionCheckoutLockPayload } from './space-sessions.types';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -24,6 +25,7 @@ import {
 import {
   buildSpaceSessionSettlement,
   resolveCheckoutPreviewFeeMode,
+  resolveRenewRecordsGrouponFallback,
 } from './space-session-settlement.shared';
 import {
   normalizeCheckoutPayload,
@@ -141,6 +143,10 @@ export class SpaceSessionCheckoutService {
       lockPayload?.countdownFeeMode ?? payload.countdownFeeMode;
     const items = mapSessionItemRows(session.sessionItems);
     const renewRecords = mapRenewRecordRows(session.sessionRenewRecords);
+    // Bug 1 fix: 从续费记录提取团购信息作为回退默认值
+    // checkout payload 优先，续费记录回退
+    const renewGrouponFallback =
+      resolveRenewRecordsGrouponFallback(renewRecords);
     const settlement = buildSpaceSessionSettlement({
       session,
       checkoutAt,
@@ -156,6 +162,89 @@ export class SpaceSessionCheckoutService {
       note: payload.note,
       settlement,
       renewRecords,
+      // BUG-4 fix: 团购元数据回退链 = checkout payload → session.prepaid*（开台预付）→ 续费记录
+      ...((payload.grouponCode ??
+      session.prepaidGrouponCode ??
+      renewGrouponFallback.grouponCode)
+        ? {
+            grouponCode:
+              payload.grouponCode ??
+              session.prepaidGrouponCode ??
+              renewGrouponFallback.grouponCode!,
+          }
+        : {}),
+      ...((payload.grouponPlatform ??
+      session.prepaidGrouponPlatform ??
+      renewGrouponFallback.grouponPlatform)
+        ? {
+            grouponPlatform:
+              payload.grouponPlatform ??
+              session.prepaidGrouponPlatform ??
+              renewGrouponFallback.grouponPlatform!,
+          }
+        : {}),
+      // B4 fix: customerPaymentMethod 仅来自 checkout payload，
+      // 不再从续费记录回退，避免混合支付场景下篡改真实尾款支付方式
+      ...(payload.customerPaymentMethod
+        ? { customerPaymentMethod: payload.customerPaymentMethod }
+        : {}),
+      ...(payload.settlementChannel
+        ? { settlementChannel: payload.settlementChannel }
+        : {}),
+      ...((payload.voucherCode ??
+      session.prepaidVoucherCode ??
+      renewGrouponFallback.grouponCode)
+        ? {
+            voucherCode:
+              payload.voucherCode ??
+              session.prepaidVoucherCode ??
+              renewGrouponFallback.grouponCode!,
+          }
+        : {}),
+      ...((payload.voucherPlatform ??
+      session.prepaidVoucherPlatform ??
+      renewGrouponFallback.grouponPlatform)
+        ? {
+            voucherPlatform:
+              payload.voucherPlatform ??
+              session.prepaidVoucherPlatform ??
+              renewGrouponFallback.grouponPlatform!,
+          }
+        : {}),
+      // BUG-3 fix: voucherFaceAmount 回退链——
+      // checkout payload 或 session.prepaid* 来源正常写入 prepaid 池；
+      // 仅从续费记录回退时跳过写入 session.prepaidVoucherFaceAmount，
+      // 防止续费券面污染预付池、破坏「两池独立」不变量。
+      ...(payload.voucherFaceAmount !== undefined
+        ? { voucherFaceAmount: payload.voucherFaceAmount }
+        : session.prepaidVoucherFaceAmount !== null
+          ? {
+              voucherFaceAmount: Money.fromDbCents(
+                session.prepaidVoucherFaceAmount,
+              ).toOutputYuan(),
+            }
+          : renewGrouponFallback.voucherFaceAmount !== undefined
+            ? {
+                voucherFaceAmount: renewGrouponFallback.voucherFaceAmount,
+                skipPrepaidVoucherPersistence: true,
+              }
+            : {}),
+      ...(payload.settlementStatus !== undefined
+        ? { settlementStatus: payload.settlementStatus }
+        : {}),
+      ...(payload.platformReceivable !== undefined
+        ? { platformReceivable: payload.platformReceivable }
+        : {}),
+      ...(payload.platformSettledAmount !== undefined
+        ? { platformSettledAmount: payload.platformSettledAmount }
+        : {}),
+      ...(payload.platformFee !== undefined
+        ? { platformFee: payload.platformFee }
+        : {}),
+      // ⑤ 修复：台位费口径审计字段
+      ...(payload.timeFeeMode !== undefined
+        ? { timeFeeMode: payload.timeFeeMode }
+        : {}),
     });
 
     if (payload.lockId) {

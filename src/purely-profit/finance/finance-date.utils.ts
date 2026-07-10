@@ -54,6 +54,19 @@ export function formatReportDateLabel(timestamp: number): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * 格式化为 "YYYY-MM-DD HH:mm" 样式，用于现金流水明细等需要精确到时间的场景。
+ */
+export function formatReportDateTimeLabel(timestamp: number): string {
+  const current = new Date(timestamp);
+  const year = current.getFullYear();
+  const month = String(current.getMonth() + 1).padStart(2, '0');
+  const day = String(current.getDate()).padStart(2, '0');
+  const hours = String(current.getHours()).padStart(2, '0');
+  const minutes = String(current.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
 export function formatMonthDay(timestamp: number): string {
   // 使用上海时区格式化，与 SQL date_trunc + interval '8 hours' 对齐
   const date = new Date(timestamp + SHANGHAI_OFFSET_MS);

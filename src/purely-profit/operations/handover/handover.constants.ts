@@ -20,12 +20,33 @@ export const PAYMENT_METHOD_CONFIG: Record<
   [SalesPaymentMethod.wechat]: { label: '微信', color: '#22c55e' },
   [SalesPaymentMethod.alipay]: { label: '支付宝', color: '#1677ff' },
   [SalesPaymentMethod.card]: { label: '刷卡', color: '#8b5cf6' },
+  [SalesPaymentMethod.groupon_voucher]: { label: '团购', color: '#b45309' },
 };
 
-/** 团购券顾客支付方式标识（SpaceCustomerPaymentMethodValue，不在 SalesPaymentMethod 枚举内） */
+/** 团购券顾客支付方式标识（兼容旧数据：customerPaymentMethod 字段仍使用字符串） */
 export const GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD = 'groupon_voucher';
 /** 团购券显示配置：用于开台项顾客实际支付方式为团购时的 label/color 覆盖 */
 export const GROUPON_VOUCHER_DISPLAY = { label: '团购', color: '#b45309' };
+
+/** 团购平台拼音 → 中文映射（兼容 DB 中存入拼音值的旧数据） */
+const GROUPON_PLATFORM_ZH_MAP: Record<string, string> = {
+  meituan: '美团',
+  douyin: '抖音',
+  tiktok: '抖音',
+};
+
+/**
+ * 构建团购展示标签：有平台标识时拼接为「美团团购」「抖音团购」，否则回退到默认的「团购」。
+ * 当平台值为拼音（如 meituan、douyin）时自动转换为中文。
+ */
+export const buildGrouponLabel = (
+  grouponPlatform: string | null | undefined,
+): string => {
+  const raw = grouponPlatform?.trim();
+  if (!raw) return GROUPON_VOUCHER_DISPLAY.label;
+  const normalized = GROUPON_PLATFORM_ZH_MAP[raw.toLowerCase()] ?? raw;
+  return `${normalized}团购`;
+};
 
 export const SHIFT_TYPE_LABELS: Partial<Record<EmployeeShiftType, string>> = {
   [EmployeeShiftType.morning]: '早班',
@@ -44,9 +65,15 @@ export const SPACE_PREPAID_DEDUCTION_ITEM_NAME = '预付款';
 /** 兼容历史数据中 productName = '预付抵扣' 的旧值 */
 export const SPACE_PREPAID_DEDUCTION_LEGACY_NAME = '预付抵扣';
 export const SPACE_RENEW_DEDUCTION_ITEM_NAME = '续费抵扣';
+/** 续费展示名（交班订单明细中去“抵扣”二字，仅展示“续费”） */
+export const SPACE_RENEW_DISPLAY_NAME = '续费';
+/** 退款展示后缀（交班订单明细中退款行追加“ · 退款”） */
+export const SPACE_REFUND_DISPLAY_SUFFIX = '退款';
 export const SPACE_REFUND_ITEM_NAME = '空间退款';
 export const SPACE_GUEST_PAYABLE_ITEM_NAME = '客人应付';
 export const SPACE_GUEST_PAYABLE_COLOR = '#f43f5e';
+/** 收银台商品前缀（无空间会话的普通商品统一使用此前缀） */
+export const CASHIER_PREFIX = '收银台';
 
 /** 判断 productName 是否为预付款项（兼容新旧名称） */
 export const isPrepaidDeductionItem = (productName: string): boolean =>

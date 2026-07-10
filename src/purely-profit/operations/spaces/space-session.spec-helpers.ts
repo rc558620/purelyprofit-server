@@ -64,6 +64,11 @@ export const createSpaceSessionRecord = (): SpaceSessionSettlementRecord =>
     prepaidNote: null,
     prepaidAmount: null,
     prepaidVoucherFaceAmount: null,
+    settlementStatus: null,
+    platformReceivable: null,
+    platformSettledAmount: null,
+    platformFee: null,
+    timeFeeMode: null,
     /// Step 8.1: items 已拆为独立表
     sessionItems: [
       {
@@ -161,10 +166,12 @@ export const createSpaceTransactionClient = () => ({
   },
   /// Step 8.1: 新增 spaceSessionItem 和 spaceSessionRenewRecord
   spaceSessionItem: {
+    findMany: jest.fn().mockResolvedValue([]),
     deleteMany: jest.fn(),
     createMany: jest.fn(),
   },
   spaceSessionRenewRecord: {
+    findMany: jest.fn().mockResolvedValue([]),
     create: jest.fn(),
   },
   space: {

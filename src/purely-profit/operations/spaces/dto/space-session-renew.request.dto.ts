@@ -12,6 +12,7 @@ import {
   SALES_PAYMENT_METHOD_VALUES,
   type SalesPaymentMethodValue,
 } from '../../sales-record/sales-record.types';
+import { GROUPON_PLATFORM_VALUES } from './space-session.constants';
 
 export class RenewSpaceSessionDto {
   @ApiProperty({ example: 30, description: '续费金额（元）' })
@@ -34,10 +35,13 @@ export class RenewSpaceSessionDto {
   @MaxLength(50, { message: '团购券码最长 50 个字符' })
   grouponCode?: string;
 
-  @ApiPropertyOptional({ example: '美团', description: '团购平台' })
+  @ApiPropertyOptional({
+    example: 'meituan',
+    description: '团购平台',
+    enum: GROUPON_PLATFORM_VALUES,
+  })
   @IsOptional()
-  @IsString({ message: '团购平台必须是字符串' })
-  @MaxLength(50, { message: '团购平台最长 50 个字符' })
+  @IsIn(GROUPON_PLATFORM_VALUES, { message: '团购平台不合法' })
   grouponPlatform?: string;
 
   @ApiPropertyOptional({ example: 100, description: '券面金额（元）' })

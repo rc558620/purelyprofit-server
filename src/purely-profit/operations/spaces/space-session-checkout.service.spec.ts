@@ -234,6 +234,11 @@ describe('SpaceSessionCheckoutService', () => {
       id: 7,
       enableDirtyRoom: true,
     });
+    // BUG-1 fix: 事务内重读 sessionItems
+    transactionClient.spaceSessionItem.findMany.mockResolvedValue(
+      session.sessionItems,
+    );
+    transactionClient.spaceSessionRenewRecord.findMany.mockResolvedValue([]);
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
     transactionClient.space.update.mockResolvedValue({
       id: 7,
@@ -351,6 +356,11 @@ describe('SpaceSessionCheckoutService', () => {
       id: 7,
       enableDirtyRoom: true,
     });
+    // BUG-1 fix: 事务内重读 sessionItems
+    transactionClient.spaceSessionItem.findMany.mockResolvedValue(
+      session.sessionItems,
+    );
+    transactionClient.spaceSessionRenewRecord.findMany.mockResolvedValue([]);
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
     transactionClient.space.update.mockResolvedValue({
       id: 7,

@@ -107,6 +107,8 @@ export type OrderItemRow = {
       startTime: Date;
       prepaidPaymentMethod: SalesPaymentMethod | null;
       prepaidCustomerPaymentMethod: string | null;
+      prepaidGrouponPlatform: string | null;
+      prepaidGrouponCode: string | null;
       /// Step 8.1: renewRecords 已拆为独立表
       sessionRenewRecords: Array<{
         paymentMethod: string;

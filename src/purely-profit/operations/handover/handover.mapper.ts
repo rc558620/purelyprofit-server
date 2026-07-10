@@ -21,9 +21,13 @@ import {
   isSessionStartItem,
   SPACE_REFUND_ITEM_NAME,
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
+  SPACE_RENEW_DISPLAY_NAME,
+  SPACE_REFUND_DISPLAY_SUFFIX,
+  CASHIER_PREFIX,
   resolveTimeCategory,
   GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD,
   GROUPON_VOUCHER_DISPLAY,
+  buildGrouponLabel,
 } from './handover.constants';
 import type {
   AdditionalItemRow,
@@ -49,24 +53,22 @@ const parseRenewPaymentMethods = (
     .map((record) => record.paymentMethod)
     .filter(isSalesPaymentMethod);
 
-const shouldPrefixSpaceName = (productName: string): boolean =>
-  isPrepaidDeductionItem(productName) || productName.startsWith('台位费（');
-
 const resolveOrderItemProductName = (item: OrderItemRow): string => {
   const spaceName = toDisplayName(item.order.spaceSession?.space?.name);
-  if (!spaceName) return item.productName;
 
-  // 系统项（预付款/台位费）：直接拼接，如 "大包2预付款"
-  if (shouldPrefixSpaceName(item.productName)) {
-    return `${spaceName}${item.productName}`;
+  // 续费抵扣在 DB 中存储为「续费抵扣」，交班明细展示时去掉「抵扣」二字，仅展示「续费」
+  if (item.productName === SPACE_RENEW_DEDUCTION_ITEM_NAME) {
+    const prefix = spaceName ?? CASHIER_PREFIX;
+    return `${prefix} · ${SPACE_RENEW_DISPLAY_NAME}`;
   }
 
-  // 空间会话中的普通消费商品：加 " · " 分隔，如 "大包2 · 面包"
-  if (item.order.spaceSession != null) {
+  // 空间会话商品：用 " · " 分隔，如 "大包2 · 预付款"、"大包2 · 台位费（固定）"、"大包2 · 面包"
+  if (item.order.spaceSession != null && spaceName) {
     return `${spaceName} · ${item.productName}`;
   }
 
-  return item.productName;
+  // 无空间会话的普通商品：统一加「收银台 · 」前缀
+  return `${CASHIER_PREFIX} · ${item.productName}`;
 };
 
 export const resolveOrderItemPaymentMethod = (
@@ -110,14 +112,14 @@ export const resolveOrderItemPaymentDisplay = (
   const paymentMethod = resolveOrderItemPaymentMethod(item);
   const spaceSession = item.order.spaceSession;
 
-  // 开台项（预付款 / 台位费）+ 顾客支付方式为团购 → 显示「团购」
+  // 开台项（预付款 / 台位费）+ 顾客支付方式为团购 → 显示「美团团购」「抖音团购」等
   if (
     isSessionStartItem(item.productName) &&
     spaceSession?.prepaidCustomerPaymentMethod ===
       GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD
   ) {
     return {
-      paymentLabel: GROUPON_VOUCHER_DISPLAY.label,
+      paymentLabel: buildGrouponLabel(spaceSession.prepaidGrouponPlatform),
       paymentColor: GROUPON_VOUCHER_DISPLAY.color,
     };
   }
@@ -217,29 +219,38 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
     currentStock: item.product?.stock ?? null,
     stockUnit: item.product?.unit ?? null,
     timeCategory,
+    grouponCode: session?.prepaidGrouponCode ?? null,
   };
 };
 
 export const mapRefundOrderItem = (
   order: RefundOrderRow,
-): HandoverOrderItemDto => ({
-  id: `refund-order-${order.id}`,
-  productName: order.spaceSession?.space.name ?? SPACE_REFUND_ITEM_NAME,
-  quantity: 1,
-  totalRevenue: dbCentsToOutputYuan(order.totalRevenue),
-  paymentLabel: `${PAYMENT_METHOD_CONFIG[order.paymentMethod].label}退款`,
-  paymentColor: PAYMENT_METHOD_CONFIG[order.paymentMethod].color,
-  operatorName:
-    toDisplayName(order.operatorNameSnapshot) ??
-    toDisplayName(order.operatorStaff?.name) ??
-    AUTO_SETTLEMENT_OPERATOR_NAME,
-  operatorRole: resolveOperatorRole(order.operatorStaff),
-  date: order.date.getTime(),
-  displayDate: order.date.getTime(),
-  currentStock: null,
-  stockUnit: null,
-  timeCategory: 'session_end',
-});
+): HandoverOrderItemDto => {
+  const spaceName = order.spaceSession?.space.name;
+  // 退款行商品名追加 " · 退款"，无空间名时回退到「空间退款」
+  const productName = spaceName
+    ? `${spaceName} · ${SPACE_REFUND_DISPLAY_SUFFIX}`
+    : SPACE_REFUND_ITEM_NAME;
+  return {
+    id: `refund-order-${order.id}`,
+    productName,
+    quantity: 1,
+    totalRevenue: dbCentsToOutputYuan(order.totalRevenue),
+    paymentLabel: `${PAYMENT_METHOD_CONFIG[order.paymentMethod].label}退款`,
+    paymentColor: PAYMENT_METHOD_CONFIG[order.paymentMethod].color,
+    operatorName:
+      toDisplayName(order.operatorNameSnapshot) ??
+      toDisplayName(order.operatorStaff?.name) ??
+      AUTO_SETTLEMENT_OPERATOR_NAME,
+    operatorRole: resolveOperatorRole(order.operatorStaff),
+    date: order.date.getTime(),
+    displayDate: order.date.getTime(),
+    currentStock: null,
+    stockUnit: null,
+    timeCategory: 'session_end',
+    grouponCode: null,
+  };
+};
 
 export const mapAdditionalItem = (
   item: AdditionalItemRow,

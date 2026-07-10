@@ -344,3 +344,114 @@ describe('Money.calcWholeUnitsFloor', () => {
     expect(amount.calcWholeUnitsFloor(hourlyRate, 60)).toBe(0);
   });
 });
+
+// ---------- BUG-1 回归：团购续费两池独立，不重复抵扣 ----------
+
+describe('BUG-1 回归：团购续费两池独立', () => {
+  it('Flow A: 开台无预付 + 团购续费 → 仅 renewDeduction，无 prepaidDeduction', () => {
+    // 场景：开台无预付，团购续费 amount=80, voucherFaceAmount=100
+    // 修复后 session.prepaid* 保持 null，结算只产生 renewDeduction
+    const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000; // 1小时
+    const renewRecords: SpaceSessionRenewRecord[] = [
+      {
+        id: 'rn_1',
+        amount: 80,
+        addedMinutes: 88,
+        paymentMethod: 'groupon_voucher' as const,
+        voucherFaceAmount: 100,
+        grouponCode: 'MT001',
+        grouponPlatform: '美团',
+        renewedAt: Date.now(),
+      },
+    ];
+    const result = buildSpaceSessionSettlement({
+      session: makeSession({
+        // 开台无预付 — 所有 prepaid* 为 null
+        prepaidAmount: null,
+        prepaidVoucherFaceAmount: null,
+      }),
+      checkoutAt,
+      payload: {},
+      items: NO_ITEMS,
+      renewRecords,
+    });
+    // 台位费 68元/时 × 1小时 = 68
+    expect(result.timeCost).toBe(68);
+    // renewDeduction = max(80, 100) = 100
+    expect(result.renewDeduction).toBe(100);
+    // prepaidDeduction = max(0, 0) = 0（无预付，不重复抵扣）
+    expect(result.prepaidDeduction).toBe(0);
+    // totalAmount = 68 - 100 - 0 = -32
+    expect(result.totalAmount).toBe(-32);
+  });
+
+  it('Flow B: 开台团购预付 + 团购续费 → 两池独立计算，不互相覆盖', () => {
+    // 场景：开台预付 voucherFaceAmount=200，团购续费 voucherFaceAmount=100
+    // 修复后 session.prepaidVoucherFaceAmount=200 不被续费覆盖
+    const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
+    const renewRecords: SpaceSessionRenewRecord[] = [
+      {
+        id: 'rn_1',
+        amount: 80,
+        addedMinutes: 88,
+        paymentMethod: 'groupon_voucher' as const,
+        voucherFaceAmount: 100,
+        grouponCode: 'MT002',
+        grouponPlatform: '美团',
+        renewedAt: Date.now(),
+      },
+    ];
+    const result = buildSpaceSessionSettlement({
+      session: makeSession({
+        // 开台预付团购券面 200元 = 20000分
+        prepaidAmount: 16000, // 实付 160元
+        prepaidVoucherFaceAmount: 20000, // 券面 200元
+      }),
+      checkoutAt,
+      payload: {},
+      items: NO_ITEMS,
+      renewRecords,
+    });
+    // 台位费 68元
+    expect(result.timeCost).toBe(68);
+    // renewDeduction = max(80, 100) = 100
+    expect(result.renewDeduction).toBe(100);
+    // prepaidDeduction = max(160, 200) = 200（开台预付不被覆盖）
+    expect(result.prepaidDeduction).toBe(200);
+    // totalAmount = 68 - 100 - 200 = -232
+    expect(result.totalAmount).toBe(-232);
+  });
+
+  it('多次团购续费 → renewDeduction 累加所有续费记录', () => {
+    const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
+    const renewRecords: SpaceSessionRenewRecord[] = [
+      {
+        id: 'rn_1',
+        amount: 80,
+        addedMinutes: 88,
+        paymentMethod: 'groupon_voucher' as const,
+        voucherFaceAmount: 100,
+        renewedAt: Date.now(),
+      },
+      {
+        id: 'rn_2',
+        amount: 50,
+        addedMinutes: 44,
+        paymentMethod: 'cash' as const,
+        renewedAt: Date.now(),
+      },
+    ];
+    const result = buildSpaceSessionSettlement({
+      session: makeSession(),
+      checkoutAt,
+      payload: {},
+      items: NO_ITEMS,
+      renewRecords,
+    });
+    // renewDeduction = max(80,100) + 50 = 150
+    expect(result.renewDeduction).toBe(150);
+    expect(result.prepaidDeduction).toBe(0);
+    // totalAmount = 68 - 150 = -82
+    expect(result.totalAmount).toBe(-82);
+  });
+});

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -10,15 +10,19 @@ import {
   type SpacesDashboardResponseDto,
 } from './dto/space.dto';
 import { toSpaceResponse } from './spaces.mapper';
-import type { SpaceStatusValue } from './spaces.constants';
+import {
+  deriveSpaceStatusFromCounts,
+  getReservationStatusRange,
+} from './space-reservations.shared';
 import {
   SpaceDashboardSummaryService,
   type DashboardSpaceSummaryBundle,
 } from './space-dashboard-summary.service';
-import { getReservationStatusRange } from './space-reservations.shared';
 
 @Injectable()
 export class SpaceDashboardService {
+  private readonly logger = new Logger(SpaceDashboardService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
@@ -30,7 +34,12 @@ export class SpaceDashboardService {
     query: GetSpacesDashboardQueryDto,
     requestId?: string,
   ): Promise<SpacesDashboardResponseDto> {
-    void requestId;
+    // BUG-07 fix: requestId 纳入日志，保证链路追踪可观测性
+    this.logger.debug(
+      requestId
+        ? `getSpacesDashboard storeId=${query.storeId ?? '*'} requestId=${requestId}`
+        : `getSpacesDashboard storeId=${query.storeId ?? '*'}`,
+    );
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
       query.storeId,
@@ -210,20 +219,14 @@ export class SpaceDashboardService {
   private deriveSpaceStatus(
     space: Awaited<ReturnType<typeof this.findSpacesByStore>>[number],
     lastSettledMap: Map<number, Date>,
-  ): SpaceStatusValue {
-    if (space.sessions.length > 0) return 'occupied';
-    if (space.reservations.length > 0) return 'reserved';
-
-    // 脏房模式：结账后无活跃会话，且尚未标记清洁完成 → cleaning
-    if (space.enableDirtyRoom) {
-      const lastSettledEndTime = lastSettledMap.get(space.id) ?? null;
-      if (lastSettledEndTime !== null) {
-        const cleanedMs = space.cleanedAt?.getTime() ?? 0;
-        if (lastSettledEndTime.getTime() > cleanedMs) return 'cleaning';
-      }
-    }
-
-    return 'idle';
+  ): ReturnType<typeof deriveSpaceStatusFromCounts> {
+    return deriveSpaceStatusFromCounts({
+      activeSessions: space.sessions.length,
+      pendingReservations: space.reservations.length,
+      enableDirtyRoom: space.enableDirtyRoom,
+      lastSettledEndTime: lastSettledMap.get(space.id) ?? null,
+      cleanedAt: space.cleanedAt,
+    });
   }
 
   private toSpaceDashboardItem(

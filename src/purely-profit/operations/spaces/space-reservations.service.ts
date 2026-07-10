@@ -23,7 +23,6 @@ import {
   ensureReservationEndAfterStart,
   ensureReservationGuestCount,
   ensureReservationTimeWindow,
-  getTodayRange,
   normalizeReservationPayload,
   toSpaceReservationResponse,
 } from './space-reservations.shared';
@@ -32,6 +31,7 @@ import type {
   SpaceReservationRecord,
   SpaceReservationSessionSnapshot,
 } from './space-reservations.types';
+import type { SpaceStatusValue } from './spaces.constants';
 @Injectable()
 export class SpaceReservationsService {
   constructor(
@@ -114,6 +114,8 @@ export class SpaceReservationsService {
       where: {
         storeId,
         status,
+        // P1 fix: 排除已软删除空间的预约，与空间维度 listSpaceReservations 的 deletedAt: null 口径一致
+        space: { deletedAt: null },
         ...(reservedAt ? { reservedAt } : {}),
       },
       orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
@@ -463,7 +465,7 @@ export class SpaceReservationsService {
     transaction: Prisma.TransactionClient,
     spaceId: number,
     enableDirtyRoom?: boolean,
-  ): Promise<string> {
+  ): Promise<SpaceStatusValue> {
     return this.stateService.resolveReservationBackStatus(
       transaction,
       spaceId,
@@ -496,16 +498,33 @@ export class SpaceReservationsService {
   ): Promise<SpaceReservationRecord | null> {
     // 业务规则：已过时的预约（reservedAt <= now）不再参与冲突占位
     // 允许用户在已过时预约的时间段内创建新预约
-    // B8 fix: 统一使用上海时区基准，与 ensureReservationTimeWindow / getReservationStatusRange 口径一致
-    const now = getTodayRange().start;
+    const now = new Date();
+
+    // BUG-3 fix: reservedEndAt 在 schema 中为 DateTime?（可空）
+    // Prisma 的 gt 比较会排除 NULL 行，因此对 reservedEndAt=null 的预约
+    // 回退为 reservedAt + 1h 参与冲突判定，与内存版逻辑口径一致
+    const DEFAULT_WINDOW_MS = 60 * 60 * 1000;
+    const nullEndAtCutoff = new Date(reservedAt - DEFAULT_WINDOW_MS);
+
     const where: Prisma.SpaceReservationWhereInput = {
       spaceId,
       status: PrismaSpaceReservationStatus.pending,
       reservedAt: {
         lt: new Date(reservedEndAt),
-        gte: now, // ← 排除已过时的预约（reservedAt > now）
+        gt: now, // ← 排除已过时的预约
       },
-      reservedEndAt: { gt: new Date(reservedAt) },
+      AND: [
+        {
+          OR: [
+            { reservedEndAt: { gt: new Date(reservedAt) } },
+            // reservedEndAt 为 null 时，回退为 reservedAt + 1h
+            {
+              reservedEndAt: null,
+              reservedAt: { gt: nullEndAtCutoff },
+            },
+          ],
+        },
+      ],
       ...(excludeReservationId !== undefined
         ? {
             id: {

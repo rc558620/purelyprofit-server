@@ -7,6 +7,7 @@ import { SpaceSessionReadService } from './space-session-read.service';
 import { SpaceSessionRenewService } from './space-session-renew.service';
 import { SpaceSessionTransferService } from './space-session-transfer.service';
 import { SpaceSessionWriteService } from './space-session-write.service';
+import { SpaceSessionPreviewService } from './space-session-preview.service';
 import { SpaceSessionsService } from './space-sessions.service';
 
 describe('SpaceSessionsService', () => {
@@ -43,6 +44,11 @@ describe('SpaceSessionsService', () => {
 
   const writeService = {
     addItemsToSession: jest.fn(),
+  };
+
+  const previewService = {
+    getLivePreview: jest.fn(),
+    getRenewPreview: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -83,6 +89,7 @@ describe('SpaceSessionsService', () => {
         { provide: SpaceSessionRenewService, useValue: renewService },
         { provide: SpaceSessionTransferService, useValue: transferService },
         { provide: SpaceSessionWriteService, useValue: writeService },
+        { provide: SpaceSessionPreviewService, useValue: previewService },
       ],
     }).compile();
 

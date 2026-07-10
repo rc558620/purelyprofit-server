@@ -284,6 +284,12 @@ describe('SpaceSessionReadService 状态修复', () => {
   });
 
   it('getSpaceSessionDetail 直接返回当前会话详情', async () => {
+    // P3 fix: getSpaceSessionDetail 改为先鉴权后查询，第一步用 findFirst 取轻量元数据
+    prismaService.spaceSession.findFirst.mockResolvedValueOnce({
+      id: 9,
+      storeId: 18,
+    });
+
     prismaService.spaceSession.findUnique.mockResolvedValueOnce({
       id: 9,
       storeId: 18,

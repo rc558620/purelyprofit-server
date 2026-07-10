@@ -114,6 +114,11 @@ export interface SpaceSessionRecord {
   prepaidNote: string | null;
   prepaidAmount: number | null;
   prepaidVoucherFaceAmount: number | null;
+  settlementStatus: string | null;
+  platformReceivable: number | null;
+  platformSettledAmount: number | null;
+  platformFee: number | null;
+  timeFeeMode: string | null;
   /// Step 8.1: items 已拆到 space_session_items 表，通过 include 查询
   sessionItems: SpaceSessionItemRow[];
   itemsCost: number;

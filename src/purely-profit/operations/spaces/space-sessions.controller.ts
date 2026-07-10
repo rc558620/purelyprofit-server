@@ -245,6 +245,7 @@ export class SpaceSessionsController {
       ctx.user,
       sessionId,
       dto.amount,
+      dto.voucherFaceAmount,
       ctx.requestId,
     );
   }

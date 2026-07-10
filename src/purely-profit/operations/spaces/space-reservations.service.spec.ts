@@ -122,6 +122,8 @@ describe('SpaceReservationsService', () => {
       where: {
         storeId: 18,
         status: PrismaSpaceReservationStatus.pending,
+        // P1 fix: 排除已软删除空间的预约
+        space: { deletedAt: null },
       },
       orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
       take: 200,
@@ -139,6 +141,8 @@ describe('SpaceReservationsService', () => {
       where: {
         storeId: 18,
         status: PrismaSpaceReservationStatus.cancelled,
+        // P1 fix: 排除已软删除空间的预约
+        space: { deletedAt: null },
       },
       orderBy: [{ reservedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
       take: 200,

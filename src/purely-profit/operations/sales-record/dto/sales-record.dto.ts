@@ -116,6 +116,81 @@ export class CreateSalesRecordDto {
   @IsInt({ message: '销售时间必须是整数时间戳' })
   @Min(0, { message: '销售时间不合法' })
   date?: number;
+
+  // ─── 团购 / 券 / 平台结算元数据（可选，空间结账时传入）───────────────────────
+
+  @ApiPropertyOptional({
+    example: 'groupon_voucher',
+    description: '顾客实际支付方式（如 groupon_voucher）',
+  })
+  @IsOptional()
+  @IsString({ message: '顾客支付方式必须是字符串' })
+  @MaxLength(50, { message: '顾客支付方式最长 50 个字符' })
+  customerPaymentMethod?: string;
+
+  @ApiPropertyOptional({ example: 'MT123456', description: '团购券码' })
+  @IsOptional()
+  @IsString({ message: '团购券码必须是字符串' })
+  @MaxLength(100, { message: '团购券码最长 100 个字符' })
+  grouponCode?: string;
+
+  @ApiPropertyOptional({ example: '美团', description: '团购平台' })
+  @IsOptional()
+  @IsString({ message: '团购平台必须是字符串' })
+  @MaxLength(50, { message: '团购平台最长 50 个字符' })
+  grouponPlatform?: string;
+
+  @ApiPropertyOptional({ example: 'online', description: '结算渠道' })
+  @IsOptional()
+  @IsString({ message: '结算渠道必须是字符串' })
+  @MaxLength(50, { message: '结算渠道最长 50 个字符' })
+  settlementChannel?: string;
+
+  @ApiPropertyOptional({ example: 'V20260710001', description: '券码' })
+  @IsOptional()
+  @IsString({ message: '券码必须是字符串' })
+  @MaxLength(100, { message: '券码最长 100 个字符' })
+  voucherCode?: string;
+
+  @ApiPropertyOptional({ example: '美团', description: '券所属平台' })
+  @IsOptional()
+  @IsString({ message: '券所属平台必须是字符串' })
+  @MaxLength(50, { message: '券所属平台最长 50 个字符' })
+  voucherPlatform?: string;
+
+  @ApiPropertyOptional({ example: 100, description: '券面额（元）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: '券面额必须是数字' })
+  @Min(0, { message: '券面额不能为负数' })
+  voucherFaceAmount?: number;
+
+  @ApiPropertyOptional({ example: 'pending', description: '平台结算状态' })
+  @IsOptional()
+  @IsString({ message: '结算状态必须是字符串' })
+  @MaxLength(30, { message: '结算状态最长 30 个字符' })
+  settlementStatus?: string;
+
+  @ApiPropertyOptional({ example: 80, description: '平台应收金额（元）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: '平台应收金额必须是数字' })
+  @Min(0, { message: '平台应收金额不能为负数' })
+  platformReceivable?: number;
+
+  @ApiPropertyOptional({ example: 75, description: '平台已结金额（元）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: '平台已结金额必须是数字' })
+  @Min(0, { message: '平台已结金额不能为负数' })
+  platformSettledAmount?: number;
+
+  @ApiPropertyOptional({ example: 5, description: '平台手续费（元）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: '平台手续费必须是数字' })
+  @Min(0, { message: '平台手续费不能为负数' })
+  platformFee?: number;
 }
 
 export class ListSalesRecordsQueryDto extends PaginationQueryDto {
@@ -385,6 +460,44 @@ export class SalesRecordResponseDto {
 
   @ApiProperty({ example: 1715695201000, description: '创建时间戳（毫秒）' })
   createdAt: number;
+
+  // ─── 团购 / 券 / 平台结算元数据（可选）───────────────────────────────────
+
+  @ApiPropertyOptional({
+    example: 'groupon_voucher',
+    description: '顾客实际支付方式（如 groupon_voucher）',
+  })
+  customerPaymentMethod?: string;
+
+  @ApiPropertyOptional({ example: 'MT123456', description: '团购券码' })
+  grouponCode?: string;
+
+  @ApiPropertyOptional({ example: '美团', description: '团购平台' })
+  grouponPlatform?: string;
+
+  @ApiPropertyOptional({ example: 'online', description: '结算渠道' })
+  settlementChannel?: string;
+
+  @ApiPropertyOptional({ example: 'V20260710001', description: '券码' })
+  voucherCode?: string;
+
+  @ApiPropertyOptional({ example: '美团', description: '券所属平台' })
+  voucherPlatform?: string;
+
+  @ApiPropertyOptional({ example: 100, description: '券面额（元）' })
+  voucherFaceAmount?: number;
+
+  @ApiPropertyOptional({ example: 'pending', description: '平台结算状态' })
+  settlementStatus?: string;
+
+  @ApiPropertyOptional({ example: 80, description: '平台应收金额（元）' })
+  platformReceivable?: number;
+
+  @ApiPropertyOptional({ example: 75, description: '平台已结金额（元）' })
+  platformSettledAmount?: number;
+
+  @ApiPropertyOptional({ example: 5, description: '平台手续费（元）' })
+  platformFee?: number;
 }
 
 export class SalesStatsResponseDto {

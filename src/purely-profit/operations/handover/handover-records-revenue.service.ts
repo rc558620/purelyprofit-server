@@ -177,6 +177,7 @@ export class HandoverRecordsRevenueService {
         timeCost: true,
         itemsCost: true,
         prepaidAmount: true,
+        prepaidGrouponCode: true,
         endTime: true,
         space: {
           select: {
@@ -203,6 +204,15 @@ export class HandoverRecordsRevenueService {
               },
             },
           },
+        },
+        // ─── ⚠️ DO NOT REMOVE：退款/应付计算依赖续费记录 ────────
+        // prepaidAmount 不含续费金额，必须独立查询 sessionRenewRecords
+        sessionRenewRecords: {
+          select: {
+            amount: true,
+            paymentMethod: true,
+          },
+          orderBy: { id: 'asc' },
         },
       },
     });

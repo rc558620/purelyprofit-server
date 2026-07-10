@@ -16,6 +16,7 @@ const financeReportCashFlowSelect = {
   amount: true,
   payment: true,
   date: true,
+  createdAt: true,
 } satisfies Prisma.FinanceCashFlowRecordSelect;
 
 const financeReportAccountSelect = {
@@ -74,7 +75,14 @@ export async function queryFinanceReportData(
   currentCashFlowRecords: Array<
     Pick<
       FinanceCashFlowRecordWithAmount,
-      'id' | 'date' | 'title' | 'direction' | 'category' | 'amount' | 'payment'
+      | 'id'
+      | 'date'
+      | 'createdAt'
+      | 'title'
+      | 'direction'
+      | 'category'
+      | 'amount'
+      | 'payment'
     >
   >;
   previousCashFlowRecords: Array<
@@ -89,6 +97,7 @@ export async function queryFinanceReportData(
             FinanceCashFlowRecordWithAmount,
             | 'id'
             | 'date'
+            | 'createdAt'
             | 'title'
             | 'direction'
             | 'category'

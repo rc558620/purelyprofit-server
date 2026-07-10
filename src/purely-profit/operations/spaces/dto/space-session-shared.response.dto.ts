@@ -14,8 +14,12 @@ import {
 import {
   SPACE_CUSTOMER_PAYMENT_METHOD_VALUES,
   SPACE_SETTLEMENT_CHANNEL_VALUES,
+  SPACE_SETTLEMENT_STATUS_VALUES,
+  SPACE_TIME_FEE_MODE_VALUES,
   type SpaceCustomerPaymentMethodValue,
   type SpaceSettlementChannelValue,
+  type SpaceSettlementStatusValue,
+  type SpaceTimeFeeModeValue,
 } from './space-session.constants';
 
 export class SpaceSessionItemResponseDto {
@@ -37,7 +41,10 @@ export class SpaceSessionItemResponseDto {
   @ApiProperty({ example: 1, description: '数量' })
   quantity: number;
 
-  @ApiProperty({ example: 68, description: '行合计金额 = salePrice × quantity（元）' })
+  @ApiProperty({
+    example: 68,
+    description: '行合计金额 = salePrice × quantity（元）',
+  })
   lineTotal: number;
 }
 
@@ -168,6 +175,29 @@ export class SpaceSessionResponseDto {
 
   @ApiPropertyOptional({ example: 88, description: '预付券面金额（元）' })
   prepaidVoucherFaceAmount?: number;
+
+  @ApiPropertyOptional({
+    example: 'pending',
+    description: '平台结算状态',
+    enum: SPACE_SETTLEMENT_STATUS_VALUES,
+  })
+  settlementStatus?: SpaceSettlementStatusValue;
+
+  @ApiPropertyOptional({ example: 80, description: '平台应收金额（元）' })
+  platformReceivable?: number;
+
+  @ApiPropertyOptional({ example: 72, description: '平台已结金额（元）' })
+  platformSettledAmount?: number;
+
+  @ApiPropertyOptional({ example: 8, description: '平台手续费（元）' })
+  platformFee?: number;
+
+  @ApiPropertyOptional({
+    example: 'timed',
+    description: '台位费口径：timed=按实际计时，unit_price=按单价',
+    enum: SPACE_TIME_FEE_MODE_VALUES,
+  })
+  timeFeeMode?: SpaceTimeFeeModeValue;
 
   @ApiProperty({ type: [SpaceSessionItemResponseDto], description: '消费明细' })
   @IsArray()

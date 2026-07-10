@@ -8,7 +8,7 @@ import {
   FINANCE_REPORT_ACCOUNT_STATUS_LABELS,
   FINANCE_REPORT_ACCOUNT_TYPE_LABELS,
 } from './finance.constants';
-import { formatReportDateLabel } from './finance-date.utils';
+import { formatReportDateTimeLabel } from './finance-date.utils';
 import { Money, calcPercentChangeWithFallback } from '../../shared/money.utils';
 import type {
   FinanceAccountRecordWithAmount,
@@ -20,7 +20,14 @@ export function buildFinanceReportResponse(params: {
   currentCashFlowRecords: Array<
     Pick<
       FinanceCashFlowRecordWithAmount,
-      'id' | 'date' | 'title' | 'direction' | 'category' | 'amount' | 'payment'
+      | 'id'
+      | 'date'
+      | 'createdAt'
+      | 'title'
+      | 'direction'
+      | 'category'
+      | 'amount'
+      | 'payment'
     >
   >;
   previousCashFlowRecords: Array<
@@ -127,6 +134,6 @@ export function buildFinanceReportAccountRows(
       statusLabel:
         FINANCE_REPORT_ACCOUNT_STATUS_LABELS[record.status] ?? record.status,
       statusKey: record.status,
-      dateLabel: formatReportDateLabel(record.date.getTime()),
+      dateLabel: formatReportDateTimeLabel(record.createdAt.getTime()),
     }));
 }

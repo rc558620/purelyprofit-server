@@ -46,8 +46,12 @@ export class SpaceSessionWriteService {
       ) => Promise<number | null>;
     },
   ): Promise<SpaceSessionResponseDto> {
-    const session = await this.prisma.spaceSession.findUnique({
-      where: { id: sessionId },
+    // BUG-1 fix: 与 checkout / list / detail 的 deletedAt: null 口径一致
+    const session = await this.prisma.spaceSession.findFirst({
+      where: {
+        id: sessionId,
+        space: { deletedAt: null },
+      },
       select: {
         id: true,
         storeId: true,

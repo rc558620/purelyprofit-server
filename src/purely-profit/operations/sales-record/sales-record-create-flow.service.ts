@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type FinanceCashFlowPayment } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
+import { isDeductionProductName } from '../../commerce/commerce.utils';
 import { InventoryService } from '../../goods/inventory/inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
@@ -16,6 +17,20 @@ import type {
   CreateSalesRecordOptions,
   PreparedSalesItem,
 } from './sales-record-item-preparation.service';
+
+/**
+ * 将团购平台名称/枚举值映射到 FinanceCashFlowPayment 枚举值。
+ * meituan/美团→meituan，douyin/抖音→douyin，其他平台或未知→platform。
+ */
+function resolveGrouponCashFlowPayment(
+  grouponPlatform: string | undefined,
+): string {
+  if (!grouponPlatform) return 'platform';
+  const normalized = grouponPlatform.trim().toLowerCase();
+  if (normalized === 'meituan' || normalized.includes('美团')) return 'meituan';
+  if (normalized === 'douyin' || normalized.includes('抖音')) return 'douyin';
+  return 'platform';
+}
 
 @Injectable()
 export class SalesRecordCreateFlowService {
@@ -58,6 +73,56 @@ export class SalesRecordCreateFlowService {
           calcMode: params.dto.calcMode,
           note: params.note,
           date: params.orderDate,
+          // ─── 团购 / 券 / 平台结算元数据 ─────────────────────────────
+          ...(params.dto.customerPaymentMethod !== undefined
+            ? { customerPaymentMethod: params.dto.customerPaymentMethod }
+            : {}),
+          ...(params.dto.grouponCode !== undefined
+            ? { grouponCode: params.dto.grouponCode }
+            : {}),
+          ...(params.dto.grouponPlatform !== undefined
+            ? { grouponPlatform: params.dto.grouponPlatform }
+            : {}),
+          ...(params.dto.settlementChannel !== undefined
+            ? { settlementChannel: params.dto.settlementChannel }
+            : {}),
+          ...(params.dto.voucherCode !== undefined
+            ? { voucherCode: params.dto.voucherCode }
+            : {}),
+          ...(params.dto.voucherPlatform !== undefined
+            ? { voucherPlatform: params.dto.voucherPlatform }
+            : {}),
+          ...(params.dto.voucherFaceAmount !== undefined
+            ? {
+                voucherFaceAmount: Money.fromInputYuan(
+                  params.dto.voucherFaceAmount,
+                ).toDbCents(),
+              }
+            : {}),
+          ...(params.dto.settlementStatus !== undefined
+            ? { grouponSettlementStatus: params.dto.settlementStatus }
+            : {}),
+          ...(params.dto.platformReceivable !== undefined
+            ? {
+                grouponPlatformReceivable: Money.fromInputYuan(
+                  params.dto.platformReceivable,
+                ).toDbCents(),
+              }
+            : {}),
+          ...(params.dto.platformSettledAmount !== undefined
+            ? {
+                grouponPlatformSettledAmount: Money.fromInputYuan(
+                  params.dto.platformSettledAmount,
+                ).toDbCents(),
+              }
+            : {}),
+          ...(params.dto.platformFee !== undefined
+            ? {
+                grouponPlatformFee: Money.fromInputYuan(
+                  params.dto.platformFee,
+                ).toDbCents(),
+              }
+            : {}),
           items: {
             create: params.preparedItems.map((item) => ({
               storeId: params.storeId,
@@ -80,6 +145,18 @@ export class SalesRecordCreateFlowService {
           operatorNameSnapshot: true,
           date: true,
           createdAt: true,
+          // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
+          customerPaymentMethod: true,
+          grouponCode: true,
+          grouponPlatform: true,
+          settlementChannel: true,
+          voucherCode: true,
+          voucherPlatform: true,
+          voucherFaceAmount: true,
+          grouponSettlementStatus: true,
+          grouponPlatformReceivable: true,
+          grouponPlatformSettledAmount: true,
+          grouponPlatformFee: true,
           items: {
             select: {
               id: true,
@@ -139,9 +216,34 @@ export class SalesRecordCreateFlowService {
         });
       }
 
-      // 空间结账含抵扣项时 totalRevenue 可能为零或负数，
-      // 此时不产生正向现金流记录（实际收款已在预付/续费时记录）。
-      if (Money.fromInputYuan(params.totalRevenue).toDbCents() > 0) {
+      // 计算商品消费总额（排除抵扣项：预付款、续费抵扣）。
+      // 空间结账时抵扣项的 salePrice 已被 Math.abs() 转正，
+      // 必须通过 productName 而非 salePrice 符号来排除。
+      const grossConsumptionCents = params.preparedItems
+        .filter((item) => !isDeductionProductName(item.productName))
+        .reduce(
+          (sum, item) => sum + item.salePrice.toDbCents() * item.quantity,
+          0,
+        );
+
+      // 使用商品消费总额判断是否创建现金流水，
+      // 而非净额 totalRevenue（可能因抵扣而为零）。
+      if (grossConsumptionCents > 0) {
+        // 团购券不在 FinanceCashFlowPayment 枚举内，
+        // 映射到平台支付方式（meituan/douyin/platform）。
+        const isGroupon =
+          params.dto.paymentMethod === 'groupon_voucher' ||
+          params.dto.customerPaymentMethod === 'groupon_voucher';
+        const cashFlowPayment = (
+          isGroupon
+            ? resolveGrouponCashFlowPayment(params.dto.grouponPlatform)
+            : params.dto.paymentMethod
+        ) as FinanceCashFlowPayment;
+
+        // 现金流水金额始终使用消费毛额（正数行之和），
+        // 确保预付款抵扣场景下财务流水仍能反映实际消费。
+        // 例如：消费 ¥44 + 预付款 -¥44 → 毛额 ¥44，净额 ¥0，
+        // 现金流水记 ¥44（顾客实际支付了 ¥44）。
         await transaction.financeCashFlowRecord.create({
           data: {
             storeId: params.storeId,
@@ -150,8 +252,8 @@ export class SalesRecordCreateFlowService {
             direction: 'income',
             category: 'sales',
             title: `${createdOrder.orderNo} 销售收入`,
-            amount: Money.fromInputYuan(params.totalRevenue).toDbCents(),
-            payment: params.dto.paymentMethod,
+            amount: grossConsumptionCents,
+            payment: cashFlowPayment,
             note: params.note,
             date: params.orderDate,
           },

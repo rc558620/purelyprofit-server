@@ -8,7 +8,10 @@ import type {
   SpaceReservationMutationDto,
   SpaceReservationRecord,
 } from './space-reservations.types';
-import type { SpaceReservationStatusValue } from './spaces.constants';
+import type {
+  SpaceReservationStatusValue,
+  SpaceStatusValue,
+} from './spaces.constants';
 
 const SPACE_CONTACT_PATTERN = /^[0-9+\-\s]{6,20}$/;
 
@@ -53,7 +56,10 @@ export const normalizeReservationPayload = (
     );
   }
 
-  // B3 fix: 防御性校验 reservedEndAt 必须为有效数值，避免 new Date(undefined) = Invalid Date
+  // B3 fix + P3 fix: 防御性校验 reservedAt / reservedEndAt 必须为有效数值，避免 new Date(undefined) = Invalid Date
+  if (!Number.isFinite(dto.reservedAt)) {
+    throw new BadRequestException('预约时间必须是有效的时间戳');
+  }
   if (!Number.isFinite(dto.reservedEndAt)) {
     throw new BadRequestException('预约结束时间必须是有效的时间戳');
   }
@@ -112,29 +118,6 @@ export const ensureReservationEndAfterStart = (
   if (reservedEndAt <= reservedAt) {
     throw new BadRequestException('离店时间必须晚于预约时间');
   }
-};
-
-export const findReservationTimeConflict = (
-  reservations: SpaceReservationRecord[],
-  reservedAt: number,
-  reservedEndAt: number,
-): SpaceReservationRecord | null => {
-  const conflict = reservations.find((reservation) => {
-    if (Date.now() >= reservation.reservedAt.getTime()) {
-      return false;
-    }
-
-    const candidateEndAt = reservation.reservedEndAt
-      ? reservation.reservedEndAt.getTime()
-      : reservation.reservedAt.getTime() + 60 * 60 * 1000;
-
-    return (
-      reservedAt < candidateEndAt &&
-      reservation.reservedAt.getTime() < reservedEndAt
-    );
-  });
-
-  return conflict ?? null;
 };
 
 export const findNearestReservationMatch = (
@@ -258,4 +241,28 @@ const assertPositiveInteger = (value: number, label: string): void => {
   if (!Number.isInteger(value) || value <= 0) {
     throw new BadRequestException(`${label}必须是大于 0 的整数`);
   }
+};
+
+/**
+ * 空间运行态状态推导（共享权威实现）。
+ * 优先级链：occupied > reserved > cleaning > idle
+ *
+ * BUG-6 fix: 收敛 spaces-read / dashboard / reservations-state 三处重复实现为单一权威函数，
+ * 避免口径漂移（如脏房阈值、预约时间窗口变更时漏改）。
+ */
+export const deriveSpaceStatusFromCounts = (params: {
+  activeSessions: number;
+  pendingReservations: number;
+  enableDirtyRoom: boolean;
+  lastSettledEndTime: Date | null;
+  cleanedAt: Date | null;
+}): SpaceStatusValue => {
+  if (params.activeSessions > 0) return 'occupied';
+  if (params.pendingReservations > 0) return 'reserved';
+  // 脏房模式：结账后无活跃会话，且尚未标记清洁完成 → cleaning
+  if (params.enableDirtyRoom && params.lastSettledEndTime !== null) {
+    const cleanedMs = params.cleanedAt?.getTime() ?? 0;
+    if (params.lastSettledEndTime.getTime() > cleanedMs) return 'cleaning';
+  }
+  return 'idle';
 };

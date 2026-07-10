@@ -34,6 +34,10 @@ export class SpaceSessionReadService {
     private readonly readStateService: SpaceSessionReadStateService,
   ) {}
 
+  /**
+   * 门店维度会话列表的规范实现。
+   * P3 fix: listStoreActiveSpaceSessions 已合并到此方法，避免代码重复导致改一处漏改另一处。
+   */
   async listStoreSpaceSessions(
     user: AuthenticatedUser,
     queryDto: ListSpaceSessionsQueryDto,
@@ -61,31 +65,16 @@ export class SpaceSessionReadService {
     return this.listStoreSpaceSessionsByQuery(storeId, normalizedQuery);
   }
 
+  /**
+   * @deprecated 与 listStoreSpaceSessions 逻辑完全相同，请直接使用 listStoreSpaceSessions。
+   * 保留仅为兼容 controller 路由 /space-sessions/active，内部直接委托给 listStoreSpaceSessions。
+   */
   async listStoreActiveSpaceSessions(
     user: AuthenticatedUser,
     queryDto: ListSpaceSessionsQueryDto,
     requestId?: string,
   ): Promise<SpaceSessionResponseDto[]> {
-    void requestId;
-    const storeId = await this.commerceAccessService.resolveViewStoreId(
-      user,
-      queryDto.storeId,
-      'space:view',
-      '无权查看该门店空间会话',
-    );
-
-    if (storeId === null) {
-      return [];
-    }
-
-    const query = toSpaceSessionListQuery(queryDto);
-    const normalizedQuery: SpaceSessionListQuery = {
-      ...query,
-      status: query.status ?? PrismaSpaceSessionStatus.active,
-      includeActive: true,
-    };
-
-    return this.listStoreSpaceSessionsByQuery(storeId, normalizedQuery);
+    return this.listStoreSpaceSessions(user, queryDto, requestId);
   }
 
   async getActiveSpaceSession(
@@ -196,12 +185,19 @@ export class SpaceSessionReadService {
     );
 
     const query = toSpaceSessionListQuery(queryDto);
+    // B2 fix: 空间维度与门店维度默认 status 口径统一为 active，
+    // 避免同一模块两处入口数据范围相反导致“列表为空/数据对不上”的误判。
+    const normalizedQuery: SpaceSessionListQuery = {
+      ...query,
+      status: query.status ?? PrismaSpaceSessionStatus.active,
+      includeActive: true,
+    };
     const { page, skip, take } = resolveSpaceSessionPageQuery(
       this.configService,
-      query.page,
-      query.pageSize,
+      normalizedQuery.page,
+      normalizedQuery.pageSize,
     );
-    const where = buildSpaceSessionListWhere(space.id, query);
+    const where = buildSpaceSessionListWhere(space.id, normalizedQuery);
 
     const queryResult: [SpaceSessionRecord[], number] = await Promise.all([
       this.prisma.spaceSession.findMany({
@@ -270,8 +266,34 @@ export class SpaceSessionReadService {
     requestId?: string,
   ): Promise<SpaceSessionResponseDto> {
     void requestId;
+    // P3 fix: 先鉴权后查询，与 getActiveSpaceSession / listSpaceSessions 的鉴权顺序一致
+    // Step 1: 轻量查询检查会话存在性 + 软删除过滤
+    const sessionMeta = await this.prisma.spaceSession.findFirst({
+      where: {
+        id: sessionId,
+        space: { deletedAt: null },
+      },
+      select: {
+        id: true,
+        storeId: true,
+      },
+    });
+
+    if (!sessionMeta) {
+      throw new NotFoundException('空间会话不存在');
+    }
+
+    // Step 2: 鉴权
+    await this.commerceAccessService.ensureCanAccessStore(
+      user,
+      sessionMeta.storeId,
+      'space:view',
+      '无权查看该门店空间会话',
+    );
+
+    // Step 3: 鉴权通过后加载完整数据
     const session = await this.prisma.spaceSession.findUnique({
-      where: { id: sessionId },
+      where: { id: sessionMeta.id },
       include: {
         space: {
           select: {
@@ -320,13 +342,6 @@ export class SpaceSessionReadService {
     if (!session) {
       throw new NotFoundException('空间会话不存在');
     }
-
-    await this.commerceAccessService.ensureCanAccessStore(
-      user,
-      session.storeId,
-      'space:view',
-      '无权查看该门店空间会话',
-    );
 
     return toSpaceSessionResponse(session);
   }

@@ -18,7 +18,10 @@ import type {
   SpaceSessionResponseDto,
   TransferSpaceSessionResponseDto,
 } from './dto/space-session.dto';
-import type { LivePreviewResult, RenewPreviewResult } from './space-session-preview.service';
+import type {
+  LivePreviewResult,
+  RenewPreviewResult,
+} from './space-session-preview.service';
 import { SpaceSessionCheckoutService } from './space-session-checkout.service';
 import { SpaceSessionOpenService } from './space-session-open.service';
 import { SpaceSessionPreviewService } from './space-session-preview.service';
@@ -53,11 +56,8 @@ export class SpaceSessionsService {
     queryDto: ListSpaceSessionsQueryDto,
     requestId?: string,
   ): Promise<SpaceSessionResponseDto[]> {
-    return this.readService.listStoreActiveSpaceSessions(
-      user,
-      queryDto,
-      requestId,
-    );
+    // P3 fix: 与 listStoreSpaceSessions 逻辑完全相同，直接委托，避免重复代码
+    return this.readService.listStoreSpaceSessions(user, queryDto, requestId);
   }
 
   async getActiveSpaceSession(
@@ -155,9 +155,16 @@ export class SpaceSessionsService {
     user: AuthenticatedUser,
     sessionId: number,
     amount: number,
+    voucherFaceAmount?: number,
     requestId?: string,
   ): Promise<RenewPreviewResult> {
-    return this.previewService.getRenewPreview(user, sessionId, amount, requestId);
+    return this.previewService.getRenewPreview(
+      user,
+      sessionId,
+      amount,
+      voucherFaceAmount,
+      requestId,
+    );
   }
 
   async checkoutSpaceSession(

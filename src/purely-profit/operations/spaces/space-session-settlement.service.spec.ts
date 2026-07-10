@@ -98,6 +98,11 @@ describe('SpaceSessionSettlementService', () => {
       id: 7,
       enableDirtyRoom: true,
     });
+    // BUG-1 fix: 事务内重读 sessionItems，mock 返回与 params.session.sessionItems 一致的数据
+    transactionClient.spaceSessionItem.findMany.mockResolvedValue(
+      params.session.sessionItems,
+    );
+    transactionClient.spaceSessionRenewRecord.findMany.mockResolvedValue([]);
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
     transactionClient.spaceReservation.findMany.mockResolvedValue([]);
     transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
@@ -168,6 +173,10 @@ describe('SpaceSessionSettlementService', () => {
       id: 7,
       enableDirtyRoom: false,
     });
+    transactionClient.spaceSessionItem.findMany.mockResolvedValue(
+      params.session.sessionItems,
+    );
+    transactionClient.spaceSessionRenewRecord.findMany.mockResolvedValue([]);
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
     transactionClient.spaceReservation.findMany.mockResolvedValue([]);
     transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
@@ -216,6 +225,23 @@ describe('SpaceSessionSettlementService', () => {
       id: 7,
       enableDirtyRoom: true,
     });
+    // BUG-1 fix: 事务内重读 sessionItems，mock 返回含预付款抵扣项的数据
+    transactionClient.spaceSessionItem.findMany.mockResolvedValue([
+      ...params.session.sessionItems,
+      {
+        id: 2,
+        sessionId: 9,
+        productId: 'SYS_PREPAID_DEDUCTION',
+        productName: '预付款',
+        categoryName: '场地费',
+        salePrice: -3000, // DB 存储为分（-30元）
+        profit: -3000,
+        quantity: 1,
+        sortOrder: 1,
+        createdAt: new Date(2026, 5, 4, 9, 0, 0),
+      },
+    ]);
+    transactionClient.spaceSessionRenewRecord.findMany.mockResolvedValue([]);
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
     transactionClient.spaceReservation.findMany.mockResolvedValue([]);
     transactionClient.spaceReservation.findFirst.mockResolvedValue(null);
@@ -280,6 +306,10 @@ describe('SpaceSessionSettlementService', () => {
       id: 7,
       enableDirtyRoom: true,
     });
+    transactionClient.spaceSessionItem.findMany.mockResolvedValue(
+      params.session.sessionItems,
+    );
+    transactionClient.spaceSessionRenewRecord.findMany.mockResolvedValue([]);
     transactionClient.spaceSession.update.mockResolvedValue(updatedSession);
     // 取消预约的逻辑已移至 SpaceReservationsStateService.cancelMatchedReservationAfterCheckout
     // mock 该方法返回 32 表示成功取消了预约ID为32的记录

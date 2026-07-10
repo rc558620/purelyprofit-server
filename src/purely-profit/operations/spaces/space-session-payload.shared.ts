@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Money } from '../../../shared/money.utils';
+import { assertMoneyPrecision } from './space-session-checkout-payload.shared';
 import type {
   OpenSpaceSessionDto,
   RenewSpaceSessionDto,
@@ -9,6 +10,9 @@ import type {
   NormalizedRenewPayload,
   SpaceSessionItemRecord,
 } from './space-sessions.types';
+
+/** 续费金额上限（元）：避免极大值导致 countdownMinutes 溢出或异常时长 */
+const RENEW_AMOUNT_MAX = 99999.99;
 
 export const normalizeOpenSessionPayload = (
   dto: OpenSpaceSessionDto,
@@ -27,7 +31,13 @@ export const normalizeOpenSessionPayload = (
   const derivedVoucherPlatform =
     prepaidVoucherPlatform ?? prepaidGrouponPlatform;
   const derivedVoucherFaceAmount =
-    dto.prepaidVoucherFaceAmount ?? dto.prepaidAmount;
+    dto.prepaidVoucherFaceAmount ??
+    // BUG-5 fix: 仅在存在真实团购券时才派生券面金额，
+    // 防止普通预付的 prepaidAmount 被误计入“券面金额”字段，
+    // 导致团购报表把普通预付误统为券面金额。
+    (derivedVoucherCode || derivedVoucherPlatform
+      ? dto.prepaidAmount
+      : undefined);
   const derivedCustomerPaymentMethod =
     dto.prepaidCustomerPaymentMethod ??
     (derivedVoucherCode || derivedVoucherPlatform
@@ -142,9 +152,60 @@ export const normalizeRenewPayload = (
   const grouponPlatform = dto.grouponPlatform?.trim();
   const note = dto.note?.trim();
 
+  // Bug 2 fix: 金额精度校验，与结账链路保持一致（最多两位小数）
+  assertMoneyPrecision(dto.amount, '续费金额');
+  assertMoneyPrecision(dto.voucherFaceAmount, '券面金额');
+
+  // Bug 7 fix: 续费金额上限校验
+  if (dto.amount > RENEW_AMOUNT_MAX) {
+    throw new BadRequestException(`续费金额不能超过 ${RENEW_AMOUNT_MAX} 元`);
+  }
+  if (
+    dto.voucherFaceAmount !== undefined &&
+    dto.voucherFaceAmount > RENEW_AMOUNT_MAX
+  ) {
+    throw new BadRequestException(`券面金额不能超过 ${RENEW_AMOUNT_MAX} 元`);
+  }
+
+  // Bug 3 fix: 团购字段交叉校验，与结账链路保持一致
+  const isGrouponPayment = dto.paymentMethod === 'groupon_voucher';
+  const hasAnyGrouponField = !!(
+    grouponCode ||
+    grouponPlatform ||
+    dto.voucherFaceAmount
+  );
+
+  // B3/B5 fix: 团购字段出现时强制 paymentMethod 为 groupon_voucher，
+  // 确保校验层与回写层口径一致，防止：
+  //   ① prepaid* 标记不回写 → 自动结账跳过 → 空间永久占用（B3）
+  //   ② 非团购支付 + voucherFaceAmount 放大加钟/抵扣（B5）
+  const effectivePaymentMethod =
+    hasAnyGrouponField && !isGrouponPayment
+      ? ('groupon_voucher' as typeof dto.paymentMethod)
+      : dto.paymentMethod;
+
+  if (isGrouponPayment || hasAnyGrouponField) {
+    if (!grouponCode) {
+      throw new BadRequestException('团购券码不能为空');
+    }
+    if (!grouponPlatform) {
+      throw new BadRequestException('团购平台不能为空');
+    }
+    if (dto.voucherFaceAmount === undefined || dto.voucherFaceAmount <= 0) {
+      throw new BadRequestException('券面金额必须大于 0');
+    }
+    // G4 fix: 团购场景下实付金额不应超过券面金额，
+    // 否则 max(amount, voucherFaceAmount) 会放大为 amount，导致多加钟/多抵扣
+    if (dto.amount > dto.voucherFaceAmount) {
+      throw new BadRequestException(
+        '续费金额不能超过券面金额（团购券规则：实付 ≤ 券面）',
+      );
+    }
+  }
+
   return {
     amount: dto.amount,
-    paymentMethod: dto.paymentMethod,
+    paymentMethod: effectivePaymentMethod,
     ...(grouponCode ? { grouponCode } : {}),
     ...(grouponPlatform ? { grouponPlatform } : {}),
     ...(dto.voucherFaceAmount !== undefined

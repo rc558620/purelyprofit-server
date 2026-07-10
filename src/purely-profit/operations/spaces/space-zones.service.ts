@@ -1,9 +1,11 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toTimestampMs } from '../../commerce/commerce.utils';
@@ -75,9 +77,22 @@ export class SpaceZonesService {
       throw new ConflictException('空间区域名称已存在');
     }
 
-    const item = await this.prisma.spaceZone.create({
-      data: { storeId, name },
-    });
+    let item;
+    try {
+      item = await this.prisma.spaceZone.create({
+        data: { storeId, name },
+      });
+    } catch (err) {
+      // BUG-01 fix: 并发创建同名区域触发 @@unique([storeId, name]) 约束，
+      // 将 Prisma P2002 归一化为业务友好的 409 ConflictException
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException('空间区域名称已存在');
+      }
+      throw err;
+    }
 
     return this.toSpaceZoneResponse(item);
   }
@@ -146,7 +161,10 @@ export class SpaceZonesService {
     });
 
     if (!zone) {
-      throw new NotFoundException('空间区域不存在');
+      // BUG-06 fix: 引用字段不存在应返回 400（请求体参数无效），而非 404（资源不存在）
+      throw new BadRequestException(
+        `空间区域「${name}」不存在，请先通过 POST /space-zones 创建`,
+      );
     }
 
     return zone;

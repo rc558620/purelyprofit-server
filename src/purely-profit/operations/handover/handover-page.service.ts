@@ -43,6 +43,7 @@ type SettledSpaceSessionRow = {
   timeCost: number | null;
   itemsCost: number;
   prepaidAmount: number | null;
+  prepaidGrouponCode: string | null;
   endTime: Date | null;
   space: { name: string };
   saleOrder: {
@@ -55,6 +56,14 @@ type SettledSpaceSessionRow = {
       employeeProfile: { subAccounts: { role: string }[] } | null;
     } | null;
   } | null;
+  // ─── ⚠️ DO NOT REMOVE sessionRenewRecords ──────────────────────────────
+  // prepaidAmount 仅含开台预付款，不含续费（BUG-1/5/7 已移除续费回写）。
+  // 下游 buildRefundItemsFromSessions / computeRefundAmountFromSessions /
+  // buildGuestPayableItems 均依赖此字段累加续费金额，删除会导致退款丢失。
+  sessionRenewRecords: {
+    amount: number;
+    paymentMethod: string;
+  }[];
 };
 
 type HandoverPageMetrics = {
@@ -277,6 +286,7 @@ export class HandoverPageService {
         timeCost: true,
         itemsCost: true,
         prepaidAmount: true,
+        prepaidGrouponCode: true,
         endTime: true,
         space: {
           select: {
@@ -303,6 +313,15 @@ export class HandoverPageService {
               },
             },
           },
+        },
+        // ─── ⚠️ DO NOT REMOVE：退款/应付计算依赖续费记录 ────────
+        // prepaidAmount 不含续费金额，必须独立查询 sessionRenewRecords
+        sessionRenewRecords: {
+          select: {
+            amount: true,
+            paymentMethod: true,
+          },
+          orderBy: { id: 'asc' },
         },
       },
     });

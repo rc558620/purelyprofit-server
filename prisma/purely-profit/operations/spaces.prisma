@@ -144,6 +144,11 @@ model SpaceSession {
   prepaidNote                  String?             @map("prepaid_note")
   prepaidAmount                Int?                @map("prepaid_amount")             // 预付金额（分）
   prepaidVoucherFaceAmount     Int?                @map("prepaid_voucher_face_amount") // 券面额（分）
+  settlementStatus             String?             @map("settlement_status")            // 平台结算状态
+  platformReceivable           Int?                @map("platform_receivable")           // 平台应收（分）
+  platformSettledAmount        Int?                @map("platform_settled_amount")       // 平台已结（分）
+  platformFee                  Int?                @map("platform_fee")                  // 平台手续费（分）
+  timeFeeMode                  String?             @map("time_fee_mode")                 // 台位费口径：timed / unit_price
   /// Step 8.1: items JSON 已拆分为独立表 space_session_items
   /// 旧字段 items (Json) 已在迁移中删除，通过 sessionItems 关系访问
   sessionItems                 SpaceSessionItem[]

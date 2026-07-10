@@ -14,6 +14,7 @@ import {
   type SalesPaymentMethodValue,
 } from '../../sales-record/sales-record.types';
 import {
+  GROUPON_PLATFORM_VALUES,
   SPACE_COUNTDOWN_FEE_MODE_VALUES,
   SPACE_CUSTOMER_PAYMENT_METHOD_VALUES,
   SPACE_SETTLEMENT_CHANNEL_VALUES,
@@ -67,10 +68,13 @@ export class CheckoutSpaceSessionDto {
   @MaxLength(50, { message: '团购券码最长 50 个字符' })
   grouponCode?: string;
 
-  @ApiPropertyOptional({ example: '美团', description: '团购平台' })
+  @ApiPropertyOptional({
+    example: 'meituan',
+    description: '团购平台',
+    enum: GROUPON_PLATFORM_VALUES,
+  })
   @IsOptional()
-  @IsString({ message: '团购平台必须是字符串' })
-  @MaxLength(20, { message: '团购平台最长 20 个字符' })
+  @IsIn(GROUPON_PLATFORM_VALUES, { message: '团购平台不合法' })
   grouponPlatform?: string;
 
   @ApiPropertyOptional({
@@ -99,10 +103,13 @@ export class CheckoutSpaceSessionDto {
   @MaxLength(50, { message: '券码最长 50 个字符' })
   voucherCode?: string;
 
-  @ApiPropertyOptional({ example: '美团', description: '券所属平台' })
+  @ApiPropertyOptional({
+    example: 'meituan',
+    description: '券所属平台',
+    enum: GROUPON_PLATFORM_VALUES,
+  })
   @IsOptional()
-  @IsString({ message: '券所属平台必须是字符串' })
-  @MaxLength(20, { message: '券所属平台最长 20 个字符' })
+  @IsIn(GROUPON_PLATFORM_VALUES, { message: '券所属平台不合法' })
   voucherPlatform?: string;
 
   @ApiPropertyOptional({ example: 88, description: '券面金额（元）' })

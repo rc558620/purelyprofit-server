@@ -1,5 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
+import {
+  SpaceBillingMode as PrismaSpaceBillingMode,
+  SpaceSessionStatus as PrismaSpaceSessionStatus,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -7,10 +10,12 @@ import {
   mapRenewRecordRows,
   mapSessionItemRows,
 } from './space-sessions.mapper';
-import {
-  buildSpaceSessionSettlementMoney,
-} from './space-session-settlement.shared';
+import { buildSpaceSessionSettlementMoney } from './space-session-settlement.shared';
+import { assertMoneyPrecision } from './space-session-checkout-payload.shared';
 import { Money } from '../../../shared/money.utils';
+
+/** B7 fix: 续费预览金额上限（元），与 normalizeRenewPayload 保持一致 */
+const RENEW_PREVIEW_AMOUNT_MAX = 99999.99;
 
 export interface LivePreviewResult {
   asOf: number;
@@ -76,20 +81,58 @@ export class SpaceSessionPreviewService {
       renewDeduction: settlement.renewDeductionMoney.toOutputYuan(),
       prepaidDeduction: settlement.prepaidDeductionMoney.toOutputYuan(),
       totalAmount: settlement.totalAmountMoney.toOutputYuan(),
-      ...(settlement.timeFeeMode ? { timeFeeMode: settlement.timeFeeMode } : {}),
+      ...(settlement.timeFeeMode
+        ? { timeFeeMode: settlement.timeFeeMode }
+        : {}),
       ...(settlement.countdownFeeMode
         ? { countdownFeeMode: settlement.countdownFeeMode }
         : {}),
     };
   }
 
+  /**
+   * B1 fix: 接受可选 voucherFaceAmount，与实际续费口径一致
+   *   （取 max(amount, voucherFaceAmount) 折算分钟数）。
+   * B7 fix: 增加金额精度/上限校验，与 normalizeRenewPayload 保持一致。
+   */
   async getRenewPreview(
     user: AuthenticatedUser,
     sessionId: number,
     amount: number,
+    voucherFaceAmount?: number,
     requestId?: string,
   ): Promise<RenewPreviewResult> {
     void requestId;
+
+    // B7 fix: 金额精度校验，与实际续费 normalizeRenewPayload 保持一致
+    assertMoneyPrecision(amount, '续费金额');
+    if (voucherFaceAmount !== undefined) {
+      assertMoneyPrecision(voucherFaceAmount, '券面金额');
+    }
+
+    // B7 fix: 金额上限校验
+    if (amount > RENEW_PREVIEW_AMOUNT_MAX) {
+      return {
+        amount,
+        addedMinutes: 0,
+        durationLabel: '0 分钟',
+        valid: false,
+        reason: `续费金额不能超过 ${RENEW_PREVIEW_AMOUNT_MAX} 元`,
+      };
+    }
+    if (
+      voucherFaceAmount !== undefined &&
+      voucherFaceAmount > RENEW_PREVIEW_AMOUNT_MAX
+    ) {
+      return {
+        amount,
+        addedMinutes: 0,
+        durationLabel: '0 分钟',
+        valid: false,
+        reason: `券面金额不能超过 ${RENEW_PREVIEW_AMOUNT_MAX} 元`,
+      };
+    }
+
     const session = await this.findActiveSessionForPreview(sessionId);
 
     await this.commerceAccessService.ensureCanAccessStore(
@@ -98,6 +141,17 @@ export class SpaceSessionPreviewService {
       'space:view',
       '无权查看该门店空间续费预览',
     );
+
+    // BUG-3 fix: 纯消费模式无 hourlyRate，续费语义不成立，与 renew.service 保持一致
+    if (session.billingMode === PrismaSpaceBillingMode.items) {
+      return {
+        amount,
+        addedMinutes: 0,
+        durationLabel: '0 分钟',
+        valid: false,
+        reason: '纯消费模式不支持续费',
+      };
+    }
 
     if (!session.hourlyRate) {
       return {
@@ -120,8 +174,32 @@ export class SpaceSessionPreviewService {
       };
     }
 
+    // BUG-3 fix: 团购场景下实付金额不应超过券面金额，与 normalizeRenewPayload G4 规则对齐
+    if (
+      voucherFaceAmount !== undefined &&
+      voucherFaceAmount > 0 &&
+      amount > voucherFaceAmount
+    ) {
+      return {
+        amount,
+        addedMinutes: 0,
+        durationLabel: '0 分钟',
+        valid: false,
+        reason: '续费金额不能超过券面金额（团购券规则：实付 ≤ 券面）',
+      };
+    }
+
+    // B1 fix: 团购券场景下取 max(amount, voucherFaceAmount) 折算分钟数，
+    // 与实际续费 space-session-renew.service 中 effectiveAmountMoney 口径一致
     const amountMoney = Money.fromInputYuan(amount);
-    const addedMinutes = amountMoney.calcWholeUnitsFloor(hourlyRateMoney, 60);
+    const effectiveAmountMoney =
+      voucherFaceAmount !== undefined
+        ? Money.max(amountMoney, Money.fromInputYuan(voucherFaceAmount))
+        : amountMoney;
+    const addedMinutes = effectiveAmountMoney.calcWholeUnitsFloor(
+      hourlyRateMoney,
+      60,
+    );
 
     if (addedMinutes <= 0) {
       return {
@@ -149,8 +227,12 @@ export class SpaceSessionPreviewService {
   }
 
   private async findActiveSessionForPreview(sessionId: number) {
-    const session = await this.prisma.spaceSession.findUnique({
-      where: { id: sessionId },
+    // BUG-1 fix: 与 checkout / list / detail 的 deletedAt: null 口径一致
+    const session = await this.prisma.spaceSession.findFirst({
+      where: {
+        id: sessionId,
+        space: { deletedAt: null },
+      },
       include: {
         space: {
           select: {

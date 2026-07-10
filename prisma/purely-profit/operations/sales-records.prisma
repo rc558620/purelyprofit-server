@@ -5,6 +5,7 @@ enum SalesPaymentMethod {
   wechat
   alipay
   card
+  groupon_voucher
 }
 
 enum SalesCalcMode {
@@ -27,6 +28,18 @@ model SaleOrder {
   calcMode             SalesCalcMode            @default(business) @map("calc_mode")
   note                 String?
   date                 DateTime
+  // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
+  customerPaymentMethod    String?              @map("customer_payment_method")    // 顾客实际支付方式（如 groupon_voucher）
+  grouponCode              String?              @map("groupon_code")               // 团购券码
+  grouponPlatform          String?              @map("groupon_platform")           // 团购平台（如 美团、抖音）
+  settlementChannel        String?              @map("settlement_channel")         // 结算渠道
+  voucherCode              String?              @map("voucher_code")               // 券码
+  voucherPlatform          String?              @map("voucher_platform")           // 券所属平台
+  voucherFaceAmount        Int?                 @map("voucher_face_amount")        // 券面额（分）
+  grouponSettlementStatus     String?           @map("settlement_status")          // 平台结算状态
+  grouponPlatformReceivable   Int?              @map("platform_receivable")         // 平台应收（分）
+  grouponPlatformSettledAmount Int?             @map("platform_settled_amount")     // 平台已结（分）
+  grouponPlatformFee          Int?              @map("platform_fee")                // 平台手续费（分）
   items                SaleOrderItem[]
   inventoryLogs        InventoryAdjustmentLog[]
   cashFlowRecord       FinanceCashFlowRecord?

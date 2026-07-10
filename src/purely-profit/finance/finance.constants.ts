@@ -196,7 +196,7 @@ export const FINANCE_REPORT_PAYMENT_LABELS: Record<string, string> = {
   bank: '银行转账',
   meituan: '美团',
   douyin: '抖音',
-  platform: '平台结算',
+  platform: '团购',
   other: '其他',
 };
 

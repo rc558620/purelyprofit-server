@@ -14,6 +14,8 @@ import type {
 import type {
   SpaceCustomerPaymentMethodValue,
   SpaceSettlementChannelValue,
+  SpaceSettlementStatusValue,
+  SpaceTimeFeeModeValue,
 } from './dto/space-session.constants';
 
 /**
@@ -138,9 +140,39 @@ export const toSpaceSessionResponse = (
     ...(session.prepaidVoucherFaceAmount !== null
       ? {
           prepaidVoucherFaceAmount: Money.fromDbCents(
-            Number(session.prepaidVoucherFaceAmount),
+            session.prepaidVoucherFaceAmount,
           ).toOutputYuan(),
         }
+      : {}),
+    // ① 修复：平台结算字段输出映射
+    ...(session.settlementStatus
+      ? {
+          settlementStatus:
+            session.settlementStatus as SpaceSettlementStatusValue,
+        }
+      : {}),
+    ...(session.platformReceivable != null
+      ? {
+          platformReceivable: Money.fromDbCents(
+            session.platformReceivable,
+          ).toOutputYuan(),
+        }
+      : {}),
+    ...(session.platformSettledAmount != null
+      ? {
+          platformSettledAmount: Money.fromDbCents(
+            session.platformSettledAmount,
+          ).toOutputYuan(),
+        }
+      : {}),
+    ...(session.platformFee != null
+      ? {
+          platformFee: Money.fromDbCents(session.platformFee).toOutputYuan(),
+        }
+      : {}),
+    // ⑤ 修复：台位费口径审计字段
+    ...(session.timeFeeMode
+      ? { timeFeeMode: session.timeFeeMode as SpaceTimeFeeModeValue }
       : {}),
     items: items.map((item): SpaceSessionItemResponseDto => ({ ...item })),
     // DB 存储为分（Int），转为元

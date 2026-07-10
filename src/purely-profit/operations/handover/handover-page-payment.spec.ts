@@ -206,6 +206,8 @@ describe('handover-page-payment', () => {
               startTime: new Date(),
               prepaidPaymentMethod: SalesPaymentMethod.cash,
               prepaidCustomerPaymentMethod: 'groupon_voucher', // 顾客用团购券
+              prepaidGrouponPlatform: null,
+              prepaidGrouponCode: null,
               sessionRenewRecords: [],
               space: { name: 'A22' },
               openOperatorNameSnapshot: null,
@@ -242,6 +244,8 @@ describe('handover-page-payment', () => {
               startTime: new Date(),
               prepaidPaymentMethod: SalesPaymentMethod.wechat,
               prepaidCustomerPaymentMethod: 'wechat', // 顾客用微信
+              prepaidGrouponPlatform: null,
+              prepaidGrouponCode: null,
               sessionRenewRecords: [],
               space: { name: 'A01' },
               openOperatorNameSnapshot: null,
@@ -276,6 +280,8 @@ describe('handover-page-payment', () => {
               startTime: new Date(),
               prepaidPaymentMethod: SalesPaymentMethod.cash,
               prepaidCustomerPaymentMethod: 'groupon_voucher', // 顾客用团购券开台
+              prepaidGrouponPlatform: null,
+              prepaidGrouponCode: null,
               sessionRenewRecords: [],
               space: { name: 'A22' },
               openOperatorNameSnapshot: null,

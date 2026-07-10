@@ -28,8 +28,12 @@ export class SpaceSessionTransferService {
     sessionId: number,
     dto: TransferSpaceSessionDto,
   ): Promise<TransferSpaceSessionResponseDto> {
-    const session = await this.prisma.spaceSession.findUnique({
-      where: { id: sessionId },
+    // BUG-1 fix: 与 checkout / list / detail 的 deletedAt: null 口径一致
+    const session = await this.prisma.spaceSession.findFirst({
+      where: {
+        id: sessionId,
+        space: { deletedAt: null },
+      },
       include: {
         space: {
           select: {
@@ -269,6 +273,9 @@ export class SpaceSessionTransferService {
         where: { id: latestSession.id },
         data: {
           spaceId: latestTargetSpace.id,
+          // BUG-2 fix: 转台后清空 reservationId，避免会话关联的预约仍指向旧空间
+          // 原预约在开台时已置为 fulfilled，其空间归属审计信息保留在原预约记录中
+          reservationId: null,
         },
         include: {
           space: {

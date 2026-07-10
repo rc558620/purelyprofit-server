@@ -52,16 +52,13 @@ export const ensureOpenSessionPayload = (
       payload.prepaidGrouponPlatform !== undefined;
 
     if (hasPrepaid) {
-      if (
-        payload.prepaidPaymentMethod === undefined ||
-        payload.prepaidAmount === undefined ||
-        payload.prepaidAmount <= 0
-      ) {
-        throw new BadRequestException('开启预付款后请输入付款金额与支付方式');
-      }
-      assertMoneyPrecision(payload.prepaidAmount, '预付金额');
+      // BUG-5 fix: 团购预付允许以 prepaidCustomerPaymentMethod + voucherFaceAmount 作为有效预付组合，
+      // 不强制要求传统 prepaidPaymentMethod / prepaidAmount
+      const isGrouponPrepaid =
+        payload.prepaidCustomerPaymentMethod === 'groupon_voucher';
 
-      if (payload.prepaidCustomerPaymentMethod === 'groupon_voucher') {
+      if (isGrouponPrepaid) {
+        // 团购预付：必须有券码、平台、结算渠道、券面金额
         assertRequiredNonEmpty(payload.prepaidVoucherCode, '预付券码');
         assertRequiredNonEmpty(
           payload.prepaidVoucherPlatform,
@@ -78,7 +75,34 @@ export const ensureOpenSessionPayload = (
           throw new BadRequestException('预付券面金额必须大于 0');
         }
         assertMoneyPrecision(payload.prepaidVoucherFaceAmount, '预付券面金额');
+        // B4 fix: 团购场景下实付金额不应超过券面金额，
+        // 与续费链路 normalizeRenewPayload 的 G4 校验保持一致
+        if (
+          payload.prepaidAmount !== undefined &&
+          payload.prepaidVoucherFaceAmount !== undefined &&
+          payload.prepaidAmount > payload.prepaidVoucherFaceAmount
+        ) {
+          throw new BadRequestException(
+            '预付金额不能超过券面金额（团购券规则：实付 ≤ 券面）',
+          );
+        }
+      } else {
+        // 传统预付：必须有支付方式和预付金额
+        if (
+          payload.prepaidPaymentMethod === undefined ||
+          payload.prepaidAmount === undefined ||
+          payload.prepaidAmount <= 0
+        ) {
+          throw new BadRequestException('开启预付款后请输入付款金额与支付方式');
+        }
+        assertMoneyPrecision(payload.prepaidAmount, '预付金额');
       }
+    }
+
+    // B3 fix: 自动结账必须配合预付方式，否则自动结账扫描会跳过该会话，
+    // 导致空间永久占用且运营无感知。
+    if (payload.autoCheckout && !hasPrepaid) {
+      throw new BadRequestException('开启自动结账必须同时设置预付款方式');
     }
 
     return;

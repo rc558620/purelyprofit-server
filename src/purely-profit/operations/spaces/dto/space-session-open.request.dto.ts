@@ -21,6 +21,7 @@ import {
   type SpaceBillingModeValue,
 } from '../spaces.constants';
 import {
+  GROUPON_PLATFORM_VALUES,
   SPACE_CUSTOMER_PAYMENT_METHOD_VALUES,
   SPACE_SESSION_CONTACT_PATTERN,
   SPACE_SETTLEMENT_CHANNEL_VALUES,
@@ -134,10 +135,13 @@ export class OpenSpaceSessionDto {
   @MaxLength(50, { message: '预付团购券码最长 50 个字符' })
   prepaidGrouponCode?: string;
 
-  @ApiPropertyOptional({ example: '美团', description: '预付团购平台' })
+  @ApiPropertyOptional({
+    example: 'meituan',
+    description: '预付团购平台',
+    enum: GROUPON_PLATFORM_VALUES,
+  })
   @IsOptional()
-  @IsString({ message: '预付团购平台必须是字符串' })
-  @MaxLength(20, { message: '预付团购平台最长 20 个字符' })
+  @IsIn(GROUPON_PLATFORM_VALUES, { message: '预付团购平台不合法' })
   prepaidGrouponPlatform?: string;
 
   @ApiPropertyOptional({ example: 'MT123456', description: '预付券码' })
@@ -146,10 +150,13 @@ export class OpenSpaceSessionDto {
   @MaxLength(50, { message: '预付券码最长 50 个字符' })
   prepaidVoucherCode?: string;
 
-  @ApiPropertyOptional({ example: '美团', description: '预付券所属平台' })
+  @ApiPropertyOptional({
+    example: 'meituan',
+    description: '预付券所属平台',
+    enum: GROUPON_PLATFORM_VALUES,
+  })
   @IsOptional()
-  @IsString({ message: '预付券所属平台必须是字符串' })
-  @MaxLength(20, { message: '预付券所属平台最长 20 个字符' })
+  @IsIn(GROUPON_PLATFORM_VALUES, { message: '预付券所属平台不合法' })
   prepaidVoucherPlatform?: string;
 
   @ApiPropertyOptional({ example: '美团团购券', description: '预付备注' })

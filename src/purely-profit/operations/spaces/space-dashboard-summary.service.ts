@@ -44,6 +44,8 @@ export class SpaceDashboardSummaryService {
         where: {
           storeId,
           status: PrismaSpaceSessionStatus.active,
+          // P3 fix: 排除已软删除空间的会话，与看板 findSpacesByStore 的 deletedAt: null 口径一致
+          space: { deletedAt: null },
         },
         select: {
           id: true,
@@ -71,6 +73,8 @@ export class SpaceDashboardSummaryService {
         where: {
           storeId,
           status: PrismaSpaceReservationStatus.pending,
+          // P3 fix: 排除已软删除空间的预约，与看板 findSpacesByStore 的 deletedAt: null 口径一致
+          space: { deletedAt: null },
         },
         select: {
           id: true,

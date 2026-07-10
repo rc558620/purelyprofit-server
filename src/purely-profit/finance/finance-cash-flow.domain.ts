@@ -10,7 +10,7 @@ import {
   type FinanceCashFlowCategoryRule,
 } from './finance.constants';
 import type { FinanceCashFlowStatsRow } from './finance.types';
-import { formatReportDateLabel } from './finance-date.utils';
+import { formatReportDateTimeLabel } from './finance-date.utils';
 import { Money } from '../../shared/money.utils';
 
 export function assertCashFlowCategoryCanCreateManually(
@@ -99,6 +99,7 @@ export function buildFinanceReportCashFlowRows(
   records: Array<{
     id: number;
     date: Date;
+    createdAt: Date;
     title: string;
     direction: string;
     category: string;
@@ -108,7 +109,7 @@ export function buildFinanceReportCashFlowRows(
 ): FinanceReportCashFlowRowDto[] {
   return records.map((record) => ({
     id: String(record.id),
-    dateLabel: formatReportDateLabel(record.date.getTime()),
+    dateLabel: formatReportDateTimeLabel(record.createdAt.getTime()),
     title: record.title,
     direction: record.direction,
     categoryLabel:

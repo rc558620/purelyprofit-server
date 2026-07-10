@@ -5,6 +5,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import * as inventoryStockQuery from '../../goods/inventory/inventory-stock.query';
 import { SpaceSessionRenewService } from './space-session-renew.service';
+import { RedisLockService } from '../../../redis/redis-lock.service';
 import { SpaceSessionWriteService } from './space-session-write.service';
 import { mapSessionItemRows } from './space-sessions.mapper';
 import { createSpaceTestUser } from './space-session.spec-helpers';
@@ -33,6 +34,7 @@ describe('SpaceSession concurrency fixes', () => {
 
     const prismaService = {
       spaceSession: {
+        findFirst: jest.fn(),
         findUnique: jest.fn(),
       },
       $transaction: jest.fn(),
@@ -42,18 +44,30 @@ describe('SpaceSession concurrency fixes', () => {
       ensureCanAccessStore: jest.fn(),
     };
 
+    const redisLockService = {
+      acquireLock: jest.fn(),
+      releaseLock: jest.fn(),
+    };
+
     beforeEach(async () => {
       jest.clearAllMocks();
       prismaService.$transaction.mockImplementation((callback) =>
         Promise.resolve(callback(transaction)),
       );
       commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
+      redisLockService.acquireLock.mockResolvedValue({
+        resource: 'space:session:renew:9',
+        token: 'test-token',
+        key: 'distributed-lock:space:session:renew:9',
+      });
+      redisLockService.releaseLock.mockResolvedValue(undefined);
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           SpaceSessionRenewService,
           { provide: PrismaService, useValue: prismaService },
           { provide: CommerceAccessService, useValue: commerceAccessService },
+          { provide: RedisLockService, useValue: redisLockService },
         ],
       }).compile();
 
@@ -64,6 +78,10 @@ describe('SpaceSession concurrency fixes', () => {
       jest.spyOn(Date, 'now').mockReturnValue(1_717_000_000_000);
       jest.spyOn(Math, 'random').mockReturnValue(0.123456);
 
+      prismaService.spaceSession.findFirst.mockResolvedValue({
+        id: 9,
+        storeId: 18,
+      });
       prismaService.spaceSession.findUnique.mockResolvedValue({
         id: 9,
         storeId: 18,
