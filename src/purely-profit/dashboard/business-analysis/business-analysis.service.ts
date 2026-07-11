@@ -11,9 +11,8 @@ import {
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { GetBusinessAnalysisQueryDto } from './dto/business-analysis-query.dto';
 import type { BusinessAnalysisResponseDto } from './dto/business-analysis-response.dto';
-import {
-  safeStreamCsvExport,
-} from '../../../shared/stream-export.utils';
+import type { BusinessAnalysisAccessibleRange } from './business-analysis.types';
+import { safeStreamCsvExport } from '../../../shared/stream-export.utils';
 import {
   buildCostAggregation,
   buildSalesAggregation,
@@ -32,6 +31,28 @@ import {
 
 const BUSINESS_ANALYSIS_CACHE_TTL_SECONDS = 120;
 const BUSINESS_ANALYSIS_REFRESH_AFTER_MS = 30_000;
+const DAY_MS = 86_400_000;
+// 与 business-analysis.mapper 中的 MAX_TREND_DAYS 保持一致：趋势图最多覆盖 366 天
+// （完整自然年）。超过该跨度的自定义区间，在聚合（heroSummary 总额）与日趋势
+// （dailyTrend）两端统一裁剪到末尾窗口，避免口径不一致。
+const MAX_TREND_DAYS = 366;
+
+/**
+ * 将区间裁剪到末尾最多 MAX_TREND_DAYS 天，使 heroSummary 汇总与
+ * dailyTrend 使用同一窗口，避免长自定义区间下总额与趋势口径不一致。
+ */
+function clampRangeToMaxTrendDays(
+  range: BusinessAnalysisAccessibleRange,
+): BusinessAnalysisAccessibleRange {
+  const spanDays = Math.floor((range.end - range.start) / DAY_MS) + 1;
+  if (spanDays <= MAX_TREND_DAYS) {
+    return range;
+  }
+  return {
+    ...range,
+    start: range.end - (MAX_TREND_DAYS - 1) * DAY_MS,
+  };
+}
 
 @Injectable()
 export class BusinessAnalysisService {
@@ -115,32 +136,41 @@ export class BusinessAnalysisService {
     query: GetBusinessAnalysisQueryDto,
     callerIsSubAccount: boolean,
   ): Promise<BusinessAnalysisResponseDto> {
-    const currentRange = resolveCurrentRange(query);
-    const previousRange = getPreviousRange(
-      currentRange.start,
-      currentRange.end,
-    );
-    const [clampedCurrentRange, clampedPreviousRange] = await Promise.all([
-      this.platformMembershipAccessService.clampHistoryRange(
+    const rawCurrentRange = resolveCurrentRange(query);
+    // 先按会员历史窗口裁剪当前区间（老板受窗口限制，子账号不受限）。
+    const windowClampedCurrentRange =
+      await this.platformMembershipAccessService.clampHistoryRange(
         storeId,
-        currentRange,
+        rawCurrentRange,
         callerIsSubAccount,
-      ),
-      this.platformMembershipAccessService.clampHistoryRange(
-        storeId,
-        previousRange,
-        callerIsSubAccount,
-      ),
-    ]);
+      );
 
-    if (clampedCurrentRange.empty) {
+    if (windowClampedCurrentRange.empty) {
       return buildEmptyAnalysisResponse();
     }
+
+    // 趋势图最多覆盖 MAX_TREND_DAYS 天：先把当前区间裁剪到末尾窗口，
+    // 使 heroSummary 汇总与 dailyTrend 口径一致。
+    // 上一区间基于「裁剪后的当前区间」推算，保证环比为等长相邻窗口，
+    // 修复会员历史窗口落在上一周期、导致当前/上一周期长度错位的缺陷。
+    const effectiveCurrentRange = clampRangeToMaxTrendDays(
+      windowClampedCurrentRange,
+    );
+    const rawPreviousRange = getPreviousRange(
+      effectiveCurrentRange.start,
+      effectiveCurrentRange.end,
+    );
+    const clampedPreviousRange =
+      await this.platformMembershipAccessService.clampHistoryRange(
+        storeId,
+        rawPreviousRange,
+        callerIsSubAccount,
+      );
 
     const metricsRows = await fetchBusinessAnalysisMetrics(
       this.prisma,
       storeId,
-      clampedCurrentRange,
+      effectiveCurrentRange,
       clampedPreviousRange,
     );
     const currentSales = buildSalesAggregation({
@@ -168,7 +198,7 @@ export class BusinessAnalysisService {
         });
 
     return buildBusinessAnalysisResponse({
-      currentRange: clampedCurrentRange,
+      currentRange: effectiveCurrentRange,
       currentSales,
       previousSales,
       currentCosts,

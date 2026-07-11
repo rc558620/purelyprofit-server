@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -175,6 +176,7 @@ describe('EmployeesShiftService', () => {
           id: 9,
           startTime: '09:00',
           endTime: '15:00',
+          date: new Date('2026-06-01'),
         },
       ]);
 
@@ -185,6 +187,131 @@ describe('EmployeesShiftService', () => {
           shiftDefinitionId: 1,
         }),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('同员工同日非重叠班次也应返回 409（排班互斥 BUG-1）', async () => {
+      employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+        id: 5,
+        storeId: 2,
+        name: '张三',
+      });
+      employeesShiftDefinitionService.findShiftDefinitionForStoreOrThrow.mockResolvedValue(
+        {
+          id: 1,
+          name: '晚班',
+          defaultStartTime: '17:00',
+          defaultEndTime: '23:00',
+        },
+      );
+      prismaService.employeeShift.findMany.mockResolvedValue([
+        {
+          id: 9,
+          startTime: '08:00',
+          endTime: '14:00',
+          date: new Date('2026-06-01'),
+        },
+      ]);
+
+      await expect(
+        service.createShift(user, {
+          employeeId: 5,
+          date: new Date('2026-06-01').getTime(),
+          shiftDefinitionId: 1,
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('跨日排班与前一日跨日班次重叠应返回 409（BUG-3）', async () => {
+      employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+        id: 5,
+        storeId: 2,
+        name: '张三',
+      });
+      employeesShiftDefinitionService.findShiftDefinitionForStoreOrThrow.mockResolvedValue(
+        {
+          id: 2,
+          name: '早班',
+          defaultStartTime: '05:00',
+          defaultEndTime: '09:00',
+        },
+      );
+      prismaService.employeeShift.findMany.mockResolvedValue([
+        {
+          id: 9,
+          startTime: '22:00',
+          endTime: '06:00',
+          date: new Date('2026-05-31'),
+        },
+      ]);
+
+      await expect(
+        service.createShift(user, {
+          employeeId: 5,
+          date: new Date('2026-06-01').getTime(),
+          shiftDefinitionId: 2,
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('并发写入触发唯一约束时返回 409（BUG-1 DB 兜底 P2002）', async () => {
+      employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+        id: 5,
+        storeId: 2,
+        name: '张三',
+      });
+      employeesShiftDefinitionService.findShiftDefinitionForStoreOrThrow.mockResolvedValue(
+        {
+          id: 1,
+          name: '早班',
+          defaultStartTime: '08:00',
+          defaultEndTime: '14:00',
+        },
+      );
+      // 应用层未检出冲突（并发场景另一请求已抢先写入），由 DB 唯一约束兜底
+      prismaService.employeeShift.findMany.mockResolvedValue([]);
+      prismaService.employeeShift.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: '6.0.0',
+        }),
+      );
+
+      await expect(
+        service.createShift(user, {
+          employeeId: 5,
+          date: new Date('2026-06-01').getTime(),
+          shiftDefinitionId: 1,
+        }),
+      ).rejects.toThrow(ConflictException);
+      expect(prismaService.employeeShift.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('create 非唯一约束错误应原样抛出', async () => {
+      employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
+        id: 5,
+        storeId: 2,
+        name: '张三',
+      });
+      employeesShiftDefinitionService.findShiftDefinitionForStoreOrThrow.mockResolvedValue(
+        {
+          id: 1,
+          name: '早班',
+          defaultStartTime: '08:00',
+          defaultEndTime: '14:00',
+        },
+      );
+      prismaService.employeeShift.findMany.mockResolvedValue([]);
+      prismaService.employeeShift.create.mockRejectedValue(
+        new Error('DB down'),
+      );
+
+      await expect(
+        service.createShift(user, {
+          employeeId: 5,
+          date: new Date('2026-06-01').getTime(),
+          shiftDefinitionId: 1,
+        }),
+      ).rejects.toThrow('DB down');
     });
 
     it('返回结构带 shiftName', async () => {
@@ -427,6 +554,42 @@ describe('EmployeesShiftService', () => {
           shiftDefinitionId: 2,
         }),
       });
+    });
+
+    it('并发更新 date 触发唯一约束时返回 409（BUG-1 DB 兜底 P2002）', async () => {
+      prismaService.employeeShift.findUnique.mockResolvedValue({
+        id: 10,
+        storeId: 2,
+        employeeId: 5,
+        employeeName: '张三',
+        shiftType: 'morning',
+        shiftDefinitionId: 1,
+        shiftName: '早班',
+        date: new Date('2026-06-01'),
+        startTime: '08:00',
+        endTime: '14:00',
+        note: null,
+        createdAt,
+        updatedAt,
+      });
+      employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
+        undefined,
+      );
+      // 应用层未检出冲突（并发场景另一请求已抢先写入），由 DB 唯一约束兜底
+      prismaService.employeeShift.findMany.mockResolvedValue([]);
+      prismaService.employeeShift.update.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: '6.0.0',
+        }),
+      );
+
+      await expect(
+        service.updateShift(user, 10, {
+          date: new Date('2026-06-02').getTime(),
+        }),
+      ).rejects.toThrow(ConflictException);
+      expect(prismaService.employeeShift.update).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -1,9 +1,9 @@
 import {
-  getDayStartTimestamp,
   isDeductionProductName,
   toOptionalMediaText,
   toOptionalText,
 } from '../../commerce/commerce.utils';
+import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import { Money } from '../../../shared/money.utils';
 import type {
   AggregatedRankProduct,
@@ -67,7 +67,7 @@ export function aggregateSales(
     seenOrderIds.add(row.order.id);
     orderCount = seenOrderIds.size;
 
-    const dayStart = getDayStartTimestamp(timestamp);
+    const dayStart = getShanghaiDayStartMs(timestamp);
     dailyRevenueMap.set(
       dayStart,
       (dailyRevenueMap.get(dayStart) ?? Money.zero()).add(itemRevenue),
@@ -109,7 +109,7 @@ export function aggregateCosts(
     const amount = Money.fromDbCents(row.amount);
     totalCost = totalCost.add(amount);
 
-    const dayStart = getDayStartTimestamp(timestamp);
+    const dayStart = getShanghaiDayStartMs(timestamp);
     dailyCostMap.set(
       dayStart,
       (dailyCostMap.get(dayStart) ?? Money.zero()).add(amount),

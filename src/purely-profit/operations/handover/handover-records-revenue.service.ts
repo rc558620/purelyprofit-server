@@ -43,19 +43,26 @@ export class HandoverRecordsRevenueService {
       storeId,
       shiftRange,
     );
-    const [additionalRevenue, settledSessions] = await Promise.all([
+    const [additionalRevenue, spaceRevenue] = await Promise.all([
       this.loadAdditionalRevenue(additionalOrderWhere),
-      this.loadSettledSpaceSessions(storeId, shiftRange),
+      this.loadSpaceRevenue(storeId, shiftRange),
     ]);
 
+    // 与 buildRecordRevenueDetail / 实时交班页口径一致：
+    // 本班营业额 = 非空间销售营收 + 空间会话消费（timeCost + itemsCost）。
+    // 退款（来自空间会话预付溢出）在详情/页面中作为独立字段展示，不在此处扣除。
     const additionalRevenueAmount = Money.fromInputYuan(
       dbCentsToOutputYuan(additionalRevenue._sum.totalRevenue ?? 0),
     );
-    const refundAmount = Money.fromInputYuan(
-      computeRefundAmountFromSessions(settledSessions),
+    const spaceRevenueAmount = Money.fromInputYuan(
+      dbCentsToOutputYuan(
+        new Prisma.Decimal(spaceRevenue._sum.timeCost ?? 0).plus(
+          spaceRevenue._sum.itemsCost ?? 0,
+        ),
+      ),
     );
 
-    return additionalRevenueAmount.subtract(refundAmount).toOutputYuan();
+    return additionalRevenueAmount.add(spaceRevenueAmount).toOutputYuan();
   }
 
   async buildRecordRevenueDetail(
@@ -178,6 +185,8 @@ export class HandoverRecordsRevenueService {
         itemsCost: true,
         prepaidAmount: true,
         prepaidGrouponCode: true,
+        prepaidCustomerPaymentMethod: true,
+        prepaidGrouponPlatform: true,
         endTime: true,
         space: {
           select: {

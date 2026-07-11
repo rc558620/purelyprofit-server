@@ -28,11 +28,20 @@ export const GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD = 'groupon_voucher';
 /** 团购券显示配置：用于开台项顾客实际支付方式为团购时的 label/color 覆盖 */
 export const GROUPON_VOUCHER_DISPLAY = { label: '团购', color: '#b45309' };
 
-/** 团购平台拼音 → 中文映射（兼容 DB 中存入拼音值的旧数据） */
+/** 团购平台拼音 → 中文映射（兼容 DB 中存入拼音值的旧数据，与 GROUPON_PLATFORM_OPTIONS 对齐） */
 const GROUPON_PLATFORM_ZH_MAP: Record<string, string> = {
   meituan: '美团',
   douyin: '抖音',
   tiktok: '抖音',
+  kuaishou: '快手',
+  xiaohongshu: '小红书',
+  dianping: '大众点评',
+  eleme: '饿了么',
+  pinduoduo: '拼多多',
+  taobao: '淘宝',
+  jd: '京东',
+  wechat_store: '微信小商店',
+  other: '其他',
 };
 
 /**

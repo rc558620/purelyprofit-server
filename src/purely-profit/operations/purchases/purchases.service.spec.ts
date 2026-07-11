@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
@@ -41,6 +41,7 @@ describe('PurchasesService', () => {
   const costsService = {
     syncPurchaseCost: jest.fn(),
     deletePurchaseCostRecord: jest.fn(),
+    invalidateCostCaches: jest.fn().mockResolvedValue(undefined),
   };
 
   const configService = {
@@ -395,6 +396,29 @@ describe('PurchasesService', () => {
         supplierName: '临时供应商',
       }),
     );
+  });
+
+  it('create 在进货日期晚于当前时间时拒绝并阻止落库', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    commerceAccessService.findOperatorStaffIdForStore.mockResolvedValue(8);
+
+    await expect(
+      service.create(user, {
+        supplierName: '临时供应商',
+        items: [
+          {
+            productName: '散装辣条',
+            quantity: 3,
+            unitPrice: 12,
+          },
+        ],
+        date: Date.now() + 60 * 60 * 1000, // 1 小时后（未来时间）
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // 日期校验在事务之前，不应进入落库/成本同步
+    expect(prismaService.$transaction).not.toHaveBeenCalled();
+    expect(costsService.syncPurchaseCost).not.toHaveBeenCalled();
   });
 
   it('remove 在进货单不存在时抛出 NotFoundException', async () => {

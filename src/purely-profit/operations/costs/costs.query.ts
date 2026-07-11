@@ -18,13 +18,12 @@ export async function buildHistoryAwareCostRecordWhere(
   platformMembershipAccessService: PlatformMembershipAccessService,
   storeId: number,
   query: CostQueryInput,
-  callerIsSubAccount = false,
+  _callerIsSubAccount = false,
 ): Promise<Prisma.CostRecordWhereInput | null> {
   const range = await buildHistoryAwareCostRange(
     platformMembershipAccessService,
     storeId,
     query,
-    callerIsSubAccount,
   );
 
   if (range === null) {
@@ -51,20 +50,27 @@ export async function queryCostReportRows(
   costRows: CostReportCostRow[];
   previousTotal: number;
   payrollRows: CostReportPayrollRow[];
+  currentTotalCents: number;
+  currentCount: number;
+  fixedCents: number;
+  variableCents: number;
+  categoryCents: Map<CostReportCostRow['category'], number>;
 }> {
   const categoryWhere =
     categoryFilter !== 'all' ? { category: categoryFilter } : {};
 
+  const currentWhere = {
+    storeId,
+    date: {
+      gte: new Date(currentRange.start),
+      lte: new Date(currentRange.end),
+    },
+    ...categoryWhere,
+  };
+
   const costRowsPromise: Promise<CostReportCostRow[]> =
     prisma.costRecord.findMany({
-      where: {
-        storeId,
-        date: {
-          gte: new Date(currentRange.start),
-          lte: new Date(currentRange.end),
-        },
-        ...categoryWhere,
-      },
+      where: currentWhere,
       select: {
         id: true,
         title: true,
@@ -79,23 +85,44 @@ export async function queryCostReportRows(
       take: maxPageSize,
     });
 
-  const previousTotalPromise: Promise<number> = previousRange
-    ? prisma.costRecord
-        .aggregate({
-          where: {
-            storeId,
-            date: {
-              gte: new Date(previousRange.start),
-              lte: new Date(previousRange.end),
-            },
-            ...categoryWhere,
-          },
-          _sum: {
-            amount: true,
-          },
-        })
-        .then((result) => result._sum.amount ?? 0)
-    : Promise.resolve(0);
+  const previousTotalPromise: Promise<number> = (async () => {
+    if (!previousRange) {
+      return 0;
+    }
+    const result = await prisma.costRecord.aggregate({
+      where: {
+        storeId,
+        date: {
+          gte: new Date(previousRange.start),
+          lte: new Date(previousRange.end),
+        },
+        ...categoryWhere,
+      },
+      _sum: {
+        amount: true,
+      },
+    });
+    return Number(result._sum.amount ?? 0);
+  })();
+
+  // 汇总口径统一走聚合，避免大批量时 total / recordCount 被 maxPageSize 截断而失真
+  const currentAggregatePromise = prisma.costRecord.aggregate({
+    where: currentWhere,
+    _sum: { amount: true },
+    _count: { _all: true },
+  });
+
+  const typeRowsPromise = prisma.costRecord.groupBy({
+    by: ['type'],
+    where: currentWhere,
+    _sum: { amount: true },
+  });
+
+  const categoryRowsPromise = prisma.costRecord.groupBy({
+    by: ['category'],
+    where: currentWhere,
+    _sum: { amount: true },
+  });
 
   const payrollRowsPromise: Promise<CostReportPayrollRow[]> =
     categoryFilter === 'salary'
@@ -120,16 +147,43 @@ export async function queryCostReportRows(
         })
       : Promise.resolve([]);
 
-  const [costRows, previousTotal, payrollRows] = await Promise.all([
+  const [
+    costRows,
+    previousTotal,
+    currentAggregate,
+    typeRows,
+    categoryRows,
+    payrollRows,
+  ] = await Promise.all([
     costRowsPromise,
     previousTotalPromise,
+    currentAggregatePromise,
+    typeRowsPromise,
+    categoryRowsPromise,
     payrollRowsPromise,
   ]);
+
+  const categoryCents = new Map<CostReportCostRow['category'], number>();
+  for (const row of categoryRows) {
+    categoryCents.set(
+      row.category,
+      (categoryCents.get(row.category) ?? 0) + Number(row._sum.amount ?? 0),
+    );
+  }
 
   return {
     costRows,
     previousTotal,
     payrollRows,
+    currentTotalCents: Number(currentAggregate._sum.amount ?? 0),
+    currentCount: currentAggregate._count._all,
+    fixedCents: Number(
+      typeRows.find((record) => record.type === 'fixed')?._sum.amount ?? 0,
+    ),
+    variableCents: Number(
+      typeRows.find((record) => record.type === 'variable')?._sum.amount ?? 0,
+    ),
+    categoryCents,
   };
 }
 
@@ -137,15 +191,11 @@ async function buildHistoryAwareCostRange(
   platformMembershipAccessService: PlatformMembershipAccessService,
   storeId: number,
   query: CostQueryInput,
-  callerIsSubAccount = false,
 ): Promise<CostFilterRange | null | undefined> {
   const range = buildCostRange(query);
   if (!range) {
     const historyWindowStart =
-      await platformMembershipAccessService.getHistoryWindowStart(
-        storeId,
-        callerIsSubAccount,
-      );
+      await platformMembershipAccessService.getHistoryWindowStart(storeId);
     if (historyWindowStart === null) {
       return undefined;
     }
@@ -162,7 +212,6 @@ async function buildHistoryAwareCostRange(
       start: range.gte.getTime(),
       end: range.lte.getTime(),
     },
-    callerIsSubAccount,
   );
   if (clampedRange.empty) {
     return null;

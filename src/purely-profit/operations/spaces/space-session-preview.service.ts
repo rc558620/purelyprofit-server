@@ -11,11 +11,25 @@ import {
   mapSessionItemRows,
 } from './space-sessions.mapper';
 import { buildSpaceSessionSettlementMoney } from './space-session-settlement.shared';
-import { assertMoneyPrecision } from './space-session-checkout-payload.shared';
+import { MONEY_PRECISION_PATTERN } from './space-session-checkout-payload.shared';
 import { Money } from '../../../shared/money.utils';
 
 /** B7 fix: 续费预览金额上限（元），与 normalizeRenewPayload 保持一致 */
 const RENEW_PREVIEW_AMOUNT_MAX = 99999.99;
+
+/**
+ * P3b fix: 预览专用的软校验，返回错误文案而非抛异常，
+ * 使所有失败场景统一返回 { valid: false, reason }。
+ */
+const checkMoneyPrecisionSoft = (
+  value: number,
+  label: string,
+): string | null => {
+  if (!Number.isFinite(value) || !MONEY_PRECISION_PATTERN.test(String(value))) {
+    return `${label}最多支持两位小数`;
+  }
+  return null;
+};
 
 export interface LivePreviewResult {
   asOf: number;
@@ -100,14 +114,37 @@ export class SpaceSessionPreviewService {
     sessionId: number,
     amount: number,
     voucherFaceAmount?: number,
+    grouponCode?: string,
+    grouponPlatform?: string,
     requestId?: string,
   ): Promise<RenewPreviewResult> {
     void requestId;
 
-    // B7 fix: 金额精度校验，与实际续费 normalizeRenewPayload 保持一致
-    assertMoneyPrecision(amount, '续费金额');
+    // P3b fix: 统一预览失败形态为 { valid: false, reason }
+    const precisionFail = checkMoneyPrecisionSoft(amount, '续费金额');
+    if (precisionFail) {
+      return {
+        amount,
+        addedMinutes: 0,
+        durationLabel: '0 分钟',
+        valid: false,
+        reason: precisionFail,
+      };
+    }
     if (voucherFaceAmount !== undefined) {
-      assertMoneyPrecision(voucherFaceAmount, '券面金额');
+      const voucherPrecisionFail = checkMoneyPrecisionSoft(
+        voucherFaceAmount,
+        '券面金额',
+      );
+      if (voucherPrecisionFail) {
+        return {
+          amount,
+          addedMinutes: 0,
+          durationLabel: '0 分钟',
+          valid: false,
+          reason: voucherPrecisionFail,
+        };
+      }
     }
 
     // B7 fix: 金额上限校验
@@ -172,6 +209,42 @@ export class SpaceSessionPreviewService {
         valid: false,
         reason: '当前会话缺少有效台位费',
       };
+    }
+
+    // P3a fix: 团购场景下校验必填字段，与实际续费 normalizeRenewPayload 保持一致
+    const hasAnyGrouponField = !!(
+      grouponCode ||
+      grouponPlatform ||
+      (voucherFaceAmount !== undefined && voucherFaceAmount > 0)
+    );
+    if (hasAnyGrouponField) {
+      if (!grouponCode?.trim()) {
+        return {
+          amount,
+          addedMinutes: 0,
+          durationLabel: '0 分钟',
+          valid: false,
+          reason: '团购券码不能为空',
+        };
+      }
+      if (!grouponPlatform?.trim()) {
+        return {
+          amount,
+          addedMinutes: 0,
+          durationLabel: '0 分钟',
+          valid: false,
+          reason: '团购平台不能为空',
+        };
+      }
+      if (voucherFaceAmount === undefined || voucherFaceAmount <= 0) {
+        return {
+          amount,
+          addedMinutes: 0,
+          durationLabel: '0 分钟',
+          valid: false,
+          reason: '券面金额必须大于 0',
+        };
+      }
     }
 
     // BUG-3 fix: 团购场景下实付金额不应超过券面金额，与 normalizeRenewPayload G4 规则对齐

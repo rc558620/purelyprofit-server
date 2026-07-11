@@ -100,7 +100,14 @@ export class CostsReadDashboardService {
           .amount ?? 0,
       ),
     );
-    const variableMoney = totalMoney.subtract(fixedMoney);
+    // 与 stats 接口口径一致：变动支出按 type='variable' 聚合，而非 total - fixed，
+    // 避免两者在四舍五入/精度上出现偏差。
+    const variableMoney = Money.fromDbCents(
+      Number(
+        currentTypeRows.find((record) => record.type === 'variable')?._sum
+          .amount ?? 0,
+      ),
+    );
 
     const total = totalMoney.toOutputYuan();
     const fixed = fixedMoney.toOutputYuan();
@@ -137,16 +144,20 @@ export class CostsReadDashboardService {
       })
       .sort((left, right) => right.amount - left.amount);
 
-    // trend：近 7 日数据，在分维度聚合后转元
+    // trend：近 7 日数据（与当前筛选周期解耦，固定为「相对今天」的窗口），
+    // 仅沿用 storeId 与 typeFilter，不再叠加 period 的日期上/下界，
+    // 否则自定义历史区间（如过去的 custom_range）会与 gte=近7日 无交集而返回空趋势。
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
     sevenDaysAgo.setHours(0, 0, 0, 0);
 
+    const trendWhere: typeof currentWhere = {
+      ...currentWhere,
+      date: { gte: sevenDaysAgo },
+    };
+
     const trendRows = await this.prisma.costRecord.findMany({
-      where: {
-        ...currentWhere,
-        date: { gte: sevenDaysAgo },
-      },
+      where: trendWhere,
       select: { type: true, category: true, amount: true, date: true },
       orderBy: [{ date: 'desc' }],
     });

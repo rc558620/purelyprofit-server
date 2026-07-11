@@ -15,6 +15,7 @@ import {
   buildSalesReportCacheKey,
 } from '../../../redis/keys';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
+import { buildGrouponLabel } from '../handover/handover.constants';
 import type {
   SalesReportQueryDto,
   SalesReportResponseDto,
@@ -97,11 +98,15 @@ function buildCsvRowFromOrder(order: SaleOrderWithItems): string[] {
 
   const note = toOptionalText(order.note) ?? '-';
 
-  // 顾客使用团购券时，支付方式显示「团购券」，而非门店结算方式
+  // 顾客使用团购券时，支付方式显示「XX团购」（平台名 + 团购），而非门店结算方式
   const effectivePaymentMethod =
     order.customerPaymentMethod === 'groupon_voucher'
       ? 'groupon_voucher'
       : order.paymentMethod;
+  const paymentLabel =
+    effectivePaymentMethod === 'groupon_voucher'
+      ? buildGrouponLabel(order.grouponPlatform ?? order.voucherPlatform)
+      : resolvePaymentLabel(effectivePaymentMethod);
   const grouponPlatform = toOptionalText(order.grouponPlatform) ?? '-';
   const voucherCode = toOptionalText(order.voucherCode) ?? '-';
 
@@ -111,7 +116,7 @@ function buildCsvRowFromOrder(order: SaleOrderWithItems): string[] {
     String(amounts.totalQuantity),
     String(amounts.totalRevenue),
     String(amounts.totalProfit),
-    resolvePaymentLabel(effectivePaymentMethod),
+    paymentLabel,
     grouponPlatform,
     voucherCode,
     operatorName,
@@ -251,7 +256,7 @@ export class SalesRecordReportService {
       ttlSeconds: SALES_REPORT_CACHE_TTL_SECONDS,
       refreshAfterMs: SALES_REPORT_REFRESH_AFTER_MS,
       loadValue: () => this.buildReport(storeId, callerIsSubAccount, query),
-      refreshValue: () => this.buildReport(storeId, false, query),
+      refreshValue: () => this.buildReport(storeId, callerIsSubAccount, query),
     });
   }
 

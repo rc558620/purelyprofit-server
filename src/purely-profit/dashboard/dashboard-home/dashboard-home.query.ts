@@ -3,11 +3,11 @@ import {
   SpaceReservationStatus as PrismaSpaceReservationStatus,
   Prisma,
 } from '@prisma/client';
-import {
-  getDayEndTimestamp,
-  getDayStartTimestamp,
-} from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
+import {
+  getShanghaiDayEndMs,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   buildDerivedFinanceAccountStatusWhere,
@@ -70,7 +70,7 @@ function resolveTrendStart(
   currentRange: TimeRange,
 ): number {
   if (period === 'week') {
-    const anchorDayStart = getDayStartTimestamp(currentRange.end);
+    const anchorDayStart = getShanghaiDayStartMs(currentRange.end);
     return anchorDayStart - DAY_MS * 6;
   }
 
@@ -142,18 +142,26 @@ export async function loadDashboardHomeStatsData(
   return {
     store,
     currentSales: {
-      revenue: Money.fromDbCents(Number(currentSalesAgg[0]?.revenue ?? 0)).toOutputYuan(),
+      revenue: Money.fromDbCents(
+        Number(currentSalesAgg[0]?.revenue ?? 0),
+      ).toOutputYuan(),
       orderCount: Number(currentSalesAgg[0]?.order_count ?? 0),
     },
     compareSales: {
-      revenue: Money.fromDbCents(Number(compareSalesAgg[0]?.revenue ?? 0)).toOutputYuan(),
+      revenue: Money.fromDbCents(
+        Number(compareSalesAgg[0]?.revenue ?? 0),
+      ).toOutputYuan(),
       orderCount: Number(compareSalesAgg[0]?.order_count ?? 0),
     },
     currentCosts: {
-      totalCost: Money.fromDbCents(currentCostsAgg._sum.amount ?? 0).toOutputYuan(),
+      totalCost: Money.fromDbCents(
+        currentCostsAgg._sum.amount ?? 0,
+      ).toOutputYuan(),
     },
     compareCosts: {
-      totalCost: Money.fromDbCents(compareCostsAgg._sum.amount ?? 0).toOutputYuan(),
+      totalCost: Money.fromDbCents(
+        compareCostsAgg._sum.amount ?? 0,
+      ).toOutputYuan(),
     },
   };
 }
@@ -167,7 +175,7 @@ export async function loadDashboardHomeTrendRows(
 
   const rows = await prisma.$queryRaw<DashboardHomeTrendRevenueRow[]>`
     SELECT
-      date_trunc(${sqlGranularity}, so.date) AS "bucketAt",
+      date_trunc(${sqlGranularity}, so.date + interval '8 hours') - interval '8 hours' AS "bucketAt",
       COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue
     FROM sale_order_items soi
     INNER JOIN sale_orders so ON so.id = soi.order_id
@@ -187,15 +195,15 @@ export async function loadDashboardHomeActivitiesData(
   params: LoadDashboardHomeActivitiesDataParams,
 ): Promise<DashboardHomeActivitiesData> {
   const { storeId, now } = params;
-  const todayStart = getDayStartTimestamp(now);
-  const todayEnd = getDayEndTimestamp(now);
-  const upcomingLeaveEnd = getDayEndTimestamp(todayStart + DAY_MS * 3);
+  const todayStart = getShanghaiDayStartMs(now);
+  const todayEnd = getShanghaiDayEndMs(now);
+  const upcomingLeaveEnd = getShanghaiDayEndMs(todayStart + DAY_MS * 3);
   const reservationWindowEnd =
     now + UPCOMING_RESERVATION_WITHIN_HOURS * 60 * 60 * 1000;
   const vipInactiveThreshold = new Date(
     now - VIP_INACTIVE_THRESHOLD_DAYS * DAY_MS,
   );
-  const revenueLookbackStart = getDayStartTimestamp(
+  const revenueLookbackStart = getShanghaiDayStartMs(
     now - (REVENUE_DECLINE_CONSECUTIVE_DAYS + 1) * DAY_MS,
   );
 
@@ -375,7 +383,7 @@ async function loadRecentDailyRevenue(
 ): Promise<DailyRevenueRow[]> {
   const rows = await prisma.$queryRaw<DailyRevenueRow[]>`
     SELECT
-      date_trunc('day', so.date) AS "bucketAt",
+      date_trunc('day', so.date + interval '8 hours') - interval '8 hours' AS "bucketAt",
       COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue
     FROM sale_order_items soi
     INNER JOIN sale_orders so ON so.id = soi.order_id

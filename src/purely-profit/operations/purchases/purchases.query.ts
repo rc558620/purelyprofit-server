@@ -35,13 +35,9 @@ export async function countPurchaseOrders(
 
 export async function countPurchaseSuppliers(
   prisma: PrismaService,
-  storeId: number,
-  where?: Prisma.PurchaseOrderWhereInput,
+  _storeId: number,
+  where: Prisma.PurchaseOrderWhereInput,
 ): Promise<number> {
-  if (!where) {
-    return prisma.supplier.count({ where: { storeId } });
-  }
-
   const result = await prisma.purchaseOrder.findMany({
     where,
     select: { supplierId: true },

@@ -431,6 +431,13 @@ export class SalesRecordResponseDto {
   paymentMethod: SalesPaymentMethodValue;
 
   @ApiProperty({
+    example: '美团团购',
+    description:
+      '支付方式展示标签（团购场景自动拼接平台名称，如"美团团购""抖音团购"；非团购场景与 paymentMethod 对应的中文一致）',
+  })
+  paymentLabel: string;
+
+  @ApiProperty({
     example: 'business',
     enum: SALES_CALC_MODE_VALUES,
     description: '结算模式',

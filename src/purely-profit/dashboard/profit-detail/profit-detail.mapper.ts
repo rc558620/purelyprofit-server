@@ -1,10 +1,15 @@
 import {
   calcPercentChange,
   calcPercentOfTotal,
-  formatMonthDayLabel,
-  getDayStartTimestamp,
 } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
+import {
+  formatShanghaiDayLabel,
+  formatYearMonthKeyFromYm,
+  getShanghaiDayStartMs,
+  getShanghaiFullYear,
+  getShanghaiMonthIndex,
+} from '../../../shared/shanghai-time.utils';
 import type {
   CostBreakdownItemDto,
   DailyProfitDto,
@@ -24,6 +29,7 @@ import {
 
 const DAY_MS = 86_400_000;
 const CHART_DAY_LIMIT = 365;
+const PRODUCT_RANKING_LIMIT = 10;
 
 export function buildEmptySummary(): ProfitSummaryDto {
   return {
@@ -82,7 +88,7 @@ export function buildDailyProfits(
   dailyCostMap: Map<number, Money>,
 ): DailyProfitDto[] {
   const days = getChartDays(currentRange);
-  const endDayStart = getDayStartTimestamp(currentRange.end);
+  const endDayStart = getShanghaiDayStartMs(currentRange.end);
 
   return Array.from({ length: days }, (_, index) => {
     const dayStart = endDayStart - (days - 1 - index) * DAY_MS;
@@ -91,7 +97,7 @@ export function buildDailyProfits(
     const profitMoney = revenueMoney.subtract(costMoney);
 
     return {
-      dateLabel: formatMonthDayLabel(dayStart),
+      dateLabel: formatShanghaiDayLabel(dayStart),
       revenue: revenueMoney.toOutputYuan(),
       cost: costMoney.toOutputYuan(),
       profit: profitMoney.toOutputYuan(),
@@ -107,12 +113,11 @@ export function buildMonthlyProfits(
   dailyRevenueMap: Map<number, Money>,
   dailyCostMap: Map<number, Money>,
 ): DailyProfitDto[] {
-  const rangeStartYear = new Date(currentRange.start).getFullYear();
   const monthlyRevenueMap = new Map<number, Money>();
   const monthlyCostMap = new Map<number, Money>();
 
   for (const [dayStart, revenue] of dailyRevenueMap.entries()) {
-    const monthIndex = new Date(dayStart).getMonth();
+    const monthIndex = getShanghaiMonthIndex(dayStart);
     monthlyRevenueMap.set(
       monthIndex,
       (monthlyRevenueMap.get(monthIndex) ?? Money.zero()).add(revenue),
@@ -120,7 +125,7 @@ export function buildMonthlyProfits(
   }
 
   for (const [dayStart, cost] of dailyCostMap.entries()) {
-    const monthIndex = new Date(dayStart).getMonth();
+    const monthIndex = getShanghaiMonthIndex(dayStart);
     monthlyCostMap.set(
       monthIndex,
       (monthlyCostMap.get(monthIndex) ?? Money.zero()).add(cost),
@@ -139,6 +144,74 @@ export function buildMonthlyProfits(
       profit: profitMoney.toOutputYuan(),
     };
   });
+}
+
+/**
+ * 按“年-月”产出趋势点，覆盖 currentRange 内的完整月份区间。
+ *
+ * 用于超长 custom_range（跨度 > CHART_DAY_LIMIT 天）的降级展示：
+ * 避免 buildDailyProfits 被 365 天上限制截断而丢失早期数据。
+ * 与 buildMonthlyProfits（仅单年、标签为“N月”）不同，本函数跨年，
+ * 标签带年份（如 2025/12），以区分不同年份的同名月份、避免跨年合并。
+ */
+export function buildRangeMonthlyProfits(
+  currentRange: ProfitDateRange,
+  dailyRevenueMap: Map<number, Money>,
+  dailyCostMap: Map<number, Money>,
+): DailyProfitDto[] {
+  const monthlyRevenueMap = new Map<string, Money>();
+  const monthlyCostMap = new Map<string, Money>();
+
+  for (const [dayStart, revenue] of dailyRevenueMap.entries()) {
+    const key = formatYearMonthKeyFromYm(
+      getShanghaiFullYear(dayStart),
+      getShanghaiMonthIndex(dayStart),
+    );
+    monthlyRevenueMap.set(
+      key,
+      (monthlyRevenueMap.get(key) ?? Money.zero()).add(revenue),
+    );
+  }
+
+  for (const [dayStart, cost] of dailyCostMap.entries()) {
+    const key = formatYearMonthKeyFromYm(
+      getShanghaiFullYear(dayStart),
+      getShanghaiMonthIndex(dayStart),
+    );
+    monthlyCostMap.set(
+      key,
+      (monthlyCostMap.get(key) ?? Money.zero()).add(cost),
+    );
+  }
+
+  const points: DailyProfitDto[] = [];
+  let cursorYear = getShanghaiFullYear(currentRange.start);
+  let cursorMonth = getShanghaiMonthIndex(currentRange.start);
+  const endYear = getShanghaiFullYear(currentRange.end);
+  const endMonth = getShanghaiMonthIndex(currentRange.end);
+  while (
+    cursorYear < endYear ||
+    (cursorYear === endYear && cursorMonth <= endMonth)
+  ) {
+    const key = formatYearMonthKeyFromYm(cursorYear, cursorMonth);
+    const revenueMoney = monthlyRevenueMap.get(key) ?? Money.zero();
+    const costMoney = monthlyCostMap.get(key) ?? Money.zero();
+    const profitMoney = revenueMoney.subtract(costMoney);
+
+    points.push({
+      dateLabel: key,
+      revenue: revenueMoney.toOutputYuan(),
+      cost: costMoney.toOutputYuan(),
+      profit: profitMoney.toOutputYuan(),
+    });
+    cursorMonth += 1;
+    if (cursorMonth > 11) {
+      cursorMonth = 0;
+      cursorYear += 1;
+    }
+  }
+
+  return points;
 }
 
 export function buildReportProducts(
@@ -179,7 +252,8 @@ export function buildProductRanking(
       ),
       ...(item.image ? { image: item.image } : {}),
     }))
-    .sort((left, right) => right.totalProfit - left.totalProfit);
+    .sort((left, right) => right.totalProfit - left.totalProfit)
+    .slice(0, PRODUCT_RANKING_LIMIT);
 }
 
 export function buildCostBreakdown(
@@ -209,17 +283,27 @@ export function buildProfitDetailResponse(
   const previousNetProfitYuan = snapshot.previousNetProfit.toOutputYuan();
 
   const isYearPeriod = period === 'year';
+  // 超长区间（> CHART_DAY_LIMIT 天）降级为按月聚合，避免按天被截断丢失数据；
+  // 与 year 周期的区别在于按月点带年份标签、覆盖完整所选区间（可跨年）。
+  const rangeExceedsDailyCap =
+    getRangeDaySpan(snapshot.currentRange) > CHART_DAY_LIMIT;
   const trendProfits = isYearPeriod
     ? buildMonthlyProfits(
         snapshot.currentRange,
         snapshot.currentSales.dailyRevenueMap,
         snapshot.currentCosts.dailyCostMap,
       )
-    : buildDailyProfits(
-        snapshot.currentRange,
-        snapshot.currentSales.dailyRevenueMap,
-        snapshot.currentCosts.dailyCostMap,
-      );
+    : rangeExceedsDailyCap
+      ? buildRangeMonthlyProfits(
+          snapshot.currentRange,
+          snapshot.currentSales.dailyRevenueMap,
+          snapshot.currentCosts.dailyCostMap,
+        )
+      : buildDailyProfits(
+          snapshot.currentRange,
+          snapshot.currentSales.dailyRevenueMap,
+          snapshot.currentCosts.dailyCostMap,
+        );
 
   return {
     summary: buildSummary(
@@ -264,13 +348,16 @@ export function buildProfitReportResponse(
   };
 }
 
-function getChartDays(currentRange: ProfitDateRange): number {
-  const diffDays =
+function getRangeDaySpan(currentRange: ProfitDateRange): number {
+  return (
     Math.floor(
-      (getDayStartTimestamp(currentRange.end) -
-        getDayStartTimestamp(currentRange.start)) /
+      (getShanghaiDayStartMs(currentRange.end) -
+        getShanghaiDayStartMs(currentRange.start)) /
         DAY_MS,
-    ) + 1;
+    ) + 1
+  );
+}
 
-  return Math.max(1, Math.min(diffDays, CHART_DAY_LIMIT));
+function getChartDays(currentRange: ProfitDateRange): number {
+  return Math.max(1, Math.min(getRangeDaySpan(currentRange), CHART_DAY_LIMIT));
 }

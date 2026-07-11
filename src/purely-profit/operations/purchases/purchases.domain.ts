@@ -7,6 +7,7 @@ import type { Prisma } from '@prisma/client';
 import {
   buildPreviousPurchaseDateRange,
   buildPurchaseDateRange,
+  type PurchasePeriodValue,
   toOptionalText,
 } from '../../commerce/commerce.utils';
 import {
@@ -25,6 +26,8 @@ export function buildPurchaseListWhere(
   storeId: number,
   query: PurchaseListQuery,
 ): Prisma.PurchaseOrderWhereInput {
+  assertPurchaseDateRangeParams(query);
+
   const dateRange = buildPurchaseDateRange(
     query.period,
     query.customDate,
@@ -45,6 +48,8 @@ export function resolvePurchaseStatsRanges(
   currentWhere: Prisma.PurchaseOrderWhereInput;
   previousRange?: { gte: Date; lte: Date };
 } {
+  assertPurchaseDateRangeParams(query);
+
   const currentRange = buildPurchaseDateRange(
     query.period,
     query.customDate,
@@ -65,6 +70,36 @@ export function normalizePurchaseSupplierName(
   supplierName?: string,
 ): string | null {
   return toOptionalText(supplierName) ?? null;
+}
+
+/**
+ * 校验时间周期与配套日期参数的一致性。
+ *
+ * `buildPurchaseDateRange` 在 `custom_month` 缺 `customDate`、
+ * 或 `custom_range` 缺 `rangeStartDate`/`rangeEndDate` 时会返回 `undefined`，
+ * 导致上层不加任何日期过滤、静默返回全量数据。此处显式拦截，
+ * 避免“筛选参数不完整却返回全部进货单/全量统计”的隐患。
+ */
+function assertPurchaseDateRangeParams(query: {
+  period?: PurchasePeriodValue;
+  customDate?: number;
+  rangeStartDate?: number;
+  rangeEndDate?: number;
+}): void {
+  if (query.period === 'custom_month' && query.customDate === undefined) {
+    throw new BadRequestException('自定义月份周期需提供 customDate');
+  }
+
+  if (query.period === 'custom_range') {
+    if (
+      query.rangeStartDate === undefined ||
+      query.rangeEndDate === undefined
+    ) {
+      throw new BadRequestException(
+        '自定义区间周期需提供 rangeStartDate 与 rangeEndDate',
+      );
+    }
+  }
 }
 
 export function normalizePurchaseNote(note?: string): string | null {
@@ -121,8 +156,9 @@ export function sumPreparedPurchaseAmount(
   items: PreparedPurchaseItem[],
 ): number {
   // items.amount 已经是分（Int），统一走 Money.sum 语义
-  return Money.sum(items.map((item) => Money.fromDbCents(item.amount)))
-    .toDbCents();
+  return Money.sum(
+    items.map((item) => Money.fromDbCents(item.amount)),
+  ).toDbCents();
 }
 
 export function previewPurchaseAmounts(

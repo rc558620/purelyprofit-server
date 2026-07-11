@@ -28,12 +28,43 @@ export async function executeInventoryManualAdjustment(
   );
   const plan = buildInventoryManualAdjustmentPlan({ product, command });
 
-  await updateInventoryProductStock(
-    transaction,
-    plan.productId,
-    plan.afterStock,
-  );
+  /*
+   * D2 修复：delta 模式使用原子 increment 替代绝对赋值，
+   * 防止并发请求各自读旧值后计算绝对新值导致丢失更新。
+   * set 模式仍使用绝对赋值（语义上必须）。
+   */
+  if (command.mode === 'set') {
+    await updateInventoryProductStock(
+      transaction,
+      plan.productId,
+      plan.afterStock,
+    );
+  } else {
+    const delta = plan.afterStock - (product?.stock ?? 0);
+    await updateInventoryProductStock(transaction, plan.productId, {
+      increment: delta,
+    });
+  }
   return createInventoryAdjustmentLog(transaction, plan.log);
+}
+
+/**
+ * 按 productId 合并商品行，将相同 productId 的 quantity 累加。
+ * 防止并行处理时相同商品的多条记录产生 read-modify-write 竞态。
+ */
+function mergeInventoryItemsByProductId<
+  T extends { productId: number; quantity: number; productName?: string },
+>(items: T[]): T[] {
+  const map = new Map<number, T>();
+  for (const item of items) {
+    const existing = map.get(item.productId);
+    if (existing) {
+      existing.quantity += item.quantity;
+    } else {
+      map.set(item.productId, { ...item });
+    }
+  }
+  return Array.from(map.values());
 }
 
 export async function recordInventoryRestock(
@@ -41,21 +72,20 @@ export async function recordInventoryRestock(
   params: InventoryRestockParams,
 ): Promise<void> {
   /*
-   * BUG-8 修复：将串行 for 循环改为 Promise.all 并行处理，减少长事务风险。
-   * 每个商品的库存更新和日志写入之间无依赖，可以安全并行。
+   * BUG-1 修复：先按 productId 合并相同商品，再顺序处理，
+   * 避免并行 read-modify-write 导致后写覆盖前写的库存丢失问题。
    */
-  await Promise.all(
-    params.items.map((item) =>
-      recordInventoryStockChange(transaction, {
-        storeId: params.storeId,
-        productId: item.productId,
-        quantity: item.quantity,
-        operatorStaffId: params.operatorStaffId,
-        adjustType: 'restock',
-        purchaseOrderId: params.purchaseOrderId,
-      }),
-    ),
-  );
+  const mergedItems = mergeInventoryItemsByProductId(params.items);
+  for (const item of mergedItems) {
+    await recordInventoryStockChange(transaction, {
+      storeId: params.storeId,
+      productId: item.productId,
+      quantity: item.quantity,
+      operatorStaffId: params.operatorStaffId,
+      adjustType: 'restock',
+      purchaseOrderId: params.purchaseOrderId,
+    });
+  }
 }
 
 export async function recordInventorySaleDeduction(
@@ -63,21 +93,21 @@ export async function recordInventorySaleDeduction(
   params: InventorySaleDeductionParams,
 ): Promise<void> {
   /*
-   * BUG-8 修复：将串行 for 循环改为 Promise.all 并行处理，减少长事务风险。
+   * BUG-1 修复：先按 productId 合并相同商品，再顺序处理，
+   * 避免并行 read-modify-write 导致后写覆盖前写的库存丢失问题。
    */
-  await Promise.all(
-    params.items.map((item) =>
-      recordInventoryStockChange(transaction, {
-        storeId: params.storeId,
-        productId: item.productId,
-        quantity: item.quantity,
-        operatorStaffId: params.operatorStaffId,
-        adjustType: 'sale',
-        saleOrderId: params.saleOrderId,
-        note: '销售扣减',
-      }),
-    ),
-  );
+  const mergedItems = mergeInventoryItemsByProductId(params.items);
+  for (const item of mergedItems) {
+    await recordInventoryStockChange(transaction, {
+      storeId: params.storeId,
+      productId: item.productId,
+      quantity: item.quantity,
+      operatorStaffId: params.operatorStaffId,
+      adjustType: 'sale',
+      saleOrderId: params.saleOrderId,
+      note: '销售扣减',
+    });
+  }
 }
 
 export async function revertInventorySaleDeduction(
@@ -108,7 +138,14 @@ export async function revertInventorySaleDeduction(
       delta: log.delta,
     });
 
-    await updateInventoryProductStock(transaction, plan.productId, plan.stock);
+    /*
+     * D2 修复：回滚使用原子 increment(-delta)，而非读后写绝对值，
+     * 防止并发回滚时后提交覆盖先提交导致库存数据丢失。
+     * 销售 delta 为负（如 -4），increment(-(-4)) = increment(4)，方向正确。
+     */
+    await updateInventoryProductStock(transaction, plan.productId, {
+      increment: -log.delta,
+    });
   }
 }
 
@@ -134,7 +171,7 @@ export async function findInventoryProductForStore(
 export async function updateInventoryProductStock(
   transaction: InventoryTransactionClient,
   productId: number,
-  stock: number,
+  stock: number | { increment: number },
 ): Promise<void> {
   await transaction.product.update({
     where: { id: productId },
@@ -221,11 +258,15 @@ async function recordInventoryStockChange(
   );
   const plan = buildInventoryStockChangePlan({ product, command });
 
-  await updateInventoryProductStock(
-    transaction,
-    plan.productId,
-    plan.afterStock,
-  );
+  /*
+   * D2 修复：使用原子 increment 替代绝对赋值，
+   * sale 扣减时 increment(-quantity)，restock 补货时 increment(+quantity)。
+   */
+  const delta =
+    command.adjustType === 'sale' ? -command.quantity : command.quantity;
+  await updateInventoryProductStock(transaction, plan.productId, {
+    increment: delta,
+  });
   await createInventoryAdjustmentLog(transaction, plan.log);
 }
 
@@ -246,35 +287,38 @@ export async function applyInventoryDeductionsInTransaction(
   adjustType: InventoryAdjustType,
   note?: string,
 ): Promise<void> {
-  await Promise.all(
-    items.map(async (item) => {
-      const product = await findInventoryProductForStore(
-        transaction,
+  /*
+   * BUG-1 修复：先按 productId 合并相同商品，再顺序处理，
+   * 避免并行 read-modify-write 导致后写覆盖前写的库存丢失问题。
+   */
+  const mergedItems = mergeInventoryItemsByProductId(items);
+  for (const item of mergedItems) {
+    const product = await findInventoryProductForStore(
+      transaction,
+      storeId,
+      item.productId,
+    );
+    if (!product) {
+      throw new Error(
+        `商品【${item.productName || item.productId}】不存在或无权访问`,
+      );
+    }
+
+    const plan = buildInventoryStockChangePlan({
+      product,
+      command: {
         storeId,
-        item.productId,
-      );
-      if (!product) {
-        throw new Error(`商品【${item.productName || item.productId}】不存在或无权访问`);
-      }
+        productId: item.productId,
+        quantity: item.quantity,
+        operatorStaffId,
+        adjustType,
+        note,
+      },
+    });
 
-      const plan = buildInventoryStockChangePlan({
-        product,
-        command: {
-          storeId,
-          productId: item.productId,
-          quantity: item.quantity,
-          operatorStaffId,
-          adjustType,
-          note,
-        },
-      });
-
-      await updateInventoryProductStock(
-        transaction,
-        plan.productId,
-        plan.afterStock,
-      );
-      await createInventoryAdjustmentLog(transaction, plan.log);
-    }),
-  );
+    await updateInventoryProductStock(transaction, plan.productId, {
+      increment: item.quantity * (adjustType === 'sale' ? -1 : 1),
+    });
+    await createInventoryAdjustmentLog(transaction, plan.log);
+  }
 }

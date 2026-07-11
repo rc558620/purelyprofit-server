@@ -4,41 +4,46 @@ import type {
   TimeRange,
 } from './dashboard-home.types';
 import {
-  getDayStartTimestamp,
-  getMonthStartTimestamp,
-  getWeekStartTimestamp,
-} from '../../commerce/commerce.utils';
+  getShanghaiDayStartMs,
+  getShanghaiFullYear,
+  getShanghaiMonthIndex,
+  getShanghaiMonthStartMsForYearMonth,
+  getShanghaiMonthStartMs,
+  getShanghaiWeekStartMs,
+  getShanghaiYearEndMsForYear,
+  getShanghaiYearStartMsForYear,
+} from '../../../shared/shanghai-time.utils';
 
 export function buildCurrentRange(period: DashboardHomePeriodValue): TimeRange {
   const now = Date.now();
-  const currentDate = new Date(now);
+  const shanghaiYear = getShanghaiFullYear(now);
 
   switch (period) {
     case 'today':
       return {
-        start: getDayStartTimestamp(now),
+        start: getShanghaiDayStartMs(now),
         end: now,
       };
     case 'week':
       return {
-        start: getWeekStartTimestamp(now),
+        start: getShanghaiWeekStartMs(now),
         end: now,
       };
     case 'month':
       return {
-        start: getMonthStartTimestamp(now),
+        start: getShanghaiMonthStartMs(now),
         end: now,
       };
     case 'year':
       return {
-        start: new Date(currentDate.getFullYear(), 0, 1).getTime(),
+        start: getShanghaiYearStartMsForYear(shanghaiYear),
         end: now,
       };
     case 'last_year': {
-      const year = currentDate.getFullYear() - 1;
+      const year = shanghaiYear - 1;
       return {
-        start: new Date(year, 0, 1).getTime(),
-        end: new Date(year, 11, 31, 23, 59, 59, 999).getTime(),
+        start: getShanghaiYearStartMsForYear(year),
+        end: getShanghaiYearEndMsForYear(year),
       };
     }
   }
@@ -66,59 +71,45 @@ export function buildCompareRange(
       };
     }
     case 'month': {
-      const currentStartDate = new Date(currentRange.start);
-      const previousMonthStart = new Date(
-        currentStartDate.getFullYear(),
-        currentStartDate.getMonth() - 1,
-        1,
+      const currentYear = getShanghaiFullYear(currentRange.start);
+      const currentMonth = getShanghaiMonthIndex(currentRange.start);
+      let previousMonthYear = currentYear;
+      let previousMonthIndex = currentMonth - 1;
+      if (previousMonthIndex < 0) {
+        previousMonthIndex = 11;
+        previousMonthYear -= 1;
+      }
+      const previousMonthStart = getShanghaiMonthStartMsForYearMonth(
+        previousMonthYear,
+        previousMonthIndex,
       );
-      const previousMonthEnd = new Date(
-        currentStartDate.getFullYear(),
-        currentStartDate.getMonth(),
-        0,
-        23,
-        59,
-        59,
-        999,
-      );
+      const nextMonthIndex = previousMonthIndex + 1;
+      const nextMonthYear = previousMonthYear + (nextMonthIndex > 11 ? 1 : 0);
+      const previousMonthEnd =
+        getShanghaiMonthStartMsForYearMonth(
+          nextMonthYear,
+          nextMonthIndex > 11 ? 0 : nextMonthIndex,
+        ) - 1;
       return {
-        start: previousMonthStart.getTime(),
-        end: Math.min(
-          previousMonthStart.getTime() + currentDuration,
-          previousMonthEnd.getTime(),
-        ),
+        start: previousMonthStart,
+        end: Math.min(previousMonthStart + currentDuration, previousMonthEnd),
       };
     }
     case 'year': {
-      const currentStartDate = new Date(currentRange.start);
-      const previousYearStart = new Date(
-        currentStartDate.getFullYear() - 1,
-        0,
-        1,
-      );
-      const previousYearEnd = new Date(
-        currentStartDate.getFullYear() - 1,
-        11,
-        31,
-        23,
-        59,
-        59,
-        999,
-      );
+      const currentYear = getShanghaiFullYear(currentRange.start);
+      const previousYearStart = getShanghaiYearStartMsForYear(currentYear - 1);
+      const previousYearEnd = getShanghaiYearEndMsForYear(currentYear - 1);
       return {
-        start: previousYearStart.getTime(),
-        end: Math.min(
-          previousYearStart.getTime() + currentDuration,
-          previousYearEnd.getTime(),
-        ),
+        start: previousYearStart,
+        end: Math.min(previousYearStart + currentDuration, previousYearEnd),
       };
     }
     case 'last_year': {
-      const currentYear = new Date(currentRange.start).getFullYear();
+      const currentYear = getShanghaiFullYear(currentRange.start);
       const compareYear = currentYear - 1;
       return {
-        start: new Date(compareYear, 0, 1).getTime(),
-        end: new Date(compareYear, 11, 31, 23, 59, 59, 999).getTime(),
+        start: getShanghaiYearStartMsForYear(compareYear),
+        end: getShanghaiYearEndMsForYear(compareYear),
       };
     }
   }

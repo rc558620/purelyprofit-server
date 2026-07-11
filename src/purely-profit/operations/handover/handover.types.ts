@@ -49,6 +49,7 @@ export const HANDOVER_RECORD_INCLUDE =
       select: {
         id: true,
         itemId: true,
+        itemNameSnapshot: true,
         value: true,
         createdAt: true,
         updatedAt: true,
@@ -114,6 +115,8 @@ export type OrderItemRow = {
         paymentMethod: string;
         amount: number;
         renewedAt: bigint;
+        grouponPlatform: string | null;
+        grouponCode: string | null;
       }>;
       space: {
         name: string;

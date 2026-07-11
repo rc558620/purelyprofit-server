@@ -30,11 +30,19 @@ function transformOptionalBoolean({
   if (typeof value === 'boolean') {
     return value;
   }
-  if (typeof value === 'string') {
-    if (value === 'true') {
+  if (typeof value === 'number') {
+    if (value === 1) {
       return true;
     }
-    if (value === 'false') {
+    if (value === 0) {
+      return false;
+    }
+  }
+  if (typeof value === 'string') {
+    if (value === 'true' || value === '1') {
+      return true;
+    }
+    if (value === 'false' || value === '0') {
       return false;
     }
   }
@@ -55,11 +63,24 @@ export class ListProductsQueryDto extends PaginationQueryDto {
   @IsString({ message: '关键字必须是字符串' })
   keyword?: string;
 
-  @ApiPropertyOptional({ example: '饮品', description: '分类名称' })
+  @ApiPropertyOptional({
+    example: '饮品',
+    description: '分类名称（精确匹配文本）',
+  })
   @IsOptional()
   @Transform(transformOptionalKeyword)
   @IsString({ message: '分类名称必须是字符串' })
   category?: string;
+
+  @ApiPropertyOptional({
+    example: 5,
+    description: '分类 ID（优先于 category 文本匹配）',
+  })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '分类 ID 必须是整数' })
+  @Min(1, { message: '分类 ID 必须大于等于 1' })
+  categoryId?: number;
 
   @ApiPropertyOptional({ example: true, description: '是否只看上架商品' })
   @IsOptional()

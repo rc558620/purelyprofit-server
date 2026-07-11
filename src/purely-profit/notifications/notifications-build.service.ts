@@ -47,11 +47,13 @@ export class NotificationsBuildService {
       UpcomingLeaveRow[],
     ] = await Promise.all([
       // 在数据库层完成 stock <= alertThreshold 过滤，避免查出大量不需要的数据
+      // BUG-7 修复：加 deleted_at IS NULL 过滤软删除商品，与列表查询口径一致
       this.prisma.$queryRaw<Array<ProductAlertRow>>`
         SELECT id, name, stock, alert_threshold, updated_at
         FROM products
         WHERE store_id = ${storeId}
           AND is_active = true
+          AND deleted_at IS NULL
           AND stock <= alert_threshold
         ORDER BY stock ASC, updated_at DESC
         LIMIT ${SOURCE_LIMIT}

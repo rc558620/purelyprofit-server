@@ -37,7 +37,15 @@ export class BusinessAnalysisController {
     @Res({ passthrough: true }) reply: { raw: ServerResponse },
   ): Promise<BusinessAnalysisResponseDto | typeof reply> {
     if (query.format === 'csv') {
-      await this.businessAnalysisService.streamReportCsv(reply.raw, user, query);
+      // 与 inventory 模块 D1 修复保持一致：CSV 导出强制走 export 权限门控，
+      // 防止拥有 report:view 但套餐不支持导出的账号借 format=csv 绕过
+      // reportExportEnabled 校验；同时该路径不命中缓存，导出的是实时数据（顺带解决缓存陈旧问题）。
+      query.export = true;
+      await this.businessAnalysisService.streamReportCsv(
+        reply.raw,
+        user,
+        query,
+      );
       return reply;
     }
     return this.businessAnalysisService.getAnalysis(user, query);

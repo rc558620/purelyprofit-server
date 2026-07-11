@@ -8,6 +8,7 @@ import { EmployeePayrollStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CostsService } from '../../operations/costs/costs.service';
+import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { Money } from '../../../shared/money.utils';
@@ -35,9 +36,7 @@ import {
   resolvePagination,
   toNullableText,
 } from './employees.utils';
-import {
-safeStreamCsvExport,
-} from '../../../shared/stream-export.utils';
+import { safeStreamCsvExport } from '../../../shared/stream-export.utils';
 
 @Injectable()
 export class EmployeesPayrollService {
@@ -46,6 +45,7 @@ export class EmployeesPayrollService {
     private readonly employeesAccessService: EmployeesAccessService,
     private readonly costsService: CostsService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
+    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
 
   async getPayrollReport(
@@ -58,6 +58,16 @@ export class EmployeesPayrollService {
       '无权查看该门店工资报表',
       'report:view',
     );
+    // 与报表中心其他导出一致：CSV 导出需套餐开启 reportExportEnabled。
+    // 控制器在 format=csv 时已将 query.export 强制置 true。
+    if (query.export) {
+      const callerIsSubAccount =
+        user.currentMembership?.subjectType === 'sub_account';
+      await this.platformMembershipAccessService.ensureReportExportEnabled(
+        storeId,
+        callerIsSubAccount,
+      );
+    }
     const dateRange = buildDateRange(query.year, query.month);
     const rows = await this.prisma.employeePayroll.findMany({
       where: {
@@ -75,7 +85,10 @@ export class EmployeesPayrollService {
         ...(query.department
           ? {
               employee: {
-                department: { equals: query.department, mode: 'insensitive' as const },
+                department: {
+                  equals: query.department,
+                  mode: 'insensitive' as const,
+                },
               },
             }
           : {}),
@@ -99,7 +112,18 @@ export class EmployeesPayrollService {
     safeStreamCsvExport(
       reply,
       'payroll-report.csv',
-      ['员工姓名', '结算月份', '底薪', '请假扣款', '其他扣款', '奖金', '实发工资', '社保', '公积金', '总人力成本'],
+      [
+        '员工姓名',
+        '结算月份',
+        '底薪',
+        '请假扣款',
+        '其他扣款',
+        '奖金',
+        '实发工资',
+        '社保',
+        '公积金',
+        '总人力成本',
+      ],
       report.rows.map((row) => [
         row.employeeName,
         row.month,
@@ -124,7 +148,12 @@ export class EmployeesPayrollService {
       'finance:view',
     );
 
-    const { page, skip, take } = resolvePagination(query.page, query.pageSize, 50, 200);
+    const { page, skip, take } = resolvePagination(
+      query.page,
+      query.pageSize,
+      50,
+      200,
+    );
 
     if (manageableStoreId === null) {
       return {
@@ -150,7 +179,10 @@ export class EmployeesPayrollService {
       ...(query.department
         ? {
             employee: {
-              department: { equals: query.department, mode: 'insensitive' as const },
+              department: {
+                equals: query.department,
+                mode: 'insensitive' as const,
+              },
             },
           }
         : {}),
@@ -190,8 +222,14 @@ export class EmployeesPayrollService {
       otherDeduction: Money.fromInputYuan(dto.otherDeduction),
       otherDeductionNote: dto.otherDeductionNote,
       bonus: Money.fromInputYuan(dto.bonus),
-      socialInsurance: dto.socialInsurance !== undefined ? Money.fromInputYuan(dto.socialInsurance) : undefined,
-      housingFund: dto.housingFund !== undefined ? Money.fromInputYuan(dto.housingFund) : undefined,
+      socialInsurance:
+        dto.socialInsurance !== undefined
+          ? Money.fromInputYuan(dto.socialInsurance)
+          : undefined,
+      housingFund:
+        dto.housingFund !== undefined
+          ? Money.fromInputYuan(dto.housingFund)
+          : undefined,
     });
 
     const payroll = await this.prisma.$transaction(async (transaction) => {
@@ -312,7 +350,9 @@ export class EmployeesPayrollService {
         employeeName: nextPayroll.employeeName,
         month: formatPayrollMonth(nextPayroll.month),
         // 数据库存分，syncPayrollCosts 接口需要元
-        actualSalary: Money.fromDbCents(nextPayroll.actualSalary).toOutputYuan(),
+        actualSalary: Money.fromDbCents(
+          nextPayroll.actualSalary,
+        ).toOutputYuan(),
         socialInsurance:
           nextPayroll.socialInsurance > 0
             ? Money.fromDbCents(nextPayroll.socialInsurance).toOutputYuan()
@@ -330,6 +370,8 @@ export class EmployeesPayrollService {
     await this.cacheInvalidatorService.invalidateProfitDashboardHome(
       payroll.storeId,
     );
+    // 确认工资单会同步沉淀薪资/社保/公积金成本记录，失效成本缓存
+    await this.costsService.invalidateCostCaches(payroll.storeId);
 
     return toEmployeePayrollResponse(confirmed);
   }
@@ -398,7 +440,9 @@ export class EmployeesPayrollService {
         ? dto.otherDeductionNote
         : (payroll.otherDeductionNote ?? undefined);
     const nextBonus =
-      dto.bonus !== undefined ? Money.fromInputYuan(dto.bonus) : Money.fromDbCents(payroll.bonus);
+      dto.bonus !== undefined
+        ? Money.fromInputYuan(dto.bonus)
+        : Money.fromDbCents(payroll.bonus);
     const nextSocialInsurance =
       dto.socialInsurance !== undefined
         ? Money.fromInputYuan(dto.socialInsurance)
@@ -426,10 +470,18 @@ export class EmployeesPayrollService {
             ? { baseSalary: Money.fromInputYuan(dto.baseSalary).toDbCents() }
             : {}),
           ...(dto.leaveDeduction !== undefined
-            ? { leaveDeduction: Money.fromInputYuan(dto.leaveDeduction).toDbCents() }
+            ? {
+                leaveDeduction: Money.fromInputYuan(
+                  dto.leaveDeduction,
+                ).toDbCents(),
+              }
             : {}),
           ...(dto.otherDeduction !== undefined
-            ? { otherDeduction: Money.fromInputYuan(dto.otherDeduction).toDbCents() }
+            ? {
+                otherDeduction: Money.fromInputYuan(
+                  dto.otherDeduction,
+                ).toDbCents(),
+              }
             : {}),
           ...(dto.otherDeductionNote !== undefined
             ? { otherDeductionNote: toNullableText(dto.otherDeductionNote) }
@@ -448,7 +500,9 @@ export class EmployeesPayrollService {
           ...(dto.housingFund !== undefined
             ? {
                 housingFund:
-                  dto.housingFund > 0 ? Money.fromInputYuan(dto.housingFund).toDbCents() : 0,
+                  dto.housingFund > 0
+                    ? Money.fromInputYuan(dto.housingFund).toDbCents()
+                    : 0,
               }
             : {}),
           ...(dto.note !== undefined ? { note: toNullableText(dto.note) } : {}),

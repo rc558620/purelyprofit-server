@@ -13,7 +13,6 @@ import {
   normalizePurchaseNote,
   normalizePurchaseSupplierName,
   preparePurchaseItems,
-  previewPurchaseAmounts,
   resolvePurchaseStatsRanges,
   sumPreparedPurchaseAmount,
 } from './purchases.domain';
@@ -74,6 +73,48 @@ describe('purchases.domain', () => {
       gte: new Date(expectedStart.getTime() - duration - 1),
       lte: new Date(expectedStart.getTime() - 1),
     });
+  });
+
+  it('buildPurchaseListWhere 在 custom_month 缺 customDate 时抛错', () => {
+    expect(() =>
+      buildPurchaseListWhere(18, { period: 'custom_month' }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('buildPurchaseListWhere 在 custom_range 缺区间参数时抛错', () => {
+    expect(() =>
+      buildPurchaseListWhere(18, {
+        period: 'custom_range',
+        rangeStartDate: 1715558400000,
+      }),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      buildPurchaseListWhere(18, {
+        period: 'custom_range',
+        rangeEndDate: 1715644799999,
+      }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('resolvePurchaseStatsRanges 在 custom_month 缺 customDate 时抛错', () => {
+    expect(() =>
+      resolvePurchaseStatsRanges(18, { period: 'custom_month' }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('resolvePurchaseStatsRanges 在 custom_range 缺区间参数时抛错', () => {
+    expect(() =>
+      resolvePurchaseStatsRanges(18, {
+        period: 'custom_range',
+        rangeStartDate: 1715558400000,
+      }),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      resolvePurchaseStatsRanges(18, {
+        period: 'custom_range',
+        rangeEndDate: 1715644799999,
+      }),
+    ).toThrow(BadRequestException);
   });
 
   it('normalizePurchaseSupplierName 和 normalizePurchaseNote 会去空白并返回 null', () => {
@@ -161,7 +202,7 @@ describe('purchases.domain', () => {
         unit: '箱',
         quantity: 6,
         unitPrice: 1200, // 分
-        amount: 7200,   // 分
+        amount: 7200, // 分
       },
     ]);
   });
@@ -203,7 +244,7 @@ describe('purchases.domain', () => {
         unit: null,
         quantity: 3,
         unitPrice: 1200, // 分
-        amount: 3600,   // 分
+        amount: 3600, // 分
       },
     ]);
 
@@ -229,7 +270,7 @@ describe('purchases.domain', () => {
           unit: '瓶',
           quantity: 3,
           unitPrice: 334, // 分
-          amount: 1001,  // 分
+          amount: 1001, // 分
         },
         {
           productId: null,
@@ -237,7 +278,7 @@ describe('purchases.domain', () => {
           unit: null,
           quantity: 1,
           unitPrice: 234, // 分
-          amount: 234,   // 分
+          amount: 234, // 分
         },
       ]),
     ).toBe(1235);

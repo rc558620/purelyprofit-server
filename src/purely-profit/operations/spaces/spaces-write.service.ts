@@ -141,6 +141,14 @@ export class SpacesWriteService {
     const space = await this.requireUpdatableSpace(user, spaceId);
     const nextName = dto.name?.trim();
 
+    // 前置校验：空间存在活跃会话时禁止编辑，与 removeSpace 预检口径一致
+    const activeSessionCount = await this.prisma.spaceSession.count({
+      where: { spaceId: space.id, status: PrismaSpaceSessionStatus.active },
+    });
+    if (activeSessionCount > 0) {
+      throw new ConflictException('空间当前使用中，无法进行编辑操作');
+    }
+
     if (nextName && nextName !== space.name) {
       await ensureSpaceNameUnique(this.prisma, {
         storeId: space.storeId,
@@ -156,6 +164,24 @@ export class SpacesWriteService {
 
     const updated = await this.prisma.$transaction(
       async (transaction) => {
+        // B2 fix: 事务内 FOR UPDATE 后重新校验，消除 TOCTOU 竞态窗口
+        await transaction.$queryRaw`
+          SELECT id
+          FROM spaces
+          WHERE id = ${space.id}
+          FOR UPDATE
+        `;
+
+        const activeSessions = await transaction.spaceSession.count({
+          where: {
+            spaceId: space.id,
+            status: PrismaSpaceSessionStatus.active,
+          },
+        });
+        if (activeSessions > 0) {
+          throw new ConflictException('空间当前使用中，无法进行编辑操作');
+        }
+
         const targetSortOrder = await resolveManagedSpaceSortOrder(
           transaction,
           space,

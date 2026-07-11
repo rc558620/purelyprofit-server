@@ -54,7 +54,7 @@ function buildSalesPreviousCountSql(
   }
 
   return Prisma.sql`
-    COUNT(*) FILTER (
+    COUNT(DISTINCT so.id) FILTER (
       WHERE so.date >= ${new Date(previousRange.start)}
         AND so.date <= ${new Date(previousRange.end)}
         AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
@@ -124,10 +124,10 @@ export async function fetchBusinessAnalysisMetrics(
           ),
           0
         ) AS "currentRevenue",
-        COUNT(*) FILTER (
-          WHERE so.date >= ${new Date(currentRange.start)}
-            AND so.date <= ${new Date(currentRange.end)}
-        )::int AS "currentOrderCount",
+      COUNT(DISTINCT so.id) FILTER (
+        WHERE so.date >= ${new Date(currentRange.start)}
+          AND so.date <= ${new Date(currentRange.end)}
+      )::int AS "currentOrderCount",
         ${salesPreviousRevenueSql} AS "previousRevenue",
         ${salesPreviousCountSql} AS "previousOrderCount"
       FROM sale_order_items soi

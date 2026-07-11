@@ -32,31 +32,21 @@ export function buildCostRecordResponse(
 }
 
 export function buildCostReportCategories(
-  rows: CostReportCostRow[],
+  categoryCents: Map<CostReportCostRow['category'], number>,
   total: number,
 ): CostReportCategoryRowDto[] {
   if (total <= 0) {
     return [];
   }
 
-  // 在分维度聚合，再统一转元，避免浮点精度损失
-  const centsByCategory = new Map<CostReportCostRow['category'], Money>();
-  for (const row of rows) {
-    const existing = centsByCategory.get(row.category) ?? Money.zero();
-    centsByCategory.set(
-      row.category,
-      existing.add(Money.fromDbCents(row.amount)),
-    );
-  }
-
-  return Array.from(centsByCategory.entries())
-    .map(([category, money]) => {
-      const amount = money.toOutputYuan();
+  return Array.from(categoryCents.entries())
+    .map(([category, cents]) => {
+      const amount = Money.fromDbCents(cents).toOutputYuan();
       return {
-        label: COST_CATEGORY_META[category].label,
+        label: COST_CATEGORY_META[category]?.label ?? category,
         amount,
         percentage: calcPercentOfTotal(amount, total),
-        color: COST_CATEGORY_META[category].color,
+        color: COST_CATEGORY_META[category]?.color ?? '#94a3b8',
       };
     })
     .sort((left, right) => right.amount - left.amount);
@@ -67,20 +57,20 @@ export function buildCostReportDetailRows(
   payrollRows: CostReportPayrollRow[],
   categoryFilter: CostReportCategoryFilterValue,
 ): CostReportDetailRowDto[] {
-  if (categoryFilter === 'all') {
-    return [];
-  }
+  // “all” 视图导出全部明细行，而非空数组
+  const filteredRows =
+    categoryFilter === 'all'
+      ? costRows
+      : costRows.filter((row) => row.category === categoryFilter);
 
-  const rows: CostReportDetailRowDto[] = costRows
-    .filter((row) => row.category === categoryFilter)
-    .map((row) => ({
-      id: String(row.id),
-      title: row.title,
-      amount: Money.fromDbCents(row.amount).toOutputYuan(),
-      date: toTimestampMs(row.date),
-      dateLabel: formatCostReportDate(row.date),
-      ...(row.note ? { note: row.note } : {}),
-    }));
+  const rows: CostReportDetailRowDto[] = filteredRows.map((row) => ({
+    id: String(row.id),
+    title: row.title,
+    amount: Money.fromDbCents(row.amount).toOutputYuan(),
+    date: toTimestampMs(row.date),
+    dateLabel: formatCostReportDate(row.date),
+    ...(row.note ? { note: row.note } : {}),
+  }));
 
   if (categoryFilter === 'salary') {
     rows.push(
@@ -92,6 +82,7 @@ export function buildCostReportDetailRows(
           amount: Money.fromDbCents(row.actualSalary).toOutputYuan(),
           date: row.month.getTime(),
           dateLabel: monthLabel,
+          draft: true,
           ...(row.note ? { note: row.note } : {}),
         };
       }),
@@ -129,13 +120,21 @@ export function buildCostDashboardTrend(
     const end = start + 86_400_000;
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
-    return { label: `${mm}/${dd}`, start, end, fixedCents: Money.zero(), variableCents: Money.zero() };
+    return {
+      label: `${mm}/${dd}`,
+      start,
+      end,
+      fixedCents: Money.zero(),
+      variableCents: Money.zero(),
+    };
   });
 
   // 在分维度按天、按类型累加
   for (const row of rows) {
     const rowTimestamp = row.date.getTime();
-    const day = days.find((d) => rowTimestamp >= d.start && rowTimestamp < d.end);
+    const day = days.find(
+      (d) => rowTimestamp >= d.start && rowTimestamp < d.end,
+    );
     if (day == null) continue;
     const rowMoney = Money.fromDbCents(row.amount);
     if (row.type === 'fixed') {

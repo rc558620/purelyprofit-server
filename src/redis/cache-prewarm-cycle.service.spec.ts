@@ -207,7 +207,7 @@ describe('CachePrewarmCycleService', () => {
     context.redisService.scanKeysByPattern
       .mockResolvedValueOnce(['profit:dashboard:home:store:18:period:today'])
       .mockResolvedValueOnce([
-        'profit:business-analysis:store:18:period:month:start:na:end:na:export:0',
+        'profit:business-analysis:store:18:period:month:start:na:end:na',
       ])
       .mockResolvedValueOnce(['profit:marketing:overview:store:18'])
       .mockResolvedValueOnce(['profit:members:meta:store:18'])
@@ -260,7 +260,7 @@ describe('CachePrewarmCycleService', () => {
       expect.objectContaining({
         category: 'businessAnalysis',
         cacheKey:
-          'profit:business-analysis:store:18:period:month:start:na:end:na:export:0',
+          'profit:business-analysis:store:18:period:month:start:na:end:na',
         durationMs: 20,
       }),
       expect.objectContaining({
@@ -290,7 +290,7 @@ describe('CachePrewarmCycleService', () => {
     context.redisService.scanKeysByPattern
       .mockResolvedValueOnce(['profit:dashboard:home:store:18:period:today'])
       .mockResolvedValueOnce([
-        'profit:business-analysis:store:18:period:invalid:start:na:end:na:export:0',
+        'profit:business-analysis:store:18:period:invalid:start:na:end:na',
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
@@ -418,7 +418,7 @@ describe('CachePrewarmCycleService', () => {
       // cycle 1
       .mockResolvedValueOnce(['profit:dashboard:home:store:18:period:today'])
       .mockResolvedValueOnce([
-        'profit:business-analysis:store:18:period:month:start:na:end:na:export:0',
+        'profit:business-analysis:store:18:period:month:start:na:end:na',
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])

@@ -64,7 +64,7 @@ export class CostsReadReportService {
 
     // 导出模式或子账号直接查库，不走缓存
     if (query.export || callerIsSubAccount) {
-      return this.buildReport(storeId, query, callerIsSubAccount);
+      return this.buildReport(storeId, query);
     }
 
     const cacheKey = buildCostsReportCacheKey(storeId, query);
@@ -73,8 +73,8 @@ export class CostsReadReportService {
       taskKey: buildCacheRefreshTaskKey(cacheKey),
       ttlSeconds: COSTS_REPORT_CACHE_TTL_SECONDS,
       refreshAfterMs: COSTS_REPORT_REFRESH_AFTER_MS,
-      loadValue: () => this.buildReport(storeId, query, false),
-      refreshValue: () => this.buildReport(storeId, query, false),
+      loadValue: () => this.buildReport(storeId, query),
+      refreshValue: () => this.buildReport(storeId, query),
     });
   }
 
@@ -94,7 +94,7 @@ export class CostsReadReportService {
     >,
   ): Promise<CostReportResponseDto> {
     const cacheKey = buildCostsReportCacheKey(storeId, query);
-    const data = await this.buildReport(storeId, query, false);
+    const data = await this.buildReport(storeId, query);
     await this.refreshableCache.writeRefreshableJson(
       cacheKey,
       data,
@@ -112,7 +112,8 @@ export class CostsReadReportService {
     user: AuthenticatedUser,
     query: CostReportQueryDto,
   ): Promise<void> {
-    const report = await this.getReport(user, query);
+    // CSV 导出与 export=true 走同一门禁，确保付费能力校验不被绕过
+    const report = await this.getReport(user, { ...query, export: true });
     safeStreamCsvExport(
       reply,
       'cost-report.csv',
@@ -129,7 +130,6 @@ export class CostsReadReportService {
   private async buildReport(
     storeId: number,
     query: CostReportQueryDto,
-    callerIsSubAccount: boolean,
   ): Promise<CostReportResponseDto> {
     const currentRange = buildCostReportRange({
       period: query.period,
@@ -142,17 +142,17 @@ export class CostsReadReportService {
       query.period,
       currentRange,
     );
+    // B5-fix: 与 stats/dashboard/records 保持一致，报表路径不再为子账号 bypass 历史窗口，
+    // 子账号同样受主账号 membership 的 historyDays 约束，避免付费墙被绕过。
     const clampedCurrentRange =
       await this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         currentRange,
-        callerIsSubAccount,
       );
     const clampedPreviousRange =
       await this.platformMembershipAccessService.clampHistoryRange(
         storeId,
         previousRange,
-        callerIsSubAccount,
       );
     const categoryFilter = query.categoryFilter ?? 'all';
 
@@ -160,7 +160,16 @@ export class CostsReadReportService {
       return buildEmptyCostReportResponse();
     }
 
-    const { costRows, previousTotal, payrollRows } = await queryCostReportRows(
+    const {
+      costRows,
+      previousTotal,
+      payrollRows,
+      currentTotalCents,
+      currentCount,
+      fixedCents,
+      variableCents,
+      categoryCents,
+    } = await queryCostReportRows(
       this.prisma,
       storeId,
       {
@@ -176,20 +185,10 @@ export class CostsReadReportService {
       categoryFilter,
     );
 
-    // 全部在分维度聚合，再统一转元
-    const allMoney = Money.sum(
-      costRows.map((record) => Money.fromDbCents(record.amount)),
-    );
-    const fixedMoney = Money.sum(
-      costRows
-        .filter((record) => record.type === 'fixed')
-        .map((record) => Money.fromDbCents(record.amount)),
-    );
-    const variableMoney = allMoney.subtract(fixedMoney);
-
-    const total = allMoney.toOutputYuan();
-    const fixed = fixedMoney.toOutputYuan();
-    const variable = variableMoney.toOutputYuan();
+    // 汇总口径统一走聚合（已在 queryCostReportRows 内按分类/类型聚合，不受明细截断影响）
+    const total = Money.fromDbCents(currentTotalCents).toOutputYuan();
+    const fixed = Money.fromDbCents(fixedCents).toOutputYuan();
+    const variable = Money.fromDbCents(variableCents).toOutputYuan();
 
     return {
       summary: {
@@ -197,13 +196,13 @@ export class CostsReadReportService {
         fixed,
         variable,
         fixedPercentage: calcPercentOfTotal(fixed, total),
-        recordCount: costRows.length,
+        recordCount: currentCount,
         compareLastPeriod: calculateCostCompareLastPeriod(
           total,
           Money.fromDbCents(previousTotal).toOutputYuan(),
         ),
       },
-      categories: buildCostReportCategories(costRows, total),
+      categories: buildCostReportCategories(categoryCents, total),
       detailRows: buildCostReportDetailRows(
         costRows,
         payrollRows,

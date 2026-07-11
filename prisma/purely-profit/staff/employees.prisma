@@ -168,7 +168,9 @@ model EmployeeShift {
   note              String?
   createdAt         DateTime                 @default(now()) @map("created_at")
 
-  @@index([employeeId, date])
+  /// BUG-1 DB 级兜底：同一员工同一自然日（date 为当日零点）不允许重复排班，
+  /// 并发请求绕过应用层 ensureShiftScheduleAvailable 检查时由该唯一约束拦截。
+  @@unique([employeeId, date])
   @@index([storeId, date])
   @@index([shiftDefinitionId, date])
   @@map("employee_shifts")

@@ -1,7 +1,3 @@
-import {
-  formatMonthDayLabel,
-  getDayStartTimestamp,
-} from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import { toTimestamp } from './dashboard-home.activities.utils';
 import {
@@ -9,6 +5,13 @@ import {
   TODAY_BUCKET_LABELS,
   YEAR_MONTH_LABELS,
 } from './dashboard-home.constants';
+import {
+  formatShanghaiDayLabel,
+  getShanghaiDayStartMs,
+  getShanghaiFullYear,
+  getShanghaiHour,
+  getShanghaiMonthIndex,
+} from '../../../shared/shanghai-time.utils';
 import type {
   DashboardHomePeriodValue,
   DashboardHomeTrendRevenueRow,
@@ -33,14 +36,14 @@ export function buildDashboardHomeSalesTrend(
     return buildCurrentMonthSalesTrend(currentRange, trendRows);
   }
 
-  return buildYearSalesTrend(period, trendRows);
+  return buildYearSalesTrend(period, currentRange, trendRows);
 }
 
 function buildTodaySalesTrend(
   currentRange: TimeRange,
   trendRows: DashboardHomeTrendRevenueRow[],
 ): DashboardHomeSalesTrendDto {
-  const todayStart = getDayStartTimestamp(currentRange.end);
+  const todayStart = getShanghaiDayStartMs(currentRange.end);
   const actual: Array<number | null> = TODAY_BUCKET_LABELS.map(() => null);
   const forecast: Array<number | null> = TODAY_BUCKET_LABELS.map(() => null);
 
@@ -80,7 +83,8 @@ function buildTodaySalesTrend(
       realizedValues.reduce((sum, value) => sum + value, 0) /
       realizedValues.length;
     if (average > 0) {
-      forecast[firstFutureBucketIndex] = Money.fromInputYuan(average).toOutputYuan();
+      forecast[firstFutureBucketIndex] =
+        Money.fromInputYuan(average).toOutputYuan();
     }
   }
 
@@ -100,7 +104,7 @@ function buildRecentDaySalesTrend(
   anchorTimestamp: number,
   trendRows: DashboardHomeTrendRevenueRow[],
 ): DashboardHomeSalesTrendDto {
-  const lastDayStart = getDayStartTimestamp(anchorTimestamp);
+  const lastDayStart = getShanghaiDayStartMs(anchorTimestamp);
   const firstDayStart = lastDayStart - DAY_MS * (days - 1);
   const revenueMap = buildDailyRevenueMap(
     trendRows,
@@ -113,7 +117,7 @@ function buildRecentDaySalesTrend(
 
   for (let index = 0; index < days; index += 1) {
     const currentDayStart = firstDayStart + DAY_MS * index;
-    categories.push(formatMonthDayLabel(currentDayStart));
+    categories.push(formatShanghaiDayLabel(currentDayStart));
     actual.push(revenueMap.get(currentDayStart) ?? 0);
   }
 
@@ -139,14 +143,14 @@ function buildCurrentMonthSalesTrend(
   );
   const categories: string[] = [];
   const actual: Array<number | null> = [];
-  const lastDayStart = getDayStartTimestamp(currentRange.end);
+  const lastDayStart = getShanghaiDayStartMs(currentRange.end);
 
   for (
     let dayStart = currentRange.start;
     dayStart <= lastDayStart;
     dayStart += DAY_MS
   ) {
-    categories.push(formatMonthDayLabel(dayStart));
+    categories.push(formatShanghaiDayLabel(dayStart));
     actual.push(revenueMap.get(dayStart) ?? 0);
   }
 
@@ -163,21 +167,19 @@ function buildCurrentMonthSalesTrend(
 
 function buildYearSalesTrend(
   period: DashboardHomePeriodValue,
+  currentRange: TimeRange,
   trendRows: DashboardHomeTrendRevenueRow[],
 ): DashboardHomeSalesTrendDto {
-  const year =
-    period === 'last_year'
-      ? new Date().getFullYear() - 1
-      : new Date().getFullYear();
+  const year = getShanghaiFullYear(currentRange.start);
   const revenueMap = new Map<number, number>();
 
   for (const row of trendRows) {
-    const date = new Date(row.bucketAt);
-    if (date.getFullYear() !== year) {
+    const bucketTs = toTimestamp(row.bucketAt);
+    if (getShanghaiFullYear(bucketTs) !== year) {
       continue;
     }
 
-    const monthIndex = date.getMonth();
+    const monthIndex = getShanghaiMonthIndex(bucketTs);
     const revenueCents = row.revenue ?? 0;
     revenueMap.set(
       monthIndex,
@@ -213,7 +215,7 @@ function buildDailyRevenueMap(
       continue;
     }
 
-    const dayStart = getDayStartTimestamp(timestamp);
+    const dayStart = getShanghaiDayStartMs(timestamp);
     const revenueCents = row.revenue ?? 0;
     revenueMap.set(
       dayStart,
@@ -227,8 +229,7 @@ function buildDailyRevenueMap(
 }
 
 function getTodayBucketIndex(timestamp: number): number {
-  const date = new Date(timestamp);
-  const hour = date.getHours();
+  const hour = getShanghaiHour(timestamp);
   if (hour < 10) return 0;
   if (hour < 12) return 1;
   if (hour < 14) return 2;

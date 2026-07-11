@@ -156,6 +156,8 @@ export class SpaceSessionsService {
     sessionId: number,
     amount: number,
     voucherFaceAmount?: number,
+    grouponCode?: string,
+    grouponPlatform?: string,
     requestId?: string,
   ): Promise<RenewPreviewResult> {
     return this.previewService.getRenewPreview(
@@ -163,6 +165,8 @@ export class SpaceSessionsService {
       sessionId,
       amount,
       voucherFaceAmount,
+      grouponCode,
+      grouponPlatform,
       requestId,
     );
   }

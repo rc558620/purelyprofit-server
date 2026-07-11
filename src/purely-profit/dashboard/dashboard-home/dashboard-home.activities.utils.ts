@@ -1,8 +1,8 @@
 import {
   calcPercentChange,
   formatMonthDayLabel,
-  getDayStartTimestamp,
 } from '../../commerce/commerce.utils';
+import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import { Money } from '../../../shared/money.utils';
 import {
   LEAVE_TYPE_LABELS,
@@ -188,9 +188,9 @@ function appendTodayRechargeDraft(
     return;
   }
 
-    const totalAmount = Money.sum(
-      params.todayRecharges.map((item) => Money.fromDbCents(item.amount)),
-    ).toOutputYuan();
+  const totalAmount = Money.sum(
+    params.todayRecharges.map((item) => Money.fromDbCents(item.amount)),
+  ).toOutputYuan();
   const latestRecharge = params.todayRecharges[0];
 
   drafts.push({
@@ -248,10 +248,10 @@ function appendUpcomingAccountDraft(
   }
 
   // remaining 数据库存储的是分（Int），需先转为元
-    const totalRemaining = Money.sum(
-      params.upcomingAccounts.map((item) => Money.fromDbCents(item.remaining)),
-    ).toOutputYuan();
-    const earliest = params.upcomingAccounts[0];
+  const totalRemaining = Money.sum(
+    params.upcomingAccounts.map((item) => Money.fromDbCents(item.remaining)),
+  ).toOutputYuan();
+  const earliest = params.upcomingAccounts[0];
 
   drafts.push({
     id: 'finance-upcoming-due',
@@ -364,11 +364,11 @@ function detectRevenueDecline(
   }
 
   const DAY_MS = 86_400_000;
-  const todayDayStart = getDayStartTimestamp(now);
+  const todayDayStart = getShanghaiDayStartMs(now);
   const revenueByDay = new Map<number, number>();
 
   for (const row of dailyRevenueRows) {
-    const dayTs = getDayStartTimestamp(toTimestamp(row.bucketAt));
+    const dayTs = getShanghaiDayStartMs(toTimestamp(row.bucketAt));
     const revenue = Money.fromDbCents(row.revenue).toOutputYuan();
     revenueByDay.set(dayTs, (revenueByDay.get(dayTs) ?? 0) + revenue);
   }

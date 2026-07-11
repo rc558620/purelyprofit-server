@@ -5,7 +5,6 @@ import type {
   InventoryAdjustmentsListQueryInput,
   InventoryProductListQueryInput,
   InventoryProductPageResult,
-  InventoryProductRecord,
   InventoryProductStoreRecord,
   InventoryStatsRow,
   InventoryThresholdUpdateRecord,
@@ -15,6 +14,7 @@ export async function queryInventoryProducts(
   prisma: PrismaService,
   storeId: number,
   query: InventoryProductListQueryInput,
+  pagination?: { skip: number; take: number },
 ): Promise<InventoryProductPageResult> {
   /* BUG-7: 将 alertLevel 过滤下推到数据库层，减少内存过滤 */
   const alertWhere = buildAlertWhereCondition(query.alertLevel);
@@ -44,30 +44,46 @@ export async function queryInventoryProducts(
     ...alertWhere,
   };
 
-  const [items, total] = await Promise.all([
-    prisma.product.findMany({
-      where,
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        code: true,
-        price: true,
-        profit: true,
-        costPrice: true,
-        unit: true,
-        stock: true,
-        alertThreshold: true,
-        image: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    }),
-    prisma.product.count({ where }),
-  ]);
+  /*
+   * D4/D8 修复：
+   * 有分页参数时下推 skip/take 到数据库层，并并行执行 COUNT；
+   * 无分页参数时返回全量结果，跳过冗余 COUNT 查询。
+   */
+  if (pagination) {
+    const [items, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        skip: pagination.skip,
+        take: pagination.take,
+        select: productSelect,
+      }),
+      prisma.product.count({ where }),
+    ]);
+    return { items, total };
+  }
 
-  return { items, total };
+  const items = await prisma.product.findMany({
+    where,
+    select: productSelect,
+  });
+  return { items };
 }
+
+const productSelect = {
+  id: true,
+  name: true,
+  category: true,
+  code: true,
+  price: true,
+  profit: true,
+  costPrice: true,
+  unit: true,
+  stock: true,
+  alertThreshold: true,
+  image: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 /**
  * BUG-7: 根据 alertLevel 和 alertOnly 参数构建 Prisma where 条件，
@@ -144,8 +160,12 @@ export async function findInventoryProductStore(
   prisma: PrismaService,
   productId: number,
 ): Promise<InventoryProductStoreRecord | null> {
-  return prisma.product.findUnique({
-    where: { id: productId },
+  /*
+   * BUG-3 修复：加 deletedAt: null 过滤软删除商品，
+   * 避免已删除商品的阈值被静默更新。
+   */
+  return prisma.product.findFirst({
+    where: { id: productId, deletedAt: null },
     select: {
       id: true,
       storeId: true,

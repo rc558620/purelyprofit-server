@@ -19,6 +19,14 @@ export type ConfirmShiftLookupOptions = {
   operatorName?: string;
 };
 
+/**
+ * 班次结束后允许交班定位的宽限期（小时）。
+ * 规则 5 要求交班必须发生在班次结束之后（handoverAt 恒 > endAt），
+ * 因此把"active"窗口从 [startAt, endAt] 扩展为 [startAt, endAt + 宽限]，
+ * 使刚结束的班次在交班时仍可被 active 逻辑选中，避免其成为死代码。
+ */
+const HANDOVER_SHIFT_GRACE_HOURS = 4;
+
 const CONFIRM_SHIFT_RECORD_SELECT = {
   id: true,
   employeeId: true,
@@ -236,9 +244,13 @@ export class HandoverConfirmShiftService {
         shift.endTime,
         options.handoverAt,
       );
+      // 宽限窗口：班次结束后 HANDOVER_SHIFT_GRACE_HOURS 小时内仍视为 active，
+      // 让刚结束的班次在合法交班时刻（handoverAt > endAt）可被精准选中。
+      const graceEndAt = new Date(shiftRange.endAt);
+      graceEndAt.setHours(graceEndAt.getHours() + HANDOVER_SHIFT_GRACE_HOURS);
       return (
         shiftRange.startAt.getTime() <= options.handoverAt.getTime() &&
-        options.handoverAt.getTime() <= shiftRange.endAt.getTime()
+        options.handoverAt.getTime() <= graceEndAt.getTime()
       );
     });
     const activeMatchedShift = activeShifts.find(

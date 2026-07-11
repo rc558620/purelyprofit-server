@@ -9,6 +9,7 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
+import { PaginationMetaDto } from '../../../stores/dto/store-response.dto';
 import { COST_SOURCE_TYPE_VALUES } from '../costs.types';
 
 export class CostRecordResponseDto {
@@ -89,6 +90,22 @@ export class CostRecordResponseDto {
   createdAt: number;
 }
 
+export class CostRecordListResponseDto {
+  @ApiProperty({
+    type: [CostRecordResponseDto],
+    description: '当前页成本记录列表',
+  })
+  @IsArray({ message: '成本记录列表必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => CostRecordResponseDto)
+  items: CostRecordResponseDto[];
+
+  @ApiProperty({ type: PaginationMetaDto, description: '分页元信息' })
+  @ValidateNested()
+  @Type(() => PaginationMetaDto)
+  meta: PaginationMetaDto;
+}
+
 export class CostReportSummaryDto {
   @ApiProperty({ example: 12880, description: '当前筛选周期总支出' })
   @IsNumber({}, { message: '当前总支出必须是数字' })
@@ -137,6 +154,54 @@ export class CostReportCategoryRowDto {
   color: string;
 }
 
+// 仪表盘分类专用 DTO：相比报表分类行多出 category 字段（前端环形图按 category 兜底）。
+// 报表分类（CostReportCategoryRowDto）不返回 category，故两者不可混用。
+export class CostDashboardCategoryRowDto {
+  @ApiProperty({
+    enum: [
+      'rent',
+      'salary',
+      'insurance',
+      'provident_fund',
+      'utilities',
+      'purchase',
+      'equipment',
+      'marketing',
+      'packaging',
+      'other',
+    ],
+    description: '成本分类（前端按此兜底标签/颜色）',
+  })
+  @IsString({ message: '成本分类必须是字符串' })
+  category:
+    | 'rent'
+    | 'salary'
+    | 'insurance'
+    | 'provident_fund'
+    | 'utilities'
+    | 'purchase'
+    | 'equipment'
+    | 'marketing'
+    | 'packaging'
+    | 'other';
+
+  @ApiProperty({ example: '租金', description: '分类标签' })
+  @IsString({ message: '分类标签必须是字符串' })
+  label: string;
+
+  @ApiProperty({ example: 5200, description: '分类金额' })
+  @IsNumber({}, { message: '分类金额必须是数字' })
+  amount: number;
+
+  @ApiProperty({ example: 40.37, description: '分类占比（%）' })
+  @IsNumber({}, { message: '分类占比必须是数字' })
+  percentage: number;
+
+  @ApiProperty({ example: '#6366f1', description: '分类颜色' })
+  @IsString({ message: '分类颜色必须是字符串' })
+  color: string;
+}
+
 export class CostReportDetailRowDto {
   @ApiProperty({ example: '1', description: '明细行 ID' })
   @IsString({ message: '明细行 ID 必须是字符串' })
@@ -162,6 +227,14 @@ export class CostReportDetailRowDto {
   @IsOptional()
   @IsString({ message: '备注必须是字符串' })
   note?: string;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: '是否为草稿记录（草稿不计入汇总）',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '草稿标记必须是布尔值' })
+  draft?: boolean;
 }
 
 export class CostReportResponseDto {
@@ -216,7 +289,10 @@ export class CostStatsResponseDto {
 }
 
 export class CostDashboardTrendDayDto {
-  @ApiProperty({ example: 1747180800000, description: '日期起始时间戳（毫秒）' })
+  @ApiProperty({
+    example: 1747180800000,
+    description: '日期起始时间戳（毫秒）',
+  })
   @IsInt({ message: '日期时间戳必须是整数' })
   date: number;
 
@@ -244,13 +320,13 @@ export class CostDashboardResponseDto {
   summary: CostStatsResponseDto;
 
   @ApiProperty({
-    type: [CostReportCategoryRowDto],
-    description: '成本分类汇总（用于环形图）',
+    type: [CostDashboardCategoryRowDto],
+    description: '成本分类汇总（用于环形图，含 category 字段）',
   })
   @IsArray({ message: '成本分类汇总必须是数组' })
   @ValidateNested({ each: true })
-  @Type(() => CostReportCategoryRowDto)
-  categories: CostReportCategoryRowDto[];
+  @Type(() => CostDashboardCategoryRowDto)
+  categories: CostDashboardCategoryRowDto[];
 
   @ApiProperty({
     type: [CostDashboardTrendDayDto],

@@ -29,7 +29,6 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   AdjustInventoryDto,
   InventoryAdjustmentResponseDto,
-  InventoryProductResponseDto,
   InventoryReportResponseDto,
   InventoryStatsQueryDto,
   InventoryStatsResponseDto,
@@ -131,6 +130,12 @@ export class InventoryController {
     @Res({ passthrough: true }) reply: { raw: ServerResponse },
   ): Promise<InventoryReportResponseDto | typeof reply> {
     if (query.format === 'csv') {
+      /*
+       * D1 修复：CSV 导出与 JSON 导出共用同一权限门控，
+       * 强制标记 export=true，确保 ensureReportExportEnabled 被调用，
+       * 防止拥有 report:view 但套餐不支持导出的账号借 format=csv 绕过校验。
+       */
+      query.export = true;
       await this.inventoryService.streamReportCsv(reply.raw, user, query);
       return reply;
     }

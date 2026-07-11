@@ -122,6 +122,7 @@ describe('EmployeesService', () => {
 
   const costsService = {
     syncPayrollCosts: jest.fn(),
+    invalidateCostCaches: jest.fn().mockResolvedValue(undefined),
   };
 
   const platformMembershipAccessService = {
@@ -1303,13 +1304,13 @@ describe('EmployeesService', () => {
     prismaService.employeeLeave.findFirst.mockResolvedValue({ id: 99 });
 
     await expect(
-service.createLeave(user, 5, {
-      type: 'sick',
-      startDate: new Date('2026-05-08T00:00:00.000Z').getTime(),
-      endDate: new Date('2026-05-09T00:00:00.000Z').getTime(),
-      deductSalary: true,
-      deductAmount: 50,
-    }),
+      service.createLeave(user, 5, {
+        type: 'sick',
+        startDate: new Date('2026-05-08T00:00:00.000Z').getTime(),
+        endDate: new Date('2026-05-09T00:00:00.000Z').getTime(),
+        deductSalary: true,
+        deductAmount: 50,
+      }),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(prismaService.employeeLeave.create).not.toHaveBeenCalled();
   });
@@ -1322,20 +1323,18 @@ service.createLeave(user, 5, {
     });
 
     await expect(
-service.createLeave(user, 5, {
-      type: 'sick',
-      startDate: new Date('2026-05-08T00:00:00.000Z').getTime(),
-      endDate: new Date('2026-05-07T00:00:00.000Z').getTime(),
-      deductSalary: false,
-      deductAmount: 0,
-    }),
+      service.createLeave(user, 5, {
+        type: 'sick',
+        startDate: new Date('2026-05-08T00:00:00.000Z').getTime(),
+        endDate: new Date('2026-05-07T00:00:00.000Z').getTime(),
+        deductSalary: false,
+        deductAmount: 0,
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prismaService.employeeLeave.create).not.toHaveBeenCalled();
   });
 
-  it('createShift 允许同员工同日创建非重叠排班', async () => {
-    const createdAt = new Date('2026-05-13T08:00:00.000Z');
-
+  it('createShift 不允许同员工同日创建非重叠排班（BUG-1 同日互斥）', async () => {
     employeesAccessService.findManageableEmployeeOrThrow.mockResolvedValue({
       id: 5,
       storeId: 2,
@@ -1346,6 +1345,7 @@ service.createLeave(user, 5, {
         id: 81,
         startTime: '09:00',
         endTime: '12:00',
+        date: new Date('2026-05-08T00:00:00.000Z'),
       },
     ]);
 
@@ -1357,38 +1357,16 @@ service.createLeave(user, 5, {
         defaultEndTime: '18:00',
       },
     );
-    prismaService.employeeShift.create.mockResolvedValue({
-      id: 83,
-      storeId: 2,
-      employeeId: 5,
-      employeeName: '王五',
-      date: new Date('2026-05-08T00:00:00.000Z'),
-      shiftType: null,
-      shiftDefinitionId: 9,
-      shiftName: '晚班',
-      startTime: '13:00',
-      endTime: '18:00',
-      note: null,
-      createdAt,
-    });
 
+    // BUG-1：同一天不允许同一员工排多个班次，即使班次时间不重叠也应拒绝。
     await expect(
       service.createShift(user, {
         employeeId: 5,
         date: new Date('2026-05-08T00:00:00.000Z').getTime(),
         shiftDefinitionId: 9,
       }),
-    ).resolves.toEqual({
-      id: '83',
-      employeeId: '5',
-      employeeName: '王五',
-      date: new Date('2026-05-08T00:00:00.000Z').getTime(),
-      shiftDefinitionId: '9',
-      shiftName: '晚班',
-      startTime: '13:00',
-      endTime: '18:00',
-      createdAt: createdAt.getTime(),
-    });
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prismaService.employeeShift.create).not.toHaveBeenCalled();
   });
 
   it('createShift 在同一天时间重叠时抛出异常', async () => {
@@ -1402,6 +1380,7 @@ service.createLeave(user, 5, {
         id: 82,
         startTime: '10:00',
         endTime: '14:00',
+        date: new Date('2026-05-08T00:00:00.000Z'),
       },
     ]);
 
@@ -1850,7 +1829,9 @@ service.createLeave(user, 5, {
       createdAt,
       updatedAt,
     });
-    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(undefined);
+    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
+      undefined,
+    );
     prismaService.employeePayroll.update.mockResolvedValue({
       id: 1,
       storeId: 2,
@@ -1893,7 +1874,10 @@ service.createLeave(user, 5, {
 
     const updateArgs = prismaService.employeePayroll.update.mock.calls.at(
       0,
-    )?.[0] as { where: { id: number }; data: Record<string, number | string | null> };
+    )?.[0] as {
+      where: { id: number };
+      data: Record<string, number | string | null>;
+    };
     expect(updateArgs.where).toEqual({ id: 1 });
     // 服务端重新计算实发工资 = 3332 - 32 - 42 + 52 = 3310 元 → 331000 分
     expect(updateArgs.data.actualSalary).toBe(331000);
@@ -1916,7 +1900,9 @@ service.createLeave(user, 5, {
       storeId: 2,
       status: EmployeePayrollStatus.confirmed,
     });
-    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(undefined);
+    employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
+      undefined,
+    );
 
     await expect(
       service.updatePayroll(user, 1, { baseSalary: 5000 }),

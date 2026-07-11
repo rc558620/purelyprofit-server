@@ -76,11 +76,20 @@ export function transformOptionalBoolean({
     return value;
   }
 
-  if (typeof value === 'string') {
-    if (value === 'true') {
+  if (typeof value === 'number') {
+    if (value === 1) {
       return true;
     }
-    if (value === 'false') {
+    if (value === 0) {
+      return false;
+    }
+  }
+
+  if (typeof value === 'string') {
+    if (value === 'true' || value === '1') {
+      return true;
+    }
+    if (value === 'false' || value === '0') {
       return false;
     }
   }
@@ -193,7 +202,7 @@ export class PaginationQueryDto {
   @Transform(transformOptionalInt)
   @IsInt({ message: '每页数量必须是整数' })
   @Min(1, { message: '每页数量必须大于等于 1' })
-  @Max(200, { message: '每页数量不能超过 200' })
+  @Max(100, { message: '每页数量不能超过 100' })
   pageSize?: number;
 }
 

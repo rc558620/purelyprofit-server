@@ -14,20 +14,21 @@ import {
   transformOptionalBoolean,
   transformOptionalInt,
 } from '../../../stores/dto/store-response.dto';
+import { PaginationQueryDto } from '../../../stores/dto/store-response.dto';
 import {
-  COST_CATEGORY_VALUES,
   COST_PERIOD_VALUES,
   COST_REPORT_CATEGORY_FILTER_VALUES,
   COST_REPORT_PERIOD_VALUES,
   COST_TYPE_FILTER_VALUES,
   COST_TYPE_VALUES,
+  MANUAL_COST_CATEGORY_VALUES,
   type CostPeriodValue,
   type CostReportCategoryFilterValue,
   type CostReportPeriodValue,
   type CostTypeFilterValue,
 } from '../costs.types';
 
-export class ListCostRecordsQueryDto {
+export class ListCostRecordsQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
     enum: COST_PERIOD_VALUES,
     description: '成本记录时间周期筛选',
@@ -171,21 +172,13 @@ export class CreateCostRecordDto {
   type: 'fixed' | 'variable';
 
   @ApiProperty({
-    enum: COST_CATEGORY_VALUES,
-    description: '成本分类',
+    enum: MANUAL_COST_CATEGORY_VALUES,
+    description: '成本分类（仅允许手动类目，自动沉淀类目由同步写入）',
   })
-  @IsIn(COST_CATEGORY_VALUES, { message: '成本分类不合法' })
-  category:
-    | 'rent'
-    | 'salary'
-    | 'insurance'
-    | 'provident_fund'
-    | 'utilities'
-    | 'purchase'
-    | 'equipment'
-    | 'marketing'
-    | 'packaging'
-    | 'other';
+  @IsIn(MANUAL_COST_CATEGORY_VALUES, {
+    message: '手动新增成本仅支持人工类目（租金/水电/设备/营销/耗材/其他）',
+  })
+  category: (typeof MANUAL_COST_CATEGORY_VALUES)[number];
 
   @ApiProperty({ example: 1888.5, description: '金额，单位元' })
   @Type(() => Number)

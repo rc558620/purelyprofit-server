@@ -23,6 +23,8 @@ type CostsRecordsCacheQuery = {
   customDate?: number | null;
   rangeStartDate?: number | null;
   rangeEndDate?: number | null;
+  page?: number | null;
+  pageSize?: number | null;
 };
 
 // ── Costs Stats 缓存键 ──
@@ -86,6 +88,8 @@ export function buildCostsRecordsCacheKey(
     `customDate:${toCacheSegment(query.customDate)}`,
     `rangeStart:${toCacheSegment(query.rangeStartDate)}`,
     `rangeEnd:${toCacheSegment(query.rangeEndDate)}`,
+    `page:${toCacheSegment(query.page)}`,
+    `pageSize:${toCacheSegment(query.pageSize)}`,
   ].join(':');
 }
 

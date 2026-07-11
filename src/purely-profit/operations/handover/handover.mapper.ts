@@ -102,9 +102,46 @@ export const resolveOrderItemPaymentMethod = (
 };
 
 /**
+ * 从续费记录中提取第一条团购平台标识。
+ * 用于续费项在交班页面显示「美团团购」「抖音团购」等完整标签。
+ */
+const resolveRenewGrouponPlatform = (
+  sessionRenewRecords: Array<{
+    paymentMethod: string;
+    grouponPlatform: string | null;
+  }>,
+): string | null => {
+  for (const record of sessionRenewRecords) {
+    if (record.paymentMethod === 'groupon_voucher' && record.grouponPlatform) {
+      return record.grouponPlatform;
+    }
+  }
+  return null;
+};
+
+/**
+ * 从续费记录中提取第一条团购券码。
+ * 用于无开台预付团购时，续费项也能展示券码。
+ */
+const resolveRenewGrouponCode = (
+  sessionRenewRecords:
+    | Array<{ paymentMethod: string; grouponCode: string | null }>
+    | undefined,
+): string | null => {
+  if (!sessionRenewRecords) return null;
+  for (const record of sessionRenewRecords) {
+    if (record.paymentMethod === 'groupon_voucher' && record.grouponCode) {
+      return record.grouponCode;
+    }
+  }
+  return null;
+};
+
+/**
  * 解析订单项的支付显示信息（label + color）。
- * 核心规则：当开台项（预付款 / 台位费）的顾客支付方式为团购券时，
- * 覆盖显示为「团购」，而不是门店侧的结算方式（如现金）。
+ * 核心规则：
+ *   1. 开台项（预付款 / 台位费）顾客支付方式为团购券时 → 显示「美团团购」「抖音团购」等
+ *   2. 续费项支付方式为团购券时 → 从续费记录提取平台标识，同样显示「xxx团购」
  */
 export const resolveOrderItemPaymentDisplay = (
   item: OrderItemRow,
@@ -120,6 +157,21 @@ export const resolveOrderItemPaymentDisplay = (
   ) {
     return {
       paymentLabel: buildGrouponLabel(spaceSession.prepaidGrouponPlatform),
+      paymentColor: GROUPON_VOUCHER_DISPLAY.color,
+    };
+  }
+
+  // 续费项 + 支付方式为团购 → 从续费记录提取平台标识，显示「美团团购」「抖音团购」等
+  if (
+    item.productName === SPACE_RENEW_DEDUCTION_ITEM_NAME &&
+    paymentMethod === ('groupon_voucher' as SalesPaymentMethod) &&
+    spaceSession
+  ) {
+    const renewPlatform = resolveRenewGrouponPlatform(
+      spaceSession.sessionRenewRecords,
+    );
+    return {
+      paymentLabel: buildGrouponLabel(renewPlatform),
       paymentColor: GROUPON_VOUCHER_DISPLAY.color,
     };
   }
@@ -176,10 +228,10 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
       toDisplayName(session.openOperatorStaff?.name) ??
       toDisplayName(item.order.operatorNameSnapshot) ??
       toDisplayName(item.order.operatorStaff?.name) ??
-      '')
+      AUTO_SETTLEMENT_OPERATOR_NAME)
     : (toDisplayName(item.order.operatorNameSnapshot) ??
       toDisplayName(item.order.operatorStaff?.name) ??
-      '');
+      AUTO_SETTLEMENT_OPERATOR_NAME);
   const operatorRole = isOpenItem
     ? (resolveOperatorRole(session.openOperatorStaff) ??
       resolveOperatorRole(item.order.operatorStaff))
@@ -219,7 +271,10 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
     currentStock: item.product?.stock ?? null,
     stockUnit: item.product?.unit ?? null,
     timeCategory,
-    grouponCode: session?.prepaidGrouponCode ?? null,
+    grouponCode:
+      session?.prepaidGrouponCode ??
+      resolveRenewGrouponCode(session?.sessionRenewRecords) ??
+      null,
   };
 };
 
@@ -350,7 +405,8 @@ export const mapRecordAdditionalItems = (
   (record.additionalValues ?? []).map((item) => ({
     id: item.id,
     itemId: item.itemId,
-    itemName: item.item.name,
+    // 优先读快照字段，防止 item 被删后 NPE；兜底取 item.name
+    itemName: item.itemNameSnapshot ?? item.item?.name ?? '未知附加项',
     value: item.value,
     createdAt: item.createdAt.getTime(),
     updatedAt: item.updatedAt.getTime(),

@@ -5,6 +5,10 @@ import {
   toTimestampMs,
 } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
+import {
+  buildGrouponLabel,
+  PAYMENT_METHOD_CONFIG,
+} from '../handover/handover.constants';
 import type {
   SalesDailyRowDto,
   SalesRecordItemResponseDto,
@@ -187,6 +191,16 @@ export function mapSalesRecordResponse(
   // ─── 团购 / 券 / 平台结算元数据（从分转元，可选）────────────────────────
   const grouponFields = buildGrouponResponseFields(order);
 
+  // ─── 支付方式展示标签（团购场景拼接平台名称）──────────────────────────
+  const isGrouponPayment =
+    order.customerPaymentMethod === 'groupon_voucher' ||
+    (order.paymentMethod as string) === 'groupon_voucher';
+  const paymentLabel = isGrouponPayment
+    ? buildGrouponLabel(order.grouponPlatform ?? order.voucherPlatform)
+    : ((PAYMENT_METHOD_CONFIG as Record<string, { label: string }>)[
+        order.paymentMethod
+      ]?.label ?? order.paymentMethod);
+
   return {
     id: String(order.id),
     orderNo: order.orderNo,
@@ -197,6 +211,7 @@ export function mapSalesRecordResponse(
     totalProfit: amountsSnapshot.totalProfit,
     totalQuantity: amountsSnapshot.totalQuantity,
     paymentMethod: order.paymentMethod,
+    paymentLabel,
     calcMode: order.calcMode,
     ...(note ? { note } : {}),
     ...(operatorName ? { operatorName } : {}),

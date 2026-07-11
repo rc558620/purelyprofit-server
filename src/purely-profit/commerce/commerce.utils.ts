@@ -42,6 +42,23 @@ export function isDeductionProductName(productName: string): boolean {
   );
 }
 
+/**
+ * P2b fix: 基于 systemProductId 优先判定抵扣项，回退到 productName 兼容历史数据。
+ * 供销售层替代 isDeductionProductName 使用，避免改名后判定静默失效。
+ */
+export function isDeductionItem(item: {
+  systemProductId?: string;
+  productName: string;
+}): boolean {
+  if (item.systemProductId) {
+    return (
+      item.systemProductId === 'SYS_RENEW_DEDUCTION' ||
+      item.systemProductId === 'SYS_PREPAID_DEDUCTION'
+    );
+  }
+  return isDeductionProductName(item.productName);
+}
+
 export interface ResolvedPagination {
   page: number;
   skip: number;
@@ -307,11 +324,12 @@ export function buildPurchaseDateRange(
       if (rangeStartMs === undefined || rangeEndMs === undefined) {
         return undefined;
       }
-      const rangeStart = getStartOfDay(rangeStartMs);
-      const rangeEnd = getEndOfDay(rangeEndMs);
+      // B5-fix: 统一用 Math.min/max 纠正起止颠倒
+      const rangeStart = getStartOfDay(Math.min(rangeStartMs, rangeEndMs));
+      const rangeEnd = getEndOfDay(Math.max(rangeStartMs, rangeEndMs));
       return {
         gte: rangeStart,
-        lte: new Date(Math.max(rangeStart.getTime(), rangeEnd.getTime())),
+        lte: rangeEnd,
       };
     }
     case 'all':

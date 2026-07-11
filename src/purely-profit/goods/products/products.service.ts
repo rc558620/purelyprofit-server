@@ -247,6 +247,7 @@ export class ProductsService {
       pageSize: query.pageSize,
       keyword: query.keyword,
       category: query.category,
+      categoryId: query.categoryId,
       isActive: query.isActive,
       sortBy: query.sortBy,
     };

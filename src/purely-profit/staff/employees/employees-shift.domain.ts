@@ -138,6 +138,88 @@ export function isTimeRangeOverlapping(
   );
 }
 
+/** 判断两个 Date 是否为同一自然日（年 / 月 / 日相同） */
+export function isSameCalendarDay(left: Date, right: Date): boolean {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+/**
+ * 将「日期 + 时分字符串」解析为绝对时间区间。
+ * 跨日班次（end <= start，如 22:00-06:00）会自动把结束时间 +1 天，
+ * 因此返回的时间区间可在不同自然日之间正确比较是否重叠。
+ */
+export function buildShiftAbsoluteRange(
+  date: Date,
+  startTime: string,
+  endTime: string,
+): { startAt: Date; endAt: Date } {
+  const startMinutes = parseTimeToMinutes(startTime, '上班时间格式不正确');
+  const endMinutes = parseTimeToMinutes(endTime, '下班时间格式不正确');
+  const base = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    0,
+    0,
+    0,
+    0,
+  );
+  const startAt = new Date(base);
+  startAt.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
+  const endAt = new Date(base);
+  endAt.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+  if (endAt <= startAt) {
+    endAt.setDate(endAt.getDate() + 1);
+  }
+  return { startAt, endAt };
+}
+
+/** 基于绝对时间区间判断两个班次是否重叠（正确支持跨日班次） */
+export function isAbsoluteRangeOverlapping(
+  left: { startAt: Date; endAt: Date },
+  right: { startAt: Date; endAt: Date },
+): boolean {
+  return (
+    left.startAt.getTime() < right.endAt.getTime() &&
+    right.startAt.getTime() < left.endAt.getTime()
+  );
+}
+
+/**
+ * 构建覆盖「前一日 / 当日 / 后一日」的日期查询范围，
+ * 用于跨日排班重叠检测：前一日跨日班次的尾段与当日班次、
+ * 当日跨日班次与后一日班次均可能发生时间交叉。
+ */
+export function buildThreeDayDateRange(date: number): {
+  gte: Date;
+  lt: Date;
+} {
+  const current = new Date(date);
+  const start = new Date(
+    current.getFullYear(),
+    current.getMonth(),
+    current.getDate() - 1,
+    0,
+    0,
+    0,
+    0,
+  );
+  const endExclusive = new Date(
+    current.getFullYear(),
+    current.getMonth(),
+    current.getDate() + 2,
+    0,
+    0,
+    0,
+    0,
+  );
+  return { gte: start, lt: endExclusive };
+}
+
 export function resolveShiftTypeFromDefinition(input: {
   shiftName: string;
   startTime: string;

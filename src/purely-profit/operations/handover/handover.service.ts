@@ -1,7 +1,10 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { StaffRole, StoreSubAccountRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import { SpaceSessionAutoCheckoutService } from '../spaces/space-session-auto-checkout.service';
+import {
+  SpaceSessionAutoCheckoutService,
+  createAutoCheckoutSystemUser,
+} from '../spaces/space-session-auto-checkout.service';
 import type {
   CreateHandoverAdditionalItemDto,
   HandoverAdditionalItemDto,
@@ -70,7 +73,7 @@ export class HandoverService {
     user: AuthenticatedUser,
     dto: CreateHandoverAdditionalItemDto,
   ): Promise<HandoverAdditionalItemDto> {
-    await this.ensureUserCanManageAdditionalItems(user);
+    this.ensureUserCanManageAdditionalItems(user);
     return this.handoverAdditionalItemsService.createAdditionalItem(user, dto);
   }
 
@@ -79,7 +82,7 @@ export class HandoverService {
     itemId: number,
     dto: UpdateHandoverAdditionalItemDto,
   ): Promise<HandoverAdditionalItemDto> {
-    await this.ensureUserCanManageAdditionalItems(user);
+    this.ensureUserCanManageAdditionalItems(user);
     return this.handoverAdditionalItemsService.updateAdditionalItem(
       user,
       itemId,
@@ -91,7 +94,7 @@ export class HandoverService {
     user: AuthenticatedUser,
     itemId: number,
   ): Promise<void> {
-    await this.ensureUserCanManageAdditionalItems(user);
+    this.ensureUserCanManageAdditionalItems(user);
     return this.handoverAdditionalItemsService.deleteAdditionalItem(
       user,
       itemId,
@@ -181,17 +184,19 @@ export class HandoverService {
     user: AuthenticatedUser,
     trigger: string,
   ): Promise<void> {
+    // 自动结账必须使用系统用户（无 membership），使 SaleOrder.operatorStaffId 为 null，
+    // 交班页兜底展示"空间自动结账"，而非当前登录用户的姓名。
+    void user;
+    const systemUser = createAutoCheckoutSystemUser();
     await this.spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions(
-      user,
+      systemUser,
       ensureMembershipStoreId(user),
       Date.now(),
       trigger,
     );
   }
 
-  private async ensureUserCanManageAdditionalItems(
-    user: AuthenticatedUser,
-  ): Promise<void> {
+  private ensureUserCanManageAdditionalItems(user: AuthenticatedUser): void {
     const membership = ensureMembershipContext(user);
     const isManager =
       membership.role === StaffRole.manager ||
@@ -201,26 +206,33 @@ export class HandoverService {
       return;
     }
 
-    await this.ensureUserCanOperateCurrentShift(user);
+    // 附加项是门店级配置（影响全店所有交班），仅允许 owner / manager 管理
+    throw new ForbiddenException('仅店长或管理员可管理附加项配置');
   }
 
   private async ensureUserCanOperateShift(
     user: AuthenticatedUser,
     shiftType?: HandoverPageQueryDto['shiftType'],
   ): Promise<void> {
-    ensureMembershipContext(user);
+    // 写接口前置自动结账：确保过期倒计时空间会话在交班确认前完成结账，
+    // 避免归档的营收数据漏算刚过期的会话。
+    await this.autoCheckoutCurrentStoreSessions(user, 'handover:write');
 
-    const page = await this.handoverPageService.getHandoverPage(user, {
-      ...(shiftType ? { shiftType } : {}),
-    });
-    if (!page.canOperate) {
+    // BUG-5 优化：仅解析权限上下文，不再跑整页渲染
+    // （省去 resolvePageShiftRange + loadPageMetrics 的 7 个并行查询 + buildPageResponse）。
+    const access =
+      await this.handoverPageService.resolveHandoverOperationAccess(
+        user,
+        shiftType,
+      );
+    if (!access.canOperate) {
       throw new ForbiddenException(
-        page.operationBlockedReason ?? CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE,
+        access.blockedReason ?? CASHIER_SHIFT_OPERATION_BLOCK_MESSAGE,
       );
     }
 
     // 页面读取允许自动切到下一班次，但写接口必须严格命中请求的班次，避免重复交旧班。
-    if (shiftType && page.selectedShiftType !== shiftType) {
+    if (shiftType && access.selectedShiftType !== shiftType) {
       throw new ForbiddenException('当前班次已完成交班，暂不允许重复操作');
     }
   }

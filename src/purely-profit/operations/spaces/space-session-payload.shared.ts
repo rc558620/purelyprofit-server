@@ -1,6 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import { Money } from '../../../shared/money.utils';
-import { assertMoneyPrecision } from './space-session-checkout-payload.shared';
+import {
+  assertMoneyPrecision,
+  resolveSettlementChannelFromPlatform,
+} from './space-session-checkout-payload.shared';
 import type {
   OpenSpaceSessionDto,
   RenewSpaceSessionDto,
@@ -43,22 +46,13 @@ export const normalizeOpenSessionPayload = (
     (derivedVoucherCode || derivedVoucherPlatform
       ? ('groupon_voucher' as const)
       : dto.prepaidPaymentMethod);
+  // P1 fix: 复用结账侧 resolveSettlementChannelFromPlatform，
+  // 统一中英文平台匹配逻辑，避免开台侧仅匹配中文导致英文枚举（meituan/douyin）
+  // 被错误归为 other_platform。
   const derivedSettlementChannel =
     dto.prepaidSettlementChannel ??
     (derivedCustomerPaymentMethod === 'groupon_voucher'
-      ? (() => {
-          const normalized = derivedVoucherPlatform?.trim().toLowerCase();
-          if (!normalized) {
-            return 'other_platform' as const;
-          }
-          if (normalized.includes('美团')) {
-            return 'meituan_groupon' as const;
-          }
-          if (normalized.includes('抖音')) {
-            return 'douyin_groupon' as const;
-          }
-          return 'other_platform' as const;
-        })()
+      ? resolveSettlementChannelFromPlatform(derivedVoucherPlatform)
       : ('direct_cashier' as const));
 
   return {

@@ -8,7 +8,7 @@ import type {
 } from './dto/costs-query.dto';
 import type {
   CostDashboardResponseDto,
-  CostRecordResponseDto,
+  CostRecordListResponseDto,
   CostReportResponseDto,
   CostStatsResponseDto,
 } from './dto/costs-response.dto';
@@ -29,7 +29,7 @@ export class CostsReadService {
   listRecords(
     user: AuthenticatedUser,
     query: ListCostRecordsQueryDto,
-  ): Promise<CostRecordResponseDto[]> {
+  ): Promise<CostRecordListResponseDto> {
     return this.records.listRecords(user, query);
   }
 

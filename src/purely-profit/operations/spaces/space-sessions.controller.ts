@@ -246,6 +246,8 @@ export class SpaceSessionsController {
       sessionId,
       dto.amount,
       dto.voucherFaceAmount,
+      dto.grouponCode,
+      dto.grouponPlatform,
       ctx.requestId,
     );
   }

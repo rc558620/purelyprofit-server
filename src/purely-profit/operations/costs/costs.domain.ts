@@ -1,8 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import {
-  buildPreviousPurchaseDateRange,
-  buildPurchaseDateRange,
-} from '../../commerce/commerce.utils';
+import { buildPurchaseDateRange } from '../../commerce/commerce.utils';
 import {
   Money,
   calcPercentChangeWithFallback,
@@ -60,32 +57,81 @@ export function buildEmptyCostDashboardResponse(): CostDashboardResponseDto {
 
 export function sumCostAmounts(records: CostAmountRow[]): number {
   // 数据库存的是分，先求和再转元
-  return Money.sum(records.map((record) => Money.fromDbCents(record.amount)))
-    .toOutputYuan();
+  return Money.sum(
+    records.map((record) => Money.fromDbCents(record.amount)),
+  ).toOutputYuan();
 }
 
 export function calculateCostCompareLastPeriod(
   currentTotal: number,
   previousTotal: number,
 ): number | null {
-  return calcPercentChangeWithFallback(currentTotal, previousTotal, { precision: 2 });
+  return calcPercentChangeWithFallback(currentTotal, previousTotal, {
+    precision: 2,
+  });
 }
 
 export function buildCostRange(
   query: CostQueryInput,
 ): CostFilterRange | undefined {
-  return buildPurchaseDateRange(
+  // B4-fix: custom_month / custom_range 缺参数时统一抛 400，不再静默回退全量
+  if (query.period === 'custom_month' && query.customDate === undefined) {
+    throw new BadRequestException('自定义单日模式需要传 customDate');
+  }
+  if (query.period === 'custom_range') {
+    if (
+      query.rangeStartDate === undefined ||
+      query.rangeEndDate === undefined
+    ) {
+      throw new BadRequestException(
+        '自定义区间模式需要同时传 rangeStartDate 和 rangeEndDate',
+      );
+    }
+  }
+  const range = buildPurchaseDateRange(
     query.period,
     query.customDate,
     query.rangeStartDate,
     query.rangeEndDate,
   );
+
+  // B5-fix: 与报表口径一致，自定义区间起止颠倒时交换，避免返回空结果
+  if (
+    range &&
+    query.period === 'custom_range' &&
+    range.gte.getTime() > range.lte.getTime()
+  ) {
+    return { gte: range.lte, lte: range.gte };
+  }
+
+  return range;
 }
 
-export function buildPreviousCostRange(
+/**
+ * B3-fix: 复用报表的日历对齐「上期」算法（buildPreviousCostReportRange），
+ * 保证仪表盘/统计与报表中心的环比口径一致，避免两套实现漂移。
+ */
+export function buildPreviousCostCalendarRange(
   query: CostQueryInput,
 ): CostFilterRange | undefined {
-  return buildPreviousPurchaseDateRange(buildCostRange(query));
+  const period = query.period;
+  // 全量（all）或为空时没有“上一期”概念
+  if (period === undefined || period === 'all') {
+    return undefined;
+  }
+
+  const current = buildCostRange(query);
+  if (!current) {
+    return undefined;
+  }
+
+  const currentRange: CostReportRange = {
+    start: current.gte.getTime(),
+    end: current.lte.getTime(),
+    period,
+  };
+  const previous = buildPreviousCostReportRange(period, currentRange);
+  return { gte: new Date(previous.start), lte: new Date(previous.end) };
 }
 
 export function shouldComparePreviousCostPeriod(
@@ -95,7 +141,10 @@ export function shouldComparePreviousCostPeriod(
     period === 'week' ||
     period === 'month' ||
     period === 'quarter' ||
-    period === 'all'
+    period === 'year' ||
+    period === 'all' ||
+    period === 'custom_month' ||
+    period === 'custom_range'
   );
 }
 
@@ -252,11 +301,21 @@ export function buildPreviousCostReportRange(
       };
     }
     case 'year': {
+      // 对称口径：上一年使用与当前年份相同的月/日终点（YTD vs YTD）
       const currentStart = new Date(currentRange.start);
+      const currentEnd = new Date(currentRange.end);
       const year = currentStart.getFullYear() - 1;
       return {
         start: new Date(year, 0, 1, 0, 0, 0, 0).getTime(),
-        end: new Date(year, 11, 31, 23, 59, 59, 999).getTime(),
+        end: new Date(
+          year,
+          currentEnd.getMonth(),
+          currentEnd.getDate(),
+          23,
+          59,
+          59,
+          999,
+        ).getTime(),
         period: resolvedPeriod,
       };
     }

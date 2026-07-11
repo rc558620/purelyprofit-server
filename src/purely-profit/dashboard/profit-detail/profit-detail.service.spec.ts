@@ -7,6 +7,7 @@ import { PlatformMembershipAccessService } from '../../member/platform-membershi
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { ProfitDetailService } from './profit-detail.service';
+import { fetchProfitRows } from './profit-detail.query';
 
 describe('ProfitDetailService', () => {
   let service: ProfitDetailService;
@@ -506,6 +507,20 @@ describe('ProfitDetailService', () => {
     ).toHaveBeenCalledWith(18, false);
   });
 
+  it('getReport 在 CSV 格式下也会校验报表导出权限（修复 format=csv 绕过权限）', async () => {
+    commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
+    platformMembershipAccessService.ensureReportExportEnabled.mockRejectedValueOnce(
+      new Error('forbidden'),
+    );
+
+    await expect(
+      service.getReport(user, { period: 'today', format: 'csv' }),
+    ).rejects.toThrow('forbidden');
+    expect(
+      platformMembershipAccessService.ensureReportExportEnabled,
+    ).toHaveBeenCalledWith(18, false);
+  });
+
   it('getProfitDetail 会按会员历史窗口裁剪查询范围', async () => {
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(18);
     platformMembershipAccessService.clampHistoryRange
@@ -658,5 +673,73 @@ describe('ProfitDetailService', () => {
     await expect(
       service.getProfitDetail(user, { period: 'custom_range' }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('fetchProfitRows 超过单页上限时会翻页取尽，不静默截断', async () => {
+    const allRows = [
+      {
+        productId: 1,
+        productName: 'A',
+        categoryName: 'c',
+        salePrice: new Prisma.Decimal('100'),
+        profit: new Prisma.Decimal('10'),
+        quantity: 1,
+        image: null,
+        order: { id: 1, date: new Date(2026, 4, 12, 10), spaceSession: null },
+      },
+      {
+        productId: 2,
+        productName: 'B',
+        categoryName: 'c',
+        salePrice: new Prisma.Decimal('200'),
+        profit: new Prisma.Decimal('20'),
+        quantity: 1,
+        image: null,
+        order: { id: 2, date: new Date(2026, 4, 12, 10), spaceSession: null },
+      },
+      {
+        productId: 3,
+        productName: 'C',
+        categoryName: 'c',
+        salePrice: new Prisma.Decimal('300'),
+        profit: new Prisma.Decimal('30'),
+        quantity: 1,
+        image: null,
+        order: { id: 3, date: new Date(2026, 4, 12, 10), spaceSession: null },
+      },
+    ];
+    prismaService.saleOrderItem.findMany.mockImplementation(
+      (args: { skip?: number; take?: number }) => {
+        const skip = args?.skip ?? 0;
+        const take = args?.take ?? 5000;
+        return Promise.resolve(allRows.slice(skip, skip + take));
+      },
+    );
+    prismaService.costRecord.findMany.mockResolvedValue([]);
+
+    const currentRange = {
+      start: new Date(2026, 4, 1).getTime(),
+      end: new Date(2026, 4, 30).getTime(),
+      clamped: false,
+      empty: false,
+    };
+    const previousRange = {
+      start: new Date(2026, 3, 1).getTime(),
+      end: new Date(2026, 3, 30).getTime(),
+      clamped: false,
+      empty: false,
+    };
+
+    // pageSize=2 => 3 行需要翻 2 页，验证全部取尽
+    const { saleRows } = await fetchProfitRows(
+      prismaService as unknown as PrismaService,
+      18,
+      currentRange,
+      previousRange,
+      2,
+    );
+
+    expect(saleRows).toHaveLength(3);
+    expect(prismaService.saleOrderItem.findMany).toHaveBeenCalledTimes(2);
   });
 });

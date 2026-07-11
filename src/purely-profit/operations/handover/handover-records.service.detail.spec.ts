@@ -152,7 +152,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           id: '21',
           productName: '台位费（1分钟）',
           totalRevenue: 5.55,
-          operatorName: '',
+          operatorName: '空间自动结账',
         }),
       ]);
       expect(prismaService.saleOrder.count).toHaveBeenCalledWith(

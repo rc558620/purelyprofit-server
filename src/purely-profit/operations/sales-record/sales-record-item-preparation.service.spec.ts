@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
@@ -35,8 +35,8 @@ describe('SalesRecordItemPreparationService', () => {
         name: '可口可乐 330ml',
         category: '饮品',
         code: 'COLA001',
-        price: 1550,  // 15.50 元 = 1550 分
-        profit: 400,  // 4.00 元 = 400 分
+        price: 1550, // 15.50 元 = 1550 分
+        profit: 400, // 4.00 元 = 400 分
         stock: 20,
         isActive: true,
         image: 'https://example.com/coke.png',
@@ -79,8 +79,8 @@ describe('SalesRecordItemPreparationService', () => {
         name: '面条',
         category: '主食',
         code: 'NOODLE001',
-        price: 2000,  // 20.00 元 = 2000 分
-        profit: 800,  // 8.00 元 = 800 分
+        price: 2000, // 20.00 元 = 2000 分
+        profit: 800, // 8.00 元 = 800 分
         stock: 0,
         isActive: true,
         image: null,
@@ -146,6 +146,7 @@ describe('SalesRecordItemPreparationService', () => {
         profit: Money.fromInputYuan(-30),
         quantity: 1,
         countsTowardTotalQuantity: false,
+        systemProductId: 'SYS_RENEW_DEDUCTION',
       },
     ]);
   });
@@ -177,29 +178,40 @@ describe('SalesRecordItemPreparationService', () => {
         profit: Money.fromInputYuan(-30), // 后端从售价推导
         quantity: 1,
         countsTowardTotalQuantity: false,
+        systemProductId: 'SYS_RENEW_DEDUCTION',
       },
     ]);
   });
 
-  it('prepareItems 在商品不存在时抛出 NotFoundException', async () => {
+  it('prepareItems 在商品不存在时回退为手动项而非阻断', async () => {
     prismaService.product.findMany.mockResolvedValue([]);
 
-    await expect(
-      service.prepareItems(18, {
-        items: [
-          {
-            productId: '201',
-            productName: '可口可乐 330ml',
-            categoryName: '饮品',
-            salePrice: 15.5,
-            profit: 4,
-            quantity: 1,
-          },
-        ],
-        paymentMethod: 'cash',
-        calcMode: 'business',
-      }),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    const result = await service.prepareItems(18, {
+      items: [
+        {
+          productId: '201',
+          productName: '可口可乐 330ml',
+          categoryName: '饮品',
+          salePrice: 15.5,
+          profit: 4,
+          quantity: 1,
+        },
+      ],
+      paymentMethod: 'cash',
+      calcMode: 'business',
+    });
+
+    expect(result).toEqual([
+      {
+        productId: null,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: Money.fromInputYuan(15.5),
+        profit: Money.fromInputYuan(15.5),
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ]);
   });
 
   it('prepareItems 在商品下架或库存不足时抛出 BadRequestException', async () => {
@@ -210,8 +222,8 @@ describe('SalesRecordItemPreparationService', () => {
           name: '可口可乐 330ml',
           category: '饮品',
           code: 'COLA001',
-          price: 1550,  // 15.50 元 = 1550 分
-          profit: 400,  // 4.00 元 = 400 分
+          price: 1550, // 15.50 元 = 1550 分
+          profit: 400, // 4.00 元 = 400 分
           stock: 20,
           isActive: false,
           image: null,
@@ -223,8 +235,8 @@ describe('SalesRecordItemPreparationService', () => {
           name: '雪碧',
           category: '饮品',
           code: 'SPRITE001',
-          price: 1200,  // 12.00 元 = 1200 分
-          profit: 300,  // 3.00 元 = 300 分
+          price: 1200, // 12.00 元 = 1200 分
+          profit: 300, // 3.00 元 = 300 分
           stock: 1,
           isActive: true,
           image: null,
@@ -273,8 +285,8 @@ describe('SalesRecordItemPreparationService', () => {
         name: '可口可乐 330ml',
         category: '饮品',
         code: 'COLA001',
-        price: 1550,  // 15.50 元 = 1550 分
-        profit: 400,  // 4.00 元 = 400 分
+        price: 1550, // 15.50 元 = 1550 分
+        profit: 400, // 4.00 元 = 400 分
         stock: 20,
         isActive: true,
         image: null,

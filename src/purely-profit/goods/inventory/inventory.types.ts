@@ -138,7 +138,7 @@ export interface InventoryAdjustmentPageResult {
 
 export interface InventoryProductPageResult {
   items: InventoryProductRecord[];
-  total: number;
+  total?: number;
 }
 
 export interface InventoryAdjustmentLogCreateInput {

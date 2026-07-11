@@ -92,7 +92,10 @@ export class PurchaseItemInputDto {
 }
 
 export class PreviewPurchaseDto {
-  @ApiProperty({ type: [PurchaseItemInputDto], description: '进货明细（仅需商品信息，服务端计算金额）' })
+  @ApiProperty({
+    type: [PurchaseItemInputDto],
+    description: '进货明细（仅需商品信息，服务端计算金额）',
+  })
   @IsArray({ message: '进货明细必须是数组' })
   @ArrayMinSize(1, { message: '请至少填写一条商品明细' })
   @ValidateNested({ each: true })
@@ -130,7 +133,7 @@ export class CreatePurchaseDto {
 
   @ApiProperty({
     example: 1715558400000,
-    description: '进货日期时间戳（毫秒），不能超过当前时间 1 年',
+    description: '进货日期时间戳（毫秒），不能晚于当前时间',
   })
   @Type(() => Number)
   @IsInt({ message: '进货日期必须是整数时间戳' })
@@ -319,12 +322,18 @@ export class PurchasePreviewItemResponseDto {
   @ApiProperty({ example: 60, description: '进货单价（元）' })
   unitPrice: number;
 
-  @ApiProperty({ example: 300, description: '小计金额（元），由服务端统一计算' })
+  @ApiProperty({
+    example: 300,
+    description: '小计金额（元），由服务端统一计算',
+  })
   amount: number;
 }
 
 export class PurchasePreviewResponseDto {
-  @ApiProperty({ type: [PurchasePreviewItemResponseDto], description: '进货明细（含服务端计算的小计金额）' })
+  @ApiProperty({
+    type: [PurchasePreviewItemResponseDto],
+    description: '进货明细（含服务端计算的小计金额）',
+  })
   items: PurchasePreviewItemResponseDto[];
 
   @ApiProperty({ example: 520, description: '总金额（元），由服务端统一计算' })

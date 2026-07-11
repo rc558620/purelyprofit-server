@@ -74,7 +74,7 @@ export class SalesRecordStatsService {
       ttlSeconds: SALES_STATS_CACHE_TTL_SECONDS,
       refreshAfterMs: SALES_STATS_REFRESH_AFTER_MS,
       loadValue: () => this.buildStats(storeId, callerIsSubAccount, query),
-      refreshValue: () => this.buildStats(storeId, false, query),
+      refreshValue: () => this.buildStats(storeId, callerIsSubAccount, query),
     });
   }
 

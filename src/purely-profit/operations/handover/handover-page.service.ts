@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  EmployeeShiftType,
   FinanceCashFlowCategory,
   FinanceCashFlowDirection,
   FinanceCashFlowPayment,
@@ -44,6 +45,8 @@ type SettledSpaceSessionRow = {
   itemsCost: number;
   prepaidAmount: number | null;
   prepaidGrouponCode: string | null;
+  prepaidCustomerPaymentMethod: string | null;
+  prepaidGrouponPlatform: string | null;
   endTime: Date | null;
   space: { name: string };
   saleOrder: {
@@ -121,6 +124,32 @@ export class HandoverPageService {
     );
 
     return this.buildPageResponse(shiftContext, metrics);
+  }
+
+  /**
+   * 轻量权限解析：仅解析交班操作权限上下文，不做整页指标聚合。
+   * 供写接口（确认/创建/完成/取消交班）的 pre-check 使用，
+   * 避免为了读 canOperate 而跑一遍完整交班页渲染（BUG-5 性能优化）。
+   */
+  async resolveHandoverOperationAccess(
+    user: AuthenticatedUser,
+    shiftType?: HandoverPageQueryDto['shiftType'],
+  ): Promise<{
+    canOperate: boolean;
+    blockedReason: string | null;
+    selectedShiftType: EmployeeShiftType;
+  }> {
+    const shiftContext =
+      await this.handoverPageShiftService.resolvePageShiftContext(
+        user,
+        shiftType ? { shiftType } : {},
+      );
+
+    return {
+      canOperate: shiftContext.operationAccess.canOperate,
+      blockedReason: shiftContext.operationAccess.blockedReason,
+      selectedShiftType: shiftContext.shiftInfo.shiftType,
+    };
   }
 
   private async resolvePageShiftRange(
@@ -287,6 +316,8 @@ export class HandoverPageService {
         itemsCost: true,
         prepaidAmount: true,
         prepaidGrouponCode: true,
+        prepaidCustomerPaymentMethod: true,
+        prepaidGrouponPlatform: true,
         endTime: true,
         space: {
           select: {

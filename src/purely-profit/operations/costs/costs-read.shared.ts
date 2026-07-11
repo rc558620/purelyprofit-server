@@ -4,7 +4,7 @@ import { PlatformMembershipAccessService } from '../../member/platform-membershi
 import { Money } from '../../../shared/money.utils';
 import type { CostRecordStatsQueryDto } from './dto/costs-query.dto';
 import {
-  buildPreviousCostRange,
+  buildPreviousCostCalendarRange,
   calculateCostCompareLastPeriod,
   shouldComparePreviousCostPeriod,
 } from './costs.domain';
@@ -34,26 +34,23 @@ export async function calculatePreviousPeriodChange(
   storeId: number,
   query: CostRecordStatsQueryDto,
   total: number,
-  callerIsSubAccount: boolean,
+  _callerIsSubAccount: boolean,
 ): Promise<number | null> {
   if (!shouldComparePreviousCostPeriod(query.period)) {
     return null;
   }
 
-  const previousRange = buildPreviousCostRange(query);
+  // B3-fix: 使用日历对齐的「上期」区间，与报表口径一致
+  const previousRange = buildPreviousCostCalendarRange(query);
   if (!previousRange) {
     return null;
   }
 
   const clampedPreviousRange =
-    await platformMembershipAccessService.clampHistoryRange(
-      storeId,
-      {
-        start: previousRange.gte.getTime(),
-        end: previousRange.lte.getTime(),
-      },
-      callerIsSubAccount,
-    );
+    await platformMembershipAccessService.clampHistoryRange(storeId, {
+      start: previousRange.gte.getTime(),
+      end: previousRange.lte.getTime(),
+    });
 
   if (clampedPreviousRange.empty) {
     return null;

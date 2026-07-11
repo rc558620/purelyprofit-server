@@ -125,6 +125,10 @@ export class CacheInvalidatorService {
     ]);
   }
 
+  async invalidateCostsCaches(storeId: number): Promise<void> {
+    await this.profitReadInvalidator.invalidateCostsCaches(storeId);
+  }
+
   async invalidateSalesDerived(storeId: number): Promise<void> {
     await Promise.all([
       this.profitReadInvalidator.invalidateProfitDashboardHome(storeId),

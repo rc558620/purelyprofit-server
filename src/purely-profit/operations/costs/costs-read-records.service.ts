@@ -10,7 +10,7 @@ import {
 } from '../../../redis/keys';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import type { ListCostRecordsQueryDto } from './dto/costs-query.dto';
-import type { CostRecordResponseDto } from './dto/costs-response.dto';
+import type { CostRecordListResponseDto } from './dto/costs-response.dto';
 import { buildCostRecordResponse } from './costs.mapper';
 import { buildHistoryAwareCostRecordWhere } from './costs.query';
 import {
@@ -18,21 +18,31 @@ import {
   COSTS_RECORDS_REFRESH_AFTER_MS,
   resolveCallerIsSubAccount,
 } from './costs-read.shared';
+import {
+  buildPaginationMeta,
+  resolvePagination,
+} from '../../commerce/commerce.utils';
+
+const COST_RECORDS_DEFAULT_PAGE_SIZE = 20;
 
 @Injectable()
 export class CostsReadRecordsService {
+  private readonly maxPageSize: number;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly refreshableCache: RefreshableCacheService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
     private readonly configService: ConfigService,
-  ) {}
+  ) {
+    this.maxPageSize = this.configService.get<number>('app.maxPageSize', 100);
+  }
 
   async listRecords(
     user: AuthenticatedUser,
     query: ListCostRecordsQueryDto,
-  ): Promise<CostRecordResponseDto[]> {
+  ): Promise<CostRecordListResponseDto> {
     const storeId = await this.commerceAccessService.resolveViewStoreId(
       user,
       undefined,
@@ -41,7 +51,16 @@ export class CostsReadRecordsService {
     );
 
     if (storeId === null) {
-      return [];
+      const pagination = resolvePagination(
+        query.page,
+        query.pageSize,
+        COST_RECORDS_DEFAULT_PAGE_SIZE,
+        this.maxPageSize,
+      );
+      return {
+        items: [],
+        meta: buildPaginationMeta(0, pagination.page, pagination.take),
+      };
     }
 
     const callerIsSubAccount = resolveCallerIsSubAccount(user);
@@ -66,7 +85,7 @@ export class CostsReadRecordsService {
     storeId: number,
     query: ListCostRecordsQueryDto,
     callerIsSubAccount: boolean,
-  ): Promise<CostRecordResponseDto[]> {
+  ): Promise<CostRecordListResponseDto> {
     const where = await buildHistoryAwareCostRecordWhere(
       this.platformMembershipAccessService,
       storeId,
@@ -74,16 +93,38 @@ export class CostsReadRecordsService {
       callerIsSubAccount,
     );
     if (where === null) {
-      return [];
+      const pagination = resolvePagination(
+        query.page,
+        query.pageSize,
+        COST_RECORDS_DEFAULT_PAGE_SIZE,
+        this.maxPageSize,
+      );
+      return {
+        items: [],
+        meta: buildPaginationMeta(0, pagination.page, pagination.take),
+      };
     }
 
-    const maxPageSize = this.configService.get<number>('app.maxPageSize', 100);
-    const records = await this.prisma.costRecord.findMany({
-      where,
-      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-      take: maxPageSize,
-    });
+    const pagination = resolvePagination(
+      query.page,
+      query.pageSize,
+      COST_RECORDS_DEFAULT_PAGE_SIZE,
+      this.maxPageSize,
+    );
 
-    return records.map(buildCostRecordResponse);
+    const [records, total] = await Promise.all([
+      this.prisma.costRecord.findMany({
+        where,
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+        skip: pagination.skip,
+        take: pagination.take,
+      }),
+      this.prisma.costRecord.count({ where }),
+    ]);
+
+    return {
+      items: records.map(buildCostRecordResponse),
+      meta: buildPaginationMeta(total, pagination.page, pagination.take),
+    };
   }
 }

@@ -14,7 +14,6 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
 import type {
   InventoryAdjustmentResponseDto,
-  InventoryProductResponseDto,
   InventoryReportResponseDto,
   InventoryStatsResponseDto,
   PaginatedInventoryAdjustmentsResponseDto,
@@ -27,6 +26,7 @@ import {
   matchesInventoryFilters,
   sortInventoryProducts,
 } from './inventory.domain';
+
 import {
   buildEmptyInventoryReportResponse,
   buildInventoryAdjustmentResponse,
@@ -53,16 +53,13 @@ import type {
   AdjustInventoryInput,
   InventoryAdjustmentsListQueryInput,
   InventoryProductListQueryInput,
-  InventoryProductRecord,
   InventoryReportQueryInput,
   InventoryRestockParams,
   InventoryRevertSaleParams,
   InventorySaleDeductionParams,
   UpdateAlertThresholdInput,
 } from './inventory.types';
-import {
-safeStreamCsvExport,
-} from '../../../shared/stream-export.utils';
+import { safeStreamCsvExport } from '../../../shared/stream-export.utils';
 
 @Injectable()
 export class InventoryService {
@@ -85,18 +82,58 @@ export class InventoryService {
       '无权查看该门店库存商品',
     );
 
-    const { page, take } = this.resolvePagination(query.page, query.pageSize);
-
     if (storeId === null) {
+      /*
+       * D3 修复：无权限时仍检查分页参数，确保返回结构的 page/pageSize 与调用方预期一致。
+       * 不传分页参数时返回空全量结构（page=1, pageSize=0）。
+       */
+      if (query.page !== undefined || query.pageSize !== undefined) {
+        const { page, take } = this.resolvePagination(
+          query.page,
+          query.pageSize,
+        );
+        return buildPaginatedInventoryProductsResponse({
+          items: [],
+          total: 0,
+          page,
+          pageSize: take,
+        });
+      }
       return buildPaginatedInventoryProductsResponse({
         items: [],
         total: 0,
-        page,
-        pageSize: take,
+        page: 1,
+        pageSize: 0,
       });
     }
 
-    return this.listProductsByStoreId(storeId, query, page, take);
+    /*
+     * D3 修复：不传分页参数时返回全量（保持向后兼容）。
+     * D4 优化：传分页参数时，若无域层筛选则下推 skip/take 到 DB 层；
+     * 若有域层筛选（alertOnly / alertLevel=warning，Prisma 无法表达跨字段比较），
+     * 则回退到内存分页以保证 total 与筛选结果一致。
+     */
+    const hasPagination =
+      query.page !== undefined || query.pageSize !== undefined;
+    const hasDomainFilter =
+      query.alertOnly === true || query.alertLevel === 'warning';
+
+    if (hasPagination) {
+      const { page, skip, take } = this.resolvePagination(
+        query.page,
+        query.pageSize,
+      );
+      return this.listProductsByStoreId(
+        storeId,
+        query,
+        page,
+        take,
+        skip,
+        hasDomainFilter,
+      );
+    }
+
+    return this.listAllProductsByStoreId(storeId, query);
   }
 
   /**
@@ -108,6 +145,53 @@ export class InventoryService {
     query: InventoryProductListQueryInput,
     page: number,
     pageSize: number,
+    skip: number,
+    hasDomainFilter: boolean,
+  ): Promise<PaginatedInventoryProductsResponseDto> {
+    if (hasDomainFilter) {
+      /*
+       * 域层筛选（alertOnly / alertLevel=warning）无法下推到 DB，
+       * 必须全量加载后内存 filter + slice，确保 total 与筛选结果一致。
+       */
+      const result = await queryInventoryProducts(this.prisma, storeId, query);
+      const filteredAndSorted = sortInventoryProducts(
+        result.items.filter((p) => matchesInventoryFilters(p, query)),
+        query.sortBy,
+      );
+      const paginated = filteredAndSorted.slice(skip, skip + pageSize);
+
+      return buildPaginatedInventoryProductsResponse({
+        items: paginated,
+        total: filteredAndSorted.length,
+        page,
+        pageSize,
+      });
+    }
+
+    /*
+     * D4 优化：无域层筛选时，分页参数下推到 DB 层，
+     * 仅加载当前页数据 + COUNT，而非全量加载后内存切片。
+     */
+    const result = await queryInventoryProducts(this.prisma, storeId, query, {
+      skip,
+      take: pageSize,
+    });
+
+    return buildPaginatedInventoryProductsResponse({
+      items: result.items,
+      total: result.total ?? result.items.length,
+      page,
+      pageSize,
+    });
+  }
+
+  /**
+   * D3 修复：不传分页参数时返回全量结果（保持向后兼容）。
+   * 避免 resolvePagination 默认截断为 defaultPageSize 条。
+   */
+  private async listAllProductsByStoreId(
+    storeId: number,
+    query: InventoryProductListQueryInput,
   ): Promise<PaginatedInventoryProductsResponseDto> {
     const result = await queryInventoryProducts(this.prisma, storeId, query);
 
@@ -116,13 +200,11 @@ export class InventoryService {
       query.sortBy,
     );
 
-    const paginated = filteredAndSorted.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
-
     return buildPaginatedInventoryProductsResponse({
-      items: paginated,
+      items: filteredAndSorted,
       total: filteredAndSorted.length,
-      page,
-      pageSize,
+      page: 1,
+      pageSize: filteredAndSorted.length,
     });
   }
 
@@ -157,12 +239,19 @@ export class InventoryService {
       );
     }
 
-    const [summary, paginatedProducts] = await Promise.all([
-      this.getStatsByStoreId(storeId),
-      this.listProductsByStoreId(storeId, query, 1, Number.MAX_SAFE_INTEGER),
-    ]);
+    /*
+     * BUG-2 修复：统计基于筛选后的商品列表计算，保证概况与明细口径一致。
+     * BUG-6 修复：不再使用 Number.MAX_SAFE_INTEGER 全量加载，直接复用筛选结果。
+     */
+    const result = await queryInventoryProducts(this.prisma, storeId, query);
+    const filtered = result.items.filter((p) =>
+      matchesInventoryFilters(p, query),
+    );
+    const sorted = sortInventoryProducts(filtered, query.sortBy);
+    const summary = buildInventoryStats(sorted);
+    const products = sorted.map(buildInventoryProductResponse);
 
-    return buildInventoryReportResponse(summary, paginatedProducts.items);
+    return buildInventoryReportResponse(summary, products);
   }
 
   /**
@@ -251,6 +340,13 @@ export class InventoryService {
       throw new BadRequestException('delta 和 targetStock 不能同时传入');
     }
 
+    /* BUG-5 修复：delta 与 targetStock 至少传一个；delta 模式要求 delta≠0 */
+    if (mode === 'delta' && (dto.delta === undefined || dto.delta === 0)) {
+      throw new BadRequestException(
+        '增减模式下必须传非零的 delta，或直接传 targetStock 设置目标库存',
+      );
+    }
+
     /* BUG-10: damage 类型强制要求备注 */
     if (dto.adjustType === 'damage' && !dto.note?.trim()) {
       throw new BadRequestException('报损类型必须填写备注说明');
@@ -277,15 +373,15 @@ export class InventoryService {
     productId: number,
     dto: UpdateAlertThresholdInput,
   ): Promise<ProductThresholdResponseDto> {
+    /*
+     * BUG-3 修复：
+     * 1. findInventoryProductStore 加 deletedAt: null 过滤软删除商品
+     * 2. 权限校验前置，避免无权限用户面对已下架商品时拿到业务错误而非权限错误
+     */
     const product = await findInventoryProductStore(this.prisma, productId);
 
     if (!product) {
       throw new NotFoundException('商品不存在');
-    }
-
-    /* BUG-4: 已下架商品不允许修改预警阈值 */
-    if (!product.isActive) {
-      throw new BadRequestException('已下架商品不允许修改预警阈值');
     }
 
     await this.commerceAccessService.ensureCanAccessStore(
@@ -294,6 +390,10 @@ export class InventoryService {
       'inventory:update',
       '无权操作该门店库存',
     );
+
+    if (!product.isActive) {
+      throw new BadRequestException('已下架商品不允许修改预警阈值');
+    }
 
     const updated = await updateInventoryAlertThresholdRecord(
       this.prisma,

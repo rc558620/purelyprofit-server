@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
@@ -34,6 +30,11 @@ export interface PreparedSalesItem {
   quantity: number;
   countsTowardTotalQuantity: boolean;
   image?: string;
+  /**
+   * P2b fix: 保留系统级虚拟商品 ID（如 'SYS_RENEW_DEDUCTION'），
+   * 使下游可用 productId 而非 productName 判定抵扣项。
+   */
+  systemProductId?: string;
 }
 
 export interface CreateSalesRecordOptions {
@@ -95,10 +96,6 @@ export class SalesRecordItemPreparationService {
         })
       : [];
     const productMap = new Map(products.map((item) => [item.id, item]));
-
-    if (productMap.size !== numericProductIds.length) {
-      throw new NotFoundException('存在无效商品，无法创建销售记录');
-    }
 
     return dto.items.map((item, index) => {
       const numericProductId = parseNumericProductId(item.productId);
@@ -165,6 +162,11 @@ export class SalesRecordItemPreparationService {
         throw new BadRequestException(`第 ${index + 1} 条商品分类不能为空`);
       }
 
+      // P2b fix: 非数值型 productId 保留为 systemProductId
+      const rawProductId = item.productId?.trim();
+      const systemProductId =
+        rawProductId && numericProductId === null ? rawProductId : undefined;
+
       return {
         productId: null,
         productName,
@@ -173,6 +175,7 @@ export class SalesRecordItemPreparationService {
         profit,
         quantity,
         countsTowardTotalQuantity: !salePrice.isNegative(),
+        ...(systemProductId ? { systemProductId } : {}),
       };
     });
   }

@@ -43,6 +43,8 @@ export const SALE_ORDER_ITEM_SELECT = {
               paymentMethod: true,
               amount: true,
               renewedAt: true,
+              grouponPlatform: true,
+              grouponCode: true,
             },
           },
           space: {

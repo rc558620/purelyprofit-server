@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type FinanceCashFlowPayment } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
-import { isDeductionProductName } from '../../commerce/commerce.utils';
+import { isDeductionItem } from '../../commerce/commerce.utils';
 import { InventoryService } from '../../goods/inventory/inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type {
@@ -219,8 +219,9 @@ export class SalesRecordCreateFlowService {
       // 计算商品消费总额（排除抵扣项：预付款、续费抵扣）。
       // 空间结账时抵扣项的 salePrice 已被 Math.abs() 转正，
       // 必须通过 productName 而非 salePrice 符号来排除。
+      // P2b fix: 使用 systemProductId 优先判定抵扣项
       const grossConsumptionCents = params.preparedItems
-        .filter((item) => !isDeductionProductName(item.productName))
+        .filter((item) => !isDeductionItem(item))
         .reduce(
           (sum, item) => sum + item.salePrice.toDbCents() * item.quantity,
           0,

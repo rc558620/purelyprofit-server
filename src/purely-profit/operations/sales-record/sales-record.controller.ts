@@ -91,6 +91,9 @@ export class SalesRecordController {
     @Res({ passthrough: true }) reply: { raw: ServerResponse },
   ): Promise<SalesReportResponseDto | typeof reply> {
     if (query.format === 'csv') {
+      // 与 business-analysis B1 修复一致：强制置 export 走套餐门控，
+      // 避免无 reportExportEnabled 权限的账号借 format=csv 绕过导出校验。
+      query.export = true;
       await this.salesRecordService.streamReportCsv(reply.raw, user, query);
       return reply;
     }
@@ -173,6 +176,9 @@ export class SalesOrdersCompatController {
     @Res({ passthrough: true }) reply: { raw: ServerResponse },
   ): Promise<SalesReportResponseDto | typeof reply> {
     if (query.format === 'csv') {
+      // 与 business-analysis B1 修复一致：强制置 export 走套餐门控，
+      // 避免无 reportExportEnabled 权限的账号借 format=csv 绕过导出校验。
+      query.export = true;
       await this.salesRecordService.streamReportCsv(reply.raw, user, query);
       return reply;
     }
@@ -181,7 +187,9 @@ export class SalesOrdersCompatController {
 
   @Post('preview')
   @RequirePermissions('operation-entry:create')
-  @ApiOperation({ summary: '预览销售记录金额（不落库，purelyProfit 前端兼容）' })
+  @ApiOperation({
+    summary: '预览销售记录金额（不落库，purelyProfit 前端兼容）',
+  })
   @ApiOkResponse({ type: PreviewSalesRecordResponseDto })
   preview(
     @CurrentUser() _user: AuthenticatedUser,

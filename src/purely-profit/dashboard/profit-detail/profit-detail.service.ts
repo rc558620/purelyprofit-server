@@ -16,9 +16,7 @@ import type {
   ProfitDetailResponseDto,
   ProfitReportResponseDto,
 } from './dto/profit-detail-response.dto';
-import {
-  safeStreamCsvExport,
-} from '../../../shared/stream-export.utils';
+import { safeStreamCsvExport } from '../../../shared/stream-export.utils';
 import type {
   ProfitDetailQueryInput,
   ProfitMetricsSnapshot,
@@ -113,7 +111,11 @@ export class ProfitDetailService {
     const callerIsSubAccount =
       user.currentMembership?.subjectType === 'sub_account';
 
-    if (queryDto.export) {
+    // CSV 与 export 标记都代表“导出”动作，必须统一校验导出权限并绕过缓存。
+    // 此前仅 export=true 触发校验，format=csv 可直接绕过 reportExportEnabled 特性权限。
+    const isExportAction = queryDto.export || queryDto.format === 'csv';
+
+    if (isExportAction) {
       await this.platformMembershipAccessService.ensureReportExportEnabled(
         storeId,
         callerIsSubAccount,
@@ -121,7 +123,7 @@ export class ProfitDetailService {
     }
 
     // 导出模式或子账号直接查库，不走缓存
-    if (queryDto.export || callerIsSubAccount) {
+    if (isExportAction || callerIsSubAccount) {
       const snapshot = await this.buildProfitSnapshot(
         storeId,
         query,
@@ -132,11 +134,7 @@ export class ProfitDetailService {
         : buildEmptyProfitReportResponse();
     }
 
-    const scope = callerIsSubAccount ? 'sub_account' : 'owner';
-    const cacheKey = buildProfitReportCacheKey(storeId, {
-      ...query,
-      scope,
-    });
+    const cacheKey = buildProfitReportCacheKey(storeId, query);
     return this.refreshableCache.getOrLoadRefreshableJson({
       cacheKey,
       taskKey: buildCacheRefreshTaskKey(cacheKey),
@@ -164,7 +162,13 @@ export class ProfitDetailService {
     storeId: number,
     query: Pick<
       GetProfitDetailQueryDto,
-      'period' | 'year' | 'customDate' | 'rangeStartDate' | 'rangeEndDate' | 'startTime' | 'endTime'
+      | 'period'
+      | 'year'
+      | 'customDate'
+      | 'rangeStartDate'
+      | 'rangeEndDate'
+      | 'startTime'
+      | 'endTime'
     >,
   ): Promise<ProfitDetailResponseDto> {
     const cacheKey = buildProfitDetailCacheKey(storeId, query);
@@ -189,7 +193,13 @@ export class ProfitDetailService {
     storeId: number,
     query: Pick<
       GetProfitDetailQueryDto,
-      'period' | 'year' | 'customDate' | 'rangeStartDate' | 'rangeEndDate' | 'startTime' | 'endTime'
+      | 'period'
+      | 'year'
+      | 'customDate'
+      | 'rangeStartDate'
+      | 'rangeEndDate'
+      | 'startTime'
+      | 'endTime'
     >,
   ): Promise<ProfitReportResponseDto> {
     const cacheKey = buildProfitReportCacheKey(storeId, query);

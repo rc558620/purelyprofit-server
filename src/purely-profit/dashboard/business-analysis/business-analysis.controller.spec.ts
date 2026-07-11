@@ -15,6 +15,7 @@ describe('BusinessAnalysisController', () => {
 
   const businessAnalysisService = {
     getAnalysis: jest.fn(),
+    streamReportCsv: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -82,13 +83,25 @@ describe('BusinessAnalysisController', () => {
     };
     businessAnalysisService.getAnalysis.mockResolvedValue(response);
 
-    await expect(controller.getAnalysis(user, query, { raw: {} as any })).resolves.toEqual(
-      response,
-    );
+    await expect(
+      controller.getAnalysis(user, query, { raw: {} as any }),
+    ).resolves.toEqual(response);
     expect(businessAnalysisService.getAnalysis).toHaveBeenCalledWith(
       user,
       query,
     );
+  });
+
+  it('format=csv 时强制 export=true 以触发报表导出权限门控', async () => {
+    const query = {
+      period: 'today' as const,
+      format: 'csv' as const,
+    };
+
+    await controller.getAnalysis(user, query, { raw: {} as any });
+
+    expect(query.export).toBe(true);
+    expect(businessAnalysisService.streamReportCsv).toHaveBeenCalled();
   });
 
   it('GetBusinessAnalysisQueryDto 兼容旧版 all + 时间范围入参', async () => {

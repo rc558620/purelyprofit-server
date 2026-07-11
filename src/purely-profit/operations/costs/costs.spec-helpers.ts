@@ -47,6 +47,7 @@ export function createCostsPrismaMock() {
       findMany: jest.fn(),
       aggregate: jest.fn(),
       groupBy: jest.fn(),
+      count: jest.fn(),
       create: jest.fn(),
       findUnique: jest.fn(),
       findFirst: jest.fn(),
@@ -143,6 +144,7 @@ export function createCostsWriteProviders(
         invalidatePulseDashboardOverview: jest
           .fn()
           .mockResolvedValue(undefined),
+        invalidateCostsCaches: jest.fn().mockResolvedValue(undefined),
       },
     },
     { provide: CommerceAccessService, useValue: commerceAccessService },

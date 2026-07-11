@@ -83,12 +83,21 @@ export function transformOptionalBoolean({
     return value;
   }
 
+  if (typeof value === 'number') {
+    if (value === 1) {
+      return true;
+    }
+    if (value === 0) {
+      return false;
+    }
+  }
+
   if (typeof value === 'string') {
-    if (value === 'true') {
+    if (value === 'true' || value === '1') {
       return true;
     }
 
-    if (value === 'false') {
+    if (value === 'false' || value === '0') {
       return false;
     }
   }

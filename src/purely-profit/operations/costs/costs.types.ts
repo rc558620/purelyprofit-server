@@ -42,6 +42,16 @@ export const COST_CATEGORY_VALUES = [
   'other',
 ] as const satisfies readonly CostCategory[];
 
+// B8-fix: 手动新增仅允许人工类目，自动沉淀类目由同步写入
+export const MANUAL_COST_CATEGORY_VALUES = [
+  'rent',
+  'utilities',
+  'equipment',
+  'marketing',
+  'packaging',
+  'other',
+] as const satisfies readonly CostCategory[];
+
 export const COST_SOURCE_TYPE_VALUES = [
   'manual',
   'purchase',

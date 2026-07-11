@@ -571,7 +571,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       totalRevenue: 11.1,
       paymentLabel: '支付宝',
       paymentColor: '#1677ff',
-      operatorName: '',
+      operatorName: '空间自动结账',
     });
 
     expect(result.paymentItems).toEqual([
@@ -680,7 +680,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       totalRevenue: 666, // 预付款 = 已收预付款，展示正数
       paymentLabel: '微信',
       paymentColor: '#22c55e',
-      operatorName: '',
+      operatorName: '空间自动结账',
     });
 
     expect(result.paymentItems).toEqual([
@@ -726,7 +726,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       totalRevenue: 9.25,
       paymentLabel: '支付宝',
       paymentColor: '#1677ff',
-      operatorName: '',
+      operatorName: '空间自动结账',
     });
   });
 });

@@ -36,7 +36,11 @@ function buildProductListWhere(
   return {
     storeId,
     deletedAt: null,
-    ...(query.category ? { category: query.category } : {}),
+    ...(query.categoryId !== undefined
+      ? { categoryId: query.categoryId }
+      : query.category
+        ? { category: query.category }
+        : {}),
     ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
     ...(query.keyword
       ? {

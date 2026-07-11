@@ -25,7 +25,9 @@ import {
 } from './business-analysis.types';
 
 const DAY_MS = 86_400_000;
-// 经营分析的最长预设周期是今年，趋势图至少要覆盖完整自然年，避免 6 月之后的数据被截断。
+// 与 service 层 clampRangeToMaxTrendDays 的 MAX_TREND_DAYS 保持同一取值（366 天），
+// 作为 mapper 层的防御性兜底：service 已先裁剪区间到 366 天内，此处再 cap 一次，
+// 即使未来 service 裁剪逻辑变动，也能保护日趋势数组规模不会失控。
 const MAX_TREND_DAYS = 366;
 
 export function buildEmptyAnalysisResponse(): BusinessAnalysisResponseDto {

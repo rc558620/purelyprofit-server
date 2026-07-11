@@ -6,6 +6,7 @@ export interface ProductListQueryInput {
   pageSize?: number;
   keyword?: string;
   category?: string;
+  categoryId?: number;
   isActive?: boolean;
   sortBy?: ProductSortValue;
 }

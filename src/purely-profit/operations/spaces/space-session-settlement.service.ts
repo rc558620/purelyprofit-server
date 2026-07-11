@@ -39,6 +39,7 @@ import {
 } from './space-sessions.mapper';
 import type { SpaceTimeFeeModeValue } from './dto/space-session.constants';
 import type { SpaceStatusValue } from './spaces.constants';
+import { createAutoCheckoutSystemUser } from './space-session-auto-checkout.service';
 
 export interface SettleSpaceSessionParams {
   session: SpaceSessionSettlementRecord;
@@ -179,53 +180,63 @@ export class SpaceSessionSettlementService {
             renewRecords: mapRenewRecordRows(txRenewRecords),
           });
 
-          const createdOrder = await this.createSessionSaleOrder(user, {
-            transaction,
-            storeId: params.session.storeId,
-            checkoutAt: params.checkoutAt,
-            paymentMethod: params.paymentMethod,
-            note: params.note,
-            items: freshSettlement.orderItems,
-            totalRevenue: freshSettlement.totalRevenue,
-            totalProfit: freshSettlement.totalProfit,
-            totalQuantity: freshSettlement.totalQuantity,
-            // ─── 团购 / 券 / 平台结算字段透传到销售单 ───────────────────
-            ...(params.customerPaymentMethod !== undefined
-              ? { customerPaymentMethod: params.customerPaymentMethod }
-              : {}),
-            ...(params.grouponCode !== undefined
-              ? { grouponCode: params.grouponCode }
-              : {}),
-            ...(params.grouponPlatform !== undefined
-              ? { grouponPlatform: params.grouponPlatform }
-              : {}),
-            ...(params.settlementChannel !== undefined
-              ? { settlementChannel: params.settlementChannel }
-              : {}),
-            ...(params.voucherCode !== undefined
-              ? { voucherCode: params.voucherCode }
-              : {}),
-            ...(params.voucherPlatform !== undefined
-              ? { voucherPlatform: params.voucherPlatform }
-              : {}),
-            ...(params.voucherFaceAmount !== undefined
-              ? { voucherFaceAmount: params.voucherFaceAmount }
-              : {}),
-            ...(params.settlementStatus !== undefined
-              ? { settlementStatus: params.settlementStatus }
-              : {}),
-            ...(params.platformReceivable !== undefined
-              ? { platformReceivable: params.platformReceivable }
-              : {}),
-            ...(params.platformSettledAmount !== undefined
-              ? {
-                  platformSettledAmount: params.platformSettledAmount,
-                }
-              : {}),
-            ...(params.platformFee !== undefined
-              ? { platformFee: params.platformFee }
-              : {}),
-          });
+          // BUG-fix: autoCheckout 会话统一使用系统用户创建销售单，
+          // 确保 SaleOrder.operatorStaffId 为 null，交班页显示"空间自动结账"，
+          // 无论结账由前端倒计时触发还是后端调度器触发。
+          const effectiveUser = params.session.autoCheckout
+            ? createAutoCheckoutSystemUser()
+            : user;
+
+          const createdOrder = await this.createSessionSaleOrder(
+            effectiveUser,
+            {
+              transaction,
+              storeId: params.session.storeId,
+              checkoutAt: params.checkoutAt,
+              paymentMethod: params.paymentMethod,
+              note: params.note,
+              items: freshSettlement.orderItems,
+              totalRevenue: freshSettlement.totalRevenue,
+              totalProfit: freshSettlement.totalProfit,
+              totalQuantity: freshSettlement.totalQuantity,
+              // ─── 团购 / 券 / 平台结算字段透传到销售单 ───────────────────
+              ...(params.customerPaymentMethod !== undefined
+                ? { customerPaymentMethod: params.customerPaymentMethod }
+                : {}),
+              ...(params.grouponCode !== undefined
+                ? { grouponCode: params.grouponCode }
+                : {}),
+              ...(params.grouponPlatform !== undefined
+                ? { grouponPlatform: params.grouponPlatform }
+                : {}),
+              ...(params.settlementChannel !== undefined
+                ? { settlementChannel: params.settlementChannel }
+                : {}),
+              ...(params.voucherCode !== undefined
+                ? { voucherCode: params.voucherCode }
+                : {}),
+              ...(params.voucherPlatform !== undefined
+                ? { voucherPlatform: params.voucherPlatform }
+                : {}),
+              ...(params.voucherFaceAmount !== undefined
+                ? { voucherFaceAmount: params.voucherFaceAmount }
+                : {}),
+              ...(params.settlementStatus !== undefined
+                ? { settlementStatus: params.settlementStatus }
+                : {}),
+              ...(params.platformReceivable !== undefined
+                ? { platformReceivable: params.platformReceivable }
+                : {}),
+              ...(params.platformSettledAmount !== undefined
+                ? {
+                    platformSettledAmount: params.platformSettledAmount,
+                  }
+                : {}),
+              ...(params.platformFee !== undefined
+                ? { platformFee: params.platformFee }
+                : {}),
+            },
+          );
 
           // Step 8.1: 删除旧 items，重新写入结算时的 items
           await transaction.spaceSessionItem.deleteMany({

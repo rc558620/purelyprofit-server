@@ -38,6 +38,9 @@ export class ProfitDetailController {
     @Res({ passthrough: true }) reply: { raw: ServerResponse },
   ): Promise<ProfitReportResponseDto | typeof reply> {
     if (query.format === 'csv') {
+      // 与 business-analysis B1 修复一致：强制置 export 走套餐门控，
+      // 避免无 reportExportEnabled 权限的账号借 format=csv 绕过导出校验。
+      query.export = true;
       await this.profitDetailService.streamReportCsv(reply.raw, user, query);
       return reply;
     }

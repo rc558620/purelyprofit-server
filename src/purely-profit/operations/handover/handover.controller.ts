@@ -95,7 +95,7 @@ export class HandoverController {
   }
 
   @Post('handover-additional-items')
-  @RequirePermissions('handover:create')
+  @RequirePermissions('handover:update')
   @ApiOperation({ summary: '新增 purely-profit 交班附加项' })
   @ApiCreatedResponse({
     description: '交班附加项创建成功',

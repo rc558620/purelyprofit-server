@@ -63,6 +63,24 @@ export class HandoverConfirmService {
     if (!sourceShiftRecord) {
       throw new BadRequestException('当前班次不存在，请刷新页面后重试');
     }
+
+    // ── BUG-2 / O-1 修复 ──
+    // 交班时间必须晚于班次结束时间（规则5：须到达班次结束时间之后才能交班），
+    // 且不得晚于当前服务器时间（O-1：禁止未来时间交班）。
+    // 允许极小时钟偏差，避免客户端与服务器时钟毫秒级差异导致误拒。
+    const shiftEndAt = buildShiftDateRange(
+      sourceShiftRecord.startTime,
+      sourceShiftRecord.endTime,
+      sourceShiftRecord.date,
+    ).endAt;
+    const nowMillis = Date.now();
+    const MAX_CLOCK_SKEW_MS = 5_000;
+    if (handoverAt.getTime() - nowMillis > MAX_CLOCK_SKEW_MS) {
+      throw new BadRequestException('交班时间不能晚于当前时间');
+    }
+    if (handoverAt.getTime() <= shiftEndAt.getTime()) {
+      throw new BadRequestException('未到交班时间，请在班次结束后交班');
+    }
     const sourceEmployeeId =
       sourceShiftRecord.employeeId ?? membership.linkedEmployeeId;
     const handoverMode =
@@ -136,6 +154,7 @@ export class HandoverConfirmService {
                     additionalValues: {
                       create: validAdditionalItems.map((item) => ({
                         itemId: item.id,
+                        itemNameSnapshot: item.name,
                         value: item.value,
                       })),
                     },

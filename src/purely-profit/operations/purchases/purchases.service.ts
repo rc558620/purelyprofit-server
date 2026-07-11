@@ -193,6 +193,12 @@ export class PurchasesService {
       throw new BadRequestException('进货日期不合法');
     }
 
+    // 与手动成本记录保持一致：进货日期不允许晚于当前时间，
+    // 否则会生成“未来成本记录”，导致成本统计/报表在当前周期缺失、未来周期突增。
+    if (purchaseDate.getTime() > Date.now()) {
+      throw new BadRequestException('进货日期不能晚于当前时间');
+    }
+
     const created = await this.prisma.$transaction(async (transaction) => {
       const order = await createPurchaseOrderEntity(transaction, {
         storeId,
@@ -220,6 +226,8 @@ export class PurchasesService {
     });
 
     await this.invalidateDashboardCaches(storeId);
+    // 采购会同步沉淀成本记录，失效成本仪表盘/统计/报表缓存，避免展示旧数据
+    await this.costsService.invalidateCostCaches(storeId);
 
     return mapPurchaseResponse(created);
   }
@@ -251,6 +259,8 @@ export class PurchasesService {
     });
 
     await this.invalidateDashboardCaches(purchase.storeId);
+    // 删除进货单会同步删除对应的 purchase 成本记录，失效成本缓存
+    await this.costsService.invalidateCostCaches(purchase.storeId);
   }
 
   private async invalidateDashboardCaches(storeId: number): Promise<void> {

@@ -203,9 +203,10 @@ describe('inventory-stock.query', () => {
       createdAt,
     });
 
+    /* D2 修复：delta 模式下使用原子 increment 而非绝对赋值 */
     expect(productUpdate).toHaveBeenCalledWith({
       where: { id: 101 },
-      data: { stock: 7 },
+      data: { stock: { increment: -3 } },
     });
   });
 
@@ -238,13 +239,14 @@ describe('inventory-stock.query', () => {
       ],
     });
 
+    /* D2 修复：restock 使用原子 increment 而非绝对赋值 */
     expect(productUpdate).toHaveBeenNthCalledWith(1, {
       where: { id: 101 },
-      data: { stock: 15 },
+      data: { stock: { increment: 5 } },
     });
     expect(productUpdate).toHaveBeenNthCalledWith(2, {
       where: { id: 102 },
-      data: { stock: 8 },
+      data: { stock: { increment: 3 } },
     });
     expect(logCreate).toHaveBeenNthCalledWith(1, {
       data: {
@@ -301,9 +303,10 @@ describe('inventory-stock.query', () => {
       items: [{ productId: 101, quantity: 4 }],
     });
 
+    /* D2 修复：sale 扣减使用原子 increment(-quantity) 而非绝对赋值 */
     expect(productUpdate).toHaveBeenCalledWith({
       where: { id: 101 },
-      data: { stock: 6 },
+      data: { stock: { increment: -4 } },
     });
     expect(logCreate).toHaveBeenCalledWith({
       data: {
@@ -397,13 +400,14 @@ describe('inventory-stock.query', () => {
       saleOrderId: 66,
     });
 
+    /* D2 修复：revert 使用原子 increment(-delta) 而非读后写绝对值 */
     expect(productUpdate).toHaveBeenNthCalledWith(1, {
       where: { id: 101 },
-      data: { stock: 10 },
+      data: { stock: { increment: 4 } },
     });
     expect(productUpdate).toHaveBeenNthCalledWith(2, {
       where: { id: 102 },
-      data: { stock: 7 },
+      data: { stock: { increment: 2 } },
     });
     expect(logDeleteMany).toHaveBeenCalledWith({
       where: {

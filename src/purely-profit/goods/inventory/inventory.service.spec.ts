@@ -75,7 +75,9 @@ describe('InventoryService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(undefined);
+    platformMembershipAccessService.ensureReportExportEnabled.mockResolvedValue(
+      undefined,
+    );
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, number> = {
         'app.defaultPageSize': 10,
@@ -84,7 +86,8 @@ describe('InventoryService', () => {
       return configMap[key];
     });
     prismaService.$transaction.mockImplementation(
-      async (callback: (tx: typeof prismaService) => Promise<unknown>) => callback(prismaService),
+      async (callback: (tx: typeof prismaService) => Promise<unknown>) =>
+        callback(prismaService),
     );
 
     const module: TestingModule = await Test.createTestingModule({
@@ -209,13 +212,16 @@ describe('InventoryService', () => {
     });
 
     expect(prismaService.product.findMany).toHaveBeenCalled();
-    expect(prismaService.product.count).toHaveBeenCalled();
+    /* D8 优化：有域层筛选时回退内存分页，不再执行冗余 COUNT 查询 */
+    expect(prismaService.product.count).not.toHaveBeenCalled();
   });
 
   it('listProducts 在无门店权限时返回空分页结构', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(null);
 
-    await expect(service.listProducts(user, { page: 2, pageSize: 5 })).resolves.toEqual({
+    await expect(
+      service.listProducts(user, { page: 2, pageSize: 5 }),
+    ).resolves.toEqual({
       items: [],
       meta: {
         page: 2,
@@ -302,8 +308,8 @@ describe('InventoryService', () => {
       beforeStock: 10,
       afterStock: 15,
       delta: 5,
-      adjustType: 'restock',
-      note: '补货',
+      adjustType: 'manual',
+      note: '盘点修正',
       purchaseOrderId: null,
       createdAt,
     });
@@ -318,8 +324,8 @@ describe('InventoryService', () => {
         storeId: 18,
         productId: 101,
         delta: 5,
-        adjustType: 'restock',
-        note: '补货',
+        adjustType: 'manual',
+        note: '盘点修正',
       }),
     ).resolves.toEqual({
       id: '31',
@@ -328,8 +334,8 @@ describe('InventoryService', () => {
       beforeStock: 10,
       afterStock: 15,
       delta: 5,
-      adjustType: 'restock',
-      note: '补货',
+      adjustType: 'manual',
+      note: '盘点修正',
       createdAt: createdAt.getTime(),
     });
   });
@@ -365,7 +371,9 @@ describe('InventoryService', () => {
       pageSize: 10,
     });
 
-    expect(platformMembershipAccessService.ensureReportExportEnabled).toHaveBeenCalledWith(18, false);
+    expect(
+      platformMembershipAccessService.ensureReportExportEnabled,
+    ).toHaveBeenCalledWith(18, false);
   });
 
   it('getReport 导出权限不足时抛出 ForbiddenException', async () => {
@@ -375,7 +383,12 @@ describe('InventoryService', () => {
     );
 
     await expect(
-      service.getReport(user, { storeId: 18, export: true, page: 1, pageSize: 10 }),
+      service.getReport(user, {
+        storeId: 18,
+        export: true,
+        page: 1,
+        pageSize: 10,
+      }),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -398,7 +411,10 @@ describe('InventoryService', () => {
     prismaService.inventoryAdjustmentLog.create.mockResolvedValue({});
 
     await expect(
-      service.recordPurchaseRestock(prismaService as unknown as Prisma.TransactionClient, params),
+      service.recordPurchaseRestock(
+        prismaService as unknown as Prisma.TransactionClient,
+        params,
+      ),
     ).resolves.toBeUndefined();
   });
 });

@@ -35,6 +35,7 @@ import {
 } from './dto/costs-query.dto';
 import {
   CostDashboardResponseDto,
+  CostRecordListResponseDto,
   CostRecordResponseDto,
   CostReportResponseDto,
   CostStatsResponseDto,
@@ -49,12 +50,12 @@ export class CostsController {
 
   @Get(['records', ''])
   @RequirePermissions('cost:view')
-  @ApiOperation({ summary: '获取成本记录列表' })
-  @ApiOkResponse({ type: [CostRecordResponseDto] })
+  @ApiOperation({ summary: '获取成本记录列表（分页）' })
+  @ApiOkResponse({ type: CostRecordListResponseDto })
   listRecords(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListCostRecordsQueryDto,
-  ): Promise<CostRecordResponseDto[]> {
+  ): Promise<CostRecordListResponseDto> {
     return this.costsService.listRecords(user, query);
   }
 
@@ -90,6 +91,9 @@ export class CostsController {
     @Res({ passthrough: true }) reply: { raw: ServerResponse },
   ): Promise<CostReportResponseDto | typeof reply> {
     if (query.format === 'csv') {
+      // 与 business-analysis B1 修复一致：强制置 export 走套餐门控，
+      // 避免无 reportExportEnabled 权限的账号借 format=csv 绕过导出校验。
+      query.export = true;
       await this.costsService.streamReportCsv(reply.raw, user, query);
       return reply;
     }

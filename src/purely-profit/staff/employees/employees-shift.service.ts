@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -14,10 +15,11 @@ import {
   UpdateEmployeeShiftDto,
 } from './dto/employee-shift.dto';
 import {
+  buildShiftAbsoluteRange,
   buildShiftReport,
-  buildSingleDayDateRange,
-  isTimeRangeOverlapping,
-  parseTimeToMinutes,
+  buildThreeDayDateRange,
+  isAbsoluteRangeOverlapping,
+  isSameCalendarDay,
   resolveShiftTypeFromDefinition,
 } from './employees-shift.domain';
 import { EmployeesAccessService } from './employees-access.service';
@@ -57,7 +59,10 @@ export class EmployeesShiftService {
         ...(query.department
           ? {
               employee: {
-                department: { equals: query.department, mode: 'insensitive' as const },
+                department: {
+                  equals: query.department,
+                  mode: 'insensitive' as const,
+                },
               },
             }
           : {}),
@@ -89,7 +94,12 @@ export class EmployeesShiftService {
       'staff:view',
     );
     const dateRange = buildDateRange(query.year, query.month);
-    const { page, skip, take } = resolvePagination(query.page, query.pageSize, 50, 200);
+    const { page, skip, take } = resolvePagination(
+      query.page,
+      query.pageSize,
+      50,
+      200,
+    );
     const where = {
       storeId,
       ...(query.employeeId ? { employeeId: query.employeeId } : {}),
@@ -97,7 +107,10 @@ export class EmployeesShiftService {
       ...(query.department
         ? {
             employee: {
-              department: { equals: query.department, mode: 'insensitive' as const },
+              department: {
+                equals: query.department,
+                mode: 'insensitive' as const,
+              },
             },
           }
         : {}),
@@ -147,20 +160,33 @@ export class EmployeesShiftService {
       endTime,
     );
 
-    const shift = await this.prisma.employeeShift.create({
-      data: {
-        storeId: employee.storeId,
-        employeeId: employee.id,
-        employeeName: employee.name,
-        date: new Date(dto.date),
-        shiftType,
-        shiftDefinitionId: shiftDefinition.id,
-        shiftName: shiftDefinition.name,
-        startTime,
-        endTime,
-        note: toNullableText(dto.note),
-      },
-    });
+    let shift: Awaited<ReturnType<PrismaService['employeeShift']['create']>>;
+    try {
+      shift = await this.prisma.employeeShift.create({
+        data: {
+          storeId: employee.storeId,
+          employeeId: employee.id,
+          employeeName: employee.name,
+          date: new Date(dto.date),
+          shiftType,
+          shiftDefinitionId: shiftDefinition.id,
+          shiftName: shiftDefinition.name,
+          startTime,
+          endTime,
+          note: toNullableText(dto.note),
+        },
+      });
+    } catch (error) {
+      // employees.prisma 的 @@unique([employeeId, date]) 作为 BUG-1 的 DB 级兜底，
+      // 并发请求同时越过应用层 ensureShiftScheduleAvailable 时会触发 P2002。
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('该员工当天已存在排班记录，不能重复排班');
+      }
+      throw error;
+    }
     return toEmployeeShiftResponse(shift);
   }
 
@@ -212,22 +238,34 @@ export class EmployeesShiftService {
       shift.id,
     );
 
-    const updated = await this.prisma.employeeShift.update({
-      where: { id: shift.id },
-      data: {
-        ...(dto.date !== undefined ? { date: new Date(dto.date) } : {}),
-        ...(shiftDefinition !== null
-          ? {
-              shiftType: nextShiftType,
-              shiftDefinitionId: shiftDefinition.id,
-              shiftName: shiftDefinition.name,
-              startTime: shiftDefinition.defaultStartTime,
-              endTime: shiftDefinition.defaultEndTime,
-            }
-          : {}),
-        ...(dto.note !== undefined ? { note: toNullableText(dto.note) } : {}),
-      },
-    });
+    let updated: Awaited<ReturnType<PrismaService['employeeShift']['update']>>;
+    try {
+      updated = await this.prisma.employeeShift.update({
+        where: { id: shift.id },
+        data: {
+          ...(dto.date !== undefined ? { date: new Date(dto.date) } : {}),
+          ...(shiftDefinition !== null
+            ? {
+                shiftType: nextShiftType,
+                shiftDefinitionId: shiftDefinition.id,
+                shiftName: shiftDefinition.name,
+                startTime: shiftDefinition.defaultStartTime,
+                endTime: shiftDefinition.defaultEndTime,
+              }
+            : {}),
+          ...(dto.note !== undefined ? { note: toNullableText(dto.note) } : {}),
+        },
+      });
+    } catch (error) {
+      // @@unique([employeeId, date]) 的 DB 级兜底：并发将 date 改到已有排班当天时触发。
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('该员工当天已存在排班记录，不能重复排班');
+      }
+      throw error;
+    }
     return toEmployeeShiftResponse(updated);
   }
 
@@ -253,8 +291,10 @@ export class EmployeesShiftService {
     endTime: string,
     excludeId?: number,
   ): Promise<void> {
-    const dayRange = buildSingleDayDateRange(date);
-    const sameDayShifts = await this.prisma.employeeShift.findMany({
+    // BUG-1：同一天不允许同一员工排多个班次（即使班次时间不重叠）。
+    // BUG-3：跨日班次尾段可能与前 / 后一日班次重叠，需把查询范围扩展到相邻日。
+    const dayRange = buildThreeDayDateRange(date);
+    const neighborShifts = await this.prisma.employeeShift.findMany({
       where: {
         employeeId,
         ...(excludeId !== undefined ? { id: { not: excludeId } } : {}),
@@ -264,25 +304,33 @@ export class EmployeesShiftService {
         id: true,
         startTime: true,
         endTime: true,
+        date: true,
       },
     });
 
-    const nextStartMinutes = parseTimeToMinutes(
+    const newRange = buildShiftAbsoluteRange(
+      new Date(date),
       startTime,
-      '上班时间格式不正确',
+      endTime,
     );
-    const nextEndMinutes = parseTimeToMinutes(endTime, '下班时间格式不正确');
-    const hasOverlap = sameDayShifts.some((item) =>
-      isTimeRangeOverlapping(
-        nextStartMinutes,
-        nextEndMinutes,
-        parseTimeToMinutes(item.startTime, '上班时间格式不正确'),
-        parseTimeToMinutes(item.endTime, '下班时间格式不正确'),
-      ),
-    );
+    const newDate = new Date(date);
 
-    if (hasOverlap) {
-      throw new ConflictException('该员工当天已有时间重叠的排班记录');
+    for (const candidate of neighborShifts) {
+      // 防御性跳过：候选排班的 date 缺失或非法时无法判定（生产库中该字段必存在）。
+      if (!candidate.date || Number.isNaN(candidate.date.getTime())) {
+        continue;
+      }
+      if (isSameCalendarDay(candidate.date, newDate)) {
+        throw new ConflictException('该员工当天已存在排班记录，不能重复排班');
+      }
+      const candidateRange = buildShiftAbsoluteRange(
+        candidate.date,
+        candidate.startTime,
+        candidate.endTime,
+      );
+      if (isAbsoluteRangeOverlapping(newRange, candidateRange)) {
+        throw new ConflictException('该员工班次时间与其他排班重叠');
+      }
     }
   }
 }

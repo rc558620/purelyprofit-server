@@ -54,7 +54,14 @@ export class EmployeesPayrollsController {
     @Res({ passthrough: true }) reply: { raw: ServerResponse },
   ): Promise<EmployeePayrollReportResponseDto | typeof reply> {
     if (query.format === 'csv') {
-      await this.employeesService.streamPayrollReportCsv(reply.raw, user, query);
+      // 与 business-analysis B1 修复一致：强制置 export 走套餐门控，
+      // 避免无 reportExportEnabled 权限的账号借 format=csv 绕过导出校验。
+      query.export = true;
+      await this.employeesService.streamPayrollReportCsv(
+        reply.raw,
+        user,
+        query,
+      );
       return reply;
     }
     return this.employeesService.getPayrollReport(user, query);

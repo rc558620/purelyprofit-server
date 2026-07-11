@@ -10,6 +10,7 @@ import type {
 } from './dto/costs-query.dto';
 import type {
   CostDashboardResponseDto,
+  CostRecordListResponseDto,
   CostRecordResponseDto,
   CostReportResponseDto,
   CostStatsResponseDto,
@@ -31,7 +32,7 @@ export class CostsService {
   listRecords(
     user: AuthenticatedUser,
     query: ListCostRecordsQueryDto,
-  ): Promise<CostRecordResponseDto[]> {
+  ): Promise<CostRecordListResponseDto> {
     return this.costsReadService.listRecords(user, query);
   }
 
@@ -99,5 +100,9 @@ export class CostsService {
     input: SyncPayrollCostInput,
   ): Promise<void> {
     return this.costsWriteService.syncPayrollCosts(transaction, input);
+  }
+
+  invalidateCostCaches(storeId: number): Promise<void> {
+    return this.costsWriteService.invalidateCostCaches(storeId);
   }
 }

@@ -7,6 +7,7 @@ import { PlatformMembershipAccessService } from '../../member/platform-membershi
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { BusinessAnalysisService } from './business-analysis.service';
+import { getShanghaiMonthStartMs } from './business-analysis.utils';
 
 describe('BusinessAnalysisService', () => {
   let service: BusinessAnalysisService;
@@ -300,7 +301,9 @@ describe('BusinessAnalysisService', () => {
       1,
       18,
       expect.objectContaining({
-        start: new Date(2026, 4, 1, 0, 0, 0, 0).getTime(),
+        start: getShanghaiMonthStartMs(
+          new Date('2026-05-13T12:00:00.000Z').getTime(),
+        ),
       }),
       false,
     );

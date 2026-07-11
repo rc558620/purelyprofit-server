@@ -10,6 +10,9 @@ import {
   SPACE_RENEW_DEDUCTION_ITEM_NAME,
   SPACE_RENEW_DISPLAY_NAME,
   SPACE_REFUND_DISPLAY_SUFFIX,
+  GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD,
+  GROUPON_VOUCHER_DISPLAY,
+  buildGrouponLabel,
   toDisplayName,
   type OrderItemRow,
   type RefundOrderRow,
@@ -24,6 +27,8 @@ export type SettledSpaceSessionRow = {
   itemsCost: number;
   prepaidAmount: number | null;
   prepaidGrouponCode: string | null;
+  prepaidCustomerPaymentMethod: string | null;
+  prepaidGrouponPlatform: string | null;
   endTime: Date | null;
   space: { name: string };
   saleOrder: {
@@ -99,8 +104,15 @@ export const buildGuestPayableItems = (
       .toDbCents();
     if (payableAmountCents < 0) continue;
 
-    const paymentMethod =
-      session.saleOrder?.paymentMethod ?? SalesPaymentMethod.wechat;
+    // BUG fix: 当顾客支付方式为团购券时，使用团购标签而非门店侧结算方式（如现金）
+    const isGrouponCustomerPayment =
+      session.prepaidCustomerPaymentMethod ===
+      GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD;
+    const paymentLabel = isGrouponCustomerPayment
+      ? buildGrouponLabel(session.prepaidGrouponPlatform)
+      : PAYMENT_METHOD_CONFIG[
+          session.saleOrder?.paymentMethod ?? SalesPaymentMethod.wechat
+        ].label;
     const date = session.endTime?.getTime() ?? Date.now();
     const spaceName = session.space?.name ?? '';
     const operatorName =
@@ -116,7 +128,7 @@ export const buildGuestPayableItems = (
       productName: `${spaceName} · ${SPACE_GUEST_PAYABLE_ITEM_NAME}`,
       quantity: 1,
       totalRevenue: Money.fromDbCents(payableAmountCents).toOutputYuan(),
-      paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
+      paymentLabel,
       paymentColor: SPACE_GUEST_PAYABLE_COLOR,
       operatorName,
       operatorRole,
@@ -233,7 +245,12 @@ export const mergeDisplayedOrderItems = (
     ) {
       const amountByMethod = new Map<
         string,
-        { amount: number; latestRenewedAt: number }
+        {
+          amount: number;
+          latestRenewedAt: number;
+          grouponPlatform: string | null;
+          grouponCode: string | null;
+        }
       >();
       for (const record of item.order.spaceSession.sessionRenewRecords) {
         const method = record.paymentMethod;
@@ -245,6 +262,9 @@ export const mergeDisplayedOrderItems = (
             existing?.latestRenewedAt ?? 0,
             renewedAtMs,
           ),
+          grouponPlatform:
+            record.grouponPlatform ?? existing?.grouponPlatform ?? null,
+          grouponCode: record.grouponCode ?? existing?.grouponCode ?? null,
         });
       }
 
@@ -257,16 +277,27 @@ export const mergeDisplayedOrderItems = (
         const operatorName =
           toDisplayName(item.order.operatorNameSnapshot) ??
           toDisplayName(item.order.operatorStaff?.name) ??
-          '';
+          '空间自动结账';
         const date = item.order.date.getTime();
 
         for (const [
           method,
-          { amount: amountCents, latestRenewedAt },
+          {
+            amount: amountCents,
+            latestRenewedAt,
+            grouponPlatform,
+            grouponCode,
+          },
         ] of amountByMethod) {
-          const paymentMethod = method as keyof typeof PAYMENT_METHOD_CONFIG;
-          const config = PAYMENT_METHOD_CONFIG[paymentMethod];
-          if (!config) continue;
+          const isGroupon = method === 'groupon_voucher';
+          const config =
+            PAYMENT_METHOD_CONFIG[method as keyof typeof PAYMENT_METHOD_CONFIG];
+          const paymentLabel = isGroupon
+            ? buildGrouponLabel(grouponPlatform)
+            : (config?.label ?? method);
+          const paymentColor = isGroupon
+            ? GROUPON_VOUCHER_DISPLAY.color
+            : (config?.color ?? '#000');
 
           mappedOrderItems.push({
             id: `renew-${item.id}-${method}`,
@@ -275,8 +306,8 @@ export const mergeDisplayedOrderItems = (
             totalRevenue: Money.fromDbCents(
               Math.abs(amountCents),
             ).toOutputYuan(),
-            paymentLabel: config.label,
-            paymentColor: config.color,
+            paymentLabel,
+            paymentColor,
             operatorName,
             operatorRole: resolveOperatorRole(item.order.operatorStaff ?? null),
             date,
@@ -284,7 +315,10 @@ export const mergeDisplayedOrderItems = (
             currentStock: null,
             stockUnit: null,
             timeCategory: 'session_renew',
-            grouponCode: item.order.spaceSession?.prepaidGrouponCode ?? null,
+            grouponCode:
+              grouponCode ??
+              item.order.spaceSession?.prepaidGrouponCode ??
+              null,
           });
         }
         continue;

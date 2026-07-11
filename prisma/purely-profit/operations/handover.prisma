@@ -111,14 +111,15 @@ model StoreHandoverAdditionalItem {
 }
 
 model StoreHandoverAdditionalValue {
-  id        Int                         @id @default(autoincrement())
-  recordId  Int                         @map("record_id")
-  record    StoreHandoverRecord         @relation(fields: [recordId], references: [id], onDelete: Cascade)
-  itemId    Int                         @map("item_id")
-  item      StoreHandoverAdditionalItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  value     String
-  createdAt DateTime                    @default(now()) @map("created_at")
-  updatedAt DateTime                    @updatedAt @map("updated_at")
+  id               Int                         @id @default(autoincrement())
+  recordId         Int                         @map("record_id")
+  record           StoreHandoverRecord         @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  itemId           Int                         @map("item_id")
+  item             StoreHandoverAdditionalItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  itemNameSnapshot String                      @map("item_name_snapshot")
+  value            String
+  createdAt        DateTime                    @default(now()) @map("created_at")
+  updatedAt        DateTime                    @updatedAt @map("updated_at")
 
   @@unique([recordId, itemId])
   @@index([itemId, createdAt])

@@ -86,7 +86,11 @@ export function buildInventoryStats(
   let warningCount = 0;
   let dangerCount = 0;
   let normalCount = 0;
-  let totalStockValue = 0;
+  /*
+   * BUG-4 修复：在整数"分"维度累加，最后统一转"元"，
+   * 避免大量 SKU 浮点累加产生精度误差。
+   */
+  let totalStockValueCents = 0;
 
   for (const product of products) {
     const level = resolveInventoryAlertLevel(
@@ -101,9 +105,9 @@ export function buildInventoryStats(
       normalCount += 1;
     }
 
-    totalStockValue +=
-      product.stock *
-      (product.costPrice === null ? 0 : Money.fromDbCents(product.costPrice).toOutputYuan());
+    if (product.costPrice !== null) {
+      totalStockValueCents += product.stock * product.costPrice;
+    }
   }
 
   return {
@@ -111,7 +115,7 @@ export function buildInventoryStats(
     warningCount,
     dangerCount,
     normalCount,
-    totalStockValue: Number(totalStockValue.toFixed(2)),
+    totalStockValue: Money.fromDbCents(totalStockValueCents).toOutputYuan(),
   };
 }
 

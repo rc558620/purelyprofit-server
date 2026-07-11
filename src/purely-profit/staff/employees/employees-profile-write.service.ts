@@ -172,6 +172,8 @@ export class EmployeesProfileWriteService {
     });
 
     await this.invalidateDashboardCaches(employee.storeId);
+    // 调整底薪会重新同步沉淀薪资成本记录，失效成本缓存
+    await this.costsService.invalidateCostCaches(employee.storeId);
 
     return toEmployeeResponse(updated);
   }
@@ -429,58 +431,55 @@ export class EmployeesProfileWriteService {
       },
     });
 
-    await mapConcurrent(
-      payrolls,
-      async (payroll) => {
-        const derivedAmounts = buildPayrollDerivedAmounts({
-          baseSalary: Money.fromDbCents(nextEmployee.baseSalary),
-          leaveDeduction: Money.fromDbCents(payroll.leaveDeduction),
-          otherDeduction: Money.fromDbCents(payroll.otherDeduction),
-          otherDeductionNote: payroll.otherDeductionNote,
-          bonus: Money.fromDbCents(payroll.bonus),
-          socialInsurance:
-            payroll.socialInsurance > 0
-              ? Money.fromDbCents(payroll.socialInsurance)
-              : undefined,
-          housingFund:
-            payroll.housingFund > 0
-              ? Money.fromDbCents(payroll.housingFund)
-              : undefined,
-        });
+    await mapConcurrent(payrolls, async (payroll) => {
+      const derivedAmounts = buildPayrollDerivedAmounts({
+        baseSalary: Money.fromDbCents(nextEmployee.baseSalary),
+        leaveDeduction: Money.fromDbCents(payroll.leaveDeduction),
+        otherDeduction: Money.fromDbCents(payroll.otherDeduction),
+        otherDeductionNote: payroll.otherDeductionNote,
+        bonus: Money.fromDbCents(payroll.bonus),
+        socialInsurance:
+          payroll.socialInsurance > 0
+            ? Money.fromDbCents(payroll.socialInsurance)
+            : undefined,
+        housingFund:
+          payroll.housingFund > 0
+            ? Money.fromDbCents(payroll.housingFund)
+            : undefined,
+      });
 
-        await transaction.employeePayroll.update({
-          where: { id: payroll.id },
-          data: {
-            baseSalary: nextEmployee.baseSalary,
-            actualSalary: derivedAmounts.actualSalary.toDbCents(),
-            totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
-          },
-        });
+      await transaction.employeePayroll.update({
+        where: { id: payroll.id },
+        data: {
+          baseSalary: nextEmployee.baseSalary,
+          actualSalary: derivedAmounts.actualSalary.toDbCents(),
+          totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
+        },
+      });
 
-        if (payroll.status !== EmployeePayrollStatus.confirmed) {
-          return;
-        }
+      if (payroll.status !== EmployeePayrollStatus.confirmed) {
+        return;
+      }
 
-        await this.costsService.syncPayrollCosts(transaction, {
-          storeId: nextEmployee.storeId,
-          payrollId: payroll.id,
-          operatorStaffId,
-          employeeName: nextEmployee.name,
-          month: formatPayrollMonth(payroll.month),
-          // syncPayrollCosts 接口需要元
-          actualSalary: derivedAmounts.actualSalary.toOutputYuan(),
-          socialInsurance:
-            payroll.socialInsurance > 0
-              ? Money.fromDbCents(payroll.socialInsurance).toOutputYuan()
-              : undefined,
-          housingFund:
-            payroll.housingFund > 0
-              ? Money.fromDbCents(payroll.housingFund).toOutputYuan()
-              : undefined,
-          note: payroll.note,
-        });
-      },
-    );
+      await this.costsService.syncPayrollCosts(transaction, {
+        storeId: nextEmployee.storeId,
+        payrollId: payroll.id,
+        operatorStaffId,
+        employeeName: nextEmployee.name,
+        month: formatPayrollMonth(payroll.month),
+        // syncPayrollCosts 接口需要元
+        actualSalary: derivedAmounts.actualSalary.toOutputYuan(),
+        socialInsurance:
+          payroll.socialInsurance > 0
+            ? Money.fromDbCents(payroll.socialInsurance).toOutputYuan()
+            : undefined,
+        housingFund:
+          payroll.housingFund > 0
+            ? Money.fromDbCents(payroll.housingFund).toOutputYuan()
+            : undefined,
+        note: payroll.note,
+      });
+    });
 
     await this.syncEmployeePayrollNames(transaction, nextEmployee, nameChanged);
   }

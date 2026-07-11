@@ -52,6 +52,11 @@ export class CostsWriteService {
       throw new BadRequestException('成本金额必须大于 0');
     }
 
+    const recordDate = new Date(dto.date);
+    if (recordDate.getTime() > Date.now()) {
+      throw new BadRequestException('成本发生日期不能晚于当前时间');
+    }
+
     const created = await this.prisma.costRecord.create({
       data: {
         storeId,
@@ -62,7 +67,7 @@ export class CostsWriteService {
         category: dto.category,
         amount: toCostDbCents(dto.amount),
         note: toOptionalText(dto.note) ?? null,
-        date: new Date(dto.date),
+        date: recordDate,
       },
     });
 
@@ -104,7 +109,16 @@ export class CostsWriteService {
     await Promise.all([
       this.cacheInvalidatorService.invalidateProfitDashboardHome(storeId),
       this.cacheInvalidatorService.invalidatePulseDashboardOverview(storeId),
+      this.cacheInvalidatorService.invalidateCostsCaches(storeId),
     ]);
+  }
+
+  /**
+   * 公开的成本缓存失效入口，供采购/工资等跨模块同步写入后调用，
+   * 确保成本仪表盘/统计/报表/列表缓存与手动新增/删除保持一致的失效范围。
+   */
+  async invalidateCostCaches(storeId: number): Promise<void> {
+    await this.invalidateDashboardCaches(storeId);
   }
 
   async deletePurchaseCostRecord(
@@ -148,20 +162,49 @@ export class CostsWriteService {
       });
     }
 
-    return transaction.costRecord.create({
-      data: {
-        storeId: input.storeId,
-        operatorStaffId: input.operatorStaffId,
-        purchaseOrderId: input.purchaseOrderId,
-        sourceType: 'purchase',
-        title: input.title,
-        type: 'variable',
-        category: 'purchase',
-        amount: toCostDbCents(input.amount),
-        note: toOptionalText(input.note) ?? null,
-        date: input.date,
-      },
-    });
+    try {
+      return await transaction.costRecord.create({
+        data: {
+          storeId: input.storeId,
+          operatorStaffId: input.operatorStaffId,
+          purchaseOrderId: input.purchaseOrderId,
+          sourceType: 'purchase',
+          title: input.title,
+          type: 'variable',
+          category: 'purchase',
+          amount: toCostDbCents(input.amount),
+          note: toOptionalText(input.note) ?? null,
+          date: input.date,
+        },
+      });
+    } catch (error: unknown) {
+      // B7-fix: 并发 create 触发 partial unique index 冲突时，降级为 update
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const retryExisting = await transaction.costRecord.findFirst({
+          where: {
+            storeId: input.storeId,
+            sourceType: 'purchase',
+            purchaseOrderId: input.purchaseOrderId,
+          },
+        });
+        if (retryExisting) {
+          return transaction.costRecord.update({
+            where: { id: retryExisting.id },
+            data: {
+              operatorStaffId: input.operatorStaffId,
+              title: input.title,
+              amount: toCostDbCents(input.amount),
+              note: toOptionalText(input.note) ?? null,
+              date: input.date,
+            },
+          });
+        }
+      }
+      throw error;
+    }
   }
 
   async syncPayrollCosts(
@@ -271,19 +314,50 @@ export class CostsWriteService {
       });
     }
 
-    return transaction.costRecord.create({
-      data: {
-        storeId: input.storeId,
-        operatorStaffId: input.operatorStaffId,
-        payrollId: input.payrollId,
-        sourceType: input.sourceType,
-        title: input.title,
-        type: input.type,
-        category: input.category,
-        amount: toCostDbCents(input.amount),
-        note: toOptionalText(input.note) ?? null,
-        date: getPayrollCostDate(input.month),
-      },
-    });
+    try {
+      return await transaction.costRecord.create({
+        data: {
+          storeId: input.storeId,
+          operatorStaffId: input.operatorStaffId,
+          payrollId: input.payrollId,
+          sourceType: input.sourceType,
+          title: input.title,
+          type: input.type,
+          category: input.category,
+          amount: toCostDbCents(input.amount),
+          note: toOptionalText(input.note) ?? null,
+          date: getPayrollCostDate(input.month),
+        },
+      });
+    } catch (error: unknown) {
+      // B7-fix: 并发 create 触发 partial unique index 冲突时，降级为 update
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const retryExisting = await transaction.costRecord.findFirst({
+          where: {
+            storeId: input.storeId,
+            sourceType: input.sourceType,
+            payrollId: input.payrollId,
+          },
+        });
+        if (retryExisting) {
+          return transaction.costRecord.update({
+            where: { id: retryExisting.id },
+            data: {
+              operatorStaffId: input.operatorStaffId,
+              title: input.title,
+              type: input.type,
+              category: input.category,
+              amount: toCostDbCents(input.amount),
+              note: toOptionalText(input.note) ?? null,
+              date: getPayrollCostDate(input.month),
+            },
+          });
+        }
+      }
+      throw error;
+    }
   }
 }

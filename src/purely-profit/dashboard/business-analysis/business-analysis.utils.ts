@@ -1,10 +1,5 @@
-import { BadRequestException } from '@nestjs/common';
-import {
-  buildPreviousRangeByDuration,
-  getMonthStartTimestamp,
-  getQuarterStartTimestamp,
-  getWeekStartTimestamp,
-} from '../../commerce/commerce.utils';
+import { BadRequestException, Logger } from '@nestjs/common';
+import { buildPreviousRangeByDuration } from '../../commerce/commerce.utils';
 import type {
   BusinessAnalysisAccessibleRange,
   BusinessAnalysisPeriod,
@@ -13,6 +8,8 @@ import type {
 } from './business-analysis.types';
 
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60_000;
+const DAY_MS = 86_400_000;
+const logger = new Logger('BusinessAnalysisUtils');
 
 /**
  * 计算任意时间戳所属的上海本地日零点（UTC 毫秒时间戳）。
@@ -82,6 +79,45 @@ export function resolveAnalysisQueryRange(
   return { start, end };
 }
 
+/**
+ * 读取某个 UTC 毫秒时间戳在上海本地时区下的星期几（0=周日…6=周六）。
+ * 等价于先把该瞬间平移到上海墙钟，再用 UTC getter 读取，避免依赖进程本地时区。
+ */
+function getShanghaiWeekday(utcMs: number): number {
+  return new Date(utcMs + SHANGHAI_OFFSET_MS).getUTCDay();
+}
+
+/** 上海时区的「本周一 00:00」对应的 UTC 毫秒（周一为周起始）。 */
+function getShanghaiWeekStartMs(now: number): number {
+  const todayShanghai = getShanghaiDayStartMs(now);
+  const weekday = getShanghaiWeekday(todayShanghai);
+  const diffToMonday = weekday === 0 ? -6 : 1 - weekday;
+  return todayShanghai + diffToMonday * DAY_MS;
+}
+
+/** 上海时区的「本月 1 日 00:00」对应的 UTC 毫秒。 */
+export function getShanghaiMonthStartMs(now: number): number {
+  const shanghai = new Date(now + SHANGHAI_OFFSET_MS);
+  shanghai.setUTCDate(1);
+  shanghai.setUTCHours(0, 0, 0, 0);
+  return shanghai.getTime() - SHANGHAI_OFFSET_MS;
+}
+
+/** 上海时区的「本季度首月 1 日 00:00」对应的 UTC 毫秒。 */
+function getShanghaiQuarterStartMs(now: number): number {
+  const shanghai = new Date(now + SHANGHAI_OFFSET_MS);
+  const quarter = Math.floor(shanghai.getUTCMonth() / 3);
+  shanghai.setUTCMonth(quarter * 3, 1);
+  shanghai.setUTCHours(0, 0, 0, 0);
+  return shanghai.getTime() - SHANGHAI_OFFSET_MS;
+}
+
+/**
+ * 所有预设周期统一使用上海本地时区计算起始边界，与 SQL 日桶
+ * （`date_trunc('day', col + interval '8 hours') - interval '8 hours'`）
+ * 及 `getShanghaiDayStartMs` 保持一致；避免服务进程时区非 Asia/Shanghai 时，
+ * 周/月/季/年边界与日趋势桶错位，导致 heroSummary 汇总与 dailyTrend 口径不一致。
+ */
 function resolvePresetRange(
   period: Exclude<BusinessAnalysisPeriod, 'custom_range'>,
   now: number,
@@ -92,19 +128,22 @@ function resolvePresetRange(
     case 'today':
       return { start: getShanghaiDayStartMs(now), end: now };
     case 'week':
-      return { start: getWeekStartTimestamp(now), end: now };
+      return { start: getShanghaiWeekStartMs(now), end: now };
     case 'month':
-      return { start: getMonthStartTimestamp(now), end: now };
+      return { start: getShanghaiMonthStartMs(now), end: now };
     case 'quarter':
-      return { start: getQuarterStartTimestamp(now), end: now };
+      return { start: getShanghaiQuarterStartMs(now), end: now };
     case 'year': {
-      const current = new Date(now);
-      return {
-        start: new Date(current.getFullYear(), 0, 1).setHours(0, 0, 0, 0),
-        end: now,
-      };
+      const shanghai = new Date(now + SHANGHAI_OFFSET_MS);
+      shanghai.setUTCMonth(0, 1);
+      shanghai.setUTCHours(0, 0, 0, 0);
+      return { start: shanghai.getTime() - SHANGHAI_OFFSET_MS, end: now };
     }
-    default:
+    default: {
+      // 理论不可达：period 已排除 'custom_range'，且上面的 case 覆盖其余全部取值。
+      // 若新增周期未在此处理，记录告警并兜底为全量区间，避免静默返回错误口径。
+      logger.warn(`resolvePresetRange 命中未处理的预设周期: ${String(period)}`);
       return { start: 0, end: now };
+    }
   }
 }

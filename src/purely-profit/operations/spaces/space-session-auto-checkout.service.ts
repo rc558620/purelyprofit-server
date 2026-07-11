@@ -178,10 +178,14 @@ export class SpaceSessionAutoCheckoutService {
           renewRecords.length > 0
             ? renewRecords[renewRecords.length - 1].paymentMethod
             : undefined;
+        // P2 fix: latestRenewPaymentMethod 优先于 grouponRenewPaymentMethod，
+        // 确保最新真实支付方式不被历史团购券记录覆盖。
+        // 原顺序 prepaidPaymentMethod → grouponRenewPaymentMethod → latestRenewPaymentMethod
+        // 导致「先团购续费、后微信续费」场景下 paymentMethod 被错标为 groupon_voucher。
         const resolvedPaymentMethod =
           session.prepaidPaymentMethod ??
-          grouponRenewPaymentMethod ??
           latestRenewPaymentMethod ??
+          grouponRenewPaymentMethod ??
           'cash';
         // BUG-2 fix: customerPaymentMethod / settlementChannel 同理回退到续费记录
         const resolvedCustomerPaymentMethod =
@@ -423,7 +427,7 @@ const resolveAutoCheckoutAt = (
  * 该用户无实际 membership，因此销售单创建会直接使用传入的可信门店，
  * 且 shouldAssignToCurrentShiftOperator 会返回 false，避免误归属到虚拟操作人。
  */
-const createAutoCheckoutSystemUser = (): AuthenticatedUser => ({
+export const createAutoCheckoutSystemUser = (): AuthenticatedUser => ({
   id: 0,
   email: 'system@auto-checkout',
   phone: '',

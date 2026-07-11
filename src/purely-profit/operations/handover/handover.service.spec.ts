@@ -16,6 +16,7 @@ describe('HandoverService', () => {
 
   const handoverPageService = {
     getHandoverPage: jest.fn(),
+    resolveHandoverOperationAccess: jest.fn(),
   };
 
   const handoverConfirmService = {
@@ -53,6 +54,11 @@ describe('HandoverService', () => {
     handoverPageService.getHandoverPage.mockResolvedValue({
       canOperate: true,
       operationBlockedReason: null,
+      selectedShiftType: 'morning',
+    });
+    handoverPageService.resolveHandoverOperationAccess.mockResolvedValue({
+      canOperate: true,
+      blockedReason: null,
       selectedShiftType: 'morning',
     });
     spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions.mockResolvedValue(
@@ -110,7 +116,7 @@ describe('HandoverService', () => {
       expect(
         spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions,
       ).toHaveBeenCalledWith(
-        subAccountUser,
+        expect.objectContaining({ id: 0, email: 'system@auto-checkout' }),
         100,
         expect.any(Number),
         'handover:page',
@@ -131,7 +137,7 @@ describe('HandoverService', () => {
       expect(
         spaceSessionAutoCheckoutService.autoCheckoutExpiredCountdownSessions,
       ).toHaveBeenCalledWith(
-        ownerUser,
+        expect.objectContaining({ id: 0, email: 'system@auto-checkout' }),
         100,
         expect.any(Number),
         'handover:record-detail',
@@ -299,9 +305,9 @@ describe('HandoverService', () => {
         note: '交班',
         additionalItems: [],
       };
-      handoverPageService.getHandoverPage.mockResolvedValue({
+      handoverPageService.resolveHandoverOperationAccess.mockResolvedValue({
         canOperate: false,
-        operationBlockedReason: '当前班次不属于该收银员，暂不允许操作',
+        blockedReason: '当前班次不属于该收银员，暂不允许操作',
         selectedShiftType: 'late',
       });
 
@@ -332,9 +338,9 @@ describe('HandoverService', () => {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-      handoverPageService.getHandoverPage.mockResolvedValue({
+      handoverPageService.resolveHandoverOperationAccess.mockResolvedValue({
         canOperate: true,
-        operationBlockedReason: null,
+        blockedReason: null,
         selectedShiftType: 'morning',
       });
       handoverConfirmService.confirmHandover.mockResolvedValue(mockResult);
@@ -355,9 +361,9 @@ describe('HandoverService', () => {
         note: '重复交班',
         additionalItems: [],
       };
-      handoverPageService.getHandoverPage.mockResolvedValue({
+      handoverPageService.resolveHandoverOperationAccess.mockResolvedValue({
         canOperate: true,
-        operationBlockedReason: null,
+        blockedReason: null,
         selectedShiftType: 'late',
       });
 
@@ -374,9 +380,9 @@ describe('HandoverService', () => {
         note: '重复交班',
         additionalItems: [],
       };
-      handoverPageService.getHandoverPage.mockResolvedValue({
+      handoverPageService.resolveHandoverOperationAccess.mockResolvedValue({
         canOperate: true,
-        operationBlockedReason: null,
+        blockedReason: null,
         selectedShiftType: 'late',
       });
 
@@ -384,6 +390,44 @@ describe('HandoverService', () => {
         '当前班次已完成交班，暂不允许重复操作',
       );
       expect(handoverConfirmService.confirmHandover).not.toHaveBeenCalled();
+    });
+
+    it('confirmHandover 权限校验仅解析权限上下文，不触发整页渲染（BUG-5 优化）', async () => {
+      const dto = {
+        shiftType: 'morning' as const,
+        confirmedAt: Date.now(),
+        note: '交班',
+        additionalItems: [],
+      };
+      const mockResult = {
+        id: 2,
+        handoverMode: 'self_main_account',
+        status: 'completed',
+        fromEmployeeId: 20,
+        fromEmployeeName: '收银员1',
+        toEmployeeId: 30,
+        toEmployeeName: '经理',
+        note: '交班',
+        reason: null,
+        handoverAt: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      handoverPageService.resolveHandoverOperationAccess.mockResolvedValue({
+        canOperate: true,
+        blockedReason: null,
+        selectedShiftType: 'morning',
+      });
+      handoverConfirmService.confirmHandover.mockResolvedValue(mockResult);
+
+      const result = await service.confirmHandover(managerUser, dto);
+
+      expect(result).toBe(mockResult);
+      expect(
+        handoverPageService.resolveHandoverOperationAccess,
+      ).toHaveBeenCalledWith(managerUser, 'morning');
+      // 关键断言：权限校验不再调用整页渲染，省去指标聚合查询。
+      expect(handoverPageService.getHandoverPage).not.toHaveBeenCalled();
     });
   });
 
@@ -416,9 +460,9 @@ describe('HandoverService', () => {
     });
 
     it('收银员操作非本人当前班次时 createHandoverRecord 应抛出 ForbiddenException', async () => {
-      handoverPageService.getHandoverPage.mockResolvedValue({
+      handoverPageService.resolveHandoverOperationAccess.mockResolvedValue({
         canOperate: false,
-        operationBlockedReason: '当前时段没有该收银员本人班次，暂不允许操作',
+        blockedReason: '当前时段没有该收银员本人班次，暂不允许操作',
         selectedShiftType: 'morning',
       });
 

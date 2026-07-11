@@ -1,13 +1,16 @@
 import { BadRequestException } from '@nestjs/common';
 import type { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
+import { buildPreviousRangeByDuration } from '../../commerce/commerce.utils';
 import {
-  buildPreviousRangeByDuration,
-  getDayEndTimestamp,
-  getDayStartTimestamp,
-  getMonthStartTimestamp,
-  getQuarterStartTimestamp,
-  getWeekStartTimestamp,
-} from '../../commerce/commerce.utils';
+  getShanghaiDayEndMs,
+  getShanghaiDayStartMs,
+  getShanghaiFullYear,
+  getShanghaiMonthStartMs,
+  getShanghaiQuarterStartMs,
+  getShanghaiWeekStartMs,
+  getShanghaiYearEndMsForYear,
+  getShanghaiYearStartMsForYear,
+} from '../../../shared/shanghai-time.utils';
 import { GetProfitDetailQueryDto } from './dto/profit-detail-query.dto';
 import type {
   ProfitAccessibleRange,
@@ -40,29 +43,29 @@ export function buildCurrentRange(
   switch (period) {
     case 'today':
       return {
-        start: getDayStartTimestamp(now),
+        start: getShanghaiDayStartMs(now),
         end: now,
       };
     case 'week':
       return {
-        start: getWeekStartTimestamp(now),
+        start: getShanghaiWeekStartMs(now),
         end: now,
       };
     case 'month':
       return {
-        start: getMonthStartTimestamp(now),
+        start: getShanghaiMonthStartMs(now),
         end: now,
       };
     case 'quarter':
       return {
-        start: getQuarterStartTimestamp(now),
+        start: getShanghaiQuarterStartMs(now),
         end: now,
       };
     case 'year': {
-      const year = query.year ?? new Date().getFullYear();
+      const year = query.year ?? getShanghaiFullYear(Date.now());
       return {
-        start: new Date(year, 0, 1, 0, 0, 0, 0).getTime(),
-        end: new Date(year, 11, 31, 23, 59, 59, 999).getTime(),
+        start: getShanghaiYearStartMsForYear(year),
+        end: getShanghaiYearEndMsForYear(year),
       };
     }
     case 'custom_month': {
@@ -74,8 +77,8 @@ export function buildCurrentRange(
         );
       }
       return {
-        start: getDayStartTimestamp(customDate),
-        end: getDayEndTimestamp(customDate),
+        start: getShanghaiDayStartMs(customDate),
+        end: getShanghaiDayEndMs(customDate),
       };
     }
     case 'custom_range': {
@@ -90,8 +93,8 @@ export function buildCurrentRange(
       const startDate = Math.min(rangeStartDate, rangeEndDate);
       const endDate = Math.max(rangeStartDate, rangeEndDate);
       return {
-        start: getDayStartTimestamp(startDate),
-        end: getDayEndTimestamp(endDate),
+        start: getShanghaiDayStartMs(startDate),
+        end: getShanghaiDayEndMs(endDate),
       };
     }
     default:
@@ -104,10 +107,10 @@ export function buildPreviousRange(
   currentRange: ProfitDateRange,
 ): ProfitDateRange {
   if ((query.period ?? 'month') === 'year') {
-    const previousYear = new Date(currentRange.start).getFullYear() - 1;
+    const previousYear = getShanghaiFullYear(currentRange.start) - 1;
     return {
-      start: new Date(previousYear, 0, 1, 0, 0, 0, 0).getTime(),
-      end: new Date(previousYear, 11, 31, 23, 59, 59, 999).getTime(),
+      start: getShanghaiYearStartMsForYear(previousYear),
+      end: getShanghaiYearEndMsForYear(previousYear),
     };
   }
 

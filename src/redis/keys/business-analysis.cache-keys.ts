@@ -7,7 +7,6 @@ type BusinessAnalysisCacheQuery = {
   period?: string | null;
   startTime?: number | null;
   endTime?: number | null;
-  export?: boolean | null;
 };
 
 function isBusinessAnalysisPeriod(
@@ -26,7 +25,6 @@ export function buildBusinessAnalysisCacheKey(
     `period:${query.period}`,
     `start:${query.startTime ?? 'na'}`,
     `end:${query.endTime ?? 'na'}`,
-    `export:${query.export === true ? '1' : '0'}`,
   ].join(':');
 }
 
@@ -35,7 +33,7 @@ export function buildBusinessAnalysisPattern(storeId: number): string {
 }
 
 export function buildBusinessAnalysisAllPattern(): string {
-  return 'profit:business-analysis:store:*:period:*:start:*:end:*:export:*';
+  return 'profit:business-analysis:store:*:period:*:start:*:end:*';
 }
 
 export function parseBusinessAnalysisCacheKey(cacheKey: string): {
@@ -45,7 +43,7 @@ export function parseBusinessAnalysisCacheKey(cacheKey: string): {
   endTime?: number;
 } | null {
   const match =
-    /^profit:business-analysis:store:(\d+):period:([^:]+):start:([^:]+):end:([^:]+):export:([01])$/.exec(
+    /^profit:business-analysis:store:(\d+):period:([^:]+):start:([^:]+):end:([^:]+)$/.exec(
       cacheKey,
     );
   if (!match) {

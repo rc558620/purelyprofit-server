@@ -44,13 +44,22 @@ function transformOptionalBoolean(value: unknown): boolean | undefined {
     return value;
   }
 
+  if (typeof value === 'number') {
+    if (value === 1) {
+      return true;
+    }
+    if (value === 0) {
+      return false;
+    }
+  }
+
   if (typeof value === 'string') {
     const normalizedValue = value.trim().toLowerCase();
-    if (normalizedValue === 'true') {
+    if (normalizedValue === 'true' || normalizedValue === '1') {
       return true;
     }
 
-    if (normalizedValue === 'false') {
+    if (normalizedValue === 'false' || normalizedValue === '0') {
       return false;
     }
   }

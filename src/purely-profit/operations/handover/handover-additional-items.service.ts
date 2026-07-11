@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { HandoverStatus } from '@prisma/client';
+import { HandoverStatus, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { ConfirmHandoverRequestDto } from './dto/handover-page.dto';
@@ -58,14 +58,25 @@ export class HandoverAdditionalItemsService {
     const name = this.normalizeItemName(dto.name);
     await this.ensureAdditionalItemNameAvailable(storeId, name);
 
-    const created = await this.prisma.storeHandoverAdditionalItem.create({
-      data: {
-        storeId,
-        name,
-      },
-    });
+    try {
+      const created = await this.prisma.storeHandoverAdditionalItem.create({
+        data: {
+          storeId,
+          name,
+        },
+      });
 
-    return mapAdditionalItem(created);
+      return mapAdditionalItem(created);
+    } catch (err) {
+      // 并发 TOCTOU：应用层校验通过但 DB 唯一约束冲突 P2002
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException('该附加项已存在');
+      }
+      throw err;
+    }
   }
 
   async updateAdditionalItem(
@@ -78,12 +89,23 @@ export class HandoverAdditionalItemsService {
     const name = this.normalizeItemName(dto.name);
     await this.ensureAdditionalItemNameAvailable(storeId, name, existing.id);
 
-    const updated = await this.prisma.storeHandoverAdditionalItem.update({
-      where: { id: existing.id },
-      data: { name },
-    });
+    try {
+      const updated = await this.prisma.storeHandoverAdditionalItem.update({
+        where: { id: existing.id },
+        data: { name },
+      });
 
-    return mapAdditionalItem(updated);
+      return mapAdditionalItem(updated);
+    } catch (err) {
+      // 并发 TOCTOU：应用层校验通过但 DB 唯一约束冲突 P2002
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException('该附加项已存在');
+      }
+      throw err;
+    }
   }
 
   async deleteAdditionalItem(
@@ -92,15 +114,36 @@ export class HandoverAdditionalItemsService {
   ): Promise<void> {
     const storeId = ensureMembershipStoreId(user);
     await this.findAdditionalItemOrThrow(storeId, itemId);
-    await this.prisma.storeHandoverAdditionalItem.delete({
-      where: { id: itemId },
-    });
+
+    // 前置检查：是否已被历史交班记录引用（保护数据完整性）
+    const referencedCount =
+      await this.prisma.storeHandoverAdditionalValue.count({
+        where: { itemId },
+      });
+    if (referencedCount > 0) {
+      throw new ConflictException('该附加项已被历史交班记录引用，无法删除');
+    }
+
+    try {
+      await this.prisma.storeHandoverAdditionalItem.delete({
+        where: { id: itemId },
+      });
+    } catch (err) {
+      // 并发删除 / 重复点击：记录已不存在视为幂等成功
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2025'
+      ) {
+        return;
+      }
+      throw err;
+    }
   }
 
   async resolveConfirmAdditionalItems(
     storeId: number,
     additionalItems: ConfirmHandoverRequestDto['additionalItems'],
-  ): Promise<Array<{ id: number; value: string }>> {
+  ): Promise<Array<{ id: number; name: string; value: string }>> {
     if (additionalItems.length === 0) {
       return [];
     }
@@ -122,13 +165,19 @@ export class HandoverAdditionalItemsService {
           storeId,
           id: { in: itemIds },
         },
-        select: { id: true },
+        select: { id: true, name: true },
       });
     if (existingItems.length !== itemIds.length) {
       throw new BadRequestException('存在无效的附加项');
     }
 
-    return normalizedItems;
+    // 构建 id→name 映射，用于写入 itemNameSnapshot
+    const nameById = new Map(existingItems.map((item) => [item.id, item.name]));
+    return normalizedItems.map((item) => ({
+      id: item.id,
+      name: nameById.get(item.id) ?? '',
+      value: item.value,
+    }));
   }
 
   private async findLatestValuesByItemId(

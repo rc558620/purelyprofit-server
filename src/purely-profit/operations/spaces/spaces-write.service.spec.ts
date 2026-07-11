@@ -193,6 +193,9 @@ describe('SpacesWriteService', () => {
       id: 11,
       // status 字段已移除
     });
+    // updateSpace 事务内 FOR UPDATE + 活跃会话重校验默认通过
+    prismaTransaction.$queryRaw.mockResolvedValue([{ id: 11 }]);
+    prismaTransaction.spaceSession.count.mockResolvedValue(0);
     spacesRefResolverService.resolveCreateSpaceRefs.mockResolvedValue({
       typeId: 101,
       zoneId: 201,
@@ -329,6 +332,9 @@ describe('SpacesWriteService', () => {
     spacesRefResolverService.resolveUpdateSpaceRefs.mockResolvedValueOnce({
       zoneId: null,
     });
+    // 前置校验：无活跃会话 → 允许编辑
+    prismaService.spaceSession.count.mockResolvedValueOnce(0);
+    // 事务内 FOR UPDATE + 重校验（使用 beforeEach 默认 mock）
     prismaTransaction.space.count.mockResolvedValueOnce(4);
     prismaTransaction.space.updateMany.mockResolvedValueOnce({ count: 2 });
     prismaTransaction.space.update.mockResolvedValueOnce(
@@ -507,6 +513,8 @@ describe('SpacesWriteService', () => {
   it('updateSpace 在名称冲突时抛出冲突异常', async () => {
     // B1: findManagedSpaceOrThrow 改用 findFirst
     prismaService.space.findFirst.mockResolvedValueOnce(makeSpace());
+    // 前置校验：无活跃会话 → 允许继续
+    prismaService.spaceSession.count.mockResolvedValueOnce(0);
     prismaService.space.findFirst.mockResolvedValueOnce({ id: 99 });
 
     await expect(
@@ -518,9 +526,41 @@ describe('SpacesWriteService', () => {
     expect(prismaService.$transaction).not.toHaveBeenCalled();
   });
 
+  it('updateSpace 在空间使用中（存在活跃会话）时抛出冲突异常（前置校验）', async () => {
+    // 前置校验：存在活跃会话 → 禁止编辑
+    prismaService.space.findFirst.mockResolvedValueOnce(makeSpace());
+    prismaService.spaceSession.count.mockResolvedValueOnce(1);
+
+    await expect(
+      service.updateSpace(user, 11, { name: '新名称' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // 不应进入事务
+    expect(prismaService.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('updateSpace 在事务内重校验发现活跃会话时抛出冲突异常（TOCTOU 防护）', async () => {
+    // 前置校验通过（无活跃会话）
+    prismaService.space.findFirst.mockResolvedValueOnce(makeSpace());
+    prismaService.spaceSession.count.mockResolvedValueOnce(0);
+    spacesRefResolverService.resolveUpdateSpaceRefs.mockResolvedValueOnce({});
+    // 事务内 FOR UPDATE 后重校验发现活跃会话（并发窗口内新开台）
+    prismaTransaction.spaceSession.count.mockResolvedValueOnce(1);
+
+    await expect(
+      service.updateSpace(user, 11, { capacity: 6 }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // 空间更新不应被执行
+    expect(prismaTransaction.space.update).not.toHaveBeenCalled();
+  });
+
   it('updateSpace 在 sortOrder 不变时不会触发重排', async () => {
     // B1: findManagedSpaceOrThrow 改用 findFirst
     prismaService.space.findFirst.mockResolvedValueOnce(makeSpace());
+    // 前置校验：无活跃会话 → 允许编辑
+    prismaService.spaceSession.count.mockResolvedValueOnce(0);
+    // 事务内 FOR UPDATE + 重校验（使用 beforeEach 默认 mock）
     prismaTransaction.space.update.mockResolvedValueOnce(makeSpace());
 
     const result = await service.updateSpace(user, 11, {

@@ -3,6 +3,7 @@ import {
   HandoverMode,
   HandoverStatus,
 } from '@prisma/client';
+import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
@@ -100,7 +101,7 @@ describe('HandoverConfirmService', () => {
       handoverAdditionalItemsService.resolveConfirmAdditionalItems.mockResolvedValue(
         [{ id: 101, value: '2 张房卡' }],
       );
-      const confirmedAt = new Date(2026, 4, 13, 12, 0, 0);
+      const confirmedAt = new Date(2026, 4, 13, 18, 0, 0);
       prismaService.storeHandoverRecord.create.mockResolvedValue({
         id: 9,
         storeId: 100,
@@ -179,7 +180,7 @@ describe('HandoverConfirmService', () => {
       handoverAdditionalItemsService.resolveConfirmAdditionalItems.mockResolvedValue(
         [],
       );
-      const confirmedAt = new Date(2026, 4, 13, 12, 0, 0);
+      const confirmedAt = new Date(2026, 4, 13, 18, 0, 0);
       prismaService.storeHandoverRecord.create.mockResolvedValue({
         id: 10,
         storeId: 100,
@@ -259,7 +260,7 @@ describe('HandoverConfirmService', () => {
     });
 
     it('自定义班次会优先按 shiftReferenceAt 与 operatorName 锁定并写入快照', async () => {
-      const handoverAt = new Date('2026-06-05T16:20:00.000Z');
+      const handoverAt = new Date('2026-06-05T18:00:00.000Z');
       handoverConfirmShiftService.findSourceShiftRecord.mockResolvedValue({
         id: 901,
         employeeId: 20,
@@ -327,6 +328,41 @@ describe('HandoverConfirmService', () => {
           }),
         }),
       );
+    });
+
+    it('交班时间早于班次结束时间应抛出 BadRequestException（BUG-2）', async () => {
+      handoverAdditionalItemsService.resolveConfirmAdditionalItems.mockResolvedValue(
+        [],
+      );
+      // findSourceShiftRecord 默认返回 09:00-17:00 班次；confirmedAt 落在班次进行中
+      const confirmedAt = new Date(2026, 4, 13, 12, 0, 0);
+
+      await expect(
+        service.confirmHandover(subAccountUser, {
+          shiftType: 'morning',
+          confirmedAt: confirmedAt.getTime(),
+          additionalItems: [],
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prismaService.storeHandoverRecord.create).not.toHaveBeenCalled();
+      expect(redisLockService.acquireLock).not.toHaveBeenCalled();
+    });
+
+    it('交班时间晚于当前时间应抛出 BadRequestException（O-1）', async () => {
+      handoverAdditionalItemsService.resolveConfirmAdditionalItems.mockResolvedValue(
+        [],
+      );
+      const confirmedAt = new Date(Date.now() + 60_000);
+
+      await expect(
+        service.confirmHandover(subAccountUser, {
+          shiftType: 'morning',
+          confirmedAt: confirmedAt.getTime(),
+          additionalItems: [],
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prismaService.storeHandoverRecord.create).not.toHaveBeenCalled();
+      expect(redisLockService.acquireLock).not.toHaveBeenCalled();
     });
   });
 });

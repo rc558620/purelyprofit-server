@@ -279,6 +279,7 @@ describe('profit-detail.utils', () => {
         end: currentRange.end,
       }),
       select: PROFIT_DETAIL_SALE_ORDER_ITEM_SELECT,
+      skip: 0,
       take: 5000,
     });
     expect(costFindMany).toHaveBeenCalledWith({
@@ -287,6 +288,7 @@ describe('profit-detail.utils', () => {
         end: currentRange.end,
       }),
       select: PROFIT_DETAIL_COST_RECORD_SELECT,
+      skip: 0,
       take: 5000,
     });
   });
