@@ -177,7 +177,8 @@ export class PlatformMembershipReadService {
       createdAt: true,
     } as const;
 
-    const [total, orders, amountRows] = await Promise.all([
+    const [total, orders, paidOrderCount, paidTotal] = await Promise.all([
+      // 列表分页与总条数基于全量订单（保留完整订单历史，含各状态）
       this.prisma.storeMembershipOrder.count({ where: { storeId } }),
       this.prisma.storeMembershipOrder.findMany({
         where: { storeId },
@@ -186,16 +187,22 @@ export class PlatformMembershipReadService {
         skip,
         take,
       }),
-      this.prisma.storeMembershipOrder.findMany({
-        where: { storeId },
-        select: { amount: true },
+      // 汇总口径仅统计已支付订单，避免把 pending/failed/refunded 计入「累计消费金额/充值次数」
+      this.prisma.storeMembershipOrder.count({
+        where: { storeId, status: 'paid' },
+      }),
+      // 用数据库层聚合替代应用层全量扫描求和（性能优化）
+      this.prisma.storeMembershipOrder.aggregate({
+        where: { storeId, status: 'paid' },
+        _sum: { amount: true },
       }),
     ]);
 
-    const totalAmount = amountRows.reduce((sum, r) => sum + r.amount, 0);
+    // aggregate 在无匹配行时 _sum.amount 为 null，兜底为 0
+    const totalAmount = paidTotal._sum.amount ?? 0;
 
     return {
-      overview: { orderCount: total, totalAmount },
+      overview: { orderCount: paidOrderCount, totalAmount },
       items: orders.map((order) => mapOrder(order)),
       meta: buildPaginationMeta(total, resolvedPage, take),
     };
@@ -235,11 +242,17 @@ export class PlatformMembershipReadService {
       inviteCodeRecord?.code ?? null,
     );
 
+    // 合伙人等级只统计归属该合伙人的推广记录（见 B1）
+    const partnerPromoRecords =
+      partner !== null
+        ? promoRecords.filter((r) => r.partnerId === partner.id)
+        : promoRecords;
+
     return {
       memberInfo: profileResponse.memberInfo,
       approvedPartner: profileResponse.approvedPartner,
       approvedPartners: profileResponse.approvedPartners,
-      level: buildPartnerLevel(partner, promoRecords),
+      level: buildPartnerLevel(partner, partnerPromoRecords),
       stats: statsByPeriod.all,
       statsByPeriod,
       items: promoRecords.map((record) => mapPromoRecord(record)),

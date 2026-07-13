@@ -139,6 +139,40 @@ describe('SpaceSessionAutoCheckoutService', () => {
     expect(result).toBe(1);
   });
 
+  it('autoCheckoutExpiredCountdownSessions 会结账无预付但台位费有效的到期会话（BUG-4 修复）', async () => {
+    const user = createSpaceTestUser();
+    const checkoutAt = new Date(2026, 5, 4, 10, 0, 0).getTime();
+
+    prismaService.spaceSession.findMany.mockResolvedValueOnce([
+      {
+        ...createSpaceSessionRecord(),
+        billingMode: 'countdown',
+        countdownMinutes: 60,
+        autoCheckout: true,
+        hourlyRate: 6000, // 台位费 60 元（分）
+        sessionItems: [],
+        sessionRenewRecords: [],
+      },
+    ]);
+
+    const result = await service.autoCheckoutExpiredCountdownSessions(
+      user,
+      18,
+      checkoutAt,
+    );
+
+    // 无预付（hasPrepaid=false）会话不再被永久跳过，应正常结算台位费
+    expect(settlementService.settleSession).toHaveBeenCalledTimes(1);
+    expect(settlementService.settleSession).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({
+        checkoutAt,
+        note: '倒计时到期自动结账',
+      }),
+    );
+    expect(result).toBe(1);
+  });
+
   it('autoCheckoutExpiredCountdownSessions 在已有并发任务时应跳过本次执行', async () => {
     const user = createSpaceTestUser();
 

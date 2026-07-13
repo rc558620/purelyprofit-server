@@ -55,6 +55,7 @@ describe('PlatformMembershipService', () => {
       count: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
+      aggregate: jest.fn(),
     },
     storeMembershipPointsLog: {
       create: jest.fn(),
@@ -755,34 +756,35 @@ describe('PlatformMembershipService', () => {
       availablePoints: 0,
     });
     prismaService.storeMembershipOrder.count.mockResolvedValue(2);
-    prismaService.storeMembershipOrder.findMany
-      .mockResolvedValueOnce([
-        {
-          id: 21,
-          planId: 'quarterly',
-          planName: '季度会员',
-          amount: 9900,
-          pointsUsed: 0,
-          beansUsed: 0,
-          status: 'paid',
-          paymentChannel: 'wechat',
-          paymentOrderId: 'WX180001',
-          createdAt: new Date('2026-05-14T10:00:00.000Z'),
-        },
-        {
-          id: 22,
-          planId: 'monthly',
-          planName: '月度会员',
-          amount: 3300,
-          pointsUsed: 500,
-          beansUsed: 10,
-          status: 'paid',
-          paymentChannel: 'wechat',
-          paymentOrderId: 'WX180002',
-          createdAt: new Date('2026-05-13T10:00:00.000Z'),
-        },
-      ])
-      .mockResolvedValueOnce([{ amount: 9900 }, { amount: 3300 }]);
+    prismaService.storeMembershipOrder.findMany.mockResolvedValue([
+      {
+        id: 21,
+        planId: 'quarterly',
+        planName: '季度会员',
+        amount: 9900,
+        pointsUsed: 0,
+        beansUsed: 0,
+        status: 'paid',
+        paymentChannel: 'wechat',
+        paymentOrderId: 'WX180001',
+        createdAt: new Date('2026-05-14T10:00:00.000Z'),
+      },
+      {
+        id: 22,
+        planId: 'monthly',
+        planName: '月度会员',
+        amount: 3300,
+        pointsUsed: 500,
+        beansUsed: 10,
+        status: 'paid',
+        paymentChannel: 'wechat',
+        paymentOrderId: 'WX180002',
+        createdAt: new Date('2026-05-13T10:00:00.000Z'),
+      },
+    ]);
+    prismaService.storeMembershipOrder.aggregate.mockResolvedValue({
+      _sum: { amount: 13200 },
+    });
 
     await expect(service.listOrders(user)).resolves.toEqual({
       overview: {
@@ -817,6 +819,112 @@ describe('PlatformMembershipService', () => {
         page: 1,
         pageSize: 20,
         total: 2,
+        totalPages: 1,
+      },
+    });
+  });
+
+  it('listOrders 汇总仅统计已支付订单，列表保留全部状态', async () => {
+    prismaService.storeMembershipProfile.upsert.mockResolvedValue({
+      id: 3,
+      storeId: 18,
+      currentPlanId: null,
+      startsAt: null,
+      expiresAt: null,
+      totalPoints: 0,
+      availablePoints: 0,
+    });
+    // 第 1 次 count = 全量订单数（用于分页 meta.total）；第 2 次 count = 已支付订单数（overview.orderCount）
+    prismaService.storeMembershipOrder.count
+      .mockReset()
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(2);
+    prismaService.storeMembershipOrder.findMany.mockResolvedValue([
+      {
+        id: 21,
+        planId: 'quarterly',
+        planName: '季度会员',
+        amount: 9900,
+        pointsUsed: 0,
+        beansUsed: 0,
+        status: 'paid',
+        paymentChannel: 'wechat',
+        paymentOrderId: 'WX180001',
+        createdAt: new Date('2026-05-14T10:00:00.000Z'),
+      },
+      {
+        id: 22,
+        planId: 'monthly',
+        planName: '月度会员',
+        amount: 3300,
+        pointsUsed: 500,
+        beansUsed: 10,
+        status: 'paid',
+        paymentChannel: 'wechat',
+        paymentOrderId: 'WX180002',
+        createdAt: new Date('2026-05-13T10:00:00.000Z'),
+      },
+      {
+        id: 23,
+        planId: 'yearly',
+        planName: '年度会员',
+        amount: 5000,
+        pointsUsed: 0,
+        beansUsed: 0,
+        status: 'refunded',
+        paymentChannel: 'wechat',
+        paymentOrderId: 'WX180003',
+        createdAt: new Date('2026-05-12T10:00:00.000Z'),
+      },
+    ]);
+    prismaService.storeMembershipOrder.aggregate.mockResolvedValue({
+      _sum: { amount: 13200 },
+    });
+
+    await expect(service.listOrders(user)).resolves.toEqual({
+      overview: {
+        orderCount: 2, // 仅已支付
+        totalAmount: 13200, // 仅已支付金额（9900 + 3300），不含 refunded 的 5000
+      },
+      items: [
+        {
+          id: '21',
+          planId: 'quarterly',
+          planName: '季度会员',
+          amount: 9900,
+          pointsUsed: 0,
+          beansUsed: 0,
+          status: 'paid',
+          createdAt: new Date('2026-05-14T10:00:00.000Z').getTime(),
+          wxOrderId: 'WX180001',
+        },
+        {
+          id: '22',
+          planId: 'monthly',
+          planName: '月度会员',
+          amount: 3300,
+          pointsUsed: 500,
+          beansUsed: 10,
+          status: 'paid',
+          createdAt: new Date('2026-05-13T10:00:00.000Z').getTime(),
+          wxOrderId: 'WX180002',
+        },
+        {
+          id: '23',
+          planId: 'yearly',
+          planName: '年度会员',
+          amount: 5000,
+          pointsUsed: 0,
+          beansUsed: 0,
+          status: 'refunded',
+          createdAt: new Date('2026-05-12T10:00:00.000Z').getTime(),
+          wxOrderId: 'WX180003',
+        },
+      ],
+      meta: {
+        page: 1,
+        pageSize: 20,
+        total: 3, // 列表分页基于全量订单（含 refunded）
         totalPages: 1,
       },
     });
@@ -973,7 +1081,7 @@ describe('PlatformMembershipService', () => {
     expect(result.applications).toHaveLength(1);
   });
 
-  it('applyPartner 在已有正式合伙人时允许新增其他人申请', async () => {
+  it('applyPartner 在已有正式合伙人时拒绝任何再次申请（一个账号只能有一个合伙人）', async () => {
     prismaService.store.findFirst.mockResolvedValue({ id: 18 });
     prismaService.storePartner.findUnique.mockResolvedValue({
       id: 12,
@@ -994,61 +1102,22 @@ describe('PlatformMembershipService', () => {
       reviewedAt: new Date('2026-05-15T00:00:00.000Z'),
       createdAt: new Date('2026-05-15T00:00:00.000Z'),
     });
-    prismaService.storePartnerApplication.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          id: 102,
-          storeId: 18,
-          status: 'pending',
-          name: '李四',
-          phone: '13900139000',
-          idCard: '110101199203071234',
-          region: ['北京市', '北京市', '东城区'],
-          intention: 'agent',
-          applyReason: '想拓展本地渠道',
-          paymentAccountType: 'alipay',
-          paymentAccountNo: 'alipay_ls',
-          paymentAccountName: '李四',
-          reviewedAt: null,
-          joinedAt: null,
-          createdAt: new Date('2026-05-16T00:00:00.000Z'),
-          followUpNotes: [],
-        },
-      ]);
+    prismaService.storePartnerApplication.findMany.mockResolvedValue([]);
     prismaService.storeMembershipPromoRecord.findMany.mockResolvedValue([]);
 
-    const result = await service.applyPartner(user, {
-      name: '李四',
-      phone: '13900139000',
-      idCard: '110101199203071234',
-      region: ['北京市', '北京市', '东城区'],
-      paymentMethod: 'alipay',
-      paymentAccount: 'alipay_ls',
-      intention: 'agent',
-      applyReason: '想拓展本地渠道',
-    });
-
-    expect(prismaService.storePartnerApplication.create).toHaveBeenCalledWith({
-      data: {
-        storeId: 18,
-        status: 'pending',
+    await expect(
+      service.applyPartner(user, {
         name: '李四',
         phone: '13900139000',
         idCard: '110101199203071234',
         region: ['北京市', '北京市', '东城区'],
+        paymentMethod: 'alipay',
+        paymentAccount: 'alipay_ls',
         intention: 'agent',
         applyReason: '想拓展本地渠道',
-        paymentAccountType: 'alipay',
-        paymentAccountNo: 'alipay_ls',
-        paymentAccountName: '李四',
-      },
-    });
-    expect(prismaService.storePartner.upsert).not.toHaveBeenCalled();
-    expect(result.isPartner).toBe(true);
-    expect(result.currentApplication?.id).toBe('102');
-    expect(result.currentApplication?.status).toBe('pending');
-    expect(result.approvedPartner?.name).toBe('王建国');
+      }),
+    ).rejects.toThrow('该合伙人已通过审核，无需重复申请');
+    expect(prismaService.storePartnerApplication.create).not.toHaveBeenCalled();
   });
 
   it('applyPartner 在同一申请人已通过审核时拒绝重复申请', async () => {
@@ -1089,7 +1158,7 @@ describe('PlatformMembershipService', () => {
     expect(prismaService.storePartnerApplication.create).not.toHaveBeenCalled();
   });
 
-  it('applyPartner 手机号相同但身份证不同时允许申请', async () => {
+  it('applyPartner 手机号相同但身份证不同时仍拒绝再次申请', async () => {
     prismaService.store.findFirst.mockResolvedValue({ id: 18 });
     // 已有合伙人手机号相同，但身份证不同
     prismaService.storePartner.findUnique.mockResolvedValue({
@@ -1113,19 +1182,107 @@ describe('PlatformMembershipService', () => {
     });
     prismaService.storePartnerApplication.findMany.mockResolvedValue([]);
 
+    await expect(
+      service.applyPartner(user, {
+        name: '发送东方说的是的',
+        phone: '13142342342',
+        idCard: '53250119940506125X',
+        region: ['110000', '110100', '110101'],
+        paymentMethod: 'alipay',
+        paymentAccount: '大撒',
+        intention: 'other',
+        applyReason: '大撒',
+      }),
+    ).rejects.toThrow('该合伙人已通过审核，无需重复申请');
+    expect(prismaService.storePartnerApplication.create).not.toHaveBeenCalled();
+  });
+
+  it('applyPartner 已有待审核申请时拒绝重复提交', async () => {
+    prismaService.store.findFirst.mockResolvedValue({ id: 18 });
+    prismaService.storePartner.findUnique.mockResolvedValue(null);
+    prismaService.storePartnerApplication.findMany.mockResolvedValue([
+      {
+        id: 101,
+        storeId: 18,
+        status: 'pending',
+        name: '张三',
+        phone: '13800138000',
+        idCard: '44030119900101123X',
+        region: ['广东省', '深圳市', '南山区'],
+        intention: 'resource',
+        applyReason: '有行业资源',
+        paymentAccountType: 'wechat',
+        paymentAccountNo: 'wx_test',
+        paymentAccountName: '张三',
+        reviewedAt: null,
+        joinedAt: null,
+        createdAt: new Date('2026-05-15T00:00:00.000Z'),
+        followUpNotes: [],
+      },
+    ]);
+    prismaService.storeMembershipPromoRecord.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.applyPartner(user, {
+        name: '张三',
+        phone: '13800138000',
+        idCard: '44030119900101123X',
+        region: ['广东省', '深圳市', '南山区'],
+        paymentMethod: 'wechat',
+        paymentAccount: 'wx_test',
+        intention: 'resource',
+        applyReason: '重复提交',
+      }),
+    ).rejects.toThrow('该合伙人已有申请在审核中，请耐心等待');
+    expect(prismaService.storePartnerApplication.create).not.toHaveBeenCalled();
+  });
+
+  it('applyPartner 仅有已驳回申请时允许重新申请', async () => {
+    prismaService.store.findFirst.mockResolvedValue({ id: 18 });
+    prismaService.storePartner.findUnique.mockResolvedValue(null);
+    const rejectedApplication = {
+      id: 101,
+      storeId: 18,
+      status: 'rejected',
+      name: '张三',
+      phone: '13800138000',
+      idCard: '44030119900101123X',
+      region: ['广东省', '深圳市', '南山区'],
+      intention: 'resource',
+      applyReason: '资料不全',
+      paymentAccountType: 'wechat',
+      paymentAccountNo: 'wx_test',
+      paymentAccountName: '张三',
+      reviewedAt: new Date('2026-05-15T00:00:00.000Z'),
+      joinedAt: null,
+      createdAt: new Date('2026-05-14T00:00:00.000Z'),
+      followUpNotes: [],
+    };
+    const newApplication = {
+      ...rejectedApplication,
+      id: 102,
+      status: 'pending',
+      createdAt: new Date('2026-05-16T00:00:00.000Z'),
+    };
+    prismaService.storePartnerApplication.findMany
+      .mockResolvedValueOnce([rejectedApplication])
+      .mockResolvedValueOnce([newApplication, rejectedApplication]);
+    prismaService.storeMembershipPromoRecord.findMany.mockResolvedValue([]);
+
     const result = await service.applyPartner(user, {
-      name: '发送东方说的是的',
-      phone: '13142342342',
-      idCard: '53250119940506125X',
-      region: ['110000', '110100', '110101'],
-      paymentMethod: 'alipay',
-      paymentAccount: '大撒',
-      intention: 'other',
-      applyReason: '大撒',
+      name: '张三',
+      phone: '13800138000',
+      idCard: '44030119900101123X',
+      region: ['广东省', '深圳市', '南山区'],
+      paymentMethod: 'wechat',
+      paymentAccount: 'wx_test',
+      intention: 'resource',
+      applyReason: '补充资料后重新申请',
     });
 
     expect(prismaService.storePartnerApplication.create).toHaveBeenCalled();
-    expect(result.currentApplication).toBeDefined();
+    expect(result.currentApplication?.status).toBe('pending');
+    expect(result.applications.some((a) => a.id === '102')).toBe(true);
   });
 
   it('markPartnerApplicationReviewing 将申请切换为审核中', async () => {

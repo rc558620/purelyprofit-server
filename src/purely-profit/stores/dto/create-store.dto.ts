@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   Max,
+  MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
@@ -17,6 +18,7 @@ export class CreateStoreDto {
   @ApiProperty({ example: '纯利优选示范店', description: '门店名称' })
   @IsString({ message: '门店名称必须是字符串' })
   @MinLength(2, { message: '门店名称至少 2 位' })
+  @MaxLength(50, { message: '门店名称不能超过 50 个字符' })
   storeName: string;
 
   @ApiProperty({ example: '零售', description: '门店类型' })
@@ -38,6 +40,7 @@ export class CreateStoreDto {
   })
   @IsString({ message: '门店地址必须是字符串' })
   @MinLength(1, { message: '详细地址不能为空' })
+  @MaxLength(200, { message: '详细地址不能超过 200 个字符' })
   address: string;
 
   @ApiPropertyOptional({

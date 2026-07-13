@@ -26,7 +26,6 @@ import type {
 import { buildPromotionWhere } from './marketing.domain';
 import {
   buildPromotionDisplayText,
-  mapPromotionParamsForOutput,
   mapPromotionParamsForWrite,
   mapPromotionRow,
   normalizePromotionParams,
@@ -61,11 +60,15 @@ export class MarketingPromotionsService {
         user,
         query.storeId,
       );
+    // POTENTIAL-2 修复：无门店权限时保留请求页码，避免 meta.page 被强制改为 1
     if (!resolvedStoreId) {
-      const { take } = resolveMarketingPagination(query.page, query.pageSize);
+      const { page, take } = resolveMarketingPagination(
+        query.page,
+        query.pageSize,
+      );
       return {
         items: [],
-        meta: buildMarketingPaginationMeta(0, 1, take),
+        meta: buildMarketingPaginationMeta(0, page, take),
       };
     }
 
@@ -75,6 +78,21 @@ export class MarketingPromotionsService {
     );
     const statusFilter = query.status ?? 'all';
     const enabledFilter = query.enabled;
+
+    // POTENTIAL-3 修复：活动状态由「当前时间」计算（非持久化字段）。
+    // 按具体状态过滤的结果在缓存窗口内会因时间自然流转而过期（最多 TTL 秒），
+    // 故仅 status='all' 走缓存，带具体状态过滤时直接查库保证实时。
+    if (statusFilter !== 'all') {
+      return this.queryPromotions(
+        resolvedStoreId,
+        statusFilter,
+        enabledFilter,
+        skip,
+        take,
+        page,
+      );
+    }
+
     const cacheKey = buildMarketingPromotionsListCacheKey(
       resolvedStoreId,
       statusFilter,
@@ -173,25 +191,28 @@ export class MarketingPromotionsService {
       'marketing:manage',
     );
     this.assertPromotionRange(new Date(dto.startAt), new Date(dto.endAt));
-    const willBeEnabled = dto.enabled ?? true;
-    if (willBeEnabled) {
-      await this.ensurePromotionTypeUnique(storeId, dto.type);
-    }
 
+    // POTENTIAL-5 修复：先校验参数，再做唯一性查询，
+    // 避免无效参数时多余的 count 查询且错误提示顺序颠倒
     const validatedParams = validatePromotionParams(dto.type, dto.params);
     const normalizedParams = normalizePromotionParams(
       validatedParams,
       dto.type,
     );
+
+    const willBeEnabled = dto.enabled ?? true;
+    if (willBeEnabled) {
+      await this.ensurePromotionTypeUnique(storeId, dto.type);
+    }
+
     // 前端入参（元）→ DB 存储（分）
     const writeParams = mapPromotionParamsForWrite(normalizedParams, dto.type);
-    // displayText 基于四舍五入后的输出值计算，与读路径 mapPromotionRow 保持一致
-    const outputParams = mapPromotionParamsForOutput(
-      normalizedParams,
-      dto.type,
-    );
+    // BUG-1 修复：normalizedParams 已是「元」，应直接用于展示文案计算；
+    // 此前误用 mapPromotionParamsForOutput（语义为分→元）导致 reduce/recharge_gift
+    // 文案被缩小 100 倍入库（如 "满 ¥0.5 减 ¥0.08"）。读路径 mapPromotionRow 对
+    // 分存储的 row.params 使用该函数是正确用法，写路径不可复用。
     const displayText =
-      buildPromotionDisplayText(dto.type, outputParams) || null;
+      buildPromotionDisplayText(dto.type, normalizedParams) || null;
     let created;
     try {
       created = await this.prisma.marketingPromotion.create({
@@ -250,6 +271,16 @@ export class MarketingPromotionsService {
       this.assertPromotionRange(newStartAt, newEndAt);
     }
 
+    // POTENTIAL-5 修复：先校验参数，再做唯一性查询
+    const validatedParams =
+      dto.params !== undefined
+        ? validatePromotionParams(promotion.type, dto.params)
+        : undefined;
+    const normalizedParams =
+      validatedParams !== undefined
+        ? normalizePromotionParams(validatedParams, promotion.type)
+        : undefined;
+
     // 仅当启用上架时才检查同类型唯一性（避免已下架活动阻碍新建同类活动）
     const willBeEnabled = dto.enabled ?? promotion.enabled;
     if (willBeEnabled) {
@@ -274,32 +305,18 @@ export class MarketingPromotionsService {
           ...(dto.description !== undefined
             ? { description: dto.description.trim() }
             : {}),
-          ...(dto.params !== undefined
-            ? (() => {
-                const validated = validatePromotionParams(
+          ...(normalizedParams !== undefined
+            ? {
+                // 前端入参（元）→ DB 存储（分）
+                params: mapPromotionParamsForWrite(
+                  normalizedParams,
                   promotion.type,
-                  dto.params,
-                );
-                const normalized = normalizePromotionParams(
-                  validated,
-                  promotion.type,
-                );
-                // displayText 基于四舍五入后的输出值计算，与读路径保持一致
-                const outputParams = mapPromotionParamsForOutput(
-                  normalized,
-                  promotion.type,
-                );
-                return {
-                  // 前端入参（元）→ DB 存储（分）
-                  params: mapPromotionParamsForWrite(
-                    normalized,
-                    promotion.type,
-                  ) as Prisma.InputJsonValue,
-                  displayText:
-                    buildPromotionDisplayText(promotion.type, outputParams) ||
-                    null,
-                };
-              })()
+                ) as Prisma.InputJsonValue,
+                // BUG-1 修复：normalizedParams 已是「元」，直接用于展示文案
+                displayText:
+                  buildPromotionDisplayText(promotion.type, normalizedParams) ||
+                  null,
+              }
             : {}),
           ...(dto.startAt !== undefined ? { startAt: newStartAt } : {}),
           ...(dto.endAt !== undefined ? { endAt: newEndAt } : {}),

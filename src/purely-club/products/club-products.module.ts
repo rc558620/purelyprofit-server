@@ -8,6 +8,7 @@ import { ClubProductQueryService } from './club-product-query.service';
 import { ClubProductViewService } from './club-product-view.service';
 import { ClubProductsController } from './club-products.controller';
 import { ClubProductsService } from './club-products.service';
+import { ClubPromotionRepository } from '../shared/club-promotion.repository';
 
 @Module({
   imports: [AuthModule, PrismaModule, ClubStoresModule, ClubMemberModule],
@@ -17,6 +18,7 @@ import { ClubProductsService } from './club-products.service';
     ClubProductQueryService,
     ClubProductViewService,
     ClubProductsService,
+    ClubPromotionRepository,
   ],
   exports: [ClubProductsService],
 })

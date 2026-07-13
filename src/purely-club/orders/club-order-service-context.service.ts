@@ -78,6 +78,7 @@ export class ClubOrderServiceContextService {
     pricing: ClubServicePricingResolution,
     pointsDeductFen: number,
     pointsUsed: number,
+    quantity: number,
   ): ClubServiceOrderMetadata {
     return {
       productId: product.id,
@@ -94,6 +95,7 @@ export class ClubOrderServiceContextService {
       promotionTag: pricing.promotionTag,
       pointsDeductFen,
       pointsUsed,
+      quantity,
     };
   }
 

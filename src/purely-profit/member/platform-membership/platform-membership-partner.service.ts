@@ -9,7 +9,6 @@ import type { PlatformMembershipPartnerProfileResponseDto } from './dto/platform
 import { buildPartnerApplicationPayload } from './platform-membership-partner.domain';
 import {
   findBlockingApplication,
-  hasApprovedPartnerForApplicant,
   upsertApprovedPartnerSnapshot,
 } from './platform-membership-partner-application.domain';
 import { buildPartnerProfileByStoreId } from './platform-membership-partner-profile.domain';
@@ -40,30 +39,42 @@ export class PlatformMembershipPartnerService {
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     await ensurePlatformMembershipStoreOwner(this.prisma, userId, storeId);
 
-    const [partner, applications] = await Promise.all([
-      findCurrentStorePartner(this.prisma, storeId),
-      findStorePartnerApplications(this.prisma, storeId),
-    ]);
     const payload = buildPartnerApplicationPayload(dto);
 
-    if (hasApprovedPartnerForApplicant(partner, payload)) {
-      throw new ConflictException('该合伙人已通过审核，无需重复申请');
-    }
-
-    const blockingApplication = findBlockingApplication(applications, payload);
-
-    if (blockingApplication?.status === 'approved') {
-      throw new ConflictException('该合伙人已通过审核，无需重复申请');
-    }
-
-    if (
-      blockingApplication?.status === 'pending' ||
-      blockingApplication?.status === 'reviewing'
-    ) {
-      throw new ConflictException('该合伙人已有申请在审核中，请耐心等待');
-    }
-
+    // 查询与拦截都收口到同一事务内，避免“先查后写”的并发竞态导致重复申请
     const response = await this.prisma.$transaction(async (tx) => {
+      const [partner, applications] = await Promise.all([
+        findCurrentStorePartner(tx, storeId),
+        findStorePartnerApplications(tx, storeId),
+      ]);
+
+      // 一个账号（即门店老板）只能有一个合伙人：门店已存在正式合伙人则禁止再次申请
+      if (partner) {
+        throw new ConflictException('该合伙人已通过审核，无需重复申请');
+      }
+
+      // 门店存在待审核/审核中/已通过的申请时也禁止重复提交；
+      // 仅当全部申请均为“已驳回”时才允许重新申请（见 member-partners 缺陷排查）。
+      const blockingApplication =
+        findBlockingApplication(applications, payload) ??
+        applications.find(
+          (application) =>
+            application.status === 'pending' ||
+            application.status === 'reviewing' ||
+            application.status === 'approved',
+        );
+
+      if (blockingApplication?.status === 'approved') {
+        throw new ConflictException('该合伙人已通过审核，无需重复申请');
+      }
+
+      if (
+        blockingApplication?.status === 'pending' ||
+        blockingApplication?.status === 'reviewing'
+      ) {
+        throw new ConflictException('该合伙人已有申请在审核中，请耐心等待');
+      }
+
       await tx.storePartnerApplication.create({
         data: {
           storeId,
@@ -271,7 +282,7 @@ export class PlatformMembershipPartnerService {
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     const content = dto.content.trim();
 
-    return this.prisma.$transaction(async (tx) => {
+    const response = await this.prisma.$transaction(async (tx) => {
       await getScopedStorePartnerApplicationOrThrow(tx, storeId, applicationId);
 
       await tx.storePartnerApplicationNote.create({
@@ -283,5 +294,11 @@ export class PlatformMembershipPartnerService {
 
       return buildPartnerProfileByStoreId(tx, storeId);
     });
+
+    // 新增跟进备注会写入合伙人档案的 followUpNotes，必须失效缓存，
+    // 否则 member-partners 页面在缓存 TTL 内看不到新备注（见缺陷排查 Bug 1）。
+    await this.cacheInvalidatorService.invalidateMembershipDerived(storeId);
+
+    return response;
   }
 }

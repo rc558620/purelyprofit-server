@@ -255,12 +255,18 @@ export function buildPromotionDetailCompatResponse(params: {
     params.inviteCode ?? null,
   );
 
+  // 合伙人等级只统计归属该合伙人的推广记录（见 B1）
+  const partnerPromoRecords =
+    params.partner !== null
+      ? params.promoRecords.filter((r) => r.partnerId === params.partner!.id)
+      : params.promoRecords;
+
   return {
     inviteCode: memberInfo.inviteCode,
     promoCode: memberInfo.inviteCode,
     memberInfo,
     approvedPartner: buildApprovedPartnerResponse(params.partner),
-    level: buildPartnerLevel(params.partner, params.promoRecords),
+    level: buildPartnerLevel(params.partner, partnerPromoRecords),
     stats: buildPromoStats(params.filteredRecords),
     statsByPeriod: buildPromoStatsByPeriod(params.promoRecords),
     items,

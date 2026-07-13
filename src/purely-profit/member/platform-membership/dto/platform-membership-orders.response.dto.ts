@@ -75,7 +75,7 @@ export class PlatformMembershipOrdersOverviewDto {
 export class PlatformMembershipOrdersResponseDto {
   @ApiProperty({
     type: PlatformMembershipOrdersOverviewDto,
-    description: '充值记录页汇总信息（基于全量订单）',
+    description: '充值记录页汇总信息（仅统计已支付订单）',
   })
   @ValidateNested()
   @Type(() => PlatformMembershipOrdersOverviewDto)

@@ -153,21 +153,6 @@ export class SpaceSessionAutoCheckoutService {
           !!session.prepaidCustomerPaymentMethod ||
           session.prepaidVoucherFaceAmount !== null ||
           renewRecords.length > 0;
-        if (!hasPrepaid) {
-          skippedNoPaymentCount += 1;
-          this.logger.warn(
-            `[space-auto-checkout] skipped_no_prepayment ${this.buildAutoCheckoutLogContext(
-              {
-                trigger,
-                storeId,
-                sessionId: session.id,
-                reason: 'NoPrepaidPaymentMethod',
-                requestId,
-              },
-            )}`,
-          );
-          continue;
-        }
 
         // BUG-2/5 fix + B9 fix: paymentMethod 优先取开台预付，回退到续费记录的真实支付方式
         // B9: 不再仅匹配 groupon_voucher，而是取最新续费记录的真实 paymentMethod
@@ -216,6 +201,30 @@ export class SpaceSessionAutoCheckoutService {
           items: mapSessionItemRows(session.sessionItems),
           renewRecords,
         });
+
+        // BUG-4 fix（规则7）：无预付会话不再被永久跳过，到达自动结账时间后必须能结账。
+        // 前端开台已保证「自动结账金额 ≥ 台位费」，此处仅做安全兜底：
+        // 仅当台位费低于门店最低台位费（理论不可达，hourlyRate 已在开台校验）时跳过，避免 0 元结账。
+        if (!hasPrepaid) {
+          const tableFeeYuan = Money.fromDbCents(
+            session.hourlyRate ?? 0,
+          ).toOutputYuan();
+          if (settlement.timeCost < tableFeeYuan) {
+            skippedNoPaymentCount += 1;
+            this.logger.warn(
+              `[space-auto-checkout] skipped_no_prepayment_below_table_fee ${this.buildAutoCheckoutLogContext(
+                {
+                  trigger,
+                  storeId,
+                  sessionId: session.id,
+                  reason: 'NoPrepaidBelowTableFee',
+                  requestId,
+                },
+              )}`,
+            );
+            continue;
+          }
+        }
 
         try {
           // BUG-1/2 fix: 自动结账支付方式与元数据来自 session.prepaid*（开台预付）
@@ -383,11 +392,13 @@ export class SpaceSessionAutoCheckoutService {
         billingMode: PrismaSpaceBillingMode.countdown,
         autoCheckout: true,
         // BUG-1/2 fix: 扩展门店预筛选，同时匹配开台预付与有续费记录的会话
+        // BUG-4 fix: 无预付但有有效台位费（hourlyRate > 0）的会话也需被调度扫描
         OR: [
           { prepaidPaymentMethod: { not: null } },
           { prepaidCustomerPaymentMethod: { not: null } },
           { prepaidVoucherFaceAmount: { not: null } },
           { sessionRenewRecords: { some: {} } },
+          { hourlyRate: { gt: 0 } },
         ],
         countdownMinutes: { not: null },
       },

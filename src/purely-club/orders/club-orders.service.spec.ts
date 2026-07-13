@@ -23,6 +23,7 @@ import { ClubOrderSettlementService } from './club-order-settlement.service';
 import { ClubOrdersService } from './club-orders.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
+import { ClubPromotionRepository } from '../shared/club-promotion.repository';
 
 describe('ClubOrdersService', () => {
   let service: ClubOrdersService;
@@ -100,6 +101,10 @@ describe('ClubOrdersService', () => {
   const clubPaymentLockService = {
     acquireLock: jest.fn().mockResolvedValue(true),
     releaseLock: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const clubPromotionRepository = {
+    loadActivePromotions: jest.fn().mockResolvedValue([]),
   };
 
   const user: AuthenticatedUser = {
@@ -224,6 +229,7 @@ describe('ClubOrdersService', () => {
     });
     prismaService.marketingConsumption.count.mockResolvedValue(0);
     prismaService.marketingPromotion.findMany.mockResolvedValue([]);
+    clubPromotionRepository.loadActivePromotions.mockResolvedValue([]);
     // 默认无会员折扣
     clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue(null);
 
@@ -243,6 +249,10 @@ describe('ClubOrdersService', () => {
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
         { provide: ClubWechatJsapiService, useValue: clubWechatJsapiService },
         { provide: ClubPaymentLockService, useValue: clubPaymentLockService },
+        {
+          provide: ClubPromotionRepository,
+          useValue: clubPromotionRepository,
+        },
         {
           provide: ClubMemberProfileService,
           useValue: clubMemberProfileService,
@@ -303,6 +313,7 @@ describe('ClubOrdersService', () => {
           promotionTag: null,
           pointsDeductFen: 0,
           pointsUsed: 0,
+          quantity: 1,
         },
       }),
     );
@@ -340,13 +351,13 @@ describe('ClubOrdersService', () => {
       stock: 20,
     });
 
-    // 会员折后价 49900 * 0.8 = 39920
+    // 竞争模型：无活动折扣时，最终价 = product.price = 49900
     const memberPriceDraft = {
       ...createServiceDraft(),
-      amountFen: 39920,
+      amountFen: 49900,
       metadata: {
         ...createServiceDraft().metadata,
-        discountAmountFen: 9980,
+        discountAmountFen: 0,
         promotionDiscountAmountFen: 0,
       },
     };
@@ -357,15 +368,15 @@ describe('ClubOrdersService', () => {
         storeId: 11,
         productId: 18,
       }),
-    ).resolves.toEqual(expect.objectContaining({ id: 'SV123', amount: 399.2 }));
+    ).resolves.toEqual(expect.objectContaining({ id: 'SV123', amount: 499 }));
     expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        amountFen: 39920,
+        amountFen: 49900,
         metadata: expect.objectContaining({
           promotionId: null,
           promotionType: null,
           discountRate: null,
-          discountAmountFen: 9980,
+          discountAmountFen: 0,
           promotionDiscountAmountFen: 0,
           promotionTag: null,
         }),
@@ -461,7 +472,7 @@ describe('ClubOrdersService', () => {
       image: 'https://cdn.example.com/products/18.png',
       stock: 20,
     });
-    prismaService.marketingPromotion.findMany.mockResolvedValue([
+    clubPromotionRepository.loadActivePromotions.mockResolvedValue([
       {
         id: 88,
         name: '首单 7.5 折',
@@ -520,7 +531,7 @@ describe('ClubOrdersService', () => {
     );
   });
 
-  it('createServiceOrder 活动折扣(7折)在会员价基础上叠加生效', async () => {
+  it('createServiceOrder 活动折扣(7折)竞争胜出时按活动价创建订单草稿', async () => {
     // 会员 8 折
     clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue({
       memberId: 1,
@@ -541,8 +552,8 @@ describe('ClubOrdersService', () => {
       discountRate: 0.8,
       benefits: ['8折会员专属价'],
     });
-    // 活动 7 折，在会员价基础上叠加
-    prismaService.marketingPromotion.findMany.mockResolvedValue([
+    // 活动 7 折，直接基于 product.price 竞争
+    clubPromotionRepository.loadActivePromotions.mockResolvedValue([
       {
         id: 99,
         name: '限时 7 折',
@@ -562,19 +573,19 @@ describe('ClubOrdersService', () => {
       stock: 5,
     });
 
-    // 会员 8 折: 39920，活动 7 折叠加: 39920 * 0.7 = 27944
+    // 竞争模型：活动 7 折 → 49900 * 0.7 = 34930
     const stackedDraft = {
       ...createServiceDraft(),
-      amountFen: 27944,
+      amountFen: 34930,
       metadata: {
         ...createServiceDraft().metadata,
         coverImage: null,
-        memberBaselineFen: 39920,
+        memberBaselineFen: 49900,
         promotionId: 99,
         promotionType: 'discount' as const,
         discountRate: 70,
-        discountAmountFen: 21956,
-        promotionDiscountAmountFen: 11976,
+        discountAmountFen: 14970,
+        promotionDiscountAmountFen: 14970,
         totalReduceFen: 0,
         promotionTag: '限时 7 折',
       },
@@ -587,22 +598,22 @@ describe('ClubOrdersService', () => {
         productId: 18,
       }),
     ).resolves.toEqual(expect.objectContaining({ id: 'SV123' }));
-    // 活动折扣在会员价基础上叠加，最终价 27944
+    // 活动折扣竞争胜出，最终价 34930
     expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        amountFen: 27944,
+        amountFen: 34930,
         metadata: expect.objectContaining({
           promotionId: 99,
           promotionType: 'discount',
           discountRate: 70,
-          memberBaselineFen: 39920,
-          promotionDiscountAmountFen: 11976,
+          memberBaselineFen: 49900,
+          promotionDiscountAmountFen: 14970,
         }),
       }),
     );
   });
 
-  it('createServiceOrder 活动折扣(8.5折)在会员价基础上叠加生效', async () => {
+  it('createServiceOrder 活动折扣(8.5折)竞争胜出时按活动价创建订单草稿', async () => {
     // 会员 8 折
     clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue({
       memberId: 1,
@@ -623,8 +634,8 @@ describe('ClubOrdersService', () => {
       discountRate: 0.8,
       benefits: ['8折会员专属价'],
     });
-    // 活动 8.5 折，在会员价基础上叠加
-    prismaService.marketingPromotion.findMany.mockResolvedValue([
+    // 活动 8.5 折，直接基于 product.price 竞争
+    clubPromotionRepository.loadActivePromotions.mockResolvedValue([
       {
         id: 100,
         name: '限时 8.5 折',
@@ -644,19 +655,19 @@ describe('ClubOrdersService', () => {
       stock: 5,
     });
 
-    // 会员 8 折: 39920，活动 8.5 折叠加: 39920 * 0.85 = 33932
+    // 竞争模型：活动 8.5 折 → 49900 * 0.85 = 42415
     const stackedDraft = {
       ...createServiceDraft(),
-      amountFen: 33932,
+      amountFen: 42415,
       metadata: {
         ...createServiceDraft().metadata,
         coverImage: null,
-        memberBaselineFen: 39920,
+        memberBaselineFen: 49900,
         promotionId: 100,
         promotionType: 'discount' as const,
         discountRate: 85,
-        discountAmountFen: 15968,
-        promotionDiscountAmountFen: 5988,
+        discountAmountFen: 7485,
+        promotionDiscountAmountFen: 7485,
         totalReduceFen: 0,
         promotionTag: '限时 8.5 折',
       },
@@ -669,22 +680,22 @@ describe('ClubOrdersService', () => {
         productId: 18,
       }),
     ).resolves.toEqual(expect.objectContaining({ id: 'SV123' }));
-    // 活动折扣在会员价基础上叠加，最终价 33932
+    // 活动折扣竞争胜出，最终价 42415
     expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        amountFen: 33932,
+        amountFen: 42415,
         metadata: expect.objectContaining({
           promotionId: 100,
           promotionType: 'discount',
           discountRate: 85,
-          memberBaselineFen: 39920,
-          promotionDiscountAmountFen: 5988,
+          memberBaselineFen: 49900,
+          promotionDiscountAmountFen: 7485,
         }),
       }),
     );
   });
 
-  it('createServiceOrder 会员 8 折叠加满减优惠时同时扣减', async () => {
+  it('createServiceOrder 满减优惠基于会员价叠加扣减', async () => {
     // 会员 8 折
     clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue({
       memberId: 1,
@@ -706,7 +717,7 @@ describe('ClubOrdersService', () => {
       benefits: ['8折会员专属价'],
     });
     // 满 200 减 30（threshold=20000, reduceAmount=3000）
-    prismaService.marketingPromotion.findMany.mockResolvedValue([
+    clubPromotionRepository.loadActivePromotions.mockResolvedValue([
       {
         id: 101,
         name: '满200减30',
@@ -726,15 +737,15 @@ describe('ClubOrdersService', () => {
       stock: 5,
     });
 
-    // 会员 8 折: 39920，满减再减 3000 = 36920
+    // 竞争模型：无活动折扣，满减再减 3000 = 46900
     const memberPlusReduceDraft = {
       ...createServiceDraft(),
-      amountFen: 36920,
+      amountFen: 46900,
       metadata: {
         ...createServiceDraft().metadata,
         coverImage: null,
-        memberBaselineFen: 39920,
-        discountAmountFen: 12980,
+        memberBaselineFen: 49900,
+        discountAmountFen: 3000,
         promotionDiscountAmountFen: 0,
         totalReduceFen: 3000,
       },
@@ -747,15 +758,15 @@ describe('ClubOrdersService', () => {
         productId: 18,
       }),
     ).resolves.toEqual(expect.objectContaining({ id: 'SV123' }));
-    // 满减叠加会员折扣
+    // 满减基于会员价叠加
     expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
       expect.objectContaining({
-        amountFen: 36920,
+        amountFen: 46900,
         metadata: expect.objectContaining({
           promotionId: null,
           promotionType: null,
           totalReduceFen: 3000,
-          memberBaselineFen: 39920,
+          memberBaselineFen: 49900,
         }),
       }),
     );
@@ -844,6 +855,7 @@ describe('ClubOrdersService', () => {
       data: {
         storeId: 11,
         customerId: 36,
+        // BUG-3 修复：amount 应包含积分抵扣部分
         amount: 49900,
         balancePaid: 49900,
         pointsDeducted: 0,
@@ -866,12 +878,12 @@ describe('ClubOrdersService', () => {
         tier: 'regular',
       },
     });
-    // BUG-2 修复后使用 stock > 0 条件防止并发库存为负
+    // BUG-2 修复后使用 stock >= quantity 条件并按 quantity 扣减库存
     expect(prismaService.marketingProduct.updateMany).toHaveBeenCalledWith({
       where: {
         id: 18,
         storeId: 11,
-        stock: { gt: 0 },
+        stock: { gte: 1 },
       },
       data: {
         stock: { decrement: 1 },
@@ -1134,6 +1146,7 @@ function createServiceDraft() {
       promotionTag: null,
       pointsDeductFen: 0,
       pointsUsed: 0,
+      quantity: 1,
     },
   };
 }

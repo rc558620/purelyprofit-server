@@ -1,13 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import { EmployeeShiftType } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { endOfDay, type ShiftRecordRow } from './handover.shared';
+import { endOfDay, startOfDay, type ShiftRecordRow } from './handover.shared';
 import { HandoverShiftHandoverStatusService } from './handover-shift-handover-status.service';
 import {
   isSameShiftRecord,
   pickCurrentShift,
   pickStartedUnhandedShift,
 } from './handover-shift-selection';
+
+/**
+ * 班次查询回溯天数上限（B2 fix）。
+ * 业务取舍：规则 1 要求“不交班就一直存在”，但无下界查询会随门店年龄线性膨胀。
+ * 超过该天数的未交班班次视为异常（应人工处理），不纳入自动查询范围。
+ */
+const SHIFT_LOOKUP_LOOKBACK_DAYS = 90;
 
 @Injectable()
 export class HandoverPageShiftRecordService {
@@ -111,6 +118,7 @@ export class HandoverPageShiftRecordService {
       storeId,
       employeeId ?? null,
       currentShiftRecord.date,
+      7, // B1 fix: 向前查看 7 天，覆盖跨天/多天排班场景
     );
     if (allShifts.length === 0) {
       return null;
@@ -151,21 +159,34 @@ export class HandoverPageShiftRecordService {
     storeId: number,
     employeeId: number | null,
     referenceDate: Date,
+    forwardDays = 0,
   ): Promise<ShiftRecordRow[]> {
     return this.prisma.employeeShift.findMany({
       where: {
         storeId,
         ...(employeeId ? { employeeId } : {}),
-        date: this.buildShiftLookupRange(referenceDate),
+        date: this.buildShiftLookupRange(referenceDate, forwardDays),
       },
       select: this.shiftRecordSelect,
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }, { id: 'asc' }],
     });
   }
 
-  private buildShiftLookupRange(baseDate = new Date()) {
+  /**
+   * 构建班次查询日期范围。
+   * - 下界：baseDate 前 SHIFT_LOOKUP_LOOKBACK_DAYS 天（B2 fix：防止历史班次无限膨胀）
+   * - 上界：baseDate + forwardDays 天（B1 fix：支持跨天查找后续班次）
+   */
+  private buildShiftLookupRange(baseDate = new Date(), forwardDays = 0) {
+    const lower = startOfDay(baseDate);
+    lower.setDate(lower.getDate() - SHIFT_LOOKUP_LOOKBACK_DAYS);
+    const upper = endOfDay(baseDate);
+    if (forwardDays > 0) {
+      upper.setDate(upper.getDate() + forwardDays);
+    }
     return {
-      lte: endOfDay(baseDate),
+      gte: lower,
+      lte: upper,
     };
   }
 

@@ -7,6 +7,7 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
+import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { MarketingAccessService } from './marketing-access.service';
 import { MarketingConsumptionsService } from './marketing-consumptions.service';
 import { MarketingCustomersService } from './marketing-customers.service';
@@ -229,6 +230,16 @@ function createCacheInvalidatorServiceMock() {
   };
 }
 
+function createRefreshableCacheServiceMock() {
+  return {
+    getOrLoadRefreshableJson: jest.fn(
+      async (options: { loadValue: () => Promise<unknown> }) =>
+        options.loadValue(),
+    ),
+    writeRefreshableJson: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
 function createAuthenticatedUser(): AuthenticatedUser {
   return {
     id: 1,
@@ -286,6 +297,10 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
       {
         provide: CacheInvalidatorService,
         useValue: createCacheInvalidatorServiceMock(),
+      },
+      {
+        provide: RefreshableCacheService,
+        useValue: createRefreshableCacheServiceMock(),
       },
       { provide: MarketingAccessService, useValue: accessService },
       {

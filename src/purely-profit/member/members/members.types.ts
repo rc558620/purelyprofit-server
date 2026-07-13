@@ -29,6 +29,10 @@ export interface MemberAssetAdjustmentInput {
   amount?: number;
   direction?: AdjustmentDirectionValue;
   reason: string;
+  /** 可选过期时间（毫秒时间戳），仅积分调整使用 */
+  expireAt?: number;
+  /** 客户端幂等键，用于避免重复提交误伤合法重复调整 */
+  idempotencyKey?: string;
 }
 
 export interface ResolvedMemberAssetAdjustment {
@@ -36,14 +40,22 @@ export interface ResolvedMemberAssetAdjustment {
   operatorStaffId: number | null;
   delta: number;
   reason: string;
-  beforeValue: number;
-  afterValue: number;
+  /** 积分调整可选过期时间（已由毫秒时间戳转为 Date） */
+  expireAt?: Date;
+  /** 客户端幂等键，已透传；用于去重指纹区分不同请求 */
+  idempotencyKey?: string;
 }
 
 export interface MemberAssetOverviewParams<TOverview> {
   storeId: number | null;
   emptyOverview: TOverview;
-  query: (prisma: PrismaService, storeId: number) => Promise<TOverview | null>;
+  query: (
+    prisma: PrismaService,
+    storeId: number,
+    timezone: string,
+  ) => Promise<TOverview | null>;
+  /** 业务时区，用于“今日”等按日统计口径统一 */
+  timezone: string;
 }
 
 export interface QueryMemberAssetLogsInput<TType, TSource> {
@@ -77,7 +89,10 @@ export interface AdjustMemberAssetParams<TLog, TRecord, TApplyInput> {
   memberId?: number;
   assetLabel: string;
   insufficientMessage: string;
-  getCurrentValue: (member: MemberRecord) => number;
+  /** 是否在调整前要求会员已关联营销顾客档案（积分需要，纯利豆不需要） */
+  requiresCustomer: boolean;
+  /** 未关联顾客档案时的清晰错误文案 */
+  missingCustomerMessage: string;
   buildApplyInput: (adjustment: ResolvedMemberAssetAdjustment) => TApplyInput;
   apply: (
     transaction: Prisma.TransactionClient,
@@ -89,23 +104,22 @@ export interface AdjustMemberAssetParams<TLog, TRecord, TApplyInput> {
 export interface ApplyMemberPointsAdjustmentInput {
   member: MemberRecord;
   operatorStaffId: number | null;
-  beforePoints: number;
-  afterPoints: number;
   delta: number;
   reason: string;
+  insufficientMessage: string;
+  expireAt?: Date | null;
 }
 
 export interface ApplyMemberBeansAdjustmentInput {
   member: MemberRecord;
   operatorStaffId: number | null;
-  beforeBalance: number;
-  afterBalance: number;
   delta: number;
   reason: string;
+  insufficientMessage: string;
 }
 
 export interface MemberAssetOverviewQueryConfig {
-  selectSql: Prisma.Sql;
+  selectSql: (timezone: string) => Prisma.Sql;
   fromSql: Prisma.Sql;
 }
 

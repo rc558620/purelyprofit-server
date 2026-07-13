@@ -68,9 +68,9 @@ describe('ClubProductViewService', () => {
       new Set([18]),
       pricingContext,
     );
-    // 49900 * 0.8 = 39920 -> 399.20
-    expect(result.memberPrice).toBe(399.2);
-    expect(result.finalPrice).toBe(399.2);
+    // 竞争模型：无活动折扣时，finalPrice = product.price = 499
+    expect(result.memberPrice).toBe(499);
+    expect(result.finalPrice).toBe(499);
     expect(result).not.toHaveProperty('promotionId');
   });
 
@@ -131,7 +131,7 @@ describe('ClubProductViewService', () => {
     });
   });
 
-  it('toClubProduct 活动折扣(7折)优于会员折扣(8折)时覆盖会员折扣', () => {
+  it('toClubProduct 活动折扣(7折)竞争胜出时按活动价展示', () => {
     const product = createProduct({
       id: 18,
       price: 49900,
@@ -150,16 +150,17 @@ describe('ClubProductViewService', () => {
       new Set([18]),
       pricingContext,
     );
-    // memberPrice = 会员基准价 8 折: 399.20
-    expect(result.memberPrice).toBe(399.2);
-    // finalPrice = 活动 7 折覆盖: 349.30
+    // memberPrice = product.price（展示基准，不施加会员折扣）: 499
+    expect(result.memberPrice).toBe(499);
+    // 竞争模型：活动 7 折 → 49900 * 0.7 = 34930 -> 349.3
+    expect(result.memberPrice).toBe(499);
     expect(result.finalPrice).toBe(349.3);
     expect(result.promotionId).toBe('99');
     expect(result.promotionType).toBe('discount');
     expect(result.discountRate).toBe(70);
   });
 
-  it('toClubProduct 活动折扣(8.5折)不如会员折扣(8折)时沿用会员折扣', () => {
+  it('toClubProduct 活动折扣(8.5折)竞争胜出时按活动价展示', () => {
     const product = createProduct({
       id: 18,
       price: 49900,
@@ -178,12 +179,13 @@ describe('ClubProductViewService', () => {
       new Set([18]),
       pricingContext,
     );
-    // 会员 8 折: 39920 -> 399.20，活动 8.5 折: 42415 -> 不如会员
-    expect(result.memberPrice).toBe(399.2);
-    expect(result).not.toHaveProperty('promotionId');
+    // memberPrice = product.price（展示基准，不施加会员折扣）: 499
+    expect(result.memberPrice).toBe(499);
+    expect(result.finalPrice).toBe(424.15);
+    expect(result.promotionId).toBe('100');
   });
 
-  it('toClubProduct 非首单买家时忽略首单折扣，使用活动折扣(8折)优于会员折扣(8.7折)', () => {
+  it('toClubProduct 非首单买家时忽略首单折扣，活动折扣(8折)竞争胜出', () => {
     const product = createProduct({
       id: 18,
       price: 49900,
@@ -203,9 +205,10 @@ describe('ClubProductViewService', () => {
       new Set([18]),
       pricingContext,
     );
-    // 会员 8.7 折: 49900 * 0.87 = 43413 -> 434.13
-    expect(result.memberPrice).toBe(434.13);
-    // 全场 8 折优于会员 8.7 折: 49900 * 80 / 100 = 39920 -> 399.20
+    // 会员价 = product.price（展示基准，不施加会员折扣）: 499
+    expect(result.memberPrice).toBe(499);
+    // 竞争模型：活动 8 折 → 49900 * 0.8 = 39920 -> 399.2
+    expect(result.memberPrice).toBe(499);
     expect(result.finalPrice).toBe(399.2);
     expect(result.promotionId).toBe('10');
     expect(result.promotionType).toBe('discount');
@@ -216,7 +219,7 @@ describe('ClubProductViewService', () => {
     );
   });
 
-  it('toClubProduct 首单买家时首单折扣(7.5折)优于活动折扣(8折)和会员折扣(8.7折)', () => {
+  it('toClubProduct 首单买家时首单折扣(7.5折)竞争胜出，优于活动折扣(8折)', () => {
     const product = createProduct({
       id: 18,
       price: 49900,
@@ -235,7 +238,7 @@ describe('ClubProductViewService', () => {
       new Set([18]),
       pricingContext,
     );
-    // 首单 7.5 折: 49900 * 75 / 100 = 37425 -> 374.25
+    // 竞争模型：首单 7.5 折 → 49900 * 0.75 = 37425 -> 374.25
     expect(result.finalPrice).toBe(374.25);
     expect(result.promotionId).toBe('9');
     expect(result.promotionType).toBe('first_order_discount');

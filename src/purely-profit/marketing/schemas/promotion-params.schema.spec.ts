@@ -109,6 +109,22 @@ describe('reduceParamsSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('rejects reduceAmount greater than threshold', () => {
+    const result = reduceParamsSchema.safeParse({
+      threshold: 50,
+      reduceAmount: 80,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects equal threshold and reduceAmount', () => {
+    const result = reduceParamsSchema.safeParse({
+      threshold: 50,
+      reduceAmount: 50,
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 // ─── recharge_gift ───────────────────────────────────────────────
@@ -146,6 +162,20 @@ describe('rechargeGiftParamsSchema', () => {
       gradients: [{ rechargeAmount: 99.5, giftAmount: 10.5 }],
     });
     expect(result.success).toBe(true);
+  });
+
+  it('rejects rechargeAmount exceeding the amount upper bound', () => {
+    const result = rechargeGiftParamsSchema.safeParse({
+      gradients: [{ rechargeAmount: 2_000_000_000_000, giftAmount: 10 }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects giftAmount exceeding the amount upper bound', () => {
+    const result = rechargeGiftParamsSchema.safeParse({
+      gradients: [{ rechargeAmount: 100, giftAmount: 2_000_000_000_000 }],
+    });
+    expect(result.success).toBe(false);
   });
 });
 

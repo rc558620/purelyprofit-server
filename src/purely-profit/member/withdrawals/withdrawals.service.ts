@@ -55,6 +55,7 @@ const WITHDRAWALS_OVERVIEW_CACHE_TTL_SECONDS = 90;
 const WITHDRAWALS_OVERVIEW_REFRESH_AFTER_MS = 20_000;
 const WITHDRAWALS_LIST_CACHE_TTL_SECONDS = 45;
 const WITHDRAWALS_LIST_REFRESH_AFTER_MS = 15_000;
+const APPLY_DUPLICATE_WINDOW_MS = 5_000;
 
 @Injectable()
 export class WithdrawalsService {
@@ -150,6 +151,28 @@ export class WithdrawalsService {
       );
     if (partner.beanBalance < dto.beanAmount) {
       throw new ConflictException('纯利豆余额不足，无法发起提现申请');
+    }
+
+    // 防重复提交：短时间窗口内同合伙人同金额的处理中申请视为重复提交，直接拒绝。
+    // 配合事务内余额乐观锁，杜绝快速连点/弱网重试生成多条提现记录。
+    const recentDuplicate = await this.prisma.partnerWithdrawal.findFirst({
+      where: {
+        storeId,
+        partnerId: partner.id,
+        beanAmount: dto.beanAmount,
+        status: {
+          in: [
+            PartnerWithdrawalStatus.pending,
+            PartnerWithdrawalStatus.approved,
+          ],
+        },
+        appliedAt: { gte: new Date(Date.now() - APPLY_DUPLICATE_WINDOW_MS) },
+      },
+      orderBy: { appliedAt: 'desc' },
+      select: { id: true },
+    });
+    if (recentDuplicate) {
+      throw new ConflictException('请勿重复提交提现申请');
     }
 
     const account = this.withdrawalsSharedService.normalizeAccountInfoOrThrow(
@@ -330,7 +353,7 @@ export class WithdrawalsService {
         partnerId,
         source: 'withdrawal',
         changeAmount: -dto.beanAmount,
-        description: `提现申请 · ¥${dto.beanAmount}`,
+        description: `提现申请 · ${dto.beanAmount} 豆`,
       },
     });
 

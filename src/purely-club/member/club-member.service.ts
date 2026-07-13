@@ -3,8 +3,7 @@ import { AuthService } from '../../purely-profit/auth/auth.service';
 import type { ProfileUserDto } from '../../purely-profit/auth/dto/profile-response.dto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
-import { DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS } from '../../purely-profit/marketing/marketing.utils';
-import { safeParsePointsRatio } from '../../purely-profit/marketing/schemas/member-level-settings.schema';
+import { fetchPointsRedeemConfig } from '../orders/club-order-drafts.utils';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import {
   type ClubMemberAccountDto,
@@ -89,39 +88,11 @@ export class ClubMemberService {
   async getPointsRatio(
     currentContext: ClubCurrentContext,
   ): Promise<ClubPointsRatioDto> {
-    const settings = await this.prisma.marketingMemberLevelSetting.findUnique({
-      where: { storeId: currentContext.store.id },
-      select: { pointsRatio: true },
-    });
-
-    const parsed = safeParsePointsRatio(settings?.pointsRatio);
-    if (parsed) {
-      let enabled = parsed.enabled;
-      if (!enabled) {
-        const now = new Date();
-        const promo = await this.prisma.marketingPromotion.findFirst({
-          where: {
-            storeId: currentContext.store.id,
-            type: 'points_recharge',
-            enabled: true,
-            startAt: { lte: now },
-            endAt: { gte: now },
-          },
-          select: { id: true },
-        });
-        if (promo) {
-          enabled = true;
-        }
-      }
-
-      return {
-        redeemRatioPoints: parsed.redeemRatioPoints,
-        maxRedeemRatio: parsed.maxRedeemRatio,
-        enabled,
-      };
-    }
-
-    return DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS.pointsRatio;
+    // 复用共享的 fetchPointsRedeemConfig，消除冗余查询。
+    // ⚠️ 设计决策：返回的 enabled 字段仅供前端展示抵扣比例提示，
+    //   前端不消费 enabled 来禁用积分开关（积分抵扣不受 enabled 限制）。
+    //   禁止在调用侧根据 enabled=false 拦截积分抵扣功能。
+    return fetchPointsRedeemConfig(this.prisma, currentContext.store.id);
   }
 
   async getBenefits(

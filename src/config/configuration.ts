@@ -61,6 +61,8 @@ export default () => ({
       (process.env.APP_SQL_METRICS_ENABLED ?? 'false') === 'true',
     defaultPageSize: parseInt(process.env.APP_DEFAULT_PAGE_SIZE ?? '20', 10),
     maxPageSize: parseInt(process.env.APP_MAX_PAGE_SIZE ?? '100', 10),
+    /** 业务时区，用于按日统计（如积分概览“今日变动数”）的跨日口径统一 */
+    businessTimezone: process.env.APP_BUSINESS_TIMEZONE ?? 'Asia/Shanghai',
     cachePrewarmEnabled:
       (process.env.APP_CACHE_PREWARM_ENABLED ?? 'true') === 'true',
     cachePrewarmIntervalMs: parseInt(

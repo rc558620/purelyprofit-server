@@ -1,4 +1,5 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { PartnerWithdrawalStatus } from '@prisma/client';
 import {
   createApplyPartner,
   createOverviewPartner,
@@ -57,6 +58,33 @@ describe('WithdrawalsService apply', () => {
         accountName: '张三',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('apply 在短时间窗口内同合伙人同金额重复提交时被拒绝且不生成记录', async () => {
+    context.prismaService.storePartner.findFirst.mockResolvedValue(
+      createApplyPartner(),
+    );
+    context.prismaService.partnerWithdrawal.findFirst.mockResolvedValue(
+      createWithdrawalRecord({
+        id: 99,
+        beanAmount: 500,
+        status: PartnerWithdrawalStatus.pending,
+        appliedAt: new Date(),
+      }),
+    );
+
+    await expect(
+      context.service.apply(context.user, {
+        beanAmount: 500,
+        accountType: 'alipay',
+        accountNo: '13800138000',
+        accountName: '张三',
+      }),
+    ).rejects.toThrow('请勿重复提交提现申请');
+
+    expect(
+      context.prismaService.partnerWithdrawal.create,
+    ).not.toHaveBeenCalled();
   });
 
   it('apply 提现成功时扣减余额、累加累计提现并返回前端所需字段', async () => {
@@ -180,7 +208,7 @@ describe('WithdrawalsService apply', () => {
         partnerId: 6,
         source: 'withdrawal',
         changeAmount: -500,
-        description: '提现申请 · ¥500',
+        description: '提现申请 · 500 豆',
       },
     });
   });

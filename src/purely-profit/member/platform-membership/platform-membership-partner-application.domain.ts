@@ -6,6 +6,19 @@ import type {
 } from './platform-membership.types';
 import { findStorePartnerByApplicant } from './platform-membership.query';
 
+/**
+ * 归一化手机号：仅保留数字，去除空格、分隔符与区号前缀等，
+ * 用于同人判定时忽略 "138-0013-8000" 与 "13800138000" 这类格式差异（见 B9）。
+ */
+export function normalizePartnerPhone(
+  phone: string | null | undefined,
+): string {
+  if (!phone) {
+    return '';
+  }
+  return phone.replace(/\D/g, '');
+}
+
 export function findBlockingApplication(
   applications: StorePartnerApplicationRecord[],
   payload: PartnerSnapshotPayload,
@@ -21,11 +34,56 @@ export function findBlockingApplication(
   );
 }
 
-export function hasApprovedPartnerForApplicant(
-  partner: StorePartnerRecord | null,
-  payload: PartnerSnapshotPayload,
+export interface ApplicantIdentifier {
+  idCard?: string | null;
+  phone?: string | null;
+}
+
+/**
+ * 统一的“同人”判定：双方都有身份证时仅以身份证为准；
+ * 任一方无身份证时回退到归一化手机号。
+ * 所有合伙人匹配/拦截逻辑都应收口于此，避免展示与拦截使用不同语义，
+ * 导致“拦 vs 不拦”或“展示 vs 不展示”错位
+ * （见 member-partners 缺陷排查：原 matchPartner 用 OR 逻辑与 isSameApplicant 不一致）。
+ */
+export function isSameApplicantIdentifier(
+  a: ApplicantIdentifier,
+  b: ApplicantIdentifier,
 ): boolean {
-  return partner !== null && isSameApplicant(partner, payload);
+  const idCardA = a.idCard?.trim().toUpperCase();
+  const idCardB = b.idCard?.trim().toUpperCase();
+
+  // 双方都有身份证时，仅以身份证为准
+  if (idCardA && idCardB) {
+    return idCardA === idCardB;
+  }
+
+  // 任一方无身份证时，回退到手机号（按数字归一化，忽略格式差异）
+  const phoneA = normalizePartnerPhone(a.phone);
+  const phoneB = normalizePartnerPhone(b.phone);
+
+  if (phoneA && phoneB) {
+    return phoneA === phoneB;
+  }
+
+  return false;
+}
+
+/**
+ * 同人去重 key：与 isSameApplicantIdentifier 保持一致——
+ * 优先以身份证归一化值，无身份证时以归一化手机号，避免换号申请人无法去重
+ * （见 member-partners 缺陷排查：原去重 key 为 idCard|phone 组合，换号时不生效）。
+ */
+export function applicantIdentityKey(applicant: ApplicantIdentifier): string {
+  const idCard = applicant.idCard?.trim().toUpperCase();
+  if (idCard) {
+    return `idCard:${idCard}`;
+  }
+  const phone = normalizePartnerPhone(applicant.phone);
+  if (phone) {
+    return `phone:${phone}`;
+  }
+  return 'unknown';
 }
 
 export function isSameApplicant(
@@ -34,23 +92,7 @@ export function isSameApplicant(
     | Pick<StorePartnerRecord, 'idCard' | 'phone'>,
   payload: Pick<PartnerSnapshotPayload, 'idCard' | 'phone'>,
 ): boolean {
-  const applicantIdCard = applicant.idCard?.trim().toUpperCase();
-  const payloadIdCard = payload.idCard?.trim().toUpperCase();
-
-  // 双方都有身份证时，仅以身份证为准
-  if (applicantIdCard && payloadIdCard) {
-    return applicantIdCard === payloadIdCard;
-  }
-
-  // 任一方无身份证时，回退到手机号
-  const applicantPhone = applicant.phone?.trim();
-  const payloadPhone = payload.phone?.trim();
-
-  if (applicantPhone && payloadPhone) {
-    return applicantPhone === payloadPhone;
-  }
-
-  return false;
+  return isSameApplicantIdentifier(applicant, payload);
 }
 
 export async function upsertApprovedPartnerSnapshot(params: {

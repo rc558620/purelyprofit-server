@@ -18,7 +18,7 @@ function buildListWhereClause(
   keyword: string | undefined,
   onlyPartners: boolean | undefined,
 ): Prisma.Sql {
-  const filters: Prisma.Sql[] = [buildStoreIdWhereClause(storeId)];
+  const filters: Prisma.Sql[] = [buildStoreIdWhereClause(storeId, 'm')];
   filters.push(Prisma.sql`m.deleted_at IS NULL`);
 
   if (status) {
@@ -59,7 +59,7 @@ function buildSnapshotWhereClause(
   keyword: string | undefined,
   onlyPartners: boolean | undefined,
 ): Prisma.Sql {
-  const filters: Prisma.Sql[] = [buildStoreIdWhereClause(storeId)];
+  const filters: Prisma.Sql[] = [buildStoreIdWhereClause(storeId, 'm')];
   filters.push(Prisma.sql`m.deleted_at IS NULL`);
 
   if (onlyPartners) {

@@ -128,7 +128,7 @@ export function toMemberResponse(
     // 积分：从 MarketingCustomer.points 读取
     availablePoints: customer?.points ?? 0,
     // spec: totalPointsEarned 不再维护，返回 0（不读已删除字段）
-    totalPointsEarned: customer?.points ?? 0,
+    totalPointsEarned: 0,
     // 纯利豆：独立于营销积分，仍保留在 Member
     beanBalance: member.beanBalance,
     isPartner: member.isPartner,

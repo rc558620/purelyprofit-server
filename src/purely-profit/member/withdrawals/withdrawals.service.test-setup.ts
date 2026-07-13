@@ -19,10 +19,12 @@ export interface WithdrawalsPrismaServiceMock {
   };
   partnerWithdrawal: {
     findUnique: jest.Mock;
+    findFirst: jest.Mock;
     findMany: jest.Mock;
     create: jest.Mock;
     updateMany: jest.Mock;
     count: jest.Mock;
+    aggregate: jest.Mock;
   };
   $transaction: jest.Mock;
 }
@@ -77,10 +79,14 @@ function createPrismaServiceMock(): WithdrawalsPrismaServiceMock {
     },
     partnerWithdrawal: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
       updateMany: jest.fn(),
       count: jest.fn(),
+      aggregate: jest
+        .fn()
+        .mockResolvedValue({ _sum: { beanAmount: 0 } }),
     },
     $transaction: jest.fn(),
   };

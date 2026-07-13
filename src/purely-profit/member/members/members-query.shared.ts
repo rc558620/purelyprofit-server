@@ -78,8 +78,11 @@ export function requireMemberRow(member?: MemberRecord): MemberRecord {
   return member;
 }
 
-export function buildStoreIdWhereClause(storeId: number): Prisma.Sql {
-  return Prisma.sql`m.store_id = ${storeId}`;
+export function buildStoreIdWhereClause(
+  storeId: number,
+  alias: 'm' | 'l' = 'm',
+): Prisma.Sql {
+  return Prisma.sql`${Prisma.raw(alias)}.store_id = ${storeId}`;
 }
 
 /**

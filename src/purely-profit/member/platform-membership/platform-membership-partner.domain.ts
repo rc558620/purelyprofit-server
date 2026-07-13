@@ -6,6 +6,10 @@ import type {
 } from './dto/platform-membership-response.dto';
 import { buildApprovedPartnerResponse } from './membership-profile.mapper';
 import { buildPartnerLevel } from './platform-membership-promo.domain';
+import {
+  applicantIdentityKey,
+  isSameApplicantIdentifier,
+} from './platform-membership-partner-application.domain';
 import type {
   PartnerSnapshotPayload,
   StoreMembershipPromoRecord,
@@ -18,6 +22,23 @@ export function buildCurrentPartnerApplication(
   applications: StorePartnerApplicationRecord[],
   partner: StorePartnerRecord | null,
 ): PlatformMembershipPartnerApplicationDto | null {
+  // 已是正式合伙人时，优先展示与该合伙人匹配的已通过申请，
+  // 避免"合伙人已通过"与"最新一条被驳回/待审申请"在同一页面出现状态冲突
+  if (partner && partner.status === 'approved') {
+    const approvedApplication = findApprovedApplicationForPartner(
+      applications,
+      partner,
+    );
+    if (approvedApplication) {
+      return mapPartnerApplicationRecord(approvedApplication, partner);
+    }
+
+    // 已通过合伙人但找不到匹配申请（历史脏数据/换号申请）时，直接以真实合伙人
+    // 档案为主，确保 beanBalance 等来自合伙人账户，避免与最新一条不匹配的申请
+    // 拼接导致余额错显为 0（见 B2）。
+    return mapLegacyPartnerApplication(partner);
+  }
+
   const latestApplication = applications[0];
   if (latestApplication) {
     return mapPartnerApplicationRecord(
@@ -30,17 +51,34 @@ export function buildCurrentPartnerApplication(
 }
 
 /**
- * 按申请人（idCard + phone 归一化）去重，保留每个申请人最新的一条记录。
+ * 在申请列表中查找与当前合伙人匹配的已通过申请。
+ * applications 已按 createdAt desc 排序，首个命中即为最新一条。
+ */
+function findApprovedApplicationForPartner(
+  applications: StorePartnerApplicationRecord[],
+  partner: StorePartnerRecord,
+): StorePartnerApplicationRecord | null {
+  return (
+    applications.find(
+      (application) =>
+        application.status === 'approved' &&
+        matchPartner(partner, application) !== null,
+    ) ?? null
+  );
+}
+
+/**
+ * 按申请人去重（收口到 applicantIdentityKey），保留每个申请人最新的一条记录。
  * 输入列表已按 createdAt desc 排序，首次出现即为最新。
  */
-function deduplicateApplications(
+export function deduplicateApplications(
   applications: StorePartnerApplicationRecord[],
 ): StorePartnerApplicationRecord[] {
   const seen = new Set<string>();
   const result: StorePartnerApplicationRecord[] = [];
 
   for (const app of applications) {
-    const key = `${app.idCard.trim().toUpperCase()}|${app.phone.trim()}`;
+    const key = applicantIdentityKey(app);
     if (!seen.has(key)) {
       seen.add(key);
       result.push(app);
@@ -170,18 +208,16 @@ export function buildPartnerProfileResponse(params: {
     applications: buildPartnerApplications(params.applications, partner),
     approvedPartner: approved,
     approvedPartners: approved ? [approved] : [],
+    // partnerId 过滤已收口到 buildPartnerLevel 内部，这里直接透传即可
     level: buildPartnerLevel(partner, params.promoRecords),
   };
 }
 
-/** 单合伙人匹配：判断当前合伙人是否与申请人匹配 */
+/** 单合伙人匹配：判断当前合伙人是否与申请人匹配（收口到统一同人判定） */
 function matchPartner(
   partner: StorePartnerRecord | null,
   applicant: Pick<StorePartnerApplicationRecord, 'idCard' | 'phone'>,
 ): StorePartnerRecord | null {
   if (!partner) return null;
-  const normalizedIdCard = applicant.idCard.trim().toUpperCase();
-  if (partner.idCard?.trim().toUpperCase() === normalizedIdCard) return partner;
-  if (partner.phone?.trim() === applicant.phone.trim()) return partner;
-  return null;
+  return isSameApplicantIdentifier(partner, applicant) ? partner : null;
 }

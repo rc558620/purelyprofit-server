@@ -6,6 +6,7 @@ import {
   IsEnum,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
@@ -174,14 +175,15 @@ export class ApplyPlatformPartnerDto {
 }
 
 export class RejectPlatformPartnerApplicationDto {
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: '资料暂不完整，请补充地区和收款账号信息后重新提交',
-    description: '驳回原因，会同步写入跟进备注',
+    description: '驳回原因，会同步写入跟进备注；留空时回退为默认文案',
   })
+  @IsOptional()
   @Transform(({ value }) => transformTrimmedString(value))
   @IsString({ message: '驳回原因必须是字符串' })
   @MaxLength(500, { message: '驳回原因最多 500 位' })
-  reason: string;
+  reason?: string;
 }
 
 export class CreatePlatformPartnerFollowUpNoteDto {
@@ -191,6 +193,7 @@ export class CreatePlatformPartnerFollowUpNoteDto {
   })
   @Transform(({ value }) => transformTrimmedString(value))
   @IsString({ message: '备注内容必须是字符串' })
+  @IsNotEmpty({ message: '备注内容不能为空' })
   @MaxLength(500, { message: '备注内容最多 500 位' })
   content: string;
 }

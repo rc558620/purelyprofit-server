@@ -131,6 +131,84 @@ describe('MarketingService promotions', () => {
     expect(result.type).toBe('first_order_discount');
   });
 
+  it('createPromotion 的 reduce 类型 displayText 计算正确（元，非 100 倍缩小）', async () => {
+    context.accessService.ensureCanAccess.mockResolvedValue(undefined);
+    context.prismaService.marketingPromotion.count.mockResolvedValue(0);
+    context.prismaService.marketingPromotion.create.mockResolvedValue({
+      id: 10,
+      storeId: 18,
+      name: '满减',
+      type: 'reduce',
+      description: '',
+      params: { threshold: 5000, reduceAmount: 800 },
+      startAt: new Date('2026-05-01T00:00:00.000Z'),
+      endAt: new Date('2026-05-31T23:59:59.000Z'),
+      usageCount: 0,
+      totalDiscount: 0,
+      enabled: true,
+      createdAt: new Date('2026-04-25T00:00:00.000Z'),
+      updatedAt: new Date('2026-04-25T00:00:00.000Z'),
+    });
+
+    await context.service.createPromotion(context.user, 18, {
+      name: '满减',
+      type: 'reduce',
+      params: { threshold: 50, reduceAmount: 8 },
+      startAt: new Date('2026-05-01T00:00:00.000Z').getTime(),
+      endAt: new Date('2026-05-31T23:59:59.000Z').getTime(),
+      enabled: true,
+    });
+
+    expect(
+      context.prismaService.marketingPromotion.create,
+    ).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: 'reduce',
+        params: { threshold: 5000, reduceAmount: 800 },
+        displayText: '满 ¥50 减 ¥8',
+      }),
+    });
+  });
+
+  it('createPromotion 的 recharge_gift 类型 displayText 计算正确（多档）', async () => {
+    context.accessService.ensureCanAccess.mockResolvedValue(undefined);
+    context.prismaService.marketingPromotion.count.mockResolvedValue(0);
+    context.prismaService.marketingPromotion.create.mockResolvedValue({
+      id: 11,
+      storeId: 18,
+      name: '储赠',
+      type: 'recharge_gift',
+      description: '',
+      params: { gradients: [{ rechargeAmount: 10000, giftAmount: 1000 }] },
+      startAt: new Date('2026-05-01T00:00:00.000Z'),
+      endAt: new Date('2026-05-31T23:59:59.000Z'),
+      usageCount: 0,
+      totalDiscount: 0,
+      enabled: true,
+      createdAt: new Date('2026-04-25T00:00:00.000Z'),
+      updatedAt: new Date('2026-04-25T00:00:00.000Z'),
+    });
+
+    await context.service.createPromotion(context.user, 18, {
+      name: '储赠',
+      type: 'recharge_gift',
+      params: { gradients: [{ rechargeAmount: 100, giftAmount: 10 }] },
+      startAt: new Date('2026-05-01T00:00:00.000Z').getTime(),
+      endAt: new Date('2026-05-31T23:59:59.000Z').getTime(),
+      enabled: true,
+    });
+
+    expect(
+      context.prismaService.marketingPromotion.create,
+    ).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: 'recharge_gift',
+        params: { gradients: [{ rechargeAmount: 10000, giftAmount: 1000 }] },
+        displayText: '充 ¥100 赠 ¥10',
+      }),
+    });
+  });
+
   it('createPromotion 不允许同门店重复创建相同活动类型', async () => {
     context.accessService.ensureCanAccess.mockResolvedValue(undefined);
     context.prismaService.marketingPromotion.count.mockResolvedValue(1);
@@ -295,15 +373,28 @@ describe('MarketingService promotions', () => {
       create: expect.objectContaining({
         storeId: 18,
         levels: expect.arrayContaining([
-          expect.objectContaining({ id: 'gold', spendThreshold: 0, discountRate: 0.88, discountRatePct: 88 }),
+          expect.objectContaining({
+            id: 'gold',
+            spendThreshold: 0,
+            discountRate: 0.88,
+            discountRatePct: 88,
+          }),
           expect.objectContaining({ id: 'platinum', spendThreshold: 5000 }),
           expect.objectContaining({ id: 'diamond', spendThreshold: 10000 }),
         ]),
-        pointsRatio: expect.objectContaining({ earnRatioCents: 200, earnRatioYuan: 200 }),
+        pointsRatio: expect.objectContaining({
+          earnRatioCents: 200,
+          earnRatioYuan: 200,
+        }),
       }),
       update: expect.objectContaining({
         levels: expect.arrayContaining([
-          expect.objectContaining({ id: 'gold', spendThreshold: 0, discountRate: 0.88, discountRatePct: 88 }),
+          expect.objectContaining({
+            id: 'gold',
+            spendThreshold: 0,
+            discountRate: 0.88,
+            discountRatePct: 88,
+          }),
         ]),
       }),
     });

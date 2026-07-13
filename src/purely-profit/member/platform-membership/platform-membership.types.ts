@@ -123,6 +123,7 @@ export interface StoreMembershipPromoRecord {
   chargedPlan: PlatformMembershipPlanId | null;
   rewardBeans: number | null;
   settled: boolean;
+  partnerId: number | null;
 }
 
 export interface StorePartnerRecord {

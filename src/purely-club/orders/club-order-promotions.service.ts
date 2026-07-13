@@ -4,6 +4,7 @@ import { parseDiscountRate } from '../club-discount.utils';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ClubPromotionRepository } from '../shared/club-promotion.repository';
 import {
   discountParamsSchema,
   firstOrderDiscountParamsSchema,
@@ -33,18 +34,16 @@ interface ClubPricingCandidate {
 }
 
 export interface ClubServicePricingResolution {
-  /** 最终应付金额（分）= 活动折后价 - 满减 */
+  /** 最终应付金额（分）= 竞争胜出价 - 满减 */
   amountFen: number;
   /**
-   * 会员基准价 = 商品原价 × 会员等级折扣率（分）
+   * 会员基准价 = product.price（分）
    *
-   * 这是整个折扣体系的起点：
-   * - 会员折扣基于商品原价计算，得到会员基准价
-   * - 活动折扣再基于会员基准价计算，得到活动折后价
-   * - 两者叠加生效，不是二选一
+   * product.price 本身就是会员价（admin 设定），不需要再施加会员等级折扣。
+   * 活动折扣直接基于此价格计算，与会员价竞争（取力度最大的一个）。
    */
   memberBaselineFen: number;
-  /** 总优惠金额 = 商品原价 - 最终价（分），含会员折扣 + 活动折扣 + 满减 */
+  /** 总优惠金额 = product.price - 最终价（分），含活动折扣 + 满减 */
   discountAmountFen: number;
   /** 命中的活动 ID（多个活动中优惠力度最大的一个） */
   promotionId: number | null;
@@ -62,9 +61,9 @@ export interface ClubServicePricingResolution {
   /**
    * 活动折扣单独贡献的优惠金额（分）
    *
-   * 计算公式：会员基准价 - 活动折后价
-   * 例：会员价 ¥606.06，活动 7.9折，活动价 = 60606 × 0.79 = 47879，
-   *     则 promotionDiscountAmountFen = 60606 - 47879 = 12727 (¥127.27)
+   * 计算公式：product.price - 活动折后价
+   * 例：会员价 ¥333，活动 7.9折，活动价 = 33300 × 0.79 = 26307，
+   *     则 promotionDiscountAmountFen = 33300 - 26307 = 6993 (¥69.93)
    */
   promotionDiscountAmountFen: number;
   /** 总满减减免金额（分），skipReduce=true 时为 0 */
@@ -85,21 +84,23 @@ export class ClubOrderPromotionsService {
     private readonly prisma: PrismaService,
     private readonly clubMemberProfileService: ClubMemberProfileService,
     private readonly clubMemberLevelsService: ClubMemberLevelsService,
+    private readonly clubPromotionRepository: ClubPromotionRepository,
   ) {}
 
   /**
-   * 解析服务商品定价（会员折扣 + 活动折扣 + 满减）
+   * 解析服务商品定价（活动折扣竞争 + 满减）
    *
    * 计算流水线：
-   *   原价 → [会员折扣] → 会员基准价 → [活动折扣] → 活动折后价 → [满减] → 最终价
+   *   product.price（会员价） → [活动折扣竞争] → 胜出价 → [满减] → 最终价
    *
-   * 折扣叠加模型（非竞争模型）：
-   *   - 会员折扣基于商品原价计算
-   *   - 活动折扣基于会员基准价计算（不是原价！）
-   *   - 两者叠加生效，不做“取最优”竞争
+   * 竞争模型（非叠加模型）：
+   *   - product.price 本身就是会员价，不再施加会员等级折扣
+   *   - 活动折扣直接基于 product.price 计算
+   *   - 会员价与活动价取力度最大的一个（amountFen 最低者胜出）
    *   - 多个活动折扣中取 amountFen 最低的一个（优惠力度最大）
+   *   - 满减在竞争胜出价基础上叠加
    *
-   * @param amountFen 商品单价（分），即 context.product.price
+   * @param amountFen 商品单价（分），即 context.product.price（已是会员价）
    * @param options.skipReduce true 时跳过满减计算，由调用方基于订单总额重新计算
    */
   async resolvePricing(
@@ -109,26 +110,31 @@ export class ClubOrderPromotionsService {
     amountFen: number,
     options?: { skipReduce?: boolean },
   ): Promise<ClubServicePricingResolution> {
-    const [memberDiscountRate, promotions, consumptionCount] =
-      await Promise.all([
-        this.resolveMemberDiscountRate(storeId, phone),
-        this.loadActivePromotions(storeId),
-        this.prisma.marketingConsumption.count({
-          where: {
-            storeId,
-            customerId,
-          },
-        }),
-      ]);
+    const [promotions, consumptionCount] = await Promise.all([
+      this.clubPromotionRepository.loadActivePromotions(storeId),
+      this.prisma.marketingConsumption.count({
+        where: {
+          storeId,
+          customerId,
+        },
+      }),
+    ]);
 
-    // 1. 会员基准价 = 原价 × 等级折扣率
-    const baselineAmountFen = this.applyMemberDiscount(
-      amountFen,
-      memberDiscountRate,
-    );
+    // 1. 会员基准价 = product.price（已是会员价，不再施加会员等级折扣）
+    //
+    // ══════════════════════════════════════════════════════════════
+    // ⚠️ 禁止在此处调用 applyMemberDiscount(amountFen, memberDiscountRate)！
+    //
+    // product.price 是 admin 设定的会员价，已经包含了会员折扣。
+    // 如果再 × memberDiscountRate 会造成双重折扣（折上折）。
+    // 例：product.price=333，memberDiscountRate=0.91，
+    //     错误做法：333 × 0.91 = 303（双重折扣，不对）
+    //     正确做法：baselineAmountFen = 333（直接用）
+    // ══════════════════════════════════════════════════════════════
+    const baselineAmountFen = amountFen;
 
-    // 2. 活动折扣叠加：在会员价基础上再应用活动折扣（取力度最大的活动）
-    //    活动折扣基于会员基准价计算，与会员折扣叠加生效
+    // 2. 活动折扣竞争：直接基于 product.price 计算，取力度最大的活动
+    //    活动折扣与会员价竞争（取 amountFen 最低者），不做折上折
     let bestDiscount: ClubPricingCandidate | null = null;
 
     for (const promotion of promotions) {
@@ -157,7 +163,10 @@ export class ClubOrderPromotionsService {
       for (const promotion of promotions) {
         if (promotion.type !== 'reduce') continue;
         const reduceConfig = this.resolveReduceConfig(promotion.params);
-        if (!reduceConfig || amountFen < reduceConfig.thresholdFen) continue;
+        // BUG-5 修复：满减门槛统一基于折扣后价（afterDiscountFen）判断，
+        // 与产品详情 resolvePricing 保持一致
+        if (!reduceConfig || afterDiscountFen < reduceConfig.thresholdFen)
+          continue;
         totalReduceFen += reduceConfig.reduceAmountFen;
       }
     }
@@ -196,7 +205,8 @@ export class ClubOrderPromotionsService {
     storeId: number,
     orderTotalFen: number,
   ): Promise<number> {
-    const promotions = await this.loadActivePromotions(storeId);
+    const promotions =
+      await this.clubPromotionRepository.loadActivePromotions(storeId);
     let totalReduceFen = 0;
     for (const promotion of promotions) {
       if (promotion.type !== 'reduce') continue;
@@ -225,30 +235,6 @@ export class ClubOrderPromotionsService {
     return levelConfig.discountRate > 0 && levelConfig.discountRate < 1
       ? levelConfig.discountRate
       : null;
-  }
-
-  private loadActivePromotions(
-    storeId: number,
-  ): Promise<ClubPromotionRecord[]> {
-    const now = new Date();
-    return this.prisma.marketingPromotion.findMany({
-      where: {
-        storeId,
-        enabled: true,
-        type: {
-          in: ['first_order_discount', 'discount', 'discount_day', 'reduce'],
-        },
-        startAt: { lte: now },
-        endAt: { gte: now },
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: {
-        id: true,
-        name: true,
-        type: true,
-        params: true,
-      },
-    }) as Promise<ClubPromotionRecord[]>;
   }
 
   private toDiscountCandidate(
@@ -345,10 +331,12 @@ export class ClubOrderPromotionsService {
   }
 
   private resolvePromotionDiscountRate(params: unknown): number | null {
-    // 优先使用 Zod schema 校验
-    const zodResult =
-      discountParamsSchema.safeParse(params) ??
-      firstOrderDiscountParamsSchema.safeParse(params);
+    // BUG-10 修复：safeParse 总是返回 SafeParseResult，?? 不会起备选作用
+    // 改为显式检查 success 做备选
+    const discountResult = discountParamsSchema.safeParse(params);
+    const zodResult = discountResult.success
+      ? discountResult
+      : firstOrderDiscountParamsSchema.safeParse(params);
     if (zodResult.success) {
       const data = zodResult.data;
       let discountRate: number | null = null;
@@ -427,20 +415,6 @@ export class ClubOrderPromotionsService {
       return null;
     }
     return Math.round(numValue);
-  }
-
-  private applyMemberDiscount(
-    amountFen: number,
-    memberDiscountRate: number | null,
-  ): number {
-    if (memberDiscountRate === null) {
-      return amountFen;
-    }
-
-    return new Decimal(amountFen)
-      .mul(memberDiscountRate)
-      .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-      .toNumber();
   }
 
   private applyPercentDiscount(

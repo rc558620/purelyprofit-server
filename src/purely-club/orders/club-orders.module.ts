@@ -15,6 +15,7 @@ import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubOrdersController } from './club-orders.controller';
 import { ClubOrderPreviewService } from './club-order-preview.service';
 import { ClubOrdersService } from './club-orders.service';
+import { ClubPromotionRepository } from '../shared/club-promotion.repository';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { ClubOrdersService } from './club-orders.service';
     ClubPaymentLockService,
     ClubOrderPreviewService,
     ClubOrdersService,
+    ClubPromotionRepository,
   ],
   exports: [
     ClubOrderDraftsService,

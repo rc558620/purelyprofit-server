@@ -113,6 +113,7 @@ export class MembersAccessService {
     const rows = await this.prisma.$queryRaw<MemberRecord[]>`
       ${MEMBER_SELECT_SQL}
       WHERE m.id = ${memberId}
+        AND m.deleted_at IS NULL
       LIMIT 1
     `;
     const member = rows[0];

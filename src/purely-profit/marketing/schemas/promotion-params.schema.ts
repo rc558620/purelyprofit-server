@@ -7,6 +7,9 @@
 import { z } from 'zod';
 import { BadRequestException } from '@nestjs/common';
 
+/** 金额上限（元）：防止 Money 整数溢出与明显异常配置；远低于安全整数上限 */
+const MARKETING_PROMOTION_AMOUNT_YUAN_MAX = 1_000_000_000_000;
+
 // ─── 通用 banner 字段（所有 type 都可能携带） ───────────────────────
 
 const bannerFieldsSchema = z.object({
@@ -79,20 +82,34 @@ export const firstOrderDiscountParamsSchema = z
 export const reduceParamsSchema = z
   .object({
     /** 满减门槛（前端入参=元，后端内部存储=分；mapper 层统一转换） */
-    threshold: z.number().positive(),
+    threshold: z.number().positive().max(MARKETING_PROMOTION_AMOUNT_YUAN_MAX),
     /** 满减金额（前端入参=元，后端内部存储=分；mapper 层统一转换） */
-    reduceAmount: z.number().positive(),
+    reduceAmount: z
+      .number()
+      .positive()
+      .max(MARKETING_PROMOTION_AMOUNT_YUAN_MAX),
   })
   .merge(bannerFieldsSchema)
-  .passthrough();
+  .passthrough()
+  .refine((data) => data.reduceAmount < data.threshold, {
+    message: '优惠金额必须小于满减门槛（reduceAmount < threshold）',
+    path: ['reduceAmount'],
+  });
 
 // ─── recharge_gift ────────────────────────────────────────────────
 
 const rechargeGiftGradientSchema = z.object({
   /** 充值金额（前端入参=元，后端内部存储=分；mapper 层统一转换） */
-  rechargeAmount: z.number().positive(),
+  rechargeAmount: z
+    .number()
+    .positive()
+    .max(MARKETING_PROMOTION_AMOUNT_YUAN_MAX),
   /** 赠送金额（前端入参=元，后端内部存储=分；mapper 层统一转换） */
-  giftAmount: z.number().nonnegative().optional(),
+  giftAmount: z
+    .number()
+    .nonnegative()
+    .max(MARKETING_PROMOTION_AMOUNT_YUAN_MAX)
+    .optional(),
   /** 赠送比例（0-1） */
   giftRatio: z.number().min(0).max(1).optional(),
 });

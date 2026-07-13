@@ -36,13 +36,13 @@ const POINTS_MEMBER_ASSET_QUERY_CONFIG: MemberAssetQueryConfig<
   QueryMemberPointsLogsInput['source']
 > = {
   overview: {
-    selectSql: Prisma.sql`
+    selectSql: (timezone: string) => Prisma.sql`
       COUNT(*)::int AS "totalCount",
       COUNT(*) FILTER (
         WHERE source = 'admin_adjust'::"MemberPointsSource"
       )::int AS "adminAdjustCount",
       COUNT(*) FILTER (
-        WHERE created_at >= DATE_TRUNC('day', NOW())
+        WHERE created_at >= DATE_TRUNC('day', NOW() AT TIME ZONE ${timezone})
       )::int AS "todayChangeCount"
     `,
     fromSql: Prisma.sql`FROM member_points_logs`,
@@ -100,7 +100,7 @@ const BEANS_MEMBER_ASSET_QUERY_CONFIG: MemberAssetQueryConfig<
   QueryMemberBeanLogsInput['source']
 > = {
   overview: {
-    selectSql: Prisma.sql`
+    selectSql: () => Prisma.sql`
       COUNT(*)::int AS "totalCount",
       COUNT(*) FILTER (
         WHERE source = 'admin_adjust'::"MemberBeanSource"
@@ -179,10 +179,12 @@ function requireBeanLogRow(log?: MemberBeanLogRecord): MemberBeanLogRecord {
 export async function queryMemberPointsOverview(
   prisma: PrismaService,
   storeId: number,
+  timezone: string,
 ): Promise<MemberPointsOverviewRow | null> {
   return queryConfiguredMemberAssetOverview(
     prisma,
     storeId,
+    timezone,
     POINTS_MEMBER_ASSET_QUERY_CONFIG.overview,
   );
 }
@@ -202,20 +204,24 @@ export async function applyMemberPointsAdjustment(
   client: Prisma.TransactionClient,
   params: ApplyMemberPointsAdjustmentInput,
 ): Promise<{ member: MemberRecord; log: MemberPointsLogRecord }> {
-  // 积分事实源已切换为 MarketingCustomer；若会员有关联 customerId，则更新 marketing_customers.points
-  if (params.member.customerId !== null) {
-    await client.$executeRaw`
-      UPDATE marketing_customers
-      SET points = ${params.afterPoints},
-          updated_at = NOW()
-      WHERE id = ${params.member.customerId}
-    `;
-  } else {
-    // 无关联 MarketingCustomer 时，不做积分更新（孤立 Member 场景，数据一致性由上层保证）
-    throw new ConflictException(
-      '该会员尚未关联营销顾客档案，无法调整积分；请先在门店关联顾客档案',
-    );
+  // 积分事实源为 marketing_customers。
+  // 采用「原子相对更新 + 非负约束」：UPDATE 自带行级写锁，
+  // 并发请求串行化，避免 read-modify-write 丢失更新；
+  // WHERE points + delta >= 0 保证不会扣成负数（命中约束说明余额不足）。
+  const updated = await client.$queryRaw<{ points: number }[]>`
+    UPDATE marketing_customers
+    SET points = points + ${params.delta}, updated_at = NOW()
+    WHERE id = ${params.member.customerId}
+      AND points + ${params.delta} >= 0
+    RETURNING points
+  `;
+
+  if (updated.length === 0) {
+    throw new ConflictException(params.insufficientMessage);
   }
+
+  const afterPoints = updated[0].points;
+  const beforePoints = afterPoints - params.delta;
 
   const logRows = await client.$queryRaw<MemberPointsLogRecord[]>`
     INSERT INTO member_points_logs (
@@ -227,7 +233,8 @@ export async function applyMemberPointsAdjustment(
       change_amount,
       before_points,
       after_points,
-      reason
+      reason,
+      expires_at
     )
     VALUES (
       ${params.member.id},
@@ -236,9 +243,10 @@ export async function applyMemberPointsAdjustment(
       ${params.delta > 0 ? 'increase' : 'decrease'}::"MemberPointsChangeType",
       'admin_adjust'::"MemberPointsSource",
       ${Math.abs(params.delta)},
-      ${params.beforePoints},
-      ${params.afterPoints},
-      ${params.reason}
+      ${beforePoints},
+      ${afterPoints},
+      ${params.reason},
+      ${params.expireAt ?? null}
     )
     RETURNING
       id,
@@ -266,10 +274,12 @@ export async function applyMemberPointsAdjustment(
 export async function queryMemberBeansOverview(
   prisma: PrismaService,
   storeId: number,
+  timezone: string,
 ): Promise<MemberBeansOverviewRow | null> {
   return queryConfiguredMemberAssetOverview(
     prisma,
     storeId,
+    timezone,
     BEANS_MEMBER_ASSET_QUERY_CONFIG.overview,
   );
 }
@@ -289,14 +299,23 @@ export async function applyMemberBeansAdjustment(
   client: Prisma.TransactionClient,
   params: ApplyMemberBeansAdjustmentInput,
 ): Promise<{ member: MemberRecord; log: MemberBeanLogRecord }> {
-  // 纯利豆仍保留在 Member 表（独立于营销积分）
-  await client.$executeRaw`
+  // 纯利豆仍保留在 Member 表（独立于营销积分）。
+  // 同样采用「原子相对更新 + 非负约束」，避免并发丢失更新与扣成负数。
+  const updated = await client.$queryRaw<{ bean_balance: number }[]>`
     UPDATE members
-    SET
-      bean_balance = ${params.afterBalance},
-      updated_at = NOW()
+    SET bean_balance = bean_balance + ${params.delta}, updated_at = NOW()
     WHERE id = ${params.member.id}
+      AND bean_balance + ${params.delta} >= 0
+    RETURNING bean_balance
   `;
+
+  if (updated.length === 0) {
+    throw new ConflictException(params.insufficientMessage);
+  }
+
+  const afterBalance = updated[0].bean_balance;
+  const beforeBalance = afterBalance - params.delta;
+
   // 重查完整记录（含 LEFT JOIN marketing_customers）
   const memberRows = await client.$queryRaw<MemberRecord[]>(
     MEMBER_SELECT_BY_ID_SQL(params.member.id),
@@ -318,8 +337,8 @@ export async function applyMemberBeansAdjustment(
       ${params.operatorStaffId},
       'admin_adjust'::"MemberBeanSource",
       ${params.delta},
-      ${params.beforeBalance},
-      ${params.afterBalance},
+      ${beforeBalance},
+      ${afterBalance},
       ${params.reason}
     )
     RETURNING

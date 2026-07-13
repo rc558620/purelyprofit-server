@@ -5,11 +5,11 @@
  *                       金额计算核心规则（修改前必读）
  * ══════════════════════════════════════════════════════════════════════════
  *
- * 【规则 1】折扣叠加模型（非竞争模型）
- *   - 会员折扣先应用于商品原价 → 得到「会员基准价」
- *   - 活动折扣再应用于会员基准价 → 得到「活动折后价」
- *   - 两者叠加生效，不是二选一
- *   - 示例：原价 ¥777 × 会员 7.8折 = ¥606.06，再 × 活动 7.9折 = ¥478.79
+ * 【规则 1】折扣竞争模型（非叠加模型）
+ *   - product.price 本身就是会员价（admin 设定），不再施加会员等级折扣
+ *   - 活动折扣直接基于 product.price 计算
+ *   - 会员价与活动价取力度最大的一个（amountFen 最低者胜出）
+ *   - 不做折上折，只有一个折扣生效
  *
  * 【规则 2】满减活动单次生效
  *   - 满减基于「折扣后订单总额」判断门槛，而非单价
@@ -26,17 +26,20 @@
  *   - 所有金额字段由本服务计算后返回，前端仅做展示
  *   - breakdownItems 中的 label/value/isStrikethrough 全部由后端决定
  *
- * 【规则 5】折扣明细行展示规则
- *   - 会员折扣行：显示会员折扣率（如 "折扣 7.8折"），金额为 (原价 - 会员价) × 数量
+ * 【规则 5】折扣明细行展示规则（竞争模型）
+ *   - 会员折扣行（划掉行）：
+ *     · 标签：使用 resolveMemberDiscountRate() 获取的会员等级折扣率（如 "折扣 9.1折"）
+ *     · 金额：会员价 × (1 - 会员折扣率)，例：333 × 0.09 = ¥29.97
+ *     · ⚠️ 禁止用 originalPrice - memberPrice 作为金额（会与折扣率不匹配）
+ *     · ⚠️ 禁止用 memberPrice / originalPrice 推算折扣率（不是会员等级折扣率）
+ *     · 活动胜出时显示删除线 (isStrikethrough=true)
  *   - 活动折扣行：显示活动折扣率（如 "折扣 7.9折"），金额为 (会员价 - 活动价) × 数量
- *   - 当活动折扣率 < 会员折扣率时（活动更优），会员折扣行显示删除线
  *   - 满减行：固定标签 "满减优惠"，金额为订单级满减（单次）
  *   - 删除线行 (isStrikethrough=true) 仅信息展示，不参与实际金额计算
  *
  * ══════════════════════════════════════════════════════════════════════════
  */
 import { Injectable } from '@nestjs/common';
-import Decimal from 'decimal.js';
 import { Money } from '../../shared/money.utils';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
@@ -46,8 +49,8 @@ import type {
   ClubServiceOrderPreviewResponseDto,
   PreviewClubServiceOrderDto,
 } from './dto/club-order.dto';
-import type { ClubPointsRedeemConfig } from './club-order-drafts.utils';
-import { resolvePointsRedeemConfig } from './club-order-drafts.utils';
+import { fetchPointsRedeemConfig } from './club-order-drafts.utils';
+import { calcPointsRedeemDetail } from './club-order-points.utils';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -84,8 +87,11 @@ export class ClubOrderPreviewService {
     // ── 订单级金额计算 ──
     const originalPriceFen =
       (context.product.originalPrice ?? context.product.price) * quantity;
-    // 会员基准价总额 = 单价会员基准价 × 数量
-    const memberBaselineTotalFen = pricing.memberBaselineFen * quantity;
+    // ── 价格展示基准规则（设计决策，勿修改）──
+    // "会员售价"（breakdown 首行）和"会员价"（header）统一使用 product.price 展示。
+    // product.price 本身就是会员价，活动折扣在此基础上计算。
+    // resolvePricing 不再施加会员等级折扣（竞争模型）。
+    const memberBaselineTotalFen = context.product.price * quantity;
     // 活动折扣总额 = 单价活动折扣额 × 数量
     const promotionDiscountTotalFen =
       pricing.promotionDiscountAmountFen * quantity;
@@ -102,10 +108,9 @@ export class ClubOrderPreviewService {
     // 最终应付 = 满减前总额 - 满减
     const finalPriceFen = Math.max(beforeReduceTotalFen - orderReduceFen, 0);
 
-    // 折扣总额 = (单价折扣额 + 订单满减) × 数量
-    // pricing.discountAmountFen 含会员/活动折扣，不含满减（skipReduce）；
-    // buildBreakdownItems 的 levelDiscountFen 公式需要总优惠（含满减），
-    // 所以这里要把 orderReduceFen 加进去
+    // 折扣总额 = (单价活动折扣额 + 订单满减) × 数量
+    // pricing.discountAmountFen 含活动折扣，不含满减（skipReduce）；
+    // buildBreakdownItems 需要总优惠（含满减）
     const discountTotalFen =
       (pricing.discountAmountFen + orderReduceFen) * quantity;
 
@@ -123,20 +128,30 @@ export class ClubOrderPreviewService {
     const totalSavingAmount = Money.fromDbCents(originalPriceFen)
       .subtractClampedToZero(Money.fromDbCents(finalPriceFen))
       .toOutputYuan();
+
+    // BUG-5 修复：新增 totalSavingWithPoints，含积分抵扣的总节省
+    const totalSavingWithPoints =
+      pointsDeductFen > 0
+        ? Money.fromDbCents(originalPriceFen)
+            .subtractClampedToZero(Money.fromDbCents(afterPointsPriceFen))
+            .toOutputYuan()
+        : null;
     const memberDiscountRate =
       await this.clubOrderPromotionsService.resolveMemberDiscountRate(
         context.store.id,
         currentContext.user.phone,
       );
 
+    // BUG-4 修复：totalReduceFen 应传入 orderReduceFen * quantity 保持量纲一致
     const breakdownItems = this.buildBreakdownItems({
       memberBaselineFen: memberBaselineTotalFen,
+      originalPriceFen,
       discountAmountFen: discountTotalFen,
       promotionDiscountAmountFen: promotionDiscountTotalFen,
       promotionType: pricing.promotionType,
       promotionTag: pricing.promotionTag,
       discountRate: pricing.discountRate,
-      totalReduceFen: orderReduceFen,
+      totalReduceFen: orderReduceFen * quantity,
       finalPriceFen,
       memberDiscountRate,
     });
@@ -151,6 +166,7 @@ export class ClubOrderPreviewService {
       reduceAmount: Money.fromDbCents(orderReduceFen).toOutputYuan(),
       finalPrice: Money.fromDbCents(finalPriceFen).toOutputYuan(),
       totalSavingAmount,
+      totalSavingWithPoints,
       pointsDeductionAmount: Money.fromDbCents(pointsDeductFen).toOutputYuan(),
       pointsUsed,
       afterPointsPrice: Money.fromDbCents(afterPointsPriceFen).toOutputYuan(),
@@ -165,8 +181,14 @@ export class ClubOrderPreviewService {
   }
 
   /**
-   * 计算积分抵扣金额：预览接口始终计算可抵扣金额（不受 enabled 开关限制），
-   * 前端根据 usePoints 决定是否展示；实际下单时仍由 creation service 管控 enabled。
+   * 计算积分抵扣金额：预览接口始终计算可抵扣金额（不受 enabled 开关限制）。
+   *
+   * ════════════════════════════════════════════════════════════════
+   *  ⚠️  项目设计决策（禁止修改）：
+   *      积分抵扣不受 enabled 开关限制——preview 和 creation 两个 service
+   *      均不检查 enabled 字段。前端积分开关仅由「用户是否有积分」控制。
+   *      禁止在任何一处引入 enabled 拦截逻辑。
+   * ════════════════════════════════════════════════════════════════
    */
   private async calcPointsDeduction(
     storeId: number,
@@ -178,11 +200,10 @@ export class ClubOrderPreviewService {
       return { pointsDeductFen: 0, pointsUsed: 0 };
     }
 
-    const pointsRatio = await this.getPointsRatioConfig(storeId);
-
-    if (pointsRatio.redeemRatioPoints <= 0 || pointsRatio.maxRedeemRatio <= 0) {
-      return { pointsDeductFen: 0, pointsUsed: 0 };
-    }
+    // ⚠️ 设计决策：fetchPointsRedeemConfig 返回的 enabled 字段在此处被有意忽略。
+    // 积分抵扣不受 enabled 开关限制，只取 redeemRatioPoints / maxRedeemRatio 进行计算。
+    // 禁止在此方法中引入 enabled 检查逻辑。
+    const pointsRatio = await fetchPointsRedeemConfig(this.prisma, storeId);
 
     const customer = await this.prisma.marketingCustomer.findUnique({
       where: { id: customerId },
@@ -190,53 +211,12 @@ export class ClubOrderPreviewService {
     });
 
     const availablePoints = customer?.points ?? 0;
-    if (availablePoints <= 0) {
-      return { pointsDeductFen: 0, pointsUsed: 0 };
-    }
 
-    const maxDeductFen = Math.floor(
-      new Decimal(priceAfterDiscountFen)
-        .mul(pointsRatio.maxRedeemRatio)
-        .toNumber(),
+    return calcPointsRedeemDetail(
+      priceAfterDiscountFen,
+      pointsRatio,
+      availablePoints,
     );
-
-    const pointsToFenRatio = 100 / pointsRatio.redeemRatioPoints;
-    const availableDeductFen = availablePoints * pointsToFenRatio;
-
-    const pointsDeductFen = Math.min(maxDeductFen, availableDeductFen);
-    const pointsUsed = Math.ceil(pointsDeductFen / pointsToFenRatio);
-
-    return { pointsDeductFen, pointsUsed };
-  }
-
-  private async getPointsRatioConfig(
-    storeId: number,
-  ): Promise<ClubPointsRedeemConfig> {
-    const settings = await this.prisma.marketingMemberLevelSetting.findUnique({
-      where: { storeId },
-      select: { pointsRatio: true },
-    });
-
-    const config = resolvePointsRedeemConfig(settings?.pointsRatio);
-
-    if (!config.enabled) {
-      const now = new Date();
-      const promo = await this.prisma.marketingPromotion.findFirst({
-        where: {
-          storeId,
-          type: 'points_recharge',
-          enabled: true,
-          startAt: { lte: now },
-          endAt: { gte: now },
-        },
-        select: { id: true },
-      });
-      if (promo) {
-        return { ...config, enabled: true };
-      }
-    }
-
-    return config;
   }
 
   private formatFenToYuanText(cents: number): string {
@@ -263,19 +243,16 @@ export class ClubOrderPreviewService {
    *
    * 展示行顺序：会员售价 → 会员折扣行 → 活动折扣行 → 满减行 → 优惠后小计 → 积分抵扣
    *
-   * 关键公式：
-   *   levelDiscountFen = discountAmountFen - promotionDiscountAmountFen - totalReduceFen
-   *
-   * 其中 discountAmountFen 必须是「总优惠」（含会员折扣 + 活动折扣 + 满减），
-   * 这样减去活动和满减后才能得到纯会员折扣额。
-   * 调用方传入时务必确认 discountAmountFen = (pricing.discountAmountFen + orderReduceFen) * quantity。
-   *
-   * 删除线规则：
-   *   当活动折扣率（discountRate/100）< 会员折扣率（memberDiscountRate）时，
-   *   说明活动折扣比会员折扣更优，会员折扣行显示删除线（仅信息展示，不参与实际扣减）。
+   * 竞争模型展示规则：
+   *   - 会员折扣行：显示从原价到会员价的节省（originalPrice - memberPrice）
+   *   - 活动折扣行：显示活动折扣金额（memberPrice - activityPrice）
+   *   - 两者竞争：活动胜出时会员折扣行显示删除线（仅信息展示）
+   *   - 满减始终叠加
    */
   private buildBreakdownItems(params: {
     memberBaselineFen: number;
+    /** 商品原价（分）× 数量，用于计算会员折扣行金额 */
+    originalPriceFen: number;
     discountAmountFen: number;
     promotionDiscountAmountFen: number;
     promotionType: string | null;
@@ -284,6 +261,7 @@ export class ClubOrderPreviewService {
     discountRate: number | null;
     totalReduceFen: number;
     finalPriceFen: number;
+    /** 会员等级折扣率（0-1 小数，如 0.91 表示 9.1折），用于划掉行显示 */
     memberDiscountRate: number | null;
   }): ClubOrderBreakdownItemDto[] {
     const items: ClubOrderBreakdownItemDto[] = [];
@@ -297,39 +275,46 @@ export class ClubOrderPreviewService {
       isStrikethrough: false,
     });
 
-    // 等级折扣行（会员折扣与活动折扣可叠加，分别展示）
-    const levelDiscountFen =
-      params.discountAmountFen -
-      params.promotionDiscountAmountFen -
-      params.totalReduceFen;
-    // 当活动折扣率优于会员折扣率时，会员折扣行显示删除线
-    const hasBetterActivityDiscount =
-      params.promotionType !== null &&
-      params.promotionDiscountAmountFen > 0 &&
-      params.discountRate != null &&
-      params.memberDiscountRate != null &&
-      params.discountRate / 100 < params.memberDiscountRate;
-    if (levelDiscountFen > 0) {
-      const discountRateLabel =
-        params.memberDiscountRate != null
-          ? ` ${ClubOrderPreviewService.formatDiscountRateLabel(params.memberDiscountRate)}`
-          : '';
+    // 会员折扣行：会员价 × (1 - 会员折扣率) = 会员折扣可省金额
+    //
+    // ══════════════════════════════════════════════════════════════
+    // ⚠️ 金额和折扣率必须匹配，禁止以下错误做法：
+    //
+    // ❌ 错误 1：用 originalPrice - memberPrice 作为金额
+    //    例：555 - 333 = 222，但 9.1折 对应的金额是 29.97，不是 222
+    // ❌ 错误 2：用 memberPrice / originalPrice 推算折扣率
+    //    例：333 / 555 ≈ 0.6 → "6折"，但实际会员等级是 9.1折
+    //
+    // ✅ 正确做法：
+    //    · 折扣率 = resolveMemberDiscountRate() 返回的会员等级配置值（如 0.91）
+    //    · 金额 = memberPrice × (1 - memberDiscountRate)
+    //    · 例：333 × (1 - 0.91) = 333 × 0.09 = 29.97 → "折扣 9.1折 -¥29.97"
+    // ══════════════════════════════════════════════════════════════
+    const memberRate = params.memberDiscountRate;
+    const hasMemberRate = memberRate != null && memberRate < 1;
+    const levelDiscountFen = hasMemberRate
+      ? Math.round(params.memberBaselineFen * (1 - memberRate))
+      : 0;
+    // 竞争模型：活动折扣胜出时，会员折扣行显示删除线
+    const hasActivity = params.promotionType !== null;
+    if (levelDiscountFen > 0 && hasMemberRate) {
+      const levelLabel = `折扣 ${ClubOrderPreviewService.formatDiscountRateLabel(memberRate)}`;
       items.push({
         id: 'level-discount',
-        label: `折扣${discountRateLabel}`,
+        label: levelLabel,
         value: `-¥${this.formatFenToYuanText(levelDiscountFen)}`,
-        isDeduction: !hasBetterActivityDiscount,
-        isStrikethrough: hasBetterActivityDiscount,
+        isDeduction: !hasActivity,
+        isStrikethrough: hasActivity,
       });
     }
 
-    // 活动折扣行（如有命中的活动，展示全额折扣并附折扣率）
+    // 活动折扣行（竞争胜出时展示全额折扣并附折扣率）
     if (
       params.promotionType !== null &&
       params.promotionDiscountAmountFen > 0
     ) {
-      // 优先用折扣率构建标签（如 "折扣 9.1折"），回退到 promotionTag
-      // discountRate 为 0-100 整数（如 91），需除以 100 转为 0-1 再传入格式化
+      // 优先用折扣率构建标签（如 "折扣 7.9折"），回退到 promotionTag
+      // discountRate 为 0-100 整数（如 79），需除以 100 转为 0-1 再传入格式化
       const activityLabel =
         params.discountRate != null
           ? `折扣 ${ClubOrderPreviewService.formatDiscountRateLabel(params.discountRate / 100)}`

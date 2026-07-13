@@ -239,8 +239,16 @@ export class ClubServiceOrderPreviewResponseDto {
   @ApiProperty({ example: 466, description: '最终价格（折扣后 - 满减），单位元；不含积分抵扣' })
   finalPrice: number;
 
-  @ApiProperty({ example: 222, description: '总节省金额（原价 - 最终价），单位元' })
+  @ApiProperty({ example: 222, description: '总节省金额（原价 - 最终价，不含积分抵扣），单位元' })
   totalSavingAmount: number;
+
+  @ApiPropertyOptional({
+    example: 322,
+    description:
+      '含积分抵扣的总节省金额（原价 - 积分抵扣后实付），单位元；仅当 usePoints=true 且积分抵扣 > 0 时返回',
+  })
+  @IsOptional()
+  totalSavingWithPoints: number | null;
 
   @ApiPropertyOptional({ example: 100, description: '积分抵扣金额，单位元；0 表示未使用积分' })
   pointsDeductionAmount: number;
@@ -349,9 +357,10 @@ export class ClubServiceOrderResponseDto extends ClubOrderStatusResponseDto {
   @IsString({ message: 'coverImage 必须是字符串' })
   coverImage?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     type: ClubWechatPaymentParamsDto,
-    description: '发起微信支付所需参数',
+    description: '发起微信支付所需参数；未传 openid 时为 null',
   })
-  paymentParams: ClubWechatPaymentParamsDto;
+  @IsOptional()
+  paymentParams: ClubWechatPaymentParamsDto | null;
 }

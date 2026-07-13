@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
@@ -57,7 +58,10 @@ export class AdjustMemberBeansDto extends MemberAssetIdentityDto {
     example: 100,
     description: '调整纯利豆，正数为增加，负数为减少',
   })
-  @ValidateIf((dto: AdjustMemberBeansDto) => dto.amount === undefined)
+  // 仅当本字段存在时才校验；与 amount 互斥由 resolveAdjustmentDelta 处理。
+  // 注意：不再以“另一个字段是否缺失”作为跳过校验的条件，避免两者同时传入时
+  // 校验被整体绕过的缺陷（delta=0 或非法值直接写入）。
+  @ValidateIf((dto: AdjustMemberBeansDto) => dto.delta !== undefined)
   @Transform(transformOptionalInt)
   @IsInt({ message: '调整纯利豆必须是整数' })
   @NotEquals(0, { message: '调整纯利豆不能为 0' })
@@ -67,11 +71,21 @@ export class AdjustMemberBeansDto extends MemberAssetIdentityDto {
     example: 100,
     description: '兼容旧请求的调整值字段，需配合 direction 使用',
   })
-  @ValidateIf((dto: AdjustMemberBeansDto) => dto.delta === undefined)
+  @ValidateIf((dto: AdjustMemberBeansDto) => dto.amount !== undefined)
   @Transform(transformOptionalInt)
   @IsInt({ message: '调整纯利豆必须是整数' })
   @NotEquals(0, { message: '调整纯利豆不能为 0' })
   amount?: number;
+
+  @ApiPropertyOptional({
+    example: 'adj-7f3c-20260712',
+    description:
+      '客户端幂等键，相同键 60s 内去重；用于避免重复点击误伤合法重复调整',
+  })
+  @IsOptional()
+  @IsString({ message: '幂等键必须是字符串' })
+  @MaxLength(64, { message: '幂等键最多 64 位' })
+  idempotencyKey?: string;
 
   @ApiPropertyOptional({
     enum: ADJUSTMENT_DIRECTION_VALUES,
@@ -82,7 +96,9 @@ export class AdjustMemberBeansDto extends MemberAssetIdentityDto {
   direction?: AdjustmentDirectionValue;
 
   @ApiProperty({ example: '管理员手动补发纯利豆', description: '调整原因' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: '调整原因必须是字符串' })
+  @IsNotEmpty({ message: '调整原因不能为空' })
   @MaxLength(100, { message: '调整原因最多 100 位' })
   reason: string;
 }

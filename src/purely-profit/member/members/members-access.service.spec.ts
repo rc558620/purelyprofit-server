@@ -150,6 +150,21 @@ describe('MembersAccessService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('findManageableMemberOrThrow 对软删除会员同样按不存在处理（BUG-2）', async () => {
+    // 查询必须带上软删除过滤条件，使已删除会员在 SQL 层即被排除
+    prismaService.$queryRaw.mockImplementation((sql: unknown) => {
+      const text = String(sql);
+      expect(text).toContain('deleted_at IS NULL');
+      // 模拟数据库已按软删除过滤：传入的会员已被排除，返回空
+      return Promise.resolve([]);
+    });
+    accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(6);
+
+    await expect(
+      service.findManageableMemberOrThrow(user, 18, 'members:view'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('findOperatorStaffIdForStore 在当前 membership 命中时直接返回 staff id', async () => {
     accessControlService.resolveCurrentStaffIdForStore.mockReturnValue(55);
 

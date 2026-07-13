@@ -59,6 +59,42 @@ describe('WithdrawalsService overview and list', () => {
     });
   });
 
+  it('getOverview 的 pendingBeans 反映处理中记录的 beanAmount 之和而非恒为 0', async () => {
+    const partner = createOverviewPartner();
+    context.prismaService.storePartner.findFirst.mockResolvedValue(partner);
+    context.prismaService.partnerWithdrawal.count.mockResolvedValue(2);
+    context.prismaService.partnerWithdrawal.aggregate.mockResolvedValue({
+      _sum: { beanAmount: 200 },
+    });
+
+    await expect(context.service.getOverview(context.user)).resolves.toEqual({
+      approvedPartner: {
+        id: '6',
+        name: '张三',
+        phone: '13800138000',
+        joinedAt: partner.joinedAt.getTime(),
+        beanBalance: 1200,
+        totalEarnedBeans: 2000,
+        totalWithdrawnBeans: 800,
+      },
+      approvedPartners: [
+        {
+          id: '6',
+          name: '张三',
+          phone: '13800138000',
+          joinedAt: partner.joinedAt.getTime(),
+          beanBalance: 1200,
+          totalEarnedBeans: 2000,
+          totalWithdrawnBeans: 800,
+        },
+      ],
+      beanBalance: 1200,
+      totalWithdrawnBeans: 800,
+      pendingBeans: 200,
+      pendingCount: 2,
+    });
+  });
+
   it('list 默认按当前门店查询并映射前端字段', async () => {
     context.prismaService.partnerWithdrawal.findMany.mockResolvedValue([
       createWithdrawalRecord({

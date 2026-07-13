@@ -16,7 +16,7 @@ import type {
   ClubServiceOrderMetadata,
 } from './club-order-drafts.types';
 import type { ClubPointsEarnConfig } from './club-order-drafts.utils';
-import { resolvePointsEarnConfig } from './club-order-drafts.utils';
+import { fetchPointsEarnConfig } from './club-order-drafts.utils';
 import {
   CLUB_MEMBER_NOT_FOUND_MESSAGE,
   CLUB_PRODUCT_NOT_FOUND_MESSAGE,
@@ -185,7 +185,8 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       data: {
         storeId: draft.storeId,
         customerId,
-        amount: balancePaidFen,
+        // BUG-3 修复：amount 应包含积分抵扣部分，反映消费总金额
+        amount: balancePaidFen + pointsDeductFen,
         balancePaid: balancePaidFen,
         pointsDeducted: pointsDeductFen,
         payType: 'balance',
@@ -233,15 +234,16 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<ClubServiceOrderMetadata, 'service'>,
   ): Promise<void> {
-    // 使用 where 条件 stock > 0 防止并发下单导致库存为负
+    // BUG-2 修复：根据购买数量扣减库存，而非硬编码 1
+    const quantity = draft.metadata.quantity ?? 1;
     const result = await tx.marketingProduct.updateMany({
       where: {
         id: draft.metadata.productId,
         storeId: draft.storeId,
-        stock: { gt: 0 },
+        stock: { gte: quantity },
       },
       data: {
-        stock: { decrement: 1 },
+        stock: { decrement: quantity },
       },
     });
     if (result.count === 0) {
@@ -275,12 +277,21 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     customerId: number,
     pointsUsed: number,
   ): Promise<void> {
-    await tx.marketingCustomer.update({
-      where: { id: customerId },
+    // BUG-6 修复：使用 updateMany + points >= pointsUsed 条件保证积分不会并发扣减为负数
+    const result = await tx.marketingCustomer.updateMany({
+      where: {
+        id: customerId,
+        points: { gte: pointsUsed },
+      },
       data: {
         points: { decrement: pointsUsed },
       },
     });
+    if (result.count === 0) {
+      throw new BadRequestException(
+        '积分不足或已被并发抵扣，当前积分无法完成扣减',
+      );
+    }
 
     // 记录积分扣减流水，与 awardConsumptionPoints 中的 earn 流水保持一致
     await tx.marketingPointsRecord.create({
@@ -296,9 +307,14 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
 
   /**
    * 根据消费金额和积分规则增加积分
-   * earnRatioCents 单位是"分"，表示消费多少分获得 1 积分
+   * earnRatioCents 单位是“分”，表示消费多少分获得 1 积分
    * 前端通过 yuanStrToCents 将元转为分存储，例如消费 200 元得 1 积分 → earnRatioCents=20000
    * 积分 = floor(实际支付金额（分）/ earnRatioCents)
+   *
+   * ⚠️ 设计决策区分「赚取积分」与「抵扣积分」：
+   *    - 赚取积分（本方法）：受 enabled 开关控制，enabled=false 时不赠送积分。这是正确的。
+   *    - 抵扣积分（calcPointsDeduction）：不受 enabled 开关控制，用户有积分即可抵扣。
+   *    禁止将本方法的 enabled 检查逻辑复制到 calcPointsDeduction。
    */
   private async awardConsumptionPoints(
     tx: Prisma.TransactionClient,
@@ -396,37 +412,12 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
 
   /**
    * 获取积分获得配置
-   * 从 marketingMemberLevelSetting 中读取，若未配置则使用默认值。
-   * 若存在活跃的 points_recharge 活动，强制 enabled=true（与 Admin GET 保持一致）。
+   * BUG-7 修复：复用共享的 fetchPointsEarnConfig
    */
   private async getPointsRatioConfig(
     tx: Prisma.TransactionClient,
     storeId: number,
   ): Promise<ClubPointsEarnConfig> {
-    const settings = await tx.marketingMemberLevelSetting.findUnique({
-      where: { storeId },
-      select: { pointsRatio: true },
-    });
-
-    const config = resolvePointsEarnConfig(settings?.pointsRatio);
-
-    if (!config.enabled) {
-      const now = new Date();
-      const promo = await tx.marketingPromotion.findFirst({
-        where: {
-          storeId,
-          type: 'points_recharge',
-          enabled: true,
-          startAt: { lte: now },
-          endAt: { gte: now },
-        },
-        select: { id: true },
-      });
-      if (promo) {
-        return { ...config, enabled: true };
-      }
-    }
-
-    return config;
+    return fetchPointsEarnConfig(tx, storeId);
   }
 }

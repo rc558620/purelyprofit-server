@@ -277,10 +277,12 @@ export class PlatformMembershipService {
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
     const storeId = this.getCurrentStoreIdOrThrow(user);
+    const reason = dto.reason?.trim();
+    const finalReason = reason && reason.length > 0 ? reason : '审核未通过';
     return this.platformMembershipPartnerService.rejectPartnerApplication(
       storeId,
       applicationId,
-      dto.reason.trim(),
+      finalReason,
     );
   }
 

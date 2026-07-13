@@ -164,7 +164,7 @@ export class WithdrawalsSharedService {
     prismaExecutor: PrismaExecutor,
     storeId: number,
   ): Promise<WithdrawalOverviewResponseDto> {
-    const [partner, pendingCount] = await Promise.all([
+    const [partner, pendingCount, pendingAgg] = await Promise.all([
       prismaExecutor.storePartner.findFirst({
         where: { storeId, deletedAt: null, status: 'approved' },
         select: withdrawalPartnerSelect,
@@ -176,9 +176,22 @@ export class WithdrawalsSharedService {
           status: { in: PROCESSING_WITHDRAWAL_STATUSES },
         },
       }),
+      // 待结算纯利豆 = 处理中(pending + approved)提现记录的 beanAmount 之和，
+      // 不再依赖"总获得 - 总提现 - 余额"的恒等式（该式恒为 0，无法反映处理中金额）。
+      prismaExecutor.partnerWithdrawal.aggregate({
+        where: {
+          storeId,
+          status: { in: PROCESSING_WITHDRAWAL_STATUSES },
+        },
+        _sum: { beanAmount: true },
+      }),
     ]);
 
-    return this.mapWithdrawalOverview(partner, pendingCount);
+    return this.mapWithdrawalOverview(
+      partner,
+      pendingCount,
+      pendingAgg._sum.beanAmount ?? 0,
+    );
   }
 
   async buildOperationResponse(
@@ -228,14 +241,10 @@ export class WithdrawalsSharedService {
   private mapWithdrawalOverview(
     partner: WithdrawalPartnerSnapshot | null,
     pendingCount: number,
+    pendingBeans: number,
   ): WithdrawalOverviewResponseDto {
     const beanBalance = partner?.beanBalance ?? 0;
-    const totalEarnedBeans = partner?.totalEarnedBeans ?? 0;
     const totalWithdrawnBeans = partner?.totalWithdrawnBeans ?? 0;
-    const pendingBeans = Math.max(
-      0,
-      totalEarnedBeans - totalWithdrawnBeans - beanBalance,
-    );
 
     return {
       approvedPartner: buildApprovedPartnerResponse(partner),

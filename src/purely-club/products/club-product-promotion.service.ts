@@ -4,6 +4,7 @@ import { parseDiscountRate } from '../club-discount.utils';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ClubPromotionRepository } from '../shared/club-promotion.repository';
 import {
   discountParamsSchema,
   firstOrderDiscountParamsSchema,
@@ -15,19 +16,13 @@ import type {
   ClubProductReducePromotion,
 } from './club-products.types';
 
-interface ClubPromotionRecord {
-  id: number;
-  name: string;
-  type: 'first_order_discount' | 'discount' | 'discount_day' | 'reduce';
-  params: unknown;
-}
-
 @Injectable()
 export class ClubProductPromotionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clubMemberProfileService: ClubMemberProfileService,
     private readonly clubMemberLevelsService: ClubMemberLevelsService,
+    private readonly clubPromotionRepository: ClubPromotionRepository,
   ) {}
 
   async resolvePricingContext(
@@ -48,7 +43,7 @@ export class ClubProductPromotionService {
     const [memberDiscountRate, promotions, consumptionCount] =
       await Promise.all([
         this.resolveMemberDiscountRate(storeId, phone),
-        this.loadActivePromotions(storeId),
+        this.clubPromotionRepository.loadActivePromotions(storeId),
         customer
           ? this.prisma.marketingConsumption.count({
               where: {
@@ -159,35 +154,13 @@ export class ClubProductPromotionService {
       : null;
   }
 
-  private loadActivePromotions(
-    storeId: number,
-  ): Promise<ClubPromotionRecord[]> {
-    const now = new Date();
-    return this.prisma.marketingPromotion.findMany({
-      where: {
-        storeId,
-        enabled: true,
-        type: {
-          in: ['first_order_discount', 'discount', 'discount_day', 'reduce'],
-        },
-        startAt: { lte: now },
-        endAt: { gte: now },
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: {
-        id: true,
-        name: true,
-        type: true,
-        params: true,
-      },
-    }) as Promise<ClubPromotionRecord[]>;
-  }
-
   private resolvePromotionDiscountRate(params: unknown): number | null {
-    // 优先使用 Zod schema 校验 discount/discount_day/first_order_discount 的 params
-    const zodResult =
-      discountParamsSchema.safeParse(params) ??
-      firstOrderDiscountParamsSchema.safeParse(params);
+    // BUG-10 修复：safeParse 总是返回 SafeParseResult，?? 不会起备选作用
+    // 改为显式检查 success 做备选
+    const discountResult = discountParamsSchema.safeParse(params);
+    const zodResult = discountResult.success
+      ? discountResult
+      : firstOrderDiscountParamsSchema.safeParse(params);
     if (zodResult.success) {
       const data = zodResult.data;
       let discountRate: number | null = null;

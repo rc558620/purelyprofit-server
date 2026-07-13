@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -144,6 +145,7 @@ describe('HandoverRecordsService - 写操作', () => {
   describe('completeHandoverRecord', () => {
     it('接收人成功完成交班', async () => {
       prismaService.storeHandoverRecord.findFirst.mockResolvedValue(mockRecord);
+      prismaService.storeHandoverRecord.count.mockResolvedValue(0);
       prismaService.storeHandoverRecord.update.mockResolvedValue({
         ...mockRecord,
         status: HandoverStatus.completed,
@@ -193,6 +195,7 @@ describe('HandoverRecordsService - 写操作', () => {
         ctx.service.completeHandoverRecord(otherCashierUser, 1, {}),
       ).rejects.toThrow(ForbiddenException);
 
+      prismaService.storeHandoverRecord.count.mockResolvedValue(0);
       prismaService.storeHandoverRecord.update.mockResolvedValue({
         ...selfRecord,
         status: HandoverStatus.completed,
@@ -225,6 +228,15 @@ describe('HandoverRecordsService - 写操作', () => {
       await expect(
         ctx.service.completeHandoverRecord(subAccountUser, 999, {}),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('F1: 同一员工当天已有已完成交班记录时，应抛出 ConflictException', async () => {
+      prismaService.storeHandoverRecord.findFirst.mockResolvedValue(mockRecord);
+      prismaService.storeHandoverRecord.count.mockResolvedValue(1);
+
+      await expect(
+        ctx.service.completeHandoverRecord(subAccountUser, 1, {}),
+      ).rejects.toThrow(ConflictException);
     });
   });
 

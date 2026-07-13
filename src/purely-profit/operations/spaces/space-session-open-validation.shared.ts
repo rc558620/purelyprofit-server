@@ -99,10 +99,19 @@ export const ensureOpenSessionPayload = (
       }
     }
 
-    // B3 fix: 自动结账必须配合预付方式，否则自动结账扫描会跳过该会话，
-    // 导致空间永久占用且运营无感知。
-    if (payload.autoCheckout && !hasPrepaid) {
-      throw new BadRequestException('开启自动结账必须同时设置预付款方式');
+    // BUG-4 / 规则7 fix: 无预付也可开启自动结账。
+    // 前端开台已保证「自动结账金额 ≥ 台位费」，因此无预付会话在到达自动结账时间后
+    // 会被正常结算台位费，不再被自动结账扫描永久跳过（避免空间被永久占用）。
+    // 后端此处镜像同一约束：仅当 autoCheckout 既无预付又无有效台位费（hourlyRate ≤ 0）时拒绝；
+    // 而 hourlyRate > 0 已在上方校验，故该组合理论不可达。
+    if (
+      payload.autoCheckout &&
+      !hasPrepaid &&
+      (payload.hourlyRate === undefined || payload.hourlyRate <= 0)
+    ) {
+      throw new BadRequestException(
+        '开启自动结账必须设置预付款方式或有效的台位费',
+      );
     }
 
     return;

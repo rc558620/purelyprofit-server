@@ -161,13 +161,15 @@ export class AuthController {
   @ApiOperation({
     summary: 'purely-profit 登录',
     description:
-      '仅接受 purely-profit 老板端/商家端账号登录。purely-club 注册账号与非开发者账号不能通过该入口登录。',
+      '仅接受 purely-profit 老板端/商家端账号登录。purely-club 注册账号与非开发者账号不能通过该入口登录。' +
+      '登录前需完成拼图验证，携带 captchaToken。',
   })
   @ApiOkResponse({
     description: 'purely-profit 登录成功，返回 JWT token',
     type: AuthTokenResponseDto,
   })
-  login(@Body() dto: LoginDto): Promise<AuthTokenResponseDto> {
+  async login(@Body() dto: LoginDto): Promise<AuthTokenResponseDto> {
+    await this.captchaTokenService.validateAndConsume(dto.captchaToken);
     const decryptedDto = {
       ...dto,
       password: this.authRsaService.tryDecryptPassword(dto.password),

@@ -13,22 +13,23 @@ import type {
   ClubProductReducePromotion,
 } from './club-products.types';
 
-interface ClubProductPricingCandidate {
-  amountFen: number;
+interface ClubProductBestDiscount {
   promotionId: string;
   promotionType: 'first_order_discount' | 'discount';
   discountRate: number;
   promotionTag: string;
+  /** 活动折扣后的价格（分） */
+  amountFen: number;
 }
 
 interface ClubProductPricingResult {
-  /** 会员售价（仅含等级折扣，不含活动优惠） */
+  /** 会员售价 = product.price（已是会员价） */
   memberPriceFen: number;
-  /** 最终价格（叠加所有优惠后） */
+  /** 最终价格（竞争胜出价 - 满减） */
   finalPriceFen: number;
-  /** 命中的折扣活动（等级/活动/首单三选一竞争胜出者） */
-  bestDiscount: ClubProductPricingCandidate | null;
-  /** 等级折扣是否被活动覆盖 */
+  /** 命中的活动折扣（竞争模型中的胜出活动） */
+  bestDiscount: ClubProductBestDiscount | null;
+  /** 活动折扣是否优于会员价 */
   levelOverridden: boolean;
   /** 总满减减免金额（分） */
   totalReduceFen: number;
@@ -69,14 +70,18 @@ export class ClubProductViewService {
       originalPrice: Money.fromDbCents(
         product.originalPrice ?? product.price,
       ).toOutputYuan(),
-      memberPrice: Money.fromDbCents(pricing.memberPriceFen).toOutputYuan(),
+      // ── 价格展示基准规则（设计决策，勿修改）──
+      // "会员价"使用 product.price 展示，product.price 本身就是会员价。
+      memberPrice: Money.fromDbCents(product.price).toOutputYuan(),
+      // ── finalPrice（设计决策，勿修改）──
+      // 首页/列表页展示价 = 竞争胜出价 + 满减 后的最终价，
+      // 来自 pricing.finalPriceFen（计算链完整，无需覆盖）。
       finalPrice: Money.fromDbCents(pricing.finalPriceFen).toOutputYuan(),
       ...(pricingContext.memberDiscountRate !== null
         ? { memberDiscountRate: pricingContext.memberDiscountRate }
         : {}),
       levelOverridden: pricing.levelOverridden,
-      ...(pricing.bestDiscount &&
-      pricing.bestDiscount.promotionId !== 'member_level'
+      ...(pricing.bestDiscount
         ? {
             promotionId: pricing.bestDiscount.promotionId,
             promotionType: pricing.bestDiscount.promotionType,
@@ -85,7 +90,11 @@ export class ClubProductViewService {
           }
         : {}),
       ...(pricing.totalReduceFen > 0
-        ? { reduceAmount: Money.fromDbCents(pricing.totalReduceFen).toOutputYuan() }
+        ? {
+            reduceAmount: Money.fromDbCents(
+              pricing.totalReduceFen,
+            ).toOutputYuan(),
+          }
         : {}),
       ...(pricing.appliedPromotions.length > 0
         ? { appliedPromotions: pricing.appliedPromotions }
@@ -113,70 +122,85 @@ export class ClubProductViewService {
     };
   }
 
+  /**
+   * 解析商品定价（竞争模型）
+   *
+   * 计算流水线：
+   *   product.price（会员价） → [活动折扣竞争] → 胜出价 → [满减] → 最终价
+   *
+   * 竞争模型（与订单预计算/下单 ClubOrderPromotionsService 保持一致）：
+   *   - product.price 本身就是会员价，不再施加会员等级折扣
+   *   - 活动折扣直接基于 product.price 计算
+   *   - 会员价与活动价取力度最大的一个（amountFen 最低者胜出）
+   *   - 满减基于竞争胜出价判断门槛，满足则叠加
+   */
   private resolvePricing(
     amountFen: number,
     pricingContext: ClubProductPricingContext,
   ): ClubProductPricingResult {
-    // 1. 会员基准价 = 原价 × 等级折扣率
-    const baselineAmountFen = this.applyMemberDiscount(
-      amountFen,
-      pricingContext.memberDiscountRate,
-    );
+    // 1. 会员基准价 = product.price（已是会员价，不再施加会员等级折扣）
+    //
+    // ══════════════════════════════════════════════════════════════
+    // ⚠️ 禁止对 amountFen 施加 memberDiscountRate！
+    //
+    // product.price 是 admin 设定的会员价，不是原价。
+    // 如果再 × memberDiscountRate 会造成双重折扣。
+    // 与 ClubOrderPromotionsService.resolvePricing 保持一致。
+    // ══════════════════════════════════════════════════════════════
+    const baselineAmountFen = amountFen;
     const hasLevelDiscount =
       pricingContext.memberDiscountRate !== null &&
       pricingContext.memberDiscountRate < 1;
 
-    // 2. 折扣竞争：等级折扣 / 活动折扣 / 首单折扣 三选一，取力度最大（最终价最低）
-    //    规则：所有折扣都基于原价计算，然后选出最低价格的方案
-    let bestDiscount: ClubProductPricingCandidate | null = null;
+    // 2. 活动折扣竞争：直接基于 product.price 计算，取力度最大的活动
+    //    活动折扣与会员价竞争（取 amountFen 最低者），不做折上折
+    let bestDiscount: ClubProductBestDiscount | null = null;
 
-    // 2a. 会员等级折扣（如果有的话，也参与竞争）
-    if (hasLevelDiscount) {
-      bestDiscount = {
-        amountFen: baselineAmountFen,
-        promotionId: 'member_level',
-        promotionType: 'discount' as const,
-        discountRate: this.toRate100(pricingContext.memberDiscountRate),
-        promotionTag: this.buildLevelDiscountTag(
-          pricingContext.memberDiscountRate,
-        ),
-      };
-    }
-
-    // 2b. 活动折扣（discount 类型，与等级折扣竞争）
+    // 2a. 活动折扣（discount 类型，基于 product.price 竞争）
     pricingContext.discountPromotions.forEach((promotion) => {
-      const candidate = this.buildDiscountCandidate(amountFen, promotion);
-      if (candidate && this.isBetterCandidate(candidate, bestDiscount)) {
+      const candidate = this.buildDiscountCandidate(
+        baselineAmountFen,
+        promotion,
+      );
+      if (
+        candidate &&
+        (!bestDiscount || candidate.amountFen < bestDiscount.amountFen)
+      ) {
         bestDiscount = candidate;
       }
     });
 
-    // 2c. 首单优惠（first_order_discount 类型，与等级折扣和活动折扣竞争）
-    //     防御性校验：仅当 isFirstOrderBuyer 为 true 时才允许首单折扣参与竞争
+    // 2b. 首单优惠（first_order_discount 类型，基于 product.price 竞争）
+    //     防御性校验：仅当 isFirstOrderBuyer 为 true 时才允许参与
     if (pricingContext.isFirstOrderBuyer) {
       pricingContext.firstOrderPromotions.forEach((promotion) => {
-        const candidate = this.buildFirstOrderCandidate(amountFen, promotion);
-        if (candidate && this.isBetterCandidate(candidate, bestDiscount)) {
+        const candidate = this.buildFirstOrderCandidate(
+          baselineAmountFen,
+          promotion,
+        );
+        if (
+          candidate &&
+          (!bestDiscount || candidate.amountFen < bestDiscount.amountFen)
+        ) {
           bestDiscount = candidate;
         }
       });
     }
 
-    // 判断等级折扣是否被活动覆盖
-    // 用 const 重新绑定，避免 TypeScript forEach 回调内突变窄化问题
-    const chosenDiscount = bestDiscount as ClubProductPricingCandidate | null;
+    // 重新绑定类型，修复 TypeScript forEach 闭包突变窄化问题
+    const chosenDiscount = bestDiscount as ClubProductBestDiscount | null;
 
-    const levelOverridden =
-      hasLevelDiscount &&
-      chosenDiscount !== null &&
-      chosenDiscount.amountFen < baselineAmountFen;
+    // 竞争模型：活动价低于会员价时，活动胜出
+    const activityBelowMember = hasLevelDiscount
+      ? chosenDiscount !== null && chosenDiscount.amountFen < baselineAmountFen
+      : false;
+    const levelOverridden = activityBelowMember;
 
-    // 折扣后价格（无活动折扣时用会员基准价）
+    // 折扣后价格（竞争胜出者，无活动折扣时用会员价）
     const afterDiscountFen = chosenDiscount?.amountFen ?? baselineAmountFen;
 
     // 3. 满减叠加：所有满足门槛的满减活动均可叠加
-    //    满减门槛基于折扣后价格（afterDiscountFen）判断，
-    //    避免原价满足门槛但实际支付价不满足时仍叠加满减
+    //    满减门槛基于折扣后价格（afterDiscountFen）判断
     let totalReduceFen = 0;
     const reduceApplied: Array<{
       promotion: ClubProductReducePromotion;
@@ -196,36 +220,30 @@ export class ClubProductViewService {
     // 4. 最终价格 = 折扣后价 - 满减总额
     const finalPriceFen = Math.max(afterDiscountFen - totalReduceFen, 0);
 
-    // 5. 构建已应用活动列表（包含会员等级折扣）
+    // 5. 构建已应用活动列表
     const appliedPromotions: ClubAppliedPromotion[] = [];
 
-    // 5a. 会员等级折扣（有实际节省时展示，被覆盖时划线）
-    //     折扣率接近 1 时（如 0.99），分单位精度下节省为 0，
-    //     前端显示"9.9折会员价，节省 ¥0"体验差，因此过滤
+    // 5a. 会员等级折扣（有实际节省时展示，被活动覆盖时划线）
     if (hasLevelDiscount) {
-      const levelSavingFen = Math.max(amountFen - baselineAmountFen, 0);
-      if (levelSavingFen > 0) {
-        appliedPromotions.push({
-          id: 'member_level',
-          type: 'member_level',
-          tag: this.buildLevelDiscountTag(pricingContext.memberDiscountRate),
-          discountRate: this.toRate100(pricingContext.memberDiscountRate),
-          savingAmount: Money.fromDbCents(levelSavingFen).toOutputYuan(),
-          overridden: levelOverridden,
-        });
-      }
+      appliedPromotions.push({
+        id: 'member_level',
+        type: 'member_level',
+        tag: this.buildLevelDiscountTag(pricingContext.memberDiscountRate),
+        discountRate: this.toRate100(pricingContext.memberDiscountRate),
+        savingAmount: 0,
+        overridden: levelOverridden,
+      });
     }
 
-    // 5b. 折扣活动（胜出的活动折扣 / 首单优惠）
-    //     排除会员等级折扣（已在 5a 添加），避免重复展示
-    if (chosenDiscount && chosenDiscount.promotionId !== 'member_level') {
+    // 5b. 活动折扣（胜出活动 / 首单优惠，基于 product.price 的节省额）
+    if (chosenDiscount) {
       appliedPromotions.push({
         id: chosenDiscount.promotionId,
         type: chosenDiscount.promotionType,
         tag: chosenDiscount.promotionTag,
         discountRate: chosenDiscount.discountRate,
         savingAmount: Money.fromDbCents(
-          Math.max(amountFen - chosenDiscount.amountFen, 0),
+          Math.max(baselineAmountFen - chosenDiscount.amountFen, 0),
         ).toOutputYuan(),
       });
     }
@@ -250,27 +268,16 @@ export class ClubProductViewService {
     };
   }
 
-  private isBetterCandidate(
-    candidate: ClubProductPricingCandidate,
-    currentBest: ClubProductPricingCandidate | null,
-  ): boolean {
-    if (!currentBest) {
-      return true;
-    }
-
-    return candidate.amountFen < currentBest.amountFen;
-  }
-
   private buildDiscountCandidate(
-    originalAmountFen: number,
+    baseAmountFen: number,
     promotion: ClubProductDiscountPromotion,
-  ): ClubProductPricingCandidate | null {
+  ): ClubProductBestDiscount | null {
     const amountFen = this.applyPercentDiscount(
-      originalAmountFen,
+      baseAmountFen,
       promotion.discountRate,
     );
-    // 必须比原价便宜才有效
-    if (amountFen >= originalAmountFen) {
+    // 必须比基准价便宜才有效
+    if (amountFen >= baseAmountFen) {
       return null;
     }
 
@@ -284,14 +291,14 @@ export class ClubProductViewService {
   }
 
   private buildFirstOrderCandidate(
-    originalAmountFen: number,
+    baseAmountFen: number,
     promotion: ClubProductDiscountPromotion,
-  ): ClubProductPricingCandidate | null {
+  ): ClubProductBestDiscount | null {
     const amountFen = this.applyPercentDiscount(
-      originalAmountFen,
+      baseAmountFen,
       promotion.discountRate,
     );
-    if (amountFen >= originalAmountFen) {
+    if (amountFen >= baseAmountFen) {
       return null;
     }
 
@@ -335,20 +342,6 @@ export class ClubProductViewService {
 
   private getProductStock(product: ClubProductRecord): number {
     return product.stock;
-  }
-
-  private applyMemberDiscount(
-    amountFen: number,
-    memberDiscountRate: number | null,
-  ): number {
-    if (memberDiscountRate === null) {
-      return amountFen;
-    }
-
-    return new Decimal(amountFen)
-      .mul(memberDiscountRate)
-      .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-      .toNumber();
   }
 
   private applyPercentDiscount(

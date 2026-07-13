@@ -41,6 +41,8 @@ export interface ClubServiceOrderMetadata {
   pointsDeductFen: number;
   /** 实际消耗的积分数量 */
   pointsUsed: number;
+  /** 购买数量；默认 1 */
+  quantity: number;
 }
 
 export interface ClubOrderDraftPayload<

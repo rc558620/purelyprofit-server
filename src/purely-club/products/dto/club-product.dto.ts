@@ -103,7 +103,7 @@ export class ClubProductDto {
 
   @ApiProperty({
     example: 199,
-    description: '会员价，单位元；命中首单优惠时返回折后价',
+    description: '会员基准价（仅含等级折扣），单位元',
   })
   memberPrice: number;
 
@@ -178,7 +178,8 @@ export class ClubProductDto {
 
   @ApiPropertyOptional({
     example: 89,
-    description: '总节省金额（元）= 原价 - 最终价（不含积分抵扣）；无优惠时不返回',
+    description:
+      '总节省金额（元）= 原价 - 最终价（不含积分抵扣）；无优惠时不返回',
   })
   @IsOptional()
   totalSavingAmount?: number;

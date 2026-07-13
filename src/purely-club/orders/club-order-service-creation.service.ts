@@ -1,12 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import Decimal from 'decimal.js';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from './club-order-drafts.service';
 import { buildOrderNo } from './club-order-drafts.utils';
-import type { ClubPointsRedeemConfig } from './club-order-drafts.utils';
-import { resolvePointsRedeemConfig } from './club-order-drafts.utils';
+import { fetchPointsRedeemConfig } from './club-order-drafts.utils';
+import { calcPointsRedeemDetail } from './club-order-points.utils';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
 import type {
@@ -101,6 +100,7 @@ export class ClubOrderServiceCreationService {
         },
         pointsDeductFen,
         pointsUsed,
+        quantity,
       ),
       orderNo,
       paymentParams,
@@ -114,7 +114,14 @@ export class ClubOrderServiceCreationService {
    * 根据 marketingMemberLevelSettings 中的积分规则动态计算：
    * - redeemRatioPoints: 多少积分抵扣 1 元
    * - maxRedeemRatio: 单次消费最大积分抵扣比例（0-1）
-   * - enabled: 积分规则是否启用
+   *
+   * ════════════════════════════════════════════════════════════════
+   *  ⚠️  项目设计决策（禁止修改）：
+   *      积分抵扣不受 enabled 开关限制。
+   *      即使 enabled=false，只要用户有积分且 redeemRatioPoints/maxRedeemRatio
+   *      配置正常，就允许抵扣。
+   *      禁止在此方法中重新引入 !pointsConfig.enabled 拦截逻辑。
+   * ════════════════════════════════════════════════════════════════
    */
   private async calcPointsDeduction(
     storeId: number,
@@ -126,72 +133,21 @@ export class ClubOrderServiceCreationService {
       return { pointsDeductFen: 0, pointsUsed: 0 };
     }
 
-    // 获取积分规则配置（仅取抵扣比例和兑换比率，不受 enabled 开关控制）
-    const pointsRatio = await this.getPointsRatioConfig(storeId);
+    // ⚠️ 注意：fetchPointsRedeemConfig 返回的 enabled 字段在此处被有意忽略。
+    // 详见上方 JSDoc「项目设计决策」说明。仅取 redeemRatioPoints / maxRedeemRatio。
+    const pointsConfig = await fetchPointsRedeemConfig(this.prisma, storeId);
 
-    // 通过 customerId 直接查询积分，避免重复通过 storeId+phone 查询
     const customer = await this.prisma.marketingCustomer.findUnique({
       where: { id: customerId },
       select: { points: true },
     });
 
     const availablePoints = customer?.points ?? 0;
-    if (availablePoints <= 0) {
-      return { pointsDeductFen: 0, pointsUsed: 0 };
-    }
 
-    // 最多可抵扣金额（分）= 折后价 × 配置的抵扣比例上限，向下取整到整分
-    const maxDeductFen = Math.floor(
-      new Decimal(priceAfterDiscountFen)
-        .mul(pointsRatio.maxRedeemRatio)
-        .toNumber(),
+    return calcPointsRedeemDetail(
+      priceAfterDiscountFen,
+      pointsConfig,
+      availablePoints,
     );
-
-    // 1 积分对应的抵扣金额（分）= 100 / redeemRatioPoints
-    // 例如 redeemRatioPoints=100 表示 100 积分 = 1 元，即 1 积分 = 1 分
-    // 例如 redeemRatioPoints=50 表示 50 积分 = 1 元，即 1 积分 = 2 分
-    const pointsToFenRatio = 100 / pointsRatio.redeemRatioPoints;
-    const availableDeductFen = availablePoints * pointsToFenRatio;
-
-    const pointsDeductFen = Math.min(maxDeductFen, availableDeductFen);
-    // 实际消耗积分 = 抵扣分数 ÷ 积分汇率，向上取整避免少扣
-    const pointsUsed = Math.ceil(pointsDeductFen / pointsToFenRatio);
-
-    return { pointsDeductFen, pointsUsed };
-  }
-
-  /**
-   * 获取积分抵扣配置
-   * 从 marketingMemberLevelSetting 中读取，若未配置则使用默认值。
-   * 若存在活跃的 points_recharge 活动，强制 enabled=true（与 Admin GET 保持一致）。
-   */
-  private async getPointsRatioConfig(
-    storeId: number,
-  ): Promise<ClubPointsRedeemConfig> {
-    const settings = await this.prisma.marketingMemberLevelSetting.findUnique({
-      where: { storeId },
-      select: { pointsRatio: true },
-    });
-
-    const config = resolvePointsRedeemConfig(settings?.pointsRatio);
-
-    if (!config.enabled) {
-      const now = new Date();
-      const promo = await this.prisma.marketingPromotion.findFirst({
-        where: {
-          storeId,
-          type: 'points_recharge',
-          enabled: true,
-          startAt: { lte: now },
-          endAt: { gte: now },
-        },
-        select: { id: true },
-      });
-      if (promo) {
-        return { ...config, enabled: true };
-      }
-    }
-
-    return config;
   }
 }

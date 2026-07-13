@@ -15,6 +15,10 @@ describe('HandoverConfirmShiftService', () => {
     employeeShift: {
       findMany: jest.fn(),
     },
+    storeHandoverRecord: {
+      count: jest.fn(),
+      findMany: jest.fn(),
+    },
   };
   const storeSubAccountService = {
     findAssignedSubAccountByEmployee: jest.fn(),
@@ -99,5 +103,73 @@ describe('HandoverConfirmShiftService', () => {
     });
 
     expect(result?.id).toBe(shiftA.id);
+  });
+
+  it('F2: ensureShiftNotHandedOver owner 分支应使用 shiftRecord.date 而非 handoverAt 作为基准', async () => {
+    // 老板账号交班、班次 employeeId 为空、跨夜班次
+    const crossNightShift = {
+      id: 50,
+      employeeId: null,
+      employeeName: '夜班员工',
+      shiftType: EmployeeShiftType.late,
+      shiftName: '夜班',
+      date: new Date(2026, 6, 11), // 7月11日
+      startTime: '20:00',
+      endTime: '02:00',
+      createdAt: new Date(2026, 6, 11, 19, 0, 0),
+    };
+    const handoverAt = new Date(2026, 6, 12, 2, 30, 0); // 7月12日 02:30
+    prismaService.storeHandoverRecord.count.mockResolvedValue(0);
+
+    await service.ensureShiftNotHandedOver(
+      prismaService as any,
+      100,
+      crossNightShift as any,
+      handoverAt,
+    );
+
+    // 验证查询用的是 shiftRecord.date(7/11) 计算的班次窗口 [7/11 20:00, 7/12 02:00]
+    // 而非 handoverAt(7/12) 计算的错位窗口 [7/12 20:00, 7/13 02:00]
+    const callArgs = prismaService.storeHandoverRecord.count.mock.calls[0][0];
+    const timeRange = callArgs.where.handoverAt;
+    // startAt 应是 7/11 20:00 而非 7/12 20:00
+    expect(timeRange.gte.getHours()).toBe(20);
+    expect(timeRange.gte.getDate()).toBe(11);
+    // endAt 应是 7/12 02:00 而非 7/13 02:00
+    expect(timeRange.lte.getHours()).toBe(2);
+    expect(timeRange.lte.getDate()).toBe(12);
+  });
+
+  it('F4: 未传 shiftReferenceAt 且当天未找到班次时，应向前回溯一天查找', async () => {
+    const yesterdayShift = {
+      id: 99,
+      employeeId: 20,
+      employeeName: '员工X',
+      shiftType: EmployeeShiftType.late,
+      shiftName: '晚班',
+      date: new Date(2026, 6, 11),
+      startTime: '20:00',
+      endTime: '02:00',
+      createdAt: new Date(2026, 6, 11, 19, 0, 0),
+    };
+    // loadShiftCandidates 被调用两次（先查指定员工，再查全店） + 扩展范围一次
+    prismaService.employeeShift.findMany
+      .mockResolvedValueOnce([]) // 第一次：指定员工当天无班次
+      .mockResolvedValueOnce([]) // 第二次：全店当天无班次
+      .mockResolvedValueOnce([yesterdayShift]); // 第三次：扩展范围
+    // pickEarliestUnhandedShift 查询已完成交班记录 → 返回空（该班次未交班）
+    prismaService.storeHandoverRecord.findMany.mockResolvedValue([]);
+
+    const handoverAt = new Date(2026, 6, 12, 2, 30, 0);
+    const result = await service.findSourceShiftRecord(100, 20, {
+      shiftType: EmployeeShiftType.late,
+      handoverAt,
+      // 注意：不传 shiftReferenceAt
+    });
+
+    expect(result?.id).toBe(yesterdayShift.id);
+    expect(prismaService.employeeShift.findMany).toHaveBeenCalledTimes(3);
+    // 确认 pickEarliestUnhandedShift 检查了交班完成记录
+    expect(prismaService.storeHandoverRecord.findMany).toHaveBeenCalledTimes(1);
   });
 });

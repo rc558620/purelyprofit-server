@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import {
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
@@ -57,7 +58,10 @@ export class AdjustMemberPointsDto extends MemberAssetIdentityDto {
     example: 200,
     description: '调整积分，正数为增加，负数为减少',
   })
-  @ValidateIf((dto: AdjustMemberPointsDto) => dto.amount === undefined)
+  // 仅当本字段存在时才校验；与 amount 互斥由 resolveAdjustmentDelta 处理。
+  // 不再以“另一个字段是否缺失”作为跳过校验的条件，避免两者同时传入时
+  // 校验被整体绕过的缺陷（delta=0 或非法值直接写入）。与纯利豆 DTO 保持一致。
+  @ValidateIf((dto: AdjustMemberPointsDto) => dto.delta !== undefined)
   @Transform(transformOptionalInt)
   @IsInt({ message: '调整积分必须是整数' })
   @NotEquals(0, { message: '调整积分不能为 0' })
@@ -67,11 +71,21 @@ export class AdjustMemberPointsDto extends MemberAssetIdentityDto {
     example: 200,
     description: '兼容旧请求的调整值字段，需配合 direction 使用',
   })
-  @ValidateIf((dto: AdjustMemberPointsDto) => dto.delta === undefined)
+  @ValidateIf((dto: AdjustMemberPointsDto) => dto.amount !== undefined)
   @Transform(transformOptionalInt)
   @IsInt({ message: '调整积分必须是整数' })
   @NotEquals(0, { message: '调整积分不能为 0' })
   amount?: number;
+
+  @ApiPropertyOptional({
+    example: 'adj-7f3c-20260712',
+    description:
+      '客户端幂等键，相同键 60s 内去重；用于避免重复点击误伤合法重复调整',
+  })
+  @IsOptional()
+  @IsString({ message: '幂等键必须是字符串' })
+  @MaxLength(64, { message: '幂等键最多 64 位' })
+  idempotencyKey?: string;
 
   @ApiPropertyOptional({
     enum: ADJUSTMENT_DIRECTION_VALUES,
@@ -81,8 +95,18 @@ export class AdjustMemberPointsDto extends MemberAssetIdentityDto {
   @IsIn(ADJUSTMENT_DIRECTION_VALUES, { message: '调整方向不合法' })
   direction?: AdjustmentDirectionValue;
 
+  @ApiPropertyOptional({
+    example: 1749724800000,
+    description: '积分过期时间（毫秒时间戳），仅手动调整积分时可选',
+  })
+  @IsOptional()
+  @IsInt({ message: '积分过期时间必须是整数' })
+  expireAt?: number;
+
   @ApiProperty({ example: '管理员手动补发积分', description: '调整原因' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: '调整原因必须是字符串' })
+  @IsNotEmpty({ message: '调整原因不能为空' })
   @MaxLength(100, { message: '调整原因最多 100 位' })
   reason: string;
 }

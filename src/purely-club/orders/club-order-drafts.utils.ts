@@ -289,6 +289,10 @@ export const buildDraftKey = (orderId: string): string =>
 
 // ─── 公共积分配置解析 ──────────────────────────────────────────────────
 
+/** 可用于查询积分配置的 Prisma 客户端（PrismaService 或事务客户端） */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type PointsConfigPrismaClient = any;
+
 /** 积分抵扣配置（创建订单时使用） */
 export interface ClubPointsRedeemConfig {
   redeemRatioPoints: number;
@@ -348,4 +352,89 @@ export function resolvePointsEarnConfig(
     earnRatioCents: fallback.earnRatioCents,
     enabled: fallback.enabled,
   };
+}
+
+/**
+ * 查询门店积分抵扣配置（含活动覆盖逻辑）
+ *
+ * 从 marketingMemberLevelSetting 中读取配置，若 enabled=false 但存在
+ * 活跃的 points_recharge 活动，则强制 enabled=true。
+ * 供 preview / creation / member service 复用（BUG-7 DRY 提取）。
+ *
+ * ⚠️ 设计决策：返回的 enabled 字段仅用于：
+ *   1. 后台管理页展示积分功能开关状态
+ *   2. settlement 中「赚取积分」逻辑（awardConsumptionPoints）
+ *   调用方（preview / creation）在「抵扣积分」时应忽略 enabled，
+ *   只取 redeemRatioPoints / maxRedeemRatio 进行计算。
+ */
+export async function fetchPointsRedeemConfig(
+  prisma: PointsConfigPrismaClient,
+  storeId: number,
+): Promise<ClubPointsRedeemConfig> {
+  const settings = await prisma.marketingMemberLevelSetting.findUnique({
+    where: { storeId },
+    select: { pointsRatio: true },
+  });
+
+  const config = resolvePointsRedeemConfig(settings?.pointsRatio);
+
+  if (!config.enabled) {
+    const now = new Date();
+    const promo = await prisma.marketingPromotion.findFirst({
+      where: {
+        storeId,
+        type: 'points_recharge',
+        enabled: true,
+        startAt: { lte: now },
+        endAt: { gte: now },
+      },
+      select: { id: true },
+    });
+    if (promo) {
+      return { ...config, enabled: true };
+    }
+  }
+
+  return config;
+}
+
+/**
+ * 查询门店积分获得配置（含活动覆盖逻辑）
+ *
+ * 与 fetchPointsRedeemConfig 对称，供 settlement service 复用。
+ *
+ * ⚠️ 设计决策区分「赚取」与「抵扣」：
+ *   - enabled 控制「赚取积分」（settlement.awardConsumptionPoints），未启用时不赠送。
+ *   - enabled 不控制「抵扣积分」（creation.calcPointsDeduction），用户有积分即可抵扣。
+ *   禁止将 enabled 检查逻辑复制到抵扣路径。
+ */
+export async function fetchPointsEarnConfig(
+  prisma: PointsConfigPrismaClient,
+  storeId: number,
+): Promise<ClubPointsEarnConfig> {
+  const settings = await prisma.marketingMemberLevelSetting.findUnique({
+    where: { storeId },
+    select: { pointsRatio: true },
+  });
+
+  const config = resolvePointsEarnConfig(settings?.pointsRatio);
+
+  if (!config.enabled) {
+    const now = new Date();
+    const promo = await prisma.marketingPromotion.findFirst({
+      where: {
+        storeId,
+        type: 'points_recharge',
+        enabled: true,
+        startAt: { lte: now },
+        endAt: { gte: now },
+      },
+      select: { id: true },
+    });
+    if (promo) {
+      return { ...config, enabled: true };
+    }
+  }
+
+  return config;
 }

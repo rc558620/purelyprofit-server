@@ -1,6 +1,10 @@
 import type { PlatformMembershipPartnerProfileResponseDto } from './dto/platform-membership-response.dto';
 
-export type PartnerReviewCompatStatus = 'pending' | 'approved' | 'rejected';
+export type PartnerReviewCompatStatus =
+  | 'pending'
+  | 'reviewing'
+  | 'approved'
+  | 'rejected';
 
 export interface PartnerReviewCompatItem {
   id: string;
@@ -18,17 +22,20 @@ export interface PartnerReviewCompatResponse {
   stats: {
     totalCount: number;
     pendingCount: number;
+    reviewingCount: number;
     approvedCount: number;
     rejectedCount: number;
   };
 }
 
-function normalizePartnerReviewStatus(
+export function normalizePartnerReviewStatus(
   status: PlatformMembershipPartnerProfileResponseDto['applications'][number]['status'],
 ): PartnerReviewCompatStatus {
   switch (status) {
     case 'approved':
       return 'approved';
+    case 'reviewing':
+      return 'reviewing';
     case 'rejected':
       return 'rejected';
     default:
@@ -70,6 +77,9 @@ export function buildPartnerReviewResponse(
   const pendingCount = applications.filter(
     (application) => application.status === 'pending',
   ).length;
+  const reviewingCount = applications.filter(
+    (application) => application.status === 'reviewing',
+  ).length;
   const approvedCount = applications.filter(
     (application) => application.status === 'approved',
   ).length;
@@ -82,19 +92,9 @@ export function buildPartnerReviewResponse(
     stats: {
       totalCount: applications.length,
       pendingCount,
+      reviewingCount,
       approvedCount,
       rejectedCount,
     },
   };
-}
-
-export function resolvePartnerReviewRejectReason(
-  body?: Record<string, unknown>,
-): string {
-  const reason = body?.reason;
-  if (typeof reason === 'string' && reason.trim() !== '') {
-    return reason.trim();
-  }
-
-  return '审核未通过';
 }

@@ -45,6 +45,7 @@ export interface MemberAssetServiceConfig<
   overviewQuery: (
     prisma: PrismaService,
     storeId: number,
+    timezone: string,
   ) => Promise<TOverview | null>;
   logsQuery: (
     prisma: PrismaService,
@@ -61,7 +62,10 @@ export interface MemberAssetServiceConfig<
   mapLog: (log: TLog) => TRecord;
   assetLabel: string;
   insufficientMessage: string;
-  getCurrentValue: (member: MemberRecord) => number;
+  /** 调整前是否要求会员已关联营销顾客档案（积分需要，纯利豆不需要） */
+  requiresCustomer: boolean;
+  /** 未关联顾客档案时的清晰错误文案 */
+  missingCustomerMessage: string;
   buildApplyInput: (adjustment: ResolvedMemberAssetAdjustment) => TApplyInput;
   apply: (
     transaction: Prisma.TransactionClient,
@@ -85,7 +89,8 @@ interface ResolveMemberAssetAdjustmentParams {
   memberId?: number;
   assetLabel: string;
   insufficientMessage: string;
-  getCurrentValue: (member: MemberRecord) => number;
+  requiresCustomer: boolean;
+  missingCustomerMessage: string;
   resolveMember: (
     user: AuthenticatedUser,
     memberId: number,
@@ -100,7 +105,9 @@ function buildMemberAssetLogsWhereClause<TType, TSource>(
   params: QueryMemberAssetLogsInput<TType, TSource>,
   config: MemberAssetLogsWhereClauseConfig<TType, TSource>,
 ): Prisma.Sql {
-  const filters: Prisma.Sql[] = [buildStoreIdWhereClause(params.storeId)];
+  // 列表查询统一按日志表自身的 store_id（别名 l）过滤，与概览统计口径一致，
+  // 避免会员迁店后出现“列表用会员当前门店、概览用日志创建时门店”的数量不一致。
+  const filters: Prisma.Sql[] = [buildStoreIdWhereClause(params.storeId, 'l')];
 
   if (params.memberId) {
     filters.push(Prisma.sql`l.member_id = ${params.memberId}`);
@@ -136,10 +143,11 @@ export function createMemberAssetLogsQueryConfig<TType, TSource>(params: {
 export async function queryConfiguredMemberAssetOverview<TRow>(
   prisma: PrismaService,
   storeId: number,
+  timezone: string,
   config: MemberAssetOverviewQueryConfig,
 ): Promise<TRow | null> {
   const rows = await prisma.$queryRaw<TRow[]>`
-    SELECT ${config.selectSql}
+    SELECT ${config.selectSql(timezone)}
     ${config.fromSql}
     WHERE store_id = ${storeId}
   `;
@@ -183,7 +191,10 @@ export async function queryMemberAssetOverview<TOverview>(
     return params.emptyOverview;
   }
 
-  return (await params.query(prisma, params.storeId)) ?? params.emptyOverview;
+  return (
+    (await params.query(prisma, params.storeId, params.timezone)) ??
+    params.emptyOverview
+  );
 }
 
 export async function queryMemberAssetLogs<TType, TSource, TRow, TItem>(
@@ -239,30 +250,54 @@ export async function queryMemberAssetLogs<TType, TSource, TRow, TItem>(
 export async function resolveMemberAssetAdjustment(
   params: ResolveMemberAssetAdjustmentParams,
 ): Promise<ResolvedMemberAssetAdjustment> {
-  const resolvedMemberId =
-    params.memberId ??
-    parseMemberId(
-      params.input.userId ?? params.input.memberId ?? params.input.id,
-    );
+  // 路径参数（如 /members/:id/.../adjust）已携带会员 ID 时，无需再从 body 取标识；
+  // 仅当路径未提供时，才强制要求 body 中的 userId/memberId/id（缺失属参数错误，返回 400）。
+  let resolvedMemberId: number;
+  if (params.memberId !== undefined) {
+    resolvedMemberId = params.memberId;
+  } else {
+    const rawMemberId =
+      params.input.userId ?? params.input.memberId ?? params.input.id;
+    if (
+      rawMemberId === undefined ||
+      rawMemberId === null ||
+      rawMemberId === ''
+    ) {
+      throw new BadRequestException(`请指定要调整的${params.assetLabel}会员`);
+    }
+
+    // 非法格式（如 "-1"、"abc"）也视为请求参数错误，统一返回 400
+    try {
+      resolvedMemberId = parseMemberId(rawMemberId);
+    } catch {
+      throw new BadRequestException(`请指定要调整的${params.assetLabel}会员`);
+    }
+  }
+
   const delta = resolveAdjustmentDelta(params.input, params.assetLabel);
   const member = await params.resolveMember(params.user, resolvedMemberId);
+
+  // 积分事实源在 marketing_customers，要求会员必须已关联顾客档案
+  if (params.requiresCustomer && member.customerId === null) {
+    throw new BadRequestException(params.missingCustomerMessage);
+  }
+
   const operatorStaffId = await params.resolveOperatorStaffId(
     params.user,
     member.storeId,
   );
-  const beforeValue = params.getCurrentValue(member);
-  const afterValue = beforeValue + delta;
 
-  if (afterValue < 0) {
-    throw new BadRequestException(params.insufficientMessage);
-  }
+  const expireAt =
+    params.input.expireAt !== undefined
+      ? new Date(params.input.expireAt)
+      : undefined;
 
   return {
     member,
     operatorStaffId,
     delta,
     reason: params.input.reason.trim(),
-    beforeValue,
-    afterValue,
+    expireAt,
+    idempotencyKey: params.input.idempotencyKey,
   };
 }

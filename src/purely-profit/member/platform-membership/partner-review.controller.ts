@@ -16,10 +16,10 @@ import { SubAccountBlockGuard } from '../../access-control/guards/sub-account-bl
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { PlatformMembershipPartnerProfileResponseDto } from './dto/platform-membership-response.dto';
+import type { RejectPlatformPartnerApplicationDto } from './dto/platform-membership-query.dto';
 import {
   buildPartnerReviewResponse,
   type PartnerReviewCompatResponse,
-  resolvePartnerReviewRejectReason,
 } from './platform-membership-partner-review.compat';
 import { PlatformMembershipService } from './platform-membership.service';
 
@@ -60,12 +60,12 @@ export class PartnerReviewController {
   reject(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) applicationId: number,
-    @Body() body?: Record<string, unknown>,
+    @Body() dto: RejectPlatformPartnerApplicationDto,
   ): Promise<PlatformMembershipPartnerProfileResponseDto> {
     return this.platformMembershipService.rejectPartnerApplication(
       user,
       applicationId,
-      { reason: resolvePartnerReviewRejectReason(body) },
+      dto,
     );
   }
 }
