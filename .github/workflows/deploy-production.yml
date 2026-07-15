@@ -1,3 +1,13 @@
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │  当前状态：尚未上线                                                      │
+# │  - [ ] 购买服务器                                                       │
+# │  - [ ] 注册域名 + SSL 证书                                              │
+# │  - [ ] 办理营业执照                                                     │
+# │  - [ ] 开通微信支付（需营业执照）                                        │
+# │  - [ ] 开通腾讯云短信（需营业执照）                                      │
+# │  - [ ] 配置 self-hosted runner + production Environment                 │
+# │  - [ ] 填入 Secrets / Variables 并执行首次部署                           │
+# └─────────────────────────────────────────────────────────────────────────┘
 name: Deploy Production
 
 on:
@@ -49,17 +59,57 @@ jobs:
       CI: 'true'
       NODE_ENV: production
       TZ: Asia/Shanghai
+      APP_BUSINESS_TIMEZONE: ${{ vars.APP_BUSINESS_TIMEZONE || 'Asia/Shanghai' }}
       PORT: ${{ vars.PORT || '3000' }}
       APP_CORS_ORIGIN: ${{ vars.APP_CORS_ORIGIN }}
       APP_SWAGGER_ENABLED: 'false'
       APP_PORT_AUTO_TERMINATE_ENABLED: 'false'
       APP_PORT_AUTO_SHIFT_ENABLED: 'false'
+      APP_PORT_AUTO_SHIFT_MAX_OFFSET: ${{ vars.APP_PORT_AUTO_SHIFT_MAX_OFFSET || '20' }}
       CLUB_MANUAL_CONFIRM_PAID_ENABLED: 'false'
+      CLUB_WECHAT_CALLBACK_MAX_AGE_SECONDS: ${{ vars.CLUB_WECHAT_CALLBACK_MAX_AGE_SECONDS || '300' }}
+      # ─── HTTP 调优 ──────────────────────────────────────────────────────
+      APP_HTTP_KEEP_ALIVE_TIMEOUT_MS: ${{ vars.APP_HTTP_KEEP_ALIVE_TIMEOUT_MS || '65000' }}
+      APP_HTTP_REQUEST_TIMEOUT_MS: ${{ vars.APP_HTTP_REQUEST_TIMEOUT_MS || '15000' }}
+      APP_HTTP_BODY_LIMIT_BYTES: ${{ vars.APP_HTTP_BODY_LIMIT_BYTES || '5242880' }}
+      APP_DEFAULT_PAGE_SIZE: ${{ vars.APP_DEFAULT_PAGE_SIZE || '20' }}
+      APP_MAX_PAGE_SIZE: ${{ vars.APP_MAX_PAGE_SIZE || '100' }}
+      # ─── 全局限流 ───────────────────────────────────────────────────────
+      APP_THROTTLE_TTL_SECONDS: ${{ vars.APP_THROTTLE_TTL_SECONDS || '60' }}
+      APP_THROTTLE_LIMIT: ${{ vars.APP_THROTTLE_LIMIT || '100' }}
+      # ─── 慢日志 & 观测 ──────────────────────────────────────────────────
+      APP_SLOW_REQUEST_LOG_ENABLED: ${{ vars.APP_SLOW_REQUEST_LOG_ENABLED || 'true' }}
+      APP_SLOW_REQUEST_THRESHOLD_MS: ${{ vars.APP_SLOW_REQUEST_THRESHOLD_MS || '800' }}
+      APP_SLOW_QUERY_LOG_ENABLED: ${{ vars.APP_SLOW_QUERY_LOG_ENABLED || 'true' }}
+      APP_SLOW_QUERY_THRESHOLD_MS: ${{ vars.APP_SLOW_QUERY_THRESHOLD_MS || '80' }}
+      APP_SLOW_REDIS_LOG_ENABLED: ${{ vars.APP_SLOW_REDIS_LOG_ENABLED || 'true' }}
+      APP_SLOW_REDIS_THRESHOLD_MS: ${{ vars.APP_SLOW_REDIS_THRESHOLD_MS || '20' }}
+      APP_SQL_METRICS_ENABLED: ${{ vars.APP_SQL_METRICS_ENABLED || 'true' }}
+      APP_CLIENT_ERROR_LOG_ENABLED: ${{ vars.APP_CLIENT_ERROR_LOG_ENABLED || 'true' }}
+      APP_CLIENT_ERROR_STACK_MAX_LENGTH: ${{ vars.APP_CLIENT_ERROR_STACK_MAX_LENGTH || '2000' }}
+      APP_CLIENT_ERROR_DETAILS_MAX_LENGTH: ${{ vars.APP_CLIENT_ERROR_DETAILS_MAX_LENGTH || '2000' }}
+      # ─── 缓存预热 ───────────────────────────────────────────────────────
+      APP_CACHE_PREWARM_ENABLED: ${{ vars.APP_CACHE_PREWARM_ENABLED || 'true' }}
+      APP_CACHE_PREWARM_INTERVAL_MS: ${{ vars.APP_CACHE_PREWARM_INTERVAL_MS || '15000' }}
+      APP_CACHE_PREWARM_INITIAL_DELAY_MS: ${{ vars.APP_CACHE_PREWARM_INITIAL_DELAY_MS || '5000' }}
+      APP_CACHE_PREWARM_BATCH_SIZE: ${{ vars.APP_CACHE_PREWARM_BATCH_SIZE || '30' }}
+      APP_CACHE_PREWARM_CONCURRENCY: ${{ vars.APP_CACHE_PREWARM_CONCURRENCY || '4' }}
+      APP_CACHE_PREWARM_LOG_ENABLED: ${{ vars.APP_CACHE_PREWARM_LOG_ENABLED || 'true' }}
+      APP_CACHE_PREWARM_LOG_SAMPLE_EVERY: ${{ vars.APP_CACHE_PREWARM_LOG_SAMPLE_EVERY || '20' }}
+      APP_CACHE_PREWARM_SLOW_CYCLE_THRESHOLD_MS: ${{ vars.APP_CACHE_PREWARM_SLOW_CYCLE_THRESHOLD_MS || '1500' }}
+      APP_CACHE_REFRESH_CONCURRENCY: ${{ vars.APP_CACHE_REFRESH_CONCURRENCY || '8' }}
+      # ─── 空间自动结账 ───────────────────────────────────────────────────
+      APP_SPACE_AUTO_CHECKOUT_ENABLED: ${{ vars.APP_SPACE_AUTO_CHECKOUT_ENABLED || 'true' }}
+      APP_SPACE_AUTO_CHECKOUT_INTERVAL_MS: ${{ vars.APP_SPACE_AUTO_CHECKOUT_INTERVAL_MS || '60000' }}
+      APP_SPACE_AUTO_CHECKOUT_INITIAL_DELAY_MS: ${{ vars.APP_SPACE_AUTO_CHECKOUT_INITIAL_DELAY_MS || '10000' }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       SHADOW_DATABASE_URL: ${{ secrets.SHADOW_DATABASE_URL }}
       DATABASE_POOL_MAX: ${{ vars.DATABASE_POOL_MAX || '20' }}
+      DATABASE_POOL_MIN: ${{ vars.DATABASE_POOL_MIN || '5' }}
       DATABASE_POOL_IDLE_TIMEOUT_MS: ${{ vars.DATABASE_POOL_IDLE_TIMEOUT_MS || '30000' }}
       DATABASE_POOL_CONNECTION_TIMEOUT_MS: ${{ vars.DATABASE_POOL_CONNECTION_TIMEOUT_MS || '5000' }}
+      DATABASE_STATEMENT_TIMEOUT_MS: ${{ vars.DATABASE_STATEMENT_TIMEOUT_MS || '10000' }}
+      DATABASE_PG_MAX_CONNECTIONS: ${{ vars.DATABASE_PG_MAX_CONNECTIONS || '100' }}
       REDIS_HOST: ${{ secrets.REDIS_HOST }}
       REDIS_PORT: ${{ vars.REDIS_PORT || '6379' }}
       REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
@@ -67,8 +117,19 @@ jobs:
       REDIS_CONNECT_TIMEOUT_MS: ${{ vars.REDIS_CONNECT_TIMEOUT_MS || '5000' }}
       REDIS_COMMAND_TIMEOUT_MS: ${{ vars.REDIS_COMMAND_TIMEOUT_MS || '3000' }}
       REDIS_MAX_RETRIES_PER_REQUEST: ${{ vars.REDIS_MAX_RETRIES_PER_REQUEST || '3' }}
+      # ─── 集群模式 ───────────────────────────────────────────────────────
+      CLUSTER_WORKERS: ${{ vars.CLUSTER_WORKERS }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       JWT_EXPIRES_IN: ${{ vars.JWT_EXPIRES_IN || '7d' }}
+      # ─── Auth ───────────────────────────────────────────────────────────
+      AUTH_ADMIN_LOGIN_ALIAS: ${{ vars.AUTH_ADMIN_LOGIN_ALIAS }}
+      AUTH_ADMIN_LOGIN_PHONE: ${{ secrets.AUTH_ADMIN_LOGIN_PHONE }}
+      AUTH_PASSWORD_RESET_CODE_TTL_SECONDS: ${{ vars.AUTH_PASSWORD_RESET_CODE_TTL_SECONDS || '600' }}
+      AUTH_REGISTER_CODE_TTL_SECONDS: ${{ vars.AUTH_REGISTER_CODE_TTL_SECONDS || '600' }}
+      AUTH_SMS_SEND_COOLDOWN_SECONDS: ${{ vars.AUTH_SMS_SEND_COOLDOWN_SECONDS || '60' }}
+      AUTH_REFRESH_TOKEN_TTL_SECONDS: ${{ vars.AUTH_REFRESH_TOKEN_TTL_SECONDS || '2592000' }}
+      # ─── 微信支付（待营业执照后配置）────────────────────────────────
+      # TODO: 营业执照办好后，在 GitHub Secrets/Variables 中填入以下凭证
       WECHAT_APP_ID: ${{ secrets.WECHAT_APP_ID }}
       WECHAT_APP_SECRET: ${{ secrets.WECHAT_APP_SECRET }}
       WECHAT_MCH_SERIAL_NO: ${{ secrets.WECHAT_MCH_SERIAL_NO }}
@@ -76,7 +137,24 @@ jobs:
       WECHAT_PRIVATE_KEY_CONTENT: ${{ secrets.WECHAT_PRIVATE_KEY_CONTENT }}
       WECHAT_PAY_NOTIFY_URL: ${{ vars.WECHAT_PAY_NOTIFY_URL }}
       WECHAT_PLATFORM_PUBLIC_KEY_CONTENT: ${{ secrets.WECHAT_PLATFORM_PUBLIC_KEY_CONTENT }}
+      # ─── 腾讯云短信（待营业执照后配置）───────────────────────────────
+      # TODO: 营业执照办好后，在 GitHub Secrets/Variables 中填入以下凭证
+      TENCENT_SMS_SECRET_ID: ${{ secrets.TENCENT_SMS_SECRET_ID }}
+      TENCENT_SMS_SECRET_KEY: ${{ secrets.TENCENT_SMS_SECRET_KEY }}
+      TENCENT_SMS_SDK_APP_ID: ${{ secrets.TENCENT_SMS_SDK_APP_ID }}
+      TENCENT_SMS_SIGN_NAME: ${{ vars.TENCENT_SMS_SIGN_NAME }}
+      TENCENT_SMS_REGISTER_TEMPLATE_ID: ${{ vars.TENCENT_SMS_REGISTER_TEMPLATE_ID }}
+      TENCENT_SMS_LOGIN_TEMPLATE_ID: ${{ vars.TENCENT_SMS_LOGIN_TEMPLATE_ID }}
+      TENCENT_SMS_PASSWORD_RESET_TEMPLATE_ID: ${{ vars.TENCENT_SMS_PASSWORD_RESET_TEMPLATE_ID }}
+      # ─── 腾讯云 COS 对象存储（Tencent Cloud COS）─────────────────────
+      TENCENT_COS_SECRET_ID: ${{ secrets.TENCENT_COS_SECRET_ID }}
+      TENCENT_COS_SECRET_KEY: ${{ secrets.TENCENT_COS_SECRET_KEY }}
+      TENCENT_COS_REGION: ${{ vars.TENCENT_COS_REGION }}
+      TENCENT_COS_BUCKET: ${{ vars.TENCENT_COS_BUCKET }}
+      TENCENT_COS_CDN_DOMAIN: ${{ vars.TENCENT_COS_CDN_DOMAIN }}
+      TENCENT_COS_PATH_PREFIX: ${{ vars.TENCENT_COS_PATH_PREFIX || 'uploads/' }}
       SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL || 'http://localhost:3000/api' }}
+      SMOKE_TIMEOUT_SECONDS: ${{ vars.SMOKE_TIMEOUT_SECONDS || '10' }}
       RELEASE_LOAD_ENV_FILE: 'false'
       RELEASE_VALIDATE_ENV: 'true'
       RELEASE_REQUIRE_BACKUP: ${{ vars.RELEASE_REQUIRE_BACKUP || 'true' }}
@@ -111,7 +189,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 25
           cache: pnpm
 
       - name: Install dependencies

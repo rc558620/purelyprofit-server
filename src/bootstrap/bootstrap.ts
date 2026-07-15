@@ -10,6 +10,7 @@ import {
 import compress from '@fastify/compress';
 import helmet from '@fastify/helmet';
 import etag from '@fastify/etag';
+import multipart from '@fastify/multipart';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from '../app.module';
 import { setupHttpObservability } from './http-observability';
@@ -124,6 +125,14 @@ async function registerGlobalPlugins(
   await app.register(compress, {
     encodings: ['gzip', 'deflate'],
     threshold: 1024,
+  });
+
+  // multipart/form-data 文件上传支持（头像、商品图等）
+  await app.register(multipart, {
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB
+      files: 1,
+    },
   });
 }
 

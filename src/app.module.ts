@@ -58,6 +58,7 @@ import { QueueModule } from './queue/queue.module';
 import { CacheControlInterceptor } from './shared/cache-control.interceptor';
 import { ResponseSanitizerInterceptor } from './shared/response-sanitizer.interceptor';
 import { AuditLogModule } from './shared/audit-log.module';
+import { UploadModule } from './shared/upload.module';
 
 @Module({
   imports: [
@@ -91,6 +92,7 @@ import { AuditLogModule } from './shared/audit-log.module';
     }),
     PrismaModule,
     AuditLogModule,
+    UploadModule,
     RedisModule,
     QueueModule,
     AccessControlModule,

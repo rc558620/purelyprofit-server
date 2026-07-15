@@ -320,4 +320,47 @@ export default () => ({
     platformPublicKeyContent:
       process.env.WECHAT_PLATFORM_PUBLIC_KEY_CONTENT ?? '',
   },
+
+  /**
+   * 腾讯云短信服务配置。
+   * 用于注册、登录、找回密码等场景的验证码发送。
+   * 未配置时 AuthSmsService 降级为仅打印日志（开发模式）。
+   */
+  tencentSms: {
+    /** 腾讯云 SecretId（访问管理 → API 密钥管理） */
+    secretId: process.env.TENCENT_SMS_SECRET_ID ?? '',
+    /** 腾讯云 SecretKey（与 SecretId 配对，严禁泄露） */
+    secretKey: process.env.TENCENT_SMS_SECRET_KEY ?? '',
+    /** 短信 SDK AppId（短信控制台 → 应用管理 → 应用列表） */
+    sdkAppId: process.env.TENCENT_SMS_SDK_APP_ID ?? '',
+    /** 短信签名（短信控制台 → 签名管理，需审核通过） */
+    signName: process.env.TENCENT_SMS_SIGN_NAME ?? '',
+    /** 注册验证码模板 ID */
+    registerTemplateId: process.env.TENCENT_SMS_REGISTER_TEMPLATE_ID ?? '',
+    /** 登录验证码模板 ID */
+    loginTemplateId: process.env.TENCENT_SMS_LOGIN_TEMPLATE_ID ?? '',
+    /** 找回密码验证码模板 ID */
+    passwordResetTemplateId:
+      process.env.TENCENT_SMS_PASSWORD_RESET_TEMPLATE_ID ?? '',
+  },
+
+  /**
+   * 腾讯云 COS 对象存储配置。
+   * 用于头像、商品图等文件上传。
+   * 未配置时上传接口返回 501（功能未启用）。
+   */
+  tencentCos: {
+    /** 腾讯云 SecretId */
+    secretId: process.env.TENCENT_COS_SECRET_ID ?? '',
+    /** 腾讯云 SecretKey */
+    secretKey: process.env.TENCENT_COS_SECRET_KEY ?? '',
+    /** COS 存储桶地域（如 ap-shanghai、ap-guangzhou） */
+    region: process.env.TENCENT_COS_REGION ?? '',
+    /** COS 存储桶名称（格式：BucketName-AppId） */
+    bucket: process.env.TENCENT_COS_BUCKET ?? '',
+    /** CDN 加速域名（可选，配置后返回 CDN URL 而非 COS 原始 URL） */
+    cdnDomain: process.env.TENCENT_COS_CDN_DOMAIN ?? '',
+    /** 上传文件路径前缀（如 'uploads/'，末尾需带 /） */
+    pathPrefix: process.env.TENCENT_COS_PATH_PREFIX ?? 'uploads/',
+  },
 });
