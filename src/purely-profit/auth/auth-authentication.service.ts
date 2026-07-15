@@ -5,8 +5,6 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { randomBytes } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import type {
   AccountIdentifiers,
@@ -15,7 +13,6 @@ import type {
   SessionCategory,
 } from './auth-account.types';
 import {
-  buildClubWechatMemberPhone,
   ensurePasswordConfirmation,
   extractPhoneFromLoginAccount,
   resolveAuthIdentity,
@@ -26,21 +23,20 @@ import { AuthBanGuardService } from './auth-ban-guard.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthCodeService } from './auth-code.service';
 import { AuthPasswordService } from './auth-password.service';
+import { AuthPasswordOpsService } from './auth-password-ops.service';
 import { AuthSessionService } from './auth-session.service';
-import { RedisService } from '../../redis/redis.service';
-import { AuditLogService } from '../../shared/audit-log.service';
+import { AuthLoginFailGuardService } from './auth-login-fail-guard.service';
+import { AuthPromoRecordService } from './auth-promo-record.service';
+import { AuthCodeLoginService } from './auth-code-login.service';
+import { AuthWechatLoginService } from './auth-wechat-login.service';
 import {
   AUTH_LOGIN_FAIL_MAX_ATTEMPTS,
-  AUTH_LOGIN_FAIL_LOCK_TTL_SECONDS,
-  AUTH_LOGIN_FAIL_KEY_PREFIX,
   AUTH_LOGIN_FAIL_WARNING_THRESHOLD,
 } from './auth.constants';
-import { PrismaService } from '../../prisma/prisma.service';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { PasswordOperationResponseDto } from './dto/password-operation-response.dto';
 import type {
   ChangePasswordAuthParams,
-  CreateUserFromWechatParams,
   LoginAuthParams,
   LoginByCodeAuthParams,
   LoginByCodeOrRegisterAuthParams,
@@ -61,10 +57,12 @@ export class AuthAuthenticationService {
     private readonly authAccountService: AuthAccountService,
     private readonly authCodeService: AuthCodeService,
     private readonly authPasswordService: AuthPasswordService,
+    private readonly authPasswordOpsService: AuthPasswordOpsService,
     private readonly authSessionService: AuthSessionService,
-    private readonly redisService: RedisService,
-    private readonly auditLogService: AuditLogService,
-    private readonly prisma: PrismaService,
+    private readonly authLoginFailGuardService: AuthLoginFailGuardService,
+    private readonly authPromoRecordService: AuthPromoRecordService,
+    private readonly authCodeLoginService: AuthCodeLoginService,
+    private readonly authWechatLoginService: AuthWechatLoginService,
     configService: ConfigService,
   ) {
     this.pulseDevAccountEmails = new Set(
@@ -119,15 +117,17 @@ export class AuthAuthenticationService {
 
     // 推广码关联：注册时携带推广码则创建推广记录（异步，不阻塞注册响应）
     if (params.promoCode) {
-      void this.tryCreatePromoRecord({
-        promoCode: params.promoCode,
-        inviteePhone: params.phone,
-        inviteeName: params.name ?? '',
-      }).catch((err: unknown) => {
-        this.logger.warn(
-          `推广记录创建失败（不影响注册主流程）: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+      void this.authPromoRecordService
+        .tryCreatePromoRecord({
+          promoCode: params.promoCode,
+          inviteePhone: params.phone,
+          inviteeName: params.name ?? '',
+        })
+        .catch((err: unknown) => {
+          this.logger.warn(
+            `推广记录创建失败（不影响注册主流程）: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
     }
 
     return this.authSessionService.signToken(user.id, {
@@ -137,64 +137,16 @@ export class AuthAuthenticationService {
     });
   }
 
-  /**
-   * 注册时尝试创建推广记录。
-   * 根据推广码查找 StoreInviteCode → storeId → approvedPartner，
-   * 创建 StoreMembershipPromoRecord（hasCharged=false）。
-   * 失败时仅打印警告，不影响注册主流程。
-   */
-  private async tryCreatePromoRecord(input: {
-    promoCode: string;
-    inviteePhone: string;
-    inviteeName: string;
-  }): Promise<void> {
-    // 1. 查找推广码对应的门店
-    const inviteCode = await this.prisma.storeInviteCode.findFirst({
-      where: {
-        code: input.promoCode.toUpperCase(),
-        isActive: true,
-      },
-      select: { storeId: true },
-    });
-    if (!inviteCode) {
-      this.logger.debug(`推广码无效或已停用: ${input.promoCode}`);
-      return;
-    }
-
-    // 2. 查找该门店的已通过合伙人
-    const partner = await this.prisma.storePartner.findFirst({
-      where: {
-        storeId: inviteCode.storeId,
-        status: 'approved',
-      },
-      select: { id: true },
-      orderBy: { joinedAt: 'asc' },
-    });
-
-    // 3. 创建推广记录（partnerId 可为 null，后续合伙人审批后可补绑）
-    await this.prisma.storeMembershipPromoRecord.create({
-      data: {
-        storeId: inviteCode.storeId,
-        partnerId: partner?.id ?? null,
-        inviteeName: input.inviteeName || '新用户',
-        inviteePhone: input.inviteePhone,
-        registeredAt: new Date(),
-        hasCharged: false,
-      },
-    });
-
-    this.logger.log(
-      `推广记录已创建: storeId=${inviteCode.storeId}, inviteePhone=${input.inviteePhone}`,
-    );
-  }
-
   async login(params: LoginAuthParams): Promise<AuthTokenResponseDto> {
     if (!params.loginAccount) {
       throw new BadRequestException('登录账号不能为空');
     }
 
     // 检查账号是否因多次登录失败被锁定
-    await this.ensureLoginNotLocked(params.loginAccount, params.productScope);
+    await this.authLoginFailGuardService.ensureLoginNotLocked(
+      params.loginAccount,
+      params.productScope,
+    );
 
     const user = await this.authAccountLookupService.findUserByLoginAccount(
       params.loginAccount,
@@ -209,7 +161,7 @@ export class AuthAuthenticationService {
       ))
     ) {
       // 登录失败：递增失败计数并构建错误消息
-      const newCount = await this.recordLoginFailure(
+      const newCount = await this.authLoginFailGuardService.recordLoginFailure(
         params.loginAccount,
         params.productScope,
       );
@@ -230,7 +182,10 @@ export class AuthAuthenticationService {
     }
 
     // 登录成功：清除失败计数 + 审计日志
-    await this.clearLoginFailures(params.loginAccount, params.productScope);
+    await this.authLoginFailGuardService.clearLoginFailures(
+      params.loginAccount,
+      params.productScope,
+    );
 
     const resolvedAccountScope = this.resolveAccountScopeForLogin(user);
 
@@ -256,351 +211,38 @@ export class AuthAuthenticationService {
     );
   }
 
-  async loginByCode(
-    params: LoginByCodeAuthParams,
-  ): Promise<AuthTokenResponseDto> {
-    await this.authCodeService.ensureRegisterCodeValid(
-      params.phone,
-      params.code,
-      params.productScope,
-    );
-
-    const user = await this.authAccountLookupService.findUserByPhone(
-      params.phone,
-      params.productScope,
-    );
-
-    if (!user) {
-      await this.authCodeService.clearRegisterCode(
-        params.phone,
-        params.productScope,
-      );
-      throw new UnauthorizedException('验证码无效或已过期');
-    }
-
-    const resolvedAccountScope = this.resolveAccountScopeForLogin(user);
-
-    await this.authCodeService.clearRegisterCode(
-      params.phone,
-      params.productScope,
-    );
-
-    return this.completeLogin(user, params.productScope, resolvedAccountScope);
+  /** 验证码登录（委托 AuthCodeLoginService） */
+  loginByCode(params: LoginByCodeAuthParams): Promise<AuthTokenResponseDto> {
+    return this.authCodeLoginService.loginByCode(params);
   }
 
-  /**
-   * 手机号验证码登录即注册（purely-club 专用）
-   *
-   * 流程：
-   * 1. 校验验证码有效性
-   * 2. 查找已有账号 → 有则直接登录
-   * 3. 无则自动创建账号（登录即注册）并签发 token
-   * 4. 清除已消费的验证码
-   */
-  async loginByCodeOrRegister(
+  /** 验证码登录即注册（委托 AuthCodeLoginService） */
+  loginByCodeOrRegister(
     params: LoginByCodeOrRegisterAuthParams,
   ): Promise<AuthTokenResponseDto> {
-    await this.authCodeService.ensureRegisterCodeValid(
-      params.phone,
-      params.code,
-      params.productScope,
-    );
-
-    const existingUser = await this.authAccountLookupService.findUserByPhone(
-      params.phone,
-      params.productScope,
-    );
-
-    await this.authCodeService.clearRegisterCode(
-      params.phone,
-      params.productScope,
-    );
-
-    if (existingUser) {
-      const resolvedAccountScope =
-        this.resolveAccountScopeForLogin(existingUser);
-      return this.completeLogin(
-        existingUser,
-        params.productScope,
-        resolvedAccountScope,
-      );
-    }
-
-    // 自动注册：无需验证码外的额外信息，使用随机占位密码
-    const randomPassword = randomBytes(16).toString('hex');
-
-    try {
-      const newUser = await this.authPasswordService.createUserFromPhone({
-        phone: params.phone,
-        password: randomPassword,
-        productScope: params.productScope,
-      });
-
-      // 新注册用户也需走 completeLogin 以保持封禁检查一致性
-      return this.completeLogin(
-        {
-          ...newUser,
-          phone: params.phone,
-        },
-        params.productScope,
-        newUser.accountScope as AuthenticatedAccountScope,
-      );
-    } catch (error) {
-      // 并发首登下，两个请求可能同时通过验证码校验并竞争创建同一手机号账号。
-      // 若一个请求已创建成功，这里应回退为“已存在账号直接登录”，避免把正常并发打成 500。
-      if (this.isUniqueConstraintError(error)) {
-        const resolvedUser =
-          await this.authAccountLookupService.findUserByPhone(
-            params.phone,
-            params.productScope,
-          );
-        if (resolvedUser) {
-          const resolvedAccountScope =
-            this.resolveAccountScopeForLogin(resolvedUser);
-          return this.completeLogin(
-            resolvedUser,
-            params.productScope,
-            resolvedAccountScope,
-          );
-        }
-      }
-      throw error;
-    }
+    return this.authCodeLoginService.loginByCodeOrRegister(params);
   }
 
-  /**
-   * 微信小程序登录即注册（purely-club 专用）
-   *
-   * 流程：
-   * 1. 用 openid 查找已绑定的用户 → 有则刷新微信信息并登录
-   *    - 若同时传入了 phone，额外将 wechat_phone 写入数据库（供手机号侧查找）
-   * 2. 若 openid 未绑定任何账号，且传入了 phone：
-   *    - 尝试用 phone 查找已有的手机号登录账号
-   *    - 找到则将 wechat_openid 绑定到该账号（账号合并，手机号和微信共用同一账号）
-   * 3. 若均无匹配，以 openid 创建新用户，phone 写入 wechat_phone 字段
-   */
-  async wechatLogin(
-    params: WechatLoginAuthParams,
-  ): Promise<AuthTokenResponseDto> {
-    const existingUser =
-      await this.authAccountLookupService.findUserByWechatOpenid(params.openid);
-
-    if (existingUser) {
-      // 每次登录刷新微信头像、昵称和 unionid
-      await this.authAccountLookupService.updateWechatProfile(existingUser.id, {
-        nickname: params.nickname,
-        avatar: params.avatar,
-        unionid: params.unionid,
-      });
-
-      // 若本次传入了手机号，写入 wechat_phone 前，先检查该手机号是否已被其他用户绑定
-      if (params.phone) {
-        await this.safeUpdateWechatPhone(existingUser.id, params.phone);
-      }
-
-      await this.authBanGuardService.ensureUserNotBanned(existingUser.id);
-
-      return this.authSessionService.signToken(existingUser.id, {
-        phone: existingUser.phone,
-        email: existingUser.email,
-        accountScope: 'purely_club',
-      });
-    }
-
-    // openid 未绑定账号。若有真实手机号，先尝试找手机号账号并合并
-    if (params.phone) {
-      const phoneUser = await this.authAccountLookupService.findUserByPhone(
-        params.phone,
-        params.productScope,
-      );
-
-      if (phoneUser) {
-        // 手机号账号已存在：将 openid 绑定到该账号（账号合并）
-        // 使用 try/catch 处理 wechatOpenid 唯一约束冲突（P2002）
-        try {
-          await this.authAccountLookupService.bindWechatToUser(phoneUser.id, {
-            openid: params.openid,
-            unionid: params.unionid,
-            nickname: params.nickname,
-            avatar: params.avatar,
-            phone: params.phone,
-          });
-        } catch (error) {
-          if (this.isUniqueConstraintError(error)) {
-            throw new ConflictException(
-              '该微信已绑定其他账号，无法自动合并，请联系客服',
-            );
-          }
-          throw error;
-        }
-
-        await this.authBanGuardService.ensureUserNotBanned(phoneUser.id);
-
-        return this.authSessionService.signToken(phoneUser.id, {
-          phone: phoneUser.phone,
-          email: phoneUser.email,
-          accountScope: 'purely_club',
-        });
-      }
-    }
-
-    // 首次微信登录且无对应手机号账号：自动注册
-    const createParams: CreateUserFromWechatParams = {
-      openid: params.openid,
-      unionid: params.unionid,
-      nickname: params.nickname,
-      avatar: params.avatar,
-      phone: params.phone,
-      productScope: params.productScope,
-    };
-
-    try {
-      const newUser =
-        await this.authPasswordService.createUserFromWechat(createParams);
-
-      return this.authSessionService.signToken(newUser.id, {
-        // 若拿到了真实手机号，使用真实手机号作为 JWT phone；否则用 openid 派生标识
-        phone: params.phone ?? buildClubWechatMemberPhone(params.openid),
-        email: newUser.email,
-        accountScope: 'purely_club',
-      });
-    } catch (error) {
-      // 并发首个微信登录时，可能被唯一索引 wechat_openid / email 抢占。
-      // 这里回退成读取已创建账号并登录，避免正常重复点击直接 500。
-      if (this.isUniqueConstraintError(error)) {
-        const resolvedUser =
-          await this.authAccountLookupService.findUserByWechatOpenid(
-            params.openid,
-          );
-        if (resolvedUser) {
-          await this.authBanGuardService.ensureUserNotBanned(resolvedUser.id);
-
-          return this.authSessionService.signToken(resolvedUser.id, {
-            phone: resolvedUser.phone,
-            email: resolvedUser.email,
-            accountScope: 'purely_club',
-          });
-        }
-      }
-      throw error;
-    }
+  /** 微信小程序登录即注册（委托 AuthWechatLoginService） */
+  wechatLogin(params: WechatLoginAuthParams): Promise<AuthTokenResponseDto> {
+    return this.authWechatLoginService.wechatLogin(params);
   }
 
-  async changePassword(
+  /** 密码变更编排（委托 AuthPasswordOpsService） */
+  changePassword(
     params: ChangePasswordAuthParams,
   ): Promise<PasswordOperationResponseDto> {
-    validatePasswordLength(params.newPassword, '新密码');
-    ensurePasswordConfirmation(
-      params.newPassword,
-      params.confirmPassword,
-      '两次输入的新密码不一致',
-    );
-    const currentUser = await this.authPasswordService.changePassword({
-      userId: params.userId,
-      currentPassword: params.currentPassword,
-      newPassword: params.newPassword,
-    });
-
-    await this.authSessionService.bumpTokenVersion(currentUser.id);
-    await this.authSessionService.removeAllSessions(currentUser.id);
-    const sid = await this.authSessionService.registerSession(
-      currentUser.id,
-      this.resolveSessionCategory(params.phone, params.accountScope),
-    );
-    const token = await this.authSessionService.signToken(
-      currentUser.id,
-      {
-        phone: params.phone,
-        email: currentUser.email,
-        accountScope: params.accountScope,
-      },
-      sid,
-    );
-
-    // 密码变更审计日志
-    this.auditLogService.record({
-      userId: currentUser.id,
-      action: 'password.change',
-      resourceType: 'user',
-      resourceId: String(currentUser.id),
-    });
-
-    return {
-      message: '密码修改成功，旧登录态已失效',
-      access_token: token.access_token,
-    };
+    return this.authPasswordOpsService.changePassword(params);
   }
 
-  async resetPassword(
+  /** 密码重置编排（委托 AuthPasswordOpsService） */
+  resetPassword(
     params: ResetPasswordAuthParams,
   ): Promise<PasswordOperationResponseDto> {
-    validatePasswordLength(params.password, '新密码');
-    ensurePasswordConfirmation(
-      params.password,
-      params.confirmPassword,
-      '两次输入的新密码不一致',
-    );
-    await this.authCodeService.ensurePasswordResetCodeValid(
-      params.phone,
-      params.code,
-      params.productScope,
-    );
-
-    const user = await this.authAccountLookupService.findUserByPhone(
-      params.phone,
-      params.productScope,
-    );
-
-    if (!user) {
-      await this.authCodeService.clearPasswordResetCode(
-        params.phone,
-        params.productScope,
-      );
-      throw new UnauthorizedException('验证码无效或已过期');
-    }
-
-    await this.authPasswordService.resetPassword(user, params.password);
-
-    await Promise.all([
-      this.authCodeService.clearPasswordResetCode(
-        params.phone,
-        params.productScope,
-      ),
-      this.authSessionService.bumpTokenVersion(user.id),
-      this.authSessionService.removeAllSessions(user.id),
-    ]);
-
-    const sid = await this.authSessionService.registerSession(
-      user.id,
-      this.resolveSessionCategory(
-        params.phone,
-        user.accountScope as AuthenticatedAccountScope,
-      ),
-    );
-
-    const token = await this.authSessionService.signToken(
-      user.id,
-      {
-        phone: params.phone,
-        email: user.email,
-        accountScope: user.accountScope,
-      },
-      sid,
-    );
-
-    // 密码重置审计日志
-    this.auditLogService.record({
-      userId: user.id,
-      action: 'password.reset',
-      resourceType: 'user',
-      resourceId: String(user.id),
-    });
-
-    return {
-      message: '密码重置成功，旧登录态已失效',
-      access_token: token.access_token,
-    };
+    return this.authPasswordOpsService.resetPassword(params);
   }
+
+  // ── 私有辅助方法 ──────────────────────────────────────────
 
   /**
    * 根据手机号和账号范围确定会话类别
@@ -685,109 +327,5 @@ export class AuthAuthenticationService {
       this.pulseDevAccountEmails,
       this.adminLoginPhone,
     ).accountScope;
-  }
-
-  /**
-   * 安全更新 wechatPhone：写入前先检查该手机号是否已被其他用户绑定，
-   * 避免 A 用户的 wechatPhone 被覆盖为 B 用户手机号导致账号混淆。
-   */
-  private async safeUpdateWechatPhone(
-    userId: number,
-    phone: string,
-  ): Promise<void> {
-    const existingHolder =
-      await this.authAccountLookupService.findUserByWechatPhone(phone);
-
-    if (existingHolder && existingHolder.id !== userId) {
-      // 手机号已被其他用户绑定，不覆盖，记录警告供后续人工客服或身份验证流程处理
-      this.logger.warn(
-        `wechatPhone 冲突：用户 ${userId} 尝试绑定手机号 ${phone}` +
-          `，但该手机号已被用户 ${existingHolder.id}（email=${existingHolder.email}）绑定，已跳过`,
-      );
-      return;
-    }
-
-    await this.authAccountLookupService.updateWechatPhone(userId, phone);
-  }
-
-  private isUniqueConstraintError(error: unknown): boolean {
-    return (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2002'
-    );
-  }
-
-  // ── 登录失败锁定机制 ──────────────────────────────────────
-
-  private buildLoginFailKey(
-    loginAccount: string,
-    productScope: AuthProductScope,
-  ): string {
-    return `${AUTH_LOGIN_FAIL_KEY_PREFIX}${productScope}:${loginAccount.toLowerCase()}`;
-  }
-
-  /**
-   * 检查账号是否因多次登录失败被临时锁定
-   */
-  private async ensureLoginNotLocked(
-    loginAccount: string,
-    productScope: AuthProductScope,
-  ): Promise<void> {
-    const key = this.buildLoginFailKey(loginAccount, productScope);
-    const rawCount = await this.redisService.get(key);
-    const failCount = Number.parseInt(rawCount ?? '0', 10);
-
-    if (failCount >= AUTH_LOGIN_FAIL_MAX_ATTEMPTS) {
-      throw new UnauthorizedException(
-        '登录失败次数过多，账号已被临时锁定，请 15 分钟后再试',
-      );
-    }
-  }
-
-  /**
-   * 记录一次登录失败，使用 Redis INCR 原子递增。
-   * @returns 递增后的失败计数
-   */
-  private async recordLoginFailure(
-    loginAccount: string,
-    productScope: AuthProductScope,
-  ): Promise<number> {
-    const key = this.buildLoginFailKey(loginAccount, productScope);
-    const newCount = await this.redisService.incr(
-      key,
-      AUTH_LOGIN_FAIL_LOCK_TTL_SECONDS,
-    );
-
-    // 如果刚好达到阈值，设置锁定时长（重新设置 TTL 为锁定时长）
-    if (newCount >= AUTH_LOGIN_FAIL_MAX_ATTEMPTS) {
-      await this.redisService.set(
-        key,
-        String(newCount),
-        AUTH_LOGIN_FAIL_LOCK_TTL_SECONDS,
-      );
-      // 账号锁定审计日志
-      this.auditLogService.record({
-        action: 'login.fail.lock',
-        resourceType: 'user',
-        resourceId: loginAccount.toLowerCase(),
-        metadata: {
-          productScope,
-          failCount: newCount,
-        },
-      });
-    }
-
-    return newCount;
-  }
-
-  /**
-   * 登录成功后清除失败计数
-   */
-  private async clearLoginFailures(
-    loginAccount: string,
-    productScope: AuthProductScope,
-  ): Promise<void> {
-    const key = this.buildLoginFailKey(loginAccount, productScope);
-    await this.redisService.del(key);
   }
 }

@@ -172,7 +172,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   /**
    * 从 Redis 缓存或数据库解析 user 基础信息。
    *
-   * 缓存 TTL 为 5 分钟，用户资料变更时由 AuthAccountLookupService 主动失效。
+   * 缓存 TTL 为 5 分钟，用户资料变更时由 AuthProfileService 主动失效。
    * 缓存仅包含鉴权所需的最小字段集，不包含密码、头像等敏感或非必要字段。
    */
   private async resolveUser(

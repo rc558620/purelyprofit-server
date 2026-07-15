@@ -1,5 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CacheInvalidatorService } from '../../redis/invalidator';
+import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import { AccessControlService } from '../access-control/access-control.service';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthMembershipResolverService } from './auth-membership-resolver.service';
@@ -11,9 +13,28 @@ describe('AuthProfileService', () => {
 
   const authAccountLookupService = {
     findProfileUserOrThrow: jest.fn(),
-    updateAvatar: jest.fn(),
-    updateName: jest.fn(),
-    verifyRealName: jest.fn(),
+  };
+
+  const prismaService = {
+    user: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+    },
+    staff: {
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    employee: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    marketingCustomer: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+  };
+
+  const redisService = {
+    del: jest.fn().mockResolvedValue(1),
   };
 
   const authMembershipResolverService = {
@@ -107,6 +128,8 @@ describe('AuthProfileService', () => {
           provide: CacheInvalidatorService,
           useValue: cacheInvalidatorService,
         },
+        { provide: PrismaService, useValue: prismaService },
+        { provide: RedisService, useValue: redisService },
       ],
     }).compile();
 
@@ -169,6 +192,8 @@ describe('AuthProfileService', () => {
   });
 
   it('修改昵称后返回最新 profile', async () => {
+    prismaService.user.update.mockResolvedValue(undefined);
+
     await expect(service.updateNickname(user, '新老板')).resolves.toMatchObject(
       {
         user: {
@@ -178,23 +203,25 @@ describe('AuthProfileService', () => {
       },
     );
 
-    expect(authAccountLookupService.updateName).toHaveBeenCalledWith(
-      1,
-      '新老板',
-    );
+    expect(prismaService.user.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { name: '新老板' },
+    });
     expect(
       authAccountLookupService.findProfileUserOrThrow,
     ).toHaveBeenCalledWith(1);
   });
 
   it('实名认证后会失效 Pulse onboarding 状态缓存', async () => {
+    prismaService.user.findFirst.mockResolvedValue(null);
+    prismaService.user.update.mockResolvedValue(undefined);
+
     await service.verifyRealName(user, '李老板', '440301199001011234');
 
-    expect(authAccountLookupService.verifyRealName).toHaveBeenCalledWith(
-      1,
-      '李老板',
-      '440301199001011234',
-    );
+    expect(prismaService.user.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { realName: '李老板', idNumber: '440301199001011234' },
+    });
     expect(
       cacheInvalidatorService.invalidatePulseOnboardingStatusByUser,
     ).toHaveBeenCalledWith(1);

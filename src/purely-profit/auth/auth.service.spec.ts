@@ -16,6 +16,7 @@ import { RedisService } from '../../redis/redis.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { AUTH_TOKEN_VERSION_KEY_PREFIX } from './auth.constants';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
+import { AuthProfitAccountLookupService } from './auth-profit-account-lookup.service';
 import { AuthBanGuardService } from './auth-ban-guard.service';
 import { AuthMembershipResolverService } from './auth-membership-resolver.service';
 import { AuthStaffActivationService } from './auth-staff-activation.service';
@@ -38,7 +39,7 @@ import { StoreInviteCodeService } from '../stores/store-invite-code.service';
 describe('AuthService', () => {
   let service: AuthService;
   let authProductAuthService: AuthProductAuthService;
-  let authAccountLookupService: AuthAccountLookupService;
+  let authProfileService: AuthProfileService;
 
   const prismaService = {
     user: {
@@ -139,6 +140,7 @@ describe('AuthService', () => {
         AuthService,
         AuthAccountService,
         AuthAccountLookupService,
+        AuthProfitAccountLookupService,
         AuthBanGuardService,
         AuthMembershipResolverService,
         AuthStaffActivationService,
@@ -181,9 +183,7 @@ describe('AuthService', () => {
     authProductAuthService = module.get<AuthProductAuthService>(
       AuthProductAuthService,
     );
-    authAccountLookupService = module.get<AuthAccountLookupService>(
-      AuthAccountLookupService,
-    );
+    authProfileService = module.get<AuthProfileService>(AuthProfileService);
   });
 
   it('仅允许 admin 别名映射到固定手机号登录', async () => {
@@ -949,7 +949,7 @@ describe('AuthService', () => {
     });
     prismaService.user.update.mockResolvedValue(undefined);
 
-    await authAccountLookupService.updateWechatProfile(9, {
+    await authProfileService.updateWechatProfile(9, {
       nickname: '微信昵称',
       avatar: 'https://cdn.example.com/wx.png',
       unionid: 'union-1',
