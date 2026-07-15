@@ -15,7 +15,7 @@ import {
   ApiOkResponse,
   ApiProperty,
 } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../purely-profit/auth/guards/jwt-auth.guard';
+import { UniversalJwtAuthGuard } from '../purely-profit/auth/guards/jwt-auth.guard';
 import { UploadService, UploadResult } from './upload.service';
 import type { FastifyRequest } from 'fastify';
 import type { MultipartFile } from '@fastify/multipart';
@@ -42,7 +42,7 @@ export class UploadController {
 
   @Post('image')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(UniversalJwtAuthGuard)
   @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: '上传图片文件（头像、商品图等）' })

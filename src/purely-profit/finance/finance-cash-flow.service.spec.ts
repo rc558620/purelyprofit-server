@@ -117,7 +117,7 @@ describe('FinanceCashFlowService', () => {
       1,
       expect.objectContaining({
         where: expect.not.objectContaining({
-          direction: expect.anything(),
+          direction: expect.stringMatching(/^(income|expense)$/),
         }),
       }),
     );

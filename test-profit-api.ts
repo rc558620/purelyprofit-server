@@ -14,6 +14,17 @@ function generateJwt(payload: Record<string, unknown>, secret: string): string {
   return `${signingInput}.${signature}`;
 }
 
+interface ProfitReportProduct {
+  name: string;
+  amount: number | string;
+}
+
+interface ProfitReportResponse {
+  data?: {
+    products?: ProfitReportProduct[];
+  };
+}
+
 const token = generateJwt(
   {
     sub: '13619654022',
@@ -45,18 +56,18 @@ http
       data += chunk;
     });
     res.on('end', () => {
-      const parsed = JSON.parse(data);
+      const parsed = JSON.parse(data) as ProfitReportResponse;
       console.log('Response:', JSON.stringify(parsed, null, 2));
 
       // 检查产品列表中是否包含空间名称
       if (parsed.data && parsed.data.products) {
         console.log('\n=== Products List ===');
-        parsed.data.products.forEach((product: any, i: number) => {
+        parsed.data.products.forEach((product, i: number) => {
           console.log(`${i + 1}. ${product.name} - Amount: ${product.amount}`);
         });
       }
     });
   })
-  .on('error', (e: any) => {
+  .on('error', (e: Error) => {
     console.error('Error:', e);
   });

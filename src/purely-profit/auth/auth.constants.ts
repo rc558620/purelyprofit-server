@@ -40,3 +40,16 @@ export const ADMIN_LOGIN_ALIAS = 'admin';
 export const ADMIN_LOGIN_PHONE = '13619654020';
 export const PULSE_ADMIN_MEMBER_BAN_REASON_KEY_PREFIX =
   'pulse:membership:admin:member:';
+
+/** 活跃会话列表 Redis sorted set key 前缀 */
+export const AUTH_SESSION_SET_KEY_PREFIX = 'auth:sessions:';
+/** 会话 ID → refresh token hash 映射 key 前缀，用于淘汰时精确清理 refresh token */
+export const AUTH_SESSION_TOKEN_HASH_KEY_PREFIX = 'auth:session-token-hash:';
+/** 会话列表 key 的 TTL（秒）：30 天，与 refresh token 最大有效期对齐 */
+export const AUTH_SESSION_SET_TTL_SECONDS = 30 * 24 * 60 * 60;
+/** purely_profit 主账号最大并发会话数 */
+export const MAX_SESSIONS_PROFIT_MAIN = 3;
+/** purely_profit 子账号最大并发会话数 */
+export const MAX_SESSIONS_PROFIT_SUB = 1;
+/** purely_club 账号最大并发会话数 */
+export const MAX_SESSIONS_CLUB = 1;

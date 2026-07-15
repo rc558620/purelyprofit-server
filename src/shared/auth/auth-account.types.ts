@@ -4,6 +4,13 @@ export type AuthenticatedAccountScope = AuthProductScope | 'developer';
 
 export type AuthPulseMode = 'normal' | 'developer';
 
+/** 会话类别，决定并发会话数量限制 */
+export type SessionCategory =
+  | 'owner'
+  | 'profit_main'
+  | 'profit_sub'
+  | 'profit_club';
+
 export interface AccountIdentifiers {
   phone: string;
   email: string;

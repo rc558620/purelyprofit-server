@@ -6,6 +6,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SpaceReservationsService } from './space-reservations.service';
+import { aValidDate } from '../../../spec-matchers';
 import { SpacesRefResolverService } from './spaces-ref-resolver.service';
 import { SpacesWriteService } from './spaces-write.service';
 
@@ -465,7 +466,7 @@ describe('SpacesWriteService', () => {
       expect.objectContaining({
         where: { id: 11 },
         data: expect.objectContaining({
-          cleanedAt: expect.any(Date),
+          cleanedAt: aValidDate,
         }),
       }),
     );

@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { EmployeeShiftType, HandoverStatus, Prisma } from '@prisma/client';
 import { setupHandoverRecordsSpec } from './handover-records.spec-helpers';
+import { aDateOrObject } from '../../../spec-matchers';
 
 describe('HandoverRecordsService - 详情与摘要', () => {
   const ctx = setupHandoverRecordsSpec();
@@ -480,7 +481,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           where: expect.objectContaining({
             storeId: 100,
             status: HandoverStatus.completed,
-            createdAt: expect.any(Object),
+            createdAt: aDateOrObject,
           }),
           take: 20,
           skip: 0,

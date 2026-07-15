@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { ClubCurrentStoreContextService } from './club-current-store-context.service';
 import { ClubStoreAccessService } from './club-store-access.service';
+import { aNonEmptyObject } from '../../spec-matchers';
 import { ClubStoreViewService } from './club-store-view.service';
 import { ClubStoresService } from './club-stores.service';
 
@@ -382,7 +383,7 @@ describe('ClubStoresService', () => {
     // 验证映射已写入缓存
     expect(redisService.setJson).toHaveBeenCalledWith(
       'club:invite-code-map',
-      expect.any(Object),
+      aNonEmptyObject,
       3600,
     );
   });

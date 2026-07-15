@@ -5,6 +5,7 @@ import { Money } from '../../shared/money.utils';
 import { ClubProductPromotionService } from './club-product-promotion.service';
 import { ClubProductQueryService } from './club-product-query.service';
 import { ClubProductViewService } from './club-product-view.service';
+import { aNonEmptySet } from '../../spec-matchers';
 import type {
   ClubProductPricingContext,
   ClubProductRecord,
@@ -165,7 +166,7 @@ describe('ClubProductsService', () => {
     ).toHaveBeenCalledWith(11, user.phone);
     expect(clubProductViewService.toClubProduct).toHaveBeenCalledWith(
       expect.objectContaining({ id: 31 }),
-      expect.any(Set),
+      aNonEmptySet,
       pricingContext,
     );
   });

@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { aNonNegativeNumber, aValidDate } from '../../../spec-matchers';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
@@ -583,11 +584,11 @@ describe('PlatformMembershipService', () => {
         isActive: true,
         planId: 'quarterly',
         expiredAt: new Date('2099-05-01T00:00:00.000Z').getTime(),
-        inviteCode: expect.any(String),
+        inviteCode: 'TEST1234',
         totalPoints: 188,
         availablePoints: 88,
       },
-      remainingDays: expect.any(Number),
+      remainingDays: aNonNegativeNumber,
       stats: {
         partnerCount: 1,
         totalPromos: 2,
@@ -661,7 +662,7 @@ describe('PlatformMembershipService', () => {
           planId: 'yearly',
           displayPlanName: 'ages会员',
           expiredAt: membershipStartAt.getTime() + 730 * 24 * 60 * 60 * 1000,
-          inviteCode: expect.any(String),
+          inviteCode: 'TEST1234',
           totalPoints: 1880,
           availablePoints: 1280,
         },
@@ -718,7 +719,7 @@ describe('PlatformMembershipService', () => {
         isActive: true,
         planId: 'quarterly',
         expiredAt: new Date('2099-05-01T00:00:00.000Z').getTime(),
-        inviteCode: expect.any(String),
+        inviteCode: 'TEST1234',
         totalPoints: 188,
         availablePoints: 88,
       },
@@ -966,7 +967,7 @@ describe('PlatformMembershipService', () => {
         isActive: true,
         planId: 'yearly',
         expiredAt: new Date('2099-05-01T00:00:00.000Z').getTime(),
-        inviteCode: expect.any(String),
+        inviteCode: 'TEST1234',
         totalPoints: 1880,
         availablePoints: 1280,
       },
@@ -1456,8 +1457,8 @@ describe('PlatformMembershipService', () => {
       },
       data: {
         status: 'approved',
-        reviewedAt: expect.any(Date),
-        joinedAt: expect.any(Date),
+        reviewedAt: aValidDate,
+        joinedAt: aValidDate,
       },
     });
     expect(prismaService.storePartner.create).toHaveBeenCalledWith(
@@ -1465,8 +1466,8 @@ describe('PlatformMembershipService', () => {
         data: expect.objectContaining({
           storeId: 18,
           status: 'approved',
-          reviewedAt: expect.any(Date),
-          joinedAt: expect.any(Date),
+          reviewedAt: aValidDate,
+          joinedAt: aValidDate,
         }),
       }),
     );
@@ -2019,7 +2020,7 @@ describe('PlatformMembershipService', () => {
           isActive: true,
           planId: 'quarterly',
           expiredAt: new Date('2026-08-18T00:00:00.000Z').getTime(),
-          inviteCode: expect.any(String),
+          inviteCode: 'TEST1234',
           totalPoints: 300,
           availablePoints: 300,
         },

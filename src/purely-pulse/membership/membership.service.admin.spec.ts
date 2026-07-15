@@ -3,6 +3,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { PulseMembershipAdminController } from './membership-admin.controller';
+import { aValidDate } from '../../spec-matchers';
 import {
   PulseAdminMemberMembershipDto,
   PulseAdminMemberSubAccountQuotaDto,
@@ -579,7 +580,7 @@ describe('PulseMembershipService admin', () => {
           {
             membershipProfile: {
               is: {
-                expiresAt: { gt: expect.any(Date) },
+                expiresAt: { gt: aValidDate },
               },
             },
           },

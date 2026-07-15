@@ -3,6 +3,7 @@ import Decimal from 'decimal.js';
 import { Money } from '../../shared/money.utils';
 import { DEFAULT_MARKETING_MEMBER_LEVEL_SETTINGS } from '../../purely-profit/marketing/marketing.utils';
 import { safeParsePointsRatio } from '../../purely-profit/marketing/schemas/member-level-settings.schema';
+import type { Prisma } from '@prisma/client';
 import type {
   ClubOrderStatusResponseDto,
   ClubServiceOrderResponseDto,
@@ -290,8 +291,7 @@ export const buildDraftKey = (orderId: string): string =>
 // ─── 公共积分配置解析 ──────────────────────────────────────────────────
 
 /** 可用于查询积分配置的 Prisma 客户端（PrismaService 或事务客户端） */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type PointsConfigPrismaClient = any;
+export type PointsConfigPrismaClient = Prisma.TransactionClient;
 
 /** 积分抵扣配置（创建订单时使用） */
 export interface ClubPointsRedeemConfig {

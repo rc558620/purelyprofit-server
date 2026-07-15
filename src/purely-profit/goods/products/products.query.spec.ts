@@ -11,6 +11,7 @@ import {
   updateProductRecord,
 } from './products.query';
 import type { ProductRecord } from './products.types';
+import { aValidDate } from '../../../spec-matchers';
 
 describe('products.query', () => {
   function createPrismaMock() {
@@ -377,7 +378,7 @@ describe('products.query', () => {
     });
     expect(productUpdate).toHaveBeenCalledWith({
       where: { id: 11 },
-      data: { deletedAt: expect.any(Date) },
+      data: { deletedAt: aValidDate },
     });
   });
 });

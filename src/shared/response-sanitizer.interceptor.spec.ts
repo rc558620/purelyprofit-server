@@ -1,9 +1,10 @@
 import { of } from 'rxjs';
+import { ExecutionContext } from '@nestjs/common';
 import { ResponseSanitizerInterceptor } from './response-sanitizer.interceptor';
 
 describe('ResponseSanitizerInterceptor', () => {
   let interceptor: ResponseSanitizerInterceptor;
-  const mockContext = {} as any;
+  const mockContext = {} as unknown as ExecutionContext;
   const createHandler = (data: unknown) => ({
     handle: () => of(data),
   });
@@ -12,12 +13,12 @@ describe('ResponseSanitizerInterceptor', () => {
     interceptor = new ResponseSanitizerInterceptor();
   });
 
-  const getResult = (data: unknown): unknown => {
-    let result: unknown;
+  const getResult = <T>(data: T): T => {
+    let result: T | undefined;
     interceptor.intercept(mockContext, createHandler(data)).subscribe((v) => {
-      result = v;
+      result = v as T;
     });
-    return result;
+    return result as T;
   };
 
   it('移除嵌套对象中的 password 字段', () => {
@@ -27,7 +28,7 @@ describe('ResponseSanitizerInterceptor', () => {
       user: { id: 1, name: '张三', password: 'hashed_secret' },
     };
 
-    const result = getResult(data) as any;
+    const result = getResult(data);
 
     expect(result.user.password).toBeUndefined();
     expect(result.user.name).toBe('张三');
@@ -43,7 +44,7 @@ describe('ResponseSanitizerInterceptor', () => {
       },
     };
 
-    const result = getResult(data) as any;
+    const result = getResult(data);
 
     expect(result.config.secret).toBeUndefined();
     expect(result.config.privateKey).toBeUndefined();
@@ -59,7 +60,7 @@ describe('ResponseSanitizerInterceptor', () => {
       userId: 1,
     };
 
-    const result = getResult(data) as any;
+    const result = getResult(data);
 
     expect(result.access_token).toBe('eyJhbGci...');
     expect(result.refresh_token).toBe('rt_abc123');
@@ -73,7 +74,7 @@ describe('ResponseSanitizerInterceptor', () => {
       { id: 2, name: '李四', password: 'secret2' },
     ];
 
-    const result = getResult(data) as any[];
+    const result = getResult(data);
 
     expect(result).toHaveLength(2);
     expect(result[0].password).toBeUndefined();
@@ -105,7 +106,7 @@ describe('ResponseSanitizerInterceptor', () => {
       },
     };
 
-    const result = getResult(data) as any;
+    const result = getResult(data);
 
     expect(result.store.owner.profile.password).toBeUndefined();
     expect(result.store.owner.profile.name).toBe('王五');
@@ -116,7 +117,7 @@ describe('ResponseSanitizerInterceptor', () => {
       user: { id: 1, hashedPassword: 'bcrypt_hash' },
     };
 
-    const result = getResult(data) as any;
+    const result = getResult(data);
 
     expect(result.user.hashedPassword).toBeUndefined();
     expect(result.user.id).toBe(1);

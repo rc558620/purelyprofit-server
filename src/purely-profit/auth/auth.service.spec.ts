@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { aNonEmptyString } from '../../spec-matchers';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
 import { AccessControlService } from '../access-control/access-control.service';
@@ -73,11 +74,18 @@ describe('AuthService', () => {
     set: jest.fn(),
     setIfAbsent: jest.fn(),
     del: jest.fn(),
+    delMany: jest.fn().mockResolvedValue(0),
     incr: jest.fn().mockResolvedValue(1),
     getJson: jest.fn().mockResolvedValue(null),
     setJson: jest.fn().mockResolvedValue(undefined),
     mgetJson: jest.fn().mockResolvedValue([]),
     delByPattern: jest.fn().mockResolvedValue(1),
+    zadd: jest.fn().mockResolvedValue(undefined),
+    zcard: jest.fn().mockResolvedValue(0),
+    zrange: jest.fn().mockResolvedValue([]),
+    zremrangebyrank: jest.fn().mockResolvedValue(0),
+    zscore: jest.fn().mockResolvedValue(null),
+    mget: jest.fn().mockResolvedValue([]),
   };
   const configService = {
     get: jest.fn(),
@@ -275,13 +283,15 @@ describe('AuthService', () => {
         userId: 59,
       }),
     );
-    expect(jwtService.signAsync).toHaveBeenCalledWith({
-      sub: 59,
-      phone: '13145645646',
-      accountScope: 'purely_profit',
-      sessionVersion: 0,
-      staffId: 59,
-    });
+    expect(jwtService.signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: 59,
+        phone: '13145645646',
+        accountScope: 'purely_profit',
+        sessionVersion: 0,
+        staffId: 59,
+      }),
+    );
   });
 
   it('purely-pulse 登录仅允许开发者账号', async () => {
@@ -723,12 +733,14 @@ describe('AuthService', () => {
     expect(redisService.del).toHaveBeenCalledWith(
       'auth:register:purely_club:13800138000',
     );
-    expect(jwtService.signAsync).toHaveBeenCalledWith({
-      sub: 7,
-      phone: '13800138000',
-      accountScope: 'purely_club',
-      sessionVersion: 0,
-    });
+    expect(jwtService.signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: 7,
+        phone: '13800138000',
+        accountScope: 'purely_club',
+        sessionVersion: 0,
+      }),
+    );
   });
 
   it('purely-club 验证码登录在验证码无效时拒绝登录', async () => {
@@ -771,7 +783,7 @@ describe('AuthService', () => {
     expect(prismaService.user.create).toHaveBeenCalledWith({
       data: {
         email: 'club_phone_13800138000@purelyprofit.local',
-        password: expect.any(String),
+        password: aNonEmptyString,
         name: undefined,
       },
       select: {
@@ -779,12 +791,14 @@ describe('AuthService', () => {
         email: true,
       },
     });
-    expect(jwtService.signAsync).toHaveBeenCalledWith({
-      sub: 77,
-      phone: '13800138000',
-      accountScope: 'purely_club',
-      sessionVersion: 0,
-    });
+    expect(jwtService.signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: 77,
+        phone: '13800138000',
+        accountScope: 'purely_club',
+        sessionVersion: 0,
+      }),
+    );
   });
 
   it('purely-club 微信登录会使用稳定的 club wechat 标识签 token', async () => {
@@ -813,12 +827,14 @@ describe('AuthService', () => {
       }),
     );
 
-    expect(jwtService.signAsync).toHaveBeenCalledWith({
-      sub: 88,
-      phone: 'club_wechat:oOPENID123',
-      accountScope: 'purely_club',
-      sessionVersion: 0,
-    });
+    expect(jwtService.signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: 88,
+        phone: 'club_wechat:oOPENID123',
+        accountScope: 'purely_club',
+        sessionVersion: 0,
+      }),
+    );
   });
 
   it('purely-club 微信登录拿到真实手机号后，手机号登录会复用同一账号', async () => {
@@ -859,12 +875,14 @@ describe('AuthService', () => {
     );
 
     expect(prismaService.user.create).not.toHaveBeenCalled();
-    expect(jwtService.signAsync).toHaveBeenCalledWith({
-      sub: 88,
-      phone: '13800138000',
-      accountScope: 'purely_club',
-      sessionVersion: 0,
-    });
+    expect(jwtService.signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: 88,
+        phone: '13800138000',
+        accountScope: 'purely_club',
+        sessionVersion: 0,
+      }),
+    );
   });
 
   it('purely-club 微信登录传入手机号时，会优先合并已有手机号账号', async () => {
@@ -914,12 +932,14 @@ describe('AuthService', () => {
       },
     });
     expect(prismaService.user.create).not.toHaveBeenCalled();
-    expect(jwtService.signAsync).toHaveBeenCalledWith({
-      sub: 66,
-      phone: '13800138000',
-      accountScope: 'purely_club',
-      sessionVersion: 0,
-    });
+    expect(jwtService.signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: 66,
+        phone: '13800138000',
+        accountScope: 'purely_club',
+        sessionVersion: 0,
+      }),
+    );
   });
 
   it('微信资料回写会在通用昵称头像为空时做回填', async () => {

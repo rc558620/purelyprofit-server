@@ -5,6 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceSessionOpenService } from './space-session-open.service';
+import { aNonNegativeNumber } from '../../../spec-matchers';
 
 describe('SpaceSessionOpenService', () => {
   let service: SpaceSessionOpenService;
@@ -397,7 +398,7 @@ describe('SpaceSessionOpenService', () => {
     expect(redisLockService.acquireLock).toHaveBeenCalledTimes(1);
     expect(redisLockService.acquireLock).toHaveBeenCalledWith(
       'space:session:open:7',
-      expect.objectContaining({ ttlSeconds: expect.any(Number) }),
+      expect.objectContaining({ ttlSeconds: aNonNegativeNumber }),
     );
     expect(redisLockService.releaseLock).toHaveBeenCalledTimes(1);
     expect(transaction.spaceSession.create).not.toHaveBeenCalled();

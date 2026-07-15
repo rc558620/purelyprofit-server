@@ -1,17 +1,19 @@
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from './audit-log.service';
 
 describe('AuditLogService', () => {
   let service: AuditLogService;
   const mockPrisma = {
     auditLog: {
-      create: jest.fn(),
+      create: jest.fn<Promise<{ id: number }>, [Prisma.AuditLogCreateArgs]>(),
     },
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrisma.auditLog.create.mockResolvedValue({ id: 1 });
-    service = new AuditLogService(mockPrisma as any);
+    service = new AuditLogService(mockPrisma as unknown as PrismaService);
   });
 
   describe('record (fire-and-forget)', () => {

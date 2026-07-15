@@ -272,6 +272,69 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.client;
   }
 
+  // ── Sorted Set 操作 ─────────────────────────────────────
+
+  async zadd(
+    key: string,
+    score: number,
+    member: string,
+    ttlSeconds?: number,
+  ): Promise<void> {
+    await this.observeRedisCommand('ZADD', async () => {
+      await this.client.zadd(key, score, member);
+      if (ttlSeconds) {
+        await this.client.expire(key, ttlSeconds);
+      }
+    });
+  }
+
+  async zremrangebyrank(
+    key: string,
+    start: number,
+    stop: number,
+  ): Promise<number> {
+    return this.observeRedisCommand('ZREMRANGEBYRANK', () =>
+      this.client.zremrangebyrank(key, start, stop),
+    );
+  }
+
+  async zscore(key: string, member: string): Promise<string | null> {
+    return this.observeRedisCommand(
+      'ZSCORE',
+      () => this.client.zscore(key, member),
+      (result) => (result === null ? 'miss' : 'hit'),
+    );
+  }
+
+  async zcard(key: string): Promise<number> {
+    return this.observeRedisCommand('ZCARD', () => this.client.zcard(key));
+  }
+
+  async zrange(key: string, start: number, stop: number): Promise<string[]> {
+    return this.observeRedisCommand('ZRANGE', () =>
+      this.client.zrange(key, start, stop),
+    );
+  }
+
+  async mget(keys: string[]): Promise<(string | null)[]> {
+    if (keys.length === 0) {
+      return [];
+    }
+
+    return this.observeRedisCommand(
+      'MGET',
+      () => this.client.mget(...keys),
+      (results) => {
+        const hitCount = results.filter((v) => v !== null).length;
+        return hitCount === 0
+          ? 'miss'
+          : hitCount === results.length
+            ? 'hit'
+            : 'neutral';
+      },
+    );
+  }
+
   async checkReadiness(): Promise<void> {
     const pong = await this.observeRedisCommand('PING', () =>
       this.client.ping(),

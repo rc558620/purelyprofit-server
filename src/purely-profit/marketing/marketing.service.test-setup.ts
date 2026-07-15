@@ -318,7 +318,7 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
       {
         provide: ConfigService,
         useValue: {
-          get: (key: string, defaultValue?: any) => defaultValue ?? 100,
+          get: <T>(_key: string, _defaultValue?: T) => _defaultValue ?? 100,
         },
       },
     ],

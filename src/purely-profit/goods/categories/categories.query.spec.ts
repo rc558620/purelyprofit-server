@@ -11,6 +11,7 @@ import {
   updateCategoryRecord,
 } from './categories.query';
 import type { CategoryRecord } from './categories.types';
+import { aValidDate } from '../../../spec-matchers';
 
 describe('categories.query', () => {
   function createPrismaMock() {
@@ -227,7 +228,7 @@ describe('categories.query', () => {
 
     expect(productCategoryUpdate).toHaveBeenCalledWith({
       where: { id: 11 },
-      data: { deletedAt: expect.any(Date) },
+      data: { deletedAt: aValidDate },
     });
   });
 });

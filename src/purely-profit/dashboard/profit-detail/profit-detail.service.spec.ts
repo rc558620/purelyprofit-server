@@ -6,6 +6,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
+import type { RefreshableCacheLoadOptions } from '../../../redis/refreshable-cache.types';
 import { ProfitDetailService } from './profit-detail.service';
 import { fetchProfitRows } from './profit-detail.query';
 
@@ -31,7 +32,7 @@ describe('ProfitDetailService', () => {
   };
 
   const refreshableCache = {
-    getOrLoadRefreshableJson: jest.fn((_options: any) => _options.loadValue()),
+    getOrLoadRefreshableJson: jest.fn(<T>(_options: RefreshableCacheLoadOptions<T>) => _options.loadValue()),
     writeRefreshableJson: jest.fn(),
   };
 

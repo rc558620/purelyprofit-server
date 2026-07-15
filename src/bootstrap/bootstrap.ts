@@ -7,6 +7,7 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from '@nestjs/platform-fastify';
+import type { FastifyRequest, preParsingHookHandler } from 'fastify';
 import compress from '@fastify/compress';
 import helmet from '@fastify/helmet';
 import etag from '@fastify/etag';
@@ -70,11 +71,11 @@ function setupRawBodyForWechatCallback(app: NestFastifyApplication): void {
       // preParsing 在 content type parser 之前执行，此时数据尚未被解析。
       // 通过 PassThrough 流拦截原始数据，同时保存到 request.rawBody。
 
-      const rawBodyPreParsing = ((
-        request: any,
-        _reply: any,
-        payload: NodeJS.ReadableStream,
-        done: (err?: Error | null, stream?: NodeJS.ReadableStream) => void,
+      const rawBodyPreParsing: preParsingHookHandler = (
+        request,
+        _reply,
+        payload,
+        done,
       ) => {
         const chunks: Buffer[] = [];
         const passThrough = new PassThrough();
@@ -83,7 +84,8 @@ function setupRawBodyForWechatCallback(app: NestFastifyApplication): void {
           chunks.push(chunk);
         });
         payload.on('end', () => {
-          request.rawBody = Buffer.concat(chunks).toString('utf-8');
+          (request as FastifyRequest & { rawBody?: string }).rawBody =
+            Buffer.concat(chunks).toString('utf-8');
         });
         payload.on('error', (err: Error) => {
           done(err);
@@ -92,7 +94,7 @@ function setupRawBodyForWechatCallback(app: NestFastifyApplication): void {
         // 将原始数据透传给后续的 content type parser
         payload.pipe(passThrough);
         done(null, passThrough);
-      }) as never;
+      };
 
       routeOptions.preParsing = [...preParsingHooks, rawBodyPreParsing];
     }

@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SpaceSessionReadService } from './space-session-read.service';
+import { aValidDate } from '../../../spec-matchers';
 import { SpaceSessionReadStateService } from './space-session-read-state.service';
 import { SpacesReadService } from './spaces-read.service';
 
@@ -165,8 +166,8 @@ describe('SpacesReadService', () => {
                 where: {
                   status: SpaceReservationStatus.pending,
                   reservedAt: {
-                    gte: expect.any(Date),
-                    lte: expect.any(Date),
+                  gte: aValidDate,
+                  lte: aValidDate,
                   },
                 },
               },

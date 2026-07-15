@@ -6,8 +6,10 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import * as inventoryStockQuery from '../../goods/inventory/inventory-stock.query';
 import { SpaceSessionRenewService } from './space-session-renew.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
+import { aValidDate, aNonNegativeNumber } from '../../../spec-matchers';
 import { SpaceSessionWriteService } from './space-session-write.service';
 import { mapSessionItemRows } from './space-sessions.mapper';
+import type { SpaceSessionItemRow } from './space-sessions.types';
 import { createSpaceTestUser } from './space-session.spec-helpers';
 
 describe('SpaceSession concurrency fixes', () => {
@@ -187,7 +189,9 @@ describe('SpaceSession concurrency fixes', () => {
           {
             id: 2,
             sessionId: 9,
-            recordId: expect.any(String),
+            recordId: expect.stringMatching(
+              /^rn_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+            ),
             amount: 3000, // DB 存储为分（30元）
             addedMinutes: 26,
             paymentMethod: 'cash',
@@ -195,8 +199,8 @@ describe('SpaceSession concurrency fixes', () => {
             grouponPlatform: null,
             voucherFaceAmount: null,
             note: null,
-            renewedAt: expect.any(Number),
-            createdAt: expect.any(Date),
+            renewedAt: aNonNegativeNumber,
+            createdAt: aValidDate,
           },
         ],
         status: SpaceSessionStatus.active,
@@ -459,7 +463,7 @@ describe('SpaceSession concurrency fixes', () => {
             sessionId: 9,
             sortOrder: idx,
             createdAt: new Date(),
-          })) as any[],
+          })) as SpaceSessionItemRow[],
         );
         expect(mergedItems).toHaveLength(2);
         expect(mergedItems.map((item) => item.productId)).toEqual([

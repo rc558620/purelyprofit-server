@@ -5,6 +5,7 @@ import {
   setupHandoverPageSpec,
 } from './handover-page.spec-helpers';
 import { createManagerUser } from './hover.spec-helpers';
+import { aValidDate, aDateOrObject } from '../../../spec-matchers';
 
 describe('HandoverPageService - 班次展示与 fallback', () => {
   const ctx = setupHandoverPageSpec();
@@ -65,7 +66,7 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
           storeId: 100,
           order: expect.objectContaining({
             storeId: 100,
-            date: expect.any(Object),
+            date: aDateOrObject,
           }),
         }),
       }),
@@ -338,8 +339,8 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
           order: expect.objectContaining({
             storeId: 100,
             date: expect.objectContaining({
-              gte: expect.any(Date),
-              lte: expect.any(Date),
+              gte: aValidDate,
+              lte: aValidDate,
             }),
           }),
         }),
@@ -403,7 +404,7 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
         where: expect.objectContaining({
           order: expect.objectContaining({
             storeId: 100,
-            date: expect.any(Object),
+            date: aDateOrObject,
           }),
         }),
       }),

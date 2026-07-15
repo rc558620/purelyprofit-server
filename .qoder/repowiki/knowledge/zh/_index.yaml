@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-13T17:30:33Z"
+exported_at: "2026-07-15T08:43:48Z"
 modules:
     "":
-        dir_name: PurelyProfit 门店盈利管理平台（NestJS 单体应用）
-        title: PurelyProfit 门店盈利管理平台（NestJS 单体应用）
+        dir_name: PurelyProfit 多租户门店经营 SaaS 后端（NestJS 单体应用）
+        title: PurelyProfit 多租户门店经营 SaaS 后端（NestJS 单体应用）
         scope: []
         source_files: []
         children: []

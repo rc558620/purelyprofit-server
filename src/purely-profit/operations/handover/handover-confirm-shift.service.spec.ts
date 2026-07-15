@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { HandoverConfirmShiftService } from './handover-confirm-shift.service';
+import type { ShiftRecordRow } from './handover.shared';
 
 /**
  * 验证 pickShiftRecord 的 active-shift 窗口在 BUG-2 修复后（handoverAt 恒 > endAt）
@@ -107,7 +108,7 @@ describe('HandoverConfirmShiftService', () => {
 
   it('F2: ensureShiftNotHandedOver owner 分支应使用 shiftRecord.date 而非 handoverAt 作为基准', async () => {
     // 老板账号交班、班次 employeeId 为空、跨夜班次
-    const crossNightShift = {
+    const crossNightShift: ShiftRecordRow = {
       id: 50,
       employeeId: null,
       employeeName: '夜班员工',
@@ -122,9 +123,9 @@ describe('HandoverConfirmShiftService', () => {
     prismaService.storeHandoverRecord.count.mockResolvedValue(0);
 
     await service.ensureShiftNotHandedOver(
-      prismaService as any,
+      prismaService as unknown as PrismaService,
       100,
-      crossNightShift as any,
+      crossNightShift,
       handoverAt,
     );
 

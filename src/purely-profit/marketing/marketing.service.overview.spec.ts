@@ -3,6 +3,7 @@ import {
   createMarketingServiceTestingContext,
   type MarketingServiceTestingContext,
 } from './marketing.service.test-setup';
+import { aNonEmptyArray } from '../../spec-matchers';
 
 describe('MarketingService overview', () => {
   let context: MarketingServiceTestingContext;
@@ -98,7 +99,7 @@ describe('MarketingService overview', () => {
       inviteCode: 'AB23CD45',
       inviteCodeQrCodeImageUrl:
         'https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&margin=0&data=AB23CD45',
-      last30Days: expect.any(Array),
+      last30Days: aNonEmptyArray,
       currentYear: 2026,
       thisYearMonthlyTrend: [
         { label: '1月', amount: null },

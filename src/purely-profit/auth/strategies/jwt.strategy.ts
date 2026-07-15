@@ -37,6 +37,8 @@ export interface JwtPayload {
   sessionVersion?: number;
   /** 登录时命中的 Staff ID，用于 membership 精确解析（旧 token 可能无此字段） */
   staffId?: number;
+  /** 会话唯一标识，用于精细化会话管理（旧 token 可能无此字段） */
+  sid?: string;
 }
 
 /**
@@ -104,6 +106,19 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     );
     if ((payload.sessionVersion ?? 0) < currentTokenVersion) {
       throw new UnauthorizedException('登录态已失效，请重新登录');
+    }
+
+    // 检查会话是否仍活跃（已被踢下线的会话拒绝访问）
+    if (payload.sid) {
+      const isSessionActive = await this.authSessionService.isSessionActive(
+        payload.sub,
+        payload.sid,
+      );
+      if (!isSessionActive) {
+        throw new UnauthorizedException(
+          '您的账号已在其他设备登录，当前会话已失效',
+        );
+      }
     }
 
     await this.authBanGuardService.ensureUserNotBanned(payload.sub);

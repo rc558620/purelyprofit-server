@@ -6,6 +6,7 @@ import { PlatformMembershipAccessService } from '../../member/platform-membershi
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
+import type { RefreshableCacheLoadOptions } from '../../../redis/refreshable-cache.types';
 import { CostsReadService } from './costs-read.service';
 import { CostsReadRecordsService } from './costs-read-records.service';
 import { CostsReadStatsService } from './costs-read-stats.service';
@@ -108,7 +109,7 @@ export function createCostsReadProviders(
     {
       provide: RefreshableCacheService,
       useValue: {
-        getOrLoadRefreshableJson: jest.fn((_options: any) =>
+        getOrLoadRefreshableJson: jest.fn(<T>(_options: RefreshableCacheLoadOptions<T>) =>
           _options.loadValue(),
         ),
         writeRefreshableJson: jest.fn(),
@@ -122,7 +123,7 @@ export function createCostsReadProviders(
     {
       provide: ConfigService,
       useValue: {
-        get: (key: string, defaultValue?: any) => defaultValue ?? 100,
+        get: <T>(_key: string, _defaultValue?: T) => _defaultValue ?? 100,
       },
     },
   ];

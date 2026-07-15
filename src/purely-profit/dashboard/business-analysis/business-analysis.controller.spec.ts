@@ -7,6 +7,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { BusinessAnalysisController } from './business-analysis.controller';
 import { BusinessAnalysisService } from './business-analysis.service';
 import { GetBusinessAnalysisQueryDto } from './dto/business-analysis-query.dto';
+import type { ServerResponse } from 'node:http';
 
 const ALLOW_GUARD = { canActivate: jest.fn(() => true) };
 
@@ -84,7 +85,7 @@ describe('BusinessAnalysisController', () => {
     businessAnalysisService.getAnalysis.mockResolvedValue(response);
 
     await expect(
-      controller.getAnalysis(user, query, { raw: {} as any }),
+      controller.getAnalysis(user, query, { raw: {} as ServerResponse }),
     ).resolves.toEqual(response);
     expect(businessAnalysisService.getAnalysis).toHaveBeenCalledWith(
       user,
@@ -98,7 +99,7 @@ describe('BusinessAnalysisController', () => {
       format: 'csv' as const,
     };
 
-    await controller.getAnalysis(user, query, { raw: {} as any });
+    await controller.getAnalysis(user, query, { raw: {} as ServerResponse });
 
     expect(query.export).toBe(true);
     expect(businessAnalysisService.streamReportCsv).toHaveBeenCalled();

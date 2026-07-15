@@ -49,7 +49,7 @@ describe('RedisLockService', () => {
       expect(redisService.setIfAbsent).toHaveBeenCalledTimes(1);
       expect(redisService.setIfAbsent).toHaveBeenCalledWith(
         'distributed-lock:test:resource',
-        expect.any(String),
+        lock?.token,
         10,
       );
     });

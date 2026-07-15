@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
+import type { ArgumentsHost } from '@nestjs/common';
 import { AllExceptionsFilter } from './all-exceptions.filter';
 
 describe('AllExceptionsFilter', () => {
@@ -18,7 +19,7 @@ describe('AllExceptionsFilter', () => {
         getResponse: () => mockResponse,
         getRequest: () => mockRequest,
       }),
-    }) as any;
+    }) as unknown as ArgumentsHost;
 
   beforeEach(() => {
     jest.clearAllMocks();

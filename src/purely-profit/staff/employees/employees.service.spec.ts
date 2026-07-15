@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { aValidDate, aNonEmptyArray } from '../../../spec-matchers';
 import {
   EmployeeGender,
   EmployeePayrollStatus,
@@ -2123,7 +2124,7 @@ describe('EmployeesService', () => {
         status: 'active',
         employeeId: 12,
         isAssigned: true,
-        assignedAt: expect.any(Date),
+        assignedAt: aValidDate,
         canAccessHome: true,
         canUseHandover: true,
       },
@@ -2136,7 +2137,7 @@ describe('EmployeesService', () => {
       },
       data: {
         role: 'staff',
-        permissions: expect.any(Array),
+        permissions: aNonEmptyArray,
       },
     });
     expect(

@@ -4,6 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RedisService } from '../../../redis/redis.service';
 import { SalesRecordService } from '../sales-record/sales-record.service';
+import { aUuid } from '../../../spec-matchers';
 import {
   createSalesOrderResponse,
   createSettleSpaceSessionParams,
@@ -111,7 +112,7 @@ describe('SpaceSessionSettlementService', () => {
 
     expect(redisClient.set).toHaveBeenCalledWith(
       'space:settlement:session:9',
-      expect.any(String),
+      aUuid,
       'EX',
       30,
       'NX',
@@ -144,7 +145,7 @@ describe('SpaceSessionSettlementService', () => {
       expect.stringContaining("redis.call('GET', KEYS[1]) == ARGV[1]"),
       1,
       'space:settlement:session:9',
-      expect.any(String),
+      aUuid,
     );
     expect(result).toMatchObject({
       salesOrder: createdOrder,

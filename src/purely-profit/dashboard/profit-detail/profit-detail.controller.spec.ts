@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { ProfitDetailController } from './profit-detail.controller';
 import { ProfitDetailService } from './profit-detail.service';
+import type { ServerResponse } from 'node:http';
 
 const ALLOW_GUARD = { canActivate: jest.fn(() => true) };
 
@@ -76,7 +77,7 @@ describe('ProfitDetailController', () => {
     };
     profitDetailService.getReport.mockResolvedValue(response);
 
-    await expect(controller.getReport(user, query, { raw: {} as any })).resolves.toEqual(response);
+    await expect(controller.getReport(user, query, { raw: {} as ServerResponse })).resolves.toEqual(response);
     expect(profitDetailService.getReport).toHaveBeenCalledWith(user, query);
   });
 

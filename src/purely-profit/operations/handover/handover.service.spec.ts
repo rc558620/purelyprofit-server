@@ -5,6 +5,7 @@ import { HandoverPageService } from './handover-page.service';
 import { HandoverRecordsService } from './handover-records.service';
 import { HandoverService } from './handover.service';
 import { SpaceSessionAutoCheckoutService } from '../spaces/space-session-auto-checkout.service';
+import { aNonNegativeNumber } from '../../../spec-matchers';
 import {
   createManagerUser,
   createOwnerUser,
@@ -118,7 +119,7 @@ describe('HandoverService', () => {
       ).toHaveBeenCalledWith(
         expect.objectContaining({ id: 0, email: 'system@auto-checkout' }),
         100,
-        expect.any(Number),
+        aNonNegativeNumber,
         'handover:page',
       );
       expect(handoverPageService.getHandoverPage).toHaveBeenCalledWith(
@@ -139,7 +140,7 @@ describe('HandoverService', () => {
       ).toHaveBeenCalledWith(
         expect.objectContaining({ id: 0, email: 'system@auto-checkout' }),
         100,
-        expect.any(Number),
+        aNonNegativeNumber,
         'handover:record-detail',
       );
       expect(handoverRecordsService.getHandoverRecord).toHaveBeenCalledWith(

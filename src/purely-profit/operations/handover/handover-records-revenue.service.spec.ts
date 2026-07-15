@@ -1,9 +1,13 @@
 import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { HandoverRecordsRevenueService } from './handover-records-revenue.service';
 import type { ShiftDateRange } from './handover.shared';
 
 describe('HandoverRecordsRevenueService.countRecordRevenue (BUG-2 修复验证)', () => {
-  let prisma: any;
+  let prisma = {
+    saleOrder: { aggregate: jest.fn() },
+    spaceSession: { aggregate: jest.fn(), findMany: jest.fn() },
+  };
   let service: HandoverRecordsRevenueService;
   const shiftRange: ShiftDateRange = {
     startAt: new Date('2026-07-12T00:00:00.000Z'),
@@ -20,7 +24,7 @@ describe('HandoverRecordsRevenueService.countRecordRevenue (BUG-2 修复验证)'
         findMany: jest.fn(),
       },
     };
-    service = new HandoverRecordsRevenueService(prisma);
+    service = new HandoverRecordsRevenueService(prisma as unknown as PrismaService);
   });
 
   it('应包含空间会话营收：totalRevenue = additional + space', async () => {

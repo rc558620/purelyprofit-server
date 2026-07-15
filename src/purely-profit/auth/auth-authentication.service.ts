@@ -12,10 +12,12 @@ import type {
   AccountIdentifiers,
   AuthenticatedAccountScope,
   AuthProductScope,
+  SessionCategory,
 } from './auth-account.types';
 import {
   buildClubWechatMemberPhone,
   ensurePasswordConfirmation,
+  extractPhoneFromLoginAccount,
   resolveAuthIdentity,
 } from './auth.utils';
 import { validatePasswordLength } from '../../shared/password-policy.utils';
@@ -238,7 +240,20 @@ export class AuthAuthenticationService {
       );
     }
 
-    return this.completeLogin(user, params.productScope, resolvedAccountScope);
+    // 确定会话类别：手机号登录 → 主账号，自定义账号登录 → 子账号
+    const isSubAccountLogin =
+      params.productScope === 'purely_profit' &&
+      !extractPhoneFromLoginAccount(params.loginAccount);
+    const sessionCategory: SessionCategory = isSubAccountLogin
+      ? 'profit_sub'
+      : this.resolveSessionCategory(user.phone, resolvedAccountScope);
+
+    return this.completeLogin(
+      user,
+      params.productScope,
+      resolvedAccountScope,
+      sessionCategory,
+    );
   }
 
   async loginByCode(
@@ -459,6 +474,7 @@ export class AuthAuthenticationService {
           );
         if (resolvedUser) {
           await this.authBanGuardService.ensureUserNotBanned(resolvedUser.id);
+
           return this.authSessionService.signToken(resolvedUser.id, {
             phone: resolvedUser.phone,
             email: resolvedUser.email,
@@ -486,12 +502,20 @@ export class AuthAuthenticationService {
     });
 
     await this.authSessionService.bumpTokenVersion(currentUser.id);
-    await this.authSessionService.invalidateAllRefreshTokens(currentUser.id);
-    const token = await this.authSessionService.signToken(currentUser.id, {
-      phone: params.phone,
-      email: currentUser.email,
-      accountScope: params.accountScope,
-    });
+    await this.authSessionService.removeAllSessions(currentUser.id);
+    const sid = await this.authSessionService.registerSession(
+      currentUser.id,
+      this.resolveSessionCategory(params.phone, params.accountScope),
+    );
+    const token = await this.authSessionService.signToken(
+      currentUser.id,
+      {
+        phone: params.phone,
+        email: currentUser.email,
+        accountScope: params.accountScope,
+      },
+      sid,
+    );
 
     // 密码变更审计日志
     this.auditLogService.record({
@@ -543,14 +567,26 @@ export class AuthAuthenticationService {
         params.productScope,
       ),
       this.authSessionService.bumpTokenVersion(user.id),
-      this.authSessionService.invalidateAllRefreshTokens(user.id),
+      this.authSessionService.removeAllSessions(user.id),
     ]);
 
-    const token = await this.authSessionService.signToken(user.id, {
-      phone: params.phone,
-      email: user.email,
-      accountScope: user.accountScope,
-    });
+    const sid = await this.authSessionService.registerSession(
+      user.id,
+      this.resolveSessionCategory(
+        params.phone,
+        user.accountScope as AuthenticatedAccountScope,
+      ),
+    );
+
+    const token = await this.authSessionService.signToken(
+      user.id,
+      {
+        phone: params.phone,
+        email: user.email,
+        accountScope: user.accountScope,
+      },
+      sid,
+    );
 
     // 密码重置审计日志
     this.auditLogService.record({
@@ -566,10 +602,23 @@ export class AuthAuthenticationService {
     };
   }
 
+  /**
+   * 根据手机号和账号范围确定会话类别
+   */
+  private resolveSessionCategory(
+    phone: string,
+    accountScope: AuthenticatedAccountScope,
+  ): SessionCategory {
+    if (phone === this.adminLoginPhone) return 'owner';
+    if (accountScope === 'purely_club') return 'profit_club';
+    return 'profit_main';
+  }
+
   private async completeLogin(
     user: { id: number; phone: string; email: string; staffId?: number },
     productScope: AuthProductScope,
     accountScope: AuthenticatedAccountScope,
+    sessionCategory?: SessionCategory,
   ): Promise<AuthTokenResponseDto> {
     if (productScope === 'purely_profit') {
       await this.preparePurelyProfitLogin(user.id, {
@@ -584,12 +633,37 @@ export class AuthAuthenticationService {
       await this.authBanGuardService.ensureUserNotBanned(user.id);
     }
 
-    return this.authSessionService.signToken(user.id, {
-      phone: user.phone,
-      email: user.email,
+    // purelyClub 不启用会话限制，直接签发 token
+    if (productScope === 'purely_club') {
+      return this.authSessionService.signToken(user.id, {
+        phone: user.phone,
+        email: user.email,
+        accountScope,
+        ...(user.staffId != null ? { staffId: user.staffId } : {}),
+      });
+    }
+
+    // 精细化会话管理：注册新会话并按账号类型淘汰旧会话
+    const fallbackCategory = this.resolveSessionCategory(
+      user.phone,
       accountScope,
-      ...(user.staffId != null ? { staffId: user.staffId } : {}),
-    });
+    );
+    const category = sessionCategory ?? fallbackCategory;
+    const sid = await this.authSessionService.registerSession(
+      user.id,
+      category,
+    );
+
+    return this.authSessionService.signToken(
+      user.id,
+      {
+        phone: user.phone,
+        email: user.email,
+        accountScope,
+        ...(user.staffId != null ? { staffId: user.staffId } : {}),
+      },
+      sid,
+    );
   }
 
   private async preparePurelyProfitLogin(

@@ -4,6 +4,7 @@ import {
   setupHandoverPageSpec,
 } from './handover-page.spec-helpers';
 import { buildShiftDateRange } from './handover.shared';
+import { aDateOrObject } from '../../../spec-matchers';
 
 describe('HandoverPageService - 收银统计与支付方式', () => {
   const ctx = setupHandoverPageSpec();
@@ -19,7 +20,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     expect(prismaService.saleOrder.aggregate).toHaveBeenCalledWith({
       where: expect.objectContaining({
         storeId: 100,
-        date: expect.any(Object),
+        date: aDateOrObject,
         spaceSession: { is: null },
       }),
       _sum: { totalRevenue: true },
@@ -473,7 +474,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
           storeId: 100,
           order: expect.objectContaining({
             storeId: 100,
-            date: expect.any(Object),
+            date: aDateOrObject,
           }),
         }),
       }),

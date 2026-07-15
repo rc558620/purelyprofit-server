@@ -5,8 +5,16 @@ import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../redis/redis.service';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import type { JwtPayload } from './strategies/jwt.strategy';
-import type { AccountIdentifiers } from './auth-account.types';
+import type { AccountIdentifiers, SessionCategory } from './auth-account.types';
 import { buildTokenVersionKey } from './auth.utils';
+import {
+  AUTH_SESSION_SET_KEY_PREFIX,
+  AUTH_SESSION_SET_TTL_SECONDS,
+  AUTH_SESSION_TOKEN_HASH_KEY_PREFIX,
+  MAX_SESSIONS_CLUB,
+  MAX_SESSIONS_PROFIT_MAIN,
+  MAX_SESSIONS_PROFIT_SUB,
+} from './auth.constants';
 
 /**
  * Token version key 的 TTL（秒）。
@@ -31,6 +39,7 @@ interface RefreshTokenPayload {
   email: string;
   accountScope?: string;
   staffId?: number;
+  sid?: string;
 }
 
 @Injectable()
@@ -56,6 +65,7 @@ export class AuthSessionService {
   async signToken(
     userId: number,
     identifiers: AccountIdentifiers,
+    sid?: string,
   ): Promise<AuthTokenResponseDto> {
     const payload: JwtPayload = {
       sub: userId,
@@ -63,15 +73,22 @@ export class AuthSessionService {
       accountScope: identifiers.accountScope,
       sessionVersion: await this.getTokenVersion(userId),
       ...(identifiers.staffId != null ? { staffId: identifiers.staffId } : {}),
+      ...(sid != null ? { sid } : {}),
     };
 
-    const refreshToken = await this.generateRefreshToken({
-      userId,
-      phone: identifiers.phone,
-      email: identifiers.email,
-      accountScope: identifiers.accountScope,
-      ...(identifiers.staffId != null ? { staffId: identifiers.staffId } : {}),
-    });
+    const refreshToken = await this.generateRefreshToken(
+      {
+        userId,
+        phone: identifiers.phone,
+        email: identifiers.email,
+        accountScope: identifiers.accountScope,
+        ...(identifiers.staffId != null
+          ? { staffId: identifiers.staffId }
+          : {}),
+        ...(sid != null ? { sid } : {}),
+      },
+      sid,
+    );
 
     return {
       access_token: await this.jwtService.signAsync(payload),
@@ -101,13 +118,23 @@ export class AuthSessionService {
     // 立即消费旧 token（rotation）
     await this.redisService.del(key);
 
-    // 签发新的 token pair
-    return this.signToken(stored.userId, {
-      phone: stored.phone,
-      email: stored.email,
-      accountScope: stored.accountScope as AccountIdentifiers['accountScope'],
-      ...(stored.staffId != null ? { staffId: stored.staffId } : {}),
-    });
+    // 检查会话是否仍活跃（已被踢下线的会话不允许刷新）
+    if (stored.sid) {
+      const active = await this.isSessionActive(stored.userId, stored.sid);
+      if (!active) return null;
+    }
+
+    // 签发新的 token pair（保留同一会话的 sid）
+    return this.signToken(
+      stored.userId,
+      {
+        phone: stored.phone,
+        email: stored.email,
+        accountScope: stored.accountScope as AccountIdentifiers['accountScope'],
+        ...(stored.staffId != null ? { staffId: stored.staffId } : {}),
+      },
+      stored.sid,
+    );
   }
 
   /**
@@ -130,6 +157,156 @@ export class AuthSessionService {
     await this.redisService.del(indexKey);
   }
 
+  // ── 会话生命周期管理 ─────────────────────────────────────
+
+  private buildSessionKey(userId: number): string {
+    return `${AUTH_SESSION_SET_KEY_PREFIX}${userId}`;
+  }
+
+  /**
+   * 注册新会话并按账号类型执行并发会话淘汰：
+   * - owner：无限制
+   * - profit_main：最多 3 个，FIFO 淘汰最老的
+   * - profit_sub / profit_club：只允许 1 个，踢掉所有旧的
+   *
+   * @returns 新会话的 sid
+   */
+  async registerSession(
+    userId: number,
+    category: SessionCategory,
+  ): Promise<string> {
+    const sid = randomBytes(16).toString('hex');
+    const key = this.buildSessionKey(userId);
+    const now = Date.now();
+
+    const maxSessions = this.getMaxSessions(category);
+
+    if (maxSessions !== Infinity) {
+      const currentCount = await this.redisService.zcard(key);
+      if (currentCount >= maxSessions) {
+        const removeCount = currentCount - maxSessions + 1;
+        // FIFO 淘汰最老的会话：先精确清理被淘汰会话的 refresh token
+        await this.cleanupEvictedSessions(userId, key, removeCount);
+      }
+    }
+
+    await this.redisService.zadd(key, now, sid, AUTH_SESSION_SET_TTL_SECONDS);
+    return sid;
+  }
+
+  /**
+   * 检查指定会话是否仍在活跃列表中
+   */
+  async isSessionActive(userId: number, sid: string): Promise<boolean> {
+    const key = this.buildSessionKey(userId);
+    const score = await this.redisService.zscore(key, sid);
+    return score !== null;
+  }
+
+  /**
+   * 移除用户的所有活跃会话（密码变更/重置时调用）
+   */
+  async removeAllSessions(userId: number): Promise<void> {
+    await this.invalidateAllRefreshTokens(userId);
+    await this.redisService.del(this.buildSessionKey(userId));
+  }
+
+  /**
+   * 清理被淘汰会话的 refresh token 和 sid→tokenHash 映射。
+   *
+   * 流程：
+   * 1. 从 sorted set 获取即将被淘汰的 sid 列表
+   * 2. 通过 sid→tokenHash 映射找到对应的 refresh token hash
+   * 3. 删除 refresh token、user-index 中的引用、sid 映射 key
+   * 4. 从 sorted set 中移除被淘汰的 sid
+   */
+  private async cleanupEvictedSessions(
+    userId: number,
+    sessionKey: string,
+    removeCount: number,
+  ): Promise<void> {
+    if (removeCount <= 0) return;
+
+    // 1. 获取即将被淘汰的 sid 列表（sorted set 中 score 最小的 removeCount 个）
+    const evictedSids = await this.redisService.zrange(
+      sessionKey,
+      0,
+      removeCount - 1,
+    );
+
+    if (evictedSids.length === 0) return;
+
+    // 2. 批量查找被淘汰 sid 对应的 refresh token hash
+    const mappingKeys = evictedSids.map(
+      (s: string) => `${AUTH_SESSION_TOKEN_HASH_KEY_PREFIX}${userId}:${s}`,
+    );
+    const tokenHashes = await this.redisService.mget(mappingKeys);
+
+    // 3. 删除被淘汰会话的 refresh token 和 sid→tokenHash 映射 key
+    const keysToDelete: string[] = [];
+    for (const hash of tokenHashes) {
+      if (hash) {
+        keysToDelete.push(`${REFRESH_TOKEN_KEY_PREFIX}${hash}`);
+      }
+    }
+    keysToDelete.push(...mappingKeys);
+
+    if (keysToDelete.length > 0) {
+      await this.redisService.delMany(keysToDelete);
+    }
+
+    // 4. 清理 user-index 中已失效的 hash 引用
+    const validHashes = tokenHashes.filter((h): h is string => h !== null);
+    await this.pruneUserIndex(userId, validHashes);
+
+    // 5. 从 sorted set 中移除被淘汰的 sid
+    await this.redisService.zremrangebyrank(sessionKey, 0, removeCount - 1);
+  }
+
+  /**
+   * 从 user-index 中移除已失效的 token hash 引用，
+   * 避免索引数组无限增长。
+   */
+  private async pruneUserIndex(
+    userId: number,
+    removedHashes: string[],
+  ): Promise<void> {
+    if (removedHashes.length === 0) return;
+
+    const indexKey = `${REFRESH_TOKEN_KEY_PREFIX}user-index:${userId}`;
+    const existing = await this.redisService.getJson<string[]>(indexKey);
+
+    if (!existing || existing.length === 0) return;
+
+    const removedSet = new Set(removedHashes);
+    const pruned = existing.filter((h) => !removedSet.has(h));
+
+    if (pruned.length === 0) {
+      await this.redisService.del(indexKey);
+    } else if (pruned.length < existing.length) {
+      await this.redisService.setJson(
+        indexKey,
+        pruned,
+        this.refreshTokenTtlSeconds,
+      );
+    }
+  }
+
+  private getMaxSessions(category: SessionCategory): number {
+    switch (category) {
+      case 'owner':
+        return Infinity;
+      case 'profit_main':
+        return MAX_SESSIONS_PROFIT_MAIN;
+      case 'profit_sub':
+        return MAX_SESSIONS_PROFIT_SUB;
+      case 'profit_club':
+        return MAX_SESSIONS_CLUB;
+      default:
+        return MAX_SESSIONS_PROFIT_SUB;
+    }
+  }
+
   async bumpTokenVersion(userId: number): Promise<void> {
     const nextVersion = (await this.getTokenVersion(userId)) + 1;
     await this.redisService.set(
@@ -149,6 +326,7 @@ export class AuthSessionService {
 
   private async generateRefreshToken(
     payload: RefreshTokenPayload,
+    sid?: string,
   ): Promise<string> {
     const token = `rt_${randomBytes(32).toString('hex')}`;
     const tokenHash = this.hashRefreshToken(token);
@@ -168,6 +346,16 @@ export class AuthSessionService {
       this.refreshTokenTtlSeconds,
     );
 
+    // 维护 sid → tokenHash 映射（用于会话淘汰时精确清理）
+    if (sid) {
+      const mappingKey = `${AUTH_SESSION_TOKEN_HASH_KEY_PREFIX}${payload.userId}:${sid}`;
+      await this.redisService.set(
+        mappingKey,
+        tokenHash,
+        this.refreshTokenTtlSeconds,
+      );
+    }
+
     return token;
   }
 
@@ -186,13 +374,20 @@ export class AuthSessionService {
     const unit = match[2] || 's';
 
     switch (unit) {
-      case 's': return value;
-      case 'm': return value * 60;
-      case 'h': return value * 3600;
-      case 'd': return value * 86400;
-      case 'w': return value * 604800;
-      case 'y': return value * 31536000;
-      default: return value;
+      case 's':
+        return value;
+      case 'm':
+        return value * 60;
+      case 'h':
+        return value * 3600;
+      case 'd':
+        return value * 86400;
+      case 'w':
+        return value * 604800;
+      case 'y':
+        return value * 31536000;
+      default:
+        return value;
     }
   }
 }

@@ -3,6 +3,7 @@ import type { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { BLOCK_SUB_ACCOUNT_KEY } from '../decorators/block-sub-account.decorator';
 import { SubAccountBlockGuard } from './sub-account-block.guard';
+import { aNonEmptyArray } from '../../../spec-matchers';
 
 describe('SubAccountBlockGuard', () => {
   const reflector = {
@@ -36,7 +37,7 @@ describe('SubAccountBlockGuard', () => {
     expect(guard.canActivate(createContext('sub_account'))).toBe(true);
     expect(reflector.getAllAndOverride).toHaveBeenCalledWith(
       BLOCK_SUB_ACCOUNT_KEY,
-      expect.any(Array),
+      aNonEmptyArray,
     );
   });
 

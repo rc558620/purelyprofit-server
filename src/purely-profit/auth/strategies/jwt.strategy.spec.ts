@@ -1,5 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtStrategy } from './jwt.strategy';
+import { aValidDate } from '../../../spec-matchers';
 
 describe('JwtStrategy', () => {
   const prisma = {
@@ -20,6 +21,7 @@ describe('JwtStrategy', () => {
   };
   const authSessionService = {
     getTokenVersion: jest.fn(),
+    isSessionActive: jest.fn().mockResolvedValue(true),
   };
   const configService = {
     get: jest.fn().mockImplementation((key: string) => {
@@ -236,7 +238,7 @@ describe('JwtStrategy', () => {
     expect(result.lastActiveAt).toBeInstanceOf(Date);
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { lastActiveAt: expect.any(Date) },
+      data: { lastActiveAt: aValidDate },
     });
   });
 
@@ -262,5 +264,77 @@ describe('JwtStrategy', () => {
 
     expect(prisma.user.update).not.toHaveBeenCalled();
     expect(result.lastActiveAt).toBe(recentTime);
+  });
+
+  it('有 sid 且会话活跃时允许通过', async () => {
+    const strategy = createStrategy();
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 1,
+      email: 'user@example.com',
+      name: '测试用户',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastActiveAt: null,
+    });
+    authSessionService.isSessionActive.mockResolvedValue(true);
+
+    const result = await strategy.validate({
+      sub: 1,
+      phone: '13800138000',
+      sessionVersion: 0,
+      sid: 'active-session-id',
+    });
+
+    expect(authSessionService.isSessionActive).toHaveBeenCalledWith(
+      1,
+      'active-session-id',
+    );
+    expect(result.id).toBe(1);
+  });
+
+  it('有 sid 但会话已被淘汰时拒绝访问', async () => {
+    const strategy = createStrategy();
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 1,
+      email: 'user@example.com',
+      name: '测试用户',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastActiveAt: null,
+    });
+    authSessionService.isSessionActive.mockResolvedValue(false);
+
+    await expect(
+      strategy.validate({
+        sub: 1,
+        phone: '13800138000',
+        sessionVersion: 0,
+        sid: 'evicted-session-id',
+      }),
+    ).rejects.toThrow('您的账号已在其他设备登录，当前会话已失效');
+  });
+
+  it('无 sid 的旧 token 跳过会话检查', async () => {
+    const strategy = createStrategy();
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: 1,
+      email: 'user@example.com',
+      name: '测试用户',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastActiveAt: null,
+    });
+
+    const result = await strategy.validate({
+      sub: 1,
+      phone: '13800138000',
+      sessionVersion: 0,
+    });
+
+    expect(authSessionService.isSessionActive).not.toHaveBeenCalled();
+    expect(result.id).toBe(1);
   });
 });

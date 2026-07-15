@@ -21,6 +21,7 @@ import type {
 } from './observability';
 import { PrismaService } from './prisma/prisma.service';
 import { RedisService } from './redis/redis.service';
+import { aNonEmptyString, aNonNegativeNumber } from './spec-matchers';
 
 describe('AppController', () => {
   let appController: AppController;
@@ -69,17 +70,17 @@ describe('AppController', () => {
 
       expect(health).toMatchObject({
         status: 'ok',
-        generatedAt: expect.any(String),
+        generatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
         process: {
-          pid: expect.any(Number),
-          nodeVersion: expect.any(String),
-          uptimeSeconds: expect.any(Number),
-          cpuUsedMs: expect.any(Number),
-          approxCpuUtilizationPercent: expect.any(Number),
-          rssMb: expect.any(Number),
-          heapUsedMb: expect.any(Number),
-          heapTotalMb: expect.any(Number),
-          externalMb: expect.any(Number),
+          pid: process.pid,
+          nodeVersion: process.version,
+          uptimeSeconds: aNonNegativeNumber,
+          cpuUsedMs: aNonNegativeNumber,
+          approxCpuUtilizationPercent: aNonNegativeNumber,
+          rssMb: aNonNegativeNumber,
+          heapUsedMb: aNonNegativeNumber,
+          heapTotalMb: aNonNegativeNumber,
+          externalMb: aNonNegativeNumber,
         },
         counters: {
           httpRequests: 0,
@@ -94,17 +95,17 @@ describe('AppController', () => {
 
       expect(readiness).toMatchObject({
         status: 'ok',
-        generatedAt: expect.any(String),
+        generatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
         dependencies: [
           {
             name: 'database',
             status: 'up',
-            latencyMs: expect.any(Number),
+            latencyMs: aNonNegativeNumber,
           },
           {
             name: 'redis',
             status: 'up',
-            latencyMs: expect.any(Number),
+            latencyMs: aNonNegativeNumber,
           },
         ],
       });
@@ -438,9 +439,9 @@ describe('AppController', () => {
       expect(metrics.summary.process).toMatchObject({
         severity: metrics.summary.severity.process,
         trend: expect.stringMatching(/stable|watch|degrading/),
-        label: expect.any(String),
-        message: expect.any(String),
-        suggestion: expect.any(String),
+        label: aNonEmptyString,
+        message: aNonEmptyString,
+        suggestion: aNonEmptyString,
         actionId: 'open_process_resource_panel',
         actionVersion: SUMMARY_ACTION_VERSION,
         actionType: 'drawer',
@@ -461,10 +462,10 @@ describe('AppController', () => {
         owner: '后端值班',
         ownerType: 'backend_oncall',
         responsibleTeam: '基础设施团队',
-        eta: expect.any(String),
+        eta: aNonEmptyString,
         impactLevel: expect.stringMatching(/low|medium|high|urgent/),
         impactScope: 'instance',
-        memoryPressurePercent: expect.any(Number),
+        memoryPressurePercent: aNonNegativeNumber,
       });
       expect(metrics.summary.http).toMatchObject({
         severity: 'critical',
@@ -637,7 +638,7 @@ describe('AppController', () => {
           },
           lastFailedKey: 'profit:dashboard:home:store:18:period:today',
           lastFailedSample: {
-            capturedAt: expect.any(String),
+            capturedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
             cacheKey: 'profit:dashboard:home:store:18:period:today',
             durationMs: 80,
             errorTag: 'Error',
@@ -646,10 +647,10 @@ describe('AppController', () => {
         },
         latestFailedCategory: {
           category: 'dashboardHome',
-          lastFailedAt: expect.any(String),
+          lastFailedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
           lastFailedKey: 'profit:dashboard:home:store:18:period:today',
           lastFailedSample: {
-            capturedAt: expect.any(String),
+            capturedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
             cacheKey: 'profit:dashboard:home:store:18:period:today',
             durationMs: 80,
             errorTag: 'Error',

@@ -9,6 +9,7 @@ import {
 } from './space-session.spec-helpers';
 import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { aUuid } from '../../../spec-matchers';
 
 describe('SpaceSessionAutoCheckoutService', () => {
   let service: SpaceSessionAutoCheckoutService;
@@ -107,7 +108,7 @@ describe('SpaceSessionAutoCheckoutService', () => {
 
     expect(redisClient.set).toHaveBeenCalledWith(
       'distributed-lock:space:auto-checkout:store:18',
-      expect.any(String),
+      aUuid,
       'EX',
       30,
       'NX',
@@ -134,7 +135,7 @@ describe('SpaceSessionAutoCheckoutService', () => {
       expect.stringContaining("redis.call('GET', KEYS[1]) == ARGV[1]"),
       1,
       'distributed-lock:space:auto-checkout:store:18',
-      expect.any(String),
+      aUuid,
     );
     expect(result).toBe(1);
   });
@@ -206,13 +207,13 @@ describe('SpaceSessionAutoCheckoutService', () => {
       expect.stringContaining(
         '[space-auto-checkout] aborted trigger=scheduler:auto-checkout storeId=18 requestId=req-query-fail userId=1 reason=Error',
       ),
-      expect.any(String),
+      expect.stringMatching(/^Error:/),
     );
     expect(redisClient.eval).toHaveBeenCalledWith(
-      expect.any(String),
+      expect.stringContaining("redis.call('GET', KEYS[1]) == ARGV[1]"),
       1,
       'distributed-lock:space:auto-checkout:store:18',
-      expect.any(String),
+      aUuid,
     );
   });
 
@@ -246,16 +247,16 @@ describe('SpaceSessionAutoCheckoutService', () => {
 
     expect(result).toBe(0);
     expect(redisClient.eval).toHaveBeenCalledWith(
-      expect.any(String),
+      expect.stringContaining("redis.call('GET', KEYS[1]) == ARGV[1]"),
       1,
       'distributed-lock:space:auto-checkout:store:18',
-      expect.any(String),
+      aUuid,
     );
     expect(logger.error).toHaveBeenCalledWith(
       expect.stringContaining(
         '[space-auto-checkout] failed trigger=scheduler:auto-checkout storeId=18 requestId=req-1 sessionId=9 reason=Error',
       ),
-      expect.any(String),
+      expect.stringMatching(/^Error:/),
     );
     expect(logger.log).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -281,10 +282,10 @@ describe('SpaceSessionAutoCheckoutService', () => {
     expect(result).toBe(0);
     // eval 被调用说明尝试释放锁了
     expect(redisClient.eval).toHaveBeenCalledWith(
-      expect.any(String),
+      expect.stringContaining("redis.call('GET', KEYS[1]) == ARGV[1]"),
       1,
       'distributed-lock:space:auto-checkout:store:18',
-      expect.any(String),
+      aUuid,
     );
   });
 

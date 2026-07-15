@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { aValidDate } from '../../spec-matchers';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import { CacheInvalidatorService } from '../../redis/invalidator';
@@ -874,7 +875,7 @@ describe('ClubOrdersService', () => {
         balance: { decrement: 49900 },
         totalSpent: { increment: 49900 },
         visitCount: { increment: 1 },
-        lastVisitAt: expect.any(Date),
+        lastVisitAt: aValidDate,
         tier: 'regular',
       },
     });

@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { FinanceController } from './finance.controller';
 import { FinanceService } from './finance.service';
+import type { ServerResponse } from 'node:http';
 
 const ALLOW_GUARD = { canActivate: jest.fn(() => true) };
 
@@ -110,7 +111,7 @@ describe('FinanceController', () => {
     };
     financeService.getReport.mockResolvedValue(response);
 
-    await expect(controller.getReport(user, query, { raw: {} as any })).resolves.toEqual(response);
+    await expect(controller.getReport(user, query, { raw: {} as ServerResponse })).resolves.toEqual(response);
     expect(financeService.getReport).toHaveBeenCalledWith(user, query);
   });
 

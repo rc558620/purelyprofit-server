@@ -6,6 +6,7 @@ import {
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { aNonEmptyObject } from '../../../spec-matchers';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { HandoverAdditionalItemsService } from './handover-additional-items.service';
@@ -147,7 +148,7 @@ describe('HandoverConfirmService', () => {
         handoverConfirmShiftService.ensureShiftNotHandedOver,
       ).toHaveBeenCalledWith(
         expect.objectContaining({
-          storeHandoverRecord: expect.any(Object),
+          storeHandoverRecord: aNonEmptyObject,
         }),
         100,
         expect.objectContaining({ id: 201 }),

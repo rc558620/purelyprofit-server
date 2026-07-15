@@ -100,7 +100,9 @@ describe('buildClientErrorLog', () => {
       detailComponentStack: 'at AppShell (/src/App.tsx:42:3)',
       detailTrigger: 'window-listener',
     });
-    expect(result.logEntry.receivedAt).toEqual(expect.any(String));
+    expect(result.logEntry.receivedAt).toEqual(
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    );
   });
 
   it('会为 HTTP 4xx 构建 warning 日志和聚合标签', () => {
