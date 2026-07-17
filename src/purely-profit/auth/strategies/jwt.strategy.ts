@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
@@ -11,6 +11,7 @@ import { AUTH_USER_CACHE_TTL_SECONDS } from '../auth.constants';
 import type {
   AuthenticatedAccountScope,
   AuthPulseMode,
+  TokenAudience,
 } from '../auth-account.types';
 import { buildUserCacheKey, resolveAuthIdentity } from '../auth.utils';
 
@@ -28,6 +29,8 @@ export interface AuthenticatedUser {
     | null;
   pulseMode?: AuthPulseMode;
   isPulseDeveloper?: boolean;
+  /** token 的 aud 字段，用于 Guard 层产品线 audience 校验 */
+  tokenAudience?: TokenAudience;
 }
 
 export interface JwtPayload {
@@ -39,6 +42,11 @@ export interface JwtPayload {
   staffId?: number;
   /** 会话唯一标识，用于精细化会话管理（旧 token 可能无此字段） */
   sid?: string;
+  /**
+   * token audience，标识签发时的产品线上下文，用于 Guard 层二次校验。
+   * 旧 token 可能无此字段，此时 Guard 跳过 audience 校验。
+   */
+  aud?: TokenAudience;
 }
 
 /**
@@ -68,6 +76,7 @@ interface ResolvedUserRecord {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
+  private static readonly logger = new Logger(JwtStrategy.name);
   private readonly pulseDevAccountEmails: Set<string>;
   private readonly adminLoginPhone: string;
 
@@ -79,10 +88,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private readonly authMembershipResolverService: AuthMembershipResolverService,
     private readonly authSessionService: AuthSessionService,
   ) {
+    const jwtSecret = configService.get<string>('jwt.secret');
+    if (!jwtSecret) {
+      throw new Error(
+        '[JwtStrategy] jwt.secret 未配置。请设置 JWT_SECRET 环境变量，禁止使用硬编码默认值',
+      );
+    }
+
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('jwt.secret') ?? 'secret',
+      secretOrKey: jwtSecret,
     });
 
     this.pulseDevAccountEmails = new Set(
@@ -144,14 +160,19 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       !user.lastActiveAt ||
       now.getTime() - user.lastActiveAt.getTime() > throttleMs;
     if (shouldUpdateLastActiveAt) {
-      this.prisma.user
-        .update({
-          where: { id: user.id },
-          data: { lastActiveAt: now },
-        })
-        .catch(() => {
-          // 非关键路径，静默忽略更新失败
-        });
+      // 非关键路径：fire-and-forget 更新 lastActiveAt，不阻塞鉴权流程
+      void (async () => {
+        try {
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: { lastActiveAt: now },
+          });
+        } catch (error: unknown) {
+          JwtStrategy.logger.warn(
+            `更新 lastActiveAt 失败 (userId=${user.id}): ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      })();
     }
 
     return {
@@ -166,6 +187,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       currentMembership,
       pulseMode: identity.pulseMode,
       isPulseDeveloper: identity.isPulseDeveloper,
+      tokenAudience: payload.aud,
     };
   }
 
@@ -208,13 +230,28 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       return null;
     }
 
-    // 异步回填缓存，不阻塞鉴权流程
-    this.redisService
-      .setJson(cacheKey, user, AUTH_USER_CACHE_TTL_SECONDS)
-      .catch(() => {
-        // 缓存写入失败不影响鉴权
-      });
+    // 非关键路径：fire-and-forget 回填缓存，不阻塞鉴权流程
+    void this.backfillUserCache(cacheKey, user);
 
     return user;
+  }
+
+  /**
+   * fire-and-forget 回填用户缓存，失败时仅记录日志。
+   * 由 resolveUser 通过 void 调用，不阻塞鉴权主流程。
+   */
+  private async backfillUserCache(
+    cacheKey: string,
+    user: ResolvedUserRecord,
+  ): Promise<void> {
+    try {
+      await this.redisService.setJson(
+        cacheKey,
+        user,
+        AUTH_USER_CACHE_TTL_SECONDS,
+      );
+    } catch {
+      // 缓存写入失败不影响鉴权
+    }
   }
 }

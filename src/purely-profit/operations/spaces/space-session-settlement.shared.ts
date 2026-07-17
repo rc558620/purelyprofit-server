@@ -20,6 +20,74 @@ export const buildSpaceSessionSettlement = (params: {
   items: SpaceSessionItemRecord[];
   renewRecords: SpaceSessionRenewRecord[];
 }): SpaceSessionSettlement => {
+  const core = buildSpaceSessionSettlementCore(params);
+  const totalRevenueMoney = sumLineTotalMoney(core.orderItems);
+  const totalProfitMoney = sumLineProfitMoney(core.orderItems);
+  const totalQuantity = core.orderItems.reduce(
+    (sum, item) =>
+      sum + (isNonQuantitySystemItem(item.productId) ? 0 : item.quantity),
+    0,
+  );
+  return {
+    durationMinutes: core.durationMinutes,
+    durationLabel: core.durationLabel,
+    ...(core.timeFeeMode ? { timeFeeMode: core.timeFeeMode } : {}),
+    ...(core.countdownFeeMode
+      ? { countdownFeeMode: core.countdownFeeMode }
+      : {}),
+    timeCost: core.timeCostMoney.toOutputYuan(),
+    itemsCost: core.itemsCostMoney.toOutputYuan(),
+    renewDeduction: core.renewDeductionMoney.toOutputYuan(),
+    prepaidDeduction: core.prepaidDeductionMoney.toOutputYuan(),
+    totalAmount: totalRevenueMoney.toOutputYuan(),
+    orderItems: core.orderItems,
+    totalRevenue: totalRevenueMoney.toOutputYuan(),
+    totalProfit: totalProfitMoney.toOutputYuan(),
+    totalQuantity,
+  };
+};
+
+/**
+ * 构建结账金额的 Money 版本，供 live-preview / renew-preview 等只读预览接口使用。
+ * 返回的金额字段全部是 Money 对象，调用方自行决定何时 toOutputYuan()。
+ */
+export const buildSpaceSessionSettlementMoney = (params: {
+  session: SpaceSessionSettlementRecord;
+  checkoutAt: number;
+  payload: CheckoutPreviewFeeMode;
+  items: SpaceSessionItemRecord[];
+  renewRecords: SpaceSessionRenewRecord[];
+}) => {
+  const core = buildSpaceSessionSettlementCore(params);
+  const totalRevenueMoney = sumLineTotalMoney(core.orderItems);
+  const totalProfitMoney = sumLineProfitMoney(core.orderItems);
+  return {
+    durationMinutes: core.durationMinutes,
+    durationLabel: core.durationLabel,
+    timeFeeMode: core.timeFeeMode,
+    countdownFeeMode: core.countdownFeeMode,
+    timeCostMoney: core.timeCostMoney,
+    itemsCostMoney: core.itemsCostMoney,
+    renewDeductionMoney: core.renewDeductionMoney,
+    prepaidDeductionMoney: core.prepaidDeductionMoney,
+    totalAmountMoney: totalRevenueMoney,
+    totalRevenueMoney,
+    totalProfitMoney,
+    orderItems: core.orderItems,
+  };
+};
+
+/**
+ * 结账结算核心：构建 orderItems 并计算所有金额中间值。
+ * 供 buildSpaceSessionSettlement / buildSpaceSessionSettlementMoney 共享调用。
+ */
+const buildSpaceSessionSettlementCore = (params: {
+  session: SpaceSessionSettlementRecord;
+  checkoutAt: number;
+  payload: CheckoutPreviewFeeMode;
+  items: SpaceSessionItemRecord[];
+  renewRecords: SpaceSessionRenewRecord[];
+}) => {
   const { session, checkoutAt, payload, items, renewRecords } = params;
   // items 中的 salePrice/profit 已经由 mapSessionItemRows 转为元
   const orderItems = items.map((item) => ({ ...item }));
@@ -34,8 +102,7 @@ export const buildSpaceSessionSettlement = (params: {
     renewRecords,
     payload,
   );
-  const timeFeeMode = resolvedFeeMode.timeFeeMode;
-  const countdownFeeMode = resolvedFeeMode.countdownFeeMode;
+  const { timeFeeMode, countdownFeeMode } = resolvedFeeMode;
   let timeCostMoney = Money.zero();
 
   if (
@@ -66,136 +133,7 @@ export const buildSpaceSessionSettlement = (params: {
   }
 
   // Bug 4 fix: 续费抵扣取 amount 与 voucherFaceAmount 的较大值
-  // 与 renew.service 中 addedMinutes 计算口径一致（“花 80 享 100”按 100 元抵扣）
-  const renewDeductionMoney = renewRecords.reduce((sum, record) => {
-    const amountMoney = Money.fromInputYuan(record.amount);
-    const effectiveMoney =
-      record.voucherFaceAmount !== undefined
-        ? Money.max(amountMoney, Money.fromInputYuan(record.voucherFaceAmount))
-        : amountMoney;
-    return sum.add(effectiveMoney);
-  }, Money.zero());
-  const renewDeductionYuan = renewDeductionMoney.toOutputYuan();
-  if (renewDeductionMoney.isPositive()) {
-    orderItems.push({
-      productId: 'SYS_RENEW_DEDUCTION',
-      productName: '续费抵扣',
-      categoryName: '场地费',
-      salePrice: -renewDeductionYuan,
-      profit: -renewDeductionYuan,
-      quantity: 1,
-      lineTotal: -renewDeductionYuan,
-    });
-  }
-
-  const prepaidDeductionMoney =
-    resolveSpaceSessionPrepaidDeductionMoney(session);
-  const prepaidDeductionYuan = prepaidDeductionMoney.toOutputYuan();
-  if (prepaidDeductionMoney.isPositive()) {
-    orderItems.push({
-      productId: 'SYS_PREPAID_DEDUCTION',
-      productName: '预付款',
-      categoryName: '场地费',
-      salePrice: -prepaidDeductionYuan,
-      profit: -prepaidDeductionYuan,
-      quantity: 1,
-      lineTotal: -prepaidDeductionYuan,
-    });
-  }
-
-  if (orderItems.length === 0) {
-    orderItems.push({
-      productId: 'SYS_EMPTY_SETTLEMENT',
-      productName: '场地结账',
-      categoryName: '场地费',
-      salePrice: 0,
-      profit: 0,
-      quantity: 1,
-      lineTotal: 0,
-    });
-  }
-
-  const totalRevenueMoney = sumLineTotalMoney(orderItems);
-  const totalProfitMoney = sumLineProfitMoney(orderItems);
-  const totalQuantity = orderItems.reduce(
-    (sum, item) =>
-      sum + (isNonQuantitySystemItem(item.productId) ? 0 : item.quantity),
-    0,
-  );
-
-  return {
-    durationMinutes,
-    durationLabel,
-    ...(timeFeeMode ? { timeFeeMode } : {}),
-    ...(countdownFeeMode ? { countdownFeeMode } : {}),
-    timeCost: timeCostMoney.toOutputYuan(),
-    itemsCost: itemsCostMoney.toOutputYuan(),
-    renewDeduction: renewDeductionYuan,
-    prepaidDeduction: prepaidDeductionYuan,
-    totalAmount: totalRevenueMoney.toOutputYuan(),
-    orderItems,
-    totalRevenue: totalRevenueMoney.toOutputYuan(),
-    totalProfit: totalProfitMoney.toOutputYuan(),
-    totalQuantity,
-  };
-};
-
-/**
- * 构建结账金额的 Money 版本，供 live-preview / renew-preview 等只读预览接口使用。
- * 返回的金额字段全部是 Money 对象，调用方自行决定何时 toOutputYuan()。
- */
-export const buildSpaceSessionSettlementMoney = (params: {
-  session: SpaceSessionSettlementRecord;
-  checkoutAt: number;
-  payload: CheckoutPreviewFeeMode;
-  items: SpaceSessionItemRecord[];
-  renewRecords: SpaceSessionRenewRecord[];
-}) => {
-  const { session, checkoutAt, payload, items, renewRecords } = params;
-  const orderItems = items.map((item) => ({ ...item }));
-  const itemsCostMoney = sumLineTotalMoney(items);
-  const durationMinutes = calcDurationMinutes(
-    session.startTime.getTime(),
-    checkoutAt,
-  );
-  const durationLabel = formatDurationLabel(durationMinutes);
-  const resolvedFeeMode = resolveSpaceSessionFeeMode(
-    session,
-    renewRecords,
-    payload,
-  );
-  const timeFeeMode = resolvedFeeMode.timeFeeMode;
-  const countdownFeeMode = resolvedFeeMode.countdownFeeMode;
-  let timeCostMoney = Money.zero();
-
-  if (
-    session.billingMode !== PrismaSpaceBillingMode.items &&
-    session.hourlyRate !== null
-  ) {
-    const hourlyRateMoney = Money.fromDbCents(session.hourlyRate);
-    const useUnitPrice = timeFeeMode === 'unit_price';
-    timeCostMoney = useUnitPrice
-      ? hourlyRateMoney
-      : calcTimeCostMoney(
-          session.startTime.getTime(),
-          checkoutAt,
-          hourlyRateMoney,
-        );
-    const timeCostYuan = timeCostMoney.toOutputYuan();
-    orderItems.unshift({
-      productId: 'SYS_TIME_BILLING',
-      productName: useUnitPrice
-        ? '台位费（固定）'
-        : `台位费（${durationLabel}）`,
-      categoryName: '场地费',
-      salePrice: timeCostYuan,
-      profit: timeCostYuan,
-      quantity: 1,
-      lineTotal: timeCostYuan,
-    });
-  }
-
-  // Bug 4 fix: 与 buildSpaceSessionSettlement 保持一致
+  // 与 renew.service 中 addedMinutes 计算口径一致（"花 80 享 100"按 100 元抵扣）
   const renewDeductionMoney = renewRecords.reduce((sum, record) => {
     const amountMoney = Money.fromInputYuan(record.amount);
     const effectiveMoney =
@@ -244,22 +182,16 @@ export const buildSpaceSessionSettlementMoney = (params: {
     });
   }
 
-  const totalRevenueMoney = sumLineTotalMoney(orderItems);
-  const totalProfitMoney = sumLineProfitMoney(orderItems);
-
   return {
+    orderItems,
+    itemsCostMoney,
     durationMinutes,
     durationLabel,
     timeFeeMode,
     countdownFeeMode,
     timeCostMoney,
-    itemsCostMoney,
     renewDeductionMoney,
     prepaidDeductionMoney,
-    totalAmountMoney: totalRevenueMoney,
-    totalRevenueMoney,
-    totalProfitMoney,
-    orderItems,
   };
 };
 
@@ -313,8 +245,8 @@ const resolveSpaceSessionFeeMode = (
 /**
  * G1/G2 fix: 预付抵扣取 prepaidAmount 与 prepaidVoucherFaceAmount 的较大值。
  * 与续费链路 renewDeduction 的 max(amount, voucherFaceAmount) 口径一致。
- * 场景：开台预付团购“花 80 享 100”→ 按 100 元抵扣；
- *       结账时团购券面金额同样纳入抵扣，避免“已计费但无人支付”的缺口。
+ * 场景：开台预付团购"花 80 享 100"→ 按 100 元抵扣；
+ *       结账时团购券面金额同样纳入抵扣，避免"已计费但无人支付"的缺口。
  */
 const resolveSpaceSessionPrepaidDeductionMoney = (
   session: Pick<

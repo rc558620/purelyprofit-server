@@ -1,5 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
+import type { ClubMemberLevelValue } from '../../purely-club/member/dto/club-member-account.dto';
+import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/club-member-levels.service';
+import { ClubMemberProfileService } from '../../purely-club/member/member-profile/club-member-profile.service';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { MarketingPermission } from './marketing-access.service';
@@ -11,13 +20,19 @@ import type {
   MarketingProductRow,
   MarketingPromotionRow,
 } from './marketing.types';
+import type { MarketingCustomerDetailDto } from './dto/marketing-response.dto';
+import { normalizePhone } from './marketing.utils';
 
 @Injectable()
 export class MarketingSharedService {
+  private readonly logger = new Logger(MarketingSharedService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly accessService: MarketingAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
+    private readonly clubMemberProfileService: ClubMemberProfileService,
+    private readonly clubMemberLevelsService: ClubMemberLevelsService,
   ) {}
 
   async resolveMembershipManagedStoreId(
@@ -51,6 +66,82 @@ export class MarketingSharedService {
       storeId,
       callerIsSubAccount,
     );
+  }
+
+  async resolveClubLevel(
+    storeId: number,
+    phone: string | null,
+  ): Promise<Pick<MarketingCustomerDetailDto, 'clubLevel' | 'clubLevelLabel'>> {
+    // B2: 防御性标准化，确保跨服务手机号格式一致
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone) {
+      return {};
+    }
+
+    try {
+      const snapshot =
+        await this.clubMemberProfileService.getSnapshotByStoreAndPhone(
+          storeId,
+          normalizedPhone,
+        );
+      if (!snapshot) {
+        return {};
+      }
+
+      const currentLevelConfig =
+        await this.clubMemberLevelsService.resolveCurrentLevelConfig(snapshot);
+
+      return {
+        clubLevel: currentLevelConfig.level as ClubMemberLevelValue,
+        clubLevelLabel: currentLevelConfig.label,
+      };
+    } catch (err) {
+      // B3: clubLevel 是附加字段，解析失败不应阻断核心数据返回
+      this.logger.warn(
+        `resolveClubLevel failed for storeId=${storeId}, phone=${normalizedPhone.slice(0, 3)}****: ${err instanceof Error ? err.message : err}`,
+      );
+      return {};
+    }
+  }
+
+  /**
+   * D1: 手机号校验——区分「未填/空串=清除」与「非法格式=400 拒绝」。
+   * - undefined / '' → 返回 null（表示清除）
+   * - 非空但 normalizePhone 返回 null → 抛 400
+   * - 合法手机号 → 返回归一化后的手机号
+   */
+  validatePhoneOrThrow(phone: string | undefined): string | null {
+    if (phone === undefined || phone === '') {
+      return null;
+    }
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
+      throw new BadRequestException('手机号格式不正确，请输入 11 位国内手机号');
+    }
+    return normalized;
+  }
+
+  async ensureUniquePhone(
+    storeId: number,
+    phone: string | null | undefined,
+    excludeCustomerId?: number,
+  ): Promise<void> {
+    const normalizedPhone = phone?.trim();
+    if (!normalizedPhone) {
+      return;
+    }
+
+    const existing = await this.prisma.marketingCustomer.findFirst({
+      where: {
+        storeId,
+        phone: normalizedPhone,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (existing && existing.id !== excludeCustomerId) {
+      throw new ConflictException('该手机号的顾客已存在');
+    }
   }
 
   async findCustomerOrThrow(customerId: number): Promise<MarketingCustomerRow> {

@@ -6,6 +6,7 @@ import { AccessControlService } from '../../access-control/access-control.servic
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SubscriptionsService } from '../../subscriptions/subscriptions.service';
+import { AuthStaffActivationService } from '../../auth/auth-staff-activation.service';
 import { StaffAccessService } from './staff-access.service';
 import { StaffProfileService } from './staff-profile.service';
 import { StaffService } from './staff.service';
@@ -42,6 +43,10 @@ describe('StaffService', () => {
 
   const configService = {
     get: jest.fn(),
+  };
+
+  const authStaffActivationService = {
+    invalidateMembershipCachesByUserId: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -90,6 +95,10 @@ describe('StaffService', () => {
         { provide: AccessControlService, useValue: accessControlService },
         { provide: SubscriptionsService, useValue: subscriptionsService },
         { provide: ConfigService, useValue: configService },
+        {
+          provide: AuthStaffActivationService,
+          useValue: authStaffActivationService,
+        },
       ],
     }).compile();
 
@@ -405,6 +414,7 @@ describe('StaffService', () => {
       storeId: 8,
       role: StaffRole.staff,
       isSeatActive: false, // 当前未占席位
+      userId: 42,
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
     subscriptionsService.getSeatSummary.mockResolvedValue({
@@ -424,6 +434,7 @@ describe('StaffService', () => {
       storeId: 8,
       role: StaffRole.staff,
       isSeatActive: false,
+      userId: 42,
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
     subscriptionsService.getSeatSummary.mockResolvedValue({
@@ -464,6 +475,7 @@ describe('StaffService', () => {
       storeId: 8,
       role: StaffRole.staff,
       isSeatActive: true,
+      userId: 42,
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
     prismaService.staff.update.mockResolvedValue({
@@ -500,6 +512,7 @@ describe('StaffService', () => {
       storeId: 8,
       role: StaffRole.staff,
       isSeatActive: true,
+      userId: 42,
     });
     accessControlService.resolveCurrentStoreIdByPermission.mockReturnValue(8);
     prismaService.staff.update.mockResolvedValue({

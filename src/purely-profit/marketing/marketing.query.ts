@@ -10,10 +10,53 @@ import type {
   MarketingRechargeRow,
 } from './marketing.types';
 
-/**
- * 支持 $queryRaw 的 Prisma 客户端（兼容 PrismaService 与事务客户端）。
- */
+/** 支持 $queryRaw 的 Prisma 客户端（兼容 PrismaService 与事务客户端）。 */
 type PrismaQueryRunner = PrismaService | Prisma.TransactionClient;
+
+/* ── 共享 SQL 片段 ─────────────────────────────────────────── */
+
+const RECHARGE_COLUMNS = Prisma.sql`
+  r.id,
+  r.store_id AS "storeId",
+  r.customer_id AS "customerId",
+  c.name AS "customerName",
+  r.amount,
+  r.gift_amount AS "giftAmount",
+  r.total_amount AS "totalAmount",
+  r.type::text AS "type",
+  r.promotion_id AS "promotionId",
+  p.name AS "promotionName",
+  r.note,
+  r.created_at AS "createdAt"
+`;
+
+const RECHARGE_FROM = Prisma.sql`
+  FROM marketing_recharges r
+  JOIN marketing_customers c ON c.id = r.customer_id
+  LEFT JOIN marketing_promotions p ON p.id = r.promotion_id
+`;
+
+const CONSUMPTION_COLUMNS = Prisma.sql`
+  co.id,
+  co.store_id AS "storeId",
+  co.customer_id AS "customerId",
+  c.name AS "customerName",
+  co.amount,
+  co.balance_paid AS "balancePaid",
+  co.points_deducted AS "pointsDeducted",
+  co.actual_points_deducted AS "actualPointsDeducted",
+  co.pay_type::text AS "payType",
+  co.items_summary AS "itemsSummary",
+  co.promotion_id AS "promotionId",
+  p.name AS "promotionName",
+  co.created_at AS "createdAt"
+`;
+
+const CONSUMPTION_FROM = Prisma.sql`
+  FROM marketing_consumptions co
+  JOIN marketing_customers c ON c.id = co.customer_id
+  LEFT JOIN marketing_promotions p ON p.id = co.promotion_id
+`;
 
 /**
  * 基于时间线遍历计算顾客当前赠送金额余额（分）。
@@ -105,22 +148,8 @@ export async function queryCustomerRecentRecharges(
   limit: number,
 ): Promise<MarketingRechargeRow[]> {
   return prisma.$queryRaw<MarketingRechargeRow[]>`
-    SELECT
-      r.id,
-      r.store_id AS "storeId",
-      r.customer_id AS "customerId",
-      c.name AS "customerName",
-      r.amount,
-      r.gift_amount AS "giftAmount",
-      r.total_amount AS "totalAmount",
-      r.type::text AS "type",
-      r.promotion_id AS "promotionId",
-      p.name AS "promotionName",
-      r.note,
-      r.created_at AS "createdAt"
-    FROM marketing_recharges r
-    JOIN marketing_customers c ON c.id = r.customer_id
-    LEFT JOIN marketing_promotions p ON p.id = r.promotion_id
+    SELECT ${RECHARGE_COLUMNS}
+    ${RECHARGE_FROM}
     WHERE r.customer_id = ${customerId}
       AND r.type IN ('recharge', 'gift')
     ORDER BY r.created_at DESC
@@ -134,23 +163,8 @@ export async function queryCustomerRecentConsumptions(
   limit: number,
 ): Promise<MarketingConsumptionRow[]> {
   return prisma.$queryRaw<MarketingConsumptionRow[]>`
-    SELECT
-      co.id,
-      co.store_id AS "storeId",
-      co.customer_id AS "customerId",
-      c.name AS "customerName",
-      co.amount,
-      co.balance_paid AS "balancePaid",
-      co.points_deducted AS "pointsDeducted",
-      co.actual_points_deducted AS "actualPointsDeducted",
-      co.pay_type::text AS "payType",
-      co.items_summary AS "itemsSummary",
-      co.promotion_id AS "promotionId",
-      p.name AS "promotionName",
-      co.created_at AS "createdAt"
-    FROM marketing_consumptions co
-    JOIN marketing_customers c ON c.id = co.customer_id
-    LEFT JOIN marketing_promotions p ON p.id = co.promotion_id
+    SELECT ${CONSUMPTION_COLUMNS}
+    ${CONSUMPTION_FROM}
     WHERE co.customer_id = ${customerId}
     ORDER BY co.created_at DESC
     LIMIT ${limit}
@@ -162,22 +176,8 @@ export async function queryRechargePage(
   input: MarketingRechargeListQueryInput & { skip: number; take: number },
 ): Promise<MarketingRechargeRow[]> {
   return prisma.$queryRaw<MarketingRechargeRow[]>`
-    SELECT
-      r.id,
-      r.store_id AS "storeId",
-      r.customer_id AS "customerId",
-      c.name AS "customerName",
-      r.amount,
-      r.gift_amount AS "giftAmount",
-      r.total_amount AS "totalAmount",
-      r.type::text AS "type",
-      r.promotion_id AS "promotionId",
-      p.name AS "promotionName",
-      r.note,
-      r.created_at AS "createdAt"
-    FROM marketing_recharges r
-    JOIN marketing_customers c ON c.id = r.customer_id
-    LEFT JOIN marketing_promotions p ON p.id = r.promotion_id
+    SELECT ${RECHARGE_COLUMNS}
+    ${RECHARGE_FROM}
     WHERE r.store_id = ${input.storeId}
       ${input.customerId ? Prisma.sql`AND r.customer_id = ${input.customerId}` : Prisma.empty}
       ${input.startMs ? Prisma.sql`AND r.created_at >= ${new Date(input.startMs)}` : Prisma.empty}
@@ -194,22 +194,8 @@ export async function queryCustomerRechargePage(
   take: number,
 ): Promise<MarketingRechargeRow[]> {
   return prisma.$queryRaw<MarketingRechargeRow[]>`
-    SELECT
-      r.id,
-      r.store_id AS "storeId",
-      r.customer_id AS "customerId",
-      c.name AS "customerName",
-      r.amount,
-      r.gift_amount AS "giftAmount",
-      r.total_amount AS "totalAmount",
-      r.type::text AS "type",
-      r.promotion_id AS "promotionId",
-      p.name AS "promotionName",
-      r.note,
-      r.created_at AS "createdAt"
-    FROM marketing_recharges r
-    JOIN marketing_customers c ON c.id = r.customer_id
-    LEFT JOIN marketing_promotions p ON p.id = r.promotion_id
+    SELECT ${RECHARGE_COLUMNS}
+    ${RECHARGE_FROM}
     WHERE r.customer_id = ${customerId}
       AND r.type IN ('recharge', 'gift')
     ORDER BY r.created_at DESC, r.id DESC
@@ -224,22 +210,8 @@ export async function queryCustomerRefundPage(
   take: number,
 ): Promise<MarketingRechargeRow[]> {
   return prisma.$queryRaw<MarketingRechargeRow[]>`
-    SELECT
-      r.id,
-      r.store_id AS "storeId",
-      r.customer_id AS "customerId",
-      c.name AS "customerName",
-      r.amount,
-      r.gift_amount AS "giftAmount",
-      r.total_amount AS "totalAmount",
-      r.type::text AS "type",
-      r.promotion_id AS "promotionId",
-      p.name AS "promotionName",
-      r.note,
-      r.created_at AS "createdAt"
-    FROM marketing_recharges r
-    JOIN marketing_customers c ON c.id = r.customer_id
-    LEFT JOIN marketing_promotions p ON p.id = r.promotion_id
+    SELECT ${RECHARGE_COLUMNS}
+    ${RECHARGE_FROM}
     WHERE r.customer_id = ${customerId}
       AND r.type = 'refund'
     ORDER BY r.created_at DESC, r.id DESC
@@ -252,26 +224,11 @@ export async function queryRechargeRowById(
   rechargeId: number,
 ): Promise<MarketingRechargeRow | null> {
   const rows = await prisma.$queryRaw<MarketingRechargeRow[]>`
-    SELECT
-      r.id,
-      r.store_id AS "storeId",
-      r.customer_id AS "customerId",
-      c.name AS "customerName",
-      r.amount,
-      r.gift_amount AS "giftAmount",
-      r.total_amount AS "totalAmount",
-      r.type::text AS "type",
-      r.promotion_id AS "promotionId",
-      p.name AS "promotionName",
-      r.note,
-      r.created_at AS "createdAt"
-    FROM marketing_recharges r
-    JOIN marketing_customers c ON c.id = r.customer_id
-    LEFT JOIN marketing_promotions p ON p.id = r.promotion_id
+    SELECT ${RECHARGE_COLUMNS}
+    ${RECHARGE_FROM}
     WHERE r.id = ${rechargeId}
     LIMIT 1
   `;
-
   return rows[0] ?? null;
 }
 
@@ -345,23 +302,8 @@ export async function queryCustomerConsumptionPage(
   take: number,
 ): Promise<MarketingConsumptionRow[]> {
   return prisma.$queryRaw<MarketingConsumptionRow[]>`
-    SELECT
-      co.id,
-      co.store_id AS "storeId",
-      co.customer_id AS "customerId",
-      c.name AS "customerName",
-      co.amount,
-      co.balance_paid AS "balancePaid",
-      co.points_deducted AS "pointsDeducted",
-      co.actual_points_deducted AS "actualPointsDeducted",
-      co.pay_type::text AS "payType",
-      co.items_summary AS "itemsSummary",
-      co.promotion_id AS "promotionId",
-      p.name AS "promotionName",
-      co.created_at AS "createdAt"
-    FROM marketing_consumptions co
-    JOIN marketing_customers c ON c.id = co.customer_id
-    LEFT JOIN marketing_promotions p ON p.id = co.promotion_id
+    SELECT ${CONSUMPTION_COLUMNS}
+    ${CONSUMPTION_FROM}
     WHERE co.customer_id = ${customerId}
     ORDER BY co.created_at DESC, co.id DESC
     LIMIT ${take} OFFSET ${skip}
@@ -373,27 +315,11 @@ export async function queryConsumptionRowById(
   consumptionId: number,
 ): Promise<MarketingConsumptionRow | null> {
   const rows = await prisma.$queryRaw<MarketingConsumptionRow[]>`
-    SELECT
-      co.id,
-      co.store_id AS "storeId",
-      co.customer_id AS "customerId",
-      c.name AS "customerName",
-      co.amount,
-      co.balance_paid AS "balancePaid",
-      co.points_deducted AS "pointsDeducted",
-      co.actual_points_deducted AS "actualPointsDeducted",
-      co.pay_type::text AS "payType",
-      co.items_summary AS "itemsSummary",
-      co.promotion_id AS "promotionId",
-      p.name AS "promotionName",
-      co.created_at AS "createdAt"
-    FROM marketing_consumptions co
-    JOIN marketing_customers c ON c.id = co.customer_id
-    LEFT JOIN marketing_promotions p ON p.id = co.promotion_id
+    SELECT ${CONSUMPTION_COLUMNS}
+    ${CONSUMPTION_FROM}
     WHERE co.id = ${consumptionId}
     LIMIT 1
   `;
-
   return rows[0] ?? null;
 }
 

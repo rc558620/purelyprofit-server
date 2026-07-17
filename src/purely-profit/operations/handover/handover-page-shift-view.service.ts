@@ -52,13 +52,15 @@ export class HandoverPageShiftViewService {
     membership: MembershipContext,
     shiftEmployeeId: number | null,
   ): Promise<DisplayOperatorInfo> {
-    const employeeId = shiftEmployeeId ?? membership.linkedEmployeeId;
-    if (!employeeId) {
+    // 没有活跃排班时，不回退到当前登录用户，返回默认值
+    if (!shiftEmployeeId) {
       return {
         name: null,
         staffId: membership.staffId,
       };
     }
+
+    const employeeId = shiftEmployeeId;
 
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
@@ -81,9 +83,8 @@ export class HandoverPageShiftViewService {
       toOptionalMediaText(employee?.avatar) ??
       toOptionalMediaText(employee?.linkedStaff?.user?.avatar);
     const staffId =
-      shiftEmployeeId === null ||
-      (membership.linkedEmployeeId !== null &&
-        employeeId === membership.linkedEmployeeId)
+      membership.linkedEmployeeId !== null &&
+      employeeId === membership.linkedEmployeeId
         ? membership.staffId
         : (employee?.linkedStaffId ?? null);
 

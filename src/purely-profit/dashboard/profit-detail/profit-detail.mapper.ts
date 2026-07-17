@@ -29,7 +29,7 @@ import {
 
 const DAY_MS = 86_400_000;
 const CHART_DAY_LIMIT = 365;
-const PRODUCT_RANKING_LIMIT = 10;
+const PRODUCT_RANKING_LIMIT = 5;
 
 export function buildEmptySummary(): ProfitSummaryDto {
   return {

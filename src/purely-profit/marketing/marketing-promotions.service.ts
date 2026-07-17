@@ -35,6 +35,8 @@ import {
   buildMarketingPaginationMeta,
   resolveMarketingPagination,
   type MarketingPromotionTypeValue,
+  assertPromotionRange,
+  throwOnPromotionTypeConflict,
 } from './marketing.utils';
 import { validatePromotionParams } from './schemas/promotion-params.schema';
 
@@ -190,7 +192,7 @@ export class MarketingPromotionsService {
       storeId,
       'marketing:manage',
     );
-    this.assertPromotionRange(new Date(dto.startAt), new Date(dto.endAt));
+    assertPromotionRange(new Date(dto.startAt), new Date(dto.endAt));
 
     // POTENTIAL-5 修复：先校验参数，再做唯一性查询，
     // 避免无效参数时多余的 count 查询且错误提示顺序颠倒
@@ -230,15 +232,7 @@ export class MarketingPromotionsService {
       });
     } catch (err) {
       // 并发场景下应用层 count=0 通过，但 DB 唯一索引冲突 P2002
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          '当前门店已存在相同类型的上架活动，请直接编辑现有活动',
-        );
-      }
-      throw err;
+      throwOnPromotionTypeConflict(err);
     }
 
     await this.invalidateDashboardCaches(storeId);
@@ -268,7 +262,7 @@ export class MarketingPromotionsService {
     const timeFieldChanged =
       dto.startAt !== undefined || dto.endAt !== undefined;
     if (timeFieldChanged) {
-      this.assertPromotionRange(newStartAt, newEndAt);
+      assertPromotionRange(newStartAt, newEndAt);
     }
 
     // POTENTIAL-5 修复：先校验参数，再做唯一性查询
@@ -325,15 +319,7 @@ export class MarketingPromotionsService {
       });
     } catch (err) {
       // 并发场景下 update 切换 enabled=true 触发 P2002
-      if (
-        err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          '当前门店已存在相同类型的上架活动，请直接编辑现有活动',
-        );
-      }
-      throw err;
+      throwOnPromotionTypeConflict(err);
     }
 
     await this.invalidateDashboardCaches(promotion.storeId);
@@ -402,16 +388,6 @@ export class MarketingPromotionsService {
       throw new ConflictException(
         '当前门店已存在相同类型的上架活动，请直接编辑现有活动',
       );
-    }
-  }
-
-  private assertPromotionRange(startAt: Date, endAt: Date): void {
-    if (endAt <= startAt) {
-      throw new BadRequestException('结束时间必须晚于开始时间');
-    }
-    // B10：禁止创建/编辑已结束的活动
-    if (endAt < new Date()) {
-      throw new BadRequestException('活动结束时间不能早于当前时间');
     }
   }
 }

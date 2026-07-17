@@ -89,12 +89,19 @@ export class StaffAccessService {
     storeId: number;
     role: StaffRole;
     isSeatActive: boolean;
+    userId: number | null;
   }> {
     const staff = await this.prisma.staff.findFirst({
       where: {
         id: staffId,
       },
-      select: { id: true, storeId: true, role: true, isSeatActive: true },
+      select: {
+        id: true,
+        storeId: true,
+        role: true,
+        isSeatActive: true,
+        userId: true,
+      },
     });
 
     if (!staff) {

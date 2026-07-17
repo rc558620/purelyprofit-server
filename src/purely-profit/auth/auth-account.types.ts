@@ -7,4 +7,5 @@ export type {
   AuthenticatedAccountScope,
   PhoneUserRecord,
   SessionCategory,
+  TokenAudience,
 } from '../../shared/auth/auth-account.types';

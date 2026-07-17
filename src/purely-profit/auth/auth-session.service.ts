@@ -6,7 +6,7 @@ import { RedisService } from '../../redis/redis.service';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import type { JwtPayload } from './strategies/jwt.strategy';
 import type { AccountIdentifiers, SessionCategory } from './auth-account.types';
-import { buildTokenVersionKey } from './auth.utils';
+import { buildTokenVersionKey, determineTokenAudience } from './auth.utils';
 import {
   AUTH_SESSION_SET_KEY_PREFIX,
   AUTH_SESSION_SET_TTL_SECONDS,
@@ -72,6 +72,7 @@ export class AuthSessionService {
       phone: identifiers.phone,
       accountScope: identifiers.accountScope,
       sessionVersion: await this.getTokenVersion(userId),
+      aud: determineTokenAudience(identifiers.accountScope),
       ...(identifiers.staffId != null ? { staffId: identifiers.staffId } : {}),
       ...(sid != null ? { sid } : {}),
     };
@@ -112,11 +113,10 @@ export class AuthSessionService {
     const tokenHash = this.hashRefreshToken(rawRefreshToken);
     const key = `${REFRESH_TOKEN_KEY_PREFIX}${tokenHash}`;
 
-    const stored = await this.redisService.getJson<RefreshTokenPayload>(key);
+    // C-01 修复：原子 GET+DEL，消除并发 refresh 派生多个有效 token 的竞态条件
+    const stored =
+      await this.redisService.getJsonAndDelete<RefreshTokenPayload>(key);
     if (!stored) return null;
-
-    // 立即消费旧 token（rotation）
-    await this.redisService.del(key);
 
     // 检查会话是否仍活跃（已被踢下线的会话不允许刷新）
     if (stored.sid) {
@@ -307,13 +307,16 @@ export class AuthSessionService {
     }
   }
 
+  /**
+   * 原子递增 token version，使旧 access_token 立即失效。
+   *
+   * 使用 Redis INCR 替代 GET + SET，避免并发场景下版本号丢失。
+   * INCR 后刷新 TTL，确保在 JWT 有效期内 version 始终可查。
+   */
   async bumpTokenVersion(userId: number): Promise<void> {
-    const nextVersion = (await this.getTokenVersion(userId)) + 1;
-    await this.redisService.set(
-      buildTokenVersionKey(userId),
-      String(nextVersion),
-      TOKEN_VERSION_TTL_SECONDS,
-    );
+    const key = buildTokenVersionKey(userId);
+    await this.redisService.incr(key);
+    await this.redisService.expire(key, TOKEN_VERSION_TTL_SECONDS);
   }
 
   async getTokenVersion(userId: number): Promise<number> {

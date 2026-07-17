@@ -2,6 +2,7 @@ import { EmployeeShiftType } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
+import { HandoverConfirmShiftFallbackService } from './handover-confirm-shift-fallback.service';
 import { HandoverConfirmShiftService } from './handover-confirm-shift.service';
 import type { ShiftRecordRow } from './handover.shared';
 
@@ -31,6 +32,7 @@ describe('HandoverConfirmShiftService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         HandoverConfirmShiftService,
+        HandoverConfirmShiftFallbackService,
         { provide: PrismaService, useValue: prismaService },
         {
           provide: StoreSubAccountService,

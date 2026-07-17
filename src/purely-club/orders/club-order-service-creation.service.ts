@@ -4,8 +4,10 @@ import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubOrderDraftsService } from './club-order-drafts.service';
 import { buildOrderNo } from './club-order-drafts.utils';
-import { fetchPointsRedeemConfig } from './club-order-drafts.utils';
-import { calcPointsRedeemDetail } from './club-order-points.utils';
+import {
+  fetchPointsRedeemConfig,
+  calcPointsRedeemDetail,
+} from './club-order-points.utils';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
 import type {

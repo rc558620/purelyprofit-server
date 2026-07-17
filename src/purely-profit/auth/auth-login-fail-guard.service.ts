@@ -35,9 +35,8 @@ export class AuthLoginFailGuardService {
     const failCount = Number.parseInt(rawCount ?? '0', 10);
 
     if (failCount >= AUTH_LOGIN_FAIL_MAX_ATTEMPTS) {
-      throw new UnauthorizedException(
-        '登录失败次数过多，账号已被临时锁定，请 15 分钟后再试',
-      );
+      // 统一为通用错误消息，避免通过差异化提示枚举账号存在性
+      throw new UnauthorizedException('账号或密码错误');
     }
   }
 

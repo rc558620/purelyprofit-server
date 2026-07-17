@@ -36,7 +36,7 @@ import {
   ToggleMarketingProductDto,
   UpdateMarketingProductDto,
 } from './dto/marketing-product.dto';
-import { MarketingService } from './marketing.service';
+import { MarketingProductsFacadeService } from './marketing.service';
 
 @ApiTags('营销中心')
 @ApiBearerAuth()
@@ -44,7 +44,9 @@ import { MarketingService } from './marketing.service';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('marketing/products')
 export class MarketingProductsController {
-  constructor(private readonly marketingService: MarketingService) {}
+  constructor(
+    private readonly marketingProductsFacadeService: MarketingProductsFacadeService,
+  ) {}
 
   @Get()
   @RequirePermissions('marketing:view')
@@ -54,7 +56,7 @@ export class MarketingProductsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListMarketingProductsQueryDto,
   ): Promise<MarketingProductsResponseDto> {
-    return this.marketingService.listProducts(user, query);
+    return this.marketingProductsFacadeService.listProducts(user, query);
   }
 
   @Post()
@@ -66,7 +68,11 @@ export class MarketingProductsController {
     @Body() dto: CreateMarketingProductDto,
     @Query('storeId', ParseIntPipe) storeId: number,
   ): Promise<MarketingProductDto> {
-    return this.marketingService.createProduct(user, storeId, dto);
+    return this.marketingProductsFacadeService.createProduct(
+      user,
+      storeId,
+      dto,
+    );
   }
 
   @Patch(':id')
@@ -78,7 +84,7 @@ export class MarketingProductsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateMarketingProductDto,
   ): Promise<MarketingProductDto> {
-    return this.marketingService.updateProduct(user, id, dto);
+    return this.marketingProductsFacadeService.updateProduct(user, id, dto);
   }
 
   @Patch(':id/toggle')
@@ -90,7 +96,7 @@ export class MarketingProductsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ToggleMarketingProductDto,
   ): Promise<MarketingProductDto> {
-    return this.marketingService.toggleProduct(user, id, dto);
+    return this.marketingProductsFacadeService.toggleProduct(user, id, dto);
   }
 
   @Delete(':id')
@@ -102,6 +108,6 @@ export class MarketingProductsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<void> {
-    return this.marketingService.deleteProduct(user, id);
+    return this.marketingProductsFacadeService.deleteProduct(user, id);
   }
 }

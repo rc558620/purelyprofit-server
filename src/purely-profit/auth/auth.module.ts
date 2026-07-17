@@ -13,6 +13,7 @@ import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCapabilityService } from './auth-capability.service';
 import { AuthCodeLoginService } from './auth-code-login.service';
 import { AuthCodeService } from './auth-code.service';
+import { AuthCodeVerifyService } from './auth-code-verify.service';
 import { CaptchaTokenService } from './captcha-token.service';
 import { AuthController } from './auth.controller';
 import { AuthLoginFailGuardService } from './auth-login-fail-guard.service';
@@ -64,6 +65,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthCapabilityService,
     AuthCodeLoginService,
     AuthCodeService,
+    AuthCodeVerifyService,
     CaptchaTokenService,
     AuthLoginFailGuardService,
     AuthPasswordService,
@@ -87,8 +89,10 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthProductAuthService,
     AuthAccountLookupService,
     AuthCodeService,
+    AuthCodeVerifyService,
     CaptchaTokenService,
     AuthSessionService,
+    AuthStaffActivationService,
     JwtAuthGuard,
     ClubJwtAuthGuard,
     PulseJwtAuthGuard,

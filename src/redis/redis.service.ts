@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { recordRedisOperation } from '../observability';
-import { countPipelineDeleted } from './concurrency-limiter.util';
+import { pipelineUnlinkByPattern } from './redis-pipeline.util';
 import { safeJsonStringify } from './redis-json.util';
 import { buildRedisConnectionOptions } from '../shared/redis-connection.utils';
 
@@ -107,6 +107,17 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * 设置 key 的过期时间（秒）。
+   * @returns 若 key 存在且 TTL 设置成功返回 true，key 不存在返回 false
+   */
+  async expire(key: string, ttlSeconds: number): Promise<boolean> {
+    return this.observeRedisCommand('EXPIRE', async () => {
+      const result = await this.client.expire(key, ttlSeconds);
+      return result === 1;
+    });
+  }
+
   async setIfAbsent(
     key: string,
     value: string,
@@ -136,6 +147,24 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.set(key, safeJsonStringify(value), ttlSeconds);
   }
 
+  /**
+   * 原子获取并删除 key（使用 Redis GETDEL 命令）。
+   *
+   * 将 GET + DEL 合并为单条原子命令，消除并发场景下
+   * "先读后删" 导致的 TOCTOU 竞态条件（如 refresh token 轮换）。
+   *
+   * @returns 解析后的 JSON 值；key 不存在时返回 null
+   */
+  async getJsonAndDelete<T>(key: string): Promise<T | null> {
+    const raw = await this.observeRedisCommand(
+      'GETDEL',
+      () => this.client.getdel(key),
+      (result) => (result === null ? 'miss' : 'hit'),
+    );
+    if (raw === null) return null;
+    return JSON.parse(raw) as T;
+  }
+
   async del(key: string): Promise<void> {
     await this.observeRedisCommand('DEL', async () => {
       await this.client.del(key);
@@ -151,67 +180,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async delByPattern(pattern: string): Promise<number> {
-    const startedAt = Date.now();
-    let cursor = '0';
-    let totalDeleted = 0;
-    const pipelineBatchSize = 200;
-    const pipeline = this.client.pipeline();
-    let pendingOps = 0;
-
-    do {
-      const [nextCursor, batchKeys] = await this.client.scan(
-        cursor,
-        'MATCH',
-        pattern,
-        'COUNT',
-        100,
-      );
-      cursor = nextCursor;
-
-      for (const key of batchKeys) {
-        pipeline.unlink(key);
-        pendingOps += 1;
-
-        if (pendingOps >= pipelineBatchSize) {
-          const results = await pipeline.exec();
-          if (results === null) {
-            this.logger.warn(
-              `[redis] pipeline.exec() returned null during delByPattern pattern=${pattern} pendingOps=${pendingOps}`,
-            );
-          } else {
-            totalDeleted += countPipelineDeleted(results);
-          }
-          pendingOps = 0;
-        }
-      }
-    } while (cursor !== '0');
-
-    if (pendingOps > 0) {
-      const results = await pipeline.exec();
-      if (results === null) {
-        this.logger.warn(
-          `[redis] pipeline.exec() returned null during delByPattern (final flush) pattern=${pattern} pendingOps=${pendingOps}`,
-        );
-      } else {
-        totalDeleted += countPipelineDeleted(results);
-      }
-    }
-
-    const durationMs = Date.now() - startedAt;
-    recordRedisOperation({
-      command: 'UNLINK',
-      durationMs,
-      outcome: totalDeleted > 0 ? 'hit' : 'miss',
-      slowThresholdMs: this.slowRedisThresholdMs,
-    });
-
-    if (this.slowRedisLogEnabled && durationMs >= this.slowRedisThresholdMs) {
-      this.logger.warn(
-        `[slow-redis] UNLINK ${durationMs}ms pattern=${pattern} deleted=${totalDeleted}`,
-      );
-    }
-
-    return totalDeleted;
+    return pipelineUnlinkByPattern(
+      this.client,
+      pattern,
+      this.logger,
+      this.slowRedisLogEnabled,
+      this.slowRedisThresholdMs,
+    );
   }
 
   async scanKeysByPattern(pattern: string, limit?: number): Promise<string[]> {

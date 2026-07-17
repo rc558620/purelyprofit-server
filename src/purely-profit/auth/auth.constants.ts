@@ -27,8 +27,8 @@ export const AUTH_USER_CACHE_KEY_PREFIX = 'auth:user-cache:';
 export const AUTH_USER_CACHE_TTL_SECONDS = 300;
 /** JWT validate 链路中 membership rows 缓存的 key 前缀 */
 export const AUTH_MEMBERSHIP_ROWS_CACHE_KEY_PREFIX = 'auth:membership-rows:';
-/** JWT validate 链路中 membership rows 缓存的 TTL（秒），比 user 缓存更短以确保权限及时更新 */
-export const AUTH_MEMBERSHIP_ROWS_CACHE_TTL_SECONDS = 120;
+/** JWT validate 链路中 membership rows 缓存的 TTL（秒），权限变更时主动失效 + TTL 兆底 */
+export const AUTH_MEMBERSHIP_ROWS_CACHE_TTL_SECONDS = 30;
 /** JWT validate 链路中用户关联门店 ID 缓存的 key 前缀 */
 export const AUTH_USER_RELATED_STORE_IDS_CACHE_KEY_PREFIX =
   'auth:user-related-stores:';

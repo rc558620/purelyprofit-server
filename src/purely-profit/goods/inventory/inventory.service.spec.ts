@@ -7,10 +7,12 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
+import { InventoryReadService } from './inventory-read.service';
 import { InventoryService } from './inventory.service';
 
 describe('InventoryService', () => {
   let service: InventoryService;
+  let readService: InventoryReadService;
 
   const prismaService = {
     inventoryAdjustmentLog: {
@@ -93,6 +95,7 @@ describe('InventoryService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InventoryService,
+        InventoryReadService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         { provide: ConfigService, useValue: configService },
@@ -105,6 +108,7 @@ describe('InventoryService', () => {
     }).compile();
 
     service = module.get<InventoryService>(InventoryService);
+    readService = module.get<InventoryReadService>(InventoryReadService);
   });
 
   it('listProducts 会返回分页结构并按筛选排序后的结果计 total', async () => {
@@ -162,7 +166,7 @@ describe('InventoryService', () => {
     prismaService.product.count.mockResolvedValue(3);
 
     await expect(
-      service.listProducts(user, {
+      readService.listProducts(user, {
         storeId: 18,
         keyword: '0',
         alertOnly: true,
@@ -220,7 +224,7 @@ describe('InventoryService', () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(null);
 
     await expect(
-      service.listProducts(user, { page: 2, pageSize: 5 }),
+      readService.listProducts(user, { page: 2, pageSize: 5 }),
     ).resolves.toEqual({
       items: [],
       meta: {
@@ -259,7 +263,7 @@ describe('InventoryService', () => {
     prismaService.inventoryAdjustmentLog.count.mockResolvedValue(12);
 
     await expect(
-      service.listAdjustments(user, {
+      readService.listAdjustments(user, {
         storeId: 18,
         productId: 101,
         adjustType: 'restock',
@@ -364,7 +368,7 @@ describe('InventoryService', () => {
     ]);
     prismaService.product.count.mockResolvedValue(1);
 
-    await service.getReport(user, {
+    await readService.getReport(user, {
       storeId: 18,
       export: true,
       page: 1,
@@ -383,7 +387,7 @@ describe('InventoryService', () => {
     );
 
     await expect(
-      service.getReport(user, {
+      readService.getReport(user, {
         storeId: 18,
         export: true,
         page: 1,

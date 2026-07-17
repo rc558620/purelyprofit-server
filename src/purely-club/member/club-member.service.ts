@@ -3,7 +3,7 @@ import { AuthService } from '../../purely-profit/auth/auth.service';
 import type { ProfileUserDto } from '../../purely-profit/auth/dto/profile-response.dto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
-import { fetchPointsRedeemConfig } from '../orders/club-order-drafts.utils';
+import { fetchPointsRedeemConfig } from '../orders/club-order-points.utils';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import {
   type ClubMemberAccountDto,

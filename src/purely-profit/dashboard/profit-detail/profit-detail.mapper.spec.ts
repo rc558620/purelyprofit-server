@@ -110,10 +110,10 @@ describe('profit-detail.mapper 趋势粒度（P2-2）', () => {
 });
 
 describe('profit-detail.mapper 商品利润排行上限', () => {
-  it('buildProductRanking 仅返回利润最高的前 10 条', () => {
+  it('buildProductRanking 仅返回利润最高的前 5 条', () => {
     const rankMap = new Map<string, AggregatedRankProduct>();
-    // 12 条商品，totalProfit 从高到低：p12(1200) ... p1(100)
-    for (let i = 1; i <= 12; i++) {
+    // 8 条商品，totalProfit 从高到低：p8(800) ... p1(100)
+    for (let i = 1; i <= 8; i++) {
       rankMap.set(`p${i}`, {
         id: `p${i}`,
         name: `商品${i}`,
@@ -128,11 +128,12 @@ describe('profit-detail.mapper 商品利润排行上限', () => {
 
     const ranking = buildProductRanking(rankMap);
 
-    expect(ranking).toHaveLength(10);
-    // 利润最高在前：前 10 为 p12(1200) ~ p3(300)，p1/p2 被截断
-    expect(ranking[0].id).toBe('p12');
-    expect(ranking[9].id).toBe('p3');
+    expect(ranking).toHaveLength(5);
+    // 利润最高在前：前 5 为 p8(800) ~ p4(400)，p1~p3 被截断
+    expect(ranking[0].id).toBe('p8');
+    expect(ranking[4].id).toBe('p4');
     expect(ranking.map((item) => item.id)).not.toContain('p1');
     expect(ranking.map((item) => item.id)).not.toContain('p2');
+    expect(ranking.map((item) => item.id)).not.toContain('p3');
   });
 });

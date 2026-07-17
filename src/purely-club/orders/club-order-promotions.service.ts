@@ -1,37 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import Decimal from 'decimal.js';
-import { parseDiscountRate } from '../club-discount.utils';
 import { ClubMemberLevelsService } from '../member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../member/member-profile/club-member-profile.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
 import {
-  discountParamsSchema,
-  firstOrderDiscountParamsSchema,
-  reduceParamsSchema,
-} from '../../purely-profit/marketing/schemas/promotion-params.schema';
+  type ClubPricingCandidate,
+  type ClubServicePromotionType,
+  resolveReduceConfig,
+  toDiscountCandidate,
+} from './club-order-promotions.utils';
 
-export type ClubServicePromotionType =
-  | 'first_order_discount'
-  | 'discount'
-  | 'discount_day'
-  | 'reduce';
-
-interface ClubPromotionRecord {
-  id: number;
-  name: string;
-  type: ClubServicePromotionType;
-  params: unknown;
-}
-
-interface ClubPricingCandidate {
-  amountFen: number;
-  promotionId: number | null;
-  promotionType: ClubServicePromotionType | null;
-  discountRate: number | null;
-  promotionTag: string | null;
-  promotionDiscountAmountFen: number;
-}
+export type { ClubServicePromotionType };
 
 export interface ClubServicePricingResolution {
   /** 最终应付金额（分）= 竞争胜出价 - 满减 */
@@ -138,7 +117,7 @@ export class ClubOrderPromotionsService {
     let bestDiscount: ClubPricingCandidate | null = null;
 
     for (const promotion of promotions) {
-      const candidate = this.toDiscountCandidate(
+      const candidate = toDiscountCandidate(
         promotion,
         baselineAmountFen,
         consumptionCount,
@@ -162,7 +141,7 @@ export class ClubOrderPromotionsService {
     if (!options?.skipReduce) {
       for (const promotion of promotions) {
         if (promotion.type !== 'reduce') continue;
-        const reduceConfig = this.resolveReduceConfig(promotion.params);
+        const reduceConfig = resolveReduceConfig(promotion.params);
         // BUG-5 修复：满减门槛统一基于折扣后价（afterDiscountFen）判断，
         // 与产品详情 resolvePricing 保持一致
         if (!reduceConfig || afterDiscountFen < reduceConfig.thresholdFen)
@@ -210,7 +189,7 @@ export class ClubOrderPromotionsService {
     let totalReduceFen = 0;
     for (const promotion of promotions) {
       if (promotion.type !== 'reduce') continue;
-      const reduceConfig = this.resolveReduceConfig(promotion.params);
+      const reduceConfig = resolveReduceConfig(promotion.params);
       if (!reduceConfig || orderTotalFen < reduceConfig.thresholdFen) continue;
       totalReduceFen += reduceConfig.reduceAmountFen;
     }
@@ -235,263 +214,5 @@ export class ClubOrderPromotionsService {
     return levelConfig.discountRate > 0 && levelConfig.discountRate < 1
       ? levelConfig.discountRate
       : null;
-  }
-
-  private toDiscountCandidate(
-    promotion: ClubPromotionRecord,
-    baseAmountFen: number,
-    consumptionCount: number,
-  ): ClubPricingCandidate | null {
-    switch (promotion.type) {
-      case 'discount':
-        return this.buildDiscountCandidate(promotion, baseAmountFen);
-      case 'discount_day':
-        return this.buildDiscountDayCandidate(promotion, baseAmountFen);
-      case 'first_order_discount':
-        return consumptionCount > 0
-          ? null
-          : this.buildFirstOrderCandidate(promotion, baseAmountFen);
-      default:
-        return null;
-    }
-  }
-
-  private buildDiscountCandidate(
-    promotion: ClubPromotionRecord,
-    baseAmountFen: number,
-  ): ClubPricingCandidate | null {
-    const discountRate = this.resolvePromotionDiscountRate(promotion.params);
-    if (discountRate === null) {
-      return null;
-    }
-
-    const amountFen = this.applyPercentDiscount(baseAmountFen, discountRate);
-    if (amountFen >= baseAmountFen) {
-      return null;
-    }
-
-    return {
-      amountFen,
-      promotionId: promotion.id,
-      promotionType: 'discount',
-      discountRate,
-      promotionTag: this.buildDiscountTag(discountRate, promotion.name),
-      promotionDiscountAmountFen: Math.max(baseAmountFen - amountFen, 0),
-    };
-  }
-
-  /** 折扣日活动：与 discount 逻辑一致，params 中同样使用 discountRate */
-  private buildDiscountDayCandidate(
-    promotion: ClubPromotionRecord,
-    baseAmountFen: number,
-  ): ClubPricingCandidate | null {
-    const discountRate = this.resolvePromotionDiscountRate(promotion.params);
-    if (discountRate === null) {
-      return null;
-    }
-
-    const amountFen = this.applyPercentDiscount(baseAmountFen, discountRate);
-    if (amountFen >= baseAmountFen) {
-      return null;
-    }
-
-    return {
-      amountFen,
-      promotionId: promotion.id,
-      promotionType: 'discount_day',
-      discountRate,
-      promotionTag: this.buildDiscountDayTag(discountRate, promotion.name),
-      promotionDiscountAmountFen: Math.max(baseAmountFen - amountFen, 0),
-    };
-  }
-
-  private buildFirstOrderCandidate(
-    promotion: ClubPromotionRecord,
-    baseAmountFen: number,
-  ): ClubPricingCandidate | null {
-    const discountRate = this.resolvePromotionDiscountRate(promotion.params);
-    if (discountRate === null) {
-      return null;
-    }
-
-    const amountFen = this.applyPercentDiscount(baseAmountFen, discountRate);
-    const promotionDiscountAmountFen = Math.max(baseAmountFen - amountFen, 0);
-    if (promotionDiscountAmountFen <= 0) {
-      return null;
-    }
-
-    return {
-      amountFen,
-      promotionId: promotion.id,
-      promotionType: 'first_order_discount',
-      discountRate,
-      promotionTag: this.buildFirstOrderTag(discountRate, promotion.name),
-      promotionDiscountAmountFen,
-    };
-  }
-
-  private resolvePromotionDiscountRate(params: unknown): number | null {
-    // BUG-10 修复：safeParse 总是返回 SafeParseResult，?? 不会起备选作用
-    // 改为显式检查 success 做备选
-    const discountResult = discountParamsSchema.safeParse(params);
-    const zodResult = discountResult.success
-      ? discountResult
-      : firstOrderDiscountParamsSchema.safeParse(params);
-    if (zodResult.success) {
-      const data = zodResult.data;
-      let discountRate: number | null = null;
-
-      if (typeof data.discountRate === 'number') {
-        discountRate = data.discountRate;
-      } else if (typeof data.rate === 'number') {
-        discountRate = data.rate * 100;
-      }
-
-      if (discountRate !== null) {
-        return new Decimal(discountRate).toDecimalPlaces(1).toNumber();
-      }
-    }
-
-    // Zod 校验失败，回退到手写解析
-    if (!params || typeof params !== 'object' || Array.isArray(params)) {
-      return null;
-    }
-
-    const candidate = params as Record<string, unknown>;
-    const discountRate = parseDiscountRate(candidate);
-
-    if (discountRate === null) {
-      return null;
-    }
-
-    return new Decimal(discountRate).toDecimalPlaces(1).toNumber();
-  }
-
-  /**
-   * 解析满减活动参数
-   * 优先使用 Zod schema 校验，失败回退到手写解析
-   */
-  private resolveReduceConfig(
-    params: unknown,
-  ): { thresholdFen: number; reduceAmountFen: number } | null {
-    const zodResult = reduceParamsSchema.safeParse(params);
-    if (zodResult.success) {
-      const data = zodResult.data;
-      if (
-        typeof data.threshold === 'number' &&
-        typeof data.reduceAmount === 'number'
-      ) {
-        return {
-          thresholdFen: Math.round(data.threshold),
-          reduceAmountFen: Math.round(data.reduceAmount),
-        };
-      }
-    }
-
-    // Zod 校验失败，回退到手写解析
-    if (!params || typeof params !== 'object' || Array.isArray(params)) {
-      return null;
-    }
-
-    const candidate = params as Record<string, unknown>;
-    const thresholdFen = this.toPositiveInteger(candidate.threshold);
-    const reduceAmountFen = this.toPositiveInteger(candidate.reduceAmount);
-    if (!thresholdFen || !reduceAmountFen) {
-      return null;
-    }
-
-    return {
-      thresholdFen,
-      reduceAmountFen,
-    };
-  }
-
-  private toPositiveInteger(value: unknown): number | null {
-    if (value === null || value === undefined) {
-      return null;
-    }
-    const numValue = Number(value);
-    if (!Number.isFinite(numValue) || numValue <= 0) {
-      return null;
-    }
-    return Math.round(numValue);
-  }
-
-  private applyPercentDiscount(
-    amountFen: number,
-    discountRate: number,
-  ): number {
-    return new Decimal(amountFen)
-      .mul(discountRate)
-      .div(100)
-      .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-      .toNumber();
-  }
-
-  private buildFirstOrderTag(
-    discountRate: number,
-    fallbackName: string,
-  ): string {
-    const normalizedName = fallbackName.trim();
-    if (normalizedName) {
-      return normalizedName;
-    }
-
-    return `首单 ${this.toDiscountText(discountRate)}`;
-  }
-
-  private buildDiscountTag(discountRate: number, fallbackName: string): string {
-    const normalizedName = fallbackName.trim();
-    if (normalizedName) {
-      return normalizedName;
-    }
-
-    return `${this.toDiscountText(discountRate)} 优惠`;
-  }
-
-  private buildDiscountDayTag(
-    discountRate: number,
-    fallbackName: string,
-  ): string {
-    const normalizedName = fallbackName.trim();
-    if (normalizedName) {
-      return normalizedName;
-    }
-
-    return `折扣日 ${this.toDiscountText(discountRate)}`;
-  }
-
-  private buildReduceTag(
-    thresholdFen: number,
-    reduceAmountFen: number,
-    fallbackName: string,
-  ): string {
-    const normalizedName = fallbackName.trim();
-    if (normalizedName) {
-      return normalizedName;
-    }
-
-    return `满${this.formatFenToYuanText(thresholdFen)}减${this.formatFenToYuanText(
-      reduceAmountFen,
-    )}`;
-  }
-
-  private toDiscountText(discountRate: number): string {
-    return (
-      new Decimal(discountRate)
-        .div(10)
-        .toDecimalPlaces(1)
-        .toString()
-        .replace(/\.0$/, '') + '折'
-    );
-  }
-
-  private formatFenToYuanText(amountFen: number): string {
-    return new Decimal(amountFen)
-      .div(100)
-      .toDecimalPlaces(2)
-      .toString()
-      .replace(/\.00$/, '')
-      .replace(/(\.\d)0$/, '$1');
   }
 }

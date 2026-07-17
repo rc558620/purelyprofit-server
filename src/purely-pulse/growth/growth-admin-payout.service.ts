@@ -16,7 +16,7 @@ import type {
   PulseAdminRejectPayoutDto,
 } from './dto/pulse-growth-admin.dto';
 import { PulseGrowthAccessService } from './growth-access.service';
-import { queryAdminPayoutActionRecord } from './growth-admin.query';
+import { queryAdminPayoutActionRecord } from './growth-admin-payout.query';
 
 @Injectable()
 export class PulseGrowthAdminPayoutService {

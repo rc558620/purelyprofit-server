@@ -28,10 +28,12 @@ import { PulseGrowthAccessService } from './growth-access.service';
 import {
   queryAdminPartnerApplications,
   queryAdminPartnerApplicationStats,
-  queryAdminPayouts,
-  queryAdminPayoutStats,
   queryAdminPromoPartners,
 } from './growth-admin.query';
+import {
+  queryAdminPayouts,
+  queryAdminPayoutStats,
+} from './growth-admin-payout.query';
 
 const PULSE_GROWTH_ADMIN_CACHE_TTL_SECONDS = 30;
 const PULSE_GROWTH_ADMIN_REFRESH_AFTER_MS = 10_000;

@@ -11,6 +11,7 @@ import { PulseGrowthAdminQueryService } from './growth-admin-query.service';
 import { PulseGrowthAdminService } from './growth-admin.service';
 import * as growthAdminDomain from './growth-admin.domain';
 import * as growthAdminQuery from './growth-admin.query';
+import * as growthAdminPayoutQuery from './growth-admin-payout.query';
 import { PulseGrowthEarningsService } from './growth-earnings.service';
 import { PulseGrowthService } from './growth.service';
 
@@ -493,10 +494,10 @@ describe('PulseGrowthAdminQueryService', () => {
     };
     accessService.buildAdminPayoutWhere.mockResolvedValue(where);
     const listSpy = jest
-      .spyOn(growthAdminQuery, 'queryAdminPayouts')
+      .spyOn(growthAdminPayoutQuery, 'queryAdminPayouts')
       .mockResolvedValue(withdrawals as never);
     const statsSpy = jest
-      .spyOn(growthAdminQuery, 'queryAdminPayoutStats')
+      .spyOn(growthAdminPayoutQuery, 'queryAdminPayoutStats')
       .mockResolvedValue(stats);
     const domainSpy = jest
       .spyOn(growthAdminDomain, 'buildAdminPayoutsResponse')

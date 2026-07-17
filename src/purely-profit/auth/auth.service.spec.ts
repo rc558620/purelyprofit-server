@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -24,6 +23,7 @@ import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
 import { AuthCapabilityService } from './auth-capability.service';
 import { AuthCodeService } from './auth-code.service';
+import { AuthCodeVerifyService } from './auth-code-verify.service';
 import { CaptchaTokenService } from './captcha-token.service';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthProfileService } from './auth-profile.service';
@@ -33,6 +33,11 @@ import { AuthSessionService } from './auth-session.service';
 import { AuditLogService } from '../../shared/audit-log.service';
 import { AuthSmsService } from './auth-sms.service';
 import { AuthRegisterStoreService } from './auth-register-store.service';
+import { AuthCodeLoginService } from './auth-code-login.service';
+import { AuthPasswordOpsService } from './auth-password-ops.service';
+import { AuthLoginFailGuardService } from './auth-login-fail-guard.service';
+import { AuthPromoRecordService } from './auth-promo-record.service';
+import { AuthWechatLoginService } from './auth-wechat-login.service';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { StoreInviteCodeService } from '../stores/store-invite-code.service';
 
@@ -87,6 +92,7 @@ describe('AuthService', () => {
     zremrangebyrank: jest.fn().mockResolvedValue(0),
     zscore: jest.fn().mockResolvedValue(null),
     mget: jest.fn().mockResolvedValue([]),
+    expire: jest.fn().mockResolvedValue(true),
   };
   const configService = {
     get: jest.fn(),
@@ -116,6 +122,7 @@ describe('AuthService', () => {
         'auth.adminLoginAlias': 'admin',
         'auth.adminLoginPhone': '13619654020',
         'pulse.devAccountEmails': ['dev@example.com'],
+        'auth.exposeCodeInResponse': true,
         nodeEnv: 'development',
       };
 
@@ -146,6 +153,7 @@ describe('AuthService', () => {
         AuthStaffActivationService,
         AuthAuthenticationService,
         AuthCodeService,
+        AuthCodeVerifyService,
         CaptchaTokenService,
         AuthPasswordService,
         AuthProductAuthService,
@@ -153,6 +161,11 @@ describe('AuthService', () => {
         AuthSessionService,
         AuthCapabilityService,
         AuthRegisterStoreService,
+        AuthCodeLoginService,
+        AuthPasswordOpsService,
+        AuthLoginFailGuardService,
+        AuthPromoRecordService,
+        AuthWechatLoginService,
         SubjectCapabilityService,
         { provide: PrismaService, useValue: prismaService },
         { provide: JwtService, useValue: jwtService },
@@ -534,15 +547,18 @@ describe('AuthService', () => {
     });
   });
 
-  it('找回密码在手机号未注册时返回 404', async () => {
+  it('找回密码在手机号未注册时仍返回 200（防枚举）', async () => {
     prismaService.staff.findFirst.mockResolvedValue(null);
     prismaService.user.findFirst.mockResolvedValue(null);
 
-    await expect(
-      service.forgotPassword({
-        phone: '13800138000',
+    const result = await service.forgotPassword({
+      phone: '13800138000',
+    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('如果该手机号已注册'),
       }),
-    ).rejects.toThrow(new NotFoundException('手机号未注册，请先注册'));
+    );
     expect(redisService.setIfAbsent).not.toHaveBeenCalled();
     expect(redisService.set).not.toHaveBeenCalled();
     expect(authSmsService.sendPasswordResetCode).not.toHaveBeenCalled();

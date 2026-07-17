@@ -4,6 +4,7 @@ import { SpacesModule } from '../spaces/spaces.module';
 import { HandoverShiftModule } from './handover-shift.module';
 import { HandoverController } from './handover.controller';
 import { HandoverAdditionalItemsService } from './handover-additional-items.service';
+import { HandoverConfirmShiftFallbackService } from './handover-confirm-shift-fallback.service';
 import { HandoverConfirmShiftService } from './handover-confirm-shift.service';
 import { HandoverConfirmService } from './handover-confirm.service';
 import { HandoverPageService } from './handover-page.service';
@@ -28,6 +29,7 @@ import { HandoverService } from './handover.service';
     HandoverPageShiftSelectorService,
     HandoverPageShiftService,
     HandoverPageShiftViewService,
+    HandoverConfirmShiftFallbackService,
     HandoverConfirmShiftService,
     HandoverConfirmService,
     HandoverRecordsService,

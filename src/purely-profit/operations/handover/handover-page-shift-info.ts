@@ -49,19 +49,11 @@ export const buildPageShiftInfo = (params: {
   displayOperatorInfo: DisplayOperatorInfo;
   requestedOperatorName?: string;
 }): HandoverShiftInfoDto => {
-  const {
-    displayOperatorInfo,
-    requestedOperatorName,
-    shiftRecord,
-    shiftType,
-    userName,
-  } = params;
+  const { displayOperatorInfo, shiftRecord, shiftType } = params;
   const fallbackTime = SHIFT_TIME_FALLBACKS[shiftType];
   const operatorName =
     toDisplayName(shiftRecord?.employeeName) ??
     displayOperatorInfo.name ??
-    toDisplayName(requestedOperatorName) ??
-    toDisplayName(userName) ??
     '当前员工';
 
   const shiftName =

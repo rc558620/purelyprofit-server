@@ -5,6 +5,7 @@ import {
   StaffRole,
   StoreSubAccountRole,
 } from '@prisma/client';
+import type { SettledSpaceSessionRow } from './handover-page-order-items';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { HandoverShiftInfoDto } from './dto/handover-page.dto';
 
@@ -190,6 +191,28 @@ export type ResolvedPageShiftSelection = {
   ownedSelection: OwnedShiftSelection;
   shiftRecord: ShiftRecordRow | null;
   operationShiftRecord: ShiftRecordRow | null;
+};
+
+export type HandoverPageMetrics = {
+  orderCount: number;
+  paymentOrderItems: OrderItemRow[];
+  orderItems: OrderItemRow[];
+  additionalRevenueAmount: number;
+  spaceRevenueAmount: number;
+  refundAmount: number;
+  pettyCashAmount: number;
+  settledSpaceSessions: SettledSpaceSessionRow[];
+};
+
+export const EMPTY_METRICS: HandoverPageMetrics = {
+  orderCount: 0,
+  paymentOrderItems: [],
+  orderItems: [],
+  additionalRevenueAmount: 0,
+  spaceRevenueAmount: 0,
+  refundAmount: 0,
+  pettyCashAmount: 0,
+  settledSpaceSessions: [],
 };
 
 export type ResolvedHandoverPageShiftContext = {

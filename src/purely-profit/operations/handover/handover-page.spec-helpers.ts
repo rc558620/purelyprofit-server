@@ -16,6 +16,7 @@ import { HandoverPageShiftRecordService } from './handover-page-shift-record.ser
 import { HandoverPageShiftSelectorService } from './handover-page-shift-selector.service';
 import { HandoverPageShiftService } from './handover-page-shift.service';
 import { HandoverPageShiftViewService } from './handover-page-shift-view.service';
+import { HandoverShiftHandoverStatusService } from './handover-shift-handover-status.service';
 
 export const EMPLOYEE_DETAIL_SELECT = {
   name: true,
@@ -263,6 +264,7 @@ export const setupHandoverPageSpec = (): {
         HandoverPageShiftSelectorService,
         HandoverPageShiftService,
         HandoverPageShiftViewService,
+        HandoverShiftHandoverStatusService,
         { provide: PrismaService, useValue: prismaService },
         {
           provide: StoreSubAccountService,

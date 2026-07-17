@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
-import { SpaceReservationStatus as PrismaSpaceReservationStatus } from '@prisma/client';
+import {
+  Prisma,
+  SpaceReservationStatus as PrismaSpaceReservationStatus,
+} from '@prisma/client';
+import type { PrismaService } from '../../../prisma/prisma.service';
 import { toTimestampMs } from '../../commerce/commerce.utils';
 import type { SpaceReservationResponseDto } from './dto/space-reservation.dto';
 import type {
@@ -241,6 +245,61 @@ const assertPositiveInteger = (value: number, label: string): void => {
   if (!Number.isInteger(value) || value <= 0) {
     throw new BadRequestException(`${label}必须是大于 0 的整数`);
   }
+};
+
+/**
+ * 查找与指定时间段冲突的 pending 预约。
+ * 业务规则：已过时的预约（reservedAt <= now）不再参与冲突占位。
+ *
+ * BUG-3 fix: reservedEndAt 在 schema 中为 DateTime?（可空），
+ * Prisma 的 gt 比较会排除 NULL 行，因此对 reservedEndAt=null 的预约
+ * 回退为 reservedAt + 1h 参与冲突判定。
+ */
+export const findReservationConflict = async (
+  client: PrismaService | Prisma.TransactionClient,
+  spaceId: number,
+  reservedAt: number,
+  reservedEndAt: number,
+  excludeReservationId?: number,
+): Promise<SpaceReservationRecord | null> => {
+  const now = new Date();
+  const DEFAULT_WINDOW_MS = 60 * 60 * 1000;
+  const nullEndAtCutoff = new Date(reservedAt - DEFAULT_WINDOW_MS);
+
+  const where: Prisma.SpaceReservationWhereInput = {
+    spaceId,
+    status: PrismaSpaceReservationStatus.pending,
+    reservedAt: {
+      lt: new Date(reservedEndAt),
+      gt: now, // ← 排除已过时的预约
+    },
+    AND: [
+      {
+        OR: [
+          { reservedEndAt: { gt: new Date(reservedAt) } },
+          // reservedEndAt 为 null 时，回退为 reservedAt + 1h
+          {
+            reservedEndAt: null,
+            reservedAt: { gt: nullEndAtCutoff },
+          },
+        ],
+      },
+    ],
+    ...(excludeReservationId !== undefined
+      ? {
+          id: {
+            not: excludeReservationId,
+          },
+        }
+      : {}),
+  };
+
+  const conflict = await client.spaceReservation.findFirst({
+    where,
+    orderBy: [{ reservedAt: 'asc' }, { id: 'asc' }],
+  });
+
+  return conflict as SpaceReservationRecord | null;
 };
 
 /**

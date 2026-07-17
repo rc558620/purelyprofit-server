@@ -21,7 +21,7 @@ import { validatePasswordLength } from '../../shared/password-policy.utils';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthBanGuardService } from './auth-ban-guard.service';
 import { AuthAccountService } from './auth-account.service';
-import { AuthCodeService } from './auth-code.service';
+import { AuthCodeVerifyService } from './auth-code-verify.service';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthPasswordOpsService } from './auth-password-ops.service';
 import { AuthSessionService } from './auth-session.service';
@@ -55,7 +55,7 @@ export class AuthAuthenticationService {
     private readonly authAccountLookupService: AuthAccountLookupService,
     private readonly authBanGuardService: AuthBanGuardService,
     private readonly authAccountService: AuthAccountService,
-    private readonly authCodeService: AuthCodeService,
+    private readonly authCodeVerifyService: AuthCodeVerifyService,
     private readonly authPasswordService: AuthPasswordService,
     private readonly authPasswordOpsService: AuthPasswordOpsService,
     private readonly authSessionService: AuthSessionService,
@@ -81,6 +81,13 @@ export class AuthAuthenticationService {
       params.confirmPassword,
       '两次输入的密码不一致',
     );
+
+    // 跨产品线手机号唯一性检查：防止同一手机号在多个产品线重复注册
+    await this.authAccountLookupService.assertPhoneNotRegisteredInOtherScope(
+      params.phone,
+      params.productScope,
+    );
+
     const existing = await this.authAccountLookupService.findUserByPhone(
       params.phone,
       params.productScope,
@@ -89,7 +96,7 @@ export class AuthAuthenticationService {
       throw new ConflictException('手机号已被注册');
     }
 
-    await this.authCodeService.ensureRegisterCodeValid(
+    await this.authCodeVerifyService.ensureRegisterCodeValid(
       params.phone,
       params.code,
       params.productScope,
@@ -102,7 +109,7 @@ export class AuthAuthenticationService {
       productScope: params.productScope,
     });
 
-    await this.authCodeService.clearRegisterCode(
+    await this.authCodeVerifyService.clearRegisterCode(
       params.phone,
       params.productScope,
     );
@@ -117,17 +124,20 @@ export class AuthAuthenticationService {
 
     // 推广码关联：注册时携带推广码则创建推广记录（异步，不阻塞注册响应）
     if (params.promoCode) {
-      void this.authPromoRecordService
-        .tryCreatePromoRecord({
-          promoCode: params.promoCode,
-          inviteePhone: params.phone,
-          inviteeName: params.name ?? '',
-        })
-        .catch((err: unknown) => {
+      const promoCode = params.promoCode;
+      void (async () => {
+        try {
+          await this.authPromoRecordService.tryCreatePromoRecord({
+            promoCode,
+            inviteePhone: params.phone,
+            inviteeName: params.name ?? '',
+          });
+        } catch (err: unknown) {
           this.logger.warn(
             `推广记录创建失败（不影响注册主流程）: ${err instanceof Error ? err.message : String(err)}`,
           );
-        });
+        }
+      })();
     }
 
     return this.authSessionService.signToken(user.id, {
@@ -153,14 +163,18 @@ export class AuthAuthenticationService {
       params.productScope,
     );
 
-    if (
-      !user ||
-      !(await this.authPasswordService.verifyPassword(
-        params.password,
-        user.password,
-      ))
-    ) {
-      // 登录失败：递增失败计数并构建错误消息
+    if (!user) {
+      // 用户不存在：不递增失败计数，避免攻击者预先“预订”锁定状态
+      throw new UnauthorizedException('账号或密码错误');
+    }
+
+    const passwordValid = await this.authPasswordService.verifyPassword(
+      params.password,
+      user.password,
+    );
+
+    if (!passwordValid) {
+      // 仅当用户存在且密码错误时才递增失败计数
       const newCount = await this.authLoginFailGuardService.recordLoginFailure(
         params.loginAccount,
         params.productScope,
@@ -168,10 +182,8 @@ export class AuthAuthenticationService {
       const remaining = AUTH_LOGIN_FAIL_MAX_ATTEMPTS - newCount;
 
       if (remaining <= 0) {
-        // 达到上限，账号已锁定
-        throw new UnauthorizedException(
-          '账号或密码错误，账号已被临时锁定，请 15 分钟后再试',
-        );
+        // 达到上限，账号已锁定——统一为通用消息避免泄露锁定状态
+        throw new UnauthorizedException('账号或密码错误');
       }
       if (newCount >= AUTH_LOGIN_FAIL_WARNING_THRESHOLD) {
         throw new UnauthorizedException(

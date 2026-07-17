@@ -8,11 +8,11 @@ import type {
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
 import type {
   PulseAdminEmployeeCandidateDto,
-  PulseAdminMemberClubStatsDto,
-  PulseAdminMemberSalesStatsDto,
   PulseAdminMembersResponseDto,
   PulseMemberDetailDto,
 } from './dto/pulse-membership-admin-members.response.dto';
+import type { PulseAdminMemberClubStatsDto } from './dto/pulse-membership-admin-club-stats.response.dto';
+import type { PulseAdminMemberSalesStatsDto } from './dto/pulse-membership-admin-sales-stats.response.dto';
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
 import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
 import type {

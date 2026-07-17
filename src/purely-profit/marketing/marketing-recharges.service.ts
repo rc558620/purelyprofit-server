@@ -19,9 +19,11 @@ import type {
   MarketingRechargeDto,
   MarketingRechargesResponseDto,
 } from './dto/marketing-response.dto';
-import { buildRechargeCountWhere } from './marketing.domain';
+import {
+  buildRechargeCountWhere,
+  enrichRefundGiftCleared,
+} from './marketing.domain';
 import { mapRechargeRow } from './marketing.mapper';
-import type { MarketingRechargeRow } from './marketing.types';
 import {
   queryCustomerGiftBalanceCents,
   queryCustomerRechargePage,
@@ -152,65 +154,12 @@ export class MarketingRechargesService {
       }),
     ]);
 
-    // 为退款记录计算赠送清零金额
-    const items = await this.enrichRefundGiftCleared(customerId, rows);
+    const items = await enrichRefundGiftCleared(this.prisma, customerId, rows);
 
     return {
       items,
       meta: buildMarketingPaginationMeta(total, page, take),
     };
-  }
-
-  /**
-   * 为退款记录补充 giftCleared 字段。
-   * 通过按时间顺序遍历所有充值记录，计算每笔退款时的赠送余额。
-   */
-  private async enrichRefundGiftCleared(
-    customerId: number,
-    pageRows: MarketingRechargeRow[],
-  ): Promise<MarketingRechargeDto[]> {
-    // 检查是否有退款记录需要处理
-    const hasRefund = pageRows.some((r) => (r.type as string) === 'refund');
-    if (!hasRefund) {
-      return pageRows.map(mapRechargeRow);
-    }
-
-    // 获取所有充值记录（按时间升序）用于计算赠送余额
-    const allRows = await this.prisma.$queryRaw<MarketingRechargeRow[]>`
-      SELECT id, amount, gift_amount AS "giftAmount", total_amount AS "totalAmount",
-             type::text AS "type", created_at AS "createdAt"
-      FROM marketing_recharges
-      WHERE customer_id = ${customerId}
-      ORDER BY created_at ASC, id ASC
-    `;
-
-    // 构建 refundId -> giftCleared 映射（基于时间线 trackedGift 算法）
-    const giftClearedMap = new Map<number, number>();
-    let trackedGift = 0;
-
-    for (const row of allRows) {
-      const type = row.type as string;
-      if (type === 'recharge' || type === 'gift') {
-        trackedGift += row.giftAmount;
-      } else if (type === 'refund') {
-        // BUG-1: 退款实际清零的赠送金额 = min(trackedGift, row.giftAmount)
-        const cleared = Math.min(trackedGift, row.giftAmount);
-        giftClearedMap.set(row.id, cleared);
-        trackedGift = Math.max(0, trackedGift - row.giftAmount);
-      }
-    }
-
-    return pageRows.map((row) => {
-      const dto = mapRechargeRow(row);
-      if ((row.type as string) === 'refund') {
-        const giftCleared = giftClearedMap.get(row.id) ?? 0;
-        if (giftCleared > 0) {
-          // B5: 使用结构化字段返回赠送清零金额
-          dto.giftClearedAmount = Money.fromDbCents(giftCleared).toOutputYuan();
-        }
-      }
-      return dto;
-    });
   }
 
   async createRecharge(

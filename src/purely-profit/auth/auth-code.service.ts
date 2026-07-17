@@ -4,8 +4,6 @@ import {
   HttpStatus,
   Injectable,
   Logger,
-  NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../redis/redis.service';
@@ -13,8 +11,6 @@ import {
   DEFAULT_PASSWORD_RESET_CODE_TTL_SECONDS,
   DEFAULT_REGISTER_CODE_TTL_SECONDS,
   DEFAULT_SMS_SEND_COOLDOWN_SECONDS,
-  AUTH_CODE_MAX_ATTEMPTS,
-  AUTH_CODE_ATTEMPTS_LOCK_TTL_SECONDS,
 } from './auth.constants';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthSmsService } from './auth-sms.service';
@@ -27,7 +23,6 @@ import {
   buildPasswordResetCodeKey,
   buildRegisterCodeKey,
   buildSmsSendCooldownKey,
-  buildCodeAttemptsKey,
   generateNumericCode,
 } from './auth.utils';
 
@@ -87,7 +82,7 @@ export class AuthCodeService {
       expiresInSeconds,
     };
 
-    if (this.isNonProductionEnv()) {
+    if (this.isExposeCodeEnabled()) {
       return {
         ...response,
         code: registerCode,
@@ -132,7 +127,7 @@ export class AuthCodeService {
       throw error;
     }
 
-    if (this.isNonProductionEnv()) {
+    if (this.isExposeCodeEnabled()) {
       return {
         ...response,
         code: loginCode,
@@ -184,7 +179,7 @@ export class AuthCodeService {
       expiresInSeconds,
     };
 
-    if (this.isNonProductionEnv()) {
+    if (this.isExposeCodeEnabled()) {
       return { ...response, code };
     }
 
@@ -231,39 +226,11 @@ export class AuthCodeService {
       expiresInSeconds,
     };
 
-    if (this.isNonProductionEnv()) {
+    if (this.isExposeCodeEnabled()) {
       return { ...response, code };
     }
 
     return response;
-  }
-
-  async ensureRegisterCodeValid(
-    phone: string,
-    code: string,
-    productScope: AuthProductScope,
-  ): Promise<void> {
-    // 先检查尝试次数是否已超限
-    await this.ensureCodeAttemptsNotExceeded('register', productScope, phone);
-
-    const cachedCode = await this.redisService.get(
-      buildRegisterCodeKey(productScope, phone),
-    );
-    if (!cachedCode || cachedCode !== code) {
-      // 验证失败，递增尝试次数
-      await this.incrementCodeAttempts('register', productScope, phone);
-      throw new UnauthorizedException('验证码无效或已过期');
-    }
-
-    // 验证成功，清除尝试次数计数
-    await this.clearCodeAttempts('register', productScope, phone);
-  }
-
-  async clearRegisterCode(
-    phone: string,
-    productScope: AuthProductScope,
-  ): Promise<void> {
-    await this.redisService.del(buildRegisterCodeKey(productScope, phone));
   }
 
   async sendPasswordResetCode(
@@ -281,7 +248,11 @@ export class AuthCodeService {
     );
 
     if (!user) {
-      throw new NotFoundException('手机号未注册，请先注册');
+      // 无论是否已注册都返回 200，避免通过 HTTP 状态码差异枚举手机号
+      return {
+        message: '如果该手机号已注册，重置验证码短信已发送，请注意查收',
+        expiresInSeconds,
+      } as ForgotPasswordResponseDto;
     }
 
     const response: ForgotPasswordResponseDto = {
@@ -306,7 +277,7 @@ export class AuthCodeService {
       throw error;
     }
 
-    if (this.isNonProductionEnv()) {
+    if (this.isExposeCodeEnabled()) {
       return {
         ...response,
         resetCode,
@@ -314,38 +285,6 @@ export class AuthCodeService {
     }
 
     return response;
-  }
-
-  async ensurePasswordResetCodeValid(
-    phone: string,
-    code: string,
-    productScope: AuthProductScope,
-  ): Promise<void> {
-    // 先检查尝试次数是否已超限
-    await this.ensureCodeAttemptsNotExceeded(
-      'password-reset',
-      productScope,
-      phone,
-    );
-
-    const cachedCode = await this.redisService.get(
-      buildPasswordResetCodeKey(productScope, phone),
-    );
-    if (!cachedCode || cachedCode !== code) {
-      // 验证失败，递增尝试次数
-      await this.incrementCodeAttempts('password-reset', productScope, phone);
-      throw new UnauthorizedException('验证码无效或已过期');
-    }
-
-    // 验证成功，清除尝试次数计数
-    await this.clearCodeAttempts('password-reset', productScope, phone);
-  }
-
-  async clearPasswordResetCode(
-    phone: string,
-    productScope: AuthProductScope,
-  ): Promise<void> {
-    await this.redisService.del(buildPasswordResetCodeKey(productScope, phone));
   }
 
   private async ensureSmsSendCooldown(
@@ -398,59 +337,15 @@ export class AuthCodeService {
     );
   }
 
-  private isNonProductionEnv(): boolean {
-    return this.configService.get<string>('nodeEnv') !== 'production';
-  }
-
   /**
-   * 检查验证码校验尝试次数是否已超限
-   * 超限后使验证码失效并抛出异常，防止暴力破解
+   * 是否在响应中暴露验证码明文。
+   *
+   * 通过显式配置开关 `auth.exposeCodeInResponse` 控制，默认关闭。
+   * 仅在本地开发时手动设为 true 以方便调试，生产 / staging / QA 环境禁止启用。
    */
-  private async ensureCodeAttemptsNotExceeded(
-    codeType: 'register' | 'password-reset',
-    productScope: AuthProductScope,
-    phone: string,
-  ): Promise<void> {
-    const attemptsKey = buildCodeAttemptsKey(codeType, productScope, phone);
-    const rawAttempts = await this.redisService.get(attemptsKey);
-    const attempts = Number.parseInt(rawAttempts ?? '0', 10);
-
-    if (attempts >= AUTH_CODE_MAX_ATTEMPTS) {
-      // 超限：同时清除验证码，使其彻底失效
-      if (codeType === 'register') {
-        await this.clearRegisterCode(phone, productScope);
-      } else {
-        await this.clearPasswordResetCode(phone, productScope);
-      }
-      throw new UnauthorizedException(`验证码错误次数过多，请重新获取验证码`);
-    }
-  }
-
-  /**
-   * 原子递增验证码校验尝试次数
-   * 首次失败时自动设置 TTL，后续失败仅递增
-   */
-  private async incrementCodeAttempts(
-    codeType: 'register' | 'password-reset',
-    productScope: AuthProductScope,
-    phone: string,
-  ): Promise<void> {
-    const attemptsKey = buildCodeAttemptsKey(codeType, productScope, phone);
-    await this.redisService.incr(
-      attemptsKey,
-      AUTH_CODE_ATTEMPTS_LOCK_TTL_SECONDS,
+  private isExposeCodeEnabled(): boolean {
+    return (
+      this.configService.get<boolean>('auth.exposeCodeInResponse') === true
     );
-  }
-
-  /**
-   * 清除验证码校验尝试次数计数（验证成功时调用）
-   */
-  private async clearCodeAttempts(
-    codeType: 'register' | 'password-reset',
-    productScope: AuthProductScope,
-    phone: string,
-  ): Promise<void> {
-    const attemptsKey = buildCodeAttemptsKey(codeType, productScope, phone);
-    await this.redisService.del(attemptsKey);
   }
 }

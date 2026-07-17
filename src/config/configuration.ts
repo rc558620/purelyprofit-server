@@ -203,7 +203,7 @@ export default () => ({
   },
 
   jwt: {
-    secret: process.env.JWT_SECRET ?? 'secret',
+    secret: process.env.JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
   },
 
@@ -252,6 +252,13 @@ export default () => ({
      * 对应环境变量：AUTH_RSA_PRIVATE_KEY
      */
     rsaPrivateKey: process.env.AUTH_RSA_PRIVATE_KEY ?? '',
+    /**
+     * 是否在 API 响应中暴露验证码明文（仅限本地开发调试）。
+     * 默认关闭，生产 / staging / QA 环境禁止启用。
+     * 对应环境变量：AUTH_EXPOSE_CODE_IN_RESPONSE
+     */
+    exposeCodeInResponse:
+      (process.env.AUTH_EXPOSE_CODE_IN_RESPONSE ?? 'false') === 'true',
   },
 
   pulse: {

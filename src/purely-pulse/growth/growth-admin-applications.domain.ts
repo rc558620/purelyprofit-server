@@ -7,9 +7,11 @@ import type { PlatformPartnerIntention } from '../../purely-profit/member/platfo
 import type {
   AdminPartnerApplicationRecord,
   AdminPartnerApplicationStats,
+} from './growth-admin.query';
+import type {
   AdminPayoutRecord,
   AdminPayoutStats,
-} from './growth-admin.query';
+} from './growth-admin-payout.query';
 import { formatDateTime, resolveRegionCity } from './growth-admin.shared';
 import { Money } from '../../shared/money.utils';
 

@@ -11,6 +11,7 @@ import { SpaceReservationsController } from './space-reservations.controller';
 import { SpacesRefResolverService } from './spaces-ref-resolver.service';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceReservationsService } from './space-reservations.service';
+import { SpaceReservationsWriteService } from './space-reservations-write.service';
 import { SpaceSessionCheckoutLockService } from './space-session-checkout-lock.service';
 import { SpaceSessionCheckoutService } from './space-session-checkout.service';
 import { SpaceSessionOpenService } from './space-session-open.service';
@@ -20,6 +21,7 @@ import { SpaceSessionReadStateService } from './space-session-read-state.service
 import { SpaceSessionRenewService } from './space-session-renew.service';
 import { SpaceDashboardSummaryService } from './space-dashboard-summary.service';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
 import { SpaceSessionTransferService } from './space-session-transfer.service';
 import { SpaceSessionWriteService } from './space-session-write.service';
 import { SpaceSessionsController } from './space-sessions.controller';
@@ -31,6 +33,7 @@ import { SpaceZonesService } from './space-zones.service';
 import { SpacesController } from './spaces.controller';
 import { SpacesReadService } from './spaces-read.service';
 import { SpacesService } from './spaces.service';
+import { SpacesStatusService } from './spaces-status.service';
 import { SpacesWriteService } from './spaces-write.service';
 
 @Module({
@@ -52,11 +55,13 @@ import { SpacesWriteService } from './spaces-write.service';
     SpacesService,
     SpacesReadService,
     SpacesWriteService,
+    SpacesStatusService,
     SpacesRefResolverService,
     SpaceTypesService,
     SpaceZonesService,
     SpaceReservationsStateService,
     SpaceReservationsService,
+    SpaceReservationsWriteService,
     SpaceSessionCheckoutLockService,
     SpaceSessionCheckoutService,
     SpaceSessionAutoCheckoutService,
@@ -66,6 +71,7 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceSessionReadStateService,
     SpaceSessionRenewService,
     SpaceDashboardSummaryService,
+    SpaceSessionSaleOrderService,
     SpaceSessionSettlementService,
     SpaceSessionTransferService,
     SpaceSessionWriteService,

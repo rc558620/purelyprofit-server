@@ -6,4 +6,6 @@ export * from './pulse-membership-admin-logs.response.dto';
 export * from './pulse-membership-admin-logs.shared.dto';
 export * from './pulse-membership-admin-members.request.dto';
 export * from './pulse-membership-admin-members.response.dto';
+export * from './pulse-membership-admin-club-stats.response.dto';
+export * from './pulse-membership-admin-sales-stats.response.dto';
 export * from './pulse-membership-admin-members.shared.dto';

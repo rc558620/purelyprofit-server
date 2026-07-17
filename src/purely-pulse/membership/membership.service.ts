@@ -20,11 +20,11 @@ import type {
 import type { GetPulseAdminMembersQueryDto } from './dto/pulse-membership-admin-members.request.dto';
 import type {
   PulseAdminEmployeeCandidateDto,
-  PulseAdminMemberClubStatsDto,
-  PulseAdminMemberSalesStatsDto,
   PulseAdminMembersResponseDto,
   PulseMemberDetailDto,
 } from './dto/pulse-membership-admin-members.response.dto';
+import type { PulseAdminMemberClubStatsDto } from './dto/pulse-membership-admin-club-stats.response.dto';
+import type { PulseAdminMemberSalesStatsDto } from './dto/pulse-membership-admin-sales-stats.response.dto';
 import type { PulseMembershipOrderPreviewDto } from './dto/pulse-membership-orders.request.dto';
 import type {
   PulseMembershipOrderDetailResponseDto,

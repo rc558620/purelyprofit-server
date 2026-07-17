@@ -18,6 +18,7 @@ import type {
   AuthProductScope,
   AuthResolvedIdentity,
   AuthenticatedAccountScope,
+  TokenAudience,
 } from './auth-account.types';
 import type { ProfileUserRecord } from './auth-profile.types';
 
@@ -210,6 +211,20 @@ export function resolveAuthIdentity(
     isPulseDeveloper,
     pulseMode: isPulseDeveloper ? 'developer' : 'normal',
   };
+}
+
+/**
+ * 根据 accountScope 计算 JWT aud（audience）字段值。
+ *
+ * audience 标识 token 签发时的产品线上下文，用于 Guard 层二次校验：
+ * - purely_profit → 'purely_profit'
+ * - purely_club → 'purely_club'
+ * - developer → 'developer'
+ */
+export function determineTokenAudience(
+  accountScope: AuthenticatedAccountScope,
+): TokenAudience {
+  return accountScope;
 }
 
 export function isMainlandMobilePhone(phone: string): boolean {

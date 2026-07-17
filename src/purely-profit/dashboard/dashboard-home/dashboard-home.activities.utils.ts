@@ -2,7 +2,6 @@ import {
   calcPercentChange,
   formatMonthDayLabel,
 } from '../../commerce/commerce.utils';
-import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import { Money } from '../../../shared/money.utils';
 import {
   LEAVE_TYPE_LABELS,
@@ -16,6 +15,16 @@ import type {
   BuildDashboardHomeActivitiesParams,
 } from './dashboard-home.types';
 import type { DashboardHomeActivityDto } from './dto/dashboard-home-response.dto';
+import {
+  formatMoneyText,
+  formatRelativeTime,
+  formatSignedPercent,
+  toTimestamp,
+} from './dashboard-home.format-helpers';
+import { detectRevenueDecline } from './dashboard-home.revenue-decline';
+
+// Re-export for backwards compat (used by dashboard-home.sales-trend.utils)
+export { toTimestamp } from './dashboard-home.format-helpers';
 
 export function buildDashboardHomeActivities(
   params: BuildDashboardHomeActivitiesParams,
@@ -350,69 +359,6 @@ function appendRevenueDeclineDraft(
   });
 }
 
-/** 检测营收连续下滑趋势 */
-function detectRevenueDecline(
-  dailyRevenueRows: BuildDashboardHomeActivitiesParams['dailyRevenueRows'],
-  now: number,
-): {
-  isDeclining: boolean;
-  consecutiveDays: number;
-  totalDeclineAmount: number;
-} {
-  if (dailyRevenueRows.length < 2) {
-    return { isDeclining: false, consecutiveDays: 0, totalDeclineAmount: 0 };
-  }
-
-  const DAY_MS = 86_400_000;
-  const todayDayStart = getShanghaiDayStartMs(now);
-  const revenueByDay = new Map<number, number>();
-
-  for (const row of dailyRevenueRows) {
-    const dayTs = getShanghaiDayStartMs(toTimestamp(row.bucketAt));
-    const revenue = Money.fromDbCents(row.revenue).toOutputYuan();
-    revenueByDay.set(dayTs, (revenueByDay.get(dayTs) ?? 0) + revenue);
-  }
-
-  // 按时间升序排列（从远到近），逐日比较：今日 < 昨日 即为下滑
-  const sortedDays: Array<{ dayTs: number; revenue: number }> = [];
-  for (let i = REVENUE_DECLINE_CONSECUTIVE_DAYS; i >= 0; i--) {
-    const dayTs = todayDayStart - i * DAY_MS;
-    const revenue = revenueByDay.get(dayTs);
-    if (revenue !== undefined) {
-      sortedDays.push({ dayTs, revenue });
-    }
-  }
-
-  if (sortedDays.length < 2) {
-    return { isDeclining: false, consecutiveDays: 0, totalDeclineAmount: 0 };
-  }
-
-  let consecutiveDays = 0;
-  let totalDeclineAmount = 0;
-  let prevRevenue: number | null = null;
-
-  for (const { revenue } of sortedDays) {
-    if (prevRevenue !== null && revenue < prevRevenue) {
-      consecutiveDays++;
-      totalDeclineAmount += prevRevenue - revenue;
-    } else {
-      if (consecutiveDays >= REVENUE_DECLINE_CONSECUTIVE_DAYS) {
-        break;
-      }
-      consecutiveDays = 0;
-      totalDeclineAmount = 0;
-    }
-
-    prevRevenue = revenue;
-  }
-
-  return {
-    isDeclining: consecutiveDays >= REVENUE_DECLINE_CONSECUTIVE_DAYS,
-    consecutiveDays,
-    totalDeclineAmount: Money.fromInputYuan(totalDeclineAmount).toOutputYuan(),
-  };
-}
-
 /** 最近订单动态 */
 function appendRecentOrderDrafts(
   drafts: ActivityDraft[],
@@ -449,49 +395,4 @@ function appendRecentOrderDrafts(
       createdAt: toTimestamp(order.createdAt),
     });
   }
-}
-
-function formatMoneyText(value: number): string {
-  return Money.fromInputYuan(value)
-    .toOutputYuan()
-    .toFixed(2)
-    .replace(/\.00$/, '')
-    .replace(/(\.\d)0$/, '$1');
-}
-
-function formatSignedPercent(value: number): string {
-  const formatted = formatMoneyText(Math.abs(value));
-  return `${value > 0 ? '+' : '-'}${formatted}%`;
-}
-
-export function toTimestamp(value: Date | string | number): number {
-  if (value instanceof Date) {
-    return value.getTime();
-  }
-  return new Date(value).getTime();
-}
-
-function formatRelativeTime(timestamp: number, now: number): string {
-  const diff = Math.max(now - timestamp, 0);
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-
-  if (diff < minute) {
-    return '刚刚';
-  }
-
-  if (diff < hour) {
-    return `${Math.max(1, Math.floor(diff / minute))}分钟前`;
-  }
-
-  if (diff < 24 * hour) {
-    return `${Math.max(1, Math.floor(diff / hour))}小时前`;
-  }
-
-  const days = Math.max(1, Math.floor(diff / (24 * hour)));
-  if (days < 30) {
-    return `${days}天前`;
-  }
-
-  return formatMonthDayLabel(timestamp);
 }

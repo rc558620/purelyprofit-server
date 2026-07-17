@@ -3,17 +3,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { ServerResponse } from 'node:http';
 import { EmployeePayrollStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CostsService } from '../../operations/costs/costs.service';
-import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { Money } from '../../../shared/money.utils';
 import {
-  EmployeePayrollReportResponseDto,
   EmployeePayrollResponseDto,
   ListEmployeePayrollsQueryDto,
   PaginatedEmployeePayrollsResponseDto,
@@ -23,20 +20,19 @@ import {
 import {
   assertPayrollMonthFormat,
   buildPayrollDerivedAmounts,
-  buildPayrollReport,
+  buildPayrollUpdateData,
   formatPayrollMonth,
+  resolvePayrollMergedAmounts,
   resolvePayrollMonthFilter,
 } from './employees-payroll.domain';
 import { EmployeesAccessService } from './employees-access.service';
 import { toEmployeePayrollResponse } from './employees.mapper';
 import {
-  buildDateRange,
   buildPaginationMeta,
   normalizeMonthValue,
   resolvePagination,
   toNullableText,
 } from './employees.utils';
-import { safeStreamCsvExport } from '../../../shared/stream-export.utils';
 
 @Injectable()
 export class EmployeesPayrollService {
@@ -45,99 +41,7 @@ export class EmployeesPayrollService {
     private readonly employeesAccessService: EmployeesAccessService,
     private readonly costsService: CostsService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
-    private readonly platformMembershipAccessService: PlatformMembershipAccessService,
   ) {}
-
-  async getPayrollReport(
-    user: AuthenticatedUser,
-    query: ListEmployeePayrollsQueryDto,
-  ): Promise<EmployeePayrollReportResponseDto> {
-    const storeId = await this.employeesAccessService.resolveViewStoreId(
-      user,
-      query.storeId,
-      '无权查看该门店工资报表',
-      'report:view',
-    );
-    // 与报表中心其他导出一致：CSV 导出需套餐开启 reportExportEnabled。
-    // 控制器在 format=csv 时已将 query.export 强制置 true。
-    if (query.export) {
-      const callerIsSubAccount =
-        user.currentMembership?.subjectType === 'sub_account';
-      await this.platformMembershipAccessService.ensureReportExportEnabled(
-        storeId,
-        callerIsSubAccount,
-      );
-    }
-    const dateRange = buildDateRange(query.year, query.month);
-    const rows = await this.prisma.employeePayroll.findMany({
-      where: {
-        storeId,
-        status: EmployeePayrollStatus.confirmed,
-        ...(query.employeeId ? { employeeId: query.employeeId } : {}),
-        ...(dateRange
-          ? {
-              month: {
-                gte: dateRange.gte,
-                lt: dateRange.lt,
-              },
-            }
-          : {}),
-        ...(query.department
-          ? {
-              employee: {
-                department: {
-                  equals: query.department,
-                  mode: 'insensitive' as const,
-                },
-              },
-            }
-          : {}),
-      },
-      orderBy: [{ month: 'desc' }, { employeeName: 'asc' }, { id: 'asc' }],
-    });
-
-    // socialInsurance/housingFund 已改为 Int（分），直接传入 buildPayrollReport 内部调用 Money.fromDbCents().toOutputYuan() 转换
-    return buildPayrollReport(rows);
-  }
-
-  /**
-   * 流式导出工资报表 CSV，O(1) 内存占用。
-   */
-  async streamPayrollReportCsv(
-    reply: ServerResponse,
-    user: AuthenticatedUser,
-    query: ListEmployeePayrollsQueryDto,
-  ): Promise<void> {
-    const report = await this.getPayrollReport(user, query);
-    safeStreamCsvExport(
-      reply,
-      'payroll-report.csv',
-      [
-        '员工姓名',
-        '结算月份',
-        '底薪',
-        '请假扣款',
-        '其他扣款',
-        '奖金',
-        '实发工资',
-        '社保',
-        '公积金',
-        '总人力成本',
-      ],
-      report.rows.map((row) => [
-        row.employeeName,
-        row.month,
-        row.baseSalary,
-        row.leaveDeduction,
-        row.otherDeduction,
-        row.bonus,
-        row.actualSalary,
-        row.socialInsurance ?? '',
-        row.housingFund ?? '',
-        row.totalLaborCost,
-      ]),
-    );
-  }
 
   async listPayrolls(
     user: AuthenticatedUser,
@@ -422,93 +326,14 @@ export class EmployeesPayrollService {
       throw new ConflictException('已确认结算的工资记录不能编辑');
     }
 
-    // 数据库字段存分，回退值需转为元后统一用 Money
-    const nextBaseSalary =
-      dto.baseSalary !== undefined
-        ? Money.fromInputYuan(dto.baseSalary)
-        : Money.fromDbCents(payroll.baseSalary);
-    const nextLeaveDeduction =
-      dto.leaveDeduction !== undefined
-        ? Money.fromInputYuan(dto.leaveDeduction)
-        : Money.fromDbCents(payroll.leaveDeduction);
-    const nextOtherDeduction =
-      dto.otherDeduction !== undefined
-        ? Money.fromInputYuan(dto.otherDeduction)
-        : Money.fromDbCents(payroll.otherDeduction);
-    const nextOtherDeductionNote =
-      dto.otherDeductionNote !== undefined
-        ? dto.otherDeductionNote
-        : (payroll.otherDeductionNote ?? undefined);
-    const nextBonus =
-      dto.bonus !== undefined
-        ? Money.fromInputYuan(dto.bonus)
-        : Money.fromDbCents(payroll.bonus);
-    const nextSocialInsurance =
-      dto.socialInsurance !== undefined
-        ? Money.fromInputYuan(dto.socialInsurance)
-        : Money.fromDbCents(payroll.socialInsurance);
-    const nextHousingFund =
-      dto.housingFund !== undefined
-        ? Money.fromInputYuan(dto.housingFund)
-        : Money.fromDbCents(payroll.housingFund);
-
-    const derivedAmounts = buildPayrollDerivedAmounts({
-      baseSalary: nextBaseSalary,
-      leaveDeduction: nextLeaveDeduction,
-      otherDeduction: nextOtherDeduction,
-      otherDeductionNote: nextOtherDeductionNote,
-      bonus: nextBonus,
-      socialInsurance: nextSocialInsurance,
-      housingFund: nextHousingFund,
-    });
+    // 合并 DTO 与现有金额，计算派生值
+    const merged = resolvePayrollMergedAmounts(dto, payroll);
+    const derivedAmounts = buildPayrollDerivedAmounts(merged);
 
     const updated = await this.prisma.$transaction(async (transaction) => {
       return transaction.employeePayroll.update({
         where: { id: payroll.id },
-        data: {
-          ...(dto.baseSalary !== undefined
-            ? { baseSalary: Money.fromInputYuan(dto.baseSalary).toDbCents() }
-            : {}),
-          ...(dto.leaveDeduction !== undefined
-            ? {
-                leaveDeduction: Money.fromInputYuan(
-                  dto.leaveDeduction,
-                ).toDbCents(),
-              }
-            : {}),
-          ...(dto.otherDeduction !== undefined
-            ? {
-                otherDeduction: Money.fromInputYuan(
-                  dto.otherDeduction,
-                ).toDbCents(),
-              }
-            : {}),
-          ...(dto.otherDeductionNote !== undefined
-            ? { otherDeductionNote: toNullableText(dto.otherDeductionNote) }
-            : {}),
-          ...(dto.bonus !== undefined
-            ? { bonus: Money.fromInputYuan(dto.bonus).toDbCents() }
-            : {}),
-          ...(dto.socialInsurance !== undefined
-            ? {
-                socialInsurance:
-                  dto.socialInsurance > 0
-                    ? Money.fromInputYuan(dto.socialInsurance).toDbCents()
-                    : 0,
-              }
-            : {}),
-          ...(dto.housingFund !== undefined
-            ? {
-                housingFund:
-                  dto.housingFund > 0
-                    ? Money.fromInputYuan(dto.housingFund).toDbCents()
-                    : 0,
-              }
-            : {}),
-          ...(dto.note !== undefined ? { note: toNullableText(dto.note) } : {}),
-          actualSalary: derivedAmounts.actualSalary.toDbCents(),
-          totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
-        },
+        data: buildPayrollUpdateData(dto, derivedAmounts),
       });
     });
 

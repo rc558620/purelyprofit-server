@@ -9,6 +9,7 @@ import { StaffRole, StaffStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SubscriptionsService } from '../../subscriptions/subscriptions.service';
+import { AuthStaffActivationService } from '../../auth/auth-staff-activation.service';
 import { StaffAccessService } from './staff-access.service';
 import { queryStaffPage } from './staff.query';
 import { ActivateStaffDto } from './dto/activate-staff.dto';
@@ -37,6 +38,7 @@ export class StaffProfileService {
     private readonly staffAccessService: StaffAccessService,
     private readonly subscriptionsService: SubscriptionsService,
     private readonly configService: ConfigService,
+    private readonly authStaffActivationService: AuthStaffActivationService,
   ) {}
 
   async create(
@@ -258,7 +260,7 @@ export class StaffProfileService {
     const statusDelta =
       dto.isActive === false ? StaffStatus.disabled : undefined;
 
-    return this.prisma.staff.update({
+    const updated = await this.prisma.staff.update({
       where: { id: existingStaff.id },
       data: {
         name: dto.name,
@@ -270,6 +272,15 @@ export class StaffProfileService {
         isActive: dto.isActive,
       },
     });
+
+    // 权限变更后主动失效 membership rows 缓存，确保新权限立即生效
+    if (existingStaff.userId) {
+      await this.authStaffActivationService.invalidateMembershipCachesByUserId(
+        existingStaff.userId,
+      );
+    }
+
+    return updated;
   }
 
   async remove(user: AuthenticatedUser, staffId: number): Promise<void> {
@@ -289,6 +300,13 @@ export class StaffProfileService {
         status: StaffStatus.disabled,
       },
     });
+
+    // 员工被禁用后主动失效 membership rows 缓存，确保权限立即撤销
+    if (existingStaff.userId) {
+      await this.authStaffActivationService.invalidateMembershipCachesByUserId(
+        existingStaff.userId,
+      );
+    }
   }
 
   private async ensureSeatAvailable(storeId: number): Promise<void> {

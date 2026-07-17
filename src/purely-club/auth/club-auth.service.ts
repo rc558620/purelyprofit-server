@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AuthProductAuthService } from '../../shared/auth/auth-product-auth.service';
-import { AuthCodeService } from '../../purely-profit/auth/auth-code.service';
+import { AuthCodeVerifyService } from '../../purely-profit/auth/auth-code-verify.service';
 import { AuthAccountLookupService } from '../../purely-profit/auth/auth-account-lookup.service';
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
 import { PrismaService, TX_TIMEOUT_LONG } from '../../prisma/prisma.service';
@@ -27,7 +27,7 @@ export class ClubAuthService {
     private readonly authProductAuthService: AuthProductAuthService,
     private readonly clubWechatAuthService: ClubWechatAuthService,
     private readonly prisma: PrismaService,
-    private readonly authCodeService: AuthCodeService,
+    private readonly authCodeVerifyService: AuthCodeVerifyService,
     private readonly authAccountLookupService: AuthAccountLookupService,
     private readonly authSessionService: AuthSessionService,
   ) {}
@@ -131,12 +131,15 @@ export class ClubAuthService {
     dto: BindPhoneDto,
   ): Promise<AuthTokenResponseDto> {
     // 1. 验证短信验证码
-    await this.authCodeService.ensureRegisterCodeValid(
+    await this.authCodeVerifyService.ensureRegisterCodeValid(
       dto.phone,
       dto.code,
       'purely_club',
     );
-    await this.authCodeService.clearRegisterCode(dto.phone, 'purely_club');
+    await this.authCodeVerifyService.clearRegisterCode(
+      dto.phone,
+      'purely_club',
+    );
 
     // 2. 查询当前用户
     const currentUser = await this.prisma.user.findUnique({

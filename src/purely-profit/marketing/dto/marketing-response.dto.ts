@@ -16,37 +16,17 @@ import {
   MARKETING_CUSTOMER_TIER_VALUES,
   MARKETING_PAY_TYPE_VALUES,
   MARKETING_POINTS_CHANGE_TYPE_VALUES,
-  MARKETING_PROMOTION_STATUS_VALUES,
-  MARKETING_PROMOTION_TYPE_VALUES,
-  MARKETING_RECHARGE_TYPE_VALUES,
   type MarketingCustomerStatus,
   type MarketingCustomerTierValue,
   type MarketingMemberLevelIdValue,
   type MarketingPayTypeValue,
   type MarketingPointsChangeTypeValue,
-  type MarketingPromotionParamsValue,
-  type MarketingPromotionStatus,
-  type MarketingPromotionTypeValue,
-  type MarketingRechargeTypeValue,
 } from '../marketing.utils';
 
-import type { MarketingPaginationMeta } from '../marketing.utils';
+import { MarketingPaginationMetaDto } from './marketing-pagination-meta.dto';
+import { MarketingRechargeDto } from './marketing-response-recharge.dto';
 
-// ─── 分页元信息 ──────────────────────────────────────────────────────
-
-export class MarketingPaginationMetaDto implements MarketingPaginationMeta {
-  @ApiProperty({ example: 1 })
-  page: number;
-
-  @ApiProperty({ example: 20 })
-  pageSize: number;
-
-  @ApiProperty({ example: 68 })
-  total: number;
-
-  @ApiProperty({ example: 4 })
-  totalPages: number;
-}
+export { MarketingPaginationMetaDto } from './marketing-pagination-meta.dto';
 
 // ─── 顾客 ─────────────────────────────────────────────────────────────
 
@@ -180,92 +160,9 @@ export class MarketingCustomersResponseDto {
   meta: MarketingPaginationMetaDto;
 }
 
-// ─── 储值记录 ─────────────────────────────────────────────────────────
-
-export class MarketingRechargeDto {
-  @ApiProperty({ example: '1' })
-  id: string;
-
-  @ApiProperty({ example: '1' })
-  customerId: string;
-
-  @ApiPropertyOptional({
-    example: '张三',
-    description: '顾客名称（充值记录列表展示用）',
-  })
-  customerName?: string;
-
-  /** 充值金额（元） */
-  @ApiProperty({ example: 100, description: '充值金额，单位：元' })
-  amount: number;
-
-  /** 赠送金额（元） */
-  @ApiProperty({ example: 10, description: '赠送金额，单位：元' })
-  giftAmount: number;
-
-  /** 到账总额（元）= amount + giftAmount，由后端计算 */
-  @ApiProperty({ example: 110, description: '到账总额，单位：元' })
-  totalAmount: number;
-
-  /**
-   * 带符号充值金额（元）：退款为负值，储值/赠送为正值。
-   * 前端可直接用于展示金额方向，无需按 type 手动取负。
-   */
-  @ApiProperty({
-    example: -100,
-    description: '带符号充值金额，退款为负，单位：元',
-  })
-  signedAmount: number;
-
-  /**
-   * 带符号到账总额（元）：退款为负值，储值/赠送为正值。
-   */
-  @ApiProperty({
-    example: -110,
-    description: '带符号到账总额，退款为负，单位：元',
-  })
-  signedTotalAmount: number;
-
-  @ApiProperty({
-    example: 'recharge',
-    enum: MARKETING_RECHARGE_TYPE_VALUES,
-  })
-  type: MarketingRechargeTypeValue;
-
-  @ApiPropertyOptional({ example: '3' })
-  promotionId?: string;
-
-  @ApiPropertyOptional({
-    example: '夏日储值赠送',
-    description: '关联活动名称（来自 marketing_promotions.name）',
-  })
-  promotionName?: string;
-
-  @ApiPropertyOptional({ example: '半年卡储值' })
-  note?: string;
-
-  /**
-   * 赠送清零金额（元）：该笔退款时清零的赠送余额。
-   * 仅退款记录且 clearRemainingGift=true 时有值，其他情况不返回。
-   */
-  @ApiPropertyOptional({
-    example: 33,
-    description: '赠送清零金额（元），仅退款记录有值',
-  })
-  giftClearedAmount?: number;
-
-  /** 创建时间（毫秒时间戳） */
-  @ApiProperty({ example: 1714700000000 })
-  createdAt: number;
-}
-
-export class MarketingRechargesResponseDto {
-  @ApiProperty({ type: [MarketingRechargeDto] })
-  items: MarketingRechargeDto[];
-
-  @ApiProperty({ type: MarketingPaginationMetaDto })
-  meta: MarketingPaginationMetaDto;
-}
+// ─── 储值记录（已抽离至 marketing-response-recharge.dto.ts）─────────
+// ─── 活动（已抽离至 marketing-response-promotion.dto.ts）─────────────
+// ─── 概览数据（已抽离至 marketing-response-overview.dto.ts）───────────
 
 // ─── 消费记录 ─────────────────────────────────────────────────────────
 
@@ -436,186 +333,19 @@ export class MarketingMemberLevelSettingsDto {
   pointsFeatureEnabled: boolean;
 }
 
-// ─── 活动 ─────────────────────────────────────────────────────────────
-
-export class MarketingPromotionDto {
-  @ApiProperty({ example: '1' })
-  id: string;
-
-  @ApiProperty({ example: '夏日满减活动' })
-  name: string;
-
-  @ApiProperty({
-    example: 'reduce',
-    enum: MARKETING_PROMOTION_TYPE_VALUES,
-  })
-  type: MarketingPromotionTypeValue;
-
-  @ApiProperty({ example: '满 100 减 20 元' })
-  description: string;
-
-  @ApiProperty({
-    example: {
-      gradients: [
-        { rechargeAmount: 10000, giftAmount: 1000 },
-        { rechargeAmount: 30000, giftAmount: 5000 },
-      ],
-    },
-    description:
-      '优惠参数（按 type 不同，严格对齐前端命名；储值赠送支持 gradients 多档配置）',
-  })
-  params: MarketingPromotionParamsValue;
-
-  /** 后端预计算的展示文案，前端应优先消费此字段而非从 params 推导 */
-  @ApiPropertyOptional({
-    example: '满 ¥50 减 ¥8',
-    description:
-      '活动参数展示文案（由后端统一计算，如 "打 8 折"、"满 ¥50 减 ¥8"、"充 ¥100 赠 ¥10 起"、"免单"、"首单 7.5 折"、"充 ¥100 赠 10 积分"）',
-  })
-  displayText?: string;
-
-  /** 开始时间（毫秒时间戳） */
-  @ApiProperty({ example: 1715000000000 })
-  startAt: number;
-
-  /** 结束时间（毫秒时间戳） */
-  @ApiProperty({ example: 1715086399999 })
-  endAt: number;
-
-  /** 参与人次 */
-  @ApiProperty({ example: 42 })
-  usageCount: number;
-
-  /** 核销总优惠金额（元） */
-  @ApiProperty({ example: 840, description: '核销优惠总额，单位：元' })
-  totalDiscount: number;
-
-  @ApiProperty({ example: true })
-  enabled: boolean;
-
-  @ApiProperty({
-    example: 'active',
-    enum: MARKETING_PROMOTION_STATUS_VALUES,
-    description: '活动状态（根据开始/结束时间计算）',
-  })
-  status: MarketingPromotionStatus;
-
-  /** 创建时间（毫秒时间戳） */
-  @ApiProperty({ example: 1714000000000 })
-  createdAt: number;
-}
-
-export class MarketingPromotionsResponseDto {
-  @ApiProperty({ type: [MarketingPromotionDto] })
-  items: MarketingPromotionDto[];
-
-  @ApiProperty({ type: MarketingPaginationMetaDto })
-  meta: MarketingPaginationMetaDto;
-}
-
-// ─── 概览数据 ─────────────────────────────────────────────────────────
-
-export class MarketingOverviewTrendPointDto {
-  @ApiProperty({ example: '5/1' })
-  date: string;
-
-  @ApiProperty({ example: 128, description: '当天储值金额，单位：元' })
-  amount: number;
-}
-
-export class MarketingOverviewMonthlyTrendPointDto {
-  @ApiProperty({ example: '5月' })
-  label: string;
-
-  @ApiPropertyOptional({
-    example: 1280,
-    nullable: true,
-    description: '当月储值金额，单位：元；无数据时为 null',
-  })
-  amount: number | null;
-}
-
-export class MarketingWechatPayConfigDto {
-  @ApiProperty({
-    example: true,
-    description: '是否已配置微信收款（mchId + apiV3Key 均存在时为 true）',
-  })
-  configured: boolean;
-
-  @ApiPropertyOptional({
-    example: '1234567890',
-    description: '微信商户号；未配置时不返回',
-  })
-  mchId?: string;
-
-  @ApiPropertyOptional({
-    example: '纯利优选昆明店',
-    description: '微信商户名称；未配置时不返回',
-  })
-  mchName?: string;
-
-  @ApiPropertyOptional({
-    example: '2026-06-13T12:00:00.000Z',
-    description: '最近一次配置时间；未配置时不返回',
-  })
-  configuredAt?: string;
-}
-
-export class MarketingOverviewDto {
-  /** 储值总额（元）= 全部未消费余额之和 */
-  @ApiProperty({ example: 50000, description: '储值余额总计，单位：元' })
-  totalBalance: number;
-
-  /** 累计储值金额（元）= 全部充值记录到账金额汇总 */
-  @ApiProperty({ example: 16800, description: '累计储值金额，单位：元' })
-  totalRecharge: number;
-
-  /** 今日储值金额（元） */
-  @ApiProperty({ example: 320, description: '今日储值金额，单位：元' })
-  todayRecharge: number;
-
-  /** 本月储值金额（元） */
-  @ApiProperty({ example: 1200, description: '本月储值金额，单位：元' })
-  thisMonthRecharge: number;
-
-  /** 储值记录总数 */
-  @ApiProperty({ example: 156 })
-  rechargeCount: number;
-
-  /** 有过消费记录的会员人数（visitCount > 0） */
-  @ApiProperty({ example: 87 })
-  activeMemberCount: number;
-
-  /** 门店邀请码，purely-club 可通过该邀请码加入门店；门店尚未创建邀请码时为 null */
-  @ApiProperty({ example: 'ABCD23', description: '门店邀请码', nullable: true })
-  inviteCode: string | null;
-
-  /** 门店邀请码二维码图片 URL，前端扫码页可直接展示；门店尚未创建邀请码时为 null */
-  @ApiProperty({
-    example:
-      'https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&margin=0&data=ABCD23',
-    description: '门店邀请码二维码图片地址',
-    nullable: true,
-  })
-  inviteCodeQrCodeImageUrl: string | null;
-
-  /** 近 30 天储值趋势 */
-  @ApiProperty({ type: [MarketingOverviewTrendPointDto] })
-  last30Days: MarketingOverviewTrendPointDto[];
-
-  /** 当前年份，用于"今年 / 去年"趋势切换 */
-  @ApiProperty({ example: 2026 })
-  currentYear: number;
-
-  /** 今年每月储值趋势（仅含 recharge/gift） */
-  @ApiProperty({ type: [MarketingOverviewMonthlyTrendPointDto] })
-  thisYearMonthlyTrend: MarketingOverviewMonthlyTrendPointDto[];
-
-  /** 去年每月储值趋势（仅含 recharge/gift） */
-  @ApiProperty({ type: [MarketingOverviewMonthlyTrendPointDto] })
-  lastYearMonthlyTrend: MarketingOverviewMonthlyTrendPointDto[];
-
-  /** 微信收款配置状态 */
-  @ApiProperty({ type: MarketingWechatPayConfigDto })
-  wechatPayConfig: MarketingWechatPayConfigDto;
-}
+// ─── 活动 & 概览已抽离 ───────────────────────────────────────────────
+// Re-export: 保持外部 import 路径不变
+export {
+  MarketingRechargeDto,
+  MarketingRechargesResponseDto,
+} from './marketing-response-recharge.dto';
+export {
+  MarketingPromotionDto,
+  MarketingPromotionsResponseDto,
+} from './marketing-response-promotion.dto';
+export {
+  MarketingOverviewDto,
+  MarketingOverviewMonthlyTrendPointDto,
+  MarketingOverviewTrendPointDto,
+  MarketingWechatPayConfigDto,
+} from './marketing-response-overview.dto';

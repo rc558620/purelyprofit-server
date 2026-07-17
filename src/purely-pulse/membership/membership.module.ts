@@ -11,7 +11,10 @@ import { PulseMembershipAdminMutationService } from './membership-admin-mutation
 import { PulseMembershipAdminPointsMutationService } from './membership-admin-points-mutation.service';
 import { PulseMembershipAdminSubAccountMutationService } from './membership-admin-sub-account-mutation.service';
 import { PulseMembershipAdminSubAccountReadService } from './membership-admin-sub-account-read.service';
+import { PulseMembershipAdminClubStatsService } from './membership-admin-club-stats.service';
+import { PulseMembershipAdminLogsQueryService } from './membership-admin-logs-query.service';
 import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
+import { PulseMembershipAdminSalesStatsService } from './membership-admin-sales-stats.service';
 import { PulseMembershipAdminController } from './membership-admin.controller';
 import { PulseMembershipAdminService } from './membership-admin.service';
 import { PulseMembershipController } from './membership.controller';
@@ -30,6 +33,9 @@ import { PulseMembershipService } from './membership.service';
     PulseMembershipAdminMemberReadService,
     PulseMembershipAdminSubAccountReadService,
     PulseMembershipAdminQueryService,
+    PulseMembershipAdminClubStatsService,
+    PulseMembershipAdminSalesStatsService,
+    PulseMembershipAdminLogsQueryService,
     PulseMembershipAdminMutationStateService,
     PulseMembershipAdminMembershipMutationService,
     PulseMembershipAdminPointsMutationService,

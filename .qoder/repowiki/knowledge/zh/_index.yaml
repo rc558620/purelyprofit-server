@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-15T19:13:56Z"
+exported_at: "2026-07-16T04:55:31Z"
 modules:
     "":
-        dir_name: PurelyProfit 多租户门店经营 SaaS 后端（根模块）
-        title: PurelyProfit 多租户门店经营 SaaS 后端（根模块）
+        dir_name: 纯利 SaaS 后端应用（NestJS + Fastify 多域聚合）
+        title: 纯利 SaaS 后端应用（NestJS + Fastify 多域聚合）
         scope: []
         source_files: []
         children: []

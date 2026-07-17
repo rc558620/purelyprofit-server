@@ -18,12 +18,15 @@ import { CostsService } from '../../operations/costs/costs.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { RedisService } from '../../../redis/redis.service';
 import { EmployeesAccessService } from './employees-access.service';
 import { EmployeesDictionaryService } from './employees-dictionary.service';
 import { EmployeesLeaveService } from './employees-leave.service';
 import { EmployeesPayrollService } from './employees-payroll.service';
+import { EmployeesPayrollReportService } from './employees-payroll-report.service';
 import { EmployeesProfileReadService } from './employees-profile-read.service';
 import { EmployeesProfileWriteService } from './employees-profile-write.service';
+import { EmployeesSnapshotSyncService } from './employees-snapshot-sync.service';
 import { EmployeesService } from './employees.service';
 import { EmployeesShiftService } from './employees-shift.service';
 import { EmployeesShiftDefinitionService } from './employees-shift-definition.service';
@@ -189,10 +192,12 @@ describe('EmployeesService', () => {
         EmployeesService,
         EmployeesProfileReadService,
         EmployeesProfileWriteService,
+        EmployeesSnapshotSyncService,
         EmployeesDictionaryService,
         EmployeesLeaveService,
         EmployeesShiftService,
         EmployeesPayrollService,
+        EmployeesPayrollReportService,
         { provide: PrismaService, useValue: prismaService },
         {
           provide: CacheInvalidatorService,
@@ -213,6 +218,10 @@ describe('EmployeesService', () => {
         {
           provide: EmployeesShiftDefinitionService,
           useValue: employeesShiftDefinitionService,
+        },
+        {
+          provide: RedisService,
+          useValue: { del: jest.fn(), get: jest.fn() },
         },
       ],
     }).compile();

@@ -2,6 +2,12 @@ export type AuthProductScope = 'purely_profit' | 'purely_club';
 
 export type AuthenticatedAccountScope = AuthProductScope | 'developer';
 
+/**
+ * JWT aud（audience）字段值，标识 token 签发时的产品线上下文。
+ * 在 Guard 层进行 audience 二次校验，防止 token 跨产品线使用。
+ */
+export type TokenAudience = 'purely_profit' | 'purely_club' | 'developer';
+
 export type AuthPulseMode = 'normal' | 'developer';
 
 /** 会话类别，决定并发会话数量限制 */

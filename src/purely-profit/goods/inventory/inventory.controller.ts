@@ -39,6 +39,7 @@ import {
   ProductThresholdResponseDto,
   UpdateAlertThresholdDto,
 } from './dto/inventory.dto';
+import { InventoryReadService } from './inventory-read.service';
 import { InventoryService } from './inventory.service';
 
 @ApiTags('Inventory')
@@ -46,7 +47,10 @@ import { InventoryService } from './inventory.service';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('inventory')
 export class InventoryController {
-  constructor(private readonly inventoryService: InventoryService) {}
+  constructor(
+    private readonly inventoryService: InventoryService,
+    private readonly inventoryReadService: InventoryReadService,
+  ) {}
 
   @Get('products')
   @RequirePermissions('inventory:view')
@@ -56,7 +60,7 @@ export class InventoryController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListInventoryProductsQueryDto,
   ): Promise<PaginatedInventoryProductsResponseDto> {
-    return this.inventoryService.listProducts(user, query);
+    return this.inventoryReadService.listProducts(user, query);
   }
 
   @Delete('products/:id')
@@ -78,7 +82,7 @@ export class InventoryController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListInventoryAdjustmentsQueryDto,
   ): Promise<PaginatedInventoryAdjustmentsResponseDto> {
-    return this.inventoryService.listAdjustments(user, query);
+    return this.inventoryReadService.listAdjustments(user, query);
   }
 
   /*
@@ -117,7 +121,7 @@ export class InventoryController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: InventoryStatsQueryDto,
   ): Promise<InventoryStatsResponseDto> {
-    return this.inventoryService.getStats(user, query.storeId);
+    return this.inventoryReadService.getStats(user, query.storeId);
   }
 
   @Get('report')
@@ -136,9 +140,9 @@ export class InventoryController {
        * 防止拥有 report:view 但套餐不支持导出的账号借 format=csv 绕过校验。
        */
       query.export = true;
-      await this.inventoryService.streamReportCsv(reply.raw, user, query);
+      await this.inventoryReadService.streamReportCsv(reply.raw, user, query);
       return reply;
     }
-    return this.inventoryService.getReport(user, query);
+    return this.inventoryReadService.getReport(user, query);
   }
 }

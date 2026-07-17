@@ -77,7 +77,7 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
     ).toHaveBeenCalledWith(100, 30);
   });
 
-  it('子账号无排班记录时应从员工表取姓名与头像而非登录用户名', async () => {
+  it('子账号无排班记录时不应回退到登录用户关联员工信息', async () => {
     prismaService.employeeShift.findFirst.mockResolvedValue(null);
     prismaService.employeeShift.findMany.mockResolvedValue([]);
     prismaService.employee.findUnique.mockResolvedValue(
@@ -95,14 +95,11 @@ describe('HandoverPageService - 班次展示与 fallback', () => {
       operatorName: '收银员1号',
     });
 
-    expect(result.shiftInfo.operatorName).toBe('张三');
-    expect(result.shiftInfo.operatorAvatar).toBe(
-      'https://cdn.example.com/employee-20.png',
-    );
-    expect(result.shiftInfo.avatar).toBe(
-      'https://cdn.example.com/employee-20.png',
-    );
-    expectEmployeeDetailLookup(20);
+    // 没有活跃排班时，不应回退到关联员工或请求参数，而应显示默认值
+    expect(result.shiftInfo.operatorName).toBe('当前员工');
+    // 不应返回关联员工的头像
+    expect(result.shiftInfo.operatorAvatar).toBeUndefined();
+    expect(result.shiftInfo.avatar).toBeUndefined();
   });
 
   it('店长账号应可操作门店当前班次交班', async () => {

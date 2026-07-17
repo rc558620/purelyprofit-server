@@ -4,7 +4,10 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import type { AuthenticatedAccountScope } from '../auth-account.types';
+import type {
+  AuthenticatedAccountScope,
+  TokenAudience,
+} from '../auth-account.types';
 import type { AuthenticatedUser } from '../strategies/jwt.strategy';
 
 function ensureAllowedScope(
@@ -23,6 +26,27 @@ function ensureAllowedScope(
   throw new ForbiddenException(message);
 }
 
+/**
+ * token audience 校验：防止跨产品线 token 交叉使用。
+ *
+ * - 旧 token（无 aud 字段）跳过校验，保证平滑过渡
+ * - 新 token 的 aud 必须在 allowedAudiences 中，否则拒绝访问
+ */
+function ensureTokenAudience(
+  user: AuthenticatedUser,
+  allowedAudiences: TokenAudience[],
+): AuthenticatedUser {
+  if (
+    user.tokenAudience != null &&
+    !allowedAudiences.includes(user.tokenAudience)
+  ) {
+    throw new ForbiddenException(
+      'token 产品线不匹配，请使用对应产品线的账号登录',
+    );
+  }
+  return user;
+}
+
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
   handleRequest<TUser = AuthenticatedUser>(
@@ -33,11 +57,16 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       throw err ?? new UnauthorizedException('未登录或登录态已失效');
     }
 
-    return ensureAllowedScope(
+    const scopeChecked = ensureAllowedScope(
       user,
       ['purely_profit', 'developer'],
       '当前账号不可访问 purely-profit / purely-pulse 接口',
-    ) as TUser;
+    );
+
+    return ensureTokenAudience(scopeChecked, [
+      'purely_profit',
+      'developer',
+    ]) as TUser;
   }
 }
 
@@ -51,11 +80,16 @@ export class ClubJwtAuthGuard extends AuthGuard('jwt') {
       throw err ?? new UnauthorizedException('未登录或登录态已失效');
     }
 
-    return ensureAllowedScope(
+    const scopeChecked = ensureAllowedScope(
       user,
       ['purely_club', 'developer'],
       '当前账号不可访问 purely-club 接口',
-    ) as TUser;
+    );
+
+    return ensureTokenAudience(scopeChecked, [
+      'purely_club',
+      'developer',
+    ]) as TUser;
   }
 }
 
@@ -69,11 +103,13 @@ export class PulseJwtAuthGuard extends AuthGuard('jwt') {
       throw err ?? new UnauthorizedException('未登录或登录态已失效');
     }
 
-    return ensureAllowedScope(
+    const scopeChecked = ensureAllowedScope(
       user,
       ['developer'],
       '当前账号不可访问 purely-pulse 接口',
-    ) as TUser;
+    );
+
+    return ensureTokenAudience(scopeChecked, ['developer']) as TUser;
   }
 }
 

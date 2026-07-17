@@ -1,13 +1,18 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { resolveAuthIdentity } from './auth.utils';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
-import { AuthCodeService } from './auth-code.service';
+import { AuthAccountService } from './auth-account.service';
+import { AuthBanGuardService } from './auth-ban-guard.service';
+import { AuthCodeVerifyService } from './auth-code-verify.service';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthSessionService } from './auth-session.service';
-import type { AuthenticatedAccountScope } from './auth-account.types';
+import type {
+  AuthenticatedAccountScope,
+  AuthProductScope,
+} from './auth-account.types';
 import type {
   LoginByCodeAuthParams,
   LoginByCodeOrRegisterAuthParams,
@@ -23,12 +28,15 @@ import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
  */
 @Injectable()
 export class AuthCodeLoginService {
+  private readonly logger = new Logger(AuthCodeLoginService.name);
   private readonly pulseDevAccountEmails: Set<string>;
   private readonly adminLoginPhone: string;
 
   constructor(
     private readonly authAccountLookupService: AuthAccountLookupService,
-    private readonly authCodeService: AuthCodeService,
+    private readonly authAccountService: AuthAccountService,
+    private readonly authBanGuardService: AuthBanGuardService,
+    private readonly authCodeVerifyService: AuthCodeVerifyService,
     private readonly authPasswordService: AuthPasswordService,
     private readonly authSessionService: AuthSessionService,
     configService: ConfigService,
@@ -45,7 +53,7 @@ export class AuthCodeLoginService {
   async loginByCode(
     params: LoginByCodeAuthParams,
   ): Promise<AuthTokenResponseDto> {
-    await this.authCodeService.ensureRegisterCodeValid(
+    await this.authCodeVerifyService.ensureRegisterCodeValid(
       params.phone,
       params.code,
       params.productScope,
@@ -57,7 +65,7 @@ export class AuthCodeLoginService {
     );
 
     if (!user) {
-      await this.authCodeService.clearRegisterCode(
+      await this.authCodeVerifyService.clearRegisterCode(
         params.phone,
         params.productScope,
       );
@@ -66,12 +74,12 @@ export class AuthCodeLoginService {
 
     const resolvedAccountScope = this.resolveAccountScopeForLogin(user);
 
-    await this.authCodeService.clearRegisterCode(
+    await this.authCodeVerifyService.clearRegisterCode(
       params.phone,
       params.productScope,
     );
 
-    return this.completeLogin(user, resolvedAccountScope);
+    return this.completeLogin(user, resolvedAccountScope, params.productScope);
   }
 
   /**
@@ -86,7 +94,7 @@ export class AuthCodeLoginService {
   async loginByCodeOrRegister(
     params: LoginByCodeOrRegisterAuthParams,
   ): Promise<AuthTokenResponseDto> {
-    await this.authCodeService.ensureRegisterCodeValid(
+    await this.authCodeVerifyService.ensureRegisterCodeValid(
       params.phone,
       params.code,
       params.productScope,
@@ -97,7 +105,7 @@ export class AuthCodeLoginService {
       params.productScope,
     );
 
-    await this.authCodeService.clearRegisterCode(
+    await this.authCodeVerifyService.clearRegisterCode(
       params.phone,
       params.productScope,
     );
@@ -105,8 +113,18 @@ export class AuthCodeLoginService {
     if (existingUser) {
       const resolvedAccountScope =
         this.resolveAccountScopeForLogin(existingUser);
-      return this.completeLogin(existingUser, resolvedAccountScope);
+      return this.completeLogin(
+        existingUser,
+        resolvedAccountScope,
+        params.productScope,
+      );
     }
+
+    // 跨产品线手机号唯一性检查：自动注册前检查是否已在另一个产品线注册
+    await this.authAccountLookupService.assertPhoneNotRegisteredInOtherScope(
+      params.phone,
+      params.productScope,
+    );
 
     // 自动注册：无需验证码外的额外信息，使用随机占位密码
     const randomPassword = randomBytes(16).toString('hex');
@@ -124,6 +142,7 @@ export class AuthCodeLoginService {
           phone: params.phone,
         },
         newUser.accountScope as AuthenticatedAccountScope,
+        params.productScope,
       );
     } catch (error) {
       // 并发首登下，两个请求可能同时通过验证码校验并竞争创建同一手机号账号。
@@ -137,7 +156,11 @@ export class AuthCodeLoginService {
         if (resolvedUser) {
           const resolvedAccountScope =
             this.resolveAccountScopeForLogin(resolvedUser);
-          return this.completeLogin(resolvedUser, resolvedAccountScope);
+          return this.completeLogin(
+            resolvedUser,
+            resolvedAccountScope,
+            params.productScope,
+          );
         }
       }
       throw error;
@@ -145,12 +168,27 @@ export class AuthCodeLoginService {
   }
 
   /**
-   * 验证码登录的 completeLogin：仅处理 purely_club 场景，直接签发 token。
+   * 验证码登录的 completeLogin：签发 token 前执行必要的前置检查。
+   *
+   * - purely_profit：同步会员关系 + 封禁检查（与密码登录路径对齐）
+   * - purely_club：封禁检查
    */
   private async completeLogin(
     user: { id: number; phone: string; email: string; staffId?: number },
     accountScope: AuthenticatedAccountScope,
+    productScope: AuthProductScope,
   ): Promise<AuthTokenResponseDto> {
+    if (productScope === 'purely_profit') {
+      await this.authAccountService.syncStaffMemberships(user.id, {
+        phone: user.phone,
+        email: user.email,
+        accountScope,
+        ...(user.staffId != null ? { staffId: user.staffId } : {}),
+      });
+    }
+
+    await this.authBanGuardService.ensureUserNotBanned(user.id);
+
     return this.authSessionService.signToken(user.id, {
       phone: user.phone,
       email: user.email,

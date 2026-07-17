@@ -21,7 +21,10 @@ import {
   buildSaleOrderItemOrderWhere,
   buildSaleOrderWhere,
 } from './handover-page-query.builders';
-import { mergeDisplayedOrderItems } from './handover-page-order-items';
+import {
+  mergeDisplayedOrderItems,
+  type SettledSpaceSessionRow,
+} from './handover-page-order-items';
 import {
   attachPaymentRatios,
   computeRefundAmountFromSessions,
@@ -35,61 +38,10 @@ import {
   dbCentsToOutputYuan,
   type OrderItemRow,
   type ResolvedHandoverPageShiftContext,
+  type HandoverPageMetrics,
+  EMPTY_METRICS,
 } from './handover.shared';
-import type { SalesPaymentMethod } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
-
-type SettledSpaceSessionRow = {
-  id: number;
-  timeCost: number | null;
-  itemsCost: number;
-  prepaidAmount: number | null;
-  prepaidGrouponCode: string | null;
-  prepaidCustomerPaymentMethod: string | null;
-  prepaidGrouponPlatform: string | null;
-  endTime: Date | null;
-  space: { name: string };
-  saleOrder: {
-    paymentMethod: SalesPaymentMethod;
-    date: Date;
-    operatorNameSnapshot: string | null;
-    operatorStaff: {
-      name: string;
-      role: import('@prisma/client').StaffRole;
-      employeeProfile: { subAccounts: { role: string }[] } | null;
-    } | null;
-  } | null;
-  // ─── ⚠️ DO NOT REMOVE sessionRenewRecords ──────────────────────────────
-  // prepaidAmount 仅含开台预付款，不含续费（BUG-1/5/7 已移除续费回写）。
-  // 下游 buildRefundItemsFromSessions / computeRefundAmountFromSessions /
-  // buildGuestPayableItems 均依赖此字段累加续费金额，删除会导致退款丢失。
-  sessionRenewRecords: {
-    amount: number;
-    paymentMethod: string;
-  }[];
-};
-
-type HandoverPageMetrics = {
-  orderCount: number;
-  paymentOrderItems: OrderItemRow[];
-  orderItems: OrderItemRow[];
-  additionalRevenueAmount: number;
-  spaceRevenueAmount: number;
-  refundAmount: number;
-  pettyCashAmount: number;
-  settledSpaceSessions: SettledSpaceSessionRow[];
-};
-
-const EMPTY_METRICS: HandoverPageMetrics = {
-  orderCount: 0,
-  paymentOrderItems: [],
-  orderItems: [],
-  additionalRevenueAmount: 0,
-  spaceRevenueAmount: 0,
-  refundAmount: 0,
-  pettyCashAmount: 0,
-  settledSpaceSessions: [],
-};
 
 @Injectable()
 export class HandoverPageService {
@@ -395,14 +347,15 @@ export class HandoverPageService {
       .toOutputYuan();
 
     // 当所有班次已交接完成且无后续排班时，
-    // 清空操作员名字并移除头像，前端回退到用户注册时的默认头像。
+    // 移除头像，前端回退到默认头像。
+    // operatorName 保持 buildPageShiftInfo 返回的默认值（'当前员工'），
+    // 不覆盖为空字符串，否则前端会 fallback 到登录用户名。
     let { shiftInfo } = shiftContext;
     if (shiftContext.handoverCompletedAndNoUpcomingShift) {
       shiftInfo = {
         ...shiftInfo,
         operatorAvatar: undefined,
         avatar: undefined,
-        operatorName: '',
       };
     }
 

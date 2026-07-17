@@ -5,11 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import {
-  Prisma,
-  SpaceSessionStatus as PrismaSpaceSessionStatus,
-} from '@prisma/client';
+import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { buildCheckoutSettlementData } from './space-session-checkout-data.shared';
 import {
   buildSpaceSessionSettlement,
   isSpaceSessionDeductionProductId,
@@ -18,14 +16,9 @@ import { Money } from '../../../shared/money.utils';
 import { PrismaService, TX_TIMEOUT_LONG } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RedisService } from '../../../redis/redis.service';
-import type {
-  CreateSalesRecordDto,
-  SalesRecordResponseDto,
-} from '../sales-record/dto/sales-record.dto';
-import { SalesRecordService } from '../sales-record/sales-record.service';
+import type { SalesRecordResponseDto } from '../sales-record/dto/sales-record.dto';
 import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types';
 import type {
-  SpaceSessionItemRecord,
   SpaceSessionRecord,
   SpaceSessionRenewRecord,
   SpaceSessionSettlement,
@@ -40,6 +33,7 @@ import {
 import type { SpaceTimeFeeModeValue } from './dto/space-session.constants';
 import type { SpaceStatusValue } from './spaces.constants';
 import { createAutoCheckoutSystemUser } from './space-session-auto-checkout.service';
+import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
 
 export interface SettleSpaceSessionParams {
   session: SpaceSessionSettlementRecord;
@@ -87,7 +81,7 @@ export class SpaceSessionSettlementService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly salesRecordService: SalesRecordService,
+    private readonly saleOrderService: SpaceSessionSaleOrderService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly redisService: RedisService,
     private readonly reservationsStateService: SpaceReservationsStateService,
@@ -187,7 +181,7 @@ export class SpaceSessionSettlementService {
             ? createAutoCheckoutSystemUser()
             : user;
 
-          const createdOrder = await this.createSessionSaleOrder(
+          const createdOrder = await this.saleOrderService.create(
             effectiveUser,
             {
               transaction,
@@ -199,7 +193,6 @@ export class SpaceSessionSettlementService {
               totalRevenue: freshSettlement.totalRevenue,
               totalProfit: freshSettlement.totalProfit,
               totalQuantity: freshSettlement.totalQuantity,
-              // ─── 团购 / 券 / 平台结算字段透传到销售单 ───────────────────
               ...(params.customerPaymentMethod !== undefined
                 ? { customerPaymentMethod: params.customerPaymentMethod }
                 : {}),
@@ -228,9 +221,7 @@ export class SpaceSessionSettlementService {
                 ? { platformReceivable: params.platformReceivable }
                 : {}),
               ...(params.platformSettledAmount !== undefined
-                ? {
-                    platformSettledAmount: params.platformSettledAmount,
-                  }
+                ? { platformSettledAmount: params.platformSettledAmount }
                 : {}),
               ...(params.platformFee !== undefined
                 ? { platformFee: params.platformFee }
@@ -264,76 +255,24 @@ export class SpaceSessionSettlementService {
           // 结算时不需要重新写入 renewRecords
 
           // ①②④ 修复：结账侧团购/券/平台字段落库
-          // 如果结账时提供了新的团购/券/支付方式信息，更新 prepaid* 列（结账值为最终权威值）
-          const checkoutSettlementData: Record<string, unknown> = {
-            endTime: new Date(params.checkoutAt),
-            // settlement 中的 timeCost/itemsCost 是元，DB 存储为分
-            timeCost: Money.fromInputYuan(freshSettlement.timeCost).toDbCents(),
-            itemsCost: Money.fromInputYuan(
-              freshSettlement.itemsCost,
-            ).toDbCents(),
-            status: PrismaSpaceSessionStatus.settled,
+          const checkoutSettlementData = buildCheckoutSettlementData({
+            checkoutAt: params.checkoutAt,
+            freshSettlement,
             saleOrderId: Number(createdOrder.id),
-          };
-
-          // 结账时如果传了团购/券/支付方式，覆盖 prepaid* 列
-          if (params.grouponCode !== undefined) {
-            checkoutSettlementData.prepaidGrouponCode = params.grouponCode;
-          }
-          if (params.grouponPlatform !== undefined) {
-            checkoutSettlementData.prepaidGrouponPlatform =
-              params.grouponPlatform;
-          }
-          if (params.customerPaymentMethod !== undefined) {
-            checkoutSettlementData.prepaidCustomerPaymentMethod =
-              params.customerPaymentMethod;
-          }
-          if (params.settlementChannel !== undefined) {
-            checkoutSettlementData.prepaidSettlementChannel =
-              params.settlementChannel;
-          }
-          if (params.voucherCode !== undefined) {
-            checkoutSettlementData.prepaidVoucherCode = params.voucherCode;
-          }
-          if (params.voucherPlatform !== undefined) {
-            checkoutSettlementData.prepaidVoucherPlatform =
-              params.voucherPlatform;
-          }
-          // BUG-3 fix: 当 voucherFaceAmount 来自续费回退时，不写入 session.prepaidVoucherFaceAmount，
-          // 续费券面只属于续费池（spaceSessionRenewRecord），回写预付池会破坏「两池独立」不变量，
-          // 导致重结/异常重试时双重抵扣。sale order 仍需 voucherFaceAmount 记录团购元数据。
-          if (
-            params.voucherFaceAmount !== undefined &&
-            !params.skipPrepaidVoucherPersistence
-          ) {
-            checkoutSettlementData.prepaidVoucherFaceAmount =
-              Money.fromInputYuan(params.voucherFaceAmount).toDbCents();
-          }
-
-          // ① 修复：平台结算字段落新列
-          if (params.settlementStatus !== undefined) {
-            checkoutSettlementData.settlementStatus = params.settlementStatus;
-          }
-          if (params.platformReceivable !== undefined) {
-            checkoutSettlementData.platformReceivable = Money.fromInputYuan(
-              params.platformReceivable,
-            ).toDbCents();
-          }
-          if (params.platformSettledAmount !== undefined) {
-            checkoutSettlementData.platformSettledAmount = Money.fromInputYuan(
-              params.platformSettledAmount,
-            ).toDbCents();
-          }
-          if (params.platformFee !== undefined) {
-            checkoutSettlementData.platformFee = Money.fromInputYuan(
-              params.platformFee,
-            ).toDbCents();
-          }
-
-          // ⑤ 修复：台位费口径审计字段
-          if (params.timeFeeMode !== undefined) {
-            checkoutSettlementData.timeFeeMode = params.timeFeeMode;
-          }
+            grouponCode: params.grouponCode,
+            grouponPlatform: params.grouponPlatform,
+            customerPaymentMethod: params.customerPaymentMethod,
+            settlementChannel: params.settlementChannel,
+            voucherCode: params.voucherCode,
+            voucherPlatform: params.voucherPlatform,
+            voucherFaceAmount: params.voucherFaceAmount,
+            skipPrepaidVoucherPersistence: params.skipPrepaidVoucherPersistence,
+            settlementStatus: params.settlementStatus,
+            platformReceivable: params.platformReceivable,
+            platformSettledAmount: params.platformSettledAmount,
+            platformFee: params.platformFee,
+            timeFeeMode: params.timeFeeMode,
+          });
 
           const nextSession = await transaction.spaceSession.update({
             where: { id: params.session.id },
@@ -403,107 +342,6 @@ export class SpaceSessionSettlementService {
         );
       }
     }
-  }
-
-  private async createSessionSaleOrder(
-    user: AuthenticatedUser,
-    params: {
-      transaction: Prisma.TransactionClient;
-      storeId: number;
-      checkoutAt: number;
-      paymentMethod: SalesPaymentMethodValue;
-      note?: string;
-      items: SpaceSessionItemRecord[];
-      totalRevenue: number;
-      totalProfit: number;
-      totalQuantity: number;
-      // ─── 团购 / 券 / 平台结算元数据 ─────────────────────────────
-      customerPaymentMethod?: string;
-      grouponCode?: string;
-      grouponPlatform?: string;
-      settlementChannel?: string;
-      voucherCode?: string;
-      voucherPlatform?: string;
-      voucherFaceAmount?: number;
-      settlementStatus?: string;
-      platformReceivable?: number;
-      platformSettledAmount?: number;
-      platformFee?: number;
-    },
-  ): Promise<SalesRecordResponseDto> {
-    const dto: CreateSalesRecordDto = {
-      storeId: params.storeId,
-      // BUG-7 fix: 统一使用 productId 判定抵扣项，与 settlement.shared 口径一致
-      items: params.items.map((item) => ({
-        productId: item.productId,
-        productName: item.productName,
-        categoryName: item.categoryName,
-        salePrice: isSpaceSessionDeductionProductId(item.productId)
-          ? Math.abs(item.salePrice)
-          : item.salePrice,
-        profit: isSpaceSessionDeductionProductId(item.productId)
-          ? Math.abs(item.profit)
-          : item.profit,
-        quantity: item.quantity,
-      })),
-      paymentMethod: params.paymentMethod,
-      calcMode: 'business',
-      ...(params.note ? { note: params.note } : {}),
-      date: params.checkoutAt,
-      // ─── 团购 / 券 / 平台结算元数据透传 ─────────────────────────
-      ...(params.customerPaymentMethod !== undefined
-        ? { customerPaymentMethod: params.customerPaymentMethod }
-        : {}),
-      ...(params.grouponCode !== undefined
-        ? { grouponCode: params.grouponCode }
-        : {}),
-      ...(params.grouponPlatform !== undefined
-        ? { grouponPlatform: params.grouponPlatform }
-        : {}),
-      ...(params.settlementChannel !== undefined
-        ? { settlementChannel: params.settlementChannel }
-        : {}),
-      ...(params.voucherCode !== undefined
-        ? { voucherCode: params.voucherCode }
-        : {}),
-      ...(params.voucherPlatform !== undefined
-        ? { voucherPlatform: params.voucherPlatform }
-        : {}),
-      ...(params.voucherFaceAmount !== undefined
-        ? { voucherFaceAmount: params.voucherFaceAmount }
-        : {}),
-      ...(params.settlementStatus !== undefined
-        ? { settlementStatus: params.settlementStatus }
-        : {}),
-      ...(params.platformReceivable !== undefined
-        ? { platformReceivable: params.platformReceivable }
-        : {}),
-      ...(params.platformSettledAmount !== undefined
-        ? {
-            platformSettledAmount: params.platformSettledAmount,
-          }
-        : {}),
-      ...(params.platformFee !== undefined
-        ? { platformFee: params.platformFee }
-        : {}),
-    };
-
-    return this.salesRecordService.create(user, dto, {
-      // 追加点单时 session.items 已经扣过库存，结账只生成销售单，不再重复校验/扣减。
-      skipInventoryValidationAndDeduction: true,
-      // 结账权限已在 checkout service 层以 operation-entry:create 完成验证，无需再检查 sales:create。
-      skipAccessCheck: true,
-      // 主账号/店长代客结账时，应优先归属到当前待交班班次员工，避免逾期未交班后账目落到下一班。
-      assignToCurrentShiftOperator: true,
-      // 会话中的商品价格可能与当前目录价格不一致（如开台后调价），应使用会话记录的价格。
-      preserveCallerPrices: true,
-      transactionClient: params.transaction,
-      // 抵扣项在 items 中以正数存储（代表已收到的预付款/续费），
-      // 但 SaleOrder.totalRevenue 必须反映实际结算金额（消费 - 抵扣，可能为负数），
-      // 因此使用结算层计算的权威值覆盖聚合结果。
-      totalRevenueOverride: params.totalRevenue,
-      totalProfitOverride: params.totalProfit,
-    });
   }
 
   private async acquireSettlementLock(

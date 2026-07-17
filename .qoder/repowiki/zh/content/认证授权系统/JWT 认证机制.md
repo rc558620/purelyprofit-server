@@ -2,23 +2,24 @@
 
 <cite>
 **本文档引用的文件**
-- [jwt-auth.guard.ts](file://src/purely-profit/auth/guards/jwt-auth.guard.ts)
 - [jwt.strategy.ts](file://src/purely-profit/auth/strategies/jwt.strategy.ts)
+- [jwt-auth.guard.ts](file://src/purely-profit/auth/guards/jwt-auth.guard.ts)
 - [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
 - [auth.service.ts](file://src/purely-profit/auth/auth.service.ts)
 - [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
 - [auth.constants.ts](file://src/purely-profit/auth/auth.constants.ts)
 - [redis.service.ts](file://src/redis/redis.service.ts)
 - [concurrency-limiter.util.ts](file://src/redis/concurrency-limiter.util.ts)
+- [auth-authentication.service.ts](file://src/purely-profit/auth/auth-authentication.service.ts)
 </cite>
 
 ## 更新摘要
 **变更内容**
-- 新增基于 Redis 的会话管理系统，支持并发控制与智能驱逐策略
-- 实现 UniversalJwtAuthGuard 跨产品线认证守卫，支持多产品线统一鉴权
-- 增强 Refresh Token 机制，支持 SHA-256 哈希存储、一次性使用与自动轮换
-- 优化用户缓存策略，提升 JWT 验证性能
-- 新增会话活跃状态检查与会话踢下线功能
+- 增强JWT策略实现，改进错误处理和会话版本检查机制
+- 新增跨租户访问保护集成，通过sessionVersion和sid字段实现精细化会话管理
+- 优化服务化架构支持，在保持向后兼容性的同时提升系统灵活性
+- 完善Refresh Token机制，支持SHA-256哈希存储、一次性使用与自动轮换
+- 增强会话管理系统，支持并发控制与智能驱逐策略
 
 ## 目录
 1. [简介](#简介)
@@ -34,7 +35,7 @@
 ## 简介
 本文件详细阐述了基于 NestJS 框架的 JWT 认证机制实现。内容涵盖 JWT Token 的生成、验证与刷新流程，JWT 策略的实现原理，认证守卫的工作机制，以及完整的登录、注册、密码重置等业务流程。文档还提供了 DTO 参数验证、Token 配置选项、过期时间设置的说明，并解释了与 Passport 框架的集成方式、错误处理策略和安全考虑。
 
-**更新** 新增了基于 Redis 的会话管理系统和 UniversalJwtAuthGuard 跨产品线认证功能，支持并发控制、智能驱逐策略和多产品线统一鉴权。
+**重大更新** 本次更新重点增强了JWT策略的错误处理机制，实现了会话版本检查和跨租户访问保护，同时完善了服务化架构支持，确保系统在保持向后兼容性的前提下提供更强大的安全功能。
 
 ## 项目结构
 认证相关代码主要位于 `src/purely-profit/auth/` 目录下，采用按功能模块划分的方式组织：
@@ -90,8 +91,8 @@ CFG --> AM
 ## 核心组件
 本节概述认证系统的关键组件及其职责：
 - JWT 守卫：在路由上启用认证保护，拦截未授权请求，支持多产品线 scope 控制
-- JWT 策略：实现从请求中提取与验证 JWT 的逻辑，集成 Redis 会话检查
-- 认证服务：协调登录、注册、密码重置等核心流程
+- JWT 策略：实现从请求中提取与验证 JWT 的逻辑，集成 Redis 会话检查与会话版本验证
+- 认证服务：协调登录、注册、密码重置等核心流程，支持服务化架构
 - 会话服务：维护用户会话状态与 Token 刷新，支持并发控制与智能驱逐
 - 密码服务：处理密码加密、验证与变更
 - 验证码服务：发送与校验短信/邮件验证码
@@ -101,7 +102,7 @@ CFG --> AM
 - DTO：统一输入参数校验与数据格式化
 - 常量：定义 Token 过期时间、密钥等配置项
 
-**更新** 新增了基于 Redis 的会话管理系统和 UniversalJwtAuthGuard 跨产品线认证守卫，支持并发控制与智能驱逐策略。
+**更新** 新增了增强的JWT策略实现，包含改进的错误处理、会话版本检查和跨租户访问保护功能。
 
 ## 架构概览
 JWT 认证的整体架构遵循 NestJS 的模块化设计，通过 Passport 策略与守卫实现端到端的认证流程。下图展示了从客户端发起请求到服务端完成认证与授权的交互过程：
@@ -125,7 +126,7 @@ Ctrl-->>Client : "HTTP 响应"
 Note over Client,Guard : "受保护路由访问时"
 Client->>Guard : "携带 Authorization 头"
 Guard->>Strategy : "验证 Token"
-Strategy->>Redis : "检查会话状态"
+Strategy->>Redis : "检查会话状态与版本"
 Strategy-->>Guard : "返回用户上下文"
 Guard-->>Client : "允许或拒绝访问"
 ```
@@ -140,14 +141,30 @@ Guard-->>Client : "允许或拒绝访问"
 
 ## 详细组件分析
 
-### JWT 策略实现
-JWT 策略负责从请求头中提取 Token 并进行验证，返回用户身份信息供守卫与控制器使用。其关键点包括：
-- 令牌提取：从 Authorization 头解析 Bearer Token
-- 令牌验证：使用密钥验证签名，检查过期时间与声明字段
-- 会话检查：通过 Redis 检查会话是否仍活跃
-- 版本控制：验证 token version 防止会话冲突
-- 用户上下文：将用户标识注入到请求上下文中供后续处理
+### 增强的JWT策略实现
+**重大更新** JWT策略经过全面增强，提供了更完善的错误处理和会话管理机制：
 
+#### 核心特性
+- **会话版本检查**：通过 `sessionVersion` 字段防止会话冲突，确保最新的登录态优先
+- **跨租户访问保护**：通过 `sid` 字段实现精细化会话管理，支持设备级别的会话控制
+- **增强的错误处理**：针对不同场景提供具体的错误消息，提升用户体验
+- **服务化架构支持**：与新的服务架构无缝集成，保持向后兼容性
+
+#### JWT Payload 结构
+```mermaid
+flowchart TD
+A["JWT Payload"] --> B["sub: 用户ID"]
+A --> C["phone: 手机号"]
+A --> D["accountScope: 账号范围"]
+A --> E["sessionVersion: 会话版本"]
+A --> F["staffId: 员工ID (可选)"]
+A --> G["sid: 会话唯一标识 (可选)"]
+```
+
+**图表来源**
+- [jwt.strategy.ts](file://src/purely-profit/auth/strategies/jwt.strategy.ts)
+
+#### 验证流程详解
 ```mermaid
 flowchart TD
 Start(["进入 JWT 策略"]) --> Extract["提取 Authorization 头"]
@@ -156,15 +173,24 @@ HasBearer --> |否| Fail["返回无效凭证"]
 HasBearer --> |是| Verify["验证 Token 签名与有效期"]
 Verify --> Valid{"验证通过?"}
 Valid --> |否| Fail
-Valid --> |是| CheckVersion["检查 Token 版本"]
+Valid --> |是| LoadUser["加载用户信息"]
+LoadUser --> UserExists{"用户存在?"}
+UserExists --> |否| UserNotFound["用户不存在"]
+UserExists --> |是| CheckVersion["检查 Token 版本"]
 CheckVersion --> VersionOK{"版本有效?"}
-VersionOK --> |否| Expired["登录态已失效"]
+VersionOK --> |否| Expired["登录态已失效，请重新登录"]
 VersionOK --> |是| CheckSession["检查会话活跃度"]
-CheckSession --> SessionActive{"会话活跃?"}
-SessionActive --> |否| KickedOut["会话已被踢下线"]
-SessionActive --> |是| LoadUser["加载用户信息"]
-LoadUser --> Done(["返回用户上下文"])
+CheckSession --> HasSid{"是否有 sid?"}
+HasSid --> |否| CheckBan["检查封禁状态"]
+HasSid --> |是| SessionActive{"会话活跃?"}
+SessionActive --> |否| KickedOut["您的账号已在其他设备登录，当前会话已失效"]
+SessionActive --> |是| CheckBan
+CheckBan --> Identity["解析身份与权限"]
+Identity --> Membership["解析会员信息"]
+Membership --> UpdateActive["异步更新最后活跃时间"]
+UpdateActive --> Done(["返回用户上下文"])
 Fail --> End(["结束"])
+UserNotFound --> End
 Expired --> End
 KickedOut --> End
 Done --> End
@@ -182,7 +208,7 @@ JWT 守卫在路由层拦截请求，确保只有通过认证的请求才能继�
 - 若未通过，抛出未授权异常
 - 若通过，将用户上下文注入到请求对象
 - 结合权限服务进行细粒度授权控制
-- **新增** 支持多产品线 scope 验证
+- **增强** 支持多产品线 scope 验证和跨产品线通用认证
 
 ```mermaid
 flowchart TD
@@ -217,14 +243,21 @@ sequenceDiagram
 participant Client as "客户端"
 participant Ctrl as "认证控制器"
 participant AuthSvc as "认证服务"
+participant AuthnSvc as "认证编排服务"
 participant SessionSvc as "会话服务"
 participant Redis as "Redis 服务"
 Client->>Ctrl : "POST /auth/login"
 Ctrl->>AuthSvc : "验证凭据"
-AuthSvc->>SessionSvc : "签发 Token 对"
-SessionSvc->>Redis : "注册新会话"
+AuthSvc->>AuthnSvc : "调用认证编排"
+AuthnSvc->>AuthnSvc : "检查登录失败锁定"
+AuthnSvc->>AuthnSvc : "验证用户凭据"
+AuthnSvc->>AuthnSvc : "确定会话类别"
+AuthnSvc->>SessionSvc : "注册新会话"
+SessionSvc->>Redis : "管理会话列表"
+AuthnSvc->>SessionSvc : "签发 Token 对"
 SessionSvc->>Redis : "存储 refresh token hash"
-SessionSvc-->>AuthSvc : "返回 Token 对"
+SessionSvc-->>AuthnSvc : "返回 Token 对"
+AuthnSvc-->>AuthSvc : "返回认证结果"
 AuthSvc-->>Ctrl : "返回 Token 响应"
 Ctrl-->>Client : "201/200 + Token 对"
 ```
@@ -232,12 +265,14 @@ Ctrl-->>Client : "201/200 + Token 对"
 **图表来源**
 - [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
 - [auth.service.ts](file://src/purely-profit/auth/auth.service.ts)
+- [auth-authentication.service.ts](file://src/purely-profit/auth/auth-authentication.service.ts)
 - [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
 - [redis.service.ts](file://src/redis/redis.service.ts)
 
 **章节来源**
 - [auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
 - [auth.service.ts](file://src/purely-profit/auth/auth.service.ts)
+- [auth-authentication.service.ts](file://src/purely-profit/auth/auth-authentication.service.ts)
 - [auth-session.service.ts](file://src/purely-profit/auth/auth-session.service.ts)
 
 ### 注册流程
@@ -350,7 +385,7 @@ G --> H["Value: token_hash"]
 - [auth.constants.ts](file://src/purely-profit/auth/auth.constants.ts)
 
 ### UniversalJwtAuthGuard 跨产品线认证
-**新增** UniversalJwtAuthGuard 提供了跨产品线的统一认证能力：
+**增强** UniversalJwtAuthGuard 提供了跨产品线的统一认证能力：
 
 #### 多产品线支持
 - **purely_profit**: 利润端产品，支持老板端和商家端
@@ -393,6 +428,7 @@ G --> K["跨产品线共享接口"]
 - **自动轮换**：刷新成功后自动生成新的 Token 对
 - **用户索引管理**：维护 userId 到 Token 哈希的索引，支持批量失效
 - **可配置过期时间**：默认 30 天，可通过环境变量配置
+- **会话一致性检查**：刷新前验证会话是否仍活跃
 
 #### Refresh Token 工作流程
 ```mermaid
@@ -403,11 +439,15 @@ C --> D["Redis 查找 token hash"]
 D --> E{"token 存在?"}
 E --> |否| F["返回未授权错误"]
 E --> |是| G["删除旧 token (一次性消费)"]
-G --> H["生成新的 access_token + refresh_token"]
-H --> I["存储新 token 哈希到 Redis"]
-I --> J["返回新的 Token 对"]
-F --> K["结束"]
-J --> L["结束"]
+G --> H["检查会话活跃度"]
+H --> Active{"会话活跃?"}
+Active --> |否| Invalid["会话已失效"]
+Active --> |是| I["生成新的 access_token + refresh_token"]
+I --> J["存储新 token 哈希到 Redis"]
+J --> K["返回新的 Token 对"]
+F --> L["结束"]
+Invalid --> L
+K --> M["结束"]
 ```
 
 **图表来源**
@@ -514,10 +554,11 @@ Strat --> Const
 - 数据库索引：对账户标识与 Token 字段建立索引，提升查询性能
 - 异步处理：密码加密与验证码发送建议异步执行，避免阻塞请求
 - 超时策略：合理设置 Token 过期时间，平衡安全性与用户体验
-- **新增** Redis 会话管理优化：使用 Sorted Set 高效管理会话列表
-- **新增** 智能驱逐策略：FIFO 淘汰机制确保内存占用可控
-- **新增** 批量操作优化：使用 delMany 和 mget 减少 Redis 网络往返
-- **新增** 用户缓存策略：5 分钟 TTL 的用户信息缓存，降低数据库压力
+- **增强** Redis 会话管理优化：使用 Sorted Set 高效管理会话列表
+- **增强** 智能驱逐策略：FIFO 淘汰机制确保内存占用可控
+- **增强** 批量操作优化：使用 delMany 和 mget 减少 Redis 网络往返
+- **增强** 用户缓存策略：5 分钟 TTL 的用户信息缓存，降低数据库压力
+- **新增** 异步更新优化：lastActiveAt 更新采用异步非阻塞方式，不影响鉴权性能
 
 ## 故障排除指南
 常见问题与解决方案：
@@ -526,10 +567,12 @@ Strat --> Const
 - 验证码失效：检查验证码有效期与发送频率限制
 - 密码重置失败：确认验证码正确且新密码符合强度要求
 - 会话异常：检查会话存储与刷新逻辑，确保 Token 刷新流程正常
-- **新增** 会话被踢下线：检查是否有其他设备登录，确认会话活跃状态
-- **新增** Redis 连接问题：检查 Redis 服务状态和网络连通性
-- **新增** 跨产品线访问失败：确认 accountScope 配置正确
-- **新增** 并发会话限制：检查账号类型和最大会话数配置
+- **增强** 会话被踢下线：检查是否有其他设备登录，确认会话活跃状态
+- **增强** Redis 连接问题：检查 Redis 服务状态和网络连通性
+- **增强** 跨产品线访问失败：确认 accountScope 配置正确
+- **增强** 并发会话限制：检查账号类型和最大会话数配置
+- **新增** 会话版本冲突：检查 sessionVersion 字段，确认是否存在会话冲突
+- **新增** 跨租户访问失败：检查 sid 字段，确认会话是否在活跃列表中
 
 **章节来源**
 - [jwt-auth.guard.ts](file://src/purely-profit/auth/guards/jwt-auth.guard.ts)
@@ -540,4 +583,4 @@ Strat --> Const
 ## 结论
 本认证机制通过策略与守卫实现了端到端的 JWT 认证，结合服务层的业务逻辑与 DTO 的参数验证，形成了安全、可扩展的认证体系。通过合理的 Token 配置与过期时间设置，以及完善的错误处理与安全考虑，系统能够在保证安全性的同时提供良好的用户体验。
 
-**重大升级** 新增的基于 Redis 的会话管理系统提供了强大的并发控制与智能驱逐功能，支持多产品线统一鉴权的 UniversalJwtAuthGuard 进一步增强了系统的灵活性和扩展性。这些改进使得认证系统能够更好地应对高并发场景，提供更安全的会话管理和更灵活的跨产品线访问控制。建议在生产环境中进一步完善监控告警和性能调优，以提升整体稳定性与用户体验。
+**重大升级** 本次更新重点增强了JWT策略的错误处理机制，实现了会话版本检查和跨租户访问保护，同时完善了服务化架构支持。这些改进使得认证系统能够更好地应对高并发场景，提供更安全的会话管理和更灵活的跨产品线访问控制。新增的基于 Redis 的会话管理系统提供了强大的并发控制与智能驱逐功能，支持多产品线统一鉴权的 UniversalJwtAuthGuard 进一步增强了系统的灵活性和扩展性。建议在生产环境中进一步完善监控告警和性能调优，以提升整体稳定性与用户体验。

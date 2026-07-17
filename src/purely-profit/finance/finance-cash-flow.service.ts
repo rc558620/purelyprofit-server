@@ -44,7 +44,7 @@ import { buildPaginationState } from './finance-pagination.utils';
 import {
   getCashFlowFilterRange,
   getPreviousCashFlowRange,
-} from './finance-range.utils';
+} from './finance-range-cashflow.utils';
 import { trimOptionalString } from './finance-string.utils';
 
 const FINANCE_CASH_FLOW_CACHE_TTL_SECONDS = 60;

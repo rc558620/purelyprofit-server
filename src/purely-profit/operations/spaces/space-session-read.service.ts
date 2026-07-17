@@ -11,6 +11,7 @@ import {
 } from './space-sessions.query-builder';
 import {
   resolveSpaceSessionPageQuery,
+  SPACE_SESSION_FULL_INCLUDE,
   toSpaceSessionListQuery,
 } from './space-sessions.query';
 import {
@@ -108,49 +109,7 @@ export class SpaceSessionReadService {
         spaceId: space.id,
         status: PrismaSpaceSessionStatus.active,
       },
-      include: {
-        space: {
-          select: {
-            id: true,
-            name: true,
-            type: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-        sessionItems: {
-          select: {
-            id: true,
-            sessionId: true,
-            productId: true,
-            productName: true,
-            categoryName: true,
-            salePrice: true,
-            profit: true,
-            quantity: true,
-            sortOrder: true,
-            createdAt: true,
-          },
-        },
-        sessionRenewRecords: {
-          select: {
-            id: true,
-            sessionId: true,
-            recordId: true,
-            amount: true,
-            addedMinutes: true,
-            paymentMethod: true,
-            grouponCode: true,
-            grouponPlatform: true,
-            voucherFaceAmount: true,
-            note: true,
-            renewedAt: true,
-            createdAt: true,
-          },
-        },
-      },
+      include: SPACE_SESSION_FULL_INCLUDE,
       orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
     });
 
@@ -202,49 +161,7 @@ export class SpaceSessionReadService {
     const queryResult: [SpaceSessionRecord[], number] = await Promise.all([
       this.prisma.spaceSession.findMany({
         where,
-        include: {
-          space: {
-            select: {
-              id: true,
-              name: true,
-              type: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-          },
-          sessionItems: {
-            select: {
-              id: true,
-              sessionId: true,
-              productId: true,
-              productName: true,
-              categoryName: true,
-              salePrice: true,
-              profit: true,
-              quantity: true,
-              sortOrder: true,
-              createdAt: true,
-            },
-          },
-          sessionRenewRecords: {
-            select: {
-              id: true,
-              sessionId: true,
-              recordId: true,
-              amount: true,
-              addedMinutes: true,
-              paymentMethod: true,
-              grouponCode: true,
-              grouponPlatform: true,
-              voucherFaceAmount: true,
-              note: true,
-              renewedAt: true,
-              createdAt: true,
-            },
-          },
-        },
+        include: SPACE_SESSION_FULL_INCLUDE,
         orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
         skip,
         take,
@@ -294,49 +211,7 @@ export class SpaceSessionReadService {
     // Step 3: 鉴权通过后加载完整数据
     const session = await this.prisma.spaceSession.findUnique({
       where: { id: sessionMeta.id },
-      include: {
-        space: {
-          select: {
-            id: true,
-            name: true,
-            type: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-        sessionItems: {
-          select: {
-            id: true,
-            sessionId: true,
-            productId: true,
-            productName: true,
-            categoryName: true,
-            salePrice: true,
-            profit: true,
-            quantity: true,
-            sortOrder: true,
-            createdAt: true,
-          },
-        },
-        sessionRenewRecords: {
-          select: {
-            id: true,
-            sessionId: true,
-            recordId: true,
-            amount: true,
-            addedMinutes: true,
-            paymentMethod: true,
-            grouponCode: true,
-            grouponPlatform: true,
-            voucherFaceAmount: true,
-            note: true,
-            renewedAt: true,
-            createdAt: true,
-          },
-        },
-      },
+      include: SPACE_SESSION_FULL_INCLUDE,
     });
 
     if (!session) {
@@ -354,49 +229,7 @@ export class SpaceSessionReadService {
 
     const sessions = await this.prisma.spaceSession.findMany({
       where,
-      include: {
-        space: {
-          select: {
-            id: true,
-            name: true,
-            type: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-        sessionItems: {
-          select: {
-            id: true,
-            sessionId: true,
-            productId: true,
-            productName: true,
-            categoryName: true,
-            salePrice: true,
-            profit: true,
-            quantity: true,
-            sortOrder: true,
-            createdAt: true,
-          },
-        },
-        sessionRenewRecords: {
-          select: {
-            id: true,
-            sessionId: true,
-            recordId: true,
-            amount: true,
-            addedMinutes: true,
-            paymentMethod: true,
-            grouponCode: true,
-            grouponPlatform: true,
-            voucherFaceAmount: true,
-            note: true,
-            renewedAt: true,
-            createdAt: true,
-          },
-        },
-      },
+      include: SPACE_SESSION_FULL_INCLUDE,
       orderBy: [{ startTime: 'desc' }, { id: 'desc' }],
       take: 200,
     });

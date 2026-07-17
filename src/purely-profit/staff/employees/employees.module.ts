@@ -13,11 +13,14 @@ import { EmployeesAccessService } from './employees-access.service';
 import { EmployeesDictionaryService } from './employees-dictionary.service';
 import { EmployeesLeaveService } from './employees-leave.service';
 import { EmployeesPayrollService } from './employees-payroll.service';
+import { EmployeesPayrollReportService } from './employees-payroll-report.service';
 import { EmployeesProfileReadService } from './employees-profile-read.service';
 import { EmployeesProfileWriteService } from './employees-profile-write.service';
+import { EmployeesSnapshotSyncService } from './employees-snapshot-sync.service';
 import { EmployeesService } from './employees.service';
 import { EmployeesShiftDefinitionService } from './employees-shift-definition.service';
 import { EmployeesShiftService } from './employees-shift.service';
+import { EmployeesSubAccountService } from './employees-sub-account.service';
 
 @Module({
   imports: [AuthModule, CostsModule, PlatformMembershipModule],
@@ -33,11 +36,14 @@ import { EmployeesShiftService } from './employees-shift.service';
     EmployeesAccessService,
     EmployeesProfileReadService,
     EmployeesProfileWriteService,
+    EmployeesSnapshotSyncService,
     EmployeesDictionaryService,
     EmployeesLeaveService,
     EmployeesShiftDefinitionService,
     EmployeesShiftService,
     EmployeesPayrollService,
+    EmployeesPayrollReportService,
+    EmployeesSubAccountService,
   ],
 })
 export class EmployeesModule {}

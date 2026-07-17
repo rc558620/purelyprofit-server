@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ensurePasswordConfirmation } from './auth.utils';
 import { validatePasswordLength } from '../../shared/password-policy.utils';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
-import { AuthCodeService } from './auth-code.service';
+import { AuthCodeVerifyService } from './auth-code-verify.service';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuditLogService } from '../../shared/audit-log.service';
@@ -28,7 +28,7 @@ export class AuthPasswordOpsService {
 
   constructor(
     private readonly authAccountLookupService: AuthAccountLookupService,
-    private readonly authCodeService: AuthCodeService,
+    private readonly authCodeVerifyService: AuthCodeVerifyService,
     private readonly authPasswordService: AuthPasswordService,
     private readonly authSessionService: AuthSessionService,
     private readonly auditLogService: AuditLogService,
@@ -92,7 +92,7 @@ export class AuthPasswordOpsService {
       params.confirmPassword,
       '两次输入的新密码不一致',
     );
-    await this.authCodeService.ensurePasswordResetCodeValid(
+    await this.authCodeVerifyService.ensurePasswordResetCodeValid(
       params.phone,
       params.code,
       params.productScope,
@@ -104,7 +104,7 @@ export class AuthPasswordOpsService {
     );
 
     if (!user) {
-      await this.authCodeService.clearPasswordResetCode(
+      await this.authCodeVerifyService.clearPasswordResetCode(
         params.phone,
         params.productScope,
       );
@@ -114,7 +114,7 @@ export class AuthPasswordOpsService {
     await this.authPasswordService.resetPassword(user, params.password);
 
     await Promise.all([
-      this.authCodeService.clearPasswordResetCode(
+      this.authCodeVerifyService.clearPasswordResetCode(
         params.phone,
         params.productScope,
       ),

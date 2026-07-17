@@ -1,7 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import type { EmployeePayroll, Prisma } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
 import { toNullableText } from './employees.utils';
+import type { UpdateEmployeePayrollDto } from './dto/employee-payroll.dto';
 
 export interface PayrollDraftInput {
   baseSalary: Money;
@@ -121,6 +122,93 @@ export function buildPayrollDerivedAmounts(
   };
 }
 
+/**
+ * 合并 DTO 部分更新与现有工资单金额，返回各字段的 Money 值。
+ * 用于计算派生金额（actualSalary / totalLaborCost）。
+ */
+export function resolvePayrollMergedAmounts(
+  dto: UpdateEmployeePayrollDto,
+  payroll: EmployeePayroll,
+) {
+  return {
+    baseSalary:
+      dto.baseSalary !== undefined
+        ? Money.fromInputYuan(dto.baseSalary)
+        : Money.fromDbCents(payroll.baseSalary),
+    leaveDeduction:
+      dto.leaveDeduction !== undefined
+        ? Money.fromInputYuan(dto.leaveDeduction)
+        : Money.fromDbCents(payroll.leaveDeduction),
+    otherDeduction:
+      dto.otherDeduction !== undefined
+        ? Money.fromInputYuan(dto.otherDeduction)
+        : Money.fromDbCents(payroll.otherDeduction),
+    otherDeductionNote:
+      dto.otherDeductionNote !== undefined
+        ? dto.otherDeductionNote
+        : (payroll.otherDeductionNote ?? undefined),
+    bonus:
+      dto.bonus !== undefined
+        ? Money.fromInputYuan(dto.bonus)
+        : Money.fromDbCents(payroll.bonus),
+    socialInsurance:
+      dto.socialInsurance !== undefined
+        ? Money.fromInputYuan(dto.socialInsurance)
+        : Money.fromDbCents(payroll.socialInsurance),
+    housingFund:
+      dto.housingFund !== undefined
+        ? Money.fromInputYuan(dto.housingFund)
+        : Money.fromDbCents(payroll.housingFund),
+  };
+}
+
+/**
+ * 根据 DTO 部分字段构建 Prisma update data，仅包含 DTO 中实际传入的字段 + 派生金额。
+ */
+export function buildPayrollUpdateData(
+  dto: UpdateEmployeePayrollDto,
+  derived: PayrollDerivedAmounts,
+): Prisma.EmployeePayrollUpdateInput {
+  return {
+    ...(dto.baseSalary !== undefined
+      ? { baseSalary: Money.fromInputYuan(dto.baseSalary).toDbCents() }
+      : {}),
+    ...(dto.leaveDeduction !== undefined
+      ? { leaveDeduction: Money.fromInputYuan(dto.leaveDeduction).toDbCents() }
+      : {}),
+    ...(dto.otherDeduction !== undefined
+      ? {
+          otherDeduction: Money.fromInputYuan(dto.otherDeduction).toDbCents(),
+        }
+      : {}),
+    ...(dto.otherDeductionNote !== undefined
+      ? { otherDeductionNote: toNullableText(dto.otherDeductionNote) }
+      : {}),
+    ...(dto.bonus !== undefined
+      ? { bonus: Money.fromInputYuan(dto.bonus).toDbCents() }
+      : {}),
+    ...(dto.socialInsurance !== undefined
+      ? {
+          socialInsurance:
+            dto.socialInsurance > 0
+              ? Money.fromInputYuan(dto.socialInsurance).toDbCents()
+              : 0,
+        }
+      : {}),
+    ...(dto.housingFund !== undefined
+      ? {
+          housingFund:
+            dto.housingFund > 0
+              ? Money.fromInputYuan(dto.housingFund).toDbCents()
+              : 0,
+        }
+      : {}),
+    ...(dto.note !== undefined ? { note: toNullableText(dto.note) } : {}),
+    actualSalary: derived.actualSalary.toDbCents(),
+    totalLaborCost: derived.totalLaborCost.toDbCents(),
+  };
+}
+
 export function buildPayrollReport(
   rows: PayrollReportRowInput[],
 ): PayrollReportResult {
@@ -153,10 +241,14 @@ export function buildPayrollReport(
       bonus: Money.fromDbCents(row.bonus).toOutputYuan(),
       actualSalary: Money.fromDbCents(row.actualSalary).toOutputYuan(),
       ...(row.socialInsurance > 0
-        ? { socialInsurance: Money.fromDbCents(row.socialInsurance).toOutputYuan() }
+        ? {
+            socialInsurance: Money.fromDbCents(row.socialInsurance).toOutputYuan(),
+          }
         : {}),
       ...(row.housingFund > 0
-        ? { housingFund: Money.fromDbCents(row.housingFund).toOutputYuan() }
+        ? {
+            housingFund: Money.fromDbCents(row.housingFund).toOutputYuan(),
+          }
         : {}),
       totalLaborCost: Money.fromDbCents(row.totalLaborCost).toOutputYuan(),
       ...(row.confirmedAt ? { confirmedAt: row.confirmedAt.getTime() } : {}),

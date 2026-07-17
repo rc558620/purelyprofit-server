@@ -4,6 +4,7 @@ import { PlatformMembershipModule } from '../../member/platform-membership/platf
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { ProductsModule } from '../products/products.module';
 import { InventoryController } from './inventory.controller';
+import { InventoryReadService } from './inventory-read.service';
 import { InventoryService } from './inventory.service';
 
 @Module({
@@ -14,7 +15,7 @@ import { InventoryService } from './inventory.service';
     PlatformMembershipModule,
   ],
   controllers: [InventoryController],
-  providers: [InventoryService],
-  exports: [InventoryService],
+  providers: [InventoryService, InventoryReadService],
+  exports: [InventoryService, InventoryReadService],
 })
 export class InventoryModule {}

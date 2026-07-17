@@ -1,7 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { EmployeeShiftType, Prisma } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
-import type { ShiftDateRange } from './handover.types';
+import { SHIFT_TIME_FALLBACKS } from './handover.constants';
+import type { ShiftDateRange, ShiftRecordRow } from './handover.types';
 
 export const startOfDay = (date: Date): Date =>
   new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
@@ -114,6 +115,50 @@ export const buildShiftDateRange = (
     startAt: parsedStart,
     endAt: parsedEnd,
   };
+};
+
+export const isSameShiftRecord = (
+  left: ShiftRecordRow,
+  right: ShiftRecordRow,
+): boolean =>
+  left.employeeId === right.employeeId &&
+  left.shiftType === right.shiftType &&
+  left.startTime === right.startTime &&
+  left.endTime === right.endTime;
+
+export const buildShiftMatchConditions = (
+  shiftRecord: ShiftRecordRow,
+  handoverAt: Date,
+): Prisma.StoreHandoverRecordWhereInput[] => {
+  const fallbackShiftType = shiftRecord.shiftType ?? EmployeeShiftType.morning;
+  const fallbackTime = SHIFT_TIME_FALLBACKS[fallbackShiftType];
+  const shiftRange = buildShiftDateRange(
+    shiftRecord.startTime ?? fallbackTime.startTime,
+    shiftRecord.endTime ?? fallbackTime.endTime,
+    handoverAt,
+  );
+  const conditions: Prisma.StoreHandoverRecordWhereInput[] = [
+    {
+      employeeShiftIdSnapshot: null,
+      handoverAt: {
+        gte: shiftRange.startAt,
+        lte: shiftRange.endAt,
+      },
+      ...(shiftRecord.createdAt
+        ? {
+            createdAt: {
+              gte: shiftRecord.createdAt,
+            },
+          }
+        : {}),
+    },
+  ];
+  if (shiftRecord.id) {
+    conditions.unshift({
+      employeeShiftIdSnapshot: shiftRecord.id,
+    });
+  }
+  return conditions;
 };
 
 export const extendShiftRangeToReference = (

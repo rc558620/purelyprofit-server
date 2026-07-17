@@ -217,9 +217,8 @@ export class AuthProfitAccountLookupService {
       this.logger.warn(
         `[${caller}] ${identifierName}=${identifierValue} matched ${staffCandidates.length} staff across ${uniqueUserIds.size} different users, denying login to prevent cross-tenant access`,
       );
-      throw new ConflictException(
-        `该${this.describeIdentifier(identifierName)}关联了多个账号，请联系管理员处理后重试`,
-      );
+      // 使用通用消息，避免通过差异化提示泄露该账号在其他门店存在的信息
+      throw new ConflictException('账号异常，请联系管理员处理后重试');
     }
   }
 

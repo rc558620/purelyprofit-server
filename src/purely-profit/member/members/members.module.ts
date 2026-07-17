@@ -7,6 +7,7 @@ import {
   PartnerBeansController,
 } from './members.controller';
 import { MembersPointsService } from './members-points.service';
+import { MembersReadService } from './members-read.service';
 import { MembersService } from './members.service';
 
 @Module({
@@ -16,7 +17,12 @@ import { MembersService } from './members.service';
     MemberPointsController,
     PartnerBeansController,
   ],
-  providers: [MembersService, MembersAccessService, MembersPointsService],
+  providers: [
+    MembersService,
+    MembersReadService,
+    MembersAccessService,
+    MembersPointsService,
+  ],
   exports: [MembersService],
 })
 export class MembersModule {}

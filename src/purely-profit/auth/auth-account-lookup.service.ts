@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import type { AuthProductScope, PhoneUserRecord } from './auth-account.types';
@@ -148,6 +152,34 @@ export class AuthAccountLookupService {
       phone: wechatPhone ?? buildClubWechatMemberPhone(openid),
       accountScope: 'purely_club',
     };
+  }
+
+  /**
+   * 跨产品线手机号检查：当用户尝试在一个产品线注册时，
+   * 检查同一手机号是否已在另一个产品线注册。
+   *
+   * 例如：purelyProfit 注册时检查是否已有 purelyClub 账号，反之亦然。
+   * 若存在则抛出异常，防止同一手机号在多个产品线重复注册。
+   */
+  async assertPhoneNotRegisteredInOtherScope(
+    phone: string,
+    currentScope: AuthProductScope,
+  ): Promise<void> {
+    const otherScope: AuthProductScope =
+      currentScope === 'purely_profit' ? 'purely_club' : 'purely_profit';
+
+    const otherEmails = buildPhoneLoginEmails(otherScope, phone);
+
+    const existingUser = await this.prisma.user.findFirst({
+      where: { email: { in: otherEmails } },
+      select: { id: true },
+    });
+
+    if (existingUser) {
+      throw new ConflictException(
+        `该手机号已在${otherScope === 'purely_profit' ? '商家端' : '个人端'}注册，请使用其他手机号`,
+      );
+    }
   }
 
   async findProfileUserOrThrow(userId: number): Promise<ProfileUserRecord> {

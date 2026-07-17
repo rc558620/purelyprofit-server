@@ -40,11 +40,11 @@ import {
 } from './dto/pulse-membership-admin-members.request.dto';
 import {
   PulseAdminEmployeeCandidatesResponseDto,
-  PulseAdminMemberClubStatsDto,
-  PulseAdminMemberSalesStatsDto,
   PulseAdminMembersResponseDto,
   PulseMemberDetailDto,
 } from './dto/pulse-membership-admin-members.response.dto';
+import { PulseAdminMemberClubStatsDto } from './dto/pulse-membership-admin-club-stats.response.dto';
+import { PulseAdminMemberSalesStatsDto } from './dto/pulse-membership-admin-sales-stats.response.dto';
 import { PulseMembershipService } from './membership.service';
 import type {
   PulseAdminSubAccountQuotaMutationInput,

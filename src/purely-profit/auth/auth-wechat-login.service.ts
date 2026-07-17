@@ -101,6 +101,14 @@ export class AuthWechatLoginService {
     }
 
     // 首次微信登录且无对应手机号账号：自动注册
+    // 跨产品线手机号唯一性检查：确保手机号未在另一个产品线注册
+    if (params.phone) {
+      await this.authAccountLookupService.assertPhoneNotRegisteredInOtherScope(
+        params.phone,
+        params.productScope,
+      );
+    }
+
     const createParams: CreateUserFromWechatParams = {
       openid: params.openid,
       unionid: params.unionid,

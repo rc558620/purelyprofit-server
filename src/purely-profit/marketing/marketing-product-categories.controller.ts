@@ -34,7 +34,7 @@ import {
   MarketingProductCategoryDto,
   UpdateMarketingProductCategoryDto,
 } from './dto/marketing-product.dto';
-import { MarketingService } from './marketing.service';
+import { MarketingProductsFacadeService } from './marketing.service';
 
 @ApiTags('营销中心')
 @ApiBearerAuth()
@@ -42,7 +42,9 @@ import { MarketingService } from './marketing.service';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('marketing/product-categories')
 export class MarketingProductCategoriesController {
-  constructor(private readonly marketingService: MarketingService) {}
+  constructor(
+    private readonly marketingProductsFacadeService: MarketingProductsFacadeService,
+  ) {}
 
   @Get()
   @RequirePermissions('marketing:view')
@@ -52,7 +54,10 @@ export class MarketingProductCategoriesController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('storeId', new ParseIntPipe({ optional: true })) storeId?: number,
   ): Promise<MarketingProductCategoriesResponseDto> {
-    return this.marketingService.listProductCategories(user, storeId);
+    return this.marketingProductsFacadeService.listProductCategories(
+      user,
+      storeId,
+    );
   }
 
   @Post()
@@ -64,7 +69,11 @@ export class MarketingProductCategoriesController {
     @Body() dto: CreateMarketingProductCategoryDto,
     @Query('storeId', ParseIntPipe) storeId: number,
   ): Promise<MarketingProductCategoryDto> {
-    return this.marketingService.createProductCategory(user, storeId, dto);
+    return this.marketingProductsFacadeService.createProductCategory(
+      user,
+      storeId,
+      dto,
+    );
   }
 
   @Patch(':id')
@@ -76,7 +85,11 @@ export class MarketingProductCategoriesController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateMarketingProductCategoryDto,
   ): Promise<MarketingProductCategoryDto> {
-    return this.marketingService.updateProductCategory(user, id, dto);
+    return this.marketingProductsFacadeService.updateProductCategory(
+      user,
+      id,
+      dto,
+    );
   }
 
   @Delete(':id')
@@ -88,6 +101,6 @@ export class MarketingProductCategoriesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<void> {
-    return this.marketingService.deleteProductCategory(user, id);
+    return this.marketingProductsFacadeService.deleteProductCategory(user, id);
   }
 }

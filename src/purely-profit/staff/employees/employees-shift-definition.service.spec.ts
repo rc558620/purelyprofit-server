@@ -329,8 +329,8 @@ describe('EmployeesShiftDefinitionService', () => {
       );
     });
 
-    it('删除已被历史排班引用的定义时返回 409', async () => {
-      // #9 修复：有排班引用时不允许删除
+    it('删除已被未来排班引用的定义时返回 409', async () => {
+      // #9 修复：有未来排班引用时不允许删除
       prismaService.employeeShiftDefinition.findUnique.mockResolvedValue({
         id: 1,
         storeId: 2,
@@ -351,6 +351,32 @@ describe('EmployeesShiftDefinitionService', () => {
       expect(
         prismaService.employeeShiftDefinition.delete,
       ).not.toHaveBeenCalled();
+    });
+
+    it('删除仅有历史排班引用的定义时允许删除', async () => {
+      // 历史排班 onDelete: SetNull 自动断开，不阻止删除
+      prismaService.employeeShiftDefinition.findUnique.mockResolvedValue({
+        id: 1,
+        storeId: 2,
+        name: '早班',
+        defaultStartTime: '08:00',
+        defaultEndTime: '14:00',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      employeesAccessService.ensureCanManageEmployees.mockResolvedValue(
+        undefined,
+      );
+      prismaService.employeeShift.count.mockResolvedValue(0);
+      prismaService.employeeShiftDefinition.delete.mockResolvedValue({});
+
+      await service.removeShiftDefinition(user, 1);
+
+      expect(prismaService.employeeShiftDefinition.delete).toHaveBeenCalledWith(
+        {
+          where: { id: 1 },
+        },
+      );
     });
   });
 

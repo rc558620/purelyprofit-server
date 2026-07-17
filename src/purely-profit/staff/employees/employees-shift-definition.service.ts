@@ -125,13 +125,18 @@ export class EmployeesShiftDefinitionService {
       'staff:update',
     );
 
-    // #9 修复：删除班次定义前检查是否有排班引用
-    const refCount = await this.prisma.employeeShift.count({
-      where: { shiftDefinitionId: existing.id },
+    // #9 修复：删除班次定义前检查是否有未来排班引用（历史排班 onDelete: SetNull 自动断开）
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const futureRefCount = await this.prisma.employeeShift.count({
+      where: {
+        shiftDefinitionId: existing.id,
+        date: { gte: today },
+      },
     });
-    if (refCount > 0) {
+    if (futureRefCount > 0) {
       throw new ConflictException(
-        `当前班次定义仍有 ${refCount} 条排班记录引用，无法删除`,
+        `当前班次定义仍有 ${futureRefCount} 条未来排班记录引用，无法删除`,
       );
     }
 

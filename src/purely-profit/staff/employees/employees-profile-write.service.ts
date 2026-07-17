@@ -1,11 +1,5 @@
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-} from '@nestjs/common';
-import { mapConcurrent } from '../../../shared/concurrency.utils';
-import {
-  EmployeePayrollStatus,
   EmployeeStatus,
   Prisma,
   StaffStatus,
@@ -15,10 +9,9 @@ import {
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
-import { CostsService } from '../../operations/costs/costs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../redis/redis.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
-import { Money } from '../../../shared/money.utils';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EmployeeResponseDto } from './dto/employee-response.dto';
 import { ResignEmployeeDto } from './dto/resign-employee.dto';
@@ -31,27 +24,28 @@ import {
   buildResignEmployeeProfileData,
   buildUpdateEmployeeProfileData,
 } from './employees-profile.domain';
-import { buildPhoneLoginEmail } from '../../auth/auth.utils';
-import {
-  buildPayrollDerivedAmounts,
-  formatPayrollMonth,
-} from './employees-payroll.domain';
+import { buildUserCacheKey } from '../../auth/auth.utils';
 import { toEmployeeResponse } from './employees.mapper';
 import {
   createEmployeeProfile,
   queryLatestEmployeeProfileEmpNo,
 } from './employees-profile.query';
+import { EmployeesSnapshotSyncService } from './employees-snapshot-sync.service';
 
 @Injectable()
 export class EmployeesProfileWriteService {
+  private static readonly logger = new Logger(
+    EmployeesProfileWriteService.name,
+  );
   constructor(
     private readonly prisma: PrismaService,
     private readonly employeesAccessService: EmployeesAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
     private readonly employeesDictionaryService: EmployeesDictionaryService,
     private readonly storeSubAccountService: StoreSubAccountService,
-    private readonly costsService: CostsService,
     private readonly cacheInvalidator: CacheInvalidatorService,
+    private readonly redisService: RedisService,
+    private readonly snapshotSyncService: EmployeesSnapshotSyncService,
   ) {}
 
   async create(
@@ -160,7 +154,7 @@ export class EmployeesProfileWriteService {
         }),
       });
 
-      await this.syncEmployeeDependentSnapshots(
+      await this.snapshotSyncService.syncEmployeeDependentSnapshots(
         transaction,
         employee,
         nextEmployee,
@@ -172,8 +166,6 @@ export class EmployeesProfileWriteService {
     });
 
     await this.invalidateDashboardCaches(employee.storeId);
-    // 调整底薪会重新同步沉淀薪资成本记录，失效成本缓存
-    await this.costsService.invalidateCostCaches(employee.storeId);
 
     return toEmployeeResponse(updated);
   }
@@ -208,13 +200,18 @@ export class EmployeesProfileWriteService {
       );
 
       // #1 修复：离职后禁用关联 Staff 登录态
-      await this.deactivateLinkedStaffOnResign(transaction, employee);
+      await this.deactivateLinkedStaff(transaction, employee);
 
       return nextEmployee;
     });
 
     // #16 修复：离职后触发首页缓存失效
     await this.invalidateDashboardCaches(employee.storeId);
+
+    // H-03 修复：离职后失效关联 User 的认证缓存，避免已禁用账号在缓存 TTL 窗口内仍可访问 API
+    if (employee.linkedStaffId) {
+      await this.invalidateLinkedUserAuthCache(employee.linkedStaffId);
+    }
 
     return toEmployeeResponse(resigned);
   }
@@ -238,7 +235,7 @@ export class EmployeesProfileWriteService {
       );
 
       // #2 修复：删除员工前禁用关联 Staff 登录态
-      await this.deactivateLinkedStaffOnRemove(transaction, employee);
+      await this.deactivateLinkedStaff(transaction, employee);
 
       // 软删除：更新 deletedAt 字段而非物理删除
       await transaction.employee.update({
@@ -249,6 +246,11 @@ export class EmployeesProfileWriteService {
 
     // #15 修复：删除员工后触发首页缓存失效
     await this.invalidateDashboardCaches(storeId);
+
+    // H-03 修复：删除员工后失效关联 User 的认证缓存，避免已禁用账号在缓存 TTL 窗口内仍可访问 API
+    if (employee.linkedStaffId) {
+      await this.invalidateLinkedUserAuthCache(employee.linkedStaffId);
+    }
   }
 
   private async resolveManageableStoreId(
@@ -307,34 +309,9 @@ export class EmployeesProfileWriteService {
   }
 
   /**
-   * #1 修复：离职后禁用关联 Staff 的登录态
+   * 离职/删除员工时禁用关联 Staff 登录态并解除 Employee → Staff 关联
    */
-  private async deactivateLinkedStaffOnResign(
-    transaction: Prisma.TransactionClient,
-    employee: Employee,
-  ): Promise<void> {
-    if (employee.linkedStaffId === null) {
-      return;
-    }
-
-    // 用 updateMany 替代 findUnique + update，减少一次查询
-    // updateMany 返回 { count } 可直接判断是否命中记录
-    await transaction.staff.updateMany({
-      where: { id: employee.linkedStaffId },
-      data: { isActive: false, status: StaffStatus.disabled },
-    });
-
-    // 解除 Employee → Staff 关联，防止全局 User 被跨员工/跨租户复用
-    await transaction.employee.updateMany({
-      where: { id: employee.id, linkedStaffId: employee.linkedStaffId },
-      data: { linkedStaffId: null },
-    });
-  }
-
-  /**
-   * #2 修复：删除员工前禁用关联 Staff 登录态
-   */
-  private async deactivateLinkedStaffOnRemove(
+  private async deactivateLinkedStaff(
     transaction: Prisma.TransactionClient,
     employee: Employee,
   ): Promise<void> {
@@ -362,261 +339,29 @@ export class EmployeesProfileWriteService {
     await this.cacheInvalidator.invalidateProfitDashboardHome(storeId);
   }
 
-  private async syncEmployeeDependentSnapshots(
-    transaction: Prisma.TransactionClient,
-    previousEmployee: Employee,
-    nextEmployee: Employee,
-    dto: UpdateEmployeeDto,
-    operatorStaffId: number | null,
-  ): Promise<void> {
-    const nameChanged =
-      dto.name !== undefined && previousEmployee.name !== nextEmployee.name;
-    const phoneChanged =
-      dto.phone !== undefined && previousEmployee.phone !== nextEmployee.phone;
-    const baseSalaryChanged =
-      dto.baseSalary !== undefined &&
-      previousEmployee.baseSalary.toString() !==
-        nextEmployee.baseSalary.toString();
-
-    if (!nameChanged && !phoneChanged && !baseSalaryChanged) {
-      return;
-    }
-
-    if (nameChanged) {
-      await Promise.all([
-        transaction.employeeLeave.updateMany({
-          where: { employeeId: nextEmployee.id },
-          data: { employeeName: nextEmployee.name },
-        }),
-        transaction.employeeShift.updateMany({
-          where: { employeeId: nextEmployee.id },
-          data: { employeeName: nextEmployee.name },
-        }),
-      ]);
-    }
-
-    await this.syncLinkedStaffIdentity(
-      transaction,
-      nextEmployee,
-      nameChanged,
-      phoneChanged,
-    );
-
-    if (!baseSalaryChanged) {
-      await Promise.all([
-        this.syncEmployeePayrollNames(transaction, nextEmployee, nameChanged),
-        this.syncPayrollCostTitles(
-          transaction,
-          previousEmployee,
-          nextEmployee,
-          nameChanged,
-        ),
-      ]);
-      return;
-    }
-
-    const payrolls = await transaction.employeePayroll.findMany({
-      where: { employeeId: nextEmployee.id },
-      select: {
-        id: true,
-        month: true,
-        status: true,
-        leaveDeduction: true,
-        otherDeduction: true,
-        otherDeductionNote: true,
-        bonus: true,
-        socialInsurance: true,
-        housingFund: true,
-        note: true,
-      },
-    });
-
-    await mapConcurrent(payrolls, async (payroll) => {
-      const derivedAmounts = buildPayrollDerivedAmounts({
-        baseSalary: Money.fromDbCents(nextEmployee.baseSalary),
-        leaveDeduction: Money.fromDbCents(payroll.leaveDeduction),
-        otherDeduction: Money.fromDbCents(payroll.otherDeduction),
-        otherDeductionNote: payroll.otherDeductionNote,
-        bonus: Money.fromDbCents(payroll.bonus),
-        socialInsurance:
-          payroll.socialInsurance > 0
-            ? Money.fromDbCents(payroll.socialInsurance)
-            : undefined,
-        housingFund:
-          payroll.housingFund > 0
-            ? Money.fromDbCents(payroll.housingFund)
-            : undefined,
-      });
-
-      await transaction.employeePayroll.update({
-        where: { id: payroll.id },
-        data: {
-          baseSalary: nextEmployee.baseSalary,
-          actualSalary: derivedAmounts.actualSalary.toDbCents(),
-          totalLaborCost: derivedAmounts.totalLaborCost.toDbCents(),
-        },
-      });
-
-      if (payroll.status !== EmployeePayrollStatus.confirmed) {
-        return;
-      }
-
-      await this.costsService.syncPayrollCosts(transaction, {
-        storeId: nextEmployee.storeId,
-        payrollId: payroll.id,
-        operatorStaffId,
-        employeeName: nextEmployee.name,
-        month: formatPayrollMonth(payroll.month),
-        // syncPayrollCosts 接口需要元
-        actualSalary: derivedAmounts.actualSalary.toOutputYuan(),
-        socialInsurance:
-          payroll.socialInsurance > 0
-            ? Money.fromDbCents(payroll.socialInsurance).toOutputYuan()
-            : undefined,
-        housingFund:
-          payroll.housingFund > 0
-            ? Money.fromDbCents(payroll.housingFund).toOutputYuan()
-            : undefined,
-        note: payroll.note,
-      });
-    });
-
-    await this.syncEmployeePayrollNames(transaction, nextEmployee, nameChanged);
-  }
-
-  private async syncEmployeePayrollNames(
-    transaction: Prisma.TransactionClient,
-    employee: Employee,
-    nameChanged: boolean,
-  ): Promise<void> {
-    if (!nameChanged) {
-      return;
-    }
-
-    await transaction.employeePayroll.updateMany({
-      where: { employeeId: employee.id },
-      data: { employeeName: employee.name },
-    });
-  }
-
   /**
-   * #10 修复：使用精确匹配而非 REPLACE 全局替换，避免误替换子串
+   * H-03 修复：根据 staffId 查找关联的 userId，失效其认证缓存。
+   *
+   * 员工离职/删除时 Staff 被禁用（isActive=false），但 User 表的 Redis 缓存
+   * 仍有最长 5 分钟 TTL，导致 JWT 鉴权链路 resolveUser() 继续返回有效用户。
+   * 此方法主动清除该缓存，确保禁用立即生效。
    */
-  private async syncPayrollCostTitles(
-    transaction: Prisma.TransactionClient,
-    previousEmployee: Employee,
-    nextEmployee: Employee,
-    nameChanged: boolean,
+  private async invalidateLinkedUserAuthCache(
+    linkedStaffId: number,
   ): Promise<void> {
-    if (!nameChanged) {
-      return;
-    }
-
-    // 查询该员工所有工资单关联的成本记录，逐条精确替换
-    const costRecords = await transaction.$queryRaw<
-      Array<{ id: number; title: string }>
-    >`
-      SELECT id, title FROM cost_records
-      WHERE payroll_id IN (
-        SELECT id FROM employee_payrolls WHERE employee_id = ${nextEmployee.id}
-      )
-    `;
-
-    if (costRecords.length === 0) {
-      return;
-    }
-
-    // 批量精确替换：先在内存中计算需要更新的记录，再用 CASE WHEN 一条 SQL 批量更新
-    const oldName = previousEmployee.name;
-    const newName = nextEmployee.name;
-    const escapedOldName = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const nameRegex = new RegExp(escapedOldName, 'g');
-
-    const recordsToUpdate = costRecords
-      .map((record) => ({
-        id: record.id,
-        updatedTitle: record.title.replace(nameRegex, newName),
-        originalTitle: record.title,
-      }))
-      .filter((r) => r.updatedTitle !== r.originalTitle);
-
-    if (recordsToUpdate.length === 0) {
-      return;
-    }
-
-    // 逐条更新：使用 Prisma 参数化查询避免 SQL 注入风险
-    // 记录数量通常很少（单员工关联的工资单成本记录），逐条更新性能可接受
-    await Promise.all(
-      recordsToUpdate.map((r) =>
-        transaction.costRecord.update({
-          where: { id: r.id },
-          data: { title: r.updatedTitle },
-        }),
-      ),
-    );
-  }
-
-  private async syncLinkedStaffIdentity(
-    transaction: Prisma.TransactionClient,
-    employee: Employee,
-    nameChanged: boolean,
-    phoneChanged: boolean,
-  ): Promise<void> {
-    if (employee.linkedStaffId === null || (!nameChanged && !phoneChanged)) {
-      return;
-    }
-
-    // ── BUG-1 修复：手机号变更前执行全局冲突校验 ──
-    // 与 store-sub-account-login checkEmailAndPhoneConflicts 保持一致，
-    // 防止 Staff.phone 写入跨租户号码导致 findUserByPhone 命中多 User 锁死登录
-    if (phoneChanged && employee.phone) {
-      const linkedStaff = await transaction.staff.findUnique({
-        where: { id: employee.linkedStaffId },
+    try {
+      const staff = await this.prisma.staff.findUnique({
+        where: { id: linkedStaffId },
         select: { userId: true },
       });
-
-      const phoneEmail = buildPhoneLoginEmail('purely_profit', employee.phone);
-      const excludeUserIds = linkedStaff?.userId ? [linkedStaff.userId] : [];
-
-      const phoneWhere =
-        excludeUserIds.length > 0
-          ? { email: phoneEmail, id: { notIn: excludeUserIds } }
-          : { email: phoneEmail };
-
-      const phoneConflict = await transaction.user.findFirst({
-        where: phoneWhere,
-        select: { id: true },
-      });
-
-      if (phoneConflict) {
-        throw new ConflictException('该电话号码已被注册');
+      if (staff?.userId) {
+        await this.redisService.del(buildUserCacheKey(staff.userId));
       }
-    }
-
-    const updatedStaff = await transaction.staff.update({
-      where: { id: employee.linkedStaffId },
-      data: {
-        ...(nameChanged ? { name: employee.name } : {}),
-        ...(phoneChanged ? { phone: employee.phone } : {}),
-      },
-      select: { userId: true },
-    });
-
-    // ── BUG-2 修复：仅在 User.name 为空时回填，避免跨产品线昵称覆盖 ──
-    if (!nameChanged || updatedStaff.userId === null) {
-      return;
-    }
-
-    const currentUser = await transaction.user.findUnique({
-      where: { id: updatedStaff.userId },
-      select: { name: true },
-    });
-
-    if (!currentUser?.name) {
-      await transaction.user.update({
-        where: { id: updatedStaff.userId },
-        data: { name: employee.name },
-      });
+    } catch (error: unknown) {
+      // 缓存失效失败不影响主流程，记录警告即可
+      EmployeesProfileWriteService.logger.warn(
+        `[H-03] 失效关联 User 认证缓存失败 (staffId=${linkedStaffId}): ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 }

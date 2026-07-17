@@ -463,9 +463,9 @@ describe('HandoverPageService - 已交班后切班逻辑', () => {
 
     expect(result.selectedShiftType).toBe(EmployeeShiftType.custom);
     // handoverCompletedAndNoUpcomingShift 为 true 时，
-    // operatorName 应为空，前端不显示员工名字
+    // operatorName 保持 buildPageShiftInfo 返回的值（即当前展示班次的员工名）
     expect(result.shiftInfo).toMatchObject({
-      operatorName: '',
+      operatorName: '收银员3',
       startTime: '17:11',
       endTime: '17:15',
     });

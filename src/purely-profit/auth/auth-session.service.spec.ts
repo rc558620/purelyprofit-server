@@ -13,6 +13,7 @@ describe('AuthSessionService – Refresh Token', () => {
     del: jest.fn(),
     delMany: jest.fn(),
     getJson: jest.fn(),
+    getJsonAndDelete: jest.fn(),
     setJson: jest.fn(),
     zadd: jest.fn(),
     zcard: jest.fn(),
@@ -20,6 +21,8 @@ describe('AuthSessionService – Refresh Token', () => {
     zremrangebyrank: jest.fn(),
     zscore: jest.fn(),
     mget: jest.fn(),
+    incr: jest.fn(),
+    expire: jest.fn(),
   };
   const mockJwt = {
     signAsync: jest.fn(),
@@ -32,6 +35,7 @@ describe('AuthSessionService – Refresh Token', () => {
     mockRedis.del.mockResolvedValue(undefined);
     mockRedis.delMany.mockResolvedValue(0);
     mockRedis.getJson.mockResolvedValue(null);
+    mockRedis.getJsonAndDelete.mockResolvedValue(null);
     mockRedis.setJson.mockResolvedValue(undefined);
     mockRedis.zadd.mockResolvedValue(undefined);
     mockRedis.zcard.mockResolvedValue(0);
@@ -127,18 +131,19 @@ describe('AuthSessionService – Refresh Token', () => {
         accountScope: 'purely_profit',
       });
 
-      // 模拟 Redis 查找
+      // GETDEL 原子消费旧 token payload
+      mockRedis.getJsonAndDelete.mockResolvedValue({
+        userId: 42,
+        phone: '13800138000',
+        email: 'phone_138@purelyprofit.local',
+        accountScope: 'purely_profit',
+      });
+      // 模拟 Redis user-index 查找（generateRefreshToken 内部）
       mockRedis.getJson.mockImplementation((key: string) => {
         if (key.startsWith('auth:refresh-token:user-index:')) {
           return Promise.resolve([]);
         }
-        // 对 token hash key 返回 payload
-        return Promise.resolve({
-          userId: 42,
-          phone: '13800138000',
-          email: 'phone_138@purelyprofit.local',
-          accountScope: 'purely_profit',
-        });
+        return Promise.resolve(null);
       });
 
       const result = await service.refreshAccessToken(original.refresh_token!);
@@ -151,36 +156,33 @@ describe('AuthSessionService – Refresh Token', () => {
     });
 
     it('无效 refresh_token 返回 null', async () => {
-      mockRedis.getJson.mockResolvedValue(null);
+      mockRedis.getJsonAndDelete.mockResolvedValue(null);
 
       const result = await service.refreshAccessToken('rt_invalid_token');
 
       expect(result).toBeNull();
     });
 
-    it('消费后旧 token 被删除', async () => {
+    it('消费后旧 token 被原子消费（GETDEL）', async () => {
       const original = await service.signToken(42, {
         phone: '13800138000',
         email: 'phone_138@purelyprofit.local',
         accountScope: 'purely_profit',
       });
 
-      mockRedis.getJson.mockImplementation((key: string) => {
-        if (key.startsWith('auth:refresh-token:user-index:')) {
-          return Promise.resolve([]);
-        }
-        return Promise.resolve({
-          userId: 42,
-          phone: '13800138000',
-          email: 'phone_138@purelyprofit.local',
-          accountScope: 'purely_profit',
-        });
+      mockRedis.getJsonAndDelete.mockResolvedValue({
+        userId: 42,
+        phone: '13800138000',
+        email: 'phone_138@purelyprofit.local',
+        accountScope: 'purely_profit',
       });
+      // user-index 查找（generateRefreshToken 内部）
+      mockRedis.getJson.mockResolvedValue([]);
 
       await service.refreshAccessToken(original.refresh_token!);
 
-      // del 应被调用以消费旧 token
-      expect(mockRedis.del).toHaveBeenCalled();
+      // GETDEL 应被调用以原子消费旧 token
+      expect(mockRedis.getJsonAndDelete).toHaveBeenCalled();
     });
   });
 
@@ -220,13 +222,16 @@ describe('AuthSessionService – Refresh Token', () => {
 
   describe('bumpTokenVersion', () => {
     it('递增 token version', async () => {
-      mockRedis.get.mockResolvedValue('2');
+      mockRedis.incr.mockResolvedValue(3);
+      mockRedis.expire.mockResolvedValue(true);
 
       await service.bumpTokenVersion(42);
 
-      expect(mockRedis.set).toHaveBeenCalledWith(
+      expect(mockRedis.incr).toHaveBeenCalledWith(
         expect.stringContaining('auth:token-version:42'),
-        '3',
+      );
+      expect(mockRedis.expire).toHaveBeenCalledWith(
+        expect.stringContaining('auth:token-version:42'),
         aNonNegativeNumber,
       );
     });
@@ -354,7 +359,7 @@ describe('AuthSessionService – Refresh Token', () => {
 
   describe('refreshAccessToken 会话校验', () => {
     it('已被踢下线的会话无法刷新 token', async () => {
-      mockRedis.getJson.mockResolvedValue({
+      mockRedis.getJsonAndDelete.mockResolvedValue({
         userId: 42,
         phone: '13800138000',
         email: 'phone_138@purelyprofit.local',
@@ -370,18 +375,15 @@ describe('AuthSessionService – Refresh Token', () => {
     });
 
     it('活跃会话可以正常刷新 token', async () => {
-      mockRedis.getJson.mockImplementation((key: string) => {
-        if (key.startsWith('auth:refresh-token:user-index:')) {
-          return Promise.resolve([]);
-        }
-        return Promise.resolve({
-          userId: 42,
-          phone: '13800138000',
-          email: 'phone_138@purelyprofit.local',
-          accountScope: 'purely_profit',
-          sid: 'active-session-id',
-        });
+      mockRedis.getJsonAndDelete.mockResolvedValue({
+        userId: 42,
+        phone: '13800138000',
+        email: 'phone_138@purelyprofit.local',
+        accountScope: 'purely_profit',
+        sid: 'active-session-id',
       });
+      // user-index 查找（generateRefreshToken 内部）
+      mockRedis.getJson.mockResolvedValue([]);
       // 会话仍然活跃
       mockRedis.zscore.mockResolvedValue('1720000000000');
 

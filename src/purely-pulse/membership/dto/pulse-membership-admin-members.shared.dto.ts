@@ -232,3 +232,64 @@ export class PulseSubAccountCapabilityDto {
   @Type(() => PulseSubAccountCapabilityRoleSummaryItemDto)
   subAccountRoleSummary: PulseSubAccountCapabilityRoleSummaryItemDto[];
 }
+
+/* ────────────────── Transform helpers ────────────────── */
+
+export function toNullableNumber(value: unknown): number | null | undefined {
+  if (value === null) {
+    return null;
+  }
+  if (value === undefined || value === '') {
+    return undefined;
+  }
+  return Number(value);
+}
+
+export function toOptionalBoolean(value: unknown): boolean | undefined {
+  if (value === true || value === 'true') {
+    return true;
+  }
+  if (value === false || value === 'false') {
+    return false;
+  }
+  return undefined;
+}
+
+/* ────────────────── Filter constants ────────────────── */
+
+/**
+ * 会员列表筛选状态（对齐前端 MemberFilterStatus / MemberFilterLevel）
+ */
+export const PULSE_MEMBER_FILTER_STATUS_VALUES = [
+  'all',
+  'active',
+  'inactive',
+  'banned',
+] as const;
+export type PulseMemberFilterStatusValue =
+  (typeof PULSE_MEMBER_FILTER_STATUS_VALUES)[number];
+
+export const PULSE_MEMBER_FILTER_LEVEL_VALUES = [
+  'all',
+  'free',
+  'monthly',
+  'quarterly',
+  'annual',
+  'lifetime',
+] as const;
+export type PulseMemberFilterLevelValue =
+  (typeof PULSE_MEMBER_FILTER_LEVEL_VALUES)[number];
+
+/**
+ * 会员到期时间筛选（对齐前端 MemberFilterExpiry）
+ */
+export const PULSE_MEMBER_FILTER_EXPIRY_VALUES = [
+  'all',
+  '1m',
+  '3m',
+  '6m',
+  '1y',
+  '2y',
+] as const;
+export type PulseMemberFilterExpiryValue =
+  (typeof PULSE_MEMBER_FILTER_EXPIRY_VALUES)[number];

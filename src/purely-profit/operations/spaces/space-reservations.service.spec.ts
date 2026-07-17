@@ -7,24 +7,10 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceReservationsService } from './space-reservations.service';
+import { SpaceReservationsWriteService } from './space-reservations-write.service';
 
 describe('SpaceReservationsService', () => {
   let service: SpaceReservationsService;
-
-  const transaction = {
-    $queryRaw: jest.fn(),
-    space: {
-      findUnique: jest.fn(),
-      update: jest.fn(),
-    },
-    spaceReservation: {
-      create: jest.fn(),
-      findFirst: jest.fn(),
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      update: jest.fn(),
-    },
-  };
 
   const prismaService = {
     space: {
@@ -50,8 +36,10 @@ describe('SpaceReservationsService', () => {
     cancelMatchedReservationAfterCheckout: jest.fn(),
   };
 
-  const cacheInvalidatorService = {
-    invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
+  const writeService = {
+    createSpaceReservation: jest.fn(),
+    updateSpaceReservation: jest.fn(),
+    cancelSpaceReservation: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -84,9 +72,6 @@ describe('SpaceReservationsService', () => {
 
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
-    prismaService.$transaction.mockImplementation((callback) =>
-      Promise.resolve(callback(transaction)),
-    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -99,7 +84,11 @@ describe('SpaceReservationsService', () => {
         },
         {
           provide: CacheInvalidatorService,
-          useValue: cacheInvalidatorService,
+          useValue: { invalidateProfitDashboardHome: jest.fn() },
+        },
+        {
+          provide: SpaceReservationsWriteService,
+          useValue: writeService,
         },
       ],
     }).compile();
@@ -186,245 +175,62 @@ describe('SpaceReservationsService', () => {
     });
   });
 
-  it('createSpaceReservation 会在锁内重算时间冲突后再创建', async () => {
-    const now = Date.now();
-    // B1: createSpaceReservation 改用 findFirst
-    prismaService.space.findFirst.mockResolvedValue({
-      id: 11,
-      storeId: 18,
-      capacity: 4,
-    });
-    // 事务外第一次冲突检测：无冲突
-    prismaService.spaceReservation.findFirst.mockResolvedValue(null);
-    transaction.space.findUnique.mockResolvedValue({
-      id: 11,
-      storeId: 18,
-      capacity: 4,
-    });
-    // 事务内第二次冲突检测：发现冲突
-    transaction.spaceReservation.findFirst.mockResolvedValue({
-      id: 31,
-      spaceId: 11,
-      guestName: '李四',
-      phone: '13800138001',
-      reservedAt: new Date(now + 45 * 60 * 1000),
-      reservedEndAt: new Date(now + 105 * 60 * 1000),
-      guestCount: 2,
-      note: null,
-      status: PrismaSpaceReservationStatus.pending,
-      createdAt: new Date(now),
-      updatedAt: new Date(now),
-    });
-
-    await expect(
-      service.createSpaceReservation(user, 11, {
-        guestName: '张三',
-        phone: '13800138000',
-        reservedAt: now + 30 * 60 * 1000,
-        reservedEndAt: now + 90 * 60 * 1000,
-        guestCount: 2,
-      }),
-    ).rejects.toBeInstanceOf(ConflictException);
-
-    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(transaction.spaceReservation.create).not.toHaveBeenCalled();
-  });
-
-  it('createSpaceReservation 允许在已过时预约的时间段内创建新预约（BUG-4 修复）', async () => {
-    // 场景：现在 08:01，旧预约 A (08:00-09:00) 已过时，新增预约 B (08:30-09:30) 应该成功
-    const now = Date.now();
-    // 旧预约 A 时间：08:00 ~ 09:00（now - 1min ~ now + 59min）
-    const reservedAtB = now + 29 * 60 * 1000; // 08:30
-    const reservedEndAtB = now + 89 * 60 * 1000; // 09:30
-
-    // B1: createSpaceReservation 改用 findFirst
-    prismaService.space.findFirst.mockResolvedValue({
-      id: 11,
-      storeId: 18,
-      capacity: 4,
-    });
-    prismaService.spaceReservation.findFirst.mockResolvedValue(null);
-    transaction.space.findUnique.mockResolvedValue({
-      id: 11,
-      storeId: 18,
-      capacity: 4,
-    });
-    // 锁内返回已过时的预约 A，但应该被忽略
-    transaction.spaceReservation.findFirst.mockResolvedValue(null);
-    transaction.spaceReservation.create.mockResolvedValue({
-      id: 41,
-      spaceId: 11,
+  it('createSpaceReservation 委托给 writeService', async () => {
+    const dto = {
       guestName: '张三',
       phone: '13800138000',
-      reservedAt: new Date(reservedAtB),
-      reservedEndAt: new Date(reservedEndAtB),
+      reservedAt: Date.now() + 30 * 60 * 1000,
+      reservedEndAt: Date.now() + 90 * 60 * 1000,
       guestCount: 2,
-      note: null,
-      status: PrismaSpaceReservationStatus.pending,
-      createdAt: new Date(now),
-      updatedAt: new Date(now),
+    };
+    writeService.createSpaceReservation.mockResolvedValue({
+      id: '41',
+      status: 'pending',
     });
 
-    const result = await service.createSpaceReservation(user, 11, {
-      guestName: '张三',
-      phone: '13800138000',
-      reservedAt: reservedAtB,
-      reservedEndAt: reservedEndAtB,
-      guestCount: 2,
-    });
+    const result = await service.createSpaceReservation(user, 11, dto);
 
-    expect(transaction.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(transaction.spaceReservation.create).toHaveBeenCalled();
+    expect(writeService.createSpaceReservation).toHaveBeenCalledWith(
+      user,
+      11,
+      dto,
+    );
     expect(result.status).toBe('pending');
-    expect(result.guestName).toBe('张三');
   });
 
-  it('updateSpaceReservation 若锁内发现预约已处理则阻止修改', async () => {
-    const now = Date.now();
-    prismaService.spaceReservation.findUnique.mockResolvedValue({
-      id: 21,
-      storeId: 18,
-      spaceId: 11,
-      status: PrismaSpaceReservationStatus.pending,
-      space: {
-        capacity: 4,
-      },
-    });
-    prismaService.spaceReservation.findFirst.mockResolvedValue(null);
-    prismaService.spaceReservation.findMany.mockResolvedValue([]);
-    transaction.space.findUnique.mockResolvedValue({
-      id: 11,
-      capacity: 4,
-    });
-    transaction.spaceReservation.findUnique.mockResolvedValue({
-      id: 21,
-      spaceId: 11,
-      status: PrismaSpaceReservationStatus.fulfilled,
-    });
-    // 预约已处理，不会进入冲突检测，findFirst 不会被调用
-
-    await expect(
-      service.updateSpaceReservation(user, 21, {
-        guestName: '张三',
-        phone: '13800138000',
-        reservedAt: now + 30 * 60 * 1000,
-        reservedEndAt: now + 90 * 60 * 1000,
-        guestCount: 2,
-      }),
-    ).rejects.toBeInstanceOf(ConflictException);
-
-    expect(transaction.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(transaction.spaceReservation.update).not.toHaveBeenCalled();
-  });
-
-  it('updateSpaceReservation 会在锁内重算时间冲突后再修改', async () => {
-    const now = Date.now();
-    prismaService.spaceReservation.findUnique.mockResolvedValue({
-      id: 21,
-      storeId: 18,
-      spaceId: 11,
-      status: PrismaSpaceReservationStatus.pending,
-      space: {
-        capacity: 4,
-      },
-    });
-    prismaService.spaceReservation.findFirst.mockResolvedValue(null);
-    prismaService.spaceReservation.findMany.mockResolvedValue([]);
-    transaction.space.findUnique.mockResolvedValue({
-      id: 11,
-      capacity: 4,
-    });
-    transaction.spaceReservation.findUnique.mockResolvedValue({
-      id: 21,
-      spaceId: 11,
-      status: PrismaSpaceReservationStatus.pending,
-    });
-    // findReservationConflict 使用 findFirst 查询冲突
-    transaction.spaceReservation.findFirst.mockResolvedValue({
-      id: 32,
-      spaceId: 11,
-      guestName: '李四',
-      phone: '13800138001',
-      reservedAt: new Date(now + 45 * 60 * 1000),
-      reservedEndAt: new Date(now + 105 * 60 * 1000),
-      guestCount: 2,
-      note: null,
-      status: PrismaSpaceReservationStatus.pending,
-      createdAt: new Date(now),
-      updatedAt: new Date(now),
-    });
-
-    await expect(
-      service.updateSpaceReservation(user, 21, {
-        guestName: '张三',
-        phone: '13800138000',
-        reservedAt: now + 30 * 60 * 1000,
-        reservedEndAt: now + 90 * 60 * 1000,
-        guestCount: 2,
-      }),
-    ).rejects.toBeInstanceOf(ConflictException);
-
-    expect(transaction.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(transaction.spaceReservation.update).not.toHaveBeenCalled();
-  });
-
-  it('cancelSpaceReservation 会在锁内校验最新预约状态后再取消', async () => {
-    prismaService.spaceReservation.findUnique.mockResolvedValue({
-      id: 21,
-      storeId: 18,
-      spaceId: 11,
-      status: PrismaSpaceReservationStatus.pending,
-    });
-    transaction.spaceReservation.findUnique.mockResolvedValue({
-      id: 21,
-      spaceId: 11,
-      status: PrismaSpaceReservationStatus.pending,
-    });
-    transaction.spaceReservation.update.mockResolvedValue({
-      id: 21,
-      spaceId: 11,
+  it('updateSpaceReservation 委托给 writeService', async () => {
+    const dto = {
       guestName: '张三',
       phone: '13800138000',
-      reservedAt: new Date('2026-06-12T14:00:00.000Z'),
-      reservedEndAt: new Date('2026-06-12T16:00:00.000Z'),
+      reservedAt: Date.now() + 30 * 60 * 1000,
+      reservedEndAt: Date.now() + 90 * 60 * 1000,
       guestCount: 2,
-      note: null,
-      status: PrismaSpaceReservationStatus.cancelled,
-      createdAt: new Date('2026-06-12T10:00:00.000Z'),
-      updatedAt: new Date('2026-06-12T10:10:00.000Z'),
+    };
+    writeService.updateSpaceReservation.mockResolvedValue({
+      id: '21',
+      status: 'pending',
+    });
+
+    const result = await service.updateSpaceReservation(user, 21, dto);
+
+    expect(writeService.updateSpaceReservation).toHaveBeenCalledWith(
+      user,
+      21,
+      dto,
+    );
+    expect(result.status).toBe('pending');
+  });
+
+  it('cancelSpaceReservation 委托给 writeService', async () => {
+    writeService.cancelSpaceReservation.mockResolvedValue({
+      id: '21',
+      status: 'cancelled',
     });
 
     const result = await service.cancelSpaceReservation(user, 21);
 
-    expect(transaction.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(transaction.spaceReservation.update).toHaveBeenCalledWith({
-      where: { id: 21 },
-      data: {
-        status: PrismaSpaceReservationStatus.cancelled,
-      },
-    });
+    expect(writeService.cancelSpaceReservation).toHaveBeenCalledWith(user, 21);
     expect(result.status).toBe('cancelled');
-  });
-
-  it('cancelSpaceReservation 若锁内发现预约已处理则阻止取消', async () => {
-    prismaService.spaceReservation.findUnique.mockResolvedValue({
-      id: 21,
-      storeId: 18,
-      spaceId: 11,
-      status: PrismaSpaceReservationStatus.pending,
-    });
-    transaction.spaceReservation.findUnique.mockResolvedValue({
-      id: 21,
-      spaceId: 11,
-      status: PrismaSpaceReservationStatus.fulfilled,
-    });
-
-    await expect(
-      service.cancelSpaceReservation(user, 21),
-    ).rejects.toBeInstanceOf(ConflictException);
-
-    expect(transaction.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(transaction.spaceReservation.update).not.toHaveBeenCalled();
   });
 
   it('toSpaceReservationResponse 会标记已过时预约', () => {

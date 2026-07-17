@@ -1,15 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
-import {
-  buildCacheRefreshTaskKey,
-  buildMembersListCacheKey,
-  buildMembersMetaCacheKey,
-  buildMembersOverviewCacheKey,
-} from '../../../redis/keys';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
-import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import {
   MemberMetaQueryDto,
@@ -28,46 +20,26 @@ import {
 } from './dto/member-response.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { MembersAccessService } from './members-access.service';
+import { MembersReadService } from './members-read.service';
 import {
-  buildEmptyMembersOverviewResponse,
-  buildMemberLevelMetaRows,
-  buildMemberStatusMetaRows,
   prepareMemberCreateInput,
   prepareMemberUpdateInput,
 } from './members.domain';
 import { type MemberRecord, toMemberResponse } from './members.mapper';
-import { toMemberSnapshotResponses } from './members.snapshot.mapper';
 import {
+  queryMemberRechargeHistory,
+  replaceMemberRechargeHistory,
   deleteMemberRecord,
   insertMemberRecord,
-  queryMemberRechargeHistory,
-  queryMemberSnapshots,
-  queryMembersMeta,
-  queryMembersOverview,
-  queryMembersPage,
-  replaceMemberRechargeHistory,
   updateMemberRecord,
 } from './members.query';
-import {
-  buildPaginationMeta,
-  resolvePagination,
-  toDbMemberStatus,
-} from './members.utils';
-
-const MEMBERS_LIST_CACHE_TTL_SECONDS = 90;
-const MEMBERS_LIST_REFRESH_AFTER_MS = 20_000;
-const MEMBERS_META_CACHE_TTL_SECONDS = 300;
-const MEMBERS_META_REFRESH_AFTER_MS = 60_000;
-const MEMBERS_OVERVIEW_CACHE_TTL_SECONDS = 120;
-const MEMBERS_OVERVIEW_REFRESH_AFTER_MS = 30_000;
 
 @Injectable()
 export class MembersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly membersAccessService: MembersAccessService,
-    private readonly configService: ConfigService,
-    private readonly refreshableCache: RefreshableCacheService,
+    private readonly membersReadService: MembersReadService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
@@ -122,173 +94,47 @@ export class MembersService {
     return this.buildMemberResponse(member);
   }
 
-  async list(
+  list(
     user: AuthenticatedUser,
     query: ListMembersQueryDto,
   ): Promise<PaginatedMembersResponseDto> {
-    const storeId = await this.resolveViewStoreId(
-      user,
-      query.storeId,
-      '无权查看该门店会员列表',
-    );
-    const {
-      page: currentPage,
-      skip,
-      take,
-    } = this.resolvePage(query.page, query.pageSize);
-
-    if (storeId === null) {
-      return {
-        items: [],
-        meta: buildPaginationMeta(0, currentPage, take),
-      };
-    }
-
-    const cacheKey = buildMembersListCacheKey(storeId, {
-      status: query.status,
-      level: query.level,
-      keyword: query.keyword,
-      partner: query.partner,
-      page: currentPage,
-      pageSize: take,
-    });
-
-    return this.refreshableCache.getOrLoadRefreshableJson({
-      cacheKey,
-      taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: MEMBERS_LIST_CACHE_TTL_SECONDS,
-      refreshAfterMs: MEMBERS_LIST_REFRESH_AFTER_MS,
-      loadValue: async () => {
-        const { items, total } = await queryMembersPage(this.prisma, {
-          storeId,
-          status: toDbMemberStatus(query.status),
-          level: query.level,
-          keyword: query.keyword,
-          onlyPartners: query.partner,
-          skip,
-          take,
-        });
-
-        return {
-          items: items.map((item) => toMemberResponse(item)),
-          meta: buildPaginationMeta(total, currentPage, take),
-        };
-      },
-    });
+    return this.membersReadService.list(user, query);
   }
 
-  async getMeta(
+  getMeta(
     user: AuthenticatedUser,
     query: MemberMetaQueryDto,
   ): Promise<MembersMetaResponseDto> {
-    const storeId = await this.resolveViewStoreId(
-      user,
-      query.storeId,
-      '无权查看该门店会员筛选项',
-    );
-
-    if (storeId === null) {
-      return {
-        levels: [],
-        statuses: buildMemberStatusMetaRows([]),
-      };
-    }
-
-    const cacheKey = buildMembersMetaCacheKey(storeId);
-    return this.refreshableCache.getOrLoadRefreshableJson({
-      cacheKey,
-      taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: MEMBERS_META_CACHE_TTL_SECONDS,
-      refreshAfterMs: MEMBERS_META_REFRESH_AFTER_MS,
-      loadValue: async () => {
-        return this.buildMetaPayload(storeId);
-      },
-    });
+    return this.membersReadService.getMeta(user, query);
   }
 
-  async getOverview(
+  getOverview(
     user: AuthenticatedUser,
     query: MemberOverviewQueryDto,
   ): Promise<MembersOverviewResponseDto> {
-    const storeId = await this.resolveViewStoreId(
-      user,
-      query.storeId,
-      '无权查看该门店会员概览',
-    );
-
-    if (storeId === null) {
-      return buildEmptyMembersOverviewResponse();
-    }
-
-    const cacheKey = buildMembersOverviewCacheKey(storeId);
-    return this.refreshableCache.getOrLoadRefreshableJson({
-      cacheKey,
-      taskKey: buildCacheRefreshTaskKey(cacheKey),
-      ttlSeconds: MEMBERS_OVERVIEW_CACHE_TTL_SECONDS,
-      refreshAfterMs: MEMBERS_OVERVIEW_REFRESH_AFTER_MS,
-      loadValue: async () => this.buildOverviewPayload(storeId),
-    });
+    return this.membersReadService.getOverview(user, query);
   }
 
-  async warmMetaCache(storeId: number): Promise<MembersMetaResponseDto> {
-    const cacheKey = buildMembersMetaCacheKey(storeId);
-    const data = await this.buildMetaPayload(storeId);
-    await this.refreshableCache.writeRefreshableJson(
-      cacheKey,
-      data,
-      MEMBERS_META_CACHE_TTL_SECONDS,
-      MEMBERS_META_REFRESH_AFTER_MS,
-    );
-    return data;
+  warmMetaCache(storeId: number): Promise<MembersMetaResponseDto> {
+    return this.membersReadService.warmMetaCache(storeId);
   }
 
-  async warmOverviewCache(
-    storeId: number,
-  ): Promise<MembersOverviewResponseDto> {
-    const cacheKey = buildMembersOverviewCacheKey(storeId);
-    const data = await this.buildOverviewPayload(storeId);
-    await this.refreshableCache.writeRefreshableJson(
-      cacheKey,
-      data,
-      MEMBERS_OVERVIEW_CACHE_TTL_SECONDS,
-      MEMBERS_OVERVIEW_REFRESH_AFTER_MS,
-    );
-    return data;
+  warmOverviewCache(storeId: number): Promise<MembersOverviewResponseDto> {
+    return this.membersReadService.warmOverviewCache(storeId);
   }
 
-  async listSnapshots(
+  listSnapshots(
     user: AuthenticatedUser,
     query: ListMemberSnapshotsQueryDto,
   ): Promise<MemberSnapshotDto[]> {
-    const storeId = await this.resolveViewStoreId(
-      user,
-      query.storeId,
-      '无权查看该门店会员快照',
-    );
-
-    if (storeId === null) {
-      return [];
-    }
-
-    const rows = await queryMemberSnapshots(this.prisma, {
-      storeId,
-      keyword: query.keyword,
-      onlyPartners: query.onlyPartners,
-    });
-
-    return toMemberSnapshotResponses(rows);
+    return this.membersReadService.listSnapshots(user, query);
   }
 
-  async getDetail(
+  getDetail(
     user: AuthenticatedUser,
     memberId: number,
   ): Promise<MemberResponseDto> {
-    const member = await this.membersAccessService.findManageableMemberOrThrow(
-      user,
-      memberId,
-      'members:view',
-    );
-    return this.buildMemberResponse(member);
+    return this.membersReadService.getDetail(user, memberId);
   }
 
   async update(
@@ -401,18 +247,6 @@ export class MembersService {
     await this.cacheInvalidatorService.invalidateMembersDerived(storeId);
   }
 
-  private resolveViewStoreId(
-    user: AuthenticatedUser,
-    storeId: number | undefined,
-    forbiddenMessage: string,
-  ): Promise<number | null> {
-    return this.membersAccessService.resolveMembersViewStoreId(
-      user,
-      storeId,
-      forbiddenMessage,
-    );
-  }
-
   private async ensurePhoneUnique(
     storeId: number,
     phone?: string,
@@ -436,29 +270,6 @@ export class MembersService {
     }
   }
 
-  private async buildMetaPayload(
-    storeId: number,
-  ): Promise<MembersMetaResponseDto> {
-    const { levelRows, statusRows } = await queryMembersMeta(
-      this.prisma,
-      storeId,
-    );
-
-    return {
-      levels: buildMemberLevelMetaRows(levelRows),
-      statuses: buildMemberStatusMetaRows(statusRows),
-    };
-  }
-
-  private async buildOverviewPayload(
-    storeId: number,
-  ): Promise<MembersOverviewResponseDto> {
-    return (
-      (await queryMembersOverview(this.prisma, storeId)) ??
-      buildEmptyMembersOverviewResponse()
-    );
-  }
-
   private async buildMemberResponse(
     member: MemberRecord,
   ): Promise<MemberResponseDto> {
@@ -467,17 +278,5 @@ export class MembersService {
       member.id,
     );
     return toMemberResponse(member, rechargeRecords);
-  }
-
-  private resolvePage(
-    page?: number,
-    pageSize?: number,
-  ): { page: number; skip: number; take: number } {
-    const defaultPageSize =
-      this.configService.get<number>('app.defaultPageSize') ?? 20;
-    const maxPageSize =
-      this.configService.get<number>('app.maxPageSize') ?? 100;
-
-    return resolvePagination(page, pageSize, defaultPageSize, maxPageSize);
   }
 }
