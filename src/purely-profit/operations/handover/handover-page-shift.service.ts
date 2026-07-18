@@ -106,6 +106,18 @@ export class HandoverPageShiftService {
       receiverCandidate,
       ownedSelection,
     } = params;
+    // 如果用户完全没有个人排班（既无可操作班次，也无自有班次），
+    // 且用户未关联员工（如新注册用户），不应展示全店其他员工的班次数据，
+    // 直接视为"无有效班次"，避免无排班用户错误看到他人班次指标。
+    // 注：已关联员工但无当前班次的收银员/员工仍需展示全店视图（合法监控场景）。
+    if (
+      !operationShiftRecord &&
+      !ownedSelection.ownedExactShiftRecord &&
+      !membership.linkedEmployeeId
+    ) {
+      return true;
+    }
+
     // 仅当满足以下条件时才返回 true：
     // 1. 未指定特定班次类型
     // 2. 没有接班人
