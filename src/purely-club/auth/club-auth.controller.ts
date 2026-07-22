@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -20,8 +21,10 @@ import { CurrentUser } from '../../purely-profit/auth/current-user.decorator';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { ClubAuthService } from './club-auth.service';
 import { AuthRsaService } from '../../purely-profit/auth/auth-rsa.service';
+import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
 import { CaptchaTokenService } from '../../purely-profit/auth/captcha-token.service';
 import { PublicKeyResponseDto } from '../../purely-profit/auth/dto/public-key-response.dto';
+import { RefreshTokenDto } from '../../purely-profit/auth/dto/refresh-token.dto';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
 import { BindPhoneDto } from './dto/bind-phone.dto';
 import { LoginByCodeDto } from './dto/login-by-code.dto';
@@ -36,6 +39,7 @@ export class ClubAuthController {
   constructor(
     private readonly clubAuthService: ClubAuthService,
     private readonly authRsaService: AuthRsaService,
+    private readonly authSessionService: AuthSessionService,
     private readonly captchaTokenService: CaptchaTokenService,
   ) {}
 
@@ -186,5 +190,29 @@ export class ClubAuthController {
     @Body() dto: BindPhoneDto,
   ): Promise<AuthTokenResponseDto> {
     return this.clubAuthService.bindPhone(user.id, dto);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60, limit: 30 } })
+  @ApiOperation({
+    summary: '刷新 purely-club 访问令牌',
+    description:
+      '使用 refresh_token 获取新的 access_token + refresh_token。' +
+      '旧 refresh_token 立即失效（一次性轮换机制）。' +
+      '无需 JWT 鉴权，仅凭 refresh_token 本身校验。',
+  })
+  @ApiOkResponse({
+    description: '刷新成功，返回新的 token pair',
+    type: AuthTokenResponseDto,
+  })
+  async refresh(@Body() dto: RefreshTokenDto): Promise<AuthTokenResponseDto> {
+    const result = await this.authSessionService.refreshAccessToken(
+      dto.refresh_token,
+    );
+    if (!result) {
+      throw new UnauthorizedException('刷新令牌无效或已过期');
+    }
+    return result;
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: purelyprofit-server-backend-architecture
-description: purelyprofit-server 是 purelyProfit 业务主仓的后端接口仓库，同时承载 purely-profit、purely-pulse、purely-club 三条产品线语义。该 skill 说明三条产品线的视角边界、会员配置层与运行态边界、`src/bootstrap/*` 启动链路、Config/Prisma/Redis/BullMQ 基础设施、JWT 鉴权与 capability 快照、auth 账号查询/会籍协同拆分、marketing 多 controller 与 facade 分层、finance DTO/response 拆分、Pulse membership admin 读写拆分、空间域 request/response DTO 与 session 子 service 拆分、全局限流与 Cache-Control 响应缓存约定、`shared` 金额/并发/密码策略工具，以及 runtime-metrics summary 观测聚合。适用于理解仓库结构、开发或修改 purelyProfit / purelyPulse / purelyClub 接口、接入数据库或缓存、处理会员权益限制、扩展营销/财务/空间/员工/会员能力，并保持代码风格与目录约定一致时使用。
+description: purelyprofit-server 是 purelyProfit 业务主仓的后端接口仓库，同时承载 purely-profit、purely-pulse、purely-club 三条产品线语义。该 skill 说明三条产品线的视角边界、会员配置层与运行态边界、`src/bootstrap/*` 启动链路、Config/Prisma/Redis/BullMQ 基础设施、JWT 鉴权与 capability 快照、auth 账号查询/会籍协同拆分、marketing 多 controller 与 facade 分层、finance DTO/response 拆分、Pulse membership admin 读写拆分、空间域 request/response DTO 与 session 子 service 拆分、交班班次页的本人排班与全店可见性边界、全局限流与 Cache-Control 响应缓存约定、`shared` 金额/并发/密码策略工具，以及 runtime-metrics summary 观测聚合。适用于理解仓库结构、开发或修改 purelyProfit / purelyPulse / purelyClub 接口、接入数据库或缓存、处理会员权益限制、扩展营销/财务/空间/员工/交班/会员能力，并保持代码风格与目录约定一致时使用。
 ---
 
 # purelyprofit-server 后端架构指南
@@ -195,6 +195,7 @@ description: purelyprofit-server 是 purelyProfit 业务主仓的后端接口仓
 - `src/purely-profit/finance/*`：财务域已按 account/cash-flow/overview/reconciliation/report 拆分 query DTO、response DTO、domain 与工具函数
 - `src/purely-profit/staff/employees/*`：员工域已覆盖档案、部门、职位、班次定义、排班、请假、工资单、子账号维护
 - `src/purely-profit/operations/handover/*`：交班域已拆成 `page/confirm/records/additional-items/shared`，写操作要基于当前班次可操作性，并拦截重复交班
+- `src/purely-profit/operations/handover/handover-page-shift.service.ts`：交班页班次上下文须区分“本人可操作班次”“本人历史/排班班次”与“全店展示班次”；未关联员工且没有任何本人班次的新注册用户应直接视为无有效班次，不能因全店班次而看到其他员工指标；已关联员工即使当前无可操作班次，仍保留合法的全店监控展示语义
 - `src/purely-profit/operations/spaces/*`：空间域已拆成 `read/write/dashboard/reservations/sessions` 与多个 `space-session-*` 协作 service
 - `src/purely-profit/stores/wechat-pay-encryption.service.ts`：门店微信支付敏感配置已抽成 AES-GCM 加解密 service
 - `src/purely-pulse/membership/*`：Pulse 会员域已拆成 admin controller、member/sub-account read、membership/points/beans/sub-account mutation、mutation state 与 query helper
@@ -304,6 +305,8 @@ src/purely-pulse/<domain>/
 - `purely-pulse/membership` 新增开发者管理能力时，优先判断属于 read、query、mutation state 还是某个具体 mutation service
 - 周期性后台任务不要再直接用 `setInterval` 挂在业务 service；优先放 `src/queue/*`，用 BullMQ processor + scheduler 承接
 - `operations/spaces` 这类复杂域继续沿用 `spaces-write`、`space-dashboard`、`space-reservations`、`space-session-*` 这类协作拆分
+- 交班页班次解析继续由 `handover-page-shift.service.ts` 统一编排：`operationShiftRecord` 只用于当前用户可操作性与交班完成状态，`shiftRecord` 用于展示；判断“已交班且无后续班次”时，收银员优先以自己的最后班次作为基准，老板/经理按全店查找后续班次，避免把全店当前班次误当作收银员的基准
+- 判断交班页是否无有效班次时，若用户没有 `linkedEmployeeId`、没有可操作班次且没有本人精确班次，应立即返回无有效班次；不要把未排班的新注册用户提升为可查看全店班次。该短路不适用于已关联员工的合法监控场景
 - 数据库设计不要只围绕当前创建接口思考；第一次设计表结构时就要按未来列表、筛选、排序、聚合、导出、权限隔离、软删除、缓存失效与报表统计的压力反推字段与索引
 
 ### Controller 与 DTO
@@ -438,6 +441,6 @@ Redis：
 - auth / access：`src/purely-profit/auth/auth.module.ts`、`src/purely-profit/auth/auth.service.ts`、`src/purely-profit/auth/auth-account-lookup.service.ts`、`src/purely-profit/auth/auth-account-membership.service.ts`、`src/purely-profit/auth/strategies/jwt.strategy.ts`、`src/purely-profit/access-control/access-control.service.ts`、`src/purely-profit/access-control/subject-capability.service.ts`
 - membership / dashboard：`src/purely-profit/member/platform-membership/platform-membership.service.ts`、`src/purely-profit/member/platform-membership/platform-membership-access.service.ts`、`src/purely-profit/dashboard/dashboard-home/dashboard-home.service.ts`
 - finance / marketing：`src/purely-profit/finance/finance.controller.ts`、`src/purely-profit/finance/finance.service.ts`、`src/purely-profit/marketing/marketing.module.ts`、`src/purely-profit/marketing/marketing-overview.controller.ts`、`src/purely-profit/marketing/marketing-customers.facade.service.ts`
-- staff / operations：`src/purely-profit/staff/employees/employees.controller.ts`、`src/purely-profit/staff/employees/employees-shift-definition.service.ts`、`src/purely-profit/operations/handover/handover.shared.ts`、`src/purely-profit/operations/spaces/spaces.module.ts`、`src/purely-profit/operations/spaces/space-session-read.service.ts`、`src/purely-profit/operations/spaces/space-session-settlement.service.ts`
+- staff / operations：`src/purely-profit/staff/employees/employees.controller.ts`、`src/purely-profit/staff/employees/employees-shift-definition.service.ts`、`src/purely-profit/operations/handover/handover.shared.ts`、`src/purely-profit/operations/handover/handover-page-shift.service.ts`、`src/purely-profit/operations/handover/handover-page-shift-selector.service.ts`、`src/purely-profit/operations/handover/handover-page-shift-record.service.ts`、`src/purely-profit/operations/spaces/spaces.module.ts`、`src/purely-profit/operations/spaces/space-session-read.service.ts`、`src/purely-profit/operations/spaces/space-session-settlement.service.ts`
 - club / pulse：`src/purely-profit/stores/wechat-pay-encryption.service.ts`、`src/purely-pulse/session/session.controller.ts`、`src/purely-pulse/pulse-store-context.service.ts`、`src/purely-pulse/membership/membership-admin.controller.ts`、`src/purely-pulse/membership/membership-admin-query.service.ts`、`src/purely-pulse/membership-settings/membership-settings.service.ts`
 - 数据基线：`prisma/schema.prisma`、`.env.example`

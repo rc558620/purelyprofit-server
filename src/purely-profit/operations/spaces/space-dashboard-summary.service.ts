@@ -167,12 +167,13 @@ export class SpaceDashboardSummaryService {
     todayRevenue: number;
   }> {
     const todayRange = getTodayRange();
+    // BUG-fix: 移除 spaceSession 过滤条件，统计所有今日销售记录（含直接销售 + 空间会话结账销售）
+    // 之前仅统计 spaceSession isNot null 的销售单，导致直接销售记录不计入空间看板营业额
     const [todaySettled, revenueAgg] = await Promise.all([
-      this.prisma.spaceSession.count({
+      this.prisma.saleOrder.count({
         where: {
           storeId,
-          status: PrismaSpaceSessionStatus.settled,
-          endTime: {
+          date: {
             gte: todayRange.start,
             lte: todayRange.end,
           },
@@ -184,9 +185,6 @@ export class SpaceDashboardSummaryService {
           date: {
             gte: todayRange.start,
             lte: todayRange.end,
-          },
-          spaceSession: {
-            isNot: null,
           },
         },
         _sum: {
