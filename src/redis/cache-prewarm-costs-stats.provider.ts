@@ -1,8 +1,8 @@
-import {
-  buildCostsAllPattern,
-  buildCostsStatsCacheKey,
-} from './cache-keys';
-import type { CostPeriodValue, CostTypeFilterValue } from '../purely-profit/operations/costs/costs.types';
+import { buildCostsAllPattern, buildCostsStatsCacheKey } from './cache-keys';
+import type {
+  CostPeriodValue,
+  CostTypeFilterValue,
+} from '../purely-profit/operations/costs/costs.types';
 import { prewarmCacheCategory } from './cache-prewarm.executor';
 import type {
   CachePrewarmProfitReadCategoryConfigProvider,
@@ -26,7 +26,15 @@ function parseCostsStatsCacheKey(cacheKey: string): {
     return null;
   }
 
-  const [, rawStoreId, rawPeriod, rawTypeFilter, rawCustomDate, rawRangeStart, rawRangeEnd] = match;
+  const [
+    ,
+    rawStoreId,
+    rawPeriod,
+    rawTypeFilter,
+    rawCustomDate,
+    rawRangeStart,
+    rawRangeEnd,
+  ] = match;
 
   return {
     storeId: Number(rawStoreId),

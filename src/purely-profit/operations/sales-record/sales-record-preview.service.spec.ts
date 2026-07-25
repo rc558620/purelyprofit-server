@@ -62,14 +62,14 @@ describe('SalesRecordPreviewService', () => {
       productId: '1',
       productName: '可口可乐',
       revenueSubtotal: 13.0, // 6.5 * 2
-      profitSubtotal: 5.0,   // 2.5 * 2
+      profitSubtotal: 5.0, // 2.5 * 2
       quantity: 2,
     });
     expect(result.items[1]).toMatchObject({
       productId: '2',
       productName: '薯条',
       revenueSubtotal: 12.0, // 12.0 * 1
-      profitSubtotal: 4.0,   // 4.0 * 1
+      profitSubtotal: 4.0, // 4.0 * 1
       quantity: 1,
     });
   });
@@ -150,8 +150,8 @@ describe('SalesRecordPreviewService', () => {
           productId: 'deduction_1',
           productName: '9折优惠',
           categoryName: '优惠',
-          salePrice: -1.3,  // 负数
-          profit: -0.5,    // 负数
+          salePrice: -1.3, // 负数
+          profit: -0.5, // 负数
           quantity: 1,
         },
       ],
@@ -199,12 +199,22 @@ describe('SalesRecordPreviewService', () => {
     const result = service.preview(dto);
 
     // 通过 items 重新计算总金额
-    const reconstructedRevenue = result.items.reduce((sum, item) => sum + item.revenueSubtotal, 0);
-    const reconstructedProfit = result.items.reduce((sum, item) => sum + item.profitSubtotal, 0);
+    const reconstructedRevenue = result.items.reduce(
+      (sum, item) => sum + item.revenueSubtotal,
+      0,
+    );
+    const reconstructedProfit = result.items.reduce(
+      (sum, item) => sum + item.profitSubtotal,
+      0,
+    );
 
     // 应该与 preview 返回的总金额完全相等
-    expect(Math.abs(reconstructedRevenue - result.totalRevenue)).toBeLessThan(0.01); // 浮点数容差
-    expect(Math.abs(reconstructedProfit - result.totalProfit)).toBeLessThan(0.01);
+    expect(Math.abs(reconstructedRevenue - result.totalRevenue)).toBeLessThan(
+      0.01,
+    ); // 浮点数容差
+    expect(Math.abs(reconstructedProfit - result.totalProfit)).toBeLessThan(
+      0.01,
+    );
   });
 
   /**
@@ -214,8 +224,22 @@ describe('SalesRecordPreviewService', () => {
     // 模拟用户在 additional 页面选择的商品和数量
     const dto: CreateSalesRecordDto = {
       items: [
-        { productId: '1', productName: '利用测试3', categoryName: '测试', salePrice: 15.5, profit: 4.0, quantity: 2 },
-        { productId: '2', productName: '利用测试', categoryName: '测试', salePrice: 18.0, profit: 5.0, quantity: 1 },
+        {
+          productId: '1',
+          productName: '利用测试3',
+          categoryName: '测试',
+          salePrice: 15.5,
+          profit: 4.0,
+          quantity: 2,
+        },
+        {
+          productId: '2',
+          productName: '利用测试',
+          categoryName: '测试',
+          salePrice: 18.0,
+          profit: 5.0,
+          quantity: 1,
+        },
       ],
       paymentMethod: 'cash',
       calcMode: 'profit',

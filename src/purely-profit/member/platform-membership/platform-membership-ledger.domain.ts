@@ -242,7 +242,9 @@ export function calcPreviewResult(
 
   const maxBeanDeductAmount = planPriceMoney.multiply(beanDeductLimitRate);
   const canUseBeans = availableBeans >= 1;
-  const maxPointsDeductOnFullPrice = planPriceMoney.multiply(pointsDeductLimitRate);
+  const maxPointsDeductOnFullPrice = planPriceMoney.multiply(
+    pointsDeductLimitRate,
+  );
   const canUsePoints = availablePoints >= pointsRate;
 
   // 复用 calcMemberPlanPayment 得到实际抵扣明细
@@ -254,7 +256,11 @@ export function calcPreviewResult(
     maxPointsDeductAmount: Money.min(
       maxPointsDeductOnFullPrice,
       Money.fromDbCents(
-        new Decimal(availablePoints).div(pointsRate).floor().mul(100).toNumber(),
+        new Decimal(availablePoints)
+          .div(pointsRate)
+          .floor()
+          .mul(100)
+          .toNumber(),
       ),
     ).toDbCents(),
     canUsePoints,
@@ -299,7 +305,10 @@ export function calcMemberPlanPayment(params: {
   );
   const beanDeductAmount = Money.max(
     Money.zero(),
-    Money.min(Money.min(requestedBeanDeduct, maxBeanDeductAmount), availableBeanDeduct),
+    Money.min(
+      Money.min(requestedBeanDeduct, maxBeanDeductAmount),
+      availableBeanDeduct,
+    ),
   );
   // 实际消耗纯利豆 = 抵扣金额 ÷ 兑换率（向下取整）
   const actualBeansUsed = new Decimal(beanDeductAmount.toDbCents())
@@ -308,7 +317,8 @@ export function calcMemberPlanPayment(params: {
     .toNumber();
 
   // ── 积分抵扣计算 ──────────────────────────────────────────────
-  const priceAfterBeans = planPriceMoney.subtractClampedToZero(beanDeductAmount);
+  const priceAfterBeans =
+    planPriceMoney.subtractClampedToZero(beanDeductAmount);
   // 最大积分抵扣金额 = 豆后价格 × 积分抵扣上限比例（向下取整到分）
   const maxPointsDeductAmount = priceAfterBeans.multiply(pointsDeductLimitRate);
   // 请求的积分抵扣 = ⌊请求积分数 / 比率⌋ × 100（向下取整到元转分）
@@ -321,7 +331,10 @@ export function calcMemberPlanPayment(params: {
   );
   const pointsDeductAmount = Money.max(
     Money.zero(),
-    Money.min(Money.min(requestedPointsDeduct, availablePointsDeduct), maxPointsDeductAmount),
+    Money.min(
+      Money.min(requestedPointsDeduct, availablePointsDeduct),
+      maxPointsDeductAmount,
+    ),
   );
   // 实际消耗积分 = 抵扣金额(分) / 100 × 比率
   const actualPointsUsed = new Decimal(pointsDeductAmount.toDbCents())

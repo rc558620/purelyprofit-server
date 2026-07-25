@@ -1,4 +1,57 @@
-// purely-profit/finance: 对账模型
+model FinanceReconciliationRecord {
+  id                     Int                         @id @default(autoincrement())
+  storeId                Int                         @map("store_id")
+  operatorStaffId        Int?                        @map("operator_staff_id")
+  title                  String
+  type                   FinanceReconciliationType
+  status                 FinanceReconciliationStatus @default(draft)
+  channel                FinancePaymentChannel?
+  counterpart            String?
+  periodStart            DateTime                    @map("period_start")
+  periodEnd              DateTime                    @map("period_end")
+  bookIncome             Int                         @map("book_income")
+  bookExpense            Int                         @map("book_expense")
+  bookNet                Int                         @map("book_net")
+  actualIncome           Int?                        @map("actual_income")
+  actualExpense          Int?                        @map("actual_expense")
+  actualNet              Int                         @map("actual_net")
+  diffAmount             Int                         @map("diff_amount")
+  adjustNote             String?                     @map("adjust_note")
+  settlementBatchNo      String?                     @map("settlement_batch_no")
+  linkedOrderNos         String?                     @map("linked_order_nos")
+  linkedOrderCount       Int?                        @map("linked_order_count")
+  linkedReceivableAmount Int?                        @map("linked_receivable_amount")
+  linkedSettledAmount    Int?                        @map("linked_settled_amount")
+  linkedFeeAmount        Int?                        @map("linked_fee_amount")
+  operator               String?
+  note                   String?
+  date                   DateTime
+  createdAt              DateTime                    @default(now()) @map("created_at")
+  updatedAt              DateTime                    @updatedAt @map("updated_at")
+  items                  FinanceReconciliationItem[]
+  operatorStaff          Staff?                      @relation("FinanceReconciliationOperator", fields: [operatorStaffId], references: [id])
+  store                  Store                       @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, status, date])
+  @@index([storeId, type, date])
+  @@index([operatorStaffId, createdAt])
+  @@map("finance_reconciliation_records")
+}
+
+model FinanceReconciliationItem {
+  id               Int                         @id @default(autoincrement())
+  reconciliationId Int                         @map("reconciliation_id")
+  description      String
+  bookAmount       Int                         @map("book_amount")
+  actualAmount     Int                         @map("actual_amount")
+  difference       Int
+  note             String?
+  createdAt        DateTime                    @default(now()) @map("created_at")
+  reconciliation   FinanceReconciliationRecord @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+
+  @@index([reconciliationId, createdAt])
+  @@map("finance_reconciliation_items")
+}
 
 enum FinanceReconciliationStatus {
   draft
@@ -23,59 +76,4 @@ enum FinancePaymentChannel {
   card
   bank
   all
-}
-
-model FinanceReconciliationRecord {
-  id              Int                         @id @default(autoincrement())
-  storeId         Int                         @map("store_id")
-  store           Store                       @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  operatorStaffId Int?                        @map("operator_staff_id")
-  operatorStaff   Staff?                      @relation("FinanceReconciliationOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
-  title           String
-  type            FinanceReconciliationType
-  status          FinanceReconciliationStatus @default(draft)
-  channel         FinancePaymentChannel?
-  counterpart     String?
-  periodStart     DateTime                    @map("period_start")
-  periodEnd       DateTime                    @map("period_end")
-  bookIncome      Int                         @map("book_income")   // 账面收入（分）
-  bookExpense     Int                         @map("book_expense")  // 账面支出（分）
-  bookNet         Int                         @map("book_net")      // 账面净额（分）
-  actualIncome    Int?                        @map("actual_income") // 实际收入（分），null=未录入
-  actualExpense   Int?                        @map("actual_expense")// 实际支出（分），null=未录入
-  actualNet       Int                         @map("actual_net")    // 实际净额（分）
-  diffAmount      Int                         @map("diff_amount")   // 差异金额（分）
-  adjustNote      String?                     @map("adjust_note")
-  settlementBatchNo String?                   @map("settlement_batch_no")
-  linkedOrderNos    String?                   @map("linked_order_nos")    // 逗号分隔的销售单号
-  linkedOrderCount  Int?                      @map("linked_order_count")
-  linkedReceivableAmount Int?                 @map("linked_receivable_amount") // 关联应收（分）
-  linkedSettledAmount    Int?                 @map("linked_settled_amount")    // 本次到账（分）
-  linkedFeeAmount        Int?                 @map("linked_fee_amount")        // 平台手续费（分）
-  operator        String?
-  note            String?
-  date            DateTime
-  items           FinanceReconciliationItem[]
-  createdAt       DateTime                    @default(now()) @map("created_at")
-  updatedAt       DateTime                    @updatedAt @map("updated_at")
-
-  @@index([storeId, status, date])
-  @@index([storeId, type, date])
-  @@index([operatorStaffId, createdAt])
-  @@map("finance_reconciliation_records")
-}
-
-model FinanceReconciliationItem {
-  id               Int                         @id @default(autoincrement())
-  reconciliationId Int                         @map("reconciliation_id")
-  reconciliation   FinanceReconciliationRecord @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
-  description      String
-  bookAmount       Int                         @map("book_amount")   // 账面金额（分）
-  actualAmount     Int                         @map("actual_amount") // 实际金额（分）
-  difference       Int                                               // 差异金额（分）
-  note             String?
-  createdAt        DateTime                    @default(now()) @map("created_at")
-
-  @@index([reconciliationId, createdAt])
-  @@map("finance_reconciliation_items")
 }

@@ -28,6 +28,8 @@ export interface StoreRecordSnapshot {
   id: number;
   name: string;
   address: string | null;
+  /// 门店业态：catering=餐饮，general=非餐饮
+  businessMode: 'catering' | 'general';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -174,6 +176,7 @@ export function buildStoreResponseDto(
     id: store.id,
     storeName: store.name,
     storeType: metadata.storeType,
+    businessMode: store.businessMode,
     region: metadata.region,
     address: store.address ?? '',
     ...(metadata.storeLogo ? { storeLogo: metadata.storeLogo } : {}),
@@ -236,6 +239,13 @@ export class StoreResponseDto {
   @ApiProperty({ example: '零售', description: '门店类型' })
   @IsString({ message: '门店类型必须是字符串' })
   storeType: string;
+
+  @ApiProperty({
+    example: 'general',
+    description: '门店业态：catering=餐饮，general=非餐饮',
+  })
+  @IsString({ message: '门店业态必须是字符串' })
+  businessMode: 'catering' | 'general';
 
   @ApiProperty({
     example: ['北京市', '北京市', '朝阳区'],

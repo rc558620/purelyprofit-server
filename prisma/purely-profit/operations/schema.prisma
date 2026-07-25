@@ -1,0 +1,558 @@
+model ScanOrderingArea {
+  id        Int                 @id @default(autoincrement()) @map("id")
+  storeId   Int                 @map("store_id")
+  name      String              @map("name")
+  sortOrder Int                 @default(0) @map("sort_order")
+  isActive  Boolean             @default(true) @map("is_active")
+  version   Int                 @default(0) @map("version")
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+  tables    ScanOrderingTable[]
+
+  @@unique([storeId, name])
+  @@index([storeId])
+  @@map("scan_ordering_areas")
+}
+
+model ScanOrderingType {
+  id        Int                 @id @default(autoincrement()) @map("id")
+  storeId   Int                 @map("store_id")
+  name      String              @map("name")
+  sortOrder Int                 @default(0) @map("sort_order")
+  isActive  Boolean             @default(true) @map("is_active")
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+  tables    ScanOrderingTable[]
+
+  @@unique([storeId, name])
+  @@index([storeId])
+  @@map("scan_ordering_types")
+}
+
+model ScanOrderingTable {
+  id           Int                      @id @default(autoincrement()) @map("id")
+  storeId      Int                      @map("store_id")
+  areaId       Int?                     @map("area_id")
+  typeId       Int?                     @map("type_id")
+  tableCode    String                   @map("table_code")
+  name         String                   @map("name")
+  capacity     Int                      @default(1) @map("capacity")
+  status       ScanOrderingTableStatus  @default(empty) @map("status")
+  isActive     Boolean                  @default(true) @map("is_active")
+  version      Int                      @default(0) @map("version")
+  deletedAt    DateTime?                @map("deleted_at")
+  createdAt    DateTime                 @default(now()) @map("created_at")
+  updatedAt    DateTime                 @updatedAt @map("updated_at")
+  serviceCalls ScanOrderServiceCall[]
+  sessions     ScanOrderingSession[]
+  qrCodes      ScanOrderingTableQrCode?
+  area         ScanOrderingArea?        @relation(fields: [areaId], references: [id])
+  type         ScanOrderingType?        @relation(fields: [typeId], references: [id])
+  orders       ScanOrders[]
+
+  @@unique([storeId, tableCode])
+  @@index([storeId])
+  @@index([storeId, status])
+  @@map("scan_ordering_tables")
+}
+
+model ScanOrderingSession {
+  id               Int                       @id @default(autoincrement()) @map("id")
+  storeId          Int                       @map("store_id")
+  tableId          Int?                      @map("table_id")
+  clubUserId       Int?                      @map("club_user_id")
+  session          String                    @map("session")
+  sessionTokenHash String?                   @map("session_token_hash") @db.VarChar(128)
+  guestCount       Int                       @default(0) @map("guest_count")
+  status           ScanOrderingSessionStatus @default(active) @map("status")
+  expiresAt        DateTime                  @map("expires_at")
+  lastActiveAt     DateTime                  @default(now()) @map("last_active_at")
+  deletedAt        DateTime?                 @map("deleted_at")
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  updatedAt        DateTime                  @updatedAt @map("updated_at")
+  serviceCalls     ScanOrderServiceCall[]
+  cartItems        ScanOrderingCartItem[]
+  table            ScanOrderingTable?        @relation(fields: [tableId], references: [id])
+  orders           ScanOrders[]
+
+  @@unique([clubUserId, tableId], map: "uq_scan_ordering_sessions_user_table_active", where: raw("((status = 'active'::\"ScanOrderingSessionStatus\") AND (deleted_at IS NULL))"))
+  @@index([storeId, session])
+  @@index([storeId, tableId, status])
+  @@index([clubUserId, status, lastActiveAt(sort: Desc)])
+  @@index([expiresAt])
+  @@map("scan_ordering_sessions")
+}
+
+model ScanOrderingCartItem {
+  id              Int                        @id @default(autoincrement()) @map("id")
+  sessionId       Int                        @map("session_id")
+  menuProductId   Int                        @map("menu_product_id")
+  specSignature   String                     @map("spec_signature") @db.Char(64)
+  quantity        Int                        @default(1) @map("quantity")
+  unitPriceAmount Int                        @default(0) @map("unit_price_amount")
+  lineTotalAmount Int                        @default(0) @map("line_total_amount")
+  version         Int                        @default(1) @map("version")
+  status          CartItemStatus             @default(active) @map("status")
+  deletedAt       DateTime?                  @map("deleted_at")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
+  specs           ScanOrderingCartItemSpec[]
+  session         ScanOrderingSession        @relation(fields: [sessionId], references: [id])
+
+  @@unique([sessionId, menuProductId, specSignature], map: "uq_scan_ordering_cart_item_active", where: raw("((status = 'active'::\"CartItemStatus\") AND (deleted_at IS NULL))"))
+  @@index([sessionId, status])
+  @@index([menuProductId])
+  @@index([sessionId, updatedAt(sort: Desc)], map: "idx_cart_item_session_active", where: raw("((status = 'active'::\"CartItemStatus\") AND (deleted_at IS NULL))"))
+  @@map("scan_ordering_cart_items")
+}
+
+model ScanOrderingCartItemSpec {
+  id                 Int                  @id @default(autoincrement()) @map("id")
+  cartItemId         Int                  @map("cart_item_id")
+  specOptionId       Int                  @map("spec_option_id")
+  extraPriceSnapshot Int                  @map("extra_price_snapshot")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  cartItem           ScanOrderingCartItem @relation(fields: [cartItemId], references: [id], onDelete: Cascade)
+
+  @@unique([cartItemId, specOptionId])
+  @@index([cartItemId])
+  @@map("scan_ordering_cart_item_specs")
+}
+
+model ScanOrders {
+  id                       Int                        @id @default(autoincrement()) @map("id")
+  storeId                  Int                        @map("store_id")
+  orderNo                  String                     @map("order_no")
+  tableId                  Int                        @map("table_id")
+  sessionId                Int?                       @map("session_id")
+  clubUserId               Int?                       @map("club_user_id")
+  guestCount               Int?                       @map("guest_count")
+  remark                   String?                    @map("remark") @db.VarChar(500)
+  idempotencyKey           String?                    @map("idempotency_key") @db.VarChar(128)
+  pricingVersion           String?                    @map("pricing_version") @db.VarChar(128)
+  couponId                 Int?                       @map("coupon_id")
+  currency                 String                     @default("CNY") @map("currency") @db.Char(3)
+  itemOriginalAmount       Int                        @default(0) @map("item_original_amount")
+  specificationExtraAmount Int                        @default(0) @map("specification_extra_amount")
+  productDiscountAmount    Int                        @default(0) @map("product_discount_amount")
+  orderDiscountAmount      Int                        @default(0) @map("order_discount_amount")
+  serviceFeeAmount         Int                        @default(0) @map("service_fee_amount")
+  taxAmount                Int                        @default(0) @map("tax_amount")
+  payableAmount            Int                        @default(0) @map("payable_amount")
+  paidAmount               Int                        @default(0) @map("paid_amount")
+  status                   ScanOrderStatus            @default(pending_payment) @map("status")
+  paymentStatus            ScanOrderPaymentStatus     @default(unpaid) @map("payment_status")
+  fulfillmentStatus        ScanOrderFulfillmentStatus @default(preparing) @map("fulfillment_status")
+  version                  Int                        @default(0) @map("version")
+  paymentExpiresAt         DateTime?                  @map("payment_expires_at")
+  paidAt                   DateTime?                  @map("paid_at")
+  acceptedAt               DateTime?                  @map("accepted_at")
+  servedAt                 DateTime?                  @map("served_at")
+  completedAt              DateTime?                  @map("completed_at")
+  cancelledAt              DateTime?                  @map("cancelled_at")
+  deletedAt                DateTime?                  @map("deleted_at")
+  createdAt                DateTime                   @default(now()) @map("created_at")
+  updatedAt                DateTime                   @updatedAt @map("updated_at")
+  rejectReason             String?                    @map("reject_reason")
+  cancelReason             String?                    @map("cancel_reason")
+  couponUsages             ScanOrderCouponUsage[]
+  items                    ScanOrderItem[]
+  paymentAttempts          ScanOrderPaymentAttempt[]
+  refundTasks              ScanOrderRefundTask[]
+  histories                ScanOrderStatusHistory[]
+  session                  ScanOrderingSession?       @relation(fields: [sessionId], references: [id])
+  table                    ScanOrderingTable          @relation(fields: [tableId], references: [id])
+
+  @@unique([storeId, orderNo])
+  @@unique([storeId, idempotencyKey], map: "uq_scan_orders_store_idempotency_key", where: raw("((deleted_at IS NULL) AND (idempotency_key IS NOT NULL))"))
+  @@index([storeId])
+  @@index([storeId, status])
+  @@index([storeId, tableId])
+  @@index([storeId, createdAt])
+  @@index([clubUserId, createdAt(sort: Desc)])
+  @@index([paymentExpiresAt])
+  @@index([paymentExpiresAt], map: "idx_scan_orders_payment_expiry", where: raw("((payment_status = 'unpaid'::\"ScanOrderPaymentStatus\") AND (deleted_at IS NULL))"))
+  @@index([storeId, status, createdAt(sort: Desc)], map: "idx_scan_orders_store_status_created", where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, tableId, status, createdAt(sort: Desc)], map: "idx_scan_orders_table_active", where: raw("((status = ANY (ARRAY['pending_payment'::\"ScanOrderStatus\", 'pending_acceptance'::\"ScanOrderStatus\", 'preparing'::\"ScanOrderStatus\", 'served'::\"ScanOrderStatus\"])) AND (deleted_at IS NULL))"))
+  @@map("scan_orders")
+}
+
+model ScanOrderItem {
+  id                      Int                 @id @default(autoincrement()) @map("id")
+  orderId                 Int                 @map("order_id")
+  storeId                 Int                 @map("store_id")
+  menuProductId           Int                 @map("menu_product_id")
+  productNameSnapshot     String              @map("product_name_snapshot")
+  productImageUrlSnapshot String?             @map("product_image_url_snapshot")
+  categoryNameSnapshot    String?             @map("category_name_snapshot")
+  specSignature           String?             @map("spec_signature") @db.Char(64)
+  quantity                Int                 @map("quantity")
+  basePriceSnapshot       Int                 @map("base_price_snapshot")
+  unitPriceAmount         Int                 @default(0) @map("unit_price_amount")
+  discountAmount          Int                 @default(0) @map("discount_amount")
+  lineTotalAmount         Int                 @map("line_total_amount")
+  payableLineAmount       Int                 @default(0) @map("payable_line_amount")
+  sortOrder               Int                 @default(0) @map("sort_order")
+  specs                   ScanOrderItemSpec[]
+  order                   ScanOrders          @relation(fields: [orderId], references: [id])
+
+  @@index([orderId, id])
+  @@index([storeId, menuProductId])
+  @@map("scan_order_items")
+}
+
+model ScanOrderItemSpec {
+  id                     Int           @id @default(autoincrement()) @map("id")
+  orderItemId            Int           @map("order_item_id")
+  specOptionId           Int           @map("spec_option_id")
+  specOptionNameSnapshot String        @map("spec_option_name_snapshot")
+  extraPriceSnapshot     Int           @map("extra_price_snapshot")
+  orderItem              ScanOrderItem @relation(fields: [orderItemId], references: [id])
+
+  @@index([orderItemId, id])
+  @@map("scan_order_item_specs")
+}
+
+model ScanOrderStatusHistory {
+  id           Int             @id @default(autoincrement()) @map("id")
+  orderId      Int             @map("order_id")
+  storeId      Int             @map("store_id")
+  fromStatus   ScanOrderStatus @map("from_status")
+  toStatus     ScanOrderStatus @map("to_status")
+  operatorType String          @map("operator_type")
+  operatorId   Int?            @map("operator_id")
+  reason       String?         @map("reason")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  order        ScanOrders      @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([storeId])
+  @@map("scan_order_status_histories")
+}
+
+model ScanOrderingMenuCategory {
+  id        Int                       @id @default(autoincrement()) @map("id")
+  storeId   Int                       @map("store_id")
+  name      String                    @map("name")
+  sortOrder Int                       @default(0) @map("sort_order")
+  isActive  Boolean                   @default(true) @map("is_active")
+  version   Int                       @default(0) @map("version")
+  createdAt DateTime                  @default(now()) @map("created_at")
+  updatedAt DateTime                  @updatedAt @map("updated_at")
+  deletedAt DateTime?                 @map("deleted_at")
+  products  ScanOrderingMenuProduct[]
+
+  @@unique([storeId, name], map: "uq_menu_category_store_name_active", where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, isActive, sortOrder])
+  @@map("scan_ordering_menu_categories")
+}
+
+model ScanOrderingMenuProduct {
+  id            Int                      @id @default(autoincrement()) @map("id")
+  storeId       Int                      @map("store_id")
+  categoryId    Int                      @map("category_id")
+  name          String                   @map("name")
+  description   String?                  @map("description") @db.VarChar(500)
+  imageUrl      String?                  @map("image_url")
+  basePrice     Int                      @map("base_price")
+  stockMode     ScanOrderingStockMode    @default(unlimited) @map("stock_mode")
+  stockQuantity Int?                     @map("stock_quantity")
+  salesCount    Int                      @default(0) @map("sales_count")
+  isRecommended Boolean                  @default(false) @map("is_recommended")
+  availableFrom String?                  @map("available_from") @db.VarChar(5)
+  availableTo   String?                  @map("available_to") @db.VarChar(5)
+  sortOrder     Int                      @default(0) @map("sort_order")
+  isActive      Boolean                  @default(true) @map("is_active")
+  version       Int                      @default(0) @map("version")
+  createdAt     DateTime                 @default(now()) @map("created_at")
+  updatedAt     DateTime                 @updatedAt @map("updated_at")
+  deletedAt     DateTime?                @map("deleted_at")
+  /// 关联的普通商品 ID（可选，为 null 表示独立创建的菜单商品）
+  productId     Int?                     @map("product_id")
+  category      ScanOrderingMenuCategory @relation(fields: [categoryId], references: [id])
+  product       Product?                 @relation(fields: [productId], references: [id])
+  specGroups    ScanOrderingSpecGroup[]
+
+  @@unique([storeId, name], map: "uq_menu_product_store_name_active", where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, categoryId, isActive, sortOrder])
+  @@index([storeId, isActive])
+  @@index([productId])
+  @@map("scan_ordering_menu_products")
+}
+
+model ScanOrderingSpecGroup {
+  id            Int                           @id @default(autoincrement()) @map("id")
+  menuProductId Int                           @map("menu_product_id")
+  name          String                        @map("name")
+  selectionType ScanOrderingSpecSelectionType @default(single) @map("selection_type")
+  minSelections Int                           @default(1) @map("min_selections")
+  maxSelections Int                           @default(1) @map("max_selections")
+  isActive      Boolean                       @default(true) @map("is_active")
+  version       Int                           @default(0) @map("version")
+  createdAt     DateTime                      @default(now()) @map("created_at")
+  updatedAt     DateTime                      @updatedAt @map("updated_at")
+  product       ScanOrderingMenuProduct       @relation(fields: [menuProductId], references: [id])
+  options       ScanOrderingSpecOption[]
+
+  @@index([menuProductId, isActive])
+  @@map("scan_ordering_spec_groups")
+}
+
+model ScanOrderingSpecOption {
+  id            Int                   @id @default(autoincrement()) @map("id")
+  groupId       Int                   @map("group_id")
+  name          String                @map("name")
+  extraPrice    Int                   @map("extra_price")
+  stockQuantity Int?                  @map("stock_quantity")
+  isActive      Boolean               @default(true) @map("is_active")
+  version       Int                   @default(0) @map("version")
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+  group         ScanOrderingSpecGroup @relation(fields: [groupId], references: [id])
+
+  @@index([groupId, isActive])
+  @@map("scan_ordering_spec_options")
+}
+
+model ScanOrderingTableQrCode {
+  id              Int                      @id @default(autoincrement()) @map("id")
+  storeId         Int                      @map("store_id")
+  tableId         Int                      @unique(map: "uq_scan_ordering_active_qr_per_table", where: raw("(status = 'active'::\"ScanOrderingQrCodeStatus\")")) @map("table_id")
+  tokenHash       String                   @map("token_hash") @db.VarChar(128)
+  tokenPrefix     String?                  @map("token_prefix") @db.VarChar(16)
+  version         Int                      @map("version")
+  status          ScanOrderingQrCodeStatus @default(active) @map("status")
+  expiresAt       DateTime?                @map("expires_at")
+  revokedAt       DateTime?                @map("revoked_at")
+  createdByUserId Int?                     @map("created_by_user_id")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  table           ScanOrderingTable        @relation(fields: [tableId], references: [id])
+
+  @@index([tableId])
+  @@index([storeId])
+  @@index([tokenHash])
+  @@index([tokenHash], map: "idx_qr_token_hash_active", where: raw("(status = 'active'::\"ScanOrderingQrCodeStatus\")"))
+  @@map("scan_ordering_table_qr_codes")
+}
+
+model ScanOrderPaymentAttempt {
+  id                    Int                           @id @default(autoincrement()) @map("id")
+  orderId               Int                           @map("order_id")
+  storeId               Int                           @map("store_id")
+  paymentChannel        String                        @map("payment_channel") @db.VarChar(32)
+  merchantPaymentNo     String                        @unique @map("merchant_payment_no") @db.VarChar(64)
+  providerTransactionId String?                       @unique(map: "uq_payment_attempt_provider_txn", where: raw("(provider_transaction_id IS NOT NULL)")) @map("provider_transaction_id") @db.VarChar(128)
+  amount                Int                           @map("amount")
+  status                ScanOrderPaymentAttemptStatus @default(created) @map("status")
+  requestPayloadHash    String?                       @map("request_payload_hash") @db.VarChar(64)
+  callbackPayload       Json?                         @map("callback_payload")
+  paidAt                DateTime?                     @map("paid_at")
+  expiredAt             DateTime?                     @map("expired_at")
+  createdAt             DateTime                      @default(now()) @map("created_at")
+  updatedAt             DateTime                      @updatedAt @map("updated_at")
+  order                 ScanOrders                    @relation(fields: [orderId], references: [id])
+
+  @@index([orderId, createdAt(sort: Desc)])
+  @@index([status, expiredAt])
+  @@map("scan_order_payment_attempts")
+}
+
+model ScanOrderCouponUsage {
+  id             Int                        @id @default(autoincrement()) @map("id")
+  orderId        Int                        @map("order_id")
+  couponId       Int                        @unique(map: "uq_coupon_usage_active_lock", where: raw("(status = ANY (ARRAY['locked'::\"ScanOrderCouponUsageStatus\", 'consumed'::\"ScanOrderCouponUsageStatus\"]))")) @map("coupon_id")
+  clubUserId     Int                        @map("club_user_id")
+  storeId        Int                        @map("store_id")
+  discountAmount Int                        @map("discount_amount")
+  status         ScanOrderCouponUsageStatus @default(locked) @map("status")
+  lockedAt       DateTime                   @default(now()) @map("locked_at")
+  consumedAt     DateTime?                  @map("consumed_at")
+  releasedAt     DateTime?                  @map("released_at")
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @updatedAt @map("updated_at")
+  order          ScanOrders                 @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([clubUserId, status])
+  @@index([couponId, status])
+  @@map("scan_order_coupon_usages")
+}
+
+model ScanOrderServiceCall {
+  id             Int                        @id @default(autoincrement()) @map("id")
+  storeId        Int                        @map("store_id")
+  tableId        Int                        @map("table_id")
+  sessionId      Int                        @map("session_id")
+  clubUserId     Int?                       @map("club_user_id")
+  callType       ScanOrderServiceCallType   @default(waiter) @map("call_type")
+  remark         String?                    @map("remark") @db.VarChar(200)
+  status         ScanOrderServiceCallStatus @default(pending) @map("status")
+  requestedAt    DateTime                   @default(now()) @map("requested_at")
+  acknowledgedAt DateTime?                  @map("acknowledged_at")
+  resolvedAt     DateTime?                  @map("resolved_at")
+  createdAt      DateTime                   @default(now()) @map("created_at")
+  updatedAt      DateTime                   @updatedAt @map("updated_at")
+  session        ScanOrderingSession        @relation(fields: [sessionId], references: [id])
+  table          ScanOrderingTable          @relation(fields: [tableId], references: [id])
+
+  @@index([storeId, status, requestedAt])
+  @@index([sessionId, callType, requestedAt(sort: Desc)])
+  @@index([storeId, status, requestedAt], map: "idx_service_calls_store_pending", where: raw("(status = ANY (ARRAY['pending'::\"ScanOrderServiceCallStatus\", 'acknowledged'::\"ScanOrderServiceCallStatus\"]))"))
+  @@map("scan_order_service_calls")
+}
+
+model ScanOrderRefundTask {
+  id                    Int                       @id @default(autoincrement()) @map("id")
+  orderId               Int                       @map("order_id")
+  storeId               Int                       @map("store_id")
+  paymentAttemptId      Int?                      @map("payment_attempt_id")
+  triggerType           ScanOrderRefundTrigger    @map("trigger_type")
+  status                ScanOrderRefundTaskStatus @default(pending) @map("status")
+  refundAmount          Int                       @map("refund_amount")
+  merchantPaymentNo     String?                   @map("merchant_payment_no") @db.VarChar(64)
+  providerTransactionId String?                   @map("provider_transaction_id") @db.VarChar(128)
+  providerRefundNo      String?                   @map("provider_refund_no") @db.VarChar(64)
+  providerRefundId      String?                   @map("provider_refund_id") @db.VarChar(128)
+  failureReason         String?                   @map("failure_reason") @db.VarChar(500)
+  operatorType          String                    @default("system") @map("operator_type") @db.VarChar
+  operatorId            Int?                      @map("operator_id")
+  triggeredAt           DateTime                  @default(now()) @map("triggered_at") @db.Timestamptz(6)
+  refundSucceededAt     DateTime?                 @map("refund_succeeded_at") @db.Timestamptz(6)
+  createdAt             DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  order                 ScanOrders                @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([orderId])
+  @@index([storeId, status])
+  @@index([triggerType, status])
+  @@map("scan_order_refund_tasks")
+}
+
+model IdempotencyRecord {
+  id               Int                     @id @default(autoincrement()) @map("id")
+  scope            String                  @map("scope") @db.VarChar(64)
+  idempotencyKey   String                  @map("idempotency_key") @db.VarChar(128)
+  actorId          Int                     @map("actor_id")
+  requestHash      String                  @map("request_hash") @db.Char(64)
+  resourceType     String?                 @map("resource_type") @db.VarChar(64)
+  resourceId       Int?                    @map("resource_id")
+  responseSnapshot Json?                   @map("response_snapshot")
+  status           IdempotencyRecordStatus @default(processing) @map("status")
+  expiresAt        DateTime                @map("expires_at")
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+
+  @@unique([scope, actorId, idempotencyKey])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+enum ScanOrderingTableStatus {
+  empty
+  dining
+  clearing
+  disabled
+}
+
+enum ScanOrderingSessionStatus {
+  active
+  checked_out
+  expired
+  left
+}
+
+enum CartItemStatus {
+  active
+  removed
+  ordered
+  expired
+}
+
+enum ScanOrderStatus {
+  pending_payment
+  pending_acceptance
+  preparing
+  served
+  completed
+  cancelled
+  rejected
+  refunding
+}
+
+enum ScanOrderPaymentStatus {
+  unpaid
+  paid
+  refunding
+  refunded
+}
+
+enum ScanOrderFulfillmentStatus {
+  preparing
+  served
+  closed
+}
+
+enum ScanOrderingStockMode {
+  unlimited
+  finite
+  sold_out
+}
+
+enum ScanOrderingSpecSelectionType {
+  single
+  multiple
+}
+
+enum ScanOrderingQrCodeStatus {
+  active
+  revoked
+}
+
+enum ScanOrderPaymentAttemptStatus {
+  created
+  paying
+  succeeded
+  failed
+  closed
+  refunded
+}
+
+enum ScanOrderCouponUsageStatus {
+  locked
+  consumed
+  released
+  refunded
+}
+
+enum ScanOrderServiceCallStatus {
+  pending
+  acknowledged
+  resolved
+  cancelled
+}
+
+enum ScanOrderServiceCallType {
+  waiter
+  water
+  checkout
+  other
+}
+
+enum IdempotencyRecordStatus {
+  processing
+  succeeded
+  failed
+}
+
+enum ScanOrderRefundTaskStatus {
+  pending
+  refunding
+  succeeded
+  failed
+  manual_pending
+}
+
+enum ScanOrderRefundTrigger {
+  anomalous_payment
+  merchant_reject
+}

@@ -188,7 +188,8 @@ export class ClubMemberLevelConfigDto {
 
   @ApiProperty({
     example: '再充值 ¥500 升级',
-    description: '升级提示文案；前端直接渲染，禁止再做 requiredConsume - totalConsume 计算',
+    description:
+      '升级提示文案；前端直接渲染，禁止再做 requiredConsume - totalConsume 计算',
   })
   @IsString({ message: '升级提示文案必须是字符串' })
   upgradeHintText: string;

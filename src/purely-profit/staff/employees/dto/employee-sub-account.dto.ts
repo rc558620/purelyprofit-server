@@ -24,8 +24,7 @@ export class UpdateEmployeeSubAccountDto {
 
   @ApiProperty({
     example: 'cashier01',
-    description:
-      '子账号登录账号，须以字母开头，支持字母/数字/下划线，6~18 位',
+    description: '子账号登录账号，须以字母开头，支持字母/数字/下划线，6~18 位',
   })
   @IsString({ message: '登录账号必须是字符串' })
   @MinLength(6, { message: '登录账号至少 6 位' })

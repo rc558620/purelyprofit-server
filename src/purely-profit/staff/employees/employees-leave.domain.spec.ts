@@ -1,5 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
-import { calculateLeaveDays, assertLeaveBusinessRules } from './employees-leave.domain';
+import {
+  calculateLeaveDays,
+  assertLeaveBusinessRules,
+} from './employees-leave.domain';
 
 // ─── calculateLeaveDays ────────────────────────────────────────
 

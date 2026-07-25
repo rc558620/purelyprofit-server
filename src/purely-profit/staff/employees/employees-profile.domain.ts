@@ -100,7 +100,9 @@ export function buildUpdateEmployeeProfileData(
     ...(input.joinDate !== undefined
       ? { joinDate: new Date(input.joinDate) }
       : {}),
-    ...(input.baseSalary !== undefined ? { baseSalary: Money.fromInputYuan(input.baseSalary).toDbCents() } : {}),
+    ...(input.baseSalary !== undefined
+      ? { baseSalary: Money.fromInputYuan(input.baseSalary).toDbCents() }
+      : {}),
     ...(input.avatar !== undefined
       ? { avatar: toNullableText(input.avatar) }
       : {}),

@@ -1,7 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class LivePreviewResponseDto {
-  @ApiProperty({ example: 1715695200000, description: '预览计算基准时间戳（毫秒）' })
+  @ApiProperty({
+    example: 1715695200000,
+    description: '预览计算基准时间戳（毫秒）',
+  })
   asOf: number;
 
   @ApiProperty({ example: 95, description: '当前计费总分钟数' })
@@ -45,6 +48,9 @@ export class RenewPreviewResponseDto {
   @ApiProperty({ example: true, description: '续费是否有效' })
   valid: boolean;
 
-  @ApiPropertyOptional({ example: '续费金额不足以换算有效时长', description: '无效原因' })
+  @ApiPropertyOptional({
+    example: '续费金额不足以换算有效时长',
+    description: '无效原因',
+  })
   reason?: string;
 }

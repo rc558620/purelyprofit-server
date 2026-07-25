@@ -1,19 +1,24 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ClubOrderServicePaymentService } from '../orders/club-order-service-payment.service';
 import { ClubRechargePaymentService } from '../recharge/club-recharge-payment.service';
+import { ClubScanOrderingPaymentService } from '../scan-ordering/club-scan-ordering-payment.service';
 import type {
   ClubPaymentCallbackResult,
   ClubPaymentCallbackSettlementParams,
 } from './club-payments.types';
 
 /** 订单号前缀 → 订单类型映射 */
-const ORDER_NO_TYPE_MAP: Record<string, 'recharge' | 'service'> = {
+const ORDER_NO_TYPE_MAP: Record<
+  string,
+  'recharge' | 'service' | 'scan_ordering'
+> = {
   RC: 'recharge',
   SV: 'service',
+  SO: 'scan_ordering',
 };
 
 /** 订单号格式正则：SV/RC + 年4位+月2位+日2位+时2位+分2位+秒2位+毫秒3位 + 4位HEX */
-const ORDER_NO_PATTERN = /^(?:RC|SV)\d{17}[0-9A-Fa-f]{4}$/;
+const ORDER_NO_PATTERN = /^(?:RC|SV|SO)[A-Za-z0-9-]+$/;
 
 /**
  * 校验 ORDER_NO_TYPE_MAP 的 key 与 ORDER_NO_PATTERN 中的前缀选项一致。
@@ -44,6 +49,7 @@ export class ClubPaymentCallbackDispatchService {
   constructor(
     private readonly clubRechargePaymentService: ClubRechargePaymentService,
     private readonly clubOrderServicePaymentService: ClubOrderServicePaymentService,
+    private readonly clubScanOrderingPaymentService: ClubScanOrderingPaymentService,
   ) {}
 
   /**
@@ -71,14 +77,21 @@ export class ClubPaymentCallbackDispatchService {
         settlementParams,
       );
     }
-
+    if (orderType === 'scan_ordering') {
+      return this.clubScanOrderingPaymentService.confirmOrderPaidByCallback(
+        orderNo,
+        settlementParams,
+      );
+    }
     return this.clubOrderServicePaymentService.confirmOrderPaidByCallback(
       orderNo,
       settlementParams,
     );
   }
 
-  private resolveOrderTypeByOrderNo(orderNo: string): 'recharge' | 'service' {
+  private resolveOrderTypeByOrderNo(
+    orderNo: string,
+  ): 'recharge' | 'service' | 'scan_ordering' {
     const prefix = orderNo.slice(0, 2).toUpperCase();
     const orderType = ORDER_NO_TYPE_MAP[prefix];
 

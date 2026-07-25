@@ -70,7 +70,9 @@ describe('AppController', () => {
 
       expect(health).toMatchObject({
         status: 'ok',
-        generatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
+        generatedAt: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+        ),
         process: {
           pid: process.pid,
           nodeVersion: process.version,
@@ -95,7 +97,9 @@ describe('AppController', () => {
 
       expect(readiness).toMatchObject({
         status: 'ok',
-        generatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
+        generatedAt: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+        ),
         dependencies: [
           {
             name: 'database',
@@ -638,7 +642,9 @@ describe('AppController', () => {
           },
           lastFailedKey: 'profit:dashboard:home:store:18:period:today',
           lastFailedSample: {
-            capturedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
+            capturedAt: expect.stringMatching(
+              /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+            ),
             cacheKey: 'profit:dashboard:home:store:18:period:today',
             durationMs: 80,
             errorTag: 'Error',
@@ -647,10 +653,14 @@ describe('AppController', () => {
         },
         latestFailedCategory: {
           category: 'dashboardHome',
-          lastFailedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
+          lastFailedAt: expect.stringMatching(
+            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+          ),
           lastFailedKey: 'profit:dashboard:home:store:18:period:today',
           lastFailedSample: {
-            capturedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/),
+            capturedAt: expect.stringMatching(
+              /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+            ),
             cacheKey: 'profit:dashboard:home:store:18:period:today',
             durationMs: 80,
             errorTag: 'Error',

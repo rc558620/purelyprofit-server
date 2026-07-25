@@ -22,6 +22,8 @@ import {
 } from '@nestjs/swagger';
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
+import { BusinessModeGuard } from '../../stores/business-mode.guard';
+import { RequireBusinessMode } from '../../stores/business-mode.decorator';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import {
   CreateSpaceReservationDto,
@@ -34,7 +36,8 @@ import { SPACE_RESERVATION_STATUS_SWAGGER_DESCRIPTION } from './spaces.constants
 
 @ApiTags('SpaceReservations')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BusinessModeGuard)
+@RequireBusinessMode('general')
 @Controller()
 export class SpaceReservationsController {
   constructor(

@@ -1,6 +1,4 @@
-import {
-  calcPercentChange,
-} from '../../commerce/commerce.utils';
+import { calcPercentChange } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import type { DashboardHomeStatsDto } from './dto/dashboard-home-response.dto';
 import { PERIOD_META } from './dashboard-home.constants';

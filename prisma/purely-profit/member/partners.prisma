@@ -1,4 +1,118 @@
-// 合伙人申请、账户与提现模型
+model StorePartner {
+  id                  Int                          @id @default(autoincrement())
+  storeId             Int                          @map("store_id")
+  status              PartnerAccountStatus         @default(pending)
+  name                String?
+  phone               String?
+  idCard              String?                      @map("id_card")
+  region              String[]                     @default([])
+  intention           PartnerIntention?
+  applyReason         String?                      @map("apply_reason")
+  paymentAccountType  WithdrawalAccountType?       @map("payment_account_type")
+  paymentAccountNo    String?                      @map("payment_account_no")
+  paymentAccountName  String?                      @map("payment_account_name")
+  beanBalance         Int                          @default(0) @map("bean_balance")
+  totalEarnedBeans    Int                          @default(0) @map("total_earned_beans")
+  totalWithdrawnBeans Int                          @default(0) @map("total_withdrawn_beans")
+  joinedAt            DateTime?                    @map("joined_at")
+  reviewedAt          DateTime?                    @map("reviewed_at")
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt           DateTime?                    @map("deleted_at")
+  createdAt           DateTime                     @default(now()) @map("created_at")
+  updatedAt           DateTime                     @updatedAt @map("updated_at")
+  withdrawals         PartnerWithdrawal[]
+  promoRecords        StoreMembershipPromoRecord[]
+  beanLogs            StorePartnerBeanLog[]
+  store               Store                        @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, status, updatedAt])
+  @@index([status, updatedAt])
+  @@map("store_partners")
+}
+
+model StorePartnerApplication {
+  id                 Int                           @id @default(autoincrement())
+  storeId            Int                           @map("store_id")
+  status             PartnerAccountStatus          @default(pending)
+  name               String
+  phone              String
+  idCard             String                        @map("id_card")
+  region             String[]                      @default([])
+  intention          PartnerIntention
+  applyReason        String?                       @map("apply_reason")
+  paymentAccountType WithdrawalAccountType         @map("payment_account_type")
+  paymentAccountNo   String                        @map("payment_account_no")
+  paymentAccountName String                        @map("payment_account_name")
+  reviewedAt         DateTime?                     @map("reviewed_at")
+  joinedAt           DateTime?                     @map("joined_at")
+  createdAt          DateTime                      @default(now()) @map("created_at")
+  updatedAt          DateTime                      @updatedAt @map("updated_at")
+  followUpNotes      StorePartnerApplicationNote[]
+  store              Store                         @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, createdAt])
+  @@index([storeId, status, updatedAt])
+  @@map("store_partner_applications")
+}
+
+model StorePartnerApplicationNote {
+  id            Int                     @id @default(autoincrement())
+  applicationId Int                     @map("application_id")
+  content       String
+  createdAt     DateTime                @default(now()) @map("created_at")
+  application   StorePartnerApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@map("store_partner_application_notes")
+}
+
+model StorePartnerBeanLog {
+  id                   Int                  @id @default(autoincrement())
+  storeId              Int                  @map("store_id")
+  partnerId            Int                  @map("partner_id")
+  source               MemberBeanSource
+  changeAmount         Int                  @map("change_amount")
+  description          String
+  relatedPromoRecordId Int?                 @map("related_promo_record_id")
+  relatedUser          String?              @map("related_user")
+  relatedPlanType      MembershipPlanCycle? @map("related_plan_type")
+  createdAt            DateTime             @default(now()) @map("created_at")
+  partner              StorePartner         @relation(fields: [partnerId], references: [id])
+  store                Store                @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, createdAt])
+  @@index([partnerId, createdAt])
+  @@index([source, createdAt])
+  @@map("store_partner_bean_logs")
+}
+
+model PartnerWithdrawal {
+  id              Int                     @id @default(autoincrement())
+  storeId         Int                     @map("store_id")
+  partnerId       Int                     @map("partner_id")
+  operatorStaffId Int?                    @map("operator_staff_id")
+  beanAmount      Int                     @map("bean_amount")
+  rmbAmount       Int                     @map("rmb_amount")
+  accountType     WithdrawalAccountType   @map("account_type")
+  accountNo       String                  @map("account_no")
+  accountName     String                  @map("account_name")
+  status          PartnerWithdrawalStatus @default(pending)
+  rejectReason    String?                 @map("reject_reason")
+  appliedAt       DateTime                @default(now()) @map("applied_at")
+  reviewedAt      DateTime?               @map("reviewed_at")
+  paidAt          DateTime?               @map("paid_at")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+  operatorStaff   Staff?                  @relation("PartnerWithdrawalsOperator", fields: [operatorStaffId], references: [id])
+  partner         StorePartner            @relation(fields: [partnerId], references: [id])
+  store           Store                   @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, appliedAt])
+  @@index([partnerId, appliedAt])
+  @@index([status, appliedAt])
+  @@index([operatorStaffId, appliedAt])
+  @@map("partner_withdrawals")
+}
 
 enum PartnerAccountStatus {
   pending
@@ -25,122 +139,4 @@ enum PartnerWithdrawalStatus {
   approved
   paid
   rejected
-}
-
-model StorePartner {
-  id                  Int                    @id @default(autoincrement())
-  storeId             Int                    @map("store_id")
-  store               Store                  @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  status              PartnerAccountStatus   @default(pending)
-  name                String?
-  phone               String?
-  idCard              String?                @map("id_card")
-  region              String[]               @default([])
-  intention           PartnerIntention?
-  applyReason         String?                @map("apply_reason")
-  paymentAccountType  WithdrawalAccountType? @map("payment_account_type")
-  paymentAccountNo    String?                @map("payment_account_no")
-  paymentAccountName  String?                @map("payment_account_name")
-  beanBalance         Int                    @default(0) @map("bean_balance")
-  totalEarnedBeans    Int                    @default(0) @map("total_earned_beans")
-  totalWithdrawnBeans Int                    @default(0) @map("total_withdrawn_beans")
-  joinedAt            DateTime?              @map("joined_at")
-  reviewedAt          DateTime?              @map("reviewed_at")
-  withdrawals         PartnerWithdrawal[]
-  beanLogs            StorePartnerBeanLog[]
-  promoRecords        StoreMembershipPromoRecord[] // Step 3: 0.9 新增反向关系
-  /// 软删除标记：非 null 表示已删除，值是删除时间
-  deletedAt           DateTime?              @map("deleted_at")
-  createdAt           DateTime               @default(now()) @map("created_at")
-  updatedAt           DateTime               @updatedAt @map("updated_at")
-
-  @@index([storeId, status, updatedAt])
-  @@index([status, updatedAt])
-  @@map("store_partners")
-}
-
-model StorePartnerApplication {
-  id                 Int                           @id @default(autoincrement())
-  storeId            Int                           @map("store_id")
-  store              Store                         @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  status             PartnerAccountStatus          @default(pending)
-  name               String
-  phone              String
-  idCard             String                        @map("id_card")
-  region             String[]                      @default([])
-  intention          PartnerIntention
-  applyReason        String?                       @map("apply_reason")
-  paymentAccountType WithdrawalAccountType         @map("payment_account_type")
-  paymentAccountNo   String                        @map("payment_account_no")
-  paymentAccountName String                        @map("payment_account_name")
-  reviewedAt         DateTime?                     @map("reviewed_at")
-  joinedAt           DateTime?                     @map("joined_at")
-  followUpNotes      StorePartnerApplicationNote[]
-  createdAt          DateTime                      @default(now()) @map("created_at")
-  updatedAt          DateTime                      @updatedAt @map("updated_at")
-
-  @@index([storeId, createdAt])
-  @@index([storeId, status, updatedAt])
-  @@map("store_partner_applications")
-}
-
-model StorePartnerApplicationNote {
-  id            Int                     @id @default(autoincrement())
-  applicationId Int                     @map("application_id")
-  application   StorePartnerApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  content       String
-  createdAt     DateTime                @default(now()) @map("created_at")
-
-  @@index([applicationId, createdAt])
-  @@map("store_partner_application_notes")
-}
-
-model StorePartnerBeanLog {
-  id                   Int                  @id @default(autoincrement())
-  storeId              Int                  @map("store_id")
-  store                Store                @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  partnerId            Int                  @map("partner_id")
-  /// 合伙人被软删除后保留豆流水，onDelete: Restrict 防止意外硬删合伙人
-  partner              StorePartner         @relation(fields: [partnerId], references: [id], onDelete: Restrict)
-  source               MemberBeanSource
-  changeAmount         Int                  @map("change_amount")
-  description          String
-  relatedPromoRecordId Int?                 @map("related_promo_record_id")
-  relatedUser          String?              @map("related_user")
-  relatedPlanType      MembershipPlanCycle? @map("related_plan_type")
-  createdAt            DateTime             @default(now()) @map("created_at")
-
-  @@index([storeId, createdAt])
-  @@index([partnerId, createdAt])
-  @@index([source, createdAt])
-  @@map("store_partner_bean_logs")
-}
-
-model PartnerWithdrawal {
-  id              Int                     @id @default(autoincrement())
-  storeId         Int                     @map("store_id")
-  store           Store                   @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  partnerId       Int                     @map("partner_id")
-  /// 合伙人被软删除后保留提现记录，onDelete: Restrict 防止意外硬删合伙人
-  partner         StorePartner            @relation(fields: [partnerId], references: [id], onDelete: Restrict)
-  operatorStaffId Int?                    @map("operator_staff_id")
-  operatorStaff   Staff?                  @relation("PartnerWithdrawalsOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
-  beanAmount      Int                     @map("bean_amount")
-  rmbAmount       Int                     @map("rmb_amount")
-  accountType     WithdrawalAccountType   @map("account_type")
-  accountNo       String                  @map("account_no")
-  accountName     String                  @map("account_name")
-  status          PartnerWithdrawalStatus @default(pending)
-  rejectReason    String?                 @map("reject_reason")
-  appliedAt       DateTime                @default(now()) @map("applied_at")
-  reviewedAt      DateTime?               @map("reviewed_at")
-  paidAt          DateTime?               @map("paid_at")
-  createdAt       DateTime                @default(now()) @map("created_at")
-  updatedAt       DateTime                @updatedAt @map("updated_at")
-
-  @@index([storeId, appliedAt])
-  @@index([partnerId, appliedAt])
-  @@index([status, appliedAt])
-  @@index([operatorStaffId, appliedAt])
-  @@map("partner_withdrawals")
 }

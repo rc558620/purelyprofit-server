@@ -10,8 +10,6 @@ export const financeReportCacheInvalidatorProvider: CacheInvalidatorProvider<
   Pick<FinanceCacheInvalidatorRegistry, 'invalidateFinanceReport'>
 > = (input: FinanceCacheInvalidatorInput) => ({
   invalidateFinanceReport: async (storeId: number): Promise<void> => {
-    await input.redisService.delByPattern(
-      buildFinanceReportPattern(storeId),
-    );
+    await input.redisService.delByPattern(buildFinanceReportPattern(storeId));
   },
 });

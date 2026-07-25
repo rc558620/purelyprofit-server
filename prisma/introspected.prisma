@@ -1,0 +1,9 @@
+enum StoreIndustry {
+  retail
+  catering
+  beauty
+  fitness
+  entertainment
+  service
+  other
+}

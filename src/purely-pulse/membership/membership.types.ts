@@ -4,7 +4,11 @@ import { PLATFORM_MEMBERSHIP_PLAN_IDS } from '../../purely-profit/member/platfor
 export type PulseMembershipPlanId =
   (typeof PLATFORM_MEMBERSHIP_PLAN_IDS)[number];
 
-export type PulseMemberStatusValue = 'active' | 'inactive' | 'banned' | 'cancelled';
+export type PulseMemberStatusValue =
+  | 'active'
+  | 'inactive'
+  | 'banned'
+  | 'cancelled';
 
 export type PulseMemberLevelValue =
   | 'free'

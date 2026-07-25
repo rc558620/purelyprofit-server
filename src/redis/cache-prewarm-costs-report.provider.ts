@@ -1,13 +1,14 @@
-import {
-  buildCostsAllPattern,
-} from './cache-keys';
+import { buildCostsAllPattern } from './cache-keys';
 import { prewarmCacheCategory } from './cache-prewarm.executor';
 import type {
   CachePrewarmProfitReadCategoryConfigProvider,
   CachePrewarmProfitReadConfigInput,
 } from './cache-prewarm.config.types';
 import type { CachePrewarmExecutionOptions } from './cache-prewarm.types';
-import type { CostReportPeriodValue, CostReportCategoryFilterValue } from '../purely-profit/operations/costs/costs.types';
+import type {
+  CostReportPeriodValue,
+  CostReportCategoryFilterValue,
+} from '../purely-profit/operations/costs/costs.types';
 
 function parseCostsReportCacheKey(cacheKey: string): {
   storeId: number;
@@ -26,7 +27,16 @@ function parseCostsReportCacheKey(cacheKey: string): {
     return null;
   }
 
-  const [, rawStoreId, rawPeriod, rawYear, rawCustomDate, rawRangeStart, rawRangeEnd, rawCategory] = match;
+  const [
+    ,
+    rawStoreId,
+    rawPeriod,
+    rawYear,
+    rawCustomDate,
+    rawRangeStart,
+    rawRangeEnd,
+    rawCategory,
+  ] = match;
 
   return {
     storeId: Number(rawStoreId),
@@ -55,7 +65,9 @@ export const costsReportCachePrewarmProvider: CachePrewarmProfitReadCategoryConf
             customDate: parsed.customDate,
             rangeStartDate: parsed.rangeStartDate,
             rangeEndDate: parsed.rangeEndDate,
-            categoryFilter: parsed.categoryFilter as CostReportCategoryFilterValue | undefined,
+            categoryFilter: parsed.categoryFilter as
+              | CostReportCategoryFilterValue
+              | undefined,
           }),
         options,
       ),

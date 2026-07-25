@@ -8,6 +8,7 @@ import {
   IsString,
 } from 'class-validator';
 import type { ProfitHomeModule } from '../../access-control/subject-capability.service';
+import type { StoreBusinessMode } from '@prisma/client';
 
 export class AuthCapabilityResponseDto {
   @ApiProperty({
@@ -119,4 +120,48 @@ export class AuthCapabilityResponseDto {
   @ApiProperty({ example: false, description: '是否可以访问门店设置' })
   @IsBoolean()
   canAccessStoreSettings: boolean;
+
+  // ─── 门店业态能力 ────────────────────────────────────────
+
+  @ApiProperty({
+    example: 'general',
+    description: '门店业态：catering=餐饮，general=非餐饮',
+  })
+  @IsString()
+  businessMode: StoreBusinessMode;
+
+  @ApiProperty({
+    example: false,
+    description: '是否为餐饮门店',
+  })
+  @IsBoolean()
+  isCateringStore: boolean;
+
+  @ApiProperty({
+    example: true,
+    description: '是否为非餐饮门店',
+  })
+  @IsBoolean()
+  isGeneralStore: boolean;
+
+  @ApiProperty({
+    example: false,
+    description: '是否可使用扫码点餐（仅餐饮门店）',
+  })
+  @IsBoolean()
+  canUseScanOrdering: boolean;
+
+  @ApiProperty({
+    example: false,
+    description: '是否可管理扫码点餐菜单（仅餐饮门店）',
+  })
+  @IsBoolean()
+  canManageScanOrderingMenu: boolean;
+
+  @ApiProperty({
+    example: true,
+    description: '是否可使用营销商品上架（仅非餐饮门店）',
+  })
+  @IsBoolean()
+  canUseMarketingProductListing: boolean;
 }

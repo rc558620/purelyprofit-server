@@ -259,7 +259,9 @@ export class ClubPromotionsService {
           result.threshold = Money.fromDbCents(result.threshold).toOutputYuan();
         }
         if (typeof result.reduceAmount === 'number') {
-          result.reduceAmount = Money.fromDbCents(result.reduceAmount).toOutputYuan();
+          result.reduceAmount = Money.fromDbCents(
+            result.reduceAmount,
+          ).toOutputYuan();
         }
         break;
 
@@ -267,12 +269,20 @@ export class ClubPromotionsService {
         if (Array.isArray(result.gradients)) {
           result.gradients = result.gradients.map(
             (gradient: MarketingPromotionParamsValue) => {
-              if (!gradient || typeof gradient !== 'object' || Array.isArray(gradient)) {
+              if (
+                !gradient ||
+                typeof gradient !== 'object' ||
+                Array.isArray(gradient)
+              ) {
                 return gradient;
               }
-              const g = { ...(gradient as Record<string, MarketingPromotionParamValue>) };
+              const g = {
+                ...(gradient as Record<string, MarketingPromotionParamValue>),
+              };
               if (typeof g.rechargeAmount === 'number') {
-                g.rechargeAmount = Money.fromDbCents(g.rechargeAmount).toOutputYuan();
+                g.rechargeAmount = Money.fromDbCents(
+                  g.rechargeAmount,
+                ).toOutputYuan();
               }
               if (typeof g.giftAmount === 'number') {
                 g.giftAmount = Money.fromDbCents(g.giftAmount).toOutputYuan();
@@ -286,7 +296,9 @@ export class ClubPromotionsService {
       case 'points_recharge':
         // points_recharge 的 rechargeAmount 可能也是分
         if (typeof result.rechargeAmount === 'number') {
-          result.rechargeAmount = Money.fromDbCents(result.rechargeAmount).toOutputYuan();
+          result.rechargeAmount = Money.fromDbCents(
+            result.rechargeAmount,
+          ).toOutputYuan();
         }
         break;
 

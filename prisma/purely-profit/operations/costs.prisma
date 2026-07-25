@@ -1,4 +1,29 @@
-// purely-profit/operations/costs: 成本模型
+model CostRecord {
+  id              Int              @id @default(autoincrement())
+  storeId         Int              @map("store_id")
+  operatorStaffId Int?             @map("operator_staff_id")
+  purchaseOrderId Int?             @map("purchase_order_id")
+  payrollId       Int?             @map("payroll_id")
+  sourceType      CostSourceType   @map("source_type")
+  title           String
+  type            CostType
+  category        CostCategory
+  amount          Int
+  note            String?
+  date            DateTime
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  operatorStaff   Staff?           @relation("CostRecordOperator", fields: [operatorStaffId], references: [id])
+  payroll         EmployeePayroll? @relation(fields: [payrollId], references: [id])
+  purchaseOrder   PurchaseOrder?   @relation(fields: [purchaseOrderId], references: [id])
+  store           Store            @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, date(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
+  @@index([storeId, type, date(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
+  @@index([storeId, category, date])
+  @@index([operatorStaffId, createdAt])
+  @@map("cost_records")
+}
 
 enum CostType {
   fixed
@@ -24,37 +49,4 @@ enum CostSourceType {
   payroll_salary
   payroll_insurance
   payroll_provident_fund
-}
-
-model CostRecord {
-  id              Int              @id @default(autoincrement())
-  storeId         Int              @map("store_id")
-  store           Store            @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  operatorStaffId Int?             @map("operator_staff_id")
-  operatorStaff   Staff?           @relation("CostRecordOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
-  purchaseOrderId Int?             @map("purchase_order_id")
-  purchaseOrder   PurchaseOrder?   @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
-  payrollId       Int?             @map("payroll_id")
-  payroll         EmployeePayroll? @relation(fields: [payrollId], references: [id], onDelete: SetNull)
-  sourceType      CostSourceType   @map("source_type")
-  title           String
-  type            CostType
-  category        CostCategory
-  amount          Int              // 金额（分）
-  note            String?
-  date            DateTime
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
-
-  // storeId + sourceType + purchaseOrderId 的唯一约束通过 Partial Index（原生 SQL）实现，
-  // 仅对 purchaseOrderId IS NOT NULL 的行生效，允许 SetNull 后重新 upsert。
-  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE purchase_order_id IS NOT NULL
-  // storeId + sourceType + payrollId 的唯一约束通过 Partial Index（原生 SQL）实现，
-  // 仅对 payrollId IS NOT NULL 的行生效，允许 SetNull 后重新 upsert。
-  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE payroll_id IS NOT NULL
-  @@index([storeId, date(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
-  @@index([storeId, type, date(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
-  @@index([storeId, category, date])
-  @@index([operatorStaffId, createdAt])
-  @@map("cost_records")
 }

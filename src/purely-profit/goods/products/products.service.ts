@@ -14,12 +14,15 @@ import {
 } from '../../commerce/commerce.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { RedisService } from '../../../redis/redis.service';
 import { Money } from '../../../shared/money.utils';
 import type {
   CreateProductDto,
   ListProductsQueryDto,
   PaginatedProductsResponseDto,
   ProductResponseDto,
+  ScanOrderingStatusResponseDto,
+  ToggleScanOrderingStatusDto,
   UpdateProductDto,
 } from './dto/product.dto';
 import {
@@ -41,6 +44,7 @@ import {
 import type {
   ProductCreateInput,
   ProductListQueryInput,
+  ProductRecord,
   ProductUpdateInput,
 } from './products.types';
 
@@ -51,6 +55,7 @@ export class ProductsService {
     private readonly configService: ConfigService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly platformMembershipAccessService: PlatformMembershipAccessService,
+    private readonly redisService: RedisService,
   ) {}
 
   async list(
@@ -146,7 +151,13 @@ export class ProductsService {
 
     const product = await createProductRecord(
       this.prisma,
-      this.buildCreateProductData(dto, storeId, category?.id ?? null, code, profitMoney),
+      this.buildCreateProductData(
+        dto,
+        storeId,
+        category?.id ?? null,
+        code,
+        profitMoney,
+      ),
     );
 
     return buildProductResponse(product);
@@ -217,8 +228,24 @@ export class ProductsService {
     const updated = await updateProductRecord(
       this.prisma,
       product.id,
-      this.buildUpdateProductData(dto, resolvedCode, resolvedCategoryUpdate, nextProfit),
+      this.buildUpdateProductData(
+        dto,
+        resolvedCode,
+        resolvedCategoryUpdate,
+        nextProfit,
+      ),
     );
+
+    // 同步商品信息变更到关联的扫码菜单商品
+    await this.syncScanOrderingMenuProduct(product.storeId, product.id, {
+      ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+      ...(dto.price !== undefined
+        ? { basePrice: Money.fromInputYuan(dto.price).toDbCents() }
+        : {}),
+      ...(dto.image !== undefined
+        ? { imageUrl: toNullableMediaText(dto.image) ?? null }
+        : {}),
+    });
 
     return buildProductResponse(updated);
   }
@@ -238,6 +265,175 @@ export class ProductsService {
     );
 
     await deleteProductRecord(this.prisma, product.id);
+
+    // 商品删除时清理扫码菜单关联
+    await this.cleanupScanOrderingMenuProduct(product.storeId, product.id);
+  }
+
+  /**
+   * 上架/下架到扫码点餐（仅餐饮门店）。
+   *
+   * enabled=true: 创建或恢复扫码菜单商品关联，同步普通商品基本信息。
+   * enabled=false: 仅从扫码菜单下架，不删除普通商品。
+   */
+  async toggleScanOrderingStatus(
+    user: AuthenticatedUser,
+    productId: number,
+    dto: ToggleScanOrderingStatusDto,
+  ): Promise<ScanOrderingStatusResponseDto> {
+    const product = await findProductById(this.prisma, productId);
+    if (!product) {
+      throw new NotFoundException('商品不存在');
+    }
+
+    await this.commerceAccessService.ensureCanAccessStore(
+      user,
+      product.storeId,
+      'goods:update',
+      '无权操作该门店商品',
+    );
+
+    if (dto.enabled) {
+      await this.enableScanOrdering(product, dto.categoryId);
+    } else {
+      await this.disableScanOrdering(product.storeId, productId);
+    }
+
+    // 失效扫码菜单缓存
+    await this.invalidateScanOrderingMenuCache(product.storeId);
+
+    return {
+      id: String(productId),
+      scanOrderingEnabled: dto.enabled,
+    };
+  }
+
+  private async enableScanOrdering(
+    product: ProductRecord,
+    categoryId?: number,
+  ): Promise<void> {
+    const existing = await this.prisma.scanOrderingMenuProduct.findFirst({
+      where: { storeId: product.storeId, productId: product.id },
+    });
+
+    if (existing) {
+      await this.prisma.scanOrderingMenuProduct.update({
+        where: { id: existing.id },
+        data: {
+          isActive: true,
+          deletedAt: null,
+          name: product.name,
+          basePrice: product.price,
+          ...(categoryId ? { categoryId } : {}),
+        },
+      });
+      return;
+    }
+
+    if (!categoryId) {
+      const defaultCategory =
+        await this.prisma.scanOrderingMenuCategory.findFirst({
+          where: { storeId: product.storeId, deletedAt: null },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        });
+
+      if (!defaultCategory) {
+        const created = await this.prisma.scanOrderingMenuCategory.create({
+          data: {
+            storeId: product.storeId,
+            name: '默认分类',
+            sortOrder: 0,
+          },
+        });
+        categoryId = created.id;
+      } else {
+        categoryId = defaultCategory.id;
+      }
+    }
+
+    const category = await this.prisma.scanOrderingMenuCategory.findFirst({
+      where: { id: categoryId, storeId: product.storeId, deletedAt: null },
+    });
+    if (!category) {
+      throw new BadRequestException('扫码菜单分类不存在');
+    }
+
+    await this.prisma.scanOrderingMenuProduct.create({
+      data: {
+        storeId: product.storeId,
+        productId: product.id,
+        categoryId,
+        name: product.name,
+        imageUrl: product.image,
+        basePrice: product.price,
+        isActive: true,
+      },
+    });
+  }
+
+  private async disableScanOrdering(
+    storeId: number,
+    productId: number,
+  ): Promise<void> {
+    await this.prisma.scanOrderingMenuProduct.updateMany({
+      where: { storeId, productId, deletedAt: null },
+      data: { isActive: false },
+    });
+  }
+
+  /**
+   * 失效扫码菜单缓存。
+   * 在商品扫码状态变更、商品信息更新时调用。
+   */
+  private async invalidateScanOrderingMenuCache(
+    storeId: number,
+  ): Promise<void> {
+    try {
+      await this.redisService.del(`scanordering:menu:${storeId}`);
+    } catch {
+      // 缓存失效失败不影响主流程
+    }
+  }
+
+  /**
+   * 同步普通商品信息变更到关联的扫码菜单商品。
+   * 在商品名称、图片、价格等变更后调用。
+   */
+  private async syncScanOrderingMenuProduct(
+    storeId: number,
+    productId: number,
+    updates: { name?: string; basePrice?: number; imageUrl?: string | null },
+  ): Promise<void> {
+    const hasUpdates = Object.keys(updates).length > 0;
+    if (!hasUpdates) return;
+
+    try {
+      await this.prisma.scanOrderingMenuProduct.updateMany({
+        where: { storeId, productId, deletedAt: null },
+        data: updates,
+      });
+      await this.invalidateScanOrderingMenuCache(storeId);
+    } catch {
+      // 同步失败不影响商品主流程，但应记录日志
+    }
+  }
+
+  /**
+   * 商品删除时清理扫码菜单关联：软删除关联的扫码菜单商品。
+   */
+  private async cleanupScanOrderingMenuProduct(
+    storeId: number,
+    productId: number,
+  ): Promise<void> {
+    try {
+      await this.prisma.scanOrderingMenuProduct.updateMany({
+        where: { storeId, productId, deletedAt: null },
+        data: { isActive: false, deletedAt: new Date() },
+      });
+      await this.invalidateScanOrderingMenuCache(storeId);
+    } catch {
+      // 清理失败不影响商品删除主流程
+    }
   }
 
   private toListQueryInput(query: ListProductsQueryDto): ProductListQueryInput {
@@ -299,9 +495,7 @@ export class ProductsService {
         ? { price: Money.fromInputYuan(dto.price).toDbCents() }
         : {}),
       // profit 由服务端重算，忽略 dto.profit
-      ...(nextProfit !== undefined
-        ? { profit: nextProfit.toDbCents() }
-        : {}),
+      ...(nextProfit !== undefined ? { profit: nextProfit.toDbCents() } : {}),
       ...(dto.costPrice !== undefined
         ? {
             costPrice:
@@ -325,15 +519,16 @@ export class ProductsService {
     };
   }
 
-  private validateMoneyFields(
-    price: Money,
-    costPrice?: Money | null,
-  ): void {
+  private validateMoneyFields(price: Money, costPrice?: Money | null): void {
     if (!price.isPositive()) {
       throw new BadRequestException('售价必须大于 0');
     }
 
-    if (costPrice !== undefined && costPrice !== null && costPrice.isNegative()) {
+    if (
+      costPrice !== undefined &&
+      costPrice !== null &&
+      costPrice.isNegative()
+    ) {
       throw new BadRequestException('成本价不能为负数');
     }
   }

@@ -307,7 +307,9 @@ export class PulseMembershipAdminMemberReadService {
         summary.storeId,
         {
           rechargeCount: summary._count._all,
-          totalRecharged: Money.fromDbCents(summary._sum.amount ?? 0).toDbCents(),
+          totalRecharged: Money.fromDbCents(
+            summary._sum.amount ?? 0,
+          ).toDbCents(),
           lastPaidAt: summary._max.createdAt?.getTime() ?? null,
         },
       ]),

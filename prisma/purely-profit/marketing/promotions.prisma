@@ -1,20 +1,6 @@
-// purely-profit/marketing: 营销活动模型
-
-enum MarketingPromotionType {
-  discount
-  reduce
-  recharge_gift
-  first_order_discount
-  free
-  points_2x
-  points_recharge
-  discount_day
-}
-
 model MarketingPromotion {
   id            Int                    @id @default(autoincrement())
   storeId       Int                    @map("store_id")
-  store         Store                  @relation(fields: [storeId], references: [id], onDelete: Restrict)
   /// 活动名称
   name          String
   /// 活动类型
@@ -35,31 +21,36 @@ model MarketingPromotion {
   totalDiscount Int                    @default(0) @map("total_discount")
   /// 是否上架
   enabled       Boolean                @default(true)
-  recharges     MarketingRecharge[]
-  consumptions  MarketingConsumption[]
   createdAt     DateTime               @default(now()) @map("created_at")
   updatedAt     DateTime               @updatedAt @map("updated_at")
+  consumptions  MarketingConsumption[]
+  store         Store                  @relation(fields: [storeId], references: [id])
+  recharges     MarketingRecharge[]
 
   @@index([storeId, enabled, startAt])
   @@index([storeId, createdAt])
-  // B4：单门店同类型仅允许一个上架活动
-  // 应用层 ensurePromotionTypeUnique 已覆盖；
-  // 如需 DB 级条件唯一索引，请通过 raw SQL 迁移添加：
-  // CREATE UNIQUE INDEX CONCURRENTLY "marketing_promotions_store_type_enabled_uniq"
-  //   ON marketing_promotions (store_id, type) WHERE enabled = true;
   @@map("marketing_promotions")
 }
 
 model MarketingMemberLevelSetting {
   id          Int      @id @default(autoincrement())
   storeId     Int      @unique @map("store_id")
-  store       Store    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   levels      Json     @default("[]")
   pointsRatio Json     @default("{}") @map("points_ratio")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
+  store       Store    @relation(fields: [storeId], references: [id])
 
   @@map("marketing_member_level_settings")
 }
 
-/// 营销商品分类
+enum MarketingPromotionType {
+  discount
+  reduce
+  recharge_gift
+  first_order_discount
+  free
+  points_2x
+  points_recharge
+  discount_day
+}

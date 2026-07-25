@@ -1,6 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 import {
   CLUB_ORDER_PAYMENT_CHANNEL_VALUES,
   CLUB_ORDER_PAYMENT_CONFIRMATION_SOURCE_VALUES,
@@ -214,11 +221,17 @@ export class ClubOrderBreakdownItemDto {
   @IsString({ message: '行金额展示文案必须是字符串' })
   value: string;
 
-  @ApiProperty({ example: false, description: '是否为扣减项（展示为负数/绿色）' })
+  @ApiProperty({
+    example: false,
+    description: '是否为扣减项（展示为负数/绿色）',
+  })
   @IsBoolean({ message: '扣减标识必须是布尔值' })
   isDeduction: boolean;
 
-  @ApiProperty({ example: false, description: '是否为划线项（被更优折扣覆盖）' })
+  @ApiProperty({
+    example: false,
+    description: '是否为划线项（被更优折扣覆盖）',
+  })
   @IsBoolean({ message: '划线标识必须是布尔值' })
   isStrikethrough: boolean;
 }
@@ -227,19 +240,31 @@ export class ClubServiceOrderPreviewResponseDto {
   @ApiProperty({ example: 688, description: '服务原价，单位元' })
   originalPrice: number;
 
-  @ApiProperty({ example: 619.2, description: '会员基准价（原价 × 等级折扣率），单位元' })
+  @ApiProperty({
+    example: 619.2,
+    description: '会员基准价（原价 × 等级折扣率），单位元',
+  })
   memberBaselinePrice: number;
 
-  @ApiProperty({ example: 516, description: '折扣后价格（叠加折扣活动后），单位元' })
+  @ApiProperty({
+    example: 516,
+    description: '折扣后价格（叠加折扣活动后），单位元',
+  })
   afterDiscountPrice: number;
 
   @ApiProperty({ example: 50, description: '满减减免金额，单位元' })
   reduceAmount: number;
 
-  @ApiProperty({ example: 466, description: '最终价格（折扣后 - 满减），单位元；不含积分抵扣' })
+  @ApiProperty({
+    example: 466,
+    description: '最终价格（折扣后 - 满减），单位元；不含积分抵扣',
+  })
   finalPrice: number;
 
-  @ApiProperty({ example: 222, description: '总节省金额（原价 - 最终价，不含积分抵扣），单位元' })
+  @ApiProperty({
+    example: 222,
+    description: '总节省金额（原价 - 最终价，不含积分抵扣），单位元',
+  })
   totalSavingAmount: number;
 
   @ApiPropertyOptional({
@@ -250,13 +275,22 @@ export class ClubServiceOrderPreviewResponseDto {
   @IsOptional()
   totalSavingWithPoints: number | null;
 
-  @ApiPropertyOptional({ example: 100, description: '积分抵扣金额，单位元；0 表示未使用积分' })
+  @ApiPropertyOptional({
+    example: 100,
+    description: '积分抵扣金额，单位元；0 表示未使用积分',
+  })
   pointsDeductionAmount: number;
 
-  @ApiPropertyOptional({ example: 100, description: '实际消耗的积分数量；0 表示未使用积分' })
+  @ApiPropertyOptional({
+    example: 100,
+    description: '实际消耗的积分数量；0 表示未使用积分',
+  })
   pointsUsed: number;
 
-  @ApiPropertyOptional({ example: 366, description: '积分抵扣后实付金额，单位元' })
+  @ApiPropertyOptional({
+    example: 366,
+    description: '积分抵扣后实付金额，单位元',
+  })
   afterPointsPrice: number;
 
   @ApiPropertyOptional({

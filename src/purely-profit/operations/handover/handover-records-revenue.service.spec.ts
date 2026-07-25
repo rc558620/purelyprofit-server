@@ -24,7 +24,9 @@ describe('HandoverRecordsRevenueService.countRecordRevenue (BUG-2 修复验证)'
         findMany: jest.fn(),
       },
     };
-    service = new HandoverRecordsRevenueService(prisma as unknown as PrismaService);
+    service = new HandoverRecordsRevenueService(
+      prisma as unknown as PrismaService,
+    );
   });
 
   it('应包含空间会话营收：totalRevenue = additional + space', async () => {

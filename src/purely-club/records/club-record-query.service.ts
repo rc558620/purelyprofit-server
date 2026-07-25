@@ -306,6 +306,8 @@ export class ClubRecordQueryService {
   }
 
   private formatYuan(amountFen: number): string {
-    return Money.fromDbCents(amountFen).toFixedOutputYuan().replace(/\.00$/, '');
+    return Money.fromDbCents(amountFen)
+      .toFixedOutputYuan()
+      .replace(/\.00$/, '');
   }
 }

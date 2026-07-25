@@ -13,7 +13,10 @@ import {
   UpdateEmployeeLeaveDto,
 } from './dto/employee-leave.dto';
 import { EmployeesAccessService } from './employees-access.service';
-import { assertLeaveBusinessRules, calculateLeaveDays } from './employees-leave.domain';
+import {
+  assertLeaveBusinessRules,
+  calculateLeaveDays,
+} from './employees-leave.domain';
 import { toEmployeeLeaveResponse } from './employees.mapper';
 import { toNullableText } from './employees.utils';
 
@@ -104,13 +107,18 @@ export class EmployeesLeaveService {
 
     const nextLeaveStartDate = dto.startDate ?? leave.startDate.getTime();
     const nextLeaveEndDate = dto.endDate ?? leave.endDate.getTime();
-    const derivedDays = calculateLeaveDays(nextLeaveStartDate, nextLeaveEndDate);
+    const derivedDays = calculateLeaveDays(
+      nextLeaveStartDate,
+      nextLeaveEndDate,
+    );
     assertLeaveBusinessRules({
       startDate: nextLeaveStartDate,
       endDate: nextLeaveEndDate,
       days: derivedDays,
       deductSalary: dto.deductSalary ?? leave.deductSalary,
-      deductAmount: dto.deductAmount ?? Money.fromDbCents(leave.deductAmount).toOutputYuan(),
+      deductAmount:
+        dto.deductAmount ??
+        Money.fromDbCents(leave.deductAmount).toOutputYuan(),
     });
     await this.ensureLeaveDateRangeAvailable(
       leave.employeeId,
@@ -185,5 +193,4 @@ export class EmployeesLeaveService {
       throw new ConflictException('该员工在所选时间段内已有请假记录');
     }
   }
-
 }

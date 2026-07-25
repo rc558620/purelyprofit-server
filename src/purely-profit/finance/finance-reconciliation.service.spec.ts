@@ -20,7 +20,10 @@ describe('FinanceReconciliationService', () => {
   let platformMembershipAccessService: ReturnType<
     typeof createPlatformMembershipAccessServiceMock
   >;
-  let refreshableCache: Pick<RefreshableCacheService, 'getOrLoadRefreshableJson'>;
+  let refreshableCache: Pick<
+    RefreshableCacheService,
+    'getOrLoadRefreshableJson'
+  >;
   let cacheInvalidatorService: Pick<
     CacheInvalidatorService,
     'invalidateFinanceDerived'

@@ -193,7 +193,7 @@ describe('SalesRecordReportService', () => {
     ).resolves.toEqual({
       summary: {
         totalQuantity: 5,
-        totalRevenue: 49.50,
+        totalRevenue: 49.5,
         orderCount: 2,
         avgOrderValue: 24.75,
       },
@@ -296,7 +296,7 @@ describe('SalesRecordReportService', () => {
     ).resolves.toMatchObject({
       summary: {
         totalQuantity: 3,
-        totalRevenue: 19.50,
+        totalRevenue: 19.5,
         orderCount: 2,
         avgOrderValue: 9.75,
       },

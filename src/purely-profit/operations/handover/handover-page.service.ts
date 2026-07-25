@@ -289,7 +289,6 @@ export class HandoverPageService {
                   select: {
                     subAccounts: {
                       select: { role: true },
-                      take: 1,
                     },
                   },
                 },

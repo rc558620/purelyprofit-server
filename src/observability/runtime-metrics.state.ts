@@ -106,9 +106,15 @@ export type CachePrewarmFailedReasonByCategoryMetric = {
   topReasons: CachePrewarmFailedReasonMetric[];
 };
 
-export type CachePrewarmLastFailedAtByCategoryMetric = Record<SummaryCachePrewarmCategory, string | null>;
+export type CachePrewarmLastFailedAtByCategoryMetric = Record<
+  SummaryCachePrewarmCategory,
+  string | null
+>;
 
-export type CachePrewarmLastFailedKeyByCategoryMetric = Record<SummaryCachePrewarmCategory, string | null>;
+export type CachePrewarmLastFailedKeyByCategoryMetric = Record<
+  SummaryCachePrewarmCategory,
+  string | null
+>;
 
 export type CachePrewarmLastFailedSample = {
   capturedAt: string;
@@ -118,7 +124,10 @@ export type CachePrewarmLastFailedSample = {
   failedReason: string;
 };
 
-export type CachePrewarmLastFailedSampleByCategoryMetric = Record<SummaryCachePrewarmCategory, CachePrewarmLastFailedSample | null>;
+export type CachePrewarmLastFailedSampleByCategoryMetric = Record<
+  SummaryCachePrewarmCategory,
+  CachePrewarmLastFailedSample | null
+>;
 
 export type CachePrewarmMetric = {
   totalCycles: number;

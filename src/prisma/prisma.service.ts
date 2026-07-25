@@ -43,9 +43,8 @@ function resolveEffectivePoolMax(
   }
 
   const clusterWorkers = configService.get<number>('cluster.workers');
-  const workerCount = clusterWorkers && clusterWorkers > 0
-    ? clusterWorkers
-    : os.cpus().length;
+  const workerCount =
+    clusterWorkers && clusterWorkers > 0 ? clusterWorkers : os.cpus().length;
   const autoPoolMax = Math.max(
     configuredPoolMin,
     Math.floor(pgMaxConnections / workerCount) - 2,
@@ -81,9 +80,8 @@ export class PrismaService
     const configuredPoolMin =
       configService.get<number>('database.poolMin') ?? 5;
     const clusterWorkers = configService.get<number>('cluster.workers');
-    const cpuCount = clusterWorkers && clusterWorkers > 0
-      ? clusterWorkers
-      : os.cpus().length;
+    const cpuCount =
+      clusterWorkers && clusterWorkers > 0 ? clusterWorkers : os.cpus().length;
     const effectivePoolMax = resolveEffectivePoolMax(
       configuredPoolMax,
       configuredPoolMin,
@@ -120,8 +118,10 @@ export class PrismaService
       configService.get<number>('app.slowQueryThresholdMs') ?? 80;
     const sqlMetricsEnabled =
       configService.get<boolean>('app.sqlMetricsEnabled') ?? false;
-    const sqlMetricsSampleRate =
-      Math.max(1, configService.get<number>('app.sqlMetricsSampleRate') ?? 1);
+    const sqlMetricsSampleRate = Math.max(
+      1,
+      configService.get<number>('app.sqlMetricsSampleRate') ?? 1,
+    );
     // 仅当 sqlMetricsEnabled 或 slowQueryLogEnabled 任一开启时，才注册 Prisma query 事件监听
     // 生产环境建议关闭 sqlMetricsEnabled，只保留 slowQueryLogEnabled
     const queryListenerEnabled = sqlMetricsEnabled || slowQueryLogEnabled;
@@ -231,6 +231,6 @@ export class PrismaService
  * await prisma.$transaction(fn, { timeout: TX_TIMEOUT_SHORT });
  * ```
  */
-export const TX_TIMEOUT_SHORT = 5_000;   // 5 秒：简单写操作（如单条 update/insert）
-export const TX_TIMEOUT_MEDIUM = 15_000;  // 15 秒：多表写操作（如创建订单 + 扣减库存）
-export const TX_TIMEOUT_LONG = 30_000;    // 30 秒：复杂聚合写操作（如批量结算 + 清分）
+export const TX_TIMEOUT_SHORT = 5_000; // 5 秒：简单写操作（如单条 update/insert）
+export const TX_TIMEOUT_MEDIUM = 15_000; // 15 秒：多表写操作（如创建订单 + 扣减库存）
+export const TX_TIMEOUT_LONG = 30_000; // 30 秒：复杂聚合写操作（如批量结算 + 清分）

@@ -40,6 +40,7 @@ import { AuthPromoRecordService } from './auth-promo-record.service';
 import { AuthWechatLoginService } from './auth-wechat-login.service';
 import { PlatformMembershipAccessService } from '../member/platform-membership/platform-membership-access.service';
 import { StoreInviteCodeService } from '../stores/store-invite-code.service';
+import { StoreBusinessCapabilityService } from '../stores/store-business-capability.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -73,7 +74,20 @@ describe('AuthService', () => {
     signAsync: jest.fn(),
   };
   const accessControlService = {
-    getEffectivePermissions: jest.fn(),
+    getEffectivePermissions: jest.fn().mockReturnValue([]),
+    hasPermission: jest.fn().mockReturnValue(false),
+    hasAnyPermission: jest.fn().mockReturnValue(false),
+  };
+  const storeBusinessCapabilityService = {
+    getCapabilities: jest.fn().mockResolvedValue({
+      businessMode: 'general',
+      isCateringStore: false,
+      isGeneralStore: true,
+      canUseScanOrdering: false,
+      canManageScanOrderingMenu: false,
+      canUseSpaceManagement: true,
+      canUseMarketingProductListing: true,
+    }),
   };
   const redisService = {
     get: jest.fn(),
@@ -184,6 +198,10 @@ describe('AuthService', () => {
         {
           provide: StoreInviteCodeService,
           useValue: storeInviteCodeService,
+        },
+        {
+          provide: StoreBusinessCapabilityService,
+          useValue: storeBusinessCapabilityService,
         },
         {
           provide: AuditLogService,

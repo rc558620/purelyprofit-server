@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { Money, calcPercentChangeWithFallback } from '../../../shared/money.utils';
+import {
+  Money,
+  calcPercentChangeWithFallback,
+} from '../../../shared/money.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {

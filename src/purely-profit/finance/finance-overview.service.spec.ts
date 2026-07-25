@@ -158,7 +158,11 @@ describe('FinanceOverviewService', () => {
         netIncome: { current: 900, previous: 450, changeRate: 100 },
         totalIncome: { current: 1300, previous: 550, changeRate: 136.4 },
         totalExpense: { current: 400, previous: 100, changeRate: 300 },
-        profitRate: { current: 69.23, previous: 81.82, changeRate: expect.closeTo(-12.59, 2) },
+        profitRate: {
+          current: 69.23,
+          previous: 81.82,
+          changeRate: expect.closeTo(-12.59, 2),
+        },
         incomeExpenseRatio: 3.25,
       },
       incomeGroup: {

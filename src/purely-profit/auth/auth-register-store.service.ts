@@ -67,11 +67,13 @@ export class AuthRegisterStoreService {
             name: payload.storeName,
             address: payload.address,
             ownerId: user.id,
+            businessMode: payload.businessMode,
           },
           select: {
             id: true,
             name: true,
             address: true,
+            businessMode: true,
             createdAt: true,
             updatedAt: true,
           },
@@ -111,16 +113,17 @@ export class AuthRegisterStoreService {
           },
         });
 
-        // 创建 OWNER 员工记录
+        // 创建主账号员工记录（manager 角色，非 owner）
+        // owner 角色仅限 seed-owner.mjs 脚本设置的开发者账号
         await tx.staff.create({
           data: {
             storeId: createdStore.id,
             userId: user.id,
             email: user.email,
-            name: user.name ?? '老板',
+            name: user.name ?? '主账号',
             phone: user.phone,
-            role: StaffRole.owner,
-            permissions: ['*'],
+            role: StaffRole.manager,
+            permissions: [],
             status: StaffStatus.active,
             isSeatActive: true,
           },

@@ -32,7 +32,9 @@ describe('ProfitDetailService', () => {
   };
 
   const refreshableCache = {
-    getOrLoadRefreshableJson: jest.fn(<T>(_options: RefreshableCacheLoadOptions<T>) => _options.loadValue()),
+    getOrLoadRefreshableJson: jest.fn(
+      <T>(_options: RefreshableCacheLoadOptions<T>) => _options.loadValue(),
+    ),
     writeRefreshableJson: jest.fn(),
   };
 

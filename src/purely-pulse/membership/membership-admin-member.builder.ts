@@ -186,7 +186,13 @@ export function buildPulseAdminMemberListItem(
     avatarChar: ownerName.slice(0, 1) || '会',
     avatarColorIdx: store.id % 6,
     avatarUrl: store.owner.avatar ?? '',
-    status: isCancelled ? 'cancelled' : isBanned ? 'banned' : isActive ? 'active' : 'inactive',
+    status: isCancelled
+      ? 'cancelled'
+      : isBanned
+        ? 'banned'
+        : isActive
+          ? 'active'
+          : 'inactive',
     level: toPulseMemberLevel(
       profile?.currentPlanId ?? null,
       profile?.expiresAt ?? null,
@@ -248,7 +254,13 @@ export function buildPulseAdminMemberDetail(
     avatarChar: ownerName.slice(0, 1) || '会',
     avatarColorIdx: store.id % 6,
     avatarUrl: store.owner.avatar ?? '',
-    status: isCancelled ? 'cancelled' : isBanned ? 'banned' : isActive ? 'active' : 'inactive',
+    status: isCancelled
+      ? 'cancelled'
+      : isBanned
+        ? 'banned'
+        : isActive
+          ? 'active'
+          : 'inactive',
     level,
     registeredAt,
     lastActiveAt,

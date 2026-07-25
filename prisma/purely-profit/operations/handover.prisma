@@ -1,4 +1,105 @@
-// 子账号配额、交接班与附加项模型
+model StoreSubAccountQuotaAudit {
+  id             Int      @id @default(autoincrement())
+  storeId        Int      @map("store_id")
+  oldQuota       Int      @map("old_quota")
+  newQuota       Int      @map("new_quota")
+  operatorUserId Int?     @map("operator_user_id")
+  reason         String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  store          Store    @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, createdAt])
+  @@map("store_sub_account_quota_audits")
+}
+
+model StoreSubAccount {
+  id             Int                   @id @default(autoincrement())
+  storeId        Int                   @map("store_id")
+  employeeId     Int?                  @unique @map("employee_id")
+  slotIndex      Int                   @map("slot_index")
+  role           StoreSubAccountRole
+  status         StoreSubAccountStatus @default(active)
+  isAssigned     Boolean               @default(false) @map("is_assigned")
+  canUseHandover Boolean               @default(true) @map("can_use_handover")
+  canAccessHome  Boolean               @default(true) @map("can_access_home")
+  assignedAt     DateTime?             @map("assigned_at")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+  handoverFrom   StoreHandoverRecord[] @relation("HandoverFromSubAccount")
+  handoverTo     StoreHandoverRecord[] @relation("HandoverToSubAccount")
+  employee       Employee?             @relation("EmployeeSubAccounts", fields: [employeeId], references: [id])
+  store          Store                 @relation(fields: [storeId], references: [id])
+
+  @@unique([storeId, slotIndex])
+  @@index([storeId, role, status])
+  @@index([storeId, isAssigned, status])
+  @@map("store_sub_accounts")
+}
+
+model StoreHandoverRecord {
+  id                       Int                            @id @default(autoincrement())
+  storeId                  Int                            @map("store_id")
+  fromEmployeeId           Int?                           @map("from_employee_id")
+  toEmployeeId             Int?                           @map("to_employee_id")
+  fromSubAccountId         Int?                           @map("from_sub_account_id")
+  toSubAccountId           Int?                           @map("to_sub_account_id")
+  actorStaffId             Int?                           @map("actor_staff_id")
+  employeeShiftIdSnapshot  Int?                           @map("employee_shift_id_snapshot")
+  fromEmployeeNameSnapshot String?                        @map("from_employee_name_snapshot")
+  shiftTypeSnapshot        EmployeeShiftType?             @map("shift_type_snapshot")
+  shiftNameSnapshot        String?                        @map("shift_name_snapshot")
+  shiftStartTimeSnapshot   String?                        @map("shift_start_time_snapshot")
+  shiftEndTimeSnapshot     String?                        @map("shift_end_time_snapshot")
+  handoverMode             HandoverMode                   @map("handover_mode")
+  status                   HandoverStatus                 @default(pending)
+  handoverAt               DateTime?                      @map("handover_at")
+  note                     String?
+  reason                   String?
+  createdAt                DateTime                       @default(now()) @map("created_at")
+  updatedAt                DateTime                       @updatedAt @map("updated_at")
+  additionalValues         StoreHandoverAdditionalValue[]
+  actorStaff               Staff?                         @relation("HandoverActorStaff", fields: [actorStaffId], references: [id])
+  fromEmployee             Employee?                      @relation("HandoverFromEmployee", fields: [fromEmployeeId], references: [id])
+  fromSubAccount           StoreSubAccount?               @relation("HandoverFromSubAccount", fields: [fromSubAccountId], references: [id])
+  store                    Store                          @relation(fields: [storeId], references: [id])
+  toEmployee               Employee?                      @relation("HandoverToEmployee", fields: [toEmployeeId], references: [id])
+  toSubAccount             StoreSubAccount?               @relation("HandoverToSubAccount", fields: [toSubAccountId], references: [id])
+
+  @@index([storeId, status, createdAt])
+  @@index([fromEmployeeId, createdAt])
+  @@index([toEmployeeId, createdAt])
+  @@map("store_handover_records")
+}
+
+model StoreHandoverAdditionalItem {
+  id        Int                            @id @default(autoincrement())
+  storeId   Int                            @map("store_id")
+  name      String
+  createdAt DateTime                       @default(now()) @map("created_at")
+  updatedAt DateTime                       @updatedAt @map("updated_at")
+  store     Store                          @relation(fields: [storeId], references: [id])
+  values    StoreHandoverAdditionalValue[]
+
+  @@unique([storeId, name])
+  @@index([storeId, createdAt])
+  @@map("store_handover_additional_items")
+}
+
+model StoreHandoverAdditionalValue {
+  id               Int                         @id @default(autoincrement())
+  recordId         Int                         @map("record_id")
+  itemId           Int                         @map("item_id")
+  itemNameSnapshot String                      @map("item_name_snapshot")
+  value            String
+  createdAt        DateTime                    @default(now()) @map("created_at")
+  updatedAt        DateTime                    @updatedAt @map("updated_at")
+  item             StoreHandoverAdditionalItem @relation(fields: [itemId], references: [id])
+  record           StoreHandoverRecord         @relation(fields: [recordId], references: [id], onDelete: Cascade)
+
+  @@unique([recordId, itemId])
+  @@index([itemId, createdAt])
+  @@map("store_handover_additional_values")
+}
 
 enum StoreSubAccountRole {
   cashier
@@ -21,107 +122,4 @@ enum HandoverStatus {
   pending
   completed
   cancelled
-}
-
-model StoreSubAccountQuotaAudit {
-  id             Int      @id @default(autoincrement())
-  storeId        Int      @map("store_id")
-  store          Store    @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  oldQuota       Int      @map("old_quota")
-  newQuota       Int      @map("new_quota")
-  operatorUserId Int?     @map("operator_user_id")
-  reason         String?
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  @@index([storeId, createdAt])
-  @@map("store_sub_account_quota_audits")
-}
-
-model StoreSubAccount {
-  id             Int                   @id @default(autoincrement())
-  storeId        Int                   @map("store_id")
-  store          Store                 @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  employeeId     Int?                  @unique @map("employee_id")
-  employee       Employee?             @relation("EmployeeSubAccounts", fields: [employeeId], references: [id], onDelete: SetNull)
-  slotIndex      Int                   @map("slot_index")
-  role           StoreSubAccountRole
-  status         StoreSubAccountStatus @default(active)
-  isAssigned     Boolean               @default(false) @map("is_assigned")
-  canUseHandover Boolean               @default(true) @map("can_use_handover")
-  canAccessHome  Boolean               @default(true) @map("can_access_home")
-  assignedAt     DateTime?             @map("assigned_at")
-  handoverFrom   StoreHandoverRecord[] @relation("HandoverFromSubAccount")
-  handoverTo     StoreHandoverRecord[] @relation("HandoverToSubAccount")
-  createdAt      DateTime              @default(now()) @map("created_at")
-  updatedAt      DateTime              @updatedAt @map("updated_at")
-
-  @@unique([storeId, slotIndex])
-  @@index([storeId, role, status])
-  @@index([storeId, isAssigned, status])
-  @@map("store_sub_accounts")
-}
-
-model StoreHandoverRecord {
-  id                       Int                            @id @default(autoincrement())
-  storeId                  Int                            @map("store_id")
-  store                    Store                          @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  fromEmployeeId           Int?                           @map("from_employee_id")
-  fromEmployee             Employee?                      @relation("HandoverFromEmployee", fields: [fromEmployeeId], references: [id], onDelete: SetNull)
-  toEmployeeId             Int?                           @map("to_employee_id")
-  toEmployee               Employee?                      @relation("HandoverToEmployee", fields: [toEmployeeId], references: [id], onDelete: SetNull)
-  fromSubAccountId         Int?                           @map("from_sub_account_id")
-  fromSubAccount           StoreSubAccount?               @relation("HandoverFromSubAccount", fields: [fromSubAccountId], references: [id], onDelete: SetNull)
-  toSubAccountId           Int?                           @map("to_sub_account_id")
-  toSubAccount             StoreSubAccount?               @relation("HandoverToSubAccount", fields: [toSubAccountId], references: [id], onDelete: SetNull)
-  actorStaffId             Int?                           @map("actor_staff_id")
-  actorStaff               Staff?                         @relation("HandoverActorStaff", fields: [actorStaffId], references: [id], onDelete: SetNull)
-  employeeShiftIdSnapshot  Int?                           @map("employee_shift_id_snapshot")
-  fromEmployeeNameSnapshot String?                        @map("from_employee_name_snapshot")
-  shiftTypeSnapshot        EmployeeShiftType?             @map("shift_type_snapshot")
-  shiftNameSnapshot        String?                        @map("shift_name_snapshot")
-  shiftStartTimeSnapshot   String?                        @map("shift_start_time_snapshot")
-  shiftEndTimeSnapshot     String?                        @map("shift_end_time_snapshot")
-  handoverMode             HandoverMode                   @map("handover_mode")
-  status                   HandoverStatus                 @default(pending)
-  handoverAt               DateTime?                      @map("handover_at")
-  note                     String?
-  reason                   String?
-  additionalValues         StoreHandoverAdditionalValue[]
-  createdAt                DateTime                       @default(now()) @map("created_at")
-  updatedAt                DateTime                       @updatedAt @map("updated_at")
-
-  @@index([storeId, status, createdAt])
-  @@index([fromEmployeeId, createdAt])
-  @@index([toEmployeeId, createdAt])
-  @@map("store_handover_records")
-}
-
-model StoreHandoverAdditionalItem {
-  id        Int                            @id @default(autoincrement())
-  storeId   Int                            @map("store_id")
-  store     Store                          @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  name      String
-  values    StoreHandoverAdditionalValue[]
-  createdAt DateTime                       @default(now()) @map("created_at")
-  updatedAt DateTime                       @updatedAt @map("updated_at")
-
-  @@unique([storeId, name])
-  @@index([storeId, createdAt])
-  @@map("store_handover_additional_items")
-}
-
-model StoreHandoverAdditionalValue {
-  id               Int                         @id @default(autoincrement())
-  recordId         Int                         @map("record_id")
-  record           StoreHandoverRecord         @relation(fields: [recordId], references: [id], onDelete: Cascade)
-  itemId           Int                         @map("item_id")
-  item             StoreHandoverAdditionalItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
-  itemNameSnapshot String                      @map("item_name_snapshot")
-  value            String
-  createdAt        DateTime                    @default(now()) @map("created_at")
-  updatedAt        DateTime                    @updatedAt @map("updated_at")
-
-  @@unique([recordId, itemId])
-  @@index([itemId, createdAt])
-  @@map("store_handover_additional_values")
 }

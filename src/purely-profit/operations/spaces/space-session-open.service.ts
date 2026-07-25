@@ -11,7 +11,10 @@ import {
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { Money } from '../../../shared/money.utils';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
-import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../../prisma/prisma.service';
+import {
+  PrismaService,
+  TX_TIMEOUT_MEDIUM,
+} from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 import type {
   OpenSpaceSessionDto,
@@ -138,137 +141,143 @@ export class SpaceSessionOpenService {
       openOperatorNameSnapshot = staff?.name ?? null;
     }
 
-    const session = await this.prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw`
+    const session = await this.prisma.$transaction(
+      async (transaction) => {
+        await transaction.$queryRaw`
         SELECT id
         FROM spaces
         WHERE id = ${space.id}
         FOR UPDATE
       `;
 
-      // Space.status 已移除，改为检查是否有 active session（双重检查）
-      const activeSession = await transaction.spaceSession.findFirst({
-        where: {
-          spaceId: space.id,
-          status: PrismaSpaceSessionStatus.active,
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      if (activeSession) {
-        throw new ConflictException('空间当前使用中，无法重复开台');
-      }
-
-      if (payload.reservationId !== undefined) {
-        const latestReservation = await transaction.spaceReservation.findUnique(
-          {
-            where: { id: payload.reservationId },
-            select: {
-              id: true,
-              storeId: true,
-              spaceId: true,
-              status: true,
-            },
+        // Space.status 已移除，改为检查是否有 active session（双重检查）
+        const activeSession = await transaction.spaceSession.findFirst({
+          where: {
+            spaceId: space.id,
+            status: PrismaSpaceSessionStatus.active,
           },
-        );
+          select: {
+            id: true,
+          },
+        });
 
-        if (!latestReservation) {
-          throw new NotFoundException('预约不存在');
-        }
-        if (
-          latestReservation.storeId !== space.storeId ||
-          latestReservation.spaceId !== space.id
-        ) {
-          throw new ConflictException('该预约不属于当前空间，无法履约开台');
-        }
-        if (latestReservation.status !== PrismaSpaceReservationStatus.pending) {
-          throw new ConflictException('当前预约已处理，无法再次履约开台');
+        if (activeSession) {
+          throw new ConflictException('空间当前使用中，无法重复开台');
         }
 
-        const fulfilledReservation =
-          await transaction.spaceReservation.updateMany({
-            where: {
-              id: payload.reservationId,
-              status: PrismaSpaceReservationStatus.pending,
-            },
-            data: {
-              status: PrismaSpaceReservationStatus.fulfilled,
-            },
-          });
+        if (payload.reservationId !== undefined) {
+          const latestReservation =
+            await transaction.spaceReservation.findUnique({
+              where: { id: payload.reservationId },
+              select: {
+                id: true,
+                storeId: true,
+                spaceId: true,
+                status: true,
+              },
+            });
 
-        if (fulfilledReservation.count !== 1) {
-          throw new ConflictException('当前预约已处理，无法再次履约开台');
+          if (!latestReservation) {
+            throw new NotFoundException('预约不存在');
+          }
+          if (
+            latestReservation.storeId !== space.storeId ||
+            latestReservation.spaceId !== space.id
+          ) {
+            throw new ConflictException('该预约不属于当前空间，无法履约开台');
+          }
+          if (
+            latestReservation.status !== PrismaSpaceReservationStatus.pending
+          ) {
+            throw new ConflictException('当前预约已处理，无法再次履约开台');
+          }
+
+          const fulfilledReservation =
+            await transaction.spaceReservation.updateMany({
+              where: {
+                id: payload.reservationId,
+                status: PrismaSpaceReservationStatus.pending,
+              },
+              data: {
+                status: PrismaSpaceReservationStatus.fulfilled,
+              },
+            });
+
+          if (fulfilledReservation.count !== 1) {
+            throw new ConflictException('当前预约已处理，无法再次履约开台');
+          }
         }
-      }
 
-      const created = await transaction.spaceSession.create({
-        data: {
-          storeId: space.storeId,
-          spaceId: space.id,
-          reservationId: payload.reservationId,
-          guestName: payload.guestName ?? null,
-          guestPhone: payload.guestPhone ?? null,
-          guestCount: payload.guestCount ?? null,
-          startTime: new Date(),
-          billingMode: this.toPrismaSpaceBillingMode(payload.billingMode),
-          hourlyRate:
-            payload.hourlyRate !== undefined
-              ? Money.fromInputYuan(payload.hourlyRate).toDbCents()
-              : null,
-          countdownMinutes: payload.countdownMinutes ?? null,
-          // B4 fix: autoCheckout 未传时继承空间配置，避免运行态与会话级漂移，
-          // 同时保证换房强校验 Boolean(session.autoCheckout) !== targetSpace.autoCheckout 有意义。
-          autoCheckout: payload.autoCheckout ?? space.autoCheckout ?? null,
-          prepaidPaymentMethod: payload.prepaidPaymentMethod ?? null,
-          prepaidCustomerPaymentMethod:
-            payload.prepaidCustomerPaymentMethod ?? null,
-          prepaidSettlementChannel: payload.prepaidSettlementChannel ?? null,
-          prepaidGrouponCode: payload.prepaidGrouponCode ?? null,
-          prepaidGrouponPlatform: payload.prepaidGrouponPlatform ?? null,
-          prepaidVoucherCode: payload.prepaidVoucherCode ?? null,
-          prepaidVoucherPlatform: payload.prepaidVoucherPlatform ?? null,
-          prepaidNote: payload.prepaidNote ?? null,
-          prepaidAmount:
-            payload.prepaidAmount !== undefined
-              ? Money.fromInputYuan(payload.prepaidAmount).toDbCents()
-              : null,
-          prepaidVoucherFaceAmount:
-            payload.prepaidVoucherFaceAmount !== undefined
-              ? Money.fromInputYuan(payload.prepaidVoucherFaceAmount).toDbCents()
-              : null,
-          /// Step 8.1: items/renewRecords 已拆为独立表，开台时为空
-          itemsCost: 0,
-          openOperatorStaffId,
-          openOperatorNameSnapshot,
-          status: PrismaSpaceSessionStatus.active,
-        },
-        include: {
-          space: {
-            select: {
-              id: true,
-              name: true,
-              type: {
-                select: {
-                  name: true,
+        const created = await transaction.spaceSession.create({
+          data: {
+            storeId: space.storeId,
+            spaceId: space.id,
+            reservationId: payload.reservationId,
+            guestName: payload.guestName ?? null,
+            guestPhone: payload.guestPhone ?? null,
+            guestCount: payload.guestCount ?? null,
+            startTime: new Date(),
+            billingMode: this.toPrismaSpaceBillingMode(payload.billingMode),
+            hourlyRate:
+              payload.hourlyRate !== undefined
+                ? Money.fromInputYuan(payload.hourlyRate).toDbCents()
+                : null,
+            countdownMinutes: payload.countdownMinutes ?? null,
+            // B4 fix: autoCheckout 未传时继承空间配置，避免运行态与会话级漂移，
+            // 同时保证换房强校验 Boolean(session.autoCheckout) !== targetSpace.autoCheckout 有意义。
+            autoCheckout: payload.autoCheckout ?? space.autoCheckout ?? null,
+            prepaidPaymentMethod: payload.prepaidPaymentMethod ?? null,
+            prepaidCustomerPaymentMethod:
+              payload.prepaidCustomerPaymentMethod ?? null,
+            prepaidSettlementChannel: payload.prepaidSettlementChannel ?? null,
+            prepaidGrouponCode: payload.prepaidGrouponCode ?? null,
+            prepaidGrouponPlatform: payload.prepaidGrouponPlatform ?? null,
+            prepaidVoucherCode: payload.prepaidVoucherCode ?? null,
+            prepaidVoucherPlatform: payload.prepaidVoucherPlatform ?? null,
+            prepaidNote: payload.prepaidNote ?? null,
+            prepaidAmount:
+              payload.prepaidAmount !== undefined
+                ? Money.fromInputYuan(payload.prepaidAmount).toDbCents()
+                : null,
+            prepaidVoucherFaceAmount:
+              payload.prepaidVoucherFaceAmount !== undefined
+                ? Money.fromInputYuan(
+                    payload.prepaidVoucherFaceAmount,
+                  ).toDbCents()
+                : null,
+            /// Step 8.1: items/renewRecords 已拆为独立表，开台时为空
+            itemsCost: 0,
+            openOperatorStaffId,
+            openOperatorNameSnapshot,
+            status: PrismaSpaceSessionStatus.active,
+          },
+          include: {
+            space: {
+              select: {
+                id: true,
+                name: true,
+                type: {
+                  select: {
+                    name: true,
+                  },
                 },
               },
             },
+            sessionItems: {
+              orderBy: { sortOrder: 'asc' },
+            },
+            sessionRenewRecords: {
+              orderBy: { id: 'asc' },
+            },
           },
-          sessionItems: {
-            orderBy: { sortOrder: 'asc' },
-          },
-          sessionRenewRecords: {
-            orderBy: { id: 'asc' },
-          },
-        },
-      });
+        });
 
-      // Space.status 已移除，不再更新空间状态字段
+        // Space.status 已移除，不再更新空间状态字段
 
-      return created;
-    }, { timeout: TX_TIMEOUT_MEDIUM });
+        return created;
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
 
     return toSpaceSessionResponse(session);
   }

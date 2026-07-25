@@ -45,7 +45,11 @@ export const resolveHandoverOperationAccess = (params: {
     requestedShiftType,
   } = params;
 
-  if (membership.subjectType === 'owner') {
+  // 老板主账号和 Manager 主账号（含餐饮账号）都有交班操作权限
+  if (
+    membership.subjectType === 'owner' ||
+    membership.role === StaffRole.manager
+  ) {
     return {
       canOperate: true,
       blockedReason: null,

@@ -125,7 +125,6 @@ export async function querySaleOrders(
             select: {
               subAccounts: {
                 select: { role: true },
-                take: 1,
               },
             },
           },

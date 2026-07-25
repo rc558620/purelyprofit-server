@@ -80,9 +80,12 @@ describe('SalesRecordAmountsDomain', () => {
         },
       ];
 
-      const result = SalesRecordAmountsDomain.aggregateFromPreparedItems(items, {
-        excludeDeductionItems: true, // 默认行为
-      });
+      const result = SalesRecordAmountsDomain.aggregateFromPreparedItems(
+        items,
+        {
+          excludeDeductionItems: true, // 默认行为
+        },
+      );
 
       expect(result.totalQuantity).toBe(2); // 只算第一项的 2 件
       expect(result.totalRevenue).toBe(13); // 只计算可口可乐：6.5 * 2
@@ -162,10 +165,13 @@ describe('SalesRecordAmountsDomain', () => {
         },
       ];
 
-      const snapshot = SalesRecordAmountsDomain.aggregateFromPreparedItems(items);
+      const snapshot =
+        SalesRecordAmountsDomain.aggregateFromPreparedItems(items);
 
       // 不应该抛出错误
-      expect(() => SalesRecordAmountsDomain.assertConsistency(snapshot)).not.toThrow();
+      expect(() =>
+        SalesRecordAmountsDomain.assertConsistency(snapshot),
+      ).not.toThrow();
     });
 
     it('金额快照应该支持客户端展示（不再本地计算）', () => {
@@ -181,7 +187,8 @@ describe('SalesRecordAmountsDomain', () => {
         },
       ];
 
-      const snapshot = SalesRecordAmountsDomain.aggregateFromPreparedItems(items);
+      const snapshot =
+        SalesRecordAmountsDomain.aggregateFromPreparedItems(items);
 
       // 前端可以直接使用这些值展示，无需再做任何计算
       const itemData = snapshot.items[0];

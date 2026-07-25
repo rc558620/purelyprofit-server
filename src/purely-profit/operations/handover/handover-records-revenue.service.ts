@@ -206,7 +206,6 @@ export class HandoverRecordsRevenueService {
                   select: {
                     subAccounts: {
                       select: { role: true },
-                      take: 1,
                     },
                   },
                 },

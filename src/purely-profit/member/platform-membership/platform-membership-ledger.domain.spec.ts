@@ -1,4 +1,7 @@
-import { buildBeanOverview, buildPointsOverview } from './platform-membership-ledger.domain';
+import {
+  buildBeanOverview,
+  buildPointsOverview,
+} from './platform-membership-ledger.domain';
 import type { StoreMembershipPointsLogRecord } from './platform-membership.types';
 
 describe('buildBeanOverview pendingBeans', () => {
@@ -63,7 +66,9 @@ describe('buildBeanOverview pendingBeans', () => {
 });
 
 describe('buildPointsOverview deductibleAmount & canUsePoints', () => {
-  const makeLogs = (overrides: Partial<StoreMembershipPointsLogRecord>[] = []) =>
+  const makeLogs = (
+    overrides: Partial<StoreMembershipPointsLogRecord>[] = [],
+  ) =>
     overrides.map(
       (o, i) =>
         ({

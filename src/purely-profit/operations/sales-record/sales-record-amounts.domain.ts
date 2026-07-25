@@ -51,7 +51,8 @@ export class SalesRecordAmountsDomain {
       // 金额聚合逻辑：
       // - 如果不排除抵扣项，所有项都计入
       // - 如果排除抵扣项，只有 countsTowardTotalQuantity=true 的项才计入
-      const shouldIncludeInAmounts = !shouldExcludeDeductions || item.countsTowardTotalQuantity;
+      const shouldIncludeInAmounts =
+        !shouldExcludeDeductions || item.countsTowardTotalQuantity;
       if (shouldIncludeInAmounts) {
         totalRevenue = totalRevenue.add(subtotal);
         totalProfit = totalProfit.add(profitSubtotal);
@@ -84,7 +85,10 @@ export class SalesRecordAmountsDomain {
    */
   static assertConsistency(snapshot: SalesRecordAmountsSnapshot): void {
     // 验证 subtotal 汇总是否等于 totalRevenue
-    const revenueSum = snapshot.items.reduce((sum, item) => sum + item.subtotal, 0);
+    const revenueSum = snapshot.items.reduce(
+      (sum, item) => sum + item.subtotal,
+      0,
+    );
     const revenueRounded = Math.round(revenueSum * 100) / 100;
     const totalRevenueRounded = Math.round(snapshot.totalRevenue * 100) / 100;
 
@@ -95,7 +99,10 @@ export class SalesRecordAmountsDomain {
     }
 
     // 验证 profitSubtotal 汇总是否等于 totalProfit
-    const profitSum = snapshot.items.reduce((sum, item) => sum + item.profitSubtotal, 0);
+    const profitSum = snapshot.items.reduce(
+      (sum, item) => sum + item.profitSubtotal,
+      0,
+    );
     const profitRounded = Math.round(profitSum * 100) / 100;
     const totalProfitRounded = Math.round(snapshot.totalProfit * 100) / 100;
 

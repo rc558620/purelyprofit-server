@@ -25,6 +25,8 @@ import {
   RequirePermissions,
 } from '../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../access-control/guards/permissions.guard';
+import { BusinessModeGuard } from '../stores/business-mode.guard';
+import { RequireBusinessMode } from '../stores/business-mode.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
@@ -39,7 +41,8 @@ import { MarketingProductsFacadeService } from './marketing.service';
 @ApiTags('营销中心')
 @ApiBearerAuth()
 @AllowLegacyOwnerAccess()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BusinessModeGuard)
+@RequireBusinessMode('general')
 @Controller('marketing/product-categories')
 export class MarketingProductCategoriesController {
   constructor(

@@ -67,7 +67,10 @@ describe('SalesRecordService', () => {
         SalesRecordService,
         { provide: SalesRecordReadService, useValue: salesRecordReadService },
         { provide: SalesRecordWriteService, useValue: salesRecordWriteService },
-        { provide: SalesRecordPreviewService, useValue: salesRecordPreviewService },
+        {
+          provide: SalesRecordPreviewService,
+          useValue: salesRecordPreviewService,
+        },
       ],
     }).compile();
 

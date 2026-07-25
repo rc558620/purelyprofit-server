@@ -1,24 +1,10 @@
-// purely-profit/goods/inventory: 库存调整模型
-
-enum InventoryAdjustType {
-  restock
-  damage
-  manual
-  sale
-}
-
 model InventoryAdjustmentLog {
   id              Int                 @id @default(autoincrement())
   storeId         Int                 @map("store_id")
-  store           Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
   productId       Int                 @map("product_id")
-  product         Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
   purchaseOrderId Int?                @map("purchase_order_id")
-  purchaseOrder   PurchaseOrder?      @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
   saleOrderId     Int?                @map("sale_order_id")
-  saleOrder       SaleOrder?          @relation(fields: [saleOrderId], references: [id], onDelete: SetNull)
   operatorStaffId Int?                @map("operator_staff_id")
-  operatorStaff   Staff?              @relation("InventoryAdjustmentOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
   productName     String              @map("product_name")
   beforeStock     Int                 @map("before_stock")
   afterStock      Int                 @map("after_stock")
@@ -26,6 +12,11 @@ model InventoryAdjustmentLog {
   adjustType      InventoryAdjustType @map("adjust_type")
   note            String?
   createdAt       DateTime            @default(now()) @map("created_at")
+  operatorStaff   Staff?              @relation("InventoryAdjustmentOperator", fields: [operatorStaffId], references: [id])
+  product         Product             @relation(fields: [productId], references: [id])
+  purchaseOrder   PurchaseOrder?      @relation(fields: [purchaseOrderId], references: [id])
+  saleOrder       SaleOrder?          @relation(fields: [saleOrderId], references: [id])
+  store           Store               @relation(fields: [storeId], references: [id])
 
   @@index([storeId, createdAt])
   @@index([productId, createdAt])
@@ -33,4 +24,11 @@ model InventoryAdjustmentLog {
   @@index([saleOrderId, createdAt])
   @@index([operatorStaffId, createdAt])
   @@map("inventory_adjustment_logs")
+}
+
+enum InventoryAdjustType {
+  restock
+  damage
+  manual
+  sale
 }

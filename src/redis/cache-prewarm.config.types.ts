@@ -12,12 +12,21 @@ export type CachePrewarmProfitReadConfigInput = {
   businessAnalysisService: Pick<BusinessAnalysisService, 'warmAnalysisCache'>;
   marketingOverviewService: Pick<MarketingOverviewService, 'warmOverviewCache'>;
   membersService: Pick<MembersService, 'warmMetaCache' | 'warmOverviewCache'>;
-  profitDetailService: Pick<ProfitDetailService, 'warmDetailCache' | 'warmReportCache'>;
-  costsReadService: Pick<CostsReadService, 'warmStatsCache' | 'warmReportCache'>;
+  profitDetailService: Pick<
+    ProfitDetailService,
+    'warmDetailCache' | 'warmReportCache'
+  >;
+  costsReadService: Pick<
+    CostsReadService,
+    'warmStatsCache' | 'warmReportCache'
+  >;
 };
 
 export type CachePrewarmFinanceConfigInput = {
-  financeOverviewService: Pick<FinanceOverviewService, 'warmOverviewCache' | 'warmReportCache'>;
+  financeOverviewService: Pick<
+    FinanceOverviewService,
+    'warmOverviewCache' | 'warmReportCache'
+  >;
 };
 
 export type CachePrewarmCategoryConfigInput =

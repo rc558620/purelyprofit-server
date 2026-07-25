@@ -51,7 +51,9 @@ describe('ClubPointsService', () => {
 
   describe('listRecords', () => {
     it('无营销顾客档案时返回空列表和零值 summary', async () => {
-      clubPointsQueryService.findCustomerByStoreAndPhone.mockResolvedValue(null);
+      clubPointsQueryService.findCustomerByStoreAndPhone.mockResolvedValue(
+        null,
+      );
 
       const result = await service.listRecords(currentContext, {});
 

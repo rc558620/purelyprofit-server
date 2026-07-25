@@ -54,14 +54,11 @@ export class UploadService {
   private readonly pathPrefix: string;
 
   constructor(private readonly configService: ConfigService) {
-    const secretId =
-      configService.get<string>('tencentCos.secretId') ?? '';
-    const secretKey =
-      configService.get<string>('tencentCos.secretKey') ?? '';
+    const secretId = configService.get<string>('tencentCos.secretId') ?? '';
+    const secretKey = configService.get<string>('tencentCos.secretKey') ?? '';
     this.bucket = configService.get<string>('tencentCos.bucket') ?? '';
     this.region = configService.get<string>('tencentCos.region') ?? '';
-    this.cdnDomain =
-      configService.get<string>('tencentCos.cdnDomain') ?? '';
+    this.cdnDomain = configService.get<string>('tencentCos.cdnDomain') ?? '';
     this.pathPrefix =
       configService.get<string>('tencentCos.pathPrefix') ?? 'uploads/';
 
@@ -75,9 +72,7 @@ export class UploadService {
       );
     } else {
       this.client = null;
-      this.logger.warn(
-        '腾讯云 COS 凭证未配置，文件上传功能不可用',
-      );
+      this.logger.warn('腾讯云 COS 凭证未配置，文件上传功能不可用');
     }
   }
 
@@ -115,9 +110,7 @@ export class UploadService {
         (err) => {
           if (err) {
             this.logger.error(`COS 上传失败 (key: ${key})`, err.message);
-            reject(
-              new ServiceUnavailableException('文件上传失败，请稍后重试'),
-            );
+            reject(new ServiceUnavailableException('文件上传失败，请稍后重试'));
             return;
           }
           const url = this.buildUrl(key);
@@ -164,9 +157,7 @@ export class UploadService {
   /** 确保 COS 服务已启用 */
   private ensureEnabled(): void {
     if (!this.client) {
-      throw new ServiceUnavailableException(
-        '文件上传服务未配置，请联系管理员',
-      );
+      throw new ServiceUnavailableException('文件上传服务未配置，请联系管理员');
     }
   }
 
@@ -200,7 +191,10 @@ export class UploadService {
     const uuid = crypto.randomUUID().replace(/-/g, '');
     // 从原始文件名提取无扩展名的部分，做安全清理
     const baseName = originalName
-      ? path.basename(originalName, path.extname(originalName)).replace(/[^a-zA-Z0-9_\-\u4e00-\u9fa5]/g, '_').slice(0, 50)
+      ? path
+          .basename(originalName, path.extname(originalName))
+          .replace(/[^a-zA-Z0-9_\-\u4e00-\u9fa5]/g, '_')
+          .slice(0, 50)
       : '';
 
     const prefix = this.pathPrefix.endsWith('/')

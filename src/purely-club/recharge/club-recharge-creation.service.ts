@@ -142,7 +142,9 @@ export class ClubRechargeCreationService {
       packageId: matchedPackage.id,
       promotionId: this.resolvePromotionIdFromPackageId(matchedPackage.id),
       rechargeAmountFen: Money.fromInputYuan(matchedPackage.amount).toDbCents(),
-      bonusAmountFen: Money.fromInputYuan(matchedPackage.bonusAmount).toDbCents(),
+      bonusAmountFen: Money.fromInputYuan(
+        matchedPackage.bonusAmount,
+      ).toDbCents(),
       customAmountFen: null,
     };
   }

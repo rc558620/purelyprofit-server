@@ -24,7 +24,16 @@ function parseFinanceReportCacheKey(cacheKey: string): {
     return null;
   }
 
-  const [, rawStoreId, rawScope, rawPeriod, rawYear, rawCustomDate, rawRangeStart, rawRangeEnd] = match;
+  const [
+    ,
+    rawStoreId,
+    rawScope,
+    rawPeriod,
+    rawYear,
+    rawCustomDate,
+    rawRangeStart,
+    rawRangeEnd,
+  ] = match;
 
   return {
     storeId: Number(rawStoreId),

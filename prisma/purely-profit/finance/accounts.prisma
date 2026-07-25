@@ -1,4 +1,28 @@
-// purely-profit/finance: 往来账模型
+model FinanceAccountRecord {
+  id              Int                    @id @default(autoincrement())
+  storeId         Int                    @map("store_id")
+  operatorStaffId Int?                   @map("operator_staff_id")
+  type            FinanceAccountType
+  category        FinanceAccountCategory
+  counterpart     String
+  amount          Int
+  paidAmount      Int                    @default(0) @map("paid_amount")
+  remaining       Int                    @default(0)
+  status          FinanceAccountStatus   @default(pending)
+  dueDate         DateTime?              @map("due_date")
+  date            DateTime
+  note            String?
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+  operatorStaff   Staff?                 @relation("FinanceAccountOperator", fields: [operatorStaffId], references: [id])
+  store           Store                  @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, status, updatedAt(sort: Desc), id(sort: Desc)])
+  @@index([storeId, type, updatedAt])
+  @@index([storeId, dueDate])
+  @@index([operatorStaffId, createdAt])
+  @@map("finance_account_records")
+}
 
 enum FinanceAccountType {
   receivable
@@ -19,30 +43,4 @@ enum FinanceAccountCategory {
   loan
   deposit
   other
-}
-
-model FinanceAccountRecord {
-  id              Int                    @id @default(autoincrement())
-  storeId         Int                    @map("store_id")
-  store           Store                  @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  operatorStaffId Int?                   @map("operator_staff_id")
-  operatorStaff   Staff?                 @relation("FinanceAccountOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
-  type            FinanceAccountType
-  category        FinanceAccountCategory
-  counterpart     String
-  amount          Int                    // 金额（分）
-  paidAmount      Int                    @default(0) @map("paid_amount") // 已付金额（分）
-  remaining       Int                    @default(0)                     // 剩余金额（分）
-  status          FinanceAccountStatus   @default(pending)
-  dueDate         DateTime?              @map("due_date")
-  date            DateTime
-  note            String?
-  createdAt       DateTime               @default(now()) @map("created_at")
-  updatedAt       DateTime               @updatedAt @map("updated_at")
-
-  @@index([storeId, status, updatedAt(sort: Desc), id(sort: Desc)])
-  @@index([storeId, type, updatedAt])
-  @@index([storeId, dueDate])
-  @@index([operatorStaffId, createdAt])
-  @@map("finance_account_records")
 }

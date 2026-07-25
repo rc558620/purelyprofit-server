@@ -74,10 +74,18 @@ export async function queryEmployeesOverviewMetrics(
     resignedThisMonth,
   ] = await Promise.all([
     prisma.employee.count({
-      where: { storeId: params.storeId, deletedAt: null, status: EmployeeStatus.active },
+      where: {
+        storeId: params.storeId,
+        deletedAt: null,
+        status: EmployeeStatus.active,
+      },
     }),
     prisma.employee.count({
-      where: { storeId: params.storeId, deletedAt: null, status: EmployeeStatus.resigned },
+      where: {
+        storeId: params.storeId,
+        deletedAt: null,
+        status: EmployeeStatus.resigned,
+      },
     }),
     // 筛选与本月有交集的请假（含跨月），并在应用层按本月实际天数重算
     prisma.employeeLeave.findMany({
@@ -110,10 +118,7 @@ export async function queryEmployeesOverviewMetrics(
     resignedCount,
     leaveRows: leaveRows.map((r) => {
       // 跨月请假：按落入本月内的实际天数计算
-      const effectiveStart = Math.max(
-        r.startDate.getTime(),
-        ms.getTime(),
-      );
+      const effectiveStart = Math.max(r.startDate.getTime(), ms.getTime());
       const effectiveEnd = Math.min(
         r.endDate.getTime(),
         nextMonthStart.getTime(),

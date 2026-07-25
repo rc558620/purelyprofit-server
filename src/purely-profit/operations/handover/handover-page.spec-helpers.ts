@@ -287,14 +287,14 @@ export const setupHandoverPageSpec = (): {
     prismaService.saleOrder.groupBy.mockResolvedValue([
       {
         paymentMethod: SalesPaymentMethod.alipay,
-        _sum: { totalRevenue: new Prisma.Decimal('100465') },  // 1004.65 元 = 100465 分
+        _sum: { totalRevenue: new Prisma.Decimal('100465') }, // 1004.65 元 = 100465 分
       },
     ]);
     prismaService.saleOrder.aggregate.mockImplementation(({ where }) => {
       // additionalRevenue 查询（仅非空间会话订单，spaceSession.is === null）
       if (where?.spaceSession?.is === null) {
         return Promise.resolve({
-          _sum: { totalRevenue: new Prisma.Decimal('97875') },  // 978.75 元 = 97875 分
+          _sum: { totalRevenue: new Prisma.Decimal('97875') }, // 978.75 元 = 97875 分
         });
       }
 
@@ -315,7 +315,7 @@ export const setupHandoverPageSpec = (): {
     prismaService.saleOrder.count.mockResolvedValue(3);
     prismaService.spaceSession.aggregate.mockResolvedValue({
       _sum: {
-        timeCost: new Prisma.Decimal('925'),   // 9.25 元 = 925 分
+        timeCost: new Prisma.Decimal('925'), // 9.25 元 = 925 分
         itemsCost: new Prisma.Decimal('0'),
       },
     });

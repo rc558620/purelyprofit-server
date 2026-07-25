@@ -123,7 +123,10 @@ export function isValidSubAccountLoginAccount(
   account: string,
   adminLoginAlias: string = 'admin',
 ): boolean {
-  return isCustomLoginAccount(account) && !isReservedLoginAccount(account, adminLoginAlias);
+  return (
+    isCustomLoginAccount(account) &&
+    !isReservedLoginAccount(account, adminLoginAlias)
+  );
 }
 
 export function resolveSubAccountLoginEmail(

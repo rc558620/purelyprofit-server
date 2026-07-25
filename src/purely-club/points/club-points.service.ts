@@ -57,7 +57,9 @@ export class ClubPointsService {
       );
 
     const [items, summary] = await Promise.all([
-      Promise.resolve(this.buildItems(rows, customer, currentContext.store.name)),
+      Promise.resolve(
+        this.buildItems(rows, customer, currentContext.store.name),
+      ),
       this.clubPointsQueryService.calculateSummary(
         currentContext.store.id,
         customer.id,

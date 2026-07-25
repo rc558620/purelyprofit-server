@@ -38,7 +38,7 @@ export type SettledSpaceSessionRow = {
     operatorStaff: {
       name: string;
       role: StaffRole;
-      employeeProfile: { subAccounts: { role: string }[] } | null;
+      employeeProfile: { subAccounts: { role: string } | null } | null;
     } | null;
   } | null;
   // ─── ⚠️ DO NOT REMOVE sessionRenewRecords ──────────────────────────────
@@ -63,13 +63,13 @@ const resolveOperatorRole = (
   staff: {
     role: StaffRole;
     employeeProfile: {
-      subAccounts: { role: string }[];
+      subAccounts: { role: string } | null;
     } | null;
   } | null,
 ): StaffRole | null => {
   if (!staff) return null;
   if (staff.role === StaffRole.owner) return StaffRole.owner;
-  const subAccountRole = staff.employeeProfile?.subAccounts[0]?.role;
+  const subAccountRole = staff.employeeProfile?.subAccounts?.role;
   if (subAccountRole === 'manager') return StaffRole.manager;
   return staff.role;
 };

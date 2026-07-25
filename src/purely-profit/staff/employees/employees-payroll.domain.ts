@@ -242,7 +242,9 @@ export function buildPayrollReport(
       actualSalary: Money.fromDbCents(row.actualSalary).toOutputYuan(),
       ...(row.socialInsurance > 0
         ? {
-            socialInsurance: Money.fromDbCents(row.socialInsurance).toOutputYuan(),
+            socialInsurance: Money.fromDbCents(
+              row.socialInsurance,
+            ).toOutputYuan(),
           }
         : {}),
       ...(row.housingFund > 0

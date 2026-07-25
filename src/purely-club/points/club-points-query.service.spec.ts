@@ -66,7 +66,9 @@ describe('ClubPointsQueryService', () => {
         id: 99,
         points: 100,
       });
-      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(2);
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(
+        2,
+      );
     });
 
     it('非微信登录用户精确查询无结果时不回退', async () => {
@@ -75,7 +77,9 @@ describe('ClubPointsQueryService', () => {
       await expect(
         service.findCustomerByStoreAndPhone(11, '13800138000'),
       ).resolves.toBeNull();
-      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(1);
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(
+        1,
+      );
     });
   });
 
@@ -95,7 +99,9 @@ describe('ClubPointsQueryService', () => {
       });
 
       // 验证两次 aggregate 调用的 where 条件
-      expect(prismaService.marketingPointsRecord.aggregate).toHaveBeenNthCalledWith(
+      expect(
+        prismaService.marketingPointsRecord.aggregate,
+      ).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({
           where: expect.objectContaining({
@@ -105,7 +111,9 @@ describe('ClubPointsQueryService', () => {
           }),
         }),
       );
-      expect(prismaService.marketingPointsRecord.aggregate).toHaveBeenNthCalledWith(
+      expect(
+        prismaService.marketingPointsRecord.aggregate,
+      ).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({
           where: expect.objectContaining({

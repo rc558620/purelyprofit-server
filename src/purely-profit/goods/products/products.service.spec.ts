@@ -661,7 +661,11 @@ describe('ProductsService', () => {
   });
 
   it('update 只改 price 时 profit 联动重算', async () => {
-    const current = createProductRecordFixture({ price: 500, costPrice: 300, profit: 200 });
+    const current = createProductRecordFixture({
+      price: 500,
+      costPrice: 300,
+      profit: 200,
+    });
     setupUpdateMocks({ current });
 
     await service.update(user, 11, { price: 8 });
@@ -675,7 +679,11 @@ describe('ProductsService', () => {
   });
 
   it('update 只改 costPrice 时 profit 联动重算', async () => {
-    const current = createProductRecordFixture({ price: 500, costPrice: 300, profit: 200 });
+    const current = createProductRecordFixture({
+      price: 500,
+      costPrice: 300,
+      profit: 200,
+    });
     setupUpdateMocks({ current });
 
     await service.update(user, 11, { costPrice: 2 });
@@ -689,7 +697,11 @@ describe('ProductsService', () => {
   });
 
   it('update 同时改 price 与 costPrice 时 profit 正确重算', async () => {
-    const current = createProductRecordFixture({ price: 500, costPrice: 300, profit: 200 });
+    const current = createProductRecordFixture({
+      price: 500,
+      costPrice: 300,
+      profit: 200,
+    });
     setupUpdateMocks({ current });
 
     await service.update(user, 11, { price: 10, costPrice: 6 });
@@ -703,7 +715,11 @@ describe('ProductsService', () => {
   });
 
   it('update 时 profit 由服务端按 price 与 costPrice 重算，客户端无法单独修改 profit', async () => {
-    const current = createProductRecordFixture({ price: 500, costPrice: 300, profit: 200 });
+    const current = createProductRecordFixture({
+      price: 500,
+      costPrice: 300,
+      profit: 200,
+    });
     setupUpdateMocks({ current });
 
     // 只改 price，profit 联动重算
@@ -718,12 +734,16 @@ describe('ProductsService', () => {
   });
 
   it('update 时 costPrice 改为大于 price 会被 validateDerivedProfit 拦截', async () => {
-    const current = createProductRecordFixture({ price: 500, costPrice: 300, profit: 200 });
+    const current = createProductRecordFixture({
+      price: 500,
+      costPrice: 300,
+      profit: 200,
+    });
     setupUpdateMocks({ current });
 
-    await expect(
-      service.update(user, 11, { costPrice: 6 }),
-    ).rejects.toThrow('每单利润必须大于 0');
+    await expect(service.update(user, 11, { costPrice: 6 })).rejects.toThrow(
+      '每单利润必须大于 0',
+    );
 
     expect(mockedUpdateProductRecord).not.toHaveBeenCalled();
   });

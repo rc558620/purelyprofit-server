@@ -25,7 +25,6 @@ export const SALE_ORDER_ITEM_SELECT = {
             select: {
               subAccounts: {
                 select: { role: true },
-                take: 1,
               },
             },
           },
@@ -61,7 +60,6 @@ export const SALE_ORDER_ITEM_SELECT = {
                 select: {
                   subAccounts: {
                     select: { role: true },
-                    take: 1,
                   },
                 },
               },

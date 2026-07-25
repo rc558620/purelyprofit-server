@@ -78,7 +78,6 @@ export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
           select: {
             subAccounts: {
               select: { role: true };
-              take: 1;
             };
           };
         };
@@ -97,7 +96,7 @@ function resolveOperatorRole(
 ): StaffRole | null {
   if (!staff) return null;
   if (staff.role === StaffRole.owner) return StaffRole.owner;
-  const subAccountRole = staff.employeeProfile?.subAccounts[0]?.role;
+  const subAccountRole = staff.employeeProfile?.subAccounts?.role;
   if (subAccountRole === 'manager') return StaffRole.manager;
   return staff.role;
 }

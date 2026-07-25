@@ -3,6 +3,7 @@ import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/
 import { ClubMemberProfileService } from '../../purely-club/member/member-profile/club-member-profile.service';
 import { AccessControlModule } from '../access-control/access-control.module';
 import { PlatformMembershipModule } from '../member/platform-membership/platform-membership.module';
+import { StoresModule } from '../stores/stores.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { MarketingAccessService } from './marketing-access.service';
 import {
@@ -35,7 +36,12 @@ import {
 import { MarketingSharedService } from './marketing-shared.service';
 
 @Module({
-  imports: [PrismaModule, AccessControlModule, PlatformMembershipModule],
+  imports: [
+    PrismaModule,
+    AccessControlModule,
+    PlatformMembershipModule,
+    StoresModule,
+  ],
   controllers: [
     MarketingOverviewController,
     MarketingCustomersController,

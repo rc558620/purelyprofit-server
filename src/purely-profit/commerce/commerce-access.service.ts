@@ -73,12 +73,26 @@ export class CommerceAccessService {
     requiredPermission: PermissionCode,
     forbiddenMessage: string,
   ): Promise<void> {
-    const manageableStoreId = await this.getManageableStoreId(
+    await this.ensureCanAccessStoreWithAnyPermission(
       user,
-      requiredPermission,
+      storeId,
+      [requiredPermission],
+      forbiddenMessage,
     );
+  }
 
-    if (manageableStoreId !== storeId) {
+  async ensureCanAccessStoreWithAnyPermission(
+    user: AuthenticatedUser,
+    storeId: number,
+    requiredPermissions: readonly PermissionCode[],
+    forbiddenMessage: string,
+  ): Promise<void> {
+    const accessibleStoreIds = await Promise.all(
+      requiredPermissions.map((permission) =>
+        this.getManageableStoreId(user, permission),
+      ),
+    );
+    if (!accessibleStoreIds.includes(storeId)) {
       throw new ForbiddenException(forbiddenMessage);
     }
   }

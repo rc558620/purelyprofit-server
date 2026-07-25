@@ -52,6 +52,11 @@ export const PERMISSION_CODES = [
   'handover:view',
   'handover:create',
   'handover:update',
+  'scan-ordering:view',
+  'scan-ordering:table-manage',
+  'scan-ordering:menu-manage',
+  'scan-ordering:order-process',
+  'scan-ordering:report-view',
 ] as const;
 
 export type PermissionCode = (typeof PERMISSION_CODES)[number];
@@ -150,6 +155,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, readonly string[]> = {
     'handover:view',
     'handover:create',
     'handover:update',
+    'scan-ordering:view',
+    'scan-ordering:table-manage',
+    'scan-ordering:menu-manage',
+    'scan-ordering:order-process',
+    'scan-ordering:report-view',
   ],
   [StaffRole.staff]: [
     'store:view',

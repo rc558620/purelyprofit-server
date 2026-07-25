@@ -3,6 +3,7 @@ import type { StoreRegionValue } from './dto/store-response.dto';
 export interface RawCreateStorePayload {
   storeName?: unknown;
   storeType?: unknown;
+  businessMode?: unknown;
   region?: unknown;
   address?: unknown;
   storeLogo?: unknown;
@@ -14,6 +15,7 @@ export interface RawCreateStorePayload {
 export interface StoreCreatePayload {
   storeName: string;
   storeType: string;
+  businessMode: 'catering' | 'general';
   region: StoreRegionValue[];
   address: string;
   storeLogo?: string;

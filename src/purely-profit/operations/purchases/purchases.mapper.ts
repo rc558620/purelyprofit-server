@@ -55,8 +55,12 @@ export function buildPurchaseStatsResponse(params: {
   previousTotalAmount: MoneyDbCentsInput | null;
   hasPreviousRange: boolean;
 }): PurchaseStatsResponseDto {
-  const currentTotal = Money.fromDbCents(params.currentTotalAmount ?? 0).toOutputYuan();
-  const previousTotal = Money.fromDbCents(params.previousTotalAmount ?? 0).toOutputYuan();
+  const currentTotal = Money.fromDbCents(
+    params.currentTotalAmount ?? 0,
+  ).toOutputYuan();
+  const previousTotal = Money.fromDbCents(
+    params.previousTotalAmount ?? 0,
+  ).toOutputYuan();
 
   return {
     totalAmount: currentTotal,

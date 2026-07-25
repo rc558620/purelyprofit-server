@@ -75,7 +75,9 @@ describe('ClubProductsService', () => {
         name: product.name,
         description: product.description?.trim() || '暂无服务说明',
         coverImage: product.image?.trim() || '',
-        originalPrice: Money.fromDbCents(product.originalPrice ?? product.price).toOutputYuan(),
+        originalPrice: Money.fromDbCents(
+          product.originalPrice ?? product.price,
+        ).toOutputYuan(),
         // 简化：直接取原价，实际价格逻辑由 ClubProductViewService 单元测试覆盖
         memberPrice: Money.fromDbCents(product.price).toOutputYuan(),
         type: 'product',

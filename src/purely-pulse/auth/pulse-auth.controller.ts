@@ -12,7 +12,6 @@ import { AuthRsaService } from '../../purely-profit/auth/auth-rsa.service';
 import { AuthTokenResponseDto } from '../../purely-profit/auth/dto/auth-token-response.dto';
 import { LoginDto } from '../../purely-profit/auth/dto/login.dto';
 import { PublicKeyResponseDto } from '../../purely-profit/auth/dto/public-key-response.dto';
-import { CaptchaTokenService } from '../../purely-profit/auth/captcha-token.service';
 import { PulseAuthService } from './pulse-auth.service';
 
 @ApiTags('Pulse / Auth')
@@ -21,7 +20,6 @@ export class PulseAuthController {
   constructor(
     private readonly pulseAuthService: PulseAuthService,
     private readonly authRsaService: AuthRsaService,
-    private readonly captchaTokenService: CaptchaTokenService,
   ) {}
 
   @Get('public-key')
@@ -46,15 +44,13 @@ export class PulseAuthController {
   @ApiOperation({
     summary: 'purely-pulse 开发者登录',
     description:
-      '支持手机号或账号别名登录。仅开发者账号可登录 purely-pulse，非开发者账号（purely-profit 普通商家、purely-club 注册账号等）会被拒绝。' +
-      '登录前需完成拼图验证，携带 captchaToken。',
+      '支持手机号或账号别名登录。仅开发者账号可登录 purely-pulse，非开发者账号（purely-profit 普通商家、purely-club 注册账号等）会被拒绝。',
   })
   @ApiOkResponse({
     description: 'purely-pulse 开发者登录成功，返回 JWT token',
     type: AuthTokenResponseDto,
   })
   async login(@Body() dto: LoginDto): Promise<AuthTokenResponseDto> {
-    await this.captchaTokenService.validateAndConsume(dto.captchaToken);
     const decryptedDto = {
       ...dto,
       password: this.authRsaService.tryDecryptPassword(dto.password),

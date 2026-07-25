@@ -37,6 +37,11 @@ export interface ProductRecord {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
+  scanOrderingMenuProducts?: {
+    id: number;
+    isActive: boolean;
+    deletedAt: Date | null;
+  }[];
 }
 
 export interface ProductPageResult {

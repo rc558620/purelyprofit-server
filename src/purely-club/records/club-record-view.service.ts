@@ -96,5 +96,4 @@ export class ClubRecordViewService {
         return entries;
     }
   }
-
 }

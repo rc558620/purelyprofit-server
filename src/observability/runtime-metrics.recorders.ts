@@ -1,6 +1,4 @@
-import type {
-  CachePrewarmCycleMetrics,
-} from '../redis/cache-prewarm.types';
+import type { CachePrewarmCycleMetrics } from '../redis/cache-prewarm.types';
 import type {
   CachePrewarmDurationDistribution,
   CachePrewarmSlowKeySample,
@@ -212,7 +210,9 @@ export function recordRedisOperation(input: {
   runtimeMetricsState.redis.commands.set(command, commandMetric);
 }
 
-export function recordCachePrewarmCycle(metrics: CachePrewarmCycleMetrics): void {
+export function recordCachePrewarmCycle(
+  metrics: CachePrewarmCycleMetrics,
+): void {
   const nowIso = new Date().toISOString();
   runtimeMetricsState.cachePrewarm.totalCycles += 1;
   runtimeMetricsState.cachePrewarm.totalDurationMs += metrics.durationMs;
@@ -260,7 +260,10 @@ export function recordCachePrewarmCycle(metrics: CachePrewarmCycleMetrics): void
     failedKeyCountByCategory: { ...metrics.failedKeyCountByCategory },
     slowestFailedReason: metrics.slowestFailedReason,
     durationDistribution: Object.fromEntries(
-      Object.entries(metrics.durationDistribution).map(([k, v]) => [k, roundDist(v)]),
+      Object.entries(metrics.durationDistribution).map(([k, v]) => [
+        k,
+        roundDist(v),
+      ]),
     ),
     slowKeySamples: metrics.slowKeySamples.map((sample) => ({
       ...sample,

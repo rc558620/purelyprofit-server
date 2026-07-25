@@ -130,7 +130,15 @@ describe('buildSpaceSessionSettlement — items 模式', () => {
   it('items 模式不收台位费', () => {
     const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
     const items: SpaceSessionItemRecord[] = [
-      { productId: 'P1', productName: '可乐', categoryName: '饮品', salePrice: 10, profit: 5, quantity: 2, lineTotal: 20 },
+      {
+        productId: 'P1',
+        productName: '可乐',
+        categoryName: '饮品',
+        salePrice: 10,
+        profit: 5,
+        quantity: 2,
+        lineTotal: 20,
+      },
     ];
     const result = buildSpaceSessionSettlement({
       session: makeSession({ billingMode: 'items' as const, hourlyRate: null }),
@@ -151,7 +159,13 @@ describe('buildSpaceSessionSettlement — 续费抵扣', () => {
   it('timed 模式有续费记录时应抵扣', () => {
     const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
     const renewRecords: SpaceSessionRenewRecord[] = [
-      { id: 'rn_1', amount: 30, addedMinutes: 26, paymentMethod: 'cash' as const, renewedAt: Date.now() },
+      {
+        id: 'rn_1',
+        amount: 30,
+        addedMinutes: 26,
+        paymentMethod: 'cash' as const,
+        renewedAt: Date.now(),
+      },
     ];
     const result = buildSpaceSessionSettlement({
       session: makeSession(),
@@ -168,10 +182,24 @@ describe('buildSpaceSessionSettlement — 续费抵扣', () => {
   it('mixed 模式有续费记录时应抵扣', () => {
     const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
     const items: SpaceSessionItemRecord[] = [
-      { productId: 'P1', productName: '可乐', categoryName: '饮品', salePrice: 10, profit: 5, quantity: 2, lineTotal: 20 },
+      {
+        productId: 'P1',
+        productName: '可乐',
+        categoryName: '饮品',
+        salePrice: 10,
+        profit: 5,
+        quantity: 2,
+        lineTotal: 20,
+      },
     ];
     const renewRecords: SpaceSessionRenewRecord[] = [
-      { id: 'rn_1', amount: 30, addedMinutes: 26, paymentMethod: 'cash' as const, renewedAt: Date.now() },
+      {
+        id: 'rn_1',
+        amount: 30,
+        addedMinutes: 26,
+        paymentMethod: 'cash' as const,
+        renewedAt: Date.now(),
+      },
     ];
     const result = buildSpaceSessionSettlement({
       session: makeSession({ billingMode: 'mixed' as const }),
@@ -206,7 +234,15 @@ describe('buildSpaceSessionSettlement — 预付款', () => {
   it('items 模式也应扣减预付', () => {
     const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
     const items: SpaceSessionItemRecord[] = [
-      { productId: 'P1', productName: '可乐', categoryName: '饮品', salePrice: 10, profit: 5, quantity: 1, lineTotal: 10 },
+      {
+        productId: 'P1',
+        productName: '可乐',
+        categoryName: '饮品',
+        salePrice: 10,
+        profit: 5,
+        quantity: 1,
+        lineTotal: 10,
+      },
     ];
     const result = buildSpaceSessionSettlement({
       session: makeSession({
@@ -230,10 +266,24 @@ describe('buildSpaceSessionSettlement — 混合消费', () => {
   it('台位费 + 商品 + 续费抵扣 + 预付款', () => {
     const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
     const items: SpaceSessionItemRecord[] = [
-      { productId: 'P1', productName: '可乐', categoryName: '饮品', salePrice: 10, profit: 5, quantity: 2, lineTotal: 20 },
+      {
+        productId: 'P1',
+        productName: '可乐',
+        categoryName: '饮品',
+        salePrice: 10,
+        profit: 5,
+        quantity: 2,
+        lineTotal: 20,
+      },
     ];
     const renewRecords: SpaceSessionRenewRecord[] = [
-      { id: 'rn_1', amount: 30, addedMinutes: 26, paymentMethod: 'cash' as const, renewedAt: Date.now() },
+      {
+        id: 'rn_1',
+        amount: 30,
+        addedMinutes: 26,
+        paymentMethod: 'cash' as const,
+        renewedAt: Date.now(),
+      },
     ];
     const result = buildSpaceSessionSettlement({
       session: makeSession({ prepaidAmount: 1000 }), // 10元
@@ -256,7 +306,10 @@ describe('buildSpaceSessionSettlement — countdown + unit_price 模式', () => 
   it('unit_price 模式 → 台位费 = hourlyRate（固定）', () => {
     const checkoutAt = BASE_TIME.getTime() + 90 * 60 * 1000;
     const result = buildSpaceSessionSettlement({
-      session: makeSession({ billingMode: 'countdown' as const, countdownMinutes: 60 }),
+      session: makeSession({
+        billingMode: 'countdown' as const,
+        countdownMinutes: 60,
+      }),
       checkoutAt,
       payload: { timeFeeMode: 'unit_price' },
       items: NO_ITEMS,
@@ -268,7 +321,10 @@ describe('buildSpaceSessionSettlement — countdown + unit_price 模式', () => 
   it('countdown + timed 模式 → 按实际时间计费', () => {
     const checkoutAt = BASE_TIME.getTime() + 90 * 60 * 1000;
     const result = buildSpaceSessionSettlement({
-      session: makeSession({ billingMode: 'countdown' as const, countdownMinutes: 60 }),
+      session: makeSession({
+        billingMode: 'countdown' as const,
+        countdownMinutes: 60,
+      }),
       checkoutAt,
       payload: { timeFeeMode: 'timed' },
       items: NO_ITEMS,
@@ -284,7 +340,15 @@ describe('buildSpaceSessionSettlement — lineTotal 字段', () => {
   it('商品行应有 lineTotal = salePrice × quantity', () => {
     const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
     const items: SpaceSessionItemRecord[] = [
-      { productId: 'P1', productName: '可乐', categoryName: '饮品', salePrice: 10, profit: 5, quantity: 3, lineTotal: 30 },
+      {
+        productId: 'P1',
+        productName: '可乐',
+        categoryName: '饮品',
+        salePrice: 10,
+        profit: 5,
+        quantity: 3,
+        lineTotal: 30,
+      },
     ];
     const result = buildSpaceSessionSettlement({
       session: makeSession(),
@@ -293,7 +357,9 @@ describe('buildSpaceSessionSettlement — lineTotal 字段', () => {
       items,
       renewRecords: NO_RENEW,
     });
-    const timeItem = result.orderItems.find((i) => i.productId === 'SYS_TIME_BILLING');
+    const timeItem = result.orderItems.find(
+      (i) => i.productId === 'SYS_TIME_BILLING',
+    );
     expect(timeItem?.lineTotal).toBe(68);
     const productItem = result.orderItems.find((i) => i.productId === 'P1');
     expect(productItem?.lineTotal).toBe(30);

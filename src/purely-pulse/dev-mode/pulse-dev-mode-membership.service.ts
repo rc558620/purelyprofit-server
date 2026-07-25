@@ -80,9 +80,9 @@ export class PulseDevModeMembershipService {
       overview: {
         beanBalance: 0,
         totalEarnedBeans: 0,
-  totalWithdrawnBeans: 0,
-  pendingBeans: 0,
-},
+        totalWithdrawnBeans: 0,
+        pendingBeans: 0,
+      },
       items: [],
     };
   }

@@ -294,6 +294,11 @@ export class DashboardHomeService {
       subAccountSummary.quota,
     );
 
+    // 业态能力：从数据库读取门店 businessMode
+    const businessMode = await this.resolveStoreBusinessMode(storeId);
+    const isCatering = businessMode === 'catering';
+    const isBusinessModeKnown = businessMode !== null;
+
     return {
       identityType: snapshot.identityType,
       subAccountRole: snapshot.subAccountRole ?? undefined,
@@ -318,11 +323,37 @@ export class DashboardHomeService {
         ? { canUseHandover: user.currentMembership.canUseHandover }
         : {}),
       canUseHandoverManagement: snapshot.canUseHandoverManagement,
-      canUseSpaceManagement: snapshot.canUseSpaceManagement,
+      canUseSpaceManagement: isBusinessModeKnown
+        ? snapshot.canUseSpaceManagement && !isCatering
+        : false,
       canAccessStoreSettings: snapshot.canAccessStoreSettings,
       canAccessDashboardOverview:
         snapshot.allowedHomeModules.includes('additional') &&
         user.currentMembership?.canAccessHome !== false,
+      // ─── 业态能力 ───
+      businessMode: businessMode ?? 'general',
+      isCateringStore: isCatering,
+      isGeneralStore: isBusinessModeKnown && !isCatering,
+      canUseScanOrdering: isCatering,
+      canManageScanOrderingMenu: isCatering,
+      canUseMarketingProductListing: isBusinessModeKnown && !isCatering,
     };
+  }
+
+  private async resolveStoreBusinessMode(
+    storeId: number,
+  ): Promise<'catering' | 'general' | null> {
+    try {
+      const store = await this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: { businessMode: true },
+      });
+      if (!store) {
+        return null;
+      }
+      return store.businessMode;
+    } catch {
+      return null;
+    }
   }
 }

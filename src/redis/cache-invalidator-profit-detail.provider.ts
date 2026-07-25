@@ -1,4 +1,7 @@
-import { buildProfitDetailPattern, buildProfitReportPattern } from './cache-keys';
+import {
+  buildProfitDetailPattern,
+  buildProfitReportPattern,
+} from './cache-keys';
 import type { CacheInvalidatorProvider } from './cache-invalidator.registry';
 import type {
   ProfitReadCacheInvalidatorInput,
@@ -11,12 +14,8 @@ export const profitDetailCacheInvalidatorProvider: CacheInvalidatorProvider<
 > = (input: ProfitReadCacheInvalidatorInput) => ({
   invalidateProfitDetail: async (storeId: number): Promise<void> => {
     await Promise.all([
-      input.redisService.delByPattern(
-        buildProfitDetailPattern(storeId),
-      ),
-      input.redisService.delByPattern(
-        buildProfitReportPattern(storeId),
-      ),
+      input.redisService.delByPattern(buildProfitDetailPattern(storeId)),
+      input.redisService.delByPattern(buildProfitReportPattern(storeId)),
     ]);
   },
 });

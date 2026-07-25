@@ -287,10 +287,10 @@ describe('PulseDevModeService', () => {
     const result = service.buildMembershipBeanLogs();
 
     it('overview 纯利豆全部为 0', () => {
-expect(result.overview.beanBalance).toBe(0);
-expect(result.overview.totalEarnedBeans).toBe(0);
-expect(result.overview.totalWithdrawnBeans).toBe(0);
-expect(result.overview.pendingBeans).toBe(0);
+      expect(result.overview.beanBalance).toBe(0);
+      expect(result.overview.totalEarnedBeans).toBe(0);
+      expect(result.overview.totalWithdrawnBeans).toBe(0);
+      expect(result.overview.pendingBeans).toBe(0);
     });
 
     it('approvedPartner 为 null', () => {

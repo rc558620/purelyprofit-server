@@ -335,7 +335,12 @@ export class AuthProfileService {
   private async buildCurrentStore(
     currentMembership: Pick<
       ProfileMembershipRecord,
-      'storeId' | 'storeName' | 'address' | 'storeCreatedAt' | 'storeUpdatedAt'
+      | 'storeId'
+      | 'storeName'
+      | 'address'
+      | 'businessMode'
+      | 'storeCreatedAt'
+      | 'storeUpdatedAt'
     >,
   ): Promise<StoreResponseDto> {
     return buildStoreResponseDto(
@@ -343,6 +348,7 @@ export class AuthProfileService {
         id: currentMembership.storeId,
         name: currentMembership.storeName,
         address: currentMembership.address,
+        businessMode: currentMembership.businessMode,
         createdAt: currentMembership.storeCreatedAt,
         updatedAt: currentMembership.storeUpdatedAt,
       },

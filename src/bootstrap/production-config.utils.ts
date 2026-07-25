@@ -50,8 +50,14 @@ export function validateProductionConfiguration(
   const swaggerEnabled =
     configService.get<boolean>('app.swaggerEnabled') ?? false;
 
-  const adminLoginAlias = getTrimmedConfigValue(configService, 'auth.adminLoginAlias');
-  const adminLoginPhone = getTrimmedConfigValue(configService, 'auth.adminLoginPhone');
+  const adminLoginAlias = getTrimmedConfigValue(
+    configService,
+    'auth.adminLoginAlias',
+  );
+  const adminLoginPhone = getTrimmedConfigValue(
+    configService,
+    'auth.adminLoginPhone',
+  );
 
   if (!databaseUrl) {
     errors.push('database.url 未配置');
@@ -132,11 +138,15 @@ export function validateProductionConfiguration(
   }
 
   if (adminLoginAlias === 'admin') {
-    errors.push('auth.adminLoginAlias 生产环境不可使用默认值 "admin"，请通过 AUTH_ADMIN_LOGIN_ALIAS 设置自定义别名');
+    errors.push(
+      'auth.adminLoginAlias 生产环境不可使用默认值 "admin"，请通过 AUTH_ADMIN_LOGIN_ALIAS 设置自定义别名',
+    );
   }
 
   if (adminLoginPhone === '13619654020') {
-    errors.push('auth.adminLoginPhone 生产环境不可使用默认值，请通过 AUTH_ADMIN_LOGIN_PHONE 设置自定义手机号');
+    errors.push(
+      'auth.adminLoginPhone 生产环境不可使用默认值，请通过 AUTH_ADMIN_LOGIN_PHONE 设置自定义手机号',
+    );
   }
 
   if (errors.length > 0) {

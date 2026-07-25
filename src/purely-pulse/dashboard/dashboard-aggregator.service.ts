@@ -9,7 +9,6 @@ export interface SaleAggRow {
   orderCount: number;
 }
 
-
 @Injectable()
 export class DashboardAggregatorService {
   constructor(private readonly prisma: PrismaService) {}
@@ -33,8 +32,12 @@ export class DashboardAggregatorService {
     });
 
     return {
-      totalRevenue: Money.fromDbCents(aggregation._sum.totalRevenue ?? 0).toOutputYuan(),
-      totalProfit: Money.fromDbCents(aggregation._sum.totalProfit ?? 0).toOutputYuan(),
+      totalRevenue: Money.fromDbCents(
+        aggregation._sum.totalRevenue ?? 0,
+      ).toOutputYuan(),
+      totalProfit: Money.fromDbCents(
+        aggregation._sum.totalProfit ?? 0,
+      ).toOutputYuan(),
       orderCount: aggregation._count.id,
     };
   }
@@ -74,8 +77,12 @@ export class DashboardAggregatorService {
 
     return rows.reduce<Record<number, SaleAggRow>>((result, row) => {
       result[row.storeId] = {
-      totalRevenue: Money.fromDbCents(row._sum.totalRevenue ?? 0).toOutputYuan(),
-      totalProfit: Money.fromDbCents(row._sum.totalProfit ?? 0).toOutputYuan(),
+        totalRevenue: Money.fromDbCents(
+          row._sum.totalRevenue ?? 0,
+        ).toOutputYuan(),
+        totalProfit: Money.fromDbCents(
+          row._sum.totalProfit ?? 0,
+        ).toOutputYuan(),
         orderCount: row._count.id,
       };
       return result;
@@ -98,7 +105,9 @@ export class DashboardAggregatorService {
     });
 
     return rows.reduce<Record<number, number>>((result, row) => {
-      result[row.storeId] = Money.fromDbCents(row._sum.amount ?? 0).toOutputYuan();
+      result[row.storeId] = Money.fromDbCents(
+        row._sum.amount ?? 0,
+      ).toOutputYuan();
       return result;
     }, {});
   }

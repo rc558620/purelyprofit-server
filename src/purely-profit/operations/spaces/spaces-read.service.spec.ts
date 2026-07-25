@@ -166,8 +166,8 @@ describe('SpacesReadService', () => {
                 where: {
                   status: SpaceReservationStatus.pending,
                   reservedAt: {
-                  gte: aValidDate,
-                  lte: aValidDate,
+                    gte: aValidDate,
+                    lte: aValidDate,
                   },
                 },
               },

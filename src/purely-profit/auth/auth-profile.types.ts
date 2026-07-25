@@ -24,6 +24,8 @@ export interface ProfileMembershipRecord {
   subAccountRole?: StoreSubAccountRole | null;
   storeName: string;
   address: string | null;
+  /// 门店业态：catering=餐饮，general=非餐饮
+  businessMode: 'catering' | 'general';
   storeCreatedAt: Date;
   storeUpdatedAt: Date;
 }

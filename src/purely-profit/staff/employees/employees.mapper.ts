@@ -181,7 +181,11 @@ export function toEmployeePayrollResponse(
     bonus: Money.fromDbCents(payroll.bonus).toOutputYuan(),
     actualSalary: Money.fromDbCents(payroll.actualSalary).toOutputYuan(),
     ...(payroll.socialInsurance > 0
-      ? { socialInsurance: Money.fromDbCents(payroll.socialInsurance).toOutputYuan() }
+      ? {
+          socialInsurance: Money.fromDbCents(
+            payroll.socialInsurance,
+          ).toOutputYuan(),
+        }
       : {}),
     ...(payroll.housingFund > 0
       ? { housingFund: Money.fromDbCents(payroll.housingFund).toOutputYuan() }

@@ -79,36 +79,33 @@ export class HandoverRecordsDetailService {
       );
 
     // 营收计算仍需并行（各 record 的 shiftRange 不同），但控制并发防止打满连接池
-    return mapConcurrent(
-      records,
-      async (record, i) => {
-        const context = contexts[i];
-        const totalRevenue =
-          await this.handoverRecordsRevenueService.countRecordRevenue(
-            storeId,
-            context.shiftRange,
-            context.operatorStaffId,
-          );
+    return mapConcurrent(records, async (record, i) => {
+      const context = contexts[i];
+      const totalRevenue =
+        await this.handoverRecordsRevenueService.countRecordRevenue(
+          storeId,
+          context.shiftRange,
+          context.operatorStaffId,
+        );
 
-        return buildRecordSummaryDto({
-          id: record.id,
-          operatorName: context.operatorName,
-          shiftType: context.shiftRecord?.shiftType ?? null,
-          shiftLabel: resolveShiftLabel(
-            context.shiftRecord?.shiftType,
-            context.shiftRecord?.shiftName,
-          ),
-          startTime: context.shiftRecord?.startTime ?? null,
-          endTime: context.shiftRecord?.endTime ?? null,
-          totalRevenue,
-          operatorAvatar: context.operatorAvatar,
-          status: record.status,
-          handoverAt: record.handoverAt,
-          createdAt: record.createdAt,
-          shiftDate: context.shiftRecord?.date,
-        });
-      },
-    );
+      return buildRecordSummaryDto({
+        id: record.id,
+        operatorName: context.operatorName,
+        shiftType: context.shiftRecord?.shiftType ?? null,
+        shiftLabel: resolveShiftLabel(
+          context.shiftRecord?.shiftType,
+          context.shiftRecord?.shiftName,
+        ),
+        startTime: context.shiftRecord?.startTime ?? null,
+        endTime: context.shiftRecord?.endTime ?? null,
+        totalRevenue,
+        operatorAvatar: context.operatorAvatar,
+        status: record.status,
+        handoverAt: record.handoverAt,
+        createdAt: record.createdAt,
+        shiftDate: context.shiftRecord?.date,
+      });
+    });
   }
 
   async buildRecordDetail(

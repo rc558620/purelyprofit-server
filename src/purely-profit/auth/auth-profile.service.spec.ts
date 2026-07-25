@@ -98,6 +98,7 @@ describe('AuthProfileService', () => {
       subAccountRole: 'manager',
       storeName: '纯利宝测试门店',
       address: '北京市朝阳区望京街道 1 号',
+      businessMode: 'general' as const,
       storeCreatedAt: new Date('2026-05-01T00:00:00.000Z'),
       storeUpdatedAt: new Date('2026-05-10T00:00:00.000Z'),
     });
@@ -154,6 +155,7 @@ describe('AuthProfileService', () => {
         id: 18,
         storeName: '纯利宝测试门店',
         storeType: '零售',
+        businessMode: 'general',
         region: ['北京市', '北京市', '朝阳区'],
         address: '北京市朝阳区望京街道 1 号',
         storeLogo: 'https://img.test/store.png',

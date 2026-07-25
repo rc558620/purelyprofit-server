@@ -30,8 +30,6 @@ import {
 import {
   CLUB_ORDER_STATUS_VALUES,
   CLUB_ORDER_TYPE_VALUES,
-  type ClubOrderStatusValue,
-  type ClubOrderTypeValue,
 } from '../../orders/club-order.types';
 
 // ─── 回调加密资源体 ─────────────────────────────────────────────────────────────
@@ -130,13 +128,19 @@ export class ClubWechatPaymentCallbackAckDto {
     enum: CLUB_ORDER_TYPE_VALUES,
     description: '订单类型',
   })
-  orderType: ClubOrderTypeValue;
+  orderType: 'recharge' | 'service' | 'scan_ordering';
 
   @ApiProperty({
-    enum: CLUB_ORDER_STATUS_VALUES,
+    enum: [...CLUB_ORDER_STATUS_VALUES, 'pending_acceptance'],
     description: '当前订单状态',
   })
-  status: ClubOrderStatusValue;
+  status:
+    | 'pending'
+    | 'paid'
+    | 'failed'
+    | 'cancelled'
+    | 'expired'
+    | 'pending_acceptance';
 }
 
 // ─── 解密后的微信交易资源（内部使用，不对外暴露） ─────────────────────────────

@@ -24,6 +24,7 @@ import { SpaceSessionSettlementService } from './space-session-settlement.servic
 import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
 import { SpaceSessionTransferService } from './space-session-transfer.service';
 import { SpaceSessionWriteService } from './space-session-write.service';
+import { StoresModule } from '../../stores/stores.module';
 import { SpaceSessionsController } from './space-sessions.controller';
 import { SpaceSessionsService } from './space-sessions.service';
 import { SpaceTypesController } from './space-types.controller';
@@ -43,6 +44,7 @@ import { SpacesWriteService } from './spaces-write.service';
     PlatformMembershipModule,
     SalesRecordModule,
     RedisModule,
+    StoresModule,
   ],
   controllers: [
     SpaceTypesController,

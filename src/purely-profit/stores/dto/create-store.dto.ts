@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -21,10 +22,23 @@ export class CreateStoreDto {
   @MaxLength(50, { message: '门店名称不能超过 50 个字符' })
   storeName: string;
 
-  @ApiProperty({ example: '零售', description: '门店类型' })
+  @ApiProperty({
+    example: '零售',
+    description: '门店类型（兼容旧客户端展示字段）',
+  })
   @IsString({ message: '门店类型必须是字符串' })
   @MinLength(1, { message: '门店类型不能为空' })
   storeType: string;
+
+  @ApiProperty({
+    example: 'general',
+    description:
+      '门店业态：catering=餐饮，general=非餐饮。用于功能能力与访问控制',
+  })
+  @IsEnum(['catering', 'general'] as const, {
+    message: '门店业态必须是 catering 或 general',
+  })
+  businessMode: 'catering' | 'general';
 
   @ApiProperty({
     example: ['北京市', '北京市', '朝阳区'],

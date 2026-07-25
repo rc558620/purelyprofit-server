@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import type { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
-import { CACHE_CONTROL_KEY, type CacheControlOptions } from './cache-control.decorator';
+import {
+  CACHE_CONTROL_KEY,
+  type CacheControlOptions,
+} from './cache-control.decorator';
 import { Reflector } from '@nestjs/core';
 
 /**

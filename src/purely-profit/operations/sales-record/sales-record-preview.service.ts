@@ -31,19 +31,22 @@ export class SalesRecordPreviewService {
     }));
 
     // 使用统一金额聚合域计算权威金额
-    const amountsSnapshot = SalesRecordAmountsDomain.aggregateFromPreparedItems(preparedItems);
+    const amountsSnapshot =
+      SalesRecordAmountsDomain.aggregateFromPreparedItems(preparedItems);
 
     // 组装预览响应
-    const items: PreviewSalesRecordItemDto[] = amountsSnapshot.items.map((item, index) => ({
-      productId: dto.items[index].productId ?? '',
-      productName: dto.items[index].productName,
-      categoryName: dto.items[index].categoryName,
-      salePrice: dto.items[index].salePrice,
-      profit: dto.items[index].profit,
-      quantity: item.quantity,
-      revenueSubtotal: item.subtotal,
-      profitSubtotal: item.profitSubtotal,
-    }));
+    const items: PreviewSalesRecordItemDto[] = amountsSnapshot.items.map(
+      (item, index) => ({
+        productId: dto.items[index].productId ?? '',
+        productName: dto.items[index].productName,
+        categoryName: dto.items[index].categoryName,
+        salePrice: dto.items[index].salePrice,
+        profit: dto.items[index].profit,
+        quantity: item.quantity,
+        revenueSubtotal: item.subtotal,
+        profitSubtotal: item.profitSubtotal,
+      }),
+    );
 
     return {
       items,

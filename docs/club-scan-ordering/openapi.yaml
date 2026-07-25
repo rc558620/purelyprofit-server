@@ -1,0 +1,1143 @@
+openapi: 3.0.3
+info:
+  title: PurelyClub 扫码点餐 API
+  version: 0.1.0-draft
+  description: |
+    purelyClub 消费者端扫码点餐契约草案。
+    所有金额原始值均为整数分；服务端是价格、优惠、库存、订单和支付状态的唯一权威来源。
+servers:
+  - url: /api
+security:
+  - bearerAuth: []
+tags:
+  - name: Club Scan Ordering
+    description: purelyClub 消费者端扫码点餐
+paths:
+  /club/scan-ordering/scan/resolve:
+    post:
+      tags: [Club Scan Ordering]
+      summary: 解析桌台二维码
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveScanQrRequest'
+      responses:
+        '200':
+          description: 桌码解析成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveScanQrResponse'
+        '400':
+          $ref: '#/components/responses/ScanQrTokenInvalid'
+        '409':
+          $ref: '#/components/responses/ScanTableUnavailable'
+  /club/scan-ordering/sessions:
+    post:
+      tags: [Club Scan Ordering]
+      summary: 建立或恢复桌台会话
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '200':
+          description: 已恢复有效会话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanSession'
+        '201':
+          description: 已建立新会话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanSession'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '409':
+          $ref: '#/components/responses/ScanSessionExpired'
+  /club/scan-ordering/sessions/current:
+    get:
+      tags: [Club Scan Ordering]
+      summary: 查询当前有效桌台会话
+      responses:
+        '200':
+          description: 当前会话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanSession'
+        '404':
+          $ref: '#/components/responses/ScanSessionNotFound'
+    patch:
+      tags: [Club Scan Ordering]
+      summary: 更新当前会话就餐人数
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSessionRequest'
+      responses:
+        '200':
+          description: 更新后的会话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanSession'
+    post:
+      tags: [Club Scan Ordering]
+      summary: 退出当前桌台会话
+      description: 仅退出当前用户会话，不清理桌台也不取消订单。
+      responses:
+        '204':
+          description: 已退出
+  /club/scan-ordering/menu:
+    get:
+      tags: [Club Scan Ordering]
+      summary: 获取当前会话菜单
+      parameters:
+        - $ref: '#/components/parameters/SessionIdQuery'
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 菜单数据
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuResponse'
+        '304':
+          description: 菜单未变更
+        '401':
+          $ref: '#/components/responses/AuthRequired'
+        '409':
+          $ref: '#/components/responses/ScanSessionExpired'
+  /club/scan-ordering/menu/products/{productId}:
+    get:
+      tags: [Club Scan Ordering]
+      summary: 获取商品详情
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/SessionIdQuery'
+      responses:
+        '200':
+          description: 商品详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuProduct'
+        '404':
+          $ref: '#/components/responses/ProductNotFound'
+  /club/scan-ordering/cart:
+    get:
+      tags: [Club Scan Ordering]
+      summary: 获取当前会话购物车
+      parameters:
+        - $ref: '#/components/parameters/SessionIdQuery'
+      responses:
+        '200':
+          description: 购物车
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+    delete:
+      tags: [Club Scan Ordering]
+      summary: 清空当前会话购物车
+      parameters:
+        - $ref: '#/components/parameters/SessionIdQuery'
+      responses:
+        '204':
+          description: 已清空
+  /club/scan-ordering/cart/items:
+    post:
+      tags: [Club Scan Ordering]
+      summary: 添加购物车商品
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCartItemRequest'
+      responses:
+        '200':
+          description: 更新后的购物车
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '409':
+          $ref: '#/components/responses/StockInsufficient'
+        '422':
+          $ref: '#/components/responses/SpecSelectionInvalid'
+  /club/scan-ordering/cart/items/{itemId}:
+    patch:
+      tags: [Club Scan Ordering]
+      summary: 更新购物车行数量
+      parameters:
+        - $ref: '#/components/parameters/CartItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCartItemRequest'
+      responses:
+        '200':
+          description: 更新后的购物车
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '409':
+          $ref: '#/components/responses/CartVersionConflict'
+    delete:
+      tags: [Club Scan Ordering]
+      summary: 删除购物车行
+      parameters:
+        - $ref: '#/components/parameters/CartItemId'
+        - name: version
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: 更新后的购物车
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '409':
+          $ref: '#/components/responses/CartVersionConflict'
+  /club/scan-ordering/orders/preview:
+    post:
+      tags: [Club Scan Ordering]
+      summary: 预览订单价格
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderPreviewRequest'
+      responses:
+        '200':
+          description: 订单价格预览
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPreview'
+        '409':
+          $ref: '#/components/responses/StockInsufficient'
+  /club/scan-ordering/orders:
+    post:
+      tags: [Club Scan Ordering]
+      summary: 创建待支付点餐订单
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: 同一用户的请求幂等键，UUID 或 ULID，最长 128 字符。
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: 已创建订单
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedOrder'
+        '200':
+          description: 幂等重放，返回首次创建的订单
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedOrder'
+        '409':
+          $ref: '#/components/responses/PricingVersionExpired'
+  /club/scan-ordering/orders/{orderId}/payments:
+    post:
+      tags: [Club Scan Ordering]
+      summary: 重新获取待支付订单的支付参数
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: 支付参数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentInitiation'
+        '409':
+          $ref: '#/components/responses/OrderStatusConflict'
+  /club/scan-ordering/orders/{orderId}/cancel:
+    post:
+      tags: [Club Scan Ordering]
+      summary: 取消本人未支付订单
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '204':
+          description: 已取消
+        '409':
+          $ref: '#/components/responses/OrderStatusConflict'
+  /club/scan-ordering/orders/{orderId}:
+    get:
+      tags: [Club Scan Ordering]
+      summary: 获取本人订单详情
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: 订单详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+        '403':
+          $ref: '#/components/responses/OrderForbidden'
+  /club/scan-ordering/orders/{orderId}/status:
+    get:
+      tags: [Club Scan Ordering]
+      summary: 获取本人订单状态
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: 订单状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderStatusResponse'
+  /club/scan-ordering/service-calls:
+    post:
+      tags: [Club Scan Ordering]
+      summary: 呼叫服务员
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceCallRequest'
+      responses:
+        '201':
+          description: 呼叫已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceCall'
+        '429':
+          $ref: '#/components/responses/ServiceCallTooFrequent'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    SessionIdQuery:
+      name: sessionId
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      schema:
+        type: string
+    CartItemId:
+      name: itemId
+      in: path
+      required: true
+      schema:
+        type: string
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    AuthRequired:
+      description: 需要登录
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            statusCode: 401
+            code: CLUB_AUTH_REQUIRED
+            message: 请先登录后继续点餐。
+            requestId: req_01J
+            timestamp: '2026-07-23T12:00:00.000Z'
+    ScanQrTokenInvalid:
+      description: 桌码无效
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ScanTableUnavailable:
+      description: 桌台不可点餐
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ScanSessionExpired:
+      description: 会话已过期
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ScanSessionNotFound:
+      description: 不存在有效会话
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ProductNotFound:
+      description: 商品不存在或已下架
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    CartVersionConflict:
+      description: 购物车版本冲突
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    StockInsufficient:
+      description: 库存不足或商品售罄
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    SpecSelectionInvalid:
+      description: 规格选择无效
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PricingVersionExpired:
+      description: 价格预览已过期
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    OrderStatusConflict:
+      description: 订单状态不允许当前操作
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    OrderForbidden:
+      description: 无权操作该订单
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceCallTooFrequent:
+      description: 呼叫过于频繁
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ResolveScanQrRequest:
+      type: object
+      required: [qrToken]
+      properties:
+        qrToken:
+          type: string
+          minLength: 1
+          maxLength: 1024
+    ResolveScanQrResponse:
+      type: object
+      required: [store, table, scanToken, expiresAt]
+      properties:
+        store:
+          $ref: '#/components/schemas/PublicStore'
+        table:
+          $ref: '#/components/schemas/PublicTable'
+        scanToken:
+          type: string
+          description: 短期、单一用途扫码凭据，不是长期会话令牌。
+        expiresAt:
+          type: string
+          format: date-time
+    PublicStore:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+    PublicTable:
+      type: object
+      required: [id, tableCode, name, areaName, capacity, status, canOrder]
+      properties:
+        id:
+          type: string
+        tableCode:
+          type: string
+        name:
+          type: string
+        areaName:
+          type: string
+          nullable: true
+        capacity:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/TableStatus'
+        canOrder:
+          type: boolean
+    CreateSessionRequest:
+      type: object
+      required: [scanToken]
+      properties:
+        scanToken:
+          type: string
+          minLength: 1
+        guestCount:
+          type: integer
+          minimum: 1
+          maximum: 99
+    UpdateSessionRequest:
+      type: object
+      required: [guestCount]
+      properties:
+        guestCount:
+          type: integer
+          minimum: 1
+          maximum: 99
+    ScanSession:
+      type: object
+      required:
+        [
+          id,
+          store,
+          table,
+          guestCount,
+          status,
+          expiresAt,
+          isExistingDiningSession,
+        ]
+      properties:
+        id:
+          type: string
+        store:
+          $ref: '#/components/schemas/PublicStore'
+        table:
+          $ref: '#/components/schemas/PublicTable'
+        guestCount:
+          type: integer
+        status:
+          type: string
+          enum: [active, checked_out, expired, left]
+        expiresAt:
+          type: string
+          format: date-time
+        isExistingDiningSession:
+          type: boolean
+    MenuResponse:
+      type: object
+      required: [menuVersion, categories]
+      properties:
+        menuVersion:
+          type: string
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/MenuCategory'
+    MenuCategory:
+      type: object
+      required: [id, name, sortOrder, products]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        sortOrder:
+          type: integer
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/MenuProduct'
+    MenuProduct:
+      type: object
+      required:
+        [
+          id,
+          name,
+          basePriceAmount,
+          currency,
+          stockStatus,
+          isSoldOut,
+          specGroups,
+        ]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        imageUrl:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        basePriceAmount:
+          type: integer
+          minimum: 0
+        currency:
+          type: string
+          enum: [CNY]
+        stockStatus:
+          type: string
+          enum: [available, low_stock, sold_out]
+        isSoldOut:
+          type: boolean
+        specGroups:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpecGroup'
+    SpecGroup:
+      type: object
+      required: [id, name, selectionType, minSelections, maxSelections, options]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        selectionType:
+          type: string
+          enum: [single, multiple]
+        minSelections:
+          type: integer
+          minimum: 0
+        maxSelections:
+          type: integer
+          minimum: 1
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/SpecOption'
+    SpecOption:
+      type: object
+      required: [id, name, extraPriceAmount, isAvailable]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        extraPriceAmount:
+          type: integer
+          minimum: 0
+        isAvailable:
+          type: boolean
+    AddCartItemRequest:
+      type: object
+      required: [sessionId, productId, quantity, specOptionIds]
+      properties:
+        sessionId:
+          type: string
+        productId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+        specOptionIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+    UpdateCartItemRequest:
+      type: object
+      required: [quantity, version]
+      properties:
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+        version:
+          type: integer
+          minimum: 0
+    Cart:
+      type: object
+      required: [sessionId, version, items]
+      properties:
+        sessionId:
+          type: string
+        version:
+          type: integer
+          minimum: 0
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItem'
+    CartItem:
+      type: object
+      required:
+        [
+          id,
+          product,
+          quantity,
+          specSignature,
+          unitPriceAmount,
+          lineTotalAmount,
+          currency,
+          specs,
+        ]
+      properties:
+        id:
+          type: string
+        product:
+          $ref: '#/components/schemas/CartProduct'
+        quantity:
+          type: integer
+        specSignature:
+          type: string
+        unitPriceAmount:
+          type: integer
+        lineTotalAmount:
+          type: integer
+        currency:
+          type: string
+          enum: [CNY]
+        specs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SelectedSpec'
+    CartProduct:
+      type: object
+      required: [id, name, imageUrl]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        imageUrl:
+          type: string
+          nullable: true
+    SelectedSpec:
+      type: object
+      required: [groupId, groupName, optionId, optionName, extraPriceAmount]
+      properties:
+        groupId:
+          type: string
+        groupName:
+          type: string
+        optionId:
+          type: string
+        optionName:
+          type: string
+        extraPriceAmount:
+          type: integer
+    OrderPreviewRequest:
+      type: object
+      required: [sessionId, cartVersion, guestCount]
+      properties:
+        sessionId:
+          type: string
+        cartVersion:
+          type: integer
+          minimum: 0
+        guestCount:
+          type: integer
+          minimum: 1
+          maximum: 99
+        remark:
+          type: string
+          maxLength: 200
+        couponId:
+          type: string
+          nullable: true
+    OrderPreview:
+      type: object
+      required:
+        [
+          currency,
+          itemOriginalAmount,
+          specificationExtraAmount,
+          productDiscountAmount,
+          orderDiscountAmount,
+          serviceFeeAmount,
+          taxAmount,
+          payableAmount,
+          breakdownItems,
+          pricingVersion,
+          expiresAt,
+        ]
+      properties:
+        currency:
+          type: string
+          enum: [CNY]
+        itemOriginalAmount:
+          type: integer
+        specificationExtraAmount:
+          type: integer
+        productDiscountAmount:
+          type: integer
+        orderDiscountAmount:
+          type: integer
+        serviceFeeAmount:
+          type: integer
+        taxAmount:
+          type: integer
+        payableAmount:
+          type: integer
+          minimum: 0
+        breakdownItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceBreakdownItem'
+        pricingVersion:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+    PriceBreakdownItem:
+      type: object
+      required: [code, label, amount, kind, isApplied]
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+        amount:
+          type: integer
+        kind:
+          type: string
+          enum: [charge, discount, waived]
+        isApplied:
+          type: boolean
+        unavailableReason:
+          type: string
+          nullable: true
+    CreateOrderRequest:
+      type: object
+      required:
+        [sessionId, cartVersion, pricingVersion, guestCount, paymentMethod]
+      properties:
+        sessionId:
+          type: string
+        cartVersion:
+          type: integer
+          minimum: 0
+        pricingVersion:
+          type: string
+        guestCount:
+          type: integer
+          minimum: 1
+          maximum: 99
+        remark:
+          type: string
+          maxLength: 200
+        couponId:
+          type: string
+          nullable: true
+        paymentMethod:
+          type: string
+          enum: [wechat_jsapi]
+    CreatedOrder:
+      type: object
+      required:
+        [
+          id,
+          orderNo,
+          status,
+          paymentStatus,
+          fulfillmentStatus,
+          payableAmount,
+          currency,
+          paymentExpiresAt,
+          payment,
+        ]
+      properties:
+        id:
+          type: string
+        orderNo:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        paymentStatus:
+          $ref: '#/components/schemas/PaymentStatus'
+        fulfillmentStatus:
+          $ref: '#/components/schemas/FulfillmentStatus'
+        payableAmount:
+          type: integer
+        currency:
+          type: string
+          enum: [CNY]
+        paymentExpiresAt:
+          type: string
+          format: date-time
+        payment:
+          $ref: '#/components/schemas/PaymentInitiation'
+    PaymentInitiation:
+      type: object
+      required: [channel]
+      properties:
+        channel:
+          type: string
+          enum: [wechat_jsapi]
+        params:
+          $ref: '#/components/schemas/WechatJsapiParams'
+    WechatJsapiParams:
+      type: object
+      required: [timeStamp, nonceStr, package, signType, paySign]
+      properties:
+        timeStamp:
+          type: string
+        nonceStr:
+          type: string
+        package:
+          type: string
+        signType:
+          type: string
+          enum: [RSA]
+        paySign:
+          type: string
+    OrderStatus:
+      type: string
+      enum:
+        [
+          pending_payment,
+          pending_acceptance,
+          preparing,
+          served,
+          completed,
+          cancelled,
+          rejected,
+          refunding,
+        ]
+    PaymentStatus:
+      type: string
+      enum: [unpaid, paid, refunding, refunded]
+    FulfillmentStatus:
+      type: string
+      enum: [preparing, served, closed]
+    TableStatus:
+      type: string
+      enum: [empty, dining, clearing, disabled]
+    OrderDetail:
+      type: object
+      required:
+        [
+          id,
+          orderNo,
+          createdAt,
+          table,
+          guestCount,
+          status,
+          paymentStatus,
+          fulfillmentStatus,
+          amountSummary,
+          items,
+          statusHistory,
+        ]
+      properties:
+        id:
+          type: string
+        orderNo:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        table:
+          $ref: '#/components/schemas/PublicTable'
+        guestCount:
+          type: integer
+        remark:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        paymentStatus:
+          $ref: '#/components/schemas/PaymentStatus'
+        fulfillmentStatus:
+          $ref: '#/components/schemas/FulfillmentStatus'
+        amountSummary:
+          $ref: '#/components/schemas/OrderAmountSummary'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        statusHistory:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderStatusHistory'
+    OrderStatusResponse:
+      type: object
+      required: [id, status, paymentStatus, fulfillmentStatus, updatedAt]
+      properties:
+        id:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        paymentStatus:
+          $ref: '#/components/schemas/PaymentStatus'
+        fulfillmentStatus:
+          $ref: '#/components/schemas/FulfillmentStatus'
+        updatedAt:
+          type: string
+          format: date-time
+    OrderAmountSummary:
+      type: object
+      required:
+        [
+          currency,
+          itemOriginalAmount,
+          specificationExtraAmount,
+          productDiscountAmount,
+          orderDiscountAmount,
+          serviceFeeAmount,
+          taxAmount,
+          payableAmount,
+          paidAmount,
+        ]
+      properties:
+        currency:
+          type: string
+          enum: [CNY]
+        itemOriginalAmount:
+          type: integer
+        specificationExtraAmount:
+          type: integer
+        productDiscountAmount:
+          type: integer
+        orderDiscountAmount:
+          type: integer
+        serviceFeeAmount:
+          type: integer
+        taxAmount:
+          type: integer
+        payableAmount:
+          type: integer
+        paidAmount:
+          type: integer
+    OrderItem:
+      type: object
+      required:
+        [
+          id,
+          productId,
+          productName,
+          quantity,
+          basePriceAmount,
+          lineTotalAmount,
+          specs,
+        ]
+      properties:
+        id:
+          type: string
+        productId:
+          type: string
+        productName:
+          type: string
+        quantity:
+          type: integer
+        basePriceAmount:
+          type: integer
+        lineTotalAmount:
+          type: integer
+        specs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SelectedSpec'
+    OrderStatusHistory:
+      type: object
+      required: [fromStatus, toStatus, operatorType, createdAt]
+      properties:
+        fromStatus:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/OrderStatus'
+        toStatus:
+          $ref: '#/components/schemas/OrderStatus'
+        operatorType:
+          type: string
+          enum: [system, club_user, merchant, payment_callback]
+        reason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    CreateServiceCallRequest:
+      type: object
+      required: [sessionId, type]
+      properties:
+        sessionId:
+          type: string
+        type:
+          type: string
+          enum: [waiter, water, cutlery, checkout, other]
+        remark:
+          type: string
+          maxLength: 200
+    ServiceCall:
+      type: object
+      required: [id, type, status, requestedAt]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [waiter, water, cutlery, checkout, other]
+        status:
+          type: string
+          enum: [pending, acknowledged, resolved, cancelled]
+        requestedAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      required: [statusCode, code, message, requestId, timestamp]
+      properties:
+        statusCode:
+          type: integer
+        code:
+          type: string
+        message:
+          type: string
+        requestId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time

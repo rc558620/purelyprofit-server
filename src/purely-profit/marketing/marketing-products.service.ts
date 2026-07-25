@@ -201,8 +201,7 @@ export class MarketingProductsService {
       data.durationMinutes = dto.durationMinutes ?? null;
     if (dto.personCount !== undefined)
       data.personCount = dto.personCount ?? null;
-    if (dto.unit !== undefined)
-      data.unit = dto.unit || null;
+    if (dto.unit !== undefined) data.unit = dto.unit || null;
 
     const updated = await this.prisma.marketingProduct.update({
       where: { id: productId },

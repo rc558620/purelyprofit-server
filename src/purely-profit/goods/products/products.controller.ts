@@ -23,6 +23,8 @@ import {
 } from '@nestjs/swagger';
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
+import { BusinessModeGuard } from '../../stores/business-mode.guard';
+import { RequireBusinessMode } from '../../stores/business-mode.decorator';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
@@ -30,13 +32,15 @@ import {
   ListProductsQueryDto,
   PaginatedProductsResponseDto,
   ProductResponseDto,
+  ScanOrderingStatusResponseDto,
+  ToggleScanOrderingStatusDto,
   UpdateProductDto,
 } from './dto/product.dto';
 import { ProductsService } from './products.service';
 
 @ApiTags('Products')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, BusinessModeGuard)
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
@@ -96,5 +100,18 @@ export class ProductsController {
     @Param('id', ParseIntPipe) productId: number,
   ): Promise<void> {
     await this.productsService.remove(user, productId);
+  }
+
+  @Patch(':id/scan-ordering-status')
+  @RequirePermissions('goods:update')
+  @RequireBusinessMode('catering')
+  @ApiOperation({ summary: '上架/下架到扫码点餐（仅餐饮门店）' })
+  @ApiOkResponse({ type: ScanOrderingStatusResponseDto })
+  toggleScanOrderingStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) productId: number,
+    @Body() dto: ToggleScanOrderingStatusDto,
+  ): Promise<ScanOrderingStatusResponseDto> {
+    return this.productsService.toggleScanOrderingStatus(user, productId, dto);
   }
 }

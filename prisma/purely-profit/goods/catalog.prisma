@@ -1,54 +1,47 @@
-// purely-profit/goods: 商品目录模型
-
 model ProductCategory {
   id        Int       @id @default(autoincrement())
   storeId   Int       @map("store_id")
-  store     Store     @relation(fields: [storeId], references: [id], onDelete: Restrict)
   name      String
   icon      String?
-  products  Product[]
   /// 软删除标记：非 null 表示已删除，值是删除时间
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
+  store     Store     @relation(fields: [storeId], references: [id])
+  products  Product[]
 
-  // name 的唯一约束通过 Partial Index（原生 SQL）实现，
-  // 仅对 deletedAt IS NULL 的行生效，允许软删除后重新创建同名分类。
-  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL
   @@index([storeId, name])
   @@index([storeId, updatedAt])
   @@map("product_categories")
 }
 
 model Product {
-  id             Int                      @id @default(autoincrement())
-  storeId        Int                      @map("store_id")
-  store          Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  categoryId     Int?                     @map("category_id")
-  categoryRecord ProductCategory?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  category       String
-  code           String
-  name           String
-  price          Int                      // 售价（分）
-  profit         Int                      // 利润（分）
-  costPrice      Int?                     @map("cost_price") // 成本价（分）
-  unit           String
-  stock          Int                      @default(0)
-  alertThreshold Int                      @default(10) @map("alert_threshold")
-  image          String?
-  description    String?
-  isActive       Boolean                  @default(true) @map("is_active")
-  purchaseItems  PurchaseOrderItem[]
-  inventoryLogs  InventoryAdjustmentLog[]
-  salesItems     SaleOrderItem[]
+  id                       Int                       @id @default(autoincrement())
+  storeId                  Int                       @map("store_id")
+  categoryId               Int?                      @map("category_id")
+  category                 String
+  code                     String
+  name                     String
+  price                    Int
+  profit                   Int
+  costPrice                Int?                      @map("cost_price")
+  unit                     String
+  stock                    Int                       @default(0)
+  alertThreshold           Int                       @default(10) @map("alert_threshold")
+  image                    String?
+  description              String?
+  isActive                 Boolean                   @default(true) @map("is_active")
   /// 软删除标记：非 null 表示已删除，值是删除时间
-  deletedAt      DateTime?                @map("deleted_at")
-  createdAt      DateTime                 @default(now()) @map("created_at")
-  updatedAt      DateTime                 @updatedAt @map("updated_at")
+  deletedAt                DateTime?                 @map("deleted_at")
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+  inventoryLogs            InventoryAdjustmentLog[]
+  categoryRecord           ProductCategory?          @relation(fields: [categoryId], references: [id])
+  store                    Store                     @relation(fields: [storeId], references: [id])
+  purchaseItems            PurchaseOrderItem[]
+  salesItems               SaleOrderItem[]
+  scanOrderingMenuProducts ScanOrderingMenuProduct[]
 
-  // code 的唯一约束通过 Partial Index（原生 SQL）实现，
-  // 仅对 deletedAt IS NULL 的行生效，允许软删除后重新创建同编码商品。
-  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL
   @@index([storeId, code])
   @@index([storeId, category, updatedAt])
   @@index([storeId, isActive, updatedAt])

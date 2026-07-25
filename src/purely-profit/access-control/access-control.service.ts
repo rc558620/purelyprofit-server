@@ -28,6 +28,7 @@ export interface AuthenticatedMembership {
   subAccountAssigned: boolean;
   canAccessHome: boolean;
   canUseHandover: boolean;
+  businessMode?: 'catering' | 'general';
 }
 
 type MembershipStaffContext = Pick<
@@ -48,45 +49,96 @@ type MembershipSubAccountContext = {
 } | null;
 
 const CASHIER_SUB_ACCOUNT_PERMISSIONS = [
-  'space:view',
-  'space:create',
-  'space:update',
   'operation-entry:view',
   'operation-entry:create',
   'goods:view',
+  // 扫码点餐（餐饮门店收银员专用）
+  'scan-ordering:view',
+  'scan-ordering:table-manage',
+  'scan-ordering:order-process',
   'handover:view',
   'handover:create',
   'handover:update',
 ] as const;
 
-const MANAGER_SUB_ACCOUNT_PERMISSIONS = [
+const CATERING_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
+  // 员工管理
   'staff:view',
   'staff:create',
   'staff:update',
+  // 营销与报表（主账号专属，子账号不实际使用）
   'marketing:view',
   'marketing:manage',
   'report:view',
+  // 商品与供应商管理
   'goods:view',
   'goods:create',
   'goods:update',
   'supplier:view',
   'supplier:create',
   'supplier:update',
+  // 进货管理
   'purchase:view',
   'purchase:create',
+  // 成本与运营入口
   'cost:view',
   'operation-entry:view',
   'operation-entry:create',
   'operation-entry:delete',
+  // 销售记录
   'sales:view',
   'sales:create',
   'sales:delete',
+  // 库存管理
   'inventory:view',
   'inventory:update',
+  // 扫码点餐（餐饮门店店长专用）
+  'scan-ordering:view',
+  'scan-ordering:table-manage',
+  'scan-ordering:order-process',
+  // 交班管理
+  'handover:view',
+  'handover:create',
+  'handover:update',
+] as const;
+
+const GENERAL_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
+  // 员工管理
+  'staff:view',
+  'staff:create',
+  'staff:update',
+  // 营销与报表（主账号专属，子账号不实际使用）
+  'marketing:view',
+  'marketing:manage',
+  'report:view',
+  // 商品与供应商管理
+  'goods:view',
+  'goods:create',
+  'goods:update',
+  'supplier:view',
+  'supplier:create',
+  'supplier:update',
+  // 进货管理
+  'purchase:view',
+  'purchase:create',
+  // 成本与运营入口
+  'cost:view',
+  'operation-entry:view',
+  'operation-entry:create',
+  'operation-entry:delete',
+  // 销售记录
+  'sales:view',
+  'sales:create',
+  'sales:delete',
+  // 库存管理
+  'inventory:view',
+  'inventory:update',
+  // 空间管理（非餐饮门店店长专用）
   'space:view',
   'space:create',
   'space:update',
   'space:delete',
+  // 交班管理
   'handover:view',
   'handover:create',
   'handover:update',
@@ -117,20 +169,31 @@ const FINANCE_SUB_ACCOUNT_PERMISSIONS = [
 
 const SUB_ACCOUNT_ROLE_PERMISSIONS: Record<
   StoreSubAccountRole,
-  readonly string[]
+  | readonly string[]
+  | ((businessMode?: 'catering' | 'general') => readonly string[])
 > = {
   [StoreSubAccountRole.cashier]: CASHIER_SUB_ACCOUNT_PERMISSIONS,
   [StoreSubAccountRole.finance]: FINANCE_SUB_ACCOUNT_PERMISSIONS,
-  [StoreSubAccountRole.manager]: MANAGER_SUB_ACCOUNT_PERMISSIONS,
+  [StoreSubAccountRole.manager]: (
+    businessMode?: 'catering' | 'general',
+  ): readonly string[] => {
+    // 餐饮店长使用扫码点餐权限集合
+    if (businessMode === 'catering') {
+      return CATERING_MANAGER_SUB_ACCOUNT_PERMISSIONS;
+    }
+    // 非餐饮店长使用空间管理权限集合
+    return GENERAL_MANAGER_SUB_ACCOUNT_PERMISSIONS;
+  },
 };
 
 @Injectable()
 export class AccessControlService {
   getEffectivePermissions(
     input: Pick<Staff, 'role' | 'permissions'> | AuthenticatedMembership,
+    businessMode?: 'catering' | 'general',
   ): string[] {
     if ('subjectType' in input && input.subjectType === 'sub_account') {
-      return this.getSubAccountPermissions(input);
+      return this.getSubAccountPermissions(input, businessMode);
     }
 
     const defaults = DEFAULT_ROLE_PERMISSIONS[input.role] ?? [];
@@ -190,6 +253,7 @@ export class AccessControlService {
   buildMembershipContext(
     staff: MembershipStaffContext,
     subAccount: MembershipSubAccountContext = null,
+    businessMode?: 'catering' | 'general',
   ): AuthenticatedMembership {
     const subjectType: IdentityType = subAccount
       ? 'sub_account'
@@ -212,16 +276,18 @@ export class AccessControlService {
       subAccountAssigned: subAccount?.isAssigned ?? false,
       canAccessHome: subAccount ? (subAccount.canAccessHome ?? false) : true,
       canUseHandover: subAccount?.canUseHandover ?? false,
+      businessMode,
     };
 
     return {
       ...membership,
-      permissions: this.getEffectivePermissions(membership),
+      permissions: this.getEffectivePermissions(membership, businessMode),
     };
   }
 
   private getSubAccountPermissions(
     membership: AuthenticatedMembership,
+    businessMode?: 'catering' | 'general',
   ): string[] {
     if (
       membership.subAccountRole === null ||
@@ -232,14 +298,24 @@ export class AccessControlService {
       return [];
     }
 
-    const basePermissions =
+    let basePermissions =
       SUB_ACCOUNT_ROLE_PERMISSIONS[membership.subAccountRole] ?? [];
-    if (membership.canUseHandover) {
-      return basePermissions as string[];
+
+    // 如果是函数类型（店长），根据业态返回对应的权限集合
+    if (typeof basePermissions === 'function') {
+      basePermissions = basePermissions(businessMode);
     }
 
-    return basePermissions.filter(
-      (permission) => !permission.startsWith('handover:'),
-    );
+    const finalPermissions = Array.isArray(basePermissions)
+      ? basePermissions
+      : [];
+
+    if (membership.canUseHandover) {
+      return finalPermissions as string[];
+    }
+
+    return finalPermissions.filter(
+      (permission): permission is string => !permission.startsWith('handover:'),
+    ) as string[];
   }
 }

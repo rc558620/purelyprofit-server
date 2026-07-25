@@ -82,7 +82,10 @@ export class WithdrawalsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: PreviewWithdrawalDto,
   ): Promise<PreviewWithdrawalResponseDto> {
-    return this.withdrawalsService.preview(user, dto.beanAmount) as Promise<PreviewWithdrawalResponseDto>;
+    return this.withdrawalsService.preview(
+      user,
+      dto.beanAmount,
+    ) as Promise<PreviewWithdrawalResponseDto>;
   }
 
   @Post('apply')
@@ -173,7 +176,10 @@ export class PartnerPayoutController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: PreviewWithdrawalDto,
   ): Promise<PreviewWithdrawalResponseDto> {
-    return this.withdrawalsService.preview(user, dto.beanAmount) as Promise<PreviewWithdrawalResponseDto>;
+    return this.withdrawalsService.preview(
+      user,
+      dto.beanAmount,
+    ) as Promise<PreviewWithdrawalResponseDto>;
   }
 
   @Post(['', 'apply'])

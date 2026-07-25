@@ -1,17 +1,15 @@
-// purely-profit/operations/purchases: 采购模型
-
 model Supplier {
   id        Int             @id @default(autoincrement())
   storeId   Int             @map("store_id")
-  store     Store           @relation(fields: [storeId], references: [id], onDelete: Restrict)
   name      String
   contact   String?
   phone     String?
   category  String?
   note      String?
-  orders    PurchaseOrder[]
   createdAt DateTime        @default(now()) @map("created_at")
   updatedAt DateTime        @updatedAt @map("updated_at")
+  orders    PurchaseOrder[]
+  store     Store           @relation(fields: [storeId], references: [id])
 
   @@unique([storeId, name])
   @@index([storeId, updatedAt])
@@ -21,20 +19,20 @@ model Supplier {
 model PurchaseOrder {
   id              Int                      @id @default(autoincrement())
   storeId         Int                      @map("store_id")
-  store           Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   supplierId      Int?                     @map("supplier_id")
-  supplier        Supplier?                @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   operatorStaffId Int?                     @map("operator_staff_id")
-  operatorStaff   Staff?                   @relation("PurchaseOrderOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
   supplierName    String?                  @map("supplier_name")
-  totalAmount     Int                      @map("total_amount") // 总金额（分）
+  totalAmount     Int                      @map("total_amount")
   date            DateTime
   note            String?
-  items           PurchaseOrderItem[]
-  inventoryLogs   InventoryAdjustmentLog[]
-  costRecords     CostRecord[]
   createdAt       DateTime                 @default(now()) @map("created_at")
   updatedAt       DateTime                 @updatedAt @map("updated_at")
+  costRecords     CostRecord[]
+  inventoryLogs   InventoryAdjustmentLog[]
+  items           PurchaseOrderItem[]
+  operatorStaff   Staff?                   @relation("PurchaseOrderOperator", fields: [operatorStaffId], references: [id])
+  store           Store                    @relation(fields: [storeId], references: [id])
+  supplier        Supplier?                @relation(fields: [supplierId], references: [id])
 
   @@index([storeId, date])
   @@index([supplierId, date])
@@ -45,17 +43,17 @@ model PurchaseOrder {
 model PurchaseOrderItem {
   id          Int           @id @default(autoincrement())
   orderId     Int           @map("order_id")
-  order       PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   storeId     Int           @map("store_id")
-  store       Store         @relation(fields: [storeId], references: [id], onDelete: Restrict)
   productId   Int?          @map("product_id")
-  product     Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
   productName String        @map("product_name")
   unit        String?
   quantity    Int
-  unitPrice   Int           @map("unit_price")                 // 单价（分）
-  amount      Int                                              // 小计（分）
+  unitPrice   Int           @map("unit_price")
+  amount      Int
   createdAt   DateTime      @default(now()) @map("created_at")
+  order       PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product?      @relation(fields: [productId], references: [id])
+  store       Store         @relation(fields: [storeId], references: [id])
 
   @@index([orderId, createdAt])
   @@index([storeId, createdAt])

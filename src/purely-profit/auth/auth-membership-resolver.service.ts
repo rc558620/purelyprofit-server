@@ -42,12 +42,17 @@ export class AuthMembershipResolverService {
     const membership = await this.prisma.$queryRaw<
       Pick<
         ProfileMembershipRecord,
-        'storeName' | 'address' | 'storeCreatedAt' | 'storeUpdatedAt'
+        | 'storeName'
+        | 'address'
+        | 'businessMode'
+        | 'storeCreatedAt'
+        | 'storeUpdatedAt'
       >[]
     >`
       SELECT
         s.name AS "storeName",
         s.address,
+        s.business_mode AS "businessMode",
         s.created_at AS "storeCreatedAt",
         s.updated_at AS "storeUpdatedAt"
       FROM staffs st

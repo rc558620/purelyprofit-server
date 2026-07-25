@@ -13,7 +13,10 @@ export class FinanceOverviewResponseDto {
   @Type(() => FinanceHeroSummaryDto)
   heroSummary: FinanceHeroSummaryDto;
 
-  @ApiProperty({ type: [FinanceDailyTrendDto], description: '收支趋势（日聚合或月聚合）' })
+  @ApiProperty({
+    type: [FinanceDailyTrendDto],
+    description: '收支趋势（日聚合或月聚合）',
+  })
   @IsArray({ message: '收支趋势必须是数组' })
   @ValidateNested({ each: true })
   @Type(() => FinanceDailyTrendDto)

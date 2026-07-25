@@ -1,4 +1,127 @@
-// purely-profit/marketing: 顾客储值、消费与积分模型
+model MarketingCustomer {
+  id                 Int                     @id @default(autoincrement())
+  storeId            Int                     @map("store_id")
+  /// 显式外键关联到 Member（可为 null，兼容历史数据）
+  memberId           Int?                    @unique @map("member_id")
+  /// 昵称
+  name               String
+  /// 手机号（明文存储，展示层脱敏；仅用于真实手机号）
+  phone              String?
+  /// 外部身份标识（微信 openid / 其他第三方标识，可为 null）
+  externalIdentifier String?                 @map("external_identifier")
+  /// 头像 URL（可选）
+  avatar             String?
+  /// 会员等级（根据 totalSpent 计算，实时同步）
+  tier               MarketingCustomerTier   @default(regular)
+  /// 顾客状态（active=正常 inactive=停用 banned=封禁）
+  status             MarketingCustomerStatus @default(active)
+  /// 储值余额（分）
+  balance            Int                     @default(0)
+  /// 积分余额
+  points             Int                     @default(0)
+  /// 累计消费金额（分，流水口径）
+  totalSpent         Int                     @default(0) @map("total_spent")
+  /// 累计消费次数
+  visitCount         Int                     @default(0) @map("visit_count")
+  /// 最后消费时间
+  lastVisitAt        DateTime?               @map("last_visit_at")
+  /// 备注
+  remark             String?
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt          DateTime?               @map("deleted_at")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+  consumptions       MarketingConsumption[]
+  store              Store                   @relation(fields: [storeId], references: [id])
+  pointsRecords      MarketingPointsRecord[]
+  recharges          MarketingRecharge[]
+  member             Member?                 @relation("MemberCustomer")
+
+  @@index([storeId, phone])
+  @@index([storeId, externalIdentifier])
+  @@index([storeId, updatedAt(sort: Desc), id(sort: Desc)])
+  @@index([storeId, tier, updatedAt])
+  @@index([storeId, lastVisitAt])
+  @@map("marketing_customers")
+}
+
+model MarketingRecharge {
+  id          Int                   @id @default(autoincrement())
+  storeId     Int                   @map("store_id")
+  customerId  Int                   @map("customer_id")
+  /// 充值金额（分）
+  amount      Int
+  /// 赠送金额（分）
+  giftAmount  Int                   @default(0) @map("gift_amount")
+  /// 到账总额（分）= amount + giftAmount，写入时由后端计算
+  totalAmount Int                   @default(0) @map("total_amount")
+  /// 类型：recharge=储值 gift=赠送 refund=退款
+  type        MarketingRechargeType @default(recharge)
+  /// 关联活动 ID（字符串，对应 MarketingPromotion.id）
+  promotionId Int?                  @map("promotion_id")
+  /// 备注
+  note        String?
+  createdAt   DateTime              @default(now()) @map("created_at")
+  customer    MarketingCustomer     @relation(fields: [customerId], references: [id])
+  promotion   MarketingPromotion?   @relation(fields: [promotionId], references: [id])
+  store       Store                 @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([storeId, type, createdAt])
+  @@index([promotionId])
+  @@map("marketing_recharges")
+}
+
+model MarketingConsumption {
+  id                   Int                 @id @default(autoincrement())
+  storeId              Int                 @map("store_id")
+  customerId           Int                 @map("customer_id")
+  /// 消费金额（分）
+  amount               Int
+  /// 余额支付金额（分）
+  balancePaid          Int                 @default(0) @map("balance_paid")
+  /// 积分抵扣金额（分）——金额侧事实源，与 actualPointsDeducted 配合可核对 ratio
+  pointsDeducted       Int                 @default(0) @map("points_deducted")
+  /// 实际扣减积分个数——积分侧事实源，写入时由 redeemRatioPoints 折算固化
+  actualPointsDeducted Int                 @default(0) @map("actual_points_deducted")
+  /// 支付方式
+  payType              MarketingPayType    @default(cash) @map("pay_type")
+  /// 商品简述（如「拿铁 × 2」）
+  itemsSummary         String?             @map("items_summary")
+  /// 关联活动 ID
+  promotionId          Int?                @map("promotion_id")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  customer             MarketingCustomer   @relation(fields: [customerId], references: [id])
+  promotion            MarketingPromotion? @relation(fields: [promotionId], references: [id])
+  store                Store               @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([storeId, customerId, createdAt])
+  @@index([promotionId])
+  @@map("marketing_consumptions")
+}
+
+model MarketingPointsRecord {
+  id          Int                       @id @default(autoincrement())
+  storeId     Int                       @map("store_id")
+  customerId  Int                       @map("customer_id")
+  /// 积分变动值：正数=获得，负数=消耗
+  amount      Int
+  /// 积分变动类型
+  type        MarketingPointsChangeType
+  /// 前端直接展示的说明文案
+  description String
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  customer    MarketingCustomer         @relation(fields: [customerId], references: [id])
+  store       Store                     @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([storeId, type, createdAt])
+  @@map("marketing_points_records")
+}
 
 enum MarketingCustomerTier {
   regular
@@ -32,144 +155,3 @@ enum MarketingPointsChangeType {
   expire
   gift
 }
-
-model MarketingCustomer {
-  id                 Int                     @id @default(autoincrement())
-  storeId            Int                     @map("store_id")
-  store              Store                   @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  /// 显式外键关联到 Member（可为 null，兼容历史数据）
-  memberId           Int?                    @unique @map("member_id")
-  member             Member?                 @relation("MemberCustomer")
-  /// 昵称
-  name               String
-  /// 手机号（明文存储，展示层脱敏；仅用于真实手机号）
-  phone              String?
-  /// 外部身份标识（微信 openid / 其他第三方标识，可为 null）
-  externalIdentifier String?                 @map("external_identifier")
-  /// 头像 URL（可选）
-  avatar             String?
-  /// 会员等级（根据 totalSpent 计算，实时同步）
-  tier               MarketingCustomerTier   @default(regular)
-  /// 顾客状态（active=正常 inactive=停用 banned=封禁）
-  status             MarketingCustomerStatus @default(active)
-  /// 储值余额（分）
-  balance            Int                     @default(0)
-  /// 积分余额
-  points             Int                     @default(0)
-  /// 累计消费金额（分，流水口径）
-  totalSpent         Int                     @default(0) @map("total_spent")
-  /// 累计消费次数
-  visitCount         Int                     @default(0) @map("visit_count")
-  /// 最后消费时间
-  lastVisitAt        DateTime?               @map("last_visit_at")
-  /// 备注
-  remark             String?
-  recharges          MarketingRecharge[]
-  consumptions       MarketingConsumption[]
-  pointsRecords      MarketingPointsRecord[]
-  /// 软删除标记：非 null 表示已删除，值是删除时间
-  deletedAt          DateTime?               @map("deleted_at")
-  createdAt          DateTime                @default(now()) @map("created_at")
-  updatedAt          DateTime                @updatedAt @map("updated_at")
-
-  // phone 与 externalIdentifier 的唯一约束通过 Partial Index（原生 SQL）实现，
-  // 仅对 deletedAt IS NULL 的行生效，允许软删除后重新建档。
-  // 见迁移文件中的 CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL
-  @@index([storeId, phone])
-  @@index([storeId, externalIdentifier])
-  @@index([storeId, updatedAt(sort: Desc), id(sort: Desc)])
-  @@index([storeId, tier, updatedAt])
-  @@index([storeId, lastVisitAt])
-  // memberId 外键索引：由 @@unique([memberId]) 隐式创建，无需重复声明
-  @@map("marketing_customers")
-}
-
-/// 营销顾客储值记录
-
-model MarketingRecharge {
-  id          Int                   @id @default(autoincrement())
-  storeId     Int                   @map("store_id")
-  store       Store                 @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  customerId  Int                   @map("customer_id")
-  /// 顾客被软删除后保留充值记录，onDelete: Restrict 防止意外硬删顾客
-  customer    MarketingCustomer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  /// 充值金额（分）
-  amount      Int
-  /// 赠送金额（分）
-  giftAmount  Int                   @default(0) @map("gift_amount")
-  /// 到账总额（分）= amount + giftAmount，写入时由后端计算
-  totalAmount Int                   @default(0) @map("total_amount")
-  /// 类型：recharge=储值 gift=赠送 refund=退款
-  type        MarketingRechargeType @default(recharge)
-  /// 关联活动 ID（字符串，对应 MarketingPromotion.id）
-  promotionId Int?                  @map("promotion_id")
-  promotion   MarketingPromotion?   @relation(fields: [promotionId], references: [id], onDelete: SetNull)
-  /// 备注
-  note        String?
-  createdAt   DateTime              @default(now()) @map("created_at")
-
-  @@index([storeId, createdAt])
-  @@index([customerId, createdAt])
-  @@index([storeId, type, createdAt])
-  @@index([promotionId])
-  @@map("marketing_recharges")
-}
-
-/// 营销顾客消费记录
-
-model MarketingConsumption {
-  id             Int                 @id @default(autoincrement())
-  storeId        Int                 @map("store_id")
-  store          Store               @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  customerId     Int                 @map("customer_id")
-  /// 顾客被软删除后保留消费记录，onDelete: Restrict 防止意外硬删顾客
-  customer       MarketingCustomer   @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  /// 消费金额（分）
-  amount         Int
-  /// 余额支付金额（分）
-  balancePaid    Int                 @default(0) @map("balance_paid")
-  /// 积分抵扣金额（分）——金额侧事实源，与 actualPointsDeducted 配合可核对 ratio
-  pointsDeducted Int                 @default(0) @map("points_deducted")
-  /// 实际扣减积分个数——积分侧事实源，写入时由 redeemRatioPoints 折算固化
-  actualPointsDeducted Int           @default(0) @map("actual_points_deducted")
-  /// 支付方式
-  payType        MarketingPayType    @default(cash) @map("pay_type")
-  /// 商品简述（如「拿铁 × 2」）
-  itemsSummary   String?             @map("items_summary")
-  /// 关联活动 ID
-  promotionId    Int?                @map("promotion_id")
-  promotion      MarketingPromotion? @relation(fields: [promotionId], references: [id], onDelete: SetNull)
-  createdAt      DateTime            @default(now()) @map("created_at")
-
-  @@index([storeId, createdAt])
-  @@index([customerId, createdAt])
-  /// Club C 端按门店+顾客查询消费列表（首单判断 / 消费记录）
-  @@index([storeId, customerId, createdAt])
-  @@index([promotionId])
-  @@map("marketing_consumptions")
-}
-
-/// 营销优惠活动
-
-model MarketingPointsRecord {
-  id          Int                       @id @default(autoincrement())
-  storeId     Int                       @map("store_id")
-  store       Store                     @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  customerId  Int                       @map("customer_id")
-  /// 顾客被软删除后保留积分流水，onDelete: Restrict 防止意外硬删顾客
-  customer    MarketingCustomer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  /// 积分变动值：正数=获得，负数=消耗
-  amount      Int
-  /// 积分变动类型
-  type        MarketingPointsChangeType
-  /// 前端直接展示的说明文案
-  description String
-  createdAt   DateTime                  @default(now()) @map("created_at")
-
-  @@index([storeId, createdAt])
-  @@index([customerId, createdAt])
-  @@index([storeId, type, createdAt])
-  @@map("marketing_points_records")
-}
-
-/// 营销优惠活动

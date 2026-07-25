@@ -112,7 +112,9 @@ export function buildDateRange(
 }
 
 export function getStartOfCurrentMonth(now = new Date()): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
+  );
 }
 
 /**

@@ -23,6 +23,7 @@ import {
 import { validateProductionConfiguration } from './production-config.utils';
 import { createRequestIdGenerator } from './request-id.utils';
 import { filterSwaggerDocumentForEnvironment } from './swagger.utils';
+import { registerScanOrderingNativeWebsocket } from './scan-ordering-native-websocket';
 
 function resolveCorsOrigin(corsOrigin: string): true | string[] {
   if (corsOrigin === '*') {
@@ -240,6 +241,7 @@ export async function bootstrap(): Promise<void> {
     }
   }
   app.setGlobalPrefix('api');
+  await registerScanOrderingNativeWebsocket(app);
 
   const corsOrigin = configService.get<string>('app.corsOrigin') ?? '*';
   const resolvedOrigin = resolveCorsOrigin(corsOrigin);

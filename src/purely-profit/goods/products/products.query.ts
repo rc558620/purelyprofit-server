@@ -27,6 +27,10 @@ const productSelect = {
   isActive: true,
   createdAt: true,
   updatedAt: true,
+  scanOrderingMenuProducts: {
+    where: { deletedAt: null },
+    select: { id: true, isActive: true, deletedAt: true },
+  },
 } satisfies Prisma.ProductSelect;
 
 function buildProductListWhere(

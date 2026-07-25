@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { PlatformMembershipAccessModule } from '../member/platform-membership/platform-membership-access.module';
+import { StoreBusinessCapabilityModule } from '../stores/store-business-capability.module';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthProfitAccountLookupService } from './auth-profit-account-lookup.service';
 import { AuthBanGuardService } from './auth-ban-guard.service';
@@ -40,6 +41,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
   imports: [
     PassportModule,
     PlatformMembershipAccessModule,
+    StoreBusinessCapabilityModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -92,6 +94,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthCodeVerifyService,
     CaptchaTokenService,
     AuthSessionService,
+    AuthMembershipResolverService,
     AuthStaffActivationService,
     JwtAuthGuard,
     ClubJwtAuthGuard,

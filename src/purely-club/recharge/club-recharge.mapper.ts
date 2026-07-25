@@ -12,8 +12,12 @@ export function toClubRechargeOrderResponse(
 ): ClubRechargeOrderResponseDto {
   return {
     ...base,
-    rechargeAmount: Money.fromDbCents(draft.metadata.rechargeAmountFen).toOutputYuan(),
-    bonusAmount: Money.fromDbCents(draft.metadata.bonusAmountFen).toOutputYuan(),
+    rechargeAmount: Money.fromDbCents(
+      draft.metadata.rechargeAmountFen,
+    ).toOutputYuan(),
+    bonusAmount: Money.fromDbCents(
+      draft.metadata.bonusAmountFen,
+    ).toOutputYuan(),
     packageId: draft.metadata.packageId,
     // 仅待支付状态透传支付参数；已支付/已关闭等状态返回 null，避免前端误用过期签名
     paymentParams: draft.status === 'pending' ? draft.paymentParams : null!,

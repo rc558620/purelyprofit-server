@@ -76,7 +76,9 @@ export class ClubMemberProfileService {
       memberId: member.id,
       storeId,
       // 余额：来自 MarketingCustomer.balance（事实源）
-      balance: Money.fromDbCents(marketingCustomer?.balance ?? 0).toOutputYuan(),
+      balance: Money.fromDbCents(
+        marketingCustomer?.balance ?? 0,
+      ).toOutputYuan(),
       // 等级：来自 MarketingCustomer.tier（事实源，Member.level 废弃）
       level: this.resolveLevel(marketingCustomer?.tier),
       // 积分：来自 MarketingCustomer.points（事实源，Member.points 废弃）

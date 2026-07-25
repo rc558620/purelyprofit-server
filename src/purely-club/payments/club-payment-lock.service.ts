@@ -39,6 +39,19 @@ export class ClubPaymentLockService {
    * 仅当锁的值与当前请求持有的 token 一致时才删除（Lua 原子操作），防止误释放他人锁。
    * 即使释放失败也不影响正确性（锁会在 TTL 后自动过期）。
    */
+  async withOrderLock<T>(
+    orderNo: string,
+    callback: () => Promise<T>,
+  ): Promise<T> {
+    const token = await this.acquireLock(orderNo);
+    if (!token) throw new Error(`支付订单正在处理中: ${orderNo}`);
+    try {
+      return await callback();
+    } finally {
+      await this.releaseLock(orderNo, token);
+    }
+  }
+
   async releaseLock(orderNo: string, token: string): Promise<void> {
     const key = `${CLUB_PAYMENT_LOCK_KEY_PREFIX}${orderNo}`;
 

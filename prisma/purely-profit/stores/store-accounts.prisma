@@ -1,4 +1,170 @@
-// 门店、账号与基础身份模型
+model User {
+  id              Int       @id @default(autoincrement())
+  email           String    @unique
+  password        String
+  name            String?
+  avatar          String?
+  realName        String?   @map("real_name")
+  idNumber        String?   @unique @map("id_number")
+  /// purely-club 微信小程序 openid（每个 appid 下唯一）
+  wechatOpenid    String?   @unique @map("wechat_openid")
+  /// 微信 unionid（同一主体下跨应用唯一，部分场景才返回）
+  wechatUnionid   String?   @unique @map("wechat_unionid")
+  /// 微信登录时拉取的头像 URL
+  wechatAvatar    String?   @map("wechat_avatar")
+  /// 微信登录时拉取的昵称
+  wechatNickname  String?   @map("wechat_nickname")
+  /// 微信授权手机号（open-type=getPhoneNumber 解密，用于与手机号账号互通）
+  wechatPhone     String?   @unique @map("wechat_phone")
+  /// 最近活跃时间，每次 JWT 鉴权成功时异步更新
+  lastActiveAt    DateTime? @map("last_active_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  staffMembership Staff?
+  store           Store?
+
+  @@map("users")
+}
+
+model Store {
+  id                          Int                           @id @default(autoincrement())
+  name                        String
+  contactName                 String?                       @map("contact_name")
+  contactPhone                String?                       @map("contact_phone")
+  address                     String?
+  industry_code               StoreIndustry                 @default(other)
+  scan_ordering_enabled       Boolean                       @default(false)
+  scan_ordering_enabled_at    DateTime?
+  business_timezone           String                        @default("Asia/Shanghai")
+  ownerId                     Int                           @unique @map("owner_id")
+  /// 最大子账号席位数（门店级上限），与 StoreSubscription.maxAccountSeats 保持同步
+  maxAccountSeats             Int                           @default(1) @map("max_account_seats")
+  createdAt                   DateTime                      @default(now()) @map("created_at")
+  updatedAt                   DateTime                      @updatedAt @map("updated_at")
+  /// 软删除标记：非 null 表示已删除，值是删除时间
+  deletedAt                   DateTime?                     @map("deleted_at")
+  /// 门店业态：catering=餐饮，general=非餐饮。用于功能能力与访问控制。
+  businessMode                StoreBusinessMode             @default(general) @map("business_mode")
+  costRecords                 CostRecord[]
+  employeeDepartments         EmployeeDepartment[]
+  employeeLeaves              EmployeeLeave[]
+  employeePayrolls            EmployeePayroll[]
+  employeePositions           EmployeePosition[]
+  employeeShiftDefinitions    EmployeeShiftDefinition[]
+  employeeShifts              EmployeeShift[]
+  employees                   Employee[]
+  financeAccounts             FinanceAccountRecord[]
+  financeCashFlows            FinanceCashFlowRecord[]
+  financeReconciles           FinanceReconciliationRecord[]
+  inventoryAdjustments        InventoryAdjustmentLog[]
+  marketingConsumptions       MarketingConsumption[]
+  marketingCustomers          MarketingCustomer[]
+  marketingMemberLevelSetting MarketingMemberLevelSetting?
+  marketingPointsRecords      MarketingPointsRecord[]
+  marketingProductCategories  MarketingProductCategory[]
+  marketingProducts           MarketingProduct[]
+  marketingPromotions         MarketingPromotion[]
+  marketingRecharges          MarketingRecharge[]
+  memberBeanLogs              MemberBeanLog[]
+  memberPointsLogs            MemberPointsLog[]
+  memberRechargeLogs          MemberRechargeLog[]
+  members                     Member[]
+  partnerWithdrawals          PartnerWithdrawal[]
+  productCategories           ProductCategory[]
+  products                    Product[]
+  purchaseOrderItems          PurchaseOrderItem[]
+  purchaseOrders              PurchaseOrder[]
+  salesOrderItems             SaleOrderItem[]
+  salesOrders                 SaleOrder[]
+  spaceReservations           SpaceReservation[]
+  spaceSessions               SpaceSession[]
+  spaceTypes                  SpaceType[]
+  spaceZones                  SpaceZone[]
+  spaces                      Space[]
+  staffs                      Staff[]
+  handoverAdditionalItems     StoreHandoverAdditionalItem[]
+  handoverRecords             StoreHandoverRecord[]
+  inviteCodes                 StoreInviteCode[]
+  membershipOrders            StoreMembershipOrder[]
+  membershipPointsLogs        StoreMembershipPointsLog[]
+  membershipProfile           StoreMembershipProfile?
+  membershipPromoRecords      StoreMembershipPromoRecord[]
+  partnerApplications         StorePartnerApplication[]
+  partnerBeanLogs             StorePartnerBeanLog[]
+  partners                    StorePartner[]
+  subAccountQuotaAudits       StoreSubAccountQuotaAudit[]
+  subAccounts                 StoreSubAccount[]
+  subscription                StoreSubscription?
+  wechatPayConfig             StoreWechatPayConfig?
+  owner                       User                          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  suppliers                   Supplier[]
+
+  @@index([ownerId, updatedAt])
+  @@index([name])
+  @@index([contactName])
+  @@map("stores")
+}
+
+model StoreSubscription {
+  id              Int                     @id @default(autoincrement())
+  storeId         Int                     @unique @map("store_id")
+  planCode        SubscriptionPlanCode    @map("plan_code")
+  planName        String                  @map("plan_name")
+  status          StoreSubscriptionStatus @default(active)
+  /// 当前套餐对应的最大子账号席位数
+  maxAccountSeats Int                     @map("max_account_seats")
+  startsAt        DateTime                @default(now()) @map("starts_at")
+  expiresAt       DateTime?               @map("expires_at")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+  store           Store                   @relation(fields: [storeId], references: [id])
+
+  @@index([status])
+  @@map("store_subscriptions")
+}
+
+model Staff {
+  id                   Int                           @id @default(autoincrement())
+  storeId              Int                           @map("store_id")
+  userId               Int?                          @unique @map("user_id")
+  email                String
+  /// 自定义登录账号（如 000005），与 email 中编码的值保持一致，独立字段便于查询和唯一性校验
+  loginAccount         String?                       @unique @map("login_account")
+  name                 String
+  phone                String?
+  role                 StaffRole                     @default(staff)
+  permissions          String[]                      @default([])
+  status               StaffStatus                   @default(invited)
+  isSeatActive         Boolean                       @default(false) @map("is_seat_active")
+  isActive             Boolean                       @default(true) @map("is_active")
+  createdAt            DateTime                      @default(now()) @map("created_at")
+  updatedAt            DateTime                      @updatedAt @map("updated_at")
+  costRecords          CostRecord[]                  @relation("CostRecordOperator")
+  employeeProfile      Employee?                     @relation("StaffEmployeeProfile")
+  financeAccounts      FinanceAccountRecord[]        @relation("FinanceAccountOperator")
+  financeCashFlows     FinanceCashFlowRecord[]       @relation("FinanceCashFlowOperator")
+  financeReconciles    FinanceReconciliationRecord[] @relation("FinanceReconciliationOperator")
+  inventoryAdjustments InventoryAdjustmentLog[]      @relation("InventoryAdjustmentOperator")
+  memberBeanLogs       MemberBeanLog[]               @relation("MemberBeanLogsOperator")
+  memberPointsLogs     MemberPointsLog[]             @relation("MemberPointsLogsOperator")
+  memberRechargeLogs   MemberRechargeLog[]           @relation("MemberRechargeLogsOperator")
+  partnerWithdrawals   PartnerWithdrawal[]           @relation("PartnerWithdrawalsOperator")
+  purchaseOrders       PurchaseOrder[]               @relation("PurchaseOrderOperator")
+  salesOrders          SaleOrder[]                   @relation("SaleOrderOperator")
+  openedSpaceSessions  SpaceSession[]                @relation("SpaceSessionOpenOperator")
+  store                Store                         @relation(fields: [storeId], references: [id])
+  user                 User?                         @relation(fields: [userId], references: [id])
+  initiatedHandovers   StoreHandoverRecord[]         @relation("HandoverActorStaff")
+
+  @@unique([storeId, email])
+  @@index([storeId, updatedAt])
+  @@index([storeId, status, isSeatActive, isActive])
+  @@index([storeId, status, role, updatedAt])
+  @@index([userId, status, isActive])
+  @@index([email, status, isActive])
+  @@index([loginAccount])
+  @@map("staffs")
+}
 
 enum StaffRole {
   owner
@@ -25,164 +191,10 @@ enum StoreSubscriptionStatus {
   cancelled
 }
 
-model User {
-  id              Int       @id @default(autoincrement())
-  email           String    @unique
-  password        String
-  name            String?
-  avatar          String?
-  realName        String?   @map("real_name")
-  idNumber        String?   @unique @map("id_number")
-  /// purely-club 微信小程序 openid（每个 appid 下唯一）
-  wechatOpenid    String?   @unique @map("wechat_openid")
-  /// 微信 unionid（同一主体下跨应用唯一，部分场景才返回）
-  wechatUnionid   String?   @unique @map("wechat_unionid")
-  /// 微信登录时拉取的头像 URL
-  wechatAvatar    String?   @map("wechat_avatar")
-  /// 微信登录时拉取的昵称
-  wechatNickname  String?   @map("wechat_nickname")
-  /// 微信授权手机号（open-type=getPhoneNumber 解密，用于与手机号账号互通）
-  wechatPhone     String?   @unique @map("wechat_phone")
-  /// 最近活跃时间，每次 JWT 鉴权成功时异步更新
-  lastActiveAt    DateTime? @map("last_active_at")
-  store           Store?
-  staffMembership Staff?
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-
-  @@map("users")
-}
-
-model Store {
-  id                          Int                           @id @default(autoincrement())
-  name                        String
-  contactName                 String?                       @map("contact_name")
-  contactPhone                String?                       @map("contact_phone")
-  address                     String?
-  ownerId                     Int                           @unique @map("owner_id")
-  owner                       User                          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  /// 最大子账号席位数（门店级上限），与 StoreSubscription.maxAccountSeats 保持同步
-  maxAccountSeats             Int                           @default(1) @map("max_account_seats")
-  subscription                StoreSubscription?
-  partners                    StorePartner[]
-  membershipProfile           StoreMembershipProfile?
-  membershipOrders            StoreMembershipOrder[]
-  membershipPointsLogs        StoreMembershipPointsLog[]
-  membershipPromoRecords      StoreMembershipPromoRecord[]
-  partnerApplications         StorePartnerApplication[]
-  partnerBeanLogs             StorePartnerBeanLog[]
-  staffs                      Staff[]
-  members                     Member[]
-  memberPointsLogs            MemberPointsLog[]
-  memberBeanLogs              MemberBeanLog[]
-  memberRechargeLogs          MemberRechargeLog[]
-  partnerWithdrawals          PartnerWithdrawal[]
-  financeCashFlows            FinanceCashFlowRecord[]
-  financeAccounts             FinanceAccountRecord[]
-  financeReconciles           FinanceReconciliationRecord[]
-  productCategories           ProductCategory[]
-  products                    Product[]
-  suppliers                   Supplier[]
-  purchaseOrders              PurchaseOrder[]
-  purchaseOrderItems          PurchaseOrderItem[]
-  inventoryAdjustments        InventoryAdjustmentLog[]
-  salesOrders                 SaleOrder[]
-  salesOrderItems             SaleOrderItem[]
-  employeeDepartments         EmployeeDepartment[]
-  employeePositions           EmployeePosition[]
-  employees                   Employee[]
-  employeeLeaves              EmployeeLeave[]
-  employeeShiftDefinitions    EmployeeShiftDefinition[]
-  employeeShifts              EmployeeShift[]
-  employeePayrolls            EmployeePayroll[]
-  costRecords                 CostRecord[]
-  marketingCustomers          MarketingCustomer[]
-  marketingRecharges          MarketingRecharge[]
-  marketingConsumptions       MarketingConsumption[]
-  marketingPointsRecords      MarketingPointsRecord[]
-  marketingPromotions         MarketingPromotion[]
-  marketingMemberLevelSetting MarketingMemberLevelSetting?
-  marketingProductCategories  MarketingProductCategory[]
-  marketingProducts           MarketingProduct[]
-  subAccounts                 StoreSubAccount[]
-  subAccountQuotaAudits       StoreSubAccountQuotaAudit[]
-  handoverRecords             StoreHandoverRecord[]
-  handoverAdditionalItems     StoreHandoverAdditionalItem[]
-  spaceTypes                  SpaceType[]
-  spaceZones                  SpaceZone[]
-  spaces                      Space[]
-  spaceReservations           SpaceReservation[]
-  spaceSessions               SpaceSession[]
-  inviteCodes                 StoreInviteCode[]
-  wechatPayConfig             StoreWechatPayConfig?
-  createdAt                   DateTime                      @default(now()) @map("created_at")
-  updatedAt                   DateTime                      @updatedAt @map("updated_at")
-  /// 软删除标记：非 null 表示已删除，值是删除时间
-  deletedAt                   DateTime?                     @map("deleted_at")
-
-  @@index([ownerId, updatedAt])
-  @@index([name])
-  @@index([contactName])
-  @@map("stores")
-}
-
-model StoreSubscription {
-  id              Int                     @id @default(autoincrement())
-  storeId         Int                     @unique @map("store_id")
-  store           Store                   @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  planCode        SubscriptionPlanCode    @map("plan_code")
-  planName        String                  @map("plan_name")
-  status          StoreSubscriptionStatus @default(active)
-  /// 当前套餐对应的最大子账号席位数
-  maxAccountSeats Int                     @map("max_account_seats")
-  startsAt        DateTime                @default(now()) @map("starts_at")
-  expiresAt       DateTime?               @map("expires_at")
-  createdAt       DateTime                @default(now()) @map("created_at")
-  updatedAt       DateTime                @updatedAt @map("updated_at")
-
-  @@index([status])
-  @@map("store_subscriptions")
-}
-
-model Staff {
-  id                   Int                           @id @default(autoincrement())
-  storeId              Int                           @map("store_id")
-  store                Store                         @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  userId               Int?                          @unique @map("user_id")
-  user                 User?                         @relation(fields: [userId], references: [id], onDelete: SetNull)
-  email                String
-  /// 自定义登录账号（如 000005），与 email 中编码的值保持一致，独立字段便于查询和唯一性校验
-  loginAccount         String?    @unique  @map("login_account")
-  name                 String
-  phone                String?
-  role                 StaffRole                     @default(staff)
-  permissions          String[]                      @default([])
-  status               StaffStatus                   @default(invited)
-  isSeatActive         Boolean                       @default(false) @map("is_seat_active")
-  isActive             Boolean                       @default(true) @map("is_active")
-  memberPointsLogs     MemberPointsLog[]             @relation("MemberPointsLogsOperator")
-  memberBeanLogs       MemberBeanLog[]               @relation("MemberBeanLogsOperator")
-  memberRechargeLogs   MemberRechargeLog[]           @relation("MemberRechargeLogsOperator")
-  partnerWithdrawals   PartnerWithdrawal[]           @relation("PartnerWithdrawalsOperator")
-  initiatedHandovers   StoreHandoverRecord[]         @relation("HandoverActorStaff")
-  financeCashFlows     FinanceCashFlowRecord[]       @relation("FinanceCashFlowOperator")
-  financeAccounts      FinanceAccountRecord[]        @relation("FinanceAccountOperator")
-  financeReconciles    FinanceReconciliationRecord[] @relation("FinanceReconciliationOperator")
-  purchaseOrders       PurchaseOrder[]               @relation("PurchaseOrderOperator")
-  inventoryAdjustments InventoryAdjustmentLog[]      @relation("InventoryAdjustmentOperator")
-  salesOrders          SaleOrder[]                   @relation("SaleOrderOperator")
-  openedSpaceSessions  SpaceSession[]                @relation("SpaceSessionOpenOperator")
-  costRecords          CostRecord[]                  @relation("CostRecordOperator")
-  employeeProfile      Employee?                     @relation("StaffEmployeeProfile")
-  createdAt            DateTime                      @default(now()) @map("created_at")
-  updatedAt            DateTime                      @updatedAt @map("updated_at")
-
-  @@unique([storeId, email])
-  @@index([storeId, updatedAt])
-  @@index([storeId, status, isSeatActive, isActive])
-  @@index([storeId, status, role, updatedAt])
-  @@index([userId, status, isActive])
-  @@index([email, status, isActive])
-  @@index([loginAccount])
-  @@map("staffs")
+/// 门店业态：用于功能能力与访问控制
+/// catering = 餐饮（可用扫码点餐，不可用空间管理与营销商品上架）
+/// general = 非餐饮（可用空间管理与营销商品上架，不可用扫码点餐）
+enum StoreBusinessMode {
+  catering
+  general
 }

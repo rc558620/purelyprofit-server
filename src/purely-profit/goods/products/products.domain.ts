@@ -36,10 +36,7 @@ export function deriveProductProfit(
  * - 售价 ≤ 0 时返回 0（理论上不会出现，因为售价校验已拦截）；
  * - 利润率 = 利润 / 售价 × 100，保留一位小数。
  */
-export function deriveProductProfitRate(
-  price: Money,
-  profit: Money,
-): number {
+export function deriveProductProfitRate(price: Money, profit: Money): number {
   if (!price.isPositive()) {
     return 0;
   }
@@ -58,7 +55,9 @@ export function deriveProductProfitRate(
  */
 export function validateDerivedProfit(profit: Money): void {
   if (!profit.isPositive()) {
-    throw new BadRequestException('每单利润必须大于 0（成本价不能大于等于售价）');
+    throw new BadRequestException(
+      '每单利润必须大于 0（成本价不能大于等于售价）',
+    );
   }
 }
 

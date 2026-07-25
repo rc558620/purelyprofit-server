@@ -459,10 +459,7 @@ describe('PulseMembershipService admin', () => {
     });
     expect(context.prismaService.store.findMany).toHaveBeenCalledWith({
       where: {
-        AND: [
-          { id: { in: [18] } },
-          { deletedAt: null },
-        ],
+        AND: [{ id: { in: [18] } }, { deletedAt: null }],
       },
       select: {
         id: true,

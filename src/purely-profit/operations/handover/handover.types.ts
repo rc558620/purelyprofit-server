@@ -102,7 +102,7 @@ export type OrderItemRow = {
       name: string;
       role: StaffRole;
       employeeProfile: {
-        subAccounts: { role: StoreSubAccountRole }[];
+        subAccounts: { role: StoreSubAccountRole } | null;
       } | null;
     } | null;
     spaceSession: {
@@ -127,7 +127,7 @@ export type OrderItemRow = {
         name: string;
         role: StaffRole;
         employeeProfile: {
-          subAccounts: { role: StoreSubAccountRole }[];
+          subAccounts: { role: StoreSubAccountRole } | null;
         } | null;
       } | null;
     } | null;
@@ -144,7 +144,7 @@ export type RefundOrderRow = {
     name: string;
     role: StaffRole;
     employeeProfile: {
-      subAccounts: { role: StoreSubAccountRole }[];
+      subAccounts: { role: StoreSubAccountRole } | null;
     } | null;
   } | null;
   spaceSession: {

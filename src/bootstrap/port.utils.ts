@@ -30,7 +30,9 @@ function parseListeningProcesses(rawOutput: string): ListeningProcessInfo[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const match = line.match(/^([^\s]+)\s+(\d+)\s+.*TCP .*:(\d+) \(LISTEN\)$/);
+      const match = line.match(
+        /^([^\s]+)\s+(\d+)\s+.*TCP .*:(\d+) \(LISTEN\)$/,
+      );
 
       if (!match) {
         return null;
@@ -119,7 +121,9 @@ function forceStopProcessIds(
   }
 }
 
-async function terminateProcessesListeningOnPort(port: number): Promise<boolean> {
+async function terminateProcessesListeningOnPort(
+  port: number,
+): Promise<boolean> {
   const processIds = findNodeProcessIdsListeningOnPort(port);
 
   if (processIds.length === 0) {
@@ -137,7 +141,9 @@ async function terminateProcessesListeningOnPort(port: number): Promise<boolean>
     return true;
   }
 
-  console.warn(`[bootstrap] 端口 ${port} 的旧进程未及时退出，升级为 SIGKILL 强制停止`);
+  console.warn(
+    `[bootstrap] 端口 ${port} 的旧进程未及时退出，升级为 SIGKILL 强制停止`,
+  );
   forceStopProcessIds(processIds, 'SIGKILL');
 
   if (await waitForPortToBeReleased(port, 1500, 150)) {
@@ -145,7 +151,9 @@ async function terminateProcessesListeningOnPort(port: number): Promise<boolean>
     return true;
   }
 
-  console.warn(`[bootstrap] 端口 ${port} 的旧进程未在超时内退出，继续尝试其他端口策略`);
+  console.warn(
+    `[bootstrap] 端口 ${port} 的旧进程未在超时内退出，继续尝试其他端口策略`,
+  );
   return false;
 }
 
@@ -162,7 +170,9 @@ export async function terminateNodeProcessesInPortRange(
     return [];
   }
 
-  const processIds = Array.from(new Set(targetProcesses.map((item) => item.pid)));
+  const processIds = Array.from(
+    new Set(targetProcesses.map((item) => item.pid)),
+  );
   const descriptors = targetProcesses.map((item) => `${item.pid}@${item.port}`);
 
   console.warn(

@@ -185,7 +185,6 @@ export class SalesRecordCreateFlowService {
                 select: {
                   subAccounts: {
                     select: { role: true },
-                    take: 1,
                   },
                 },
               },

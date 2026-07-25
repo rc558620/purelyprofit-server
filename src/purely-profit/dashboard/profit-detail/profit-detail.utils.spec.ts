@@ -514,7 +514,10 @@ describe('profit-detail.utils', () => {
           end: new Date(2026, 4, 13, 23, 59, 59, 999).getTime(),
         },
         new Map<number, Money>([
-          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), Money.fromDbCents(1300)],
+          [
+            new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
+            Money.fromDbCents(1300),
+          ],
           [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(900)],
         ]),
         new Map<number, Money>([
@@ -555,17 +558,52 @@ describe('profit-detail.utils', () => {
     );
     expect(result).toHaveLength(12);
     // 1月: revenue 50, cost 20, profit 30
-    expect(result[0]).toEqual({ dateLabel: '1月', revenue: 50, cost: 20, profit: 30 });
+    expect(result[0]).toEqual({
+      dateLabel: '1月',
+      revenue: 50,
+      cost: 20,
+      profit: 30,
+    });
     // 2月: revenue 50, cost 20, profit 30
-    expect(result[1]).toEqual({ dateLabel: '2月', revenue: 50, cost: 20, profit: 30 });
+    expect(result[1]).toEqual({
+      dateLabel: '2月',
+      revenue: 50,
+      cost: 20,
+      profit: 30,
+    });
     // 3-5月: 无数据
-    expect(result[2]).toEqual({ dateLabel: '3月', revenue: 0, cost: 0, profit: 0 });
-    expect(result[3]).toEqual({ dateLabel: '4月', revenue: 0, cost: 0, profit: 0 });
-    expect(result[4]).toEqual({ dateLabel: '5月', revenue: 0, cost: 0, profit: 0 });
+    expect(result[2]).toEqual({
+      dateLabel: '3月',
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+    });
+    expect(result[3]).toEqual({
+      dateLabel: '4月',
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+    });
+    expect(result[4]).toEqual({
+      dateLabel: '5月',
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+    });
     // 6月: revenue 40, cost 6, profit 34
-    expect(result[5]).toEqual({ dateLabel: '6月', revenue: 40, cost: 6, profit: 34 });
+    expect(result[5]).toEqual({
+      dateLabel: '6月',
+      revenue: 40,
+      cost: 6,
+      profit: 34,
+    });
     // 7-12月: 无数据
-    expect(result[6]).toEqual({ dateLabel: '7月', revenue: 0, cost: 0, profit: 0 });
+    expect(result[6]).toEqual({
+      dateLabel: '7月',
+      revenue: 0,
+      cost: 0,
+      profit: 0,
+    });
   });
 
   it('排行与成本分解 helper 会按利润和金额倒序输出', () => {
@@ -648,7 +686,9 @@ describe('profit-detail.utils', () => {
         profitRate: 33.33,
       },
     ]);
-    expect(buildCostBreakdown(categoryCostMap, Money.fromDbCents(1100))).toEqual([
+    expect(
+      buildCostBreakdown(categoryCostMap, Money.fromDbCents(1100)),
+    ).toEqual([
       { label: '租金', amount: 8, color: '#6366f1', percentage: 72.73 },
       { label: '进货', amount: 3, color: '#84cc16', percentage: 27.27 },
     ]);
@@ -666,7 +706,10 @@ describe('profit-detail.utils', () => {
         revenue: Money.fromDbCents(2200),
         orderCount: 3,
         dailyRevenueMap: new Map<number, Money>([
-          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), Money.fromDbCents(1300)],
+          [
+            new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
+            Money.fromDbCents(1300),
+          ],
           [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(900)],
         ]),
         rankMap: new Map<string, AggregatedRankProduct>([

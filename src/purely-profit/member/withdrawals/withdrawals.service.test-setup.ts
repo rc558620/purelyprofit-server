@@ -84,9 +84,7 @@ function createPrismaServiceMock(): WithdrawalsPrismaServiceMock {
       create: jest.fn(),
       updateMany: jest.fn(),
       count: jest.fn(),
-      aggregate: jest
-        .fn()
-        .mockResolvedValue({ _sum: { beanAmount: 0 } }),
+      aggregate: jest.fn().mockResolvedValue({ _sum: { beanAmount: 0 } }),
     },
     $transaction: jest.fn(),
   };

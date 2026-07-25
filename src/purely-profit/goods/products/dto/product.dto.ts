@@ -276,10 +276,16 @@ export class ProductResponseDto {
   @ApiProperty({ example: 6.5, description: '售价（元）' })
   price: number;
 
-  @ApiProperty({ example: 2.5, description: '单件利润（元），由服务端按售价−成本价派生' })
+  @ApiProperty({
+    example: 2.5,
+    description: '单件利润（元），由服务端按售价−成本价派生',
+  })
   profit: number;
 
-  @ApiProperty({ example: 38.5, description: '利润率（%），由服务端按利润/售价派生' })
+  @ApiProperty({
+    example: 38.5,
+    description: '利润率（%），由服务端按利润/售价派生',
+  })
   profitRate: number;
 
   @ApiPropertyOptional({ example: 4, description: '成本价（元）' })
@@ -306,6 +312,12 @@ export class ProductResponseDto {
   @ApiProperty({ example: true, description: '是否上架' })
   isActive: boolean;
 
+  @ApiPropertyOptional({
+    example: false,
+    description: '是否上架到扫码点餐（仅餐饮门店有意义）',
+  })
+  scanOrderingEnabled?: boolean;
+
   @ApiProperty({ example: 1715600000000, description: '创建时间戳（毫秒）' })
   createdAt: number;
 
@@ -319,4 +331,31 @@ export class PaginatedProductsResponseDto {
 
   @ApiProperty({ type: PaginationMetaDto, description: '分页信息' })
   meta: PaginationMetaDto;
+}
+
+export class ToggleScanOrderingStatusDto {
+  @ApiProperty({
+    example: true,
+    description: '是否上架到扫码点餐',
+  })
+  @IsBoolean({ message: 'enabled 必须是布尔值' })
+  enabled: boolean;
+
+  @ApiPropertyOptional({
+    example: 1,
+    description: '扫码菜单分类 ID（首次上架时必填）',
+  })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '分类 ID 必须是整数' })
+  @Min(1, { message: '分类 ID 必须大于等于 1' })
+  categoryId?: number;
+}
+
+export class ScanOrderingStatusResponseDto {
+  @ApiProperty({ example: '1', description: '商品 ID' })
+  id: string;
+
+  @ApiProperty({ example: true, description: '是否已上架到扫码点餐' })
+  scanOrderingEnabled: boolean;
 }

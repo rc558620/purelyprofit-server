@@ -1,4 +1,65 @@
-// purely-profit/operations/sales-records: 销售记录模型
+model SaleOrder {
+  id                           Int                      @id @default(autoincrement())
+  storeId                      Int                      @map("store_id")
+  operatorStaffId              Int?                     @map("operator_staff_id")
+  operatorNameSnapshot         String?                  @map("operator_name_snapshot") @db.VarChar(100)
+  orderNo                      String                   @map("order_no")
+  totalRevenue                 Int                      @map("total_revenue")
+  totalProfit                  Int                      @map("total_profit")
+  totalQuantity                Int                      @map("total_quantity")
+  paymentMethod                SalesPaymentMethod       @map("payment_method")
+  calcMode                     SalesCalcMode            @default(business) @map("calc_mode")
+  note                         String?
+  date                         DateTime
+  customerPaymentMethod        String?                  @map("customer_payment_method")
+  grouponCode                  String?                  @map("groupon_code")
+  grouponPlatform              String?                  @map("groupon_platform")
+  settlementChannel            String?                  @map("settlement_channel")
+  voucherCode                  String?                  @map("voucher_code")
+  voucherPlatform              String?                  @map("voucher_platform")
+  voucherFaceAmount            Int?                     @map("voucher_face_amount")
+  grouponSettlementStatus      String?                  @map("settlement_status")
+  grouponPlatformReceivable    Int?                     @map("platform_receivable")
+  grouponPlatformSettledAmount Int?                     @map("platform_settled_amount")
+  grouponPlatformFee           Int?                     @map("platform_fee")
+  createdAt                    DateTime                 @default(now()) @map("created_at")
+  updatedAt                    DateTime                 @updatedAt @map("updated_at")
+  cashFlowRecord               FinanceCashFlowRecord?
+  inventoryLogs                InventoryAdjustmentLog[]
+  items                        SaleOrderItem[]
+  operatorStaff                Staff?                   @relation("SaleOrderOperator", fields: [operatorStaffId], references: [id])
+  store                        Store                    @relation(fields: [storeId], references: [id])
+  spaceSession                 SpaceSession?
+
+  @@unique([storeId, orderNo])
+  @@index([storeId, date(sort: Desc), id(sort: Desc)])
+  @@index([storeId, createdAt])
+  @@index([operatorStaffId, createdAt])
+  @@map("sale_orders")
+}
+
+model SaleOrderItem {
+  id           Int       @id @default(autoincrement())
+  orderId      Int       @map("order_id")
+  storeId      Int       @map("store_id")
+  productId    Int?      @map("product_id")
+  productName  String    @map("product_name")
+  categoryName String    @map("category_name")
+  salePrice    Int       @map("sale_price")
+  profit       Int
+  quantity     Int
+  image        String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  order        SaleOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product      Product?  @relation(fields: [productId], references: [id])
+  store        Store     @relation(fields: [storeId], references: [id])
+
+  @@index([orderId, createdAt])
+  @@index([storeId, createdAt])
+  @@index([productId, createdAt])
+  @@index([categoryName, createdAt])
+  @@map("sale_order_items")
+}
 
 enum SalesPaymentMethod {
   cash
@@ -12,71 +73,3 @@ enum SalesCalcMode {
   profit
   business
 }
-
-model SaleOrder {
-  id                   Int                      @id @default(autoincrement())
-  storeId              Int                      @map("store_id")
-  store                Store                    @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  operatorStaffId      Int?                     @map("operator_staff_id")
-  operatorStaff        Staff?                   @relation("SaleOrderOperator", fields: [operatorStaffId], references: [id], onDelete: SetNull)
-  operatorNameSnapshot String?                  @map("operator_name_snapshot") @db.VarChar(100)
-  orderNo              String                   @map("order_no")
-  totalRevenue         Int                      @map("total_revenue") // 总收入（分）
-  totalProfit          Int                      @map("total_profit")  // 总利润（分）
-  totalQuantity        Int                      @map("total_quantity")
-  paymentMethod        SalesPaymentMethod       @map("payment_method")
-  calcMode             SalesCalcMode            @default(business) @map("calc_mode")
-  note                 String?
-  date                 DateTime
-  // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
-  customerPaymentMethod    String?              @map("customer_payment_method")    // 顾客实际支付方式（如 groupon_voucher）
-  grouponCode              String?              @map("groupon_code")               // 团购券码
-  grouponPlatform          String?              @map("groupon_platform")           // 团购平台（如 美团、抖音）
-  settlementChannel        String?              @map("settlement_channel")         // 结算渠道
-  voucherCode              String?              @map("voucher_code")               // 券码
-  voucherPlatform          String?              @map("voucher_platform")           // 券所属平台
-  voucherFaceAmount        Int?                 @map("voucher_face_amount")        // 券面额（分）
-  grouponSettlementStatus     String?           @map("settlement_status")          // 平台结算状态
-  grouponPlatformReceivable   Int?              @map("platform_receivable")         // 平台应收（分）
-  grouponPlatformSettledAmount Int?             @map("platform_settled_amount")     // 平台已结（分）
-  grouponPlatformFee          Int?              @map("platform_fee")                // 平台手续费（分）
-  items                SaleOrderItem[]
-  inventoryLogs        InventoryAdjustmentLog[]
-  cashFlowRecord       FinanceCashFlowRecord?
-  spaceSession         SpaceSession?
-  createdAt            DateTime                 @default(now()) @map("created_at")
-  updatedAt            DateTime                 @updatedAt @map("updated_at")
-
-  @@unique([storeId, orderNo])
-  @@index([storeId, date(sort: Desc), id(sort: Desc)])
-  @@index([storeId, createdAt])
-  @@index([operatorStaffId, createdAt])
-  @@map("sale_orders")
-}
-
-model SaleOrderItem {
-  id           Int       @id @default(autoincrement())
-  orderId      Int       @map("order_id")
-  order        SaleOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  storeId      Int       @map("store_id")
-  store        Store     @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  productId    Int?      @map("product_id")
-  product      Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
-  productName  String    @map("product_name")
-  categoryName String    @map("category_name")
-  salePrice    Int       @map("sale_price") // 售价（分）
-  profit       Int                          // 利润（分）
-  quantity     Int
-  image        String?
-  createdAt    DateTime  @default(now()) @map("created_at")
-
-  @@index([orderId, createdAt])
-  @@index([storeId, createdAt])
-  @@index([productId, createdAt])
-  @@index([categoryName, createdAt])
-  @@map("sale_order_items")
-}
-
-// ─── 营销中心 ─────────────────────────────────────────────────────────
-
-/// 营销顾客档案（商家自己的客人，与平台会员 Member 无关）
