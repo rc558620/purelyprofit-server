@@ -1,0 +1,173 @@
+(function testWebSocket() {
+  console.log('\n' + '='.repeat(60));
+  console.log('🔍 PurelyClub → PurelyProfit WebSocket 详细诊断');
+  console.log('='.repeat(60) + '\n');
+  
+  // Step 1: 检查 Token
+  const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+  
+  if (!token || token === 'null' || token === 'undefined') {
+    console.error('❌ [Step 1] 缺少认证 Token!');
+    console.error('   请检查登录状态，可能需要重新登录');
+    console.error('   localStorage:', localStorage);
+    return;
+  }
+  
+  console.log('✅ [Step 1] Token 获取成功');
+  console.log('   Token 前 20 位:', token.substring(0, 20) + '...');
+  
+  // Step 2: 加载 Socket.IO CDN
+  try {
+    document.head.appendChild(Object.assign(document.createElement('script'), {
+      src: 'https://cdn.socket.io/4.7.2/socket.io.min.js'
+    }));
+    
+    setTimeout(() => {
+      if (typeof io === 'undefined') {
+        console.error('❌ [Step 2] Socket.IO CDN 加载失败!');
+        console.error('   可能的原因：网络不通、CDN 不可访问');
+        console.error('   建议：使用本地 npm 包 instead of CDN');
+        return;
+      }
+      
+      console.log('✅ [Step 2] Socket.IO 库加载成功');
+      console.log('   版本：4.7.2');
+      
+      // Step 3: 尝试连接
+      console.log('\n✅ [Step 3] 尝试建立 WebSocket 连接...\n');
+      
+      const storeId = parseInt(localStorage.current_store_id || '0');
+      console.log(`   Store ID: ${storeId} (来自 localStorage.current_store_id)`);
+      
+      const socket = io('http://localhost:3000', {
+        path: '/scan-ordering/socket.io/',
+        transports: ['websocket'],
+        query: { token },
+        reconnection: true,
+        reconnectionAttempts: 3,
+        reconnectionDelay: 1000,
+      });
+      
+      let attemptCount = 0;
+      const maxAttempts = 5;
+      
+      // 成功连接
+      socket.on('connect', () => {
+        console.log('\n' + '='.repeat(60));
+        console.log('🟢 SUCCESS! WebSocket 连接成功!');
+        console.log('='.repeat(60));
+        console.log(`   Socket ID: ${socket.id}`);
+        console.log(`   Connected at: ${new Date().toISOString()}`);
+        console.log('=' .repeat(60) + '\n');
+        
+        // 尝试订阅门店
+        if (storeId > 0) {
+          console.log('📡 正在订阅门店房间...', storeId);
+          
+          socket.emit('subscribe.store', { storeId }, (response) => {
+            if (response && response.room) {
+              console.log('\n' + '='.repeat(60));
+              console.log('✅ 订阅成功!');
+              console.log('='.repeat(60));
+              console.log(`   Room: ${response.room}`);
+              console.log('='.repeat(60) + '\n');
+              
+              console.log('🎯 现在开始监听订单事件:\n');
+              console.table({
+                order_created: '🔔 新订单创建',
+                status_changed: '📊 状态变更',
+                service_call_created: '💬 服务呼叫',
+              });
+              
+              // 存储全局变量供手动调用
+              window.wsSocket = socket;
+              window.testResult = 'SUCCESS';
+            } else if (response && response.error) {
+              console.error('\n❌ 订阅失败:', response.error);
+            } else {
+              console.warn('\n⚠️  响应格式未知:', response);
+            }
+          });
+        } else {
+          console.warn('⚠️  Store ID 无效，无法订阅门店');
+          console.warn('   请在页面选择门店或刷新获取 Store ID');
+        }
+      });
+      
+      // 连接错误
+      socket.on('connect_error', (err) => {
+        console.error('\n' + '='.repeat(60));
+        console.error('❌ CONNECT ERROR');
+        console.log('='.repeat(60));
+        console.error(`Error Code: ${err.code}`);
+        console.error(`Error Message: ${err.message}`);
+        console.error(`Transport: ${socket.io.engine?.transport?.name}`);
+        console.log('-'.repeat(60));
+        
+        if (++attemptCount < maxAttempts) {
+          console.error(`\n♻️  重连尝试 ${attemptCount}/${maxAttempts}...`);
+          console.error('等待 1 秒后重试...');
+          return;
+        }
+        
+        console.error('\n🛑 重连次数已达上限，请检查以下可能原因:\n');
+        console.error('1️⃣ 后端服务未启动:');
+        console.error('   终端执行：cd /Users/f0rest/Mac/project/React/purelyprofit-server && pnpm run start:dev\n');
+        console.error('2️⃣ 端口被占用:\n   lsof -i :3000 | grep LISTEN\n');
+        console.error('3️⃣ CORS 配置问题:');
+        console.error('   检查.env 中的 APP_CORS_ORIGIN\n');
+        console.error('4️⃣ Namespace 路径错误:');
+        console.error('   预期：/scan-ordering/socket.io/\n');
+        console.error('5️⃣ IoAdapter 未正确配置:');
+        console.error('   检查 src/bootstrap/bootstrap.ts\n');
+        
+        console.error('\n💡 快速修复方案:\n');
+        console.error('   killall -9 node\n');
+        console.error('   cd /Users/f0rest/Mac/project/React/purelyprofit-server\n');
+        console.error('   rm -rf dist/* && npm run build && pnpm run start:dev\n');
+        
+        window.testResult = 'FAILED';
+        window.testError = err.message;
+      });
+      
+      // 断开连接
+      socket.on('disconnect', (reason) => {
+        console.log('🔴 Disconnected:', reason);
+      });
+      
+      // 服务器推送的事件
+      socket.on('order.created', (data) => {
+        console.log('\n' + '='.repeat(60));
+        console.log('🔔 NEW ORDER EVENT RECEIVED!');
+        console.log('='.repeat(60));
+        console.table(data);
+        console.log('-'.repeat(60) + '\n');
+      });
+      
+      socket.on('order.status_changed', (data) => {
+        console.log('\n' + '='.repeat(60));
+        console.log('📊 ORDER STATUS UPDATED!');
+        console.log('='.repeat(60));
+        console.table({
+          orderId: data.orderId,
+          status: data.status,
+          paymentStatus: data.paymentStatus,
+          fulfillmentStatus: data.fulfillmentStatus,
+        });
+        console.log('-'.repeat(60) + '\n');
+      });
+      
+      // 定时器显示连接状态
+      setInterval(() => {
+        if (socket.connected) {
+          console.log('🟡 Heartbeat: connected, pages:', document.visibilityState);
+        }
+      }, 5000);
+      
+    }, 2000); // 等待 CDN 加载
+    
+  } catch (e) {
+    console.error('❌ [Step 2] 加载 Socket.IO 时出错:', e.message);
+    console.error(e.stack);
+  }
+})();
