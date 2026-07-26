@@ -46,7 +46,19 @@ export async function registerScanOrderingNativeWebsocket(
   app: NestFastifyApplication,
 ): Promise<void> {
   const fastify = app.getHttpAdapter().getInstance() as FastifyInstance;
-  await fastify.register(websocket);
+  await fastify.register(websocket, {
+    options: {
+      server: {
+        on(event: string, listener: (...args: unknown[]) => void): unknown {
+          if (event !== 'upgrade') return fastify.server.on(event, listener);
+          return fastify.server.prependListener(event, (request, socket, head) => {
+            if (request.url?.startsWith('/socket.io/')) return;
+            listener(request, socket, head);
+          });
+        },
+      },
+    },
+  });
   const jwtService = app.get(JwtService);
   const prisma = app.get(PrismaService);
   const realtime = app.get(ScanOrderingRealtimeService);

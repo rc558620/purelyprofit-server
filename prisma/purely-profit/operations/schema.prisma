@@ -50,7 +50,7 @@ model ScanOrderingTable {
   type         ScanOrderingType?        @relation(fields: [typeId], references: [id])
   orders       ScanOrders[]
 
-  @@unique([storeId, tableCode])
+  @@unique([storeId, tableCode], map: "uq_scan_ordering_table_store_code_active", where: raw("(deleted_at IS NULL)"))
   @@index([storeId])
   @@index([storeId, status])
   @@map("scan_ordering_tables")
@@ -287,6 +287,7 @@ model ScanOrderingSpecGroup {
   selectionType ScanOrderingSpecSelectionType @default(single) @map("selection_type")
   minSelections Int                           @default(1) @map("min_selections")
   maxSelections Int                           @default(1) @map("max_selections")
+  sortOrder     Int                           @default(0) @map("sort_order")
   isActive      Boolean                       @default(true) @map("is_active")
   version       Int                           @default(0) @map("version")
   createdAt     DateTime                      @default(now()) @map("created_at")
@@ -304,6 +305,8 @@ model ScanOrderingSpecOption {
   name          String                @map("name")
   extraPrice    Int                   @map("extra_price")
   stockQuantity Int?                  @map("stock_quantity")
+  sortOrder     Int                   @default(0) @map("sort_order")
+  isDefault     Boolean               @default(false) @map("is_default")
   isActive      Boolean               @default(true) @map("is_active")
   version       Int                   @default(0) @map("version")
   createdAt     DateTime              @default(now()) @map("created_at")

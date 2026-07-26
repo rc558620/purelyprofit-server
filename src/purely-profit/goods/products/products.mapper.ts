@@ -11,6 +11,29 @@ import { deriveProductProfitRate } from './products.domain';
  * 检查普通商品是否已上架到扫码点餐菜单。
  * 存在 isActive=true 且未删除的 ScanOrderingMenuProduct 关联即为已上架。
  */
+function buildSpecGroups(
+  product: ProductRecord,
+): ProductResponseDto['specGroups'] {
+  const menuProduct = product.scanOrderingMenuProducts?.[0];
+  if (!menuProduct) return [];
+
+  return menuProduct.specGroups.map((group) => ({
+    id: String(group.id),
+    name: group.name,
+    selectMode: group.selectionType === 'multiple' ? 'multi' : 'single',
+    minSelect: group.minSelections,
+    maxSelect: group.maxSelections,
+    sort: group.sortOrder,
+    options: group.options.map((option) => ({
+      id: String(option.id),
+      name: option.name,
+      priceDelta: Money.fromDbCents(option.extraPrice).toOutputYuan(),
+      isDefault: option.isDefault,
+      isActive: option.isActive,
+    })),
+  }));
+}
+
 function hasActiveScanOrderingMenuProduct(product: ProductRecord): boolean {
   if (
     !product.scanOrderingMenuProducts ||
@@ -49,6 +72,7 @@ export function buildProductResponse(
     ...(product.description ? { description: product.description } : {}),
     isActive: product.isActive,
     scanOrderingEnabled: hasActiveScanOrderingMenuProduct(product),
+    specGroups: buildSpecGroups(product),
     createdAt: toTimestampMs(product.createdAt),
     updatedAt: toTimestampMs(product.updatedAt),
   };

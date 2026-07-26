@@ -41,6 +41,21 @@ export interface ProductRecord {
     id: number;
     isActive: boolean;
     deletedAt: Date | null;
+    specGroups: Array<{
+      id: number;
+      name: string;
+      selectionType: 'single' | 'multiple';
+      minSelections: number;
+      maxSelections: number;
+      sortOrder: number;
+      options: Array<{
+        id: number;
+        name: string;
+        extraPrice: number;
+        isDefault: boolean;
+        isActive: boolean;
+      }>;
+    }>;
   }[];
 }
 

@@ -46,6 +46,10 @@ export interface AuthResetPasswordPayload extends AuthLoginByCodePayload {
 
 export interface AuthTokenResult {
   access_token: string;
+  /** 一次性轮换的刷新令牌，用于 access token 无感续期 */
+  refresh_token?: string;
+  /** access token 有效期（秒） */
+  expires_in?: number;
   /** 签发 token 对应的用户 ID（可选，部分场景如 club 微信登录需要向上层传递） */
   userId?: number;
 }

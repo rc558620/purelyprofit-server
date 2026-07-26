@@ -43,6 +43,9 @@ interface JoinStorePayload {
 
 @WebSocketGateway({
   namespace: SCAN_ORDERING_NAMESPACE,
+  path: '/socket.io',
+  transports: ['websocket', 'polling'],
+  allowUpgrades: true,
   cors: { origin: true, credentials: true },
 })
 export class ScanOrderingGateway implements OnGatewayConnection {
@@ -158,7 +161,7 @@ export class ScanOrderingGateway implements OnGatewayConnection {
   async subscribeStore(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: JoinStorePayload,
-  ): Promise<{ room: string }> {
+  ): Promise<{ room: string; storeId: number }> {
     const identity = this.identityOf(client);
     this.logger.log(
       `subscribe.store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
@@ -174,7 +177,7 @@ export class ScanOrderingGateway implements OnGatewayConnection {
     this.logger.log(
       `subscribe.store joined: socketId=${client.id}, room=${room}`,
     );
-    return { room };
+    return { room, storeId: payload.storeId };
   }
 
   private async authenticate(client: Socket): Promise<SocketIdentity> {

@@ -9,7 +9,6 @@ import {
 } from '@nestjs/platform-fastify';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import type {
-  FastifyInstance,
   FastifyRequest,
   preParsingHookHandler,
 } from 'fastify';
@@ -213,11 +212,6 @@ export async function bootstrap(): Promise<void> {
     { rawBody: false },
   );
 
-  // Socket.IO 必须绑定到底层 Node HTTP Server；传入 Fastify 实例会导致 Engine.IO
-  // 在握手完成后无法维护连接，从而出现“连上即断”。
-  const fastifyInstance = app.getHttpAdapter().getInstance() as FastifyInstance;
-  app.useWebSocketAdapter(new IoAdapter(fastifyInstance.server));
-
   // 仅对微信支付回调路由注入 rawBody（签名校验需要原始请求体）
   setupRawBodyForWechatCallback(app);
 
@@ -233,6 +227,11 @@ export async function bootstrap(): Promise<void> {
   // 若后续新增接口遗漏了 Decimal 转换，将抛出 TypeError，
   // 应在数据层而非序列化层修复。
   await registerGlobalPlugins(app);
+
+  // Socket.IO 的 IoAdapter 接受 Nest 的 HTTP adapter，而不是 Fastify 的底层
+  // Node HTTP server。传入底层 server 会让 Socket.IO 以错误的参数创建实例，
+  // 导致 Engine.IO 的升级请求被原生 WebSocket handler 当作无效帧处理。
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   // 修复 DELETE/GET 请求因 Content-Type + 空 body 导致 Fastify 报错的问题
   // 微信小程序 SDK 会自动为 DELETE 请求添加 Content-Type，即使没有 body

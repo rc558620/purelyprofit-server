@@ -29,7 +29,33 @@ const productSelect = {
   updatedAt: true,
   scanOrderingMenuProducts: {
     where: { deletedAt: null },
-    select: { id: true, isActive: true, deletedAt: true },
+    orderBy: { id: 'asc' },
+    select: {
+      id: true,
+      isActive: true,
+      deletedAt: true,
+      specGroups: {
+        orderBy: { sortOrder: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          selectionType: true,
+          minSelections: true,
+          maxSelections: true,
+          sortOrder: true,
+          options: {
+            orderBy: { sortOrder: 'asc' },
+            select: {
+              id: true,
+              name: true,
+              extraPrice: true,
+              isDefault: true,
+              isActive: true,
+            },
+          },
+        },
+      },
+    },
   },
 } satisfies Prisma.ProductSelect;
 

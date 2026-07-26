@@ -36,11 +36,6 @@ export class ScanOrderingRealtimeService {
     }
   }
 
-  /**
-   * 发布订单创建事件（通知 C 端订单房间、会话房间以及商家门店房间）。
-   *
-   * 订单创建后，商家端应实时收到通知以便及时准备接单。
-   */
   publishOrderCreated(payload: {
     storeId: number;
     orderId: number;
@@ -49,20 +44,8 @@ export class ScanOrderingRealtimeService {
     paymentStatus: string;
     fulfillmentStatus: string;
   }): void {
-    console.log('[RealtimeService] publishOrderCreated called:', {
-      storeId: payload.storeId,
-      orderId: payload.orderId,
-      sessionId: payload.sessionId,
-    });
-
-    // 推送到商家门店房间（商家端订阅此房间）
-    console.log('[RealtimeService] Publishing to store room:', payload.storeId);
     this.publishToStore(payload.storeId, 'order.created', payload);
-
-    // 推送到订单房间（特定订单的详细信息页）
     this.publishToOrder(payload.orderId, 'order.status_changed', payload);
-
-    // 推送到会话房间（C 端用户当前会话）
     if (payload.sessionId) {
       this.server
         ?.to(this.sessionRoom(payload.sessionId))
@@ -133,20 +116,7 @@ export class ScanOrderingRealtimeService {
     event: string,
     payload: unknown,
   ): void {
-    const room = this.storeRoom(storeId);
-    const roomSockets =
-      this.server?.sockets?.adapter?.rooms?.get(room) !== undefined
-        ? Array.from(this.server.sockets.adapter.rooms.get(room) ?? [])
-        : [];
-    console.log('[RealtimeService] publishToStore:', {
-      event,
-      room,
-      hasServer: !!this.server,
-      roomSocketCount: roomSockets.length,
-      roomSockets,
-      payload,
-    });
-    this.server?.to(room).emit(event, payload);
+    this.server?.to(this.storeRoom(storeId)).emit(event, payload);
   }
 
   private publishToOrder(

@@ -22,6 +22,7 @@ import type {
   PaginatedProductsResponseDto,
   ProductResponseDto,
   ScanOrderingStatusResponseDto,
+  ProductSpecGroupDto,
   ToggleScanOrderingStatusDto,
   UpdateProductDto,
 } from './dto/product.dto';
@@ -124,6 +125,10 @@ export class ProductsService {
       '无权操作该门店商品',
     );
 
+    if (dto.specGroups !== undefined) {
+      await this.ensureCateringStore(storeId);
+    }
+
     await this.platformMembershipAccessService.ensureProductQuotaAvailable(
       storeId,
     );
@@ -160,6 +165,12 @@ export class ProductsService {
       ),
     );
 
+    if (dto.specGroups !== undefined) {
+      await this.syncProductSpecifications(storeId, product.id, dto.specGroups);
+      const refreshed = await findProductById(this.prisma, product.id);
+      if (refreshed) return buildProductResponse(refreshed);
+    }
+
     return buildProductResponse(product);
   }
 
@@ -180,6 +191,10 @@ export class ProductsService {
       'goods:update',
       '无权操作该门店商品',
     );
+
+    if (dto.specGroups !== undefined) {
+      await this.ensureCateringStore(product.storeId);
+    }
 
     // 服务端重算利润：合并 dto 与现有记录，推导最终 profit
     const nextPrice =
@@ -236,6 +251,14 @@ export class ProductsService {
       ),
     );
 
+    if (dto.specGroups !== undefined) {
+      await this.syncProductSpecifications(
+        product.storeId,
+        product.id,
+        dto.specGroups,
+      );
+    }
+
     // 同步商品信息变更到关联的扫码菜单商品
     await this.syncScanOrderingMenuProduct(product.storeId, product.id, {
       ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
@@ -246,6 +269,11 @@ export class ProductsService {
         ? { imageUrl: toNullableMediaText(dto.image) ?? null }
         : {}),
     });
+
+    if (dto.specGroups !== undefined) {
+      const refreshed = await findProductById(this.prisma, product.id);
+      if (refreshed) return buildProductResponse(refreshed);
+    }
 
     return buildProductResponse(updated);
   }
@@ -368,6 +396,119 @@ export class ProductsService {
         basePrice: product.price,
         isActive: true,
       },
+    });
+  }
+
+  private async ensureCateringStore(storeId: number): Promise<void> {
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: { businessMode: true },
+    });
+
+    if (!store || store.businessMode !== 'catering') {
+      throw new BadRequestException('仅餐饮门店允许配置商品规格');
+    }
+  }
+
+  /**
+   * 将普通商品的规格同步到扫码菜单商品。
+   * 未上架商品会创建隐藏菜单实体，以保存规格；首次上架时直接复用该实体。
+   */
+  private async syncProductSpecifications(
+    storeId: number,
+    productId: number,
+    specGroups: ProductSpecGroupDto[],
+  ): Promise<void> {
+    const menuProduct = await this.resolveMenuProductForSpecifications(
+      storeId,
+      productId,
+    );
+
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.scanOrderingSpecOption.deleteMany({
+        where: { group: { menuProductId: menuProduct.id } },
+      });
+      await transaction.scanOrderingSpecGroup.deleteMany({
+        where: { menuProductId: menuProduct.id },
+      });
+      if (specGroups.length === 0) return;
+
+      await transaction.scanOrderingSpecGroup.createMany({
+        data: specGroups.map((group) => ({
+          menuProductId: menuProduct.id,
+          name: group.name.trim(),
+          selectionType: group.selectMode === 'multi' ? 'multiple' : 'single',
+          minSelections: group.minSelect,
+          maxSelections: group.maxSelect ?? group.options.length,
+          sortOrder: group.sort,
+        })),
+      });
+
+      const groups = await transaction.scanOrderingSpecGroup.findMany({
+        where: { menuProductId: menuProduct.id },
+        orderBy: { sortOrder: 'asc' },
+        select: { id: true },
+      });
+      await transaction.scanOrderingSpecOption.createMany({
+        data: specGroups.flatMap((group, index) =>
+          group.options.map((option) => ({
+            groupId: groups[index].id,
+            name: option.name.trim(),
+            extraPrice: Money.fromInputYuan(option.priceDelta).toDbCents(),
+            sortOrder: index,
+            isDefault: option.isDefault,
+            isActive: option.isActive,
+          })),
+        ),
+      });
+    });
+    await this.invalidateScanOrderingMenuCache(storeId);
+  }
+
+  private async resolveMenuProductForSpecifications(
+    storeId: number,
+    productId: number,
+  ): Promise<{ id: number }> {
+    const existing = await this.prisma.scanOrderingMenuProduct.findFirst({
+      where: { storeId, productId, deletedAt: null },
+      select: { id: true },
+    });
+    if (existing) return existing;
+
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { name: true, image: true, price: true },
+    });
+    if (!product) throw new NotFoundException('商品不存在');
+
+    const category = await this.resolveDefaultScanOrderingCategory(storeId);
+    return this.prisma.scanOrderingMenuProduct.create({
+      data: {
+        storeId,
+        productId,
+        categoryId: category.id,
+        name: product.name,
+        imageUrl: product.image,
+        basePrice: product.price,
+        isActive: false,
+      },
+      select: { id: true },
+    });
+  }
+
+  private async resolveDefaultScanOrderingCategory(
+    storeId: number,
+  ): Promise<{ id: number }> {
+    const category = await this.prisma.scanOrderingMenuCategory.findFirst({
+      where: { storeId, deletedAt: null },
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      select: { id: true },
+    });
+    if (category) return category;
+
+    return this.prisma.scanOrderingMenuCategory.create({
+      data: { storeId, name: '默认分类', sortOrder: 0 },
+      select: { id: true },
     });
   }
 

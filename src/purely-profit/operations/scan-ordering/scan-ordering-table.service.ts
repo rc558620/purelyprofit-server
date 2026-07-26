@@ -150,14 +150,10 @@ export class ScanOrderingTableService {
     });
     if (activeOrderCount > 0)
       throw new ConflictException('桌台存在未完成订单，无法删除');
-    const result = await this.prisma.scanOrderingTable.updateMany({
+    
+    // 物理删除桌台（允许后续重新创建同名桌台）
+    const result = await this.prisma.scanOrderingTable.deleteMany({
       where: { id: tableId, storeId, deletedAt: null },
-      data: {
-        deletedAt: new Date(),
-        isActive: false,
-        status: 'disabled',
-        version: { increment: 1 },
-      },
     });
     if (result.count === 0) throw new NotFoundException('扫码点餐桌台不存在');
   }
