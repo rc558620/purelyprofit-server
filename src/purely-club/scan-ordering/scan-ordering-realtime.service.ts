@@ -54,6 +54,7 @@ export class ScanOrderingRealtimeService
     this.unsubscribeRedis = null;
   }
 
+  // 只能保存 /scan-ordering Namespace；使用顶层 Server 会把事件发到默认 / namespace。
   bindNamespace(namespace: Namespace): void {
     this.namespace = namespace;
   }

@@ -1,6 +1,12 @@
 import cluster, { type Worker } from 'node:cluster';
 import { resolveClusterWorkerCount } from './config/cluster.configuration';
 
+/**
+ * 实时链路防误改：Cluster Worker 共享同一 HTTP 端口，Redis 负责跨 Worker 业务事件，
+ * Socket.IO Redis Adapter 负责跨 Worker 的 /scan-ordering namespace 与房间广播。
+ * 启动 Cluster 时不得同时运行 start:dev；端口被旧进程占用会导致 Worker 启动失败。
+ */
+
 if (cluster.isPrimary) {
   const workerCount = resolveClusterWorkerCount();
   console.log(

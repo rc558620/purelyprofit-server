@@ -49,6 +49,8 @@ interface JoinStorePayload {
   storeId: number;
 }
 
+// 实时链路防误改：管理端必须连接该 namespace；事件广播也必须从同一 namespace 发出，
+// 不能改为顶层 Server 的默认 / namespace，否则客户端订阅房间将收不到订单事件。
 @WebSocketGateway({
   namespace: SCAN_ORDERING_NAMESPACE,
   path: '/socket.io',
@@ -94,6 +96,8 @@ export class ScanOrderingGateway
         this.waitForRedisReady(publisher),
         this.waitForRedisReady(subscriber),
       ]);
+      // 多 Worker / 多实例必须在顶层 Socket.IO Server 挂载官方 Redis Adapter；
+      // Namespace 没有 adapter()，不能改为 this.server.adapter(...).
       this.server.server.adapter(createAdapter(publisher, subscriber));
       this.realtimeService.markSocketIoAdapterReady();
       this.logger.log(

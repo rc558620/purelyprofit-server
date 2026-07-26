@@ -71,6 +71,8 @@ export async function registerScanOrderingNativeWebsocket(
   const prisma = app.get(PrismaService);
   const realtime = app.get(ScanOrderingRealtimeService);
 
+  // purelyClub 只能走原生 WebSocket，不能改成 Socket.IO 协议；
+  // Cluster 下本地订阅由 Redis Pub/Sub 将状态事件送到持有该连接的 Worker。
   fastify.get(
     '/api/ws/scan-ordering',
     { websocket: true },
