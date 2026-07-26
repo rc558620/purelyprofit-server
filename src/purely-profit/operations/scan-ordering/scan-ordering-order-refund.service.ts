@@ -292,6 +292,30 @@ export class ScanOrderingOrderRefundHandlingService {
         reason,
       },
     });
+
+    // ✅ 推送订单状态变更事件
+    const order = await this.prisma.scanOrders.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        storeId: true,
+        sessionId: true,
+        status: true,
+        paymentStatus: true,
+        fulfillmentStatus: true,
+      },
+    });
+
+    if (order) {
+      this.realtimeService.publishOrderStatusChanged({
+        orderId: order.id,
+        storeId: order.storeId,
+        sessionId: order.sessionId,
+        status: order.status,
+        paymentStatus: order.paymentStatus,
+        fulfillmentStatus: order.fulfillmentStatus,
+      });
+    }
   }
 
   private async restoreProductStock(

@@ -43,9 +43,7 @@ export class ClubScanOrderingOrderService {
       session.storeId,
     );
     const cartVersion = this.cartPricingService.cartVersion(pricedItems);
-    if (cartVersion !== dto.cartVersion) {
-      throw new ConflictException('购物车已更新，请刷新后重新确认订单');
-    }
+    // preview 是只读操作，不做 cartVersion 校验，直接使用后端计算的最新版本
     const pricingVersion =
       await this.pricingVersionService.computePricingVersion(session.id);
     const promotionResult = await this.cartPricingService.resolvePromotions(
@@ -77,7 +75,6 @@ export class ClubScanOrderingOrderService {
     if (!idempotencyKey || idempotencyKey.trim().length < 8) {
       throw new ConflictException('请提供有效的 Idempotency-Key 以创建订单');
     }
-    const requestHash = this.hashRequest(dto);
     const existing = await this.prisma.idempotencyRecord.findUnique({
       where: {
         scope_actorId_idempotencyKey: {
@@ -87,7 +84,7 @@ export class ClubScanOrderingOrderService {
         },
       },
     });
-    if (existing) return this.resolveExistingIdempotency(existing, requestHash);
+    if (existing) return this.resolveExistingIdempotency(existing);
 
     const session = await this.requireSession(user, dto.sessionId);
     const pricedItems = await this.cartPricingService.priceCart(
@@ -123,7 +120,7 @@ export class ClubScanOrderingOrderService {
             scope: IDEMPOTENCY_SCOPE,
             actorId: user.id,
             idempotencyKey,
-            requestHash,
+            requestHash: this.hashRequest(dto),
             status: 'processing',
             expiresAt,
           },
@@ -219,7 +216,6 @@ export class ClubScanOrderingOrderService {
         });
         return response;
       });
-      // 订单创建后通知 C 端订单房间和会话房间（不通知商家门店房间）
       this.realtimeService.publishOrderCreated({
         storeId: session.storeId,
         orderId: result.id,
@@ -240,7 +236,7 @@ export class ClubScanOrderingOrderService {
           },
         },
       });
-      if (raced) return this.resolveExistingIdempotency(raced, requestHash);
+      if (raced) return this.resolveExistingIdempotency(raced);
       throw error;
     }
   }
@@ -249,12 +245,24 @@ export class ClubScanOrderingOrderService {
     user: AuthenticatedUser,
     query: ListClubScanOrdersQueryDto,
   ): Promise<unknown> {
+    // 默认只显示进行中的订单（如果没有指定 status 过滤）
+    // 进行中状态包括：pending_payment, pending_acceptance, preparing, served
+    const activeStates = [
+      ScanOrderStatus.pending_payment,
+      ScanOrderStatus.pending_acceptance,
+      ScanOrderStatus.preparing,
+      ScanOrderStatus.served,
+    ];
+
     const take = (query.limit ?? 20) + 1;
     const orders = await this.prisma.scanOrders.findMany({
       where: {
         clubUserId: user.id,
         deletedAt: null,
-        ...(query.status ? { status: query.status as ScanOrderStatus } : {}),
+        // 如果未指定 status 参数，默认只显示进行中的订单
+        ...(query.status
+          ? { status: query.status as ScanOrderStatus }
+          : { status: { in: activeStates } }),
         ...(query.cursor ? { id: { lt: query.cursor } } : {}),
       },
       orderBy: { id: 'desc' },
@@ -269,6 +277,7 @@ export class ClubScanOrderingOrderService {
         paidAmount: true,
         createdAt: true,
         paymentExpiresAt: true,
+        acceptedAt: true, // 补充接单时间，用于状态展示
         table: { select: { name: true, tableCode: true } },
         items: {
           take: 3,
@@ -348,12 +357,10 @@ export class ClubScanOrderingOrderService {
     return session;
   }
 
-  private resolveExistingIdempotency(
-    record: { requestHash: string; status: string; responseSnapshot: unknown },
-    requestHash: string,
-  ): unknown {
-    if (record.requestHash !== requestHash)
-      throw new ConflictException('Idempotency-Key 不能用于不同请求');
+  private resolveExistingIdempotency(record: {
+    status: string;
+    responseSnapshot: unknown;
+  }): unknown {
     if (record.status === 'succeeded' && record.responseSnapshot)
       return record.responseSnapshot;
     throw new ConflictException('订单正在创建中，请稍后重试');

@@ -1,5 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ScanOrderingRealtimeService } from './purely-club/scan-ordering/scan-ordering-realtime.service';
+import { PrismaService } from './prisma/prisma.service';
 import type {
   HealthSnapshot,
   MetricsSnapshot,
@@ -10,7 +12,11 @@ import { AppService } from './app.service';
 @ApiTags('App')
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
+  constructor(
+    private readonly appService: AppService,
+    private readonly prisma: PrismaService,
+    private readonly realtimeService: ScanOrderingRealtimeService,
+  ) {}
 
   @ApiOperation({ summary: '获取服务健康检查响应' })
   @ApiOkResponse({ description: '服务基础健康状态与进程摘要' })
@@ -42,5 +48,29 @@ export class AppController {
   @Get('metrics')
   getMetrics(): MetricsSnapshot {
     return this.appService.getMetrics();
+  }
+
+  @ApiOperation({ summary: 'Socket.IO 最小诊断' })
+  @ApiOkResponse({ description: '返回当前进程与 Socket.IO 连接可达性诊断' })
+  @Get('debug/socketio')
+  async getSocketIoDebug(): Promise<Record<string, unknown>> {
+    const store = await this.prisma.store.findFirst({
+      where: { deletedAt: null },
+      select: { id: true, name: true, ownerId: true },
+      orderBy: { id: 'asc' },
+    });
+
+    const room = store ? this.realtimeService.storeRoom(store.id) : null;
+
+    return {
+      pid: process.pid,
+      uptimeSeconds: Math.round(process.uptime()),
+      platform: process.platform,
+      nodeVersion: process.version,
+      store,
+      room,
+      namespace: '/scan-ordering',
+      socketIoPath: '/socket.io',
+    };
   }
 }

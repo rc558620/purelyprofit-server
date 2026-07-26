@@ -16,6 +16,7 @@ import { ScanOrderingTableService } from './scan-ordering-table.service';
 import { ScanOrderingOrderService } from './scan-ordering-order.service';
 import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-refund.service';
 import { ScanOrderingOrderStateMachineService } from './scan-ordering-order-machine.service';
+import { ScanOrderingOrderTransitionEngineService } from './scan-ordering-order-transition.service';
 import { ScanOrderingServiceCallService } from './scan-ordering-service-call.service';
 import { ScanOrderingMenuService } from './scan-ordering-menu.service';
 import { ScanOrderingMenuCategoryService } from './scan-ordering-menu-category.service';
@@ -47,6 +48,7 @@ import { ScanOrderingMenuQueryService } from './scan-ordering-menu-query.service
     ScanOrderingTableService,
     ScanOrderingOrderService,
     ScanOrderingOrderRefundHandlingService,
+    ScanOrderingOrderTransitionEngineService,
     ScanOrderingOrderStateMachineService,
     ScanOrderingServiceCallService,
     // Menu services

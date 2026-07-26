@@ -60,16 +60,45 @@ export class ScanOrderingGateway implements OnGatewayConnection {
   ) {}
 
   afterInit(server: Server): void {
+    this.logger.log(
+      `Socket.IO gateway initialized on namespace=${SCAN_ORDERING_NAMESPACE}`,
+    );
     this.realtimeService.bindServer(server);
+    server.use((client, next) => {
+      void this.authenticateBeforeConnection(client, next);
+    });
   }
 
   async handleConnection(client: Socket): Promise<void> {
     try {
-      client.data.identity = await this.authenticate(client);
-    } catch {
-      this.logger.warn(`拒绝未鉴权扫码点餐 Socket 连接: ${client.id}`);
+      const storedIdentity = client.data.identity as SocketIdentity | undefined;
+      const identity = storedIdentity ?? (await this.authenticate(client));
+      client.data.identity = identity;
+      const transport = client.conn?.transport.name ?? 'unknown';
+      this.logger.log(
+        `socket connected: id=${client.id}, userId=${identity.userId}, transport=${transport}`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `拒绝未鉴权扫码点餐 Socket 连接: ${client.id}, error=${error instanceof Error ? error.message : String(error)}`,
+      );
       client.emit('connection_error', { message: '认证失败，请重新登录' });
       client.disconnect(true);
+    }
+  }
+
+  private async authenticateBeforeConnection(
+    client: Socket,
+    next: (error?: Error) => void,
+  ): Promise<void> {
+    try {
+      client.data.identity = await this.authenticate(client);
+      next();
+    } catch (error) {
+      this.logger.warn(
+        `拒绝未鉴权扫码点餐 Socket 连接: ${client.id}, error=${error instanceof Error ? error.message : String(error)}`,
+      );
+      next(new Error('认证失败，请重新登录'));
     }
   }
 
@@ -79,6 +108,9 @@ export class ScanOrderingGateway implements OnGatewayConnection {
     @MessageBody() payload: JoinOrderPayload,
   ): Promise<{ room: string }> {
     const identity = this.identityOf(client);
+    this.logger.log(
+      `subscribe.order requested: socketId=${client.id}, userId=${identity.userId}, orderId=${payload.orderId}`,
+    );
     const order = await this.prisma.scanOrders.findFirst({
       where: {
         id: payload.orderId,
@@ -90,6 +122,9 @@ export class ScanOrderingGateway implements OnGatewayConnection {
     if (!order) throw new UnauthorizedException('无权订阅该订单');
     const room = this.realtimeService.orderRoom(order.id);
     await client.join(room);
+    this.logger.log(
+      `subscribe.order joined: socketId=${client.id}, room=${room}`,
+    );
     return { room };
   }
 
@@ -99,6 +134,9 @@ export class ScanOrderingGateway implements OnGatewayConnection {
     @MessageBody() payload: JoinSessionPayload,
   ): Promise<{ room: string }> {
     const identity = this.identityOf(client);
+    this.logger.log(
+      `subscribe.session requested: socketId=${client.id}, userId=${identity.userId}, sessionId=${payload.sessionId}`,
+    );
     const session = await this.prisma.scanOrderingSession.findFirst({
       where: {
         id: payload.sessionId,
@@ -110,6 +148,9 @@ export class ScanOrderingGateway implements OnGatewayConnection {
     if (!session) throw new UnauthorizedException('无权订阅该点餐会话');
     const room = this.realtimeService.sessionRoom(session.id);
     await client.join(room);
+    this.logger.log(
+      `subscribe.session joined: socketId=${client.id}, room=${room}`,
+    );
     return { room };
   }
 
@@ -119,6 +160,9 @@ export class ScanOrderingGateway implements OnGatewayConnection {
     @MessageBody() payload: JoinStorePayload,
   ): Promise<{ room: string }> {
     const identity = this.identityOf(client);
+    this.logger.log(
+      `subscribe.store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
+    );
     await this.commerceAccessService.ensureCanAccessStoreWithAnyPermission(
       this.toAuthenticatedUser(identity),
       payload.storeId,
@@ -127,6 +171,9 @@ export class ScanOrderingGateway implements OnGatewayConnection {
     );
     const room = this.realtimeService.storeRoom(payload.storeId);
     await client.join(room);
+    this.logger.log(
+      `subscribe.store joined: socketId=${client.id}, room=${room}`,
+    );
     return { room };
   }
 

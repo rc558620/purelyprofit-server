@@ -1,3 +1,4 @@
+import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { ScanOrderingOrderTransitionEngineService } from './scan-ordering-order-transition.service';
 import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-refund.service';
@@ -10,6 +11,7 @@ import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-re
  * - ScanOrderingOrderTransitionEngineService：接单、出餐、取消、完成等状态流转
  * - ScanOrderingOrderRefundHandlingService：拒单退款流程、退款完成操作
  */
+@Injectable()
 export class ScanOrderingOrderStateMachineService {
   constructor(
     private readonly transitionEngine: ScanOrderingOrderTransitionEngineService,

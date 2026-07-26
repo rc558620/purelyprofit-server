@@ -7,7 +7,12 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from '@nestjs/platform-fastify';
-import type { FastifyRequest, preParsingHookHandler } from 'fastify';
+import { IoAdapter } from '@nestjs/platform-socket.io';
+import type {
+  FastifyInstance,
+  FastifyRequest,
+  preParsingHookHandler,
+} from 'fastify';
 import compress from '@fastify/compress';
 import helmet from '@fastify/helmet';
 import etag from '@fastify/etag';
@@ -208,6 +213,11 @@ export async function bootstrap(): Promise<void> {
     { rawBody: false },
   );
 
+  // Socket.IO 必须绑定到底层 Node HTTP Server；传入 Fastify 实例会导致 Engine.IO
+  // 在握手完成后无法维护连接，从而出现“连上即断”。
+  const fastifyInstance = app.getHttpAdapter().getInstance() as FastifyInstance;
+  app.useWebSocketAdapter(new IoAdapter(fastifyInstance.server));
+
   // 仅对微信支付回调路由注入 rawBody（签名校验需要原始请求体）
   setupRawBodyForWechatCallback(app);
 
@@ -223,6 +233,18 @@ export async function bootstrap(): Promise<void> {
   // 若后续新增接口遗漏了 Decimal 转换，将抛出 TypeError，
   // 应在数据层而非序列化层修复。
   await registerGlobalPlugins(app);
+
+  // 修复 DELETE/GET 请求因 Content-Type + 空 body 导致 Fastify 报错的问题
+  // 微信小程序 SDK 会自动为 DELETE 请求添加 Content-Type，即使没有 body
+  const fastify = app.getHttpAdapter().getInstance();
+  fastify.addHook('onRequest', (request, _reply, done) => {
+    const method = request.method.toUpperCase();
+    if (method === 'DELETE' || method === 'GET') {
+      delete request.headers['content-type'];
+      delete request.headers['Content-Type'];
+    }
+    done();
+  });
 
   // 全局异常过滤器：统一错误响应格式，生产环境隐藏内部堆栈信息
   app.useGlobalFilters(new AllExceptionsFilter(isProduction));
