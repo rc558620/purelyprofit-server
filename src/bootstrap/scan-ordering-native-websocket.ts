@@ -49,14 +49,17 @@ export async function registerScanOrderingNativeWebsocket(
   await fastify.register(websocket, {
     options: {
       server: {
-        on(event: string, listener: (...args: unknown[]) => void): unknown {
+        on(event: string, listener: (...args: unknown[]) => void) {
           if (event !== 'upgrade') return fastify.server.on(event, listener);
-          return fastify.server.prependListener(event, (request, socket, head) => {
-            if (request.url?.startsWith('/socket.io/')) return;
-            listener(request, socket, head);
-          });
+          return fastify.server.prependListener(
+            event,
+            (request, socket, head) => {
+              if (request.url?.startsWith('/socket.io/')) return;
+              listener(request, socket, head);
+            },
+          );
         },
-      },
+      } as unknown as typeof fastify.server,
     },
   });
   const jwtService = app.get(JwtService);

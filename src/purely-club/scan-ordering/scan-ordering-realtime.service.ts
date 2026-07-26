@@ -45,7 +45,6 @@ export class ScanOrderingRealtimeService {
     fulfillmentStatus: string;
   }): void {
     this.publishToStore(payload.storeId, 'order.created', payload);
-    this.publishToOrder(payload.orderId, 'order.status_changed', payload);
     if (payload.sessionId) {
       this.server
         ?.to(this.sessionRoom(payload.sessionId))
