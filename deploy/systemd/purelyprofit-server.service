@@ -1,0 +1,26 @@
+[Unit]
+Description=PurelyProfit Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=purelyprofit
+Group=purelyprofit
+WorkingDirectory=/opt/purelyprofit-server
+EnvironmentFile=/etc/purelyprofit-server/production.env
+# 多 Worker 前先按 PostgreSQL 最大连接数核算 DATABASE_POOL_MAX × CLUSTER_WORKERS。
+# Redis 既承载原生 WebSocket 事件广播，也承载 Socket.IO Redis adapter；Redis 不可用时 /api/readyz 会返回 error。
+Environment=NODE_ENV=production
+Environment=CLUSTER_WORKERS=2
+ExecStart=/usr/bin/node dist/cluster-main.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+KillSignal=SIGTERM
+LimitNOFILE=65535
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

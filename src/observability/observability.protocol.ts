@@ -25,7 +25,7 @@ export type HealthSnapshot = {
   counters: HealthCountersSnapshot;
 };
 
-export type ReadinessDependencyName = 'database' | 'redis';
+export type ReadinessDependencyName = 'database' | 'redis' | 'realtime';
 
 export type ReadinessDependencyStatus = 'up' | 'down';
 

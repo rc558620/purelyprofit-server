@@ -1,16 +1,20 @@
 import websocket from '@fastify/websocket';
+import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyInstance } from 'fastify';
 type RawData = string | Buffer | ArrayBuffer | Buffer[];
 
 interface WebSocket {
-  readonly OPEN: number;
   readonly readyState: number;
   send(data: string): void;
   close(code?: number, data?: string): void;
   on(event: 'message', listener: (raw: RawData) => void): void;
   on(event: 'close' | 'error', listener: () => void): void;
+}
+
+interface SocketStream {
+  socket: WebSocket;
 }
 import { PrismaService } from '../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from '../purely-club/scan-ordering/scan-ordering-realtime.service';
@@ -22,7 +26,7 @@ interface ClientMessage {
 }
 
 const send = (socket: WebSocket, message: unknown): void => {
-  if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
+  if (socket.readyState === 1) socket.send(JSON.stringify(message));
 };
 
 const parseMessage = (raw: RawData): ClientMessage | null => {
@@ -46,6 +50,7 @@ export async function registerScanOrderingNativeWebsocket(
   app: NestFastifyApplication,
 ): Promise<void> {
   const fastify = app.getHttpAdapter().getInstance() as FastifyInstance;
+  const logger = new Logger('ScanOrderingNativeWebsocket');
   await fastify.register(websocket, {
     options: {
       server: {
@@ -69,8 +74,13 @@ export async function registerScanOrderingNativeWebsocket(
   fastify.get(
     '/api/ws/scan-ordering',
     { websocket: true },
-    (socket, request) => {
-      const token = (request.query as { token?: string }).token;
+    (connection, request) => {
+      const socket = (connection as unknown as SocketStream).socket;
+      const { token, orderId: orderIdQuery } = request.query as {
+        token?: string;
+        orderId?: string;
+      };
+      logger.log('扫码点餐原生 WebSocket 已建立，等待订单订阅');
       let userId: number;
       try {
         const payload = jwtService.verify<JwtPayload>(token ?? '');
@@ -87,7 +97,44 @@ export async function registerScanOrderingNativeWebsocket(
       }
 
       const unsubscribers = new Map<number, () => void>();
+      const subscribeOrder = async (orderId: number): Promise<void> => {
+        const order = await prisma.scanOrders.findFirst({
+          where: { id: orderId, clubUserId: userId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!order)
+          return send(socket, {
+            type: 'error',
+            code: 'FORBIDDEN',
+            message: '无权订阅该订单',
+          });
+        if (unsubscribers.has(orderId)) return;
+        unsubscribers.set(
+          orderId,
+          realtime.subscribeNativeOrder(orderId, (payload) => {
+            logger.warn(
+              `准备发送原生订单 WebSocket 状态: orderId=${orderId}, readyState=${socket.readyState}`,
+            );
+            try {
+              socket.send(JSON.stringify(payload));
+              logger.warn(
+                `原生订单 WebSocket 状态已发送: orderId=${orderId}, readyState=${socket.readyState}`,
+              );
+            } catch (error) {
+              logger.error(
+                `扫码点餐原生 WebSocket 状态发送失败: orderId=${orderId}, error=${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+          }),
+        );
+        logger.log(`扫码点餐原生 WebSocket 已订阅订单: orderId=${orderId}`);
+        send(socket, { type: 'subscribed', orderId });
+      };
       send(socket, { type: 'authenticated' });
+      const initialOrderId = Number(orderIdQuery);
+      if (Number.isInteger(initialOrderId) && initialOrderId > 0) {
+        void subscribeOrder(initialOrderId);
+      }
       socket.on('message', (raw: RawData) => {
         void handleMessage(raw);
       });
@@ -114,24 +161,7 @@ export async function registerScanOrderingNativeWebsocket(
           unsubscribers.delete(orderId);
           return;
         }
-        const order = await prisma.scanOrders.findFirst({
-          where: { id: orderId, clubUserId: userId, deletedAt: null },
-          select: { id: true },
-        });
-        if (!order)
-          return send(socket, {
-            type: 'error',
-            code: 'FORBIDDEN',
-            message: '无权订阅该订单',
-          });
-        if (unsubscribers.has(orderId)) return;
-        unsubscribers.set(
-          orderId,
-          realtime.subscribeNativeOrder(orderId, (payload) =>
-            send(socket, payload),
-          ),
-        );
-        send(socket, { type: 'subscribed', orderId });
+        await subscribeOrder(orderId);
       };
       socket.on('close', () =>
         unsubscribers.forEach((unsubscribe) => unsubscribe()),

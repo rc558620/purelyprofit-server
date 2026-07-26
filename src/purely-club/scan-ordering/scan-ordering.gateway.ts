@@ -7,9 +7,17 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
-import { Logger, UnauthorizedException } from '@nestjs/common';
-import type { Server, Socket } from 'socket.io';
+import {
+  Logger,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { createAdapter } from '@socket.io/redis-adapter';
+import type Redis from 'ioredis';
+import type { Namespace, Socket } from 'socket.io';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import { CommerceAccessService } from '../../purely-profit/commerce/commerce-access.service';
 import { AuthMembershipResolverService } from '../../purely-profit/auth/auth-membership-resolver.service';
 import type { AuthenticatedMembership } from '../../purely-profit/access-control/access-control.service';
@@ -48,28 +56,79 @@ interface JoinStorePayload {
   allowUpgrades: true,
   cors: { origin: true, credentials: true },
 })
-export class ScanOrderingGateway implements OnGatewayConnection {
+export class ScanOrderingGateway
+  implements OnGatewayConnection, OnApplicationBootstrap, OnModuleDestroy
+{
   @WebSocketServer()
-  server: Server;
+  server: Namespace;
 
   private readonly logger = new Logger(ScanOrderingGateway.name);
+  private redisPublisher: Redis | null = null;
+  private redisSubscriber: Redis | null = null;
 
   constructor(
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
+    private readonly redisService: RedisService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly authMembershipResolverService: AuthMembershipResolverService,
     private readonly realtimeService: ScanOrderingRealtimeService,
   ) {}
 
-  afterInit(server: Server): void {
-    this.logger.log(
-      `Socket.IO gateway initialized on namespace=${SCAN_ORDERING_NAMESPACE}`,
-    );
-    this.realtimeService.bindServer(server);
+  afterInit(server: Namespace): void {
+    this.realtimeService.bindNamespace(server);
     server.use((client, next) => {
       void this.authenticateBeforeConnection(client, next);
     });
+  }
+
+  async onApplicationBootstrap(): Promise<void> {
+    if (!this.server) {
+      throw new Error('Socket.IO server 尚未初始化');
+    }
+    const { publisher, subscriber } = this.redisService.createPubSubClients();
+    this.redisPublisher = publisher;
+    this.redisSubscriber = subscriber;
+    try {
+      await Promise.all([
+        this.waitForRedisReady(publisher),
+        this.waitForRedisReady(subscriber),
+      ]);
+      this.server.server.adapter(createAdapter(publisher, subscriber));
+      this.realtimeService.markSocketIoAdapterReady();
+      this.logger.log(
+        `Socket.IO Redis adapter initialized on namespace=${SCAN_ORDERING_NAMESPACE}`,
+      );
+    } catch (error) {
+      await Promise.allSettled([publisher.quit(), subscriber.quit()]);
+      this.redisPublisher = null;
+      this.redisSubscriber = null;
+      throw error;
+    }
+  }
+
+  private async waitForRedisReady(client: Redis): Promise<void> {
+    if (client.status === 'ready') return;
+    await new Promise<void>((resolve, reject) => {
+      const handleReady = (): void => cleanup(resolve);
+      const handleError = (error: Error): void => cleanup(() => reject(error));
+      const cleanup = (complete: () => void): void => {
+        client.off('ready', handleReady);
+        client.off('error', handleError);
+        complete();
+      };
+      client.once('ready', handleReady);
+      client.once('error', handleError);
+    });
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await Promise.allSettled([
+      this.redisPublisher?.quit() ?? Promise.resolve('OK'),
+      this.redisSubscriber?.quit() ?? Promise.resolve('OK'),
+    ]);
+    this.redisPublisher = null;
+    this.redisSubscriber = null;
   }
 
   async handleConnection(client: Socket): Promise<void> {

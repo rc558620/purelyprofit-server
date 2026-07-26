@@ -8,16 +8,14 @@ import {
   type NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import type {
-  FastifyRequest,
-  preParsingHookHandler,
-} from 'fastify';
+import type { FastifyRequest, preParsingHookHandler } from 'fastify';
 import compress from '@fastify/compress';
 import helmet from '@fastify/helmet';
 import etag from '@fastify/etag';
 import multipart from '@fastify/multipart';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from '../app.module';
+import { isClusterMode } from '../config/cluster.configuration';
 import { setupHttpObservability } from './http-observability';
 import { AllExceptionsFilter } from './all-exceptions.filter';
 import {
@@ -312,10 +310,14 @@ export async function bootstrap(): Promise<void> {
   }
 
   const preferredPort = configService.get<number>('port') ?? 3000;
+  const clusterMode = isClusterMode();
   const portAutoTerminateEnabled =
-    configService.get<boolean>('app.portAutoTerminateEnabled') ?? !isProduction;
+    !clusterMode &&
+    (configService.get<boolean>('app.portAutoTerminateEnabled') ??
+      !isProduction);
   const portAutoShiftEnabled =
-    configService.get<boolean>('app.portAutoShiftEnabled') ?? !isProduction;
+    !clusterMode &&
+    (configService.get<boolean>('app.portAutoShiftEnabled') ?? !isProduction);
   const portAutoShiftMaxOffset =
     configService.get<number>('app.portAutoShiftMaxOffset') ?? 20;
 
@@ -326,10 +328,12 @@ export async function bootstrap(): Promise<void> {
     );
   }
 
+  // Cluster 由主进程共享监听句柄，仍需绑定 0.0.0.0 以允许局域网真机和小程序访问。
+  const listenHost = '0.0.0.0';
   const listeningPort = await listenWithPortFallback(
     app,
     preferredPort,
-    '0.0.0.0',
+    listenHost,
     portAutoTerminateEnabled,
     portAutoShiftEnabled,
     portAutoShiftMaxOffset,

@@ -8,12 +8,14 @@ import type {
 import { getHealthSnapshot, getRuntimeMetricsSnapshot } from './observability';
 import { PrismaService } from './prisma/prisma.service';
 import { RedisService } from './redis/redis.service';
+import { ScanOrderingRealtimeService } from './purely-club/scan-ordering/scan-ordering-realtime.service';
 
 @Injectable()
 export class AppService {
   constructor(
     private readonly prismaService: PrismaService,
     private readonly redisService: RedisService,
+    private readonly scanOrderingRealtimeService: ScanOrderingRealtimeService,
   ) {}
 
   getHello(): string {
@@ -31,6 +33,9 @@ export class AppService {
       ),
       this.checkDependency('redis', async () =>
         this.redisService.checkReadiness(),
+      ),
+      this.checkDependency('realtime', async () =>
+        this.scanOrderingRealtimeService.checkReadiness(),
       ),
     ]);
 

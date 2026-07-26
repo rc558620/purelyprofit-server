@@ -1,6 +1,7 @@
 import {
   Injectable,
   Logger,
+  OnApplicationBootstrap,
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
@@ -14,7 +15,9 @@ import { buildRedisConnectionOptions } from '../shared/redis-connection.utils';
 type RedisOutcome = 'hit' | 'miss' | 'neutral';
 
 @Injectable()
-export class RedisService implements OnModuleInit, OnModuleDestroy {
+export class RedisService
+  implements OnModuleInit, OnApplicationBootstrap, OnModuleDestroy
+{
   private readonly logger = new Logger(RedisService.name);
   private client!: Redis;
   private readonly slowRedisLogEnabled: boolean;
@@ -27,15 +30,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       this.configService.get<number>('app.slowRedisThresholdMs') ?? 20;
   }
 
-  onModuleInit() {
-    const redisOptions = buildRedisConnectionOptions(this.configService);
-    const commandTimeout =
-      this.configService.get<number>('redis.commandTimeoutMs') ?? 3_000;
-
-    this.client = new Redis({
-      ...redisOptions,
-      commandTimeout,
-    });
+  onModuleInit(): void {
+    this.client = this.createClient();
 
     this.client.on('error', (error: Error) => {
       this.logger.error(
@@ -59,7 +55,11 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async onModuleDestroy() {
+  async onApplicationBootstrap(): Promise<void> {
+    await this.client.ping();
+  }
+
+  async onModuleDestroy(): Promise<void> {
     await this.client.quit();
   }
 
@@ -78,6 +78,42 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
 
     return JSON.parse(rawValue) as T;
+  }
+
+  async publish(channel: string, message: string): Promise<number> {
+    return this.observeRedisCommand('PUBLISH', () =>
+      this.client.publish(channel, message),
+    );
+  }
+
+  createPubSubClients(): { publisher: Redis; subscriber: Redis } {
+    return {
+      publisher: this.client.duplicate(),
+      subscriber: this.client.duplicate(),
+    };
+  }
+
+  async subscribe(
+    channel: string,
+    listener: (message: string) => void,
+  ): Promise<() => Promise<void>> {
+    const subscriber = this.client.duplicate();
+    const handleMessage = (receivedChannel: string, message: string): void => {
+      if (receivedChannel === channel) listener(message);
+    };
+    subscriber.on('error', (error: Error) => {
+      this.logger.error(
+        `[redis] subscriber error: ${error.message}`,
+        error.stack,
+      );
+    });
+    subscriber.on('message', handleMessage);
+    await subscriber.subscribe(channel);
+    return async () => {
+      subscriber.off('message', handleMessage);
+      await subscriber.unsubscribe(channel);
+      await subscriber.quit();
+    };
   }
 
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
@@ -317,6 +353,13 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     if (pong !== 'PONG') {
       throw new Error(`unexpected redis ping response: ${String(pong)}`);
     }
+  }
+
+  private createClient(): Redis {
+    const redisOptions = buildRedisConnectionOptions(this.configService);
+    const commandTimeout =
+      this.configService.get<number>('redis.commandTimeoutMs') ?? 3_000;
+    return new Redis({ ...redisOptions, commandTimeout });
   }
 
   private async observeRedisCommand<T>(

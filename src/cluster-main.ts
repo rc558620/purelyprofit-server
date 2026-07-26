@@ -1,19 +1,8 @@
 import cluster, { type Worker } from 'node:cluster';
-import os from 'node:os';
-
-function resolveWorkerCount(): number {
-  const envCount = process.env.CLUSTER_WORKERS;
-  if (envCount) {
-    const parsed = parseInt(envCount, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  return Math.max(1, os.cpus().length);
-}
+import { resolveClusterWorkerCount } from './config/cluster.configuration';
 
 if (cluster.isPrimary) {
-  const workerCount = resolveWorkerCount();
+  const workerCount = resolveClusterWorkerCount();
   console.log(
     `[cluster] primary pid=${process.pid} spawning ${workerCount} worker(s)`,
   );
@@ -34,9 +23,10 @@ if (cluster.isPrimary) {
     console.warn(
       `[cluster] worker pid=${worker.process.pid} exited code=${code} signal=${signal} alive=${aliveWorkers}`,
     );
-    if (!worker.exitedAfterDisconnect) {
-      console.log('[cluster] respawning worker...');
-      cluster.fork();
+    if (!worker.exitedAfterDisconnect && code !== 0) {
+      console.error(
+        '[cluster] worker 异常退出；停止自动重启以避免掩盖启动错误。修复错误后请重新启动 Cluster。',
+      );
     }
   });
 
@@ -50,5 +40,8 @@ if (cluster.isPrimary) {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 } else {
-  void import('./main.js').then(({ bootstrap }) => bootstrap());
+  // Nest SWC 将 sourceRoot 保留在 dist/src；显式调用 bootstrap，require.main 不等于 main 模块。
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { bootstrap } = require('./src/main') as typeof import('./main');
+  void bootstrap();
 }
