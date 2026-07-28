@@ -14,6 +14,7 @@ import {
   ScanOrderingQrService,
   type ScanOrderingQrCodeResponse,
 } from './scan-ordering-qr.service';
+import { Logger } from '@nestjs/common';
 
 /** 商家桌台卡片响应，订单数由数据库聚合后返回。 */
 export interface ScanOrderingCreatedTableResponse extends ScanOrderingTableResponse {
@@ -47,6 +48,8 @@ export interface ScanOrderingTableResponse {
 /** 商家扫码点餐桌台查询服务。 */
 @Injectable()
 export class ScanOrderingTableService {
+  private readonly logger = new Logger(ScanOrderingTableService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
@@ -61,25 +64,71 @@ export class ScanOrderingTableService {
       user,
       'scan-ordering:table-manage',
     );
-    const existingTable = await this.prisma.scanOrderingTable.findFirst({
-      where: { storeId, tableCode: dto.tableCode, deletedAt: null },
-      select: { id: true },
-    });
 
-    if (existingTable) {
-      throw new ConflictException('桌台编号已存在');
+    // 尝试创建桌台，遇到唯一约束冲突时使用 upsert 模式复用已禁用记录
+    let table;
+    try {
+      table = await this.prisma.scanOrderingTable.create({
+        data: {
+          storeId,
+          tableCode: dto.tableCode,
+          name: dto.name,
+          capacity: dto.capacity ?? 1,
+          areaId: dto.areaId ?? null,
+          typeId: dto.typeId ?? null,
+        },
+      });
+    } catch (error) {
+      // 检查是否为唯一约束冲突
+      if (
+        error.message?.includes('Unique constraint') ||
+        error.code === 'P2002' // Prisma 唯一约束错误码
+      ) {
+        this.logger.warn(
+          `检测到桌台 ${storeId}/${dto.tableCode} 的唯一约束冲突，尝试复用已禁用记录`,
+        );
+
+        // 查找同 store+tableCode 但已禁用的旧记录
+        const disabledTable = await this.prisma.scanOrderingTable.findFirst({
+          where: {
+            storeId,
+            tableCode: dto.tableCode,
+            OR: [{ deletedAt: { not: null } }, { isActive: false }],
+          },
+        });
+
+        if (disabledTable) {
+          // 激活该旧记录
+          table = await this.prisma.$transaction(async (tx) => {
+            // 先清理旧二维码，避免下次 createInitialQrCode 冲突
+            await tx.scanOrderingTableQrCode.updateMany({
+              where: { tableId: disabledTable.id, status: 'active' },
+              data: { status: 'revoked', revokedAt: new Date() },
+            });
+
+            // 激活桌台
+            return tx.scanOrderingTable.update({
+              where: { id: disabledTable.id },
+              data: {
+                name: dto.name,
+                capacity: dto.capacity ?? 1,
+                areaId: dto.areaId ?? null,
+                typeId: dto.typeId ?? null,
+                isActive: true,
+                status: 'empty',
+                deletedAt: null,
+                version: { increment: 1 },
+              },
+            });
+          });
+        } else {
+          // 不应到达这里，抛出原始错误
+          throw new ConflictException('桌台编号已存在');
+        }
+      } else {
+        throw error;
+      }
     }
-
-    const table = await this.prisma.scanOrderingTable.create({
-      data: {
-        storeId,
-        tableCode: dto.tableCode,
-        name: dto.name,
-        capacity: dto.capacity ?? 1,
-        areaId: dto.areaId ?? null,
-        typeId: dto.typeId ?? null,
-      },
-    });
 
     const qrCode = await this.qrService.createInitialQrCode(storeId, table.id);
 
@@ -133,29 +182,25 @@ export class ScanOrderingTableService {
       user,
       'scan-ordering:table-manage',
     );
-    const activeOrderCount = await this.prisma.scanOrders.count({
-      where: {
-        tableId,
-        storeId,
-        status: {
-          in: [
-            'pending_payment',
-            'pending_acceptance',
-            'preparing',
-            'served',
-            'refunding',
-          ],
-        },
-      },
+
+    // 使用事务确保原子性：同时删除订单、二维码和桌台记录
+    await this.prisma.$transaction(async (tx) => {
+      // 先删除该桌台的所有订单记录
+      await tx.scanOrders.deleteMany({
+        where: { tableId, storeId },
+      });
+
+      // 再删除该桌台的所有二维码记录
+      await tx.scanOrderingTableQrCode.deleteMany({
+        where: { tableId },
+      });
+
+      // 最后物理删除桌台
+      const result = await tx.scanOrderingTable.deleteMany({
+        where: { id: tableId, storeId, deletedAt: null },
+      });
+      if (result.count === 0) throw new NotFoundException('扫码点餐桌台不存在');
     });
-    if (activeOrderCount > 0)
-      throw new ConflictException('桌台存在未完成订单，无法删除');
-    
-    // 物理删除桌台（允许后续重新创建同名桌台）
-    const result = await this.prisma.scanOrderingTable.deleteMany({
-      where: { id: tableId, storeId, deletedAt: null },
-    });
-    if (result.count === 0) throw new NotFoundException('扫码点餐桌台不存在');
   }
 
   async clearTable(user: AuthenticatedUser, tableId: number): Promise<void> {

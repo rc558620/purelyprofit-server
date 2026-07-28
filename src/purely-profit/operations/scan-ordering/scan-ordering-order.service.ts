@@ -95,30 +95,47 @@ export class ScanOrderingOrderService {
       '无权查看扫码点餐订单',
     );
 
-    // 只查询当天的订单（本地时区 00:00:00 ~ 23:59:59）
-    const now = new Date();
-    const startOfDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-    );
-    const endOfDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1,
-    );
+    // 默认时间范围：当天 00:00:00 ~ 23:59:59
+    let startOfDay!: Date;
+    let endOfDay!: Date;
+
+    // 如果提供了自定义时间范围，则使用提供的值
+    if (query.startTime && query.endTime) {
+      startOfDay = new Date(query.startTime);
+      endOfDay = new Date(query.endTime);
+    } else {
+      // 否则使用当天范围
+      const now = new Date();
+      startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    }
+
+    // 构建动态查询条件
+    const where: Record<string, unknown> = {
+      storeId,
+      createdAt: {
+        gte: startOfDay,
+        lt: endOfDay,
+      },
+      ...(query.status ? { status: query.status as unknown } : {}),
+      ...(query.tableId ? { tableId: query.tableId } : {}),
+      ...(query.cursor ? { id: { lt: query.cursor } } : {}),
+    };
+
+    // 添加桌号模糊匹配
+    if (query.tableKeyword) {
+      (where as Record<string, unknown>).table = {
+        name: {
+          contains: query.tableKeyword,
+          mode: 'insensitive',
+        },
+      };
+    }
+
+    // 客人姓名将从前端根据 clubUserId 动态查询
 
     const orders = await this.prisma.scanOrders.findMany({
-      where: {
-        storeId,
-        createdAt: {
-          gte: startOfDay,
-          lt: endOfDay,
-        },
-        ...(query.status !== undefined ? { status: query.status } : {}),
-        ...(query.tableId !== undefined ? { tableId: query.tableId } : {}),
-        ...(query.cursor !== undefined ? { id: { lt: query.cursor } } : {}),
-      },
+      where,
       orderBy: { id: 'desc' },
       take: (query.limit ?? 20) + 1,
       select: {
@@ -127,9 +144,14 @@ export class ScanOrderingOrderService {
         status: true,
         createdAt: true,
         version: true,
+        clubUserId: true,
         table: { select: { name: true } },
         items: {
-          select: { productNameSnapshot: true, quantity: true },
+          select: {
+            productNameSnapshot: true,
+            productImageUrlSnapshot: true,
+            quantity: true,
+          },
           orderBy: { id: 'asc' },
         },
         itemOriginalAmount: true,
@@ -142,11 +164,31 @@ export class ScanOrderingOrderService {
       },
     });
 
+    // 🔥 批量查询用户昵称
+    const userMap: Map<number, string> = new Map();
+    const userIds = orders
+      .map((order: (typeof orders)[number]) => order.clubUserId)
+      .filter((id): id is number => !!id);
+    if (userIds.length > 0 && Array.from(new Set(userIds)).length > 0) {
+      try {
+        const uniqueIds = Array.from(new Set(userIds));
+        const users = await this.prisma.user.findMany({
+          where: { id: { in: uniqueIds } },
+          select: { id: true, name: true },
+        });
+        users.forEach((u) => {
+          userMap.set(u.id, u.name || '顾客');
+        });
+      } catch (error) {
+        console.error('Failed to fetch user nicknames:', error);
+      }
+    }
+
     const limit = query.limit ?? 20;
     const pageOrders = orders.slice(0, limit);
 
     return {
-      items: pageOrders.map((order) => {
+      items: pageOrders.map((order: (typeof pageOrders)[number]) => {
         const amountSummary = this.pricingService.calculateSummary({
           itemOriginalAmountCents: order.itemOriginalAmount,
           specificationExtraAmountCents: order.specificationExtraAmount,
@@ -157,17 +199,32 @@ export class ScanOrderingOrderService {
           paidAmountCents: order.paidAmount,
         });
 
+        // 🔥 使用真实的用户昵称
+        let guestName = '顾客'; // 默认值
+        if (order.clubUserId && userMap.has(order.clubUserId)) {
+          guestName = userMap.get(order.clubUserId)!; // 从 Map 中获取昵称
+        }
+
         return {
           id: order.id,
           orderNo: order.orderNo,
           version: order.version,
           itemSummary: order.items
-            .map((item: any) => `${item.productNameSnapshot}×${item.quantity}`)
+            .map(
+              (item: (typeof order.items)[number]) =>
+                `${item.productNameSnapshot}×${item.quantity}`,
+            )
             .join('、'),
           tableName: order.table.name,
           status: order.status,
           createdAt: order.createdAt.toISOString(),
           amountSummary,
+          guestName, // 🔥 返回客户昵称
+          imageUrl:
+            order.items.find(
+              (item: (typeof order.items)[number]) =>
+                item.productImageUrlSnapshot,
+            )?.productImageUrlSnapshot ?? null,
         };
       }),
       nextCursor:
@@ -194,38 +251,41 @@ export class ScanOrderingOrderService {
       },
     });
     if (!order) throw new NotFoundException('扫码点餐订单不存在');
+    const prismaOrder = order; // 明确类型注解
     return {
-      id: order.id,
-      orderNo: order.orderNo,
-      status: order.status,
-      version: order.version,
-      table: order.table,
-      createdAt: order.createdAt.toISOString(),
+      id: prismaOrder.id,
+      orderNo: prismaOrder.orderNo,
+      status: prismaOrder.status,
+      version: prismaOrder.version,
+      table: prismaOrder.table,
+      createdAt: prismaOrder.createdAt.toISOString(),
       amountSummary: this.pricingService.calculateSummary({
-        itemOriginalAmountCents: order.itemOriginalAmount,
-        specificationExtraAmountCents: order.specificationExtraAmount,
-        productDiscountAmountCents: order.productDiscountAmount,
-        orderDiscountAmountCents: order.orderDiscountAmount,
-        taxAmountCents: order.taxAmount,
-        serviceFeeAmountCents: order.serviceFeeAmount,
-        paidAmountCents: order.paidAmount,
+        itemOriginalAmountCents: prismaOrder.itemOriginalAmount,
+        specificationExtraAmountCents: prismaOrder.specificationExtraAmount,
+        productDiscountAmountCents: prismaOrder.productDiscountAmount,
+        orderDiscountAmountCents: prismaOrder.orderDiscountAmount,
+        taxAmountCents: prismaOrder.taxAmount,
+        serviceFeeAmountCents: prismaOrder.serviceFeeAmount,
+        paidAmountCents: prismaOrder.paidAmount,
       }),
-      items: order.items.map((item: any) => ({
-        name: item.productNameSnapshot,
-        quantity: item.quantity,
-        amount: this.pricingService.calculateSummary({
-          itemOriginalAmountCents: item.lineTotalAmount,
-          specificationExtraAmountCents: 0,
-        }).payableAmount,
-        specs: item.specs.map((spec: any) => ({
-          name: spec.specOptionNameSnapshot,
-          extraPrice: this.pricingService.calculateSummary({
-            itemOriginalAmountCents: spec.extraPriceSnapshot,
+      items: prismaOrder.items.map(
+        (item: (typeof prismaOrder.items)[number]) => ({
+          name: item.productNameSnapshot,
+          quantity: item.quantity,
+          amount: this.pricingService.calculateSummary({
+            itemOriginalAmountCents: item.lineTotalAmount,
             specificationExtraAmountCents: 0,
           }).payableAmount,
-        })),
-      })),
-      histories: order.histories.map(
+          specs: item.specs.map((spec: (typeof item.specs)[number]) => ({
+            name: spec.specOptionNameSnapshot,
+            extraPrice: this.pricingService.calculateSummary({
+              itemOriginalAmountCents: spec.extraPriceSnapshot,
+              specificationExtraAmountCents: 0,
+            }).payableAmount,
+          })),
+        }),
+      ),
+      histories: prismaOrder.histories.map(
         (history: {
           fromStatus: string;
           toStatus: string;

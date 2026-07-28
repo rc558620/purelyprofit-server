@@ -14,8 +14,18 @@ interface WebSocket {
 }
 
 interface SocketStream {
-  socket: WebSocket;
+  socket?: WebSocket;
 }
+
+const resolveWebSocket = (connection: unknown): WebSocket => {
+  const stream = connection as SocketStream;
+  const socket = stream.socket ?? (connection as WebSocket);
+  if (typeof socket.send !== 'function' || typeof socket.on !== 'function') {
+    throw new Error('原生 WebSocket 连接无效');
+  }
+  return socket;
+};
+
 import { PrismaService } from '../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from '../purely-club/scan-ordering/scan-ordering-realtime.service';
 import type { JwtPayload } from '../purely-profit/auth/strategies/jwt.strategy';
@@ -77,7 +87,7 @@ export async function registerScanOrderingNativeWebsocket(
     '/api/ws/scan-ordering',
     { websocket: true },
     (connection, request) => {
-      const socket = (connection as unknown as SocketStream).socket;
+      const socket = resolveWebSocket(connection);
       const { token, orderId: orderIdQuery } = request.query as {
         token?: string;
         orderId?: string;

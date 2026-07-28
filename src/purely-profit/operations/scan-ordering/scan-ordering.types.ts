@@ -61,4 +61,6 @@ export interface ScanOrderingOrderListItem {
   createdAt: string;
   /** 后端金额汇总。 */
   amountSummary: ScanOrderingAmountSummary;
+  /** 首个商品图片 URL（用于订单卡片缩略图）。 */
+  imageUrl: string | null;
 }

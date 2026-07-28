@@ -14,7 +14,17 @@ export interface ScanOrderingMenuCategoryResponse {
   name: string;
   sortOrder: number;
   isActive: boolean;
-  products: any[]; // 留空或后续扩展
+  products?: ScanOrderingMenuProductBasic[]; // 可选字段，当前返回空数组
+}
+
+/** 扫码点餐菜单商品基础信息（用于分类下的产品列表） */
+interface ScanOrderingMenuProductBasic {
+  id: number;
+  name: string;
+  basePrice: number;
+  imageUrl: string | null;
+  sortOrder: number;
+  isActive: boolean;
 }
 
 /**

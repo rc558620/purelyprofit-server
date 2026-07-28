@@ -1,12 +1,9 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
+import type { PermissionCode } from '../../access-control/access-control.constants';
 import type {
   CreateScanOrderingSpecGroupDto,
   CreateScanOrderingSpecOptionDto,
@@ -15,7 +12,6 @@ import type {
   UpdateScanOrderingSpecGroupDto,
   UpdateScanOrderingSpecOptionDto,
 } from './dto/scan-ordering-menu-update.dto';
-import type { UpdateScanOrderingProductStockDto } from './dto/scan-ordering-product-stock.dto';
 
 /**
  * 商家扫码点餐菜单规格管理服务。
@@ -176,7 +172,7 @@ export class ScanOrderingMenuSpecService {
     return this.commerceAccessService.resolveSingleStoreId(
       user,
       undefined,
-      permission as any,
+      permission as PermissionCode,
       '无权操作扫码点餐菜单',
     );
   }

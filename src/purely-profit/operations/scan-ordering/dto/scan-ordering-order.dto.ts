@@ -62,6 +62,18 @@ export class ListScanOrderingOrdersQueryDto {
   @Min(1, { message: '桌台主键不合法' })
   tableId?: number;
 
+  @ApiPropertyOptional({ description: '桌号关键词 (模糊搜索)' })
+  @IsOptional()
+  @IsString({ message: '桌号关键词必须是字符串' })
+  @MaxLength(50, { message: '桌号关键词不能超过 50 个字符' })
+  tableKeyword?: string;
+
+  @ApiPropertyOptional({ description: '客人姓名关键词 (模糊搜索)' })
+  @IsOptional()
+  @IsString({ message: '客人姓名关键词必须是字符串' })
+  @MaxLength(50, { message: '客人姓名关键词不能超过 50 个字符' })
+  guestKeyword?: string;
+
   @ApiPropertyOptional({ example: 100, description: '最后一条订单主键游标' })
   @IsOptional()
   @Type(() => Number)
@@ -76,4 +88,16 @@ export class ListScanOrderingOrdersQueryDto {
   @Min(1, { message: '分页数量至少为 1' })
   @Max(100, { message: '分页数量不能超过 100' })
   limit?: number;
+
+  @ApiPropertyOptional({ description: '开始时间 ISO8601 格式' })
+  @IsOptional()
+  @IsString({ message: '开始时间格式不合法' })
+  @MaxLength(30, { message: '开始时间格式过长' })
+  startTime?: string;
+
+  @ApiPropertyOptional({ description: '结束时间 ISO8601 格式' })
+  @IsOptional()
+  @IsString({ message: '结束时间格式不合法' })
+  @MaxLength(30, { message: '结束时间格式过长' })
+  endTime?: string;
 }

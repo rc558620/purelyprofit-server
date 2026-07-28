@@ -17,16 +17,24 @@ import { RequireBusinessMode } from '../../stores/business-mode.decorator';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
-import {
-  CreateScanOrderingAreaDto,
-  UpdateScanOrderingAreaDto,
-} from './dto/scan-ordering-area.dto';
-import { ScanOrderingAreaService } from './scan-ordering-area.service';
-import {
+import type { ScanOrderingTypeResponse } from './scan-ordering-type.service';
+import type {
   CreateScanOrderingTypeDto,
   UpdateScanOrderingTypeDto,
 } from './dto/scan-ordering-type.dto';
+import type { UpdateScanOrderingAreaDto } from './dto/scan-ordering-area.dto';
 import { ScanOrderingTypeService } from './scan-ordering-type.service';
+import { ScanOrderingAreaService } from './scan-ordering-area.service';
+
+/** 扫码点餐桌台区域响应（包含时间戳）。 */
+interface ScanOrderingAreaResponse {
+  id: number;
+  name: string;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: number; // Unix timestamp
+  updatedAt?: number; // Unix timestamp
+}
 
 @ApiTags('PurelyProfit Scan Ordering - Tables')
 @ApiBearerAuth()
@@ -43,29 +51,31 @@ export class ScanOrderingTableController {
   @Get('areas')
   @RequirePermissions('scan-ordering:view')
   @ApiOperation({ summary: '获取扫码点餐桌台区域列表' })
-  listAreas(@CurrentUser() user: AuthenticatedUser): Promise<any> {
-    return this.areaService.list(user);
-  }
-
-  @Post('areas')
-  @RequirePermissions('scan-ordering:table-manage')
-  @ApiOperation({ summary: '新增扫码点餐桌台区域' })
-  createArea(
+  async listAreas(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: CreateScanOrderingAreaDto,
-  ): Promise<any> {
-    return this.areaService.create(user, dto);
+  ): Promise<ScanOrderingAreaResponse[]> {
+    const result = await this.areaService.list(user);
+    return result.map((item) => ({
+      ...item,
+      createdAt: item.createdAt.getTime(),
+      updatedAt: item.updatedAt?.getTime(),
+    }));
   }
 
   @Patch('areas/:areaId')
   @RequirePermissions('scan-ordering:table-manage')
   @ApiOperation({ summary: '更新扫码点餐桌台区域' })
-  updateArea(
+  async updateArea(
     @CurrentUser() user: AuthenticatedUser,
     @Param('areaId', ParseIntPipe) areaId: number,
     @Body() dto: UpdateScanOrderingAreaDto,
-  ): Promise<void> {
-    return this.areaService.update(user, areaId, dto);
+  ): Promise<ScanOrderingAreaResponse> {
+    const result = await this.areaService.update(user, areaId, dto);
+    return {
+      ...result,
+      createdAt: result.createdAt.getTime(),
+      updatedAt: result.updatedAt.getTime(),
+    };
   }
 
   @Delete('areas/:areaId')
@@ -82,7 +92,9 @@ export class ScanOrderingTableController {
   @Get('types')
   @RequirePermissions('scan-ordering:view')
   @ApiOperation({ summary: '获取扫码点餐桌台类型列表' })
-  listTypes(@CurrentUser() user: AuthenticatedUser): Promise<any> {
+  listTypes(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ScanOrderingTypeResponse[]> {
     return this.typeService.list(user);
   }
 
@@ -92,7 +104,7 @@ export class ScanOrderingTableController {
   createType(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateScanOrderingTypeDto,
-  ): Promise<any> {
+  ): Promise<ScanOrderingTypeResponse> {
     return this.typeService.create(user, dto);
   }
 

@@ -140,12 +140,12 @@ export class ScanOrderingMenuProductService {
 
   private async resolveEnabledStoreId(
     user: AuthenticatedUser,
-    permission: string,
+    permission: 'scan-ordering:menu-manage',
   ): Promise<number> {
     return this.commerceAccessService.resolveSingleStoreId(
       user,
       undefined,
-      permission as any,
+      permission,
       '无权操作扫码点餐菜单',
     );
   }

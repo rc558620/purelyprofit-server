@@ -22,6 +22,8 @@ import type {
   UpdateScanOrderingSpecOptionDto,
 } from './dto/scan-ordering-menu-update.dto';
 import type { UpdateScanOrderingProductStockDto } from './dto/scan-ordering-product-stock.dto';
+import type { UpdateScanOrderingMenuCategoryDto } from './dto/scan-ordering-category-update.dto';
+import type { ScanOrderingMenuCategoryResponse } from './scan-ordering-menu-category.service';
 
 /**
  * 商家扫码点餐菜单服务（统一接口层）。
@@ -45,14 +47,14 @@ export class ScanOrderingMenuService {
   async createCategory(
     user: AuthenticatedUser,
     dto: CreateScanOrderingMenuCategoryDto,
-  ): Promise<any> {
+  ): Promise<ScanOrderingMenuCategoryResponse> {
     return this.categoryService.createCategory(user, dto);
   }
 
   async updateCategory(
     user: AuthenticatedUser,
     categoryId: number,
-    dto: any,
+    dto: UpdateScanOrderingMenuCategoryDto,
   ): Promise<void> {
     return this.categoryService.updateCategory(user, categoryId, dto);
   }
@@ -148,7 +150,9 @@ export class ScanOrderingMenuService {
     return this.stockService.updateProductStock(user, productId, dto);
   }
 
-  async listMenu(user: AuthenticatedUser): Promise<any> {
+  async listMenu(
+    user: AuthenticatedUser,
+  ): Promise<ScanOrderingMenuCategoryResponse[]> {
     return this.queryService.listMenu(user);
   }
 }

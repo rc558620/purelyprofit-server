@@ -3,13 +3,15 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
+import { ServiceCallType } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
-import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
+import { ClubServiceCallService } from '../service-call/club-service-call.service';
 import type { CreateClubScanSessionDto } from './dto/club-scan-ordering.dto';
 import type { UpdateClubScanSessionDto } from './dto/club-scan-ordering.dto';
 import type { CreateClubScanServiceCallDto } from './dto/club-scan-ordering.dto';
@@ -17,7 +19,6 @@ import type { CreateClubScanServiceCallDto } from './dto/club-scan-ordering.dto'
 const SCAN_TOKEN_PREFIX = 'club:scan-ordering:token:';
 const SCAN_TOKEN_TTL_SECONDS = 5 * 60;
 const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
-const SERVICE_CALL_TTL_SECONDS = 120;
 
 interface ResolvedScanToken {
   /** 门店 ID。 */
@@ -37,10 +38,12 @@ interface ResolvedScanToken {
  */
 @Injectable()
 export class ClubScanOrderingService {
+  private readonly logger = new Logger(ClubScanOrderingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
-    private readonly realtimeService: ScanOrderingRealtimeService,
+    private readonly serviceCallService: ClubServiceCallService,
   ) {}
 
   async resolveQrToken(qrToken: string): Promise<unknown> {
@@ -132,6 +135,8 @@ export class ClubScanOrderingService {
     }
     const now = new Date();
     const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
+
+    // 查找是否存在有效且未删除的会话
     const existing = await this.prisma.scanOrderingSession.findFirst({
       where: {
         clubUserId: user.id,
@@ -142,6 +147,7 @@ export class ClubScanOrderingService {
       },
       orderBy: { lastActiveAt: 'desc' },
     });
+
     const session = existing
       ? await this.prisma.scanOrderingSession.update({
           where: { id: existing.id },
@@ -151,17 +157,14 @@ export class ClubScanOrderingService {
             expiresAt,
           },
         })
-      : await this.prisma.scanOrderingSession.create({
-          data: {
-            storeId: scanContext.storeId,
-            tableId: table.id,
-            clubUserId: user.id,
-            session: randomBytes(24).toString('base64url'),
-            guestCount: dto.guestCount ?? 1,
-            expiresAt,
-            lastActiveAt: now,
-          },
-        });
+      : await this.upsertSession(
+          scanContext.storeId,
+          table.id,
+          user.id,
+          dto.guestCount,
+          expiresAt,
+          now,
+        );
     return this.toSessionResponse(session, table);
   }
 
@@ -272,28 +275,26 @@ export class ClubScanOrderingService {
     if (!session)
       throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
     if (!session.tableId) throw new ConflictException('点餐会话未绑定桌台');
-    const key = `club:scan-ordering:service-call:${session.id}:${dto.type}`;
-    if (await this.redisService.exists(key))
-      throw new ConflictException('已通知服务员，请稍候');
-    const result = await this.prisma.scanOrderServiceCall.create({
-      data: {
-        storeId: session.storeId,
-        tableId: session.tableId,
-        sessionId: session.id,
-        clubUserId: user.id,
-        callType: dto.type,
-        remark: dto.remark,
+    const table = await this.prisma.scanOrderingTable.findUnique({
+      where: { id: session.tableId },
+      select: {
+        name: true,
+        area: { select: { name: true } },
       },
     });
-    await this.redisService.set(key, '1', SERVICE_CALL_TTL_SECONDS);
-    this.realtimeService.publishServiceCallCreated({
-      storeId: result.storeId,
-      sessionId: result.sessionId,
-      serviceCallId: result.id,
-      type: result.callType,
-      remark: result.remark,
+    const locationLabel = [table?.area?.name, table?.name]
+      .filter((value): value is string => Boolean(value?.trim()))
+      .join(' · ');
+    const result = await this.serviceCallService.createFromScanOrdering({
+      clubUserId: user.id,
+      storeId: session.storeId,
+      tableId: session.tableId,
+      sessionId: session.id,
+      type: dto.type as ServiceCallType,
+      remark: dto.remark,
+      locationLabel,
     });
-    return result;
+    return result.serviceCall;
   }
 
   private async consumeScanToken(
@@ -306,6 +307,88 @@ export class ClubScanOrderingService {
     await this.redisService.del(key);
     const parsed = JSON.parse(value) as ResolvedScanToken;
     return parsed;
+  }
+
+  /**
+   * 通过 upsert 创建或恢复会话，避免并发场景下的唯一键冲突。
+   */
+  private async upsertSession(
+    storeId: number,
+    tableId: number,
+    clubUserId: number,
+    guestCount: number | undefined,
+    expiresAt: Date,
+    now: Date,
+  ): Promise<{
+    id: number;
+    guestCount: number;
+    status: string;
+    expiresAt: Date;
+  }> {
+    try {
+      return await this.prisma.scanOrderingSession.create({
+        data: {
+          storeId,
+          tableId,
+          clubUserId,
+          session: randomBytes(24).toString('base64url'),
+          guestCount: guestCount ?? 1,
+          expiresAt,
+          lastActiveAt: now,
+        },
+      });
+    } catch (error) {
+      // 如果是因为唯一键冲突，说明有竞态条件，先清理可能存在的冲突记录
+      if (
+        error instanceof Error &&
+        (error.message.includes('Unique constraint') ||
+          error.message.includes('unique violation'))
+      ) {
+        this.logger.warn(
+          '检测到会话创建的竞态条件，尝试清理后重新创建，user_id=%d, table_id=%d',
+          clubUserId,
+          tableId,
+        );
+
+        // 查找并标记可能冲突的会话为 left 状态
+        await this.prisma.scanOrderingSession.updateMany({
+          where: {
+            clubUserId,
+            tableId,
+            status: 'active',
+            deletedAt: null,
+          },
+          data: {
+            status: 'left',
+            deletedAt: now,
+          },
+        });
+
+        // 重试创建新会话
+        return await this.prisma.scanOrderingSession.create({
+          data: {
+            storeId,
+            tableId,
+            clubUserId,
+            session: randomBytes(24).toString('base64url'),
+            guestCount: guestCount ?? 1,
+            expiresAt,
+            lastActiveAt: now,
+          },
+        });
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 合并上一次的访客数量和当前数量，取较大值。
+   */
+  private mergeGuestCounts(
+    previousGuestCount: number | undefined,
+    currentGuestCount: number,
+  ): number {
+    return Math.max(previousGuestCount ?? 1, currentGuestCount);
   }
 
   private hash(value: string): string {

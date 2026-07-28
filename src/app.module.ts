@@ -32,6 +32,7 @@ import { ProfitDetailModule } from './purely-profit/dashboard/profit-detail/prof
 import { SalesRecordModule } from './purely-profit/operations/sales-record/sales-record.module';
 import { SpacesModule } from './purely-profit/operations/spaces/spaces.module';
 import { ScanOrderingModule } from './purely-profit/operations/scan-ordering/scan-ordering.module';
+import { ServiceCallManagementModule } from './purely-profit/operations/service-call/service-call-management.module';
 import { DashboardHomeModule } from './purely-profit/dashboard/dashboard-home/dashboard-home.module';
 import { HandoverModule } from './purely-profit/operations/handover/handover.module';
 import { NotificationsModule } from './purely-profit/notifications/notifications.module';
@@ -55,6 +56,7 @@ import { ClubRecordsModule } from './purely-club/records/club-records.module';
 import { ClubPointsModule } from './purely-club/points/club-points.module';
 import { ClubStoresModule } from './purely-club/stores/club-stores.module';
 import { ClubScanOrderingModule } from './purely-club/scan-ordering/club-scan-ordering.module';
+import { ClubServiceCallModule } from './purely-club/service-call/club-service-call.module';
 import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.module';
 import { QueueModule } from './queue/queue.module';
 import { CacheControlInterceptor } from './shared/cache-control.interceptor';
@@ -119,6 +121,7 @@ import { UploadModule } from './shared/upload.module';
     SalesRecordModule,
     SpacesModule,
     ScanOrderingModule,
+    ServiceCallManagementModule,
     DashboardHomeModule,
     HandoverModule,
     NotificationsModule,
@@ -142,6 +145,7 @@ import { UploadModule } from './shared/upload.module';
     ClubPointsModule,
     ClubStoresModule,
     ClubScanOrderingModule,
+    ClubServiceCallModule,
     PulseDevModeModule,
   ],
   controllers: [AppController],

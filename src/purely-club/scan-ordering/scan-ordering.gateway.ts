@@ -10,7 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import {
   Logger,
   OnApplicationBootstrap,
-  OnModuleDestroy,
+  OnApplicationShutdown,
   UnauthorizedException,
 } from '@nestjs/common';
 import { createAdapter } from '@socket.io/redis-adapter';
@@ -59,7 +59,7 @@ interface JoinStorePayload {
   cors: { origin: true, credentials: true },
 })
 export class ScanOrderingGateway
-  implements OnGatewayConnection, OnApplicationBootstrap, OnModuleDestroy
+  implements OnGatewayConnection, OnApplicationBootstrap, OnApplicationShutdown
 {
   @WebSocketServer()
   server: Namespace;
@@ -126,13 +126,34 @@ export class ScanOrderingGateway
     });
   }
 
-  async onModuleDestroy(): Promise<void> {
+  async onApplicationShutdown(_signal?: string): Promise<void> {
+    this.logger.log(
+      `Shutting down Socket.IO Redis adapter for namespace=${SCAN_ORDERING_NAMESPACE}`,
+    );
+
+    // 先断开所有客户端连接，停止接收新消息
+    if (this.server) {
+      this.server.sockets.forEach((socket) => {
+        socket.leave('*'); // 退出所有房间
+      });
+      this.server.timeout(5000).emit('server_shutting_down');
+    }
+
+    // 退出频道订阅
+    await Promise.allSettled([
+      this.redisPublisher?.punsubscribe('*') ?? Promise.resolve('OK'),
+      this.redisSubscriber?.punsubscribe('*') ?? Promise.resolve('OK'),
+    ]);
+
+    // 最后才关闭 Redis 连接
     await Promise.allSettled([
       this.redisPublisher?.quit() ?? Promise.resolve('OK'),
       this.redisSubscriber?.quit() ?? Promise.resolve('OK'),
     ]);
+
     this.redisPublisher = null;
     this.redisSubscriber = null;
+    this.logger.log(`Socket.IO Redis adapter shutdown complete`);
   }
 
   async handleConnection(client: Socket): Promise<void> {
@@ -229,18 +250,26 @@ export class ScanOrderingGateway
     this.logger.log(
       `subscribe.store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
     );
-    await this.commerceAccessService.ensureCanAccessStoreWithAnyPermission(
-      this.toAuthenticatedUser(identity),
-      payload.storeId,
-      ['scan-ordering:view', 'scan-ordering:order-process'],
-      '无权订阅该门店',
-    );
-    const room = this.realtimeService.storeRoom(payload.storeId);
-    await client.join(room);
-    this.logger.log(
-      `subscribe.store joined: socketId=${client.id}, room=${room}`,
-    );
-    return { room, storeId: payload.storeId };
+    try {
+      await this.commerceAccessService.ensureCanAccessStoreWithAnyPermission(
+        this.toAuthenticatedUser(identity),
+        payload.storeId,
+        ['scan-ordering:view', 'scan-ordering:order-process'],
+        '无权订阅该门店',
+      );
+      const room = this.realtimeService.storeRoom(payload.storeId);
+      await client.join(room);
+      this.logger.log(
+        `subscribe.store joined: socketId=${client.id}, room=${room}`,
+      );
+      return { room, storeId: payload.storeId };
+    } catch (error) {
+      this.logger.error(
+        `subscribe.store failed: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}, membership=${JSON.stringify(identity.currentMembership)}, error=${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
   }
 
   private async authenticate(client: Socket): Promise<SocketIdentity> {

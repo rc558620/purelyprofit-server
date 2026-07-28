@@ -178,24 +178,56 @@ export class ScanOrderingQrService {
   ): Promise<ScanOrderingQrCodeResponse> {
     const token = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(token).digest('hex');
-    const qrCode = await this.prisma.$transaction(async (tx) => {
-      const latestQrCode = await tx.scanOrderingTableQrCode.findFirst({
-        where: { tableId },
-        orderBy: { version: 'desc' },
-        select: { version: true },
+
+    let qrCode;
+    try {
+      qrCode = await this.prisma.$transaction(async (tx) => {
+        const latestQrCode = await tx.scanOrderingTableQrCode.findFirst({
+          where: { tableId },
+          orderBy: { version: 'desc' },
+          select: { version: true },
+        });
+        if (revokeCurrentCode) {
+          await tx.scanOrderingTableQrCode.updateMany({
+            where: { tableId, status: 'active' },
+            data: { status: 'revoked', revokedAt: new Date() },
+          });
+        }
+        const version = (latestQrCode?.version ?? 0) + 1;
+        return tx.scanOrderingTableQrCode.create({
+          data: { storeId, tableId, tokenHash, version },
+          select: { id: true, version: true },
+        });
       });
-      if (revokeCurrentCode) {
-        await tx.scanOrderingTableQrCode.updateMany({
+    } catch (error) {
+      // 检查是否为唯一约束冲突（如 table_id 冲突）
+      if (
+        error.message?.includes('Unique constraint') ||
+        error.code === 'P2002'
+      ) {
+        // 先手动 revoking 所有该桌台的 active 二维码
+        await this.prisma.scanOrderingTableQrCode.updateMany({
           where: { tableId, status: 'active' },
           data: { status: 'revoked', revokedAt: new Date() },
         });
+
+        // 重试创建
+        qrCode = await this.prisma.$transaction(async (tx) => {
+          const latestQrCode = await tx.scanOrderingTableQrCode.findFirst({
+            where: { tableId },
+            orderBy: { version: 'desc' },
+            select: { version: true },
+          });
+          const version = (latestQrCode?.version ?? 0) + 1;
+          return tx.scanOrderingTableQrCode.create({
+            data: { storeId, tableId, tokenHash, version },
+            select: { id: true, version: true },
+          });
+        });
+      } else {
+        throw error;
       }
-      const version = (latestQrCode?.version ?? 0) + 1;
-      return tx.scanOrderingTableQrCode.create({
-        data: { storeId, tableId, tokenHash, version },
-        select: { id: true, version: true },
-      });
-    });
+    }
 
     await this.invalidateQrCodeCache(storeId, tableId);
 

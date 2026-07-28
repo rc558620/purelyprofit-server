@@ -2,7 +2,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
-import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
+import { ClubServiceCallService } from '../service-call/club-service-call.service';
 import { ClubScanOrderingService } from './club-scan-ordering.service';
 
 /**
@@ -37,8 +37,8 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
     exists: jest.fn(),
   };
 
-  const realtimeService = {
-    publishServiceCallCreated: jest.fn(),
+  const serviceCallService = {
+    createFromScanOrdering: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -49,15 +49,17 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
         {
-          provide: ScanOrderingRealtimeService,
-          useValue: realtimeService,
+          provide: ClubServiceCallService,
+          useValue: serviceCallService,
         },
       ],
     }).compile();
     service = module.get<ClubScanOrderingService>(ClubScanOrderingService);
   });
 
-  const buildQrCodeResult = (overrides: any = {}) => ({
+  const buildQrCodeResult = (
+    overrides: Record<string, unknown> = {},
+  ) => ({
     storeId: 100,
     tableId: 1,
     table: {

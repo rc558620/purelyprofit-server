@@ -83,7 +83,14 @@ export class ScanOrderingAreaService {
     user: AuthenticatedUser,
     areaId: number,
     dto: UpdateScanOrderingAreaDto,
-  ): Promise<void> {
+  ): Promise<{
+    id: number;
+    name: string;
+    sortOrder: number;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  }> {
     const storeId = await this.resolveStoreId(user);
     try {
       const result = await this.prisma.scanOrderingArea.updateMany({
@@ -97,11 +104,30 @@ export class ScanOrderingAreaService {
           select: { id: true },
         });
         if (!exists) {
-          throw new NotFoundException(`扫码点餐区域不存在（ID: ${areaId})`);
+          throw new NotFoundException(`扫码点餐区域不存在 (ID: ${areaId})`);
         } else {
           throw new ForbiddenException('无权操作该区域');
         }
       }
+
+      // 返回更新后的完整记录
+      const updatedArea = await this.prisma.scanOrderingArea.findFirst({
+        where: { id: areaId, storeId },
+        select: {
+          id: true,
+          name: true,
+          sortOrder: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!updatedArea) {
+        throw new InternalServerErrorException('更新成功后无法读取区域数据');
+      }
+
+      return updatedArea;
     } catch (error) {
       // Prisma 查询错误（如连接失败）
       if (

@@ -3,9 +3,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ScanOrderServiceCallStatus } from '@prisma/client';
+import { ServiceCallStatus } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
+import { ServiceCallRealtimeService } from '../../../purely-club/service-call/service-call-realtime.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type {
@@ -18,15 +18,18 @@ export class ScanOrderingServiceCallService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
-    private readonly realtimeService: ScanOrderingRealtimeService,
+    private readonly realtimeService: ServiceCallRealtimeService,
   ) {}
 
   async list(user: AuthenticatedUser, dto: ListScanOrderingServiceCallsDto) {
-    const storeId = await this.resolveStoreId(user, 'scan-ordering:view');
-    return this.prisma.scanOrderServiceCall.findMany({
-      where: { storeId, ...(dto.status ? { status: dto.status } : {}) },
+    const storeId = await this.resolveStoreId(user, 'service-call:view');
+    return this.prisma.serviceCall.findMany({
+      where: {
+        storeId,
+        source: 'scan_ordering',
+        ...(dto.status ? { status: dto.status } : {}),
+      },
       orderBy: [{ status: 'asc' }, { requestedAt: 'asc' }],
-      include: { table: { select: { id: true, name: true, tableCode: true } } },
     });
   }
 
@@ -35,55 +38,57 @@ export class ScanOrderingServiceCallService {
     serviceCallId: number,
     dto: ProcessScanOrderingServiceCallDto,
   ): Promise<void> {
-    const storeId = await this.resolveStoreId(
-      user,
-      'scan-ordering:order-process',
-    );
-    const current = await this.prisma.scanOrderServiceCall.findFirst({
-      where: { id: serviceCallId, storeId },
-      select: { id: true, sessionId: true, status: true },
+    const storeId = await this.resolveStoreId(user, 'service-call:process');
+    const current = await this.prisma.serviceCall.findFirst({
+      where: { id: serviceCallId, storeId, source: 'scan_ordering' },
     });
     if (!current) throw new NotFoundException('服务呼叫不存在');
-    if (current.status === ScanOrderServiceCallStatus.resolved) {
+    if (current.status === ServiceCallStatus.completed) {
       throw new ConflictException('服务呼叫已处理完成');
     }
     if (
       dto.status === 'acknowledged' &&
-      current.status !== ScanOrderServiceCallStatus.pending
+      current.status !== ServiceCallStatus.pending
     ) {
       throw new ConflictException('当前服务呼叫不可确认响应');
     }
-    const nextStatus =
+    const status =
       dto.status === 'acknowledged'
-        ? ScanOrderServiceCallStatus.acknowledged
-        : ScanOrderServiceCallStatus.resolved;
-    await this.prisma.scanOrderServiceCall.update({
+        ? ServiceCallStatus.processing
+        : ServiceCallStatus.completed;
+    const updated = await this.prisma.serviceCall.update({
       where: { id: current.id },
       data: {
-        status: nextStatus,
-        ...(nextStatus === ScanOrderServiceCallStatus.acknowledged
-          ? { acknowledgedAt: new Date() }
-          : { resolvedAt: new Date() }),
+        status,
+        ...(status === ServiceCallStatus.processing
+          ? { processingStartedAt: new Date() }
+          : { completedAt: new Date() }),
+        processedByUserId: user.id,
         ...(dto.remark ? { remark: dto.remark } : {}),
       },
     });
-    this.realtimeService.publishServiceCallUpdated({
-      storeId,
-      sessionId: current.sessionId,
-      serviceCallId: current.id,
-      status: nextStatus,
+    this.realtimeService.publishUpdated({
+      id: updated.id,
+      storeId: updated.storeId,
+      source: updated.source,
+      type: updated.type,
+      status: updated.status,
+      locationLabel: updated.locationLabel,
+      remark: updated.remark,
+      relatedOrderId: updated.relatedOrderId,
+      createdAt: updated.createdAt.toISOString(),
     });
   }
 
   private resolveStoreId(
     user: AuthenticatedUser,
-    permission: 'scan-ordering:view' | 'scan-ordering:order-process',
+    permission: 'service-call:view' | 'service-call:process',
   ): Promise<number> {
     return this.commerceAccessService.resolveSingleStoreId(
       user,
       undefined,
       permission,
-      '无权处理扫码点餐服务呼叫',
+      '无权处理服务呼叫',
     );
   }
 }

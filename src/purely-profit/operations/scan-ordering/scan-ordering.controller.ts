@@ -33,16 +33,7 @@ import {
   CreateScanOrderingMenuProductDto,
   UpdateScanOrderingMenuProductAvailabilityDto,
 } from './dto/scan-ordering-menu.dto';
-import {
-  CreateScanOrderingSpecGroupDto,
-  CreateScanOrderingSpecOptionDto,
-} from './dto/scan-ordering-spec.dto';
-import {
-  UpdateScanOrderingMenuProductDto,
-  UpdateScanOrderingSpecGroupDto,
-  UpdateScanOrderingSpecOptionDto,
-} from './dto/scan-ordering-menu-update.dto';
-import { UpdateScanOrderingProductStockDto } from './dto/scan-ordering-product-stock.dto';
+import { UpdateScanOrderingMenuProductDto } from './dto/scan-ordering-menu-update.dto';
 import type { ScanOrderingMenuCategoryResponse } from './scan-ordering-menu-category.service';
 import { ScanOrderingMenuService } from './scan-ordering-menu.service';
 import type {
@@ -51,6 +42,7 @@ import type {
 } from './dto/scan-ordering-table.dto';
 import { ScanOrderingTableService } from './scan-ordering-table.service';
 import type { ScanOrderingTableResponse } from './scan-ordering-table.service';
+import type { ScanOrderingMenuProductResponse } from './scan-ordering-menu-product.service';
 
 @ApiTags('PurelyProfit Scan Ordering - Core')
 @ApiBearerAuth()
@@ -122,7 +114,7 @@ export class ScanOrderingMainController {
   createMenuProduct(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateScanOrderingMenuProductDto,
-  ): Promise<any> {
+  ): Promise<ScanOrderingMenuProductResponse> {
     return this.menuService.createProduct(user, dto);
   }
 
@@ -162,7 +154,15 @@ export class ScanOrderingMainController {
   @Get('tables/qr-codes/export')
   @RequirePermissions('scan-ordering:table-manage')
   @ApiOperation({ summary: '导出桌台二维码元数据' })
-  exportQrCodes(@CurrentUser() user: AuthenticatedUser): Promise<any> {
+  exportQrCodes(@CurrentUser() user: AuthenticatedUser): Promise<
+    Array<{
+      tableId: number;
+      tableCode: string;
+      tableName: string;
+      qrCodeVersion: number;
+      qrCodeStatus: string;
+    }>
+  > {
     return this.qrService.exportQrCodes(user);
   }
 
@@ -178,12 +178,23 @@ export class ScanOrderingMainController {
 
   // Service Call Routes
   @Get('service-calls')
-  @RequirePermissions('scan-ordering:view')
+  @RequirePermissions('service-call:view')
   @ApiOperation({ summary: '获取商家端扫码点餐服务呼叫待办' })
   listServiceCalls(
     @CurrentUser() user: AuthenticatedUser,
     @Query() dto: ListScanOrderingServiceCallsDto,
-  ): Promise<any> {
+  ): Promise<
+    Array<{
+      id: number;
+      type: string;
+      status: string;
+      requestedAt: Date;
+      processingStartedAt: Date | null;
+      completedAt: Date | null;
+      locationLabel: string | null;
+      remark: string | null;
+    }>
+  > {
     return this.serviceCallService.list(user, dto);
   }
 

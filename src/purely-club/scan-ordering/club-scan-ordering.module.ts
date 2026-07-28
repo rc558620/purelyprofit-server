@@ -3,6 +3,7 @@ import { AuthModule } from '../../purely-profit/auth/auth.module';
 import { CommerceModule } from '../../purely-profit/commerce/commerce.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
+import { ClubServiceCallModule } from '../service-call/club-service-call.module';
 import { RedisModule } from '../../redis/redis.module';
 import { ClubScanOrderingController } from './club-scan-ordering.controller';
 import { ClubScanOrderingService } from './club-scan-ordering.service';
@@ -25,6 +26,7 @@ import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-versi
     PrismaModule,
     RedisModule,
     ClubWechatPayModule,
+    ClubServiceCallModule,
   ],
   controllers: [ClubScanOrderingController],
   providers: [

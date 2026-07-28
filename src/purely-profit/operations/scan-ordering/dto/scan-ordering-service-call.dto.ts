@@ -1,12 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
-import { ScanOrderServiceCallStatus } from '@prisma/client';
+import { ServiceCallStatus } from '@prisma/client';
 
 export class ListScanOrderingServiceCallsDto {
-  @ApiPropertyOptional({ enum: ScanOrderServiceCallStatus })
+  @ApiPropertyOptional({ enum: ServiceCallStatus })
   @IsOptional()
-  @IsEnum(ScanOrderServiceCallStatus, { message: 'status 不合法' })
-  status?: ScanOrderServiceCallStatus;
+  @IsEnum(ServiceCallStatus, { message: 'status 不合法' })
+  status?: ServiceCallStatus;
 }
 
 export class ProcessScanOrderingServiceCallDto {

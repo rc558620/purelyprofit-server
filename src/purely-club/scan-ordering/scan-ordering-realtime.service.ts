@@ -152,6 +152,11 @@ export class ScanOrderingRealtimeService
     payload: Record<string, unknown>,
   ): Promise<void> {
     try {
+      if (event === 'order.created') {
+        this.logger.log(
+          `发布 order.created 至 Redis: storeId=${String(payload.storeId)}, orderId=${String(payload.orderId)}, pid=${process.pid}`,
+        );
+      }
       await this.redisService.publish(
         REALTIME_CHANNEL,
         JSON.stringify({ event, payload }),
@@ -188,6 +193,11 @@ export class ScanOrderingRealtimeService
     const orderId = this.numberValue(payload.orderId);
     const sessionId = this.numberValue(payload.sessionId);
 
+    if (event === 'order.created') {
+      this.logger.log(
+        `分发 order.created: storeId=${String(storeId)}, orderId=${String(orderId)}, namespaceReady=${Boolean(this.namespace)}, pid=${process.pid}`,
+      );
+    }
     if (storeId)
       this.namespace?.to(this.storeRoom(storeId)).emit(event, payload);
     if (event === 'order.status_changed' && orderId) {

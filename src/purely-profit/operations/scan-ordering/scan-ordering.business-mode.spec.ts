@@ -1,12 +1,13 @@
 import { ForbiddenException } from '@nestjs/common';
+import type { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { BusinessModeGuard } from '../../stores/business-mode.guard';
 import { BUSINESS_MODE_KEY } from '../../stores/business-mode.decorator';
-import { StoreBusinessCapabilityService } from '../../stores/store-business-capability.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { ScanOrderingMainController } from './scan-ordering.controller';
 import { ScanOrderingOrderController } from './scan-ordering-orders.controller';
 import { ScanOrderingTableController } from './scan-ordering-table.controller';
+import { StoreBusinessCapabilityService } from '../../stores/store-business-capability.service';
 
 /**
  * 扫码点餐业态接口保护测试。
@@ -20,9 +21,10 @@ import { ScanOrderingTableController } from './scan-ordering-table.controller';
 describe('扫码点餐业态接口保护', () => {
   let reflector: Reflector;
   let guard: BusinessModeGuard;
-  let storeBusinessCapabilityService: {
-    getCapabilities: jest.Mock;
-  };
+
+  const buildMockStoreBusinessCapabilityService = () => ({
+    getCapabilities: jest.fn(),
+  });
 
   const buildUser = (
     overrides: Partial<AuthenticatedUser> = {},
@@ -41,6 +43,13 @@ describe('扫码点餐业态接口保护', () => {
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
     ...overrides,
   });
@@ -52,16 +61,15 @@ describe('扫码点餐业态接口保护', () => {
       switchToHttp: () => ({
         getRequest: () => ({ user }),
       }),
-    }) as any;
+    }) as unknown as ExecutionContext;
 
   beforeEach(() => {
-    storeBusinessCapabilityService = {
-      getCapabilities: jest.fn(),
-    };
+    const mockStoreBusinessCapabilityService =
+      buildMockStoreBusinessCapabilityService();
     reflector = new Reflector();
     guard = new BusinessModeGuard(
       reflector,
-      storeBusinessCapabilityService as any,
+      mockStoreBusinessCapabilityService as unknown as StoreBusinessCapabilityService,
     );
   });
 
@@ -76,7 +84,8 @@ describe('扫码点餐业态接口保护', () => {
 
   it('非餐饮门店访问扫码点餐接口返回 403', async () => {
     mockCateringRequirement();
-    storeBusinessCapabilityService.getCapabilities.mockResolvedValue({
+    const mockSvc = buildMockStoreBusinessCapabilityService();
+    (mockSvc.getCapabilities as jest.Mock).mockResolvedValue({
       businessMode: 'general',
       isCateringStore: false,
       isGeneralStore: true,
@@ -90,7 +99,8 @@ describe('扫码点餐业态接口保护', () => {
 
   it('门店未知/数据库失败时返回 403', async () => {
     mockCateringRequirement();
-    storeBusinessCapabilityService.getCapabilities.mockResolvedValue({
+    const mockSvc = buildMockStoreBusinessCapabilityService();
+    (mockSvc.getCapabilities as jest.Mock).mockResolvedValue({
       businessMode: 'general',
       isCateringStore: false,
       isGeneralStore: false,
@@ -104,7 +114,8 @@ describe('扫码点餐业态接口保护', () => {
 
   it('餐饮门店且具备权限时通过', async () => {
     mockCateringRequirement();
-    storeBusinessCapabilityService.getCapabilities.mockResolvedValue({
+    const mockSvc = buildMockStoreBusinessCapabilityService();
+    (mockSvc.getCapabilities as jest.Mock).mockResolvedValue({
       businessMode: 'catering',
       isCateringStore: true,
       isGeneralStore: false,
@@ -131,7 +142,9 @@ describe('扫码点餐业态接口保护', () => {
         subAccountAssigned: true,
         canAccessHome: true,
         canUseHandover: true,
-      } as any,
+        linkedEmployeeId: null,
+        subAccountId: null,
+      },
     });
 
     expect(user.currentMembership!.permissions).not.toContain(

@@ -2,6 +2,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
@@ -24,6 +25,8 @@ const IDEMPOTENCY_SCOPE = 'club:scan-order:create';
 
 @Injectable()
 export class ClubScanOrderingOrderService {
+  private readonly logger = new Logger(ClubScanOrderingOrderService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly unpaidOrderClosureService: ScanOrderingUnpaidOrderClosureService,
@@ -216,6 +219,9 @@ export class ClubScanOrderingOrderService {
         });
         return response;
       });
+      this.logger.log(
+        `订单已落库，准备发布 order.created: orderId=${result.id}, storeId=${session.storeId}, sessionId=${session.id}, pid=${process.pid}`,
+      );
       this.realtimeService.publishOrderCreated({
         storeId: session.storeId,
         orderId: result.id,

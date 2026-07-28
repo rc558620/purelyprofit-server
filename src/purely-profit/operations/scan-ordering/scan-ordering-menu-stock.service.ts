@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import type { PermissionCode } from '../../access-control/access-control.constants';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { UpdateScanOrderingProductStockDto } from './dto/scan-ordering-product-stock.dto';
 
@@ -48,12 +49,12 @@ export class ScanOrderingMenuStockService {
 
   private async resolveStoreId(
     user: AuthenticatedUser,
-    permission: string,
+    permission: PermissionCode,
   ): Promise<number> {
     return this.commerceAccessService.resolveSingleStoreId(
       user,
       undefined,
-      permission as any,
+      permission,
       '无权操作扫码点餐菜单',
     );
   }

@@ -381,6 +381,38 @@ model ScanOrderCouponUsage {
   @@map("scan_order_coupon_usages")
 }
 
+model ServiceCall {
+  id                  Int               @id @default(autoincrement()) @map("id")
+  storeId             Int               @map("store_id")
+  clubUserId          Int               @map("club_user_id")
+  source              ServiceCallSource @map("source")
+  type                ServiceCallType   @map("type")
+  status              ServiceCallStatus @default(pending) @map("status")
+  locationLabel       String?           @map("location_label") @db.VarChar(200)
+  remark              String?           @map("remark") @db.VarChar(200)
+  relatedOrderId      Int?              @map("related_order_id")
+  scanSessionId       Int?              @map("scan_session_id")
+  tableId             Int?              @map("table_id")
+  requestedAt         DateTime          @default(now()) @map("requested_at")
+  lastRequestedAt     DateTime          @default(now()) @map("last_requested_at")
+  reminderCount       Int               @default(1) @map("reminder_count")
+  processingStartedAt DateTime?         @map("processing_started_at")
+  completedAt         DateTime?         @map("completed_at")
+  cancelledAt         DateTime?         @map("cancelled_at")
+  expiresAt           DateTime          @map("expires_at")
+  expiredAt           DateTime?         @map("expired_at")
+  processedByUserId   Int?              @map("processed_by_user_id")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  @@index([storeId, status, requestedAt])
+  @@index([clubUserId, storeId, type, requestedAt(sort: Desc)])
+  @@index([status, expiresAt])
+  @@index([storeId, status, requestedAt], map: "idx_service_calls_store_open", where: raw("(status = ANY (ARRAY['pending'::\"ServiceCallStatus\", 'processing'::\"ServiceCallStatus\"]))"))
+  @@unique([clubUserId, storeId, type], map: "uq_service_calls_club_user_store_type_open", where: raw("(status = ANY (ARRAY['pending'::\"ServiceCallStatus\", 'processing'::\"ServiceCallStatus\"]))"))
+  @@map("service_calls")
+}
+
 model ScanOrderServiceCall {
   id             Int                        @id @default(autoincrement()) @map("id")
   storeId        Int                        @map("store_id")
@@ -525,6 +557,27 @@ enum ScanOrderCouponUsageStatus {
   consumed
   released
   refunded
+}
+
+enum ServiceCallSource {
+  scan_ordering
+  club_home
+}
+
+enum ServiceCallType {
+  waiter
+  water
+  checkout
+  other
+  assistance
+}
+
+enum ServiceCallStatus {
+  pending
+  processing
+  completed
+  cancelled
+  expired
 }
 
 enum ScanOrderServiceCallStatus {

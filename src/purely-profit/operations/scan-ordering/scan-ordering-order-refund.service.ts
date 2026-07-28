@@ -41,7 +41,7 @@ export class ScanOrderingOrderRefundHandlingService {
       '无权操作扫码点餐订单',
     );
 
-    const order = (await this.prisma.scanOrders.findFirst({
+    const order = await this.prisma.scanOrders.findFirst({
       where: { id: orderId, storeId },
       select: {
         id: true,
@@ -55,11 +55,11 @@ export class ScanOrderingOrderRefundHandlingService {
           select: {
             id: true,
             merchantPaymentNo: true,
-            providerTransactionId: true as any,
+            providerTransactionId: true,
           },
         },
       },
-    })) as any;
+    });
 
     if (!order) throw new NotFoundException('扫码点餐订单不存在');
 

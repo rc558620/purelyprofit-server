@@ -5,7 +5,6 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { RedisService } from '../../../redis/redis.service';
 import type { ScanOrderingMenuCategoryResponse } from './scan-ordering-menu-category.service';
-import type { ScanOrderingMenuProductResponse } from './scan-ordering-menu-product.service';
 
 /**
  * 商家扫码点餐菜单查询服务（含缓存）。
@@ -55,6 +54,7 @@ export class ScanOrderingMenuQueryService {
         id: product.id,
         name: product.name,
         basePrice: Money.fromDbCents(product.basePrice).toOutputYuan(),
+        imageUrl: product.imageUrl || null,
         isActive: product.isActive,
         stockMode: product.stockMode,
         stockQuantity: product.stockQuantity,
