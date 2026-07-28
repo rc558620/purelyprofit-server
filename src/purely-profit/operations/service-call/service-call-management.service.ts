@@ -12,8 +12,9 @@ import { ServiceCallRealtimeService } from '../../../purely-club/service-call/se
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 
-const PROCESSING_SERVICE_CALL_TTL_MS = 15 * 60_000;
-const EXPIRY_CHECK_INTERVAL_MS = 60_000;
+// 临时联调：处理中超时设为 60 秒，验证完成后恢复为 15 * 60_000。
+const PROCESSING_SERVICE_CALL_TTL_MS = 60_000;
+const EXPIRY_CHECK_INTERVAL_MS = 1_000;
 
 @Injectable()
 export class ServiceCallManagementService
@@ -42,33 +43,18 @@ export class ServiceCallManagementService
 
   async list(user: AuthenticatedUser, status?: ServiceCallStatus) {
     const storeId = await this.resolveStoreId(user, 'service-call:view');
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    const where = {
+      storeId,
+      ...(status ? { status } : {}),
+    };
     const calls = await this.prisma.serviceCall.findMany({
-      where: {
-        storeId,
-        requestedAt: { gte: todayStart },
-        ...(status ? { status } : {}),
-      },
-      orderBy: [
-        { status: 'asc' },
-        { reminderCount: 'desc' },
-        { lastRequestedAt: 'asc' },
-      ],
+      where,
+      orderBy: [{ lastRequestedAt: 'desc' }, { id: 'desc' }],
     });
-    return calls.map((serviceCall) => ({
-      ...serviceCall,
-      requestedAt: serviceCall.requestedAt.toISOString(),
-      lastRequestedAt: serviceCall.lastRequestedAt.toISOString(),
-      processingStartedAt:
-        serviceCall.processingStartedAt?.toISOString() ?? null,
-      completedAt: serviceCall.completedAt?.toISOString() ?? null,
-      cancelledAt: serviceCall.cancelledAt?.toISOString() ?? null,
-      expiresAt: serviceCall.expiresAt.toISOString(),
-      expiredAt: serviceCall.expiredAt?.toISOString() ?? null,
-      createdAt: serviceCall.createdAt.toISOString(),
-      updatedAt: serviceCall.updatedAt.toISOString(),
-    }));
+    this.logger.log(
+      `服务呼叫列表查询: storeId=${storeId}, status=${status ?? 'all'}, count=${calls.length}, ids=${calls.map((call) => `${call.id}:${call.status}`).join(',')}`,
+    );
+    return calls.map((serviceCall) => this.serializeServiceCall(serviceCall));
   }
 
   async process(
@@ -76,7 +62,7 @@ export class ServiceCallManagementService
     serviceCallId: number,
     status: 'processing' | 'completed',
     remark?: string,
-  ): Promise<void> {
+  ) {
     const storeId = await this.resolveStoreId(user, 'service-call:process');
     const current = await this.prisma.serviceCall.findFirst({
       where: { id: serviceCallId, storeId },
@@ -120,6 +106,35 @@ export class ServiceCallManagementService
       createdAt: serviceCall.createdAt.toISOString(),
       clubUserId: serviceCall.clubUserId,
     });
+    return this.serializeServiceCall(serviceCall);
+  }
+
+  private serializeServiceCall(
+    serviceCall: {
+      requestedAt: Date;
+      lastRequestedAt: Date;
+      processingStartedAt: Date | null;
+      completedAt: Date | null;
+      cancelledAt: Date | null;
+      expiresAt: Date;
+      expiredAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+    } & Record<string, unknown>,
+  ) {
+    return {
+      ...serviceCall,
+      requestedAt: serviceCall.requestedAt.toISOString(),
+      lastRequestedAt: serviceCall.lastRequestedAt.toISOString(),
+      processingStartedAt:
+        serviceCall.processingStartedAt?.toISOString() ?? null,
+      completedAt: serviceCall.completedAt?.toISOString() ?? null,
+      cancelledAt: serviceCall.cancelledAt?.toISOString() ?? null,
+      expiresAt: serviceCall.expiresAt.toISOString(),
+      expiredAt: serviceCall.expiredAt?.toISOString() ?? null,
+      createdAt: serviceCall.createdAt.toISOString(),
+      updatedAt: serviceCall.updatedAt.toISOString(),
+    };
   }
 
   private async expireOverdueCalls(): Promise<void> {

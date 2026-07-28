@@ -37,7 +37,7 @@ export class ServiceCallManagementController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('serviceCallId', ParseIntPipe) serviceCallId: number,
     @Body() dto: ProcessServiceCallDto,
-  ): Promise<void> {
+  ) {
     return this.service.process(user, serviceCallId, dto.status, dto.remark);
   }
 }

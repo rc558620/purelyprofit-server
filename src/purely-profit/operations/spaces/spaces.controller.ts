@@ -11,6 +11,7 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Res,
   Patch,
   Post,
   Query,
@@ -39,6 +40,10 @@ import {
 } from './dto/space.dto';
 import { SpaceDashboardService } from './space-dashboard.service';
 import { SpacesService } from './spaces.service';
+import {
+  SpaceQrCodeService,
+  type SpaceQrCodePreview,
+} from './space-qr-code.service';
 
 @ApiTags('Spaces')
 @ApiBearerAuth()
@@ -49,6 +54,7 @@ export class SpacesController {
   constructor(
     private readonly spacesService: SpacesService,
     private readonly spaceDashboardService: SpaceDashboardService,
+    private readonly spaceQrCodeService: SpaceQrCodeService,
   ) {}
 
   @Get('dashboard')
@@ -86,6 +92,41 @@ export class SpacesController {
     @Body() dto: CreateSpaceDto,
   ): Promise<SpaceResponseDto> {
     return this.spacesService.createSpace(ctx.user, dto);
+  }
+
+  @Get(':id/qr-code')
+  @RequirePermissions('space:view')
+  @ApiOperation({ summary: '获取空间二维码预览' })
+  @ApiOkResponse()
+  getQrCode(
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
+    @Param('id', ParseIntPipe) spaceId: number,
+  ): Promise<SpaceQrCodePreview> {
+    return this.spaceQrCodeService.getPreview(ctx.user, spaceId);
+  }
+
+  @Get(':id/qr-code/download')
+  @RequirePermissions('space:view')
+  @ApiOperation({ summary: '下载空间二维码 PNG' })
+  async downloadQrCode(
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
+    @Param('id', ParseIntPipe) spaceId: number,
+    @Res()
+    response: {
+      header(name: string, value: string): unknown;
+      send(payload: Buffer): void;
+    },
+  ): Promise<void> {
+    const { filename, png } = await this.spaceQrCodeService.download(
+      ctx.user,
+      spaceId,
+    );
+    response.header('Content-Type', 'image/png');
+    response.header(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    response.send(png);
   }
 
   @Patch(':id')

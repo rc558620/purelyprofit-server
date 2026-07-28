@@ -28,10 +28,15 @@ const resolveWebSocket = (connection: unknown): WebSocket => {
 
 import { PrismaService } from '../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from '../purely-club/scan-ordering/scan-ordering-realtime.service';
+import { ServiceCallRealtimeService } from '../purely-club/service-call/service-call-realtime.service';
 import type { JwtPayload } from '../purely-profit/auth/strategies/jwt.strategy';
 
 interface ClientMessage {
-  type: 'subscribe.order' | 'unsubscribe.order' | 'ping';
+  type:
+    | 'subscribe.order'
+    | 'unsubscribe.order'
+    | 'subscribe.service-call'
+    | 'ping';
   orderId?: number;
 }
 
@@ -80,6 +85,7 @@ export async function registerScanOrderingNativeWebsocket(
   const jwtService = app.get(JwtService);
   const prisma = app.get(PrismaService);
   const realtime = app.get(ScanOrderingRealtimeService);
+  const serviceCallRealtime = app.get(ServiceCallRealtimeService);
 
   // purelyClub 只能走原生 WebSocket，不能改成 Socket.IO 协议；
   // Cluster 下本地订阅由 Redis Pub/Sub 将状态事件送到持有该连接的 Worker。
@@ -109,6 +115,7 @@ export async function registerScanOrderingNativeWebsocket(
       }
 
       const unsubscribers = new Map<number, () => void>();
+      let unsubscribeServiceCall: (() => void) | null = null;
       const subscribeOrder = async (orderId: number): Promise<void> => {
         const order = await prisma.scanOrders.findFirst({
           where: { id: orderId, clubUserId: userId, deletedAt: null },
@@ -142,6 +149,22 @@ export async function registerScanOrderingNativeWebsocket(
         logger.log(`扫码点餐原生 WebSocket 已订阅订单: orderId=${orderId}`);
         send(socket, { type: 'subscribed', orderId });
       };
+      const subscribeServiceCall = (): void => {
+        if (unsubscribeServiceCall) return;
+        unsubscribeServiceCall = serviceCallRealtime.subscribeClubUser(
+          userId,
+          (payload) => {
+            logger.log(
+              `向 Club 原生 WebSocket 发送 service_call.updated: serviceCallId=${payload.id}, status=${payload.status}, clubUserId=${userId}`,
+            );
+            send(socket, { type: 'service_call.updated', payload });
+          },
+        );
+        logger.log(
+          `扫码点餐原生 WebSocket 已订阅服务呼叫: clubUserId=${userId}`,
+        );
+        send(socket, { type: 'subscribed.service-call' });
+      };
       send(socket, { type: 'authenticated' });
       const initialOrderId = Number(orderIdQuery);
       if (Number.isInteger(initialOrderId) && initialOrderId > 0) {
@@ -160,6 +183,10 @@ export async function registerScanOrderingNativeWebsocket(
             message: '消息格式错误',
           });
         if (message.type === 'ping') return send(socket, { type: 'pong' });
+        if (message.type === 'subscribe.service-call') {
+          subscribeServiceCall();
+          return;
+        }
         if (!Number.isInteger(message.orderId) || (message.orderId ?? 0) <= 0) {
           return send(socket, {
             type: 'error',
@@ -175,12 +202,14 @@ export async function registerScanOrderingNativeWebsocket(
         }
         await subscribeOrder(orderId);
       };
-      socket.on('close', () =>
-        unsubscribers.forEach((unsubscribe) => unsubscribe()),
-      );
-      socket.on('error', () =>
-        unsubscribers.forEach((unsubscribe) => unsubscribe()),
-      );
+      const cleanup = (): void => {
+        unsubscribers.forEach((unsubscribe) => unsubscribe());
+        unsubscribers.clear();
+        unsubscribeServiceCall?.();
+        unsubscribeServiceCall = null;
+      };
+      socket.on('close', cleanup);
+      socket.on('error', cleanup);
     },
   );
 }

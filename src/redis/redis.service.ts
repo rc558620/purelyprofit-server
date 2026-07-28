@@ -63,6 +63,14 @@ export class RedisService
     await this.client.quit();
   }
 
+  isReady(): boolean {
+    return this.client.status === 'ready';
+  }
+
+  isConnectionClosedError(error: unknown): boolean {
+    return error instanceof Error && error.message === 'Connection is closed.';
+  }
+
   async get(key: string): Promise<string | null> {
     return this.observeRedisCommand(
       'GET',

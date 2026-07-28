@@ -49,6 +49,10 @@ export class CachePrewarmCycleService {
   ) {}
 
   async runCycle(input: CachePrewarmCycleRunInput): Promise<void> {
+    if (!this.redisService.isReady()) {
+      return;
+    }
+
     const startedAt = Date.now();
 
     try {
@@ -70,6 +74,10 @@ export class CachePrewarmCycleService {
       recordCachePrewarmCycle(metrics);
       this.logCycleSummary(input, metrics);
     } catch (error: unknown) {
+      if (this.redisService.isConnectionClosedError(error)) {
+        return;
+      }
+
       const durationMs = Date.now() - startedAt;
       recordCachePrewarmCycle(buildFailedCachePrewarmCycleMetrics(durationMs));
       this.logger.error('[cache-prewarm] cycle failed', error);

@@ -255,6 +255,28 @@ export class ScanOrderingOrderRefundHandlingService {
       operatorId: user.id,
       failureReason: `商家拒单：${reason}`,
     });
+
+    const updatedOrder = await this.prisma.scanOrders.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        storeId: true,
+        sessionId: true,
+        status: true,
+        paymentStatus: true,
+        fulfillmentStatus: true,
+      },
+    });
+    if (!updatedOrder) return;
+
+    this.realtimeService.publishOrderStatusChanged({
+      orderId: updatedOrder.id,
+      storeId: updatedOrder.storeId,
+      sessionId: updatedOrder.sessionId,
+      status: updatedOrder.status,
+      paymentStatus: updatedOrder.paymentStatus,
+      fulfillmentStatus: updatedOrder.fulfillmentStatus,
+    });
   }
 
   private async rejectUnpaidOrder(

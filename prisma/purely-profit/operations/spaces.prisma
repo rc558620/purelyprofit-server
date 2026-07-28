@@ -47,12 +47,28 @@ model Space {
   store           Store              @relation(fields: [storeId], references: [id])
   type            SpaceType          @relation(fields: [typeId], references: [id])
   zone            SpaceZone?         @relation(fields: [zoneId], references: [id])
+  qrCode          SpaceQrCode?
 
   @@index([storeId, name])
   @@index([storeId, sortOrder])
   @@index([storeId, typeId, sortOrder])
   @@index([storeId, zoneId, sortOrder])
   @@map("spaces")
+}
+
+model SpaceQrCode {
+  id        Int      @id @default(autoincrement())
+  spaceId   Int      @unique @map("space_id")
+  storeId   Int      @map("store_id")
+  token     String   @unique @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  revokedAt DateTime? @map("revoked_at")
+  space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  store     Store    @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
+  @@map("space_qr_codes")
 }
 
 model SpaceReservation {

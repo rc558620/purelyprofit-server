@@ -5,6 +5,7 @@ import { PrismaModule } from '../../../prisma/prisma.module';
 import { RedisModule } from '../../../redis/redis.module';
 import { SalesRecordModule } from '../sales-record/sales-record.module';
 import { SpaceAutoCheckoutSchedulerService } from './space-auto-checkout-scheduler.service';
+import { SpaceQrCodeService } from './space-qr-code.service';
 import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
 import { SpaceDashboardService } from './space-dashboard.service';
 import { SpaceReservationsController } from './space-reservations.controller';
@@ -80,6 +81,7 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceSessionsService,
     SpaceDashboardService,
     SpaceAutoCheckoutSchedulerService,
+    SpaceQrCodeService,
   ],
   exports: [SpaceSessionSettlementService, SpaceSessionAutoCheckoutService],
 })

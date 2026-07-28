@@ -24,6 +24,7 @@ import { SpaceReservationsService } from './space-reservations.service';
 import { SpacesRefResolverService } from './spaces-ref-resolver.service';
 import { SpacesStatusService } from './spaces-status.service';
 import { toSpaceResponse } from './spaces.mapper';
+import { randomUUID } from 'node:crypto';
 import {
   closeSortOrderGapAfterRemove,
   ensureSpaceNameUnique,
@@ -95,7 +96,7 @@ export class SpacesWriteService {
 
           await shiftSortOrdersForInsert(transaction, storeId, targetSortOrder);
 
-          return transaction.space.create({
+          const space = await transaction.space.create({
             data: {
               storeId,
               typeId: refs.typeId,
@@ -108,6 +109,12 @@ export class SpacesWriteService {
             },
             include: SPACE_WITH_RELATIONS_INCLUDE,
           });
+
+          await transaction.spaceQrCode.create({
+            data: { spaceId: space.id, storeId, token: randomUUID() },
+          });
+
+          return space;
         },
         { timeout: TX_TIMEOUT_SHORT },
       );
