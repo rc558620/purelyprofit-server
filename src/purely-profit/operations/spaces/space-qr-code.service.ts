@@ -44,6 +44,42 @@ export class SpaceQrCodeService {
     };
   }
 
+  async rotate(
+    user: AuthenticatedUser,
+    spaceId: number,
+  ): Promise<SpaceQrCodePreview> {
+    const space = await this.getAccessibleSpace(user, spaceId);
+    const token = randomUUID();
+    const qrCode = await this.prisma.spaceQrCode.upsert({
+      where: { spaceId: space.id },
+      create: {
+        spaceId: space.id,
+        storeId: space.storeId,
+        token,
+        rotatedAt: new Date(),
+      },
+      update: {
+        token,
+        revokedAt: null,
+        rotatedAt: new Date(),
+      },
+      select: { token: true },
+    });
+    const content = this.buildQrContent(qrCode.token);
+    const imageDataUrl = await QRCode.toDataURL(content, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 512,
+    });
+
+    return {
+      spaceId: space.id,
+      spaceName: space.name,
+      content,
+      imageDataUrl,
+    };
+  }
+
   async download(
     user: AuthenticatedUser,
     spaceId: number,
@@ -69,6 +105,31 @@ export class SpaceQrCodeService {
     token: string;
     space: { id: number; name: string; store: { name: string } };
   }> {
+    const space = await this.getAccessibleSpace(user, spaceId);
+
+    const qrCode = await this.prisma.spaceQrCode.upsert({
+      where: { spaceId: space.id },
+      create: {
+        spaceId: space.id,
+        storeId: space.storeId,
+        token: randomUUID(),
+      },
+      update: {},
+      select: { token: true },
+    });
+
+    return { ...qrCode, space };
+  }
+
+  private async getAccessibleSpace(
+    user: AuthenticatedUser,
+    spaceId: number,
+  ): Promise<{
+    id: number;
+    name: string;
+    storeId: number;
+    store: { name: string };
+  }> {
     const space = await this.prisma.space.findFirst({
       where: { id: spaceId, deletedAt: null },
       select: {
@@ -89,18 +150,7 @@ export class SpaceQrCodeService {
       '无权查看该门店空间二维码',
     );
 
-    const qrCode = await this.prisma.spaceQrCode.upsert({
-      where: { spaceId: space.id },
-      create: {
-        spaceId: space.id,
-        storeId: space.storeId,
-        token: randomUUID(),
-      },
-      update: {},
-      select: { token: true },
-    });
-
-    return { ...qrCode, space };
+    return space;
   }
 
   private buildQrContent(token: string): string {

@@ -166,9 +166,19 @@ export class ScanOrderingMainController {
     return this.qrService.exportQrCodes(user);
   }
 
+  @Get('tables/:tableId/qr-codes/current')
+  @RequirePermissions('scan-ordering:table-manage')
+  @ApiOperation({ summary: '获取当前有效桌码（不轮换、不作废旧码）' })
+  getCurrentQrCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('tableId', ParseIntPipe) tableId: number,
+  ): Promise<ScanOrderingQrCodeResponse> {
+    return this.qrService.getCurrentQrCode(user, tableId);
+  }
+
   @Post('tables/:tableId/qr-codes')
   @RequirePermissions('scan-ordering:table-manage')
-  @ApiOperation({ summary: '轮换桌台二维码（生成新 token）' })
+  @ApiOperation({ summary: '轮换桌台二维码（旧桌码立即失效）' })
   rotateQrCode(
     @CurrentUser() user: AuthenticatedUser,
     @Param('tableId', ParseIntPipe) tableId: number,

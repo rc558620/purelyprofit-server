@@ -207,6 +207,11 @@ export default () => ({
     expiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
   },
 
+  scanOrdering: {
+    qrTokenEncryptionKey:
+      process.env.SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY ?? '',
+  },
+
   auth: {
     passwordResetCodeTtlSeconds: parseInt(
       process.env.AUTH_PASSWORD_RESET_CODE_TTL_SECONDS ?? '600',

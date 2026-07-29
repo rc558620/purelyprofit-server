@@ -105,6 +105,17 @@ export class SpacesController {
     return this.spaceQrCodeService.getPreview(ctx.user, spaceId);
   }
 
+  @Post(':id/qr-code/rotate')
+  @RequirePermissions('space:update')
+  @ApiOperation({ summary: '轮换空间二维码（旧二维码立即失效）' })
+  @ApiOkResponse()
+  rotateQrCode(
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
+    @Param('id', ParseIntPipe) spaceId: number,
+  ): Promise<SpaceQrCodePreview> {
+    return this.spaceQrCodeService.rotate(ctx.user, spaceId);
+  }
+
   @Get(':id/qr-code/download')
   @RequirePermissions('space:view')
   @ApiOperation({ summary: '下载空间二维码 PNG' })

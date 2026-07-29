@@ -64,6 +64,7 @@ model SpaceQrCode {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   revokedAt DateTime? @map("revoked_at")
+  rotatedAt DateTime? @map("rotated_at")
   space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   store     Store    @relation(fields: [storeId], references: [id])
 

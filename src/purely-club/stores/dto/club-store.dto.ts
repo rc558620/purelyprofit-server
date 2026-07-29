@@ -29,6 +29,13 @@ export class ClubStoreSummaryDto {
   @IsString({ message: '门店地址必须是字符串' })
   address: string;
 
+  @ApiProperty({
+    enum: ['catering', 'general'],
+    description: '门店业态：catering=餐饮，general=非餐饮',
+  })
+  @IsString({ message: '门店业态必须是字符串' })
+  businessMode: 'catering' | 'general';
+
   @ApiPropertyOptional({
     example: 'https://cdn.example.com/stores/store-cover.png',
     description: '门店封面图',

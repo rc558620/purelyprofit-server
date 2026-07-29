@@ -47,7 +47,8 @@ export class ClubScanOrderingService {
   ) {}
 
   async resolveQrToken(qrToken: string): Promise<unknown> {
-    const tokenHash = this.hash(qrToken);
+    const normalizedToken = this.extractQrToken(qrToken);
+    const tokenHash = this.hash(normalizedToken);
     const qrCode = await this.prisma.scanOrderingTableQrCode.findFirst({
       where: {
         tokenHash,
@@ -280,9 +281,10 @@ export class ClubScanOrderingService {
       select: {
         name: true,
         area: { select: { name: true } },
+        type: { select: { name: true } },
       },
     });
-    const locationLabel = [table?.area?.name, table?.name]
+    const locationLabel = [table?.area?.name, table?.type?.name, table?.name]
       .filter((value): value is string => Boolean(value?.trim()))
       .join(' · ');
     const result = await this.serviceCallService.createFromScanOrdering({
@@ -389,6 +391,20 @@ export class ClubScanOrderingService {
     currentGuestCount: number,
   ): number {
     return Math.max(previousGuestCount ?? 1, currentGuestCount);
+  }
+
+  private extractQrToken(rawValue: string): string {
+    const value = rawValue.trim();
+    if (!value) {
+      return value;
+    }
+
+    try {
+      const url = new URL(value);
+      return url.searchParams.get('token')?.trim() || value;
+    } catch {
+      return value;
+    }
   }
 
   private hash(value: string): string {

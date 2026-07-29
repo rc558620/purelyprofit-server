@@ -173,8 +173,11 @@ export class PrismaService
   }
 
   async onModuleDestroy() {
+    // Prisma 的 $disconnect() 已关闭适配器持有的连接池。
+    // 不能再调用 pg Pool.end()：在 Nest 正在关闭 BullMQ Worker 的窗口中，
+    // Worker 仍可能完成在途任务，提前结束 Pool 会导致查询抛出
+    // "Cannot use a pool after calling end on the pool"。
     await this.$disconnect();
-    await this.pool.end();
   }
 
   async checkReadiness(): Promise<void> {

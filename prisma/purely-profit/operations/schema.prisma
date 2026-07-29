@@ -322,6 +322,7 @@ model ScanOrderingTableQrCode {
   storeId         Int                      @map("store_id")
   tableId         Int                      @unique(map: "uq_scan_ordering_active_qr_per_table", where: raw("(status = 'active'::\"ScanOrderingQrCodeStatus\")")) @map("table_id")
   tokenHash       String                   @map("token_hash") @db.VarChar(128)
+  tokenCiphertext String?                  @map("token_ciphertext") @db.Text
   tokenPrefix     String?                  @map("token_prefix") @db.VarChar(16)
   version         Int                      @map("version")
   status          ScanOrderingQrCodeStatus @default(active) @map("status")
@@ -388,6 +389,7 @@ model ServiceCall {
   source              ServiceCallSource @map("source")
   type                ServiceCallType   @map("type")
   status              ServiceCallStatus @default(pending) @map("status")
+  spaceId             Int?              @map("space_id")
   locationLabel       String?           @map("location_label") @db.VarChar(200)
   remark              String?           @map("remark") @db.VarChar(200)
   relatedOrderId      Int?              @map("related_order_id")
@@ -406,6 +408,7 @@ model ServiceCall {
   updatedAt           DateTime          @updatedAt @map("updated_at")
 
   @@index([storeId, status, requestedAt])
+  @@index([spaceId])
   @@index([clubUserId, storeId, type, requestedAt(sort: Desc)])
   @@index([status, expiresAt])
   @@index([storeId, status, requestedAt], map: "idx_service_calls_store_open", where: raw("(status = ANY (ARRAY['pending'::\"ServiceCallStatus\", 'processing'::\"ServiceCallStatus\"]))"))

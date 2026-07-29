@@ -1,5 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { createHash, randomBytes } from 'node:crypto';
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+} from 'node:crypto';
 import QRCode from 'qrcode';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
@@ -30,6 +40,7 @@ export class ScanOrderingQrService {
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly configService: ConfigService,
   ) {}
 
   async rotateQrCode(
@@ -51,6 +62,32 @@ export class ScanOrderingQrService {
     }
 
     return this.createQrCode(storeId, tableId, true);
+  }
+
+  async getCurrentQrCode(
+    user: AuthenticatedUser,
+    tableId: number,
+  ): Promise<ScanOrderingQrCodeResponse> {
+    const storeId = await this.requireTableStoreId(user, tableId);
+    const qrCode = await this.prisma.scanOrderingTableQrCode.findFirst({
+      where: { storeId, tableId, status: 'active' },
+      select: {
+        id: true,
+        version: true,
+        tokenCiphertext: true,
+      },
+    });
+    if (!qrCode) {
+      throw new NotFoundException('当前桌台没有有效二维码');
+    }
+    if (!qrCode.tokenCiphertext) {
+      throw new NotFoundException(
+        '当前桌码为历史版本，无法重新下载，请明确轮换后使用新桌码',
+      );
+    }
+
+    const token = this.decryptToken(qrCode.tokenCiphertext);
+    return this.toQrCodeResponse(qrCode.id, tableId, qrCode.version, token);
   }
 
   async listQrCodes(
@@ -195,7 +232,14 @@ export class ScanOrderingQrService {
         }
         const version = (latestQrCode?.version ?? 0) + 1;
         return tx.scanOrderingTableQrCode.create({
-          data: { storeId, tableId, tokenHash, version },
+          data: {
+            storeId,
+            tableId,
+            tokenHash,
+            tokenCiphertext: this.encryptToken(token),
+            tokenPrefix: token.slice(0, 8),
+            version,
+          },
           select: { id: true, version: true },
         });
       });
@@ -220,7 +264,14 @@ export class ScanOrderingQrService {
           });
           const version = (latestQrCode?.version ?? 0) + 1;
           return tx.scanOrderingTableQrCode.create({
-            data: { storeId, tableId, tokenHash, version },
+            data: {
+              storeId,
+              tableId,
+              tokenHash,
+              tokenCiphertext: this.encryptToken(token),
+              tokenPrefix: token.slice(0, 8),
+              version,
+            },
             select: { id: true, version: true },
           });
         });
@@ -230,21 +281,86 @@ export class ScanOrderingQrService {
     }
 
     await this.invalidateQrCodeCache(storeId, tableId);
+    return this.toQrCodeResponse(qrCode.id, tableId, qrCode.version, token);
+  }
 
-    // 本地生成二维码图片 Data URL
+  private async toQrCodeResponse(
+    id: number,
+    tableId: number,
+    version: number,
+    token: string,
+  ): Promise<ScanOrderingQrCodeResponse> {
     const qrCodeImageUrl = await QRCode.toDataURL(token, {
       width: SCAN_ORDERING_QR_CODE_SIZE,
       margin: 0,
       type: 'image/png',
     });
+    return { id, tableId, version, token, qrCodeImageUrl };
+  }
 
-    return {
-      id: qrCode.id,
-      tableId,
-      version: qrCode.version,
-      token,
-      qrCodeImageUrl,
-    };
+  private encryptToken(token: string): string {
+    const key = this.getEncryptionKey();
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const ciphertext = Buffer.concat([
+      cipher.update(token, 'utf8'),
+      cipher.final(),
+    ]);
+    const authTag = cipher.getAuthTag();
+    return [iv, authTag, ciphertext]
+      .map((part) => part.toString('base64url'))
+      .join('.');
+  }
+
+  private decryptToken(ciphertext: string): string {
+    const [encodedIv, encodedAuthTag, encodedToken, ...extraParts] =
+      ciphertext.split('.');
+    if (
+      !encodedIv ||
+      !encodedAuthTag ||
+      !encodedToken ||
+      extraParts.length > 0
+    ) {
+      throw new InternalServerErrorException('桌码加密数据无效');
+    }
+
+    try {
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        this.getEncryptionKey(),
+        Buffer.from(encodedIv, 'base64url'),
+      );
+      decipher.setAuthTag(Buffer.from(encodedAuthTag, 'base64url'));
+      return Buffer.concat([
+        decipher.update(Buffer.from(encodedToken, 'base64url')),
+        decipher.final(),
+      ]).toString('utf8');
+    } catch {
+      throw new InternalServerErrorException('桌码加密数据无法解密');
+    }
+  }
+
+  private getEncryptionKey(): Buffer {
+    const encodedKey = this.configService.get<string>(
+      'scanOrdering.qrTokenEncryptionKey',
+    );
+    if (encodedKey) {
+      const key = Buffer.from(encodedKey, 'base64');
+      if (key.length !== 32) {
+        throw new InternalServerErrorException(
+          '桌码加密密钥必须为 32 字节 Base64 值',
+        );
+      }
+      return key;
+    }
+
+    const jwtSecret = this.configService.get<string>('jwt.secret');
+    if (!jwtSecret) {
+      throw new InternalServerErrorException('未配置桌码加密密钥');
+    }
+    return createHash('sha256')
+      .update(`scan-ordering-qr-token:${jwtSecret}`)
+      .digest();
   }
 
   private buildQrCodeCacheKey(storeId: number, tableId: number): string {
