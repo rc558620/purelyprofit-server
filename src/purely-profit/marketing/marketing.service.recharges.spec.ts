@@ -176,18 +176,16 @@ describe('MarketingService recharges', () => {
       promotionId: null,
       note: '测试储值',
     };
-    context.prismaService.$transaction.mockImplementation(
-      async (fn: Function) => {
-        const txMock = {
-          marketingRecharge: {
-            create: jest.fn().mockResolvedValue(createdRecharge),
-          },
-          marketingCustomer: { update: jest.fn() },
-          marketingPromotion: { updateMany: jest.fn() },
-        };
-        return fn(txMock);
-      },
-    );
+    context.prismaService.$transaction.mockImplementation((fn) => {
+      const txMock = {
+        marketingRecharge: {
+          create: jest.fn().mockResolvedValue(createdRecharge),
+        },
+        marketingCustomer: { update: jest.fn() },
+        marketingPromotion: { updateMany: jest.fn() },
+      };
+      return fn(txMock);
+    });
     // queryRechargeRowById 返回
     context.prismaService.$queryRaw.mockResolvedValueOnce([
       {
@@ -258,25 +256,23 @@ describe('MarketingService recharges', () => {
     };
     const txUpdateMock = jest.fn();
     const txFindUniqueMock = jest.fn().mockResolvedValue({ balance: 50000 });
-    context.prismaService.$transaction.mockImplementation(
-      async (fn: Function) => {
-        const txMock = {
-          marketingRecharge: {
-            create: jest.fn().mockResolvedValue(createdRecharge),
-            aggregate: jest
-              .fn()
-              .mockResolvedValueOnce({ _sum: { amount: 50000 } })
-              .mockResolvedValueOnce({ _sum: { amount: 0 } }),
-          },
-          marketingCustomer: {
-            update: txUpdateMock,
-            findUnique: txFindUniqueMock,
-          },
-          marketingPromotion: { updateMany: jest.fn() },
-        };
-        return fn(txMock);
-      },
-    );
+    context.prismaService.$transaction.mockImplementation((fn) => {
+      const txMock = {
+        marketingRecharge: {
+          create: jest.fn().mockResolvedValue(createdRecharge),
+          aggregate: jest
+            .fn()
+            .mockResolvedValueOnce({ _sum: { amount: 50000 } })
+            .mockResolvedValueOnce({ _sum: { amount: 0 } }),
+        },
+        marketingCustomer: {
+          update: txUpdateMock,
+          findUnique: txFindUniqueMock,
+        },
+        marketingPromotion: { updateMany: jest.fn() },
+      };
+      return fn(txMock);
+    });
     // queryRechargeRowById
     context.prismaService.$queryRaw.mockResolvedValueOnce([
       {
@@ -353,25 +349,23 @@ describe('MarketingService recharges', () => {
     };
     const txUpdateMock = jest.fn();
     const txFindUniqueMock = jest.fn().mockResolvedValue({ balance: 43300 });
-    context.prismaService.$transaction.mockImplementation(
-      async (fn: Function) => {
-        const txMock = {
-          marketingRecharge: {
-            create: jest.fn().mockResolvedValue(createdRecharge),
-            aggregate: jest
-              .fn()
-              .mockResolvedValueOnce({ _sum: { amount: 40000 } })
-              .mockResolvedValueOnce({ _sum: { amount: 0 } }),
-          },
-          marketingCustomer: {
-            update: txUpdateMock,
-            findUnique: txFindUniqueMock,
-          },
-          marketingPromotion: { updateMany: jest.fn() },
-        };
-        return fn(txMock);
-      },
-    );
+    context.prismaService.$transaction.mockImplementation((fn) => {
+      const txMock = {
+        marketingRecharge: {
+          create: jest.fn().mockResolvedValue(createdRecharge),
+          aggregate: jest
+            .fn()
+            .mockResolvedValueOnce({ _sum: { amount: 40000 } })
+            .mockResolvedValueOnce({ _sum: { amount: 0 } }),
+        },
+        marketingCustomer: {
+          update: txUpdateMock,
+          findUnique: txFindUniqueMock,
+        },
+        marketingPromotion: { updateMany: jest.fn() },
+      };
+      return fn(txMock);
+    });
     // queryRechargeRowById
     context.prismaService.$queryRaw.mockResolvedValueOnce([
       {

@@ -1,8 +1,7 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { BusinessModeGuard } from '../stores/business-mode.guard';
 import { BUSINESS_MODE_KEY } from '../stores/business-mode.decorator';
-import { StoreBusinessCapabilityService } from '../stores/store-business-capability.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { MarketingProductsController } from './marketing-products.controller';
 import { MarketingProductCategoriesController } from './marketing-product-categories.controller';
@@ -54,7 +53,7 @@ describe('营销商品上架业态接口保护', () => {
       switchToHttp: () => ({
         getRequest: () => ({ user }),
       }),
-    }) as any;
+    }) as unknown as ExecutionContext;
 
   beforeEach(() => {
     storeBusinessCapabilityService = {
@@ -63,7 +62,7 @@ describe('营销商品上架业态接口保护', () => {
     reflector = new Reflector();
     guard = new BusinessModeGuard(
       reflector,
-      storeBusinessCapabilityService as any,
+      storeBusinessCapabilityService as unknown as StoreBusinessCapabilityService,
     );
   });
 

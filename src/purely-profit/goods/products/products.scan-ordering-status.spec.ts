@@ -334,7 +334,7 @@ describe('ProductsService - 扫码点餐状态', () => {
   });
 
   describe('普通上下架与扫码点餐上架状态独立性', () => {
-    it('商品普通上下架不依赖扫码点餐状态', async () => {
+    it('商品普通上下架不依赖扫码点餐状态', () => {
       const product = buildProduct({
         scanOrderingMenuProducts: [{ id: 1, isActive: true, deletedAt: null }],
       });

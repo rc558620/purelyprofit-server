@@ -53,6 +53,8 @@ export interface ScanOrderingOrderListItem {
   version: number;
   /** 订单商品摘要。 */
   itemSummary: string;
+  /** 顾客下单备注。 */
+  remark: string | null;
   /** 桌台名称。 */
   tableName: string;
   /** 订单状态。 */

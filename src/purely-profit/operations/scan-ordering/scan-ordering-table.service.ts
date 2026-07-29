@@ -35,6 +35,23 @@ export interface ScanOrderingTableResponse {
   activeOrderCount: number;
   /** 当前就餐人数。 */
   guestCount: number;
+  /** 当前活跃会话；空桌时为 null。 */
+  activeSession: {
+    id: number;
+    startedAt: string;
+    guestCount: number;
+    status: 'active' | 'checked_out' | 'expired' | 'left';
+  } | null;
+  /** 当前活跃会话中的进行中订单。 */
+  activeOrders: Array<{
+    id: number;
+    orderNo: string;
+    status: string;
+    paymentStatus: string;
+    fulfillmentStatus: string;
+    totalAmount: number;
+    createdAt: string;
+  }>;
   /** 所属区域 ID。 */
   areaId: number | null;
   /** 所属区域名称。 */
@@ -98,12 +115,13 @@ export class ScanOrderingTableService {
         });
 
         if (disabledTable) {
+          const now = new Date();
           // 激活该旧记录
           table = await this.prisma.$transaction(async (tx) => {
             // 先清理旧二维码，避免下次 createInitialQrCode 冲突
             await tx.scanOrderingTableQrCode.updateMany({
               where: { tableId: disabledTable.id, status: 'active' },
-              data: { status: 'revoked', revokedAt: new Date() },
+              data: { status: 'revoked', revokedAt: now },
             });
 
             // 激活桌台
@@ -139,6 +157,8 @@ export class ScanOrderingTableService {
       status: table.status,
       activeOrderCount: 0,
       guestCount: 0,
+      activeSession: null,
+      activeOrders: [],
       areaId: table.areaId,
       areaName: null,
       typeId: table.typeId,
@@ -183,23 +203,23 @@ export class ScanOrderingTableService {
       'scan-ordering:table-manage',
     );
 
-    // 使用事务确保原子性：同时删除订单、二维码和桌台记录
+    const now = new Date();
     await this.prisma.$transaction(async (tx) => {
-      // 先删除该桌台的所有订单记录
-      await tx.scanOrders.deleteMany({
-        where: { tableId, storeId },
-      });
-
-      // 再删除该桌台的所有二维码记录
-      await tx.scanOrderingTableQrCode.deleteMany({
-        where: { tableId },
-      });
-
-      // 最后物理删除桌台
-      const result = await tx.scanOrderingTable.deleteMany({
+      const result = await tx.scanOrderingTable.updateMany({
         where: { id: tableId, storeId, deletedAt: null },
+        data: {
+          isActive: false,
+          status: 'disabled',
+          deletedAt: now,
+          version: { increment: 1 },
+        },
       });
       if (result.count === 0) throw new NotFoundException('扫码点餐桌台不存在');
+
+      await tx.scanOrderingTableQrCode.updateMany({
+        where: { tableId, status: 'active' },
+        data: { status: 'revoked', revokedAt: new Date() },
+      });
     });
   }
 
@@ -215,22 +235,29 @@ export class ScanOrderingTableService {
     if (!table) {
       throw new NotFoundException('扫码点餐桌台不存在');
     }
-    const activeOrderCount = await this.prisma.scanOrders.count({
+    const blockingOrderCount = await this.prisma.scanOrders.count({
       where: {
+        storeId,
         tableId,
+        session: {
+          status: 'active',
+          expiresAt: { gt: new Date() },
+          deletedAt: null,
+        },
         status: {
           in: [
             'pending_payment',
             'pending_acceptance',
             'preparing',
-            'served',
             'refunding',
           ],
         },
       },
     });
-    if (activeOrderCount > 0) {
-      throw new ConflictException('桌台存在未完成订单，无法清桌');
+    if (blockingOrderCount > 0) {
+      throw new ConflictException(
+        '当前会话仍有待付款、待接单、制作中或退款中的订单，无法清桌',
+      );
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -265,11 +292,12 @@ export class ScanOrderingTableService {
         type: { select: { name: true } },
         sessions: {
           where: { status: 'active', expiresAt: { gt: new Date() } },
-          select: { guestCount: true },
-          take: 1,
-        },
-        _count: {
+          orderBy: [{ lastActiveAt: 'desc' }, { id: 'desc' }],
           select: {
+            id: true,
+            createdAt: true,
+            guestCount: true,
+            status: true,
             orders: {
               where: {
                 status: {
@@ -278,8 +306,19 @@ export class ScanOrderingTableService {
                     'pending_acceptance',
                     'preparing',
                     'served',
+                    'refunding',
                   ],
                 },
+              },
+              orderBy: { createdAt: 'desc' },
+              select: {
+                id: true,
+                orderNo: true,
+                status: true,
+                paymentStatus: true,
+                fulfillmentStatus: true,
+                payableAmount: true,
+                createdAt: true,
               },
             },
           },
@@ -287,18 +326,50 @@ export class ScanOrderingTableService {
       },
     });
 
-    return tables.map((table) => ({
-      id: table.id,
-      tableCode: table.tableCode,
-      name: table.name,
-      status: table.status,
-      activeOrderCount: table._count.orders,
-      guestCount: table.sessions[0]?.guestCount ?? 0,
-      areaId: table.areaId,
-      areaName: table.area?.name ?? null,
-      typeId: table.typeId,
-      typeName: table.type?.name ?? null,
-    }));
+    return tables.map((table) => {
+      const activeSession = table.sessions[0] ?? null;
+      const activeOrders = table.sessions.flatMap((session) => session.orders);
+      const guestCount = table.sessions.reduce(
+        (total, session) => total + session.guestCount,
+        0,
+      );
+      const isOccupied = activeSession !== null;
+
+      return {
+        id: table.id,
+        tableCode: table.tableCode,
+        name: table.name,
+        status:
+          table.status === 'disabled'
+            ? 'disabled'
+            : isOccupied
+              ? 'dining'
+              : 'empty',
+        activeOrderCount: isOccupied ? activeOrders.length : 0,
+        guestCount: isOccupied ? guestCount : 0,
+        activeSession: isOccupied
+          ? {
+              id: activeSession.id,
+              startedAt: activeSession.createdAt.toISOString(),
+              guestCount,
+              status: activeSession.status,
+            }
+          : null,
+        activeOrders: activeOrders.map((order) => ({
+          id: order.id,
+          orderNo: order.orderNo,
+          status: order.status,
+          paymentStatus: order.paymentStatus,
+          fulfillmentStatus: order.fulfillmentStatus,
+          totalAmount: order.payableAmount,
+          createdAt: order.createdAt.toISOString(),
+        })),
+        areaId: table.areaId,
+        areaName: table.area?.name ?? null,
+        typeId: table.typeId,
+        typeName: table.type?.name ?? null,
+      };
+    });
   }
 
   private async resolveEnabledStoreId(

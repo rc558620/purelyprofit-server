@@ -250,6 +250,16 @@ export class ScanOrderingMainController {
     return this.tableService.updateTable(user, tableId, dto);
   }
 
+  @Post('tables/:tableId/clear')
+  @RequirePermissions('scan-ordering:table-manage')
+  @ApiOperation({ summary: '清理已完成结账的桌台' })
+  clearTable(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('tableId', ParseIntPipe) tableId: number,
+  ): Promise<void> {
+    return this.tableService.clearTable(user, tableId);
+  }
+
   @Delete('tables/:tableId')
   @RequirePermissions('scan-ordering:table-manage')
   @ApiOperation({ summary: '删除空的扫码点餐桌台' })

@@ -11,11 +11,9 @@ import { PlatformMembershipAccessService } from '../../member/platform-membershi
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { ProductResponseDto } from './dto/product.dto';
 import {
-  deriveProductProfit,
   ensureProductCategory,
   ensureUniqueProductCode,
   resolveProductCode,
-  validateDerivedProfit,
 } from './products.domain';
 import { buildProductResponse } from './products.mapper';
 import {
@@ -74,11 +72,9 @@ describe('ProductsService', () => {
     ensureProductQuotaAvailable: jest.fn(),
   };
 
-  const mockedDeriveProductProfit = jest.mocked(deriveProductProfit);
   const mockedEnsureProductCategory = jest.mocked(ensureProductCategory);
   const mockedEnsureUniqueProductCode = jest.mocked(ensureUniqueProductCode);
   const mockedResolveProductCode = jest.mocked(resolveProductCode);
-  const mockedValidateDerivedProfit = jest.mocked(validateDerivedProfit);
   const mockedBuildProductResponse = jest.mocked(buildProductResponse);
   const mockedCreateProductRecord = jest.mocked(createProductRecord);
   const mockedDeleteProductRecord = jest.mocked(deleteProductRecord);

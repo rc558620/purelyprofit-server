@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Money } from '../../../shared/money.utils';
 import { SalesRecordPreviewService } from './sales-record-preview.service';
-import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
 import type { CreateSalesRecordDto } from './dto/sales-record.dto';
 
 describe('SalesRecordPreviewService', () => {

@@ -57,9 +57,7 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
     service = module.get<ClubScanOrderingService>(ClubScanOrderingService);
   });
 
-  const buildQrCodeResult = (
-    overrides: Record<string, unknown> = {},
-  ) => ({
+  const buildQrCodeResult = (overrides: Record<string, unknown> = {}) => ({
     storeId: 100,
     tableId: 1,
     table: {

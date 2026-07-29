@@ -1,6 +1,5 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { StoreBusinessCapabilityService } from './store-business-capability.service';
 import { BusinessModeGuard } from './business-mode.guard';
 import { BUSINESS_MODE_KEY } from './business-mode.decorator';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
@@ -40,7 +39,7 @@ describe('BusinessModeGuard', () => {
       switchToHttp: () => ({
         getRequest: () => ({ user }),
       }),
-    }) as any;
+    }) as unknown as ExecutionContext;
 
   beforeEach(() => {
     storeBusinessCapabilityService = {
@@ -49,7 +48,7 @@ describe('BusinessModeGuard', () => {
     reflector = new Reflector();
     guard = new BusinessModeGuard(
       reflector,
-      storeBusinessCapabilityService as any,
+      storeBusinessCapabilityService as unknown as StoreBusinessCapabilityService,
     );
   });
 

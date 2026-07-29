@@ -1,7 +1,6 @@
 import {
   buildEmptyPaginatedPurchasesResponse,
   buildEmptyPurchaseStatsResponse,
-  buildPaginatedPurchasesResponse,
   buildPurchaseStatsResponse,
   mapPreviewPurchaseResponse,
   mapPurchaseResponse,

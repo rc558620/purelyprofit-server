@@ -149,6 +149,13 @@ export class ClubScanOrderingOrderService {
           if (updated.count === 0) throw new ConflictException('商品库存不足');
         }
         await this.cartPricingService.reserveFiniteSpecStock(tx, pricedItems);
+        await tx.scanOrderingSession.update({
+          where: { id: session.id },
+          data: {
+            guestCount: Math.max(session.guestCount, dto.guestCount),
+            lastActiveAt: new Date(),
+          },
+        });
         const order = await tx.scanOrders.create({
           data: {
             storeId: session.storeId,

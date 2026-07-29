@@ -7,7 +7,6 @@ import {
 import { createEmptySalesAggregation } from './profit-detail.domain';
 import type {
   AggregatedRankProduct,
-  ProfitDateRange,
   ProfitMetricsSnapshot,
 } from './profit-detail.types';
 

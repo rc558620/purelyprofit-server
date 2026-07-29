@@ -145,6 +145,7 @@ export class ScanOrderingOrderService {
         createdAt: true,
         version: true,
         clubUserId: true,
+        remark: true,
         table: { select: { name: true } },
         items: {
           select: {
@@ -215,6 +216,7 @@ export class ScanOrderingOrderService {
                 `${item.productNameSnapshot}×${item.quantity}`,
             )
             .join('、'),
+          remark: order.remark,
           tableName: order.table.name,
           status: order.status,
           createdAt: order.createdAt.toISOString(),

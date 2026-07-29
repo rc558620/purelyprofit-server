@@ -1,8 +1,6 @@
 import {
   BadRequestException,
   HttpException,
-  HttpStatus,
-  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { ArgumentsHost } from '@nestjs/common';
