@@ -67,6 +67,8 @@ model ScanOrderingSession {
   status           ScanOrderingSessionStatus @default(active) @map("status")
   expiresAt        DateTime                  @map("expires_at")
   lastActiveAt     DateTime                  @default(now()) @map("last_active_at")
+  endedAt          DateTime?                 @map("ended_at")
+  archiveReason    ScanOrderingArchiveReason? @map("archive_reason")
   deletedAt        DateTime?                 @map("deleted_at")
   createdAt        DateTime                  @default(now()) @map("created_at")
   updatedAt        DateTime                  @updatedAt @map("updated_at")
@@ -131,6 +133,7 @@ model ScanOrders {
   idempotencyKey           String?                    @map("idempotency_key") @db.VarChar(128)
   pricingVersion           String?                    @map("pricing_version") @db.VarChar(128)
   couponId                 Int?                       @map("coupon_id")
+  marketingSnapshot        Json?                      @map("marketing_snapshot")
   currency                 String                     @default("CNY") @map("currency") @db.Char(3)
   itemOriginalAmount       Int                        @default(0) @map("item_original_amount")
   specificationExtraAmount Int                        @default(0) @map("specification_extra_amount")
@@ -159,6 +162,7 @@ model ScanOrders {
   items                    ScanOrderItem[]
   paymentAttempts          ScanOrderPaymentAttempt[]
   refundTasks              ScanOrderRefundTask[]
+  balanceTransactions      ScanOrderBalanceTransaction[]
   histories                ScanOrderStatusHistory[]
   session                  ScanOrderingSession?       @relation(fields: [sessionId], references: [id])
   table                    ScanOrderingTable          @relation(fields: [tableId], references: [id])
@@ -339,6 +343,20 @@ model ScanOrderingTableQrCode {
   @@map("scan_ordering_table_qr_codes")
 }
 
+model ScanOrderBalanceTransaction {
+  id          Int      @id @default(autoincrement()) @map("id")
+  orderId     Int      @map("order_id")
+  customerId  Int      @map("customer_id")
+  amount      Int
+  type        ScanOrderBalanceTransactionType @map("type")
+  createdAt   DateTime @default(now()) @map("created_at")
+  order       ScanOrders @relation(fields: [orderId], references: [id])
+
+  @@unique([orderId, type])
+  @@index([customerId, createdAt(sort: Desc)])
+  @@map("scan_order_balance_transactions")
+}
+
 model ScanOrderPaymentAttempt {
   id                    Int                           @id @default(autoincrement()) @map("id")
   orderId               Int                           @map("order_id")
@@ -499,6 +517,11 @@ enum ScanOrderingSessionStatus {
   left
 }
 
+enum ScanOrderingArchiveReason {
+  cleared
+  auto_timeout
+}
+
 enum CartItemStatus {
   active
   removed
@@ -544,6 +567,11 @@ enum ScanOrderingSpecSelectionType {
 enum ScanOrderingQrCodeStatus {
   active
   revoked
+}
+
+enum ScanOrderBalanceTransactionType {
+  payment
+  refund
 }
 
 enum ScanOrderPaymentAttemptStatus {

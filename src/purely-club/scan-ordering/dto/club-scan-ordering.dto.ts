@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -103,6 +104,11 @@ export class PreviewClubScanOrderDto extends ClubScanSessionQueryDto {
   @Max(99, { message: 'guestCount 最多为 99' })
   guestCount: number;
 
+  @ApiPropertyOptional({ description: '是否使用积分抵扣', default: false })
+  @IsOptional()
+  @IsBoolean({ message: 'usePoints 必须是布尔值' })
+  usePoints?: boolean;
+
   @ApiPropertyOptional({ description: '用户备注', maxLength: 200 })
   @IsOptional()
   @IsString({ message: 'remark 必须是字符串' })
@@ -155,6 +161,14 @@ export class CreateClubScanPaymentDto {
   @IsString({ message: 'openid 必须是字符串' })
   @MaxLength(128, { message: 'openid 不能超过 128 个字符' })
   openid: string;
+}
+
+export class CreateClubScanBalancePaymentDto {
+  @ApiProperty({ description: '订单乐观锁版本' })
+  @Type(() => Number)
+  @IsInt({ message: 'version 必须是整数' })
+  @Min(0, { message: 'version 不能小于 0' })
+  version: number;
 }
 
 export class CancelClubScanOrderDto {

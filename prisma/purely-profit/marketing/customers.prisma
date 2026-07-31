@@ -3,6 +3,8 @@ model MarketingCustomer {
   storeId            Int                     @map("store_id")
   /// 显式外键关联到 Member（可为 null，兼容历史数据）
   memberId           Int?                    @unique @map("member_id")
+  /// Club 用户 ID；仅餐饮扫码点餐客户使用，按门店唯一绑定
+  clubUserId         Int?                    @map("club_user_id")
   /// 昵称
   name               String
   /// 手机号（明文存储，展示层脱敏；仅用于真实手机号）
@@ -37,6 +39,7 @@ model MarketingCustomer {
   recharges          MarketingRecharge[]
   member             Member?                 @relation("MemberCustomer")
 
+  @@unique([storeId, clubUserId], map: "uq_marketing_customers_store_club_user", where: raw("(club_user_id IS NOT NULL)"))
   @@index([storeId, phone])
   @@index([storeId, externalIdentifier])
   @@index([storeId, updatedAt(sort: Desc), id(sort: Desc)])

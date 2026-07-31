@@ -8,6 +8,12 @@ import type {
 
 const logger = new Logger('ClubOrderSettlementPoints');
 
+export interface ClubPointsSettlementContext {
+  storeId: number;
+  description: string;
+  paidAmountFen: number;
+}
+
 // ─── 积分扣减 ─────────────────────────────────────────────────────────────
 
 /**
@@ -21,6 +27,25 @@ export async function deductCustomerPoints(
   customerId: number,
   pointsUsed: number,
 ): Promise<void> {
+  await deductPointsForSettlement(
+    tx,
+    {
+      storeId: draft.storeId,
+      description: draft.metadata.productName,
+      paidAmountFen: draft.amountFen,
+    },
+    customerId,
+    pointsUsed,
+  );
+}
+
+export async function deductPointsForSettlement(
+  tx: Prisma.TransactionClient,
+  context: ClubPointsSettlementContext,
+  customerId: number,
+  pointsUsed: number,
+): Promise<void> {
+  if (pointsUsed <= 0) return;
   const result = await tx.marketingCustomer.updateMany({
     where: {
       id: customerId,
@@ -39,11 +64,11 @@ export async function deductCustomerPoints(
   // 记录积分扣减流水，与 awardConsumptionPoints 中的 earn 流水保持一致
   await tx.marketingPointsRecord.create({
     data: {
-      storeId: draft.storeId,
+      storeId: context.storeId,
       customerId,
       amount: -pointsUsed,
       type: 'spend' as const,
-      description: `消费抵扣积分（${draft.metadata.productName}）`,
+      description: `消费抵扣积分（${context.description}）`,
     },
   });
 }
@@ -65,25 +90,41 @@ export async function awardConsumptionPoints(
   tx: Prisma.TransactionClient,
   draft: ClubOrderDraftPayload<ClubServiceOrderMetadata, 'service'>,
   customerId: number,
-): Promise<void> {
+): Promise<number> {
+  return awardPointsForSettlement(
+    tx,
+    {
+      storeId: draft.storeId,
+      description: draft.metadata.productName,
+      paidAmountFen: draft.amountFen,
+    },
+    customerId,
+  );
+}
+
+export async function awardPointsForSettlement(
+  tx: Prisma.TransactionClient,
+  context: ClubPointsSettlementContext,
+  customerId: number,
+): Promise<number> {
   // 获取积分规则配置
-  const pointsRatioConfig = await fetchPointsEarnConfig(tx, draft.storeId);
+  const pointsRatioConfig = await fetchPointsEarnConfig(tx, context.storeId);
 
   // 若积分规则未启用，不增加积分
   if (!pointsRatioConfig.enabled) {
-    logger.warn(`积分规则未启用，storeId=${draft.storeId}`);
-    return;
+    logger.warn(`积分规则未启用，storeId=${context.storeId}`);
+    return 0;
   }
 
   // 按实际支付金额计算消费积分
   // earnRatioCents 实际存储的是"元"单位（与 earnRatioYuan 相同），需乘 100 转为"分"
   // 积分 = floor(实际支付金额（分）/ (earnRatioCents × 100))
   let earnedPoints = Math.floor(
-    draft.amountFen / (pointsRatioConfig.earnRatioCents * 100),
+    context.paidAmountFen / (pointsRatioConfig.earnRatioCents * 100),
   );
 
   // 查询是否有生效的 points_2x（双倍积分）活动，若有则将积分翻倍
-  const pointsMultiplier = await resolvePointsMultiplier(tx, draft.storeId);
+  const pointsMultiplier = await resolvePointsMultiplier(tx, context.storeId);
   if (pointsMultiplier > 1 && earnedPoints > 0) {
     const bonusPoints = earnedPoints * (pointsMultiplier - 1);
     earnedPoints += bonusPoints;
@@ -93,12 +134,12 @@ export async function awardConsumptionPoints(
   }
 
   logger.log(
-    `计算积分: 实际支付=${draft.amountFen}分, earnRatioCents=${pointsRatioConfig.earnRatioCents}, 获得=${earnedPoints}积分`,
+    `计算积分: 实际支付=${context.paidAmountFen}分, earnRatioCents=${pointsRatioConfig.earnRatioCents}, 获得=${earnedPoints}积分`,
   );
 
   if (earnedPoints <= 0) {
     logger.warn(`计算的积分 <= 0，不增加，customerId=${customerId}`);
-    return;
+    return 0;
   }
 
   // 增加顾客积分
@@ -115,7 +156,7 @@ export async function awardConsumptionPoints(
   // 在同一事务内：若 create 失败则整体回滚，保证积分余额与流水记录一致
   await tx.marketingPointsRecord.create({
     data: {
-      storeId: draft.storeId,
+      storeId: context.storeId,
       customerId,
       amount: earnedPoints,
       type: 'earn' as const,
@@ -125,6 +166,7 @@ export async function awardConsumptionPoints(
           : '消费获得积分',
     },
   });
+  return earnedPoints;
 }
 
 // ─── 积分倍数查询 ──────────────────────────────────────────────────────────

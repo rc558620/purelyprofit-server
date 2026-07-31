@@ -37,7 +37,11 @@ export class ClubScanOrderingCartPricingService {
         isActive: true,
         deletedAt: null,
       },
-      include: { category: true, specGroups: { include: { options: true } } },
+      include: {
+        category: true,
+        product: { select: { image: true } },
+        specGroups: { include: { options: true } },
+      },
     });
     if (products.length !== cartItems.length)
       throw new ConflictException('购物车中存在已下架商品');
@@ -74,8 +78,9 @@ export class ClubScanOrderingCartPricingService {
       return {
         cartItemId: cartItem.id,
         productId: product.id,
+        inventoryProductId: product.productId,
         productName: product.name,
-        productImageUrl: product.imageUrl,
+        productImageUrl: product.product?.image ?? product.imageUrl,
         categoryName: product.category.name,
         quantity: cartItem.quantity,
         specSignature: cartItem.specSignature,
@@ -92,6 +97,7 @@ export class ClubScanOrderingCartPricingService {
     clubUserId: number,
     sessionId: number,
     pricedItems: PricedCartItem[],
+    usePoints: boolean,
   ): Promise<PromotionAdapterResult> {
     const adapterInput: PromotionAdapterInput = {
       storeId,
@@ -103,6 +109,7 @@ export class ClubScanOrderingCartPricingService {
         unitPriceAmount: item.unitPriceAmount,
         specOptionIds: item.specs.map((spec) => spec.specOptionId),
       })),
+      usePoints,
     };
     return this.promotionAdapter.resolvePromotions(adapterInput);
   }
@@ -177,34 +184,12 @@ export class ClubScanOrderingCartPricingService {
       type: string;
       label: string;
       amount: number;
+      isStrikethrough?: boolean;
     }> = [
       { type: 'item', label: '商品原价', amount: amounts.itemOriginalAmount },
-      {
-        type: 'specification',
-        label: '规格加价',
-        amount: amounts.specificationExtraAmount,
-      },
     ];
-    if (amounts.productDiscountAmount > 0) {
-      breakdownItems.push({
-        type: 'membership',
-        label: '会员优惠',
-        amount: -amounts.productDiscountAmount,
-      });
-    }
-    if (amounts.orderDiscountAmount > 0) {
-      breakdownItems.push({
-        type: 'coupon',
-        label: '优惠券抵扣',
-        amount: -amounts.orderDiscountAmount,
-      });
-    }
-    for (const promo of promotion.appliedPromotions) {
-      breakdownItems.push({
-        type: 'promotion',
-        label: promo.name,
-        amount: -promo.discountAmount,
-      });
+    for (const item of promotion.breakdownItems) {
+      breakdownItems.push(item);
     }
     if (amounts.serviceFeeAmount > 0) {
       breakdownItems.push({
@@ -233,6 +218,11 @@ export class ClubScanOrderingCartPricingService {
       serviceFeeAmount: amounts.serviceFeeAmount,
       taxAmount: amounts.taxAmount,
       payableAmount: amounts.payableAmount,
+      pointsDeductAmount: promotion.pointsDeductAmount,
+      pointsUsed: promotion.pointsUsed,
+      afterPointsPayableAmount: promotion.afterPointsPayableAmount,
+      redeemRatioPoints: promotion.redeemRatioPoints,
+      availablePoints: promotion.availablePoints,
       breakdownItems,
       availableCoupons: promotion.availableCoupons,
       appliedPromotions: promotion.appliedPromotions,

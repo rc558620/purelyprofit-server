@@ -55,6 +55,24 @@ import {
 } from './club-order-points.utils';
 import { PrismaService } from '../../prisma/prisma.service';
 
+export interface ClubMarketingPreviewLine {
+  unitAmountFen: number;
+  quantity: number;
+}
+
+export interface ClubMarketingPreviewResult {
+  productDiscountAmountFen: number;
+  orderDiscountAmountFen: number;
+  /** 积分抵扣前的优惠后小计。 */
+  payableAmountFen: number;
+  pointsDeductFen: number;
+  pointsUsed: number;
+  afterPointsPriceFen: number;
+  redeemRatioPoints: number;
+  availablePoints: number;
+  breakdownItems: ClubOrderBreakdownItemDto[];
+}
+
 @Injectable()
 export class ClubOrderPreviewService {
   constructor(
@@ -182,6 +200,116 @@ export class ClubOrderPreviewService {
     };
   }
 
+  async previewMarketingLines(
+    storeId: number,
+    customerId: number,
+    phone: string,
+    lines: ClubMarketingPreviewLine[],
+    usePoints: boolean,
+  ): Promise<ClubMarketingPreviewResult> {
+    const resolutions = await Promise.all(
+      lines.map((line) =>
+        this.clubOrderPromotionsService.resolvePricing(
+          storeId,
+          customerId,
+          phone,
+          line.unitAmountFen,
+          { skipReduce: true },
+        ),
+      ),
+    );
+    const beforeReduceAmountFen = resolutions.reduce(
+      (total, resolution, index) =>
+        total + resolution.amountFenBeforeReduce * lines[index].quantity,
+      0,
+    );
+    const orderDiscountAmountFen =
+      await this.clubOrderPromotionsService.resolveOrderReduceFen(
+        storeId,
+        beforeReduceAmountFen,
+      );
+    const productDiscountAmountFen = resolutions.reduce(
+      (total, resolution, index) =>
+        total + resolution.promotionDiscountAmountFen * lines[index].quantity,
+      0,
+    );
+    const payableAmountFen = Math.max(
+      beforeReduceAmountFen - orderDiscountAmountFen,
+      0,
+    );
+    const memberDiscountRate =
+      await this.clubOrderPromotionsService.resolveMemberDiscountRate(
+        storeId,
+        phone,
+      );
+    const pointsPreview = await this.resolveMarketingPointsPreview(
+      storeId,
+      customerId,
+      payableAmountFen,
+      usePoints,
+    );
+    const representativeResolution =
+      resolutions.find((resolution) => resolution.promotionType !== null) ??
+      resolutions[0];
+    const memberBaselineFen = lines.reduce(
+      (total, line) => total + line.unitAmountFen * line.quantity,
+      0,
+    );
+    const breakdownItems = this.buildBreakdownItems({
+      memberBaselineFen,
+      originalPriceFen: memberBaselineFen,
+      discountAmountFen: productDiscountAmountFen + orderDiscountAmountFen,
+      promotionDiscountAmountFen: productDiscountAmountFen,
+      promotionType: representativeResolution?.promotionType ?? null,
+      promotionTag: representativeResolution?.promotionTag ?? null,
+      discountRate: representativeResolution?.discountRate ?? null,
+      totalReduceFen: orderDiscountAmountFen,
+      finalPriceFen: payableAmountFen,
+      memberDiscountRate,
+    }).filter(
+      (item) => item.id !== 'member-price' && item.id !== 'price-before-points',
+    );
+    return {
+      productDiscountAmountFen,
+      orderDiscountAmountFen,
+      payableAmountFen,
+      ...pointsPreview,
+      breakdownItems,
+    };
+  }
+
+  private async resolveMarketingPointsPreview(
+    storeId: number,
+    customerId: number,
+    payableAmountFen: number,
+    usePoints: boolean,
+  ): Promise<{
+    pointsDeductFen: number;
+    pointsUsed: number;
+    afterPointsPriceFen: number;
+    redeemRatioPoints: number;
+    availablePoints: number;
+  }> {
+    const [config, customer] = await Promise.all([
+      fetchPointsRedeemConfig(this.prisma, storeId),
+      this.prisma.marketingCustomer.findUnique({
+        where: { id: customerId },
+        select: { points: true },
+      }),
+    ]);
+    const availablePoints = customer?.points ?? 0;
+    const { pointsDeductFen, pointsUsed } = usePoints
+      ? calcPointsRedeemDetail(payableAmountFen, config, availablePoints)
+      : { pointsDeductFen: 0, pointsUsed: 0 };
+    return {
+      pointsDeductFen,
+      pointsUsed,
+      afterPointsPriceFen: Math.max(payableAmountFen - pointsDeductFen, 0),
+      redeemRatioPoints: config.redeemRatioPoints,
+      availablePoints,
+    };
+  }
+
   /**
    * 计算积分抵扣金额：预览接口始终计算可抵扣金额（不受 enabled 开关限制）。
    *
@@ -300,7 +428,7 @@ export class ClubOrderPreviewService {
     // 竞争模型：活动折扣胜出时，会员折扣行显示删除线
     const hasActivity = params.promotionType !== null;
     if (levelDiscountFen > 0 && hasMemberRate) {
-      const levelLabel = `折扣 ${ClubOrderPreviewService.formatDiscountRateLabel(memberRate)}`;
+      const levelLabel = `会员等级折扣 ${ClubOrderPreviewService.formatDiscountRateLabel(memberRate)}`;
       items.push({
         id: 'level-discount',
         label: levelLabel,
@@ -319,7 +447,7 @@ export class ClubOrderPreviewService {
       // discountRate 为 0-100 整数（如 79），需除以 100 转为 0-1 再传入格式化
       const activityLabel =
         params.discountRate != null
-          ? `折扣 ${ClubOrderPreviewService.formatDiscountRateLabel(params.discountRate / 100)}`
+          ? `活动折扣 ${ClubOrderPreviewService.formatDiscountRateLabel(params.discountRate / 100)}`
           : (params.promotionTag ?? '活动折扣');
       items.push({
         id: `promotion-${params.promotionType}`,

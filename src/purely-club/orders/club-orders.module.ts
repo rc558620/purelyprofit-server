@@ -40,6 +40,7 @@ import { ClubPromotionRepository } from '../shared/club-promotion.repository';
     ClubPromotionRepository,
   ],
   exports: [
+    ClubOrderPreviewService,
     ClubOrderDraftsService,
     ClubOrderServicePaymentService,
     ClubOrdersService,

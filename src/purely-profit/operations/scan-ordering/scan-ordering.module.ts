@@ -25,6 +25,7 @@ import { ScanOrderingMenuProductService } from './scan-ordering-menu-product.ser
 import { ScanOrderingMenuSpecService } from './scan-ordering-menu-spec.service';
 import { ScanOrderingMenuStockService } from './scan-ordering-menu-stock.service';
 import { ScanOrderingMenuQueryService } from './scan-ordering-menu-query.service';
+import { ScanOrderingSessionArchiveService } from './scan-ordering-session-archive.service';
 
 /** 扫码点餐领域模块：商家管理、消费者点餐、订单与支付共享同一领域规则。 */
 @Module({
@@ -60,7 +61,8 @@ import { ScanOrderingMenuQueryService } from './scan-ordering-menu-query.service
     ScanOrderingMenuStockService,
     ScanOrderingMenuQueryService,
     ScanOrderingMenuService,
+    ScanOrderingSessionArchiveService,
   ],
-  exports: [ScanOrderingPricingService],
+  exports: [ScanOrderingPricingService, ScanOrderingSessionArchiveService],
 })
 export class ScanOrderingModule {}

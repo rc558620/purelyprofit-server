@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
-import { ScanOrderStatus } from '@prisma/client';
+import { ScanOrderStatus, ScanOrderingSessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
@@ -54,6 +54,7 @@ export class ClubScanOrderingOrderService {
       user.id,
       session.id,
       pricedItems,
+      dto.usePoints === true,
     );
     const amounts = this.cartPricingService.calculateAmounts(
       pricedItems,
@@ -108,6 +109,7 @@ export class ClubScanOrderingOrderService {
       user.id,
       session.id,
       pricedItems,
+      dto.usePoints === true,
     );
     const amounts = this.cartPricingService.calculateAmounts(
       pricedItems,
@@ -129,6 +131,28 @@ export class ClubScanOrderingOrderService {
           },
         });
         for (const item of pricedItems) {
+          if (item.inventoryProductId) {
+            const inventoryUpdated = await tx.product.updateMany({
+              where: {
+                id: item.inventoryProductId,
+                storeId: session.storeId,
+                isActive: true,
+                deletedAt: null,
+                stock: { gte: item.quantity },
+              },
+              data: { stock: { decrement: item.quantity } },
+            });
+            if (inventoryUpdated.count === 0)
+              throw new ConflictException('商品库存不足');
+            await tx.scanOrderingMenuProduct.update({
+              where: { id: item.productId },
+              data: {
+                salesCount: { increment: item.quantity },
+                version: { increment: 1 },
+              },
+            });
+            continue;
+          }
           const updated = await tx.scanOrderingMenuProduct.updateMany({
             where: {
               id: item.productId,
@@ -167,13 +191,28 @@ export class ClubScanOrderingOrderService {
             remark: dto.remark,
             idempotencyKey,
             pricingVersion,
+            marketingSnapshot: {
+              memberBenefits: promotionResult.memberBenefits,
+              appliedPromotions: promotionResult.appliedPromotions,
+              availableCoupons: promotionResult.availableCoupons.filter(
+                (coupon) => coupon.usable,
+              ),
+              productDiscountAmount: amounts.productDiscountAmount,
+              orderDiscountAmount: amounts.orderDiscountAmount,
+              usePoints: dto.usePoints === true,
+              pointsDeductAmount: promotionResult.pointsDeductAmount,
+              pointsUsed: promotionResult.pointsUsed,
+              redeemRatioPoints: promotionResult.redeemRatioPoints,
+              availablePoints: promotionResult.availablePoints,
+              pointsSettlementStatus: 'pending',
+            },
             itemOriginalAmount: amounts.itemOriginalAmount,
             specificationExtraAmount: amounts.specificationExtraAmount,
             productDiscountAmount: amounts.productDiscountAmount,
             orderDiscountAmount: amounts.orderDiscountAmount,
             serviceFeeAmount: amounts.serviceFeeAmount,
             taxAmount: amounts.taxAmount,
-            payableAmount: amounts.payableAmount,
+            payableAmount: promotionResult.afterPointsPayableAmount,
             paymentExpiresAt: expiresAt,
             items: {
               create: this.cartPricingService.buildOrderItemCreateData(
@@ -188,6 +227,7 @@ export class ClubScanOrderingOrderService {
             orderNo: true,
             payableAmount: true,
             paymentExpiresAt: true,
+            version: true,
           },
         });
         await tx.scanOrderStatusHistory.create({
@@ -268,39 +308,169 @@ export class ClubScanOrderingOrderService {
     ];
 
     const take = (query.limit ?? 20) + 1;
-    const orders = await this.prisma.scanOrders.findMany({
+    const sessions = await this.prisma.scanOrderingSession.findMany({
       where: {
         clubUserId: user.id,
+        status: ScanOrderingSessionStatus.active,
+        expiresAt: { gt: new Date() },
         deletedAt: null,
-        // 如果未指定 status 参数，默认只显示进行中的订单
-        ...(query.status
-          ? { status: query.status as ScanOrderStatus }
-          : { status: { in: activeStates } }),
         ...(query.cursor ? { id: { lt: query.cursor } } : {}),
       },
-      orderBy: { id: 'desc' },
+      orderBy: [{ lastActiveAt: 'desc' }, { id: 'desc' }],
       take,
       select: {
         id: true,
-        orderNo: true,
+        storeId: true,
+        guestCount: true,
         status: true,
-        paymentStatus: true,
-        fulfillmentStatus: true,
-        payableAmount: true,
-        paidAmount: true,
         createdAt: true,
-        paymentExpiresAt: true,
-        acceptedAt: true, // 补充接单时间，用于状态展示
-        table: { select: { name: true, tableCode: true } },
-        items: {
-          take: 3,
-          orderBy: { sortOrder: 'asc' },
-          select: { productNameSnapshot: true, quantity: true },
+        lastActiveAt: true,
+        table: {
+          select: {
+            id: true,
+            tableCode: true,
+            name: true,
+            area: { select: { name: true } },
+            type: { select: { name: true } },
+          },
+        },
+        orders: {
+          where: {
+            deletedAt: null,
+            ...(query.status
+              ? { status: query.status as ScanOrderStatus }
+              : { status: { in: activeStates } }),
+          },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            orderNo: true,
+            status: true,
+            paymentStatus: true,
+            fulfillmentStatus: true,
+            payableAmount: true,
+            paidAmount: true,
+            remark: true,
+            createdAt: true,
+            paymentExpiresAt: true,
+            acceptedAt: true,
+            items: {
+              take: 3,
+              orderBy: { sortOrder: 'asc' },
+              select: {
+                menuProductId: true,
+                productNameSnapshot: true,
+                productImageUrlSnapshot: true,
+                quantity: true,
+              },
+            },
+          },
         },
       },
     });
-    const hasMore = orders.length === take;
-    const items = hasMore ? orders.slice(0, -1) : orders;
+    const menuProductIds = sessions.flatMap((session) =>
+      session.orders.flatMap((order) => order.items.map((item) => item.menuProductId)),
+    );
+    const menuProducts = await this.prisma.scanOrderingMenuProduct.findMany({
+      where: { id: { in: menuProductIds } },
+      select: { id: true, imageUrl: true, product: { select: { image: true } } },
+    });
+    const imageByMenuProductId = new Map(
+      menuProducts.map((product) => [
+        product.id,
+        product.product?.image ?? product.imageUrl,
+      ]),
+    );
+    const hydratedSessions = sessions.map((session) => ({
+      ...session,
+      orders: session.orders.map((order) => ({
+        ...order,
+        items: order.items.map((item) => ({
+          ...item,
+          productImageUrlSnapshot:
+            item.productImageUrlSnapshot ??
+            imageByMenuProductId.get(item.menuProductId) ??
+            null,
+        })),
+      })),
+    }));
+    const hasMore = hydratedSessions.length === take;
+    const items = hydratedSessions
+      .slice(0, hasMore ? -1 : undefined)
+      .filter((session) => session.orders.length > 0);
+    return {
+      items: items.map((session) => ({
+        ...session,
+        createdAt: session.createdAt.toISOString(),
+        lastActiveAt: session.lastActiveAt.toISOString(),
+        orders: session.orders.map((order) => ({
+          ...order,
+          createdAt: order.createdAt.toISOString(),
+          paymentExpiresAt: order.paymentExpiresAt?.toISOString() ?? null,
+          acceptedAt: order.acceptedAt?.toISOString() ?? null,
+        })),
+      })),
+      nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null,
+    };
+  }
+
+  async listOrderHistory(
+    user: AuthenticatedUser,
+    query: ListClubScanOrdersQueryDto,
+  ): Promise<unknown> {
+    const take = (query.limit ?? 20) + 1;
+    const sessions = await this.prisma.scanOrderingSession.findMany({
+      where: {
+        clubUserId: user.id,
+        deletedAt: null,
+        status: {
+          in: [
+            ScanOrderingSessionStatus.checked_out,
+            ScanOrderingSessionStatus.expired,
+          ],
+        },
+        ...(query.cursor ? { id: { lt: query.cursor } } : {}),
+      },
+      orderBy: [{ endedAt: 'desc' }, { id: 'desc' }],
+      take,
+      select: {
+        id: true,
+        storeId: true,
+        guestCount: true,
+        status: true,
+        createdAt: true,
+        endedAt: true,
+        archiveReason: true,
+        table: {
+          select: {
+            id: true,
+            tableCode: true,
+            name: true,
+            area: { select: { name: true } },
+          },
+        },
+        orders: {
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            orderNo: true,
+            status: true,
+            paymentStatus: true,
+            fulfillmentStatus: true,
+            payableAmount: true,
+            paidAmount: true,
+            remark: true,
+            createdAt: true,
+            servedAt: true,
+            items: { select: { productNameSnapshot: true, quantity: true } },
+            refundTasks: { select: { status: true, refundAmount: true } },
+          },
+        },
+      },
+    });
+    const hasMore = sessions.length === take;
+    const items = hasMore ? sessions.slice(0, -1) : sessions;
     return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
   }
 
@@ -322,6 +492,14 @@ export class ClubScanOrderingOrderService {
     openid: string,
   ): Promise<unknown> {
     return this.checkoutService.createWechatPayment(user, orderId, openid);
+  }
+
+  createBalancePayment(
+    user: AuthenticatedUser,
+    orderId: number,
+    version: number,
+  ): Promise<unknown> {
+    return this.checkoutService.createBalancePayment(user, orderId, version);
   }
 
   confirmPaidForDevelopment(

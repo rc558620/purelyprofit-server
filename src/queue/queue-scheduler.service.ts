@@ -26,11 +26,14 @@ export class QueueSchedulerService implements OnModuleInit {
     private readonly cachePrewarmQueue: Queue<CachePrewarmJobData>,
     @InjectQueue('space-auto-checkout')
     private readonly spaceAutoCheckoutQueue: Queue<void>,
+    @InjectQueue('scan-ordering-session-archive')
+    private readonly scanOrderingSessionArchiveQueue: Queue<void>,
   ) {}
 
   async onModuleInit(): Promise<void> {
     await this.registerCachePrewarmJob();
     await this.registerSpaceAutoCheckoutJob();
+    await this.registerScanOrderingSessionArchiveJob();
   }
 
   /**
@@ -114,6 +117,16 @@ export class QueueSchedulerService implements OnModuleInit {
 
     this.logger.log(
       `[queue-scheduler] space-auto-checkout registered intervalMs=${intervalMs}`,
+    );
+  }
+
+  private async registerScanOrderingSessionArchiveJob(): Promise<void> {
+    await this.scanOrderingSessionArchiveQueue.add('scan', undefined, {
+      repeat: { every: 5 * 60_000 },
+      jobId: 'scan-ordering-session-archive-scan',
+    });
+    this.logger.log(
+      '[queue-scheduler] scan-ordering-session-archive registered intervalMs=300000',
     );
   }
 }

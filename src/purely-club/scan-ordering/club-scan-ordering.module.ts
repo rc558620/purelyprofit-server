@@ -4,6 +4,7 @@ import { CommerceModule } from '../../purely-profit/commerce/commerce.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
 import { ClubServiceCallModule } from '../service-call/club-service-call.module';
+import { ClubOrdersModule } from '../orders/club-orders.module';
 import { RedisModule } from '../../redis/redis.module';
 import { ClubScanOrderingController } from './club-scan-ordering.controller';
 import { ClubScanOrderingService } from './club-scan-ordering.service';
@@ -18,6 +19,7 @@ import { ScanOrderingPaymentExpirationService } from './scan-ordering-payment-ex
 import { ScanOrderingRefundService } from './scan-ordering-refund.service';
 import { ScanOrderingPromotionAdapter } from './scan-ordering-promotion.adapter';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
+import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
 
 @Module({
   imports: [
@@ -27,6 +29,7 @@ import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-versi
     RedisModule,
     ClubWechatPayModule,
     ClubServiceCallModule,
+    ClubOrdersModule,
   ],
   controllers: [ClubScanOrderingController],
   providers: [
@@ -35,6 +38,7 @@ import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-versi
     ClubScanOrderingOrderService,
     ClubScanOrderingCartPricingService,
     ClubScanOrderingCheckoutService,
+    ClubScanOrderingMarketingCustomerService,
     ScanOrderingRealtimeService,
     ScanOrderingUnpaidOrderClosureService,
     ScanOrderingPaymentExpirationService,
@@ -46,6 +50,7 @@ import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-versi
   exports: [
     ClubScanOrderingService,
     ClubScanOrderingOrderService,
+    ClubScanOrderingMarketingCustomerService,
     ScanOrderingRealtimeService,
     ScanOrderingRefundService,
     ScanOrderingPromotionAdapter,

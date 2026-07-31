@@ -145,6 +145,7 @@ export class ScanOrderingOrderService {
         createdAt: true,
         version: true,
         clubUserId: true,
+        sessionId: true,
         remark: true,
         table: { select: { name: true } },
         items: {
@@ -187,6 +188,38 @@ export class ScanOrderingOrderService {
 
     const limit = query.limit ?? 20;
     const pageOrders = orders.slice(0, limit);
+    const sessionUserKeys = pageOrders
+      .filter((order) => order.sessionId && order.clubUserId)
+      .map((order) => ({
+        sessionId: order.sessionId,
+        clubUserId: order.clubUserId!,
+      }));
+    const sessionOrderSequences = new Map<number, number>();
+    if (sessionUserKeys.length > 0) {
+      const priorOrders = await this.prisma.scanOrders.findMany({
+        where: {
+          OR: sessionUserKeys.map(({ sessionId, clubUserId }) => ({
+            sessionId,
+            clubUserId,
+          })),
+          deletedAt: null,
+        },
+        select: {
+          sessionId: true,
+          clubUserId: true,
+          id: true,
+          createdAt: true,
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
+      const counters = new Map<string, number>();
+      priorOrders.forEach((order) => {
+        const key = `${order.sessionId}:${order.clubUserId}`;
+        const sequence = (counters.get(key) ?? 0) + 1;
+        counters.set(key, sequence);
+        sessionOrderSequences.set(order.id, sequence);
+      });
+    }
 
     return {
       items: pageOrders.map((order: (typeof pageOrders)[number]) => {
@@ -222,6 +255,7 @@ export class ScanOrderingOrderService {
           createdAt: order.createdAt.toISOString(),
           amountSummary,
           guestName, // 🔥 返回客户昵称
+          sessionOrderSequence: sessionOrderSequences.get(order.id) ?? 1,
           imageUrl:
             order.items.find(
               (item: (typeof order.items)[number]) =>

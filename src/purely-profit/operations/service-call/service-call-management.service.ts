@@ -12,8 +12,8 @@ import { ServiceCallRealtimeService } from '../../../purely-club/service-call/se
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 
-// 临时联调：处理中超时设为 60 秒，验证完成后恢复为 15 * 60_000。
-const PROCESSING_SERVICE_CALL_TTL_MS = 60_000;
+// 临时联调：处理中超时设为 30 秒，待响应超时设为 60 秒，验证完成后恢复原值。
+const PROCESSING_SERVICE_CALL_TTL_MS = 30_000;
 const EXPIRY_CHECK_INTERVAL_MS = 1_000;
 
 @Injectable()
@@ -43,8 +43,20 @@ export class ServiceCallManagementService
 
   async list(user: AuthenticatedUser, status?: ServiceCallStatus) {
     const storeId = await this.resolveStoreId(user, 'service-call:view');
+    const now = new Date();
+    const shanghaiDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+    const startOfToday = new Date(`${shanghaiDate}T00:00:00+08:00`);
+    const startOfTomorrow = new Date(
+      startOfToday.getTime() + 24 * 60 * 60 * 1000,
+    );
     const where = {
       storeId,
+      createdAt: { gte: startOfToday, lt: startOfTomorrow },
       ...(status ? { status } : {}),
     };
     const calls = await this.prisma.serviceCall.findMany({

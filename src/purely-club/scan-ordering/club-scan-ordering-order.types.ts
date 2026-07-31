@@ -3,6 +3,7 @@ import type { PromotionAdapterResult } from './scan-ordering-promotion.adapter';
 export interface PricedCartItem {
   cartItemId: number;
   productId: number;
+  inventoryProductId: number | null;
   productName: string;
   productImageUrl: string | null;
   categoryName: string;
@@ -37,6 +38,11 @@ export interface PreviewResult {
   serviceFeeAmount: number;
   taxAmount: number;
   payableAmount: number;
+  pointsDeductAmount: number;
+  pointsUsed: number;
+  afterPointsPayableAmount: number;
+  redeemRatioPoints: number;
+  availablePoints: number;
   breakdownItems: Array<{
     type: string;
     label: string;

@@ -27,6 +27,10 @@ export class ScanOrderingServiceCallService {
       where: {
         storeId,
         source: 'scan_ordering',
+        createdAt: {
+          gte: this.getShanghaiDayStart(),
+          lt: this.getShanghaiNextDayStart(),
+        },
         ...(dto.status ? { status: dto.status } : {}),
       },
       orderBy: [{ status: 'asc' }, { requestedAt: 'asc' }],
@@ -78,6 +82,20 @@ export class ScanOrderingServiceCallService {
       relatedOrderId: updated.relatedOrderId,
       createdAt: updated.createdAt.toISOString(),
     });
+  }
+
+  private getShanghaiDayStart(): Date {
+    const date = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    return new Date(`${date}T00:00:00+08:00`);
+  }
+
+  private getShanghaiNextDayStart(): Date {
+    return new Date(this.getShanghaiDayStart().getTime() + 24 * 60 * 60 * 1000);
   }
 
   private resolveStoreId(

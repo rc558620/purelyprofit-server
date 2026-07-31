@@ -54,6 +54,7 @@ export class ScanOrderingOrderRefundHandlingService {
           take: 1,
           select: {
             id: true,
+            paymentChannel: true,
             merchantPaymentNo: true,
             providerTransactionId: true,
           },
@@ -65,6 +66,16 @@ export class ScanOrderingOrderRefundHandlingService {
 
     if (order.paymentStatus === 'paid') {
       const attempt = order.paymentAttempts?.[0] ?? null;
+      if (attempt?.paymentChannel === 'marketing_balance') {
+        await this.refundMarketingBalanceOrder(
+          user,
+          order.id,
+          storeId,
+          version,
+          reason,
+        );
+        return;
+      }
       await this.initiateRefundFlow(
         user,
         order.id,
@@ -199,6 +210,113 @@ export class ScanOrderingOrderRefundHandlingService {
         fulfillmentStatus: updated.fulfillmentStatus,
       });
     }
+  }
+
+  private async refundMarketingBalanceOrder(
+    user: AuthenticatedUser,
+    orderId: number,
+    storeId: number,
+    version: number,
+    reason: string,
+  ): Promise<void> {
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const balancePayment = await tx.scanOrderBalanceTransaction.findUnique({
+        where: { orderId_type: { orderId, type: 'payment' } },
+        select: { customerId: true, amount: true },
+      });
+      if (!balancePayment)
+        throw new ConflictException('未找到原余额支付记录，无法退款');
+      const order = await tx.scanOrders.updateMany({
+        where: {
+          id: orderId,
+          storeId,
+          version,
+          status: 'pending_acceptance',
+          paymentStatus: 'paid',
+        },
+        data: {
+          status: 'rejected',
+          paymentStatus: 'refunded',
+          fulfillmentStatus: 'closed',
+          rejectReason: reason,
+          version: { increment: 1 },
+        },
+      });
+      if (order.count === 0)
+        throw new ConflictException('订单状态已变化，请刷新后重试');
+      await tx.marketingCustomer.update({
+        where: { id: balancePayment.customerId },
+        data: { balance: { increment: balancePayment.amount } },
+      });
+      await tx.scanOrderBalanceTransaction.create({
+        data: {
+          orderId,
+          customerId: balancePayment.customerId,
+          amount: balancePayment.amount,
+          type: 'refund',
+        },
+      });
+      await tx.scanOrderPaymentAttempt.updateMany({
+        where: {
+          orderId,
+          paymentChannel: 'marketing_balance',
+          status: 'succeeded',
+        },
+        data: { status: 'refunded' },
+      });
+      const items = await tx.scanOrderItem.findMany({
+        where: { orderId },
+        select: {
+          menuProductId: true,
+          quantity: true,
+          specs: { select: { specOptionId: true } },
+        },
+      });
+      await this.restoreProductStock(tx, storeId, items);
+      await this.restoreSpecStock(tx, items);
+      await tx.scanOrderCouponUsage.updateMany({
+        where: {
+          orderId,
+          status: {
+            in: [
+              ScanOrderCouponUsageStatus.locked,
+              ScanOrderCouponUsageStatus.consumed,
+            ],
+          },
+        },
+        data: { status: ScanOrderCouponUsageStatus.refunded },
+      });
+      await tx.scanOrderStatusHistory.create({
+        data: {
+          orderId,
+          storeId,
+          fromStatus: 'pending_acceptance',
+          toStatus: 'rejected',
+          operatorType: 'merchant',
+          operatorId: user.id,
+          reason: `余额原路退款：${reason}`,
+        },
+      });
+      return tx.scanOrders.findUniqueOrThrow({
+        where: { id: orderId },
+        select: {
+          id: true,
+          storeId: true,
+          sessionId: true,
+          status: true,
+          paymentStatus: true,
+          fulfillmentStatus: true,
+        },
+      });
+    });
+    this.realtimeService.publishOrderStatusChanged({
+      orderId: updated.id,
+      storeId: updated.storeId,
+      sessionId: updated.sessionId,
+      status: updated.status,
+      paymentStatus: updated.paymentStatus,
+      fulfillmentStatus: updated.fulfillmentStatus,
+    });
   }
 
   private async initiateRefundFlow(

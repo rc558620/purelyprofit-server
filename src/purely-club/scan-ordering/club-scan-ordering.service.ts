@@ -178,7 +178,14 @@ export class ClubScanOrderingService {
         deletedAt: null,
       },
       orderBy: { lastActiveAt: 'desc' },
-      include: { table: { include: { area: { select: { name: true } } } } },
+      include: {
+        table: {
+          include: {
+            area: { select: { name: true } },
+            type: { select: { name: true } },
+          },
+        },
+      },
     });
     if (!session?.table) throw new NotFoundException('不存在有效点餐会话');
     return this.toSessionResponse(session, session.table);
@@ -201,7 +208,14 @@ export class ClubScanOrderingService {
     const updated = await this.prisma.scanOrderingSession.update({
       where: { id: session.id },
       data: { guestCount: dto.guestCount, lastActiveAt: new Date() },
-      include: { table: { include: { area: { select: { name: true } } } } },
+      include: {
+        table: {
+          include: {
+            area: { select: { name: true } },
+            type: { select: { name: true } },
+          },
+        },
+      },
     });
     if (!updated.table) throw new NotFoundException('桌台不存在');
     return this.toSessionResponse(updated, updated.table);
@@ -243,6 +257,14 @@ export class ClubScanOrderingService {
           where: { isActive: true, deletedAt: null },
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           include: {
+            product: {
+              select: {
+                stock: true,
+                image: true,
+                isActive: true,
+                deletedAt: true,
+              },
+            },
             specGroups: {
               where: { isActive: true },
               include: {
@@ -257,7 +279,18 @@ export class ClubScanOrderingService {
       menuVersion: this.hash(
         JSON.stringify(categories.map((item) => [item.id, item.version])),
       ),
-      categories,
+      categories: categories.map((category) => ({
+        ...category,
+        products: category.products.map((product) => ({
+          ...product,
+          imageUrl: product.product?.image ?? product.imageUrl,
+          stockMode: product.product ? 'finite' : product.stockMode,
+          stockQuantity: product.product
+            ? product.product.stock
+            : product.stockQuantity,
+          product: undefined,
+        })),
+      })),
     };
   }
 
@@ -267,6 +300,7 @@ export class ClubScanOrderingService {
   ): Promise<unknown> {
     const session = await this.prisma.scanOrderingSession.findFirst({
       where: {
+        id: dto.sessionId,
         clubUserId: user.id,
         status: 'active',
         expiresAt: { gt: new Date() },
@@ -425,6 +459,7 @@ export class ClubScanOrderingService {
       capacity: number;
       status: string;
       area?: { name: string } | null;
+      type?: { name: string } | null;
     },
   ) {
     return {
@@ -437,6 +472,7 @@ export class ClubScanOrderingService {
         tableCode: table.tableCode,
         name: table.name,
         areaName: table.area?.name ?? null,
+        typeName: table.type?.name ?? null,
         capacity: table.capacity,
         status: table.status,
       },

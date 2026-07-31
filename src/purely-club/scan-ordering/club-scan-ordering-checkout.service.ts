@@ -7,10 +7,15 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import { ScanOrderPaymentAttemptStatus } from '@prisma/client';
+import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
+import {
+  awardPointsForSettlement,
+  deductPointsForSettlement,
+} from '../orders/club-order-settlement-points.utils';
 
 /** C 端扫码点餐订单支付发起服务。 */
 @Injectable()
@@ -20,6 +25,7 @@ export class ClubScanOrderingCheckoutService {
     private readonly wechatJsapiService: ClubWechatJsapiService,
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly configService: ConfigService,
+    private readonly marketingCustomerService: ClubScanOrderingMarketingCustomerService,
   ) {}
 
   async createWechatPayment(
@@ -96,6 +102,149 @@ export class ClubScanOrderingCheckoutService {
       });
       throw error;
     }
+  }
+
+  async createBalancePayment(
+    user: AuthenticatedUser,
+    orderId: number,
+    _version: number,
+  ): Promise<unknown> {
+    const order = await this.prisma.scanOrders.findFirst({
+      where: {
+        id: orderId,
+        clubUserId: user.id,
+        status: 'pending_payment',
+        paymentStatus: 'unpaid',
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        storeId: true,
+        orderNo: true,
+        payableAmount: true,
+        sessionId: true,
+        version: true,
+        marketingSnapshot: true,
+      },
+    });
+    if (!order) throw new ConflictException('订单状态已变化，请刷新后重试');
+    const customer = await this.marketingCustomerService.resolveActiveCustomer(
+      order.storeId,
+      user.id,
+    );
+    const pointsSnapshot = (order.marketingSnapshot ?? {}) as {
+      pointsUsed?: number;
+      pointsDeductAmount?: number;
+    };
+    const pointsUsed = pointsSnapshot.pointsUsed ?? 0;
+    const pointsDeductAmount = pointsSnapshot.pointsDeductAmount ?? 0;
+    const paidAt = new Date();
+    const result = await this.prisma.$transaction(async (tx) => {
+      const debited = await tx.marketingCustomer.updateMany({
+        where: {
+          id: customer.id,
+          storeId: order.storeId,
+          balance: { gte: order.payableAmount },
+          status: 'active',
+          deletedAt: null,
+        },
+        data: { balance: { decrement: order.payableAmount } },
+      });
+      if (debited.count === 0) throw new ConflictException('储值余额不足');
+      await deductPointsForSettlement(
+        tx,
+        {
+          storeId: order.storeId,
+          description: `扫码点餐订单 ${order.orderNo}`,
+          paidAmountFen: order.payableAmount,
+        },
+        customer.id,
+        pointsUsed,
+      );
+      const earnedPoints = await awardPointsForSettlement(
+        tx,
+        {
+          storeId: order.storeId,
+          description: `扫码点餐订单 ${order.orderNo}`,
+          paidAmountFen: order.payableAmount,
+        },
+        customer.id,
+      );
+      const updated = await tx.scanOrders.updateMany({
+        where: {
+          id: order.id,
+          version: order.version,
+          status: 'pending_payment',
+          paymentStatus: 'unpaid',
+        },
+        data: {
+          status: 'pending_acceptance',
+          paymentStatus: 'paid',
+          paidAmount: order.payableAmount,
+          paidAt,
+          marketingSnapshot: {
+            ...(order.marketingSnapshot as object),
+            pointsSettlementStatus: 'settled',
+            earnedPoints,
+          },
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count === 0)
+        throw new ConflictException('订单状态已变化，请刷新后重试');
+      await tx.scanOrderPaymentAttempt.create({
+        data: {
+          orderId: order.id,
+          storeId: order.storeId,
+          paymentChannel: 'marketing_balance',
+          merchantPaymentNo: `BAL-${order.orderNo}`,
+          amount: order.payableAmount,
+          status: 'succeeded',
+          paidAt,
+          providerTransactionId: `marketing-balance-${order.id}`,
+        },
+      });
+      await tx.marketingConsumption.create({
+        data: {
+          storeId: order.storeId,
+          customerId: customer.id,
+          amount: order.payableAmount + pointsDeductAmount,
+          balancePaid: order.payableAmount,
+          pointsDeducted: pointsDeductAmount,
+          payType: 'balance',
+          itemsSummary: `扫码点餐订单 ${order.orderNo}`,
+        },
+      });
+      await tx.scanOrderBalanceTransaction.create({
+        data: {
+          orderId: order.id,
+          customerId: customer.id,
+          amount: order.payableAmount,
+          type: 'payment',
+        },
+      });
+      await tx.scanOrderStatusHistory.create({
+        data: {
+          orderId: order.id,
+          storeId: order.storeId,
+          fromStatus: 'pending_payment',
+          toStatus: 'pending_acceptance',
+          operatorType: 'club_user',
+          operatorId: user.id,
+          reason: '储值余额支付成功',
+        },
+      });
+      return tx.scanOrders.findUniqueOrThrow({ where: { id: order.id } });
+    });
+    this.realtimeService.publishOrderStatusChanged({
+      storeId: result.storeId,
+      orderId: result.id,
+      sessionId: result.sessionId,
+      status: result.status,
+      paymentStatus: result.paymentStatus,
+      fulfillmentStatus: result.fulfillmentStatus,
+    });
+    return this.getOrder(user, result.id);
   }
 
   async confirmPaidForDevelopment(

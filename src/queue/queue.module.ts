@@ -7,6 +7,8 @@ import { SpaceAutoCheckoutProcessor } from './space-auto-checkout.processor';
 import { QueueSchedulerService } from './queue-scheduler.service';
 import { RedisModule } from '../redis/redis.module';
 import { SpacesModule } from '../purely-profit/operations/spaces/spaces.module';
+import { ScanOrderingModule } from '../purely-profit/operations/scan-ordering/scan-ordering.module';
+import { ScanOrderingSessionArchiveProcessor } from './scan-ordering-session-archive.processor';
 
 /**
  * 消息队列模块
@@ -77,13 +79,18 @@ import { SpacesModule } from '../purely-profit/operations/spaces/spaces.module';
       {
         name: 'space-auto-checkout',
       },
+      {
+        name: 'scan-ordering-session-archive',
+      },
     ),
     RedisModule, // 提供 CachePrewarmCycleService
     SpacesModule, // 提供 SpaceSessionAutoCheckoutService
+    ScanOrderingModule,
   ],
   providers: [
     CachePrewarmProcessor,
     SpaceAutoCheckoutProcessor,
+    ScanOrderingSessionArchiveProcessor,
     QueueSchedulerService,
   ],
   exports: [],

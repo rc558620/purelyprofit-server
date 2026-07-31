@@ -52,6 +52,12 @@ export interface ScanOrderingTableResponse {
     totalAmount: number;
     createdAt: string;
   }>;
+  /** 清桌校验结果。 */
+  clearability: {
+    canClear: boolean;
+    blockingOrderCount: number;
+    reason: string | null;
+  };
   /** 所属区域 ID。 */
   areaId: number | null;
   /** 所属区域名称。 */
@@ -159,6 +165,11 @@ export class ScanOrderingTableService {
       guestCount: 0,
       activeSession: null,
       activeOrders: [],
+      clearability: {
+        canClear: false,
+        blockingOrderCount: 0,
+        reason: '当前为空桌',
+      },
       areaId: table.areaId,
       areaName: null,
       typeId: table.typeId,
@@ -228,46 +239,50 @@ export class ScanOrderingTableService {
       user,
       'scan-ordering:table-manage',
     );
-    const table = await this.prisma.scanOrderingTable.findFirst({
-      where: { id: tableId, storeId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!table) {
-      throw new NotFoundException('扫码点餐桌台不存在');
-    }
-    const blockingOrderCount = await this.prisma.scanOrders.count({
-      where: {
-        storeId,
-        tableId,
-        session: {
-          status: 'active',
-          expiresAt: { gt: new Date() },
-          deletedAt: null,
-        },
-        status: {
-          in: [
-            'pending_payment',
-            'pending_acceptance',
-            'preparing',
-            'refunding',
-          ],
-        },
-      },
-    });
-    if (blockingOrderCount > 0) {
-      throw new ConflictException(
-        '当前会话仍有待付款、待接单、制作中或退款中的订单，无法清桌',
-      );
-    }
-
+    const now = new Date();
     await this.prisma.$transaction(async (tx) => {
+      const table = await tx.scanOrderingTable.findFirst({
+        where: { id: tableId, storeId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!table) throw new NotFoundException('扫码点餐桌台不存在');
+      const sessions = await tx.scanOrderingSession.findMany({
+        where: { storeId, tableId, status: 'active', deletedAt: null },
+        select: { id: true },
+      });
+      if (sessions.length === 0)
+        throw new ConflictException('当前桌台不存在活跃用餐会话，无法清桌');
+      const orders = await tx.scanOrders.findMany({
+        where: {
+          sessionId: { in: sessions.map((session) => session.id) },
+          deletedAt: null,
+          status: { notIn: ['rejected', 'cancelled', 'completed'] },
+        },
+        select: { status: true },
+      });
+      const blockingOrderCount = orders.filter(
+        (order) => order.status !== 'served',
+      ).length;
+      if (orders.length === 0 || blockingOrderCount > 0) {
+        throw new ConflictException(
+          orders.length === 0
+            ? '当前桌台没有已出餐订单，无法清桌'
+            : `当前桌台仍有 ${blockingOrderCount} 笔订单未出餐，全部出餐后才可清桌`,
+        );
+      }
       await tx.scanOrderingCartItem.updateMany({
-        where: { session: { storeId, tableId }, status: 'active' },
+        where: {
+          sessionId: { in: sessions.map((session) => session.id) },
+          status: 'active',
+        },
         data: { status: 'removed' },
       });
       await tx.scanOrderingSession.updateMany({
-        where: { storeId, tableId, status: 'active' },
-        data: { status: 'checked_out' },
+        where: {
+          id: { in: sessions.map((session) => session.id) },
+          status: 'active',
+        },
+        data: { status: 'checked_out', endedAt: now, archiveReason: 'cleared' },
       });
       await tx.scanOrderingTable.update({
         where: { id: tableId },
@@ -329,11 +344,26 @@ export class ScanOrderingTableService {
     return tables.map((table) => {
       const activeSession = table.sessions[0] ?? null;
       const activeOrders = table.sessions.flatMap((session) => session.orders);
+      const fulfillmentOrders = activeOrders.filter(
+        (order) => order.status !== 'refunding',
+      );
       const guestCount = table.sessions.reduce(
         (total, session) => total + session.guestCount,
         0,
       );
       const isOccupied = activeSession !== null;
+      const allOrdersServed =
+        fulfillmentOrders.length > 0 &&
+        fulfillmentOrders.every(
+          (order) =>
+            order.status === 'served' || order.fulfillmentStatus === 'served',
+        );
+      const blockingOrderCount = allOrdersServed
+        ? 0
+        : fulfillmentOrders.filter(
+            (order) =>
+              order.status !== 'served' && order.fulfillmentStatus !== 'served',
+          ).length;
 
       return {
         id: table.id,
@@ -355,6 +385,15 @@ export class ScanOrderingTableService {
               status: activeSession.status,
             }
           : null,
+        clearability: {
+          canClear: isOccupied && blockingOrderCount === 0,
+          blockingOrderCount,
+          reason: !isOccupied
+            ? '当前为空桌'
+            : blockingOrderCount > 0
+              ? `当前仍有 ${blockingOrderCount} 笔订单未出餐，全部出餐后才可清桌`
+              : null,
+        },
         activeOrders: activeOrders.map((order) => ({
           id: order.id,
           orderNo: order.orderNo,

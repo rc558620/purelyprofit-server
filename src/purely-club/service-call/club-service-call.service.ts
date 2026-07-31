@@ -15,7 +15,7 @@ import { ServiceCallRealtimeService } from './service-call-realtime.service';
 
 const OPEN_SERVICE_CALL_STATUSES = ['pending', 'processing'] as const;
 const SERVICE_CALL_COOLDOWN_MS = 60_000;
-const PENDING_SERVICE_CALL_TTL_MS = 5 * 60_000;
+const PENDING_SERVICE_CALL_TTL_MS = 60_000;
 
 @Injectable()
 export class ClubServiceCallService {

@@ -43,6 +43,7 @@ export class ClubRechargeCreationService {
     const customer =
       await this.clubRechargeContextService.requireCurrentCustomer(
         currentContext.store.id,
+        currentContext.user.id,
         currentContext.user.phone,
       );
     const packages =

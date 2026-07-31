@@ -23,6 +23,7 @@ import {
   CancelClubScanOrderDto,
   ClubScanSessionQueryDto,
   CreateClubScanOrderDto,
+  CreateClubScanBalancePaymentDto,
   CreateClubScanPaymentDto,
   CreateClubScanServiceCallDto,
   CreateClubScanSessionDto,
@@ -181,6 +182,17 @@ export class ClubScanOrderingController {
 
   @UseGuards(ClubJwtAuthGuard)
   @ApiBearerAuth()
+  @Get('order-history')
+  @ApiOperation({ summary: '获取当前用户已归档的扫码点餐记录' })
+  listOrderHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListClubScanOrdersQueryDto,
+  ): Promise<unknown> {
+    return this.orderService.listOrderHistory(user, query);
+  }
+
+  @UseGuards(ClubJwtAuthGuard)
+  @ApiBearerAuth()
   @Get('orders/:orderId')
   @ApiOperation({ summary: '获取当前用户扫码点餐订单详情' })
   getOrder(
@@ -200,6 +212,18 @@ export class ClubScanOrderingController {
     @Body() dto: CreateClubScanPaymentDto,
   ): Promise<unknown> {
     return this.orderService.createWechatPayment(user, orderId, dto.openid);
+  }
+
+  @UseGuards(ClubJwtAuthGuard)
+  @ApiBearerAuth()
+  @Post('orders/:orderId/payments/balance')
+  @ApiOperation({ summary: '使用门店储值余额支付扫码点餐订单' })
+  createBalancePayment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('orderId', ParseIntPipe) orderId: number,
+    @Body() dto: CreateClubScanBalancePaymentDto,
+  ): Promise<unknown> {
+    return this.orderService.createBalancePayment(user, orderId, dto.version);
   }
 
   @UseGuards(ClubJwtAuthGuard)

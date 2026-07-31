@@ -1,6 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CLUB_MEMBER_NOT_FOUND_MESSAGE } from './club-recharge.constants';
 
 interface ClubRechargeCustomerSnapshot {
   id: number;
@@ -12,23 +11,34 @@ export class ClubRechargeContextService {
 
   async requireCurrentCustomer(
     storeId: number,
+    clubUserId: number,
     phone: string,
   ): Promise<ClubRechargeCustomerSnapshot> {
     const customer = await this.prisma.marketingCustomer.findFirst({
       where: {
         storeId,
-        phone,
         deletedAt: null,
+        OR: [{ clubUserId }, { clubUserId: null, phone }],
       },
       select: {
         id: true,
       },
     });
 
-    if (!customer) {
-      throw new NotFoundException(CLUB_MEMBER_NOT_FOUND_MESSAGE);
-    }
+    if (customer) return customer;
 
-    return customer;
+    const user = await this.prisma.user.findUnique({
+      where: { id: clubUserId },
+      select: { name: true, wechatPhone: true },
+    });
+    return this.prisma.marketingCustomer.create({
+      data: {
+        storeId,
+        clubUserId,
+        name: user?.name?.trim() || 'Club 顾客',
+        phone: user?.wechatPhone ?? null,
+      },
+      select: { id: true },
+    });
   }
 }
