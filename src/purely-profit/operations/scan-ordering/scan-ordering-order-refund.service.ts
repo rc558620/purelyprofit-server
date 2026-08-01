@@ -3,11 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ScanOrderCouponUsageStatus,
   ScanOrderFulfillmentStatus,
   ScanOrderPaymentAttemptStatus,
   ScanOrderPaymentStatus,
+  Prisma,
   ScanOrderStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -26,6 +28,7 @@ export class ScanOrderingOrderRefundHandlingService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly refundService: ScanOrderingRefundService,
+    private readonly configService: ConfigService,
   ) {}
 
   async rejectOrder(
@@ -66,7 +69,9 @@ export class ScanOrderingOrderRefundHandlingService {
 
     if (order.paymentStatus === 'paid') {
       const attempt = order.paymentAttempts?.[0] ?? null;
-      if (attempt?.paymentChannel === 'marketing_balance') {
+      const isProduction =
+        this.configService.get<string>('nodeEnv') === 'production';
+      if (attempt?.paymentChannel === 'marketing_balance' || !isProduction) {
         await this.refundMarketingBalanceOrder(
           user,
           order.id,
@@ -138,18 +143,6 @@ export class ScanOrderingOrderRefundHandlingService {
 
         throw new ConflictException('订单状态已变化，请刷新后重试');
       }
-
-      const items = await tx.scanOrderItem.findMany({
-        where: { orderId },
-        select: {
-          menuProductId: true,
-          quantity: true,
-          specs: { select: { specOptionId: true } },
-        },
-      });
-
-      await this.restoreProductStock(tx, storeId, items);
-      await this.restoreSpecStock(tx, items);
 
       await tx.scanOrderPaymentAttempt.updateMany({
         where: { orderId, status: ScanOrderPaymentAttemptStatus.succeeded },
@@ -256,6 +249,19 @@ export class ScanOrderingOrderRefundHandlingService {
           type: 'refund',
         },
       });
+      const paymentAttempt = await tx.scanOrderPaymentAttempt.findFirst({
+        where: {
+          orderId,
+          paymentChannel: 'marketing_balance',
+          status: 'succeeded',
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          merchantPaymentNo: true,
+          providerTransactionId: true,
+        },
+      });
       await tx.scanOrderPaymentAttempt.updateMany({
         where: {
           orderId,
@@ -264,16 +270,21 @@ export class ScanOrderingOrderRefundHandlingService {
         },
         data: { status: 'refunded' },
       });
-      const items = await tx.scanOrderItem.findMany({
-        where: { orderId },
-        select: {
-          menuProductId: true,
-          quantity: true,
-          specs: { select: { specOptionId: true } },
-        },
+      await this.refundService.createRefundTaskInTransaction(tx, {
+        orderId,
+        storeId,
+        paymentAttemptId: paymentAttempt?.id ?? null,
+        triggerType: 'merchant_reject',
+        refundAmount: balancePayment.amount,
+        merchantPaymentNo: paymentAttempt?.merchantPaymentNo ?? null,
+        providerTransactionId: paymentAttempt?.providerTransactionId ?? null,
+        operatorType: 'merchant',
+        operatorId: user.id,
+        failureReason: `余额原路退款：${reason}`,
       });
-      await this.restoreProductStock(tx, storeId, items);
-      await this.restoreSpecStock(tx, items);
+      await this.refundService.markRefundTaskSucceededInTransaction(tx, {
+        orderId,
+      });
       await tx.scanOrderCouponUsage.updateMany({
         where: {
           orderId,
@@ -297,6 +308,7 @@ export class ScanOrderingOrderRefundHandlingService {
           reason: `余额原路退款：${reason}`,
         },
       });
+      await this.archiveSessionWhenOrdersTerminal(tx, orderId, storeId);
       return tx.scanOrders.findUniqueOrThrow({
         where: { id: orderId },
         select: {
@@ -316,6 +328,62 @@ export class ScanOrderingOrderRefundHandlingService {
       status: updated.status,
       paymentStatus: updated.paymentStatus,
       fulfillmentStatus: updated.fulfillmentStatus,
+    });
+  }
+
+  private async archiveSessionWhenOrdersTerminal(
+    tx: Prisma.TransactionClient,
+    orderId: number,
+    storeId: number,
+  ): Promise<void> {
+    const order = await tx.scanOrders.findUnique({
+      where: { id: orderId },
+      select: { sessionId: true, session: { select: { tableId: true } } },
+    });
+    if (!order?.sessionId || !order.session?.tableId) return;
+    const activeOrderCount = await tx.scanOrders.count({
+      where: {
+        sessionId: order.sessionId,
+        deletedAt: null,
+        status: {
+          in: [
+            'pending_payment',
+            'pending_acceptance',
+            'preparing',
+            'served',
+            'refunding',
+          ],
+        },
+      },
+    });
+    if (activeOrderCount > 0) return;
+    const now = new Date();
+    const archived = await tx.scanOrderingSession.updateMany({
+      where: { id: order.sessionId, storeId, status: 'active' },
+      data: { status: 'checked_out', endedAt: now, archiveReason: 'cleared' },
+    });
+    if (archived.count === 0) return;
+    await tx.scanOrderingCartItem.updateMany({
+      where: { sessionId: order.sessionId, status: 'active' },
+      data: { status: 'removed' },
+    });
+    const tableId = order.session.tableId;
+    const otherActiveSessions = await tx.scanOrderingSession.count({
+      where: {
+        storeId,
+        tableId,
+        status: 'active',
+        deletedAt: null,
+      },
+    });
+    if (otherActiveSessions !== 0) return;
+    await tx.scanOrderingTable.updateMany({
+      where: {
+        id: tableId,
+        storeId,
+        status: { not: 'disabled' },
+      },
+      data: { status: 'empty', version: { increment: 1 } },
     });
   }
 
@@ -456,51 +524,5 @@ export class ScanOrderingOrderRefundHandlingService {
         fulfillmentStatus: order.fulfillmentStatus,
       });
     }
-  }
-
-  private async restoreProductStock(
-    tx: import('@prisma/client').Prisma.TransactionClient,
-    storeId: number,
-    items: Array<{ menuProductId: number; quantity: number }>,
-  ): Promise<void> {
-    await Promise.all(
-      items.map((item) =>
-        tx.scanOrderingMenuProduct.updateMany({
-          where: { id: item.menuProductId, storeId, stockMode: 'finite' },
-          data: {
-            stockQuantity: { increment: item.quantity },
-            salesCount: { decrement: item.quantity },
-            version: { increment: 1 },
-          },
-        }),
-      ),
-    );
-  }
-
-  private async restoreSpecStock(
-    tx: import('@prisma/client').Prisma.TransactionClient,
-    items: Array<{ quantity: number; specs: Array<{ specOptionId: number }> }>,
-  ): Promise<void> {
-    const quantities = new Map<number, number>();
-    for (const item of items) {
-      for (const spec of item.specs) {
-        quantities.set(
-          spec.specOptionId,
-          (quantities.get(spec.specOptionId) ?? 0) + item.quantity,
-        );
-      }
-    }
-
-    await Promise.all(
-      Array.from(quantities.entries()).map(([id, quantity]) =>
-        tx.scanOrderingSpecOption.updateMany({
-          where: { id, stockQuantity: { not: null } },
-          data: {
-            stockQuantity: { increment: quantity },
-            version: { increment: 1 },
-          },
-        }),
-      ),
-    );
   }
 }

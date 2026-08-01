@@ -461,10 +461,17 @@ model ScanOrderRefundTask {
   id                    Int                       @id @default(autoincrement()) @map("id")
   orderId               Int                       @map("order_id")
   storeId               Int                       @map("store_id")
+  customerId            Int?                      @map("customer_id")
   paymentAttemptId      Int?                      @map("payment_attempt_id")
   triggerType           ScanOrderRefundTrigger    @map("trigger_type")
   status                ScanOrderRefundTaskStatus @default(pending) @map("status")
+  refundNo              String                    @unique @map("refund_no") @db.VarChar(64)
   refundAmount          Int                       @map("refund_amount")
+  paymentChannel        String?                   @map("payment_channel") @db.VarChar(32)
+  reason                String?                   @map("reason") @db.VarChar(200)
+  pointsRefundStatus    String                    @default("not_supported") @map("points_refund_status") @db.VarChar(32)
+  retryCount            Int                       @default(0) @map("retry_count")
+  providerResponse      Json?                     @map("provider_response")
   merchantPaymentNo     String?                   @map("merchant_payment_no") @db.VarChar(64)
   providerTransactionId String?                   @map("provider_transaction_id") @db.VarChar(128)
   providerRefundNo      String?                   @map("provider_refund_no") @db.VarChar(64)
@@ -473,6 +480,7 @@ model ScanOrderRefundTask {
   operatorType          String                    @default("system") @map("operator_type") @db.VarChar
   operatorId            Int?                      @map("operator_id")
   triggeredAt           DateTime                  @default(now()) @map("triggered_at") @db.Timestamptz(6)
+  processedAt           DateTime?                 @map("processed_at") @db.Timestamptz(6)
   refundSucceededAt     DateTime?                 @map("refund_succeeded_at") @db.Timestamptz(6)
   createdAt             DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -481,6 +489,8 @@ model ScanOrderRefundTask {
   @@index([orderId])
   @@index([storeId, status])
   @@index([triggerType, status])
+  @@index([customerId, createdAt(sort: Desc)])
+  @@unique([orderId], map: "uq_scan_order_refund_task_active", where: raw("(status = ANY (ARRAY['pending'::\"ScanOrderRefundTaskStatus\", 'refunding'::\"ScanOrderRefundTaskStatus\", 'manual_pending'::\"ScanOrderRefundTaskStatus\"))"))
   @@map("scan_order_refund_tasks")
 }
 
@@ -642,4 +652,5 @@ enum ScanOrderRefundTaskStatus {
 enum ScanOrderRefundTrigger {
   anomalous_payment
   merchant_reject
+  club_user
 }

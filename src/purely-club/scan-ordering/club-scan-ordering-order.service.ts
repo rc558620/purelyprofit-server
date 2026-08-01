@@ -354,8 +354,24 @@ export class ClubScanOrderingOrderService {
             createdAt: true,
             paymentExpiresAt: true,
             acceptedAt: true,
+            paymentAttempts: {
+              where: { status: { in: ['succeeded', 'refunded'] } },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { paymentChannel: true },
+            },
+            refundTasks: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { status: true, refundSucceededAt: true },
+            },
+            balanceTransactions: {
+              where: { type: 'refund' },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { createdAt: true },
+            },
             items: {
-              take: 3,
               orderBy: { sortOrder: 'asc' },
               select: {
                 menuProductId: true,
@@ -369,11 +385,17 @@ export class ClubScanOrderingOrderService {
       },
     });
     const menuProductIds = sessions.flatMap((session) =>
-      session.orders.flatMap((order) => order.items.map((item) => item.menuProductId)),
+      session.orders.flatMap((order) =>
+        order.items.map((item) => item.menuProductId),
+      ),
     );
     const menuProducts = await this.prisma.scanOrderingMenuProduct.findMany({
       where: { id: { in: menuProductIds } },
-      select: { id: true, imageUrl: true, product: { select: { image: true } } },
+      select: {
+        id: true,
+        imageUrl: true,
+        product: { select: { image: true } },
+      },
     });
     const imageByMenuProductId = new Map(
       menuProducts.map((product) => [
@@ -431,7 +453,7 @@ export class ClubScanOrderingOrderService {
         },
         ...(query.cursor ? { id: { lt: query.cursor } } : {}),
       },
-      orderBy: [{ endedAt: 'desc' }, { id: 'desc' }],
+      orderBy: { id: 'desc' },
       take,
       select: {
         id: true,
@@ -447,6 +469,7 @@ export class ClubScanOrderingOrderService {
             tableCode: true,
             name: true,
             area: { select: { name: true } },
+            type: { select: { name: true } },
           },
         },
         orders: {
@@ -463,15 +486,94 @@ export class ClubScanOrderingOrderService {
             remark: true,
             createdAt: true,
             servedAt: true,
-            items: { select: { productNameSnapshot: true, quantity: true } },
-            refundTasks: { select: { status: true, refundAmount: true } },
+            paymentAttempts: {
+              where: { status: { in: ['succeeded', 'refunded'] } },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { paymentChannel: true },
+            },
+            items: {
+              orderBy: { sortOrder: 'asc' },
+              select: {
+                menuProductId: true,
+                productNameSnapshot: true,
+                productImageUrlSnapshot: true,
+                quantity: true,
+              },
+            },
+            refundTasks: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { status: true, refundSucceededAt: true },
+            },
+            balanceTransactions: {
+              where: { type: 'refund' },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { createdAt: true },
+            },
           },
         },
       },
     });
-    const hasMore = sessions.length === take;
-    const items = hasMore ? sessions.slice(0, -1) : sessions;
-    return { items, nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null };
+    const menuProductIds = sessions.flatMap((session) =>
+      session.orders.flatMap((order) =>
+        order.items.map((item) => item.menuProductId),
+      ),
+    );
+    const menuProducts = await this.prisma.scanOrderingMenuProduct.findMany({
+      where: { id: { in: menuProductIds } },
+      select: {
+        id: true,
+        imageUrl: true,
+        product: { select: { image: true } },
+      },
+    });
+    const imageByMenuProductId = new Map(
+      menuProducts.map((product) => [
+        product.id,
+        product.product?.image ?? product.imageUrl,
+      ]),
+    );
+    const hydratedSessions = sessions.map((session) => ({
+      ...session,
+      orders: session.orders.map((order) => ({
+        ...order,
+        items: order.items.map((item) => ({
+          ...item,
+          productImageUrlSnapshot:
+            item.productImageUrlSnapshot ??
+            imageByMenuProductId.get(item.menuProductId) ??
+            null,
+        })),
+      })),
+    }));
+    const hasMore = hydratedSessions.length === take;
+    const items = hasMore ? hydratedSessions.slice(0, -1) : hydratedSessions;
+    return {
+      items: items.map((session) => ({
+        ...session,
+        createdAt: session.createdAt.toISOString(),
+        endedAt: session.endedAt?.toISOString() ?? null,
+        orders: session.orders.map((order) => ({
+          ...order,
+          createdAt: order.createdAt.toISOString(),
+          servedAt: order.servedAt?.toISOString() ?? null,
+          paymentAttempts: order.paymentAttempts,
+          refundTasks: order.refundTasks.map((task) => ({
+            ...task,
+            refundSucceededAt:
+              task.refundSucceededAt?.toISOString() ??
+              order.balanceTransactions[0]?.createdAt.toISOString() ??
+              null,
+          })),
+          balanceTransactions: order.balanceTransactions.map((transaction) => ({
+            createdAt: transaction.createdAt.toISOString(),
+          })),
+        })),
+      })),
+      nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null,
+    };
   }
 
   async getOrder(user: AuthenticatedUser, orderId: number): Promise<unknown> {
@@ -480,6 +582,7 @@ export class ClubScanOrderingOrderService {
       include: {
         items: { include: { specs: true }, orderBy: { sortOrder: 'asc' } },
         paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 },
+        refundTasks: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
     if (!order) throw new NotFoundException('订单不存在');
