@@ -14,6 +14,7 @@ import { ClubOrderSettlementService } from './club-order-settlement.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubOrdersController } from './club-orders.controller';
 import { ClubOrderPreviewService } from './club-order-preview.service';
+import { ClubOrderPreviewBreakdownService } from './club-order-preview-breakdown.service';
 import { ClubOrdersService } from './club-orders.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
 
@@ -36,6 +37,7 @@ import { ClubPromotionRepository } from '../shared/club-promotion.repository';
     ClubOrderSettlementService,
     ClubPaymentLockService,
     ClubOrderPreviewService,
+    ClubOrderPreviewBreakdownService,
     ClubOrdersService,
     ClubPromotionRepository,
   ],

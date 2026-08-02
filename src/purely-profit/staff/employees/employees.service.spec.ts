@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { aValidDate, aNonEmptyArray } from '../../../spec-matchers';
+import { makeShanghaiMs } from '../../../shared/shanghai-time.utils';
 import {
   EmployeeGender,
   EmployeePayrollStatus,
@@ -28,6 +29,7 @@ import { EmployeesProfileReadService } from './employees-profile-read.service';
 import { EmployeesProfileWriteService } from './employees-profile-write.service';
 import { EmployeesSnapshotSyncService } from './employees-snapshot-sync.service';
 import { EmployeesService } from './employees.service';
+import { EmployeesSubAccountService } from './employees-sub-account.service';
 import { EmployeesShiftService } from './employees-shift.service';
 import { EmployeesShiftDefinitionService } from './employees-shift-definition.service';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
@@ -198,6 +200,7 @@ describe('EmployeesService', () => {
         EmployeesShiftService,
         EmployeesPayrollService,
         EmployeesPayrollReportService,
+        EmployeesSubAccountService,
         { provide: PrismaService, useValue: prismaService },
         {
           provide: CacheInvalidatorService,
@@ -1499,8 +1502,8 @@ describe('EmployeesService', () => {
       where: {
         storeId: 2,
         month: {
-          gte: new Date('2026-01-01T00:00:00.000Z'),
-          lt: new Date('2027-01-01T00:00:00.000Z'),
+          gte: new Date(makeShanghaiMs(2026, 0, 1)),
+          lt: new Date(makeShanghaiMs(2027, 0, 1)),
         },
         employee: {
           department: { equals: '前厅', mode: 'insensitive' },
@@ -2032,8 +2035,8 @@ describe('EmployeesService', () => {
       where: {
         storeId: 2,
         date: {
-          gte: new Date(Date.UTC(2026, 4, 1, 0, 0, 0, 0)),
-          lt: new Date(Date.UTC(2026, 5, 1, 0, 0, 0, 0)),
+          gte: new Date(makeShanghaiMs(2026, 4, 1)),
+          lt: new Date(makeShanghaiMs(2026, 5, 1)),
         },
         employee: {
           department: { equals: '前厅', mode: 'insensitive' },
@@ -2295,8 +2298,8 @@ describe('EmployeesService', () => {
         storeId: 2,
         status: EmployeePayrollStatus.confirmed,
         month: {
-          gte: new Date(2026, 0, 1, 0, 0, 0, 0),
-          lt: new Date(2027, 0, 1, 0, 0, 0, 0),
+          gte: new Date(makeShanghaiMs(2026, 0, 1)),
+          lt: new Date(makeShanghaiMs(2027, 0, 1)),
         },
         employee: {
           department: { equals: '前厅', mode: 'insensitive' },

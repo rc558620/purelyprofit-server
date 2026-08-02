@@ -5,6 +5,7 @@ import { StoresModule } from '../../stores/stores.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
+import { ProductsScanOrderingSyncService } from './products-scan-ordering-sync.service';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { ProductsService } from './products.service';
     StoresModule,
   ],
   controllers: [ProductsController],
-  providers: [ProductsService],
+  providers: [ProductsService, ProductsScanOrderingSyncService],
   exports: [ProductsService],
 })
 export class ProductsModule {}

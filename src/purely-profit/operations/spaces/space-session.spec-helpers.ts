@@ -4,7 +4,7 @@ import type { SalesRecordResponseDto } from '../sales-record/dto/sales-record.dt
 import type {
   SettleSpaceSessionParams,
   SettleSpaceSessionResult,
-} from './space-session-settlement.service';
+} from './space-session-settlement.types';
 import type { SpaceSessionSettlementRecord } from './space-sessions.types';
 
 export const createSpaceTestUser = (): AuthenticatedUser => ({

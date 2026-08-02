@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import type { EmployeePayroll, Prisma } from '@prisma/client';
+import { makeShanghaiMs } from '../../../shared/shanghai-time.utils';
 import { Money } from '../../../shared/money.utils';
 import { toNullableText } from './employees.utils';
 import type { UpdateEmployeePayrollDto } from './dto/employee-payroll.dto';
@@ -68,21 +69,17 @@ export function resolvePayrollMonthFilter(
   }
 
   if (!month || month === 0) {
-    // 过滤整年：从 year-01-01 到 year-12-31（下一年元旦前）
+    // 过滤整年：上海时区 year-01-01 到 year-12-31（下一年元旦前）
     return {
-      gte: new Date(`${year}-01-01T00:00:00.000Z`),
-      lt: new Date(`${year + 1}-01-01T00:00:00.000Z`),
+      gte: new Date(makeShanghaiMs(year, 0, 1)),
+      lt: new Date(makeShanghaiMs(year + 1, 0, 1)),
     };
   }
 
-  // 过滤特定月份：从 year-month-01 到 year-month-01 下一月
-  const nextYear = month === 12 ? year + 1 : year;
-  const nextMonth = month === 12 ? 1 : month + 1;
+  // 过滤特定月份：上海时区 year-month-01 到下一月 1 号
   return {
-    gte: new Date(`${year}-${String(month).padStart(2, '0')}-01T00:00:00.000Z`),
-    lt: new Date(
-      `${nextYear}-${String(nextMonth).padStart(2, '0')}-01T00:00:00.000Z`,
-    ),
+    gte: new Date(makeShanghaiMs(year, month - 1, 1)),
+    lt: new Date(makeShanghaiMs(year, month, 1)),
   };
 }
 

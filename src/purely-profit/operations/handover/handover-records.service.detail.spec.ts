@@ -151,7 +151,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       expect(result.orderItems).toEqual([
         expect.objectContaining({
           id: '21',
-          productName: '台位费（1分钟）',
+          productName: '收银台 · 台位费（1分钟）',
           totalRevenue: 5.55,
           operatorName: '空间自动结账',
         }),
@@ -318,7 +318,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
       });
       expect(result.orderItems?.[0]).toMatchObject({
         id: 'refund-session-58',
-        productName: 'A01',
+        productName: 'A01 · 退款',
         totalRevenue: -0.45,
         paymentLabel: '微信退款',
         operatorName: '空间自动结账',

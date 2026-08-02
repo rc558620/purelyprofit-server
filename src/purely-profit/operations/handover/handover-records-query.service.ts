@@ -20,6 +20,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import {
   addShanghaiDays,
   getShanghaiDayStartMs,
+  makeShanghaiMs,
 } from '../../../shared/shanghai-time.utils';
 
 @Injectable()
@@ -175,11 +176,12 @@ export class HandoverRecordsQueryService {
     const year = Number(yearText);
     const month = Number(monthText);
     const day = Number(dayText);
-    const startAt = new Date(year, month - 1, day, 0, 0, 0, 0);
+    // 按上海时区构造业务日边界，与 startOfDay/endOfDay 口径保持一致
+    const startAt = new Date(makeShanghaiMs(year, month - 1, day));
     if (Number.isNaN(startAt.getTime())) {
       throw new BadRequestException('日期格式不正确');
     }
-    const endAt = new Date(year, month - 1, day, 23, 59, 59, 999);
+    const endAt = new Date(makeShanghaiMs(year, month - 1, day, 23, 59, 59, 999));
     return { startAt, endAt };
   }
 

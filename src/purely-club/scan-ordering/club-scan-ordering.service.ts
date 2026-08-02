@@ -1,17 +1,16 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
-import { ServiceCallType } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
-import { ClubServiceCallService } from '../service-call/club-service-call.service';
+import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
+import { ClubScanOrderingServiceCallService } from './club-scan-ordering-service-call.service';
 import type { CreateClubScanSessionDto } from './dto/club-scan-ordering.dto';
 import type { UpdateClubScanSessionDto } from './dto/club-scan-ordering.dto';
 import type { CreateClubScanServiceCallDto } from './dto/club-scan-ordering.dto';
@@ -43,7 +42,8 @@ export class ClubScanOrderingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
-    private readonly serviceCallService: ClubServiceCallService,
+    private readonly menuQueryService: ClubScanOrderingMenuQueryService,
+    private readonly serviceCallQueryService: ClubScanOrderingServiceCallService,
   ) {}
 
   async resolveQrToken(qrToken: string): Promise<unknown> {
@@ -227,109 +227,15 @@ export class ClubScanOrderingService {
     });
   }
 
-  async getMenu(user: AuthenticatedUser, sessionId: number): Promise<unknown> {
-    const session = await this.prisma.scanOrderingSession.findFirst({
-      where: {
-        id: sessionId,
-        clubUserId: user.id,
-        status: 'active',
-        expiresAt: { gt: new Date() },
-        deletedAt: null,
-      },
-    });
-    if (!session)
-      throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
-    const categories = await this.prisma.scanOrderingMenuCategory.findMany({
-      where: {
-        storeId: session.storeId,
-        isActive: true,
-        deletedAt: null,
-        products: { some: { deletedAt: null } },
-      },
-      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-      include: {
-        products: {
-          where: { isActive: true, deletedAt: null },
-          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: {
-            product: {
-              select: {
-                stock: true,
-                image: true,
-                isActive: true,
-                deletedAt: true,
-              },
-            },
-            specGroups: {
-              where: { isActive: true },
-              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-              include: {
-                options: {
-                  where: { isActive: true },
-                  orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-    return {
-      menuVersion: this.hash(
-        JSON.stringify(categories.map((item) => [item.id, item.version])),
-      ),
-      categories: categories.map((category) => ({
-        ...category,
-        products: category.products.map((product) => ({
-          ...product,
-          imageUrl: product.product?.image ?? product.imageUrl,
-          stockMode: product.product ? 'finite' : product.stockMode,
-          stockQuantity: product.product
-            ? product.product.stock
-            : product.stockQuantity,
-          product: undefined,
-        })),
-      })),
-    };
+  getMenu(user: AuthenticatedUser, sessionId: number): Promise<unknown> {
+    return this.menuQueryService.getMenu(user, sessionId);
   }
 
-  async createServiceCall(
+  createServiceCall(
     user: AuthenticatedUser,
     dto: CreateClubScanServiceCallDto,
   ): Promise<unknown> {
-    const session = await this.prisma.scanOrderingSession.findFirst({
-      where: {
-        id: dto.sessionId,
-        clubUserId: user.id,
-        status: 'active',
-        expiresAt: { gt: new Date() },
-        deletedAt: null,
-      },
-    });
-    if (!session)
-      throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
-    if (!session.tableId) throw new ConflictException('点餐会话未绑定桌台');
-    const table = await this.prisma.scanOrderingTable.findUnique({
-      where: { id: session.tableId },
-      select: {
-        name: true,
-        area: { select: { name: true } },
-        type: { select: { name: true } },
-      },
-    });
-    const locationLabel = [table?.area?.name, table?.type?.name, table?.name]
-      .filter((value): value is string => Boolean(value?.trim()))
-      .join(' · ');
-    const result = await this.serviceCallService.createFromScanOrdering({
-      clubUserId: user.id,
-      storeId: session.storeId,
-      tableId: session.tableId,
-      sessionId: session.id,
-      type: dto.type as ServiceCallType,
-      remark: dto.remark,
-      locationLabel,
-    });
-    return result.serviceCall;
+    return this.serviceCallQueryService.createServiceCall(user, dto);
   }
 
   private async consumeScanToken(

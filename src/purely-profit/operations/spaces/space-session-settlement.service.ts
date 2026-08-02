@@ -4,7 +4,6 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { buildCheckoutSettlementData } from './space-session-checkout-data.shared';
@@ -16,65 +15,23 @@ import { Money } from '../../../shared/money.utils';
 import { PrismaService, TX_TIMEOUT_LONG } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RedisService } from '../../../redis/redis.service';
-import type { SalesRecordResponseDto } from '../sales-record/dto/sales-record.dto';
-import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types';
-import type {
-  SpaceSessionRecord,
-  SpaceSessionRenewRecord,
-  SpaceSessionSettlement,
-  SpaceSessionSettlementRecord,
-} from './space-sessions.types';
+import {
+  acquireSettlementLock,
+  releaseSettlementLock,
+} from './space-session-settlement-lock.shared';
 import type { SpaceReservationSessionSnapshot } from './space-reservations.types';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import {
   mapRenewRecordRows,
   mapSessionItemRows,
 } from './space-sessions.mapper';
-import type { SpaceTimeFeeModeValue } from './dto/space-session.constants';
-import type { SpaceStatusValue } from './spaces.constants';
 import { createAutoCheckoutSystemUser } from './space-session-auto-checkout.service';
 import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
 import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
-
-export interface SettleSpaceSessionParams {
-  session: SpaceSessionSettlementRecord;
-  checkoutAt: number;
-  paymentMethod: SalesPaymentMethodValue;
-  note?: string;
-  settlement: SpaceSessionSettlement;
-  renewRecords: SpaceSessionRenewRecord[];
-  // ①②④ 修复：结账侧团购/券/平台结算字段，传入后更新 prepaid* 列
-  grouponCode?: string;
-  grouponPlatform?: string;
-  customerPaymentMethod?: string;
-  settlementChannel?: string;
-  voucherCode?: string;
-  voucherPlatform?: string;
-  voucherFaceAmount?: number; // 元，落库转分
-  // ① 修复：平台结算字段，落新列
-  settlementStatus?: string;
-  platformReceivable?: number; // 元，落库转分
-  platformSettledAmount?: number; // 元，落库转分
-  platformFee?: number; // 元，落库转分
-  // ⑤ 修复：台位费口径审计字段
-  timeFeeMode?: SpaceTimeFeeModeValue;
-  /**
-   * BUG-3 fix: 跳过将 voucherFaceAmount 写入 session.prepaidVoucherFaceAmount。
-   * 当 voucherFaceAmount 来自续费团购回退（renewGrouponFallback）时设为 true，
-   * 防止续费券面金额污染预付池字段，保持「两池独立」不变量。
-   */
-  skipPrepaidVoucherPersistence?: boolean;
-}
-
-export interface SettleSpaceSessionResult {
-  session: SpaceSessionRecord;
-  cancelledReservationId: number | null;
-  salesOrder: SalesRecordResponseDto;
-  /** 事务内推导的结算后空间状态（BUG-8 修复：保证与写入一致） */
-  spaceStatus: SpaceStatusValue;
-}
-
-const SPACE_SESSION_SETTLEMENT_LOCK_TTL_SECONDS = 30;
+import type {
+  SettleSpaceSessionParams,
+  SettleSpaceSessionResult,
+} from './space-session-settlement.types';
 
 @Injectable()
 export class SpaceSessionSettlementService {
@@ -93,7 +50,7 @@ export class SpaceSessionSettlementService {
     user: AuthenticatedUser,
     params: SettleSpaceSessionParams,
   ): Promise<SettleSpaceSessionResult> {
-    const lock = await this.acquireSettlementLock(params.session.id);
+    const lock = await acquireSettlementLock(this.redisService, params.session.id);
     if (!lock) {
       throw new ConflictException('当前会话正在结账中，请稍后重试');
     }
@@ -359,52 +316,12 @@ export class SpaceSessionSettlementService {
       return updated;
     } finally {
       try {
-        await this.releaseSettlementLock(lock);
+        await releaseSettlementLock(this.redisService, lock);
       } catch (error) {
         this.logger.warn(
           `releaseSettlementLock failed sessionId=${params.session.id} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
         );
       }
     }
-  }
-
-  private async acquireSettlementLock(
-    sessionId: number,
-  ): Promise<{ key: string; token: string } | null> {
-    const token = randomUUID();
-    const lockKey = `space:settlement:session:${sessionId}`;
-    const result = await this.redisService
-      .getClient()
-      .set(
-        lockKey,
-        token,
-        'EX',
-        SPACE_SESSION_SETTLEMENT_LOCK_TTL_SECONDS,
-        'NX',
-      );
-
-    return result === 'OK'
-      ? {
-          key: lockKey,
-          token,
-        }
-      : null;
-  }
-
-  private async releaseSettlementLock(lock: {
-    key: string;
-    token: string;
-  }): Promise<void> {
-    await this.redisService.getClient().eval(
-      `
-        if redis.call('GET', KEYS[1]) == ARGV[1] then
-          return redis.call('DEL', KEYS[1])
-        end
-        return 0
-      `,
-      1,
-      lock.key,
-      lock.token,
-    );
   }
 }

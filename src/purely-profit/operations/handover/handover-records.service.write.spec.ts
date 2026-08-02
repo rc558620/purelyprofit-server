@@ -232,6 +232,16 @@ describe('HandoverRecordsService - 写操作', () => {
 
     it('F1: 同一员工当天已有已完成交班记录时，应抛出 ConflictException', async () => {
       prismaService.storeHandoverRecord.findFirst.mockResolvedValue(mockRecord);
+      // 定位 pending 记录所属班次：createdAt（2026-05-13 10:00）落在早班 09:00-18:00 内
+      prismaService.employeeShift.findMany.mockResolvedValue([
+        {
+          id: 1,
+          employeeId: 10,
+          startTime: '09:00',
+          endTime: '18:00',
+          date: new Date('2026-05-13T00:00:00.000Z'),
+        },
+      ]);
       prismaService.storeHandoverRecord.count.mockResolvedValue(1);
 
       await expect(

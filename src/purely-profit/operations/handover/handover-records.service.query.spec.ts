@@ -1,3 +1,4 @@
+import { makeShanghaiMs } from '../../../shared/shanghai-time.utils';
 import { setupHandoverRecordsSpec } from './handover-records.spec-helpers';
 
 describe('HandoverRecordsService - 查询接口', () => {
@@ -41,6 +42,29 @@ describe('HandoverRecordsService - 查询接口', () => {
       expect(result).toHaveLength(2);
       expect(result[0].employeeId).toBe(20);
       expect(result[1].employeeId).toBe(30);
+    });
+  });
+
+  describe('listHandoverRecordSummaries', () => {
+    it('按日期筛选时使用上海时区日界（buildDateFilter）', async () => {
+      prismaService.storeHandoverRecord.findMany.mockResolvedValue([]);
+      prismaService.storeHandoverRecord.count.mockResolvedValue(0);
+
+      await ctx.service.listHandoverRecordSummaries(ownerUser, {
+        date: '2026-06-04',
+      });
+
+      expect(prismaService.storeHandoverRecord.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            createdAt: {
+              // 上海 2026-06-04 00:00 ~ 23:59:59.999（旧实现为进程本地时区/UTC 零点）
+              gte: new Date(makeShanghaiMs(2026, 5, 4)),
+              lte: new Date(makeShanghaiMs(2026, 5, 4, 23, 59, 59, 999)),
+            },
+          }),
+        }),
+      );
     });
   });
 

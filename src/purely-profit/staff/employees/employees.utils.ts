@@ -1,5 +1,10 @@
 import { PaginationMetaDto } from '../../stores/dto/store-response.dto';
-import { formatShanghaiYearMonth } from '../../../shared/shanghai-time.utils';
+import {
+  formatShanghaiYearMonth,
+  getShanghaiMonth,
+  getShanghaiYear,
+  makeShanghaiMs,
+} from '../../../shared/shanghai-time.utils';
 
 type DecimalLike = {
   toString(): string;
@@ -83,14 +88,21 @@ export function getCurrentMonthString(now = new Date()): string {
   return formatShanghaiYearMonth(now.getTime());
 }
 
+/** 指定业务月的上海时区「当月 1 日 00:00」（month 为 1-based）。 */
 export function getMonthStart(year: number, month: number): Date {
-  return new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+  return new Date(makeShanghaiMs(year, month - 1, 1));
 }
 
+/** 指定业务月的上海时区「次月 1 日 00:00」（month 为 1-based，作排他上界）。 */
 export function getMonthEndExclusive(year: number, month: number): Date {
-  return new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+  return new Date(makeShanghaiMs(year, month, 1));
 }
 
+/**
+ * 按上海时区构建业务月/年查询范围。
+ * 排班（employeeShift.date，上海日界）与工资单（EmployeePayroll.month，
+ * UTC 月初零点，上海墙钟落在同月）的月界过滤均以此为统一口径。
+ */
 export function buildDateRange(
   year?: number,
   month?: number,
@@ -101,8 +113,8 @@ export function buildDateRange(
 
   if (!month || month === 0) {
     return {
-      gte: new Date(year, 0, 1, 0, 0, 0, 0),
-      lt: new Date(year + 1, 0, 1, 0, 0, 0, 0),
+      gte: new Date(makeShanghaiMs(year, 0, 1)),
+      lt: new Date(makeShanghaiMs(year + 1, 0, 1)),
     };
   }
 
@@ -112,14 +124,18 @@ export function buildDateRange(
   };
 }
 
+/** 当前业务月（上海时区判定）的月初零点。 */
 export function getStartOfCurrentMonth(now = new Date()): Date {
+  const nowMs = now.getTime();
   return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
+    makeShanghaiMs(getShanghaiYear(nowMs), getShanghaiMonth(nowMs), 1),
   );
 }
 
 /**
  * 将 YYYY-MM 格式字符串转为 UTC 月初 Date（与 EmployeePayroll.month DateTime 字段匹配）。
+ * 注意：EmployeePayroll.month 存储约定为「UTC 当月 1 号零点」（其上海墙钟落在同月，
+ * 用上海月界范围查询同样能命中），此处为兼容存量数据保持存储口径不变。
  * 调用方应先通过 assertPayrollMonthFormat 校验格式合法性。
  */
 export function normalizeMonthValue(month: string): Date {

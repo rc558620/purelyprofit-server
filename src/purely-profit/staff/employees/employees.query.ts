@@ -5,6 +5,11 @@ import {
   type Prisma,
 } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
+import {
+  getShanghaiMonth,
+  getShanghaiYear,
+  makeShanghaiMs,
+} from '../../../shared/shanghai-time.utils';
 import { calculateLeaveDays } from './employees-leave.domain';
 
 export interface QueryEmployeesPageParams {
@@ -60,10 +65,14 @@ export async function queryEmployeesOverviewMetrics(
   prisma: PrismaService,
   params: QueryEmployeesOverviewParams,
 ): Promise<QueryEmployeesOverviewResult> {
-  // 计算下月月初，用于筛选与本月有交集的请假记录
+  // 计算下月月初（上海时区），用于筛选与本月有交集的请假记录
   const ms = params.monthStart;
   const nextMonthStart = new Date(
-    Date.UTC(ms.getUTCFullYear(), ms.getUTCMonth() + 1, 1, 0, 0, 0, 0),
+    makeShanghaiMs(
+      getShanghaiYear(ms.getTime()),
+      getShanghaiMonth(ms.getTime()) + 1,
+      1,
+    ),
   );
 
   const [
@@ -99,7 +108,9 @@ export async function queryEmployeesOverviewMetrics(
     prisma.employeePayroll.count({
       where: {
         storeId: params.storeId,
-        month: params.monthStart,
+        // 上海月界范围匹配：EmployeePayroll.month 存储为 UTC 月初零点（上海墙钟在同月），
+        // 范围匹配与精确匹配结果一致，同时保证概览的「本月」判定按上海时区。
+        month: { gte: ms, lt: nextMonthStart },
         status: EmployeePayrollStatus.draft,
       },
     }),

@@ -10,6 +10,8 @@ import {
   createStoreSubAccountServiceMock,
   createSubAccountUser,
 } from './hover.spec-helpers';
+import { HandoverRecordBatchPreloaderService } from './handover-record-batch-preloader.service';
+import { HandoverRecordOperatorProfileService } from './handover-record-operator-profile.service';
 import { HandoverRecordsDetailService } from './handover-records-detail.service';
 import { HandoverRecordsQueryService } from './handover-records-query.service';
 import { HandoverRecordsRevenueService } from './handover-records-revenue.service';
@@ -75,6 +77,8 @@ export const setupHandoverRecordsSpec = (): {
         HandoverRecordsDetailService,
         HandoverRecordsRevenueService,
         HandoverRecordsViewContextService,
+        HandoverRecordBatchPreloaderService,
+        HandoverRecordOperatorProfileService,
         { provide: PrismaService, useValue: prismaService },
         {
           provide: StoreSubAccountService,

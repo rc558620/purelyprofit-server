@@ -2,6 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubScanOrderingCartPricingService } from './club-scan-ordering-cart-pricing.service';
 import { ClubScanOrderingCheckoutService } from './club-scan-ordering-checkout.service';
+import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-history.service';
+import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
+import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
 import { ClubScanOrderingOrderService } from './club-scan-ordering-order.service';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
@@ -25,6 +28,9 @@ describe('ClubScanOrderingOrderService', () => {
         { provide: ScanOrderingRealtimeService, useValue: {} },
         { provide: ClubScanOrderingCartPricingService, useValue: {} },
         { provide: ClubScanOrderingCheckoutService, useValue: {} },
+        ClubScanOrderingOrderQueryService,
+        ClubScanOrderingOrderHistoryService,
+        ClubScanOrderingOrderPreviewService,
       ],
     }).compile();
     service = module.get(ClubScanOrderingOrderService);

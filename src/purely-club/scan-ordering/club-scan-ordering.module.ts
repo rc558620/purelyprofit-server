@@ -9,7 +9,12 @@ import { RedisModule } from '../../redis/redis.module';
 import { ClubScanOrderingController } from './club-scan-ordering.controller';
 import { ClubScanOrderingService } from './club-scan-ordering.service';
 import { ClubScanOrderingCartService } from './club-scan-ordering-cart.service';
+import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
+import { ClubScanOrderingServiceCallService } from './club-scan-ordering-service-call.service';
 import { ClubScanOrderingOrderService } from './club-scan-ordering-order.service';
+import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-history.service';
+import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
+import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
 import { ClubScanOrderingCartPricingService } from './club-scan-ordering-cart-pricing.service';
 import { ClubScanOrderingCheckoutService } from './club-scan-ordering-checkout.service';
 import { ScanOrderingGateway } from './scan-ordering.gateway';
@@ -35,7 +40,12 @@ import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-m
   providers: [
     ClubScanOrderingService,
     ClubScanOrderingCartService,
+    ClubScanOrderingMenuQueryService,
+    ClubScanOrderingServiceCallService,
     ClubScanOrderingOrderService,
+    ClubScanOrderingOrderQueryService,
+    ClubScanOrderingOrderHistoryService,
+    ClubScanOrderingOrderPreviewService,
     ClubScanOrderingCartPricingService,
     ClubScanOrderingCheckoutService,
     ClubScanOrderingMarketingCustomerService,

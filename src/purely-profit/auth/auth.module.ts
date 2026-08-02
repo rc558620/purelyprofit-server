@@ -8,6 +8,8 @@ import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthProfitAccountLookupService } from './auth-profit-account-lookup.service';
 import { AuthBanGuardService } from './auth-ban-guard.service';
 import { AuthMembershipResolverService } from './auth-membership-resolver.service';
+import { AuthMembershipQueryService } from './auth-membership-query.service';
+import { AuthLegacyOwnerRepairService } from './auth-legacy-owner-repair.service';
 import { AuthStaffActivationService } from './auth-staff-activation.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthAuthenticationService } from './auth-authentication.service';
@@ -62,6 +64,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthProfitAccountLookupService,
     AuthBanGuardService,
     AuthMembershipResolverService,
+    AuthMembershipQueryService,
+    AuthLegacyOwnerRepairService,
     AuthStaffActivationService,
     AuthAuthenticationService,
     AuthCapabilityService,

@@ -12,6 +12,7 @@ describe('EmployeesAccessService', () => {
   const prismaService = {
     employee: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
   };
 
@@ -106,7 +107,7 @@ describe('EmployeesAccessService', () => {
   });
 
   it('findEmployeeOrThrow 返回员工并校验门店权限', async () => {
-    prismaService.employee.findUnique.mockResolvedValue({
+    prismaService.employee.findFirst.mockResolvedValue({
       id: 11,
       storeId: 8,
       empNo: 'EMP011',
@@ -123,7 +124,7 @@ describe('EmployeesAccessService', () => {
   });
 
   it('findEmployeeOrThrow 在员工不存在时抛出异常', async () => {
-    prismaService.employee.findUnique.mockResolvedValue(null);
+    prismaService.employee.findFirst.mockResolvedValue(null);
 
     await expect(service.findEmployeeOrThrow(user, 999)).rejects.toBeInstanceOf(
       NotFoundException,

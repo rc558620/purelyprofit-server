@@ -14,8 +14,10 @@ import { ScanOrderingDashboardService } from './scan-ordering-dashboard.service'
 import { ScanOrderingPricingService } from './scan-ordering-pricing.service';
 import { ScanOrderingQrService } from './scan-ordering-qr.service';
 import { ScanOrderingTableService } from './scan-ordering-table.service';
+import { ScanOrderingTableQueryService } from './scan-ordering-table-query.service';
 import { ScanOrderingOrderService } from './scan-ordering-order.service';
 import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-refund.service';
+import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
 import { ScanOrderingOrderStateMachineService } from './scan-ordering-order-machine.service';
 import { ScanOrderingOrderTransitionEngineService } from './scan-ordering-order-transition.service';
 import { ScanOrderingServiceCallService } from './scan-ordering-service-call.service';
@@ -49,8 +51,10 @@ import { ScanOrderingSessionArchiveService } from './scan-ordering-session-archi
     ScanOrderingPricingService,
     ScanOrderingQrService,
     ScanOrderingTableService,
+    ScanOrderingTableQueryService,
     ScanOrderingOrderService,
     ScanOrderingOrderRefundHandlingService,
+    ScanOrderingOrderRefundBalanceService,
     ScanOrderingOrderTransitionEngineService,
     ScanOrderingOrderStateMachineService,
     ScanOrderingServiceCallService,

@@ -556,7 +556,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     expect(result.orderItems[0]).toMatchObject({
       id: 'refund-session-88',
-      productName: '很多事',
+      productName: '很多事 · 退款',
       quantity: 1,
       totalRevenue: -538.35, // prepaid(547.60) - consumption(9.25) = 538.35
       paymentLabel: '支付宝退款',
@@ -568,7 +568,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
 
     expect(result.orderItems[1]).toMatchObject({
       id: '3',
-      productName: '大厅A02台位费（1分钟）',
+      productName: '大厅A02 · 台位费（1分钟）',
       totalRevenue: 11.1,
       paymentLabel: '支付宝',
       paymentColor: '#1677ff',
@@ -639,7 +639,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
     expect(result.orderItems[0]).toMatchObject({
       id: 'refund-session-99',
-      productName: 'A01',
+      productName: 'A01 · 退款',
       totalRevenue: -88.8,
       paymentLabel: '微信退款',
       operatorName: '空间自动结账',
@@ -677,7 +677,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
 
     expect(result.orderItems).toHaveLength(1);
     expect(result.orderItems[0]).toMatchObject({
-      productName: '大厅A03预付款',
+      productName: '大厅A03 · 预付款',
       totalRevenue: 666, // 预付款 = 已收预付款，展示正数
       paymentLabel: '微信',
       paymentColor: '#22c55e',
@@ -723,7 +723,7 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
     });
 
     expect(result.orderItems[0]).toMatchObject({
-      productName: '大厅A04台位费（1分钟）',
+      productName: '大厅A04 · 台位费（1分钟）',
       totalRevenue: 9.25,
       paymentLabel: '支付宝',
       paymentColor: '#1677ff',

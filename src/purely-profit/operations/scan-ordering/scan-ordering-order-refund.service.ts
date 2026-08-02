@@ -16,6 +16,7 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
+import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
 
 /**
  * 商家扫码点餐订单退款处理服务。
@@ -27,6 +28,7 @@ export class ScanOrderingOrderRefundHandlingService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly refundService: ScanOrderingRefundService,
+    private readonly balanceRefundService: ScanOrderingOrderRefundBalanceService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -220,123 +222,10 @@ export class ScanOrderingOrderRefundHandlingService {
     version: number,
     reason: string,
   ): Promise<void> {
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const balancePayment = await tx.scanOrderBalanceTransaction.findUnique({
-        where: { orderId_type: { orderId, type: 'payment' } },
-        select: { customerId: true, amount: true },
-      });
-      if (!balancePayment)
-        throw new ConflictException('未找到原余额支付记录，无法退款');
-      const order = await tx.scanOrders.updateMany({
-        where: {
-          id: orderId,
-          storeId,
-          version,
-          status: 'pending_acceptance',
-          paymentStatus: 'paid',
-        },
-        data: {
-          status: 'rejected',
-          paymentStatus: 'refunded',
-          fulfillmentStatus: 'closed',
-          rejectReason: reason,
-          version: { increment: 1 },
-        },
-      });
-      if (order.count === 0)
-        throw new ConflictException('订单状态已变化，请刷新后重试');
-      await tx.marketingCustomer.update({
-        where: { id: balancePayment.customerId },
-        data: { balance: { increment: balancePayment.amount } },
-      });
-      await tx.scanOrderBalanceTransaction.create({
-        data: {
-          orderId,
-          customerId: balancePayment.customerId,
-          amount: balancePayment.amount,
-          type: 'refund',
-        },
-      });
-      const paymentAttempt = await tx.scanOrderPaymentAttempt.findFirst({
-        where: {
-          orderId,
-          paymentChannel: 'marketing_balance',
-          status: 'succeeded',
-        },
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          merchantPaymentNo: true,
-          providerTransactionId: true,
-        },
-      });
-      await tx.scanOrderPaymentAttempt.updateMany({
-        where: {
-          orderId,
-          paymentChannel: 'marketing_balance',
-          status: 'succeeded',
-        },
-        data: { status: 'refunded' },
-      });
-      await this.refundService.createRefundTaskInTransaction(tx, {
-        orderId,
-        storeId,
-        paymentAttemptId: paymentAttempt?.id ?? null,
-        triggerType: 'merchant_reject',
-        refundAmount: balancePayment.amount,
-        merchantPaymentNo: paymentAttempt?.merchantPaymentNo ?? null,
-        providerTransactionId: paymentAttempt?.providerTransactionId ?? null,
-        operatorType: 'merchant',
-        operatorId: user.id,
-        failureReason: `余额原路退款：${reason}`,
-      });
-      await this.refundService.markRefundTaskSucceededInTransaction(tx, {
-        orderId,
-      });
-      await tx.scanOrderCouponUsage.updateMany({
-        where: {
-          orderId,
-          status: {
-            in: [
-              ScanOrderCouponUsageStatus.locked,
-              ScanOrderCouponUsageStatus.consumed,
-            ],
-          },
-        },
-        data: { status: ScanOrderCouponUsageStatus.refunded },
-      });
-      await tx.scanOrderStatusHistory.create({
-        data: {
-          orderId,
-          storeId,
-          fromStatus: 'pending_acceptance',
-          toStatus: 'rejected',
-          operatorType: 'merchant',
-          operatorId: user.id,
-          reason: `余额原路退款：${reason}`,
-        },
-      });
-      return tx.scanOrders.findUniqueOrThrow({
-        where: { id: orderId },
-        select: {
-          id: true,
-          storeId: true,
-          sessionId: true,
-          status: true,
-          paymentStatus: true,
-          fulfillmentStatus: true,
-          refundTasks: {
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-            select: {
-              refundSucceededAt: true,
-              processedAt: true,
-              triggeredAt: true,
-            },
-          },
-        },
-      });
-    });
+    const updated = await this.balanceRefundService.refund(
+      { orderId, storeId, version, reason },
+      user.id,
+    );
     this.realtimeService.publishOrderStatusChanged({
       orderId: updated.id,
       storeId: updated.storeId,

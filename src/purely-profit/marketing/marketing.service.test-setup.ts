@@ -14,6 +14,7 @@ import { MarketingCustomerListService } from './marketing-customer-list.service'
 import { MarketingCustomerPointsService } from './marketing-customer-points.service';
 import { MarketingCustomersService } from './marketing-customers.service';
 import { MarketingMemberLevelSettingsService } from './marketing-member-level-settings.service';
+import { MarketingMemberLevelSettingsStoreService } from './marketing-member-level-settings.store.service';
 import { MarketingOverviewService } from './marketing-overview.service';
 import { MarketingPointsRecordsService } from './marketing-points-records.service';
 import { MarketingProductCategoriesService } from './marketing-product-categories.service';
@@ -298,6 +299,7 @@ export async function createMarketingServiceTestingContext(): Promise<MarketingS
       MarketingProductsFacadeService,
       MarketingSharedService,
       MarketingMemberLevelSettingsService,
+      MarketingMemberLevelSettingsStoreService,
       MarketingOverviewService,
       MarketingCustomersService,
       MarketingCustomerListService,
