@@ -1,5 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  addShanghaiDays,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { ListScanOrderingOrdersDto } from './dto/scan-ordering-order-query.dto';
@@ -106,8 +110,9 @@ export class ScanOrderingOrderService {
     } else {
       // 否则使用当天范围
       const now = new Date();
-      startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      const dayStartMs = getShanghaiDayStartMs(now.getTime());
+      startOfDay = new Date(dayStartMs);
+      endOfDay = new Date(addShanghaiDays(dayStartMs, 1));
     }
 
     // 构建动态查询条件
@@ -117,7 +122,19 @@ export class ScanOrderingOrderService {
         gte: startOfDay,
         lt: endOfDay,
       },
-      ...(query.status ? { status: query.status as unknown } : {}),
+      ...(query.status
+        ? { status: query.status as unknown }
+        : {
+            status: {
+              in: [
+                'pending_payment',
+                'pending_acceptance',
+                'preparing',
+                'served',
+                'refunding',
+              ],
+            },
+          }),
       ...(query.tableId ? { tableId: query.tableId } : {}),
       ...(query.cursor ? { id: { lt: query.cursor } } : {}),
     };
@@ -153,6 +170,10 @@ export class ScanOrderingOrderService {
             productNameSnapshot: true,
             productImageUrlSnapshot: true,
             quantity: true,
+            specs: {
+              select: { specOptionNameSnapshot: true },
+              orderBy: { id: 'asc' },
+            },
           },
           orderBy: { id: 'asc' },
         },
@@ -246,7 +267,13 @@ export class ScanOrderingOrderService {
           itemSummary: order.items
             .map(
               (item: (typeof order.items)[number]) =>
-                `${item.productNameSnapshot}×${item.quantity}`,
+                `${item.productNameSnapshot}${
+                  (item.specs ?? []).length > 0
+                    ? `（${(item.specs ?? [])
+                        .map((spec) => spec.specOptionNameSnapshot)
+                        .join('、')}）`
+                    : ''
+                }×${item.quantity}`,
             )
             .join('、'),
           remark: order.remark,

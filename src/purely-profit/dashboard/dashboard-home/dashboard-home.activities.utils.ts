@@ -3,6 +3,7 @@ import {
   formatMonthDayLabel,
 } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
+import { formatShanghaiTime } from '../../../shared/shanghai-time.utils';
 import {
   LEAVE_TYPE_LABELS,
   MAX_HOME_ACTIVITY_COUNT,
@@ -378,8 +379,7 @@ function appendRecentOrderDrafts(
     }
 
     const orderDate = new Date(order.date);
-    const hours = String(orderDate.getHours()).padStart(2, '0');
-    const minutes = String(orderDate.getMinutes()).padStart(2, '0');
+    const [hours, minutes] = formatShanghaiTime(orderDate.getTime()).split(':');
     const valueText = `+¥${formatMoneyText(revenue)}`;
 
     drafts.push({

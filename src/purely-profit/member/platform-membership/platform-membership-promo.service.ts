@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { getShanghaiMonthStartMs } from '../../../shared/shanghai-time.utils';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { PROMO_BEAN_REWARDS_BY_LEVEL } from './platform-membership.constants';
 import type { PartnerLevelValue } from './platform-membership.types';
@@ -113,10 +114,8 @@ export class PlatformMembershipPromoService {
         partnerId = partner.id;
       }
 
-      // 计算合伙人等级
-      const monthStart = new Date();
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
+      // 计算合伙人等级（自然月按上海时区切分，避免跨月瞬间等级判错）
+      const monthStart = new Date(getShanghaiMonthStartMs(Date.now()));
       const monthChargedCount =
         await this.prisma.storeMembershipPromoRecord.count({
           where: {
@@ -273,10 +272,8 @@ export class PlatformMembershipPromoService {
         partnerId = partner.id;
       }
 
-      // 4. 查询合伙人当前等级（通过本月已充值推广人数计算）
-      const monthStart = new Date();
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
+      // 4. 查询合伙人当前等级（通过本月已充值推广人数计算，按上海时区切月）
+      const monthStart = new Date(getShanghaiMonthStartMs(Date.now()));
       const monthChargedCount =
         await this.prisma.storeMembershipPromoRecord.count({
           where: {

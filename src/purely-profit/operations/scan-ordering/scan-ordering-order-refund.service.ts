@@ -9,7 +9,6 @@ import {
   ScanOrderFulfillmentStatus,
   ScanOrderPaymentAttemptStatus,
   ScanOrderPaymentStatus,
-  Prisma,
   ScanOrderStatus,
 } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -189,6 +188,15 @@ export class ScanOrderingOrderRefundHandlingService {
           status: true,
           paymentStatus: true,
           fulfillmentStatus: true,
+          refundTasks: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              refundSucceededAt: true,
+              processedAt: true,
+              triggeredAt: true,
+            },
+          },
         },
       });
     });
@@ -308,7 +316,6 @@ export class ScanOrderingOrderRefundHandlingService {
           reason: `余额原路退款：${reason}`,
         },
       });
-      await this.archiveSessionWhenOrdersTerminal(tx, orderId, storeId);
       return tx.scanOrders.findUniqueOrThrow({
         where: { id: orderId },
         select: {
@@ -318,6 +325,15 @@ export class ScanOrderingOrderRefundHandlingService {
           status: true,
           paymentStatus: true,
           fulfillmentStatus: true,
+          refundTasks: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              refundSucceededAt: true,
+              processedAt: true,
+              triggeredAt: true,
+            },
+          },
         },
       });
     });
@@ -328,62 +344,11 @@ export class ScanOrderingOrderRefundHandlingService {
       status: updated.status,
       paymentStatus: updated.paymentStatus,
       fulfillmentStatus: updated.fulfillmentStatus,
-    });
-  }
-
-  private async archiveSessionWhenOrdersTerminal(
-    tx: Prisma.TransactionClient,
-    orderId: number,
-    storeId: number,
-  ): Promise<void> {
-    const order = await tx.scanOrders.findUnique({
-      where: { id: orderId },
-      select: { sessionId: true, session: { select: { tableId: true } } },
-    });
-    if (!order?.sessionId || !order.session?.tableId) return;
-    const activeOrderCount = await tx.scanOrders.count({
-      where: {
-        sessionId: order.sessionId,
-        deletedAt: null,
-        status: {
-          in: [
-            'pending_payment',
-            'pending_acceptance',
-            'preparing',
-            'served',
-            'refunding',
-          ],
-        },
-      },
-    });
-    if (activeOrderCount > 0) return;
-    const now = new Date();
-    const archived = await tx.scanOrderingSession.updateMany({
-      where: { id: order.sessionId, storeId, status: 'active' },
-      data: { status: 'checked_out', endedAt: now, archiveReason: 'cleared' },
-    });
-    if (archived.count === 0) return;
-    await tx.scanOrderingCartItem.updateMany({
-      where: { sessionId: order.sessionId, status: 'active' },
-      data: { status: 'removed' },
-    });
-    const tableId = order.session.tableId;
-    const otherActiveSessions = await tx.scanOrderingSession.count({
-      where: {
-        storeId,
-        tableId,
-        status: 'active',
-        deletedAt: null,
-      },
-    });
-    if (otherActiveSessions !== 0) return;
-    await tx.scanOrderingTable.updateMany({
-      where: {
-        id: tableId,
-        storeId,
-        status: { not: 'disabled' },
-      },
-      data: { status: 'empty', version: { increment: 1 } },
+      refundSucceededAt:
+        updated.refundTasks[0]?.refundSucceededAt?.toISOString() ??
+        updated.refundTasks[0]?.processedAt?.toISOString() ??
+        updated.refundTasks[0]?.triggeredAt?.toISOString() ??
+        null,
     });
   }
 

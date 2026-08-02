@@ -1,5 +1,15 @@
 import type { InventoryAdjustType } from '@prisma/client';
 import { PaginationMetaDto } from '../stores/dto/store-response.dto';
+import {
+  formatShanghaiDayLabel,
+  getShanghaiDayStartMs,
+  getShanghaiMonthStartMs,
+  getShanghaiQuarterStartMs,
+  getShanghaiWeekStartMs,
+  getShanghaiYearStartMs,
+} from '../../shared/shanghai-time.utils';
+
+const DAY_MS = 86_400_000;
 
 // 从 shared 重新导出统一金额值对象与工具函数，保持现有导入路径向后兼容
 export {
@@ -210,43 +220,31 @@ export function resolvePagination(
 }
 
 export function getStartOfDay(timestampMs: number): Date {
-  const date = new Date(timestampMs);
-  date.setHours(0, 0, 0, 0);
-  return date;
+  return new Date(getShanghaiDayStartMs(timestampMs));
 }
 
 export function getEndOfDay(timestampMs: number): Date {
-  const date = new Date(timestampMs);
-  date.setHours(23, 59, 59, 999);
-  return date;
+  return new Date(getShanghaiDayStartMs(timestampMs) + DAY_MS - 1);
 }
 
 export function getDayStartTimestamp(timestampMs: number): number {
-  return getStartOfDay(timestampMs).getTime();
+  return getShanghaiDayStartMs(timestampMs);
 }
 
 export function getDayEndTimestamp(timestampMs: number): number {
-  return getEndOfDay(timestampMs).getTime();
+  return getShanghaiDayStartMs(timestampMs) + DAY_MS - 1;
 }
 
 export function getWeekStartTimestamp(timestampMs: number): number {
-  const date = new Date(timestampMs);
-  const day = date.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + diff);
-  date.setHours(0, 0, 0, 0);
-  return date.getTime();
+  return getShanghaiWeekStartMs(timestampMs);
 }
 
 export function getMonthStartTimestamp(timestampMs: number): number {
-  const date = new Date(timestampMs);
-  return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+  return getShanghaiMonthStartMs(timestampMs);
 }
 
 export function getQuarterStartTimestamp(timestampMs: number): number {
-  const date = new Date(timestampMs);
-  const quarter = Math.floor(date.getMonth() / 3);
-  return new Date(date.getFullYear(), quarter * 3, 1).getTime();
+  return getShanghaiQuarterStartMs(timestampMs);
 }
 
 /**
@@ -271,10 +269,7 @@ export function buildPreviousRangeByDuration(
 }
 
 export function formatMonthDayLabel(timestampMs: number): string {
-  const date = new Date(timestampMs);
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${month}/${day}`;
+  return formatShanghaiDayLabel(timestampMs);
 }
 
 export function buildPurchaseDateRange(
@@ -286,31 +281,25 @@ export function buildPurchaseDateRange(
 ): { gte: Date; lte: Date } | undefined {
   switch (period) {
     case 'week': {
-      const current = new Date(now);
-      const day = current.getDay();
-      const diff = day === 0 ? -6 : 1 - day;
-      current.setDate(current.getDate() + diff);
-      current.setHours(0, 0, 0, 0);
       return {
-        gte: current,
+        gte: new Date(getShanghaiWeekStartMs(now.getTime())),
         lte: new Date(now),
       };
     }
     case 'month':
       return {
-        gte: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
+        gte: new Date(getShanghaiMonthStartMs(now.getTime())),
         lte: new Date(now),
       };
     case 'quarter': {
-      const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
       return {
-        gte: new Date(now.getFullYear(), quarterStartMonth, 1, 0, 0, 0, 0),
+        gte: new Date(getShanghaiQuarterStartMs(now.getTime())),
         lte: new Date(now),
       };
     }
     case 'year':
       return {
-        gte: new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0),
+        gte: new Date(getShanghaiYearStartMs(now.getTime())),
         lte: new Date(now),
       };
     case 'custom_month':

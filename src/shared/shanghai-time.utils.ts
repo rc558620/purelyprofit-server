@@ -109,3 +109,131 @@ export function formatYearMonthKeyFromYm(
 ): string {
   return `${year}/${String(monthIndex + 1).padStart(2, '0')}`;
 }
+
+/** 读取任意 UTC 毫秒瞬间在上海本地时区下的分钟（0-59）。 */
+export function getShanghaiMinute(timestampMs: number): number {
+  return new Date(timestampMs + SHANGHAI_OFFSET_MS).getUTCMinutes();
+}
+
+/** 读取任意 UTC 毫秒瞬间在上海本地时区下的月份（0-11）。 */
+export function getShanghaiMonth(timestampMs: number): number {
+  return new Date(timestampMs + SHANGHAI_OFFSET_MS).getUTCMonth();
+}
+
+/** 读取任意 UTC 毫秒瞬间在上海本地时区下的年份。 */
+export function getShanghaiYear(timestampMs: number): number {
+  return new Date(timestampMs + SHANGHAI_OFFSET_MS).getUTCFullYear();
+}
+
+/** 读取任意 UTC 毫秒瞬间在上海本地时区下的「日」（1-31）。 */
+export function getShanghaiDayOfMonth(timestampMs: number): number {
+  return new Date(timestampMs + SHANGHAI_OFFSET_MS).getUTCDate();
+}
+
+/**
+ * 以上海墙钟字段构造 UTC 毫秒瞬间。
+ * 等价于「上海时区的 year-month-day hh:mm:ss.ms 是哪个 UTC 瞬间」。
+ * 支持溢出进位（如 day=32 自动进入下月），语义与 Date.UTC 一致。
+ */
+export function makeShanghaiMs(
+  year: number,
+  monthIndex: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+  second = 0,
+  ms = 0,
+): number {
+  return (
+    Date.UTC(year, monthIndex, day, hour, minute, second, ms) -
+    SHANGHAI_OFFSET_MS
+  );
+}
+
+/** 上海时区下在原时间戳基础上偏移 n 天（保留当日墙钟时分秒）。 */
+export function addShanghaiDays(timestampMs: number, days: number): number {
+  const shanghai = new Date(timestampMs + SHANGHAI_OFFSET_MS);
+  shanghai.setUTCDate(shanghai.getUTCDate() + days);
+  return shanghai.getTime() - SHANGHAI_OFFSET_MS;
+}
+
+/**
+ * 上海时区下偏移 n 个月，月末溢出时钳制到目标月最后一天。
+ * 例如 3/31 减 1 个月 → 2/28（而非回绕到 3/3）。
+ */
+export function addShanghaiMonths(timestampMs: number, months: number): number {
+  const shanghai = new Date(timestampMs + SHANGHAI_OFFSET_MS);
+  const day = shanghai.getUTCDate();
+  shanghai.setUTCDate(1);
+  shanghai.setUTCMonth(shanghai.getUTCMonth() + months);
+  const daysInTargetMonth = new Date(
+    Date.UTC(shanghai.getUTCFullYear(), shanghai.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  shanghai.setUTCDate(Math.min(day, daysInTargetMonth));
+  return shanghai.getTime() - SHANGHAI_OFFSET_MS;
+}
+
+/** 上海时区下偏移 n 年（2/29 溢出时钳制到 2/28）。 */
+export function addShanghaiYears(timestampMs: number, years: number): number {
+  return addShanghaiMonths(timestampMs, years * 12);
+}
+
+/** 判断两个 UTC 毫秒瞬间在上海时区下是否属于同一天。 */
+export function isSameShanghaiDay(leftMs: number, rightMs: number): boolean {
+  return getShanghaiDayStartMs(leftMs) === getShanghaiDayStartMs(rightMs);
+}
+
+/** 上海时区的 `YYYY-MM-DD` 日期串。 */
+export function formatShanghaiDate(timestampMs: number): string {
+  const date = new Date(timestampMs + SHANGHAI_OFFSET_MS);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/** 上海时区的 `YYYY-MM-DD HH:mm` 日期时间串。 */
+export function formatShanghaiDateTime(timestampMs: number): string {
+  const date = new Date(timestampMs + SHANGHAI_OFFSET_MS);
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  return `${formatShanghaiDate(timestampMs)} ${hours}:${minutes}`;
+}
+
+/** 上海时区的 `HH:mm` 时刻串。 */
+export function formatShanghaiTime(timestampMs: number): string {
+  const date = new Date(timestampMs + SHANGHAI_OFFSET_MS);
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
+/** 上海时区的 `YYYY-MM` 月份 key。 */
+export function formatShanghaiYearMonth(timestampMs: number): string {
+  const date = new Date(timestampMs + SHANGHAI_OFFSET_MS);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+/**
+ * 解析 `YYYY-MM-DD` / `YYYY/MM/DD` / `YYYY.MM.DD` 为上海时区当日零点的 UTC 毫秒。
+ * 解析失败返回 NaN，由调用方决定如何处理。
+ */
+export function parseShanghaiDateText(dateText: string): number {
+  const normalized = dateText.trim().replace(/[./]/g, '-');
+  const [yearText, monthText, dayText] = normalized.split('-');
+  const year = Number.parseInt(yearText ?? '', 10);
+  const month = Number.parseInt(monthText ?? '', 10);
+  const day = Number.parseInt(dayText ?? '', 10);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    return Number.NaN;
+  }
+
+  return makeShanghaiMs(year, month - 1, day);
+}

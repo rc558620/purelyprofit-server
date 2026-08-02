@@ -1,6 +1,13 @@
 import { toTimestampMs } from '../../commerce/commerce.utils';
 import { Money, calcPercentOfTotal } from '../../../shared/money.utils';
 import {
+  addShanghaiDays,
+  formatShanghaiDate,
+  formatShanghaiDayLabel,
+  formatShanghaiYearMonth,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
+import {
   COST_CATEGORY_META,
   type CostRecordResponseSource,
   type CostReportCostRow,
@@ -93,13 +100,11 @@ export function buildCostReportDetailRows(
 }
 
 function formatCostReportDate(date: Date): string {
-  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(
-    date.getDate(),
-  ).padStart(2, '0')}`;
+  return formatShanghaiDate(date.getTime()).replace(/-/g, '/');
 }
 
 function formatPayrollMonth(month: Date): string {
-  return `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
+  return formatShanghaiYearMonth(month.getTime());
 }
 
 /**
@@ -113,15 +118,14 @@ export function buildCostDashboardTrend(
 
   // 生成近 7 天的日期区间
   const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(now);
-    d.setDate(now.getDate() - (6 - i));
-    d.setHours(0, 0, 0, 0);
-    const start = d.getTime();
+    // 以上海时区的当日零点为基准向前推，避免服务器本地时区导致日桶错位
+    const start = addShanghaiDays(
+      getShanghaiDayStartMs(now.getTime()),
+      -(6 - i),
+    );
     const end = start + 86_400_000;
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
     return {
-      label: `${mm}/${dd}`,
+      label: formatShanghaiDayLabel(start),
       start,
       end,
       fixedCents: Money.zero(),

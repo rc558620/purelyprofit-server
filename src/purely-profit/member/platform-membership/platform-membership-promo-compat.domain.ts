@@ -1,5 +1,11 @@
 import { DAY_MS } from './platform-membership.constants';
 import {
+  getShanghaiDayOfMonth,
+  getShanghaiMonth,
+  getShanghaiYear,
+  makeShanghaiMs,
+} from '../../../shared/shanghai-time.utils';
+import {
   buildApprovedPartnerResponse,
   buildMembershipInfo,
 } from './membership-profile.mapper';
@@ -92,22 +98,22 @@ export function normalizePromoDetailCompatDate(
   }
 
   const parsed = parsePromoDetailDateParts(value);
-  const now = new Date();
+  const nowMs = Date.now();
 
   if (queryMode === 'day') {
-    const year = parsed?.year ?? now.getFullYear();
-    const month = parsed?.month ?? now.getMonth() + 1;
-    const day = parsed?.day ?? now.getDate();
+    const year = parsed?.year ?? getShanghaiYear(nowMs);
+    const month = parsed?.month ?? getShanghaiMonth(nowMs) + 1;
+    const day = parsed?.day ?? getShanghaiDayOfMonth(nowMs);
     return `${year}/${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`;
   }
 
   if (queryMode === 'month') {
-    const year = parsed?.year ?? now.getFullYear();
-    const month = parsed?.month ?? now.getMonth() + 1;
+    const year = parsed?.year ?? getShanghaiYear(nowMs);
+    const month = parsed?.month ?? getShanghaiMonth(nowMs) + 1;
     return `${year}/${String(month).padStart(2, '0')}`;
   }
 
-  const year = parsed?.year ?? now.getFullYear();
+  const year = parsed?.year ?? getShanghaiYear(nowMs);
   return String(year);
 }
 
@@ -186,13 +192,13 @@ export function resolvePromoDetailCompatRange(
   }
 
   const parsed = parsePromoDetailDateParts(normalizedDate);
-  const now = new Date();
-  const year = parsed?.year ?? now.getFullYear();
-  const month = parsed?.month ?? now.getMonth() + 1;
-  const day = parsed?.day ?? now.getDate();
+  const nowMs = Date.now();
+  const year = parsed?.year ?? getShanghaiYear(nowMs);
+  const month = parsed?.month ?? getShanghaiMonth(nowMs) + 1;
+  const day = parsed?.day ?? getShanghaiDayOfMonth(nowMs);
 
   if (queryMode === 'day') {
-    const start = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+    const start = makeShanghaiMs(year, month - 1, day);
     return {
       start,
       end: start + DAY_MS,
@@ -200,17 +206,15 @@ export function resolvePromoDetailCompatRange(
   }
 
   if (queryMode === 'month') {
-    const start = new Date(year, month - 1, 1, 0, 0, 0, 0).getTime();
     return {
-      start,
-      end: new Date(year, month, 1, 0, 0, 0, 0).getTime(),
+      start: makeShanghaiMs(year, month - 1, 1),
+      end: makeShanghaiMs(year, month, 1),
     };
   }
 
-  const start = new Date(year, 0, 1, 0, 0, 0, 0).getTime();
   return {
-    start,
-    end: new Date(year + 1, 0, 1, 0, 0, 0, 0).getTime(),
+    start: makeShanghaiMs(year, 0, 1),
+    end: makeShanghaiMs(year + 1, 0, 1),
   };
 }
 

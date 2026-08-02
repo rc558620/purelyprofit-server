@@ -246,28 +246,44 @@ export class ScanOrderingTableService {
         select: { id: true },
       });
       if (!table) throw new NotFoundException('扫码点餐桌台不存在');
-      const sessions = await tx.scanOrderingSession.findMany({
-        where: { storeId, tableId, status: 'active', deletedAt: null },
+      // 有效 active 会话是当前用餐轮次的锚点；同桌 left 会话仅在该锚点存在时
+      // 才属于本轮，避免历史遗留 left 会话重新占用已清空的桌台。
+      const activeSessions = await tx.scanOrderingSession.findMany({
+        where: {
+          storeId,
+          tableId,
+          status: 'active',
+          deletedAt: null,
+          expiresAt: { gt: now },
+        },
         select: { id: true },
       });
-      if (sessions.length === 0)
-        throw new ConflictException('当前桌台不存在活跃用餐会话，无法清桌');
+      if (activeSessions.length === 0) {
+        throw new ConflictException('当前桌台不存在有效用餐会话，无法清桌');
+      }
+      const leftSessions = await tx.scanOrderingSession.findMany({
+        where: { storeId, tableId, status: 'left' },
+        select: { id: true },
+      });
+      const sessions = [...activeSessions, ...leftSessions];
       const orders = await tx.scanOrders.findMany({
         where: {
           sessionId: { in: sessions.map((session) => session.id) },
           deletedAt: null,
-          status: { notIn: ['rejected', 'cancelled', 'completed'] },
+          // 已退款或退款处理中订单不再参与桌台履约；与桌台抽屉的可见订单
+          // 保持同一范围，避免界面只显示已出餐却被隐藏退款单阻塞清桌。
+          status: {
+            notIn: ['rejected', 'cancelled', 'completed', 'refunding'],
+          },
         },
         select: { status: true },
       });
       const blockingOrderCount = orders.filter(
         (order) => order.status !== 'served',
       ).length;
-      if (orders.length === 0 || blockingOrderCount > 0) {
+      if (blockingOrderCount > 0) {
         throw new ConflictException(
-          orders.length === 0
-            ? '当前桌台没有已出餐订单，无法清桌'
-            : `当前桌台仍有 ${blockingOrderCount} 笔订单未出餐，全部出餐后才可清桌`,
+          `当前桌台仍有 ${blockingOrderCount} 笔订单未出餐，全部出餐后才可清桌`,
         );
       }
       await tx.scanOrderingCartItem.updateMany({
@@ -280,9 +296,17 @@ export class ScanOrderingTableService {
       await tx.scanOrderingSession.updateMany({
         where: {
           id: { in: sessions.map((session) => session.id) },
-          status: 'active',
+          status: { in: ['active', 'left'] },
         },
         data: { status: 'checked_out', endedAt: now, archiveReason: 'cleared' },
+      });
+      await tx.scanOrders.updateMany({
+        where: {
+          sessionId: { in: sessions.map((session) => session.id) },
+          deletedAt: null,
+          status: 'served',
+        },
+        data: { status: 'completed', completedAt: now },
       });
       await tx.scanOrderingTable.update({
         where: { id: tableId },
@@ -306,22 +330,34 @@ export class ScanOrderingTableService {
         area: { select: { name: true } },
         type: { select: { name: true } },
         sessions: {
-          where: { status: 'active', expiresAt: { gt: new Date() } },
+          // left 会话属于清桌前的同一轮用餐，即使软删除仍要保留其待履约订单。
+          // active 会话必须有效，过期会话不应继续占用桌台。
+          where: {
+            OR: [
+              { status: 'left' },
+              {
+                status: 'active',
+                deletedAt: null,
+                expiresAt: { gt: new Date() },
+              },
+            ],
+          },
           orderBy: [{ lastActiveAt: 'desc' }, { id: 'desc' }],
           select: {
             id: true,
             createdAt: true,
+            expiresAt: true,
             guestCount: true,
             status: true,
             orders: {
               where: {
+                deletedAt: null,
                 status: {
                   in: [
                     'pending_payment',
                     'pending_acceptance',
                     'preparing',
                     'served',
-                    'refunding',
                   ],
                 },
               },
@@ -332,6 +368,7 @@ export class ScanOrderingTableService {
                 status: true,
                 paymentStatus: true,
                 fulfillmentStatus: true,
+                guestCount: true,
                 payableAmount: true,
                 createdAt: true,
               },
@@ -342,16 +379,22 @@ export class ScanOrderingTableService {
     });
 
     return tables.map((table) => {
-      const activeSession = table.sessions[0] ?? null;
-      const activeOrders = table.sessions.flatMap((session) => session.orders);
-      const fulfillmentOrders = activeOrders.filter(
-        (order) => order.status !== 'refunding',
+      const now = new Date();
+      const activeSessions = table.sessions.filter(
+        (session) => session.status === 'active' && session.expiresAt > now,
       );
-      const guestCount = table.sessions.reduce(
-        (total, session) => total + session.guestCount,
+      const activeSession = activeSessions[0] ?? null;
+      // left 会话不能单独恢复已清空桌台：它只有在存在有效 active 会话时，
+      // 才作为同一轮次的一部分参与订单汇总与清桌校验。
+      const currentRoundSessions = activeSession ? table.sessions : [];
+      const activeOrders = currentRoundSessions.flatMap(
+        (session) => session.orders,
+      );
+      const fulfillmentOrders = activeOrders;
+      const guestCount = activeOrders.reduce(
+        (total, order) => total + (order.guestCount ?? 0),
         0,
       );
-      const isOccupied = activeSession !== null;
       const allOrdersServed =
         fulfillmentOrders.length > 0 &&
         fulfillmentOrders.every(
@@ -372,12 +415,12 @@ export class ScanOrderingTableService {
         status:
           table.status === 'disabled'
             ? 'disabled'
-            : isOccupied
+            : activeSession
               ? 'dining'
               : 'empty',
-        activeOrderCount: isOccupied ? activeOrders.length : 0,
-        guestCount: isOccupied ? guestCount : 0,
-        activeSession: isOccupied
+        activeOrderCount: activeOrders.length,
+        guestCount,
+        activeSession: activeSession
           ? {
               id: activeSession.id,
               startedAt: activeSession.createdAt.toISOString(),
@@ -386,13 +429,14 @@ export class ScanOrderingTableService {
             }
           : null,
         clearability: {
-          canClear: isOccupied && blockingOrderCount === 0,
+          canClear: activeSession !== null && blockingOrderCount === 0,
           blockingOrderCount,
-          reason: !isOccupied
-            ? '当前为空桌'
-            : blockingOrderCount > 0
-              ? `当前仍有 ${blockingOrderCount} 笔订单未出餐，全部出餐后才可清桌`
-              : null,
+          reason:
+            activeSession === null
+              ? '当前为空桌'
+              : blockingOrderCount > 0
+                ? `当前仍有 ${blockingOrderCount} 笔订单未出餐，全部出餐后才可清桌`
+                : null,
         },
         activeOrders: activeOrders.map((order) => ({
           id: order.id,

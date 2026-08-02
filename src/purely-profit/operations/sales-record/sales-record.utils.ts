@@ -1,6 +1,20 @@
 import { BadRequestException } from '@nestjs/common';
-import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
+import {
+  getDayEndTimestamp,
+  getEndOfDay,
+  getStartOfDay,
+} from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
+import {
+  addShanghaiDays,
+  formatShanghaiDate,
+  getShanghaiMonth,
+  getShanghaiMonthStartMs,
+  getShanghaiQuarterStartMs,
+  getShanghaiWeekStartMs,
+  getShanghaiYear,
+  makeShanghaiMs,
+} from '../../../shared/shanghai-time.utils';
 import type { SalesRecordPeriodValue } from './sales-record.types';
 
 export interface SalesRecordQueryInput {
@@ -34,52 +48,29 @@ export function buildCurrentRange(
         end: now,
       };
     case 'week': {
-      const start = new Date(now);
-      const day = start.getDay();
-      const diff = day === 0 ? -6 : 1 - day;
-      start.setDate(start.getDate() + diff);
-      start.setHours(0, 0, 0, 0);
       return {
-        start: start.getTime(),
+        start: getShanghaiWeekStartMs(now),
         end: now,
       };
     }
     case 'month': {
-      const current = new Date(now);
       return {
-        start: new Date(
-          current.getFullYear(),
-          current.getMonth(),
-          1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
+        start: getShanghaiMonthStartMs(now),
         end: now,
       };
     }
     case 'quarter': {
-      const current = new Date(now);
-      const quarterStartMonth = Math.floor(current.getMonth() / 3) * 3;
       return {
-        start: new Date(
-          current.getFullYear(),
-          quarterStartMonth,
-          1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
+        start: getShanghaiQuarterStartMs(now),
         end: now,
       };
     }
     case 'year': {
-      const year = query.year ?? new Date().getFullYear();
+      const year = query.year ?? getShanghaiYear(now);
       return {
-        start: new Date(year, 0, 1, 0, 0, 0, 0).getTime(),
-        end: new Date(year, 11, 31, 23, 59, 59, 999).getTime(),
+        start: makeShanghaiMs(year, 0, 1),
+        // 该年上海时区 12/31 23:59:59.999 = 次年元旦零点 -1ms
+        end: makeShanghaiMs(year + 1, 0, 1) - 1,
       };
     }
     case 'all':
@@ -137,94 +128,39 @@ export function buildPreviousRange(
 
   if (period === 'today') {
     // 今日对比昨日整天
-    const yesterdayStart = new Date(currentRange.start);
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-    const yesterdayEnd = getEndOfDay(yesterdayStart.getTime());
+    const yesterdayStart = addShanghaiDays(currentRange.start, -1);
     return {
-      start: yesterdayStart.getTime(),
-      end: yesterdayEnd.getTime(),
+      start: yesterdayStart,
+      end: getDayEndTimestamp(yesterdayStart),
     };
   }
 
   if (period === 'week') {
     // 本周对比上周整周
-    const weekStart = new Date(currentRange.start);
-    const prevWeekStart = new Date(weekStart);
-    prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-    const prevWeekEnd = getEndOfDay(
-      new Date(
-        prevWeekStart.getFullYear(),
-        prevWeekStart.getMonth(),
-        prevWeekStart.getDate() + 6,
-        0,
-        0,
-        0,
-        0,
-      ).getTime(),
-    );
+    const prevWeekStart = addShanghaiDays(currentRange.start, -7);
     return {
-      start: prevWeekStart.getTime(),
-      end: prevWeekEnd.getTime(),
+      start: prevWeekStart,
+      end: getDayEndTimestamp(addShanghaiDays(prevWeekStart, 6)),
     };
   }
 
   if (period === 'month') {
-    const currentStart = new Date(currentRange.start);
-    const previousStart = new Date(
-      currentStart.getFullYear(),
-      currentStart.getMonth() - 1,
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-    // 上月最后一整天的末尾
-    const previousEnd = getEndOfDay(
-      new Date(
-        currentStart.getFullYear(),
-        currentStart.getMonth(),
-        0,
-        0,
-        0,
-        0,
-        0,
-      ).getTime(),
-    );
+    const year = getShanghaiYear(currentRange.start);
+    const month = getShanghaiMonth(currentRange.start);
     return {
-      start: previousStart.getTime(),
-      end: previousEnd.getTime(),
+      start: makeShanghaiMs(year, month - 1, 1),
+      // 上月最后一整天的末尾 = 本月 1 号零点 -1ms
+      end: makeShanghaiMs(year, month, 1) - 1,
     };
   }
 
   if (period === 'quarter') {
-    const currentStart = new Date(currentRange.start);
-    const currentQuarterStartMonth = currentStart.getMonth();
-    const prevQuarterStartMonth = currentQuarterStartMonth - 3;
-    const previousStart = new Date(
-      currentStart.getFullYear(),
-      prevQuarterStartMonth,
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-    // 上季度最后一整天的末尾 = 当季度第一天往前 1 毫秒对应的整天末尾
-    const previousEnd = getEndOfDay(
-      new Date(
-        currentStart.getFullYear(),
-        currentQuarterStartMonth,
-        0,
-        0,
-        0,
-        0,
-        0,
-      ).getTime(),
-    );
+    const year = getShanghaiYear(currentRange.start);
+    const quarterStartMonth = getShanghaiMonth(currentRange.start);
     return {
-      start: previousStart.getTime(),
-      end: previousEnd.getTime(),
+      start: makeShanghaiMs(year, quarterStartMonth - 3, 1),
+      // 上季度末尾 = 本季度首日零点 -1ms
+      end: makeShanghaiMs(year, quarterStartMonth, 1) - 1,
     };
   }
 
@@ -241,11 +177,10 @@ export function buildPreviousRange(
 // ---------------------------------------------------------------------------
 
 export function buildOrderNo(date: Date, seq: number): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  // 订单号日期段必须与营业日（上海时区）一致
+  const dateSegment = formatShanghaiDate(date.getTime()).replace(/-/g, '');
   const serial = String(seq).padStart(3, '0');
-  return `#${year}${month}${day}-${serial}`;
+  return `#${dateSegment}-${serial}`;
 }
 
 // ---------------------------------------------------------------------------

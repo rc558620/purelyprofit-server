@@ -42,16 +42,17 @@ export const buildOrderNo = (
   orderType: ClubOrderTypeValue,
   now: number,
 ): string => {
-  const date = new Date(now);
   const prefix = orderType === 'recharge' ? 'RC' : 'SV';
+  // 订单号时间段按上海时区生成，保证与营业日一致
+  const shanghai = new Date(now + 8 * 60 * 60_000);
   const serial = [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-    pad(date.getHours()),
-    pad(date.getMinutes()),
-    pad(date.getSeconds()),
-    pad(date.getMilliseconds(), 3),
+    shanghai.getUTCFullYear(),
+    pad(shanghai.getUTCMonth() + 1),
+    pad(shanghai.getUTCDate()),
+    pad(shanghai.getUTCHours()),
+    pad(shanghai.getUTCMinutes()),
+    pad(shanghai.getUTCSeconds()),
+    pad(shanghai.getUTCMilliseconds(), 3),
     randomBytes(2).toString('hex').toUpperCase(),
   ].join('');
 

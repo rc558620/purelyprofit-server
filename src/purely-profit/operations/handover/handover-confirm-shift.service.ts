@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { EmployeeShiftType, HandoverStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { addShanghaiDays } from '../../../shared/shanghai-time.utils';
 import { StoreSubAccountService } from '../../member/platform-membership/store-sub-account.service';
 import { HandoverConfirmShiftFallbackService } from './handover-confirm-shift-fallback.service';
 import {
@@ -80,8 +81,9 @@ export class HandoverConfirmShiftService {
     // 不复用 pickShiftRecord（其 active 窗口以 handoverAt 为基准，对昨天班次语义错误），
     // 改为基于各班次自身 shift.date 计算时段，筛选未交班后取最早已过期班次（与规则1对齐）。
     if (!matched && typeof options.shiftReferenceAt !== 'number') {
-      const oneDayBefore = new Date(shiftLookupDate);
-      oneDayBefore.setDate(oneDayBefore.getDate() - 1);
+      const oneDayBefore = new Date(
+        addShanghaiDays(shiftLookupDate.getTime(), -1),
+      );
       const extendedRange = {
         gte: startOfDay(oneDayBefore),
         lte: endOfDay(shiftLookupDate),
@@ -245,10 +247,10 @@ export class HandoverConfirmShiftService {
     forwardDays = 0,
   ): Promise<ShiftRecordRow[]> {
     const lower = startOfDay(referenceDate);
-    const upper = endOfDay(referenceDate);
-    if (forwardDays > 0) {
-      upper.setDate(upper.getDate() + forwardDays);
-    }
+    const upper =
+      forwardDays > 0
+        ? new Date(addShanghaiDays(endOfDay(referenceDate).getTime(), forwardDays))
+        : endOfDay(referenceDate);
     return this.prisma.employeeShift.findMany({
       where: {
         storeId,

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { getShanghaiDayStartMs } from '../../../shared/shanghai-time.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   CreateEmployeeShiftDefinitionDto,
@@ -126,8 +127,7 @@ export class EmployeesShiftDefinitionService {
     );
 
     // #9 修复：删除班次定义前检查是否有未来排班引用（历史排班 onDelete: SetNull 自动断开）
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = new Date(getShanghaiDayStartMs(Date.now()));
     const futureRefCount = await this.prisma.employeeShift.count({
       where: {
         shiftDefinitionId: existing.id,

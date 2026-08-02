@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { Money, calcPercentOfTotal } from '../../../shared/money.utils';
+import {
+  addShanghaiDays,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -147,9 +151,10 @@ export class CostsReadDashboardService {
     // trend：近 7 日数据（与当前筛选周期解耦，固定为「相对今天」的窗口），
     // 仅沿用 storeId 与 typeFilter，不再叠加 period 的日期上/下界，
     // 否则自定义历史区间（如过去的 custom_range）会与 gte=近7日 无交集而返回空趋势。
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-    sevenDaysAgo.setHours(0, 0, 0, 0);
+    // 上海时区的「今天零点」向前推 6 天，保证与前端展示的日历日一致
+    const sevenDaysAgo = new Date(
+      addShanghaiDays(getShanghaiDayStartMs(Date.now()), -6),
+    );
 
     const trendWhere: typeof currentWhere = {
       ...currentWhere,

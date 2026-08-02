@@ -1,4 +1,8 @@
 import { buildShiftDateRange, startOfDay, endOfDay } from './handover.shared';
+import {
+  addShanghaiDays,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
 import type { HandoverRecordRow, RecordShiftSnapshot } from './handover.shared';
 
 /**
@@ -9,12 +13,9 @@ import type { HandoverRecordRow, RecordShiftSnapshot } from './handover.shared';
  */
 export function buildFallbackDayRange(referenceDate: Date) {
   return {
-    gte: startOfDay(
-      new Date(
-        referenceDate.getFullYear(),
-        referenceDate.getMonth(),
-        referenceDate.getDate() - 7,
-      ),
+    // 上海时区下向前推 7 天
+    gte: new Date(
+      addShanghaiDays(getShanghaiDayStartMs(referenceDate.getTime()), -7),
     ),
     lte: endOfDay(referenceDate),
   };

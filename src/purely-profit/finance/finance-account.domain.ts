@@ -13,6 +13,7 @@ import type {
   FinanceDerivedAccountFields,
 } from './finance.types';
 import { Money } from '../../shared/money.utils';
+import { getShanghaiMonthStartMs } from '../../shared/shanghai-time.utils';
 
 export function assertAccountCategoryCanCreateManually(category: string): void {
   const rule = getAccountCategoryRule(category);
@@ -124,9 +125,7 @@ export function mapAccountRecord(
 export function buildAccountsStats(
   records: FinanceAccountRecordWithAmount[],
 ): FinanceAccountsStatsDto {
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
+  const monthStart = new Date(getShanghaiMonthStartMs(Date.now()));
   let totalReceivable = Money.zero();
   let totalPayable = Money.zero();
   let overdueCount = 0;

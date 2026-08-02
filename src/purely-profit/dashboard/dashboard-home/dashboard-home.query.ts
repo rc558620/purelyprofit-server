@@ -7,6 +7,8 @@ import { Money } from '../../../shared/money.utils';
 import {
   getShanghaiDayEndMs,
   getShanghaiDayStartMs,
+  getShanghaiMonth,
+  getShanghaiYear,
 } from '../../../shared/shanghai-time.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
@@ -370,9 +372,10 @@ export async function loadDashboardHomeActivitiesData(
  * 因此这里返回 Date 而非 string，确保 Prisma where 条件类型匹配。
  */
 function buildRecentPayrollMonthFilter(): Date {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() - DRAFT_PAYROLL_MAX_MONTHS_AGO;
+  const nowMs = Date.now();
+  // 「当前月份」按上海时区判定，避免 UTC 下月初/月末误判
+  const year = getShanghaiYear(nowMs);
+  const month = getShanghaiMonth(nowMs) - DRAFT_PAYROLL_MAX_MONTHS_AGO;
   // 用 UTC 月初零点，与 employees-payroll.service.ts 中 normalizeMonthValue 保持一致
   return new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
 }

@@ -17,6 +17,10 @@ import {
   type HandoverRecordRow,
 } from './handover.shared';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  addShanghaiDays,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
 
 @Injectable()
 export class HandoverRecordsQueryService {
@@ -153,13 +157,14 @@ export class HandoverRecordsQueryService {
     const preset = query.preset ?? 'today';
 
     if (preset === '7d') {
-      startAt.setDate(startAt.getDate() - 6);
-      return { startAt, endAt };
+      return { startAt: new Date(addShanghaiDays(startAt.getTime(), -6)), endAt };
     }
 
     if (preset === '30d') {
-      startAt.setDate(startAt.getDate() - 29);
-      return { startAt, endAt };
+      return {
+        startAt: new Date(addShanghaiDays(startAt.getTime(), -29)),
+        endAt,
+      };
     }
 
     return { startAt, endAt };
@@ -179,26 +184,10 @@ export class HandoverRecordsQueryService {
   }
 
   private startOfDay(date: Date): Date {
-    return new Date(
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate(),
-      0,
-      0,
-      0,
-      0,
-    );
+    return new Date(getShanghaiDayStartMs(date.getTime()));
   }
 
   private endOfDay(date: Date): Date {
-    return new Date(
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate(),
-      23,
-      59,
-      59,
-      999,
-    );
+    return new Date(getShanghaiDayStartMs(date.getTime()) + 86_400_000 - 1);
   }
 }

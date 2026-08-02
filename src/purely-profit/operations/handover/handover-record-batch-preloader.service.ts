@@ -3,6 +3,10 @@ import { EmployeeShiftType } from '@prisma/client';
 import { toOptionalMediaText } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
+  addShanghaiDays,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
+import {
   endOfDay,
   startOfDay,
   type HandoverRecordRow,
@@ -58,12 +62,9 @@ export class HandoverRecordBatchPreloaderService {
       (max, d) => (d > max ? d : max),
       referenceDates[0],
     );
-    const fallbackDayStart = startOfDay(
-      new Date(
-        earliestRef.getFullYear(),
-        earliestRef.getMonth(),
-        earliestRef.getDate() - 7,
-      ),
+    // 上海时区下向前推 7 天，作为兜底班次搜索窗口起点
+    const fallbackDayStart = new Date(
+      addShanghaiDays(getShanghaiDayStartMs(earliestRef.getTime()), -7),
     );
     const fallbackDayEnd = endOfDay(latestRef);
 

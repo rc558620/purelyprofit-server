@@ -35,7 +35,7 @@ const productSelect = {
       isActive: true,
       deletedAt: true,
       specGroups: {
-        orderBy: { sortOrder: 'asc' },
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
         select: {
           id: true,
           name: true,
@@ -44,7 +44,7 @@ const productSelect = {
           maxSelections: true,
           sortOrder: true,
           options: {
-            orderBy: { sortOrder: 'asc' },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
             select: {
               id: true,
               name: true,

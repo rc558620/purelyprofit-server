@@ -1,6 +1,12 @@
 import type { AdminPromoPartnerRecord } from './growth-admin.query';
 import { formatDateTime, parseDateOnly } from './growth-admin.shared';
 import { Money } from '../../shared/money.utils';
+import {
+  formatShanghaiDayLabel,
+  formatShanghaiYearMonth,
+  getShanghaiDayStartMs,
+  getShanghaiYear,
+} from '../../shared/shanghai-time.utils';
 
 export interface PulseAdminPromoDetailResponse {
   regions: Array<{
@@ -204,27 +210,12 @@ function buildPromoRegions(
 }
 
 function buildDayBoundary(date: Date, side: 'start' | 'end'): Date {
+  const dayStart = getShanghaiDayStartMs(date.getTime());
   if (side === 'start') {
-    return new Date(
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate(),
-      0,
-      0,
-      0,
-      0,
-    );
+    return new Date(dayStart);
   }
 
-  return new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    23,
-    59,
-    59,
-    999,
-  );
+  return new Date(dayStart + 86_400_000 - 1);
 }
 
 function toPromoMetricRecord(record: {
@@ -290,15 +281,16 @@ function buildPromoSeriesLabel(
   date: Date,
   granularity: 'day' | 'month' | 'year',
 ): string {
+  const ms = date.getTime();
   if (granularity === 'year') {
-    return `${date.getFullYear()}`;
+    return `${getShanghaiYear(ms)}`;
   }
 
   if (granularity === 'month') {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    return formatShanghaiYearMonth(ms);
   }
 
-  return `${date.getMonth() + 1}/${date.getDate()}`;
+  return formatShanghaiDayLabel(ms);
 }
 
 function parsePromoSeriesLabel(

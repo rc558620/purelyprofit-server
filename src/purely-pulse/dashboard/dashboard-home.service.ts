@@ -14,6 +14,7 @@ import {
 } from './dashboard.constants';
 import { calculatePercentChange } from './dashboard-math.utils';
 import { Money } from '../../shared/money.utils';
+import { getShanghaiMonthStartMs } from '../../shared/shanghai-time.utils';
 import {
   buildRevenueTrend,
   buildRevenueTypeDistributionFromPlanCounts,
@@ -97,7 +98,7 @@ export class PulseDashboardHomeService {
           deletedAt: null,
           status: 'approved',
           joinedAt: {
-            gte: new Date(now.getFullYear(), now.getMonth(), 1),
+            gte: new Date(getShanghaiMonthStartMs(now.getTime())),
           },
         },
       }),

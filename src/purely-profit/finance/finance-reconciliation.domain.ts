@@ -8,14 +8,13 @@ import type {
   FinanceReconciliationRecordWithItems,
 } from './finance.types';
 import { Money } from '../../shared/money.utils';
+import { getShanghaiMonthStartMs } from '../../shared/shanghai-time.utils';
 import { trimOptionalString } from './finance-string.utils';
 
 export function buildReconciliationStats(
   records: FinanceReconciliationRecordWithItems[],
 ): FinanceReconciliationStatsDto {
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
+  const monthStart = new Date(getShanghaiMonthStartMs(Date.now()));
   let confirmedCount = 0;
   let discrepancyCount = 0;
   let adjustedCount = 0;

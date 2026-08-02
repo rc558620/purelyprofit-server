@@ -1,5 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
 import { EmployeeShiftType } from '@prisma/client';
+import {
+  addShanghaiDays,
+  formatShanghaiDayLabel,
+  getShanghaiDayStartMs,
+  getShanghaiWeekday,
+  isSameShanghaiDay,
+} from '../../../shared/shanghai-time.utils';
 
 export interface ShiftReportRowInput {
   id: number;
@@ -72,26 +79,10 @@ const LEGACY_SHIFT_TYPE_RULES: Array<{
 ];
 
 export function buildSingleDayDateRange(date: number): { gte: Date; lt: Date } {
-  const currentDate = new Date(date);
+  const dayStart = getShanghaiDayStartMs(date);
   return {
-    gte: new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth(),
-      currentDate.getDate(),
-      0,
-      0,
-      0,
-      0,
-    ),
-    lt: new Date(
-      currentDate.getFullYear(),
-      currentDate.getMonth(),
-      currentDate.getDate() + 1,
-      0,
-      0,
-      0,
-      0,
-    ),
+    gte: new Date(dayStart),
+    lt: new Date(addShanghaiDays(dayStart, 1)),
   };
 }
 
@@ -138,13 +129,9 @@ export function isTimeRangeOverlapping(
   );
 }
 
-/** 判断两个 Date 是否为同一自然日（年 / 月 / 日相同） */
+/** 判断两个 Date 是否为同一自然日（按上海时区切分） */
 export function isSameCalendarDay(left: Date, right: Date): boolean {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
+  return isSameShanghaiDay(left.getTime(), right.getTime());
 }
 
 /**
@@ -159,23 +146,14 @@ export function buildShiftAbsoluteRange(
 ): { startAt: Date; endAt: Date } {
   const startMinutes = parseTimeToMinutes(startTime, '上班时间格式不正确');
   const endMinutes = parseTimeToMinutes(endTime, '下班时间格式不正确');
-  const base = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    0,
-    0,
-    0,
-    0,
-  );
-  const startAt = new Date(base);
-  startAt.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
-  const endAt = new Date(base);
-  endAt.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
-  if (endAt <= startAt) {
-    endAt.setDate(endAt.getDate() + 1);
+  // 班次时刻按上海墙钟解释，跨天班次自动顺延一天
+  const baseMs = getShanghaiDayStartMs(date.getTime());
+  const startAtMs = baseMs + startMinutes * 60_000;
+  let endAtMs = baseMs + endMinutes * 60_000;
+  if (endAtMs <= startAtMs) {
+    endAtMs = addShanghaiDays(baseMs, 1) + endMinutes * 60_000;
   }
-  return { startAt, endAt };
+  return { startAt: new Date(startAtMs), endAt: new Date(endAtMs) };
 }
 
 /** 基于绝对时间区间判断两个班次是否重叠（正确支持跨日班次） */
@@ -198,25 +176,10 @@ export function buildThreeDayDateRange(date: number): {
   gte: Date;
   lt: Date;
 } {
-  const current = new Date(date);
-  const start = new Date(
-    current.getFullYear(),
-    current.getMonth(),
-    current.getDate() - 1,
-    0,
-    0,
-    0,
-    0,
-  );
-  const endExclusive = new Date(
-    current.getFullYear(),
-    current.getMonth(),
-    current.getDate() + 2,
-    0,
-    0,
-    0,
-    0,
-  );
+  // 覆盖前后各一天，兼容跨天班次（上海时区）
+  const dayStart = getShanghaiDayStartMs(date);
+  const start = new Date(addShanghaiDays(dayStart, -1));
+  const endExclusive = new Date(addShanghaiDays(dayStart, 2));
   return { gte: start, lt: endExclusive };
 }
 
@@ -253,9 +216,8 @@ export function resolveShiftTypeFromDefinition(input: {
 
 export function formatShiftReportDate(date: Date): string {
   const weeks = ['日', '一', '二', '三', '四', '五', '六'];
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${month}/${day} 周${weeks[date.getDay()]}`;
+  const ms = date.getTime();
+  return `${formatShanghaiDayLabel(ms)} 周${weeks[getShanghaiWeekday(ms)]}`;
 }
 
 export function buildShiftReport(

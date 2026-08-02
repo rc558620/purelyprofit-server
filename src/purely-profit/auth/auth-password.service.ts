@@ -37,6 +37,9 @@ export class AuthPasswordService {
         email: accountIdentifiers.email,
         password: hashedPassword,
         name: params.name,
+        ...(params.productScope === 'purely_club'
+          ? { wechatPhone: params.phone }
+          : {}),
       },
       select: {
         id: true,

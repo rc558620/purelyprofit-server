@@ -77,7 +77,7 @@ export async function findCategoryDuplicateByName(
 }
 
 export async function createCategoryRecord(
-  prisma: PrismaService,
+  prisma: PrismaService | Prisma.TransactionClient,
   data: CategoryCreateInput,
 ): Promise<CategoryRecord> {
   return prisma.productCategory.create({

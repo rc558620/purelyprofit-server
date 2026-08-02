@@ -171,14 +171,14 @@ describe('ProductsService - 扫码点餐状态', () => {
       expect(redisService.del).toHaveBeenCalledWith('scanordering:menu:100');
     });
 
-    it('上架时未传 categoryId 使用默认分类', async () => {
+    it('上架时未传 categoryId 创建并使用商品同名菜单分类', async () => {
       const product = buildProduct();
       prismaService.product.findUnique.mockResolvedValue(product);
       commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
       prismaService.scanOrderingMenuProduct.findFirst.mockResolvedValue(null);
       prismaService.scanOrderingMenuCategory.findFirst
-        .mockResolvedValueOnce(null) // 无默认分类
-        .mockResolvedValueOnce({ id: 10, storeId: 100 }); // 新创建的分类
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
       prismaService.scanOrderingMenuCategory.create.mockResolvedValue({
         id: 10,
       });
@@ -194,8 +194,9 @@ describe('ProductsService - 扫码点餐状态', () => {
       ).toHaveBeenCalledWith({
         data: expect.objectContaining({
           storeId: 100,
-          name: '默认分类',
+          name: product.category,
         }),
+        select: { id: true },
       });
     });
 

@@ -17,6 +17,7 @@ import {
   renameCategoryProducts,
   updateCategoryRecord,
 } from './categories.query';
+import type { Prisma } from '@prisma/client';
 import type {
   CategoryClearProductsInput,
   CategoryCreateInput,
@@ -51,10 +52,14 @@ export class CategoriesWriteService {
 
     await this.ensureUniqueName(storeId, dto.name);
 
-    const category = await createCategoryRecord(
-      this.prisma,
-      this.toCreateInput(storeId, dto),
-    );
+    const category = await this.prisma.$transaction(async (tx) => {
+      const created = await createCategoryRecord(
+        tx,
+        this.toCreateInput(storeId, dto),
+      );
+      await this.ensureScanOrderingCategory(tx, storeId, created.name);
+      return created;
+    });
 
     return buildCategoryResponse(category);
   }
@@ -92,6 +97,12 @@ export class CategoriesWriteService {
           tx,
           this.toRenameProductsInput(category, nextName),
         );
+        await this.renameScanOrderingCategory(
+          tx,
+          category.storeId,
+          category.name,
+          nextName,
+        );
       }
 
       return result;
@@ -113,6 +124,68 @@ export class CategoriesWriteService {
     await this.prisma.$transaction(async (tx) => {
       await clearCategoryProducts(tx, this.toClearProductsInput(category));
       await deleteCategoryRecord(tx, category.id);
+    });
+  }
+
+  private async ensureScanOrderingCategory(
+    tx: Prisma.TransactionClient,
+    storeId: number,
+    name: string,
+  ): Promise<void> {
+    const existing = await tx.scanOrderingMenuCategory.findFirst({
+      where: { storeId, name, deletedAt: null },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    const lastCategory = await tx.scanOrderingMenuCategory.findFirst({
+      where: { storeId, deletedAt: null },
+      orderBy: [{ sortOrder: 'desc' }, { id: 'desc' }],
+      select: { sortOrder: true },
+    });
+    await tx.scanOrderingMenuCategory.create({
+      data: {
+        storeId,
+        name,
+        sortOrder: (lastCategory?.sortOrder ?? -1) + 1,
+      },
+    });
+  }
+
+  private async renameScanOrderingCategory(
+    tx: Prisma.TransactionClient,
+    storeId: number,
+    previousName: string,
+    nextName: string,
+  ): Promise<void> {
+    const sourceCategory = await tx.scanOrderingMenuCategory.findFirst({
+      where: { storeId, name: previousName, deletedAt: null },
+      select: { id: true },
+    });
+    if (!sourceCategory) {
+      await this.ensureScanOrderingCategory(tx, storeId, nextName);
+      return;
+    }
+
+    const targetCategory = await tx.scanOrderingMenuCategory.findFirst({
+      where: { storeId, name: nextName, deletedAt: null },
+      select: { id: true },
+    });
+    if (targetCategory && targetCategory.id !== sourceCategory.id) {
+      await tx.scanOrderingMenuProduct.updateMany({
+        where: { storeId, categoryId: sourceCategory.id, deletedAt: null },
+        data: { categoryId: targetCategory.id },
+      });
+      await tx.scanOrderingMenuCategory.update({
+        where: { id: sourceCategory.id },
+        data: { isActive: false, deletedAt: new Date() },
+      });
+      return;
+    }
+
+    await tx.scanOrderingMenuCategory.update({
+      where: { id: sourceCategory.id },
+      data: { name: nextName },
     });
   }
 

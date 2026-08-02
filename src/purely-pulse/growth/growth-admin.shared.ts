@@ -1,3 +1,11 @@
+import {
+  formatShanghaiDateTime,
+  getShanghaiDayOfMonth,
+  getShanghaiMonth,
+  getShanghaiYear,
+  makeShanghaiMs,
+} from '../../shared/shanghai-time.utils';
+
 export function parseDateOnly(value: string): Date | null {
   const normalizedValue = value.trim().replace(/\./g, '-').replace(/\//g, '-');
   const matched = normalizedValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -9,18 +17,20 @@ export function parseDateOnly(value: string): Date | null {
   const year = Number.parseInt(yearText, 10);
   const month = Number.parseInt(monthText, 10);
   const day = Number.parseInt(dayText, 10);
-  const parsedDate = new Date(year, month - 1, day);
+  // 日期串按上海时区解释为当日零点
+  const parsedMs = makeShanghaiMs(year, month - 1, day);
 
+  // 校验溢出（如 2-30 会被进位到 3-2），需按上海时区回读比对
   if (
-    Number.isNaN(parsedDate.getTime()) ||
-    parsedDate.getFullYear() !== year ||
-    parsedDate.getMonth() !== month - 1 ||
-    parsedDate.getDate() !== day
+    Number.isNaN(parsedMs) ||
+    getShanghaiYear(parsedMs) !== year ||
+    getShanghaiMonth(parsedMs) !== month - 1 ||
+    getShanghaiDayOfMonth(parsedMs) !== day
   ) {
     return null;
   }
 
-  return parsedDate;
+  return new Date(parsedMs);
 }
 
 export function resolveRegionCity(region: string[]): string {
@@ -39,10 +49,5 @@ export function formatDateTime(date: Date): string {
     return '--';
   }
 
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hour = String(date.getHours()).padStart(2, '0');
-  const minute = String(date.getMinutes()).padStart(2, '0');
-  return `${year}-${month}-${day} ${hour}:${minute}`;
+  return formatShanghaiDateTime(date.getTime());
 }

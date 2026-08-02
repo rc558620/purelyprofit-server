@@ -13,6 +13,8 @@ EnvironmentFile=/etc/purelyprofit-server/production.env
 # Redis 既承载原生 WebSocket 事件广播，也承载 Socket.IO Redis adapter；Redis 不可用时 /api/readyz 会返回 error。
 Environment=NODE_ENV=production
 Environment=CLUSTER_WORKERS=2
+# 业务日/月/周边界统一按上海时区计算，进程时区必须固定，禁止依赖宿主机默认时区。
+Environment=TZ=Asia/Shanghai
 ExecStart=/usr/bin/node dist/cluster-main.js
 Restart=always
 RestartSec=5

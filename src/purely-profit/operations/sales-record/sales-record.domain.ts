@@ -6,6 +6,10 @@ import {
 } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import {
+  formatShanghaiDayLabel,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
+import {
   buildGrouponLabel,
   PAYMENT_METHOD_CONFIG,
 } from '../handover/handover.constants';
@@ -245,16 +249,11 @@ export function mapSalesRecordItemResponse(
 // ---------------------------------------------------------------------------
 
 function formatReportMonthDay(timestamp: number): string {
-  const date = new Date(timestamp);
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${month}/${day}`;
+  return formatShanghaiDayLabel(timestamp);
 }
 
 function getDayStart(timestamp: number): number {
-  const d = new Date(timestamp);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+  return getShanghaiDayStartMs(timestamp);
 }
 
 function shouldPrefixReportSpaceName(productName: string): boolean {

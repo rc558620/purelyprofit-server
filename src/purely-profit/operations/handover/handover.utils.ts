@@ -1,22 +1,20 @@
 import { BadRequestException } from '@nestjs/common';
 import { EmployeeShiftType, Prisma } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
+import {
+  addShanghaiDays,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
 import { SHIFT_TIME_FALLBACKS } from './handover.constants';
+
+const DAY_MS = 86_400_000;
 import type { ShiftDateRange, ShiftRecordRow } from './handover.types';
 
 export const startOfDay = (date: Date): Date =>
-  new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  new Date(getShanghaiDayStartMs(date.getTime()));
 
 export const endOfDay = (date: Date): Date =>
-  new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    23,
-    59,
-    59,
-    999,
-  );
+  new Date(getShanghaiDayStartMs(date.getTime()) + DAY_MS - 1);
 
 export const buildDayRange = (date: Date): Prisma.DateTimeFilter => ({
   gte: startOfDay(date),
@@ -84,9 +82,11 @@ export const buildCurrentDayRange = (): Prisma.DateTimeFilter =>
 
 const createTimePoint = (baseDate: Date, timeText: string): Date => {
   const [, hourText, minuteText] = TIME_TEXT_PATTERN.exec(timeText) ?? [];
-  const date = new Date(baseDate);
-  date.setHours(Number(hourText), Number(minuteText), 0, 0);
-  return date;
+  // 班次时刻文本按上海墙钟解释
+  const dayStart = getShanghaiDayStartMs(baseDate.getTime());
+  return new Date(
+    dayStart + (Number(hourText) * 60 + Number(minuteText)) * 60_000,
+  );
 };
 
 export const buildShiftDateRange = (
@@ -106,9 +106,10 @@ export const buildShiftDateRange = (
   }
 
   const parsedStart = createTimePoint(now, startTime);
-  const parsedEnd = createTimePoint(now, endTime);
+  let parsedEnd = createTimePoint(now, endTime);
   if (parsedEnd <= parsedStart) {
-    parsedEnd.setDate(parsedEnd.getDate() + 1);
+    // 跨天班次：结束时刻顺延到次日（上海时区）
+    parsedEnd = new Date(addShanghaiDays(parsedEnd.getTime(), 1));
   }
 
   return {

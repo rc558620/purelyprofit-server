@@ -187,7 +187,15 @@ describe('ScanOrderingOrderService', () => {
       const callArgs = prismaService.scanOrders.findMany.mock.calls[0][0];
       expect(callArgs.select.version).toBe(true);
       expect(callArgs.select.items).toEqual({
-        select: { productNameSnapshot: true, quantity: true },
+        select: {
+          productNameSnapshot: true,
+          productImageUrlSnapshot: true,
+          quantity: true,
+          specs: {
+            select: { specOptionNameSnapshot: true },
+            orderBy: { id: 'asc' },
+          },
+        },
         orderBy: { id: 'asc' },
       });
     });

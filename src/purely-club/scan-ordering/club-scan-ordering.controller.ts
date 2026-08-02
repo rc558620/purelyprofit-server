@@ -29,6 +29,7 @@ import {
   CreateClubScanSessionDto,
   ListClubScanOrdersQueryDto,
   PreviewClubScanOrderDto,
+  QuoteClubScanCartItemDto,
   ResolveClubScanQrDto,
   UpdateClubScanCartItemDto,
   UpdateClubScanSessionDto,
@@ -109,6 +110,17 @@ export class ClubScanOrderingController {
     @Query() query: ClubScanSessionQueryDto,
   ): Promise<unknown> {
     return this.cartService.getCart(user, query.sessionId);
+  }
+
+  @UseGuards(ClubJwtAuthGuard)
+  @ApiBearerAuth()
+  @Post('cart/quote')
+  @ApiOperation({ summary: '计算规格选择的服务端报价' })
+  quoteCartItem(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: QuoteClubScanCartItemDto,
+  ): Promise<{ unitPriceAmount: number }> {
+    return this.cartService.quoteCartItem(user, dto);
   }
 
   @UseGuards(ClubJwtAuthGuard)

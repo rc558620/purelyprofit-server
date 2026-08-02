@@ -137,6 +137,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, readonly string[]> = {
     'goods:view',
     'goods:create',
     'goods:update',
+    'goods:delete',
     'supplier:view',
     'supplier:create',
     'supplier:update',

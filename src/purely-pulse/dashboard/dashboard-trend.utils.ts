@@ -5,6 +5,10 @@ import {
   DASHBOARD_TREND_YEAR_MONTH_LABELS,
 } from './dashboard.constants';
 import { formatDateLabel, type TimeRange } from './dashboard-time.utils';
+import {
+  getShanghaiHour,
+  getShanghaiMonth,
+} from '../../shared/shanghai-time.utils';
 import type { DashboardTrendSaleRow } from './dashboard.types';
 import type { PulseDashboardPeriodValue } from './dto/pulse-dashboard-query.dto';
 import type { PulseDashboardSalesTrendDto } from './dto/pulse-dashboard-overview.response.dto';
@@ -41,14 +45,14 @@ function buildYearTrend(
 ): PulseDashboardSalesTrendDto {
   const byMonth = Array.from({ length: 12 }, () => 0);
   for (const row of rows) {
-    const month = row.date.getMonth();
+    const month = getShanghaiMonth(row.date.getTime());
     byMonth[month] = new Decimal(byMonth[month])
       .plus(row.totalRevenue)
       .toDecimalPlaces(2)
       .toNumber();
   }
 
-  const currentMonth = now.getMonth();
+  const currentMonth = getShanghaiMonth(now.getTime());
   const actual = byMonth.map((value, index) =>
     index <= currentMonth ? value : null,
   );
@@ -91,7 +95,7 @@ function buildTodayBucketTrend(
     () => 0,
   );
   for (const row of rows) {
-    const hour = row.date.getHours();
+    const hour = getShanghaiHour(row.date.getTime());
     const bucketIndex = DASHBOARD_TREND_TODAY_BUCKET_HOURS.findIndex(
       (bucketHour, index) => {
         const nextBucketHour = DASHBOARD_TREND_TODAY_BUCKET_HOURS[index + 1];
@@ -110,7 +114,7 @@ function buildTodayBucketTrend(
     }
   }
 
-  const currentHour = now.getHours();
+  const currentHour = getShanghaiHour(now.getTime());
   const actual = buckets.map((value, index) => {
     const bucketHour = DASHBOARD_TREND_TODAY_BUCKET_HOURS[index];
     return currentHour >= bucketHour ? value : null;

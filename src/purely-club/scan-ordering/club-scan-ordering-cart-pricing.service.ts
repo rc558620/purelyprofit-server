@@ -34,40 +34,64 @@ export class ClubScanOrderingCartPricingService {
       where: {
         id: { in: cartItems.map((item) => item.menuProductId) },
         storeId,
-        isActive: true,
         deletedAt: null,
       },
       include: {
         category: true,
-        product: { select: { image: true } },
+        product: {
+          select: { image: true, isActive: true, deletedAt: true, stock: true },
+        },
         specGroups: { include: { options: true } },
       },
     });
-    if (products.length !== cartItems.length)
-      throw new ConflictException('购物车中存在已下架商品');
+    // 同一商品的不同规格会形成多条购物车行，但菜单商品查询按 ID 去重。
+    // 必须与去重后的商品 ID 数量比较，不能与购物车行数比较。
+    const cartProductIds = new Set(cartItems.map((item) => item.menuProductId));
+    if (products.length !== cartProductIds.size) {
+      const foundProductIds = new Set(products.map((product) => product.id));
+      const missingProductIds = [...cartProductIds]
+        .filter((productId) => !foundProductIds.has(productId))
+        .join(',');
+      throw new ConflictException(
+        `购物车中存在已删除商品（菜单商品 ID：${missingProductIds}）`,
+      );
+    }
     return cartItems.map((cartItem) => {
       const product = products.find(
         (item) => item.id === cartItem.menuProductId,
       );
+      const inventoryProduct = product?.product;
+      const availableStock = inventoryProduct
+        ? inventoryProduct.stock
+        : product?.stockQuantity;
       if (
         !product ||
+        !product.isActive ||
+        product.deletedAt ||
+        (inventoryProduct &&
+          (!inventoryProduct.isActive || inventoryProduct.deletedAt)) ||
         product.stockMode === 'sold_out' ||
         (product.stockMode === 'finite' &&
-          (product.stockQuantity ?? 0) < cartItem.quantity)
-      )
+          (availableStock ?? 0) < cartItem.quantity)
+      ) {
         throw new ConflictException('商品已售罄或库存不足');
+      }
       const selectedIds = new Set(
         cartItem.specs.map((spec) => spec.specOptionId),
       );
       const specs = product.specGroups.flatMap((group) =>
         group.options
-          .filter((option) => selectedIds.has(option.id))
+          .filter((option) => selectedIds.has(option.id) && option.isActive)
           .map((option) => ({
             specOptionId: option.id,
             name: option.name,
             extraPrice: option.extraPrice,
           })),
       );
+      if (specs.length !== selectedIds.size) {
+        throw new ConflictException('商品规格已更新，请重新选择');
+      }
+      this.ensureValidSpecificationSelection(product.specGroups, specs);
       const basePriceMoney = Money.fromDbCents(product.basePrice);
       const specExtraMoney = specs.reduce<Money>(
         (sum, spec) => sum.add(Money.fromDbCents(spec.extraPrice)),
@@ -80,7 +104,7 @@ export class ClubScanOrderingCartPricingService {
         productId: product.id,
         inventoryProductId: product.productId,
         productName: product.name,
-        productImageUrl: product.product?.image ?? product.imageUrl,
+        productImageUrl: inventoryProduct?.image ?? product.imageUrl,
         categoryName: product.category.name,
         quantity: cartItem.quantity,
         specSignature: cartItem.specSignature,
@@ -90,6 +114,27 @@ export class ClubScanOrderingCartPricingService {
         specs,
       };
     });
+  }
+
+  private ensureValidSpecificationSelection(
+    groups: Array<{
+      minSelections: number;
+      maxSelections: number | null;
+      options: Array<{ id: number }>;
+    }>,
+    selectedSpecs: Array<{ specOptionId: number }>,
+  ): void {
+    for (const group of groups) {
+      const selectedCount = selectedSpecs.filter((spec) =>
+        group.options.some((option) => option.id === spec.specOptionId),
+      ).length;
+      if (
+        selectedCount < group.minSelections ||
+        (group.maxSelections !== null && selectedCount > group.maxSelections)
+      ) {
+        throw new ConflictException('商品规格已更新，请重新选择');
+      }
+    }
   }
 
   async resolvePromotions(

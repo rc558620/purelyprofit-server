@@ -79,6 +79,7 @@ export class ScanOrderingRealtimeService
     status: string;
     paymentStatus: string;
     fulfillmentStatus: string;
+    refundSucceededAt?: string | null;
   }): void {
     this.publish('order.status_changed', payload);
   }

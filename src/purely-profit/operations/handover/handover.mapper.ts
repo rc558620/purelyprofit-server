@@ -10,6 +10,7 @@ import type {
   HandoverRecordSummaryDto,
 } from './dto/handover-records.dto';
 import { SHIFT_TYPE_LABELS } from './handover.constants';
+import { formatShanghaiDayLabel } from '../../../shared/shanghai-time.utils';
 import type { AdditionalItemRow, HandoverRecordRow } from './handover.types';
 import { toDisplayName } from './handover.utils';
 
@@ -45,8 +46,7 @@ export const resolveShiftLabel = (
 };
 
 export const formatMonthDay = (date: Date): string => {
-  const month = `${date.getMonth() + 1}`.padStart(2, '0');
-  const day = `${date.getDate()}`.padStart(2, '0');
+  const [month, day] = formatShanghaiDayLabel(date.getTime()).split('/');
   return `${month}-${day}`;
 };
 

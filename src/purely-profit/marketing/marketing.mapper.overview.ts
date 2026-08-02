@@ -3,6 +3,11 @@ import type {
   MarketingOverviewMonthlyTrendPoint,
   MarketingOverviewTrendPoint,
 } from './marketing.types';
+import {
+  formatShanghaiDayLabel,
+  getShanghaiDayStartMs,
+  getShanghaiYear,
+} from '../../shared/shanghai-time.utils';
 
 // ─── 概览趋势构建 ─────────────────────────────────────────────
 
@@ -14,28 +19,24 @@ const OVERVIEW_MONTH_LABELS = Array.from(
 export function buildOverviewLast30Days(
   dailyTotals: Array<{ date: Date; amount: number }>,
 ): MarketingOverviewTrendPoint[] {
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const rangeStart = new Date(todayStart.getTime() - 29 * 86400_000);
+  // 以上海时区的当日零点为基准建桶，保证与前端展示的自然日一致
+  const todayStartMs = getShanghaiDayStartMs(Date.now());
+  const rangeStartMs = todayStartMs - 29 * 86400_000;
 
   const buckets = Array.from({ length: 30 }, (_, index) => {
-    const date = new Date(rangeStart.getTime() + index * 86400_000);
     return {
-      date: `${date.getMonth() + 1}/${date.getDate()}`,
+      date: formatShanghaiDayLabel(rangeStartMs + index * 86400_000),
       amount: 0,
     } satisfies MarketingOverviewTrendPoint;
   });
 
   const dailyMap = new Map<number, number>();
   for (const row of dailyTotals) {
-    const dayTs = new Date(row.date);
-    dayTs.setHours(0, 0, 0, 0);
-    dailyMap.set(dayTs.getTime(), row.amount);
+    dailyMap.set(getShanghaiDayStartMs(row.date.getTime()), row.amount);
   }
 
   for (let i = 0; i < buckets.length; i++) {
-    const dayStart = rangeStart.getTime() + i * 86400_000;
-    buckets[i].amount = dailyMap.get(dayStart) ?? 0;
+    buckets[i].amount = dailyMap.get(rangeStartMs + i * 86400_000) ?? 0;
   }
 
   return buckets;
@@ -64,7 +65,7 @@ export function buildOverviewMonthlyTrend(
 }
 
 export function buildEmptyMarketingOverview(): MarketingOverviewDto {
-  const currentYear = new Date().getFullYear();
+  const currentYear = getShanghaiYear(Date.now());
 
   return {
     totalBalance: 0,

@@ -4,6 +4,17 @@ import {
   Money,
   calcPercentChangeWithFallback,
 } from '../../../shared/money.utils';
+import {
+  formatShanghaiYearMonth,
+  getShanghaiDayOfMonth,
+  getShanghaiDayStartMs,
+  getShanghaiMonth,
+  getShanghaiMonthStartMs,
+  getShanghaiQuarterStartMs,
+  getShanghaiWeekStartMs,
+  getShanghaiYear,
+  makeShanghaiMs,
+} from '../../../shared/shanghai-time.utils';
 import type {
   CostAmountRow,
   CostFilterRange,
@@ -163,55 +174,33 @@ export function buildCostReportRange(
         period,
       };
     case 'week': {
-      const start = new Date(current);
-      const day = start.getDay();
-      const diff = day === 0 ? -6 : 1 - day;
-      start.setDate(start.getDate() + diff);
-      start.setHours(0, 0, 0, 0);
       return {
-        start: start.getTime(),
+        start: getShanghaiWeekStartMs(now),
         end: now,
         period,
       };
     }
     case 'month':
       return {
-        start: new Date(
-          current.getFullYear(),
-          current.getMonth(),
-          1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
+        start: getShanghaiMonthStartMs(now),
         end: now,
         period,
       };
     case 'quarter': {
-      const quarterStartMonth = Math.floor(current.getMonth() / 3) * 3;
       return {
-        start: new Date(
-          current.getFullYear(),
-          quarterStartMonth,
-          1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
+        start: getShanghaiQuarterStartMs(now),
         end: now,
         period,
       };
     }
     case 'year': {
-      const year = query.year ?? current.getFullYear();
+      const currentYear = getShanghaiYear(now);
+      const year = query.year ?? currentYear;
+      // 非当前年取该年上海时区的 12/31 23:59:59.999，等价于次年元旦零点 -1ms
       const yearEnd =
-        year === current.getFullYear()
-          ? now
-          : new Date(year, 11, 31, 23, 59, 59, 999).getTime();
+        year === currentYear ? now : makeShanghaiMs(year + 1, 0, 1) - 1;
       return {
-        start: new Date(year, 0, 1, 0, 0, 0, 0).getTime(),
+        start: makeShanghaiMs(year, 0, 1),
         end: yearEnd,
         period,
       };
@@ -269,53 +258,39 @@ export function buildPreviousCostReportRange(
         period: resolvedPeriod,
       };
     case 'month': {
-      const currentStart = new Date(currentRange.start);
       return {
-        start: new Date(
-          currentStart.getFullYear(),
-          currentStart.getMonth() - 1,
+        start: makeShanghaiMs(
+          getShanghaiYear(currentRange.start),
+          getShanghaiMonth(currentRange.start) - 1,
           1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
+        ),
         end: currentRange.start - 1,
         period: resolvedPeriod,
       };
     }
     case 'quarter': {
-      const currentStart = new Date(currentRange.start);
       return {
-        start: new Date(
-          currentStart.getFullYear(),
-          currentStart.getMonth() - 3,
+        start: makeShanghaiMs(
+          getShanghaiYear(currentRange.start),
+          getShanghaiMonth(currentRange.start) - 3,
           1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
+        ),
         end: currentRange.start - 1,
         period: resolvedPeriod,
       };
     }
     case 'year': {
       // 对称口径：上一年使用与当前年份相同的月/日终点（YTD vs YTD）
-      const currentStart = new Date(currentRange.start);
-      const currentEnd = new Date(currentRange.end);
-      const year = currentStart.getFullYear() - 1;
+      const year = getShanghaiYear(currentRange.start) - 1;
       return {
-        start: new Date(year, 0, 1, 0, 0, 0, 0).getTime(),
-        end: new Date(
-          year,
-          currentEnd.getMonth(),
-          currentEnd.getDate(),
-          23,
-          59,
-          59,
-          999,
-        ).getTime(),
+        start: makeShanghaiMs(year, 0, 1),
+        // 取上一年同月同日的上海日末：次日零点 -1ms
+        end:
+          makeShanghaiMs(
+            year,
+            getShanghaiMonth(currentRange.end),
+            getShanghaiDayOfMonth(currentRange.end) + 1,
+          ) - 1,
         period: resolvedPeriod,
       };
     }
@@ -331,15 +306,15 @@ export function buildPreviousCostReportRange(
 }
 
 export function toPayrollMonth(timestamp: number): string {
-  const date = new Date(timestamp);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  return formatShanghaiYearMonth(timestamp);
 }
 
 export function getPayrollCostDate(month: string): Date {
   const [yearText, monthText] = month.split('-');
   const year = Number(yearText);
   const monthValue = Number(monthText);
-  return new Date(year, monthValue - 1, 1, 0, 0, 0, 0);
+  // 工资月归属按上海时区的当月 1 号零点入库
+  return new Date(makeShanghaiMs(year, monthValue - 1, 1));
 }
 
 /**
@@ -351,13 +326,9 @@ export function toCostDbCents(yuanValue: number): number {
 }
 
 function getDayStart(timestamp: number): number {
-  const date = new Date(timestamp);
-  date.setHours(0, 0, 0, 0);
-  return date.getTime();
+  return getShanghaiDayStartMs(timestamp);
 }
 
 function getDayEnd(timestamp: number): number {
-  const date = new Date(timestamp);
-  date.setHours(23, 59, 59, 999);
-  return date.getTime();
+  return getShanghaiDayStartMs(timestamp) + 86_400_000 - 1;
 }

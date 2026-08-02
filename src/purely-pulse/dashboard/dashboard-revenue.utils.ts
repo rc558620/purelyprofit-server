@@ -13,6 +13,10 @@ import type {
 } from './dashboard.types';
 import type { PulseHomeRevenuePeriodValue } from './dto/pulse-dashboard-query.dto';
 import { formatDateLabel } from './dashboard-time.utils';
+import {
+  formatShanghaiTime,
+  getShanghaiHour,
+} from '../../shared/shanghai-time.utils';
 
 export function mapRevenuePlanLabel(
   planId: string,
@@ -92,7 +96,7 @@ export function buildRevenueTrend(
   for (const order of orders) {
     const key =
       displayPeriod === 'today'
-        ? `${String(order.createdAt.getHours()).padStart(2, '0')}:00`
+        ? `${String(getShanghaiHour(order.createdAt.getTime())).padStart(2, '0')}:00`
         : formatDateLabel(order.createdAt);
     const existing = bucketMap.get(key);
     if (existing) {
@@ -126,9 +130,7 @@ export function calcRevenuePeakAmount(
 }
 
 export function formatHourMinute(date: Date): string {
-  return `${String(date.getHours()).padStart(2, '0')}:${String(
-    date.getMinutes(),
-  ).padStart(2, '0')}`;
+  return formatShanghaiTime(date.getTime());
 }
 
 export function normalizeRegionValues(region: unknown): string[] {

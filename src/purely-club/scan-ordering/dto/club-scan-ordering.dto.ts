@@ -53,6 +53,21 @@ export class ClubScanSessionQueryDto {
   sessionId: number;
 }
 
+export class QuoteClubScanCartItemDto extends ClubScanSessionQueryDto {
+  @ApiProperty({ description: '菜单商品 ID' })
+  @Type(() => Number)
+  @IsInt({ message: 'productId 必须是整数' })
+  @Min(1, { message: 'productId 必须大于 0' })
+  productId: number;
+
+  @ApiProperty({ description: '规格项 ID 列表', type: [Number] })
+  @IsArray({ message: 'specOptionIds 必须是数组' })
+  @ArrayUnique({ message: 'specOptionIds 不能重复' })
+  @Type(() => Number)
+  @IsInt({ each: true, message: 'specOptionIds 必须均为整数' })
+  specOptionIds: number[];
+}
+
 export class AddClubScanCartItemDto extends ClubScanSessionQueryDto {
   @ApiProperty({ description: '菜单商品 ID' })
   @Type(() => Number)

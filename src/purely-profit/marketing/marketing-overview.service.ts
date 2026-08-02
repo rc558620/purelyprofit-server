@@ -8,6 +8,12 @@ import {
 import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
 import { buildInviteCodeQrCodeImageUrl } from '../member/platform-membership/membership-profile.mapper';
 import { Money } from '../../shared/money.utils';
+import {
+  getShanghaiDayStartMs,
+  getShanghaiMonthStartMs,
+  getShanghaiYear,
+  makeShanghaiMs,
+} from '../../shared/shanghai-time.utils';
 import type {
   UpdateMarketingMemberLevelDto,
   UpdateMarketingPointsRatioDto,
@@ -127,10 +133,12 @@ export class MarketingOverviewService {
 
   private async buildOverview(storeId: number): Promise<MarketingOverviewDto> {
     const now = new Date();
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const previousYearStart = new Date(now.getFullYear() - 1, 0, 1);
+    const nowMs = now.getTime();
+    const todayStart = new Date(getShanghaiDayStartMs(nowMs));
+    const monthStart = new Date(getShanghaiMonthStartMs(nowMs));
+    const previousYearStart = new Date(
+      makeShanghaiMs(getShanghaiYear(nowMs) - 1, 0, 1),
+    );
 
     const [
       activeMemberCount,
@@ -192,7 +200,7 @@ export class MarketingOverviewService {
     const thisMonthRecharge = Money.fromDbCents(
       thisMonthRechargeAgg._sum.totalAmount ?? 0,
     ).toOutputYuan();
-    const currentYear = now.getFullYear();
+    const currentYear = getShanghaiYear(nowMs);
     const inviteCode = activeInviteCodeRecord?.code ?? null;
 
     const wechatConfigured = !!(

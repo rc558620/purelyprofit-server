@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
+import { formatShanghaiDate } from '../../../shared/shanghai-time.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { SaleOrderWithItems } from './sales-record.domain';
 import { buildOrderNo, type SalesPeriodRange } from './sales-record.utils';
@@ -160,11 +161,8 @@ export function countSaleOrders(
 // ---------------------------------------------------------------------------
 
 function buildSalesOrderSequenceLockKey(date: Date): number {
-  return Number(
-    `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(
-      date.getDate(),
-    ).padStart(2, '0')}`,
-  );
+  // 锁 key 必须与订单号日期段同口径（上海营业日），否则跨零点会串号
+  return Number(formatShanghaiDate(date.getTime()).replace(/-/g, ''));
 }
 
 export async function generateOrderNo(

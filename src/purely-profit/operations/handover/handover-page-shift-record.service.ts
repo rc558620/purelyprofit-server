@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { EmployeeShiftType } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { endOfDay, startOfDay, type ShiftRecordRow } from './handover.shared';
+import { addShanghaiDays } from '../../../shared/shanghai-time.utils';
 import { HandoverShiftHandoverStatusService } from './handover-shift-handover-status.service';
 import {
   isSameShiftRecord,
@@ -178,12 +179,16 @@ export class HandoverPageShiftRecordService {
    * - 上界：baseDate + forwardDays 天（B1 fix：支持跨天查找后续班次）
    */
   private buildShiftLookupRange(baseDate = new Date(), forwardDays = 0) {
-    const lower = startOfDay(baseDate);
-    lower.setDate(lower.getDate() - SHIFT_LOOKUP_LOOKBACK_DAYS);
-    const upper = endOfDay(baseDate);
-    if (forwardDays > 0) {
-      upper.setDate(upper.getDate() + forwardDays);
-    }
+    const lower = new Date(
+      addShanghaiDays(
+        startOfDay(baseDate).getTime(),
+        -SHIFT_LOOKUP_LOOKBACK_DAYS,
+      ),
+    );
+    const upperBase = endOfDay(baseDate).getTime();
+    const upper = new Date(
+      forwardDays > 0 ? addShanghaiDays(upperBase, forwardDays) : upperBase,
+    );
     return {
       gte: lower,
       lte: upper,

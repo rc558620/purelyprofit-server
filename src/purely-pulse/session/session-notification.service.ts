@@ -4,6 +4,7 @@ import { buildDerivedFinanceAccountStatusWhere } from '../../purely-profit/finan
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import { buildPulseSessionNotificationCacheKey } from '../pulse.cache-keys';
 import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
+import { getShanghaiDayStartMs } from '../../shared/shanghai-time.utils';
 
 const DAY_MS = 86_400_000;
 const SESSION_NOTIFICATION_CACHE_TTL_SECONDS = 15;
@@ -121,13 +122,9 @@ function shouldAlertSubscription(
 }
 
 function getDayEnd(timestamp: number): number {
-  const date = new Date(timestamp);
-  date.setHours(23, 59, 59, 999);
-  return date.getTime();
+  return getShanghaiDayStartMs(timestamp) + 86_400_000 - 1;
 }
 
 function getDayStart(timestamp: number): number {
-  const date = new Date(timestamp);
-  date.setHours(0, 0, 0, 0);
-  return date.getTime();
+  return getShanghaiDayStartMs(timestamp);
 }

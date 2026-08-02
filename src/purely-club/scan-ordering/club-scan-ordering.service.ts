@@ -137,35 +137,25 @@ export class ClubScanOrderingService {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
 
-    // 查找是否存在有效且未删除的会话
-    const existing = await this.prisma.scanOrderingSession.findFirst({
+    // 每次使用新的扫码凭据进入桌台都创建新的点餐会话。购物车以 sessionId 为边界，
+    // 不能复用上次未结算会话，否则新一轮扫码会看到旧购物车条目。
+    await this.prisma.scanOrderingSession.updateMany({
       where: {
         clubUserId: user.id,
         tableId: table.id,
         status: 'active',
-        expiresAt: { gt: now },
         deletedAt: null,
       },
-      orderBy: { lastActiveAt: 'desc' },
+      data: { status: 'left', deletedAt: now, endedAt: now },
     });
-
-    const session = existing
-      ? await this.prisma.scanOrderingSession.update({
-          where: { id: existing.id },
-          data: {
-            guestCount: dto.guestCount ?? existing.guestCount,
-            lastActiveAt: now,
-            expiresAt,
-          },
-        })
-      : await this.upsertSession(
-          scanContext.storeId,
-          table.id,
-          user.id,
-          dto.guestCount,
-          expiresAt,
-          now,
-        );
+    const session = await this.upsertSession(
+      scanContext.storeId,
+      table.id,
+      user.id,
+      dto.guestCount,
+      expiresAt,
+      now,
+    );
     return this.toSessionResponse(session, table);
   }
 
@@ -250,7 +240,12 @@ export class ClubScanOrderingService {
     if (!session)
       throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
     const categories = await this.prisma.scanOrderingMenuCategory.findMany({
-      where: { storeId: session.storeId, isActive: true, deletedAt: null },
+      where: {
+        storeId: session.storeId,
+        isActive: true,
+        deletedAt: null,
+        products: { some: { deletedAt: null } },
+      },
       orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
       include: {
         products: {
@@ -267,8 +262,12 @@ export class ClubScanOrderingService {
             },
             specGroups: {
               where: { isActive: true },
+              orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
               include: {
-                options: { where: { isActive: true }, orderBy: { id: 'asc' } },
+                options: {
+                  where: { isActive: true },
+                  orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                },
               },
             },
           },
@@ -415,16 +414,6 @@ export class ClubScanOrderingService {
       }
       throw error;
     }
-  }
-
-  /**
-   * 合并上一次的访客数量和当前数量，取较大值。
-   */
-  private mergeGuestCounts(
-    previousGuestCount: number | undefined,
-    currentGuestCount: number,
-  ): number {
-    return Math.max(previousGuestCount ?? 1, currentGuestCount);
   }
 
   private extractQrToken(rawValue: string): string {

@@ -46,7 +46,7 @@ export interface ProductRecord {
       name: string;
       selectionType: 'single' | 'multiple';
       minSelections: number;
-      maxSelections: number;
+      maxSelections: number | null;
       sortOrder: number;
       options: Array<{
         id: number;

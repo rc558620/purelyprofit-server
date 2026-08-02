@@ -163,7 +163,9 @@ export class ProductSpecGroupDto {
     description: '最多选择数量；null 表示不限制',
   })
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }: { value: unknown }): unknown =>
+    value === null ? null : Number(value),
+  )
   @IsInt({ message: '最多选择数量必须是整数' })
   @Min(1, { message: '最多选择数量不能小于 1' })
   maxSelect: number | null;

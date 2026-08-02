@@ -1,4 +1,8 @@
 import { StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
+import {
+  addShanghaiDays,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
 import { resolveFrontendMembershipExpiry } from './membership-expiry.utils';
 import type { PlatformMembershipPlanId } from './dto/platform-membership-query.dto';
 
@@ -198,15 +202,8 @@ export function getHistoryWindowStartFromDays(
   days: number,
   now: Date = new Date(),
 ): number {
-  return new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() - days + 1,
-    0,
-    0,
-    0,
-    0,
-  ).getTime();
+  // 上海时区下「近 N 天」的起点零点
+  return addShanghaiDays(getShanghaiDayStartMs(now.getTime()), -days + 1);
 }
 
 export function clampHistoryRangeByWindow(

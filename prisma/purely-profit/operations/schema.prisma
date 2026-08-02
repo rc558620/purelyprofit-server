@@ -278,6 +278,7 @@ model ScanOrderingMenuProduct {
   specGroups    ScanOrderingSpecGroup[]
 
   @@unique([storeId, name], map: "uq_menu_product_store_name_active", where: raw("(deleted_at IS NULL)"))
+  @@unique([storeId, productId], map: "uq_scan_ordering_menu_product_store_product_active", where: raw("(product_id IS NOT NULL AND deleted_at IS NULL)"))
   @@index([storeId, categoryId, isActive, sortOrder])
   @@index([storeId, isActive])
   @@index([productId])
@@ -290,7 +291,8 @@ model ScanOrderingSpecGroup {
   name          String                        @map("name")
   selectionType ScanOrderingSpecSelectionType @default(single) @map("selection_type")
   minSelections Int                           @default(1) @map("min_selections")
-  maxSelections Int                           @default(1) @map("max_selections")
+  /// null 表示该规格组不限制最多选择数量。
+  maxSelections Int?                          @map("max_selections")
   sortOrder     Int                           @default(0) @map("sort_order")
   isActive      Boolean                       @default(true) @map("is_active")
   version       Int                           @default(0) @map("version")

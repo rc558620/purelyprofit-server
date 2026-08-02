@@ -9,6 +9,17 @@ import type {
   PulseDashboardPeriodValue,
   PulseHomeRevenuePeriodValue,
 } from './dto/pulse-dashboard-query.dto';
+import {
+  addShanghaiMonths,
+  addShanghaiYears,
+  formatShanghaiDayLabel,
+  getShanghaiDayStartMs,
+  getShanghaiMonthStartMs,
+  getShanghaiQuarterStartMs,
+  getShanghaiWeekStartMs,
+  getShanghaiYearStartMs,
+  parseShanghaiDateText,
+} from '../../shared/shanghai-time.utils';
 
 export const DAY_MS = 86_400_000;
 
@@ -53,76 +64,50 @@ export function buildCompareRange(
         end: current.end - DAY_MS * 7,
       };
     case DASHBOARD_PERIOD_MONTH: {
-      const compareStart = safeSubtractMonth(new Date(current.start));
+      // 上海时区下前推一个月，月末溢出自动钳制（3/31 → 2/28）。
+      const compareStart = addShanghaiMonths(current.start, -1);
       return {
-        start: compareStart.getTime(),
-        end: compareStart.getTime() + currentDuration,
+        start: compareStart,
+        end: compareStart + currentDuration,
       };
     }
     case DASHBOARD_PERIOD_YEAR: {
-      const compareStart = new Date(current.start);
-      compareStart.setFullYear(compareStart.getFullYear() - 1);
+      const compareStart = addShanghaiYears(current.start, -1);
       return {
-        start: compareStart.getTime(),
-        end: compareStart.getTime() + currentDuration,
+        start: compareStart,
+        end: compareStart + currentDuration,
       };
     }
   }
-}
-
-/**
- * 安全地向前偏移一个月，避免 setMonth 在月末溢出到下月的问题。
- * 例如 3月31日 → 2月28日（而非 3月3日）。
- */
-function safeSubtractMonth(date: Date): Date {
-  const result = new Date(date);
-  const targetMonth = result.getMonth() - 1;
-  result.setMonth(targetMonth);
-  // 如果 setMonth 导致月份回绕（如 3月31日 → 3月3日），
-  // 则将日期回退到目标月的最后一天
-  if (result.getMonth() !== ((targetMonth % 12) + 12) % 12) {
-    result.setDate(0);
-  }
-  return result;
 }
 
 export function buildHomeRevenueRange(
   period: PulseHomeRevenuePeriodValue,
   now: Date,
 ): TimeRange {
-  let rangeStartDate: Date;
+  const nowMs = now.getTime();
+  let rangeStartMs: number;
 
   // Home / revenue-detail share the revenue period semantics.
   switch (period) {
     case DASHBOARD_PERIOD_TODAY:
-      rangeStartDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate(),
-      );
+      rangeStartMs = getShanghaiDayStartMs(nowMs);
       break;
-    case DASHBOARD_PERIOD_WEEK: {
-      rangeStartDate = new Date(now);
-      const dayOfWeek =
-        rangeStartDate.getDay() === 0 ? 6 : rangeStartDate.getDay() - 1;
-      rangeStartDate.setDate(rangeStartDate.getDate() - dayOfWeek);
-      rangeStartDate.setHours(0, 0, 0, 0);
+    case DASHBOARD_PERIOD_WEEK:
+      rangeStartMs = getShanghaiWeekStartMs(nowMs);
       break;
-    }
-    case HOME_REVENUE_PERIOD_SEASON: {
-      const seasonStartMonth = Math.floor(now.getMonth() / 3) * 3;
-      rangeStartDate = new Date(now.getFullYear(), seasonStartMonth, 1);
+    case HOME_REVENUE_PERIOD_SEASON:
+      rangeStartMs = getShanghaiQuarterStartMs(nowMs);
       break;
-    }
     case DASHBOARD_PERIOD_MONTH:
     default:
-      rangeStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      rangeStartMs = getShanghaiMonthStartMs(nowMs);
       break;
   }
 
   return {
-    start: rangeStartDate.getTime(),
-    end: now.getTime(),
+    start: rangeStartMs,
+    end: nowMs,
   };
 }
 
@@ -152,67 +137,43 @@ export function buildPreviousSequentialRange(
  * 确保对比区间始终对齐自然季度边界。
  */
 function buildPreviousSeasonRange(currentRange: TimeRange): TimeRange {
-  const currentStart = new Date(currentRange.start);
-  const prevQuarterStart = new Date(currentStart);
-  prevQuarterStart.setMonth(prevQuarterStart.getMonth() - 3);
-  prevQuarterStart.setHours(0, 0, 0, 0);
+  // 上海时区下前推 3 个月，得到上一个自然季度起点。
+  const prevQuarterStart = addShanghaiMonths(currentRange.start, -3);
 
   // 上个季度的结束时间是当前季度的开始时刻 -1 毫秒
   const prevQuarterEnd = currentRange.start - 1;
 
   return {
-    start: prevQuarterStart.getTime(),
+    start: prevQuarterStart,
     end: prevQuarterEnd,
   };
 }
 
 export function buildSingleDayRange(dateText: string): TimeRange {
-  const date = parseDateText(dateText);
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const end = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    23,
-    59,
-    59,
-    999,
-  );
+  const dayStart = getShanghaiDayStartMs(parseDateText(dateText).getTime());
   return {
-    start: start.getTime(),
-    end: end.getTime(),
+    start: dayStart,
+    end: dayStart + DAY_MS - 1,
   };
 }
 
 export function buildDateRange(startText: string, endText: string): TimeRange {
-  const startDate = parseDateText(startText);
-  const endDate = parseDateText(endText);
-  const rangeStart = new Date(Math.min(startDate.getTime(), endDate.getTime()));
-  const rangeEnd = new Date(Math.max(startDate.getTime(), endDate.getTime()));
-  rangeStart.setHours(0, 0, 0, 0);
-  rangeEnd.setHours(23, 59, 59, 999);
+  const startMs = parseDateText(startText).getTime();
+  const endMs = parseDateText(endText).getTime();
+  const rangeStart = getShanghaiDayStartMs(Math.min(startMs, endMs));
+  const rangeEnd = getShanghaiDayStartMs(Math.max(startMs, endMs));
   return {
-    start: rangeStart.getTime(),
-    end: rangeEnd.getTime(),
+    start: rangeStart,
+    end: rangeEnd + DAY_MS - 1,
   };
 }
 
 export function parseDateText(dateText: string): Date {
-  const normalizedText = dateText.trim().replace(/\./g, '/').replace(/-/g, '/');
-  const [yearText, monthText, dayText] = normalizedText.split('/');
-  const year = Number.parseInt(yearText ?? '', 10);
-  const month = Number.parseInt(monthText ?? '', 10);
-  const day = Number.parseInt(dayText ?? '', 10);
-
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day)
-  ) {
+  const parsedMs = parseShanghaiDateText(dateText);
+  if (Number.isNaN(parsedMs)) {
     return new Date(dateText);
   }
-
-  return new Date(year, month - 1, day);
+  return new Date(parsedMs);
 }
 
 export function isTimeInRange(date: Date, range: TimeRange): boolean {
@@ -221,49 +182,27 @@ export function isTimeInRange(date: Date, range: TimeRange): boolean {
 }
 
 export function getInclusiveDayCount(range: TimeRange): number {
-  const start = new Date(range.start);
-  const end = new Date(range.end);
-  const startDay = new Date(
-    start.getFullYear(),
-    start.getMonth(),
-    start.getDate(),
-  ).getTime();
-  const endDay = new Date(
-    end.getFullYear(),
-    end.getMonth(),
-    end.getDate(),
-  ).getTime();
-  return Math.max(1, Math.floor((endDay - startDay) / DAY_MS) + 1);
+  const startDay = getShanghaiDayStartMs(range.start);
+  const endDay = getShanghaiDayStartMs(range.end);
+  return Math.max(1, Math.round((endDay - startDay) / DAY_MS) + 1);
 }
 
 function getStartOfDay(ts: number): number {
-  const date = new Date(ts);
-  date.setHours(0, 0, 0, 0);
-  return date.getTime();
+  return getShanghaiDayStartMs(ts);
 }
 
 function getStartOfWeek(dayStart: number): number {
-  const date = new Date(dayStart);
-  const dayOfWeek = date.getDay();
-  const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  date.setDate(date.getDate() - diff);
-  return date.getTime();
+  return getShanghaiWeekStartMs(dayStart);
 }
 
 function getStartOfMonth(dayStart: number): number {
-  const date = new Date(dayStart);
-  date.setDate(1);
-  return date.getTime();
+  return getShanghaiMonthStartMs(dayStart);
 }
 
 function getStartOfYear(dayStart: number): number {
-  const date = new Date(dayStart);
-  date.setMonth(0, 1);
-  return date.getTime();
+  return getShanghaiYearStartMs(dayStart);
 }
 
 export function formatDateLabel(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${month}/${day}`;
+  return formatShanghaiDayLabel(getShanghaiDayStartMs(date.getTime()));
 }

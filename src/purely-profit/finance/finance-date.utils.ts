@@ -1,3 +1,8 @@
+import {
+  formatShanghaiDate,
+  formatShanghaiDateTime,
+} from '../../shared/shanghai-time.utils';
+
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60_000;
 
 /**
@@ -35,36 +40,22 @@ export function getShanghaiMonthStartMs(timestampMs: number): number {
 }
 
 export function getDayStart(timestamp: number): number {
-  const current = new Date(timestamp);
-  current.setHours(0, 0, 0, 0);
-  return current.getTime();
+  return getShanghaiDayStartMs(timestamp);
 }
 
 export function getDayEnd(timestamp: number): number {
-  const current = new Date(timestamp);
-  current.setHours(23, 59, 59, 999);
-  return current.getTime();
+  return getShanghaiDayStartMs(timestamp) + 86_400_000 - 1;
 }
 
 export function formatReportDateLabel(timestamp: number): string {
-  const current = new Date(timestamp);
-  const year = current.getFullYear();
-  const month = String(current.getMonth() + 1).padStart(2, '0');
-  const day = String(current.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return formatShanghaiDate(timestamp);
 }
 
 /**
  * 格式化为 "YYYY-MM-DD HH:mm" 样式，用于现金流水明细等需要精确到时间的场景。
  */
 export function formatReportDateTimeLabel(timestamp: number): string {
-  const current = new Date(timestamp);
-  const year = current.getFullYear();
-  const month = String(current.getMonth() + 1).padStart(2, '0');
-  const day = String(current.getDate()).padStart(2, '0');
-  const hours = String(current.getHours()).padStart(2, '0');
-  const minutes = String(current.getMinutes()).padStart(2, '0');
-  return `${year}-${month}-${day} ${hours}:${minutes}`;
+  return formatShanghaiDateTime(timestamp);
 }
 
 export function formatMonthDay(timestamp: number): string {
@@ -82,8 +73,7 @@ export function formatMonthLabel(month1Based: number): string {
 
 /** 获取时间戳所在月的 1 号零点 */
 export function getMonthStart(timestamp: number): number {
-  const current = new Date(timestamp);
-  return new Date(current.getFullYear(), current.getMonth(), 1).getTime();
+  return getShanghaiMonthStartMs(timestamp);
 }
 
 /**
@@ -101,10 +91,5 @@ export function getShanghaiWeekStartMs(timestampMs: number): number {
 }
 
 export function getWeekStart(current: Date): number {
-  const day = current.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  const monday = new Date(current);
-  monday.setDate(current.getDate() + diff);
-  monday.setHours(0, 0, 0, 0);
-  return monday.getTime();
+  return getShanghaiWeekStartMs(current.getTime());
 }

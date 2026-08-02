@@ -27,32 +27,37 @@ export class ClubScanOrderingCartService {
     return { sessionId: session.id, version: this.cartVersion(items), items };
   }
 
+  async quoteCartItem(
+    user: AuthenticatedUser,
+    dto: Pick<
+      AddClubScanCartItemDto,
+      'sessionId' | 'productId' | 'specOptionIds'
+    >,
+  ): Promise<{ unitPriceAmount: number }> {
+    const session = await this.requireSession(user, dto.sessionId);
+    const product = await this.findAvailableProduct(
+      session.storeId,
+      dto.productId,
+      1,
+    );
+    const options = this.validateOptions(product.specGroups, dto.specOptionIds);
+    return {
+      unitPriceAmount:
+        product.basePrice +
+        options.reduce((sum, option) => sum + option.extraPrice, 0),
+    };
+  }
+
   async addCartItem(
     user: AuthenticatedUser,
     dto: AddClubScanCartItemDto,
   ): Promise<unknown> {
     const session = await this.requireSession(user, dto.sessionId);
-    const product = await this.prisma.scanOrderingMenuProduct.findFirst({
-      where: {
-        id: dto.productId,
-        storeId: session.storeId,
-        isActive: true,
-        deletedAt: null,
-      },
-      include: {
-        specGroups: {
-          where: { isActive: true },
-          include: { options: { where: { isActive: true } } },
-        },
-      },
-    });
-    if (
-      !product ||
-      product.stockMode === 'sold_out' ||
-      (product.stockMode === 'finite' &&
-        (product.stockQuantity ?? 0) < dto.quantity)
-    )
-      throw new ConflictException('商品已售罄或库存不足');
+    const product = await this.findAvailableProduct(
+      session.storeId,
+      dto.productId,
+      dto.quantity,
+    );
     const options = this.validateOptions(product.specGroups, dto.specOptionIds);
     const specSignature = this.hash(
       [...dto.specOptionIds].sort((a, b) => a - b).join(','),
@@ -151,6 +156,31 @@ export class ClubScanOrderingCartService {
     return this.getCart(user, item.sessionId);
   }
 
+  private async findAvailableProduct(
+    storeId: number,
+    productId: number,
+    quantity: number,
+  ) {
+    const product = await this.prisma.scanOrderingMenuProduct.findFirst({
+      where: { id: productId, storeId, isActive: true, deletedAt: null },
+      include: {
+        specGroups: {
+          where: { isActive: true },
+          include: { options: { where: { isActive: true } } },
+        },
+      },
+    });
+    if (
+      !product ||
+      product.stockMode === 'sold_out' ||
+      (product.stockMode === 'finite' &&
+        (product.stockQuantity ?? 0) < quantity)
+    ) {
+      throw new ConflictException('商品已售罄或库存不足');
+    }
+    return product;
+  }
+
   private async requireSession(
     user: AuthenticatedUser,
     sessionId: number | undefined,
@@ -192,7 +222,7 @@ export class ClubScanOrderingCartService {
     groups: Array<{
       id: number;
       minSelections: number;
-      maxSelections: number;
+      maxSelections: number | null;
       options: Array<{ id: number; extraPrice: number }>;
     }>,
     selectedIds: number[],
@@ -207,8 +237,12 @@ export class ClubScanOrderingCartService {
       const count = options.filter((option) =>
         group.options.some((candidate) => candidate.id === option.id),
       ).length;
-      if (count < group.minSelections || count > group.maxSelections)
+      if (
+        count < group.minSelections ||
+        (group.maxSelections !== null && count > group.maxSelections)
+      ) {
         throw new BadRequestException('商品规格选择不符合要求');
+      }
     }
     return options;
   }

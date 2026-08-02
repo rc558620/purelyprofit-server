@@ -6,6 +6,13 @@ import {
   getShanghaiDayStartMs,
   getWeekStart,
 } from './finance-date.utils';
+import {
+  addShanghaiMonths,
+  getShanghaiMonthStartMs,
+  getShanghaiQuarterStartMs,
+  getShanghaiYear,
+  makeShanghaiMs,
+} from '../../shared/shanghai-time.utils';
 import type {
   FinanceOverviewPeriodValue,
   FinanceReportQueryInput,
@@ -144,37 +151,22 @@ export function getFinanceReportRange(
       return { start: getWeekStart(now), end: nowMs, period };
     case 'month':
       return {
-        start: new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
+        start: getShanghaiMonthStartMs(nowMs),
         end: nowMs,
         period,
       };
     case 'quarter':
       return {
-        start: new Date(
-          now.getFullYear(),
-          Math.floor(now.getMonth() / 3) * 3,
-          1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
+        start: getShanghaiQuarterStartMs(nowMs),
         end: nowMs,
         period,
       };
     case 'year': {
-      const year = query.year ?? now.getFullYear();
+      const year = query.year ?? getShanghaiYear(nowMs);
       return {
-        start: new Date(year, 0, 1, 0, 0, 0, 0).getTime(),
-        end: new Date(year, 11, 31, 23, 59, 59, 999).getTime(),
+        start: makeShanghaiMs(year, 0, 1),
+        // 该年上海时区 12/31 23:59:59.999 = 次年元旦零点 -1ms
+        end: makeShanghaiMs(year + 1, 0, 1) - 1,
         period,
       };
     }
@@ -182,26 +174,11 @@ export function getFinanceReportRange(
       if (query.customDate === undefined) {
         throw new BadRequestException('自定义月份模式需要传 customDate');
       }
-      const current = new Date(query.customDate);
+      const monthStart = getShanghaiMonthStartMs(query.customDate);
       return {
-        start: new Date(
-          current.getFullYear(),
-          current.getMonth(),
-          1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
-        end: new Date(
-          current.getFullYear(),
-          current.getMonth() + 1,
-          0,
-          23,
-          59,
-          59,
-          999,
-        ).getTime(),
+        start: monthStart,
+        // 当月末尾 = 次月 1 号零点 -1ms
+        end: addShanghaiMonths(monthStart, 1) - 1,
         period,
       };
     }
@@ -238,17 +215,8 @@ export function getPreviousFinanceReportRange(
         end: currentRange.start - 1,
       };
     case 'custom_month': {
-      const currentStart = new Date(currentRange.start);
       return {
-        start: new Date(
-          currentStart.getFullYear(),
-          currentStart.getMonth() - 1,
-          1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
+        start: addShanghaiMonths(currentRange.start, -1),
         end: currentRange.start - 1,
       };
     }
@@ -258,40 +226,22 @@ export function getPreviousFinanceReportRange(
         end: currentRange.start - 1,
       };
     case 'month': {
-      const currentStart = new Date(currentRange.start);
       return {
-        start: new Date(
-          currentStart.getFullYear(),
-          currentStart.getMonth() - 1,
-          1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
+        start: addShanghaiMonths(currentRange.start, -1),
         end: currentRange.start - 1,
       };
     }
     case 'quarter': {
-      const currentStart = new Date(currentRange.start);
       return {
-        start: new Date(
-          currentStart.getFullYear(),
-          currentStart.getMonth() - 3,
-          1,
-          0,
-          0,
-          0,
-          0,
-        ).getTime(),
+        start: addShanghaiMonths(currentRange.start, -3),
         end: currentRange.start - 1,
       };
     }
     case 'year': {
-      const year = (query.year ?? new Date().getFullYear()) - 1;
+      const year = (query.year ?? getShanghaiYear(Date.now())) - 1;
       return {
-        start: new Date(year, 0, 1, 0, 0, 0, 0).getTime(),
-        end: new Date(year, 11, 31, 23, 59, 59, 999).getTime(),
+        start: makeShanghaiMs(year, 0, 1),
+        end: makeShanghaiMs(year + 1, 0, 1) - 1,
       };
     }
     case 'custom_range': {

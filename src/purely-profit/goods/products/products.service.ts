@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -127,6 +128,7 @@ export class ProductsService {
 
     if (dto.specGroups !== undefined) {
       await this.ensureCateringStore(storeId);
+      this.validateSpecificationGroups(dto.specGroups);
     }
 
     await this.platformMembershipAccessService.ensureProductQuotaAvailable(
@@ -194,6 +196,7 @@ export class ProductsService {
 
     if (dto.specGroups !== undefined) {
       await this.ensureCateringStore(product.storeId);
+      this.validateSpecificationGroups(dto.specGroups);
     }
 
     // 服务端重算利润：合并 dto 与现有记录，推导最终 profit
@@ -260,8 +263,15 @@ export class ProductsService {
     }
 
     // 同步商品信息变更到关联的扫码菜单商品
+    const menuCategory = nextCategory
+      ? await this.resolveScanOrderingCategoryByName(
+          product.storeId,
+          nextCategory,
+        )
+      : null;
     await this.syncScanOrderingMenuProduct(product.storeId, product.id, {
       ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+      ...(menuCategory ? { categoryId: menuCategory.id } : {}),
       ...(dto.price !== undefined
         ? { basePrice: Money.fromInputYuan(dto.price).toDbCents() }
         : {}),
@@ -341,8 +351,21 @@ export class ProductsService {
     categoryId?: number,
   ): Promise<void> {
     const existing = await this.prisma.scanOrderingMenuProduct.findFirst({
-      where: { storeId: product.storeId, productId: product.id },
+      where: {
+        storeId: product.storeId,
+        productId: product.id,
+        deletedAt: null,
+      },
     });
+
+    const resolvedCategoryId =
+      categoryId ??
+      (
+        await this.resolveScanOrderingCategoryByName(
+          product.storeId,
+          product.category,
+        )
+      ).id;
 
     if (existing) {
       await this.prisma.scanOrderingMenuProduct.update({
@@ -350,47 +373,53 @@ export class ProductsService {
         data: {
           isActive: true,
           deletedAt: null,
+          categoryId: resolvedCategoryId,
           name: product.name,
           basePrice: product.price,
-          ...(categoryId ? { categoryId } : {}),
         },
       });
       return;
     }
 
-    if (!categoryId) {
-      const defaultCategory =
-        await this.prisma.scanOrderingMenuCategory.findFirst({
-          where: { storeId: product.storeId, deletedAt: null },
-          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-        });
-
-      if (!defaultCategory) {
-        const created = await this.prisma.scanOrderingMenuCategory.create({
-          data: {
-            storeId: product.storeId,
-            name: '默认分类',
-            sortOrder: 0,
-          },
-        });
-        categoryId = created.id;
-      } else {
-        categoryId = defaultCategory.id;
-      }
-    }
-
     const category = await this.prisma.scanOrderingMenuCategory.findFirst({
-      where: { id: categoryId, storeId: product.storeId, deletedAt: null },
+      where: {
+        id: resolvedCategoryId,
+        storeId: product.storeId,
+        deletedAt: null,
+      },
     });
-    if (!category) {
-      throw new BadRequestException('扫码菜单分类不存在');
+    if (!category) throw new BadRequestException('扫码菜单分类不存在');
+
+    const nameConflict = await this.prisma.scanOrderingMenuProduct.findFirst({
+      where: {
+        storeId: product.storeId,
+        name: product.name,
+        deletedAt: null,
+      },
+      select: { id: true, productId: true },
+    });
+    if (nameConflict && nameConflict.productId !== product.id) {
+      throw new ConflictException('同一门店的扫码菜单商品名称不能重复');
+    }
+    if (nameConflict) {
+      await this.prisma.scanOrderingMenuProduct.update({
+        where: { id: nameConflict.id },
+        data: {
+          productId: product.id,
+          categoryId: resolvedCategoryId,
+          imageUrl: product.image,
+          basePrice: product.price,
+          isActive: true,
+        },
+      });
+      return;
     }
 
     await this.prisma.scanOrderingMenuProduct.create({
       data: {
         storeId: product.storeId,
         productId: product.id,
-        categoryId,
+        categoryId: resolvedCategoryId,
         name: product.name,
         imageUrl: product.image,
         basePrice: product.price,
@@ -407,6 +436,52 @@ export class ProductsService {
 
     if (!store || store.businessMode !== 'catering') {
       throw new BadRequestException('仅餐饮门店允许配置商品规格');
+    }
+  }
+
+  private validateSpecificationGroups(specGroups: ProductSpecGroupDto[]): void {
+    const groupNames = new Set<string>();
+
+    for (const group of specGroups) {
+      const groupName = group.name.trim();
+      if (!groupName) throw new BadRequestException('规格组名称不能为空');
+      if (groupNames.has(groupName)) {
+        throw new BadRequestException('规格组名称不能重复');
+      }
+      groupNames.add(groupName);
+
+      if (group.options.length === 0) {
+        throw new BadRequestException('每个规格组至少需要一个选项');
+      }
+      if (group.selectMode === 'single' && group.maxSelect !== 1) {
+        throw new BadRequestException('单选规格组最多只能选择一项');
+      }
+      if (
+        group.maxSelect !== null &&
+        (group.minSelect > group.maxSelect ||
+          group.maxSelect > group.options.length)
+      ) {
+        throw new BadRequestException('规格组选择数量不合法');
+      }
+
+      const optionNames = new Set<string>();
+      const activeOptions = group.options.filter((option) => option.isActive);
+      const defaultOptions = activeOptions.filter((option) => option.isDefault);
+      if (group.minSelect > activeOptions.length) {
+        throw new BadRequestException('启用规格选项不足以满足最少选择数量');
+      }
+      if (group.selectMode === 'single' && defaultOptions.length > 1) {
+        throw new BadRequestException('单选规格组最多只能设置一个默认项');
+      }
+
+      for (const option of group.options) {
+        const optionName = option.name.trim();
+        if (!optionName) throw new BadRequestException('规格选项名称不能为空');
+        if (optionNames.has(optionName)) {
+          throw new BadRequestException('同一规格组的选项名称不能重复');
+        }
+        optionNames.add(optionName);
+      }
     }
   }
 
@@ -439,6 +514,8 @@ export class ProductsService {
           name: group.name.trim(),
           selectionType: group.selectMode === 'multi' ? 'multiple' : 'single',
           minSelections: group.minSelect,
+          // 数据库迁移前的字段仍是 NOT NULL；将“不限选”持久化为当前选项数，
+          // 在接口层仍以 null 表示不限选，避免创建商品失败。
           maxSelections: group.maxSelect ?? group.options.length,
           sortOrder: group.sort,
         })),
@@ -450,12 +527,12 @@ export class ProductsService {
         select: { id: true },
       });
       await transaction.scanOrderingSpecOption.createMany({
-        data: specGroups.flatMap((group, index) =>
-          group.options.map((option) => ({
-            groupId: groups[index].id,
+        data: specGroups.flatMap((group, groupIndex) =>
+          group.options.map((option, optionIndex) => ({
+            groupId: groups[groupIndex].id,
             name: option.name.trim(),
             extraPrice: Money.fromInputYuan(option.priceDelta).toDbCents(),
-            sortOrder: index,
+            sortOrder: optionIndex,
             isDefault: option.isDefault,
             isActive: option.isActive,
           })),
@@ -477,11 +554,14 @@ export class ProductsService {
 
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
-      select: { name: true, image: true, price: true },
+      select: { name: true, category: true, image: true, price: true },
     });
     if (!product) throw new NotFoundException('商品不存在');
 
-    const category = await this.resolveDefaultScanOrderingCategory(storeId);
+    const category = await this.resolveScanOrderingCategoryByName(
+      storeId,
+      product.category,
+    );
     return this.prisma.scanOrderingMenuProduct.create({
       data: {
         storeId,
@@ -508,6 +588,32 @@ export class ProductsService {
 
     return this.prisma.scanOrderingMenuCategory.create({
       data: { storeId, name: '默认分类', sortOrder: 0 },
+      select: { id: true },
+    });
+  }
+
+  private async resolveScanOrderingCategoryByName(
+    storeId: number,
+    name: string,
+  ): Promise<{ id: number }> {
+    const normalizedName = name.trim();
+    const existing = await this.prisma.scanOrderingMenuCategory.findFirst({
+      where: { storeId, name: normalizedName, deletedAt: null },
+      select: { id: true },
+    });
+    if (existing) return existing;
+
+    const lastCategory = await this.prisma.scanOrderingMenuCategory.findFirst({
+      where: { storeId, deletedAt: null },
+      orderBy: [{ sortOrder: 'desc' }, { id: 'desc' }],
+      select: { sortOrder: true },
+    });
+    return this.prisma.scanOrderingMenuCategory.create({
+      data: {
+        storeId,
+        name: normalizedName || '默认分类',
+        sortOrder: (lastCategory?.sortOrder ?? -1) + 1,
+      },
       select: { id: true },
     });
   }
@@ -543,7 +649,12 @@ export class ProductsService {
   private async syncScanOrderingMenuProduct(
     storeId: number,
     productId: number,
-    updates: { name?: string; basePrice?: number; imageUrl?: string | null },
+    updates: {
+      name?: string;
+      categoryId?: number;
+      basePrice?: number;
+      imageUrl?: string | null;
+    },
   ): Promise<void> {
     const hasUpdates = Object.keys(updates).length > 0;
     if (!hasUpdates) return;

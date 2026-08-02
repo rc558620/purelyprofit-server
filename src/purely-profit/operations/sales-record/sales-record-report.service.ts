@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { ServerResponse } from 'node:http';
 import { Money } from '../../../shared/money.utils';
+import { formatShanghaiDateTime } from '../../../shared/shanghai-time.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   isDeductionProductName,
@@ -58,13 +59,7 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
 };
 
 function formatCsvTimestamp(ms: number): string {
-  const d = new Date(ms);
-  const Y = d.getFullYear();
-  const M = String(d.getMonth() + 1).padStart(2, '0');
-  const D = String(d.getDate()).padStart(2, '0');
-  const h = String(d.getHours()).padStart(2, '0');
-  const m = String(d.getMinutes()).padStart(2, '0');
-  return `${Y}-${M}-${D} ${h}:${m}`;
+  return formatShanghaiDateTime(ms);
 }
 
 function resolvePaymentLabel(paymentMethod: string): string {

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { Money } from '../../shared/money.utils';
+import { formatShanghaiDayLabel } from '../../shared/shanghai-time.utils';
 import { normalizePromotionParams } from '../../purely-profit/marketing/marketing.mapper';
 import {
   MARKETING_PROMOTION_TYPE_VALUES,
@@ -209,9 +210,7 @@ export class ClubPromotionsService {
   }
 
   private formatMonthDay(date: Date): string {
-    const month = `${date.getMonth() + 1}`.padStart(2, '0');
-    const day = `${date.getDate()}`.padStart(2, '0');
-    return `${month}.${day}`;
+    return formatShanghaiDayLabel(date.getTime()).replace('/', '.');
   }
 
   private resolveBannerImage(

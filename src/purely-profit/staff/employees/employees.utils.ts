@@ -1,4 +1,5 @@
 import { PaginationMetaDto } from '../../stores/dto/store-response.dto';
+import { formatShanghaiYearMonth } from '../../../shared/shanghai-time.utils';
 
 type DecimalLike = {
   toString(): string;
@@ -79,7 +80,7 @@ export function resolvePagination(
 }
 
 export function getCurrentMonthString(now = new Date()): string {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return formatShanghaiYearMonth(now.getTime());
 }
 
 export function getMonthStart(year: number, month: number): Date {

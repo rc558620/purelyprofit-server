@@ -3,6 +3,10 @@ import { ScanOrderPaymentStatus, ScanOrderStatus } from '@prisma/client';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
+import {
+  formatShanghaiDate,
+  getShanghaiDayStartMs,
+} from '../../../shared/shanghai-time.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { ScanOrderingDashboardResponse } from './scan-ordering.types';
 
@@ -24,12 +28,8 @@ export class ScanOrderingDashboardService {
       '无权查看扫码点餐数据',
     );
 
-    const now = new Date();
-    const startOfDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-    );
+    const startOfDayMs = getShanghaiDayStartMs(Date.now());
+    const startOfDay = new Date(startOfDayMs);
     const [
       paidRevenue,
       paidOrderCount,
@@ -71,7 +71,7 @@ export class ScanOrderingDashboardService {
     }
 
     return {
-      businessDate: startOfDay.toISOString().slice(0, 10),
+      businessDate: formatShanghaiDate(startOfDayMs),
       paidRevenue: Money.fromDbCents(
         paidRevenue._sum.paidAmount ?? 0,
       ).toOutputYuan(),

@@ -311,9 +311,28 @@ export class ClubScanOrderingOrderService {
     const sessions = await this.prisma.scanOrderingSession.findMany({
       where: {
         clubUserId: user.id,
-        status: ScanOrderingSessionStatus.active,
-        expiresAt: { gt: new Date() },
-        deletedAt: null,
+        // left 会话本身不是当前会话；但同一用户在同桌仍有有效 active 会话时，
+        // left 中的待履约订单仍属于当前用餐轮次，不能同时从当前订单和历史记录遗漏。
+        OR: [
+          {
+            status: ScanOrderingSessionStatus.active,
+            expiresAt: { gt: new Date() },
+            deletedAt: null,
+          },
+          {
+            status: ScanOrderingSessionStatus.left,
+            table: {
+              sessions: {
+                some: {
+                  clubUserId: user.id,
+                  status: ScanOrderingSessionStatus.active,
+                  deletedAt: null,
+                  expiresAt: { gt: new Date() },
+                },
+              },
+            },
+          },
+        ],
         ...(query.cursor ? { id: { lt: query.cursor } } : {}),
       },
       orderBy: [{ lastActiveAt: 'desc' }, { id: 'desc' }],
@@ -339,9 +358,19 @@ export class ClubScanOrderingOrderService {
             deletedAt: null,
             ...(query.status
               ? { status: query.status as ScanOrderStatus }
-              : { status: { in: activeStates } }),
+              : {
+                  OR: [
+                    { status: { in: activeStates } },
+                    // 已退款不再参与桌台履约或清桌校验，但顾客在本次有效用餐
+                    // 会话中仍需能查看退款结果并继续点餐。
+                    {
+                      status: ScanOrderStatus.rejected,
+                      paymentStatus: 'refunded',
+                    },
+                  ],
+                }),
           },
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           select: {
             id: true,
             orderNo: true,
@@ -363,7 +392,12 @@ export class ClubScanOrderingOrderService {
             refundTasks: {
               orderBy: { createdAt: 'desc' },
               take: 1,
-              select: { status: true, refundSucceededAt: true },
+              select: {
+                status: true,
+                refundSucceededAt: true,
+                processedAt: true,
+                triggeredAt: true,
+              },
             },
             balanceTransactions: {
               where: { type: 'refund' },
@@ -378,6 +412,10 @@ export class ClubScanOrderingOrderService {
                 productNameSnapshot: true,
                 productImageUrlSnapshot: true,
                 quantity: true,
+                specs: {
+                  orderBy: { id: 'asc' },
+                  select: { specOptionNameSnapshot: true },
+                },
               },
             },
           },
@@ -430,6 +468,18 @@ export class ClubScanOrderingOrderService {
           createdAt: order.createdAt.toISOString(),
           paymentExpiresAt: order.paymentExpiresAt?.toISOString() ?? null,
           acceptedAt: order.acceptedAt?.toISOString() ?? null,
+          refundTasks: order.refundTasks.map((task) => ({
+            ...task,
+            refundSucceededAt:
+              task.refundSucceededAt?.toISOString() ??
+              task.processedAt?.toISOString() ??
+              task.triggeredAt?.toISOString() ??
+              order.balanceTransactions[0]?.createdAt.toISOString() ??
+              null,
+          })),
+          balanceTransactions: order.balanceTransactions.map((transaction) => ({
+            createdAt: transaction.createdAt.toISOString(),
+          })),
         })),
       })),
       nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null,
@@ -444,11 +494,13 @@ export class ClubScanOrderingOrderService {
     const sessions = await this.prisma.scanOrderingSession.findMany({
       where: {
         clubUserId: user.id,
-        deletedAt: null,
+        // 历史记录必须包含清桌的 checked_out 会话，以及重新扫码时标记为
+        // left（同时可能软删除）的会话；否则已支付订单会从两处列表都消失。
         status: {
           in: [
             ScanOrderingSessionStatus.checked_out,
             ScanOrderingSessionStatus.expired,
+            ScanOrderingSessionStatus.left,
           ],
         },
         ...(query.cursor ? { id: { lt: query.cursor } } : {}),
@@ -474,7 +526,7 @@ export class ClubScanOrderingOrderService {
         },
         orders: {
           where: { deletedAt: null },
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           select: {
             id: true,
             orderNo: true,
@@ -499,12 +551,21 @@ export class ClubScanOrderingOrderService {
                 productNameSnapshot: true,
                 productImageUrlSnapshot: true,
                 quantity: true,
+                specs: {
+                  orderBy: { id: 'asc' },
+                  select: { specOptionNameSnapshot: true },
+                },
               },
             },
             refundTasks: {
               orderBy: { createdAt: 'desc' },
               take: 1,
-              select: { status: true, refundSucceededAt: true },
+              select: {
+                status: true,
+                refundSucceededAt: true,
+                processedAt: true,
+                triggeredAt: true,
+              },
             },
             balanceTransactions: {
               where: { type: 'refund' },
@@ -537,19 +598,29 @@ export class ClubScanOrderingOrderService {
     );
     const hydratedSessions = sessions.map((session) => ({
       ...session,
-      orders: session.orders.map((order) => ({
-        ...order,
-        items: order.items.map((item) => ({
-          ...item,
-          productImageUrlSnapshot:
-            item.productImageUrlSnapshot ??
-            imageByMenuProductId.get(item.menuProductId) ??
-            null,
+      // left 仅代表顾客离开页面。只有真正结束的订单才进入历史；待接单、
+      // 制作中和已出餐订单仍属于当前桌台履约范围。
+      orders: session.orders
+        .filter(
+          (order) =>
+            session.status !== ScanOrderingSessionStatus.left ||
+            ['rejected', 'cancelled', 'completed'].includes(order.status),
+        )
+        .map((order) => ({
+          ...order,
+          items: order.items.map((item) => ({
+            ...item,
+            productImageUrlSnapshot:
+              item.productImageUrlSnapshot ??
+              imageByMenuProductId.get(item.menuProductId) ??
+              null,
+          })),
         })),
-      })),
     }));
     const hasMore = hydratedSessions.length === take;
-    const items = hasMore ? hydratedSessions.slice(0, -1) : hydratedSessions;
+    const items = (
+      hasMore ? hydratedSessions.slice(0, -1) : hydratedSessions
+    ).filter((session) => session.orders.length > 0);
     return {
       items: items.map((session) => ({
         ...session,
@@ -564,6 +635,8 @@ export class ClubScanOrderingOrderService {
             ...task,
             refundSucceededAt:
               task.refundSucceededAt?.toISOString() ??
+              task.processedAt?.toISOString() ??
+              task.triggeredAt.toISOString() ??
               order.balanceTransactions[0]?.createdAt.toISOString() ??
               null,
           })),
@@ -583,10 +656,27 @@ export class ClubScanOrderingOrderService {
         items: { include: { specs: true }, orderBy: { sortOrder: 'asc' } },
         paymentAttempts: { orderBy: { createdAt: 'desc' }, take: 1 },
         refundTasks: { orderBy: { createdAt: 'desc' }, take: 1 },
+        balanceTransactions: {
+          where: { type: 'refund' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { createdAt: true },
+        },
       },
     });
     if (!order) throw new NotFoundException('订单不存在');
-    return order;
+    return {
+      ...order,
+      refundTasks: order.refundTasks.map((task) => ({
+        ...task,
+        refundSucceededAt:
+          task.refundSucceededAt ??
+          task.processedAt ??
+          task.triggeredAt ??
+          order.balanceTransactions[0]?.createdAt ??
+          null,
+      })),
+    };
   }
 
   createWechatPayment(

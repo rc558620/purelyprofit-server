@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import COS from 'cos-nodejs-sdk-v5';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { formatShanghaiDate } from './shanghai-time.utils';
 
 /** 允许上传的图片 MIME 类型白名单 */
 const ALLOWED_MIME_TYPES = new Set([
@@ -181,12 +182,8 @@ export class UploadService {
    * 按日期分目录便于管理，UUID 保证唯一性。
    */
   private generateKey(originalName: string | undefined, ext: string): string {
-    const now = new Date();
-    const datePath = [
-      now.getFullYear(),
-      String(now.getMonth() + 1).padStart(2, '0'),
-      String(now.getDate()).padStart(2, '0'),
-    ].join('/');
+    // 按上海时区分目录，保证同一营业日的文件落在同一目录
+    const datePath = formatShanghaiDate(Date.now()).replace(/-/g, '/');
 
     const uuid = crypto.randomUUID().replace(/-/g, '');
     // 从原始文件名提取无扩展名的部分，做安全清理
