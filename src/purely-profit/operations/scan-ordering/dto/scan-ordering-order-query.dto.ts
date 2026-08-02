@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -11,11 +12,15 @@ import {
 
 /** 商家扫码点餐订单队列筛选条件。 */
 export class ListScanOrderingOrdersDto {
-  @ApiPropertyOptional({ description: '订单状态' })
+  @ApiPropertyOptional({
+    description: '接单队列订单状态',
+    enum: ['pending_acceptance', 'preparing'],
+  })
   @IsOptional()
-  @IsString({ message: '订单状态必须是字符串' })
-  @MaxLength(50, { message: '订单状态过长' })
-  status?: string;
+  @IsIn(['pending_acceptance', 'preparing'], {
+    message: '仅支持筛选待接单或制作中订单',
+  })
+  status?: 'pending_acceptance' | 'preparing';
 
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()

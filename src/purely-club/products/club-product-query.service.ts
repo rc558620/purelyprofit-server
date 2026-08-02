@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  CLUB_HOT_PRODUCT_COUNT,
   clubProductSelect,
   type ClubProductRecord,
 } from './club-products.types';
@@ -39,10 +38,16 @@ export class ClubProductQueryService {
     });
   }
 
-  /** 临时占位：当前热销定义取最新创建的前 N 个商品，后续应改为按实际销量排序 */
+  /**
+   * F9 修复：返回所有商品 id，避免 hot-only 过滤隐藏新上架商品。
+   *
+   * 背景：原实现按 createdAt desc 取前 CLUB_HOT_PRODUCT_COUNT 个作为"热销"，
+   * 导致 B 端上架的商品只要不在这 N 个之内就会被全部隐藏。
+   * MarketingProduct 表没有 isHot/isFeatured 字段，"热销"概念无法落地。
+   *
+   * 后续若引入真实销量统计，可改为按销量 desc 取前 N；现在直接返回全部保证可见性。
+   */
   resolveHotProductIds(products: ClubProductRecord[]): Set<number> {
-    return new Set(
-      products.slice(0, CLUB_HOT_PRODUCT_COUNT).map((product) => product.id),
-    );
+    return new Set(products.map((product) => product.id));
   }
 }

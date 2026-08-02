@@ -36,7 +36,13 @@ describe('MarketingService overview', () => {
     context.platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
       undefined,
     );
-    context.prismaService.marketingCustomer.count.mockResolvedValueOnce(6);
+    // F9: 活跃会员数以 marketing_consumptions 实时聚合为准（6 个不同 customerId）
+    context.prismaService.marketingConsumption.groupBy.mockResolvedValueOnce(
+      Array.from({ length: 6 }, (_, i) => ({
+        customerId: i + 1,
+        _count: { _all: 3 },
+      })),
+    );
     context.prismaService.marketingCustomer.aggregate.mockResolvedValue({
       _sum: { balance: 88000 },
     });

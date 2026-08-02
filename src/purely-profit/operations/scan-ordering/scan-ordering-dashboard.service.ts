@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { ScanOrderPaymentStatus, ScanOrderStatus } from '@prisma/client';
+import {
+  ScanOrderPaymentStatus,
+  ScanOrderStatus,
+  ScanOrderingSessionStatus,
+} from '@prisma/client';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
@@ -30,6 +34,25 @@ export class ScanOrderingDashboardService {
 
     const startOfDayMs = getShanghaiDayStartMs(Date.now());
     const startOfDay = new Date(startOfDayMs);
+    const startOfNextDay = new Date(startOfDayMs + 24 * 60 * 60 * 1_000);
+    const paidTodayWhere = {
+      storeId,
+      paidAt: { gte: startOfDay, lt: startOfNextDay },
+    };
+    const activeSessionWhere = {
+      status: ScanOrderingSessionStatus.active,
+      deletedAt: null,
+      expiresAt: { gt: new Date() },
+    };
+    const currentRoundSessionWhere = {
+      OR: [
+        activeSessionWhere,
+        {
+          status: ScanOrderingSessionStatus.left,
+          table: { is: { sessions: { some: activeSessionWhere } } },
+        },
+      ],
+    };
     const [
       paidRevenue,
       paidOrderCount,
@@ -39,24 +62,32 @@ export class ScanOrderingDashboardService {
     ] = await Promise.all([
       this.prisma.scanOrders.aggregate({
         where: {
-          storeId,
-          paymentStatus: ScanOrderPaymentStatus.paid,
-          paidAt: { gte: startOfDay },
+          ...paidTodayWhere,
+          paymentStatus: {
+            in: [ScanOrderPaymentStatus.paid, ScanOrderPaymentStatus.refunding],
+          },
         },
         _sum: { paidAmount: true },
       }),
       this.prisma.scanOrders.count({
         where: {
           storeId,
-          paymentStatus: ScanOrderPaymentStatus.paid,
-          paidAt: { gte: startOfDay },
+          createdAt: { gte: startOfDay, lt: startOfNextDay },
         },
       }),
       this.prisma.scanOrders.count({
-        where: { storeId, status: ScanOrderStatus.pending_acceptance },
+        where: {
+          storeId,
+          status: ScanOrderStatus.pending_acceptance,
+          session: { is: currentRoundSessionWhere },
+        },
       }),
       this.prisma.scanOrders.count({
-        where: { storeId, status: ScanOrderStatus.preparing },
+        where: {
+          storeId,
+          status: ScanOrderStatus.preparing,
+          session: { is: currentRoundSessionWhere },
+        },
       }),
       this.prisma.scanOrderingTable.groupBy({
         by: ['status'],

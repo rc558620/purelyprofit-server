@@ -144,7 +144,8 @@ describe('ClubHomeService', () => {
     expect(clubMemberService.getAccount).toHaveBeenCalledWith(currentContext);
     expect(clubPromotionsService.list).toHaveBeenCalledWith(currentContext);
     expect(clubProductsService.list).toHaveBeenCalledWith(currentContext, {
-      featured: true,
+      featured: false,
+      limit: 50, // CLUB_PRODUCT_DEFAULT_LIST_LIMIT
     });
   });
 

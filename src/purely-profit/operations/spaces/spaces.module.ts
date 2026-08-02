@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CommerceModule } from '../../commerce/commerce.module';
+import { MarketingModule } from '../../marketing/marketing.module';
 import { PlatformMembershipModule } from '../../member/platform-membership/platform-membership.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { RedisModule } from '../../../redis/redis.module';
@@ -42,6 +43,7 @@ import { SpacesWriteService } from './spaces-write.service';
   imports: [
     PrismaModule,
     CommerceModule,
+    MarketingModule,
     PlatformMembershipModule,
     SalesRecordModule,
     RedisModule,

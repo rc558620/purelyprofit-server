@@ -51,6 +51,7 @@ export interface MarketingPrismaServiceMock {
     aggregate: jest.Mock;
     count: jest.Mock;
     create: jest.Mock;
+    groupBy: jest.Mock;
   };
   marketingPromotion: {
     count: jest.Mock;
@@ -90,6 +91,9 @@ export interface MarketingPrismaServiceMock {
   };
   storeInviteCode: {
     findFirst: jest.Mock;
+  };
+  user: {
+    findMany: jest.Mock;
   };
   $queryRaw: jest.Mock;
   $transaction: jest.Mock;
@@ -144,6 +148,7 @@ function createPrismaServiceMock(): MarketingPrismaServiceMock {
       aggregate: jest.fn(),
       count: jest.fn(),
       create: jest.fn(),
+      groupBy: jest.fn().mockResolvedValue([]),
     },
     marketingPromotion: {
       count: jest.fn(),
@@ -184,6 +189,9 @@ function createPrismaServiceMock(): MarketingPrismaServiceMock {
     storeInviteCode: {
       findFirst: jest.fn().mockResolvedValue(null),
     },
+    user: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $queryRaw: jest.fn(),
     $transaction: jest.fn(),
   };
@@ -223,6 +231,8 @@ function createRedisServiceMock() {
     writeRefreshableJson: jest.fn().mockResolvedValue(undefined),
     delByPattern: jest.fn().mockResolvedValue(undefined),
     setIfAbsent: jest.fn().mockResolvedValue(true),
+    getJson: jest.fn().mockResolvedValue(null),
+    setJson: jest.fn().mockResolvedValue(undefined),
   };
 }
 

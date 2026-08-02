@@ -28,9 +28,9 @@ export interface ScanOrderingAmountSummary {
 export interface ScanOrderingDashboardResponse {
   /** 营业日期。 */
   businessDate: string;
-  /** 已支付营业额。 */
+  /** 上海今日支付且未完成退款的净营业额。 */
   paidRevenue: number;
-  /** 已支付订单数量。 */
+  /** 上海今日创建的订单数量。字段名为兼容既有接口保留。 */
   paidOrderCount: number;
   /** 待接单数量。 */
   pendingOrderCount: number;

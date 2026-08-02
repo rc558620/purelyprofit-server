@@ -142,6 +142,23 @@ export class AuthMembershipResolverService {
   async readStoreProfileMetadata(
     storeId: number,
   ): Promise<StoreProfileMetadata> {
+    // 1. DB 优先（持久化事实源）
+    try {
+      const record = await this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: { profileMetadata: true },
+      });
+      const raw = record?.profileMetadata;
+      if (raw !== null && raw !== undefined) {
+        return normalizeStoreProfileMetadata(raw);
+      }
+    } catch (error: unknown) {
+      this.logger.warn(
+        `读取门店 ${storeId} 扩展字段 DB 失败，回退 Redis: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    // 2. Redis 兜底（兼容历史 Redis 数据）
     try {
       const raw = await this.redisService.get(buildStoreProfileKey(storeId));
       if (!raw) {

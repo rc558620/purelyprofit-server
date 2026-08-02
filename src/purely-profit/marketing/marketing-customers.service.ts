@@ -109,13 +109,32 @@ export class MarketingCustomersService {
       return cached;
     }
 
-    const [finance, clubLevel] = await Promise.all([
+    const [finance, clubLevel, aggregated] = await Promise.all([
       computeCustomerFinance(this.prisma, customerId, customer.balance),
       this.marketingSharedService.resolveClubLevel(
         customer.storeId,
         customer.phone,
       ),
+      // F9: 详情页同样以 marketing_consumptions 实时聚合为准，覆盖物化字段
+      this.prisma.marketingConsumption.aggregate({
+        where: { customerId },
+        _sum: { amount: true },
+        _count: { _all: true },
+        _max: { createdAt: true },
+      }),
     ]);
+
+    // 仅在消费表存在记录时才覆盖，避免孤儿 customer 被强制归零
+    const liveTotalSpent = aggregated._sum.amount ?? 0;
+    const liveVisitCount = aggregated._count._all;
+    const liveLastVisitAt = aggregated._max.createdAt ?? null;
+    if (liveTotalSpent > 0 || liveVisitCount > 0) {
+      customer.totalSpent = liveTotalSpent;
+      customer.visitCount = liveVisitCount;
+      if (liveLastVisitAt) {
+        customer.lastVisitAt = liveLastVisitAt;
+      }
+    }
 
     const result = {
       ...mapCustomerRow(customer),

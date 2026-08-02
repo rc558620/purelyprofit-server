@@ -34,6 +34,7 @@ import type { SpaceTimeFeeModeValue } from './dto/space-session.constants';
 import type { SpaceStatusValue } from './spaces.constants';
 import { createAutoCheckoutSystemUser } from './space-session-auto-checkout.service';
 import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
+import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
 
 export interface SettleSpaceSessionParams {
   session: SpaceSessionSettlementRecord;
@@ -85,6 +86,7 @@ export class SpaceSessionSettlementService {
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly redisService: RedisService,
     private readonly reservationsStateService: SpaceReservationsStateService,
+    private readonly marketingConsumptionLinkService: MarketingConsumptionLinkService,
   ) {}
 
   async settleSession(
@@ -229,6 +231,23 @@ export class SpaceSessionSettlementService {
             },
           );
 
+          // F9: 空间结算联动营销中心——按手机号创建/关联会员并写入消费流水
+          // （无手机号或结算金额 <= 0 时内部跳过）
+          await this.marketingConsumptionLinkService.linkSpaceSettlementConsumption(
+            transaction,
+            {
+              storeId: params.session.storeId,
+              guestName: latestSession.guestName,
+              guestPhone: latestSession.guestPhone,
+              totalRevenueYuan: freshSettlement.totalRevenue,
+              paymentMethod: params.paymentMethod,
+              checkoutAt: params.checkoutAt,
+              itemsSummary: freshSettlement.orderItems
+                .map((item) => item.productName)
+                .join('、'),
+            },
+          );
+
           // Step 8.1: 删除旧 items，重新写入结算时的 items
           await transaction.spaceSessionItem.deleteMany({
             where: { sessionId: params.session.id },
@@ -329,6 +348,11 @@ export class SpaceSessionSettlementService {
       );
 
       await this.cacheInvalidatorService.invalidateSalesDerived(
+        params.session.storeId,
+      );
+
+      // F9: 空间结算可能新增/更新了营销会员，失效营销中心衍生缓存
+      await this.marketingConsumptionLinkService.invalidateMarketingDerived(
         params.session.storeId,
       );
 

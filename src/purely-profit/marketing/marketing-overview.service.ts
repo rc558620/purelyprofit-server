@@ -152,9 +152,9 @@ export class MarketingOverviewService {
       storeRecord,
       activeInviteCodeRecord,
     ] = await Promise.all([
-      this.prisma.marketingCustomer.count({
-        where: { storeId, deletedAt: null, visitCount: { gt: 0 } },
-      }),
+      // F9: 活跃会员数以 marketing_consumptions 实时聚合为准（COUNT(DISTINCT customer_id)）
+      // 餐饮扫码点餐等路径不更新 visitCount 物化字段，若仍按 visitCount > 0 会漏统计
+      this.countActiveMembersFromConsumptions(storeId),
       this.prisma.marketingCustomer.aggregate({
         where: { storeId, deletedAt: null },
         _sum: { balance: true },
@@ -242,6 +242,23 @@ export class MarketingOverviewService {
           : {}),
       },
     };
+  }
+
+  /**
+   * F9: 活跃会员数 = 在 marketing_consumptions 表中有消费记录的去重 customer 数。
+   *
+   * 不再依赖 marketing_customers.visitCount 物化字段——餐饮扫码点餐路径
+   * （club-scan-ordering-checkout）只写消费记录、不更新 visitCount，按旧口径会漏统计。
+   */
+  private async countActiveMembersFromConsumptions(
+    storeId: number,
+  ): Promise<number> {
+    const groups = await this.prisma.marketingConsumption.groupBy({
+      by: ['customerId'],
+      where: { storeId },
+      _count: { _all: true },
+    });
+    return groups.length;
   }
 
   private async findStoreActiveInviteCode(

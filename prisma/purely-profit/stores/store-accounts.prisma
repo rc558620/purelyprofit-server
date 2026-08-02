@@ -45,6 +45,8 @@ model Store {
   deletedAt                   DateTime?                     @map("deleted_at")
   /// 门店业态：catering=餐饮，general=非餐饮。用于功能能力与访问控制。
   businessMode                StoreBusinessMode             @default(general) @map("business_mode")
+  /// 门店扩展字段 JSON（storeType/region/storeLogo/经纬度/regionLabels），持久化事实源
+  profileMetadata             Json?                         @map("profile_metadata")
   costRecords                 CostRecord[]
   employeeDepartments         EmployeeDepartment[]
   employeeLeaves              EmployeeLeave[]

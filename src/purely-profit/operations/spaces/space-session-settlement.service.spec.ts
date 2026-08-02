@@ -4,6 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { RedisService } from '../../../redis/redis.service';
 import { SalesRecordService } from '../sales-record/sales-record.service';
+import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
 import { aUuid } from '../../../spec-matchers';
 import {
   createSalesOrderResponse,
@@ -15,6 +16,7 @@ import {
 } from './space-session.spec-helpers';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
+import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
 
 describe('SpaceSessionSettlementService', () => {
   let service: SpaceSessionSettlementService;
@@ -44,6 +46,11 @@ describe('SpaceSessionSettlementService', () => {
     cancelMatchedReservationAfterCheckout: jest.fn().mockResolvedValue(null),
     resolveReservationBackStatus: jest.fn().mockResolvedValue('idle'),
   };
+  // F9: 空间结算联动营销服务（本测试关注结算流程本身，联动逻辑由独立测试覆盖）
+  const marketingConsumptionLinkService = {
+    linkSpaceSettlementConsumption: jest.fn().mockResolvedValue(undefined),
+    invalidateMarketingDerived: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -60,7 +67,16 @@ describe('SpaceSessionSettlementService', () => {
       providers: [
         SpaceSessionSettlementService,
         { provide: PrismaService, useValue: prismaService },
-        { provide: SalesRecordService, useValue: salesRecordService },
+        {
+          provide: SalesRecordService,
+          useValue: salesRecordService,
+        },
+        {
+          // 使用真实包装器，让断言落到内部 SalesRecordService.create 的 3 参数签名上
+          provide: SpaceSessionSaleOrderService,
+          useFactory: () =>
+            new SpaceSessionSaleOrderService(salesRecordService as never),
+        },
         {
           provide: CacheInvalidatorService,
           useValue: cacheInvalidatorService,
@@ -69,6 +85,10 @@ describe('SpaceSessionSettlementService', () => {
         {
           provide: SpaceReservationsStateService,
           useValue: reservationsStateService,
+        },
+        {
+          provide: MarketingConsumptionLinkService,
+          useValue: marketingConsumptionLinkService,
         },
       ],
     }).compile();
@@ -141,6 +161,21 @@ describe('SpaceSessionSettlementService', () => {
     expect(cacheInvalidatorService.invalidateSalesDerived).toHaveBeenCalledWith(
       18,
     );
+    // F9: 空间结算联动营销中心——调用营销消费联动（事务内）并失效营销缓存
+    expect(
+      marketingConsumptionLinkService.linkSpaceSettlementConsumption,
+    ).toHaveBeenCalledWith(
+      transactionClient,
+      expect.objectContaining({
+        storeId: 18,
+        guestName: '张三',
+        guestPhone: '13800138000',
+        paymentMethod: 'cash',
+      }),
+    );
+    expect(
+      marketingConsumptionLinkService.invalidateMarketingDerived,
+    ).toHaveBeenCalledWith(18);
     expect(redisClient.eval).toHaveBeenCalledWith(
       expect.stringContaining("redis.call('GET', KEYS[1]) == ARGV[1]"),
       1,

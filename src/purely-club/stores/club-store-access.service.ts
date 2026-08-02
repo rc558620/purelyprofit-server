@@ -239,8 +239,12 @@ export class ClubStoreAccessService {
     }
 
     // 2. 缓存未命中，从 store_invite_codes 表加载所有活跃邀请码
+    // F9: 过滤掉对应门店已软删（deletedAt != null）的邀请码，避免缓存污染
     const inviteCodes = await this.prisma.storeInviteCode.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        store: { deletedAt: null },
+      },
       select: { code: true, storeId: true },
       orderBy: { storeId: 'asc' },
     });

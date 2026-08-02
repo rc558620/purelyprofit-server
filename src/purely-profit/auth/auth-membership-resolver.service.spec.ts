@@ -7,6 +7,7 @@ describe('AuthMembershipResolverService', () => {
     $queryRaw: jest.fn(),
     store: {
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
     },
     staff: {
       findFirst: jest.fn(),

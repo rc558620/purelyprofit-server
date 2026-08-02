@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ClubMemberService } from '../member/club-member.service';
 import { ClubProductsService } from '../products/club-products.service';
+import { CLUB_PRODUCT_DEFAULT_LIST_LIMIT } from '../products/club-products.types';
 import { ClubPromotionsService } from '../promotions/club-promotions.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubStoresService } from '../stores/club-stores.service';
@@ -97,8 +98,13 @@ export class ClubHomeService {
     currentContext: ClubCurrentContext,
   ): Promise<Awaited<ReturnType<ClubProductsService['list']>>> {
     try {
+      // F9 修复：C 端首页展示当前门店所有可购商品（不再 featured 过滤）。
+      // 原因：club-products.service.ts 的 resolveHotProductIds 临时占位仅取最新 3 个，
+      // B 端上架的商品只要不在这 3 个之内就会被全部隐藏——这导致营销商品上架后不可见。
+      // MarketingProduct 表也没有 isHot/isFeatured 字段，hot 概念无法落地。
       return await this.clubProductsService.list(currentContext, {
-        featured: true,
+        featured: false,
+        limit: CLUB_PRODUCT_DEFAULT_LIST_LIMIT,
       });
     } catch (error) {
       this.logger.warn('首页推荐商品获取失败，降级返回空列表', error);

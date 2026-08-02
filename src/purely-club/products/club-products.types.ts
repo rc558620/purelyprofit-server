@@ -1,4 +1,7 @@
-/** 热销商品数量（临时占位：当前取最新创建的前 N 个，后续应改为按实际销量排序） */
+/**
+ * @deprecated 已废弃：resolveHotProductIds 不再按数量截取，返回所有商品 id。
+ * 保留导出仅为兼容历史引用，后续清理。
+ */
 export const CLUB_HOT_PRODUCT_COUNT = 3;
 export const CLUB_FEATURED_PRODUCT_LIMIT = 6;
 /** 列表接口默认返回上限，防止全量加载 */

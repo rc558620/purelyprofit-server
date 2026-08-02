@@ -1,5 +1,6 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import {
+  Prisma,
   StaffRole,
   StaffStatus,
   StoreSubscriptionStatus,
@@ -45,6 +46,8 @@ export class RegisterStoreResponseDto {
  */
 @Injectable()
 export class AuthRegisterStoreService {
+  private readonly logger = new Logger(AuthRegisterStoreService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
@@ -195,10 +198,30 @@ export class AuthRegisterStoreService {
     storeId: number,
     metadata: StoreProfileMetadata,
   ): Promise<void> {
-    await this.redisService.set(
-      `${STORE_PROFILE_KEY_PREFIX}${storeId}`,
-      JSON.stringify(metadata),
-      STORE_PROFILE_CACHE_TTL_SECONDS,
-    );
+    // DB 持久化（事实源）：修复 Redis 清空后门店扩展字段丢失的问题
+    try {
+      await this.prisma.store.update({
+        where: { id: storeId },
+        data: { profileMetadata: metadata as unknown as Prisma.InputJsonValue },
+      });
+    } catch (error: unknown) {
+      this.logger.error(
+        `保存门店扩展字段到 DB 失败，storeId=${storeId}，门店扩展数据可能丢失：${error instanceof Error ? error.message : String(error)}`,
+      );
+      // 不重新抛出：DB 写入失败不应阻断注册主流程
+    }
+
+    // Redis 缓存（best-effort）
+    try {
+      await this.redisService.set(
+        `${STORE_PROFILE_KEY_PREFIX}${storeId}`,
+        JSON.stringify(metadata),
+        STORE_PROFILE_CACHE_TTL_SECONDS,
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        `保存门店 ${storeId} 扩展字段缓存失败，DB 数据不受影响：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 }

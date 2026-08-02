@@ -21,8 +21,8 @@ import type {
   ProcessScanOrderingOrderDto,
   RejectOrCancelScanOrderingOrderDto,
   CompleteScanOrderingRefundDto,
-  ListScanOrderingOrdersQueryDto,
 } from './dto/scan-ordering-order.dto';
+import type { ListScanOrderingOrdersDto } from './dto/scan-ordering-order-query.dto';
 import type { ScanOrderingOrderListItem } from './scan-ordering.types';
 
 @ApiTags('PurelyProfit Scan Ordering - Orders')
@@ -38,7 +38,7 @@ export class ScanOrderingOrderController {
   @ApiOperation({ summary: '获取商家扫码点餐订单队列' })
   listOrders(
     @CurrentUser() user: AuthenticatedUser,
-    @Query() query: ListScanOrderingOrdersQueryDto,
+    @Query() query: ListScanOrderingOrdersDto,
   ): Promise<{
     items: ScanOrderingOrderListItem[];
     nextCursor: number | null;

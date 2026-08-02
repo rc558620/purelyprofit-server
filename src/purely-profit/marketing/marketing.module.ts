@@ -15,6 +15,7 @@ import {
   MarketingTransactionsController,
 } from './marketing.controller';
 import { MarketingConsumptionsService } from './marketing-consumptions.service';
+import { MarketingConsumptionLinkService } from './marketing-consumption-link.service';
 import { MarketingCustomerListService } from './marketing-customer-list.service';
 import { MarketingCustomerPointsService } from './marketing-customer-points.service';
 import { MarketingCustomersService } from './marketing-customers.service';
@@ -67,12 +68,13 @@ import { MarketingSharedService } from './marketing-shared.service';
     MarketingRechargesService,
     MarketingPointsRecordsService,
     MarketingConsumptionsService,
+    MarketingConsumptionLinkService,
     MarketingPromotionsService,
     MarketingProductCategoriesService,
     MarketingProductsService,
     ClubMemberProfileService,
     ClubMemberLevelsService,
   ],
-  exports: [MarketingOverviewService],
+  exports: [MarketingOverviewService, MarketingConsumptionLinkService],
 })
 export class MarketingModule {}

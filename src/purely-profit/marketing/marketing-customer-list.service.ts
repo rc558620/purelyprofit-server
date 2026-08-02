@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { MarketingCustomerRow } from './marketing.types';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildMarketingCustomersListCacheKey } from '../../redis/cache-keys';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
@@ -121,10 +122,68 @@ export class MarketingCustomerListService {
     // 对 avatar 为 null 的行，通过多种路径从 users 表 fallback 获取头像
     await this.fillAvatarsFromUsers(rows);
 
+    // F9: 实时从 marketing_consumptions 聚合 totalSpent / visitCount / lastVisitAt，
+    // 作为权威值覆盖物化字段，避免历史数据迁移/事务不一致导致的金额与次数错位
+    await this.overrideMetricsFromConsumptions(rows);
+
     return {
       items: rows.map(mapCustomerRow),
       meta: buildMarketingPaginationMeta(total, page, take),
     };
+  }
+
+  /**
+   * F9: 从 marketing_consumptions 按 customerId 聚合，覆盖 marketing_customers 表上的
+   * totalSpent / visitCount / lastVisitAt 物化字段。
+   *
+   * 触发原因：物化字段在历史数据迁移、C 端扫码订单路径与商家端手动消费路径间存在口径差，
+   * 单独依赖物化字段会导致"金额高但次数为 0"等错位展示。这里改用实时聚合作为权威值。
+   *
+   * @param rows 列表查询出的 customer 行（会被原地修改 totalSpent/visitCount/lastVisitAt）
+   */
+  private async overrideMetricsFromConsumptions(
+    rows: Pick<
+      MarketingCustomerRow,
+      'id' | 'totalSpent' | 'visitCount' | 'lastVisitAt'
+    >[],
+  ): Promise<void> {
+    if (rows.length === 0) return;
+
+    const customerIds = rows.map((r) => r.id);
+
+    // groupBy 一次拿到每人的 SUM(amount)、COUNT(*) 与 MAX(createdAt)
+    const aggregates = await this.prisma.marketingConsumption.groupBy({
+      by: ['customerId'],
+      where: { customerId: { in: customerIds } },
+      _sum: { amount: true },
+      _count: { _all: true },
+      _max: { createdAt: true },
+    });
+
+    const aggregateMap = new Map<
+      number,
+      { totalSpent: number; visitCount: number; lastVisitAt: Date | null }
+    >();
+    for (const a of aggregates) {
+      aggregateMap.set(a.customerId, {
+        totalSpent: a._sum.amount ?? 0,
+        visitCount: a._count._all,
+        lastVisitAt: a._max.createdAt ?? null,
+      });
+    }
+
+    for (const row of rows) {
+      const agg = aggregateMap.get(row.id);
+      if (!agg) continue;
+      // 仅在消费表里存在记录时才覆盖——避免孤儿 customer（无消费记录）被强制归零
+      if (agg.totalSpent > 0 || agg.visitCount > 0) {
+        row.totalSpent = agg.totalSpent;
+        row.visitCount = agg.visitCount;
+        if (agg.lastVisitAt) {
+          row.lastVisitAt = agg.lastVisitAt;
+        }
+      }
+    }
   }
 
   /**
