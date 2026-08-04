@@ -6,6 +6,7 @@ import { CommerceAccessService } from '../../purely-profit/commerce/commerce-acc
 import { AuthMembershipResolverService } from '../../purely-profit/auth/auth-membership-resolver.service';
 import { ScanOrderingGateway } from './scan-ordering.gateway';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
+import { RedisService } from '../../redis/redis.service';
 import type { AuthenticatedMembership } from '../../purely-profit/access-control/access-control.service';
 import type { JwtPayload } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { Socket } from 'socket.io';
@@ -68,6 +69,13 @@ describe('ScanOrderingGateway', () => {
     storeRoom: jest.fn((id: number) => `store:${id}`),
   };
 
+  const redisService = {
+    createPubSubClients: jest.fn(() => ({
+      publisher: { publish: jest.fn(), quit: jest.fn() },
+      subscriber: { subscribe: jest.fn(), quit: jest.fn() },
+    })),
+  };
+
   const validPayload: JwtPayload = {
     sub: 1001,
     phone: '13800138000',
@@ -115,6 +123,7 @@ describe('ScanOrderingGateway', () => {
           useValue: authMembershipResolverService,
         },
         { provide: ScanOrderingRealtimeService, useValue: realtimeService },
+        { provide: RedisService, useValue: redisService },
       ],
     }).compile();
 
@@ -385,7 +394,7 @@ describe('ScanOrderingGateway', () => {
 
       const result = await gateway.subscribeStore(client, { storeId: 10 });
 
-      expect(result).toEqual({ room: 'store:10' });
+      expect(result).toEqual({ room: 'store:10', storeId: 10 });
       expect(client.join).toHaveBeenCalledWith('store:10');
       expect(
         commerceAccessService.ensureCanAccessStoreWithAnyPermission,
@@ -414,7 +423,7 @@ describe('ScanOrderingGateway', () => {
 
       const result = await gateway.subscribeStore(client, { storeId: 10 });
 
-      expect(result).toEqual({ room: 'store:10' });
+      expect(result).toEqual({ room: 'store:10', storeId: 10 });
       expect(client.join).toHaveBeenCalledWith('store:10');
     });
 
@@ -440,7 +449,7 @@ describe('ScanOrderingGateway', () => {
 
       const result = await gateway.subscribeStore(client, { storeId: 10 });
 
-      expect(result).toEqual({ room: 'store:10' });
+      expect(result).toEqual({ room: 'store:10', storeId: 10 });
       expect(client.join).toHaveBeenCalledWith('store:10');
       expect(client.join).toHaveBeenCalledTimes(1);
     });

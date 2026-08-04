@@ -94,20 +94,22 @@ export class HandoverRecordsRevenueService {
       this.prisma.saleOrderItem.findMany({
         where: {
           storeId,
-          order: orderWhere,
+          order: { ...orderWhere, refund: { is: null } },
         },
         select: SALE_ORDER_ITEM_SELECT,
       }),
       this.prisma.saleOrderItem.findMany({
         where: {
           storeId,
-          order: orderWhere,
+          order: { ...orderWhere, refund: { is: null } },
         },
         select: SALE_ORDER_ITEM_SELECT,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: ORDER_ITEMS_LIMIT,
       }),
-      this.prisma.saleOrder.count({ where: orderWhere }),
+      this.prisma.saleOrder.count({
+        where: { ...orderWhere, refund: { is: null } },
+      }),
       this.loadSpaceRevenue(storeId, shiftRange),
       this.loadAdditionalRevenue(additionalOrderWhere),
       this.prisma.financeCashFlowRecord.aggregate({
@@ -123,7 +125,25 @@ export class HandoverRecordsRevenueService {
     ]);
 
     // 退款金额直接从 SpaceSession 数据计算：预付 > 消费时的差额
-    const refundAmount = computeRefundAmountFromSessions(settledSpaceSessions);
+    const saleRefund = this.prisma.saleOrderRefund
+      ? await this.prisma.saleOrderRefund.aggregate({
+          where: {
+            storeId,
+            refundedAt: {
+              gte: shiftRange.startAt,
+              lte: shiftRange.endAt,
+            },
+          },
+          _sum: { amount: true },
+        })
+      : { _sum: { amount: 0 } };
+    const refundAmount = Money.fromDbCents(Number(saleRefund?._sum.amount ?? 0))
+      .add(
+        Money.fromInputYuan(
+          computeRefundAmountFromSessions(settledSpaceSessions),
+        ),
+      )
+      .toOutputYuan();
 
     const paymentItems = mapPaymentItems(paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);

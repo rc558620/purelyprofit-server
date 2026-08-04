@@ -24,6 +24,7 @@ import type { ClubCurrentContext } from './club-stores.types';
 import {
   ClubJoinStoreByInviteCodeDto,
   ClubJoinStoreByScanDto,
+  ClubResolveScanCodeResponseDto,
   ClubStoreSummaryDto,
   ClubStoresResponseDto,
   ClubSwitchCurrentStoreDto,
@@ -106,5 +107,20 @@ export class ClubStoresController {
     @Body() dto: ClubJoinStoreByInviteCodeDto,
   ): Promise<ClubSwitchCurrentStoreResponseDto> {
     return this.clubStoresService.joinByInviteCode(user, dto.inviteCode);
+  }
+
+  @Post('resolve-scan-code')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '解析并确认邀请二维码（C 端扫码落地）',
+    description:
+      '客户端把原始扫码内容交给服务端权威解析，返回协议版本、邀请码、目标门店状态与下一步动作；不做任何状态变更。',
+  })
+  @ApiOkResponse({ type: ClubResolveScanCodeResponseDto })
+  resolveScanCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ClubJoinStoreByScanDto,
+  ): Promise<ClubResolveScanCodeResponseDto> {
+    return this.clubStoresService.resolveScanCode(user, dto.scanCode);
   }
 }

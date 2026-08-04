@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CommerceModule } from '../../commerce/commerce.module';
+import { SalesRecordModule } from '../sales-record/sales-record.module';
 import { StoresModule } from '../../stores/stores.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { RedisModule } from '../../../redis/redis.module';
@@ -34,6 +35,7 @@ import { ScanOrderingSessionArchiveService } from './scan-ordering-session-archi
   imports: [
     PrismaModule,
     CommerceModule,
+    SalesRecordModule,
     RedisModule,
     StoresModule,
     ClubScanOrderingModule,

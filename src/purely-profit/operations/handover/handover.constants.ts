@@ -20,6 +20,7 @@ export const PAYMENT_METHOD_CONFIG: Record<
   [SalesPaymentMethod.wechat]: { label: '微信', color: '#22c55e' },
   [SalesPaymentMethod.alipay]: { label: '支付宝', color: '#1677ff' },
   [SalesPaymentMethod.card]: { label: '刷卡', color: '#8b5cf6' },
+  [SalesPaymentMethod.other]: { label: '其他', color: '#64748b' },
   [SalesPaymentMethod.groupon_voucher]: { label: '团购', color: '#b45309' },
 };
 

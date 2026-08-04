@@ -8,6 +8,19 @@ import type { ListClubScanOrdersQueryDto } from './dto/club-scan-ordering.dto';
 export class ClubScanOrderingOrderQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async activeDiningRoundIds(clubUserId: number): Promise<string[]> {
+    const sessions = await this.prisma.scanOrderingSession.findMany({
+      where: {
+        clubUserId,
+        status: ScanOrderingSessionStatus.active,
+        deletedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { diningRoundId: true },
+    });
+    return sessions.map((session) => session.diningRoundId);
+  }
+
   async listOrders(
     user: AuthenticatedUser,
     query: ListClubScanOrdersQueryDto,
@@ -35,15 +48,8 @@ export class ClubScanOrderingOrderQueryService {
           },
           {
             status: ScanOrderingSessionStatus.left,
-            table: {
-              sessions: {
-                some: {
-                  clubUserId: user.id,
-                  status: ScanOrderingSessionStatus.active,
-                  deletedAt: null,
-                  expiresAt: { gt: new Date() },
-                },
-              },
+            diningRoundId: {
+              in: await this.activeDiningRoundIds(user.id),
             },
           },
         ],
@@ -53,6 +59,7 @@ export class ClubScanOrderingOrderQueryService {
       take,
       select: {
         id: true,
+        diningRoundId: true,
         storeId: true,
         guestCount: true,
         status: true,

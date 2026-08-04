@@ -5,6 +5,7 @@ import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubScanOrderingPaymentService } from './club-scan-ordering-payment.service';
 import { ScanOrderingRefundService } from './scan-ordering-refund.service';
+import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
 import type { ClubPaymentCallbackSettlementParams } from '../payments/club-payments.types';
 
 describe('ClubScanOrderingPaymentService', () => {
@@ -38,6 +39,10 @@ describe('ClubScanOrderingPaymentService', () => {
     createRefundTaskInTransaction: jest.fn(),
   };
 
+  const saleOrderBridgeService = {
+    createForPaidOrder: jest.fn(),
+  };
+
   const baseSettlement: ClubPaymentCallbackSettlementParams = {
     amountFen: 5000,
     transactionId: '4200001234202606101234567890',
@@ -62,6 +67,7 @@ describe('ClubScanOrderingPaymentService', () => {
     prismaService.scanOrders.update.mockResolvedValue({});
     prismaService.scanOrderStatusHistory.create.mockResolvedValue({});
     refundService.createRefundTaskInTransaction.mockResolvedValue(undefined);
+    saleOrderBridgeService.createForPaidOrder.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -73,6 +79,10 @@ describe('ClubScanOrderingPaymentService', () => {
           useValue: realtimeService,
         },
         { provide: ScanOrderingRefundService, useValue: refundService },
+        {
+          provide: ScanOrderingSaleOrderBridgeService,
+          useValue: saleOrderBridgeService,
+        },
       ],
     }).compile();
 
@@ -201,6 +211,22 @@ describe('ClubScanOrderingPaymentService', () => {
       });
     });
 
+    it('支付成功后调用标准销售桥接（唯一 SaleOrder）', async () => {
+      await service.confirmOrderPaidByCallback(
+        'SO20260723120000ABCD-1A2B3C4D',
+        baseSettlement,
+      );
+
+      expect(saleOrderBridgeService.createForPaidOrder).toHaveBeenCalledTimes(
+        1,
+      );
+      expect(saleOrderBridgeService.createForPaidOrder).toHaveBeenCalledWith(
+        prismaService,
+        1001,
+        'wechat',
+      );
+    });
+
     it('重复回调保持幂等', async () => {
       await service.confirmOrderPaidByCallback(
         'SO20260723120000ABCD-1A2B3C4D',
@@ -211,6 +237,8 @@ describe('ClubScanOrderingPaymentService', () => {
         prismaService.scanOrderStatusHistory.create.mock.calls.length;
       const firstUpdateCallCount =
         prismaService.scanOrders.update.mock.calls.length;
+      const firstBridgeCallCount =
+        saleOrderBridgeService.createForPaidOrder.mock.calls.length;
 
       // 第二次回调：订单已经是 paid + succeeded 状态
       prismaService.scanOrderPaymentAttempt.findUnique.mockResolvedValue({
@@ -250,6 +278,10 @@ describe('ClubScanOrderingPaymentService', () => {
       );
       expect(prismaService.scanOrders.update).toHaveBeenCalledTimes(
         firstUpdateCallCount,
+      );
+      // 已支付订单重复回调：幂等提前返回，不重复触发桥接
+      expect(saleOrderBridgeService.createForPaidOrder).toHaveBeenCalledTimes(
+        firstBridgeCallCount,
       );
     });
   });

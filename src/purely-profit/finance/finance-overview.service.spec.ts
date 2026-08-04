@@ -118,7 +118,7 @@ describe('FinanceOverviewService', () => {
     expect(prismaService.$queryRaw).not.toHaveBeenCalled();
   });
 
-  it('getOverview 将 refund/transfer_in/other_income 统一归到附加收入', async () => {
+  it('getOverview 将 refund 归到成本支出、transfer_in/other_income 归到附加收入', async () => {
     prismaService.$queryRaw
       .mockResolvedValueOnce([
         { category: 'sales', total: new Prisma.Decimal('100000.00') },
@@ -155,28 +155,28 @@ describe('FinanceOverviewService', () => {
       service.getOverview(user, { period: 'month' }),
     ).resolves.toMatchObject({
       heroSummary: {
-        netIncome: { current: 900, previous: 450, changeRate: 100 },
-        totalIncome: { current: 1300, previous: 550, changeRate: 136.4 },
-        totalExpense: { current: 400, previous: 100, changeRate: 300 },
+        netIncome: { current: 740, previous: 350, changeRate: 111.4 },
+        totalIncome: { current: 1220, previous: 500, changeRate: 144 },
+        totalExpense: { current: 480, previous: 150, changeRate: 220 },
         profitRate: {
-          current: 69.23,
-          previous: 81.82,
-          changeRate: expect.closeTo(-12.59, 2),
+          current: 60.66,
+          previous: 70,
+          changeRate: expect.closeTo(-9.34, 2),
         },
-        incomeExpenseRatio: 3.25,
+        incomeExpenseRatio: 2.54,
       },
       incomeGroup: {
-        total: 1300,
+        total: 1220,
         items: [
-          { type: 'sales', amount: 1000, percent: 76.92 },
-          { type: 'additional', amount: 300, percent: 23.08 },
+          { type: 'sales', amount: 1000, percent: 81.97 },
+          { type: 'additional', amount: 220, percent: 18.03 },
         ],
       },
       expenseGroup: {
-        total: 400,
+        total: 480,
         items: [
-          { type: 'cost', amount: 100, percent: 25 },
-          { type: 'purchase', amount: 300, percent: 75 },
+          { type: 'cost', amount: 180, percent: 37.5 },
+          { type: 'purchase', amount: 300, percent: 62.5 },
         ],
       },
     });

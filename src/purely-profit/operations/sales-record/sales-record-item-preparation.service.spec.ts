@@ -324,4 +324,100 @@ describe('SalesRecordItemPreparationService', () => {
       },
     ]);
   });
+
+  it('prepareItems 在 preserveCallerSalePrices 时保留成交价，但利润按成本价推导（前端利润不可信）', async () => {
+    prismaService.product.findMany.mockResolvedValue([
+      {
+        id: 201,
+        name: '可口可乐 330ml',
+        category: '饮品',
+        code: 'COLA001',
+        price: 1550, // 15.50 元 = 1550 分
+        profit: 400, // 4.00 元 = 400 分
+        costPrice: 600, // 6.00 元 = 600 分
+        stock: 20,
+        isActive: true,
+        image: null,
+      },
+    ]);
+
+    await expect(
+      service.prepareItems(
+        18,
+        {
+          items: [
+            {
+              productId: '201',
+              productName: '可口可乐 330ml',
+              categoryName: '饮品',
+              salePrice: 10, // 扫码成交价（服务端权威）
+              profit: 999, // 前端利润不可信，必须被忽略
+              quantity: 1,
+            },
+          ],
+          paymentMethod: 'wechat',
+          calcMode: 'business',
+        },
+        { preserveCallerSalePrices: true },
+      ),
+    ).resolves.toEqual([
+      {
+        productId: 201,
+        productName: '可口可乐 330ml',
+        categoryName: '饮品',
+        salePrice: Money.fromInputYuan(10),
+        profit: Money.fromInputYuan(4), // 10 元 − 6 元成本 = 4 元
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ]);
+  });
+
+  it('prepareItems 在 preserveCallerSalePrices 且无成本价时，利润按售价推导', async () => {
+    prismaService.product.findMany.mockResolvedValue([
+      {
+        id: 201,
+        name: '手冲咖啡',
+        category: '饮品',
+        code: 'COFFEE001',
+        price: 1800,
+        profit: 500,
+        costPrice: null,
+        stock: 20,
+        isActive: true,
+        image: null,
+      },
+    ]);
+
+    await expect(
+      service.prepareItems(
+        18,
+        {
+          items: [
+            {
+              productId: '201',
+              productName: '手冲咖啡',
+              categoryName: '饮品',
+              salePrice: 18,
+              profit: 999, // 前端利润不可信
+              quantity: 1,
+            },
+          ],
+          paymentMethod: 'wechat',
+          calcMode: 'business',
+        },
+        { preserveCallerSalePrices: true },
+      ),
+    ).resolves.toEqual([
+      {
+        productId: 201,
+        productName: '手冲咖啡',
+        categoryName: '饮品',
+        salePrice: Money.fromInputYuan(18),
+        profit: Money.fromInputYuan(18), // 无成本价时利润 = 售价
+        quantity: 1,
+        countsTowardTotalQuantity: true,
+      },
+    ]);
+  });
 });

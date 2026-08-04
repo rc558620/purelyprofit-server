@@ -1,3 +1,4 @@
+import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { ScanOrderingMenuCategoryService } from './scan-ordering-menu-category.service';
 import {
@@ -35,6 +36,7 @@ import type { ScanOrderingMenuCategoryResponse } from './scan-ordering-menu-cate
  * - ScanOrderingMenuStockService: 库存更新
  * - ScanOrderingMenuQueryService: 查询与缓存
  */
+@Injectable()
 export class ScanOrderingMenuService {
   constructor(
     private readonly categoryService: ScanOrderingMenuCategoryService,

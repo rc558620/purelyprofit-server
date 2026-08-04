@@ -1,4 +1,3 @@
-import QRCode from 'qrcode';
 import type { PlatformMembershipProfileResponseDto } from './dto/platform-membership-response.dto';
 import {
   isMembershipProfileActive,
@@ -22,13 +21,6 @@ type ApprovedPartnerLike = Pick<
   status: string;
   store?: { owner: { avatar: string | null } } | null;
 };
-
-const STORE_INVITE_QR_CODE_SIZE = 240;
-const STORE_SCAN_CODE_INVITE_CODE_QUERY_KEYS = [
-  'inviteCode',
-  'code',
-  'invite_code',
-];
 
 export function buildProfileResponse(
   profile: StoreMembershipProfileRecord,
@@ -85,74 +77,4 @@ export function buildApprovedPartnerResponse(
   };
 }
 
-/**
- * 本地生成邀请码二维码，返回 data URL（base64 PNG）。
- * 不再依赖外部服务，确保在内网/离线环境也能正常显示。
- */
-export async function buildInviteCodeQrCodeImageUrl(
-  inviteCode: string,
-): Promise<string> {
-  return QRCode.toDataURL(inviteCode, {
-    width: STORE_INVITE_QR_CODE_SIZE,
-    margin: 0,
-    type: 'image/png',
-  });
-}
 
-export function resolveInviteCodeFromClubStoreScanCode(
-  scanCode: string,
-): string | null {
-  const normalizedScanCode = scanCode.trim();
-  if (!normalizedScanCode) {
-    return null;
-  }
-
-  const directInviteCode = normalizeInviteCodeCandidate(normalizedScanCode);
-  if (directInviteCode) {
-    return directInviteCode;
-  }
-
-  const parsedUrl = tryParseScanCodeUrl(normalizedScanCode);
-  if (!parsedUrl) {
-    return null;
-  }
-
-  for (const queryKey of STORE_SCAN_CODE_INVITE_CODE_QUERY_KEYS) {
-    const inviteCode = normalizeInviteCodeCandidate(
-      parsedUrl.searchParams.get(queryKey),
-    );
-    if (inviteCode) {
-      return inviteCode;
-    }
-  }
-
-  // storeId 参数不再支持直接转换为邀请码（已改为持久化邀请码表，不可本地计算）
-
-  const lastPathSegment = parsedUrl.pathname.split('/').filter(Boolean).at(-1);
-  const inviteCodeFromPath = normalizeInviteCodeCandidate(lastPathSegment);
-  if (inviteCodeFromPath) {
-    return inviteCodeFromPath;
-  }
-
-  return null;
-}
-
-function normalizeInviteCodeCandidate(
-  value: string | null | undefined,
-): string | null {
-  const normalizedValue = value?.trim().toUpperCase();
-  if (!normalizedValue) {
-    return null;
-  }
-
-  return /^[A-Z0-9]{6,32}$/.test(normalizedValue) ? normalizedValue : null;
-}
-
-function tryParseScanCodeUrl(scanCode: string): URL | null {
-  try {
-    return new URL(scanCode);
-  } catch {
-    // 非合法 URL，返回 null
-    return null;
-  }
-}

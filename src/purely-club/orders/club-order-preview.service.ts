@@ -235,8 +235,12 @@ export class ClubOrderPreviewService {
         total + resolution.promotionDiscountAmountFen * lines[index].quantity,
       0,
     );
-    const payableAmountFen = Math.max(
-      beforeReduceAmountFen - orderDiscountAmountFen,
+    // 会员等级折扣：扫码点餐菜单的 unitAmountFen 是 scanOrderingMenuProduct.basePrice
+    // （即商品原价，不含会员折扣），因此会员等级折扣需要在此处实际生效。
+    // 营销服务商品（product.price 已是会员价）的预览路径不受影响，因为
+    // resolvePricing 不再叠加会员等级折扣【规则 1】。
+    const memberBaselineFen = lines.reduce(
+      (total, line) => total + line.unitAmountFen * line.quantity,
       0,
     );
     const memberDiscountRate =
@@ -244,6 +248,15 @@ export class ClubOrderPreviewService {
         storeId,
         phone,
       );
+    const hasMemberRate =
+      memberDiscountRate != null && memberDiscountRate < 1;
+    const memberDiscountFen = hasMemberRate
+      ? Math.round(memberBaselineFen * (1 - memberDiscountRate))
+      : 0;
+    const payableAmountFen = Math.max(
+      beforeReduceAmountFen - orderDiscountAmountFen - memberDiscountFen,
+      0,
+    );
     const pointsPreview = await this.resolveMarketingPointsPreview(
       storeId,
       customerId,
@@ -253,15 +266,14 @@ export class ClubOrderPreviewService {
     const representativeResolution =
       resolutions.find((resolution) => resolution.promotionType !== null) ??
       resolutions[0];
-    const memberBaselineFen = lines.reduce(
-      (total, line) => total + line.unitAmountFen * line.quantity,
-      0,
-    );
     const breakdownItems = this.breakdownService
       .build({
         memberBaselineFen,
         originalPriceFen: memberBaselineFen,
-        discountAmountFen: productDiscountAmountFen + orderDiscountAmountFen,
+        discountAmountFen:
+          productDiscountAmountFen +
+          orderDiscountAmountFen +
+          memberDiscountFen,
         promotionDiscountAmountFen: productDiscountAmountFen,
         promotionType: representativeResolution?.promotionType ?? null,
         promotionTag: representativeResolution?.promotionTag ?? null,

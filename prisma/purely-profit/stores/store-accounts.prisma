@@ -78,6 +78,7 @@ model Store {
   purchaseOrders              PurchaseOrder[]
   salesOrderItems             SaleOrderItem[]
   salesOrders                 SaleOrder[]
+  saleOrderRefunds            SaleOrderRefund[]
   spaceReservations           SpaceReservation[]
   spaceSessions               SpaceSession[]
   spaceTypes                  SpaceType[]
@@ -88,6 +89,7 @@ model Store {
   handoverAdditionalItems     StoreHandoverAdditionalItem[]
   handoverRecords             StoreHandoverRecord[]
   inviteCodes                 StoreInviteCode[]
+  inviteQrIssues              StoreInviteQrIssue[]
   membershipOrders            StoreMembershipOrder[]
   membershipPointsLogs        StoreMembershipPointsLog[]
   membershipProfile           StoreMembershipProfile?

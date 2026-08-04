@@ -48,6 +48,8 @@ const CSV_HEADERS = [
   '操作员',
   '时间',
   '备注',
+  '退款状态',
+  '退款时间',
 ];
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
@@ -56,6 +58,7 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   alipay: '支付宝',
   card: '刷卡',
   groupon_voucher: '团购券',
+  other: '其他',
 };
 
 function formatCsvTimestamp(ms: number): string {
@@ -117,6 +120,10 @@ function buildCsvRowFromOrder(order: SaleOrderWithItems): string[] {
     operatorName,
     formatCsvTimestamp(toTimestampMs(order.date)),
     note,
+    order.refund ? '已退款' : '正常',
+    order.refund
+      ? formatCsvTimestamp(toTimestampMs(order.refund.refundedAt))
+      : '-',
   ];
 }
 
@@ -150,6 +157,7 @@ function buildSummaryPrefixRows(
   let totalProfit = 0;
 
   for (const order of orders) {
+    if (order.refund) continue;
     const visibleItems = order.items.filter(
       (item) => !isDeductionProductName(item.productName),
     );
@@ -173,7 +181,7 @@ function buildSummaryPrefixRows(
       .toOutputYuan();
   }
 
-  const orderCount = orders.length;
+  const orderCount = orders.filter((order) => !order.refund).length;
   const avgOrderValue =
     orderCount > 0
       ? Money.fromInputYuan(totalRevenue).divide(orderCount).toOutputYuan()

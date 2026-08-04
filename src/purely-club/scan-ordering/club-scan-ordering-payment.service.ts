@@ -13,6 +13,7 @@ import { Prisma, ScanOrderPaymentAttemptStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingRefundService } from './scan-ordering-refund.service';
+import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
 
 /**
  * 异常支付处理结果。
@@ -34,6 +35,7 @@ export class ClubScanOrderingPaymentService {
     private readonly paymentLockService: ClubPaymentLockService,
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly refundService: ScanOrderingRefundService,
+    private readonly saleOrderBridgeService: ScanOrderingSaleOrderBridgeService,
   ) {}
 
   async confirmOrderPaidByCallback(
@@ -130,6 +132,11 @@ export class ClubScanOrderingPaymentService {
               reason: `微信支付成功: ${params.transactionId}`,
             },
           });
+          await this.saleOrderBridgeService.createForPaidOrder(
+            tx,
+            order.id,
+            'wechat',
+          );
           return {
             orderNo: order.orderNo,
             orderType: 'scan_ordering',

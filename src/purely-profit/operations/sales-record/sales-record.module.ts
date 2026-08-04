@@ -9,6 +9,7 @@ import {
   SalesRecordController,
 } from './sales-record.controller';
 import { SalesRecordCreateFlowService } from './sales-record-create-flow.service';
+import { SalesRecordRefundService } from './sales-record-refund.service';
 import { SalesRecordItemPreparationService } from './sales-record-item-preparation.service';
 import { SalesRecordListService } from './sales-record-list.service';
 import { SalesRecordPreviewService } from './sales-record-preview.service';
@@ -31,6 +32,7 @@ import { SalesRecordWriteService } from './sales-record-write.service';
   providers: [
     SalesRecordItemPreparationService,
     SalesRecordCreateFlowService,
+    SalesRecordRefundService,
     SalesRecordPreviewService,
     SalesRecordProductsService,
     SalesRecordListService,
@@ -40,6 +42,6 @@ import { SalesRecordWriteService } from './sales-record-write.service';
     SalesRecordWriteService,
     SalesRecordService,
   ],
-  exports: [SalesRecordService],
+  exports: [SalesRecordService, SalesRecordRefundService],
 })
 export class SalesRecordModule {}

@@ -1,0 +1,35 @@
+model StoreInviteQrIssue {
+  id              Int       @id @default(autoincrement())
+  storeId         Int       @map("store_id")
+  inviteCodeId    Int       @map("invite_code_id")
+  /**
+   * 渠道类型：poster=海报 / tablecard=桌牌 / staff=员工 / other=其他。
+   * 用于运营按渠道归因与统计。
+   */
+  channel         String    @map("channel")
+  /** 用途备注（可选），如「3 号桌桌牌」「王小明员工码」 */
+  name            String?   @map("name")
+  /** 不可猜测的公开 token（UUID），扫码归因/单独撤销用；同一邀请码下多张实体码各自唯一 */
+  publicToken     String    @unique @map("public_token")
+  /** 二维码载荷协议版本，当前为 v1 */
+  protocolVersion String    @default("v1") @map("protocol_version")
+  /** active=生效 / revoked=已撤销 */
+  status          String    @default("active") @map("status")
+  /** 累计扫码解析次数 */
+  scanCount       Int       @default(0) @map("scan_count")
+  /** 累计通过该二维码成功加入门店的次数 */
+  joinedCount     Int       @default(0) @map("joined_count")
+  issuedAt        DateTime  @default(now()) @map("issued_at")
+  revokedAt       DateTime? @map("revoked_at")
+  createdBy       Int?      @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  store      Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  inviteCode StoreInviteCode  @relation(fields: [inviteCodeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, status])
+  @@index([storeId, channel, createdAt])
+  @@index([inviteCodeId])
+  @@map("store_invite_qr_issues")
+}

@@ -22,6 +22,7 @@ model SaleOrder {
   grouponPlatformReceivable    Int?                     @map("platform_receivable")
   grouponPlatformSettledAmount Int?                     @map("platform_settled_amount")
   grouponPlatformFee           Int?                     @map("platform_fee")
+  scanOrderId                  Int?                     @unique @map("scan_order_id")
   createdAt                    DateTime                 @default(now()) @map("created_at")
   updatedAt                    DateTime                 @updatedAt @map("updated_at")
   cashFlowRecord               FinanceCashFlowRecord?
@@ -30,6 +31,8 @@ model SaleOrder {
   operatorStaff                Staff?                   @relation("SaleOrderOperator", fields: [operatorStaffId], references: [id])
   store                        Store                    @relation(fields: [storeId], references: [id])
   spaceSession                 SpaceSession?
+  scanOrder                    ScanOrders?              @relation("ScanOrderSaleOrder", fields: [scanOrderId], references: [id])
+  refund                       SaleOrderRefund?
 
   @@unique([storeId, orderNo])
   @@index([storeId, date(sort: Desc), id(sort: Desc)])
@@ -61,11 +64,29 @@ model SaleOrderItem {
   @@map("sale_order_items")
 }
 
+model SaleOrderRefund {
+  id             Int                    @id @default(autoincrement())
+  saleOrderId    Int                    @unique @map("sale_order_id")
+  storeId        Int                    @map("store_id")
+  amount         Int
+  profit         Int
+  paymentMethod  SalesPaymentMethod     @map("payment_method")
+  refundedAt     DateTime               @map("refunded_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  saleOrder      SaleOrder              @relation(fields: [saleOrderId], references: [id], onDelete: Restrict)
+  store          Store                  @relation(fields: [storeId], references: [id])
+  cashFlowRecord FinanceCashFlowRecord?
+
+  @@index([storeId, refundedAt(sort: Desc)])
+  @@map("sale_order_refunds")
+}
+
 enum SalesPaymentMethod {
   cash
   wechat
   alipay
   card
+  other
   groupon_voucher
 }
 

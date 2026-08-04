@@ -28,6 +28,9 @@ export {
   parseBusinessAnalysisCacheKey,
 } from './business-analysis.cache-keys';
 
+// Redis 域级键 — purelyClub 邀请码映射
+export { buildClubInviteCodeMapCacheKey } from './club.cache-keys';
+
 // Redis 域级键 — Marketing
 export {
   buildMarketingOverviewCacheKey,

@@ -70,16 +70,7 @@ export class ScanOrderingUnpaidOrderClosureService {
     });
     if (updated.count === 0) return null;
 
-    const items = await tx.scanOrderItem.findMany({
-      where: { orderId: order.id },
-      select: {
-        menuProductId: true,
-        quantity: true,
-        specs: { select: { specOptionId: true } },
-      },
-    });
-    await this.restoreProductStock(tx, order.storeId, items);
-    await this.restoreSpecStock(tx, items);
+    await this.restoreReservedStockInTransaction(tx, order.id);
     await tx.scanOrderPaymentAttempt.updateMany({
       where: {
         orderId: order.id,
@@ -117,22 +108,57 @@ export class ScanOrderingUnpaidOrderClosureService {
     };
   }
 
+  async restoreReservedStockInTransaction(
+    tx: Prisma.TransactionClient,
+    orderId: number,
+  ): Promise<void> {
+    const order = await tx.scanOrders.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { storeId: true },
+    });
+    const items = await tx.scanOrderItem.findMany({
+      where: { orderId },
+      select: {
+        menuProductId: true,
+        quantity: true,
+        menuProduct: { select: { productId: true } },
+        specs: { select: { specOptionId: true } },
+      },
+    });
+    await this.restoreProductStock(tx, order.storeId, items);
+    await this.restoreSpecStock(tx, items);
+  }
+
   private async restoreProductStock(
     tx: Prisma.TransactionClient,
     storeId: number,
-    items: Array<{ menuProductId: number; quantity: number }>,
+    items: Array<{
+      menuProductId: number;
+      quantity: number;
+      menuProduct: { productId: number | null };
+    }>,
   ): Promise<void> {
     await Promise.all(
-      items.map((item) =>
-        tx.scanOrderingMenuProduct.updateMany({
+      items.map(async (item) => {
+        await tx.scanOrderingMenuProduct.updateMany({
           where: { id: item.menuProductId, storeId, stockMode: 'finite' },
           data: {
             stockQuantity: { increment: item.quantity },
             salesCount: { decrement: item.quantity },
             version: { increment: 1 },
           },
-        }),
-      ),
+        });
+        if (item.menuProduct.productId !== null) {
+          await tx.product.updateMany({
+            where: {
+              id: item.menuProduct.productId,
+              storeId,
+              deletedAt: null,
+            },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+      }),
     );
   }
 

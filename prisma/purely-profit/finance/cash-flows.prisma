@@ -2,6 +2,7 @@ model FinanceCashFlowRecord {
   id              Int                      @id @default(autoincrement())
   storeId         Int                      @map("store_id")
   saleOrderId     Int?                     @unique @map("sale_order_id")
+  saleOrderRefundId Int?                   @unique @map("sale_order_refund_id")
   operatorStaffId Int?                     @map("operator_staff_id")
   direction       FinanceCashFlowDirection
   category        FinanceCashFlowCategory
@@ -14,6 +15,7 @@ model FinanceCashFlowRecord {
   updatedAt       DateTime                 @updatedAt @map("updated_at")
   operatorStaff   Staff?                   @relation("FinanceCashFlowOperator", fields: [operatorStaffId], references: [id])
   saleOrder       SaleOrder?               @relation(fields: [saleOrderId], references: [id])
+  saleOrderRefund SaleOrderRefund?         @relation(fields: [saleOrderRefundId], references: [id])
   store           Store                    @relation(fields: [storeId], references: [id])
 
   @@index([storeId, date(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])

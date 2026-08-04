@@ -1,6 +1,7 @@
 model StoreInviteCode {
-  id        Int      @id @default(autoincrement())
-  storeId   Int      @map("store_id")
+  id             Int                  @id @default(autoincrement())
+  storeId        Int                  @map("store_id")
+  inviteQrIssues StoreInviteQrIssue[]
   code      String   @unique
   isActive  Boolean  @default(true) @map("is_active")
   usedCount Int      @default(0) @map("used_count")

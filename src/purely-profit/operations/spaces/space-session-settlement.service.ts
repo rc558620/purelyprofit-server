@@ -32,6 +32,8 @@ import type {
   SettleSpaceSessionParams,
   SettleSpaceSessionResult,
 } from './space-session-settlement.types';
+import type { SpaceSessionRecord } from './space-sessions.types';
+import type { SpaceStatusValue } from './spaces.constants';
 
 @Injectable()
 export class SpaceSessionSettlementService {
@@ -50,7 +52,10 @@ export class SpaceSessionSettlementService {
     user: AuthenticatedUser,
     params: SettleSpaceSessionParams,
   ): Promise<SettleSpaceSessionResult> {
-    const lock = await acquireSettlementLock(this.redisService, params.session.id);
+    const lock = await acquireSettlementLock(
+      this.redisService,
+      params.session.id,
+    );
     if (!lock) {
       throw new ConflictException('当前会话正在结账中，请稍后重试');
     }

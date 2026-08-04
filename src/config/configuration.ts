@@ -280,6 +280,27 @@ export default () => ({
     manualConfirmPaidEnabled:
       (process.env.CLUB_MANUAL_CONFIRM_PAID_ENABLED ??
         (process.env.NODE_ENV === 'production' ? 'false' : 'true')) === 'true',
+    /**
+     * 邀请二维码使用的俱乐部公共域名（长期稳定、公网可达、不随环境/部署变动）。
+     * 未配置时二维码回退为裸邀请码（legacy）格式，避免把 localhost / 内网地址写入二维码。
+     * 对应环境变量：CLUB_PUBLIC_BASE_URL
+     * 示例：https://club.purelyprofit.com
+     *
+     * ⚠️ 上线提醒：生产部署前必须将该值替换为真实公网域名。
+     * 本机联调允许填写 http://localhost:3000（生成形如 http://localhost:3000/i/v1/{code}
+     * 的二维码），但生产环境（NODE_ENV=production）下：
+     * - localhost / 内网 IP / 私有网段会被 sanitize 拒绝，二维码自动回退 legacy 裸码格式；
+     * - 渠道二维码创建接口（POST /marketing/invite-code/issues）会直接报错拒绝创建；
+     * - 严禁将 localhost、内网地址、临时 preview URL 写进已发行二维码（会导致已印刷物料失效）。
+     */
+    publicBaseUrl: process.env.CLUB_PUBLIC_BASE_URL ?? '',
+    /**
+     * 邀请二维码稳定入口路径前缀，默认 /i，最终二维码形如
+     * {publicBaseUrl}/i/v1/{inviteCode}。
+     * 对应环境变量：CLUB_STORE_INVITE_QR_ENTRY_PATH
+     */
+    storeInviteQrEntryPath:
+      process.env.CLUB_STORE_INVITE_QR_ENTRY_PATH ?? '/i',
   },
 
   wechat: {

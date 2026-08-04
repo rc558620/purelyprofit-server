@@ -22,7 +22,6 @@ export class ClubScanOrderingOrderHistoryService {
           in: [
             ScanOrderingSessionStatus.checked_out,
             ScanOrderingSessionStatus.expired,
-            ScanOrderingSessionStatus.left,
           ],
         },
         ...(query.cursor ? { id: { lt: query.cursor } } : {}),
@@ -31,6 +30,7 @@ export class ClubScanOrderingOrderHistoryService {
       take,
       select: {
         id: true,
+        diningRoundId: true,
         storeId: true,
         guestCount: true,
         status: true,
@@ -140,9 +140,30 @@ export class ClubScanOrderingOrderHistoryService {
         })),
     }));
     const hasMore = hydratedSessions.length === take;
-    const items = (
-      hasMore ? hydratedSessions.slice(0, -1) : hydratedSessions
-    ).filter((session) => session.orders.length > 0);
+    const pageSessions = hasMore
+      ? hydratedSessions.slice(0, -1)
+      : hydratedSessions;
+    const items = pageSessions
+      .filter((session) => session.orders.length > 0)
+      .reduce<typeof pageSessions>((rounds, session) => {
+        const existingIndex = rounds.findIndex(
+          (round) => round.diningRoundId === session.diningRoundId,
+        );
+        if (existingIndex === -1) return [...rounds, session];
+        const existing = rounds[existingIndex];
+        const merged = {
+          ...existing,
+          guestCount: Math.max(existing.guestCount, session.guestCount),
+          orders: [...existing.orders, ...session.orders].sort(
+            (left, right) =>
+              right.createdAt.getTime() - left.createdAt.getTime() ||
+              right.id - left.id,
+          ),
+        };
+        return rounds.map((round, index) =>
+          index === existingIndex ? merged : round,
+        );
+      }, []);
     return {
       items: items.map((session) => ({
         ...session,

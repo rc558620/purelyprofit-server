@@ -152,17 +152,21 @@ describe('ClubScanOrderingOrderService', () => {
     };
     prismaWithOrderList.scanOrderingSession = { findMany: jest.fn() };
     prismaWithOrderList.scanOrderingMenuProduct = { findMany: jest.fn() };
-    prismaWithOrderList.scanOrderingSession.findMany.mockResolvedValue([]);
+    prismaWithOrderList.scanOrderingSession.findMany
+      .mockResolvedValueOnce([
+        { diningRoundId: '6d96b3dc-7fb9-4f04-ae87-bb7fd8e57f1e' },
+      ])
+      .mockResolvedValueOnce([]);
     prismaWithOrderList.scanOrderingMenuProduct.findMany.mockResolvedValue([]);
 
     await service.listOrders(user, {} as never);
 
     expect(
-      prismaWithOrderList.scanOrderingSession.findMany.mock.calls[0][0].select
+      prismaWithOrderList.scanOrderingSession.findMany.mock.calls[1][0].select
         .orders.orderBy,
     ).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
     expect(
-      prismaWithOrderList.scanOrderingSession.findMany.mock.calls[0][0].where
+      prismaWithOrderList.scanOrderingSession.findMany.mock.calls[1][0].where
         .OR,
     ).toEqual(
       expect.arrayContaining([
@@ -178,20 +182,23 @@ describe('ClubScanOrderingOrderService', () => {
     };
     prismaWithOrderList.scanOrderingSession = { findMany: jest.fn() };
     prismaWithOrderList.scanOrderingMenuProduct = { findMany: jest.fn() };
-    prismaWithOrderList.scanOrderingSession.findMany.mockResolvedValue([]);
+    const activeDiningRoundId = '6d96b3dc-7fb9-4f04-ae87-bb7fd8e57f1e';
+    prismaWithOrderList.scanOrderingSession.findMany
+      .mockResolvedValueOnce([{ diningRoundId: activeDiningRoundId }])
+      .mockResolvedValueOnce([]);
     prismaWithOrderList.scanOrderingMenuProduct.findMany.mockResolvedValue([]);
 
     await service.listOrders(user, {} as never);
 
     expect(
-      prismaWithOrderList.scanOrderingSession.findMany.mock.calls[0][0].where
+      prismaWithOrderList.scanOrderingSession.findMany.mock.calls[1][0].where
         .OR,
     ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ status: 'active' }),
         expect.objectContaining({
           status: 'left',
-          table: expect.objectContaining({ sessions: expect.any(Object) }),
+          diningRoundId: { in: [activeDiningRoundId] },
         }),
       ]),
     );

@@ -10,6 +10,7 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
     $transaction: jest.fn(),
     scanOrders: {
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
       updateMany: jest.fn(),
     },
     scanOrderItem: {
@@ -19,6 +20,9 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
       updateMany: jest.fn(),
     },
     scanOrderingSpecOption: {
+      updateMany: jest.fn(),
+    },
+    product: {
       updateMany: jest.fn(),
     },
     scanOrderPaymentAttempt: {
@@ -69,11 +73,16 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         sessionId: 55,
         version: 3,
       });
+      prismaService.scanOrders.findUniqueOrThrow.mockResolvedValue({
+        id: 1001,
+        storeId: 11,
+      });
       prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderItem.findMany.mockResolvedValue([
         {
           menuProductId: 201,
           quantity: 2,
+          menuProduct: { productId: 901 },
           specs: [{ specOptionId: 301 }, { specOptionId: 302 }],
         },
       ]);
@@ -83,6 +92,7 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
       prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
         count: 1,
       });
+      prismaService.product.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
         count: 2,
       });
@@ -300,6 +310,10 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         sessionId: 56,
         version: 1,
       });
+      prismaService.scanOrders.findUniqueOrThrow.mockResolvedValue({
+        id: 1002,
+        storeId: 11,
+      });
       prismaService.scanOrders.updateMany.mockResolvedValueOnce({ count: 1 });
       prismaService.scanOrderItem.findMany.mockResolvedValue([]);
       prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
@@ -359,11 +373,16 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         sessionId: 60,
         version: 1,
       });
+      prismaService.scanOrders.findUniqueOrThrow.mockResolvedValue({
+        id: 2001,
+        storeId: 11,
+      });
       prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderItem.findMany.mockResolvedValue([
         {
           menuProductId: 201,
           quantity: 1,
+          menuProduct: { productId: 902 },
           specs: [{ specOptionId: 301 }],
         },
       ]);
@@ -373,6 +392,7 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
       prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
         count: 1,
       });
+      prismaService.product.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
         count: 1,
       });
@@ -564,17 +584,23 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         sessionId: 80,
         version: 1,
       });
+      prismaService.scanOrders.findUniqueOrThrow.mockResolvedValue({
+        id: 4001,
+        storeId: 11,
+      });
       prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
       // 两个订单项都选了 specOptionId=301，数量分别为 2 和 3
       prismaService.scanOrderItem.findMany.mockResolvedValue([
         {
           menuProductId: 201,
           quantity: 2,
+          menuProduct: { productId: 901 },
           specs: [{ specOptionId: 301 }, { specOptionId: 302 }],
         },
         {
           menuProductId: 202,
           quantity: 3,
+          menuProduct: { productId: null },
           specs: [{ specOptionId: 301 }, { specOptionId: 303 }],
         },
       ]);
@@ -584,6 +610,7 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
       prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
         count: 1,
       });
+      prismaService.product.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
         count: 0,
       });
@@ -621,12 +648,31 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         sessionId: 81,
         version: 1,
       });
+      prismaService.scanOrders.findUniqueOrThrow.mockResolvedValue({
+        id: 4002,
+        storeId: 11,
+      });
       prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
       // 同一规格出现在 3 个购物车行中，每行数量 1
       prismaService.scanOrderItem.findMany.mockResolvedValue([
-        { menuProductId: 201, quantity: 1, specs: [{ specOptionId: 501 }] },
-        { menuProductId: 202, quantity: 1, specs: [{ specOptionId: 501 }] },
-        { menuProductId: 203, quantity: 1, specs: [{ specOptionId: 501 }] },
+        {
+          menuProductId: 201,
+          quantity: 1,
+          menuProduct: { productId: 901 },
+          specs: [{ specOptionId: 501 }],
+        },
+        {
+          menuProductId: 202,
+          quantity: 1,
+          menuProduct: { productId: null },
+          specs: [{ specOptionId: 501 }],
+        },
+        {
+          menuProductId: 203,
+          quantity: 1,
+          menuProduct: { productId: 903 },
+          specs: [{ specOptionId: 501 }],
+        },
       ]);
       prismaService.scanOrderingMenuProduct.updateMany.mockResolvedValue({
         count: 1,
@@ -634,6 +680,7 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
       prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
         count: 1,
       });
+      prismaService.product.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
         count: 0,
       });
@@ -664,16 +711,22 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         sessionId: 82,
         version: 1,
       });
+      prismaService.scanOrders.findUniqueOrThrow.mockResolvedValue({
+        id: 4003,
+        storeId: 11,
+      });
       prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderItem.findMany.mockResolvedValue([
         {
           menuProductId: 201,
           quantity: 5,
+          menuProduct: { productId: 901 },
           specs: [{ specOptionId: 601 }, { specOptionId: 602 }],
         },
         {
           menuProductId: 202,
           quantity: 4,
+          menuProduct: { productId: 902 },
           specs: [{ specOptionId: 602 }, { specOptionId: 603 }],
         },
       ]);
@@ -683,6 +736,7 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
       prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
         count: 1,
       });
+      prismaService.product.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
         count: 0,
       });

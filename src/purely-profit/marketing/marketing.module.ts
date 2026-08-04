@@ -5,15 +5,20 @@ import { AccessControlModule } from '../access-control/access-control.module';
 import { PlatformMembershipModule } from '../member/platform-membership/platform-membership.module';
 import { StoresModule } from '../stores/stores.module';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { StoreInviteCodeService } from '../stores/store-invite-code.service';
 import { MarketingAccessService } from './marketing-access.service';
 import {
   MarketingCustomersController,
+  MarketingInviteCodeController,
+  MarketingInviteQrIssueController,
   MarketingOverviewController,
   MarketingProductCategoriesController,
   MarketingProductsController,
   MarketingPromotionsController,
   MarketingTransactionsController,
 } from './marketing.controller';
+import { MarketingInviteCodeService } from './marketing-invite-code.service';
+import { MarketingInviteQrIssueService } from './marketing-invite-qr-issue.service';
 import { MarketingConsumptionsService } from './marketing-consumptions.service';
 import { MarketingConsumptionLinkService } from './marketing-consumption-link.service';
 import { MarketingCustomerListService } from './marketing-customer-list.service';
@@ -47,6 +52,8 @@ import { MarketingSharedService } from './marketing-shared.service';
   controllers: [
     MarketingOverviewController,
     MarketingCustomersController,
+    MarketingInviteCodeController,
+    MarketingInviteQrIssueController,
     MarketingTransactionsController,
     MarketingProductCategoriesController,
     MarketingProductsController,
@@ -54,6 +61,9 @@ import { MarketingSharedService } from './marketing-shared.service';
   ],
   providers: [
     MarketingService,
+    StoreInviteCodeService,
+    MarketingInviteCodeService,
+    MarketingInviteQrIssueService,
     MarketingOverviewFacadeService,
     MarketingCustomersFacadeService,
     MarketingTransactionsFacadeService,

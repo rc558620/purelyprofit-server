@@ -65,4 +65,14 @@ export interface ScanOrderingOrderListItem {
   amountSummary: ScanOrderingAmountSummary;
   /** 首个商品图片 URL（用于订单卡片缩略图）。 */
   imageUrl: string | null;
+  /**
+   * 同一 diningRound 内的累计下单序号（从 1 开始）。
+   *
+   * 判定维度：同一门店 + 同一桌台 + 同一 clubUser + 同一 diningRoundId。
+   * 序号 >1 在前端映射为"加餐"，否则为"首单"。清桌后 diningRoundId 会重新生成，
+   * 因此清桌后新首单仍从 1 计数。
+   *
+   * 字段名沿用 sessionOrderSequence 以兼容既有前端消费。
+   */
+  sessionOrderSequence: number;
 }

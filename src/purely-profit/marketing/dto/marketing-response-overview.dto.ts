@@ -92,6 +92,30 @@ export class MarketingOverviewDto {
   })
   inviteCodeQrCodeImageUrl: string | null;
 
+  /**
+   * 二维码载荷协议版本：
+   * - v1：稳定 URL 格式（已配置公共域名）；
+   * - legacy：裸邀请码格式（未配置公共域名）；
+   * - null：无有效邀请码。
+   */
+  @ApiProperty({
+    enum: ['v1', 'legacy'],
+    nullable: true,
+    description: '二维码载荷协议版本',
+  })
+  inviteQrPayloadVersion: 'v1' | 'legacy' | null;
+
+  /**
+   * 可复制的稳定邀请入口 URL（仅 v1 时返回）；
+   * 未配置公共域名时为 null（前端可降级复制裸邀请码）。
+   */
+  @ApiProperty({
+    example: 'https://club.purelyprofit.com/i/v1/AB23CD45',
+    nullable: true,
+    description: '可复制的稳定邀请入口 URL',
+  })
+  inviteQrEntryUrl: string | null;
+
   /** 近 30 天储值趋势 */
   @ApiProperty({ type: [MarketingOverviewTrendPointDto] })
   last30Days: MarketingOverviewTrendPointDto[];

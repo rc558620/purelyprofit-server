@@ -21,6 +21,9 @@ import { StoreBusinessCapabilityService } from '../../stores/store-business-capa
 describe('扫码点餐业态接口保护', () => {
   let reflector: Reflector;
   let guard: BusinessModeGuard;
+  let mockStoreBusinessCapabilityService: {
+    getCapabilities: jest.Mock;
+  };
 
   const buildMockStoreBusinessCapabilityService = () => ({
     getCapabilities: jest.fn(),
@@ -64,7 +67,7 @@ describe('扫码点餐业态接口保护', () => {
     }) as unknown as ExecutionContext;
 
   beforeEach(() => {
-    const mockStoreBusinessCapabilityService =
+    mockStoreBusinessCapabilityService =
       buildMockStoreBusinessCapabilityService();
     reflector = new Reflector();
     guard = new BusinessModeGuard(
@@ -84,8 +87,7 @@ describe('扫码点餐业态接口保护', () => {
 
   it('非餐饮门店访问扫码点餐接口返回 403', async () => {
     mockCateringRequirement();
-    const mockSvc = buildMockStoreBusinessCapabilityService();
-    (mockSvc.getCapabilities as jest.Mock).mockResolvedValue({
+    mockStoreBusinessCapabilityService.getCapabilities.mockResolvedValue({
       businessMode: 'general',
       isCateringStore: false,
       isGeneralStore: true,
@@ -99,8 +101,7 @@ describe('扫码点餐业态接口保护', () => {
 
   it('门店未知/数据库失败时返回 403', async () => {
     mockCateringRequirement();
-    const mockSvc = buildMockStoreBusinessCapabilityService();
-    (mockSvc.getCapabilities as jest.Mock).mockResolvedValue({
+    mockStoreBusinessCapabilityService.getCapabilities.mockResolvedValue({
       businessMode: 'general',
       isCateringStore: false,
       isGeneralStore: false,
@@ -114,8 +115,7 @@ describe('扫码点餐业态接口保护', () => {
 
   it('餐饮门店且具备权限时通过', async () => {
     mockCateringRequirement();
-    const mockSvc = buildMockStoreBusinessCapabilityService();
-    (mockSvc.getCapabilities as jest.Mock).mockResolvedValue({
+    mockStoreBusinessCapabilityService.getCapabilities.mockResolvedValue({
       businessMode: 'catering',
       isCateringStore: true,
       isGeneralStore: false,

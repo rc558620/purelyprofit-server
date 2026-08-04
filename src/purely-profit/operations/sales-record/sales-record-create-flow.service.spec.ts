@@ -61,6 +61,7 @@ describe('SalesRecordCreateFlowService', () => {
       totalProfit: new Prisma.Decimal('1300'),
       totalQuantity: 3,
       paymentMethod: 'cash',
+      paymentLabel: '现金',
       calcMode: 'business',
       note: '补录',
       date: orderDate,
@@ -146,6 +147,7 @@ describe('SalesRecordCreateFlowService', () => {
           salePrice: 15.5,
           profit: 4,
           quantity: 2,
+          subtotal: 31,
         },
         {
           productId: 'manual_102',
@@ -154,16 +156,19 @@ describe('SalesRecordCreateFlowService', () => {
           salePrice: 18,
           profit: 5,
           quantity: 1,
+          subtotal: 18,
         },
       ],
       totalRevenue: 49,
       totalProfit: 13,
       totalQuantity: 3,
       paymentMethod: 'cash',
+      paymentLabel: '现金',
       calcMode: 'business',
       note: '补录',
       date: orderDate.getTime(),
       createdAt: createdAt.getTime(),
+      refundedAt: null,
     });
 
     expect(transactionClient.$executeRaw).toHaveBeenCalledTimes(1);

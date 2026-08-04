@@ -7,6 +7,7 @@ import {
   ScanOrderStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { SalesRecordRefundService } from '../sales-record/sales-record-refund.service';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class ScanOrderingOrderRefundBalanceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly refundService: ScanOrderingRefundService,
+    private readonly salesRecordRefundService: SalesRecordRefundService,
   ) {}
 
   async refund(
@@ -52,6 +54,8 @@ export class ScanOrderingOrderRefundBalanceService {
       });
       if (order.count === 0)
         throw new ConflictException('订单状态已变化，请刷新后重试');
+      await this.restoreReservedStock(tx, input.orderId);
+      await this.refundSaleOrder(tx, input.orderId);
       await tx.marketingCustomer.update({
         where: { id: balancePayment.customerId },
         data: { balance: { increment: balancePayment.amount } },
@@ -144,5 +148,85 @@ export class ScanOrderingOrderRefundBalanceService {
         },
       });
     });
+  }
+
+  private async refundSaleOrder(
+    tx: import('@prisma/client').Prisma.TransactionClient,
+    orderId: number,
+  ): Promise<void> {
+    const saleOrder = await tx.saleOrder.findUnique({
+      where: { scanOrderId: orderId },
+      select: { id: true },
+    });
+    if (!saleOrder) return;
+    await this.salesRecordRefundService.refundInTransaction(tx, {
+      saleOrderId: saleOrder.id,
+      refundedAt: new Date(),
+    });
+  }
+
+  private async restoreReservedStock(
+    tx: import('@prisma/client').Prisma.TransactionClient,
+    orderId: number,
+  ): Promise<void> {
+    const order = await tx.scanOrders.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { storeId: true },
+    });
+    const items = await tx.scanOrderItem.findMany({
+      where: { orderId },
+      select: {
+        menuProductId: true,
+        quantity: true,
+        menuProduct: { select: { productId: true } },
+        specs: { select: { specOptionId: true } },
+      },
+    });
+    await Promise.all(
+      items.map(async (item) => {
+        await tx.scanOrderingMenuProduct.updateMany({
+          where: {
+            id: item.menuProductId,
+            storeId: order.storeId,
+            stockMode: 'finite',
+          },
+          data: {
+            stockQuantity: { increment: item.quantity },
+            salesCount: { decrement: item.quantity },
+            version: { increment: 1 },
+          },
+        });
+        if (item.menuProduct.productId !== null) {
+          await tx.product.updateMany({
+            where: {
+              id: item.menuProduct.productId,
+              storeId: order.storeId,
+              deletedAt: null,
+            },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+      }),
+    );
+    const specQuantities = new Map<number, number>();
+    for (const item of items) {
+      for (const spec of item.specs) {
+        specQuantities.set(
+          spec.specOptionId,
+          (specQuantities.get(spec.specOptionId) ?? 0) + item.quantity,
+        );
+      }
+    }
+    await Promise.all(
+      Array.from(specQuantities.entries()).map(([id, quantity]) =>
+        tx.scanOrderingSpecOption.updateMany({
+          where: { id, stockQuantity: { not: null } },
+          data: {
+            stockQuantity: { increment: quantity },
+            version: { increment: 1 },
+          },
+        }),
+      ),
+    );
   }
 }

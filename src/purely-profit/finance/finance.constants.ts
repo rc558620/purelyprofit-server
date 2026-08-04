@@ -76,10 +76,11 @@ export const CASH_FLOW_CATEGORY_RULES = {
     overviewBucket: 'additional',
   },
   refund: {
-    label: '退款回收',
-    direction: 'income',
-    allowManualCreate: true,
-    overviewBucket: 'additional',
+    label: '退款支出',
+    direction: 'expense',
+    allowManualCreate: false,
+    overviewBucket: 'cost',
+    manualCreateError: '退款流水需通过销售退款自动生成',
   },
   transfer_in: {
     label: '转账收入',

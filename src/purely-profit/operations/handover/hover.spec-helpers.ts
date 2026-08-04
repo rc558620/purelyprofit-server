@@ -26,6 +26,9 @@ export const createHandoverPrismaMock = () => {
     saleOrderItem: {
       findMany: jest.fn(),
     },
+    saleOrderRefund: {
+      aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 0 } }),
+    },
     spaceSession: {
       aggregate: jest.fn(),
       findMany: jest.fn(),

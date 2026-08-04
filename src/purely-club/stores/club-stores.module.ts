@@ -6,12 +6,13 @@ import { ClubCurrentContextInterceptor } from './club-current-context.intercepto
 import { ClubCurrentStoreContextService } from './club-current-store-context.service';
 import { ClubStoreAccessService } from './club-store-access.service';
 import { ClubStoreViewService } from './club-store-view.service';
+import { ClubInviteEntryController } from './club-invite-entry.controller';
 import { ClubStoresController } from './club-stores.controller';
 import { ClubStoresService } from './club-stores.service';
 
 @Module({
   imports: [AuthModule, PrismaModule, StoresModule],
-  controllers: [ClubStoresController],
+  controllers: [ClubStoresController, ClubInviteEntryController],
   providers: [
     ClubStoreAccessService,
     ClubCurrentContextInterceptor,

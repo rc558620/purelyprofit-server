@@ -164,6 +164,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
               gte: new Date('2026-06-04T09:00:00.000Z'),
               lte: new Date('2026-06-04T15:00:00.000Z'),
             },
+            refund: { is: null },
           },
         }),
       );
@@ -242,6 +243,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
               gte: new Date(2026, 5, 4, 9, 0, 0),
               lte: overdueHandoverAt,
             },
+            refund: { is: null },
           },
         }),
       );
@@ -403,6 +405,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
               gte: new Date(2026, 5, 5, 16, 1, 0),
               lte: new Date(2026, 5, 5, 17, 5, 0),
             },
+            refund: { is: null },
           },
         }),
       );

@@ -135,7 +135,7 @@ export class ServiceCallRealtimeService
         );
       }
       this.namespace?.to(this.storeRoom(payload.storeId)).emit(event, payload);
-      if (event === 'service_call.updated' && payload.clubUserId) {
+      if (payload.clubUserId) {
         const room = this.clubUserRoom(payload.clubUserId);
         this.logger.log(
           `向 Club 服务呼叫房间广播: serviceCallId=${payload.id}, room=${room}, status=${payload.status}, pid=${process.pid}`,

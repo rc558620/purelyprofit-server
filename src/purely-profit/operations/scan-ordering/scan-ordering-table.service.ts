@@ -258,16 +258,23 @@ export class ScanOrderingTableService {
           deletedAt: null,
           expiresAt: { gt: now },
         },
-        select: { id: true },
+        select: { id: true, diningRoundId: true },
       });
       if (activeSessions.length === 0) {
         throw new ConflictException('当前桌台不存在有效用餐会话，无法清桌');
       }
-      const leftSessions = await tx.scanOrderingSession.findMany({
-        where: { storeId, tableId, status: 'left' },
+      const diningRoundIds = activeSessions.map(
+        (session) => session.diningRoundId,
+      );
+      const sessions = await tx.scanOrderingSession.findMany({
+        where: {
+          storeId,
+          tableId,
+          diningRoundId: { in: diningRoundIds },
+          status: { in: ['active', 'left'] },
+        },
         select: { id: true },
       });
-      const sessions = [...activeSessions, ...leftSessions];
       const orders = await tx.scanOrders.findMany({
         where: {
           sessionId: { in: sessions.map((session) => session.id) },

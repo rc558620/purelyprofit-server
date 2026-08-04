@@ -87,6 +87,7 @@ export class ClubServiceCallService {
     this.realtimeService.publishCreated({
       id: serviceCall.id,
       storeId: serviceCall.storeId,
+      clubUserId: serviceCall.clubUserId,
       source: serviceCall.source,
       type: serviceCall.type,
       status: serviceCall.status,

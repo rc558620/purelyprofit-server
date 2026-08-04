@@ -418,7 +418,7 @@ describe('SalesRecordWriteService', () => {
     );
   });
 
-  it('create 在系统自动结账入口下存在当班员工时应归属到待交班班次员工', async () => {
+  it('create 在系统自动结账入口下即使存在当班员工也不归属到个人', async () => {
     jest.useFakeTimers().setSystemTime(new Date(2026, 5, 4, 10, 30, 0));
     const preparedItems = [
       {
@@ -477,7 +477,7 @@ describe('SalesRecordWriteService', () => {
     expect(salesRecordCreateFlowService.createRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         storeId: 18,
-        operatorStaffId: 42,
+        operatorStaffId: null,
       }),
     );
     jest.useRealTimers();

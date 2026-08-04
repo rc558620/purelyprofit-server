@@ -42,6 +42,7 @@ export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
     operatorNameSnapshot: true;
     date: true;
     createdAt: true;
+    refund: { select: { refundedAt: true } };
     // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
     customerPaymentMethod: true;
     grouponCode: true;
@@ -221,6 +222,7 @@ export function mapSalesRecordResponse(
     ...(operatorRole ? { operatorRole } : {}),
     date: toTimestampMs(order.date),
     createdAt: toTimestampMs(order.createdAt),
+    refundedAt: order.refund ? toTimestampMs(order.refund.refundedAt) : null,
     ...grouponFields,
   };
 }

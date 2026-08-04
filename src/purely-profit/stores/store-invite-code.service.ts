@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
+import { buildClubInviteCodeMapCacheKey } from '../../redis/keys';
+import { CacheInvalidatorService } from '../../redis/cache-invalidator.service';
 import { randomBytes } from 'node:crypto';
 
 /**
@@ -17,7 +20,11 @@ export class StoreInviteCodeService {
   private readonly CODE_LENGTH = 8;
   private readonly MAX_RETRY = 10;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
+    private readonly redisService: RedisService,
+  ) {}
 
   /**
    * 为门店生成并持久化邀请码（注册时调用）
@@ -30,6 +37,7 @@ export class StoreInviteCodeService {
         await this.prisma.storeInviteCode.create({
           data: { storeId, code },
         });
+        await this.invalidateInviteCodeCaches(storeId);
         return code;
       } catch (error: unknown) {
         // 碰撞检测：P2002 unique constraint violation
@@ -63,15 +71,29 @@ export class StoreInviteCodeService {
   }
 
   /**
-   * 重新生成门店邀请码（禁用旧码，生成新码）
+   * 重新生成门店邀请码（禁用旧码，生成新码）。
+   *
+   * 轮换后立即失效营销概览缓存与 C 端 inviteCode→storeId 映射缓存，
+   * 避免旧二维码在 TTL 内仍被展示或仍可扫码入店。
+   *
+   * 同时联动失效该门店所有「生效中」的渠道二维码：
+   * 渠道二维码 URL 内嵌旧邀请码（{base}/i/v1/{旧码}?t={token}），
+   * 旧码停用后其扫码必然失效，因此列表状态应与实际行为一致（显示已停用），
+   * 避免运营误以为旧渠道码仍可使用。
    */
   async regenerateForStore(storeId: number): Promise<string> {
-    return this.prisma.$transaction(
+    const newCode = await this.prisma.$transaction(
       async (tx) => {
         // 禁用所有旧码
         await tx.storeInviteCode.updateMany({
           where: { storeId },
           data: { isActive: false },
+        });
+
+        // 联动失效该门店所有生效中的渠道二维码（URL 内嵌旧邀请码，随旧码一并停用）
+        await tx.storeInviteQrIssue.updateMany({
+          where: { storeId, status: 'active' },
+          data: { status: 'revoked', revokedAt: new Date() },
         });
 
         // 生成新码
@@ -101,6 +123,34 @@ export class StoreInviteCodeService {
       },
       { timeout: TX_TIMEOUT_MEDIUM },
     );
+
+    await this.invalidateInviteCodeCaches(storeId);
+    return newCode;
+  }
+
+  /**
+   * 停用门店全部邀请码（保留历史记录，仅标记 isActive=false）。
+   * 停用后立即失效相关缓存，保证管理端与 C 端不再识别旧码。
+   *
+   * 与轮换一致，联动失效该门店所有「生效中」的渠道二维码。
+   */
+  async deactivateForStore(storeId: number): Promise<void> {
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.storeInviteCode.updateMany({
+          where: { storeId, isActive: true },
+          data: { isActive: false },
+        });
+
+        // 联动失效该门店所有生效中的渠道二维码
+        await tx.storeInviteQrIssue.updateMany({
+          where: { storeId, status: 'active' },
+          data: { status: 'revoked', revokedAt: new Date() },
+        });
+      },
+      { timeout: TX_TIMEOUT_MEDIUM },
+    );
+    await this.invalidateInviteCodeCaches(storeId);
   }
 
   /**
@@ -136,5 +186,17 @@ export class StoreInviteCodeService {
       code += this.CODE_CHARSET[idx];
     }
     return code;
+  }
+
+  /**
+   * 邀请码状态变更后主动失效依赖缓存：
+   * - 营销概览（二维码图缓存于概览响应中，TTL 120s，不能等 TTL 自然过期）；
+   * - C 端 inviteCode→storeId 全量映射（TTL 3600s，不失效则旧码扫码仍可入店）。
+   */
+  private async invalidateInviteCodeCaches(storeId: number): Promise<void> {
+    await Promise.all([
+      this.cacheInvalidatorService.invalidateMarketingOverview(storeId),
+      this.redisService.del(buildClubInviteCodeMapCacheKey()),
+    ]);
   }
 }

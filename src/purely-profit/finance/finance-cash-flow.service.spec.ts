@@ -177,54 +177,17 @@ describe('FinanceCashFlowService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('createCashFlowRecord 允许手动创建 refund 分类流水', async () => {
-    prismaService.financeCashFlowRecord.create.mockResolvedValue({
-      id: 9,
-      direction: 'income',
-      category: 'refund',
-      title: '供应商返利',
-      amount: new Prisma.Decimal('88.00'),
-      payment: 'bank',
-      note: '年度返利',
-      date: new Date('2026-05-14T10:00:00.000Z'),
-      createdAt: new Date('2026-05-14T10:05:00.000Z'),
-    });
-
+  it('createCashFlowRecord 禁止手动创建 refund 分类流水', async () => {
     await expect(
       service.createCashFlowRecord(user, {
-        direction: 'income',
+        direction: 'expense',
         category: 'refund',
-        title: '供应商返利',
+        title: '手动补退款',
         amount: 88,
         payment: 'bank',
-        note: '年度返利',
         date: new Date('2026-05-14T10:00:00.000Z').getTime(),
       }),
-    ).resolves.toEqual({
-      id: '9',
-      direction: 'income',
-      category: 'refund',
-      title: '供应商返利',
-      amount: 0.88,
-      payment: 'bank',
-      note: '年度返利',
-      date: new Date('2026-05-14T10:00:00.000Z').getTime(),
-      createdAt: new Date('2026-05-14T10:05:00.000Z').getTime(),
-    });
-
-    expect(prismaService.financeCashFlowRecord.create).toHaveBeenCalledWith({
-      data: {
-        storeId: 18,
-        operatorStaffId: 8,
-        direction: 'income',
-        category: 'refund',
-        title: '供应商返利',
-        amount: 8800,
-        payment: 'bank',
-        note: '年度返利',
-        date: new Date('2026-05-14T10:00:00.000Z'),
-      },
-    });
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('createCashFlowRecord 在方向与分类口径不一致时抛出 ConflictException', async () => {

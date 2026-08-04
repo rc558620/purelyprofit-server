@@ -76,6 +76,8 @@ export function buildEmptyMarketingOverview(): MarketingOverviewDto {
     activeMemberCount: 0,
     inviteCode: '',
     inviteCodeQrCodeImageUrl: '',
+    inviteQrPayloadVersion: null,
+    inviteQrEntryUrl: null,
     last30Days: buildOverviewLast30Days([]),
     currentYear,
     thisYearMonthlyTrend: buildOverviewMonthlyTrend([], currentYear),

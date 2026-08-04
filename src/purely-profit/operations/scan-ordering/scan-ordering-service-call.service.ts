@@ -74,6 +74,7 @@ export class ScanOrderingServiceCallService {
     this.realtimeService.publishUpdated({
       id: updated.id,
       storeId: updated.storeId,
+      clubUserId: updated.clubUserId,
       source: updated.source,
       type: updated.type,
       status: updated.status,

@@ -61,6 +61,7 @@ model ScanOrderingSession {
   storeId          Int                       @map("store_id")
   tableId          Int?                      @map("table_id")
   clubUserId       Int?                      @map("club_user_id")
+  diningRoundId    String                    @map("dining_round_id") @db.Uuid
   session          String                    @map("session")
   sessionTokenHash String?                   @map("session_token_hash") @db.VarChar(128)
   guestCount       Int                       @default(0) @map("guest_count")
@@ -81,6 +82,8 @@ model ScanOrderingSession {
   @@index([storeId, session])
   @@index([storeId, tableId, status])
   @@index([clubUserId, status, lastActiveAt(sort: Desc)])
+  @@index([storeId, tableId, clubUserId, diningRoundId])
+  @@index([diningRoundId, status])
   @@index([expiresAt])
   @@map("scan_ordering_sessions")
 }
@@ -128,6 +131,7 @@ model ScanOrders {
   tableId                  Int                        @map("table_id")
   sessionId                Int?                       @map("session_id")
   clubUserId               Int?                       @map("club_user_id")
+  diningRoundId            String                     @map("dining_round_id") @db.Uuid
   guestCount               Int?                       @map("guest_count")
   remark                   String?                    @map("remark") @db.VarChar(500)
   idempotencyKey           String?                    @map("idempotency_key") @db.VarChar(128)
@@ -164,6 +168,7 @@ model ScanOrders {
   refundTasks              ScanOrderRefundTask[]
   balanceTransactions      ScanOrderBalanceTransaction[]
   histories                ScanOrderStatusHistory[]
+  saleOrder                SaleOrder?                @relation("ScanOrderSaleOrder")
   session                  ScanOrderingSession?       @relation(fields: [sessionId], references: [id])
   table                    ScanOrderingTable          @relation(fields: [tableId], references: [id])
 
@@ -178,6 +183,8 @@ model ScanOrders {
   @@index([paymentExpiresAt], map: "idx_scan_orders_payment_expiry", where: raw("((payment_status = 'unpaid'::\"ScanOrderPaymentStatus\") AND (deleted_at IS NULL))"))
   @@index([storeId, status, createdAt(sort: Desc)], map: "idx_scan_orders_store_status_created", where: raw("(deleted_at IS NULL)"))
   @@index([storeId, tableId, status, createdAt(sort: Desc)], map: "idx_scan_orders_table_active", where: raw("((status = ANY (ARRAY['pending_payment'::\"ScanOrderStatus\", 'pending_acceptance'::\"ScanOrderStatus\", 'preparing'::\"ScanOrderStatus\", 'served'::\"ScanOrderStatus\"])) AND (deleted_at IS NULL))"))
+  @@index([clubUserId, diningRoundId, createdAt(sort: Desc)])
+  @@index([storeId, tableId, diningRoundId, createdAt(sort: Desc)])
   @@map("scan_orders")
 }
 
@@ -199,6 +206,7 @@ model ScanOrderItem {
   sortOrder               Int                 @default(0) @map("sort_order")
   specs                   ScanOrderItemSpec[]
   order                   ScanOrders          @relation(fields: [orderId], references: [id])
+  menuProduct             ScanOrderingMenuProduct @relation(fields: [menuProductId], references: [id])
 
   @@index([orderId, id])
   @@index([storeId, menuProductId])
@@ -276,6 +284,7 @@ model ScanOrderingMenuProduct {
   category      ScanOrderingMenuCategory @relation(fields: [categoryId], references: [id])
   product       Product?                 @relation(fields: [productId], references: [id])
   specGroups    ScanOrderingSpecGroup[]
+  orderItems    ScanOrderItem[]
 
   @@unique([storeId, name], map: "uq_menu_product_store_name_active", where: raw("(deleted_at IS NULL)"))
   @@unique([storeId, productId], map: "uq_scan_ordering_menu_product_store_product_active", where: raw("(product_id IS NOT NULL AND deleted_at IS NULL)"))

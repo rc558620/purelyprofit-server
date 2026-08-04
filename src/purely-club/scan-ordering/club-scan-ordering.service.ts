@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
@@ -265,13 +265,26 @@ export class ClubScanOrderingService {
     guestCount: number;
     status: string;
     expiresAt: Date;
+    diningRoundId: string;
   }> {
+    const existingRound = await this.prisma.scanOrderingSession.findFirst({
+      where: {
+        storeId,
+        tableId,
+        clubUserId,
+        status: { in: ['active', 'left'] },
+      },
+      orderBy: { lastActiveAt: 'desc' },
+      select: { diningRoundId: true },
+    });
+    const diningRoundId = existingRound?.diningRoundId ?? randomUUID();
     try {
       return await this.prisma.scanOrderingSession.create({
         data: {
           storeId,
           tableId,
           clubUserId,
+          diningRoundId,
           session: randomBytes(24).toString('base64url'),
           guestCount: guestCount ?? 1,
           expiresAt,
@@ -311,6 +324,7 @@ export class ClubScanOrderingService {
             storeId,
             tableId,
             clubUserId,
+            diningRoundId,
             session: randomBytes(24).toString('base64url'),
             guestCount: guestCount ?? 1,
             expiresAt,

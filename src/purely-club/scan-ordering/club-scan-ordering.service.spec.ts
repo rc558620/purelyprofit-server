@@ -2,8 +2,9 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
-import { ClubServiceCallService } from '../service-call/club-service-call.service';
 import { ClubScanOrderingService } from './club-scan-ordering.service';
+import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
+import { ClubScanOrderingServiceCallService } from './club-scan-ordering-service-call.service';
 
 /**
  * C 端扫码解析测试。
@@ -41,6 +42,10 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
     createFromScanOrdering: jest.fn(),
   };
 
+  const menuQueryService = {
+    resolveActiveMenuContext: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
@@ -49,8 +54,12 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
         {
-          provide: ClubServiceCallService,
+          provide: ClubScanOrderingServiceCallService,
           useValue: serviceCallService,
+        },
+        {
+          provide: ClubScanOrderingMenuQueryService,
+          useValue: menuQueryService,
         },
       ],
     }).compile();

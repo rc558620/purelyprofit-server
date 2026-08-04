@@ -22,7 +22,10 @@ import type {
   CreateScanOrderingTypeDto,
   UpdateScanOrderingTypeDto,
 } from './dto/scan-ordering-type.dto';
-import type { UpdateScanOrderingAreaDto } from './dto/scan-ordering-area.dto';
+import type {
+  CreateScanOrderingAreaDto,
+  UpdateScanOrderingAreaDto,
+} from './dto/scan-ordering-area.dto';
 import { ScanOrderingTypeService } from './scan-ordering-type.service';
 import { ScanOrderingAreaService } from './scan-ordering-area.service';
 
@@ -60,6 +63,21 @@ export class ScanOrderingTableController {
       createdAt: item.createdAt.getTime(),
       updatedAt: item.updatedAt?.getTime(),
     }));
+  }
+
+  @Post('areas')
+  @RequirePermissions('scan-ordering:table-manage')
+  @ApiOperation({ summary: '新增扫码点餐桌台区域' })
+  async createArea(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateScanOrderingAreaDto,
+  ): Promise<ScanOrderingAreaResponse> {
+    const result = await this.areaService.create(user, dto);
+    return {
+      ...result,
+      createdAt: result.createdAt.getTime(),
+      updatedAt: result.updatedAt.getTime(),
+    };
   }
 
   @Patch('areas/:areaId')

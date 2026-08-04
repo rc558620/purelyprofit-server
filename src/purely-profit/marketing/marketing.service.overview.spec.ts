@@ -103,8 +103,9 @@ describe('MarketingService overview', () => {
       rechargeCount: 7,
       activeMemberCount: 6,
       inviteCode: 'AB23CD45',
-      inviteCodeQrCodeImageUrl:
-        'https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&margin=0&data=AB23CD45',
+      inviteCodeQrCodeImageUrl: 'data:image/png;base64,QR_IMAGE',
+      inviteQrPayloadVersion: 'legacy',
+      inviteQrEntryUrl: null,
       last30Days: aNonEmptyArray,
       currentYear: 2026,
       thisYearMonthlyTrend: [
@@ -149,11 +150,11 @@ describe('MarketingService overview', () => {
     expect(result).not.toHaveProperty('tierDistribution');
     expect(result.last30Days).toHaveLength(30);
     expect(result.last30Days[result.last30Days.length - 2]).toEqual({
-      date: '5/14',
+      date: '05/14',
       amount: 120,
     });
     expect(result.last30Days[result.last30Days.length - 1]).toEqual({
-      date: '5/15',
+      date: '05/15',
       amount: 80,
     });
   });

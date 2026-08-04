@@ -183,6 +183,13 @@ export class SalesRecordResponseDto {
   @ApiProperty({ example: 1715695201000, description: '创建时间戳（毫秒）' })
   createdAt: number;
 
+  @ApiPropertyOptional({
+    example: 1715698800000,
+    description: '退款完成时间戳（毫秒）；未退款时为 null',
+    nullable: true,
+  })
+  refundedAt?: number | null;
+
   // ─── 团购 / 券 / 平台结算元数据（可选）───────────────────────────────────
 
   @ApiPropertyOptional({

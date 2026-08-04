@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -6,7 +7,12 @@ import {
   buildMarketingOverviewCacheKey,
 } from '../../redis/keys';
 import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
-import { buildInviteCodeQrCodeImageUrl } from '../member/platform-membership/membership-profile.mapper';
+import {
+  buildStoreInviteQrImageDataUrl,
+  buildStoreInviteQrPayload,
+  STORE_INVITE_QR_PROTOCOL_LEGACY,
+  STORE_INVITE_QR_PROTOCOL_V1,
+} from '../stores/store-invite-code-qr.utils';
 import { Money } from '../../shared/money.utils';
 import {
   getShanghaiDayStartMs,
@@ -58,6 +64,7 @@ export class MarketingOverviewService {
     private readonly refreshableCache: RefreshableCacheService,
     private readonly marketingSharedService: MarketingSharedService,
     private readonly memberLevelSettingsService: MarketingMemberLevelSettingsService,
+    private readonly configService: ConfigService,
   ) {}
 
   async getOverview(
@@ -207,9 +214,17 @@ export class MarketingOverviewService {
       storeRecord?.mchId && storeRecord?.configuredAt
     );
 
-    // 本地生成二维码 data URL，不再依赖外部服务
-    const inviteCodeQrCodeImageUrl = inviteCode
-      ? await buildInviteCodeQrCodeImageUrl(inviteCode)
+    // 本地生成二维码载荷与图片：配置了公共域名时产出 v1 稳定 URL，否则回退 legacy 裸码
+    const inviteCodeQrPayload = inviteCode
+      ? buildStoreInviteQrPayload(inviteCode, {
+          baseUrl: this.configService.get<string>('club.publicBaseUrl'),
+          entryPath: this.configService.get<string>('club.storeInviteQrEntryPath'),
+        })
+      : null;
+    const isInviteCodeV1Url =
+      inviteCodeQrPayload !== null && inviteCodeQrPayload !== inviteCode;
+    const inviteCodeQrCodeImageUrl = inviteCodeQrPayload
+      ? await buildStoreInviteQrImageDataUrl(inviteCodeQrPayload)
       : null;
 
     return {
@@ -223,6 +238,12 @@ export class MarketingOverviewService {
       activeMemberCount,
       inviteCode,
       inviteCodeQrCodeImageUrl,
+      inviteQrPayloadVersion: inviteCode
+        ? isInviteCodeV1Url
+          ? STORE_INVITE_QR_PROTOCOL_V1
+          : STORE_INVITE_QR_PROTOCOL_LEGACY
+        : null,
+      inviteQrEntryUrl: isInviteCodeV1Url ? inviteCodeQrPayload : null,
       last30Days: buildOverviewLast30Days(dailyTotals),
       currentYear,
       thisYearMonthlyTrend: buildOverviewMonthlyTrend(

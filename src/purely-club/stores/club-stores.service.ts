@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { ClubCurrentContext } from './club-stores.types';
 import type {
+  ClubResolveScanCodeResponseDto,
   ClubStoreSummaryDto,
   ClubStoresResponseDto,
   ClubSwitchCurrentStoreResponseDto,
@@ -95,5 +96,12 @@ export class ClubStoresService {
       success: true,
       store: await this.clubStoreViewService.toSummary(store),
     };
+  }
+
+  resolveScanCode(
+    user: AuthenticatedUser,
+    scanCode: string,
+  ): Promise<ClubResolveScanCodeResponseDto> {
+    return this.clubStoreAccessService.resolveScanCode(user, scanCode);
   }
 }

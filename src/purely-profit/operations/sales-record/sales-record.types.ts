@@ -24,6 +24,7 @@ export type SalesPaymentMethodValue =
   | 'wechat'
   | 'alipay'
   | 'card'
+  | 'other'
   | 'groupon_voucher';
 
 export const SALES_PAYMENT_METHOD_VALUES = [
@@ -31,6 +32,7 @@ export const SALES_PAYMENT_METHOD_VALUES = [
   'wechat',
   'alipay',
   'card',
+  'other',
   'groupon_voucher',
 ] as const satisfies readonly SalesPaymentMethodValue[];
 

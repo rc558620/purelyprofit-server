@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import { ScanOrderPaymentAttemptStatus } from '@prisma/client';
 import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
+import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
@@ -26,6 +27,7 @@ export class ClubScanOrderingCheckoutService {
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly configService: ConfigService,
     private readonly marketingCustomerService: ClubScanOrderingMarketingCustomerService,
+    private readonly saleOrderBridgeService: ScanOrderingSaleOrderBridgeService,
   ) {}
 
   async createWechatPayment(
@@ -234,6 +236,11 @@ export class ClubScanOrderingCheckoutService {
           reason: '储值余额支付成功',
         },
       });
+      await this.saleOrderBridgeService.createForPaidOrder(
+        tx,
+        order.id,
+        'other',
+      );
       return tx.scanOrders.findUniqueOrThrow({ where: { id: order.id } });
     });
     this.realtimeService.publishOrderStatusChanged({
@@ -301,6 +308,11 @@ export class ClubScanOrderingCheckoutService {
           reason: '开发环境 H5 支付确认',
         },
       });
+      await this.saleOrderBridgeService.createForPaidOrder(
+        tx,
+        order.id,
+        'other',
+      );
       return paidOrder;
     });
     this.realtimeService.publishOrderStatusChanged({

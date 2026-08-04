@@ -34,11 +34,14 @@ export async function aggregateOrderStats(
     ]
   >`
     SELECT
-      COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue,
-      COALESCE(SUM(soi.profit * soi.quantity), 0) AS profit,
-      COUNT(DISTINCT so.id) AS order_count
-    FROM sale_order_items soi
-    INNER JOIN sale_orders so ON so.id = soi.order_id
+      COALESCE(SUM(soi.sale_price * soi.quantity), 0)
+        - COALESCE(SUM(DISTINCT sor.amount), 0) AS revenue,
+      COALESCE(SUM(soi.profit * soi.quantity), 0)
+        - COALESCE(SUM(DISTINCT sor.profit), 0) AS profit,
+      COUNT(DISTINCT so.id) FILTER (WHERE sor.id IS NULL) AS order_count
+    FROM sale_orders so
+    LEFT JOIN sale_order_items soi ON soi.order_id = so.id
+    LEFT JOIN sale_order_refunds sor ON sor.sale_order_id = so.id
     WHERE so.store_id = ${storeId}
       AND so.date >= ${new Date(range.start)}
       AND so.date <= ${new Date(range.end)}
@@ -86,6 +89,7 @@ export async function querySaleOrders(
       operatorNameSnapshot: true,
       date: true,
       createdAt: true,
+      refund: { select: { refundedAt: true } },
       // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
       customerPaymentMethod: true,
       grouponCode: true,

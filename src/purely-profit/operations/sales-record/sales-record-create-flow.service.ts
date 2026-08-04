@@ -73,6 +73,9 @@ export class SalesRecordCreateFlowService {
           calcMode: params.dto.calcMode,
           note: params.note,
           date: params.orderDate,
+          ...(params.options?.scanOrderId !== undefined
+            ? { scanOrderId: params.options.scanOrderId }
+            : {}),
           // ─── 团购 / 券 / 平台结算元数据 ─────────────────────────────
           ...(params.dto.customerPaymentMethod !== undefined
             ? { customerPaymentMethod: params.dto.customerPaymentMethod }
@@ -260,7 +263,10 @@ export class SalesRecordCreateFlowService {
         });
       }
 
-      return createdOrder;
+      return {
+        ...createdOrder,
+        refund: null,
+      };
     };
 
     const created = params.options?.transactionClient

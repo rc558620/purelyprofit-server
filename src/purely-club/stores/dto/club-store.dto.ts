@@ -124,6 +124,76 @@ export class ClubJoinStoreByScanDto {
   scanCode: string;
 }
 
+/** 解析并确认邀请二维码的响应 DTO。 */
+export class ClubResolveScanCodeResponseDto {
+  @ApiProperty({
+    enum: ['v1', 'legacy', 'unsupported'],
+    nullable: true,
+    description:
+      '识别到的二维码协议版本：v1=稳定 URL、legacy=裸邀请码/历史 URL、unsupported=未知版本、null=未识别',
+  })
+  protocolVersion: 'v1' | 'legacy' | 'unsupported' | null;
+
+  @ApiProperty({
+    example: 'AB23CD45',
+    nullable: true,
+    description: '规范化后的邀请码；未识别或版本不支持时为 null',
+  })
+  inviteCode: string | null;
+
+  @ApiProperty({
+    type: ClubStoreSummaryDto,
+    nullable: true,
+    description: '目标门店摘要；邀请码无效/停用或未识别时为 null',
+  })
+  store: ClubStoreSummaryDto | null;
+
+  @ApiProperty({
+    enum: ['active', 'inactive', 'not_found', 'unsupported_version'],
+    description: '二维码解析与邀请码状态',
+  })
+  status:
+    | 'active'
+    | 'inactive'
+    | 'not_found'
+    | 'unsupported_version';
+
+  @ApiProperty({
+    enum: ['join_store', 'already_bound', 'none'],
+    description: '客户端下一步动作',
+  })
+  nextAction: 'join_store' | 'already_bound' | 'none';
+
+  @ApiProperty({ example: '扫码成功，可加入该门店', description: '给前端展示的业务提示' })
+  message: string;
+}
+
+/** 公开落地入口解析响应 DTO（无鉴权，仅返回必要落地信息）。 */
+export class ClubPublicInviteEntryResponseDto {
+  @ApiProperty({
+    example: 'AB23CD45',
+    nullable: true,
+    description: '规范化后的邀请码；无效时为 null',
+  })
+  inviteCode: string | null;
+
+  @ApiProperty({
+    type: ClubStoreSummaryDto,
+    nullable: true,
+    description: '目标门店摘要；邀请码无效/停用时为 null',
+  })
+  store: ClubStoreSummaryDto | null;
+
+  @ApiProperty({
+    enum: ['active', 'inactive', 'not_found'],
+    description: '邀请码状态',
+  })
+  status: 'active' | 'inactive' | 'not_found';
+
+  @ApiProperty({ example: '邀请二维码有效', description: '给前端展示的业务提示' })
+  message: string;
+}
+
 export class ClubSwitchCurrentStoreResponseDto {
   @ApiProperty({ example: true, description: '切换是否成功' })
   @IsBoolean({ message: '切换结果必须是布尔值' })

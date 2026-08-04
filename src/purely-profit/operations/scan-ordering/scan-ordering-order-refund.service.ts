@@ -17,6 +17,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
+import { SalesRecordRefundService } from '../sales-record/sales-record-refund.service';
 
 /**
  * 商家扫码点餐订单退款处理服务。
@@ -29,6 +30,7 @@ export class ScanOrderingOrderRefundHandlingService {
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly refundService: ScanOrderingRefundService,
     private readonly balanceRefundService: ScanOrderingOrderRefundBalanceService,
+    private readonly salesRecordRefundService: SalesRecordRefundService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -145,6 +147,8 @@ export class ScanOrderingOrderRefundHandlingService {
         throw new ConflictException('订单状态已变化，请刷新后重试');
       }
 
+      await this.restoreReservedStock(tx, orderId);
+      await this.refundSaleOrder(tx, orderId);
       await tx.scanOrderPaymentAttempt.updateMany({
         where: { orderId, status: ScanOrderPaymentAttemptStatus.succeeded },
         data: { status: ScanOrderPaymentAttemptStatus.refunded },
@@ -213,6 +217,86 @@ export class ScanOrderingOrderRefundHandlingService {
         fulfillmentStatus: updated.fulfillmentStatus,
       });
     }
+  }
+
+  private async refundSaleOrder(
+    tx: import('@prisma/client').Prisma.TransactionClient,
+    orderId: number,
+  ): Promise<void> {
+    const saleOrder = await tx.saleOrder.findUnique({
+      where: { scanOrderId: orderId },
+      select: { id: true },
+    });
+    if (!saleOrder) return;
+    await this.salesRecordRefundService.refundInTransaction(tx, {
+      saleOrderId: saleOrder.id,
+      refundedAt: new Date(),
+    });
+  }
+
+  private async restoreReservedStock(
+    tx: import('@prisma/client').Prisma.TransactionClient,
+    orderId: number,
+  ): Promise<void> {
+    const order = await tx.scanOrders.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { storeId: true },
+    });
+    const items = await tx.scanOrderItem.findMany({
+      where: { orderId },
+      select: {
+        menuProductId: true,
+        quantity: true,
+        menuProduct: { select: { productId: true } },
+        specs: { select: { specOptionId: true } },
+      },
+    });
+    await Promise.all(
+      items.map(async (item) => {
+        await tx.scanOrderingMenuProduct.updateMany({
+          where: {
+            id: item.menuProductId,
+            storeId: order.storeId,
+            stockMode: 'finite',
+          },
+          data: {
+            stockQuantity: { increment: item.quantity },
+            salesCount: { decrement: item.quantity },
+            version: { increment: 1 },
+          },
+        });
+        if (item.menuProduct.productId !== null) {
+          await tx.product.updateMany({
+            where: {
+              id: item.menuProduct.productId,
+              storeId: order.storeId,
+              deletedAt: null,
+            },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+      }),
+    );
+    const specQuantities = new Map<number, number>();
+    for (const item of items) {
+      for (const spec of item.specs) {
+        specQuantities.set(
+          spec.specOptionId,
+          (specQuantities.get(spec.specOptionId) ?? 0) + item.quantity,
+        );
+      }
+    }
+    await Promise.all(
+      Array.from(specQuantities.entries()).map(([id, quantity]) =>
+        tx.scanOrderingSpecOption.updateMany({
+          where: { id, stockQuantity: { not: null } },
+          data: {
+            stockQuantity: { increment: quantity },
+            version: { increment: 1 },
+          },
+        }),
+      ),
+    );
   }
 
   private async refundMarketingBalanceOrder(

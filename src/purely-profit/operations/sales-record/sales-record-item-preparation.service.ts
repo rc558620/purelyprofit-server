@@ -16,6 +16,7 @@ interface CatalogProductRecord {
   code: string;
   price: number;
   profit: number;
+  costPrice: number | null;
   stock: number;
   isActive: boolean;
   image: string | null;
@@ -47,6 +48,8 @@ export interface CreateSalesRecordOptions {
   transactionClient?: Prisma.TransactionClient;
   /** 保留调用方传入的单价/利润，不用商品目录当前价格覆盖（空间结账等场景） */
   preserveCallerPrices?: boolean;
+  /** 保留调用方的服务端权威成交单价，但利润仍由商品目录成本计算。 */
+  preserveCallerSalePrices?: boolean;
   /**
    * 覆盖 SaleOrder.totalRevenue（元）。
    * 空间结账等场景下，抵扣项（预付款/续费抵扣）在 SaleOrderItem 中以正数存储，
@@ -56,6 +59,8 @@ export interface CreateSalesRecordOptions {
   totalRevenueOverride?: number;
   /** 覆盖 SaleOrder.totalProfit（元），与 totalRevenueOverride 同理。 */
   totalProfitOverride?: number;
+  /** 扫码点餐订单的唯一来源关联，用于支付回调幂等。 */
+  scanOrderId?: number;
 }
 
 @Injectable()
@@ -89,6 +94,7 @@ export class SalesRecordItemPreparationService {
             code: true,
             price: true,
             profit: true,
+            costPrice: true,
             stock: true,
             isActive: true,
             image: true,
@@ -124,12 +130,20 @@ export class SalesRecordItemPreparationService {
           );
         }
 
-        const salePrice = options.preserveCallerPrices
-          ? normalizeSignedMoney(item.salePrice, '销售单价格式不正确')
-          : Money.fromDbCents(matchedProduct.price);
+        const salePrice =
+          options.preserveCallerPrices || options.preserveCallerSalePrices
+            ? normalizeSignedMoney(item.salePrice, '销售单价格式不正确')
+            : Money.fromDbCents(matchedProduct.price);
         const profit = options.preserveCallerPrices
           ? normalizeSignedMoney(item.profit, '单件利润格式不正确')
-          : Money.fromDbCents(matchedProduct.profit);
+          : options.preserveCallerSalePrices
+            ? deriveProductProfit(
+                salePrice,
+                matchedProduct.costPrice == null
+                  ? null
+                  : Money.fromDbCents(matchedProduct.costPrice),
+              )
+            : Money.fromDbCents(matchedProduct.profit);
 
         return {
           productId: matchedProduct.id,

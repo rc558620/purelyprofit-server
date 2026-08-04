@@ -166,6 +166,7 @@ export class ClubScanOrderingOrderService {
             tableId: session.tableId!,
             sessionId: session.id,
             clubUserId: user.id,
+            diningRoundId: session.diningRoundId,
             orderNo: createScanOrderNo(),
             guestCount: dto.guestCount,
             remark: dto.remark,

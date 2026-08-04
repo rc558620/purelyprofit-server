@@ -249,6 +249,82 @@ describe('ScanOrderingOrderService', () => {
       const result = await service.listOrders(mockUser, { limit: 20 } as never);
       expect(result.nextCursor).toBeNull();
     });
+
+    it('sessionOrderSequence 按 diningRoundId + clubUserId 累计，跨 diningRound 重新计数', async () => {
+      // 同一桌 + 同一用户 + 同一 diningRound = 累计加餐序号
+      // 清桌后新 diningRound = 序号重置为 1
+      const sameRound = '11111111-1111-1111-1111-111111111111';
+      const clearedRound = '22222222-2222-2222-2222-222222222222';
+      const orders = [
+        {
+          id: 11,
+          orderNo: 'SO11',
+          status: 'preparing',
+          createdAt: new Date('2026-07-23T12:01:00.000Z'),
+          version: 1,
+          clubUserId: 88,
+          diningRoundId: sameRound,
+          table: { name: 'A01' },
+          items: [],
+          itemOriginalAmount: 0,
+          specificationExtraAmount: 0,
+          productDiscountAmount: 0,
+          orderDiscountAmount: 0,
+          taxAmount: 0,
+          serviceFeeAmount: 0,
+          paidAmount: 0,
+        },
+        {
+          id: 12,
+          orderNo: 'SO12',
+          status: 'preparing',
+          createdAt: new Date('2026-07-23T12:05:00.000Z'),
+          version: 1,
+          clubUserId: 88,
+          diningRoundId: sameRound,
+          table: { name: 'A01' },
+          items: [],
+          itemOriginalAmount: 0,
+          specificationExtraAmount: 0,
+          productDiscountAmount: 0,
+          orderDiscountAmount: 0,
+          taxAmount: 0,
+          serviceFeeAmount: 0,
+          paidAmount: 0,
+        },
+        {
+          id: 13,
+          orderNo: 'SO13',
+          status: 'preparing',
+          createdAt: new Date('2026-07-23T12:10:00.000Z'),
+          version: 1,
+          clubUserId: 88,
+          diningRoundId: clearedRound,
+          table: { name: 'A01' },
+          items: [],
+          itemOriginalAmount: 0,
+          specificationExtraAmount: 0,
+          productDiscountAmount: 0,
+          orderDiscountAmount: 0,
+          taxAmount: 0,
+          serviceFeeAmount: 0,
+          paidAmount: 0,
+        },
+      ];
+      // 第一次 findMany = 列表查询；第二次 findMany = 查同 diningRound 历史
+      prismaService.scanOrders.findMany
+        .mockResolvedValueOnce(orders)
+        .mockResolvedValueOnce(orders);
+
+      const result = await service.listOrders(mockUser, { limit: 20 } as never);
+
+      const byId = new Map(result.items.map((item) => [item.id, item]));
+      // 同一 diningRound 内累加：第一笔=1（首单），第二笔=2（加餐）
+      expect(byId.get(11)?.sessionOrderSequence).toBe(1);
+      expect(byId.get(12)?.sessionOrderSequence).toBe(2);
+      // 清桌后新 diningRound：从 1 重新计数（首单）
+      expect(byId.get(13)?.sessionOrderSequence).toBe(1);
+    });
   });
 
   // ── acceptOrder ──────────────────────────────────────────

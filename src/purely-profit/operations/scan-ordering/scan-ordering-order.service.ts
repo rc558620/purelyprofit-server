@@ -163,6 +163,7 @@ export class ScanOrderingOrderService {
         version: true,
         clubUserId: true,
         sessionId: true,
+        diningRoundId: true,
         remark: true,
         table: { select: { name: true } },
         items: {
@@ -209,24 +210,28 @@ export class ScanOrderingOrderService {
 
     const limit = query.limit ?? 20;
     const pageOrders = orders.slice(0, limit);
-    const sessionUserKeys = pageOrders
-      .filter((order) => order.sessionId && order.clubUserId)
+    // "首单/加餐"判定以 diningRoundId 维度计算：同一个人在同一家门店的同一张桌
+    // 台、本轮用餐轮次（diningRoundId 相同）内的累计下单序号，跨桌或清桌
+    // (session 状态被清成 checked_out 后 diningRoundId 会重新生成) 会重新从 1 开始。
+    // 字段名沿用 sessionOrderSequence 以兼容 purelyprofit 前端消费。
+    const diningRoundUserKeys = pageOrders
+      .filter((order) => order.diningRoundId && order.clubUserId)
       .map((order) => ({
-        sessionId: order.sessionId,
+        diningRoundId: order.diningRoundId,
         clubUserId: order.clubUserId!,
       }));
-    const sessionOrderSequences = new Map<number, number>();
-    if (sessionUserKeys.length > 0) {
+    const diningRoundOrderSequences = new Map<number, number>();
+    if (diningRoundUserKeys.length > 0) {
       const priorOrders = await this.prisma.scanOrders.findMany({
         where: {
-          OR: sessionUserKeys.map(({ sessionId, clubUserId }) => ({
-            sessionId,
+          OR: diningRoundUserKeys.map(({ diningRoundId, clubUserId }) => ({
+            diningRoundId,
             clubUserId,
           })),
           deletedAt: null,
         },
         select: {
-          sessionId: true,
+          diningRoundId: true,
           clubUserId: true,
           id: true,
           createdAt: true,
@@ -235,10 +240,10 @@ export class ScanOrderingOrderService {
       });
       const counters = new Map<string, number>();
       priorOrders.forEach((order) => {
-        const key = `${order.sessionId}:${order.clubUserId}`;
+        const key = `${order.diningRoundId}:${order.clubUserId}`;
         const sequence = (counters.get(key) ?? 0) + 1;
         counters.set(key, sequence);
-        sessionOrderSequences.set(order.id, sequence);
+        diningRoundOrderSequences.set(order.id, sequence);
       });
     }
 
@@ -282,7 +287,9 @@ export class ScanOrderingOrderService {
           createdAt: order.createdAt.toISOString(),
           amountSummary,
           guestName, // 🔥 返回客户昵称
-          sessionOrderSequence: sessionOrderSequences.get(order.id) ?? 1,
+          // 字段名沿用 sessionOrderSequence 以兼容前端；语义上为同一 diningRound
+          // 内的累计序号，>1 即视为加餐。
+          sessionOrderSequence: diningRoundOrderSequences.get(order.id) ?? 1,
           imageUrl:
             order.items.find(
               (item: (typeof order.items)[number]) =>

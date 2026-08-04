@@ -12,6 +12,7 @@ export const SPACE_CUSTOMER_PAYMENT_METHOD_VALUES = [
   'wechat',
   'alipay',
   'card',
+  'other',
   'groupon_voucher',
 ] as const;
 export type SpaceCustomerPaymentMethodValue =

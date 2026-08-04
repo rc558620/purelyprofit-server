@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../../purely-profit/auth/auth.module';
 import { CommerceModule } from '../../purely-profit/commerce/commerce.module';
+import { SalesRecordModule } from '../../purely-profit/operations/sales-record/sales-record.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
 import { ClubServiceCallModule } from '../service-call/club-service-call.module';
@@ -25,11 +26,13 @@ import { ScanOrderingRefundService } from './scan-ordering-refund.service';
 import { ScanOrderingPromotionAdapter } from './scan-ordering-promotion.adapter';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
 import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
+import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
 
 @Module({
   imports: [
     AuthModule,
     CommerceModule,
+    SalesRecordModule,
     PrismaModule,
     RedisModule,
     ClubWechatPayModule,
@@ -49,6 +52,7 @@ import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-m
     ClubScanOrderingCartPricingService,
     ClubScanOrderingCheckoutService,
     ClubScanOrderingMarketingCustomerService,
+    ScanOrderingSaleOrderBridgeService,
     ScanOrderingRealtimeService,
     ScanOrderingUnpaidOrderClosureService,
     ScanOrderingPaymentExpirationService,
@@ -63,6 +67,8 @@ import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-m
     ClubScanOrderingMarketingCustomerService,
     ScanOrderingRealtimeService,
     ScanOrderingRefundService,
+    ScanOrderingUnpaidOrderClosureService,
+    ScanOrderingSaleOrderBridgeService,
     ScanOrderingPromotionAdapter,
     ScanOrderingPricingVersionService,
   ],

@@ -12,6 +12,7 @@ describe('SalesRecordListService', () => {
   let service: SalesRecordListService;
 
   const prismaService = {
+    $queryRaw: jest.fn(),
     saleOrder: {
       findMany: jest.fn(),
       count: jest.fn(),
@@ -58,6 +59,9 @@ describe('SalesRecordListService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-05-14T12:00:00.000Z'));
     jest.clearAllMocks();
+    prismaService.$queryRaw.mockResolvedValue([
+      { revenue: 0, profit: 0, order_count: BigInt(0) },
+    ]);
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, number> = {
         'app.defaultPageSize': 20,
@@ -108,6 +112,13 @@ describe('SalesRecordListService', () => {
         pageSize: 20,
         total: 0,
         totalPages: 1,
+      },
+      summary: {
+        totalRevenue: 0,
+        totalProfit: 0,
+        orderCount: 0,
+        avgOrderValue: 0,
+        compareLastPeriod: null,
       },
     });
 
@@ -172,16 +183,19 @@ describe('SalesRecordListService', () => {
               salePrice: 18.5,
               profit: 5.2,
               quantity: 2,
+              subtotal: 37,
             },
           ],
           totalRevenue: 37,
           totalProfit: 10.4,
           totalQuantity: 2,
           paymentMethod: 'cash',
+          paymentLabel: '现金',
           calcMode: 'business',
           note: '晚高峰补录',
           date: saleDate.getTime(),
           createdAt: createdAt.getTime(),
+          refundedAt: null,
         },
       ],
       meta: {
@@ -189,6 +203,13 @@ describe('SalesRecordListService', () => {
         pageSize: 20,
         total: 1,
         totalPages: 1,
+      },
+      summary: {
+        totalRevenue: 0,
+        totalProfit: 0,
+        orderCount: 0,
+        avgOrderValue: 0,
+        compareLastPeriod: null,
       },
     });
     expect(prismaService.saleOrder.count).toHaveBeenCalled();
@@ -248,16 +269,19 @@ describe('SalesRecordListService', () => {
               salePrice: 18.5,
               profit: 5.2,
               quantity: 2,
+              subtotal: 37,
             },
           ],
           totalRevenue: 37,
           totalProfit: 10.4,
           totalQuantity: 2,
           paymentMethod: 'cash',
+          paymentLabel: '现金',
           calcMode: 'business',
           note: '晚高峰补录',
           date: saleDate.getTime(),
           createdAt: createdAt.getTime(),
+          refundedAt: null,
         },
       ],
       meta: {
@@ -265,6 +289,13 @@ describe('SalesRecordListService', () => {
         pageSize: 20,
         total: 1,
         totalPages: 1,
+      },
+      summary: {
+        totalRevenue: 0,
+        totalProfit: 0,
+        orderCount: 0,
+        avgOrderValue: 0,
+        compareLastPeriod: null,
       },
     });
     expect(prismaService.saleOrder.findMany).toHaveBeenCalledWith(
