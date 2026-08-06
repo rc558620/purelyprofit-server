@@ -18,6 +18,8 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { ClubScanOrderingService } from './club-scan-ordering.service';
 import { ClubScanOrderingCartService } from './club-scan-ordering-cart.service';
 import { ClubScanOrderingOrderService } from './club-scan-ordering-order.service';
+import type { ScanOrderingPickupSettings } from './scan-ordering-pickup-settings.service';
+import { ScanOrderingPickupSettingsService } from './scan-ordering-pickup-settings.service';
 import {
   AddClubScanCartItemDto,
   CancelClubScanOrderDto,
@@ -42,6 +44,7 @@ export class ClubScanOrderingController {
     private readonly service: ClubScanOrderingService,
     private readonly cartService: ClubScanOrderingCartService,
     private readonly orderService: ClubScanOrderingOrderService,
+    private readonly pickupSettingsService: ScanOrderingPickupSettingsService,
   ) {}
 
   @Post('scan/resolve')
@@ -156,6 +159,16 @@ export class ClubScanOrderingController {
     @Query('version', ParseIntPipe) version: number,
   ): Promise<unknown> {
     return this.cartService.removeCartItem(user, itemId, version);
+  }
+
+  @UseGuards(ClubJwtAuthGuard)
+  @ApiBearerAuth()
+  @Get('pickup-settings')
+  @ApiOperation({ summary: '获取门店扫码点餐取餐语音播报配置（顾客端只读）' })
+  getPickupSettings(
+    @Query('storeId', ParseIntPipe) storeId: number,
+  ): Promise<ScanOrderingPickupSettings> {
+    return this.pickupSettingsService.getByStoreId(storeId);
   }
 
   @UseGuards(ClubJwtAuthGuard)

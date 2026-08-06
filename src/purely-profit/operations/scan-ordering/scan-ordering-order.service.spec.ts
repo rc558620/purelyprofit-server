@@ -6,6 +6,7 @@ import { ScanOrderingPricingService } from './scan-ordering-pricing.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
 import { ScanOrderingOrderStateMachineService } from './scan-ordering-order-machine.service';
+import { ScanOrderingPickupNumberService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-number.service';
 import { ScanOrderingOrderService } from './scan-ordering-order.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
@@ -87,6 +88,19 @@ describe('ScanOrderingOrderService', () => {
           provide: ScanOrderingOrderStateMachineService,
           useValue: stateMachineService,
         },
+        {
+          provide: ScanOrderingPickupNumberService,
+          useValue: {
+            formatPickupNumber: (n: number | null | undefined) =>
+              n == null
+                ? null
+                : n < 1000
+                  ? String(n).padStart(3, '0')
+                  : String(n),
+            assignForPaidOrder: jest.fn(),
+            getShanghaiBusinessDate: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -121,7 +135,7 @@ describe('ScanOrderingOrderService', () => {
       );
     });
 
-    it('正确映射 itemSummary、version 和 tableName', async () => {
+    it('正确映射 itemSummary / items / version 和 tableName', async () => {
       const createdAt = new Date('2026-07-23T12:00:00.000Z');
       prismaService.scanOrders.findMany.mockResolvedValue([
         {
@@ -132,16 +146,35 @@ describe('ScanOrderingOrderService', () => {
           version: 7,
           table: { name: 'A01' },
           items: [
-            { productNameSnapshot: '牛肉面', quantity: 2 },
-            { productNameSnapshot: '可乐', quantity: 1 },
+            {
+              productNameSnapshot: '牛肉面',
+              productImageUrlSnapshot: 'https://cdn.example.com/noodle.jpg',
+              quantity: 2,
+              unitPriceAmount: 1850,
+              lineTotalAmount: 3700,
+              payableLineAmount: 3700,
+              specs: [
+                { specOptionNameSnapshot: '加辣' },
+                { specOptionNameSnapshot: '加蛋' },
+              ],
+            },
+            {
+              productNameSnapshot: '可乐',
+              productImageUrlSnapshot: null,
+              quantity: 1,
+              unitPriceAmount: 300,
+              lineTotalAmount: 300,
+              payableLineAmount: 300,
+              specs: [],
+            },
           ],
-          itemOriginalAmount: 2850,
+          itemOriginalAmount: 4000,
           specificationExtraAmount: 0,
           productDiscountAmount: 0,
           orderDiscountAmount: 0,
           taxAmount: 0,
           serviceFeeAmount: 0,
-          paidAmount: 2850,
+          paidAmount: 4000,
         },
       ]);
 
@@ -151,9 +184,26 @@ describe('ScanOrderingOrderService', () => {
       expect(result.items[0].id).toBe(123);
       expect(result.items[0].orderNo).toBe('SO20260723120000ABCD');
       expect(result.items[0].version).toBe(7);
+      // itemSummary 不再嵌入括号规格,仅展示商品+数量,完整明细走 items 数组
       expect(result.items[0].itemSummary).toBe('牛肉面×2、可乐×1');
       expect(result.items[0].tableName).toBe('A01');
       expect(result.items[0].createdAt).toBe(createdAt.toISOString());
+      // items 数组提供完整明细(图片/规格/单价/金额)
+      const [firstItem, secondItem] = result.items[0].items;
+      expect(firstItem.productName).toBe('牛肉面');
+      expect(firstItem.productImageUrl).toBe(
+        'https://cdn.example.com/noodle.jpg',
+      );
+      expect(firstItem.quantity).toBe(2);
+      expect(firstItem.specs).toEqual(['加辣', '加蛋']);
+      expect(firstItem.unitPrice).toBe(18.5);
+      expect(firstItem.lineTotalAmount).toBe(37);
+      expect(firstItem.payableLineAmount).toBe(37);
+      expect(secondItem.productName).toBe('可乐');
+      expect(secondItem.productImageUrl).toBeNull();
+      expect(secondItem.specs).toEqual([]);
+      expect(secondItem.unitPrice).toBe(3);
+      expect(secondItem.lineTotalAmount).toBe(3);
     });
 
     it('商品为空时 itemSummary 为空字符串', async () => {
@@ -191,6 +241,9 @@ describe('ScanOrderingOrderService', () => {
           productNameSnapshot: true,
           productImageUrlSnapshot: true,
           quantity: true,
+          unitPriceAmount: true,
+          lineTotalAmount: true,
+          payableLineAmount: true,
           specs: {
             select: { specOptionNameSnapshot: true },
             orderBy: { id: 'asc' },

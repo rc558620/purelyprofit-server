@@ -14,6 +14,7 @@ import { ClubScanOrderingCartPricingService } from './club-scan-ordering-cart-pr
 import { ClubScanOrderingCheckoutService } from './club-scan-ordering-checkout.service';
 import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-history.service';
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
+import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import type {
   CreateClubScanOrderDto,
   ListClubScanOrdersQueryDto,
@@ -24,6 +25,10 @@ import {
   createScanOrderNo,
   hashScanOrderRequest,
 } from './club-scan-ordering-order.utils';
+import {
+  fenToYuan,
+  toOrderAmountSummary,
+} from './club-scan-ordering-order.mapper';
 
 const PAYMENT_TIMEOUT_MS = 15 * 60 * 1000;
 const IDEMPOTENCY_SCOPE = 'club:scan-order:create';
@@ -42,6 +47,7 @@ export class ClubScanOrderingOrderService {
     private readonly previewService: ClubScanOrderingOrderPreviewService,
     private readonly orderQueryService: ClubScanOrderingOrderQueryService,
     private readonly orderHistoryService: ClubScanOrderingOrderHistoryService,
+    private readonly pickupNumberService: ScanOrderingPickupNumberService,
   ) {}
 
   preview(
@@ -305,8 +311,21 @@ export class ClubScanOrderingOrderService {
       },
     });
     if (!order) throw new NotFoundException('订单不存在');
+    const { marketingSnapshot: _marketingSnapshot, ...orderFields } = order;
     return {
-      ...order,
+      ...orderFields,
+      items: order.items.map((item) => ({
+        ...item,
+        unitPriceAmount: fenToYuan(item.unitPriceAmount),
+        lineTotalAmount: fenToYuan(item.lineTotalAmount),
+        payableLineAmount: fenToYuan(item.payableLineAmount),
+      })),
+      ...toOrderAmountSummary(order),
+      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
+        order.pickupNumber,
+      ),
+      pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
+      pickupCompletedAt: order.pickupCompletedAt?.toISOString() ?? null,
       refundTasks: order.refundTasks.map((task) => ({
         ...task,
         refundSucceededAt:

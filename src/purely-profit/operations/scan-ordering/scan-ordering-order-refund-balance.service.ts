@@ -136,6 +136,7 @@ export class ScanOrderingOrderRefundBalanceService {
           status: true,
           paymentStatus: true,
           fulfillmentStatus: true,
+          pickupNumber: true,
           refundTasks: {
             orderBy: { createdAt: 'desc' },
             take: 1,

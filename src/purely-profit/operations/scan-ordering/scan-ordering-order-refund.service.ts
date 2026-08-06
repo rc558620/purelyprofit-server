@@ -194,6 +194,7 @@ export class ScanOrderingOrderRefundHandlingService {
           status: true,
           paymentStatus: true,
           fulfillmentStatus: true,
+          pickupNumber: true,
           refundTasks: {
             orderBy: { createdAt: 'desc' },
             take: 1,
@@ -215,6 +216,15 @@ export class ScanOrderingOrderRefundHandlingService {
         status: updated.status,
         paymentStatus: updated.paymentStatus,
         fulfillmentStatus: updated.fulfillmentStatus,
+        pickupNumber: updated.pickupNumber,
+        pickupNumberLabel: updated.pickupNumber == null
+          ? null
+          : String(updated.pickupNumber).padStart(3, '0'),
+        refundSucceededAt:
+          updated.refundTasks[0]?.refundSucceededAt?.toISOString() ??
+          updated.refundTasks[0]?.processedAt?.toISOString() ??
+          updated.refundTasks[0]?.triggeredAt?.toISOString() ??
+          null,
       });
     }
   }
@@ -317,6 +327,10 @@ export class ScanOrderingOrderRefundHandlingService {
       status: updated.status,
       paymentStatus: updated.paymentStatus,
       fulfillmentStatus: updated.fulfillmentStatus,
+      pickupNumber: updated.pickupNumber,
+      pickupNumberLabel: updated.pickupNumber == null
+        ? null
+        : String(updated.pickupNumber).padStart(3, '0'),
       refundSucceededAt:
         updated.refundTasks[0]?.refundSucceededAt?.toISOString() ??
         updated.refundTasks[0]?.processedAt?.toISOString() ??

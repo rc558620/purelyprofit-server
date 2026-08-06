@@ -36,11 +36,36 @@ export interface ScanOrderingDashboardResponse {
   pendingOrderCount: number;
   /** 制作中订单数量。 */
   preparingOrderCount: number;
+  /** 退款处理中订单数量。 */
+  refundingOrderCount: number;
   /** 桌台状态数量汇总。 */
   tableStatusSummary: Record<
     'empty' | 'dining' | 'clearing' | 'disabled',
     number
   >;
+}
+
+/**
+ * 订单商品摘要（订单列表卡片展示用）。
+ * 多规格场景下:每条 ScanOrderItem 代表「同一个商品 + 同一组规格」的快照,
+ * 多条同名商品会因为规格不同而被拆成多项呈现,运营端卡片可据此渲染
+ * 多张缩略图、规格清单与各项金额。
+ */
+export interface ScanOrderingOrderItemSummary {
+  /** 商品名称快照 */
+  productName: string;
+  /** 商品图片地址快照 */
+  productImageUrl: string | null;
+  /** 购买数量 */
+  quantity: number;
+  /** 规格选项名称列表(已按 id 升序拼接) */
+  specs: string[];
+  /** 单价(元,含规格加价) */
+  unitPrice: number;
+  /** 单项小计金额(元,未扣优惠) */
+  lineTotalAmount: number;
+  /** 单项应付金额(元,已扣单品级优惠) */
+  payableLineAmount: number;
 }
 
 /** 商家订单列表项。 */
@@ -51,8 +76,16 @@ export interface ScanOrderingOrderListItem {
   orderNo: string;
   /** 乐观锁版本。 */
   version: number;
-  /** 订单商品摘要。 */
+  /**
+   * 订单商品简洁摘要(纯文本,兼容旧前端使用)。
+   * 形式: 「商品A×2、商品B×1」,不再嵌入括号规格列表以避免阅读困难。
+   */
   itemSummary: string;
+  /**
+   * 订单商品完整列表(多规格场景下逐项展开)。
+   * 卡片层应优先基于本字段渲染图片/规格/金额布局。
+   */
+  items: ScanOrderingOrderItemSummary[];
   /** 顾客下单备注。 */
   remark: string | null;
   /** 桌台名称。 */
@@ -63,7 +96,10 @@ export interface ScanOrderingOrderListItem {
   createdAt: string;
   /** 后端金额汇总。 */
   amountSummary: ScanOrderingAmountSummary;
-  /** 首个商品图片 URL（用于订单卡片缩略图）。 */
+  /**
+   * 首个商品图片 URL(用于订单卡片缩略图)。
+   * 若订单存在多张图片,前端应改用 items 数组,此处仅保留兼容别名。
+   */
   imageUrl: string | null;
   /**
    * 同一 diningRound 内的累计下单序号（从 1 开始）。
@@ -75,4 +111,12 @@ export interface ScanOrderingOrderListItem {
    * 字段名沿用 sessionOrderSequence 以兼容既有前端消费。
    */
   sessionOrderSequence: number;
+  /** 取餐号数值；未分配为 null。 */
+  pickupNumber: number | null;
+  /** 取餐号展示文案（如 001 / 1000）；未分配为 null。 */
+  pickupNumberLabel: string | null;
+  /** 取餐号状态。 */
+  pickupNumberStatus: 'assigned' | 'called' | 'completed' | 'cancelled' | null;
+  /** 叫号时间 ISO 字符串。 */
+  pickupCalledAt: string | null;
 }

@@ -47,6 +47,8 @@ model Store {
   businessMode                StoreBusinessMode             @default(general) @map("business_mode")
   /// 门店扩展字段 JSON（storeType/region/storeLogo/经纬度/regionLabels），持久化事实源
   profileMetadata             Json?                         @map("profile_metadata")
+  /// 扫码点餐语音播报开关（默认关闭，商家端修改，顾客端据此展示取餐通知弹窗）
+  pickupVoiceEnabled          Boolean                       @default(false) @map("pickup_voice_enabled")
   costRecords                 CostRecord[]
   employeeDepartments         EmployeeDepartment[]
   employeeLeaves              EmployeeLeave[]

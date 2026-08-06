@@ -19,7 +19,7 @@
 ```
 /Users/f0rest/Documents/AgentMode/f0rest_backend_conventions.md
 ```
-
+- `purelyprofit-server` `purelyProfit` `purelyClub` 经常会放到一个工作区接到任务时先看工作区有哪些项目。
 - 禁止依赖记忆或直觉编码，必须实际读取。
 - 读取后在回答开头标注当前模式，例如：【模式：main】。
 

@@ -1,5 +1,12 @@
 import type { PromotionAdapterResult } from './scan-ordering-promotion.adapter';
 
+/**
+ * 扫码点餐订单查询接口的统一金额响应（单位：元）。
+ * 当前订单列表、历史点餐记录、订单详情三个入口共用同一套金额口径：
+ * discountAmount = 商品优惠 + 订单优惠 + 积分抵扣；无优惠时为 0。
+ */
+export type { OrderAmountSummary as ScanOrderAmountSummary } from './club-scan-ordering-order.mapper';
+
 export interface PricedCartItem {
   cartItemId: number;
   productId: number;

@@ -13,6 +13,7 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
+import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import {
   awardPointsForSettlement,
   deductPointsForSettlement,
@@ -28,6 +29,7 @@ export class ClubScanOrderingCheckoutService {
     private readonly configService: ConfigService,
     private readonly marketingCustomerService: ClubScanOrderingMarketingCustomerService,
     private readonly saleOrderBridgeService: ScanOrderingSaleOrderBridgeService,
+    private readonly pickupNumberService: ScanOrderingPickupNumberService,
   ) {}
 
   async createWechatPayment(
@@ -194,6 +196,13 @@ export class ClubScanOrderingCheckoutService {
       });
       if (updated.count === 0)
         throw new ConflictException('订单状态已变化，请刷新后重试');
+      // 余额支付成功分配取餐号（幂等：已分配时直接跳过）
+      await this.pickupNumberService.assignForPaidOrder(
+        tx,
+        order.id,
+        order.storeId,
+        paidAt.getTime(),
+      );
       await tx.scanOrderPaymentAttempt.create({
         data: {
           orderId: order.id,
@@ -250,6 +259,13 @@ export class ClubScanOrderingCheckoutService {
       status: result.status,
       paymentStatus: result.paymentStatus,
       fulfillmentStatus: result.fulfillmentStatus,
+      pickupNumber: result.pickupNumber,
+      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
+        result.pickupNumber,
+      ),
+      pickupNumberStatus: result.pickupNumberStatus,
+      pickupCalledAt: result.pickupCalledAt?.toISOString() ?? null,
+      pickupCompletedAt: result.pickupCompletedAt?.toISOString() ?? null,
     });
     return this.getOrder(user, result.id);
   }
@@ -287,7 +303,7 @@ export class ClubScanOrderingCheckoutService {
         });
       }
       const paidAt = new Date();
-      const paidOrder = await tx.scanOrders.update({
+      await tx.scanOrders.update({
         where: { id: order.id },
         data: {
           status: 'pending_acceptance',
@@ -297,6 +313,13 @@ export class ClubScanOrderingCheckoutService {
           version: { increment: 1 },
         },
       });
+      // 开发环境确认支付成功分配取餐号（幂等：已分配时直接跳过）
+      await this.pickupNumberService.assignForPaidOrder(
+        tx,
+        order.id,
+        order.storeId,
+        paidAt.getTime(),
+      );
       await tx.scanOrderStatusHistory.create({
         data: {
           orderId: order.id,
@@ -313,7 +336,8 @@ export class ClubScanOrderingCheckoutService {
         order.id,
         'other',
       );
-      return paidOrder;
+      // 事务内重新读取，保证发布事件携带最新取餐号字段
+      return tx.scanOrders.findUniqueOrThrow({ where: { id: order.id } });
     });
     this.realtimeService.publishOrderStatusChanged({
       storeId: updated.storeId,
@@ -322,6 +346,13 @@ export class ClubScanOrderingCheckoutService {
       status: updated.status,
       paymentStatus: updated.paymentStatus,
       fulfillmentStatus: updated.fulfillmentStatus,
+      pickupNumber: updated.pickupNumber,
+      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
+        updated.pickupNumber,
+      ),
+      pickupNumberStatus: updated.pickupNumberStatus,
+      pickupCalledAt: updated.pickupCalledAt?.toISOString() ?? null,
+      pickupCompletedAt: updated.pickupCompletedAt?.toISOString() ?? null,
     });
     return this.getOrder(user, updated.id);
   }

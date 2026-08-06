@@ -38,12 +38,16 @@ export class ProductsScanOrderingSyncService {
         throw new BadRequestException('每个规格组至少需要一个选项');
       if (group.selectMode === 'single' && group.maxSelect !== 1)
         throw new BadRequestException('单选规格组最多只能选择一项');
-      if (
-        group.maxSelect !== null &&
-        (group.minSelect > group.maxSelect ||
-          group.maxSelect > group.options.length)
-      )
-        throw new BadRequestException('规格组选择数量不合法');
+      // null 表示不限选；显式上限必须是 >=1 的合法数量。
+      if (group.maxSelect !== null) {
+        if (group.maxSelect < 1)
+          throw new BadRequestException('最多选择数量不能小于 1');
+        if (
+          group.minSelect > group.maxSelect ||
+          group.maxSelect > group.options.length
+        )
+          throw new BadRequestException('规格组选择数量不合法');
+      }
       const optionNames = new Set<string>();
       const activeOptions = group.options.filter((option) => option.isActive);
       const defaults = activeOptions.filter((option) => option.isDefault);
@@ -81,7 +85,8 @@ export class ProductsScanOrderingSyncService {
           name: group.name.trim(),
           selectionType: group.selectMode === 'multi' ? 'multiple' : 'single',
           minSelections: group.minSelect,
-          maxSelections: group.maxSelect ?? group.options.length,
+          // null 表示不限选，直接保留；不要回退为选项数量，否则“多选不限”会被误限。
+          maxSelections: group.maxSelect,
           sortOrder: group.sort,
         })),
       });

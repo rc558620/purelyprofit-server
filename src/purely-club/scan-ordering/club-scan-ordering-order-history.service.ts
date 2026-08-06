@@ -2,11 +2,19 @@ import { Injectable } from '@nestjs/common';
 import { ScanOrderingSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import type { ListClubScanOrdersQueryDto } from './dto/club-scan-ordering.dto';
+import {
+  fenToYuan,
+  toOrderAmountSummary,
+} from './club-scan-ordering-order.mapper';
 
 @Injectable()
 export class ClubScanOrderingOrderHistoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pickupNumberService: ScanOrderingPickupNumberService,
+  ) {}
 
   async listOrderHistory(
     user: AuthenticatedUser,
@@ -57,9 +65,19 @@ export class ClubScanOrderingOrderHistoryService {
             fulfillmentStatus: true,
             payableAmount: true,
             paidAmount: true,
+            itemOriginalAmount: true,
+            specificationExtraAmount: true,
+            productDiscountAmount: true,
+            orderDiscountAmount: true,
+            marketingSnapshot: true,
             remark: true,
             createdAt: true,
             servedAt: true,
+            pickupNumber: true,
+            pickupBusinessDate: true,
+            pickupNumberStatus: true,
+            pickupCalledAt: true,
+            pickupCompletedAt: true,
             paymentAttempts: {
               where: { status: { in: ['succeeded', 'refunded'] } },
               orderBy: { createdAt: 'desc' },
@@ -73,6 +91,10 @@ export class ClubScanOrderingOrderHistoryService {
                 productNameSnapshot: true,
                 productImageUrlSnapshot: true,
                 quantity: true,
+                // 暴露金额字段用于订单详情规格样式展示。
+                unitPriceAmount: true,
+                lineTotalAmount: true,
+                payableLineAmount: true,
                 specs: {
                   orderBy: { id: 'asc' },
                   select: { specOptionNameSnapshot: true },
@@ -118,6 +140,7 @@ export class ClubScanOrderingOrderHistoryService {
         product.product?.image ?? product.imageUrl,
       ]),
     );
+    // 金额统一在后端换算为「元」，前端只负责展示。
     const hydratedSessions = sessions.map((session) => ({
       ...session,
       // left 仅代表顾客离开页面。只有真正结束的订单才进入历史；待接单、
@@ -132,6 +155,9 @@ export class ClubScanOrderingOrderHistoryService {
           ...order,
           items: order.items.map((item) => ({
             ...item,
+            unitPriceAmount: fenToYuan(item.unitPriceAmount),
+            lineTotalAmount: fenToYuan(item.lineTotalAmount),
+            payableLineAmount: fenToYuan(item.payableLineAmount),
             productImageUrlSnapshot:
               item.productImageUrlSnapshot ??
               imageByMenuProductId.get(item.menuProductId) ??
@@ -169,24 +195,36 @@ export class ClubScanOrderingOrderHistoryService {
         ...session,
         createdAt: session.createdAt.toISOString(),
         endedAt: session.endedAt?.toISOString() ?? null,
-        orders: session.orders.map((order) => ({
-          ...order,
-          createdAt: order.createdAt.toISOString(),
-          servedAt: order.servedAt?.toISOString() ?? null,
-          paymentAttempts: order.paymentAttempts,
-          refundTasks: order.refundTasks.map((task) => ({
-            ...task,
-            refundSucceededAt:
-              task.refundSucceededAt?.toISOString() ??
-              task.processedAt?.toISOString() ??
-              task.triggeredAt.toISOString() ??
-              order.balanceTransactions[0]?.createdAt.toISOString() ??
-              null,
-          })),
-          balanceTransactions: order.balanceTransactions.map((transaction) => ({
-            createdAt: transaction.createdAt.toISOString(),
-          })),
-        })),
+        orders: session.orders.map((order) => {
+          const { marketingSnapshot: _marketingSnapshot, ...orderFields } =
+            order;
+          return {
+            ...orderFields,
+            ...toOrderAmountSummary(order),
+            pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
+              order.pickupNumber,
+            ),
+            pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
+            pickupCompletedAt: order.pickupCompletedAt?.toISOString() ?? null,
+            createdAt: order.createdAt.toISOString(),
+            servedAt: order.servedAt?.toISOString() ?? null,
+            paymentAttempts: order.paymentAttempts,
+            refundTasks: order.refundTasks.map((task) => ({
+              ...task,
+              refundSucceededAt:
+                task.refundSucceededAt?.toISOString() ??
+                task.processedAt?.toISOString() ??
+                task.triggeredAt.toISOString() ??
+                order.balanceTransactions[0]?.createdAt.toISOString() ??
+                null,
+            })),
+            balanceTransactions: order.balanceTransactions.map(
+              (transaction) => ({
+                createdAt: transaction.createdAt.toISOString(),
+              }),
+            ),
+          };
+        }),
       })),
       nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null,
     };

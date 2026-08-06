@@ -76,10 +76,25 @@ export class ScanOrderingRealtimeService
     storeId: number;
     orderId: number;
     sessionId: number | null;
+    /** 订单乐观锁版本；状态变更事件提供，历史兼容事件可不提供。 */
+    version?: number;
     status: string;
     paymentStatus: string;
     fulfillmentStatus: string;
     refundSucceededAt?: string | null;
+    /** 取餐号（新增可选字段，兼容旧客户端）。 */
+    pickupNumber?: number | null;
+    pickupNumberLabel?: string | null;
+    pickupNumberStatus?:
+      | 'assigned'
+      | 'called'
+      | 'completed'
+      | 'cancelled'
+      | null;
+    pickupCalledAt?: string | null;
+    pickupCompletedAt?: string | null;
+    /** 门店语音播报开关只读快照（后端门店配置为准，C 端据此决定是否弹取餐通知）。 */
+    pickupVoiceEnabled?: boolean;
   }): void {
     this.publish('order.status_changed', payload);
   }
@@ -88,9 +103,24 @@ export class ScanOrderingRealtimeService
     storeId: number;
     orderId: number;
     sessionId: number | null;
+    /** 订单乐观锁版本；创建事件可不提供，状态变更事件会提供真实版本。 */
+    version?: number;
     status: string;
     paymentStatus: string;
     fulfillmentStatus: string;
+    /** 取餐号（新增可选字段，创建时通常为 null，兼容旧客户端）。 */
+    pickupNumber?: number | null;
+    pickupNumberLabel?: string | null;
+    pickupNumberStatus?:
+      | 'assigned'
+      | 'called'
+      | 'completed'
+      | 'cancelled'
+      | null;
+    pickupCalledAt?: string | null;
+    pickupCompletedAt?: string | null;
+    /** 门店语音播报开关只读快照（后端门店配置为准）。 */
+    pickupVoiceEnabled?: boolean;
   }): void {
     this.publish('order.created', payload);
   }

@@ -14,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingRefundService } from './scan-ordering-refund.service';
 import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
+import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 
 /**
  * 异常支付处理结果。
@@ -36,6 +37,7 @@ export class ClubScanOrderingPaymentService {
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly refundService: ScanOrderingRefundService,
     private readonly saleOrderBridgeService: ScanOrderingSaleOrderBridgeService,
+    private readonly pickupNumberService: ScanOrderingPickupNumberService,
   ) {}
 
   async confirmOrderPaidByCallback(
@@ -122,6 +124,13 @@ export class ClubScanOrderingPaymentService {
               version: { increment: 1 },
             },
           });
+          // 支付成功分配取餐号（幂等：已分配时直接跳过）
+          await this.pickupNumberService.assignForPaidOrder(
+            tx,
+            order.id,
+            order.storeId,
+            params.paidAtMs,
+          );
           await tx.scanOrderStatusHistory.create({
             data: {
               orderId: order.id,
@@ -170,6 +179,11 @@ export class ClubScanOrderingPaymentService {
         status: true,
         paymentStatus: true,
         fulfillmentStatus: true,
+        pickupNumber: true,
+        pickupBusinessDate: true,
+        pickupNumberStatus: true,
+        pickupCalledAt: true,
+        pickupCompletedAt: true,
       },
     });
     if (order)
@@ -180,6 +194,13 @@ export class ClubScanOrderingPaymentService {
         status: order.status,
         paymentStatus: order.paymentStatus,
         fulfillmentStatus: order.fulfillmentStatus,
+        pickupNumber: order.pickupNumber,
+        pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
+          order.pickupNumber,
+        ),
+        pickupNumberStatus: order.pickupNumberStatus,
+        pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
+        pickupCompletedAt: order.pickupCompletedAt?.toISOString() ?? null,
       });
     return result;
   }

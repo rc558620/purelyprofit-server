@@ -43,6 +43,9 @@ import type {
 import { ScanOrderingTableService } from './scan-ordering-table.service';
 import type { ScanOrderingTableResponse } from './scan-ordering-table.service';
 import type { ScanOrderingMenuProductResponse } from './scan-ordering-menu-product.service';
+import type { ScanOrderingPickupSettings } from '../../../purely-club/scan-ordering/scan-ordering-pickup-settings.service';
+import { ScanOrderingPickupSettingsService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-settings.service';
+import { UpdateScanOrderingPickupSettingsDto } from './dto/scan-ordering-pickup-settings.dto';
 
 @ApiTags('PurelyProfit Scan Ordering - Core')
 @ApiBearerAuth()
@@ -56,6 +59,7 @@ export class ScanOrderingMainController {
     private readonly serviceCallService: ScanOrderingServiceCallService,
     private readonly menuService: ScanOrderingMenuService,
     private readonly tableService: ScanOrderingTableService,
+    private readonly pickupSettingsService: ScanOrderingPickupSettingsService,
   ) {}
 
   @Get('dashboard')
@@ -65,6 +69,28 @@ export class ScanOrderingMainController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<ScanOrderingDashboardResponse> {
     return this.dashboardService.getDashboard(user);
+  }
+
+  @Get('pickup-settings')
+  @RequirePermissions('scan-ordering:view')
+  @ApiOperation({ summary: '获取门店扫码点餐取餐语音播报配置' })
+  getPickupSettings(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ScanOrderingPickupSettings> {
+    return this.pickupSettingsService.getForMerchant(user);
+  }
+
+  @Patch('pickup-settings')
+  @RequirePermissions('scan-ordering:order-process')
+  @ApiOperation({ summary: '更新门店扫码点餐取餐语音播报配置' })
+  updatePickupSettings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateScanOrderingPickupSettingsDto,
+  ): Promise<ScanOrderingPickupSettings> {
+    return this.pickupSettingsService.updateForMerchant(
+      user,
+      dto.pickupVoiceEnabled,
+    );
   }
 
   // Menu Management Routes

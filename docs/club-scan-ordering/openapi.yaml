@@ -1019,6 +1019,7 @@ components:
           format: date-time
     OrderAmountSummary:
       type: object
+      description: 订单金额汇总。所有金额字段接口已统一换算为「元」，客户端不得再次除以 100。
       required:
         [
           currency,
@@ -1026,6 +1027,8 @@ components:
           specificationExtraAmount,
           productDiscountAmount,
           orderDiscountAmount,
+          pointsDeductAmount,
+          discountAmount,
           serviceFeeAmount,
           taxAmount,
           payableAmount,
@@ -1036,21 +1039,45 @@ components:
           type: string
           enum: [CNY]
         itemOriginalAmount:
-          type: integer
+          type: number
+          format: double
+          description: 商品原价金额，单位元
         specificationExtraAmount:
-          type: integer
+          type: number
+          format: double
+          description: 规格加价金额，单位元
         productDiscountAmount:
-          type: integer
+          type: number
+          format: double
+          description: 商品级优惠金额，单位元；无优惠时为 0
         orderDiscountAmount:
-          type: integer
+          type: number
+          format: double
+          description: 订单级优惠金额，单位元；无优惠时为 0
+        pointsDeductAmount:
+          type: number
+          format: double
+          description: 积分抵扣金额，单位元；无积分抵扣时为 0
+        discountAmount:
+          type: number
+          format: double
+          description: 订单已优惠金额，单位元；包含商品优惠、订单优惠和积分抵扣；无优惠时为 0
         serviceFeeAmount:
-          type: integer
+          type: number
+          format: double
+          description: 服务费金额，单位元
         taxAmount:
-          type: integer
+          type: number
+          format: double
+          description: 税费金额，单位元
         payableAmount:
-          type: integer
+          type: number
+          format: double
+          description: 应付金额，单位元
         paidAmount:
-          type: integer
+          type: number
+          format: double
+          description: 已付金额，单位元
     OrderItem:
       type: object
       required:

@@ -8,6 +8,7 @@ import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
 import { ClubScanOrderingOrderService } from './club-scan-ordering-order.service';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
+import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
@@ -160,6 +161,17 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
         { provide: ClubScanOrderingOrderHistoryService, useValue: {} },
         { provide: ClubScanOrderingOrderQueryService, useValue: {} },
         { provide: ClubScanOrderingOrderPreviewService, useValue: {} },
+        {
+          provide: ScanOrderingPickupNumberService,
+          useValue: {
+            formatPickupNumber: (n: number | null | undefined) =>
+              n == null
+                ? null
+                : n < 1000
+                  ? String(n).padStart(3, '0')
+                  : String(n),
+          },
+        },
       ],
     }).compile();
     service = module.get(ClubScanOrderingOrderService);
@@ -264,5 +276,85 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     expect(realtime.publishOrderCreated).toHaveBeenCalledWith(
       expect.objectContaining({ orderId: 100 }),
     );
+  });
+
+  it('order.created payload 携带 storeId/orderId/sessionId/status/paymentStatus/fulfillmentStatus', async () => {
+    await service.create(user, IDEMPOTENCY_KEY, dto);
+
+    expect(realtime.publishOrderCreated).toHaveBeenCalledWith({
+      storeId: 1,
+      orderId: 100,
+      sessionId: 10,
+      status: 'pending_payment',
+      paymentStatus: 'unpaid',
+      fulfillmentStatus: 'preparing',
+    });
+  });
+
+  // ─── 事务提交后才发布 order.created（防 Profit 读到未提交订单）────
+
+  describe('事务提交后才发布 order.created', () => {
+    it('数据库事务提交之前不发布 order.created', async () => {
+      let resolveTx!: (value: unknown) => void;
+      prisma.$transaction = jest.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveTx = resolve;
+          }),
+      );
+
+      const createPromise = service.create(user, IDEMPOTENCY_KEY, dto);
+      // 事务仍在等待提交（等待 create 内部多个 await 走到 $transaction）
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(realtime.publishOrderCreated).not.toHaveBeenCalled();
+
+      // 事务提交完成
+      resolveTx({
+        id: 100,
+        orderNo: 'SO100',
+        payableAmount: 4800,
+        paymentExpiresAt: new Date(),
+        version: 1,
+      });
+      await createPromise;
+
+      expect(realtime.publishOrderCreated).toHaveBeenCalledTimes(1);
+    });
+
+    it('publishOrderCreated 的调用顺序在事务提交之后', async () => {
+      const callOrder: string[] = [];
+      prisma.$transaction = jest.fn(
+        async (callback: (client: unknown) => unknown) => {
+          callOrder.push('transaction:start');
+          const result = await callback(tx);
+          callOrder.push('transaction:committed');
+          return result;
+        },
+      );
+      const originalImpl = realtime.publishOrderCreated.getMockImplementation();
+      realtime.publishOrderCreated.mockImplementation(() => {
+        callOrder.push('publishOrderCreated');
+      });
+      try {
+        await service.create(user, IDEMPOTENCY_KEY, dto);
+      } finally {
+        realtime.publishOrderCreated.mockImplementation(originalImpl);
+      }
+
+      expect(callOrder).toContain('transaction:committed');
+      expect(callOrder).toContain('publishOrderCreated');
+      expect(callOrder.indexOf('transaction:committed')).toBeLessThan(
+        callOrder.indexOf('publishOrderCreated'),
+      );
+    });
+
+    it('事务失败时不发布 order.created', async () => {
+      tx.product.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.create(user, IDEMPOTENCY_KEY, dto),
+      ).rejects.toThrow('商品库存不足');
+      expect(realtime.publishOrderCreated).not.toHaveBeenCalled();
+    });
   });
 });

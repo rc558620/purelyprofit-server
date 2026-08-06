@@ -94,4 +94,26 @@ describe('ScanOrderingDashboardService', () => {
       status: 'left',
     });
   });
+
+  it('退款中统计仅计入 status=refunding 且 paymentStatus=refunding（已退款 rejected+refunded 不计入）', async () => {
+    prismaService.scanOrders.count.mockReset();
+    prismaService.scanOrders.count
+      .mockResolvedValueOnce(8) // paidOrderCount
+      .mockResolvedValueOnce(2) // pendingOrderCount
+      .mockResolvedValueOnce(3) // preparingOrderCount
+      .mockResolvedValueOnce(4); // refundingOrderCount
+
+    const result = await service.getDashboard(user);
+
+    expect(result.pendingOrderCount).toBe(2);
+    expect(result.preparingOrderCount).toBe(3);
+    expect(result.refundingOrderCount).toBe(4);
+
+    const refundingQuery = prismaService.scanOrders.count.mock.calls[3]?.[0];
+    expect(refundingQuery.where.storeId).toBe(11);
+    expect(refundingQuery.where.status).toBe('refunding');
+    expect(refundingQuery.where.paymentStatus).toBe('refunding');
+    // 已退款（rejected + refunded）不会被退款中统计查询命中
+    expect(refundingQuery.where.status).not.toBe('rejected');
+  });
 });

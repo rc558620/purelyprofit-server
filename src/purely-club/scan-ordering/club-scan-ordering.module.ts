@@ -27,6 +27,8 @@ import { ScanOrderingPromotionAdapter } from './scan-ordering-promotion.adapter'
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
 import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
 import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
+import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
+import { ScanOrderingPickupSettingsService } from './scan-ordering-pickup-settings.service';
 
 @Module({
   imports: [
@@ -59,6 +61,8 @@ import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-b
     ScanOrderingRefundService,
     ScanOrderingPromotionAdapter,
     ScanOrderingPricingVersionService,
+    ScanOrderingPickupNumberService,
+    ScanOrderingPickupSettingsService,
     ScanOrderingGateway,
   ],
   exports: [
@@ -71,6 +75,8 @@ import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-b
     ScanOrderingSaleOrderBridgeService,
     ScanOrderingPromotionAdapter,
     ScanOrderingPricingVersionService,
+    ScanOrderingPickupNumberService,
+    ScanOrderingPickupSettingsService,
   ],
 })
 export class ClubScanOrderingModule {}

@@ -58,6 +58,7 @@ export class ScanOrderingDashboardService {
       paidOrderCount,
       pendingOrderCount,
       preparingOrderCount,
+      refundingOrderCount,
       tableGroups,
     ] = await Promise.all([
       this.prisma.scanOrders.aggregate({
@@ -89,6 +90,14 @@ export class ScanOrderingDashboardService {
           session: { is: currentRoundSessionWhere },
         },
       }),
+      this.prisma.scanOrders.count({
+        where: {
+          storeId,
+          status: ScanOrderStatus.refunding,
+          paymentStatus: ScanOrderPaymentStatus.refunding,
+          session: { is: currentRoundSessionWhere },
+        },
+      }),
       this.prisma.scanOrderingTable.groupBy({
         by: ['status'],
         where: { storeId, deletedAt: null },
@@ -109,6 +118,7 @@ export class ScanOrderingDashboardService {
       paidOrderCount,
       pendingOrderCount,
       preparingOrderCount,
+      refundingOrderCount,
       tableStatusSummary,
     };
   }

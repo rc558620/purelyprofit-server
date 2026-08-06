@@ -8,8 +8,13 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { ListScanOrderingOrdersDto } from './dto/scan-ordering-order-query.dto';
 import { ScanOrderingPricingService } from './scan-ordering-pricing.service';
-import type { ScanOrderingOrderListItem } from './scan-ordering.types';
+import type {
+  ScanOrderingOrderItemSummary,
+  ScanOrderingOrderListItem,
+} from './scan-ordering.types';
 import { ScanOrderingOrderStateMachineService } from './scan-ordering-order-machine.service';
+import { ScanOrderingPickupNumberService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-number.service';
+import { fenToYuan } from '../../../purely-club/scan-ordering/club-scan-ordering-order.mapper';
 
 /**
  * 商家扫码点餐订单查询服务（轻量代理层）。
@@ -25,6 +30,7 @@ export class ScanOrderingOrderService {
     private readonly commerceAccessService: CommerceAccessService,
     private readonly pricingService: ScanOrderingPricingService,
     private readonly stateMachineService: ScanOrderingOrderStateMachineService,
+    private readonly pickupNumberService: ScanOrderingPickupNumberService,
   ) {}
 
   async acceptOrder(
@@ -154,7 +160,7 @@ export class ScanOrderingOrderService {
     const orders = await this.prisma.scanOrders.findMany({
       where,
       orderBy: { id: 'desc' },
-      take: (query.limit ?? 20) + 1,
+      take: (query.limit ?? 100) + 1,
       select: {
         id: true,
         orderNo: true,
@@ -171,6 +177,9 @@ export class ScanOrderingOrderService {
             productNameSnapshot: true,
             productImageUrlSnapshot: true,
             quantity: true,
+            unitPriceAmount: true,
+            lineTotalAmount: true,
+            payableLineAmount: true,
             specs: {
               select: { specOptionNameSnapshot: true },
               orderBy: { id: 'asc' },
@@ -185,6 +194,9 @@ export class ScanOrderingOrderService {
         taxAmount: true,
         serviceFeeAmount: true,
         paidAmount: true,
+        pickupNumber: true,
+        pickupNumberStatus: true,
+        pickupCalledAt: true,
       },
     });
 
@@ -208,7 +220,7 @@ export class ScanOrderingOrderService {
       }
     }
 
-    const limit = query.limit ?? 20;
+    const limit = query.limit ?? 100;
     const pageOrders = orders.slice(0, limit);
     // "首单/加餐"判定以 diningRoundId 维度计算：同一个人在同一家门店的同一张桌
     // 台、本轮用餐轮次（diningRoundId 相同）内的累计下单序号，跨桌或清桌
@@ -265,22 +277,34 @@ export class ScanOrderingOrderService {
           guestName = userMap.get(order.clubUserId)!; // 从 Map 中获取昵称
         }
 
+        // 构建多规格场景下的商品明细：每条 ScanOrderItem 已带有完整的
+        // (商品+规格)快照,直接以 1:1 方式输出;前端可在卡片里独立渲染图片、
+        // 规格、数量、金额,避免用户阅读括号嵌套导致的认知负担。
+        const itemSummaries = order.items.map(
+          (item: (typeof order.items)[number]): ScanOrderingOrderItemSummary => ({
+            productName: item.productNameSnapshot,
+            productImageUrl: item.productImageUrlSnapshot ?? null,
+            quantity: item.quantity,
+            specs: (item.specs ?? []).map(
+              (spec) => spec.specOptionNameSnapshot,
+            ),
+            unitPrice: fenToYuan(item.unitPriceAmount ?? 0),
+            lineTotalAmount: fenToYuan(item.lineTotalAmount ?? 0),
+            payableLineAmount: fenToYuan(item.payableLineAmount ?? 0),
+          }),
+        );
+        // 兼容旧前端消费的简洁文本摘要: 仅展示 「商品名×数量」,不再嵌入
+        // 括号规格列表,完整规格清单统一通过 items 数组下发。
+        const itemSummary = itemSummaries
+          .map((item) => `${item.productName}×${item.quantity}`)
+          .join('、');
+
         return {
           id: order.id,
           orderNo: order.orderNo,
           version: order.version,
-          itemSummary: order.items
-            .map(
-              (item: (typeof order.items)[number]) =>
-                `${item.productNameSnapshot}${
-                  (item.specs ?? []).length > 0
-                    ? `（${(item.specs ?? [])
-                        .map((spec) => spec.specOptionNameSnapshot)
-                        .join('、')}）`
-                    : ''
-                }×${item.quantity}`,
-            )
-            .join('、'),
+          itemSummary,
+          items: itemSummaries,
           remark: order.remark,
           tableName: order.table.name,
           status: order.status,
@@ -290,6 +314,14 @@ export class ScanOrderingOrderService {
           // 字段名沿用 sessionOrderSequence 以兼容前端；语义上为同一 diningRound
           // 内的累计序号，>1 即视为加餐。
           sessionOrderSequence: diningRoundOrderSequences.get(order.id) ?? 1,
+          pickupNumber: order.pickupNumber,
+          pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
+            order.pickupNumber,
+          ),
+          pickupNumberStatus: order.pickupNumberStatus,
+          pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
+          // 兼容旧前端: 仍以首个有图片的商品作为卡片缩略图;卡片层应改用 items
+          // 数组渲染多张缩略图,本字段保留作为回退。
           imageUrl:
             order.items.find(
               (item: (typeof order.items)[number]) =>
@@ -329,6 +361,10 @@ export class ScanOrderingOrderService {
       version: prismaOrder.version,
       table: prismaOrder.table,
       createdAt: prismaOrder.createdAt.toISOString(),
+      pickupNumber: prismaOrder.pickupNumber,
+      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
+        prismaOrder.pickupNumber,
+      ),
       amountSummary: this.pricingService.calculateSummary({
         itemOriginalAmountCents: prismaOrder.itemOriginalAmount,
         specificationExtraAmountCents: prismaOrder.specificationExtraAmount,

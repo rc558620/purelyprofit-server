@@ -157,6 +157,18 @@ model ScanOrders {
   servedAt                 DateTime?                  @map("served_at")
   completedAt              DateTime?                  @map("completed_at")
   cancelledAt              DateTime?                  @map("cancelled_at")
+  /// 取餐号（门店 + 上海业务日维度递增，001 起）
+  pickupNumber             Int?                       @map("pickup_number")
+  /// 取餐号所属上海业务日（Asia/Shanghai 00:00）
+  pickupBusinessDate       DateTime?                  @map("pickup_business_date") @db.Date
+  /// 取餐号分配时间（支付成功后分配）
+  pickupAssignedAt         DateTime?                  @map("pickup_assigned_at")
+  /// 叫号时间（商家出餐时写入）
+  pickupCalledAt           DateTime?                  @map("pickup_called_at")
+  /// 取餐完成时间
+  pickupCompletedAt        DateTime?                  @map("pickup_completed_at")
+  /// 取餐号状态
+  pickupNumberStatus       ScanOrderPickupNumberStatus? @map("pickup_number_status")
   deletedAt                DateTime?                  @map("deleted_at")
   createdAt                DateTime                   @default(now()) @map("created_at")
   updatedAt                DateTime                   @updatedAt @map("updated_at")
@@ -186,6 +198,20 @@ model ScanOrders {
   @@index([clubUserId, diningRoundId, createdAt(sort: Desc)])
   @@index([storeId, tableId, diningRoundId, createdAt(sort: Desc)])
   @@map("scan_orders")
+}
+
+/// 门店取餐号每日计数表：同门店同上海业务日单调递增，唯一约束保证并发安全。
+model ScanOrderingPickupSequence {
+  id           Int      @id @default(autoincrement())
+  storeId      Int      @map("store_id")
+  businessDate DateTime @db.Date @map("business_date")
+  nextNumber   Int      @default(1) @map("next_number")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([storeId, businessDate])
+  @@index([storeId, businessDate], map: "scan_ordering_pickup_sequences_store_date_idx")
+  @@map("scan_ordering_pickup_sequences")
 }
 
 model ScanOrderItem {
@@ -572,6 +598,14 @@ enum ScanOrderFulfillmentStatus {
   preparing
   served
   closed
+}
+
+/// 取餐号状态：assigned=已分配 / called=已叫号出餐 / completed=已完成取餐 / cancelled=已取消
+enum ScanOrderPickupNumberStatus {
+  assigned
+  called
+  completed
+  cancelled
 }
 
 enum ScanOrderingStockMode {

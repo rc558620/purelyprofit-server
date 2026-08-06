@@ -3,10 +3,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ScanOrderFulfillmentStatus, ScanOrderStatus } from '@prisma/client';
+import {
+  ScanOrderFulfillmentStatus,
+  ScanOrderPickupNumberStatus,
+  ScanOrderStatus,
+} from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
+import { ScanOrderingPickupNumberService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-number.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 /**
@@ -23,6 +28,7 @@ export class ScanOrderingOrderTransitionEngineService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly realtimeService: ScanOrderingRealtimeService,
+    private readonly pickupNumberService: ScanOrderingPickupNumberService,
   ) {}
 
   /** 接单：pending_acceptance → preparing */
@@ -48,6 +54,13 @@ export class ScanOrderingOrderTransitionEngineService {
     orderId: number,
     version: number,
   ): Promise<void> {
+    // 仅当订单已分配取餐号时写入叫号时间与状态，避免对无取餐号订单播报 undefined
+    const pickupOrder = await this.prisma.scanOrders.findUnique({
+      where: { id: orderId },
+      select: { pickupNumber: true },
+    });
+    if (!pickupOrder) throw new NotFoundException('扫码点餐订单不存在');
+    const servedAt = new Date();
     await this.transitionOrder(
       user,
       orderId,
@@ -55,7 +68,13 @@ export class ScanOrderingOrderTransitionEngineService {
       ScanOrderStatus.preparing,
       ScanOrderStatus.served,
       ScanOrderFulfillmentStatus.served,
-      { servedAt: new Date() },
+      { servedAt },
+      pickupOrder.pickupNumber != null
+        ? {
+            pickupCalledAt: servedAt,
+            pickupNumberStatus: ScanOrderPickupNumberStatus.called,
+          }
+        : undefined,
     );
   }
 
@@ -83,6 +102,12 @@ export class ScanOrderingOrderTransitionEngineService {
     orderId: number,
     version: number,
   ): Promise<void> {
+    const pickupOrder = await this.prisma.scanOrders.findUnique({
+      where: { id: orderId },
+      select: { pickupNumber: true, pickupCalledAt: true },
+    });
+    if (!pickupOrder) throw new NotFoundException('扫码点餐订单不存在');
+    const completedAt = new Date();
     await this.transitionOrder(
       user,
       orderId,
@@ -90,7 +115,13 @@ export class ScanOrderingOrderTransitionEngineService {
       ScanOrderStatus.served,
       ScanOrderStatus.completed,
       ScanOrderFulfillmentStatus.closed,
-      { completedAt: new Date() },
+      { completedAt },
+      pickupOrder.pickupNumber != null && pickupOrder.pickupCalledAt != null
+        ? {
+            pickupCompletedAt: completedAt,
+            pickupNumberStatus: ScanOrderPickupNumberStatus.completed,
+          }
+        : undefined,
     );
   }
 
@@ -108,6 +139,11 @@ export class ScanOrderingOrderTransitionEngineService {
       servedAt?: Date;
       completedAt?: Date;
     } = {},
+    pickupData?: {
+      pickupCalledAt?: Date;
+      pickupCompletedAt?: Date;
+      pickupNumberStatus?: ScanOrderPickupNumberStatus;
+    },
   ): Promise<void> {
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
@@ -116,6 +152,13 @@ export class ScanOrderingOrderTransitionEngineService {
       '无权处理扫码点餐订单',
     );
 
+    // 读取门店语音播报开关，作为实时事件只读快照下发，避免 C 端额外请求或猜测商家开关状态
+    const pickupStore = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: { pickupVoiceEnabled: true },
+    });
+    const pickupVoiceEnabled = pickupStore?.pickupVoiceEnabled ?? false;
+
     const result = await this.prisma.scanOrders.updateMany({
       where: { id: orderId, storeId, status: expectedStatus, version },
       data: {
@@ -123,6 +166,7 @@ export class ScanOrderingOrderTransitionEngineService {
         fulfillmentStatus,
         version: { increment: 1 },
         ...extraData,
+        ...pickupData,
       },
     });
 
@@ -142,11 +186,17 @@ export class ScanOrderingOrderTransitionEngineService {
         where: { id: orderId },
         select: {
           id: true,
+          version: true,
           storeId: true,
           sessionId: true,
           status: true,
           paymentStatus: true,
           fulfillmentStatus: true,
+          pickupNumber: true,
+          pickupBusinessDate: true,
+          pickupNumberStatus: true,
+          pickupCalledAt: true,
+          pickupCompletedAt: true,
         },
       });
 
@@ -155,9 +205,19 @@ export class ScanOrderingOrderTransitionEngineService {
           orderId: updatedOrder.id,
           storeId: updatedOrder.storeId,
           sessionId: updatedOrder.sessionId,
+          version: updatedOrder.version,
           status: updatedOrder.status,
           paymentStatus: updatedOrder.paymentStatus,
           fulfillmentStatus: updatedOrder.fulfillmentStatus,
+          pickupNumber: updatedOrder.pickupNumber,
+          pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
+            updatedOrder.pickupNumber,
+          ),
+          pickupNumberStatus: updatedOrder.pickupNumberStatus,
+          pickupCalledAt: updatedOrder.pickupCalledAt?.toISOString() ?? null,
+          pickupCompletedAt:
+            updatedOrder.pickupCompletedAt?.toISOString() ?? null,
+          pickupVoiceEnabled,
         });
       }
       return;

@@ -48,7 +48,7 @@ export class ListScanOrderingOrdersDto {
   @Min(1, { message: '游标不合法' })
   cursor?: number;
 
-  @ApiPropertyOptional({ example: 20 })
+  @ApiPropertyOptional({ example: 100, description: '分页大小（默认 100）' })
   @IsOptional()
   @Type(() => Number)
   @IsInt({ message: '分页大小必须是整数' })

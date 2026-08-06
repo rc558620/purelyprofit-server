@@ -6,6 +6,7 @@ import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubScanOrderingPaymentService } from './club-scan-ordering-payment.service';
 import { ScanOrderingRefundService } from './scan-ordering-refund.service';
 import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
+import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import type { ClubPaymentCallbackSettlementParams } from '../payments/club-payments.types';
 
 describe('ClubScanOrderingPaymentService', () => {
@@ -41,6 +42,14 @@ describe('ClubScanOrderingPaymentService', () => {
 
   const saleOrderBridgeService = {
     createForPaidOrder: jest.fn(),
+  };
+
+  const pickupNumberService = {
+    assignForPaidOrder: jest.fn(),
+    formatPickupNumber: jest.fn((n: number | null | undefined) =>
+      n == null ? null : n < 1000 ? String(n).padStart(3, '0') : String(n),
+    ),
+    getShanghaiBusinessDate: jest.fn(),
   };
 
   const baseSettlement: ClubPaymentCallbackSettlementParams = {
@@ -82,6 +91,10 @@ describe('ClubScanOrderingPaymentService', () => {
         {
           provide: ScanOrderingSaleOrderBridgeService,
           useValue: saleOrderBridgeService,
+        },
+        {
+          provide: ScanOrderingPickupNumberService,
+          useValue: pickupNumberService,
         },
       ],
     }).compile();
@@ -208,6 +221,11 @@ describe('ClubScanOrderingPaymentService', () => {
         status: 'pending_acceptance',
         paymentStatus: 'paid',
         fulfillmentStatus: 'preparing',
+        pickupNumber: undefined,
+        pickupNumberLabel: undefined,
+        pickupNumberStatus: undefined,
+        pickupCalledAt: null,
+        pickupCompletedAt: null,
       });
     });
 
@@ -282,6 +300,48 @@ describe('ClubScanOrderingPaymentService', () => {
       // 已支付订单重复回调：幂等提前返回，不重复触发桥接
       expect(saleOrderBridgeService.createForPaidOrder).toHaveBeenCalledTimes(
         firstBridgeCallCount,
+      );
+    });
+
+    it('数据库事务提交之前不发布 order.status_changed', async () => {
+      let resolveTx!: (value: unknown) => void;
+      prismaService.$transaction = jest.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveTx = resolve;
+          }),
+      );
+      // 事务回调未执行，事务后重新查询订单返回已支付状态
+      prismaService.scanOrders.findUnique
+        .mockReset()
+        .mockResolvedValue(orderPaid);
+
+      const confirmPromise = service.confirmOrderPaidByCallback(
+        'SO20260723120000ABCD-1A2B3C4D',
+        baseSettlement,
+      );
+      // 事务仍在等待提交（等待内部多个 await 走到 $transaction）
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(realtimeService.publishOrderStatusChanged).not.toHaveBeenCalled();
+
+      // 事务提交完成
+      resolveTx({
+        orderNo: 'SO20260723120000ABCD',
+        orderType: 'scan_ordering',
+        status: 'pending_acceptance',
+      });
+      await confirmPromise;
+
+      expect(realtimeService.publishOrderStatusChanged).toHaveBeenCalledTimes(1);
+      expect(realtimeService.publishOrderStatusChanged).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderId: 1001,
+          storeId: 11,
+          sessionId: 55,
+          status: 'pending_acceptance',
+          paymentStatus: 'paid',
+          fulfillmentStatus: 'preparing',
+        }),
       );
     });
   });
