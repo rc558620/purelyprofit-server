@@ -256,7 +256,17 @@ export class ScanOrderingTableService {
           tableId,
           status: 'active',
           deletedAt: null,
-          expiresAt: { gt: now },
+          OR: [
+            { expiresAt: { gt: now } },
+            {
+              orders: {
+                some: {
+                  deletedAt: null,
+                  status: { in: ['pending_payment', 'pending_acceptance', 'preparing', 'served'] },
+                },
+              },
+            },
+          ],
         },
         select: { id: true, diningRoundId: true },
       });
