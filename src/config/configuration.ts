@@ -225,6 +225,19 @@ export default () => ({
     apiUrl: process.env.FEIE_PRINT_API_URL ?? 'https://api.de.feieyun.com/Api/Open/',
   },
 
+  /**
+   * USB 小票打印机配置（扫码点餐 usb 打印通道）。
+   * 打印机需连接在服务器本机；Linux 走 /dev/usb/lp* 设备文件，macOS/Linux 走 CUPS（lp -o raw）。
+   */
+  usbPrint: {
+    /** 默认打印机标识：Linux 设备路径（如 /dev/usb/lp0）或 CUPS 打印机名；门店未配置时使用，留空自动探测 */
+    device: process.env.USB_PRINT_DEVICE ?? '',
+    /** 小票文本编码：gbk（默认，兼容国产热敏机）/ utf8 */
+    encoding: process.env.USB_PRINT_ENCODING ?? 'gbk',
+    /** 调用系统打印命令超时（毫秒） */
+    timeoutMs: parseInt(process.env.USB_PRINT_TIMEOUT_MS ?? '10000', 10),
+  },
+
   auth: {
     passwordResetCodeTtlSeconds: parseInt(
       process.env.AUTH_PASSWORD_RESET_CODE_TTL_SECONDS ?? '600',

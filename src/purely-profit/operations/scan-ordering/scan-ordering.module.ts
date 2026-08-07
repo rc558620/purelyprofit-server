@@ -29,9 +29,15 @@ import { ScanOrderingMenuSpecService } from './scan-ordering-menu-spec.service';
 import { ScanOrderingMenuStockService } from './scan-ordering-menu-stock.service';
 import { ScanOrderingMenuQueryService } from './scan-ordering-menu-query.service';
 import { ScanOrderingSessionArchiveService } from './scan-ordering-session-archive.service';
+import { ConfigService } from '@nestjs/config';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
+import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
 import { FeiePrintService } from './feie-print.service';
 import { ScanOrderingCloudPrintService } from './scan-ordering-cloud-print.service';
+import { EscPosTicketBuilder } from './escpos-ticket.builder';
+import type { EscPosEncoding } from './escpos-ticket.builder';
+import { UsbPrintService } from './usb-print.service';
+import { ScanOrderingUsbPrintService } from './scan-ordering-usb-print.service';
 
 /** 扫码点餐领域模块：商家管理、消费者点餐、订单与支付共享同一领域规则。 */
 @Module({
@@ -72,8 +78,20 @@ import { ScanOrderingCloudPrintService } from './scan-ordering-cloud-print.servi
     ScanOrderingMenuService,
     ScanOrderingSessionArchiveService,
     ScanOrderingPrintSettingsService,
+    ScanOrderingPrintDataService,
     FeiePrintService,
     ScanOrderingCloudPrintService,
+    UsbPrintService,
+    ScanOrderingUsbPrintService,
+    {
+      provide: EscPosTicketBuilder,
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) =>
+        new EscPosTicketBuilder(
+          (configService.get<string>('usbPrint.encoding') ??
+            'gbk') as EscPosEncoding,
+        ),
+    },
   ],
   exports: [ScanOrderingPricingService, ScanOrderingSessionArchiveService],
 })

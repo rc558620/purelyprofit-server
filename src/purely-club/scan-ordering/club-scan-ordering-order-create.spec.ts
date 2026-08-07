@@ -94,6 +94,7 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     availableCoupons: [],
     appliedPromotions: [],
     productDiscountAmount: 0,
+    memberDiscountAmount: 0,
     orderDiscountAmount: 0,
     pointsDeductAmount: 0,
     pointsUsed: 0,

@@ -46,10 +46,15 @@ import type { ScanOrderingMenuProductResponse } from './scan-ordering-menu-produ
 import type { ScanOrderingPickupSettings } from '../../../purely-club/scan-ordering/scan-ordering-pickup-settings.service';
 import { ScanOrderingPickupSettingsService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-settings.service';
 import { UpdateScanOrderingPickupSettingsDto } from './dto/scan-ordering-pickup-settings.dto';
-import type { ScanOrderingPrintSettings } from './scan-ordering-print-settings.service';
+import type {
+  PrintChannel,
+  ScanOrderingPrintSettings,
+} from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { UpdateScanOrderingPrintSettingsDto } from './dto/scan-ordering-print-settings.dto';
 import { ScanOrderingCloudPrintService } from './scan-ordering-cloud-print.service';
+import type { CloudPrintTarget } from './scan-ordering-cloud-print.service';
+import { ScanOrderingUsbPrintService } from './scan-ordering-usb-print.service';
 import { ScanOrderingPrintOrderDto } from './dto/scan-ordering-print-action.dto';
 import { ScanOrderingPrintTestDto } from './dto/scan-ordering-print-action.dto';
 
@@ -68,6 +73,7 @@ export class ScanOrderingMainController {
     private readonly pickupSettingsService: ScanOrderingPickupSettingsService,
     private readonly printSettingsService: ScanOrderingPrintSettingsService,
     private readonly cloudPrintService: ScanOrderingCloudPrintService,
+    private readonly usbPrintService: ScanOrderingUsbPrintService,
   ) {}
 
   @Get('dashboard')
@@ -90,7 +96,9 @@ export class ScanOrderingMainController {
 
   @Patch('pickup-settings')
   @RequirePermissions('scan-ordering:order-process')
-  @ApiOperation({ summary: '更新门店扫码点餐取餐配置（语音播报 / 出餐自动打印开关）' })
+  @ApiOperation({
+    summary: '更新门店扫码点餐取餐配置（语音播报 / 出餐自动打印开关）',
+  })
   updatePickupSettings(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateScanOrderingPickupSettingsDto,
@@ -100,7 +108,9 @@ export class ScanOrderingMainController {
 
   @Get('print-settings')
   @RequirePermissions('scan-ordering:view')
-  @ApiOperation({ summary: '获取门店扫码点餐打印配置（收银台/后厨通道与云打印机 SN）' })
+  @ApiOperation({
+    summary: '获取门店扫码点餐打印配置（收银台/后厨通道与云打印机 SN）',
+  })
   getPrintSettings(
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<ScanOrderingPrintSettings> {
@@ -119,26 +129,73 @@ export class ScanOrderingMainController {
 
   @Post('print')
   @RequirePermissions('scan-ordering:order-process')
-  @ApiOperation({ summary: '下发云打印任务（飞鹅）：收银台顾客票 / 后厨制作单' })
-  printOrder(
+  @ApiOperation({
+    summary:
+      '下发打印任务（云/USB）：按门店打印通道分派收银台顾客票 / 后厨制作单',
+  })
+  async printOrder(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ScanOrderingPrintOrderDto,
   ): Promise<{ orderId: string }> {
-    return this.cloudPrintService
-      .printForMerchant(user, dto.target, dto.orderId)
-      .then((orderId) => ({ orderId }));
+    const channel = await this.resolveChannel(user, dto.target);
+    if (channel === 'usb') {
+      const orderId = await this.usbPrintService.printForMerchant(
+        user,
+        dto.target,
+        dto.orderId,
+      );
+      return { orderId };
+    }
+    const orderId = await this.cloudPrintService.printForMerchant(
+      user,
+      dto.target,
+      dto.orderId,
+    );
+    return { orderId };
   }
 
   @Post('print/test')
   @RequirePermissions('scan-ordering:order-process')
-  @ApiOperation({ summary: '云打印测试（飞鹅）：向目标云打印机下发测试小票' })
-  testPrint(
+  @ApiOperation({
+    summary: '打印测试（云/USB）：按门店打印通道向目标打印机下发测试小票',
+  })
+  async testPrint(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ScanOrderingPrintTestDto,
   ): Promise<{ orderId: string }> {
-    return this.cloudPrintService
-      .testPrintForMerchant(user, dto.target)
-      .then((orderId) => ({ orderId }));
+    const channel = await this.resolveChannel(user, dto.target);
+    if (channel === 'usb') {
+      const orderId = await this.usbPrintService.testPrintForMerchant(
+        user,
+        dto.target,
+      );
+      return { orderId };
+    }
+    const orderId = await this.cloudPrintService.testPrintForMerchant(
+      user,
+      dto.target,
+    );
+    return { orderId };
+  }
+
+  @Get('print/usb-devices')
+  @RequirePermissions('scan-ordering:view')
+  @ApiOperation({ summary: '探测服务器可用 USB / 系统小票打印机列表' })
+  listUsbPrinters(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<Array<{ id: string; name: string; type: string }>> {
+    return this.usbPrintService.listUsbDevices(user);
+  }
+
+  /** 按打印目标读取门店配置的打印通道。 */
+  private async resolveChannel(
+    user: AuthenticatedUser,
+    target: CloudPrintTarget,
+  ): Promise<PrintChannel> {
+    const settings = await this.printSettingsService.getForMerchant(user);
+    return target === 'kitchen'
+      ? settings.kitchenPrintChannel
+      : settings.cashierPrintChannel;
   }
 
   // Menu Management Routes

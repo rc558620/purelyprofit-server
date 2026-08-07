@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
+import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
 import { FeiePrintService } from './feie-print.service';
 import { ScanOrderingCloudPrintService } from './scan-ordering-cloud-print.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -20,6 +21,9 @@ describe('ScanOrderingCloudPrintService', () => {
   const printSettingsService = {
     getByStoreId: jest.fn(),
   };
+  const printDataService = {
+    loadOrder: jest.fn(),
+  };
   const feiePrintService = {
     printMessage: jest.fn(),
   };
@@ -32,13 +36,27 @@ describe('ScanOrderingCloudPrintService', () => {
         ScanOrderingCloudPrintService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
-        { provide: ScanOrderingPrintSettingsService, useValue: printSettingsService },
+        {
+          provide: ScanOrderingPrintSettingsService,
+          useValue: printSettingsService,
+        },
+        { provide: ScanOrderingPrintDataService, useValue: printDataService },
         { provide: FeiePrintService, useValue: feiePrintService },
       ],
     }).compile();
-    service = module.get<ScanOrderingCloudPrintService>(ScanOrderingCloudPrintService);
+    service = module.get<ScanOrderingCloudPrintService>(
+      ScanOrderingCloudPrintService,
+    );
     commerceAccessService.resolveSingleStoreId.mockResolvedValue(11);
     prismaService.store.findUnique.mockResolvedValue({ name: '测试门店' });
+    printDataService.loadOrder.mockResolvedValue({
+      orderNo: 'SO-001',
+      pickupNumberLabel: '005',
+      tableName: 'A01',
+      remark: '不要辣',
+      payableAmount: '40.00',
+      items: [{ name: '牛肉面', quantity: 2, specs: [{ name: '微辣' }] }],
+    });
   });
 
   it('后厨通道未配置云 SN 时抛 400', async () => {
@@ -59,17 +77,6 @@ describe('ScanOrderingCloudPrintService', () => {
       kitchenPrintChannel: 'cloud',
       cashierCloudPrinterSn: null,
       kitchenCloudPrinterSn: 'KITCHEN-SN',
-    });
-    prismaService.scanOrders.findFirst.mockResolvedValue({
-      id: 1,
-      orderNo: 'SO-001',
-      pickupNumber: 5,
-      remark: '不要辣',
-      payableAmount: 4000,
-      table: { name: 'A01' },
-      items: [
-        { productNameSnapshot: '牛肉面', quantity: 2, specs: [{ specOptionNameSnapshot: '微辣' }] },
-      ],
     });
     feiePrintService.printMessage.mockResolvedValue('order-x');
 
@@ -93,10 +100,12 @@ describe('ScanOrderingCloudPrintService', () => {
       cashierCloudPrinterSn: null,
       kitchenCloudPrinterSn: 'KITCHEN-SN',
     });
-    prismaService.scanOrders.findFirst.mockResolvedValue(null);
-    await expect(service.printForMerchant(user, 'kitchen', 999)).rejects.toThrow(
-      NotFoundException,
+    printDataService.loadOrder.mockRejectedValue(
+      new NotFoundException('扫码点餐订单不存在'),
     );
+    await expect(
+      service.printForMerchant(user, 'kitchen', 999),
+    ).rejects.toThrow(NotFoundException);
   });
 
   it('测试云打印：下发测试小票到目标打印机', async () => {

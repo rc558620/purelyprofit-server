@@ -3,8 +3,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
-/** 打印通道：浏览器系统打印 / 飞鹅云打印 / 关闭。 */
-export type PrintChannel = 'browser' | 'cloud' | 'off';
+/** 打印通道：浏览器系统打印 / 飞鹅云打印 / 服务器本地 USB 打印 / 关闭。 */
+export type PrintChannel = 'browser' | 'cloud' | 'usb' | 'off';
 
 /** 扫码点餐打印配置（收银台顾客票 + 后厨制作单，各自独立通道）。 */
 export interface ScanOrderingPrintSettings {
@@ -16,6 +16,10 @@ export interface ScanOrderingPrintSettings {
   cashierCloudPrinterSn: string | null;
   /** 后厨飞鹅云打印机 SN（kitchenPrintChannel=cloud 时必填）。 */
   kitchenCloudPrinterSn: string | null;
+  /** 收银台 USB 小票打印机标识（cashierPrintChannel=usb 时使用；Linux 设备路径如 /dev/usb/lp0 或 CUPS 打印机名，留空自动探测）。 */
+  cashierUsbPrinter: string | null;
+  /** 后厨 USB 小票打印机标识（kitchenPrintChannel=usb 时使用）。 */
+  kitchenUsbPrinter: string | null;
 }
 
 /** 打印配置部分更新入参（PATCH 语义，只更新传入字段）。 */
@@ -24,6 +28,8 @@ export interface ScanOrderingPrintSettingsUpdate {
   kitchenPrintChannel?: PrintChannel;
   cashierCloudPrinterSn?: string | null;
   kitchenCloudPrinterSn?: string | null;
+  cashierUsbPrinter?: string | null;
+  kitchenUsbPrinter?: string | null;
 }
 
 /**
@@ -47,6 +53,8 @@ export class ScanOrderingPrintSettingsService {
         kitchenPrintChannel: true,
         cashierCloudPrinterSn: true,
         kitchenCloudPrinterSn: true,
+        cashierUsbPrinter: true,
+        kitchenUsbPrinter: true,
       },
     });
     if (!store) throw new NotFoundException('门店不存在');
@@ -55,11 +63,15 @@ export class ScanOrderingPrintSettingsService {
       kitchenPrintChannel: store.kitchenPrintChannel as PrintChannel,
       cashierCloudPrinterSn: store.cashierCloudPrinterSn,
       kitchenCloudPrinterSn: store.kitchenCloudPrinterSn,
+      cashierUsbPrinter: store.cashierUsbPrinter,
+      kitchenUsbPrinter: store.kitchenUsbPrinter,
     };
   }
 
   /** 商家端读取当前门店打印配置。 */
-  async getForMerchant(user: AuthenticatedUser): Promise<ScanOrderingPrintSettings> {
+  async getForMerchant(
+    user: AuthenticatedUser,
+  ): Promise<ScanOrderingPrintSettings> {
     const storeId = await this.resolveMerchantStoreId(user);
     return this.getByStoreId(storeId);
   }
@@ -89,7 +101,10 @@ export class ScanOrderingPrintSettingsService {
     );
   }
 
-  private logUpdate(storeId: number, updates: ScanOrderingPrintSettingsUpdate): void {
+  private logUpdate(
+    storeId: number,
+    updates: ScanOrderingPrintSettingsUpdate,
+  ): void {
     // 配置变更日志；不依赖额外 logger，避免新增基础设施
     console.info(
       `[print-settings] storeId=${storeId} updates=${JSON.stringify(updates)} pid=${process.pid}`,

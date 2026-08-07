@@ -64,6 +64,9 @@ export interface ClubMarketingPreviewLine {
 export interface ClubMarketingPreviewResult {
   productDiscountAmountFen: number;
   orderDiscountAmountFen: number;
+  /** 会员等级折扣（分）。扫码点餐菜单的 unitAmountFen 是原价，不含会员折扣，
+   *  因此会员折扣在此实际生效；调用方需将其累加进商品级优惠一起分摊到行级。 */
+  memberDiscountFen: number;
   /** 积分抵扣前的优惠后小计。 */
   payableAmountFen: number;
   pointsDeductFen: number;
@@ -289,6 +292,7 @@ export class ClubOrderPreviewService {
     return {
       productDiscountAmountFen,
       orderDiscountAmountFen,
+      memberDiscountFen,
       payableAmountFen,
       ...pointsPreview,
       breakdownItems,

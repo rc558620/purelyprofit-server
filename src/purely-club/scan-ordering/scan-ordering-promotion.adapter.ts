@@ -33,7 +33,15 @@ export interface PromotionAdapterResult {
     name: string;
     discountAmount: number;
   }>;
+  /**
+   * 商品级优惠（分），含会员等级折扣。
+   * 注：扫码点餐菜单的 unitAmountFen 是 basePrice（原价），不含会员折扣，
+   * 因此将 memberDiscountFen 累加到此字段，让落库的行级 payableLineAmount
+   * 与订单级 payableAmount 都自然反映会员折扣，避免 calculateSummary 漏算。
+   */
   productDiscountAmount: number;
+  /** 会员等级折扣（分），单独返回用于营销快照展示。 */
+  memberDiscountAmount: number;
   orderDiscountAmount: number;
   pointsDeductAmount: number;
   pointsUsed: number;
@@ -95,7 +103,10 @@ export class ScanOrderingPromotionAdapter {
           name: item.label,
           discountAmount: Math.abs(this.amountFromDisplayValue(item.value)),
         })),
-      productDiscountAmount: result.productDiscountAmountFen,
+      // 会员折扣累加进商品级优惠，让行级分摊与订单级应付都能反映会员折扣
+      productDiscountAmount:
+        result.productDiscountAmountFen + result.memberDiscountFen,
+      memberDiscountAmount: result.memberDiscountFen,
       orderDiscountAmount: result.orderDiscountAmountFen,
       pointsDeductAmount: result.pointsDeductFen,
       pointsUsed: result.pointsUsed,

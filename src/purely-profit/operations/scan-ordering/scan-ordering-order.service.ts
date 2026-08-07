@@ -194,6 +194,7 @@ export class ScanOrderingOrderService {
         taxAmount: true,
         serviceFeeAmount: true,
         paidAmount: true,
+        payableAmount: true,
         pickupNumber: true,
         pickupNumberStatus: true,
         pickupCalledAt: true,
@@ -261,15 +262,26 @@ export class ScanOrderingOrderService {
 
     return {
       items: pageOrders.map((order: (typeof pageOrders)[number]) => {
-        const amountSummary = this.pricingService.calculateSummary({
-          itemOriginalAmountCents: order.itemOriginalAmount,
-          specificationExtraAmountCents: order.specificationExtraAmount,
-          productDiscountAmountCents: order.productDiscountAmount,
-          orderDiscountAmountCents: order.orderDiscountAmount,
-          taxAmountCents: order.taxAmount,
-          serviceFeeAmountCents: order.serviceFeeAmount,
-          paidAmountCents: order.paidAmount,
-        });
+        const realPayableFen = order.payableAmount ?? 0;
+        const realPaidFen = order.paidAmount ?? 0;
+        // 以数据库落库的 payableAmount 为权威值（含会员等级折扣 + 积分抵扣），
+        // 避免 calculateSummary 漏算会员折扣（productDiscountAmount 当前已含会员折扣），
+        // 以及未感知积分抵扣的差异；outstandingAmount 同步按真实应付重算。
+        const amountSummary = {
+          ...this.pricingService.calculateSummary({
+            itemOriginalAmountCents: order.itemOriginalAmount,
+            specificationExtraAmountCents: order.specificationExtraAmount,
+            productDiscountAmountCents: order.productDiscountAmount,
+            orderDiscountAmountCents: order.orderDiscountAmount,
+            taxAmountCents: order.taxAmount,
+            serviceFeeAmountCents: order.serviceFeeAmount,
+            paidAmountCents: order.paidAmount,
+          }),
+          payableAmount: fenToYuan(realPayableFen),
+          outstandingAmount: fenToYuan(
+            Math.max(realPayableFen - realPaidFen, 0),
+          ),
+        };
 
         // 🔥 使用真实的用户昵称
         let guestName = '顾客'; // 默认值
@@ -365,23 +377,29 @@ export class ScanOrderingOrderService {
       pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
         prismaOrder.pickupNumber,
       ),
-      amountSummary: this.pricingService.calculateSummary({
-        itemOriginalAmountCents: prismaOrder.itemOriginalAmount,
-        specificationExtraAmountCents: prismaOrder.specificationExtraAmount,
-        productDiscountAmountCents: prismaOrder.productDiscountAmount,
-        orderDiscountAmountCents: prismaOrder.orderDiscountAmount,
-        taxAmountCents: prismaOrder.taxAmount,
-        serviceFeeAmountCents: prismaOrder.serviceFeeAmount,
-        paidAmountCents: prismaOrder.paidAmount,
-      }),
+      amountSummary: {
+        ...this.pricingService.calculateSummary({
+          itemOriginalAmountCents: prismaOrder.itemOriginalAmount,
+          specificationExtraAmountCents: prismaOrder.specificationExtraAmount,
+          productDiscountAmountCents: prismaOrder.productDiscountAmount,
+          orderDiscountAmountCents: prismaOrder.orderDiscountAmount,
+          taxAmountCents: prismaOrder.taxAmount,
+          serviceFeeAmountCents: prismaOrder.serviceFeeAmount,
+          paidAmountCents: prismaOrder.paidAmount,
+        }),
+        // 以数据库落库的 payableAmount 为权威值（含会员等级折扣 + 积分抵扣），
+        // 避免 calculateSummary 漏算会员折扣或积分抵扣。
+        payableAmount: fenToYuan(prismaOrder.payableAmount ?? 0),
+        outstandingAmount: fenToYuan(
+          Math.max((prismaOrder.payableAmount ?? 0) - (prismaOrder.paidAmount ?? 0), 0),
+        ),
+      },
       items: prismaOrder.items.map(
         (item: (typeof prismaOrder.items)[number]) => ({
           name: item.productNameSnapshot,
           quantity: item.quantity,
-          amount: this.pricingService.calculateSummary({
-            itemOriginalAmountCents: item.lineTotalAmount,
-            specificationExtraAmountCents: 0,
-          }).payableAmount,
+          // 行金额取已扣商品级优惠的应付金额，保证小票明细合计 = 应付合计
+          amount: fenToYuan(item.payableLineAmount ?? 0),
           specs: item.specs.map((spec: (typeof item.specs)[number]) => ({
             name: spec.specOptionNameSnapshot,
             extraPrice: this.pricingService.calculateSummary({

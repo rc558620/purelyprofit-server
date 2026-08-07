@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
+import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
 import { FeiePrintService } from './feie-print.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
@@ -20,6 +21,7 @@ export class ScanOrderingCloudPrintService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly printSettingsService: ScanOrderingPrintSettingsService,
+    private readonly printDataService: ScanOrderingPrintDataService,
     private readonly feiePrintService: FeiePrintService,
   ) {}
 
@@ -77,7 +79,7 @@ export class ScanOrderingCloudPrintService {
     storeId: number,
     orderId: number,
   ): Promise<string> {
-    const order = await this.loadOrder(storeId, orderId);
+    const order = await this.printDataService.loadOrder(storeId, orderId);
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
       select: { name: true },
@@ -113,7 +115,7 @@ export class ScanOrderingCloudPrintService {
     storeId: number,
     orderId: number,
   ): Promise<string> {
-    const order = await this.loadOrder(storeId, orderId);
+    const order = await this.printDataService.loadOrder(storeId, orderId);
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
       select: { name: true },
@@ -144,43 +146,6 @@ export class ScanOrderingCloudPrintService {
     lines.push('<C>谢谢惠顾，欢迎再次光临</C><BR>');
     lines.push('<CUT>');
     return lines.join('');
-  }
-
-  /** 查询订单并归一为云打印所需结构。 */
-  private async loadOrder(
-    storeId: number,
-    orderId: number,
-  ): Promise<{
-    orderNo: string;
-    pickupNumberLabel: string | null;
-    tableName: string;
-    remark: string | null;
-    payableAmount: string;
-    items: Array<{ name: string; quantity: number; specs: Array<{ name: string }> }>;
-  }> {
-    const order = await this.prisma.scanOrders.findFirst({
-      where: { id: orderId, storeId, deletedAt: null },
-      include: {
-        table: { select: { name: true } },
-        items: { include: { specs: true }, orderBy: { id: 'asc' } },
-      },
-    });
-    if (!order) throw new NotFoundException('扫码点餐订单不存在');
-    const cents = (value: number): string => (value / 100).toFixed(2);
-    return {
-      orderNo: order.orderNo,
-      pickupNumberLabel: order.pickupNumber
-        ? String(order.pickupNumber).padStart(3, '0')
-        : null,
-      tableName: order.table?.name ?? '-',
-      remark: order.remark,
-      payableAmount: cents(order.payableAmount),
-      items: order.items.map((item) => ({
-        name: item.productNameSnapshot,
-        quantity: item.quantity,
-        specs: item.specs.map((spec) => ({ name: spec.specOptionNameSnapshot })),
-      })),
-    };
   }
 
   private async resolveMerchantStoreId(
