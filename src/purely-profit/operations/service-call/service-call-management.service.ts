@@ -89,6 +89,12 @@ export class ServiceCallManagementService
     ) {
       throw new ConflictException('当前服务呼叫不可确认响应');
     }
+    if (
+      status === 'completed' &&
+      current.status !== ServiceCallStatus.processing
+    ) {
+      throw new ConflictException('请先确认响应，再标记完成');
+    }
     const serviceCall = await this.prisma.serviceCall.update({
       where: { id: current.id },
       data: {

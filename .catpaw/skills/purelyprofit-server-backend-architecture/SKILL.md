@@ -1,6 +1,6 @@
 ---
 name: purelyprofit-server-backend-architecture
-description: purelyprofit-server 是 purelyProfit 业务主仓的后端接口仓库，同时承载 purely-profit、purely-pulse、purely-club 三条产品线语义。该 skill 说明三条产品线的视角边界、会员配置层与运行态边界、`src/bootstrap/*` 启动链路、Config/Prisma/Redis/BullMQ 基础设施、JWT 鉴权与 capability 快照、auth 账号查询/会籍协同拆分、marketing 多 controller 与 facade 分层、finance DTO/response 拆分、Pulse membership admin 读写拆分、空间域 request/response DTO 与 session 子 service 拆分、交班班次页的本人排班与全店可见性边界、全局限流与 Cache-Control 响应缓存约定、`shared` 金额/并发/密码策略工具，以及 runtime-metrics summary 观测聚合。适用于理解仓库结构、开发或修改 purelyProfit / purelyPulse / purelyClub 接口、接入数据库或缓存、处理会员权益限制、扩展营销/财务/空间/员工/交班/会员能力，并保持代码风格与目录约定一致时使用。
+description: purelyprofit-server 是 purelyProfit 业务主仓的后端接口仓库，同时承载 purely-profit、purely-pulse、purely-club 三条产品线语义。该 skill 说明三条产品线的视角边界、会员配置层与运行态边界、`src/bootstrap/*` 启动链路、Config/Prisma/Redis/BullMQ 基础设施、JWT 鉴权与 capability 快照、auth 账号查询/会籍协同拆分、marketing 多 controller 与 facade 分层、finance DTO/response 拆分、Pulse membership admin 读写拆分、空间域 request/response DTO 与 session 子 service 拆分、扫码点餐/服务呼叫商家端拆分与 Club 实时 gateway 链路、交班班次页的本人排班与全店可见性边界、全局限流与 Cache-Control 响应缓存约定、`shared` 金额/并发/密码策略工具，以及 runtime-metrics summary 观测聚合。适用于理解仓库结构、开发或修改 purelyProfit / purelyPulse / purelyClub 接口、接入数据库或缓存、处理会员权益限制、扩展营销/财务/空间/员工/扫码点餐/服务呼叫/交班/会员能力，并保持代码风格与目录约定一致时使用。
 ---
 
 # purelyprofit-server 后端架构指南
@@ -174,8 +174,9 @@ description: purelyprofit-server 是 purelyProfit 业务主仓的后端接口仓
 代表性业务域：
 
 - Profit：`access-control`、`auth`、`commerce`、`dashboard`、`finance`、`goods`、`marketing`、`member`、`notifications`、`operations`、`staff`、`stores`、`subscriptions`
+- Profit operations：`costs`、`handover`、`purchases`、`sales-record`、`spaces`、`scan-ordering`（扫码点餐）、`service-call`（服务呼叫工作台）、`suppliers`
 - Pulse：`dashboard`、`dev-mode`、`growth`、`membership`、`membership-settings`、`onboarding`、`session`、`pulse-store-context.*`
-- Club：个人端能力优先落 `src/purely-club/*`，语义围绕当前登录用户自己的资料、权益、消费、预约、空间会话与个人中心
+- Club：个人端能力优先落 `src/purely-club/*`，语义围绕当前登录用户自己的资料、权益、消费、预约、空间会话与个人中心；同时承载扫码点餐/服务呼叫的 Socket.IO 实时 gateway 与 realtime 事件发布
 
 ### 最近新增的项目能力
 
@@ -197,6 +198,9 @@ description: purelyprofit-server 是 purelyProfit 业务主仓的后端接口仓
 - `src/purely-profit/operations/handover/*`：交班域已拆成 `page/confirm/records/additional-items/shared`，写操作要基于当前班次可操作性，并拦截重复交班
 - `src/purely-profit/operations/handover/handover-page-shift.service.ts`：交班页班次上下文须区分“本人可操作班次”“本人历史/排班班次”与“全店展示班次”；未关联员工且没有任何本人班次的新注册用户应直接视为无有效班次，不能因全店班次而看到其他员工指标；已关联员工即使当前无可操作班次，仍保留合法的全店监控展示语义
 - `src/purely-profit/operations/spaces/*`：空间域已拆成 `read/write/dashboard/reservations/sessions` 与多个 `space-session-*` 协作 service
+- `src/purely-profit/operations/scan-ordering/*`：扫码点餐商家端已拆成 3 个 controller（`scan-ordering.controller.ts` 主路由、`scan-ordering-orders.controller.ts` 订单、`scan-ordering-table.controller.ts` 桌台区域/类型）+ dashboard / qr / table(+query) / area / type / order(+machine/transition/refund/refund-balance/pricing) / menu(category/product/spec/stock/query) / session-archive / print-settings / cloud-print / feie-print 等多 service；订单状态转换集中在 `scan-ordering-order-transition.service.ts`，用 `version: { increment: 1 }` 条件更新 + `ConflictException` 做乐观锁，409 由前端刷新后重试
+- `src/purely-profit/operations/service-call/*`：服务呼叫工作台 `ServiceCallManagementService` 管今日队列与处理状态机（`pending` → `processing` → `completed`，`completed` 必须先 `processing`），1s 定时轮询把超时工单置为 `expired`，处理完成/超时都通过 Club 实时服务发布 `service_call.updated`
+- 实时链路（Club 侧承载）：`src/purely-club/scan-ordering/scan-ordering.gateway.ts`（namespace `SCAN_ORDERING_NAMESPACE`，`subscribe.order`）与 `src/purely-club/service-call/service-call.gateway.ts`（namespace `SERVICE_CALL_NAMESPACE`，`subscribe.store`）；事件由 `scan-ordering-realtime.service.ts` / `service-call-realtime.service.ts` 发布（`order.created`、`order.status_changed`、`service_call.created`、`service_call.updated`），按 store / order / session 房间分发，事务提交前不发布；商家端复用同一实时链路
 - `src/purely-profit/stores/wechat-pay-encryption.service.ts`：门店微信支付敏感配置已抽成 AES-GCM 加解密 service
 - `src/purely-pulse/membership/*`：Pulse 会员域已拆成 admin controller、member/sub-account read、membership/points/beans/sub-account mutation、mutation state 与 query helper
 
@@ -305,6 +309,9 @@ src/purely-pulse/<domain>/
 - `purely-pulse/membership` 新增开发者管理能力时，优先判断属于 read、query、mutation state 还是某个具体 mutation service
 - 周期性后台任务不要再直接用 `setInterval` 挂在业务 service；优先放 `src/queue/*`，用 BullMQ processor + scheduler 承接
 - `operations/spaces` 这类复杂域继续沿用 `spaces-write`、`space-dashboard`、`space-reservations`、`space-session-*` 这类协作拆分
+- `operations/scan-ordering` 新增接口按 main / orders / tables 分 controller，service 按 dashboard / qr / table / order / menu / print 分域，不要再堆回单个大 service
+- 扫码点餐订单状态流转统一走 `scan-ordering-order-transition.service.ts` 的乐观锁状态机（带 `version` 条件更新），不要在 controller 或各业务 service 里各自 update 订单状态
+- 实时推送由 Club 侧 realtime service + gateway 统一发布；业务 service 不要自己 `new Socket.IO` 或直接操作房间，只调用 `xxx-realtime.service.publish*()`
 - 交班页班次解析继续由 `handover-page-shift.service.ts` 统一编排：`operationShiftRecord` 只用于当前用户可操作性与交班完成状态，`shiftRecord` 用于展示；判断“已交班且无后续班次”时，收银员优先以自己的最后班次作为基准，老板/经理按全店查找后续班次，避免把全店当前班次误当作收银员的基准
 - 判断交班页是否无有效班次时，若用户没有 `linkedEmployeeId`、没有可操作班次且没有本人精确班次，应立即返回无有效班次；不要把未排班的新注册用户提升为可查看全店班次。该短路不适用于已关联员工的合法监控场景
 - 数据库设计不要只围绕当前创建接口思考；第一次设计表结构时就要按未来列表、筛选、排序、聚合、导出、权限隔离、软删除、缓存失效与报表统计的压力反推字段与索引
@@ -396,7 +403,8 @@ Redis：
 8. 需要资源权限或可见门店判断时，优先接入 access / context service
 9. 需要持久化时接 Prisma
 10. 需要缓存时接 Redis、`CacheInvalidatorService`，必要时补 `CachePrewarmCycleService` / BullMQ 预热调度
-11. 新增环境变量时同步更新 `configuration.ts` 与 `.env.example`
+11. 需要实时推送时，通过 Club 侧 `scan-ordering-realtime.service.ts` / `service-call-realtime.service.ts` 发布事件（先落库成功再 publish），不要自己 new Socket.IO
+12. 新增环境变量时同步更新 `configuration.ts` 与 `.env.example`
 
 ## 快速边界判断
 
@@ -411,6 +419,8 @@ Redis：
 - 登录态保护：放 `guards` / `strategies`
 - 门店访问范围、权限上下文、目标对象解析：优先放 access / context service
 - 周期性异步任务：放 `queue` processor / scheduler，不要直接塞进 controller 或普通 service 的 `setInterval`
+- Socket 实时事件与房间分发：放 `purely-club/*/xxx.gateway.ts` + `xxx-realtime.service.ts`；业务 service 只调用 `publish*()`，不直接操作 socket
+- 订单状态机与乐观锁（version + ConflictException）：放 `operations/scan-ordering/scan-ordering-order-transition.service.ts`
 - 金额换算与聚合：优先放 `shared/money.utils.ts` 的 `Money` 值对象链路
 - 大批量异步 fan-out：优先复用 `shared/concurrency.utils.ts`
 - 基础设施连接：放 `prisma`、`redis`、`config`
@@ -442,5 +452,7 @@ Redis：
 - membership / dashboard：`src/purely-profit/member/platform-membership/platform-membership.service.ts`、`src/purely-profit/member/platform-membership/platform-membership-access.service.ts`、`src/purely-profit/dashboard/dashboard-home/dashboard-home.service.ts`
 - finance / marketing：`src/purely-profit/finance/finance.controller.ts`、`src/purely-profit/finance/finance.service.ts`、`src/purely-profit/marketing/marketing.module.ts`、`src/purely-profit/marketing/marketing-overview.controller.ts`、`src/purely-profit/marketing/marketing-customers.facade.service.ts`
 - staff / operations：`src/purely-profit/staff/employees/employees.controller.ts`、`src/purely-profit/staff/employees/employees-shift-definition.service.ts`、`src/purely-profit/operations/handover/handover.shared.ts`、`src/purely-profit/operations/handover/handover-page-shift.service.ts`、`src/purely-profit/operations/handover/handover-page-shift-selector.service.ts`、`src/purely-profit/operations/handover/handover-page-shift-record.service.ts`、`src/purely-profit/operations/spaces/spaces.module.ts`、`src/purely-profit/operations/spaces/space-session-read.service.ts`、`src/purely-profit/operations/spaces/space-session-settlement.service.ts`
-- club / pulse：`src/purely-profit/stores/wechat-pay-encryption.service.ts`、`src/purely-pulse/session/session.controller.ts`、`src/purely-pulse/pulse-store-context.service.ts`、`src/purely-pulse/membership/membership-admin.controller.ts`、`src/purely-pulse/membership/membership-admin-query.service.ts`、`src/purely-pulse/membership-settings/membership-settings.service.ts`
+- scan-ordering：`src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts`、`src/purely-profit/operations/scan-ordering/scan-ordering-orders.controller.ts`、`src/purely-profit/operations/scan-ordering/scan-ordering-table.controller.ts`、`src/purely-profit/operations/scan-ordering/scan-ordering-order-transition.service.ts`、`src/purely-profit/operations/scan-ordering/scan-ordering-cloud-print.service.ts`、`src/purely-profit/operations/scan-ordering/feie-print.service.ts`
+- service-call：`src/purely-profit/operations/service-call/service-call-management.controller.ts`、`src/purely-profit/operations/service-call/service-call-management.service.ts`、`src/purely-profit/operations/service-call/dto/process-service-call.dto.ts`
+- club / pulse：`src/purely-profit/stores/wechat-pay-encryption.service.ts`、`src/purely-club/scan-ordering/scan-ordering.gateway.ts`、`src/purely-club/scan-ordering/scan-ordering-realtime.service.ts`、`src/purely-club/service-call/service-call.gateway.ts`、`src/purely-club/service-call/service-call-realtime.service.ts`、`src/purely-pulse/session/session.controller.ts`、`src/purely-pulse/pulse-store-context.service.ts`、`src/purely-pulse/membership/membership-admin.controller.ts`、`src/purely-pulse/membership/membership-admin-query.service.ts`、`src/purely-pulse/membership-settings/membership-settings.service.ts`
 - 数据基线：`prisma/schema.prisma`、`.env.example`
