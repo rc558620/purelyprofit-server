@@ -7,6 +7,8 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 export interface ScanOrderingPickupSettings {
   /** 语音播报开关（商家端控制，顾客端据此展示取餐通知弹窗）。 */
   pickupVoiceEnabled: boolean;
+  /** 出餐自动打印开关（商家端控制，开启后点击出餐自动唤起小票打印）。 */
+  serveAutoPrintEnabled: boolean;
 }
 
 /**
@@ -26,10 +28,13 @@ export class ScanOrderingPickupSettingsService {
   async getByStoreId(storeId: number): Promise<ScanOrderingPickupSettings> {
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
-      select: { pickupVoiceEnabled: true },
+      select: { pickupVoiceEnabled: true, serveAutoPrintEnabled: true },
     });
     if (!store) throw new NotFoundException('门店不存在');
-    return { pickupVoiceEnabled: store.pickupVoiceEnabled };
+    return {
+      pickupVoiceEnabled: store.pickupVoiceEnabled,
+      serveAutoPrintEnabled: store.serveAutoPrintEnabled,
+    };
   }
 
   /** 商家端读取当前门店配置。 */
@@ -40,18 +45,18 @@ export class ScanOrderingPickupSettingsService {
     return this.getByStoreId(storeId);
   }
 
-  /** 商家端更新当前门店配置。 */
+  /** 商家端更新当前门店配置（支持部分更新：只更新传入的字段）。 */
   async updateForMerchant(
     user: AuthenticatedUser,
-    pickupVoiceEnabled: boolean,
+    updates: Partial<ScanOrderingPickupSettings>,
   ): Promise<ScanOrderingPickupSettings> {
     const storeId = await this.resolveMerchantStoreId(user);
     await this.prisma.store.update({
       where: { id: storeId },
-      data: { pickupVoiceEnabled },
+      data: updates,
     });
-    this.logUpdate(storeId, pickupVoiceEnabled);
-    return { pickupVoiceEnabled };
+    this.logUpdate(storeId, updates);
+    return this.getByStoreId(storeId);
   }
 
   private async resolveMerchantStoreId(
@@ -65,10 +70,10 @@ export class ScanOrderingPickupSettingsService {
     );
   }
 
-  private logUpdate(storeId: number, enabled: boolean): void {
+  private logUpdate(storeId: number, updates: Partial<ScanOrderingPickupSettings>): void {
     // 配置变更日志；不依赖额外 logger，避免新增基础设施
     console.info(
-      `[pickup-settings] storeId=${storeId} pickupVoiceEnabled=${String(enabled)} pid=${process.pid}`,
+      `[pickup-settings] storeId=${storeId} updates=${JSON.stringify(updates)} pid=${process.pid}`,
     );
   }
 }

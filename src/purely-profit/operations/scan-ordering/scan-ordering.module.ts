@@ -29,6 +29,9 @@ import { ScanOrderingMenuSpecService } from './scan-ordering-menu-spec.service';
 import { ScanOrderingMenuStockService } from './scan-ordering-menu-stock.service';
 import { ScanOrderingMenuQueryService } from './scan-ordering-menu-query.service';
 import { ScanOrderingSessionArchiveService } from './scan-ordering-session-archive.service';
+import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
+import { FeiePrintService } from './feie-print.service';
+import { ScanOrderingCloudPrintService } from './scan-ordering-cloud-print.service';
 
 /** 扫码点餐领域模块：商家管理、消费者点餐、订单与支付共享同一领域规则。 */
 @Module({
@@ -68,6 +71,9 @@ import { ScanOrderingSessionArchiveService } from './scan-ordering-session-archi
     ScanOrderingMenuQueryService,
     ScanOrderingMenuService,
     ScanOrderingSessionArchiveService,
+    ScanOrderingPrintSettingsService,
+    FeiePrintService,
+    ScanOrderingCloudPrintService,
   ],
   exports: [ScanOrderingPricingService, ScanOrderingSessionArchiveService],
 })

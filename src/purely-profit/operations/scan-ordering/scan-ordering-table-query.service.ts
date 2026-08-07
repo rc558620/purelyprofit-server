@@ -31,12 +31,24 @@ export class ScanOrderingTableQueryService {
           // left 会话属于清桌前的同一轮用餐，即使软删除仍要保留其待履约订单。
           // active 会话必须有效，过期会话不应继续占用桌台。
           where: {
+            // 只要当前 active 会话还有未完成履约订单，就必须继续占用桌台。
+            // 会话 TTL 仅限制 C 端继续点餐，不能让待接单/制作中订单变成“空桌”。
             OR: [
               { status: 'left' },
               {
                 status: 'active',
                 deletedAt: null,
-                expiresAt: { gt: new Date() },
+                OR: [
+                  { expiresAt: { gt: new Date() } },
+                  {
+                    orders: {
+                      some: {
+                        deletedAt: null,
+                        status: { in: ['pending_payment', 'pending_acceptance', 'preparing', 'served'] },
+                      },
+                    },
+                  },
+                ],
               },
             ],
           },
@@ -79,7 +91,8 @@ export class ScanOrderingTableQueryService {
     return tables.map((table) => {
       const now = new Date();
       const activeSessions = table.sessions.filter(
-        (session) => session.status === 'active' && session.expiresAt > now,
+        (session) => session.status === 'active'
+          && (session.expiresAt > now || session.orders.length > 0),
       );
       const activeSession = activeSessions[0] ?? null;
       // left 会话不能单独恢复已清空桌台：它只有在存在有效 active 会话时，

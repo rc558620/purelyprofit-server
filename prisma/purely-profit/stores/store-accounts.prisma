@@ -49,6 +49,16 @@ model Store {
   profileMetadata             Json?                         @map("profile_metadata")
   /// 扫码点餐语音播报开关（默认关闭，商家端修改，顾客端据此展示取餐通知弹窗）
   pickupVoiceEnabled          Boolean                       @default(false) @map("pickup_voice_enabled")
+  /// 扫码点餐出餐自动打印开关（默认关闭，商家端修改，开启后点击出餐自动唤起小票打印）
+  serveAutoPrintEnabled       Boolean                       @default(false) @map("serve_auto_print_enabled")
+  /// 收银台顾客票打印通道（browser=浏览器系统打印 / cloud=飞鹅云打印 / off=关闭），默认浏览器打印
+  cashierPrintChannel         String                        @default("browser") @map("cashier_print_channel")
+  /// 后厨制作单打印通道（browser=浏览器系统打印 / cloud=飞鹅云打印 / off=关闭），默认关闭
+  kitchenPrintChannel         String                        @default("off") @map("kitchen_print_channel")
+  /// 收银台飞鹅云打印机 SN（cashierPrintChannel=cloud 时必填）
+  cashierCloudPrinterSn       String?                       @map("cashier_cloud_printer_sn")
+  /// 后厨飞鹅云打印机 SN（kitchenPrintChannel=cloud 时必填）
+  kitchenCloudPrinterSn       String?                       @map("kitchen_cloud_printer_sn")
   costRecords                 CostRecord[]
   employeeDepartments         EmployeeDepartment[]
   employeeLeaves              EmployeeLeave[]

@@ -46,6 +46,12 @@ import type { ScanOrderingMenuProductResponse } from './scan-ordering-menu-produ
 import type { ScanOrderingPickupSettings } from '../../../purely-club/scan-ordering/scan-ordering-pickup-settings.service';
 import { ScanOrderingPickupSettingsService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-settings.service';
 import { UpdateScanOrderingPickupSettingsDto } from './dto/scan-ordering-pickup-settings.dto';
+import type { ScanOrderingPrintSettings } from './scan-ordering-print-settings.service';
+import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
+import { UpdateScanOrderingPrintSettingsDto } from './dto/scan-ordering-print-settings.dto';
+import { ScanOrderingCloudPrintService } from './scan-ordering-cloud-print.service';
+import { ScanOrderingPrintOrderDto } from './dto/scan-ordering-print-action.dto';
+import { ScanOrderingPrintTestDto } from './dto/scan-ordering-print-action.dto';
 
 @ApiTags('PurelyProfit Scan Ordering - Core')
 @ApiBearerAuth()
@@ -60,6 +66,8 @@ export class ScanOrderingMainController {
     private readonly menuService: ScanOrderingMenuService,
     private readonly tableService: ScanOrderingTableService,
     private readonly pickupSettingsService: ScanOrderingPickupSettingsService,
+    private readonly printSettingsService: ScanOrderingPrintSettingsService,
+    private readonly cloudPrintService: ScanOrderingCloudPrintService,
   ) {}
 
   @Get('dashboard')
@@ -82,15 +90,55 @@ export class ScanOrderingMainController {
 
   @Patch('pickup-settings')
   @RequirePermissions('scan-ordering:order-process')
-  @ApiOperation({ summary: '更新门店扫码点餐取餐语音播报配置' })
+  @ApiOperation({ summary: '更新门店扫码点餐取餐配置（语音播报 / 出餐自动打印开关）' })
   updatePickupSettings(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateScanOrderingPickupSettingsDto,
   ): Promise<ScanOrderingPickupSettings> {
-    return this.pickupSettingsService.updateForMerchant(
-      user,
-      dto.pickupVoiceEnabled,
-    );
+    return this.pickupSettingsService.updateForMerchant(user, dto);
+  }
+
+  @Get('print-settings')
+  @RequirePermissions('scan-ordering:view')
+  @ApiOperation({ summary: '获取门店扫码点餐打印配置（收银台/后厨通道与云打印机 SN）' })
+  getPrintSettings(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ScanOrderingPrintSettings> {
+    return this.printSettingsService.getForMerchant(user);
+  }
+
+  @Patch('print-settings')
+  @RequirePermissions('scan-ordering:order-process')
+  @ApiOperation({ summary: '更新门店扫码点餐打印配置（支持部分更新）' })
+  updatePrintSettings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateScanOrderingPrintSettingsDto,
+  ): Promise<ScanOrderingPrintSettings> {
+    return this.printSettingsService.updateForMerchant(user, dto);
+  }
+
+  @Post('print')
+  @RequirePermissions('scan-ordering:order-process')
+  @ApiOperation({ summary: '下发云打印任务（飞鹅）：收银台顾客票 / 后厨制作单' })
+  printOrder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ScanOrderingPrintOrderDto,
+  ): Promise<{ orderId: string }> {
+    return this.cloudPrintService
+      .printForMerchant(user, dto.target, dto.orderId)
+      .then((orderId) => ({ orderId }));
+  }
+
+  @Post('print/test')
+  @RequirePermissions('scan-ordering:order-process')
+  @ApiOperation({ summary: '云打印测试（飞鹅）：向目标云打印机下发测试小票' })
+  testPrint(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ScanOrderingPrintTestDto,
+  ): Promise<{ orderId: string }> {
+    return this.cloudPrintService
+      .testPrintForMerchant(user, dto.target)
+      .then((orderId) => ({ orderId }));
   }
 
   // Menu Management Routes

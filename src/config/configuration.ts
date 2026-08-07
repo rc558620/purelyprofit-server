@@ -212,6 +212,19 @@ export default () => ({
       process.env.SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY ?? '',
   },
 
+  /**
+   * 飞鹅云打印配置（商家扫码点餐云打印通道）。
+   * 未配置时云打印接口降级为不可用，不影响浏览器打印通道。
+   */
+  feiePrint: {
+    /** 飞鹅云后台注册的开发者账号名 */
+    user: process.env.FEIE_PRINT_USER ?? '',
+    /** 飞鹅云后台注册后生成的 UKEY（签名用，严禁泄露） */
+    ukey: process.env.FEIE_PRINT_UKEY ?? '',
+    /** 飞鹅开放接口地址（默认正式地址） */
+    apiUrl: process.env.FEIE_PRINT_API_URL ?? 'https://api.de.feieyun.com/Api/Open/',
+  },
+
   auth: {
     passwordResetCodeTtlSeconds: parseInt(
       process.env.AUTH_PASSWORD_RESET_CODE_TTL_SECONDS ?? '600',

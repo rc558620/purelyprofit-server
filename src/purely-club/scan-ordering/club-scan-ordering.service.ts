@@ -164,8 +164,18 @@ export class ClubScanOrderingService {
       where: {
         clubUserId: user.id,
         status: 'active',
-        expiresAt: { gt: new Date() },
         deletedAt: null,
+        OR: [
+          { expiresAt: { gt: new Date() } },
+          {
+            orders: {
+              some: {
+                deletedAt: null,
+                status: { in: ['pending_payment', 'pending_acceptance', 'preparing', 'served'] },
+              },
+            },
+          },
+        ],
       },
       orderBy: { lastActiveAt: 'desc' },
       include: {
