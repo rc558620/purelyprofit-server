@@ -94,8 +94,12 @@ describe('ClubRecordsService', () => {
     await expect(service.list(currentContext, {})).resolves.toEqual({
       items,
       total: 1, // 筛选后条目数 = items.length
-      nextCursorCreatedAt: '2024-11-20T10:30:00.000Z',
-      nextCursorId: 'recharge-18',
+      nextCursor: Buffer.from(
+        JSON.stringify({
+          createdAt: '2024-11-20T10:30:00.000Z',
+          id: 'recharge-18',
+        }),
+      ).toString('base64url'),
       summary: {
         totalRechargeAmount: 580,
         totalConsumeAmount: 0,
@@ -107,8 +111,7 @@ describe('ClubRecordsService', () => {
     expect(clubRecordQueryService.listLedgerEntries).toHaveBeenCalledWith(
       11,
       98,
-      undefined,
-      undefined,
+      { limit: undefined, cursor: undefined, filterType: 'all' },
     );
     expect(clubRecordViewService.buildRecordItems).toHaveBeenCalledWith({
       entries,
@@ -118,8 +121,14 @@ describe('ClubRecordsService', () => {
     });
   });
 
-  it('list 透传筛选类型和分页游标给下游', async () => {
+  it('list 透传筛选类型和单参数游标给下游', async () => {
     const customer = { id: 98, balance: 58000 };
+    const cursor = Buffer.from(
+      JSON.stringify({
+        createdAt: '2024-11-20T10:30:00.000Z',
+        id: 'recharge-18',
+      }),
+    ).toString('base64url');
     clubRecordQueryService.findCustomerByStoreAndPhone.mockResolvedValue(
       customer,
     );
@@ -136,14 +145,12 @@ describe('ClubRecordsService', () => {
     await expect(
       service.list(currentContext, {
         type: 'recharge',
-        cursorCreatedAt: '2024-11-20T10:30:00.000Z',
-        cursorId: 'recharge-18',
+        cursor,
       }),
     ).resolves.toEqual({
       items: [],
       total: 0,
-      nextCursorCreatedAt: null,
-      nextCursorId: null,
+      nextCursor: null,
       summary: {
         totalRechargeAmount: 580,
         totalConsumeAmount: 199,
@@ -155,12 +162,26 @@ describe('ClubRecordsService', () => {
     expect(clubRecordQueryService.listLedgerEntries).toHaveBeenCalledWith(
       11,
       98,
-      undefined,
       {
-        createdAt: new Date('2024-11-20T10:30:00.000Z'),
-        id: 'recharge-18',
+        limit: undefined,
+        cursor: {
+          createdAt: new Date('2024-11-20T10:30:00.000Z'),
+          id: 'recharge-18',
+        },
+        filterType: 'recharge',
       },
     );
+  });
+
+  it('list 收到非法游标时抛出 400', async () => {
+    const customer = { id: 98, balance: 58000 };
+    clubRecordQueryService.findCustomerByStoreAndPhone.mockResolvedValue(
+      customer,
+    );
+
+    await expect(
+      service.list(currentContext, { cursor: 'not-a-valid-cursor' }),
+    ).rejects.toThrow('分页游标解析失败');
   });
 
   it('list 在当前门店没有营销顾客档案时返回空列表', async () => {
@@ -169,8 +190,7 @@ describe('ClubRecordsService', () => {
     await expect(service.list(currentContext, {})).resolves.toEqual({
       items: [],
       total: 0,
-      nextCursorCreatedAt: null,
-      nextCursorId: null,
+      nextCursor: null,
       summary: {
         totalRechargeAmount: 0,
         totalConsumeAmount: 0,
@@ -180,9 +200,9 @@ describe('ClubRecordsService', () => {
     expect(clubRecordViewService.buildRecordItems).not.toHaveBeenCalled();
   });
 
-  it('list 返回的 total 为筛选后的 items 条目数', async () => {
+  it('list 返回查询层按类型筛选后的 total', async () => {
     const customer = { id: 98, balance: 35000 };
-    // 模拟 query 返回 4 条，但筛选后只有 2 条
+    // 模拟 query 返回筛选后总数 4 条，view 层再过滤无效行后实际返回 2 条
     const entries = [
       {
         id: 'recharge-18',
@@ -219,7 +239,7 @@ describe('ClubRecordsService', () => {
     );
     clubRecordQueryService.listLedgerEntries.mockResolvedValue({
       items: entries,
-      total: 4, // 数据库原始总数
+      total: 4, // 查询层按类型筛选后的总数
     });
     clubRecordQueryService.calculateSummary.mockResolvedValue({
       totalRechargeAmount: 500,
@@ -228,7 +248,7 @@ describe('ClubRecordsService', () => {
     clubRecordViewService.buildRecordItems.mockReturnValue(filteredItems);
 
     const result = await service.list(currentContext, { type: 'recharge' });
-    // total 应为筛选后的条目数，而非数据库原始总数
-    expect(result.total).toBe(1);
+    // total 应为查询层筛选后的总条数，而非当前页 items 条数
+    expect(result.total).toBe(4);
   });
 });

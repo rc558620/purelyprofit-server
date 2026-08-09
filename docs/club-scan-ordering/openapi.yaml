@@ -1,10 +1,11 @@
 openapi: 3.0.3
 info:
-  title: PurelyClub 扫码点餐 API
+  title: PurelyClub 消费者端 API（扫码点餐 + 积分记录）
   version: 0.1.0-draft
   description: |
-    purelyClub 消费者端扫码点餐契约草案。
+    purelyClub 消费者端契约草案：扫码点餐链路（桌码/会话/菜单/购物车/订单/服务呼叫）与积分记录链路。
     所有金额原始值均为整数分；服务端是价格、优惠、库存、订单和支付状态的唯一权威来源。
+    积分汇总与余额快照由服务端计算返回，客户端仅做展示。
 servers:
   - url: /api
 security:
@@ -12,6 +13,8 @@ security:
 tags:
   - name: Club Scan Ordering
     description: purelyClub 消费者端扫码点餐
+  - name: Club Points
+    description: purelyClub 消费者端积分记录
 paths:
   /club/scan-ordering/scan/resolve:
     post:
@@ -351,6 +354,49 @@ paths:
                 $ref: '#/components/schemas/ServiceCall'
         '429':
           $ref: '#/components/responses/ServiceCallTooFrequent'
+  /club/points/records:
+    get:
+      tags: [Club Points]
+      summary: 获取当前门店积分明细列表（游标分页）
+      description: |
+        聚合当前登录 purelyClub 用户在当前门店下的积分获得与消耗明细。
+        支持按类型筛选与单参数游标分页；积分汇总与余额快照由服务端计算返回。
+      parameters:
+        - name: type
+          in: query
+          required: false
+          description: 积分筛选类型；不传时等同于 all
+          schema:
+            type: string
+            enum: [all, earn, redeem]
+            default: all
+        - name: limit
+          in: query
+          required: false
+          description: 每页返回条数，默认 50，最大 200
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          description: 分页游标：上一页响应中的 nextCursor 值，原样回传即可；不传表示第一页
+          schema:
+            type: string
+            maxLength: 256
+      responses:
+        '200':
+          description: 积分明细列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PointsRecordsResponse'
+        '400':
+          $ref: '#/components/responses/PointsCursorInvalid'
+        '401':
+          $ref: '#/components/responses/AuthRequired'
 components:
   securitySchemes:
     bearerAuth:
@@ -468,6 +514,18 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    PointsCursorInvalid:
+      description: 分页游标解析失败或格式不合法
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            statusCode: 400
+            code: CLUB_POINTS_CURSOR_INVALID
+            message: 分页游标解析失败
+            requestId: req_01J
+            timestamp: '2026-07-23T12:00:00.000Z'
   schemas:
     ResolveScanQrRequest:
       type: object
@@ -1168,3 +1226,60 @@ components:
         timestamp:
           type: string
           format: date-time
+    PointsRecord:
+      type: object
+      required: [id, type, amount, description, createdAt, balanceSnapshot]
+      properties:
+        id:
+          type: string
+          description: 积分记录 ID
+        type:
+          type: string
+          enum: [earn, redeem, expire, adjust]
+          description: 积分变动类型
+        amount:
+          type: integer
+          description: 积分变动数量；获得为正，消耗/过期/扣减为负
+        description:
+          type: string
+          description: 积分变动说明
+        createdAt:
+          type: string
+          format: date-time
+          description: 记录时间
+        balanceSnapshot:
+          type: integer
+          description: 变动后积分余额快照（由服务端按已加载记录正推）
+        storeName:
+          type: string
+          nullable: true
+          description: 关联门店名称
+    PointsRecordSummary:
+      type: object
+      required: [totalEarned, totalRedeemed]
+      properties:
+        totalEarned:
+          type: integer
+          description: 累计获得积分（所有 amount > 0 的记录之和）
+        totalRedeemed:
+          type: integer
+          description: 累计消耗积分（所有 amount < 0 的记录绝对值之和）
+    PointsRecordsResponse:
+      type: object
+      required: [items, total, nextCursor, summary]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PointsRecord'
+          description: 积分明细列表
+        total:
+          type: integer
+          description: 符合当前筛选条件的记录总条数
+        nextCursor:
+          type: string
+          nullable: true
+          description: 下一页游标值，原样传给下次请求的 cursor 参数即可；为 null 表示已到最后一页
+        summary:
+          $ref: '#/components/schemas/PointsRecordSummary'
+          description: 积分汇总统计

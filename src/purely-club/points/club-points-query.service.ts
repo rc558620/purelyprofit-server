@@ -22,6 +22,24 @@ export interface ClubPointsCustomerRecord {
   points: number;
 }
 
+/** 积分记录游标载荷（解码后）：时间 + ID 用于定位，totalEffect 用于余额快照连续正推 */
+export interface ClubPointsCursorPayload {
+  /** 上一页最后一条记录的创建时间 ISO 字符串 */
+  createdAt: string;
+  /** 上一页最后一条记录的数字 ID */
+  id: number;
+  /** 截止上一页最后一条记录（含）在当前筛选条件下的累计变动量 */
+  totalEffect: number;
+}
+
+/** 积分记录分页查询参数 */
+export interface ListPointsRecordsOptions {
+  /** 每页条数，默认 50，最大 200 */
+  limit?: number;
+  /** 分页游标；不传表示第一页 */
+  cursor?: ClubPointsCursorPayload;
+}
+
 /**
  * 将前端筛选类型映射为 Prisma where 条件。
  * - earn：amount > 0（获得类：earn + gift）
@@ -120,18 +138,40 @@ export class ClubPointsQueryService {
 
   /**
    * 列出指定顾客在指定门店的积分明细（按时间倒序）。
-   * 支持按类型筛选，筛选条件下推到 DB 层确保 total 与 items 一致。
+   * 支持按类型筛选与游标分页，筛选条件下推到 DB 层确保 total 与 items 一致。
+   * 返回 baseEffect（游标之前的累计变动量）供上层余额快照正推。
    */
   async listPointsRecords(
     storeId: number,
     customerId: number,
     filterType: ClubPointsFilterValue = 'all',
-    limit = 200,
-  ): Promise<{ items: ClubPointsRecordRow[]; total: number }> {
+    options: ListPointsRecordsOptions = {},
+  ): Promise<{
+    items: ClubPointsRecordRow[];
+    total: number;
+    /** 本次查询起点之前的累计变动量（首屏为 0，翻页取游标 totalEffect） */
+    baseEffect: number;
+  }> {
+    const { limit = 50, cursor } = options;
+
+    // 构建 cursor 过滤条件：比上一页最后一条更早的记录（同刻按 id 更小）
+    const cursorFilter = cursor
+      ? {
+          OR: [
+            { createdAt: { lt: cursor.createdAt } },
+            {
+              createdAt: cursor.createdAt,
+              id: { lt: cursor.id },
+            },
+          ],
+        }
+      : {};
+
     const where = {
       storeId,
       customerId,
       ...buildPointsRecordTypeFilter(filterType),
+      ...cursorFilter,
     } satisfies Prisma.MarketingPointsRecordWhereInput;
 
     const [items, total] = await Promise.all([
@@ -150,6 +190,10 @@ export class ClubPointsQueryService {
       this.prisma.marketingPointsRecord.count({ where }),
     ]);
 
-    return { items, total };
+    return {
+      items,
+      total,
+      baseEffect: cursor?.totalEffect ?? 0,
+    };
   }
 }

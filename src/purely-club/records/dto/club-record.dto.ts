@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export const CLUB_RECORD_FILTER_VALUES = [
   'all',
@@ -38,22 +46,15 @@ export class ListClubRecordsQueryDto {
   limit?: number;
 
   @ApiPropertyOptional({
-    example: '2024-11-20T10:30:00.000Z',
+    example:
+      'eyJjcmVhdGVkQXQiOiIyMDI2LTA4LTA4VDA2OjAwOjAzLjI0NVoiLCJpZCI6ImNvbnN1bWUtMzYxIn0',
     description:
-      '分页游标：上一页最后一条流水的 createdAt（ISO 字符串），用于加载更早的记录',
+      '分页游标：上一页响应中的 nextCursor 值，原样回传即可；不传表示第一页。内部编码了上一页最后一条流水的创建时间与 ID，用于稳定翻页',
   })
   @IsOptional()
   @IsString({ message: 'cursor 必须是字符串' })
-  cursorCreatedAt?: string;
-
-  @ApiPropertyOptional({
-    example: 'consume-31',
-    description:
-      '分页游标：上一页最后一条流水的 ID，与 cursorCreatedAt 配合使用',
-  })
-  @IsOptional()
-  @IsString({ message: 'cursorId 必须是字符串' })
-  cursorId?: string;
+  @MaxLength(256, { message: 'cursor 过长' })
+  cursor?: string;
 }
 
 export class ClubRecordDto {
@@ -120,18 +121,13 @@ export class ClubRecordsResponseDto {
   total: number;
 
   @ApiPropertyOptional({
-    example: '2024-11-18T14:20:00.000Z',
-    description: '下一页游标的 createdAt 值；为 null 表示已到最后一页',
+    example:
+      'eyJjcmVhdGVkQXQiOiIyMDI2LTA4LTA4VDA2OjAwOjAzLjI0NVoiLCJpZCI6ImNvbnN1bWUtMzYxIn0',
+    description:
+      '下一页游标值，原样传给下次请求的 cursor 参数即可；为 null 表示已到最后一页',
     nullable: true,
   })
-  nextCursorCreatedAt: string | null;
-
-  @ApiPropertyOptional({
-    example: 'consume-31',
-    description: '下一页游标的 ID 值；为 null 表示已到最后一页',
-    nullable: true,
-  })
-  nextCursorId: string | null;
+  nextCursor: string | null;
 
   @ApiProperty({
     description: '流水汇总统计',

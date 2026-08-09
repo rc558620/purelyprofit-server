@@ -6,6 +6,7 @@ import type {
   ClubLedgerCustomerRecord,
   ClubLedgerEntry,
   ClubRechargeLedgerRow,
+  ListLedgerEntriesOptions,
 } from './club-records.types';
 import type { ClubRecordSummaryDto } from './dto/club-record.dto';
 
@@ -90,17 +91,19 @@ export class ClubRecordQueryService {
   /**
    * 列出指定客户在指定门店的统一流水条目（按时间倒序）。
    *
-   * @param storeId   门店 ID
+   * 类型筛选在数据库查询层完成（recharge=充值与赠送，consume=消费与退款），
+   * 确保每页稳定返回 limit 条且游标基于筛选后数据。
+   *
+   * @param storeId    门店 ID
    * @param customerId 营销客户 ID
-   * @param limit     每页条数
-   * @param cursor    分页游标（上一页最后一条的 createdAt + id），为空则从最新开始
+   * @param options    分页与筛选参数
    */
   async listLedgerEntries(
     storeId: number,
     customerId: number,
-    limit = 50,
-    cursor?: { createdAt: Date; id: string },
+    options: ListLedgerEntriesOptions = {},
   ): Promise<{ items: ClubLedgerEntry[]; total: number }> {
+    const { limit = 50, cursor, filterType = 'all' } = options;
     const overfetchLimit = limit * QUERY_OVERFETCH;
 
     // 构建 cursor 过滤条件：比上一页最后一条更早的记录
@@ -116,13 +119,20 @@ export class ClubRecordQueryService {
         }
       : {};
 
+    // 充值表类型过滤：all/recharge 排除退款，consume 仅退款；消费表在 recharge 筛选下无需查询
+    const rechargeTypeFilter =
+      filterType === 'consume'
+        ? { type: 'refund' as const }
+        : { type: { not: 'refund' as const } };
+    const needConsumptionTable = filterType !== 'recharge';
+
     const [recharges, consumptions, rechargeCount, consumptionCount] =
       await Promise.all([
         this.prisma.marketingRecharge.findMany({
           where: {
             storeId,
             customerId,
-            type: { not: 'refund' },
+            ...rechargeTypeFilter,
             ...cursorFilter,
           },
           select: {
@@ -137,33 +147,51 @@ export class ClubRecordQueryService {
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           take: overfetchLimit,
         }),
-        this.prisma.marketingConsumption.findMany({
-          where: {
-            storeId,
-            customerId,
-            ...cursorFilter,
-          },
-          select: {
-            id: true,
-            amount: true,
-            balancePaid: true,
-            itemsSummary: true,
-            createdAt: true,
-          },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: overfetchLimit,
-        }),
+        needConsumptionTable
+          ? this.prisma.marketingConsumption.findMany({
+              where: {
+                storeId,
+                customerId,
+                ...cursorFilter,
+              },
+              select: {
+                id: true,
+                amount: true,
+                balancePaid: true,
+                itemsSummary: true,
+                createdAt: true,
+              },
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+              take: overfetchLimit,
+            })
+          : Promise.resolve<ClubConsumptionLedgerRow[]>([]),
         this.prisma.marketingRecharge.count({
-          where: { storeId, customerId, type: { not: 'refund' } },
+          where: { storeId, customerId, ...rechargeTypeFilter },
         }),
-        this.prisma.marketingConsumption.count({
-          where: { storeId, customerId },
-        }),
+        needConsumptionTable
+          ? this.prisma.marketingConsumption.count({
+              where: { storeId, customerId },
+            })
+          : Promise.resolve(0),
       ]);
 
-    const items = [
-      ...recharges.map((row) => this.mapRechargeRow(row)),
-      ...consumptions.map((row) => this.mapConsumptionRow(row)),
+    return {
+      items: this.mergeAndSliceEntries(recharges, consumptions, limit),
+      total: rechargeCount + consumptionCount,
+    };
+  }
+
+  /**
+   * 合并充值与消费条目：过滤无效行后按时间倒序（同刻按 id 倒序）裁剪到 limit。
+   */
+  private mergeAndSliceEntries(
+    rechargeRows: ClubRechargeLedgerRow[],
+    consumptionRows: ClubConsumptionLedgerRow[],
+    limit: number,
+  ): ClubLedgerEntry[] {
+    return [
+      ...rechargeRows.map((row) => this.mapRechargeRow(row)),
+      ...consumptionRows.map((row) => this.mapConsumptionRow(row)),
     ]
       .filter((entry): entry is ClubLedgerEntry => entry !== null)
       .sort((left, right) => {
@@ -174,11 +202,6 @@ export class ClubRecordQueryService {
         return right.id.localeCompare(left.id);
       })
       .slice(0, limit);
-
-    return {
-      items,
-      total: rechargeCount + consumptionCount,
-    };
   }
 
   /**

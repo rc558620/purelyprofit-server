@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export const CLUB_POINTS_FILTER_VALUES = ['all', 'earn', 'redeem'] as const;
 export type ClubPointsFilterValue = (typeof CLUB_POINTS_FILTER_VALUES)[number];
@@ -22,6 +30,27 @@ export class ListClubPointsRecordsQueryDto {
   @IsOptional()
   @IsIn(CLUB_POINTS_FILTER_VALUES, { message: '积分筛选类型不合法' })
   type?: ClubPointsFilterValue;
+
+  @ApiPropertyOptional({
+    example: 50,
+    description: '每页返回条数，默认 50，最大 200',
+  })
+  @IsOptional()
+  @IsInt({ message: 'limit 必须是整数' })
+  @Min(1, { message: 'limit 最小为 1' })
+  @Max(200, { message: 'limit 最大为 200' })
+  limit?: number;
+
+  @ApiPropertyOptional({
+    example:
+      'eyJjcmVhdGVkQXQiOiIyMDI2LTA4LTA4VDA2OjAwOjAzLjI0NVoiLCJpZCI6MTgsInRvdGFsRWZmZWN0IjoxMjB9',
+    description:
+      '分页游标：上一页响应中的 nextCursor 值，原样回传即可；不传表示第一页。内部编码了上一页最后一条积分的创建时间、ID 与已加载记录累计变动量，用于稳定翻页并保证余额快照连续',
+  })
+  @IsOptional()
+  @IsString({ message: 'cursor 必须是字符串' })
+  @MaxLength(256, { message: 'cursor 过长' })
+  cursor?: string;
 }
 
 export class ClubPointsRecordDto {
@@ -89,6 +118,15 @@ export class ClubPointsRecordsResponseDto {
 
   @ApiProperty({ example: 42, description: '符合当前筛选条件的记录总条数' })
   total: number;
+
+  @ApiPropertyOptional({
+    example:
+      'eyJjcmVhdGVkQXQiOiIyMDI2LTA4LTA4VDA2OjAwOjAzLjI0NVoiLCJpZCI6MTgsInRvdGFsRWZmZWN0IjoxMjB9',
+    description:
+      '下一页游标值，原样传给下次请求的 cursor 参数即可；为 null 表示已到最后一页',
+    nullable: true,
+  })
+  nextCursor: string | null;
 
   @ApiProperty({
     description: '积分汇总统计',

@@ -298,7 +298,7 @@ describe('ClubRecordQueryService', () => {
         id: 'consume-31',
       };
 
-      await service.listLedgerEntries(11, 98, 50, cursor);
+      await service.listLedgerEntries(11, 98, { limit: 50, cursor });
 
       // 验证 findMany 调用中包含了 cursor 过滤条件
       const rechargeCall =
@@ -328,6 +328,67 @@ describe('ClubRecordQueryService', () => {
       const rechargeCall =
         prismaService.marketingRecharge.findMany.mock.calls[0][0];
       expect(rechargeCall.where.OR).toBeUndefined();
+    });
+
+    it('recharge 筛选时只查充值表且不查消费表', async () => {
+      prismaService.marketingRecharge.findMany.mockResolvedValue([
+        {
+          id: 18,
+          amount: 50000,
+          giftAmount: 8000,
+          totalAmount: 58000,
+          type: 'recharge',
+          note: null,
+          createdAt: new Date('2024-11-20T10:30:00.000Z'),
+        },
+      ]);
+      prismaService.marketingConsumption.findMany.mockResolvedValue([]);
+      prismaService.marketingRecharge.count.mockResolvedValue(1);
+      prismaService.marketingConsumption.count.mockResolvedValue(0);
+
+      const result = await service.listLedgerEntries(11, 98, {
+        filterType: 'recharge',
+      });
+
+      expect(
+        prismaService.marketingConsumption.findMany,
+      ).not.toHaveBeenCalled();
+      expect(prismaService.marketingConsumption.count).not.toHaveBeenCalled();
+      expect(result.items).toHaveLength(1);
+      expect(result.total).toBe(1);
+      // 充值表类型过滤：排除退款
+      const rechargeCall =
+        prismaService.marketingRecharge.findMany.mock.calls[0][0];
+      expect(rechargeCall.where.type).toEqual({ not: 'refund' });
+    });
+
+    it('consume 筛选时充值表仅查退款且消费表正常查询', async () => {
+      prismaService.marketingRecharge.findMany.mockResolvedValue([
+        {
+          id: 22,
+          amount: 5000,
+          giftAmount: 0,
+          totalAmount: 5000,
+          type: 'refund',
+          note: null,
+          createdAt: new Date('2024-11-22T10:30:00.000Z'),
+        },
+      ]);
+      prismaService.marketingConsumption.findMany.mockResolvedValue([]);
+      prismaService.marketingRecharge.count.mockResolvedValue(1);
+      prismaService.marketingConsumption.count.mockResolvedValue(0);
+
+      const result = await service.listLedgerEntries(11, 98, {
+        filterType: 'consume',
+      });
+
+      expect(prismaService.marketingConsumption.findMany).toHaveBeenCalled();
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].id).toBe('refund-22');
+      // 充值表类型过滤：仅退款
+      const rechargeCall =
+        prismaService.marketingRecharge.findMany.mock.calls[0][0];
+      expect(rechargeCall.where.type).toEqual('refund');
     });
 
     it('消费记录 balancePaid=0 时回退使用 amount', async () => {

@@ -87,7 +87,7 @@
 - [src/purely-profit/marketing/dto/marketing-customer-query.dto.ts](file://src/purely-profit/marketing/dto/marketing-customer-query.dto.ts)
 - [src/purely-profit/marketing/dto/marketing-product.dto.ts](file://src/purely-profit/marketing/dto/marketing-product.dto.ts)
 - [src/purely-profit/marketing/dto/marketing-promotion-query.dto.ts](file://src/purely-profit/marketing/dto/marketing-promotion-query.dto.ts)
-- [src/purely-profit/marketing/dto/marketing-recharge-query.dto.ts](file://src/purely-profit/marketing/dto/marketing-recharge-query.dto.ts)
+- [src/purely-profit/marketing/dto/marketing-recharge-query.dto.ts](file://src/p纯ely-profit/marketing/dto/marketing-recharge-query.dto.ts)
 - [src/purely-profit/marketing/dto/marketing-response.dto.ts](file://src/purely-profit/marketing/dto/marketing-response.dto.ts)
 - [src/purely-profit/member/members/dto/members-query.dto.ts](file://src/purely-profit/member/members/dto/members-query.dto.ts)
 - [src/purely-profit/member/members/dto/members-create.dto.ts](file://src/purely-profit/member/members/dto/members-create.dto.ts)
@@ -147,7 +147,7 @@
 - [src/purely-profit/member/platform-membership/platform-membership.constants.ts](file://src/purely-profit/member/platform-membership/platform-membership.constants.ts)
 - [src/purely-profit/member/platform-membership/platform-membership.types.ts](file://src/purely-profit/member/platform-membership/platform-membership.types.ts)
 - [src/purely-profit/member/platform-membership/platform-membership.query.ts](file://src/purely-profit/member/platform-membership/platform-membership.query.ts)
-- [src/purely-profit/member/members/members.domain.ts](file://src/purely-profit/member/members/domain.ts)
+- [src/purely-profit/member/members/domain.ts](file://src/purely-profit/member/members/domain.ts)
 - [src/purely-profit/member/members/members.mapper.ts](file://src/purely-profit/member/members/members.mapper.ts)
 - [src/purely-profit/member/members/members.query.ts](file://src/purely-profit/member/members/members.query.ts)
 - [src/purely-profit/member/members/members-read.query.ts](file://src/purely-profit/member/members/members-read.query.ts)
@@ -156,14 +156,13 @@
 - [src/purely-profit/member/members/members-points.shared.ts](file://src/purely-profit/member/members/members-points.shared.ts)
 - [src/purely-profit/member/members/members-utils.ts](file://src/purely-profit/member/members/members-utils.ts)
 - [src/purely-profit/member/members/members-types.ts](file://src/purely-profit/member/members/members-types.ts)
-- [src/purely-profit/member/members/members-access.service.ts](file://src/purely-profit/member/members/members-access.service.ts)
 - [src/purely-profit/member/members/members.service.ts](file://src/purely-profit/member/members/members.service.ts)
 - [src/purely-profit/member/members/members.controller.ts](file://src/purely-profit/member/members/members.controller.ts)
-- [src/purely-profit/member/members/members-points.service.ts](file://src/purely-profit/member/members/members-points.service.ts)
-- [src/purely-profit/member/members/members-points.query.ts](file://src/purely-profit/member/members/members-points.query.ts)
-- [src/purely-profit/member/members/members-points.mapper.ts](file://src/purely-profit/member/members/members-points.mapper.ts)
-- [src/purely-profit/member/members/members-points.shared.ts](file://src/purely-profit/member/members/members-points.shared.ts)
-- [src/purely-profit/member/members/members-points.config.ts](file://src/purely-profit/member/members/members-points.config.ts)
+- [src/purely-profit/member/members/members.points.service.ts](file://src/purely-profit/member/members/members.points.service.ts)
+- [src/purely-profit/member/members/members.points.query.ts](file://src/purely-profit/member/members/members.points.query.ts)
+- [src/purely-profit/member/members/members.points.mapper.ts](file://src/purely-profit/member/members/members.points.mapper.ts)
+- [src/purely-profit/member/members/members.points.shared.ts](file://src/purely-profit/member/members/members.points.shared.ts)
+- [src/purely-profit/member/members/members.points.config.ts](file://src/purely-profit/member/members/members.points.config.ts)
 - [src/purely-profit/member/members/members.snapshot.mapper.ts](file://src/purely-profit/member/members/members.snapshot.mapper.ts)
 - [src/purely-profit/member/members/members.types.ts](file://src/purely-profit/member/members/members.types.ts)
 - [src/purely-profit/member/members/members.utils.ts](file://src/purely-profit/member/members/members.utils.ts)
@@ -173,9 +172,9 @@
 - [src/purely-profit/member/members/members.query.ts](file://src/purely-profit/member/members/members.query.ts)
 - [src/purely-profit/member/members/members-read.query.ts](file://src/purely-profit/member/members/members-read.query.ts)
 - [src/purely-profit/member/members/members-write.query.ts](file://src/purely-profit/member/members/members-write.query.ts)
-- [src/purely-profit/member/members/members-points.mapper.ts](file://src/purely-profit/member/members/members-points.mapper.ts)
-- [src/purely-profit/member/members/members-points.shared.ts](file://src/purely-profit/member/members/members-points.shared.ts)
-- [src/purely-profit/member/members/members-points.config.ts](file://src/purely-profit/member/members/members-points.config.ts)
+- [src/purely-profit/member/members/members.points.mapper.ts](file://src/purely-profit/member/members/members.points.mapper.ts)
+- [src/purely-profit/member/members/members.points.shared.ts](file://src/purely-profit/member/members/members.points.shared.ts)
+- [src/purely-profit/member/members/members.points.config.ts](file://src/purely-profit/member/members/members.points.config.ts)
 - [src/purely-profit/member/members/members.snapshot.mapper.ts](file://src/purely-profit/member/members/members.snapshot.mapper.ts)
 - [src/purely-profit/member/members/members.types.ts](file://src/purely-profit/member/members/members.types.ts)
 - [src/purely-profit/member/members/members.utils.ts](file://src/purely-profit/member/members/members.utils.ts)
@@ -185,9 +184,9 @@
 - [src/purely-profit/member/members/members.query.ts](file://src/purely-profit/member/members/members.query.ts)
 - [src/purely-profit/member/members/members-read.query.ts](file://src/purely-profit/member/members/members-read.query.ts)
 - [src/purely-profit/member/members/members-write.query.ts](file://src/purely-profit/member/members/members-write.query.ts)
-- [src/purely-profit/member/members/members-points.mapper.ts](file://src/purely-profit/member/members/members-points.mapper.ts)
-- [src/purely-profit/member/members/members-points.shared.ts](file://src/purely-profit/member/members/members-points.shared.ts)
-- [src/purely-profit/member/members/members-points.config.ts](file://src/purely-profit/member/members/members-points.config.ts)
+- [src/purely-profit/member/members/members.points.mapper.ts](file://src/purely-profit/member/members/members.points.mapper.ts)
+- [src/purely-profit/member/members/members.points.shared.ts](file://src/purely-profit/member/members/members.points.shared.ts)
+- [src/purely-profit/member/members/members.points.config.ts](file://src/purely-profit/member/members/members.points.config.ts)
 - [src/purely-profit/member/members/members.snapshot.mapper.ts](file://src/purely-profit/member/members/members.snapshot.mapper.ts)
 - [src/purely-profit/member/members/members.types.ts](file://src/purely-profit/member/members/members.types.ts)
 - [src/purely-profit/member/members/members.utils.ts](file://src/purely-profit/member/members/members.utils.ts)
@@ -197,9 +196,9 @@
 - [src/purely-profit/member/members/members.query.ts](file://src/purely-profit/member/members/members.query.ts)
 - [src/purely-profit/member/members/members-read.query.ts](file://src/purely-profit/member/members/members-read.query.ts)
 - [src/purely-profit/member/members/members-write.query.ts](file://src/purely-profit/member/members/members-write.query.ts)
-- [src/purely-profit/member/members/members-points.mapper.ts](file://src/purely-profit/member/members/members-points.mapper.ts)
-- [src/purely-profit/member/members/members-points.shared.ts](file://src/purely-profit/member/members/members-points.shared.ts)
-- [src/purely-profit/member/members/members-points.config.ts](file://src/purely-profit/member/members/members-points.config.ts)
+- [src/purely-profit/member/members/members.points.mapper.ts](file://src/purely-profit/member/members/members.points.mapper.ts)
+- [src/purely-profit/member/members/members.points.shared.ts](file://src/purely-profit/member/members/members.points.shared.ts)
+- [src/purely-profit/member/members/members.points.config.ts](file://src/purely-profit/member/members/members.points.config.ts)
 - [src/purely-profit/member/members/members.snapshot.mapper.ts](file://src/purely-profit/member/members/members.snapshot.mapper.ts)
 - [src/purely-profit/member/members/members.types.ts](file://src/purely-profit/member/members/members.types.ts)
 - [src/purely-profit/member/members/members.utils.ts](file://src/purely-profit/member/members/members.utils.ts)
@@ -209,9 +208,9 @@
 - [src/purely-profit/member/members/members.query.ts](file://src/purely-profit/member/members/members.query.ts)
 - [src/purely-profit/member/members/members-read.query.ts](file://src/purely-profit/member/members/members-read.query.ts)
 - [src/purely-profit/member/members/members-write.query.ts](file://src/purely-profit/member/members/members-write.query.ts)
-- [src/purely-profit/member/members/members-points.mapper.ts](file://src/purely-profit/member/members/members-points.mapper.ts)
-- [src/purely-profit/member/members/members-points.shared.ts](file://src/purely-profit/member/members/members-points.shared.ts)
-- [src/purely-profit/member/members/members-points.config.ts](file://src/purely-profit/member/members/members-points.config.ts)
+- [src/purely-profit/member/members/members.points.mapper.ts](file://src/purely-profit/member/members/members.points.mapper.ts)
+- [src/purely-profit/member/members/members.points.shared.ts](file://src/purely-profit/member/members/members.points.shared.ts)
+- [src/purely-profit/member/members/members.points.config.ts](file://src/purely-profit/member/members/members.points.config.ts)
 - [src/purely-profit/member/members/members.snapshot.mapper.ts](file://src/purely-profit/member/members/members.snapshot.mapper.ts)
 - [src/purely-profit/member/members/members.types.ts](file://src/purely-profit/member/members/members.types.ts)
 - [src/purely-profit/member/members/members.utils.ts](file://src/purely-profit/member/members/members.utils.ts)
@@ -221,9 +220,9 @@
 - [src/purely-profit/member/members/members.query.ts](file://src/purely-profit/member/members/members.query.ts)
 - [src/purely-profit/member/members/members-read.query.ts](file://src/purely-profit/member/members/members-read.query.ts)
 - [src/purely-profit/member/members/members-write.query.ts](file://src/purely-profit/member/members/members-write.query.ts)
-- [src/purely-profit/member/members/members-points.mapper.ts](file://src/purely-profit/member/members/members-points.mapper.ts)
-- [src/purely-profit/member/members/members-points.shared.ts](file://src/purely-profit/member/members/members-points.shared.ts)
-- [src/purely-profit/member/members/members-points.config.ts](file://src/purely-profit/member/members/members-points.config.ts)
+- [src/purely-profit/member/members/members.points.mapper.ts](file://src/purely-profit/member/members/members.points.mapper.ts)
+- [src/purely-profit/member/members/members.points.shared.ts](file://src/purely-profit/member/members/members.points.shared.ts)
+- [src/purely-profit/member/members/members.points.config.ts](file://src/purely-profit/member/members/members.points.config.ts)
 - [src/purely-profit/member/members/members.snapshot.mapper.ts](file://src/purely-profit/member/members/members.snapshot.mapper.ts)
 - [src/purely-profit/member/members/members.types.ts](file://src/purely-profit/member/members/members.types.ts)
 - [src/purely-profit/member/members/members.utils.ts](file://src/purely-profit/member/members/members.utils.ts)
@@ -233,21 +232,25 @@
 - [src/purely-profit/member/members/members.query.ts](file://src/purely-profit/member/members/members.query.ts)
 - [src/purely-profit/member/members/members-read.query.ts](file://src/purely-profit/member/members/members-read.query.ts)
 - [src/purely-profit/member/members/members-write.query.ts](file://src/purely-profit/member/members/members-write.query.ts)
-- [src/purely-profit/member/members/members......
+- [src/purely-profit/member/members/members.points......
 - [src/purely-profit/operations/spaces/dto/space-session-checkout.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-checkout.request.dto.ts)
 - [src/purely-profit/operations/spaces/dto/space-session-open.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-open.request.dto.ts)
 - [src/purely-profit/operations/spaces/dto/space-session-preview.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-preview.request.dto.ts)
 - [src/purely-profit/operations/spaces/dto/space-session-renew.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-renew.request.dto.ts)
 - [src/purely-profit/operations/spaces/dto/space-session-shared.response.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-shared.response.dto.ts)
 - [src/purely-profit/operations/spaces/dto/space-session.constants.ts](file://src/purely-profit/operations/spaces/dto/space-session.constants.ts)
+- [src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts](file://src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts)
+- [src/purely-profit/operations/scan-ordering/print-agent.service.ts](file://src/purely-profit/operations/scan-ordering/print-agent.service.ts)
+- [src/purely-profit/operations/scan-ordering/dto/scan-ordering-print-agent.dto.ts](file://src/purely-profit/operations/scan-ordering/dto/scan-ordering-print-agent.dto.ts)
+- [prisma/migrations/20260808000000_add_scan_ordering_print_agent/migration.sql](file://prisma/migrations/20260808000000_add_scan_ordering_print_agent/migration.sql)
 </cite>
 
 ## 更新摘要
-**变更内容**   
-- 扩展空间会话相关接口以支持团购平台字段
-- 新增多个DTO文件的团购平台参数验证和类型定义
-- 响应DTO暴露新的结算字段用于平台结算管理
-- 完善空间会话开台、结账、续费等核心业务流程的团购平台支持
+**变更内容**
+- 新增扫码点餐打印代理管理API接口，包括绑定码生成和状态查询功能
+- 扩展打印代理服务以支持门店代理的注册、连接管理和任务分发
+- 添加数据库迁移以支持打印代理相关的字段存储
+- 完善扫码点餐模块的打印能力，支持本地USB打印和云端打印代理模式
 
 ## 目录
 1. [简介](#简介)
@@ -272,7 +275,7 @@
 - 常见用例、客户端实现指南与性能优化技巧
 - 调试与监控方法
 
-**更新** 本次更新重点扩展了空间会话模块的团购平台功能，支持美团、抖音、快手等多个主流团购平台的集成。
+**更新** 本次更新重点新增了扫码点餐打印代理管理功能，支持门店通过本地代理程序进行打印机设备管理和ESC/POS打印任务下发。
 
 ## 项目结构
 后端基于 NestJS 架构，采用模块化设计，按业务域划分模块（auth、dashboard、finance、goods、marketing、member、subscriptions、stores、operations、staff、notifications 等）。应用入口在主模块中注册各业务模块，并通过全局守卫与装饰器实现鉴权与权限控制。
@@ -291,14 +294,16 @@ B --> J["门店模块<br/>src/purely-profit/stores/*"]
 B --> K["运营模块<br/>src/purely-profit/operations/*"]
 B --> L["员工模块<br/>src/purely-profit/staff/*"]
 B --> M["通知模块<br/>src/purely-profit/notifications/*"]
-K --> N["空间会话模块<br/>src/purely-profit/operations/spaces/*"]
-N --> O["团购平台支持<br/>space-session.constants.ts"]
+K --> N["扫码点餐模块<br/>src/purely-profit/operations/scan-ordering/*"]
+N --> O["打印代理服务<br/>print-agent.service.ts"]
+O --> P["WebSocket网关<br/>原生WebSocket连接"]
 ```
 
 图表来源
 - [src/main.ts](file://src/main.ts)
 - [src/app.module.ts](file://src/app.module.ts)
-- [src/purely-profit/operations/spaces/dto/space-session.constants.ts](file://src/purely-profit/operations/spaces/dto/space-session.constants.ts)
+- [src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts](file://src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts)
+- [src/purely-profit/operations/scan-ordering/print-agent.service.ts](file://src/purely-profit/operations/scan-ordering/print-agent.service.ts)
 
 章节来源
 - [src/main.ts](file://src/main.ts)
@@ -311,7 +316,7 @@ N --> O["团购平台支持<br/>space-session.constants.ts"]
 - 服务层：封装业务逻辑，提供查询、写入、映射与领域对象转换。
 - 控制器层：暴露 RESTful 接口，调用服务层并返回标准化响应。
 
-**更新** 空间会话模块现已支持完整的团购平台集成，包括多平台枚举值、结算渠道管理和平台费用计算。
+**更新** 扫码点餐模块现已支持完整的打印代理管理功能，包括绑定码生成、代理注册、在线状态监控和打印任务分发。
 
 章节来源
 - [src/app.controller.ts](file://src/app.controller.ts)
@@ -325,107 +330,41 @@ N --> O["团购平台支持<br/>space-session.constants.ts"]
 graph TB
 subgraph "客户端"
 CLI["浏览器/移动端/第三方客户端"]
+AGENT["门店打印代理<br/>本地应用程序"]
 end
 subgraph "网关/中间件"
 MW["NestJS 中间件/拦截器"]
+WS["WebSocket网关"]
 end
 subgraph "控制器层"
 AC["认证控制器"]
-DC["仪表板控制器"]
-FC["财务控制器"]
-GC["商品控制器"]
-MC["营销控制器"]
-MeC["会员控制器"]
-SC["订阅控制器"]
-StC["门店控制器"]
-OC["运营控制器"]
-EC["员工控制器"]
-NC["通知控制器"]
+SC["扫码点餐控制器"]
 SSC["空间会话控制器"]
 end
 subgraph "服务层"
 AS["认证服务"]
-DS["仪表板服务"]
-FS["财务服务"]
-GS["商品服务"]
-MS["营销服务"]
-MeS["会员服务"]
-SS["订阅服务"]
-StS["门店服务"]
-OS["运营服务"]
-ES["员工服务"]
-NS["通知服务"]
-SSS["空间会话服务"]
+SOS["扫码点餐服务"]
+PAS["打印代理服务"]
 end
 subgraph "数据与基础设施"
 PRISMA["Prisma ORM"]
 REDIS["Redis 缓存"]
-GP["团购平台常量<br/>GROUPON_PLATFORM_VALUES"]
+DB["数据库<br/>stores表"]
 end
 CLI --> MW --> AC
-MW --> DC
-MW --> FC
-MW --> GC
-MW --> MC
-MW --> MeC
-MW --> SC
-MW --> StC
-MW --> OC
-MW --> EC
-MW --> NC
-MW --> SSC
-AC --> AS
-DC --> DS
-FC --> FS
-GC --> GS
-MC --> MS
-MeC --> MeS
-SC --> SS
-StC --> StS
-OC --> OS
-EC --> ES
-NC --> NS
-SSC --> SSS
-AS --> PRISMA
-DS --> PRISMA
-FS --> PRISMA
-GS --> PRISMA
-MS --> PRISMA
-MeS --> PRISMA
-SS --> PRISMA
-StS --> PRISMA
-OS --> PRISMA
-ES --> PRISMA
-NS --> PRISMA
-SSS --> PRISMA
-AS --> REDIS
-DS --> REDIS
-FS --> REDIS
-GS --> REDIS
-MS --> REDIS
-MeS --> REDIS
-SS --> REDIS
-StS --> REDIS
-OS --> REDIS
-ES --> REDIS
-NS --> REDIS
-SSS --> GP
+CLI --> MW --> SC
+AGENT --> WS --> PAS
+SC --> SOS
+SOS --> PAS
+PAS --> PRISMA
+PAS --> REDIS
+PAS --> DB
 ```
 
 图表来源
 - [src/purely-profit/auth/auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
-- [src/purely-profit/dashboard/dashboard-home/dashboard-home.controller.ts](file://src/purely-profit/dashboard/dashboard-home/dashboard-home.controller.ts)
-- [src/purely-profit/finance/finance.controller.ts](file://src/purely-profit/finance/finance.controller.ts)
-- [src/purely-profit/goods/products/products.controller.ts](file://src/purely-profit/goods/products/products.controller.ts)
-- [src/purely-profit/marketing/marketing.controller.ts](file://src/purely-profit/marketing/marketing.controller.ts)
-- [src/purely-profit/member/members/members.controller.ts](file://src/purely-profit/member/members/members.controller.ts)
-- [src/purely-profit/subscriptions/subscriptions.controller.ts](file://src/purely-profit/subscriptions/subscriptions.controller.ts)
-- [src/purely-profit/stores/stores.controller.ts](file://src/purely-profit/stores/stores.controller.ts)
-- [src/purely-profit/operations/sales-record/sales-record.controller.ts](file://src/purely-profit/operations/sales-record/sales-record.controller.ts)
-- [src/purely-profit/staff/employees/employees.controller.ts](file://src/purely-profit/staff/employees/employees.controller.ts)
-- [src/purely-profit/notifications/notifications.controller.ts](file://src/purely-profit/notifications/notifications.controller.ts)
-- [src/purely-profit/operations/spaces/space-sessions.controller.ts](file://src/purely-profit/operations/spaces/space-sessions.controller.ts)
-- [src/purely-profit/operations/spaces/dto/space-session.constants.ts](file://src/purely-profit/operations/spaces/dto/space-session.constants.ts)
+- [src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts](file://src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts)
+- [src/purely-profit/operations/scan-ordering/print-agent.service.ts](file://src/purely-profit/operations/scan-ordering/print-agent.service.ts)
 
 ## 详细组件分析
 
@@ -467,87 +406,68 @@ JwtGuard-->>Client : 放行或拒绝
 - [src/purely-profit/access-control/decorators/require-permissions.decorator.ts](file://src/purely-profit/access-control/decorators/require-permissions.decorator.ts)
 - [src/purely-profit/access-control/decorators/block-sub-account.decorator.ts](file://src/purely-profit/access-control/decorators/block-sub-account.decorator.ts)
 
-### 空间会话接口（已更新）
-空间会话接口现已全面支持团购平台功能，涵盖开台、续费、结账等核心业务流程。
+### 扫码点餐打印代理接口（已更新）
+扫码点餐模块现已全面支持打印代理管理功能，涵盖绑定码生成、代理注册、状态监控等核心业务流程。
 
-#### 支持的团购平台
-系统支持以下主流团购平台：
-- **meituan** - 美团
-- **douyin** - 抖音  
-- **kuaishou** - 快手
-- **xiaohongshu** - 小红书
-- **dianping** - 大众点评
-- **eleme** - 饿了么
-- **pinduoduo** - 拼多多
-- **taobao** - 淘宝
-- **jd** - 京东
-- **wechat_store** - 微信小商店
-- **other** - 其他
+#### 支持的打印代理功能
+系统支持以下打印代理相关操作：
+- **绑定码生成** - 商家端生成6位绑定码供门店代理输入
+- **代理注册** - 门店代理通过绑定码获取连接令牌
+- **在线状态监控** - 实时查看代理连接状态和最后在线时间
+- **打印机发现** - 自动发现本地可用打印机设备
+- **打印任务分发** - 通过WebSocket向在线代理下发ESC/POS打印任务
 
-#### 开台接口增强
-开台接口现在支持预付团购券码和平台信息：
-- `prepaidGrouponCode` - 预付团购券码
-- `prepaidGrouponPlatform` - 预付团购平台
-- `prepaidVoucherCode` - 预付券码
-- `prepaidVoucherPlatform` - 预付券所属平台
-- `prepaidVoucherFaceAmount` - 预付券面金额
+#### 绑定码生成接口
+生成/重置门店打印代理绑定码：
+- `POST /profit/scan-ordering/print-agent/bind-code`
+- 权限要求：`scan-ordering:order-process`
+- 响应：返回6位大写字母数字绑定码
 
-#### 结账接口增强
-结账接口支持完整的团购平台结算信息：
-- `grouponCode` - 团购券码
-- `grouponPlatform` - 团购平台
-- `customerPaymentMethod` - 顾客实际支付方式（支持 groupon_voucher）
-- `settlementChannel` - 平台结算渠道
-- `voucherCode` - 券码
-- `voucherPlatform` - 券所属平台
-- `voucherFaceAmount` - 券面金额
-- `settlementStatus` - 平台结算状态
-- `platformReceivable` - 平台应收金额
-- `platformSettledAmount` - 平台已结金额
-- `platformFee` - 平台手续费
+#### 代理状态查询接口
+查询门店打印代理绑定与在线状态：
+- `GET /profit/scan-ordering/print-agent/status`
+- 权限要求：`scan-ordering:view`
+- 响应包含：绑定码、在线状态、最后在线时间、可用打印机列表
 
-#### 续费接口增强
-续费接口支持团购券支付：
-- `grouponCode` - 团购券码
-- `grouponPlatform` - 团购平台
-- `voucherFaceAmount` - 券面金额
+#### 打印代理通信协议
+- **WebSocket连接** - 使用原生WebSocket建立长连接
+- **心跳机制** - 每30秒发送一次心跳保持连接
+- **任务分发** - 通过Redis Pub/Sub实现跨worker任务转发
+- **回执确认** - 打印任务完成后返回执行结果
 
 ```mermaid
 sequenceDiagram
-participant Client as "客户端"
-participant SpaceSessionsCtrl as "空间会话控制器"
-participant SpaceSessionsService as "空间会话服务"
-participant GrouponConstants as "团购平台常量"
-Note over Client,GrouponConstants : 开台流程支持预付团购券
-Client->>SpaceSessionsCtrl : POST /spaces/ : spaceId/sessions
-SpaceSessionsCtrl->>SpaceSessionsService : openSpaceSession()
-SpaceSessionsService->>GrouponConstants : 验证团购平台枚举
-GrouponConstants-->>SpaceSessionsService : 返回有效平台列表
-SpaceSessionsService-->>SpaceSessionsCtrl : 创建会话
-SpaceSessionsCtrl-->>Client : 返回会话详情
-Note over Client,GrouponConstants : 结账流程支持团购结算
-Client->>SpaceSessionsCtrl : POST /space-sessions/ : id/checkout
-SpaceSessionsCtrl->>SpaceSessionsService : checkoutSpaceSession()
-SpaceSessionsService->>GrouponConstants : 验证结算渠道和平台
-GrouponConstants-->>SpaceSessionsService : 返回有效枚举值
-SpaceSessionsService-->>SpaceSessionsCtrl : 完成结账
-SpaceSessionsCtrl-->>Client : 返回结账结果
+participant Client as "商家客户端"
+participant Agent as "门店打印代理"
+participant Ctrl as "扫码点餐控制器"
+participant Service as "打印代理服务"
+participant Redis as "Redis消息队列"
+Note over Client,Agent : 绑定码生成流程
+Client->>Ctrl : POST /print-agent/bind-code
+Ctrl->>Service : generateBindCode()
+Service-->>Ctrl : 返回6位绑定码
+Ctrl-->>Client : {bindCode}
+Note over Agent,Service : 代理注册流程
+Agent->>Service : register(bindCode, platform, version)
+Service->>Service : 验证绑定码并生成令牌
+Service-->>Agent : {token, storeId}
+Note over Client,Agent : 状态监控流程
+Client->>Ctrl : GET /print-agent/status
+Ctrl->>Service : getAgentStatus()
+Service->>Redis : 检查在线标记
+Service-->>Ctrl : 返回代理状态
+Ctrl-->>Client : {online, lastSeenAt, printers}
 ```
 
 图表来源
-- [src/purely-profit/operations/spaces/space-sessions.controller.ts](file://src/purely-profit/operations/spaces/space-sessions.controller.ts)
-- [src/purely-profit/operations/spaces/dto/space-session-checkout.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-checkout.request.dto.ts)
-- [src/purely-profit/operations/spaces/dto/space-session-open.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-open.request.dto.ts)
-- [src/purely-profit/operations/spaces/dto/space-session.constants.ts](file://src/purely-profit/operations/spaces/dto/space-session.constants.ts)
+- [src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts](file://src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts)
+- [src/purely-profit/operations/scan-ordering/print-agent.service.ts](file://src/purely-profit/operations/scan-ordering/print-agent.service.ts)
+- [src/purely-profit/operations/scan-ordering/dto/scan-ordering-print-agent.dto.ts](file://src/purely-profit/operations/scan-ordering/dto/scan-ordering-print-agent.dto.ts)
 
 **章节来源**
-- [src/purely-profit/operations/spaces/space-sessions.controller.ts](file://src/purely-profit/operations/spaces/space-sessions.controller.ts)
-- [src/purely-profit/operations/spaces/dto/space-session-checkout.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-checkout.request.dto.ts)
-- [src/purely-profit/operations/spaces/dto/space-session-open.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-open.request.dto.ts)
-- [src/purely-profit/operations/spaces/dto/space-session-preview.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-preview.request.dto.ts)
-- [src/purely-profit/operations/spaces/dto/space-session-renew.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-renew.request.dto.ts)
-- [src/purely-profit/operations/spaces/dto/space-session-shared.response.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-shared.response.dto.ts)
-- [src/purely-profit/operations/spaces/dto/space-session.constants.ts](file://src/purely-profit/operations/spaces/dto/space-session.constants.ts)
+- [src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts](file://src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts)
+- [src/purely-profit/operations/scan-ordering/print-agent.service.ts](file://src/purely-profit/operations/scan-ordering/print-agent.service.ts)
+- [src/purely-profit/operations/scan-ordering/dto/scan-ordering-print-agent.dto.ts](file://src/purely-profit/operations/scan-ordering/dto/scan-ordering-print-agent.dto.ts)
 
 ### 仪表板接口
 - 仪表板首页：提供概览统计、销售趋势、活动等聚合数据。
@@ -911,7 +831,7 @@ NotiCtrl-->>Client : 通知数据
 - DTO 层作为接口契约，避免控制器直接操作实体。
 - 访问控制服务与各模块的访问服务协作，实现细粒度权限。
 
-**更新** 空间会话模块现在依赖团购平台常量定义，确保所有平台相关的枚举值统一管理。
+**更新** 扫码点餐模块现在依赖打印代理服务，支持本地USB打印和云端打印代理两种模式。
 
 ```mermaid
 graph LR
@@ -926,8 +846,10 @@ StC["门店控制器"] --> StS["门店服务"]
 OC["运营控制器"] --> OS["运营服务"]
 EC["员工控制器"] --> ES["员工服务"]
 NC["通知控制器"] --> NS["通知服务"]
-SSC["空间会话控制器"] --> SSS["空间会话服务"]
-SSS --> GP["团购平台常量"]
+SOC["扫码点餐控制器"] --> SAS["扫码点餐服务"]
+SAS --> PAS["打印代理服务"]
+PAS --> PRISMA["数据库"]
+PAS --> REDIS["Redis缓存"]
 AC --> JwtGuard["JWT 守卫"]
 AC --> PermGuard["权限守卫"]
 AC --> ACService["访问控制服务"]
@@ -941,7 +863,7 @@ StC --> ACService
 OC --> ACService
 EC --> ACService
 NC --> ACService
-SSC --> ACService
+SOC --> ACService
 ```
 
 图表来源
@@ -949,8 +871,8 @@ SSC --> ACService
 - [src/purely-profit/access-control/access-control.service.ts](file://src/purely-profit/access-control/access-control.service.ts)
 - [src/purely-profit/access-control/guards/permissions.guard.ts](file://src/purely-profit/access-control/guards/permissions.guard.ts)
 - [src/purely-profit/auth/guards/jwt-auth.guard.ts](file://src/purely-profit/auth/guards/jwt-auth.guard.ts)
-- [src/purely-profit/operations/spaces/space-sessions.controller.ts](file://src/purely-profit/operations/spaces/space-sessions.controller.ts)
-- [src/purely-profit/operations/spaces/dto/space-session.constants.ts](file://src/purely-profit/operations/spaces/dto/space-session.constants.ts)
+- [src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts](file://src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts)
+- [src/purely-profit/operations/scan-ordering/print-agent.service.ts](file://src/purely-profit/operations/scan-ordering/print-agent.service.ts)
 
 章节来源
 - [src/purely-profit/access-control/access-control.service.ts](file://src/purely-profit/access-control/access-control.service.ts)
@@ -962,8 +884,7 @@ SSC --> ACService
 - 查询优化：在服务层合并与去重查询，减少 N+1 查询风险。
 - 异步处理：对耗时任务采用异步队列或后台作业，避免阻塞请求。
 - 监控与告警：结合运行时指标与摘要指标，建立性能基线与异常告警。
-
-**更新** 团购平台常量的集中管理有助于减少重复计算，提升接口响应性能。
+- **打印代理优化** - 使用Redis Pub/Sub实现跨worker任务转发，支持集群部署；心跳机制确保连接健康；TTL过期自动清理离线连接。
 
 ## 故障排查指南
 - 认证失败：检查令牌格式与有效期，确认 JWT 策略是否正确解析。
@@ -971,15 +892,15 @@ SSC --> ACService
 - 查询异常：检查查询 DTO 参数合法性与数据库索引，定位慢查询。
 - 缓存问题：确认缓存键命名与失效策略，排查缓存穿透与雪崩。
 - 服务异常：查看服务层日志与事务回滚情况，定位业务异常点。
-- **团购平台验证失败**：检查传入的平台值是否在 GROUPON_PLATFORM_VALUES 枚举范围内，确认平台名称拼写正确。
+- **打印代理故障** - 检查绑定码有效性、代理连接状态、Redis在线标记、WebSocket连接质量。
 
 ## 结论
-本接口文档梳理了 purelyprofit-server 的核心 RESTful API，涵盖认证、权限、仪表板、财务、商品、营销、会员、订阅、门店、运营、通知等模块。通过 DTO 契约、权限守卫与访问控制服务，系统实现了高内聚低耦合的接口设计。**本次更新特别增强了空间会话模块的团购平台支持，为多平台团购业务提供了完整的解决方案。** 建议在生产环境中结合缓存、分页、索引与监控体系，持续优化性能与稳定性。
+本接口文档梳理了 purelyprofit-server 的核心 RESTful API，涵盖认证、权限、仪表板、财务、商品、营销、会员、订阅、门店、运营、通知等模块。通过 DTO 契约、权限守卫与访问控制服务，系统实现了高内聚低耦合的接口设计。**本次更新特别增强了扫码点餐模块的打印代理管理能力，为门店提供了灵活的本地打印解决方案。** 建议在生产环境中结合缓存、分页、索引与监控体系，持续优化性能与稳定性。
 
 ## 附录
 - 版本信息：当前仓库包含多个迁移脚本与领域模型，接口版本与迁移脚本保持一致，建议客户端在升级前同步迁移脚本。
 - 已弃用功能：部分兼容控制器（如平台会员促销兼容）保留历史接口，建议逐步迁移至新接口。
 - 向后兼容性：新增字段采用可选策略，删除字段需通过兼容层或版本化接口过渡。
-- **团购平台支持**：新增的团购平台功能完全向后兼容，现有客户端无需修改即可继续使用。
+- **打印代理支持** - 新增的打印代理功能完全向后兼容，现有客户端无需修改即可继续使用。
 
-**更新** 团购平台功能的完整支持使得系统能够更好地服务于需要接入美团、抖音、快手等主流团购平台的商业场景。
+**更新** 打印代理功能的完整支持使得系统能够更好地服务于需要本地打印机设备的商业场景，支持Windows、macOS、Linux等多平台部署。

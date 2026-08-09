@@ -166,7 +166,7 @@ describe('ClubPointsQueryService', () => {
   });
 
   describe('listPointsRecords', () => {
-    it('返回指定顾客的积分明细列表', async () => {
+    it('返回指定顾客的积分明细列表与 baseEffect 默认值', async () => {
       const rows = [
         {
           id: 18,
@@ -184,6 +184,7 @@ describe('ClubPointsQueryService', () => {
 
       expect(result.items).toEqual(rows);
       expect(result.total).toBe(1);
+      expect(result.baseEffect).toBe(0);
     });
 
     it('按 earn 筛选时 where 条件包含 amount > 0', async () => {
@@ -206,6 +207,34 @@ describe('ClubPointsQueryService', () => {
       const findManyCall =
         prismaService.marketingPointsRecord.findMany.mock.calls[0][0];
       expect(findManyCall.where.amount).toEqual({ lt: 0 });
+    });
+
+    it('透传 limit 与游标到查询条件', async () => {
+      prismaService.marketingPointsRecord.findMany.mockResolvedValue([]);
+      prismaService.marketingPointsRecord.count.mockResolvedValue(0);
+
+      const result = await service.listPointsRecords(11, 98, 'all', {
+        limit: 20,
+        cursor: {
+          createdAt: '2024-11-20T10:30:00.000Z',
+          id: 18,
+          totalEffect: 500,
+        },
+      });
+
+      const findManyCall =
+        prismaService.marketingPointsRecord.findMany.mock.calls[0][0];
+      // 游标过滤：比上一页最后一条更早，或同刻但 id 更小
+      expect(findManyCall.where.OR).toEqual([
+        { createdAt: { lt: '2024-11-20T10:30:00.000Z' } },
+        {
+          createdAt: '2024-11-20T10:30:00.000Z',
+          id: { lt: 18 },
+        },
+      ]);
+      expect(findManyCall.take).toBe(20);
+      // baseEffect 取自游标的累计变动量
+      expect(result.baseEffect).toBe(500);
     });
   });
 });
