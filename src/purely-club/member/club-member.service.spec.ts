@@ -773,7 +773,7 @@ describe('ClubMemberService', () => {
     await expect(service.getLevels(currentContext)).resolves.toHaveLength(2);
   });
 
-  it('listTransactions 复用 records 子域返回会员交易流水', async () => {
+  it('listTransactions 复用 records 子域返回会员交易流水（单参数游标透传）', async () => {
     clubRecordsService.list.mockResolvedValue({
       items: [
         {
@@ -786,10 +786,16 @@ describe('ClubMemberService', () => {
           storeName: '望京旗舰店',
         },
       ],
+      total: 1,
+      nextCursor: 'cursor-1',
     });
 
     await expect(
-      service.listTransactions(currentContext, { type: 'recharge' }),
+      service.listTransactions(currentContext, {
+        type: 'recharge',
+        limit: 20,
+        cursor: 'cursor-0',
+      }),
     ).resolves.toEqual({
       items: [
         {
@@ -802,9 +808,13 @@ describe('ClubMemberService', () => {
           storeName: '望京旗舰店',
         },
       ],
+      total: 1,
+      nextCursor: 'cursor-1',
     });
     expect(clubRecordsService.list).toHaveBeenCalledWith(currentContext, {
       type: 'recharge',
+      limit: 20,
+      cursor: 'cursor-0',
     });
   });
 

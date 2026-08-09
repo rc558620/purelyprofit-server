@@ -1,7 +1,15 @@
 # API 接口文档
 
 <cite>
-**本文档引用的文件**
+**本文引用的文件**
+- [src/purely-club/points/club-points.controller.ts](file://src/purely-club/points/club-points.controller.ts)
+- [src/purely-club/records/club-records.controller.ts](file://src/purely-club/records/club-records.controller.ts)
+- [src/purely-club/points/dto/club-points-record.dto.ts](file://src/purely-club/points/dto/club-points-record.dto.ts)
+- [src/purely-club/records/dto/club-record.dto.ts](file://src/purely-club/records/dto/club-record.dto.ts)
+- [src/purely-club/points/club-points.service.ts](file://src/purely-club/points/club-points.service.ts)
+- [src/purely-club/records/club-records.service.ts](file://src/purely-club/records/club-records.service.ts)
+- [src/purely-club/points/club-points-query.service.ts](file://src/purely-club/points/club-points-query.service.ts)
+- [src/purely-club/records/club-record-query.service.ts](file://src/purely-club/records/club-record-query.service.ts)
 - [src/main.ts](file://src/main.ts)
 - [src/app.module.ts](file://src/app.module.ts)
 - [src/app.controller.ts](file://src/app.controller.ts)
@@ -87,7 +95,7 @@
 - [src/purely-profit/marketing/dto/marketing-customer-query.dto.ts](file://src/purely-profit/marketing/dto/marketing-customer-query.dto.ts)
 - [src/purely-profit/marketing/dto/marketing-product.dto.ts](file://src/purely-profit/marketing/dto/marketing-product.dto.ts)
 - [src/purely-profit/marketing/dto/marketing-promotion-query.dto.ts](file://src/purely-profit/marketing/dto/marketing-promotion-query.dto.ts)
-- [src/purely-profit/marketing/dto/marketing-recharge-query.dto.ts](file://src/p纯ely-profit/marketing/dto/marketing-recharge-query.dto.ts)
+- [src/purely-profit/marketing/dto/marketing-recharge-query.dto.ts](file://src/purely-profit/marketing/dto/marketing-recharge-query.dto.ts)
 - [src/purely-profit/marketing/dto/marketing-response.dto.ts](file://src/purely-profit/marketing/dto/marketing-response.dto.ts)
 - [src/purely-profit/member/members/dto/members-query.dto.ts](file://src/purely-profit/member/members/dto/members-query.dto.ts)
 - [src/purely-profit/member/members/dto/members-create.dto.ts](file://src/purely-profit/member/members/dto/members-create.dto.ts)
@@ -152,12 +160,6 @@
 - [src/purely-profit/member/members/members.query.ts](file://src/purely-profit/member/members/members.query.ts)
 - [src/purely-profit/member/members/members-read.query.ts](file://src/purely-profit/member/members/members-read.query.ts)
 - [src/purely-profit/member/members/members-write.query.ts](file://src/purely-profit/member/members/members-write.query.ts)
-- [src/purely-profit/member/members/members-points.mapper.ts](file://src/purely-profit/member/members/members-points.mapper.ts)
-- [src/purely-profit/member/members/members-points.shared.ts](file://src/purely-profit/member/members/members-points.shared.ts)
-- [src/purely-profit/member/members/members-utils.ts](file://src/purely-profit/member/members/members-utils.ts)
-- [src/purely-profit/member/members/members-types.ts](file://src/purely-profit/member/members/members-types.ts)
-- [src/purely-profit/member/members/members.service.ts](file://src/purely-profit/member/members/members.service.ts)
-- [src/purely-profit/member/members/members.controller.ts](file://src/purely-profit/member/members/members.controller.ts)
 - [src/purely-profit/member/members/members.points.service.ts](file://src/purely-profit/member/members/members.points.service.ts)
 - [src/purely-profit/member/members/members.points.query.ts](file://src/purely-profit/member/members/members.points.query.ts)
 - [src/purely-profit/member/members/members.points.mapper.ts](file://src/purely-profit/member/members/members.points.mapper.ts)
@@ -232,7 +234,7 @@
 - [src/purely-profit/member/members/members.query.ts](file://src/purely-profit/member/members/members.query.ts)
 - [src/purely-profit/member/members/members-read.query.ts](file://src/purely-profit/member/members/members-read.query.ts)
 - [src/purely-profit/member/members/members-write.query.ts](file://src/purely-profit/member/members/members-write.query.ts)
-- [src/purely-profit/member/members/members.points......
+- [src/purely-profit/member/members/m......
 - [src/purely-profit/operations/spaces/dto/space-session-checkout.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-checkout.request.dto.ts)
 - [src/purely-profit/operations/spaces/dto/space-session-open.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-open.request.dto.ts)
 - [src/purely-profit/operations/spaces/dto/space-session-preview.request.dto.ts](file://src/purely-profit/operations/spaces/dto/space-session-preview.request.dto.ts)
@@ -247,10 +249,10 @@
 
 ## 更新摘要
 **变更内容**
-- 新增扫码点餐打印代理管理API接口，包括绑定码生成和状态查询功能
-- 扩展打印代理服务以支持门店代理的注册、连接管理和任务分发
-- 添加数据库迁移以支持打印代理相关的字段存储
-- 完善扫码点餐模块的打印能力，支持本地USB打印和云端打印代理模式
+- 更新了纯俱乐部积分记录API，新增统一的游标分页参数替代原有的时间戳和ID分离参数
+- 增强了消费记录API的筛选选项，支持all、recharge、consume三种类型过滤
+- 优化了余额快照计算逻辑，确保跨页数据一致性
+- 改进了分页游标的编码格式，采用base64url编码提高安全性
 
 ## 目录
 1. [简介](#简介)
@@ -275,7 +277,7 @@
 - 常见用例、客户端实现指南与性能优化技巧
 - 调试与监控方法
 
-**更新** 本次更新重点新增了扫码点餐打印代理管理功能，支持门店通过本地代理程序进行打印机设备管理和ESC/POS打印任务下发。
+**更新** 本次更新重点优化了纯俱乐部积分和消费记录的API设计，采用统一的游标分页机制，提升了数据查询的一致性和性能。
 
 ## 项目结构
 后端基于 NestJS 架构，采用模块化设计，按业务域划分模块（auth、dashboard、finance、goods、marketing、member、subscriptions、stores、operations、staff、notifications 等）。应用入口在主模块中注册各业务模块，并通过全局守卫与装饰器实现鉴权与权限控制。
@@ -294,16 +296,18 @@ B --> J["门店模块<br/>src/purely-profit/stores/*"]
 B --> K["运营模块<br/>src/purely-profit/operations/*"]
 B --> L["员工模块<br/>src/purely-profit/staff/*"]
 B --> M["通知模块<br/>src/purely-profit/notifications/*"]
-K --> N["扫码点餐模块<br/>src/purely-profit/operations/scan-ordering/*"]
-N --> O["打印代理服务<br/>print-agent.service.ts"]
-O --> P["WebSocket网关<br/>原生WebSocket连接"]
+B --> N["纯俱乐部模块<br/>src/purely-club/*"]
+N --> O["积分模块<br/>points/*"]
+N --> P["记录模块<br/>records/*"]
+O --> Q["积分查询服务<br/>club-points-query.service.ts"]
+P --> R["记录查询服务<br/>club-record-query.service.ts"]
 ```
 
 图表来源
 - [src/main.ts](file://src/main.ts)
 - [src/app.module.ts](file://src/app.module.ts)
-- [src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts](file://src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts)
-- [src/purely-profit/operations/scan-ordering/print-agent.service.ts](file://src/purely-profit/operations/scan-ordering/print-agent.service.ts)
+- [src/purely-club/points/club-points.controller.ts](file://src/purely-club/points/club-points.controller.ts)
+- [src/purely-club/records/club-records.controller.ts](file://src/purely-club/records/club-records.controller.ts)
 
 章节来源
 - [src/main.ts](file://src/main.ts)
@@ -316,7 +320,7 @@ O --> P["WebSocket网关<br/>原生WebSocket连接"]
 - 服务层：封装业务逻辑，提供查询、写入、映射与领域对象转换。
 - 控制器层：暴露 RESTful 接口，调用服务层并返回标准化响应。
 
-**更新** 扫码点餐模块现已支持完整的打印代理管理功能，包括绑定码生成、代理注册、在线状态监控和打印任务分发。
+**更新** 纯俱乐部模块现已支持统一的游标分页机制，提供更稳定可靠的分页体验。
 
 章节来源
 - [src/app.controller.ts](file://src/app.controller.ts)
@@ -330,7 +334,6 @@ O --> P["WebSocket网关<br/>原生WebSocket连接"]
 graph TB
 subgraph "客户端"
 CLI["浏览器/移动端/第三方客户端"]
-AGENT["门店打印代理<br/>本地应用程序"]
 end
 subgraph "网关/中间件"
 MW["NestJS 中间件/拦截器"]
@@ -338,33 +341,36 @@ WS["WebSocket网关"]
 end
 subgraph "控制器层"
 AC["认证控制器"]
+PC["纯俱乐部积分控制器"]
+RC["纯俱乐部记录控制器"]
 SC["扫码点餐控制器"]
 SSC["空间会话控制器"]
 end
 subgraph "服务层"
 AS["认证服务"]
+PCS["纯俱乐部积分服务"]
+RCS["纯俱乐部记录服务"]
 SOS["扫码点餐服务"]
 PAS["打印代理服务"]
 end
 subgraph "数据与基础设施"
 PRISMA["Prisma ORM"]
 REDIS["Redis 缓存"]
-DB["数据库<br/>stores表"]
+DB["数据库"]
 end
 CLI --> MW --> AC
-CLI --> MW --> SC
-AGENT --> WS --> PAS
-SC --> SOS
-SOS --> PAS
-PAS --> PRISMA
-PAS --> REDIS
-PAS --> DB
+CLI --> MW --> PC
+CLI --> MW --> RC
+PC --> PCS
+RC --> RCS
+PCS --> PRISMA
+RCS --> PRISMA
 ```
 
 图表来源
 - [src/purely-profit/auth/auth.controller.ts](file://src/purely-profit/auth/auth.controller.ts)
-- [src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts](file://src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts)
-- [src/purely-profit/operations/scan-ordering/print-agent.service.ts](file://src/purely-profit/operations/scan-ordering/print-agent.service.ts)
+- [src/purely-club/points/club-points.controller.ts](file://src/purely-club/points/club-points.controller.ts)
+- [src/purely-club/records/club-records.controller.ts](file://src/purely-club/records/club-records.controller.ts)
 
 ## 详细组件分析
 
@@ -406,68 +412,117 @@ JwtGuard-->>Client : 放行或拒绝
 - [src/purely-profit/access-control/decorators/require-permissions.decorator.ts](file://src/purely-profit/access-control/decorators/require-permissions.decorator.ts)
 - [src/purely-profit/access-control/decorators/block-sub-account.decorator.ts](file://src/purely-profit/access-control/decorators/block-sub-account.decorator.ts)
 
-### 扫码点餐打印代理接口（已更新）
-扫码点餐模块现已全面支持打印代理管理功能，涵盖绑定码生成、代理注册、状态监控等核心业务流程。
+### 纯俱乐部积分记录接口（已更新）
+纯俱乐部积分记录API现已采用统一的游标分页机制，提供更稳定和高效的分页体验。
 
-#### 支持的打印代理功能
-系统支持以下打印代理相关操作：
-- **绑定码生成** - 商家端生成6位绑定码供门店代理输入
-- **代理注册** - 门店代理通过绑定码获取连接令牌
-- **在线状态监控** - 实时查看代理连接状态和最后在线时间
-- **打印机发现** - 自动发现本地可用打印机设备
-- **打印任务分发** - 通过WebSocket向在线代理下发ESC/POS打印任务
+#### 支持的积分记录功能
+系统支持以下积分记录相关操作：
+- **统一游标分页** - 使用base64url编码的游标参数替代原有的时间戳和ID分离参数
+- **类型筛选** - 支持all（全部）、earn（获得）、redeem（消耗）三种筛选类型
+- **余额快照** - 每条记录包含变动后的积分余额快照
+- **汇总统计** - 提供累计获得和消耗的积分统计
 
-#### 绑定码生成接口
-生成/重置门店打印代理绑定码：
-- `POST /profit/scan-ordering/print-agent/bind-code`
-- 权限要求：`scan-ordering:order-process`
-- 响应：返回6位大写字母数字绑定码
+#### 积分记录查询接口
+获取当前门店积分明细列表：
+- `GET /club/points/records`
+- 权限要求：需要纯俱乐部用户认证
+- 查询参数：
+  - `type`: 积分筛选类型（all/earn/redeem），默认为all
+  - `limit`: 每页返回条数，默认50，最大200
+  - `cursor`: 分页游标，上一页响应中的nextCursor值
 
-#### 代理状态查询接口
-查询门店打印代理绑定与在线状态：
-- `GET /profit/scan-ordering/print-agent/status`
-- 权限要求：`scan-ordering:view`
-- 响应包含：绑定码、在线状态、最后在线时间、可用打印机列表
-
-#### 打印代理通信协议
-- **WebSocket连接** - 使用原生WebSocket建立长连接
-- **心跳机制** - 每30秒发送一次心跳保持连接
-- **任务分发** - 通过Redis Pub/Sub实现跨worker任务转发
-- **回执确认** - 打印任务完成后返回执行结果
+#### 游标分页机制
+- **游标格式** - base64url编码的JSON对象，包含createdAt、id、totalEffect字段
+- **稳定性保证** - 游标编码了累计变动量，确保跨页余额快照连续
+- **错误处理** - 非法游标格式返回400错误，明确提示调用方
 
 ```mermaid
 sequenceDiagram
-participant Client as "商家客户端"
-participant Agent as "门店打印代理"
-participant Ctrl as "扫码点餐控制器"
-participant Service as "打印代理服务"
-participant Redis as "Redis消息队列"
-Note over Client,Agent : 绑定码生成流程
-Client->>Ctrl : POST /print-agent/bind-code
-Ctrl->>Service : generateBindCode()
-Service-->>Ctrl : 返回6位绑定码
-Ctrl-->>Client : {bindCode}
-Note over Agent,Service : 代理注册流程
-Agent->>Service : register(bindCode, platform, version)
-Service->>Service : 验证绑定码并生成令牌
-Service-->>Agent : {token, storeId}
-Note over Client,Agent : 状态监控流程
-Client->>Ctrl : GET /print-agent/status
-Ctrl->>Service : getAgentStatus()
-Service->>Redis : 检查在线标记
-Service-->>Ctrl : 返回代理状态
-Ctrl-->>Client : {online, lastSeenAt, printers}
+participant Client as "客户端"
+participant Ctrl as "积分控制器"
+participant Service as "积分服务"
+participant QueryService as "积分查询服务"
+Note over Client,QueryService : 首次请求流程
+Client->>Ctrl : GET /club/points/records?type=all&limit=50
+Ctrl->>Service : listRecords(currentContext, query)
+Service->>QueryService : listPointsRecords(storeId, customerId, filterType, options)
+QueryService-->>Service : {items, total, baseEffect}
+Service-->>Ctrl : {items, total, nextCursor, summary}
+Ctrl-->>Client : 积分记录列表
+Note over Client,QueryService : 翻页请求流程
+Client->>Ctrl : GET /club/points/records?cursor=<encoded_cursor>
+Ctrl->>Service : listRecords(currentContext, query)
+Service->>Service : buildCursor(query.cursor)
+Service->>QueryService : listPointsRecords(storeId, customerId, filterType, cursor)
+QueryService-->>Service : {items, total, baseEffect}
+Service-->>Ctrl : {items, total, nextCursor, summary}
+Ctrl-->>Client : 下一页积分记录
 ```
 
 图表来源
-- [src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts](file://src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts)
-- [src/purely-profit/operations/scan-ordering/print-agent.service.ts](file://src/purely-profit/operations/scan-ordering/print-agent.service.ts)
-- [src/purely-profit/operations/scan-ordering/dto/scan-ordering-print-agent.dto.ts](file://src/purely-profit/operations/scan-ordering/dto/scan-ordering-print-agent.dto.ts)
+- [src/purely-club/points/club-points.controller.ts](file://src/purely-club/points/club-points.controller.ts)
+- [src/purely-club/points/club-points.service.ts](file://src/purely-club/points/club-points.service.ts)
+- [src/purely-club/points/club-points-query.service.ts](file://src/purely-club/points/club-points-query.service.ts)
 
 **章节来源**
-- [src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts](file://src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts)
-- [src/purely-profit/operations/scan-ordering/print-agent.service.ts](file://src/purely-profit/operations/scan-ordering/print-agent.service.ts)
-- [src/purely-profit/operations/scan-ordering/dto/scan-ordering-print-agent.dto.ts](file://src/purely-profit/operations/scan-ordering/dto/scan-ordering-print-agent.dto.ts)
+- [src/purely-club/points/club-points.controller.ts](file://src/purely-club/points/club-points.controller.ts)
+- [src/purely-club/points/club-points.service.ts](file://src/purely-club/points/club-points.service.ts)
+- [src/purely-club/points/dto/club-points-record.dto.ts](file://src/purely-club/points/dto/club-points-record.dto.ts)
+- [src/purely-club/points/club-points-query.service.ts](file://src/purely-club/points/club-points-query.service.ts)
+
+### 纯俱乐部统一流水接口（已更新）
+纯俱乐部统一流水API现已支持增强的筛选功能和统一的游标分页机制。
+
+#### 支持的流水筛选功能
+系统支持以下流水筛选类型：
+- **all** - 显示所有流水（充值、赠送、消费、退款）
+- **recharge** - 仅显示充值与赠送流水
+- **consume** - 仅显示消费与退款流水
+
+#### 统一流水查询接口
+获取当前门店统一流水列表：
+- `GET /club/records`
+- 权限要求：需要纯俱乐部用户认证
+- 查询参数：
+  - `type`: 流水筛选类型（all/recharge/consume），默认为all
+  - `limit`: 每页返回条数，默认50，最大200
+  - `cursor`: 分页游标，上一页响应中的nextCursor值
+
+#### 余额快照算法
+- **正推法** - 从起始余额开始，按时间顺序逐条累加记录金额
+- **跨页连续性** - 游标包含累计变动量，确保不同页面间的余额快照连续
+- **精度保证** - 使用数据库聚合计算汇总统计，避免前端遍历误差
+
+```mermaid
+sequenceDiagram
+participant Client as "客户端"
+participant Ctrl as "记录控制器"
+participant Service as "记录服务"
+participant QueryService as "记录查询服务"
+participant ViewService as "记录视图服务"
+Note over Client,ViewService : 流水查询流程
+Client->>Ctrl : GET /club/records?type=recharge&limit=50
+Ctrl->>Service : list(currentContext, query)
+Service->>QueryService : findCustomerByStoreAndPhone()
+QueryService-->>Service : 客户信息
+Service->>QueryService : listLedgerEntries(storeId, customerId, options)
+QueryService-->>Service : {items, total}
+Service->>ViewService : buildRecordItems(entries, filterType, customer, storeName)
+ViewService-->>Service : 格式化后的流水项
+Service-->>Ctrl : {items, total, nextCursor, summary}
+Ctrl-->>Client : 统一流水列表
+```
+
+图表来源
+- [src/purely-club/records/club-records.controller.ts](file://src/purely-club/records/club-records.controller.ts)
+- [src/purely-club/records/club-records.service.ts](file://src/purely-club/records/club-records.service.ts)
+- [src/purely-club/records/club-record-query.service.ts](file://src/purely-club/records/club-record-query.service.ts)
+
+**章节来源**
+- [src/purely-club/records/club-records.controller.ts](file://src/purely-club/records/club-records.controller.ts)
+- [src/purely-club/records/club-records.service.ts](file://src/purely-club/records/club-records.service.ts)
+- [src/purely-club/records/dto/club-record.dto.ts](file://src/purely-club/records/dto/club-record.dto.ts)
+- [src/purely-club/records/club-record-query.service.ts](file://src/purely-club/records/club-record-query.service.ts)
 
 ### 仪表板接口
 - 仪表板首页：提供概览统计、销售趋势、活动等聚合数据。
@@ -831,7 +886,7 @@ NotiCtrl-->>Client : 通知数据
 - DTO 层作为接口契约，避免控制器直接操作实体。
 - 访问控制服务与各模块的访问服务协作，实现细粒度权限。
 
-**更新** 扫码点餐模块现在依赖打印代理服务，支持本地USB打印和云端打印代理两种模式。
+**更新** 纯俱乐部模块现在依赖统一的游标分页机制，提供更稳定的分页体验。
 
 ```mermaid
 graph LR
@@ -846,10 +901,12 @@ StC["门店控制器"] --> StS["门店服务"]
 OC["运营控制器"] --> OS["运营服务"]
 EC["员工控制器"] --> ES["员工服务"]
 NC["通知控制器"] --> NS["通知服务"]
-SOC["扫码点餐控制器"] --> SAS["扫码点餐服务"]
-SAS --> PAS["打印代理服务"]
-PAS --> PRISMA["数据库"]
-PAS --> REDIS["Redis缓存"]
+PC["纯俱乐部积分控制器"] --> PCS["纯俱乐部积分服务"]
+RC["纯俱乐部记录控制器"] --> RCS["纯俱乐部记录服务"]
+PCS --> PQS["积分查询服务"]
+RCS --> RQS["记录查询服务"]
+PQS --> PRISMA["数据库"]
+RQS --> PRISMA
 AC --> JwtGuard["JWT 守卫"]
 AC --> PermGuard["权限守卫"]
 AC --> ACService["访问控制服务"]
@@ -863,7 +920,8 @@ StC --> ACService
 OC --> ACService
 EC --> ACService
 NC --> ACService
-SOC --> ACService
+PC --> ACService
+RC --> ACService
 ```
 
 图表来源
@@ -871,8 +929,8 @@ SOC --> ACService
 - [src/purely-profit/access-control/access-control.service.ts](file://src/purely-profit/access-control/access-control.service.ts)
 - [src/purely-profit/access-control/guards/permissions.guard.ts](file://src/purely-profit/access-control/guards/permissions.guard.ts)
 - [src/purely-profit/auth/guards/jwt-auth.guard.ts](file://src/purely-profit/auth/guards/jwt-auth.guard.ts)
-- [src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts](file://src/purely-profit/operations/scan-ordering/scan-ordering.controller.ts)
-- [src/purely-profit/operations/scan-ordering/print-agent.service.ts](file://src/purely-profit/operations/scan-ordering/print-agent.service.ts)
+- [src/purely-club/points/club-points.controller.ts](file://src/purely-club/points/club-points.controller.ts)
+- [src/purely-club/records/club-records.controller.ts](file://src/purely-club/records/club-records.controller.ts)
 
 章节来源
 - [src/purely-profit/access-control/access-control.service.ts](file://src/purely-profit/access-control/access-control.service.ts)
@@ -884,7 +942,7 @@ SOC --> ACService
 - 查询优化：在服务层合并与去重查询，减少 N+1 查询风险。
 - 异步处理：对耗时任务采用异步队列或后台作业，避免阻塞请求。
 - 监控与告警：结合运行时指标与摘要指标，建立性能基线与异常告警。
-- **打印代理优化** - 使用Redis Pub/Sub实现跨worker任务转发，支持集群部署；心跳机制确保连接健康；TTL过期自动清理离线连接。
+- **游标分页优化** - 使用base64url编码的游标参数，减少URL长度；数据库层筛选条件下推，确保total与items语义一致；余额快照正推算法保证跨页数据连续性。
 
 ## 故障排查指南
 - 认证失败：检查令牌格式与有效期，确认 JWT 策略是否正确解析。
@@ -892,15 +950,15 @@ SOC --> ACService
 - 查询异常：检查查询 DTO 参数合法性与数据库索引，定位慢查询。
 - 缓存问题：确认缓存键命名与失效策略，排查缓存穿透与雪崩。
 - 服务异常：查看服务层日志与事务回滚情况，定位业务异常点。
-- **打印代理故障** - 检查绑定码有效性、代理连接状态、Redis在线标记、WebSocket连接质量。
+- **游标分页故障** - 检查游标格式是否为有效的base64url编码；验证游标中包含的createdAt和id字段；确认游标未过期或被篡改。
 
 ## 结论
-本接口文档梳理了 purelyprofit-server 的核心 RESTful API，涵盖认证、权限、仪表板、财务、商品、营销、会员、订阅、门店、运营、通知等模块。通过 DTO 契约、权限守卫与访问控制服务，系统实现了高内聚低耦合的接口设计。**本次更新特别增强了扫码点餐模块的打印代理管理能力，为门店提供了灵活的本地打印解决方案。** 建议在生产环境中结合缓存、分页、索引与监控体系，持续优化性能与稳定性。
+本接口文档梳理了 purelyprofit-server 的核心 RESTful API，涵盖认证、权限、仪表板、财务、商品、营销、会员、订阅、门店、运营、通知等模块。通过 DTO 契约、权限守卫与访问控制服务，系统实现了高内聚低耦合的接口设计。**本次更新特别优化了纯俱乐部积分和消费记录的API设计，采用统一的游标分页机制，提供了更稳定可靠的分页体验。** 建议在生产环境中结合缓存、分页、索引与监控体系，持续优化性能与稳定性。
 
 ## 附录
 - 版本信息：当前仓库包含多个迁移脚本与领域模型，接口版本与迁移脚本保持一致，建议客户端在升级前同步迁移脚本。
 - 已弃用功能：部分兼容控制器（如平台会员促销兼容）保留历史接口，建议逐步迁移至新接口。
 - 向后兼容性：新增字段采用可选策略，删除字段需通过兼容层或版本化接口过渡。
-- **打印代理支持** - 新增的打印代理功能完全向后兼容，现有客户端无需修改即可继续使用。
+- **游标分页支持** - 新的游标分页机制完全向后兼容，现有客户端可通过渐进式迁移切换到新的分页方式。
 
-**更新** 打印代理功能的完整支持使得系统能够更好地服务于需要本地打印机设备的商业场景，支持Windows、macOS、Linux等多平台部署。
+**更新** 游标分页功能的引入使得系统能够更好地处理大量数据的分页查询，支持稳定的排序和连续的余额快照计算。

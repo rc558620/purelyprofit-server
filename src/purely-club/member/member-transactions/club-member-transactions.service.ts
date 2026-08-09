@@ -18,15 +18,13 @@ export class ClubMemberTransactionsService {
     const result = await this.clubRecordsService.list(currentContext, {
       type: query.type,
       limit: query.limit,
-      cursorCreatedAt: query.cursorCreatedAt,
-      cursorId: query.cursorId,
+      cursor: query.cursor,
     });
 
     return {
       items: result.items.map((item) => this.toTransactionDto(item)),
       total: result.total,
-      nextCursorCreatedAt: result.nextCursorCreatedAt,
-      nextCursorId: result.nextCursorId,
+      nextCursor: result.nextCursor,
     };
   }
 
