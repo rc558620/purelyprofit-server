@@ -1,4 +1,3 @@
-import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ClubOrderPaidObservationOptions } from '../orders/club-order-drafts.types';
 import type { ClubPaymentCallbackSettlementParams } from './club-payments.types';
@@ -39,7 +38,6 @@ export class ClubPaymentConfirmationOrchestrator<
     input: TConfirmInput,
     orderNo: string,
   ): Promise<TResult> {
-    this.ensureManualConfirmPaidEnabled();
     const draft = await this.params.loadDraftForManualConfirm(input, orderNo);
     return this.params.completePaidDraft(draft, {
       paymentConfirmationSource: 'manual_confirm_paid',
@@ -65,14 +63,4 @@ export class ClubPaymentConfirmationOrchestrator<
     });
   }
 
-  private ensureManualConfirmPaidEnabled(): void {
-    const enabled =
-      this.params.configService.get<boolean>('club.manualConfirmPaidEnabled') ??
-      false;
-    if (!enabled) {
-      throw new ForbiddenException(
-        'confirm-paid 仅开发态可用，请改用支付回调驱动订单状态刷新',
-      );
-    }
-  }
 }

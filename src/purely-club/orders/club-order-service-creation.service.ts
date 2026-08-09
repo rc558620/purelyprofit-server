@@ -98,7 +98,9 @@ export class ClubOrderServiceCreationService {
         {
           ...pricing,
           totalReduceFen: orderReduceFen,
-          discountAmountFen: pricing.discountAmountFen + orderReduceFen,
+          // 订单总优惠 = 单件活动优惠 × 数量 + 整单满减（单次），保证与原价、应付勾稽
+          discountAmountFen:
+            pricing.discountAmountFen * quantity + orderReduceFen,
         },
         pointsDeductFen,
         pointsUsed,

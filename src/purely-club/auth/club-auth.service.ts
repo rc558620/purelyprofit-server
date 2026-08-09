@@ -151,6 +151,7 @@ export class ClubAuthService {
         wechatUnionid: true,
         wechatNickname: true,
         wechatAvatar: true,
+        wechatPhone: true,
       },
     });
     if (!currentUser) {
@@ -166,6 +167,17 @@ export class ClubAuthService {
 
     if (existingPhoneUser && existingPhoneUser.id !== userId) {
       // 手机号已有其他账号：事务性合并
+      // 合并前检查目标账号是否已绑定其他微信 openid，
+      // 避免合并时覆盖目标账号的 openid 导致其微信号登录失效
+      const targetUser = await this.prisma.user.findUnique({
+        where: { id: existingPhoneUser.id },
+        select: { wechatOpenid: true },
+      });
+      if (targetUser?.wechatOpenid) {
+        throw new ConflictException(
+          '该手机号已绑定其他微信账号，无法自动合并，请联系客服',
+        );
+      }
       return this.mergeWechatUserToPhoneUser(
         userId,
         existingPhoneUser.id,
@@ -175,6 +187,10 @@ export class ClubAuthService {
     }
 
     // 4. 手机号无其他账号：直接绑定到当前用户
+    // 防御性检查：当前账号已绑定手机号时拒绝，避免 wechatPhone 被静默覆盖
+    if (currentUser.wechatPhone?.trim()) {
+      throw new ConflictException('当前账号已绑定手机号，无需重复绑定');
+    }
     await this.prisma.user.update({
       where: { id: userId },
       data: { wechatPhone: dto.phone },

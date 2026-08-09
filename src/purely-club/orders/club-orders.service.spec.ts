@@ -138,6 +138,7 @@ describe('ClubOrdersService', () => {
       id: 11,
       name: '望京旗舰店',
       address: '北京市朝阳区望京 SOHO T3 B1',
+      businessMode: 'general' as const,
       createdAt: new Date('2026-05-12T00:00:00.000Z'),
       updatedAt: new Date('2026-05-13T00:00:00.000Z'),
     },
@@ -149,6 +150,7 @@ describe('ClubOrdersService', () => {
       id: 11,
       name: '望京旗舰店',
       address: '北京市朝阳区望京 SOHO T3 B1',
+      businessMode: 'general' as const,
       createdAt: new Date('2026-05-12T00:00:00.000Z'),
       updatedAt: new Date('2026-05-13T00:00:00.000Z'),
     },
@@ -768,6 +770,101 @@ describe('ClubOrdersService', () => {
           promotionType: null,
           totalReduceFen: 3000,
           memberBaselineFen: 49900,
+        }),
+      }),
+    );
+  });
+
+  it('createServiceOrder 数量>1 时活动优惠按数量计算、满减单次生效', async () => {
+    // 会员 8 折
+    clubMemberProfileService.getSnapshotByStoreAndPhone.mockResolvedValue({
+      memberId: 1,
+      storeId: 11,
+      balance: 200000,
+      level: 'gold',
+      points: 0,
+      memberCode: 'MC001',
+      joinDate: '2026-01-01',
+      totalConsume: 100000,
+    });
+    clubMemberLevelsService.resolveCurrentLevelConfig.mockResolvedValue({
+      level: 'gold',
+      label: '黄金会员',
+      color: '#b7862f',
+      bgColor: '#fbf3df',
+      requiredConsume: 0,
+      discountRate: 0.8,
+      benefits: ['8折会员专属价'],
+    });
+    // 活动 7 折（单价优惠 14970）+ 满 200 减 30（订单级单次 3000）
+    clubPromotionRepository.loadActivePromotions.mockResolvedValue([
+      {
+        id: 99,
+        name: '限时 7 折',
+        type: 'discount',
+        params: { discountRate: 70 },
+      },
+      {
+        id: 101,
+        name: '满200减30',
+        type: 'reduce',
+        params: { threshold: 20000, reduceAmount: 3000 },
+      },
+    ]);
+    prismaService.marketingConsumption.count.mockResolvedValue(1);
+
+    prismaService.marketingCustomer.findFirst.mockResolvedValue({ id: 36 });
+    prismaService.marketingProduct.findFirst.mockResolvedValue({
+      id: 18,
+      name: '黄金焕肤疗程',
+      price: 49900,
+      originalPrice: 68800,
+      image: null,
+      stock: 5,
+    });
+
+    // 竞争模型：活动 7 折 → 单价 34930；数量 3 → 满减前总额 104790；
+    // 满减单次 3000 → 应付 101790，勾稽：49900×3 − (14970×3 + 3000) = 101790
+    const quantityThreeDraft = {
+      ...createServiceDraft(),
+      amountFen: 101790,
+      metadata: {
+        ...createServiceDraft().metadata,
+        coverImage: null,
+        memberBaselineFen: 49900,
+        promotionId: 99,
+        promotionType: 'discount' as const,
+        discountRate: 70,
+        // 订单总优惠 = 单件活动优惠 14970 × 3 + 满减单次 3000 = 47910
+        discountAmountFen: 47910,
+        promotionDiscountAmountFen: 14970,
+        totalReduceFen: 3000,
+        promotionTag: '限时 7 折',
+        quantity: 3,
+      },
+    };
+    clubOrderDraftsService.createDraft.mockResolvedValue(quantityThreeDraft);
+
+    await expect(
+      service.createServiceOrder(currentContext, {
+        storeId: 11,
+        productId: 18,
+        quantity: 3,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ id: 'SV123' }));
+    expect(clubOrderDraftsService.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountFen: 101790,
+        metadata: expect.objectContaining({
+          promotionId: 99,
+          promotionType: 'discount',
+          discountRate: 70,
+          memberBaselineFen: 49900,
+          promotionDiscountAmountFen: 14970,
+          totalReduceFen: 3000,
+          // 修复前为 14970 + 3000 = 17970（活动优惠欠乘数量）
+          discountAmountFen: 47910,
+          quantity: 3,
         }),
       }),
     );

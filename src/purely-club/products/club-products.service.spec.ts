@@ -47,6 +47,7 @@ describe('ClubProductsService', () => {
       id: 11,
       name: '望京旗舰店',
       address: '北京市朝阳区望京 SOHO T3 B1',
+      businessMode: 'general' as const,
       createdAt: new Date('2026-05-12T00:00:00.000Z'),
       updatedAt: new Date('2026-05-13T00:00:00.000Z'),
     },
@@ -135,6 +136,7 @@ describe('ClubProductsService', () => {
         expect.objectContaining({ id: '30', isHot: true }),
         expect.objectContaining({ id: '29', isHot: true }),
       ],
+      nextCursor: null,
     });
     expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(
       11,
@@ -166,11 +168,85 @@ describe('ClubProductsService', () => {
     expect(
       clubProductPromotionService.resolvePricingContext,
     ).toHaveBeenCalledWith(11, user.phone);
+    // 无 featured 无 cursor：走分页首屏路径，查询层以 limit+1 探测
+    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(
+      11,
+      undefined,
+      undefined,
+      51,
+      undefined,
+    );
     expect(clubProductViewService.toClubProduct).toHaveBeenCalledWith(
       expect.objectContaining({ id: 31 }),
       aNonEmptySet,
       pricingContext,
     );
+  });
+
+  it('list 服务列表首屏（无 cursor 无 featured）返回 nextCursor 开启分页', async () => {
+    const pageRecords = [
+      createProduct({ id: 30 }),
+      createProduct({ id: 29 }),
+      createProduct({ id: 28 }),
+      createProduct({ id: 27 }),
+      createProduct({ id: 26 }),
+      createProduct({ id: 25 }), // take+1 探测行：本页取满，存在下一页
+    ];
+    clubProductQueryService.listActiveByStore.mockResolvedValue(pageRecords);
+
+    const result = await service.list(currentContext, { limit: 5 });
+
+    // 首屏不带 cursor 从最新开始，同样以 limit+1 探测
+    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(
+      11,
+      undefined,
+      undefined,
+      6,
+      undefined,
+    );
+    expect(result.items).toHaveLength(5);
+    expect(result.nextCursor).toBe(26);
+  });
+
+  it('list 携带 cursor 时按游标分页：取满则截掉探测行并返回 nextCursor', async () => {
+    const pageRecords = [
+      createProduct({ id: 30 }),
+      createProduct({ id: 29 }),
+      createProduct({ id: 28 }), // take+1 探测行：本页取满，存在下一页
+    ];
+    clubProductQueryService.listActiveByStore.mockResolvedValue(pageRecords);
+
+    const result = await service.list(currentContext, {
+      limit: 2,
+      cursor: 31,
+    });
+
+    // 查询层以 limit+1 探测，游标与排序对齐
+    expect(clubProductQueryService.listActiveByStore).toHaveBeenCalledWith(
+      11,
+      undefined,
+      31,
+      3,
+      undefined,
+    );
+    expect(result.items).toHaveLength(2);
+    expect(result.nextCursor).toBe(29);
+    // 探测行不参与视图映射
+    expect(clubProductViewService.toClubProduct).toHaveBeenCalledTimes(2);
+  });
+
+  it('list 末页不足一页时 nextCursor 为 null', async () => {
+    clubProductQueryService.listActiveByStore.mockResolvedValue([
+      createProduct({ id: 28 }),
+    ]);
+
+    const result = await service.list(currentContext, {
+      limit: 2,
+      cursor: 30,
+    });
+
+    expect(result.nextCursor).toBeNull();
+    expect(result.items).toHaveLength(1);
   });
 
   it('getDetail 返回当前门店指定商品详情', async () => {

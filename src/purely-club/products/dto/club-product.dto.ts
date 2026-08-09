@@ -55,6 +55,25 @@ export class ListClubProductsQueryDto {
   @Min(1, { message: 'limit 必须大于等于 1' })
   @Max(50, { message: 'limit 必须小于等于 50' })
   limit?: number;
+
+  @ApiPropertyOptional({
+    example: 27,
+    description:
+      '游标分页：取上一页最后一条商品的 id，按 id 倒序翻页；与 limit 搭配使用',
+  })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: 'cursor 必须是整数' })
+  @Min(1, { message: 'cursor 必须大于 0' })
+  cursor?: number;
+
+  @ApiPropertyOptional({
+    example: '泡澡',
+    description: '商品名称模糊搜索关键字；不传或空串返回全部',
+  })
+  @IsOptional()
+  @IsString({ message: 'keyword 必须是字符串' })
+  keyword?: string;
 }
 
 export class ClubProductDto {
@@ -245,4 +264,11 @@ export class ClubProductDto {
 export class ClubProductsResponseDto {
   @ApiProperty({ type: [ClubProductDto], description: '商品列表' })
   items: ClubProductDto[];
+
+  @ApiProperty({
+    example: 27,
+    nullable: true,
+    description: '下一页游标（本页最后一条商品的 id）；null 表示已无更多数据',
+  })
+  nextCursor: number | null;
 }

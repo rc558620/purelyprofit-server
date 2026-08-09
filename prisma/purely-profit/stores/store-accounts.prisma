@@ -63,6 +63,12 @@ model Store {
   cashierUsbPrinter           String?                       @map("cashier_usb_printer")
   /// 后厨 USB 小票打印机标识（kitchenPrintChannel=usb 时使用）
   kitchenUsbPrinter           String?                       @map("kitchen_usb_printer")
+  /// 扫码点餐打印代理绑定码（商家端生成，客户在打印代理中输入以完成绑定）
+  printAgentBindCode          String?                       @map("print_agent_bind_code")
+  /// 扫码点餐打印代理令牌（代理注册时下发，用于 WebSocket 鉴权）
+  printAgentToken             String?                       @map("print_agent_token")
+  /// 扫码点餐打印代理最后在线时间（用于商家端展示代理状态）
+  printAgentLastSeenAt        DateTime?                     @map("print_agent_last_seen_at")
   costRecords                 CostRecord[]
   employeeDepartments         EmployeeDepartment[]
   employeeLeaves              EmployeeLeave[]

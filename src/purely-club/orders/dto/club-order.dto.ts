@@ -328,6 +328,21 @@ export class ClubServiceOrderPreviewResponseDto {
   quantity: number;
 
   @ApiProperty({
+    example: true,
+    description:
+      '当前余额是否足够支付本次订单（余额 >= 积分抵扣后实付）；由后端判断，前端仅展示',
+  })
+  balanceEnough: boolean;
+
+  @ApiPropertyOptional({
+    example: '当前余额 ¥0.00，本次需支付 ¥335.50，请先充值',
+    description:
+      '余额不足时的完整提示文案（含金额，后端拼装）；余额足够时返回 null，前端直接展示不做计算',
+  })
+  @IsOptional()
+  insufficientBalanceMessage: string | null;
+
+  @ApiProperty({
     type: [ClubOrderBreakdownItemDto],
     description: '价格拆解展示行；前端直接渲染，禁止再做金额/折扣推导',
   })

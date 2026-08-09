@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
 import { EscPosTicketBuilder } from './escpos-ticket.builder';
 import { UsbPrintService } from './usb-print.service';
+import { PrintAgentService } from './print-agent.service';
 import { ScanOrderingUsbPrintService } from './scan-ordering-usb-print.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
@@ -16,7 +18,12 @@ describe('ScanOrderingUsbPrintService', () => {
   const printSettingsService = { getByStoreId: jest.fn() };
   const printDataService = { loadOrder: jest.fn() };
   const usbPrintService = { printRaw: jest.fn(), listDevices: jest.fn() };
-  const user = { id: 1 } as AuthenticatedUser;
+  const agentService = {
+    isAgentBound: jest.fn(),
+    dispatch: jest.fn(),
+    getPrinters: jest.fn(),
+  };
+  const user = { id: 1, name: '张三' } as AuthenticatedUser;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -35,6 +42,7 @@ describe('ScanOrderingUsbPrintService', () => {
           provide: EscPosTicketBuilder,
           useValue: new EscPosTicketBuilder('utf8'),
         },
+        { provide: PrintAgentService, useValue: agentService },
       ],
     }).compile();
     service = module.get<ScanOrderingUsbPrintService>(
@@ -50,6 +58,7 @@ describe('ScanOrderingUsbPrintService', () => {
       payableAmount: '40.00',
       items: [{ name: '牛肉面', quantity: 2, specs: [{ name: '微辣' }] }],
     });
+    agentService.isAgentBound.mockResolvedValue(false);
   });
 
   it('后厨 USB 打印：使用后厨打印机并下发制作单字节流', async () => {
@@ -73,6 +82,7 @@ describe('ScanOrderingUsbPrintService', () => {
     const text = data.toString('utf8');
     expect(text).toContain('后厨制作单');
     expect(text).toContain('牛肉面 ×2');
+    expect(text).toContain('操作员：张三');
     expect(text).not.toContain('应付');
   });
 
@@ -95,6 +105,7 @@ describe('ScanOrderingUsbPrintService', () => {
     const text = data.toString('utf8');
     expect(text).toContain('扫码点餐订单');
     expect(text).toContain('应付：¥40.00');
+    expect(text).toContain('操作员：张三');
     expect(text).toContain('谢谢惠顾，欢迎再次光临');
   });
 
@@ -126,5 +137,69 @@ describe('ScanOrderingUsbPrintService', () => {
     expect(devices).toHaveLength(1);
     expect(devices[0].id).toBe('/dev/usb/lp0');
     expect(commerceAccessService.resolveSingleStoreId).toHaveBeenCalled();
+  });
+
+  it('门店绑定代理后打印走代理推送（返回任务 ID，不调本机打印）', async () => {
+    printSettingsService.getByStoreId.mockResolvedValue({
+      cashierPrintChannel: 'usb',
+      kitchenPrintChannel: 'off',
+      cashierCloudPrinterSn: null,
+      kitchenCloudPrinterSn: null,
+      cashierUsbPrinter: null,
+      kitchenUsbPrinter: null,
+    });
+    agentService.isAgentBound.mockResolvedValue(true);
+    agentService.dispatch.mockResolvedValue({
+      ok: true,
+      taskId: 'task-123',
+    });
+
+    const result = await service.printForMerchant(user, 'cashier', 1);
+
+    expect(result).toBe('task-123');
+    expect(usbPrintService.printRaw).not.toHaveBeenCalled();
+    const [storeId, task] = agentService.dispatch.mock.calls[0];
+    expect(storeId).toBe(11);
+    expect(task.target).toBe('cashier');
+    expect(typeof task.dataBase64).toBe('string');
+    // 字节流 Base64 解码后包含小票关键内容
+    expect(Buffer.from(task.dataBase64, 'base64').toString('utf8')).toContain(
+      '应付：¥40.00',
+    );
+  });
+
+  it('门店绑定代理但代理离线时打印抛 503', async () => {
+    printSettingsService.getByStoreId.mockResolvedValue({
+      cashierPrintChannel: 'usb',
+      kitchenPrintChannel: 'off',
+      cashierCloudPrinterSn: null,
+      kitchenCloudPrinterSn: null,
+      cashierUsbPrinter: null,
+      kitchenUsbPrinter: null,
+    });
+    agentService.isAgentBound.mockResolvedValue(true);
+    agentService.dispatch.mockResolvedValue({
+      ok: false,
+      reason: 'agent-offline',
+      message: '门店打印代理未在线',
+    });
+
+    await expect(service.printForMerchant(user, 'cashier', 1)).rejects.toThrow(
+      ServiceUnavailableException,
+    );
+  });
+
+  it('门店绑定代理时 listUsbDevices 返回代理上报打印机列表', async () => {
+    agentService.isAgentBound.mockResolvedValue(true);
+    agentService.getPrinters.mockReturnValue([
+      { id: 'RP58', name: 'RP58', type: 'windows' },
+      { id: '/dev/usb/lp0', name: 'lp0', type: 'device' },
+    ]);
+    const devices = await service.listUsbDevices(user);
+    expect(devices).toEqual([
+      { id: 'RP58', name: 'RP58', type: 'cups' },
+      { id: '/dev/usb/lp0', name: 'lp0', type: 'device' },
+    ]);
+    expect(usbPrintService.listDevices).not.toHaveBeenCalled();
   });
 });

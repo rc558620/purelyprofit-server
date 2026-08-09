@@ -41,7 +41,7 @@ describe('EscPosTicketBuilder', () => {
     expect(iconv.decode(data, 'gbk')).toContain('后厨制作单');
   });
 
-  it('后厨制作单包含订单关键字段、商品明细与备注', () => {
+  it('后厨制作单包含订单关键字段、商品明细、操作员与备注', () => {
     const data = builder.buildTicket({
       storeName: '测试门店',
       title: '后厨制作单',
@@ -49,6 +49,7 @@ describe('EscPosTicketBuilder', () => {
       pickupNumberLabel: '005',
       tableName: 'A01',
       items: [{ name: '牛肉面', quantity: 2, specs: [{ name: '微辣' }] }],
+      operatorName: '张三',
       remark: '不要辣',
     });
     const text = data.toString('utf8');
@@ -58,22 +59,25 @@ describe('EscPosTicketBuilder', () => {
     expect(text).toContain('桌台：A01');
     expect(text).toContain('牛肉面 ×2');
     expect(text).toContain('微辣');
+    expect(text).toContain('操作员：张三');
     expect(text).toContain('备注：不要辣');
     expect(text).not.toContain('应付');
   });
 
-  it('收银台顾客票包含应付金额与结尾问候语', () => {
+  it('收银台顾客票包含应付金额、操作员与结尾问候语', () => {
     const data = builder.buildTicket({
       storeName: '测试门店',
       title: '扫码点餐订单',
       orderNo: 'SO-002',
       items: [{ name: '牛肉面', quantity: 1, specs: [] }],
       payableAmount: '40.00',
+      operatorName: '张三',
       footer: '谢谢惠顾，欢迎再次光临',
     });
     const text = data.toString('utf8');
     expect(text).toContain('扫码点餐订单');
     expect(text).toContain('应付：¥40.00');
+    expect(text).toContain('操作员：张三');
     expect(text).toContain('谢谢惠顾，欢迎再次光临');
   });
 

@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
 import { BusinessModeGuard } from '../../stores/business-mode.guard';
@@ -55,6 +56,8 @@ import { UpdateScanOrderingPrintSettingsDto } from './dto/scan-ordering-print-se
 import { ScanOrderingCloudPrintService } from './scan-ordering-cloud-print.service';
 import type { CloudPrintTarget } from './scan-ordering-cloud-print.service';
 import { ScanOrderingUsbPrintService } from './scan-ordering-usb-print.service';
+import { PrintAgentService } from './print-agent.service';
+import type { PrintAgentPrinter } from './print-agent.service';
 import { ScanOrderingPrintOrderDto } from './dto/scan-ordering-print-action.dto';
 import { ScanOrderingPrintTestDto } from './dto/scan-ordering-print-action.dto';
 
@@ -74,6 +77,8 @@ export class ScanOrderingMainController {
     private readonly printSettingsService: ScanOrderingPrintSettingsService,
     private readonly cloudPrintService: ScanOrderingCloudPrintService,
     private readonly usbPrintService: ScanOrderingUsbPrintService,
+    private readonly commerceAccessService: CommerceAccessService,
+    private readonly printAgentService: PrintAgentService,
   ) {}
 
   @Get('dashboard')
@@ -180,11 +185,57 @@ export class ScanOrderingMainController {
 
   @Get('print/usb-devices')
   @RequirePermissions('scan-ordering:view')
-  @ApiOperation({ summary: '探测服务器可用 USB / 系统小票打印机列表' })
+  @ApiOperation({ summary: '探测可用 USB / 系统小票打印机列表（代理模式返回门店代理上报列表）' })
   listUsbPrinters(
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<Array<{ id: string; name: string; type: string }>> {
     return this.usbPrintService.listUsbDevices(user);
+  }
+
+  @Post('print-agent/bind-code')
+  @RequirePermissions('scan-ordering:order-process')
+  @ApiOperation({ summary: '生成/重置门店打印代理绑定码（客户在门店电脑代理中输入以完成绑定）' })
+  async generatePrintAgentBindCode(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ bindCode: string }> {
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      undefined,
+      'scan-ordering:order-process',
+      '无权操作打印代理配置',
+    );
+    const bindCode = await this.printAgentService.generateBindCode(storeId);
+    return { bindCode };
+  }
+
+  @Get('print-agent/status')
+  @RequirePermissions('scan-ordering:view')
+  @ApiOperation({ summary: '查询门店打印代理绑定与在线状态' })
+  async getPrintAgentStatus(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{
+    bindCode: string | null;
+    online: boolean;
+    lastSeenAt: number | null;
+    printers: PrintAgentPrinter[];
+  }> {
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      undefined,
+      'scan-ordering:view',
+      '无权查看打印代理配置',
+    );
+    const [bindCode, status, printers] = await Promise.all([
+      this.printAgentService.getBindCode(storeId),
+      this.printAgentService.getAgentStatus(storeId),
+      this.printAgentService.getPrinters(storeId),
+    ]);
+    return {
+      bindCode,
+      online: status.online,
+      lastSeenAt: status.lastSeenAt,
+      printers,
+    };
   }
 
   /** 按打印目标读取门店配置的打印通道。 */

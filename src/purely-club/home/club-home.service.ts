@@ -108,7 +108,7 @@ export class ClubHomeService {
       });
     } catch (error) {
       this.logger.warn('首页推荐商品获取失败，降级返回空列表', error);
-      return { items: [] };
+      return { items: [], nextCursor: null };
     }
   }
 }

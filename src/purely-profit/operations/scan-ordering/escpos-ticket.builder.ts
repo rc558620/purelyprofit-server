@@ -19,6 +19,8 @@ export interface EscPosTicket {
   items: EscPosTicketItem[];
   /** 应付金额（收银台顾客票传入，后厨制作单可省略）。 */
   payableAmount?: string | null;
+  /** 操作员（接单/操作人，可选）。 */
+  operatorName?: string | null;
   remark?: string | null;
   /** 结尾问候语，如「谢谢惠顾，欢迎再次光临」。 */
   footer?: string | null;
@@ -79,6 +81,9 @@ export class EscPosTicketBuilder {
 
     if (ticket.payableAmount) {
       this.line(out, `应付：¥${ticket.payableAmount}`, { bold: true });
+    }
+    if (ticket.operatorName) {
+      this.line(out, `操作员：${ticket.operatorName}`);
     }
     if (ticket.remark) {
       this.line(out, `备注：${ticket.remark}`);

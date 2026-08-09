@@ -9,18 +9,31 @@ import {
 export class ClubProductQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * 分页查询当前门店上架商品。
+   * 游标基于自增 id 倒序翻页（与 orderBy 唯一对齐），调用方需传入 take+1 做“是否有下一页”探测。
+   */
   listActiveByStore(
     storeId: number,
     categoryId?: number,
+    cursor?: number,
+    take?: number,
+    keyword?: string,
   ): Promise<ClubProductRecord[]> {
     return this.prisma.marketingProduct.findMany({
       where: {
         storeId,
         isActive: true,
         ...(categoryId ? { categoryId } : {}),
+        // 游标分页：仅取 id 小于上一页末尾 id 的数据，保证翻页不重不漏
+        ...(cursor ? { id: { lt: cursor } } : {}),
+        // 商品名称模糊搜索（MySQL 默认不区分大小写）
+        ...(keyword ? { name: { contains: keyword } } : {}),
       },
       select: clubProductSelect,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      // 排序键必须与游标一致（id desc），否则翻页会漏数据或重复
+      orderBy: { id: 'desc' },
+      ...(take ? { take } : {}),
     });
   }
 

@@ -42,6 +42,7 @@ describe('ClubHomeService', () => {
       id: 11,
       name: '望京旗舰店',
       address: '北京市朝阳区望京 SOHO T3 B1',
+      businessMode: 'general' as const,
       createdAt: new Date('2026-05-12T00:00:00.000Z'),
       updatedAt: new Date('2026-05-13T00:00:00.000Z'),
     },

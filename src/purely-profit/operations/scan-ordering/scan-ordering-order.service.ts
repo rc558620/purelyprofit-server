@@ -398,6 +398,8 @@ export class ScanOrderingOrderService {
         (item: (typeof prismaOrder.items)[number]) => ({
           name: item.productNameSnapshot,
           quantity: item.quantity,
+          // 单项原价小计（元,未扣商品级优惠），用于详情卡右侧展示"原价"
+          lineTotalAmount: fenToYuan(item.lineTotalAmount ?? 0),
           // 行金额取已扣商品级优惠的应付金额，保证小票明细合计 = 应付合计
           amount: fenToYuan(item.payableLineAmount ?? 0),
           specs: item.specs.map((spec: (typeof item.specs)[number]) => ({

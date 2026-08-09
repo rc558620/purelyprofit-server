@@ -12,8 +12,8 @@ import { ServiceCallRealtimeService } from '../../../purely-club/service-call/se
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 
-// 临时联调：处理中超时设为 30 秒，待响应超时设为 60 秒，验证完成后恢复原值。
-const PROCESSING_SERVICE_CALL_TTL_MS = 30_000;
+// 临时联调：处理中超时设为 15 分钟，待响应超时设为 5 分钟，验证完成后恢复原值。
+const PROCESSING_SERVICE_CALL_TTL_MS = 900_000;
 const EXPIRY_CHECK_INTERVAL_MS = 1_000;
 
 @Injectable()

@@ -38,6 +38,7 @@ import { EscPosTicketBuilder } from './escpos-ticket.builder';
 import type { EscPosEncoding } from './escpos-ticket.builder';
 import { UsbPrintService } from './usb-print.service';
 import { ScanOrderingUsbPrintService } from './scan-ordering-usb-print.service';
+import { PrintAgentService } from './print-agent.service';
 
 /** 扫码点餐领域模块：商家管理、消费者点餐、订单与支付共享同一领域规则。 */
 @Module({
@@ -83,6 +84,7 @@ import { ScanOrderingUsbPrintService } from './scan-ordering-usb-print.service';
     ScanOrderingCloudPrintService,
     UsbPrintService,
     ScanOrderingUsbPrintService,
+    PrintAgentService,
     {
       provide: EscPosTicketBuilder,
       inject: [ConfigService],

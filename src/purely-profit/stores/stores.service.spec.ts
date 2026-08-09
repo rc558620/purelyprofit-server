@@ -91,6 +91,7 @@ describe('StoresService', () => {
         storeType: '零售',
         region: ['北京市', '北京市', '朝阳区'],
         address: '北京市朝阳区望京街道 1 号',
+        businessMode: 'general',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
 
@@ -117,6 +118,7 @@ describe('StoresService', () => {
         id: true,
         name: true,
         address: true,
+        businessMode: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -141,6 +143,7 @@ describe('StoresService', () => {
       storeLogo: 'blob:http://localhost:5173/test',
       latitude: '25.043844',
       longitude: '102.710002',
+      businessMode: 'general',
     });
 
     await expect(validate(dto)).resolves.toEqual([]);
@@ -185,6 +188,7 @@ describe('StoresService', () => {
       storeLogo: 'blob:http://localhost:5173/test',
       latitude: 39.984104,
       longitude: 116.307503,
+      businessMode: 'general',
     });
 
     expect(redisService.set).toHaveBeenCalledWith(
@@ -247,18 +251,21 @@ describe('StoresService', () => {
       storeLogo: 'data:image/png;base64,abc',
       latitude: 39.984104,
       longitude: 116.307503,
+      businessMode: 'general',
     });
 
     expect(prismaService.store.create).toHaveBeenCalledWith({
       data: {
         name: '纯利优选示范店',
         address: '北京市朝阳区望京街道 1 号',
+        businessMode: 'general',
         ownerId: user.id,
       },
       select: {
         id: true,
         name: true,
         address: true,
+        businessMode: true,
         createdAt: true,
         updatedAt: true,
       },

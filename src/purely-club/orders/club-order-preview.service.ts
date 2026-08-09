@@ -133,11 +133,11 @@ export class ClubOrderPreviewService {
     // 最终应付 = 满减前总额 - 满减
     const finalPriceFen = Math.max(beforeReduceTotalFen - orderReduceFen, 0);
 
-    // 折扣总额 = (单价活动折扣额 + 订单满减) × 数量
+    // 折扣总额 = 单价活动折扣额 × 数量 + 订单满减（订单级单次，不乘数量）
     // pricing.discountAmountFen 含活动折扣，不含满减（skipReduce）；
     // buildBreakdownItems 需要总优惠（含满减）
     const discountTotalFen =
-      (pricing.discountAmountFen + orderReduceFen) * quantity;
+      pricing.discountAmountFen * quantity + orderReduceFen;
 
     // 积分抵扣计算（基于乘以数量后的金额）
     const { pointsDeductFen, pointsUsed } = await this.calcPointsDeduction(
@@ -149,6 +149,18 @@ export class ClubOrderPreviewService {
     const afterPointsPriceFen = Money.fromDbCents(finalPriceFen)
       .subtractClampedToZero(Money.fromDbCents(pointsDeductFen))
       .toDbCents();
+
+    // ── 余额充足性判断（由后端计算，前端仅展示结果） ──
+    // 余额是否足够支付积分抵扣后的实付金额；文案由后端拼装，含全部金额信息
+    const customer = await this.prisma.marketingCustomer.findUnique({
+      where: { id: context.customer.id },
+      select: { balance: true },
+    });
+    const customerBalanceFen = customer?.balance ?? 0;
+    const balanceEnough = customerBalanceFen >= afterPointsPriceFen;
+    const insufficientBalanceMessage = balanceEnough
+      ? null
+      : `当前余额 ¥${Money.fromDbCents(customerBalanceFen).toFixedOutputYuan()}，本次需支付 ¥${Money.fromDbCents(afterPointsPriceFen).toFixedOutputYuan()}，请先充值`;
 
     const totalSavingAmount = Money.fromDbCents(originalPriceFen)
       .subtractClampedToZero(Money.fromDbCents(finalPriceFen))
@@ -167,7 +179,8 @@ export class ClubOrderPreviewService {
         currentContext.user.phone,
       );
 
-    // BUG-4 修复：totalReduceFen 应传入 orderReduceFen * quantity 保持量纲一致
+    // 满减为订单级单次优惠：totalReduceFen 传 orderReduceFen（不乘数量），
+    // 与 previewMarketingLines 的 breakdown 口径保持一致
     const breakdownItems = this.breakdownService.build({
       memberBaselineFen: memberBaselineTotalFen,
       originalPriceFen,
@@ -176,7 +189,7 @@ export class ClubOrderPreviewService {
       promotionType: pricing.promotionType,
       promotionTag: pricing.promotionTag,
       discountRate: pricing.discountRate,
-      totalReduceFen: orderReduceFen * quantity,
+      totalReduceFen: orderReduceFen,
       finalPriceFen,
       memberDiscountRate,
     });
@@ -201,6 +214,8 @@ export class ClubOrderPreviewService {
       discountRate: pricing.discountRate,
       promotionTag: pricing.promotionTag,
       quantity,
+      balanceEnough,
+      insufficientBalanceMessage,
       breakdownItems,
     };
   }
@@ -251,8 +266,7 @@ export class ClubOrderPreviewService {
         storeId,
         phone,
       );
-    const hasMemberRate =
-      memberDiscountRate != null && memberDiscountRate < 1;
+    const hasMemberRate = memberDiscountRate != null && memberDiscountRate < 1;
     const memberDiscountFen = hasMemberRate
       ? Math.round(memberBaselineFen * (1 - memberDiscountRate))
       : 0;
@@ -274,9 +288,7 @@ export class ClubOrderPreviewService {
         memberBaselineFen,
         originalPriceFen: memberBaselineFen,
         discountAmountFen:
-          productDiscountAmountFen +
-          orderDiscountAmountFen +
-          memberDiscountFen,
+          productDiscountAmountFen + orderDiscountAmountFen + memberDiscountFen,
         promotionDiscountAmountFen: productDiscountAmountFen,
         promotionType: representativeResolution?.promotionType ?? null,
         promotionTag: representativeResolution?.promotionTag ?? null,

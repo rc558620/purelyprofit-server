@@ -27,7 +27,7 @@ describe('ScanOrderingCloudPrintService', () => {
   const feiePrintService = {
     printMessage: jest.fn(),
   };
-  const user = { id: 1 } as AuthenticatedUser;
+  const user = { id: 1, name: '张三' } as AuthenticatedUser;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -90,6 +90,10 @@ describe('ScanOrderingCloudPrintService', () => {
     expect(feiePrintService.printMessage).toHaveBeenCalledWith(
       'KITCHEN-SN',
       expect.stringContaining('牛肉面 ×2'),
+    );
+    expect(feiePrintService.printMessage).toHaveBeenCalledWith(
+      'KITCHEN-SN',
+      expect.stringContaining('操作员：张三'),
     );
   });
 
