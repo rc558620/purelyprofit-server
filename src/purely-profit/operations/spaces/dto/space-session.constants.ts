@@ -48,6 +48,7 @@ export const GROUPON_PLATFORM_VALUES = [
   'pinduoduo',
   'taobao',
   'jd',
+  'chunlibao',
   'wechat_store',
   'other',
 ] as const;
@@ -58,14 +59,15 @@ export const GROUPON_PLATFORM_OPTIONS: Array<{
   value: GrouponPlatformValue;
   label: string;
 }> = [
+  { value: 'chunlibao', label: '纯利宝' },
   { value: 'meituan', label: '美团' },
+  { value: 'eleme', label: '饿了么' },
+  { value: 'taobao', label: '淘宝' },
   { value: 'douyin', label: '抖音' },
+  { value: 'pinduoduo', label: '拼多多' },
   { value: 'kuaishou', label: '快手' },
   { value: 'xiaohongshu', label: '小红书' },
   { value: 'dianping', label: '大众点评' },
-  { value: 'eleme', label: '饿了么' },
-  { value: 'pinduoduo', label: '拼多多' },
-  { value: 'taobao', label: '淘宝' },
   { value: 'jd', label: '京东' },
   { value: 'wechat_store', label: '微信小商店' },
   { value: 'other', label: '其他' },

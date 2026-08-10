@@ -19,6 +19,11 @@ export interface ClubPaymentCallbackSettlementParams {
 
 export interface ClubPaymentCallbackResult {
   orderNo: string;
-  orderType: ClubOrderTypeValue | 'scan_ordering';
-  status: ClubOrderStatusValue | 'pending_acceptance';
+  orderType: ClubOrderTypeValue | 'scan_ordering' | 'voucher';
+  status:
+    | ClubOrderStatusValue
+    | 'pending_acceptance'
+    | 'unpaid'
+    | 'used'
+    | 'refunded';
 }

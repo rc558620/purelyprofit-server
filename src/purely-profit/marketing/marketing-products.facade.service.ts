@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import type {
+  CalculateTimingPriceDto,
+  CalculateTimingPriceResponseDto,
   CreateMarketingProductCategoryDto,
   CreateMarketingProductDto,
   ListMarketingProductsQueryDto,
@@ -96,5 +98,11 @@ export class MarketingProductsFacadeService {
 
   deleteProduct(user: AuthenticatedUser, productId: number): Promise<void> {
     return this.marketingProductsService.deleteProduct(user, productId);
+  }
+
+  calculateTimingPrice(
+    dto: CalculateTimingPriceDto,
+  ): CalculateTimingPriceResponseDto {
+    return this.marketingProductsService.calculateTimingPrice(dto);
   }
 }

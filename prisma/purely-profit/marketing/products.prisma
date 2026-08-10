@@ -27,6 +27,20 @@ model MarketingProduct {
   durationMinutes  Int?                     @map("duration_minutes")
   personCount      Int?                     @map("person_count")
   unit             String?                  @map("unit")
+  /// 商品类型：service=服务商品（原链路），voucher=团购券商品（支付成功后生成团购券）
+  type             MarketingProductType     @default(service)
+  /// 团购券有效天数（type=voucher 时生效；空则按默认 7 天）
+  validDays        Int?                     @map("valid_days")
+  /// 开台计费方式（type=voucher 时生效）：items=纯消费 timed=纯计时 mixed=混合 countdown=倒计时
+  billingMode      String                   @default("items") @map("billing_mode")
+  /// 计时单价（分，billingMode=timed/mixed 时生效）
+  hourlyRate       Int?                     @map("hourly_rate")
+  /// 预设时长（分钟，billingMode=countdown 时生效）
+  countdownMinutes Int?                     @map("countdown_minutes")
+  /// 台位费（分，billingMode=countdown 时生效）
+  countdownPrice   Int?                     @map("countdown_price")
+  /// 到时自动结账（billingMode=countdown 时生效）
+  autoCheckout     Boolean                  @default(false) @map("auto_checkout")
   isActive         Boolean                  @default(true) @map("is_active")
   createdAt        DateTime                 @default(now()) @map("created_at")
   updatedAt        DateTime                 @updatedAt @map("updated_at")
@@ -40,4 +54,9 @@ model MarketingProduct {
   @@index([storeId, name])
   @@index([storeId, price])
   @@map("marketing_products")
+}
+
+enum MarketingProductType {
+  service
+  voucher
 }

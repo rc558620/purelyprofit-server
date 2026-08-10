@@ -5,6 +5,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubScanOrderingModule } from '../scan-ordering/club-scan-ordering.module';
 import { ClubScanOrderingPaymentService } from '../scan-ordering/club-scan-ordering-payment.service';
 import { ClubOrdersModule } from '../orders/club-orders.module';
+import { ClubVoucherOrdersModule } from '../voucher-orders/club-voucher-orders.module';
 import { ClubRechargeModule } from '../recharge/club-recharge.module';
 import { ClubPaymentCallbackDispatchService } from './club-payment-callback-dispatch.service';
 import { ClubPaymentCallbackSignatureService } from './club-payment-callback-signature.service';
@@ -17,6 +18,7 @@ import { ClubWechatCallbackDecryptorService } from './club-wechat-callback-decry
   imports: [
     ClubRechargeModule,
     ClubOrdersModule,
+    ClubVoucherOrdersModule,
     RedisModule,
     StoresModule,
     PrismaModule,

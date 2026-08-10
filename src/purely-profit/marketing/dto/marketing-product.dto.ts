@@ -2,20 +2,26 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
+  IsDefined,
   IsIn,
   IsInt,
   IsNumber,
   IsOptional,
   IsPositive,
   IsString,
+  Max,
   MaxLength,
   Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
 import {
+  MARKETING_PRODUCT_BILLING_MODE_VALUES,
   MARKETING_PRODUCT_SORT_VALUES,
+  MARKETING_PRODUCT_TYPE_VALUES,
+  type MarketingProductBillingModeValue,
   type MarketingProductSortValue,
+  type MarketingProductTypeValue,
 } from '../marketing.utils';
 import { MarketingPageQueryDto } from './marketing-pagination-query.dto';
 import {
@@ -181,6 +187,89 @@ export class CreateMarketingProductDto {
   @IsString({ message: '单位必须是字符串' })
   @MaxLength(10, { message: '单位最长 10 个字符' })
   unit?: string;
+
+  @ApiPropertyOptional({
+    example: 'service',
+    enum: MARKETING_PRODUCT_TYPE_VALUES,
+    description:
+      '商品类型：service=服务商品，voucher=团购券商品（支付后生成团购券）',
+  })
+  @IsOptional()
+  @IsIn(MARKETING_PRODUCT_TYPE_VALUES, { message: '商品类型不合法' })
+  type?: MarketingProductTypeValue;
+
+  @ApiPropertyOptional({
+    example: 7,
+    description: '团购券有效天数（type=voucher 时生效，默认 7 天）',
+  })
+  @IsOptional()
+  @Transform(transformNullableInt)
+  @ValidateIf((o: CreateMarketingProductDto) => o.validDays != null)
+  @IsInt({ message: '团购券有效天数必须是整数' })
+  @Min(1, { message: '团购券有效天数必须大于 0' })
+  @Max(365, { message: '团购券有效天数最大 365' })
+  validDays?: number | null;
+
+  @ApiPropertyOptional({
+    example: 'items',
+    enum: MARKETING_PRODUCT_BILLING_MODE_VALUES,
+    description:
+      '开台计费方式（type=voucher 时生效）：items=纯消费 timed=纯计时 mixed=混合 countdown=倒计时',
+  })
+  @IsOptional()
+  @IsIn(MARKETING_PRODUCT_BILLING_MODE_VALUES, { message: '计费方式不合法' })
+  billingMode?: MarketingProductBillingModeValue;
+
+  @ApiPropertyOptional({
+    example: 40,
+    description: '计时单价，单位：元（billingMode=timed/mixed 时生效）',
+  })
+  @ValidateIf(
+    (o: CreateMarketingProductDto) =>
+      o.billingMode === 'timed' || o.billingMode === 'mixed',
+  )
+  @IsDefined({ message: '选择纯计时/混合计费时必须填写计时单价' })
+  @Transform(transformNullableYuan)
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '计时单价必须是数字' },
+  )
+  @IsPositive({ message: '计时单价必须大于 0' })
+  hourlyRate?: number | null;
+
+  @ApiPropertyOptional({
+    example: 60,
+    description: '预设时长，单位：分钟（billingMode=countdown 时生效）',
+  })
+  @ValidateIf((o: CreateMarketingProductDto) => o.billingMode === 'countdown')
+  @IsDefined({ message: '选择倒计时计费时必须填写预设时长' })
+  @Transform(transformNullableInt)
+  @IsInt({ message: '预设时长必须是整数' })
+  @Min(1, { message: '预设时长必须大于 0' })
+  @Max(1440, { message: '预设时长不能超过 1440 分钟' })
+  countdownMinutes?: number | null;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: '台位费，单位：元（billingMode=countdown 时生效）',
+  })
+  @ValidateIf((o: CreateMarketingProductDto) => o.billingMode === 'countdown')
+  @IsDefined({ message: '选择倒计时计费时必须填写台位费' })
+  @Transform(transformNullableYuan)
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '台位费必须是数字' },
+  )
+  @IsPositive({ message: '台位费必须大于 0' })
+  countdownPrice?: number | null;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '到时自动结账（billingMode=countdown 时生效）',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '到时自动结账必须是布尔值' })
+  autoCheckout?: boolean;
 }
 
 export class UpdateMarketingProductDto {
@@ -297,12 +386,128 @@ export class UpdateMarketingProductDto {
   @IsString({ message: '单位必须是字符串' })
   @MaxLength(10, { message: '单位最长 10 个字符' })
   unit?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'service',
+    enum: MARKETING_PRODUCT_TYPE_VALUES,
+    description: '商品类型：service=服务商品，voucher=团购券商品',
+  })
+  @IsOptional()
+  @IsIn(MARKETING_PRODUCT_TYPE_VALUES, { message: '商品类型不合法' })
+  type?: MarketingProductTypeValue;
+
+  @ApiPropertyOptional({
+    example: 7,
+    description:
+      '团购券有效天数；空字符串或 null 表示清空（type=voucher 时生效）',
+    nullable: true,
+  })
+  @IsOptional()
+  @Transform(transformNullableInt)
+  @ValidateIf((o: UpdateMarketingProductDto) => o.validDays != null)
+  @IsInt({ message: '团购券有效天数必须是整数' })
+  @Min(1, { message: '团购券有效天数必须大于 0' })
+  @Max(365, { message: '团购券有效天数最大 365' })
+  validDays?: number | null;
+
+  @ApiPropertyOptional({
+    example: 'items',
+    enum: MARKETING_PRODUCT_BILLING_MODE_VALUES,
+    description:
+      '开台计费方式（type=voucher 时生效）：items=纯消费 timed=纯计时 mixed=混合 countdown=倒计时',
+  })
+  @IsOptional()
+  @IsIn(MARKETING_PRODUCT_BILLING_MODE_VALUES, { message: '计费方式不合法' })
+  billingMode?: MarketingProductBillingModeValue;
+
+  @ApiPropertyOptional({
+    example: 40,
+    description: '计时单价，单位：元（billingMode=timed/mixed 时生效）',
+  })
+  @ValidateIf(
+    (o: UpdateMarketingProductDto) =>
+      o.billingMode === 'timed' || o.billingMode === 'mixed',
+  )
+  @IsDefined({ message: '选择纯计时/混合计费时必须填写计时单价' })
+  @Transform(transformNullableYuan)
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '计时单价必须是数字' },
+  )
+  @IsPositive({ message: '计时单价必须大于 0' })
+  hourlyRate?: number | null;
+
+  @ApiPropertyOptional({
+    example: 60,
+    description: '预设时长，单位：分钟（billingMode=countdown 时生效）',
+  })
+  @ValidateIf((o: UpdateMarketingProductDto) => o.billingMode === 'countdown')
+  @IsDefined({ message: '选择倒计时计费时必须填写预设时长' })
+  @Transform(transformNullableInt)
+  @IsInt({ message: '预设时长必须是整数' })
+  @Min(1, { message: '预设时长必须大于 0' })
+  @Max(1440, { message: '预设时长不能超过 1440 分钟' })
+  countdownMinutes?: number | null;
+
+  @ApiPropertyOptional({
+    example: 20,
+    description: '台位费，单位：元（billingMode=countdown 时生效）',
+  })
+  @ValidateIf((o: UpdateMarketingProductDto) => o.billingMode === 'countdown')
+  @IsDefined({ message: '选择倒计时计费时必须填写台位费' })
+  @Transform(transformNullableYuan)
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '台位费必须是数字' },
+  )
+  @IsPositive({ message: '台位费必须大于 0' })
+  countdownPrice?: number | null;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '到时自动结账（billingMode=countdown 时生效）',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '到时自动结账必须是布尔值' })
+  autoCheckout?: boolean;
 }
 
 export class ToggleMarketingProductDto {
   @ApiProperty({ example: true, description: '是否上架' })
   @IsBoolean({ message: 'isActive 必须是布尔值' })
   isActive: boolean;
+}
+
+/** 自动计算费率入参：售价 + 时长 → 元/小时 或 元/次 */
+export class CalculateTimingPriceDto {
+  @ApiProperty({ example: 98, description: '产品售价（元）' })
+  @IsNumber(
+    { allowNaN: false, allowInfinity: false },
+    { message: '售价必须是数字' },
+  )
+  @IsPositive({ message: '售价必须大于 0' })
+  price: number;
+
+  @ApiProperty({ example: 45, description: '服务时长/预设时长（分钟）' })
+  @IsInt({ message: '时长必须是整数' })
+  @Min(1, { message: '时长必须大于 0' })
+  durationMinutes: number;
+
+  @ApiPropertyOptional({
+    example: 'per_hour',
+    enum: ['per_hour', 'per_session'],
+    description:
+      '计算模式：per_hour=按小时折算（计时单价，默认）；per_session=整次价格（倒计时台位费=售价）',
+  })
+  @IsOptional()
+  @IsIn(['per_hour', 'per_session'], { message: '计算模式不合法' })
+  mode?: 'per_hour' | 'per_session';
+}
+
+/** 自动计算费率响应：费率（元/小时 或 元/次） */
+export class CalculateTimingPriceResponseDto {
+  @ApiProperty({ example: 130.67, description: '费率（per_hour=元/小时；per_session=元/次）' })
+  rate: number;
 }
 
 export class MarketingProductCategoryDto {
@@ -368,6 +573,31 @@ export class MarketingProductDto {
 
   @ApiPropertyOptional({ example: '次', description: '库存单位' })
   unit?: string;
+
+  @ApiProperty({ example: 'service', description: '商品类型：service/voucher' })
+  type: MarketingProductTypeValue;
+
+  @ApiPropertyOptional({ example: 7, description: '团购券有效天数' })
+  validDays?: number;
+
+  @ApiPropertyOptional({
+    example: 'items',
+    description:
+      '开台计费方式：items=纯消费 timed=纯计时 mixed=混合 countdown=倒计时',
+  })
+  billingMode?: string;
+
+  @ApiPropertyOptional({ example: 40, description: '计时单价，单位：元' })
+  hourlyRate?: number;
+
+  @ApiPropertyOptional({ example: 60, description: '预设时长，单位：分钟' })
+  countdownMinutes?: number;
+
+  @ApiPropertyOptional({ example: 20, description: '台位费，单位：元' })
+  countdownPrice?: number;
+
+  @ApiPropertyOptional({ example: true, description: '到时自动结账' })
+  autoCheckout?: boolean;
 
   @ApiProperty({ example: true })
   isActive: boolean;

@@ -132,6 +132,21 @@ export const MARKETING_PRODUCT_SORT_VALUES = [
 export type MarketingProductSortValue =
   (typeof MARKETING_PRODUCT_SORT_VALUES)[number];
 
+/** 商品类型：service=服务商品，voucher=团购券商品（支付后生成团购券） */
+export const MARKETING_PRODUCT_TYPE_VALUES = ['service', 'voucher'] as const;
+export type MarketingProductTypeValue =
+  (typeof MARKETING_PRODUCT_TYPE_VALUES)[number];
+
+/** 开台计费方式（团购券商品预配置，与空间域 BillingMode 语义一致） */
+export const MARKETING_PRODUCT_BILLING_MODE_VALUES = [
+  'items',
+  'timed',
+  'mixed',
+  'countdown',
+] as const;
+export type MarketingProductBillingModeValue =
+  (typeof MARKETING_PRODUCT_BILLING_MODE_VALUES)[number];
+
 // ─── 分页 ─────────────────────────────────────────────────────────────
 
 export interface MarketingPaginationMeta {

@@ -8,6 +8,8 @@ import {
   toNullableText,
 } from '../commerce/commerce.utils';
 import type {
+  CalculateTimingPriceDto,
+  CalculateTimingPriceResponseDto,
   CreateMarketingProductDto,
   ListMarketingProductsQueryDto,
   MarketingProductDto,
@@ -128,6 +130,19 @@ export class MarketingProductsService {
           durationMinutes: dto.durationMinutes ?? null,
           personCount: dto.personCount ?? null,
           unit: dto.unit ?? null,
+          type: dto.type ?? 'service',
+          validDays: dto.validDays ?? null,
+          billingMode: dto.billingMode ?? 'items',
+          hourlyRate:
+            dto.hourlyRate != null
+              ? Money.fromInputYuan(dto.hourlyRate).toDbCents()
+              : null,
+          countdownMinutes: dto.countdownMinutes ?? null,
+          countdownPrice:
+            dto.countdownPrice != null
+              ? Money.fromInputYuan(dto.countdownPrice).toDbCents()
+              : null,
+          autoCheckout: dto.autoCheckout ?? false,
         },
         include: MARKETING_PRODUCT_ROW_INCLUDE,
       });
@@ -202,6 +217,22 @@ export class MarketingProductsService {
     if (dto.personCount !== undefined)
       data.personCount = dto.personCount ?? null;
     if (dto.unit !== undefined) data.unit = dto.unit || null;
+    if (dto.type !== undefined) data.type = dto.type;
+    if (dto.validDays !== undefined) data.validDays = dto.validDays ?? null;
+    if (dto.billingMode !== undefined) data.billingMode = dto.billingMode;
+    if (dto.hourlyRate !== undefined)
+      data.hourlyRate =
+        dto.hourlyRate != null
+          ? Money.fromInputYuan(dto.hourlyRate).toDbCents()
+          : null;
+    if (dto.countdownMinutes !== undefined)
+      data.countdownMinutes = dto.countdownMinutes ?? null;
+    if (dto.countdownPrice !== undefined)
+      data.countdownPrice =
+        dto.countdownPrice != null
+          ? Money.fromInputYuan(dto.countdownPrice).toDbCents()
+          : null;
+    if (dto.autoCheckout !== undefined) data.autoCheckout = dto.autoCheckout;
 
     const updated = await this.prisma.marketingProduct.update({
       where: { id: productId },
@@ -260,6 +291,26 @@ export class MarketingProductsService {
     return mapProductRow(this.toProductRow(updated));
   }
 
+  /**
+   * 自动计算费率（金额计算权在后端，前端仅传参并展示结果）：
+   * - per_session（倒计时台位费）：整次价格 = 售价（元/次），时长仅作必填校验
+   * - per_hour（计时单价，默认）：售价（分）÷ 时长（分钟）× 60，四舍五入到分（元/小时）
+   */
+  calculateTimingPrice(
+    dto: CalculateTimingPriceDto,
+  ): CalculateTimingPriceResponseDto {
+    if (dto.mode === 'per_session') {
+      return {
+        rate: Money.fromInputYuan(dto.price).toOutputYuan(),
+      };
+    }
+    const priceCents = Money.fromInputYuan(dto.price).toDbCents();
+    const rateCents = Math.round((priceCents * 60) / dto.durationMinutes);
+    return {
+      rate: Money.fromDbCents(rateCents).toOutputYuan(),
+    };
+  }
+
   private assertOriginalPriceNotLessThanPrice(
     priceYuan: number,
     originalPriceYuan: number | null | undefined,
@@ -301,6 +352,13 @@ export class MarketingProductsService {
       durationMinutes: row.durationMinutes,
       personCount: row.personCount,
       unit: row.unit,
+      type: row.type,
+      validDays: row.validDays,
+      billingMode: row.billingMode,
+      hourlyRate: row.hourlyRate,
+      countdownMinutes: row.countdownMinutes,
+      countdownPrice: row.countdownPrice,
+      autoCheckout: row.autoCheckout,
       isActive: row.isActive,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

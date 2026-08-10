@@ -20,6 +20,8 @@ export const clubProductSelect = {
   stock: true,
   durationMinutes: true,
   personCount: true,
+  validDays: true,
+  type: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -42,6 +44,10 @@ export interface ClubProductRecord {
   stock: number;
   durationMinutes: number | null;
   personCount: number | null;
+  /** 团购券有效天数（type=voucher 时生效） */
+  validDays: number | null;
+  /** 商品类型：service=服务商品 voucher=团购券商品 */
+  type: 'service' | 'voucher';
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;

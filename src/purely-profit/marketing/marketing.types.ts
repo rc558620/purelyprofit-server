@@ -113,6 +113,20 @@ export interface MarketingProductRow {
   durationMinutes: number | null;
   personCount: number | null;
   unit: string | null;
+  /** 商品类型：service=服务商品 voucher=团购券商品 */
+  type: 'service' | 'voucher';
+  /** 团购券有效天数（type=voucher 时生效） */
+  validDays: number | null;
+  /** 开台计费方式（type=voucher 时生效）：items=纯消费 timed=纯计时 mixed=混合 countdown=倒计时 */
+  billingMode: string;
+  /** 计时单价（分，billingMode=timed/mixed 时生效） */
+  hourlyRate: number | null;
+  /** 预设时长（分钟，billingMode=countdown 时生效） */
+  countdownMinutes: number | null;
+  /** 台位费（分，billingMode=countdown 时生效） */
+  countdownPrice: number | null;
+  /** 到时自动结账（billingMode=countdown 时生效） */
+  autoCheckout: boolean;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;

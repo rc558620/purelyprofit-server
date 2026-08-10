@@ -41,6 +41,7 @@ const GROUPON_PLATFORM_ZH_MAP: Record<string, string> = {
   pinduoduo: '拼多多',
   taobao: '淘宝',
   jd: '京东',
+  chunlibao: '纯利宝',
   wechat_store: '微信小商店',
   other: '其他',
 };

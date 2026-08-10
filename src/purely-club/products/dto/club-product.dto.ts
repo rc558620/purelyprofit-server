@@ -20,6 +20,7 @@ const CLUB_SERVICE_PRODUCT_TYPE_VALUES = [
   'product',
   'package',
   'experience',
+  'voucher',
 ] as const;
 
 export type ClubServiceProductTypeValue =

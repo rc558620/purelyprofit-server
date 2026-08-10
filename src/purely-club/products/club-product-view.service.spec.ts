@@ -306,6 +306,8 @@ function createProduct(
     stock: 30,
     durationMinutes: 60,
     personCount: 1,
+    validDays: null,
+    type: 'service',
     isActive: true,
     createdAt: new Date('2026-06-01T00:00:00.000Z'),
     updatedAt: new Date('2026-06-01T00:00:00.000Z'),

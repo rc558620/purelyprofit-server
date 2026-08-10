@@ -314,6 +314,11 @@ export class ClubProductViewService {
   private resolveProductType(
     product: ClubProductRecord,
   ): ClubServiceProductTypeValue {
+    // 团购券商品：后端显式标记 type=voucher，优先透出，前端走团购券下单链路
+    if (product.type === 'voucher') {
+      return 'voucher';
+    }
+
     if (product.personCount && product.personCount > 1) {
       return 'package';
     }

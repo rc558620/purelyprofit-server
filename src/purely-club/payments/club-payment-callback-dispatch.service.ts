@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ClubOrderServicePaymentService } from '../orders/club-order-service-payment.service';
 import { ClubRechargePaymentService } from '../recharge/club-recharge-payment.service';
 import { ClubScanOrderingPaymentService } from '../scan-ordering/club-scan-ordering-payment.service';
+import { ClubVoucherOrdersService } from '../voucher-orders/club-voucher-orders.service';
 import type {
   ClubPaymentCallbackResult,
   ClubPaymentCallbackSettlementParams,
@@ -10,15 +11,16 @@ import type {
 /** 订单号前缀 → 订单类型映射 */
 const ORDER_NO_TYPE_MAP: Record<
   string,
-  'recharge' | 'service' | 'scan_ordering'
+  'recharge' | 'service' | 'scan_ordering' | 'voucher'
 > = {
   RC: 'recharge',
   SV: 'service',
   SO: 'scan_ordering',
+  VC: 'voucher',
 };
 
-/** 订单号格式正则：SV/RC + 年4位+月2位+日2位+时2位+分2位+秒2位+毫秒3位 + 4位HEX */
-const ORDER_NO_PATTERN = /^(?:RC|SV|SO)[A-Za-z0-9-]+$/;
+/** 订单号格式正则：SV/RC/SO/VC + 年4位+月2位+日2位+时2位+分2位+秒2位+毫秒3位 + 4位HEX */
+const ORDER_NO_PATTERN = /^(?:RC|SV|SO|VC)[A-Za-z0-9-]+$/;
 
 /**
  * 校验 ORDER_NO_TYPE_MAP 的 key 与 ORDER_NO_PATTERN 中的前缀选项一致。
@@ -50,6 +52,7 @@ export class ClubPaymentCallbackDispatchService {
     private readonly clubRechargePaymentService: ClubRechargePaymentService,
     private readonly clubOrderServicePaymentService: ClubOrderServicePaymentService,
     private readonly clubScanOrderingPaymentService: ClubScanOrderingPaymentService,
+    private readonly clubVoucherOrdersService: ClubVoucherOrdersService,
   ) {}
 
   /**
@@ -58,6 +61,8 @@ export class ClubPaymentCallbackDispatchService {
    * 订单号格式：
    *   RC{timestamp}{random} — 充值单
    *   SV{timestamp}{random} — 服务购买单
+   *   SO{timestamp}{random} — 扫码点餐单
+   *   VC{timestamp}{random} — 团购券单
    */
   dispatchByOrderNo(
     orderNo: string,
@@ -65,7 +70,7 @@ export class ClubPaymentCallbackDispatchService {
   ): Promise<ClubPaymentCallbackResult> {
     if (!ORDER_NO_PATTERN.test(orderNo)) {
       throw new BadRequestException(
-        `订单号格式异常: ${orderNo}（期望格式 RC/SV + 时间戳 + 随机HEX）`,
+        `订单号格式异常: ${orderNo}（期望格式 RC/SV/SO/VC + 时间戳 + 随机HEX）`,
       );
     }
 
@@ -83,6 +88,12 @@ export class ClubPaymentCallbackDispatchService {
         settlementParams,
       );
     }
+    if (orderType === 'voucher') {
+      return this.clubVoucherOrdersService.confirmVoucherOrderPaidByCallback(
+        orderNo,
+        settlementParams,
+      );
+    }
     return this.clubOrderServicePaymentService.confirmOrderPaidByCallback(
       orderNo,
       settlementParams,
@@ -91,13 +102,13 @@ export class ClubPaymentCallbackDispatchService {
 
   private resolveOrderTypeByOrderNo(
     orderNo: string,
-  ): 'recharge' | 'service' | 'scan_ordering' {
+  ): 'recharge' | 'service' | 'scan_ordering' | 'voucher' {
     const prefix = orderNo.slice(0, 2).toUpperCase();
     const orderType = ORDER_NO_TYPE_MAP[prefix];
 
     if (!orderType) {
       throw new BadRequestException(
-        `无法从订单号识别订单类型: ${orderNo}（期望前缀 RC / SV）`,
+        `无法从订单号识别订单类型: ${orderNo}（期望前缀 RC / SV / SO / VC）`,
       );
     }
 

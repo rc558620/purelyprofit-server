@@ -54,6 +54,7 @@ import { ClubPromotionsModule } from './purely-club/promotions/club-promotions.m
 import { ClubRechargeModule } from './purely-club/recharge/club-recharge.module';
 import { ClubRecordsModule } from './purely-club/records/club-records.module';
 import { ClubPointsModule } from './purely-club/points/club-points.module';
+import { ClubVoucherOrdersModule } from './purely-club/voucher-orders/club-voucher-orders.module';
 import { ClubStoresModule } from './purely-club/stores/club-stores.module';
 import { ClubScanOrderingModule } from './purely-club/scan-ordering/club-scan-ordering.module';
 import { ClubServiceCallModule } from './purely-club/service-call/club-service-call.module';
@@ -143,6 +144,7 @@ import { UploadModule } from './shared/upload.module';
     ClubRechargeModule,
     ClubRecordsModule,
     ClubPointsModule,
+    ClubVoucherOrdersModule,
     ClubStoresModule,
     ClubScanOrderingModule,
     ClubServiceCallModule,

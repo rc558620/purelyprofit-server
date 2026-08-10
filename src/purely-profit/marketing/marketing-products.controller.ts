@@ -31,6 +31,8 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import {
+  CalculateTimingPriceDto,
+  CalculateTimingPriceResponseDto,
   CreateMarketingProductDto,
   ListMarketingProductsQueryDto,
   MarketingProductDto,
@@ -76,6 +78,20 @@ export class MarketingProductsController {
       storeId,
       dto,
     );
+  }
+
+  @Post('calculate-timing-price')
+  @RequirePermissions('marketing:view')
+  @ApiOperation({
+    summary: '自动计算计时单价',
+    description:
+      '根据售价（元）与服务时长（分钟）计算计时单价（元/小时），金额计算权在后端',
+  })
+  @ApiOkResponse({ type: CalculateTimingPriceResponseDto })
+  calculateTimingPrice(
+    @Body() dto: CalculateTimingPriceDto,
+  ): CalculateTimingPriceResponseDto {
+    return this.marketingProductsFacadeService.calculateTimingPrice(dto);
   }
 
   @Patch(':id')

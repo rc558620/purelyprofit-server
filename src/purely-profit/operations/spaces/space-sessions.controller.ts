@@ -44,6 +44,11 @@ import {
   TransferSpaceSessionResponseDto,
 } from './dto/space-session.dto';
 import { SpaceSessionsService } from './space-sessions.service';
+import { SpaceSessionVoucherReadService } from './space-session-voucher-read.service';
+import {
+  ReadSpaceSessionVoucherDto,
+  ReadSpaceSessionVoucherResponseDto,
+} from './dto/space-session-voucher.dto';
 
 @ApiTags('SpaceSessions')
 @ApiBearerAuth()
@@ -51,7 +56,10 @@ import { SpaceSessionsService } from './space-sessions.service';
 @RequireBusinessMode('general')
 @Controller()
 export class SpaceSessionsController {
-  constructor(private readonly spaceSessionsService: SpaceSessionsService) {}
+  constructor(
+    private readonly spaceSessionsService: SpaceSessionsService,
+    private readonly spaceSessionVoucherReadService: SpaceSessionVoucherReadService,
+  ) {}
 
   @Get('spaces/:spaceId/active-session')
   @RequirePermissions('space:view')
@@ -138,6 +146,25 @@ export class SpaceSessionsController {
       ctx.user,
       sessionId,
       ctx.requestId,
+    );
+  }
+
+  @Post('space-sessions/voucher/read')
+  @RequirePermissions('operation-entry:create')
+  @ApiOperation({
+    summary: '读取纯利宝团购券（开台回填）',
+    description:
+      '商家输入 purelyClub 团购券码，校验门店归属与状态后返回顾客姓名/电话/人数/券面金额等信息，供开台表单回填；已开台使用的券返回"该团购券已使用"。',
+  })
+  @ApiOkResponse({ type: ReadSpaceSessionVoucherResponseDto })
+  readVoucher(
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
+    @Body() dto: ReadSpaceSessionVoucherDto,
+  ): Promise<ReadSpaceSessionVoucherResponseDto> {
+    return this.spaceSessionVoucherReadService.readVoucher(
+      ctx.user,
+      dto.storeId,
+      dto.voucherCode,
     );
   }
 

@@ -125,10 +125,10 @@ export class ClubWechatPaymentCallbackAckDto {
   orderNo: string;
 
   @ApiProperty({
-    enum: CLUB_ORDER_TYPE_VALUES,
+    enum: [...CLUB_ORDER_TYPE_VALUES, 'scan_ordering', 'voucher'],
     description: '订单类型',
   })
-  orderType: 'recharge' | 'service' | 'scan_ordering';
+  orderType: 'recharge' | 'service' | 'scan_ordering' | 'voucher';
 
   @ApiProperty({
     enum: [...CLUB_ORDER_STATUS_VALUES, 'pending_acceptance'],
@@ -140,7 +140,10 @@ export class ClubWechatPaymentCallbackAckDto {
     | 'failed'
     | 'cancelled'
     | 'expired'
-    | 'pending_acceptance';
+    | 'pending_acceptance'
+    | 'unpaid'
+    | 'used'
+    | 'refunded';
 }
 
 // ─── 解密后的微信交易资源（内部使用，不对外暴露） ─────────────────────────────

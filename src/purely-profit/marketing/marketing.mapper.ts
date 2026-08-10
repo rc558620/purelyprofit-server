@@ -313,6 +313,19 @@ export function mapProductRow(row: MarketingProductRow): MarketingProductDto {
     durationMinutes: row.durationMinutes ?? undefined,
     personCount: row.personCount ?? undefined,
     unit: row.unit ?? undefined,
+    type: row.type,
+    validDays: row.validDays ?? undefined,
+    billingMode: row.billingMode ?? 'items',
+    hourlyRate:
+      row.hourlyRate !== null && row.hourlyRate !== undefined
+        ? Money.fromDbCents(row.hourlyRate).toOutputYuan()
+        : undefined,
+    countdownMinutes: row.countdownMinutes ?? undefined,
+    countdownPrice:
+      row.countdownPrice !== null && row.countdownPrice !== undefined
+        ? Money.fromDbCents(row.countdownPrice).toOutputYuan()
+        : undefined,
+    autoCheckout: row.autoCheckout ?? false,
     isActive: row.isActive,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),

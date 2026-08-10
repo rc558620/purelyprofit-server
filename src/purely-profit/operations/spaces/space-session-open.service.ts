@@ -16,6 +16,7 @@ import {
   TX_TIMEOUT_MEDIUM,
 } from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
+import { bindVoucherOnOpen } from './space-session-voucher.shared';
 import type {
   OpenSpaceSessionDto,
   SpaceSessionResponseDto,
@@ -273,6 +274,17 @@ export class SpaceSessionOpenService {
         });
 
         // Space.status 已移除，不再更新空间状态字段
+
+        // 纯利宝团购券自动核销：读取过的券码开台成功后绑定会话并置已使用；
+        // 已开台使用的券再次开台 → 抛"该团购券已使用"，整笔事务回滚
+        if (payload.prepaidVoucherCode) {
+          await bindVoucherOnOpen(transaction, {
+            voucherCode: payload.prepaidVoucherCode,
+            voucherPlatform: payload.prepaidVoucherPlatform ?? '',
+            storeId: space.storeId,
+            sessionId: created.id,
+          });
+        }
 
         return created;
       },

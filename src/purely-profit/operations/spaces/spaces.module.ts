@@ -21,6 +21,7 @@ import { SpaceSessionPreviewService } from './space-session-preview.service';
 import { SpaceSessionReadService } from './space-session-read.service';
 import { SpaceSessionReadStateService } from './space-session-read-state.service';
 import { SpaceSessionRenewService } from './space-session-renew.service';
+import { SpaceSessionVoucherReadService } from './space-session-voucher-read.service';
 import { SpaceDashboardSummaryService } from './space-dashboard-summary.service';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
 import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
@@ -75,6 +76,7 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceSessionReadService,
     SpaceSessionReadStateService,
     SpaceSessionRenewService,
+    SpaceSessionVoucherReadService,
     SpaceDashboardSummaryService,
     SpaceSessionSaleOrderService,
     SpaceSessionSettlementService,

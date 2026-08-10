@@ -1,0 +1,85 @@
+// 纯利宝团购券订单：purelyClub 用户购买团购券商品后生成的券码订单，供商家开台读取核销
+model ClubVoucherOrder {
+  id                   Int                       @id @default(autoincrement())
+  /// 团购券码（支付成功后生成，唯一；用于商家开台读取）
+  voucherCode          String?                   @unique @map("voucher_code")
+  /// 团购平台（当前固定纯利宝）
+  platform             String                    @default("chunlibao")
+  /// 购买门店 ID（核销门店必须一致）
+  storeId              Int                       @map("store_id")
+  /// purely-club 用户 ID（User.id）
+  userId               Int                       @map("user_id")
+  /// 门店营销顾客 ID（MarketingCustomer.id）
+  customerId           Int?                      @map("customer_id")
+  /// 商品 ID（MarketingProduct.id）
+  productId            Int                       @map("product_id")
+  /// 商品名称快照
+  productName          String                    @map("product_name")
+  /// 商品单价（分）
+  productPrice         Int                       @map("product_price")
+  /// 商品原价（分，可为空）
+  productOriginalPrice Int?                      @map("product_original_price")
+  /// 购买数量
+  quantity             Int                       @default(1)
+  /// 到店人数（下单时选择，快照）
+  personCount          Int?                      @map("person_count")
+  /// 顾客姓名快照（下单时取 purelyClub 昵称）
+  guestName            String?                   @map("guest_name")
+  /// 客人电话快照（下单时取账号绑定手机号）
+  guestPhone           String?                   @map("guest_phone")
+  /// 顾客类型（当前统一 member）
+  guestType            String                    @default("member") @map("guest_type")
+  /// 业务订单号（微信 out_trade_no）
+  orderNo              String                    @unique @map("order_no")
+  /// 应付金额（分，原价口径）
+  originalAmountFen    Int                       @map("original_amount_fen")
+  /// 优惠金额（分，后端计算）
+  discountAmountFen    Int                       @default(0) @map("discount_amount_fen")
+  /// 实付金额（分，券面金额口径）
+  paidAmountFen        Int                       @map("paid_amount_fen")
+  /// 优惠拆解快照（下单时后端生成：会员售价/等级折扣/活动折扣/满减/小计等展示行）
+  breakdownItems      Json?                     @map("breakdown_items")
+  /// 积分抵扣金额（分）
+  pointsDeductFen      Int                       @default(0) @map("points_deduct_fen")
+  /// 实际扣减积分个数
+  pointsUsed           Int                       @default(0) @map("points_used")
+  /// 支付渠道：wechat=微信支付 balance=储值余额
+  paymentChannel       String                    @default("wechat") @map("payment_channel")
+  /// 微信支付交易单号
+  transactionId        String?                   @map("transaction_id")
+  /// 订单状态：unpaid=未支付 pending=待使用 used=已使用 refunded=已退款 expired=已过期
+  status               ClubVoucherOrderStatus    @default(unpaid)
+  /// 有效期截止时间（下单成功时间 + 商品 validDays）
+  expiresAt            DateTime?                 @map("expires_at")
+  /// 用户端立即核销时间（used 且 usedSessionId 为空 = used-未开台）
+  verifyAt             DateTime?                 @map("verify_at")
+  /// 开台核销时间（used 且 usedSessionId 非空 = used-已开台）
+  usedAt               DateTime?                 @map("used_at")
+  /// 核销门店 ID
+  usedStoreId          Int?                      @map("used_store_id")
+  /// 绑定的空间会话 ID（开台成功后写入）
+  usedSessionId        Int?                      @map("used_session_id")
+  /// 退款时间
+  refundAt             DateTime?                 @map("refund_at")
+  /// 退款金额（分）
+  refundAmountFen      Int?                      @map("refund_amount_fen")
+  /// 退款渠道：wechat=微信原路 balance=余额
+  refundChannel        String?                   @map("refund_channel")
+  /// 退款单号（幂等）
+  refundNo             String?                   @unique @map("refund_no")
+  createdAt            DateTime                  @default(now()) @map("created_at")
+  updatedAt            DateTime                  @updatedAt @map("updated_at")
+
+  @@index([storeId, status, createdAt(sort: Desc)])
+  @@index([userId, status, createdAt(sort: Desc)])
+  @@index([usedSessionId])
+  @@map("club_voucher_orders")
+}
+
+enum ClubVoucherOrderStatus {
+  unpaid
+  pending
+  used
+  refunded
+  expired
+}
