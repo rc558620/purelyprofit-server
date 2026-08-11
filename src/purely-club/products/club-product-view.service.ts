@@ -190,14 +190,20 @@ export class ClubProductViewService {
     // 重新绑定类型，修复 TypeScript forEach 闭包突变窄化问题
     const chosenDiscount = bestDiscount as ClubProductBestDiscount | null;
 
-    // 竞争模型：活动价低于会员价时，活动胜出
-    const activityBelowMember = hasLevelDiscount
-      ? chosenDiscount !== null && chosenDiscount.amountFen < baselineAmountFen
-      : false;
-    const levelOverridden = activityBelowMember;
-
-    // 折扣后价格（竞争胜出者，无活动折扣时用会员价）
-    const afterDiscountFen = chosenDiscount?.amountFen ?? baselineAmountFen;
+    // 竞争模型：会员等级折扣 vs 活动折扣，取更低者生效（与订单预览/下单链路一致）。
+    // 会员折后价更低时会员胜出（活动被覆盖）；活动折后价更低时活动胜出（会员被覆盖）。
+    const memberPriceFen = hasLevelDiscount
+      ? this.applyPercentDiscount(
+          baselineAmountFen,
+          this.toRate100(pricingContext.memberDiscountRate),
+        )
+      : baselineAmountFen;
+    const activityPriceFen = chosenDiscount?.amountFen ?? baselineAmountFen;
+    const memberWins = memberPriceFen <= activityPriceFen;
+    const afterDiscountFen = Math.min(memberPriceFen, activityPriceFen);
+    // 活动胜出（且存在活动）时会员等级折扣被覆盖
+    const levelOverridden =
+      hasLevelDiscount && chosenDiscount !== null && !memberWins;
 
     // 3. 满减叠加：所有满足门槛的满减活动均可叠加
     //    满减门槛基于折扣后价格（afterDiscountFen）判断

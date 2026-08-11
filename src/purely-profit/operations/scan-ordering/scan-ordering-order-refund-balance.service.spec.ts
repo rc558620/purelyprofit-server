@@ -16,6 +16,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
     },
     scanOrders: {
       updateMany: jest.fn(),
+      findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn(),
     },
     scanOrderItem: {
@@ -32,9 +33,16 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
     },
     marketingCustomer: {
       update: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    marketingPointsRecord: {
+      create: jest.fn(),
     },
     scanOrderPaymentAttempt: {
       findFirst: jest.fn(),
+      updateMany: jest.fn(),
+    },
+    scanOrderRefundTask: {
       updateMany: jest.fn(),
     },
     scanOrderCouponUsage: {
@@ -70,8 +78,14 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
     prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
     prismaService.scanOrderBalanceTransaction.create.mockResolvedValue({});
     prismaService.marketingCustomer.update.mockResolvedValue({});
+    prismaService.marketingCustomer.findUnique.mockResolvedValue({
+      points: 100,
+    });
     prismaService.scanOrderPaymentAttempt.findFirst.mockResolvedValue(null);
     prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
+      count: 0,
+    });
+    prismaService.scanOrderRefundTask.updateMany.mockResolvedValue({
       count: 0,
     });
     prismaService.scanOrderCouponUsage.updateMany.mockResolvedValue({
@@ -87,6 +101,12 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
     });
     prismaService.product.updateMany.mockResolvedValue({ count: 0 });
     prismaService.saleOrder.findUnique.mockResolvedValue(null);
+    prismaService.scanOrders.findUnique.mockResolvedValue({
+      marketingSnapshot: {
+        pointsUsed: 0,
+        pointsSettlementStatus: 'settled',
+      },
+    });
     prismaService.scanOrders.findUniqueOrThrow.mockResolvedValue({
       id: 1001,
       storeId: 11,
@@ -219,6 +239,127 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
       prismaService,
       expect.objectContaining({ saleOrderId: 500 }),
     );
+  });
+
+  it('余额退款：积分已结算（settled）时原路返还积分并写入 earn 流水', async () => {
+    prismaService.scanOrders.findUnique.mockResolvedValue({
+      marketingSnapshot: {
+        pointsUsed: 33,
+        pointsSettlementStatus: 'settled',
+      },
+    });
+
+    await service.refund(
+      { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
+      201,
+    );
+
+    expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
+      where: { id: 55 },
+      data: { points: { increment: 33 } },
+    });
+    expect(prismaService.marketingPointsRecord.create).toHaveBeenCalledWith({
+      data: {
+        storeId: 11,
+        customerId: 55,
+        amount: 33,
+        type: 'earn',
+        description: '扫码点餐退款返还积分（订单 1001）',
+      },
+    });
+    expect(prismaService.scanOrderRefundTask.updateMany).toHaveBeenCalledWith({
+      where: {
+        orderId: 1001,
+        status: { in: ['pending', 'refunding', 'manual_pending'] },
+      },
+      data: { pointsRefundStatus: 'succeeded' },
+    });
+  });
+
+  it('余额退款：积分未结算（pending）时不返还积分', async () => {
+    prismaService.scanOrders.findUnique.mockResolvedValue({
+      marketingSnapshot: {
+        pointsUsed: 33,
+        pointsSettlementStatus: 'pending',
+      },
+    });
+
+    await service.refund(
+      { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
+      201,
+    );
+
+    expect(prismaService.marketingPointsRecord.create).not.toHaveBeenCalled();
+  });
+
+  it('余额退款：下单赠送积分（earnedPoints）一并回收并写 spend 流水', async () => {
+    prismaService.scanOrders.findUnique.mockResolvedValue({
+      marketingSnapshot: {
+        pointsUsed: 82,
+        earnedPoints: 2,
+        pointsSettlementStatus: 'settled',
+      },
+    });
+    prismaService.marketingCustomer.findUnique.mockResolvedValue({
+      points: 84,
+    });
+
+    await service.refund(
+      { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
+      201,
+    );
+
+    // 返还抵扣积分 82
+    expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
+      where: { id: 55 },
+      data: { points: { increment: 82 } },
+    });
+    // 回收下单赠送积分 2
+    expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
+      where: { id: 55 },
+      data: { points: { decrement: 2 } },
+    });
+    expect(prismaService.marketingPointsRecord.create).toHaveBeenCalledWith({
+      data: {
+        storeId: 11,
+        customerId: 55,
+        amount: -2,
+        type: 'spend',
+        description: '扫码点餐退款回收消费赠送积分（订单 1001）',
+      },
+    });
+  });
+
+  it('余额退款：赠送积分超出当前可用积分时仅回收可用部分，不扣成负数', async () => {
+    prismaService.scanOrders.findUnique.mockResolvedValue({
+      marketingSnapshot: {
+        pointsUsed: 82,
+        earnedPoints: 10,
+        pointsSettlementStatus: 'settled',
+      },
+    });
+    prismaService.marketingCustomer.findUnique.mockResolvedValue({
+      points: 4,
+    });
+
+    await service.refund(
+      { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
+      201,
+    );
+
+    expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
+      where: { id: 55 },
+      data: { points: { decrement: 4 } },
+    });
+    expect(prismaService.marketingPointsRecord.create).toHaveBeenCalledWith({
+      data: {
+        storeId: 11,
+        customerId: 55,
+        amount: -4,
+        type: 'spend',
+        description: '扫码点餐退款回收消费赠送积分（订单 1001）',
+      },
+    });
   });
 
   it('余额退款：未找到标准销售单时不创建标准退款', async () => {

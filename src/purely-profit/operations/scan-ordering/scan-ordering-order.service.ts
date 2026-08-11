@@ -195,6 +195,7 @@ export class ScanOrderingOrderService {
         serviceFeeAmount: true,
         paidAmount: true,
         payableAmount: true,
+        marketingSnapshot: true,
         pickupNumber: true,
         pickupNumberStatus: true,
         pickupCalledAt: true,
@@ -281,6 +282,11 @@ export class ScanOrderingOrderService {
           outstandingAmount: fenToYuan(
             Math.max(realPayableFen - realPaidFen, 0),
           ),
+          // 积分抵扣金额与优惠清单：由后端从营销快照组装，前端只读展示
+          pointsDeductAmount: fenToYuan(
+            this.pointsDeductAmountFen(order.marketingSnapshot),
+          ),
+          discountItems: this.toDiscountItems(order.marketingSnapshot),
         };
 
         // 🔥 使用真实的用户昵称
@@ -293,7 +299,9 @@ export class ScanOrderingOrderService {
         // (商品+规格)快照,直接以 1:1 方式输出;前端可在卡片里独立渲染图片、
         // 规格、数量、金额,避免用户阅读括号嵌套导致的认知负担。
         const itemSummaries = order.items.map(
-          (item: (typeof order.items)[number]): ScanOrderingOrderItemSummary => ({
+          (
+            item: (typeof order.items)[number],
+          ): ScanOrderingOrderItemSummary => ({
             productName: item.productNameSnapshot,
             productImageUrl: item.productImageUrlSnapshot ?? null,
             quantity: item.quantity,
@@ -391,8 +399,16 @@ export class ScanOrderingOrderService {
         // 避免 calculateSummary 漏算会员折扣或积分抵扣。
         payableAmount: fenToYuan(prismaOrder.payableAmount ?? 0),
         outstandingAmount: fenToYuan(
-          Math.max((prismaOrder.payableAmount ?? 0) - (prismaOrder.paidAmount ?? 0), 0),
+          Math.max(
+            (prismaOrder.payableAmount ?? 0) - (prismaOrder.paidAmount ?? 0),
+            0,
+          ),
         ),
+        // 积分抵扣金额与优惠清单：由后端从营销快照组装，前端只读展示
+        pointsDeductAmount: fenToYuan(
+          this.pointsDeductAmountFen(prismaOrder.marketingSnapshot),
+        ),
+        discountItems: this.toDiscountItems(prismaOrder.marketingSnapshot),
       },
       items: prismaOrder.items.map(
         (item: (typeof prismaOrder.items)[number]) => ({
@@ -425,5 +441,50 @@ export class ScanOrderingOrderService {
         }),
       ),
     };
+  }
+
+  /** 安全读取营销快照中的积分抵扣金额（分）；缺失/类型异常按 0 处理。 */
+  private pointsDeductAmountFen(marketingSnapshot: unknown): number {
+    if (marketingSnapshot === null || typeof marketingSnapshot !== 'object') {
+      return 0;
+    }
+    const snapshot = marketingSnapshot as { pointsDeductAmount?: unknown };
+    const value = snapshot.pointsDeductAmount;
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+    return value > 0 ? Math.round(value) : 0;
+  }
+
+  /**
+   * 从营销快照提取优惠清单明细（前端只读展示，金额由后端换算为元）。
+   * 只保留减免项（amount < 0），label 原样透出，与 purelyClub 优惠清单口径一致。
+   */
+  private toDiscountItems(
+    marketingSnapshot: unknown,
+  ): Array<{ label: string; amount: number; isStrikethrough: boolean }> {
+    if (marketingSnapshot === null || typeof marketingSnapshot !== 'object') {
+      return [];
+    }
+    const snapshot = marketingSnapshot as { breakdownItems?: unknown };
+    if (!Array.isArray(snapshot.breakdownItems)) return [];
+    return snapshot.breakdownItems
+      .filter(
+        (
+          item,
+        ): item is {
+          label?: unknown;
+          amount?: unknown;
+          isStrikethrough?: unknown;
+        } => item !== null && typeof item === 'object',
+      )
+      .map((item) => ({
+        label: typeof item.label === 'string' ? item.label : '',
+        amount: fenToYuan(
+          typeof item.amount === 'number' && Number.isFinite(item.amount)
+            ? item.amount
+            : 0,
+        ),
+        isStrikethrough: item.isStrikethrough === true,
+      }))
+      .filter((item) => item.label !== '' && item.amount < 0);
   }
 }

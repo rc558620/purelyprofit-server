@@ -104,7 +104,7 @@ describe('ScanOrderingUsbPrintService', () => {
     expect(device).toBeUndefined();
     const text = data.toString('utf8');
     expect(text).toContain('扫码点餐订单');
-    expect(text).toContain('应付：¥40.00');
+    expect(text).toContain('实付：¥40.00');
     expect(text).toContain('操作员：张三');
     expect(text).toContain('谢谢惠顾，欢迎再次光临');
   });
@@ -164,7 +164,7 @@ describe('ScanOrderingUsbPrintService', () => {
     expect(typeof task.dataBase64).toBe('string');
     // 字节流 Base64 解码后包含小票关键内容
     expect(Buffer.from(task.dataBase64, 'base64').toString('utf8')).toContain(
-      '应付：¥40.00',
+      '实付：¥40.00',
     );
   });
 

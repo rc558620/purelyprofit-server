@@ -184,16 +184,40 @@ export class ClubOrderPromotionsService {
     storeId: number,
     orderTotalFen: number,
   ): Promise<number> {
+    const detail = await this.resolveOrderReduceDetail(storeId, orderTotalFen);
+    return detail.totalReduceFen;
+  }
+
+  /**
+   * 基于订单总金额计算满减优惠明细（含门槛规则，用于生成“满xxx减xxx”展示标签）
+   *
+   * @param orderTotalFen 订单总额（分）= 折扣后单价 × 数量
+   */
+  async resolveOrderReduceDetail(
+    storeId: number,
+    orderTotalFen: number,
+  ): Promise<{
+    totalReduceFen: number;
+    reduceRules: Array<{ thresholdFen: number; reduceAmountFen: number }>;
+  }> {
     const promotions =
       await this.clubPromotionRepository.loadActivePromotions(storeId);
     let totalReduceFen = 0;
+    const reduceRules: Array<{
+      thresholdFen: number;
+      reduceAmountFen: number;
+    }> = [];
     for (const promotion of promotions) {
       if (promotion.type !== 'reduce') continue;
       const reduceConfig = resolveReduceConfig(promotion.params);
       if (!reduceConfig || orderTotalFen < reduceConfig.thresholdFen) continue;
       totalReduceFen += reduceConfig.reduceAmountFen;
+      reduceRules.push({
+        thresholdFen: reduceConfig.thresholdFen,
+        reduceAmountFen: reduceConfig.reduceAmountFen,
+      });
     }
-    return totalReduceFen;
+    return { totalReduceFen, reduceRules };
   }
 
   async resolveMemberDiscountRate(

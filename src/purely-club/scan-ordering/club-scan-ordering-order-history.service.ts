@@ -196,10 +196,8 @@ export class ClubScanOrderingOrderHistoryService {
         createdAt: session.createdAt.toISOString(),
         endedAt: session.endedAt?.toISOString() ?? null,
         orders: session.orders.map((order) => {
-          const { marketingSnapshot: _marketingSnapshot, ...orderFields } =
-            order;
           return {
-            ...orderFields,
+            ...order,
             ...toOrderAmountSummary(order),
             pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
               order.pickupNumber,

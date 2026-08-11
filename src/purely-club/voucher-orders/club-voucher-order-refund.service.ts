@@ -91,11 +91,20 @@ export class ClubVoucherOrderRefundService {
             CLUB_VOUCHER_REFUND_USED_SESSION_MESSAGE,
           );
         }
-        // 积分退回：实际扣减的积分回补到顾客积分账户
+        // 积分退回：实际扣减的积分回补到顾客积分账户，并记录流水（与扣减时 spend 流水对称，保证可审计）
         if (order.pointsUsed > 0 && order.customerId !== null) {
           await tx.marketingCustomer.update({
             where: { id: order.customerId },
             data: { points: { increment: order.pointsUsed } },
+          });
+          await tx.marketingPointsRecord.create({
+            data: {
+              storeId: order.storeId,
+              customerId: order.customerId,
+              amount: order.pointsUsed,
+              type: 'earn' as const,
+              description: `团购券退款返还积分（${order.productName}）`,
+            },
           });
         }
         // 库存回补

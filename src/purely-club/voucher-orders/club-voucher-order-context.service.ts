@@ -60,6 +60,8 @@ export interface ClubVoucherPricing {
   afterDiscountAmountFen: number;
   /** 整单满减金额（分） */
   reduceFen: number;
+  /** 生效满减规则（门槛分/减免分），用于生成“满xxx减xxx”标签 */
+  reduceRules: Array<{ thresholdFen: number; reduceAmountFen: number }>;
   /** 活动折扣优惠金额（分，单价活动折扣 × 数量） */
   promotionDiscountFen: number;
   /** 命中活动类型 */
@@ -70,6 +72,8 @@ export interface ClubVoucherPricing {
   discountRate: number | null;
   /** 会员等级折扣率（0-1 小数，无折扣为 null） */
   memberDiscountRate: number | null;
+  /** 会员等级折扣是否在竞争中胜出（活动被覆盖）；true 时活动行划线展示 */
+  memberWins: boolean;
 }
 
 @Injectable()
@@ -138,7 +142,7 @@ export class ClubVoucherOrderContextService {
     };
   }
 
-  /** 计算团购券订单金额：原价 → 活动/满减 → 积分抵扣，全部由后端权威计算 */
+  /** 计算团购券订单金额：原价 → 活动/会员折扣竞争 → 满减 → 积分抵扣，全部由后端权威计算 */
   async resolvePricing(
     context: ClubVoucherOrderContext,
     quantity: number,
@@ -151,12 +155,30 @@ export class ClubVoucherOrderContextService {
       context.product.price,
       { skipReduce: true },
     );
-    const beforeReduceTotalFen = pricing.amountFenBeforeReduce * quantity;
-    const orderReduceFen =
-      await this.clubOrderPromotionsService.resolveOrderReduceFen(
+    const memberDiscountRate =
+      await this.clubOrderPromotionsService.resolveMemberDiscountRate(
+        context.store.id,
+        context.phone,
+      );
+    // 竞争模型（与 purelyClub 服务订单预览一致）：会员等级折扣 vs 活动折扣，取更低者生效
+    const effectiveMemberRate =
+      memberDiscountRate != null && memberDiscountRate < 1
+        ? memberDiscountRate
+        : 1;
+    const memberPriceFen = Math.round(
+      context.product.price * effectiveMemberRate,
+    );
+    const activityPriceFen = pricing.amountFenBeforeReduce;
+    const memberWins =
+      effectiveMemberRate < 1 && memberPriceFen <= activityPriceFen;
+    const bestPriceFen = Math.min(memberPriceFen, activityPriceFen);
+    const beforeReduceTotalFen = bestPriceFen * quantity;
+    const reduceDetail =
+      await this.clubOrderPromotionsService.resolveOrderReduceDetail(
         context.store.id,
         beforeReduceTotalFen,
       );
+    const orderReduceFen = reduceDetail.totalReduceFen;
     const afterReduceTotalFen = Math.max(
       beforeReduceTotalFen - orderReduceFen,
       0,
@@ -169,11 +191,6 @@ export class ClubVoucherOrderContextService {
       usePoints,
     );
     const paidAmountFen = Math.max(afterReduceTotalFen - pointsDeductFen, 0);
-    const memberDiscountRate =
-      await this.clubOrderPromotionsService.resolveMemberDiscountRate(
-        context.store.id,
-        context.phone,
-      );
 
     return {
       originalAmountFen:
@@ -186,11 +203,13 @@ export class ClubVoucherOrderContextService {
       memberAmountFen: context.product.price * quantity,
       afterDiscountAmountFen: beforeReduceTotalFen,
       reduceFen: orderReduceFen,
+      reduceRules: reduceDetail.reduceRules,
       promotionDiscountFen: pricing.promotionDiscountAmountFen * quantity,
       promotionType: pricing.promotionType,
       promotionTag: pricing.promotionTag,
       discountRate: pricing.discountRate,
       memberDiscountRate,
+      memberWins,
     };
   }
 

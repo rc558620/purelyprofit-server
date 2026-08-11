@@ -238,6 +238,7 @@ describe('club-scan-ordering-order.mapper', () => {
         discountAmount: 18.5,
         payableAmount: 128.5,
         paidAmount: 128.5,
+        discountItems: [],
       });
     });
 
@@ -292,6 +293,7 @@ describe('club-scan-ordering-order.mapper', () => {
         discountAmount: 0,
         payableAmount: 0,
         paidAmount: 0,
+        discountItems: [],
       });
     });
   });

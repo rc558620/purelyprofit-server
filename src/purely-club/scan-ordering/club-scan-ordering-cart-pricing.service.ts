@@ -263,6 +263,19 @@ export class ClubScanOrderingCartPricingService {
       serviceFeeAmount: amounts.serviceFeeAmount,
       taxAmount: amounts.taxAmount,
       payableAmount: amounts.payableAmount,
+      // 总优惠（分）：原价 = 商品原价 + 规格加价；后端计算，前端只读展示
+      totalSavingAmount: Math.max(
+        amounts.itemOriginalAmount +
+          amounts.specificationExtraAmount -
+          amounts.payableAmount,
+        0,
+      ),
+      totalSavingWithPoints: Math.max(
+        amounts.itemOriginalAmount +
+          amounts.specificationExtraAmount -
+          promotion.afterPointsPayableAmount,
+        0,
+      ),
       pointsDeductAmount: promotion.pointsDeductAmount,
       pointsUsed: promotion.pointsUsed,
       afterPointsPayableAmount: promotion.afterPointsPayableAmount,

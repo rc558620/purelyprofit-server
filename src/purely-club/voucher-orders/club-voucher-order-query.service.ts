@@ -302,6 +302,7 @@ export class ClubVoucherOrderQueryService {
       refundAt: Date | null;
       refundAmountFen: number | null;
       pointsDeductFen: number;
+      pointsUsed: number;
       breakdownItems: Prisma.JsonValue | null;
     },
     storeName: string,
@@ -315,6 +316,8 @@ export class ClubVoucherOrderQueryService {
       usedStoreName: undefined,
       refundAt: order.refundAt ? formatDateTime(order.refundAt) : undefined,
       refundAmountFen: order.refundAmountFen ?? undefined,
+      // 返还积分数：退款时原路返还给顾客（前端仅展示，不做计算）
+      pointsUsed: order.pointsUsed,
       paymentMethodLabel:
         PAYMENT_METHOD_LABEL_MAP[order.paymentChannel] ?? order.paymentChannel,
       orderId: order.orderNo,

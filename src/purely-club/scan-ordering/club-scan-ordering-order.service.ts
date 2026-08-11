@@ -181,6 +181,7 @@ export class ClubScanOrderingOrderService {
             marketingSnapshot: {
               memberBenefits: promotionResult.memberBenefits,
               appliedPromotions: promotionResult.appliedPromotions,
+              breakdownItems: promotionResult.breakdownItems,
               availableCoupons: promotionResult.availableCoupons.filter(
                 (coupon) => coupon.usable,
               ),
@@ -311,9 +312,8 @@ export class ClubScanOrderingOrderService {
       },
     });
     if (!order) throw new NotFoundException('订单不存在');
-    const { marketingSnapshot: _marketingSnapshot, ...orderFields } = order;
     return {
-      ...orderFields,
+      ...order,
       items: order.items.map((item) => ({
         ...item,
         unitPriceAmount: fenToYuan(item.unitPriceAmount),

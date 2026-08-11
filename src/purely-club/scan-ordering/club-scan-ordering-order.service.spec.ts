@@ -299,7 +299,8 @@ describe('ClubScanOrderingOrderService', () => {
       lineTotalAmount: 30,
       payableLineAmount: 28,
     });
-    expect(order).not.toHaveProperty('marketingSnapshot');
+    // 营销快照保留：作为优惠清单（discountItems）的数据源供前端展示
+    expect(order).toHaveProperty('marketingSnapshot');
   });
 
   it('订单详情无优惠订单返回 discountAmount 0', async () => {
@@ -327,7 +328,7 @@ describe('ClubScanOrderingOrderService', () => {
     expect(order.discountAmount).toBe(0);
   });
 
-  it('当前订单列表返回 discountAmount 且剥离营销快照', async () => {
+  it('当前订单列表返回 discountAmount 且包含营销快照（优惠清单数据源）', async () => {
     const createdAt = new Date('2026-08-02T01:00:00.000Z');
     const lastActiveAt = new Date('2026-08-02T01:01:00.000Z');
     const prismaWithOrderList = prisma as typeof prisma & {
@@ -390,7 +391,8 @@ describe('ClubScanOrderingOrderService', () => {
     const order = result.items[0].orders[0];
     expect(order.discountAmount).toBe(18.5);
     expect(order.payableAmount).toBe(128.5);
-    expect(order).not.toHaveProperty('marketingSnapshot');
+    // 营销快照保留：作为优惠清单（discountItems）的数据源供前端展示
+    expect(order).toHaveProperty('marketingSnapshot');
   });
 
   it('历史点餐记录返回 discountAmount', async () => {

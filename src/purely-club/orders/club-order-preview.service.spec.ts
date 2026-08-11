@@ -26,7 +26,7 @@ describe('ClubOrderPreviewService', () => {
 
   const clubOrderPromotionsService = {
     resolvePricing: jest.fn(),
-    resolveOrderReduceFen: jest.fn(),
+    resolveOrderReduceDetail: jest.fn(),
     resolveMemberDiscountRate: jest.fn().mockResolvedValue(null),
   };
 
@@ -108,7 +108,10 @@ describe('ClubOrderPreviewService', () => {
       totalReduceFen: 0,
       amountFenBeforeReduce: 10000,
     });
-    clubOrderPromotionsService.resolveOrderReduceFen.mockResolvedValue(2000);
+    clubOrderPromotionsService.resolveOrderReduceDetail.mockResolvedValue({
+      totalReduceFen: 2000,
+      reduceRules: [{ thresholdFen: 20000, reduceAmountFen: 2000 }],
+    });
 
     const result = await service.previewServiceOrder(currentContext, {
       storeId: 11,
@@ -127,6 +130,8 @@ describe('ClubOrderPreviewService', () => {
     );
     // 修复前为 -¥60（2000 × 3），满减为订单级单次优惠不应乘数量
     expect(reduceItem?.value).toBe('-¥20');
+    // 满减标签按生效规则生成“满xxx减xxx”格式
+    expect(reduceItem?.label).toBe('满200减20');
     const priceBeforePoints = result.breakdownItems.find(
       (item) => item.id === 'price-before-points',
     );
@@ -147,7 +152,10 @@ describe('ClubOrderPreviewService', () => {
       totalReduceFen: 0,
       amountFenBeforeReduce: 7000,
     });
-    clubOrderPromotionsService.resolveOrderReduceFen.mockResolvedValue(2000);
+    clubOrderPromotionsService.resolveOrderReduceDetail.mockResolvedValue({
+      totalReduceFen: 2000,
+      reduceRules: [{ thresholdFen: 20000, reduceAmountFen: 2000 }],
+    });
 
     const result = await service.previewServiceOrder(currentContext, {
       storeId: 11,
@@ -188,7 +196,10 @@ describe('ClubOrderPreviewService', () => {
       totalReduceFen: 0,
       amountFenBeforeReduce: 10000,
     });
-    clubOrderPromotionsService.resolveOrderReduceFen.mockResolvedValue(2000);
+    clubOrderPromotionsService.resolveOrderReduceDetail.mockResolvedValue({
+      totalReduceFen: 2000,
+      reduceRules: [{ thresholdFen: 20000, reduceAmountFen: 2000 }],
+    });
 
     const result = await service.previewServiceOrder(currentContext, {
       storeId: 11,

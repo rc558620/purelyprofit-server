@@ -59,8 +59,10 @@ export class ClubVoucherOrdersService {
       promotionTag: pricing.promotionTag,
       discountRate: pricing.discountRate,
       totalReduceFen: pricing.reduceFen,
+      reduceRules: pricing.reduceRules,
       finalPriceFen: pricing.paidAmountFen + pricing.pointsDeductFen,
       memberDiscountRate: pricing.memberDiscountRate,
+      memberWins: pricing.memberWins,
     });
     return {
       originalAmountFen: pricing.originalAmountFen,

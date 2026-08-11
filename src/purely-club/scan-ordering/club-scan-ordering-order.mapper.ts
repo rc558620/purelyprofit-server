@@ -7,6 +7,16 @@
  * 查询响应组装阶段计算 discountAmount，不新增数据库字段。
  */
 
+/** 优惠清单明细行（前端只读展示） */
+export interface OrderDiscountItem {
+  /** 展示标签（如“会员等级折扣 8折”“满50减8”） */
+  label: string;
+  /** 金额（元）；负数表示减免 */
+  amount: number;
+  /** 被覆盖/失效优惠：true 时前端划掉展示（如活动胜出时会员等级折扣） */
+  isStrikethrough: boolean;
+}
+
 /** 订单对外输出的金额字段（单位：元，最多两位小数） */
 export interface OrderAmountSummary {
   itemOriginalAmount: number;
@@ -17,6 +27,8 @@ export interface OrderAmountSummary {
   discountAmount: number;
   payableAmount: number;
   paidAmount: number;
+  /** 优惠清单明细（由后端从营销快照组装，金额已换算为元） */
+  discountItems: OrderDiscountItem[];
 }
 
 /** 计算优惠金额所需的最小订单字段集合 */
@@ -49,6 +61,38 @@ const pointsDeductAmountFen = (marketingSnapshot: unknown): number => {
   }
   const snapshot = marketingSnapshot as { pointsDeductAmount?: unknown };
   return toNonNegativeFen(snapshot.pointsDeductAmount);
+};
+
+/**
+ * 从营销快照提取优惠清单明细（前端只读展示，不做任何金额计算）。
+ * 只保留减免项（amount < 0），label 原样透出，金额由后端换算为元。
+ */
+const toDiscountItems = (marketingSnapshot: unknown): OrderDiscountItem[] => {
+  if (marketingSnapshot === null || typeof marketingSnapshot !== 'object') {
+    return [];
+  }
+  const snapshot = marketingSnapshot as { breakdownItems?: unknown };
+  if (!Array.isArray(snapshot.breakdownItems)) return [];
+  return snapshot.breakdownItems
+    .filter(
+      (
+        item,
+      ): item is {
+        label?: unknown;
+        amount?: unknown;
+        isStrikethrough?: unknown;
+      } => item !== null && typeof item === 'object',
+    )
+    .map((item) => ({
+      label: typeof item.label === 'string' ? item.label : '',
+      amount: fenToYuan(
+        typeof item.amount === 'number' && Number.isFinite(item.amount)
+          ? item.amount
+          : 0,
+      ),
+      isStrikethrough: item.isStrikethrough === true,
+    }))
+    .filter((item) => item.label !== '' && item.amount < 0);
 };
 
 /**
@@ -118,4 +162,5 @@ export const toOrderAmountSummary = (
   discountAmount: fenToYuan(computeOrderDiscountAmountFen(order)),
   payableAmount: fenToYuan(order.payableAmount),
   paidAmount: fenToYuan(order.paidAmount),
+  discountItems: toDiscountItems(order.marketingSnapshot),
 });

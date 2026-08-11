@@ -76,7 +76,7 @@ describe('EscPosTicketBuilder', () => {
     });
     const text = data.toString('utf8');
     expect(text).toContain('扫码点餐订单');
-    expect(text).toContain('应付：¥40.00');
+    expect(text).toContain('实付：¥40.00');
     expect(text).toContain('操作员：张三');
     expect(text).toContain('谢谢惠顾，欢迎再次光临');
   });

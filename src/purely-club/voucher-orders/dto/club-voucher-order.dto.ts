@@ -266,6 +266,12 @@ export class ClubVoucherOrderDetailDto extends ClubVoucherOrderItemDto {
   @ApiPropertyOptional({ description: '退款金额（分）' })
   refundAmountFen?: number;
 
+  @ApiPropertyOptional({
+    example: 500,
+    description: '实际扣减积分个数（退款时原路返还）',
+  })
+  pointsUsed?: number;
+
   @ApiProperty({ example: '微信支付', description: '支付方式文案' })
   paymentMethodLabel: string;
 

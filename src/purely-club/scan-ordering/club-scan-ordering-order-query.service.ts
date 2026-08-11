@@ -211,10 +211,8 @@ export class ClubScanOrderingOrderQueryService {
         createdAt: session.createdAt.toISOString(),
         lastActiveAt: session.lastActiveAt.toISOString(),
         orders: session.orders.map((order) => {
-          const { marketingSnapshot: _marketingSnapshot, ...orderFields } =
-            order;
           return {
-            ...orderFields,
+            ...order,
             ...toOrderAmountSummary(order),
             pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
               order.pickupNumber,

@@ -45,6 +45,10 @@ export interface PreviewResult {
   serviceFeeAmount: number;
   taxAmount: number;
   payableAmount: number;
+  /** 总优惠金额（分，不含积分抵扣）= 原价 - 积分抵扣前应付；由后端计算，前端只读展示 */
+  totalSavingAmount: number;
+  /** 总优惠金额（分，含积分抵扣）= 原价 - 积分抵扣后应付；由后端计算，前端只读展示 */
+  totalSavingWithPoints: number | null;
   pointsDeductAmount: number;
   pointsUsed: number;
   afterPointsPayableAmount: number;

@@ -80,7 +80,7 @@ export class EscPosTicketBuilder {
     this.line(out, DIVIDER);
 
     if (ticket.payableAmount) {
-      this.line(out, `应付：¥${ticket.payableAmount}`, { bold: true });
+      this.line(out, `实付：¥${ticket.payableAmount}`, { bold: true });
     }
     if (ticket.operatorName) {
       this.line(out, `操作员：${ticket.operatorName}`);

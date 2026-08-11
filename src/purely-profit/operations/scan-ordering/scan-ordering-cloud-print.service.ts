@@ -147,7 +147,7 @@ export class ScanOrderingCloudPrintService {
       });
     });
     lines.push('<BR>');
-    lines.push(`应付：<B>¥${order.payableAmount}</B><BR>`);
+    lines.push(`实付：<B>¥${order.payableAmount}</B><BR>`);
     if (order.remark) {
       lines.push(`备注：${order.remark}<BR>`);
     }

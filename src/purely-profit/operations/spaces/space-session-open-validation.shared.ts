@@ -86,6 +86,15 @@ export const ensureOpenSessionPayload = (
             '预付金额不能超过券面金额（团购券规则：实付 ≤ 券面）',
           );
         }
+        // 堵入口 fix: 团购券面金额不能低于台位费。
+        // 商家从团购平台结算收到的钱 = 券面金额，券面 < 台位费会导致利润与实收不符；
+        // 前端开台会自动将台位费同步为券面金额，后端镜像同规则拒绝绕过前端的请求。
+        if (
+          payload.hourlyRate !== undefined &&
+          payload.prepaidVoucherFaceAmount < payload.hourlyRate
+        ) {
+          throw new BadRequestException('团购券面金额不能低于台位费');
+        }
       } else {
         // 传统预付：必须有支付方式和预付金额
         if (

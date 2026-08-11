@@ -68,9 +68,9 @@ describe('ClubProductViewService', () => {
       new Set([18]),
       pricingContext,
     );
-    // 竞争模型：无活动折扣时，finalPrice = product.price = 499
+    // 竞争模型：无活动折扣时，会员等级折扣生效 → finalPrice = 499 × 0.8 = 399.2
     expect(result.memberPrice).toBe(499);
-    expect(result.finalPrice).toBe(499);
+    expect(result.finalPrice).toBe(399.2);
     expect(result).not.toHaveProperty('promotionId');
   });
 
@@ -160,7 +160,7 @@ describe('ClubProductViewService', () => {
     expect(result.discountRate).toBe(70);
   });
 
-  it('toClubProduct 活动折扣(8.5折)竞争胜出时按活动价展示', () => {
+  it('toClubProduct 活动折扣(8.5折)被会员折扣(8折)覆盖时按会员折后价展示', () => {
     const product = createProduct({
       id: 18,
       price: 49900,
@@ -181,8 +181,10 @@ describe('ClubProductViewService', () => {
     );
     // memberPrice = product.price（展示基准，不施加会员折扣）: 499
     expect(result.memberPrice).toBe(499);
-    expect(result.finalPrice).toBe(424.15);
+    // 竞争模型：会员 8 折（399.2）优于活动 8.5 折（424.15）→ 会员胜出
+    expect(result.finalPrice).toBe(399.2);
     expect(result.promotionId).toBe('100');
+    expect(result.levelOverridden).toBe(false);
   });
 
   it('toClubProduct 非首单买家时忽略首单折扣，活动折扣(8折)竞争胜出', () => {

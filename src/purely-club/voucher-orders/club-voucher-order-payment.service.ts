@@ -5,6 +5,7 @@ import { Money } from '../../shared/money.utils';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubOrderPreviewBreakdownService } from '../orders/club-order-preview-breakdown.service';
+import { deductPointsForSettlement } from '../orders/club-order-settlement-points.utils';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubVoucherOrderContextService } from './club-voucher-order-context.service';
 import {
@@ -99,8 +100,10 @@ export class ClubVoucherOrderPaymentService {
       promotionTag: pricing.promotionTag,
       discountRate: pricing.discountRate,
       totalReduceFen: pricing.reduceFen,
+      reduceRules: pricing.reduceRules,
       finalPriceFen: pricing.paidAmountFen + pricing.pointsDeductFen,
       memberDiscountRate: pricing.memberDiscountRate,
+      memberWins: pricing.memberWins,
     });
     const toYuanText = (fen: number): string =>
       Money.fromDbCents(fen).toFixedOutputYuan();
@@ -250,6 +253,20 @@ export class ClubVoucherOrderPaymentService {
         });
         if (decremented.count !== 1) {
           throw new BadRequestException(CLUB_VOUCHER_STOCK_NOT_ENOUGH_MESSAGE);
+        }
+
+        // BUG 修复：积分抵扣扣减在支付确认时执行（此前只在退款时返还、购买从未扣减，导致越退积分越多）
+        if (order.pointsUsed > 0 && order.customerId !== null) {
+          await deductPointsForSettlement(
+            tx,
+            {
+              storeId: order.storeId,
+              description: order.productName,
+              paidAmountFen: order.paidAmountFen,
+            },
+            order.customerId,
+            order.pointsUsed,
+          );
         }
 
         // 生成唯一券码（碰撞重试）

@@ -42,6 +42,7 @@
 import { Injectable } from '@nestjs/common';
 import { Money } from '../../shared/money.utils';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
+import type { ClubServicePricingResolution } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import type {
@@ -115,29 +116,46 @@ export class ClubOrderPreviewService {
     // ── 价格展示基准规则（设计决策，勿修改）──
     // "会员售价"（breakdown 首行）和"会员价"（header）统一使用 product.price 展示。
     // product.price 本身就是会员价，活动折扣在此基础上计算。
-    // resolvePricing 不再施加会员等级折扣（竞争模型）。
     const memberBaselineTotalFen = context.product.price * quantity;
-    // 活动折扣总额 = 单价活动折扣额 × 数量
-    const promotionDiscountTotalFen =
-      pricing.promotionDiscountAmountFen * quantity;
-    // 满减前应付总额 = 折扣后单价 × 数量
-    const beforeReduceTotalFen = pricing.amountFenBeforeReduce * quantity;
+
+    // ── 竞争模型：会员等级折扣 vs 活动折扣，取更低者生效（与 purelyClub 扫码点餐口径一致）──
+    // resolvePricing 的活动竞争仅基于会员价（product.price）；此处额外把会员等级
+    // 折扣率纳入竞争：会员折后价更低时会员胜出（活动被覆盖，活动行划线展示）。
+    const memberDiscountRate =
+      await this.clubOrderPromotionsService.resolveMemberDiscountRate(
+        context.store.id,
+        currentContext.user.phone,
+      );
+    const effectiveMemberRate =
+      memberDiscountRate != null && memberDiscountRate < 1
+        ? memberDiscountRate
+        : 1;
+    const memberPriceFen = Math.round(
+      context.product.price * effectiveMemberRate,
+    );
+    const activityPriceFen = pricing.amountFenBeforeReduce;
+    const memberWins =
+      effectiveMemberRate < 1 && memberPriceFen <= activityPriceFen;
+    const bestPriceFen = Math.min(memberPriceFen, activityPriceFen);
+    // 满减前应付总额 = 竞争胜出价 × 数量
+    const beforeReduceTotalFen = bestPriceFen * quantity;
 
     // ── 满减：基于订单总额计算，单次生效，不叠加 ──
-    const orderReduceFen =
-      await this.clubOrderPromotionsService.resolveOrderReduceFen(
+    const reduceDetail =
+      await this.clubOrderPromotionsService.resolveOrderReduceDetail(
         context.store.id,
         beforeReduceTotalFen,
       );
+    const orderReduceFen = reduceDetail.totalReduceFen;
 
     // 最终应付 = 满减前总额 - 满减
     const finalPriceFen = Math.max(beforeReduceTotalFen - orderReduceFen, 0);
 
-    // 折扣总额 = 单价活动折扣额 × 数量 + 订单满减（订单级单次，不乘数量）
-    // pricing.discountAmountFen 含活动折扣，不含满减（skipReduce）；
-    // buildBreakdownItems 需要总优惠（含满减）
-    const discountTotalFen =
-      pricing.discountAmountFen * quantity + orderReduceFen;
+    // 折扣总额 = 原价 - 最终价（含活动/会员折扣与满减，不含积分）
+    const discountTotalFen = Math.max(originalPriceFen - finalPriceFen, 0);
+    // 活动理论优惠额（分，×数量）：用于 breakdown 展示（会员胜出时划线展示）
+    const promotionDiscountTotalFen =
+      pricing.promotionDiscountAmountFen * quantity;
 
     // 积分抵扣计算（基于乘以数量后的金额）
     const { pointsDeductFen, pointsUsed } = await this.calcPointsDeduction(
@@ -173,11 +191,6 @@ export class ClubOrderPreviewService {
             .subtractClampedToZero(Money.fromDbCents(afterPointsPriceFen))
             .toOutputYuan()
         : null;
-    const memberDiscountRate =
-      await this.clubOrderPromotionsService.resolveMemberDiscountRate(
-        context.store.id,
-        currentContext.user.phone,
-      );
 
     // 满减为订单级单次优惠：totalReduceFen 传 orderReduceFen（不乘数量），
     // 与 previewMarketingLines 的 breakdown 口径保持一致
@@ -190,8 +203,10 @@ export class ClubOrderPreviewService {
       promotionTag: pricing.promotionTag,
       discountRate: pricing.discountRate,
       totalReduceFen: orderReduceFen,
+      reduceRules: reduceDetail.reduceRules,
       finalPriceFen,
       memberDiscountRate,
+      memberWins,
     });
 
     return {
@@ -238,40 +253,26 @@ export class ClubOrderPreviewService {
         ),
       ),
     );
-    const beforeReduceAmountFen = resolutions.reduce(
-      (total, resolution, index) =>
-        total + resolution.amountFenBeforeReduce * lines[index].quantity,
-      0,
-    );
-    const orderDiscountAmountFen =
-      await this.clubOrderPromotionsService.resolveOrderReduceFen(
-        storeId,
-        beforeReduceAmountFen,
-      );
-    const productDiscountAmountFen = resolutions.reduce(
-      (total, resolution, index) =>
-        total + resolution.promotionDiscountAmountFen * lines[index].quantity,
-      0,
-    );
-    // 会员等级折扣：扫码点餐菜单的 unitAmountFen 是 scanOrderingMenuProduct.basePrice
-    // （即商品原价，不含会员折扣），因此会员等级折扣需要在此处实际生效。
-    // 营销服务商品（product.price 已是会员价）的预览路径不受影响，因为
-    // resolvePricing 不再叠加会员等级折扣【规则 1】。
-    const memberBaselineFen = lines.reduce(
-      (total, line) => total + line.unitAmountFen * line.quantity,
-      0,
-    );
     const memberDiscountRate =
       await this.clubOrderPromotionsService.resolveMemberDiscountRate(
         storeId,
         phone,
       );
-    const hasMemberRate = memberDiscountRate != null && memberDiscountRate < 1;
-    const memberDiscountFen = hasMemberRate
-      ? Math.round(memberBaselineFen * (1 - memberDiscountRate))
-      : 0;
+    // 竞争模型：每行取会员折后价与活动折后价中更低者生效（不叠加），
+    // 与 breakdown 划线语义一致——活动胜出时会员折扣不生效。
+    const competition = this.resolveLineCompetition(
+      lines,
+      resolutions,
+      memberDiscountRate,
+    );
+    const reduceDetail =
+      await this.clubOrderPromotionsService.resolveOrderReduceDetail(
+        storeId,
+        competition.beforeReduceAmountFen,
+      );
+    const orderDiscountAmountFen = reduceDetail.totalReduceFen;
     const payableAmountFen = Math.max(
-      beforeReduceAmountFen - orderDiscountAmountFen - memberDiscountFen,
+      competition.beforeReduceAmountFen - orderDiscountAmountFen,
       0,
     );
     const pointsPreview = await this.resolveMarketingPointsPreview(
@@ -283,31 +284,94 @@ export class ClubOrderPreviewService {
     const representativeResolution =
       resolutions.find((resolution) => resolution.promotionType !== null) ??
       resolutions[0];
+    // 活动理论优惠额（分）：resolvePricing 的原始活动优惠 × 数量。
+    // 与竞争结果无关——会员胜出时活动被覆盖，仍以理论值划线展示活动行。
+    const activityDiscountAmountFen = resolutions.reduce(
+      (total, resolution, index) =>
+        total + resolution.promotionDiscountAmountFen * lines[index].quantity,
+      0,
+    );
+    const memberBaselineFen = lines.reduce(
+      (total, line) => total + line.unitAmountFen * line.quantity,
+      0,
+    );
     const breakdownItems = this.breakdownService
       .build({
         memberBaselineFen,
         originalPriceFen: memberBaselineFen,
         discountAmountFen:
-          productDiscountAmountFen + orderDiscountAmountFen + memberDiscountFen,
-        promotionDiscountAmountFen: productDiscountAmountFen,
+          competition.productDiscountAmountFen +
+          orderDiscountAmountFen +
+          competition.memberDiscountFen,
+        promotionDiscountAmountFen: activityDiscountAmountFen,
         promotionType: representativeResolution?.promotionType ?? null,
         promotionTag: representativeResolution?.promotionTag ?? null,
         discountRate: representativeResolution?.discountRate ?? null,
         totalReduceFen: orderDiscountAmountFen,
+        reduceRules: reduceDetail.reduceRules,
         finalPriceFen: payableAmountFen,
         memberDiscountRate,
+        // 会员折扣实际生效（至少一行会员胜出）时：会员行正常、活动行划线
+        memberWins: competition.memberDiscountFen > 0,
       })
       .filter(
         (item) =>
           item.id !== 'member-price' && item.id !== 'price-before-points',
       );
     return {
-      productDiscountAmountFen,
+      productDiscountAmountFen: competition.productDiscountAmountFen,
       orderDiscountAmountFen,
-      memberDiscountFen,
+      memberDiscountFen: competition.memberDiscountFen,
       payableAmountFen,
       ...pointsPreview,
       breakdownItems,
+    };
+  }
+
+  /**
+   * 行级竞争：会员折后价 vs 活动折后价，取更低者生效（不叠加）。
+   * 返回竞争后的满减前总额、活动优惠总额、会员优惠总额（均为分）。
+   */
+  private resolveLineCompetition(
+    lines: ClubMarketingPreviewLine[],
+    resolutions: ClubServicePricingResolution[],
+    memberDiscountRate: number | null,
+  ): {
+    beforeReduceAmountFen: number;
+    productDiscountAmountFen: number;
+    memberDiscountFen: number;
+  } {
+    // 会员折扣率有效（0-1）时参与竞争；否则会员价即原价
+    const effectiveMemberRate =
+      memberDiscountRate != null && memberDiscountRate < 1
+        ? memberDiscountRate
+        : 1;
+    let beforeReduceAmountFen = 0;
+    let productDiscountAmountFen = 0;
+    let memberDiscountFen = 0;
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index];
+      const resolution = resolutions[index];
+      const memberPriceFen = Math.round(
+        line.unitAmountFen * effectiveMemberRate,
+      );
+      const activityPriceFen = resolution.amountFenBeforeReduce;
+      const bestPriceFen = Math.min(memberPriceFen, activityPriceFen);
+      const quantity = line.quantity;
+      beforeReduceAmountFen += bestPriceFen * quantity;
+      if (memberPriceFen <= activityPriceFen) {
+        // 会员折扣胜出（或与活动持平）：优惠来自会员折扣
+        memberDiscountFen += (line.unitAmountFen - memberPriceFen) * quantity;
+      } else {
+        // 活动胜出：优惠来自活动折扣
+        productDiscountAmountFen +=
+          (line.unitAmountFen - activityPriceFen) * quantity;
+      }
+    }
+    return {
+      beforeReduceAmountFen,
+      productDiscountAmountFen,
+      memberDiscountFen,
     };
   }
 
