@@ -5,6 +5,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { StoresModule } from '../../purely-profit/stores/stores.module';
 import { ClubStoresModule } from '../stores/club-stores.module';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
+import { ClubScanOrderingModule } from '../scan-ordering/club-scan-ordering.module';
 import { ClubOrderPromotionsService } from '../orders/club-order-promotions.service';
 import { ClubOrderPreviewBreakdownService } from '../orders/club-order-preview-breakdown.service';
 import { ClubMemberModule } from '../member/club-member.module';
@@ -26,6 +27,8 @@ import { ClubVoucherOrdersService } from './club-voucher-orders.service';
     ClubStoresModule,
     ClubMemberModule,
     ClubWechatPayModule,
+    // 团购券支付成功需广播 voucher_order.created（ScanOrderingRealtimeService）
+    ClubScanOrderingModule,
   ],
   controllers: [ClubVoucherOrdersController],
   providers: [
@@ -42,6 +45,11 @@ import { ClubVoucherOrdersService } from './club-voucher-orders.service';
     // 优惠拆解展示行生成（与服务商品 preview 同口径）
     ClubOrderPreviewBreakdownService,
   ],
-  exports: [ClubVoucherOrdersService, ClubVoucherOrderQueryService],
+  exports: [
+    ClubVoucherOrdersService,
+    ClubVoucherOrderQueryService,
+    // 商家端拒绝接单复用退款链路（含微信原路退回 + 积分返还 + 库存回补）
+    ClubVoucherOrderRefundService,
+  ],
 })
 export class ClubVoucherOrdersModule {}

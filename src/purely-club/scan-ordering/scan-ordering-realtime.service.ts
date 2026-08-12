@@ -15,6 +15,8 @@ type RealtimeEvent =
   | 'order.status_changed'
   | 'service_call.created'
   | 'service_call.updated'
+  | 'voucher_order.created'
+  | 'voucher_order.confirmed'
   | 'voucher_order.status_changed';
 
 interface RealtimeMessage {
@@ -130,7 +132,45 @@ export class ScanOrderingRealtimeService
     this.publish('order.created', payload);
   }
 
-  /** 团购券订单状态变更（开台核销：pending → used） */
+  /** 团购券新订单创建（purelyClub 支付成功后广播，商家端全局通知） */
+  publishVoucherOrderCreated(payload: {
+    /** 门店 ID */
+    storeId: number;
+    /** 业务订单号 */
+    orderNo: string;
+    /** 团购券码 */
+    voucherCode: string;
+    /** 顾客姓名 */
+    guestName: string | null;
+    /** 客人电话 */
+    guestPhone: string | null;
+    /** 商品名称 */
+    productName: string;
+    /** 商品分类名（团购券类型，如小包/中包） */
+    categoryName: string | null;
+    /** 购买数量 */
+    quantity: number;
+    /** 下单时间 ISO */
+    createdAt: string;
+  }): void {
+    this.publish('voucher_order.created', payload);
+  }
+
+  /** 团购券订单商家确认（仅记录确认信息，不改变订单状态） */
+  publishVoucherOrderConfirmed(payload: {
+    /** 门店 ID */
+    storeId: number;
+    /** 业务订单号 */
+    orderNo: string;
+    /** 确认时间 ISO */
+    confirmedAt: string;
+    /** 确认操作员姓名 */
+    confirmedByStaffName: string;
+  }): void {
+    this.publish('voucher_order.confirmed', payload);
+  }
+
+  /** 团购券订单状态变更（开台核销 used / 商家拒绝退款 refunded） */
   publishVoucherOrderStatusChanged(payload: {
     /** 门店 ID */
     storeId: number;
@@ -138,12 +178,18 @@ export class ScanOrderingRealtimeService
     orderNo: string;
     /** 团购券码 */
     voucherCode: string;
-    /** 新状态（当前固定 used） */
-    status: 'used';
+    /** 新状态（used=开台核销 refunded=商家拒绝退款） */
+    status: 'used' | 'refunded';
     /** 使用时间 ISO */
-    usedAt: string;
+    usedAt?: string;
     /** 使用门店名称 */
-    usedStoreName: string;
+    usedStoreName?: string;
+    /** 退款时间 ISO（status=refunded 时携带） */
+    refundAt?: string;
+    /** 拒绝时间 ISO（商家拒绝退款时携带） */
+    rejectedAt?: string;
+    /** 拒绝操作员姓名（商家拒绝退款时携带） */
+    rejectedByStaffName?: string | null;
   }): void {
     this.publish('voucher_order.status_changed', payload);
   }
@@ -279,14 +325,26 @@ export class ScanOrderingRealtimeService
       this.namespace?.to(this.orderRoom(orderId)).emit(event, payload);
       this.publishToNativeOrderSubscribers(orderId, { type: event, payload });
     }
-    if (event === 'voucher_order.status_changed') {
+    if (
+      event === 'voucher_order.created' ||
+      event === 'voucher_order.confirmed' ||
+      event === 'voucher_order.status_changed'
+    ) {
       const orderNo = this.stringValue(payload.orderNo);
       if (orderNo) {
-        this.namespace?.to(this.voucherOrderRoom(orderNo)).emit(event, payload);
-        this.publishToNativeVoucherOrderSubscribers(orderNo, {
-          type: event,
-          payload,
-        });
+        // 商家端订阅 store 房间：created（新订单通知）/ confirmed（列表刷新）/ status_changed（退款后列表刷新）
+        if (storeId)
+          this.namespace?.to(this.storeRoom(storeId)).emit(event, payload);
+        if (event === 'voucher_order.status_changed') {
+          // 用户端订阅 voucher-order 房间 + native 订阅者：订单详情自动刷新
+          this.namespace
+            ?.to(this.voucherOrderRoom(orderNo))
+            .emit(event, payload);
+          this.publishToNativeVoucherOrderSubscribers(orderNo, {
+            type: event,
+            payload,
+          });
+        }
       }
     }
     if (sessionId)

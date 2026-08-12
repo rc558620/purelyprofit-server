@@ -27,6 +27,8 @@ export interface ClubVoucherOrderContext {
   product: {
     id: number;
     name: string;
+    /** 商品分类名（团购券类型，如小包/中包；下单时快照到订单） */
+    categoryName: string | null;
     price: number;
     originalPrice: number | null;
     image: string | null;
@@ -117,6 +119,8 @@ export class ClubVoucherOrderContextService {
           personCount: true,
           validDays: true,
           type: true,
+          // 分类名快照：商家端查看订单页展示“类型（如小包/中包）”
+          category: { select: { name: true } },
         },
       }),
     ]);
@@ -138,7 +142,17 @@ export class ClubVoucherOrderContextService {
       },
       customer,
       phone: currentContext.user.phone,
-      product,
+      product: {
+        id: product.id,
+        name: product.name,
+        categoryName: product.category?.name ?? null,
+        price: product.price,
+        originalPrice: product.originalPrice,
+        image: product.image,
+        stock: product.stock,
+        personCount: product.personCount,
+        validDays: product.validDays,
+      },
     };
   }
 

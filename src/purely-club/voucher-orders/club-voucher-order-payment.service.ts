@@ -8,6 +8,7 @@ import { ClubOrderPreviewBreakdownService } from '../orders/club-order-preview-b
 import { deductPointsForSettlement } from '../orders/club-order-settlement-points.utils';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubVoucherOrderContextService } from './club-voucher-order-context.service';
+import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
 import {
   buildVoucherCode,
   buildVoucherOrderNo,
@@ -63,6 +64,7 @@ export class ClubVoucherOrderPaymentService {
     private readonly clubVoucherOrderContextService: ClubVoucherOrderContextService,
     private readonly clubWechatJsapiService: ClubWechatJsapiService,
     private readonly breakdownService: ClubOrderPreviewBreakdownService,
+    private readonly realtimeService: ScanOrderingRealtimeService,
   ) {}
 
   /** 创建团购券订单草稿：校验商品/算价 → JSAPI 下单 → 落库 unpaid */
@@ -150,6 +152,7 @@ export class ClubVoucherOrderPaymentService {
         customerId: context.customer.id,
         productId: context.product.id,
         productName: context.product.name,
+        categoryName: context.product.categoryName,
         productPrice: context.product.price,
         productOriginalPrice: context.product.originalPrice,
         quantity,
@@ -222,8 +225,13 @@ export class ClubVoucherOrderPaymentService {
     expectedAmountFen: number,
     params?: { transactionId?: string; paidAtMs?: number },
   ): Promise<ClubVoucherOrderDraftView> {
-    return this.prisma.$transaction(
-      async (tx) => {
+    const { view, paidOrder } = await this.prisma.$transaction(
+      async (
+        tx,
+      ): Promise<{
+        view: ClubVoucherOrderDraftView;
+        paidOrder: PaidVoucherOrderSnapshot | null;
+      }> => {
         const order = await tx.clubVoucherOrder.findUnique({
           where: { id: orderId },
         });
@@ -235,7 +243,7 @@ export class ClubVoucherOrderPaymentService {
         }
         // 幂等：已确认支付（pending/used/refunded/expired）直接返回现状
         if (order.status !== 'unpaid') {
-          return this.toDraftView(order);
+          return { view: this.toDraftView(order), paidOrder: null };
         }
 
         const product = await tx.marketingProduct.findUnique({
@@ -292,10 +300,40 @@ export class ClubVoucherOrderPaymentService {
         this.logger.log(
           `团购券订单支付成功: orderNo=${order.orderNo}, voucherCode=${voucherCode}, 有效期${validDays}天`,
         );
-        return this.toDraftView(updated);
+        return {
+          view: this.toDraftView(updated),
+          paidOrder: {
+            storeId: order.storeId,
+            orderNo: order.orderNo,
+            voucherCode,
+            guestName: order.guestName,
+            guestPhone: order.guestPhone,
+            productName: order.productName,
+            categoryName: order.categoryName,
+            quantity: order.quantity,
+            createdAt: order.createdAt,
+          },
+        };
       },
       { timeout: TX_TIMEOUT_MEDIUM },
     );
+
+    // 事务提交成功后才广播新订单事件，避免事务回滚导致商家端收到假通知
+    if (paidOrder) {
+      this.realtimeService.publishVoucherOrderCreated({
+        storeId: paidOrder.storeId,
+        orderNo: paidOrder.orderNo,
+        voucherCode: paidOrder.voucherCode,
+        guestName: paidOrder.guestName,
+        guestPhone: paidOrder.guestPhone,
+        productName: paidOrder.productName,
+        categoryName: paidOrder.categoryName,
+        quantity: paidOrder.quantity,
+        createdAt: paidOrder.createdAt.toISOString(),
+      });
+    }
+
+    return view;
   }
 
   /** 生成全局唯一券码（唯一索引冲突时重试） */
@@ -331,4 +369,17 @@ export class ClubVoucherOrderPaymentService {
       amountFen: order.paidAmountFen,
     };
   }
+}
+
+/** 支付完成后广播新订单事件所需的订单快照 */
+export interface PaidVoucherOrderSnapshot {
+  storeId: number;
+  orderNo: string;
+  voucherCode: string;
+  guestName: string | null;
+  guestPhone: string | null;
+  productName: string;
+  categoryName: string | null;
+  quantity: number;
+  createdAt: Date;
 }

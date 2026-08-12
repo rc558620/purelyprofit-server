@@ -35,6 +35,7 @@ import { ScanOrderingModule } from './purely-profit/operations/scan-ordering/sca
 import { ServiceCallManagementModule } from './purely-profit/operations/service-call/service-call-management.module';
 import { DashboardHomeModule } from './purely-profit/dashboard/dashboard-home/dashboard-home.module';
 import { HandoverModule } from './purely-profit/operations/handover/handover.module';
+import { VoucherOrdersModule } from './purely-profit/operations/voucher-orders/voucher-orders.module';
 import { NotificationsModule } from './purely-profit/notifications/notifications.module';
 import { PulseSessionModule } from './purely-pulse/session/session.module';
 import { PulseOnboardingModule } from './purely-pulse/onboarding/onboarding.module';
@@ -125,6 +126,7 @@ import { UploadModule } from './shared/upload.module';
     ServiceCallManagementModule,
     DashboardHomeModule,
     HandoverModule,
+    VoucherOrdersModule,
     NotificationsModule,
     ClientErrorsModule,
     PulseSessionModule,

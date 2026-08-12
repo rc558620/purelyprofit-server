@@ -1,6 +1,7 @@
 // 团购券订单核销服务：用户端立即核销（pending → used，仅记录 verifyAt，未绑定开台会话）
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import {
   CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
@@ -18,7 +19,10 @@ export interface ClubVoucherVerifyResult {
 export class ClubVoucherOrderVerifyService {
   private readonly logger = new Logger(ClubVoucherOrderVerifyService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtimeService: ScanOrderingRealtimeService,
+  ) {}
 
   /** 用户端立即核销：pending → used（verifyAt），幂等（重复核销直接返回现状） */
   async verifyVoucherOrder(
@@ -27,7 +31,14 @@ export class ClubVoucherOrderVerifyService {
   ): Promise<ClubVoucherVerifyResult> {
     const order = await this.prisma.clubVoucherOrder.findFirst({
       where: { orderNo, userId: currentContext.user.id },
-      select: { id: true, orderNo: true, status: true, verifyAt: true },
+      select: {
+        id: true,
+        orderNo: true,
+        storeId: true,
+        voucherCode: true,
+        status: true,
+        verifyAt: true,
+      },
     });
     if (!order) {
       throw new BadRequestException(CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE);
@@ -55,6 +66,14 @@ export class ClubVoucherOrderVerifyService {
     }
 
     this.logger.log(`团购券用户端核销成功: orderNo=${order.orderNo}`);
+    // 核销成功广播：store 房间（商家端查看订单页实时变已消费）+ voucher-order 房间与 native 订阅者（purelyClub 详情页）
+    this.realtimeService.publishVoucherOrderStatusChanged({
+      storeId: order.storeId,
+      orderNo: order.orderNo,
+      voucherCode: order.voucherCode ?? '',
+      status: 'used',
+      usedAt: now.toISOString(),
+    });
     return {
       orderNo: order.orderNo,
       status: 'used',

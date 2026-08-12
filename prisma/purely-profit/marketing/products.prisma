@@ -46,6 +46,8 @@ model MarketingProduct {
   updatedAt        DateTime                 @updatedAt @map("updated_at")
   category         MarketingProductCategory @relation(fields: [categoryId], references: [id])
   store            Store                    @relation(fields: [storeId], references: [id])
+  /// 团购券订单（列表页取商品当前图片）
+  clubVoucherOrders ClubVoucherOrder[]
 
   @@unique([storeId, name])
   @@index([storeId, createdAt])

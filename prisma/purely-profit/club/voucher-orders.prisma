@@ -13,8 +13,12 @@ model ClubVoucherOrder {
   customerId           Int?                      @map("customer_id")
   /// 商品 ID（MarketingProduct.id）
   productId            Int                       @map("product_id")
+  /// 关联营销商品（列表页取商品当前图片）
+  product              MarketingProduct          @relation(fields: [productId], references: [id])
   /// 商品名称快照
   productName          String                    @map("product_name")
+  /// 商品分类名快照（下单时取营销产品分类 MarketingProductCategory.name）
+  categoryName         String?                   @map("category_name")
   /// 商品单价（分）
   productPrice         Int                       @map("product_price")
   /// 商品原价（分，可为空）
@@ -67,6 +71,14 @@ model ClubVoucherOrder {
   refundChannel        String?                   @map("refund_channel")
   /// 退款单号（幂等）
   refundNo             String?                   @unique @map("refund_no")
+  /// 商家确认时间（仅记录，不改变订单状态）
+  confirmedAt          DateTime?                 @map("confirmed_at")
+  /// 商家确认操作员姓名快照
+  confirmedByStaffName String?                   @map("confirmed_by_staff_name")
+  /// 商家拒绝时间（拒绝走退款链路，状态变为 refunded）
+  rejectedAt           DateTime?                 @map("rejected_at")
+  /// 商家拒绝操作员姓名快照
+  rejectedByStaffName  String?                   @map("rejected_by_staff_name")
   createdAt            DateTime                  @default(now()) @map("created_at")
   updatedAt            DateTime                  @updatedAt @map("updated_at")
 

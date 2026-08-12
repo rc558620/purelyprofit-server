@@ -49,6 +49,10 @@ model Store {
   profileMetadata             Json?                         @map("profile_metadata")
   /// 扫码点餐语音播报开关（默认关闭，商家端修改，顾客端据此展示取餐通知弹窗）
   pickupVoiceEnabled          Boolean                       @default(false) @map("pickup_voice_enabled")
+  /// 团购券新订单语音播报开关（默认关闭，商家端修改，控制商家端全局通知是否播报语音）
+  voucherOrderVoiceEnabled    Boolean                       @default(false) @map("voucher_order_voice_enabled")
+  /// 服务呼叫语音播报开关（默认关闭，商家端修改，控制收到新服务呼叫时是否播报语音）
+  serviceCallVoiceEnabled     Boolean                       @default(false) @map("service_call_voice_enabled")
   /// 扫码点餐出餐自动打印开关（默认关闭，商家端修改，开启后点击出餐自动唤起小票打印）
   serveAutoPrintEnabled       Boolean                       @default(false) @map("serve_auto_print_enabled")
   /// 收银台顾客票打印通道（browser=浏览器系统打印 / cloud=飞鹅云打印 / usb=服务器本地 USB 打印 / off=关闭），默认浏览器打印
