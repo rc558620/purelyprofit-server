@@ -100,11 +100,22 @@ export async function assertVoucherReadable(
 }
 
 /**
+ * 开台事务内绑定纯利宝团购券（自动核销）返回值。
+ * - bound: true 时携带 orderNo/voucherCode 供调用方广播实时事件
+ * - bound: false 表示跳过核销（第三方券或非纯利宝平台券码）
+ */
+export interface BindVoucherResult {
+  bound: boolean;
+  orderNo?: string;
+  voucherCode?: string;
+}
+
+/**
  * 开台事务内绑定纯利宝团购券（自动核销）：
  * - 券码在 club_voucher_orders 无记录（手工第三方券）→ 跳过，不影响原开台流程
  * - pending / used-未开台 → 置 used 并绑定会话（防并发用条件更新兜底）
  * - used-已开台 / 已退款 / 已过期 → 抛对应错误，阻断开台
- * @returns 是否发生了核销绑定
+ * @returns 是否发生了核销绑定及订单信息
  */
 export async function bindVoucherOnOpen(
   tx: VoucherOrderStore,
@@ -114,17 +125,17 @@ export async function bindVoucherOnOpen(
     storeId: number;
     sessionId: number;
   },
-): Promise<boolean> {
+): Promise<BindVoucherResult> {
   // 仅纯利宝平台券码参与核销绑定；其他平台券保持原记录流程
   if (params.voucherPlatform !== 'chunlibao') {
-    return false;
+    return { bound: false };
   }
   const order = await tx.clubVoucherOrder.findFirst({
     where: { voucherCode: params.voucherCode, storeId: params.storeId },
   });
   if (!order) {
     // 手工输入的纯利宝平台第三方券（非 purelyClub 团购券订单），跳过核销
-    return false;
+    return { bound: false };
   }
   if (order.status === 'used' && order.usedSessionId !== null) {
     throw new BadRequestException(VOUCHER_ALREADY_USED_MESSAGE);
@@ -156,7 +167,11 @@ export async function bindVoucherOnOpen(
     // 并发双开台：另一笔事务已抢先绑定
     throw new BadRequestException(VOUCHER_ALREADY_USED_MESSAGE);
   }
-  return true;
+  return {
+    bound: true,
+    orderNo: order.orderNo,
+    voucherCode: order.voucherCode ?? undefined,
+  };
 }
 
 /** 与 PrismaService/事务客户端兼容的最小读写面（结构类型，两方均满足） */

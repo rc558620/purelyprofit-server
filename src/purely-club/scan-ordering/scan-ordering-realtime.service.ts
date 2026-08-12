@@ -14,7 +14,8 @@ type RealtimeEvent =
   | 'order.created'
   | 'order.status_changed'
   | 'service_call.created'
-  | 'service_call.updated';
+  | 'service_call.updated'
+  | 'voucher_order.status_changed';
 
 interface RealtimeMessage {
   event: RealtimeEvent;
@@ -37,6 +38,10 @@ export class ScanOrderingRealtimeService
   private unsubscribeRedis: (() => Promise<void>) | null = null;
   private readonly nativeOrderSubscribers = new Map<
     number,
+    Set<(payload: unknown) => void>
+  >();
+  private readonly nativeVoucherOrderSubscribers = new Map<
+    string,
     Set<(payload: unknown) => void>
   >();
 
@@ -125,6 +130,24 @@ export class ScanOrderingRealtimeService
     this.publish('order.created', payload);
   }
 
+  /** 团购券订单状态变更（开台核销：pending → used） */
+  publishVoucherOrderStatusChanged(payload: {
+    /** 门店 ID */
+    storeId: number;
+    /** 业务订单号 */
+    orderNo: string;
+    /** 团购券码 */
+    voucherCode: string;
+    /** 新状态（当前固定 used） */
+    status: 'used';
+    /** 使用时间 ISO */
+    usedAt: string;
+    /** 使用门店名称 */
+    usedStoreName: string;
+  }): void {
+    this.publish('voucher_order.status_changed', payload);
+  }
+
   publishServiceCallCreated(payload: {
     storeId: number;
     sessionId: number;
@@ -159,12 +182,33 @@ export class ScanOrderingRealtimeService
     };
   }
 
+  subscribeNativeVoucherOrder(
+    orderNo: string,
+    listener: (payload: unknown) => void,
+  ): () => void {
+    const listeners =
+      this.nativeVoucherOrderSubscribers.get(orderNo) ?? new Set();
+    listeners.add(listener);
+    this.nativeVoucherOrderSubscribers.set(orderNo, listeners);
+    return () => {
+      const current = this.nativeVoucherOrderSubscribers.get(orderNo);
+      if (!current) return;
+      current.delete(listener);
+      if (current.size === 0)
+        this.nativeVoucherOrderSubscribers.delete(orderNo);
+    };
+  }
+
   storeRoom(storeId: number): string {
     return `store:${storeId}`;
   }
 
   orderRoom(orderId: number): string {
     return `order:${orderId}`;
+  }
+
+  voucherOrderRoom(orderNo: string): string {
+    return `voucher-order:${orderNo}`;
   }
 
   sessionRoom(sessionId: number): string {
@@ -235,6 +279,16 @@ export class ScanOrderingRealtimeService
       this.namespace?.to(this.orderRoom(orderId)).emit(event, payload);
       this.publishToNativeOrderSubscribers(orderId, { type: event, payload });
     }
+    if (event === 'voucher_order.status_changed') {
+      const orderNo = this.stringValue(payload.orderNo);
+      if (orderNo) {
+        this.namespace?.to(this.voucherOrderRoom(orderNo)).emit(event, payload);
+        this.publishToNativeVoucherOrderSubscribers(orderNo, {
+          type: event,
+          payload,
+        });
+      }
+    }
     if (sessionId)
       this.namespace?.to(this.sessionRoom(sessionId)).emit(event, payload);
   }
@@ -245,6 +299,10 @@ export class ScanOrderingRealtimeService
       : null;
   }
 
+  private stringValue(value: unknown): string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  }
+
   private publishToNativeOrderSubscribers(
     orderId: number,
     message: unknown,
@@ -253,6 +311,20 @@ export class ScanOrderingRealtimeService
     const connectionCount = listeners?.size ?? 0;
     this.logger.log(
       `原生订单 WebSocket 推送: orderId=${orderId}, connections=${connectionCount}, pid=${process.pid}`,
+    );
+    for (const listener of listeners ?? []) {
+      listener(message);
+    }
+  }
+
+  private publishToNativeVoucherOrderSubscribers(
+    orderNo: string,
+    message: unknown,
+  ): void {
+    const listeners = this.nativeVoucherOrderSubscribers.get(orderNo);
+    const connectionCount = listeners?.size ?? 0;
+    this.logger.log(
+      `原生团购券订单 WebSocket 推送: orderNo=${orderNo}, connections=${connectionCount}, pid=${process.pid}`,
     );
     for (const listener of listeners ?? []) {
       listener(message);

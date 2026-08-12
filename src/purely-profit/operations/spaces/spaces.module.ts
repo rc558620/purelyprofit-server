@@ -4,6 +4,7 @@ import { MarketingModule } from '../../marketing/marketing.module';
 import { PlatformMembershipModule } from '../../member/platform-membership/platform-membership.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { RedisModule } from '../../../redis/redis.module';
+import { ClubScanOrderingModule } from '../../../purely-club/scan-ordering/club-scan-ordering.module';
 import { SalesRecordModule } from '../sales-record/sales-record.module';
 import { SpaceAutoCheckoutSchedulerService } from './space-auto-checkout-scheduler.service';
 import { SpaceQrCodeService } from './space-qr-code.service';
@@ -48,6 +49,7 @@ import { SpacesWriteService } from './spaces-write.service';
     PlatformMembershipModule,
     SalesRecordModule,
     RedisModule,
+    ClubScanOrderingModule,
     StoresModule,
   ],
   controllers: [

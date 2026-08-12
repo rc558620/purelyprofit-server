@@ -35,9 +35,12 @@ interface ClientMessage {
   type:
     | 'subscribe.order'
     | 'unsubscribe.order'
+    | 'subscribe.voucher-order'
+    | 'unsubscribe.voucher-order'
     | 'subscribe.service-call'
     | 'ping';
   orderId?: number;
+  orderNo?: string;
 }
 
 const send = (socket: WebSocket, message: unknown): void => {
@@ -115,6 +118,7 @@ export async function registerScanOrderingNativeWebsocket(
       }
 
       const unsubscribers = new Map<number, () => void>();
+      const voucherUnsubscribers = new Map<string, () => void>();
       let unsubscribeServiceCall: (() => void) | null = null;
       const subscribeOrder = async (orderId: number): Promise<void> => {
         const order = await prisma.scanOrders.findFirst({
@@ -170,6 +174,39 @@ export async function registerScanOrderingNativeWebsocket(
       if (Number.isInteger(initialOrderId) && initialOrderId > 0) {
         void subscribeOrder(initialOrderId);
       }
+
+      const subscribeVoucherOrder = async (orderNo: string): Promise<void> => {
+        const order = await prisma.clubVoucherOrder.findFirst({
+          where: { orderNo, userId },
+          select: { orderNo: true },
+        });
+        if (!order)
+          return send(socket, {
+            type: 'error',
+            code: 'FORBIDDEN',
+            message: '无权订阅该团购券订单',
+          });
+        if (voucherUnsubscribers.has(orderNo)) return;
+        voucherUnsubscribers.set(
+          orderNo,
+          realtime.subscribeNativeVoucherOrder(orderNo, (payload) => {
+            try {
+              socket.send(JSON.stringify(payload));
+              logger.log(
+                `原生团购券订单 WebSocket 状态已发送: orderNo=${orderNo}, readyState=${socket.readyState}`,
+              );
+            } catch (error) {
+              logger.error(
+                `原生团购券订单 WebSocket 发送失败: orderNo=${orderNo}, error=${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
+          }),
+        );
+        logger.log(
+          `扫码点餐原生 WebSocket 已订阅团购券订单: orderNo=${orderNo}`,
+        );
+        send(socket, { type: 'subscribed.voucher-order', orderNo });
+      };
       socket.on('message', (raw: RawData) => {
         void handleMessage(raw);
       });
@@ -185,6 +222,24 @@ export async function registerScanOrderingNativeWebsocket(
         if (message.type === 'ping') return send(socket, { type: 'pong' });
         if (message.type === 'subscribe.service-call') {
           subscribeServiceCall();
+          return;
+        }
+        if (message.type === 'subscribe.voucher-order') {
+          if (typeof message.orderNo !== 'string' || !message.orderNo.trim()) {
+            return send(socket, {
+              type: 'error',
+              code: 'BAD_ORDER_NO',
+              message: '团购券订单号无效',
+            });
+          }
+          await subscribeVoucherOrder(message.orderNo.trim());
+          return;
+        }
+        if (message.type === 'unsubscribe.voucher-order') {
+          if (message.orderNo) {
+            voucherUnsubscribers.get(message.orderNo)?.();
+            voucherUnsubscribers.delete(message.orderNo);
+          }
           return;
         }
         if (!Number.isInteger(message.orderId) || (message.orderId ?? 0) <= 0) {
@@ -205,6 +260,8 @@ export async function registerScanOrderingNativeWebsocket(
       const cleanup = (): void => {
         unsubscribers.forEach((unsubscribe) => unsubscribe());
         unsubscribers.clear();
+        voucherUnsubscribers.forEach((unsubscribe) => unsubscribe());
+        voucherUnsubscribers.clear();
         unsubscribeServiceCall?.();
         unsubscribeServiceCall = null;
       };

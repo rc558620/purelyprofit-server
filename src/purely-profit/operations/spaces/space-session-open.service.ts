@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -15,8 +16,12 @@ import {
   PrismaService,
   TX_TIMEOUT_MEDIUM,
 } from '../../../prisma/prisma.service';
+import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
-import { bindVoucherOnOpen } from './space-session-voucher.shared';
+import {
+  bindVoucherOnOpen,
+  type BindVoucherResult,
+} from './space-session-voucher.shared';
 import type {
   OpenSpaceSessionDto,
   SpaceSessionResponseDto,
@@ -36,11 +41,14 @@ const OPEN_SESSION_LOCK_RETRY_DELAY_MS = 60;
 
 @Injectable()
 export class SpaceSessionOpenService {
+  private readonly logger = new Logger(SpaceSessionOpenService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly reservationsStateService: SpaceReservationsStateService,
     private readonly redisLockService: RedisLockService,
+    private readonly realtimeService: ScanOrderingRealtimeService,
   ) {}
 
   async openSession(
@@ -141,6 +149,8 @@ export class SpaceSessionOpenService {
       });
       openOperatorNameSnapshot = staff?.name ?? null;
     }
+
+    let bindResult: BindVoucherResult = { bound: false };
 
     const session = await this.prisma.$transaction(
       async (transaction) => {
@@ -278,7 +288,7 @@ export class SpaceSessionOpenService {
         // 纯利宝团购券自动核销：读取过的券码开台成功后绑定会话并置已使用；
         // 已开台使用的券再次开台 → 抛"该团购券已使用"，整笔事务回滚
         if (payload.prepaidVoucherCode) {
-          await bindVoucherOnOpen(transaction, {
+          bindResult = await bindVoucherOnOpen(transaction, {
             voucherCode: payload.prepaidVoucherCode,
             voucherPlatform: payload.prepaidVoucherPlatform ?? '',
             storeId: space.storeId,
@@ -290,6 +300,21 @@ export class SpaceSessionOpenService {
       },
       { timeout: TX_TIMEOUT_MEDIUM },
     );
+
+    // 开台成功且团购券已自动核销 → 通过 Socket.IO 广播 voucher_order.status_changed
+    if (bindResult.bound && bindResult.orderNo) {
+      this.logger.log(
+        `团购券开台核销成功，推送实时事件: orderNo=${bindResult.orderNo}, voucherCode=${bindResult.voucherCode}, sessionId=${session.id}`,
+      );
+      this.realtimeService.publishVoucherOrderStatusChanged({
+        storeId: space.storeId,
+        orderNo: bindResult.orderNo,
+        voucherCode: bindResult.voucherCode ?? '',
+        status: 'used',
+        usedAt: new Date().toISOString(),
+        usedStoreName: '', // 开台 service 无门店名上下文，由 C 端查详情接口获取
+      });
+    }
 
     return toSpaceSessionResponse(session);
   }

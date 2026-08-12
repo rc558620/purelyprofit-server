@@ -49,6 +49,10 @@ interface JoinStorePayload {
   storeId: number;
 }
 
+interface JoinVoucherOrderPayload {
+  orderNo: string;
+}
+
 // 实时链路防误改：管理端必须连接该 namespace；事件广播也必须从同一 namespace 发出，
 // 不能改为顶层 Server 的默认 / namespace，否则客户端订阅房间将收不到订单事件。
 @WebSocketGateway({
@@ -134,9 +138,9 @@ export class ScanOrderingGateway
     // 先断开所有客户端连接，停止接收新消息
     if (this.server) {
       this.server.sockets.forEach((socket) => {
-        socket.leave('*'); // 退出所有房间
+        void socket.leave('*'); // 退出所有房间
       });
-      this.server.timeout(5000).emit('server_shutting_down');
+      this.server.emit('server_shutting_down');
     }
 
     // 退出频道订阅
@@ -237,6 +241,31 @@ export class ScanOrderingGateway
     await client.join(room);
     this.logger.log(
       `subscribe.session joined: socketId=${client.id}, room=${room}`,
+    );
+    return { room };
+  }
+
+  @SubscribeMessage('subscribe.voucher-order')
+  async subscribeVoucherOrder(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: JoinVoucherOrderPayload,
+  ): Promise<{ room: string }> {
+    const identity = this.identityOf(client);
+    this.logger.log(
+      `subscribe.voucher-order requested: socketId=${client.id}, userId=${identity.userId}, orderNo=${payload.orderNo}`,
+    );
+    const order = await this.prisma.clubVoucherOrder.findFirst({
+      where: {
+        orderNo: payload.orderNo,
+        userId: identity.userId,
+      },
+      select: { orderNo: true },
+    });
+    if (!order) throw new UnauthorizedException('无权订阅该团购券订单');
+    const room = this.realtimeService.voucherOrderRoom(payload.orderNo);
+    await client.join(room);
+    this.logger.log(
+      `subscribe.voucher-order joined: socketId=${client.id}, room=${room}`,
     );
     return { room };
   }
