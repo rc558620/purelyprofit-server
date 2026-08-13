@@ -9,6 +9,7 @@ import type {
 } from './dto/club-store.dto';
 import { ClubStoreAccessService } from './club-store-access.service';
 import { ClubCurrentStoreContextService } from './club-current-store-context.service';
+import { ClubInviteScanResolveService } from './club-invite-scan-resolve.service';
 import { ClubStoreViewService } from './club-store-view.service';
 
 @Injectable()
@@ -17,6 +18,7 @@ export class ClubStoresService {
     private readonly clubStoreAccessService: ClubStoreAccessService,
     private readonly clubCurrentStoreContextService: ClubCurrentStoreContextService,
     private readonly clubStoreViewService: ClubStoreViewService,
+    private readonly clubInviteScanResolveService: ClubInviteScanResolveService,
   ) {}
 
   async list(user: AuthenticatedUser): Promise<ClubStoresResponseDto> {
@@ -102,6 +104,6 @@ export class ClubStoresService {
     user: AuthenticatedUser,
     scanCode: string,
   ): Promise<ClubResolveScanCodeResponseDto> {
-    return this.clubStoreAccessService.resolveScanCode(user, scanCode);
+    return this.clubInviteScanResolveService.resolveScanCode(user, scanCode);
   }
 }

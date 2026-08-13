@@ -56,7 +56,6 @@ const MANAGER_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
 const FINANCE_ALLOWED_HOME_MODULES = new Set<ProfitHomeModule>([
   'business-analysis',
   'finance-center',
-  'goods-management',
   'handover-management',
   'staff-management',
 ]);

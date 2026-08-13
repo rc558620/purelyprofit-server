@@ -35,18 +35,19 @@ describe('AccessControlService', () => {
     ...overrides,
   });
 
-  it('cashier 子账号应仅拥有营业收录/空间/商品查看/交班权限', () => {
+  it('cashier 子账号应仅拥有营业收录/空间查看/商品查看/交班权限', () => {
     const permissions = service.getEffectivePermissions(
       buildSubAccountMembership(StoreSubAccountRole.cashier),
     );
 
     expect(permissions).toEqual([
-      'space:view',
-      'space:create',
-      'space:update',
       'operation-entry:view',
       'operation-entry:create',
       'goods:view',
+      'space:view',
+      'scan-ordering:view',
+      'scan-ordering:table-manage',
+      'scan-ordering:order-process',
       'handover:view',
       'handover:create',
       'handover:update',
@@ -100,6 +101,51 @@ describe('AccessControlService', () => {
     expect(permissions).not.toContain('store:update');
   });
 
+  it('餐饮店长应获得扫码点餐权限集，且不包含空间权限', () => {
+    const permissions = service.getEffectivePermissions(
+      buildSubAccountMembership(StoreSubAccountRole.manager, {
+        businessMode: 'catering',
+      }),
+    );
+
+    expect(permissions).toContain('scan-ordering:view');
+    expect(permissions).toContain('scan-ordering:table-manage');
+    expect(permissions).toContain('scan-ordering:order-process');
+    expect(permissions).not.toContain('space:view');
+    expect(permissions).not.toContain('space:create');
+    expect(permissions).not.toContain('space:update');
+    expect(permissions).not.toContain('space:delete');
+  });
+
+  it('非餐饮店长应获得空间管理权限集，且不包含扫码点餐权限', () => {
+    const permissions = service.getEffectivePermissions(
+      buildSubAccountMembership(StoreSubAccountRole.manager, {
+        businessMode: 'general',
+      }),
+    );
+
+    expect(permissions).toContain('space:view');
+    expect(permissions).toContain('space:create');
+    expect(permissions).toContain('space:update');
+    expect(permissions).toContain('space:delete');
+    expect(permissions).not.toContain('scan-ordering:view');
+    expect(permissions).not.toContain('scan-ordering:table-manage');
+    expect(permissions).not.toContain('scan-ordering:order-process');
+  });
+
+  it('membership 携带业态时即使调用方不传参也应按业态解析店长权限', () => {
+    const permissions = service.getEffectivePermissions(
+      buildSubAccountMembership(StoreSubAccountRole.manager, {
+        businessMode: 'catering',
+      }),
+    );
+
+    // 调用方（如 AuthCapabilityService）未传 businessMode 参数时，
+    // 应回退到 membership.businessMode 完成餐饮店长权限解析
+    expect(permissions).toContain('scan-ordering:view');
+    expect(permissions).not.toContain('space:view');
+  });
+
   it('finance 子账号应拥有财务与进货管理操作权限', () => {
     const permissions = service.getEffectivePermissions(
       buildSubAccountMembership(StoreSubAccountRole.finance),
@@ -143,12 +189,13 @@ describe('AccessControlService', () => {
     );
 
     expect(permissions).toEqual([
-      'space:view',
-      'space:create',
-      'space:update',
       'operation-entry:view',
       'operation-entry:create',
       'goods:view',
+      'space:view',
+      'scan-ordering:view',
+      'scan-ordering:table-manage',
+      'scan-ordering:order-process',
     ]);
     expect(permissions).toContain('goods:view');
     expect(permissions).not.toContain('handover:view');

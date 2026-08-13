@@ -155,6 +155,9 @@ export class HandoverRecordsRevenueService {
       refundAmount,
     );
 
+    // 门店主账号 user.id：操作员职位判定依据（主账号=紫）
+    const storeOwnerUserId = await this.loadStoreOwnerUserId(storeId);
+
     return {
       revenueSummary: buildRecordRevenueSummary(
         revenueAmounts,
@@ -168,8 +171,18 @@ export class HandoverRecordsRevenueService {
         // 不再使用 SaleOrder 维度的 refundOrders，防止同一会话退款重复展示。
         [],
         settledSpaceSessions,
+        storeOwnerUserId,
       ),
     };
+  }
+
+  /** 读取门店主账号 user.id（store.ownerId） */
+  private async loadStoreOwnerUserId(storeId: number): Promise<number | null> {
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: { ownerId: true },
+    });
+    return store?.ownerId ?? null;
   }
 
   private loadSpaceRevenue(storeId: number, shiftRange: ShiftDateRange) {
@@ -222,6 +235,7 @@ export class HandoverRecordsRevenueService {
               select: {
                 name: true,
                 role: true,
+                userId: true,
                 employeeProfile: {
                   select: {
                     subAccounts: {

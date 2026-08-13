@@ -7,11 +7,13 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { toNullableText } from '../commerce/commerce.utils';
 import type {
-  CreateMarketingProductCategoryDto,
   MarketingProductCategoriesResponseDto,
   MarketingProductCategoryDto,
+} from './dto/marketing-product.response.dto';
+import type {
+  CreateMarketingProductCategoryDto,
   UpdateMarketingProductCategoryDto,
-} from './dto/marketing-product.dto';
+} from './dto/marketing-product-category.dto';
 import { mapProductCategoryRow } from './marketing.mapper';
 import { MarketingSharedService } from './marketing-shared.service';
 

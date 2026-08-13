@@ -21,6 +21,7 @@ export const SALE_ORDER_ITEM_SELECT = {
         select: {
           name: true,
           role: true,
+          userId: true,
           employeeProfile: {
             select: {
               subAccounts: {
@@ -56,6 +57,7 @@ export const SALE_ORDER_ITEM_SELECT = {
             select: {
               name: true,
               role: true,
+              userId: true,
               employeeProfile: {
                 select: {
                   subAccounts: {

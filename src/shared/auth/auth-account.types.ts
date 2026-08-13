@@ -55,4 +55,6 @@ export interface AuthMembershipContextRow {
   subAccountAssigned: boolean | null;
   subAccountCanAccessHome: boolean | null;
   subAccountCanUseHandover: boolean | null;
+  /** 门店业态（catering/general），用于子账号角色按业态解析权限集 */
+  businessMode?: import('@prisma/client').StoreBusinessMode | null;
 }

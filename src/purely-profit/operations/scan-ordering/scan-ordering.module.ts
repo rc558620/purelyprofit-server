@@ -9,6 +9,8 @@ import { ClubServiceCallModule } from '../../../purely-club/service-call/club-se
 import { ScanOrderingMainController } from './scan-ordering.controller';
 import { ScanOrderingOrderController } from './scan-ordering-orders.controller';
 import { ScanOrderingTableController } from './scan-ordering-table.controller';
+import { ScanOrderingPrintController } from './scan-ordering-print.controller';
+import { ScanOrderingServiceCallController } from './scan-ordering-service-call.controller';
 import { ScanOrderingAreaService } from './scan-ordering-area.service';
 import { ScanOrderingTypeService } from './scan-ordering-type.service';
 import { ScanOrderingDashboardService } from './scan-ordering-dashboard.service';
@@ -19,6 +21,7 @@ import { ScanOrderingTableQueryService } from './scan-ordering-table-query.servi
 import { ScanOrderingOrderService } from './scan-ordering-order.service';
 import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-refund.service';
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
+import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
 import { ScanOrderingOrderStateMachineService } from './scan-ordering-order-machine.service';
 import { ScanOrderingOrderTransitionEngineService } from './scan-ordering-order-transition.service';
 import { ScanOrderingServiceCallService } from './scan-ordering-service-call.service';
@@ -55,6 +58,8 @@ import { PrintAgentService } from './print-agent.service';
     ScanOrderingMainController,
     ScanOrderingOrderController,
     ScanOrderingTableController,
+    ScanOrderingPrintController,
+    ScanOrderingServiceCallController,
   ],
   providers: [
     ScanOrderingAreaService,
@@ -67,6 +72,7 @@ import { PrintAgentService } from './print-agent.service';
     ScanOrderingOrderService,
     ScanOrderingOrderRefundHandlingService,
     ScanOrderingOrderRefundBalanceService,
+    ScanOrderingRefundStockRestoreService,
     ScanOrderingOrderTransitionEngineService,
     ScanOrderingOrderStateMachineService,
     ScanOrderingServiceCallService,

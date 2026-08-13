@@ -419,13 +419,12 @@ describe('ScanOrderingOrderService', () => {
     it('委托给状态机服务处理退款完成', async () => {
       stateMachineService.completeRefund.mockResolvedValue(undefined);
 
-      await service.completeRefund(mockUser, 300, 5, undefined, undefined);
+      await service.completeRefund(mockUser, 300, 5);
 
       expect(stateMachineService.completeRefund).toHaveBeenCalledWith(
         mockUser,
         300,
         5,
-        undefined,
         undefined,
       );
     });
@@ -436,7 +435,7 @@ describe('ScanOrderingOrderService', () => {
       );
 
       await expect(
-        service.completeRefund(mockUser, 999, 1, undefined, undefined),
+        service.completeRefund(mockUser, 999, 1),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
   });

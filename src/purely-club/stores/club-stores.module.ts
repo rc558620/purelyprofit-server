@@ -4,6 +4,10 @@ import { StoresModule } from '../../purely-profit/stores/stores.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubCurrentContextInterceptor } from './club-current-context.interceptor';
 import { ClubCurrentStoreContextService } from './club-current-store-context.service';
+import { ClubInviteAttributionService } from './club-invite-attribution.service';
+import { ClubInviteCodeMapService } from './club-invite-code-map.service';
+import { ClubInviteScanResolveService } from './club-invite-scan-resolve.service';
+import { ClubMemberBindingService } from './club-member-binding.service';
 import { ClubStoreAccessService } from './club-store-access.service';
 import { ClubStoreViewService } from './club-store-view.service';
 import { ClubInviteEntryController } from './club-invite-entry.controller';
@@ -15,6 +19,10 @@ import { ClubStoresService } from './club-stores.service';
   controllers: [ClubStoresController, ClubInviteEntryController],
   providers: [
     ClubStoreAccessService,
+    ClubInviteCodeMapService,
+    ClubInviteAttributionService,
+    ClubMemberBindingService,
+    ClubInviteScanResolveService,
     ClubCurrentContextInterceptor,
     ClubCurrentStoreContextService,
     ClubStoreViewService,
@@ -22,6 +30,10 @@ import { ClubStoresService } from './club-stores.service';
   ],
   exports: [
     ClubStoreAccessService,
+    ClubInviteCodeMapService,
+    ClubInviteAttributionService,
+    ClubMemberBindingService,
+    ClubInviteScanResolveService,
     ClubCurrentContextInterceptor,
     ClubCurrentStoreContextService,
     ClubStoreViewService,

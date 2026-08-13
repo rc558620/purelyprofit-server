@@ -101,6 +101,7 @@ export type OrderItemRow = {
     operatorStaff: {
       name: string;
       role: StaffRole;
+      userId: number | null;
       employeeProfile: {
         subAccounts: { role: StoreSubAccountRole } | null;
       } | null;
@@ -126,6 +127,7 @@ export type OrderItemRow = {
       openOperatorStaff: {
         name: string;
         role: StaffRole;
+        userId: number | null;
         employeeProfile: {
           subAccounts: { role: StoreSubAccountRole } | null;
         } | null;
@@ -143,6 +145,7 @@ export type RefundOrderRow = {
   operatorStaff: {
     name: string;
     role: StaffRole;
+    userId: number | null;
     employeeProfile: {
       subAccounts: { role: StoreSubAccountRole } | null;
     } | null;
@@ -202,6 +205,8 @@ export type HandoverPageMetrics = {
   refundAmount: number;
   pettyCashAmount: number;
   settledSpaceSessions: SettledSpaceSessionRow[];
+  /** 门店主账号 user.id（store.ownerId），用于操作员职位判定 */
+  storeOwnerUserId: number | null;
 };
 
 export const EMPTY_METRICS: HandoverPageMetrics = {
@@ -213,6 +218,7 @@ export const EMPTY_METRICS: HandoverPageMetrics = {
   refundAmount: 0,
   pettyCashAmount: 0,
   settledSpaceSessions: [],
+  storeOwnerUserId: null,
 };
 
 export type ResolvedHandoverPageShiftContext = {

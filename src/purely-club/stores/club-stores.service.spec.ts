@@ -5,6 +5,10 @@ import { StoresProfileService } from '../../purely-profit/stores/stores-profile.
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { ClubCurrentStoreContextService } from './club-current-store-context.service';
+import { ClubInviteAttributionService } from './club-invite-attribution.service';
+import { ClubInviteCodeMapService } from './club-invite-code-map.service';
+import { ClubInviteScanResolveService } from './club-invite-scan-resolve.service';
+import { ClubMemberBindingService } from './club-member-binding.service';
 import { ClubStoreAccessService } from './club-store-access.service';
 import { aNonEmptyObject } from '../../spec-matchers';
 import { ClubStoreViewService } from './club-store-view.service';
@@ -52,6 +56,12 @@ describe('ClubStoresService', () => {
     batchReadStoreProfileMetadata: jest.fn(),
   };
 
+  const inviteAttributionService = {
+    logInviteScan: jest.fn(),
+    resolveIssueScanAttribution: jest.fn(),
+    incrementIssueJoinedCount: jest.fn(),
+  };
+
   const user: AuthenticatedUser = {
     id: 201,
     email: 'club_phone_13800138000@purelyprofit.local',
@@ -65,15 +75,11 @@ describe('ClubStoresService', () => {
   };
 
   const wechatUser: AuthenticatedUser = {
+    ...user,
     id: 301,
     email: 'club_wechat_oOPENID123@purelyprofit.local',
     phone: 'club_wechat:oOPENID123',
     name: '微信昵称',
-    createdAt: new Date('2026-05-12T00:00:00.000Z'),
-    updatedAt: new Date('2026-05-13T00:00:00.000Z'),
-    lastActiveAt: null,
-    accountScope: 'purely_club',
-    currentMembership: null,
   };
 
   const mockMetadata = {
@@ -109,6 +115,12 @@ describe('ClubStoresService', () => {
     storesProfileService.batchReadStoreProfileMetadata.mockResolvedValue([]);
     // 默认邀请码映射缓存未命中
     redisService.getJson.mockResolvedValue(null);
+    // 真实事务链路：member / marketingCustomer 均不存在时走创建路径
+    prismaService.member.findFirst.mockResolvedValue(null);
+    prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
+    inviteAttributionService.resolveIssueScanAttribution.mockResolvedValue({
+      continueScan: true,
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -119,6 +131,13 @@ describe('ClubStoresService', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
         { provide: StoresProfileService, useValue: storesProfileService },
+        ClubInviteCodeMapService,
+        {
+          provide: ClubInviteAttributionService,
+          useValue: inviteAttributionService,
+        },
+        { provide: ClubInviteScanResolveService, useValue: {} },
+        ClubMemberBindingService,
       ],
     }).compile();
 
@@ -406,30 +425,15 @@ describe('ClubStoresService', () => {
   });
 });
 
-function createStore(
-  overrides?: Partial<{
-    id: number;
-    name: string;
-    address: string | null;
-    businessMode: 'general';
-    createdAt: Date;
-    updatedAt: Date;
-  }>,
-): {
-  id: number;
-  name: string;
-  address: string | null;
-  businessMode: 'general';
-  createdAt: Date;
-  updatedAt: Date;
-} {
-  return {
-    id: 1,
-    name: '门店',
-    address: '北京市朝阳区望京 SOHO T3 B1',
-    businessMode: 'general',
-    createdAt: new Date('2026-05-12T00:00:00.000Z'),
-    updatedAt: new Date('2026-05-13T00:00:00.000Z'),
-    ...overrides,
-  };
+const baseStore = {
+  id: 1,
+  name: '门店',
+  address: '北京市朝阳区望京 SOHO T3 B1',
+  businessMode: 'general' as const,
+  createdAt: new Date('2026-05-12T00:00:00.000Z'),
+  updatedAt: new Date('2026-05-13T00:00:00.000Z'),
+};
+
+function createStore(overrides?: Partial<typeof baseStore>): typeof baseStore {
+  return { ...baseStore, ...overrides };
 }

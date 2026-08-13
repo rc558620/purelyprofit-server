@@ -54,8 +54,9 @@ const toNonNegativeFen = (value: unknown): number => {
  * 安全读取营销快照中的积分抵扣金额（分）。
  * marketingSnapshot 是 JSON 字段，历史数据可能缺失该字段或类型异常，
  * 必须做类型守卫，不能直接强制断言。
+ * 导出供 purely-profit 商家端订单查询映射复用。
  */
-const pointsDeductAmountFen = (marketingSnapshot: unknown): number => {
+export const pointsDeductAmountFen = (marketingSnapshot: unknown): number => {
   if (marketingSnapshot === null || typeof marketingSnapshot !== 'object') {
     return 0;
   }
@@ -66,8 +67,11 @@ const pointsDeductAmountFen = (marketingSnapshot: unknown): number => {
 /**
  * 从营销快照提取优惠清单明细（前端只读展示，不做任何金额计算）。
  * 只保留减免项（amount < 0），label 原样透出，金额由后端换算为元。
+ * 导出供 purely-profit 商家端订单查询映射复用。
  */
-const toDiscountItems = (marketingSnapshot: unknown): OrderDiscountItem[] => {
+export const toDiscountItems = (
+  marketingSnapshot: unknown,
+): OrderDiscountItem[] => {
   if (marketingSnapshot === null || typeof marketingSnapshot !== 'object') {
     return [];
   }

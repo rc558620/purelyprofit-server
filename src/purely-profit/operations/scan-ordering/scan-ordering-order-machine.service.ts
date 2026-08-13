@@ -64,15 +64,8 @@ export class ScanOrderingOrderStateMachineService {
     user: AuthenticatedUser,
     orderId: number,
     version: number,
-    providerRefundNo?: string,
-    providerRefundId?: string,
+    provider?: { refundNo?: string; refundId?: string },
   ): Promise<void> {
-    return this.refundHandler.completeRefund(
-      user,
-      orderId,
-      version,
-      providerRefundNo,
-      providerRefundId,
-    );
+    return this.refundHandler.completeRefund(user, orderId, version, provider);
   }
 }

@@ -149,6 +149,7 @@ export class ClubVoucherOrderRefundService {
     storeId: number;
     orderNo: string;
     rejectedByStaffName: string | null;
+    rejectedByStaffRole: 'owner' | 'manager' | 'staff' | null;
   }): Promise<ClubVoucherMerchantRejectResult> {
     const order = await this.prisma.clubVoucherOrder.findFirst({
       where: { orderNo: params.orderNo, storeId: params.storeId },
@@ -205,6 +206,7 @@ export class ClubVoucherOrderRefundService {
             refundNo,
             rejectedAt: new Date(),
             rejectedByStaffName: params.rejectedByStaffName,
+            rejectedByStaffRole: params.rejectedByStaffRole,
           },
         });
         if (updated.count !== 1) {

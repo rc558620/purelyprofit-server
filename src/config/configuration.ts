@@ -222,7 +222,8 @@ export default () => ({
     /** 飞鹅云后台注册后生成的 UKEY（签名用，严禁泄露） */
     ukey: process.env.FEIE_PRINT_UKEY ?? '',
     /** 飞鹅开放接口地址（默认正式地址） */
-    apiUrl: process.env.FEIE_PRINT_API_URL ?? 'https://api.de.feieyun.com/Api/Open/',
+    apiUrl:
+      process.env.FEIE_PRINT_API_URL ?? 'https://api.de.feieyun.com/Api/Open/',
   },
 
   /**
@@ -325,8 +326,7 @@ export default () => ({
      * {publicBaseUrl}/i/v1/{inviteCode}。
      * 对应环境变量：CLUB_STORE_INVITE_QR_ENTRY_PATH
      */
-    storeInviteQrEntryPath:
-      process.env.CLUB_STORE_INVITE_QR_ENTRY_PATH ?? '/i',
+    storeInviteQrEntryPath: process.env.CLUB_STORE_INVITE_QR_ENTRY_PATH ?? '/i',
   },
 
   wechat: {

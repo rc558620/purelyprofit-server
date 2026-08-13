@@ -1,8 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  StoreSubAccountRole,
-  StoreSubAccountStatus,
-} from '@prisma/client';
+import { StoreSubAccountRole, StoreSubAccountStatus } from '@prisma/client';
 import { AccessControlService } from '../access-control/access-control.service';
 import type { AuthenticatedMembership } from '../access-control/access-control.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -91,10 +88,11 @@ export class AuthMembershipResolverService {
     );
 
     if (rows.length === 0) {
-      const repaired = await this.legacyOwnerRepairService.repairLegacyOwnerMembership(
-        payload,
-        userEmail,
-      );
+      const repaired =
+        await this.legacyOwnerRepairService.repairLegacyOwnerMembership(
+          payload,
+          userEmail,
+        );
       if (repaired) {
         rows = await this.membershipQueryService.findMembershipRows(
           payload,
@@ -210,6 +208,8 @@ export class AuthMembershipResolverService {
             canUseHandover: membershipRow.subAccountCanUseHandover ?? false,
           }
         : null,
+      // 传递门店业态，子账号角色（如店长）按业态解析对应权限集
+      membershipRow.businessMode ?? undefined,
     );
   }
 }

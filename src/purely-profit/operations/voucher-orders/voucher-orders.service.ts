@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -30,6 +31,8 @@ export interface VoucherOrderConfirmResult {
   confirmedAt: string;
   /** 确认操作员姓名 */
   confirmedByStaffName: string | null;
+  /** 确认操作员角色快照（owner=主账号/manager=店长/staff=收银员） */
+  confirmedByStaffRole: 'owner' | 'manager' | 'staff' | null;
   /** 当前订单状态（确认不改变状态，仍为 pending） */
   status: 'pending';
 }
@@ -68,12 +71,22 @@ export class VoucherOrdersService {
       '无权查看该门店团购券订单',
     );
     const timeRange = this.buildTimeRange(query);
-    const where = {
+    const where: Prisma.ClubVoucherOrderWhereInput = {
       storeId,
       ...(query.status && query.status !== VoucherOrderStatusFilter.ALL
         ? { status: query.status }
         : {}),
       ...(timeRange ? { createdAt: timeRange } : {}),
+      // 关键词搜索：匹配订单号、买家姓名、券码（与前端搜索框契约一致）
+      ...(query.keyword
+        ? {
+            OR: [
+              { orderNo: { contains: query.keyword, mode: 'insensitive' } },
+              { guestName: { contains: query.keyword, mode: 'insensitive' } },
+              { voucherCode: { contains: query.keyword, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
     };
     const [rows, total] = await Promise.all([
       this.prisma.clubVoucherOrder.findMany({
@@ -118,39 +131,40 @@ export class VoucherOrdersService {
         orderNo: order.orderNo,
         confirmedAt: order.confirmedAt.toISOString(),
         confirmedByStaffName: order.confirmedByStaffName,
+        confirmedByStaffRole:
+          order.confirmedByStaffRole as VoucherOrderConfirmResult['confirmedByStaffRole'],
         status: 'pending',
       };
     }
 
-    const confirmedByStaffName = await this.resolveOperatorNameSnapshot(
-      user,
-      storeId,
-    );
+    const operatorSnapshot = await this.resolveOperatorSnapshot(user, storeId);
     const confirmedAt = new Date();
 
     await this.prisma.clubVoucherOrder.update({
       where: { id: order.id },
       data: {
         confirmedAt,
-        confirmedByStaffName,
+        confirmedByStaffName: operatorSnapshot.name,
+        confirmedByStaffRole: operatorSnapshot.role,
       },
     });
 
     this.logger.log(
-      `商家确认团购券订单: orderNo=${order.orderNo}, confirmedBy=${confirmedByStaffName}, 状态保持 pending`,
+      `商家确认团购券订单: orderNo=${order.orderNo}, confirmedBy=${operatorSnapshot.name}, 状态保持 pending`,
     );
     // 广播确认事件，供其他商家端打开查看订单页时刷新
     this.realtimeService.publishVoucherOrderConfirmed({
       storeId,
       orderNo: order.orderNo,
       confirmedAt: confirmedAt.toISOString(),
-      confirmedByStaffName: confirmedByStaffName ?? '',
+      confirmedByStaffName: operatorSnapshot.name ?? '',
     });
 
     return {
       orderNo: order.orderNo,
       confirmedAt: confirmedAt.toISOString(),
-      confirmedByStaffName,
+      confirmedByStaffName: operatorSnapshot.name,
+      confirmedByStaffRole: operatorSnapshot.role,
       status: 'pending',
     };
   }
@@ -166,16 +180,15 @@ export class VoucherOrdersService {
       'operation-entry:create',
       '无权拒绝该门店团购券订单',
     );
-    const rejectedByStaffName = await this.resolveOperatorNameSnapshot(
-      user,
-      storeId,
-    );
+    const operatorSnapshot = await this.resolveOperatorSnapshot(user, storeId);
+    const rejectedByStaffName = operatorSnapshot.name;
 
-    // 复用退款核心链路：微信原路退回 + 积分返还 + 库存回补 + 写 rejectedAt/rejectedByStaffName（幂等）
+    // 复用退款核心链路：微信原路退回 + 积分返还 + 库存回补 + 写 rejectedAt/rejectedByStaffName/rejectedByStaffRole（幂等）
     const result = await this.refundService.rejectVoucherOrderByMerchant({
       storeId,
       orderNo,
       rejectedByStaffName,
+      rejectedByStaffRole: operatorSnapshot.role,
     });
 
     this.logger.log(
@@ -200,22 +213,65 @@ export class VoucherOrdersService {
     };
   }
 
-  /** 解析当前操作员姓名快照（参考空间会话 openOperatorNameSnapshot 模式） */
-  private async resolveOperatorNameSnapshot(
+  /**
+   * 解析当前操作员姓名与角色快照（职位判定：门店 owner=主账号 → 子账号店长 → 默认收银员）。
+   * 与交班管理 resolveOperatorRole 语义对齐，并额外识别「门店 owner 即主账号」：
+   * 部分历史门店 staff.role 可能未同步为 owner，但 store.ownerId 始终是权威主账号依据。
+   */
+  private async resolveOperatorSnapshot(
     user: AuthenticatedUser,
     storeId: number,
-  ): Promise<string | null> {
+  ): Promise<{
+    name: string | null;
+    role: 'owner' | 'manager' | 'staff' | null;
+  }> {
     const staffId =
       await this.commerceAccessService.findOperatorStaffIdForStore(
         user,
         storeId,
       );
-    if (staffId == null) return null;
+    if (staffId == null) return { name: null, role: null };
     const staff = await this.prisma.staff.findUnique({
       where: { id: staffId },
-      select: { name: true },
+      select: {
+        name: true,
+        role: true,
+        employeeProfile: {
+          select: {
+            subAccounts: {
+              select: { role: true },
+            },
+          },
+        },
+      },
     });
-    return staff?.name ?? null;
+    const role = await this.resolveOperatorRole(user, storeId, staff);
+    return { name: staff?.name ?? null, role };
+  }
+
+  /** 操作员职位 → 颜色角色：门店 owner=主账号（紫），子账号店长=manager（绿），其余=staff（默认色） */
+  private async resolveOperatorRole(
+    user: AuthenticatedUser,
+    storeId: number,
+    staff: {
+      role: string;
+      employeeProfile: { subAccounts: { role: string } | null } | null;
+    } | null,
+  ): Promise<'owner' | 'manager' | 'staff' | null> {
+    // 当前登录用户即门店 owner → 主账号（store.ownerId 是权威主账号依据）
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: { ownerId: true },
+    });
+    if (store?.ownerId === user.id) return 'owner';
+    // staff 行自身为 owner（老板员工行）→ 主账号
+    if (staff?.role === 'owner') return 'owner';
+    // 关联激活子账号角色为 manager → 店长
+    if (staff?.employeeProfile?.subAccounts?.role === 'manager') {
+      return 'manager';
+    }
+    // 其余（manager/staff/无子账号关联）→ 收银员默认色
+    return 'staff';
   }
 
   private assertPendingStatus(status: string, action: '确认' | '拒绝'): void {
@@ -298,9 +354,11 @@ export class VoucherOrdersService {
     confirmedAt: Date | null;
     verifyAt: Date | null;
     confirmedByStaffName: string | null;
+    confirmedByStaffRole: string | null;
     rejectedAt: Date | null;
     refundAt: Date | null;
     rejectedByStaffName: string | null;
+    rejectedByStaffRole: string | null;
     product: { image: string | null };
   }): VoucherOrderListItemDto {
     return {
@@ -319,9 +377,13 @@ export class VoucherOrdersService {
       confirmedAt: row.confirmedAt?.toISOString() ?? null,
       verifyAt: row.verifyAt?.toISOString() ?? null,
       confirmedByStaffName: row.confirmedByStaffName,
+      confirmedByStaffRole:
+        row.confirmedByStaffRole as VoucherOrderListItemDto['confirmedByStaffRole'],
       rejectedAt: row.rejectedAt?.toISOString() ?? null,
       refundAt: row.refundAt?.toISOString() ?? null,
       rejectedByStaffName: row.rejectedByStaffName,
+      rejectedByStaffRole:
+        row.rejectedByStaffRole as VoucherOrderListItemDto['rejectedByStaffRole'],
     };
   }
 }

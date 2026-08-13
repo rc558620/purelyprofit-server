@@ -10,13 +10,15 @@ import {
 import type {
   CalculateTimingPriceDto,
   CalculateTimingPriceResponseDto,
-  CreateMarketingProductDto,
-  ListMarketingProductsQueryDto,
   MarketingProductDto,
   MarketingProductsResponseDto,
-  ToggleMarketingProductDto,
+} from './dto/marketing-product.response.dto';
+import type {
+  CreateMarketingProductDto,
   UpdateMarketingProductDto,
 } from './dto/marketing-product.dto';
+import type { ListMarketingProductsQueryDto } from './dto/marketing-product-query.dto';
+import type { ToggleMarketingProductDto } from './dto/marketing-product-toggle.dto';
 import {
   buildMarketingProductWhere,
   resolveMarketingProductOrderBy,

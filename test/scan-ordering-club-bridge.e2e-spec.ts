@@ -18,6 +18,7 @@ import { SalesRecordItemPreparationService } from '../src/purely-profit/operatio
 import { SalesRecordPreviewService } from '../src/purely-profit/operations/sales-record/sales-record-preview.service';
 import { SalesRecordRefundService } from '../src/purely-profit/operations/sales-record/sales-record-refund.service';
 import { ScanOrderingOrderRefundBalanceService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-order-refund-balance.service';
+import { ScanOrderingRefundStockRestoreService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-refund-stock-restore.service';
 import { ScanOrderingOrderRefundHandlingService } from '../src/purely-profit/operations/scan-ordering/scan-ordering-order-refund.service';
 import type { AuthenticatedUser } from '../src/purely-profit/auth/strategies/jwt.strategy';
 
@@ -100,6 +101,7 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
         { provide: SalesRecordReadService, useValue: {} },
         SalesRecordService,
         SalesRecordRefundService,
+        ScanOrderingRefundStockRestoreService,
         ScanOrderingSaleOrderBridgeService,
         ScanOrderingOrderRefundHandlingService,
         ClubScanOrderingPaymentService,
@@ -462,7 +464,9 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
       include: { items: true },
     });
     const unitSalePrices = saleOrder.items
-      .flatMap((item) => Array.from({ length: item.quantity }, () => item.salePrice))
+      .flatMap((item) =>
+        Array.from({ length: item.quantity }, () => item.salePrice),
+      )
       .sort((a, b) => a - b);
     expect(unitSalePrices).toEqual([25, 25, 33, 33, 34]);
     expect(saleOrder.totalRevenue).toBe(150);
@@ -538,8 +542,10 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
       merchantUser,
       orderId,
       paidOrder.version,
-      `refund-no-${nextSeq()}`,
-      `refund-id-${nextSeq()}`,
+      {
+        refundNo: `refund-no-${nextSeq()}`,
+        refundId: `refund-id-${nextSeq()}`,
+      },
     );
 
     const refundedOrder = await prisma.scanOrders.findUniqueOrThrow({
@@ -583,8 +589,6 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
         merchantUser,
         orderId,
         refundedOrder.version,
-        undefined,
-        undefined,
       ),
     ).rejects.toThrow('订单退款已完成，请勿重复操作');
     expect(
@@ -621,13 +625,7 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
       data: { status: 'refunding', paymentStatus: 'refunding' },
     });
 
-    await refundHandlingService.completeRefund(
-      merchantUser,
-      orderId,
-      version,
-      undefined,
-      undefined,
-    );
+    await refundHandlingService.completeRefund(merchantUser, orderId, version);
 
     const order = await prisma.scanOrders.findUniqueOrThrow({
       where: { id: orderId },

@@ -31,15 +31,17 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import {
-  CalculateTimingPriceDto,
   CalculateTimingPriceResponseDto,
-  CreateMarketingProductDto,
-  ListMarketingProductsQueryDto,
   MarketingProductDto,
   MarketingProductsResponseDto,
-  ToggleMarketingProductDto,
+  type CalculateTimingPriceDto,
+} from './dto/marketing-product.response.dto';
+import type {
+  CreateMarketingProductDto,
   UpdateMarketingProductDto,
 } from './dto/marketing-product.dto';
+import type { ListMarketingProductsQueryDto } from './dto/marketing-product-query.dto';
+import type { ToggleMarketingProductDto } from './dto/marketing-product-toggle.dto';
 import { MarketingProductsFacadeService } from './marketing.service';
 
 @ApiTags('营销中心')

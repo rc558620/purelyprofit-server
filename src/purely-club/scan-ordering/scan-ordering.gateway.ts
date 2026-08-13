@@ -257,17 +257,48 @@ export class ScanOrderingGateway
     const order = await this.prisma.clubVoucherOrder.findFirst({
       where: {
         orderNo: payload.orderNo,
-        userId: identity.userId,
       },
       select: { orderNo: true },
     });
-    if (!order) throw new UnauthorizedException('无权订阅该团购券订单');
+    if (!order) throw new UnauthorizedException('该团购券订单不存在');
     const room = this.realtimeService.voucherOrderRoom(payload.orderNo);
     await client.join(room);
     this.logger.log(
       `subscribe.voucher-order joined: socketId=${client.id}, room=${room}`,
     );
     return { room };
+  }
+
+  @SubscribeMessage('subscribe.voucher-store')
+  async subscribeVoucherStore(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: JoinStorePayload,
+  ): Promise<{ room: string; storeId: number }> {
+    const identity = this.identityOf(client);
+    this.logger.log(
+      `subscribe.voucher-store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
+    );
+    try {
+      // 团购券订单实时订阅：与商家端 manage 接口同权限（space:view），独立于扫码点餐 store 房间
+      await this.commerceAccessService.ensureCanAccessStoreWithAnyPermission(
+        this.toAuthenticatedUser(identity),
+        payload.storeId,
+        ['space:view'],
+        '无权订阅该门店团购券订单',
+      );
+      const room = this.realtimeService.voucherOrderStoreRoom(payload.storeId);
+      await client.join(room);
+      this.logger.log(
+        `subscribe.voucher-store joined: socketId=${client.id}, room=${room}`,
+      );
+      return { room, storeId: payload.storeId };
+    } catch (error) {
+      this.logger.error(
+        `subscribe.voucher-store failed: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}, membership=${JSON.stringify(identity.currentMembership)}, error=${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
   }
 
   @SubscribeMessage('subscribe.store')

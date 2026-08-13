@@ -52,10 +52,15 @@ const CASHIER_SUB_ACCOUNT_PERMISSIONS = [
   'operation-entry:view',
   'operation-entry:create',
   'goods:view',
+  // 空间管理（非餐饮门店收银员专用：查看空间列表/看板、操作会话/预约）
+  'space:view',
   // 扫码点餐（餐饮门店收银员专用）
   'scan-ordering:view',
   'scan-ordering:table-manage',
   'scan-ordering:order-process',
+  // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
+  'service-call:view',
+  'service-call:process',
   'handover:view',
   'handover:create',
   'handover:update',
@@ -96,6 +101,9 @@ const CATERING_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'scan-ordering:view',
   'scan-ordering:table-manage',
   'scan-ordering:order-process',
+  // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
+  'service-call:view',
+  'service-call:process',
   // 交班管理
   'handover:view',
   'handover:create',
@@ -138,6 +146,9 @@ const GENERAL_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'space:create',
   'space:update',
   'space:delete',
+  // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
+  'service-call:view',
+  'service-call:process',
   // 交班管理
   'handover:view',
   'handover:create',
@@ -162,6 +173,9 @@ const FINANCE_SUB_ACCOUNT_PERMISSIONS = [
   'cost:delete',
   'sales:view',
   'staff:view',
+  // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
+  'service-call:view',
+  'service-call:process',
   'handover:view',
   'handover:create',
   'handover:update',
@@ -298,12 +312,16 @@ export class AccessControlService {
       return [];
     }
 
+    // 优先使用调用方传入的业态；未传入时回退到 membership 自身携带的业态，
+    // 确保 capability / resolveCurrentStoreIdByPermission 等不传参调用也能正确解析店长权限集
+    const effectiveBusinessMode = businessMode ?? membership.businessMode;
+
     let basePermissions =
       SUB_ACCOUNT_ROLE_PERMISSIONS[membership.subAccountRole] ?? [];
 
     // 如果是函数类型（店长），根据业态返回对应的权限集合
     if (typeof basePermissions === 'function') {
-      basePermissions = basePermissions(businessMode);
+      basePermissions = basePermissions(effectiveBusinessMode);
     }
 
     const finalPermissions = Array.isArray(basePermissions)

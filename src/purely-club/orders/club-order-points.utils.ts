@@ -153,7 +153,46 @@ export async function fetchPointsEarnConfig(
   return config;
 }
 
-// ─── 积分抵扣计算（纯函数，无 DB 依赖）───────────────────────────────────
+// ─── 积分抵扣计算（预览 / 创建 / 核销券通用）────────────────────────────
+
+/**
+ * 积分抵扣计算（含 DB 查询，preview / creation / voucher-context 共用）
+ *
+ * ════════════════════════════════════════════════════════════════
+ *  ⚠️  项目设计决策（禁止修改）：
+ *      积分抵扣不受 enabled 开关限制——即使 enabled=false，只要用户有积分
+ *      且 redeemRatioPoints/maxRedeemRatio 配置正常，就允许抵扣。
+ *      禁止在本函数中引入 !enabled 拦截逻辑。
+ * ════════════════════════════════════════════════════════════════
+ */
+export async function resolvePointsDeduction(
+  prisma: PointsConfigPrismaClient,
+  storeId: number,
+  customerId: number,
+  priceAfterDiscountFen: number,
+  usePoints: boolean,
+): Promise<{ pointsDeductFen: number; pointsUsed: number }> {
+  if (!usePoints || priceAfterDiscountFen <= 0) {
+    return { pointsDeductFen: 0, pointsUsed: 0 };
+  }
+
+  // ⚠️ 注意：fetchPointsRedeemConfig 返回的 enabled 字段在此处被有意忽略，
+  // 仅取 redeemRatioPoints / maxRedeemRatio 进行计算（见函数头 JSDoc 设计决策）。
+  const pointsConfig = await fetchPointsRedeemConfig(prisma, storeId);
+
+  const customer = await prisma.marketingCustomer.findUnique({
+    where: { id: customerId },
+    select: { points: true },
+  });
+
+  const availablePoints = customer?.points ?? 0;
+
+  return calcPointsRedeemDetail(
+    priceAfterDiscountFen,
+    pointsConfig,
+    availablePoints,
+  );
+}
 
 /**
  * 积分抵扣金额计算（纯函数，无 DB 依赖）

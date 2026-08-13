@@ -1,4 +1,5 @@
 import type { ScanOrderStatus } from '@prisma/client';
+import type { OrderDiscountItem } from '../../../purely-club/scan-ordering/club-scan-ordering-order.mapper';
 
 /** 扫码点餐金额汇总，所有字段均由后端计算并以元输出。 */
 export interface ScanOrderingAmountSummary {
@@ -22,6 +23,56 @@ export interface ScanOrderingAmountSummary {
   outstandingAmount: number;
   /** 币种。 */
   currency: 'CNY';
+}
+
+/** 商家端订单金额汇总输出：在基础汇总上附加积分抵扣与优惠清单（均由后端计算）。 */
+export interface ScanOrderingOrderAmountSummary extends ScanOrderingAmountSummary {
+  /** 积分抵扣金额（元）。 */
+  pointsDeductAmount: number;
+  /** 优惠清单明细（前端只读展示）。 */
+  discountItems: OrderDiscountItem[];
+}
+
+/** 商家订单详情响应。 */
+export interface ScanOrderingOrderDetailPayload {
+  /** 订单主键。 */
+  id: number;
+  /** 门店订单号。 */
+  orderNo: string;
+  /** 订单状态。 */
+  status: ScanOrderStatus;
+  /** 乐观锁版本。 */
+  version: number;
+  /** 桌台信息（含桌号编码）。 */
+  table: { name: string; tableCode: string };
+  /** 创建时间 ISO 字符串。 */
+  createdAt: string;
+  /** 取餐号数值；未分配为 null。 */
+  pickupNumber: number | null;
+  /** 取餐号展示文案；未分配为 null。 */
+  pickupNumberLabel: string | null;
+  /** 后端金额汇总。 */
+  amountSummary: ScanOrderingOrderAmountSummary;
+  /** 订单商品明细。 */
+  items: Array<{
+    /** 商品名称快照。 */
+    name: string;
+    /** 购买数量。 */
+    quantity: number;
+    /** 单项原价小计（元,未扣商品级优惠）。 */
+    lineTotalAmount: number;
+    /** 单项应付金额（元,已扣商品级优惠）。 */
+    amount: number;
+    /** 规格选项列表。 */
+    specs: Array<{ name: string; extraPrice: number }>;
+  }>;
+  /** 状态流转历史。 */
+  histories: Array<{
+    fromStatus: string;
+    toStatus: string;
+    reason: string;
+    createdAt: string;
+  }>;
 }
 
 /** 商家扫码点餐首页看板。 */
@@ -95,7 +146,11 @@ export interface ScanOrderingOrderListItem {
   /** 创建时间。 */
   createdAt: string;
   /** 后端金额汇总。 */
-  amountSummary: ScanOrderingAmountSummary;
+  amountSummary: ScanOrderingOrderAmountSummary;
+  /**
+   * 顾客昵称（未关联账号或查询失败时为“顾客”）。
+   */
+  guestName: string;
   /**
    * 首个商品图片 URL(用于订单卡片缩略图)。
    * 若订单存在多张图片,前端应改用 items 数组,此处仅保留兼容别名。

@@ -28,6 +28,14 @@ import type {
 } from './dto/scan-ordering-area.dto';
 import { ScanOrderingTypeService } from './scan-ordering-type.service';
 import { ScanOrderingAreaService } from './scan-ordering-area.service';
+import { ScanOrderingTableService } from './scan-ordering-table.service';
+import type { ScanOrderingTableResponse } from './scan-ordering-table.service';
+import { ScanOrderingQrService } from './scan-ordering-qr.service';
+import type { ScanOrderingQrCodeResponse } from './scan-ordering-qr.service';
+import type {
+  CreateScanOrderingTableDto,
+  UpdateScanOrderingTableDto,
+} from './dto/scan-ordering-table.dto';
 
 /** 扫码点餐桌台区域响应（包含时间戳）。 */
 interface ScanOrderingAreaResponse {
@@ -48,6 +56,8 @@ export class ScanOrderingTableController {
   constructor(
     private readonly areaService: ScanOrderingAreaService,
     private readonly typeService: ScanOrderingTypeService,
+    private readonly tableService: ScanOrderingTableService,
+    private readonly qrService: ScanOrderingQrService,
   ) {}
 
   // Area Management Routes
@@ -145,5 +155,92 @@ export class ScanOrderingTableController {
     @Param('typeId', ParseIntPipe) typeId: number,
   ): Promise<void> {
     return this.typeService.remove(user, typeId);
+  }
+
+  // Table Management Routes
+  @Get()
+  @RequirePermissions('scan-ordering:view')
+  @ApiOperation({ summary: '获取商家扫码点餐桌台列表' })
+  listTables(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ScanOrderingTableResponse[]> {
+    return this.tableService.listTables(user);
+  }
+
+  @Post()
+  @RequirePermissions('scan-ordering:table-manage')
+  @ApiOperation({ summary: '新增商家扫码点餐桌台' })
+  createTable(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateScanOrderingTableDto,
+  ): Promise<ScanOrderingTableResponse> {
+    return this.tableService.createTable(user, dto);
+  }
+
+  @Patch(':tableId')
+  @RequirePermissions('scan-ordering:table-manage')
+  @ApiOperation({ summary: '编辑商家扫码点餐桌台' })
+  updateTable(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('tableId', ParseIntPipe) tableId: number,
+    @Body() dto: UpdateScanOrderingTableDto,
+  ): Promise<void> {
+    return this.tableService.updateTable(user, tableId, dto);
+  }
+
+  @Post(':tableId/clear')
+  @RequirePermissions('scan-ordering:table-manage')
+  @ApiOperation({ summary: '清理已完成结账的桌台' })
+  clearTable(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('tableId', ParseIntPipe) tableId: number,
+  ): Promise<void> {
+    return this.tableService.clearTable(user, tableId);
+  }
+
+  @Delete(':tableId')
+  @RequirePermissions('scan-ordering:table-manage')
+  @ApiOperation({ summary: '删除空的扫码点餐桌台' })
+  removeTable(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('tableId', ParseIntPipe) tableId: number,
+  ): Promise<void> {
+    return this.tableService.removeTable(user, tableId);
+  }
+
+  // QR Code Routes
+  @Get('qr-codes/export')
+  @RequirePermissions('scan-ordering:table-manage')
+  @ApiOperation({ summary: '导出桌台二维码元数据' })
+  exportQrCodes(@CurrentUser() user: AuthenticatedUser): Promise<
+    Array<{
+      tableId: number;
+      tableCode: string;
+      tableName: string;
+      qrCodeVersion: number;
+      qrCodeStatus: string;
+    }>
+  > {
+    return this.qrService.exportQrCodes(user);
+  }
+
+  @Get(':tableId/qr-codes/current')
+  @RequirePermissions('scan-ordering:table-manage')
+  @ApiOperation({ summary: '获取当前有效桌码（不轮换、不作废旧码）' })
+  getCurrentQrCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('tableId', ParseIntPipe) tableId: number,
+  ): Promise<ScanOrderingQrCodeResponse> {
+    return this.qrService.getCurrentQrCode(user, tableId);
+  }
+
+  @Post(':tableId/qr-codes')
+  @RequirePermissions('scan-ordering:table-manage')
+  @ApiOperation({ summary: '轮换桌台二维码（旧桌码立即失效）' })
+  rotateQrCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('tableId', ParseIntPipe) tableId: number,
+  ): Promise<ScanOrderingQrCodeResponse> {
+    return this.qrService.rotateQrCode(user, tableId);
   }
 }

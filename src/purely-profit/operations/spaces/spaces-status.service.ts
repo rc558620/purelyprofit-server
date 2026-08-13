@@ -1,6 +1,5 @@
 import {
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -30,8 +29,8 @@ export class SpacesStatusService {
     user: AuthenticatedUser,
     spaceId: number,
   ): Promise<SpaceResponseDto> {
-    // 空间状态重置属于配置写操作，仅允许主账号操作（与 create/update/delete 一致）
-    this.ensurePrimaryAccountOnly(user);
+    // 标记空间可用属于运营操作（脏房清洁完成后恢复可用），
+    // 收银员/店长等子账号与主账号均可执行，仅校验门店归属，不做主账号限制。
 
     // B-4 fix: 校验与写入原子化——occupied 检查、cleanedAt 写入、状态重推导全部在同一事务内
     const result = await this.prisma.$transaction(
@@ -56,7 +55,7 @@ export class SpacesStatusService {
         await this.commerceAccessService.ensureCanAccessStore(
           user,
           space.storeId,
-          'space:update',
+          'space:view',
           '无权操作该门店空间',
         );
 
@@ -161,17 +160,5 @@ export class SpacesStatusService {
       lastSettledEndTime: lastSettled?.endTime ?? null,
       cleanedAt: space?.cleanedAt ?? null,
     });
-  }
-
-  /**
-   * 断言当前请求者为主账号（identityType 为 owner 或 staff）。
-   * 空间配置类写操作（新增 / 编辑 / 删除 / 状态重置）属于门店运营配置，
-   * 仅对绑定门店的主账号开放，任何子账号身份均不允许操作，以保持最小权限原则。
-   * 前端已通过 isPrimaryAccount 隐藏编辑模式区域，此处为后端兜底校验。
-   */
-  private ensurePrimaryAccountOnly(user: AuthenticatedUser): void {
-    if (user.currentMembership?.subjectType === 'sub_account') {
-      throw new ForbiddenException('子账号不可维护空间配置');
-    }
   }
 }

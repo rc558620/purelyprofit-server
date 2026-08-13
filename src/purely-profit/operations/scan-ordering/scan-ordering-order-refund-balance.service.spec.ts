@@ -1,8 +1,8 @@
 import { ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { SalesRecordRefundService } from '../sales-record/sales-record-refund.service';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
+import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
 
 describe('ScanOrderingOrderRefundBalanceService', () => {
@@ -61,8 +61,9 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
     markRefundTaskSucceededInTransaction: jest.fn(),
   };
 
-  const salesRecordRefundService = {
-    refundInTransaction: jest.fn(),
+  const stockRestoreService = {
+    restoreReservedStock: jest.fn(),
+    refundSaleOrder: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -120,7 +121,8 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
     refundService.markRefundTaskSucceededInTransaction.mockResolvedValue(
       undefined,
     );
-    salesRecordRefundService.refundInTransaction.mockResolvedValue(undefined);
+    stockRestoreService.restoreReservedStock.mockResolvedValue(undefined);
+    stockRestoreService.refundSaleOrder.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -128,8 +130,8 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
         { provide: PrismaService, useValue: prismaService },
         { provide: ScanOrderingRefundService, useValue: refundService },
         {
-          provide: SalesRecordRefundService,
-          useValue: salesRecordRefundService,
+          provide: ScanOrderingRefundStockRestoreService,
+          useValue: stockRestoreService,
         },
       ],
     }).compile();
@@ -186,59 +188,21 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
   });
 
   it('余额退款：恢复菜单商品库存、共用 Product.stock 与规格库存一次', async () => {
-    prismaService.scanOrderItem.findMany.mockResolvedValue([
-      {
-        menuProductId: 201,
-        quantity: 2,
-        menuProduct: { productId: 901 },
-        specs: [{ specOptionId: 301 }, { specOptionId: 302 }],
-      },
-    ]);
-
     await service.refund(
       { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
       201,
     );
 
-    expect(
-      prismaService.scanOrderingMenuProduct.updateMany,
-    ).toHaveBeenCalledWith({
-      where: { id: 201, storeId: 11, stockMode: 'finite' },
-      data: {
-        stockQuantity: { increment: 2 },
-        salesCount: { decrement: 2 },
-        version: { increment: 1 },
-      },
-    });
-    expect(prismaService.product.updateMany).toHaveBeenCalledWith({
-      where: { id: 901, storeId: 11, deletedAt: null },
-      data: { stock: { increment: 2 } },
-    });
-    const specCalls =
-      prismaService.scanOrderingSpecOption.updateMany.mock.calls;
-    expect(specCalls).toHaveLength(2);
+    expect(stockRestoreService.restoreReservedStock).toHaveBeenCalledTimes(1);
   });
 
-  it('余额退款：只创建一次标准销售退款与财务退款（通过 salesRecordRefundService）', async () => {
-    prismaService.scanOrderItem.findMany.mockResolvedValue([]);
-    prismaService.saleOrder.findUnique.mockResolvedValue({ id: 500 });
-
+  it('余额退款：只委托一次标准销售退款（通过 stockRestoreService）', async () => {
     await service.refund(
       { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
       201,
     );
 
-    expect(prismaService.saleOrder.findUnique).toHaveBeenCalledWith({
-      where: { scanOrderId: 1001 },
-      select: { id: true },
-    });
-    expect(salesRecordRefundService.refundInTransaction).toHaveBeenCalledTimes(
-      1,
-    );
-    expect(salesRecordRefundService.refundInTransaction).toHaveBeenCalledWith(
-      prismaService,
-      expect.objectContaining({ saleOrderId: 500 }),
-    );
+    expect(stockRestoreService.refundSaleOrder).toHaveBeenCalledTimes(1);
   });
 
   it('余额退款：积分已结算（settled）时原路返还积分并写入 earn 流水', async () => {
@@ -371,7 +335,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
       201,
     );
 
-    expect(salesRecordRefundService.refundInTransaction).not.toHaveBeenCalled();
+    expect(stockRestoreService.refundSaleOrder).toHaveBeenCalledTimes(1);
   });
 
   it('余额退款：原余额支付记录不存在时抛出 ConflictException 且不执行任何退款动作', async () => {
@@ -387,6 +351,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(prismaService.scanOrders.updateMany).not.toHaveBeenCalled();
-    expect(salesRecordRefundService.refundInTransaction).not.toHaveBeenCalled();
+    expect(stockRestoreService.restoreReservedStock).not.toHaveBeenCalled();
+    expect(stockRestoreService.refundSaleOrder).not.toHaveBeenCalled();
   });
 });

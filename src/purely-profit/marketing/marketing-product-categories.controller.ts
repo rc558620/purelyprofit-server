@@ -31,11 +31,13 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import {
-  CreateMarketingProductCategoryDto,
   MarketingProductCategoriesResponseDto,
   MarketingProductCategoryDto,
+} from './dto/marketing-product.response.dto';
+import type {
+  CreateMarketingProductCategoryDto,
   UpdateMarketingProductCategoryDto,
-} from './dto/marketing-product.dto';
+} from './dto/marketing-product-category.dto';
 import { MarketingProductsFacadeService } from './marketing.service';
 
 @ApiTags('营销中心')

@@ -76,12 +76,13 @@ describe('Sub-account alignment regression', () => {
     ]);
     expect(capability.canUseGoodsManagement).toBe(false);
     expect(permissions).toEqual([
-      'space:view',
-      'space:create',
-      'space:update',
       'operation-entry:view',
       'operation-entry:create',
       'goods:view',
+      'space:view',
+      'scan-ordering:view',
+      'scan-ordering:table-manage',
+      'scan-ordering:order-process',
       'handover:view',
       'handover:create',
       'handover:update',
@@ -132,12 +133,11 @@ describe('Sub-account alignment regression', () => {
     expect(capability.allowedHomeModules).toEqual([
       'business-analysis',
       'finance-center',
-      'goods-management',
       'handover-management',
       'staff-management',
     ]);
-    expect(capability.allowedHomeModules).toContain('goods-management');
-    expect(capability.canUseGoodsManagement).toBe(true);
+    expect(capability.allowedHomeModules).not.toContain('goods-management');
+    expect(capability.canUseGoodsManagement).toBe(false);
     expect(permissions).toContain('report:view');
     expect(permissions).toContain('finance:view');
     expect(permissions).toContain('goods:view');
@@ -329,25 +329,25 @@ describe('Permission metadata regression', () => {
         REQUIRE_PERMISSIONS_KEY,
         EmployeesPayrollsController.prototype.savePayroll,
       ),
-    ).toEqual(['finance:view']);
+    ).toEqual(['finance:manage']);
     expect(
       Reflect.getMetadata(
         REQUIRE_PERMISSIONS_KEY,
         EmployeesPayrollsController.prototype.updatePayroll,
       ),
-    ).toEqual(['finance:view']);
+    ).toEqual(['finance:manage']);
     expect(
       Reflect.getMetadata(
         REQUIRE_PERMISSIONS_KEY,
         EmployeesPayrollsController.prototype.confirmPayroll,
       ),
-    ).toEqual(['finance:view']);
+    ).toEqual(['finance:manage']);
     expect(
       Reflect.getMetadata(
         REQUIRE_PERMISSIONS_KEY,
         EmployeesPayrollsController.prototype.removePayroll,
       ),
-    ).toEqual(['finance:view']);
+    ).toEqual(['finance:manage']);
   });
 
   it('首页概览应允许经营分析与营业收录权限任一通过', () => {

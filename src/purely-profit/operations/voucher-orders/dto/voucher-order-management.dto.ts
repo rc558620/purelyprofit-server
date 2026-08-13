@@ -1,5 +1,6 @@
 // 商家端团购券订单管理 DTO：列表查询 / 列表项 / 语音开关更新（全部金额单位分为后端权威）
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
@@ -10,6 +11,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { transformOptionalKeyword } from '../../../stores/dto/store-response.dto';
 
 /** 团购券订单状态筛选（all=全部；其余与订单状态枚举一致） */
 export enum VoucherOrderStatusFilter {
@@ -37,6 +39,15 @@ export class QueryVoucherOrdersDto {
   @IsOptional()
   @IsEnum(VoucherOrderStatusFilter, { message: '状态筛选不正确' })
   status?: VoucherOrderStatusFilter;
+
+  @ApiPropertyOptional({
+    description: '搜索关键词：匹配订单号、买家姓名、券码',
+    example: '泡澡',
+  })
+  @IsOptional()
+  @Transform(transformOptionalKeyword)
+  @IsString({ message: '搜索关键词必须是字符串' })
+  keyword?: string;
 
   @ApiPropertyOptional({
     description: '时间范围预设：today/7d/30d；与 date 互斥，默认 today',
@@ -134,6 +145,14 @@ export class VoucherOrderListItemDto {
   @ApiProperty({ description: '确认操作员姓名（未确认为 null）' })
   confirmedByStaffName!: string | null;
 
+  /** 确认操作员角色快照（owner=主账号/manager=店长/staff=收银员，未确认为 null） */
+  @ApiProperty({
+    description:
+      '确认操作员角色（owner=主账号/manager=店长/staff=收银员，未确认为 null）',
+    enum: ['owner', 'manager', 'staff'],
+  })
+  confirmedByStaffRole!: 'owner' | 'manager' | 'staff' | null;
+
   /** 拒绝时间 ISO（未拒绝为 null） */
   @ApiProperty({ description: '拒绝时间 ISO（未拒绝为 null）' })
   rejectedAt!: string | null;
@@ -145,6 +164,14 @@ export class VoucherOrderListItemDto {
   /** 拒绝操作员姓名快照（未拒绝为 null） */
   @ApiProperty({ description: '拒绝操作员姓名（未拒绝为 null）' })
   rejectedByStaffName!: string | null;
+
+  /** 拒绝操作员角色快照（owner=主账号/manager=店长/staff=收银员，未拒绝为 null） */
+  @ApiProperty({
+    description:
+      '拒绝操作员角色（owner=主账号/manager=店长/staff=收银员，未拒绝为 null）',
+    enum: ['owner', 'manager', 'staff'],
+  })
+  rejectedByStaffRole!: 'owner' | 'manager' | 'staff' | null;
 }
 
 /** 商家端团购券订单分页列表响应 */

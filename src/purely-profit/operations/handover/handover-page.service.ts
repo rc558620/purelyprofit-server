@@ -190,6 +190,11 @@ export class HandoverPageService {
     // 退款金额直接从 SpaceSession 数据计算：预付 > 消费时的差额
     const refundAmount = computeRefundAmountFromSessions(settledSpaceSessions);
 
+    // 门店主账号 user.id：操作员职位判定依据（主账号=紫）
+    const storeOwnerUserId = await this.loadStoreOwnerUserId(
+      membership.storeId,
+    );
+
     return {
       orderCount,
       paymentOrderItems,
@@ -203,7 +208,17 @@ export class HandoverPageService {
       refundAmount,
       pettyCashAmount: dbCentsToOutputYuan(pettyCash._sum.amount),
       settledSpaceSessions,
+      storeOwnerUserId,
     };
+  }
+
+  /** 读取门店主账号 user.id（store.ownerId） */
+  private async loadStoreOwnerUserId(storeId: number): Promise<number | null> {
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: { ownerId: true },
+    });
+    return store?.ownerId ?? null;
   }
 
   private async loadPaymentOrderItems(
@@ -285,6 +300,7 @@ export class HandoverPageService {
               select: {
                 name: true,
                 role: true,
+                userId: true,
                 employeeProfile: {
                   select: {
                     subAccounts: {
@@ -376,6 +392,7 @@ export class HandoverPageService {
         // 不再使用 SaleOrder 维度的 refundOrders，防止同一会话退款重复展示。
         [],
         metrics.settledSpaceSessions,
+        metrics.storeOwnerUserId,
       ),
       receiverName: shiftContext.receiverCandidate?.employeeName ?? '',
       canOperate: shiftContext.operationAccess.canOperate,

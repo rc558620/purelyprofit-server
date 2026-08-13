@@ -75,10 +75,14 @@ model ClubVoucherOrder {
   confirmedAt          DateTime?                 @map("confirmed_at")
   /// 商家确认操作员姓名快照
   confirmedByStaffName String?                   @map("confirmed_by_staff_name")
+  /// 商家确认操作员角色快照（owner=主账号/manager=店长/staff=收银员）
+  confirmedByStaffRole  String?                 @map("confirmed_by_staff_role")
   /// 商家拒绝时间（拒绝走退款链路，状态变为 refunded）
   rejectedAt           DateTime?                 @map("rejected_at")
   /// 商家拒绝操作员姓名快照
   rejectedByStaffName  String?                   @map("rejected_by_staff_name")
+  /// 商家拒绝操作员角色快照（owner=主账号/manager=店长/staff=收银员）
+  rejectedByStaffRole  String?                   @map("rejected_by_staff_role")
   createdAt            DateTime                  @default(now()) @map("created_at")
   updatedAt            DateTime                  @updatedAt @map("updated_at")
 

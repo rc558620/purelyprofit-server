@@ -3,17 +3,21 @@ import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import type {
   CalculateTimingPriceDto,
   CalculateTimingPriceResponseDto,
-  CreateMarketingProductCategoryDto,
-  CreateMarketingProductDto,
-  ListMarketingProductsQueryDto,
   MarketingProductCategoriesResponseDto,
   MarketingProductCategoryDto,
   MarketingProductDto,
   MarketingProductsResponseDto,
-  ToggleMarketingProductDto,
-  UpdateMarketingProductCategoryDto,
+} from './dto/marketing-product.response.dto';
+import type {
+  CreateMarketingProductDto,
   UpdateMarketingProductDto,
 } from './dto/marketing-product.dto';
+import type {
+  CreateMarketingProductCategoryDto,
+  UpdateMarketingProductCategoryDto,
+} from './dto/marketing-product-category.dto';
+import type { ListMarketingProductsQueryDto } from './dto/marketing-product-query.dto';
+import type { ToggleMarketingProductDto } from './dto/marketing-product-toggle.dto';
 import { MarketingProductCategoriesService } from './marketing-product-categories.service';
 import { MarketingProductsService } from './marketing-products.service';
 

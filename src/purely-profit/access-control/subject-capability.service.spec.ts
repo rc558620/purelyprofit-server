@@ -81,7 +81,7 @@ describe('SubjectCapabilityService', () => {
     expect(snapshot.canAccessStoreSettings).toBe(false);
   });
 
-  it('finance 首页模块应开放进货管理入口，并保留经营分析、财务、交班与员工模块', () => {
+  it('finance 首页模块应保留经营分析、财务、交班与员工模块，并排除商品管理', () => {
     const snapshot = service.buildSnapshot(
       buildSubAccountMembership(StoreSubAccountRole.finance),
       3,
@@ -90,11 +90,10 @@ describe('SubjectCapabilityService', () => {
     expect(snapshot.allowedHomeModules).toEqual([
       'business-analysis',
       'finance-center',
-      'goods-management',
       'handover-management',
       'staff-management',
     ]);
-    expect(snapshot.hiddenHomeModules).not.toContain('goods-management');
+    expect(snapshot.hiddenHomeModules).toContain('goods-management');
     expect(snapshot.hiddenHomeModules).toContain('member-center');
     expect(snapshot.hiddenHomeModules).toContain('marketing-center');
     expect(snapshot.hiddenHomeModules).not.toContain('handover-management');
@@ -102,7 +101,7 @@ describe('SubjectCapabilityService', () => {
     expect(snapshot.hiddenHomeModules).toContain('store-settings');
     expect(snapshot.canViewFinance).toBe(true);
     expect(snapshot.canViewMarketing).toBe(false);
-    expect(snapshot.canUseGoodsManagement).toBe(true);
+    expect(snapshot.canUseGoodsManagement).toBe(false);
     expect(snapshot.canUseHandoverManagement).toBe(true);
     expect(snapshot.canUseSpaceManagement).toBe(false);
     expect(snapshot.canAccessStoreSettings).toBe(false);

@@ -257,6 +257,11 @@ export class ScanOrderingRealtimeService
     return `voucher-order:${orderNo}`;
   }
 
+  /** 团购券订单门店房间（商家端订阅，校验 space:view，与扫码点餐 store 房间隔离） */
+  voucherOrderStoreRoom(storeId: number): string {
+    return `voucher-store:${storeId}`;
+  }
+
   sessionRoom(sessionId: number): string {
     return `session:${sessionId}`;
   }
@@ -332,9 +337,11 @@ export class ScanOrderingRealtimeService
     ) {
       const orderNo = this.stringValue(payload.orderNo);
       if (orderNo) {
-        // 商家端订阅 store 房间：created（新订单通知）/ confirmed（列表刷新）/ status_changed（退款后列表刷新）
+        // 商家端订阅 voucher-store 房间（校验 space:view）：created（新订单通知）/ confirmed（列表刷新）/ status_changed（退款后列表刷新）
         if (storeId)
-          this.namespace?.to(this.storeRoom(storeId)).emit(event, payload);
+          this.namespace
+            ?.to(this.voucherOrderStoreRoom(storeId))
+            .emit(event, payload);
         if (event === 'voucher_order.status_changed') {
           // 用户端订阅 voucher-order 房间 + native 订阅者：订单详情自动刷新
           this.namespace

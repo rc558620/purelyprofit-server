@@ -1,8 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import {
-  ClubOrderPreviewService,
-  type ClubMarketingPreviewResult,
-} from '../orders/club-order-preview.service';
+import { ClubMarketingPreviewService } from '../orders/club-marketing-preview.service';
+import type { ClubMarketingPreviewResult } from '../orders/club-order-preview.types';
 import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-marketing-customer.service';
 
 export interface PromotionAdapterInput {
@@ -67,7 +65,7 @@ export interface PromotionAdapterResult {
 export class ScanOrderingPromotionAdapter {
   constructor(
     private readonly marketingCustomerService: ClubScanOrderingMarketingCustomerService,
-    private readonly orderPreviewService: ClubOrderPreviewService,
+    private readonly marketingPreviewService: ClubMarketingPreviewService,
   ) {}
 
   async resolvePromotions(
@@ -77,7 +75,7 @@ export class ScanOrderingPromotionAdapter {
       input.storeId,
       input.clubUserId,
     );
-    const result = await this.orderPreviewService.previewMarketingLines(
+    const result = await this.marketingPreviewService.previewMarketingLines(
       input.storeId,
       customer.id,
       customer.phone ?? '',

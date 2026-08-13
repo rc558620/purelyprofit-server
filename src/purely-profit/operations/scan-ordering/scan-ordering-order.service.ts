@@ -9,19 +9,23 @@ import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { ListScanOrderingOrdersDto } from './dto/scan-ordering-order-query.dto';
 import { ScanOrderingPricingService } from './scan-ordering-pricing.service';
 import type {
-  ScanOrderingOrderItemSummary,
+  ScanOrderingOrderDetailPayload,
   ScanOrderingOrderListItem,
 } from './scan-ordering.types';
 import { ScanOrderingOrderStateMachineService } from './scan-ordering-order-machine.service';
 import { ScanOrderingPickupNumberService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-number.service';
-import { fenToYuan } from '../../../purely-club/scan-ordering/club-scan-ordering-order.mapper';
+import {
+  toOrderDetailPayload,
+  toOrderListItem,
+  type ScanOrderListItemSource,
+} from './scan-ordering-order.mapper';
 
 /**
- * 商家扫码点餐订单查询服务（轻量代理层）。
+ * 商家扫码点餐订单服务（查询编排 + 状态流转代理）。
  *
- * 原订单服务已拆分为：
- * - ScanOrderingOrderStateMachineService：状态流转（接单、拒单、取消、完成）
- * - ScanOrderingOrderQueryService（当前文件）：查询与列表
+ * - 状态流转：代理到 ScanOrderingOrderStateMachineService
+ * - 查询编排：负责门店校验、时间范围、筛选条件、昵称/加餐序号查询
+ * - 响应组装：下沉到 scan-ordering-order.mapper（纯函数，金额统一后端计算）
  */
 @Injectable()
 export class ScanOrderingOrderService {
@@ -32,6 +36,8 @@ export class ScanOrderingOrderService {
     private readonly stateMachineService: ScanOrderingOrderStateMachineService,
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
   ) {}
+
+  // ── 状态流转代理 ─────────────────────────────────────────
 
   async acceptOrder(
     user: AuthenticatedUser,
@@ -79,17 +85,17 @@ export class ScanOrderingOrderService {
     user: AuthenticatedUser,
     orderId: number,
     version: number,
-    providerRefundNo?: string,
-    providerRefundId?: string,
+    provider?: { refundNo?: string; refundId?: string },
   ): Promise<void> {
     return this.stateMachineService.completeRefund(
       user,
       orderId,
       version,
-      providerRefundNo,
-      providerRefundId,
+      provider,
     );
   }
+
+  // ── 订单查询 ─────────────────────────────────────────────
 
   async listOrders(
     user: AuthenticatedUser,
@@ -98,30 +104,93 @@ export class ScanOrderingOrderService {
     items: ScanOrderingOrderListItem[];
     nextCursor: number | null;
   }> {
-    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+    const storeId = await this.resolveOrderStoreId(user);
+    const { startOfDay, endOfDay } = this.resolveListTimeRange(query);
+    const where = this.buildListWhere(storeId, query, startOfDay, endOfDay);
+    const limit = query.limit ?? 100;
+    const orders = await this.fetchOrderPage(where, limit);
+    const guestNameMap = await this.fetchGuestNameMap(orders);
+    const pageOrders = orders.slice(0, limit);
+    // “首单/加餐”判定以 diningRoundId 维度计算：同一用餐轮次（diningRoundId 相同）
+    // 内的累计下单序号，跨桌或清桌（diningRoundId 重新生成）会重新从 1 开始
+    const sequences = await this.fetchDiningRoundSequences(pageOrders);
+    return {
+      items: pageOrders.map((order) =>
+        toOrderListItem({
+          order,
+          guestName: this.resolveGuestName(order.clubUserId, guestNameMap),
+          sessionOrderSequence: sequences.get(order.id) ?? 1,
+          calculateSummary: this.pricingService.calculateSummary,
+          formatPickupNumber: this.pickupNumberService.formatPickupNumber,
+        }),
+      ),
+      nextCursor:
+        orders.length > limit ? (pageOrders.at(-1)?.id ?? null) : null,
+    };
+  }
+
+  async getOrderDetail(
+    user: AuthenticatedUser,
+    orderId: number,
+  ): Promise<ScanOrderingOrderDetailPayload> {
+    const storeId = await this.resolveOrderStoreId(user);
+    const order = await this.prisma.scanOrders.findFirst({
+      where: { id: orderId, storeId },
+      include: {
+        table: { select: { name: true, tableCode: true } },
+        items: { include: { specs: true }, orderBy: { id: 'asc' } },
+        histories: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+    if (!order) throw new NotFoundException('扫码点餐订单不存在');
+    return toOrderDetailPayload({
+      order,
+      calculateSummary: this.pricingService.calculateSummary,
+      formatPickupNumber: this.pickupNumberService.formatPickupNumber,
+    });
+  }
+
+  // ── 查询私有方法 ─────────────────────────────────────────
+
+  /** 统一解析当前商家门店并校验查看权限。 */
+  private resolveOrderStoreId(user: AuthenticatedUser): Promise<number> {
+    return this.commerceAccessService.resolveSingleStoreId(
       user,
       undefined,
       'scan-ordering:view',
       '无权查看扫码点餐订单',
     );
+  }
 
-    // 默认时间范围：当天 00:00:00 ~ 23:59:59
-    let startOfDay!: Date;
-    let endOfDay!: Date;
-
-    // 如果提供了自定义时间范围，则使用提供的值
+  /**
+   * 解析列表时间范围：优先使用自定义时间范围；
+   * 否则默认当天 00:00:00 ~ 23:59:59（上海时区）。
+   */
+  private resolveListTimeRange(query: ListScanOrderingOrdersDto): {
+    startOfDay: Date;
+    endOfDay: Date;
+  } {
     if (query.startTime && query.endTime) {
-      startOfDay = new Date(query.startTime);
-      endOfDay = new Date(query.endTime);
-    } else {
-      // 否则使用当天范围
-      const now = new Date();
-      const dayStartMs = getShanghaiDayStartMs(now.getTime());
-      startOfDay = new Date(dayStartMs);
-      endOfDay = new Date(addShanghaiDays(dayStartMs, 1));
+      return {
+        startOfDay: new Date(query.startTime),
+        endOfDay: new Date(query.endTime),
+      };
     }
+    const now = new Date();
+    const dayStartMs = getShanghaiDayStartMs(now.getTime());
+    return {
+      startOfDay: new Date(dayStartMs),
+      endOfDay: new Date(addShanghaiDays(dayStartMs, 1)),
+    };
+  }
 
-    // 构建动态查询条件
+  /** 构建订单列表查询条件（门店、时间、状态、桌台、游标）。 */
+  private buildListWhere(
+    storeId: number,
+    query: ListScanOrderingOrdersDto,
+    startOfDay: Date,
+    endOfDay: Date,
+  ): Record<string, unknown> {
     const where: Record<string, unknown> = {
       storeId,
       createdAt: {
@@ -144,23 +213,27 @@ export class ScanOrderingOrderService {
       ...(query.tableId ? { tableId: query.tableId } : {}),
       ...(query.cursor ? { id: { lt: query.cursor } } : {}),
     };
-
     // 添加桌号模糊匹配
     if (query.tableKeyword) {
-      (where as Record<string, unknown>).table = {
+      where.table = {
         name: {
           contains: query.tableKeyword,
           mode: 'insensitive',
         },
       };
     }
+    return where;
+  }
 
-    // 客人姓名将从前端根据 clubUserId 动态查询
-
-    const orders = await this.prisma.scanOrders.findMany({
+  /** 查询一页订单（多取一条用于判断是否有下一页）。 */
+  private fetchOrderPage(
+    where: Record<string, unknown>,
+    limit: number,
+  ): Promise<ScanOrderListItemSource[]> {
+    return this.prisma.scanOrders.findMany({
       where,
       orderBy: { id: 'desc' },
-      take: (query.limit ?? 100) + 1,
+      take: limit + 1,
       select: {
         id: true,
         orderNo: true,
@@ -201,290 +274,84 @@ export class ScanOrderingOrderService {
         pickupCalledAt: true,
       },
     });
+  }
 
-    // 🔥 批量查询用户昵称
-    const userMap: Map<number, string> = new Map();
-    const userIds = orders
-      .map((order: (typeof orders)[number]) => order.clubUserId)
-      .filter((id): id is number => !!id);
-    if (userIds.length > 0 && Array.from(new Set(userIds)).length > 0) {
-      try {
-        const uniqueIds = Array.from(new Set(userIds));
-        const users = await this.prisma.user.findMany({
-          where: { id: { in: uniqueIds } },
-          select: { id: true, name: true },
-        });
-        users.forEach((u) => {
-          userMap.set(u.id, u.name || '顾客');
-        });
-      } catch (error) {
-        console.error('Failed to fetch user nicknames:', error);
-      }
+  /** 批量查询顾客昵称；缺失或查询失败时回退为“顾客”。 */
+  private async fetchGuestNameMap(
+    orders: ScanOrderListItemSource[],
+  ): Promise<Map<number, string>> {
+    const userMap = new Map<number, string>();
+    const uniqueIds = Array.from(
+      new Set(
+        orders
+          .map((order) => order.clubUserId)
+          .filter((id): id is number => !!id),
+      ),
+    );
+    if (uniqueIds.length === 0) return userMap;
+    try {
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: uniqueIds } },
+        select: { id: true, name: true },
+      });
+      users.forEach((user) => {
+        userMap.set(user.id, user.name || '顾客');
+      });
+    } catch (error) {
+      console.error('Failed to fetch user nicknames:', error);
     }
+    return userMap;
+  }
 
-    const limit = query.limit ?? 100;
-    const pageOrders = orders.slice(0, limit);
-    // "首单/加餐"判定以 diningRoundId 维度计算：同一个人在同一家门店的同一张桌
-    // 台、本轮用餐轮次（diningRoundId 相同）内的累计下单序号，跨桌或清桌
-    // (session 状态被清成 checked_out 后 diningRoundId 会重新生成) 会重新从 1 开始。
-    // 字段名沿用 sessionOrderSequence 以兼容 purelyprofit 前端消费。
-    const diningRoundUserKeys = pageOrders
+  /**
+   * 计算“首单/加餐”序号：同一门店同一桌同一用户在同一 diningRound 内
+   * 的累计下单序号（含当前页之前的订单），>1 即视为加餐。
+   */
+  private async fetchDiningRoundSequences(
+    orders: ScanOrderListItemSource[],
+  ): Promise<Map<number, number>> {
+    const diningRoundUserKeys = orders
       .filter((order) => order.diningRoundId && order.clubUserId)
       .map((order) => ({
         diningRoundId: order.diningRoundId,
         clubUserId: order.clubUserId!,
       }));
-    const diningRoundOrderSequences = new Map<number, number>();
-    if (diningRoundUserKeys.length > 0) {
-      const priorOrders = await this.prisma.scanOrders.findMany({
-        where: {
-          OR: diningRoundUserKeys.map(({ diningRoundId, clubUserId }) => ({
-            diningRoundId,
-            clubUserId,
-          })),
-          deletedAt: null,
-        },
-        select: {
-          diningRoundId: true,
-          clubUserId: true,
-          id: true,
-          createdAt: true,
-        },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      });
-      const counters = new Map<string, number>();
-      priorOrders.forEach((order) => {
-        const key = `${order.diningRoundId}:${order.clubUserId}`;
-        const sequence = (counters.get(key) ?? 0) + 1;
-        counters.set(key, sequence);
-        diningRoundOrderSequences.set(order.id, sequence);
-      });
-    }
-
-    return {
-      items: pageOrders.map((order: (typeof pageOrders)[number]) => {
-        const realPayableFen = order.payableAmount ?? 0;
-        const realPaidFen = order.paidAmount ?? 0;
-        // 以数据库落库的 payableAmount 为权威值（含会员等级折扣 + 积分抵扣），
-        // 避免 calculateSummary 漏算会员折扣（productDiscountAmount 当前已含会员折扣），
-        // 以及未感知积分抵扣的差异；outstandingAmount 同步按真实应付重算。
-        const amountSummary = {
-          ...this.pricingService.calculateSummary({
-            itemOriginalAmountCents: order.itemOriginalAmount,
-            specificationExtraAmountCents: order.specificationExtraAmount,
-            productDiscountAmountCents: order.productDiscountAmount,
-            orderDiscountAmountCents: order.orderDiscountAmount,
-            taxAmountCents: order.taxAmount,
-            serviceFeeAmountCents: order.serviceFeeAmount,
-            paidAmountCents: order.paidAmount,
-          }),
-          payableAmount: fenToYuan(realPayableFen),
-          outstandingAmount: fenToYuan(
-            Math.max(realPayableFen - realPaidFen, 0),
-          ),
-          // 积分抵扣金额与优惠清单：由后端从营销快照组装，前端只读展示
-          pointsDeductAmount: fenToYuan(
-            this.pointsDeductAmountFen(order.marketingSnapshot),
-          ),
-          discountItems: this.toDiscountItems(order.marketingSnapshot),
-        };
-
-        // 🔥 使用真实的用户昵称
-        let guestName = '顾客'; // 默认值
-        if (order.clubUserId && userMap.has(order.clubUserId)) {
-          guestName = userMap.get(order.clubUserId)!; // 从 Map 中获取昵称
-        }
-
-        // 构建多规格场景下的商品明细：每条 ScanOrderItem 已带有完整的
-        // (商品+规格)快照,直接以 1:1 方式输出;前端可在卡片里独立渲染图片、
-        // 规格、数量、金额,避免用户阅读括号嵌套导致的认知负担。
-        const itemSummaries = order.items.map(
-          (
-            item: (typeof order.items)[number],
-          ): ScanOrderingOrderItemSummary => ({
-            productName: item.productNameSnapshot,
-            productImageUrl: item.productImageUrlSnapshot ?? null,
-            quantity: item.quantity,
-            specs: (item.specs ?? []).map(
-              (spec) => spec.specOptionNameSnapshot,
-            ),
-            unitPrice: fenToYuan(item.unitPriceAmount ?? 0),
-            lineTotalAmount: fenToYuan(item.lineTotalAmount ?? 0),
-            payableLineAmount: fenToYuan(item.payableLineAmount ?? 0),
-          }),
-        );
-        // 兼容旧前端消费的简洁文本摘要: 仅展示 「商品名×数量」,不再嵌入
-        // 括号规格列表,完整规格清单统一通过 items 数组下发。
-        const itemSummary = itemSummaries
-          .map((item) => `${item.productName}×${item.quantity}`)
-          .join('、');
-
-        return {
-          id: order.id,
-          orderNo: order.orderNo,
-          version: order.version,
-          itemSummary,
-          items: itemSummaries,
-          remark: order.remark,
-          tableName: order.table.name,
-          status: order.status,
-          createdAt: order.createdAt.toISOString(),
-          amountSummary,
-          guestName, // 🔥 返回客户昵称
-          // 字段名沿用 sessionOrderSequence 以兼容前端；语义上为同一 diningRound
-          // 内的累计序号，>1 即视为加餐。
-          sessionOrderSequence: diningRoundOrderSequences.get(order.id) ?? 1,
-          pickupNumber: order.pickupNumber,
-          pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
-            order.pickupNumber,
-          ),
-          pickupNumberStatus: order.pickupNumberStatus,
-          pickupCalledAt: order.pickupCalledAt?.toISOString() ?? null,
-          // 兼容旧前端: 仍以首个有图片的商品作为卡片缩略图;卡片层应改用 items
-          // 数组渲染多张缩略图,本字段保留作为回退。
-          imageUrl:
-            order.items.find(
-              (item: (typeof order.items)[number]) =>
-                item.productImageUrlSnapshot,
-            )?.productImageUrlSnapshot ?? null,
-        };
-      }),
-      nextCursor:
-        orders.length > limit ? (pageOrders.at(-1)?.id ?? null) : null,
-    };
-  }
-
-  async getOrderDetail(
-    user: AuthenticatedUser,
-    orderId: number,
-  ): Promise<unknown> {
-    const storeId = await this.commerceAccessService.resolveSingleStoreId(
-      user,
-      undefined,
-      'scan-ordering:view',
-      '无权查看扫码点餐订单',
-    );
-    const order = await this.prisma.scanOrders.findFirst({
-      where: { id: orderId, storeId },
-      include: {
-        table: { select: { name: true, tableCode: true } },
-        items: { include: { specs: true }, orderBy: { id: 'asc' } },
-        histories: { orderBy: { createdAt: 'asc' } },
+    const sequences = new Map<number, number>();
+    if (diningRoundUserKeys.length === 0) return sequences;
+    const priorOrders = await this.prisma.scanOrders.findMany({
+      where: {
+        OR: diningRoundUserKeys.map(({ diningRoundId, clubUserId }) => ({
+          diningRoundId,
+          clubUserId,
+        })),
+        deletedAt: null,
       },
+      select: {
+        diningRoundId: true,
+        clubUserId: true,
+        id: true,
+        createdAt: true,
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
-    if (!order) throw new NotFoundException('扫码点餐订单不存在');
-    const prismaOrder = order; // 明确类型注解
-    return {
-      id: prismaOrder.id,
-      orderNo: prismaOrder.orderNo,
-      status: prismaOrder.status,
-      version: prismaOrder.version,
-      table: prismaOrder.table,
-      createdAt: prismaOrder.createdAt.toISOString(),
-      pickupNumber: prismaOrder.pickupNumber,
-      pickupNumberLabel: this.pickupNumberService.formatPickupNumber(
-        prismaOrder.pickupNumber,
-      ),
-      amountSummary: {
-        ...this.pricingService.calculateSummary({
-          itemOriginalAmountCents: prismaOrder.itemOriginalAmount,
-          specificationExtraAmountCents: prismaOrder.specificationExtraAmount,
-          productDiscountAmountCents: prismaOrder.productDiscountAmount,
-          orderDiscountAmountCents: prismaOrder.orderDiscountAmount,
-          taxAmountCents: prismaOrder.taxAmount,
-          serviceFeeAmountCents: prismaOrder.serviceFeeAmount,
-          paidAmountCents: prismaOrder.paidAmount,
-        }),
-        // 以数据库落库的 payableAmount 为权威值（含会员等级折扣 + 积分抵扣），
-        // 避免 calculateSummary 漏算会员折扣或积分抵扣。
-        payableAmount: fenToYuan(prismaOrder.payableAmount ?? 0),
-        outstandingAmount: fenToYuan(
-          Math.max(
-            (prismaOrder.payableAmount ?? 0) - (prismaOrder.paidAmount ?? 0),
-            0,
-          ),
-        ),
-        // 积分抵扣金额与优惠清单：由后端从营销快照组装，前端只读展示
-        pointsDeductAmount: fenToYuan(
-          this.pointsDeductAmountFen(prismaOrder.marketingSnapshot),
-        ),
-        discountItems: this.toDiscountItems(prismaOrder.marketingSnapshot),
-      },
-      items: prismaOrder.items.map(
-        (item: (typeof prismaOrder.items)[number]) => ({
-          name: item.productNameSnapshot,
-          quantity: item.quantity,
-          // 单项原价小计（元,未扣商品级优惠），用于详情卡右侧展示"原价"
-          lineTotalAmount: fenToYuan(item.lineTotalAmount ?? 0),
-          // 行金额取已扣商品级优惠的应付金额，保证小票明细合计 = 应付合计
-          amount: fenToYuan(item.payableLineAmount ?? 0),
-          specs: item.specs.map((spec: (typeof item.specs)[number]) => ({
-            name: spec.specOptionNameSnapshot,
-            extraPrice: this.pricingService.calculateSummary({
-              itemOriginalAmountCents: spec.extraPriceSnapshot,
-              specificationExtraAmountCents: 0,
-            }).payableAmount,
-          })),
-        }),
-      ),
-      histories: prismaOrder.histories.map(
-        (history: {
-          fromStatus: string;
-          toStatus: string;
-          reason: string | null;
-          createdAt: Date;
-        }) => ({
-          fromStatus: history.fromStatus,
-          toStatus: history.toStatus,
-          reason: history.reason ?? '',
-          createdAt: history.createdAt.toISOString(),
-        }),
-      ),
-    };
+    const counters = new Map<string, number>();
+    priorOrders.forEach((order) => {
+      const key = `${order.diningRoundId}:${order.clubUserId}`;
+      const sequence = (counters.get(key) ?? 0) + 1;
+      counters.set(key, sequence);
+      sequences.set(order.id, sequence);
+    });
+    return sequences;
   }
 
-  /** 安全读取营销快照中的积分抵扣金额（分）；缺失/类型异常按 0 处理。 */
-  private pointsDeductAmountFen(marketingSnapshot: unknown): number {
-    if (marketingSnapshot === null || typeof marketingSnapshot !== 'object') {
-      return 0;
+  /** 解析顾客昵称展示值。 */
+  private resolveGuestName(
+    clubUserId: number | null,
+    guestNameMap: Map<number, string>,
+  ): string {
+    if (clubUserId && guestNameMap.has(clubUserId)) {
+      return guestNameMap.get(clubUserId)!;
     }
-    const snapshot = marketingSnapshot as { pointsDeductAmount?: unknown };
-    const value = snapshot.pointsDeductAmount;
-    if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
-    return value > 0 ? Math.round(value) : 0;
-  }
-
-  /**
-   * 从营销快照提取优惠清单明细（前端只读展示，金额由后端换算为元）。
-   * 只保留减免项（amount < 0），label 原样透出，与 purelyClub 优惠清单口径一致。
-   */
-  private toDiscountItems(
-    marketingSnapshot: unknown,
-  ): Array<{ label: string; amount: number; isStrikethrough: boolean }> {
-    if (marketingSnapshot === null || typeof marketingSnapshot !== 'object') {
-      return [];
-    }
-    const snapshot = marketingSnapshot as { breakdownItems?: unknown };
-    if (!Array.isArray(snapshot.breakdownItems)) return [];
-    return snapshot.breakdownItems
-      .filter(
-        (
-          item,
-        ): item is {
-          label?: unknown;
-          amount?: unknown;
-          isStrikethrough?: unknown;
-        } => item !== null && typeof item === 'object',
-      )
-      .map((item) => ({
-        label: typeof item.label === 'string' ? item.label : '',
-        amount: fenToYuan(
-          typeof item.amount === 'number' && Number.isFinite(item.amount)
-            ? item.amount
-            : 0,
-        ),
-        isStrikethrough: item.isStrikethrough === true,
-      }))
-      .filter((item) => item.label !== '' && item.amount < 0);
+    return '顾客';
   }
 }

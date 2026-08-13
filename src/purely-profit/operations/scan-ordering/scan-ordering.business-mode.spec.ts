@@ -7,6 +7,8 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { ScanOrderingMainController } from './scan-ordering.controller';
 import { ScanOrderingOrderController } from './scan-ordering-orders.controller';
 import { ScanOrderingTableController } from './scan-ordering-table.controller';
+import { ScanOrderingPrintController } from './scan-ordering-print.controller';
+import { ScanOrderingServiceCallController } from './scan-ordering-service-call.controller';
 import { StoreBusinessCapabilityService } from '../../stores/store-business-capability.service';
 
 /**
@@ -172,6 +174,22 @@ describe('扫码点餐业态接口保护', () => {
     const requirement = Reflect.getMetadata(
       BUSINESS_MODE_KEY,
       ScanOrderingTableController,
+    );
+    expect(requirement).toBe('catering');
+  });
+
+  it('验证 ScanOrderingPrintController 声明了 @RequireBusinessMode(catering)', () => {
+    const requirement = Reflect.getMetadata(
+      BUSINESS_MODE_KEY,
+      ScanOrderingPrintController,
+    );
+    expect(requirement).toBe('catering');
+  });
+
+  it('验证 ScanOrderingServiceCallController 声明了 @RequireBusinessMode(catering)', () => {
+    const requirement = Reflect.getMetadata(
+      BUSINESS_MODE_KEY,
+      ScanOrderingServiceCallController,
     );
     expect(requirement).toBe('catering');
   });

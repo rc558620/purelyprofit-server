@@ -79,6 +79,38 @@ export class ServiceCallGateway implements OnGatewayConnection {
     });
   }
 
+  @SubscribeMessage('subscribe.service-call-store')
+  async subscribeServiceCallStore(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: JoinStorePayload,
+  ): Promise<{ room: string; storeId: number }> {
+    const identity = this.identityOf(client);
+    this.logger.log(
+      `subscribe.service-call-store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
+    );
+    try {
+      // 服务呼叫实时订阅：与商家端接口同权限（service-call:view/process），join 既有 service-call:store 门店房间
+      await this.commerceAccessService.ensureCanAccessStoreWithAnyPermission(
+        this.toAuthenticatedUser(identity),
+        payload.storeId,
+        ['service-call:view', 'service-call:process'],
+        '无权订阅该门店服务呼叫',
+      );
+      const room = this.realtimeService.storeRoom(payload.storeId);
+      await client.join(room);
+      this.logger.log(
+        `subscribe.service-call-store joined: socketId=${client.id}, room=${room}`,
+      );
+      return { room, storeId: payload.storeId };
+    } catch (error) {
+      this.logger.error(
+        `subscribe.service-call-store failed: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}, membership=${JSON.stringify(identity.currentMembership)}, error=${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
+  }
+
   @SubscribeMessage('subscribe.store')
   async subscribeStore(
     @ConnectedSocket() client: Socket,

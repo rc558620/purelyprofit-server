@@ -23,7 +23,10 @@ import type {
   CompleteScanOrderingRefundDto,
 } from './dto/scan-ordering-order.dto';
 import type { ListScanOrderingOrdersDto } from './dto/scan-ordering-order-query.dto';
-import type { ScanOrderingOrderListItem } from './scan-ordering.types';
+import type {
+  ScanOrderingOrderDetailPayload,
+  ScanOrderingOrderListItem,
+} from './scan-ordering.types';
 
 @ApiTags('PurelyProfit Scan Ordering - Orders')
 @ApiBearerAuth()
@@ -52,7 +55,7 @@ export class ScanOrderingOrderController {
   getOrderDetail(
     @CurrentUser() user: AuthenticatedUser,
     @Param('orderId', ParseIntPipe) orderId: number,
-  ): Promise<unknown> {
+  ): Promise<ScanOrderingOrderDetailPayload> {
     return this.orderService.getOrderDetail(user, orderId);
   }
 
@@ -107,13 +110,10 @@ export class ScanOrderingOrderController {
     @Param('orderId', ParseIntPipe) orderId: number,
     @Body() dto: CompleteScanOrderingRefundDto,
   ): Promise<void> {
-    return this.orderService.completeRefund(
-      user,
-      orderId,
-      dto.version,
-      dto.providerRefundNo,
-      dto.providerRefundId,
-    );
+    return this.orderService.completeRefund(user, orderId, dto.version, {
+      refundNo: dto.providerRefundNo,
+      refundId: dto.providerRefundId,
+    });
   }
 
   @Post(':orderId/serve')

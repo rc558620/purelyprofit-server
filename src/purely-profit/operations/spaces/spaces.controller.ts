@@ -153,7 +153,7 @@ export class SpacesController {
   }
 
   @Post(':id/mark-ready')
-  @RequirePermissions('space:update')
+  @RequirePermissions('space:view')
   @ApiOperation({ summary: '标记空间为可用' })
   @ApiOkResponse({ type: SpaceResponseDto })
   markReady(

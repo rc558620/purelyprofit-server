@@ -164,25 +164,35 @@ export const resolveOrderItemPaymentDisplay = (
 
 /**
  * 解析操作员的真实角色：
- * 优先使用 Staff.role（OWNER 直接可信），
+ * 优先识别门店主账号（staff.userId === storeOwnerUserId → OWNER），
+ * 其次使用 Staff.role（OWNER 直接可信），
  * 否则检查关联的 StoreSubAccount.role（manager → MANAGER）。
  */
 const resolveOperatorRole = (
   staff: {
     role: StaffRole;
+    userId: number | null;
     employeeProfile: {
       subAccounts: { role: string } | null;
     } | null;
   } | null,
+  storeOwnerUserId: number | null = null,
 ): StaffRole | null => {
   if (!staff) return null;
+  // 操作员即门店主账号 → 主账号（store.ownerId 是权威依据，staff.role 历史数据可能未同步）
+  if (storeOwnerUserId !== null && staff.userId === storeOwnerUserId) {
+    return StaffRole.owner;
+  }
   if (staff.role === StaffRole.owner) return StaffRole.owner;
   const subAccountRole = staff.employeeProfile?.subAccounts?.role;
   if (subAccountRole === 'manager') return StaffRole.manager;
   return staff.role;
 };
 
-export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
+export const mapOrderItem = (
+  item: OrderItemRow,
+  storeOwnerUserId: number | null = null,
+): HandoverOrderItemDto => {
   // 抵扣项（预付款/续费抵扣）代表已收到的钱，展示时应为正数。
   // 旧数据 DB 中可能存为负数（结算计算遗留），新数据已修正为正数。
   // 此处统一取绝对值，确保前端直接展示，无需任何业务计算。
@@ -213,9 +223,9 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
       toDisplayName(item.order.operatorStaff?.name) ??
       AUTO_SETTLEMENT_OPERATOR_NAME);
   const operatorRole = isOpenItem
-    ? (resolveOperatorRole(session.openOperatorStaff) ??
-      resolveOperatorRole(item.order.operatorStaff))
-    : resolveOperatorRole(item.order.operatorStaff);
+    ? (resolveOperatorRole(session.openOperatorStaff, storeOwnerUserId) ??
+      resolveOperatorRole(item.order.operatorStaff, storeOwnerUserId))
+    : resolveOperatorRole(item.order.operatorStaff, storeOwnerUserId);
 
   // displayDate：业务语义时间，前端显示用
   // session_start（开台）→ SpaceSession.startTime
@@ -260,6 +270,7 @@ export const mapOrderItem = (item: OrderItemRow): HandoverOrderItemDto => {
 
 export const mapRefundOrderItem = (
   order: RefundOrderRow,
+  storeOwnerUserId: number | null = null,
 ): HandoverOrderItemDto => {
   const spaceName = order.spaceSession?.space.name;
   // 退款行商品名追加 " · 退款"，无空间名时回退到「空间退款」
@@ -277,7 +288,7 @@ export const mapRefundOrderItem = (
       toDisplayName(order.operatorNameSnapshot) ??
       toDisplayName(order.operatorStaff?.name) ??
       AUTO_SETTLEMENT_OPERATOR_NAME,
-    operatorRole: resolveOperatorRole(order.operatorStaff),
+    operatorRole: resolveOperatorRole(order.operatorStaff, storeOwnerUserId),
     date: order.date.getTime(),
     displayDate: order.date.getTime(),
     currentStock: null,

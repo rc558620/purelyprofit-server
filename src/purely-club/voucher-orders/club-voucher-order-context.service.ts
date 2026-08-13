@@ -7,10 +7,7 @@ import {
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubOrderPromotionsService } from '../orders/club-order-promotions.service';
-import {
-  fetchPointsRedeemConfig,
-  calcPointsRedeemDetail,
-} from '../orders/club-order-points.utils';
+import { resolvePointsDeduction } from '../orders/club-order-points.utils';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import {
   CLUB_VOUCHER_CUSTOMER_NOT_FOUND_MESSAGE,
@@ -198,7 +195,8 @@ export class ClubVoucherOrderContextService {
       0,
     );
 
-    const { pointsDeductFen, pointsUsed } = await this.calcPointsDeduction(
+    const { pointsDeductFen, pointsUsed } = await resolvePointsDeduction(
+      this.prisma,
       context.store.id,
       context.customer.id,
       afterReduceTotalFen,
@@ -239,27 +237,5 @@ export class ClubVoucherOrderContextService {
         stock: true,
       },
     });
-  }
-
-  private async calcPointsDeduction(
-    storeId: number,
-    customerId: number,
-    priceAfterDiscountFen: number,
-    usePoints: boolean,
-  ): Promise<{ pointsDeductFen: number; pointsUsed: number }> {
-    if (!usePoints || priceAfterDiscountFen <= 0) {
-      return { pointsDeductFen: 0, pointsUsed: 0 };
-    }
-    const pointsConfig = await fetchPointsRedeemConfig(this.prisma, storeId);
-    const customer = await this.prisma.marketingCustomer.findUnique({
-      where: { id: customerId },
-      select: { points: true },
-    });
-    const availablePoints = customer?.points ?? 0;
-    return calcPointsRedeemDetail(
-      priceAfterDiscountFen,
-      pointsConfig,
-      availablePoints,
-    );
   }
 }

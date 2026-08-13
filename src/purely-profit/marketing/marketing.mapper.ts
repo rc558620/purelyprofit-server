@@ -13,7 +13,7 @@ import type {
 import type {
   MarketingProductCategoryDto,
   MarketingProductDto,
-} from './dto/marketing-product.dto';
+} from './dto/marketing-product.response.dto';
 import type {
   MarketingConsumptionRow,
   MarketingCustomerRow,

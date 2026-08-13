@@ -38,6 +38,7 @@ export type SettledSpaceSessionRow = {
     operatorStaff: {
       name: string;
       role: StaffRole;
+      userId: number | null;
       employeeProfile: { subAccounts: { role: string } | null } | null;
     } | null;
   } | null;
@@ -58,16 +59,22 @@ export type SettledSpaceSessionRow = {
   }[];
 };
 
-/** 解析操作员真实角色（与 handover.mapper.ts 逻辑一致） */
+/** 解析操作员真实角色（与 handover.mapper.ts 逻辑一致；storeOwnerUserId 用于识别门店主账号=owner） */
 const resolveOperatorRole = (
   staff: {
     role: StaffRole;
+    userId: number | null;
     employeeProfile: {
       subAccounts: { role: string } | null;
     } | null;
   } | null,
+  storeOwnerUserId: number | null = null,
 ): StaffRole | null => {
   if (!staff) return null;
+  // 操作员即门店主账号 → 主账号（store.ownerId 是权威依据，staff.role 历史数据可能未同步）
+  if (storeOwnerUserId !== null && staff.userId === storeOwnerUserId) {
+    return StaffRole.owner;
+  }
   if (staff.role === StaffRole.owner) return StaffRole.owner;
   const subAccountRole = staff.employeeProfile?.subAccounts?.role;
   if (subAccountRole === 'manager') return StaffRole.manager;
@@ -76,6 +83,7 @@ const resolveOperatorRole = (
 
 export const buildGuestPayableItems = (
   settledSessions: SettledSpaceSessionRow[],
+  storeOwnerUserId: number | null = null,
 ): HandoverOrderItemDto[] => {
   const items: HandoverOrderItemDto[] = [];
 
@@ -121,6 +129,7 @@ export const buildGuestPayableItems = (
       '空间自动结账';
     const operatorRole = resolveOperatorRole(
       session.saleOrder?.operatorStaff ?? null,
+      storeOwnerUserId,
     );
 
     items.push({
@@ -159,6 +168,7 @@ export const buildGuestPayableItems = (
  */
 export const buildRefundItemsFromSessions = (
   settledSessions: SettledSpaceSessionRow[],
+  storeOwnerUserId: number | null = null,
 ): HandoverOrderItemDto[] => {
   const items: HandoverOrderItemDto[] = [];
 
@@ -203,6 +213,7 @@ export const buildRefundItemsFromSessions = (
       '空间自动结账';
     const operatorRole = resolveOperatorRole(
       session.saleOrder?.operatorStaff ?? null,
+      storeOwnerUserId,
     );
 
     items.push({
@@ -230,9 +241,16 @@ export const mergeDisplayedOrderItems = (
   orderItems: OrderItemRow[],
   refundOrders: RefundOrderRow[],
   settledSpaceSessions: SettledSpaceSessionRow[] = [],
+  storeOwnerUserId: number | null = null,
 ): HandoverOrderItemDto[] => {
-  const guestPayableItems = buildGuestPayableItems(settledSpaceSessions);
-  const refundItems = buildRefundItemsFromSessions(settledSpaceSessions);
+  const guestPayableItems = buildGuestPayableItems(
+    settledSpaceSessions,
+    storeOwnerUserId,
+  );
+  const refundItems = buildRefundItemsFromSessions(
+    settledSpaceSessions,
+    storeOwnerUserId,
+  );
 
   // 续费抵扣项按支付方式拆分：若同一会话使用了多种支付方式续费，
   // 拆为多行展示（如：微信 ¥100、支付宝 ¥50、刷卡 ¥70）。
@@ -309,7 +327,10 @@ export const mergeDisplayedOrderItems = (
             paymentLabel,
             paymentColor,
             operatorName,
-            operatorRole: resolveOperatorRole(item.order.operatorStaff ?? null),
+            operatorRole: resolveOperatorRole(
+              item.order.operatorStaff ?? null,
+              storeOwnerUserId,
+            ),
             date,
             displayDate: latestRenewedAt || date,
             currentStock: null,
@@ -324,7 +345,7 @@ export const mergeDisplayedOrderItems = (
         continue;
       }
     }
-    mappedOrderItems.push(mapOrderItem(item));
+    mappedOrderItems.push(mapOrderItem(item, storeOwnerUserId));
   }
 
   const merged = [

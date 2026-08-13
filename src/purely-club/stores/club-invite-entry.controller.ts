@@ -1,7 +1,12 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiOkResponse,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { ClubPublicInviteEntryResponseDto } from './dto/club-store.dto';
-import { ClubStoreAccessService } from './club-store-access.service';
+import { ClubInviteScanResolveService } from './club-invite-scan-resolve.service';
 
 /**
  * 邀请二维码公开落地入口（无鉴权）。
@@ -19,7 +24,7 @@ import { ClubStoreAccessService } from './club-store-access.service';
 @Controller('public/invite-entries')
 export class ClubInviteEntryController {
   constructor(
-    private readonly clubStoreAccessService: ClubStoreAccessService,
+    private readonly clubInviteScanResolveService: ClubInviteScanResolveService,
   ) {}
 
   @Get('v1/:inviteCode')
@@ -38,7 +43,7 @@ export class ClubInviteEntryController {
     @Param('inviteCode') inviteCode: string,
     @Query('t') issueToken?: string,
   ): Promise<ClubPublicInviteEntryResponseDto> {
-    return this.clubStoreAccessService.resolvePublicInviteEntry(
+    return this.clubInviteScanResolveService.resolvePublicInviteEntry(
       inviteCode,
       issueToken,
     );

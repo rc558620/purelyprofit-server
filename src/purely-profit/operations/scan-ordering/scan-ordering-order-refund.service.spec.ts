@@ -7,6 +7,7 @@ import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
 import { SalesRecordRefundService } from '../sales-record/sales-record-refund.service';
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
+import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
 import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-refund.service';
 
 describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
@@ -68,6 +69,11 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
     refundInTransaction: jest.fn(),
   };
 
+  const stockRestoreService = {
+    restoreReservedStock: jest.fn(),
+    refundSaleOrder: jest.fn(),
+  };
+
   const configService = {
     get: jest.fn(),
   };
@@ -84,6 +90,8 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
       undefined,
     );
     salesRecordRefundService.refundInTransaction.mockResolvedValue(undefined);
+    stockRestoreService.restoreReservedStock.mockResolvedValue(undefined);
+    stockRestoreService.refundSaleOrder.mockResolvedValue(undefined);
     prismaService.scanOrderStatusHistory.create.mockResolvedValue({});
     prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
       count: 1,
@@ -122,6 +130,10 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
           provide: SalesRecordRefundService,
           useValue: salesRecordRefundService,
         },
+        {
+          provide: ScanOrderingRefundStockRestoreService,
+          useValue: stockRestoreService,
+        },
         { provide: ConfigService, useValue: configService },
       ],
     }).compile();
@@ -134,13 +146,10 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
   it('普通退款完成确认：订单置为 rejected/refunded/closed 并版本加一', async () => {
     prismaService.scanOrders.updateMany.mockResolvedValueOnce({ count: 1 });
 
-    await service.completeRefund(
-      { id: 1, name: '收银员' } as never,
-      1001,
-      2,
-      'RF20260803001',
-      'wx-refund-123',
-    );
+    await service.completeRefund({ id: 1, name: '收银员' } as never, 1001, 2, {
+      refundNo: 'RF20260803001',
+      refundId: 'wx-refund-123',
+    });
 
     expect(prismaService.scanOrders.updateMany).toHaveBeenCalledWith({
       where: {
@@ -159,36 +168,13 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
     });
   });
 
-  it('普通退款完成确认：恢复库存一次（菜单商品、Product.stock、规格）', async () => {
+  it('普通退款完成确认：委托库存恢复与销售冲销服务各一次', async () => {
     prismaService.scanOrders.updateMany.mockResolvedValueOnce({ count: 1 });
-    prismaService.scanOrderItem.findMany.mockResolvedValue([
-      {
-        menuProductId: 201,
-        quantity: 2,
-        menuProduct: { productId: 901 },
-        specs: [{ specOptionId: 301 }],
-      },
-    ]);
 
     await service.completeRefund({ id: 1, name: '收银员' } as never, 1001, 2);
 
-    expect(
-      prismaService.scanOrderingMenuProduct.updateMany,
-    ).toHaveBeenCalledWith({
-      where: { id: 201, storeId: 11, stockMode: 'finite' },
-      data: {
-        stockQuantity: { increment: 2 },
-        salesCount: { decrement: 2 },
-        version: { increment: 1 },
-      },
-    });
-    expect(prismaService.product.updateMany).toHaveBeenCalledWith({
-      where: { id: 901, storeId: 11, deletedAt: null },
-      data: { stock: { increment: 2 } },
-    });
-    expect(
-      prismaService.scanOrderingSpecOption.updateMany,
-    ).toHaveBeenCalledTimes(1);
+    expect(stockRestoreService.restoreReservedStock).toHaveBeenCalledTimes(1);
+    expect(stockRestoreService.refundSaleOrder).toHaveBeenCalledTimes(1);
   });
 
   it('普通退款完成确认：只创建一次标准销售退款与财务退款', async () => {
@@ -197,22 +183,16 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
 
     await service.completeRefund({ id: 1, name: '收银员' } as never, 1001, 2);
 
-    expect(prismaService.saleOrder.findUnique).toHaveBeenCalledWith({
-      where: { scanOrderId: 1001 },
-      select: { id: true },
-    });
-    expect(salesRecordRefundService.refundInTransaction).toHaveBeenCalledTimes(
-      1,
-    );
+    expect(stockRestoreService.refundSaleOrder).toHaveBeenCalledTimes(1);
   });
 
-  it('普通退款完成确认：无标准销售单时不创建标准退款', async () => {
+  it('普通退款完成确认：无标准销售单时仍委托销售冲销服务（内部跳过）', async () => {
     prismaService.scanOrders.updateMany.mockResolvedValueOnce({ count: 1 });
     prismaService.saleOrder.findUnique.mockResolvedValue(null);
 
     await service.completeRefund({ id: 1, name: '收银员' } as never, 1001, 2);
 
-    expect(salesRecordRefundService.refundInTransaction).not.toHaveBeenCalled();
+    expect(stockRestoreService.refundSaleOrder).toHaveBeenCalledTimes(1);
   });
 
   it('普通退款完成确认：已 refunded 的订单重复确认抛 ConflictException 且不恢复库存', async () => {
@@ -228,6 +208,7 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(prismaService.scanOrderItem.findMany).not.toHaveBeenCalled();
-    expect(salesRecordRefundService.refundInTransaction).not.toHaveBeenCalled();
+    expect(stockRestoreService.restoreReservedStock).not.toHaveBeenCalled();
+    expect(stockRestoreService.refundSaleOrder).not.toHaveBeenCalled();
   });
 });
