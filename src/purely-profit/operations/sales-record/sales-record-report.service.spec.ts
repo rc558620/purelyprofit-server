@@ -6,6 +6,8 @@ import { PlatformMembershipAccessService } from '../../member/platform-membershi
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import { SalesRecordReportService } from './sales-record-report.service';
+import { buildCsvRowFromOrder } from './sales-record-report.service';
+import type { SaleOrderWithItems } from './sales-record.domain';
 
 describe('SalesRecordReportService', () => {
   let service: SalesRecordReportService;
@@ -310,6 +312,48 @@ describe('SalesRecordReportService', () => {
     });
   });
 
+  it('CSV 导出商品列包含空间台位费前缀（带空格）', () => {
+    const order = {
+      id: 50,
+      orderNo: '#20260514-050',
+      paymentMethod: 'cash',
+      customerPaymentMethod: null,
+      grouponPlatform: null,
+      voucherPlatform: null,
+      operatorNameSnapshot: '老板',
+      note: null,
+      date: new Date('2026-05-14T10:00:00.000Z'),
+      refund: null,
+      spaceSession: {
+        space: { name: 'A01' },
+      },
+      items: [
+        {
+          id: 500,
+          productId: 54,
+          productName: '台位费（固定）',
+          categoryName: '台位费',
+          salePrice: new Prisma.Decimal('4400'),
+          profit: new Prisma.Decimal('4400'),
+          quantity: 1,
+        },
+        {
+          id: 501,
+          productId: 55,
+          productName: '绿茶',
+          categoryName: '饮品',
+          salePrice: new Prisma.Decimal('1200'),
+          profit: new Prisma.Decimal('500'),
+          quantity: 2,
+        },
+      ],
+    } as unknown as SaleOrderWithItems;
+
+    const row = buildCsvRowFromOrder(order);
+    // 商品列：台位费带空间前缀，普通商品保持原名
+    expect(row[1]).toBe('A01 台位费（固定）×1；绿茶×2');
+  });
+
   it('getReport 会为台位费和预付款补充空间名称并按空间拆分聚合', async () => {
     commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
     prismaService.saleOrder.findMany.mockResolvedValue([
@@ -447,16 +491,16 @@ describe('SalesRecordReportService', () => {
       },
       dailySales: [
         {
-          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A02台位费（固定）`,
+          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A02 台位费（固定）`,
           dateLabel: '05/14',
-          productName: '大厅A02台位费（固定）',
+          productName: '大厅A02 台位费（固定）',
           quantity: 1,
           revenue: 8,
         },
         {
-          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A01台位费（固定）`,
+          id: `${new Date(2026, 4, 14, 0, 0, 0, 0).getTime()}-space_大厅A01 台位费（固定）`,
           dateLabel: '05/14',
-          productName: '大厅A01台位费（固定）',
+          productName: '大厅A01 台位费（固定）',
           quantity: 1,
           revenue: 10,
         },

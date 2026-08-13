@@ -13,11 +13,17 @@ import {
   buildGrouponLabel,
   PAYMENT_METHOD_CONFIG,
 } from '../handover/handover.constants';
+import {
+  fenToYuan,
+  pointsDeductAmountFen,
+  toDiscountItems,
+} from '../../../purely-club/scan-ordering/club-scan-ordering-order.mapper';
 import type {
   SalesDailyRowDto,
   SalesRecordItemResponseDto,
   SalesRecordResponseDto,
-} from './dto/sales-record.dto';
+  ScanOrderingAmountSummaryDto,
+} from './dto/sales-record-response.dto';
 import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
 
 // ---------------------------------------------------------------------------
@@ -42,6 +48,7 @@ export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
     operatorNameSnapshot: true;
     date: true;
     createdAt: true;
+    scanOrderId: true;
     refund: { select: { refundedAt: true } };
     // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
     customerPaymentMethod: true;
@@ -161,11 +168,132 @@ function buildGrouponResponseFields(order: SaleOrderWithItems): Partial<{
 }
 
 // ---------------------------------------------------------------------------
+// 扫码点餐订单增强（销售记录展开区对齐 scan-ordering 详情）
+// ---------------------------------------------------------------------------
+
+/** 销售记录关联的扫码点餐订单最小查询形态（金额均为分）。 */
+export interface ScanOrderingDetailSource {
+  id: number;
+  marketingSnapshot: unknown;
+  itemOriginalAmount: number;
+  specificationExtraAmount: number;
+  payableAmount: number;
+  items: Array<{
+    productNameSnapshot: string;
+    quantity: number;
+    lineTotalAmount: number;
+    payableLineAmount: number;
+    specs: Array<{ specOptionNameSnapshot: string }>;
+  }>;
+}
+
+/** 扫码点餐订单增强结果：规格行（与可见商品行一一对应）+ 原价单价（元）+ 金额汇总（元）。 */
+export interface ScanOrderingEnrichment {
+  specsRows: string[][];
+  originalUnitPrices: number[];
+  amountSummary: ScanOrderingAmountSummaryDto;
+}
+
+/**
+ * 组装扫码点餐订单增强数据：
+ * 1. 规格行与原价单价按 bridge 展开顺序与销售商品行一一对应（scanOrderItem 按数量展开为 unit）；
+ * 2. 原价单价 = 未扣优惠的原价小计（lineTotalAmount）按数量分摊，余数补到最后一件，总和守恒；
+ * 3. 金额汇总以分转元输出，总优惠额由后端计算，前端只读展示。
+ */
+export function buildScanOrderingEnrichment(
+  order: SaleOrderWithItems,
+  scan: ScanOrderingDetailSource,
+): ScanOrderingEnrichment {
+  const unitRows = buildScanOrderingUnitRows(scan.items);
+  return {
+    specsRows: buildSpecsRows(order.items, unitRows),
+    originalUnitPrices: buildOriginalUnitPrices(order.items, unitRows),
+    amountSummary: buildScanOrderingAmountSummary(scan),
+  };
+}
+
+/** 扫码订单商品按数量展开的 unit 序列（规格 + 原价分摊单价，分）。 */
+interface ScanOrderingUnit {
+  specs: string[];
+  originalUnitPriceFen: number;
+}
+
+/** 将扫码订单商品行按数量展开为 unit，原价小计分摊到每件（余数补到最后一件）。 */
+function buildScanOrderingUnitRows(
+  scanItems: ScanOrderingDetailSource['items'],
+): ScanOrderingUnit[] {
+  const units: ScanOrderingUnit[] = [];
+  for (const item of scanItems) {
+    const specs = (item.specs ?? []).map((spec) => spec.specOptionNameSnapshot);
+    const quantity = Math.max(item.quantity, 0);
+    const originalTotalFen = item.lineTotalAmount ?? 0;
+    const unitPriceFen =
+      quantity > 0 ? Math.floor(originalTotalFen / quantity) : 0;
+    const remainder = quantity > 0 ? originalTotalFen % quantity : 0;
+    for (let index = 0; index < quantity; index += 1) {
+      units.push({
+        specs,
+        originalUnitPriceFen: unitPriceFen + (index < remainder ? 1 : 0),
+      });
+    }
+  }
+  return units;
+}
+
+/** 规格游标匹配：unit 序列与销售商品行一一对应，数量不一致时回退空规格。 */
+function buildSpecsRows(
+  saleItems: SaleOrderWithItems['items'],
+  units: ScanOrderingUnit[],
+): string[][] {
+  if (units.length !== saleItems.length) {
+    return saleItems.map(() => []);
+  }
+  return units.map((unit) => unit.specs);
+}
+
+/** 原价单价（分→元）：unit 序列与销售商品行一一对应，数量不一致时回退 0。 */
+function buildOriginalUnitPrices(
+  saleItems: SaleOrderWithItems['items'],
+  units: ScanOrderingUnit[],
+): number[] {
+  if (units.length !== saleItems.length) {
+    return saleItems.map(() => 0);
+  }
+  return units.map((unit) => fenToYuan(unit.originalUnitPriceFen));
+}
+
+/** 组装扫码点餐金额汇总（元）：优惠清单复用 club 营销快照解析，总优惠由后端计算。 */
+function buildScanOrderingAmountSummary(
+  scan: ScanOrderingDetailSource,
+): ScanOrderingAmountSummaryDto {
+  const itemOriginalAmount = fenToYuan(scan.itemOriginalAmount ?? 0);
+  const specificationExtraAmount = fenToYuan(
+    scan.specificationExtraAmount ?? 0,
+  );
+  const payableAmount = fenToYuan(scan.payableAmount ?? 0);
+  const discountAmount = Math.max(
+    itemOriginalAmount + specificationExtraAmount - payableAmount,
+    0,
+  );
+  return {
+    itemOriginalAmount,
+    specificationExtraAmount,
+    payableAmount,
+    discountAmount,
+    pointsDeductAmount: fenToYuan(
+      pointsDeductAmountFen(scan.marketingSnapshot),
+    ),
+    discountItems: toDiscountItems(scan.marketingSnapshot),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // 响应映射
 // ---------------------------------------------------------------------------
 
 export function mapSalesRecordResponse(
   order: SaleOrderWithItems,
+  enrichment?: ScanOrderingEnrichment,
 ): SalesRecordResponseDto {
   const note = toOptionalText(order.note);
   // 过滤掉抵扣行（预付款 + 续费抵扣），销售记录只展示实际消费
@@ -199,22 +327,34 @@ export function mapSalesRecordResponse(
   const isGrouponPayment =
     order.customerPaymentMethod === 'groupon_voucher' ||
     (order.paymentMethod as string) === 'groupon_voucher';
+  // 扫码点餐余额支付（other）统一展示为 balance（余额）；仅扫码订单生效，普通订单原样
+  const isScanOrderingBalance =
+    order.scanOrderId !== null && order.paymentMethod === 'other';
+  const paymentMethod = isScanOrderingBalance ? 'balance' : order.paymentMethod;
   const paymentLabel = isGrouponPayment
     ? buildGrouponLabel(order.grouponPlatform ?? order.voucherPlatform)
-    : ((PAYMENT_METHOD_CONFIG as Record<string, { label: string }>)[
-        order.paymentMethod
-      ]?.label ?? order.paymentMethod);
+    : isScanOrderingBalance
+      ? '余额'
+      : ((PAYMENT_METHOD_CONFIG as Record<string, { label: string }>)[
+          order.paymentMethod
+        ]?.label ?? order.paymentMethod);
 
   return {
     id: String(order.id),
     orderNo: order.orderNo,
     items: visibleItems.map((item, index) =>
-      mapSalesRecordItemResponse(item, amountsSnapshot.items[index]),
+      mapSalesRecordItemResponse(
+        item,
+        amountsSnapshot.items[index],
+        enrichment?.specsRows[index],
+        enrichment?.originalUnitPrices[index],
+        order.spaceSession?.space?.name ?? null,
+      ),
     ),
     totalRevenue: amountsSnapshot.totalRevenue,
     totalProfit: amountsSnapshot.totalProfit,
     totalQuantity: amountsSnapshot.totalQuantity,
-    paymentMethod: order.paymentMethod,
+    paymentMethod,
     paymentLabel,
     calcMode: order.calcMode,
     ...(note ? { note } : {}),
@@ -224,6 +364,7 @@ export function mapSalesRecordResponse(
     createdAt: toTimestampMs(order.createdAt),
     refundedAt: order.refund ? toTimestampMs(order.refund.refundedAt) : null,
     ...grouponFields,
+    ...(enrichment ? { amountSummary: enrichment.amountSummary } : {}),
   };
 }
 
@@ -232,17 +373,28 @@ export function mapSalesRecordItemResponse(
   amountItem?: ReturnType<
     typeof SalesRecordAmountsDomain.aggregateFromPreparedItems
   >['items'][0],
+  specs?: string[],
+  originalUnitPrice?: number,
+  spaceName?: string | null,
 ): SalesRecordItemResponseDto {
+  // 空间台位费商品（非餐饮场景）带空间名称前缀（空格分隔），与报表/CSV 口径一致
+  const displayName = prefixSpaceName(spaceName, item.productName);
   return {
     productId:
       item.productId !== null ? String(item.productId) : `manual_${item.id}`,
-    productName: item.productName,
+    productName: displayName,
     categoryName: item.categoryName,
     salePrice: Money.fromDbCents(item.salePrice).toOutputYuan(),
     profit: Money.fromDbCents(item.profit).toOutputYuan(),
     quantity: item.quantity,
     // 从权威金额快照补齐 subtotal 字段
     subtotal: amountItem?.subtotal ?? 0,
+    // 扫码点餐订单规格快照；空数组不返回，前端缺省回退 []
+    ...(specs && specs.length > 0 ? { specs } : {}),
+    // 扫码点餐订单优惠前单价（元）；原价为 0 时不返回，前端回退 salePrice
+    ...(originalUnitPrice && originalUnitPrice > 0
+      ? { originalUnitPrice }
+      : {}),
   };
 }
 
@@ -262,16 +414,29 @@ function shouldPrefixReportSpaceName(productName: string): boolean {
   return productName.startsWith('台位费（');
 }
 
-function resolveReportProductName(
+/**
+ * 台位费商品拼接空间名称前缀（空格分隔）：列表、报表、CSV 共用的唯一拼接来源。
+ * 非台位费商品或缺失空间名时原样返回。
+ */
+export function prefixSpaceName(
+  spaceName: string | null | undefined,
+  productName: string,
+): string {
+  if (!spaceName || !shouldPrefixReportSpaceName(productName)) {
+    return productName;
+  }
+  return `${spaceName} ${productName}`;
+}
+
+/** 台位费商品展示名：从订单空间会话取空间名并拼接前缀（报表/CSV 复用）。 */
+export function resolveReportProductName(
   order: SaleOrderWithItems,
   item: SaleOrderWithItems['items'][number],
 ): string {
-  const spaceName = toOptionalText(order.spaceSession?.space?.name);
-  if (!spaceName || !shouldPrefixReportSpaceName(item.productName)) {
-    return item.productName;
-  }
-
-  return `${spaceName}${item.productName}`;
+  return prefixSpaceName(
+    toOptionalText(order.spaceSession?.space?.name),
+    item.productName,
+  );
 }
 
 function buildReportRowId(

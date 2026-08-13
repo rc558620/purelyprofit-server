@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { StaffRole } from '@prisma/client';
+import { IsArray, IsBoolean, IsNumber, IsString } from 'class-validator';
 import { PaginationMetaDto } from '../../../stores/dto/store-response.dto';
 import {
   SALES_CALC_MODE_VALUES,
@@ -7,6 +8,15 @@ import {
   type SalesCalcModeValue,
   type SalesPaymentMethodValue,
 } from '../sales-record.types';
+
+/** 销售记录支付方式取值：兼容扫码点餐余额支付（balance）。 */
+export type SalesRecordPaymentMethodValue = SalesPaymentMethodValue | 'balance';
+
+/** 销售记录支付方式枚举（Swagger 展示用）。 */
+export const SALES_RECORD_PAYMENT_METHOD_VALUES = [
+  ...SALES_PAYMENT_METHOD_VALUES,
+  'balance',
+] as const satisfies readonly SalesRecordPaymentMethodValue[];
 
 export class SalesProductResponseDto {
   @ApiProperty({ example: '1', description: '商品 ID' })
@@ -58,6 +68,19 @@ export class SalesRecordItemResponseDto {
     description: '商品小计 = salePrice × quantity（元）',
   })
   subtotal: number;
+
+  @ApiPropertyOptional({
+    example: ['不辣', '加鱼丸'],
+    description: '商品规格名称快照；仅扫码点餐订单返回，普通订单缺省',
+  })
+  specs?: string[];
+
+  @ApiPropertyOptional({
+    example: 98,
+    description:
+      '优惠前单价（元，未扣任何优惠）；仅扫码点餐订单返回，普通订单缺省',
+  })
+  originalUnitPrice?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +142,65 @@ export class PreviewSalesRecordResponseDto {
   totalQuantity: number;
 }
 
+export class ScanOrderingDiscountItemDto {
+  @IsString()
+  @ApiProperty({
+    example: '会员等级折扣 8折',
+    description: '优惠项展示标签（如“会员等级折扣 8折”“满50减8”）',
+  })
+  label: string;
+
+  @IsNumber()
+  @ApiProperty({
+    example: -20.5,
+    description: '优惠金额（元）；负数表示减免',
+  })
+  amount: number;
+
+  @IsBoolean()
+  @ApiProperty({
+    example: false,
+    description: '被覆盖/失效优惠：true 时前端划线展示',
+  })
+  isStrikethrough: boolean;
+}
+
+/** 扫码点餐订单金额汇总（元，全部由后端计算，前端只读展示）。 */
+export class ScanOrderingAmountSummaryDto {
+  @IsNumber()
+  @ApiProperty({ example: 508, description: '商品基础价合计（元）' })
+  itemOriginalAmount: number;
+
+  @IsNumber()
+  @ApiProperty({ example: 16, description: '规格加价合计（元）' })
+  specificationExtraAmount: number;
+
+  @IsNumber()
+  @ApiProperty({
+    example: 404.8,
+    description: '应付金额（元，含所有优惠与积分抵扣）',
+  })
+  payableAmount: number;
+
+  @IsNumber()
+  @ApiProperty({
+    example: 119.2,
+    description: '总优惠金额（元，= 商品原价 + 规格加价 − 应付，由后端计算）',
+  })
+  discountAmount: number;
+
+  @IsNumber()
+  @ApiProperty({ example: 0, description: '积分抵扣金额（元）' })
+  pointsDeductAmount: number;
+
+  @IsArray()
+  @ApiProperty({
+    type: [ScanOrderingDiscountItemDto],
+    description: '优惠清单明细（仅减免项，amount 为负）',
+  })
+  discountItems: ScanOrderingDiscountItemDto[];
+}
+
 export class SalesRecordResponseDto {
   @ApiProperty({ example: '1', description: '销售记录 ID' })
   id: string;
@@ -140,10 +222,10 @@ export class SalesRecordResponseDto {
 
   @ApiProperty({
     example: 'cash',
-    enum: SALES_PAYMENT_METHOD_VALUES,
-    description: '支付方式',
+    enum: SALES_RECORD_PAYMENT_METHOD_VALUES,
+    description: '支付方式；balance 为扫码点餐余额支付',
   })
-  paymentMethod: SalesPaymentMethodValue;
+  paymentMethod: SalesRecordPaymentMethodValue;
 
   @ApiProperty({
     example: '美团团购',
@@ -227,6 +309,13 @@ export class SalesRecordResponseDto {
 
   @ApiPropertyOptional({ example: 5, description: '平台手续费（元）' })
   platformFee?: number;
+
+  @ApiPropertyOptional({
+    type: ScanOrderingAmountSummaryDto,
+    description:
+      '扫码点餐订单金额汇总（规格/优惠清单数据源）；仅扫码点餐订单返回，普通订单缺省',
+  })
+  amountSummary?: ScanOrderingAmountSummaryDto;
 }
 
 export class SalesStatsResponseDto {

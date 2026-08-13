@@ -148,6 +148,7 @@ export class SalesRecordCreateFlowService {
           operatorNameSnapshot: true,
           date: true,
           createdAt: true,
+          scanOrderId: true,
           // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
           customerPaymentMethod: true,
           grouponCode: true,

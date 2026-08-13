@@ -25,7 +25,9 @@ import type {
 } from './marketing.types';
 import {
   MARKETING_CUSTOMER_TIER_VALUES,
+  MARKETING_PRODUCT_BILLING_MODE_VALUES,
   type MarketingCustomerTierValue,
+  type MarketingProductBillingModeValue,
   calcCustomerStatus,
   calcPromotionStatus,
   normalizePhone,
@@ -315,7 +317,11 @@ export function mapProductRow(row: MarketingProductRow): MarketingProductDto {
     unit: row.unit ?? undefined,
     type: row.type,
     validDays: row.validDays ?? undefined,
-    billingMode: row.billingMode ?? 'items',
+    billingMode: safeEnumCoerce(
+      row.billingMode,
+      MARKETING_PRODUCT_BILLING_MODE_VALUES,
+      'items' as MarketingProductBillingModeValue,
+    ),
     hourlyRate:
       row.hourlyRate !== null && row.hourlyRate !== undefined
         ? Money.fromDbCents(row.hourlyRate).toOutputYuan()

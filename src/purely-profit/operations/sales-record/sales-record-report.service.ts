@@ -21,7 +21,10 @@ import type {
   SalesReportQueryDto,
   SalesReportResponseDto,
 } from './dto/sales-record.dto';
-import { aggregateReportRows } from './sales-record.domain';
+import {
+  aggregateReportRows,
+  resolveReportProductName,
+} from './sales-record.domain';
 import type { SaleOrderWithItems } from './sales-record.domain';
 import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
 import { querySaleOrders } from './sales-record.query';
@@ -69,7 +72,7 @@ function resolvePaymentLabel(paymentMethod: string): string {
   return PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod;
 }
 
-function buildCsvRowFromOrder(order: SaleOrderWithItems): string[] {
+export function buildCsvRowFromOrder(order: SaleOrderWithItems): string[] {
   const visibleItems = order.items.filter(
     (item) => !isDeductionProductName(item.productName),
   );
@@ -89,7 +92,7 @@ function buildCsvRowFromOrder(order: SaleOrderWithItems): string[] {
     SalesRecordAmountsDomain.aggregateFromPreparedItems(preparedItems);
 
   const itemNames = visibleItems
-    .map((it) => `${it.productName}×${it.quantity}`)
+    .map((it) => `${resolveReportProductName(order, it)}×${it.quantity}`)
     .join('；');
 
   const operatorName = toOptionalText(order.operatorNameSnapshot) ?? '-';

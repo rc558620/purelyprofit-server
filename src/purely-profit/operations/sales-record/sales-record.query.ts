@@ -3,7 +3,10 @@ import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import { formatShanghaiDate } from '../../../shared/shanghai-time.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
-import type { SaleOrderWithItems } from './sales-record.domain';
+import type {
+  SaleOrderWithItems,
+  ScanOrderingDetailSource,
+} from './sales-record.domain';
 import { buildOrderNo, type SalesPeriodRange } from './sales-record.utils';
 
 export interface SalesStatsAggregation {
@@ -89,6 +92,7 @@ export async function querySaleOrders(
       operatorNameSnapshot: true,
       date: true,
       createdAt: true,
+      scanOrderId: true,
       refund: { select: { refundedAt: true } },
       // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
       customerPaymentMethod: true,
@@ -139,6 +143,41 @@ export async function querySaleOrders(
     orderBy: [{ date: 'desc' }, { id: 'desc' }],
     skip: params.skip,
     take: params.take,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 扫码点餐订单详情查询（销售记录增强数据源）
+// ---------------------------------------------------------------------------
+
+/** 批量查询销售记录关联的扫码点餐订单：营销快照（优惠清单）+ 商品规格快照。 */
+export async function queryScanOrderingDetails(
+  prisma: PrismaService,
+  scanOrderIds: number[],
+): Promise<ScanOrderingDetailSource[]> {
+  if (scanOrderIds.length === 0) return [];
+  return prisma.scanOrders.findMany({
+    where: { id: { in: scanOrderIds } },
+    select: {
+      id: true,
+      marketingSnapshot: true,
+      itemOriginalAmount: true,
+      specificationExtraAmount: true,
+      payableAmount: true,
+      items: {
+        select: {
+          productNameSnapshot: true,
+          quantity: true,
+          lineTotalAmount: true,
+          payableLineAmount: true,
+          specs: {
+            select: { specOptionNameSnapshot: true },
+            orderBy: { id: 'asc' },
+          },
+        },
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      },
+    },
   });
 }
 

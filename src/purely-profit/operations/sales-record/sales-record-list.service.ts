@@ -14,11 +14,15 @@ import {
   buildPaginationMeta,
   resolvePagination,
 } from '../../commerce/commerce.utils';
-import { mapSalesRecordResponse } from './sales-record.domain';
+import {
+  buildScanOrderingEnrichment,
+  mapSalesRecordResponse,
+} from './sales-record.domain';
 import {
   aggregateOrderStats,
   countSaleOrders,
   querySaleOrders,
+  queryScanOrderingDetails,
 } from './sales-record.query';
 import {
   buildEmptySalesListResponse,
@@ -65,13 +69,17 @@ export class SalesRecordListService {
       return buildEmptySalesListResponse(page, take);
     }
 
-    const [orders, total, currentStats] = await Promise.all([
-      querySaleOrders(this.prisma, {
-        storeId,
-        range: { start: range.start, end: range.end },
-        skip,
-        take,
-      }),
+    const orders = await querySaleOrders(this.prisma, {
+      storeId,
+      range: { start: range.start, end: range.end },
+      skip,
+      take,
+    });
+    // 收集扫码点餐订单 ID（仅餐饮账号的扫码订单存在，普通订单为空）
+    const scanOrderIds = orders
+      .map((order) => order.scanOrderId)
+      .filter((id): id is number => id !== null && id !== undefined);
+    const [total, currentStats, scanOrderingDetails] = await Promise.all([
       countSaleOrders(this.prisma, {
         storeId,
         range: { start: range.start, end: range.end },
@@ -80,8 +88,22 @@ export class SalesRecordListService {
         start: range.start,
         end: range.end,
       }),
+      queryScanOrderingDetails(this.prisma, scanOrderIds),
     ]);
-    const items = orders.map((order) => mapSalesRecordResponse(order));
+    const scanOrderingDetailMap = new Map(
+      scanOrderingDetails.map((detail) => [detail.id, detail]),
+    );
+    const items = orders.map((order) => {
+      const scanOrderId = order.scanOrderId;
+      if (scanOrderId === null) {
+        return mapSalesRecordResponse(order);
+      }
+      const scan = scanOrderingDetailMap.get(scanOrderId);
+      return mapSalesRecordResponse(
+        order,
+        scan ? buildScanOrderingEnrichment(order, scan) : undefined,
+      );
+    });
 
     const summary: SalesStatsResponseDto = {
       totalRevenue: currentStats.totalRevenue,

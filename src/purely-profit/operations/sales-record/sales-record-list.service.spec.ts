@@ -17,6 +17,9 @@ describe('SalesRecordListService', () => {
       findMany: jest.fn(),
       count: jest.fn(),
     },
+    scanOrders: {
+      findMany: jest.fn(),
+    },
   };
 
   const configService = {
@@ -62,6 +65,7 @@ describe('SalesRecordListService', () => {
     prismaService.$queryRaw.mockResolvedValue([
       { revenue: 0, profit: 0, order_count: BigInt(0) },
     ]);
+    prismaService.scanOrders.findMany.mockResolvedValue([]);
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, number> = {
         'app.defaultPageSize': 20,
@@ -213,6 +217,308 @@ describe('SalesRecordListService', () => {
       },
     });
     expect(prismaService.saleOrder.count).toHaveBeenCalled();
+  });
+
+  it('list 对扫码点餐订单返回增强字段（balance 支付 + 规格 + 金额汇总）', async () => {
+    const saleDate = new Date('2026-05-14T10:00:00.000Z');
+    const createdAt = new Date('2026-05-14T10:10:00.000Z');
+
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.count.mockResolvedValue(1);
+    // 扫码订单销售单：余额支付（other）+ 两条商品行（数量展开）
+    prismaService.saleOrder.findMany.mockResolvedValue([
+      {
+        id: 12,
+        storeId: 18,
+        operatorStaffId: 8,
+        orderNo: '#20260514-002',
+        totalRevenue: new Prisma.Decimal('6000'),
+        totalProfit: new Prisma.Decimal('1200'),
+        totalQuantity: 2,
+        paymentMethod: 'other',
+        calcMode: 'business',
+        note: '扫码点餐订单 SO1001',
+        date: saleDate,
+        createdAt,
+        updatedAt: createdAt,
+        scanOrderId: 1001,
+        items: [
+          {
+            id: 102,
+            orderId: 12,
+            storeId: 18,
+            productId: 51,
+            productName: '金牌脆皮鸭',
+            categoryName: '热菜',
+            salePrice: new Prisma.Decimal('2500'),
+            profit: new Prisma.Decimal('500'),
+            quantity: 1,
+            image: null,
+            createdAt,
+          },
+          {
+            id: 103,
+            orderId: 12,
+            storeId: 18,
+            productId: 52,
+            productName: '招牌水煮鱼',
+            categoryName: '热菜',
+            salePrice: new Prisma.Decimal('3500'),
+            profit: new Prisma.Decimal('700'),
+            quantity: 1,
+            image: null,
+            createdAt,
+          },
+        ],
+      },
+    ]);
+    // 关联扫码订单：营销快照（优惠清单）+ 两条商品（各带规格）
+    prismaService.scanOrders.findMany.mockResolvedValue([
+      {
+        id: 1001,
+        marketingSnapshot: {
+          pointsDeductAmount: 500,
+          breakdownItems: [
+            {
+              label: '会员等级折扣 8折',
+              amount: -3200,
+              isStrikethrough: false,
+            },
+            {
+              label: '满50减8',
+              amount: -800,
+              isStrikethrough: true,
+            },
+            {
+              label: '已失效优惠',
+              amount: -100,
+              isStrikethrough: true,
+            },
+          ],
+        },
+        itemOriginalAmount: 6000,
+        specificationExtraAmount: 0,
+        payableAmount: 5600,
+        items: [
+          {
+            productNameSnapshot: '金牌脆皮鸭',
+            quantity: 1,
+            lineTotalAmount: 9800,
+            payableLineAmount: 2500,
+            specs: [{ specOptionNameSnapshot: '加辣' }],
+          },
+          {
+            productNameSnapshot: '招牌水煮鱼',
+            quantity: 1,
+            lineTotalAmount: 9800,
+            payableLineAmount: 3500,
+            specs: [
+              { specOptionNameSnapshot: '不辣' },
+              { specOptionNameSnapshot: '加鱼丸' },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    await expect(
+      service.list(user, { storeId: 18, period: 'all' }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({
+            id: '12',
+            paymentMethod: 'balance',
+            paymentLabel: '余额',
+            items: [
+              expect.objectContaining({
+                productName: '金牌脆皮鸭',
+                specs: ['加辣'],
+                originalUnitPrice: 98,
+              }),
+              expect.objectContaining({
+                productName: '招牌水煮鱼',
+                specs: ['不辣', '加鱼丸'],
+                originalUnitPrice: 98,
+              }),
+            ],
+            amountSummary: {
+              itemOriginalAmount: 60,
+              specificationExtraAmount: 0,
+              payableAmount: 56,
+              discountAmount: 4,
+              pointsDeductAmount: 5,
+              discountItems: [
+                {
+                  label: '会员等级折扣 8折',
+                  amount: -32,
+                  isStrikethrough: false,
+                },
+                {
+                  label: '满50减8',
+                  amount: -8,
+                  isStrikethrough: true,
+                },
+                {
+                  label: '已失效优惠',
+                  amount: -1,
+                  isStrikethrough: true,
+                },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+    // 断言批量查询按扫码订单 ID 过滤
+    expect(prismaService.scanOrders.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: [1001] } },
+      }),
+    );
+  });
+
+  it('list 对普通订单不返回增强字段，other 支付方式保持原样', async () => {
+    const saleDate = new Date('2026-05-14T10:00:00.000Z');
+    const createdAt = new Date('2026-05-14T10:10:00.000Z');
+
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.count.mockResolvedValue(1);
+    prismaService.saleOrder.findMany.mockResolvedValue([
+      {
+        id: 13,
+        storeId: 18,
+        operatorStaffId: 8,
+        orderNo: '#20260514-003',
+        totalRevenue: new Prisma.Decimal('1000'),
+        totalProfit: new Prisma.Decimal('200'),
+        totalQuantity: 1,
+        paymentMethod: 'other',
+        calcMode: 'business',
+        note: null,
+        date: saleDate,
+        createdAt,
+        updatedAt: createdAt,
+        scanOrderId: null,
+        items: [
+          {
+            id: 104,
+            orderId: 13,
+            storeId: 18,
+            productId: 53,
+            productName: '手写商品',
+            categoryName: '其他',
+            salePrice: new Prisma.Decimal('1000'),
+            profit: new Prisma.Decimal('200'),
+            quantity: 1,
+            image: null,
+            createdAt,
+          },
+        ],
+      },
+    ]);
+
+    await expect(
+      service.list(user, { storeId: 18, period: 'all' }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({
+            id: '13',
+            paymentMethod: 'other',
+            paymentLabel: '其他',
+            items: [
+              expect.objectContaining({
+                productName: '手写商品',
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+    // 普通订单不应触发扫码订单批量查询（空 ID 集合直接返回）
+    expect(prismaService.scanOrders.findMany).not.toHaveBeenCalled();
+    // 普通订单响应不含增强字段
+    const result = await service.list(user, { storeId: 18, period: 'all' });
+    expect(result.items[0]).not.toHaveProperty('amountSummary');
+  });
+
+  it('list 对空间台位费商品拼接空间名称前缀（非餐饮账号场景）', async () => {
+    const saleDate = new Date('2026-05-14T10:00:00.000Z');
+    const createdAt = new Date('2026-05-14T10:10:00.000Z');
+
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.count.mockResolvedValue(1);
+    prismaService.saleOrder.findMany.mockResolvedValue([
+      {
+        id: 14,
+        storeId: 18,
+        operatorStaffId: 8,
+        orderNo: '#20260514-004',
+        totalRevenue: new Prisma.Decimal('4400'),
+        totalProfit: new Prisma.Decimal('4400'),
+        totalQuantity: 1,
+        paymentMethod: 'cash',
+        calcMode: 'business',
+        note: null,
+        date: saleDate,
+        createdAt,
+        updatedAt: createdAt,
+        scanOrderId: null,
+        items: [
+          {
+            id: 105,
+            orderId: 14,
+            storeId: 18,
+            productId: 54,
+            productName: '台位费（固定）',
+            categoryName: '台位费',
+            salePrice: new Prisma.Decimal('4400'),
+            profit: new Prisma.Decimal('4400'),
+            quantity: 1,
+            image: null,
+            createdAt,
+          },
+          {
+            id: 106,
+            orderId: 14,
+            storeId: 18,
+            productId: 55,
+            productName: '绿茶',
+            categoryName: '饮品',
+            salePrice: new Prisma.Decimal('1200'),
+            profit: new Prisma.Decimal('500'),
+            quantity: 1,
+            image: null,
+            createdAt,
+          },
+        ],
+        spaceSession: {
+          space: { name: 'A01' },
+        },
+      },
+    ]);
+
+    await expect(
+      service.list(user, { storeId: 18, period: 'all' }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({
+            id: '14',
+            items: [
+              expect.objectContaining({
+                productName: 'A01 台位费（固定）',
+              }),
+              // 非台位费商品不受影响
+              expect.objectContaining({
+                productName: '绿茶',
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
   });
 
   it('listFrontendOrders 默认返回 purelyProfit 前端兼容分页结构', async () => {
