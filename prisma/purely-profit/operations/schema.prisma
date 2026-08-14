@@ -295,6 +295,8 @@ model ScanOrderingMenuProduct {
   basePrice     Int                      @map("base_price")
   stockMode     ScanOrderingStockMode    @default(unlimited) @map("stock_mode")
   stockQuantity Int?                     @map("stock_quantity")
+  /// 已下单未接单的预留库存数量（接单确认后扣减，取消/拒单时释放）
+  reservedQuantity Int                  @default(0) @map("reserved_quantity")
   salesCount    Int                      @default(0) @map("sales_count")
   isRecommended Boolean                  @default(false) @map("is_recommended")
   availableFrom String?                  @map("available_from") @db.VarChar(5)
@@ -346,6 +348,8 @@ model ScanOrderingSpecOption {
   name          String                @map("name")
   extraPrice    Int                   @map("extra_price")
   stockQuantity Int?                  @map("stock_quantity")
+  /// 已下单未接单的预留库存数量（接单确认后扣减，取消/拒单时释放）
+  reservedQuantity Int                @default(0) @map("reserved_quantity")
   sortOrder     Int                   @default(0) @map("sort_order")
   isDefault     Boolean               @default(false) @map("is_default")
   isActive      Boolean               @default(true) @map("is_active")

@@ -245,11 +245,7 @@ export class ClubScanOrderingCheckoutService {
           reason: '储值余额支付成功',
         },
       });
-      await this.saleOrderBridgeService.createForPaidOrder(
-        tx,
-        order.id,
-        'other',
-      );
+      // 销售记录不在支付成功时创建：交班页须在商家出餐/拒绝后再展示订单
       return tx.scanOrders.findUniqueOrThrow({ where: { id: order.id } });
     });
     this.realtimeService.publishOrderStatusChanged({
@@ -331,11 +327,7 @@ export class ClubScanOrderingCheckoutService {
           reason: '开发环境 H5 支付确认',
         },
       });
-      await this.saleOrderBridgeService.createForPaidOrder(
-        tx,
-        order.id,
-        'other',
-      );
+      // 销售记录不在支付成功时创建：交班页须在商家出餐/拒绝后再展示订单
       // 事务内重新读取，保证发布事件携带最新取餐号字段
       return tx.scanOrders.findUniqueOrThrow({ where: { id: order.id } });
     });

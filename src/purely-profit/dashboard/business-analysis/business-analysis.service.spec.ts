@@ -104,16 +104,20 @@ describe('BusinessAnalysisService', () => {
           currentOrderCount: 2,
           previousRevenue: new Prisma.Decimal('800'),
           previousOrderCount: 1,
+          currentProfit: new Prisma.Decimal('800'),
+          previousProfit: new Prisma.Decimal('200'),
         },
       ])
       .mockResolvedValueOnce([
         {
           bucketAt: new Date('2026-05-12T00:00:00.000Z'),
           revenue: new Prisma.Decimal('1300'),
+          profit: new Prisma.Decimal('500'),
         },
         {
           bucketAt: new Date('2026-05-13T00:00:00.000Z'),
           revenue: new Prisma.Decimal('900'),
+          profit: new Prisma.Decimal('300'),
         },
       ])
       .mockResolvedValueOnce([
@@ -185,16 +189,20 @@ describe('BusinessAnalysisService', () => {
       }),
     ).resolves.toEqual({
       heroSummary: {
-        netProfit: { current: 11, previous: 4, changeRate: 175 },
+        // 净利润 = 商品利润 8 − 费用记录 11 = −3；上期 2 − 4 = −2
+        netProfit: { current: -3, previous: -2, changeRate: 50 },
         revenue: { current: 22, previous: 8, changeRate: 175 },
+        // 总成本仅统计费用记录：当前 11、上期 4
         totalCost: { current: 11, previous: 4, changeRate: 175 },
-        profitRate: { current: 50, previous: 50, changeRate: 0 },
+        profitRate: { current: -13.64, previous: -25, changeRate: 11.36 },
         costRate: { current: 50, previous: 50, changeRate: 0 },
         orderCount: 2,
       },
       dailyTrend: [
-        { dateLabel: '05/12', revenue: 13, cost: 8, profit: 5 },
-        { dateLabel: '05/13', revenue: 9, cost: 3, profit: 6 },
+        // 05/12 成本 = 费用 8，利润 = 商品利润 5 − 8 = −3
+        { dateLabel: '05/12', revenue: 13, cost: 8, profit: -3 },
+        // 05/13 成本 = 费用 3，利润 = 商品利润 3 − 3 = 0
+        { dateLabel: '05/13', revenue: 9, cost: 3, profit: 0 },
       ],
       categoryShares: [
         {
@@ -320,12 +328,15 @@ describe('BusinessAnalysisService', () => {
           currentOrderCount: 1,
           previousRevenue: new Prisma.Decimal('0'),
           previousOrderCount: 0,
+          currentProfit: new Prisma.Decimal('8000'),
+          previousProfit: new Prisma.Decimal('0'),
         },
       ])
       .mockResolvedValueOnce([
         {
           bucketAt: new Date('2026-06-08T00:00:00.000Z'),
           revenue: new Prisma.Decimal('10000'),
+          profit: new Prisma.Decimal('8000'),
         },
       ])
       .mockResolvedValueOnce([
@@ -373,7 +384,8 @@ describe('BusinessAnalysisService', () => {
     expect(response.dailyTrend.length).toBeGreaterThan(90);
     expect(response.dailyTrend).toEqual(
       expect.arrayContaining([
-        { dateLabel: '06/08', revenue: 100, cost: 20, profit: 80 },
+        // 成本 = 费用记录 20；利润 = 商品利润 80 − 费用 20 = 60
+        { dateLabel: '06/08', revenue: 100, cost: 20, profit: 60 },
       ]),
     );
   });
@@ -397,12 +409,16 @@ describe('BusinessAnalysisService', () => {
           currentOrderCount: 1,
           previousRevenue: new Prisma.Decimal('0'),
           previousOrderCount: 0,
+          // 无成本价商品利润 = 售价，商品成本反推为 0
+          currentProfit: new Prisma.Decimal('2829334'),
+          previousProfit: new Prisma.Decimal('0'),
         },
       ])
       .mockResolvedValueOnce([
         {
           bucketAt: new Date(2026, 4, 27, 0, 0, 0, 0),
           revenue: new Prisma.Decimal('2829334'),
+          profit: new Prisma.Decimal('2829334'),
         },
       ])
       .mockResolvedValueOnce([

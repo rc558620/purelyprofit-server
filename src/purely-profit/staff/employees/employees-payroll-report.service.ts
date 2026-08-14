@@ -99,15 +99,16 @@ export class EmployeesPayrollReportService {
       ],
       report.rows.map((row) => [
         row.employeeName,
-        row.month,
-        row.baseSalary,
-        row.leaveDeduction,
-        row.otherDeduction,
-        row.bonus,
-        row.actualSalary,
-        row.socialInsurance ?? '',
-        row.housingFund ?? '',
-        row.totalLaborCost,
+        // \t 前缀强制 Excel/WPS 按文本处理，避免月份/金额类型因列宽不足显示 ####
+        `\t${row.month}`,
+        `\t${row.baseSalary}`,
+        `\t${row.leaveDeduction}`,
+        `\t${row.otherDeduction}`,
+        `\t${row.bonus}`,
+        `\t${row.actualSalary}`,
+        row.socialInsurance ? `\t${row.socialInsurance}` : '',
+        row.housingFund ? `\t${row.housingFund}` : '',
+        `\t${row.totalLaborCost}`,
       ]),
     );
   }

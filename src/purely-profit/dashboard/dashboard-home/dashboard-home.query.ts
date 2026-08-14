@@ -114,9 +114,18 @@ export async function loadDashboardHomeStatsData(
       where: { id: storeId },
       select: DASHBOARD_HOME_STORE_SELECT,
     }),
-    prisma.$queryRaw<[{ revenue: Prisma.Decimal | null; order_count: bigint }]>`
+    prisma.$queryRaw<
+      [
+        {
+          revenue: Prisma.Decimal | null;
+          profit: Prisma.Decimal | null;
+          order_count: bigint;
+        },
+      ]
+    >`
       SELECT
         COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue,
+        COALESCE(SUM(soi.profit * soi.quantity), 0) AS profit,
         COUNT(DISTINCT so.id) AS order_count
       FROM sale_order_items soi
       INNER JOIN sale_orders so ON so.id = soi.order_id
@@ -125,9 +134,18 @@ export async function loadDashboardHomeStatsData(
         AND so.date <= ${new Date(currentRange.end)}
         AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
     `,
-    prisma.$queryRaw<[{ revenue: Prisma.Decimal | null; order_count: bigint }]>`
+    prisma.$queryRaw<
+      [
+        {
+          revenue: Prisma.Decimal | null;
+          profit: Prisma.Decimal | null;
+          order_count: bigint;
+        },
+      ]
+    >`
       SELECT
         COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue,
+        COALESCE(SUM(soi.profit * soi.quantity), 0) AS profit,
         COUNT(DISTINCT so.id) AS order_count
       FROM sale_order_items soi
       INNER JOIN sale_orders so ON so.id = soi.order_id
@@ -152,11 +170,17 @@ export async function loadDashboardHomeStatsData(
       revenue: Money.fromDbCents(
         Number(currentSalesAgg[0]?.revenue ?? 0),
       ).toOutputYuan(),
+      profit: Money.fromDbCents(
+        Number(currentSalesAgg[0]?.profit ?? 0),
+      ).toOutputYuan(),
       orderCount: Number(currentSalesAgg[0]?.order_count ?? 0),
     },
     compareSales: {
       revenue: Money.fromDbCents(
         Number(compareSalesAgg[0]?.revenue ?? 0),
+      ).toOutputYuan(),
+      profit: Money.fromDbCents(
+        Number(compareSalesAgg[0]?.profit ?? 0),
       ).toOutputYuan(),
       orderCount: Number(compareSalesAgg[0]?.order_count ?? 0),
     },

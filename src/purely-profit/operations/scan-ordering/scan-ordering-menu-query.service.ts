@@ -57,7 +57,14 @@ export class ScanOrderingMenuQueryService {
         imageUrl: product.imageUrl || null,
         isActive: product.isActive,
         stockMode: product.stockMode,
-        stockQuantity: product.stockQuantity,
+        // 可用库存 = 总库存 - 已下单未接单的预留量（接单后才真正扣减）
+        stockQuantity:
+          product.stockQuantity === null
+            ? null
+            : Math.max(
+                0,
+                product.stockQuantity - (product.reservedQuantity ?? 0),
+              ),
         sortOrder: product.sortOrder,
       })),
     }));

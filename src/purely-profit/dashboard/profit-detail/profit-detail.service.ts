@@ -310,8 +310,10 @@ export class ProfitDetailService {
           clampedPreviousRange.start,
           clampedPreviousRange.end,
         );
-    const netProfit = currentSales.revenue.subtract(currentCosts.totalCost);
-    const previousNetProfit = previousSales.revenue.subtract(
+    // 净利润 = 商品利润总和（售价 − 成本价，销售行快照） − 费用记录（成本管理），
+    // 修复此前仅用「收入 − 费用记录」导致商品成本未被扣除、利润虚高的问题
+    const netProfit = currentSales.totalProfit.subtract(currentCosts.totalCost);
+    const previousNetProfit = previousSales.totalProfit.subtract(
       previousCosts.totalCost,
     );
 

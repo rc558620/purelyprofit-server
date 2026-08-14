@@ -61,9 +61,11 @@ export class ClubScanOrderingCartPricingService {
         (item) => item.id === cartItem.menuProductId,
       );
       const inventoryProduct = product?.product;
-      const availableStock = inventoryProduct
+      // 可用库存 = 总库存 - 已下单未接单的预留量（接单后才真正扣减）
+      const baseStock = inventoryProduct
         ? inventoryProduct.stock
-        : product?.stockQuantity;
+        : (product?.stockQuantity ?? 0);
+      const availableStock = baseStock - (product?.reservedQuantity ?? 0);
       if (
         !product ||
         !product.isActive ||
@@ -302,14 +304,29 @@ export class ClubScanOrderingCartPricingService {
       }
     }
     for (const [specOptionId, quantity] of quantities) {
+      // 预留规格库存：先读后写 + 乐观锁，确保并发下不超卖
+      const current = await tx.scanOrderingSpecOption.findUnique({
+        where: { id: specOptionId },
+        select: {
+          stockQuantity: true,
+          reservedQuantity: true,
+          version: true,
+        },
+      });
+      if (!current) throw new ConflictException('规格库存不足');
+      const availableStock =
+        (current.stockQuantity ?? 0) - (current.reservedQuantity ?? 0);
+      if (current.stockQuantity !== null && availableStock < quantity) {
+        throw new ConflictException('规格库存不足');
+      }
       const updated = await tx.scanOrderingSpecOption.updateMany({
         where: {
           id: specOptionId,
           isActive: true,
-          OR: [{ stockQuantity: null }, { stockQuantity: { gte: quantity } }],
+          version: current.version,
         },
         data: {
-          stockQuantity: { decrement: quantity },
+          reservedQuantity: { increment: quantity },
           version: { increment: 1 },
         },
       });

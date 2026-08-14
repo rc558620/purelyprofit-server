@@ -229,20 +229,13 @@ describe('ClubScanOrderingPaymentService', () => {
       });
     });
 
-    it('支付成功后调用标准销售桥接（唯一 SaleOrder）', async () => {
+    it('支付成功后不再调用标准销售桥接（销售记录在商家出餐时创建）', async () => {
       await service.confirmOrderPaidByCallback(
         'SO20260723120000ABCD-1A2B3C4D',
         baseSettlement,
       );
 
-      expect(saleOrderBridgeService.createForPaidOrder).toHaveBeenCalledTimes(
-        1,
-      );
-      expect(saleOrderBridgeService.createForPaidOrder).toHaveBeenCalledWith(
-        prismaService,
-        1001,
-        'wechat',
-      );
+      expect(saleOrderBridgeService.createForPaidOrder).not.toHaveBeenCalled();
     });
 
     it('重复回调保持幂等', async () => {
@@ -332,7 +325,9 @@ describe('ClubScanOrderingPaymentService', () => {
       });
       await confirmPromise;
 
-      expect(realtimeService.publishOrderStatusChanged).toHaveBeenCalledTimes(1);
+      expect(realtimeService.publishOrderStatusChanged).toHaveBeenCalledTimes(
+        1,
+      );
       expect(realtimeService.publishOrderStatusChanged).toHaveBeenCalledWith(
         expect.objectContaining({
           orderId: 1001,

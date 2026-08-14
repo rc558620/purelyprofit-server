@@ -98,6 +98,16 @@ export type OrderItemRow = {
     date: Date;
     paymentMethod: SalesPaymentMethod;
     operatorNameSnapshot: string | null;
+    /** 扫码点餐订单（purelyClub 下单）：携带桌台号与折扣信息用于展示 */
+    scanOrder: {
+      /** 商品折扣金额（分） */
+      productDiscountAmount: number;
+      /** 订单折扣金额（分） */
+      orderDiscountAmount: number;
+      table: {
+        tableCode: string;
+      };
+    } | null;
     operatorStaff: {
       name: string;
       role: StaffRole;
@@ -157,6 +167,39 @@ export type RefundOrderRow = {
   } | null;
 };
 
+/** 扫码点餐退款行（SaleOrderRefund）：拒绝订单退款后在交班明细中展示为负数退款行 */
+export type SaleOrderRefundRow = {
+  id: number;
+  /** 退款金额（分） */
+  amount: number;
+  paymentMethod: SalesPaymentMethod;
+  refundedAt: Date;
+  saleOrder: {
+    id: number;
+    date: Date;
+    operatorNameSnapshot: string | null;
+    operatorStaff: {
+      name: string;
+      role: StaffRole;
+      userId: number | null;
+      employeeProfile: {
+        subAccounts: { role: StoreSubAccountRole } | null;
+      } | null;
+    } | null;
+    scanOrder: {
+      table: {
+        tableCode: string;
+      };
+    } | null;
+    /** 订单商品项：退款行展示原商品名（取第一条） */
+    items: Array<{
+      productName: string;
+      /** 商品当前库存：退款行展示退款后恢复的库存（与下单行保持一致） */
+      product: { stock: number; unit: string } | null;
+    }>;
+  };
+};
+
 export type ShiftDateRange = {
   startAt: Date;
   endAt: Date;
@@ -200,6 +243,8 @@ export type HandoverPageMetrics = {
   orderCount: number;
   paymentOrderItems: OrderItemRow[];
   orderItems: OrderItemRow[];
+  /** 扫码点餐退款行（SaleOrderRefund）：在交班明细中展示为负数退款行 */
+  saleOrderRefundItems: SaleOrderRefundRow[];
   additionalRevenueAmount: number;
   spaceRevenueAmount: number;
   refundAmount: number;
@@ -213,6 +258,7 @@ export const EMPTY_METRICS: HandoverPageMetrics = {
   orderCount: 0,
   paymentOrderItems: [],
   orderItems: [],
+  saleOrderRefundItems: [],
   additionalRevenueAmount: 0,
   spaceRevenueAmount: 0,
   refundAmount: 0,

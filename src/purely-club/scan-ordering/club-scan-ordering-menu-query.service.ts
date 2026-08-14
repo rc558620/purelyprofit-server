@@ -62,15 +62,36 @@ export class ClubScanOrderingMenuQueryService {
         .digest('hex'),
       categories: categories.map((category) => ({
         ...category,
-        products: category.products.map((product) => ({
-          ...product,
-          imageUrl: product.product?.image ?? product.imageUrl,
-          stockMode: product.product ? 'finite' : product.stockMode,
-          stockQuantity: product.product
+        products: category.products.map((product) => {
+          const baseStock = product.product
             ? product.product.stock
-            : product.stockQuantity,
-          product: undefined,
-        })),
+            : (product.stockQuantity ?? 0);
+          return {
+            ...product,
+            imageUrl: product.product?.image ?? product.imageUrl,
+            stockMode: product.product ? 'finite' : product.stockMode,
+            // 可用库存 = 总库存 - 已下单未接单的预留量
+            stockQuantity: Math.max(
+              0,
+              baseStock - (product.reservedQuantity ?? 0),
+            ),
+            // 规格可用库存同样扣除预留量
+            specGroups: product.specGroups.map((group) => ({
+              ...group,
+              options: group.options.map((option) => ({
+                ...option,
+                stockQuantity:
+                  option.stockQuantity === null
+                    ? null
+                    : Math.max(
+                        0,
+                        option.stockQuantity - (option.reservedQuantity ?? 0),
+                      ),
+              })),
+            })),
+            product: undefined,
+          };
+        }),
       })),
     };
   }

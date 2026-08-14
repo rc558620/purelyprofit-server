@@ -17,6 +17,18 @@ export const SALE_ORDER_ITEM_SELECT = {
       date: true,
       paymentMethod: true,
       operatorNameSnapshot: true,
+      // 扫码点餐订单（purelyClub 下单）：携带桌台号与折扣信息用于展示
+      scanOrder: {
+        select: {
+          productDiscountAmount: true,
+          orderDiscountAmount: true,
+          table: {
+            select: {
+              tableCode: true,
+            },
+          },
+        },
+      },
       operatorStaff: {
         select: {
           name: true,
@@ -98,8 +110,10 @@ export const buildSaleOrderWhere = (
 
 /**
  * 构建 additionalRevenue 统计的 SaleOrder 查询条件：
- * 仅统计常规销售单（spaceSession IS NULL），按门店和时间范围过滤。
+ * 仅统计常规销售单（spaceSession IS NULL 且非扫码点餐订单），按门店和时间范围过滤。
  * 空间会话结账订单的收入统一由 spaceRevenue 统计，不在此处重复计算。
+ * 扫码点餐订单（scanOrderId 非空，purelyClub 下单）收入统一归入 spaceRevenue（扫码点餐指标），
+ * 避免餐饮账号下“营业收入”重复包含扫码点餐金额。
  */
 export const buildNonSpaceSessionOrderWhere = (
   storeId: number,
@@ -114,6 +128,7 @@ export const buildNonSpaceSessionOrderWhere = (
     storeId,
     date: dateFilter,
     spaceSession: { is: null },
+    scanOrderId: null,
   };
 };
 

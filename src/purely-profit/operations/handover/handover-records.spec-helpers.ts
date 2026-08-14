@@ -58,6 +58,7 @@ export const setupHandoverRecordsSpec = (): {
     prismaService.employeeShift.findMany.mockResolvedValue([]);
     prismaService.saleOrderItem.findMany.mockResolvedValue([]);
     prismaService.saleOrder.findMany.mockResolvedValue([]);
+    prismaService.saleOrderRefund.findMany.mockResolvedValue([]);
     prismaService.saleOrder.count.mockResolvedValue(0);
     prismaService.saleOrder.aggregate.mockResolvedValue({
       _sum: { totalRevenue: null },

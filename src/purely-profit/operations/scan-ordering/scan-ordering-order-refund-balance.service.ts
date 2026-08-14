@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
 import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
+import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
 @Injectable()
 export class ScanOrderingOrderRefundBalanceService {
@@ -25,8 +26,10 @@ export class ScanOrderingOrderRefundBalanceService {
       version: number;
       reason: string;
     },
-    operatorId: number,
+    /** 拒绝操作的商家账号：用于销售单记录操作员 */
+    operator: AuthenticatedUser,
   ) {
+    const operatorId = operator.id;
     return this.prisma.$transaction(async (tx) => {
       const balancePayment = await tx.scanOrderBalanceTransaction.findUnique({
         where: {
@@ -55,7 +58,11 @@ export class ScanOrderingOrderRefundBalanceService {
       if (order.count === 0)
         throw new ConflictException('订单状态已变化，请刷新后重试');
       await this.stockRestoreService.restoreReservedStock(tx, input.orderId);
-      await this.stockRestoreService.refundSaleOrder(tx, input.orderId);
+      await this.stockRestoreService.refundSaleOrder(
+        tx,
+        input.orderId,
+        operator,
+      );
       await tx.marketingCustomer.update({
         where: { id: balancePayment.customerId },
         data: { balance: { increment: balancePayment.amount } },

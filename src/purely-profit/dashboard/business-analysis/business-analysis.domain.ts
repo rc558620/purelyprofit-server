@@ -30,8 +30,12 @@ function safeDbCents(value: MoneyDbCentsInput | null | undefined): Money {
 export function createEmptySalesAggregation(): SalesAggregationResult {
   return {
     revenue: Money.zero(),
+    totalProfit: Money.zero(),
+    goodsCost: Money.zero(),
     orderCount: 0,
     dailyRevenueMap: new Map<number, Money>(),
+    dailyProfitMap: new Map<number, Money>(),
+    dailyGoodsCostMap: new Map<number, Money>(),
     categoryMap: new Map<string, AggregatedCategory>(),
     rankMap: new Map<string, AggregatedRankProduct>(),
   };
@@ -48,19 +52,25 @@ export function createEmptyCostAggregation(): CostAggregationResult {
 export function buildSalesAggregation(input: {
   revenue: number;
   orderCount: number;
+  /** 商品利润总和（已扣除商品成本价），单位：分 */
+  profit?: number;
   dailyRows?: BusinessAnalysisDailyRevenueRow[];
   categoryRows?: BusinessAnalysisCategoryRow[];
   rankRows?: BusinessAnalysisRankRow[];
 }): SalesAggregationResult {
   const result = createEmptySalesAggregation();
   result.revenue = Money.fromDbCents(input.revenue);
+  result.totalProfit = safeDbCents(input.profit);
+  result.goodsCost = result.revenue.subtract(result.totalProfit);
   result.orderCount = input.orderCount;
 
   for (const row of input.dailyRows ?? []) {
-    result.dailyRevenueMap.set(
-      getShanghaiDayStartMs(row.bucketAt.getTime()),
-      safeDbCents(row.revenue),
-    );
+    const dayStart = getShanghaiDayStartMs(row.bucketAt.getTime());
+    const dailyRevenue = safeDbCents(row.revenue);
+    const dailyProfit = safeDbCents(row.profit);
+    result.dailyRevenueMap.set(dayStart, dailyRevenue);
+    result.dailyProfitMap.set(dayStart, dailyProfit);
+    result.dailyGoodsCostMap.set(dayStart, dailyRevenue.subtract(dailyProfit));
   }
 
   for (const row of input.categoryRows ?? []) {

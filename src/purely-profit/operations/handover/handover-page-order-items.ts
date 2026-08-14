@@ -19,6 +19,8 @@ import {
   mapOrderItem,
   mapRefundOrderItem,
 } from './handover.shared';
+import { mapScanOrderingRefundOrderItem } from './handover-order-item.mapper';
+import type { SaleOrderRefundRow } from './handover.types';
 
 /** 已结账的空间会话行数据（客人应付 / 退款展示项的数据源） */
 export type SettledSpaceSessionRow = {
@@ -147,6 +149,7 @@ export const buildGuestPayableItems = (
       stockUnit: null,
       timeCategory: 'session_end',
       grouponCode: session.prepaidGrouponCode ?? null,
+      hasDiscount: false,
     });
   }
 
@@ -231,6 +234,7 @@ export const buildRefundItemsFromSessions = (
       stockUnit: null,
       timeCategory: 'session_end',
       grouponCode: session.prepaidGrouponCode ?? null,
+      hasDiscount: false,
     });
   }
 
@@ -242,6 +246,10 @@ export const mergeDisplayedOrderItems = (
   refundOrders: RefundOrderRow[],
   settledSpaceSessions: SettledSpaceSessionRow[] = [],
   storeOwnerUserId: number | null = null,
+  /** 当班操作员：扫码点餐订单（purelyClub 下单）无实际操作员时回退展示 */
+  shiftOperatorName: string | null = null,
+  /** 扫码点餐退款行（SaleOrderRefund）：映射为负数退款行与下单行并存 */
+  scanOrderingRefunds: SaleOrderRefundRow[] = [],
 ): HandoverOrderItemDto[] => {
   const guestPayableItems = buildGuestPayableItems(
     settledSpaceSessions,
@@ -250,6 +258,10 @@ export const mergeDisplayedOrderItems = (
   const refundItems = buildRefundItemsFromSessions(
     settledSpaceSessions,
     storeOwnerUserId,
+  );
+  // 已被退款的销售单 id 集合：退款单会同时返回下单+退款两行，下单行不展示库存
+  const refundedOrderIds = new Set(
+    scanOrderingRefunds.map((refund) => refund.saleOrder.id),
   );
 
   // 续费抵扣项按支付方式拆分：若同一会话使用了多种支付方式续费，
@@ -340,16 +352,26 @@ export const mergeDisplayedOrderItems = (
               grouponCode ??
               item.order.spaceSession?.prepaidGrouponCode ??
               null,
+            hasDiscount: false,
           });
         }
         continue;
       }
     }
-    mappedOrderItems.push(mapOrderItem(item, storeOwnerUserId));
+    mappedOrderItems.push(
+      mapOrderItem(item, storeOwnerUserId, shiftOperatorName, refundedOrderIds),
+    );
   }
 
   const merged = [
     ...refundOrders.map((order) => mapRefundOrderItem(order)),
+    ...scanOrderingRefunds.map((refund) =>
+      mapScanOrderingRefundOrderItem(
+        refund,
+        storeOwnerUserId,
+        shiftOperatorName,
+      ),
+    ),
     ...refundItems,
     ...mappedOrderItems,
     ...guestPayableItems,

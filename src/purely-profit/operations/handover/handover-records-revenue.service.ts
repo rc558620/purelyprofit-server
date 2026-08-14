@@ -43,22 +43,24 @@ export class HandoverRecordsRevenueService {
       storeId,
       shiftRange,
     );
-    const [additionalRevenue, spaceRevenue] = await Promise.all([
-      this.loadAdditionalRevenue(additionalOrderWhere),
-      this.loadSpaceRevenue(storeId, shiftRange),
-    ]);
+    const [additionalRevenue, spaceRevenue, scanOrderingRevenue] =
+      await Promise.all([
+        this.loadAdditionalRevenue(additionalOrderWhere),
+        this.loadSpaceRevenue(storeId, shiftRange),
+        this.loadScanOrderingRevenue(storeId, shiftRange),
+      ]);
 
     // 与 buildRecordRevenueDetail / 实时交班页口径一致：
-    // 本班营业额 = 非空间销售营收 + 空间会话消费（timeCost + itemsCost）。
+    // 本班营业额 = 非空间销售营收 + 空间会话消费（timeCost + itemsCost） + 扫码点餐订单收入。
     // 退款（来自空间会话预付溢出）在详情/页面中作为独立字段展示，不在此处扣除。
     const additionalRevenueAmount = Money.fromInputYuan(
       dbCentsToOutputYuan(additionalRevenue._sum.totalRevenue ?? 0),
     );
     const spaceRevenueAmount = Money.fromInputYuan(
       dbCentsToOutputYuan(
-        new Prisma.Decimal(spaceRevenue._sum.timeCost ?? 0).plus(
-          spaceRevenue._sum.itemsCost ?? 0,
-        ),
+        new Prisma.Decimal(spaceRevenue._sum.timeCost ?? 0)
+          .plus(spaceRevenue._sum.itemsCost ?? 0)
+          .plus(scanOrderingRevenue._sum.totalRevenue ?? 0),
       ),
     );
 
@@ -69,6 +71,8 @@ export class HandoverRecordsRevenueService {
     storeId: number,
     shiftRange: ShiftDateRange,
     _operatorStaffId: number | null,
+    /** 当班操作员：扫码点餐订单（purelyClub 下单）无实际操作员时回退展示 */
+    shiftOperatorName: string | null = null,
   ): Promise<
     Pick<
       HandoverRecordListItemDto,
@@ -87,6 +91,7 @@ export class HandoverRecordsRevenueService {
       orderItems,
       orderCount,
       spaceRevenue,
+      scanOrderingRevenue,
       additionalRevenue,
       pettyCash,
       settledSpaceSessions,
@@ -94,23 +99,26 @@ export class HandoverRecordsRevenueService {
       this.prisma.saleOrderItem.findMany({
         where: {
           storeId,
-          order: { ...orderWhere, refund: { is: null } },
+          // 与实时交班页口径一致：不排除已退款订单，退款单的下单行与退款行同时展示
+          order: orderWhere,
         },
         select: SALE_ORDER_ITEM_SELECT,
       }),
       this.prisma.saleOrderItem.findMany({
         where: {
           storeId,
-          order: { ...orderWhere, refund: { is: null } },
+          // 与实时交班页口径一致：不排除已退款订单，退款单的下单行与退款行同时展示
+          order: orderWhere,
         },
         select: SALE_ORDER_ITEM_SELECT,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: ORDER_ITEMS_LIMIT,
       }),
       this.prisma.saleOrder.count({
-        where: { ...orderWhere, refund: { is: null } },
+        where: orderWhere,
       }),
       this.loadSpaceRevenue(storeId, shiftRange),
+      this.loadScanOrderingRevenue(storeId, shiftRange),
       this.loadAdditionalRevenue(additionalOrderWhere),
       this.prisma.financeCashFlowRecord.aggregate({
         where: {
@@ -124,20 +132,72 @@ export class HandoverRecordsRevenueService {
       this.loadSettledSpaceSessions(storeId, shiftRange),
     ]);
 
-    // 退款金额直接从 SpaceSession 数据计算：预付 > 消费时的差额
-    const saleRefund = this.prisma.saleOrderRefund
-      ? await this.prisma.saleOrderRefund.aggregate({
-          where: {
-            storeId,
-            refundedAt: {
-              gte: shiftRange.startAt,
-              lte: shiftRange.endAt,
+    // 退款金额：SpaceSession 预付溢出 + 扫码点餐退款明细（SaleOrderRefund）双重累加
+    const saleOrderRefunds = await this.prisma.saleOrderRefund.findMany({
+      where: {
+        storeId,
+        refundedAt: {
+          gte: shiftRange.startAt,
+          lte: shiftRange.endAt,
+        },
+      },
+      select: {
+        id: true,
+        amount: true,
+        paymentMethod: true,
+        refundedAt: true,
+        saleOrder: {
+          select: {
+            id: true,
+            date: true,
+            operatorNameSnapshot: true,
+            operatorStaff: {
+              select: {
+                name: true,
+                role: true,
+                userId: true,
+                employeeProfile: {
+                  select: {
+                    subAccounts: {
+                      select: { role: true },
+                    },
+                  },
+                },
+              },
+            },
+            scanOrder: {
+              select: {
+                table: {
+                  select: {
+                    tableCode: true,
+                  },
+                },
+              },
+            },
+            items: {
+              select: {
+                productName: true,
+                // 退款行需要展示退款后恢复的库存：关联商品实时库存
+                product: {
+                  select: {
+                    stock: true,
+                    unit: true,
+                  },
+                },
+              },
+              orderBy: { id: 'asc' },
+              take: 1,
             },
           },
-          _sum: { amount: true },
-        })
-      : { _sum: { amount: 0 } };
-    const refundAmount = Money.fromDbCents(Number(saleRefund?._sum.amount ?? 0))
+        },
+      },
+      orderBy: [{ refundedAt: 'desc' }, { id: 'desc' }],
+    });
+    const scanOrderingRefundCents = saleOrderRefunds.reduce(
+      (sum, refund) => sum + Number(refund.amount ?? 0),
+      0,
+    );
+    const refundAmount = Money.fromDbCents(scanOrderingRefundCents)
       .add(
         Money.fromInputYuan(
           computeRefundAmountFromSessions(settledSpaceSessions),
@@ -148,9 +208,9 @@ export class HandoverRecordsRevenueService {
     const paymentItems = mapPaymentItems(paymentOrderItems);
     const totalReceivedAmount = sumPaymentAmounts(paymentItems);
     const revenueAmounts = buildRevenueAmounts(
-      new Prisma.Decimal(spaceRevenue._sum.timeCost ?? 0).plus(
-        spaceRevenue._sum.itemsCost ?? 0,
-      ),
+      new Prisma.Decimal(spaceRevenue._sum.timeCost ?? 0)
+        .plus(spaceRevenue._sum.itemsCost ?? 0)
+        .plus(scanOrderingRevenue._sum.totalRevenue ?? 0),
       additionalRevenue._sum.totalRevenue,
       refundAmount,
     );
@@ -172,6 +232,9 @@ export class HandoverRecordsRevenueService {
         [],
         settledSpaceSessions,
         storeOwnerUserId,
+        shiftOperatorName,
+        // 扫码点餐退款行（SaleOrderRefund）：负数退款行与下单行并存，保证账目平衡
+        saleOrderRefunds,
       ),
     };
   }
@@ -196,6 +259,22 @@ export class HandoverRecordsRevenueService {
         },
       },
       _sum: { timeCost: true, itemsCost: true },
+    });
+  }
+
+  /** 扫码点餐订单（purelyClub 下单）收入：餐饮账号下计入 spaceRevenue（扫码点餐指标） */
+  private loadScanOrderingRevenue(storeId: number, shiftRange: ShiftDateRange) {
+    return this.prisma.saleOrder.aggregate({
+      where: {
+        storeId,
+        date: {
+          gte: shiftRange.startAt,
+          lte: shiftRange.endAt,
+        },
+        scanOrderId: { not: null },
+        totalRevenue: { gt: 0 },
+      },
+      _sum: { totalRevenue: true },
     });
   }
 

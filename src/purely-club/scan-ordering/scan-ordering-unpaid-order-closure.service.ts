@@ -121,25 +121,47 @@ export class ScanOrderingUnpaidOrderClosureService {
       select: {
         menuProductId: true,
         quantity: true,
-        menuProduct: { select: { productId: true } },
+        menuProduct: { select: { productId: true, stockMode: true } },
         specs: { select: { specOptionId: true } },
       },
     });
-    await this.restoreProductStock(tx, order.storeId, items);
-    await this.restoreSpecStock(tx, items);
+    await this.releaseProductStock(tx, order.storeId, items);
+    await this.releaseSpecStock(tx, items);
   }
 
-  private async restoreProductStock(
+  /**
+   * 释放菜单商品预留：新订单（有预留记录）只释放 reservedQuantity；
+   * 历史订单（无预留记录，下单时已按旧逻辑扣减）则恢复已扣减库存。
+   */
+  private async releaseProductStock(
     tx: Prisma.TransactionClient,
     storeId: number,
     items: Array<{
       menuProductId: number;
       quantity: number;
-      menuProduct: { productId: number | null };
+      menuProduct: {
+        productId: number | null;
+        stockMode: 'unlimited' | 'finite' | 'sold_out';
+      };
     }>,
   ): Promise<void> {
     await Promise.all(
       items.map(async (item) => {
+        // 新订单：释放预留量（不恢复 stockQuantity/salesCount，因从未扣减）
+        const released = await tx.scanOrderingMenuProduct.updateMany({
+          where: {
+            id: item.menuProductId,
+            storeId,
+            reservedQuantity: { gte: item.quantity },
+          },
+          data: {
+            reservedQuantity: { decrement: item.quantity },
+            version: { increment: 1 },
+          },
+        });
+        if (released.count !== 0) return;
+
+        // 历史订单或已接单订单：恢复已扣减库存
         await tx.scanOrderingMenuProduct.updateMany({
           where: { id: item.menuProductId, storeId, stockMode: 'finite' },
           data: {
@@ -162,7 +184,8 @@ export class ScanOrderingUnpaidOrderClosureService {
     );
   }
 
-  private async restoreSpecStock(
+  /** 释放规格预留：新订单释放预留量，历史/已接单订单恢复已扣减库存。 */
+  private async releaseSpecStock(
     tx: Prisma.TransactionClient,
     items: Array<{
       quantity: number;
@@ -179,15 +202,23 @@ export class ScanOrderingUnpaidOrderClosureService {
       }
     }
     await Promise.all(
-      Array.from(quantities.entries()).map(([id, quantity]) =>
-        tx.scanOrderingSpecOption.updateMany({
+      Array.from(quantities.entries()).map(async ([id, quantity]) => {
+        const released = await tx.scanOrderingSpecOption.updateMany({
+          where: { id, reservedQuantity: { gte: quantity } },
+          data: {
+            reservedQuantity: { decrement: quantity },
+            version: { increment: 1 },
+          },
+        });
+        if (released.count !== 0) return;
+        await tx.scanOrderingSpecOption.updateMany({
           where: { id, stockQuantity: { not: null } },
           data: {
             stockQuantity: { increment: quantity },
             version: { increment: 1 },
           },
-        }),
-      ),
+        });
+      }),
     );
   }
 }

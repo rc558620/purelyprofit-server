@@ -132,6 +132,8 @@ export class HandoverRecordsDetailService {
         storeId,
         context.shiftRange,
         context.operatorStaffId,
+        // 当班操作员：扫码点餐订单无实际操作员时回退展示
+        context.operatorName,
       );
 
     return {

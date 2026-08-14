@@ -28,11 +28,17 @@ export interface BusinessAnalysisSalesSummaryRow {
   currentOrderCount: number;
   previousRevenue: number;
   previousOrderCount: number;
+  /** 当前周期商品利润总和（已扣除商品成本价） */
+  currentProfit: number;
+  /** 上期商品利润总和（已扣除商品成本价） */
+  previousProfit: number;
 }
 
 export interface BusinessAnalysisDailyRevenueRow {
   bucketAt: Date;
   revenue: number;
+  /** 当日商品利润总和（已扣除商品成本价） */
+  profit: number;
 }
 
 export interface BusinessAnalysisCategoryRow {
@@ -85,8 +91,16 @@ export interface AggregatedRankProduct {
 
 export interface SalesAggregationResult {
   revenue: Money;
+  /** 商品利润总和 = Σ(单件利润 × 数量)，已扣除商品成本价 */
+  totalProfit: Money;
+  /** 商品销售成本 = Σ((售价 − 利润) × 数量) */
+  goodsCost: Money;
   orderCount: number;
   dailyRevenueMap: Map<number, Money>;
+  /** 按天聚合的商品利润（已扣除商品成本价） */
+  dailyProfitMap: Map<number, Money>;
+  /** 按天聚合的商品销售成本 */
+  dailyGoodsCostMap: Map<number, Money>;
   categoryMap: Map<string, AggregatedCategory>;
   rankMap: Map<string, AggregatedRankProduct>;
 }

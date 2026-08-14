@@ -489,8 +489,8 @@ describe('DashboardHomeService', () => {
     refreshableCache.getOrLoadRefreshableJson
       .mockResolvedValueOnce({
         store: { name: '纯利宝测试门店' },
-        currentSales: { revenue: 0, orderCount: 0 },
-        compareSales: { revenue: 0, orderCount: 0 },
+        currentSales: { revenue: 0, profit: 0, orderCount: 0 },
+        compareSales: { revenue: 0, profit: 0, orderCount: 0 },
         currentCosts: { totalCost: 0 },
         compareCosts: { totalCost: 0 },
       })

@@ -86,11 +86,12 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
           specs: [{ specOptionId: 301 }, { specOptionId: 302 }],
         },
       ]);
+      // 默认无预留：先释放预留（count=0），再恢复已扣减库存
       prismaService.scanOrderingMenuProduct.updateMany.mockResolvedValue({
-        count: 1,
+        count: 0,
       });
       prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
-        count: 1,
+        count: 0,
       });
       prismaService.product.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
@@ -188,7 +189,7 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
       );
     });
 
-    it('商品库存恢复（finite 模式）', async () => {
+    it('商品库存恢复（finite 模式）：无预留时先尝试释放再恢复已扣减库存', async () => {
       await service.close({
         orderId: 1001,
         operatorType: 'club_user',
@@ -196,6 +197,17 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '用户取消',
       });
 
+      // 先尝试释放预留（无预留 count=0）
+      expect(
+        prismaService.scanOrderingMenuProduct.updateMany,
+      ).toHaveBeenCalledWith({
+        where: { id: 201, storeId: 11, reservedQuantity: { gte: 2 } },
+        data: {
+          reservedQuantity: { decrement: 2 },
+          version: { increment: 1 },
+        },
+      });
+      // 再恢复已扣减库存
       expect(
         prismaService.scanOrderingMenuProduct.updateMany,
       ).toHaveBeenCalledWith({
@@ -208,6 +220,36 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
       });
     });
 
+    it('商品库存恢复：有预留时仅释放预留不恢复已扣减库存', async () => {
+      prismaService.scanOrderingMenuProduct.updateMany.mockResolvedValue({
+        count: 1,
+      });
+      prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
+        count: 1,
+      });
+
+      await service.close({
+        orderId: 1001,
+        operatorType: 'club_user',
+        operatorId: 201,
+        reason: '用户取消',
+      });
+
+      expect(
+        prismaService.scanOrderingMenuProduct.updateMany,
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        prismaService.scanOrderingMenuProduct.updateMany,
+      ).toHaveBeenCalledWith({
+        where: { id: 201, storeId: 11, reservedQuantity: { gte: 2 } },
+        data: {
+          reservedQuantity: { decrement: 2 },
+          version: { increment: 1 },
+        },
+      });
+      expect(prismaService.product.updateMany).not.toHaveBeenCalled();
+    });
+
     it('规格库存恢复', async () => {
       await service.close({
         orderId: 1001,
@@ -216,11 +258,15 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '用户取消',
       });
 
-      // 两个 specOptionId 各加 2（因为 quantity=2）
+      // 每个规格：先尝试释放预留（count=0），再恢复已扣减库存
       const calls = prismaService.scanOrderingSpecOption.updateMany.mock.calls;
-      const specIds = calls.map((c) => c[0].where.id).sort();
-      expect(specIds).toEqual([301, 302]);
-      for (const call of calls) {
+      const releaseCalls = calls.filter((c) => c[0].data.reservedQuantity);
+      const restoreCalls = calls.filter((c) => c[0].data.stockQuantity);
+      const releaseIds = releaseCalls.map((c) => c[0].where.id).sort();
+      const restoreIds = restoreCalls.map((c) => c[0].where.id).sort();
+      expect(releaseIds).toEqual([301, 302]);
+      expect(restoreIds).toEqual([301, 302]);
+      for (const call of restoreCalls) {
         expect(call[0].data.stockQuantity).toEqual({ increment: 2 });
       }
     });
@@ -386,11 +432,12 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
           specs: [{ specOptionId: 301 }],
         },
       ]);
+      // 默认无预留：先释放预留（count=0），再恢复已扣减库存
       prismaService.scanOrderingMenuProduct.updateMany.mockResolvedValue({
-        count: 1,
+        count: 0,
       });
       prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
-        count: 1,
+        count: 0,
       });
       prismaService.product.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
@@ -605,10 +652,10 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         },
       ]);
       prismaService.scanOrderingMenuProduct.updateMany.mockResolvedValue({
-        count: 1,
+        count: 0,
       });
       prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
-        count: 1,
+        count: 0,
       });
       prismaService.product.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
@@ -626,8 +673,11 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '用户取消',
       });
 
+      // 仅统计恢复已扣减库存的调用（带 stockQuantity 增量）
       const specCalls =
-        prismaService.scanOrderingSpecOption.updateMany.mock.calls;
+        prismaService.scanOrderingSpecOption.updateMany.mock.calls.filter(
+          (call) => call[0].data.stockQuantity,
+        );
       const specMap = new Map<number, number>();
       for (const [call] of specCalls) {
         specMap.set(call.where.id, call.data.stockQuantity.increment);
@@ -675,10 +725,10 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         },
       ]);
       prismaService.scanOrderingMenuProduct.updateMany.mockResolvedValue({
-        count: 1,
+        count: 0,
       });
       prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
-        count: 1,
+        count: 0,
       });
       prismaService.product.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
@@ -696,9 +746,11 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '用户取消',
       });
 
-      // 应该只调用一次 updateMany，increment 为 3（不是 1）
+      // 每个规格调用两次（释放预留 count=0 → 恢复库存），仅统计恢复调用
       const specCalls =
-        prismaService.scanOrderingSpecOption.updateMany.mock.calls;
+        prismaService.scanOrderingSpecOption.updateMany.mock.calls.filter(
+          (call) => call[0].data.stockQuantity,
+        );
       expect(specCalls).toHaveLength(1);
       expect(specCalls[0][0].where.id).toBe(501);
       expect(specCalls[0][0].data.stockQuantity.increment).toBe(3);
@@ -731,10 +783,10 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         },
       ]);
       prismaService.scanOrderingMenuProduct.updateMany.mockResolvedValue({
-        count: 1,
+        count: 0,
       });
       prismaService.scanOrderingSpecOption.updateMany.mockResolvedValue({
-        count: 1,
+        count: 0,
       });
       prismaService.product.updateMany.mockResolvedValue({ count: 1 });
       prismaService.scanOrderPaymentAttempt.updateMany.mockResolvedValue({
@@ -752,8 +804,11 @@ describe('ScanOrderingUnpaidOrderClosureService', () => {
         reason: '用户取消',
       });
 
+      // 仅统计恢复已扣减库存的调用（带 stockQuantity 增量）
       const specCalls =
-        prismaService.scanOrderingSpecOption.updateMany.mock.calls;
+        prismaService.scanOrderingSpecOption.updateMany.mock.calls.filter(
+          (call) => call[0].data.stockQuantity,
+        );
       const specMap = new Map<number, number>();
       for (const [call] of specCalls) {
         specMap.set(call.where.id, call.data.stockQuantity.increment);

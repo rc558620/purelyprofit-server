@@ -44,8 +44,12 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
 
   const tx = {
     idempotencyRecord: { create: jest.fn(), update: jest.fn() },
-    product: { updateMany: jest.fn() },
-    scanOrderingMenuProduct: { update: jest.fn(), updateMany: jest.fn() },
+    product: { updateMany: jest.fn(), findUnique: jest.fn() },
+    scanOrderingMenuProduct: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     scanOrderingSession: { update: jest.fn() },
     scanOrders: { create: jest.fn() },
     scanOrderStatusHistory: { create: jest.fn() },
@@ -132,7 +136,14 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     cartPricing.buildOrderItemCreateData.mockReturnValue([]);
 
     tx.idempotencyRecord.create.mockResolvedValue({});
-    tx.product.updateMany.mockResolvedValue({ count: 1 });
+    // 菜单商品库存充足：可用库存 10，已预留 0
+    tx.scanOrderingMenuProduct.findUnique.mockResolvedValue({
+      stockMode: 'finite',
+      stockQuantity: 10,
+      reservedQuantity: 0,
+      version: 1,
+    });
+    tx.product.findUnique.mockResolvedValue({ stock: 10 });
     tx.scanOrderingMenuProduct.update.mockResolvedValue({});
     tx.scanOrderingMenuProduct.updateMany.mockResolvedValue({ count: 1 });
     tx.scanOrderingSession.update.mockResolvedValue({});
@@ -247,7 +258,8 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
   // ─── 库存与落库 ─────────────────────────────────────────────────────
 
   it('库存不足时抛错且不落订单', async () => {
-    tx.product.updateMany.mockResolvedValue({ count: 0 });
+    // 关联共用商品时以 product.stock 为准；菜单商品自身库存充足但共用库存不足
+    tx.product.findUnique.mockResolvedValue({ stock: 0 });
 
     await expect(service.create(user, IDEMPOTENCY_KEY, dto)).rejects.toThrow(
       '商品库存不足',
@@ -255,11 +267,21 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     expect(tx.scanOrders.create).not.toHaveBeenCalled();
   });
 
-  it('成功创建订单：扣库存、落库、幂等记录置为 succeeded、发布实时事件', async () => {
+  it('成功创建订单：预留库存、落库、幂等记录置为 succeeded、发布实时事件', async () => {
     const result = await service.create(user, IDEMPOTENCY_KEY, dto);
 
     expect(result.id).toBe(100);
-    expect(tx.product.updateMany).toHaveBeenCalled();
+    // 新逻辑：下单只预留库存（reservedQuantity+），不扣减 product.stock
+    expect(tx.scanOrderingMenuProduct.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ version: 1 }),
+        data: expect.objectContaining({
+          reservedQuantity: { increment: 1 },
+          version: { increment: 1 },
+        }),
+      }),
+    );
+    expect(tx.product.updateMany).not.toHaveBeenCalled();
     expect(tx.scanOrders.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -350,11 +372,11 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     });
 
     it('事务失败时不发布 order.created', async () => {
-      tx.product.updateMany.mockResolvedValue({ count: 0 });
+      tx.product.findUnique.mockResolvedValue({ stock: 0 });
 
-      await expect(
-        service.create(user, IDEMPOTENCY_KEY, dto),
-      ).rejects.toThrow('商品库存不足');
+      await expect(service.create(user, IDEMPOTENCY_KEY, dto)).rejects.toThrow(
+        '商品库存不足',
+      );
       expect(realtime.publishOrderCreated).not.toHaveBeenCalled();
     });
   });

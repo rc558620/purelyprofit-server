@@ -175,6 +175,7 @@ export class BusinessAnalysisService {
     );
     const currentSales = buildSalesAggregation({
       revenue: Number(metricsRows.salesSummaryRow.currentRevenue ?? 0),
+      profit: Number(metricsRows.salesSummaryRow.currentProfit ?? 0),
       orderCount: metricsRows.salesSummaryRow.currentOrderCount,
       dailyRows: metricsRows.salesDailyRows,
       categoryRows: metricsRows.salesCategoryRows,
@@ -184,6 +185,7 @@ export class BusinessAnalysisService {
       ? createEmptySalesAggregation()
       : buildSalesAggregation({
           revenue: Number(metricsRows.salesSummaryRow.previousRevenue ?? 0),
+          profit: Number(metricsRows.salesSummaryRow.previousProfit ?? 0),
           orderCount: metricsRows.salesSummaryRow.previousOrderCount,
         });
     const currentCosts = buildCostAggregation({

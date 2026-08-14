@@ -141,11 +141,7 @@ export class ClubScanOrderingPaymentService {
               reason: `微信支付成功: ${params.transactionId}`,
             },
           });
-          await this.saleOrderBridgeService.createForPaidOrder(
-            tx,
-            order.id,
-            'wechat',
-          );
+          // 销售记录不在支付成功时创建：交班页须在商家出餐/拒绝后再展示订单
           return {
             orderNo: order.orderNo,
             orderType: 'scan_ordering',

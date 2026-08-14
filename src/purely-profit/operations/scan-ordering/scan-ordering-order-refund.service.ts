@@ -107,42 +107,59 @@ export class ScanOrderingOrderRefundHandlingService {
     context: MerchantRejectContext,
   ): Promise<void> {
     const { user, ...input } = context;
-    const updated = await this.balanceRefundService.refund(input, user.id);
+    const updated = await this.balanceRefundService.refund(input, user);
     this.publishRefundCompleted(updated);
   }
 
-  /** 普通支付订单发起拒单退款：置退款中、记录历史、创建退款任务并推送。 */
+  /** 普通支付订单发起拒单退款：置退款中、记录历史、创建退款任务并推送。
+   * 立即创建 SaleOrderRefund（独立事务），确保销售记录与交班页能展示退款。 */
   private async initiateRefundFlow(
     input: MerchantRefundFlowContext,
   ): Promise<void> {
     await this.markOrderRefunding(input);
     await this.createMerchantRefundTask(input);
+    // 立即创建 SaleOrderRefund（独立事务），不依赖后续 completeRefund 手动确认
+    // 传入拒绝操作的商家账号：交班页操作员列展示主账号/店长/收银员
+    await this.prisma.$transaction(async (tx) => {
+      await this.stockRestoreService.refundSaleOrder(
+        tx,
+        input.orderId,
+        input.user,
+      );
+    });
     await this.publishOrderStatusAfterChange(input.orderId);
   }
 
-  /** 拒绝未支付订单：置关闭状态、记录历史并推送。 */
+  /** 拒绝未支付订单：置关闭状态、释放预留库存、记录历史并推送。 */
   private async rejectUnpaidOrder(
     context: MerchantRejectContext,
   ): Promise<void> {
-    const result = await this.prisma.scanOrders.updateMany({
-      where: this.pendingAcceptanceWhere(context),
-      data: {
-        status: ScanOrderStatus.rejected,
-        fulfillmentStatus: ScanOrderFulfillmentStatus.closed,
-        version: { increment: 1 },
-        rejectReason: context.reason,
-      },
+    const closed = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.scanOrders.updateMany({
+        where: this.pendingAcceptanceWhere(context),
+        data: {
+          status: ScanOrderStatus.rejected,
+          fulfillmentStatus: ScanOrderFulfillmentStatus.closed,
+          version: { increment: 1 },
+          rejectReason: context.reason,
+        },
+      });
+      if (result.count === 0) return false;
+      // 释放下单时的预留库存（未接单订单仅释放预留，不恢复已扣减库存）
+      await this.stockRestoreService.restoreReservedStock(tx, context.orderId);
+      await this.createOrderStatusHistoryInTransaction(tx, {
+        orderId: context.orderId,
+        storeId: context.storeId,
+        version: context.version,
+        fromStatus: ScanOrderStatus.pending_acceptance,
+        toStatus: ScanOrderStatus.rejected,
+        reason: context.reason,
+      });
+      return true;
     });
-    if (result.count === 0)
+    if (!closed) {
       throw new ConflictException('订单状态已变化，请刷新后重试');
-    await this.createOrderStatusHistory({
-      orderId: context.orderId,
-      storeId: context.storeId,
-      version: context.version,
-      fromStatus: ScanOrderStatus.pending_acceptance,
-      toStatus: ScanOrderStatus.rejected,
-      reason: context.reason,
-    });
+    }
     await this.publishOrderStatusAfterChange(context.orderId);
   }
 
@@ -385,6 +402,19 @@ export class ScanOrderingOrderRefundHandlingService {
     input: OrderStatusHistoryInput,
   ): Promise<unknown> {
     return this.prisma.scanOrderStatusHistory.create({
+      data: {
+        ...input,
+        operatorType: 'merchant',
+      },
+    });
+  }
+
+  /** 事务内写入商家操作订单状态历史。 */
+  private createOrderStatusHistoryInTransaction(
+    tx: Prisma.TransactionClient,
+    input: OrderStatusHistoryInput,
+  ): Promise<unknown> {
+    return tx.scanOrderStatusHistory.create({
       data: {
         ...input,
         operatorType: 'merchant',

@@ -81,10 +81,11 @@ export function buildSummary(
   };
 }
 
-/** 按天粒度产出趋势点，profit 由 Money.subtract() 计算 */
+/** 按天粒度产出趋势点；成本仅统计费用记录，利润 = 商品利润快照 − 费用记录 */
 export function buildDailyProfits(
   currentRange: ProfitDateRange,
   dailyRevenueMap: Map<number, Money>,
+  dailyProfitMap: Map<number, Money>,
   dailyCostMap: Map<number, Money>,
 ): DailyProfitDto[] {
   const days = getChartDays(currentRange);
@@ -94,7 +95,9 @@ export function buildDailyProfits(
     const dayStart = endDayStart - (days - 1 - index) * DAY_MS;
     const revenueMoney = dailyRevenueMap.get(dayStart) ?? Money.zero();
     const costMoney = dailyCostMap.get(dayStart) ?? Money.zero();
-    const profitMoney = revenueMoney.subtract(costMoney);
+    const profitMoney = (dailyProfitMap.get(dayStart) ?? Money.zero()).subtract(
+      costMoney,
+    );
 
     return {
       dateLabel: formatShanghaiDayLabel(dayStart),
@@ -107,13 +110,15 @@ export function buildDailyProfits(
 
 const MONTH_LABELS = Array.from({ length: 12 }, (_, index) => `${index + 1}月`);
 
-/** 按月粒度产出趋势点，profit 由 Money.subtract() 计算；year 周期专用 */
+/** 按月粒度产出趋势点；成本仅统计费用记录；year 周期专用 */
 export function buildMonthlyProfits(
   currentRange: ProfitDateRange,
   dailyRevenueMap: Map<number, Money>,
+  dailyProfitMap: Map<number, Money>,
   dailyCostMap: Map<number, Money>,
 ): DailyProfitDto[] {
   const monthlyRevenueMap = new Map<number, Money>();
+  const monthlyProfitMap = new Map<number, Money>();
   const monthlyCostMap = new Map<number, Money>();
 
   for (const [dayStart, revenue] of dailyRevenueMap.entries()) {
@@ -121,6 +126,14 @@ export function buildMonthlyProfits(
     monthlyRevenueMap.set(
       monthIndex,
       (monthlyRevenueMap.get(monthIndex) ?? Money.zero()).add(revenue),
+    );
+  }
+
+  for (const [dayStart, profit] of dailyProfitMap.entries()) {
+    const monthIndex = getShanghaiMonthIndex(dayStart);
+    monthlyProfitMap.set(
+      monthIndex,
+      (monthlyProfitMap.get(monthIndex) ?? Money.zero()).add(profit),
     );
   }
 
@@ -134,13 +147,14 @@ export function buildMonthlyProfits(
 
   return MONTH_LABELS.map((label, monthIndex) => {
     const revenueMoney = monthlyRevenueMap.get(monthIndex) ?? Money.zero();
-    const costMoney = monthlyCostMap.get(monthIndex) ?? Money.zero();
-    const profitMoney = revenueMoney.subtract(costMoney);
+    const profitMoney = (
+      monthlyProfitMap.get(monthIndex) ?? Money.zero()
+    ).subtract(monthlyCostMap.get(monthIndex) ?? Money.zero());
 
     return {
       dateLabel: label,
       revenue: revenueMoney.toOutputYuan(),
-      cost: costMoney.toOutputYuan(),
+      cost: (monthlyCostMap.get(monthIndex) ?? Money.zero()).toOutputYuan(),
       profit: profitMoney.toOutputYuan(),
     };
   });
@@ -157,9 +171,11 @@ export function buildMonthlyProfits(
 export function buildRangeMonthlyProfits(
   currentRange: ProfitDateRange,
   dailyRevenueMap: Map<number, Money>,
+  dailyProfitMap: Map<number, Money>,
   dailyCostMap: Map<number, Money>,
 ): DailyProfitDto[] {
   const monthlyRevenueMap = new Map<string, Money>();
+  const monthlyProfitMap = new Map<string, Money>();
   const monthlyCostMap = new Map<string, Money>();
 
   for (const [dayStart, revenue] of dailyRevenueMap.entries()) {
@@ -170,6 +186,17 @@ export function buildRangeMonthlyProfits(
     monthlyRevenueMap.set(
       key,
       (monthlyRevenueMap.get(key) ?? Money.zero()).add(revenue),
+    );
+  }
+
+  for (const [dayStart, profit] of dailyProfitMap.entries()) {
+    const key = formatYearMonthKeyFromYm(
+      getShanghaiFullYear(dayStart),
+      getShanghaiMonthIndex(dayStart),
+    );
+    monthlyProfitMap.set(
+      key,
+      (monthlyProfitMap.get(key) ?? Money.zero()).add(profit),
     );
   }
 
@@ -196,7 +223,9 @@ export function buildRangeMonthlyProfits(
     const key = formatYearMonthKeyFromYm(cursorYear, cursorMonth);
     const revenueMoney = monthlyRevenueMap.get(key) ?? Money.zero();
     const costMoney = monthlyCostMap.get(key) ?? Money.zero();
-    const profitMoney = revenueMoney.subtract(costMoney);
+    const profitMoney = (monthlyProfitMap.get(key) ?? Money.zero()).subtract(
+      costMoney,
+    );
 
     points.push({
       dateLabel: key,
@@ -277,6 +306,7 @@ export function buildProfitDetailResponse(
 ): ProfitDetailResponseDto {
   const revenueYuan = snapshot.currentSales.revenue.toOutputYuan();
   const previousRevenueYuan = snapshot.previousSales.revenue.toOutputYuan();
+  // 总成本仅统计费用记录（成本管理），商品成本已内含于销售行利润快照
   const totalCostYuan = snapshot.currentCosts.totalCost.toOutputYuan();
   const previousTotalCostYuan = snapshot.previousCosts.totalCost.toOutputYuan();
   const netProfitYuan = snapshot.netProfit.toOutputYuan();
@@ -291,17 +321,20 @@ export function buildProfitDetailResponse(
     ? buildMonthlyProfits(
         snapshot.currentRange,
         snapshot.currentSales.dailyRevenueMap,
+        snapshot.currentSales.dailyProfitMap,
         snapshot.currentCosts.dailyCostMap,
       )
     : rangeExceedsDailyCap
       ? buildRangeMonthlyProfits(
           snapshot.currentRange,
           snapshot.currentSales.dailyRevenueMap,
+          snapshot.currentSales.dailyProfitMap,
           snapshot.currentCosts.dailyCostMap,
         )
       : buildDailyProfits(
           snapshot.currentRange,
           snapshot.currentSales.dailyRevenueMap,
+          snapshot.currentSales.dailyProfitMap,
           snapshot.currentCosts.dailyCostMap,
         );
 
@@ -329,6 +362,7 @@ export function buildProfitReportResponse(
 ): ProfitReportResponseDto {
   const revenueYuan = snapshot.currentSales.revenue.toOutputYuan();
   const previousRevenueYuan = snapshot.previousSales.revenue.toOutputYuan();
+  // 总成本仅统计费用记录（成本管理），商品成本已内含于销售行利润快照
   const totalCostYuan = snapshot.currentCosts.totalCost.toOutputYuan();
   const previousTotalCostYuan = snapshot.previousCosts.totalCost.toOutputYuan();
   const netProfitYuan = snapshot.netProfit.toOutputYuan();

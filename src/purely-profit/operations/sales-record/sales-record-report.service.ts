@@ -16,7 +16,10 @@ import {
   buildSalesReportCacheKey,
 } from '../../../redis/keys';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
-import { buildGrouponLabel } from '../handover/handover.constants';
+import {
+  buildGrouponLabel,
+  resolveGrouponPlatformZh,
+} from '../handover/handover.constants';
 import type {
   SalesReportQueryDto,
   SalesReportResponseDto,
@@ -108,24 +111,28 @@ export function buildCsvRowFromOrder(order: SaleOrderWithItems): string[] {
     effectivePaymentMethod === 'groupon_voucher'
       ? buildGrouponLabel(order.grouponPlatform ?? order.voucherPlatform)
       : resolvePaymentLabel(effectivePaymentMethod);
-  const grouponPlatform = toOptionalText(order.grouponPlatform) ?? '-';
+  // 团购平台列：拼音/英文标识映射为中文平台名（如 chunlibao → 纯利宝）
+  const grouponPlatform = toOptionalText(order.grouponPlatform)
+    ? resolveGrouponPlatformZh(order.grouponPlatform)
+    : '-';
   const voucherCode = toOptionalText(order.voucherCode) ?? '-';
 
   return [
     order.orderNo,
     itemNames,
-    String(amounts.totalQuantity),
-    String(amounts.totalRevenue),
-    String(amounts.totalProfit),
+    // \t 前缀强制 Excel/WPS 按文本处理，避免数字/日期类型因列宽不足显示 ####
+    `\t${String(amounts.totalQuantity)}`,
+    `\t${String(amounts.totalRevenue)}`,
+    `\t${String(amounts.totalProfit)}`,
     paymentLabel,
     grouponPlatform,
     voucherCode,
     operatorName,
-    formatCsvTimestamp(toTimestampMs(order.date)),
+    `\t${formatCsvTimestamp(toTimestampMs(order.date))}`,
     note,
     order.refund ? '已退款' : '正常',
     order.refund
-      ? formatCsvTimestamp(toTimestampMs(order.refund.refundedAt))
+      ? `\t${formatCsvTimestamp(toTimestampMs(order.refund.refundedAt))}`
       : '-',
   ];
 }
@@ -344,7 +351,7 @@ export class SalesRecordReportService {
       const prefixRows = buildSummaryPrefixRows([], resolvePeriodLabel(query));
       safeStreamCsvExport(
         reply,
-        'sales-record.csv',
+        '销售记录.csv',
         CSV_HEADERS,
         [],
         prefixRows,
@@ -368,7 +375,7 @@ export class SalesRecordReportService {
       const prefixRows = buildSummaryPrefixRows([], resolvePeriodLabel(query));
       safeStreamCsvExport(
         reply,
-        'sales-record.csv',
+        '销售记录.csv',
         CSV_HEADERS,
         [],
         prefixRows,
@@ -387,7 +394,7 @@ export class SalesRecordReportService {
 
     safeStreamCsvExport(
       reply,
-      'sales-record.csv',
+      '销售记录.csv',
       CSV_HEADERS,
       rows,
       prefixRows,

@@ -520,14 +520,21 @@ describe('profit-detail.utils', () => {
           ],
           [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(900)],
         ]),
+        // 商品利润快照：05/12 利润 5；05/13 利润 3
+        new Map<number, Money>([
+          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), Money.fromDbCents(500)],
+          [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(300)],
+        ]),
         new Map<number, Money>([
           [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), Money.fromDbCents(800)],
           [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(300)],
         ]),
       ),
     ).toEqual([
-      { dateLabel: '05/12', revenue: 13, cost: 8, profit: 5 },
-      { dateLabel: '05/13', revenue: 9, cost: 3, profit: 6 },
+      // 05/12 成本 = 费用 8，利润 = 商品利润 5 − 费用 8 = −3
+      { dateLabel: '05/12', revenue: 13, cost: 8, profit: -3 },
+      // 05/13 成本 = 费用 3，利润 = 商品利润 3 − 费用 3 = 0
+      { dateLabel: '05/13', revenue: 9, cost: 3, profit: 0 },
     ]);
   });
 
@@ -553,6 +560,8 @@ describe('profit-detail.utils', () => {
         start: new Date(2025, 0, 1, 0, 0, 0, 0).getTime(),
         end: new Date(2025, 11, 31, 23, 59, 59, 999).getTime(),
       },
+      dailyRevenueMap,
+      // 无成本价商品利润快照 = 售价，此时利润 = 收入 − 费用
       dailyRevenueMap,
       dailyCostMap,
     );
@@ -704,12 +713,22 @@ describe('profit-detail.utils', () => {
       },
       currentSales: {
         revenue: Money.fromDbCents(2200),
+        totalProfit: Money.fromDbCents(500),
+        goodsCost: Money.fromDbCents(1700),
         orderCount: 3,
         dailyRevenueMap: new Map<number, Money>([
           [
             new Date(2026, 4, 12, 0, 0, 0, 0).getTime(),
             Money.fromDbCents(1300),
           ],
+          [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(900)],
+        ]),
+        dailyProfitMap: new Map<number, Money>([
+          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), Money.fromDbCents(500)],
+          [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(0)],
+        ]),
+        dailyGoodsCostMap: new Map<number, Money>([
+          [new Date(2026, 4, 12, 0, 0, 0, 0).getTime(), Money.fromDbCents(800)],
           [new Date(2026, 4, 13, 0, 0, 0, 0).getTime(), Money.fromDbCents(900)],
         ]),
         rankMap: new Map<string, AggregatedRankProduct>([
@@ -731,8 +750,12 @@ describe('profit-detail.utils', () => {
       },
       previousSales: {
         revenue: Money.fromDbCents(2400),
+        totalProfit: Money.fromDbCents(400),
+        goodsCost: Money.fromDbCents(2000),
         orderCount: 3,
         dailyRevenueMap: new Map<number, Money>(),
+        dailyProfitMap: new Map<number, Money>(),
+        dailyGoodsCostMap: new Map<number, Money>(),
         rankMap: new Map<string, AggregatedRankProduct>(),
       },
       currentCosts: {
@@ -751,24 +774,28 @@ describe('profit-detail.utils', () => {
         dailyCostMap: new Map<number, Money>(),
         categoryCostMap: new Map<CostRecordRow['category'], Money>(),
       },
-      netProfit: Money.fromDbCents(1100),
-      previousNetProfit: Money.fromDbCents(1400),
+      netProfit: Money.fromDbCents(-600),
+      previousNetProfit: Money.fromDbCents(-600),
     };
 
     expect(buildProfitDetailResponse(snapshot)).toEqual({
       summary: {
         revenue: 22,
+        // 总成本仅统计费用记录 11（商品成本已内含于利润快照）
         totalCost: 11,
-        netProfit: 11,
-        profitRate: 50,
+        // 净利润 = 商品利润 5 − 费用 11 = −6
+        netProfit: -6,
+        profitRate: -27.27,
         revenueCompareLastPeriod: -8.33,
-        profitCompareLastPeriod: -21.43,
+        profitCompareLastPeriod: -0,
         costCompareLastPeriod: 10,
         orderCount: 3,
       },
       dailyProfits: [
-        { dateLabel: '05/12', revenue: 13, cost: 8, profit: 5 },
-        { dateLabel: '05/13', revenue: 9, cost: 3, profit: 6 },
+        // 05/12 成本 = 费用 8，利润 = 商品利润 5 − 8 = −3
+        { dateLabel: '05/12', revenue: 13, cost: 8, profit: -3 },
+        // 05/13 成本 = 费用 3，利润 = 商品利润 0 − 3 = −3
+        { dateLabel: '05/13', revenue: 9, cost: 3, profit: -3 },
       ],
       productRanking: [
         {
@@ -793,10 +820,10 @@ describe('profit-detail.utils', () => {
       summary: {
         revenue: 22,
         totalCost: 11,
-        netProfit: 11,
-        profitRate: 50,
+        netProfit: -6,
+        profitRate: -27.27,
         revenueCompareLastPeriod: -8.33,
-        profitCompareLastPeriod: -21.43,
+        profitCompareLastPeriod: -0,
         costCompareLastPeriod: 10,
         orderCount: 3,
       },

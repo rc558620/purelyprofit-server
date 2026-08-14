@@ -46,6 +46,29 @@ function buildSalesPreviousRevenueSql(
   `;
 }
 
+function buildSalesPreviousProfitSql(
+  previousRange: BusinessAnalysisAccessibleRange,
+): Prisma.Sql {
+  if (previousRange.empty) {
+    return Prisma.sql`0::numeric`;
+  }
+
+  return Prisma.sql`
+    COALESCE(
+      SUM(
+        CASE
+          WHEN so.date >= ${new Date(previousRange.start)}
+            AND so.date <= ${new Date(previousRange.end)}
+            AND soi.product_name NOT IN ('预付抵扣', '预付款', '续费抵扣')
+          THEN soi.profit * soi.quantity
+          ELSE 0
+        END
+      ),
+      0
+    )
+  `;
+}
+
 function buildSalesPreviousCountSql(
   previousRange: BusinessAnalysisAccessibleRange,
 ): Prisma.Sql {
@@ -100,6 +123,7 @@ export async function fetchBusinessAnalysisMetrics(
   const queryRange = buildQueryRange(currentRange, previousRange);
   const salesPreviousRevenueSql = buildSalesPreviousRevenueSql(previousRange);
   const salesPreviousCountSql = buildSalesPreviousCountSql(previousRange);
+  const salesPreviousProfitSql = buildSalesPreviousProfitSql(previousRange);
   const costPreviousTotalSql = buildCostPreviousTotalSql(previousRange);
 
   const [
@@ -129,7 +153,19 @@ export async function fetchBusinessAnalysisMetrics(
           AND so.date <= ${new Date(currentRange.end)}
       )::int AS "currentOrderCount",
         ${salesPreviousRevenueSql} AS "previousRevenue",
-        ${salesPreviousCountSql} AS "previousOrderCount"
+        ${salesPreviousCountSql} AS "previousOrderCount",
+      COALESCE(
+        SUM(
+          CASE
+            WHEN so.date >= ${new Date(currentRange.start)}
+              AND so.date <= ${new Date(currentRange.end)}
+            THEN soi.profit * soi.quantity
+            ELSE 0
+          END
+        ),
+        0
+      ) AS "currentProfit",
+        ${salesPreviousProfitSql} AS "previousProfit"
       FROM sale_order_items soi
       INNER JOIN sale_orders so ON so.id = soi.order_id
       WHERE soi.store_id = ${storeId}
@@ -140,7 +176,8 @@ export async function fetchBusinessAnalysisMetrics(
     prisma.$queryRaw<BusinessAnalysisDailyRevenueRow[]>`
       SELECT
         date_trunc('day', so.date + interval '8 hours') - interval '8 hours' AS "bucketAt",
-        COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue
+        COALESCE(SUM(soi.sale_price * soi.quantity), 0) AS revenue,
+        COALESCE(SUM(soi.profit * soi.quantity), 0) AS profit
       FROM sale_order_items soi
       INNER JOIN sale_orders so ON so.id = soi.order_id
       WHERE soi.store_id = ${storeId}
@@ -232,10 +269,13 @@ export async function fetchBusinessAnalysisMetrics(
       currentOrderCount: salesSummaryRows[0]?.currentOrderCount ?? 0,
       previousRevenue: Number(salesSummaryRows[0]?.previousRevenue ?? 0),
       previousOrderCount: salesSummaryRows[0]?.previousOrderCount ?? 0,
+      currentProfit: Number(salesSummaryRows[0]?.currentProfit ?? 0),
+      previousProfit: Number(salesSummaryRows[0]?.previousProfit ?? 0),
     },
     salesDailyRows: salesDailyRows.map((r) => ({
       bucketAt: r.bucketAt,
       revenue: Number(r.revenue ?? 0),
+      profit: Number(r.profit ?? 0),
     })),
     salesCategoryRows: salesCategoryRows.map((r) => ({
       categoryName: r.categoryName,

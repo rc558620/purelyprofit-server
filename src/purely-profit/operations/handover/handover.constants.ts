@@ -47,16 +47,25 @@ const GROUPON_PLATFORM_ZH_MAP: Record<string, string> = {
 };
 
 /**
- * 构建团购展示标签：有平台标识时拼接为「美团团购」「抖音团购」，否则回退到默认的「团购」。
+ * 团购平台中文名：拼音/英文标识（如 meituan、chunlibao）→ 中文平台名；未知平台回退原值。
+ */
+export const resolveGrouponPlatformZh = (
+  grouponPlatform: string | null | undefined,
+): string => {
+  const raw = grouponPlatform?.trim();
+  if (!raw) return '';
+  return GROUPON_PLATFORM_ZH_MAP[raw.toLowerCase()] ?? raw;
+};
+
+/**
+ * 构建团购展示标签：有平台标识时拼接为「美团团购」「抖音团购」，否则回退到默认 的「团购」。
  * 当平台值为拼音（如 meituan、douyin）时自动转换为中文。
  */
 export const buildGrouponLabel = (
   grouponPlatform: string | null | undefined,
 ): string => {
-  const raw = grouponPlatform?.trim();
-  if (!raw) return GROUPON_VOUCHER_DISPLAY.label;
-  const normalized = GROUPON_PLATFORM_ZH_MAP[raw.toLowerCase()] ?? raw;
-  return `${normalized}团购`;
+  const normalized = resolveGrouponPlatformZh(grouponPlatform);
+  return normalized ? `${normalized}团购` : GROUPON_VOUCHER_DISPLAY.label;
 };
 
 export const SHIFT_TYPE_LABELS: Partial<Record<EmployeeShiftType, string>> = {

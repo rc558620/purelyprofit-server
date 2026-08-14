@@ -39,6 +39,8 @@ export class ScanOrderingSaleOrderBridgeService {
     transaction: Prisma.TransactionClient,
     orderId: number,
     paymentMethod: 'wechat' | 'other',
+    /** 实际操作员（出餐/拒绝的商家账号）；缺省时使用系统用户，销售单不记录操作员 */
+    operator: AuthenticatedUser = createScanOrderingSystemUser(),
   ): Promise<void> {
     const existing = await transaction.saleOrder.findUnique({
       where: { scanOrderId: orderId },
@@ -69,7 +71,7 @@ export class ScanOrderingSaleOrderBridgeService {
     });
 
     await this.salesRecordService.create(
-      createScanOrderingSystemUser(),
+      operator,
       this.toCreateDto(order, paymentMethod),
       {
         skipAccessCheck: true,

@@ -16,8 +16,12 @@ import type {
 export function createEmptySalesAggregation(): SalesAggregationResult {
   return {
     revenue: Money.zero(),
+    totalProfit: Money.zero(),
+    goodsCost: Money.zero(),
     orderCount: 0,
     dailyRevenueMap: new Map<number, Money>(),
+    dailyProfitMap: new Map<number, Money>(),
+    dailyGoodsCostMap: new Map<number, Money>(),
     rankMap: new Map<string, AggregatedRankProduct>(),
   };
 }
@@ -41,8 +45,12 @@ export function aggregateSales(
   end: number,
 ): SalesAggregationResult {
   let revenue = Money.zero();
+  let totalProfit = Money.zero();
+  let goodsCost = Money.zero();
   let orderCount = 0;
   const dailyRevenueMap = new Map<number, Money>();
+  const dailyProfitMap = new Map<number, Money>();
+  const dailyGoodsCostMap = new Map<number, Money>();
   const rankMap = new Map<string, AggregatedRankProduct>();
 
   const seenOrderIds = new Set<number>();
@@ -62,7 +70,11 @@ export function aggregateSales(
     const profitPerUnit = Money.fromDbCents(row.profit);
     const itemRevenue = price.multiply(row.quantity);
     const itemProfit = profitPerUnit.multiply(row.quantity);
+    // 商品成本由销售行反推：成交价 − 利润 = 成本价 × 数量（无成本价商品利润=售价，反推为 0）
+    const itemGoodsCost = itemRevenue.subtract(itemProfit);
     revenue = revenue.add(itemRevenue);
+    totalProfit = totalProfit.add(itemProfit);
+    goodsCost = goodsCost.add(itemGoodsCost);
     // orderCount 统计独立订单数（去重），与其他模块口径一致
     seenOrderIds.add(row.order.id);
     orderCount = seenOrderIds.size;
@@ -71,6 +83,14 @@ export function aggregateSales(
     dailyRevenueMap.set(
       dayStart,
       (dailyRevenueMap.get(dayStart) ?? Money.zero()).add(itemRevenue),
+    );
+    dailyProfitMap.set(
+      dayStart,
+      (dailyProfitMap.get(dayStart) ?? Money.zero()).add(itemProfit),
+    );
+    dailyGoodsCostMap.set(
+      dayStart,
+      (dailyGoodsCostMap.get(dayStart) ?? Money.zero()).add(itemGoodsCost),
     );
 
     mergeRankProduct(
@@ -85,8 +105,12 @@ export function aggregateSales(
 
   return {
     revenue,
+    totalProfit,
+    goodsCost,
     orderCount,
     dailyRevenueMap,
+    dailyProfitMap,
+    dailyGoodsCostMap,
     rankMap,
   };
 }

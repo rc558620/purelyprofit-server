@@ -13,7 +13,11 @@ import {
   GROUPON_VOUCHER_DISPLAY,
   buildGrouponLabel,
 } from './handover.constants';
-import type { OrderItemRow, RefundOrderRow } from './handover.types';
+import type {
+  OrderItemRow,
+  RefundOrderRow,
+  SaleOrderRefundRow,
+} from './handover.types';
 import type { HandoverOrderItemDto } from './dto/handover-shared.dto';
 import { Money } from '../../../shared/money.utils';
 import { toDisplayName, dbCentsToOutputYuan } from './handover.utils';
@@ -35,6 +39,8 @@ const parseRenewPaymentMethods = (
 
 const resolveOrderItemProductName = (item: OrderItemRow): string => {
   const spaceName = toDisplayName(item.order.spaceSession?.space?.name);
+  // 扫码点餐订单（purelyClub 下单）的桌台号（如 A01）
+  const scanTableCode = toDisplayName(item.order.scanOrder?.table?.tableCode);
 
   // 续费抵扣在 DB 中存储为「续费抵扣」，交班明细展示时去掉「抵扣」二字，仅展示「续费」
   if (item.productName === SPACE_RENEW_DEDUCTION_ITEM_NAME) {
@@ -45,6 +51,11 @@ const resolveOrderItemProductName = (item: OrderItemRow): string => {
   // 空间会话商品：用 " · " 分隔，如 "大包2 · 预付款"、"大包2 · 台位费（固定）"、"大包2 · 面包"
   if (item.order.spaceSession != null && spaceName) {
     return `${spaceName} · ${item.productName}`;
+  }
+
+  // 扫码点餐订单（purelyClub 下单）：前缀用桌台号（如 "A01 · 招牌水煮鱼"）
+  if (scanTableCode) {
+    return `${scanTableCode} · ${item.productName}`;
   }
 
   // 无空间会话的普通商品：统一加「收银台 · 」前缀
@@ -192,6 +203,10 @@ const resolveOperatorRole = (
 export const mapOrderItem = (
   item: OrderItemRow,
   storeOwnerUserId: number | null = null,
+  /** 当班操作员：扫码点餐订单（purelyClub 下单）无实际操作员时回退展示 */
+  shiftOperatorName: string | null = null,
+  /** 已被退款的销售单 id 集合：退款单会同时返回下单+退款两行，下单行不展示库存 */
+  refundedOrderIds: ReadonlySet<number> = new Set(),
 ): HandoverOrderItemDto => {
   // 抵扣项（预付款/续费抵扣）代表已收到的钱，展示时应为正数。
   // 旧数据 DB 中可能存为负数（结算计算遗留），新数据已修正为正数。
@@ -208,11 +223,17 @@ export const mapOrderItem = (
   const { paymentLabel, paymentColor } = resolveOrderItemPaymentDisplay(item);
   const productName = resolveOrderItemProductName(item);
   const timeCategory = resolveTimeCategory(item.productName, paymentLabel);
+  // 有优惠判定：扫码点餐订单的商品折扣 / 订单折扣任一大于 0
+  const hasDiscount =
+    (item.order.scanOrder?.productDiscountAmount ?? 0) > 0 ||
+    (item.order.scanOrder?.orderDiscountAmount ?? 0) > 0;
 
   // 开台项（预付款/台位费）优先使用 SpaceSession 上的开台操作员；
-  // 结账项（客人应付/退款）和普通项使用 SaleOrder 上的操作员。
+  // 结账项（客人应付/退款）和普通项使用 SaleOrder 上的操作员；
+  // 扫码点餐订单（purelyClub 下单）无实际操作员时回退到当班操作员。
   const session = item.order.spaceSession;
   const isOpenItem = timeCategory === 'session_start' && session != null;
+  const isScanOrderingOrder = item.order.scanOrder != null;
   const operatorName = isOpenItem
     ? (toDisplayName(session.openOperatorNameSnapshot) ??
       toDisplayName(session.openOperatorStaff?.name) ??
@@ -221,6 +242,7 @@ export const mapOrderItem = (
       AUTO_SETTLEMENT_OPERATOR_NAME)
     : (toDisplayName(item.order.operatorNameSnapshot) ??
       toDisplayName(item.order.operatorStaff?.name) ??
+      (isScanOrderingOrder ? toDisplayName(shiftOperatorName) : null) ??
       AUTO_SETTLEMENT_OPERATOR_NAME);
   const operatorRole = isOpenItem
     ? (resolveOperatorRole(session.openOperatorStaff, storeOwnerUserId) ??
@@ -265,6 +287,9 @@ export const mapOrderItem = (
       session?.prepaidGrouponCode ??
       resolveRenewGrouponCode(session?.sessionRenewRecords) ??
       null,
+    hasDiscount,
+    // 退款单对应的下单行：库存列展示为“-”（退款行展示恢复后的库存）
+    isRefundedOrder: refundedOrderIds.has(item.order.id),
   };
 };
 
@@ -295,5 +320,59 @@ export const mapRefundOrderItem = (
     stockUnit: null,
     timeCategory: 'session_end',
     grouponCode: null,
+    hasDiscount: false,
+  };
+};
+
+/**
+ * 映射扫码点餐退款行（SaleOrderRefund → 退款展示行）：
+ * 金额为负数，支付标签展示「退回微信 / 退回余额」等，
+ * 与下单订单行同时展示保证账目平衡。
+ */
+export const mapScanOrderingRefundOrderItem = (
+  refund: SaleOrderRefundRow,
+  storeOwnerUserId: number | null = null,
+  shiftOperatorName: string | null = null,
+): HandoverOrderItemDto => {
+  const tableCode = toDisplayName(refund.saleOrder.scanOrder?.table?.tableCode);
+  // 展示原下单商品名（取订单第一条商品），替代固定“退款”文案
+  const productName = toDisplayName(refund.saleOrder.items[0]?.productName);
+  const displayName = productName ?? SPACE_REFUND_DISPLAY_SUFFIX;
+  // 退回渠道标签：余额（other）显示退回纯利宝，其余渠道显示「退回 + 支付方式标签」
+  const paymentLabel =
+    refund.paymentMethod === SalesPaymentMethod.other
+      ? '退回纯利宝'
+      : `退回${PAYMENT_METHOD_CONFIG[refund.paymentMethod].label}`;
+  const timestamp = refund.refundedAt.getTime();
+  // 退款行展示退款后恢复的库存：取原订单第一条商品（与下单行商品名同源）
+  const refundItem = refund.saleOrder.items[0];
+
+  return {
+    id: `scan-refund-${refund.id}`,
+    productName: tableCode
+      ? `${tableCode} · ${displayName}`
+      : `${CASHIER_PREFIX} · ${displayName}`,
+    quantity: 1,
+    // 退款金额以负数展示：下单 + 退款两行并存时账目可平
+    totalRevenue: -dbCentsToOutputYuan(refund.amount),
+    paymentLabel,
+    paymentColor: PAYMENT_METHOD_CONFIG[refund.paymentMethod].color,
+    operatorName:
+      toDisplayName(refund.saleOrder.operatorNameSnapshot) ??
+      toDisplayName(refund.saleOrder.operatorStaff?.name) ??
+      toDisplayName(shiftOperatorName) ??
+      AUTO_SETTLEMENT_OPERATOR_NAME,
+    operatorRole: resolveOperatorRole(
+      refund.saleOrder.operatorStaff,
+      storeOwnerUserId,
+    ),
+    date: timestamp,
+    displayDate: timestamp,
+    currentStock: refundItem?.product?.stock ?? null,
+    stockUnit: refundItem?.product?.unit ?? null,
+    // 退款行不展示开台/续费/结账标签
+    timeCategory: null,
+    grouponCode: null,
+    hasDiscount: false,
   };
 };

@@ -173,17 +173,21 @@ describe('ProfitDetailService', () => {
     ).resolves.toEqual({
       summary: {
         revenue: 22,
+        // 总成本仅统计费用记录 11（商品成本已内含于利润快照）
         totalCost: 11,
-        netProfit: 11,
-        profitRate: 50,
+        // 净利润 = 商品利润 8 − 费用记录 11 = −3
+        netProfit: -3,
+        profitRate: -13.64,
         revenueCompareLastPeriod: -8.33,
-        profitCompareLastPeriod: -45,
+        profitCompareLastPeriod: -250,
         costCompareLastPeriod: 175,
         orderCount: 2,
       },
       dailyProfits: [
-        { dateLabel: '05/12', revenue: 13, cost: 8, profit: 5 },
-        { dateLabel: '05/13', revenue: 9, cost: 3, profit: 6 },
+        // 05/12 成本 = 费用 8，利润 = 商品利润 5 − 8 = −3
+        { dateLabel: '05/12', revenue: 13, cost: 8, profit: -3 },
+        // 05/13 成本 = 费用 3，利润 = 商品利润 3 − 3 = 0
+        { dateLabel: '05/13', revenue: 9, cost: 3, profit: 0 },
       ],
       productRanking: [
         {
@@ -290,11 +294,13 @@ describe('ProfitDetailService', () => {
     ).resolves.toEqual({
       summary: {
         revenue: 22,
+        // 总成本仅统计费用记录 11（商品成本已内含于利润快照）
         totalCost: 11,
-        netProfit: 11,
-        profitRate: 50,
+        // 净利润 = 商品利润 8 − 费用记录 11 = −3
+        netProfit: -3,
+        profitRate: -13.64,
         revenueCompareLastPeriod: -8.33,
-        profitCompareLastPeriod: -45,
+        profitCompareLastPeriod: -250,
         costCompareLastPeriod: 175,
         orderCount: 2,
       },
@@ -489,8 +495,10 @@ describe('ProfitDetailService', () => {
       {
         dateLabel: '05/14',
         revenue: 6.5,
+        // 成本仅统计费用记录 0
         cost: 0,
-        profit: 6.5,
+        // 利润 = 商品利润 2.5 − 费用 0 = 2.5（售价 − 成本价）
+        profit: 2.5,
       },
     ]);
     expect(result.summary.orderCount).toBe(1);

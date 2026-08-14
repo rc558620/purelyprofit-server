@@ -194,6 +194,7 @@ export interface DashboardHomeTrendRevenueRow {
 export interface SaleOrderRow {
   date: Date;
   totalRevenue: Prisma.Decimal;
+  totalProfit: Prisma.Decimal;
 }
 
 export interface CostRecordRow {
@@ -203,6 +204,8 @@ export interface CostRecordRow {
 
 export interface AggregatedSalesResult {
   revenue: number;
+  /** 商品利润总和（已扣除商品成本价），单位：元 */
+  profit: number;
   orderCount: number;
 }
 

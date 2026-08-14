@@ -15,6 +15,7 @@ export function aggregateDashboardHomeSalesByRange(
 
   return {
     revenue: sumSaleOrderRevenue(matchedOrders),
+    profit: sumSaleOrderProfit(matchedOrders),
     orderCount: countSaleOrders(matchedOrders),
   };
 }
@@ -54,6 +55,12 @@ export function filterCostRecordsByRange(
 export function sumSaleOrderRevenue(saleOrders: SaleOrderRow[]): number {
   return Money.sum(
     saleOrders.map((row) => Money.fromDbCents(row.totalRevenue)),
+  ).toOutputYuan();
+}
+
+export function sumSaleOrderProfit(saleOrders: SaleOrderRow[]): number {
+  return Money.sum(
+    saleOrders.map((row) => Money.fromDbCents(row.totalProfit)),
   ).toOutputYuan();
 }
 

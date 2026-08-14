@@ -214,11 +214,12 @@ export class FinanceOverviewService {
       'finance-report.csv',
       ['日期', '标题', '收支方向', '分类', '金额', '支付方式'],
       report.cashFlowRows.map((row) => [
-        row.dateLabel,
+        // \t 前缀强制 Excel/WPS 按文本处理，避免日期/金额类型因列宽不足显示 ####
+        `\t${row.dateLabel}`,
         row.title,
         row.direction,
         row.categoryLabel,
-        row.amount,
+        `\t${row.amount}`,
         row.paymentLabel,
       ]),
     );

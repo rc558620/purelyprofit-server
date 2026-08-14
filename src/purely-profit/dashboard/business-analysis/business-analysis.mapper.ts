@@ -50,10 +50,12 @@ export function buildEmptyAnalysisResponse(): BusinessAnalysisResponseDto {
 export function buildBusinessAnalysisResponse(
   snapshot: BusinessAnalysisMetricsSnapshot,
 ): BusinessAnalysisResponseDto {
-  const currentProfit = snapshot.currentSales.revenue.subtract(
+  // 净利润 = 商品利润总和（售价 − 成本价，销售行快照） − 费用记录（成本管理），
+  // 修复此前仅用「收入 − 费用记录」导致商品成本未被扣除、利润虚高的问题
+  const currentProfit = snapshot.currentSales.totalProfit.subtract(
     snapshot.currentCosts.totalCost,
   );
-  const previousProfit = snapshot.previousSales.revenue.subtract(
+  const previousProfit = snapshot.previousSales.totalProfit.subtract(
     snapshot.previousCosts.totalCost,
   );
   const currentProfitRate = calcPercentOfTotal(
@@ -64,12 +66,15 @@ export function buildBusinessAnalysisResponse(
     previousProfit.toOutputYuan(),
     snapshot.previousSales.revenue.toOutputYuan(),
   );
+  // 总成本仅统计费用记录（成本管理），商品成本已内含于销售行利润快照
+  const currentTotalCost = snapshot.currentCosts.totalCost;
+  const previousTotalCost = snapshot.previousCosts.totalCost;
   const currentCostRate = calcPercentOfTotal(
-    snapshot.currentCosts.totalCost.toOutputYuan(),
+    currentTotalCost.toOutputYuan(),
     snapshot.currentSales.revenue.toOutputYuan(),
   );
   const previousCostRate = calcPercentOfTotal(
-    snapshot.previousCosts.totalCost.toOutputYuan(),
+    previousTotalCost.toOutputYuan(),
     snapshot.previousSales.revenue.toOutputYuan(),
   );
 
@@ -80,10 +85,7 @@ export function buildBusinessAnalysisResponse(
         snapshot.currentSales.revenue,
         snapshot.previousSales.revenue,
       ),
-      totalCost: buildCompare(
-        snapshot.currentCosts.totalCost,
-        snapshot.previousCosts.totalCost,
-      ),
+      totalCost: buildCompare(currentTotalCost, previousTotalCost),
       profitRate: {
         current: currentProfitRate,
         previous: previousProfitRate,
@@ -100,6 +102,7 @@ export function buildBusinessAnalysisResponse(
       snapshot.currentRange.start,
       snapshot.currentRange.end,
       snapshot.currentSales.dailyRevenueMap,
+      snapshot.currentSales.dailyProfitMap,
       snapshot.currentCosts.dailyCostMap,
     ),
     categoryShares: buildCategoryShares(
@@ -108,7 +111,7 @@ export function buildBusinessAnalysisResponse(
     ),
     costRateItems: buildCostRateItems(
       snapshot.currentCosts.costBucketMap,
-      snapshot.currentCosts.totalCost,
+      currentTotalCost,
     ),
     rankProducts: buildRankProducts(snapshot.currentSales.rankMap),
   };
@@ -118,6 +121,7 @@ function buildDailyTrend(
   start: number,
   end: number,
   dailyRevenueMap: Map<number, Money>,
+  dailyProfitMap: Map<number, Money>,
   dailyCostMap: Map<number, Money>,
 ): BusinessAnalysisDailyTrendDto[] {
   const startDay = getShanghaiDayStartMs(start);
@@ -132,11 +136,15 @@ function buildDailyTrend(
     const currentDay = startDay + offset * DAY_MS;
     const revenueMoney = dailyRevenueMap.get(currentDay) ?? Money.zero();
     const costMoney = dailyCostMap.get(currentDay) ?? Money.zero();
+    // 净利润 = 当日商品利润快照 − 当日费用记录
+    const profitMoney = (
+      dailyProfitMap.get(currentDay) ?? Money.zero()
+    ).subtract(costMoney);
     items.push({
       dateLabel: formatShanghaiDayLabel(currentDay),
       revenue: revenueMoney.toOutputYuan(),
       cost: costMoney.toOutputYuan(),
-      profit: revenueMoney.subtract(costMoney).toOutputYuan(),
+      profit: profitMoney.toOutputYuan(),
     });
   }
 

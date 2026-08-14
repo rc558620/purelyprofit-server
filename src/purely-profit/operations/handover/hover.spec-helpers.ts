@@ -28,10 +28,14 @@ export const createHandoverPrismaMock = () => {
     },
     saleOrderRefund: {
       aggregate: jest.fn().mockResolvedValue({ _sum: { amount: 0 } }),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     spaceSession: {
       aggregate: jest.fn(),
       findMany: jest.fn(),
+    },
+    store: {
+      findUnique: jest.fn(),
     },
     financeCashFlowRecord: {
       aggregate: jest.fn(),

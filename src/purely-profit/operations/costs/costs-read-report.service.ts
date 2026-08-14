@@ -120,8 +120,9 @@ export class CostsReadReportService {
       ['标题', '金额', '发生日期', '备注'],
       report.detailRows.map((row) => [
         row.title,
-        row.amount,
-        row.dateLabel,
+        // \t 前缀强制 Excel/WPS 按文本处理，避免金额/日期类型因列宽不足显示 ####
+        `\t${row.amount}`,
+        `\t${row.dateLabel}`,
         row.note ?? '',
       ]),
     );

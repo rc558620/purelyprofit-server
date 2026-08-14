@@ -33,6 +33,21 @@ export class ScanOrderingMenuStockService {
       throw new ConflictException('有限库存商品必须提供库存数量');
     }
 
+    // 预留库存保护：新设置的总库存不能小于已下单未接单的预留量，
+    // 否则会导致可用库存（总库存 - 预留量）为负数。
+    if (dto.stockMode === 'finite') {
+      const current = await this.prisma.scanOrderingMenuProduct.findUnique({
+        where: { id: productId },
+        select: { reservedQuantity: true },
+      });
+      const reserved = current?.reservedQuantity ?? 0;
+      if (dto.stockQuantity! < reserved) {
+        throw new ConflictException(
+          `库存不能低于已预留数量 ${reserved}，请先处理相关订单`,
+        );
+      }
+    }
+
     const result = await this.prisma.scanOrderingMenuProduct.updateMany({
       where: { id: productId, storeId, deletedAt: null },
       data: {

@@ -166,4 +166,19 @@ export class HandoverOrderItemDto {
     nullable: true,
   })
   grouponCode?: string | null;
+
+  @ApiProperty({
+    example: true,
+    description: '是否有优惠（扫码点餐订单商品/订单折扣金额任一大于 0）',
+  })
+  hasDiscount: boolean;
+
+  @IsOptional()
+  @ApiProperty({
+    example: true,
+    description:
+      '是否为退款单对应的下单行（退款单会同时返回下单+退款两行，下单行库存不展示）',
+    required: false,
+  })
+  isRefundedOrder?: boolean;
 }

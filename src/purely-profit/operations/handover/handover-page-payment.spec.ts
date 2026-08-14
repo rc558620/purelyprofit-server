@@ -156,6 +156,7 @@ describe('handover-page-payment', () => {
             paymentMethod: SalesPaymentMethod.wechat,
             operatorNameSnapshot: '张三',
             operatorStaff: null,
+            scanOrder: null,
             spaceSession: null,
           },
         },
@@ -171,6 +172,7 @@ describe('handover-page-payment', () => {
             paymentMethod: SalesPaymentMethod.cash,
             operatorNameSnapshot: '张三',
             operatorStaff: null,
+            scanOrder: null,
             spaceSession: null,
           },
         },
@@ -202,6 +204,7 @@ describe('handover-page-payment', () => {
             paymentMethod: SalesPaymentMethod.cash, // 门店侧结算方式是现金
             operatorNameSnapshot: null,
             operatorStaff: null,
+            scanOrder: null,
             spaceSession: {
               startTime: new Date(),
               prepaidPaymentMethod: SalesPaymentMethod.cash,
@@ -240,6 +243,7 @@ describe('handover-page-payment', () => {
             paymentMethod: SalesPaymentMethod.wechat,
             operatorNameSnapshot: null,
             operatorStaff: null,
+            scanOrder: null,
             spaceSession: {
               startTime: new Date(),
               prepaidPaymentMethod: SalesPaymentMethod.wechat,
@@ -276,6 +280,7 @@ describe('handover-page-payment', () => {
             paymentMethod: SalesPaymentMethod.cash, // 门店侧结算方式是现金
             operatorNameSnapshot: null,
             operatorStaff: null,
+            scanOrder: null,
             spaceSession: {
               startTime: new Date(),
               prepaidPaymentMethod: SalesPaymentMethod.cash,

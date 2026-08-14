@@ -106,8 +106,16 @@ export interface AggregatedRankProduct {
 
 export interface SalesAggregationResult {
   revenue: Money;
+  /** 商品利润总和 = Σ(单件利润 × 数量)，已扣除商品成本价 */
+  totalProfit: Money;
+  /** 商品销售成本 = Σ((售价 − 利润) × 数量)，即成本价 × 数量 */
+  goodsCost: Money;
   orderCount: number;
   dailyRevenueMap: Map<number, Money>;
+  /** 按天聚合的商品利润（已扣除商品成本价） */
+  dailyProfitMap: Map<number, Money>;
+  /** 按天聚合的商品销售成本 */
+  dailyGoodsCostMap: Map<number, Money>;
   rankMap: Map<string, AggregatedRankProduct>;
 }
 

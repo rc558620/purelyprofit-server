@@ -279,11 +279,12 @@ export class ScanOrderingGateway
       `subscribe.voucher-store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
     );
     try {
-      // 团购券订单实时订阅：与商家端 manage 接口同权限（space:view），独立于扫码点餐 store 房间
+      // 团购券订单实时订阅：能查看/处理团购券订单（space:view 或 operation-entry:create）即可订阅，
+      // 兼容餐饮店长（无 space:view 但有 operation-entry:create 可确认/拒绝团购券订单）
       await this.commerceAccessService.ensureCanAccessStoreWithAnyPermission(
         this.toAuthenticatedUser(identity),
         payload.storeId,
-        ['space:view'],
+        ['space:view', 'operation-entry:create'],
         '无权订阅该门店团购券订单',
       );
       const room = this.realtimeService.voucherOrderStoreRoom(payload.storeId);

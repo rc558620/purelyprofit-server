@@ -16,10 +16,12 @@ export function buildDashboardHomeStats(
   compareCosts: AggregatedCostsResult,
 ): DashboardHomeStatsDto {
   const meta = PERIOD_META[period];
-  const currentProfit = Money.fromInputYuan(currentSales.revenue)
+  // 净利润 = 商品利润总和（售价 − 成本价，销售行快照） − 费用记录（成本管理），
+  // 避免重复扣除商品成本（收入 − 费用会遗漏商品成本价）
+  const currentProfit = Money.fromInputYuan(currentSales.profit)
     .subtract(Money.fromInputYuan(currentCosts.totalCost))
     .toOutputYuan();
-  const compareProfit = Money.fromInputYuan(compareSales.revenue)
+  const compareProfit = Money.fromInputYuan(compareSales.profit)
     .subtract(Money.fromInputYuan(compareCosts.totalCost))
     .toOutputYuan();
 

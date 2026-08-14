@@ -23,8 +23,12 @@ function buildSnapshot(
     currentRange: { start, end, clamped: false, empty: false },
     currentSales: {
       revenue: Money.zero(),
+      totalProfit: Money.zero(),
+      goodsCost: Money.zero(),
       orderCount: 0,
       dailyRevenueMap,
+      dailyProfitMap: new Map(),
+      dailyGoodsCostMap: new Map(),
       rankMap: new Map(),
     },
     previousSales: createEmptySalesAggregation(),
@@ -59,6 +63,7 @@ describe('profit-detail.mapper 趋势粒度（P2-2）', () => {
     const points = buildRangeMonthlyProfits(
       { start: dayStart(2025, 12, 1), end: dayStart(2026, 6, 30) },
       revenueMap,
+      new Map(),
       costMap,
     );
 

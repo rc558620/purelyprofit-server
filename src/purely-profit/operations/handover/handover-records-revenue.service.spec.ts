@@ -30,9 +30,13 @@ describe('HandoverRecordsRevenueService.countRecordRevenue (BUG-2 修复验证)'
   });
 
   it('应包含空间会话营收：totalRevenue = additional + space', async () => {
-    prisma.saleOrder.aggregate.mockResolvedValue({
-      _sum: { totalRevenue: new Prisma.Decimal('50000') }, // 非空间销售 = 500 元
-    });
+    prisma.saleOrder.aggregate
+      .mockResolvedValueOnce({
+        _sum: { totalRevenue: new Prisma.Decimal('50000') }, // 非空间销售 = 500 元
+      })
+      .mockResolvedValueOnce({
+        _sum: { totalRevenue: null }, // 扫码点餐订单收入（本场景无）
+      });
     prisma.spaceSession.aggregate.mockResolvedValue({
       _sum: {
         timeCost: new Prisma.Decimal('60000'), // 600 元
@@ -55,9 +59,13 @@ describe('HandoverRecordsRevenueService.countRecordRevenue (BUG-2 修复验证)'
   });
 
   it('存在空间会话退款时，totalRevenue 仍为 additional + space（退款不在此扣减）', async () => {
-    prisma.saleOrder.aggregate.mockResolvedValue({
-      _sum: { totalRevenue: new Prisma.Decimal('50000') }, // 500 元
-    });
+    prisma.saleOrder.aggregate
+      .mockResolvedValueOnce({
+        _sum: { totalRevenue: new Prisma.Decimal('50000') }, // 500 元
+      })
+      .mockResolvedValueOnce({
+        _sum: { totalRevenue: null }, // 扫码点餐订单收入（本场景无）
+      });
     prisma.spaceSession.aggregate.mockResolvedValue({
       _sum: {
         timeCost: new Prisma.Decimal('60000'), // 600 元

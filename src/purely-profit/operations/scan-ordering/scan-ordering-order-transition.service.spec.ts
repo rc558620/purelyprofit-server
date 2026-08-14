@@ -9,6 +9,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { ScanOrderingPickupNumberService } from '../../../purely-club/scan-ordering/scan-ordering-pickup-number.service';
+import { ScanOrderingSaleOrderBridgeService } from '../../../purely-club/scan-ordering/scan-ordering-sale-order-bridge.service';
 import { ScanOrderingOrderTransitionEngineService } from './scan-ordering-order-transition.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
@@ -24,6 +25,8 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
   } as unknown as AuthenticatedUser;
 
   const prismaService = {
+    // 事务：直接执行回调，复用同一组 scanOrders / scanOrderStatusHistory mock
+    $transaction: jest.fn(),
     scanOrders: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
@@ -35,6 +38,15 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
     store: {
       findUnique: jest.fn(),
     },
+  };
+
+  const saleOrderBridgeService = {
+    createForPaidOrder: jest.fn(),
+  };
+
+  const txMock = {
+    scanOrders: prismaService.scanOrders,
+    scanOrderStatusHistory: prismaService.scanOrderStatusHistory,
   };
 
   const commerceAccessService = {
@@ -56,6 +68,10 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
     publishOrderStatusChanged = realtimeService.publishOrderStatusChanged;
     updateMany = prismaService.scanOrders.updateMany;
     scanOrdersFindUnique = prismaService.scanOrders.findUnique;
+    // 事务透传：回调内使用的 scanOrders / history 与事务外共用同一组 mock
+    prismaService.$transaction.mockImplementation(
+      (callback: (tx: typeof txMock) => Promise<unknown>) => callback(txMock),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -67,6 +83,10 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
           provide: ScanOrderingPickupNumberService,
           useValue: pickupNumberService,
         },
+        {
+          provide: ScanOrderingSaleOrderBridgeService,
+          useValue: saleOrderBridgeService,
+        },
       ],
     }).compile();
 
@@ -74,10 +94,13 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
   });
 
   const mockOrderQuery = (overrides: Record<string, unknown> = {}): void => {
-    // 第一次 findUnique：serveOrder 内查询 pickupNumber
-    // 第二次 findUnique：transitionOrder 内查询更新后的完整订单
+    // 第一次 findUnique：serveOrder 内查询取餐号与支付渠道
+    // 第二次 findUnique：事务内查询更新后的完整订单（用于事件发布）
     scanOrdersFindUnique
-      .mockResolvedValueOnce({ pickupNumber: 1 })
+      .mockResolvedValueOnce({
+        pickupNumber: 1,
+        paymentAttempts: [{ paymentChannel: 'wechat' }],
+      })
       .mockResolvedValueOnce({
         id: 1001,
         storeId: 42,
@@ -101,6 +124,7 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
     });
     updateMany.mockResolvedValue({ count: 1 });
     prismaService.scanOrderStatusHistory.create.mockResolvedValue({ id: 1 });
+    saleOrderBridgeService.createForPaidOrder.mockResolvedValue(undefined);
     mockOrderQuery();
 
     await service.serveOrder(mockUser, 1001, 3);
@@ -125,6 +149,7 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
     });
     updateMany.mockResolvedValue({ count: 1 });
     prismaService.scanOrderStatusHistory.create.mockResolvedValue({ id: 1 });
+    saleOrderBridgeService.createForPaidOrder.mockResolvedValue(undefined);
     mockOrderQuery();
 
     await service.serveOrder(mockUser, 1001, 3);
@@ -138,8 +163,11 @@ describe('ScanOrderingOrderTransitionEngineService 出餐事件 payload', () => 
     prismaService.store.findUnique.mockResolvedValue({
       pickupVoiceEnabled: true,
     });
-    // 第二次出餐：serveOrder 首次查询（pickupNumber）仍返回订单
-    scanOrdersFindUnique.mockResolvedValueOnce({ pickupNumber: 1 });
+    // 第一次出餐后重试：serveOrder 首次查询仍返回订单
+    scanOrdersFindUnique.mockResolvedValueOnce({
+      pickupNumber: 1,
+      paymentAttempts: [{ paymentChannel: 'wechat' }],
+    });
     // updateMany count=0（状态已非 preparing，version 不匹配）
     updateMany.mockResolvedValue({ count: 0 });
     // count=0 路径：findFirst 用于定位订单是否存在

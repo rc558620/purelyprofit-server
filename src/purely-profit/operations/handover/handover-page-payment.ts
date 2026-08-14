@@ -35,13 +35,16 @@ export const mapPaymentItems = (
       continue;
     }
 
-    // 开台项（预付款 / 台位费）+ 团购顾客支付方式 → 归入团购桶，否则按门店结算方式归类
+    // 开台项（预付款 / 台位费）+ 团购顾客支付方式 → 归入团购桶
+    // 扫码点餐订单（purelyClub 下单）：无论 paymentMethod 落库值为何，一律归入团购桶
     const bucketKey: PaymentBucketKey =
       isSessionStartItem(item.productName) &&
       item.order.spaceSession?.prepaidCustomerPaymentMethod ===
         GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD
         ? 'groupon_voucher'
-        : resolveOrderItemPaymentMethod(item);
+        : item.order.scanOrder != null
+          ? 'groupon_voucher' // purelyClub 扫码点餐订单统一显示"团购"
+          : resolveOrderItemPaymentMethod(item);
 
     paymentAmountMap.set(
       bucketKey,
