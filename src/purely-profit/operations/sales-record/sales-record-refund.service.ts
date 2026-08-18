@@ -58,8 +58,11 @@ export class SalesRecordRefundService {
       | 'alipay'
       | 'card'
       | 'other'
-      | 'groupon_voucher',
+      | 'groupon_voucher'
+      | 'platform',
   ): FinanceCashFlowPayment {
+    // 团购券不在 FinanceCashFlowPayment 枚举内，退款冲销归入 other；
+    // platform 平台结算退款冲销直接对应同名枚举。
     return paymentMethod === 'groupon_voucher'
       ? FinanceCashFlowPayment.other
       : paymentMethod;

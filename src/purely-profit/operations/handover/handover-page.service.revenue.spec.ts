@@ -730,4 +730,108 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       operatorName: '空间自动结账',
     });
   });
+
+  it('录入单子退款时下单行合并为 1 行（整单金额）与退款行组成 2 行', async () => {
+    // 录入单子（manualEntry=true）同一订单 3 个商品行 + 1 条退款
+    prismaService.saleOrderItem.findMany.mockResolvedValue([
+      {
+        id: 967,
+        productName: '酸菜肉丝面',
+        salePrice: new Prisma.Decimal('1212'),
+        quantity: 1,
+        product: { stock: 9999, unit: '份' },
+        order: {
+          id: 593,
+          date: new Date('2026-08-16T02:25:48.045Z'),
+          paymentMethod: SalesPaymentMethod.platform,
+          manualEntry: true,
+          operatorNameSnapshot: 'f0rest2012',
+          operatorStaff: null,
+          scanOrder: null,
+          spaceSession: null,
+        },
+      },
+      {
+        id: 968,
+        productName: '猪肉白菜水饺（12只）',
+        salePrice: new Prisma.Decimal('1077'),
+        quantity: 1,
+        product: { stock: 9999, unit: '份' },
+        order: {
+          id: 593,
+          date: new Date('2026-08-16T02:25:48.045Z'),
+          paymentMethod: SalesPaymentMethod.platform,
+          manualEntry: true,
+          operatorNameSnapshot: 'f0rest2012',
+          operatorStaff: null,
+          scanOrder: null,
+          spaceSession: null,
+        },
+      },
+      {
+        id: 969,
+        productName: '重庆小面',
+        salePrice: new Prisma.Decimal('1011'),
+        quantity: 1,
+        product: { stock: 9993, unit: '份' },
+        order: {
+          id: 593,
+          date: new Date('2026-08-16T02:25:48.045Z'),
+          paymentMethod: SalesPaymentMethod.platform,
+          manualEntry: true,
+          operatorNameSnapshot: 'f0rest2012',
+          operatorStaff: null,
+          scanOrder: null,
+          spaceSession: null,
+        },
+      },
+    ]);
+    prismaService.saleOrderRefund.findMany.mockResolvedValue([
+      {
+        id: 92,
+        amount: 3300,
+        paymentMethod: SalesPaymentMethod.platform,
+        refundedAt: new Date('2026-08-16T02:26:07.405Z'),
+        saleOrder: {
+          id: 593,
+          date: new Date('2026-08-16T02:25:48.045Z'),
+          manualEntry: true,
+          operatorNameSnapshot: 'f0rest2012',
+          operatorStaff: null,
+          scanOrder: null,
+          items: [
+            {
+              productName: '酸菜肉丝面',
+              product: { stock: 9999, unit: '份' },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const result = await ctx.service.getHandoverPage(subAccountUser, {
+      shiftType: EmployeeShiftType.morning,
+    });
+
+    // 3 个商品行合并为 1 个下单行（整单金额），与退款行组成 2 行
+    expect(result.orderItems).toHaveLength(2);
+    // 退款行：负数金额 + 有库存
+    expect(result.orderItems[0]).toMatchObject({
+      id: 'scan-refund-92',
+      productName: '堂食 · 酸菜肉丝面',
+      quantity: 1,
+      totalRevenue: -33,
+      paymentLabel: '退回平台结算',
+      currentStock: 9999,
+    });
+    // 下单行：第一条商品名 + 整单金额 + 库存列不展示（isRefundedOrder）
+    expect(result.orderItems[1]).toMatchObject({
+      id: 'manual-entry-593',
+      productName: '堂食 · 酸菜肉丝面',
+      quantity: 1,
+      totalRevenue: 33,
+      paymentLabel: '平台结算',
+      isRefundedOrder: true,
+    });
+  });
 });

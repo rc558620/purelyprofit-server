@@ -241,6 +241,45 @@ export const buildRefundItemsFromSessions = (
   return items;
 };
 
+/**
+ * 录入单子（手工补录单）合并下单行：同一订单的多个商品行合并为 1 行展示。
+ * 商品名取第一条商品（id 最小，与退款行 items[0] 同源，带前缀），
+ * 数量固定为 1（与退款行一致，表示 1 笔录入单），
+ * 金额为整单金额（各商品行金额之和）。
+ * 退款时与退款行组成「下单 + 退款」两行，与非录入单子退款展示口径一致。
+ */
+const buildMergedManualEntryOrderItem = (
+  items: OrderItemRow[],
+  storeOwnerUserId: number | null,
+  shiftOperatorName: string | null,
+  refundedOrderIds: ReadonlySet<number>,
+): HandoverOrderItemDto => {
+  // 第一条商品行：按 id 升序取最小（与退款行 saleOrder.items[0] 同源）；
+  // 空分组不会发生（分组仅在同订单存在商品行时创建），此处兜底取 items[0]
+  const first =
+    [...items].sort((left, right) => left.id - right.id)[0] ?? items[0];
+  const base = mapOrderItem(
+    first,
+    storeOwnerUserId,
+    shiftOperatorName,
+    refundedOrderIds,
+  );
+  // 整单金额 = 所有商品行金额之和（分），统一转元展示
+  const totalRevenueCents = items.reduce((sum, item) => {
+    return (
+      sum +
+      Money.fromDbCents(item.salePrice).multiply(item.quantity).toDbCents()
+    );
+  }, 0);
+
+  return {
+    ...base,
+    id: `manual-entry-${first.order.id}`,
+    quantity: 1,
+    totalRevenue: Money.fromDbCents(totalRevenueCents).toOutputYuan(),
+  };
+};
+
 export const mergeDisplayedOrderItems = (
   orderItems: OrderItemRow[],
   refundOrders: RefundOrderRow[],
@@ -264,10 +303,37 @@ export const mergeDisplayedOrderItems = (
     scanOrderingRefunds.map((refund) => refund.saleOrder.id),
   );
 
+  // 录入单子（手工补录单）订单：同一订单的多个商品行合并为 1 个下单行（整单金额），
+  // 与退款行组成「下单 + 退款」两行展示，与非录入单子退款展示口径保持一致。
+  const manualEntryOrderGroups = new Map<number, OrderItemRow[]>();
+  for (const item of orderItems) {
+    if (item.order.manualEntry) {
+      const group = manualEntryOrderGroups.get(item.order.id) ?? [];
+      group.push(item);
+      manualEntryOrderGroups.set(item.order.id, group);
+    }
+  }
+
   // 续费抵扣项按支付方式拆分：若同一会话使用了多种支付方式续费，
   // 拆为多行展示（如：微信 ¥100、支付宝 ¥50、刷卡 ¥70）。
   const mappedOrderItems: HandoverOrderItemDto[] = [];
+  const processedManualEntryOrderIds = new Set<number>();
   for (const item of orderItems) {
+    // 录入单子订单：只取第一条商品行生成合并行，其余行跳过
+    if (item.order.manualEntry) {
+      if (processedManualEntryOrderIds.has(item.order.id)) continue;
+      processedManualEntryOrderIds.add(item.order.id);
+      const group = manualEntryOrderGroups.get(item.order.id) ?? [item];
+      mappedOrderItems.push(
+        buildMergedManualEntryOrderItem(
+          group,
+          storeOwnerUserId,
+          shiftOperatorName,
+          refundedOrderIds,
+        ),
+      );
+      continue;
+    }
     if (
       item.productName === SPACE_RENEW_DEDUCTION_ITEM_NAME &&
       item.order.spaceSession != null &&

@@ -38,20 +38,24 @@ export interface ScanOrderingTableResponse {
   guestCount: number;
   /** 当前活跃会话；空桌时为 null。 */
   activeSession: {
-    id: number;
+    /** 会话标识：扫码会话为数字 ID；纯录入轮次为「manual-session-{桌台ID}」合成 ID */
+    id: number | string;
     startedAt: string;
     guestCount: number;
     status: 'active' | 'checked_out' | 'expired' | 'left';
   } | null;
   /** 当前活跃会话中的进行中订单。 */
   activeOrders: Array<{
-    id: number;
+    /** 订单标识：扫码订单为数字 ID；手工补录单为「manual-{销售记录ID}」合成 ID */
+    id: number | string;
     orderNo: string;
     status: string;
     paymentStatus: string;
     fulfillmentStatus: string;
     totalAmount: number;
     createdAt: string;
+    /** 是否为手工补录单（录入订单补账，无扫码订单详情，需跳销售记录查看） */
+    manualEntry?: boolean;
   }>;
   /** 清桌校验结果。 */
   clearability: {
@@ -262,7 +266,14 @@ export class ScanOrderingTableService {
               orders: {
                 some: {
                   deletedAt: null,
-                  status: { in: ['pending_payment', 'pending_acceptance', 'preparing', 'served'] },
+                  status: {
+                    in: [
+                      'pending_payment',
+                      'pending_acceptance',
+                      'preparing',
+                      'served',
+                    ],
+                  },
                 },
               },
             },

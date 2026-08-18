@@ -10,6 +10,10 @@ describe('PrintAgentService', () => {
 
   const prismaService = {
     store: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+    printAgent: {
+      upsert: jest.fn(),
+      findFirst: jest.fn(),
+    },
   };
   const redisService = {
     subscribe: jest.fn().mockResolvedValue(jest.fn()),
@@ -50,29 +54,66 @@ describe('PrintAgentService', () => {
     });
   });
 
-  it('注册：绑定码匹配门店时下发 64 位令牌并写入门店', async () => {
+  it('注册（带 deviceId）：按门店+设备 upsert 下发独立令牌，互不覆盖', async () => {
     prismaService.store.findFirst.mockResolvedValue({ id: 11 });
-    const result = await service.register('ABC234', 'windows', '1.0.0');
+    const result = await service.register(
+      'ABC234',
+      'dev-1',
+      'windows',
+      '1.0.0',
+    );
     expect(result.storeId).toBe(11);
     expect(result.token).toMatch(/^[a-f0-9]{64}$/);
+    expect(prismaService.printAgent.upsert).toHaveBeenCalledWith({
+      where: { storeId_deviceId: { storeId: 11, deviceId: 'dev-1' } },
+      create: {
+        storeId: 11,
+        deviceId: 'dev-1',
+        token: result.token,
+        platform: 'windows',
+        version: '1.0.0',
+      },
+      update: {
+        token: result.token,
+        platform: 'windows',
+        version: '1.0.0',
+      },
+    });
+    expect(prismaService.store.update).not.toHaveBeenCalled();
+  });
+
+  it('注册（无 deviceId）：旧代理兼容，写入门店单 token', async () => {
+    prismaService.store.findFirst.mockResolvedValue({ id: 11 });
+    const result = await service.register(
+      'ABC234',
+      undefined,
+      'windows',
+      '1.0.0',
+    );
+    expect(result.storeId).toBe(11);
     expect(prismaService.store.update).toHaveBeenCalledWith({
       where: { id: 11 },
       data: { printAgentToken: result.token },
     });
+    expect(prismaService.printAgent.upsert).not.toHaveBeenCalled();
   });
 
   it('注册：绑定码无效时抛 400', async () => {
     prismaService.store.findFirst.mockResolvedValue(null);
-    await expect(service.register('INVALID', 'windows')).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(
+      service.register('INVALID', 'dev-1', 'windows'),
+    ).rejects.toThrow(BadRequestException);
   });
 
-  it('isAgentBound：门店已绑定代理返回 true，否则 false', async () => {
+  it('isAgentBound：存在设备登记或旧版单 token 均返回 true', async () => {
+    prismaService.printAgent.findFirst.mockResolvedValueOnce({ id: 1 });
+    expect(await service.isAgentBound(11)).toBe(true);
+    prismaService.printAgent.findFirst.mockResolvedValueOnce(null);
     prismaService.store.findUnique.mockResolvedValueOnce({
       printAgentToken: 'token',
     });
     expect(await service.isAgentBound(11)).toBe(true);
+    prismaService.printAgent.findFirst.mockResolvedValueOnce(null);
     prismaService.store.findUnique.mockResolvedValueOnce({
       printAgentToken: null,
     });

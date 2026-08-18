@@ -401,6 +401,10 @@ export class HandoverPageService {
           select: {
             id: true,
             date: true,
+            manualEntry: true,
+            // 手工补录单就餐方式：退款行商品名前缀区分堂食/外卖
+            diningMode: true,
+            sourceChannel: true,
             operatorNameSnapshot: true,
             operatorStaff: {
               select: {

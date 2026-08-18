@@ -52,11 +52,29 @@ describe('ScanOrderingUsbPrintService', () => {
     prismaService.store.findUnique.mockResolvedValue({ name: '测试门店' });
     printDataService.loadOrder.mockResolvedValue({
       orderNo: 'SO-001',
+      createdAtLabel: '2026-08-17 15:45',
       pickupNumberLabel: '005',
       tableName: 'A01',
       remark: '不要辣',
-      payableAmount: '40.00',
-      items: [{ name: '牛肉面', quantity: 2, specs: [{ name: '微辣' }] }],
+      itemOriginalAmount: 50,
+      specificationExtraAmount: 5,
+      payableAmount: '37.00',
+      discountAmount: 18,
+      pointsDeductAmount: 2,
+      discountItems: [
+        { label: '会员等级折扣 8折', amount: -10, isStrikethrough: false },
+        { label: '满50减8', amount: -8, isStrikethrough: false },
+      ],
+      items: [
+        {
+          name: '牛肉面',
+          quantity: 2,
+          unitPrice: 25,
+          lineTotalAmount: 50,
+          payableLineAmount: 40,
+          specs: [{ name: '微辣' }],
+        },
+      ],
     });
     agentService.isAgentBound.mockResolvedValue(false);
   });
@@ -81,7 +99,7 @@ describe('ScanOrderingUsbPrintService', () => {
     expect(data).toBeInstanceOf(Buffer);
     const text = data.toString('utf8');
     expect(text).toContain('后厨制作单');
-    expect(text).toContain('牛肉面 ×2');
+    expect(text).toContain('x2');
     expect(text).toContain('操作员：张三');
     expect(text).not.toContain('应付');
   });
@@ -104,7 +122,7 @@ describe('ScanOrderingUsbPrintService', () => {
     expect(device).toBeUndefined();
     const text = data.toString('utf8');
     expect(text).toContain('扫码点餐订单');
-    expect(text).toContain('实付：¥40.00');
+    expect(text).toContain('实付：￥37.00');
     expect(text).toContain('操作员：张三');
     expect(text).toContain('谢谢惠顾，欢迎再次光临');
   });
@@ -164,7 +182,7 @@ describe('ScanOrderingUsbPrintService', () => {
     expect(typeof task.dataBase64).toBe('string');
     // 字节流 Base64 解码后包含小票关键内容
     expect(Buffer.from(task.dataBase64, 'base64').toString('utf8')).toContain(
-      '实付：¥40.00',
+      '实付：￥37.00',
     );
   });
 

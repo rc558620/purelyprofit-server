@@ -18,6 +18,21 @@ export const SPACE_CUSTOMER_PAYMENT_METHOD_VALUES = [
 export type SpaceCustomerPaymentMethodValue =
   (typeof SPACE_CUSTOMER_PAYMENT_METHOD_VALUES)[number];
 
+/**
+ * 空间预付支付方式：不含手工补录专用的 platform（平台结算）语义，
+ * 避免平台结算值流入空间预付链路。
+ */
+export const SPACE_PREPAID_PAYMENT_METHOD_VALUES = [
+  'cash',
+  'wechat',
+  'alipay',
+  'card',
+  'other',
+  'groupon_voucher',
+] as const;
+export type SpacePrepaidPaymentMethodValue =
+  (typeof SPACE_PREPAID_PAYMENT_METHOD_VALUES)[number];
+
 export const SPACE_SETTLEMENT_CHANNEL_VALUES = [
   'direct_cashier',
   'meituan_groupon',

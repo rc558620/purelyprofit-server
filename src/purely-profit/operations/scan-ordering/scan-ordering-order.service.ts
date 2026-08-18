@@ -118,7 +118,7 @@ export class ScanOrderingOrderService {
       items: pageOrders.map((order) =>
         toOrderListItem({
           order,
-          guestName: this.resolveGuestName(order.clubUserId, guestNameMap),
+          guestName: this.resolveGuestName(order, guestNameMap),
           sessionOrderSequence: sequences.get(order.id) ?? 1,
           calculateSummary: this.pricingService.calculateSummary,
           formatPickupNumber: this.pickupNumberService.formatPickupNumber,
@@ -245,6 +245,8 @@ export class ScanOrderingOrderService {
         diningRoundId: true,
         remark: true,
         table: { select: { name: true } },
+        manualEntry: true,
+        manualEntryMetadata: true,
         items: {
           select: {
             productNameSnapshot: true,
@@ -346,11 +348,24 @@ export class ScanOrderingOrderService {
 
   /** 解析顾客昵称展示值。 */
   private resolveGuestName(
-    clubUserId: number | null,
+    order: { clubUserId: number | null; manualEntry: boolean; manualEntryMetadata: unknown },
     guestNameMap: Map<number, string>,
   ): string {
-    if (clubUserId && guestNameMap.has(clubUserId)) {
-      return guestNameMap.get(clubUserId)!;
+    if (order.manualEntry) {
+      const meta = order.manualEntryMetadata as Record<string, unknown> | null;
+      const sourceChannel = meta?.sourceChannel as string | undefined;
+      const channelLabels: Record<string, string> = {
+        meituan: '美团外卖',
+        eleme: '饿了么',
+        meituanVoucher: '美团团购',
+        douyin: '抖音团购',
+        dianping: '大众点评',
+        other: '其他平台',
+      };
+      return sourceChannel ? channelLabels[sourceChannel] ?? sourceChannel : '手工录入';
+    }
+    if (order.clubUserId && guestNameMap.has(order.clubUserId)) {
+      return guestNameMap.get(order.clubUserId)!;
     }
     return '顾客';
   }

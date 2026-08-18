@@ -52,7 +52,9 @@ export interface ScanOrderListItemSource extends ScanOrderingAmountSummarySource
   clubUserId: number | null;
   diningRoundId: string;
   remark: string | null;
-  table: { name: string };
+  manualEntry: boolean;
+  manualEntryMetadata: unknown;
+  table: { name: string } | null;
   items: Array<{
     productNameSnapshot: string;
     productImageUrlSnapshot: string | null;
@@ -75,7 +77,7 @@ export interface ScanOrderDetailSource extends ScanOrderingAmountSummarySource {
   status: ScanOrderStatus;
   createdAt: Date;
   pickupNumber: number | null;
-  table: { name: string; tableCode: string };
+  table: { name: string; tableCode: string } | null;
   items: Array<{
     productNameSnapshot: string;
     quantity: number;
@@ -171,6 +173,10 @@ export const toOrderListItem = (input: {
     formatPickupNumber,
   } = input;
   const itemSummaries = toItemSummaries(order.items);
+  const manualEntryMeta = order.manualEntry
+    ? (order.manualEntryMetadata as Record<string, unknown> | null)
+    : null;
+  const diningMode = manualEntryMeta?.diningMode as string | undefined;
   return {
     id: order.id,
     orderNo: order.orderNo,
@@ -178,7 +184,8 @@ export const toOrderListItem = (input: {
     itemSummary: toItemSummaryText(itemSummaries),
     items: itemSummaries,
     remark: order.remark,
-    tableName: order.table.name,
+    tableName: order.table?.name
+      ?? (diningMode === 'takeaway' ? '自取' : diningMode === 'platform' ? '外卖' : '-'),
     status: order.status,
     createdAt: order.createdAt.toISOString(),
     amountSummary: toAmountSummary(order, calculateSummary),
@@ -238,7 +245,7 @@ export const toOrderDetailPayload = (input: {
     orderNo: order.orderNo,
     status: order.status,
     version: order.version,
-    table: order.table,
+    table: order.table ?? { name: '-', tableCode: '-' },
     createdAt: order.createdAt.toISOString(),
     pickupNumber: order.pickupNumber,
     pickupNumberLabel: formatPickupNumber(order.pickupNumber),

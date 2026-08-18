@@ -80,14 +80,20 @@ export class ScanOrderingDashboardService {
         where: {
           storeId,
           status: ScanOrderStatus.pending_acceptance,
-          session: { is: currentRoundSessionWhere },
+          OR: [
+            { session: { is: currentRoundSessionWhere } },
+            { manualEntry: true },
+          ],
         },
       }),
       this.prisma.scanOrders.count({
         where: {
           storeId,
           status: ScanOrderStatus.preparing,
-          session: { is: currentRoundSessionWhere },
+          OR: [
+            { session: { is: currentRoundSessionWhere } },
+            { manualEntry: true },
+          ],
         },
       }),
       this.prisma.scanOrders.count({
@@ -95,7 +101,10 @@ export class ScanOrderingDashboardService {
           storeId,
           status: ScanOrderStatus.refunding,
           paymentStatus: ScanOrderPaymentStatus.refunding,
-          session: { is: currentRoundSessionWhere },
+          OR: [
+            { session: { is: currentRoundSessionWhere } },
+            { manualEntry: true },
+          ],
         },
       }),
       this.prisma.scanOrderingTable.groupBy({

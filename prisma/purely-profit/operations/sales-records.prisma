@@ -23,6 +23,20 @@ model SaleOrder {
   grouponPlatformSettledAmount Int?                     @map("platform_settled_amount")
   grouponPlatformFee           Int?                     @map("platform_fee")
   scanOrderId                  Int?                     @unique @map("scan_order_id")
+  /// 手工补录订单标记（true 表示由商家端「录入订单」功能补录的线下交易）
+  manualEntry                  Boolean                  @default(false) @map("manual_entry")
+  /// 手工补录：就餐方式（堂食/自取/第三方外卖）
+  diningMode                   ManualEntryDiningMode?   @map("dining_mode")
+  /// 手工补录：来源渠道（美团外卖/饿了么/美团团购/抖音团购/大众点评/其他）
+  sourceChannel                ManualEntrySourceChannel? @map("source_channel")
+  /// 手工补录：第三方平台结算单号（用于对账）
+  externalOrderNo              String?                  @map("external_order_no") @db.VarChar(128)
+  /// 手工补录：就餐人数
+  guestCount                   Int?                     @map("guest_count")
+  /// 手工补录：顾客手机号（用于订单归属）
+  customerPhone                String?                  @map("customer_phone") @db.VarChar(20)
+  /// 手工补录：堂食/团购到店关联的桌台
+  diningTableId                Int?                     @map("dining_table_id")
   createdAt                    DateTime                 @default(now()) @map("created_at")
   updatedAt                    DateTime                 @updatedAt @map("updated_at")
   cashFlowRecord               FinanceCashFlowRecord?
@@ -33,11 +47,13 @@ model SaleOrder {
   spaceSession                 SpaceSession?
   scanOrder                    ScanOrders?              @relation("ScanOrderSaleOrder", fields: [scanOrderId], references: [id])
   refund                       SaleOrderRefund?
+  diningTable                  ScanOrderingTable?       @relation("SaleOrderDiningTable", fields: [diningTableId], references: [id])
 
   @@unique([storeId, orderNo])
   @@index([storeId, date(sort: Desc), id(sort: Desc)])
   @@index([storeId, createdAt])
   @@index([operatorStaffId, createdAt])
+  @@index([storeId, manualEntry, createdAt])
   @@map("sale_orders")
 }
 
@@ -88,9 +104,27 @@ enum SalesPaymentMethod {
   card
   other
   groupon_voucher
+  platform
 }
 
 enum SalesCalcMode {
   profit
   business
+}
+
+/// 手工补录订单就餐方式：dineIn 堂食/团购到店 / takeaway 自取 / platform 第三方外卖
+enum ManualEntryDiningMode {
+  dineIn
+  takeaway
+  platform
+}
+
+/// 手工补录订单来源渠道：美团外卖/饿了么/美团团购/抖音团购/大众点评/其他平台
+enum ManualEntrySourceChannel {
+  meituan
+  eleme
+  meituanVoucher
+  douyin
+  dianping
+  other
 }

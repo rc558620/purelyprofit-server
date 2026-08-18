@@ -75,7 +75,7 @@ export class ScanOrderingCloudPrintService {
     return this.feiePrintService.printMessage(sn, content);
   }
 
-  /** 组装后厨制作单内容：桌台、取餐号、商品+规格+数量、备注、操作员。 */
+  /** 组装后厨制作单内容：门店/标题/桌台/取餐号/订单号/下单时间/商品表头/商品+规格/操作员/备注（对齐浏览器预览）。 */
   private async buildKitchenTicketContent(
     storeId: number,
     orderId: number,
@@ -88,34 +88,40 @@ export class ScanOrderingCloudPrintService {
     });
     const lines: string[] = [];
     lines.push(`<CB>${store?.name ?? '门店'}</CB><BR>`);
-    lines.push('<CB>后厨制作单</CB><BR>');
-    lines.push('<BR>');
-    lines.push(`桌台：<B>${order.tableName}</B><BR>`);
-    if (order.pickupNumberLabel) {
-      lines.push(`取餐号：<B>${order.pickupNumberLabel}</B><BR>`);
-    }
+    // 标题：不加粗、常规字号（与顾客票一致，标题后不留空行）
+    lines.push('<C>后厨制作单</C><BR>');
     lines.push(`订单号：${order.orderNo}<BR>`);
+    if (order.pickupNumberLabel) {
+      lines.push(`取餐号：${order.pickupNumberLabel}<BR>`);
+    }
+    lines.push(`桌台：${order.tableName}<BR>`);
+    if (order.createdAtLabel) {
+      lines.push(`下单时间：${order.createdAtLabel}<BR>`);
+    }
+    lines.push('--------------------------------<BR>');
+    lines.push('商品明细<BR>');
+    order.items.forEach((item) => {
+      lines.push(`${item.name} x${item.quantity}<BR>`);
+      if (item.specs.length > 0) {
+        // 同一商品的多个规格用顿号合并展示
+        lines.push(`  ${item.specs.map((spec) => spec.name).join('、')}<BR>`);
+      }
+    });
+    // 后厨单：备注 → 操作员（备注上下带边框线）
+    if (order.remark) {
+      lines.push('--------------------------------<BR>');
+      lines.push(`备注：${order.remark}<BR>`);
+      lines.push('--------------------------------<BR>');
+    }
     if (operatorName) {
       lines.push(`操作员：${operatorName}<BR>`);
-    }
-    lines.push('<BR>');
-    lines.push('<B>商品明细</B><BR>');
-    order.items.forEach((item) => {
-      lines.push(`${item.name} ×${item.quantity}<BR>`);
-      item.specs.forEach((spec) => {
-        lines.push(`   ${spec.name}<BR>`);
-      });
-    });
-    if (order.remark) {
-      lines.push('<BR>');
-      lines.push(`备注：${order.remark}<BR>`);
     }
     lines.push('<BR>');
     lines.push('<CUT>');
     return lines.join('');
   }
 
-  /** 组装收银台顾客票内容：门店、订单号、取餐号、桌台、商品、应付金额、操作员。 */
+  /** 组装收银台顾客票内容：门店/标题/订单号/取餐号/桌台/下单时间/商品表头/商品+规格/备注/优惠清单/已优惠/实付/操作员/页脚（对齐浏览器预览）。 */
   private async buildCashierReceiptContent(
     storeId: number,
     orderId: number,
@@ -128,28 +134,54 @@ export class ScanOrderingCloudPrintService {
     });
     const lines: string[] = [];
     lines.push(`<CB>${store?.name ?? '门店'}</CB><BR>`);
-    lines.push('<CB>扫码点餐订单</CB><BR>');
-    lines.push('<BR>');
+    // 标题：不加粗、常规字号（门店名与标题间不留空行，压缩顶部间距）
+    lines.push('<C>扫码点餐订单</C><BR>');
     lines.push(`订单号：${order.orderNo}<BR>`);
     if (order.pickupNumberLabel) {
-      lines.push(`取餐号：<B>${order.pickupNumberLabel}</B><BR>`);
+      lines.push(`取餐号：${order.pickupNumberLabel}<BR>`);
     }
     lines.push(`桌台：${order.tableName}<BR>`);
+    if (order.createdAtLabel) {
+      lines.push(`下单时间：${order.createdAtLabel}<BR>`);
+    }
+    lines.push('--------------------------------<BR>');
+    lines.push('商品明细<BR>');
+    order.items.forEach((item) => {
+      const displayAmount = item.lineTotalAmount ?? item.payableLineAmount;
+      const priceText = `  ￥${displayAmount.toFixed(2)}`;
+      lines.push(`${item.name} x${item.quantity}${priceText}<BR>`);
+      if (item.specs.length > 0) {
+        // 同一商品的多个规格用顿号合并展示
+        lines.push(`  ${item.specs.map((spec) => spec.name).join('、')}<BR>`);
+      }
+    });
+    // 备注保持原位（商品明细后），顶部加边框线
+    if (order.remark) {
+      lines.push('--------------------------------<BR>');
+      lines.push(`备注：${order.remark}<BR>`);
+    }
+    lines.push('--------------------------------<BR>');
+    if (order.discountItems.length > 0 || order.pointsDeductAmount > 0) {
+      lines.push('优惠清单<BR>');
+      order.discountItems.forEach((discount) => {
+        // 被覆盖/失效优惠（预览划线项）不打印
+        if (discount.isStrikethrough) return;
+        lines.push(
+          `${discount.label}  -￥${Math.abs(discount.amount).toFixed(2)}<BR>`,
+        );
+      });
+      if (order.pointsDeductAmount > 0) {
+        lines.push(`积分抵扣  -￥${order.pointsDeductAmount.toFixed(2)}<BR>`);
+      }
+      lines.push('--------------------------------<BR>');
+    }
+    if (order.discountAmount > 0) {
+      // 全角 ￥：半角 ¥（U+00A5）在飞鹅云端转码会丢失，导致票面看不到货币符号
+      lines.push(`已优惠：￥${order.discountAmount.toFixed(2)} 元<BR>`);
+    }
+    lines.push(`实付：￥${order.payableAmount}<BR>`);
     if (operatorName) {
       lines.push(`操作员：${operatorName}<BR>`);
-    }
-    lines.push('<BR>');
-    lines.push('<B>商品明细</B><BR>');
-    order.items.forEach((item) => {
-      lines.push(`${item.name} ×${item.quantity}<BR>`);
-      item.specs.forEach((spec) => {
-        lines.push(`   ${spec.name}<BR>`);
-      });
-    });
-    lines.push('<BR>');
-    lines.push(`实付：<B>¥${order.payableAmount}</B><BR>`);
-    if (order.remark) {
-      lines.push(`备注：${order.remark}<BR>`);
     }
     lines.push('<BR>');
     lines.push('<C>谢谢惠顾，欢迎再次光临</C><BR>');

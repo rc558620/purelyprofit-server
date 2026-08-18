@@ -6,6 +6,7 @@ import {
   Query,
   Body,
   UseGuards,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
@@ -17,6 +18,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { ParseIntPipe } from '@nestjs/common';
 import { ScanOrderingOrderService } from './scan-ordering-order.service';
+import { ManualEntryOrderDetailService } from './manual-entry/manual-entry-order-detail.service';
 import type {
   ProcessScanOrderingOrderDto,
   RejectOrCancelScanOrderingOrderDto,
@@ -34,7 +36,10 @@ import type {
 @RequireBusinessMode('catering')
 @Controller('profit/scan-ordering/orders')
 export class ScanOrderingOrderController {
-  constructor(private readonly orderService: ScanOrderingOrderService) {}
+  constructor(
+    private readonly orderService: ScanOrderingOrderService,
+    private readonly manualEntryDetailService: ManualEntryOrderDetailService,
+  ) {}
 
   @Get()
   @RequirePermissions('scan-ordering:view')
@@ -51,12 +56,31 @@ export class ScanOrderingOrderController {
 
   @Get(':orderId')
   @RequirePermissions('scan-ordering:view')
-  @ApiOperation({ summary: '获取扫码点餐订单详情及状态历史' })
+  @ApiOperation({
+    summary:
+      '获取扫码点餐订单详情；orderId 为「manual-{id}」时优先查 scan_orders（新链路），回退 saleOrder（老数据）',
+  })
   getOrderDetail(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('orderId', ParseIntPipe) orderId: number,
+    @Param('orderId') orderIdParam: string,
   ): Promise<ScanOrderingOrderDetailPayload> {
-    return this.orderService.getOrderDetail(user, orderId);
+    // 手工补录单以「manual-{id}」复合标识
+    if (orderIdParam.startsWith('manual-')) {
+      const entryId = Number.parseInt(
+        orderIdParam.slice('manual-'.length),
+        10,
+      );
+      if (!Number.isSafeInteger(entryId) || entryId <= 0) {
+        throw new NotFoundException('录入订单不存在');
+      }
+      // 优先查 scan_orders（新链路：走状态机的手工单），回退 saleOrder（老数据）
+      return this.manualEntryDetailService.getDetail(user, entryId);
+    }
+    const scanOrderId = Number.parseInt(orderIdParam, 10);
+    if (!Number.isSafeInteger(scanOrderId) || scanOrderId <= 0) {
+      throw new NotFoundException('扫码点餐订单不存在');
+    }
+    return this.orderService.getOrderDetail(user, scanOrderId);
   }
 
   @Post(':orderId/accept')

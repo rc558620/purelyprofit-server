@@ -46,6 +46,7 @@ model ScanOrderingTable {
   serviceCalls ScanOrderServiceCall[]
   sessions     ScanOrderingSession[]
   qrCodes      ScanOrderingTableQrCode?
+  saleOrders   SaleOrder[]             @relation("SaleOrderDiningTable")
   area         ScanOrderingArea?        @relation(fields: [areaId], references: [id])
   type         ScanOrderingType?        @relation(fields: [typeId], references: [id])
   orders       ScanOrders[]
@@ -128,8 +129,12 @@ model ScanOrders {
   id                       Int                        @id @default(autoincrement()) @map("id")
   storeId                  Int                        @map("store_id")
   orderNo                  String                     @map("order_no")
-  tableId                  Int                        @map("table_id")
+  tableId                  Int?                       @map("table_id")
   sessionId                Int?                       @map("session_id")
+  /// 是否为手工补录单（录入订单）
+  manualEntry              Boolean                    @default(false) @map("manual_entry")
+  /// 手工补录单元数据快照（diningMode/paymentMethod/sourceChannel/externalOrderNo/guestCount/customerPhone/voucherAmount）
+  manualEntryMetadata      Json?                      @map("manual_entry_metadata")
   clubUserId               Int?                       @map("club_user_id")
   diningRoundId            String                     @map("dining_round_id") @db.Uuid
   guestCount               Int?                       @map("guest_count")
@@ -182,13 +187,14 @@ model ScanOrders {
   histories                ScanOrderStatusHistory[]
   saleOrder                SaleOrder?                @relation("ScanOrderSaleOrder")
   session                  ScanOrderingSession?       @relation(fields: [sessionId], references: [id])
-  table                    ScanOrderingTable          @relation(fields: [tableId], references: [id])
+  table                    ScanOrderingTable?         @relation(fields: [tableId], references: [id])
 
   @@unique([storeId, orderNo])
   @@unique([storeId, idempotencyKey], map: "uq_scan_orders_store_idempotency_key", where: raw("((deleted_at IS NULL) AND (idempotency_key IS NOT NULL))"))
   @@index([storeId])
   @@index([storeId, status])
   @@index([storeId, tableId])
+  @@index([storeId, manualEntry])
   @@index([storeId, createdAt])
   @@index([clubUserId, createdAt(sort: Desc)])
   @@index([paymentExpiresAt])
@@ -552,6 +558,25 @@ model IdempotencyRecord {
   @@unique([scope, actorId, idempotencyKey])
   @@index([expiresAt])
   @@map("idempotency_records")
+}
+
+/// 扫码点餐打印代理设备表：同一门店可绑定多台电脑（收银台/后厨），各设备持有独立 token，互不覆盖。
+model PrintAgent {
+  id         Int       @id @default(autoincrement())
+  storeId    Int       @map("store_id")
+  /// 设备唯一 ID（代理首次启动生成并上报）
+  deviceId   String    @map("device_id")
+  /// 代理令牌（WebSocket 鉴权用）
+  token      String    @unique @map("token")
+  platform   String?   @map("platform")
+  version    String?   @map("version")
+  lastSeenAt DateTime? @map("last_seen_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@unique([storeId, deviceId])
+  @@index([storeId])
+  @@map("print_agents")
 }
 
 enum ScanOrderingTableStatus {

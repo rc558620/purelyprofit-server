@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import type { CreateSalesRecordDto } from '../../purely-profit/operations/sales-record/dto/sales-record.dto';
 import { SalesRecordService } from '../../purely-profit/operations/sales-record/sales-record.service';
+import type { SalesPaymentMethodValue } from '../../purely-profit/operations/sales-record/sales-record.types';
 import { Money } from '../../shared/money.utils';
 
 const createScanOrderingSystemUser = (): AuthenticatedUser => ({
@@ -38,7 +39,7 @@ export class ScanOrderingSaleOrderBridgeService {
   async createForPaidOrder(
     transaction: Prisma.TransactionClient,
     orderId: number,
-    paymentMethod: 'wechat' | 'other',
+    paymentMethod: string,
     /** 实际操作员（出餐/拒绝的商家账号）；缺省时使用系统用户，销售单不记录操作员 */
     operator: AuthenticatedUser = createScanOrderingSystemUser(),
   ): Promise<void> {
@@ -57,6 +58,8 @@ export class ScanOrderingSaleOrderBridgeService {
         remark: true,
         paidAt: true,
         payableAmount: true,
+        manualEntry: true,
+        manualEntryMetadata: true,
         items: {
           orderBy: { sortOrder: 'asc' },
           select: {
@@ -70,6 +73,47 @@ export class ScanOrderingSaleOrderBridgeService {
       },
     });
 
+    // 手工补录单：从 manualEntryMetadata 获取真实支付方式，并传入 manualEntry 选项
+    if (order.manualEntry) {
+      const meta = order.manualEntryMetadata as Record<string, unknown> | null;
+      const manualPayment = (meta?.paymentMethod as string) ?? 'other';
+      const diningMode =
+        (meta?.diningMode as 'dineIn' | 'takeaway' | 'platform') ?? 'dineIn';
+      const manualEntryOpt: NonNullable<
+        Parameters<SalesRecordService['create']>[2]
+      >['manualEntry'] = {
+        diningMode,
+      };
+      if (meta?.sourceChannel)
+        manualEntryOpt.sourceChannel =
+          meta.sourceChannel as typeof manualEntryOpt.sourceChannel;
+      if (meta?.externalOrderNo)
+        manualEntryOpt.externalOrderNo = meta.externalOrderNo as string;
+      // grouponCode 不在 manualEntry 元数据内，走下方 toCreateDto 的 DTO 字段落库
+      if (meta?.guestCount !== undefined)
+        manualEntryOpt.guestCount = meta.guestCount as number;
+      if (meta?.customerPhone)
+        manualEntryOpt.customerPhone = meta.customerPhone as string;
+      await this.salesRecordService.create(
+        operator,
+        this.toCreateDto(
+          order,
+          manualPayment,
+          meta?.grouponCode as string | undefined,
+        ),
+        {
+          skipAccessCheck: true,
+          skipInventoryValidationAndDeduction: true,
+          preserveCallerSalePrices: true,
+          transactionClient: transaction,
+          scanOrderId: order.id,
+          manualEntry: manualEntryOpt,
+        },
+      );
+      return;
+    }
+
+    // 普通扫码订单：走既有逻辑
     await this.salesRecordService.create(
       operator,
       this.toCreateDto(order, paymentMethod),
@@ -92,14 +136,16 @@ export class ScanOrderingSaleOrderBridgeService {
       payableAmount: number;
       items: PaidScanOrderItem[];
     },
-    paymentMethod: 'wechat' | 'other',
+    paymentMethod: string,
+    grouponCode?: string,
   ): CreateSalesRecordDto {
     return {
       storeId: order.storeId,
-      paymentMethod,
+      paymentMethod: paymentMethod as SalesPaymentMethodValue,
       calcMode: 'business',
       date: (order.paidAt ?? new Date()).getTime(),
       note: `扫码点餐订单 ${order.orderNo}${order.remark ? `：${order.remark}` : ''}`,
+      ...(grouponCode ? { grouponCode } : {}),
       items: this.toPricedUnitItems(order.items, order.payableAmount).map(
         (item) => ({
           productId: item.productId,

@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { PrintAgentService } from '../purely-profit/operations/scan-ordering/print-agent.service';
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 import type { FastifyInstance } from 'fastify';
@@ -69,6 +70,7 @@ const PING_INTERVAL_MS = 30_000;
 /** 代理注册请求体。 */
 interface RegisterBody {
   bindCode?: string;
+  deviceId?: string;
   platform?: string;
   version?: string;
 }
@@ -79,11 +81,20 @@ export function registerPrintAgentNativeWebsocket(
   const fastify = app.getHttpAdapter().getInstance() as FastifyInstance;
   const logger = new Logger('PrintAgentWebsocket');
   const prisma = app.get(PrismaService);
+  const redis = app.get(RedisService);
   const agentService = app.get(PrintAgentService);
 
   // 代理注册接口（公开）：客户在门店电脑代理中输入绑定码换取代理令牌。
   // 走 fastify 直连注册，绕过商家端 JWT 守卫（Go 代理无浏览器会话）。
+  // 限流：按来源 IP 每分钟最多 10 次，防绑定码暴力枚举。
   fastify.post('/api/print-agent/register', async (request, reply) => {
+    const ip = request.ip ?? 'unknown';
+    const attempts = await redis.incr(`print-agent:register:${ip}`, 60);
+    if (attempts > 10) {
+      return reply
+        .code(429)
+        .send({ message: '注册尝试过于频繁，请 1 分钟后再试' });
+    }
     const body = (request.body ?? {}) as RegisterBody;
     const bindCode = String(body.bindCode ?? '').trim();
     if (bindCode.length < 6 || bindCode.length > 16) {
@@ -92,6 +103,7 @@ export function registerPrintAgentNativeWebsocket(
     try {
       const result = await agentService.register(
         bindCode,
+        String(body.deviceId ?? '').trim() || undefined,
         body.platform,
         body.version,
       );
@@ -111,11 +123,19 @@ export function registerPrintAgentNativeWebsocket(
       const { token } = request.query as { token?: string };
 
       void (async () => {
-        const found = await prisma.store.findFirst({
-          where: { printAgentToken: token ?? '' },
-          select: { id: true },
+        const found = await prisma.printAgent.findFirst({
+          where: { token: token ?? '' },
+          select: { storeId: true },
         });
-        if (!found) {
+        // 旧代理兼容：新表未命中时回退门店单 token 校验
+        const legacyStore = found
+          ? null
+          : await prisma.store.findFirst({
+              where: { printAgentToken: token ?? '' },
+              select: { id: true },
+            });
+        const storeId = found?.storeId ?? legacyStore?.id ?? null;
+        if (storeId == null) {
           send(socket, {
             type: 'error',
             code: 'UNAUTHORIZED',
@@ -124,7 +144,6 @@ export function registerPrintAgentNativeWebsocket(
           socket.close(4001, 'unauthorized');
           return;
         }
-        const storeId = found.id;
         void agentService.attach(storeId, socket).catch((error) => {
           logger.warn(
             `打印代理挂载异常: ${error instanceof Error ? error.message : String(error)}`,

@@ -1,5 +1,20 @@
-import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  StreamableFile,
+  UseGuards,
+} from '@nestjs/common';
+import { existsSync } from 'node:fs';
+import { createReadStream } from 'node:fs';
+import { join } from 'node:path';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { RequirePermissions } from '../../access-control/decorators/require-permissions.decorator';
 import { PermissionsGuard } from '../../access-control/guards/permissions.guard';
@@ -35,6 +50,7 @@ export class ScanOrderingPrintController {
     private readonly usbPrintService: ScanOrderingUsbPrintService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly printAgentService: PrintAgentService,
+    private readonly configService: ConfigService,
   ) {}
 
   @Get('print-settings')
@@ -140,6 +156,31 @@ export class ScanOrderingPrintController {
     return { bindCode };
   }
 
+  @Get('print-agent/download/:platform')
+  @RequirePermissions('scan-ordering:view')
+  @ApiOperation({ summary: '下载打印代理安装包（macos / windows）' })
+  downloadPrintAgent(@Param('platform') platform: string): StreamableFile {
+    const fileName =
+      platform === 'windows'
+        ? 'print-agent-win64.exe'
+        : platform === 'macos'
+          ? // macOS 分发 zip 包：保留可执行权限，客户双击解压即可运行（浏览器下载裸二进制无执行位）
+            'print-agent-macos.zip'
+          : null;
+    if (!fileName) {
+      throw new BadRequestException('不支持的平台，仅支持 macos / windows');
+    }
+    // 安装包由部署流程放置在后端 public/print-agent/ 目录
+    const filePath = join(process.cwd(), 'public', 'print-agent', fileName);
+    if (!existsSync(filePath)) {
+      throw new NotFoundException('打印代理安装包不存在，请联系管理员');
+    }
+    return new StreamableFile(createReadStream(filePath), {
+      type: 'application/octet-stream',
+      disposition: `attachment; filename="${fileName}"`,
+    });
+  }
+
   @Get('print-agent/status')
   @RequirePermissions('scan-ordering:view')
   @ApiOperation({ summary: '查询门店打印代理绑定与在线状态' })
@@ -148,6 +189,10 @@ export class ScanOrderingPrintController {
     online: boolean;
     lastSeenAt: number | null;
     printers: PrintAgentPrinter[];
+    /** 门店最近注册代理的版本号（旧版代理无上报时为 null）。 */
+    agentVersion: string | null;
+    /** 最新可下载版本（发版时与代理 Version 常量同步）。 */
+    latestVersion: string;
   }> {
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
@@ -155,8 +200,11 @@ export class ScanOrderingPrintController {
       'scan-ordering:view',
       '无权查看打印代理配置',
     );
-    // getAgentStatus / getPrinters 为同步内存读取，仅绑定码需异步查询
-    const bindCode = await this.printAgentService.getBindCode(storeId);
+    // getAgentStatus / getPrinters 为同步内存读取，仅绑定码与版本需异步查询
+    const [bindCode, agentVersion] = await Promise.all([
+      this.printAgentService.getBindCode(storeId),
+      this.printAgentService.getLatestRegisteredVersion(storeId),
+    ]);
     const status = this.printAgentService.getAgentStatus(storeId);
     const printers = this.printAgentService.getPrinters(storeId);
     return {
@@ -164,6 +212,9 @@ export class ScanOrderingPrintController {
       online: status.online,
       lastSeenAt: status.lastSeenAt,
       printers,
+      agentVersion,
+      latestVersion:
+        this.configService.get<string>('printAgent.latestVersion') ?? '0.1.0',
     };
   }
 

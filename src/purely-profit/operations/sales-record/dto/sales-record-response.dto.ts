@@ -244,6 +244,55 @@ export class SalesRecordResponseDto {
   @ApiPropertyOptional({ example: '晚高峰补录', description: '备注' })
   note?: string;
 
+  // ─── 手工补录（录入订单）元数据（可选）───────────────────────────────────
+
+  @ApiPropertyOptional({
+    example: false,
+    description: '是否为手工补录订单（商家端「录入订单」补录的线下交易）',
+  })
+  manualEntry?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'dineIn',
+    enum: ['dineIn', 'takeaway', 'platform'],
+    description:
+      '手工补录：就餐方式（dineIn 堂食/团购到店、takeaway 自取、platform 第三方外卖）',
+  })
+  diningMode?: 'dineIn' | 'takeaway' | 'platform';
+
+  @ApiPropertyOptional({
+    example: 'meituanVoucher',
+    enum: ['meituan', 'eleme', 'meituanVoucher', 'douyin', 'dianping', 'other'],
+    description:
+      '手工补录：来源渠道（美团外卖/饿了么/美团团购/抖音团购/大众点评/其他平台）',
+  })
+  sourceChannel?:
+    | 'meituan'
+    | 'eleme'
+    | 'meituanVoucher'
+    | 'douyin'
+    | 'dianping'
+    | 'other';
+
+  @ApiPropertyOptional({
+    example: 4,
+    description: '手工补录：就餐人数；非手工补录订单为 null',
+    nullable: true,
+  })
+  guestCount?: number | null;
+
+  @ApiPropertyOptional({
+    example: 'ME20260816-123456',
+    description: '手工补录：第三方平台单号（美团/饿了么等平台原始订单号）',
+  })
+  externalOrderNo?: string;
+
+  @ApiPropertyOptional({
+    example: '13800138000',
+    description: '手工补录：顾客手机号（用于自取/外送联系）',
+  })
+  customerPhone?: string;
+
   @ApiPropertyOptional({
     example: '张三',
     description: '操作员姓名快照；主账号或无员工档案时为 null',

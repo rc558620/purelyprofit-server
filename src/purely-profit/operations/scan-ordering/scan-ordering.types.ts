@@ -51,6 +51,8 @@ export interface ScanOrderingOrderDetailPayload {
   pickupNumber: number | null;
   /** 取餐号展示文案；未分配为 null。 */
   pickupNumberLabel: string | null;
+  /** 是否为手工补录单（录入订单补账：无优惠清单、取餐号前端展示「-」、时间为录入时间） */
+  manualEntry?: boolean;
   /** 后端金额汇总。 */
   amountSummary: ScanOrderingOrderAmountSummary;
   /** 订单商品明细。 */

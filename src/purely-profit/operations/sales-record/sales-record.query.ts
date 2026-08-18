@@ -7,7 +7,11 @@ import type {
   SaleOrderWithItems,
   ScanOrderingDetailSource,
 } from './sales-record.domain';
-import { buildOrderNo, type SalesPeriodRange } from './sales-record.utils';
+import {
+  buildOrderNo,
+  type SalesOrderNoVariant,
+  type SalesPeriodRange,
+} from './sales-record.utils';
 
 export interface SalesStatsAggregation {
   totalRevenue: number;
@@ -93,6 +97,13 @@ export async function querySaleOrders(
       date: true,
       createdAt: true,
       scanOrderId: true,
+      // ─── 手工补录（录入订单）元数据 ───────────────────────
+      manualEntry: true,
+      diningMode: true,
+      sourceChannel: true,
+      guestCount: true,
+      externalOrderNo: true,
+      customerPhone: true,
       refund: { select: { refundedAt: true } },
       // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
       customerPaymentMethod: true,
@@ -212,6 +223,7 @@ export async function generateOrderNo(
   client: Prisma.TransactionClient,
   storeId: number,
   date: Date,
+  variant: SalesOrderNoVariant = 'standard',
 ): Promise<string> {
   const dayStart = getStartOfDay(date.getTime());
   const dayEnd = getEndOfDay(date.getTime());
@@ -223,9 +235,12 @@ export async function generateOrderNo(
       ${buildSalesOrderSequenceLockKey(date)}
     )
   `;
+  // 手工补录单与普通销售单各自独立计数（按 manual_entry 区分），
+  // 避免两类号段互相挤占序号导致跳号。
   const count = await client.saleOrder.count({
     where: {
       storeId,
+      manualEntry: variant === 'manual',
       date: {
         gte: dayStart,
         lte: dayEnd,
@@ -233,5 +248,5 @@ export async function generateOrderNo(
     },
   });
 
-  return buildOrderNo(date, count + 1);
+  return buildOrderNo(date, count + 1, variant);
 }

@@ -49,6 +49,13 @@ export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
     date: true;
     createdAt: true;
     scanOrderId: true;
+    // ─── 手工补录（录入订单）元数据 ───────────────────────
+    manualEntry: true;
+    diningMode: true;
+    sourceChannel: true;
+    guestCount: true;
+    externalOrderNo: true;
+    customerPhone: true;
     refund: { select: { refundedAt: true } };
     // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
     customerPaymentMethod: true;
@@ -360,6 +367,16 @@ export function mapSalesRecordResponse(
     ...(note ? { note } : {}),
     ...(operatorName ? { operatorName } : {}),
     ...(operatorRole ? { operatorRole } : {}),
+    ...(order.manualEntry
+      ? {
+          manualEntry: true,
+          diningMode: order.diningMode ?? undefined,
+          sourceChannel: order.sourceChannel ?? undefined,
+          guestCount: order.guestCount ?? null,
+          externalOrderNo: order.externalOrderNo ?? undefined,
+          customerPhone: order.customerPhone ?? undefined,
+        }
+      : {}),
     date: toTimestampMs(order.date),
     createdAt: toTimestampMs(order.createdAt),
     refundedAt: order.refund ? toTimestampMs(order.refund.refundedAt) : null,

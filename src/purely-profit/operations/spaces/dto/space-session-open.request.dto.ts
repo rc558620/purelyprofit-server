@@ -13,19 +13,17 @@ import {
   Min,
 } from 'class-validator';
 import {
-  SALES_PAYMENT_METHOD_VALUES,
-  type SalesPaymentMethodValue,
-} from '../../sales-record/sales-record.types';
-import {
   SPACE_BILLING_MODE_VALUES,
   type SpaceBillingModeValue,
 } from '../spaces.constants';
 import {
   GROUPON_PLATFORM_VALUES,
   SPACE_CUSTOMER_PAYMENT_METHOD_VALUES,
+  SPACE_PREPAID_PAYMENT_METHOD_VALUES,
   SPACE_SESSION_CONTACT_PATTERN,
   SPACE_SETTLEMENT_CHANNEL_VALUES,
   type SpaceCustomerPaymentMethodValue,
+  type SpacePrepaidPaymentMethodValue,
   type SpaceSettlementChannelValue,
 } from './space-session.constants';
 
@@ -103,11 +101,13 @@ export class OpenSpaceSessionDto {
   @ApiPropertyOptional({
     example: 'cash',
     description: '预付支付方式（自动结账时）',
-    enum: SALES_PAYMENT_METHOD_VALUES,
+    enum: SPACE_PREPAID_PAYMENT_METHOD_VALUES,
   })
   @IsOptional()
-  @IsIn(SALES_PAYMENT_METHOD_VALUES, { message: '预付支付方式不合法' })
-  prepaidPaymentMethod?: SalesPaymentMethodValue;
+  @IsIn(SPACE_PREPAID_PAYMENT_METHOD_VALUES, {
+    message: '预付支付方式不合法',
+  })
+  prepaidPaymentMethod?: SpacePrepaidPaymentMethodValue;
 
   @ApiPropertyOptional({
     example: 'groupon_voucher',

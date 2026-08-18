@@ -84,6 +84,53 @@ export class ScanOrderingOrderRefundHandlingService {
   ): Promise<void> {
     const order = await this.findRejectableOrder(context);
     if (!order) throw new NotFoundException('扫码点餐订单不存在');
+    // 手工补录单拒单：直接关闭（已收款请线下退还），同时创建 SaleOrder + 退款记录，
+    // 使销售记录（sales-record）展示「已退款、利润¥0、金额+¥0、下单途径→支付方式」。
+    if (order.manualEntry) {
+      context = { ...context, reason: `${context.reason}（手工录入单拒单，已收款项请线下退还）` };
+      await this.prisma.$transaction(async (tx) => {
+        // 置为 rejected + 释放预留库存（对应 rejectUnpaidOrder 的核心逻辑）
+        const result = await tx.scanOrders.updateMany({
+          where: {
+            id: context.orderId,
+            storeId: context.storeId,
+            status: ScanOrderStatus.pending_acceptance,
+            version: context.version,
+          },
+          data: {
+            status: ScanOrderStatus.rejected,
+            fulfillmentStatus: ScanOrderFulfillmentStatus.closed,
+            version: { increment: 1 },
+            rejectReason: context.reason,
+          },
+        });
+        if (result.count === 0) {
+          throw new ConflictException('订单状态已变化，请刷新后重试');
+        }
+        await this.stockRestoreService.restoreReservedStock(tx, context.orderId);
+        // 创建 SaleOrder（bridge 自动识别 manualEntry，从 metadata 取支付方式）并退款
+        // 使销售记录中出现一条「已退款、利润¥0」的记录
+        await this.stockRestoreService.refundSaleOrder(
+          tx,
+          context.orderId,
+          context.user,
+        );
+        // 记录状态历史
+        await tx.scanOrderStatusHistory.create({
+          data: {
+            orderId: context.orderId,
+            storeId: context.storeId,
+            fromStatus: ScanOrderStatus.pending_acceptance,
+            toStatus: ScanOrderStatus.rejected,
+            operatorType: 'merchant',
+            operatorId: context.user.id,
+            reason: context.reason,
+          },
+        });
+      });
+      await this.publishOrderStatusAfterChange(context.orderId);
+      return;
+    }
     if (order.paymentStatus !== 'paid') {
       await this.rejectUnpaidOrder(context);
       return;
@@ -362,6 +409,7 @@ export class ScanOrderingOrderRefundHandlingService {
         id: true,
         paymentStatus: true,
         paidAmount: true,
+        manualEntry: true,
         paymentAttempts: {
           where: { status: 'succeeded' },
           orderBy: { createdAt: 'desc' },
@@ -401,9 +449,11 @@ export class ScanOrderingOrderRefundHandlingService {
   private createOrderStatusHistory(
     input: OrderStatusHistoryInput,
   ): Promise<unknown> {
+    // version 仅用于乐观锁校验，ScanOrderStatusHistory 无该字段，写入前剥离
+    const { version: _version, ...historyInput } = input;
     return this.prisma.scanOrderStatusHistory.create({
       data: {
-        ...input,
+        ...historyInput,
         operatorType: 'merchant',
       },
     });
@@ -414,9 +464,11 @@ export class ScanOrderingOrderRefundHandlingService {
     tx: Prisma.TransactionClient,
     input: OrderStatusHistoryInput,
   ): Promise<unknown> {
+    // version 仅用于乐观锁校验，ScanOrderStatusHistory 无该字段，写入前剥离
+    const { version: _version, ...historyInput } = input;
     return tx.scanOrderStatusHistory.create({
       data: {
-        ...input,
+        ...historyInput,
         operatorType: 'merchant',
       },
     });

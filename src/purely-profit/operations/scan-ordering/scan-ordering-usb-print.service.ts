@@ -5,6 +5,7 @@ import type { ScanOrderingPrintSettings } from './scan-ordering-print-settings.s
 import { ScanOrderingPrintSettingsService } from './scan-ordering-print-settings.service';
 import { ScanOrderingPrintDataService } from './scan-ordering-print-data.service';
 import { EscPosTicketBuilder } from './escpos-ticket.builder';
+import type { EscPosTicketVariant } from './escpos-ticket.builder';
 import { UsbPrintService } from './usb-print.service';
 import { PrintAgentService } from './print-agent.service';
 import type { PrintAgentPrinter } from './print-agent.service';
@@ -45,13 +46,21 @@ export class ScanOrderingUsbPrintService {
     });
 
     const ticket = {
+      variant: (target === 'kitchen'
+        ? 'kitchen'
+        : 'receipt') as EscPosTicketVariant,
       storeName: store?.name ?? '',
       title: target === 'kitchen' ? '后厨制作单' : '扫码点餐订单',
       orderNo: order.orderNo,
+      createdAtLabel: order.createdAtLabel,
       pickupNumberLabel: order.pickupNumberLabel,
       tableName: order.tableName,
       items: order.items,
       payableAmount: target === 'kitchen' ? null : order.payableAmount,
+      discountAmount: target === 'kitchen' ? null : order.discountAmount,
+      discountItems: target === 'kitchen' ? null : order.discountItems,
+      pointsDeductAmount:
+        target === 'kitchen' ? null : order.pointsDeductAmount,
       operatorName: user.name ?? null,
       remark: order.remark,
       footer: target === 'kitchen' ? null : '谢谢惠顾，欢迎再次光临',

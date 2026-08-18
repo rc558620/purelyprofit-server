@@ -7,11 +7,14 @@ import {
   SPACE_REFUND_ITEM_NAME,
   SPACE_REFUND_DISPLAY_SUFFIX,
   CASHIER_PREFIX,
+  DINE_IN_PREFIX,
+  TAKEOUT_PREFIX,
   resolveTimeCategory,
   PAYMENT_METHOD_CONFIG,
   GROUPON_VOUCHER_CUSTOMER_PAYMENT_METHOD,
   GROUPON_VOUCHER_DISPLAY,
   buildGrouponLabel,
+  resolveManualEntrySourceLabel,
 } from './handover.constants';
 import type {
   OrderItemRow,
@@ -51,6 +54,17 @@ const resolveOrderItemProductName = (item: OrderItemRow): string => {
   // 空间会话商品：用 " · " 分隔，如 "大包2 · 预付款"、"大包2 · 台位费（固定）"、"大包2 · 面包"
   if (item.order.spaceSession != null && spaceName) {
     return `${spaceName} · ${item.productName}`;
+  }
+
+  // 手工补录单（录入单子）：按就餐方式展示「堂食 · 商品名」或「外卖 · 商品名」
+  // ⚠️ 此判断必须在 scanTableCode 之前：录入单子即使选了桌台也按场景展示，不露桌台号
+  if (item.order.manualEntry) {
+    const prefix =
+      item.order.diningMode === 'takeaway' ||
+      item.order.diningMode === 'platform'
+        ? TAKEOUT_PREFIX
+        : DINE_IN_PREFIX;
+    return `${prefix} · ${item.productName}`;
   }
 
   // 扫码点餐订单（purelyClub 下单）：前缀用桌台号（如 "A01 · 招牌水煮鱼"）
@@ -165,6 +179,17 @@ export const resolveOrderItemPaymentDisplay = (
       paymentLabel: buildGrouponLabel(renewPlatform),
       paymentColor: GROUPON_VOUCHER_DISPLAY.color,
     };
+  }
+
+  // 手工补录单（录入单子）来源渠道：展示具体平台来源（如美团团购/美团外卖/饿了么），替代笼统的支付方式
+  if (item.order.manualEntry) {
+    const sourceLabel = resolveManualEntrySourceLabel(item.order.sourceChannel);
+    if (sourceLabel) {
+      return {
+        paymentLabel: sourceLabel,
+        paymentColor: PAYMENT_METHOD_CONFIG[paymentMethod].color,
+      };
+    }
   }
 
   return {
@@ -284,6 +309,7 @@ export const mapOrderItem = (
     stockUnit: item.product?.unit ?? null,
     timeCategory,
     grouponCode:
+      item.order.grouponCode ??
       session?.prepaidGrouponCode ??
       resolveRenewGrouponCode(session?.sessionRenewRecords) ??
       null,
@@ -339,8 +365,17 @@ export const mapScanOrderingRefundOrderItem = (
   const productName = toDisplayName(refund.saleOrder.items[0]?.productName);
   const displayName = productName ?? SPACE_REFUND_DISPLAY_SUFFIX;
   // 退回渠道标签：余额（other）显示退回纯利宝，其余渠道显示「退回 + 支付方式标签」
-  const paymentLabel =
-    refund.paymentMethod === SalesPaymentMethod.other
+  // 手工补录单有来源渠道时（如美团团购/美团外卖），展示具体来源标签
+  const paymentLabel = refund.saleOrder.manualEntry
+    ? (() => {
+        const sourceLabel = resolveManualEntrySourceLabel(
+          refund.saleOrder.sourceChannel,
+        );
+        return sourceLabel
+          ? `退回${sourceLabel}`
+          : `退回${PAYMENT_METHOD_CONFIG[refund.paymentMethod].label}`;
+      })()
+    : refund.paymentMethod === SalesPaymentMethod.other
       ? '退回纯利宝'
       : `退回${PAYMENT_METHOD_CONFIG[refund.paymentMethod].label}`;
   const timestamp = refund.refundedAt.getTime();
@@ -349,9 +384,11 @@ export const mapScanOrderingRefundOrderItem = (
 
   return {
     id: `scan-refund-${refund.id}`,
-    productName: tableCode
-      ? `${tableCode} · ${displayName}`
-      : `${CASHIER_PREFIX} · ${displayName}`,
+    productName: refund.saleOrder.manualEntry
+      ? `${refund.saleOrder.diningMode === 'takeaway' || refund.saleOrder.diningMode === 'platform' ? TAKEOUT_PREFIX : DINE_IN_PREFIX} · ${displayName}`
+      : tableCode
+        ? `${tableCode} · ${displayName}`
+        : `${CASHIER_PREFIX} · ${displayName}`,
     quantity: 1,
     // 退款金额以负数展示：下单 + 退款两行并存时账目可平
     totalRevenue: -dbCentsToOutputYuan(refund.amount),

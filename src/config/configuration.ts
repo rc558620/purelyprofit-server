@@ -213,6 +213,16 @@ export default () => ({
   },
 
   /**
+   * 扫码点餐打印代理发布配置。
+   * 发版时同步更新 latestVersion（与 print-agent 源码 Version 常量一致），
+   * 商家端设置页据此提示客户下载新版代理。
+   */
+  printAgent: {
+    /** 最新可下载的代理版本号（与 Go 代理 Version 常量保持一致） */
+    latestVersion: process.env.PRINT_AGENT_LATEST_VERSION ?? '0.1.0',
+  },
+
+  /**
    * 飞鹅云打印配置（商家扫码点餐云打印通道）。
    * 未配置时云打印接口降级为不可用，不影响浏览器打印通道。
    */
@@ -221,9 +231,9 @@ export default () => ({
     user: process.env.FEIE_PRINT_USER ?? '',
     /** 飞鹅云后台注册后生成的 UKEY（签名用，严禁泄露） */
     ukey: process.env.FEIE_PRINT_UKEY ?? '',
-    /** 飞鹅开放接口地址（默认正式地址） */
+    /** 飞鹅开放接口地址（中国站正式地址；2026-01 起官方按接口路径分流，此处为 base，业务按接口名拼接路径） */
     apiUrl:
-      process.env.FEIE_PRINT_API_URL ?? 'https://api.de.feieyun.com/Api/Open/',
+      process.env.FEIE_PRINT_API_URL ?? 'https://api.feieyun.cn/Api/Open/',
   },
 
   /**

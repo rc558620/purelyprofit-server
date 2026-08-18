@@ -51,11 +51,29 @@ describe('ScanOrderingCloudPrintService', () => {
     prismaService.store.findUnique.mockResolvedValue({ name: '测试门店' });
     printDataService.loadOrder.mockResolvedValue({
       orderNo: 'SO-001',
+      createdAtLabel: '2026-08-17 15:45',
       pickupNumberLabel: '005',
       tableName: 'A01',
       remark: '不要辣',
-      payableAmount: '40.00',
-      items: [{ name: '牛肉面', quantity: 2, specs: [{ name: '微辣' }] }],
+      itemOriginalAmount: 50,
+      specificationExtraAmount: 5,
+      payableAmount: '37.00',
+      discountAmount: 18,
+      pointsDeductAmount: 2,
+      discountItems: [
+        { label: '会员等级折扣 8折', amount: -10, isStrikethrough: false },
+        { label: '满50减8', amount: -8, isStrikethrough: false },
+      ],
+      items: [
+        {
+          name: '牛肉面',
+          quantity: 2,
+          unitPrice: 25,
+          lineTotalAmount: 50,
+          payableLineAmount: 40,
+          specs: [{ name: '微辣' }],
+        },
+      ],
     });
   });
 
@@ -89,7 +107,7 @@ describe('ScanOrderingCloudPrintService', () => {
     );
     expect(feiePrintService.printMessage).toHaveBeenCalledWith(
       'KITCHEN-SN',
-      expect.stringContaining('牛肉面 ×2'),
+      expect.stringContaining('牛肉面 x2'),
     );
     expect(feiePrintService.printMessage).toHaveBeenCalledWith(
       'KITCHEN-SN',

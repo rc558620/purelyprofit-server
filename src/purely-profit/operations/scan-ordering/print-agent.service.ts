@@ -120,9 +120,10 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
     return store?.printAgentBindCode ?? null;
   }
 
-  /** 打印代理注册：绑定码 → 代理令牌。 */
+  /** 打印代理注册：绑定码 → 代理令牌；携带 deviceId 时按门店+设备独立登记（多台电脑互不覆盖）。 */
   async register(
     bindCode: string,
+    deviceId?: string,
     platform?: string,
     version?: string,
   ): Promise<PrintAgentRegisterResult> {
@@ -134,23 +135,40 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('绑定码无效，请检查后重新输入');
     }
     const token = randomBytes(32).toString('hex');
-    await this.prisma.store.update({
-      where: { id: store.id },
-      data: { printAgentToken: token },
-    });
+    if (deviceId) {
+      // 多代理：同一门店多台电脑各持有独立 token，互不覆盖
+      await this.prisma.printAgent.upsert({
+        where: { storeId_deviceId: { storeId: store.id, deviceId } },
+        create: { storeId: store.id, deviceId, token, platform, version },
+        update: { token, platform, version },
+      });
+    } else {
+      // 旧代理兼容：未上报 deviceId 时沿用门店单 token 逻辑
+      await this.prisma.store.update({
+        where: { id: store.id },
+        data: { printAgentToken: token },
+      });
+    }
     this.logger.log(
-      `打印代理注册成功: storeId=${store.id} platform=${platform ?? '-'} version=${version ?? '-'}`,
+      `打印代理注册成功: storeId=${store.id} deviceId=${deviceId ?? '-'} platform=${platform ?? '-'} version=${version ?? '-'}`,
     );
     return { token, storeId: store.id };
   }
 
-  /** 查询门店是否已绑定代理（本地部署未绑定时走服务器本机打印）。 */
+  /** 查询门店是否已绑定代理（本地部署未绑定时走服务器本机打印）。
+   *  多代理：存在任一设备登记或旧版单 token 即视为已绑定。 */
   async isAgentBound(storeId: number): Promise<boolean> {
-    const store = await this.prisma.store.findUnique({
-      where: { id: storeId },
-      select: { printAgentToken: true },
-    });
-    return Boolean(store?.printAgentToken);
+    const [agent, store] = await Promise.all([
+      this.prisma.printAgent.findFirst({
+        where: { storeId },
+        select: { id: true },
+      }),
+      this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: { printAgentToken: true },
+      }),
+    ]);
+    return Boolean(agent) || Boolean(store?.printAgentToken);
   }
 
   /** 查询门店代理在线状态（商家端展示；cluster 下合并 Redis 在线标记）。 */
@@ -163,6 +181,16 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
       online: this.connections.has(storeId),
       lastSeenAt: this.lastSeenCache.get(storeId) ?? null,
     };
+  }
+
+  /** 查询门店最近一次注册代理的版本号（用于商家端新旧版本对比提示）。 */
+  async getLatestRegisteredVersion(storeId: number): Promise<string | null> {
+    const agent = await this.prisma.printAgent.findFirst({
+      where: { storeId, version: { not: null } },
+      orderBy: { updatedAt: 'desc' },
+      select: { version: true },
+    });
+    return agent?.version ?? null;
   }
 
   /** 保存代理上报的可用打印机列表。 */

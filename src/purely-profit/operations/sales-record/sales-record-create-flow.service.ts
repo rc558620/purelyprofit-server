@@ -59,6 +59,7 @@ export class SalesRecordCreateFlowService {
         transaction,
         params.storeId,
         params.orderDate,
+        params.options?.manualEntry ? 'manual' : 'standard',
       );
       const createdOrder = await transaction.saleOrder.create({
         data: {
@@ -75,6 +76,37 @@ export class SalesRecordCreateFlowService {
           date: params.orderDate,
           ...(params.options?.scanOrderId !== undefined
             ? { scanOrderId: params.options.scanOrderId }
+            : {}),
+          // ─── 手工补录（录入订单）元数据 ─────────────────────────────
+          ...(params.options?.manualEntry
+            ? {
+                manualEntry: true,
+                diningMode: params.options.manualEntry.diningMode,
+                ...(params.options.manualEntry.sourceChannel !== undefined
+                  ? {
+                      sourceChannel: params.options.manualEntry.sourceChannel,
+                    }
+                  : {}),
+                ...(params.options.manualEntry.externalOrderNo != null
+                  ? {
+                      externalOrderNo:
+                        params.options.manualEntry.externalOrderNo,
+                    }
+                  : {}),
+                ...(params.options.manualEntry.guestCount != null
+                  ? { guestCount: params.options.manualEntry.guestCount }
+                  : {}),
+                ...(params.options.manualEntry.customerPhone != null
+                  ? {
+                      customerPhone: params.options.manualEntry.customerPhone,
+                    }
+                  : {}),
+                ...(params.options.manualEntry.diningTableId != null
+                  ? {
+                      diningTableId: params.options.manualEntry.diningTableId,
+                    }
+                  : {}),
+              }
             : {}),
           // ─── 团购 / 券 / 平台结算元数据 ─────────────────────────────
           ...(params.dto.customerPaymentMethod !== undefined
@@ -149,6 +181,13 @@ export class SalesRecordCreateFlowService {
           date: true,
           createdAt: true,
           scanOrderId: true,
+          // ─── 手工补录（录入订单）元数据 ─────────────────────────────
+          manualEntry: true,
+          diningMode: true,
+          sourceChannel: true,
+          guestCount: true,
+          externalOrderNo: true,
+          customerPhone: true,
           // ─── 团购 / 券 / 平台结算元数据 ───────────────────────────
           customerPaymentMethod: true,
           grouponCode: true,
@@ -233,14 +272,18 @@ export class SalesRecordCreateFlowService {
       // 使用商品消费总额判断是否创建现金流水，
       // 而非净额 totalRevenue（可能因抵扣而为零）。
       if (grossConsumptionCents > 0) {
-        // 团购券不在 FinanceCashFlowPayment 枚举内，
-        // 映射到平台支付方式（meituan/douyin/platform）。
+        // 团购券与手工补录的 platform（平台结算）均不在 FinanceCashFlowPayment 枚举内，
+        // 统一按平台来源映射：美团系→meituan、抖音→douyin、其余→platform。
         const isGroupon =
           params.dto.paymentMethod === 'groupon_voucher' ||
           params.dto.customerPaymentMethod === 'groupon_voucher';
+        const manualEntryPlatformChannel =
+          params.options?.manualEntry?.sourceChannel;
         const cashFlowPayment = (
-          isGroupon
-            ? resolveGrouponCashFlowPayment(params.dto.grouponPlatform)
+          isGroupon || params.dto.paymentMethod === 'platform'
+            ? resolveGrouponCashFlowPayment(
+                manualEntryPlatformChannel ?? params.dto.grouponPlatform,
+              )
             : params.dto.paymentMethod
         ) as FinanceCashFlowPayment;
 

@@ -22,6 +22,7 @@ export const PAYMENT_METHOD_CONFIG: Record<
   [SalesPaymentMethod.card]: { label: '刷卡', color: '#8b5cf6' },
   [SalesPaymentMethod.other]: { label: '其他', color: '#64748b' },
   [SalesPaymentMethod.groupon_voucher]: { label: '团购', color: '#b45309' },
+  [SalesPaymentMethod.platform]: { label: '平台结算', color: '#0ea5e9' },
 };
 
 /** 团购券顾客支付方式标识（兼容旧数据：customerPaymentMethod 字段仍使用字符串） */
@@ -94,6 +95,37 @@ export const SPACE_GUEST_PAYABLE_ITEM_NAME = '客人应付';
 export const SPACE_GUEST_PAYABLE_COLOR = '#f43f5e';
 /** 收银台商品前缀（无空间会话的普通商品统一使用此前缀） */
 export const CASHIER_PREFIX = '收银台';
+/** 扫码点餐订单前缀：展示桌台号（如 A01 · 酸菜肉丝面），保留桌台标识便于定位 */
+export const SCAN_TABLE_PREFIX = 'A01';
+/** 手工补录单（录入单子）店食前缀：店员录入、到店消费（现金/团购券核销等） */
+export const DINE_IN_PREFIX = '堂食';
+/** 手工补录单（录入单子）外送前缀：店员录入、平台配送/自取 */
+export const TAKEOUT_PREFIX = '外卖';
+
+/**
+ * 手工补录单来源渠道中文标签映射：meituanVoucher → 美团团购，douyin → 抖音团购 等。
+ * 用于交班明细支付列展示具体来源，替代笼统的「平台结算」。
+ */
+const MANUAL_ENTRY_SOURCE_CHANNEL_LABEL: Record<string, string> = {
+  meituan: '美团外卖',
+  eleme: '饿了么',
+  meituanVoucher: '美团团购',
+  douyin: '抖音团购',
+  dianping: '大众点评',
+  other: '其他平台',
+};
+
+/** 解析手工补录单来源渠道 → 中文标签；无匹配或空值时返回空字符串。 */
+export const resolveManualEntrySourceLabel = (
+  sourceChannel: string | null | undefined,
+): string => {
+  if (!sourceChannel) return '';
+  const raw = sourceChannel.trim();
+  const label = MANUAL_ENTRY_SOURCE_CHANNEL_LABEL[raw];
+  if (label) return label;
+  // 兼容 toLowerCase 后的值（如 meituanvoucher → 美团团购）
+  return MANUAL_ENTRY_SOURCE_CHANNEL_LABEL[raw.toLowerCase()] ?? '';
+};
 
 /** 判断 productName 是否为预付款项（兼容新旧名称） */
 export const isPrepaidDeductionItem = (productName: string): boolean =>

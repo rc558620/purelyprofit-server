@@ -25,7 +25,8 @@ export type SalesPaymentMethodValue =
   | 'alipay'
   | 'card'
   | 'other'
-  | 'groupon_voucher';
+  | 'groupon_voucher'
+  | 'platform';
 
 export const SALES_PAYMENT_METHOD_VALUES = [
   'cash',
@@ -34,6 +35,7 @@ export const SALES_PAYMENT_METHOD_VALUES = [
   'card',
   'other',
   'groupon_voucher',
+  'platform',
 ] as const satisfies readonly SalesPaymentMethodValue[];
 
 export type SalesCalcModeValue = 'profit' | 'business';

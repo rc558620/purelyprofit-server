@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   Injectable,
   NestInterceptor,
+  StreamableFile,
 } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
 
@@ -45,6 +46,9 @@ export class ResponseSanitizerInterceptor implements NestInterceptor {
 
   private sanitize(data: unknown): unknown {
     if (data === null || data === undefined) return data;
+    // 流式响应（文件下载等）保持原样：实例一旦被重建为普通对象，
+    // 框架将无法识别为流而退化为 JSON 序列化（下载接口会返回元数据 JSON）。
+    if (data instanceof StreamableFile) return data;
     if (Array.isArray(data)) return data.map((item) => this.sanitize(item));
     if (typeof data !== 'object') return data;
 

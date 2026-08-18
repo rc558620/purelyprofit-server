@@ -16,6 +16,14 @@ export const SALE_ORDER_ITEM_SELECT = {
       id: true,
       date: true,
       paymentMethod: true,
+      // 手工补录单（录入单子）标识：交班明细按整单合并展示（与退款行组成 2 行）
+      manualEntry: true,
+      // 手工补录单就餐方式：商品名前缀区分堂食/外卖
+      diningMode: true,
+      // 手工补录单来源渠道：交班明细支付列展示具体来源（如美团团购）
+      sourceChannel: true,
+      // 团购券码：录入单子平台结算时填写，交班明细团购券码列展示
+      grouponCode: true,
       operatorNameSnapshot: true,
       // 扫码点餐订单（purelyClub 下单）：携带桌台号与折扣信息用于展示
       scanOrder: {

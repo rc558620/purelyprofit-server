@@ -176,11 +176,23 @@ export function buildPreviousRange(
 // 订单号生成
 // ---------------------------------------------------------------------------
 
-export function buildOrderNo(date: Date, seq: number): string {
+/**
+ * 订单号号段：standard 普通销售单（#YYYYMMDD-NNN）/ manual 手工补录单（#M-YYYYMMDD-NNN）。
+ * 两类号段各自独立计数，互不挤占序号。
+ */
+export type SalesOrderNoVariant = 'standard' | 'manual';
+
+export function buildOrderNo(
+  date: Date,
+  seq: number,
+  variant: SalesOrderNoVariant = 'standard',
+): string {
   // 订单号日期段必须与营业日（上海时区）一致
   const dateSegment = formatShanghaiDate(date.getTime()).replace(/-/g, '');
   const serial = String(seq).padStart(3, '0');
-  return `#${dateSegment}-${serial}`;
+  return variant === 'manual'
+    ? `#M-${dateSegment}-${serial}`
+    : `#${dateSegment}-${serial}`;
 }
 
 // ---------------------------------------------------------------------------

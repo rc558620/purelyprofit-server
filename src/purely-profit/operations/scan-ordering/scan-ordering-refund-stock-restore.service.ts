@@ -139,6 +139,8 @@ export class ScanOrderingRefundStockRestoreService {
     const order = await tx.scanOrders.findUnique({
       where: { id: orderId },
       select: {
+        manualEntry: true,
+        manualEntryMetadata: true,
         paymentAttempts: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -146,10 +148,14 @@ export class ScanOrderingRefundStockRestoreService {
         },
       },
     });
+    // 手工单：从 manualEntryMetadata 读取真实支付方式（cash/wechat/alipay/card/platform）
+    // 扫码单：从 paymentAttempts 读取支付渠道；无渠道时回退 other
     const paymentMethod =
-      order?.paymentAttempts[0]?.paymentChannel === 'wechat'
-        ? ('wechat' as const)
-        : ('other' as const);
+      order?.manualEntry
+        ? ((order.manualEntryMetadata as Record<string, unknown> | null)?.paymentMethod as string) ?? 'other'
+        : order?.paymentAttempts[0]?.paymentChannel === 'wechat'
+          ? 'wechat'
+          : 'other';
     await this.saleOrderBridgeService.createForPaidOrder(
       tx,
       orderId,

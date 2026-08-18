@@ -6,6 +6,7 @@ import { PrismaModule } from '../../../prisma/prisma.module';
 import { RedisModule } from '../../../redis/redis.module';
 import { ClubScanOrderingModule } from '../../../purely-club/scan-ordering/club-scan-ordering.module';
 import { ClubServiceCallModule } from '../../../purely-club/service-call/club-service-call.module';
+import { ManualEntryModule } from './manual-entry/manual-entry.module';
 import { ScanOrderingMainController } from './scan-ordering.controller';
 import { ScanOrderingOrderController } from './scan-ordering-orders.controller';
 import { ScanOrderingTableController } from './scan-ordering-table.controller';
@@ -53,6 +54,7 @@ import { PrintAgentService } from './print-agent.service';
     StoresModule,
     ClubScanOrderingModule,
     ClubServiceCallModule,
+    ManualEntryModule,
   ],
   controllers: [
     ScanOrderingMainController,

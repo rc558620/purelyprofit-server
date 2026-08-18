@@ -97,6 +97,14 @@ export type OrderItemRow = {
     id: number;
     date: Date;
     paymentMethod: SalesPaymentMethod;
+    /** 手工补录单（录入单子）标识：交班明细按整单合并展示（与退款行组成 2 行） */
+    manualEntry: boolean;
+    /** 手工补录单就餐方式（dineIn=堂食/takeaway=自取/platform=外卖），用于商品名前缀区分 */
+    diningMode: string | null;
+    /** 手工补录单来源渠道（meituan/eleme/meituanVoucher/douyin/dianping/other），平台结算时用于展示具体来源 */
+    sourceChannel: string | null;
+    /** 团购券码：录入单子平台结算时填写，交班明细团购券码列展示 */
+    grouponCode: string | null;
     operatorNameSnapshot: string | null;
     /** 扫码点餐订单（purelyClub 下单）：携带桌台号与折扣信息用于展示 */
     scanOrder: {
@@ -106,7 +114,7 @@ export type OrderItemRow = {
       orderDiscountAmount: number;
       table: {
         tableCode: string;
-      };
+      } | null;
     } | null;
     operatorStaff: {
       name: string;
@@ -177,6 +185,12 @@ export type SaleOrderRefundRow = {
   saleOrder: {
     id: number;
     date: Date;
+    /** 手工补录单（录入单子）标识：退款行商品名展示「堂食/外卖 · xxx」 */
+    manualEntry: boolean;
+    /** 手工补录单就餐方式：退款行商品名前缀区分堂食/外卖 */
+    diningMode: string | null;
+    /** 手工补录单来源渠道：退款行支付标签展示具体来源（如退回美团团购） */
+    sourceChannel: string | null;
     operatorNameSnapshot: string | null;
     operatorStaff: {
       name: string;
@@ -189,7 +203,7 @@ export type SaleOrderRefundRow = {
     scanOrder: {
       table: {
         tableCode: string;
-      };
+      } | null;
     } | null;
     /** 订单商品项：退款行展示原商品名（取第一条） */
     items: Array<{

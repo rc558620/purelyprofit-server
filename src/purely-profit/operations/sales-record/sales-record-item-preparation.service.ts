@@ -61,6 +61,24 @@ export interface CreateSalesRecordOptions {
   totalProfitOverride?: number;
   /** 扫码点餐订单的唯一来源关联，用于支付回调幂等。 */
   scanOrderId?: number;
+  /**
+   * 手工补录（录入订单）元数据：传入后订单落入手工补录号段（#M-），
+   * 并携带就餐方式/来源渠道等补录字段。
+   */
+  manualEntry?: {
+    diningMode: 'dineIn' | 'takeaway' | 'platform';
+    sourceChannel?:
+      | 'meituan'
+      | 'eleme'
+      | 'meituanVoucher'
+      | 'douyin'
+      | 'dianping'
+      | 'other';
+    externalOrderNo?: string | null;
+    guestCount?: number | null;
+    customerPhone?: string | null;
+    diningTableId?: number | null;
+  };
 }
 
 @Injectable()
