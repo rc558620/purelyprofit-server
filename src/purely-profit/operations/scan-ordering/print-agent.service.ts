@@ -35,7 +35,8 @@ export interface PrintAgentReceipt {
 /** 打印代理下发的 ESC/POS 任务。 */
 export interface PrintAgentTask {
   taskId: string;
-  target: 'cashier' | 'kitchen';
+  /** 打印目标：cashier=收银台顾客票 / kitchen=后厨制作单 / space=空间消费小票。 */
+  target: 'cashier' | 'kitchen' | 'space';
   /** 完整 ESC/POS 字节流的 Base64 编码。 */
   dataBase64: string;
 }
@@ -129,7 +130,7 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
   ): Promise<PrintAgentRegisterResult> {
     const store = await this.prisma.store.findFirst({
       where: { printAgentBindCode: bindCode },
-      select: { id: true },
+      select: { id: true, name: true },
     });
     if (!store) {
       throw new BadRequestException('绑定码无效，请检查后重新输入');
@@ -152,7 +153,7 @@ export class PrintAgentService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       `打印代理注册成功: storeId=${store.id} deviceId=${deviceId ?? '-'} platform=${platform ?? '-'} version=${version ?? '-'}`,
     );
-    return { token, storeId: store.id };
+    return { token, storeId: store.id, storeName: store.name };
   }
 
   /** 查询门店是否已绑定代理（本地部署未绑定时走服务器本机打印）。

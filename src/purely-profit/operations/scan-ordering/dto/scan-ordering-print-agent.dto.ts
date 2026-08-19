@@ -34,4 +34,6 @@ export interface PrintAgentRegisterResult {
   token: string;
   /** 绑定门店 ID。 */
   storeId: number;
+  /** 绑定门店名称。 */
+  storeName: string;
 }

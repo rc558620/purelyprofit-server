@@ -5,6 +5,7 @@ import { PlatformMembershipModule } from '../../member/platform-membership/platf
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { RedisModule } from '../../../redis/redis.module';
 import { ClubScanOrderingModule } from '../../../purely-club/scan-ordering/club-scan-ordering.module';
+import { ScanOrderingModule } from '../scan-ordering/scan-ordering.module';
 import { SalesRecordModule } from '../sales-record/sales-record.module';
 import { SpaceAutoCheckoutSchedulerService } from './space-auto-checkout-scheduler.service';
 import { SpaceQrCodeService } from './space-qr-code.service';
@@ -36,6 +37,10 @@ import { SpaceTypesService } from './space-types.service';
 import { SpaceZonesController } from './space-zones.controller';
 import { SpaceZonesService } from './space-zones.service';
 import { SpacesController } from './spaces.controller';
+import { SpacePrintController } from './space-print.controller';
+import { SpacePrintService } from './space-print.service';
+import { SpacePrintDataService } from './space-print-data.service';
+import { SpacePrintSettingsService } from './space-print-settings.service';
 import { SpacesReadService } from './spaces-read.service';
 import { SpacesService } from './spaces.service';
 import { SpacesStatusService } from './spaces-status.service';
@@ -51,6 +56,8 @@ import { SpacesWriteService } from './spaces-write.service';
     RedisModule,
     ClubScanOrderingModule,
     StoresModule,
+    // 复用扫码点餐的打印通道基础设施（云/USB/代理/ESC-POS）
+    ScanOrderingModule,
   ],
   controllers: [
     SpaceTypesController,
@@ -58,6 +65,7 @@ import { SpacesWriteService } from './spaces-write.service';
     SpacesController,
     SpaceReservationsController,
     SpaceSessionsController,
+    SpacePrintController,
   ],
   providers: [
     SpacesService,
@@ -88,6 +96,9 @@ import { SpacesWriteService } from './spaces-write.service';
     SpaceDashboardService,
     SpaceAutoCheckoutSchedulerService,
     SpaceQrCodeService,
+    SpacePrintSettingsService,
+    SpacePrintDataService,
+    SpacePrintService,
   ],
   exports: [SpaceSessionSettlementService, SpaceSessionAutoCheckoutService],
 })

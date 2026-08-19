@@ -53,6 +53,46 @@ export interface EscPosTicket {
   footer?: string | null;
 }
 
+/** 空间消费小票结构化内容：由空间打印业务层组装，本类只负责编译为 ESC/POS 字节流。 */
+export interface SpaceEscPosTicket {
+  /** 门店名称（居中加粗）。 */
+  storeName: string;
+  /** 小票标题，如「消费小票」。 */
+  title: string;
+  /** 空间名称（如 A02（小包））。 */
+  spaceName: string;
+  guestName?: string | null;
+  guestCount?: number | null;
+  /** 开台时间（YYYY-MM-DD HH:mm）。 */
+  startTimeLabel: string;
+  /** 结账时间（YYYY-MM-DD HH:mm）。 */
+  endTimeLabel: string;
+  /** 时长描述（如 2 小时 30 分钟）。 */
+  durationLabel: string;
+  /** 计费模式中文标签（纯计时/纯消费/混合/倒计时）。 */
+  billingModeLabel: string;
+  /** 台位费单价（元/小时）。 */
+  hourlyRate?: number | null;
+  /** 台位费金额（元）。 */
+  timeCost: number;
+  /** 消费商品明细（含系统内置行）。 */
+  items: Array<{ name: string; quantity: number; subtotal: number }>;
+  /** 商品费用合计（元）。 */
+  itemsCost: number;
+  /** 续费抵扣金额（元）。 */
+  renewDeduction: number;
+  /** 预付抵扣金额（元）。 */
+  prepaidDeduction: number;
+  /** 应付总额（元，可能为负数表示应退）。 */
+  totalAmount: number;
+  /** 支付方式中文标签。 */
+  paymentMethodLabel?: string | null;
+  note?: string | null;
+  operatorName?: string | null;
+  /** 结尾问候语，如「谢谢惠顾，欢迎再次光临」。 */
+  footer?: string | null;
+}
+
 /** ESC/POS 文本编码：gbk 为国产热敏打印机经典兼容编码。 */
 export type EscPosEncoding = 'utf8' | 'gbk';
 
@@ -171,6 +211,84 @@ export class EscPosTicketBuilder {
     }
     if (ticket.payableAmount) {
       this.line(out, `实付：￥${ticket.payableAmount}`);
+    }
+    if (ticket.operatorName) {
+      this.line(out, `操作员：${ticket.operatorName}`);
+    }
+    out.push(LF);
+
+    if (ticket.footer) {
+      this.line(out, ticket.footer, { align: 'center' });
+    }
+
+    this.feedAndCut(out);
+    return Buffer.from(out);
+  }
+
+  /** 编译空间消费小票为 ESC/POS 字节流（内容对齐商家端 ReceiptPrintView：
+   *  门店/标题/空间/顾客/人数/开台/结账/时长/计费/台位费单价/台位费/商品明细/商品合计/抵扣/合计/支付方式/备注/操作员/页脚）。
+   *  金额由业务层分转元后传入，可能为负数（应退场景）。 */
+  buildSpaceTicket(ticket: SpaceEscPosTicket): Buffer {
+    const out: number[] = [];
+    this.raw(out, ESC, 0x40); // 初始化打印机
+
+    if (ticket.storeName) {
+      this.line(out, ticket.storeName, {
+        align: 'center',
+        bold: true,
+        double: true,
+      });
+      out.push(LF); // 门店名底部间距
+    }
+    // 标题：不加粗、常规字号
+    this.line(out, ticket.title, { align: 'center' });
+    out.push(LF);
+
+    // 信息区：空间 → 顾客 → 人数 → 开台 → 结账 → 时长 → 计费 → 台位费单价
+    this.line(out, `空间：${ticket.spaceName}`);
+    if (ticket.guestName) {
+      this.line(out, `顾客：${ticket.guestName}`);
+    }
+    if (ticket.guestCount != null) {
+      this.line(out, `人数：${ticket.guestCount} 人`);
+    }
+    this.line(out, `开台：${ticket.startTimeLabel}`);
+    this.line(out, `结账：${ticket.endTimeLabel}`);
+    this.line(out, `时长：${ticket.durationLabel}`);
+    this.line(out, `计费：${ticket.billingModeLabel}`);
+    if (ticket.hourlyRate != null) {
+      this.line(out, `台位费单价：￥${ticket.hourlyRate.toFixed(2)}/小时`);
+    }
+    this.line(out, DIVIDER);
+
+    // 商品明细：全部会话明细（含系统内置行），商品合计单独行
+    if (ticket.items.length > 0) {
+      this.line(out, '商品明细');
+      for (const item of ticket.items) {
+        this.line(
+          out,
+          `${item.name} x${item.quantity}  ￥${item.subtotal.toFixed(2)}`,
+        );
+      }
+      this.line(out, `商品合计：￥${ticket.itemsCost.toFixed(2)}`);
+    }
+
+    // 抵扣区：续费抵扣 + 预付抵扣
+    if (ticket.renewDeduction > 0) {
+      this.line(out, `续费抵扣：-￥${ticket.renewDeduction.toFixed(2)}`);
+    }
+    if (ticket.prepaidDeduction > 0) {
+      this.line(out, `预付抵扣：-￥${ticket.prepaidDeduction.toFixed(2)}`);
+    }
+    this.line(out, DIVIDER);
+
+    // 合计：常规字重展示（可能为负数表示应退）
+    this.line(out, `合计：￥${ticket.totalAmount.toFixed(2)}`);
+    if (ticket.paymentMethodLabel) {
+      this.line(out, `支付方式：${ticket.paymentMethodLabel}`);
+    }
+    if (ticket.note) {
+      this.line(out, `备注：${ticket.note}`);
     }
     if (ticket.operatorName) {
       this.line(out, `操作员：${ticket.operatorName}`);

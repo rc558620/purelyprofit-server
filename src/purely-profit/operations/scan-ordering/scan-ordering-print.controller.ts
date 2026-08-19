@@ -165,7 +165,7 @@ export class ScanOrderingPrintController {
         ? 'print-agent-win64.exe'
         : platform === 'macos'
           ? // macOS 分发 zip 包：保留可执行权限，客户双击解压即可运行（浏览器下载裸二进制无执行位）
-            'print-agent-macos.zip'
+            'print-agent-macos-app.zip'
           : null;
     if (!fileName) {
       throw new BadRequestException('不支持的平台，仅支持 macos / windows');

@@ -171,7 +171,14 @@ export class ClubScanOrderingService {
             orders: {
               some: {
                 deletedAt: null,
-                status: { in: ['pending_payment', 'pending_acceptance', 'preparing', 'served'] },
+                status: {
+                  in: [
+                    'pending_payment',
+                    'pending_acceptance',
+                    'preparing',
+                    'served',
+                  ],
+                },
               },
             },
           },
@@ -262,6 +269,10 @@ export class ClubScanOrderingService {
 
   /**
    * 通过 upsert 创建或恢复会话，避免并发场景下的唯一键冲突。
+   *
+   * 仅当桌台仍有其他活跃会话时才复用 diningRoundId，
+   * 避免已清空/过期的旧轮次订单在新会话中被重新拉出（商家端的 listTables 会
+   * 在存在 active 会话时拉取同一 diningRoundId 下所有 left 会话的订单）。
    */
   private async upsertSession(
     storeId: number,
@@ -277,17 +288,54 @@ export class ClubScanOrderingService {
     expiresAt: Date;
     diningRoundId: string;
   }> {
-    const existingRound = await this.prisma.scanOrderingSession.findFirst({
-      where: {
-        storeId,
-        tableId,
-        clubUserId,
-        status: { in: ['active', 'left'] },
-      },
-      orderBy: { lastActiveAt: 'desc' },
-      select: { diningRoundId: true },
-    });
-    const diningRoundId = existingRound?.diningRoundId ?? randomUUID();
+    // 先检查桌台当前是否有任意活跃会话（来自任意用户），只有桌台仍被占用时才
+    // 复用该用户历史 left 会话的 diningRoundId。
+    const tableHasActiveSession =
+      await this.prisma.scanOrderingSession.findFirst({
+        where: {
+          storeId,
+          tableId,
+          status: 'active',
+          deletedAt: null,
+          OR: [
+            { expiresAt: { gt: now } },
+            {
+              orders: {
+                some: {
+                  deletedAt: null,
+                  status: {
+                    in: [
+                      'pending_payment',
+                      'pending_acceptance',
+                      'preparing',
+                      'served',
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+        },
+        select: { id: true },
+      });
+    let diningRoundId: string;
+    if (tableHasActiveSession) {
+      // 桌台仍被占用，复用该用户同一轮次的 diningRoundId
+      const existingRound = await this.prisma.scanOrderingSession.findFirst({
+        where: {
+          storeId,
+          tableId,
+          clubUserId,
+          status: 'left',
+        },
+        orderBy: { lastActiveAt: 'desc' },
+        select: { diningRoundId: true },
+      });
+      diningRoundId = existingRound?.diningRoundId ?? randomUUID();
+    } else {
+      // 桌台已无活跃会话（已清桌或全部过期），开始新轮次
+      diningRoundId = randomUUID();
+    }
     try {
       return await this.prisma.scanOrderingSession.create({
         data: {

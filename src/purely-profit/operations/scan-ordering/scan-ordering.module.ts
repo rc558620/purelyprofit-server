@@ -103,6 +103,14 @@ import { PrintAgentService } from './print-agent.service';
         ),
     },
   ],
-  exports: [ScanOrderingPricingService, ScanOrderingSessionArchiveService],
+  exports: [
+    ScanOrderingPricingService,
+    ScanOrderingSessionArchiveService,
+    // 打印通道基础设施（云/USB/代理/ESC-POS）：供空间管理（general 业态）打印域复用
+    FeiePrintService,
+    UsbPrintService,
+    PrintAgentService,
+    EscPosTicketBuilder,
+  ],
 })
 export class ScanOrderingModule {}
