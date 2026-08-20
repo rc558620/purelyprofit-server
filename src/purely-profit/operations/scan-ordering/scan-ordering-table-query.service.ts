@@ -145,22 +145,29 @@ export class ScanOrderingTableQueryService {
           (order) =>
             order.status === 'served' || order.fulfillmentStatus === 'served',
         );
-      const blockingOrderCount = allOrdersServed
-        ? 0
-        : fulfillmentOrders.filter(
-            (order) =>
-              order.status !== 'served' && order.fulfillmentStatus !== 'served',
-          ).length;
 
       // 手工补录单归桌展示：统一取当日上海营业日开始（loadManualEntryOrders 查询下限
       // 已是 earliestSessionStart = min(会话开始, 当日开始)，此处不再按会话创建时间过滤，
       // 避免「先录单、后扫码下单」场景（会话晚于录入单创建）导致录入单被隐藏。
-      // clearability/清桌阻塞仍以扫码订单为准，已完结的补录单不阻塞清桌。
+      // 未出餐的手工单同样计入清桌阻塞，与后端 clearTable 口径保持一致。
       const entryWindowStart = dayStart;
+      // 进行中的录入单不限时间（跨天未处理的录入单仍须占用桌台并在抽屉可见），
+      // 已完结（completed）录入单仅取当日窗口（履约记录展示，清桌后由调用方隐藏）。
       const tableManualOrders = (
         manualOrdersByTable.get(table.id) ?? []
-      ).filter((order) => order.createdAt >= entryWindowStart);
-      const manualEntryOrders = tableManualOrders.map((order) => ({
+      ).filter((order) =>
+        order.status === 'completed'
+          ? order.createdAt >= entryWindowStart
+          : true,
+      );
+      // 录入单展示规则：桌台未清空（dining/clearing）时全量展示，
+      // 包括已完成的录入单（作为该桌履约记录）；清桌后（empty）仅展示进行中单，
+      // 避免已完结录入单在空桌上继续显示。
+      const displayableManualOrders =
+        table.status === 'empty'
+          ? tableManualOrders.filter((order) => order.status !== 'completed')
+          : tableManualOrders;
+      const manualEntryOrders = displayableManualOrders.map((order) => ({
         id: `manual-${order.id}` as number | string,
         orderNo: order.orderNo,
         status: order.status,
@@ -170,8 +177,19 @@ export class ScanOrderingTableQueryService {
         createdAt: order.createdAt.toISOString(),
         manualEntry: true,
       }));
+      const manualBlockingCount = manualEntryOrders.filter(
+        (order) => order.status !== 'served' && order.status !== 'completed',
+      ).length;
+      const blockingOrderCount =
+        (allOrdersServed
+          ? 0
+          : fulfillmentOrders.filter(
+              (order) =>
+                order.status !== 'served' &&
+                order.fulfillmentStatus !== 'served',
+            ).length) + manualBlockingCount;
       // 纯录入轮次（无扫码会话但有当日录入单）：合成会话展示入座时间与合计人数
-      const manualGuestCount = tableManualOrders.reduce(
+      const manualGuestCount = displayableManualOrders.reduce(
         (total, order) => total + (order.guestCount ?? 0),
         0,
       );
@@ -189,6 +207,8 @@ export class ScanOrderingTableQueryService {
         id: table.id,
         tableCode: table.tableCode,
         name: table.name,
+        // 桌台占用判定：清桌后（empty）已完结录入单被过滤，hasEntryRound
+        // 只含进行中单，空桌自然保持空桌；新录入单会重新占用桌台。
         status:
           table.status === 'disabled'
             ? 'disabled'
@@ -300,16 +320,18 @@ export class ScanOrderingTableQueryService {
       }>
     >();
 
-    // 新链路：scan_orders 手工单（走状态机，显示真实状态）
+    // 新链路：scan_orders 手工单（走状态机，显示真实状态）。
+    // 进行中录入单不限时间（跨天未处理的录入单须占用桌台）；
+    // 已完结（completed）录入单仅取轮次窗口内，供桌台抽屉展示履约记录。
     const newManualOrders = await this.prisma.scanOrders.findMany({
       where: {
         storeId,
         manualEntry: true,
         tableId: { in: tableIds },
-        createdAt: { gte: earliestStart },
-        status: {
-          in: ['pending_acceptance', 'preparing', 'served', 'completed'],
-        },
+        OR: [
+          { status: { in: ['pending_acceptance', 'preparing', 'served'] } },
+          { status: 'completed', createdAt: { gte: earliestStart } },
+        ],
       },
       select: {
         id: true,

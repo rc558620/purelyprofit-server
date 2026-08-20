@@ -813,9 +813,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       shiftType: EmployeeShiftType.morning,
     });
 
-    // 3 个商品行合并为 1 个下单行（整单金额），与退款行组成 2 行
-    expect(result.orderItems).toHaveLength(2);
-    // 退款行：负数金额 + 有库存
+    // 3 个商品行按商品名聚合为 3 行（不再合并为整单行），与退款行组成 4 行
+    expect(result.orderItems).toHaveLength(4);
+    // 退款行：负数金额 + 有库存（退款排在 order 之前）
     expect(result.orderItems[0]).toMatchObject({
       id: 'scan-refund-92',
       productName: '堂食 · 酸菜肉丝面',
@@ -824,14 +824,106 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       paymentLabel: '退回平台结算',
       currentStock: 9999,
     });
-    // 下单行：第一条商品名 + 整单金额 + 库存列不展示（isRefundedOrder）
+    // 3 个商品行按 id 降序排列（重庆小面 → 猪肉白菜水饺 → 酸菜肉丝面）
     expect(result.orderItems[1]).toMatchObject({
-      id: 'manual-entry-593',
-      productName: '堂食 · 酸菜肉丝面',
+      id: '969',
+      productName: '堂食 · 重庆小面',
       quantity: 1,
-      totalRevenue: 33,
+      totalRevenue: 10.11,
       paymentLabel: '平台结算',
       isRefundedOrder: true,
+    });
+    expect(result.orderItems[2]).toMatchObject({
+      id: '968',
+      productName: '堂食 · 猪肉白菜水饺（12只）',
+      quantity: 1,
+      totalRevenue: 10.77,
+      paymentLabel: '平台结算',
+      isRefundedOrder: true,
+    });
+    expect(result.orderItems[3]).toMatchObject({
+      id: '967',
+      productName: '堂食 · 酸菜肉丝面',
+      quantity: 1,
+      totalRevenue: 12.12,
+      paymentLabel: '平台结算',
+      isRefundedOrder: true,
+    });
+  });
+
+  it('手工补录单刷卡支付应展示刷卡而非来源渠道（美团外卖不覆盖实际支付方式）', async () => {
+    mockEmptySaleOrderItems();
+    prismaService.saleOrderRefund.findMany.mockResolvedValue([]);
+    // 手工补录单：实际支付方式为刷卡（card），来源渠道为美团外卖（meituan）
+    prismaService.saleOrderItem.findMany.mockResolvedValue([
+      {
+        id: 971,
+        productName: '扬州炒饭',
+        salePrice: new Prisma.Decimal('1800'),
+        quantity: 2,
+        product: { stock: 9990, unit: '份' },
+        order: {
+          id: 601,
+          date: new Date('2026-08-20T09:26:00.000Z'),
+          paymentMethod: SalesPaymentMethod.card,
+          manualEntry: true,
+          sourceChannel: 'meituan',
+          operatorNameSnapshot: 'f0rest2012',
+          operatorStaff: null,
+          scanOrder: null,
+          spaceSession: null,
+        },
+      },
+    ]);
+
+    const result = await ctx.service.getHandoverPage(subAccountUser, {
+      shiftType: EmployeeShiftType.morning,
+    });
+
+    // 刷卡支付：支付标签展示实际收款方式「刷卡」，不被来源渠道覆盖
+    expect(result.orderItems).toHaveLength(1);
+    expect(result.orderItems[0]).toMatchObject({
+      id: '971',
+      productName: '堂食 · 扬州炒饭',
+      paymentLabel: '刷卡',
+    });
+  });
+
+  it('手工补录单平台结算时展示来源渠道（美团外卖）', async () => {
+    mockEmptySaleOrderItems();
+    prismaService.saleOrderRefund.findMany.mockResolvedValue([]);
+    // 手工补录单：平台结算（platform）+ 来源渠道美团外卖（meituan）
+    prismaService.saleOrderItem.findMany.mockResolvedValue([
+      {
+        id: 972,
+        productName: '扬州炒饭',
+        salePrice: new Prisma.Decimal('1800'),
+        quantity: 2,
+        product: { stock: 9990, unit: '份' },
+        order: {
+          id: 602,
+          date: new Date('2026-08-20T09:30:00.000Z'),
+          paymentMethod: SalesPaymentMethod.platform,
+          manualEntry: true,
+          sourceChannel: 'meituan',
+          operatorNameSnapshot: 'f0rest2012',
+          operatorStaff: null,
+          scanOrder: null,
+          spaceSession: null,
+        },
+      },
+    ]);
+
+    const result = await ctx.service.getHandoverPage(subAccountUser, {
+      shiftType: EmployeeShiftType.morning,
+    });
+
+    // 平台结算：展示具体来源渠道「美团外卖」
+    expect(result.orderItems).toHaveLength(1);
+    expect(result.orderItems[0]).toMatchObject({
+      id: '972',
+      productName: '堂食 · 扬州炒饭',
+      paymentLabel: '美团外卖',
     });
   });
 });

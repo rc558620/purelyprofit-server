@@ -345,6 +345,7 @@ describe('SalesRecordListService', () => {
             amountSummary: {
               itemOriginalAmount: 60,
               specificationExtraAmount: 0,
+              totalBeforeDiscount: 60,
               payableAmount: 56,
               discountAmount: 4,
               pointsDeductAmount: 5,
@@ -376,6 +377,146 @@ describe('SalesRecordListService', () => {
         where: { id: { in: [1001] } },
       }),
     );
+  });
+
+  it('list 对扫码订单相同商品+规格叠加数量与金额，不同规格不合并', async () => {
+    const saleDate = new Date('2026-05-14T10:00:00.000Z');
+    const createdAt = new Date('2026-05-14T10:10:00.000Z');
+
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    prismaService.saleOrder.count.mockResolvedValue(1);
+    // 扫码订单销售单：同一商品按数量展开为多行 quantity=1（重庆小面 5+2 行、扬州炒饭 4 行）
+    const buildItemRow = (
+      id: number,
+      productId: number,
+      productName: string,
+    ) => ({
+      id,
+      orderId: 12,
+      storeId: 18,
+      productId,
+      productName,
+      categoryName: productName === '扬州炒饭' ? '主食' : '面食',
+      salePrice: new Prisma.Decimal(
+        productName === '扬州炒饭' ? '1800' : '1500',
+      ),
+      profit: new Prisma.Decimal(productName === '扬州炒饭' ? '600' : '500'),
+      quantity: 1,
+      image: null,
+      createdAt,
+    });
+    prismaService.saleOrder.findMany.mockResolvedValue([
+      {
+        id: 12,
+        storeId: 18,
+        operatorStaffId: 8,
+        orderNo: '#20260514-002',
+        totalRevenue: new Prisma.Decimal('17700'),
+        totalProfit: new Prisma.Decimal('5900'),
+        totalQuantity: 11,
+        paymentMethod: 'other',
+        calcMode: 'business',
+        note: '扫码点餐订单 SO1002',
+        date: saleDate,
+        createdAt,
+        updatedAt: createdAt,
+        scanOrderId: 1002,
+        items: [
+          ...Array.from({ length: 5 }, (_, index) =>
+            buildItemRow(201 + index, 51, '重庆小面'),
+          ),
+          ...Array.from({ length: 2 }, (_, index) =>
+            buildItemRow(206 + index, 51, '重庆小面'),
+          ),
+          ...Array.from({ length: 4 }, (_, index) =>
+            buildItemRow(208 + index, 52, '扬州炒饭'),
+          ),
+        ],
+      },
+    ]);
+    // 关联扫码订单：同一商品多规格行（加辣 5 份、不辣 2 份、扬州炒饭 4 份）
+    prismaService.scanOrders.findMany.mockResolvedValue([
+      {
+        id: 1002,
+        marketingSnapshot: { pointsDeductAmount: 0, breakdownItems: [] },
+        itemOriginalAmount: 17700,
+        specificationExtraAmount: 0,
+        payableAmount: 17700,
+        items: [
+          {
+            productNameSnapshot: '重庆小面',
+            quantity: 5,
+            lineTotalAmount: 7500,
+            payableLineAmount: 7500,
+            specs: [{ specOptionNameSnapshot: '加辣' }],
+          },
+          {
+            productNameSnapshot: '重庆小面',
+            quantity: 2,
+            lineTotalAmount: 3000,
+            payableLineAmount: 3000,
+            specs: [{ specOptionNameSnapshot: '不辣' }],
+          },
+          {
+            productNameSnapshot: '扬州炒饭',
+            quantity: 4,
+            lineTotalAmount: 7200,
+            payableLineAmount: 7200,
+            specs: [],
+          },
+        ],
+      },
+    ]);
+
+    const result = await service.list(user, { storeId: 18, period: 'all' });
+    expect(result.items[0].items).toEqual([
+      {
+        productId: '51',
+        productName: '重庆小面',
+        categoryName: '面食',
+        salePrice: 15,
+        profit: 5,
+        quantity: 5,
+        subtotal: 75,
+        specs: ['加辣'],
+        originalUnitPrice: 15,
+      },
+      {
+        productId: '51',
+        productName: '重庆小面',
+        categoryName: '面食',
+        salePrice: 15,
+        profit: 5,
+        quantity: 2,
+        subtotal: 30,
+        specs: ['不辣'],
+        originalUnitPrice: 15,
+      },
+      {
+        productId: '52',
+        productName: '扬州炒饭',
+        categoryName: '主食',
+        salePrice: 18,
+        profit: 6,
+        quantity: 4,
+        subtotal: 72,
+        originalUnitPrice: 18,
+      },
+    ]);
+    // 金额合计在叠加前后保持不变（总营业额/总利润/总件数）
+    expect(result.items[0]).toMatchObject({
+      totalRevenue: 177,
+      totalProfit: 59,
+      totalQuantity: 11,
+    });
+    // 优惠前总价由后端计算（= 商品基础价 + 规格加价），前端只读展示
+    expect(result.items[0].amountSummary).toMatchObject({
+      itemOriginalAmount: 177,
+      specificationExtraAmount: 0,
+      totalBeforeDiscount: 177,
+      payableAmount: 177,
+      discountAmount: 0,
+    });
   });
 
   it('list 对普通订单不返回增强字段，other 支付方式保持原样', async () => {

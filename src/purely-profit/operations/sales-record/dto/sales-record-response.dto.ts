@@ -177,6 +177,13 @@ export class ScanOrderingAmountSummaryDto {
 
   @IsNumber()
   @ApiProperty({
+    example: 524,
+    description: '优惠前总价（元，= 商品基础价 + 规格加价，未扣任何优惠）',
+  })
+  totalBeforeDiscount: number;
+
+  @IsNumber()
+  @ApiProperty({
     example: 404.8,
     description: '应付金额（元，含所有优惠与积分抵扣）',
   })

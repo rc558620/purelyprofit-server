@@ -115,6 +115,12 @@ export type OrderItemRow = {
       table: {
         tableCode: string;
       } | null;
+      /** 扫码订单商品规格快照：与 saleOrderItems 按展开顺序一一对应 */
+      items: Array<{
+        productNameSnapshot: string;
+        quantity: number;
+        specs: Array<{ specOptionNameSnapshot: string }>;
+      }>;
     } | null;
     operatorStaff: {
       name: string;

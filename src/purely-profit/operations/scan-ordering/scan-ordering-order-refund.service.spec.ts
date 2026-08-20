@@ -9,6 +9,7 @@ import { SalesRecordRefundService } from '../sales-record/sales-record-refund.se
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
 import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
 import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-refund.service';
+import { ClubWechatRefundService } from '../../../purely-club/payments/club-wechat-refund.service';
 
 describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
   let service: ScanOrderingOrderRefundHandlingService;
@@ -78,6 +79,10 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
     get: jest.fn(),
   };
 
+  const wechatRefundService = {
+    requestRefund: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     prismaService.$transaction.mockImplementation(
@@ -135,6 +140,7 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
           useValue: stockRestoreService,
         },
         { provide: ConfigService, useValue: configService },
+        { provide: ClubWechatRefundService, useValue: wechatRefundService },
       ],
     }).compile();
 
@@ -210,5 +216,346 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
     expect(prismaService.scanOrderItem.findMany).not.toHaveBeenCalled();
     expect(stockRestoreService.restoreReservedStock).not.toHaveBeenCalled();
     expect(stockRestoreService.refundSaleOrder).not.toHaveBeenCalled();
+  });
+
+  // ─── autoRefundByTimeout：系统超时自动退款 ───────────────────
+
+  it('系统超时退款：手工补录单直接跳过，不发起任何退款', async () => {
+    prismaService.scanOrders.findFirst.mockResolvedValue({
+      id: 1001,
+      storeId: 11,
+      paymentStatus: 'paid',
+      paidAmount: 2500,
+      manualEntry: true,
+      paymentAttempts: [],
+    });
+
+    await service.autoRefundByTimeout({
+      orderId: 1001,
+      storeId: 11,
+      version: 2,
+      fromStatus: 'pending_acceptance',
+      reason: '商家超时未接单，系统自动退款',
+    });
+
+    expect(prismaService.scanOrders.updateMany).not.toHaveBeenCalled();
+    expect(balanceRefundService.refund).not.toHaveBeenCalled();
+    expect(refundService.createRefundTask).not.toHaveBeenCalled();
+    expect(wechatRefundService.requestRefund).not.toHaveBeenCalled();
+  });
+
+  it('系统超时退款：未支付订单直接置拒绝并释放预留库存', async () => {
+    prismaService.scanOrders.findFirst.mockResolvedValue({
+      id: 1001,
+      storeId: 11,
+      paymentStatus: 'unpaid',
+      paidAmount: 0,
+      manualEntry: false,
+      paymentAttempts: [],
+    });
+    prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.autoRefundByTimeout({
+      orderId: 1001,
+      storeId: 11,
+      version: 2,
+      fromStatus: 'pending_acceptance',
+      reason: '商家超时未接单，系统自动退款',
+    });
+
+    expect(prismaService.scanOrders.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 1001,
+        storeId: 11,
+        version: 2,
+        status: 'pending_acceptance',
+      },
+      data: {
+        status: 'rejected',
+        fulfillmentStatus: 'closed',
+        version: { increment: 1 },
+        rejectReason: '商家超时未接单，系统自动退款',
+      },
+    });
+    expect(stockRestoreService.restoreReservedStock).toHaveBeenCalledTimes(1);
+  });
+
+  it('系统超时退款：余额支付原路退回余额并推送完成事件', async () => {
+    prismaService.scanOrders.findFirst.mockResolvedValue({
+      id: 1001,
+      storeId: 11,
+      paymentStatus: 'paid',
+      paidAmount: 2500,
+      manualEntry: false,
+      paymentAttempts: [
+        {
+          id: 801,
+          paymentChannel: 'marketing_balance',
+          merchantPaymentNo: null,
+          providerTransactionId: null,
+        },
+      ],
+    });
+    balanceRefundService.refund.mockResolvedValue({
+      id: 1001,
+      storeId: 11,
+      sessionId: 55,
+      status: 'rejected',
+      paymentStatus: 'refunded',
+      fulfillmentStatus: 'closed',
+      pickupNumber: 5,
+      refundTasks: [],
+    });
+
+    await service.autoRefundByTimeout({
+      orderId: 1001,
+      storeId: 11,
+      version: 2,
+      fromStatus: 'pending_acceptance',
+      reason: '商家超时未接单，系统自动退款',
+    });
+
+    expect(balanceRefundService.refund).toHaveBeenCalledWith(
+      {
+        orderId: 1001,
+        storeId: 11,
+        version: 2,
+        reason: '商家超时未接单，系统自动退款',
+        fromStatus: 'pending_acceptance',
+      },
+      expect.objectContaining({ id: 0 }),
+      'system',
+    );
+    expect(realtimeService.publishOrderStatusChanged).toHaveBeenCalled();
+  });
+
+  it('系统超时退款：制作中微信订单自动调微信退款 API 并完成闭环', async () => {
+    prismaService.scanOrders.findFirst.mockResolvedValue({
+      id: 1001,
+      storeId: 11,
+      paymentStatus: 'paid',
+      paidAmount: 2500,
+      manualEntry: false,
+      paymentAttempts: [
+        {
+          id: 801,
+          paymentChannel: 'wechat_jsapi',
+          merchantPaymentNo: 'SO123-WX1A2B',
+          providerTransactionId: 'txn-123',
+        },
+      ],
+    });
+    prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
+    refundService.createRefundTask.mockResolvedValue('SR20260819001');
+    wechatRefundService.requestRefund.mockResolvedValue({
+      refundId: 'wx-refund-001',
+    });
+
+    await service.autoRefundByTimeout({
+      orderId: 1001,
+      storeId: 11,
+      version: 2,
+      fromStatus: 'preparing',
+      reason: '商家超时未出餐，系统自动退款',
+    });
+
+    // 置退款中的乐观锁条件必须匹配 preparing 源状态
+    expect(prismaService.scanOrders.updateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        id: 1001,
+        storeId: 11,
+        version: 2,
+        status: 'preparing',
+      },
+      data: {
+        status: 'refunding',
+        paymentStatus: 'refunding',
+        rejectReason: '商家超时未出餐，系统自动退款',
+        version: { increment: 1 },
+      },
+    });
+    // 退款任务标记为系统超时触发
+    expect(refundService.createRefundTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        triggerType: 'system_timeout',
+        operatorType: 'system',
+        merchantPaymentNo: 'SO123-WX1A2B',
+        refundAmount: 2500,
+      }),
+    );
+    // 微信退款 API：out_trade_no 传商户支付单号
+    expect(wechatRefundService.requestRefund).toHaveBeenCalledWith({
+      storeId: 11,
+      orderNo: 'SO123-WX1A2B',
+      refundNo: 'SR20260819001',
+      totalFen: 2500,
+      refundFen: 2500,
+      reason: '商家超时未出餐，系统自动退款',
+    });
+    // 闭环：库存恢复 + 销售冲销 + 退款任务标记成功 + 实时推送
+    expect(stockRestoreService.restoreReservedStock).toHaveBeenCalledTimes(1);
+    expect(
+      refundService.markRefundTaskSucceededInTransaction,
+    ).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        providerRefundId: 'wx-refund-001',
+      }),
+    );
+    expect(realtimeService.publishOrderStatusChanged).toHaveBeenCalled();
+  });
+
+  it('系统超时退款：微信 API 调用失败时保留人工待处理任务兜底', async () => {
+    prismaService.scanOrders.findFirst.mockResolvedValue({
+      id: 1001,
+      storeId: 11,
+      paymentStatus: 'paid',
+      paidAmount: 2500,
+      manualEntry: false,
+      paymentAttempts: [
+        {
+          id: 801,
+          paymentChannel: 'wechat_jsapi',
+          merchantPaymentNo: 'SO123-WX1A2B',
+          providerTransactionId: 'txn-123',
+        },
+      ],
+    });
+    prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
+    refundService.createRefundTask.mockResolvedValue('SR20260819002');
+    wechatRefundService.requestRefund.mockRejectedValue(
+      new Error('微信退款服务暂时不可用，请稍后重试'),
+    );
+
+    await expect(
+      service.autoRefundByTimeout({
+        orderId: 1001,
+        storeId: 11,
+        version: 2,
+        fromStatus: 'pending_acceptance',
+        reason: '商家超时未接单，系统自动退款',
+      }),
+    ).rejects.toThrow('微信退款服务暂时不可用');
+
+    // 任务已创建（manual_pending），订单停留在 refunding，供商家端人工确认兜底
+    expect(refundService.createRefundTask).toHaveBeenCalledTimes(1);
+    expect(
+      refundService.markRefundTaskSucceededInTransaction,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('系统超时退款：订单不存在时直接返回不处理', async () => {
+    prismaService.scanOrders.findFirst.mockResolvedValue(null);
+
+    await service.autoRefundByTimeout({
+      orderId: 9999,
+      storeId: 11,
+      version: 1,
+      fromStatus: 'pending_acceptance',
+      reason: '商家超时未接单，系统自动退款',
+    });
+
+    expect(prismaService.scanOrders.updateMany).not.toHaveBeenCalled();
+    expect(balanceRefundService.refund).not.toHaveBeenCalled();
+  });
+
+  // ─── autoCloseManualEntryByTimeout：手工单超时关闭 ──────────
+
+  it('手工单待接单超时：置拒绝并记账，不触发任何真实退款', async () => {
+    prismaService.scanOrders.findFirst.mockResolvedValue({ id: 1001 });
+    prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.autoCloseManualEntryByTimeout({
+      orderId: 1001,
+      storeId: 11,
+      version: 2,
+      fromStatus: 'pending_acceptance',
+      reason: '商家超时未接单，系统自动退款',
+    });
+
+    // 查询限定手工单 + 源状态
+    expect(prismaService.scanOrders.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 1001,
+        storeId: 11,
+        status: 'pending_acceptance',
+        manualEntry: true,
+      },
+      select: { id: true },
+    });
+    // 状态置拒绝 + 释放库存 + 记账
+    expect(prismaService.scanOrders.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 1001,
+        storeId: 11,
+        status: 'pending_acceptance',
+        version: 2,
+      },
+      data: {
+        status: 'rejected',
+        fulfillmentStatus: 'closed',
+        version: { increment: 1 },
+        rejectReason: expect.stringContaining('商家超时未接单，系统自动退款'),
+      },
+    });
+    expect(stockRestoreService.restoreReservedStock).toHaveBeenCalledTimes(1);
+    expect(stockRestoreService.refundSaleOrder).toHaveBeenCalledTimes(1);
+    // 不触发真实退款
+    expect(balanceRefundService.refund).not.toHaveBeenCalled();
+    expect(refundService.createRefundTask).not.toHaveBeenCalled();
+    expect(wechatRefundService.requestRefund).not.toHaveBeenCalled();
+    // 状态历史标记系统操作
+    expect(prismaService.scanOrderStatusHistory.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        fromStatus: 'pending_acceptance',
+        toStatus: 'rejected',
+        operatorType: 'system',
+      }),
+    });
+    // 推送状态变更
+    expect(realtimeService.publishOrderStatusChanged).toHaveBeenCalled();
+  });
+
+  it('手工单制作中超时：按 preparing 源状态关闭', async () => {
+    prismaService.scanOrders.findFirst.mockResolvedValue({ id: 1001 });
+    prismaService.scanOrders.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.autoCloseManualEntryByTimeout({
+      orderId: 1001,
+      storeId: 11,
+      version: 3,
+      fromStatus: 'preparing',
+      reason: '商家超时未出餐，系统自动退款',
+    });
+
+    expect(prismaService.scanOrders.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 1001,
+        storeId: 11,
+        status: 'preparing',
+        manualEntry: true,
+      },
+      select: { id: true },
+    });
+    expect(prismaService.scanOrders.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 1001, storeId: 11, status: 'preparing', version: 3 },
+      }),
+    );
+  });
+
+  it('手工单超时：订单不存在时直接返回不处理', async () => {
+    prismaService.scanOrders.findFirst.mockResolvedValue(null);
+
+    await service.autoCloseManualEntryByTimeout({
+      orderId: 9999,
+      storeId: 11,
+      version: 1,
+      fromStatus: 'pending_acceptance',
+      reason: '商家超时未接单，系统自动退款',
+    });
+
+    expect(prismaService.scanOrders.updateMany).not.toHaveBeenCalled();
+    expect(stockRestoreService.restoreReservedStock).not.toHaveBeenCalled();
   });
 });

@@ -727,4 +727,6 @@ enum ScanOrderRefundTrigger {
   anomalous_payment
   merchant_reject
   club_user
+  /// 商家超时未接单/超时未出餐，系统自动退款
+  system_timeout
 }

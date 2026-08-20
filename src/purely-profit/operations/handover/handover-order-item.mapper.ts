@@ -181,8 +181,9 @@ export const resolveOrderItemPaymentDisplay = (
     };
   }
 
-  // 手工补录单（录入单子）来源渠道：展示具体平台来源（如美团团购/美团外卖/饿了么），替代笼统的支付方式
-  if (item.order.manualEntry) {
+  // 手工补录单（录入单子）：仅「平台结算」支付方式展示来源渠道（美团外卖/饿了么等），
+  // 其他支付方式（刷卡/微信/现金等）直接展示实际收款方式，避免来源渠道覆盖支付方式。
+  if (item.order.manualEntry && paymentMethod === SalesPaymentMethod.platform) {
     const sourceLabel = resolveManualEntrySourceLabel(item.order.sourceChannel);
     if (sourceLabel) {
       return {
@@ -365,12 +366,14 @@ export const mapScanOrderingRefundOrderItem = (
   const productName = toDisplayName(refund.saleOrder.items[0]?.productName);
   const displayName = productName ?? SPACE_REFUND_DISPLAY_SUFFIX;
   // 退回渠道标签：余额（other）显示退回纯利宝，其余渠道显示「退回 + 支付方式标签」
-  // 手工补录单有来源渠道时（如美团团购/美团外卖），展示具体来源标签
+  // 手工补录单仅「平台结算」时展示来源渠道（如退回美团团购/退回美团外卖），
+  // 其他支付方式（刷卡/微信等）退回时展示实际收款方式，避免来源渠道覆盖支付方式。
   const paymentLabel = refund.saleOrder.manualEntry
     ? (() => {
-        const sourceLabel = resolveManualEntrySourceLabel(
-          refund.saleOrder.sourceChannel,
-        );
+        const sourceLabel =
+          refund.paymentMethod === SalesPaymentMethod.platform
+            ? resolveManualEntrySourceLabel(refund.saleOrder.sourceChannel)
+            : '';
         return sourceLabel
           ? `退回${sourceLabel}`
           : `退回${PAYMENT_METHOD_CONFIG[refund.paymentMethod].label}`;

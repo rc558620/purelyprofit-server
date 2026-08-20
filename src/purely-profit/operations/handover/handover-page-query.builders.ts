@@ -25,7 +25,7 @@ export const SALE_ORDER_ITEM_SELECT = {
       // 团购券码：录入单子平台结算时填写，交班明细团购券码列展示
       grouponCode: true,
       operatorNameSnapshot: true,
-      // 扫码点餐订单（purelyClub 下单）：携带桌台号与折扣信息用于展示
+      // 扫码点餐订单（purelyClub 下单）：携带桌台号、折扣信息与商品规格用于聚合
       scanOrder: {
         select: {
           productDiscountAmount: true,
@@ -34,6 +34,18 @@ export const SALE_ORDER_ITEM_SELECT = {
             select: {
               tableCode: true,
             },
+          },
+          // 扫码订单商品规格快照：用于同一订单内按商品+规格聚合后计算
+          items: {
+            select: {
+              productNameSnapshot: true,
+              quantity: true,
+              specs: {
+                select: { specOptionNameSnapshot: true },
+                orderBy: { id: 'asc' },
+              },
+            },
+            orderBy: { id: 'asc' },
           },
         },
       },

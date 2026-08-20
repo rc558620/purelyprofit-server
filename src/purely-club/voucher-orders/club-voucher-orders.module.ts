@@ -50,6 +50,8 @@ import { ClubVoucherOrdersService } from './club-voucher-orders.service';
     ClubVoucherOrderQueryService,
     // 商家端拒绝接单复用退款链路（含微信原路退回 + 积分返还 + 库存回补）
     ClubVoucherOrderRefundService,
+    // 扫码点餐超时自动退款复用微信原路退款能力
+    ClubWechatRefundService,
   ],
 })
 export class ClubVoucherOrdersModule {}

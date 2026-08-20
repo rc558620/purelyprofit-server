@@ -1,9 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import {
-  addShanghaiDays,
-  getShanghaiDayStartMs,
-} from '../../../shared/shanghai-time.utils';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { ListScanOrderingOrdersDto } from './dto/scan-ordering-order-query.dto';
@@ -164,11 +160,12 @@ export class ScanOrderingOrderService {
 
   /**
    * 解析列表时间范围：优先使用自定义时间范围；
-   * 否则默认当天 00:00:00 ~ 23:59:59（上海时区）。
+   * 未传时间时返回 null（不过滤创建时间），保证跨天进行中订单（如夜宵店
+   * 跨零点接单/制作中的订单）在列表中持续可见，避免“桌台可见、列表不可见”。
    */
   private resolveListTimeRange(query: ListScanOrderingOrdersDto): {
-    startOfDay: Date;
-    endOfDay: Date;
+    startOfDay: Date | null;
+    endOfDay: Date | null;
   } {
     if (query.startTime && query.endTime) {
       return {
@@ -176,27 +173,28 @@ export class ScanOrderingOrderService {
         endOfDay: new Date(query.endTime),
       };
     }
-    const now = new Date();
-    const dayStartMs = getShanghaiDayStartMs(now.getTime());
-    return {
-      startOfDay: new Date(dayStartMs),
-      endOfDay: new Date(addShanghaiDays(dayStartMs, 1)),
-    };
+    return { startOfDay: null, endOfDay: null };
   }
 
-  /** 构建订单列表查询条件（门店、时间、状态、桌台、游标）。 */
+  /** 构建订单列表查询条件（门店、时间、状态、桌台、游标）。
+   * 时间范围仅在调用方显式传入 startTime/endTime 时生效，
+   * 默认返回所有进行中未完结订单（跨天可见）。 */
   private buildListWhere(
     storeId: number,
     query: ListScanOrderingOrdersDto,
-    startOfDay: Date,
-    endOfDay: Date,
+    startOfDay: Date | null,
+    endOfDay: Date | null,
   ): Record<string, unknown> {
     const where: Record<string, unknown> = {
       storeId,
-      createdAt: {
-        gte: startOfDay,
-        lt: endOfDay,
-      },
+      ...(startOfDay !== null && endOfDay !== null
+        ? {
+            createdAt: {
+              gte: startOfDay,
+              lt: endOfDay,
+            },
+          }
+        : {}),
       ...(query.status
         ? { status: query.status as unknown }
         : {
@@ -348,7 +346,11 @@ export class ScanOrderingOrderService {
 
   /** 解析顾客昵称展示值。 */
   private resolveGuestName(
-    order: { clubUserId: number | null; manualEntry: boolean; manualEntryMetadata: unknown },
+    order: {
+      clubUserId: number | null;
+      manualEntry: boolean;
+      manualEntryMetadata: unknown;
+    },
     guestNameMap: Map<number, string>,
   ): string {
     if (order.manualEntry) {
@@ -362,7 +364,9 @@ export class ScanOrderingOrderService {
         dianping: '大众点评',
         other: '其他平台',
       };
-      return sourceChannel ? channelLabels[sourceChannel] ?? sourceChannel : '手工录入';
+      return sourceChannel
+        ? (channelLabels[sourceChannel] ?? sourceChannel)
+        : '手工录入';
     }
     if (order.clubUserId && guestNameMap.has(order.clubUserId)) {
       return guestNameMap.get(order.clubUserId)!;

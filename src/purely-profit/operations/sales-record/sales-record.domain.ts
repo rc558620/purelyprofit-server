@@ -25,6 +25,11 @@ import type {
   ScanOrderingAmountSummaryDto,
 } from './dto/sales-record-response.dto';
 import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
+import {
+  aggregateSalesRecordItems,
+  buildVisibleSalesRecordRows,
+  type AggregatedSalesRecordItem,
+} from './sales-record-item-aggregation';
 
 // ---------------------------------------------------------------------------
 // 内部类型
@@ -278,6 +283,10 @@ function buildScanOrderingAmountSummary(
     scan.specificationExtraAmount ?? 0,
   );
   const payableAmount = fenToYuan(scan.payableAmount ?? 0);
+  // 优惠前总价 = 商品基础价 + 规格加价（分单位相加避免浮点误差），未扣任何优惠
+  const totalBeforeDiscount = fenToYuan(
+    (scan.itemOriginalAmount ?? 0) + (scan.specificationExtraAmount ?? 0),
+  );
   const discountAmount = Math.max(
     itemOriginalAmount + specificationExtraAmount - payableAmount,
     0,
@@ -285,6 +294,7 @@ function buildScanOrderingAmountSummary(
   return {
     itemOriginalAmount,
     specificationExtraAmount,
+    totalBeforeDiscount,
     payableAmount,
     discountAmount,
     pointsDeductAmount: fenToYuan(
@@ -303,13 +313,11 @@ export function mapSalesRecordResponse(
   enrichment?: ScanOrderingEnrichment,
 ): SalesRecordResponseDto {
   const note = toOptionalText(order.note);
-  // 过滤掉抵扣行（预付款 + 续费抵扣），销售记录只展示实际消费
-  const visibleItems = order.items.filter(
-    (item) => !isDeductionProductName(item.productName),
-  );
+  // 构建可见明细行：规格/原价按原始索引对齐，并过滤抵扣行（预付款 + 续费抵扣）
+  const visibleRows = buildVisibleSalesRecordRows(order, enrichment);
 
   // 构建 PreparedSalesItem 结构用于统一金额聚合
-  const preparedItems = visibleItems.map((item) => ({
+  const preparedItems = visibleRows.map(({ item }) => ({
     productId: item.productId,
     productName: item.productName,
     categoryName: item.categoryName,
@@ -323,6 +331,12 @@ export function mapSalesRecordResponse(
   // 使用统一金额聚合域计算权威金额（与 preview/create 保持一致）
   const amountsSnapshot =
     SalesRecordAmountsDomain.aggregateFromPreparedItems(preparedItems);
+
+  // 按「商品 ID + 商品名称 + 规格」叠加相同商品行（数量/小计合并，单价加权平均）
+  const aggregatedItems = aggregateSalesRecordItems(
+    visibleRows,
+    amountsSnapshot.items,
+  );
 
   const operatorName = toOptionalText(order.operatorNameSnapshot) ?? null;
   const operatorRole = resolveOperatorRole(order.operatorStaff);
@@ -349,12 +363,9 @@ export function mapSalesRecordResponse(
   return {
     id: String(order.id),
     orderNo: order.orderNo,
-    items: visibleItems.map((item, index) =>
+    items: aggregatedItems.map((aggregated) =>
       mapSalesRecordItemResponse(
-        item,
-        amountsSnapshot.items[index],
-        enrichment?.specsRows[index],
-        enrichment?.originalUnitPrices[index],
+        aggregated,
         order.spaceSession?.space?.name ?? null,
       ),
     ),
@@ -386,31 +397,28 @@ export function mapSalesRecordResponse(
 }
 
 export function mapSalesRecordItemResponse(
-  item: SaleOrderWithItems['items'][number],
-  amountItem?: ReturnType<
-    typeof SalesRecordAmountsDomain.aggregateFromPreparedItems
-  >['items'][0],
-  specs?: string[],
-  originalUnitPrice?: number,
+  aggregated: AggregatedSalesRecordItem,
   spaceName?: string | null,
 ): SalesRecordItemResponseDto {
   // 空间台位费商品（非餐饮场景）带空间名称前缀（空格分隔），与报表/CSV 口径一致
-  const displayName = prefixSpaceName(spaceName, item.productName);
+  const displayName = prefixSpaceName(spaceName, aggregated.productName);
   return {
-    productId:
-      item.productId !== null ? String(item.productId) : `manual_${item.id}`,
+    productId: aggregated.productId,
     productName: displayName,
-    categoryName: item.categoryName,
-    salePrice: Money.fromDbCents(item.salePrice).toOutputYuan(),
-    profit: Money.fromDbCents(item.profit).toOutputYuan(),
-    quantity: item.quantity,
-    // 从权威金额快照补齐 subtotal 字段
-    subtotal: amountItem?.subtotal ?? 0,
+    categoryName: aggregated.categoryName,
+    salePrice: aggregated.salePrice,
+    profit: aggregated.profit,
+    quantity: aggregated.quantity,
+    // 聚合行小计由后端叠加计算，前端只读展示
+    subtotal: aggregated.subtotal,
     // 扫码点餐订单规格快照；空数组不返回，前端缺省回退 []
-    ...(specs && specs.length > 0 ? { specs } : {}),
+    ...(aggregated.specs && aggregated.specs.length > 0
+      ? { specs: aggregated.specs }
+      : {}),
     // 扫码点餐订单优惠前单价（元）；原价为 0 时不返回，前端回退 salePrice
-    ...(originalUnitPrice && originalUnitPrice > 0
-      ? { originalUnitPrice }
+    ...(aggregated.originalUnitPrice !== undefined &&
+    aggregated.originalUnitPrice > 0
+      ? { originalUnitPrice: aggregated.originalUnitPrice }
       : {}),
   };
 }

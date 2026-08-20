@@ -175,6 +175,14 @@ export class HandoverOrderItemDto {
 
   @IsOptional()
   @ApiProperty({
+    example: false,
+    description: '商品是否存在规格选项（扫码点餐订单商品带规格时为 true）',
+    required: false,
+  })
+  hasSpec?: boolean;
+
+  @IsOptional()
+  @ApiProperty({
     example: true,
     description:
       '是否为退款单对应的下单行（退款单会同时返回下单+退款两行，下单行库存不展示）',

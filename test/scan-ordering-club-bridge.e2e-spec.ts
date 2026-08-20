@@ -1,10 +1,13 @@
 import 'dotenv/config';
+import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { ClubPaymentLockService } from '../src/purely-club/payments/club-payment-lock.service';
+import { ClubWechatRefundService } from '../src/purely-club/payments/club-wechat-refund.service';
 import { ScanOrderingRealtimeService } from '../src/purely-club/scan-ordering/scan-ordering-realtime.service';
 import { ScanOrderingRefundService } from '../src/purely-club/scan-ordering/scan-ordering-refund.service';
+import { ScanOrderingPickupNumberService } from '../src/purely-club/scan-ordering/scan-ordering-pickup-number.service';
 import { ScanOrderingSaleOrderBridgeService } from '../src/purely-club/scan-ordering/scan-ordering-sale-order-bridge.service';
 import { ClubScanOrderingPaymentService } from '../src/purely-club/scan-ordering/club-scan-ordering-payment.service';
 import { CommerceAccessService } from '../src/purely-profit/commerce/commerce-access.service';
@@ -80,6 +83,19 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
     markRefundTaskSucceededInTransaction: jest.fn(async () => undefined),
   };
 
+  const wechatRefundService = {
+    requestRefund: jest.fn(() =>
+      Promise.resolve({ refundId: 'e2e-refund-id' }),
+    ),
+  };
+
+  const pickupNumberService = {
+    assignForPaidOrder: jest.fn(() => Promise.resolve(null)),
+    formatPickupNumber: jest.fn((value: number | null | undefined) =>
+      value == null ? null : String(value).padStart(3, '0'),
+    ),
+  };
+
   const inventoryService = {} as InventoryService;
   const cacheInvalidatorService = {
     invalidateSalesDerived: jest.fn(),
@@ -113,6 +129,11 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
         {
           provide: ScanOrderingOrderRefundBalanceService,
           useValue: {},
+        },
+        { provide: ClubWechatRefundService, useValue: wechatRefundService },
+        {
+          provide: ScanOrderingPickupNumberService,
+          useValue: pickupNumberService,
         },
         {
           provide: ClubPaymentLockService,
@@ -262,6 +283,7 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
         storeId: params.storeId,
         tableId: params.tableId,
         orderNo,
+        diningRoundId: randomUUID(),
         itemOriginalAmount: params.payableAmount,
         payableAmount: params.payableAmount,
         status: 'pending_payment',

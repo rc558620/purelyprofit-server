@@ -8,7 +8,7 @@ export interface CreateRefundTaskInput {
   orderId: number;
   storeId: number;
   paymentAttemptId?: number | null;
-  triggerType: 'anomalous_payment' | 'merchant_reject';
+  triggerType: 'anomalous_payment' | 'merchant_reject' | 'system_timeout';
   refundAmount: number;
   merchantPaymentNo?: string | null;
   providerTransactionId?: string | null;
@@ -28,22 +28,25 @@ export class ScanOrderingRefundService {
   async createRefundTask(
     input: CreateRefundTaskInput,
     tx?: Prisma.TransactionClient,
-  ): Promise<void> {
-    const create = async (client: Prisma.TransactionClient): Promise<void> => {
+  ): Promise<string> {
+    const create = async (
+      client: Prisma.TransactionClient,
+    ): Promise<string> => {
       const existing = await client.scanOrderRefundTask.findFirst({
         where: {
           orderId: input.orderId,
           status: { in: ['pending', 'refunding', 'manual_pending'] },
         },
       });
-      if (existing) return;
+      if (existing) return existing.refundNo;
+      const refundNo = this.refundNo();
       await client.scanOrderRefundTask.create({
         data: {
           orderId: input.orderId,
           storeId: input.storeId,
           paymentAttemptId: input.paymentAttemptId,
           triggerType: input.triggerType,
-          refundNo: this.refundNo(),
+          refundNo,
           refundAmount: input.refundAmount,
           merchantPaymentNo: input.merchantPaymentNo,
           providerTransactionId: input.providerTransactionId,
@@ -53,9 +56,10 @@ export class ScanOrderingRefundService {
           status: ScanOrderRefundTaskStatus.manual_pending,
         },
       });
+      return refundNo;
     };
     if (tx) return create(tx);
-    await this.prisma.$transaction(create);
+    return this.prisma.$transaction(create);
   }
 
   async createRefundTaskInTransaction(

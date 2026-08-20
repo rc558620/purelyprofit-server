@@ -50,7 +50,7 @@ export class ScanOrderingSessionArchiveService {
       if (!session) return false;
       const orders = await tx.scanOrders.findMany({
         where: { sessionId, deletedAt: null },
-        select: { status: true, servedAt: true },
+        select: { id: true, status: true, servedAt: true },
       });
       if (
         orders.length === 0 ||
@@ -82,6 +82,25 @@ export class ScanOrderingSessionArchiveService {
       await tx.scanOrderingCartItem.updateMany({
         where: { sessionId, status: 'active' },
         data: { status: 'removed' },
+      });
+      // 归档会话的同时闭环已出餐订单（served → completed）：
+      // 出餐后商家长时间未确认完成时，订单随会话一并自动完成，
+      // 避免产生「会话已结束但订单仍为 served」的孤儿单导致清桌/列表长期滞留。
+      await tx.scanOrders.updateMany({
+        where: { sessionId, deletedAt: null, status: 'served' },
+        data: { status: 'completed', completedAt: now },
+      });
+      await tx.scanOrderStatusHistory.createMany({
+        data: orders
+          .filter((order) => order.status === 'served')
+          .map((order) => ({
+            orderId: order.id,
+            storeId,
+            fromStatus: 'served',
+            toStatus: 'completed',
+            operatorType: 'system',
+            reason: '会话超时归档，订单自动完成',
+          })),
       });
       const otherActiveSessions = await tx.scanOrderingSession.count({
         where: { storeId, tableId, status: 'active', deletedAt: null },

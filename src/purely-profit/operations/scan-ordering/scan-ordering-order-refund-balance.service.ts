@@ -25,11 +25,16 @@ export class ScanOrderingOrderRefundBalanceService {
       storeId: number;
       version: number;
       reason: string;
+      /** 退款前订单状态：商家拒单为 pending_acceptance；系统超时可为 preparing。 */
+      fromStatus?: ScanOrderStatus;
     },
     /** 拒绝操作的商家账号：用于销售单记录操作员 */
     operator: AuthenticatedUser,
+    /** 操作类型：merchant=商家拒单 / system=系统超时自动退款 */
+    operatorType: string = 'merchant',
   ) {
     const operatorId = operator.id;
+    const fromStatus = input.fromStatus ?? ScanOrderStatus.pending_acceptance;
     return this.prisma.$transaction(async (tx) => {
       const balancePayment = await tx.scanOrderBalanceTransaction.findUnique({
         where: {
@@ -44,7 +49,7 @@ export class ScanOrderingOrderRefundBalanceService {
           id: input.orderId,
           storeId: input.storeId,
           version: input.version,
-          status: ScanOrderStatus.pending_acceptance,
+          status: fromStatus,
           paymentStatus: ScanOrderPaymentStatus.paid,
         },
         data: {
@@ -160,11 +165,12 @@ export class ScanOrderingOrderRefundBalanceService {
         orderId: input.orderId,
         storeId: input.storeId,
         paymentAttemptId: paymentAttempt?.id ?? null,
-        triggerType: 'merchant_reject',
+        triggerType:
+          operatorType === 'system' ? 'system_timeout' : 'merchant_reject',
         refundAmount: balancePayment.amount,
         merchantPaymentNo: paymentAttempt?.merchantPaymentNo ?? null,
         providerTransactionId: paymentAttempt?.providerTransactionId ?? null,
-        operatorType: 'merchant',
+        operatorType,
         operatorId,
         failureReason: `余额原路退款：${input.reason}`,
       });
@@ -197,9 +203,9 @@ export class ScanOrderingOrderRefundBalanceService {
         data: {
           orderId: input.orderId,
           storeId: input.storeId,
-          fromStatus: ScanOrderStatus.pending_acceptance,
+          fromStatus,
           toStatus: ScanOrderStatus.rejected,
-          operatorType: 'merchant',
+          operatorType,
           operatorId,
           reason: `余额原路退款：${input.reason}`,
         },

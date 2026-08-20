@@ -210,6 +210,21 @@ export default () => ({
   scanOrdering: {
     qrTokenEncryptionKey:
       process.env.SCAN_ORDERING_QR_TOKEN_ENCRYPTION_KEY ?? '',
+    /** 待接单超时阈值（毫秒）：支付后超过该时长未接单，系统自动退款 */
+    acceptanceTimeoutMs: parseInt(
+      process.env.SCAN_ORDERING_ACCEPTANCE_TIMEOUT_MS ?? '1800000',
+      10,
+    ),
+    /** 制作中超时阈值（毫秒）：接单后超过该时长未出餐，系统自动退款 */
+    preparingTimeoutMs: parseInt(
+      process.env.SCAN_ORDERING_PREPARING_TIMEOUT_MS ?? '7200000',
+      10,
+    ),
+    /** 超时自动退款扫描间隔（毫秒） */
+    acceptanceExpirationIntervalMs: parseInt(
+      process.env.SCAN_ORDERING_ACCEPTANCE_EXPIRATION_INTERVAL_MS ?? '60000',
+      10,
+    ),
   },
 
   /**

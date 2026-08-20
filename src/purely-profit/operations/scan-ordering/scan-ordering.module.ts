@@ -6,6 +6,7 @@ import { PrismaModule } from '../../../prisma/prisma.module';
 import { RedisModule } from '../../../redis/redis.module';
 import { ClubScanOrderingModule } from '../../../purely-club/scan-ordering/club-scan-ordering.module';
 import { ClubServiceCallModule } from '../../../purely-club/service-call/club-service-call.module';
+import { ClubVoucherOrdersModule } from '../../../purely-club/voucher-orders/club-voucher-orders.module';
 import { ManualEntryModule } from './manual-entry/manual-entry.module';
 import { ScanOrderingMainController } from './scan-ordering.controller';
 import { ScanOrderingOrderController } from './scan-ordering-orders.controller';
@@ -21,6 +22,7 @@ import { ScanOrderingTableService } from './scan-ordering-table.service';
 import { ScanOrderingTableQueryService } from './scan-ordering-table-query.service';
 import { ScanOrderingOrderService } from './scan-ordering-order.service';
 import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-refund.service';
+import { ScanOrderingAcceptanceExpirationService } from './scan-ordering-acceptance-expiration.service';
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
 import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
 import { ScanOrderingOrderStateMachineService } from './scan-ordering-order-machine.service';
@@ -54,6 +56,7 @@ import { PrintAgentService } from './print-agent.service';
     StoresModule,
     ClubScanOrderingModule,
     ClubServiceCallModule,
+    ClubVoucherOrdersModule,
     ManualEntryModule,
   ],
   controllers: [
@@ -73,6 +76,7 @@ import { PrintAgentService } from './print-agent.service';
     ScanOrderingTableQueryService,
     ScanOrderingOrderService,
     ScanOrderingOrderRefundHandlingService,
+    ScanOrderingAcceptanceExpirationService,
     ScanOrderingOrderRefundBalanceService,
     ScanOrderingRefundStockRestoreService,
     ScanOrderingOrderTransitionEngineService,

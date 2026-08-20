@@ -85,6 +85,16 @@ export interface OrderStatusHistoryInput extends RefundOrderTarget {
 
 /** 退款完成收尾输入（标记退款任务成功 + 写状态历史）。 */
 export interface RefundFinalizeInput extends RefundOrderTarget {
-  operatorId: number;
+  operatorId?: number;
+  /** 操作类型：merchant=商家 / system=系统超时自动退款 */
+  operatorType?: string;
   provider?: RefundProviderInfo;
+}
+
+/** 系统超时自动退款输入（待接单超时 / 制作中超时共用）。 */
+export interface SystemTimeoutRefundInput extends RefundOrderTarget {
+  /** 退款前订单所处状态（pending_acceptance=超时未接单，preparing=超时未出餐）。 */
+  fromStatus: Extract<ScanOrderStatus, 'pending_acceptance' | 'preparing'>;
+  /** 退款原因文案。 */
+  reason: string;
 }

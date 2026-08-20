@@ -17,6 +17,15 @@ import {
 import { Logger } from '@nestjs/common';
 import { ScanOrderingTableQueryService } from './scan-ordering-table-query.service';
 
+/** 手工录入单轮次状态：清桌会话判定与前端 loadManualEntryOrders 口径一致
+ * （含已完成，否则全部完结的手工单桌台会被误判为无轮次而无法清桌）。 */
+const MANUAL_ENTRY_ROUND_STATUSES = [
+  'pending_acceptance',
+  'preparing',
+  'served',
+  'completed',
+] as const;
+
 /** 商家桌台卡片响应，订单数由数据库聚合后返回。 */
 export interface ScanOrderingCreatedTableResponse extends ScanOrderingTableResponse {
   /** 新增桌台时自动生成的首个桌码。 */
@@ -281,7 +290,19 @@ export class ScanOrderingTableService {
         },
         select: { id: true, diningRoundId: true },
       });
-      if (activeSessions.length === 0) {
+      // 手工录入单不挂扫码会话（sessionId=null），单独构成「录入轮次」：
+      // 无有效扫码会话但存在手工单（含已完结）时同样允许清桌，避免手工单桌台清不掉。
+      const manualEntryOrders = await tx.scanOrders.findMany({
+        where: {
+          storeId,
+          tableId,
+          manualEntry: true,
+          deletedAt: null,
+          status: { in: [...MANUAL_ENTRY_ROUND_STATUSES] },
+        },
+        select: { status: true },
+      });
+      if (activeSessions.length === 0 && manualEntryOrders.length === 0) {
         throw new ConflictException('当前桌台不存在有效用餐会话，无法清桌');
       }
       const diningRoundIds = activeSessions.map(
@@ -308,9 +329,12 @@ export class ScanOrderingTableService {
         },
         select: { status: true },
       });
-      const blockingOrderCount = orders.filter(
-        (order) => order.status !== 'served',
-      ).length;
+      // 阻塞检查统一口径：扫码会话订单与手工单均按「未出餐即阻塞」计算（已完结不阻塞）
+      const blockingOrderCount =
+        orders.filter((order) => order.status !== 'served').length +
+        manualEntryOrders.filter(
+          (order) => order.status !== 'served' && order.status !== 'completed',
+        ).length;
       if (blockingOrderCount > 0) {
         throw new ConflictException(
           `当前桌台仍有 ${blockingOrderCount} 笔订单未出餐，全部出餐后才可清桌`,
@@ -330,9 +354,20 @@ export class ScanOrderingTableService {
         },
         data: { status: 'checked_out', endedAt: now, archiveReason: 'cleared' },
       });
+      // 完结已出餐订单：扫码会话内订单 + 该桌手工单（手工单 sessionId=null，须单独更新）
       await tx.scanOrders.updateMany({
         where: {
           sessionId: { in: sessions.map((session) => session.id) },
+          deletedAt: null,
+          status: 'served',
+        },
+        data: { status: 'completed', completedAt: now },
+      });
+      await tx.scanOrders.updateMany({
+        where: {
+          storeId,
+          tableId,
+          manualEntry: true,
           deletedAt: null,
           status: 'served',
         },

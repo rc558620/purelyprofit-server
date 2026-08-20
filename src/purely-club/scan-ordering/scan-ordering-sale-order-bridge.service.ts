@@ -6,7 +6,7 @@ import { SalesRecordService } from '../../purely-profit/operations/sales-record/
 import type { SalesPaymentMethodValue } from '../../purely-profit/operations/sales-record/sales-record.types';
 import { Money } from '../../shared/money.utils';
 
-const createScanOrderingSystemUser = (): AuthenticatedUser => ({
+export const createScanOrderingSystemUser = (): AuthenticatedUser => ({
   id: 0,
   email: 'system@scan-ordering.local',
   phone: '',
