@@ -90,6 +90,7 @@ export class ManualEntryOrderService {
     if (!idempotencyKey || idempotencyKey.trim().length < 8) {
       throw new ConflictException('请提供有效的 Idempotency-Key 以录入订单');
     }
+    const requestHash = hashManualEntryRequest(dto);
     const existing = await this.prisma.idempotencyRecord.findUnique({
       where: {
         scope_actorId_idempotencyKey: {
@@ -99,7 +100,12 @@ export class ManualEntryOrderService {
         },
       },
     });
-    if (existing) return this.resolveExistingResponse(existing.resourceId);
+    if (existing) {
+      if (existing.requestHash !== requestHash) {
+        throw new ConflictException('幂等键已被其他录入请求使用，请刷新后重试');
+      }
+      return this.resolveExistingResponse(existing.resourceId);
+    }
 
     const storeId = await this.resolveStoreId(user);
     this.validateFormRules(dto);
@@ -123,7 +129,7 @@ export class ManualEntryOrderService {
             scope: IDEMPOTENCY_SCOPE,
             actorId: user.id,
             idempotencyKey,
-            requestHash: hashManualEntryRequest(dto),
+            requestHash,
             status: 'processing',
             expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
           },
@@ -171,7 +177,14 @@ export class ManualEntryOrderService {
           },
         },
       });
-      if (raced) return this.resolveExistingResponse(raced.resourceId);
+      if (raced) {
+        if (raced.requestHash !== requestHash) {
+          throw new ConflictException(
+            '幂等键已被其他录入请求使用，请刷新后重试',
+          );
+        }
+        return this.resolveExistingResponse(raced.resourceId);
+      }
       throw error;
     }
   }
