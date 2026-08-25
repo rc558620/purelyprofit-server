@@ -40,7 +40,7 @@ import type {
   CreateMarketingProductDto,
   UpdateMarketingProductDto,
 } from './dto/marketing-product.dto';
-import type { ListMarketingProductsQueryDto } from './dto/marketing-product-query.dto';
+import { ListMarketingProductsQueryDto } from './dto/marketing-product-query.dto';
 import type { ToggleMarketingProductDto } from './dto/marketing-product-toggle.dto';
 import { MarketingProductsFacadeService } from './marketing.service';
 

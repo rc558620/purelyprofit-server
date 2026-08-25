@@ -284,9 +284,16 @@ export class PlatformMembershipAccessService {
   private async loadStoreMembershipProfile(
     storeId: number,
   ): Promise<StoreMembershipProfileSnapshot | null> {
+    const normalizedStoreId = Number(storeId);
+    if (!Number.isInteger(normalizedStoreId) || normalizedStoreId <= 0) {
+      throw new UnauthorizedException(
+        MEMBERSHIP_ACCESS_MESSAGES.membershipContextNotReady,
+      );
+    }
+
     try {
       return await this.prisma.storeMembershipProfile.findUnique({
-        where: { storeId },
+        where: { storeId: normalizedStoreId },
         select: {
           currentPlanId: true,
           startsAt: true,

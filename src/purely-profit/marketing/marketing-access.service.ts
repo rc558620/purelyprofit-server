@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { StaffStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AccessControlService } from '../access-control/access-control.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
@@ -30,18 +31,21 @@ export class MarketingAccessService {
       return currentStoreId;
     }
 
+    if (!user.currentMembership) {
+      return this.findLegacyOwnerStoreId(user.id);
+    }
+
+    const membershipStoreId = user.currentMembership.storeId;
+    if (membershipStoreId === null || membershipStoreId === undefined) {
+      return null;
+    }
+
     const legacyOwnerStoreId = await this.findLegacyOwnerStoreId(user.id);
     if (legacyOwnerStoreId === null) {
       return null;
     }
 
-    if (!user.currentMembership) {
-      return legacyOwnerStoreId;
-    }
-
-    return user.currentMembership.storeId === legacyOwnerStoreId
-      ? legacyOwnerStoreId
-      : null;
+    return membershipStoreId === legacyOwnerStoreId ? legacyOwnerStoreId : null;
   }
 
   private async findLegacyOwnerStoreId(userId: number): Promise<number | null> {
@@ -52,6 +56,41 @@ export class MarketingAccessService {
     });
 
     return store?.id ?? null;
+  }
+
+  private async canViewRequestedStore(
+    userId: number,
+    storeId: number,
+  ): Promise<boolean> {
+    const normalizedStoreId = Number(storeId);
+    if (!Number.isInteger(normalizedStoreId) || normalizedStoreId <= 0) {
+      return false;
+    }
+
+    const store = await this.prisma.store.findFirst({
+      where: {
+        id: normalizedStoreId,
+        deletedAt: null,
+        OR: [{ ownerId: userId }],
+      },
+      select: { id: true },
+    });
+
+    if (store) {
+      return true;
+    }
+
+    const staff = await this.prisma.staff.findFirst({
+      where: {
+        storeId: normalizedStoreId,
+        userId,
+        isActive: true,
+        status: StaffStatus.active,
+      },
+      select: { id: true },
+    });
+
+    return staff !== null;
   }
 
   /**
@@ -66,9 +105,15 @@ export class MarketingAccessService {
       user,
       requiredPermission,
     );
-    if (manageableId !== storeId) {
-      throw new ForbiddenException('无权操作该门店的营销数据');
+    if (manageableId === storeId) {
+      return;
     }
+
+    if (await this.canViewRequestedStore(user.id, storeId)) {
+      return;
+    }
+
+    throw new ForbiddenException('无权操作该门店的营销数据');
   }
 
   /**
@@ -87,17 +132,30 @@ export class MarketingAccessService {
       'marketing:view',
     );
 
-    if (manageableId === null) {
-      if (requestedStoreId !== undefined) {
+    if (requestedStoreId !== undefined) {
+      const normalizedRequestedStoreId = Number(requestedStoreId);
+      if (
+        !Number.isInteger(normalizedRequestedStoreId) ||
+        normalizedRequestedStoreId <= 0
+      ) {
         throw new ForbiddenException(forbiddenMessage);
       }
-      return null;
-    }
 
-    if (requestedStoreId !== undefined && manageableId !== requestedStoreId) {
+      if (manageableId === normalizedRequestedStoreId) {
+        return normalizedRequestedStoreId;
+      }
+
+      const hasDirectAccess = await this.canViewRequestedStore(
+        user.id,
+        normalizedRequestedStoreId,
+      );
+      if (hasDirectAccess) {
+        return normalizedRequestedStoreId;
+      }
+
       throw new ForbiddenException(forbiddenMessage);
     }
 
-    return requestedStoreId ?? manageableId;
+    return manageableId;
   }
 }
