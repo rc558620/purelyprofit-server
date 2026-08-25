@@ -292,7 +292,7 @@ export async function bootstrap(): Promise<void> {
   setupHttpObservability(app, slowRequestLogEnabled, slowRequestThresholdMs);
 
   const swaggerEnabled =
-    configService.get<boolean>('app.swaggerEnabled') ?? !isProduction;
+    configService.get<boolean>('app.swaggerEnabled') ?? (!isProduction && true); // 生产环境默认禁用，开发环境默认启用
   if (swaggerEnabled) {
     const config = new DocumentBuilder()
       .setTitle('PurelyProfit API')
