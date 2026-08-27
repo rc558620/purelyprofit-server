@@ -32,7 +32,7 @@ export const MARKETING_CUSTOMER_TIER_VALUES = [
 export type MarketingCustomerTierValue =
   (typeof MARKETING_CUSTOMER_TIER_VALUES)[number];
 
-/** 顾客状态（根据最后消费时间计算，不存库，与前端 CustomerStatus 完全一致）*/
+/** 顾客状态（根据加入门店时间与最后消费时间计算，不存库，与前端 CustomerStatus 完全一致）*/
 export const MARKETING_CUSTOMER_STATUS_VALUES = [
   'new',
   'active',
@@ -230,21 +230,36 @@ export function calcCustomerTier(
 
 // ─── 顾客状态计算（和前端 calcCustomerStatus 完全一致）────────────────
 
+/** 新客定义：加入门店后 7 个自然日内。 */
+export const NEW_CUSTOMER_WINDOW_DAYS = 7;
+
+/** 活跃定义：最近 30 天内有消费。 */
+export const ACTIVE_CUSTOMER_WINDOW_DAYS = 30;
+
+/** 沉睡定义：最近 31 至 90 天有消费。 */
+export const DORMANT_CUSTOMER_WINDOW_DAYS = 90;
+
 /**
- * 根据最后消费时间计算顾客状态
- * - 从未消费（null）：new
- * - 30 天内有消费：active
- * - 30~90 天：dormant
- * - 90 天以上：lost
+ * 根据加入门店时间与最后消费时间计算顾客状态。
+ * 新客优先判断，加入门店后 7 天内即使已有消费仍属于新客。
  */
 export function calcCustomerStatus(
+  registeredAt: Date,
   lastVisitAt: Date | null,
 ): MarketingCustomerStatus {
-  if (!lastVisitAt) return 'new';
-  const daysSince =
+  const daysSinceRegistered =
+    (Date.now() - registeredAt.getTime()) / (1000 * 60 * 60 * 24);
+  if (
+    daysSinceRegistered >= 0 &&
+    daysSinceRegistered <= NEW_CUSTOMER_WINDOW_DAYS
+  ) {
+    return 'new';
+  }
+  if (!lastVisitAt) return 'lost';
+  const daysSinceVisit =
     (Date.now() - lastVisitAt.getTime()) / (1000 * 60 * 60 * 24);
-  if (daysSince <= 30) return 'active';
-  if (daysSince <= 90) return 'dormant';
+  if (daysSinceVisit <= ACTIVE_CUSTOMER_WINDOW_DAYS) return 'active';
+  if (daysSinceVisit <= DORMANT_CUSTOMER_WINDOW_DAYS) return 'dormant';
   return 'lost';
 }
 

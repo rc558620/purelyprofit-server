@@ -16,6 +16,7 @@ export function buildCustomerWhere(
   input: MarketingCustomerListQueryInput,
 ): Prisma.MarketingCustomerWhereInput {
   const now = new Date();
+  const cutoff7 = new Date(now.getTime() - 7 * 86400_000);
   const cutoff30 = new Date(now.getTime() - 30 * 86400_000);
   const cutoff90 = new Date(now.getTime() - 90 * 86400_000);
   const where: Prisma.MarketingCustomerWhereInput = {
@@ -25,8 +26,9 @@ export function buildCustomerWhere(
 
   // ── 状态筛选（独立 OR，不与关键字 OR 合并）──────────────────────
   if (input.status === 'new') {
-    where.lastVisitAt = null;
+    where.createdAt = { gte: cutoff7 };
   } else if (input.status === 'active') {
+    where.createdAt = { lt: cutoff7 };
     where.lastVisitAt = { gte: cutoff30 };
   } else if (input.status === 'dormant') {
     where.lastVisitAt = { gte: cutoff90, lt: cutoff30 };

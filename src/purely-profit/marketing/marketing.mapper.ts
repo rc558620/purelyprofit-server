@@ -180,7 +180,7 @@ export function mapCustomerRow(
     visitCount: row.visitCount,
     registeredAt: row.createdAt.getTime(),
     lastVisitAt: row.lastVisitAt ? row.lastVisitAt.getTime() : null,
-    status: calcCustomerStatus(row.lastVisitAt),
+    status: calcCustomerStatus(row.createdAt, row.lastVisitAt),
     remark: row.remark ?? undefined,
   };
 }

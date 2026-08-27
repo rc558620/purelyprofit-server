@@ -33,7 +33,7 @@ export class ListCustomersQueryDto extends MarketingPageQueryDto {
     example: 'active',
     enum: STATUS_FILTER_VALUES,
     description:
-      '顾客活跃状态筛选（new=从未消费 active=30天内 dormant=31-90天 lost=91天+ all=不过滤）',
+      '顾客状态筛选（new=加入门店7天内 active=加入超过7天且30天内消费 dormant=31-90天消费 lost=91天以上未消费或无消费 all=不过滤）',
   })
   @IsOptional()
   @IsIn(STATUS_FILTER_VALUES, { message: '无效的顾客状态' })
