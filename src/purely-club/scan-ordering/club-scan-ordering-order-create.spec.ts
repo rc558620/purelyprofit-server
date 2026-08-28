@@ -7,6 +7,7 @@ import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-
 import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
 import { ClubScanOrderingOrderService } from './club-scan-ordering-order.service';
+import { ClubScanOrderingInventoryReservationService } from './club-scan-ordering-inventory-reservation.service';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
@@ -41,12 +42,86 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     buildOrderItemCreateData: jest.fn(),
   };
   const realtime = { publishOrderCreated: jest.fn() };
+  const inventoryReservationService = {
+    reserveMenuProductStock: jest.fn(
+      async (
+        txArg: typeof tx,
+        items: Array<{ productId: number; quantity: number }>,
+        _storeId: number,
+      ) => {
+        const grouped = new Map<
+          number,
+          { productId: number; quantity: number }
+        >();
+        for (const item of items) {
+          const existing = grouped.get(item.productId);
+          if (existing) {
+            existing.quantity += item.quantity;
+          } else {
+            grouped.set(item.productId, {
+              productId: item.productId,
+              quantity: item.quantity,
+            });
+          }
+        }
+        const currentProducts = await txArg.scanOrderingMenuProduct.findMany();
+        const inventoryProducts = await txArg.product.findMany();
+        const productMap = new Map(
+          (
+            currentProducts as Array<{
+              id: number;
+              stockMode: string;
+              stockQuantity: number | null;
+              reservedQuantity: number;
+              version: number;
+              productId: number | null;
+            }>
+          ).map((product) => [product.id, product]),
+        );
+        const inventoryMap = new Map(
+          (inventoryProducts as Array<{ id: number; stock: number }>).map(
+            (product) => [product.id, product.stock],
+          ),
+        );
+        for (const item of grouped.values()) {
+          const current = productMap.get(item.productId);
+          if (!current) throw new ConflictException('商品库存不足');
+          const baseStock = current.productId
+            ? (inventoryMap.get(current.productId) ?? 0)
+            : (current.stockQuantity ?? 0);
+          const availableStock = baseStock - current.reservedQuantity;
+          if (
+            current.stockMode !== 'unlimited' &&
+            availableStock < item.quantity
+          ) {
+            throw new ConflictException('商品库存不足');
+          }
+          const updated = await txArg.scanOrderingMenuProduct.updateMany({
+            where: {
+              id: item.productId,
+              version: current.version,
+            } as unknown as never,
+            data: {
+              reservedQuantity: { increment: item.quantity },
+              version: { increment: 1 },
+            } as unknown as never,
+          });
+          if (updated.count === 0) throw new ConflictException('商品库存不足');
+        }
+      },
+    ),
+  };
 
   const tx = {
     idempotencyRecord: { create: jest.fn(), update: jest.fn() },
-    product: { updateMany: jest.fn(), findUnique: jest.fn() },
+    product: {
+      updateMany: jest.fn(),
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+    },
     scanOrderingMenuProduct: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
     },
@@ -83,6 +158,10 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     unitPriceAmount: 4800,
     lineTotalAmount: 4800,
     specs: [],
+  };
+  const duplicatePricedItem = {
+    ...pricedItem,
+    cartItemId: 2,
   };
 
   const dto = {
@@ -137,13 +216,17 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
 
     tx.idempotencyRecord.create.mockResolvedValue({});
     // 菜单商品库存充足：可用库存 10，已预留 0
-    tx.scanOrderingMenuProduct.findUnique.mockResolvedValue({
-      stockMode: 'finite',
-      stockQuantity: 10,
-      reservedQuantity: 0,
-      version: 1,
-    });
-    tx.product.findUnique.mockResolvedValue({ stock: 10 });
+    tx.scanOrderingMenuProduct.findMany.mockResolvedValue([
+      {
+        id: 1,
+        stockMode: 'finite',
+        stockQuantity: 10,
+        reservedQuantity: 0,
+        version: 1,
+        productId: 1,
+      },
+    ]);
+    tx.product.findMany.mockResolvedValue([{ id: 1, stock: 10 }]);
     tx.scanOrderingMenuProduct.update.mockResolvedValue({});
     tx.scanOrderingMenuProduct.updateMany.mockResolvedValue({ count: 1 });
     tx.scanOrderingSession.update.mockResolvedValue({});
@@ -170,6 +253,10 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
         { provide: ScanOrderingRealtimeService, useValue: realtime },
         { provide: ClubScanOrderingCartPricingService, useValue: cartPricing },
         { provide: ClubScanOrderingCheckoutService, useValue: {} },
+        {
+          provide: ClubScanOrderingInventoryReservationService,
+          useValue: inventoryReservationService,
+        },
         { provide: ClubScanOrderingOrderHistoryService, useValue: {} },
         { provide: ClubScanOrderingOrderQueryService, useValue: {} },
         { provide: ClubScanOrderingOrderPreviewService, useValue: {} },
@@ -259,12 +346,51 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
 
   it('库存不足时抛错且不落订单', async () => {
     // 关联共用商品时以 product.stock 为准；菜单商品自身库存充足但共用库存不足
-    tx.product.findUnique.mockResolvedValue({ stock: 0 });
+    tx.product.findMany.mockResolvedValue([{ id: 1, stock: 0 }]);
 
     await expect(service.create(user, IDEMPOTENCY_KEY, dto)).rejects.toThrow(
       '商品库存不足',
     );
     expect(tx.scanOrders.create).not.toHaveBeenCalled();
+  });
+
+  it('同一商品重复出现在同一订单时会先聚合后预留，不会误报库存不足', async () => {
+    cartPricing.priceCart.mockResolvedValue([pricedItem, duplicatePricedItem]);
+    cartPricing.cartVersion.mockReturnValue(2);
+    cartPricing.calculateAmounts.mockReturnValue({
+      ...amounts,
+      itemOriginalAmount: 9600,
+      payableAmount: 9600,
+    });
+    const duplicateDto = {
+      ...dto,
+      cartVersion: 2,
+    } as CreateClubScanOrderDto;
+    tx.scanOrderingMenuProduct.findMany.mockResolvedValue([
+      {
+        id: 1,
+        stockMode: 'finite',
+        stockQuantity: 10,
+        reservedQuantity: 0,
+        version: 1,
+        productId: 1,
+      },
+    ]);
+    tx.product.findMany.mockResolvedValue([{ id: 1, stock: 10 }]);
+
+    const result = await service.create(user, IDEMPOTENCY_KEY, duplicateDto);
+
+    expect(result.id).toBe(100);
+    expect(tx.scanOrderingMenuProduct.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.scanOrderingMenuProduct.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 1, version: 1 }),
+        data: expect.objectContaining({
+          reservedQuantity: { increment: 2 },
+          version: { increment: 1 },
+        }),
+      }),
+    );
   });
 
   it('成功创建订单：预留库存、落库、幂等记录置为 succeeded、发布实时事件', async () => {
@@ -372,7 +498,7 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     });
 
     it('事务失败时不发布 order.created', async () => {
-      tx.product.findUnique.mockResolvedValue({ stock: 0 });
+      tx.product.findMany.mockResolvedValue([{ id: 1, stock: 0 }]);
 
       await expect(service.create(user, IDEMPOTENCY_KEY, dto)).rejects.toThrow(
         '商品库存不足',

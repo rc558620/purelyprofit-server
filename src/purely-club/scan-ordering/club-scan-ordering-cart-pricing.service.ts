@@ -303,16 +303,21 @@ export class ClubScanOrderingCartPricingService {
         );
       }
     }
+    const specOptionIds = [...quantities.keys()];
+    const currentOptions = await tx.scanOrderingSpecOption.findMany({
+      where: { id: { in: specOptionIds } },
+      select: {
+        id: true,
+        stockQuantity: true,
+        reservedQuantity: true,
+        version: true,
+      },
+    });
+    const optionMap = new Map(
+      currentOptions.map((option) => [option.id, option]),
+    );
     for (const [specOptionId, quantity] of quantities) {
-      // 预留规格库存：先读后写 + 乐观锁，确保并发下不超卖
-      const current = await tx.scanOrderingSpecOption.findUnique({
-        where: { id: specOptionId },
-        select: {
-          stockQuantity: true,
-          reservedQuantity: true,
-          version: true,
-        },
-      });
+      const current = optionMap.get(specOptionId);
       if (!current) throw new ConflictException('规格库存不足');
       const availableStock =
         (current.stockQuantity ?? 0) - (current.reservedQuantity ?? 0);

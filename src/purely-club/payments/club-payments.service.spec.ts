@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { getQueueToken } from '@nestjs/bullmq';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ClubPaymentCallbackDispatchService } from './club-payment-callback-dispatch.service';
 import { ClubPaymentCallbackSignatureService } from './club-payment-callback-signature.service';
@@ -20,6 +21,10 @@ describe('ClubPaymentsService', () => {
   const clubWechatCallbackDecryptorService = {
     decryptCallback: jest.fn(),
     validateAndExtract: jest.fn(),
+  };
+
+  const paymentCallbackQueue = {
+    add: jest.fn(),
   };
 
   const makeCallbackPayload = (): ClubWechatPaymentCallbackDto => ({
@@ -54,6 +59,10 @@ describe('ClubPaymentsService', () => {
           provide: ClubWechatCallbackDecryptorService,
           useValue: clubWechatCallbackDecryptorService,
         },
+        {
+          provide: getQueueToken('club-payment-callback'),
+          useValue: paymentCallbackQueue,
+        },
       ],
     }).compile();
 
@@ -86,19 +95,15 @@ describe('ClubPaymentsService', () => {
       amountFen: 50000,
       paidAt: '2026-06-10T12:31:00+08:00',
     });
-    clubPaymentCallbackDispatchService.dispatchByOrderNo.mockResolvedValue({
-      orderNo: 'RC202606101231000001A2B',
-      orderType: 'recharge',
-      status: 'paid',
-    });
+    paymentCallbackQueue.add.mockResolvedValue({});
 
     await expect(
       service.handleWechatCallback(payload, headers, rawBody),
     ).resolves.toEqual({
       success: true,
       orderNo: 'RC202606101231000001A2B',
-      orderType: 'recharge',
-      status: 'paid',
+      orderType: 'scan_ordering',
+      status: 'pending',
     });
 
     expect(
@@ -107,12 +112,23 @@ describe('ClubPaymentsService', () => {
     expect(
       clubWechatCallbackDecryptorService.decryptCallback,
     ).toHaveBeenCalledWith(payload);
+    expect(paymentCallbackQueue.add).toHaveBeenCalledWith(
+      'wechat-payment:RC202606101231000001A2B',
+      {
+        orderNo: 'RC202606101231000001A2B',
+        settlementParams: expect.objectContaining({
+          amountFen: 50000,
+          transactionId: 'wxTx123',
+        }),
+      },
+      expect.objectContaining({
+        jobId: 'wechat-payment:RC202606101231000001A2B:wxTx123',
+        attempts: 5,
+      }),
+    );
     expect(
       clubPaymentCallbackDispatchService.dispatchByOrderNo,
-    ).toHaveBeenCalledWith(
-      'RC202606101231000001A2B',
-      expect.objectContaining({ amountFen: 50000, transactionId: 'wxTx123' }),
-    );
+    ).not.toHaveBeenCalled();
   });
 
   it('handleWechatCallback 在验签失败时停止后续处理', async () => {

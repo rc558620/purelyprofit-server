@@ -5,7 +5,6 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
@@ -16,6 +15,7 @@ import { ClubScanOrderingCheckoutService } from './club-scan-ordering-checkout.s
 import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-history.service';
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
+import { ClubScanOrderingInventoryReservationService } from './club-scan-ordering-inventory-reservation.service';
 import type {
   CreateClubScanOrderDto,
   ListClubScanOrdersQueryDto,
@@ -45,6 +45,7 @@ export class ClubScanOrderingOrderService {
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly cartPricingService: ClubScanOrderingCartPricingService,
     private readonly checkoutService: ClubScanOrderingCheckoutService,
+    private readonly inventoryReservationService: ClubScanOrderingInventoryReservationService,
     private readonly previewService: ClubScanOrderingOrderPreviewService,
     private readonly orderQueryService: ClubScanOrderingOrderQueryService,
     private readonly orderHistoryService: ClubScanOrderingOrderHistoryService,
@@ -117,45 +118,11 @@ export class ClubScanOrderingOrderService {
             expiresAt,
           },
         });
-        for (const item of pricedItems) {
-          // 预留库存：先读后写 + 乐观锁，确保并发下不超卖
-          const current = await tx.scanOrderingMenuProduct.findUnique({
-            where: { id: item.productId },
-            select: {
-              stockMode: true,
-              stockQuantity: true,
-              reservedQuantity: true,
-              version: true,
-            },
-          });
-          if (!current) throw new ConflictException('商品库存不足');
-          const availableStock =
-            (await this.resolveAvailableStock(
-              tx,
-              item.inventoryProductId,
-              current,
-            )) - (current.reservedQuantity ?? 0);
-          if (
-            current.stockMode !== 'unlimited' &&
-            availableStock < item.quantity
-          ) {
-            throw new ConflictException('商品库存不足');
-          }
-          const updated = await tx.scanOrderingMenuProduct.updateMany({
-            where: {
-              id: item.productId,
-              storeId: session.storeId,
-              isActive: true,
-              deletedAt: null,
-              version: current.version,
-            },
-            data: {
-              reservedQuantity: { increment: item.quantity },
-              version: { increment: 1 },
-            },
-          });
-          if (updated.count === 0) throw new ConflictException('商品库存不足');
-        }
+        await this.inventoryReservationService.reserveMenuProductStock(
+          tx,
+          pricedItems,
+          session.storeId,
+        );
         await this.cartPricingService.reserveFiniteSpecStock(tx, pricedItems);
         await tx.scanOrderingSession.update({
           where: { id: session.id },
@@ -396,29 +363,6 @@ export class ClubScanOrderingOrderService {
     if (!session?.tableId)
       throw new ForbiddenException('当前桌台会话不可用，请重新扫码');
     return session;
-  }
-
-  /**
-   * 解析商品当前基础可用库存：
-   * - 关联共用商品（productId 非空）时以 product.stock 为准；
-   * - 否则以菜单商品自身 stockQuantity 为准。
-   * 预留量由调用方在基础库存上另行扣减。
-   */
-  private async resolveAvailableStock(
-    tx: Prisma.TransactionClient,
-    inventoryProductId: number | null | undefined,
-    menuProduct: {
-      stockMode: string;
-      stockQuantity: number | null;
-      reservedQuantity: number;
-    },
-  ): Promise<number> {
-    if (!inventoryProductId) return menuProduct.stockQuantity ?? 0;
-    const product = await tx.product.findUnique({
-      where: { id: inventoryProductId },
-      select: { stock: true },
-    });
-    return product?.stock ?? 0;
   }
 
   private resolveExistingIdempotency(record: {

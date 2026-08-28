@@ -13,8 +13,11 @@ import { RedisService } from '../../../redis/redis.service';
 import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-refund.service';
 
 const LOCK_KEY = 'scan-ordering:acceptance-expiration:lock';
-const LOCK_TTL_MS = 55_000;
+const LOCK_TTL_MS = 10 * 60_000;
 const DEFAULT_INTERVAL_MS = 60_000;
+const DEFAULT_CONCURRENCY = 8;
+const DEFAULT_RETRY_DELAY_MS = 5 * 60_000;
+const DEFAULT_MAX_RETRIES = 3;
 /** 待接单超时阈值（支付后超过该时长未接单即自动退款）。 */
 const DEFAULT_ACCEPTANCE_TIMEOUT_MS = 30 * 60 * 1000;
 /** 制作中超时阈值（接单后超过该时长未出餐即自动退款）。 */
@@ -84,6 +87,7 @@ export class ScanOrderingAcceptanceExpirationService
       this.running = true;
       await this.expireAcceptanceOrders();
       await this.expirePreparingOrders();
+      await this.retryRefundingOrders();
     } catch (error: unknown) {
       this.logger.error(
         `处理扫码点餐超时自动退款失败: ${error instanceof Error ? error.message : String(error)}`,
@@ -104,13 +108,11 @@ export class ScanOrderingAcceptanceExpirationService
       'paidAt',
       timeoutMs,
     );
-    for (const candidate of candidates) {
-      await this.refundCandidate(
-        candidate,
-        'pending_acceptance',
-        '商家超时未接单，系统自动退款',
-      );
-    }
+    await this.processCandidates(
+      candidates,
+      'pending_acceptance',
+      '商家超时未接单，系统自动退款',
+    );
   }
 
   /** 扫描制作中超时订单（接单后 2 小时未出餐）。 */
@@ -123,13 +125,106 @@ export class ScanOrderingAcceptanceExpirationService
       'acceptedAt',
       timeoutMs,
     );
-    for (const candidate of candidates) {
-      await this.refundCandidate(
-        candidate,
-        'preparing',
-        '商家超时未出餐，系统自动退款',
-      );
-    }
+    await this.processCandidates(
+      candidates,
+      'preparing',
+      '商家超时未出餐，系统自动退款',
+    );
+  }
+
+  private async processCandidates(
+    candidates: TimeoutOrderCandidate[],
+    fromStatus: Extract<ScanOrderStatus, 'pending_acceptance' | 'preparing'>,
+    reason: string,
+  ): Promise<void> {
+    const concurrency = this.getPositiveConfig(
+      'scanOrdering.acceptanceExpirationConcurrency',
+      DEFAULT_CONCURRENCY,
+    );
+    let nextIndex = 0;
+    const worker = async (): Promise<void> => {
+      while (nextIndex < candidates.length) {
+        const candidate = candidates[nextIndex++];
+        await this.refundCandidate(candidate, fromStatus, reason);
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, candidates.length) }, () =>
+        worker(),
+      ),
+    );
+  }
+
+  private getPositiveConfig(key: string, fallback: number): number {
+    const value = this.configService.get<number>(key);
+    return value && Number.isFinite(value) && value > 0 ? value : fallback;
+  }
+
+  private async retryRefundingOrders(): Promise<void> {
+    const retryDelayMs = this.getPositiveConfig(
+      'scanOrdering.acceptanceExpirationRetryDelayMs',
+      DEFAULT_RETRY_DELAY_MS,
+    );
+    const maxRetries = this.getPositiveConfig(
+      'scanOrdering.acceptanceExpirationMaxRetries',
+      DEFAULT_MAX_RETRIES,
+    );
+    const candidates = await this.prisma.scanOrderRefundTask.findMany({
+      where: {
+        triggerType: 'system_timeout',
+        status: 'manual_pending',
+        retryCount: { lt: maxRetries },
+        updatedAt: { lte: new Date(Date.now() - retryDelayMs) },
+        order: { status: 'refunding', paymentStatus: 'refunding' },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: BATCH_SIZE,
+      select: {
+        refundNo: true,
+        retryCount: true,
+        order: { select: { id: true, storeId: true, version: true } },
+      },
+    });
+    await this.processRetryCandidates(candidates, maxRetries);
+  }
+
+  private async processRetryCandidates(
+    candidates: Array<{
+      refundNo: string;
+      retryCount: number;
+      order: { id: number; storeId: number; version: number };
+    }>,
+    maxRetries: number,
+  ): Promise<void> {
+    const concurrency = this.getPositiveConfig(
+      'scanOrdering.acceptanceExpirationConcurrency',
+      DEFAULT_CONCURRENCY,
+    );
+    let nextIndex = 0;
+    const worker = async (): Promise<void> => {
+      while (nextIndex < candidates.length) {
+        const candidate = candidates[nextIndex++];
+        try {
+          await this.refundHandlingService.retryAutoWechatRefund({
+            orderId: candidate.order.id,
+            storeId: candidate.order.storeId,
+            version: candidate.order.version,
+            refundNo: candidate.refundNo,
+            retryCount: candidate.retryCount,
+            maxRetries,
+          });
+        } catch (error: unknown) {
+          this.logger.error(
+            `重试扫码点餐退款失败 orderId=${candidate.order.id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, candidates.length) }, () =>
+        worker(),
+      ),
+    );
   }
 
   /** 查询到期待退款订单候选（按时间基准字段升序，优先处理滞留最久的）。

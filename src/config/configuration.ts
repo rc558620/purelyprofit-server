@@ -224,6 +224,21 @@ export default () => ({
     acceptanceExpirationIntervalMs: parseInt(
       process.env.SCAN_ORDERING_ACCEPTANCE_EXPIRATION_INTERVAL_MS ?? '60000',
       10,
+    ),   /** 单次超时退款扫描的最大并发数 */
+    acceptanceExpirationConcurrency: parseInt(
+      process.env.SCAN_ORDERING_ACCEPTANCE_EXPIRATION_CONCURRENCY ?? '8',
+      10,
+    ),
+    /** 退款中订单的自动重试间隔（毫秒） */
+    acceptanceExpirationRetryDelayMs: parseInt(
+      process.env.SCAN_ORDERING_ACCEPTANCE_EXPIRATION_RETRY_DELAY_MS ??
+        '300000',
+      10,
+    ),
+    /** 单笔微信退款的最大自动重试次数 */
+    acceptanceExpirationMaxRetries: parseInt(
+      process.env.SCAN_ORDERING_ACCEPTANCE_EXPIRATION_MAX_RETRIES ?? '3',
+      10,
     ),
   },
 

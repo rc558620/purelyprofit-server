@@ -161,6 +161,90 @@ export class ScanOrderingOrderRefundHandlingService {
     );
   }
 
+  /** 重试退款中订单：复用原退款单号，避免第三方重复生成退款单。 */
+  async retryAutoWechatRefund(input: {
+    orderId: number;
+    storeId: number;
+    version: number;
+    refundNo: string;
+    retryCount: number;
+    maxRetries: number;
+  }): Promise<void> {
+    const task = await this.prisma.scanOrderRefundTask.findFirst({
+      where: {
+        orderId: input.orderId,
+        refundNo: input.refundNo,
+        status: { in: ['manual_pending', 'refunding'] },
+        triggerType: 'system_timeout',
+      },
+      select: { merchantPaymentNo: true, refundAmount: true, retryCount: true },
+    });
+    if (!task || task.retryCount !== input.retryCount) return;
+    const updatedTask = await this.prisma.scanOrderRefundTask.updateMany({
+      where: {
+        orderId: input.orderId,
+        refundNo: input.refundNo,
+        status: 'manual_pending',
+        retryCount: input.retryCount,
+      },
+      data: {
+        status: 'refunding',
+        retryCount: { increment: 1 },
+        failureReason: null,
+      },
+    });
+    if (updatedTask.count === 0) return;
+    try {
+      if (!task.merchantPaymentNo) {
+        throw new Error('缺少微信原支付单号');
+      }
+      const { refundId } = await this.wechatRefundService.requestRefund({
+        storeId: input.storeId,
+        orderNo: task.merchantPaymentNo,
+        refundNo: input.refundNo,
+        totalFen: task.refundAmount,
+        refundFen: task.refundAmount,
+        reason: '系统超时自动退款重试',
+      });
+      const updated = await this.prisma.$transaction(async (tx) => {
+        await this.markRefundCompleted(tx, {
+          orderId: input.orderId,
+          storeId: input.storeId,
+          version: input.version,
+        });
+        await this.restoreOrderAfterRefund(tx, input.orderId);
+        await this.finalizeRefundTask(tx, {
+          orderId: input.orderId,
+          storeId: input.storeId,
+          version: input.version,
+          operatorType: 'system',
+          provider: { refundNo: input.refundNo, refundId },
+        });
+        return this.loadRefundedOrder(tx, input.orderId);
+      });
+      if (updated) this.publishRefundCompleted(updated);
+    } catch (error: unknown) {
+      const failed = input.retryCount + 1 >= input.maxRetries;
+      await this.prisma.scanOrderRefundTask.updateMany({
+        where: {
+          orderId: input.orderId,
+          refundNo: input.refundNo,
+          status: 'refunding',
+          retryCount: input.retryCount + 1,
+        },
+        data: {
+          status: failed ? 'failed' : 'manual_pending',
+          failureReason: error instanceof Error ? error.message : String(error),
+          processedAt: failed ? new Date() : null,
+          updatedAt: new Date(),
+        },
+      });
+      if (failed) {
+        throw error;
+      }
+    }
+  }
+
   /** 系统超时微信退款：置退款中 → 建任务 → 调微信 API → 完成闭环。
    * 微信 API 调用失败时订单停留在退款中、任务为人工待处理，由商家确认兜底。 */
   private async initiateAutoWechatRefund(
@@ -194,15 +278,24 @@ export class ScanOrderingOrderRefundHandlingService {
     // 保留任务为人工待处理，避免生产环境对无真实支付记录的订单误调退款。
     let provider: RefundProviderInfo | undefined;
     if (input.paymentAttempt?.merchantPaymentNo) {
-      const { refundId } = await this.wechatRefundService.requestRefund({
-        storeId: input.storeId,
-        orderNo: input.paymentAttempt.merchantPaymentNo,
-        refundNo,
-        totalFen: input.paidAmount,
-        refundFen: input.paidAmount,
-        reason: input.reason,
-      });
-      provider = { refundNo, refundId };
+      try {
+        const { refundId } = await this.wechatRefundService.requestRefund({
+          storeId: input.storeId,
+          orderNo: input.paymentAttempt.merchantPaymentNo,
+          refundNo,
+          totalFen: input.paidAmount,
+          refundFen: input.paidAmount,
+          reason: input.reason,
+        });
+        provider = { refundNo, refundId };
+      } catch (error: unknown) {
+        await this.refundService.markRefundTaskFailed(
+          input.orderId,
+          refundNo,
+          error instanceof Error ? error.message : String(error),
+        );
+        throw error;
+      }
     }
     const updated = await this.prisma.$transaction(async (tx) => {
       await this.markRefundCompleted(tx, {

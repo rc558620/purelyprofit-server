@@ -21,7 +21,7 @@ const DAY_MS = 86_400_000;
  * 核心规则：
  * - 取餐号按门店独立、按上海业务日（Asia/Shanghai）递增，00:00 后从 001 重新计数；
  * - 001-999 三位显示，1000 及以上直接显示；
- * - 通过「唯一约束 + 行级锁（SELECT ... FOR UPDATE）」保证同门店同业务日并发不重复；
+ * - 通过「唯一约束 + 数据库原子递增」保证同门店同业务日并发不重复；
  * - 同一订单幂等：只能分配一次，重复支付回调 / 余额重复支付 / 开发环境确认支付都不重复占号。
  */
 @Injectable()
@@ -43,7 +43,11 @@ export class ScanOrderingPickupNumberService {
     const dayStartMs = getShanghaiDayStartMs(nowMs);
     const shanghai = new Date(dayStartMs + SHANGHAI_OFFSET_MS);
     const businessDate = new Date(
-      Date.UTC(shanghai.getUTCFullYear(), shanghai.getUTCMonth(), shanghai.getUTCDate()),
+      Date.UTC(
+        shanghai.getUTCFullYear(),
+        shanghai.getUTCMonth(),
+        shanghai.getUTCDate(),
+      ),
     );
     return { businessDate, dayStartMs, nextDayStartMs: dayStartMs + DAY_MS };
   }
@@ -53,7 +57,11 @@ export class ScanOrderingPickupNumberService {
    * 001-999 补零三位显示；1000 及以上直接显示。
    */
   formatPickupNumber(number: number | null | undefined): string | null {
-    if (typeof number !== 'number' || !Number.isInteger(number) || number <= 0) {
+    if (
+      typeof number !== 'number' ||
+      !Number.isInteger(number) ||
+      number <= 0
+    ) {
       return null;
     }
     return number < 1000 ? String(number).padStart(3, '0') : String(number);
@@ -64,7 +72,7 @@ export class ScanOrderingPickupNumberService {
    *
    * 并发安全流程：
    * 1. 幂等 upsert 计数行（store_id + business_date 唯一约束）；
-   * 2. SELECT ... FOR UPDATE 锁定计数行，读取 nextNumber 并 +1；
+   * 2. 通过单条 UPDATE ... RETURNING 原子读取并递增 next_number；
    * 3. 写入 ScanOrders 的取餐号字段。
    *
    * @param tx - 调用方开启的交互式事务
@@ -88,7 +96,11 @@ export class ScanOrderingPickupNumberService {
     if (order.pickupNumber != null) return null;
 
     const { businessDate } = this.getShanghaiBusinessDate(nowMs);
-    const pickupNumber = await this.acquireNextNumber(tx, storeId, businessDate);
+    const pickupNumber = await this.acquireNextNumber(
+      tx,
+      storeId,
+      businessDate,
+    );
     await tx.scanOrders.update({
       where: { id: orderId },
       data: {
@@ -113,40 +125,31 @@ export class ScanOrderingPickupNumberService {
 
   /**
    * 读取并推进门店取餐号计数。
-   * 幂等 upsert 保证并发首次创建安全；行级锁保证并发递增不重复。
+   * 唯一约束保证首次创建安全，单条 UPDATE ... RETURNING 保证并发递增安全。
    */
   private async acquireNextNumber(
     tx: Prisma.TransactionClient,
     storeId: number,
     businessDate: Date,
   ): Promise<number> {
-    // 先幂等 upsert：唯一约束冲突时走 DO UPDATE（空更新），并发首次创建安全
     await tx.scanOrderingPickupSequence.upsert({
       where: { storeId_businessDate: { storeId, businessDate } },
       update: {},
       create: { storeId, businessDate, nextNumber: 1 },
     });
 
-    // 行级锁读取 nextNumber，串行化并发分配
-    const rows = await tx.$queryRaw<
-      Array<{ id: number; next_number: number }>
-    >(
-      Prisma.sql`SELECT "id", "next_number" FROM "scan_ordering_pickup_sequences" WHERE "store_id" = ${storeId} AND "business_date" = ${businessDate} FOR UPDATE`,
+    const rows = await tx.$queryRaw<Array<{ next_number: number }>>(
+      Prisma.sql`
+        UPDATE "scan_ordering_pickup_sequences"
+        SET "next_number" = "next_number" + 1,
+            "updated_at" = NOW()
+        WHERE "store_id" = ${storeId}
+          AND "business_date" = ${businessDate}
+        RETURNING "next_number" - 1 AS "next_number"
+      `,
     );
     const row = rows[0];
-    if (!row) {
-      // 理论上 upsert 后必然存在；兜底直接创建
-      const created = await tx.scanOrderingPickupSequence.create({
-        data: { storeId, businessDate, nextNumber: 1 },
-      });
-      return created.nextNumber;
-    }
-
-    const nextNumber = row.next_number;
-    await tx.scanOrderingPickupSequence.update({
-      where: { id: row.id },
-      data: { nextNumber: nextNumber + 1 },
-    });
-    return nextNumber;
+    if (!row) throw new Error('取餐号计数行不存在');
+    return row.next_number;
   }
 }

@@ -19,7 +19,6 @@ describe('ScanOrderingPickupNumberService', () => {
     },
     scanOrderingPickupSequence: {
       upsert: jest.fn(),
-      update: jest.fn(),
     },
     $queryRaw: jest.fn(),
   };
@@ -80,10 +79,6 @@ describe('ScanOrderingPickupNumberService', () => {
       });
       tx.scanOrderingPickupSequence.upsert.mockResolvedValue({ id: 1 });
       tx.$queryRaw.mockResolvedValue([{ id: 1, next_number: 1 }]);
-      tx.scanOrderingPickupSequence.update.mockResolvedValue({
-        id: 1,
-        nextNumber: 2,
-      });
       tx.scanOrders.update.mockResolvedValue({
         id: orderId,
         pickupNumber: 1,
@@ -198,18 +193,10 @@ describe('ScanOrderingPickupNumberService', () => {
       expect(resultB?.pickupNumberLabel).toBe('001');
     });
 
-    it('行级锁递增：同计数行连续分配不重复', async () => {
-      // 模拟计数行 next_number 依次推进
-      let nextNumber = 5;
-      tx.$queryRaw.mockImplementation(async () => [
-        { id: 1, next_number: nextNumber },
-      ]);
-      tx.scanOrderingPickupSequence.update.mockImplementation(
-        async ({ data }: { data: { nextNumber: number } }) => {
-          nextNumber = data.nextNumber;
-          return { id: 1, nextNumber };
-        },
-      );
+    it('使用原子递增 SQL 分配连续且不重复的取餐号', async () => {
+      tx.$queryRaw
+        .mockResolvedValueOnce([{ next_number: 5 }])
+        .mockResolvedValueOnce([{ next_number: 6 }]);
       tx.scanOrders.findUnique.mockResolvedValue({
         storeId,
         pickupNumber: null,
@@ -234,7 +221,10 @@ describe('ScanOrderingPickupNumberService', () => {
       const rawArg = tx.$queryRaw.mock.calls[0][0] as {
         strings: string[];
       };
-      expect(rawArg.strings.join('')).toContain('FOR UPDATE');
+      const sql = rawArg.strings.join('');
+      expect(sql).toContain('UPDATE "scan_ordering_pickup_sequences"');
+      expect(sql).toContain('RETURNING "next_number" - 1');
+      expect(sql).not.toContain('FOR UPDATE');
     });
   });
 });

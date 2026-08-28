@@ -80,6 +80,17 @@ export class ScanOrderingRefundService {
     this.realtimeService.publishOrderStatusChanged(payload);
   }
 
+  async markRefundTaskFailed(
+    orderId: number,
+    refundNo: string,
+    failureReason: string,
+  ): Promise<void> {
+    await this.prisma.scanOrderRefundTask.updateMany({
+      where: { orderId, refundNo, status: 'manual_pending' },
+      data: { failureReason, processedAt: null, updatedAt: new Date() },
+    });
+  }
+
   async markRefundTaskSucceededInTransaction(
     tx: Prisma.TransactionClient,
     params: {

@@ -10,6 +10,7 @@ import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-versi
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
+import { ClubScanOrderingInventoryReservationService } from './club-scan-ordering-inventory-reservation.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 
 describe('ClubScanOrderingOrderService', () => {
@@ -29,6 +30,10 @@ describe('ClubScanOrderingOrderService', () => {
         { provide: ScanOrderingRealtimeService, useValue: {} },
         { provide: ClubScanOrderingCartPricingService, useValue: {} },
         { provide: ClubScanOrderingCheckoutService, useValue: {} },
+        {
+          provide: ClubScanOrderingInventoryReservationService,
+          useValue: { reserveMenuProductStock: jest.fn() },
+        },
         ClubScanOrderingOrderQueryService,
         ClubScanOrderingOrderHistoryService,
         ClubScanOrderingOrderPreviewService,

@@ -13,6 +13,9 @@ describe('ScanOrderingAcceptanceExpirationService', () => {
     scanOrders: {
       findMany: jest.fn(),
     },
+    scanOrderRefundTask: {
+      findMany: jest.fn(),
+    },
   };
 
   const redisClient = {
@@ -27,6 +30,7 @@ describe('ScanOrderingAcceptanceExpirationService', () => {
   const refundHandlingService = {
     autoRefundByTimeout: jest.fn(),
     autoCloseManualEntryByTimeout: jest.fn(),
+    retryAutoWechatRefund: jest.fn(),
   };
 
   const configService = {
@@ -38,7 +42,9 @@ describe('ScanOrderingAcceptanceExpirationService', () => {
     configService.get.mockReturnValue(undefined);
     redisClient.set.mockResolvedValue('OK');
     prismaService.scanOrders.findMany.mockResolvedValue([]);
+    prismaService.scanOrderRefundTask.findMany.mockResolvedValue([]);
     refundHandlingService.autoRefundByTimeout.mockResolvedValue(undefined);
+    refundHandlingService.retryAutoWechatRefund.mockResolvedValue(undefined);
     refundHandlingService.autoCloseManualEntryByTimeout.mockResolvedValue(
       undefined,
     );
@@ -65,6 +71,7 @@ describe('ScanOrderingAcceptanceExpirationService', () => {
     await service.expireDueOrders();
 
     expect(prismaService.scanOrders.findMany).toHaveBeenCalledTimes(2);
+    expect(prismaService.scanOrderRefundTask.findMany).toHaveBeenCalledTimes(1);
     expect(refundHandlingService.autoRefundByTimeout).not.toHaveBeenCalled();
   });
 
@@ -163,6 +170,51 @@ describe('ScanOrderingAcceptanceExpirationService', () => {
       fromStatus: 'pending_acceptance',
       reason: '商家超时未接单，系统自动退款',
     });
+  });
+
+  it('退款中任务达到重试间隔后会被领取并重试', async () => {
+    prismaService.scanOrderRefundTask.findMany.mockResolvedValueOnce([
+      {
+        refundNo: 'SR001',
+        retryCount: 1,
+        order: { id: 4004, storeId: 44, version: 6 },
+      },
+    ]);
+
+    await service.expireDueOrders();
+
+    expect(refundHandlingService.retryAutoWechatRefund).toHaveBeenCalledWith({
+      orderId: 4004,
+      storeId: 44,
+      version: 6,
+      refundNo: 'SR001',
+      retryCount: 1,
+      maxRetries: 3,
+    });
+  });
+
+  it('单笔重试失败不阻塞后续订单', async () => {
+    prismaService.scanOrderRefundTask.findMany.mockResolvedValueOnce([
+      {
+        refundNo: 'SR001',
+        retryCount: 0,
+        order: { id: 4004, storeId: 44, version: 6 },
+      },
+      {
+        refundNo: 'SR002',
+        retryCount: 2,
+        order: { id: 4005, storeId: 44, version: 7 },
+      },
+    ]);
+    refundHandlingService.retryAutoWechatRefund
+      .mockRejectedValueOnce(new Error('网络异常'))
+      .mockResolvedValueOnce(undefined);
+
+    await service.expireDueOrders();
+
+    expect(refundHandlingService.retryAutoWechatRefund).toHaveBeenCalledTimes(
+      2,
+    );
   });
 
   it('未获得分布式锁时不执行扫描', async () => {

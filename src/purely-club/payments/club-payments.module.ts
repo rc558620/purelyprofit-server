@@ -13,9 +13,11 @@ import { ClubPaymentLockService } from './club-payment-lock.service';
 import { ClubPaymentsController } from './club-payments.controller';
 import { ClubPaymentsService } from './club-payments.service';
 import { ClubWechatCallbackDecryptorService } from './club-wechat-callback-decryptor.service';
+import { ClubPaymentCallbackQueueModule } from './club-payment-callback-queue.module';
 
 @Module({
   imports: [
+    ClubPaymentCallbackQueueModule,
     ClubRechargeModule,
     ClubOrdersModule,
     ClubVoucherOrdersModule,
@@ -33,6 +35,6 @@ import { ClubWechatCallbackDecryptorService } from './club-wechat-callback-decry
     ClubScanOrderingPaymentService,
     ClubPaymentsService,
   ],
-  exports: [ClubPaymentLockService],
+  exports: [ClubPaymentLockService, ClubPaymentCallbackDispatchService],
 })
 export class ClubPaymentsModule {}

@@ -29,6 +29,7 @@ import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-m
 import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import { ScanOrderingPickupSettingsService } from './scan-ordering-pickup-settings.service';
+import { ClubScanOrderingInventoryReservationService } from './club-scan-ordering-inventory-reservation.service';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { ScanOrderingPickupSettingsService } from './scan-ordering-pickup-settin
     ClubScanOrderingOrderPreviewService,
     ClubScanOrderingCartPricingService,
     ClubScanOrderingCheckoutService,
+    ClubScanOrderingInventoryReservationService,
     ClubScanOrderingMarketingCustomerService,
     ScanOrderingSaleOrderBridgeService,
     ScanOrderingRealtimeService,

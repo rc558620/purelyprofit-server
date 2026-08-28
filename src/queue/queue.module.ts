@@ -1,7 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
-import Redis from 'ioredis';
+import { createBullMqConnection } from './queue-bullmq.config';
 import { CachePrewarmProcessor } from './cache-prewarm.processor';
 import { SpaceAutoCheckoutProcessor } from './space-auto-checkout.processor';
 import { QueueSchedulerService } from './queue-scheduler.service';
@@ -9,6 +9,7 @@ import { RedisModule } from '../redis/redis.module';
 import { SpacesModule } from '../purely-profit/operations/spaces/spaces.module';
 import { ScanOrderingModule } from '../purely-profit/operations/scan-ordering/scan-ordering.module';
 import { ScanOrderingSessionArchiveProcessor } from './scan-ordering-session-archive.processor';
+import { ClubPaymentCallbackQueueModule } from '../purely-club/payments/club-payment-callback-queue.module';
 
 /**
  * 消息队列模块
@@ -21,35 +22,15 @@ import { ScanOrderingSessionArchiveProcessor } from './scan-ordering-session-arc
  * 当前队列：
  * - `cache-prewarm`：定时预热首页、经营分析等热点缓存（每 15s）
  * - `space-auto-checkout`：定时扫描并自动结账超时空间会话（每 60s）
+ * - `club-payment-callback`：异步处理微信支付成功回调
  */
+@Global()
 @Module({
   imports: [
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        // BullMQ 需要独立的 Redis 连接，因为：
-        // 1. maxRetriesPerRequest 必须为 null（BLPOP 等阻塞命令需无限等待）
-        // 2. RedisService 的连接使用 maxRetriesPerRequest=3，两者不能复用
-        // 3. BullMQ 还会额外创建 subscriber 连接用于监听任务事件
-        const connection = new Redis({
-          host: configService.get<string>('redis.host'),
-          port: configService.get<number>('redis.port'),
-          password: configService.get<string>('redis.password') || undefined,
-          db: configService.get<number>('redis.db'),
-          connectTimeout:
-            configService.get<number>('redis.connectTimeoutMs') ?? 5_000,
-          // BullMQ 内部使用 BLPOP 等阻塞命令，必须设为 null（无限等待）。
-          // 若使用有限值（如 3），Redis 暂时不可达时 BullMQ Worker 会直接抛出
-          // "Command timed out" 导致队列停摆。
-          maxRetriesPerRequest: null,
-          // 启用离线队列：Redis 断连期间命令排队，重连后自动发送
-          enableOfflineQueue: true,
-          // 自动重连策略：指数退避，最大 5 秒间隔
-          retryStrategy(times: number) {
-            const delay = Math.min(times * 200, 5_000);
-            return delay;
-          },
-        });
+        const connection = createBullMqConnection(configService);
 
         return {
           connection,
@@ -83,6 +64,7 @@ import { ScanOrderingSessionArchiveProcessor } from './scan-ordering-session-arc
         name: 'scan-ordering-session-archive',
       },
     ),
+    ClubPaymentCallbackQueueModule,
     RedisModule, // 提供 CachePrewarmCycleService
     SpacesModule, // 提供 SpaceSessionAutoCheckoutService
     ScanOrderingModule,

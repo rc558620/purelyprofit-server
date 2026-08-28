@@ -6,6 +6,9 @@ import type {
   ClubWechatPaymentCallbackAckDto,
   ClubWechatPaymentCallbackDto,
 } from './dto/club-wechat-callback.dto';
+import { InjectQueue } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
+import type { ClubPaymentCallbackJobData } from '../../queue/club-payment-callback.types';
 import type {
   ClubPaymentCallbackResult,
   ClubPaymentCallbackSettlementParams,
@@ -20,6 +23,8 @@ export class ClubPaymentsService {
     private readonly clubPaymentCallbackSignatureService: ClubPaymentCallbackSignatureService,
     private readonly clubPaymentCallbackDispatchService: ClubPaymentCallbackDispatchService,
     private readonly clubWechatCallbackDecryptorService: ClubWechatCallbackDecryptorService,
+    @InjectQueue('club-payment-callback')
+    private readonly paymentCallbackQueue: Queue<ClubPaymentCallbackJobData>,
   ) {}
 
   /**
@@ -72,13 +77,24 @@ export class ClubPaymentsService {
       callbackReceivedAtMs,
     });
 
-    const order =
-      await this.clubPaymentCallbackDispatchService.dispatchByOrderNo(
-        orderNo,
-        settlementParams,
-      );
+    await this.paymentCallbackQueue.add(
+      `wechat-payment:${orderNo}`,
+      { orderNo, settlementParams },
+      {
+        jobId: `wechat-payment:${orderNo}:${transactionId}`,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: { age: 86_400, count: 10_000 },
+        removeOnFail: { age: 604_800, count: 10_000 },
+      },
+    );
 
-    return this.toCallbackAck(order);
+    return {
+      success: true,
+      orderNo,
+      orderType: 'scan_ordering',
+      status: 'pending',
+    };
   }
 
   private buildSettlementParams(opts: {
