@@ -58,7 +58,7 @@ export class ScanOrderingAreaService {
     createdAt: Date;
     updatedAt: Date;
   }> {
-    const storeId = await this.resolveStoreId(user);
+    const storeId = await this.resolveConfigStoreId(user);
     const existingArea = await this.prisma.scanOrderingArea.findUnique({
       where: { storeId_name: { storeId, name: dto.name } },
       select: { id: true },
@@ -91,7 +91,7 @@ export class ScanOrderingAreaService {
     createdAt: Date;
     updatedAt: Date;
   }> {
-    const storeId = await this.resolveStoreId(user);
+    const storeId = await this.resolveConfigStoreId(user);
     try {
       const result = await this.prisma.scanOrderingArea.updateMany({
         where: { id: areaId, storeId: storeId },
@@ -143,7 +143,7 @@ export class ScanOrderingAreaService {
   }
 
   async remove(user: AuthenticatedUser, areaId: number): Promise<void> {
-    const storeId = await this.resolveStoreId(user);
+    const storeId = await this.resolveConfigStoreId(user);
     const tableCount = await this.prisma.scanOrderingTable.count({
       where: { storeId: storeId, areaId, deletedAt: null },
     });
@@ -174,6 +174,15 @@ export class ScanOrderingAreaService {
       undefined,
       'scan-ordering:table-manage',
       '无权管理扫码点餐区域',
+    );
+  }
+
+  private resolveConfigStoreId(user: AuthenticatedUser): Promise<number> {
+    return this.commerceAccessService.resolveSingleStoreId(
+      user,
+      undefined,
+      'scan-ordering:table-config',
+      '无权配置扫码点餐区域',
     );
   }
 }

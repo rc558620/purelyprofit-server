@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../../auth/auth.module';
 import { PlatformMembershipModule } from '../../member/platform-membership/platform-membership.module';
 import { CostsModule } from '../../operations/costs/costs.module';
+import { CommissionModule } from '../../operations/commission/commission.module';
 import {
   EmployeesController,
   EmployeesDictionaryController,
@@ -23,7 +24,12 @@ import { EmployeesShiftService } from './employees-shift.service';
 import { EmployeesSubAccountService } from './employees-sub-account.service';
 
 @Module({
-  imports: [AuthModule, CostsModule, PlatformMembershipModule],
+  imports: [
+    AuthModule,
+    CostsModule,
+    PlatformMembershipModule,
+    CommissionModule,
+  ],
   controllers: [
     EmployeesController,
     EmployeesDictionaryController,

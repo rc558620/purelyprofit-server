@@ -100,6 +100,7 @@ const CATERING_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   // 扫码点餐（餐饮门店店长专用）
   'scan-ordering:view',
   'scan-ordering:table-manage',
+  'scan-ordering:table-config',
   'scan-ordering:order-process',
   // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
   'service-call:view',
@@ -146,6 +147,9 @@ const GENERAL_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   'space:create',
   'space:update',
   'space:delete',
+  // 技师提成（配置与明细，非餐饮门店店长专用）
+  'commission:view',
+  'commission:manage',
   // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
   'service-call:view',
   'service-call:process',
@@ -173,6 +177,9 @@ const FINANCE_SUB_ACCOUNT_PERMISSIONS = [
   'cost:delete',
   'sales:view',
   'staff:view',
+  // 技师提成（配置与明细，财务专用）
+  'commission:view',
+  'commission:manage',
   // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
   'service-call:view',
   'service-call:process',

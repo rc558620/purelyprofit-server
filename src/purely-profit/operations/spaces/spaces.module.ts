@@ -7,6 +7,7 @@ import { RedisModule } from '../../../redis/redis.module';
 import { ClubScanOrderingModule } from '../../../purely-club/scan-ordering/club-scan-ordering.module';
 import { ScanOrderingModule } from '../scan-ordering/scan-ordering.module';
 import { SalesRecordModule } from '../sales-record/sales-record.module';
+import { CommissionModule } from '../commission/commission.module';
 import { SpaceAutoCheckoutSchedulerService } from './space-auto-checkout-scheduler.service';
 import { SpaceQrCodeService } from './space-qr-code.service';
 import { SpaceSessionAutoCheckoutService } from './space-session-auto-checkout.service';
@@ -58,6 +59,8 @@ import { SpacesWriteService } from './spaces-write.service';
     StoresModule,
     // 复用扫码点餐的打印通道基础设施（云/USB/代理/ESC-POS）
     ScanOrderingModule,
+    // 技师提成：结账生成提成记录、开台解析提成分配
+    CommissionModule,
   ],
   controllers: [
     SpaceTypesController,

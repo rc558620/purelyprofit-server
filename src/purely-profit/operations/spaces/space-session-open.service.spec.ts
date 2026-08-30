@@ -3,6 +3,8 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
+import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
+import { CommissionCoreService } from '../commission/commission-core.service';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceSessionOpenService } from './space-session-open.service';
 import { aNonNegativeNumber } from '../../../spec-matchers';
@@ -56,6 +58,20 @@ describe('SpaceSessionOpenService', () => {
   const redisLockService = {
     acquireLock: jest.fn(),
     releaseLock: jest.fn(),
+  };
+
+  const realtimeService = {
+    publishVoucherOrderStatusChanged: jest.fn(),
+  };
+
+  const commissionCoreService = {
+    buildServicesMap: jest.fn(),
+    resolveTechnicianNames: jest.fn(),
+    normalizeAssignments: jest.fn(),
+    recomputeAssignments: jest.fn(),
+    createSettledRecords: jest.fn().mockResolvedValue(undefined),
+    markSettledRecordsIncluded: jest.fn(),
+    listConfigRecords: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -121,6 +137,14 @@ describe('SpaceSessionOpenService', () => {
         {
           provide: RedisLockService,
           useValue: redisLockService,
+        },
+        {
+          provide: ScanOrderingRealtimeService,
+          useValue: realtimeService,
+        },
+        {
+          provide: CommissionCoreService,
+          useValue: commissionCoreService,
         },
       ],
     }).compile();

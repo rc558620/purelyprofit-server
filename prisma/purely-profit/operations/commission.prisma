@@ -1,0 +1,67 @@
+/// 提成服务配置：默认提成 + 技师覆盖表。
+/// 金额口径统一为「分」（Int），与全仓 money 约定一致；覆盖表 JSON 内 commission 同样为分。
+model CommissionService {
+  id                Int       @id @default(autoincrement())
+  storeId           Int       @map("store_id")
+  /// 服务名（门店内唯一，软删后允许复用）
+  name              String
+  /// 默认提成（分）
+  defaultCommission Int       @default(0) @map("default_commission")
+  enabled           Boolean   @default(true)
+  sortOrder         Int       @default(1) @map("sort_order")
+  /// 技师覆盖表 [{ technicianId: Int, commission: Int(分) }]
+  overrides         Json?
+  /// 软删除标记：非 null 表示已停用/删除，值是删除时间
+  deletedAt         DateTime? @map("deleted_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  store             Store     @relation(fields: [storeId], references: [id])
+
+  @@unique([storeId, name], map: "commission_services_store_id_name_key_active", where: raw("(deleted_at IS NULL)"))
+  @@index([storeId, enabled, sortOrder])
+  @@map("commission_services")
+}
+
+/// 提成记录：结账时由后端按配置重算生成，沉淀为财务对账与工资回填数据源。
+/// 状态机：settled(已结账) -> included(已计入工资) / cancelled(作废)。
+model CommissionRecord {
+  id               Int                    @id @default(autoincrement())
+  storeId          Int                    @map("store_id")
+  sessionId        Int                    @map("session_id")
+  /// 空间名称快照（空间改名/软删后历史记录不变）
+  spaceName        String                 @map("space_name")
+  technicianId     Int                    @map("technician_id")
+  /// 技师姓名快照（技师改名/离职后历史记录不变）
+  technicianName   String                 @map("technician_name")
+  /// 关联服务 ID 列表（快照）
+  serviceIds       Json                   @map("service_ids")
+  /// 服务名称列表（快照）
+  serviceNames     Json                   @map("service_names")
+  /// 每服务提成金额快照（分，与 serviceIds 对齐；结账时生成，明细拆分展示）
+  serviceCommissions Json?                @map("service_commissions")
+  /// 提成金额（分）
+  commission       Int
+  status           CommissionRecordStatus @default(settled)
+  /// 结账时间（提成归属月份判定依据）
+  settledAt        DateTime               @map("settled_at")
+  /// 归属月份 YYYY-MM（按结账时间的上海时区）
+  month            String
+  createdAt        DateTime               @default(now()) @map("created_at")
+  store            Store                  @relation(fields: [storeId], references: [id])
+  session          SpaceSession           @relation(fields: [sessionId], references: [id])
+
+  @@index([storeId, month])
+  @@index([storeId, technicianId, month])
+  @@index([storeId, status])
+  @@index([settledAt])
+  @@index([sessionId])
+  @@map("commission_records")
+}
+
+/// 提成记录状态：settled=已结账 / included=已计入工资 / cancelled=已作废 / pending=待结账（保留枚举，预留状态位）
+enum CommissionRecordStatus {
+  pending
+  settled
+  included
+  cancelled
+}

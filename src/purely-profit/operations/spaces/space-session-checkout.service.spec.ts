@@ -8,7 +8,10 @@ import { SalesRecordService } from '../sales-record/sales-record.service';
 import { SpaceSessionCheckoutLockService } from './space-session-checkout-lock.service';
 import { SpaceSessionCheckoutService } from './space-session-checkout.service';
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
+import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
+import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
+import { CommissionCoreService } from '../commission/commission-core.service';
 import {
   createSalesOrderResponse,
   createSpaceCheckoutAt,
@@ -53,6 +56,19 @@ describe('SpaceSessionCheckoutService', () => {
     getJson: jest.fn().mockResolvedValue(null),
     setJson: jest.fn().mockResolvedValue(undefined),
   };
+  const commissionCoreService = {
+    buildServicesMap: jest.fn(),
+    resolveTechnicianNames: jest.fn(),
+    normalizeAssignments: jest.fn(),
+    recomputeAssignments: jest.fn(),
+    createSettledRecords: jest.fn().mockResolvedValue(undefined),
+    markSettledRecordsIncluded: jest.fn(),
+    listConfigRecords: jest.fn(),
+  };
+  const marketingConsumptionLinkService = {
+    linkSpaceSettlementConsumption: jest.fn().mockResolvedValue(undefined),
+    invalidateMarketingDerived: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -77,6 +93,12 @@ describe('SpaceSessionCheckoutService', () => {
         },
         { provide: SalesRecordService, useValue: salesRecordService },
         {
+          // 使用真实包装器，让断言落到内部 SalesRecordService.create 的 3 参数签名上
+          provide: SpaceSessionSaleOrderService,
+          useFactory: () =>
+            new SpaceSessionSaleOrderService(salesRecordService as never),
+        },
+        {
           provide: CacheInvalidatorService,
           useValue: cacheInvalidatorService,
         },
@@ -91,6 +113,14 @@ describe('SpaceSessionCheckoutService', () => {
               .mockResolvedValue(null),
             resolveReservationBackStatus: jest.fn().mockResolvedValue('idle'),
           },
+        },
+        {
+          provide: CommissionCoreService,
+          useValue: commissionCoreService,
+        },
+        {
+          provide: MarketingConsumptionLinkService,
+          useValue: marketingConsumptionLinkService,
         },
       ],
     }).compile();

@@ -145,6 +145,8 @@ model EmployeePayroll {
   otherDeduction     Int                   @map("other_deduction")
   otherDeductionNote String?               @map("other_deduction_note")
   bonus              Int
+  /// 技师提成（分）：按员工当月已结账提成自动回填，可手动覆盖，计入实发工资
+  commission         Int                   @default(0)
   actualSalary       Int                   @map("actual_salary")
   socialInsurance    Int                   @default(0) @map("social_insurance")
   housingFund        Int                   @default(0) @map("housing_fund")

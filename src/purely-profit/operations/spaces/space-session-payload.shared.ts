@@ -8,11 +8,13 @@ import type {
   OpenSpaceSessionDto,
   RenewSpaceSessionDto,
 } from './dto/space-session.dto';
+import type { CommissionAssignmentDto } from '../commission/dto/commission-assignment.dto';
 import type {
   NormalizedOpenSessionPayload,
   NormalizedRenewPayload,
   SpaceSessionItemRecord,
 } from './space-sessions.types';
+import type { CommissionAssignmentInput } from '../commission/commission.types';
 
 /** 续费金额上限（元）：避免极大值导致 countdownMinutes 溢出或异常时长 */
 const RENEW_AMOUNT_MAX = 99999.99;
@@ -93,8 +95,43 @@ export const normalizeOpenSessionPayload = (
     ...(dto.prepaidAmount !== undefined
       ? { prepaidAmount: dto.prepaidAmount }
       : {}),
+    ...(dto.commissionAssignments !== undefined
+      ? {
+          commissionAssignments: normalizeCommissionAssignmentsPayload(
+            dto.commissionAssignments,
+          ),
+        }
+      : {}),
   };
 };
+
+/** 开台提成分配收敛：丢弃非法行，名称 trim，服务名与技师名可缺省。 */
+export const normalizeCommissionAssignmentsPayload = (
+  assignments: CommissionAssignmentDto[],
+): CommissionAssignmentInput[] =>
+  assignments.flatMap((assignment): CommissionAssignmentInput[] => {
+    const technicianName = assignment.technicianName?.trim();
+    const serviceIds = [...new Set(assignment.serviceIds)];
+    if (serviceIds.length === 0) {
+      return [];
+    }
+
+    const serviceNames = Array.isArray(assignment.serviceNames)
+      ? assignment.serviceNames.map((name) => name.trim())
+      : [];
+
+    return [
+      {
+        technicianId: assignment.technicianId,
+        ...(technicianName ? { technicianName } : {}),
+        serviceIds,
+        ...(serviceNames.length > 0 ? { serviceNames } : {}),
+        ...(assignment.commission !== undefined
+          ? { commission: assignment.commission }
+          : {}),
+      },
+    ];
+  });
 
 export const normalizeSessionItemsPayload = (
   items: Array<{

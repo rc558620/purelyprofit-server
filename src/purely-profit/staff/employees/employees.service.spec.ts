@@ -16,6 +16,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CostsService } from '../../operations/costs/costs.service';
+import { CommissionCoreService } from '../../operations/commission/commission-core.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
@@ -131,6 +132,16 @@ describe('EmployeesService', () => {
     invalidateCostCaches: jest.fn().mockResolvedValue(undefined),
   };
 
+  const commissionCoreService = {
+    buildServicesMap: jest.fn(),
+    resolveTechnicianNames: jest.fn(),
+    normalizeAssignments: jest.fn(),
+    recomputeAssignments: jest.fn(),
+    createSettledRecords: jest.fn().mockResolvedValue(undefined),
+    markSettledRecordsIncluded: jest.fn().mockResolvedValue(0),
+    listConfigRecords: jest.fn(),
+  };
+
   const platformMembershipAccessService = {
     ensureEmployeeQuotaAvailable: jest.fn(),
   };
@@ -209,6 +220,10 @@ describe('EmployeesService', () => {
         { provide: EmployeesAccessService, useValue: employeesAccessService },
         { provide: ConfigService, useValue: configService },
         { provide: CostsService, useValue: costsService },
+        {
+          provide: CommissionCoreService,
+          useValue: commissionCoreService,
+        },
         {
           provide: PlatformMembershipAccessService,
           useValue: platformMembershipAccessService,
@@ -813,6 +828,7 @@ describe('EmployeesService', () => {
         otherDeduction: 50,
         otherDeductionNote: '迟到',
         bonus: 200,
+        commission: 0,
         socialInsurance: 30000,
         housingFund: 0,
         note: null,
@@ -828,6 +844,7 @@ describe('EmployeesService', () => {
       otherDeduction: 50,
       otherDeductionNote: '迟到',
       bonus: 200,
+      commission: 0,
       actualSalary: 5250,
       socialInsurance: 30000,
       housingFund: 0,
@@ -873,6 +890,7 @@ describe('EmployeesService', () => {
         otherDeduction: true,
         otherDeductionNote: true,
         bonus: true,
+        commission: true,
         socialInsurance: true,
         housingFund: true,
         note: true,
@@ -1478,6 +1496,7 @@ describe('EmployeesService', () => {
         otherDeduction: 8000,
         otherDeductionNote: '迟到罚款',
         bonus: 30000,
+        commission: 0,
         actualSalary: 510000,
         socialInsurance: 40000,
         housingFund: 0,
@@ -1525,6 +1544,7 @@ describe('EmployeesService', () => {
           otherDeduction: 80,
           otherDeductionNote: '迟到罚款',
           bonus: 300,
+          commission: 0,
           actualSalary: 5100,
           socialInsurance: 400,
           totalLaborCost: 5500,
@@ -1640,6 +1660,7 @@ describe('EmployeesService', () => {
       otherDeduction: 8000,
       otherDeductionNote: '迟到罚款',
       bonus: 30000,
+      commission: 0,
       actualSalary: 510000,
       socialInsurance: 40000,
       housingFund: 0,
@@ -1683,6 +1704,7 @@ describe('EmployeesService', () => {
         otherDeduction: 8000,
         otherDeductionNote: '迟到罚款',
         bonus: 30000,
+        commission: 0,
         actualSalary: 510000,
         socialInsurance: 40000,
         housingFund: undefined,
@@ -1697,6 +1719,7 @@ describe('EmployeesService', () => {
         otherDeduction: 8000,
         otherDeductionNote: '迟到罚款',
         bonus: 30000,
+        commission: 0,
         actualSalary: 510000,
         socialInsurance: 40000,
         totalLaborCost: 550000,
@@ -1717,6 +1740,7 @@ describe('EmployeesService', () => {
       otherDeduction: 80,
       otherDeductionNote: '迟到罚款',
       bonus: 300,
+      commission: 0,
       actualSalary: 5100,
       socialInsurance: 400,
       totalLaborCost: 5500,
@@ -1751,6 +1775,7 @@ describe('EmployeesService', () => {
       otherDeduction: 8000,
       otherDeductionNote: null,
       bonus: 30000,
+      commission: 0,
       actualSalary: 510000,
       socialInsurance: 0,
       housingFund: 0,
@@ -1832,6 +1857,7 @@ describe('EmployeesService', () => {
       otherDeduction: 0,
       otherDeductionNote: null,
       bonus: 0,
+      commission: 0,
       actualSalary: 400000,
       socialInsurance: 0,
       housingFund: 0,
@@ -1856,6 +1882,7 @@ describe('EmployeesService', () => {
       otherDeduction: 4200,
       otherDeductionNote: '76',
       bonus: 5200,
+      commission: 0,
       actualSalary: 331000,
       socialInsurance: 6200,
       housingFund: 7200,

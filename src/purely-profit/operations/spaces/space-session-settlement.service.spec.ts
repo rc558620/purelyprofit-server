@@ -17,6 +17,7 @@ import {
 import { SpaceSessionSettlementService } from './space-session-settlement.service';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
+import { CommissionCoreService } from '../commission/commission-core.service';
 
 describe('SpaceSessionSettlementService', () => {
   let service: SpaceSessionSettlementService;
@@ -50,6 +51,16 @@ describe('SpaceSessionSettlementService', () => {
   const marketingConsumptionLinkService = {
     linkSpaceSettlementConsumption: jest.fn().mockResolvedValue(undefined),
     invalidateMarketingDerived: jest.fn().mockResolvedValue(undefined),
+  };
+  // 提成核心服务（本测试会话无提成分配，核心链路由独立测试覆盖）
+  const commissionCoreService = {
+    buildServicesMap: jest.fn(),
+    resolveTechnicianNames: jest.fn(),
+    normalizeAssignments: jest.fn(),
+    recomputeAssignments: jest.fn(),
+    createSettledRecords: jest.fn().mockResolvedValue(undefined),
+    markSettledRecordsIncluded: jest.fn(),
+    listConfigRecords: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -89,6 +100,10 @@ describe('SpaceSessionSettlementService', () => {
         {
           provide: MarketingConsumptionLinkService,
           useValue: marketingConsumptionLinkService,
+        },
+        {
+          provide: CommissionCoreService,
+          useValue: commissionCoreService,
         },
       ],
     }).compile();

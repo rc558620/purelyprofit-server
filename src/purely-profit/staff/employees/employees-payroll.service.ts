@@ -33,6 +33,7 @@ import {
   resolvePagination,
   toNullableText,
 } from './employees.utils';
+import { CommissionCoreService } from '../../operations/commission/commission-core.service';
 
 @Injectable()
 export class EmployeesPayrollService {
@@ -41,6 +42,7 @@ export class EmployeesPayrollService {
     private readonly employeesAccessService: EmployeesAccessService,
     private readonly costsService: CostsService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
+    private readonly commissionCoreService: CommissionCoreService,
   ) {}
 
   async listPayrolls(
@@ -126,6 +128,10 @@ export class EmployeesPayrollService {
       otherDeduction: Money.fromInputYuan(dto.otherDeduction),
       otherDeductionNote: dto.otherDeductionNote,
       bonus: Money.fromInputYuan(dto.bonus),
+      commission:
+        dto.commission !== undefined
+          ? Money.fromInputYuan(dto.commission)
+          : Money.zero(),
       socialInsurance:
         dto.socialInsurance !== undefined
           ? Money.fromInputYuan(dto.socialInsurance)
@@ -168,6 +174,10 @@ export class EmployeesPayrollService {
           otherDeduction: Money.fromInputYuan(dto.otherDeduction).toDbCents(),
           otherDeductionNote: toNullableText(dto.otherDeductionNote),
           bonus: Money.fromInputYuan(dto.bonus).toDbCents(),
+          commission:
+            dto.commission !== undefined
+              ? Money.fromInputYuan(dto.commission).toDbCents()
+              : 0,
           actualSalary: derivedAmounts.actualSalary.toDbCents(),
           socialInsurance:
             dto.socialInsurance !== undefined
@@ -188,6 +198,10 @@ export class EmployeesPayrollService {
           otherDeduction: Money.fromInputYuan(dto.otherDeduction).toDbCents(),
           otherDeductionNote: toNullableText(dto.otherDeductionNote),
           bonus: Money.fromInputYuan(dto.bonus).toDbCents(),
+          commission:
+            dto.commission !== undefined
+              ? Money.fromInputYuan(dto.commission).toDbCents()
+              : 0,
           actualSalary: derivedAmounts.actualSalary.toDbCents(),
           ...(dto.socialInsurance !== undefined
             ? {
@@ -267,6 +281,13 @@ export class EmployeesPayrollService {
             : undefined,
         note: nextPayroll.note,
       });
+      // 计入工资：将员工当月已结账提成标记为「已计入工资」（幂等）
+      await this.commissionCoreService.markSettledRecordsIncluded(
+        transaction,
+        nextPayroll.storeId,
+        nextPayroll.employeeId,
+        formatPayrollMonth(nextPayroll.month),
+      );
       return nextPayroll;
     });
 

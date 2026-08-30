@@ -81,6 +81,23 @@ export class SpaceSessionRenewRecordResponseDto {
   renewedAt: number;
 }
 
+export class SpaceSessionCommissionAssignmentResponseDto {
+  @ApiProperty({ example: 1, description: '技师员工 ID' })
+  technicianId: number;
+
+  @ApiProperty({ example: '王强', description: '技师姓名快照' })
+  technicianName: string;
+
+  @ApiProperty({ example: [1, 2], description: '关联服务 ID 列表' })
+  serviceIds: number[];
+
+  @ApiProperty({ example: ['足疗', 'SPA'], description: '服务名称列表' })
+  serviceNames: string[];
+
+  @ApiProperty({ example: 120, description: '提成金额（元）' })
+  commission: number;
+}
+
 export class SpaceSessionResponseDto {
   @ApiProperty({ example: '1', description: '会话 ID' })
   id: string;
@@ -216,6 +233,12 @@ export class SpaceSessionResponseDto {
   @ValidateNested({ each: true })
   @Type(() => SpaceSessionRenewRecordResponseDto)
   renewRecords: SpaceSessionRenewRecordResponseDto[];
+
+  @ApiPropertyOptional({
+    type: [SpaceSessionCommissionAssignmentResponseDto],
+    description: '技师提成分配（仅非餐饮门店会话）',
+  })
+  commissionAssignments?: SpaceSessionCommissionAssignmentResponseDto[];
 
   @ApiProperty({
     example: 'active',

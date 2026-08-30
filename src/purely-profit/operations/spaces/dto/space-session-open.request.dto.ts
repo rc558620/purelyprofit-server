@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -11,7 +12,9 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { CommissionAssignmentDto } from '../../commission/dto/commission-assignment.dto';
 import {
   SPACE_BILLING_MODE_VALUES,
   type SpaceBillingModeValue,
@@ -180,4 +183,15 @@ export class OpenSpaceSessionDto {
   @Min(0.01, { message: '预付券面金额必须大于 0' })
   @Max(100000, { message: '预付券面金额不能超过 ¥100,000' })
   prepaidVoucherFaceAmount?: number;
+
+  @ApiPropertyOptional({
+    type: [CommissionAssignmentDto],
+    description:
+      '技师提成分配（仅非餐饮门店；commission 缺省时后端按配置解析）',
+  })
+  @IsOptional()
+  @IsArray({ message: '提成分配必须是数组' })
+  @ValidateNested({ each: true })
+  @Type(() => CommissionAssignmentDto)
+  commissionAssignments?: CommissionAssignmentDto[];
 }

@@ -27,11 +27,7 @@ import {
   toTimestampMs,
 } from '../../commerce/commerce.utils';
 import { formatPayrollMonth } from './employees-payroll.domain';
-import {
-  buildPaginationMeta,
-  normalizeMonthValue,
-  toDecimalNumber,
-} from './employees.utils';
+import { toDecimalNumber } from './employees.utils';
 
 export interface EmployeeResponseViewOptions {
   canViewSubAccountModule?: boolean;
@@ -179,6 +175,7 @@ export function toEmployeePayrollResponse(
       ? { otherDeductionNote: payroll.otherDeductionNote }
       : {}),
     bonus: Money.fromDbCents(payroll.bonus).toOutputYuan(),
+    commission: Money.fromDbCents(payroll.commission).toOutputYuan(),
     actualSalary: Money.fromDbCents(payroll.actualSalary).toOutputYuan(),
     ...(payroll.socialInsurance > 0
       ? {

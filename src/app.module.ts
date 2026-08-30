@@ -37,6 +37,7 @@ import { DashboardHomeModule } from './purely-profit/dashboard/dashboard-home/da
 import { HandoverModule } from './purely-profit/operations/handover/handover.module';
 import { VoucherOrdersModule } from './purely-profit/operations/voucher-orders/voucher-orders.module';
 import { NotificationsModule } from './purely-profit/notifications/notifications.module';
+import { CommissionModule } from './purely-profit/operations/commission/commission.module';
 import { PulseSessionModule } from './purely-pulse/session/session.module';
 import { PulseOnboardingModule } from './purely-pulse/onboarding/onboarding.module';
 import { PulseMembershipModule } from './purely-pulse/membership/membership.module';
@@ -122,6 +123,7 @@ import { UploadModule } from './shared/upload.module';
     ProfitDetailModule,
     SalesRecordModule,
     SpacesModule,
+    CommissionModule,
     ScanOrderingModule,
     ServiceCallManagementModule,
     DashboardHomeModule,

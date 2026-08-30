@@ -80,6 +80,8 @@ model Store {
   /// 扫码点餐打印代理最后在线时间（用于商家端展示代理状态）
   printAgentLastSeenAt        DateTime?                     @map("print_agent_last_seen_at")
   costRecords                 CostRecord[]
+  commissionRecords           CommissionRecord[]
+  commissionServices          CommissionService[]
   employeeDepartments         EmployeeDepartment[]
   employeeLeaves              EmployeeLeave[]
   employeePayrolls            EmployeePayroll[]

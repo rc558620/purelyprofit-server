@@ -1,7 +1,10 @@
 import {
   SpaceBillingMode as PrismaSpaceBillingMode,
   SpaceSessionStatus as PrismaSpaceSessionStatus,
+  type Prisma,
 } from '@prisma/client';
+
+import type { CommissionAssignmentInput } from '../commission/commission.types';
 
 import type {
   SpaceCountdownFeeModeValue,
@@ -122,6 +125,8 @@ export interface SpaceSessionRecord {
   /// Step 8.1: items 已拆到 space_session_items 表，通过 include 查询
   sessionItems: SpaceSessionItemRow[];
   itemsCost: number;
+  /// 技师提成分配快照 JSON（[{ technicianId, technicianName, serviceIds, serviceNames, commission(分) }]）
+  commissionAssignments: Prisma.JsonValue | null;
   /// Step 8.1: renewRecords 已拆到 space_session_renew_records 表，通过 include 查询
   sessionRenewRecords: SpaceSessionRenewRecordRow[];
   status: PrismaSpaceSessionStatus;
@@ -200,6 +205,8 @@ export interface NormalizedOpenSessionPayload {
   prepaidNote?: string;
   prepaidAmount?: number;
   prepaidVoucherFaceAmount?: number;
+  /** 技师提成分配（开台时录入，仅非餐饮门店；金额为元，缺省由后端解析） */
+  commissionAssignments?: CommissionAssignmentInput[];
 }
 
 export interface NormalizedRenewPayload {

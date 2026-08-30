@@ -100,7 +100,7 @@ export class ScanOrderingTableService {
   ): Promise<ScanOrderingCreatedTableResponse> {
     const storeId = await this.resolveEnabledStoreId(
       user,
-      'scan-ordering:table-manage',
+      'scan-ordering:table-config',
     );
 
     // 尝试创建桌台，遇到唯一约束冲突时使用 upsert 模式复用已禁用记录
@@ -200,7 +200,7 @@ export class ScanOrderingTableService {
   ): Promise<void> {
     const storeId = await this.resolveEnabledStoreId(
       user,
-      'scan-ordering:table-manage',
+      'scan-ordering:table-config',
     );
     const result = await this.prisma.scanOrderingTable.updateMany({
       where: { id: tableId, storeId, deletedAt: null },
@@ -226,7 +226,7 @@ export class ScanOrderingTableService {
   async removeTable(user: AuthenticatedUser, tableId: number): Promise<void> {
     const storeId = await this.resolveEnabledStoreId(
       user,
-      'scan-ordering:table-manage',
+      'scan-ordering:table-config',
     );
 
     const now = new Date();
@@ -386,7 +386,10 @@ export class ScanOrderingTableService {
 
   private async resolveEnabledStoreId(
     user: AuthenticatedUser,
-    permission: 'scan-ordering:view' | 'scan-ordering:table-manage',
+    permission:
+      | 'scan-ordering:view'
+      | 'scan-ordering:table-manage'
+      | 'scan-ordering:table-config',
   ): Promise<number> {
     const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,

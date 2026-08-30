@@ -214,7 +214,7 @@ async function resolveUser() {
     }
 
     if (
-      user.staffMembership.status !== 'ACTIVE' ||
+      user.staffMembership.status !== 'active' ||
       !user.staffMembership.isActive ||
       !user.staffMembership.isSeatActive
     ) {

@@ -48,12 +48,15 @@ describe('AccessControlService', () => {
       'scan-ordering:view',
       'scan-ordering:table-manage',
       'scan-ordering:order-process',
+      'service-call:view',
+      'service-call:process',
       'handover:view',
       'handover:create',
       'handover:update',
     ]);
     expect(permissions).toContain('goods:view');
     expect(permissions).not.toContain('sales:view');
+    expect(permissions).not.toContain('scan-ordering:table-config');
   });
 
   it('manager 子账号应拥有门店运营权限，但不包含财务和门店设置权限', () => {
@@ -89,6 +92,10 @@ describe('AccessControlService', () => {
       'space:create',
       'space:update',
       'space:delete',
+      'commission:view',
+      'commission:manage',
+      'service-call:view',
+      'service-call:process',
       'handover:view',
       'handover:create',
       'handover:update',
@@ -110,6 +117,7 @@ describe('AccessControlService', () => {
 
     expect(permissions).toContain('scan-ordering:view');
     expect(permissions).toContain('scan-ordering:table-manage');
+    expect(permissions).toContain('scan-ordering:table-config');
     expect(permissions).toContain('scan-ordering:order-process');
     expect(permissions).not.toContain('space:view');
     expect(permissions).not.toContain('space:create');
@@ -130,6 +138,7 @@ describe('AccessControlService', () => {
     expect(permissions).toContain('space:delete');
     expect(permissions).not.toContain('scan-ordering:view');
     expect(permissions).not.toContain('scan-ordering:table-manage');
+    expect(permissions).not.toContain('scan-ordering:table-config');
     expect(permissions).not.toContain('scan-ordering:order-process');
   });
 
@@ -169,6 +178,10 @@ describe('AccessControlService', () => {
       'cost:delete',
       'sales:view',
       'staff:view',
+      'commission:view',
+      'commission:manage',
+      'service-call:view',
+      'service-call:process',
     ]);
     expect(permissions).toContain('inventory:update');
     expect(permissions).toContain('supplier:view');
@@ -196,6 +209,8 @@ describe('AccessControlService', () => {
       'scan-ordering:view',
       'scan-ordering:table-manage',
       'scan-ordering:order-process',
+      'service-call:view',
+      'service-call:process',
     ]);
     expect(permissions).toContain('goods:view');
     expect(permissions).not.toContain('handover:view');

@@ -31,6 +31,10 @@ import { normalizeOpenSessionPayload } from './space-session-payload.shared';
 import { ensureOpenSessionPayload } from './space-session-open-validation.shared';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import type { SpaceBillingModeValue } from './spaces.constants';
+import { CommissionCoreService } from '../commission/commission-core.service';
+import type { CommissionAssignmentInput } from '../commission/commission.types';
+import type { CommissionAssignmentRecord } from '../commission/commission.types';
+import type { Prisma } from '@prisma/client';
 
 /** 开台分布式锁超时（秒）：事务最长耗时预估 + 冗余 */
 const OPEN_SESSION_LOCK_TTL_SECONDS = 15;
@@ -49,6 +53,7 @@ export class SpaceSessionOpenService {
     private readonly reservationsStateService: SpaceReservationsStateService,
     private readonly redisLockService: RedisLockService,
     private readonly realtimeService: ScanOrderingRealtimeService,
+    private readonly commissionCoreService: CommissionCoreService,
   ) {}
 
   async openSession(
@@ -219,6 +224,13 @@ export class SpaceSessionOpenService {
           }
         }
 
+        // 技师提成分配：开台时按配置解析快照（缺省金额由后端计算），落库供结账生成提成记录
+        const commissionAssignments = await this.resolveAssignmentsSnapshot(
+          transaction,
+          space.storeId,
+          payload.commissionAssignments,
+        );
+
         const created = await transaction.spaceSession.create({
           data: {
             storeId: space.storeId,
@@ -260,6 +272,12 @@ export class SpaceSessionOpenService {
             itemsCost: 0,
             openOperatorStaffId,
             openOperatorNameSnapshot,
+            ...(commissionAssignments
+              ? {
+                  commissionAssignments:
+                    commissionAssignments as unknown as Prisma.InputJsonValue,
+                }
+              : {}),
             status: PrismaSpaceSessionStatus.active,
           },
           include: {
@@ -323,5 +341,31 @@ export class SpaceSessionOpenService {
     value: SpaceBillingModeValue,
   ): PrismaSpaceBillingMode {
     return value;
+  }
+
+  /** 将开台提成分配收敛为落库快照（技师校验 + 金额解析，金额为分）。 */
+  private async resolveAssignmentsSnapshot(
+    transaction: Prisma.TransactionClient,
+    storeId: number,
+    inputs: CommissionAssignmentInput[] | undefined,
+  ): Promise<CommissionAssignmentRecord[] | undefined> {
+    if (!inputs || inputs.length === 0) {
+      return undefined;
+    }
+
+    const servicesMap = await this.commissionCoreService.buildServicesMap(
+      transaction,
+      storeId,
+    );
+    const nameById = await this.commissionCoreService.resolveTechnicianNames(
+      transaction,
+      storeId,
+      inputs.map((input) => input.technicianId),
+    );
+    return this.commissionCoreService.normalizeAssignments(
+      servicesMap,
+      nameById,
+      inputs,
+    );
   }
 }

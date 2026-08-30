@@ -11,6 +11,8 @@ export interface PayrollDraftInput {
   otherDeduction: Money;
   otherDeductionNote?: string | null;
   bonus: Money;
+  /** 技师提成（分），计入实发工资 */
+  commission: Money;
   socialInsurance?: Money;
   housingFund?: Money;
 }
@@ -106,7 +108,8 @@ export function buildPayrollDerivedAmounts(
   const actualSalary = input.baseSalary
     .subtract(input.leaveDeduction)
     .subtract(input.otherDeduction)
-    .add(input.bonus);
+    .add(input.bonus)
+    .add(input.commission);
   if (actualSalary.isNegative()) {
     throw new BadRequestException('实发工资不能小于 0，请检查扣款与奖金');
   }
@@ -148,6 +151,10 @@ export function resolvePayrollMergedAmounts(
       dto.bonus !== undefined
         ? Money.fromInputYuan(dto.bonus)
         : Money.fromDbCents(payroll.bonus),
+    commission:
+      dto.commission !== undefined
+        ? Money.fromInputYuan(dto.commission)
+        : Money.fromDbCents(payroll.commission),
     socialInsurance:
       dto.socialInsurance !== undefined
         ? Money.fromInputYuan(dto.socialInsurance)
@@ -183,6 +190,9 @@ export function buildPayrollUpdateData(
       : {}),
     ...(dto.bonus !== undefined
       ? { bonus: Money.fromInputYuan(dto.bonus).toDbCents() }
+      : {}),
+    ...(dto.commission !== undefined
+      ? { commission: Money.fromInputYuan(dto.commission).toDbCents() }
       : {}),
     ...(dto.socialInsurance !== undefined
       ? {

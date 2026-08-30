@@ -84,6 +84,7 @@ export class EmployeesSnapshotSyncService {
         otherDeduction: true,
         otherDeductionNote: true,
         bonus: true,
+        commission: true,
         socialInsurance: true,
         housingFund: true,
         note: true,
@@ -97,6 +98,7 @@ export class EmployeesSnapshotSyncService {
         otherDeduction: Money.fromDbCents(payroll.otherDeduction),
         otherDeductionNote: payroll.otherDeductionNote,
         bonus: Money.fromDbCents(payroll.bonus),
+        commission: Money.fromDbCents(payroll.commission),
         socialInsurance:
           payroll.socialInsurance > 0
             ? Money.fromDbCents(payroll.socialInsurance)

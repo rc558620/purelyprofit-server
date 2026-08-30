@@ -1,4 +1,5 @@
 import { Money, toTimestampMs } from '../../commerce/commerce.utils';
+import { parseAssignmentsJson } from '../commission/commission.utils';
 import type {
   SpaceSessionItemResponseDto,
   SpaceSessionRenewRecordResponseDto,
@@ -180,6 +181,20 @@ export const toSpaceSessionResponse = (
     renewRecords: renewRecords.map(
       (record): SpaceSessionRenewRecordResponseDto => ({ ...record }),
     ),
+    // 技师提成分配：DB JSON 金额为分，转为元输出
+    ...(session.commissionAssignments
+      ? {
+          commissionAssignments: parseAssignmentsJson(
+            session.commissionAssignments,
+          ).map((assignment) => ({
+            technicianId: assignment.technicianId,
+            technicianName: assignment.technicianName,
+            serviceIds: assignment.serviceIds,
+            serviceNames: assignment.serviceNames,
+            commission: Money.fromDbCents(assignment.commission).toOutputYuan(),
+          })),
+        }
+      : {}),
     status: session.status,
     ...(session.saleOrderId !== null
       ? { orderId: String(session.saleOrderId) }

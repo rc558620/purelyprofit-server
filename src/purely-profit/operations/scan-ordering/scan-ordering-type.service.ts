@@ -62,7 +62,7 @@ export class ScanOrderingTypeService {
     user: AuthenticatedUser,
     dto: CreateScanOrderingTypeDto,
   ): Promise<ScanOrderingTypeResponse> {
-    const storeId = await this.resolveStoreId(user);
+    const storeId = await this.resolveConfigStoreId(user);
 
     const existingType = await this.prisma.scanOrderingType.findUnique({
       where: { storeId_name: { storeId, name: dto.name } },
@@ -105,7 +105,7 @@ export class ScanOrderingTypeService {
     typeId: number,
     dto: UpdateScanOrderingTypeDto,
   ): Promise<void> {
-    const storeId = await this.resolveStoreId(user);
+    const storeId = await this.resolveConfigStoreId(user);
 
     try {
       const result = await this.prisma.scanOrderingType.updateMany({
@@ -141,7 +141,7 @@ export class ScanOrderingTypeService {
   }
 
   async remove(user: AuthenticatedUser, typeId: number): Promise<void> {
-    const storeId = await this.resolveStoreId(user);
+    const storeId = await this.resolveConfigStoreId(user);
 
     // 检查是否有桌台使用该类型
     const tableCount = await this.prisma.scanOrderingTable.count({
@@ -177,6 +177,15 @@ export class ScanOrderingTypeService {
       undefined,
       'scan-ordering:table-manage',
       '无权管理扫码点餐类型',
+    );
+  }
+
+  private resolveConfigStoreId(user: AuthenticatedUser): Promise<number> {
+    return this.commerceAccessService.resolveSingleStoreId(
+      user,
+      undefined,
+      'scan-ordering:table-config',
+      '无权配置扫码点餐类型',
     );
   }
 }

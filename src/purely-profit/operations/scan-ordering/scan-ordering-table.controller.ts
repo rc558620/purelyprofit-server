@@ -76,7 +76,7 @@ export class ScanOrderingTableController {
   }
 
   @Post('areas')
-  @RequirePermissions('scan-ordering:table-manage')
+  @RequirePermissions('scan-ordering:table-config')
   @ApiOperation({ summary: '新增扫码点餐桌台区域' })
   async createArea(
     @CurrentUser() user: AuthenticatedUser,
@@ -91,7 +91,7 @@ export class ScanOrderingTableController {
   }
 
   @Patch('areas/:areaId')
-  @RequirePermissions('scan-ordering:table-manage')
+  @RequirePermissions('scan-ordering:table-config')
   @ApiOperation({ summary: '更新扫码点餐桌台区域' })
   async updateArea(
     @CurrentUser() user: AuthenticatedUser,
@@ -107,7 +107,7 @@ export class ScanOrderingTableController {
   }
 
   @Delete('areas/:areaId')
-  @RequirePermissions('scan-ordering:table-manage')
+  @RequirePermissions('scan-ordering:table-config')
   @ApiOperation({ summary: '删除空的扫码点餐桌台区域' })
   removeArea(
     @CurrentUser() user: AuthenticatedUser,
@@ -127,7 +127,7 @@ export class ScanOrderingTableController {
   }
 
   @Post('types')
-  @RequirePermissions('scan-ordering:table-manage')
+  @RequirePermissions('scan-ordering:table-config')
   @ApiOperation({ summary: '新增扫码点餐桌台类型' })
   createType(
     @CurrentUser() user: AuthenticatedUser,
@@ -137,7 +137,7 @@ export class ScanOrderingTableController {
   }
 
   @Patch('types/:typeId')
-  @RequirePermissions('scan-ordering:table-manage')
+  @RequirePermissions('scan-ordering:table-config')
   @ApiOperation({ summary: '更新扫码点餐桌台类型' })
   updateType(
     @CurrentUser() user: AuthenticatedUser,
@@ -148,7 +148,7 @@ export class ScanOrderingTableController {
   }
 
   @Delete('types/:typeId')
-  @RequirePermissions('scan-ordering:table-manage')
+  @RequirePermissions('scan-ordering:table-config')
   @ApiOperation({ summary: '删除空的扫码点餐桌台类型' })
   removeType(
     @CurrentUser() user: AuthenticatedUser,
@@ -168,7 +168,7 @@ export class ScanOrderingTableController {
   }
 
   @Post()
-  @RequirePermissions('scan-ordering:table-manage')
+  @RequirePermissions('scan-ordering:table-config')
   @ApiOperation({ summary: '新增商家扫码点餐桌台' })
   createTable(
     @CurrentUser() user: AuthenticatedUser,
@@ -178,7 +178,7 @@ export class ScanOrderingTableController {
   }
 
   @Patch(':tableId')
-  @RequirePermissions('scan-ordering:table-manage')
+  @RequirePermissions('scan-ordering:table-config')
   @ApiOperation({ summary: '编辑商家扫码点餐桌台' })
   updateTable(
     @CurrentUser() user: AuthenticatedUser,
@@ -199,7 +199,7 @@ export class ScanOrderingTableController {
   }
 
   @Delete(':tableId')
-  @RequirePermissions('scan-ordering:table-manage')
+  @RequirePermissions('scan-ordering:table-config')
   @ApiOperation({ summary: '删除空的扫码点餐桌台' })
   removeTable(
     @CurrentUser() user: AuthenticatedUser,

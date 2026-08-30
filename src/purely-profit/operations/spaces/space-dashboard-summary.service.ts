@@ -6,6 +6,7 @@ import {
 } from '@prisma/client';
 import { Money, toTimestampMs } from '../../commerce/commerce.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { aggregateOrderStats } from '../sales-record/sales-record.query';
 import type { SalesPaymentMethodValue } from '../sales-record/sales-record.types';
 import type {
   SpaceDashboardActiveSessionSummaryDto,
@@ -167,9 +168,11 @@ export class SpaceDashboardSummaryService {
     todayRevenue: number;
   }> {
     const todayRange = getTodayRange();
-    // BUG-fix: 移除 spaceSession 过滤条件，统计所有今日销售记录（含直接销售 + 空间会话结账销售）
-    // 之前仅统计 spaceSession isNot null 的销售单，导致直接销售记录不计入空间看板营业额
-    const [todaySettled, revenueAgg] = await Promise.all([
+    // BUG-fix: 营业额与销售记录页同口径——从 sale_order_items 聚合实际消费
+    // （台位费 + 商品费），排除「预付款/续费抵扣」负项行并扣除退款。
+    // 之前直接 SUM(saleOrder.totalRevenue) 会把预付款抵扣算作负收入，
+    // 导致「预付 > 消费」的结账单（如倒计时/团购预付）拉低甚至翻转今日营业额。
+    const [todaySettled, salesStats] = await Promise.all([
       this.prisma.saleOrder.count({
         where: {
           storeId,
@@ -179,25 +182,15 @@ export class SpaceDashboardSummaryService {
           },
         },
       }),
-      this.prisma.saleOrder.aggregate({
-        where: {
-          storeId,
-          date: {
-            gte: todayRange.start,
-            lte: todayRange.end,
-          },
-        },
-        _sum: {
-          totalRevenue: true,
-        },
+      aggregateOrderStats(this.prisma, storeId, {
+        start: todayRange.start.getTime(),
+        end: todayRange.end.getTime(),
       }),
     ]);
 
     return {
       todaySettled,
-      todayRevenue: Money.fromDbCents(
-        revenueAgg._sum.totalRevenue ?? 0,
-      ).toOutputYuan(),
+      todayRevenue: salesStats.totalRevenue,
     };
   }
 

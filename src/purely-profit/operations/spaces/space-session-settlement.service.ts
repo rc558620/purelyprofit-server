@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SpaceSessionStatus as PrismaSpaceSessionStatus } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { buildCheckoutSettlementData } from './space-session-checkout-data.shared';
 import {
@@ -28,12 +29,16 @@ import {
 import { createAutoCheckoutSystemUser } from './space-session-auto-checkout.service';
 import { SpaceSessionSaleOrderService } from './space-session-sale-order.service';
 import { MarketingConsumptionLinkService } from '../../marketing/marketing-consumption-link.service';
+import { CommissionCoreService } from '../commission/commission-core.service';
+import { parseAssignmentsJson } from '../commission/commission.utils';
+import { formatShanghaiYearMonth } from '../../../shared/shanghai-time.utils';
 import type {
   SettleSpaceSessionParams,
   SettleSpaceSessionResult,
 } from './space-session-settlement.types';
 import type { SpaceSessionRecord } from './space-sessions.types';
 import type { SpaceStatusValue } from './spaces.constants';
+import type { CommissionAssignmentRecord } from '../commission/commission.types';
 
 @Injectable()
 export class SpaceSessionSettlementService {
@@ -46,6 +51,7 @@ export class SpaceSessionSettlementService {
     private readonly redisService: RedisService,
     private readonly reservationsStateService: SpaceReservationsStateService,
     private readonly marketingConsumptionLinkService: MarketingConsumptionLinkService,
+    private readonly commissionCoreService: CommissionCoreService,
   ) {}
 
   async settleSession(
@@ -236,6 +242,9 @@ export class SpaceSessionSettlementService {
           // 结算时不需要重新写入 renewRecords
 
           // ①②④ 修复：结账侧团购/券/平台字段落库
+          // 技师提成：结账时按配置重算每行金额（后端权威），生成提成记录并回写会话最终快照
+          const commissionAssignments =
+            await this.recomputeAndSettleCommissions(transaction, params);
           const checkoutSettlementData = buildCheckoutSettlementData({
             checkoutAt: params.checkoutAt,
             freshSettlement,
@@ -253,6 +262,7 @@ export class SpaceSessionSettlementService {
             platformSettledAmount: params.platformSettledAmount,
             platformFee: params.platformFee,
             timeFeeMode: params.timeFeeMode,
+            commissionAssignments,
           });
 
           const nextSession = await transaction.spaceSession.update({
@@ -328,5 +338,42 @@ export class SpaceSessionSettlementService {
         );
       }
     }
+  }
+
+  /**
+   * 结账时按配置重算会话提成分配（金额为分），生成 settled 提成记录，
+   * 返回最终分配快照用于回写会话；无提成分配时返回 undefined。
+   */
+  private async recomputeAndSettleCommissions(
+    transaction: Prisma.TransactionClient,
+    params: SettleSpaceSessionParams,
+  ): Promise<CommissionAssignmentRecord[] | undefined> {
+    const rawAssignments = parseAssignmentsJson(
+      params.session.commissionAssignments,
+    );
+    if (rawAssignments.length === 0) {
+      return undefined;
+    }
+
+    const servicesMap = await this.commissionCoreService.buildServicesMap(
+      transaction,
+      params.session.storeId,
+    );
+    const finalAssignments = this.commissionCoreService.recomputeAssignments(
+      servicesMap,
+      rawAssignments,
+    );
+
+    const settledAt = new Date(params.checkoutAt);
+    await this.commissionCoreService.createSettledRecords(transaction, {
+      storeId: params.session.storeId,
+      sessionId: params.session.id,
+      spaceName: params.session.space.name,
+      assignments: finalAssignments,
+      settledAt,
+      month: formatShanghaiYearMonth(settledAt.getTime()),
+    });
+
+    return finalAssignments;
   }
 }

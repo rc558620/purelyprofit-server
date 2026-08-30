@@ -56,9 +56,12 @@ export const PERMISSION_CODES = [
   'service-call:process',
   'scan-ordering:view',
   'scan-ordering:table-manage',
+  'scan-ordering:table-config',
   'scan-ordering:menu-manage',
   'scan-ordering:order-process',
   'scan-ordering:report-view',
+  'commission:view',
+  'commission:manage',
 ] as const;
 
 export type PermissionCode = (typeof PERMISSION_CODES)[number];
@@ -162,9 +165,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, readonly string[]> = {
     'service-call:process',
     'scan-ordering:view',
     'scan-ordering:table-manage',
+    'scan-ordering:table-config',
     'scan-ordering:menu-manage',
     'scan-ordering:order-process',
     'scan-ordering:report-view',
+    'commission:view',
+    'commission:manage',
   ],
   [StaffRole.staff]: [
     'store:view',

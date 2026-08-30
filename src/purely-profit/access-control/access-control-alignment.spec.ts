@@ -83,6 +83,8 @@ describe('Sub-account alignment regression', () => {
       'scan-ordering:view',
       'scan-ordering:table-manage',
       'scan-ordering:order-process',
+      'service-call:view',
+      'service-call:process',
       'handover:view',
       'handover:create',
       'handover:update',
@@ -92,6 +94,7 @@ describe('Sub-account alignment regression', () => {
     expect(permissions).not.toContain('marketing:view');
     expect(permissions).not.toContain('finance:view');
     expect(permissions).not.toContain('store:view');
+    expect(permissions).not.toContain('scan-ordering:table-config');
   });
 
   it('manager 的首页模块与关键接口权限保持一致', () => {

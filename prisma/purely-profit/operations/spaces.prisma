@@ -129,11 +129,14 @@ model SpaceSession {
   platformFee                  Int?                      @map("platform_fee")
   timeFeeMode                  String?                   @map("time_fee_mode")
   itemsCost                    Int                       @default(0) @map("items_cost")
+  /// 技师提成分配快照 [{ technicianId: Int, technicianName, serviceIds: Int[], serviceNames: string[], commission: Int(分) }]
+  commissionAssignments        Json?                     @map("commission_assignments")
   status                       SpaceSessionStatus        @default(active)
   createdAt                    DateTime                  @default(now()) @map("created_at")
   updatedAt                    DateTime                  @updatedAt @map("updated_at")
   sessionItems                 SpaceSessionItem[]
   sessionRenewRecords          SpaceSessionRenewRecord[]
+  commissionRecords            CommissionRecord[]
   openOperatorStaff            Staff?                    @relation("SpaceSessionOpenOperator", fields: [openOperatorStaffId], references: [id])
   reservation                  SpaceReservation?         @relation(fields: [reservationId], references: [id])
   saleOrder                    SaleOrder?                @relation(fields: [saleOrderId], references: [id])

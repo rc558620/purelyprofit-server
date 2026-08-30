@@ -87,6 +87,7 @@ export const createSpaceSessionRecord = (): SpaceSessionSettlementRecord =>
     itemsCost: 2000, // DB 存储为分（20元）
     /// Step 8.1: renewRecords 已拆为独立表
     sessionRenewRecords: [],
+    commissionAssignments: null,
     status: SpaceSessionStatus.active,
     saleOrderId: null,
     createdAt: new Date(2026, 5, 4, 9, 0, 0),
