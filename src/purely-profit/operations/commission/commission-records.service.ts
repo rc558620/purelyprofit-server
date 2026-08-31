@@ -1,10 +1,13 @@
 /**
- * 提成记录查询：明细分页 + 汇总 + 员工月度提成（工资弹窗回填）。
+ * 提成记录查询：明细分页 + 汇总 + 员工月度提成（工资弹窗回填）+ CSV 导出。
  * 汇总与金额均由后端计算，前端仅展示。
  */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma, CommissionRecordStatus } from '@prisma/client';
+import type { ServerResponse } from 'node:http';
 import { Money } from '../../../shared/money.utils';
+import { formatShanghaiDateTime } from '../../../shared/shanghai-time.utils';
+import { safeStreamCsvExport } from '../../../shared/stream-export.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -33,6 +36,26 @@ interface CommissionStatusAggregate {
   _count: { _all: number };
 }
 
+// ─── CSV 导出辅助 ─────────────────────────────────────────────────
+
+/** 提成明细 CSV 表头（列结构与打印报表一致）。 */
+const COMMISSION_EXPORT_HEADERS = [
+  '技师',
+  '空间',
+  '服务（每服务提成）',
+  '提成金额(元)',
+  '状态',
+  '结账时间',
+];
+
+/** 提成状态中文标签（与前端 COMMISSION_STATUS_META 保持一致）。 */
+const COMMISSION_STATUS_LABELS: Record<CommissionRecordStatusValue, string> = {
+  pending: '待结账',
+  settled: '已结账',
+  included: '已计入工资',
+  cancelled: '已作废',
+};
+
 @Injectable()
 export class CommissionRecordsService {
   constructor(
@@ -55,12 +78,7 @@ export class CommissionRecordsService {
 
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? COMMISSION_RECORDS_DEFAULT_PAGE_SIZE;
-    const where: Prisma.CommissionRecordWhereInput = {
-      storeId,
-      ...(query.month ? { month: query.month } : {}),
-      ...(query.technicianId ? { technicianId: query.technicianId } : {}),
-      ...(query.status ? { status: query.status } : {}),
-    };
+    const where = this.buildWhere(storeId, query);
 
     const [rows, total, aggregates] = await Promise.all([
       this.prisma.commissionRecord.findMany({
@@ -125,6 +143,126 @@ export class CommissionRecordsService {
         aggregated._sum.commission ?? 0,
       ).toOutputYuan(),
     };
+  }
+
+  /**
+   * 流式导出提成明细 CSV，O(1) 内存占用。
+   * 导出当前筛选条件下全量记录（不随分页截断），列结构对齐打印报表；
+   * 文件内容由后端生成，前端仅触发下载。
+   */
+  async streamExportCsv(
+    reply: ServerResponse,
+    user: AuthenticatedUser,
+    query: ListCommissionRecordsQueryDto,
+  ): Promise<void> {
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
+      user,
+      undefined,
+      'commission:view',
+      '无权访问该门店的提成明细',
+    );
+
+    const where = this.buildWhere(storeId, query);
+
+    // 先完成数据加载再写 CSV 头，保证加载阶段异常可被 NestJS 以 JSON 响应拦截
+    const [rows, aggregates] = await Promise.all([
+      this.prisma.commissionRecord.findMany({
+        where,
+        orderBy: [{ settledAt: 'desc' }, { id: 'desc' }],
+      }),
+      this.prisma.commissionRecord.groupBy({
+        by: ['status'],
+        where,
+        _sum: { commission: true },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const summary = this.buildSummary(
+      aggregates as unknown as CommissionStatusAggregate[],
+    );
+    const prefixRows = this.buildExportPrefixRows(summary, query.month);
+    const dataRows = rows.map((row) =>
+      this.buildExportCsvRow(this.toRecordRow(row)),
+    );
+
+    safeStreamCsvExport(
+      reply,
+      `提成明细-${query.month ?? '全部'}.csv`,
+      COMMISSION_EXPORT_HEADERS,
+      dataRows,
+      prefixRows,
+    );
+  }
+
+  /** 筛选条件 → Prisma where（列表与导出共用同一口径）。 */
+  private buildWhere(
+    storeId: number,
+    query: ListCommissionRecordsQueryDto,
+  ): Prisma.CommissionRecordWhereInput {
+    return {
+      storeId,
+      ...(query.month ? { month: query.month } : {}),
+      ...(query.technicianId ? { technicianId: query.technicianId } : {}),
+      ...(query.status ? { status: query.status } : {}),
+    };
+  }
+
+  /** 汇总 + 月份 → CSV 前缀行（报表头 / 归属月份 / 统计汇总）。 */
+  private buildExportPrefixRows(
+    summary: CommissionRecordsSummaryDto,
+    month: string | undefined,
+  ): unknown[][] {
+    const now = Date.now();
+    return [
+      ['提成明细报表', '', '', `导出时间: ${formatShanghaiDateTime(now)}`],
+      [],
+      ['归属月份', month ? `\t${month}` : '全部月份'],
+      [],
+      ['【统计汇总】'],
+      [
+        '已结账提成(元)',
+        '待结账提成(元)',
+        '已作废提成(元)',
+        '总笔数',
+        '已结账笔数',
+        '待结账笔数',
+        '已作废笔数',
+      ],
+      [
+        summary.settledTotal,
+        summary.pendingTotal,
+        summary.cancelledTotal,
+        summary.totalCount,
+        summary.settledCount,
+        summary.pendingCount,
+        summary.cancelledCount,
+      ],
+      [],
+      ['【提成明细】'],
+    ];
+  }
+
+  /** 业务视图行 → CSV 数据行（金额分→元两位小数，\t 前缀防 Excel 类型转换）。 */
+  private buildExportCsvRow(row: CommissionRecordRow): unknown[] {
+    const serviceText = row.serviceNames
+      .map((name, index) => {
+        const serviceCommission = row.serviceCommissions[index];
+        const serviceName = name || '未命名服务';
+        return serviceCommission === undefined
+          ? serviceName
+          : `${serviceName}（¥${Money.fromDbCents(serviceCommission).toFixedOutputYuan()}）`;
+      })
+      .join('；');
+
+    return [
+      row.technicianName || '-',
+      row.spaceName || '-',
+      serviceText,
+      `\t${Money.fromDbCents(row.commission).toFixedOutputYuan()}`,
+      COMMISSION_STATUS_LABELS[row.status] ?? row.status,
+      row.settledAt ? `\t${formatShanghaiDateTime(row.settledAt.getTime())}` : '-',
+    ];
   }
 
   /** Prisma 行 → 业务视图行（serviceIds/serviceNames/serviceCommissions JSON 收敛）。 */

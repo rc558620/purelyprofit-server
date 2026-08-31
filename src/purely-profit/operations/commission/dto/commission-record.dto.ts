@@ -59,6 +59,14 @@ export class ListCommissionRecordsQueryDto {
     message: '每页条数不能超过 100',
   })
   pageSize?: number;
+
+  @ApiPropertyOptional({
+    enum: ['json', 'csv'],
+    description: '导出格式，默认 json；csv 时服务端直接流式返回 CSV 文件',
+  })
+  @IsOptional()
+  @IsIn(['json', 'csv'], { message: 'format 只支持 json 或 csv' })
+  format?: 'json' | 'csv';
 }
 
 /** 提成明细记录响应（金额为元）。 */
