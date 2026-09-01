@@ -13,7 +13,11 @@ describe('ScanOrderingTableService', () => {
   const user = { id: 1, role: 'store_owner' } as AuthenticatedUser;
   const transaction = {
     scanOrderingTable: { findFirst: jest.fn(), update: jest.fn() },
-    scanOrderingSession: { findMany: jest.fn(), updateMany: jest.fn() },
+    scanOrderingSession: {
+      findMany: jest.fn(),
+      count: jest.fn(),
+      updateMany: jest.fn(),
+    },
     scanOrders: { findMany: jest.fn(), updateMany: jest.fn() },
     scanOrderingCartItem: { updateMany: jest.fn() },
   };
@@ -29,6 +33,7 @@ describe('ScanOrderingTableService', () => {
     jest.clearAllMocks();
     transaction.scanOrderingTable.findFirst.mockResolvedValue({ id: 10 });
     transaction.scanOrderingSession.findMany.mockResolvedValue([{ id: 101 }]);
+    transaction.scanOrderingSession.count.mockResolvedValue(0);
     transaction.scanOrders.findMany.mockResolvedValue([]);
     prisma.$transaction.mockImplementation(
       async (callback: (tx: typeof transaction) => Promise<void>) =>
@@ -135,6 +140,26 @@ describe('ScanOrderingTableService', () => {
         '当前桌台不存在有效用餐会话，无法清桌',
       );
       expect(transaction.scanOrderingTable.update).not.toHaveBeenCalled();
+    });
+
+    it('无 active 会话但存在历史 left 会话：允许清桌并归档 left 会话', async () => {
+      transaction.scanOrderingSession.findMany
+        .mockResolvedValueOnce([]) // activeSessions 查询
+        .mockResolvedValueOnce([{ id: 201, diningRoundId: 'round-left-1' }]) // 回退查询的 left 会话锚点
+        .mockResolvedValueOnce([{ id: 201 }]); // 待归档 left 会话
+      transaction.scanOrderingSession.count.mockResolvedValue(1);
+      transaction.scanOrders.findMany
+        .mockResolvedValueOnce([]) // 手工单查询
+        .mockResolvedValueOnce([]); // 会话订单查询
+
+      await expect(service.clearTable(user, 10)).resolves.toBeUndefined();
+
+      expect(transaction.scanOrderingSession.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: { in: [201] } }),
+        }),
+      );
+      expect(transaction.scanOrderingTable.update).toHaveBeenCalled();
     });
 
     it('手工单未出餐阻塞清桌', async () => {

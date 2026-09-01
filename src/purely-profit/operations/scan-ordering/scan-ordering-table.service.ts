@@ -303,20 +303,44 @@ export class ScanOrderingTableService {
         select: { status: true },
       });
       if (activeSessions.length === 0 && manualEntryOrders.length === 0) {
-        throw new ConflictException('当前桌台不存在有效用餐会话，无法清桌');
+        // 桌台可能残留离桌（left）会话：用户点单后未清桌即离开，会话已 left。
+        // 若无任何 active 会话与手工单，但存在 left 会话，仍允许清桌归档，
+        // 防止历史 left 会话长期残留并被新一轮扫码复用 diningRoundId，导致
+        // 上一轮退款/历史订单重新出现在新订单详情中。
+        const orphanLeftSessions = await tx.scanOrderingSession.count({
+          where: { storeId, tableId, status: 'left' },
+        });
+        if (orphanLeftSessions === 0) {
+          throw new ConflictException('当前桌台不存在有效用餐会话，无法清桌');
+        }
       }
-      const diningRoundIds = activeSessions.map(
+      const roundAnchorSessions =
+        activeSessions.length > 0
+          ? activeSessions
+          : await tx.scanOrderingSession.findMany({
+              where: { storeId, tableId, status: 'left' },
+              select: { id: true, diningRoundId: true },
+            });
+      const diningRoundIds = roundAnchorSessions.map(
         (session) => session.diningRoundId,
       );
-      const sessions = await tx.scanOrderingSession.findMany({
-        where: {
-          storeId,
-          tableId,
-          diningRoundId: { in: diningRoundIds },
-          status: { in: ['active', 'left'] },
-        },
-        select: { id: true },
-      });
+      // 有 active 会话时仅归档其所在轮次（同桌同轮 active+left）；
+      // 仅剩遗留 left 会话时归档同桌全部 left 会话。
+      const sessions =
+        activeSessions.length > 0
+          ? await tx.scanOrderingSession.findMany({
+              where: {
+                storeId,
+                tableId,
+                diningRoundId: { in: diningRoundIds },
+                status: { in: ['active', 'left'] },
+              },
+              select: { id: true },
+            })
+          : await tx.scanOrderingSession.findMany({
+              where: { storeId, tableId, status: 'left' },
+              select: { id: true },
+            });
       const orders = await tx.scanOrders.findMany({
         where: {
           sessionId: { in: sessions.map((session) => session.id) },

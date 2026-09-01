@@ -42,12 +42,20 @@ export class ClubScanOrderingOrderQueryService {
       ScanOrderStatus.served,
     ];
 
+    // 与 upsertSession 复用 diningRoundId 的时间窗口同口径：
+    // 只会话活跃时间落在该窗口内的 left 会话才属于当前用餐轮次。
+    // 兜底历史脏关联——旧会话若在窗口外被复用为当前轮次（见 upsertSession），
+    // 此处不会把其订单再并入当前订单详情。
+    const activeRoundWindowMs = 4 * 60 * 60 * 1000;
+
     const take = (query.limit ?? 20) + 1;
     const sessions = await this.prisma.scanOrderingSession.findMany({
       where: {
         clubUserId: user.id,
         // left 会话本身不是当前会话；但同一用户在同桌仍有有效 active 会话时，
         // left 中的待履约订单仍属于当前用餐轮次，不能同时从当前订单和历史记录遗漏。
+        // 同时要求 left 会话最近仍活跃（lastActiveAt 落在窗口内），避免跨天清桌后
+        // 旧会话的退款/历史订单重新出现在新一轮订单详情中。
         OR: [
           {
             status: ScanOrderingSessionStatus.active,
@@ -56,6 +64,7 @@ export class ClubScanOrderingOrderQueryService {
           },
           {
             status: ScanOrderingSessionStatus.left,
+            lastActiveAt: { gte: new Date(Date.now() - activeRoundWindowMs) },
             diningRoundId: {
               in: await this.activeDiningRoundIds(user.id),
             },

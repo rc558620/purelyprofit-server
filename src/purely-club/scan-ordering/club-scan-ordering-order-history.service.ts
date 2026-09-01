@@ -26,10 +26,13 @@ export class ClubScanOrderingOrderHistoryService {
         clubUserId: user.id,
         // 历史记录必须包含清桌的 checked_out 会话，以及重新扫码时标记为
         // left（同时可能软删除）的会话；否则已支付订单会从两处列表都消失。
+        // left 会话仅展示已结束订单（rejected/cancelled/completed，见下方过滤），
+        // 避免把仍在当前桌台履约中的订单误入历史。
         status: {
           in: [
             ScanOrderingSessionStatus.checked_out,
             ScanOrderingSessionStatus.expired,
+            ScanOrderingSessionStatus.left,
           ],
         },
         ...(query.cursor ? { id: { lt: query.cursor } } : {}),

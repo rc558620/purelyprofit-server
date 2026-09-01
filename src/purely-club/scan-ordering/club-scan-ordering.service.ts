@@ -283,6 +283,9 @@ export class ClubScanOrderingService {
         tableId,
         clubUserId,
         status: { in: ['active', 'left'] },
+        // 只允许复用最近 SESSION_TTL_MS 内的 diningRound，防止跨天/跨轮次复用
+        // 导致旧会话的退款订单出现在新订单详情中——清桌后的旧会话不应再与当前用餐关联
+        lastActiveAt: { gte: new Date(now.getTime() - SESSION_TTL_MS) },
       },
       orderBy: { lastActiveAt: 'desc' },
       select: { diningRoundId: true },
