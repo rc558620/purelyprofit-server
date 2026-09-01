@@ -134,13 +134,15 @@ export class ServiceCallRealtimeService
           `收到 service_call.updated: serviceCallId=${payload.id}, status=${payload.status}, clubUserId=${String(payload.clubUserId)}, storeId=${payload.storeId}, namespaceReady=${Boolean(this.namespace)}, pid=${process.pid}`,
         );
       }
-      this.namespace?.to(this.storeRoom(payload.storeId)).emit(event, payload);
+      this.namespace
+        ?.to(this.storeRoom(payload.storeId))
+        .local.emit(event, payload);
       if (payload.clubUserId) {
         const room = this.clubUserRoom(payload.clubUserId);
         this.logger.log(
           `向 Club 服务呼叫房间广播: serviceCallId=${payload.id}, room=${room}, status=${payload.status}, pid=${process.pid}`,
         );
-        this.namespace?.to(room).emit(event, payload);
+        this.namespace?.to(room).local.emit(event, payload);
         for (const listener of this.clubUserSubscribers.get(
           payload.clubUserId,
         ) ?? []) {

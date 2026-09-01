@@ -325,9 +325,9 @@ export class ScanOrderingRealtimeService
       );
     }
     if (storeId)
-      this.namespace?.to(this.storeRoom(storeId)).emit(event, payload);
+      this.namespace?.to(this.storeRoom(storeId)).local.emit(event, payload);
     if (event === 'order.status_changed' && orderId) {
-      this.namespace?.to(this.orderRoom(orderId)).emit(event, payload);
+      this.namespace?.to(this.orderRoom(orderId)).local.emit(event, payload);
       this.publishToNativeOrderSubscribers(orderId, { type: event, payload });
     }
     if (
@@ -341,12 +341,12 @@ export class ScanOrderingRealtimeService
         if (storeId)
           this.namespace
             ?.to(this.voucherOrderStoreRoom(storeId))
-            .emit(event, payload);
+            .local.emit(event, payload);
         if (event === 'voucher_order.status_changed') {
           // 用户端订阅 voucher-order 房间 + native 订阅者：订单详情自动刷新
           this.namespace
             ?.to(this.voucherOrderRoom(orderNo))
-            .emit(event, payload);
+            .local.emit(event, payload);
           this.publishToNativeVoucherOrderSubscribers(orderNo, {
             type: event,
             payload,
@@ -355,7 +355,9 @@ export class ScanOrderingRealtimeService
       }
     }
     if (sessionId)
-      this.namespace?.to(this.sessionRoom(sessionId)).emit(event, payload);
+      this.namespace
+        ?.to(this.sessionRoom(sessionId))
+        .local.emit(event, payload);
   }
 
   private numberValue(value: unknown): number | null {
