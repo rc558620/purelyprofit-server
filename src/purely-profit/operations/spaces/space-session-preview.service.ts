@@ -39,6 +39,8 @@ export interface LivePreviewResult {
   itemsCost: number;
   renewDeduction: number;
   prepaidDeduction: number;
+  /** 自助下单已在线支付商品的抵扣合计（元），从待付总额中冲减 */
+  selfOrderDeduction: number;
   totalAmount: number;
   timeFeeMode?: string;
   countdownFeeMode?: string;
@@ -94,6 +96,7 @@ export class SpaceSessionPreviewService {
       itemsCost: settlement.itemsCostMoney.toOutputYuan(),
       renewDeduction: settlement.renewDeductionMoney.toOutputYuan(),
       prepaidDeduction: settlement.prepaidDeductionMoney.toOutputYuan(),
+      selfOrderDeduction: settlement.selfOrderDeductionMoney.toOutputYuan(),
       totalAmount: settlement.totalAmountMoney.toOutputYuan(),
       ...(settlement.timeFeeMode
         ? { timeFeeMode: settlement.timeFeeMode }

@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { SpacePrintSettingsService } from './space-print-settings.service';
-import { SpacePrintDataService } from './space-print-data.service';
+import { SpacePrintDataService, selfOrderChannelLabel } from './space-print-data.service';
 import { FeiePrintService } from '../scan-ordering/feie-print.service';
 import { UsbPrintService } from '../scan-ordering/usb-print.service';
 import { PrintAgentService } from '../scan-ordering/print-agent.service';
@@ -152,9 +152,12 @@ export class SpacePrintService {
     if (order.items.length > 0) {
       lines.push('商品明细<BR>');
       order.items.forEach((item) => {
-        lines.push(
-          `${item.name} x${item.quantity}  ￥${item.subtotal.toFixed(2)}<BR>`,
-        );
+        // 自助下单商品：商品名后拼「自助/余额/已付」标注（飞鹅标签无字号控制）
+        const name =
+          item.sourceType === 'member_self_order'
+            ? `${item.name}(自助/${selfOrderChannelLabel(item.sourceChannel)}/已付)`
+            : item.name;
+        lines.push(`${name} x${item.quantity}  ￥${item.subtotal.toFixed(2)}<BR>`);
       });
       lines.push(`商品合计：￥${order.itemsCost.toFixed(2)}<BR>`);
     }
@@ -163,6 +166,11 @@ export class SpacePrintService {
     }
     if (order.prepaidDeduction > 0) {
       lines.push(`预付抵扣：-￥${order.prepaidDeduction.toFixed(2)}<BR>`);
+    }
+    if (order.selfOrderDeduction > 0) {
+      lines.push(
+        `自助下单（已支付）：-￥${order.selfOrderDeduction.toFixed(2)}<BR>`,
+      );
     }
     lines.push('--------------------------------<BR>');
     // 合计可能为负数（应退），与 USB 通道一致保持常规字重
@@ -208,6 +216,7 @@ export class SpacePrintService {
       itemsCost: order.itemsCost,
       renewDeduction: order.renewDeduction,
       prepaidDeduction: order.prepaidDeduction,
+      selfOrderDeduction: order.selfOrderDeduction,
       totalAmount: order.totalAmount,
       paymentMethodLabel: order.paymentMethodLabel,
       note: order.note,

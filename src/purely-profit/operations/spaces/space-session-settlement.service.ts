@@ -235,6 +235,10 @@ export class SpaceSessionSettlementService {
                 : Money.fromInputYuan(item.profit).toDbCents(),
               quantity: item.quantity,
               sortOrder: index,
+              // 保留来源标记（自助下单已在线支付等），供审计与后续对账
+              sourceType: item.sourceType ?? null,
+              sourceOrderNo: item.sourceOrderNo ?? null,
+              sourceOrderItemId: item.sourceOrderItemId ?? null,
             })),
           });
 

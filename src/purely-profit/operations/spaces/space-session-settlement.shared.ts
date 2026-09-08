@@ -1,6 +1,10 @@
 import { SpaceBillingMode as PrismaSpaceBillingMode } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
 import {
+  SELF_ORDER_DEDUCTION_PRODUCT_ID,
+  SELF_ORDER_DEDUCTION_PRODUCT_NAME,
+} from '../../commerce/commerce.utils';
+import {
   sumLineTotalMoney,
   sumLineProfitMoney,
 } from './space-session-items.shared';
@@ -39,6 +43,7 @@ export const buildSpaceSessionSettlement = (params: {
     itemsCost: core.itemsCostMoney.toOutputYuan(),
     renewDeduction: core.renewDeductionMoney.toOutputYuan(),
     prepaidDeduction: core.prepaidDeductionMoney.toOutputYuan(),
+    selfOrderDeduction: core.selfOrderDeductionMoney.toOutputYuan(),
     totalAmount: totalRevenueMoney.toOutputYuan(),
     orderItems: core.orderItems,
     totalRevenue: totalRevenueMoney.toOutputYuan(),
@@ -70,6 +75,7 @@ export const buildSpaceSessionSettlementMoney = (params: {
     itemsCostMoney: core.itemsCostMoney,
     renewDeductionMoney: core.renewDeductionMoney,
     prepaidDeductionMoney: core.prepaidDeductionMoney,
+    selfOrderDeductionMoney: core.selfOrderDeductionMoney,
     totalAmountMoney: totalRevenueMoney,
     totalRevenueMoney,
     totalProfitMoney,
@@ -170,6 +176,34 @@ const buildSpaceSessionSettlementCore = (params: {
     });
   }
 
+  // 自助下单抵扣：商品行来源为 member_self_order 时顾客已在小程序侧在线支付
+  // （余额/微信），结算时按每个已支付商品生成一条独立负向抵扣明细行
+  // （productName =「商品名 · 自助下单抵扣」，交班/销售记录展示为
+  // 「A04 · 橙汁 · 自助下单抵扣」），把该商品行的金额与利润一并冲减为 0，
+  // 防止空间账单重复收费。productId 统一为 SYS_SELF_ORDER_DEDUCTION，
+  // isDeductionItem 识别逻辑不变；历史单据仍是一条总和行，由
+  // isDeductionProductName 兼容识别。
+  const selfOrderDeductionMoney = sumSelfOrderDeductionMoney(items);
+  if (selfOrderDeductionMoney.isPositive()) {
+    items
+      .filter((item) => item.sourceType === SELF_ORDER_ITEM_SOURCE_TYPE)
+      .forEach((item) => {
+        const deductionYuan = Money.fromInputYuan(item.lineTotal).toOutputYuan();
+        const itemProfitYuan = Money.fromInputYuan(item.profit)
+          .multiply(item.quantity)
+          .toOutputYuan();
+        orderItems.push({
+          productId: SELF_ORDER_DEDUCTION_PRODUCT_ID,
+          productName: `${item.productName} · ${SELF_ORDER_DEDUCTION_PRODUCT_NAME}`,
+          categoryName: '自助下单',
+          salePrice: -deductionYuan,
+          profit: -itemProfitYuan,
+          quantity: 1,
+          lineTotal: -deductionYuan,
+        });
+      });
+  }
+
   if (orderItems.length === 0) {
     orderItems.push({
       productId: 'SYS_EMPTY_SETTLEMENT',
@@ -192,6 +226,7 @@ const buildSpaceSessionSettlementCore = (params: {
     timeCostMoney,
     renewDeductionMoney,
     prepaidDeductionMoney,
+    selfOrderDeductionMoney,
   };
 };
 
@@ -267,7 +302,31 @@ const resolveSpaceSessionPrepaidDeductionMoney = (
 };
 
 const isSpaceSessionDeductionItem = (productId: string): boolean =>
-  productId === 'SYS_RENEW_DEDUCTION' || productId === 'SYS_PREPAID_DEDUCTION';
+  productId === 'SYS_RENEW_DEDUCTION' ||
+  productId === 'SYS_PREPAID_DEDUCTION' ||
+  productId === SELF_ORDER_DEDUCTION_PRODUCT_ID;
+
+/**
+ * SpaceSessionItem.sourceType 标记：会员自助下单且已在线支付。
+ * 与 purely-club/self-ordering 写入端保持一致（跨模块不复用其常量，避免反向依赖）。
+ */
+const SELF_ORDER_ITEM_SOURCE_TYPE = 'member_self_order';
+
+/**
+ * 自助下单已支付商品抵扣合计（Money，全程分单位运算）。
+ * 结账预览与会话详情接口共用此函数，保证两处口径完全一致，
+ * 前端只读展示，不参与任何金额计算。
+ */
+export const sumSelfOrderDeductionMoney = (
+  items: SpaceSessionItemRecord[],
+): Money =>
+  items.reduce(
+    (sum, item) =>
+      item.sourceType === SELF_ORDER_ITEM_SOURCE_TYPE
+        ? sum.add(Money.fromInputYuan(item.lineTotal))
+        : sum,
+    Money.zero(),
+  );
 
 /**
  * B5 fix: 判断是否为不计入销售件数的系统虚拟行。

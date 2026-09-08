@@ -60,6 +60,10 @@ export const PERMISSION_CODES = [
   'scan-ordering:menu-manage',
   'scan-ordering:order-process',
   'scan-ordering:report-view',
+  // 自助下单（非餐饮空间场景）
+  'self-ordering:view',
+  'self-ordering:menu-manage',
+  'self-ordering:order-process',
   'commission:view',
   'commission:manage',
 ] as const;
@@ -169,6 +173,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, readonly string[]> = {
     'scan-ordering:menu-manage',
     'scan-ordering:order-process',
     'scan-ordering:report-view',
+    // 自助下单（非餐饮空间场景）
+    'self-ordering:view',
+    'self-ordering:menu-manage',
+    'self-ordering:order-process',
     'commission:view',
     'commission:manage',
   ],
@@ -188,5 +196,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<StaffRole, readonly string[]> = {
     'sales:create',
     'inventory:view',
     'space:view',
+    // 自助下单（查看权限：非餐饮门店普通员工需实时接收新订单弹窗，与空间查看对齐）
+    'self-ordering:view',
   ],
 };

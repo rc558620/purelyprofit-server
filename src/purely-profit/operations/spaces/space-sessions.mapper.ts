@@ -1,4 +1,5 @@
 import { Money, toTimestampMs } from '../../commerce/commerce.utils';
+import { sumSelfOrderDeductionMoney } from './space-session-settlement.shared';
 import { parseAssignmentsJson } from '../commission/commission.utils';
 import type {
   SpaceSessionItemResponseDto,
@@ -43,6 +44,12 @@ export const mapSessionItemRows = (
         lineTotal: Money.fromDbCents(row.salePrice)
           .multiply(quantity)
           .toOutputYuan(),
+        // 行来源（自助下单等）：结算层据此识别已在线支付商品并生成抵扣行
+        sourceType: row.sourceType ?? null,
+        // 行来源支付渠道（balance/wechat）：明细展示已在线支付方式
+        sourceChannel: row.sourceChannel ?? null,
+        sourceOrderNo: row.sourceOrderNo ?? null,
+        sourceOrderItemId: row.sourceOrderItemId ?? null,
       };
     });
 
@@ -178,6 +185,8 @@ export const toSpaceSessionResponse = (
     items: items.map((item): SpaceSessionItemResponseDto => ({ ...item })),
     // DB 存储为分（Int），转为元
     itemsCost: Money.fromDbCents(session.itemsCost).toOutputYuan(),
+    // 自助下单已支付商品抵扣（元）：与结账预览共用同一结算口径，前端只读展示
+    selfOrderDeduction: sumSelfOrderDeductionMoney(items).toOutputYuan(),
     renewRecords: renewRecords.map(
       (record): SpaceSessionRenewRecordResponseDto => ({ ...record }),
     ),

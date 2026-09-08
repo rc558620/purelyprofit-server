@@ -40,7 +40,16 @@ export const PREPAID_DEDUCTION_PRODUCT_NAME = '预付款';
 export const RENEW_DEDUCTION_PRODUCT_NAME = '续费抵扣';
 
 /**
- * 判断商品行是否为抵扣行（预付款或续费抵扣），
+ * 自助下单已在线支付商品的抵扣行。
+ * 顾客在小程序侧已通过余额/微信完成支付，结算时以同名负向行把该部分
+ * 从空间账单应付中冲减（与续费/预付款抵扣同一记账模式），避免重复收费。
+ * productName 同样需要被非财务模块排除，只算实际消费。
+ */
+export const SELF_ORDER_DEDUCTION_PRODUCT_ID = 'SYS_SELF_ORDER_DEDUCTION';
+export const SELF_ORDER_DEDUCTION_PRODUCT_NAME = '自助下单抵扣';
+
+/**
+ * 判断商品行是否为抵扣行（预付款/续费抵扣/自助下单抵扣），
  * 非财务模块应排除这些行，只算实际消费。
  * 兼容历史数据中 productName = '预付抵扣' 的旧值。
  */
@@ -48,7 +57,8 @@ export function isDeductionProductName(productName: string): boolean {
   return (
     productName === PREPAID_DEDUCTION_PRODUCT_NAME ||
     productName === '预付抵扣' || // 兼容历史数据
-    productName === RENEW_DEDUCTION_PRODUCT_NAME
+    productName === RENEW_DEDUCTION_PRODUCT_NAME ||
+    productName === SELF_ORDER_DEDUCTION_PRODUCT_NAME
   );
 }
 
@@ -63,7 +73,8 @@ export function isDeductionItem(item: {
   if (item.systemProductId) {
     return (
       item.systemProductId === 'SYS_RENEW_DEDUCTION' ||
-      item.systemProductId === 'SYS_PREPAID_DEDUCTION'
+      item.systemProductId === 'SYS_PREPAID_DEDUCTION' ||
+      item.systemProductId === SELF_ORDER_DEDUCTION_PRODUCT_ID
     );
   }
   return isDeductionProductName(item.productName);

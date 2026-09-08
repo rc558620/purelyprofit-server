@@ -25,6 +25,12 @@ export class LivePreviewResponseDto {
   @ApiProperty({ example: 20, description: '预付款（元）' })
   prepaidDeduction: number;
 
+  @ApiProperty({
+    example: 18,
+    description: '自助下单已在线支付抵扣（元），从待付金额中冲减',
+  })
+  selfOrderDeduction: number;
+
   @ApiProperty({ example: 84, description: '待付总金额（元）' })
   totalAmount: number;
 

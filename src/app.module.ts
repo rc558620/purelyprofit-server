@@ -60,6 +60,7 @@ import { ClubVoucherOrdersModule } from './purely-club/voucher-orders/club-vouch
 import { ClubStoresModule } from './purely-club/stores/club-stores.module';
 import { ClubScanOrderingModule } from './purely-club/scan-ordering/club-scan-ordering.module';
 import { ClubServiceCallModule } from './purely-club/service-call/club-service-call.module';
+import { ClubSelfOrderingModule } from './purely-club/self-ordering/club-self-ordering.module';
 import { PulseDevModeModule } from './purely-pulse/dev-mode/pulse-dev-mode.module';
 import { QueueModule } from './queue/queue.module';
 import { CacheControlInterceptor } from './shared/cache-control.interceptor';
@@ -152,6 +153,7 @@ import { UploadModule } from './shared/upload.module';
     ClubStoresModule,
     ClubScanOrderingModule,
     ClubServiceCallModule,
+    ClubSelfOrderingModule,
     PulseDevModeModule,
   ],
   controllers: [AppController],

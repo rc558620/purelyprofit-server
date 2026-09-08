@@ -333,6 +333,38 @@ export class ScanOrderingGateway
     }
   }
 
+  /** 自助下单门店房间订阅（purelyProfit 商家端新订单弹窗），权限与扫码点餐分开 */
+  @SubscribeMessage('subscribe.self-ordering-store')
+  async subscribeSelfOrderingStore(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: JoinStorePayload,
+  ): Promise<{ room: string; storeId: number }> {
+    const identity = this.identityOf(client);
+    this.logger.log(
+      `subscribe.self-ordering-store requested: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}`,
+    );
+    try {
+      await this.commerceAccessService.ensureCanAccessStoreWithAnyPermission(
+        this.toAuthenticatedUser(identity),
+        payload.storeId,
+        ['self-ordering:view', 'self-ordering:order-process'],
+        '无权订阅该门店',
+      );
+      const room = this.realtimeService.selfOrderingStoreRoom(payload.storeId);
+      await client.join(room);
+      this.logger.log(
+        `subscribe.self-ordering-store joined: socketId=${client.id}, room=${room}`,
+      );
+      return { room, storeId: payload.storeId };
+    } catch (error) {
+      this.logger.error(
+        `subscribe.self-ordering-store failed: socketId=${client.id}, userId=${identity.userId}, storeId=${payload.storeId}, membership=${JSON.stringify(identity.currentMembership)}, error=${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
+  }
+
   private async authenticate(client: Socket): Promise<SocketIdentity> {
     const rawToken =
       client.handshake.auth?.token ??

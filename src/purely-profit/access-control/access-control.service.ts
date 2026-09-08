@@ -54,6 +54,8 @@ const CASHIER_SUB_ACCOUNT_PERMISSIONS = [
   'goods:view',
   // 空间管理（非餐饮门店收银员专用：查看空间列表/看板、操作会话/预约）
   'space:view',
+  // 自助下单（查看权限：非餐饮门店收银员需实时接收新订单弹窗，与空间账单可见性对齐）
+  'self-ordering:view',
   // 扫码点餐（餐饮门店收银员专用）
   'scan-ordering:view',
   'scan-ordering:table-manage',
@@ -153,6 +155,10 @@ const GENERAL_MANAGER_SUB_ACCOUNT_PERMISSIONS = [
   // 服务呼叫（门店员工通用：查看 + 确认响应/完成）
   'service-call:view',
   'service-call:process',
+  // 自助下单（非餐饮门店店长专用）
+  'self-ordering:view',
+  'self-ordering:menu-manage',
+  'self-ordering:order-process',
   // 交班管理
   'handover:view',
   'handover:create',

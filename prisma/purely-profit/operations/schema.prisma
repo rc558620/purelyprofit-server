@@ -730,3 +730,129 @@ enum ScanOrderRefundTrigger {
   /// 商家超时未接单/超时未出餐，系统自动退款
   system_timeout
 }
+
+// ─── 自助下单（非餐饮空间场景）───────────────────────────────────────────────
+// 与扫码点餐（ScanOrders）刻意分开建模：自助下单无桌台会话、无取餐号、无餐次，
+// 且不含任何优惠/积分/促销字段（非餐饮自助下单不参与会员优惠）。
+// 订单号使用 SF 前缀，微信支付回调按前缀路由（见 club-payment-callback-dispatch）。
+
+/// 自助下单订单：归属到空间会话，支付成功后自动录入 SpaceSessionItem
+model SelfOrder {
+  id             Int    @id @default(autoincrement()) @map("id")
+  storeId        Int    @map("store_id")
+  /// 业务订单号（SF 前缀）
+  orderNo        String @map("order_no") @db.VarChar(64)
+  /// 空间会话 ID：订单归属基准，也是自动录入 SpaceSessionItem 的依据
+  sessionId      Int    @map("session_id")
+  spaceId        Int    @map("space_id")
+  clubUserId     Int    @map("club_user_id")
+  remark         String? @map("remark") @db.VarChar(500)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(128)
+  currency       String @default("CNY") @map("currency") @db.Char(3)
+  /// 商品合计（分）；无优惠场景下恒等于应付金额
+  itemTotalAmount Int    @default(0) @map("item_total_amount")
+  /// 应付金额（分）
+  payableAmount  Int    @default(0) @map("payable_amount")
+  paidAmount     Int    @default(0) @map("paid_amount")
+  status         SelfOrderStatus        @default(pending_payment) @map("status")
+  paymentStatus  SelfOrderPaymentStatus @default(unpaid) @map("payment_status")
+  /// 乐观锁版本号：并发支付/取消时防重复落账
+  version        Int       @default(0) @map("version")
+  paidAt         DateTime? @map("paid_at")
+  cancelledAt    DateTime? @map("cancelled_at")
+  cancelReason   String?   @map("cancel_reason")
+  deletedAt      DateTime? @map("deleted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  items               SelfOrderItem[]
+  paymentAttempts     SelfOrderPaymentAttempt[]
+  balanceTransactions SelfOrderBalanceTransaction[]
+
+  @@unique([storeId, orderNo])
+  @@unique([storeId, idempotencyKey], map: "uq_self_orders_store_idempotency_key", where: raw("((deleted_at IS NULL) AND (idempotency_key IS NOT NULL))"))
+  @@index([storeId])
+  @@index([sessionId, status])
+  @@index([spaceId, status])
+  @@index([clubUserId, createdAt(sort: Desc)])
+  @@index([storeId, status, createdAt(sort: Desc)], map: "idx_self_orders_store_status_created", where: raw("(deleted_at IS NULL)"))
+  @@map("self_orders")
+}
+
+/// 自助下单订单行：字段与 SpaceSessionItem 同构，便于支付成功后 1:1 录入空间账单
+model SelfOrderItem {
+  id           Int      @id @default(autoincrement()) @map("id")
+  orderId      Int      @map("order_id")
+  /// 商品 ID（弱引用 Product.id，字符串存储；与 SpaceSessionItem.productId 同构）
+  productId    String   @map("product_id") @db.VarChar(64)
+  /// 商品名称快照
+  productName  String   @map("product_name") @db.VarChar(200)
+  /// 商品分类快照
+  categoryName String?  @map("category_name") @db.VarChar(100)
+  /// 销售单价快照（分）
+  salePrice    Int      @map("sale_price")
+  /// 成本单价快照（分）；录入 SpaceSessionItem 时用于计算 profit
+  costPrice    Int      @default(0) @map("cost_price")
+  quantity     Int      @map("quantity")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  order SelfOrder @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("self_order_items")
+}
+
+/// 自助下单支付尝试：微信侧防重 + 幂等落账
+model SelfOrderPaymentAttempt {
+  id                Int      @id @default(autoincrement()) @map("id")
+  orderId           Int      @map("order_id")
+  /// 渠道：marketing_balance / wechat_jsapi
+  paymentChannel    String   @map("payment_channel") @db.VarChar(32)
+  /// 商户支付单号（微信侧 out_trade_no）
+  merchantPaymentNo String   @map("merchant_payment_no") @db.VarChar(64)
+  amountFen         Int      @map("amount_fen")
+  /// 状态：pending / succeeded / failed
+  status            String   @default("pending") @map("status") @db.VarChar(32)
+  transactionId     String?  @map("transaction_id") @db.VarChar(64)
+  failureReason     String?  @map("failure_reason")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  order SelfOrder @relation(fields: [orderId], references: [id])
+
+  @@unique([merchantPaymentNo])
+  @@index([orderId, status])
+  @@map("self_order_payment_attempts")
+}
+
+/// 自助下单储值余额流水；唯一键保证退款只发生一次
+model SelfOrderBalanceTransaction {
+  id         Int      @id @default(autoincrement()) @map("id")
+  orderId    Int      @map("order_id")
+  customerId Int      @map("customer_id")
+  /// 金额（分）；正为支付，负为退款
+  amount     Int      @map("amount")
+  /// 类型：payment / refund
+  type       String   @map("type") @db.VarChar(32)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  order SelfOrder @relation(fields: [orderId], references: [id])
+
+  @@unique([orderId, type])
+  @@index([customerId])
+  @@map("self_order_balance_transactions")
+}
+
+enum SelfOrderStatus {
+  pending_payment
+  paid
+  cancelled
+}
+
+enum SelfOrderPaymentStatus {
+  unpaid
+  paid
+  refunding
+  refunded
+}

@@ -38,6 +38,7 @@ import { SpaceTypesService } from './space-types.service';
 import { SpaceZonesController } from './space-zones.controller';
 import { SpaceZonesService } from './space-zones.service';
 import { SpacesController } from './spaces.controller';
+import { SpaceManagementVoiceSettingsService } from './space-management-voice-settings.service';
 import { SpacePrintController } from './space-print.controller';
 import { SpacePrintService } from './space-print.service';
 import { SpacePrintDataService } from './space-print-data.service';
@@ -72,6 +73,7 @@ import { SpacesWriteService } from './spaces-write.service';
   ],
   providers: [
     SpacesService,
+    SpaceManagementVoiceSettingsService,
     SpacesReadService,
     SpacesWriteService,
     SpacesStatusService,

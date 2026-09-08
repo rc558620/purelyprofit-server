@@ -114,6 +114,7 @@ export const createSettleSpaceSessionParams = (): SettleSpaceSessionParams => ({
     itemsCost: 20, // 业务层单位为元
     renewDeduction: 0,
     prepaidDeduction: 0,
+    selfOrderDeduction: 0,
     totalAmount: 20,
     orderItems: [
       {

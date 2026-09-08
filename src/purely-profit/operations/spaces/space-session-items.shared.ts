@@ -40,10 +40,14 @@ export const mergeSessionItems = (
     // （salePrice 经 toFixed(2) + parseFloat 转换，整数分数据通常无损，
     //  但防御性地回算到分再做整数比较更安全）
     const itemPriceCents = Math.round(item.salePrice * 100);
+    const itemSourceType = item.sourceType ?? null;
     const existing = mergedItems.find(
       (currentItem) =>
         currentItem.productId === item.productId &&
-        Math.round(currentItem.salePrice * 100) === itemPriceCents,
+        Math.round(currentItem.salePrice * 100) === itemPriceCents &&
+        // 自助下单行（member_self_order）与员工手工追加行必须保持独立：
+        // 结算时按来源识别已在线支付商品并生成抵扣，合并会抹掉来源标记导致重复收费
+        (currentItem.sourceType ?? null) === itemSourceType,
     );
     if (existing) {
       existing.quantity += item.quantity;

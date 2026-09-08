@@ -46,6 +46,31 @@ export class SpaceSessionItemResponseDto {
     description: '行合计金额 = salePrice × quantity（元）',
   })
   lineTotal: number;
+
+  @ApiPropertyOptional({
+    example: 'member_self_order',
+    description: '行来源：member_self_order=会员自助下单（已在线支付）/ 空=员工手工追加',
+  })
+  // mapper 输出 row.sourceType ?? null，类型需与实际返回一致
+  sourceType?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'balance',
+    description: '行来源支付渠道：balance=储值余额 / wechat=微信支付（仅自助下单行有值）',
+  })
+  sourceChannel?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'SF123456',
+    description: '行来源订单号（仅自助下单行有值）',
+  })
+  sourceOrderNo?: string | null;
+
+  @ApiPropertyOptional({
+    example: 12345,
+    description: '行来源订单明细 ID（仅自助下单行有值）',
+  })
+  sourceOrderItemId?: number | null;
 }
 
 export class SpaceSessionRenewRecordResponseDto {
@@ -224,6 +249,13 @@ export class SpaceSessionResponseDto {
 
   @ApiProperty({ example: 0, description: '商品费用合计（元）' })
   itemsCost: number;
+
+  @ApiProperty({
+    example: 0,
+    description:
+      '自助下单已支付商品抵扣合计（元），后端结算口径计算，前端只读展示',
+  })
+  selfOrderDeduction: number;
 
   @ApiProperty({
     type: [SpaceSessionRenewRecordResponseDto],

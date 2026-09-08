@@ -300,6 +300,147 @@ describe('buildSpaceSessionSettlement — 混合消费', () => {
   });
 });
 
+// ---------- 自助下单（已在线支付商品）抵扣 ----------
+
+describe('buildSpaceSessionSettlement — 自助下单抵扣', () => {
+  it('member_self_order 行生成等额抵扣行，冲减金额与利润', () => {
+    const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
+    const items: SpaceSessionItemRecord[] = [
+      {
+        productId: 'P1',
+        productName: '可乐',
+        categoryName: '饮品',
+        salePrice: 12,
+        profit: 4,
+        quantity: 2,
+        lineTotal: 24,
+        sourceType: 'member_self_order',
+        sourceOrderNo: 'SF20240101001',
+      },
+      {
+        productId: 'P2',
+        productName: '薯片',
+        categoryName: '零食',
+        salePrice: 30,
+        profit: 10,
+        quantity: 1,
+        lineTotal: 30,
+      },
+    ];
+    const result = buildSpaceSessionSettlement({
+      session: makeSession(),
+      checkoutAt,
+      payload: {},
+      items,
+      renewRecords: NO_RENEW,
+    });
+    // 台位费 68 + 商品 54 - 自助下单抵扣 24 = 98
+    expect(result.timeCost).toBe(68);
+    expect(result.itemsCost).toBe(54);
+    expect(result.selfOrderDeduction).toBe(24);
+    expect(result.totalAmount).toBe(98);
+    expect(result.totalRevenue).toBe(98);
+    // 台位费利润 68 + 商品利润(8+10) - 自助下单行利润 8 = 78
+    expect(result.totalProfit).toBe(78);
+
+    const deductionRows = result.orderItems.filter(
+      (item) => item.productId === 'SYS_SELF_ORDER_DEDUCTION',
+    );
+    expect(deductionRows).toHaveLength(1);
+    // 抵扣明细行：productName =「商品名 · 自助下单抵扣」
+    expect(deductionRows[0]?.productName).toBe('可乐 · 自助下单抵扣');
+    expect(deductionRows[0]?.salePrice).toBe(-24);
+    expect(deductionRows[0]?.profit).toBe(-8);
+    expect(deductionRows[0]?.lineTotal).toBe(-24);
+    expect(deductionRows[0]?.quantity).toBe(1);
+  });
+
+  it('多个 member_self_order 行 → 按商品拆成多条抵扣明细，总额不变', () => {
+    const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
+    const items: SpaceSessionItemRecord[] = [
+      {
+        productId: 'P1',
+        productName: '橙汁',
+        categoryName: '饮品',
+        salePrice: 44,
+        profit: 10,
+        quantity: 1,
+        lineTotal: 44,
+        sourceType: 'member_self_order',
+        sourceOrderNo: 'SF20240101001',
+      },
+      {
+        productId: 'P2',
+        productName: '西瓜',
+        categoryName: '果盘',
+        salePrice: 34,
+        profit: 8,
+        quantity: 1,
+        lineTotal: 34,
+        sourceType: 'member_self_order',
+        sourceOrderNo: 'SF20240101001',
+      },
+      {
+        productId: 'P3',
+        productName: '薯片',
+        categoryName: '零食',
+        salePrice: 30,
+        profit: 10,
+        quantity: 1,
+        lineTotal: 30,
+      },
+    ];
+    const result = buildSpaceSessionSettlement({
+      session: makeSession(),
+      checkoutAt,
+      payload: {},
+      items,
+      renewRecords: NO_RENEW,
+    });
+    const deductionRows = result.orderItems.filter(
+      (item) => item.productId === 'SYS_SELF_ORDER_DEDUCTION',
+    );
+    expect(deductionRows).toHaveLength(2);
+    expect(deductionRows.map((row) => row.productName)).toEqual([
+      '橙汁 · 自助下单抵扣',
+      '西瓜 · 自助下单抵扣',
+    ]);
+    expect(deductionRows.map((row) => row.salePrice)).toEqual([-44, -34]);
+    // 抵扣总额 = 44 + 34 = 78，与拆分前总和一致
+    expect(result.selfOrderDeduction).toBe(78);
+    // 台位费 68 + 商品 108 - 抵扣 78 = 98
+    expect(result.totalAmount).toBe(98);
+  });
+
+  it('无 member_self_order 行时不生成抵扣行，selfOrderDeduction 为 0', () => {
+    const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
+    const items: SpaceSessionItemRecord[] = [
+      {
+        productId: 'P2',
+        productName: '薯片',
+        categoryName: '零食',
+        salePrice: 30,
+        profit: 10,
+        quantity: 1,
+        lineTotal: 30,
+      },
+    ];
+    const result = buildSpaceSessionSettlement({
+      session: makeSession(),
+      checkoutAt,
+      payload: {},
+      items,
+      renewRecords: NO_RENEW,
+    });
+    expect(result.selfOrderDeduction).toBe(0);
+    expect(
+      result.orderItems.some((item) => item.productId === 'SYS_SELF_ORDER_DEDUCTION'),
+    ).toBe(false);
+    // 68 + 30 = 98
+    expect(result.totalAmount).toBe(98);
+  });
+});
+
 // ---------- countdown + unit_price 模式 ----------
 
 describe('buildSpaceSessionSettlement — countdown + unit_price 模式', () => {

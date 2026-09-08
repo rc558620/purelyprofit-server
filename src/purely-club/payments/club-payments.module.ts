@@ -4,6 +4,7 @@ import { StoresModule } from '../../purely-profit/stores/stores.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubScanOrderingModule } from '../scan-ordering/club-scan-ordering.module';
 import { ClubScanOrderingPaymentService } from '../scan-ordering/club-scan-ordering-payment.service';
+import { ClubSelfOrderingModule } from '../self-ordering/club-self-ordering.module';
 import { ClubOrdersModule } from '../orders/club-orders.module';
 import { ClubVoucherOrdersModule } from '../voucher-orders/club-voucher-orders.module';
 import { ClubRechargeModule } from '../recharge/club-recharge.module';
@@ -25,6 +26,8 @@ import { ClubPaymentCallbackQueueModule } from './club-payment-callback-queue.mo
     StoresModule,
     PrismaModule,
     ClubScanOrderingModule,
+    // 自助下单回调落账（SF 前缀）；该模块不反向依赖 ClubPaymentsModule，无循环依赖
+    ClubSelfOrderingModule,
   ],
   controllers: [ClubPaymentsController],
   providers: [

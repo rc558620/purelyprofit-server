@@ -28,14 +28,16 @@ describe('ScanOrderingRealtimeService', () => {
   };
 
   const emit = jest.fn();
-  const namespace = { to: jest.fn(() => ({ emit })) } as unknown as Namespace;
+  const namespace = {
+    to: jest.fn(() => ({ local: { emit } })),
+  } as unknown as Namespace;
 
   beforeEach(async () => {
     jest.clearAllMocks();
     redisService.publish.mockResolvedValue(1);
     redisService.subscribe.mockImplementation(async () => async () => undefined);
     redisService.checkReadiness.mockResolvedValue(undefined);
-    (namespace.to as jest.Mock).mockReturnValue({ emit });
+    (namespace.to as jest.Mock).mockReturnValue({ local: { emit } });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

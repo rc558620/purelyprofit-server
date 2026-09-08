@@ -62,5 +62,4 @@ export class ClubPaymentConfirmationOrchestrator<
       paymentConfirmationSource: 'wechat_callback',
     });
   }
-
 }

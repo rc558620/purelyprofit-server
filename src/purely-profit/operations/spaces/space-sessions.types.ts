@@ -32,6 +32,14 @@ export interface SpaceSessionItemRow {
   profit: number;
   quantity: number;
   sortOrder: number;
+  /** 行来源类型：member_self_order（会员自助下单，已在线支付）/ null/undefined=员工手工追加 */
+  sourceType?: string | null;
+  /** 行来源支付渠道：balance / wechat（仅自助下单行有值，用于明细展示已在线支付方式） */
+  sourceChannel?: string | null;
+  /** 来源订单号（自助下单写入；重复回调据此幂等短路） */
+  sourceOrderNo?: string | null;
+  /** 来源订单行 ID，用于精确追溯 */
+  sourceOrderItemId?: number | null;
   createdAt: Date;
 }
 
@@ -66,6 +74,14 @@ export interface SpaceSessionItemRecord {
   quantity: number;
   /** 行合计金额 = salePrice × quantity（元） */
   lineTotal: number;
+  /** 行来源类型：member_self_order（会员自助下单，已在线支付）/ null=员工手工追加 */
+  sourceType?: string | null;
+  /** 行来源支付渠道：balance / wechat（仅自助下单行有值，用于明细展示已在线支付方式） */
+  sourceChannel?: string | null;
+  /** 来源订单号；自助下单写入，用于结算抵扣判定与追溯 */
+  sourceOrderNo?: string | null;
+  /** 来源订单行 ID */
+  sourceOrderItemId?: number | null;
 }
 
 /**
@@ -227,6 +243,8 @@ export interface SpaceSessionSettlement {
   itemsCost: number;
   renewDeduction: number;
   prepaidDeduction: number;
+  /** 自助下单已在线支付商品的抵扣合计（元）；结算时从应付中冲减 */
+  selfOrderDeduction: number;
   totalAmount: number;
   orderItems: SpaceSessionItemRecord[];
   totalRevenue: number;

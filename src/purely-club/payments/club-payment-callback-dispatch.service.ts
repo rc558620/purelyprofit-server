@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ClubOrderServicePaymentService } from '../orders/club-order-service-payment.service';
 import { ClubRechargePaymentService } from '../recharge/club-recharge-payment.service';
 import { ClubScanOrderingPaymentService } from '../scan-ordering/club-scan-ordering-payment.service';
+import { ClubSelfOrderingPaymentService } from '../self-ordering/club-self-ordering-payment.service';
 import { ClubVoucherOrdersService } from '../voucher-orders/club-voucher-orders.service';
 import type {
   ClubPaymentCallbackResult,
@@ -11,16 +12,17 @@ import type {
 /** 订单号前缀 → 订单类型映射 */
 const ORDER_NO_TYPE_MAP: Record<
   string,
-  'recharge' | 'service' | 'scan_ordering' | 'voucher'
+  'recharge' | 'service' | 'scan_ordering' | 'voucher' | 'self_ordering'
 > = {
   RC: 'recharge',
   SV: 'service',
   SO: 'scan_ordering',
   VC: 'voucher',
+  SF: 'self_ordering',
 };
 
-/** 订单号格式正则：SV/RC/SO/VC + 年4位+月2位+日2位+时2位+分2位+秒2位+毫秒3位 + 4位HEX */
-const ORDER_NO_PATTERN = /^(?:RC|SV|SO|VC)[A-Za-z0-9-]+$/;
+/** 订单号格式正则：前缀（RC/SV/SO/VC/SF）+ 时间戳 + 随机 HEX */
+const ORDER_NO_PATTERN = /^(?:RC|SV|SO|VC|SF)[A-Za-z0-9-]+$/;
 
 /**
  * 校验 ORDER_NO_TYPE_MAP 的 key 与 ORDER_NO_PATTERN 中的前缀选项一致。
@@ -52,6 +54,7 @@ export class ClubPaymentCallbackDispatchService {
     private readonly clubRechargePaymentService: ClubRechargePaymentService,
     private readonly clubOrderServicePaymentService: ClubOrderServicePaymentService,
     private readonly clubScanOrderingPaymentService: ClubScanOrderingPaymentService,
+    private readonly clubSelfOrderingPaymentService: ClubSelfOrderingPaymentService,
     private readonly clubVoucherOrdersService: ClubVoucherOrdersService,
   ) {}
 
@@ -88,6 +91,12 @@ export class ClubPaymentCallbackDispatchService {
         settlementParams,
       );
     }
+    if (orderType === 'self_ordering') {
+      return this.clubSelfOrderingPaymentService.confirmOrderPaidByCallback(
+        orderNo,
+        settlementParams,
+      );
+    }
     if (orderType === 'voucher') {
       return this.clubVoucherOrdersService.confirmVoucherOrderPaidByCallback(
         orderNo,
@@ -102,7 +111,7 @@ export class ClubPaymentCallbackDispatchService {
 
   private resolveOrderTypeByOrderNo(
     orderNo: string,
-  ): 'recharge' | 'service' | 'scan_ordering' | 'voucher' {
+  ): 'recharge' | 'service' | 'scan_ordering' | 'voucher' | 'self_ordering' {
     const prefix = orderNo.slice(0, 2).toUpperCase();
     const orderType = ORDER_NO_TYPE_MAP[prefix];
 

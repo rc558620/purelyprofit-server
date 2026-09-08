@@ -80,6 +80,7 @@ describe('Sub-account alignment regression', () => {
       'operation-entry:create',
       'goods:view',
       'space:view',
+      'self-ordering:view',
       'scan-ordering:view',
       'scan-ordering:table-manage',
       'scan-ordering:order-process',

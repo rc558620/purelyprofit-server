@@ -19,7 +19,8 @@ export interface ClubPaymentCallbackSettlementParams {
 
 export interface ClubPaymentCallbackResult {
   orderNo: string;
-  orderType: ClubOrderTypeValue | 'scan_ordering' | 'voucher';
+  /** self_ordering 为空间自助下单（SF 前缀），支付成功后订单直接置为 paid（无需商家接单） */
+  orderType: ClubOrderTypeValue | 'scan_ordering' | 'voucher' | 'self_ordering';
   status:
     | ClubOrderStatusValue
     | 'pending_acceptance'

@@ -99,6 +99,7 @@ export class SpaceSessionCheckoutService {
         itemsCost: settlement.itemsCost,
         renewDeduction: settlement.renewDeduction,
         prepaidDeduction: settlement.prepaidDeduction,
+        selfOrderDeduction: settlement.selfOrderDeduction,
         totalAmount: settlement.totalAmount,
         ...resolveCheckoutPreviewFeeMode(
           session.billingMode,

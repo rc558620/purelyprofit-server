@@ -17,7 +17,9 @@ type RealtimeEvent =
   | 'service_call.updated'
   | 'voucher_order.created'
   | 'voucher_order.confirmed'
-  | 'voucher_order.status_changed';
+  | 'voucher_order.status_changed'
+  | 'self_order.created'
+  | 'self_order.status_changed';
 
 interface RealtimeMessage {
   event: RealtimeEvent;
@@ -204,6 +206,46 @@ export class ScanOrderingRealtimeService
     this.publish('service_call.created', payload);
   }
 
+  /** 自助下单新订单（purelyClub 支付成功后广播，商家端右下角弹窗） */
+  publishSelfOrderCreated(payload: {
+    /** 门店 ID */
+    storeId: number;
+    /** 订单 ID */
+    orderId: number;
+    /** 业务订单号（SF 前缀） */
+    orderNo: string;
+    /** 空间会话 ID（商家端点击跳转空间详情） */
+    sessionId: number;
+    /** 空间 ID */
+    spaceId: number;
+    /** 空间名称 */
+    spaceName: string;
+    /** 商品行摘要 */
+    items: Array<{ productName: string; quantity: number }>;
+    /** 应付金额（分） */
+    amountFen: number;
+    /** 订单备注 */
+    remark: string | null;
+    /** 支付时间 ISO */
+    paidAt: string;
+  }): void {
+    this.publish('self_order.created', payload);
+  }
+
+  /** 自助下单订单状态变更（当前仅支付成功与取消两种） */
+  publishSelfOrderStatusChanged(payload: {
+    storeId: number;
+    orderId: number;
+    orderNo: string;
+    sessionId: number;
+    spaceId: number;
+    status: string;
+    paymentStatus: string;
+    version: number;
+  }): void {
+    this.publish('self_order.status_changed', payload);
+  }
+
   publishServiceCallUpdated(payload: {
     storeId: number;
     sessionId: number;
@@ -260,6 +302,11 @@ export class ScanOrderingRealtimeService
   /** 团购券订单门店房间（商家端订阅，校验 space:view，与扫码点餐 store 房间隔离） */
   voucherOrderStoreRoom(storeId: number): string {
     return `voucher-store:${storeId}`;
+  }
+
+  /** 自助下单门店房间（商家端订阅，校验 self-ordering 权限，与其他业务房间隔离） */
+  selfOrderingStoreRoom(storeId: number): string {
+    return `self-ordering-store:${storeId}`;
   }
 
   sessionRoom(sessionId: number): string {
@@ -354,10 +401,23 @@ export class ScanOrderingRealtimeService
         }
       }
     }
-    if (sessionId)
+    const isSelfOrderEvent =
+      event === 'self_order.created' || event === 'self_order.status_changed';
+    if (isSelfOrderEvent) {
+      // 商家端订阅 self-ordering-store 房间（校验 self-ordering 权限）：
+      // created → 右下角弹窗 + 语音；status_changed → 列表/角标刷新
+      if (storeId) {
+        this.namespace
+          ?.to(this.selfOrderingStoreRoom(storeId))
+          .local.emit(event, payload);
+      }
+      // 自助下单的 sessionId 是 space_session ID，与扫码点餐会话是两套序列：
+      // 不向 session 房间广播，避免跨门店同号会话收到无关事件（顾客端不订阅该房间）
+    } else if (sessionId) {
       this.namespace
         ?.to(this.sessionRoom(sessionId))
         .local.emit(event, payload);
+    }
   }
 
   private numberValue(value: unknown): number | null {

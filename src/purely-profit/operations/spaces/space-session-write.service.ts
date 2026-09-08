@@ -142,6 +142,10 @@ export class SpaceSessionWriteService {
             profit: Money.fromInputYuan(item.profit).toDbCents(),
             quantity: item.quantity,
             sortOrder: index,
+            // 保留来源标记（自助下单等），结算时据此生成抵扣防重复收费
+            sourceType: item.sourceType ?? null,
+            sourceOrderNo: item.sourceOrderNo ?? null,
+            sourceOrderItemId: item.sourceOrderItemId ?? null,
           })),
         });
 

@@ -3,6 +3,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ClubOrderServicePaymentService } from '../orders/club-order-service-payment.service';
 import { ClubRechargePaymentService } from '../recharge/club-recharge-payment.service';
 import { ClubScanOrderingPaymentService } from '../scan-ordering/club-scan-ordering-payment.service';
+import { ClubSelfOrderingPaymentService } from '../self-ordering/club-self-ordering-payment.service';
+import { ClubVoucherOrdersService } from '../voucher-orders/club-voucher-orders.service';
 import { ClubPaymentCallbackDispatchService } from './club-payment-callback-dispatch.service';
 import type { ClubPaymentCallbackSettlementParams } from './club-payments.types';
 
@@ -19,6 +21,14 @@ describe('ClubPaymentCallbackDispatchService', () => {
 
   const clubScanOrderingPaymentService = {
     confirmOrderPaidByCallback: jest.fn(),
+  };
+
+  const clubSelfOrderingPaymentService = {
+    confirmOrderPaidByCallback: jest.fn(),
+  };
+
+  const clubVoucherOrdersService = {
+    confirmVoucherOrderPaidByCallback: jest.fn(),
   };
 
   const settlement: ClubPaymentCallbackSettlementParams = {
@@ -45,6 +55,15 @@ describe('ClubPaymentCallbackDispatchService', () => {
         {
           provide: ClubScanOrderingPaymentService,
           useValue: clubScanOrderingPaymentService,
+        },
+        {
+          provide: ClubSelfOrderingPaymentService,
+          useValue: clubSelfOrderingPaymentService,
+        },
+        // 预先存在的缺失：constructor 注入了 Voucher 服务但此 spec 一直未 mock
+        {
+          provide: ClubVoucherOrdersService,
+          useValue: clubVoucherOrdersService,
         },
       ],
     }).compile();
@@ -126,6 +145,27 @@ describe('ClubPaymentCallbackDispatchService', () => {
     expect(
       clubScanOrderingPaymentService.confirmOrderPaidByCallback,
     ).toHaveBeenCalledWith('SO20260723123000ABCD-1A2B3C4D', settlement);
+  });
+
+  it('dispatchByOrderNo 在 SF 前缀时驱动自助下单支付服务', async () => {
+    clubSelfOrderingPaymentService.confirmOrderPaidByCallback.mockResolvedValue(
+      {
+        orderNo: 'SF202609041230000001A2B',
+        orderType: 'self_ordering',
+        status: 'paid',
+      },
+    );
+
+    await expect(
+      service.dispatchByOrderNo('SF202609041230000001A2B', settlement),
+    ).resolves.toEqual({
+      orderNo: 'SF202609041230000001A2B',
+      orderType: 'self_ordering',
+      status: 'paid',
+    });
+    expect(
+      clubSelfOrderingPaymentService.confirmOrderPaidByCallback,
+    ).toHaveBeenCalledWith('SF202609041230000001A2B', settlement);
   });
 
   it('dispatchByOrderNo 在未知前缀时抛出 BadRequestException', () => {

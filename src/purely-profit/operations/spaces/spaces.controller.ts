@@ -38,6 +38,8 @@ import {
   SpacesDashboardResponseDto,
   UpdateSpaceDto,
 } from './dto/space.dto';
+import { UpdateSpaceManagementVoiceSettingsDto } from './dto/update-space-management-voice-settings.dto';
+import { SpaceManagementVoiceSettingsService } from './space-management-voice-settings.service';
 import { SpaceDashboardService } from './space-dashboard.service';
 import { SpacesService } from './spaces.service';
 import {
@@ -55,7 +57,30 @@ export class SpacesController {
     private readonly spacesService: SpacesService,
     private readonly spaceDashboardService: SpaceDashboardService,
     private readonly spaceQrCodeService: SpaceQrCodeService,
+    private readonly spaceManagementVoiceSettingsService: SpaceManagementVoiceSettingsService,
   ) {}
+
+  @Get('voice-settings')
+  @RequirePermissions('space:view')
+  @ApiOperation({ summary: '获取门店空间管理语音播报开关' })
+  @ApiOkResponse({ type: Object, description: '返回空间管理语音播报开关状态' })
+  getVoiceSettings(@UserWithRequestId() ctx: UserWithRequestIdValue) {
+    return this.spaceManagementVoiceSettingsService.getForMerchant(ctx.user);
+  }
+
+  @Patch('voice-settings')
+  @RequirePermissions('space:view')
+  @ApiOperation({ summary: '更新门店空间管理语音播报开关（支持部分更新）' })
+  @ApiOkResponse({ type: Object, description: '更新成功，返回最新开关状态' })
+  updateVoiceSettings(
+    @UserWithRequestId() ctx: UserWithRequestIdValue,
+    @Body() dto: UpdateSpaceManagementVoiceSettingsDto,
+  ) {
+    return this.spaceManagementVoiceSettingsService.updateForMerchant(
+      ctx.user,
+      dto,
+    );
+  }
 
   @Get('dashboard')
   @RequirePermissions('space:view')

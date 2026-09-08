@@ -171,11 +171,20 @@ model SpaceSessionItem {
   quantity     Int
   /// 排序序号（保证明细在会话中的顺序）
   sortOrder    Int          @default(0) @map("sort_order")
+  /// 来源类型：member_self_order（会员自助下单，已在线支付）/ 空表示员工手工追加
+  sourceType   String?      @map("source_type") @db.VarChar(32)
+  /// 来源支付渠道：balance（储值余额）/ wechat（微信支付）；仅自助下单行有值
+  sourceChannel String?     @map("source_channel") @db.VarChar(32)
+  /// 来源订单号（自助下单幂等键：重复回调据此短路，避免商品被重复累加）
+  sourceOrderNo String?     @map("source_order_no") @db.VarChar(64)
+  /// 来源订单行 ID，用于精确追溯
+  sourceOrderItemId Int?    @map("source_order_item_id")
   createdAt    DateTime     @default(now()) @map("created_at")
   session      SpaceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId, sortOrder])
   @@index([productId])
+  @@index([sessionId, sourceOrderNo])
   @@map("space_session_items")
 }
 

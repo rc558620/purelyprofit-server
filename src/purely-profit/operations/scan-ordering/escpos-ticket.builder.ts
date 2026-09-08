@@ -76,13 +76,23 @@ export interface SpaceEscPosTicket {
   /** 台位费金额（元）。 */
   timeCost: number;
   /** 消费商品明细（含系统内置行）。 */
-  items: Array<{ name: string; quantity: number; subtotal: number }>;
+  items: Array<{
+    name: string;
+    quantity: number;
+    subtotal: number;
+    /** 行来源：member_self_order=会员自助下单（已在线支付）。 */
+    sourceType?: string | null;
+    /** 行来源支付渠道：balance=储值余额 / wechat=微信支付。 */
+    sourceChannel?: string | null;
+  }>;
   /** 商品费用合计（元）。 */
   itemsCost: number;
   /** 续费抵扣金额（元）。 */
   renewDeduction: number;
   /** 预付抵扣金额（元）。 */
   prepaidDeduction: number;
+  /** 自助下单已支付商品抵扣合计（元）。 */
+  selfOrderDeduction?: number;
   /** 应付总额（元，可能为负数表示应退）。 */
   totalAmount: number;
   /** 支付方式中文标签。 */
@@ -265,20 +275,31 @@ export class EscPosTicketBuilder {
     if (ticket.items.length > 0) {
       this.line(out, '商品明细');
       for (const item of ticket.items) {
+        // 自助下单商品：商品名后拼「(自助/余额/已付)」，与云打印格式一致
+        const name =
+          item.sourceType === 'member_self_order'
+            ? `${item.name}(自助/${item.sourceChannel === 'wechat' ? '微信' : '余额'}/已付)`
+            : item.name;
         this.line(
           out,
-          `${item.name} x${item.quantity}  ￥${item.subtotal.toFixed(2)}`,
+          `${name} x${item.quantity}  ￥${item.subtotal.toFixed(2)}`,
         );
       }
       this.line(out, `商品合计：￥${ticket.itemsCost.toFixed(2)}`);
     }
 
-    // 抵扣区：续费抵扣 + 预付抵扣
+    // 抵扣区：续费抵扣 + 预付抵扣 + 自助下单（已支付）
     if (ticket.renewDeduction > 0) {
       this.line(out, `续费抵扣：-￥${ticket.renewDeduction.toFixed(2)}`);
     }
     if (ticket.prepaidDeduction > 0) {
       this.line(out, `预付抵扣：-￥${ticket.prepaidDeduction.toFixed(2)}`);
+    }
+    if ((ticket.selfOrderDeduction ?? 0) > 0) {
+      this.line(
+        out,
+        `自助下单（已支付）：-￥${ticket.selfOrderDeduction!.toFixed(2)}`,
+      );
     }
     this.line(out, DIVIDER);
 

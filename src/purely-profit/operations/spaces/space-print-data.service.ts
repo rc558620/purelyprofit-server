@@ -4,6 +4,24 @@ import { PrismaService } from '../../../prisma/prisma.service';
 /** 空间小票系统商品 ID（与前端 spaceManagement 常量对齐）。 */
 const SYS_RENEW_DEDUCTION_ID = 'SYS_RENEW_DEDUCTION';
 const SYS_PREPAID_DEDUCTION_ID = 'SYS_PREPAID_DEDUCTION';
+const SYS_SELF_ORDER_DEDUCTION_ID = 'SYS_SELF_ORDER_DEDUCTION';
+
+/** 行来源：会员自助下单（已在线支付）。 */
+const SELF_ORDER_SOURCE_TYPE = 'member_self_order';
+
+/** 自助下单支付渠道中文标签（与前端详情弹窗口径一致）。 */
+export const selfOrderChannelLabel = (channel?: string | null): string =>
+  channel === 'wechat' ? '微信' : '余额';
+
+/**
+ * 抵扣类系统行：结账时以正数落库到会话明细表，
+ * 小票商品明细区不展示（避免与汇总区「续费/预付/自助下单抵扣」重复）。
+ */
+const DEDUCTION_PRODUCT_IDS = new Set<string>([
+  SYS_RENEW_DEDUCTION_ID,
+  SYS_PREPAID_DEDUCTION_ID,
+  SYS_SELF_ORDER_DEDUCTION_ID,
+]);
 
 /** 计费模式中文标签（与前端 BILLING_MODE_CONFIG 对齐）。 */
 const BILLING_MODE_LABEL: Record<string, string> = {
@@ -32,6 +50,10 @@ export interface SpacePrintItem {
   unitPrice: number;
   /** 行小计金额（元）。 */
   subtotal: number;
+  /** 行来源：member_self_order=会员自助下单（已在线支付）。 */
+  sourceType?: string | null;
+  /** 行来源支付渠道：balance=储值余额 / wechat=微信支付（仅自助下单行有值）。 */
+  sourceChannel?: string | null;
 }
 
 /** 空间消费小票打印数据（金额均由后端分转元计算，前端只读展示）。 */
@@ -63,6 +85,8 @@ export interface SpacePrintOrder {
   renewDeduction: number;
   /** 预付抵扣金额（元）。 */
   prepaidDeduction: number;
+  /** 自助下单已支付商品抵扣合计（元）。 */
+  selfOrderDeduction: number;
   /** 应付总额（元，消费 - 抵扣，可能为负数表示应退）。 */
   totalAmount: number;
   /** 支付方式中文标签。 */
@@ -119,15 +143,22 @@ export class SpacePrintDataService {
       hourlyRate:
         session.hourlyRate == null ? null : toYuan(session.hourlyRate),
       timeCost: toYuan(session.timeCost ?? 0),
-      items: session.sessionItems.map((item) => ({
-        name: item.productName,
-        quantity: item.quantity,
-        unitPrice: toYuan(item.salePrice),
-        subtotal: toYuan(item.salePrice * item.quantity),
-      })),
+      items: session.sessionItems
+        .filter((item) => !DEDUCTION_PRODUCT_IDS.has(item.productId))
+        .map((item) => ({
+          name: item.productName,
+          quantity: item.quantity,
+          unitPrice: toYuan(item.salePrice),
+          subtotal: toYuan(item.salePrice * item.quantity),
+          sourceType: item.sourceType,
+          sourceChannel: item.sourceChannel,
+        })),
       itemsCost: toYuan(session.itemsCost),
       renewDeduction: toYuan(deductionOf(SYS_RENEW_DEDUCTION_ID)),
       prepaidDeduction: toYuan(deductionOf(SYS_PREPAID_DEDUCTION_ID)),
+      selfOrderDeduction: toYuan(
+        deductionOf(SYS_SELF_ORDER_DEDUCTION_ID),
+      ),
       totalAmount: toYuan(saleOrder.totalRevenue),
       paymentMethodLabel:
         PAYMENT_METHOD_LABEL[saleOrder.paymentMethod] ?? saleOrder.paymentMethod,

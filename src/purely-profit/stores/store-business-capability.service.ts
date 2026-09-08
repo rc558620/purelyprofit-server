@@ -23,6 +23,8 @@ export interface StoreBusinessCapability {
   canUseSpaceManagement: boolean;
   /** 是否可使用营销商品上架（仅非餐饮） */
   canUseMarketingProductListing: boolean;
+  /** 是否可使用自助下单（仅非餐饮） */
+  canUseSelfOrdering: boolean;
 }
 
 /**
@@ -172,6 +174,8 @@ export class StoreBusinessCapabilityService {
       canManageScanOrderingMenu: isCatering,
       canUseSpaceManagement: isGeneral,
       canUseMarketingProductListing: isGeneral,
+      // 自助下单面向非餐饮业态（空间场景）
+      canUseSelfOrdering: isGeneral,
     };
   }
 
@@ -187,6 +191,7 @@ export class StoreBusinessCapabilityService {
       canManageScanOrderingMenu: false,
       canUseSpaceManagement: false,
       canUseMarketingProductListing: false,
+      canUseSelfOrdering: false,
     };
   }
 }
