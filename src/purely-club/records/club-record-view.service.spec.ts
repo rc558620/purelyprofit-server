@@ -311,3 +311,89 @@ describe('ClubRecordViewService', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 余额快照基准必须为「全量储值账户流水」（balanceEntries）：
+// 若只拿 Tab 过滤后的结果回推，另一类流水被排除会让反推起点被抬高，
+// 展示出虚假的「余额」（典型现象：真实余额 3.8 万却显示 11 万）。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ClubRecordViewService 余额快照基准（balanceEntries）', () => {
+  const service = new ClubRecordViewService();
+
+  // 账本（分）：R0 +300000 → C1 -30000 → R1 +500000 → C2 -50000
+  // 当前余额 = 300000 - 30000 + 500000 - 50000 = 720000 分（7200 元）
+  const R0 = {
+    id: 'recharge-1',
+    type: 'recharge' as const,
+    amountFen: 300000,
+    balanceEffectFen: 300000,
+    description: 'R0',
+    createdAt: new Date('2024-09-01T00:00:00.000Z'),
+  };
+  const C1 = {
+    id: 'consume-1',
+    type: 'consume' as const,
+    amountFen: -30000,
+    balanceEffectFen: -30000,
+    description: 'C1',
+    createdAt: new Date('2024-10-05T00:00:00.000Z'),
+  };
+  const R1 = {
+    id: 'recharge-2',
+    type: 'recharge' as const,
+    amountFen: 500000,
+    balanceEffectFen: 500000,
+    description: 'R1',
+    createdAt: new Date('2024-11-01T00:00:00.000Z'),
+  };
+  const C2 = {
+    id: 'consume-2',
+    type: 'consume' as const,
+    amountFen: -50000,
+    balanceEffectFen: -50000,
+    description: 'C2',
+    createdAt: new Date('2024-11-18T00:00:00.000Z'),
+  };
+  const customer = { id: 98, balance: 720000 };
+  const storeName = 'purelyClub · 望京旗舰店';
+
+  it('传入 balanceEntries 时中间充值被计入，各笔快照等于真实余额', () => {
+    const result = service.buildRecordItems({
+      entries: [C2, C1],
+      balanceEntries: [R0, C1, R1, C2],
+      filterType: 'consume',
+      customer,
+      storeName,
+    });
+
+    expect(result.map((item) => item.id)).toEqual(['consume-2', 'consume-1']);
+    expect(result.map((item) => item.balanceSnapshot)).toEqual([
+      7200, // C2 之后 = 当前余额 720000 分
+      2700, // C1 之后 = 300000 - 30000 = 270000 分
+    ]);
+  });
+
+  it('缺省 balanceEntries 时回退过滤结果，反推起点被抬高（回归防护）', () => {
+    const result = service.buildRecordItems({
+      entries: [C2, C1],
+      filterType: 'consume',
+      customer,
+      storeName,
+    });
+
+    // 未计入中间充值 R1：C1 之后的余额被虚高为 7700 元（真实为 2700 元）
+    expect(result.map((item) => item.balanceSnapshot)).toEqual([7200, 7700]);
+  });
+
+  it('balanceEntries 为空数组时回退过滤结果', () => {
+    const result = service.buildRecordItems({
+      entries: [C2, C1],
+      balanceEntries: [],
+      filterType: 'consume',
+      customer,
+      storeName,
+    });
+
+    expect(result.map((item) => item.balanceSnapshot)).toEqual([7200, 7700]);
+  });
+});

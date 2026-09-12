@@ -86,6 +86,14 @@ export class PaginatedProductsResponseDto {
   meta: PaginationMetaDto;
 }
 
+export class ProductOptionsResponseDto {
+  @ApiProperty({
+    type: [ProductResponseDto],
+    description: '商品全量列表（不分页，点单/录单选择器使用）',
+  })
+  items: ProductResponseDto[];
+}
+
 export class ScanOrderingStatusResponseDto {
   @ApiProperty({ example: '1', description: '商品 ID' })
   id: string;

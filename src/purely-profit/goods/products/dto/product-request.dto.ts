@@ -98,7 +98,7 @@ export class CreateProductDto {
 
   @ApiPropertyOptional({
     type: [ProductSpecGroupDto],
-    description: '餐饮商品规格组',
+    description: '商品规格组（全业态可用）',
   })
   @IsOptional()
   @IsArray({ message: '规格组必须是数组' })
@@ -191,7 +191,7 @@ export class UpdateProductDto {
 
   @ApiPropertyOptional({
     type: [ProductSpecGroupDto],
-    description: '餐饮商品规格组；传空数组可清空全部规格',
+    description: '商品规格组（全业态可用）；传空数组可清空全部规格',
   })
   @IsOptional()
   @IsArray({ message: '规格组必须是数组' })

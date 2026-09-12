@@ -41,13 +41,17 @@ export const mergeSessionItems = (
     //  但防御性地回算到分再做整数比较更安全）
     const itemPriceCents = Math.round(item.salePrice * 100);
     const itemSourceType = item.sourceType ?? null;
+    // 规格签名参与合并键：同商品不同规格（即使同价）必须保持独立行，
+    // 否则规格信息会被静默丢弃
+    const itemSpecSignature = item.specSignature ?? null;
     const existing = mergedItems.find(
       (currentItem) =>
         currentItem.productId === item.productId &&
         Math.round(currentItem.salePrice * 100) === itemPriceCents &&
         // 自助下单行（member_self_order）与员工手工追加行必须保持独立：
         // 结算时按来源识别已在线支付商品并生成抵扣，合并会抹掉来源标记导致重复收费
-        (currentItem.sourceType ?? null) === itemSourceType,
+        (currentItem.sourceType ?? null) === itemSourceType &&
+        (currentItem.specSignature ?? null) === itemSpecSignature,
     );
     if (existing) {
       existing.quantity += item.quantity;

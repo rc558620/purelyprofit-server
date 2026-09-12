@@ -17,6 +17,10 @@ import {
 } from '../../../redis/keys';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import {
+  isSelfOrderDeductionRow,
+  listVisibleSaleOrderItems,
+} from './sales-record-item-aggregation';
+import {
   buildGrouponLabel,
   resolveGrouponPlatformZh,
 } from '../handover/handover.constants';
@@ -26,11 +30,17 @@ import type {
 } from './dto/sales-record.dto';
 import {
   aggregateReportRows,
+  buildScanOrderingEnrichment,
+  buildSpaceSessionSpecsEnrichment,
   resolveReportProductName,
 } from './sales-record.domain';
 import type { SaleOrderWithItems } from './sales-record.domain';
 import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
-import { querySaleOrders } from './sales-record.query';
+import {
+  querySaleOrders,
+  queryScanOrderingDetails,
+  querySpaceSessionSpecDetails,
+} from './sales-record.query';
 import {
   buildEmptySalesReport,
   buildSalesCurrentRange,
@@ -44,7 +54,7 @@ const SALES_REPORT_REFRESH_AFTER_MS = 15_000;
 
 const CSV_HEADERS = [
   '订单号',
-  '商品名称',
+  '商品（规格）',
   '数量(件)',
   '营业额(元)',
   '利润(元)',
@@ -75,7 +85,15 @@ function resolvePaymentLabel(paymentMethod: string): string {
   return PAYMENT_METHOD_LABELS[paymentMethod] ?? paymentMethod;
 }
 
-export function buildCsvRowFromOrder(order: SaleOrderWithItems): string[] {
+/**
+ * @param specsRows 与 `order.items` **原始索引**一一对应的规格名列表（来自 resolveSpecsRowsMap）；
+ *                  缺省表示该订单无规格可展示。
+ */
+export function buildCsvRowFromOrder(
+  order: SaleOrderWithItems,
+  specsRows?: string[][],
+): string[] {
+  // 金额聚合口径：商品行 + 抵扣行相互冲减（自助下单商品已在线支付，抵扣行冲减到店应收）
   const visibleItems = order.items.filter(
     (item) => !isDeductionProductName(item.productName),
   );
@@ -94,8 +112,19 @@ export function buildCsvRowFromOrder(order: SaleOrderWithItems): string[] {
   const amounts =
     SalesRecordAmountsDomain.aggregateFromPreparedItems(preparedItems);
 
-  const itemNames = visibleItems
-    .map((it) => `${resolveReportProductName(order, it)}×${it.quantity}`)
+  // 商品名称列：自助下单已在线支付的商品由「XX · 自助下单抵扣」抵扣行承载（原商品行排除）；
+  // 规格按 **order.items 原始索引**取值（行过滤后再取下标会错位），
+  // 输出格式与餐饮 CSV 一致：商品名×数量（规格1、规格2）
+  const itemNames = listVisibleSaleOrderItems(order)
+    .map(({ item, index }) => {
+      const specs = specsRows?.[index] ?? [];
+      const specSuffix = specs.length > 0 ? `（${specs.join('、')}）` : '';
+      // 抵扣行保留完整名（「XX · 自助下单抵扣」），不做报表名改写
+      const name = isSelfOrderDeductionRow(item.productName)
+        ? item.productName
+        : resolveReportProductName(order, item);
+      return `${name}×${item.quantity}${specSuffix}`;
+    })
     .join('；');
 
   const operatorName = toOptionalText(order.operatorNameSnapshot) ?? '-';
@@ -349,13 +378,7 @@ export class SalesRecordReportService {
 
     if (storeId === null) {
       const prefixRows = buildSummaryPrefixRows([], resolvePeriodLabel(query));
-      safeStreamCsvExport(
-        reply,
-        '销售记录.csv',
-        CSV_HEADERS,
-        [],
-        prefixRows,
-      );
+      safeStreamCsvExport(reply, '销售记录.csv', CSV_HEADERS, [], prefixRows);
       return;
     }
 
@@ -373,13 +396,7 @@ export class SalesRecordReportService {
     );
     if (range.empty) {
       const prefixRows = buildSummaryPrefixRows([], resolvePeriodLabel(query));
-      safeStreamCsvExport(
-        reply,
-        '销售记录.csv',
-        CSV_HEADERS,
-        [],
-        prefixRows,
-      );
+      safeStreamCsvExport(reply, '销售记录.csv', CSV_HEADERS, [], prefixRows);
       return;
     }
 
@@ -388,16 +405,72 @@ export class SalesRecordReportService {
       range: { start: range.start, end: range.end },
     });
 
-    const rows = orders.map((order) => buildCsvRowFromOrder(order));
+    const specsRowsMap = await this.resolveSpecsRowsMap(orders);
+    const rows = orders.map((order) =>
+      buildCsvRowFromOrder(order, specsRowsMap.get(order.id)),
+    );
     const periodLabel = resolvePeriodLabel(query);
     const prefixRows = buildSummaryPrefixRows(orders, periodLabel);
 
-    safeStreamCsvExport(
-      reply,
-      '销售记录.csv',
-      CSV_HEADERS,
-      rows,
-      prefixRows,
+    safeStreamCsvExport(reply, '销售记录.csv', CSV_HEADERS, rows, prefixRows);
+  }
+
+  /**
+   * 批量解析订单规格行（订单 id → 与 `order.items` 原始索引对齐的规格名列表）。
+   *
+   * 与销售记录列表接口同口径，两种来源分别回源：
+   * - 扫码点餐订单：`scanOrder.items.specs`（按数量展开）
+   * - 空间会话结账订单（自助下单 / 追加点单）：`spaceSession.sessionItems.specNames`（行级）
+   *
+   * 未命中（无规格 / 数据缺失）时不写入 map，调用方按「无规格」渲染。
+   */
+  private async resolveSpecsRowsMap(
+    orders: SaleOrderWithItems[],
+  ): Promise<Map<number, string[][]>> {
+    const specsRowsMap = new Map<number, string[][]>();
+    if (orders.length === 0) return specsRowsMap;
+
+    const scanOrderIds = orders
+      .map((order) => order.scanOrderId)
+      .filter((id): id is number => id !== null && id !== undefined);
+    const nonScanSaleOrderIds = orders
+      .filter((order) => order.scanOrderId === null)
+      .map((order) => order.id);
+
+    const [scanDetails, spaceSessionSpecs] = await Promise.all([
+      queryScanOrderingDetails(this.prisma, scanOrderIds),
+      querySpaceSessionSpecDetails(this.prisma, nonScanSaleOrderIds),
+    ]);
+    const scanDetailMap = new Map(
+      scanDetails.map((detail) => [detail.id, detail]),
     );
+    // key 必须是 SaleOrder.id（会话侧外键），不能用 spaceSession.id
+    const spaceSessionMap = new Map(
+      spaceSessionSpecs
+        .filter((session) => session.saleOrderId !== null)
+        .map((session) => [session.saleOrderId as number, session]),
+    );
+
+    for (const order of orders) {
+      if (order.scanOrderId !== null) {
+        const detail = scanDetailMap.get(order.scanOrderId);
+        if (detail) {
+          specsRowsMap.set(
+            order.id,
+            buildScanOrderingEnrichment(order, detail).specsRows,
+          );
+        }
+        continue;
+      }
+      const session = spaceSessionMap.get(order.id);
+      if (session) {
+        specsRowsMap.set(
+          order.id,
+          buildSpaceSessionSpecsEnrichment(order, session).specsRows,
+        );
+      }
+    }
+
+    return specsRowsMap;
   }
 }

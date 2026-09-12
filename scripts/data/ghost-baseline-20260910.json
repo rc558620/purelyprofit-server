@@ -1,0 +1,45 @@
+{
+  "capturedAt": "2026-09-10T05:35:30.105Z",
+  "stores": [
+    {
+      "storeId": 37,
+      "storeName": "测试门店1",
+      "businessMode": "catering",
+      "menuProducts": 109,
+      "ghostHosts": 0,
+      "activeHosts": 109,
+      "specGroups": 13,
+      "specOptions": 42
+    },
+    {
+      "storeId": 42,
+      "storeName": "测试门店2",
+      "businessMode": "general",
+      "menuProducts": 1,
+      "ghostHosts": 1,
+      "activeHosts": 0,
+      "specGroups": 2,
+      "specOptions": 3
+    },
+    {
+      "storeId": 43,
+      "storeName": "测试门店",
+      "businessMode": "general",
+      "menuProducts": 0,
+      "ghostHosts": 0,
+      "activeHosts": 0,
+      "specGroups": 0,
+      "specOptions": 0
+    },
+    {
+      "storeId": 56,
+      "storeName": "按摩店",
+      "businessMode": "general",
+      "menuProducts": 0,
+      "ghostHosts": 0,
+      "activeHosts": 0,
+      "specGroups": 0,
+      "specOptions": 0
+    }
+  ]
+}

@@ -20,6 +20,10 @@ describe('SalesRecordListService', () => {
     scanOrders: {
       findMany: jest.fn(),
     },
+    // 非扫码订单（空间会话结账）规格回源：默认无匹配会话
+    spaceSession: {
+      findMany: jest.fn(),
+    },
   };
 
   const configService = {
@@ -66,6 +70,7 @@ describe('SalesRecordListService', () => {
       { revenue: 0, profit: 0, order_count: BigInt(0) },
     ]);
     prismaService.scanOrders.findMany.mockResolvedValue([]);
+    prismaService.spaceSession.findMany.mockResolvedValue([]);
     configService.get.mockImplementation((key: string) => {
       const configMap: Record<string, number> = {
         'app.defaultPageSize': 20,

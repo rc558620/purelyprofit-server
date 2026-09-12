@@ -44,3 +44,19 @@ export interface ListLedgerEntriesOptions {
   /** 类型筛选：all=全部 recharge=充值与赠送 consume=消费与退款 */
   filterType?: ClubRecordFilterValue;
 }
+
+/** 流水列表查询结果：展示用分页条目 + 余额快照基准条目 */
+export interface ListLedgerEntriesResult {
+  /** 当前页展示条目（已按 filterType 过滤并按时间倒序） */
+  items: ClubLedgerEntry[];
+  /** 符合筛选条件的流水总条数 */
+  total: number;
+  /**
+   * 余额快照基准条目：**不受 filterType 影响**的全量储值账户流水（时间升序）。
+   *
+   * 为什么需要单独返回：余额快照由「当前余额 − 本批流水余额变动之和」反推，
+   * 若只拿展示用的过滤结果，充值与赠送会被排除，反推起点被抬高，
+   * 展示出的「余额」将严重偏离真实储值余额。
+   */
+  balanceEntries: ClubLedgerEntry[];
+}

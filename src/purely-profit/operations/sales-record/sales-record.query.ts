@@ -192,6 +192,43 @@ export async function queryScanOrderingDetails(
   });
 }
 
+/**
+ * 批量查询销售记录关联的空间会话商品行规格（非扫码订单增强数据源）：
+ * 空间结账的 saleOrderItem 由 sessionItems 行级复制，specNames 按行对应。
+ */
+export async function querySpaceSessionSpecDetails(
+  prisma: PrismaService,
+  saleOrderIds: number[],
+): Promise<
+  Array<{
+    id: number;
+    saleOrderId: number | null;
+    sessionItems: Array<{
+      productName: string;
+      quantity: number;
+      specNames: unknown;
+    }>;
+  }>
+> {
+  if (saleOrderIds.length === 0) return [];
+  return prisma.spaceSession.findMany({
+    where: { saleOrderId: { in: saleOrderIds } },
+    select: {
+      id: true,
+      // 调用方按 SaleOrder.id 关联，必须返回该外键作为 map key
+      saleOrderId: true,
+      sessionItems: {
+        select: {
+          productName: true,
+          quantity: true,
+          specNames: true,
+        },
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      },
+    },
+  });
+}
+
 export function countSaleOrders(
   prisma: PrismaService,
   params: {

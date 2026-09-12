@@ -90,6 +90,8 @@ export class AuthMembershipQueryService {
         WHERE st.is_active = true
           AND st.status = ${StaffStatus.active}
           AND st.user_id = ${payload.sub}
+          /* 已注销门店（软删除）不得作为登录/鉴权的会员上下文 */
+          AND s.deleted_at IS NULL
         ORDER BY
           CASE WHEN st.user_id = ${payload.sub} THEN 0 ELSE 1 END,
           CASE

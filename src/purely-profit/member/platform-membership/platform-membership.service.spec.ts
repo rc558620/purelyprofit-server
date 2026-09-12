@@ -13,6 +13,7 @@ import { PlatformMembershipPromoBeanReconciliationService } from './platform-mem
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
 import { PlatformMembershipReadService } from './platform-membership-read.service';
 import { PlatformMembershipService } from './platform-membership.service';
+import { buildMembershipCapabilities } from './platform-membership-access.shared';
 
 describe('PlatformMembershipService', () => {
   let service: PlatformMembershipService;
@@ -591,6 +592,7 @@ describe('PlatformMembershipService', () => {
         inviteCode: 'TEST1234',
         totalPoints: 188,
         availablePoints: 88,
+        capabilities: buildMembershipCapabilities('quarterly'),
       },
       remainingDays: aNonNegativeNumber,
       stats: {
@@ -669,6 +671,8 @@ describe('PlatformMembershipService', () => {
           inviteCode: 'TEST1234',
           totalPoints: 1880,
           availablePoints: 1280,
+          // yearly + expiresAt=null 的历史永久会员，能力档位识别为 lifetime
+          capabilities: buildMembershipCapabilities('lifetime'),
         },
         remainingDays: 709,
         stats: {
@@ -726,6 +730,7 @@ describe('PlatformMembershipService', () => {
         inviteCode: 'TEST1234',
         totalPoints: 188,
         availablePoints: 88,
+        capabilities: buildMembershipCapabilities('quarterly'),
       },
       approvedPartner: {
         id: '11',
@@ -974,6 +979,7 @@ describe('PlatformMembershipService', () => {
         inviteCode: 'TEST1234',
         totalPoints: 1880,
         availablePoints: 1280,
+        capabilities: buildMembershipCapabilities('yearly'),
       },
       overview: {
         availablePoints: 1280,
@@ -2027,6 +2033,7 @@ describe('PlatformMembershipService', () => {
           inviteCode: 'TEST1234',
           totalPoints: 300,
           availablePoints: 300,
+          capabilities: buildMembershipCapabilities('quarterly'),
         },
         approvedPartner: {
           id: '11',

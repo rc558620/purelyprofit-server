@@ -152,6 +152,10 @@ export class ScanOrderingRealtimeService
     categoryName: string | null;
     /** 购买数量 */
     quantity: number;
+    /** 实付金额（分，商家端通知展示「金额：¥xx」） */
+    paidAmountFen: number;
+    /** 下单备注（用户购买时填写，可为空） */
+    remark: string | null;
     /** 下单时间 ISO */
     createdAt: string;
   }): void {

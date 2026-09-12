@@ -47,7 +47,7 @@ type MembershipRuleFeatureResolver = (
   snapshot: MembershipRuleSnapshot,
 ) => boolean;
 
-type CountQuotaErrorMessageBuilder = (limit: number) => string;
+type CountQuotaErrorMessageBuilder = (limit: number, currentCount: number) => string;
 
 type EnsureCountQuotaAvailableParams = {
   storeId: number;
@@ -257,7 +257,7 @@ export class PlatformMembershipAccessService {
 
     const currentCount = await params.getCurrentCount();
     if (currentCount >= limit) {
-      throw new ForbiddenException(params.buildErrorMessage(limit));
+      throw new ForbiddenException(params.buildErrorMessage(limit, currentCount));
     }
   }
 

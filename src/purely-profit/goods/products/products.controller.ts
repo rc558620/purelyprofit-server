@@ -29,8 +29,10 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import {
   CreateProductDto,
+  ListProductOptionsQueryDto,
   ListProductsQueryDto,
   PaginatedProductsResponseDto,
+  ProductOptionsResponseDto,
   ProductResponseDto,
   ScanOrderingStatusResponseDto,
   ToggleScanOrderingStatusDto,
@@ -54,6 +56,20 @@ export class ProductsController {
     @Query() query: ListProductsQueryDto,
   ): Promise<PaginatedProductsResponseDto> {
     return this.productsService.list(user, query);
+  }
+
+  // ⚠️ 必须声明在 `@Get(':id')` 之前，否则 'options' 会被 ':id' 路由捕获。
+  @Get('options')
+  @RequirePermissions('goods:view')
+  @ApiOperation({
+    summary: '获取商品全量选项（点单/录单选择器，单次返回，不分页）',
+  })
+  @ApiOkResponse({ type: ProductOptionsResponseDto })
+  listOptions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListProductOptionsQueryDto,
+  ): Promise<ProductOptionsResponseDto> {
+    return this.productsService.listOptions(user, query);
   }
 
   @Get(':id')

@@ -326,6 +326,7 @@ export class AuthAuthenticationService {
   ): Promise<void> {
     await this.authAccountService.syncStaffMemberships(userId, identifiers);
     await this.authBanGuardService.ensureUserNotBanned(userId);
+    await this.authBanGuardService.ensureUserNotCancelled(userId);
   }
 
   private resolveAccountScopeForLogin(user: {

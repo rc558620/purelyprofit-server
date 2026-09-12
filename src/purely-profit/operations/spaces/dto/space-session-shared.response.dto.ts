@@ -49,14 +49,16 @@ export class SpaceSessionItemResponseDto {
 
   @ApiPropertyOptional({
     example: 'member_self_order',
-    description: '行来源：member_self_order=会员自助下单（已在线支付）/ 空=员工手工追加',
+    description:
+      '行来源：member_self_order=会员自助下单（已在线支付）/ 空=员工手工追加',
   })
   // mapper 输出 row.sourceType ?? null，类型需与实际返回一致
   sourceType?: string | null;
 
   @ApiPropertyOptional({
     example: 'balance',
-    description: '行来源支付渠道：balance=储值余额 / wechat=微信支付（仅自助下单行有值）',
+    description:
+      '行来源支付渠道：balance=储值余额 / wechat=微信支付（仅自助下单行有值）',
   })
   sourceChannel?: string | null;
 
@@ -71,6 +73,26 @@ export class SpaceSessionItemResponseDto {
     description: '行来源订单明细 ID（仅自助下单行有值）',
   })
   sourceOrderItemId?: number | null;
+
+  @ApiPropertyOptional({
+    example: '9f2b...（sha256）',
+    description: '规格签名（选项 ID 升序 sha256）；无规格时不下发',
+  })
+  specSignature?: string | null;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['大杯', '热'],
+    description:
+      '规格名；无规格时不下发。注意 productName 已含规格后缀（如「可乐（大杯）」），前端不要重复拼接',
+  })
+  specNames?: string[] | null;
+
+  @ApiPropertyOptional({
+    example: 1715695200000,
+    description: '行创建时间戳（毫秒）：明细 / 结账展示「下单时间」',
+  })
+  createdAt?: number;
 }
 
 export class SpaceSessionRenewRecordResponseDto {

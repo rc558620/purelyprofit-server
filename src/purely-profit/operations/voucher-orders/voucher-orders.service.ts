@@ -347,6 +347,7 @@ export class VoucherOrdersService {
     categoryName: string | null;
     productName: string;
     quantity: number;
+    remark: string | null;
     paidAmountFen: number;
     status: string;
     usedSessionId: number | null;
@@ -370,6 +371,7 @@ export class VoucherOrdersService {
       productName: row.productName,
       productImage: row.product.image,
       quantity: row.quantity,
+      remark: row.remark,
       paidAmountFen: row.paidAmountFen,
       status: row.status as VoucherOrderListItemDto['status'],
       usedSessionId: row.usedSessionId,

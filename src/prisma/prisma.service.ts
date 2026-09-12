@@ -96,13 +96,25 @@ export class PrismaService
 
     // 通过连接串 options 参数注入 statement_timeout，确保连接池中每个新连接
     // 都自动获得 timeout 保护，而非依赖单次 SET 命令（仅对当前连接生效）。
+    //
+    // 同时钉死会话时区为 UTC：
+    // 库内历史表的时间列是 TIMESTAMP WITHOUT TIME ZONE，列默认值 CURRENT_TIMESTAMP 取的是
+    // 数据库会话时区的墙钟，而 Prisma/驱动按 UTC 解释 naive 值 —— 会话时区非 UTC 时，
+    // 任何「未显式传 created_at」的写入都会被读成 +8h（典型现象：流水时间比实际晚 8 小时）。
+    // 把会话时区固定为 UTC 后，CURRENT_TIMESTAMP / NOW() / CURRENT_DATE 产出的墙钟与
+    // Prisma 的读写口径天然一致，从根上消除该类错位。
     const poolUrl = new URL(connectionString!);
     const existingOptions = poolUrl.searchParams.get('options') ?? '';
     const timeoutOption = `-c statement_timeout=${statementTimeoutMs}`;
-    poolUrl.searchParams.set(
-      'options',
-      existingOptions ? `${existingOptions} ${timeoutOption}` : timeoutOption,
-    );
+    const timezoneOption = '-c timezone=UTC';
+    const injectedOptions = [
+      existingOptions,
+      timezoneOption,
+      timeoutOption,
+    ]
+      .filter((part) => part.length > 0)
+      .join(' ');
+    poolUrl.searchParams.set('options', injectedOptions);
 
     const pool = new Pool({
       connectionString: poolUrl.toString(),

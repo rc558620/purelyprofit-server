@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
+  IsArray,
   IsInt,
   IsOptional,
   IsString,
@@ -35,6 +36,17 @@ export class SelfOrderItemInputDto {
     message: `单件商品数量不能超过 ${SELF_ORDER_LINE_QUANTITY_MAX}`,
   })
   quantity: number;
+
+  @ApiPropertyOptional({
+    type: [Number],
+    description:
+      '已选规格选项 ID；无规格时不传。服务端据此重算单价并落规格快照',
+  })
+  @IsOptional()
+  @IsArray({ message: 'specOptionIds 必须是数组' })
+  @IsInt({ each: true, message: '规格选项 ID 必须是整数' })
+  @Type(() => Number)
+  specOptionIds?: number[];
 }
 
 export class CreateSelfOrderDto {

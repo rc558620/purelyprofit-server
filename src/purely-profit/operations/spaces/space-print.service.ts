@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { SpacePrintSettingsService } from './space-print-settings.service';
-import { SpacePrintDataService, selfOrderChannelLabel } from './space-print-data.service';
+import { SpacePrintDataService } from './space-print-data.service';
 import { FeiePrintService } from '../scan-ordering/feie-print.service';
 import { UsbPrintService } from '../scan-ordering/usb-print.service';
 import { PrintAgentService } from '../scan-ordering/print-agent.service';
@@ -152,14 +152,22 @@ export class SpacePrintService {
     if (order.items.length > 0) {
       lines.push('商品明细<BR>');
       order.items.forEach((item) => {
-        // 自助下单商品：商品名后拼「自助/余额/已付」标注（飞鹅标签无字号控制）
+        // 自助下单商品：商品名后拼「 (自助)」标注（半角括号，热敏机 ASCII 字库最规整）
         const name =
-          item.sourceType === 'member_self_order'
-            ? `${item.name}(自助/${selfOrderChannelLabel(item.sourceChannel)}/已付)`
-            : item.name;
+          item.sourceType === 'member_self_order' ? `${item.name} (自助)` : item.name;
         lines.push(`${name} x${item.quantity}  ￥${item.subtotal.toFixed(2)}<BR>`);
+        // 规格另起一行（对齐餐饮扫码点餐小票口径）
+        if (item.specNames && item.specNames.length > 0) {
+          lines.push(`  ${item.specNames.join('、')}<BR>`);
+        }
       });
       lines.push(`商品合计：￥${order.itemsCost.toFixed(2)}<BR>`);
+    }
+    // 台位费：不占商品明细行，作为「商品合计」下方的单列汇总行
+    if (order.timeCost > 0) {
+      lines.push(
+        `台位费 (${order.timeFeeLabel})：￥${order.timeCost.toFixed(2)}<BR>`,
+      );
     }
     if (order.renewDeduction > 0) {
       lines.push(`续费抵扣：-￥${order.renewDeduction.toFixed(2)}<BR>`);
@@ -169,7 +177,7 @@ export class SpacePrintService {
     }
     if (order.selfOrderDeduction > 0) {
       lines.push(
-        `自助下单（已支付）：-￥${order.selfOrderDeduction.toFixed(2)}<BR>`,
+        `自助下单 (已支付)：-￥${order.selfOrderDeduction.toFixed(2)}<BR>`,
       );
     }
     lines.push('--------------------------------<BR>');
@@ -212,6 +220,7 @@ export class SpacePrintService {
       billingModeLabel: order.billingModeLabel,
       hourlyRate: order.hourlyRate,
       timeCost: order.timeCost,
+      timeFeeLabel: order.timeFeeLabel,
       items: order.items,
       itemsCost: order.itemsCost,
       renewDeduction: order.renewDeduction,

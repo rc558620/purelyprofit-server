@@ -71,7 +71,8 @@ export class ClubVoucherOrdersService {
       pointsDeductFen: pricing.pointsDeductFen,
       pointsUsed: pricing.pointsUsed,
       personCount,
-      balanceEnough: true,
+      // 余额支付充足性：由后端按顾客实时余额与实付金额判断，前端仅展示
+      balanceEnough: context.customer.balance >= pricing.paidAmountFen,
       memberAmountFen: pricing.memberAmountFen,
       afterDiscountAmountFen: pricing.afterDiscountAmountFen,
       reduceFen: pricing.reduceFen,

@@ -185,6 +185,7 @@ export class AuthCodeLoginService {
         accountScope,
         ...(user.staffId != null ? { staffId: user.staffId } : {}),
       });
+      await this.authBanGuardService.ensureUserNotCancelled(user.id);
     }
 
     await this.authBanGuardService.ensureUserNotBanned(user.id);

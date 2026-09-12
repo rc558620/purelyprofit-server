@@ -11,6 +11,11 @@ import type {
 
 interface BuildRecordItemsParams {
   entries: ClubLedgerEntry[];
+  /**
+   * 余额快照基准：不受 filterType 影响的全量储值账户流水（通常由查询层提供）。
+   * 缺省时回退为 entries（兼容旧调用）。
+   */
+  balanceEntries?: ClubLedgerEntry[];
   filterType: ClubRecordFilterValue;
   customer: ClubLedgerCustomerRecord;
   storeName: string;
@@ -28,9 +33,11 @@ export class ClubRecordViewService {
    * 3. 从最旧的流水开始，逐条加上 balanceEffectFen，得到每笔流水后的余额
    * 4. 最终输出仍按时间倒序（最新在前）
    *
-   * 注意：当只加载了部分流水（分页场景）时，最旧几条的余额快照
-   * 可能与真实历史余额有偏差（因为更早的流水未加载），
-   * 但同一页内的快照是连贯且相对正确的。
+   * 注意：余额快照必须基于**全量储值账户流水**（balanceEntries）。
+   * 若误用按 Tab 过滤后的 entries，充值与赠送会被排除，反推起点被抬高，
+   * 展示出的「余额」将严重偏离真实储值余额。
+   * 当只加载了部分流水（分页场景）时，最旧几条的余额快照可能与真实历史余额有偏差
+   * （因为更早的流水未加载），但同一页内的快照是连贯且相对正确的。
    */
   buildRecordItems(params: BuildRecordItemsParams): ClubRecordDto[] {
     const { entries, filterType, customer, storeName } = params;
@@ -40,8 +47,13 @@ export class ClubRecordViewService {
       return [];
     }
 
+    // 余额快照基准优先取全量流水；缺省（旧调用）回退为过滤结果
+    const balanceEntries = params.balanceEntries?.length
+      ? params.balanceEntries
+      : filteredEntries;
+
     // 按时间正序排列（从最旧到最新）用于计算余额快照
-    const ascending = [...filteredEntries].sort(
+    const ascending = [...balanceEntries].sort(
       (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
     );
 

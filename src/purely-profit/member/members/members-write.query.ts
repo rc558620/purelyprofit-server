@@ -54,7 +54,9 @@ export async function insertMemberRecord(
       is_partner,
       partner_level,
       banned_reason,
-      status
+      status,
+      created_at,
+      updated_at
     )
     VALUES (
       ${input.storeId},
@@ -67,7 +69,11 @@ export async function insertMemberRecord(
       ${input.isPartner},
       ${input.partnerLevel},
       ${input.bannedReason},
-      ${input.status}::"MemberStatus"
+      ${input.status}::"MemberStatus",
+      -- 时间列是 TIMESTAMP WITHOUT TIME ZONE，必须显式写 UTC 墙钟，
+      -- 否则走 CURRENT_TIMESTAMP 会取数据库会话时区墙钟，被驱动按 UTC 读成 +8h
+      NOW() AT TIME ZONE 'UTC',
+      NOW() AT TIME ZONE 'UTC'
     )
     RETURNING id
   `;
@@ -91,7 +97,7 @@ export async function updateMemberRecord(
   await client.$executeRaw`
     UPDATE members
     SET ${Prisma.join(updates, ', ')},
-        updated_at = NOW()
+        updated_at = NOW() AT TIME ZONE 'UTC'
     WHERE id = ${memberId}
   `;
 
@@ -109,7 +115,7 @@ export async function deleteMemberRecord(
   // 软删除：更新 deleted_at 字段而非物理删除
   await client.$executeRaw`
     UPDATE members
-    SET deleted_at = NOW()
+    SET deleted_at = NOW() AT TIME ZONE 'UTC'
     WHERE id = ${memberId}
       AND deleted_at IS NULL
   `;
@@ -149,7 +155,7 @@ export async function replaceMemberRechargeHistory(
         ${record.amount},
         ${record.pointsAwarded},
         ${record.channel}::"MemberRechargeChannel",
-        ${new Date(record.createdAt)}
+        ${new Date(record.createdAt).toISOString()}::timestamp
       )
     `;
   }

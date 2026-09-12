@@ -64,3 +64,13 @@ export class ListProductsQueryDto extends PaginationQueryDto {
   @IsIn(PRODUCT_SORT_VALUES, { message: '排序方式不合法' })
   sortBy?: (typeof PRODUCT_SORT_VALUES)[number];
 }
+
+/** 全量商品查询参数（点单/录单选择器，不分页） */
+export class ListProductOptionsQueryDto {
+  @ApiPropertyOptional({ example: 1, description: '门店 ID' })
+  @IsOptional()
+  @Transform(transformOptionalInt)
+  @IsInt({ message: '门店 ID 必须是整数' })
+  @Min(1, { message: '门店 ID 必须大于等于 1' })
+  storeId?: number;
+}

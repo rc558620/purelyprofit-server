@@ -31,6 +31,12 @@ export function normalizeMembershipProfileFromPaidOrders(params: {
     return profile;
   }
 
+  // startsAt 非空表示档案已被显式写入（管理员设置会员等级 / 购买流程落盘），
+  // 即使当前为免费（管理员降级）也不得用历史付费订单重建，否则降级会被回滚
+  if (profile.startsAt !== null) {
+    return profile;
+  }
+
   const rebuiltSnapshot = rebuildMembershipProfileFromPaidOrders({
     paidOrders,
     plans,

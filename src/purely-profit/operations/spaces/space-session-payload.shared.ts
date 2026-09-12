@@ -133,15 +133,22 @@ export const normalizeCommissionAssignmentsPayload = (
     ];
   });
 
+/** 追加点单行的归一化输入；salePrice/profit 单位为元 */
+export interface SessionItemPayloadInput {
+  productId: string;
+  productName: string;
+  categoryName: string;
+  salePrice: number;
+  profit: number;
+  quantity: number;
+  /** 规格签名（选项 ID 升序 sha256）；无规格时为 null */
+  specSignature?: string | null;
+  /** 规格名；无规格时为 null */
+  specNames?: string[] | null;
+}
+
 export const normalizeSessionItemsPayload = (
-  items: Array<{
-    productId: string;
-    productName: string;
-    categoryName: string;
-    salePrice: number;
-    profit: number;
-    quantity: number;
-  }>,
+  items: SessionItemPayloadInput[],
 ): SpaceSessionItemRecord[] => {
   if (items.length === 0) {
     throw new BadRequestException('请至少选择一件商品');
@@ -172,6 +179,11 @@ export const normalizeSessionItemsPayload = (
       lineTotal: Money.fromInputYuan(item.salePrice)
         .multiply(item.quantity)
         .toOutputYuan(),
+      // 规格维度：无规格时不下发字段，保持旧版记录结构（既有单测的 toEqual 不受影响）
+      ...(item.specSignature ? { specSignature: item.specSignature } : {}),
+      ...(item.specNames && item.specNames.length > 0
+        ? { specNames: item.specNames }
+        : {}),
     };
   });
 };

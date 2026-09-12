@@ -19,6 +19,9 @@ import {
   deductPointsForSettlement,
 } from '../orders/club-order-settlement-points.utils';
 
+/** 在途支付尝试回收阈值：超过该时长仍处 created/paying 的尝试视为已放弃 */
+const SCAN_PAYMENT_ATTEMPT_TTL_MS = 5 * 60 * 1000;
+
 /** C 端扫码点餐订单支付发起服务。 */
 @Injectable()
 export class ClubScanOrderingCheckoutService {
@@ -35,7 +38,7 @@ export class ClubScanOrderingCheckoutService {
   async createWechatPayment(
     user: AuthenticatedUser,
     orderId: number,
-    openid: string,
+    openid?: string,
   ): Promise<unknown> {
     const order = await this.prisma.scanOrders.findFirst({
       where: {
@@ -58,6 +61,23 @@ export class ClubScanOrderingCheckoutService {
       },
     });
     if (!order) throw new ConflictException('订单不可支付或已过期');
+
+    // 回收超时仍在途的尝试，避免用户放弃收银台后同订单长期无法重试。
+    // 真实微信支付回调会按 merchantPaymentNo 幂等落账，回收不会造成重复结算。
+    await this.prisma.scanOrderPaymentAttempt.updateMany({
+      where: {
+        orderId,
+        status: {
+          in: [
+            ScanOrderPaymentAttemptStatus.created,
+            ScanOrderPaymentAttemptStatus.paying,
+          ],
+        },
+        createdAt: { lt: new Date(Date.now() - SCAN_PAYMENT_ATTEMPT_TTL_MS) },
+      },
+      data: { status: ScanOrderPaymentAttemptStatus.failed },
+    });
+
     const activeAttempt = await this.prisma.scanOrderPaymentAttempt.findFirst({
       where: {
         orderId,
@@ -85,6 +105,18 @@ export class ClubScanOrderingCheckoutService {
         expiredAt: order.paymentExpiresAt,
       },
     });
+
+    // 营业执照/商户号就绪前 openid 缺省：不调起真实微信支付，
+    // 仅保留一笔本地尝试并返回空 paymentParams，前端走开发态 confirm-paid 兜底，
+    // 保证「微信支付」入口在联调期同样能跑通；后续补齐 openid 即自动切到真实支付。
+    if (!openid) {
+      await this.prisma.scanOrderPaymentAttempt.update({
+        where: { id: attempt.id },
+        data: { status: ScanOrderPaymentAttemptStatus.created },
+      });
+      return { paymentAttemptId: attempt.id, merchantPaymentNo };
+    }
+
     try {
       const paymentParams =
         await this.wechatJsapiService.createJsapiPaymentParams({

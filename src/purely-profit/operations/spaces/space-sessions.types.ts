@@ -40,6 +40,10 @@ export interface SpaceSessionItemRow {
   sourceOrderNo?: string | null;
   /** 来源订单行 ID，用于精确追溯 */
   sourceOrderItemId?: number | null;
+  /** 规格签名（选项 ID 升序 sha256）；无规格时为 null，参与合并键 */
+  specSignature?: string | null;
+  /** 规格名快照（如 ["大杯","热"]）；无规格时为 null */
+  specNames?: Prisma.JsonValue | null;
   createdAt: Date;
 }
 
@@ -82,6 +86,15 @@ export interface SpaceSessionItemRecord {
   sourceOrderNo?: string | null;
   /** 来源订单行 ID */
   sourceOrderItemId?: number | null;
+  /** 规格签名（选项 ID 升序 sha256），无规格时为 null；参与合并键 */
+  specSignature?: string | null;
+  /** 规格名（如 ["大杯","热"]），无规格时为 null；结账重写时必须原样保留 */
+  specNames?: string[] | null;
+  /**
+   * 行创建时间戳（毫秒）：明细 / 结账展示「下单时间」用。
+   * 仅读取链路（mapSessionItemRows）填充；结算链路内联构造的行不带此字段。
+   */
+  createdAt?: number;
 }
 
 /**

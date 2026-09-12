@@ -21,11 +21,28 @@ import {
   deleteProductRecord,
   findProductById,
   findProductStore,
+  queryAllProducts,
   queryProductPage,
   updateProductRecord,
 } from './products.query';
+import { ProductsScanOrderingSyncService } from './products-scan-ordering-sync.service';
 import { ProductsService } from './products.service';
 import type { ProductRecord } from './products.types';
+
+/**
+ * 扫码菜单同步服务桩：本用例聚焦 ProductsService 的编排，
+ * 同步服务的真实行为由 products-scan-ordering-sync.service.spec.ts 覆盖。
+ */
+const syncServiceMock = {
+  validateSpecificationGroups: jest.fn(),
+  syncSpecifications: jest.fn().mockResolvedValue(undefined),
+  enable: jest.fn().mockResolvedValue(undefined),
+  disable: jest.fn().mockResolvedValue(undefined),
+  cleanup: jest.fn().mockResolvedValue(undefined),
+  syncProduct: jest.fn().mockResolvedValue(undefined),
+  resolveCategory: jest.fn().mockResolvedValue({ id: 1 }),
+  invalidateCache: jest.fn().mockResolvedValue(undefined),
+};
 
 jest.mock('./products.domain', () => {
   const actual = jest.requireActual('./products.domain');
@@ -45,6 +62,7 @@ jest.mock('./products.query', () => ({
   deleteProductRecord: jest.fn(),
   findProductById: jest.fn(),
   findProductStore: jest.fn(),
+  queryAllProducts: jest.fn(),
   queryProductPage: jest.fn(),
   updateProductRecord: jest.fn(),
 }));
@@ -80,6 +98,7 @@ describe('ProductsService', () => {
   const mockedDeleteProductRecord = jest.mocked(deleteProductRecord);
   const mockedFindProductById = jest.mocked(findProductById);
   const mockedFindProductStore = jest.mocked(findProductStore);
+  const mockedQueryAllProducts = jest.mocked(queryAllProducts);
   const mockedQueryProductPage = jest.mocked(queryProductPage);
   const mockedUpdateProductRecord = jest.mocked(updateProductRecord);
 
@@ -148,6 +167,11 @@ describe('ProductsService', () => {
       code: record.code,
       price: Number(record.price),
       profit: Number(record.profit),
+      // 与 products.mapper 的 deriveProductProfitRate 同口径：利润 / 售价 × 100
+      profitRate:
+        record.price > 0
+          ? (Number(record.profit) / Number(record.price)) * 100
+          : 0,
       ...(record.costPrice !== null
         ? { costPrice: Number(record.costPrice) }
         : {}),
@@ -157,6 +181,8 @@ describe('ProductsService', () => {
       ...(record.image ? { image: record.image } : {}),
       ...(record.description ? { description: record.description } : {}),
       isActive: record.isActive,
+      scanOrderingEnabled: false,
+      specGroups: [],
       createdAt: record.createdAt.getTime(),
       updatedAt: record.updatedAt.getTime(),
       ...params?.overrides,
@@ -333,6 +359,7 @@ describe('ProductsService', () => {
           provide: PlatformMembershipAccessService,
           useValue: platformMembershipAccessService,
         },
+        { provide: ProductsScanOrderingSyncService, useValue: syncServiceMock },
       ],
     }).compile();
 
@@ -405,6 +432,34 @@ describe('ProductsService', () => {
       },
       skip: 5,
       take: 5,
+    });
+    expect(mockedBuildProductResponse).toHaveBeenNthCalledWith(1, row, 0, [
+      row,
+    ]);
+  });
+
+  it('listOptions 在无可查看门店时直接返回空列表', async () => {
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(null);
+
+    await expect(service.listOptions(user, {})).resolves.toEqual({ items: [] });
+
+    expect(mockedQueryAllProducts).not.toHaveBeenCalled();
+    expect(mockedBuildProductResponse).not.toHaveBeenCalled();
+  });
+
+  it('listOptions 会一次拉取全量商品并交给 mapper 输出（不分页）', async () => {
+    const row = createProductRecordFixture();
+    const response = createProductResponseFixture({ record: row });
+    commerceAccessService.resolveViewStoreId.mockResolvedValue(18);
+    mockedQueryAllProducts.mockResolvedValue([row]);
+    mockedBuildProductResponse.mockReturnValueOnce(response);
+
+    await expect(service.listOptions(user, { storeId: 18 })).resolves.toEqual({
+      items: [response],
+    });
+
+    expect(mockedQueryAllProducts).toHaveBeenCalledWith(prismaService, {
+      storeId: 18,
     });
     expect(mockedBuildProductResponse).toHaveBeenNthCalledWith(1, row, 0, [
       row,

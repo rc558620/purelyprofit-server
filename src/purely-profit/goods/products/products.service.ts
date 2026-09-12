@@ -12,8 +12,10 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { Money } from '../../../shared/money.utils';
 import type {
   CreateProductDto,
+  ListProductOptionsQueryDto,
   ListProductsQueryDto,
   PaginatedProductsResponseDto,
+  ProductOptionsResponseDto,
   ProductResponseDto,
   ScanOrderingStatusResponseDto,
   ToggleScanOrderingStatusDto,
@@ -32,6 +34,7 @@ import {
   deleteProductRecord,
   findProductById,
   findProductStore,
+  queryAllProducts,
   queryProductPage,
   updateProductRecord,
 } from './products.query';
@@ -88,6 +91,32 @@ export class ProductsService {
     };
   }
 
+  /**
+   * 一次性返回门店全量商品（不分页）。
+   *
+   * 专供点单/录单「选择器」：客户端需要本地全量搜索与分类筛选，
+   * 走分页接口会产生 ceil(total / pageSize) 次请求；这里单次返回，字段与列表一致。
+   */
+  async listOptions(
+    user: AuthenticatedUser,
+    query: ListProductOptionsQueryDto,
+  ): Promise<ProductOptionsResponseDto> {
+    const storeId = await this.commerceAccessService.resolveViewStoreId(
+      user,
+      query.storeId,
+      'goods:view',
+      '无权查看该门店商品',
+    );
+
+    if (storeId === null) {
+      return { items: [] };
+    }
+
+    const products = await queryAllProducts(this.prisma, { storeId });
+
+    return { items: products.map(buildProductResponse) };
+  }
+
   async detail(
     user: AuthenticatedUser,
     productId: number,
@@ -119,8 +148,8 @@ export class ProductsService {
       '无权操作该门店商品',
     );
 
+    // 规格为全业态能力：非餐饮门店同样可配置（追加点单 / 自助下单消费）
     if (dto.specGroups !== undefined) {
-      await this.scanOrderingSyncService.ensureCateringStore(storeId);
       this.scanOrderingSyncService.validateSpecificationGroups(dto.specGroups);
     }
 
@@ -191,8 +220,8 @@ export class ProductsService {
       '无权操作该门店商品',
     );
 
+    // 规格为全业态能力：非餐饮门店同样可配置（追加点单 / 自助下单消费）
     if (dto.specGroups !== undefined) {
-      await this.scanOrderingSyncService.ensureCateringStore(product.storeId);
       this.scanOrderingSyncService.validateSpecificationGroups(dto.specGroups);
     }
 

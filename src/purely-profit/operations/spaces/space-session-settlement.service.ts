@@ -239,6 +239,12 @@ export class SpaceSessionSettlementService {
               sourceType: item.sourceType ?? null,
               sourceOrderNo: item.sourceOrderNo ?? null,
               sourceOrderItemId: item.sourceOrderItemId ?? null,
+              // 规格维度必须随结账重写一起保留：销售记录/交班页的非扫码订单
+              // 规格展示依赖此处的快照，漏写会导致结账后规格「消失」
+              specSignature: item.specSignature ?? null,
+              ...(item.specNames && item.specNames.length > 0
+                ? { specNames: item.specNames }
+                : {}),
             })),
           });
 

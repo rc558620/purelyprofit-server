@@ -66,6 +66,9 @@ describe('SpacesWriteService', () => {
       count: jest.fn(),
       findFirst: jest.fn(),
     },
+    spaceQrCode: {
+      create: jest.fn(),
+    },
   };
 
   const prismaService = {

@@ -16,6 +16,7 @@ import {
 } from '../../commerce/commerce.utils';
 import {
   buildScanOrderingEnrichment,
+  buildSpaceSessionSpecsEnrichment,
   mapSalesRecordResponse,
 } from './sales-record.domain';
 import {
@@ -23,6 +24,7 @@ import {
   countSaleOrders,
   querySaleOrders,
   queryScanOrderingDetails,
+  querySpaceSessionSpecDetails,
 } from './sales-record.query';
 import {
   buildEmptySalesListResponse,
@@ -79,24 +81,44 @@ export class SalesRecordListService {
     const scanOrderIds = orders
       .map((order) => order.scanOrderId)
       .filter((id): id is number => id !== null && id !== undefined);
-    const [total, currentStats, scanOrderingDetails] = await Promise.all([
-      countSaleOrders(this.prisma, {
-        storeId,
-        range: { start: range.start, end: range.end },
-      }),
-      aggregateOrderStats(this.prisma, storeId, {
-        start: range.start,
-        end: range.end,
-      }),
-      queryScanOrderingDetails(this.prisma, scanOrderIds),
-    ]);
+    // 收集非扫码订单 ID（空间会话结账订单：自助下单 / 追加点单，用于规格展示）
+    const nonScanSaleOrderIds = orders
+      .filter((order) => order.scanOrderId === null)
+      .map((order) => order.id);
+    const [total, currentStats, scanOrderingDetails, spaceSessionSpecs] =
+      await Promise.all([
+        countSaleOrders(this.prisma, {
+          storeId,
+          range: { start: range.start, end: range.end },
+        }),
+        aggregateOrderStats(this.prisma, storeId, {
+          start: range.start,
+          end: range.end,
+        }),
+        queryScanOrderingDetails(this.prisma, scanOrderIds),
+        querySpaceSessionSpecDetails(this.prisma, nonScanSaleOrderIds),
+      ]);
     const scanOrderingDetailMap = new Map(
       scanOrderingDetails.map((detail) => [detail.id, detail]),
+    );
+    // key 必须是 SaleOrder.id（会话侧的外键），不能是 spaceSession.id：
+    // 二者是不同的主键，用错会永远匹配不到
+    const spaceSessionSpecMap = new Map(
+      spaceSessionSpecs
+        .filter((session) => session.saleOrderId !== null)
+        .map((session) => [session.saleOrderId as number, session]),
     );
     const items = orders.map((order) => {
       const scanOrderId = order.scanOrderId;
       if (scanOrderId === null) {
-        return mapSalesRecordResponse(order);
+        // 非扫码订单（空间会话结账）：回源 sessionItems 的行级规格
+        const session = spaceSessionSpecMap.get(order.id);
+        return mapSalesRecordResponse(
+          order,
+          session
+            ? buildSpaceSessionSpecsEnrichment(order, session)
+            : undefined,
+        );
       }
       const scan = scanOrderingDetailMap.get(scanOrderId);
       return mapSalesRecordResponse(

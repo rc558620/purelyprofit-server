@@ -132,6 +132,11 @@ export type OrderItemRow = {
     } | null;
     spaceSession: {
       startTime: Date;
+      /** 空间会话商品行规格（非扫码订单的规格来源）：与 saleOrderItems 行级一一对应 */
+      sessionItems: Array<{
+        productName: string;
+        specNames: unknown;
+      }>;
       prepaidPaymentMethod: SalesPaymentMethod | null;
       prepaidCustomerPaymentMethod: string | null;
       prepaidGrouponPlatform: string | null;

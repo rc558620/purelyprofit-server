@@ -172,10 +172,15 @@ export class ListClubScanOrdersQueryDto {
 }
 
 export class CreateClubScanPaymentDto {
-  @ApiProperty({ description: '微信 JSAPI 用户 openid' })
+  @ApiPropertyOptional({
+    description:
+      '微信 JSAPI 用户 openid；营业执照/商户号就绪前可缺省，此时后端不调起真实微信支付，' +
+      '返回空支付参数，由前端走开发态兜底保证流程可跑通',
+  })
+  @IsOptional()
   @IsString({ message: 'openid 必须是字符串' })
   @MaxLength(128, { message: 'openid 不能超过 128 个字符' })
-  openid: string;
+  openid?: string;
 }
 
 export class CreateClubScanBalancePaymentDto {

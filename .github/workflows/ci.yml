@@ -50,6 +50,9 @@ jobs:
       - name: Run CI lint gate
         run: pnpm exec eslint "{src,apps,libs,test}/**/*.ts"
 
+      - name: Run SQL timezone gate
+        run: pnpm run sql:tz:check
+
       - name: Run quality gate
         run: pnpm run release:precheck:quality
 

@@ -1,7 +1,8 @@
-// 团购券订单退款服务：pending / used-未开台 可退；微信原路退回 + 积分退回 + 库存回补（幂等）
+// 团购券订单退款服务：pending / used-未开台 可退；按支付渠道原路退回（微信/储值余额）+ 积分退回 + 库存回补（幂等）
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
+import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { ClubWechatRefundService } from '../payments/club-wechat-refund.service';
 import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
@@ -40,6 +41,8 @@ type RefundRestoreOrder = {
   productName: string;
   pointsUsed: number;
   quantity: number;
+  /** 实付金额（分）；余额支付退款时原路退回该金额 */
+  paidAmountFen: number;
 };
 
 @Injectable()
@@ -82,16 +85,22 @@ export class ClubVoucherOrderRefundService {
     }
 
     const refundNo = this.buildRefundNo();
+    // 原路退回：余额支付退回储值余额，微信支付走微信退款
+    const refundByBalance = order.paymentChannel === 'balance';
 
-    // 先发起微信退款（幂等键 refundNo；开发态降级直接成功）
-    const { refundId } = await this.clubWechatRefundService.requestRefund({
-      storeId: order.storeId,
-      orderNo: order.orderNo,
-      refundNo,
-      totalFen: order.paidAmountFen,
-      refundFen: order.paidAmountFen,
-      reason: '用户主动退款',
-    });
+    // 微信支付订单先发起微信退款（幂等键 refundNo；开发态降级直接成功）
+    const refundId = refundByBalance
+      ? null
+      : (
+          await this.clubWechatRefundService.requestRefund({
+            storeId: order.storeId,
+            orderNo: order.orderNo,
+            refundNo,
+            totalFen: order.paidAmountFen,
+            refundFen: order.paidAmountFen,
+            reason: '用户主动退款',
+          })
+        ).refundId;
 
     // 落库：置 refunded + 退款信息 + 积分退回 + 库存回补（同一事务）
     await this.prisma.$transaction(
@@ -106,7 +115,7 @@ export class ClubVoucherOrderRefundService {
             status: 'refunded',
             refundAt: new Date(),
             refundAmountFen: order.paidAmountFen,
-            refundChannel: 'wechat',
+            refundChannel: refundByBalance ? 'balance' : 'wechat',
             refundNo,
           },
         });
@@ -118,12 +127,16 @@ export class ClubVoucherOrderRefundService {
         // 积分退回：实际扣减的积分回补到顾客积分账户，并记录流水（与扣减时 spend 流水对称，保证可审计）
         // 库存回补：释放占用的商品库存
         await this.restorePointsAndStock(tx, order);
+        // 余额退回：储值余额回补 + 累计消费回退（与余额支付结算对称）
+        if (refundByBalance) {
+          await this.restoreBalance(tx, order);
+        }
       },
       { timeout: TX_TIMEOUT_MEDIUM },
     );
 
     this.logger.log(
-      `团购券退款成功: orderNo=${order.orderNo}, refundNo=${refundNo}, 金额=${order.paidAmountFen}分, 微信退款单=${refundId}`,
+      `团购券退款成功: orderNo=${order.orderNo}, refundNo=${refundNo}, 金额=${order.paidAmountFen}分, 渠道=${refundByBalance ? 'balance' : 'wechat'}${refundId ? `, 微信退款单=${refundId}` : ''}`,
     );
     // 事务提交成功后才广播退款事件：store 房间（商家端查看订单页实时刷新）+ voucher-order 房间与 native 订阅者（purelyClub 详情页）
     this.realtimeService.publishVoucherOrderStatusChanged({
@@ -178,16 +191,22 @@ export class ClubVoucherOrderRefundService {
     }
 
     const refundNo = this.buildRefundNo();
+    // 原路退回：余额支付退回储值余额，微信支付走微信退款
+    const refundByBalance = order.paymentChannel === 'balance';
 
-    // 先发起微信退款（幂等键 refundNo；开发态降级直接成功）
-    const { refundId } = await this.clubWechatRefundService.requestRefund({
-      storeId: order.storeId,
-      orderNo: order.orderNo,
-      refundNo,
-      totalFen: order.paidAmountFen,
-      refundFen: order.paidAmountFen,
-      reason: '商家拒绝接单',
-    });
+    // 微信支付订单先发起微信退款（幂等键 refundNo；开发态降级直接成功）
+    const refundId = refundByBalance
+      ? null
+      : (
+          await this.clubWechatRefundService.requestRefund({
+            storeId: order.storeId,
+            orderNo: order.orderNo,
+            refundNo,
+            totalFen: order.paidAmountFen,
+            refundFen: order.paidAmountFen,
+            reason: '商家拒绝接单',
+          })
+        ).refundId;
 
     // 落库：置 refunded + 拒绝信息 + 积分退回 + 库存回补（同一事务）
     await this.prisma.$transaction(
@@ -202,7 +221,7 @@ export class ClubVoucherOrderRefundService {
             status: 'refunded',
             refundAt: new Date(),
             refundAmountFen: order.paidAmountFen,
-            refundChannel: 'wechat',
+            refundChannel: refundByBalance ? 'balance' : 'wechat',
             refundNo,
             rejectedAt: new Date(),
             rejectedByStaffName: params.rejectedByStaffName,
@@ -215,12 +234,16 @@ export class ClubVoucherOrderRefundService {
           );
         }
         await this.restorePointsAndStock(tx, order);
+        // 余额退回：储值余额回补 + 累计消费回退（与余额支付结算对称）
+        if (refundByBalance) {
+          await this.restoreBalance(tx, order);
+        }
       },
       { timeout: TX_TIMEOUT_MEDIUM },
     );
 
     this.logger.log(
-      `商家拒绝团购券订单成功: orderNo=${order.orderNo}, refundNo=${refundNo}, 金额=${order.paidAmountFen}分, 微信退款单=${refundId}`,
+      `商家拒绝团购券订单成功: orderNo=${order.orderNo}, refundNo=${refundNo}, 金额=${order.paidAmountFen}分, 渠道=${refundByBalance ? 'balance' : 'wechat'}${refundId ? `, 微信退款单=${refundId}` : ''}`,
     );
     return {
       orderNo: order.orderNo,
@@ -257,6 +280,31 @@ export class ClubVoucherOrderRefundService {
     await tx.marketingProduct.update({
       where: { id: order.productId },
       data: { stock: { increment: order.quantity } },
+    });
+  }
+
+  /** 余额退回：储值余额回补 + 累计消费回退与等级重算（与余额支付结算对称） */
+  private async restoreBalance(
+    tx: Prisma.TransactionClient,
+    order: RefundRestoreOrder,
+  ): Promise<void> {
+    if (order.customerId === null || order.paidAmountFen <= 0) return;
+
+    const customer = await tx.marketingCustomer.findFirst({
+      where: { id: order.customerId, storeId: order.storeId, deletedAt: null },
+      select: { id: true, totalSpent: true },
+    });
+    if (!customer) return;
+
+    // totalSpent 用绝对赋值避免历史数据异常导致负数
+    const newTotalSpent = Math.max(customer.totalSpent - order.paidAmountFen, 0);
+    await tx.marketingCustomer.update({
+      where: { id: customer.id },
+      data: {
+        balance: { increment: order.paidAmountFen },
+        totalSpent: newTotalSpent,
+        tier: calcCustomerTier(newTotalSpent) as never,
+      },
     });
   }
 

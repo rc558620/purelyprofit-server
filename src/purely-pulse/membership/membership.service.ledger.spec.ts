@@ -1,3 +1,4 @@
+import { buildMembershipCapabilities } from '../../purely-profit/member/platform-membership/platform-membership-access.shared';
 import {
   createPulseMembershipServiceTestingContext,
   type PulseMembershipServiceTestingContext,
@@ -109,6 +110,7 @@ describe('PulseMembershipService ledger', () => {
         inviteCode: 'PULSE',
         totalPoints: 160,
         availablePoints: 90,
+        capabilities: buildMembershipCapabilities('free'),
       },
       overview: {
         availablePoints: 90,

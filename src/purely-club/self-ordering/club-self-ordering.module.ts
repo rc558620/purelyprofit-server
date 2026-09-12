@@ -12,6 +12,7 @@ import { ClubSelfOrderingPaymentService } from './club-self-ordering-payment.ser
 import { ClubSelfOrderingSessionBridgeService } from './club-self-ordering-session-bridge.service';
 import { ClubSelfOrderingService } from './club-self-ordering.service';
 import { ClubSelfOrderingMenuService } from './club-self-ordering-menu.service';
+import { ProductsModule } from '../../purely-profit/goods/products/products.module';
 
 @Module({
   imports: [
@@ -19,6 +20,8 @@ import { ClubSelfOrderingMenuService } from './club-self-ordering-menu.service';
     PrismaModule,
     RedisModule,
     ClubStoresModule,
+    // 自助下单的商品规格校验与权威定价
+    ProductsModule,
     // 复用微信 JSAPI 下单能力（该模块只依赖 StoresModule，无循环依赖）
     ClubWechatPayModule,
     // 复用营销顾客解析（含历史客户认领），避免重复实现这套易错逻辑

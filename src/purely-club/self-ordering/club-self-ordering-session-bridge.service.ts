@@ -16,6 +16,10 @@ export interface PaidOrderItemSnapshot {
   /** 成本单价（分） */
   costPrice: number;
   quantity: number;
+  /** 规格签名（选项 ID 升序 sha256）；无规格时为 null，参与空间账单合并键 */
+  specSignature?: string | null;
+  /** 规格名（如 ["大杯","热"]）；无规格时为空数组 */
+  specNames?: string[];
 }
 
 /**
@@ -86,6 +90,11 @@ export class ClubSelfOrderingSessionBridgeService {
         sourceChannel,
         sourceOrderNo: orderNo,
         sourceOrderItemId: item.id,
+        specSignature: item.specSignature ?? null,
+        // 规格名快照：无规格时保持 NULL（nullable Json 不写即 NULL）
+        ...(item.specNames && item.specNames.length > 0
+          ? { specNames: item.specNames }
+          : {}),
       })),
     });
 

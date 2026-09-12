@@ -75,6 +75,8 @@ export interface SpaceEscPosTicket {
   hourlyRate?: number | null;
   /** 台位费金额（元）。 */
   timeCost: number;
+  /** 台位费标签（固定 / 按单价 / 2小时30分钟），用于「商品合计」下方汇总行。 */
+  timeFeeLabel: string;
   /** 消费商品明细（含系统内置行）。 */
   items: Array<{
     name: string;
@@ -84,6 +86,8 @@ export interface SpaceEscPosTicket {
     sourceType?: string | null;
     /** 行来源支付渠道：balance=储值余额 / wechat=微信支付。 */
     sourceChannel?: string | null;
+    /** 规格名（如 ["大杯","热"]），无规格时不下发；打印时另起一行展示。 */
+    specNames?: string[] | null;
   }>;
   /** 商品费用合计（元）。 */
   itemsCost: number;
@@ -275,20 +279,30 @@ export class EscPosTicketBuilder {
     if (ticket.items.length > 0) {
       this.line(out, '商品明细');
       for (const item of ticket.items) {
-        // 自助下单商品：商品名后拼「(自助/余额/已付)」，与云打印格式一致
+        // 自助下单商品：商品名后拼「 (自助)」，与云打印格式一致
         const name =
-          item.sourceType === 'member_self_order'
-            ? `${item.name}(自助/${item.sourceChannel === 'wechat' ? '微信' : '余额'}/已付)`
-            : item.name;
+          item.sourceType === 'member_self_order' ? `${item.name} (自助)` : item.name;
         this.line(
           out,
           `${name} x${item.quantity}  ￥${item.subtotal.toFixed(2)}`,
         );
+        // 规格另起一行（对齐餐饮扫码点餐小票口径）
+        if (item.specNames && item.specNames.length > 0) {
+          this.line(out, `  ${item.specNames.join('、')}`);
+        }
       }
       this.line(out, `商品合计：￥${ticket.itemsCost.toFixed(2)}`);
     }
 
-    // 抵扣区：续费抵扣 + 预付抵扣 + 自助下单（已支付）
+    // 台位费：不占商品明细行，作为「商品合计」下方的单列汇总行
+    if (ticket.timeCost > 0) {
+      this.line(
+        out,
+        `台位费 (${ticket.timeFeeLabel})：￥${ticket.timeCost.toFixed(2)}`,
+      );
+    }
+
+    // 抵扣区：续费抵扣 + 预付抵扣 + 自助下单 (已支付)
     if (ticket.renewDeduction > 0) {
       this.line(out, `续费抵扣：-￥${ticket.renewDeduction.toFixed(2)}`);
     }
@@ -298,7 +312,7 @@ export class EscPosTicketBuilder {
     if ((ticket.selfOrderDeduction ?? 0) > 0) {
       this.line(
         out,
-        `自助下单（已支付）：-￥${ticket.selfOrderDeduction!.toFixed(2)}`,
+        `自助下单 (已支付)：-￥${ticket.selfOrderDeduction!.toFixed(2)}`,
       );
     }
     this.line(out, DIVIDER);

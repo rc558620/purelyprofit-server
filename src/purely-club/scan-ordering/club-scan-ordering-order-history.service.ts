@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ScanOrderingSessionStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
 import type { ListClubScanOrdersQueryDto } from './dto/club-scan-ordering.dto';
 import {
@@ -14,6 +15,7 @@ export class ClubScanOrderingOrderHistoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
+    private readonly currentStoreContextService: ClubCurrentStoreContextService,
   ) {}
 
   async listOrderHistory(
@@ -21,9 +23,14 @@ export class ClubScanOrderingOrderHistoryService {
     query: ListClubScanOrdersQueryDto,
   ): Promise<unknown> {
     const take = (query.limit ?? 20) + 1;
+    // 点餐记录按用户当前门店过滤：切换门店后只展示当前门店的历史会话，
+    // 与自助下单等模块的当前门店上下文约定保持一致
+    const currentStore =
+      await this.currentStoreContextService.getCurrentStore(user);
     const sessions = await this.prisma.scanOrderingSession.findMany({
       where: {
         clubUserId: user.id,
+        storeId: currentStore.id,
         // 历史记录必须包含清桌的 checked_out 会话，以及重新扫码时标记为
         // left（同时可能软删除）的会话；否则已支付订单会从两处列表都消失。
         // left 会话仅展示已结束订单（rejected/cancelled/completed，见下方过滤），

@@ -18,7 +18,8 @@ import {
 /** 团购券下单上下文（门店/顾客/商品摘要） */
 export interface ClubVoucherOrderContext {
   store: { id: number; name: string };
-  customer: { id: number };
+  /** 顾客档案（balance：储值余额，分；用于余额支付充足性判断） */
+  customer: { id: number; balance: number };
   /** 用户手机号（会员等级折扣率查询用） */
   phone: string;
   product: {
@@ -98,7 +99,7 @@ export class ClubVoucherOrderContextService {
           phone: currentContext.user.phone,
           deletedAt: null,
         },
-        select: { id: true },
+        select: { id: true, balance: true },
       }),
       this.prisma.marketingProduct.findFirst({
         where: {

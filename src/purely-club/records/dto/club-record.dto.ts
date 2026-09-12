@@ -72,11 +72,12 @@ export class ClubRecordDto {
 
   @ApiProperty({
     example: 500,
-    description: '展示金额，单位元；收入为正，支出为负',
+    description:
+      '展示金额，单位元，保留 2 位小数；收入为正，支出为负（前端渲染 ¥ 与 2 位小数）',
   })
   amount: number;
 
-  @ApiProperty({ example: '充值 ¥500 赠 ¥80', description: '流水描述' })
+  @ApiProperty({ example: '充值 ¥500.00 赠 ¥80.00', description: '流水描述' })
   @IsString({ message: '流水描述必须是字符串' })
   description: string;
 
@@ -87,7 +88,10 @@ export class ClubRecordDto {
   @IsString({ message: '交易时间必须是字符串' })
   createdAt: string;
 
-  @ApiProperty({ example: 580, description: '该笔流水后的余额快照，单位元' })
+  @ApiProperty({
+    example: 580,
+    description: '该笔流水后的余额快照，单位元，保留 2 位小数',
+  })
   balanceSnapshot: number;
 
   @ApiPropertyOptional({
@@ -102,13 +106,13 @@ export class ClubRecordDto {
 export class ClubRecordSummaryDto {
   @ApiProperty({
     example: 1580,
-    description: '充值总额（含赠送），单位元',
+    description: '充值总额（含赠送），单位元，保留 2 位小数',
   })
   totalRechargeAmount: number;
 
   @ApiProperty({
     example: 930,
-    description: '消费总额，单位元',
+    description: '储值消费总额（仅余额支付部分），单位元，保留 2 位小数',
   })
   totalConsumeAmount: number;
 }

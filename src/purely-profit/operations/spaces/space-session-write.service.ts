@@ -18,16 +18,24 @@ import {
   mapSessionItemRows,
   toSpaceSessionResponse,
 } from './space-sessions.mapper';
-import { normalizeSessionItemsPayload } from './space-session-payload.shared';
+import {
+  normalizeSessionItemsPayload,
+  type SessionItemPayloadInput,
+} from './space-session-payload.shared';
 import {
   mergeSessionItems,
   sumLineTotalMoney,
 } from './space-session-items.shared';
 import { applyInventoryDeductionsInTransaction } from '../../goods/inventory/inventory-stock.query';
+import { ProductSpecPricingService } from '../../goods/products/product-spec-pricing.service';
+import type { SpaceSessionItemDto } from './dto/space-session-items.request.dto';
 
 @Injectable()
 export class SpaceSessionWriteService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly specPricing: ProductSpecPricingService,
+  ) {}
 
   async addItemsToSession(
     user: AuthenticatedUser,
@@ -69,7 +77,9 @@ export class SpaceSessionWriteService {
       '无权在该门店空间追加商品',
     );
 
-    const appendedItems = normalizeSessionItemsPayload(dto.items);
+    const appendedItems = normalizeSessionItemsPayload(
+      await this.priceAppendedItems(session.storeId, dto.items),
+    );
     const inventorySyncMode = dto.inventorySyncMode ?? 'client';
     let operatorStaffId: number | null = null;
 
@@ -146,6 +156,11 @@ export class SpaceSessionWriteService {
             sourceType: item.sourceType ?? null,
             sourceOrderNo: item.sourceOrderNo ?? null,
             sourceOrderItemId: item.sourceOrderItemId ?? null,
+            specSignature: item.specSignature ?? null,
+            // 规格名快照：无规格时保持 NULL（Prisma 的 nullable Json 不写即 NULL）
+            ...(item.specNames && item.specNames.length > 0
+              ? { specNames: item.specNames }
+              : {}),
           })),
         });
 
@@ -218,5 +233,48 @@ export class SpaceSessionWriteService {
     );
 
     return toSpaceSessionResponse(updated);
+  }
+
+  /**
+   * 服务端权威定价：以 ProductSpecPricingService 重算单价/利润/展示名。
+   *
+   * 只对数字型 productId（真实商品库商品）生效；`manual_` / `SYS_` 等虚拟行沿用前端传值。
+   * 带规格的行定价失败一律抛错（不能静默丢弃规格）；无规格行若商品不可定价
+   * （如已删除/已下架）则回退到前端传值，保持改造前的行为。
+   */
+  private async priceAppendedItems(
+    storeId: number,
+    items: SpaceSessionItemDto[],
+  ): Promise<SessionItemPayloadInput[]> {
+    return Promise.all(
+      items.map(async (item): Promise<SessionItemPayloadInput> => {
+        const productId = Number.parseInt(item.productId.trim(), 10);
+        const hasSpecs = (item.specOptionIds?.length ?? 0) > 0;
+
+        if (!Number.isInteger(productId) || productId <= 0) {
+          return { ...item, specSignature: null, specNames: null };
+        }
+
+        try {
+          const priced = await this.specPricing.price({
+            storeId,
+            productId,
+            specOptionIds: item.specOptionIds,
+          });
+          return {
+            ...item,
+            // 展示名已含规格后缀（如「可乐（大杯）」），小票与明细直接可读
+            productName: priced.displayName,
+            salePrice: Money.fromDbCents(priced.unitPriceCents).toOutputYuan(),
+            profit: Money.fromDbCents(priced.profitCents).toOutputYuan(),
+            specSignature: priced.specSignature,
+            specNames: priced.specNames,
+          };
+        } catch (error) {
+          if (hasSpecs) throw error;
+          return { ...item, specSignature: null, specNames: null };
+        }
+      }),
+    );
   }
 }

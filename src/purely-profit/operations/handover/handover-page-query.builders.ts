@@ -70,6 +70,14 @@ export const SALE_ORDER_ITEM_SELECT = {
           prepaidCustomerPaymentMethod: true,
           prepaidGrouponPlatform: true,
           prepaidGrouponCode: true,
+          // 空间会话商品行规格（非扫码订单的规格来源）：与 saleOrderItem 行级一一对应
+          sessionItems: {
+            select: {
+              productName: true,
+              specNames: true,
+            },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          },
           sessionRenewRecords: {
             select: {
               paymentMethod: true,

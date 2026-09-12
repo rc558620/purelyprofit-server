@@ -63,6 +63,10 @@ interface PayableOrder {
     /** 成本单价快照（分） */
     costPrice: number;
     quantity: number;
+    /** 规格签名（选项 ID 升序 sha256）；无规格时为 null */
+    specSignature: string | null;
+    /** 规格明细（落库快照，用于取规格名写入空间账单） */
+    specs: Array<{ specOptionNameSnapshot: string }>;
   }>;
 }
 
@@ -310,7 +314,7 @@ export class ClubSelfOrderingPaymentService {
             });
             const order = await tx.selfOrder.findFirst({
               where: { id: attempt.orderId },
-              include: { items: true },
+              include: { items: { include: { specs: true } } },
             });
             if (!paymentAttempt || !order) {
               throw new NotFoundException('自助下单订单或支付流水不存在');
@@ -503,6 +507,10 @@ export class ClubSelfOrderingPaymentService {
         salePrice: item.salePrice,
         costPrice: item.costPrice,
         quantity: item.quantity,
+        specSignature: item.specSignature ?? null,
+        specNames: (item.specs ?? []).map(
+          (spec) => spec.specOptionNameSnapshot,
+        ),
       })),
     });
 
@@ -518,7 +526,7 @@ export class ClubSelfOrderingPaymentService {
   ): Promise<PayableOrder> {
     const order = await this.prisma.selfOrder.findFirst({
       where: { id: orderId, clubUserId: user.id, deletedAt: null },
-      include: { items: true },
+      include: { items: { include: { specs: true } } },
     });
     if (!order) throw new NotFoundException('订单不存在');
     if (

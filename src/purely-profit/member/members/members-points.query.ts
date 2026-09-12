@@ -42,7 +42,10 @@ const POINTS_MEMBER_ASSET_QUERY_CONFIG: MemberAssetQueryConfig<
         WHERE source = 'admin_adjust'::"MemberPointsSource"
       )::int AS "adminAdjustCount",
       COUNT(*) FILTER (
+        -- «今日»按业务时区取日界，但 created_at 存的是 UTC 墙钟（naive 列统一口径），
+        -- 因此要先把业务时区日界转回真实瞬间、再转成 UTC 墙钟才能比较
         WHERE created_at >= DATE_TRUNC('day', NOW() AT TIME ZONE ${timezone})
+          AT TIME ZONE ${timezone} AT TIME ZONE 'UTC'
       )::int AS "todayChangeCount"
     `,
     fromSql: Prisma.sql`FROM member_points_logs`,
@@ -210,7 +213,7 @@ export async function applyMemberPointsAdjustment(
   // WHERE points + delta >= 0 保证不会扣成负数（命中约束说明余额不足）。
   const updated = await client.$queryRaw<{ points: number }[]>`
     UPDATE marketing_customers
-    SET points = points + ${params.delta}, updated_at = NOW()
+    SET points = points + ${params.delta}, updated_at = NOW() AT TIME ZONE 'UTC'
     WHERE id = ${params.member.customerId}
       AND points + ${params.delta} >= 0
     RETURNING points
@@ -234,7 +237,8 @@ export async function applyMemberPointsAdjustment(
       before_points,
       after_points,
       reason,
-      expires_at
+      expires_at,
+      created_at
     )
     VALUES (
       ${params.member.id},
@@ -246,7 +250,10 @@ export async function applyMemberPointsAdjustment(
       ${beforePoints},
       ${afterPoints},
       ${params.reason},
-      ${params.expireAt ?? null}
+      ${params.expireAt ?? null},
+      -- 该列是 TIMESTAMP WITHOUT TIME ZONE，必须显式写 UTC 墙钟，
+      -- 否则走 CURRENT_TIMESTAMP 会取数据库会话时区墙钟，被驱动按 UTC 读成 +8h
+      NOW() AT TIME ZONE 'UTC'
     )
     RETURNING
       id,
@@ -303,7 +310,7 @@ export async function applyMemberBeansAdjustment(
   // 同样采用「原子相对更新 + 非负约束」，避免并发丢失更新与扣成负数。
   const updated = await client.$queryRaw<{ bean_balance: number }[]>`
     UPDATE members
-    SET bean_balance = bean_balance + ${params.delta}, updated_at = NOW()
+    SET bean_balance = bean_balance + ${params.delta}, updated_at = NOW() AT TIME ZONE 'UTC'
     WHERE id = ${params.member.id}
       AND bean_balance + ${params.delta} >= 0
     RETURNING bean_balance
@@ -329,7 +336,8 @@ export async function applyMemberBeansAdjustment(
       change_amount,
       before_balance,
       after_balance,
-      reason
+      reason,
+      created_at
     )
     VALUES (
       ${params.member.id},
@@ -339,7 +347,8 @@ export async function applyMemberBeansAdjustment(
       ${params.delta},
       ${beforeBalance},
       ${afterBalance},
-      ${params.reason}
+      ${params.reason},
+      NOW() AT TIME ZONE 'UTC'
     )
     RETURNING
       id,

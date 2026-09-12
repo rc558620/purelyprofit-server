@@ -8,6 +8,7 @@ import { SpaceSessionRenewService } from './space-session-renew.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 import { aValidDate, aNonNegativeNumber } from '../../../spec-matchers';
 import { SpaceSessionWriteService } from './space-session-write.service';
+import { ProductSpecPricingService } from '../../goods/products/product-spec-pricing.service';
 import { mapSessionItemRows } from './space-sessions.mapper';
 import type { SpaceSessionItemRow } from './space-sessions.types';
 import { createSpaceTestUser } from './space-session.spec-helpers';
@@ -270,9 +271,15 @@ describe('SpaceSession concurrency fixes', () => {
 
     const prismaService = {
       spaceSession: {
+        findFirst: jest.fn(),
         findUnique: jest.fn(),
       },
       $transaction: jest.fn(),
+    };
+
+    /** 商品规格定价：本用例的商品 ID 为 prod_*（非数字行），不会走到定价服务 */
+    const specPricingService = {
+      price: jest.fn(),
     };
 
     const deps = {
@@ -285,6 +292,10 @@ describe('SpaceSession concurrency fixes', () => {
       prismaService.$transaction.mockImplementation((callback) =>
         Promise.resolve(callback(transaction)),
       );
+      prismaService.spaceSession.findFirst.mockResolvedValue({
+        id: 9,
+        storeId: 18,
+      });
       deps.ensureCanAccessStore.mockResolvedValue(undefined);
       deps.findOperatorStaffIdForStore.mockResolvedValue(8);
 
@@ -292,6 +303,7 @@ describe('SpaceSession concurrency fixes', () => {
         providers: [
           SpaceSessionWriteService,
           { provide: PrismaService, useValue: prismaService },
+          { provide: ProductSpecPricingService, useValue: specPricingService },
         ],
       }).compile();
 

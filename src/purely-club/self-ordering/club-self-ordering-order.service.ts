@@ -17,6 +17,16 @@ import {
   createSelfOrderNo,
   hashSelfOrderRequest,
 } from './club-self-ordering.utils';
+import { ProductSpecPricingService } from '../../purely-profit/goods/products/product-spec-pricing.service';
+
+/** 订单行合并键：同商品 + 同规格选项组合视为同一行（specOptionIds 已去重升序） */
+const buildSelfOrderLineKey = (
+  productId: string,
+  specOptionIds: number[],
+): string =>
+  specOptionIds.length > 0
+    ? `${productId}:${specOptionIds.join('-')}`
+    : `${productId}:plain`;
 
 const IDEMPOTENCY_SCOPE = 'club:self-order:create';
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -39,12 +49,18 @@ export interface PricedSelfOrderItem {
   /** 成本单价（分） */
   costPrice: number;
   quantity: number;
+  /** 规格签名（选项 ID 升序 sha256）；无规格时为 null */
+  specSignature: string | null;
+  /** 规格名快照 */
+  specNames: string[];
+  /** 已选规格选项快照（用于落 self_order_item_specs） */
+  specOptions: Array<{ id: number; name: string; extraPrice: number }>;
 }
 
 /**
  * 自助下单建单服务
  *
- * 相比扫码点餐刻意简化：无服务端购物车、无规格、无库存预留、无优惠/积分，
+ * 相比扫码点餐刻意简化：无服务端购物车、无库存预留、无优惠/积分，
  * 价格一律由服务端按 Product 重算并落快照（不信任客户端传价）。
  * 保留的五件套：幂等键 + 事务 + 乐观锁 version + 会话校验 + 事务内建单。
  */
@@ -53,6 +69,7 @@ export class ClubSelfOrderingOrderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly currentStoreContextService: ClubCurrentStoreContextService,
+    private readonly specPricing: ProductSpecPricingService,
   ) {}
 
   async create(
@@ -125,8 +142,11 @@ export class ClubSelfOrderingOrderService {
             requestHash: hashSelfOrderRequest({
               sessionId: dto.sessionId,
               // 用定价后的结果：同商品多行已合并，避免因行顺序不同算出不同指纹
+              // 必须纳入 specSignature：同商品不同规格是不同订单，指纹不同才能在
+              // 同幂等键下被识别为「内容不一致」而不是回放错误订单
               items: priced.items.map((item) => [
                 item.productId,
+                item.specSignature ?? '',
                 item.quantity,
               ]),
               remark: dto.remark ?? null,
@@ -157,6 +177,18 @@ export class ClubSelfOrderingOrderService {
                 salePrice: item.salePrice,
                 costPrice: item.costPrice,
                 quantity: item.quantity,
+                specSignature: item.specSignature,
+                ...(item.specOptions.length > 0
+                  ? {
+                      specs: {
+                        create: item.specOptions.map((spec) => ({
+                          specOptionId: spec.id,
+                          specOptionNameSnapshot: spec.name,
+                          extraPriceSnapshot: spec.extraPrice,
+                        })),
+                      },
+                    }
+                  : {}),
               })),
             },
           },
@@ -239,50 +271,60 @@ export class ClubSelfOrderingOrderService {
     itemTotalAmount: number;
     payableAmount: number;
   }> {
-    const mergedQuantity = new Map<string, number>();
+    // 合并键必须含规格：同商品不同规格是不同行，仅按 productId 合并会静默丢规格
+    const mergedLines = new Map<
+      string,
+      { productId: string; specOptionIds: number[]; quantity: number }
+    >();
     for (const input of inputs) {
-      mergedQuantity.set(
-        input.productId,
-        (mergedQuantity.get(input.productId) ?? 0) + input.quantity,
+      const specOptionIds = [...new Set(input.specOptionIds ?? [])].sort(
+        (left, right) => left - right,
       );
+      const key = buildSelfOrderLineKey(input.productId, specOptionIds);
+      const hit = mergedLines.get(key);
+      if (hit) {
+        hit.quantity += input.quantity;
+        continue;
+      }
+      mergedLines.set(key, {
+        productId: input.productId,
+        specOptionIds,
+        quantity: input.quantity,
+      });
     }
 
-    const productIds = [...mergedQuantity.keys()]
-      .map((id) => Number(id))
-      .filter((id) => Number.isInteger(id) && id > 0);
-
-    const products = await this.prisma.product.findMany({
-      where: {
-        id: { in: productIds },
-        storeId,
-        isActive: true,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        price: true,
-        costPrice: true,
-      },
-    });
-    const productMap = new Map(
-      products.map((product) => [product.id, product]),
-    );
-
     const items: PricedSelfOrderItem[] = [];
-    for (const [productId, quantity] of mergedQuantity) {
-      const product = productMap.get(Number(productId));
-      if (!product) {
-        throw new NotFoundException('购物车中存在已下架商品，请刷新后重试');
+    for (const line of mergedLines.values()) {
+      const productId = Number(line.productId);
+      if (!Number.isInteger(productId) || productId <= 0) {
+        throw new NotFoundException('购物车中存在无效商品，请刷新后重试');
       }
+
+      // 服务端权威定价：单价 = Product.price + Σ 规格加价，商品名用含规格后缀的展示名
+      let priced: Awaited<ReturnType<ProductSpecPricingService['price']>>;
+      try {
+        priced = await this.specPricing.price({
+          storeId,
+          productId,
+          specOptionIds: line.specOptionIds,
+        });
+      } catch (error) {
+        if (error instanceof NotFoundException) {
+          throw new NotFoundException('购物车中存在已下架商品，请刷新后重试');
+        }
+        throw error;
+      }
+
       items.push({
-        productId,
-        productName: product.name,
-        categoryName: product.category ?? null,
-        salePrice: product.price,
-        costPrice: product.costPrice ?? 0,
-        quantity,
+        productId: line.productId,
+        productName: priced.displayName,
+        categoryName: priced.categoryName,
+        salePrice: priced.unitPriceCents,
+        costPrice: priced.costPriceCents,
+        quantity: line.quantity,
+        specSignature: priced.specSignature,
+        specNames: priced.specNames,
+        specOptions: priced.specOptions,
       });
     }
 
@@ -324,6 +366,7 @@ export class ClubSelfOrderingOrderService {
       categoryName: string | null;
       salePrice: number;
       quantity: number;
+      specSignature?: string | null;
     }>;
   }): Record<string, unknown> {
     return {
@@ -346,6 +389,7 @@ export class ClubSelfOrderingOrderService {
         categoryName: item.categoryName,
         salePrice: item.salePrice,
         quantity: item.quantity,
+        specSignature: item.specSignature ?? null,
       })),
     };
   }

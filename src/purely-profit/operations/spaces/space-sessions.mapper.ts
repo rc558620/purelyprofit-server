@@ -32,6 +32,7 @@ export const mapSessionItemRows = (
     .map((row) => {
       const salePriceYuan = Money.fromDbCents(row.salePrice).toOutputYuan();
       const quantity = row.quantity;
+      const specNames = parseSpecNames(row.specNames);
       return {
         productId: row.productId,
         productName: row.productName,
@@ -50,8 +51,22 @@ export const mapSessionItemRows = (
         sourceChannel: row.sourceChannel ?? null,
         sourceOrderNo: row.sourceOrderNo ?? null,
         sourceOrderItemId: row.sourceOrderItemId ?? null,
+        // 规格维度：无规格时不下发字段，保持旧版响应结构
+        ...(row.specSignature ? { specSignature: row.specSignature } : {}),
+        ...(specNames ? { specNames } : {}),
+        // 行创建时间：明细 / 结账展示「下单时间」（自助下单 / 手动点单）
+        createdAt: toTimestampMs(row.createdAt),
       };
     });
+
+/** 规格名快照 JSON → string[]；非数组或空数组视为无规格 */
+const parseSpecNames = (value: unknown): string[] | null => {
+  if (!Array.isArray(value)) return null;
+  const names = value.filter(
+    (item): item is string => typeof item === 'string',
+  );
+  return names.length > 0 ? names : null;
+};
 
 /**
  * Step 8.1: 从 space_session_renew_records 行类型映射为业务记录

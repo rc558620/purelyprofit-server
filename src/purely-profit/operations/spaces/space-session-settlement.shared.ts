@@ -129,7 +129,7 @@ const buildSpaceSessionSettlementCore = (params: {
       productId: 'SYS_TIME_BILLING',
       productName: useUnitPrice
         ? '台位费（固定）'
-        : `台位费（${durationLabel}）`,
+        : `台位费 ${durationLabel}`,
       categoryName: '场地费',
       salePrice: timeCostYuan,
       profit: timeCostYuan,
@@ -188,18 +188,42 @@ const buildSpaceSessionSettlementCore = (params: {
     items
       .filter((item) => item.sourceType === SELF_ORDER_ITEM_SOURCE_TYPE)
       .forEach((item) => {
-        const deductionYuan = Money.fromInputYuan(item.lineTotal).toOutputYuan();
+        const deductionYuan = Money.fromInputYuan(
+          item.lineTotal,
+        ).toOutputYuan();
         const itemProfitYuan = Money.fromInputYuan(item.profit)
           .multiply(item.quantity)
           .toOutputYuan();
+
+        // 抵扣行商品名去掉规格后缀：规格由 specNames 单独承载（与商品行展示口径一致），
+        // 否则销售记录会出现「深层清洁护理（60分钟）· 自助下单抵扣」与上方商品行
+        // 「深层清洁护理 [规格] 60分钟」的规格重复展示。
+        const specNames =
+          Array.isArray(item.specNames) && item.specNames.length > 0
+            ? item.specNames.filter(
+                (name): name is string => typeof name === 'string',
+              )
+            : [];
+        // 仅在确认有规格时才剥末尾的「（…）」，避免误删商品名自带的括号
+        const baseName =
+          specNames.length > 0
+            ? item.productName.replace(/（[^）]*）$/, '')
+            : item.productName;
+
         orderItems.push({
           productId: SELF_ORDER_DEDUCTION_PRODUCT_ID,
-          productName: `${item.productName} · ${SELF_ORDER_DEDUCTION_PRODUCT_NAME}`,
+          productName: `${baseName} · ${SELF_ORDER_DEDUCTION_PRODUCT_NAME}`,
           categoryName: '自助下单',
           salePrice: -deductionYuan,
           profit: -itemProfitYuan,
           quantity: 1,
           lineTotal: -deductionYuan,
+          ...(specNames.length > 0
+            ? {
+                specSignature: item.specSignature ?? null,
+                specNames,
+              }
+            : {}),
         });
       });
   }

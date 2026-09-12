@@ -9,6 +9,7 @@ import {
   queryProductPage,
   resolveProductOrderBy,
   updateProductRecord,
+  productSelect,
 } from './products.query';
 import type { ProductRecord } from './products.types';
 import { aValidDate } from '../../../spec-matchers';
@@ -137,24 +138,7 @@ describe('products.query', () => {
       orderBy: [{ price: 'desc' }, { id: 'desc' }],
       skip: 2,
       take: 10,
-      select: {
-        id: true,
-        storeId: true,
-        name: true,
-        category: true,
-        code: true,
-        price: true,
-        profit: true,
-        costPrice: true,
-        unit: true,
-        stock: true,
-        alertThreshold: true,
-        image: true,
-        description: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: productSelect,
     });
     expect(productCount).toHaveBeenCalledWith({
       where: {
@@ -196,24 +180,7 @@ describe('products.query', () => {
 
     expect(productFindUnique).toHaveBeenNthCalledWith(1, {
       where: { id: 11 },
-      select: {
-        id: true,
-        storeId: true,
-        name: true,
-        category: true,
-        code: true,
-        price: true,
-        profit: true,
-        costPrice: true,
-        unit: true,
-        stock: true,
-        alertThreshold: true,
-        image: true,
-        description: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: productSelect,
     });
     expect(productFindUnique).toHaveBeenNthCalledWith(2, {
       where: { id: 11 },
@@ -332,24 +299,7 @@ describe('products.query', () => {
         image: null,
         description: null,
       },
-      select: {
-        id: true,
-        storeId: true,
-        name: true,
-        category: true,
-        code: true,
-        price: true,
-        profit: true,
-        costPrice: true,
-        unit: true,
-        stock: true,
-        alertThreshold: true,
-        image: true,
-        description: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: productSelect,
     });
     expect(productUpdate).toHaveBeenCalledWith({
       where: { id: 11 },
@@ -357,24 +307,7 @@ describe('products.query', () => {
         name: '雪碧',
         image: null,
       },
-      select: {
-        id: true,
-        storeId: true,
-        name: true,
-        category: true,
-        code: true,
-        price: true,
-        profit: true,
-        costPrice: true,
-        unit: true,
-        stock: true,
-        alertThreshold: true,
-        image: true,
-        description: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: productSelect,
     });
     expect(productUpdate).toHaveBeenCalledWith({
       where: { id: 11 },

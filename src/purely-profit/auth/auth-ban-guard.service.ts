@@ -44,6 +44,41 @@ export class AuthBanGuardService {
     }
   }
 
+  /**
+   * 检查用户是否已被注销（pulse 管理端注销门店 → store 软删除）。
+   *
+   * 仅当用户是某门店 owner 且其名下所有门店均已注销、
+   * 同时在其他门店也没有任何在职员工身份时，才拒绝登录。
+   * 纯新用户（从未开店）不受影响，可正常登录注册流程。
+   */
+  async ensureUserNotCancelled(userId: number): Promise<void> {
+    const [ownedStores, activeStaffCount] = await Promise.all([
+      this.prisma.store.findMany({
+        where: { ownerId: userId },
+        select: { deletedAt: true },
+      }),
+      this.prisma.staff.count({
+        where: {
+          userId,
+          isActive: true,
+          status: 'active',
+          store: { deletedAt: null },
+        },
+      }),
+    ]);
+
+    if (ownedStores.length === 0 || activeStaffCount > 0) {
+      return;
+    }
+
+    const allOwnedStoresCancelled = ownedStores.every(
+      (store) => store.deletedAt !== null,
+    );
+    if (allOwnedStoresCancelled) {
+      throw new UnauthorizedException('账号已注销，该手机号可重新注册使用');
+    }
+  }
+
   private async findUserRelatedStoreIds(userId: number): Promise<number[]> {
     const cacheKey = buildUserRelatedStoreIdsCacheKey(userId);
 

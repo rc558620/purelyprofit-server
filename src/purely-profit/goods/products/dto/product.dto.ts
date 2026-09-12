@@ -1,5 +1,6 @@
 export { transformOptionalBoolean } from './product-transforms';
 export {
+  ListProductOptionsQueryDto,
   ListProductsQueryDto,
 } from './product-query.dto';
 export {
@@ -13,6 +14,7 @@ export {
 } from './product-request.dto';
 export {
   PaginatedProductsResponseDto,
+  ProductOptionsResponseDto,
   ProductResponseDto,
   ScanOrderingStatusResponseDto,
 } from './product-response.dto';

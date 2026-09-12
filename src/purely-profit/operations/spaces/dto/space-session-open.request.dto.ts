@@ -41,7 +41,7 @@ export class OpenSpaceSessionDto {
   @ApiPropertyOptional({ example: '张先生', description: '顾客姓名' })
   @IsOptional()
   @IsString({ message: '顾客姓名必须是字符串' })
-  @MaxLength(20, { message: '顾客姓名最长 20 个字符' })
+  @MaxLength(100, { message: '顾客姓名最长 100 个字符' })
   guestName?: string;
 
   @ApiPropertyOptional({ example: '13800138000', description: '顾客电话' })

@@ -5,9 +5,16 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PlatformMembershipAccessService } from '../../member/platform-membership/platform-membership-access.service';
+import { ProductsScanOrderingSyncService } from './products-scan-ordering-sync.service';
 import { ProductsService } from './products.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { ProductRecord } from './products.types';
+
+/**
+ * 本用例断言的是「扫码菜单商品/分类的真实写入行为」，
+ * 因此注入真实的 ProductsScanOrderingSyncService，
+ * 只 mock 它的两个外部依赖（PrismaService / RedisService）。
+ */
 
 /**
  * 商品扫码点餐状态接口测试。
@@ -88,6 +95,13 @@ describe('ProductsService - 扫码点餐状态', () => {
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: true,
     },
     ...overrides,
   });
@@ -131,6 +145,7 @@ describe('ProductsService - 扫码点餐状态', () => {
           useValue: platformMembershipAccessService,
         },
         { provide: ConfigService, useValue: configService },
+        ProductsScanOrderingSyncService,
       ],
     }).compile();
 
@@ -337,12 +352,14 @@ describe('ProductsService - 扫码点餐状态', () => {
   describe('普通上下架与扫码点餐上架状态独立性', () => {
     it('商品普通上下架不依赖扫码点餐状态', () => {
       const product = buildProduct({
-        scanOrderingMenuProducts: [{ id: 1, isActive: true, deletedAt: null }],
+        scanOrderingMenuProducts: [
+          { id: 1, isActive: true, deletedAt: null, specGroups: [] },
+        ],
       });
 
       // 普通商品列表查询能正确反映两种状态
       expect(product.isActive).toBe(true);
-      expect(product.scanOrderingMenuProducts[0].isActive).toBe(true);
+      expect(product.scanOrderingMenuProducts?.[0]?.isActive).toBe(true);
     });
   });
 });

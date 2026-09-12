@@ -157,6 +157,7 @@ describe('handover-page-payment', () => {
             manualEntry: false,
             diningMode: null,
             sourceChannel: null,
+            grouponCode: null,
             operatorNameSnapshot: '张三',
             operatorStaff: null,
             scanOrder: null,
@@ -176,6 +177,7 @@ describe('handover-page-payment', () => {
             manualEntry: false,
             diningMode: null,
             sourceChannel: null,
+            grouponCode: null,
             operatorNameSnapshot: '张三',
             operatorStaff: null,
             scanOrder: null,
@@ -211,11 +213,13 @@ describe('handover-page-payment', () => {
             manualEntry: false,
             diningMode: null,
             sourceChannel: null,
+            grouponCode: null,
             operatorNameSnapshot: null,
             operatorStaff: null,
             scanOrder: null,
             spaceSession: {
               startTime: new Date(),
+              sessionItems: [],
               prepaidPaymentMethod: SalesPaymentMethod.cash,
               prepaidCustomerPaymentMethod: 'groupon_voucher', // 顾客用团购券
               prepaidGrouponPlatform: null,
@@ -253,11 +257,13 @@ describe('handover-page-payment', () => {
             manualEntry: false,
             diningMode: null,
             sourceChannel: null,
+            grouponCode: null,
             operatorNameSnapshot: null,
             operatorStaff: null,
             scanOrder: null,
             spaceSession: {
               startTime: new Date(),
+              sessionItems: [],
               prepaidPaymentMethod: SalesPaymentMethod.wechat,
               prepaidCustomerPaymentMethod: 'wechat', // 顾客用微信
               prepaidGrouponPlatform: null,
@@ -293,11 +299,13 @@ describe('handover-page-payment', () => {
             manualEntry: false,
             diningMode: null,
             sourceChannel: null,
+            grouponCode: null,
             operatorNameSnapshot: null,
             operatorStaff: null,
             scanOrder: null,
             spaceSession: {
               startTime: new Date(),
+              sessionItems: [],
               prepaidPaymentMethod: SalesPaymentMethod.cash,
               prepaidCustomerPaymentMethod: 'groupon_voucher', // 顾客用团购券开台
               prepaidGrouponPlatform: null,

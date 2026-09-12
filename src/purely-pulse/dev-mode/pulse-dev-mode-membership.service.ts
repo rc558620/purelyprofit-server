@@ -10,6 +10,7 @@ import type {
   PlatformMembershipPartnerProfileResponseDto,
 } from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
 import { POINTS_RATE } from '../../purely-profit/member/platform-membership/platform-membership.constants';
+import { buildMembershipCapabilities } from '../../purely-profit/member/platform-membership/platform-membership-access.shared';
 import {
   DEV_EXPIRES_AT,
   DEV_PLAN_ID,
@@ -142,6 +143,8 @@ export class PulseDevModeMembershipService {
       inviteCode: `DEV${user.id}`,
       totalPoints: 0,
       availablePoints: 0,
+      // 开发者档按最高档位下发全量能力
+      capabilities: buildMembershipCapabilities('lifetime'),
     };
   }
 }

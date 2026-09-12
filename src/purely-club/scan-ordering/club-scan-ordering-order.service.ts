@@ -306,7 +306,7 @@ export class ClubScanOrderingOrderService {
   createWechatPayment(
     user: AuthenticatedUser,
     orderId: number,
-    openid: string,
+    openid?: string,
   ): Promise<unknown> {
     return this.checkoutService.createWechatPayment(user, orderId, openid);
   }

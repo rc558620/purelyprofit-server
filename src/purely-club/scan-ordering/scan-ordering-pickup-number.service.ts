@@ -142,7 +142,7 @@ export class ScanOrderingPickupNumberService {
       Prisma.sql`
         UPDATE "scan_ordering_pickup_sequences"
         SET "next_number" = "next_number" + 1,
-            "updated_at" = NOW()
+            "updated_at" = NOW() AT TIME ZONE 'UTC'
         WHERE "store_id" = ${storeId}
           AND "business_date" = ${businessDate}
         RETURNING "next_number" - 1 AS "next_number"

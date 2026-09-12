@@ -31,6 +31,8 @@ model ClubVoucherOrder {
   guestName            String?                   @map("guest_name")
   /// 客人电话快照（下单时取账号绑定手机号）
   guestPhone           String?                   @map("guest_phone")
+  /// 下单备注（purelyClub 用户填写，可空；商家新订单通知展示）
+  remark               String?                   @map("remark") @db.VarChar(200)
   /// 顾客类型（当前统一 member）
   guestType            String                    @default("member") @map("guest_type")
   /// 业务订单号（微信 out_trade_no）

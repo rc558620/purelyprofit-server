@@ -115,6 +115,10 @@ export class VoucherOrderListItemDto {
   @ApiProperty({ description: '购买数量' })
   quantity!: number;
 
+  /** 下单备注（顾客购买时填写，可为空） */
+  @ApiProperty({ description: '下单备注（顾客购买时填写，可为空）' })
+  remark!: string | null;
+
   /** 实付金额（分，后端权威） */
   @ApiProperty({ description: '实付金额（分）' })
   paidAmountFen!: number;

@@ -43,6 +43,7 @@ import { SpacePrintController } from './space-print.controller';
 import { SpacePrintService } from './space-print.service';
 import { SpacePrintDataService } from './space-print-data.service';
 import { SpacePrintSettingsService } from './space-print-settings.service';
+import { ProductsModule } from '../../goods/products/products.module';
 import { SpacesReadService } from './spaces-read.service';
 import { SpacesService } from './spaces.service';
 import { SpacesStatusService } from './spaces-status.service';
@@ -62,6 +63,8 @@ import { SpacesWriteService } from './spaces-write.service';
     ScanOrderingModule,
     // 技师提成：结账生成提成记录、开台解析提成分配
     CommissionModule,
+    // 追加点单的规格校验与权威定价
+    ProductsModule,
   ],
   controllers: [
     SpaceTypesController,

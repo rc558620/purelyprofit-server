@@ -4,18 +4,22 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { PlatformMembershipAccessService } from '../../purely-profit/member/platform-membership/platform-membership-access.service';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
 import { StoreSubAccountService } from '../../purely-profit/member/platform-membership/store-sub-account.service';
+import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
 import { RedisService } from '../../redis/redis.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import { PulseMembershipAccessService } from './membership-access.service';
 import { PulseMembershipAdminBeansMutationService } from './membership-admin-beans-mutation.service';
+import { PulseMembershipAdminClubStatsService } from './membership-admin-club-stats.service';
+import { PulseMembershipAdminLogsQueryService } from './membership-admin-logs-query.service';
 import { PulseMembershipAdminMemberReadService } from './membership-admin-member-read.service';
 import { PulseMembershipAdminMembershipMutationService } from './membership-admin-membership-mutation.service';
 import { PulseMembershipAdminMutationStateService } from './membership-admin-mutation-state.service';
 import { PulseMembershipAdminMutationService } from './membership-admin-mutation.service';
 import { PulseMembershipAdminPointsMutationService } from './membership-admin-points-mutation.service';
 import { PulseMembershipAdminSubAccountMutationService } from './membership-admin-sub-account-mutation.service';
+import { PulseMembershipAdminSalesStatsService } from './membership-admin-sales-stats.service';
 import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
 import { PulseMembershipAdminService } from './membership-admin.service';
 import { PulseMembershipAdminSubAccountReadService } from './membership-admin-sub-account-read.service';
@@ -38,6 +42,13 @@ export interface PulseMembershipPrismaServiceMock {
   store: {
     findMany: jest.Mock;
     findUnique: jest.Mock;
+    update: jest.Mock;
+    count: jest.Mock;
+  };
+  staff: {
+    updateMany: jest.Mock;
+  };
+  user: {
     update: jest.Mock;
   };
   storeMembershipProfile: {
@@ -69,6 +80,7 @@ export interface PulseMembershipPrismaServiceMock {
     create: jest.Mock;
     findMany: jest.Mock;
   };
+  $executeRaw: jest.Mock;
   $transaction: jest.Mock;
 }
 
@@ -111,6 +123,7 @@ export interface PulseMembershipServiceTestingContext {
   pulseStoreContextService: PulseMembershipStoreContextServiceMock;
   redisService: PulseMembershipRedisServiceMock;
   cacheInvalidatorService: PulseMembershipCacheInvalidatorServiceMock;
+  authSessionService: Record<string, jest.Mock>;
   user: AuthenticatedUser;
 }
 
@@ -132,6 +145,13 @@ function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
     store: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      update: jest.fn(),
+      count: jest.fn(),
+    },
+    staff: {
+      updateMany: jest.fn(),
+    },
+    user: {
       update: jest.fn(),
     },
     storeMembershipProfile: {
@@ -163,8 +183,9 @@ function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
       create: jest.fn(),
       findMany: jest.fn(),
     },
+    $executeRaw: jest.fn().mockResolvedValue(0),
     $transaction: jest.fn(),
-  } satisfies PulseMembershipPrismaServiceMock;
+    } satisfies PulseMembershipPrismaServiceMock;
 
   prismaService.$transaction.mockImplementation(
     async (callback: (tx: PrismaService) => Promise<unknown>) =>
@@ -260,6 +281,9 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
       PulseMembershipOrdersService,
       PulseMembershipAdminService,
       PulseMembershipAdminQueryService,
+      PulseMembershipAdminClubStatsService,
+      PulseMembershipAdminSalesStatsService,
+      PulseMembershipAdminLogsQueryService,
       PulseMembershipAdminMutationStateService,
       PulseMembershipAdminMembershipMutationService,
       PulseMembershipAdminPointsMutationService,
@@ -285,6 +309,17 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
       {
         provide: ConfigService,
         useValue: configService,
+      },
+      {
+        provide: AuthSessionService,
+        useValue: {
+          bumpTokenVersion: jest.fn().mockResolvedValue(undefined),
+          getTokenVersion: jest.fn().mockResolvedValue(0),
+          removeAllSessions: jest.fn().mockResolvedValue(undefined),
+          invalidateAllRefreshTokens: jest.fn().mockResolvedValue(undefined),
+          isSessionActive: jest.fn().mockResolvedValue(true),
+          registerSession: jest.fn().mockResolvedValue('test-sid'),
+        },
       },
       {
         provide: StoreSubAccountService,
@@ -320,6 +355,10 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
     ],
   }).compile();
 
+  const authSessionService = module.get<Record<string, jest.Mock>>(
+    AuthSessionService,
+  );
+
   return {
     service: module.get<PulseMembershipService>(PulseMembershipService),
     adminService: module.get<PulseMembershipAdminService>(
@@ -339,6 +378,7 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
     pulseStoreContextService,
     redisService,
     cacheInvalidatorService,
+    authSessionService,
     user: createAuthenticatedUser(),
   };
 }

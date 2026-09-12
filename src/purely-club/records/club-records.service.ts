@@ -49,6 +49,8 @@ export class ClubRecordsService {
     const filterType = query.type ?? 'all';
     const items = this.clubRecordViewService.buildRecordItems({
       entries: entries.items,
+      // 余额快照基准：不受 Tab 过滤影响，避免反推起点被抬高
+      balanceEntries: entries.balanceEntries,
       filterType,
       customer,
       storeName: currentContext.store.name,

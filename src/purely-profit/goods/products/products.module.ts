@@ -6,6 +6,7 @@ import { PrismaModule } from '../../../prisma/prisma.module';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 import { ProductsScanOrderingSyncService } from './products-scan-ordering-sync.service';
+import { ProductSpecPricingService } from './product-spec-pricing.service';
 
 @Module({
   imports: [
@@ -15,7 +16,11 @@ import { ProductsScanOrderingSyncService } from './products-scan-ordering-sync.s
     StoresModule,
   ],
   controllers: [ProductsController],
-  providers: [ProductsService, ProductsScanOrderingSyncService],
-  exports: [ProductsService],
+  providers: [
+    ProductsService,
+    ProductsScanOrderingSyncService,
+    ProductSpecPricingService,
+  ],
+  exports: [ProductsService, ProductSpecPricingService],
 })
 export class ProductsModule {}

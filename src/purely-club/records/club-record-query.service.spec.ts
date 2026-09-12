@@ -166,36 +166,43 @@ describe('ClubRecordQueryService', () => {
       prismaService.marketingRecharge.count.mockResolvedValue(2);
       prismaService.marketingConsumption.count.mockResolvedValue(1);
 
-      await expect(service.listLedgerEntries(11, 98)).resolves.toEqual({
-        items: [
-          {
-            id: 'recharge-18',
-            type: 'recharge',
-            amountFen: 50000,
-            balanceEffectFen: 58000,
-            description: '充值 ¥500 赠 ¥80',
-            createdAt: new Date('2024-11-20T10:30:00.000Z'),
-          },
-          {
-            id: 'consume-31',
-            type: 'consume',
-            amountFen: -19900,
-            balanceEffectFen: -19900,
-            description: '购买经典养护套餐',
-            createdAt: new Date('2024-11-18T14:20:00.000Z'),
-          },
-          {
-            id: 'bonus-16',
-            type: 'bonus',
-            amountFen: 5000,
-            // BUG-6 修复后：gift 类型 balanceEffectFen 仅计入 giftAmount
-            balanceEffectFen: 5000,
-            description: '黄金会员生日礼品券',
-            createdAt: new Date('2024-10-01T00:00:00.000Z'),
-          },
-        ],
-        total: 3,
-      });
+      const result = await service.listLedgerEntries(11, 98);
+
+      expect(result.items).toEqual([
+        {
+          id: 'recharge-18',
+          type: 'recharge',
+          amountFen: 50000,
+          balanceEffectFen: 58000,
+          // 描述内金额同样统一保留 2 位小数
+          description: '充值 ¥500.00 赠 ¥80.00',
+          createdAt: new Date('2024-11-20T10:30:00.000Z'),
+        },
+        {
+          id: 'consume-31',
+          type: 'consume',
+          amountFen: -19900,
+          balanceEffectFen: -19900,
+          description: '购买经典养护套餐',
+          createdAt: new Date('2024-11-18T14:20:00.000Z'),
+        },
+        {
+          id: 'bonus-16',
+          type: 'bonus',
+          amountFen: 5000,
+          // BUG-6 修复后：gift 类型 balanceEffectFen 仅计入 giftAmount
+          balanceEffectFen: 5000,
+          description: '黄金会员生日礼品券',
+          createdAt: new Date('2024-10-01T00:00:00.000Z'),
+        },
+      ]);
+      expect(result.total).toBe(3);
+      // 余额快照基准：全量流水按时间升序，供 view 层反推每笔流水后的真实余额
+      expect(result.balanceEntries.map((entry) => entry.id)).toEqual([
+        'bonus-16',
+        'consume-31',
+        'recharge-18',
+      ]);
     });
 
     it('过滤无效赠送与无效消费记录', async () => {
@@ -226,6 +233,8 @@ describe('ClubRecordQueryService', () => {
       await expect(service.listLedgerEntries(11, 98)).resolves.toEqual({
         items: [],
         total: 2,
+        // 无可展示条目时不触发余额快照窗口查询
+        balanceEntries: [],
       });
     });
 
@@ -253,7 +262,7 @@ describe('ClubRecordQueryService', () => {
         type: 'bonus',
         amountFen: 5000, // bonusAmountFen = giftAmount（>0 时取 giftAmount）
         balanceEffectFen: 5000, // 修复后仅计入 giftAmount，不重复计入 amount
-        description: '赠送 ¥50',
+        description: '赠送 ¥50.00',
         createdAt: new Date('2024-12-01T00:00:00.000Z'),
       });
     });
@@ -330,7 +339,7 @@ describe('ClubRecordQueryService', () => {
       expect(rechargeCall.where.OR).toBeUndefined();
     });
 
-    it('recharge 筛选时只查充值表且不查消费表', async () => {
+    it('recharge 筛选时消费表不参与过滤分页（仅余额快照窗口查询）', async () => {
       prismaService.marketingRecharge.findMany.mockResolvedValue([
         {
           id: 18,
@@ -350,10 +359,19 @@ describe('ClubRecordQueryService', () => {
         filterType: 'recharge',
       });
 
-      expect(
-        prismaService.marketingConsumption.findMany,
-      ).not.toHaveBeenCalled();
+      // 分页过滤不查消费表（count 只在过滤分页阶段调用）
       expect(prismaService.marketingConsumption.count).not.toHaveBeenCalled();
+      // 消费表仅在余额快照窗口查询中被访问：不带 Tab 过滤，按时间升序
+      expect(prismaService.marketingConsumption.findMany).toHaveBeenCalledTimes(
+        1,
+      );
+      const snapshotConsumptionCall =
+        prismaService.marketingConsumption.findMany.mock.calls[0][0];
+      expect(snapshotConsumptionCall.orderBy).toEqual([
+        { createdAt: 'asc' },
+        { id: 'asc' },
+      ]);
+      expect(snapshotConsumptionCall.where.balancePaid).toEqual({ gt: 0 });
       expect(result.items).toHaveLength(1);
       expect(result.total).toBe(1);
       // 充值表类型过滤：排除退款
@@ -391,14 +409,15 @@ describe('ClubRecordQueryService', () => {
       expect(rechargeCall.where.type).toEqual('refund');
     });
 
-    it('消费记录 balancePaid=0 时回退使用 amount', async () => {
+    it('消费表查询限定 balancePaid > 0：现金/空间结算消费不进储值账户流水', async () => {
       prismaService.marketingRecharge.findMany.mockResolvedValue([]);
+      // 即便 mock 绕过 SQL 过滤返回 balancePaid=0 的行，也不得进入流水
       prismaService.marketingConsumption.findMany.mockResolvedValue([
         {
           id: 40,
           amount: 8800,
           balancePaid: 0,
-          itemsSummary: '现金消费',
+          itemsSummary: '台位费（680小时3分钟）、预付款',
           createdAt: new Date('2024-11-18T14:20:00.000Z'),
         },
       ]);
@@ -406,9 +425,15 @@ describe('ClubRecordQueryService', () => {
       prismaService.marketingConsumption.count.mockResolvedValue(1);
 
       const result = await service.listLedgerEntries(11, 98);
-      expect(result.items).toHaveLength(1);
-      expect(result.items[0].amountFen).toBe(-8800);
-      expect(result.items[0].balanceEffectFen).toBe(-8800);
+
+      // 查询层拦截：过滤分页与总数统计都限定 balancePaid > 0
+      const consumptionCall =
+        prismaService.marketingConsumption.findMany.mock.calls[0][0];
+      expect(consumptionCall.where.balancePaid).toEqual({ gt: 0 });
+      expect(prismaService.marketingConsumption.count).toHaveBeenCalledWith({
+        where: { storeId: 11, customerId: 98, balancePaid: { gt: 0 } },
+      });
+      expect(result.items).toHaveLength(0);
     });
 
     it('消费记录 balancePaid 和 amount 都为 0 时过滤掉', async () => {
@@ -427,6 +452,7 @@ describe('ClubRecordQueryService', () => {
 
       const result = await service.listLedgerEntries(11, 98);
       expect(result.items).toHaveLength(0);
+      expect(result.balanceEntries).toHaveLength(0);
     });
   });
 });

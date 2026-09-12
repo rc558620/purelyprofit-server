@@ -84,8 +84,9 @@ export const DEFAULT_MEMBERSHIP_PLAN_SETTINGS: Record<
     planName: '年度会员',
     price: 36900,
     originalPrice: 45600,
+    // durationMonths 用于月均价展示；有效期优先按 validDays（自然年 365 天）计算
     durationMonths: 12,
-    validDays: null,
+    validDays: 365,
   },
   lifetime: {
     planId: 'lifetime',

@@ -29,6 +29,7 @@ import {
   aggregateSalesRecordItems,
   buildVisibleSalesRecordRows,
   type AggregatedSalesRecordItem,
+  type SalesRecordSpecsEnrichment,
 } from './sales-record-item-aggregation';
 
 // ---------------------------------------------------------------------------
@@ -274,6 +275,43 @@ function buildOriginalUnitPrices(
   return units.map((unit) => fenToYuan(unit.originalUnitPriceFen));
 }
 
+// ---------------------------------------------------------------------------
+// 非扫码订单规格增强（空间会话结账订单：自助下单 / 追加点单的规格展示）
+// ---------------------------------------------------------------------------
+
+/** 销售记录关联的空间会话最小查询形态（规格为行级 JSON）。 */
+export interface SpaceSessionSpecSource {
+  id: number;
+  saleOrderId: number | null;
+  sessionItems: Array<{
+    productName: string;
+    quantity: number;
+    specNames: unknown;
+  }>;
+}
+
+/**
+ * 组装空间会话结账订单的规格增强：
+ * 空间结账的 saleOrderItem 由 sessionItems 按顺序复制（**行级对应**，不按数量展开），
+ * 因此规格行按行索引一一对应；长度不一致（防御性回退）时输出空规格。
+ */
+export function buildSpaceSessionSpecsEnrichment(
+  order: SaleOrderWithItems,
+  session: SpaceSessionSpecSource,
+): SalesRecordSpecsEnrichment {
+  const sessionItems = session.sessionItems;
+  const specsRows =
+    sessionItems.length === order.items.length
+      ? order.items.map((_, index) => {
+          const names = sessionItems[index]?.specNames;
+          return Array.isArray(names)
+            ? names.filter((name): name is string => typeof name === 'string')
+            : [];
+        })
+      : order.items.map(() => []);
+  return { specsRows };
+}
+
 /** 组装扫码点餐金额汇总（元）：优惠清单复用 club 营销快照解析，总优惠由后端计算。 */
 function buildScanOrderingAmountSummary(
   scan: ScanOrderingDetailSource,
@@ -310,7 +348,7 @@ function buildScanOrderingAmountSummary(
 
 export function mapSalesRecordResponse(
   order: SaleOrderWithItems,
-  enrichment?: ScanOrderingEnrichment,
+  enrichment?: ScanOrderingEnrichment | SalesRecordSpecsEnrichment,
 ): SalesRecordResponseDto {
   const note = toOptionalText(order.note);
   // 构建可见明细行：规格/原价按原始索引对齐，并过滤抵扣行（预付款 + 续费抵扣）
@@ -392,7 +430,10 @@ export function mapSalesRecordResponse(
     createdAt: toTimestampMs(order.createdAt),
     refundedAt: order.refund ? toTimestampMs(order.refund.refundedAt) : null,
     ...grouponFields,
-    ...(enrichment ? { amountSummary: enrichment.amountSummary } : {}),
+    // 金额汇总仅扫码点餐增强提供；非扫码订单（空间会话）只有规格行，不得输出该字段
+    ...(enrichment && 'amountSummary' in enrichment
+      ? { amountSummary: enrichment.amountSummary }
+      : {}),
   };
 }
 
@@ -435,8 +476,14 @@ function getDayStart(timestamp: number): number {
   return getShanghaiDayStartMs(timestamp);
 }
 
+/**
+ * 台位费行命名：兼容「台位费（固定）/ 台位费（按单价）」与
+ * 「台位费 2小时30分钟」（计时模式已去掉括号）两种形式。
+ */
+const TABLE_FEE_NAME_RE = /^台位费(（|\s|$)/;
+
 function shouldPrefixReportSpaceName(productName: string): boolean {
-  return productName.startsWith('台位费（');
+  return TABLE_FEE_NAME_RE.test(productName);
 }
 
 /**

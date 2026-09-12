@@ -439,6 +439,70 @@ describe('buildSpaceSessionSettlement — 自助下单抵扣', () => {
     // 68 + 30 = 98
     expect(result.totalAmount).toBe(98);
   });
+
+  it('带规格的自助下单行：抵扣行商品名剥掉规格后缀，规格由 specNames 承载', () => {
+    const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
+    const items: SpaceSessionItemRecord[] = [
+      {
+        productId: 'P1',
+        // productName 带 displayName 的规格后缀
+        productName: '深层清洁护理（60分钟）',
+        categoryName: '护理',
+        salePrice: 128,
+        profit: 40,
+        quantity: 1,
+        lineTotal: 128,
+        sourceType: 'member_self_order',
+        sourceOrderNo: 'SF20240101001',
+        specSignature: 'sig-60',
+        specNames: ['60分钟'],
+      },
+    ];
+    const result = buildSpaceSessionSettlement({
+      session: makeSession(),
+      checkoutAt,
+      payload: {},
+      items,
+      renewRecords: NO_RENEW,
+    });
+    const deductionRow = result.orderItems.find(
+      (item) => item.productId === 'SYS_SELF_ORDER_DEDUCTION',
+    );
+    // 商品名不含规格后缀，规格由 specNames 单独承载，避免与商品行的规格展示重复
+    expect(deductionRow?.productName).toBe('深层清洁护理 · 自助下单抵扣');
+    expect(deductionRow?.specSignature).toBe('sig-60');
+    expect(deductionRow?.specNames).toEqual(['60分钟']);
+  });
+
+  it('商品名自带括号但无规格时：抵扣行不改写商品名', () => {
+    const checkoutAt = BASE_TIME.getTime() + 60 * 60 * 1000;
+    const items: SpaceSessionItemRecord[] = [
+      {
+        productId: 'P9',
+        productName: '按摩（特惠）',
+        categoryName: '护理',
+        salePrice: 99,
+        profit: 30,
+        quantity: 1,
+        lineTotal: 99,
+        sourceType: 'member_self_order',
+        sourceOrderNo: 'SF20240101002',
+      },
+    ];
+    const result = buildSpaceSessionSettlement({
+      session: makeSession(),
+      checkoutAt,
+      payload: {},
+      items,
+      renewRecords: NO_RENEW,
+    });
+    const deductionRow = result.orderItems.find(
+      (item) => item.productId === 'SYS_SELF_ORDER_DEDUCTION',
+    );
+    // 无规格时不得用正则误删商品名自带的括号
+    expect(deductionRow?.productName).toBe('按摩（特惠） · 自助下单抵扣');
+    expect(deductionRow?.specNames).toBeUndefined();
+  });
 });
 
 // ---------- countdown + unit_price 模式 ----------

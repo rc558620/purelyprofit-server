@@ -10,7 +10,8 @@ import type {
   ProductUpdateInput,
 } from './products.types';
 
-const productSelect = {
+/** 统一商品查询字段（含规格宿主）；导出供单测直接引用，避免期望快照过时 */
+export const productSelect = {
   id: true,
   storeId: true,
   name: true,
@@ -130,6 +131,24 @@ export async function queryProductPage(
     items,
     total,
   };
+}
+
+/**
+ * 一次性查询门店全量商品（不分页，固定按「最新录入」排序）。
+ *
+ * 供点单/录单等「选择器」场景使用：这类场景需要在本地做全量搜索与分类筛选，
+ * 若走分页接口需要 ceil(total / pageSize) 次请求（1000 商品 ≈ 100 次）；
+ * 这里用轻量全量接口，单次返回，字段与分页接口保持一致（复用 productSelect）。
+ */
+export async function queryAllProducts(
+  prisma: PrismaService,
+  params: { storeId: number },
+): Promise<ProductRecord[]> {
+  return prisma.product.findMany({
+    where: { storeId: params.storeId, deletedAt: null },
+    orderBy: resolveProductOrderBy('createdAt'),
+    select: productSelect,
+  });
 }
 
 export async function findProductById(

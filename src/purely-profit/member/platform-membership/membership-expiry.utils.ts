@@ -44,12 +44,14 @@ export function buildPlanExpiryAt(
   plan: Pick<MembershipPlanConfig, 'name' | 'durationMonths' | 'validDays'>,
   baseMs: number,
 ): Date {
-  if (plan.durationMonths !== null && plan.durationMonths > 0) {
-    return new Date(baseMs + plan.durationMonths * 30 * DAY_MS);
-  }
-
+  // 优先按 validDays 精确天数（如年卡 365 自然年）；
+  // 未配置 validDays 时退回 durationMonths × 30 的简化口径
   if (plan.validDays !== null && plan.validDays > 0) {
     return new Date(baseMs + plan.validDays * DAY_MS);
+  }
+
+  if (plan.durationMonths !== null && plan.durationMonths > 0) {
+    return new Date(baseMs + plan.durationMonths * 30 * DAY_MS);
   }
 
   throw new ConflictException(`${plan.name}套餐配置缺少有效时长`);

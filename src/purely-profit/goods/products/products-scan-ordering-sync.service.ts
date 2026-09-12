@@ -17,15 +17,6 @@ export class ProductsScanOrderingSyncService {
     private readonly redisService: RedisService,
   ) {}
 
-  async ensureCateringStore(storeId: number): Promise<void> {
-    const store = await this.prisma.store.findUnique({
-      where: { id: storeId },
-      select: { businessMode: true },
-    });
-    if (!store || store.businessMode !== 'catering')
-      throw new BadRequestException('仅餐饮门店允许配置商品规格');
-  }
-
   validateSpecificationGroups(groups: ProductSpecGroupDto[]): void {
     const groupNames = new Set<string>();
     for (const group of groups) {
@@ -70,8 +61,40 @@ export class ProductsScanOrderingSyncService {
     productId: number,
     groups: ProductSpecGroupDto[],
   ): Promise<void> {
-    const menuProduct = await this.resolveMenuProduct(storeId, productId);
+    const existingMenuProduct = await this.findMenuProduct(storeId, productId);
+    // 空规格短路：全业态放开规格配置后，未配置规格的商品（含每次编辑保存）不得
+    // 凭空生成幽灵宿主，否则非餐饮门店每次编辑商品都会静默多出一条菜单商品记录。
+    if (groups.length === 0 && !existingMenuProduct) return;
+    const menuProduct =
+      existingMenuProduct ??
+      (await this.createGhostMenuProduct(storeId, productId));
     await this.prisma.$transaction(async (tx) => {
+      // 无变更则不重建：规格组/选项当前是「物理删除后重建」，选项 ID 会漂移，
+      // 历史订单退款时按 specOptionId 恢复规格库存就会静默丢失（风险 #5）。
+      // 内容完全一致时直接跳过，避免无谓的 ID 漂移。
+      const currentGroups = await tx.scanOrderingSpecGroup.findMany({
+        where: { menuProductId: menuProduct.id },
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        select: {
+          name: true,
+          selectionType: true,
+          minSelections: true,
+          maxSelections: true,
+          sortOrder: true,
+          options: {
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            select: {
+              name: true,
+              extraPrice: true,
+              isDefault: true,
+              isActive: true,
+              sortOrder: true,
+            },
+          },
+        },
+      });
+      if (this.hasSameSpecifications(currentGroups, groups)) return;
+
       await tx.scanOrderingSpecOption.deleteMany({
         where: { group: { menuProductId: menuProduct.id } },
       });
@@ -109,6 +132,60 @@ export class ProductsScanOrderingSyncService {
       });
     });
     await this.invalidateCache(storeId);
+  }
+
+  /**
+   * 已落库规格与待写入规格的内容是否完全一致（按排序后的位置逐项比较，不比较 ID）。
+   *
+   * 只比内容不比 ID，是因为新建选项的 ID 由前端生成占位值（`new-opt-x`），
+   * 与库里的数字 ID 天然不同；真正需要防的是「内容没变却把 ID 重建一遍」。
+   */
+  private hasSameSpecifications(
+    current: Array<{
+      name: string;
+      selectionType: string;
+      minSelections: number;
+      maxSelections: number | null;
+      sortOrder: number;
+      options: Array<{
+        name: string;
+        extraPrice: number;
+        isDefault: boolean;
+        isActive: boolean;
+        sortOrder: number;
+      }>;
+    }>,
+    next: ProductSpecGroupDto[],
+  ): boolean {
+    const sortedNext = [...next].sort((left, right) => left.sort - right.sort);
+    if (current.length !== sortedNext.length) return false;
+
+    return sortedNext.every((group, groupIndex) => {
+      const currentGroup = current[groupIndex];
+      if (
+        currentGroup.name !== group.name.trim() ||
+        currentGroup.selectionType !==
+          (group.selectMode === 'multi' ? 'multiple' : 'single') ||
+        currentGroup.minSelections !== group.minSelect ||
+        currentGroup.maxSelections !== group.maxSelect ||
+        currentGroup.sortOrder !== group.sort
+      ) {
+        return false;
+      }
+
+      if (currentGroup.options.length !== group.options.length) return false;
+      return group.options.every((option, optionIndex) => {
+        const currentOption = currentGroup.options[optionIndex];
+        return (
+          currentOption.name === option.name.trim() &&
+          currentOption.extraPrice ===
+            Money.fromInputYuan(option.priceDelta).toDbCents() &&
+          currentOption.isDefault === option.isDefault &&
+          currentOption.isActive === option.isActive &&
+          currentOption.sortOrder === optionIndex
+        );
+      });
+    });
   }
 
   async enable(product: ProductRecord, categoryId?: number): Promise<void> {
@@ -214,15 +291,35 @@ export class ProductsScanOrderingSyncService {
     }
   }
 
-  private async resolveMenuProduct(
+  /**
+   * 查找商品已挂载的扫码菜单商品（规格宿主）；不存在返回 null，绝不创建。
+   *
+   * `orderBy: { id: 'asc' }` 必须与读侧（`products.query.ts` 取 `[0]`）口径一致：
+   * 唯一索引 `uq_scan_ordering_menu_product_store_product_active` 保证了
+   * 「同门店 + 同商品」最多只有一条未删除宿主，所以当前不会取错；
+   * 这里显式排序是为了不依赖约束——一旦约束放宽或出现历史脏数据，
+   * 写侧与读侧仍会指向同一条记录，避免规格写到非预期宿主上（风险 #6）。
+   */
+  private async findMenuProduct(
+    storeId: number,
+    productId: number,
+  ): Promise<{ id: number } | null> {
+    return this.prisma.scanOrderingMenuProduct.findFirst({
+      where: { storeId, productId, deletedAt: null },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    });
+  }
+
+  /**
+   * 创建「幽灵宿主」：仅作规格容器存在的扫码菜单商品（isActive=false）。
+   * 非餐饮门店不会上架扫码点餐，该记录只承载 specGroups；
+   * scanOrderingEnabled 判定要求 isActive=true，因此它不会让商品误显示为已上架。
+   */
+  private async createGhostMenuProduct(
     storeId: number,
     productId: number,
   ): Promise<{ id: number }> {
-    const existing = await this.prisma.scanOrderingMenuProduct.findFirst({
-      where: { storeId, productId, deletedAt: null },
-      select: { id: true },
-    });
-    if (existing) return existing;
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
       select: { name: true, category: true, image: true, price: true },

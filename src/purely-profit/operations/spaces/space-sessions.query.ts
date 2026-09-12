@@ -35,6 +35,8 @@ export const SPACE_SESSION_FULL_INCLUDE = {
       sourceChannel: true,
       sourceOrderNo: true,
       sourceOrderItemId: true,
+      specSignature: true,
+      specNames: true,
       createdAt: true,
     },
   },

@@ -3,6 +3,7 @@ import {
   isMembershipProfileActive,
   resolveFrontendMembershipExpiry,
 } from './membership-expiry.utils';
+import { buildMembershipCapabilitiesSnapshot } from './platform-membership-access.shared';
 import type {
   StoreMembershipProfileRecord,
   StorePartnerRecord,
@@ -53,6 +54,8 @@ export function buildMembershipInfo(
     inviteCode,
     totalPoints: profile.totalPoints,
     availablePoints: profile.availablePoints,
+    // 过期/未开通时统一按 free 档下发，前端据此渲染降级态与配额提示
+    capabilities: buildMembershipCapabilitiesSnapshot(profile),
   };
 }
 

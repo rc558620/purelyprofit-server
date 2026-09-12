@@ -1,11 +1,15 @@
-// 团购券订单支付服务：创建订单草稿（JSAPI 下单）→ 支付成功确认（生成券码 + 扣库存 + 起算有效期）
+// 团购券订单支付服务：创建订单草稿（JSAPI 下单 / 余额直接结算）→ 支付成功确认（生成券码 + 扣库存 + 起算有效期）
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
 import { Money } from '../../shared/money.utils';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubOrderPreviewBreakdownService } from '../orders/club-order-preview-breakdown.service';
-import { deductPointsForSettlement } from '../orders/club-order-settlement-points.utils';
+import {
+  awardPointsForSettlement,
+  deductPointsForSettlement,
+} from '../orders/club-order-settlement-points.utils';
 import type { ClubCurrentContext } from '../stores/club-stores.types';
 import { ClubVoucherOrderContextService } from './club-voucher-order-context.service';
 import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
@@ -14,6 +18,7 @@ import {
   buildVoucherOrderNo,
 } from './club-voucher-order-code.utils';
 import {
+  CLUB_VOUCHER_CUSTOMER_NOT_FOUND_MESSAGE,
   CLUB_VOUCHER_ORDER_NOT_FOUND_MESSAGE,
   CLUB_VOUCHER_STOCK_NOT_ENOUGH_MESSAGE,
 } from './club-voucher-orders.constants';
@@ -133,18 +138,32 @@ export class ClubVoucherOrderPaymentService {
         : []),
     ];
 
-    // 微信 JSAPI 真实下单；openid 未传时开发态直接返回草稿（前端可走 confirmPaid 兜底）
-    const paymentParams = dto.openid
-      ? await this.clubWechatJsapiService.createJsapiPaymentParams({
-          storeId: context.store.id,
-          orderNo,
-          description: `购买${context.product.name}`,
-          amountFen: pricing.paidAmountFen,
-          openid: dto.openid,
-        })
-      : undefined;
+    const paymentMethod = dto.paymentMethod ?? 'wechat';
 
-    await this.prisma.clubVoucherOrder.create({
+    // 余额支付：下单即扣款，余额不足直接拒绝（避免落库 unpaid 脏单）
+    if (
+      paymentMethod === 'balance' &&
+      context.customer.balance < pricing.paidAmountFen
+    ) {
+      throw new BadRequestException(
+        `余额不足，当前余额 ¥${Money.fromDbCents(context.customer.balance).toFixedOutputYuan()}，需支付 ¥${Money.fromDbCents(pricing.paidAmountFen).toFixedOutputYuan()}`,
+      );
+    }
+
+    // 微信 JSAPI 真实下单；openid 未传时开发态直接返回草稿（前端可走 confirmPaid 兜底）
+    // 余额支付无需微信下单参数，直接落 unpaid 后在同一请求内完成结算
+    const paymentParams =
+      paymentMethod === 'wechat' && dto.openid
+        ? await this.clubWechatJsapiService.createJsapiPaymentParams({
+            storeId: context.store.id,
+            orderNo,
+            description: `购买${context.product.name}`,
+            amountFen: pricing.paidAmountFen,
+            openid: dto.openid,
+          })
+        : undefined;
+
+    const created = await this.prisma.clubVoucherOrder.create({
       data: {
         platform: CLUB_VOUCHER_PLATFORM,
         storeId: context.store.id,
@@ -159,6 +178,8 @@ export class ClubVoucherOrderPaymentService {
         personCount,
         guestName: currentContext.user.name?.trim() || null,
         guestPhone: currentContext.user.phone,
+        // 下单备注：仅去除首尾空白，空串归一为 null（商家端通知按空值不展示）
+        remark: dto.remark?.trim() || null,
         guestType: CLUB_VOUCHER_GUEST_TYPE,
         orderNo,
         originalAmountFen: pricing.originalAmountFen,
@@ -171,10 +192,27 @@ export class ClubVoucherOrderPaymentService {
         breakdownItems: breakdownItems as unknown as Prisma.InputJsonValue,
         pointsDeductFen: pricing.pointsDeductFen,
         pointsUsed: pricing.pointsUsed,
-        paymentChannel: 'wechat',
+        paymentChannel: paymentMethod,
         status: 'unpaid',
       },
+      select: { id: true },
     });
+
+    // 余额支付：同一请求内完成落账（扣余额 + 生成券码 + 扣库存 + 起算有效期）
+    if (paymentMethod === 'balance') {
+      const view = await this.completePayment(
+        created.id,
+        pricing.paidAmountFen,
+        undefined,
+      );
+      return {
+        id: view.id,
+        orderNo: view.orderNo,
+        voucherCode: view.voucherCode ?? undefined,
+        status: view.status,
+        amountFen: view.amountFen,
+      };
+    }
 
     return {
       id: orderNo,
@@ -263,6 +301,11 @@ export class ClubVoucherOrderPaymentService {
           throw new BadRequestException(CLUB_VOUCHER_STOCK_NOT_ENOUGH_MESSAGE);
         }
 
+        // 余额支付：扣减储值余额 + 记消费流水 + 更新顾客指标 + 赠送消费积分
+        if (order.paymentChannel === 'balance' && order.customerId !== null) {
+          await this.settleBalancePayment(tx, order, order.customerId);
+        }
+
         // BUG 修复：积分抵扣扣减在支付确认时执行（此前只在退款时返还、购买从未扣减，导致越退积分越多）
         if (order.pointsUsed > 0 && order.customerId !== null) {
           await deductPointsForSettlement(
@@ -311,6 +354,8 @@ export class ClubVoucherOrderPaymentService {
             productName: order.productName,
             categoryName: order.categoryName,
             quantity: order.quantity,
+            paidAmountFen: order.paidAmountFen,
+            remark: order.remark,
             createdAt: order.createdAt,
           },
         };
@@ -329,11 +374,92 @@ export class ClubVoucherOrderPaymentService {
         productName: paidOrder.productName,
         categoryName: paidOrder.categoryName,
         quantity: paidOrder.quantity,
+        paidAmountFen: paidOrder.paidAmountFen,
+        remark: paidOrder.remark,
         createdAt: paidOrder.createdAt.toISOString(),
       });
     }
 
     return view;
+  }
+
+  /**
+   * 余额支付结算：储值余额扣款 + 消费流水 + 顾客指标（累计消费/到店次数/等级）+ 赠送消费积分
+   * 与「服务订单余额结算」同口径：余额支付即门店消费，需记流水与累计消费
+   */
+  private async settleBalancePayment(
+    tx: Prisma.TransactionClient,
+    order: {
+      storeId: number;
+      orderNo: string;
+      productName: string;
+      paidAmountFen: number;
+      pointsDeductFen: number;
+    },
+    customerId: number,
+  ): Promise<void> {
+    const customer = await tx.marketingCustomer.findFirst({
+      where: { id: customerId, storeId: order.storeId, deletedAt: null },
+      select: { id: true, totalSpent: true, balance: true },
+    });
+    if (!customer) {
+      throw new BadRequestException(CLUB_VOUCHER_CUSTOMER_NOT_FOUND_MESSAGE);
+    }
+
+    // 余额扣减金额 = 订单实付金额（积分抵扣部分不占余额）
+    const balancePaidFen = order.paidAmountFen;
+    if (customer.balance < balancePaidFen) {
+      throw new BadRequestException(
+        `余额不足，当前余额 ¥${Money.fromDbCents(customer.balance).toFixedOutputYuan()}，需支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
+      );
+    }
+
+    // 消费流水：amount 含积分抵扣部分，反映消费总金额
+    await tx.marketingConsumption.create({
+      data: {
+        storeId: order.storeId,
+        customerId,
+        amount: balancePaidFen + order.pointsDeductFen,
+        balancePaid: balancePaidFen,
+        pointsDeducted: order.pointsDeductFen,
+        payType: 'balance',
+        itemsSummary: order.productName,
+        promotionId: null,
+      },
+    });
+
+    // updateMany + where 条件保证余额不会被并发扣减为负数
+    const newTotalSpent = customer.totalSpent + balancePaidFen;
+    const updated = await tx.marketingCustomer.updateMany({
+      where: { id: customerId, balance: { gte: balancePaidFen } },
+      data: {
+        balance: { decrement: balancePaidFen },
+        totalSpent: { increment: balancePaidFen },
+        visitCount: { increment: 1 },
+        lastVisitAt: new Date(),
+        tier: calcCustomerTier(newTotalSpent) as never,
+      },
+    });
+    if (updated.count !== 1) {
+      throw new BadRequestException(
+        `余额不足或已被并发消费，当前余额无法支付 ¥${Money.fromDbCents(balancePaidFen).toFixedOutputYuan()}`,
+      );
+    }
+
+    // 赠送消费积分（受积分规则 enabled 开关控制）
+    await awardPointsForSettlement(
+      tx,
+      {
+        storeId: order.storeId,
+        description: order.productName,
+        paidAmountFen: order.paidAmountFen,
+      },
+      customerId,
+    );
+
+    this.logger.log(
+      `团购券余额支付结算: orderNo=${order.orderNo}, customerId=${customerId}, 扣款=${balancePaidFen}分`,
+    );
   }
 
   /** 生成全局唯一券码（唯一索引冲突时重试） */
@@ -381,5 +507,9 @@ export interface PaidVoucherOrderSnapshot {
   productName: string;
   categoryName: string | null;
   quantity: number;
+  /** 实付金额（分） */
+  paidAmountFen: number;
+  /** 下单备注（可空） */
+  remark: string | null;
   createdAt: Date;
 }

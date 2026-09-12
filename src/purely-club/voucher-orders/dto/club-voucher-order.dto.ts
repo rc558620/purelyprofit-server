@@ -3,6 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -53,6 +54,15 @@ export class CreateClubVoucherOrderDto {
   usePoints?: boolean;
 
   @ApiPropertyOptional({
+    example: '2人同行，需要靠窗座位',
+    description: '下单备注（选填，商家端新订单通知展示）',
+  })
+  @IsOptional()
+  @IsString({ message: 'remark 必须是字符串' })
+  @MaxLength(200, { message: 'remark 最长 200 个字符' })
+  remark?: string;
+
+  @ApiPropertyOptional({
     example: 'oLSdB5A3FRSxSCKrGNGKBhYQ_xyz',
     description:
       '微信用户 openid；前端通过 wx.login 换取后传入，用于 JSAPI 下单',
@@ -61,6 +71,17 @@ export class CreateClubVoucherOrderDto {
   @IsString({ message: 'openid 必须是字符串' })
   @MaxLength(128, { message: 'openid 最长 128 个字符' })
   openid?: string;
+
+  @ApiPropertyOptional({
+    example: 'balance',
+    enum: ['wechat', 'balance'],
+    default: 'wechat',
+    description:
+      '支付方式：wechat（微信支付，默认）/ balance（储值余额，下单即扣款并生成券码）',
+  })
+  @IsOptional()
+  @IsIn(['wechat', 'balance'], { message: 'paymentMethod 不合法' })
+  paymentMethod?: 'wechat' | 'balance';
 }
 
 /** 团购券订单价格预计算入参（字段与创建一致，抽成别名便于 Swagger 区分） */
@@ -126,8 +147,8 @@ export class ClubVoucherOrderPreviewResponseDto {
   personCount: number;
 
   @ApiPropertyOptional({
-    example: 128,
-    description: '当前余额（分），用于前端展示余额不足提示',
+    example: true,
+    description: '余额是否足以支付本单，用于前端展示余额不足提示',
   })
   balanceEnough?: boolean;
 
@@ -280,6 +301,12 @@ export class ClubVoucherOrderDetailDto extends ClubVoucherOrderItemDto {
 
   @ApiProperty({ description: '下单时间文案' })
   orderTimeLabel: string;
+
+  @ApiPropertyOptional({
+    example: '不要辣，多加一份餐具',
+    description: '下单备注（顾客填写，可为空）',
+  })
+  remark?: string;
 
   @ApiProperty({
     type: [Object],

@@ -146,6 +146,7 @@ export const toDetailDto = (
     refundAmountFen: number | null;
     pointsDeductFen: number;
     pointsUsed: number;
+    remark: string | null;
     breakdownItems: Prisma.JsonValue | null;
   },
   storeName: string,
@@ -165,6 +166,8 @@ export const toDetailDto = (
       PAYMENT_METHOD_LABEL_MAP[order.paymentChannel] ?? order.paymentChannel,
     orderId: order.orderNo,
     orderTimeLabel: formatDateTime(order.createdAt),
+    // 下单备注：顾客填写，空串归一为 undefined（前端为空不展示）
+    remark: order.remark ?? undefined,
     // 优惠拆解展示行：优先取落库快照（与服务详情页一致），历史订单降级为汇总三行
     breakdownItems: toDetailBreakdownItems(order),
   };

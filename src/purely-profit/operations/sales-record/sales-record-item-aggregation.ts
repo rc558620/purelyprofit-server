@@ -1,10 +1,10 @@
 // 销售明细行聚合：按「商品 ID + 商品名称 + 规格」叠加同一订单内的相同商品行
 import { Money } from '../../../shared/money.utils';
-import { isDeductionProductName } from '../../commerce/commerce.utils';
-import type {
-  SaleOrderWithItems,
-  ScanOrderingEnrichment,
-} from './sales-record.domain';
+import {
+  isDeductionProductName,
+  SELF_ORDER_DEDUCTION_PRODUCT_NAME,
+} from '../../commerce/commerce.utils';
+import type { SaleOrderWithItems } from './sales-record.domain';
 import type { SalesRecordAmountsSnapshot } from './sales-record-amounts.domain';
 
 /** 销售明细行：原始商品项 + 与订单 items 原始顺序对齐的规格/原价 */
@@ -15,21 +15,69 @@ export interface SalesRecordItemRow {
 }
 
 /**
+ * 规格增强（只依赖 specsRows 的最小形状）：
+ * - 扫码点餐订单：buildScanOrderingEnrichment 的完整增强（含原价分摊与金额汇总）；
+ * - 非扫码订单（空间会话结账）：buildSpaceSessionSpecsEnrichment，仅规格行。
+ */
+export interface SalesRecordSpecsEnrichment {
+  /** 与 order.items 按原始索引一一对应的规格名列表 */
+  specsRows: string[][];
+  /** 优惠前单价（分转元）；仅扫码增强提供，缺省回退 salePrice */
+  originalUnitPrices?: number[];
+}
+
+/**
+ * 是否为自助下单抵扣行：名字以「 · 自助下单抵扣」结尾。
+ * ⚠️ 不能按 productId 识别——`SYS_SELF_ORDER_DEDUCTION` 非数字，
+ * 写入 `sale_order_items.product_id`（Int）时实际存的是 null。
+ */
+export const isSelfOrderDeductionRow = (productName: string): boolean =>
+  productName.endsWith(` · ${SELF_ORDER_DEDUCTION_PRODUCT_NAME}`);
+
+/**
+ * 列出订单中「可见」的商品行（含在 order.items 中的原始索引）：
+ * 1. 排除抵扣行（预付款 + 续费 + 自助下单抵扣），销售记录只展示实际消费；
+ * 2. 自助下单已在线支付的商品行由「商品名 · 自助下单抵扣」抵扣行承载展示，
+ *    原商品行排除，避免同一笔消费出现「商品行 + 抵扣行」两行（金额重复）。
+ */
+export function listVisibleSaleOrderItems(
+  order: SaleOrderWithItems,
+): Array<{ item: SaleOrderWithItems['items'][number]; index: number }> {
+  // 抵扣行名字 = 「对应商品行的展示名（或去掉规格后缀的基础名） · 自助下单抵扣」
+  const deductionNames = new Set(
+    order.items
+      .filter((item) => isSelfOrderDeductionRow(item.productName))
+      .map((item) => item.productName),
+  );
+  const suffix = ` · ${SELF_ORDER_DEDUCTION_PRODUCT_NAME}`;
+  const isShadowedBySelfOrderDeduction = (productName: string): boolean =>
+    deductionNames.has(`${productName}${suffix}`) ||
+    deductionNames.has(`${productName.replace(/（[^）]*）$/, '')}${suffix}`);
+
+  return order.items
+    .map((item, index) => ({ item, index }))
+    .filter(
+      ({ item }) =>
+        !isDeductionProductName(item.productName) &&
+        !isShadowedBySelfOrderDeduction(item.productName),
+    );
+}
+
+/**
  * 构建可见销售明细行：
  * 1. 扫码订单的规格/原价快照按订单 items 原始索引对齐（存在抵扣行时索引不漂移）；
- * 2. 过滤抵扣行（预付款 + 续费抵扣），销售记录只展示实际消费。
+ *    非扫码订单（空间会话结账）按行级 specNames 对齐；
+ * 2. 过滤抵扣行与自助下单已在线支付的商品行，销售记录只展示实际消费。
  */
 export function buildVisibleSalesRecordRows(
   order: SaleOrderWithItems,
-  enrichment?: ScanOrderingEnrichment,
+  enrichment?: SalesRecordSpecsEnrichment,
 ): SalesRecordItemRow[] {
-  return order.items
-    .map((item, index) => ({
-      item,
-      specs: enrichment?.specsRows[index] ?? [],
-      originalUnitPrice: enrichment?.originalUnitPrices[index],
-    }))
-    .filter((row) => !isDeductionProductName(row.item.productName));
+  return listVisibleSaleOrderItems(order).map(({ item, index }) => ({
+    item,
+    specs: enrichment?.specsRows[index] ?? [],
+    originalUnitPrice: enrichment?.originalUnitPrices?.[index],
+  }));
 }
 
 /** 聚合后的销售明细行：数量/小计已叠加，单价为数量加权平均（元） */

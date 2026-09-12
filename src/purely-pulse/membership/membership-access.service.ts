@@ -5,8 +5,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, StaffRole } from '@prisma/client';
-import { AUTH_TOKEN_VERSION_KEY_PREFIX } from '../../purely-profit/auth/auth.constants';
+import {
+  AUTH_MEMBERSHIP_ROWS_CACHE_KEY_PREFIX,
+  AUTH_TOKEN_VERSION_KEY_PREFIX,
+} from '../../purely-profit/auth/auth.constants';
+import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { buildUserRelatedStoreIdsCacheKey } from '../../purely-profit/auth/auth.utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { PulseDevModeAccessService } from '../dev-mode/pulse-dev-mode-access.service';
@@ -27,6 +32,7 @@ export class PulseMembershipAccessService {
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
     private readonly pulseStoreContextService: PulseStoreContextService,
+    private readonly authSessionService: AuthSessionService,
     configService: ConfigService,
   ) {
     this.pulseDevAccountEmails = new Set(
@@ -205,6 +211,27 @@ export class PulseMembershipAccessService {
     }
 
     await this.bumpTokenVersionBatch(Array.from(userIds));
+
+    // 仅 bump token version 只能让旧 access_token 立即失效；
+    // 客户端仍持有 30 天有效的 refresh_token，可静默换发新 token 重新上线。
+    // 必须同时吊销 refresh token 与活跃会话，才能做到「立即踢下线」。
+    const kickedUserIds = Array.from(userIds);
+    await Promise.all(
+      kickedUserIds.map((userId) =>
+        this.authSessionService.removeAllSessions(userId),
+      ),
+    );
+
+    // 清除鉴权链路缓存，避免注销/封禁后短时间内（缓存 TTL 内）旧会员行
+    // 仍作为登录与鉴权上下文放行已注销门店
+    await Promise.all(
+      kickedUserIds.flatMap((userId) => [
+        this.redisService.delByPattern(
+          `${AUTH_MEMBERSHIP_ROWS_CACHE_KEY_PREFIX}${userId}:*`,
+        ),
+        this.redisService.del(buildUserRelatedStoreIdsCacheKey(userId)),
+      ]),
+    );
   }
 
   /**

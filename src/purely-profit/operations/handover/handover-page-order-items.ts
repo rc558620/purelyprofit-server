@@ -266,6 +266,26 @@ function buildScanItemSpecsList(
 }
 
 /**
+ * 非扫码订单（空间会话结账）构建 spec 序列：
+ * saleOrderItem 由 sessionItems **行级**复制（不按数量展开），
+ * 因此按行索引一一对应，每行规格即该行 specNames。
+ */
+function buildSpaceItemSpecsList(
+  spaceSession: OrderItemRow['order']['spaceSession'],
+): string[][] {
+  const items = spaceSession?.sessionItems;
+  if (!items || items.length === 0) return [];
+  return items.map((item) => {
+    const names = Array.isArray(item.specNames)
+      ? item.specNames.filter(
+          (name): name is string => typeof name === 'string',
+        )
+      : [];
+    return names;
+  });
+}
+
+/**
  * 按「商品名称 + 规格」合并同一订单内的相同商品行：
  * 数量直接累加，金额按 salePrice × quantity 之和重算（分单位，后端统一计算）。
  * 规格仅用于分组判定（完全相同才合并），合并行不展示规格字段。
@@ -325,14 +345,18 @@ function aggregateRegularOrderItems(
     // 按 id 升序排序（与扫码订单商品展开顺序一致）
     orderGroup.sort((a, b) => a.id - b.id);
 
-    // 扫码订单构建 spec 序列；非扫码订单返回空列表
+    // 扫码订单构建 spec 序列（按数量展开）；非扫码订单回退空间会话商品行规格（行级对应）
     const scanSpecsList = buildScanItemSpecsList(orderGroup[0].order.scanOrder);
+    const spaceSpecsList =
+      scanSpecsList.length === 0
+        ? buildSpaceItemSpecsList(orderGroup[0].order.spaceSession)
+        : [];
 
     // 按「商品名称 + 规格」分组（同时追踪该组是否有规格）
     type ProductGroup = { items: OrderItemRow[]; hasSpec: boolean };
     const productGroups = new Map<string, ProductGroup>();
     orderGroup.forEach((item, index) => {
-      const specs = scanSpecsList[index] ?? [];
+      const specs = scanSpecsList[index] ?? spaceSpecsList[index] ?? [];
       const hasSpec = specs.length > 0;
       const key = `${item.productName}_${JSON.stringify(specs)}`;
       const existing = productGroups.get(key) ?? {

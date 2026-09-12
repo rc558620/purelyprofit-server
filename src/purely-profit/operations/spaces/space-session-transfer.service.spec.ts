@@ -67,14 +67,38 @@ describe('SpaceSessionTransferService', () => {
     },
   };
 
+  /**
+   * 源会话快照。服务已改用 `spaceSession.findFirst` 查询会话
+   * （与 checkout / list / detail 的 deletedAt: null 口径一致）。
+   */
+  const sourceSession = {
+    id: 5,
+    storeId: 18,
+    spaceId: 7,
+    autoCheckout: false,
+    status: 'active',
+    space: {
+      id: 7,
+      name: 'A01',
+      storeId: 18,
+      enableDirtyRoom: false,
+      autoCheckout: false,
+      type: { id: 101, name: '台球桌' },
+    },
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     commerceAccessService.ensureCanAccessStore.mockResolvedValue(undefined);
     reservationsStateService.resolveReservationBackStatus.mockResolvedValue(
       'reserved',
     );
-    // transferSession 需要检查目标空间是否有活跃会话
-    prismaService.spaceSession.findFirst.mockResolvedValue(null);
+    // 同一个 findFirst 承担两次查询：先按 where.id 查源会话，
+    // 再查目标空间是否有活跃会话（返回 null 表示空闲可换房）
+    prismaService.spaceSession.findFirst.mockImplementation(
+      ({ where }: { where?: { id?: number } }) =>
+        Promise.resolve(where?.id === 5 ? sourceSession : null),
+    );
     prismaService.$transaction.mockImplementation((callback) =>
       Promise.resolve(callback(transaction)),
     );
@@ -98,24 +122,7 @@ describe('SpaceSessionTransferService', () => {
 
   it('换房时源空间回退状态委托预约状态服务计算', async () => {
     const now = new Date('2026-06-07T10:00:00.000Z');
-    prismaService.spaceSession.findUnique.mockResolvedValue({
-      id: 5,
-      storeId: 18,
-      spaceId: 7,
-      autoCheckout: false,
-      status: 'active',
-      space: {
-        id: 7,
-        name: 'A01',
-        storeId: 18,
-        enableDirtyRoom: false,
-        autoCheckout: false,
-        type: {
-          id: 101,
-          name: '台球桌',
-        },
-      },
-    });
+    // 源会话由 beforeEach 的 findFirst mock 提供
     // B1: transfer targetSpace 改用 findFirst
     prismaService.space.findFirst.mockResolvedValue({
       id: 11,
@@ -211,24 +218,7 @@ describe('SpaceSessionTransferService', () => {
   });
 
   it('换房时若锁内发现会话已结账应阻止继续写入', async () => {
-    prismaService.spaceSession.findUnique.mockResolvedValue({
-      id: 5,
-      storeId: 18,
-      spaceId: 7,
-      autoCheckout: false,
-      status: 'active',
-      space: {
-        id: 7,
-        name: 'A01',
-        storeId: 18,
-        enableDirtyRoom: false,
-        autoCheckout: false,
-        type: {
-          id: 101,
-          name: '台球桌',
-        },
-      },
-    });
+    // 源会话由 beforeEach 的 findFirst mock 提供
     // B1: transfer targetSpace 改用 findFirst
     prismaService.space.findFirst.mockResolvedValue({
       id: 11,

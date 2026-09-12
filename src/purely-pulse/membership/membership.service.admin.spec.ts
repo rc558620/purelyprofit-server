@@ -685,6 +685,7 @@ describe('PulseMembershipService admin', () => {
         totalPoints: true,
         availablePoints: true,
         subAccountQuota: true,
+        pulseSubAccountQuota: true,
       },
     });
     expect(
@@ -783,14 +784,15 @@ describe('PulseMembershipService admin', () => {
       create: {
         storeId: 18,
         currentPlanId: null,
-        startsAt: null,
+        // 降级为免费也保留 startsAt，标记档案已被显式管理，防止订单重建逻辑恢复付费会员
+        startsAt: expect.any(Date),
         expiresAt: null,
         totalPoints: 320,
         availablePoints: 260,
       },
       update: {
         currentPlanId: null,
-        startsAt: null,
+        startsAt: expect.any(Date),
         expiresAt: null,
       },
     });
@@ -1088,6 +1090,113 @@ describe('PulseMembershipService admin', () => {
       '2',
       'EX',
       7 * 24 * 60 * 60,
+    );
+    // 封禁必须吊销 refresh token 与会话，防止客户端静默续签重新上线
+    expect(context.authSessionService.removeAllSessions).toHaveBeenCalledWith(
+      301,
+    );
+    expect(context.authSessionService.removeAllSessions).toHaveBeenCalledWith(
+      302,
+    );
+    // 同步清除鉴权链路缓存，避免缓存 TTL 内旧会员行放行
+    expect(context.redisService.delByPattern).toHaveBeenCalledWith(
+      'auth:membership-rows:301:*',
+    );
+    expect(context.redisService.del).toHaveBeenCalledWith(
+      'auth:user-related-stores:301',
+    );
+  });
+
+  it('cancelAdminMember 注销时软删除并立即踢下线门店所有用户', async () => {
+    const loggerWarnSpy = jest
+      .spyOn(context.mutationService['logger'], 'warn')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(
+        context.mutationService as never,
+        'assertAdminMemberMutationAccess' as never,
+      )
+      .mockResolvedValue(undefined as never);
+    jest
+      .spyOn(
+        context.memberReadService as never,
+        'buildAdminMemberDetail' as never,
+      )
+      .mockResolvedValue({
+        id: '18',
+        name: '张三',
+        phone: '13619654020',
+        avatarChar: '张',
+        avatarColorIdx: 0,
+        avatarUrl: '',
+        status: 'cancelled',
+        level: 'free',
+        registeredAt: new Date('2026-05-01T00:00:00.000Z').getTime(),
+        lastActiveAt: new Date('2026-05-21T00:00:00.000Z').getTime(),
+        availablePoints: 0,
+        totalPointsEarned: 0,
+        beanBalance: 0,
+        isPartner: false,
+        totalRecharged: 0,
+        rechargeCount: 0,
+        invitedCount: 0,
+        rechargeHistory: [],
+        membershipExpiry: null,
+      } as never);
+    context.prismaService.store.update.mockResolvedValue({});
+    context.prismaService.store.findUnique.mockResolvedValue({
+      ownerId: 301,
+      staffs: [{ userId: 302 }],
+    });
+    // owner 无其他在营门店 → 释放登录身份
+    context.prismaService.store.count.mockResolvedValue(0);
+    context.prismaService.staff.updateMany.mockResolvedValue({ count: 2 });
+    context.prismaService.user.update.mockResolvedValue({});
+    context.redisService.mgetJson.mockResolvedValue(['0', '1']);
+    const mockPipeline = {
+      set: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue(undefined),
+    };
+    context.redisService.getClient.mockReturnValue({
+      pipeline: () => mockPipeline,
+    });
+
+    await context.service.cancelAdminMember(context.user, 18);
+
+    expect(context.prismaService.store.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 18 },
+        data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+      }),
+    );
+    // 注销后释放登录身份：员工行停用且 email/phone/login_account 改写为占位值，
+    // 绕过单账号单门店唯一索引与触发器，owner 唯一登录邮箱改写后手机号可重新注册
+    const rawUpdate = context.prismaService.$executeRaw.mock.calls[0]?.[0];
+    expect(rawUpdate).toBeDefined();
+    expect(String(rawUpdate.text ?? rawUpdate)).toContain('UPDATE "staffs"');
+    expect(context.prismaService.user.update).toHaveBeenCalledWith({
+      where: { id: 301 },
+      data: {
+        email: expect.stringMatching(/^cancelled_u301_\d+@purelyprofit\.invalid$/),
+        wechatPhone: null,
+      },
+    });
+    expect(context.prismaService.user.update).toHaveBeenCalledWith({
+      where: { id: 301 },
+      data: {
+        email: expect.stringMatching(/^cancelled_u301_\d+@purelyprofit\.invalid$/),
+        wechatPhone: null,
+      },
+    });
+    // 注销必须立即踢下线：bump token version + 吊销 refresh token 与会话
+    expect(context.authSessionService.removeAllSessions).toHaveBeenCalledWith(
+      301,
+    );
+    expect(context.authSessionService.removeAllSessions).toHaveBeenCalledWith(
+      302,
+    );
+    expect(loggerWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('pulse_admin_member_cancel'),
     );
   });
 

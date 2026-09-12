@@ -4,7 +4,34 @@ import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { assertGeneralStoreForSelfOrdering } from './club-self-ordering.utils';
 
-/** 菜单商品：与前端 ScanOrderingMenuProduct 同构（specGroups 恒为空数组，非餐饮商品无规格） */
+/** 规格选项（金额单位为分） */
+export interface SelfOrderingMenuSpecOptionDto {
+  id: number;
+  name: string;
+  /** 相对基准价加价（分） */
+  extraPrice: number;
+  isActive: boolean;
+  /**
+   * 规格级库存：非餐饮不做（决策见 §3），恒为 null 表示不限。
+   * ⚠️ 不能省略该字段——C 端 menu.mapper 用 `isActive && (stockQuantity === null || > 0)`
+   * 判断选项是否可选，undefined 会让所有选项被判为售罄，「选规格」入口直接消失。
+   */
+  stockQuantity: null;
+}
+
+/** 规格组：与 ScanOrderingSpecGroup 同构，供 C 端规格选择弹窗消费 */
+export interface SelfOrderingMenuSpecGroupDto {
+  id: number;
+  name: string;
+  selectionType: 'single' | 'multiple';
+  minSelections: number;
+  /** null 表示不限选 */
+  maxSelections: number | null;
+  sortOrder: number;
+  options: SelfOrderingMenuSpecOptionDto[];
+}
+
+/** 菜单商品：与前端 ScanOrderingMenuProduct 同构 */
 export interface SelfOrderingMenuProductDto {
   id: number;
   categoryId: number;
@@ -13,10 +40,16 @@ export interface SelfOrderingMenuProductDto {
   imageUrl: string | null;
   /** 售价（分） */
   basePrice: number;
-  stockMode: 'unlimited';
-  stockQuantity: null;
+  /**
+   * 库存模式：与扫码点餐同构。
+   * 非餐饮商品库（Product.stock）恒有库存字段，因此恒为 finite，
+   * 库存为 0 时由 C 端 menu.mapper 判定为售罄（不用 sold_out，否则 C 端会把库存当「不限」展示）。
+   */
+  stockMode: 'unlimited' | 'finite' | 'sold_out';
+  /** 可用库存数量（取自 Product.stock） */
+  stockQuantity: number | null;
   salesCount: number;
-  specGroups: never[];
+  specGroups: SelfOrderingMenuSpecGroupDto[];
 }
 
 export interface SelfOrderingMenuCategoryDto {
@@ -41,7 +74,8 @@ const UNCATEGORIZED_NAME = '其他';
  * 非餐饮门店的商品库（Product）直接作为菜单数据源，与空间管理「追加商品」同源，
  * 保证顾客自助下单与商家代客录入的价格口径一致。
  *
- * P0 决策：不做库存与售罄态（空间场景默认不敏感），全部按 unlimited 返回；
+ * 库存：直接下发商品库 Product.stock（与扫码点餐绑定商品库的口径一致），
+ * C 端据此展示动态库存颜色；库存为 0 时由 C 端 mapper 判为售罄。
  * 两张表均无 sortOrder，统一按 id 升序（即录入顺序）。
  */
 @Injectable()
@@ -87,7 +121,38 @@ export class ClubSelfOrderingMenuService {
           description: true,
           image: true,
           price: true,
+          stock: true,
           updatedAt: true,
+          // 规格：非餐饮门店的规格同样挂在扫码菜单商品（幽灵宿主）上，与餐饮共用一张表
+          scanOrderingMenuProducts: {
+            where: { deletedAt: null },
+            orderBy: { id: 'asc' },
+            take: 1,
+            select: {
+              specGroups: {
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                select: {
+                  id: true,
+                  name: true,
+                  selectionType: true,
+                  minSelections: true,
+                  maxSelections: true,
+                  sortOrder: true,
+                  updatedAt: true,
+                  options: {
+                    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                    select: {
+                      id: true,
+                      name: true,
+                      extraPrice: true,
+                      isActive: true,
+                      updatedAt: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       }),
     ]);
@@ -101,10 +166,28 @@ export class ClubSelfOrderingMenuService {
       description: product.description,
       imageUrl: product.image,
       basePrice: product.price,
-      stockMode: 'unlimited',
-      stockQuantity: null,
+      stockMode: 'finite',
+      // 可用库存直接取商品库库存：非餐饮无「预留量」概念，等价于扫码点餐绑定商品库的可用库存
+      stockQuantity: product.stock,
       salesCount: 0,
-      specGroups: [],
+      specGroups: (product.scanOrderingMenuProducts?.[0]?.specGroups ?? []).map(
+        (group) => ({
+          id: group.id,
+          name: group.name,
+          selectionType:
+            group.selectionType === 'multiple' ? 'multiple' : 'single',
+          minSelections: group.minSelections,
+          maxSelections: group.maxSelections,
+          sortOrder: group.sortOrder,
+          options: group.options.map((option) => ({
+            id: option.id,
+            name: option.name,
+            extraPrice: option.extraPrice,
+            isActive: option.isActive,
+            stockQuantity: null,
+          })),
+        }),
+      ),
     });
 
     const categoryMap = new Map(categories.map((c) => [c.id, c]));
@@ -144,10 +227,36 @@ export class ClubSelfOrderingMenuService {
       });
     }
 
-    // menuVersion 取商品最大更新时间，前端据此做缓存失效判断
+    // menuVersion 取「商品 / 规格组 / 规格选项」的最大更新时间，前端据此做缓存失效判断。
+    // 规格变更不会改动商品 updatedAt，只取商品会表现为「改了规格不生效」；
+    // 额外计入组数与选项数，用于覆盖新增/删除（删除不留 updatedAt）。
+    let specGroupCount = 0;
+    let specOptionCount = 0;
+    let specMaxUpdatedAt = 0;
+    for (const product of products) {
+      for (const group of product.scanOrderingMenuProducts?.[0]?.specGroups ??
+        []) {
+        specGroupCount += 1;
+        specMaxUpdatedAt = Math.max(
+          specMaxUpdatedAt,
+          group.updatedAt.getTime(),
+        );
+        for (const option of group.options) {
+          specOptionCount += 1;
+          specMaxUpdatedAt = Math.max(
+            specMaxUpdatedAt,
+            option.updatedAt.getTime(),
+          );
+        }
+      }
+    }
+    const productMaxUpdatedAt =
+      products.length > 0
+        ? Math.max(...products.map((p) => p.updatedAt.getTime()))
+        : 0;
     const menuVersion =
       products.length > 0
-        ? `v${Math.max(...products.map((p) => p.updatedAt.getTime()))}`
+        ? `v${Math.max(productMaxUpdatedAt, specMaxUpdatedAt)}:${specGroupCount}:${specOptionCount}`
         : 'empty';
 
     return { menuVersion, categories: resultCategories };

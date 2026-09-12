@@ -22,6 +22,8 @@ describe('products.mapper', () => {
       image: 'https://example.com/coke.png',
       description: '冰镇口感更佳',
       isActive: true,
+      // 规格宿主（扫码菜单商品）；空数组 = 未配置规格、未上架扫码点餐
+      scanOrderingMenuProducts: [],
       createdAt,
       updatedAt: new Date('2026-05-23T10:05:00.000Z'),
       ...overrides,
@@ -46,6 +48,8 @@ describe('products.mapper', () => {
       image: 'https://example.com/coke.png',
       description: '冰镇口感更佳',
       isActive: true,
+      scanOrderingEnabled: false,
+      specGroups: [],
       createdAt: new Date('2026-05-23T10:00:00.000Z').getTime(),
       updatedAt: new Date('2026-05-23T10:05:00.000Z').getTime(),
     });
@@ -75,6 +79,8 @@ describe('products.mapper', () => {
       stock: 10,
       alertThreshold: 3,
       isActive: true,
+      scanOrderingEnabled: false,
+      specGroups: [],
       createdAt: new Date('2026-05-23T10:00:00.000Z').getTime(),
       updatedAt: new Date('2026-05-23T10:05:00.000Z').getTime(),
     });

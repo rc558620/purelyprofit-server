@@ -5,13 +5,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 const SYS_RENEW_DEDUCTION_ID = 'SYS_RENEW_DEDUCTION';
 const SYS_PREPAID_DEDUCTION_ID = 'SYS_PREPAID_DEDUCTION';
 const SYS_SELF_ORDER_DEDUCTION_ID = 'SYS_SELF_ORDER_DEDUCTION';
-
-/** 行来源：会员自助下单（已在线支付）。 */
-const SELF_ORDER_SOURCE_TYPE = 'member_self_order';
-
-/** 自助下单支付渠道中文标签（与前端详情弹窗口径一致）。 */
-export const selfOrderChannelLabel = (channel?: string | null): string =>
-  channel === 'wechat' ? '微信' : '余额';
+/** 台位费行：不占商品明细，改由「商品合计」下方单列汇总行呈现。 */
+const SYS_TIME_BILLING_ID = 'SYS_TIME_BILLING';
 
 /**
  * 抵扣类系统行：结账时以正数落库到会话明细表，
@@ -54,6 +49,8 @@ export interface SpacePrintItem {
   sourceType?: string | null;
   /** 行来源支付渠道：balance=储值余额 / wechat=微信支付（仅自助下单行有值）。 */
   sourceChannel?: string | null;
+  /** 规格名（如 ["大杯","热"]），无规格时不下发；打印时另起一行展示。 */
+  specNames?: string[] | null;
 }
 
 /** 空间消费小票打印数据（金额均由后端分转元计算，前端只读展示）。 */
@@ -77,7 +74,9 @@ export interface SpacePrintOrder {
   hourlyRate: number | null;
   /** 台位费金额（元）。 */
   timeCost: number;
-  /** 消费商品明细（含系统内置行：台位费/续费抵扣/预付抵扣）。 */
+  /** 台位费标签（固定 / 按单价 / 2小时30分钟），用于「商品合计」下方汇总行。 */
+  timeFeeLabel: string;
+  /** 消费商品明细（已剔除台位费与抵扣类系统行）。 */
   items: SpacePrintItem[];
   /** 商品费用合计（元）。 */
   itemsCost: number;
@@ -95,6 +94,27 @@ export interface SpacePrintOrder {
   operatorName: string | null;
 }
 
+/** 规格名快照 JSON → string[]；非数组或空数组视为无规格。 */
+const parseSpecNames = (value: unknown): string[] | null => {
+  if (!Array.isArray(value)) return null;
+  const names = value.filter(
+    (item): item is string => typeof item === 'string',
+  );
+  return names.length > 0 ? names : null;
+};
+
+/** 剥离商品名尾部的规格后缀「（规格1/规格2）」。 */
+const stripSpecSuffix = (name: string): string =>
+  (name ?? '').replace(/（[^）]*）\s*$/, '');
+
+/** 从台位费行商品名中提取标签：台位费（固定）→ 固定；台位费 2小时30分钟 → 2小时30分钟。 */
+const resolveTimeFeeLabel = (productName: string): string =>
+  (productName ?? '')
+    .replace(/^台位费\s*/, '')
+    .replace(/^[（(]/, '')
+    .replace(/[）)]$/, '')
+    .trim();
+
 /**
  * 空间消费小票打印数据服务：按结账生成的销售订单查询并归一为打印所需结构，
  * 供飞鹅云打印通道与 USB 打印通道共用（金额一律以后端落库为准）。
@@ -104,7 +124,10 @@ export class SpacePrintDataService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** 查询销售订单并归一为空间小票打印结构（含空间信息与抵扣明细）。 */
-  async loadOrder(storeId: number, saleOrderId: number): Promise<SpacePrintOrder> {
+  async loadOrder(
+    storeId: number,
+    saleOrderId: number,
+  ): Promise<SpacePrintOrder> {
     const saleOrder = await this.prisma.saleOrder.findFirst({
       where: { id: saleOrderId, storeId },
       include: {
@@ -119,7 +142,9 @@ export class SpacePrintDataService {
     if (!saleOrder) throw new NotFoundException('销售订单不存在');
     const session = saleOrder.spaceSession;
     if (!session) {
-      throw new NotFoundException('该销售订单不是空间结账订单，无法打印空间小票');
+      throw new NotFoundException(
+        '该销售订单不是空间结账订单，无法打印空间小票',
+      );
     }
 
     const toYuan = (fen: number): number => fen / 100;
@@ -129,6 +154,13 @@ export class SpacePrintDataService {
         .reduce((sum, item) => sum + item.salePrice * item.quantity, 0);
 
     const endTime = session.endTime ?? saleOrder.createdAt;
+    // 台位费标签：从台位费行商品名提取（固定 / 按单价 / 2小时30分钟）
+    const timeFeeItem = session.sessionItems.find(
+      (item) => item.productId === SYS_TIME_BILLING_ID,
+    );
+    const timeFeeLabel = timeFeeItem
+      ? resolveTimeFeeLabel(timeFeeItem.productName)
+      : '';
     return {
       orderNo: saleOrder.orderNo,
       spaceName: session.space.name,
@@ -143,25 +175,34 @@ export class SpacePrintDataService {
       hourlyRate:
         session.hourlyRate == null ? null : toYuan(session.hourlyRate),
       timeCost: toYuan(session.timeCost ?? 0),
+      timeFeeLabel,
       items: session.sessionItems
-        .filter((item) => !DEDUCTION_PRODUCT_IDS.has(item.productId))
-        .map((item) => ({
-          name: item.productName,
-          quantity: item.quantity,
-          unitPrice: toYuan(item.salePrice),
-          subtotal: toYuan(item.salePrice * item.quantity),
-          sourceType: item.sourceType,
-          sourceChannel: item.sourceChannel,
-        })),
+        .filter(
+          (item) =>
+            !DEDUCTION_PRODUCT_IDS.has(item.productId) &&
+            item.productId !== SYS_TIME_BILLING_ID,
+        )
+        .map((item) => {
+          const specNames = parseSpecNames(item.specNames);
+          return {
+            // 规格另起一行展示（对齐餐饮扫码点餐小票口径），故从商品名剥离后缀避免重复
+            name: specNames ? stripSpecSuffix(item.productName) : item.productName,
+            quantity: item.quantity,
+            unitPrice: toYuan(item.salePrice),
+            subtotal: toYuan(item.salePrice * item.quantity),
+            sourceType: item.sourceType,
+            sourceChannel: item.sourceChannel,
+            ...(specNames ? { specNames } : {}),
+          };
+        }),
       itemsCost: toYuan(session.itemsCost),
       renewDeduction: toYuan(deductionOf(SYS_RENEW_DEDUCTION_ID)),
       prepaidDeduction: toYuan(deductionOf(SYS_PREPAID_DEDUCTION_ID)),
-      selfOrderDeduction: toYuan(
-        deductionOf(SYS_SELF_ORDER_DEDUCTION_ID),
-      ),
+      selfOrderDeduction: toYuan(deductionOf(SYS_SELF_ORDER_DEDUCTION_ID)),
       totalAmount: toYuan(saleOrder.totalRevenue),
       paymentMethodLabel:
-        PAYMENT_METHOD_LABEL[saleOrder.paymentMethod] ?? saleOrder.paymentMethod,
+        PAYMENT_METHOD_LABEL[saleOrder.paymentMethod] ??
+        saleOrder.paymentMethod,
       note: saleOrder.note,
       operatorName: saleOrder.operatorNameSnapshot,
     };

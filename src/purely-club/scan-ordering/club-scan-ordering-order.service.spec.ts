@@ -6,6 +6,7 @@ import { ClubScanOrderingOrderHistoryService } from './club-scan-ordering-order-
 import { ClubScanOrderingOrderQueryService } from './club-scan-ordering-order-query.service';
 import { ClubScanOrderingOrderPreviewService } from './club-scan-ordering-order-preview.service';
 import { ClubScanOrderingOrderService } from './club-scan-ordering-order.service';
+import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ScanOrderingPricingVersionService } from './scan-ordering-pricing-version.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingUnpaidOrderClosureService } from './scan-ordering-unpaid-order-closure.service';
@@ -36,6 +37,10 @@ describe('ClubScanOrderingOrderService', () => {
         },
         ClubScanOrderingOrderQueryService,
         ClubScanOrderingOrderHistoryService,
+        {
+          provide: ClubCurrentStoreContextService,
+          useValue: { getCurrentStore: jest.fn().mockResolvedValue({ id: 2 }) },
+        },
         ClubScanOrderingOrderPreviewService,
         {
           provide: ScanOrderingPickupNumberService,

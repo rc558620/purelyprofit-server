@@ -59,12 +59,13 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
     tx.spaceSession.update.mockResolvedValue({});
     tx.spaceSession.findUnique.mockResolvedValue({ storeId: 7 });
     // 可乐库存 10、薯片库存 1（后者用于覆盖库存不足场景）
-    tx.product.findFirst.mockImplementation(({ where }: { where: { id: number } }) =>
-      Promise.resolve(
-        where.id === 101
-          ? { id: 101, name: '可口可乐', stock: 10 }
-          : { id: 201, name: '乐事薯片', stock: 1 },
-      ),
+    tx.product.findFirst.mockImplementation(
+      ({ where }: { where: { id: number } }) =>
+        Promise.resolve(
+          where.id === 101
+            ? { id: 101, name: '可口可乐', stock: 10 }
+            : { id: 201, name: '乐事薯片', stock: 1 },
+        ),
     );
     tx.product.update.mockResolvedValue({});
     tx.inventoryAdjustmentLog.create.mockResolvedValue({});
@@ -109,6 +110,50 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
     });
   });
 
+  it('规格行写入 specSignature / specNames，无规格行保持 null', async () => {
+    await service.appendPaidItemsToSession(tx as never, {
+      sessionId: 42,
+      orderNo: 'SF-2',
+      sourceChannel: 'wechat',
+      items: [
+        {
+          id: 21,
+          productId: '101',
+          productName: '可口可乐（大杯）',
+          categoryName: '酒水饮料',
+          salePrice: 1000,
+          costPrice: 300,
+          quantity: 1,
+          specSignature: 'sig-11',
+          specNames: ['大杯'],
+        },
+        {
+          id: 22,
+          productId: '201',
+          productName: '乐事薯片',
+          categoryName: '零食小吃',
+          salePrice: 1000,
+          costPrice: 600,
+          quantity: 1,
+        },
+      ],
+    });
+
+    const { data } = tx.spaceSessionItem.createMany.mock.calls[0][0] as {
+      data: Array<Record<string, unknown>>;
+    };
+    // 规格加价等额计入利润：1000 - 300 = 700
+    expect(data[0]).toEqual(
+      expect.objectContaining({
+        specSignature: 'sig-11',
+        specNames: ['大杯'],
+        profit: 700,
+      }),
+    );
+    expect(data[1]).toEqual(expect.objectContaining({ specSignature: null }));
+    expect(data[1].specNames).toBeUndefined();
+  });
+
   it('首次录入：按售价 × 数量累加会话 itemsCost', async () => {
     await append();
 
@@ -135,25 +180,26 @@ describe('ClubSelfOrderingSessionBridgeService', () => {
     expect(tx.inventoryAdjustmentLog.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-        storeId: 7,
-        productId: 101,
-        beforeStock: 10,
-        afterStock: 8,
-        delta: -2,
-        adjustType: 'sale',
-        note: '会员自助下单',
+          storeId: 7,
+          productId: 101,
+          beforeStock: 10,
+          afterStock: 8,
+          delta: -2,
+          adjustType: 'sale',
+          note: '会员自助下单',
         }),
       }),
     );
   });
 
   it('库存不足时扣至 0 且不阻断入账（支付已发生，不能回滚落账）', async () => {
-    tx.product.findFirst.mockImplementation(({ where }: { where: { id: number } }) =>
-      Promise.resolve(
-        where.id === 101
-          ? { id: 101, name: '可口可乐', stock: 1 }
-          : { id: 201, name: '乐事薯片', stock: 0 },
-      ),
+    tx.product.findFirst.mockImplementation(
+      ({ where }: { where: { id: number } }) =>
+        Promise.resolve(
+          where.id === 101
+            ? { id: 101, name: '可口可乐', stock: 1 }
+            : { id: 201, name: '乐事薯片', stock: 0 },
+        ),
     );
 
     await expect(append()).resolves.toBeUndefined();

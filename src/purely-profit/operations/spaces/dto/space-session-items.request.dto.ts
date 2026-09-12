@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -51,6 +51,18 @@ export class SpaceSessionItemDto {
   @IsInt({ message: '数量必须是整数' })
   @Min(1, { message: '数量必须大于等于 1' })
   quantity: number;
+
+  @ApiPropertyOptional({
+    type: [Number],
+    example: [11, 21],
+    description:
+      '已选规格选项 ID；不传或空数组表示无规格。服务端据此重算单价，前端传的 salePrice 仅作兜底',
+  })
+  @IsOptional()
+  @IsArray({ message: '规格选项必须是数组' })
+  @IsInt({ each: true, message: '规格选项 ID 必须是整数' })
+  @Type(() => Number)
+  specOptionIds?: number[];
 }
 
 export class AddSpaceSessionItemsDto {

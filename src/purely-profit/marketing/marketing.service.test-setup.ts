@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 // 邀请二维码由 qrcode 库本地生成 PNG，测试中 mock 掉以稳定速度与输出
 jest.mock('qrcode', () => ({
-  toDataURL: jest.fn(async () => 'data:image/png;base64,QR_IMAGE'),
+  toDataURL: jest.fn(() => 'data:image/png;base64,QR_IMAGE'),
 }));
 import { ClubMemberLevelsService } from '../../purely-club/member/member-levels/club-member-levels.service';
 import { ClubMemberProfileService } from '../../purely-club/member/member-profile/club-member-profile.service';

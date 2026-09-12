@@ -794,13 +794,31 @@ model SelfOrderItem {
   /// 成本单价快照（分）；录入 SpaceSessionItem 时用于计算 profit
   costPrice    Int      @default(0) @map("cost_price")
   quantity     Int      @map("quantity")
+  /// 规格签名（选项 ID 升序 sha256）；无规格时为 null
+  /// 合并键与幂等指纹的一部分：同商品不同规格必须生成不同订单行
+  specSignature String? @map("spec_signature") @db.Char(64)
   createdAt    DateTime @default(now()) @map("created_at")
+  specs        SelfOrderItemSpec[]
 
   order SelfOrder @relation(fields: [orderId], references: [id])
 
   @@index([orderId])
   @@index([productId])
   @@map("self_order_items")
+}
+
+/// 自助下单订单行的规格快照（照抄 ScanOrderItemSpec）：
+/// 规格选项 ID 会被物理重建，必须落快照才能支撑退款与对账追溯
+model SelfOrderItemSpec {
+  id                     Int           @id @default(autoincrement()) @map("id")
+  orderItemId            Int           @map("order_item_id")
+  specOptionId           Int           @map("spec_option_id")
+  specOptionNameSnapshot String        @map("spec_option_name_snapshot")
+  extraPriceSnapshot     Int           @map("extra_price_snapshot")
+  orderItem              SelfOrderItem @relation(fields: [orderItemId], references: [id])
+
+  @@index([orderItemId, id])
+  @@map("self_order_item_specs")
 }
 
 /// 自助下单支付尝试：微信侧防重 + 幂等落账

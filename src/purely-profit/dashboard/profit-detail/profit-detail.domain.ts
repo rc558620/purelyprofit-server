@@ -26,8 +26,14 @@ export function createEmptySalesAggregation(): SalesAggregationResult {
   };
 }
 
+/**
+ * 台位费行命名：兼容「台位费（固定）/ 台位费（按单价）」与
+ * 「台位费 2小时30分钟」（计时模式已去掉括号）两种形式。
+ */
+const TABLE_FEE_NAME_RE = /^台位费(（|\s|$)/;
+
 function shouldPrefixProfitSpaceName(productName: string): boolean {
-  return productName.startsWith('台位费（');
+  return TABLE_FEE_NAME_RE.test(productName);
 }
 
 function resolveProfitProductName(row: SaleOrderItemRow): string {

@@ -6,6 +6,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
 import { ClubServiceCallModule } from '../service-call/club-service-call.module';
 import { ClubOrdersModule } from '../orders/club-orders.module';
+import { ClubStoresModule } from '../stores/club-stores.module';
 import { RedisModule } from '../../redis/redis.module';
 import { ClubScanOrderingController } from './club-scan-ordering.controller';
 import { ClubScanOrderingService } from './club-scan-ordering.service';
@@ -41,6 +42,7 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
     ClubWechatPayModule,
     ClubServiceCallModule,
     ClubOrdersModule,
+    ClubStoresModule,
   ],
   controllers: [ClubScanOrderingController],
   providers: [

@@ -9,6 +9,7 @@ import type {
   PlatformMembershipPointsLogsResponseDto,
 } from '../../purely-profit/member/platform-membership/dto/platform-membership-response.dto';
 import { PlatformMembershipService } from '../../purely-profit/member/platform-membership/platform-membership.service';
+import { buildMembershipCapabilities } from '../../purely-profit/member/platform-membership/platform-membership-access.shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PulseStoreContextService } from '../pulse-store-context.service';
 import { PulseMembershipAccessService } from './membership-access.service';
@@ -120,6 +121,8 @@ export class PulseMembershipLedgerService {
         inviteCode: 'PULSE',
         totalPoints,
         availablePoints,
+        // 开发者聚合视图无生效套餐，按免费档下发能力矩阵
+        capabilities: buildMembershipCapabilities('free'),
       },
       overview: buildPointsOverview(availablePoints, logs),
       items: logs.map((log) => this.mapDeveloperPointsLog(log)),

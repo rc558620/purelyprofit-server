@@ -58,6 +58,7 @@ export class AuthMembershipResolverService {
       INNER JOIN stores s ON s.id = st.store_id
       WHERE st.id = ${user.currentMembership.staffId}
         AND st.store_id = ${user.currentMembership.storeId}
+        AND s.deleted_at IS NULL
       LIMIT 1
     `;
 

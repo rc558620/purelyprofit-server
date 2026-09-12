@@ -14,15 +14,36 @@ export const MEMBERSHIP_ACCESS_MESSAGES = {
     '[membership-access] store_membership_profiles.sub_account_quota schema not ready, deny request to avoid stale membership capability fallback',
 } as const;
 
-export function buildProductQuotaExceededMessage(limit: number): string {
+/**
+ * 存量超额（会员降级后已有数据条数已超过当前套餐上限）时的说明文案。
+ *
+ * 与「刚好达到上限」区分开：此时用户并没有做错什么，只是历史存量超标，
+ * 文案需要解释清楚「已有数据不会丢失，续费/升级后可继续新增」。
+ */
+const buildOverQuotaMessage = (resource: string, limit: number, currentCount: number): string =>
+  `当前已有 ${currentCount} 个${resource}，已超出当前会员套餐 ${limit} 个的上限；已录入的${resource}可正常使用，续费或升级会员后可继续新增`;
+
+export function buildProductQuotaExceededMessage(limit: number, currentCount: number): string {
+  if (currentCount > limit) {
+    return buildOverQuotaMessage('商品', limit, currentCount);
+  }
+
   return `当前会员套餐最多可录入 ${limit} 个商品，请升级会员后继续添加`;
 }
 
-export function buildEmployeeQuotaExceededMessage(limit: number): string {
+export function buildEmployeeQuotaExceededMessage(limit: number, currentCount: number): string {
+  if (currentCount > limit) {
+    return buildOverQuotaMessage('在职员工', limit, currentCount);
+  }
+
   return `当前会员套餐最多可管理 ${limit} 名在职员工，请升级会员后继续添加`;
 }
 
-export function buildSpaceQuotaExceededMessage(limit: number): string {
+export function buildSpaceQuotaExceededMessage(limit: number, currentCount: number): string {
+  if (currentCount > limit) {
+    return buildOverQuotaMessage('空间', limit, currentCount);
+  }
+
   return `当前会员套餐最多可创建 ${limit} 个空间，请升级会员后继续添加`;
 }
 

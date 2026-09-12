@@ -204,20 +204,27 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     // 执行计划说明：
     // - INSERT 单行，无复杂查询，性能无风险
     // - marketing_points_records 无唯一约束冲突风险（每次 INSERT 新行）
+    //
+    // ⚠️ created_at 必须显式写 `NOW() AT TIME ZONE 'UTC'`：
+    // 该列是 TIMESTAMP WITHOUT TIME ZONE，缺省值 CURRENT_TIMESTAMP 取数据库会话时区
+    // （部署环境 Asia/Shanghai）的墙钟，而 Prisma/驱动按 UTC 解释 naive 值，
+    // 会导致流水时间比实际快 8 小时（C 端积分记录页显示错乱）。
     await tx.$executeRaw`
       INSERT INTO marketing_points_records (
         store_id,
         customer_id,
         amount,
         type,
-        description
+        description,
+        created_at
       )
       VALUES (
         ${draft.storeId},
         ${customerId},
         ${earnedPoints},
         ${'gift'}::"MarketingPointsChangeType",
-        ${`充值赠送积分（${pointsPromotion.name}）`}
+        ${`充值赠送积分（${pointsPromotion.name}）`},
+        NOW() AT TIME ZONE 'UTC'
       )
     `;
   }

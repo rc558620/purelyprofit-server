@@ -197,20 +197,25 @@ export class MarketingConsumptionsService {
         }
 
         if (pointsToDeduct > 0) {
+          // ⚠️ created_at 显式写 `NOW() AT TIME ZONE 'UTC'`：该列是 TIMESTAMP WITHOUT
+          // TIME ZONE，缺省值 CURRENT_TIMESTAMP 取数据库会话时区的墙钟，而 Prisma/驱动
+          // 按 UTC 解释 naive 值，会让流水时间比实际快 8 小时。
           await tx.$executeRaw`
           INSERT INTO marketing_points_records (
             store_id,
             customer_id,
             amount,
             type,
-            description
+            description,
+            created_at
           )
           VALUES (
             ${storeId},
             ${dto.customerId},
             ${-pointsToDeduct},
             ${'spend'}::"MarketingPointsChangeType",
-            ${buildPointsSpendDescription(dto.itemsSummary)}
+            ${buildPointsSpendDescription(dto.itemsSummary)},
+            NOW() AT TIME ZONE 'UTC'
           )
         `;
         }

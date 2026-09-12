@@ -179,6 +179,11 @@ model SpaceSessionItem {
   sourceOrderNo String?     @map("source_order_no") @db.VarChar(64)
   /// 来源订单行 ID，用于精确追溯
   sourceOrderItemId Int?    @map("source_order_item_id")
+  /// 规格签名（选项 ID 升序 sha256）；无规格时为 null
+  /// 合并键的一部分：同商品不同规格必须分行，不允许被静默合并
+  specSignature    String?  @map("spec_signature") @db.Char(64)
+  /// 规格名快照（如 ["大杯","热"]）；无规格时为 null
+  specNames        Json?    @map("spec_names")
   createdAt    DateTime     @default(now()) @map("created_at")
   session      SpaceSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
