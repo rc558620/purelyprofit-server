@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MembershipDowngradeService } from './membership-downgrade.service';
 import { PlatformMembershipAccessService } from './platform-membership-access.service';
 
 /**
@@ -12,7 +13,7 @@ import { PlatformMembershipAccessService } from './platform-membership-access.se
  *   PlatformMembershipModule → AuthModule + PlatformMembershipAccessModule（单向）
  */
 @Module({
-  providers: [PlatformMembershipAccessService],
-  exports: [PlatformMembershipAccessService],
+  providers: [PlatformMembershipAccessService, MembershipDowngradeService],
+  exports: [PlatformMembershipAccessService, MembershipDowngradeService],
 })
 export class PlatformMembershipAccessModule {}

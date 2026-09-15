@@ -44,3 +44,11 @@ export const SALES_CALC_MODE_VALUES = [
   'profit',
   'business',
 ] as const satisfies readonly SalesCalcModeValue[];
+
+/** 录单来源；会员过期后对 additional / manual_entry 施加不同限制 */
+export type SalesRecordSourceValue = 'additional' | 'manual_entry';
+
+export const SALES_RECORD_SOURCE_VALUES = [
+  'additional',
+  'manual_entry',
+] as const satisfies readonly SalesRecordSourceValue[];

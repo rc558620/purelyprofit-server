@@ -7,6 +7,10 @@ import { buildOrderNo } from './club-order-drafts.utils';
 import { resolvePointsDeduction } from './club-order-points.utils';
 import { ClubOrderPromotionsService } from './club-order-promotions.service';
 import { ClubOrderServiceContextService } from './club-order-service-context.service';
+import {
+  MembershipDowngradeService,
+  MEMBER_ZONE_ORDER_BLOCKED_MESSAGE,
+} from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 import type {
   ClubServiceOrderResponseDto,
   CreateClubServiceOrderDto,
@@ -20,12 +24,19 @@ export class ClubOrderServiceCreationService {
     private readonly clubOrderPromotionsService: ClubOrderPromotionsService,
     private readonly clubOrderServiceContextService: ClubOrderServiceContextService,
     private readonly clubWechatJsapiService: ClubWechatJsapiService,
+    private readonly downgradeService: MembershipDowngradeService,
   ) {}
 
   async createServiceOrder(
     currentContext: ClubCurrentContext,
     dto: CreateClubServiceOrderDto,
   ): Promise<ClubServiceOrderResponseDto> {
+    // 会员过期门店停止会员专区的服务购买（无"在途"概念，一律拦截）
+    await this.downgradeService.assertStoreCanOrder(
+      currentContext.store.id,
+      MEMBER_ZONE_ORDER_BLOCKED_MESSAGE,
+    );
+
     const context =
       await this.clubOrderServiceContextService.resolveCreateServiceOrderContext(
         currentContext,

@@ -18,6 +18,7 @@ import { ClubMarketingPreviewService } from './club-marketing-preview.service';
 import { ClubOrderPreviewBreakdownService } from './club-order-preview-breakdown.service';
 import { ClubOrdersService } from './club-orders.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
+import { PlatformMembershipAccessModule } from '../../purely-profit/member/platform-membership/platform-membership-access.module';
 
 @Module({
   imports: [
@@ -26,6 +27,8 @@ import { ClubPromotionRepository } from '../shared/club-promotion.repository';
     ClubStoresModule,
     ClubMemberModule,
     ClubWechatPayModule,
+    // 会员过期门店需拦截会员专区服务购买，依赖该模块提供的 MembershipDowngradeService
+    PlatformMembershipAccessModule,
   ],
   controllers: [ClubOrdersController],
   providers: [

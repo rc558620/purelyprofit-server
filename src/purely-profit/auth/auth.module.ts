@@ -7,6 +7,7 @@ import { StoreBusinessCapabilityModule } from '../stores/store-business-capabili
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthProfitAccountLookupService } from './auth-profit-account-lookup.service';
 import { AuthBanGuardService } from './auth-ban-guard.service';
+import { AuthMembershipLoginGuardService } from './auth-membership-login-guard.service';
 import { AuthMembershipResolverService } from './auth-membership-resolver.service';
 import { AuthMembershipQueryService } from './auth-membership-query.service';
 import { AuthLegacyOwnerRepairService } from './auth-legacy-owner-repair.service';
@@ -63,6 +64,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     AuthAccountLookupService,
     AuthProfitAccountLookupService,
     AuthBanGuardService,
+    AuthMembershipLoginGuardService,
     AuthMembershipResolverService,
     AuthMembershipQueryService,
     AuthLegacyOwnerRepairService,

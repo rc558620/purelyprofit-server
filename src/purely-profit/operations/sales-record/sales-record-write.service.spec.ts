@@ -10,6 +10,7 @@ import { HandoverPageShiftRecordService } from '../handover/handover-page-shift-
 import { SalesRecordCreateFlowService } from './sales-record-create-flow.service';
 import { SalesRecordItemPreparationService } from './sales-record-item-preparation.service';
 import { SalesRecordWriteService } from './sales-record-write.service';
+import { MembershipDowngradeService } from '../../member/platform-membership/membership-downgrade.service';
 
 describe('SalesRecordWriteService', () => {
   let service: SalesRecordWriteService;
@@ -67,6 +68,13 @@ describe('SalesRecordWriteService', () => {
 
   const salesRecordCreateFlowService = {
     createRecord: jest.fn(),
+  };
+
+  // 默认「未过期」，不施加任何降级限制；需要验证拦截的用例自行覆盖
+  const downgradeService = {
+    assertAdditionalEnabled: jest.fn().mockResolvedValue(undefined),
+    assertManualEntryQuota: jest.fn().mockResolvedValue(0),
+    incrementManualEntryCount: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -164,6 +172,7 @@ describe('SalesRecordWriteService', () => {
           provide: SalesRecordCreateFlowService,
           useValue: salesRecordCreateFlowService,
         },
+        { provide: MembershipDowngradeService, useValue: downgradeService },
       ],
     }).compile();
 

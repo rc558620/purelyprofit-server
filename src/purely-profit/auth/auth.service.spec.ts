@@ -17,6 +17,9 @@ import { AUTH_TOKEN_VERSION_KEY_PREFIX } from './auth.constants';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthProfitAccountLookupService } from './auth-profit-account-lookup.service';
 import { AuthBanGuardService } from './auth-ban-guard.service';
+import { AuthLegacyOwnerRepairService } from './auth-legacy-owner-repair.service';
+import { AuthMembershipLoginGuardService } from './auth-membership-login-guard.service';
+import { AuthMembershipQueryService } from './auth-membership-query.service';
 import { AuthMembershipResolverService } from './auth-membership-resolver.service';
 import { AuthStaffActivationService } from './auth-staff-activation.service';
 import { AuthAccountService } from './auth-account.service';
@@ -164,6 +167,8 @@ describe('AuthService', () => {
         AuthProfitAccountLookupService,
         AuthBanGuardService,
         AuthMembershipResolverService,
+        AuthMembershipQueryService,
+        AuthLegacyOwnerRepairService,
         AuthStaffActivationService,
         AuthAuthenticationService,
         AuthCodeService,
@@ -206,6 +211,12 @@ describe('AuthService', () => {
         {
           provide: AuditLogService,
           useValue: { record: jest.fn(), recordAwaitable: jest.fn() },
+        },
+        // 会员到期拦截不属于本套用例的关注点，打桩放行，避免把
+        // MembershipDowngradeService 的查询链路牵进登录用例
+        {
+          provide: AuthMembershipLoginGuardService,
+          useValue: { ensureSubAccountLoginAllowed: jest.fn() },
         },
       ],
     }).compile();

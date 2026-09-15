@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../../purely-profit/auth/auth.module';
 import { CommerceModule } from '../../purely-profit/commerce/commerce.module';
+import { PlatformMembershipAccessModule } from '../../purely-profit/member/platform-membership/platform-membership-access.module';
 import { SalesRecordModule } from '../../purely-profit/operations/sales-record/sales-record.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ClubWechatPayModule } from '../payments/club-wechat-pay.module';
@@ -36,6 +37,8 @@ import { ClubScanOrderingInventoryReservationService } from './club-scan-orderin
   imports: [
     AuthModule,
     CommerceModule,
+    // 会员过期门店需在 C 端拦截新下单，依赖该模块提供的 MembershipDowngradeService
+    PlatformMembershipAccessModule,
     SalesRecordModule,
     PrismaModule,
     RedisModule,

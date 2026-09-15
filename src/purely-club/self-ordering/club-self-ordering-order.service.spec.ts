@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClubCurrentStoreContextService } from '../stores/club-current-store-context.service';
 import { ClubSelfOrderingOrderService } from './club-self-ordering-order.service';
 import { ProductSpecPricingService } from '../../purely-profit/goods/products/product-spec-pricing.service';
+import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 
 /**
  * 自助下单建单测试：
@@ -60,6 +61,11 @@ describe('ClubSelfOrderingOrderService', () => {
       [{ data: { items: { create: CreatedItem[] } } }]
     >;
     return calls[calls.length - 1][0].data.items.create;
+  };
+
+  /** 会员降级门禁桩：默认未过期，放行全部自助下单 */
+  const downgradeService = {
+    assertStoreCanOrder: jest.fn().mockResolvedValue(undefined),
   };
 
   /**
@@ -155,6 +161,8 @@ describe('ClubSelfOrderingOrderService', () => {
           useValue: currentStoreContext,
         },
         { provide: ProductSpecPricingService, useValue: specPricing },
+        // 默认「未过期」，不拦截自助下单；需要验证拦截的用例自行覆盖
+        { provide: MembershipDowngradeService, useValue: downgradeService },
       ],
     }).compile();
     service = module.get<ClubSelfOrderingOrderService>(

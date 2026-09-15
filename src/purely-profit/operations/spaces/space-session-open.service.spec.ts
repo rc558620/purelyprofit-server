@@ -5,6 +5,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisLockService } from '../../../redis/redis-lock.service';
 import { ScanOrderingRealtimeService } from '../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { CommissionCoreService } from '../commission/commission-core.service';
+import { MembershipDowngradeService } from '../../member/platform-membership/membership-downgrade.service';
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import { SpaceSessionOpenService } from './space-session-open.service';
 import { aNonNegativeNumber } from '../../../spec-matchers';
@@ -62,6 +63,11 @@ describe('SpaceSessionOpenService', () => {
 
   const realtimeService = {
     publishVoucherOrderStatusChanged: jest.fn(),
+  };
+
+  // 默认「未过期」，不限制同时开台数；需要验证拦截的用例自行覆盖
+  const downgradeService = {
+    assertSpaceCanOpen: jest.fn().mockResolvedValue(undefined),
   };
 
   const commissionCoreService = {
@@ -146,6 +152,7 @@ describe('SpaceSessionOpenService', () => {
           provide: CommissionCoreService,
           useValue: commissionCoreService,
         },
+        { provide: MembershipDowngradeService, useValue: downgradeService },
       ],
     }).compile();
 

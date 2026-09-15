@@ -18,6 +18,10 @@ import {
   hashSelfOrderRequest,
 } from './club-self-ordering.utils';
 import { ProductSpecPricingService } from '../../purely-profit/goods/products/product-spec-pricing.service';
+import {
+  MembershipDowngradeService,
+  SELF_ORDER_BLOCKED_MESSAGE,
+} from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 
 /** 订单行合并键：同商品 + 同规格选项组合视为同一行（specOptionIds 已去重升序） */
 const buildSelfOrderLineKey = (
@@ -70,6 +74,7 @@ export class ClubSelfOrderingOrderService {
     private readonly prisma: PrismaService,
     private readonly currentStoreContextService: ClubCurrentStoreContextService,
     private readonly specPricing: ProductSpecPricingService,
+    private readonly downgradeService: MembershipDowngradeService,
   ) {}
 
   async create(
@@ -122,11 +127,18 @@ export class ClubSelfOrderingOrderService {
     // 会话必须 active 且属于当前门店：杜绝把订单挂到别家门店或已结账的会话
     const session = await this.prisma.spaceSession.findFirst({
       where: { id: dto.sessionId, storeId, status: 'active' },
-      select: { id: true, spaceId: true },
+      select: { id: true, spaceId: true, createdAt: true },
     });
     if (!session) {
       throw new ForbiddenException('当前空间会话不可用，请重新扫码');
     }
+
+    // 会员过期门店停止新的下单流程；到期之前已开台的会话允许继续下单
+    await this.downgradeService.assertStoreCanOrder(
+      storeId,
+      SELF_ORDER_BLOCKED_MESSAGE,
+      session.createdAt,
+    );
 
     const priced = await this.priceItems(storeId, dto.items);
     const orderNo = createSelfOrderNo();

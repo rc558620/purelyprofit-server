@@ -23,6 +23,7 @@ import { ClubOrderServiceQueryService } from './club-order-service-query.service
 import { ClubOrderSettlementService } from './club-order-settlement.service';
 import { ClubOrdersService } from './club-orders.service';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
+import { MembershipDowngradeService } from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 import { ClubPaymentLockService } from '../payments/club-payment-lock.service';
 import { ClubPromotionRepository } from '../shared/club-promotion.repository';
 
@@ -97,6 +98,11 @@ describe('ClubOrdersService', () => {
 
   const clubWechatJsapiService = {
     createJsapiPaymentParams: jest.fn(),
+  };
+
+  // 默认「未过期」，不拦截会员专区购买；需要验证拦截的用例自行覆盖
+  const downgradeService = {
+    assertStoreCanOrder: jest.fn().mockResolvedValue(undefined),
   };
 
   const clubPaymentLockService = {
@@ -252,6 +258,7 @@ describe('ClubOrdersService', () => {
         { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
         { provide: ClubWechatJsapiService, useValue: clubWechatJsapiService },
         { provide: ClubPaymentLockService, useValue: clubPaymentLockService },
+        { provide: MembershipDowngradeService, useValue: downgradeService },
         {
           provide: ClubPromotionRepository,
           useValue: clubPromotionRepository,

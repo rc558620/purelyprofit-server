@@ -13,6 +13,7 @@ import { ClubSelfOrderingSessionBridgeService } from './club-self-ordering-sessi
 import { ClubSelfOrderingService } from './club-self-ordering.service';
 import { ClubSelfOrderingMenuService } from './club-self-ordering-menu.service';
 import { ProductsModule } from '../../purely-profit/goods/products/products.module';
+import { PlatformMembershipAccessModule } from '../../purely-profit/member/platform-membership/platform-membership-access.module';
 
 @Module({
   imports: [
@@ -20,6 +21,8 @@ import { ProductsModule } from '../../purely-profit/goods/products/products.modu
     PrismaModule,
     RedisModule,
     ClubStoresModule,
+    // 会员过期门店需在 C 端拦截新下单，依赖该模块提供的 MembershipDowngradeService
+    PlatformMembershipAccessModule,
     // 自助下单的商品规格校验与权威定价
     ProductsModule,
     // 复用微信 JSAPI 下单能力（该模块只依赖 StoresModule，无循环依赖）

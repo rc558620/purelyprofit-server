@@ -27,6 +27,8 @@ import {
   type SalesCalcModeValue,
   type SalesPaymentMethodValue,
   type SalesRecordPeriodValue,
+  type SalesRecordSourceValue,
+  SALES_RECORD_SOURCE_VALUES,
 } from '../sales-record.types';
 
 export class SalesRecordItemInputDto {
@@ -189,6 +191,25 @@ export class CreateSalesRecordDto {
   @IsNumber({}, { message: '平台手续费必须是数字' })
   @Min(0, { message: '平台手续费不能为负数' })
   platformFee?: number;
+
+  /**
+   * 录单来源，用于会员过期后的差异化限制。
+   *
+   * 追加点单与手动录单共用同一个「新增销售记录」接口，后端无法自行区分，
+   * 因此需要调用方显式声明：
+   * - `additional`：追加点单记账，过期账号禁用；
+   * - `manual_entry`：手动录单，过期账号每日限额。
+   *
+   * 不传时不做任何过期限制，保证老版本前端与空间结账等其他来源不受影响。
+   */
+  @ApiPropertyOptional({
+    enum: SALES_RECORD_SOURCE_VALUES,
+    example: 'additional',
+    description: '录单来源；不传则不施加会员过期限制',
+  })
+  @IsOptional()
+  @IsIn(SALES_RECORD_SOURCE_VALUES, { message: '录单来源不合法' })
+  source?: SalesRecordSourceValue;
 }
 
 export class ListSalesRecordsQueryDto extends PaginationQueryDto {

@@ -43,6 +43,7 @@ import { PulseOnboardingModule } from './purely-pulse/onboarding/onboarding.modu
 import { PulseMembershipModule } from './purely-pulse/membership/membership.module';
 import { PulseMembershipSettingsModule } from './purely-pulse/membership-settings/membership-settings.module';
 import { PulseDashboardModule } from './purely-pulse/dashboard/dashboard.module';
+import { BusinessEventsModule } from './purely-profit/business-events/business-events.module';
 import { ClientErrorsModule } from './purely-profit/client-errors/client-errors.module';
 import { PulseGrowthModule } from './purely-pulse/growth/growth.module';
 import { PulseAuthModule } from './purely-pulse/auth/pulse-auth.module';
@@ -131,6 +132,7 @@ import { UploadModule } from './shared/upload.module';
     HandoverModule,
     VoucherOrdersModule,
     NotificationsModule,
+    BusinessEventsModule,
     ClientErrorsModule,
     PulseSessionModule,
     PulseOnboardingModule,

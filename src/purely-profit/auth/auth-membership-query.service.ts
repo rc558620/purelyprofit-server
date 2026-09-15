@@ -43,7 +43,7 @@ export class AuthMembershipQueryService {
       );
     }
 
-    const rows = await this.queryMembershipRowsFromDb(payload, userEmail);
+    const rows = await this.queryMembershipRowsFromDb(payload.sub);
 
     // 异步回填缓存，TTL 2 分钟
     this.redisService
@@ -58,9 +58,20 @@ export class AuthMembershipQueryService {
     return rows;
   }
 
+  /**
+   * 按用户 ID 查询会员上下文行（不走缓存）。
+   *
+   * 登录前置校验需要「此刻」的身份快照：缓存里可能仍留着子账号关联被吊销
+   * 之前的数据，据此放行会绕过登录拦截。
+   */
+  async findMembershipRowsByUserId(
+    userId: number,
+  ): Promise<AuthMembershipContextRow[]> {
+    return this.queryMembershipRowsFromDb(userId);
+  }
+
   private async queryMembershipRowsFromDb(
-    payload: JwtPayload,
-    _userEmail: string,
+    userId: number,
   ): Promise<AuthMembershipContextRow[]> {
     try {
       return await this.prisma.$queryRaw<AuthMembershipContextRow[]>`
@@ -89,11 +100,11 @@ export class AuthMembershipQueryService {
           AND sa.can_access_home = true
         WHERE st.is_active = true
           AND st.status = ${StaffStatus.active}
-          AND st.user_id = ${payload.sub}
+          AND st.user_id = ${userId}
           /* 已注销门店（软删除）不得作为登录/鉴权的会员上下文 */
           AND s.deleted_at IS NULL
         ORDER BY
-          CASE WHEN st.user_id = ${payload.sub} THEN 0 ELSE 1 END,
+          CASE WHEN st.user_id = ${userId} THEN 0 ELSE 1 END,
           CASE
             WHEN sa.id IS NOT NULL THEN 0
             WHEN st.role = 'owner' THEN 1

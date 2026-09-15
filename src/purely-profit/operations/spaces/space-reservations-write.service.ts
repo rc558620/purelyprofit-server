@@ -8,6 +8,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { MembershipDowngradeService } from '../../member/platform-membership/membership-downgrade.service';
 import {
   CreateSpaceReservationDto,
   type SpaceReservationResponseDto,
@@ -28,6 +29,7 @@ export class SpaceReservationsWriteService {
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
+    private readonly downgradeService: MembershipDowngradeService,
   ) {}
 
   async createSpaceReservation(
@@ -55,6 +57,11 @@ export class SpaceReservationsWriteService {
       'space:create',
       '无权操作该门店空间预约',
     );
+
+    // 会员过期账号同时只能有 1 个进行中的台位：预约与开台共用同一道门禁
+    //（与 space-session-open.service 口径一致，同一方法、同一常量）。
+    // 放在入参校验之前：此时继续填预约表单已无意义，先给「续费后可同时开多个台」的引导。
+    await this.downgradeService.assertSpaceCanOpen(space.storeId);
 
     const payload = normalizeReservationPayload(dto);
     ensureReservationGuestCount(

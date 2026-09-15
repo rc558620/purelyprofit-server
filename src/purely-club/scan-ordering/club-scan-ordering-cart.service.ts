@@ -8,6 +8,10 @@ import {
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import {
+  MembershipDowngradeService,
+  SCAN_ORDER_BLOCKED_MESSAGE,
+} from '../../purely-profit/member/platform-membership/membership-downgrade.service';
 import type {
   AddClubScanCartItemDto,
   UpdateClubScanCartItemDto,
@@ -15,7 +19,10 @@ import type {
 
 @Injectable()
 export class ClubScanOrderingCartService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly downgradeService: MembershipDowngradeService,
+  ) {}
 
   async getCart(user: AuthenticatedUser, sessionId: number): Promise<unknown> {
     const session = await this.requireSession(user, sessionId);
@@ -53,6 +60,14 @@ export class ClubScanOrderingCartService {
     dto: AddClubScanCartItemDto,
   ): Promise<unknown> {
     const session = await this.requireSession(user, dto.sessionId);
+
+    // 会员过期门店停止新的下单流程；到期之前已开台的会话允许继续加点
+    await this.downgradeService.assertStoreCanOrder(
+      session.storeId,
+      SCAN_ORDER_BLOCKED_MESSAGE,
+      session.createdAt,
+    );
+
     const product = await this.findAvailableProduct(
       session.storeId,
       dto.productId,

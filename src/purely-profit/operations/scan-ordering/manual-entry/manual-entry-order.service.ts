@@ -23,6 +23,7 @@ import { CacheInvalidatorService } from '../../../../redis/invalidator';
 import type { AuthenticatedUser } from '../../../auth/strategies/jwt.strategy';
 import { ScanOrderingRealtimeService } from '../../../../purely-club/scan-ordering/scan-ordering-realtime.service';
 import { ScanOrderingPickupNumberService } from '../../../../purely-club/scan-ordering/scan-ordering-pickup-number.service';
+import { MembershipDowngradeService } from '../../../member/platform-membership/membership-downgrade.service';
 import type { ManualEntryPricedItem } from './manual-entry-pricing.service';
 import {
   ManualEntryPricingService,
@@ -61,6 +62,7 @@ export class ManualEntryOrderService {
     private readonly stockService: ManualEntryStockService,
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
+    private readonly downgradeService: MembershipDowngradeService,
   ) {}
 
   /** 价格预览：定价 + 券面抵扣计算，全部服务端权威，前端只读展示。 */
@@ -108,6 +110,10 @@ export class ManualEntryOrderService {
     }
 
     const storeId = await this.resolveStoreId(user);
+
+    // 会员过期账号的营业兜底通道：每日限额，超出提示续费
+    await this.downgradeService.assertManualEntryQuota(storeId);
+
     this.validateFormRules(dto);
     await this.validateDiningTable(storeId, dto);
 
@@ -148,6 +154,18 @@ export class ManualEntryOrderService {
       this.logger.log(
         `录入订单已落库（ScanOrders）：orderId=${result.id}, orderNo=${result.orderNo}, storeId=${storeId}`,
       );
+
+      // 落库成功后才累加当日配额，避免失败请求占用额度。
+      // 计数失败只告警不抛错：订单已真实创建，为「配额统计」让整单失败是本末倒置，
+      // 额度可后续追补，订单丢失/误报才是真问题。
+      try {
+        await this.downgradeService.incrementManualEntryCount(storeId);
+      } catch (quotaError) {
+        this.logger.warn(
+          `手动录单配额累加失败（不影响订单）：orderNo=${result.orderNo}, storeId=${storeId}, `
+            + `error=${quotaError instanceof Error ? quotaError.message : String(quotaError)}`,
+        );
+      }
       // 推送实时事件：商家端订单页自动刷新（订单接收区 + dashboard + 桌台）
       this.realtimeService.publishOrderCreated({
         storeId,

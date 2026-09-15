@@ -105,6 +105,8 @@ export default () => ({
       process.env.APP_SPACE_AUTO_CHECKOUT_INITIAL_DELAY_MS ?? '10000',
       10,
     ),
+    businessEventLogEnabled:
+      (process.env.APP_BUSINESS_EVENT_LOG_ENABLED ?? 'true') === 'true',
     clientErrorLogEnabled:
       (process.env.APP_CLIENT_ERROR_LOG_ENABLED ?? 'true') === 'true',
     clientErrorStackMaxLength: parseInt(
@@ -224,7 +226,8 @@ export default () => ({
     acceptanceExpirationIntervalMs: parseInt(
       process.env.SCAN_ORDERING_ACCEPTANCE_EXPIRATION_INTERVAL_MS ?? '60000',
       10,
-    ),   /** 单次超时退款扫描的最大并发数 */
+    ),
+    /** 单次超时退款扫描的最大并发数 */
     acceptanceExpirationConcurrency: parseInt(
       process.env.SCAN_ORDERING_ACCEPTANCE_EXPIRATION_CONCURRENCY ?? '8',
       10,

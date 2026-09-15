@@ -32,6 +32,7 @@ import { ensureOpenSessionPayload } from './space-session-open-validation.shared
 import { SpaceReservationsStateService } from './space-reservations-state.service';
 import type { SpaceBillingModeValue } from './spaces.constants';
 import { CommissionCoreService } from '../commission/commission-core.service';
+import { MembershipDowngradeService } from '../../member/platform-membership/membership-downgrade.service';
 import type { CommissionAssignmentInput } from '../commission/commission.types';
 import type { CommissionAssignmentRecord } from '../commission/commission.types';
 import type { Prisma } from '@prisma/client';
@@ -54,7 +55,11 @@ export class SpaceSessionOpenService {
     private readonly redisLockService: RedisLockService,
     private readonly realtimeService: ScanOrderingRealtimeService,
     private readonly commissionCoreService: CommissionCoreService,
+    private readonly downgradeService: MembershipDowngradeService,
   ) {}
+
+  // 注意：MembershipDowngradeService 来自 PlatformMembershipAccessModule，
+  // 需在 SpacesModule 中导入该模块（见 spaces.module.ts）。
 
   async openSession(
     user: AuthenticatedUser,
@@ -96,6 +101,10 @@ export class SpaceSessionOpenService {
     if (existingActiveSession) {
       throw new ConflictException('空间当前使用中，无法重复开台');
     }
+
+    // 会员过期账号同时只能开 1 个台：放在「该空间本身可开台」之后，
+    // 避免对同一空间重复开台时报成续费提示
+    await this.downgradeService.assertSpaceCanOpen(space.storeId);
 
     const payload = normalizeOpenSessionPayload(dto);
     ensureOpenSessionPayload(payload, space.capacity ?? undefined);

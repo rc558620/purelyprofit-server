@@ -3,6 +3,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { toOptionalText } from '../../commerce/commerce.utils';
 import { InventoryService } from '../../goods/inventory/inventory.service';
+import { MembershipDowngradeService } from '../../member/platform-membership/membership-downgrade.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 import type {
@@ -28,6 +29,7 @@ export class SalesRecordWriteService {
     private readonly inventoryService: InventoryService,
     private readonly salesRecordItemPreparationService: SalesRecordItemPreparationService,
     private readonly salesRecordCreateFlowService: SalesRecordCreateFlowService,
+    private readonly downgradeService: MembershipDowngradeService,
   ) {}
 
   async create(
@@ -50,6 +52,10 @@ export class SalesRecordWriteService {
           'sales:create',
           '无权操作该门店销售记录',
         );
+    // 会员过期后的差异化限制：追加点单禁用、手动录单每日限额。
+    // 未声明 source 的来源（空间结账、老版本前端等）不受影响。
+    await this.applyMembershipDowngradeGuards(storeId, dto.source);
+
     const orderDate = new Date(dto.date ?? Date.now());
     const operatorStaffId = await this.resolveOperatorStaffId(
       user,
@@ -93,11 +99,37 @@ export class SalesRecordWriteService {
       options,
     });
 
+    // 手动录单落库成功后再累加当日配额，避免失败请求占用额度
+    if (dto.source === 'manual_entry') {
+      await this.downgradeService.incrementManualEntryCount(storeId);
+    }
+
     if (!options.transactionClient) {
       await this.invalidateStoreDerivedCaches(storeId);
     }
 
     return response;
+  }
+
+  /**
+   * 会员过期后的录单限制。
+   *
+   * 只在调用方显式声明 source 时生效：
+   * - `additional` → 过期账号禁用追加点单；
+   * - `manual_entry` → 过期账号每日限额（餐饮门店的营业兜底通道）。
+   */
+  private async applyMembershipDowngradeGuards(
+    storeId: number,
+    source: string | undefined,
+  ): Promise<void> {
+    if (source === 'additional') {
+      await this.downgradeService.assertAdditionalEnabled(storeId);
+      return;
+    }
+
+    if (source === 'manual_entry') {
+      await this.downgradeService.assertManualEntryQuota(storeId);
+    }
   }
 
   async remove(user: AuthenticatedUser, salesRecordId: number): Promise<void> {

@@ -7,6 +7,7 @@ import { PrismaModule } from '../../../../prisma/prisma.module';
 import { RedisModule } from '../../../../redis/redis.module';
 import { ClubScanOrderingModule } from '../../../../purely-club/scan-ordering/club-scan-ordering.module';
 import { ManualEntryController } from './manual-entry.controller';
+import { PlatformMembershipAccessModule } from '../../../member/platform-membership/platform-membership-access.module';
 import { ManualEntryMenuService } from './manual-entry-menu.service';
 import { ManualEntryOrderDetailService } from './manual-entry-order-detail.service';
 import { ManualEntryOrderService } from './manual-entry-order.service';
@@ -18,6 +19,8 @@ import { ManualEntryStockService } from './manual-entry-stock.service';
   imports: [
     PrismaModule,
     CommerceModule,
+    // 会员过期账号的手动录单每日限额，依赖该模块提供的 MembershipDowngradeService
+    PlatformMembershipAccessModule,
     ClubScanOrderingModule,
     RedisModule,
     StoreBusinessCapabilityModule,

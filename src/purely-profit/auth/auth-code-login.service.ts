@@ -6,6 +6,7 @@ import { resolveAuthIdentity } from './auth.utils';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthBanGuardService } from './auth-ban-guard.service';
+import { AuthMembershipLoginGuardService } from './auth-membership-login-guard.service';
 import { AuthCodeVerifyService } from './auth-code-verify.service';
 import { AuthPasswordService } from './auth-password.service';
 import { AuthSessionService } from './auth-session.service';
@@ -36,6 +37,7 @@ export class AuthCodeLoginService {
     private readonly authAccountLookupService: AuthAccountLookupService,
     private readonly authAccountService: AuthAccountService,
     private readonly authBanGuardService: AuthBanGuardService,
+    private readonly authMembershipLoginGuardService: AuthMembershipLoginGuardService,
     private readonly authCodeVerifyService: AuthCodeVerifyService,
     private readonly authPasswordService: AuthPasswordService,
     private readonly authSessionService: AuthSessionService,
@@ -186,6 +188,9 @@ export class AuthCodeLoginService {
         ...(user.staffId != null ? { staffId: user.staffId } : {}),
       });
       await this.authBanGuardService.ensureUserNotCancelled(user.id);
+      await this.authMembershipLoginGuardService.ensureSubAccountLoginAllowed(
+        user.id,
+      );
     }
 
     await this.authBanGuardService.ensureUserNotBanned(user.id);

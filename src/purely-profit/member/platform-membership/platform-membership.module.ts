@@ -40,6 +40,8 @@ import { StoreSubAccountSlotService } from './store-sub-account-slot.service';
   ],
   exports: [
     PlatformMembershipService,
+    // 导出整个轻量模块，使其中的 MembershipDowngradeService 对
+    // 已导入本模块的下游（销售记录 / 空间 / C 端）可见
     PlatformMembershipAccessModule,
     StoreSubAccountService,
     StoreSubAccountLoginService,

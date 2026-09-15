@@ -20,6 +20,7 @@ import {
 import { validatePasswordLength } from '../../shared/password-policy.utils';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthBanGuardService } from './auth-ban-guard.service';
+import { AuthMembershipLoginGuardService } from './auth-membership-login-guard.service';
 import { AuthAccountService } from './auth-account.service';
 import { AuthCodeVerifyService } from './auth-code-verify.service';
 import { AuthPasswordService } from './auth-password.service';
@@ -54,6 +55,7 @@ export class AuthAuthenticationService {
   constructor(
     private readonly authAccountLookupService: AuthAccountLookupService,
     private readonly authBanGuardService: AuthBanGuardService,
+    private readonly authMembershipLoginGuardService: AuthMembershipLoginGuardService,
     private readonly authAccountService: AuthAccountService,
     private readonly authCodeVerifyService: AuthCodeVerifyService,
     private readonly authPasswordService: AuthPasswordService,
@@ -327,6 +329,9 @@ export class AuthAuthenticationService {
     await this.authAccountService.syncStaffMemberships(userId, identifiers);
     await this.authBanGuardService.ensureUserNotBanned(userId);
     await this.authBanGuardService.ensureUserNotCancelled(userId);
+    await this.authMembershipLoginGuardService.ensureSubAccountLoginAllowed(
+      userId,
+    );
   }
 
   private resolveAccountScopeForLogin(user: {
