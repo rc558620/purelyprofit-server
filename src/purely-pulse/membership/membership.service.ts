@@ -194,6 +194,14 @@ export class PulseMembershipService {
     return this.adminService.setAdminMemberMembership(user, memberId, dto);
   }
 
+  /** 重置会员「首购锁定价」，让运营可在下一次成交时重新锁价 */
+  resetAdminMemberLockedPrices(
+    user: AuthenticatedUser,
+    memberId: number,
+  ): Promise<PulseMemberDetailDto> {
+    return this.adminService.resetAdminMemberLockedPrices(user, memberId);
+  }
+
   banAdminMember(
     user: AuthenticatedUser,
     memberId: number,

@@ -17,10 +17,15 @@
  *   - 输出完整的更新日志和汇总
  */
 
+import 'dotenv/config';
 import { PrismaClient, StoreBusinessMode } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 import Redis from 'ioredis';
 
-const prisma = new PrismaClient();
+// Prisma 7 的 datasource 不写 url（见 prisma/schema.prisma），必须显式传驱动适配器
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 const redis = new Redis({
   host: process.env.REDIS_HOST || '127.0.0.1',
   port: Number(process.env.REDIS_PORT) || 6379,
@@ -145,5 +150,6 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
+    await pool.end();
     redis.disconnect();
   });

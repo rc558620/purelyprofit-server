@@ -13,7 +13,7 @@ import { SubjectCapabilityService } from '../access-control/subject-capability.s
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { CacheInvalidatorService } from '../../redis/invalidator';
-import { AUTH_TOKEN_VERSION_KEY_PREFIX } from './auth.constants';
+import { AUTH_SESSION_TOKEN_HASH_KEY_PREFIX } from './auth.constants';
 import { AuthAccountLookupService } from './auth-account-lookup.service';
 import { AuthProfitAccountLookupService } from './auth-profit-account-lookup.service';
 import { AuthBanGuardService } from './auth-ban-guard.service';
@@ -66,6 +66,10 @@ describe('AuthService', () => {
     store: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
+    },
+    // 更新头像会同步回写营销会员头像
+    marketingCustomer: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     storeMembershipProfile: {
       findUnique: jest.fn(),
@@ -216,7 +220,10 @@ describe('AuthService', () => {
         // MembershipDowngradeService 的查询链路牵进登录用例
         {
           provide: AuthMembershipLoginGuardService,
-          useValue: { ensureSubAccountLoginAllowed: jest.fn() },
+          useValue: {
+            ensureSubAccountLoginAllowed: jest.fn(),
+            ensureStaffSubAccountSeatGranted: jest.fn(),
+          },
         },
       ],
     }).compile();
@@ -230,14 +237,18 @@ describe('AuthService', () => {
 
   it('仅允许 admin 别名映射到固定手机号登录', async () => {
     const hashedPassword = await bcrypt.hash('admin123', 4);
-    prismaService.staff.findFirst.mockResolvedValue({
-      id: 1,
-      user: {
+    // 开发者手机号查找已改为 staff.findMany（候选列表 + 跨租户检测）
+    prismaService.staff.findMany.mockResolvedValue([
+      {
         id: 1,
-        email: 'phone_13800000000@purelyprofit.local',
-        password: hashedPassword,
+        userId: 1,
+        user: {
+          id: 1,
+          email: 'phone_13800000000@purelyprofit.local',
+          password: hashedPassword,
+        },
       },
-    });
+    ]);
     redisService.get.mockResolvedValue('0');
     jwtService.signAsync.mockResolvedValue('admin-token');
 
@@ -246,7 +257,7 @@ describe('AuthService', () => {
       password: 'admin123',
     });
 
-    expect(prismaService.staff.findFirst).toHaveBeenCalledWith({
+    expect(prismaService.staff.findMany).toHaveBeenCalledWith({
       where: {
         phone: '13619654020',
         isActive: true,
@@ -255,6 +266,7 @@ describe('AuthService', () => {
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       select: {
         id: true,
+        userId: true,
         user: {
           select: {
             id: true,
@@ -267,10 +279,13 @@ describe('AuthService', () => {
     expect(result).toEqual(
       expect.objectContaining({ access_token: 'admin-token', userId: 1 }),
     );
+    // 新版 JWT 载荷带 aud（产品线/受众）与 sid（会话 ID），sid 为随机哈希
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 1,
       phone: '13619654020',
       accountScope: 'developer',
+      aud: 'developer',
+      sid: expect.any(String),
       sessionVersion: 0,
       staffId: 1,
     });
@@ -338,13 +353,19 @@ describe('AuthService', () => {
 
   it('purely-pulse 登录仅允许开发者账号', async () => {
     const hashedPassword = await bcrypt.hash('dev123456', 4);
-    prismaService.staff.findFirst.mockResolvedValue({
-      user: {
+    // 开发者账号走 staff.findMany 候选列表查找
+    prismaService.staff.findMany.mockResolvedValue([
+      {
         id: 66,
-        email: 'dev@example.com',
-        password: hashedPassword,
+        userId: 66,
+        phone: '13800138000',
+        user: {
+          id: 66,
+          email: 'dev@example.com',
+          password: hashedPassword,
+        },
       },
-    });
+    ]);
     redisService.get.mockResolvedValue('0');
     jwtService.signAsync.mockResolvedValue('pulse-dev-token');
 
@@ -367,19 +388,27 @@ describe('AuthService', () => {
       sub: 66,
       phone: '13800138000',
       accountScope: 'developer',
+      aud: 'developer',
+      sid: expect.any(String),
       sessionVersion: 0,
+      staffId: 66,
     });
   });
 
   it('purely-pulse 登录会拒绝普通 purely-profit 账号', async () => {
     const hashedPassword = await bcrypt.hash('profit123', 4);
-    prismaService.staff.findFirst.mockResolvedValue({
-      user: {
+    prismaService.staff.findMany.mockResolvedValue([
+      {
         id: 67,
-        email: 'profit_phone_13800138000@purelyprofit.local',
-        password: hashedPassword,
+        userId: 67,
+        phone: '13800138000',
+        user: {
+          id: 67,
+          email: 'profit_phone_13800138000@purelyprofit.local',
+          password: hashedPassword,
+        },
       },
-    });
+    ]);
     redisService.get.mockResolvedValue('0');
 
     await expect(
@@ -400,13 +429,18 @@ describe('AuthService', () => {
 
   it('Pulse 已封禁账号不允许重新登录', async () => {
     const hashedPassword = await bcrypt.hash('blocked123', 4);
-    prismaService.staff.findFirst.mockResolvedValue({
-      user: {
+    prismaService.staff.findMany.mockResolvedValue([
+      {
         id: 18,
-        email: 'phone_13800138000@purelyprofit.local',
-        password: hashedPassword,
+        userId: 18,
+        phone: '13800138000',
+        user: {
+          id: 18,
+          email: 'phone_13800138000@purelyprofit.local',
+          password: hashedPassword,
+        },
       },
-    });
+    ]);
     prismaService.store.findMany.mockResolvedValue([{ id: 18 }]);
     redisService.get.mockResolvedValue('违规操作');
 
@@ -422,14 +456,23 @@ describe('AuthService', () => {
 
   it('部分门店被封禁时仍允许登录', async () => {
     const hashedPassword = await bcrypt.hash('partial123', 4);
-    prismaService.staff.findFirst.mockResolvedValue({
-      user: {
+    prismaService.staff.findMany.mockResolvedValue([
+      {
         id: 19,
-        email: 'phone_13900139000@purelyprofit.local',
-        password: hashedPassword,
+        userId: 19,
+        phone: '13900139000',
+        user: {
+          id: 19,
+          email: 'phone_13900139000@purelyprofit.local',
+          password: hashedPassword,
+        },
       },
-    });
-    prismaService.store.findMany.mockResolvedValue([{ id: 18 }, { id: 19 }]);
+    ]);
+    // ensureUserNotCancelled 需要门店的 deletedAt：未注销门店 deletedAt 必须为 null
+    prismaService.store.findMany.mockResolvedValue([
+      { id: 18, deletedAt: null },
+      { id: 19, deletedAt: null },
+    ]);
     // ensureUserNotBanned 使用 mgetJson 批量查询封禁状态
     // 门店 18 被封（返回 reason），门店 19 未被封（返回 null）
     redisService.mgetJson.mockResolvedValue(['违规操作', null]);
@@ -486,27 +529,34 @@ describe('AuthService', () => {
       message: '密码修改成功，旧登录态已失效',
       access_token: 'next-token',
     });
+    // 旧版「token version」已升级为「会话 token 哈希」失效机制
     expect(redisService.set).toHaveBeenCalledWith(
-      `${AUTH_TOKEN_VERSION_KEY_PREFIX}1`,
-      '1',
+      expect.stringContaining(`${AUTH_SESSION_TOKEN_HASH_KEY_PREFIX}1`),
+      expect.any(String),
       30 * 24 * 60 * 60,
     );
     expect(jwtService.signAsync).toHaveBeenCalledWith({
       sub: 1,
       phone: '13800138000',
       accountScope: 'purely_profit',
-      sessionVersion: 1,
+      aud: 'purely_profit',
+      sid: expect.any(String),
+      // 旧版靠递增 token version 失效；新版改为会话 token 哈希失效，version 不再递增
+      sessionVersion: 0,
     });
   });
 
   it('purely-profit 注册验证码发送会写入冷却键并缓存验证码', async () => {
-    prismaService.staff.findFirst.mockResolvedValue(null);
+    prismaService.staff.findMany.mockResolvedValue([]);
     prismaService.user.findFirst.mockResolvedValue(null);
     redisService.set.mockResolvedValue(undefined);
+    // 发码前需通过人机验证：CaptchaTokenService 从 Redis 读取令牌并一次性消费
+    redisService.get.mockResolvedValue('1');
     authSmsService.sendRegisterCode.mockResolvedValue(undefined);
 
     const result = await service.sendRegisterCode({
       phone: '13800138000',
+      captchaToken: 'puzzle_1719500000000_1',
     });
 
     expect(result.message).toBe('验证码已发送，请注意查收');
@@ -530,30 +580,41 @@ describe('AuthService', () => {
   });
 
   it('purely-profit 注册验证码发送在冷却期内会拒绝再次发送', async () => {
-    prismaService.staff.findFirst.mockResolvedValue(null);
+    prismaService.staff.findMany.mockResolvedValue([]);
     prismaService.user.findFirst.mockResolvedValue(null);
+    redisService.get.mockResolvedValue('1');
     redisService.setIfAbsent.mockResolvedValue(false);
 
     await expect(
-      service.sendRegisterCode({ phone: '13800138000' }),
+      service.sendRegisterCode({
+        phone: '13800138000',
+        captchaToken: 'puzzle_1719500000000_1',
+      }),
     ).rejects.toThrow('短信发送过于频繁，请 60 秒后再试');
     expect(redisService.set).not.toHaveBeenCalled();
     expect(authSmsService.sendRegisterCode).not.toHaveBeenCalled();
   });
 
   it('找回密码会缓存验证码并尝试发送短信', async () => {
-    prismaService.staff.findFirst.mockResolvedValue({
-      user: {
+    prismaService.staff.findMany.mockResolvedValue([
+      {
         id: 1,
-        email: 'phone_13800138000@purelyprofit.local',
-        password: 'hashed',
+        userId: 1,
+        phone: '13800138000',
+        user: {
+          id: 1,
+          email: 'phone_13800138000@purelyprofit.local',
+          password: 'hashed',
+        },
       },
-    });
+    ]);
     redisService.set.mockResolvedValue(undefined);
+    redisService.get.mockResolvedValue('1');
     authSmsService.sendPasswordResetCode.mockResolvedValue(undefined);
 
     const result = await service.forgotPassword({
       phone: '13800138000',
+      captchaToken: 'puzzle_1719500000000_1',
     });
 
     expect(result.message).toBe('重置验证码短信已发送，请注意查收');
@@ -577,11 +638,13 @@ describe('AuthService', () => {
   });
 
   it('找回密码在手机号未注册时仍返回 200（防枚举）', async () => {
-    prismaService.staff.findFirst.mockResolvedValue(null);
+    prismaService.staff.findMany.mockResolvedValue([]);
     prismaService.user.findFirst.mockResolvedValue(null);
+    redisService.get.mockResolvedValue('1');
 
     const result = await service.forgotPassword({
       phone: '13800138000',
+      captchaToken: 'puzzle_1719500000000_1',
     });
     expect(result).toEqual(
       expect.objectContaining({
@@ -594,17 +657,26 @@ describe('AuthService', () => {
   });
 
   it('找回密码短信发送在冷却期内会拒绝再次发送', async () => {
-    prismaService.staff.findFirst.mockResolvedValue({
-      user: {
+    prismaService.staff.findMany.mockResolvedValue([
+      {
         id: 1,
-        email: 'phone_13800138000@purelyprofit.local',
-        password: 'hashed',
+        userId: 1,
+        phone: '13800138000',
+        user: {
+          id: 1,
+          email: 'phone_13800138000@purelyprofit.local',
+          password: 'hashed',
+        },
       },
-    });
+    ]);
+    redisService.get.mockResolvedValue('1');
     redisService.setIfAbsent.mockResolvedValue(false);
 
     await expect(
-      service.forgotPassword({ phone: '13800138000' }),
+      service.forgotPassword({
+        phone: '13800138000',
+        captchaToken: 'puzzle_1719500000000_1',
+      }),
     ).rejects.toThrow('短信发送过于频繁，请 60 秒后再试');
     expect(redisService.set).not.toHaveBeenCalled();
     expect(authSmsService.sendPasswordResetCode).not.toHaveBeenCalled();
@@ -612,20 +684,29 @@ describe('AuthService', () => {
 
   it('短信发送失败时会删除验证码并抛出异常', async () => {
     const sendError = new Error('验证码短信发送失败，请稍后重试');
-    prismaService.staff.findFirst.mockResolvedValue({
-      user: {
+    prismaService.staff.findMany.mockResolvedValue([
+      {
         id: 1,
-        email: 'phone_13800138000@purelyprofit.local',
-        password: 'hashed',
+        userId: 1,
+        phone: '13800138000',
+        user: {
+          id: 1,
+          email: 'phone_13800138000@purelyprofit.local',
+          password: 'hashed',
+        },
       },
-    });
+    ]);
     redisService.set.mockResolvedValue(undefined);
+    redisService.get.mockResolvedValue('1');
     redisService.del.mockResolvedValue(undefined);
     authSmsService.sendPasswordResetCode.mockRejectedValue(sendError);
 
-    await expect(service.forgotPassword({ phone: '13800138000' })).rejects.toBe(
-      sendError,
-    );
+    await expect(
+      service.forgotPassword({
+        phone: '13800138000',
+        captchaToken: 'puzzle_1719500000000_1',
+      }),
+    ).rejects.toBe(sendError);
     expect(redisService.del).toHaveBeenCalledWith(
       'auth:password-reset:purely_profit:13800138000',
     );
@@ -759,7 +840,12 @@ describe('AuthService', () => {
       email: 'club_phone_13800138000@purelyprofit.local',
       password: 'hashed-password',
     });
-    redisService.get.mockResolvedValueOnce('0').mockResolvedValueOnce('123456');
+    // get 调用顺序：① 验证码尝试次数 ② 注册验证码 ③ 会话版本（须为 0，否则 token 版本被污染）
+    redisService.get.mockImplementation((key: string) => {
+      if (key.includes('code-attempts')) return Promise.resolve('0');
+      if (key.includes('auth:register:')) return Promise.resolve('123456');
+      return Promise.resolve('0');
+    });
     redisService.del.mockResolvedValue(undefined);
     jwtService.signAsync.mockResolvedValue('club-code-token');
 
@@ -820,16 +906,23 @@ describe('AuthService', () => {
         },
         'purely_club',
       ),
-    ).resolves.toEqual({
-      access_token: 'club-auto-register-token',
-      userId: 77,
-    });
+    ).resolves.toEqual(
+      expect.objectContaining({
+        access_token: 'club-auto-register-token',
+        userId: 77,
+        // 登录即注册会同时下发 refresh_token 与有效期
+        refresh_token: expect.any(String),
+        expires_in: expect.any(Number),
+      }),
+    );
 
     expect(prismaService.user.create).toHaveBeenCalledWith({
       data: {
         email: 'club_phone_13800138000@purelyprofit.local',
         password: aNonEmptyString,
         name: undefined,
+        // 手机号验证码注册即写入微信手机号，保证后续微信/手机号登录复用同一账号
+        wechatPhone: '13800138000',
       },
       select: {
         id: true,
@@ -1032,13 +1125,18 @@ describe('AuthService', () => {
       if (key.includes('code-attempts')) return Promise.resolve('0');
       return Promise.resolve('123456');
     });
-    prismaService.staff.findFirst.mockResolvedValue({
-      user: {
+    prismaService.staff.findMany.mockResolvedValue([
+      {
         id: 1,
-        email: 'phone_13800138000@purelyprofit.local',
-        password: hashedPassword,
+        userId: 1,
+        phone: '13800138000',
+        user: {
+          id: 1,
+          email: 'phone_13800138000@purelyprofit.local',
+          password: hashedPassword,
+        },
       },
-    });
+    ]);
 
     await expect(
       service.resetPassword({
@@ -1259,7 +1357,8 @@ describe('AuthService', () => {
 
   it('更新头像后返回最新 profile', async () => {
     prismaService.user.update.mockResolvedValue(undefined);
-    prismaService.user.findUnique.mockResolvedValueOnce({
+    // 更新头像链路会多次读取用户（写库前 + 回读 profile），需持久 mock
+    prismaService.user.findUnique.mockResolvedValue({
       id: 1,
       email: 'phone_13800138000@purelyprofit.local',
       name: '测试用户',

@@ -15,6 +15,7 @@ import { CachePrewarmCycleService } from './cache-prewarm-cycle.service';
 import { RedisService } from './redis.service';
 
 type RedisServiceMock = {
+  isReady: jest.Mock;
   scanKeysByPattern: jest.Mock;
 };
 
@@ -52,6 +53,7 @@ type CostsReadServiceMock = {
 
 function createRedisServiceMock(): RedisServiceMock {
   return {
+    isReady: jest.fn().mockReturnValue(true),
     scanKeysByPattern: jest.fn(),
   };
 }

@@ -18,7 +18,8 @@ import {
 const NOW = new Date('2026-05-23T12:00:00.000Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const daysFromNow = (days: number): Date => new Date(NOW.getTime() + days * DAY_MS);
+const daysFromNow = (days: number): Date =>
+  new Date(NOW.getTime() + days * DAY_MS);
 
 describe('MembershipDowngradeService', () => {
   let service: MembershipDowngradeService;
@@ -73,7 +74,9 @@ describe('MembershipDowngradeService', () => {
       ],
     }).compile();
 
-    service = module.get<MembershipDowngradeService>(MembershipDowngradeService);
+    service = module.get<MembershipDowngradeService>(
+      MembershipDowngradeService,
+    );
   });
 
   afterEach(() => {
@@ -279,11 +282,7 @@ describe('MembershipDowngradeService', () => {
       });
 
       await expect(
-        service.assertStoreCanOrder(
-          18,
-          SCAN_ORDER_BLOCKED_MESSAGE,
-          expiredAt,
-        ),
+        service.assertStoreCanOrder(18, SCAN_ORDER_BLOCKED_MESSAGE, expiredAt),
       ).resolves.toBeUndefined();
     });
   });
@@ -307,7 +306,9 @@ describe('MembershipDowngradeService', () => {
     it('从未开通过的免费账号放行（免费版本就含该能力）', async () => {
       mockProfile(null);
 
-      await expect(service.assertAdditionalEnabled(18)).resolves.toBeUndefined();
+      await expect(
+        service.assertAdditionalEnabled(18),
+      ).resolves.toBeUndefined();
     });
 
     it('有效会员放行', async () => {
@@ -317,7 +318,9 @@ describe('MembershipDowngradeService', () => {
         expiresAt: daysFromNow(80),
       });
 
-      await expect(service.assertAdditionalEnabled(18)).resolves.toBeUndefined();
+      await expect(
+        service.assertAdditionalEnabled(18),
+      ).resolves.toBeUndefined();
     });
   });
 
@@ -478,9 +481,14 @@ describe('MembershipDowngradeService', () => {
         startsAt: daysFromNow(-1),
         expiresAt: daysFromNow(30),
       });
-      redisService.getJson.mockImplementation(async (key: string) =>
+      redisService.getJson.mockImplementation((key: string) =>
         key === CACHE_KEY
-          ? { isExpired: false, level: 'yearly', expiredAt: daysFromNow(30).getTime(), remainingDays: 30 }
+          ? {
+              isExpired: false,
+              level: 'yearly',
+              expiredAt: daysFromNow(30).getTime(),
+              remainingDays: 30,
+            }
           : null,
       );
 
@@ -488,7 +496,9 @@ describe('MembershipDowngradeService', () => {
 
       expect(state.isExpired).toBe(false);
       // 缓存命中 → 不应查会员档案
-      expect(prismaService.storeMembershipProfile.findUnique).not.toHaveBeenCalled();
+      expect(
+        prismaService.storeMembershipProfile.findUnique,
+      ).not.toHaveBeenCalled();
     });
 
     it('未命中时回源并把结果写入缓存', async () => {
@@ -531,7 +541,7 @@ describe('MembershipDowngradeService', () => {
         expiresAt: daysFromNow(30),
       });
       // 缺少 remainingDays 字段
-      redisService.getJson.mockImplementation(async (key: string) =>
+      redisService.getJson.mockImplementation((key: string) =>
         key === CACHE_KEY
           ? { isExpired: false, level: 'yearly', expiredAt: null }
           : null,
@@ -540,7 +550,9 @@ describe('MembershipDowngradeService', () => {
       const state = await service.getDowngradeState(18);
 
       expect(state.remainingDays).toBeGreaterThan(0);
-      expect(prismaService.storeMembershipProfile.findUnique).toHaveBeenCalled();
+      expect(
+        prismaService.storeMembershipProfile.findUnique,
+      ).toHaveBeenCalled();
     });
 
     it('Redis 读取缓存失败时回源，不因缓存故障影响下单判定', async () => {
@@ -659,7 +671,9 @@ describe('MembershipDowngradeService', () => {
         startsAt: daysFromNow(-60),
         expiresAt: daysFromNow(-1),
       });
-      redisService.getJson.mockRejectedValue(new Error('Redis connection lost'));
+      redisService.getJson.mockRejectedValue(
+        new Error('Redis connection lost'),
+      );
 
       // 计数组件故障不应让录单失败：每日限额是可追补的商业控制
       await expect(service.assertManualEntryQuota(18)).resolves.toBe(0);

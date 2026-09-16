@@ -219,6 +219,24 @@ export class PulseMembershipAdminController {
     );
   }
 
+  @Post('members/:id/locked-price/reset')
+  @ApiOperation({ summary: 'Pulse 会员管理重置首购锁定价' })
+  @ApiCreatedResponse({
+    description:
+      '重置后该门店所有档位的首购锁定价被清除，下一次成交（下单 / 设置会员等级）重新锁定',
+    type: PulseMemberDetailDto,
+  })
+  resetAdminMemberLockedPrices(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') rawMemberId: string,
+  ): Promise<PulseMemberDetailDto> {
+    const memberId = this.resolveAdminMemberId(rawMemberId);
+    return this.pulseMembershipService.resetAdminMemberLockedPrices(
+      user,
+      memberId,
+    );
+  }
+
   @Post('members/:id/ban')
   @ApiOperation({ summary: 'Pulse 会员管理封禁' })
   @ApiCreatedResponse({

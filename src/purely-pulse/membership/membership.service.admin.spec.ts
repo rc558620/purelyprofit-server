@@ -494,6 +494,82 @@ describe('PulseMembershipService admin', () => {
     });
   });
 
+  it('listAdminMembers 按账号最近鉴权时间标记在线，离线与无记录都为 false', async () => {
+    context.prismaService.storeMembershipProfile.findMany
+      .mockResolvedValueOnce([{ storeId: 18 }, { storeId: 19 }, { storeId: 20 }])
+      .mockResolvedValueOnce([
+        {
+          storeId: 18,
+          currentPlanId: 'yearly',
+          expiresAt: new Date('2027-11-09T02:22:50.155Z'),
+          totalPoints: 0,
+          availablePoints: 0,
+        },
+        {
+          storeId: 19,
+          currentPlanId: 'yearly',
+          expiresAt: new Date('2027-11-09T02:22:50.155Z'),
+          totalPoints: 0,
+          availablePoints: 0,
+        },
+        {
+          storeId: 20,
+          currentPlanId: 'yearly',
+          expiresAt: new Date('2027-11-09T02:22:50.155Z'),
+          totalPoints: 0,
+          availablePoints: 0,
+        },
+      ]);
+    const buildOwner = (lastActiveAt: Date | null) => ({
+      email: 'phone_13619654020@purelyprofit.local',
+      name: null,
+      realName: '张三',
+      avatar: null,
+      lastActiveAt,
+    });
+    context.prismaService.store.findMany.mockResolvedValue([
+      {
+        id: 18,
+        name: '刚活跃门店',
+        contactPhone: null,
+        createdAt: new Date('2026-05-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-05-21T00:00:00.000Z'),
+        owner: buildOwner(new Date(Date.now() - 3 * 60 * 1000)),
+      },
+      {
+        id: 19,
+        name: '离线门店',
+        contactPhone: null,
+        createdAt: new Date('2026-05-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-05-21T00:00:00.000Z'),
+        owner: buildOwner(new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)),
+      },
+      {
+        id: 20,
+        name: '无活跃记录门店',
+        contactPhone: null,
+        createdAt: new Date('2026-05-01T00:00:00.000Z'),
+        updatedAt: new Date('2026-05-21T00:00:00.000Z'),
+        owner: buildOwner(null),
+      },
+    ]);
+    context.prismaService.storeMembershipOrder.groupBy.mockResolvedValue([]);
+    context.prismaService.storePartner.findMany.mockResolvedValue([]);
+    context.redisService.getClient = jest.fn(() => ({
+      mget: jest.fn().mockResolvedValue([null]),
+    }));
+
+    const result = await context.service.listAdminMembers(context.user, {});
+
+    expect(
+      result.items.map((item) => [item.id, item.isOnline]),
+    ).toEqual([
+      ['18', true],
+      ['19', false],
+      ['20', false],
+    ]);
+  });
+
   it('listAdminMembers 会保留免费会员', async () => {
     context.prismaService.storeMembershipProfile.findMany
       .mockResolvedValueOnce([{ storeId: 18 }])
@@ -681,6 +757,8 @@ describe('PulseMembershipService admin', () => {
       select: {
         storeId: true,
         currentPlanId: true,
+        previousPlanId: true,
+        startsAt: true,
         expiresAt: true,
         totalPoints: true,
         availablePoints: true,
@@ -695,6 +773,8 @@ describe('PulseMembershipService admin', () => {
       select: {
         storeId: true,
         currentPlanId: true,
+        previousPlanId: true,
+        startsAt: true,
         expiresAt: true,
         totalPoints: true,
         availablePoints: true,
@@ -784,6 +864,9 @@ describe('PulseMembershipService admin', () => {
       create: {
         storeId: 18,
         currentPlanId: null,
+        // 降级为免费时把原档位转存下来：currentPlanId 被清空后，续费页只能靠它
+        // 判断原档位，否则永久会员会丢掉 AGES 续费入口
+        previousPlanId: 'quarterly',
         // 降级为免费也保留 startsAt，标记档案已被显式管理，防止订单重建逻辑恢复付费会员
         startsAt: expect.any(Date),
         expiresAt: null,
@@ -792,6 +875,7 @@ describe('PulseMembershipService admin', () => {
       },
       update: {
         currentPlanId: null,
+        previousPlanId: 'quarterly',
         startsAt: expect.any(Date),
         expiresAt: null,
       },
@@ -925,6 +1009,8 @@ describe('PulseMembershipService admin', () => {
         create: {
           storeId: 18,
           currentPlanId: 'lifetime',
+          // 设置付费档位时清空原档位：currentPlanId 本身就是续费依据
+          previousPlanId: null,
           startsAt: fixedNow,
           expiresAt: expectedExpiry,
           totalPoints: 0,
@@ -932,6 +1018,7 @@ describe('PulseMembershipService admin', () => {
         },
         update: {
           currentPlanId: 'lifetime',
+          previousPlanId: null,
           startsAt: fixedNow,
           expiresAt: expectedExpiry,
         },
@@ -944,6 +1031,238 @@ describe('PulseMembershipService admin', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  /** 桩掉「设置会员等级」链路上与本组用例无关的读取与审计依赖 */
+  const stubMembershipMutationDependencies = (): void => {
+    jest
+      .spyOn(
+        context.mutationService as never,
+        'assertAdminMemberMutationAccess' as never,
+      )
+      .mockResolvedValue(undefined as never);
+    jest
+      .spyOn(
+        context.memberReadService as never,
+        'findMembershipProfileByStoreId' as never,
+      )
+      .mockResolvedValue({
+        currentPlanId: null,
+        previousPlanId: null,
+        startsAt: null,
+        expiresAt: null,
+        totalPoints: 0,
+        availablePoints: 0,
+        subAccountQuota: 0,
+      } as never);
+    jest
+      .spyOn(
+        context.memberReadService as never,
+        'buildAdminMemberDetail' as never,
+      )
+      .mockResolvedValue({ id: '18', level: 'annual' } as never);
+    context.prismaService.store.findUnique.mockResolvedValue({
+      id: 18,
+      ownerId: 301,
+      staffs: [],
+    });
+    context.prismaService.storePartner.findFirst.mockResolvedValue(null);
+  };
+
+  it('setAdminMemberMembership 带成交价时按元转分写入首购锁定价（source=admin）', async () => {
+    stubMembershipMutationDependencies();
+
+    await context.service.setAdminMemberMembership(context.user, 18, {
+      level: 'annual',
+      membershipExpiry: new Date('2027-05-21T00:00:00.000Z').getTime(),
+      priceDisplay: '598',
+    });
+
+    expect(
+      context.prismaService.storeMembershipLockedPrice.createMany,
+    ).toHaveBeenCalledWith({
+      data: [{ storeId: 18, planId: 'yearly', price: 59800, source: 'admin' }],
+      skipDuplicates: true,
+    });
+  });
+
+  it('setAdminMemberMembership 锁定价已存在时不覆盖（skipDuplicates 命中重复）', async () => {
+    stubMembershipMutationDependencies();
+    context.prismaService.storeMembershipLockedPrice.createMany.mockResolvedValue(
+      { count: 0 },
+    );
+
+    await expect(
+      context.service.setAdminMemberMembership(context.user, 18, {
+        level: 'annual',
+        membershipExpiry: new Date('2027-05-21T00:00:00.000Z').getTime(),
+        priceDisplay: '369',
+      }),
+    ).resolves.toBeDefined();
+
+    // 第二次成交仍以 skipDuplicates 写入，由唯一键保证保留首次锁定价
+    expect(
+      context.prismaService.storeMembershipLockedPrice.createMany,
+    ).toHaveBeenCalledWith({
+      data: [{ storeId: 18, planId: 'yearly', price: 36900, source: 'admin' }],
+      skipDuplicates: true,
+    });
+  });
+
+  it('setAdminMemberMembership 未开通子账号功能时不写入首购锁定价', async () => {
+    stubMembershipMutationDependencies();
+    // 从未开通子账号功能：快照写入后读侧永不生效，却会在门店日后开通子账号
+    // （pulseSubAccountQuota 由 0 变正）时突然生效，所以宁可不写
+    context.platformMembershipAccessService.getSubAccountBenefitSnapshot.mockResolvedValue(
+      {
+        level: 'yearly',
+        eligible: true,
+        quota: 0,
+        quotaMax: 10,
+        enabled: false,
+        rawQuota: 0,
+        featureOwned: false,
+        previousLevel: 'yearly',
+      },
+    );
+
+    await context.service.setAdminMemberMembership(context.user, 18, {
+      level: 'annual',
+      membershipExpiry: new Date('2027-05-21T00:00:00.000Z').getTime(),
+      priceDisplay: '598',
+    });
+
+    expect(
+      context.prismaService.storeMembershipLockedPrice.createMany,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('setAdminMemberMembership 未带成交价 / 成交价非法时不写入锁定价', async () => {
+    stubMembershipMutationDependencies();
+    const expireAt = new Date('2027-05-21T00:00:00.000Z').getTime();
+
+    await context.service.setAdminMemberMembership(context.user, 18, {
+      level: 'annual',
+      membershipExpiry: expireAt,
+    });
+    await context.service.setAdminMemberMembership(context.user, 18, {
+      level: 'annual',
+      membershipExpiry: expireAt,
+      priceDisplay: '0',
+    });
+    await context.service.setAdminMemberMembership(context.user, 18, {
+      level: 'annual',
+      membershipExpiry: expireAt,
+      priceDisplay: 'abc',
+    });
+
+    expect(
+      context.prismaService.storeMembershipLockedPrice.createMany,
+    ).not.toHaveBeenCalled();
+  });
+
+  /** 桩出门店详情的读取依赖；ownerLastActiveAt 用于验证在线判定 */
+  const stubMemberDetailStore = (
+    ownerLastActiveAt: Date | null,
+    storeOverrides: Record<string, unknown> = {},
+  ): void => {
+    context.prismaService.store.findUnique.mockResolvedValue({
+      id: 18,
+      name: '纯利宝南山店',
+      contactPhone: '13619654020',
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-21T00:00:00.000Z'),
+      owner: {
+        email: 'phone_13619654020@purelyprofit.local',
+        name: null,
+        realName: '张三',
+        avatar: null,
+        wechatPhone: null,
+        lastActiveAt: ownerLastActiveAt,
+      },
+      ...storeOverrides,
+    });
+    context.prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      currentPlanId: 'yearly',
+      expiresAt: new Date('2027-11-09T02:22:50.155Z'),
+      totalPoints: 0,
+      availablePoints: 0,
+    });
+    context.prismaService.storeMembershipPromoRecord.count.mockResolvedValue(0);
+  };
+
+  it('getAdminMemberDetail 最近 10 分钟内有鉴权请求时 isOnline=true', async () => {
+    stubMemberDetailStore(new Date(Date.now() - 5 * 60 * 1000));
+    context.prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
+
+    const result = await context.service.getAdminMemberDetail(context.user, 18);
+
+    expect(result.isOnline).toBe(true);
+  });
+
+  it('getAdminMemberDetail 离线账号 isOnline=false，且刚充过值不会误判为在线', async () => {
+    // 关键反例：lastActiveAt 为空但最近有充值订单 —— 充值时间只用于「活跃」展示兜底，
+    // 不能作为在线依据
+    stubMemberDetailStore(null);
+    const recentOrderAt = new Date(Date.now() - 60 * 1000);
+    context.prismaService.storeMembershipOrder.findMany.mockResolvedValue([
+      {
+        id: 9,
+        planId: 'yearly',
+        planName: '年度会员',
+        amount: 36900,
+        createdAt: recentOrderAt,
+      },
+    ]);
+
+    const result = await context.service.getAdminMemberDetail(context.user, 18);
+
+    expect(result.isOnline).toBe(false);
+    // 展示用的「活跃」仍会兜底到最近充值时间，与在线状态解耦
+    expect(result.lastActiveAt).toBe(recentOrderAt.getTime());
+  });
+
+  it('getAdminMemberDetail 三天前活跃的账号 isOnline=false', async () => {
+    stubMemberDetailStore(new Date(Date.now() - 3 * 24 * 60 * 60 * 1000));
+    context.prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
+
+    const result = await context.service.getAdminMemberDetail(context.user, 18);
+
+    expect(result.isOnline).toBe(false);
+  });
+
+  it('resetAdminMemberLockedPrices 清空门店锁定价并写审计日志', async () => {
+    const loggerWarnSpy = jest
+      .spyOn(context.mutationService['logger'], 'warn')
+      .mockImplementation(() => undefined);
+    jest
+      .spyOn(
+        context.mutationService as never,
+        'assertAdminMemberMutationAccess' as never,
+      )
+      .mockResolvedValue(undefined as never);
+    jest
+      .spyOn(
+        context.memberReadService as never,
+        'buildAdminMemberDetail' as never,
+      )
+      .mockResolvedValue({ id: '18', level: 'annual' } as never);
+    context.prismaService.storeMembershipLockedPrice.deleteMany.mockResolvedValue(
+      { count: 2 },
+    );
+
+    const result = await context.service.resetAdminMemberLockedPrices(
+      context.user,
+      18,
+    );
+
+    expect(
+      context.prismaService.storeMembershipLockedPrice.deleteMany,
+    ).toHaveBeenCalledWith({ where: { storeId: 18 } });
+    expect(loggerWarnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('pulse_admin_membership_locked_price_reset'),
+    );
+    expect(result.id).toBe('18');
   });
 
   it('getAdminMemberDetail 返回平台会员详情', async () => {
@@ -990,6 +1309,22 @@ describe('PulseMembershipService admin', () => {
       totalWithdrawnBeans: 0,
     });
     context.prismaService.storeMembershipPromoRecord.count.mockResolvedValue(2);
+    context.prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue(
+      [
+        {
+          planId: 'lifetime',
+          price: 59800,
+          source: 'admin',
+          lockedAt: new Date('2026-05-20T00:00:00.000Z'),
+        },
+        {
+          planId: 'yearly',
+          price: 58800,
+          source: 'purchase',
+          lockedAt: new Date('2026-05-21T00:00:00.000Z'),
+        },
+      ],
+    );
 
     const result = await context.service.getAdminMemberDetail(context.user, 18);
 
@@ -1005,6 +1340,52 @@ describe('PulseMembershipService admin', () => {
       totalRecharged: 46800,
     });
     expect(result.rechargeHistory).toHaveLength(2);
+    // 首购锁定价快照：元 / 分双口径 + 来源 + 锁定时点，供运营直接查看
+    expect(result.lockedPrices).toEqual([
+      {
+        planId: 'lifetime',
+        price: 59800,
+        priceDisplay: '598',
+        source: 'admin',
+        lockedAt: new Date('2026-05-20T00:00:00.000Z').getTime(),
+      },
+      {
+        planId: 'yearly',
+        price: 58800,
+        priceDisplay: '588',
+        source: 'purchase',
+        lockedAt: new Date('2026-05-21T00:00:00.000Z').getTime(),
+      },
+    ]);
+  });
+
+  it('getAdminMemberDetail 未锁价时返回空数组（而不是字段缺失）', async () => {
+    context.prismaService.store.findUnique.mockResolvedValue({
+      id: 18,
+      name: '纯利宝南山店',
+      contactPhone: '13619654020',
+      createdAt: new Date('2026-05-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-21T00:00:00.000Z'),
+      owner: {
+        email: 'phone_13619654020@purelyprofit.local',
+        name: null,
+        realName: '张三',
+        avatar: null,
+        lastActiveAt: null,
+      },
+    });
+    context.prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      currentPlanId: 'monthly',
+      expiresAt: new Date('2026-06-21T00:00:00.000Z'),
+      totalPoints: 0,
+      availablePoints: 0,
+    });
+    context.prismaService.storeMembershipPromoRecord.count.mockResolvedValue(0);
+    context.prismaService.storeMembershipOrder.findMany.mockResolvedValue([]);
+
+    const result = await context.service.getAdminMemberDetail(context.user, 18);
+
+    expect(result.lockedPrices).toEqual([]);
   });
 
   it('getAdminMemberDetail 不返回开发者账号自身门店', async () => {
@@ -1177,14 +1558,18 @@ describe('PulseMembershipService admin', () => {
     expect(context.prismaService.user.update).toHaveBeenCalledWith({
       where: { id: 301 },
       data: {
-        email: expect.stringMatching(/^cancelled_u301_\d+@purelyprofit\.invalid$/),
+        email: expect.stringMatching(
+          /^cancelled_u301_\d+@purelyprofit\.invalid$/,
+        ),
         wechatPhone: null,
       },
     });
     expect(context.prismaService.user.update).toHaveBeenCalledWith({
       where: { id: 301 },
       data: {
-        email: expect.stringMatching(/^cancelled_u301_\d+@purelyprofit\.invalid$/),
+        email: expect.stringMatching(
+          /^cancelled_u301_\d+@purelyprofit\.invalid$/,
+        ),
         wechatPhone: null,
       },
     });

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Money } from '../../shared/money.utils';
 import { buildCacheRefreshTaskKey } from '../../redis/keys';
 import { buildPulseDashboardRevenueDetailCacheKey } from '../pulse.cache-keys';
 import { RefreshableCacheService } from '../../redis/refreshable-cache.service';
@@ -19,6 +20,7 @@ import {
   formatHourMinute,
   mapRevenuePlanLabel,
   normalizeRegionValues,
+  toRevenueAmountDisplay,
 } from './dashboard-revenue.utils';
 import type {
   DashboardRevenueDetailOrderRow,
@@ -145,6 +147,10 @@ export class PulseDashboardRevenueDetailService {
       (sum, order) => sum + order.amount,
       0,
     );
+    const avgTotal = Money.fromDbCents(currentTotal)
+      .divide(getInclusiveDayCount(currentRange))
+      .toDbCents();
+    const peakTotal = calcRevenuePeakAmount(currentOrders);
     const revenueTypeRows: DashboardRevenueTypeLabelRow[] = currentOrders.map(
       (order) => ({
         typeLabel: mapRevenuePlanLabel(order.planId, order.planName),
@@ -155,13 +161,16 @@ export class PulseDashboardRevenueDetailService {
       revenueTrend: buildRevenueTrend(currentOrders, displayPeriod),
       revenueSummary: {
         total: currentTotal,
-        avg: Math.round(currentTotal / getInclusiveDayCount(currentRange)),
+        totalDisplay: toRevenueAmountDisplay(currentTotal),
+        avg: avgTotal,
+        avgDisplay: toRevenueAmountDisplay(avgTotal),
         growth:
           calculatePercentChange(currentTotal, previousTotal, {
             fallback: 0,
           }) ?? 0,
         orders: currentOrders.length,
-        peak: calcRevenuePeakAmount(currentOrders),
+        peak: peakTotal,
+        peakDisplay: toRevenueAmountDisplay(peakTotal),
       },
       revenueTypeBreakdown: buildRevenueTypeDistribution(revenueTypeRows),
       records: currentOrders
@@ -177,6 +186,7 @@ export class PulseDashboardRevenueDetailService {
             order.store.name,
           type: mapRevenuePlanLabel(order.planId, order.planName),
           amount: order.amount,
+          amountDisplay: toRevenueAmountDisplay(order.amount),
           region: this.buildRevenueRegionText(
             regionCodeMap.get(order.storeId) ?? [],
             order.store.address,

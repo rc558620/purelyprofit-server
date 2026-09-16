@@ -109,7 +109,41 @@ export class PlatformMembershipPlanResponseDto {
   })
   @IsOptional()
   @IsInt({ message: '月均价格必须是整数' })
-  monthlyPrice?: number;
+  monthlyPrice?: number | null;
+
+  @ApiPropertyOptional({
+    example: true,
+    description:
+      '是否命中「首购锁定价」：已开通子账号功能的门店按首次成交价续费',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '锁价标记必须是布尔值' })
+  lockedPrice?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '是否隐藏划线原价（永久会员无原价配置）',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '隐藏原价标记必须是布尔值' })
+  hideOriginalPrice?: boolean;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: '是否隐藏月均价（永久会员无时长配置）',
+  })
+  @IsOptional()
+  @IsBoolean({ message: '隐藏月均标记必须是布尔值' })
+  hideMonthlyPrice?: boolean;
+
+  @ApiPropertyOptional({
+    example: 5,
+    description:
+      '本档位包含的子账号数量；门店已开通子账号功能时下发，前端在该展示位渲染「包含 x 个子账号」替代划线原价',
+  })
+  @IsOptional()
+  @IsInt({ message: '子账号数量必须是整数' })
+  subAccountIncludedCount?: number;
 }
 
 export class PlatformMembershipPlanRuleRowDto {
@@ -163,27 +197,42 @@ export class PlatformMembershipCapabilitiesDto {
   @IsString({ message: '会员档位必须是字符串' })
   level: string;
 
-  @ApiPropertyOptional({ example: 3, description: '商品数上限，null 表示不限制' })
+  @ApiPropertyOptional({
+    example: 3,
+    description: '商品数上限，null 表示不限制',
+  })
   @IsOptional()
   @IsInt({ message: '商品数上限必须是整数' })
   productLimit: number | null;
 
-  @ApiPropertyOptional({ example: 1, description: '商品分类上限，null 表示不限制' })
+  @ApiPropertyOptional({
+    example: 1,
+    description: '商品分类上限，null 表示不限制',
+  })
   @IsOptional()
   @IsInt({ message: '商品分类上限必须是整数' })
   categoryLimit: number | null;
 
-  @ApiPropertyOptional({ example: 5, description: '员工数上限，null 表示不限制' })
+  @ApiPropertyOptional({
+    example: 5,
+    description: '员工数上限，null 表示不限制',
+  })
   @IsOptional()
   @IsInt({ message: '员工数上限必须是整数' })
   employeeLimit: number | null;
 
-  @ApiPropertyOptional({ example: 7, description: '历史数据天数上限，null 表示不限时段' })
+  @ApiPropertyOptional({
+    example: 7,
+    description: '历史数据天数上限，null 表示不限时段',
+  })
   @IsOptional()
   @IsInt({ message: '历史数据天数上限必须是整数' })
   historyLimitDays: number | null;
 
-  @ApiPropertyOptional({ example: 1, description: '空间数上限，null 表示不限制' })
+  @ApiPropertyOptional({
+    example: 1,
+    description: '空间数上限，null 表示不限制',
+  })
   @IsOptional()
   @IsInt({ message: '空间数上限必须是整数' })
   spaceLimit: number | null;

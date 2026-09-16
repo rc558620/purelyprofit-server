@@ -82,13 +82,19 @@ export class PlatformMembershipController {
   }
 
   @Get('plans')
-  @ApiOperation({ summary: '获取会员套餐列表' })
+  @ApiOperation({ summary: '获取当前门店可续费套餐列表' })
   @ApiOkResponse({
-    description: '返回前端 memberPlans 页面所需的套餐列表',
+    description:
+      '返回前端 memberPlans 页面所需的套餐列表：已开通子账号功能的门店只返回当前档位，' +
+      '命中首购锁定价的档位返回锁定价（lockedPrice=true）；' +
+      '已开通子账号功能的门店不下发划线原价（原价是不含子账号的旧价），' +
+      '改下发 subAccountIncludedCount，前端在价格位展示「包含 x 个子账号」',
     type: [PlatformMembershipPlanResponseDto],
   })
-  listPlans(): Promise<PlatformMembershipPlanResponseDto[]> {
-    return this.platformMembershipService.listPlans();
+  listPlans(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<PlatformMembershipPlanResponseDto[]> {
+    return this.platformMembershipService.listRenewalPlans(user);
   }
 
   @Get('rules')

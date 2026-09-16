@@ -11,11 +11,13 @@ import {
 // ─── 降级态对外文案（面向顾客与商家，均不暴露"欠费"语义）──────────────
 
 /** 餐饮门店扫码点餐被拦截时的提示 */
-export const SCAN_ORDER_BLOCKED_MESSAGE = '该门店暂时无法在线点单，请到前台点餐';
+export const SCAN_ORDER_BLOCKED_MESSAGE =
+  '该门店暂时无法在线点单，请到前台点餐';
 /** 非餐饮门店自助下单被拦截时的提示 */
 export const SELF_ORDER_BLOCKED_MESSAGE = '该门店暂时无法自助下单，请联系商家';
 /** 会员专区（营销商品购买）被拦截时的提示 */
-export const MEMBER_ZONE_ORDER_BLOCKED_MESSAGE = '会员服务暂时不可用，请联系商家';
+export const MEMBER_ZONE_ORDER_BLOCKED_MESSAGE =
+  '会员服务暂时不可用，请联系商家';
 /** B 端追加点单「确认并记账」被拦截时的提示（餐饮 + 非餐饮到期账号） */
 export const ADDITIONAL_BLOCKED_MESSAGE =
   '会员已到期，追加点单需续费后使用。已录入的商品和历史订单完整保留，不会删除。';
@@ -277,13 +279,18 @@ export class MembershipDowngradeService {
   }
 
   /** 查询今日已手动录单数（未过期恒为 0） */
-  async getManualEntryUsage(storeId: number): Promise<{ used: number; limit: number }> {
+  async getManualEntryUsage(
+    storeId: number,
+  ): Promise<{ used: number; limit: number }> {
     const state = await this.getDowngradeState(storeId);
     if (!state.isExpired) {
       return { used: 0, limit: MANUAL_ENTRY_DAILY_LIMIT };
     }
 
-    return { used: await this.readManualEntryCount(storeId), limit: MANUAL_ENTRY_DAILY_LIMIT };
+    return {
+      used: await this.readManualEntryCount(storeId),
+      limit: MANUAL_ENTRY_DAILY_LIMIT,
+    };
   }
 
   // ─── 内部工具 ────────────────────────────────────────────────────────
@@ -298,17 +305,18 @@ export class MembershipDowngradeService {
     cacheKey: string,
   ): Promise<StoreDowngradeState | null> {
     try {
-      const raw = await this.redisService.getJson<StoreDowngradeState>(cacheKey);
+      const raw =
+        await this.redisService.getJson<StoreDowngradeState>(cacheKey);
       if (!raw || typeof raw !== 'object') {
         return null;
       }
 
       // 逐字段校验，避免半截数据被当成有效状态
       if (
-        typeof raw.isExpired !== 'boolean'
-        || typeof raw.level !== 'string'
-        || typeof raw.remainingDays !== 'number'
-        || (raw.expiredAt !== null && typeof raw.expiredAt !== 'number')
+        typeof raw.isExpired !== 'boolean' ||
+        typeof raw.level !== 'string' ||
+        typeof raw.remainingDays !== 'number' ||
+        (raw.expiredAt !== null && typeof raw.expiredAt !== 'number')
       ) {
         return null;
       }
@@ -316,8 +324,8 @@ export class MembershipDowngradeService {
       return raw;
     } catch (error) {
       this.logger.warn(
-        `读取会员降级态缓存失败，改为回源：key=${cacheKey}, `
-          + `error=${error instanceof Error ? error.message : String(error)}`,
+        `读取会员降级态缓存失败，改为回源：key=${cacheKey}, ` +
+          `error=${error instanceof Error ? error.message : String(error)}`,
       );
       return null;
     }
@@ -336,8 +344,8 @@ export class MembershipDowngradeService {
       );
     } catch (error) {
       this.logger.warn(
-        `写入会员降级态缓存失败（不影响本次判定）：key=${cacheKey}, `
-          + `error=${error instanceof Error ? error.message : String(error)}`,
+        `写入会员降级态缓存失败（不影响本次判定）：key=${cacheKey}, ` +
+          `error=${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -353,8 +361,8 @@ export class MembershipDowngradeService {
       // 不应因为计数组件故障就阻断商家录单这种直接影响营业的操作。
       // 仅告警，由监控发现后跟进。
       this.logger.warn(
-        `读取手动录单计数失败，本次按未超限处理：storeId=${storeId}, `
-          + `error=${error instanceof Error ? error.message : String(error)}`,
+        `读取手动录单计数失败，本次按未超限处理：storeId=${storeId}, ` +
+          `error=${error instanceof Error ? error.message : String(error)}`,
       );
       return 0;
     }

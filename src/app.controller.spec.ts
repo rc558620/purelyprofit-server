@@ -21,6 +21,7 @@ import type {
 } from './observability';
 import { PrismaService } from './prisma/prisma.service';
 import { RedisService } from './redis/redis.service';
+import { ScanOrderingRealtimeService } from './purely-club/scan-ordering/scan-ordering-realtime.service';
 import { aNonEmptyString, aNonNegativeNumber } from './spec-matchers';
 
 describe('AppController', () => {
@@ -32,11 +33,15 @@ describe('AppController', () => {
   const redisService = {
     checkReadiness: jest.fn().mockResolvedValue(undefined),
   };
+  const scanOrderingRealtimeService = {
+    checkReadiness: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(async () => {
     resetRuntimeMetrics();
     prismaService.checkReadiness.mockResolvedValue(undefined);
     redisService.checkReadiness.mockResolvedValue(undefined);
+    scanOrderingRealtimeService.checkReadiness.mockResolvedValue(undefined);
 
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
@@ -44,6 +49,10 @@ describe('AppController', () => {
         AppService,
         { provide: PrismaService, useValue: prismaService },
         { provide: RedisService, useValue: redisService },
+        {
+          provide: ScanOrderingRealtimeService,
+          useValue: scanOrderingRealtimeService,
+        },
       ],
     }).compile();
 
@@ -108,6 +117,11 @@ describe('AppController', () => {
           },
           {
             name: 'redis',
+            status: 'up',
+            latencyMs: aNonNegativeNumber,
+          },
+          {
+            name: 'realtime',
             status: 'up',
             latencyMs: aNonNegativeNumber,
           },

@@ -1,10 +1,22 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { StaffRole, StaffStatus, StoreSubAccountStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   MEMBERSHIP_EXPIRED_ERROR_CODE,
   MembershipDowngradeService,
 } from '../member/platform-membership/membership-downgrade.service';
 import { AuthMembershipQueryService } from './auth-membership-query.service';
+
+/**
+ * 子账号席位已被店主关闭（额度归零 / 收缩槽位）时的登录文案。
+ *
+ * 与「会员到期」区分开：这里是店主主动关闭了子账号能力，子账号自己同样
+ * 无能为力，只能找店主重新配置席位。
+ */
+export const SUB_ACCOUNT_SEAT_REVOKED_MESSAGE =
+  '该账号的子账号权限已被关闭，请联系店主重新配置后再登录';
+
+export const SUB_ACCOUNT_SEAT_REVOKED_ERROR_CODE = 'SUB_ACCOUNT_SEAT_REVOKED';
 
 /**
  * 子账号因主账号会员到期被拒绝登录时的提示文案。
@@ -72,6 +84,74 @@ export class AuthMembershipLoginGuardService {
       statusCode: 403,
       message: SUB_ACCOUNT_MEMBERSHIP_EXPIRED_MESSAGE,
       code: MEMBERSHIP_EXPIRED_ERROR_CODE,
+    });
+  }
+
+  /**
+   * 员工账号失去子账号席位后拒绝登录。
+   *
+   * 关闭子账号额度时会回收槽位并吊销凭证，但存量数据里仍可能残留
+   * 「Staff 行还是 active、槽位早已 disabled」的账号：它能通过密码校验，
+   * 却拿不到任何会员上下文（鉴权 join 要求 active + 已分配 + 可进首页），
+   * 登录后只能看到一个空壳工作台。这里按同一口径判定并直接拒绝。
+   *
+   * 放行条件（避免误伤主账号）：
+   * - 该用户持有主账号身份（owner / manager，或未挂员工档案的 Staff 行）；
+   * - 或该用户名下仍有其它门店的有效子账号席位（多店员工）。
+   */
+  async ensureStaffSubAccountSeatGranted(userId: number): Promise<void> {
+    const staffRows = await this.prisma.staff.findMany({
+      where: {
+        userId,
+        isActive: true,
+        status: StaffStatus.active,
+        store: { deletedAt: null },
+      },
+      select: {
+        role: true,
+        employeeProfile: {
+          select: {
+            subAccounts: {
+              select: {
+                status: true,
+                isAssigned: true,
+                canAccessHome: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // 没有 active Staff 行时轮不到这里说话：账号查找阶段已判为账号或密码错误
+    if (staffRows.length === 0) {
+      return;
+    }
+
+    const hasPrimaryIdentity = staffRows.some(
+      (row) => row.role !== StaffRole.staff || !row.employeeProfile,
+    );
+    if (hasPrimaryIdentity) {
+      return;
+    }
+
+    const hasActiveSeat = staffRows.some((row) => {
+      const seat = row.employeeProfile?.subAccounts;
+      return (
+        seat != null &&
+        seat.status === StoreSubAccountStatus.active &&
+        seat.isAssigned &&
+        seat.canAccessHome
+      );
+    });
+    if (hasActiveSeat) {
+      return;
+    }
+
+    throw new ForbiddenException({
+      statusCode: 403,
+      message: SUB_ACCOUNT_SEAT_REVOKED_MESSAGE,
+      code: SUB_ACCOUNT_SEAT_REVOKED_ERROR_CODE,
     });
   }
 

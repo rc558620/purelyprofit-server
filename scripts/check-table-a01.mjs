@@ -1,17 +1,11 @@
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 
-// 加载环境变量
-const envPath = process.env['ENV_PATH'] || './.env';
-try {
-  const fs = await import('fs');
-  if (fs.existsSync(envPath)) {
-    const dotenv = await import('dotenv/config');
-  }
-} catch (e) {
-  // dotenv 未安装或.env 不存在，继续执行
-}
-
-const prisma = new PrismaClient();
+// Prisma 7 的 datasource 不写 url（见 prisma/schema.prisma），必须显式传驱动适配器
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 async function main() {
   const tableCode = 'A01'; // 在这里输入你要查询的桌台编码
@@ -130,6 +124,7 @@ async function main() {
     throw error;
   } finally {
     await prisma.$disconnect();
+    await pool.end();
   }
 }
 

@@ -16,6 +16,9 @@ model StoreMembershipProfile {
   id                   Int                        @id @default(autoincrement())
   storeId              Int                        @unique @map("store_id")
   currentPlanId        MembershipPlanCycle?       @map("current_plan_id")
+  /// 降级到免费时保留的原档位：`currentPlanId` 会被清空，续费页将无法判断
+  /// 「原本买的是哪一档」，必须回落读本字段，否则 AGES 门店会被错判成年度档
+  previousPlanId       MembershipPlanCycle?       @map("previous_plan_id")
   startsAt             DateTime?                  @map("starts_at")
   expiresAt            DateTime?                  @map("expires_at")
   totalPoints          Int                        @default(0) @map("total_points")
@@ -56,6 +59,26 @@ model StoreMembershipOrder {
   @@index([status, createdAt])
   @@index([storeId, status, createdAt])
   @@map("store_membership_orders")
+}
+
+/// 会员套餐「首购锁定价」：
+/// 有子账号功能（pulseSubAccountQuota > 0）的门店按首次成交价续费，
+/// 避免平台调高含子账号权益的套餐价后影响老客。
+model StoreMembershipLockedPrice {
+  id        Int                              @id @default(autoincrement())
+  storeId   Int                              @map("store_id")
+  planId    MembershipPlanCycle              @map("plan_id")
+  /// 锁定价格（分）
+  price     Int
+  /// 锁价来源：purchase=商家端下单成交，admin=平台侧设置会员等级成交
+  source    StoreMembershipLockedPriceSource @default(purchase)
+  lockedAt  DateTime                         @default(now()) @map("locked_at")
+  createdAt DateTime                         @default(now()) @map("created_at")
+  updatedAt DateTime                         @updatedAt @map("updated_at")
+  store     Store                            @relation(fields: [storeId], references: [id])
+
+  @@unique([storeId, planId])
+  @@map("store_membership_locked_prices")
 }
 
 model StoreMembershipPointsLog {
@@ -124,4 +147,9 @@ enum MembershipOrderStatus {
 
 enum MembershipPaymentChannel {
   wechat
+}
+
+enum StoreMembershipLockedPriceSource {
+  purchase
+  admin
 }

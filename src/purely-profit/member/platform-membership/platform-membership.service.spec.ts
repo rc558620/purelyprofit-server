@@ -14,6 +14,10 @@ import { PlatformMembershipPartnerService } from './platform-membership-partner.
 import { PlatformMembershipReadService } from './platform-membership-read.service';
 import { PlatformMembershipService } from './platform-membership.service';
 import { buildMembershipCapabilities } from './platform-membership-access.shared';
+import { MembershipRenewalService } from './membership-renewal.service';
+import { PlatformMembershipAccessService } from './platform-membership-access.service';
+import { StoreMembershipLockedPriceService } from './store-membership-locked-price.service';
+import { SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE } from './membership-renewal-policy.shared';
 
 describe('PlatformMembershipService', () => {
   let service: PlatformMembershipService;
@@ -50,6 +54,8 @@ describe('PlatformMembershipService', () => {
     storeMembershipProfile: {
       upsert: jest.fn(),
       update: jest.fn(),
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     membershipPlanSetting: {
       findMany: jest.fn(),
@@ -67,6 +73,11 @@ describe('PlatformMembershipService', () => {
     },
     storeMembershipPromoRecord: {
       findMany: jest.fn(),
+    },
+    storeMembershipLockedPrice: {
+      findMany: jest.fn().mockResolvedValue([]),
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     storeInviteCode: {
       findFirst: jest.fn(),
@@ -213,8 +224,22 @@ describe('PlatformMembershipService', () => {
     expect(result.order.planId).toBe(planId);
   };
 
+  // 统一在每个用例结束后恢复真实计时器：用例内的 useFakeTimers 一旦泄漏，
+  // 后续依赖真实时钟（比较 expiresAt / now）的用例会静默失真
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   beforeEach(async () => {
     jest.clearAllMocks();
+    // 默认档案：未开通子账号功能 → 续费按配置价，不命中首购锁定价
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      currentPlanId: null,
+      startsAt: null,
+      expiresAt: null,
+      subAccountQuota: 0,
+      pulseSubAccountQuota: null,
+    });
     prismaService.storePartner.findFirst.mockImplementation(
       (...args: unknown[]) => prismaService.storePartner.findUnique(...args),
     );
@@ -296,6 +321,9 @@ describe('PlatformMembershipService', () => {
         PlatformMembershipOrderService,
         PlatformMembershipPromoService,
         PlatformMembershipPromoBeanReconciliationService,
+        PlatformMembershipAccessService,
+        StoreMembershipLockedPriceService,
+        MembershipRenewalService,
         { provide: PrismaService, useValue: prismaService },
         { provide: ConfigService, useValue: configService },
         { provide: RefreshableCacheService, useValue: refreshableCache },
@@ -1881,6 +1909,10 @@ describe('PlatformMembershipService', () => {
   });
 
   it('purchaseOrder 使用积分和纯利豆后创建 paid 订单并更新会员状态', async () => {
+    // 冻结时间到 2026-06-10：响应档案取自 update 返回（expiresAt=2026-08-18），
+    // 只有 now 早于该到期时间才会被判定为有效会员（否则用真实时钟会随时间失效）
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T00:00:00.000Z'));
+
     const partnerWithBeans = {
       id: 11,
       storeId: 18,
@@ -2222,6 +2254,10 @@ describe('PlatformMembershipService', () => {
   });
 
   it('purchaseOrder 购买低等级套餐时不覆盖当前高等级会员', async () => {
+    // 冻结时间到 2026-06-10：当前季度会员 expiresAt=2026-08-20 必须仍在有效期内，
+    // 才会走「降级只加时长、不覆盖档位」分支（否则用真实时钟会随时间失效）
+    jest.useFakeTimers().setSystemTime(new Date('2026-06-10T00:00:00.000Z'));
+
     prismaService.store.findFirst.mockResolvedValue({ id: 18 });
     prismaService.storeMembershipProfile.upsert.mockResolvedValue({
       id: 3,
@@ -2340,5 +2376,151 @@ describe('PlatformMembershipService', () => {
         useBeans: 10,
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  // ── 已开通子账号功能的门店：月 / 季硬拦截 + 首购锁定价结算 ────────────────
+
+  /** 档案：有效年度会员 + 子账号配额 2（口径 enabled = pulseSubAccountQuota > 0） */
+  const stubActiveSubAccountYearlyProfile = (): void => {
+    const dayMs = 24 * 60 * 60 * 1000;
+    prismaService.storeMembershipProfile.findUnique.mockResolvedValue({
+      currentPlanId: 'yearly',
+      startsAt: new Date(Date.now() - 30 * dayMs),
+      expiresAt: new Date(Date.now() + 30 * dayMs),
+      subAccountQuota: 0,
+      pulseSubAccountQuota: 2,
+    });
+  };
+
+  const stubPurchasableStore = (): void => {
+    prismaService.store.findFirst.mockResolvedValue({ id: 18 });
+    prismaService.storeMembershipProfile.upsert.mockResolvedValue({
+      id: 3,
+      storeId: 18,
+      currentPlanId: 'yearly',
+      startsAt: new Date('2026-05-01T00:00:00.000Z'),
+      expiresAt: new Date('2027-05-01T00:00:00.000Z'),
+      totalPoints: 0,
+      availablePoints: 0,
+    });
+    prismaService.storePartner.findUnique.mockResolvedValue(null);
+    prismaService.storeMembershipProfile.update.mockResolvedValue({
+      id: 3,
+      storeId: 18,
+      currentPlanId: 'yearly',
+      startsAt: new Date('2026-05-01T00:00:00.000Z'),
+      expiresAt: new Date('2028-05-01T00:00:00.000Z'),
+      totalPoints: 0,
+      availablePoints: 0,
+    });
+    prismaService.storeMembershipOrder.create.mockResolvedValue({
+      id: 41,
+      planId: 'yearly',
+      planName: '年度会员',
+      amount: 58800,
+      pointsUsed: 0,
+      beansUsed: 0,
+      status: 'paid',
+      paymentChannel: 'wechat',
+      paymentOrderId: 'WX18130001',
+      createdAt: new Date('2026-06-10T00:00:00.000Z'),
+    });
+  };
+
+  it('previewOrder 已开通子账号功能时拒绝月度 / 季度，放行年度', async () => {
+    stubPurchasableStore();
+    stubActiveSubAccountYearlyProfile();
+
+    await expect(
+      service.previewOrder(user, { planId: 'monthly' }),
+    ).rejects.toThrow(SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE);
+    await expect(
+      service.previewOrder(user, { planId: 'quarterly' }),
+    ).rejects.toThrow(SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE);
+
+    await expect(
+      service.previewOrder(user, { planId: 'yearly' }),
+    ).resolves.toMatchObject({ planPrice: 36900 });
+  });
+
+  it('previewOrder 命中首购锁定价时预览价等于锁定价（看到的价格 = 实付）', async () => {
+    stubPurchasableStore();
+    stubActiveSubAccountYearlyProfile();
+    prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
+      { planId: 'yearly', price: 58800 },
+    ]);
+
+    await expect(
+      service.previewOrder(user, { planId: 'yearly' }),
+    ).resolves.toMatchObject({ planPrice: 58800, finalAmount: 58800 });
+  });
+
+  it('purchaseOrder 已开通子账号功能时拒绝月度 / 季度且不落单', async () => {
+    stubPurchasableStore();
+    stubActiveSubAccountYearlyProfile();
+
+    await expect(
+      service.purchaseOrder(user, { planId: 'monthly' }),
+    ).rejects.toThrow(SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE);
+    await expect(
+      service.purchaseOrder(user, { planId: 'quarterly' }),
+    ).rejects.toThrow(SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE);
+
+    expect(prismaService.storeMembershipOrder.create).not.toHaveBeenCalled();
+  });
+
+  it('purchaseOrder 命中首购锁定价时按锁定价成交并写入首购快照', async () => {
+    stubPurchasableStore();
+    stubActiveSubAccountYearlyProfile();
+    prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
+      { planId: 'yearly', price: 58800 },
+    ]);
+
+    const result = await service.purchaseOrder(user, { planId: 'yearly' });
+
+    expect(prismaService.storeMembershipOrder.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          planId: 'yearly',
+          // 成交金额取锁定价（配置价 36900），而不是当前配置价
+          originalAmount: 58800,
+          amount: 58800,
+        }),
+      }),
+    );
+    expect(result.order.planId).toBe('yearly');
+
+    // 首次成交价快照：source=purchase + skipDuplicates 保证「已存在不覆盖」
+    expect(
+      prismaService.storeMembershipLockedPrice.createMany,
+    ).toHaveBeenCalledWith({
+      data: [
+        { storeId: 18, planId: 'yearly', price: 58800, source: 'purchase' },
+      ],
+      skipDuplicates: true,
+    });
+  });
+
+  it('purchaseOrder 锁定价已存在（createMany 命中重复返回 0）时仍按原锁定价成交', async () => {
+    stubPurchasableStore();
+    stubActiveSubAccountYearlyProfile();
+    prismaService.storeMembershipLockedPrice.findMany.mockResolvedValue([
+      { planId: 'yearly', price: 30000 },
+    ]);
+    prismaService.storeMembershipLockedPrice.createMany.mockResolvedValue({
+      count: 0,
+    });
+
+    const result = await service.purchaseOrder(user, { planId: 'yearly' });
+
+    expect(result.order.planId).toBe('yearly');
+    expect(prismaService.storeMembershipOrder.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          originalAmount: 30000,
+          amount: 30000,
+        }),
+      }),
+    );
   });
 });

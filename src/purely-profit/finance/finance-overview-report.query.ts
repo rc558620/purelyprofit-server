@@ -63,6 +63,61 @@ export async function queryOverviewCashFlowRecords(
   });
 }
 
+export type FinanceReportCashFlowRow = Pick<
+  FinanceCashFlowRecordWithAmount,
+  | 'id'
+  | 'date'
+  | 'createdAt'
+  | 'title'
+  | 'direction'
+  | 'category'
+  | 'amount'
+  | 'payment'
+>;
+
+export type FinanceReportCashFlowTotals = Array<
+  Pick<FinanceCashFlowStatsRow, 'direction' | 'amount'>
+>;
+
+export interface FinanceReportQueryResult {
+  /** 仅用于渲染明细行，受 maxPageSize 上限约束，不得用于汇总 */
+  currentCashFlowRecords: FinanceReportCashFlowRow[];
+  /** 本期收支汇总，SQL 聚合，不受明细分页上限影响 */
+  currentCashFlowTotals: FinanceReportCashFlowTotals;
+  /** 本期真实流水条数，SQL COUNT，不受明细分页上限影响 */
+  currentCashFlowCount: number;
+  /** 上期收支汇总，SQL 聚合 */
+  previousCashFlowTotals: FinanceReportCashFlowTotals;
+  accountRecords: FinanceAccountRecordWithAmount[];
+}
+
+/**
+ * 按方向聚合区间内流水金额（SQL SUM）。
+ * 汇总必须走 SQL 聚合，不能用明细行在内存里累加 —— 明细行有 maxPageSize 上限，
+ * 超限时会导致本期金额被低估、与不受限的上期 SUM 对比后环比严重失真。
+ */
+async function queryCashFlowDirectionTotals(
+  prisma: PrismaService,
+  params: { storeId: number; start: number; end: number },
+): Promise<FinanceReportCashFlowTotals> {
+  const rows = await prisma.financeCashFlowRecord.groupBy({
+    by: ['direction'],
+    where: {
+      storeId: params.storeId,
+      date: {
+        gte: new Date(params.start),
+        lte: new Date(params.end),
+      },
+    },
+    _sum: { amount: true },
+  });
+
+  return rows.map((row) => ({
+    direction: row.direction,
+    amount: Number(row._sum.amount ?? 0), // 数据库分，后续统一在 domain 层转元
+  }));
+}
+
 export async function queryFinanceReportData(
   prisma: PrismaService,
   params: {
@@ -71,97 +126,74 @@ export async function queryFinanceReportData(
     previousRange: { start: number; end: number; empty: boolean } | null;
   },
   maxPageSize = 5000,
-): Promise<{
-  currentCashFlowRecords: Array<
-    Pick<
-      FinanceCashFlowRecordWithAmount,
-      | 'id'
-      | 'date'
-      | 'createdAt'
-      | 'title'
-      | 'direction'
-      | 'category'
-      | 'amount'
-      | 'payment'
-    >
-  >;
-  previousCashFlowRecords: Array<
-    Pick<FinanceCashFlowStatsRow, 'direction' | 'amount'>
-  >;
-  accountRecords: FinanceAccountRecordWithAmount[];
-}> {
-  const currentCashFlowRecordsPromise = params.currentRange.empty
-    ? Promise.resolve<
-        Array<
-          Pick<
-            FinanceCashFlowRecordWithAmount,
-            | 'id'
-            | 'date'
-            | 'createdAt'
-            | 'title'
-            | 'direction'
-            | 'category'
-            | 'amount'
-            | 'payment'
-          >
-        >
-      >([])
+): Promise<FinanceReportQueryResult> {
+  const currentEmpty = params.currentRange.empty;
+  const currentRangeWhere = {
+    storeId: params.storeId,
+    date: {
+      gte: new Date(params.currentRange.start),
+      lte: new Date(params.currentRange.end),
+    },
+  };
+
+  const currentCashFlowRecordsPromise = currentEmpty
+    ? Promise.resolve<FinanceReportCashFlowRow[]>([])
     : prisma.financeCashFlowRecord.findMany({
-        where: {
-          storeId: params.storeId,
-          date: {
-            gte: new Date(params.currentRange.start),
-            lte: new Date(params.currentRange.end),
-          },
-        },
+        where: currentRangeWhere,
         select: financeReportCashFlowSelect,
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
         take: maxPageSize,
       });
 
-  const previousCashFlowRowsPromise = (async (): Promise<
-    Array<Pick<FinanceCashFlowStatsRow, 'direction' | 'amount'>>
-  > => {
-    if (!params.previousRange || params.previousRange.empty) {
-      return [];
-    }
-    const rows = await prisma.financeCashFlowRecord.groupBy({
-      by: ['direction'],
-      where: {
+  const currentCashFlowTotalsPromise = currentEmpty
+    ? Promise.resolve<FinanceReportCashFlowTotals>([])
+    : queryCashFlowDirectionTotals(prisma, {
         storeId: params.storeId,
-        date: {
-          gte: new Date(params.previousRange.start),
-          lte: new Date(params.previousRange.end),
-        },
-      },
-      _sum: { amount: true },
-    });
-    return rows.map((row) => ({
-      direction: row.direction,
-      amount: Number(row._sum.amount ?? 0), // 数据库分，后续统一在 domain 层转元
-    }));
-  })();
+        start: params.currentRange.start,
+        end: params.currentRange.end,
+      });
+
+  const currentCashFlowCountPromise = currentEmpty
+    ? Promise.resolve(0)
+    : prisma.financeCashFlowRecord.count({ where: currentRangeWhere });
+
+  const previousCashFlowTotalsPromise =
+    !params.previousRange || params.previousRange.empty
+      ? Promise.resolve<FinanceReportCashFlowTotals>([])
+      : queryCashFlowDirectionTotals(prisma, {
+          storeId: params.storeId,
+          start: params.previousRange.start,
+          end: params.previousRange.end,
+        });
 
   const accountRecordsPromise = prisma.financeAccountRecord.findMany({
     where: buildDerivedOpenAccountWhere({
       storeId: params.storeId,
-      now: params.currentRange.end,
     }),
     select: financeReportAccountSelect,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: maxPageSize,
   });
 
-  const [currentCashFlowRecords, previousCashFlowRows, accountRecords] =
-    await Promise.all([
-      currentCashFlowRecordsPromise,
-      previousCashFlowRowsPromise,
-      accountRecordsPromise,
-    ]);
+  const [
+    currentCashFlowRecords,
+    currentCashFlowTotals,
+    currentCashFlowCount,
+    previousCashFlowTotals,
+    accountRecords,
+  ] = await Promise.all([
+    currentCashFlowRecordsPromise,
+    currentCashFlowTotalsPromise,
+    currentCashFlowCountPromise,
+    previousCashFlowTotalsPromise,
+    accountRecordsPromise,
+  ]);
 
   return {
     currentCashFlowRecords,
-    previousCashFlowRecords: previousCashFlowRows,
+    currentCashFlowTotals,
+    currentCashFlowCount,
+    previousCashFlowTotals,
     accountRecords,
   };
 }

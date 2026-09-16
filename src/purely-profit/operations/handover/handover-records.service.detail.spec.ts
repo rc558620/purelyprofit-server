@@ -107,7 +107,11 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         },
       ]);
       prismaService.saleOrder.count.mockResolvedValue(1);
+      // aggregate 调用顺序：① 扫码点餐收入 ② additionalRevenue（非空间会话、非扫码点餐）
       prismaService.saleOrder.aggregate
+        .mockResolvedValueOnce({
+          _sum: { totalRevenue: null },
+        })
         .mockResolvedValueOnce({
           _sum: { totalRevenue: new Prisma.Decimal('555.00') },
         })
@@ -164,7 +168,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
               gte: new Date('2026-06-04T09:00:00.000Z'),
               lte: new Date('2026-06-04T15:00:00.000Z'),
             },
-            refund: { is: null },
+            // 与实时交班页口径一致：订单数不再排除退款单
           },
         }),
       );
@@ -220,7 +224,11 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         },
       ]);
       prismaService.saleOrder.count.mockResolvedValue(1);
+      // aggregate 调用顺序：① 扫码点餐收入 ② additionalRevenue（非空间会话、非扫码点餐）
       prismaService.saleOrder.aggregate
+        .mockResolvedValueOnce({
+          _sum: { totalRevenue: null },
+        })
         .mockResolvedValueOnce({
           _sum: { totalRevenue: new Prisma.Decimal('88.00') },
         })
@@ -243,7 +251,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
               gte: new Date(2026, 5, 4, 9, 0, 0),
               lte: overdueHandoverAt,
             },
-            refund: { is: null },
+            // 与实时交班页口径一致：订单数不再排除退款单
           },
         }),
       );
@@ -354,7 +362,11 @@ describe('HandoverRecordsService - 详情与摘要', () => {
         },
       });
       prismaService.saleOrder.count.mockResolvedValue(1);
+      // aggregate 调用顺序：① 扫码点餐收入 ② additionalRevenue（非空间会话、非扫码点餐）
       prismaService.saleOrder.aggregate
+        .mockResolvedValueOnce({
+          _sum: { totalRevenue: null },
+        })
         .mockResolvedValueOnce({
           _sum: { totalRevenue: new Prisma.Decimal('567.00') },
         })
@@ -405,7 +417,7 @@ describe('HandoverRecordsService - 详情与摘要', () => {
               gte: new Date(2026, 5, 5, 16, 1, 0),
               lte: new Date(2026, 5, 5, 17, 5, 0),
             },
-            refund: { is: null },
+            // 与实时交班页口径一致：订单数不再排除退款单
           },
         }),
       );
@@ -453,7 +465,11 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           },
         },
       ]);
+      // aggregate 调用顺序：① 扫码点餐收入 ② additionalRevenue（非空间会话、非扫码点餐）
       prismaService.saleOrder.aggregate
+        .mockResolvedValueOnce({
+          _sum: { totalRevenue: null },
+        })
         .mockResolvedValueOnce({
           _sum: { totalRevenue: new Prisma.Decimal('1004.65') },
         })
@@ -524,7 +540,11 @@ describe('HandoverRecordsService - 详情与摘要', () => {
           },
         },
       ]);
+      // aggregate 调用顺序：① 扫码点餐收入 ② additionalRevenue（非空间会话、非扫码点餐）
       prismaService.saleOrder.aggregate
+        .mockResolvedValueOnce({
+          _sum: { totalRevenue: null },
+        })
         .mockResolvedValueOnce({
           _sum: { totalRevenue: new Prisma.Decimal('567.00') },
         })

@@ -1,26 +1,50 @@
 import * as childProcess from 'node:child_process';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import fastify from 'fastify';
 import {
   bootstrap,
   filterSwaggerDocumentForEnvironment,
   createRequestIdGenerator,
 } from './main';
 
+// 注意：必须保留 @nestjs/core 的其余导出。
+// bootstrap 链路里的 new IoAdapter(app) 依赖 @nestjs/core 的 NestApplication 做
+// instanceof 判断，若整个模块被替换成只有 NestFactory 的对象，
+// 会退化成 `x instanceof undefined` → TypeError。
 jest.mock('@nestjs/core', () => ({
+  ...jest.requireActual('@nestjs/core'),
   NestFactory: {
     create: jest.fn(),
   },
 }));
 
+// 注意：这里的 factory 会替换整个 node:child_process 模块，
+// 所有被 import 链触达的导出（如 usb-print.service 的 execFile）都必须补齐，
+// 否则下游 promisify(execFile) 会因 execFile 为 undefined 在模块加载期直接抛错。
 jest.mock('node:child_process', () => ({
   spawnSync: jest.fn(),
+  execFile: jest.fn(
+    (
+      _file: string,
+      _args: readonly string[],
+      _options: unknown,
+      callback?: (error: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      callback?.(null, '', '');
+    },
+  ),
 }));
 
 describe('main bootstrap', () => {
   const createMock = NestFactory.create as jest.MockedFunction<
     typeof NestFactory.create
   >;
+
+  // bootstrap 链路会在 Fastify 实例上注册插件/钩子/原生路由
+  // （WebSocket、print-agent 注册等），用真实实例替身可避免逐个补方法的脆弱模拟。
+  // 每个用例重建：Fastify 实例不可重复注册同一装饰（@fastify/websocket 的 ws）。
+  let fastifyInstance: ReturnType<typeof fastify>;
 
   const app = {
     useGlobalPipes: jest.fn(),
@@ -30,17 +54,16 @@ describe('main bootstrap', () => {
     register: jest.fn().mockResolvedValue(undefined),
     get: jest.fn(),
     getHttpAdapter: jest.fn(() => ({
-      getInstance: () => ({
-        addHook: jest.fn(),
-        addContentTypeParser: jest.fn(),
-      }),
+      getInstance: () => fastifyInstance,
     })),
     listen: jest.fn().mockResolvedValue(undefined),
     enableShutdownHooks: jest.fn(),
+    useWebSocketAdapter: jest.fn(),
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
+    fastifyInstance = fastify();
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     app.useGlobalPipes.mockClear();

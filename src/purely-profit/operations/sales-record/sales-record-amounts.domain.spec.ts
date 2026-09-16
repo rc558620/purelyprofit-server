@@ -1,4 +1,3 @@
-import { describe, it, expect } from '@jest/globals';
 import { Money } from '../../../shared/money.utils';
 import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
 import type { PreparedSalesItem } from './sales-record-item-preparation.service';

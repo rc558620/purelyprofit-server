@@ -7,10 +7,14 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 describe('ScanOrderingTableQueryService.listTables', () => {
   let service: ScanOrderingTableQueryService;
 
-  const user = { id: 1, role: 'store_owner' } as AuthenticatedUser;
+  const user = { id: 1, role: 'store_owner' } as unknown as AuthenticatedUser;
 
   const prisma = {
     scanOrderingTable: { findMany: jest.fn() },
+    // 桌台口径会额外查询手工补录单（manualEntry），参与占用可见订单统计
+    scanOrders: { findMany: jest.fn().mockResolvedValue([]) },
+    // 老数据兜底：改造前落 SaleOrder 的手工补录单
+    saleOrder: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const commerceAccess = { resolveSingleStoreId: jest.fn() };
 
@@ -193,7 +197,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
                   fulfillmentStatus: 'pending',
                   guestCount: 1,
                   payableAmount: 100,
-                  createdAt: now,
+                  createdAt: new Date(now.getTime() - 20 * 60_000),
                 },
               ],
             },
@@ -212,7 +216,7 @@ describe('ScanOrderingTableQueryService.listTables', () => {
                   fulfillmentStatus: 'served',
                   guestCount: 1,
                   payableAmount: 200,
-                  createdAt: now,
+                  createdAt: new Date(now.getTime() - 10 * 60_000),
                 },
                 {
                   id: 3,
@@ -233,7 +237,8 @@ describe('ScanOrderingTableQueryService.listTables', () => {
       const [table] = await service.listTables(user);
 
       expect(table.activeOrderCount).toBe(table.activeOrders.length);
-      expect(table.activeOrders.map((order) => order.id)).toEqual([1, 2, 3]);
+      // 桌台订单按创建时间倒序（最新在前），跨 active/left 会话聚合
+      expect(table.activeOrders.map((order) => order.id)).toEqual([3, 2, 1]);
       expect(table.guestCount).toBe(6);
       expect(table.clearability).toMatchObject({
         canClear: false,

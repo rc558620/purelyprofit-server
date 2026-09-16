@@ -5,6 +5,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
+import { MembershipDowngradeService } from '../../member/platform-membership/membership-downgrade.service';
 import { SpaceReservationsWriteService } from './space-reservations-write.service';
 
 describe('SpaceReservationsWriteService', () => {
@@ -45,6 +46,10 @@ describe('SpaceReservationsWriteService', () => {
 
   const cacheInvalidatorService = {
     invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const membershipDowngradeService = {
+    assertSpaceCanOpen: jest.fn().mockResolvedValue(undefined),
   };
 
   const user: AuthenticatedUser = {
@@ -88,6 +93,10 @@ describe('SpaceReservationsWriteService', () => {
         {
           provide: CacheInvalidatorService,
           useValue: cacheInvalidatorService,
+        },
+        {
+          provide: MembershipDowngradeService,
+          useValue: membershipDowngradeService,
         },
       ],
     }).compile();

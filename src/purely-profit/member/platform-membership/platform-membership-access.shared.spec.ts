@@ -9,6 +9,7 @@ import {
   isMissingSubAccountQuotaSchemaError,
   normalizeSubAccountQuota,
   resolveMembershipLevel,
+  resolveStoredMembershipLevel,
 } from './platform-membership-access.shared';
 
 describe('platform-membership-access.shared', () => {
@@ -42,6 +43,59 @@ describe('platform-membership-access.shared', () => {
     ).toBe('lifetime');
   });
 
+  it('到期门店的档案档位仍可解析（用于续费保护），实时档位则已降级', () => {
+    const expiredYearlyProfile = {
+      currentPlanId: 'yearly' as const,
+      startsAt: new Date('2024-09-14T00:00:00.000Z'),
+      expiresAt: new Date('2026-09-14T00:00:00.000Z'),
+      subAccountQuota: 1,
+      pulseSubAccountQuota: 8,
+    };
+    const nowMs = new Date('2026-09-15T00:00:00.000Z').getTime();
+
+    // 实时档位：已到期 → free
+    expect(resolveMembershipLevel(expiredYearlyProfile, nowMs)).toBe('free');
+    // 档案档位：仍为年度，续费页据此只展示年度卡
+    expect(resolveStoredMembershipLevel(expiredYearlyProfile)).toBe('yearly');
+  });
+
+  it('到期门店的「曾开通子账号功能」口径不受配额归零影响', () => {
+    // 实时配额被归一化为 0（能力已收回），但原始额度 > 0
+    expect(
+      buildSubAccountBenefitSnapshot({
+        currentPlanId: 'yearly',
+        startsAt: new Date('2024-09-14T00:00:00.000Z'),
+        expiresAt: new Date('2026-09-14T00:00:00.000Z'),
+        subAccountQuota: 1,
+        pulseSubAccountQuota: 8,
+      }),
+    ).toEqual({
+      level: 'free',
+      eligible: false,
+      quota: 0,
+      quotaMax: 0,
+      enabled: false,
+      rawQuota: 8,
+      featureOwned: true,
+      previousLevel: 'yearly',
+    });
+  });
+
+  it('未配置子账号额度的门店不具备「曾开通」标记', () => {
+    expect(
+      buildSubAccountBenefitSnapshot({
+        currentPlanId: 'monthly',
+        startsAt: new Date('2026-04-01T00:00:00.000Z'),
+        expiresAt: new Date('2026-05-01T00:00:00.000Z'),
+        subAccountQuota: 0,
+        pulseSubAccountQuota: null,
+      }),
+    ).toMatchObject({
+      featureOwned: false,
+      previousLevel: 'monthly',
+    });
+  });
+
   it('年度及以上会员的子账号额度会被裁剪到上限内', () => {
     expect(
       buildSubAccountBenefitSnapshot({
@@ -58,6 +112,8 @@ describe('platform-membership-access.shared', () => {
       quotaMax: 10,
       enabled: true,
       rawQuota: 99,
+      featureOwned: true,
+      previousLevel: 'yearly',
     });
   });
 

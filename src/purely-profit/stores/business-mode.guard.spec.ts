@@ -2,6 +2,7 @@ import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { BusinessModeGuard } from './business-mode.guard';
 import { BUSINESS_MODE_KEY } from './business-mode.decorator';
+import { StoreBusinessCapabilityService } from './store-business-capability.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 
 describe('BusinessModeGuard', () => {
@@ -28,6 +29,13 @@ describe('BusinessModeGuard', () => {
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: false,
     },
     ...overrides,
   });

@@ -244,6 +244,7 @@ describe('FinanceOverviewService', () => {
   it('getReport 会将 custom_month 解析为整月区间并对比上月', async () => {
     prismaService.financeCashFlowRecord.findMany.mockResolvedValueOnce([]);
     prismaService.financeCashFlowRecord.groupBy.mockResolvedValue([]);
+    prismaService.financeCashFlowRecord.count.mockResolvedValue(0);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([]);
 
     await service.getReport(user, {
@@ -303,16 +304,29 @@ describe('FinanceOverviewService', () => {
         createdAt: new Date('2025-05-13T08:05:00.000Z'),
       },
     ]);
-    prismaService.financeCashFlowRecord.groupBy.mockResolvedValue([
-      {
-        direction: 'income',
-        _sum: { amount: new Prisma.Decimal('30000.00') },
-      },
-      {
-        direction: 'expense',
-        _sum: { amount: new Prisma.Decimal('10000.00') },
-      },
-    ]);
+    // 汇总走 SQL 聚合：第一次为本期、第二次为上期
+    prismaService.financeCashFlowRecord.groupBy
+      .mockResolvedValueOnce([
+        {
+          direction: 'income',
+          _sum: { amount: new Prisma.Decimal('50000.00') },
+        },
+        {
+          direction: 'expense',
+          _sum: { amount: new Prisma.Decimal('12000.00') },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          direction: 'income',
+          _sum: { amount: new Prisma.Decimal('30000.00') },
+        },
+        {
+          direction: 'expense',
+          _sum: { amount: new Prisma.Decimal('10000.00') },
+        },
+      ]);
+    prismaService.financeCashFlowRecord.count.mockResolvedValue(2);
     prismaService.financeAccountRecord.findMany.mockResolvedValue([
       {
         id: 8,
@@ -376,10 +390,11 @@ describe('FinanceOverviewService', () => {
         payableTotal: 200,
         compareLastPeriod: 90,
       },
+      // 现金流水明细需精确到时间，dateLabel 为「YYYY-MM-DD HH:mm」（上海时区）
       cashFlowRows: [
         {
           id: '1',
-          dateLabel: '2025-05-14',
+          dateLabel: '2025-05-14 18:05',
           title: '午市营业额',
           direction: 'income',
           categoryLabel: '销售收入',
@@ -388,7 +403,7 @@ describe('FinanceOverviewService', () => {
         },
         {
           id: '2',
-          dateLabel: '2025-05-13',
+          dateLabel: '2025-05-13 16:05',
           title: '采购牛奶',
           direction: 'expense',
           categoryLabel: '采购进货',
@@ -406,7 +421,7 @@ describe('FinanceOverviewService', () => {
           remaining: 300,
           statusLabel: '部分收付',
           statusKey: 'partial',
-          dateLabel: '2025-05-12',
+          dateLabel: '2025-05-12 18:10',
         },
         {
           id: '9',
@@ -417,7 +432,7 @@ describe('FinanceOverviewService', () => {
           remaining: 200,
           statusLabel: '部分收付',
           statusKey: 'partial',
-          dateLabel: '2025-05-10',
+          dateLabel: '2025-05-10 18:10',
         },
       ],
     });
@@ -453,13 +468,7 @@ describe('FinanceOverviewService', () => {
       expect.objectContaining({
         where: {
           storeId: 18,
-          status: {
-            in: [
-              FinanceAccountStatus.pending,
-              FinanceAccountStatus.partial,
-              FinanceAccountStatus.overdue,
-            ],
-          },
+          remaining: { gt: 0 },
         },
       }),
     );

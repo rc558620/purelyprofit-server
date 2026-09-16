@@ -68,7 +68,10 @@ describe('SessionNotificationService', () => {
     expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
         storeId: 18,
-        status: 'overdue',
+        // 逾期是时间派生状态，按 remaining/dueDate 下推，不再依赖 DB status 快照
+        // 次日零点起才算逾期，故上界为 now - 1 天
+        remaining: { gt: 0 },
+        dueDate: { lte: new Date('2026-05-20T12:00:00.000Z'), not: null },
       }),
     });
     expect(prismaService.partnerWithdrawal.count).toHaveBeenCalledWith({
@@ -110,7 +113,8 @@ describe('SessionNotificationService', () => {
     expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
         storeId: 20,
-        status: 'overdue',
+        remaining: { gt: 0 },
+        dueDate: { lte: new Date('2026-05-20T12:00:00.000Z'), not: null },
       }),
     });
   });
@@ -142,7 +146,8 @@ describe('SessionNotificationService', () => {
     expect(prismaService.financeAccountRecord.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
         storeId: 22,
-        status: 'overdue',
+        remaining: { gt: 0 },
+        dueDate: { lte: new Date('2026-05-20T12:00:00.000Z'), not: null },
       }),
     });
   });

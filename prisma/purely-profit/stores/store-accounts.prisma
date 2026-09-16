@@ -126,6 +126,7 @@ model Store {
   handoverRecords             StoreHandoverRecord[]
   inviteCodes                 StoreInviteCode[]
   inviteQrIssues              StoreInviteQrIssue[]
+  membershipLockedPrices      StoreMembershipLockedPrice[]
   membershipOrders            StoreMembershipOrder[]
   membershipPointsLogs        StoreMembershipPointsLog[]
   membershipProfile           StoreMembershipProfile?

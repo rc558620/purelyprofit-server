@@ -6,7 +6,10 @@ import type {
   PulseMemberDetailDto,
   PulseMemberListItemDto,
 } from './dto/pulse-membership-admin-members.response.dto';
-import { PURCHASE_BONUS_POINTS } from './membership.constants';
+import {
+  MEMBER_ONLINE_WINDOW_MS,
+  PURCHASE_BONUS_POINTS,
+} from './membership.constants';
 import type {
   PulseAdminMemberOrderSummary,
   PulseAdminMembershipOrderRecord,
@@ -54,6 +57,7 @@ import {
   toPulseMemberLevel,
 } from './membership-admin-query.helper';
 import { Money } from '../../shared/money.utils';
+import type { LockedPriceSnapshot } from '../../purely-profit/member/platform-membership/store-membership-locked-price.service';
 
 type PulseAdminLogStoreRecord = Pick<
   PulseAdminStoreIdentityRecord,
@@ -107,6 +111,8 @@ interface BuildPulseAdminMemberDetailInput {
   partner: PulseAdminPartnerRecord | null;
   promoCount: number;
   subAccountSummary: PulseAdminSubAccountDetail;
+  /** 首购锁定价快照（空数组表示未锁价） */
+  lockedPrices: LockedPriceSnapshot[];
   banReason: string | null;
 }
 
@@ -168,6 +174,23 @@ export function buildPulseAdminBeanLogItem(
   };
 }
 
+/**
+ * 是否「在线」：只看账号最近一次鉴权请求，不看展示用的兜底值。
+ *
+ * ⚠️ 不能用 `lastActiveAt` 的展示兜底（最近充值时间 / 门店更新时间）判断，
+ * 否则「刚充过值但没登录」会被误判为在线。
+ */
+function resolveMemberOnline(
+  lastActiveAt: Date | null | undefined,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!lastActiveAt) {
+    return false;
+  }
+
+  return nowMs - lastActiveAt.getTime() <= MEMBER_ONLINE_WINDOW_MS;
+}
+
 export function buildPulseAdminMemberListItem(
   input: BuildPulseAdminMemberListItemInput,
 ): PulseMemberListItemDto {
@@ -209,6 +232,7 @@ export function buildPulseAdminMemberListItem(
       store.owner.lastActiveAt?.getTime() ??
       orderSummary?.lastPaidAt ??
       store.updatedAt.getTime(),
+    isOnline: resolveMemberOnline(store.owner.lastActiveAt),
     subAccountEligible:
       (profile?.currentPlanId ?? null) === 'yearly' ||
       (profile?.currentPlanId ?? null) === 'lifetime',
@@ -228,6 +252,7 @@ export function buildPulseAdminMemberDetail(
     partner,
     promoCount,
     subAccountSummary,
+    lockedPrices,
     banReason,
   } = input;
   const ownerName = resolveAdminMemberDisplayName(store);
@@ -287,6 +312,17 @@ export function buildPulseAdminMemberDetail(
     })),
     remark: banReason ?? `${store.name} 的平台会员档案`,
     membershipExpiry,
+    isOnline: resolveMemberOnline(store.owner.lastActiveAt),
+    // 首购锁定价快照：让运营看得到「当前锁了什么价」，而不只是一个重置按钮
+    lockedPrices: lockedPrices.map((item) => ({
+      planId: item.planId,
+      price: item.price,
+      priceDisplay: Money.fromDbCents(item.price)
+        .toFixedOutputYuan()
+        .replace(/\.00$/, ''),
+      source: item.source,
+      lockedAt: item.lockedAt.getTime(),
+    })),
     subAccountEligible: subAccountSummary.eligible,
     subAccountQuota: subAccountSummary.quota,
     subAccountCapabilityEnabled: subAccountSummary.enabled,

@@ -27,6 +27,10 @@ import type {
   PulseAdminSubAccountDetail,
 } from './membership.types';
 import { PulseMembershipAdminSubAccountReadService } from './membership-admin-sub-account-read.service';
+import {
+  StoreMembershipLockedPriceService,
+  type LockedPriceSnapshot,
+} from '../../purely-profit/member/platform-membership/store-membership-locked-price.service';
 
 type PulseAdminPaidOrderSummaryGroup = {
   storeId: number;
@@ -49,6 +53,7 @@ type PulseAdminMemberDetailSnapshot = {
   partner: PulseAdminPartnerRecord | null;
   promoCount: number;
   subAccountSummary: PulseAdminSubAccountDetail;
+  lockedPrices: LockedPriceSnapshot[];
   banReason: string | null;
 };
 
@@ -62,6 +67,7 @@ export class PulseMembershipAdminMemberReadService {
     private readonly prisma: PrismaService,
     private readonly accessService: PulseMembershipAccessService,
     private readonly subAccountReadService: PulseMembershipAdminSubAccountReadService,
+    private readonly lockedPriceService: StoreMembershipLockedPriceService,
   ) {}
 
   async buildAdminMemberDetail(storeId: number): Promise<PulseMemberDetailDto> {
@@ -129,6 +135,8 @@ export class PulseMembershipAdminMemberReadService {
         where: { storeId },
         select: {
           currentPlanId: true,
+          previousPlanId: true,
+          startsAt: true,
           expiresAt: true,
           totalPoints: true,
           availablePoints: true,
@@ -149,6 +157,8 @@ export class PulseMembershipAdminMemberReadService {
         where: { storeId },
         select: {
           currentPlanId: true,
+          previousPlanId: true,
+          startsAt: true,
           expiresAt: true,
           totalPoints: true,
           availablePoints: true,
@@ -169,37 +179,45 @@ export class PulseMembershipAdminMemberReadService {
     storeId: number,
   ): Promise<PulseAdminMemberDetailSnapshot> {
     const banReason = await this.accessService.getAdminMemberBanReason(storeId);
-    const [store, profile, paidOrders, partner, promoCount, subAccountSummary] =
-      await Promise.all([
-        this.prisma.store.findUnique({
-          where: { id: storeId },
-          select: {
-            id: true,
-            name: true,
-            contactPhone: true,
-            createdAt: true,
-            updatedAt: true,
-            deletedAt: true,
-            owner: {
-              select: {
-                email: true,
-                name: true,
-                realName: true,
-                avatar: true,
-                wechatPhone: true,
-                lastActiveAt: true,
-              },
+    const [
+      store,
+      profile,
+      paidOrders,
+      partner,
+      promoCount,
+      subAccountSummary,
+      lockedPrices,
+    ] = await Promise.all([
+      this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: {
+          id: true,
+          name: true,
+          contactPhone: true,
+          createdAt: true,
+          updatedAt: true,
+          deletedAt: true,
+          owner: {
+            select: {
+              email: true,
+              name: true,
+              realName: true,
+              avatar: true,
+              wechatPhone: true,
+              lastActiveAt: true,
             },
           },
-        }),
-        this.findMembershipProfileByStoreId(storeId),
-        this.loadPaidOrders(storeId),
-        this.loadApprovedPartner(storeId),
-        this.prisma.storeMembershipPromoRecord.count({
-          where: { storeId },
-        }),
-        this.subAccountReadService.buildAdminSubAccountDetail(storeId),
-      ]);
+        },
+      }),
+      this.findMembershipProfileByStoreId(storeId),
+      this.loadPaidOrders(storeId),
+      this.loadApprovedPartner(storeId),
+      this.prisma.storeMembershipPromoRecord.count({
+        where: { storeId },
+      }),
+      this.subAccountReadService.buildAdminSubAccountDetail(storeId),
+      this.lockedPriceService.listLockedPrices(storeId),
+    ]);
 
     if (!store) {
       throw new NotFoundException('目标门店不存在');
@@ -212,6 +230,7 @@ export class PulseMembershipAdminMemberReadService {
       partner,
       promoCount,
       subAccountSummary,
+      lockedPrices,
       banReason,
     };
   }
@@ -344,6 +363,8 @@ export class PulseMembershipAdminMemberReadService {
         select: {
           storeId: true,
           currentPlanId: true,
+          previousPlanId: true,
+          startsAt: true,
           expiresAt: true,
           totalPoints: true,
           availablePoints: true,
@@ -365,6 +386,8 @@ export class PulseMembershipAdminMemberReadService {
         select: {
           storeId: true,
           currentPlanId: true,
+          previousPlanId: true,
+          startsAt: true,
           expiresAt: true,
           totalPoints: true,
           availablePoints: true,

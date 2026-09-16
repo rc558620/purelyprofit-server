@@ -80,7 +80,9 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
   const refundService = {
     createRefundTask: jest.fn(),
     createRefundTaskInTransaction: jest.fn(),
-    markRefundTaskSucceededInTransaction: jest.fn(async () => undefined),
+    markRefundTaskSucceededInTransaction: jest.fn(() =>
+      Promise.resolve(undefined),
+    ),
   };
 
   const wechatRefundService = {
@@ -101,8 +103,8 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
     invalidateSalesDerived: jest.fn(),
   } as unknown as CacheInvalidatorService;
   const commerceAccessService = {
-    resolveSingleStoreId: jest.fn(async () => activeStoreId),
-    findOperatorStaffIdForStore: jest.fn(async () => null),
+    resolveSingleStoreId: jest.fn(() => Promise.resolve(activeStoreId)),
+    findOperatorStaffIdForStore: jest.fn(() => Promise.resolve(null)),
   } as unknown as CommerceAccessService;
 
   beforeAll(async () => {
@@ -326,17 +328,6 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
     return { merchantPaymentNo };
   }
 
-  const systemUser: AuthenticatedUser = {
-    id: 0,
-    email: 'system@scan-ordering.local',
-    phone: '',
-    name: '扫码点餐系统',
-    createdAt: new Date(0),
-    updatedAt: new Date(0),
-    lastActiveAt: null,
-    currentMembership: null,
-  };
-
   const merchantUser: AuthenticatedUser = {
     id: 1,
     email: 'merchant@test.local',
@@ -348,7 +339,8 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
     currentMembership: {
       staffId: 1,
       storeId: 0,
-      role: 'OWNER',
+      // StaffRole 枚举值为小写（'owner'），大写会落到 DEFAULT_ROLE_PERMISSIONS 之外
+      role: 'owner',
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
@@ -509,7 +501,7 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
   it('退款闭环：退款单/财务流水各一条，库存恢复，二次调用幂等', async () => {
     const seed = await seedStoreAndMenu();
     activeStoreId = seed.storeId;
-    const { orderId, version } = await seedScanOrder({
+    const { orderId } = await seedScanOrder({
       storeId: seed.storeId,
       tableId: seed.tableId,
       payableAmount: 2500,
@@ -541,7 +533,7 @@ describe('ScanOrdering → SaleOrder bridge (e2e, real database)', () => {
     await prisma.scanOrderingMenuProduct.update({
       where: { id: seed.products.alpha.menuProductId },
       data: {
-        stockQuantity: alphaMenu.stockQuantity - 1,
+        stockQuantity: (alphaMenu.stockQuantity ?? 0) - 1,
         salesCount: alphaMenu.salesCount + 1,
         version: { increment: 1 },
       },

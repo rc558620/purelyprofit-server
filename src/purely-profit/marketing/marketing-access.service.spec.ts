@@ -15,6 +15,10 @@ describe('MarketingAccessService', () => {
     store: {
       findFirst: jest.fn(),
     },
+    // 员工身份兜底通道：成员关系不匹配时会再查 staff，缺失会让用例抛 TypeError
+    staff: {
+      findFirst: jest.fn(),
+    },
   };
 
   const user: AuthenticatedUser = {
@@ -34,6 +38,7 @@ describe('MarketingAccessService', () => {
       null,
     );
     prismaService.store.findFirst.mockResolvedValue(null);
+    prismaService.staff.findFirst.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

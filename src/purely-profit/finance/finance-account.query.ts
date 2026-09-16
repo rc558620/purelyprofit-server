@@ -2,7 +2,9 @@ import { FinanceAccountStatus, Prisma } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { withDerivedAccountFields } from './finance-account.domain';
 import { DAY_MS } from './finance.constants';
+import { getShanghaiDayStartMs } from './finance-date.utils';
 import { buildPaginationState } from './finance-pagination.utils';
+import { makeShanghaiMs } from '../../shared/shanghai-time.utils';
 import type {
   FinanceAccountRecordWithAmount,
   FinanceAccountsListQueryInput,
@@ -17,90 +19,78 @@ export type DerivedFinanceAccountStatusFilter = Exclude<
 const ZERO_MONEY = 0; // Step 3: Int（分）
 
 /**
- * 刷新逾期状态：将数据库中 status=pending 或 partial 且 dueDate < now 的记录更新为 overdue。
- * 由于 overdue 是时间依赖的派生状态，数据库 status 可能在时间流逝后与事实不一致，
- * 需要在查询前同步刷新，确保后续 WHERE status = 'overdue' 能命中所有逾期记录。
- *
- * 该函数设计为幂等：仅更新 pending/partial 中已过 dueDate 且未结清的记录，
- * 不影响 status=overdue/settled 的记录。
+ * 逾期时点：到期日当天仍属正常，次日零点起才算逾期。
+ * dueDate 为到期日零点时间戳，故判定为 dueDate + DAY_MS <= now。
  */
-async function refreshOverdueStatuses(
-  prisma: PrismaService,
-  storeId: number,
-): Promise<void> {
-  const now = new Date();
-  await prisma.financeAccountRecord.updateMany({
-    where: {
-      storeId,
-      status: {
-        in: [FinanceAccountStatus.pending, FinanceAccountStatus.partial],
-      },
-      dueDate: { lt: now, not: null },
-      remaining: { gt: ZERO_MONEY },
-    },
-    data: {
-      status: FinanceAccountStatus.overdue,
-    },
-  });
+function getOverdueAtMs(now: number): number {
+  return now - DAY_MS;
+}
+
+/** 未逾期：无到期日，或尚未越过逾期时点 */
+function buildNotOverdueWhere(
+  now: number,
+): Prisma.FinanceAccountRecordWhereInput['OR'] {
+  return [
+    { dueDate: null },
+    { dueDate: { gt: new Date(getOverdueAtMs(now)) } },
+  ];
 }
 
 /**
- * 基于数据库 status 字段构建 where 条件（走索引）。
+ * 按「派生口径」下推状态查询条件，与 domain 层 deriveAccountFields 严格对齐。
  *
- * 状态口径说明：
- * - pending / partial / settled / overdue 均在写入时落库为事实字段
- * - overdue 需在查询前通过 refreshOverdueStatuses 刷新，因为它是时间依赖的派生状态
- * - 展示层仍通过 withDerivedAccountFields 兜底，防止数据库 status 与事实短暂不一致
+ * 背景：overdue 是时间依赖的派生状态，会随时间流逝自动产生，数据库 status 字段
+ * 只是写入那一刻的快照。此前该查询直接命中 DB status，依赖调用方先执行
+ * refreshOverdueStatuses 写库刷新；而通知、首页、Pulse 等外部模块并不会刷新，
+ * 导致这些场景查不到逾期账款（漏报）。
+ *
+ * 这里改为直接下推派生条件，任何模块都无需先写库刷新，也不会因快照过期而漏报：
+ * - settled : remaining <= 0
+ * - overdue : remaining > 0 且 dueDate < now
+ * - partial : remaining > 0、已收付 > 0 且未逾期
+ * - pending : remaining > 0、未收付且未逾期
  */
-function buildFinanceAccountStatusWhere(
-  storeId: number,
-  statusFilter: Exclude<FinanceAccountStatusFilterValue, 'all'>,
-): Prisma.FinanceAccountRecordWhereInput {
-  return {
-    storeId,
-    status: statusFilter,
-  };
-}
-
-export function buildDerivedClosedAccountWhere(params: {
-  storeId: number;
-}): Prisma.FinanceAccountRecordWhereInput {
-  return {
-    storeId: params.storeId,
-    remaining: { lte: ZERO_MONEY },
-  };
-}
-
 export function buildDerivedFinanceAccountStatusWhere(params: {
   storeId: number;
   status: DerivedFinanceAccountStatusFilter;
   now: number;
 }): Prisma.FinanceAccountRecordWhereInput {
   switch (params.status) {
-    case 'pending':
-      return buildFinanceAccountStatusWhere(params.storeId, 'pending');
-    case 'partial':
-      return buildFinanceAccountStatusWhere(params.storeId, 'partial');
     case 'settled':
-      return buildFinanceAccountStatusWhere(params.storeId, 'settled');
+      return {
+        storeId: params.storeId,
+        remaining: { lte: ZERO_MONEY },
+      };
     case 'overdue':
-      return buildFinanceAccountStatusWhere(params.storeId, 'overdue');
+      return {
+        storeId: params.storeId,
+        remaining: { gt: ZERO_MONEY },
+        dueDate: { lte: new Date(getOverdueAtMs(params.now)), not: null },
+      };
+    case 'partial':
+      return {
+        storeId: params.storeId,
+        remaining: { gt: ZERO_MONEY },
+        paidAmount: { gt: ZERO_MONEY },
+        OR: buildNotOverdueWhere(params.now),
+      };
+    case 'pending':
+      return {
+        storeId: params.storeId,
+        remaining: { gt: ZERO_MONEY },
+        paidAmount: { lte: ZERO_MONEY },
+        OR: buildNotOverdueWhere(params.now),
+      };
   }
 }
 
+/** 未结清账款 = 仍有剩余金额，与展示层 settled 判定互补 */
 export function buildDerivedOpenAccountWhere(params: {
   storeId: number;
-  now: number;
 }): Prisma.FinanceAccountRecordWhereInput {
   return {
     storeId: params.storeId,
-    status: {
-      in: [
-        FinanceAccountStatus.pending,
-        FinanceAccountStatus.partial,
-        FinanceAccountStatus.overdue,
-      ],
-    },
+    remaining: { gt: ZERO_MONEY },
   };
 }
 
@@ -113,12 +103,15 @@ export function buildUpcomingDueAccountWhere(params: {
   now: number;
   withinDays: number;
 }): Prisma.FinanceAccountRecordWhereInput {
-  const dueBefore = new Date(params.now + params.withinDays * DAY_MS);
+  // 下界取今天零点而非当前时刻：逾期判定已改为"次日零点才算逾期"，
+  // 若这里仍以 now 为下界，"今天到期"的账款会既不算逾期、也进不了即将到期提醒。
+  const dayStart = getShanghaiDayStartMs(params.now);
+  const dueBefore = new Date(dayStart + params.withinDays * DAY_MS);
 
   return {
     storeId: params.storeId,
     dueDate: {
-      gte: new Date(params.now),
+      gte: new Date(dayStart),
       lt: dueBefore,
     },
     remaining: { gt: ZERO_MONEY },
@@ -141,7 +134,12 @@ const financeAccountRecordSelect = {
   updatedAt: true,
 } satisfies Prisma.FinanceAccountRecordSelect;
 
-/** 根据筛选参数计算日期范围，返回 null 表示不限时间 */
+/**
+ * 根据筛选参数计算日期范围，返回 null 表示不限时间。
+ *
+ * 年月日一律按上海时区解析（makeShanghaiMs），不依赖 Node 进程本地时区，
+ * 否则容器以 UTC 部署时自定义日期筛选会整体偏移，与其余模块的上海口径错位。
+ */
 function getDateRangeFromQuery(
   query: FinanceAccountsListQueryInput,
 ): { start: Date; end: Date } | null {
@@ -153,9 +151,11 @@ function getDateRangeFromQuery(
     const y = query.customDayYear ?? 2000;
     const m = (query.customDayMonth ?? 1) - 1;
     const d = query.customDayDay ?? 1;
-    const start = new Date(y, m, d, 0, 0, 0, 0);
-    const end = new Date(y, m, d, 23, 59, 59, 999);
-    return { start, end };
+    const startMs = makeShanghaiMs(y, m, d);
+    return {
+      start: new Date(startMs),
+      end: new Date(startMs + DAY_MS - 1),
+    };
   }
 
   if (query.datePeriod === 'custom_range') {
@@ -165,9 +165,12 @@ function getDateRangeFromQuery(
     const ey = query.customRangeEndYear ?? 2100;
     const em = (query.customRangeEndMonth ?? 12) - 1;
     const ed = query.customRangeEndDay ?? 31;
-    const start = new Date(sy, sm, sd, 0, 0, 0, 0);
-    const end = new Date(ey, em, ed, 23, 59, 59, 999);
-    return { start, end: start > end ? start : end };
+    const startMs = makeShanghaiMs(sy, sm, sd);
+    const endMs = makeShanghaiMs(ey, em, ed) + DAY_MS - 1;
+    return {
+      start: new Date(startMs),
+      end: new Date(Math.max(startMs, endMs)),
+    };
   }
 
   return null;
@@ -176,6 +179,7 @@ function getDateRangeFromQuery(
 function buildFinanceAccountWhere(
   storeId: number,
   query: FinanceAccountsListQueryInput,
+  now: number,
 ): Prisma.FinanceAccountRecordWhereInput {
   const conditions: Prisma.FinanceAccountRecordWhereInput[] = [{ storeId }];
 
@@ -185,7 +189,11 @@ function buildFinanceAccountWhere(
 
   if (query.statusFilter && query.statusFilter !== 'all') {
     conditions.push(
-      buildFinanceAccountStatusWhere(storeId, query.statusFilter),
+      buildDerivedFinanceAccountStatusWhere({
+        storeId,
+        status: query.statusFilter,
+        now,
+      }),
     );
   }
 
@@ -224,17 +232,18 @@ export async function queryAccountRecords(
   storeId: number,
   query: FinanceAccountsListQueryInput,
 ): Promise<{ items: FinanceAccountRecordWithAmount[]; total: number }> {
-  // 查询前刷新逾期状态，确保数据库 status 与事实一致
-  await refreshOverdueStatuses(prisma, storeId);
-
-  const where = buildFinanceAccountWhere(storeId, query);
+  const where = buildFinanceAccountWhere(storeId, query, Date.now());
   const pageState = buildPaginationState(query.page, query.pageSize);
 
   const [total, records] = await Promise.all([
     prisma.financeAccountRecord.count({ where }),
     prisma.financeAccountRecord.findMany({
       where,
-      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }, { id: 'desc' }],
+      // 按到期日升序：最早到期（即已逾期）的排最前，无到期日的排在最后
+      // （PostgreSQL ASC 默认 NULLS LAST）。
+      // 不按 status 排：status 是写入时的派生快照，且 enum 声明顺序
+      // （pending<partial<settled<overdue）会把逾期排到最后，与业务优先级相反。
+      orderBy: [{ dueDate: 'asc' }, { updatedAt: 'desc' }, { id: 'desc' }],
       select: financeAccountRecordSelect,
       skip: (pageState.page - 1) * pageState.pageSize,
       take: pageState.pageSize,
@@ -256,9 +265,6 @@ export async function queryAccountStatsRows(
   prisma: PrismaService,
   storeId: number,
 ): Promise<FinanceAccountRecordWithAmount[]> {
-  // 统计前也刷新逾期状态
-  await refreshOverdueStatuses(prisma, storeId);
-
   return prisma.financeAccountRecord.findMany({
     where: { storeId },
     orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],

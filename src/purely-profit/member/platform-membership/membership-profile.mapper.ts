@@ -79,5 +79,3 @@ export function buildApprovedPartnerResponse(
     totalWithdrawnBeans: partner.totalWithdrawnBeans,
   };
 }
-
-

@@ -41,12 +41,16 @@ export async function queryCashFlowRecordPage(
   return { total, records };
 }
 
+/**
+ * 查询区间内流水用于统计。
+ * 刻意不提供 directionFilter：统计口径恒为全量收支，不跟随列表的方向筛选
+ * （统计卡需同时展示收入与支出，跟随筛选会让另一侧恒为 0）。
+ */
 export async function queryCashFlowStatsRows(
   prisma: PrismaService,
   params: {
     storeId: number;
     range: FinanceCashFlowFilterRange | { start: number; end: number };
-    directionFilter?: FinanceCashFlowDirectionValue;
   },
 ): Promise<FinanceCashFlowStatsRow[]> {
   const where: Prisma.FinanceCashFlowRecordWhereInput = {
@@ -56,10 +60,6 @@ export async function queryCashFlowStatsRows(
       lte: new Date(params.range.end),
     },
   };
-
-  if (params.directionFilter) {
-    where.direction = params.directionFilter;
-  }
 
   return prisma.financeCashFlowRecord.findMany({
     where,

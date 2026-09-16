@@ -211,6 +211,7 @@ describe('PlatformMembershipAccessService', () => {
       where: { storeId: 18 },
       select: {
         currentPlanId: true,
+        previousPlanId: true,
         startsAt: true,
         expiresAt: true,
         subAccountQuota: true,

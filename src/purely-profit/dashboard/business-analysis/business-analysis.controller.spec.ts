@@ -94,10 +94,11 @@ describe('BusinessAnalysisController', () => {
   });
 
   it('format=csv 时强制 export=true 以触发报表导出权限门控', async () => {
-    const query = {
-      period: 'today' as const,
-      format: 'csv' as const,
-    };
+    // 用 DTO 实例承载入参：控制器会在 format=csv 时回写 query.export=true
+    const query = plainToInstance(GetBusinessAnalysisQueryDto, {
+      period: 'today',
+      format: 'csv',
+    });
 
     await controller.getAnalysis(user, query, { raw: {} as ServerResponse });
 

@@ -30,9 +30,11 @@ export function isMembershipProfileActive(
   >,
   nowMs: number = Date.now(),
 ): boolean {
-  // lifetime 计划永不过期，即使 expiresAt 因脏数据被写入也不应影响判定
+  // lifetime（AGES）实际按 730 天有效期售卖，expiresAt 有值时必须正常判到期，
+  // 否则首页续费横幅/弹窗对该档位永远不触发（快到期与已到期都要提示）。
+  // 仅当 expiresAt 为空——历史遗留的「真·永不过期」数据——才豁免判定。
   if (profile.currentPlanId === 'lifetime') {
-    return true;
+    return !profile.expiresAt || profile.expiresAt.getTime() > nowMs;
   }
 
   const expiredAt = resolveFrontendMembershipExpiry(profile)?.getTime() ?? null;

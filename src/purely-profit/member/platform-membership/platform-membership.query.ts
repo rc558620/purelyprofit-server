@@ -36,6 +36,7 @@ export async function ensureMembershipProfile(
       id: true,
       storeId: true,
       currentPlanId: true,
+      previousPlanId: true,
       startsAt: true,
       expiresAt: true,
       totalPoints: true,

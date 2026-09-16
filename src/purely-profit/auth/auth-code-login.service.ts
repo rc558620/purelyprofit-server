@@ -191,6 +191,10 @@ export class AuthCodeLoginService {
       await this.authMembershipLoginGuardService.ensureSubAccountLoginAllowed(
         user.id,
       );
+      // 席位被店主关闭（额度归零 / 收缩）的员工账号同样不得登录
+      await this.authMembershipLoginGuardService.ensureStaffSubAccountSeatGranted(
+        user.id,
+      );
     }
 
     await this.authBanGuardService.ensureUserNotBanned(user.id);

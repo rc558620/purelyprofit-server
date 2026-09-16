@@ -76,8 +76,10 @@ describe('FinanceAccountService', () => {
     });
     expect(refreshableCache.getOrLoadRefreshableJson).toHaveBeenCalledWith(
       expect.objectContaining({
+        // datePeriod/cDay/cRange/to 都会影响 getDateRangeFromQuery 的结果，
+        // 必须进入 cache key，否则不同日期筛选会命中同一份缓存
         cacheKey:
-          'profit:finance:accounts:list:store:18:type:receivable:status:pending:search:%E5%BC%A0%E4%B8%89:page:1:pageSize:10',
+          'profit:finance:accounts:list:store:18:type:receivable:status:pending:search:%E5%BC%A0%E4%B8%89:datePeriod:all:cDay:na-na-na:cRange:na-na-na:to:na-na-na:page:1:pageSize:10',
         ttlSeconds: 60,
       }),
     );
@@ -144,7 +146,9 @@ describe('FinanceAccountService', () => {
             { storeId: 18 },
             {
               storeId: 18,
-              status: FinanceAccountStatus.overdue,
+              remaining: { gt: 0 },
+              // 次日零点起才算逾期，故上界为 now - 1 天
+              dueDate: { lte: new Date(Date.now() - 86_400_000), not: null },
             },
           ],
         },
@@ -196,7 +200,12 @@ describe('FinanceAccountService', () => {
             { storeId: 18 },
             {
               storeId: 18,
-              status: FinanceAccountStatus.pending,
+              remaining: { gt: 0 },
+              paidAmount: { lte: 0 },
+              OR: [
+                { dueDate: null },
+                { dueDate: { gt: new Date(Date.now() - 86_400_000) } },
+              ],
             },
           ],
         },
@@ -248,7 +257,12 @@ describe('FinanceAccountService', () => {
             { storeId: 18 },
             {
               storeId: 18,
-              status: FinanceAccountStatus.partial,
+              remaining: { gt: 0 },
+              paidAmount: { gt: 0 },
+              OR: [
+                { dueDate: null },
+                { dueDate: { gt: new Date(Date.now() - 86_400_000) } },
+              ],
             },
           ],
         },
@@ -300,12 +314,77 @@ describe('FinanceAccountService', () => {
             { storeId: 18 },
             {
               storeId: 18,
-              status: FinanceAccountStatus.settled,
+              remaining: { lte: 0 },
             },
           ],
         },
       }),
     );
+  });
+
+  it('listAccounts 的自定义日期按上海时区解析，不随进程时区偏移', async () => {
+    prismaService.financeAccountRecord.count.mockResolvedValue(0);
+    prismaService.financeAccountRecord.findMany.mockResolvedValue([]);
+
+    await service.listAccounts(user, {
+      datePeriod: 'custom_day',
+      customDayYear: 2026,
+      customDayMonth: 5,
+      customDayDay: 14,
+      page: 1,
+      pageSize: 10,
+    });
+
+    // 断言值写死为 UTC 瞬间：上海 05-14 00:00:00 ↔ 05-14 23:59:59.999
+    expect(prismaService.financeAccountRecord.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: [
+            { storeId: 18 },
+            {
+              date: {
+                gte: new Date('2026-05-13T16:00:00.000Z'),
+                lte: new Date('2026-05-14T15:59:59.999Z'),
+              },
+            },
+          ],
+        },
+      }),
+    );
+  });
+
+  it('到期日当天的账款不判为逾期，次日零点起才算逾期', async () => {
+    // 上海 2026-05-14 零点 = UTC 2026-05-13T16:00Z；当前为 UTC 05-14 12:00
+    const todayShanghaiStart = new Date('2026-05-13T16:00:00.000Z');
+
+    prismaService.financeAccountRecord.create.mockResolvedValue({
+      id: 70,
+      type: 'receivable',
+      category: 'sales_credit',
+      counterpart: '今天到期客户',
+      amount: 10_000,
+      paidAmount: 0,
+      remaining: 10_000,
+      status: FinanceAccountStatus.pending,
+      dueDate: todayShanghaiStart,
+      date: new Date('2026-05-14T00:00:00.000Z'),
+      note: null,
+      createdAt: new Date('2026-05-14T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-14T00:00:00.000Z'),
+    });
+
+    // 旧口径 dueDate < now 会误判为 overdue
+    await expect(
+      service.createAccount(user, {
+        type: 'receivable',
+        category: 'sales_credit',
+        counterpart: '今天到期客户',
+        amount: 100,
+        paidAmount: 0,
+        dueDate: todayShanghaiStart.getTime(),
+        date: new Date('2026-05-14T00:00:00.000Z').getTime(),
+      }),
+    ).resolves.toMatchObject({ status: 'pending' });
   });
 
   it('createAccount 会按前端规则派生 overdue 状态和 remaining', async () => {

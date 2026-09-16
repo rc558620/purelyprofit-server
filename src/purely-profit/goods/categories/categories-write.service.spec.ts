@@ -41,6 +41,15 @@ describe('CategoriesWriteService', () => {
     product: {
       updateMany: jest.fn(),
     },
+    // 分类写操作会连带同步扫码点餐菜单分类（scanOrderingMenu*）
+    scanOrderingMenuCategory: {
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+    scanOrderingMenuProduct: {
+      updateMany: jest.fn(),
+    },
   };
 
   const prismaService = {
@@ -105,6 +114,24 @@ describe('CategoriesWriteService', () => {
   beforeEach(async () => {
     jest.resetAllMocks();
 
+    // 默认走事务，并让扫码点餐侧的分类同步视为「已存在」的最简路径
+    prismaService.$transaction.mockImplementation(
+      async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback(transactionMock),
+    );
+    transactionMock.scanOrderingMenuCategory.findFirst.mockResolvedValue({
+      id: 1,
+    });
+    transactionMock.scanOrderingMenuCategory.create.mockResolvedValue({
+      id: 1,
+    });
+    transactionMock.scanOrderingMenuCategory.update.mockResolvedValue({
+      id: 1,
+    });
+    transactionMock.scanOrderingMenuProduct.updateMany.mockResolvedValue({
+      count: 0,
+    });
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CategoriesWriteService,
@@ -143,7 +170,8 @@ describe('CategoriesWriteService', () => {
         excludeId: undefined,
       },
     );
-    expect(mockedCreateCategoryRecord).toHaveBeenCalledWith(prismaService, {
+    // 写操作统一在事务内执行，传入的是事务客户端而非 PrismaService
+    expect(mockedCreateCategoryRecord).toHaveBeenCalledWith(transactionMock, {
       storeId: 18,
       name: '饮品',
       icon: '🥤',

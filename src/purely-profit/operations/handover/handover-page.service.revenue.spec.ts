@@ -81,8 +81,10 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       totalRevenue: 66.8,
       orderCount: 1,
     });
+    // 第 1 次 aggregate 是扫码点餐收入（scanOrderId 非空），
+    // additionalRevenue（非空间会话且非扫码点餐，scanOrderId: null）是第 2 次
     expect(prismaService.saleOrder.aggregate).toHaveBeenNthCalledWith(
-      1,
+      2,
       expect.objectContaining({
         where: expect.objectContaining({
           storeId: 100,
@@ -91,6 +93,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
             lte: expectedShiftEndAt,
           },
           spaceSession: { is: null },
+          // 扫码点餐单收入归入 spaceRevenue，不再重复计入 additionalRevenue
+          scanOrderId: null,
         }),
       }),
     );
@@ -261,8 +265,10 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       },
       _sum: { timeCost: true, itemsCost: true },
     });
+    // 第 1 次 aggregate 是扫码点餐收入（scanOrderId 非空），
+    // additionalRevenue（非空间会话且非扫码点餐，scanOrderId: null）是第 2 次
     expect(prismaService.saleOrder.aggregate).toHaveBeenNthCalledWith(
-      1,
+      2,
       expect.objectContaining({
         where: expect.objectContaining({
           storeId: 100,
@@ -271,6 +277,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
             lte: new Date(2026, 5, 5, 20, 0, 0),
           },
           spaceSession: { is: null },
+          // 扫码点餐单收入归入 spaceRevenue，不再重复计入 additionalRevenue
+          scanOrderId: null,
         }),
       }),
     );
@@ -394,8 +402,10 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
       },
       _sum: { timeCost: true, itemsCost: true },
     });
+    // 第 1 次 aggregate 是扫码点餐收入（scanOrderId 非空），
+    // additionalRevenue（非空间会话且非扫码点餐，scanOrderId: null）是第 2 次
     expect(prismaService.saleOrder.aggregate).toHaveBeenNthCalledWith(
-      1,
+      2,
       expect.objectContaining({
         where: expect.objectContaining({
           storeId: 100,
@@ -404,6 +414,8 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
             lte: new Date(2026, 5, 5, 17, 14, 30),
           },
           spaceSession: { is: null },
+          // 扫码点餐单收入归入 spaceRevenue，不再重复计入 additionalRevenue
+          scanOrderId: null,
         }),
       }),
     );
@@ -623,7 +635,9 @@ describe('HandoverPageService - 收银统计与支付方式', () => {
         sessionRenewRecords: [],
       },
     ]);
-    prismaService.saleOrder.aggregate.mockResolvedValueOnce({
+    // 扫码点餐收入 + additionalRevenue 两笔 aggregate 都返回空，
+    // 该用例只验证退款，不应混入默认的 978.75 additional 收入
+    prismaService.saleOrder.aggregate.mockResolvedValue({
       _sum: { totalRevenue: null },
     });
 

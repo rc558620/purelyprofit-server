@@ -103,6 +103,13 @@ export class PulseMembershipAdminService {
     return this.mutationService.setAdminMemberMembership(user, memberId, dto);
   }
 
+  resetAdminMemberLockedPrices(
+    user: AuthenticatedUser,
+    memberId: number,
+  ): Promise<PulseMemberDetailDto> {
+    return this.mutationService.resetAdminMemberLockedPrices(user, memberId);
+  }
+
   banAdminMember(
     user: AuthenticatedUser,
     memberId: number,

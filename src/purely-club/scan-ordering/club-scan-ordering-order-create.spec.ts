@@ -26,11 +26,12 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
 
   let service: ClubScanOrderingOrderService;
 
+  // 保留真实结构而非 Record<string, jest.Mock>：后者会让 prisma.xxx.findFirst 失去模型形状
   const prisma = {
-    idempotencyRecord: { findUnique: jest.fn() },
+    idempotencyRecord: { findUnique: jest.fn(), create: jest.fn() },
     scanOrderingSession: { findFirst: jest.fn() },
     $transaction: jest.fn(),
-  } as unknown as Record<string, jest.Mock>;
+  };
 
   const pricingVersionService = { computePricingVersion: jest.fn() };
   const cartPricing = {
@@ -314,8 +315,13 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
         responseSnapshot: { id: 100, orderNo: 'SO100' },
       });
 
-    const first = await service.create(user, IDEMPOTENCY_KEY, dto);
-    const second = await service.create(user, IDEMPOTENCY_KEY, dto);
+    // create 返回 Promise<unknown>（响应映射在服务内部完成），测试仅断言订单 id
+    const first = (await service.create(user, IDEMPOTENCY_KEY, dto)) as {
+      id: number;
+    };
+    const second = (await service.create(user, IDEMPOTENCY_KEY, dto)) as {
+      id: number;
+    };
 
     expect(first.id).toBe(100);
     expect(second.id).toBe(100);
@@ -378,7 +384,11 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
     ]);
     tx.product.findMany.mockResolvedValue([{ id: 1, stock: 10 }]);
 
-    const result = await service.create(user, IDEMPOTENCY_KEY, duplicateDto);
+    const result = (await service.create(
+      user,
+      IDEMPOTENCY_KEY,
+      duplicateDto,
+    )) as { id: number };
 
     expect(result.id).toBe(100);
     expect(tx.scanOrderingMenuProduct.updateMany).toHaveBeenCalledTimes(1);
@@ -394,7 +404,9 @@ describe('ClubScanOrderingOrderService.create 安全防护', () => {
   });
 
   it('成功创建订单：预留库存、落库、幂等记录置为 succeeded、发布实时事件', async () => {
-    const result = await service.create(user, IDEMPOTENCY_KEY, dto);
+    const result = (await service.create(user, IDEMPOTENCY_KEY, dto)) as {
+      id: number;
+    };
 
     expect(result.id).toBe(100);
     // 新逻辑：下单只预留库存（reservedQuantity+），不扣减 product.stock

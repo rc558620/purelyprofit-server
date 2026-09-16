@@ -103,6 +103,7 @@ export interface MarketingPrismaServiceMock {
   };
   $queryRaw: jest.Mock;
   $transaction: jest.Mock;
+  $executeRawUnsafe: jest.Mock;
 }
 
 export interface MarketingAccessServiceMock {
@@ -133,7 +134,7 @@ export interface MarketingServiceTestingContext {
 }
 
 function createPrismaServiceMock(): MarketingPrismaServiceMock {
-  return {
+  const prismaService: MarketingPrismaServiceMock = {
     marketingCustomer: {
       count: jest.fn(),
       aggregate: jest.fn(),
@@ -200,7 +201,18 @@ function createPrismaServiceMock(): MarketingPrismaServiceMock {
     },
     $queryRaw: jest.fn(),
     $transaction: jest.fn(),
+    // 会员等级设置写入会在事务内取 advisory lock
+    $executeRawUnsafe: jest.fn().mockResolvedValue(0),
   };
+
+  // 默认让事务回调直接跑在 prisma mock 自身上（tx === prisma），
+  // 这样「事务内写库」的断言仍然落在同一个 mock 上可读可断言。
+  prismaService.$transaction.mockImplementation(
+    async (callback: (tx: unknown) => Promise<unknown>) =>
+      callback(prismaService),
+  );
+
+  return prismaService;
 }
 
 function createAccessServiceMock(): MarketingAccessServiceMock {

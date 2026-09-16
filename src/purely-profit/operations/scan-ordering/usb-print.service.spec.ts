@@ -16,7 +16,9 @@ jest.mock('node:child_process', () => ({ execFile: jest.fn() }));
 const execFileMock = execFile as unknown as jest.Mock;
 
 /** 以 callback 风格模拟 execFile（promisify 需要回调触发 resolve）。 */
-function mockExecFile(impl: (cmd: string, args: string[]) => unknown): void {
+function mockExecFile(
+  impl: (cmd: string, args: string[]) => string | undefined,
+): void {
   execFileMock.mockImplementation(
     (
       cmd: string,

@@ -112,10 +112,13 @@ async function main() {
   }
 
   // 动态导入 Prisma Client
-  const { PrismaClient } = await import(
-    '@prisma/client'
-  );
-  const prisma = new PrismaClient();
+  // Prisma 7 的 datasource 不写 url（见 prisma/schema.prisma），必须显式传驱动适配器
+  const { PrismaClient } = await import('@prisma/client');
+  const { PrismaPg } = await import('@prisma/adapter-pg');
+  const { default: pg } = await import('pg');
+
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
   const stats = {
     inputCount: storeIds.length,
@@ -194,6 +197,7 @@ async function main() {
     console.log('');
   } finally {
     await prisma.$disconnect();
+    await pool.end();
   }
 }
 

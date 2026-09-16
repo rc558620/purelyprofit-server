@@ -12,6 +12,7 @@ describe('ClubServiceCallService', () => {
     serviceCall: {
       findFirst: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
     },
   };
   const currentStoreContextService = {
@@ -87,16 +88,62 @@ describe('ClubServiceCallService', () => {
     });
   });
 
-  it('rejects a duplicate open call before creating a new record', async () => {
+  it('rejects a duplicate open call inside the cooldown window', async () => {
     currentStoreContextService.requireCurrentContext.mockResolvedValue({
       store: { id: 42 },
     });
-    prisma.serviceCall.findFirst.mockResolvedValue({ id: 8 });
+    // 冷却期内（60s）重复呼叫：既不新建也不续推，直接拒绝
+    prisma.serviceCall.findFirst.mockResolvedValue({
+      id: 8,
+      lastRequestedAt: new Date(),
+    });
 
     await expect(
       service.createFromHome(user, { storeId: 42, type: 'assistance' }),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.serviceCall.create).not.toHaveBeenCalled();
+    expect(prisma.serviceCall.update).not.toHaveBeenCalled();
     expect(realtimeService.publishCreated).not.toHaveBeenCalled();
+  });
+
+  it('reminds the existing open call after the cooldown window', async () => {
+    currentStoreContextService.requireCurrentContext.mockResolvedValue({
+      store: { id: 42 },
+    });
+    const lastRequestedAt = new Date(Date.now() - 2 * 60 * 1000);
+    prisma.serviceCall.findFirst.mockResolvedValue({
+      id: 8,
+      lastRequestedAt,
+    });
+    prisma.serviceCall.update.mockResolvedValue({
+      id: 8,
+      storeId: 42,
+      clubUserId: user.id,
+      source: 'club_home',
+      type: 'assistance',
+      status: 'pending',
+      locationLabel: null,
+      remark: '仍然需要协助',
+      relatedOrderId: null,
+      reminderCount: 2,
+      createdAt: lastRequestedAt,
+    });
+
+    await service.createFromHome(user, {
+      storeId: 42,
+      type: 'assistance',
+      remark: '仍然需要协助',
+    });
+
+    expect(prisma.serviceCall.create).not.toHaveBeenCalled();
+    expect(prisma.serviceCall.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 8 },
+        data: expect.objectContaining({ reminderCount: { increment: 1 } }),
+      }),
+    );
+    expect(realtimeService.publishCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 8, reminderCount: 2 }),
+    );
   });
 });

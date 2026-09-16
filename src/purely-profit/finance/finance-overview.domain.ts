@@ -261,6 +261,10 @@ function buildCompare(current: Money, previous: Money): FinanceCompareDto {
       : calcPercentChangeWithFallback(
           current.toOutputYuan(),
           previous.toOutputYuan(),
+          // 净收益等可为负：上期为负时若直接作分母会导致符号翻转，
+          // 例如上期 -1000、本期 -500（亏损减半）会算成 -50%，与"改善"相反。
+          // 统一取上期绝对值作基数，保证变化方向的语义正确。
+          { absoluteBase: true },
         ),
   };
 }

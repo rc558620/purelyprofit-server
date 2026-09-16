@@ -1,5 +1,6 @@
 import { StoreSubAccountRole } from '@prisma/client';
 import { Injectable } from '@nestjs/common';
+import { StoreMembershipLockedPriceService } from '../../purely-profit/member/platform-membership/store-membership-locked-price.service';
 import { StoreSubAccountService } from '../../purely-profit/member/platform-membership/store-sub-account.service';
 import type { UpdateStoreSubAccountSlotInput } from '../../purely-profit/member/platform-membership/store-sub-account.types';
 import type {
@@ -13,6 +14,7 @@ export class PulseMembershipAdminSubAccountMutationService {
   constructor(
     private readonly storeSubAccountService: StoreSubAccountService,
     private readonly mutationStateService: PulseMembershipAdminMutationStateService,
+    private readonly lockedPriceService: StoreMembershipLockedPriceService,
   ) {}
 
   async updateAdminMemberSubAccountQuota(
@@ -29,6 +31,12 @@ export class PulseMembershipAdminSubAccountMutationService {
 
     if (dto.roleSummary?.length) {
       await this.syncAdminMemberSubAccountRoleSummary(memberId, dto.quota, dto);
+    }
+
+    // 关闭子账号能力（配额归零）时清空首购锁定价：
+    // 锁定价只在「已开通子账号功能」时生效，关闭后需要重新锁价
+    if (dto.quota <= 0) {
+      await this.lockedPriceService.resetLockedPrices(memberId);
     }
 
     await this.mutationStateService.invalidateAdminMemberDerived(memberId);

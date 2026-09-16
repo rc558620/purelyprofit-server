@@ -66,9 +66,15 @@ const readFlag = (name) => {
 const hasFlag = (name) => argv.includes(`--${name}`);
 
 const storeArg = readFlag('store');
-const storeId = storeArg !== undefined ? Number(storeArg) : undefined;
+const phoneArg = readFlag('phone');
 const days = Number(readFlag('days') ?? 365);
 const daysAgo = Number(readFlag('days-ago') ?? 1);
+const planArg = readFlag('plan');
+
+/** 门店 ID：--store 直接给；--phone 需要查库解析，在 main 中异步补齐 */
+let storeId = storeArg !== undefined ? Number(storeArg) : undefined;
+
+const VALID_PLANS = ['monthly', 'quarterly', 'yearly', 'lifetime'];
 
 const actions = [
   hasFlag('status') && 'status',
@@ -87,8 +93,24 @@ if (actions.length > 1) {
   throw new Error(`一次只能执行一个动作，收到：${actions.join(', ')}`);
 }
 
-if (actions[0] !== 'status' && !Number.isInteger(storeId)) {
-  throw new Error(`--${actions[0]} 必须指定 --store <门店ID>`);
+if (storeArg !== undefined && phoneArg !== undefined) {
+  throw new Error('--store 与 --phone 只能指定一个');
+}
+
+if (storeArg !== undefined && !Number.isInteger(storeId)) {
+  throw new Error(`--store 必须是数字门店 ID，收到：${storeArg}`);
+}
+
+if (planArg !== undefined && !VALID_PLANS.includes(planArg)) {
+  throw new Error(`--plan 只能是 ${VALID_PLANS.join(' / ')}，收到：${planArg}`);
+}
+
+if (
+  actions[0] !== 'status'
+  && !Number.isInteger(storeId)
+  && phoneArg === undefined
+) {
+  throw new Error(`--${actions[0]} 必须指定 --store <门店ID> 或 --phone <老板手机号>`);
 }
 
 if (!Number.isFinite(days) || days <= 0) {
@@ -102,6 +124,60 @@ if (!Number.isFinite(daysAgo) || daysAgo < 0) {
 // ─── 核心逻辑 ────────────────────────────────────────────────────────────
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** 手机号账号在 users.email 里的编码域名，与 seed-owner.mjs 保持一致 */
+const LOCAL_LOGIN_DOMAIN = 'purelyprofit.local';
+
+/**
+ * 把老板手机号解析成门店 ID：
+ * 先试 users.email 的两种历史编码，再退回在册子账号手机号。
+ */
+const resolveStoreIdByPhone = async (phone) => {
+  const trimmed = String(phone).trim();
+  const ownerEmails = [
+    `phone_${trimmed}@${LOCAL_LOGIN_DOMAIN}`,
+    `profit_phone_${trimmed}@${LOCAL_LOGIN_DOMAIN}`,
+  ];
+
+  const owner = await prisma.user.findFirst({
+    where: { email: { in: ownerEmails } },
+    select: {
+      id: true,
+      email: true,
+      store: { select: { id: true, name: true, deletedAt: true } },
+    },
+    orderBy: { id: 'asc' },
+  });
+
+  if (owner?.store && owner.store.deletedAt === null) {
+    console.log(
+      `📱 手机号 ${trimmed} → 门店 ${owner.store.id}「${owner.store.name}」`
+        + `（老板账号 ${owner.email}）`,
+    );
+    return owner.store.id;
+  }
+
+  const staff = await prisma.staff.findFirst({
+    where: { phone: trimmed, isActive: true, status: 'active' },
+    select: {
+      storeId: true,
+      store: { select: { name: true, deletedAt: true } },
+    },
+    orderBy: { id: 'asc' },
+  });
+
+  if (staff?.store && staff.store.deletedAt === null) {
+    console.log(
+      `📱 手机号 ${trimmed} → 门店 ${staff.storeId}「${staff.store.name}」（子账号）`,
+    );
+    return staff.storeId;
+  }
+
+  throw new Error(
+    `手机号 ${trimmed} 未匹配到门店：老板账号已尝试 ${ownerEmails.join(' / ')}，`
+      + '也未命中在册子账号手机号。',
+  );
+};
 
 /**
  * 复刻后端 MembershipDowngradeService.isExpired 的判定：
@@ -203,29 +279,30 @@ const applyAction = async (action) => {
 
   switch (action) {
     case 'expire':
-      planId = 'monthly';
+      planId = planArg ?? 'monthly';
       startsAt = new Date(now - 90 * DAY_MS);
       expiresAt = new Date(now - daysAgo * DAY_MS);
       description =
-        `已设为「${daysAgo} 天前过期」\n` +
-        '  → C 端应停新单、追加点单应被拒、手动录单每日限 5 单、空间同时只能开 1 台';
+        `已设为「${planId} / ${daysAgo} 天前过期」\n` +
+        '  → C 端应停新单、追加点单应被拒、手动录单每日限 5 单、空间同时只能开 1 台\n' +
+        '  → 首页应展示「会员已到期」横幅 + 弹窗';
       break;
 
     case 'expiring':
-      planId = 'monthly';
+      planId = planArg ?? 'monthly';
       startsAt = new Date(now - 30 * DAY_MS);
       expiresAt = new Date(now + days * DAY_MS);
       description =
-        `已设为「${days} 天后到期」\n` +
-        '  → 首页应展示续费横幅（提醒窗口为 10 天）';
+        `已设为「${planId} / ${days} 天后到期」\n` +
+        '  → 首页应展示续费弹窗（提醒窗口为 10 天）';
       break;
 
     case 'restore':
-      planId = 'yearly';
+      planId = planArg ?? 'yearly';
       startsAt = new Date(now);
       expiresAt = new Date(now + days * DAY_MS);
       description =
-        `已恢复为有效年度会员（${days} 天）\n` +
+        `已恢复为有效会员（${planId} / ${days} 天）\n` +
         '  → 所有到期限制应立即解除（无需重启服务）';
       break;
 
@@ -240,6 +317,12 @@ const applyAction = async (action) => {
 
     default:
       throw new Error(`未知动作：${action}`);
+  }
+
+  // lifetime（AGES）是 730 天周期卡：开始时间按同一周期回推，
+  // 避免出现「还剩 8 天到期、却显示刚开通 30 天」这种自相矛盾的数据
+  if (planId === 'lifetime' && expiresAt instanceof Date) {
+    startsAt = new Date(expiresAt.getTime() - 730 * DAY_MS);
   }
 
   const affected = await prisma.$executeRawUnsafe(
@@ -290,11 +373,21 @@ function printUsage() {
   console.log(`
 会员到期场景复现工具
 
-  node scripts/simulate-membership-expiry.mjs --status [--store 42]
+  node scripts/simulate-membership-expiry.mjs --status [--store 42 | --phone 13619654022]
   node scripts/simulate-membership-expiry.mjs --expire --store 42 [--days-ago 1]
   node scripts/simulate-membership-expiry.mjs --expiring --store 42 [--days 8]
   node scripts/simulate-membership-expiry.mjs --restore --store 42 [--days 365]
   node scripts/simulate-membership-expiry.mjs --reset --store 42
+
+定位门店（二选一）：
+  --store <门店ID>        直接指定
+  --phone <老板手机号>    按 users.email 的 phone_/profit_phone_ 编码反查，兜底在册子账号手机号
+
+指定档位（默认：expire/expiring 用 monthly，restore 用 yearly）：
+  --plan <monthly|quarterly|yearly|lifetime>
+  验证 AGES 快到期/到期（AGES 的真实档位是 lifetime）：
+    node scripts/simulate-membership-expiry.mjs --expiring --phone 13619654022 --plan lifetime --days 8
+    node scripts/simulate-membership-expiry.mjs --expire   --phone 13619654022 --plan lifetime --days-ago 1
 `);
 }
 
@@ -328,6 +421,10 @@ function loadEnvFile(filePath) {
 
 async function main() {
   const action = actions[0];
+
+  if (phoneArg !== undefined && !Number.isInteger(storeId)) {
+    storeId = await resolveStoreIdByPhone(phoneArg);
+  }
 
   if (action === 'status') {
     await printStatus();

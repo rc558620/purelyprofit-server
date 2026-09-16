@@ -22,6 +22,14 @@ export type MembershipRuleConfig = {
 
 export type StoreMembershipProfileSnapshot = {
   currentPlanId: PlatformMembershipPlanId | null;
+  /**
+   * 降级到免费时保留的原档位。
+   *
+   * 设为免费会把 `currentPlanId` 清空，此时档案里只剩本字段能回答
+   * 「原本买的是哪一档」；`resolveStoredMembershipLevel` 必须回落读取它，
+   * 否则 AGES 门店会被错判成年度档、续费页丢掉 AGES 卡。
+   */
+  previousPlanId?: PlatformMembershipPlanId | null;
   startsAt: Date | null;
   expiresAt: Date | null;
   subAccountQuota?: number;
@@ -39,6 +47,17 @@ export interface SubAccountBenefitSnapshot {
   quotaMax: number;
   enabled: boolean;
   rawQuota: number;
+  /**
+   * 是否**曾开通**子账号功能（`pulseSubAccountQuota > 0`）——到期不失效。
+   *
+   * 与 `enabled` 严格区分：`enabled` 是实时能力，会员一到期就会被
+   * `normalizeSubAccountQuota` 归零；续费页的档位裁剪 / 首购锁定价 /
+   * 含子账号权益的展示都必须以本字段为准，否则门店会在到期那一刻丢掉保护
+   * —— 而这正是最需要续费的时刻。
+   */
+  featureOwned: boolean;
+  /** 上次开通的档位（忽略到期判定，档位在会员档案里仍保留）；从未开通为 'free' */
+  previousLevel: MembershipRuntimeLevel;
 }
 
 export interface SubAccountRoleSnapshot {
@@ -268,6 +287,8 @@ export function buildSubAccountBenefitSnapshot(
     quotaMax: rule.subAccountEligible ? SUB_ACCOUNT_QUOTA_MAX : 0,
     enabled: quota > 0,
     rawQuota,
+    featureOwned: rawQuota > 0,
+    previousLevel: resolveStoredMembershipLevel(profile),
   };
 }
 
@@ -279,13 +300,7 @@ export function resolveMembershipLevel(
     return 'free';
   }
 
-  // 历史兼容：早年 lifetime 枚举还没加时用 yearly + null expiresAt 表示永久会员，
-  // 需同时满足 startsAt 存在才认定为 lifetime，防止数据异常被误判
-  if (
-    profile.currentPlanId === 'yearly' &&
-    profile.expiresAt === null &&
-    profile.startsAt !== null
-  ) {
+  if (isLegacyLifetimeProfile(profile)) {
     return 'lifetime';
   }
 
@@ -299,6 +314,52 @@ export function resolveMembershipLevel(
   }
 
   return profile.currentPlanId;
+}
+
+/**
+ * 解析会员档案里记录的档位，**忽略到期判定**。
+ *
+ * `resolveMembershipLevel` 在到期后会返回 'free'，续费页据此无法判断
+ * 「原本买的是哪一档」；而续费必须按原档位续（AGES 续 AGES、年度续年度），
+ * 所以这里跳过过期检查，直接取档案里保留的档位。
+ *
+ * 档位有两个来源，按优先级回落：
+ * 1. `currentPlanId` —— 档案当前档位（到期后仍保留）
+ * 2. `previousPlanId` —— 被设为免费时转存的原档位（此时 `currentPlanId` 已清空）
+ *
+ * 少了第 2 步，永久会员被设为免费后会回落成 'free'，续费页只剩年度卡。
+ */
+export function resolveStoredMembershipLevel(
+  profile: StoreMembershipProfileSnapshot | null,
+): MembershipRuntimeLevel {
+  if (!profile) {
+    return 'free';
+  }
+
+  if (isLegacyLifetimeProfile(profile)) {
+    return 'lifetime';
+  }
+
+  const storedPlanId = profile.currentPlanId ?? profile.previousPlanId ?? null;
+  if (!storedPlanId) {
+    return 'free';
+  }
+
+  return storedPlanId;
+}
+
+/**
+ * 历史兼容：早年 lifetime 枚举还没加时用 yearly + null expiresAt 表示永久会员，
+ * 需同时满足 startsAt 存在才认定为 lifetime，防止数据异常被误判。
+ */
+function isLegacyLifetimeProfile(
+  profile: StoreMembershipProfileSnapshot,
+): boolean {
+  return (
+    profile.currentPlanId === 'yearly' &&
+    profile.expiresAt === null &&
+    profile.startsAt !== null
+  );
 }
 
 export function normalizeSubAccountQuota(

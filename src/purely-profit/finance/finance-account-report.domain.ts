@@ -11,50 +11,38 @@ import {
 import { formatReportDateTimeLabel } from './finance-date.utils';
 import { Money, calcPercentChangeWithFallback } from '../../shared/money.utils';
 import type {
-  FinanceAccountRecordWithAmount,
-  FinanceCashFlowRecordWithAmount,
-} from './finance.types';
+  FinanceReportCashFlowRow,
+  FinanceReportCashFlowTotals,
+} from './finance-overview-report.query';
+import type { FinanceAccountRecordWithAmount } from './finance.types';
 import { withDerivedAccountFields } from './finance-account.domain';
 
 export function buildFinanceReportResponse(params: {
-  currentCashFlowRecords: Array<
-    Pick<
-      FinanceCashFlowRecordWithAmount,
-      | 'id'
-      | 'date'
-      | 'createdAt'
-      | 'title'
-      | 'direction'
-      | 'category'
-      | 'amount'
-      | 'payment'
-    >
-  >;
-  previousCashFlowRecords: Array<
-    Pick<FinanceCashFlowRecordWithAmount, 'direction' | 'amount'>
-  >;
+  /** 仅用于渲染明细行；汇总一律走 currentCashFlowTotals，避免明细截断影响金额 */
+  currentCashFlowRecords: FinanceReportCashFlowRow[];
+  currentCashFlowTotals: FinanceReportCashFlowTotals;
+  currentCashFlowCount: number;
+  previousCashFlowTotals: FinanceReportCashFlowTotals;
   accountRecords: FinanceAccountRecordWithAmount[];
 }): FinanceReportResponseDto {
   return {
-    summary: buildFinanceReportSummary(
-      params.currentCashFlowRecords,
-      params.previousCashFlowRecords,
-      params.accountRecords,
-    ),
+    summary: buildFinanceReportSummary({
+      currentCashFlowTotals: params.currentCashFlowTotals,
+      currentCashFlowCount: params.currentCashFlowCount,
+      previousCashFlowTotals: params.previousCashFlowTotals,
+      accountRecords: params.accountRecords,
+    }),
     cashFlowRows: buildFinanceReportCashFlowRows(params.currentCashFlowRecords),
     accountRows: buildFinanceReportAccountRows(params.accountRecords),
   };
 }
 
-export function buildFinanceReportSummary(
-  currentCashFlowRecords: Array<
-    Pick<FinanceCashFlowRecordWithAmount, 'direction' | 'amount'>
-  >,
-  previousCashFlowRecords: Array<
-    Pick<FinanceCashFlowRecordWithAmount, 'direction' | 'amount'>
-  >,
-  accountRecords: FinanceAccountRecordWithAmount[],
-): FinanceReportResponseDto['summary'] {
+export function buildFinanceReportSummary(params: {
+  currentCashFlowTotals: FinanceReportCashFlowTotals;
+  currentCashFlowCount: number;
+  previousCashFlowTotals: FinanceReportCashFlowTotals;
+  accountRecords: FinanceAccountRecordWithAmount[];
+}): FinanceReportResponseDto['summary'] {
   let totalIncome = Money.zero();
   let totalExpense = Money.zero();
   let previousIncome = Money.zero();
@@ -62,7 +50,7 @@ export function buildFinanceReportSummary(
   let receivableTotal = Money.zero();
   let payableTotal = Money.zero();
 
-  for (const record of currentCashFlowRecords) {
+  for (const record of params.currentCashFlowTotals) {
     const amount = Money.fromDbCents(record.amount);
     if (record.direction === 'income') {
       totalIncome = totalIncome.add(amount);
@@ -71,7 +59,7 @@ export function buildFinanceReportSummary(
     }
   }
 
-  for (const record of previousCashFlowRecords) {
+  for (const record of params.previousCashFlowTotals) {
     const amount = Money.fromDbCents(record.amount);
     if (record.direction === 'income') {
       previousIncome = previousIncome.add(amount);
@@ -80,7 +68,7 @@ export function buildFinanceReportSummary(
     }
   }
 
-  for (const record of accountRecords.map((item) =>
+  for (const record of params.accountRecords.map((item) =>
     withDerivedAccountFields(item),
   )) {
     if (record.status === FinanceAccountStatus.settled) {
@@ -101,7 +89,7 @@ export function buildFinanceReportSummary(
     totalIncome: totalIncome.toOutputYuan(),
     totalExpense: totalExpense.toOutputYuan(),
     netCashFlow: netCashFlow.toOutputYuan(),
-    recordCount: currentCashFlowRecords.length,
+    recordCount: params.currentCashFlowCount,
     receivableTotal: receivableTotal.toOutputYuan(),
     payableTotal: payableTotal.toOutputYuan(),
     compareLastPeriod: previousNetCashFlow.isZero()
@@ -109,6 +97,9 @@ export function buildFinanceReportSummary(
       : calcPercentChangeWithFallback(
           netCashFlow.toOutputYuan(),
           previousNetCashFlow.toOutputYuan(),
+          // 净现金流可为负：上期为负时直接作分母会翻转符号
+          // （上期 -1000 → 本期 -500 会算成 -50%，实为改善），故取绝对值作基数。
+          { absoluteBase: true },
         ),
   };
 }

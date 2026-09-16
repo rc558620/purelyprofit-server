@@ -57,6 +57,7 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
   };
 
   const refundService = {
+    markRefundTaskFailed: jest.fn().mockResolvedValue(undefined),
     markRefundTaskSucceededInTransaction: jest.fn(),
     createRefundTask: jest.fn(),
     createRefundTaskInTransaction: jest.fn(),

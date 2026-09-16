@@ -85,6 +85,7 @@ export function createFinanceOverviewPrismaMock() {
     financeCashFlowRecord: {
       findMany: jest.fn(),
       groupBy: jest.fn(),
+      count: jest.fn(),
     },
     financeAccountRecord: {
       findMany: jest.fn(),

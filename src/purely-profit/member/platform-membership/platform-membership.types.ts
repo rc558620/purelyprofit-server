@@ -83,6 +83,8 @@ export interface StoreMembershipProfileRecord {
   id: number;
   storeId: number;
   currentPlanId: PlatformMembershipPlanId | null;
+  /** 降级到免费时保留的原档位，续费仍按原档位（AGES 续 AGES） */
+  previousPlanId: PlatformMembershipPlanId | null;
   startsAt: Date | null;
   expiresAt: Date | null;
   totalPoints: number;

@@ -77,8 +77,12 @@ describe('MarketingService recharges', () => {
           amount: 100,
           giftAmount: 20,
           totalAmount: 120,
+          // 退款单以负值展示，充值/退款共用同一列表：signed* 为带符号金额
+          signedAmount: 100,
+          signedTotalAmount: 120,
           type: 'recharge',
           promotionId: '3',
+          promotionName: '储值赠 20%',
           note: '活动储值',
           createdAt: new Date('2026-05-15T09:00:00.000Z').getTime(),
         },
@@ -270,6 +274,21 @@ describe('MarketingService recharges', () => {
           findUnique: txFindUniqueMock,
         },
         marketingPromotion: { updateMany: jest.fn() },
+        // queryRechargeRowById 在事务内用 raw SQL 回读刚写入的流水
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 102,
+            customerId: 9,
+            customerName: '张三',
+            amount: 3000,
+            giftAmount: 0,
+            totalAmount: 3000,
+            type: 'refund',
+            promotionId: null,
+            note: '退款',
+            createdAt: new Date('2026-05-15T11:00:00.000Z'),
+          },
+        ]),
       };
       return fn(txMock);
     });
@@ -363,10 +382,22 @@ describe('MarketingService recharges', () => {
           findUnique: txFindUniqueMock,
         },
         marketingPromotion: { updateMany: jest.fn() },
+        // 事务内的赠送余额时间线：该顾客历史充值赠送 3300 分（33 元），
+        // clearRemainingGift=true 时这 33 元要一并清零
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 101,
+            customerId: 9,
+            amount: 40000,
+            giftAmount: 3300,
+            totalAmount: 43300,
+            type: 'recharge',
+          },
+        ]),
       };
       return fn(txMock);
     });
-    // queryRechargeRowById
+    // queryRechargeRowById（事务外回退路径，保留兼容）
     context.prismaService.$queryRaw.mockResolvedValueOnce([
       {
         id: 103,

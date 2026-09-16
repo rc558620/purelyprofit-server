@@ -2,6 +2,7 @@ import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { BusinessModeGuard } from '../stores/business-mode.guard';
 import { BUSINESS_MODE_KEY } from '../stores/business-mode.decorator';
+import { StoreBusinessCapabilityService } from '../stores/store-business-capability.service';
 import type { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { MarketingProductsController } from './marketing-products.controller';
 import { MarketingProductCategoriesController } from './marketing-product-categories.controller';
@@ -42,6 +43,13 @@ describe('营销商品上架业态接口保护', () => {
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: false,
     },
     ...overrides,
   });

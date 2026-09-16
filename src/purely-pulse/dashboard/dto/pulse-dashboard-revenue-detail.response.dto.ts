@@ -24,6 +24,13 @@ export class PulseRevenueDetailRecordDto {
   @IsInt()
   amount: number;
 
+  @ApiProperty({
+    example: '99',
+    description: '充值金额展示值（元字符串，后端计算，前端仅展示）',
+  })
+  @IsString()
+  amountDisplay: string;
+
   @ApiProperty({ example: '310000 · 310100 · 310104', description: '地区文案' })
   @IsString()
   region: string;

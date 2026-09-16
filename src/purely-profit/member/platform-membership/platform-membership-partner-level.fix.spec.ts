@@ -111,6 +111,7 @@ function makeProfile(
     id: 1,
     storeId: 10,
     currentPlanId: null,
+    previousPlanId: null,
     startsAt: null,
     expiresAt: null,
     totalPoints: 0,

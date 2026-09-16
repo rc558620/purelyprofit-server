@@ -1,7 +1,12 @@
 // Cleanup A01 dirty data - direct execution
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 
-const prisma = new PrismaClient();
+// Prisma 7 的 datasource 不写 url（见 prisma/schema.prisma），必须显式传驱动适配器
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 async function main() {
   console.log('🔍 开始清理 A01 桌台的脏数据...\n');
@@ -74,6 +79,7 @@ async function main() {
     throw error;
   } finally {
     await prisma.$disconnect();
+    await pool.end();
   }
 }
 

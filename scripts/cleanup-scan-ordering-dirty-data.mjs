@@ -1,7 +1,12 @@
+// ⚠️ prisma/schema.prisma 的 datasource 不写 url，Prisma 7 必须通过驱动适配器传入连接串，
+// 裸 new PrismaClient() 会直接初始化失败。
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 
-const prisma = new PrismaClient();
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 async function main() {
   console.log('🔍 开始扫描 scan_ordering_sessions 脏数据...\n');
@@ -66,7 +71,7 @@ async function main() {
         where: { id: session.id },
         data: { 
           deletedAt: new Date(),
-          status: 'left' as const,
+          status: 'left',
         },
       });
 
@@ -100,4 +105,7 @@ main()
     console.error('❌ 错误:', e);
     process.exit(1);
   })
-  .finally();
+  .finally(async () => {
+    await prisma.$disconnect();
+    await pool.end();
+  });

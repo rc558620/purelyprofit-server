@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -109,6 +110,22 @@ export class PulseAdminMemberMembershipDto {
   @Transform(({ value }) => toOptionalBoolean(value))
   @IsBoolean({ message: '降级确认标记必须是布尔值' })
   confirmDowngradeToFree?: boolean;
+
+  @ApiPropertyOptional({
+    example: '598',
+    description:
+      '本次成交价展示值（元字符串）。首次设置该档位时写入「首购锁定价」，' +
+      '同一个档位已存在锁定价时不覆盖；免费会员忽略该字段',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString({ message: '成交价必须是字符串' })
+  @Matches(/^\d+(\.\d{1,2})?$/, {
+    message: '成交价必须是正数，最多两位小数',
+  })
+  priceDisplay?: string;
 
   @ApiPropertyOptional({
     example: 'member-detail-membership-modal',

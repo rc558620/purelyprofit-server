@@ -84,15 +84,20 @@ describe('ScanOrderingDashboardService', () => {
     expect(pendingQuery.where.storeId).toBe(11);
     expect(pendingQuery.where.status).toBe('pending_acceptance');
     expect(preparingQuery.where.status).toBe('preparing');
-    expect(pendingQuery.where.session.is.OR).toHaveLength(2);
-    expect(preparingQuery.where.session.is.OR).toHaveLength(2);
-    expect(pendingQuery.where.session.is.OR[0]).toMatchObject({
-      status: 'active',
-      deletedAt: null,
+    // 轮次口径：命中「当前用餐轮次会话」的订单，或手工补录单（无会话）都要纳入
+    expect(pendingQuery.where.OR).toHaveLength(2);
+    expect(preparingQuery.where.OR).toHaveLength(2);
+    expect(pendingQuery.where.OR[0]).toMatchObject({
+      session: {
+        is: expect.objectContaining({
+          OR: expect.arrayContaining([
+            expect.objectContaining({ status: 'active', deletedAt: null }),
+            expect.objectContaining({ status: 'left' }),
+          ]),
+        }),
+      },
     });
-    expect(pendingQuery.where.session.is.OR[1]).toMatchObject({
-      status: 'left',
-    });
+    expect(pendingQuery.where.OR[1]).toMatchObject({ manualEntry: true });
   });
 
   it('退款中统计仅计入 status=refunding 且 paymentStatus=refunding（已退款 rejected+refunded 不计入）', async () => {

@@ -32,11 +32,13 @@ export class FinanceReconciliationItemInputDto {
   @ApiProperty({ example: 100, description: '账面金额，单位元' })
   @Type(() => Number)
   @IsNumber({}, { message: '账面金额必须是数字' })
+  @Min(0, { message: '账面金额不能小于 0' })
   bookAmount: number;
 
   @ApiProperty({ example: 98, description: '实际金额，单位元' })
   @Type(() => Number)
   @IsNumber({}, { message: '实际金额必须是数字' })
+  @Min(0, { message: '实际金额不能小于 0' })
   actualAmount: number;
 
   @ApiPropertyOptional({ example: '手续费差异', description: '备注' })

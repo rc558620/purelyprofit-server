@@ -40,7 +40,9 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "store-business-mode:backfill": "node scripts/backfill-store-business-mode.mjs"
+    "store-business-mode:backfill": "node scripts/backfill-store-business-mode.mjs",
+    "sub-account:revoke-orphaned": "node scripts/revoke-orphaned-sub-account-credentials.mjs",
+    "membership:backfill-previous-plan": "node scripts/backfill-membership-previous-plan-id.mjs"
   },
   "dependencies": {
     "@fastify/compress": "^9.0.0",

@@ -43,9 +43,8 @@ export const REVENUE_DETAIL_RANGE_PERIOD: PulseHomeRevenuePeriodValue =
 export const UNKNOWN_REGION_LABEL = '未知';
 export const EMPTY_REGION_PLACEHOLDER = '--';
 
-export const ONLINE_COUNT_RATIO = 0.08;
-export const ONLINE_PEAK_RATIO = 0.15;
-export const ONLINE_CHANGE_RATIO = 12.0;
+/** 在线趋势 sparkline 的采样点数（最近 N 个小时的活跃人数） */
+export const ONLINE_TREND_HOURS = 10;
 
 export const REVENUE_MONTHLY_LABEL = '月卡会员';
 export const REVENUE_QUARTERLY_LABEL = '季度会员';

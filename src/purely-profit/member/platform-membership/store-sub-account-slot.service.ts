@@ -157,6 +157,7 @@ export class StoreSubAccountSlotService {
       where: { storeId },
       select: {
         slotIndex: true,
+        employeeId: true,
       },
       orderBy: [{ slotIndex: 'asc' }],
     });
@@ -208,6 +209,17 @@ export class StoreSubAccountSlotService {
       return;
     }
 
+    // 先摘出待关闭槽位已分配的员工：下面的 updateMany 会把 employeeId 置空，
+    // 之后再也回溯不到需要吊销登录凭证的账号。
+    const closedEmployeeIds = [
+      ...new Set(
+        existingSlots
+          .filter((slot) => slot.slotIndex > quota)
+          .map((slot) => slot.employeeId)
+          .filter((id): id is number => id != null),
+      ),
+    ];
+
     await tx.storeSubAccount.updateMany({
       where: {
         storeId,
@@ -222,6 +234,17 @@ export class StoreSubAccountSlotService {
         canUseHandover: false,
       },
     });
+
+    // 关闭子账号能力时必须一并吊销登录凭证，否则旧子账号持原账号密码仍能登录
+    // purelyProfit（员工 Staff 行还是 active）。解绑后员工档案保留，重新分配
+    // 槽位即等于全新子账号。
+    if (closedEmployeeIds.length > 0) {
+      await this.storeSubAccountLoginService.revokeEmployeeLoginAccounts(
+        storeId,
+        closedEmployeeIds,
+        tx,
+      );
+    }
   }
 
   private async resolveAssignedEmployee(

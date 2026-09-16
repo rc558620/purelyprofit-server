@@ -332,6 +332,10 @@ export class AuthAuthenticationService {
     await this.authMembershipLoginGuardService.ensureSubAccountLoginAllowed(
       userId,
     );
+    // 席位被店主关闭（额度归零 / 收缩）的员工账号同样不得登录
+    await this.authMembershipLoginGuardService.ensureStaffSubAccountSeatGranted(
+      userId,
+    );
   }
 
   private resolveAccountScopeForLogin(user: {

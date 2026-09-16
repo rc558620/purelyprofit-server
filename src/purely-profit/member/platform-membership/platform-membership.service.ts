@@ -32,6 +32,7 @@ import type {
   PreviewPlatformMembershipOrderResponseDto,
   PurchasePlatformMembershipOrderResponseDto,
 } from './dto/platform-membership-response.dto';
+import { MembershipRenewalService } from './membership-renewal.service';
 import { PlatformMembershipLedgerService } from './platform-membership-ledger.service';
 import { PlatformMembershipOrderService } from './platform-membership-order.service';
 import { PlatformMembershipPartnerService } from './platform-membership-partner.service';
@@ -53,11 +54,27 @@ export class PlatformMembershipService {
     private readonly platformMembershipLedgerService: PlatformMembershipLedgerService,
     private readonly platformMembershipPartnerService: PlatformMembershipPartnerService,
     private readonly platformMembershipOrderService: PlatformMembershipOrderService,
+    private readonly membershipRenewalService: MembershipRenewalService,
     private readonly refreshableCache: RefreshableCacheService,
   ) {}
 
+  /** 全局套餐目录（开发者后台查看配置用，不含门店上下文） */
   async listPlans(): Promise<PlatformMembershipPlanResponseDto[]> {
     return this.platformMembershipReadService.listPlans();
+  }
+
+  /**
+   * 商家端续费页套餐列表：按子账号规则裁剪 + 应用首购锁定价。
+   *
+   * 与 `listPlans` 的区别是「当前门店视角」，两者不可互换。
+   */
+  async listRenewalPlans(
+    user: AuthenticatedUser,
+  ): Promise<PlatformMembershipPlanResponseDto[]> {
+    this.ensureOwnerOnly(user, '子账号无权访问平台会员中心');
+    return this.membershipRenewalService.listRenewalPlans(
+      this.getCurrentStoreIdOrThrow(user),
+    );
   }
 
   async getPlanConfig(

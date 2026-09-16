@@ -1,7 +1,12 @@
-// Simple A01 table diagnostic script without dotenv
+// Simple A01 table diagnostic script
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 
-const prisma = new PrismaClient();
+// Prisma 7 的 datasource 不写 url（见 prisma/schema.prisma），必须显式传驱动适配器
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 async function main() {
   console.log(`🔍 正在查询桌台 "A01" 的信息...\n`);
@@ -71,6 +76,7 @@ async function main() {
     console.error('❌ 错误:', error.message);
   } finally {
     await prisma.$disconnect();
+    await pool.end();
   }
 }
 

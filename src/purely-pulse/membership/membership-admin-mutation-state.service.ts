@@ -73,6 +73,8 @@ export class PulseMembershipAdminMutationStateService {
     return {
       profile: profile ?? {
         currentPlanId: null,
+        previousPlanId: null,
+        startsAt: null,
         expiresAt: null,
         totalPoints: 0,
         availablePoints: 0,

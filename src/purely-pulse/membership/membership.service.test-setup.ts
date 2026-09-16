@@ -20,6 +20,7 @@ import { PulseMembershipAdminMutationService } from './membership-admin-mutation
 import { PulseMembershipAdminPointsMutationService } from './membership-admin-points-mutation.service';
 import { PulseMembershipAdminSubAccountMutationService } from './membership-admin-sub-account-mutation.service';
 import { PulseMembershipAdminSalesStatsService } from './membership-admin-sales-stats.service';
+import { StoreMembershipLockedPriceService } from '../../purely-profit/member/platform-membership/store-membership-locked-price.service';
 import { PulseMembershipAdminQueryService } from './membership-admin-query.service';
 import { PulseMembershipAdminService } from './membership-admin.service';
 import { PulseMembershipAdminSubAccountReadService } from './membership-admin-sub-account-read.service';
@@ -36,6 +37,20 @@ export interface PulseMembershipPlatformMembershipServiceMock {
   listPointsLogsByStoreId: jest.Mock;
   listBeanLogsByStoreId: jest.Mock;
   getPromoCenterByStoreId: jest.Mock;
+}
+
+/**
+ * 平台会员能力服务 mock。
+ *
+ * `getSubAccountBenefitSnapshot` 的返回值必须**完整**覆盖真实的
+ * `SubAccountBenefitSnapshot`（尤其 `featureOwned` / `previousLevel`）：
+ * 缺字段会让「曾开通子账号功能」判定静默变成 false，首购锁定价等
+ * 依赖该标志的分支会被悄悄跳过。
+ */
+export interface PulseMembershipPlatformAccessServiceMock {
+  resolveViewStoreId: jest.Mock;
+  ensureCanManageEmployees: jest.Mock;
+  getSubAccountBenefitSnapshot: jest.Mock;
 }
 
 export interface PulseMembershipPrismaServiceMock {
@@ -71,6 +86,11 @@ export interface PulseMembershipPrismaServiceMock {
   storeMembershipPromoRecord: {
     count: jest.Mock;
     groupBy: jest.Mock;
+  };
+  storeMembershipLockedPrice: {
+    findMany: jest.Mock;
+    createMany: jest.Mock;
+    deleteMany: jest.Mock;
   };
   storeMembershipPointsLog: {
     create: jest.Mock;
@@ -119,6 +139,7 @@ export interface PulseMembershipServiceTestingContext {
   queryService: PulseMembershipAdminQueryService;
   memberReadService: PulseMembershipAdminMemberReadService;
   platformMembershipService: PulseMembershipPlatformMembershipServiceMock;
+  platformMembershipAccessService: PulseMembershipPlatformAccessServiceMock;
   prismaService: PulseMembershipPrismaServiceMock;
   pulseStoreContextService: PulseMembershipStoreContextServiceMock;
   redisService: PulseMembershipRedisServiceMock;
@@ -137,6 +158,24 @@ function createPlatformMembershipServiceMock(): PulseMembershipPlatformMembershi
     listPointsLogsByStoreId: jest.fn(),
     listBeanLogsByStoreId: jest.fn(),
     getPromoCenterByStoreId: jest.fn(),
+  };
+}
+
+function createPlatformMembershipAccessServiceMock(): PulseMembershipPlatformAccessServiceMock {
+  return {
+    resolveViewStoreId: jest.fn(),
+    ensureCanManageEmployees: jest.fn(),
+    getSubAccountBenefitSnapshot: jest.fn().mockResolvedValue({
+      level: 'yearly',
+      eligible: true,
+      quota: 2,
+      quotaMax: 10,
+      enabled: true,
+      rawQuota: 2,
+      // 默认为「已开通子账号功能」的门店：首购锁定价、档位裁剪等分支都依赖它
+      featureOwned: true,
+      previousLevel: 'yearly',
+    }),
   };
 }
 
@@ -175,6 +214,11 @@ function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
       count: jest.fn(),
       groupBy: jest.fn(),
     },
+    storeMembershipLockedPrice: {
+      findMany: jest.fn().mockResolvedValue([]),
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     storeMembershipPointsLog: {
       create: jest.fn(),
       findMany: jest.fn(),
@@ -185,7 +229,7 @@ function createPrismaServiceMock(): PulseMembershipPrismaServiceMock {
     },
     $executeRaw: jest.fn().mockResolvedValue(0),
     $transaction: jest.fn(),
-    } satisfies PulseMembershipPrismaServiceMock;
+  } satisfies PulseMembershipPrismaServiceMock;
 
   prismaService.$transaction.mockImplementation(
     async (callback: (tx: PrismaService) => Promise<unknown>) =>
@@ -267,6 +311,8 @@ function createAuthenticatedUser(): AuthenticatedUser {
 
 export async function createPulseMembershipServiceTestingContext(): Promise<PulseMembershipServiceTestingContext> {
   const platformMembershipService = createPlatformMembershipServiceMock();
+  const platformMembershipAccessService =
+    createPlatformMembershipAccessServiceMock();
   const prismaService = createPrismaServiceMock();
   const pulseStoreContextService = createPulseStoreContextServiceMock();
   const redisService = createRedisServiceMock();
@@ -290,6 +336,7 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
       PulseMembershipAdminBeansMutationService,
       PulseMembershipAdminSubAccountMutationService,
       PulseMembershipAdminMutationService,
+      StoreMembershipLockedPriceService,
       PulseMembershipAdminMemberReadService,
       PulseMembershipAdminSubAccountReadService,
       {
@@ -339,25 +386,13 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
       },
       {
         provide: PlatformMembershipAccessService,
-        useValue: {
-          resolveViewStoreId: jest.fn(),
-          ensureCanManageEmployees: jest.fn(),
-          getSubAccountBenefitSnapshot: jest.fn().mockResolvedValue({
-            level: 'yearly',
-            eligible: true,
-            quota: 2,
-            quotaMax: 10,
-            enabled: true,
-            rawQuota: 2,
-          }),
-        },
+        useValue: platformMembershipAccessService,
       },
     ],
   }).compile();
 
-  const authSessionService = module.get<Record<string, jest.Mock>>(
-    AuthSessionService,
-  );
+  const authSessionService =
+    module.get<Record<string, jest.Mock>>(AuthSessionService);
 
   return {
     service: module.get<PulseMembershipService>(PulseMembershipService),
@@ -374,6 +409,7 @@ export async function createPulseMembershipServiceTestingContext(): Promise<Puls
       PulseMembershipAdminMemberReadService,
     ),
     platformMembershipService,
+    platformMembershipAccessService,
     prismaService,
     pulseStoreContextService,
     redisService,

@@ -12,6 +12,7 @@ import {
 import {
   PULSE_MEMBER_LEVEL_VALUES,
   PULSE_MEMBER_STATUS_VALUES,
+  PulseAdminMemberLockedPriceDto,
   PulseRechargeRecordDto,
   PulseSubAccountCapabilityDto,
   PulseSubAccountRoleSummaryDto,
@@ -126,6 +127,14 @@ export class PulseMemberListItemDto {
   @IsOptional()
   @IsInt()
   membershipExpiry?: number | null;
+
+  @ApiProperty({
+    example: true,
+    description:
+      '是否在线（该账号最近 10 分钟内有经过鉴权的请求；口径见 MEMBER_ONLINE_WINDOW_MS）',
+  })
+  @IsBoolean()
+  isOnline: boolean;
 }
 
 /**
@@ -269,6 +278,24 @@ export class PulseMemberDetailDto {
   @IsOptional()
   @IsInt()
   membershipExpiry?: number | null;
+
+  @ApiProperty({
+    example: true,
+    description:
+      '是否在线（该账号最近 10 分钟内有经过鉴权的请求；口径见 MEMBER_ONLINE_WINDOW_MS）',
+  })
+  @IsBoolean()
+  isOnline: boolean;
+
+  @ApiProperty({
+    type: [PulseAdminMemberLockedPriceDto],
+    description:
+      '首购锁定价快照（已开通子账号功能的门店按此价续费；空数组表示未锁价）',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PulseAdminMemberLockedPriceDto)
+  lockedPrices: PulseAdminMemberLockedPriceDto[];
 
   @ApiProperty({ example: true, description: '是否具备配置子账号资格' })
   @IsBoolean()

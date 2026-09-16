@@ -22,9 +22,11 @@ const SRC_DIR = join(ROOT, 'src');
 const SQL_PREFIX = /\$queryRaw(?:Unsafe)?|\$executeRaw(?:Unsafe)?|Prisma\.(?:sql|raw|join)/;
 
 const WRITE_STMT = /^\s*(INSERT|UPDATE|DELETE)/i;
-// 结尾用 (?!\w) 而非 \b：NOW() 的右括号后面跟换行/空格时 \b 不成立，会导致漏报
+// 前置用 (?<![\w.]) 而非 \b：SQL 模板里常插 JS 表达式（如 ${Date.now()} / ${String(Date.now())}），
+// \b 会把 ".now()" 里的 now() 当成 SQL NOW() 而误报；真实 SQL 写法 NOW() 的前置字符不会是标识符或点。
+// 后置用 (?!\w) 而非 \b：NOW() 的右括号后面跟换行/空格时 \b 不成立，会导致漏报
 const NOW_FN =
-  /\b(NOW\s*\(\s*\)|CURRENT_TIMESTAMP|CURRENT_DATE|LOCALTIMESTAMP)(?!\w)/i;
+  /(?<![\w.])(NOW\s*\(\s*\)|CURRENT_TIMESTAMP|CURRENT_DATE|LOCALTIMESTAMP)(?!\w)/i;
 const UTC_CAST = /AT\s+TIME\s+ZONE\s+'UTC'/i;
 
 /** 收集所有 .ts 文件（跳过 spec / 测试辅助） */

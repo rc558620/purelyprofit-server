@@ -249,6 +249,8 @@ export class FinanceCashFlowService {
       };
     }
 
+    // 统计口径恒为全量收支，不跟随列表的 directionFilter（有意设计）：
+    // 统计卡需同时展示收入与支出，若跟随筛选则另一侧恒为 0。
     const currentRecords = await queryCashFlowStatsRows(this.prisma, {
       storeId,
       range: clampedRange,
@@ -275,12 +277,10 @@ export class FinanceCashFlowService {
       };
     }
 
-    const [previousRecords] = await Promise.all([
-      queryCashFlowStatsRows(this.prisma, {
-        storeId,
-        range: clampedPreviousRange,
-      }),
-    ]);
+    const previousRecords = await queryCashFlowStatsRows(this.prisma, {
+      storeId,
+      range: clampedPreviousRange,
+    });
     const previousStats = buildCashFlowBaseStats(previousRecords);
 
     return {

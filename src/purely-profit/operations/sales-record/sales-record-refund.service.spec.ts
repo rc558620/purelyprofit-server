@@ -1,9 +1,14 @@
 import { FinanceCashFlowPayment } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { SalesRecordRefundService } from './sales-record-refund.service';
 
 describe('SalesRecordRefundService', () => {
   let service: SalesRecordRefundService;
+
+  /** 部分字段的事务替身：仅需满足被测方法实际访问的模型即可，故做一次显式收窄 */
+  const asTransactionClient = (tx: unknown): Prisma.TransactionClient =>
+    tx as Prisma.TransactionClient;
 
   const transactionClient = {
     saleOrder: {
@@ -47,10 +52,13 @@ describe('SalesRecordRefundService', () => {
         buildSaleOrder({ refund: { id: 77 } }),
       );
 
-      await service.refundInTransaction(transactionClient, {
-        saleOrderId: 500,
-        refundedAt: new Date('2026-08-03T11:00:00.000Z'),
-      });
+      await service.refundInTransaction(
+        asTransactionClient(transactionClient),
+        {
+          saleOrderId: 500,
+          refundedAt: new Date('2026-08-03T11:00:00.000Z'),
+        },
+      );
 
       expect(transactionClient.saleOrderRefund.create).not.toHaveBeenCalled();
       expect(
@@ -66,10 +74,13 @@ describe('SalesRecordRefundService', () => {
         buildSaleOrder(),
       );
 
-      await service.refundInTransaction(transactionClient, {
-        saleOrderId: 500,
-        refundedAt,
-      });
+      await service.refundInTransaction(
+        asTransactionClient(transactionClient),
+        {
+          saleOrderId: 500,
+          refundedAt,
+        },
+      );
 
       expect(transactionClient.saleOrderRefund.create).toHaveBeenCalledTimes(1);
       expect(transactionClient.saleOrderRefund.create).toHaveBeenCalledWith({
@@ -92,10 +103,13 @@ describe('SalesRecordRefundService', () => {
       );
       transactionClient.saleOrderRefund.create.mockResolvedValue({ id: 88 });
 
-      await service.refundInTransaction(transactionClient, {
-        saleOrderId: 500,
-        refundedAt,
-      });
+      await service.refundInTransaction(
+        asTransactionClient(transactionClient),
+        {
+          saleOrderId: 500,
+          refundedAt,
+        },
+      );
 
       expect(
         transactionClient.financeCashFlowRecord.create,
@@ -123,10 +137,13 @@ describe('SalesRecordRefundService', () => {
         buildSaleOrder({ paymentMethod: 'groupon_voucher' }),
       );
 
-      await service.refundInTransaction(transactionClient, {
-        saleOrderId: 500,
-        refundedAt,
-      });
+      await service.refundInTransaction(
+        asTransactionClient(transactionClient),
+        {
+          saleOrderId: 500,
+          refundedAt,
+        },
+      );
 
       expect(
         transactionClient.financeCashFlowRecord.create,

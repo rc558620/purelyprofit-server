@@ -8,7 +8,12 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
 
 import { DAY_MS, PURCHASE_BONUS_POINTS } from './platform-membership.constants';
+import {
+  isRenewalPlanPurchasable,
+  SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE,
+} from './membership-renewal-policy.shared';
 import { resolveEffectivePlanId } from './membership-plan-resolver';
+import { StoreMembershipLockedPriceService } from './store-membership-locked-price.service';
 import {
   buildPlanExpiryAt,
   resolveFrontendMembershipExpiry,
@@ -46,6 +51,7 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
     private readonly prisma: PrismaService,
     private readonly cacheInvalidatorService: CacheInvalidatorService,
     private readonly promoService: PlatformMembershipPromoService,
+    private readonly lockedPriceService: StoreMembershipLockedPriceService,
   ) {}
 
   /** 服务启动后自动修复历史未充值推广记录（在 Redis 就绪后执行） */
@@ -76,8 +82,20 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
     const partner = await findCurrentStorePartner(this.prisma, storeId);
     const availableBeans = partner?.beanBalance ?? 0;
 
+    const pricingContext =
+      await this.lockedPriceService.loadRenewalPricingContext(storeId);
+    this.assertRenewalPlanAllowed(
+      dto.planId,
+      pricingContext.subAccountFeatureOwned,
+    );
+
+    const { price: planPrice } = this.lockedPriceService.resolvePlanPrice({
+      plan,
+      context: pricingContext,
+    });
+
     const preview = calcPreviewResult({
-      planPrice: plan.price,
+      planPrice,
       requestedPoints,
       availablePoints: profile.availablePoints,
       requestedBeans,
@@ -85,7 +103,7 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
     });
 
     return {
-      planPrice: plan.price,
+      planPrice,
       beanDeductAmount: preview.beanDeductAmount,
       actualBeansUsed: preview.actualBeansUsed,
       pointsDeductAmount: preview.pointsDeductAmount,
@@ -113,8 +131,22 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
       const profile = await ensureMembershipProfile(tx, storeId);
       const partner = await findCurrentStorePartner(tx, storeId);
       const availableBeans = partner?.beanBalance ?? 0;
+
+      // 曾开通子账号功能的门店按首购锁定价结算；月 / 季会被直接拒绝，避免误降级
+      // （会员到期后实时能力会被归零，故必须用「曾开通」口径，否则到期即可降级）
+      const pricingContext =
+        await this.lockedPriceService.loadRenewalPricingContext(storeId, tx);
+      this.assertRenewalPlanAllowed(
+        dto.planId,
+        pricingContext.subAccountFeatureOwned,
+      );
+      const { price: planPrice } = this.lockedPriceService.resolvePlanPrice({
+        plan,
+        context: pricingContext,
+      });
+
       const payment = calcMemberPlanPayment({
-        planPrice: plan.price,
+        planPrice,
         requestedPoints,
         availablePoints: profile.availablePoints,
         requestedBeans,
@@ -190,6 +222,8 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
         where: { id: profile.id },
         data: {
           currentPlanId: nextPlanId,
+          // 下单成功后 currentPlanId 就是最新的续费依据，清掉降级时转存的原档位
+          previousPlanId: null,
           startsAt: nextStartsAt,
           expiresAt: isLegacyLifetimeMembership ? null : nextExpiresAt,
           totalPoints: nextTotalPoints,
@@ -199,6 +233,7 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
           id: true,
           storeId: true,
           currentPlanId: true,
+          previousPlanId: true,
           startsAt: true,
           expiresAt: true,
           totalPoints: true,
@@ -238,7 +273,7 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
           profileId: profile.id,
           planId: plan.id,
           planName: plan.name,
-          originalAmount: plan.price,
+          originalAmount: planPrice,
           pointsUsed: payment.actualPointsUsed,
           beansUsed: payment.actualBeansUsed,
           amount: payment.finalAmount,
@@ -259,6 +294,15 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
           paymentOrderId: true,
           createdAt: true,
         },
+      });
+
+      // 首次成交价快照：已存在则不覆盖（锁定语义）
+      await this.lockedPriceService.lockPriceOnFirstDeal({
+        storeId,
+        planId: plan.id,
+        price: planPrice,
+        source: 'purchase',
+        executor: tx,
       });
 
       const [latestPartner, allOrders, inviteCodeRecord] = await Promise.all([
@@ -321,5 +365,20 @@ export class PlatformMembershipOrderService implements OnApplicationBootstrap {
       });
 
     return cleanResponse;
+  }
+
+  /**
+   * 曾开通子账号功能的门店禁止购买月度 / 季度（否则子账号能力会被配额归零而失效）。
+   *
+   * 用「曾开通」口径而非实时能力：会员到期后实时能力会被归零，
+   * 若按实时能力判断，到期门店可下单降级到月 / 季，直接丢掉子账号与首购锁定价。
+   */
+  private assertRenewalPlanAllowed(
+    planId: PlatformMembershipPlanId,
+    subAccountFeatureOwned: boolean,
+  ): void {
+    if (!isRenewalPlanPurchasable({ planId, subAccountFeatureOwned })) {
+      throw new ConflictException(SUB_ACCOUNT_PLAN_BLOCKED_MESSAGE);
+    }
   }
 }

@@ -1,9 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import type { Prisma } from '@prisma/client';
 import { SalesRecordService } from '../../purely-profit/operations/sales-record/sales-record.service';
 import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
 
 describe('ScanOrderingSaleOrderBridgeService', () => {
   let service: ScanOrderingSaleOrderBridgeService;
+
+  /** 部分字段的事务替身：仅需满足被测方法实际访问的模型即可，故做一次显式收窄 */
+  const asTransactionClient = (tx: unknown): Prisma.TransactionClient =>
+    tx as Prisma.TransactionClient;
 
   const transactionClient = {
     saleOrder: {
@@ -66,7 +71,11 @@ describe('ScanOrderingSaleOrderBridgeService', () => {
     it('已存在同 scanOrderId 的 SaleOrder 时直接返回，不重复创建', async () => {
       transactionClient.saleOrder.findUnique.mockResolvedValue({ id: 99 });
 
-      await service.createForPaidOrder(transactionClient, 1001, 'wechat');
+      await service.createForPaidOrder(
+        asTransactionClient(transactionClient),
+        1001,
+        'wechat',
+      );
 
       expect(transactionClient.saleOrder.findUnique).toHaveBeenCalledWith({
         where: { scanOrderId: 1001 },
@@ -84,7 +93,11 @@ describe('ScanOrderingSaleOrderBridgeService', () => {
         buildOrder(),
       );
 
-      await service.createForPaidOrder(transactionClient, 1001, 'wechat');
+      await service.createForPaidOrder(
+        asTransactionClient(transactionClient),
+        1001,
+        'wechat',
+      );
 
       expect(salesRecordService.create).toHaveBeenCalledTimes(1);
     });
@@ -97,7 +110,11 @@ describe('ScanOrderingSaleOrderBridgeService', () => {
         buildOrder(),
       );
 
-      await service.createForPaidOrder(transactionClient, 1001, 'wechat');
+      await service.createForPaidOrder(
+        asTransactionClient(transactionClient),
+        1001,
+        'wechat',
+      );
 
       const [, dto] = salesRecordService.create.mock.calls[0];
       const totalFen = (dto.items as Array<{ salePrice: number }>).reduce(
@@ -113,7 +130,11 @@ describe('ScanOrderingSaleOrderBridgeService', () => {
         buildOrder(),
       );
 
-      await service.createForPaidOrder(transactionClient, 1001, 'wechat');
+      await service.createForPaidOrder(
+        asTransactionClient(transactionClient),
+        1001,
+        'wechat',
+      );
 
       const [, dto] = salesRecordService.create.mock.calls[0];
       expect(dto.items).toHaveLength(3); // 2 份红烧肉 + 1 份米饭
@@ -130,7 +151,11 @@ describe('ScanOrderingSaleOrderBridgeService', () => {
         buildOrder({ payableAmount: 2000 }),
       );
 
-      await service.createForPaidOrder(transactionClient, 1001, 'wechat');
+      await service.createForPaidOrder(
+        asTransactionClient(transactionClient),
+        1001,
+        'wechat',
+      );
 
       const [, dto] = salesRecordService.create.mock.calls[0];
       const totalFen = (dto.items as Array<{ salePrice: number }>).reduce(
@@ -158,7 +183,11 @@ describe('ScanOrderingSaleOrderBridgeService', () => {
         }),
       );
 
-      await service.createForPaidOrder(transactionClient, 1001, 'wechat');
+      await service.createForPaidOrder(
+        asTransactionClient(transactionClient),
+        1001,
+        'wechat',
+      );
 
       const [, dto] = salesRecordService.create.mock.calls[0];
       const salePrices = (dto.items as Array<{ salePrice: number }>).map(
@@ -175,7 +204,11 @@ describe('ScanOrderingSaleOrderBridgeService', () => {
         buildOrder({ payableAmount: 1999 }),
       );
 
-      await service.createForPaidOrder(transactionClient, 1001, 'wechat');
+      await service.createForPaidOrder(
+        asTransactionClient(transactionClient),
+        1001,
+        'wechat',
+      );
 
       const [, dto] = salesRecordService.create.mock.calls[0];
       const totalFen = (dto.items as Array<{ salePrice: number }>).reduce(
@@ -192,7 +225,11 @@ describe('ScanOrderingSaleOrderBridgeService', () => {
         buildOrder(),
       );
 
-      await service.createForPaidOrder(transactionClient, 1001, 'wechat');
+      await service.createForPaidOrder(
+        asTransactionClient(transactionClient),
+        1001,
+        'wechat',
+      );
 
       const [, , options] = salesRecordService.create.mock.calls[0];
       expect(options).toMatchObject({
@@ -210,7 +247,11 @@ describe('ScanOrderingSaleOrderBridgeService', () => {
         buildOrder({ remark: '不要辣' }),
       );
 
-      await service.createForPaidOrder(transactionClient, 1001, 'other');
+      await service.createForPaidOrder(
+        asTransactionClient(transactionClient),
+        1001,
+        'other',
+      );
 
       const [user, dto] = salesRecordService.create.mock.calls[0];
       expect(user.id).toBe(0);
@@ -229,7 +270,11 @@ describe('ScanOrderingSaleOrderBridgeService', () => {
         buildOrder(),
       );
 
-      await service.createForPaidOrder(transactionClient, 1001, 'wechat');
+      await service.createForPaidOrder(
+        asTransactionClient(transactionClient),
+        1001,
+        'wechat',
+      );
 
       const [, dto] = salesRecordService.create.mock.calls[0];
       for (const item of dto.items) {

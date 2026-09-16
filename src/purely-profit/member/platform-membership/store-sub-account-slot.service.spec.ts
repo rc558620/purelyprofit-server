@@ -24,6 +24,7 @@ describe('StoreSubAccountSlotService', () => {
   };
   let storeSubAccountLoginService: {
     ensureEmployeeHasLoginAccount: jest.Mock;
+    revokeEmployeeLoginAccounts: jest.Mock;
   };
   let storeSubAccountReadService: {
     getStoreSubAccountSummary: jest.Mock;
@@ -47,6 +48,7 @@ describe('StoreSubAccountSlotService', () => {
 
     const mockStoreSubAccountLoginService = {
       ensureEmployeeHasLoginAccount: jest.fn(),
+      revokeEmployeeLoginAccounts: jest.fn().mockResolvedValue([]),
     };
 
     const mockStoreSubAccountReadService = {
@@ -91,13 +93,11 @@ describe('StoreSubAccountSlotService', () => {
           upsert: jest.fn().mockResolvedValue(undefined),
         },
         storeSubAccount: {
-          findMany: jest
-            .fn()
-            .mockResolvedValue([
-              { slotIndex: 1 },
-              { slotIndex: 4 },
-              { slotIndex: 5 },
-            ]),
+          findMany: jest.fn().mockResolvedValue([
+            { slotIndex: 1, employeeId: 100 },
+            { slotIndex: 4, employeeId: 200 },
+            { slotIndex: 5, employeeId: 300 },
+          ]),
           update: jest.fn().mockResolvedValue(undefined),
           create: jest.fn().mockResolvedValue(undefined),
           createMany: jest.fn().mockResolvedValue(undefined),
@@ -135,12 +135,14 @@ describe('StoreSubAccountSlotService', () => {
         where: { storeId: 1 },
         create: {
           storeId: 1,
-          subAccountQuota: 2,
+          // pulseSubAccountQuota 才是「平台侧配置的子账号额度」事实源，
+          // 由 buildSubAccountBenefitSnapshot 读取；subAccountQuota 是席位上限（另一条链路）
+          pulseSubAccountQuota: 2,
           totalPoints: 0,
           availablePoints: 0,
         },
         update: {
-          subAccountQuota: 2,
+          pulseSubAccountQuota: 2,
         },
       });
       expect(tx.storeSubAccount.updateMany).toHaveBeenCalledWith({
@@ -193,6 +195,94 @@ describe('StoreSubAccountSlotService', () => {
       expect(
         storeSubAccountReadService.getStoreSubAccountSummary,
       ).toHaveBeenCalledWith(1);
+    });
+
+    it('关闭额度归零时应吊销全部子账号登录凭证', async () => {
+      const tx = {
+        storeMembershipProfile: {
+          upsert: jest.fn().mockResolvedValue(undefined),
+        },
+        storeSubAccount: {
+          findMany: jest.fn().mockResolvedValue([
+            { slotIndex: 1, employeeId: 100 },
+            { slotIndex: 2, employeeId: 200 },
+          ]),
+          updateMany: jest.fn().mockResolvedValue(undefined),
+          createMany: jest.fn().mockResolvedValue(undefined),
+        },
+        storeSubAccountQuotaAudit: {
+          create: jest.fn().mockResolvedValue(undefined),
+        },
+      };
+      membershipAccessService.ensureSubAccountConfigurable.mockResolvedValue(
+        undefined,
+      );
+      membershipAccessService.getSubAccountBenefitSnapshot.mockResolvedValue({
+        rawQuota: 2,
+      });
+      prismaService.$transaction.mockImplementation((callback) => callback(tx));
+      storeSubAccountReadService.getStoreSubAccountSummary.mockResolvedValue({
+        quota: 0,
+        usedCount: 0,
+        availableCount: 0,
+        roleSummary: [],
+        slots: [],
+      });
+
+      await service.updateQuota(1, 0, 99);
+
+      expect(tx.storeSubAccount.updateMany).toHaveBeenCalledWith({
+        where: { storeId: 1, slotIndex: { gt: 0 } },
+        data: {
+          status: StoreSubAccountStatus.disabled,
+          employeeId: null,
+          isAssigned: false,
+          assignedAt: null,
+          canAccessHome: false,
+          canUseHandover: false,
+        },
+      });
+      expect(tx.storeSubAccount.createMany).not.toHaveBeenCalled();
+      expect(
+        storeSubAccountLoginService.revokeEmployeeLoginAccounts,
+      ).toHaveBeenCalledWith(1, [100, 200], tx);
+    });
+
+    it('关闭未分配员工的槽位时不需要吊销凭证', async () => {
+      const tx = {
+        storeMembershipProfile: {
+          upsert: jest.fn().mockResolvedValue(undefined),
+        },
+        storeSubAccount: {
+          findMany: jest
+            .fn()
+            .mockResolvedValue([{ slotIndex: 1, employeeId: null }]),
+          updateMany: jest.fn().mockResolvedValue(undefined),
+        },
+        storeSubAccountQuotaAudit: {
+          create: jest.fn().mockResolvedValue(undefined),
+        },
+      };
+      membershipAccessService.ensureSubAccountConfigurable.mockResolvedValue(
+        undefined,
+      );
+      membershipAccessService.getSubAccountBenefitSnapshot.mockResolvedValue({
+        rawQuota: 1,
+      });
+      prismaService.$transaction.mockImplementation((callback) => callback(tx));
+      storeSubAccountReadService.getStoreSubAccountSummary.mockResolvedValue({
+        quota: 0,
+        usedCount: 0,
+        availableCount: 0,
+        roleSummary: [],
+        slots: [],
+      });
+
+      await service.updateQuota(1, 0, 99);
+
+      expect(
+        storeSubAccountLoginService.revokeEmployeeLoginAccounts,
+      ).not.toHaveBeenCalled();
     });
   });
 

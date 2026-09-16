@@ -17,6 +17,18 @@ import {
   formatShanghaiTime,
   getShanghaiHour,
 } from '../../shared/shanghai-time.utils';
+import { Money } from '../../shared/money.utils';
+
+/**
+ * 分（整数）→ 元展示字符串。
+ * 金额展示值统一由后端计算，前端只做纯展示，不参与任何换算。
+ */
+export function toRevenueAmountDisplay(amountFen: number): string {
+  return Money.fromDbCents(amountFen)
+    .toFixedOutputYuan()
+    .replace(/\.00$/, '')
+    .replace(/(\.\d)0$/, '$1');
+}
 
 export function mapRevenuePlanLabel(
   planId: string,
@@ -88,7 +100,7 @@ export function buildRevenueTrend(
   orders: DashboardRevenueOrderRow[],
   displayPeriod: PulseHomeRevenuePeriodValue,
   amountMapper: (amount: number) => number = (amount) => amount,
-): { dates: string[]; values: number[] } {
+): { dates: string[]; values: number[]; valuesDisplay: string[] } {
   // 使用 label → { total, firstDate } 的聚合结构，
   // firstDate 保留原始 Date 用于排序，避免跨年时纯字符串比较错误
   const bucketMap = new Map<string, { total: number; firstDate: Date }>();
@@ -113,6 +125,9 @@ export function buildRevenueTrend(
   return {
     dates: sortedEntries.map(([date]) => date),
     values: sortedEntries.map(([, { total }]) => amountMapper(total)),
+    valuesDisplay: sortedEntries.map(([, { total }]) =>
+      toRevenueAmountDisplay(total),
+    ),
   };
 }
 

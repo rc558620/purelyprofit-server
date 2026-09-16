@@ -4,9 +4,13 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
 import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
+import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 
 describe('ScanOrderingOrderRefundBalanceService', () => {
   let service: ScanOrderingOrderRefundBalanceService;
+
+  /** 拒绝操作的商家账号（服务仅读取 operator.id 用于销售单操作员） */
+  const operator = { id: 201 } as unknown as AuthenticatedUser;
 
   const prismaService = {
     $transaction: jest.fn(),
@@ -144,7 +148,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
   it('余额退款：订单置为 rejected/refunded/closed 并版本加一', async () => {
     await service.refund(
       { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
-      201,
+      operator,
     );
 
     expect(prismaService.scanOrders.updateMany).toHaveBeenCalledWith({
@@ -168,7 +172,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
   it('余额退款：回补会员余额并写入 refund 流水', async () => {
     await service.refund(
       { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
-      201,
+      operator,
     );
 
     expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
@@ -190,7 +194,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
   it('余额退款：恢复菜单商品库存、共用 Product.stock 与规格库存一次', async () => {
     await service.refund(
       { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
-      201,
+      operator,
     );
 
     expect(stockRestoreService.restoreReservedStock).toHaveBeenCalledTimes(1);
@@ -199,7 +203,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
   it('余额退款：只委托一次标准销售退款（通过 stockRestoreService）', async () => {
     await service.refund(
       { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
-      201,
+      operator,
     );
 
     expect(stockRestoreService.refundSaleOrder).toHaveBeenCalledTimes(1);
@@ -215,7 +219,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
 
     await service.refund(
       { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
-      201,
+      operator,
     );
 
     expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
@@ -250,7 +254,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
 
     await service.refund(
       { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
-      201,
+      operator,
     );
 
     expect(prismaService.marketingPointsRecord.create).not.toHaveBeenCalled();
@@ -270,7 +274,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
 
     await service.refund(
       { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
-      201,
+      operator,
     );
 
     // 返还抵扣积分 82
@@ -308,7 +312,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
 
     await service.refund(
       { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
-      201,
+      operator,
     );
 
     expect(prismaService.marketingCustomer.update).toHaveBeenCalledWith({
@@ -332,7 +336,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
 
     await service.refund(
       { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
-      201,
+      operator,
     );
 
     expect(stockRestoreService.refundSaleOrder).toHaveBeenCalledTimes(1);
@@ -346,7 +350,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
     await expect(
       service.refund(
         { orderId: 1001, storeId: 11, version: 1, reason: '顾客申请' },
-        201,
+        operator,
       ),
     ).rejects.toBeInstanceOf(ConflictException);
 

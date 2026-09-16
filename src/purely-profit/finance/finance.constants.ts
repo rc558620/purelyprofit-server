@@ -9,13 +9,6 @@ import type {
 
 export const DAY_MS = 86_400_000;
 
-export const ACCOUNT_STATUS_ORDER: Record<FinanceAccountStatus, number> = {
-  overdue: 0,
-  pending: 1,
-  partial: 2,
-  settled: 3,
-};
-
 export const OVERVIEW_SOURCE_CONFIG = {
   sales: {
     label: '销售收入',

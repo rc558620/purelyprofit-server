@@ -293,3 +293,56 @@ export const PULSE_MEMBER_FILTER_EXPIRY_VALUES = [
 ] as const;
 export type PulseMemberFilterExpiryValue =
   (typeof PULSE_MEMBER_FILTER_EXPIRY_VALUES)[number];
+
+/** 锁价来源：purchase=商家端下单成交，admin=平台侧设置会员等级成交 */
+export const PULSE_LOCKED_PRICE_SOURCE_VALUES = ['purchase', 'admin'] as const;
+export type PulseLockedPriceSourceValue =
+  (typeof PULSE_LOCKED_PRICE_SOURCE_VALUES)[number];
+
+/** 套餐档位标识（与 Prisma MembershipPlanCycle 对齐） */
+export const PULSE_MEMBERSHIP_PLAN_ID_VALUES = [
+  'monthly',
+  'quarterly',
+  'yearly',
+  'lifetime',
+] as const;
+export type PulseMembershipPlanIdValue =
+  (typeof PULSE_MEMBERSHIP_PLAN_ID_VALUES)[number];
+
+/**
+ * 首购锁定价快照条目（管理端展示）。
+ *
+ * 对齐前端 MemberLockedPrice（purelyPulse memberList.types.ts）。
+ */
+export class PulseAdminMemberLockedPriceDto {
+  @ApiProperty({
+    enum: PULSE_MEMBERSHIP_PLAN_ID_VALUES,
+    example: 'yearly',
+    description: '套餐档位（yearly 对应前端展示的「年度会员」）',
+  })
+  @IsIn(PULSE_MEMBERSHIP_PLAN_ID_VALUES)
+  planId: PulseMembershipPlanIdValue;
+
+  @ApiProperty({ example: 58800, description: '锁定价格（分）' })
+  @IsInt()
+  price: number;
+
+  @ApiProperty({ example: '588', description: '锁定价格（元，已格式化）' })
+  @IsString()
+  priceDisplay: string;
+
+  @ApiProperty({
+    enum: PULSE_LOCKED_PRICE_SOURCE_VALUES,
+    example: 'purchase',
+    description: '锁价来源',
+  })
+  @IsIn(PULSE_LOCKED_PRICE_SOURCE_VALUES)
+  source: PulseLockedPriceSourceValue;
+
+  @ApiProperty({
+    example: 1773500000000,
+    description: '锁定时点（ms）',
+  })
+  @IsInt()
+  lockedAt: number;
+}

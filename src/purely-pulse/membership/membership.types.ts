@@ -27,6 +27,15 @@ export type PulseAdminMemberLevel = PulseMemberLevelValue;
 
 export interface PulseAdminMembershipProfileRecord {
   currentPlanId: PulseMembershipPlanId | null;
+  /**
+   * 降级到免费时保留的原档位（此时 `currentPlanId` 已清空）。
+   *
+   * 续费必须按原档位续（AGES 续 AGES），缺少本字段会让永久会员被设为免费后
+   * 回落成 'free'，续费页只剩年度卡。
+   */
+  previousPlanId?: PulseMembershipPlanId | null;
+  /** 档案首次写入时间；非空表示档案已被显式管理，用于兼容历史永久会员判定 */
+  startsAt?: Date | null;
   expiresAt: Date | null;
   totalPoints: number;
   availablePoints: number;
@@ -123,6 +132,8 @@ export interface PulseAdminMembershipMutationInput {
   expireAt?: number | null;
   expiryAt?: number | null;
   confirmDowngradeToFree?: boolean;
+  /** 本次成交价展示值（元字符串），首次设置该档位时写入首购锁定价 */
+  priceDisplay?: string;
   actionSource?: string;
   auditContext?: PulseAdminMembershipAuditContext;
 }

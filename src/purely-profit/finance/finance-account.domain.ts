@@ -6,6 +6,7 @@ import type {
 } from './dto/finance-account.response.dto';
 import {
   ACCOUNT_CATEGORY_RULES,
+  DAY_MS,
   type FinanceAccountCategoryRule,
 } from './finance.constants';
 import type {
@@ -58,7 +59,9 @@ export function deriveAccountFields(
       status: FinanceAccountStatus.settled,
     };
   }
-  if (dueDate != null && dueDate < Date.now()) {
+  // dueDate 为到期日当天零点时间戳：到期日当天仍属正常，次日零点起才算逾期。
+  // 若直接比较 dueDate < now，则"今天到期"的账款从当天零点就被误判为逾期。
+  if (dueDate != null && dueDate + DAY_MS <= Date.now()) {
     return {
       remaining: remaining.toDbCents(),
       status: FinanceAccountStatus.overdue,

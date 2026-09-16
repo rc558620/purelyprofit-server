@@ -43,6 +43,13 @@ describe('空间管理业态接口保护', () => {
       permissions: ['*'],
       isActive: true,
       subjectType: 'owner',
+      linkedEmployeeId: null,
+      subAccountId: null,
+      subAccountRole: null,
+      subAccountStatus: null,
+      subAccountAssigned: false,
+      canAccessHome: true,
+      canUseHandover: false,
     },
     ...overrides,
   });

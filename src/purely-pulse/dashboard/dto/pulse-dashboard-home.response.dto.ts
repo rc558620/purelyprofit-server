@@ -10,24 +10,32 @@ import {
 } from 'class-validator';
 
 export class PulseDashboardOnlineStatsDto {
-  @ApiProperty({ example: 2847, description: '当前实时在线人数' })
+  @ApiProperty({
+    example: 2847,
+    description:
+      '当前在线人数：最近 10 分钟内有经过鉴权请求的账号数（users.last_active_at）',
+  })
   @IsInt()
   onlineCount: number;
 
-  @ApiProperty({ example: 5120, description: '今日峰值在线人数' })
+  @ApiProperty({
+    example: 5120,
+    description:
+      '今日峰值：今日各小时活跃人数的最大值（按小时粒度，非秒级采样）',
+  })
   @IsInt()
   onlinePeak: number;
 
   @ApiProperty({
     example: 12.0,
-    description: '较昨日同期在线人数变化率（%），正数为增长',
+    description: '今日活跃人数较昨日的百分比变化（%），正数为增长',
   })
   @IsNumber()
   onlineChangeRatio: number;
 
   @ApiProperty({
     example: [1200, 1800, 2200, 3100, 2847, 2600, 2900, 3400, 3100, 2847],
-    description: '近 10 个时间点在线人数趋势（用于 sparkline）',
+    description: '近 10 小时活跃人数趋势（用于 sparkline）',
     type: [Number],
   })
   @IsArray()
@@ -97,6 +105,14 @@ export class PulseDashboardRevenueTrendDto {
   })
   @IsArray()
   values: number[];
+
+  @ApiProperty({
+    example: ['1.2', '0.8', '2', '6.8'],
+    description: '对应时间点的充值收入展示值（元字符串，后端计算，前端仅展示）',
+    type: [String],
+  })
+  @IsArray()
+  valuesDisplay: string[];
 }
 
 export class PulseDashboardRevenueSummaryDto {
@@ -104,9 +120,23 @@ export class PulseDashboardRevenueSummaryDto {
   @IsInt()
   total: number;
 
+  @ApiProperty({
+    example: '67.3',
+    description: '当前周期总充值收入展示值（元字符串，后端计算，前端仅展示）',
+  })
+  @IsString()
+  totalDisplay: string;
+
   @ApiProperty({ example: 841, description: '当前周期日均充值收入（分）' })
   @IsInt()
   avg: number;
+
+  @ApiProperty({
+    example: '8.41',
+    description: '当前周期日均充值收入展示值（元字符串，后端计算，前端仅展示）',
+  })
+  @IsString()
+  avgDisplay: string;
 
   @ApiProperty({
     example: 18.2,
@@ -130,6 +160,15 @@ export class PulseDashboardRevenueSummaryDto {
   @IsOptional()
   @IsInt()
   peak?: number;
+
+  @ApiPropertyOptional({
+    example: '299',
+    description:
+      '当前周期峰值收入展示值（元字符串，后端计算，前端仅展示），收入明细页使用',
+  })
+  @IsOptional()
+  @IsString()
+  peakDisplay?: string;
 }
 
 export class PulseDashboardRevenueTypeItemDto {

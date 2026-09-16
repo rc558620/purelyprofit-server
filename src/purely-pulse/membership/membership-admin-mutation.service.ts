@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StoreMembershipLockedPriceService } from '../../purely-profit/member/platform-membership/store-membership-locked-price.service';
 import type { PulseMemberDetailDto } from './dto/pulse-membership-admin-members.response.dto';
 import { PulseMembershipAccessService } from './membership-access.service';
 import { PulseMembershipAdminBeansMutationService } from './membership-admin-beans-mutation.service';
@@ -34,6 +35,7 @@ export class PulseMembershipAdminMutationService {
     private readonly pointsMutationService: PulseMembershipAdminPointsMutationService,
     private readonly beansMutationService: PulseMembershipAdminBeansMutationService,
     private readonly subAccountMutationService: PulseMembershipAdminSubAccountMutationService,
+    private readonly lockedPriceService: StoreMembershipLockedPriceService,
   ) {}
 
   async adjustAdminMemberPoints(
@@ -81,6 +83,11 @@ export class PulseMembershipAdminMutationService {
       );
     const nextPlanId =
       this.membershipMutationService.toMembershipPlanId(nextLevel);
+    const nextPreviousPlanId =
+      this.membershipMutationService.resolveNextPreviousPlanId({
+        profile: current.profile,
+        nextPlanId,
+      });
     const now = new Date();
 
     this.logMembershipLevelMutation({
@@ -99,6 +106,9 @@ export class PulseMembershipAdminMutationService {
       create: {
         storeId: memberId,
         currentPlanId: nextPlanId,
+        // 降级为免费时转存原档位：currentPlanId 被清空后，续费页只能靠它
+        // 判断「原本买的是哪一档」，否则永久会员会丢掉 AGES 续费入口
+        previousPlanId: nextPreviousPlanId,
         // startsAt 始终落盘：即使降级为免费也保留，表示档案已被显式管理，
         // 避免 /center 的订单重建逻辑（normalizeMembershipProfileFromPaidOrders）
         // 把「管理员设置的免费」误判为「档案缺失」而用历史付费订单恢复会员
@@ -109,10 +119,42 @@ export class PulseMembershipAdminMutationService {
       },
       update: {
         currentPlanId: nextPlanId,
+        previousPlanId: nextPreviousPlanId,
         startsAt: now,
         expiresAt: nextExpiry,
       },
     });
+
+    await this.mutationStateService.invalidateAdminMemberDerived(memberId);
+
+    // 首次设置该档位时把成交价写入「首购锁定价」；已存在则不覆盖（锁定语义）
+    await this.lockFirstDealPrice({
+      storeId: memberId,
+      nextPlanId: nextLevel,
+      priceDisplay: dto.priceDisplay,
+    });
+
+    return this.memberReadService.buildAdminMemberDetail(memberId);
+  }
+
+  /** 重置门店的首购锁定价，让运营可以在下一次成交时重新锁价 */
+  async resetAdminMemberLockedPrices(
+    user: AuthenticatedUser,
+    memberId: number,
+  ): Promise<PulseMemberDetailDto> {
+    await this.assertAdminMemberMutationAccess(user, memberId);
+
+    const clearedCount =
+      await this.lockedPriceService.resetLockedPrices(memberId);
+    this.logger.warn(
+      JSON.stringify({
+        event: 'pulse_admin_membership_locked_price_reset',
+        memberId,
+        operatorUserId: user.id,
+        operatorEmail: user.email,
+        clearedCount,
+      }),
+    );
 
     await this.mutationStateService.invalidateAdminMemberDerived(memberId);
 
@@ -274,6 +316,44 @@ export class PulseMembershipAdminMutationService {
     );
 
     return this.memberReadService.buildAdminMemberDetail(memberId);
+  }
+
+  /** 元字符串成交价 → 分；缺失或非法时返回 null（不写入锁定价） */
+  private resolvePriceFen(priceDisplay?: string): number | null {
+    if (typeof priceDisplay !== 'string') {
+      return null;
+    }
+
+    const parsedValue = Number.parseFloat(priceDisplay.trim());
+    if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+      return null;
+    }
+
+    return Math.round(parsedValue * 100);
+  }
+
+  /** 首次成交价快照：仅在带成交价且档位可购买时写入，已存在不覆盖 */
+  private async lockFirstDealPrice(params: {
+    storeId: number;
+    nextPlanId: PulseAdminMemberLevel | null;
+    priceDisplay?: string;
+  }): Promise<void> {
+    const { storeId, nextPlanId, priceDisplay } = params;
+    const planId = nextPlanId
+      ? this.membershipMutationService.toMembershipPlanId(nextPlanId)
+      : null;
+    const price = this.resolvePriceFen(priceDisplay);
+
+    if (!planId || price === null) {
+      return;
+    }
+
+    await this.lockedPriceService.lockPriceOnFirstDeal({
+      storeId,
+      planId,
+      price,
+      source: 'admin',
+    });
   }
 
   async assertAdminMemberMutationAccess(

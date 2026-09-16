@@ -32,6 +32,7 @@ import {
   type SubAccountBenefitSnapshot,
   type SubAccountRoleSnapshot,
 } from './platform-membership-access.shared';
+import type { PrismaExecutor } from './platform-membership.types';
 
 export type { MembershipRuntimeLevel } from './platform-membership-access.shared';
 export type {
@@ -47,7 +48,10 @@ type MembershipRuleFeatureResolver = (
   snapshot: MembershipRuleSnapshot,
 ) => boolean;
 
-type CountQuotaErrorMessageBuilder = (limit: number, currentCount: number) => string;
+type CountQuotaErrorMessageBuilder = (
+  limit: number,
+  currentCount: number,
+) => string;
 
 type EnsureCountQuotaAvailableParams = {
   storeId: number;
@@ -173,11 +177,22 @@ export class PlatformMembershipAccessService {
     return clampHistoryRangeByWindow(range, historyWindowStart);
   }
 
+  /**
+   * 读取门店子账号权益快照。
+   *
+   * executor 用于在事务内复用同一连接：续费定价等「同一事务内既要读快照又要读
+   * 锁定价」的场景必须显式传入事务客户端，否则快照会落在事务外、与事务内其它
+   * 读取不在同一快照视图上。
+   */
   async getSubAccountBenefitSnapshot(
     storeId: number,
+    executor: PrismaExecutor = this.prisma,
   ): Promise<SubAccountBenefitSnapshot> {
-    const profile = await this.loadStoreMembershipProfile(storeId);
-    const pulseQuota = await this.safeLoadPulseSubAccountQuota(storeId);
+    const profile = await this.loadStoreMembershipProfile(storeId, executor);
+    const pulseQuota = await this.safeLoadPulseSubAccountQuota(
+      storeId,
+      executor,
+    );
     return buildSubAccountBenefitSnapshot(
       profile ? { ...profile, pulseSubAccountQuota: pulseQuota } : null,
     );
@@ -257,7 +272,9 @@ export class PlatformMembershipAccessService {
 
     const currentCount = await params.getCurrentCount();
     if (currentCount >= limit) {
-      throw new ForbiddenException(params.buildErrorMessage(limit, currentCount));
+      throw new ForbiddenException(
+        params.buildErrorMessage(limit, currentCount),
+      );
     }
   }
 
@@ -283,6 +300,7 @@ export class PlatformMembershipAccessService {
 
   private async loadStoreMembershipProfile(
     storeId: number,
+    executor: PrismaExecutor = this.prisma,
   ): Promise<StoreMembershipProfileSnapshot | null> {
     const normalizedStoreId = Number(storeId);
     if (!Number.isInteger(normalizedStoreId) || normalizedStoreId <= 0) {
@@ -292,10 +310,11 @@ export class PlatformMembershipAccessService {
     }
 
     try {
-      return await this.prisma.storeMembershipProfile.findUnique({
+      return await executor.storeMembershipProfile.findUnique({
         where: { storeId: normalizedStoreId },
         select: {
           currentPlanId: true,
+          previousPlanId: true,
           startsAt: true,
           expiresAt: true,
           subAccountQuota: true,
@@ -321,9 +340,10 @@ export class PlatformMembershipAccessService {
    */
   private async safeLoadPulseSubAccountQuota(
     storeId: number,
+    executor: PrismaExecutor = this.prisma,
   ): Promise<number | null> {
     try {
-      const row = await this.prisma.storeMembershipProfile.findUnique({
+      const row = await executor.storeMembershipProfile.findUnique({
         where: { storeId },
         select: { pulseSubAccountQuota: true },
       });

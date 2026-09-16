@@ -111,8 +111,11 @@ export function buildPulseOnboardingStatusPatternByUser(
 export function buildPulseDashboardHomeCacheKey(
   revenuePeriod: string,
   region: string | undefined,
+  regionCode: string | undefined = undefined,
 ): string {
-  return `pulse:dashboard:home:period:${revenuePeriod}:region:${encodeURIComponent(region ?? 'all')}`;
+  const regionSegment = encodeURIComponent(region ?? 'all');
+  const regionCodeSegment = encodeURIComponent(regionCode ?? 'all');
+  return `pulse:dashboard:home:period:${revenuePeriod}:region:${regionSegment}:regionCode:${regionCodeSegment}`;
 }
 
 export function buildPulseDashboardHomePattern(): string {

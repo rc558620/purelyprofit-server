@@ -434,10 +434,15 @@ describe('ClubRechargeService', () => {
         packageId: '18',
       }),
     );
+    // 微信登录用户：除虚拟手机号标识外，还须按已绑定的 clubUserId 匹配，
+    // 避免同一顾客换设备/重授权后被识别成新顾客。
     expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
-        phone: 'club_wechat:oOPENID123',
+        OR: [
+          { clubUserId: 301 },
+          { clubUserId: null, phone: 'club_wechat:oOPENID123' },
+        ],
         deletedAt: null,
       },
       select: {
@@ -585,9 +590,13 @@ describe('ClubRechargeService', () => {
         balance: { increment: 60000 },
       },
     });
+    // 充赠活动统计：使用次数 + 累计优惠金额（赠送金额 10000 分）
     expect(prismaService.marketingPromotion.updateMany).toHaveBeenCalledWith({
       where: { id: 18, storeId: 11 },
-      data: { usageCount: { increment: 1 } },
+      data: {
+        usageCount: { increment: 1 },
+        totalDiscount: { increment: 10000 },
+      },
     });
     expect(
       cacheInvalidatorService.invalidateMarketingOverview,

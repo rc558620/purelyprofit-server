@@ -163,6 +163,16 @@ export class GetPulseDashboardHomeQueryDto {
   @IsOptional()
   @IsString({ message: '地区筛选必须是字符串' })
   region?: string;
+
+  @ApiPropertyOptional({
+    example: '310100',
+    description:
+      '合伙人排行地区筛选的行政区划编码。历史数据里 store_partners.region 可能存名称也可能存编码，'
+      + '同时传 region 与 regionCode 时按「名称 OR 编码」匹配，保证两种数据都能筛到',
+  })
+  @IsOptional()
+  @IsString({ message: '地区编码筛选必须是字符串' })
+  regionCode?: string;
 }
 
 export class GetPulseRevenueDetailQueryDto {

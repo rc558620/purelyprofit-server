@@ -1,25 +1,12 @@
-// A01 table diagnostic - manual env loading
+// A01 table diagnostic
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
-import { readFileSync } from 'fs';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 
-// Load .env manually
-try {
-  const envContent = readFileSync('.env', 'utf-8');
-  const lines = envContent.split('\n');
-  for (const line of lines) {
-    if (line.includes('=') && !line.startsWith('#')) {
-      const [key, ...valueParts] = line.split('=');
-      const value = valueParts.join('=').replace(/^"|"$/g, '');
-      if (key && value) {
-        process.env[key.trim()] = value;
-      }
-    }
-  }
-} catch (e) {
-  console.error('警告：无法加载 .env 文件');
-}
-
-const prisma = new PrismaClient();
+// Prisma 7 的 datasource 不写 url（见 prisma/schema.prisma），必须显式传驱动适配器
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 async function main() {
   console.log(`🔍 正在查询桌台 "A01" 的信息...\n`);
@@ -89,6 +76,7 @@ async function main() {
     console.error('❌ 错误:', error.message);
   } finally {
     await prisma.$disconnect();
+    await pool.end();
   }
 }
 

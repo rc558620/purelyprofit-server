@@ -10,7 +10,7 @@ import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 describe('ScanOrderingTableService', () => {
   let service: ScanOrderingTableService;
 
-  const user = { id: 1, role: 'store_owner' } as AuthenticatedUser;
+  const user = { id: 1, role: 'store_owner' } as unknown as AuthenticatedUser;
   const transaction = {
     scanOrderingTable: { findFirst: jest.fn(), update: jest.fn() },
     scanOrderingSession: {
