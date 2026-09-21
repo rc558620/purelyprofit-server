@@ -21,6 +21,7 @@ import {
 } from './dto/member-points.dto';
 import type { MemberResponseDto } from './dto/member-response.dto';
 import { MembersAccessService } from './members-access.service';
+import { queryMemberRechargeHistory } from './members.query';
 import { toMemberResponse } from './members.mapper';
 import {
   BEANS_MEMBER_ASSET_CONFIG,
@@ -239,7 +240,9 @@ export class MembersPointsService {
     return queryMemberAssetLogs(
       this.prisma,
       {
-        storeId: member.storeId,
+        // 会员维度：不叠加门店条件，只看 member_id。
+        // 日志的 store_id 是建流水时的门店，会员迁店后按当前门店过滤会丢历史。
+        storeId: null,
         memberId: member.id,
         page: query.page,
         pageSize: query.pageSize,
@@ -319,8 +322,14 @@ export class MembersPointsService {
       result.member.storeId,
     );
 
+    // 与详情/列表口径一致：带回充值记录，避免前端用返回值覆盖状态时丢掉充值历史
+    const rechargeRecords = await queryMemberRechargeHistory(
+      this.prisma,
+      result.member.id,
+    );
+
     return {
-      user: toMemberResponse(result.member),
+      user: toMemberResponse(result.member, rechargeRecords),
       record: params.mapRecord(result.log),
     };
   }

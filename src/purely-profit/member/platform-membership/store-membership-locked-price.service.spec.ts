@@ -148,9 +148,7 @@ describe('StoreMembershipLockedPriceService', () => {
         }),
       ).resolves.toBe(true);
 
-      expect(
-        accessService.getSubAccountBenefitSnapshot,
-      ).not.toHaveBeenCalled();
+      expect(accessService.getSubAccountBenefitSnapshot).not.toHaveBeenCalled();
     });
   });
 

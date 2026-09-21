@@ -8,6 +8,7 @@ import {
   toApiMemberStatus,
   toDbMemberStatus,
   isMemberLevelValue,
+  isMemberStatusValue,
   type MemberLevelValue,
   type MemberStatusDb,
   type MemberStatusValue,
@@ -98,6 +99,8 @@ export function prepareMemberUpdateInput(
     input.bannedReason ?? (nextStatus === 'banned' ? input.remark : undefined),
   );
   const assignments: PreparedMemberUpdateInput['assignments'] = [];
+  // 纯利豆不直接赋值，改为相对变更量（delta），由 service 走「原子增量 + 流水」
+  let beanAdjustment: PreparedMemberUpdateInput['beanAdjustment'];
 
   if (input.name !== undefined) {
     assignments.push({ field: 'name', value: input.name.trim() });
@@ -123,8 +126,11 @@ export function prepareMemberUpdateInput(
       value: toNullableDate(input.birthday),
     });
   }
-  if (input.beanBalance !== undefined) {
-    assignments.push({ field: 'beanBalance', value: input.beanBalance });
+  if (
+    input.beanBalance !== undefined &&
+    input.beanBalance !== existingMember.beanBalance
+  ) {
+    beanAdjustment = { delta: input.beanBalance - existingMember.beanBalance };
   }
   if (input.isPartner !== undefined) {
     assignments.push({ field: 'isPartner', value: input.isPartner });
@@ -132,7 +138,10 @@ export function prepareMemberUpdateInput(
       assignments.push({ field: 'partnerLevel', value: null });
     }
   }
-  if (input.partnerLevel !== undefined) {
+  // 明确取消合伙人身份时，partnerLevel 必须一并清空；
+  // 若同一次请求还传了 partnerLevel，这里直接忽略，避免产生
+  // 「isPartner=false 却带着 P2 等级」的脏数据（与 create 的语义保持一致）。
+  if (input.partnerLevel !== undefined && input.isPartner !== false) {
     assignments.push({
       field: 'partnerLevel',
       value: trimOptionalString(input.partnerLevel) ?? null,
@@ -152,6 +161,7 @@ export function prepareMemberUpdateInput(
     normalizedPhone,
     rechargeHistory,
     assignments,
+    ...(beanAdjustment ? { beanAdjustment } : {}),
   };
 }
 
@@ -191,7 +201,11 @@ export function buildMemberStatusMetaRows(
   );
 
   for (const row of rows) {
-    countMap.set(toApiMemberStatus(row.value), row.count);
+    const apiStatus = toApiMemberStatus(row.value);
+    // 与等级聚合保持一致：枚举外的值直接丢弃，避免产出 value: undefined 的脏选项
+    if (isMemberStatusValue(apiStatus)) {
+      countMap.set(apiStatus, row.count);
+    }
   }
 
   return Array.from(countMap.entries()).map(([value, count]) => ({

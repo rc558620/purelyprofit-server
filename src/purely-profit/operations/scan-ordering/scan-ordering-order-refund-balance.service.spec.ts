@@ -1,6 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
 import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
@@ -70,6 +71,10 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
     refundSaleOrder: jest.fn(),
   };
 
+  const cacheInvalidatorService = {
+    invalidateMembersDerived: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     prismaService.$transaction.mockImplementation(
@@ -137,6 +142,7 @@ describe('ScanOrderingOrderRefundBalanceService', () => {
           provide: ScanOrderingRefundStockRestoreService,
           useValue: stockRestoreService,
         },
+        { provide: CacheInvalidatorService, useValue: cacheInvalidatorService },
       ],
     }).compile();
 

@@ -95,6 +95,7 @@ describe('ClubOrdersService', () => {
   const cacheInvalidatorService = {
     invalidateMarketingOverview: jest.fn(),
     invalidateMarketingCustomerDerived: jest.fn(),
+    invalidateMembersDerived: jest.fn(),
   };
 
   const clubWechatJsapiService = {

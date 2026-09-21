@@ -71,6 +71,7 @@ describe('ClubRechargeService', () => {
   const cacheInvalidatorService = {
     invalidateMarketingOverview: jest.fn(),
     invalidateMarketingCustomerDerived: jest.fn(),
+    invalidateMembersDerived: jest.fn(),
   };
 
   const user: AuthenticatedUser = {

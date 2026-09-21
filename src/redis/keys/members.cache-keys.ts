@@ -87,6 +87,29 @@ export function parseMembersOverviewCacheKey(cacheKey: string): {
   };
 }
 
+// ── Members Snapshots 缓存键 ──
+
+type MembersSnapshotsCacheQuery = {
+  keyword?: string;
+  onlyPartners?: boolean;
+};
+
+export function buildMembersSnapshotsCacheKey(
+  storeId: number,
+  query: MembersSnapshotsCacheQuery,
+): string {
+  return [
+    'profit:members:snapshots',
+    `store:${storeId}`,
+    `keyword:${encodeURIComponent(query.keyword ?? 'na')}`,
+    `partner:${query.onlyPartners === true ? 'true' : 'all'}`,
+  ].join(':');
+}
+
+export function buildMembersSnapshotsPattern(storeId: number): string {
+  return `profit:members:snapshots:store:${storeId}:*`;
+}
+
 // ── Withdrawals 缓存键 ──
 
 export function buildWithdrawalsOverviewCacheKey(storeId: number): string {

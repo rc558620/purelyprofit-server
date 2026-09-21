@@ -33,7 +33,7 @@ type BeansLogResponse = ReturnType<typeof toMemberBeansLogResponse>;
 const POINTS_INSUFFICIENT_MESSAGE = '会员当前积分不足，无法扣减';
 const POINTS_MISSING_CUSTOMER_MESSAGE =
   '该会员尚未关联营销顾客档案，无法调整积分；请先在门店关联顾客档案';
-const BEANS_INSUFFICIENT_MESSAGE = '会员当前纯利豆不足，无法扣减';
+export const BEANS_INSUFFICIENT_MESSAGE = '会员当前纯利豆不足，无法扣减';
 
 export const POINTS_MEMBER_ASSET_CONFIG: MemberAssetServiceConfig<
   MemberPointsOverviewRow,

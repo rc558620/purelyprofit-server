@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Min,
@@ -176,8 +177,11 @@ export class MemberRechargeRecordDto {
   @IsString({ message: '套餐名称必须是字符串' })
   planName: string;
 
-  @ApiProperty({ example: 9900, description: '充值金额，单位分' })
-  @IsInt({ message: '充值金额必须是整数' })
+  // 单位统一为「元」：入站按元收（写库前用 Money.fromInputYuan 转分），
+  // 出站也按元返回（Money.fromDbCents(...).toOutputYuan()），保证回填再提交金额不会被放大 100 倍。
+  @ApiProperty({ example: 99, description: '充值金额，单位元' })
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: '充值金额必须是数字' })
+  @Min(0, { message: '充值金额不能小于 0' })
   amount: number;
 
   @ApiProperty({ example: 0, description: '本次奖励积分' })

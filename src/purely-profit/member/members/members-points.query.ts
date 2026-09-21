@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type { MemberRecord } from './members.mapper';
@@ -91,7 +91,7 @@ const POINTS_MEMBER_ASSET_QUERY_CONFIG: MemberAssetQueryConfig<
         Prisma.sql`l.source = ${source}::"MemberPointsSource"`,
       buildKeywordFilter: (keyword) => Prisma.sql`(
         m.name ILIKE ${`%${keyword}%`}
-        OR m.phone LIKE ${`%${keyword}%`}
+        OR m.phone ILIKE ${`%${keyword}%`}
         OR l.reason ILIKE ${`%${keyword}%`}
       )`,
     },
@@ -153,13 +153,40 @@ const BEANS_MEMBER_ASSET_QUERY_CONFIG: MemberAssetQueryConfig<
         Prisma.sql`l.source = ${source}::"MemberBeanSource"`,
       buildKeywordFilter: (keyword) => Prisma.sql`(
         m.name ILIKE ${`%${keyword}%`}
-        OR m.phone LIKE ${`%${keyword}%`}
+        OR m.phone ILIKE ${`%${keyword}%`}
         OR l.reason ILIKE ${`%${keyword}%`}
         OR COALESCE(l.related_user, '') ILIKE ${`%${keyword}%`}
       )`,
     },
   }),
 };
+
+/**
+ * 判断目标行是否「不存在或已被软删」。
+ *
+ * 资产调整的条件更新加了 deleted_at IS NULL 之后，0 行受影响既可能是余额不足、
+ * 也可能是记录已被删除。只在失败分支查一次（正常路径无额外开销），
+ * 用于把「记录没了」和「余额不够」区分开，避免给出误导性提示。
+ */
+async function isSoftDeleted(
+  client: Prisma.TransactionClient,
+  table: 'members' | 'marketing_customers',
+  id: number | null,
+): Promise<boolean> {
+  if (id === null) {
+    return true;
+  }
+
+  const rows = await client.$queryRaw<Array<{ deletedAt: Date | null }>>`
+    SELECT deleted_at AS "deletedAt"
+    FROM ${Prisma.raw(table)}
+    WHERE id = ${id}
+    LIMIT 1
+  `;
+
+  const row = rows[0];
+  return !row || row.deletedAt !== null;
+}
 
 function requirePointsLogRow(
   log?: MemberPointsLogRecord,
@@ -215,11 +242,21 @@ export async function applyMemberPointsAdjustment(
     UPDATE marketing_customers
     SET points = points + ${params.delta}, updated_at = NOW() AT TIME ZONE 'UTC'
     WHERE id = ${params.member.customerId}
+      AND deleted_at IS NULL
       AND points + ${params.delta} >= 0
     RETURNING points
   `;
 
   if (updated.length === 0) {
+    if (
+      await isSoftDeleted(
+        client,
+        'marketing_customers',
+        params.member.customerId,
+      )
+    ) {
+      throw new NotFoundException('会员关联的顾客档案不存在或已被删除');
+    }
     throw new ConflictException(params.insufficientMessage);
   }
 
@@ -312,11 +349,15 @@ export async function applyMemberBeansAdjustment(
     UPDATE members
     SET bean_balance = bean_balance + ${params.delta}, updated_at = NOW() AT TIME ZONE 'UTC'
     WHERE id = ${params.member.id}
+      AND deleted_at IS NULL
       AND bean_balance + ${params.delta} >= 0
     RETURNING bean_balance
   `;
 
   if (updated.length === 0) {
+    if (await isSoftDeleted(client, 'members', params.member.id)) {
+      throw new NotFoundException('会员不存在或已被删除');
+    }
     throw new ConflictException(params.insufficientMessage);
   }
 
@@ -367,4 +408,50 @@ export async function applyMemberBeansAdjustment(
     member: requireMemberRow(memberRows[0]),
     log: requireBeanLogRow(logRows[0]),
   };
+}
+
+/**
+ * 新建会员时补写「初始纯利豆」流水。
+ *
+ * 建会员接口允许直接给定 beanBalance（DB 里 members.bean_balance 初始值），
+ * 若不写流水就会出现「余额凭空出现、查不到来源」的审计缺口。
+ * 这里补一条 before=0 的 admin_adjust 流水，与手动调整共用同一张流水表。
+ */
+export async function insertMemberBeanOpeningLog(
+  client: Prisma.TransactionClient,
+  params: {
+    member: MemberRecord;
+    operatorStaffId: number | null;
+    reason: string;
+  },
+): Promise<void> {
+  if (params.member.beanBalance <= 0) {
+    return;
+  }
+
+  await client.$executeRaw`
+    INSERT INTO member_bean_logs (
+      member_id,
+      store_id,
+      operator_staff_id,
+      source,
+      change_amount,
+      before_balance,
+      after_balance,
+      reason,
+      created_at
+    )
+    VALUES (
+      ${params.member.id},
+      ${params.member.storeId},
+      ${params.operatorStaffId},
+      'admin_adjust'::"MemberBeanSource",
+      ${params.member.beanBalance},
+      0,
+      ${params.member.beanBalance},
+      ${params.reason},
+      -- 该列是 TIMESTAMP WITHOUT TIME ZONE，必须显式写 UTC 墙钟
+      NOW() AT TIME ZONE 'UTC'
+    )
+  `;
 }

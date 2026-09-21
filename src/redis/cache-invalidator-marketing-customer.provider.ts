@@ -18,10 +18,7 @@ import type {
  */
 export const marketingCustomerDerivedCacheInvalidatorProvider: CacheInvalidatorProvider<
   ProfitReadCacheInvalidatorInput,
-  Pick<
-    ProfitReadCacheInvalidatorRegistry,
-    'invalidateMarketingCustomerDerived'
-  >
+  Pick<ProfitReadCacheInvalidatorRegistry, 'invalidateMarketingCustomerDerived'>
 > = (input: ProfitReadCacheInvalidatorInput) => ({
   invalidateMarketingCustomerDerived: async (
     storeId: number,

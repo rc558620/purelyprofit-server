@@ -59,7 +59,12 @@ export interface MemberAssetOverviewParams<TOverview> {
 }
 
 export interface QueryMemberAssetLogsInput<TType, TSource> {
-  storeId: number;
+  /**
+   * 门店维度查询传门店 ID；会员维度查询传 null（仅按 memberId 过滤）。
+   * 传 null 是刻意的：日志表的 store_id 记录的是建流水时的门店，
+   * 会员迁店后按会员当前门店过滤会把历史流水全部过滤掉。
+   */
+  storeId: number | null;
   memberId?: number;
   skip: number;
   take: number;
@@ -247,4 +252,9 @@ export interface PreparedMemberUpdateInput {
   normalizedPhone?: string;
   rechargeHistory?: MemberRechargeHistoryInput[];
   assignments: MemberUpdateAssignment[];
+  /**
+   * 纯利豆「相对变更量」。不直接写 bean_balance，而是转成原子增量更新 +
+   * member_bean_logs 流水，保证余额变动可审计且并发安全。
+   */
+  beanAdjustment?: { delta: number };
 }

@@ -49,6 +49,8 @@ export {
   buildMembersOverviewPattern,
   buildMembersOverviewAllPattern,
   parseMembersOverviewCacheKey,
+  buildMembersSnapshotsCacheKey,
+  buildMembersSnapshotsPattern,
   buildWithdrawalsOverviewCacheKey,
   buildWithdrawalsListCacheKey,
   buildWithdrawalsListPattern,

@@ -66,6 +66,13 @@ export abstract class ClubPaymentSettlementTemplate<
       await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
         draft.storeId,
       );
+      // 结算（服务订单 / 充值 / 团购券）会改 marketing_customers 的
+      // points / balance / lastVisitAt，而这三项正是会员中心
+      // 「可用积分 / 最近活跃」的事实源，必须连带失效会员侧缓存。
+      // 放在基类统一处理，覆盖所有 club 支付结算子类。
+      await this.cacheInvalidatorService.invalidateMembersDerived(
+        draft.storeId,
+      );
 
       const paidDraft = await this.clubOrderDraftsService.markPaid(
         draft,

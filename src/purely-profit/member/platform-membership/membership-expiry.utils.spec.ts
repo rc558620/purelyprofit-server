@@ -1,5 +1,8 @@
 import { DAY_MS } from './platform-membership.constants';
-import { calcRemainingDays, isMembershipProfileActive } from './membership-expiry.utils';
+import {
+  calcRemainingDays,
+  isMembershipProfileActive,
+} from './membership-expiry.utils';
 
 // AGES（lifetime）档位按 730 天有效期售卖，名称虽叫「永久」，但仍会真实到期。
 // 首页续费横幅/弹窗只认 isActive + remainingDays，两处口径破一即静默，
@@ -62,10 +65,17 @@ describe('membership-expiry.utils', () => {
     });
 
     it('常规档位仍按 expiresAt 判定（回归）', () => {
-      const base = { currentPlanId: 'monthly' as const, startsAt: daysFromNow(-20) };
+      const base = {
+        currentPlanId: 'monthly' as const,
+        startsAt: daysFromNow(-20),
+      };
 
-      expect(isMembershipProfileActive({ ...base, expiresAt: daysFromNow(10) }, NOW)).toBe(true);
-      expect(isMembershipProfileActive({ ...base, expiresAt: daysFromNow(-1) }, NOW)).toBe(false);
+      expect(
+        isMembershipProfileActive({ ...base, expiresAt: daysFromNow(10) }, NOW),
+      ).toBe(true);
+      expect(
+        isMembershipProfileActive({ ...base, expiresAt: daysFromNow(-1) }, NOW),
+      ).toBe(false);
     });
   });
 

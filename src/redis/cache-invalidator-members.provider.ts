@@ -2,6 +2,7 @@ import {
   buildMembersListPattern,
   buildMembersMetaCacheKey,
   buildMembersOverviewCacheKey,
+  buildMembersSnapshotsPattern,
 } from './cache-keys';
 import type { CacheInvalidatorProvider } from './cache-invalidator.registry';
 import type {
@@ -18,6 +19,7 @@ export const membersCacheInvalidatorProvider: CacheInvalidatorProvider<
       input.redisService.delByPattern(buildMembersListPattern(storeId)),
       input.redisService.del(buildMembersMetaCacheKey(storeId)),
       input.redisService.del(buildMembersOverviewCacheKey(storeId)),
+      input.redisService.delByPattern(buildMembersSnapshotsPattern(storeId)),
     ]);
   },
 });

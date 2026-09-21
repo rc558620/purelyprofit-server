@@ -261,6 +261,10 @@ export class MarketingConsumptionsService {
       this.redisService.delByPattern(
         buildMarketingCustomerDetailPattern(storeId),
       ),
+      // 消费会改 marketing_customers 的 points / tier / lastVisitAt，
+      // 而这三项正是会员列表「可用积分 / 等级 / 最近活跃」的事实源，必须连带失效，
+      // 否则会员中心要等 TTL 到期才看到积分与等级变化。
+      this.cacheInvalidatorService.invalidateMembersDerived(storeId),
     ]);
   }
 

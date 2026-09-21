@@ -33,6 +33,16 @@ export function isMemberLevelValue(
   );
 }
 
+/**
+ * 运行时收窄：toApiMemberStatus 对枚举外的值会返回 undefined
+ * （TS 层面看不出来），聚合前必须先守卫，否则会把 undefined 写进统计 map。
+ */
+export function isMemberStatusValue(
+  value: string | undefined,
+): value is MemberStatusValue {
+  return value === 'active' || value === 'inactive' || value === 'banned';
+}
+
 export interface ResolvedPagination {
   page: number;
   skip: number;
@@ -130,6 +140,23 @@ export function parseMemberId(memberId?: string): number {
   return parsedMemberId;
 }
 
+/**
+ * 收口校验调整值：DTO 的 @IsInt / @NotEquals(0) 是外层防线，
+ * 这里是内层兜底——NaN / Infinity / 小数 / 0 一律拦掉，
+ * 避免这些值绕过校验直接落进「原子相对更新」的 SQL 里。
+ */
+function assertAdjustmentValue(value: number, assetLabel: string): number {
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new BadRequestException(`${assetLabel}调整值必须是整数`);
+  }
+
+  if (value === 0) {
+    throw new BadRequestException(`${assetLabel}调整值不能为 0`);
+  }
+
+  return value;
+}
+
 export function resolveAdjustmentDelta(
   input: {
     delta?: number;
@@ -139,7 +166,7 @@ export function resolveAdjustmentDelta(
   assetLabel: string,
 ): number {
   if (typeof input.delta === 'number') {
-    return input.delta;
+    return assertAdjustmentValue(input.delta, assetLabel);
   }
 
   if (typeof input.amount !== 'number') {
@@ -148,12 +175,12 @@ export function resolveAdjustmentDelta(
 
   switch (input.direction) {
     case 'add':
-      return Math.abs(input.amount);
+      return assertAdjustmentValue(Math.abs(input.amount), assetLabel);
     case 'subtract':
     case 'deduct':
     case 'reduce':
-      return -Math.abs(input.amount);
+      return assertAdjustmentValue(-Math.abs(input.amount), assetLabel);
     default:
-      return input.amount;
+      return assertAdjustmentValue(input.amount, assetLabel);
   }
 }

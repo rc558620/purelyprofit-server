@@ -7,6 +7,7 @@ import {
   buildMembersListCacheKey,
   buildMembersMetaCacheKey,
   buildMembersOverviewCacheKey,
+  buildMembersSnapshotsCacheKey,
 } from '../../../redis/keys';
 import { RefreshableCacheService } from '../../../redis/refreshable-cache.service';
 import {
@@ -33,6 +34,7 @@ import {
 import { type MemberRecord, toMemberResponse } from './members.mapper';
 import { toMemberSnapshotResponses } from './members.snapshot.mapper';
 import {
+  queryMemberRechargeHistories,
   queryMemberRechargeHistory,
   queryMemberSnapshots,
   queryMembersMeta,
@@ -51,6 +53,8 @@ const MEMBERS_META_CACHE_TTL_SECONDS = 300;
 const MEMBERS_META_REFRESH_AFTER_MS = 60_000;
 const MEMBERS_OVERVIEW_CACHE_TTL_SECONDS = 120;
 const MEMBERS_OVERVIEW_REFRESH_AFTER_MS = 30_000;
+const MEMBERS_SNAPSHOTS_CACHE_TTL_SECONDS = 120;
+const MEMBERS_SNAPSHOTS_REFRESH_AFTER_MS = 30_000;
 
 @Injectable()
 export class MembersReadService {
@@ -107,9 +111,19 @@ export class MembersReadService {
           skip,
           take,
         });
+        // 列表必须与详情口径一致：批量带出充值记录，避免 rechargeHistory 恒为空
+        const rechargeRecordsByMemberId = await queryMemberRechargeHistories(
+          this.prisma,
+          items.map((item) => item.id),
+        );
 
         return {
-          items: items.map((item) => toMemberResponse(item)),
+          items: items.map((item) =>
+            toMemberResponse(
+              item,
+              rechargeRecordsByMemberId.get(item.id) ?? [],
+            ),
+          ),
           meta: buildPaginationMeta(total, currentPage, take),
         };
       },
@@ -127,8 +141,10 @@ export class MembersReadService {
     );
 
     if (storeId === null) {
+      // 与有门店时结构保持一致：等级、状态都给出完整的选项集（命中数全为 0），
+      // 否则前端筛选项会出现「状态有 3 项、等级一项没有」的不对称下拉。
       return {
-        levels: [],
+        levels: buildMemberLevelMetaRows([]),
         statuses: buildMemberStatusMetaRows([]),
       };
     }
@@ -209,13 +225,25 @@ export class MembersReadService {
       return [];
     }
 
-    const rows = await queryMemberSnapshots(this.prisma, {
-      storeId,
+    const cacheKey = buildMembersSnapshotsCacheKey(storeId, {
       keyword: query.keyword,
       onlyPartners: query.onlyPartners,
     });
 
-    return toMemberSnapshotResponses(rows);
+    return this.refreshableCache.getOrLoadRefreshableJson({
+      cacheKey,
+      taskKey: buildCacheRefreshTaskKey(cacheKey),
+      ttlSeconds: MEMBERS_SNAPSHOTS_CACHE_TTL_SECONDS,
+      refreshAfterMs: MEMBERS_SNAPSHOTS_REFRESH_AFTER_MS,
+      loadValue: async () =>
+        toMemberSnapshotResponses(
+          await queryMemberSnapshots(this.prisma, {
+            storeId,
+            keyword: query.keyword,
+            onlyPartners: query.onlyPartners,
+          }),
+        ),
+    });
   }
 
   async getDetail(

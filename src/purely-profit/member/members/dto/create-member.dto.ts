@@ -49,7 +49,8 @@ export class CreateMemberDto {
   @ApiPropertyOptional({
     example: 'annual',
     enum: MEMBER_LEVEL_VALUES,
-    description: '会员等级',
+    description: '（已废弃）会员等级：由营销顾客档案 tier 推导，传入值会被忽略',
+    deprecated: true,
   })
   @IsOptional()
   @IsIn(MEMBER_LEVEL_VALUES, { message: '会员等级不合法' })
@@ -83,19 +84,30 @@ export class CreateMemberDto {
 
   @ApiPropertyOptional({
     example: '2026-05-13T10:00:00.000Z',
-    description: '最近活跃时间',
+    description:
+      '（已废弃）最近活跃时间：取自营销顾客档案 lastVisitAt，传入值会被忽略',
+    deprecated: true,
   })
   @IsOptional()
   @IsDateString({}, { message: '最近活跃时间格式不正确' })
   lastActiveAt?: string;
 
-  @ApiPropertyOptional({ example: 0, description: '当前可用积分' })
+  @ApiPropertyOptional({
+    example: 0,
+    description:
+      '（已废弃）当前可用积分：事实源为营销顾客档案 points，传入值会被忽略',
+    deprecated: true,
+  })
   @IsOptional()
   @IsInt({ message: '当前可用积分必须是整数' })
   @Min(0, { message: '当前可用积分不能小于 0' })
   availablePoints?: number;
 
-  @ApiPropertyOptional({ example: 0, description: '累计获得积分' })
+  @ApiPropertyOptional({
+    example: 0,
+    description: '（已废弃）累计获得积分：不再维护，恒返回 0，传入值会被忽略',
+    deprecated: true,
+  })
   @IsOptional()
   @IsInt({ message: '累计获得积分必须是整数' })
   @Min(0, { message: '累计获得积分不能小于 0' })
@@ -118,19 +130,31 @@ export class CreateMemberDto {
   @MaxLength(20, { message: '合伙人等级最多 20 位' })
   partnerLevel?: string;
 
-  @ApiPropertyOptional({ example: 0, description: '累计充值金额，单位分' })
+  @ApiPropertyOptional({
+    example: 0,
+    description: '（已废弃）累计充值金额：不再维护，恒返回 0，传入值会被忽略',
+    deprecated: true,
+  })
   @IsOptional()
   @IsInt({ message: '累计充值金额必须是整数' })
   @Min(0, { message: '累计充值金额不能小于 0' })
   totalRecharged?: number;
 
-  @ApiPropertyOptional({ example: 0, description: '充值次数' })
+  @ApiPropertyOptional({
+    example: 0,
+    description: '（已废弃）充值次数：不再维护，恒返回 0，传入值会被忽略',
+    deprecated: true,
+  })
   @IsOptional()
   @IsInt({ message: '充值次数必须是整数' })
   @Min(0, { message: '充值次数不能小于 0' })
   rechargeCount?: number;
 
-  @ApiPropertyOptional({ example: 0, description: '推广新用户数' })
+  @ApiPropertyOptional({
+    example: 0,
+    description: '（已废弃）推广新用户数：不再维护，恒返回 0，传入值会被忽略',
+    deprecated: true,
+  })
   @IsOptional()
   @IsInt({ message: '推广新用户数必须是整数' })
   @Min(0, { message: '推广新用户数不能小于 0' })

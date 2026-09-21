@@ -1,4 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CacheInvalidatorService } from '../../../redis/invalidator';
@@ -25,14 +26,32 @@ import {
   prepareMemberCreateInput,
   prepareMemberUpdateInput,
 } from './members.domain';
+import { BEANS_INSUFFICIENT_MESSAGE } from './members-points.config';
+import {
+  applyMemberBeansAdjustment,
+  insertMemberBeanOpeningLog,
+} from './members-points.query';
 import { type MemberRecord, toMemberResponse } from './members.mapper';
 import {
   queryMemberRechargeHistory,
   replaceMemberRechargeHistory,
   deleteMemberRecord,
   insertMemberRecord,
+  linkCustomerToMember,
+  resolveOrCreateCustomerForMember,
   updateMemberRecord,
 } from './members.query';
+
+/** 编辑会员资料改动纯利豆时写入流水的说明文案 */
+const MEMBER_BEAN_EDIT_REASON = '管理员编辑会员资料调整纯利豆';
+/** 新建会员时带入初始纯利豆的开账流水说明文案 */
+const MEMBER_BEAN_OPENING_REASON = '创建会员初始化纯利豆';
+/**
+ * members 表「同店未删除会员手机号唯一」的部分唯一索引名
+ * （见迁移 20260922000000_add_members_phone_partial_unique）。
+ * 用于从 raw SQL 的唯一冲突错误里精确识别手机号冲突。
+ */
+const MEMBERS_PHONE_UNIQUE_CONSTRAINT = 'uq_members_store_phone_active';
 
 @Injectable()
 export class MembersService {
@@ -65,30 +84,58 @@ export class MembersService {
       rechargeHistory: dto.rechargeHistory,
       bannedReason: dto.bannedReason,
     });
-    await this.ensurePhoneUnique(dto.storeId, prepared.phone ?? undefined);
+    const needsOperatorStaffId =
+      prepared.rechargeHistory.length > 0 || prepared.beanBalance > 0;
+    const operatorStaffId = needsOperatorStaffId
+      ? await this.membersAccessService.findOperatorStaffIdForStore(
+          user,
+          dto.storeId,
+        )
+      : null;
 
-    const operatorStaffId =
-      prepared.rechargeHistory.length > 0
-        ? await this.membersAccessService.findOperatorStaffIdForStore(
-            user,
-            dto.storeId,
-          )
-        : null;
-
-    const member = await this.prisma.$transaction(async (transaction) => {
-      const createdMember = await insertMemberRecord(transaction, prepared);
-
-      if (prepared.rechargeHistory.length > 0) {
-        await replaceMemberRechargeHistory(transaction, {
-          memberId: createdMember.id,
-          storeId: createdMember.storeId,
-          rechargeHistory: prepared.rechargeHistory,
-          operatorStaffId,
+    // 手机号唯一性交由 DB 的部分唯一索引保证，不再做「事务外先查后写」——
+    // 后者存在 TOCTOU 窗口，并发建会员能插入同店重复号码。
+    let member: MemberRecord;
+    try {
+      member = await this.prisma.$transaction(async (transaction) => {
+        // 积分 / 等级 / 最近活跃的事实源在 marketing_customers：
+        // 建会员必须同步建档并双向绑定，否则该会员的积分调整接口会直接不可用。
+        const customerId = await resolveOrCreateCustomerForMember(transaction, {
+          storeId: prepared.storeId,
+          name: prepared.name,
+          phone: prepared.phone,
         });
-      }
+        const createdMember = await insertMemberRecord(
+          transaction,
+          prepared,
+          customerId,
+        );
 
-      return createdMember;
-    });
+        if (customerId !== null) {
+          await linkCustomerToMember(transaction, customerId, createdMember.id);
+        }
+
+        if (prepared.rechargeHistory.length > 0) {
+          await replaceMemberRechargeHistory(transaction, {
+            memberId: createdMember.id,
+            storeId: createdMember.storeId,
+            rechargeHistory: prepared.rechargeHistory,
+            operatorStaffId,
+          });
+        }
+
+        // 初始纯利豆必须留痕，避免余额凭空出现且查不到来源
+        await insertMemberBeanOpeningLog(transaction, {
+          member: createdMember,
+          operatorStaffId,
+          reason: MEMBER_BEAN_OPENING_REASON,
+        });
+
+        return createdMember;
+      });
+    } catch (error) {
+      throw this.mapPhoneConflict(error);
+    }
 
     await this.invalidateMembersDerived(member.storeId);
     return this.buildMemberResponse(member);
@@ -162,48 +209,63 @@ export class MembersService {
       bannedReason: dto.bannedReason,
     });
 
-    await this.ensurePhoneUnique(
-      existingMember.storeId,
-      prepared.normalizedPhone,
-      existingMember.id,
-    );
-
     if (
       prepared.assignments.length === 0 &&
-      prepared.rechargeHistory === undefined
+      prepared.rechargeHistory === undefined &&
+      prepared.beanAdjustment === undefined
     ) {
       return this.buildMemberResponse(existingMember);
     }
 
     const operatorStaffId =
-      prepared.rechargeHistory !== undefined
+      prepared.rechargeHistory !== undefined ||
+      prepared.beanAdjustment !== undefined
         ? await this.membersAccessService.findOperatorStaffIdForStore(
             user,
             existingMember.storeId,
           )
         : null;
 
-    const member = await this.prisma.$transaction(async (transaction) => {
-      const updatedMember =
-        prepared.assignments.length > 0
-          ? await updateMemberRecord(
-              transaction,
-              existingMember.id,
-              prepared.assignments,
-            )
-          : existingMember;
+    // 同 create：手机号唯一性由 DB 的部分唯一索引兜底，冲突在此统一转译。
+    let member: MemberRecord;
+    try {
+      member = await this.prisma.$transaction(async (transaction) => {
+        let updatedMember =
+          prepared.assignments.length > 0
+            ? await updateMemberRecord(
+                transaction,
+                existingMember.id,
+                prepared.assignments,
+              )
+            : existingMember;
 
-      if (prepared.rechargeHistory !== undefined) {
-        await replaceMemberRechargeHistory(transaction, {
-          memberId: updatedMember.id,
-          storeId: updatedMember.storeId,
-          rechargeHistory: prepared.rechargeHistory,
-          operatorStaffId,
-        });
-      }
+        // 纯利豆走与 /beans/adjust 同口径的「原子增量更新 + 流水」，
+        // 不再直接赋值，避免无痕改余额与并发丢失更新。
+        if (prepared.beanAdjustment) {
+          const adjusted = await applyMemberBeansAdjustment(transaction, {
+            member: updatedMember,
+            operatorStaffId,
+            delta: prepared.beanAdjustment.delta,
+            reason: MEMBER_BEAN_EDIT_REASON,
+            insufficientMessage: BEANS_INSUFFICIENT_MESSAGE,
+          });
+          updatedMember = adjusted.member;
+        }
 
-      return updatedMember;
-    });
+        if (prepared.rechargeHistory !== undefined) {
+          await replaceMemberRechargeHistory(transaction, {
+            memberId: updatedMember.id,
+            storeId: updatedMember.storeId,
+            rechargeHistory: prepared.rechargeHistory,
+            operatorStaffId,
+          });
+        }
+
+        return updatedMember;
+      });
+    } catch (error) {
+      throw this.mapPhoneConflict(error);
+    }
 
     await this.invalidateMembersDerived(member.storeId);
     return this.buildMemberResponse(member);
@@ -224,9 +286,11 @@ export class MembersService {
       // 通过 customerId 外键（Step 2 新增）或 storeId + phone 兜底
       const now = new Date();
       if (existingMember.customerId) {
+        // 必须同时解绑 member_id：该列有唯一约束，留着会让这份档案永远无法被
+        // 其它会员复用（新建会员的同号档案匹配也依赖 member_id IS NULL）。
         await tx.marketingCustomer.update({
           where: { id: existingMember.customerId },
-          data: { deletedAt: now },
+          data: { deletedAt: now, memberId: null },
         });
       } else if (existingMember.phone) {
         await tx.marketingCustomer.updateMany({
@@ -247,27 +311,25 @@ export class MembersService {
     await this.cacheInvalidatorService.invalidateMembersDerived(storeId);
   }
 
-  private async ensurePhoneUnique(
-    storeId: number,
-    phone?: string,
-    excludeMemberId?: number,
-  ): Promise<void> {
-    if (phone === undefined) {
-      return;
-    }
+  /**
+   * 识别「同店手机号重复」。
+   *
+   * 注意：写会员走的是 $queryRaw，Prisma 对 raw 查询违反唯一约束抛的是
+   * **P2010**（raw query error）而不是 P2002，只能从原生错误信息里匹配约束名。
+   */
+  private isDuplicateMemberPhoneError(error: unknown): boolean {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2010' &&
+      error.message.includes(MEMBERS_PHONE_UNIQUE_CONSTRAINT)
+    );
+  }
 
-    const existingMember = await this.prisma.member.findFirst({
-      where: {
-        storeId,
-        phone,
-        ...(excludeMemberId ? { id: { not: excludeMemberId } } : {}),
-      },
-      select: { id: true },
-    });
-
-    if (existingMember) {
-      throw new ConflictException('该门店下会员手机号已存在');
-    }
+  /** 把 DB 层的手机号唯一冲突转成业务异常，其它错误原样抛出 */
+  private mapPhoneConflict(error: unknown): unknown {
+    return this.isDuplicateMemberPhoneError(error)
+      ? new ConflictException('该门店下会员手机号已存在')
+      : error;
   }
 
   private async buildMemberResponse(

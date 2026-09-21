@@ -7,6 +7,7 @@ import {
   ScanOrderStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../../redis/invalidator';
 import { ScanOrderingRefundService } from '../../../purely-club/scan-ordering/scan-ordering-refund.service';
 import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
@@ -17,6 +18,7 @@ export class ScanOrderingOrderRefundBalanceService {
     private readonly prisma: PrismaService,
     private readonly refundService: ScanOrderingRefundService,
     private readonly stockRestoreService: ScanOrderingRefundStockRestoreService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async refund(
@@ -35,7 +37,7 @@ export class ScanOrderingOrderRefundBalanceService {
   ) {
     const operatorId = operator.id;
     const fromStatus = input.fromStatus ?? ScanOrderStatus.pending_acceptance;
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const balancePayment = await tx.scanOrderBalanceTransaction.findUnique({
         where: {
           orderId_type: { orderId: input.orderId, type: 'payment' },
@@ -232,5 +234,11 @@ export class ScanOrderingOrderRefundBalanceService {
         },
       });
     });
+
+    // 退款会原路返还/回收 marketing_customers.points 并回补 balance，
+    // 这些正是会员中心「可用积分」的事实源，必须连带失效会员侧缓存。
+    await this.cacheInvalidatorService.invalidateMembersDerived(input.storeId);
+
+    return result;
   }
 }

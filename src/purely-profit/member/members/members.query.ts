@@ -1,4 +1,5 @@
 export {
+  queryMemberRechargeHistories,
   queryMemberRechargeHistory,
   queryMemberSnapshots,
   queryMembersMeta,
@@ -8,6 +9,8 @@ export {
 export {
   deleteMemberRecord,
   insertMemberRecord,
+  linkCustomerToMember,
   replaceMemberRechargeHistory,
+  resolveOrCreateCustomerForMember,
   updateMemberRecord,
 } from './members-write.query';

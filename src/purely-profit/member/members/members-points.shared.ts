@@ -50,7 +50,8 @@ export interface MemberAssetServiceConfig<
   logsQuery: (
     prisma: PrismaService,
     params: {
-      storeId: number;
+      /** 会员维度查询传 null，见 QueryMemberAssetLogsInput.storeId 说明 */
+      storeId: number | null;
       memberId?: number;
       skip: number;
       take: number;
@@ -105,9 +106,14 @@ function buildMemberAssetLogsWhereClause<TType, TSource>(
   params: QueryMemberAssetLogsInput<TType, TSource>,
   config: MemberAssetLogsWhereClauseConfig<TType, TSource>,
 ): Prisma.Sql {
-  // 列表查询统一按日志表自身的 store_id（别名 l）过滤，与概览统计口径一致，
+  // 门店维度：按日志表自身的 store_id（别名 l）过滤，与概览统计口径一致，
   // 避免会员迁店后出现“列表用会员当前门店、概览用日志创建时门店”的数量不一致。
-  const filters: Prisma.Sql[] = [buildStoreIdWhereClause(params.storeId, 'l')];
+  // 会员维度（storeId 为 null）：只按 member_id 过滤——会员的所有流水都属于他，
+  // 与其当前 store_id 无关，叠加门店条件会把迁店前的历史流水整个丢掉。
+  const filters: Prisma.Sql[] = [];
+  if (params.storeId !== null) {
+    filters.push(buildStoreIdWhereClause(params.storeId, 'l'));
+  }
 
   if (params.memberId) {
     filters.push(Prisma.sql`l.member_id = ${params.memberId}`);
@@ -224,7 +230,10 @@ export async function queryMemberAssetLogs<TType, TSource, TRow, TItem>(
     paginationConfig.maxPageSize,
   );
 
-  if (storeId === null) {
+  // 仅门店维度查询在无可管理门店时返回空。
+  // 会员维度 storeId 本就是 null（权限已由 findManageableMemberOrThrow 校验过会员归属），
+  // 不能在这里早退，否则指定会员的流水会恒为空。
+  if (storeId === null && memberId === undefined) {
     return {
       items: [],
       meta: buildPaginationMeta(0, currentPage, take),

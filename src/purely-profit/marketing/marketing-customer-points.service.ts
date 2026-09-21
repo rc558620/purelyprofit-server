@@ -115,6 +115,9 @@ export class MarketingCustomerPointsService {
       this.redisService.delByPattern(
         buildMarketingCustomerDetailPattern(storeId),
       ),
+      // 会员中心的可用积分事实源是 marketing_customers.points，改完必须连带失效，
+      // 否则会员列表/详情的积分读数会陈旧到 TTL 到期（最长 90s）
+      this.cacheInvalidatorService.invalidateMembersDerived(storeId),
     ]);
   }
 }

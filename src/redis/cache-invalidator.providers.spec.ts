@@ -4,6 +4,7 @@ import {
   buildMembersListPattern,
   buildMembersMetaCacheKey,
   buildMembersOverviewCacheKey,
+  buildMembersSnapshotsPattern,
   buildPlatformMembershipDerivedPattern,
   buildProfitDashboardHomeChunkPattern,
   buildProfitDashboardHomePattern,
@@ -118,7 +119,7 @@ const providerCases: readonly ProviderCase[] = [
     ],
   },
   {
-    description: 'members provider 会同时清理列表与聚合缓存',
+    description: 'members provider 会同时清理列表、快照与聚合缓存',
     invoke: (redisService) =>
       membersCacheInvalidatorProvider({
         redisService,
@@ -127,7 +128,10 @@ const providerCases: readonly ProviderCase[] = [
       buildMembersMetaCacheKey(18),
       buildMembersOverviewCacheKey(18),
     ],
-    expectedDelByPatternCalls: [buildMembersListPattern(18)],
+    expectedDelByPatternCalls: [
+      buildMembersListPattern(18),
+      buildMembersSnapshotsPattern(18),
+    ],
   },
   {
     description: 'withdrawals provider 会清理提现概览与列表缓存',

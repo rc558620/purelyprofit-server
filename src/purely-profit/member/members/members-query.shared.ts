@@ -86,6 +86,21 @@ export function buildStoreIdWhereClause(
 }
 
 /**
+ * MarketingCustomer.tier → 前端 MemberLevel 的分组表达式（SQL 片段）。
+ *
+ * meta 的等级统计与列表的等级筛选**必须共用这一个表达式**，否则两套口径会漂移
+ * （历史上正是因为各自手写映射，出现「meta 把未关联顾客的会员算作 free，
+ * 筛选时却把它们过滤掉」的不一致）。
+ * 注意 ELSE 'free' 是刻意为之：mc.tier 为 NULL（未关联顾客档案）也归入 free。
+ */
+export const MEMBER_LEVEL_CASE_SQL = Prisma.sql`
+    CASE mc.tier::text
+      WHEN 'diamond' THEN 'annual'
+      WHEN 'gold' THEN 'quarterly'
+      ELSE 'free'
+    END`;
+
+/**
  * 通过 member.id 重新查询完整记录（含 customer JOIN）
  * 用于写操作（INSERT/UPDATE）后刷新返回值
  */

@@ -258,6 +258,8 @@ function createCacheInvalidatorServiceMock() {
   return {
     invalidateMarketingOverview: jest.fn().mockResolvedValue(undefined),
     invalidateProfitDashboardHome: jest.fn().mockResolvedValue(undefined),
+    invalidateMarketingCustomerDerived: jest.fn().mockResolvedValue(undefined),
+    invalidateMembersDerived: jest.fn().mockResolvedValue(undefined),
   };
 }
 
