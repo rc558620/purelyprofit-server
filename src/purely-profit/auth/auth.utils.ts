@@ -36,6 +36,8 @@ const LEGACY_PROFIT_ACCOUNT_LOGIN_PREFIX = 'account_';
 const CLUB_WECHAT_MEMBER_PHONE_PREFIX = 'club_wechat:';
 const CLUB_WECHAT_LOGIN_PREFIX = 'club_wechat_';
 const MAINLAND_MOBILE_PHONE_PATTERN = /^1[3-9]\d{9}$/;
+/** C 端会员默认展示名前缀：用户未提供昵称时的自动命名 */
+const CLUB_MEMBER_DEFAULT_NAME_PREFIX = '纯利会员';
 
 export function normalizePhone(phone: string): string {
   return phone.trim();
@@ -244,6 +246,25 @@ export function isClubWechatMemberPhone(phone: string): boolean {
 
 export function getDisplayPhone(phone: string): string {
   return isMainlandMobilePhone(phone) ? phone : '';
+}
+
+/**
+ * 生成 C 端会员展示名：优先用户昵称，否则退化为「纯利会员 + 标识后 4 位」。
+ *
+ * 无手机号用户传入的是 `club_wechat:{openid}` 占位值，后 4 位取自 openid，
+ * 对商家没有意义，仅是绑定真实手机号之前的临时标识——绑定后由
+ * `ClubAuthService.migrateWechatPlaceholderPhone` 重新生成。
+ */
+export function buildClubMemberDisplayName(
+  phone: string,
+  name?: string | null,
+): string {
+  const trimmedName = (name ?? '').trim();
+  if (trimmedName.length > 0) {
+    return trimmedName;
+  }
+
+  return `${CLUB_MEMBER_DEFAULT_NAME_PREFIX}${phone.slice(-4)}`;
 }
 
 export function maskPhone(phone: string): string {

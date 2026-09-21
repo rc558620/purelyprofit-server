@@ -70,6 +70,7 @@ describe('ClubRechargeService', () => {
 
   const cacheInvalidatorService = {
     invalidateMarketingOverview: jest.fn(),
+    invalidateMarketingCustomerDerived: jest.fn(),
   };
 
   const user: AuthenticatedUser = {
@@ -434,15 +435,12 @@ describe('ClubRechargeService', () => {
         packageId: '18',
       }),
     );
-    // 微信登录用户：除虚拟手机号标识外，还须按已绑定的 clubUserId 匹配，
+    // 微信登录用户：优先按已绑定的 clubUserId（稳定键）匹配，
     // 避免同一顾客换设备/重授权后被识别成新顾客。
     expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
       where: {
         storeId: 11,
-        OR: [
-          { clubUserId: 301 },
-          { clubUserId: null, phone: 'club_wechat:oOPENID123' },
-        ],
+        clubUserId: 301,
         deletedAt: null,
       },
       select: {
@@ -599,7 +597,7 @@ describe('ClubRechargeService', () => {
       },
     });
     expect(
-      cacheInvalidatorService.invalidateMarketingOverview,
+      cacheInvalidatorService.invalidateMarketingCustomerDerived,
     ).toHaveBeenCalledWith(11);
     expect(clubOrderDraftsService.markPaid).toHaveBeenCalledWith(draft, {
       paymentConfirmationSource: 'manual_confirm_paid',

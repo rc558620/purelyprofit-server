@@ -67,10 +67,18 @@ export class ClubPointsQueryService {
   /**
    * 按门店 ID + 手机号查询顾客记录（积分余额）。
    * 逻辑与 ClubRecordQueryService.findCustomerByStoreAndPhone 保持一致。
+   *
+   * 优先级：storeId + phone 精确匹配 → clubUserId 精确定位，落空则返回 null。
+   * 不再做「门店 + phone IS NULL」的模糊兜底——那必然可能命中同店他人档案，
+   * 把别人的积分当成自己的；返回空列表比展示他人数据安全。
+   *
+   * @param clubUserId 当前用户 ID，必填。未绑手机号用户的档案 phone 可能为 null，
+   *   此时它是唯一可靠的认人依据。
    */
   async findCustomerByStoreAndPhone(
     storeId: number,
     phone: string,
+    clubUserId: number,
   ): Promise<ClubPointsCustomerRecord | null> {
     const exact = await this.prisma.marketingCustomer.findFirst({
       where: {
@@ -85,17 +93,10 @@ export class ClubPointsQueryService {
       return exact;
     }
 
-    // 回退：微信登录用户的 phone 格式为 "club_wechat:oOPENID123"
-    // 注意：此回退逻辑在门店下存在多个无手机号顾客时可能匹配不准确，
-    // 后续应通过微信 openid 建立营销顾客与微信用户的直接绑定关系
-    if (!phone.startsWith('club_wechat:')) {
-      return null;
-    }
-
+    // 按 clubUserId 精确定位（稳定键，不依赖 phone 处于真实号 / club_wechat 占位值 / null 哪种形态）
     return this.prisma.marketingCustomer.findFirst({
-      where: { storeId, phone: null, deletedAt: null },
+      where: { storeId, clubUserId, deletedAt: null },
       select: { id: true, points: true },
-      orderBy: { id: 'asc' },
     });
   }
 

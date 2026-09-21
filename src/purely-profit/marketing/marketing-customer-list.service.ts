@@ -8,6 +8,7 @@ import type { ListCustomersQueryDto } from './dto/marketing-query.dto';
 import type { MarketingCustomersResponseDto } from './dto/marketing-response.dto';
 import { mapCustomerRow } from './marketing.mapper';
 import { buildCustomerWhere } from './marketing.domain';
+import { buildClubDerivedEmails } from './marketing-club-identity.utils';
 import {
   buildMarketingPaginationMeta,
   resolveMarketingPagination,
@@ -199,10 +200,7 @@ export class MarketingCustomerListService {
 
     if (phones.length === 0) return;
 
-    const emailVariants = phones.flatMap((p) => [
-      `club_phone_${p}@purelyprofit.local`,
-      `phone_${p}@purelyprofit.local`,
-    ]);
+    const emailVariants = phones.flatMap(buildClubDerivedEmails);
 
     const usersWithAvatar = await this.prisma.user.findMany({
       where: {
@@ -231,8 +229,7 @@ export class MarketingCustomerListService {
 
     for (const row of rows) {
       if (row.avatar || !row.phone) continue;
-      const clubEmail = `club_phone_${row.phone}@purelyprofit.local`;
-      const legacyEmail = `phone_${row.phone}@purelyprofit.local`;
+      const [clubEmail, legacyEmail] = buildClubDerivedEmails(row.phone);
       row.avatar =
         phoneAvatarMap.get(row.phone) ??
         emailAvatarMap.get(clubEmail) ??

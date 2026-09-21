@@ -184,11 +184,9 @@ export class MarketingRechargesService {
 
     // ── 幂等保护：同一笔操作 5 秒内不可重复提交 ──
     // F5: key 包含 clearRemainingGift，防止不同清零策略的请求被误判为重复
+    // 占位放在所有业务校验**之后**：否则用户因「余额不足」被拒后，5 秒内
+    // 修正金额重试仍会被判重复提交。并发重复写入由事务内的条件更新兜底。
     const idempotencyKey = `recharge:dedup:${storeId}:${dto.customerId}:${rechargeType}:${dto.amount}:${dto.giftAmount ?? 0}:${dto.clearRemainingGift ?? false}:${dto.note?.trim() || ''}`;
-    const isNew = await this.redisService.setIfAbsent(idempotencyKey, '1', 5);
-    if (!isNew) {
-      throw new BadRequestException('请勿重复提交，请稍后再试');
-    }
 
     // ── 退款不允许携带赠送金额（前端传入的 giftAmount 必须为 0，服务端会内部计算清零额） ──
     if (rechargeType === 'refund' && (dto.giftAmount ?? 0) !== 0) {
@@ -233,6 +231,11 @@ export class MarketingRechargesService {
       if (Money.fromDbCents(customer.balance).lessThan(totalMoney)) {
         throw new BadRequestException('退款金额不能超过顾客当前储值余额');
       }
+    }
+
+    const isNew = await this.redisService.setIfAbsent(idempotencyKey, '1', 5);
+    if (!isNew) {
+      throw new BadRequestException('请勿重复提交，请稍后再试');
     }
 
     let giftClearedAmountCents = 0;
@@ -321,10 +324,23 @@ export class MarketingRechargesService {
           },
         });
 
-        await tx.marketingCustomer.update({
-          where: { id: dto.customerId },
+        // 并发守卫：上面的 freshCustomer.balance 校验在 Read Committed 下挡不住并发——
+        // 两笔退款可以读到同一个余额并都通过校验。条件更新确保余额不会被扣成负数
+        // （与消费路径 updateMany + balance gte 同口径）。
+        const balanceUpdated = await tx.marketingCustomer.updateMany({
+          where: {
+            id: dto.customerId,
+            ...(actualBalanceDeltaCents < 0
+              ? { balance: { gte: Math.abs(actualBalanceDeltaCents) } }
+              : {}),
+          },
           data: { balance: { increment: actualBalanceDeltaCents } },
         });
+        if (balanceUpdated.count === 0) {
+          throw new BadRequestException(
+            '退款金额（含赠送清零）超过顾客当前储值余额，请刷新后重试',
+          );
+        }
 
         if (dto.promotionId && rechargeType !== 'refund') {
           // 校验 promotionId 存在性且归属当前门店

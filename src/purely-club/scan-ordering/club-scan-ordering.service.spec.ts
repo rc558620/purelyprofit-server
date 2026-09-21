@@ -1,7 +1,9 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { ClubStoreAccessService } from '../stores/club-store-access.service';
 import { ClubScanOrderingService } from './club-scan-ordering.service';
 import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
 import { ClubScanOrderingServiceCallService } from './club-scan-ordering-service-call.service';
@@ -23,11 +25,16 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
     scanOrderingTableQrCode: {
       findFirst: jest.fn(),
     },
+    scanOrderingTable: {
+      findFirst: jest.fn(),
+    },
     store: {
       findUnique: jest.fn(),
     },
     scanOrderingSession: {
       findFirst: jest.fn(),
+      create: jest.fn(),
+      updateMany: jest.fn(),
     },
   };
 
@@ -46,6 +53,10 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
     resolveActiveMenuContext: jest.fn(),
   };
 
+  const storeAccessService = {
+    ensureStoreMembership: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
@@ -60,6 +71,10 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
         {
           provide: ClubScanOrderingMenuQueryService,
           useValue: menuQueryService,
+        },
+        {
+          provide: ClubStoreAccessService,
+          useValue: storeAccessService,
         },
       ],
     }).compile();
@@ -190,6 +205,73 @@ describe('ClubScanOrderingService - resolveQrToken', () => {
 
       expect(prismaService.store.findUnique).not.toHaveBeenCalled();
       expect(redisService.set).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createOrRestoreSession - 补齐门店会员关系', () => {
+    const user: AuthenticatedUser = {
+      id: 215,
+      email: 'club_wechat_o6Al43fTTP77c@purelyprofit.local',
+      phone: 'club_wechat:o6Al43fTTP77c',
+      name: null,
+      createdAt: new Date('2026-09-18T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-18T00:00:00.000Z'),
+      lastActiveAt: null,
+      accountScope: 'purely_club',
+      currentMembership: null,
+    };
+
+    const prepareSessionCreation = (): void => {
+      redisService.get.mockResolvedValue(
+        JSON.stringify({ storeId: 100, tableId: 1 }),
+      );
+      prismaService.scanOrderingTable.findFirst.mockResolvedValue({
+        id: 1,
+        tableCode: 'T001',
+        name: '1号桌',
+        capacity: 4,
+        status: 'available',
+        area: { name: '大厅' },
+        type: null,
+      });
+      prismaService.scanOrderingSession.updateMany.mockResolvedValue({
+        count: 0,
+      });
+      prismaService.scanOrderingSession.findFirst.mockResolvedValue(null);
+      prismaService.scanOrderingSession.create.mockResolvedValue({
+        id: 295,
+        guestCount: 1,
+        status: 'active',
+        expiresAt: new Date(),
+        diningRoundId: '7f1c2f52-7a1f-4a1e-9f2a-3f0a1b2c3d4e',
+      });
+    };
+
+    it('按桌码门店补齐会员关系，否则商家端看不到顾客且以当前门店为前提的接口会 404', async () => {
+      prepareSessionCreation();
+      storeAccessService.ensureStoreMembership.mockResolvedValue({
+        isNewMember: true,
+      });
+
+      await service.createOrRestoreSession(user, { scanToken: 'scan-token' });
+
+      expect(storeAccessService.ensureStoreMembership).toHaveBeenCalledWith(
+        user,
+        100,
+      );
+    });
+
+    it('会员关系补齐失败时直接失败，不创建会话', async () => {
+      prepareSessionCreation();
+      storeAccessService.ensureStoreMembership.mockRejectedValue(
+        new NotFoundException('门店不存在'),
+      );
+
+      await expect(
+        service.createOrRestoreSession(user, { scanToken: 'scan-token' }),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(prismaService.scanOrderingSession.create).not.toHaveBeenCalled();
     });
   });
 });

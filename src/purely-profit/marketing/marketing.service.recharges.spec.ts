@@ -185,7 +185,9 @@ describe('MarketingService recharges', () => {
         marketingRecharge: {
           create: jest.fn().mockResolvedValue(createdRecharge),
         },
-        marketingCustomer: { update: jest.fn() },
+        marketingCustomer: {
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
         marketingPromotion: { updateMany: jest.fn() },
       };
       return fn(txMock);
@@ -258,7 +260,7 @@ describe('MarketingService recharges', () => {
       promotionId: null,
       note: '退款',
     };
-    const txUpdateMock = jest.fn();
+    const txUpdateMock = jest.fn().mockResolvedValue({ count: 1 });
     const txFindUniqueMock = jest.fn().mockResolvedValue({ balance: 50000 });
     context.prismaService.$transaction.mockImplementation((fn) => {
       const txMock = {
@@ -270,7 +272,7 @@ describe('MarketingService recharges', () => {
             .mockResolvedValueOnce({ _sum: { amount: 0 } }),
         },
         marketingCustomer: {
-          update: txUpdateMock,
+          updateMany: txUpdateMock,
           findUnique: txFindUniqueMock,
         },
         marketingPromotion: { updateMany: jest.fn() },
@@ -327,6 +329,71 @@ describe('MarketingService recharges', () => {
     );
   });
 
+  it('createRecharge 并发退款导致条件更新命中 0 行时拒绝扣款（余额不会被扣成负数）', async () => {
+    context.platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
+      undefined,
+    );
+    // 预校验读到的是充足余额（500 元）
+    context.prismaService.$queryRaw.mockResolvedValueOnce([
+      {
+        id: 9,
+        storeId: 18,
+        name: '张三',
+        phone: '13800138000',
+        avatar: null,
+        tier: 'gold',
+        balance: 50000,
+        points: 300,
+        totalSpent: 52000,
+        visitCount: 6,
+        lastVisitAt: new Date('2026-05-14T10:00:00.000Z'),
+        remark: null,
+        createdAt: new Date('2026-04-01T10:00:00.000Z'),
+        updatedAt: new Date('2026-05-14T10:00:00.000Z'),
+      },
+    ]);
+    context.prismaService.marketingRecharge.aggregate
+      .mockResolvedValueOnce({ _sum: { amount: 50000 } })
+      .mockResolvedValueOnce({ _sum: { amount: 0 } });
+
+    const txUpdateMock = jest.fn().mockResolvedValue({ count: 0 });
+    context.prismaService.$transaction.mockImplementation((fn) => {
+      const txMock = {
+        marketingRecharge: {
+          create: jest.fn().mockResolvedValue({ id: 104 }),
+          aggregate: jest
+            .fn()
+            .mockResolvedValueOnce({ _sum: { amount: 50000 } })
+            .mockResolvedValueOnce({ _sum: { amount: 0 } }),
+        },
+        marketingCustomer: {
+          // 并发的另一笔退款已把余额扣走，条件更新命中 0 行
+          updateMany: txUpdateMock,
+          findUnique: jest.fn().mockResolvedValue({ balance: 50000 }),
+        },
+        marketingPromotion: { updateMany: jest.fn() },
+        $queryRaw: jest.fn().mockResolvedValue([]),
+      };
+      return fn(txMock);
+    });
+
+    await expect(
+      context.service.createRecharge(context.user, 18, {
+        customerId: 9,
+        amount: 3000,
+        type: 'refund',
+        note: '退款',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // 条件更新必须带上下限守卫，否则并发下会把余额扣成负数
+    expect(txUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ balance: { gte: 3000 } }),
+      }),
+    );
+  });
+
   it('createRecharge 退款 + clearRemainingGift：balanceDelta 包含赠送金额', async () => {
     context.platformMembershipAccessService.ensureMarketingFeatureEnabled.mockResolvedValue(
       undefined,
@@ -366,7 +433,7 @@ describe('MarketingService recharges', () => {
       promotionId: null,
       note: '全额退款',
     };
-    const txUpdateMock = jest.fn();
+    const txUpdateMock = jest.fn().mockResolvedValue({ count: 1 });
     const txFindUniqueMock = jest.fn().mockResolvedValue({ balance: 43300 });
     context.prismaService.$transaction.mockImplementation((fn) => {
       const txMock = {
@@ -378,7 +445,7 @@ describe('MarketingService recharges', () => {
             .mockResolvedValueOnce({ _sum: { amount: 0 } }),
         },
         marketingCustomer: {
-          update: txUpdateMock,
+          updateMany: txUpdateMock,
           findUnique: txFindUniqueMock,
         },
         marketingPromotion: { updateMany: jest.fn() },

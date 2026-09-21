@@ -94,6 +94,7 @@ describe('ClubOrdersService', () => {
 
   const cacheInvalidatorService = {
     invalidateMarketingOverview: jest.fn(),
+    invalidateMarketingCustomerDerived: jest.fn(),
   };
 
   const clubWechatJsapiService = {
@@ -964,6 +965,7 @@ describe('ClubOrdersService', () => {
         amount: 49900,
         balancePaid: 49900,
         pointsDeducted: 0,
+        actualPointsDeducted: 0,
         payType: 'balance',
         itemsSummary: '黄金焕肤疗程',
         promotionId: null,
@@ -995,7 +997,7 @@ describe('ClubOrdersService', () => {
       },
     });
     expect(
-      cacheInvalidatorService.invalidateMarketingOverview,
+      cacheInvalidatorService.invalidateMarketingCustomerDerived,
     ).toHaveBeenCalledWith(11);
     expect(clubOrderDraftsService.markPaid).toHaveBeenCalledWith(draft, {
       paymentConfirmationSource: 'manual_confirm_paid',

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
+import { queryCustomerTierThresholds } from '../../purely-profit/marketing/marketing.query';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Money } from '../../shared/money.utils';
 import { CacheInvalidatorService } from '../../redis/invalidator';
@@ -98,6 +99,7 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
     // updateCustomerMetrics、deductCustomerPoints、awardConsumptionPoints 都操作同一行 marketingCustomer，需串行
     await this.updateCustomerMetrics(
       tx,
+      draft.storeId,
       settlementContext.customer.id,
       settlementContext.customer.totalSpent,
       balancePaidFen,
@@ -136,10 +138,16 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
       stock: number;
     };
   }> {
+    // 顾客档案必须显式绑定。若把 null 转成 undefined 再传进 where，Prisma 会忽略
+    // id 条件，查询退化成「按门店取任意顾客」，把消费记到别人头上。
+    if (draft.customerId === null) {
+      throw new NotFoundException(CLUB_MEMBER_NOT_FOUND_MESSAGE);
+    }
+
     const [customer, product] = await Promise.all([
       tx.marketingCustomer.findFirst({
         where: {
-          id: draft.customerId ?? undefined,
+          id: draft.customerId,
           storeId: draft.storeId,
           deletedAt: null,
         },
@@ -191,6 +199,8 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
         amount: balancePaidFen + pointsDeductFen,
         balancePaid: balancePaidFen,
         pointsDeducted: pointsDeductFen,
+        // 积分侧事实源：与 pointsDeducted（金额分）配合可独立核对抵扣比例
+        actualPointsDeducted: draft.metadata.pointsUsed,
         payType: 'balance',
         itemsSummary: draft.metadata.productName,
         promotionId: draft.metadata.promotionId,
@@ -200,12 +210,15 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
 
   private async updateCustomerMetrics(
     tx: Prisma.TransactionClient,
+    storeId: number,
     customerId: number,
     currentTotalSpent: number,
     // 实际余额扣减金额
     balancePaidFen: number,
   ): Promise<void> {
     const newTotalSpent = currentTotalSpent + balancePaidFen;
+    // 与 B 端手动消费同源：读门店会员等级设置的可配置阈值，不能用硬编码兜底值
+    const thresholds = await queryCustomerTierThresholds(tx, storeId);
     this.logger.log(
       `更新顾客指标: customerId=${customerId}, balancePaidFen=${balancePaidFen}, newTotalSpent=${newTotalSpent}`,
     );
@@ -221,7 +234,7 @@ export class ClubOrderSettlementService extends ClubPaymentSettlementTemplate<
         totalSpent: { increment: balancePaidFen },
         visitCount: { increment: 1 },
         lastVisitAt: new Date(),
-        tier: calcCustomerTier(newTotalSpent) as never,
+        tier: calcCustomerTier(newTotalSpent, thresholds) as never,
       },
     });
     if (result.count === 0) {

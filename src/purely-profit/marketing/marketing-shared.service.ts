@@ -68,40 +68,81 @@ export class MarketingSharedService {
     );
   }
 
+  /**
+   * 解析顾客在 purelyClub 侧的会员等级。
+   *
+   * phone 有三态：真实手机号 / `club_wechat:{openid}` 占位值 / null。
+   * 占位值无法被 normalizePhone 归一化（会被判成非法并返回 null），因此不能
+   * 先归一化再查——否则扫码建档的顾客永远匹配不到 Member。这里按候选值原样
+   * 逐个尝试，phone 缺失时再用 clubUserId 反查 users.wechat_phone 兜底。
+   */
   async resolveClubLevel(
     storeId: number,
     phone: string | null,
+    clubUserId?: number | null,
   ): Promise<Pick<MarketingCustomerDetailDto, 'clubLevel' | 'clubLevelLabel'>> {
-    // B2: 防御性标准化，确保跨服务手机号格式一致
-    const normalizedPhone = normalizePhone(phone);
-    if (!normalizedPhone) {
+    const candidates = await this.resolveClubLookupPhones(phone, clubUserId);
+    if (candidates.length === 0) {
       return {};
     }
 
     try {
-      const snapshot =
-        await this.clubMemberProfileService.getSnapshotByStoreAndPhone(
-          storeId,
-          normalizedPhone,
-        );
-      if (!snapshot) {
-        return {};
+      for (const candidate of candidates) {
+        const snapshot =
+          await this.clubMemberProfileService.getSnapshotByStoreAndPhone(
+            storeId,
+            candidate,
+          );
+        if (!snapshot) {
+          continue;
+        }
+
+        const currentLevelConfig =
+          await this.clubMemberLevelsService.resolveCurrentLevelConfig(
+            snapshot,
+          );
+
+        return {
+          clubLevel: currentLevelConfig.level as ClubMemberLevelValue,
+          clubLevelLabel: currentLevelConfig.label,
+        };
       }
-
-      const currentLevelConfig =
-        await this.clubMemberLevelsService.resolveCurrentLevelConfig(snapshot);
-
-      return {
-        clubLevel: currentLevelConfig.level as ClubMemberLevelValue,
-        clubLevelLabel: currentLevelConfig.label,
-      };
+      return {};
     } catch (err) {
       // B3: clubLevel 是附加字段，解析失败不应阻断核心数据返回
       this.logger.warn(
-        `resolveClubLevel failed for storeId=${storeId}, phone=${normalizedPhone.slice(0, 3)}****: ${err instanceof Error ? err.message : err}`,
+        `resolveClubLevel failed for storeId=${storeId}, candidates=${candidates.length}: ${err instanceof Error ? err.message : err}`,
       );
       return {};
     }
+  }
+
+  /** 生成用于 club 会员匹配的候选手机号（按优先级去重） */
+  private async resolveClubLookupPhones(
+    phone: string | null,
+    clubUserId?: number | null,
+  ): Promise<string[]> {
+    const candidates: string[] = [];
+    const push = (value: string | null | undefined): void => {
+      const trimmed = value?.trim();
+      if (trimmed && !candidates.includes(trimmed)) {
+        candidates.push(trimmed);
+      }
+    };
+
+    push(phone);
+    // B2: 再补一份归一化值，兼容库里存了带 +86 / 空格的格式
+    push(normalizePhone(phone));
+
+    if (clubUserId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: clubUserId },
+        select: { wechatPhone: true },
+      });
+      push(user?.wechatPhone);
+    }
+
+    return candidates;
   }
 
   /**

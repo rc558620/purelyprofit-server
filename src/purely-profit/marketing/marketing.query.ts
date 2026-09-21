@@ -1,5 +1,14 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  CLUB_PHONE_EMAIL_PREFIX,
+  CLUB_DERIVED_EMAIL_DOMAIN,
+  LEGACY_PHONE_EMAIL_PREFIX,
+} from './marketing-club-identity.utils';
+import {
+  cloneDefaultMarketingMemberLevelSettings,
+  extractTierThresholdsFromSettings,
+} from './marketing.utils';
 import type {
   MarketingConsumptionRow,
   MarketingCustomerRow,
@@ -12,6 +21,9 @@ import type {
 
 /** 支持 $queryRaw 的 Prisma 客户端（兼容 PrismaService 与事务客户端）。 */
 type PrismaQueryRunner = PrismaService | Prisma.TransactionClient;
+
+/** 派生 email 的域名后缀，由共享常量拼出，避免在此处重复写死域名 */
+const CLUB_DERIVED_EMAIL_SUFFIX = `@${CLUB_DERIVED_EMAIL_DOMAIN}`;
 
 /* ── 共享 SQL 片段 ─────────────────────────────────────────── */
 
@@ -110,6 +122,7 @@ export async function queryCustomerRowById(
       c.id,
       c.store_id AS "storeId",
       c.member_id AS "memberId",
+      c.club_user_id AS "clubUserId",
       c.name,
       c.phone,
       COALESCE(c.avatar, u.avatar, u.wechat_avatar) AS avatar,
@@ -125,15 +138,15 @@ export async function queryCustomerRowById(
     FROM marketing_customers c
     LEFT JOIN users u ON (
       u.wechat_phone = c.phone
-      OR u.email = 'club_phone_' || c.phone || '@purelyprofit.local'
-      OR u.email = 'phone_' || c.phone || '@purelyprofit.local'
+      OR u.email = ${CLUB_PHONE_EMAIL_PREFIX} || c.phone || ${CLUB_DERIVED_EMAIL_SUFFIX}
+      OR u.email = ${LEGACY_PHONE_EMAIL_PREFIX} || c.phone || ${CLUB_DERIVED_EMAIL_SUFFIX}
     )
     WHERE c.id = ${customerId}
       AND c.deleted_at IS NULL
     ORDER BY
       CASE
         WHEN u.wechat_phone = c.phone THEN 1
-        WHEN u.email = 'club_phone_' || c.phone || '@purelyprofit.local' THEN 2
+        WHEN u.email = ${CLUB_PHONE_EMAIL_PREFIX} || c.phone || ${CLUB_DERIVED_EMAIL_SUFFIX} THEN 2
         ELSE 3
       END
     LIMIT 1
@@ -321,6 +334,47 @@ export async function queryConsumptionRowById(
     LIMIT 1
   `;
   return rows[0] ?? null;
+}
+
+/**
+ * 读取门店会员等级设置里的顾客 tier 阈值（分）。
+ *
+ * 全链路（B 端手动消费 / C 端订单结算 / 空间结算联动）必须共用这一口径。
+ * 各自硬编码 TIER_THRESHOLDS 会让商家改完 gold/diamond 门槛后，同一顾客的
+ * 等级在不同写入链路之间来回跳。
+ */
+export async function queryCustomerTierThresholds(
+  prisma: PrismaQueryRunner,
+  storeId: number,
+): Promise<{ gold: number; diamond: number }> {
+  const defaults = cloneDefaultMarketingMemberLevelSettings();
+  const record = await prisma.marketingMemberLevelSetting.findUnique({
+    where: { storeId },
+    select: { levels: true },
+  });
+
+  const rawLevels =
+    record?.levels &&
+    typeof record.levels === 'object' &&
+    Array.isArray((record.levels as Record<string, unknown>).levels)
+      ? ((record.levels as Record<string, unknown>).levels as Array<
+          Record<string, unknown>
+        >)
+      : null;
+
+  const levels = rawLevels
+    ? defaults.levels.map((def) => {
+        const match = rawLevels.find((l) => l.id === def.id);
+        return {
+          ...def,
+          ...(match && typeof match.spendThreshold === 'number'
+            ? { spendThreshold: match.spendThreshold as number }
+            : {}),
+        };
+      })
+    : defaults.levels;
+
+  return extractTierThresholdsFromSettings(levels);
 }
 
 export async function queryPromotionRowById(

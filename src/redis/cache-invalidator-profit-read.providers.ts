@@ -1,5 +1,6 @@
 import { businessAnalysisCacheInvalidatorProvider } from './cache-invalidator-business-analysis.provider';
 import { costsCacheInvalidatorProvider } from './cache-invalidator-costs.provider';
+import { marketingCustomerDerivedCacheInvalidatorProvider } from './cache-invalidator-marketing-customer.provider';
 import { marketingOverviewCacheInvalidatorProvider } from './cache-invalidator-marketing-overview.provider';
 import { buildCacheInvalidatorRegistry } from './cache-invalidator.registry';
 import { profitDashboardHomeCacheInvalidatorProvider } from './cache-invalidator-profit-dashboard-home.provider';
@@ -16,6 +17,7 @@ export type ProfitReadCacheInvalidatorRegistry = {
   invalidateProfitDashboardHome: (storeId: number) => Promise<void>;
   invalidateBusinessAnalysis: (storeId: number) => Promise<void>;
   invalidateMarketingOverview: (storeId: number) => Promise<void>;
+  invalidateMarketingCustomerDerived: (storeId: number) => Promise<void>;
   invalidateSalesReadCaches: (storeId: number) => Promise<void>;
   invalidateProfitDetail: (storeId: number) => Promise<void>;
   invalidateCostsCaches: (storeId: number) => Promise<void>;
@@ -28,6 +30,7 @@ const profitReadCacheInvalidatorProviders: readonly CacheInvalidatorProvider<
   profitDashboardHomeCacheInvalidatorProvider,
   businessAnalysisCacheInvalidatorProvider,
   marketingOverviewCacheInvalidatorProvider,
+  marketingCustomerDerivedCacheInvalidatorProvider,
   salesReadCacheInvalidatorProvider,
   profitDetailCacheInvalidatorProvider,
   costsCacheInvalidatorProvider,

@@ -20,13 +20,18 @@ export class ClubRecordQueryService {
 
   /**
    * 按门店 ID + 手机号查询顾客储值余额档案。
-   * 优先按 storeId + phone 精确查找未删除顾客；
-   * 若 phone 在 marketingCustomer 表中为 null（历史脏数据），
-   * 回退到 findFirst 模糊匹配。
+   *
+   * 优先级：storeId + phone 精确匹配 → `clubUserId` 精确定位。
+   * 两步都落空就返回 null（展示空列表），**不再**模糊兜底。
+   *
+   * @param clubUserId 当前用户的 ID。必填：未绑手机号用户的顾客档案 phone 可能为 null，
+   *   此时 clubUserId 是唯一可靠的认人依据；缺失它只能退化成「门店 + phone IS NULL」
+   *   的模糊匹配，会把同店其他无手机号顾客的余额当成自己的。
    */
   async findCustomerByStoreAndPhone(
     storeId: number,
     phone: string,
+    clubUserId: number,
   ): Promise<ClubLedgerCustomerRecord | null> {
     const exact = await this.prisma.marketingCustomer.findFirst({
       where: {
@@ -44,9 +49,11 @@ export class ClubRecordQueryService {
       return exact;
     }
 
-    // 回退：phone 字段为 null 的历史数据无法通过唯一索引匹配，
-    // 使用 findFirst + userId 关联查找
-    return this.findCustomerByStoreAndUserIdFallback(storeId, phone);
+    // 按 clubUserId 精确定位（稳定键，不依赖 phone 处于真实号 / club_wechat 占位值 / null 哪种形态）
+    return this.prisma.marketingCustomer.findFirst({
+      where: { storeId, clubUserId, deletedAt: null },
+      select: { id: true, balance: true },
+    });
   }
 
   /**
@@ -289,37 +296,6 @@ export class ClubRecordQueryService {
     const numericPart = parts[parts.length - 1];
     const parsed = Number.parseInt(numericPart, 10);
     return Number.isNaN(parsed) ? 0 : parsed;
-  }
-
-  /**
-   * 回退查询：当 phone 字段在 marketingCustomer 中为 null 时，
-   * 通过 userId 关联查找对应的营销客户记录。
-   *
-   * 这个方法处理的历史场景是：微信登录用户的 phone 存储格式为
-   * "club_wechat:oOPENID123"，但早期建档时可能未写入 phone 字段。
-   */
-  private async findCustomerByStoreAndUserIdFallback(
-    storeId: number,
-    phone: string,
-  ): Promise<ClubLedgerCustomerRecord | null> {
-    // 微信登录用户的 phone 格式为 "club_wechat:oOPENID123"
-    // 如果不是这种格式，无需回退查找
-    if (!phone.startsWith('club_wechat:')) {
-      return null;
-    }
-
-    return this.prisma.marketingCustomer.findFirst({
-      where: {
-        storeId,
-        deletedAt: null,
-        // phone 为 null 的记录：这些是早期微信登录但未绑定手机号的客户
-        phone: null,
-      },
-      select: {
-        id: true,
-        balance: true,
-      },
-    });
   }
 
   private mapRechargeRow(row: ClubRechargeLedgerRow): ClubLedgerEntry | null {

@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
+import { queryCustomerTierThresholds } from '../../purely-profit/marketing/marketing.query';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
 import { ClubWechatRefundService } from '../payments/club-wechat-refund.service';
 import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
@@ -298,12 +299,14 @@ export class ClubVoucherOrderRefundService {
 
     // totalSpent 用绝对赋值避免历史数据异常导致负数
     const newTotalSpent = Math.max(customer.totalSpent - order.paidAmountFen, 0);
+    // 与消费落账同源：读门店会员等级设置的可配置阈值
+    const thresholds = await queryCustomerTierThresholds(tx, order.storeId);
     await tx.marketingCustomer.update({
       where: { id: customer.id },
       data: {
         balance: { increment: order.paidAmountFen },
         totalSpent: newTotalSpent,
-        tier: calcCustomerTier(newTotalSpent) as never,
+        tier: calcCustomerTier(newTotalSpent, thresholds) as never,
       },
     });
   }

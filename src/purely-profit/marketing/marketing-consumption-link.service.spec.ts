@@ -14,6 +14,9 @@ function createTransactionMock() {
     marketingConsumption: {
       create: jest.fn(),
     },
+    marketingMemberLevelSetting: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
   };
 }
 
@@ -185,12 +188,40 @@ describe('MarketingConsumptionLinkService', () => {
   it('累计消费达到 gold 门槛时等级升级', async () => {
     tx.marketingCustomer.findFirst.mockResolvedValue({
       id: 9,
-      totalSpent: 190000, // ¥1900.00，距 gold（¥2000）差 ¥100
+      // gold 门槛取自会员等级设置 platinum.spendThreshold，默认 ¥5000
+      totalSpent: 490000, // ¥4900.00，距 gold（¥5000）差 ¥100
     });
 
     await service.linkSpaceSettlementConsumption(tx as never, {
       ...baseParams,
       totalRevenueYuan: 100,
+    });
+
+    expect(tx.marketingCustomer.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tier: 'gold' }),
+      }),
+    );
+  });
+
+  it('等级阈值按门店会员等级设置判定，而非硬编码 ¥2000', async () => {
+    tx.marketingMemberLevelSetting.findUnique.mockResolvedValue({
+      levels: {
+        levels: [
+          { id: 'gold', spendThreshold: 0 },
+          { id: 'platinum', spendThreshold: 1000 }, // → gold 门槛 ¥1000
+          { id: 'diamond', spendThreshold: 10000 },
+        ],
+      },
+    });
+    tx.marketingCustomer.findFirst.mockResolvedValue({
+      id: 9,
+      totalSpent: 90000, // ¥900.00
+    });
+
+    await service.linkSpaceSettlementConsumption(tx as never, {
+      ...baseParams,
+      totalRevenueYuan: 100, // → ¥1000，达到配置门槛
     });
 
     expect(tx.marketingCustomer.update).toHaveBeenCalledWith(

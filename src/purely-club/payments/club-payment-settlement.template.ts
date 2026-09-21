@@ -61,7 +61,9 @@ export abstract class ClubPaymentSettlementTemplate<
         },
         { timeout: TX_TIMEOUT_MEDIUM },
       );
-      await this.cacheInvalidatorService.invalidateMarketingOverview(
+      // 顺带清顾客列表 / 详情：只删概览的话商家端要等 60s（列表）/ 15s（详情）
+      // TTL 才看得到刚落账的余额与积分
+      await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
         draft.storeId,
       );
 

@@ -24,13 +24,13 @@ import {
 import {
   queryConsumptionRowById,
   queryCustomerConsumptionPage,
+  queryCustomerTierThresholds,
 } from './marketing.query';
 import { MarketingSharedService } from './marketing-shared.service';
 import {
   buildMarketingPaginationMeta,
   calcCustomerTier,
   cloneDefaultMarketingMemberLevelSettings,
-  extractTierThresholdsFromSettings,
   resolveMarketingPagination,
   safeEnumCoerce,
   MARKETING_PAY_TYPE_VALUES,
@@ -92,12 +92,10 @@ export class MarketingConsumptionsService {
       throw new BadRequestException('顾客不属于该门店');
     }
 
-    // D2: 幂等保护，与 createRecharge 一致，5 秒内同参数请求视为重复提交
+    // D2: 幂等保护，与 createRecharge 一致，5 秒内同参数请求视为重复提交。
+    // 占位放在所有业务校验**之后**：否则用户因「余额不足」被拒后，5 秒内修正
+    // 金额重试仍会被判重复提交。并发重复扣减由事务内的条件更新兜底。
     const idempotencyKey = `consumption:dedup:${storeId}:${dto.customerId}:${dto.amount}:${dto.balancePaid ?? 0}:${dto.pointsDeducted ?? 0}:${dto.payType ?? 'cash'}:${dto.itemsSummary?.trim() || ''}:${dto.promotionId ?? ''}`;
-    const isNew = await this.redisService.setIfAbsent(idempotencyKey, '1', 5);
-    if (!isNew) {
-      throw new BadRequestException('请勿重复提交，请稍后再试');
-    }
 
     const balancePaid = dto.balancePaid ?? 0;
     const rawPointsDeducted = dto.pointsDeducted ?? 0;
@@ -136,6 +134,11 @@ export class MarketingConsumptionsService {
         .greaterThan(Money.fromDbCents(dto.amount))
     ) {
       throw new BadRequestException('余额支付与积分抵扣之和不能超过消费金额');
+    }
+
+    const isNew = await this.redisService.setIfAbsent(idempotencyKey, '1', 5);
+    if (!isNew) {
+      throw new BadRequestException('请勿重复提交，请稍后再试');
     }
 
     const [consumptionRecord] = await this.prisma.$transaction(
@@ -263,7 +266,8 @@ export class MarketingConsumptionsService {
 
   /**
    * 从会员等级设置中解析 tier 阈值（分）与积分兑换比。
-   * - tier 阈值：用于 calcCustomerTier，取自 settings.platinum / diamond 的 spendThreshold（元→分）
+   * - tier 阈值：取自门店会员等级设置，与 C 端结算共用 queryCustomerTierThresholds，
+   *   保证两条写入链路的升级口径一致
    * - redeemRatioPoints：多少积分抵扣 1 元，用于将「积分抵扣金额」换算为实际扣减积分数
    */
   private async resolveTierThresholdsAndPointsRatio(storeId: number): Promise<{
@@ -271,31 +275,13 @@ export class MarketingConsumptionsService {
     redeemRatioPoints: number;
   }> {
     const defaults = cloneDefaultMarketingMemberLevelSettings();
-    const record = await this.prisma.marketingMemberLevelSetting.findUnique({
-      where: { storeId },
-      select: { levels: true, pointsRatio: true },
-    });
-
-    // levels 解析：从 DB JSON 提取 spendThreshold
-    const rawLevels =
-      record?.levels &&
-      typeof record.levels === 'object' &&
-      Array.isArray((record.levels as Record<string, unknown>).levels)
-        ? ((record.levels as Record<string, unknown>).levels as Array<
-            Record<string, unknown>
-          >)
-        : null;
-    const levels = rawLevels
-      ? defaults.levels.map((def) => {
-          const match = rawLevels.find((l) => l.id === def.id);
-          return {
-            ...def,
-            ...(match && typeof match.spendThreshold === 'number'
-              ? { spendThreshold: match.spendThreshold as number }
-              : {}),
-          };
-        })
-      : defaults.levels;
+    const [thresholds, record] = await Promise.all([
+      queryCustomerTierThresholds(this.prisma, storeId),
+      this.prisma.marketingMemberLevelSetting.findUnique({
+        where: { storeId },
+        select: { pointsRatio: true },
+      }),
+    ]);
 
     // pointsRatio 解析：从 DB JSON 提取 redeemRatioPoints
     const rawRatio =
@@ -308,9 +294,6 @@ export class MarketingConsumptionsService {
         ? (rawRatio.redeemRatioPoints as number)
         : defaults.pointsRatio.redeemRatioPoints;
 
-    return {
-      thresholds: extractTierThresholdsFromSettings(levels),
-      redeemRatioPoints,
-    };
+    return { thresholds, redeemRatioPoints };
   }
 }

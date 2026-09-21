@@ -18,15 +18,19 @@ export class SpaceSessionVoucherReadService {
   /**
    * 读取纯利宝团购券：校验门店权限 + 券可读性，返回开台表单回填所需信息。
    * used-已开台的券抛出"该团购券已使用"。
+   *
+   * 门店口径：以【当前登录会员的门店作用域】为准，不接受前端传入的 storeId。
+   * 前端 storeInfo 是持久化缓存，换号/切店后可能残留上一门店 ID；若据此做越权判定，
+   * 会把「本店」误判成跨门店 → 403「无权在该门店读取团购券」（券码本身没问题的假失败）。
+   * 空间管理页其余数据（空间列表 / 会话 / 预约）同样由服务端按当前会员门店解析，口径保持一致。
    */
   async readVoucher(
     user: AuthenticatedUser,
-    storeId: number,
     voucherCode: string,
   ): Promise<ReadVoucherResult> {
-    await this.commerceAccessService.ensureCanAccessStore(
+    const storeId = await this.commerceAccessService.resolveSingleStoreId(
       user,
-      storeId,
+      undefined,
       'operation-entry:create',
       '无权在该门店读取团购券',
     );

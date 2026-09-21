@@ -238,8 +238,10 @@ export class ClubMarketingPreviewService {
   ): Promise<ClubPointsPreviewResult> {
     const [config, customer] = await Promise.all([
       fetchPointsRedeemConfig(this.prisma, storeId),
-      this.prisma.marketingCustomer.findUnique({
-        where: { id: customerId },
+      // 带租户条件而非只按主键：customerId 由上游 resolveActiveCustomer 算出，
+      // 但本方法自身不应假设调用方一定安全
+      this.prisma.marketingCustomer.findFirst({
+        where: { id: customerId, storeId, status: 'active', deletedAt: null },
         select: { points: true },
       }),
     ]);

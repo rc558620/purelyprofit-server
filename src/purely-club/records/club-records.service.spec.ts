@@ -108,7 +108,7 @@ describe('ClubRecordsService', () => {
     });
     expect(
       clubRecordQueryService.findCustomerByStoreAndPhone,
-    ).toHaveBeenCalledWith(11, user.phone);
+    ).toHaveBeenCalledWith(11, user.phone, user.id);
     expect(clubRecordQueryService.listLedgerEntries).toHaveBeenCalledWith(
       11,
       98,

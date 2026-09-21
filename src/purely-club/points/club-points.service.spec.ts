@@ -113,7 +113,7 @@ describe('ClubPointsService', () => {
       });
       expect(
         clubPointsQueryService.findCustomerByStoreAndPhone,
-      ).toHaveBeenCalledWith(11, currentContext.user.phone);
+      ).toHaveBeenCalledWith(11, currentContext.user.phone, 201);
       expect(clubPointsQueryService.listPointsRecords).toHaveBeenCalledWith(
         11,
         98,

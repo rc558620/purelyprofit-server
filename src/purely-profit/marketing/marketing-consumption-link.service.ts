@@ -8,6 +8,7 @@ import {
   buildMarketingCustomersListPattern,
   buildMarketingCustomerDetailPattern,
 } from '../../redis/cache-keys';
+import { queryCustomerTierThresholds } from './marketing.query';
 import {
   calcCustomerTier,
   type MarketingPayTypeValue,
@@ -78,7 +79,9 @@ export class MarketingConsumptionLinkService {
     const phone = params.guestPhone?.trim();
     if (!phone) return;
 
-    const amountCents = Money.fromInputYuan(params.totalRevenueYuan).toDbCents();
+    const amountCents = Money.fromInputYuan(
+      params.totalRevenueYuan,
+    ).toDbCents();
     if (amountCents <= 0) return;
 
     // 事务内按 门店 + 手机号 关联（兼容已有会员与新建会员）
@@ -88,7 +91,9 @@ export class MarketingConsumptionLinkService {
     });
 
     const newTotalSpent = (existing?.totalSpent ?? 0) + amountCents;
-    const newTier = calcCustomerTier(newTotalSpent) as never;
+    // 与 B 端手动消费同源：读门店会员等级设置的可配置阈值
+    const thresholds = await queryCustomerTierThresholds(tx, params.storeId);
+    const newTier = calcCustomerTier(newTotalSpent, thresholds) as never;
 
     let customerId: number;
     if (existing) {

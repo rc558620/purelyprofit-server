@@ -154,7 +154,7 @@ export class SpaceSessionsController {
   @ApiOperation({
     summary: '读取纯利宝团购券（开台回填）',
     description:
-      '商家输入 purelyClub 团购券码，校验门店归属与状态后返回顾客姓名/电话/人数/券面金额等信息，供开台表单回填；已开台使用的券返回"该团购券已使用"。',
+      '商家输入 purelyClub 团购券码，按当前登录门店校验归属与状态后返回顾客姓名/电话/人数/券面金额等信息，供开台表单回填；已开台使用的券返回"该团购券已使用"。门店以服务端当前登录会员门店为准，入参 storeId 已废弃并忽略。',
   })
   @ApiOkResponse({ type: ReadSpaceSessionVoucherResponseDto })
   readVoucher(
@@ -163,7 +163,6 @@ export class SpaceSessionsController {
   ): Promise<ReadSpaceSessionVoucherResponseDto> {
     return this.spaceSessionVoucherReadService.readVoucher(
       ctx.user,
-      dto.storeId,
       dto.voucherCode,
     );
   }

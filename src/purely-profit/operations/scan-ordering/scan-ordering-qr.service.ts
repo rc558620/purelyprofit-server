@@ -15,6 +15,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { RedisService } from '../../../redis/redis.service';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
+import { buildScanOrderingTableQrPayload } from '../scan-qr-payload.utils';
 
 /** 桌台二维码创建结果，明文 token 仅在本次创建响应返回。 */
 export interface ScanOrderingQrCodeResponse {
@@ -290,7 +291,13 @@ export class ScanOrderingQrService {
     version: number,
     token: string,
   ): Promise<ScanOrderingQrCodeResponse> {
-    const qrCodeImageUrl = await QRCode.toDataURL(token, {
+    // 二维码内容优先使用稳定 URL（「扫普通链接二维码打开小程序」要求载荷是
+    // http/https URL），未配置 SCAN_QR_BASE_URL 时回退裸 token，
+    // 保证已印刷桌码与本机联调不受影响。
+    const payload = buildScanOrderingTableQrPayload(token, {
+      baseUrl: this.configService.get<string>('club.scanQrBaseUrl'),
+    });
+    const qrCodeImageUrl = await QRCode.toDataURL(payload, {
       width: SCAN_ORDERING_QR_CODE_SIZE,
       margin: 0,
       type: 'image/png',

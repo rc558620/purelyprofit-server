@@ -11,6 +11,8 @@ export interface MarketingCustomerRow {
   storeId: number;
   /** 关联的 Member.id（可为 null，兼容历史数据） */
   memberId: number | null;
+  /** 关联的 Club 用户 ID（仅扫码点餐等 C 端路径写入，按门店唯一） */
+  clubUserId?: number | null;
   name: string;
   phone: string | null;
   avatar: string | null;

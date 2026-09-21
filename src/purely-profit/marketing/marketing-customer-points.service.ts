@@ -24,17 +24,20 @@ export class MarketingCustomerPointsService {
     customerId: number,
     dto: AdjustCustomerPointsDto,
   ): Promise<MarketingCustomerDto> {
-    // D2: 幂等保护，5 秒内同参数请求视为重复提交
+    // D2: 幂等保护，5 秒内同参数请求视为重复提交。
+    // 占位放在业务校验**之后**：否则用户因「积分不足」被拒后，5 秒内修正数值
+    // 重试仍会被判重复提交。并发重复扣减由事务内的条件更新兜底。
     const idempotencyKey = `adjust-points:dedup:${customer.storeId}:${customerId}:${dto.delta}:${dto.remark?.trim() || ''}`;
-    const isNew = await this.redisService.setIfAbsent(idempotencyKey, '1', 5);
-    if (!isNew) {
-      throw new BadRequestException('请勿重复提交，请稍后再试');
-    }
 
     if (dto.delta < 0 && Math.abs(dto.delta) > customer.points) {
       throw new BadRequestException(
         `扣除积分不能超过当前余额（${customer.points}）`,
       );
+    }
+
+    const isNew = await this.redisService.setIfAbsent(idempotencyKey, '1', 5);
+    if (!isNew) {
+      throw new BadRequestException('请勿重复提交，请稍后再试');
     }
 
     const absDelta = Math.abs(dto.delta);

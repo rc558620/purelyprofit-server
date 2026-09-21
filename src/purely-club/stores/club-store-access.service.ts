@@ -6,12 +6,16 @@ import {
 } from '@nestjs/common';
 import { MemberStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
+import { buildClubMemberDisplayName } from '../../purely-profit/auth/auth.utils';
 import { resolveStoreInviteQrPayload } from '../../purely-profit/stores/store-invite-code-qr.utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
 import { ClubInviteAttributionService } from './club-invite-attribution.service';
 import { ClubInviteCodeMapService } from './club-invite-code-map.service';
-import { ClubMemberBindingService } from './club-member-binding.service';
+import {
+  ClubMemberBindingService,
+  type ClubMemberBindingResult,
+} from './club-member-binding.service';
 import {
   clubAccessibleStoreSelect,
   type ClubAccessibleStoreRecord,
@@ -174,11 +178,15 @@ export class ClubStoreAccessService {
     }
 
     const displayName = this.resolveDisplayName(user);
+    // 必须传 user.id：顾客档案要带上 club_user_id 才能被稳定定位。
+    // 缺省时换绑手机号（ClubAuthService.syncPhoneAcrossProfiles 按 clubUserId 定位）
+    // 会漏掉这家店，用户换号后当场失去刚加入的门店。
     const bindingResult =
       await this.memberBindingService.upsertMemberAndCustomer(
         store.id,
         memberPhone,
         displayName,
+        user.id,
       );
 
     // 加入门店后清除该用户的可访问门店缓存，确保下次请求拉取最新数据
@@ -188,10 +196,49 @@ export class ClubStoreAccessService {
   }
 
   /**
-   * 清除用户可访问门店列表的 Redis 缓存。
-   * 在门店成员关系变更时调用（如加入门店），确保下次请求获取最新数据。
+   * 确保用户与指定门店之间存在会员关系。
+   *
+   * 与 `joinStoreByInviteCode` 的差异仅在「门店从哪来」：inviteCode 来自二维码，
+   * 本方法的 storeId 由调用方提供（如桌码解析出的门店）。档案同步逻辑完全复用，
+   * 保证两条入店路径写出的数据语义一致。
+   *
+   * 用于「扫码点餐」这类**先确定门店、后补会员关系**的场景。缺失该关系会导致：
+   * - 商家端（purelyProfit）看不到该顾客档案与手机号；
+   * - `/club/member/account` 等以「当前门店」为前提的接口 404——
+   *   `findAccessibleStores` 按 `Member.phone` 匹配，没有 Member 就没有可访问门店。
    */
-  private async invalidateAccessibleStoresCache(userId: number): Promise<void> {
+  async ensureStoreMembership(
+    user: AuthenticatedUser,
+    storeId: number,
+  ): Promise<ClubMemberBindingResult> {
+    const store = await this.prisma.store.findFirst({
+      where: { id: storeId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!store) {
+      throw new NotFoundException('门店不存在');
+    }
+
+    const bindingResult =
+      await this.memberBindingService.upsertMemberAndCustomer(
+        store.id,
+        this.resolveMemberPhone(user),
+        this.resolveDisplayName(user),
+        user.id,
+      );
+
+    await this.invalidateAccessibleStoresCache(user.id);
+
+    return bindingResult;
+  }
+
+  /**
+   * 清除用户可访问门店列表的 Redis 缓存。
+   *
+   * 在「会员关系可能变化」时调用（加入门店、补齐会员关系、换绑手机号），
+   * 确保下次请求获取最新数据，而不是等 60 秒 TTL 自然过期。
+   */
+  async invalidateAccessibleStoresCache(userId: number): Promise<void> {
     await this.redisService.del(
       `${CLUB_ACCESSIBLE_STORES_CACHE_KEY_PREFIX}${userId}`,
     );
@@ -213,15 +260,6 @@ export class ClubStoreAccessService {
   }
 
   private resolveDisplayName(user: AuthenticatedUser): string {
-    const trimmedName = (user.name ?? '').trim();
-    if (trimmedName.length > 0) {
-      return trimmedName;
-    }
-
-    // 微信无手机号用户使用 openid 后4位，手机号用户使用手机号后4位
-    const suffix = user.phone.startsWith('club_wechat:')
-      ? user.phone.slice(-4)
-      : user.phone.slice(-4);
-    return `纯利会员${suffix}`;
+    return buildClubMemberDisplayName(user.phone, user.name);
   }
 }

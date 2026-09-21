@@ -11,6 +11,7 @@ import { ClubScanOrderingMarketingCustomerService } from './club-scan-ordering-m
 import { ScanOrderingSaleOrderBridgeService } from './scan-ordering-sale-order-bridge.service';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ScanOrderingRealtimeService } from './scan-ordering-realtime.service';
 import { ScanOrderingPickupNumberService } from './scan-ordering-pickup-number.service';
@@ -33,6 +34,7 @@ export class ClubScanOrderingCheckoutService {
     private readonly marketingCustomerService: ClubScanOrderingMarketingCustomerService,
     private readonly saleOrderBridgeService: ScanOrderingSaleOrderBridgeService,
     private readonly pickupNumberService: ScanOrderingPickupNumberService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   async createWechatPayment(
@@ -254,6 +256,8 @@ export class ClubScanOrderingCheckoutService {
           amount: order.payableAmount + pointsDeductAmount,
           balancePaid: order.payableAmount,
           pointsDeducted: pointsDeductAmount,
+          // 积分侧事实源：与 pointsDeducted（金额分）配合可独立核对抵扣比例
+          actualPointsDeducted: pointsUsed,
           payType: 'balance',
           itemsSummary: `扫码点餐订单 ${order.orderNo}`,
         },
@@ -280,6 +284,13 @@ export class ClubScanOrderingCheckoutService {
       // 销售记录不在支付成功时创建：交班页须在商家出餐/拒绝后再展示订单
       return tx.scanOrders.findUniqueOrThrow({ where: { id: order.id } });
     });
+
+    // 余额/积分已落账：失效营销衍生缓存（概览 / 顾客列表 / 顾客详情），
+    // 否则商家端要等 TTL（概览 120s、列表 60s、详情 15s）才看得到变化
+    await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
+      result.storeId,
+    );
+
     this.realtimeService.publishOrderStatusChanged({
       storeId: result.storeId,
       orderId: result.id,

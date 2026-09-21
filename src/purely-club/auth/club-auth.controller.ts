@@ -26,8 +26,10 @@ import { CaptchaTokenService } from '../../purely-profit/auth/captcha-token.serv
 import { PublicKeyResponseDto } from '../../purely-profit/auth/dto/public-key-response.dto';
 import { RefreshTokenDto } from '../../purely-profit/auth/dto/refresh-token.dto';
 import { AuthTokenResponseDto } from './dto/auth-token-response.dto';
+import { BindPhoneByWechatCodeDto } from './dto/bind-phone-by-wechat-code.dto';
 import { BindPhoneDto } from './dto/bind-phone.dto';
 import { LoginByCodeDto } from './dto/login-by-code.dto';
+import { RebindPhoneDto } from './dto/rebind-phone.dto';
 import { RegisterCaptchaTokenDto } from './dto/register-captcha-token.dto';
 import { SendLoginCodeResponseDto } from './dto/send-login-code-response.dto';
 import { SendRegisterCodeDto } from './dto/send-register-code.dto';
@@ -190,6 +192,57 @@ export class ClubAuthController {
     @Body() dto: BindPhoneDto,
   ): Promise<AuthTokenResponseDto> {
     return this.clubAuthService.bindPhone(user.id, dto);
+  }
+
+  @Post('rebind-phone')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ClubJwtAuthGuard)
+  @ApiBearerAuth()
+  @Throttle({ default: { ttl: 60, limit: 10 } })
+  @ApiOperation({
+    summary: '换绑手机号（已绑定用户更换联系方式）',
+    description:
+      '已绑定手机号的用户更换联系方式。验证码用 POST /club/auth/bind-phone/send-code 发送（传新手机号）。' +
+      '只校验新手机号的验证码——用户换号后旧号已经收不到短信，无法校验旧号。' +
+      '若新手机号已绑定其他账号，直接报错，**不做账号合并**（合并语义属于首次绑定）。' +
+      '尚未绑定过手机号的账号请改用 POST /club/auth/bind-phone。' +
+      '换绑有 30 天冷静期。' +
+      '成功后返回新 JWT token，前端**必须替换旧 token**——JWT 的 phone 参与可访问门店匹配。',
+  })
+  @ApiOkResponse({
+    description: '换绑成功，返回新 JWT token',
+    type: AuthTokenResponseDto,
+  })
+  rebindPhone(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: RebindPhoneDto,
+  ): Promise<AuthTokenResponseDto> {
+    return this.clubAuthService.rebindPhone(user.id, dto);
+  }
+
+  @Post('bind-phone/by-wechat-code')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ClubJwtAuthGuard)
+  @ApiBearerAuth()
+  @Throttle({ default: { ttl: 60, limit: 10 } })
+  @ApiOperation({
+    summary: '微信一键绑定手机号（getPhoneNumber）',
+    description:
+      '用 <Button open-type="getPhoneNumber"> 回调里的 e.detail.code 直接换取手机号并绑定，' +
+      '无需短信验证码（手机号归属由微信背书）。' +
+      '成功后返回新 JWT token，前端**必须替换旧 token**。' +
+      '⚠️ 该入口要求小程序已通过**微信认证**，由 auth.wechatPhoneBindEnabled 控制；' +
+      '未开放时返回 501，请改用 POST /club/auth/bind-phone（短信验证码）。',
+  })
+  @ApiOkResponse({
+    description: '绑定成功，返回新 JWT token',
+    type: AuthTokenResponseDto,
+  })
+  bindPhoneByWechatCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BindPhoneByWechatCodeDto,
+  ): Promise<AuthTokenResponseDto> {
+    return this.clubAuthService.bindPhoneByWechatCode(user.id, dto);
   }
 
   @Post('refresh')

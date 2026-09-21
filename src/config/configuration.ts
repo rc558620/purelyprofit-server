@@ -334,6 +334,19 @@ export default () => ({
      */
     exposeCodeInResponse:
       (process.env.AUTH_EXPOSE_CODE_IN_RESPONSE ?? 'false') === 'true',
+    /**
+     * 是否启用「微信 getPhoneNumber」一键绑定手机号入口
+     * （`POST /club/auth/bind-phone/by-wechat-code`）。
+     *
+     * 该能力要求小程序**已通过微信认证**（个人主体不可用），因此被主体变更阻塞；
+     * 接口与前端接线可提前就绪，认证通过后把本开关打开即可生效，**无需再改代码**。
+     *
+     * 默认关闭：未认证时启用只会让每次调用都被微信侧拒绝，
+     * 不如显式关闭并给出明确提示。
+     * 对应环境变量：AUTH_WECHAT_PHONE_BIND_ENABLED
+     */
+    wechatPhoneBindEnabled:
+      (process.env.AUTH_WECHAT_PHONE_BIND_ENABLED ?? 'false') === 'true',
   },
 
   pulse: {
@@ -370,6 +383,24 @@ export default () => ({
      * 对应环境变量：CLUB_STORE_INVITE_QR_ENTRY_PATH
      */
     storeInviteQrEntryPath: process.env.CLUB_STORE_INVITE_QR_ENTRY_PATH ?? '/i',
+    /**
+     * 扫码点餐桌码 / 空间码使用的公共域名。
+     * 对应环境变量：SCAN_QR_BASE_URL
+     * 示例：https://scan.purelyprofit.com
+     *
+     * 二维码形如 {scanQrBaseUrl}/t/{qrToken}（桌码）、{scanQrBaseUrl}/p/{spaceToken}（空间码）。
+     *
+     * ⚠️ 刻意与邀请二维码的 CLUB_PUBLIC_BASE_URL 分开配置：
+     * 「扫普通链接二维码打开小程序」按「域名 + 路径前缀」下发规则，共用域名时
+     * 规则很容易把 {base}/i/... 一并唤起小程序，导致邀请二维码无法再落地到 H5。
+     *
+     * ⚠️ 未配置时二维码回退历史格式（桌码裸 token、空间码 purelyclub:// 自定义协议），
+     * 即本项配置缺失不会改变现有行为，也不会让已印刷物料失效。
+     *
+     * 生产环境（NODE_ENV=production）下 localhost / 内网 IP / 私有网段会被 sanitize
+     * 拒绝并自动回退，避免把不可达地址写进物料。
+     */
+    scanQrBaseUrl: process.env.SCAN_QR_BASE_URL ?? '',
   },
 
   wechat: {

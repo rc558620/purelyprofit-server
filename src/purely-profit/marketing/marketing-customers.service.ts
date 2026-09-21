@@ -114,6 +114,7 @@ export class MarketingCustomersService {
       this.marketingSharedService.resolveClubLevel(
         customer.storeId,
         customer.phone,
+        customer.clubUserId,
       ),
       // F9: 详情页同样以 marketing_consumptions 实时聚合为准，覆盖物化字段
       this.prisma.marketingConsumption.aggregate({
@@ -211,23 +212,27 @@ export class MarketingCustomersService {
       'marketing:manage',
     );
 
-    if (dto.phone !== undefined) {
-      const normalizedNewPhone =
-        this.marketingSharedService.validatePhoneOrThrow(dto.phone);
-      if (normalizedNewPhone !== normalizePhone(customer.phone)) {
+    // undefined=不改，''=清除，其它=校验后归一化
+    const nextPhone =
+      dto.phone !== undefined
+        ? this.marketingSharedService.validatePhoneOrThrow(dto.phone)
+        : undefined;
+
+    if (nextPhone !== undefined && nextPhone !== null) {
+      if (nextPhone !== normalizePhone(customer.phone)) {
         await this.marketingSharedService.ensureUniquePhone(
           customer.storeId,
-          normalizedNewPhone,
+          nextPhone,
           customerId,
         );
       }
     }
 
-    // B8: 手机号变更时，同步更新关联的 Member.phone
-    const phoneUpdate =
-      dto.phone !== undefined
-        ? { phone: this.marketingSharedService.validatePhoneOrThrow(dto.phone) }
-        : {};
+    // B8: 手机号变更时同步 Member.phone（见下方两个 nextPhone !== null 守卫）。
+    // 传空串表示「清除营销档案手机号」，此时**不能**把 Member.phone 一并置空：
+    // Club 侧 findAccessibleStores 正是按 Member.phone 匹配门店，置空会让该用户
+    // 当场失去全部门店访问权（页面跳「暂无可访问门店」）。
+    const phoneUpdate = nextPhone !== undefined ? { phone: nextPhone } : {};
 
     try {
       const updated = await this.prisma.$transaction(async (tx) => {
@@ -246,14 +251,31 @@ export class MarketingCustomersService {
         });
 
         // B8: 若手机号变更且有关联 Member，同步更新 Member.phone
-        if (dto.phone !== undefined && customer.memberId !== null) {
+        if (
+          nextPhone !== undefined &&
+          nextPhone !== null &&
+          customer.memberId !== null
+        ) {
           await tx.member.update({
             where: { id: customer.memberId },
-            data: {
-              phone: this.marketingSharedService.validatePhoneOrThrow(
-                dto.phone,
-              ),
-            },
+            data: { phone: nextPhone },
+          });
+        }
+
+        // member_id 是「可选、兼容历史数据」的列，Club 顾客档案通常为空，
+        // 此时 Member 与顾客之间只剩「门店 + 手机号」这条弱关联。漏同步会让
+        // findAccessibleStores 按 members.phone 匹配不到该顾客 —— C 端用户改完
+        // 手机号后当场失去这家门店。定位口径与 ClubAuthService.rebindPhone 一致。
+        const previousPhone = normalizePhone(customer.phone);
+        if (
+          nextPhone !== undefined &&
+          nextPhone !== null &&
+          customer.memberId === null &&
+          previousPhone
+        ) {
+          await tx.member.updateMany({
+            where: { storeId: customer.storeId, phone: previousPhone },
+            data: { phone: nextPhone },
           });
         }
 

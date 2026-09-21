@@ -42,7 +42,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "store-business-mode:backfill": "node scripts/backfill-store-business-mode.mjs",
     "sub-account:revoke-orphaned": "node scripts/revoke-orphaned-sub-account-credentials.mjs",
-    "membership:backfill-previous-plan": "node scripts/backfill-membership-previous-plan-id.mjs"
+    "membership:backfill-previous-plan": "node scripts/backfill-membership-previous-plan-id.mjs",
+  "customer:backfill-club-user": "node scripts/backfill-marketing-customer-club-user.mjs"
   },
   "dependencies": {
     "@fastify/compress": "^9.0.0",

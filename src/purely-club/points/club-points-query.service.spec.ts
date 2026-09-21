@@ -37,7 +37,7 @@ describe('ClubPointsQueryService', () => {
       });
 
       await expect(
-        service.findCustomerByStoreAndPhone(11, '13800138000'),
+        service.findCustomerByStoreAndPhone(11, '13800138000', 201),
       ).resolves.toEqual({
         id: 98,
         points: 580,
@@ -52,7 +52,7 @@ describe('ClubPointsQueryService', () => {
       });
     });
 
-    it('精确查询无结果且回退到匹配 phone=null 的记录', async () => {
+    it('精确查询无结果时按 clubUserId 稳定键定位', async () => {
       prismaService.marketingCustomer.findFirst
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({
@@ -61,7 +61,7 @@ describe('ClubPointsQueryService', () => {
         });
 
       await expect(
-        service.findCustomerByStoreAndPhone(11, 'club_wechat:oOPENID123'),
+        service.findCustomerByStoreAndPhone(11, 'club_wechat:oOPENID123', 215),
       ).resolves.toEqual({
         id: 99,
         points: 100,
@@ -69,16 +69,72 @@ describe('ClubPointsQueryService', () => {
       expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(
         2,
       );
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenNthCalledWith(
+        2,
+        {
+          where: { storeId: 11, clubUserId: 215, deletedAt: null },
+          select: { id: true, points: true },
+        },
+      );
     });
 
-    it('非微信登录用户精确查询无结果时不回退', async () => {
+    it('P1：未绑手机号用户按 clubUserId 认人，而非捞同门店任意 phone=null 的顾客', async () => {
+      // 按查询条件返回，避免依赖调用顺序
+      prismaService.marketingCustomer.findFirst.mockImplementation(
+        async (args: { where?: Record<string, unknown> }) => {
+          if ('clubUserId' in (args?.where ?? {})) {
+            return { id: 42, points: 300 };
+          }
+          return null;
+        },
+      );
+
+      await expect(
+        service.findCustomerByStoreAndPhone(11, 'club_wechat:oOPENID123', 215),
+      ).resolves.toEqual({ id: 42, points: 300 });
+
+      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledWith({
+        where: { storeId: 11, clubUserId: 215, deletedAt: null },
+        select: { id: true, points: true },
+      });
+    });
+
+    it('P1：绝不使用 phone=null 兜底（否则会把别人的积分当自己的）', async () => {
+      // 同门店存在一条 phone=null 的顾客档案（属于别人）
+      prismaService.marketingCustomer.findFirst.mockImplementation(
+        async (args: { where?: Record<string, unknown> }) => {
+          const where = args?.where ?? {};
+          if ('clubUserId' in where) return null;
+          if ('phone' in where && where.phone === null) {
+            return { id: 999, points: 9999 };
+          }
+          return null;
+        },
+      );
+
+      await expect(
+        service.findCustomerByStoreAndPhone(11, 'club_wechat:oOPENID123', 215),
+      ).resolves.toBeNull();
+
+      // 任何一次查询都不允许出现 phone: null
+      const calls = prismaService.marketingCustomer.findFirst.mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(
+        calls.some(([args]: [{ where?: Record<string, unknown> }]) => {
+          const where = args?.where ?? {};
+          return 'phone' in where && where.phone === null;
+        }),
+      ).toBe(false);
+    });
+
+    it('非微信登录用户精确查询无结果时按 clubUserId 定位后仍无结果则返回 null', async () => {
       prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.findCustomerByStoreAndPhone(11, '13800138000'),
+        service.findCustomerByStoreAndPhone(11, '13800138000', 201),
       ).resolves.toBeNull();
       expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(
-        1,
+        2,
       );
     });
   });

@@ -1,15 +1,25 @@
 // 空间会话-纯利宝团购券读取接口 DTO（商家开台读取券码回填表单）
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsString, MaxLength, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 /** 读取团购券入参 */
 export class ReadSpaceSessionVoucherDto {
-  @ApiProperty({ example: 18, description: '当前门店 ID（券码归属门店校验）' })
+  /**
+   * @deprecated 门店以服务端「当前登录会员门店」为准，本字段不再参与鉴权与归属校验，
+   * 仅保留以便老客户端（whitelist 校验）不报 400。
+   */
+  @ApiPropertyOptional({
+    example: 18,
+    description:
+      '（已废弃）门店 ID：服务端按当前登录会员门店解析，传入值会被忽略',
+    deprecated: true,
+  })
+  @IsOptional()
   @Type(() => Number)
   @IsInt({ message: 'storeId 必须是整数' })
   @Min(1, { message: 'storeId 必须大于等于 1' })
-  storeId: number;
+  storeId?: number;
 
   @ApiProperty({ example: 'VC20260810143000001', description: '团购券码' })
   @IsString({ message: '团购券码必须是字符串' })

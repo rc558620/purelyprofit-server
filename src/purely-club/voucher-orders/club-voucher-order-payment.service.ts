@@ -2,8 +2,10 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { calcCustomerTier } from '../../purely-profit/marketing/marketing.utils';
+import { queryCustomerTierThresholds } from '../../purely-profit/marketing/marketing.query';
 import { Money } from '../../shared/money.utils';
 import { PrismaService, TX_TIMEOUT_MEDIUM } from '../../prisma/prisma.service';
+import { CacheInvalidatorService } from '../../redis/invalidator';
 import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubOrderPreviewBreakdownService } from '../orders/club-order-preview-breakdown.service';
 import {
@@ -70,6 +72,7 @@ export class ClubVoucherOrderPaymentService {
     private readonly clubWechatJsapiService: ClubWechatJsapiService,
     private readonly breakdownService: ClubOrderPreviewBreakdownService,
     private readonly realtimeService: ScanOrderingRealtimeService,
+    private readonly cacheInvalidatorService: CacheInvalidatorService,
   ) {}
 
   /** 创建团购券订单草稿：校验商品/算价 → JSAPI 下单 → 落库 unpaid */
@@ -363,6 +366,14 @@ export class ClubVoucherOrderPaymentService {
       { timeout: TX_TIMEOUT_MEDIUM },
     );
 
+    // 余额/积分已落账：失效营销衍生缓存（概览 / 顾客列表 / 顾客详情），
+    // 否则商家端要等 TTL 才看得到变化
+    if (paidOrder) {
+      await this.cacheInvalidatorService.invalidateMarketingCustomerDerived(
+        paidOrder.storeId,
+      );
+    }
+
     // 事务提交成功后才广播新订单事件，避免事务回滚导致商家端收到假通知
     if (paidOrder) {
       this.realtimeService.publishVoucherOrderCreated({
@@ -395,6 +406,7 @@ export class ClubVoucherOrderPaymentService {
       productName: string;
       paidAmountFen: number;
       pointsDeductFen: number;
+      pointsUsed: number;
     },
     customerId: number,
   ): Promise<void> {
@@ -422,6 +434,8 @@ export class ClubVoucherOrderPaymentService {
         amount: balancePaidFen + order.pointsDeductFen,
         balancePaid: balancePaidFen,
         pointsDeducted: order.pointsDeductFen,
+        // 积分侧事实源：与 pointsDeducted（金额分）配合可独立核对抵扣比例
+        actualPointsDeducted: order.pointsUsed,
         payType: 'balance',
         itemsSummary: order.productName,
         promotionId: null,
@@ -430,6 +444,8 @@ export class ClubVoucherOrderPaymentService {
 
     // updateMany + where 条件保证余额不会被并发扣减为负数
     const newTotalSpent = customer.totalSpent + balancePaidFen;
+    // 与 B 端手动消费同源：读门店会员等级设置的可配置阈值，不能用硬编码兜底值
+    const thresholds = await queryCustomerTierThresholds(tx, order.storeId);
     const updated = await tx.marketingCustomer.updateMany({
       where: { id: customerId, balance: { gte: balancePaidFen } },
       data: {
@@ -437,7 +453,7 @@ export class ClubVoucherOrderPaymentService {
         totalSpent: { increment: balancePaidFen },
         visitCount: { increment: 1 },
         lastVisitAt: new Date(),
-        tier: calcCustomerTier(newTotalSpent) as never,
+        tier: calcCustomerTier(newTotalSpent, thresholds) as never,
       },
     });
     if (updated.count !== 1) {

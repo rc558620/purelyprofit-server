@@ -38,6 +38,8 @@ export class ClubPointsService {
       await this.clubPointsQueryService.findCustomerByStoreAndPhone(
         currentContext.store.id,
         currentContext.user.phone,
+        // 未绑手机号用户按 clubUserId 认人，避免回落「同门店任意无手机号顾客」
+        currentContext.user.id,
       );
 
     if (!customer) {

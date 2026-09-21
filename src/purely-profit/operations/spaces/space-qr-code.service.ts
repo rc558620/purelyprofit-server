@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as QRCode from 'qrcode';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import { CommerceAccessService } from '../../commerce/commerce-access.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { buildSpaceQrPayload } from '../scan-qr-payload.utils';
 
 export interface SpaceQrCodePreview {
   spaceId: number;
@@ -22,6 +24,7 @@ export class SpaceQrCodeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly commerceAccessService: CommerceAccessService,
+    private readonly configService: ConfigService,
   ) {}
 
   async getPreview(
@@ -154,7 +157,11 @@ export class SpaceQrCodeService {
   }
 
   private buildQrContent(token: string): string {
-    return `purelyclub://space-scan?token=${encodeURIComponent(token)}`;
+    // 稳定 URL 优先（微信不识别非 http/https 的自定义协议），
+    // 未配置 SCAN_QR_BASE_URL 时回退历史 purelyclub:// 格式，旧物料仍可扫。
+    return buildSpaceQrPayload(token, {
+      baseUrl: this.configService.get<string>('club.scanQrBaseUrl'),
+    });
   }
 
   private sanitizeFilename(value: string): string {

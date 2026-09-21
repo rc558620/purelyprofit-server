@@ -44,6 +44,16 @@ export class CacheInvalidatorService {
     await this.profitReadInvalidator.invalidateMarketingOverview(storeId);
   }
 
+  /**
+   * 顾客维度营销缓存失效（概览 + 顾客列表 + 顾客详情）。
+   * C 端落账路径统一用这个，避免商家端只能等 TTL 才看到余额/积分变化。
+   */
+  async invalidateMarketingCustomerDerived(storeId: number): Promise<void> {
+    await this.profitReadInvalidator.invalidateMarketingCustomerDerived(
+      storeId,
+    );
+  }
+
   async invalidateMembersDerived(storeId: number): Promise<void> {
     await Promise.all([
       this.membershipInvalidator.invalidateMembersDerived(storeId),

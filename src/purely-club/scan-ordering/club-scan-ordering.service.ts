@@ -9,6 +9,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { AuthenticatedUser } from '../../purely-profit/auth/strategies/jwt.strategy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { ClubStoreAccessService } from '../stores/club-store-access.service';
 import { ClubScanOrderingMenuQueryService } from './club-scan-ordering-menu-query.service';
 import { ClubScanOrderingServiceCallService } from './club-scan-ordering-service-call.service';
 import type { CreateClubScanSessionDto } from './dto/club-scan-ordering.dto';
@@ -44,6 +45,7 @@ export class ClubScanOrderingService {
     private readonly redisService: RedisService,
     private readonly menuQueryService: ClubScanOrderingMenuQueryService,
     private readonly serviceCallQueryService: ClubScanOrderingServiceCallService,
+    private readonly storeAccessService: ClubStoreAccessService,
   ) {}
 
   async resolveQrToken(qrToken: string): Promise<unknown> {
@@ -134,6 +136,16 @@ export class ClubScanOrderingService {
     if (!table || table.status === 'disabled' || table.status === 'clearing') {
       throw new ConflictException('当前桌台暂不可点餐');
     }
+
+    // 到店消费即成为该门店会员：补齐 Member / MarketingCustomer 档案。
+    // 缺少这一步会导致商家端看不到该顾客，且以「当前门店」为前提的接口
+    // （/club/member/account、余额支付等）返回 404 —— findAccessibleStores
+    // 是按 Member.phone 匹配门店的，桌码链路此前完全没建 Member。
+    await this.storeAccessService.ensureStoreMembership(
+      user,
+      scanContext.storeId,
+    );
+
     const now = new Date();
     const expiresAt = new Date(now.getTime() + SESSION_TTL_MS);
 

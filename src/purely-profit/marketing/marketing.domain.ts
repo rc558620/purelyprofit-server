@@ -33,7 +33,16 @@ export function buildCustomerWhere(
   } else if (input.status === 'dormant') {
     where.lastVisitAt = { gte: cutoff90, lt: cutoff30 };
   } else if (input.status === 'lost') {
-    where.lastVisitAt = { lt: cutoff90 };
+    // 与 calcCustomerStatus 对齐：lastVisitAt 为 null（从未消费）同样判定为 lost。
+    // 只写 lastVisitAt < cutoff90 会让 SQL 漏掉 NULL 行，导致「列表徽标显示流失、
+    // 筛选流失却查不到」——扫码点餐建档未消费的顾客全在这一批。
+    // 同时排除加入门店 7 天内的新客：calcCustomerStatus 对他们的判定是 new。
+    where.createdAt = { lt: cutoff7 };
+    const lostClause: Prisma.MarketingCustomerWhereInput = {
+      OR: [{ lastVisitAt: { lt: cutoff90 } }, { lastVisitAt: null }],
+    };
+    const existingAnd = Array.isArray(where.AND) ? where.AND : [];
+    where.AND = [...existingAnd, lostClause];
   }
 
   if (input.tier) {

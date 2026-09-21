@@ -287,6 +287,8 @@ describe('ClubStoresService', () => {
         storeId: 18,
         name: '俱乐部用户',
         phone: '13800138000',
+        // 必须落 clubUserId：换绑手机号按它定位顧客档案，缺了会整店漏同步
+        clubUserId: 201,
       },
     });
     expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
@@ -328,6 +330,8 @@ describe('ClubStoresService', () => {
         storeId: 18,
         name: '俱乐部用户',
         phone: '13800138000',
+        // 详见 joinByScanCode 用例注释：缺 clubUserId 会让换绑漏掉这家店
+        clubUserId: 201,
       },
     });
     expect(prismaService.$transaction).toHaveBeenCalledTimes(1);
@@ -371,6 +375,9 @@ describe('ClubStoresService', () => {
         storeId: 18,
         name: '微信昵称',
         phone: 'club_wechat:oOPENID123',
+        // 微信占位手机号用户同样要落 clubUserId：后续绑定真实手机号时
+        // 需要按它把占位值档案迁到真实号码
+        clubUserId: 301,
       },
     });
     expect(redisService.set).toHaveBeenCalledWith(

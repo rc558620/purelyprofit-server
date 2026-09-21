@@ -41,7 +41,7 @@ describe('ClubRecordQueryService', () => {
       });
 
       await expect(
-        service.findCustomerByStoreAndPhone(11, '13800138000'),
+        service.findCustomerByStoreAndPhone(11, '13800138000', 201),
       ).resolves.toEqual({
         id: 98,
         balance: 35000,
@@ -59,7 +59,7 @@ describe('ClubRecordQueryService', () => {
       });
     });
 
-    it('精确查询无结果且回退到 findFirst 匹配 phone=null 的记录', async () => {
+    it('精确查询无结果时按 clubUserId 稳定键定位', async () => {
       prismaService.marketingCustomer.findFirst
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({
@@ -68,12 +68,12 @@ describe('ClubRecordQueryService', () => {
         });
 
       await expect(
-        service.findCustomerByStoreAndPhone(11, 'club_wechat:oOPENID123'),
+        service.findCustomerByStoreAndPhone(11, 'club_wechat:oOPENID123', 215),
       ).resolves.toEqual({
         id: 99,
         balance: 10000,
       });
-      // 第一次调用：精确匹配
+      // 第一次调用：phone 精确匹配
       expect(prismaService.marketingCustomer.findFirst).toHaveBeenNthCalledWith(
         1,
         {
@@ -88,14 +88,14 @@ describe('ClubRecordQueryService', () => {
           },
         },
       );
-      // 第二次调用：回退查询 phone=null
+      // 第二次调用：clubUserId 稳定键
       expect(prismaService.marketingCustomer.findFirst).toHaveBeenNthCalledWith(
         2,
         {
           where: {
             storeId: 11,
+            clubUserId: 215,
             deletedAt: null,
-            phone: null,
           },
           select: {
             id: true,
@@ -105,25 +105,39 @@ describe('ClubRecordQueryService', () => {
       );
     });
 
-    it('非微信登录用户精确查询无结果时不回退', async () => {
+    it('非微信登录用户精确查询无结果时按 clubUserId 定位，不做 phone=null 兜底', async () => {
+      // 同门店存在一条 phone=null 的顾客档案（属于别人），绝不能被命中
+      prismaService.marketingCustomer.findFirst.mockImplementation(
+        (args: { where?: Record<string, unknown> }) => {
+          const where = args?.where ?? {};
+          if ('clubUserId' in where) return null;
+          if ('phone' in where && where.phone === null) {
+            return { id: 999, balance: 99999 };
+          }
+          return null;
+        },
+      );
+
+      await expect(
+        service.findCustomerByStoreAndPhone(11, '13800138000', 201),
+      ).resolves.toBeNull();
+
+      // 只发了两条精确查询，从未出现 phone: null
+      const calls = prismaService.marketingCustomer.findFirst.mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(
+        calls.some(([args]: [{ where?: Record<string, unknown> }]) => {
+          const where = args?.where ?? {};
+          return 'phone' in where && where.phone === null;
+        }),
+      ).toBe(false);
+    });
+
+    it('精确查询与 clubUserId 定位都无结果时返回 null', async () => {
       prismaService.marketingCustomer.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.findCustomerByStoreAndPhone(11, '13800138000'),
-      ).resolves.toBeNull();
-      // 仅调用一次（精确查询），无回退
-      expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(
-        1,
-      );
-    });
-
-    it('精确查询和回退查询都无结果时返回 null', async () => {
-      prismaService.marketingCustomer.findFirst
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null);
-
-      await expect(
-        service.findCustomerByStoreAndPhone(11, 'club_wechat:oOPENID123'),
+        service.findCustomerByStoreAndPhone(11, 'club_wechat:oOPENID123', 215),
       ).resolves.toBeNull();
       expect(prismaService.marketingCustomer.findFirst).toHaveBeenCalledTimes(
         2,

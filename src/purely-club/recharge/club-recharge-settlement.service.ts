@@ -77,9 +77,15 @@ export class ClubRechargeSettlementService extends ClubPaymentSettlementTemplate
     tx: Prisma.TransactionClient,
     draft: ClubOrderDraftPayload<ClubRechargeOrderMetadata, 'recharge'>,
   ): Promise<{ id: number }> {
+    // 顾客档案必须显式绑定。若把 null 转成 undefined 再传进 where，Prisma 会忽略
+    // id 条件，查询退化成「按门店取任意顾客」，把充值记到别人头上。
+    if (draft.customerId === null) {
+      throw new NotFoundException(CLUB_MEMBER_NOT_FOUND_MESSAGE);
+    }
+
     const customer = await tx.marketingCustomer.findFirst({
       where: {
-        id: draft.customerId ?? undefined,
+        id: draft.customerId,
         storeId: draft.storeId,
         deletedAt: null,
       },
