@@ -14,7 +14,7 @@ interface ClubRechargeCustomerSnapshot {
  *   3. upsert 建档。
  *
  * ⚠️ 第 2 步必须写 clubUserId 而不只是返回。早期实现命中孤儿档案后直接返回、
- * 不落归属，于是 ClubAuthService.syncPhoneAcrossProfiles（只按 clubUserId 定位）
+ * 不落归属，于是 ClubPhoneRebindService.syncPhoneAcrossProfiles（只按 clubUserId 定位）
  * 会整店漏同步 → members.phone 留在旧号 → 用户换绑后当场失去这家门店。
  */
 @Injectable()

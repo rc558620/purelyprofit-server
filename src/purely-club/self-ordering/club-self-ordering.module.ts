@@ -9,6 +9,9 @@ import { ClubStoresModule } from '../stores/club-stores.module';
 import { ClubSelfOrderingController } from './club-self-ordering.controller';
 import { ClubSelfOrderingOrderService } from './club-self-ordering-order.service';
 import { ClubSelfOrderingPaymentService } from './club-self-ordering-payment.service';
+import { ClubSelfOrderingPaymentRepository } from './club-self-ordering-payment.repository';
+import { ClubSelfOrderingPaymentSettlementService } from './club-self-ordering-payment-settlement.service';
+import { ClubSelfOrderingPaymentNotifierService } from './club-self-ordering-payment-notifier.service';
 import { ClubSelfOrderingSessionBridgeService } from './club-self-ordering-session-bridge.service';
 import { ClubSelfOrderingService } from './club-self-ordering.service';
 import { ClubSelfOrderingMenuService } from './club-self-ordering-menu.service';
@@ -37,6 +40,10 @@ import { PlatformMembershipAccessModule } from '../../purely-profit/member/platf
     ClubSelfOrderingPaymentService,
     ClubSelfOrderingSessionBridgeService,
     ClubSelfOrderingMenuService,
+    // 支付编排的三个协作类：订单与支付尝试持久化、事务内落账、事务提交后通知
+    ClubSelfOrderingPaymentRepository,
+    ClubSelfOrderingPaymentSettlementService,
+    ClubSelfOrderingPaymentNotifierService,
     // 支付落账锁仅依赖 RedisService，直接本地提供，避免引入整个 ClubPaymentsModule
     ClubPaymentLockService,
   ],

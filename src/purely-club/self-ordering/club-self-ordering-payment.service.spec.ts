@@ -12,6 +12,9 @@ import { ClubWechatJsapiService } from '../payments/club-wechat-jsapi.service';
 import { ClubScanOrderingMarketingCustomerService } from '../scan-ordering/club-scan-ordering-marketing-customer.service';
 import { ScanOrderingRealtimeService } from '../scan-ordering/scan-ordering-realtime.service';
 import { ClubSelfOrderingPaymentService } from './club-self-ordering-payment.service';
+import { ClubSelfOrderingPaymentRepository } from './club-self-ordering-payment.repository';
+import { ClubSelfOrderingPaymentSettlementService } from './club-self-ordering-payment-settlement.service';
+import { ClubSelfOrderingPaymentNotifierService } from './club-self-ordering-payment-notifier.service';
 import { ClubSelfOrderingSessionBridgeService } from './club-self-ordering-session-bridge.service';
 
 /**
@@ -118,6 +121,10 @@ describe('ClubSelfOrderingPaymentService', () => {
           useValue: sessionBridge,
         },
         { provide: ScanOrderingRealtimeService, useValue: realtimeService },
+        // 抽离出的协作类使用真实实现，底层依赖仍是上面的 mock，断言不变
+        ClubSelfOrderingPaymentRepository,
+        ClubSelfOrderingPaymentSettlementService,
+        ClubSelfOrderingPaymentNotifierService,
       ],
     }).compile();
     service = module.get<ClubSelfOrderingPaymentService>(

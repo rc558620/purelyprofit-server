@@ -1,4 +1,4 @@
-import { SalesPaymentMethod, StaffRole } from '@prisma/client';
+import { SalesPaymentMethod } from '@prisma/client';
 import {
   isPrepaidDeductionItem,
   isSessionStartItem,
@@ -23,7 +23,11 @@ import type {
 } from './handover.types';
 import type { HandoverOrderItemDto } from './dto/handover-shared.dto';
 import { Money } from '../../../shared/money.utils';
-import { toDisplayName, dbCentsToOutputYuan } from './handover.utils';
+import {
+  toDisplayName,
+  dbCentsToOutputYuan,
+  resolveOperatorRole,
+} from './handover.utils';
 
 const AUTO_SETTLEMENT_OPERATOR_NAME = '空间自动结账';
 
@@ -197,33 +201,6 @@ export const resolveOrderItemPaymentDisplay = (
     paymentLabel: PAYMENT_METHOD_CONFIG[paymentMethod].label,
     paymentColor: PAYMENT_METHOD_CONFIG[paymentMethod].color,
   };
-};
-
-/**
- * 解析操作员的真实角色：
- * 优先识别门店主账号（staff.userId === storeOwnerUserId → OWNER），
- * 其次使用 Staff.role（OWNER 直接可信），
- * 否则检查关联的 StoreSubAccount.role（manager → MANAGER）。
- */
-const resolveOperatorRole = (
-  staff: {
-    role: StaffRole;
-    userId: number | null;
-    employeeProfile: {
-      subAccounts: { role: string } | null;
-    } | null;
-  } | null,
-  storeOwnerUserId: number | null = null,
-): StaffRole | null => {
-  if (!staff) return null;
-  // 操作员即门店主账号 → 主账号（store.ownerId 是权威依据，staff.role 历史数据可能未同步）
-  if (storeOwnerUserId !== null && staff.userId === storeOwnerUserId) {
-    return StaffRole.owner;
-  }
-  if (staff.role === StaffRole.owner) return StaffRole.owner;
-  const subAccountRole = staff.employeeProfile?.subAccounts?.role;
-  if (subAccountRole === 'manager') return StaffRole.manager;
-  return staff.role;
 };
 
 export const mapOrderItem = (

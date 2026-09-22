@@ -6,7 +6,7 @@ import { ClubMemberBindingService } from './club-member-binding.service';
  * 入店建档的两个关键字段。
  *
  * 核心风险：`club_user_id` 缺失会让顾客档案只靠手机号关联，而换绑手机号
- * （ClubAuthService.syncPhoneAcrossProfiles）恰恰**只按 clubUserId 定位** ——
+ * （ClubPhoneRebindService.syncPhoneAcrossProfiles）恰恰**只按 clubUserId 定位** ——
  * 漏写等于这家店在换绑时被整店跳过。因此这里逐条锁定 clubUserId 的写入条件。
  */
 describe('ClubMemberBindingService', () => {

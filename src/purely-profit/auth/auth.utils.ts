@@ -253,7 +253,7 @@ export function getDisplayPhone(phone: string): string {
  *
  * 无手机号用户传入的是 `club_wechat:{openid}` 占位值，后 4 位取自 openid，
  * 对商家没有意义，仅是绑定真实手机号之前的临时标识——绑定后由
- * `ClubAuthService.migrateWechatPlaceholderPhone` 重新生成。
+ * `ClubPhoneBindService.migrateWechatPlaceholderPhone` 重新生成。
  */
 export function buildClubMemberDisplayName(
   phone: string,

@@ -5,9 +5,47 @@ import {
   StaffRole,
   StoreSubAccountRole,
 } from '@prisma/client';
-import type { SettledSpaceSessionRow } from './handover-page-order-items';
 import type { AuthenticatedUser } from '../../auth/strategies/jwt.strategy';
 import type { HandoverShiftInfoDto } from './dto/handover-page.dto';
+
+/** 已结账的空间会话行数据（客人应付 / 退款展示项的数据源） */
+export type SettledSpaceSessionRow = {
+  id: number;
+  timeCost: number | null;
+  itemsCost: number;
+  prepaidAmount: number | null;
+  prepaidGrouponCode: string | null;
+  prepaidCustomerPaymentMethod: string | null;
+  prepaidGrouponPlatform: string | null;
+  endTime: Date | null;
+  space: { name: string };
+  saleOrder: {
+    paymentMethod: SalesPaymentMethod;
+    date: Date;
+    operatorNameSnapshot: string | null;
+    operatorStaff: {
+      name: string;
+      role: StaffRole;
+      userId: number | null;
+      employeeProfile: { subAccounts: { role: string } | null } | null;
+    } | null;
+  } | null;
+  // ─── ⚠️ DO NOT REMOVE sessionRenewRecords ──────────────────────────────
+  // 历史背景：BUG-1/5/7 修复前，续费会回写 session.prepaidAmount，
+  // 导致"开台预付"和"续费"两个资金池混在一起，产生重复抵扣。
+  // 修复后 space-session-renew.service.ts 彻底移除了 prepaid* 回写，
+  // 因此 session.prepaidAmount **仅包含开台预付款，不含续费金额**。
+  // 退款 / 客人应付计算必须从 sessionRenewRecords 独立累加续费金额，
+  // 否则续费付款会被忽略，导致：
+  //   1. 续费溢出金额无法退还客户（资金损失）
+  //   2. 客人应付多算（多收客户钱）
+  // 简化方向：不要试图"用 prepaidAmount 代替"或"去掉 sessionRenewRecords"，
+  // 这会恢复 BUG-1/5/7 之前的错误行为。
+  sessionRenewRecords: {
+    amount: number;
+    paymentMethod: string;
+  }[];
+};
 
 export type MembershipContext = NonNullable<
   AuthenticatedUser['currentMembership']

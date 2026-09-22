@@ -29,12 +29,14 @@ import type {
   SalesReportResponseDto,
 } from './dto/sales-record.dto';
 import {
-  aggregateReportRows,
   buildScanOrderingEnrichment,
   buildSpaceSessionSpecsEnrichment,
+} from './sales-record-enrichment';
+import { aggregateReportRows } from './sales-record-report-aggregation';
+import {
   resolveReportProductName,
+  type SaleOrderWithItems,
 } from './sales-record.domain';
-import type { SaleOrderWithItems } from './sales-record.domain';
 import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
 import {
   querySaleOrders,

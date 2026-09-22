@@ -85,7 +85,7 @@ export class ClubMemberBindingService {
           // 补齐历史档案缺失的 club_user_id。
           //
           // 早期的「邀请码/扫码入店」路径创建顾客档案时没有写入 clubUserId，
-          // 这些档案在 ClubAuthService.syncPhoneAcrossProfiles 里只靠 clubUserId
+          // 这些档案在 ClubPhoneRebindService.syncPhoneAcrossProfiles 里只靠 clubUserId
           // 定位，于是**换绑手机号会整店漏掉**——members.phone 留在旧号，用户当场
           // 失去该门店访问权，商家端营销档案也仍旧号，再消费时还会分裂出第二条档案。
           // 认领条件收紧为「尚未绑定 club 用户 + 本人在该门店没有已绑定档案」，

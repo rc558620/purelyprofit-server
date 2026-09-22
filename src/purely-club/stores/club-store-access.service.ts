@@ -179,7 +179,7 @@ export class ClubStoreAccessService {
 
     const displayName = this.resolveDisplayName(user);
     // 必须传 user.id：顾客档案要带上 club_user_id 才能被稳定定位。
-    // 缺省时换绑手机号（ClubAuthService.syncPhoneAcrossProfiles 按 clubUserId 定位）
+    // 缺省时换绑手机号（ClubPhoneRebindService.syncPhoneAcrossProfiles 按 clubUserId 定位）
     // 会漏掉这家店，用户换号后当场失去刚加入的门店。
     const bindingResult =
       await this.memberBindingService.upsertMemberAndCustomer(

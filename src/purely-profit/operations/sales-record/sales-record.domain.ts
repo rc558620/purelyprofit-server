@@ -1,28 +1,16 @@
+// 销售记录域：订单查询形态 + 响应映射 + 台位费展示名拼接
+// 增强数据（扫码点餐 / 空间会话规格）见 sales-record-enrichment；
+// 报表行聚合见 sales-record-report-aggregation。
 import { Prisma, StaffRole } from '@prisma/client';
-import {
-  isDeductionProductName,
-  toOptionalText,
-  toTimestampMs,
-} from '../../commerce/commerce.utils';
+import { toOptionalText, toTimestampMs } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
-import {
-  formatShanghaiDayLabel,
-  getShanghaiDayStartMs,
-} from '../../../shared/shanghai-time.utils';
 import {
   buildGrouponLabel,
   PAYMENT_METHOD_CONFIG,
 } from '../handover/handover.constants';
-import {
-  fenToYuan,
-  pointsDeductAmountFen,
-  toDiscountItems,
-} from '../../../purely-club/scan-ordering/club-scan-ordering-order.mapper';
 import type {
-  SalesDailyRowDto,
   SalesRecordItemResponseDto,
   SalesRecordResponseDto,
-  ScanOrderingAmountSummaryDto,
 } from './dto/sales-record-response.dto';
 import { SalesRecordAmountsDomain } from './sales-record-amounts.domain';
 import {
@@ -31,18 +19,11 @@ import {
   type AggregatedSalesRecordItem,
   type SalesRecordSpecsEnrichment,
 } from './sales-record-item-aggregation';
+import type { ScanOrderingEnrichment } from './sales-record-enrichment';
 
 // ---------------------------------------------------------------------------
-// 内部类型
+// 订单查询形态
 // ---------------------------------------------------------------------------
-
-export interface SalesReportAggregationRow {
-  id: string;
-  dateLabel: string;
-  productName: string;
-  quantity: number;
-  revenue: number;
-}
 
 export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
   select: {
@@ -110,6 +91,10 @@ export type SaleOrderWithItems = Prisma.SaleOrderGetPayload<{
     };
   };
 }>;
+
+// ---------------------------------------------------------------------------
+// 响应映射
+// ---------------------------------------------------------------------------
 
 /**
  * 解析操作员的真实角色（与交班管理保持一致的逻辑）：
@@ -179,172 +164,6 @@ function buildGrouponResponseFields(order: SaleOrderWithItems): Partial<{
   }
   return result;
 }
-
-// ---------------------------------------------------------------------------
-// 扫码点餐订单增强（销售记录展开区对齐 scan-ordering 详情）
-// ---------------------------------------------------------------------------
-
-/** 销售记录关联的扫码点餐订单最小查询形态（金额均为分）。 */
-export interface ScanOrderingDetailSource {
-  id: number;
-  marketingSnapshot: unknown;
-  itemOriginalAmount: number;
-  specificationExtraAmount: number;
-  payableAmount: number;
-  items: Array<{
-    productNameSnapshot: string;
-    quantity: number;
-    lineTotalAmount: number;
-    payableLineAmount: number;
-    specs: Array<{ specOptionNameSnapshot: string }>;
-  }>;
-}
-
-/** 扫码点餐订单增强结果：规格行（与可见商品行一一对应）+ 原价单价（元）+ 金额汇总（元）。 */
-export interface ScanOrderingEnrichment {
-  specsRows: string[][];
-  originalUnitPrices: number[];
-  amountSummary: ScanOrderingAmountSummaryDto;
-}
-
-/**
- * 组装扫码点餐订单增强数据：
- * 1. 规格行与原价单价按 bridge 展开顺序与销售商品行一一对应（scanOrderItem 按数量展开为 unit）；
- * 2. 原价单价 = 未扣优惠的原价小计（lineTotalAmount）按数量分摊，余数补到最后一件，总和守恒；
- * 3. 金额汇总以分转元输出，总优惠额由后端计算，前端只读展示。
- */
-export function buildScanOrderingEnrichment(
-  order: SaleOrderWithItems,
-  scan: ScanOrderingDetailSource,
-): ScanOrderingEnrichment {
-  const unitRows = buildScanOrderingUnitRows(scan.items);
-  return {
-    specsRows: buildSpecsRows(order.items, unitRows),
-    originalUnitPrices: buildOriginalUnitPrices(order.items, unitRows),
-    amountSummary: buildScanOrderingAmountSummary(scan),
-  };
-}
-
-/** 扫码订单商品按数量展开的 unit 序列（规格 + 原价分摊单价，分）。 */
-interface ScanOrderingUnit {
-  specs: string[];
-  originalUnitPriceFen: number;
-}
-
-/** 将扫码订单商品行按数量展开为 unit，原价小计分摊到每件（余数补到最后一件）。 */
-function buildScanOrderingUnitRows(
-  scanItems: ScanOrderingDetailSource['items'],
-): ScanOrderingUnit[] {
-  const units: ScanOrderingUnit[] = [];
-  for (const item of scanItems) {
-    const specs = (item.specs ?? []).map((spec) => spec.specOptionNameSnapshot);
-    const quantity = Math.max(item.quantity, 0);
-    const originalTotalFen = item.lineTotalAmount ?? 0;
-    const unitPriceFen =
-      quantity > 0 ? Math.floor(originalTotalFen / quantity) : 0;
-    const remainder = quantity > 0 ? originalTotalFen % quantity : 0;
-    for (let index = 0; index < quantity; index += 1) {
-      units.push({
-        specs,
-        originalUnitPriceFen: unitPriceFen + (index < remainder ? 1 : 0),
-      });
-    }
-  }
-  return units;
-}
-
-/** 规格游标匹配：unit 序列与销售商品行一一对应，数量不一致时回退空规格。 */
-function buildSpecsRows(
-  saleItems: SaleOrderWithItems['items'],
-  units: ScanOrderingUnit[],
-): string[][] {
-  if (units.length !== saleItems.length) {
-    return saleItems.map(() => []);
-  }
-  return units.map((unit) => unit.specs);
-}
-
-/** 原价单价（分→元）：unit 序列与销售商品行一一对应，数量不一致时回退 0。 */
-function buildOriginalUnitPrices(
-  saleItems: SaleOrderWithItems['items'],
-  units: ScanOrderingUnit[],
-): number[] {
-  if (units.length !== saleItems.length) {
-    return saleItems.map(() => 0);
-  }
-  return units.map((unit) => fenToYuan(unit.originalUnitPriceFen));
-}
-
-// ---------------------------------------------------------------------------
-// 非扫码订单规格增强（空间会话结账订单：自助下单 / 追加点单的规格展示）
-// ---------------------------------------------------------------------------
-
-/** 销售记录关联的空间会话最小查询形态（规格为行级 JSON）。 */
-export interface SpaceSessionSpecSource {
-  id: number;
-  saleOrderId: number | null;
-  sessionItems: Array<{
-    productName: string;
-    quantity: number;
-    specNames: unknown;
-  }>;
-}
-
-/**
- * 组装空间会话结账订单的规格增强：
- * 空间结账的 saleOrderItem 由 sessionItems 按顺序复制（**行级对应**，不按数量展开），
- * 因此规格行按行索引一一对应；长度不一致（防御性回退）时输出空规格。
- */
-export function buildSpaceSessionSpecsEnrichment(
-  order: SaleOrderWithItems,
-  session: SpaceSessionSpecSource,
-): SalesRecordSpecsEnrichment {
-  const sessionItems = session.sessionItems;
-  const specsRows =
-    sessionItems.length === order.items.length
-      ? order.items.map((_, index) => {
-          const names = sessionItems[index]?.specNames;
-          return Array.isArray(names)
-            ? names.filter((name): name is string => typeof name === 'string')
-            : [];
-        })
-      : order.items.map(() => []);
-  return { specsRows };
-}
-
-/** 组装扫码点餐金额汇总（元）：优惠清单复用 club 营销快照解析，总优惠由后端计算。 */
-function buildScanOrderingAmountSummary(
-  scan: ScanOrderingDetailSource,
-): ScanOrderingAmountSummaryDto {
-  const itemOriginalAmount = fenToYuan(scan.itemOriginalAmount ?? 0);
-  const specificationExtraAmount = fenToYuan(
-    scan.specificationExtraAmount ?? 0,
-  );
-  const payableAmount = fenToYuan(scan.payableAmount ?? 0);
-  // 优惠前总价 = 商品基础价 + 规格加价（分单位相加避免浮点误差），未扣任何优惠
-  const totalBeforeDiscount = fenToYuan(
-    (scan.itemOriginalAmount ?? 0) + (scan.specificationExtraAmount ?? 0),
-  );
-  const discountAmount = Math.max(
-    itemOriginalAmount + specificationExtraAmount - payableAmount,
-    0,
-  );
-  return {
-    itemOriginalAmount,
-    specificationExtraAmount,
-    totalBeforeDiscount,
-    payableAmount,
-    discountAmount,
-    pointsDeductAmount: fenToYuan(
-      pointsDeductAmountFen(scan.marketingSnapshot),
-    ),
-    discountItems: toDiscountItems(scan.marketingSnapshot),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 响应映射
-// ---------------------------------------------------------------------------
 
 export function mapSalesRecordResponse(
   order: SaleOrderWithItems,
@@ -465,16 +284,8 @@ export function mapSalesRecordItemResponse(
 }
 
 // ---------------------------------------------------------------------------
-// 报表行聚合
+// 台位费展示名（列表 / 报表 / CSV 共用）
 // ---------------------------------------------------------------------------
-
-function formatReportMonthDay(timestamp: number): string {
-  return formatShanghaiDayLabel(timestamp);
-}
-
-function getDayStart(timestamp: number): number {
-  return getShanghaiDayStartMs(timestamp);
-}
 
 /**
  * 台位费行命名：兼容「台位费（固定）/ 台位费（按单价）」与
@@ -509,85 +320,4 @@ export function resolveReportProductName(
     toOptionalText(order.spaceSession?.space?.name),
     item.productName,
   );
-}
-
-function buildReportRowId(
-  dayStart: number,
-  order: SaleOrderWithItems,
-  item: SaleOrderWithItems['items'][number],
-): string {
-  const displayName = resolveReportProductName(order, item);
-  if (displayName !== item.productName) {
-    return `${dayStart}-space_${displayName}`;
-  }
-
-  return `${dayStart}-${item.productId ?? `manual_${displayName}`}`;
-}
-
-function getReportRowDayStart(rowId: string): number {
-  // rowId 格式为 "${dayStart}-${...}"，dayStart 是毫秒时间戳（纯数字），
-  // 取第一个连字符之前的部分即可安全解析。
-  const separatorIndex = rowId.indexOf('-');
-  if (separatorIndex === -1) {
-    return 0;
-  }
-  return Number(rowId.slice(0, separatorIndex));
-}
-
-export function aggregateReportRows(
-  orders: SaleOrderWithItems[],
-): SalesDailyRowDto[] {
-  const rows = new Map<string, SalesReportAggregationRow>();
-
-  for (const order of orders) {
-    const dayStart = getDayStart(order.date.getTime());
-    const dateLabel = formatReportMonthDay(dayStart);
-
-    for (const item of order.items) {
-      // 排除抵扣行（预付款 + 续费抵扣），报表只展示实际消费
-      if (isDeductionProductName(item.productName)) {
-        continue;
-      }
-
-      const productName = resolveReportProductName(order, item);
-      const rowId = buildReportRowId(dayStart, order, item);
-      const revenue = Money.fromDbCents(item.salePrice)
-        .multiply(item.quantity)
-        .toOutputYuan();
-      const existing = rows.get(rowId);
-      if (existing) {
-        existing.quantity += item.quantity;
-        existing.revenue = Money.fromInputYuan(existing.revenue)
-          .add(Money.fromInputYuan(revenue))
-          .toOutputYuan();
-        continue;
-      }
-      rows.set(rowId, {
-        id: rowId,
-        dateLabel,
-        productName,
-        quantity: item.quantity,
-        revenue,
-      });
-    }
-  }
-
-  return Array.from(rows.values()).sort((left, right) => {
-    // 主要排序：日期降序（保持当前日期排序）
-    const leftDayStart = getReportRowDayStart(left.id);
-    const rightDayStart = getReportRowDayStart(right.id);
-    if (leftDayStart !== rightDayStart) {
-      return rightDayStart - leftDayStart;
-    }
-
-    // 次要排序：数量降序（同日期内卖得最多的在最顶部）
-    if (left.quantity !== right.quantity) {
-      return right.quantity - left.quantity;
-    }
-
-    if (left.id === right.id) {
-      return 0;
-    }
-    return left.id > right.id ? -1 : 1;
-  });
 }

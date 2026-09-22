@@ -3,10 +3,11 @@ import { getEndOfDay, getStartOfDay } from '../../commerce/commerce.utils';
 import { Money } from '../../../shared/money.utils';
 import { formatShanghaiDate } from '../../../shared/shanghai-time.utils';
 import { PrismaService } from '../../../prisma/prisma.service';
+import type { SaleOrderWithItems } from './sales-record.domain';
 import type {
-  SaleOrderWithItems,
   ScanOrderingDetailSource,
-} from './sales-record.domain';
+  SpaceSessionSpecSource,
+} from './sales-record-enrichment';
 import {
   buildOrderNo,
   type SalesOrderNoVariant,
@@ -199,17 +200,7 @@ export async function queryScanOrderingDetails(
 export async function querySpaceSessionSpecDetails(
   prisma: PrismaService,
   saleOrderIds: number[],
-): Promise<
-  Array<{
-    id: number;
-    saleOrderId: number | null;
-    sessionItems: Array<{
-      productName: string;
-      quantity: number;
-      specNames: unknown;
-    }>;
-  }>
-> {
+): Promise<SpaceSessionSpecSource[]> {
   if (saleOrderIds.length === 0) return [];
   return prisma.spaceSession.findMany({
     where: { saleOrderId: { in: saleOrderIds } },

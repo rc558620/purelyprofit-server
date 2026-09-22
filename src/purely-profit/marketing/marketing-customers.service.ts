@@ -265,7 +265,7 @@ export class MarketingCustomersService {
         // member_id 是「可选、兼容历史数据」的列，Club 顾客档案通常为空，
         // 此时 Member 与顾客之间只剩「门店 + 手机号」这条弱关联。漏同步会让
         // findAccessibleStores 按 members.phone 匹配不到该顾客 —— C 端用户改完
-        // 手机号后当场失去这家门店。定位口径与 ClubAuthService.rebindPhone 一致。
+        // 手机号后当场失去这家门店。定位口径与 ClubPhoneRebindService.rebindPhone 一致。
         const previousPhone = normalizePhone(customer.phone);
         if (
           nextPhone !== undefined &&

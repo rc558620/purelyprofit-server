@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { EmployeeShiftType, Prisma } from '@prisma/client';
+import { EmployeeShiftType, Prisma, StaffRole } from '@prisma/client';
 import { Money } from '../../../shared/money.utils';
 import {
   addShanghaiDays,
@@ -57,6 +57,33 @@ export const toDisplayName = (
   }
   const normalized = value.trim();
   return normalized || null;
+};
+
+/**
+ * 解析操作员的真实角色：
+ * 优先识别门店主账号（staff.userId === storeOwnerUserId → OWNER），
+ * 其次使用 Staff.role（OWNER 直接可信），
+ * 否则检查关联的 StoreSubAccount.role（manager → MANAGER）。
+ */
+export const resolveOperatorRole = (
+  staff: {
+    role: StaffRole;
+    userId: number | null;
+    employeeProfile: {
+      subAccounts: { role: string } | null;
+    } | null;
+  } | null,
+  storeOwnerUserId: number | null = null,
+): StaffRole | null => {
+  if (!staff) return null;
+  // 操作员即门店主账号 → 主账号（store.ownerId 是权威依据，staff.role 历史数据可能未同步）
+  if (storeOwnerUserId !== null && staff.userId === storeOwnerUserId) {
+    return StaffRole.owner;
+  }
+  if (staff.role === StaffRole.owner) return StaffRole.owner;
+  const subAccountRole = staff.employeeProfile?.subAccounts?.role;
+  if (subAccountRole === 'manager') return StaffRole.manager;
+  return staff.role;
 };
 
 export const timeStringToMinutes = (timeStr: string): number => {

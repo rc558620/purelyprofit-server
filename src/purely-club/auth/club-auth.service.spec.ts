@@ -1,4 +1,8 @@
-import { ConflictException, NotImplementedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotImplementedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { PhoneUserRecord } from '../../shared/auth/auth-account.types';
@@ -8,7 +12,10 @@ import { AuthAccountLookupService } from '../../purely-profit/auth/auth-account-
 import { AuthSessionService } from '../../purely-profit/auth/auth-session.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClubStoreAccessService } from '../stores/club-store-access.service';
+import { ClubAccountMergeService } from './club-account-merge.service';
 import { ClubAuthService } from './club-auth.service';
+import { ClubPhoneBindService } from './club-phone-bind.service';
+import { ClubPhoneRebindService } from './club-phone-rebind.service';
 import { ClubWechatAuthService } from './club-wechat-auth.service';
 
 describe('ClubAuthService', () => {
@@ -88,6 +95,11 @@ describe('ClubAuthService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClubAuthService,
+        // 手机号首次绑定 / 换绑已抽离为专职服务，这里用真实实现 + 共享 mock 依赖，
+        // 以保证用例仍验证的是同一条端到端链路。
+        ClubPhoneBindService,
+        ClubPhoneRebindService,
+        ClubAccountMergeService,
         {
           provide: AuthProductAuthService,
           useValue: authProductAuthServiceMock,
@@ -764,6 +776,33 @@ describe('ClubAuthService', () => {
       ).rejects.toBeInstanceOf(ConflictException);
 
       expect(prismaService.user.update).not.toHaveBeenCalled();
+    });
+
+    it('开关未配置（undefined）同样拒绝：环境漏配不等于开放', async () => {
+      // 生产默认 false；这里模拟「配置项压根没配」——
+      // 判定是 enabled !== true，undefined/false 都不该放行
+      configGet.mockReturnValueOnce(undefined);
+
+      await expect(
+        service.bindPhoneByWechatCode(42, { code: 'wx-phone-code' }),
+      ).rejects.toBeInstanceOf(NotImplementedException);
+
+      expect(clubWechatAuthService.getPhoneNumber).not.toHaveBeenCalled();
+    });
+
+    it('微信侧换取手机号失败（code 失效）：错误透传，不写库也不签发 token', async () => {
+      configGet.mockReturnValueOnce(true);
+      clubWechatAuthService.getPhoneNumber.mockRejectedValueOnce(
+        new BadRequestException('code 已失效'),
+      );
+
+      await expect(
+        service.bindPhoneByWechatCode(42, { code: 'wx-phone-code' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      // 换取失败意味着手机号来源不可信，任何写库与签发都必须不发生
+      expect(prismaService.user.update).not.toHaveBeenCalled();
+      expect(authSessionService.signToken).not.toHaveBeenCalled();
     });
   });
 

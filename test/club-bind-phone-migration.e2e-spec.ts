@@ -11,6 +11,9 @@ import { AuthCodeVerifyService } from '../src/purely-profit/auth/auth-code-verif
 import { AuthAccountLookupService } from '../src/purely-profit/auth/auth-account-lookup.service';
 import { AuthSessionService } from '../src/purely-profit/auth/auth-session.service';
 import { ClubStoreAccessService } from '../src/purely-club/stores/club-store-access.service';
+import { ClubPhoneBindService } from '../src/purely-club/auth/club-phone-bind.service';
+import { ClubPhoneRebindService } from '../src/purely-club/auth/club-phone-rebind.service';
+import { ClubAccountMergeService } from '../src/purely-club/auth/club-account-merge.service';
 
 /**
  * 真实数据库 E2E：微信无手机号用户绑定手机号后的占位值迁移。
@@ -58,6 +61,9 @@ describe('bindPhone 占位手机号迁移 (e2e, real database)', () => {
           return false;
         case 'nodeEnv':
           return 'test';
+        // 开启 getPhoneNumber 入口，用于验证微信一键绑定链路的真实落库
+        case 'auth.wechatPhoneBindEnabled':
+          return true;
         default:
           return undefined;
       }
@@ -94,6 +100,11 @@ describe('bindPhone 占位手机号迁移 (e2e, real database)', () => {
         { provide: ConfigService, useValue: configService },
         PrismaService,
         ClubAuthService,
+        // 批次 2 把绑定逻辑抽到 ClubPhoneBindService 后，本文件的 providers 未同步，
+        // 结果整个套件在 compile() 阶段就挂掉（测试一条都没真正跑过）。此处补齐。
+        ClubPhoneBindService,
+        ClubPhoneRebindService,
+        ClubAccountMergeService,
         { provide: ClubWechatAuthService, useValue: clubWechatAuthService },
         { provide: AuthProductAuthService, useValue: authProductAuthService },
         { provide: AuthCodeVerifyService, useValue: authCodeVerifyService },
@@ -312,5 +323,93 @@ describe('bindPhone 占位手机号迁移 (e2e, real database)', () => {
       select: { phone: true },
     });
     expect(unchanged?.phone).toBe(placeholderPhone);
+  });
+
+  // ─── 微信 getPhoneNumber 一键绑定（批次 3） ────────────────────────────
+  //
+  // 单测只能断言「调用了哪些 updateMany、条件是什么」。这两条用例直接查库，
+  // 证明手机号真的写进去了、以及绑定后再登录不会再被要求绑定。
+  it('微信一键绑定：手机号真实落库到 users / members / marketing_customers', async () => {
+    const storeId = await requireStoreId();
+    const { id: userId, openid } = await createWechatUser();
+    const placeholderPhone = `club_wechat:${openid}`;
+    const realPhone = '13800139905';
+
+    const member = await prisma.member.create({
+      data: { storeId, name: 'E2E 顾客', phone: placeholderPhone },
+      select: { id: true },
+    });
+    createdMemberIds.push(member.id);
+
+    const customer = await prisma.marketingCustomer.create({
+      data: { storeId, name: 'E2E 顾客', phone: placeholderPhone },
+      select: { id: true },
+    });
+    createdCustomerIds.push(customer.id);
+
+    // 手机号归属由微信背书：这里**没有**短信验证码校验步骤
+    authAccountLookupService.findUserByPhone.mockResolvedValue(null);
+    clubWechatAuthService.getPhoneNumber.mockResolvedValue({
+      phoneNumber: `+86${realPhone}`,
+      purePhoneNumber: realPhone,
+    });
+
+    await service.bindPhoneByWechatCode(userId, { code: 'wx-phone-code' });
+
+    expect(authCodeVerifyService.ensureRegisterCodeValid).not.toHaveBeenCalled();
+
+    const updatedUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { wechatPhone: true },
+    });
+    expect(updatedUser?.wechatPhone).toBe(realPhone);
+
+    // Member.phone 不迁移 → findAccessibleStores 按 phone 匹配不到 → 用户丢全部门店
+    const updatedMember = await prisma.member.findUnique({
+      where: { id: member.id },
+      select: { phone: true },
+    });
+    expect(updatedMember?.phone).toBe(realPhone);
+
+    const updatedCustomer = await prisma.marketingCustomer.findUnique({
+      where: { id: customer.id },
+      select: { phone: true, clubUserId: true },
+    });
+    expect(updatedCustomer?.phone).toBe(realPhone);
+    expect(updatedCustomer?.clubUserId).toBe(userId);
+
+    expect(authSessionService.signToken).toHaveBeenCalledWith(
+      userId,
+      expect.objectContaining({ phone: realPhone }),
+    );
+  });
+
+  it('绑定成功后再次静默登录：needPhoneBind=false（不再弹出绑定页）', async () => {
+    const { id: userId, openid } = await createWechatUser();
+    const realPhone = '13800139906';
+
+    authAccountLookupService.findUserByPhone.mockResolvedValue(null);
+    clubWechatAuthService.getPhoneNumber.mockResolvedValue({
+      phoneNumber: `+86${realPhone}`,
+      purePhoneNumber: realPhone,
+    });
+
+    await service.bindPhoneByWechatCode(userId, { code: 'wx-phone-code' });
+
+    // 二次进入：同一个微信号静默登录（不传 phoneCode）
+    clubWechatAuthService.code2session.mockResolvedValue({
+      openid,
+      unionid: null,
+    });
+    authProductAuthService.wechatLogin.mockResolvedValue({
+      access_token: 'e2e-second-login-token',
+      userId,
+    });
+
+    const result = await service.wechatLogin({ code: 'wx-login-code' });
+
+    expect(result.needPhoneBind).toBe(false);
+    // 未传 phoneCode 时不得再去换取手机号
+    expect(clubWechatAuthService.getPhoneNumber).toHaveBeenCalledTimes(1);
   });
 });

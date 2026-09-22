@@ -9,6 +9,10 @@ import { SalesRecordRefundService } from '../sales-record/sales-record-refund.se
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
 import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
 import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-refund.service';
+import { ScanOrderingOrderRejectService } from './scan-ordering-order-reject.service';
+import { ScanOrderingOrderRefundWechatService } from './scan-ordering-order-refund-wechat.service';
+import { ScanOrderingRefundTransitionService } from './scan-ordering-refund-transition.service';
+import { ScanOrderingRefundRealtimeService } from './scan-ordering-refund-realtime.service';
 import { ClubWechatRefundService } from '../../../purely-club/payments/club-wechat-refund.service';
 
 describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
@@ -124,6 +128,10 @@ describe('ScanOrderingOrderRefundHandlingService.completeRefund', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ScanOrderingOrderRefundHandlingService,
+        ScanOrderingOrderRejectService,
+        ScanOrderingOrderRefundWechatService,
+        ScanOrderingRefundTransitionService,
+        ScanOrderingRefundRealtimeService,
         { provide: PrismaService, useValue: prismaService },
         { provide: CommerceAccessService, useValue: commerceAccessService },
         { provide: ScanOrderingRealtimeService, useValue: realtimeService },

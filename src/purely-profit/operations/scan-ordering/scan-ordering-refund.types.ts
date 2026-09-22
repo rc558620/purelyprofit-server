@@ -98,3 +98,16 @@ export interface SystemTimeoutRefundInput extends RefundOrderTarget {
   /** 退款原因文案。 */
   reason: string;
 }
+
+/** 系统超时微信退款输入（含实付金额与原支付尝试）。 */
+export interface AutoWechatRefundInput extends SystemTimeoutRefundInput {
+  paidAmount: number;
+  paymentAttempt: RefundPaymentInfo | null;
+}
+
+/** 微信退款重试输入（复用原退款单号，避免第三方重复生成退款单）。 */
+export interface RetryWechatRefundInput extends RefundOrderTarget {
+  refundNo: string;
+  retryCount: number;
+  maxRetries: number;
+}

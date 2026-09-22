@@ -22,6 +22,10 @@ import { ScanOrderingTableService } from './scan-ordering-table.service';
 import { ScanOrderingTableQueryService } from './scan-ordering-table-query.service';
 import { ScanOrderingOrderService } from './scan-ordering-order.service';
 import { ScanOrderingOrderRefundHandlingService } from './scan-ordering-order-refund.service';
+import { ScanOrderingOrderRejectService } from './scan-ordering-order-reject.service';
+import { ScanOrderingOrderRefundWechatService } from './scan-ordering-order-refund-wechat.service';
+import { ScanOrderingRefundTransitionService } from './scan-ordering-refund-transition.service';
+import { ScanOrderingRefundRealtimeService } from './scan-ordering-refund-realtime.service';
 import { ScanOrderingAcceptanceExpirationService } from './scan-ordering-acceptance-expiration.service';
 import { ScanOrderingOrderRefundBalanceService } from './scan-ordering-order-refund-balance.service';
 import { ScanOrderingRefundStockRestoreService } from './scan-ordering-refund-stock-restore.service';
@@ -76,6 +80,10 @@ import { PrintAgentService } from './print-agent.service';
     ScanOrderingTableQueryService,
     ScanOrderingOrderService,
     ScanOrderingOrderRefundHandlingService,
+    ScanOrderingOrderRejectService,
+    ScanOrderingOrderRefundWechatService,
+    ScanOrderingRefundTransitionService,
+    ScanOrderingRefundRealtimeService,
     ScanOrderingAcceptanceExpirationService,
     ScanOrderingOrderRefundBalanceService,
     ScanOrderingRefundStockRestoreService,

@@ -54,7 +54,7 @@
 | 扫码内容解析位置 | 前端只「取原始内容 + 粗分类型」，业务解析交后端 | 后端 `resolveStoreInviteQrPayload` 已是权威解析；避免两端协议漂移 |
 | 桌码 token 提取位置 | **前端提取**，后端不改 | 后端 `extractQrToken` 只认 `?token=` query，路径式 `/t/xxx` 会被整条当 token 去 hash（`club-scan-ordering.service.ts:352-364`） |
 | 中转页必要性 | 必须 | 菜单页调用 `useAuthGuard`（`pages/orderPkg/menu/index.tsx:16`），而 `PUBLIC_PAGE_ROUTES` 不含菜单页；若冷启动直落菜单页，`useDidShow` 会在静默登录回来前触发守卫 → 被踢回登录页 |
-| 手机号获取方式 | 短信验证码（自有通道） | getPhoneNumber 需微信认证，当前主体变更审核中 |
+| 手机号获取方式 | **微信 getPhoneNumber 为主，短信验证码兜底** | 2026-09-22 确认主体已变更为个体工商户且微信认证已通过，getPhoneNumber 可用（0.03/次、0 输入）；短信保留给「绑定失败 / 非大陆号」兜底 |
 | 手机号触发时机 | 确认订单页，下单前 | 用户意图最强、流失最少；订单产生前商家即可拿到 |
 
 ---
@@ -265,9 +265,11 @@
 跨模块引用会让 `instanceof` 静默失效（表现为「用例覆盖到了却从未真正走进分支」）。
 契约由 `club-current-store-context.service.spec.ts` 与 `storeErrors.test.ts` 双向锁住。
 
-### 批次 3 — getPhoneNumber（🔒 认证阻塞；**后端骨架已就绪，2026-09-19**）
+### 批次 3 — getPhoneNumber（✅ 前端接线已完成 2026-09-23；仅剩「置开关 + 真机点一次」）
 
-前置条件：**微信主体变更 → 微信认证**。认证通过后：
+前置条件已满足：**微信主体变更 → 微信认证**。
+2026-09-22 确认主体已变更为**个体工商户**，且**微信认证已通过**（认证日期 2026-06-22）。
+真机实测授权弹窗正常弹出，证明 `openType='getPhoneNumber'` 接线正确、基础库支持 code 方式。
 
 - `bindPhone` 增加 getPhoneNumber 入口（体验更优、0.03/次，比短信便宜）
 - 仅调用 `bindVerifiedPhone`，核心逻辑不动
@@ -277,9 +279,9 @@
   会同时踩中批次 2 修好的两个坑。必须新增
   `POST /club/auth/bind-phone/by-wechat-code` → `getPhoneNumber` → `bindVerifiedPhone`。
 
-#### ✅ 已就绪（把等审核的时间变成实际产出）
+#### ✅ 后端（2026-09-19 就绪）
 
-认证虽然没过，但**接口本身不依赖认证才能写**，因此提前做完，认证下来当天即可上线：
+认证未过时接口本身就能写，因此提前做完：
 
 | 项 | 位置 |
 |---|---|
@@ -287,23 +289,42 @@
 | `ClubAuthService.bindPhoneByWechatCode`：`getPhoneNumber` → 校验大陆号 → `bindVerifiedPhone` | `club-auth.service.ts` |
 | 入参 DTO（`e.detail.code`） | `dto/bind-phone-by-wechat-code.dto.ts` |
 | 开关 `auth.wechatPhoneBindEnabled`（env `AUTH_WECHAT_PHONE_BIND_ENABLED`，**默认 false**） | `config/configuration.ts`、`.env.example` |
-| 单测 4 例（开关门禁 / 换取后委托 / 不校验短信码 / 拒绝非大陆号） | `club-auth.service.spec.ts` |
+| 单测 6 例（开关门禁 / 开关未配置同样拒绝 / 换取后委托 / 换取失败不写库 / 不校验短信码 / 拒绝非大陆号） | `club-auth.service.spec.ts` |
 
 **开关默认关闭**：未认证时开启只会让每次调用都被微信侧拒绝，不如显式关闭并返回
-501 + 明确文案（引导用户走短信验证码）。**认证通过后只需置 `AUTH_WECHAT_PHONE_BIND_ENABLED=true`，不改任何代码。**
+501 + 明确文案。认证已通过，**但仍未置 `AUTH_WECHAT_PHONE_BIND_ENABLED=true`**
+（服务端 `.env` 当前无此项），所以线上此刻一键绑定会返回 501 并降级到短信表单。
+开关一置 true 即生效，不需改任何代码。
 
 **为什么这里不校验短信验证码**：手机号归属由微信背书——服务端要用 access_token 才能
 兑换 code，且接口要求 JWT 鉴权，攻击者即便拿到自己的 code 也只能绑到自己账号上，
 无法像短信路径那样「填入他人手机号触发账号合并」。
 
-#### 认证通过后仍待做
+#### ✅ 前端接线（2026-09-23 完成）
 
-1. 置 `AUTH_WECHAT_PHONE_BIND_ENABLED=true`；
-2. **前端接线**：bindPhone 页加 `<Button open-type="getPhoneNumber">` + `bindgetphonenumber`
-   回调，把 `e.detail.code` 传给新接口。
-   > 刻意**不在认证前**写前端：没有认证就无法真机验证这个按钮，写出来就是纯死代码——
-   > 批次 7.1 刚清理过一处同类问题，不重复制造。
-3. 真机验证：一键绑定 → 档案迁移（与批次 2 同一条 `bindVerifiedPhone` 逻辑，已有回归覆盖）。
+| 项 | 位置 |
+|---|---|
+| `bindPhoneByWechatCode({ code })` + 端点常量 | `purelyClub/src/services/authService.ts`、`endpoints.ts` |
+| 控制器：抽出 `finalizeBind` / `handleBindError` / `runBind`，新增 `handleGetPhoneNumber` | `bindPhone/hooks/useBindPhoneController.ts` |
+| 页面：微信一键绑定按钮 + 说明卡；短信表单默认收起 | `bindPhone/bindPhone.tsx`、`bindPhone.module.less` |
+| 单测：控制器 33 / 页面装配 10 / service 契约 4 / http 错误提示 3 | 前端 |
+| 真实库 e2e：三处落库 + 二次登录 `needPhoneBind=false` | `test/club-bind-phone-migration.e2e-spec.ts` |
+
+**短信是兜底，不是主路径**：默认只展示「微信一键绑定」一个按钮，短信表单收起；
+仅在绑定失败（501 入口未开启 / 409 非大陆号 / 网络错误）时自动展开，
+服务端未开启（501）时连按钮一起撤掉。
+
+**刻意不展开短信表单的场景**：授权成功却拿不到 code（基础库过旧）→ 只 toast 提示升级微信。
+短信按条计费，且升级微信即可解决，不把用户往付费通道引。
+
+**两条链路互斥**：新增 `bindingInFlightRef`（同步 ref，非 state）做在途守卫，
+避免短信与微信并发写同一份档案。
+
+#### ⏳ 仍待做（无需改代码）
+
+1. 置 `AUTH_WECHAT_PHONE_BIND_ENABLED=true`（服务端 `.env`；当前未配置 → 接口返回 501）；
+2. 真机点一次「允许」：确认三处落库、0.03 元计费、purelyProfit 商家端可见该顾客手机号。
+   后端链路已由真实库 e2e 覆盖，此处只需确认端到端跑通。
 
 ### 批次 4 — 无 token 不再等于跳登录页（✅ 已完成，待真机验证）
 
@@ -899,12 +920,23 @@ const sourceMembers = await tx.member.findMany({
 
 | 依赖 | 状态 | 阻塞批次 |
 |---|---|---|
-| 微信主体变更 | 🔄 审核中 | 批次 3 + 微信原生扫一扫唤起小程序 |
-| 微信认证 | ⏳ 待主体变更完成 | 批次 3 |
-| ICP 备案域名 | ❓ 待确认 | 普通链接二维码规则配置 |
+| 微信主体变更 | ✅ 已完成（个体工商户，2026-09-22 确认） | — |
+| 微信认证 | ✅ 已认证（认证日期 2026-06-22） | — |
+| 小程序备案 | 🔄 审核中 | 普通链接二维码规则配置（微信原生扫一扫直达菜单） |
 | `SCAN_QR_BASE_URL` | ❌ 未配置（未配置则回退历史格式） | 仅影响「微信原生扫一扫」，不影响小程序内扫码 |
-| 腾讯云短信凭证 | ❌ 未配置 | 批次 2 真机验证（本地可用降级方式） |
+| `AUTH_WECHAT_PHONE_BIND_ENABLED` | ❌ 未配置（默认 false → 接口 501） | 批次 3：置 true 后一键绑定才生效 |
+| 腾讯云短信凭证 | ❌ 未配置 | 批次 2 短信兜底（本地可用降级方式） |
 | 微信支付商户号 | ❌ 未开放 | 真实支付（当前走 `confirm-paid` 开发态兜底） |
+
+> **剩余待办（按优先级，均为配置/申请，无需改代码）**
+>
+> 1. **小程序备案通过** → 配 `SCAN_QR_BASE_URL` + 公众平台 1 条前缀规则
+>    → 微信原生扫一扫直达菜单（本计划的核心对外路径，目前仅小程序内扫码可走通）
+> 2. **置 `AUTH_WECHAT_PHONE_BIND_ENABLED=true`** → 微信一键绑定生效
+> 3. **配腾讯云短信凭证** → 短信兜底可用。
+>    ⚠️ 与第 2 项配套：一键绑定为主路径，若它失败而短信又发不出码，用户就没有出口
+> 4. **申请微信支付商户号** → 真实支付（个体工商户 + 已认证，具备申请资格）
+> 5. **真机点一次「允许」** → 端到端确认（落库 / 计费 / 商家端可见手机号）
 
 ---
 
